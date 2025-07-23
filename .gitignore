@@ -1,0 +1,184 @@
+# Visual Studio User-specific files
+.vs/
+.vs2017/
+.vs2019/
+.vs2015/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Xamarin Studio/MonoDevelop
+*.userprefs
+
+# ReSharper files
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# Rider
+.idea/
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+*.cmake
+*.cbp
+
+# Unity specific
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+*.apk
+*.unitypackage
+*.userprefs
+*.booproj
+
+# Visual Studio Code settings and extensions
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# .NET specific build outputs
+*.dll
+*.exe
+*.pdb
+*.obj
+*.iobj
+*.il
+*.dbmdl
+*.bak
+*.log
+*.dmp
+*.vspscc
+*.vssscc
+.vs/
+
+# DxLib and ImGui
+DxLib/
+MakeDXLib/
+Sample/
+examples/example_opengl3/
+examples/example_directx11/
+
+# C++ build results
+*.out
+*.app
+*.exe
+*.dll
+*.so
+*.dylib
+*.obj
+*.iobj
+*.pdb
+*.lib
+*.ilk
+*.meta
+
+# Debug and release directories
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# IDE caches and temporary files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.dbmdl
+
+# User-specific project settings
+*.pidb
+*.userprefs
+*.suo
+*.user
+*.sw?
+*.bak
+
+# Temporary files
+~$*
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+*.log
+
+# Package management systems
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+
+# NuGet Packages
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+!.nuget.props
+!.nuget.targets
+
+# Caching folders
+.cache/
+*.cache
+*.npm
+*.yarn
+
+# AWS/Cloud/Deployment files
+.deploy/
+.DS_Store
+
+# VS Profiler files
+*.psess
+*.vsp
+*.vspx
+
+# TFS
+$tf/
+
+# Docker
+*.dockerfile
+docker-compose.override.yml
+
+# IntelliJ IDEA
+.idea/
+
+# PyCharm
+*.iml
+.idea/
+.vscode/
+
+# MacOS specific
+.DS_Store
+
+# Windows Installer files from build outputs
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Generated IntelliJ & VSCode project files
+*.iml
+*.iws
+.idea/
