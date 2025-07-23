@@ -18,6 +18,36 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\application\base\ApplicationBase.h" />
+    <ClInclude Include="src\application\ecs_test\ECSTestApp.h" />
+    <ClInclude Include="src\application\ecs_test\MovementSystem.h" />
+    <ClInclude Include="src\application\ecs_test\Position.h" />
+    <ClInclude Include="src\application\ecs_test\Velocity.h" />
+    <ClInclude Include="src\modules\ecs\ArchetypeManager.h" />
+    <ClInclude Include="src\modules\ecs\ComponentManager.h" />
+    <ClInclude Include="src\modules\ecs\ComponentTypeID.h" />
+    <ClInclude Include="src\modules\ecs\ECSWorld.h" />
+    <ClInclude Include="src\modules\ecs\EntityID.h" />
+    <ClInclude Include="src\modules\ecs\EntityManager.h" />
+    <ClInclude Include="src\modules\ecs\IComponentPool.h" />
+    <ClInclude Include="src\modules\ecs\ISystem.h" />
+    <ClInclude Include="src\modules\ecs\SystemManager.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\modules\ecs\ArchetypeManager.cpp" />
+    <ClCompile Include="src\modules\ecs\ComponentTypeID.cpp" />
+    <ClCompile Include="src\modules\ecs\ECSWorld.cpp" />
+    <ClCompile Include="src\modules\ecs\EntityManager.cpp" />
+    <ClCompile Include="src\modules\ecs\SystemManager.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\modules\ecs\ComponentManager.inl" />
+    <None Include="src\modules\ecs\ComponentTypeID.inl" />
+    <None Include="src\modules\ecs\ECSWorld.inl" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
@@ -70,6 +100,18 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ReferencePath>$(ProjectDir).\src\;$(ReferencePath)</ReferencePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ReferencePath>$(ProjectDir).\src\;$(ReferencePath)</ReferencePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <IncludePath>$(ProjectDir).\src\;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <IncludePath>$(ProjectDir).\src\;$(IncludePath)</IncludePath>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -78,9 +120,10 @@
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <LanguageStandard>stdcpp23</LanguageStandard>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer</AdditionalLibraryDirectories>
     </Link>
@@ -95,9 +138,10 @@
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <LanguageStandard>stdcpp23</LanguageStandard>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer</AdditionalLibraryDirectories>
     </Link>
@@ -128,9 +172,10 @@
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <LanguageStandard>stdcpp23</LanguageStandard>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer</AdditionalLibraryDirectories>
     </Link>

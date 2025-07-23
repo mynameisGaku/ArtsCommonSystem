@@ -1,14 +1,107 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="core">
-      <UniqueIdentifier>{a97e9dba-9748-4111-b66c-1c941554c36a}</UniqueIdentifier>
+    <Filter Include="src">
+      <UniqueIdentifier>{2ea6b130-7e07-4bd4-b67d-5a54c1543fef}</UniqueIdentifier>
     </Filter>
-    <Filter Include="extension">
-      <UniqueIdentifier>{ae126d97-f0d2-4215-8e9b-f63fcee10fae}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="modules">
+    <Filter Include="src\modules">
       <UniqueIdentifier>{c456d0c6-b3c5-4b3e-af84-7b2b0ada3f37}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\core">
+      <UniqueIdentifier>{a97e9dba-9748-4111-b66c-1c941554c36a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\extension">
+      <UniqueIdentifier>{ae126d97-f0d2-4215-8e9b-f63fcee10fae}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\application">
+      <UniqueIdentifier>{69b6d858-74b7-4eec-be4e-ceca471426fb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\application\base">
+      <UniqueIdentifier>{38c42595-31e1-471d-8aee-e5f998d7490e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\modules\ecs">
+      <UniqueIdentifier>{b35f8696-ae17-410e-8d80-c83e4b0e10cd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\application\ecs_test">
+      <UniqueIdentifier>{3ba5bb74-29a3-4dee-9d08-0973432e028d}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\application\base\ApplicationBase.h">
+      <Filter>src\application\base</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\EntityID.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\EntityManager.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\ComponentTypeID.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\IComponentPool.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\ComponentManager.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\ArchetypeManager.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\SystemManager.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\ECSWorld.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\ecs_test\ECSTestApp.h">
+      <Filter>src\application\ecs_test</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\ISystem.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\ecs_test\MovementSystem.h">
+      <Filter>src\application\ecs_test</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\ecs_test\Position.h">
+      <Filter>src\application\ecs_test</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\ecs_test\Velocity.h">
+      <Filter>src\application\ecs_test</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\modules\ecs\EntityManager.cpp">
+      <Filter>src\modules\ecs</Filter>
+    </ClCompile>
+    <ClCompile Include="src\modules\ecs\ComponentTypeID.cpp">
+      <Filter>src\modules\ecs</Filter>
+    </ClCompile>
+    <ClCompile Include="src\modules\ecs\ArchetypeManager.cpp">
+      <Filter>src\modules\ecs</Filter>
+    </ClCompile>
+    <ClCompile Include="src\modules\ecs\SystemManager.cpp">
+      <Filter>src\modules\ecs</Filter>
+    </ClCompile>
+    <ClCompile Include="src\modules\ecs\ECSWorld.cpp">
+      <Filter>src\modules\ecs</Filter>
+    </ClCompile>
+    <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp">
+      <Filter>src\application\ecs_test</Filter>
+    </ClCompile>
+    <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\modules\ecs\ComponentTypeID.inl">
+      <Filter>src\modules\ecs</Filter>
+    </None>
+    <None Include="src\modules\ecs\ComponentManager.inl">
+      <Filter>src\modules\ecs</Filter>
+    </None>
+    <None Include="src\modules\ecs\ECSWorld.inl">
+      <Filter>src\modules\ecs</Filter>
+    </None>
   </ItemGroup>
 </Project>
