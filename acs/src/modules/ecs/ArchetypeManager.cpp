@@ -3,7 +3,7 @@
 
 void ArchetypeManager::AssignArchetype(EntityID entity, std::vector<uint32_t> typeIDs)
 {
-    std::sort(typeIDs.begin(), typeIDs.end());  // ˆêŠÑ«‚Ì‚ ‚éƒL[¶¬
+    std::sort(typeIDs.begin(), typeIDs.end());
 
     auto it = m_Archetypes.find(typeIDs);
     if (it == m_Archetypes.end())

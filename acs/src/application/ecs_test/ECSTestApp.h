@@ -13,7 +13,7 @@ public:
     /// <summary>
     /// アプリ起動時に呼び出されるメソッド
     /// </summary>
-    void Start() override;
+    void OnStart() override;
     /// <summary>
     /// アプリ更新時に呼び出されるメソッド
     /// </summary>
@@ -25,7 +25,7 @@ public:
     /// <summary>
     /// アプリ破棄時に呼び出されるメソッド
     /// </summary>
-    void Destroy() override;
+    void OnDestroy() override;
 
 private:
 

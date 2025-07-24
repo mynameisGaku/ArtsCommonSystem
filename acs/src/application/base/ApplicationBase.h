@@ -11,17 +11,17 @@ public:
     /// <summary>
     /// アプリ起動時に呼び出されるメソッド
     /// </summary>
-    virtual void Start()        {}
+    virtual void OnStart()          {}
     /// <summary>
     /// アプリ更新時に呼び出されるメソッド
     /// </summary>
-    virtual void Update()       {}
+    virtual void Update()           {}
     /// <summary>
     /// アプリ描画時に呼び出されるメソッド
     /// </summary>
-    virtual void Draw()         {}
+    virtual void Draw()             {}
     /// <summary>
     /// アプリ破棄時に呼び出されるメソッド
     /// </summary>
-    virtual void Destroy()      {}
+    virtual void OnDestroy()        {}
 };

@@ -15,15 +15,9 @@ ECSTestApp::~ECSTestApp()
 {
 }
 
-void ECSTestApp::Start()
+void ECSTestApp::OnStart()
 {
     m_pECSWorld = new ECSWorld;
-
-    EntityID e1 = m_pECSWorld->CreateEntity();
-    m_pECSWorld->AddComponents(e1, Position{ 0, 0 }, Velocity{ 1, 2 });
-
-    // MovementSystem ‚ÌƒCƒ“ƒXƒ^ƒ“ƒX‚ð“o˜^
-    m_pECSWorld->RegisterSystem(std::make_shared<MovementSystem>(m_pECSWorld));
 }
 
 void ECSTestApp::Update()
@@ -62,7 +56,7 @@ void ECSTestApp::Draw()
     }
 }
 
-void ECSTestApp::Destroy()
+void ECSTestApp::OnDestroy()
 {
     delete m_pECSWorld;
 }
