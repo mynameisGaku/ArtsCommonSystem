@@ -1,10 +1,10 @@
-#include "EntityManager.h"
+#include "ACSM_ECS_EntityManager.h"
 
-EntityManager::EntityManager()
+ACSM_ECS_EntityManager::ACSM_ECS_EntityManager()
 {
 }
 
-EntityID EntityManager::CreateEntity()
+ACSM_ECS_EntityID ACSM_ECS_EntityManager::CreateEntity()
 {
     uint32_t index;
 
@@ -22,10 +22,10 @@ EntityID EntityManager::CreateEntity()
 
     // 世代を進める（0 → 1 など）
     ++m_Generations[index];
-    return EntityID{ index, m_Generations[index] };
+    return ACSM_ECS_EntityID{ index, m_Generations[index] };
 }
 
-void EntityManager::DestroyEntity(EntityID id)
+void ACSM_ECS_EntityManager::DestroyEntity(ACSM_ECS_EntityID id)
 {
     // 範囲外 or 世代不一致のEntityは無視
     if (id.index >= m_Generations.size()) return;
@@ -36,21 +36,21 @@ void EntityManager::DestroyEntity(EntityID id)
     m_FreeIndices.push(id.index);  // 再利用可能に登録
 }
 
-bool EntityManager::IsAlive(EntityID id) const
+bool ACSM_ECS_EntityManager::IsAlive(ACSM_ECS_EntityID id) const
 {
     // 有効範囲内かつ、世代が一致していれば生きているとみなす
     return id.index < m_Generations.size()
         && m_Generations[id.index] == id.generation;
 }
 
-void EntityManager::Clear()
+void ACSM_ECS_EntityManager::Clear()
 {
     // すべてのEntityを初期化してクリア
     m_Generations.clear();
     m_FreeIndices = std::queue<uint32_t>{};
 }
 
-size_t EntityManager::GetAliveCount() const
+size_t ACSM_ECS_EntityManager::GetAliveCount() const
 {
     // 生きているEntity数 = 総数 - 再利用待ち
     return m_Generations.size() - m_FreeIndices.size();

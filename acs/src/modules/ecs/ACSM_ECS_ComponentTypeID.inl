@@ -1,8 +1,9 @@
 #pragma once
-#include <type_traits>
+
+#include "ACSM_ECS_ComponentTypeID.h"
 
 template<typename T>
-uint32_t ComponentTypeID::Get()
+uint32_t ACSM_ECS_ComponentTypeID::Get()
 {
     static_assert(!std::is_pointer<T>::value, "T must not be a pointer type.");
 

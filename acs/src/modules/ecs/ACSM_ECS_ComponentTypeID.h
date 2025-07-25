@@ -1,14 +1,12 @@
 #pragma once
-#include <cstdint>
-#include <typeindex>
-#include <unordered_map>
-#include <mutex>
+
+#include "Pch.h"
 
 ///<summary>
 /// 各コンポーネント型に一意なIDを割り振るユーティリティ
 ///</summary>
 ///<author>藤本樂</author>
-class ComponentTypeID
+class ACSM_ECS_ComponentTypeID
 {
 public:
     ///<summary>
@@ -30,4 +28,4 @@ private:
     static std::mutex s_Mutex;                                           // スレッドセーフ用
 };
 
-#include "ComponentTypeID.inl"
+#include "ACSM_ECS_ComponentTypeID.inl"

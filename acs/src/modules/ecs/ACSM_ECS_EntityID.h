@@ -1,11 +1,11 @@
 #pragma once
-#include <cstdint>
+#include "Pch.h"
 
 ///<summary>
 /// Entityを一意に識別するためのID構造体。indexと世代を組み合わせて使用する。
 ///</summary>
 ///<author>藤本樂</author>
-struct EntityID
+struct ACSM_ECS_EntityID
 {
     uint32_t index = 0;       // Entity配列上のインデックス
     uint32_t generation = 0;  // 世代番号。破棄→再利用を識別するために使う
@@ -13,7 +13,7 @@ struct EntityID
     ///<summary>
     /// 同じEntityかどうかを比較する（indexと世代の一致）
     ///</summary>
-    bool operator==(const EntityID& other) const
+    bool operator==(const ACSM_ECS_EntityID& other) const
     {
         return index == other.index && generation == other.generation;
     }
@@ -21,7 +21,7 @@ struct EntityID
     ///<summary>
     /// 異なるEntityかどうかを比較する
     ///</summary>
-    bool operator!=(const EntityID& other) const
+    bool operator!=(const ACSM_ECS_EntityID& other) const
     {
         return !(*this == other);
     }
@@ -37,8 +37,8 @@ struct EntityID
     ///<summary>
     /// 無効なEntityID（デフォルト無効）を返す
     ///</summary>
-    static constexpr EntityID Invalid()
+    static constexpr ACSM_ECS_EntityID Invalid()
     {
-        return EntityID{ 0, 0 };
+        return ACSM_ECS_EntityID{ 0, 0 };
     }
 };

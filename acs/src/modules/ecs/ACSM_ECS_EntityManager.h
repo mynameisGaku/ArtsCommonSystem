@@ -1,38 +1,38 @@
 #pragma once
 
-#include "EntityID.h"
-#include <vector>
-#include <queue>
+#include "Pch.h"
+
+#include "ACSM_ECS_EntityID.h"
 
 ///<summary>
 /// EntityIDの生成・破棄・再利用を管理するクラス。
 /// Entityの有効性チェックや世代管理も担う。
 ///</summary>
 ///<author>藤本樂</author>
-class EntityManager
+class ACSM_ECS_EntityManager
 {
 public:
     ///<summary>
     /// EntityManagerを初期化するコンストラクタ
     ///</summary>
-    EntityManager();
+    ACSM_ECS_EntityManager();
 
     ///<summary>
     /// 新しいEntityを生成する
     ///</summary>
-    EntityID CreateEntity();
+    ACSM_ECS_EntityID CreateEntity();
 
     ///<summary>
     /// 指定されたEntityを破棄し、再利用可能にする
     ///</summary>
     /// <param name="id">削除対象のEntityID</param>
-    void DestroyEntity(EntityID id);
+    void DestroyEntity(ACSM_ECS_EntityID id);
 
     ///<summary>
     /// 指定されたEntityがまだ有効かどうかを返す
     ///</summary>
     /// <param name="id">判定するEntityID</param>
-    bool IsAlive(EntityID id) const;
+    bool IsAlive(ACSM_ECS_EntityID id) const;
 
     ///<summary>
     /// 全てのEntity情報を破棄・初期化する

@@ -1,7 +1,6 @@
-#include "ArchetypeManager.h"
-#include <algorithm>
+#include "ACSM_ECS_ArchetypeManager.h"
 
-void ArchetypeManager::AssignArchetype(EntityID entity, std::vector<uint32_t> typeIDs)
+void ACSM_ECS_ArchetypeManager::AssignArchetype(ACSM_ECS_EntityID entity, std::vector<uint32_t> typeIDs)
 {
     std::sort(typeIDs.begin(), typeIDs.end());
 
@@ -15,9 +14,9 @@ void ArchetypeManager::AssignArchetype(EntityID entity, std::vector<uint32_t> ty
     m_EntityToArchetype[entity.index] = typeIDs;
 }
 
-std::vector<EntityID> ArchetypeManager::QueryEntities(const std::vector<uint32_t>& typeIDs) const
+std::vector<ACSM_ECS_EntityID> ACSM_ECS_ArchetypeManager::QueryEntities(const std::vector<uint32_t>& typeIDs) const
 {
-    std::vector<EntityID> result;
+    std::vector<ACSM_ECS_EntityID> result;
 
     for (const auto& pair : m_Archetypes)
     {
@@ -38,7 +37,7 @@ std::vector<EntityID> ArchetypeManager::QueryEntities(const std::vector<uint32_t
     return result;
 }
 
-std::vector<uint32_t> ArchetypeManager::GetComponentTypes(EntityID entity) const
+std::vector<uint32_t> ACSM_ECS_ArchetypeManager::GetComponentTypes(ACSM_ECS_EntityID entity) const
 {
     auto it = m_EntityToArchetype.find(entity.index);
     if (it != m_EntityToArchetype.end())
@@ -48,7 +47,7 @@ std::vector<uint32_t> ArchetypeManager::GetComponentTypes(EntityID entity) const
     return {};
 }
 
-void ArchetypeManager::RemoveEntity(EntityID entity)
+void ACSM_ECS_ArchetypeManager::RemoveEntity(ACSM_ECS_EntityID entity)
 {
     auto it = m_EntityToArchetype.find(entity.index);
     if (it == m_EntityToArchetype.end()) return;
@@ -59,7 +58,7 @@ void ArchetypeManager::RemoveEntity(EntityID entity)
     {
         auto& vec = archIt->second->entities;
         vec.erase(std::remove_if(vec.begin(), vec.end(),
-            [&](const EntityID& e) { return e.index == entity.index; }),
+            [&](const ACSM_ECS_EntityID& e) { return e.index == entity.index; }),
             vec.end());
     }
 

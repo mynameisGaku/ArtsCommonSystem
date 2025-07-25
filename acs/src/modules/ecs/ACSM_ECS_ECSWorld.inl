@@ -1,17 +1,16 @@
 #pragma once
-#include <vector>
-#include <cstdint>
-#include <algorithm>
+
+#include "ACSM_ECS_ECSWorld.h"
 
 template<typename... Components>
-void ECSWorld::AddComponents(EntityID id, Components&&... components)
+void ACSM_ECS_ECSWorld::AddComponents(ACSM_ECS_EntityID id, Components&&... components)
 {
     std::vector<uint32_t> typeIDs;
 
     // ìWäJÅFAddComponent & typeIDéÊìæ
     (void)std::initializer_list<int>{
         (m_ComponentManager.AddComponent(id, std::forward<Components>(components)),
-            typeIDs.push_back(ComponentTypeID::Get<Components>()), 0)...
+            typeIDs.push_back(ACSM_ECS_ComponentTypeID::Get<Components>()), 0)...
     };
 
     std::sort(typeIDs.begin(), typeIDs.end()); // ArchetypeKeyÇ∆ÇµÇƒà¿íËâª
@@ -20,7 +19,7 @@ void ECSWorld::AddComponents(EntityID id, Components&&... components)
 }
 
 template<typename T>
-T* ECSWorld::GetComponent(EntityID id)
+T* ACSM_ECS_ECSWorld::GetComponent(ACSM_ECS_EntityID id)
 {
     return m_ComponentManager.GetComponent<T>(id);
 }

@@ -25,39 +25,42 @@
     <Filter Include="src\application\ecs_test">
       <UniqueIdentifier>{3ba5bb74-29a3-4dee-9d08-0973432e028d}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\modules\dxlib">
+      <UniqueIdentifier>{fccba595-35b5-4261-9ed7-b982524505c3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\application\base\ApplicationBase.h">
       <Filter>src\application\base</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\EntityID.h">
+    <ClInclude Include="src\modules\ecs\ACSM_ECS_EntityID.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\EntityManager.h">
+    <ClInclude Include="src\modules\ecs\ACSM_ECS_EntityManager.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\ComponentTypeID.h">
+    <ClInclude Include="src\modules\ecs\ACSM_ECS_ComponentTypeID.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\IComponentPool.h">
+    <ClInclude Include="src\modules\ecs\ACSM_ECS_IComponentPool.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\ComponentManager.h">
+    <ClInclude Include="src\modules\ecs\ACSM_ECS_ComponentManager.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\ArchetypeManager.h">
+    <ClInclude Include="src\modules\ecs\ACSM_ECS_ArchetypeManager.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\SystemManager.h">
+    <ClInclude Include="src\modules\ecs\ACSM_ECS_SystemManager.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\ECSWorld.h">
+    <ClInclude Include="src\modules\ecs\ACSM_ECS_ECSWorld.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
     <ClInclude Include="src\application\ecs_test\ECSTestApp.h">
       <Filter>src\application\ecs_test</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\ISystem.h">
+    <ClInclude Include="src\modules\ecs\IACSM_ECS_System.h">
       <Filter>src\modules\ecs</Filter>
     </ClInclude>
     <ClInclude Include="src\application\ecs_test\MovementSystem.h">
@@ -69,21 +72,33 @@
     <ClInclude Include="src\application\ecs_test\Velocity.h">
       <Filter>src\application\ecs_test</Filter>
     </ClInclude>
+    <ClInclude Include="src\modules\dxlib\ACSM_Dxlib.h">
+      <Filter>src\modules\dxlib</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\UseModules.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\ecs\ACSM_ECS.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
+    <ClInclude Include="Pch.h">
+      <Filter>src</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\modules\ecs\EntityManager.cpp">
+    <ClCompile Include="src\modules\ecs\ACSM_ECS_EntityManager.cpp">
       <Filter>src\modules\ecs</Filter>
     </ClCompile>
-    <ClCompile Include="src\modules\ecs\ComponentTypeID.cpp">
+    <ClCompile Include="src\modules\ecs\ACSM_ECS_ComponentTypeID.cpp">
       <Filter>src\modules\ecs</Filter>
     </ClCompile>
-    <ClCompile Include="src\modules\ecs\ArchetypeManager.cpp">
+    <ClCompile Include="src\modules\ecs\ACSM_ECS_ArchetypeManager.cpp">
       <Filter>src\modules\ecs</Filter>
     </ClCompile>
-    <ClCompile Include="src\modules\ecs\SystemManager.cpp">
+    <ClCompile Include="src\modules\ecs\ACSM_ECS_SystemManager.cpp">
       <Filter>src\modules\ecs</Filter>
     </ClCompile>
-    <ClCompile Include="src\modules\ecs\ECSWorld.cpp">
+    <ClCompile Include="src\modules\ecs\ACSM_ECS_ECSWorld.cpp">
       <Filter>src\modules\ecs</Filter>
     </ClCompile>
     <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp">
@@ -92,15 +107,18 @@
     <ClCompile Include="src\main.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="Pch.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\modules\ecs\ComponentTypeID.inl">
+    <None Include="src\modules\ecs\ACSM_ECS_ComponentTypeID.inl">
       <Filter>src\modules\ecs</Filter>
     </None>
-    <None Include="src\modules\ecs\ComponentManager.inl">
+    <None Include="src\modules\ecs\ACSM_ECS_ComponentManager.inl">
       <Filter>src\modules\ecs</Filter>
     </None>
-    <None Include="src\modules\ecs\ECSWorld.inl">
+    <None Include="src\modules\ecs\ACSM_ECS_ECSWorld.inl">
       <Filter>src\modules\ecs</Filter>
     </None>
   </ItemGroup>

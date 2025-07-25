@@ -1,19 +1,18 @@
 #pragma once
-#include "modules/ecs/ISystem.h"
-#include "modules/ecs/ECSWorld.h"
+#include "Pch.h"
 #include "Position.h"
 #include "Velocity.h"
 
-class MovementSystem : public ISystem
+class MovementSystem : public IACSM_ECS_System
 {
 public:
-    MovementSystem(ECSWorld* world) : m_pWorld(world) {}
+    MovementSystem(ACSM_ECS_ECSWorld* world) : m_pWorld(world) {}
 
     void Update() override
     {
         auto ids = m_pWorld->QueryEntities({
-            ComponentTypeID::Get<Position>(),
-            ComponentTypeID::Get<Velocity>()
+            ACSM_ECS_ComponentTypeID::Get<Position>(),
+            ACSM_ECS_ComponentTypeID::Get<Velocity>()
             });
 
         for (auto id : ids)
@@ -29,5 +28,5 @@ public:
     }
 
 private:
-    ECSWorld* m_pWorld;
+    ACSM_ECS_ECSWorld* m_pWorld;
 };

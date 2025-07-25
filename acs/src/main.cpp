@@ -1,9 +1,10 @@
-#include "DxLib.h"
+#include "Pch.h"
 #include <application/ecs_test/ECSTestApp.h>
 
 #if ECSTEST
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 {
+    SetOutApplicationLogValidFlag(FALSE);
     SetWindowSize(800, 600);
     ChangeWindowMode(TRUE);
     if (DxLib_Init() == -1)

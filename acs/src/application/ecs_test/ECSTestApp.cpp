@@ -1,11 +1,9 @@
+#include "pch.h"
 #include "ECSTestApp.h"
-#include <DxLib.h>
 
-#include <modules/ecs/ECSWorld.h>
 #include "Position.h"
 #include "Velocity.h"
 #include "MovementSystem.h"
-#include <memory>
 
 ECSTestApp::ECSTestApp()
 {
@@ -17,7 +15,7 @@ ECSTestApp::~ECSTestApp()
 
 void ECSTestApp::OnStart()
 {
-    m_pECSWorld = new ECSWorld;
+    m_pECSWorld = new ACSM_ECS_ECSWorld;
 }
 
 void ECSTestApp::Update()
@@ -28,7 +26,7 @@ void ECSTestApp::Update()
         {
             m_IsPush = true;
 
-            EntityID e1 = m_pECSWorld->CreateEntity();
+            ACSM_ECS_EntityID e1 = m_pECSWorld->CreateEntity();
             m_pECSWorld->AddComponents(e1, Position{ 0, 0 }, Velocity{ 1, 2 });
 
             // MovementSystem のインスタンスを登録

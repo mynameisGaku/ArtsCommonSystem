@@ -1,15 +1,20 @@
 #pragma once
-#include <unordered_map>
-#include <vector>
+
+#include "ACSM_ECS_ComponentManager.h"
+
+#include "ACSM_ECS_ComponentTypeID.h"
+#include "ACSM_ECS_ComponentTypeID.inl"
+#include "ACSM_ECS_EntityID.h"
+#include "ACSM_ECS_IComponentPool.h"
 
 ///<summary>
 /// コンポーネントを格納するSoA型テンプレートストレージ
 ///</summary>
 template<typename T>
-class ComponentPool : public IComponentPool
+class ACSM_ECS_ComponentPool : public ACSM_ECS_IComponentPool
 {
 public:
-    void Add(EntityID id, const T& component)
+    void Add(ACSM_ECS_EntityID id, const T& component)
     {
         if (m_EntityToIndex.count(id.index) == 0)
         {
@@ -20,7 +25,7 @@ public:
         }
     }
 
-    T* Get(EntityID id)
+    T* Get(ACSM_ECS_EntityID id)
     {
         auto it = m_EntityToIndex.find(id.index);
         if (it != m_EntityToIndex.end())
@@ -30,7 +35,7 @@ public:
         return nullptr;
     }
 
-    void Remove(EntityID id) override
+    void Remove(ACSM_ECS_EntityID id) override
     {
         auto it = m_EntityToIndex.find(id.index);
         if (it != m_EntityToIndex.end())
@@ -59,54 +64,54 @@ public:
 
 private:
     std::vector<T> m_Components;                       // コンポーネントの実体
-    std::unordered_map<uint32_t, size_t> m_EntityToIndex;  // EntityID.index -> 配列Index
-    std::unordered_map<size_t, uint32_t> m_IndexToEntity;  // 配列Index -> EntityID.index
+    std::unordered_map<uint32_t, size_t> m_EntityToIndex;  // ACSM_ECS_EntityID.index -> 配列Index
+    std::unordered_map<size_t, uint32_t> m_IndexToEntity;  // 配列Index -> ACSM_ECS_EntityID.index
 };
 
 template<typename T>
-void ComponentManager::AddComponent(EntityID entity, const T& component)
+void ACSM_ECS_ComponentManager::AddComponent(ACSM_ECS_EntityID entity, const T& component)
 {
-    uint32_t typeID = ComponentTypeID::Get<T>();
+    uint32_t typeID = ACSM_ECS_ComponentTypeID::Get<T>();
     if (m_Pools.count(typeID) == 0)
     {
-        m_Pools[typeID] = std::make_unique<ComponentPool<T>>();
+        m_Pools[typeID] = std::make_unique<ACSM_ECS_ComponentPool<T>>();
     }
 
-    auto* pool = static_cast<ComponentPool<T>*>(m_Pools[typeID].get());
+    auto* pool = static_cast<ACSM_ECS_ComponentPool<T>*>(m_Pools[typeID].get());
     pool->Add(entity, component);
 }
 
 template<typename T>
-T* ComponentManager::GetComponent(EntityID entity)
+T* ACSM_ECS_ComponentManager::GetComponent(ACSM_ECS_EntityID entity)
 {
-    uint32_t typeID = ComponentTypeID::Get<T>();
+    uint32_t typeID = ACSM_ECS_ComponentTypeID::Get<T>();
     auto it = m_Pools.find(typeID);
     if (it == m_Pools.end()) return nullptr;
 
-    auto* pool = static_cast<ComponentPool<T>*>(it->second.get());
+    auto* pool = static_cast<ACSM_ECS_ComponentPool<T>*>(it->second.get());
     return pool->Get(entity);
 }
 
 template<typename T>
-void ComponentManager::RemoveComponent(EntityID entity)
+void ACSM_ECS_ComponentManager::RemoveComponent(ACSM_ECS_EntityID entity)
 {
-    uint32_t typeID = ComponentTypeID::Get<T>();
+    uint32_t typeID = ACSM_ECS_ComponentTypeID::Get<T>();
     auto it = m_Pools.find(typeID);
     if (it != m_Pools.end())
     {
-        auto* pool = static_cast<ComponentPool<T>*>(it->second.get());
+        auto* pool = static_cast<ACSM_ECS_ComponentPool<T>*>(it->second.get());
         pool->Remove(entity);
     }
 }
 
 template<typename T>
-size_t ComponentManager::GetComponentCount() const
+size_t ACSM_ECS_ComponentManager::GetComponentCount() const
 {
-    uint32_t typeID = ComponentTypeID::Get<T>();
+    uint32_t typeID = ACSM_ECS_ComponentTypeID::Get<T>();
     auto it = m_Pools.find(typeID);
     if (it != m_Pools.end())
     {
-        auto* pool = static_cast<ComponentPool<T>*>(it->second.get());
+        auto* pool = static_cast<ACSM_ECS_ComponentPool<T>*>(it->second.get());
         return pool->GetCount();
     }
     return 0;

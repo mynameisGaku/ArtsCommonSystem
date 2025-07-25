@@ -1,16 +1,16 @@
-#include "SystemManager.h"
+#include "ACSM_ECS_SystemManager.h"
 
-void SystemManager::RegisterSystem(std::shared_ptr<ISystem> system)
+void ACSM_ECS_SystemManager::RegisterSystem(std::shared_ptr<IACSM_ECS_System> system)
 {
     m_ClassSystems.push_back(system);
 }
 
-void SystemManager::RegisterSystem(std::function<void()> func)
+void ACSM_ECS_SystemManager::RegisterSystem(std::function<void()> func)
 {
     m_Systems.push_back(func);
 }
 
-void SystemManager::UpdateAll()
+void ACSM_ECS_SystemManager::UpdateAll()
 {
     std::vector<std::future<void>> futures;
 

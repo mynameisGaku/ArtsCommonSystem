@@ -3,7 +3,7 @@
 
 #define ECSTEST TRUE
 
-class ECSWorld;
+class ACSM_ECS_ECSWorld;
 
 class ECSTestApp : public ApplicationBase
 {
@@ -29,6 +29,6 @@ public:
 
 private:
 
-    ECSWorld* m_pECSWorld;
+    ACSM_ECS_ECSWorld* m_pECSWorld;
     bool m_IsPush;
 };
