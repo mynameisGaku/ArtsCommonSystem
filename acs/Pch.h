@@ -15,10 +15,6 @@
 
 #include <Core/UseModules.h>
 
-#ifdef ACSM_DXLIB
-#include <DxLib.h>
-#endif
-
 #ifdef ACSM_ECS
 #include <modules/ECS/ACSM_ECS_ArchetypeManager.h>
 #include <modules/ECS/ACSM_ECS_ComponentManager.h>

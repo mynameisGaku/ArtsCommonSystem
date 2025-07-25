@@ -47,6 +47,7 @@
     </ClCompile>
     <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\modules\dxlib\ACSM_Dxlib.cpp" />
     <ClCompile Include="src\modules\ecs\ACSM_ECS_ArchetypeManager.cpp" />
     <ClCompile Include="src\modules\ecs\ACSM_ECS_ComponentTypeID.cpp" />
     <ClCompile Include="src\modules\ecs\ACSM_ECS_ECSWorld.cpp" />

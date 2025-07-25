@@ -4,56 +4,80 @@
 
 #include <DxLib.h>
 
-namespace DxLib {
+static const VECTOR V3_Identity    = VECTOR(0.0f, 0.0f, 0.0f);
+static const VECTOR V3_UnitX       = VECTOR(1.0f, 0.0f, 0.0f);
+static const VECTOR V3_UnitY       = VECTOR(0.0f, 1.0f, 0.0f);
+static const VECTOR V3_UnitZ       = VECTOR(0.0f, 0.0f, 1.0f);
+static const VECTOR V3_Ones        = VECTOR(1.0f, 1.0f, 1.0f);
 
-    inline VECTOR VGet(VECTOR_D v) { return VGet((float)v.x, (float)v.y, (float)v.z); }
-    inline VECTOR_D VGetD(VECTOR v) { return VGetD((double)v.x, (double)v.y, (double)v.z); }
+static const VECTOR_D V3_Identity_D = VECTOR_D(0.0, 0.0, 0.0);
+static const VECTOR_D V3_UnitX_D = VECTOR_D(1.0, 0.0, 0.0);
+static const VECTOR_D V3_UnitY_D = VECTOR_D(0.0, 1.0, 0.0);
+static const VECTOR_D V3_UnitZ_D = VECTOR_D(0.0, 0.0, 1.0);
+static const VECTOR_D V3_Ones_D = VECTOR_D(1.0, 1.0, 1.0);
 
-    inline const VECTOR operator +(const VECTOR& v1, const VECTOR& v2) { return VAdd(v1, v2); }
-    inline const VECTOR_D operator +(const VECTOR_D& v1, const VECTOR_D& v2) { return VAddD(v1, v2); }
+static const MATRIX M_Identity = {{
+        { 1.0f, 0.0f, 0.0f, 0.0f },
+        { 0.0f, 1.0f, 0.0f, 0.0f },
+        { 0.0f, 0.0f, 1.0f, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 1.0f }}};
 
-    inline VECTOR& operator +=(VECTOR& v1, const VECTOR& v2) { return v1 = VAdd(v1, v2); }
-    inline VECTOR_D& operator +=(VECTOR_D& v1, const VECTOR_D& v2) { return v1 = VAddD(v1, v2); }
+static const MATRIX_D M_Identity_D = {{
+        { 1.0, 0.0, 0.0, 0.0 },
+        { 0.0, 1.0, 0.0, 0.0 },
+        { 0.0, 0.0, 1.0, 0.0 },
+        { 0.0, 0.0, 0.0, 1.0 }}};
 
-    inline const VECTOR operator -(const VECTOR& v1, const VECTOR& v2) { return VSub(v1, v2); }
-    inline const VECTOR_D operator -(const VECTOR_D& v1, const VECTOR_D& v2) { return VSubD(v1, v2); }
+VECTOR VGet(VECTOR_D v);
+VECTOR_D VGetD(VECTOR v);
 
-    inline VECTOR& operator -=(VECTOR& v1, const VECTOR& v2) { return v1 = VSub(v1, v2); }
-    inline VECTOR_D& operator -=(VECTOR_D& v1, const VECTOR_D& v2) { return v1 = VSubD(v1, v2); }
+const VECTOR operator +(const VECTOR& v1, const VECTOR& v2);
+const VECTOR_D operator +(const VECTOR_D& v1, const VECTOR_D& v2);
 
-    inline const VECTOR operator *(const VECTOR& v1, const float& scale) { return VScale(v1, scale); }
-    inline const VECTOR_D operator *(const VECTOR_D& v1, const double& scale) { return VScaleD(v1, scale); }
+VECTOR& operator +=(VECTOR& v1, const VECTOR& v2);
+VECTOR_D& operator +=(VECTOR_D& v1, const VECTOR_D& v2);
 
-    inline const VECTOR operator *(const float& scale, const VECTOR& v1) { return VScale(v1, scale); }
-    inline const VECTOR_D operator *(const double& scale, const VECTOR_D& v1) { return VScaleD(v1, scale); }
+const VECTOR operator -(const VECTOR& v1, const VECTOR& v2);
+const VECTOR_D operator -(const VECTOR_D& v1, const VECTOR_D& v2);
 
-    inline const VECTOR operator /(const VECTOR& v1, const float& scale) { return VScale(v1, 1.0f / scale); }
-    inline const VECTOR_D operator /(const VECTOR_D& v1, const double& scale) { return VScaleD(v1, 1.0 / scale); }
+VECTOR& operator -=(VECTOR& v1, const VECTOR& v2);
+VECTOR_D& operator -=(VECTOR_D& v1, const VECTOR_D& v2);
 
-    inline VECTOR& operator *=(VECTOR& v1, const float& scale) { return v1 = VScale(v1, scale); }
-    inline VECTOR_D& operator *=(VECTOR_D& v1, const double& scale) { return v1 = VScaleD(v1, scale); }
+const VECTOR operator *(const VECTOR& v1, const float& scale);
+const VECTOR_D operator *(const VECTOR_D& v1, const double& scale);
 
-    inline VECTOR& operator *=(const float& scale, VECTOR& v1) { return v1 = VScale(v1, scale); }
-    inline VECTOR_D& operator *=(const double& scale, VECTOR_D& v1) { return v1 = VScaleD(v1, scale); }
+const VECTOR operator *(const float& scale, const VECTOR& v1);
+const VECTOR_D operator *(const double& scale, const VECTOR_D& v1);
 
-    inline VECTOR& operator /=(VECTOR& v1, const float& scale) { return v1 = VScale(v1, 1.0f / scale); }
-    inline VECTOR_D& operator /=(VECTOR_D& v1, const double& scale) { return v1 = VScaleD(v1, 1.0 / scale); }
+const VECTOR operator *(const VECTOR& v1, const VECTOR& v2);
+const VECTOR_D operator *(const VECTOR_D& v1, const VECTOR_D& v2);
 
-    inline const MATRIX operator +(const MATRIX& m1, const MATRIX& m2) { return MAdd(m1, m2); }
-    inline const MATRIX_D operator +(const MATRIX_D& m1, const MATRIX_D& m2) { return MAddD(m1, m2); }
+const VECTOR operator /(const VECTOR& v1, const float& scale);
+const VECTOR_D operator /(const VECTOR_D& v1, const double& scale);
 
-    inline MATRIX& operator +=(MATRIX& m1, const MATRIX& m2) { return m1 = MAdd(m1, m2); }
-    inline MATRIX_D& operator +=(MATRIX_D& m1, const MATRIX_D& m2) { return m1 = MAddD(m1, m2); }
+VECTOR& operator *=(VECTOR& v1, const float& scale);
+VECTOR_D& operator *=(VECTOR_D& v1, const double& scale);
 
-    inline const MATRIX operator *(const MATRIX& m1, const MATRIX& m2) { return MMult(m1, m2); }
-    inline const MATRIX_D operator *(const MATRIX_D& m1, const MATRIX_D& m2) { return MMultD(m1, m2); }
+VECTOR& operator *=(const float& scale, VECTOR& v1);
+VECTOR_D& operator *=(const double& scale, VECTOR_D& v1);
 
-    inline MATRIX& operator *=(MATRIX& m1, const MATRIX& m2) { return m1 = MMult(m1, m2); }
-    inline MATRIX_D& operator *=(MATRIX_D& m1, const MATRIX_D& m2) { return m1 = MMultD(m1, m2); }
+VECTOR& operator /=(VECTOR& v1, const float& scale);
+VECTOR_D& operator /=(VECTOR_D& v1, const double& scale);
 
-    inline const VECTOR operator *(const VECTOR& v, const MATRIX& m1) { return VTransform(v, m1); }
-    inline const VECTOR_D operator *(const VECTOR_D& v, const MATRIX_D& m1) { return VTransformD(v, m1); }
+const MATRIX operator +(const MATRIX& m1, const MATRIX& m2);
+const MATRIX_D operator +(const MATRIX_D& m1, const MATRIX_D& m2);
 
-    inline VECTOR& operator *=(VECTOR& v, const MATRIX& m1) { return v = VTransform(v, m1); }
-    inline VECTOR_D& operator *=(VECTOR_D& v, const MATRIX_D& m1) { return v = VTransformD(v, m1); }
-};
+MATRIX& operator +=(MATRIX& m1, const MATRIX& m2);
+MATRIX_D& operator +=(MATRIX_D& m1, const MATRIX_D& m2);
+
+const MATRIX operator *(const MATRIX& m1, const MATRIX& m2);
+const MATRIX_D operator *(const MATRIX_D& m1, const MATRIX_D& m2);
+
+MATRIX& operator *=(MATRIX& m1, const MATRIX& m2);
+MATRIX_D& operator *=(MATRIX_D& m1, const MATRIX_D& m2);
+
+const VECTOR operator *(const VECTOR& v, const MATRIX& m1);
+const VECTOR_D operator *(const VECTOR_D& v, const MATRIX_D& m1);
+
+VECTOR& operator *=(VECTOR& v, const MATRIX& m1);
+VECTOR_D& operator *=(VECTOR_D& v, const MATRIX_D& m1);

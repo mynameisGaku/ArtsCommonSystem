@@ -110,6 +110,9 @@
     <ClCompile Include="Pch.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\modules\dxlib\ACSM_Dxlib.cpp">
+      <Filter>src\modules\dxlib</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\modules\ecs\ACSM_ECS_ComponentTypeID.inl">
