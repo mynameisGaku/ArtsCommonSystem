@@ -1,7 +1,6 @@
 #include "Pch.h"
 #include <application/ecs_test/ECSTestApp.h>
 
-#if ECSTEST
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 {
     SetOutApplicationLogValidFlag(FALSE);
@@ -14,7 +13,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 
     SetDrawScreen(DX_SCREEN_BACK);
 
+#if ECSTEST
     ECSTestApp app;
+#else
+    ApplicationBase app;
+#endif
+
     app.OnStart();
 
     const int targetFPS = 60;
@@ -41,9 +45,3 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 
     return 0;
 }
-#else
-int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
-{
-    return 0;
-}
-#endif
