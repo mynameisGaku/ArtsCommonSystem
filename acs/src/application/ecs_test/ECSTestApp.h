@@ -3,7 +3,7 @@
 
 #define ECSTEST TRUE
 
-class ACSM_ECS_ECSWorld;
+namespace seecs { class ECS; }
 
 class ECSTestApp : public ApplicationBase
 {
@@ -29,6 +29,8 @@ public:
 
 private:
 
-    ACSM_ECS_ECSWorld* m_pECSWorld;
+    seecs::ECS* m_pECS;
+    std::vector<seecs::EntityID> m_Entities;
     bool m_IsPush;
+    bool m_IsPush2;
 };

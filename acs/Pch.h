@@ -1,28 +1,30 @@
 #pragma once
 
-#include <algorithm>
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+
+
+#include <array>
+#include <vector>
+#include <unordered_map>
+#include <limits>
 #include <cstdint>
-#include <functional>
-#include <future>
+#include <iostream>
+#include <sstream>
+#include <algorithm>
+#include <bitset>
 #include <memory>
+#include <type_traits>
+#include <typeindex>
+#include <functional>
+#include <typeinfo>
+#include <future>
 #include <mutex>
 #include <queue>
-#include <typeindex>
-#include <type_traits>
-#include <unordered_map>
-#include <vector>
 #include <Windows.h>
 
 #include <Core/UseModules.h>
 
 #ifdef ACSM_ECS
-#include <modules/ECS/ACSM_ECS_ArchetypeManager.h>
-#include <modules/ECS/ACSM_ECS_ComponentManager.h>
-#include <modules/ECS/ACSM_ECS_ComponentTypeID.h>
-#include <modules/ECS/ACSM_ECS_ECSWorld.h>
-#include <modules/ECS/ACSM_ECS_EntityID.h>
-#include <modules/ECS/ACSM_ECS_EntityManager.h>
-#include <modules/ECS/ACSM_ECS_SystemManager.h>
-#include <modules/ECS/ACSM_ECS_IComponentPool.h>
-#include <modules/ECS/IACSM_ECS_System.h>
+#include <modules/ecs/seecs.h>
 #endif

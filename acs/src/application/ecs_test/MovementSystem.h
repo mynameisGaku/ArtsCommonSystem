@@ -2,31 +2,23 @@
 #include "Pch.h"
 #include "Position.h"
 #include "Velocity.h"
+#include "modules/ecs/seecs.h"
 
-class MovementSystem : public IACSM_ECS_System
+class MovementSystem
 {
 public:
-    MovementSystem(ACSM_ECS_ECSWorld* world) : m_pWorld(world) {}
+	MovementSystem(seecs::ECS* world) : m_pWorld(world) {}
 
-    void Update() override
-    {
-        auto ids = m_pWorld->QueryEntities({
-            ACSM_ECS_ComponentTypeID::Get<Position>(),
-            ACSM_ECS_ComponentTypeID::Get<Velocity>()
-            });
-
-        for (auto id : ids)
-        {
-            auto* p = m_pWorld->GetComponent<Position>(id);
-            auto* v = m_pWorld->GetComponent<Velocity>(id);
-            if (p && v)
-            {
-                p->x += v->x;
-                p->y += v->y;
-            }
-        }
-    }
+	void Update()
+	{
+		m_pWorld->View<Position, Velocity>().ForEach(
+			[](seecs::EntityID id, Position& pos, const Velocity& vel)
+			{
+				pos.x += vel.x;
+				pos.y += vel.y;
+			});
+	}
 
 private:
-    ACSM_ECS_ECSWorld* m_pWorld;
+	seecs::ECS* m_pWorld;
 };

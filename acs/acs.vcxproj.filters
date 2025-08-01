@@ -33,35 +33,8 @@
     <ClInclude Include="src\application\base\ApplicationBase.h">
       <Filter>src\application\base</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS_EntityID.h">
-      <Filter>src\modules\ecs</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS_EntityManager.h">
-      <Filter>src\modules\ecs</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS_ComponentTypeID.h">
-      <Filter>src\modules\ecs</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS_IComponentPool.h">
-      <Filter>src\modules\ecs</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS_ComponentManager.h">
-      <Filter>src\modules\ecs</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS_ArchetypeManager.h">
-      <Filter>src\modules\ecs</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS_SystemManager.h">
-      <Filter>src\modules\ecs</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS_ECSWorld.h">
-      <Filter>src\modules\ecs</Filter>
-    </ClInclude>
     <ClInclude Include="src\application\ecs_test\ECSTestApp.h">
       <Filter>src\application\ecs_test</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\IACSM_ECS_System.h">
-      <Filter>src\modules\ecs</Filter>
     </ClInclude>
     <ClInclude Include="src\application\ecs_test\MovementSystem.h">
       <Filter>src\application\ecs_test</Filter>
@@ -84,23 +57,11 @@
     <ClInclude Include="Pch.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="src\modules\ecs\seecs.h">
+      <Filter>src\modules\ecs</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\modules\ecs\ACSM_ECS_EntityManager.cpp">
-      <Filter>src\modules\ecs</Filter>
-    </ClCompile>
-    <ClCompile Include="src\modules\ecs\ACSM_ECS_ComponentTypeID.cpp">
-      <Filter>src\modules\ecs</Filter>
-    </ClCompile>
-    <ClCompile Include="src\modules\ecs\ACSM_ECS_ArchetypeManager.cpp">
-      <Filter>src\modules\ecs</Filter>
-    </ClCompile>
-    <ClCompile Include="src\modules\ecs\ACSM_ECS_SystemManager.cpp">
-      <Filter>src\modules\ecs</Filter>
-    </ClCompile>
-    <ClCompile Include="src\modules\ecs\ACSM_ECS_ECSWorld.cpp">
-      <Filter>src\modules\ecs</Filter>
-    </ClCompile>
     <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp">
       <Filter>src\application\ecs_test</Filter>
     </ClCompile>
@@ -113,16 +74,5 @@
     <ClCompile Include="src\modules\dxlib\ACSM_Dxlib.cpp">
       <Filter>src\modules\dxlib</Filter>
     </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="src\modules\ecs\ACSM_ECS_ComponentTypeID.inl">
-      <Filter>src\modules\ecs</Filter>
-    </None>
-    <None Include="src\modules\ecs\ACSM_ECS_ComponentManager.inl">
-      <Filter>src\modules\ecs</Filter>
-    </None>
-    <None Include="src\modules\ecs\ACSM_ECS_ECSWorld.inl">
-      <Filter>src\modules\ecs</Filter>
-    </None>
   </ItemGroup>
 </Project>
