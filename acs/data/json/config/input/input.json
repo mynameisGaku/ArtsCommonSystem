@@ -1,0 +1,32 @@
+{
+  "Jump": [
+    "Space",
+    "Gamepad_A"
+  ],
+
+  "Fire": [
+    "Mouse_Left",
+    "Gamepad_RB"
+  ],
+
+  "Dash": [
+    "Shift",
+    "Gamepad_B"
+  ],
+
+  "Aim": [
+    "Trigger_Left"
+  ],
+
+  "MoveLeft": [
+    "A",
+    "LeftArrow",
+    "Gamepad_DPadLeft"
+  ],
+
+  "MoveRight": [
+    "D",
+    "RightArrow",
+    "Gamepad_DPadRight"
+  ]
+}

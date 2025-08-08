@@ -16,54 +16,26 @@ ECSTestApp::~ECSTestApp()
 void ECSTestApp::OnStart()
 {
 	m_pECS = new seecs::ECS;
+
+	HWND hwnd = GetMainWindowHandle();
+	ACSM_Input::Initialize(hwnd);
+
+	ACSM_Input::LoadVirtualKeysFromJson("data/json/config/input/input.json");
 }
 
 void ECSTestApp::Update()
 {
-	if (CheckHitKey(KEY_INPUT_Z))
+	ACSM_Input::Update();
+
+	if (ACSM_Input::GetVirtualKey("Jump"))
 	{
 		auto e = m_pECS->CreateEntity();
 		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Position>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
-		m_pECS->Add<Velocity>(e, { 5, 0 });
 		m_pECS->Add<Velocity>(e, { 5, 0 });
 		m_Entities.push_back(e);
-		if (not m_IsPush)
-		{
-			m_IsPush = true;
-		}
-	}
-	else
-	{
-		m_IsPush = false;
 	}
 
-	if (CheckHitKey(KEY_INPUT_X))
+	if (ACSM_Input::GetVirtualKey("Fire"))
 	{
 		if (not m_Entities.empty())
 		{
@@ -71,14 +43,6 @@ void ECSTestApp::Update()
 			m_pECS->DeleteEntity(e);
 			m_Entities.erase(m_Entities.begin());
 		}
-		if (not m_IsPush2)
-		{
-			m_IsPush2 = true;
-		}
-	}
-	else
-	{
-		m_IsPush2 = false;
 	}
 
 	m_pECS->View<Position, Velocity>().ForEach(
@@ -91,8 +55,6 @@ void ECSTestApp::Update()
 
 void ECSTestApp::Draw()
 {
-	ClearDrawScreen();
-
 	DrawString(10, 10, "ECS Test Running...", GetColor(255, 255, 255));
 
 	if (m_pECS)
@@ -104,4 +66,4 @@ void ECSTestApp::Draw()
 void ECSTestApp::OnDestroy()
 {
 	delete m_pECS;
-}   
+}
