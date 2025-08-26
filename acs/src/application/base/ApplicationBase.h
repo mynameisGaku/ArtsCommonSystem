@@ -1,7 +1,7 @@
-#pragma once
+﻿#pragma once
 
 /// <summary>
-/// �A�v���P�[�V�����̊��
+/// アプリケーションの基底
 /// </summary>
 class ApplicationBase
 {
@@ -9,19 +9,19 @@ public:
     ApplicationBase()           {}
     virtual ~ApplicationBase()  {}
     /// <summary>
-    /// �A�v���N�����ɌĂяo����郁�\�b�h
+    /// アプリ起動時に呼び出されるメソッド
     /// </summary>
     virtual void OnStart()          {}
     /// <summary>
-    /// �A�v���X�V���ɌĂяo����郁�\�b�h
+    /// アプリ更新時に呼び出されるメソッド
     /// </summary>
     virtual void Update()           {}
     /// <summary>
-    /// �A�v���`�掞�ɌĂяo����郁�\�b�h
+    /// アプリ描画時に呼び出されるメソッド
     /// </summary>
     virtual void Draw()             {}
     /// <summary>
-    /// �A�v���j�����ɌĂяo����郁�\�b�h
+    /// アプリ破棄時に呼び出されるメソッド
     /// </summary>
     virtual void OnDestroy()        {}
 };

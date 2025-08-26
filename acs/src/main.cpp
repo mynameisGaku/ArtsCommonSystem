@@ -1,4 +1,4 @@
-#define _CRTDBG_MAP_ALLOC
+ï»¿#define _CRTDBG_MAP_ALLOC
 #include <crtdbg.h>
 #ifdef _DEBUG
 #define DBG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__);
@@ -25,7 +25,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 	SetDrawScreen(DX_SCREEN_BACK);
 	SetHookWinProc([](HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) -> LRESULT /*CALLBACK*/
 		{
-			// DxLib‚ÆImGui‚ÌƒEƒBƒ“ƒhƒEƒvƒƒV[ƒWƒƒ‚ğ—¼—§‚³‚¹‚é
+			// DxLibã¨ImGuiã®ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ãƒ—ãƒ­ã‚·ãƒ¼ã‚¸ãƒ£ã‚’ä¸¡ç«‹ã•ã›ã‚‹
 			SetUseHookWinProcReturnValue(FALSE);
 			return ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
 		});

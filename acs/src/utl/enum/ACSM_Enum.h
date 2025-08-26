@@ -1,11 +1,11 @@
-#pragma once
+ï»¿#pragma once
 #include "Pch.h"
 
 namespace ACSM_Enum
 {
 	/// <summary>
 	/// string -> enum
-	/// •ÏŠ·¸”s‚ÌƒfƒtƒHƒ‹ƒg’l‚ğw’è‚Å‚«‚é
+	/// å¤‰æ›å¤±æ•—æ™‚ã®ãƒ‡ãƒ•ã‚©ãƒ«ãƒˆå€¤ã‚’æŒ‡å®šã§ãã‚‹
 	/// </summary>
 	template<typename C>
 	C ToEnum(const std::string& codeStr, C defaultValue)

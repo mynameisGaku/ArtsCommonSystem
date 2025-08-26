@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 /// <-- Using Modules -->
 #include <modules/dxlib/ACSM_Dxlib.h>

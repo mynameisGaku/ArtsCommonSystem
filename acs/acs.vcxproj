@@ -86,7 +86,6 @@
     <ClInclude Include="src\modules\dxlib\ACSM_Dxlib.h" />
     <ClInclude Include="src\modules\ecs\ACSM_ECS.h" />
     <ClInclude Include="src\modules\ecs\seecs.h" />
-    <ClInclude Include="src\modules\input\ACSM_Input.h" />
     <ClInclude Include="src\utl\enum\ACSM_Enum.h" />
   </ItemGroup>
   <ItemGroup>
@@ -108,7 +107,6 @@
     <ClCompile Include="src\extension\uuid4\uuid4.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\modules\dxlib\ACSM_Dxlib.cpp" />
-    <ClCompile Include="src\modules\input\ACSM_Input.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <application/base/ApplicationBase.h>
 
 #define ECSTEST TRUE
@@ -13,19 +13,19 @@ public:
     ECSTestApp();
     ~ECSTestApp();
     /// <summary>
-    /// �A�v���N�����ɌĂяo����郁�\�b�h
+    /// アプリ起動時に呼び出されるメソッド
     /// </summary>
     void OnStart() override;
     /// <summary>
-    /// �A�v���X�V���ɌĂяo����郁�\�b�h
+    /// アプリ更新時に呼び出されるメソッド
     /// </summary>
     void Update() override;
     /// <summary>
-    /// �A�v���`�掞�ɌĂяo����郁�\�b�h
+    /// アプリ描画時に呼び出されるメソッド
     /// </summary>
     void Draw() override;
     /// <summary>
-    /// �A�v���j�����ɌĂяo����郁�\�b�h
+    /// アプリ破棄時に呼び出されるメソッド
     /// </summary>
     void OnDestroy() override;
 

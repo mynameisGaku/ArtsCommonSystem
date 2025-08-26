@@ -1,4 +1,4 @@
-#ifndef SEECS_ECS_H
+﻿#ifndef SEECS_ECS_H
 #define SEECS_ECS_H
 
 #include "Pch.h"

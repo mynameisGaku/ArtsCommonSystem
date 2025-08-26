@@ -108,9 +108,6 @@
     <ClInclude Include="src\extension\ImGui\imstb_truetype.h">
       <Filter>src\extension\ImGui</Filter>
     </ClInclude>
-    <ClInclude Include="src\modules\input\ACSM_Input.h">
-      <Filter>src\modules\input</Filter>
-    </ClInclude>
     <ClInclude Include="src\utl\enum\ACSM_Enum.h">
       <Filter>src\utl</Filter>
     </ClInclude>
@@ -292,9 +289,6 @@
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui_widgets.cpp">
       <Filter>src\extension\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="src\modules\input\ACSM_Input.cpp">
-      <Filter>src\modules\input</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\uuid4\uuid4.cpp">
       <Filter>src\extension\uuid4</Filter>
