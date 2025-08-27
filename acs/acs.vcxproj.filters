@@ -46,6 +46,9 @@
     <Filter Include="src\extension\magic_enum">
       <UniqueIdentifier>{66dc91dd-15eb-4b5f-8668-f988722a3a3e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\extension\Joyshock">
+      <UniqueIdentifier>{bcbafc5b-0c12-4fab-aed0-5fe869bec46c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\application\base\ApplicationBase.h">
@@ -252,6 +255,27 @@
     <ClInclude Include="src\extension\magic_enum\magic_enum.hpp">
       <Filter>src\extension\magic_enum</Filter>
     </ClInclude>
+    <ClInclude Include="src\modules\input\ACSM_Input.h">
+      <Filter>src\modules\input</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\input\JoyshockWrapper.h">
+      <Filter>src\modules\input</Filter>
+    </ClInclude>
+    <ClInclude Include="src\extension\Joyshock\JoyShockLibrary.h">
+      <Filter>src\extension\Joyshock</Filter>
+    </ClInclude>
+    <ClInclude Include="src\modules\input\KeyWrapper.h">
+      <Filter>src\modules\input</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\ecs_test\RenderingSystem.h">
+      <Filter>src\application\ecs_test</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\ecs_test\Color.h">
+      <Filter>src\application\ecs_test</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\ecs_test\Scale.h">
+      <Filter>src\application\ecs_test</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp">
@@ -292,6 +316,15 @@
     </ClCompile>
     <ClCompile Include="src\extension\uuid4\uuid4.cpp">
       <Filter>src\extension\uuid4</Filter>
+    </ClCompile>
+    <ClCompile Include="src\modules\input\JoyshockWrapper.cpp">
+      <Filter>src\modules\input</Filter>
+    </ClCompile>
+    <ClCompile Include="src\modules\input\KeyWrapper.cpp">
+      <Filter>src\modules\input</Filter>
+    </ClCompile>
+    <ClCompile Include="src\modules\input\ACSM_Input.cpp">
+      <Filter>src\modules\input</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

@@ -44,5 +44,6 @@
 #endif
 
 #ifdef ACSM_INPUT
-#include <modules/input/ACSM_Input.h>
+#include <modules/input/JoyshockWrapper.h>
+#include <modules/input/KeyWrapper.h>
 #endif

@@ -12,10 +12,15 @@ public:
 	void Update()
 	{
 		m_pWorld->View<Position, Velocity>().ForEach(
-			[](seecs::EntityID id, Position& pos, const Velocity& vel)
+			[](seecs::EntityID id, Position& pos, Velocity& vel)
 			{
 				pos.x += vel.x;
 				pos.y += vel.y;
+				if (pos.x > 800 || pos.y > 600) 
+				{
+					pos = { 0, 0 };
+					vel = { 5 + GetRand(5), 5 + GetRand(5) };
+				}
 			});
 	}
 
