@@ -38,7 +38,6 @@
 #include <extension/nlohmann/json_fwd.hpp>
 #include <extension/uuid4/uuid4.h>
 
-#include <core/System.h>
 #include <Core/UseModules.h>
 
 #ifdef ACSM_ECS

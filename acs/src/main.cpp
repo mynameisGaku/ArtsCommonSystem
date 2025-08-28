@@ -14,7 +14,6 @@
 
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 {
-	EnablePerMonitorDpiAwareness();
 	SetOutApplicationLogValidFlag(FALSE);
 	SetWindowSize(800, 600);
 	ChangeWindowMode(TRUE);

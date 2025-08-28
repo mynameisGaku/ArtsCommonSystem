@@ -72,9 +72,14 @@ void ECSTestApp::Draw()
 		DrawFormatString(10, 30, GetColor(255, 255, 0), "Entities: %d", (int)m_pECS->GetEntityCount());
 	}
 
-	if (ACSM_Input::GetVirtualKeyDown("Jump"))
+	if (ACSM_Input::GetVirtualKey("Jump"))
 	{
-		DrawString(10, 50, "Pressing Z key", GetColor(255, 255, 255));
+		DrawString(10, 50, "Pressing Jump key", GetColor(255, 255, 255));
+	}
+
+	if (ACSM_Input::GetVirtualKey("Attack"))
+	{
+		DrawString(10, 80, "Pressing Attack key", GetColor(255, 255, 255));
 	}
 
 	DrawString(10, 10, "ECS Test Running...", GetColor(255, 255, 255));
