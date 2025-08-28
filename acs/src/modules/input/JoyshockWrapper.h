@@ -4,36 +4,31 @@
 #include <mutex>
 #include <extension\Joyshock\JoyShockLibrary.h>
 
-enum PadCode
+namespace Pad
 {
-	PAD_S = JSMASK_S,
-	PAD_W = JSMASK_W,
-	PAD_E = JSMASK_E,
-	PAD_N = JSMASK_N,
-	PAD_ZL = JSMASK_ZL,
-	PAD_ZR = JSMASK_ZR,
-	PAD_L = JSMASK_L,
-	PAD_R = JSMASK_R,
-	PAD_MINUS = JSMASK_MINUS,
-	PAD_PLUS = JSMASK_PLUS,
-	PAD_LCLICK = JSMASK_LCLICK,
-	PAD_RCLICK = JSMASK_RCLICK,
-	PAD_HOME = JSMASK_HOME,
-	PAD_CAPTURE = JSMASK_CAPTURE,
-	PAD_UNKNOWN = 0,
-};
-
-///<summary>
-/// JoyShockLibrary をラップした単一クラスの入力管理。
-/// 複数デバイスの接続・再検出、状態更新、ボタン／スティック／トリガ／ジャイロ取得を提供する。
-///</summary>
-///<author>藤本樂</author>
+	enum PadCode
+	{
+		S = JSMASK_S,
+		W = JSMASK_W,
+		E = JSMASK_E,
+		N = JSMASK_N,
+		ZL = JSMASK_ZL,
+		ZR = JSMASK_ZR,
+		L = JSMASK_L,
+		R = JSMASK_R,
+		MINUS = JSMASK_MINUS,
+		PLUS = JSMASK_PLUS,
+		LCLICK = JSMASK_LCLICK,
+		RCLICK = JSMASK_RCLICK,
+		HOME = JSMASK_HOME,
+		CAPTURE = JSMASK_CAPTURE,
+		UNKNOWN = 0,
+	};
+}
+using namespace Pad;
 class JoyshockWrapper
 {
 public:
-	///<summary>
-	/// シングルトン参照を取得する。
-	///</summary>
 	static JoyshockWrapper& Instance();
 
 	///<summary>

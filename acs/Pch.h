@@ -4,6 +4,7 @@
 #define NOMINMAX
 
 #pragma comment(lib, "xinput.lib")
+#pragma comment(lib, "JoyShockLibrary.lib")
 
 #include <array>
 #include <vector>
@@ -37,6 +38,7 @@
 #include <extension/nlohmann/json_fwd.hpp>
 #include <extension/uuid4/uuid4.h>
 
+#include <core/System.h>
 #include <Core/UseModules.h>
 
 #ifdef ACSM_ECS
@@ -47,3 +49,9 @@
 #include <modules/input/JoyshockWrapper.h>
 #include <modules/input/KeyWrapper.h>
 #endif
+
+#ifdef ACSM_DXLIB
+#include <modules/dxlib/ACSM_Dxlib.h>
+#endif
+
+#include <utl/enum/ACSM_Enum.h>

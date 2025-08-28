@@ -24,8 +24,11 @@ void GenerateBall(seecs::ECS* ecs, int amount)
 {
 	for (int i = 0; i < amount; i++)
 	{
+		int posX, posY;
+		
+		GetMousePoint(&posX, &posY);
 		auto e = ecs->CreateEntity();
-		ecs->Add<Position>(e, { 5 + GetRand(5), 5 + GetRand(5) });
+		ecs->Add<Position>(e, { posX, posY });
 		ecs->Add<Velocity>(e, { 5 + GetRand(5), 5 + GetRand(5) });
 		ecs->Add<Color>(e, { GetColor(GetRand(255), GetRand(255), GetRand(255)) });
 		ecs->Add<Scale>(e, { 4 + abs(GetRand(10)) });
@@ -38,9 +41,7 @@ void ECSTestApp::OnStart()
 
 	ACSM_Input::Initialize();
 
-	for (int i = 0; i < 4; i++)
-	{
-	}
+	ACSM_Input::SubscribeVirtualKeyFromJson("data/json/config/input/input.json");
 
 	m_pMovementSystem = new MovementSystem(m_pECS);
 	m_pRenderingSystem = new RenderingSystem(m_pECS);
@@ -51,7 +52,8 @@ void ECSTestApp::Update()
 	ACSM_Input::Update();
 	m_pMovementSystem->Update();
 
-	if (ACSM_Input::GetKey(KeyCode::Z))
+	if (ACSM_Input::GetVirtualKeyDown("Jump") || 
+		ACSM_Input::GetVirtualKeyDown("Attack"))
 	{
 		GenerateBall(m_pECS, 1);
 	}
@@ -70,12 +72,17 @@ void ECSTestApp::Draw()
 		DrawFormatString(10, 30, GetColor(255, 255, 0), "Entities: %d", (int)m_pECS->GetEntityCount());
 	}
 
-	if (ACSM_Input::GetKey(KeyCode::Z))
+	if (ACSM_Input::GetVirtualKeyDown("Jump"))
 	{
 		DrawString(10, 50, "Pressing Z key", GetColor(255, 255, 255));
 	}
 
 	DrawString(10, 10, "ECS Test Running...", GetColor(255, 255, 255));
+
+	int posX, posY;
+
+	GetMousePoint(&posX, &posY);
+	DrawFormatString(10, 100, GetColor(255, 255, 0), "Mouse x:%d y:%d", posX, posY);
 }
 
 void ECSTestApp::OnDestroy()

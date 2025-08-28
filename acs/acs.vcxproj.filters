@@ -276,6 +276,9 @@
     <ClInclude Include="src\application\ecs_test\Scale.h">
       <Filter>src\application\ecs_test</Filter>
     </ClInclude>
+    <ClInclude Include="src\core\System.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp">

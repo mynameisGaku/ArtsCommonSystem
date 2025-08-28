@@ -28,6 +28,7 @@
     <ClInclude Include="src\application\ecs_test\RenderingSystem.h" />
     <ClInclude Include="src\application\ecs_test\Scale.h" />
     <ClInclude Include="src\application\ecs_test\Velocity.h" />
+    <ClInclude Include="src\core\System.h" />
     <ClInclude Include="src\core\UseModules.h" />
     <ClInclude Include="src\extension\ImGui\imconfig.h" />
     <ClInclude Include="src\extension\ImGui\imgui.h" />

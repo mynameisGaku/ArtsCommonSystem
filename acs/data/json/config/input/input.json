@@ -1,2 +1,30 @@
 ﻿{
+  "Keys": [
+    {
+      "VirtualKeyName": "Jump",
+      "Values": [
+        {
+          "Device": "Keyboard",
+          "KeyName": "LBUTTON"
+        },
+        {
+          "Device": "Pad",
+          "KeyName": "S"
+        }
+      ]
+    },
+    {
+      "VirtualKeyName": "Attack",
+      "Values": [
+        {
+          "Device": "Keyboard",
+          "KeyName": "Z"
+        },
+        {
+          "Device": "Pad",
+          "KeyName": "E"
+        }
+      ]
+    }
+  ]
 }

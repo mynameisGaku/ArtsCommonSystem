@@ -2,7 +2,6 @@
 
 #define ACSM_DXLIB
 
-#define DX_NON_INPUT
 #include <DxLib.h>
 
 static const VECTOR V3_Identity    = VECTOR(0.0f, 0.0f, 0.0f);

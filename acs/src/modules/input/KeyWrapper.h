@@ -268,9 +268,6 @@ class KeyWrapper
 {
 public:
 
-	///<summary>
-	/// シングルトン参照を取得する。
-	///</summary>
 	static KeyWrapper& Instance();
 
 	void Update();

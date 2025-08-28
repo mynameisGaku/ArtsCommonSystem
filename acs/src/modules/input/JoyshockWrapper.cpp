@@ -5,28 +5,25 @@
 
 namespace
 {
-    // ヘルパ：デッドゾーン適用（円形）
     static inline float ApplyDeadZone(float v, float dz)
     {
         if (std::fabs(v) < dz)
         {
             return 0.0f;
         }
-        // 線形再マッピング（可変）
+
         const float sign = (v >= 0.0f) ? 1.0f : -1.0f;
         const float t = (std::fabs(v) - dz) / (1.0f - dz);
         return std::clamp(sign * t, -1.0f, 1.0f);
     }
 }
 
-//=== シングルトン ===//
 JoyshockWrapper& JoyshockWrapper::Instance()
 {
     static JoyshockWrapper s_Instance;
     return s_Instance;
 }
 
-//=== コンストラクタ／デストラクタ ===//
 JoyshockWrapper::JoyshockWrapper()
     : m_Initialized(false)
     , m_StickDeadZone(0.10f)     // 初期値：10%
@@ -39,7 +36,6 @@ JoyshockWrapper::~JoyshockWrapper()
     Finalize();
 }
 
-//=== 初期化／終了 ===//
 bool JoyshockWrapper::Initialize()
 {
     std::lock_guard<std::mutex> lock(m_Mutex);
@@ -71,7 +67,6 @@ void JoyshockWrapper::Finalize()
     m_Initialized = false;
 }
 
-//=== 再検出 ===//
 void JoyshockWrapper::RescanDevices()
 {
     std::lock_guard<std::mutex> lock(m_Mutex);
@@ -86,7 +81,6 @@ void JoyshockWrapper::RescanDevices()
     RefreshHandleList();
 }
 
-//=== 1フレーム更新 ===//
 void JoyshockWrapper::Update()
 {
     std::lock_guard<std::mutex> lock(m_Mutex);
@@ -124,7 +118,6 @@ void JoyshockWrapper::Update()
     }
 }
 
-//=== クエリ ===//
 int JoyshockWrapper::GetDeviceCount() const
 {
     std::lock_guard<std::mutex> lock(m_Mutex);
@@ -294,7 +287,6 @@ void JoyshockWrapper::SetDeadZones(float stickDeadZone, float triggerThreshold)
     m_TriggerThreshold = std::clamp(triggerThreshold, 0.0f, 1.0f);
 }
 
-//=== 既定デバイス（index=0）便宜関数 ===//
 bool JoyshockWrapper::GetRawButton(uint32_t buttonMask) const
 {
     return GetRawButton(0, buttonMask);
@@ -330,7 +322,6 @@ void JoyshockWrapper::GetAndFlushGyro(float& outX, float& outY, float& outZ)
     GetAndFlushGyro(0, outX, outY, outZ);
 }
 
-//=== 内部処理 ===//
 void JoyshockWrapper::RefreshHandleList()
 {
     // 既存配列を維持しつつ、JSL から最新ハンドル列を取得して反映する
