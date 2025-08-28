@@ -9,8 +9,8 @@ namespace
 	// JSON の "S" / "PAD_S" どちらでも拾えるように同義語を入れておく
 	bool TryParsePadName(const std::string& name, uint32_t& outMask)
 	{
-		static const std::unordered_map<std::string, uint32_t> kPadMap =
-		{
+		std::unordered_map<std::string, uint32_t>* kPadMap =
+		new std::unordered_map<std::string, uint32_t>{
 			{ "S", JSMASK_S }, { "PAD_S", JSMASK_S },
 			{ "W", JSMASK_W }, { "PAD_W", JSMASK_W },
 			{ "E", JSMASK_E }, { "PAD_E", JSMASK_E },
@@ -27,12 +27,15 @@ namespace
 			{ "CAPTURE", JSMASK_CAPTURE }, { "PAD_CAPTURE", JSMASK_CAPTURE },
 		};
 
-		auto it = kPadMap.find(name);
-		if (it == kPadMap.end())
+		auto it = kPadMap->find(name);
+		if (it == kPadMap->end())
 		{
+			delete kPadMap;
 			return false;
 		}
 		outMask = it->second;
+
+		delete kPadMap;
 		return true;
 	}
 }
@@ -40,18 +43,31 @@ namespace
 #ifdef ACSM_DXLIB
 namespace ACS_Mouse
 {
-	std::unordered_map<MouseButton, bool> g_Buttons = {};
-	std::unordered_map<MouseButton, bool> g_ButtonsPrev = {};
+	// deleteできるようにポインタ型にする
+	std::unordered_map<MouseButton, bool>* g_pButtons = {};
+	std::unordered_map<MouseButton, bool>* g_pButtonsPrev = {};
+
+	void Initialize()
+	{
+		g_pButtons		= new std::unordered_map<MouseButton, bool>;
+		g_pButtonsPrev	= new std::unordered_map<MouseButton, bool>;
+	}
+
+	void Finalize()
+	{
+		delete g_pButtons;
+		delete g_pButtonsPrev;
+	}
 
 	void Update()
 	{
-		g_ButtonsPrev = g_Buttons;
+		*g_pButtonsPrev = *g_pButtons;
 		int mouseState = GetMouseInput();
-		g_Buttons[ACSM_Input::MouseButton::Left] = (mouseState & MOUSE_INPUT_LEFT) != 0;
-		g_Buttons[ACSM_Input::MouseButton::Right] = (mouseState & MOUSE_INPUT_RIGHT) != 0;
-		g_Buttons[ACSM_Input::MouseButton::Middle] = (mouseState & MOUSE_INPUT_MIDDLE) != 0;
-		g_Buttons[ACSM_Input::MouseButton::X1] = (mouseState & MOUSE_INPUT_4) != 0;
-		g_Buttons[ACSM_Input::MouseButton::X2] = (mouseState & MOUSE_INPUT_5) != 0;
+		(*g_pButtons)[ACSM_Input::MouseButton::Left]	= (mouseState & MOUSE_INPUT_LEFT) != 0;
+		(*g_pButtons)[ACSM_Input::MouseButton::Right]	= (mouseState & MOUSE_INPUT_RIGHT) != 0;
+		(*g_pButtons)[ACSM_Input::MouseButton::Middle]	= (mouseState & MOUSE_INPUT_MIDDLE) != 0;
+		(*g_pButtons)[ACSM_Input::MouseButton::X1]		= (mouseState & MOUSE_INPUT_4) != 0;
+		(*g_pButtons)[ACSM_Input::MouseButton::X2]		= (mouseState & MOUSE_INPUT_5) != 0;
 	}
 }
 #endif
@@ -72,9 +88,23 @@ namespace ASC_VirtualKey
 		int deviceIndex;     // どのパッドか
 	};
 
-	static std::unordered_map<std::string, std::vector<Binding>> s_Bindings; // name -> bindings
-	static std::unordered_map<std::string, bool> s_Curr;                     // name -> pressed
-	static std::unordered_map<std::string, bool> s_Prev;                     // name -> pressed(prev)
+	static std::unordered_map<std::string, std::vector<Binding>>* s_pBindings; // name -> bindings
+	static std::unordered_map<std::string, bool>* s_pCurr;                     // name -> pressed
+	static std::unordered_map<std::string, bool>* s_pPrev;                     // name -> pressed(prev)
+
+	void Initialize()
+	{
+		s_pBindings	= new std::unordered_map<std::string, std::vector<Binding>>;
+		s_pCurr		= new std::unordered_map<std::string, bool>;
+		s_pPrev		= new std::unordered_map<std::string, bool>;
+	}
+
+	void Finalize()
+	{
+		delete s_pBindings;
+		delete s_pCurr;
+		delete s_pPrev;
+	}
 
 	static bool PollBinding(const Binding& b)
 	{
@@ -92,10 +122,10 @@ namespace ASC_VirtualKey
 	void Update()
 	{
 		// 前回状態を保存
-		s_Prev = s_Curr;
+		*s_pPrev = *s_pCurr;
 
 		// 各仮想キーの押下を再計算（OR 集計）
-		for (auto& kv : s_Bindings)
+		for (auto& kv : (*s_pBindings))
 		{
 			const std::string& name = kv.first;
 			const auto& vec = kv.second;
@@ -109,7 +139,7 @@ namespace ASC_VirtualKey
 					break;
 				}
 			}
-			s_Curr[name] = pressed;
+			(*s_pCurr)[name] = pressed;
 		}
 	}
 
@@ -128,7 +158,7 @@ namespace ASC_VirtualKey
 			if (b.code == 0) { return false; } // JSMASK_UNKNOWN は無効
 		}
 
-		auto& vec = s_Bindings[name];
+		auto& vec = (*s_pBindings)[name];
 		// 重複登録ガード
 		auto it = std::find_if(vec.begin(), vec.end(),
 			[&](const Binding& x)
@@ -141,28 +171,28 @@ namespace ASC_VirtualKey
 		}
 
 		// 初期状態エントリ確保
-		s_Curr.emplace(name, false);
-		s_Prev.emplace(name, false);
+		s_pCurr->emplace(name, false);
+		s_pPrev->emplace(name, false);
 		return true;
 	}
 
 	bool Get(const std::string& name)
 	{
-		auto it = s_Curr.find(name);
-		return (it != s_Curr.end()) ? it->second : false;
+		auto it = s_pCurr->find(name);
+		return (it != s_pCurr->end()) ? it->second : false;
 	}
 
 	bool GetDown(const std::string& name)
 	{
 		const bool now = Get(name);
-		const bool prev = (s_Prev.find(name) != s_Prev.end()) ? s_Prev[name] : false;
+		const bool prev = (s_pPrev->find(name) != s_pPrev->end()) ? (*s_pPrev)[name] : false;
 		return now && !prev;
 	}
 
 	bool GetUp(const std::string& name)
 	{
 		const bool now = Get(name);
-		const bool prev = (s_Prev.find(name) != s_Prev.end()) ? s_Prev[name] : false;
+		const bool prev = (s_pPrev->find(name) != s_pPrev->end()) ? (*s_pPrev)[name] : false;
 		return (!now) && prev;
 	}
 }
@@ -170,10 +200,15 @@ namespace ASC_VirtualKey
 void ACSM_Input::Initialize()
 {
 	JoyshockWrapper::Instance().Initialize();
+	ACS_Mouse::Initialize();
+	ASC_VirtualKey::Initialize();
 }
 void ACSM_Input::Finalize()
 {
-	JoyshockWrapper::Instance().Finalize();
+	ACS_Mouse::Finalize();
+	ASC_VirtualKey::Finalize();
+	JoyshockWrapper::Instance().Destroy();
+	KeyWrapper::Instance().Destroy();
 }
 void ACSM_Input::Update()
 {
@@ -332,17 +367,17 @@ POINT ACSM_Input::GetMousePoint()
 
 bool ACSM_Input::GetMouseButton(MouseButton button)
 {
-	return ACS_Mouse::g_Buttons[button];
+	return (*ACS_Mouse::g_pButtons)[button];
 }
 
 bool ACSM_Input::GetMouseButtonDown(MouseButton button)
 {
-	return ACS_Mouse::g_Buttons[button] && !ACS_Mouse::g_ButtonsPrev[button];
+	return (*ACS_Mouse::g_pButtons)[button] && !(*ACS_Mouse::g_pButtonsPrev)[button];
 }
 
 bool ACSM_Input::GetMouseButtonUp(MouseButton button)
 {
-	return !ACS_Mouse::g_Buttons[button] && ACS_Mouse::g_ButtonsPrev[button];
+	return !(*ACS_Mouse::g_pButtons)[button] && (*ACS_Mouse::g_pButtonsPrev)[button];
 }
 
 void ACSM_Input::SetMousePosition(int x, int y)

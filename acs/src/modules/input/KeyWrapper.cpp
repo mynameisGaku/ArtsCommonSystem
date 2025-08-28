@@ -3,10 +3,15 @@
 #include <Windows.h>
 #include <cstring>
 
+KeyWrapper* KeyWrapper::m_pInstance = nullptr;
+
 KeyWrapper& KeyWrapper::Instance()
 {
-	static KeyWrapper s_Instance;
-	return s_Instance;
+	if (not m_pInstance)
+	{
+		m_pInstance = new KeyWrapper;
+	}
+	return *m_pInstance;
 }
 
 KeyWrapper::KeyWrapper()
@@ -22,6 +27,20 @@ KeyWrapper::KeyWrapper()
 }
 
 KeyWrapper::~KeyWrapper()
+{
+	Finalize();
+}
+
+void KeyWrapper::Destroy()
+{
+	if (m_pInstance)
+	{
+		delete m_pInstance;
+	}
+	m_pInstance = nullptr;
+}
+
+void KeyWrapper::Finalize()
 {
 }
 

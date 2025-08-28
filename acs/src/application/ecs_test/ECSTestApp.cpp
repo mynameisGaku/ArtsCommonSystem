@@ -92,5 +92,8 @@ void ECSTestApp::Draw()
 
 void ECSTestApp::OnDestroy()
 {
+	delete m_pMovementSystem;
+	delete m_pRenderingSystem;
+	m_pECS->Reset();
 	delete m_pECS;
 }

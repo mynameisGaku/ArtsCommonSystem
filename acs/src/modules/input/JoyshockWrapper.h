@@ -30,6 +30,7 @@ class JoyshockWrapper
 {
 public:
 	static JoyshockWrapper& Instance();
+	static void Destroy();
 
 	///<summary>
 	/// 初期化。接続済みデバイスを検出して内部状態を構築する。
@@ -164,6 +165,8 @@ private:
 	~JoyshockWrapper();
 	JoyshockWrapper(const JoyshockWrapper&) = delete;
 	JoyshockWrapper& operator=(const JoyshockWrapper&) = delete;
+
+	static JoyshockWrapper* m_pInstance;
 
 	struct DeviceState
 	{

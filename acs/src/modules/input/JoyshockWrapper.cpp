@@ -18,10 +18,24 @@ namespace
     }
 }
 
+JoyshockWrapper* JoyshockWrapper::m_pInstance = nullptr;
+
 JoyshockWrapper& JoyshockWrapper::Instance()
 {
-    static JoyshockWrapper s_Instance;
-    return s_Instance;
+    if (not m_pInstance)
+    {
+        m_pInstance = new JoyshockWrapper;
+    }
+    return *m_pInstance;
+}
+
+void JoyshockWrapper::Destroy()
+{
+    if (m_pInstance)
+    {
+        delete m_pInstance;
+    }
+    m_pInstance = nullptr;
 }
 
 JoyshockWrapper::JoyshockWrapper()

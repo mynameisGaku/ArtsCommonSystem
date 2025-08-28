@@ -269,6 +269,9 @@ class KeyWrapper
 public:
 
 	static KeyWrapper& Instance();
+	static void Destroy();
+
+	void Finalize();
 
 	void Update();
 
@@ -284,6 +287,8 @@ public:
 private:
 	KeyWrapper();
 	~KeyWrapper();
+
+	static KeyWrapper* m_pInstance;
 
 	unsigned char m_KeyState[256]{};
 	unsigned char m_KeyStatePrev[256]{};
