@@ -174,20 +174,24 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ReferencePath>$(ProjectDir).\src\;$(ReferencePath)</ReferencePath>
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(ProjectDir).\src\;$(SolutionDir);</IncludePath>
-    <LibraryPath>$(ProjectDir)./lib/joyshock;$(LibraryPath)</LibraryPath>
+    <LibraryPath>$(VC_LibraryPath_x86);$(WindowsSDK_LibraryPath_x86);$(ProjectDir)./lib/joyshock/;</LibraryPath>
+    <OutDir>.\dll\debug</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ReferencePath>$(ProjectDir).\src\;$(ReferencePath)</ReferencePath>
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(ProjectDir).\src\;$(SolutionDir);</IncludePath>
-    <LibraryPath>$(ProjectDir)./lib/joyshock;$(LibraryPath)</LibraryPath>
+    <LibraryPath>$(VC_LibraryPath_x86);$(WindowsSDK_LibraryPath_x86);$(ProjectDir)./lib/joyshock/;</LibraryPath>
+    <OutDir>.\dll\release</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(ProjectDir).\src\;$(SolutionDir);</IncludePath>
-    <LibraryPath>$(ProjectDir)./lib/joyshock;$(LibraryPath)</LibraryPath>
+    <LibraryPath>$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(ProjectDir)./lib/joyshock/;</LibraryPath>
+    <OutDir>.\dll\debug</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(ProjectDir).\src\;$(SolutionDir);</IncludePath>
-    <LibraryPath>$(ProjectDir)./lib/joyshock;$(LibraryPath)</LibraryPath>
+    <LibraryPath>$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(ProjectDir)./lib/joyshock/;</LibraryPath>
+    <OutDir>.\dll\release</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -195,7 +199,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)./lib/joyshock;$(ProjectDir)./lib/hidapi</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
@@ -205,7 +209,8 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)./lib/joyshock;$(ProjectDir)./lib/hidapi</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)lib\joyshock\x64</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);hidapi.lib;JoyShockLibrary.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -216,7 +221,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)./lib/joyshock;$(ProjectDir)./lib/hidapi</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
@@ -226,7 +231,8 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)./lib/joyshock;$(ProjectDir)./lib/hidapi</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)lib\joyshock\x64</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);hidapi.lib;JoyShockLibrary.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -236,7 +242,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)./lib/joyshock;$(ProjectDir)./lib/hidapi</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>Pch.h</PrecompiledHeaderFile>
@@ -245,7 +251,8 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)./lib/joyshock;$(ProjectDir)./lib/hidapi</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)lib\joyshock\x64</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);hidapi.lib;JoyShockLibrary.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -256,7 +263,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)./lib/joyshock;$(ProjectDir)./lib/hidapi</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\DxLib;C:\DxLibEffekseer;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
@@ -266,7 +273,8 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)./lib/joyshock;$(ProjectDir)./lib/hidapi</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\DxLib;C:\DxLibEffekseer;$(ProjectDir)lib\joyshock\x64</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);hidapi.lib;JoyShockLibrary.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
