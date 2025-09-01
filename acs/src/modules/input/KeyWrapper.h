@@ -7,10 +7,10 @@
 enum KeyCode : unsigned char
 {
 	NONE = 0x00,  // Unassigned/Reserved
-	LBUTTON = 0x01,  // Left mouse button
-	RBUTTON = 0x02,  // Right mouse button
+	MLBUTTON = 0x01,  // Left mouse button
+	MRBUTTON = 0x02,  // Right mouse button
 	CANCEL = 0x03,  // Control-break processing
-	MBUTTON = 0x04,  // Middle mouse button
+	MMBUTTON = 0x04,  // Middle mouse button
 	MXBUTTON1 = 0x05,  // X1 mouse button
 	MXBUTTON2 = 0x06,  // X2 mouse button
 	UNASSIGNED_07 = 0x07,  // Unassigned/Reserved

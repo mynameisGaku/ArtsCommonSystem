@@ -5,6 +5,8 @@
 #include "Velocity.h"
 #include "Color.h"
 #include "Scale.h"
+#include "Name.h"
+#include "Tag_Player.h"
 #include "MovementSystem.h"
 #include "RenderingSystem.h"
 
@@ -25,13 +27,21 @@ void GenerateBall(seecs::ECS* ecs, int amount)
 	for (int i = 0; i < amount; i++)
 	{
 		int posX, posY;
-		
+
 		GetMousePoint(&posX, &posY);
 		auto e = ecs->CreateEntity();
 		ecs->Add<Position>(e, { posX, posY });
 		ecs->Add<Velocity>(e, { 5 + GetRand(5), 5 + GetRand(5) });
 		ecs->Add<Color>(e, { GetColor(GetRand(255), GetRand(255), GetRand(255)) });
 		ecs->Add<Scale>(e, { 4 + abs(GetRand(10)) });
+		int c = ecs->GetEntityCount();
+		std::string name = "Entity" + std::to_string(c);
+		ecs->Add<Name>(e, {name.c_str()});
+
+		if (c > 0 && c % 15 == 0)
+		{
+			ecs->Add<Tag_Player>(e);
+		}
 	}
 }
 
@@ -52,10 +62,10 @@ void ECSTestApp::Update()
 	ACSM_Input::Update();
 	m_pMovementSystem->Update();
 
-	if (ACSM_Input::GetVirtualKeyDown("Jump") || 
-		ACSM_Input::GetVirtualKeyDown("Attack"))
+	if (ACSM_Input::GetVirtualKey("Jump") || 
+		ACSM_Input::GetVirtualKey("Attack"))
 	{
-		GenerateBall(m_pECS, 1);
+		GenerateBall(m_pECS, 100);
 	}
 }
 
@@ -63,7 +73,7 @@ void ECSTestApp::Draw()
 {
 	if (m_pECS)
 	{
-		auto drawfunc = [](Position pos, unsigned int color, int radius) {
+		static const auto drawfunc = [](Position pos, unsigned int color, int radius) {
 				DrawCircle((int)pos.x, (int)pos.y, radius, color, TRUE);
 			};
 
@@ -94,6 +104,5 @@ void ECSTestApp::OnDestroy()
 {
 	delete m_pMovementSystem;
 	delete m_pRenderingSystem;
-	m_pECS->Reset();
 	delete m_pECS;
 }

@@ -270,6 +270,36 @@ void ACSM_Input::GetAndFlushGyro(float& outX, float& outY, float& outZ)
 	JoyshockWrapper::Instance().GetAndFlushGyro(outX, outY, outZ);
 }
 
+bool ACSM_Input::GetButton(int button, int padNum)
+{
+	return JoyshockWrapper::Instance().GetRawButton(padNum,button);
+}
+
+bool ACSM_Input::GetButtonDown(int button, int padNum)
+{
+	return JoyshockWrapper::Instance().GetRawButtonDown(padNum, button);
+}
+
+bool ACSM_Input::GetButtonUp(int button, int padNum)
+{
+	return JoyshockWrapper::Instance().GetRawButtonUp(padNum, button);
+}
+
+void ACSM_Input::GetLeftStick(float& outLX, float& outLY, int padNum)
+{
+	JoyshockWrapper::Instance().GetLeftStick(padNum,outLX, outLY);
+}
+
+void ACSM_Input::GetRightStick(float& outRX, float& outRY, int padNum)
+{
+	JoyshockWrapper::Instance().GetRightStick(padNum, outRX, outRY);
+}
+
+void ACSM_Input::GetTriggers(float& outL, float& outR, int padNum)
+{
+	JoyshockWrapper::Instance().GetTriggers(padNum, outL, outR);
+}
+
 bool ACSM_Input::SubscribeVirtualKey(const std::string& key, int button)
 {
 	using namespace ASC_VirtualKey;
@@ -287,7 +317,7 @@ bool ACSM_Input::SubscribeVirtualKey(const std::string& key, int button)
 		Binding b{};
 		b.type = DeviceType::Pad;
 		b.code = static_cast<unsigned int>(button); // JSMASK_*
-		b.deviceIndex = 0; // 必要なら将来拡張
+		b.deviceIndex = 0;
 		return Subscribe(key, b);
 	}
 }

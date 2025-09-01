@@ -1,8 +1,7 @@
 ﻿#pragma once
-#include <vector>
-#include <cstdint>
-#include <mutex>
+#include "Pch.h"
 #include <extension\Joyshock\JoyShockLibrary.h>
+
 
 namespace Pad
 {
@@ -160,6 +159,14 @@ public:
 	void GetTriggers(float& outL, float& outR) const;
 	void GetAndFlushGyro(float& outX, float& outY, float& outZ);
 
+
+	bool GetXInputButton(int button, int padNum = 0);
+	bool GetXInputButtonDown(int button, int padNum = 0);
+	bool GetXInputButtonUp(int button, int padNum = 0);
+	void GetXInputLeftStick(float& outLX, float& outLY, int padNum = 0) const;
+	void GetXInputRightStick(float& outRX, float& outRY, int padNum = 0) const;
+	void GetXInputTriggers(float& outL, float& outR, int padNum = 0) const;
+
 private:
 	JoyshockWrapper();
 	~JoyshockWrapper();
@@ -170,23 +177,33 @@ private:
 
 	struct DeviceState
 	{
-		int handle;                          // JSL ハンドル
-		bool connected;                      // 接続状態
-		uint32_t prevButtons;                // 前フレームのボタン
-		uint32_t currButtons;                // 今フレームのボタン
-		JOY_SHOCK_STATE state;               // 今フレームのアナログ値
-		float lastGyroX;                     // 直近取得したジャイロX
-		float lastGyroY;                     // 直近取得したジャイロY
-		float lastGyroZ;                     // 直近取得したジャイロZ
+		int handle;								// JSL ハンドル
+		bool connected;							// 接続状態
+		uint32_t prevButtons;					// 前フレームのボタン
+		uint32_t currButtons;					// 今フレームのボタン
+		JOY_SHOCK_STATE state;					// 今フレームのアナログ値
+		float lastGyroX;						// 直近取得したジャイロX
+		float lastGyroY;						// 直近取得したジャイロY
+		float lastGyroZ;						// 直近取得したジャイロZ
 	};
 
-	void RefreshHandleList();                // 内部：ハンドル一覧を再取得する
-	bool IsValidIndex(int index) const;      // 内部：インデックス範囲チェック
+	struct XInputDeviceState
+	{
+		bool connected;							// 接続状態
+		::XINPUT_STATE	currXinputState;			// XInput 状態
+		::XINPUT_STATE	prevXinputState;			// XInput 状態
+		int handle;								// XBOXコントローラー ハンドル
+	};
+
+	void RefreshHandleList();					// 内部：ハンドル一覧を再取得する
+	bool IsValidIndex(int index) const;			// 内部：インデックス範囲チェック
+	void RefreshXInputHandleList();				// 内部：XInputハンドル一覧を再取得する
 
 private:
-	bool m_Initialized;                      // 初期化済みフラグ
-	std::vector<DeviceState> m_Devices;      // デバイス配列
-	float m_StickDeadZone;                   // スティックのデッドゾーン 0..1
-	float m_TriggerThreshold;                // トリガ押下のしきい値 0..1
-	mutable std::mutex m_Mutex;              // スレッドセーフ用ミューテックス
+	bool							m_Initialized;		// 初期化済みフラグ
+	std::vector<DeviceState>		m_Devices;			// デバイス配列
+	std::vector<XInputDeviceState>	m_XInputDevices;	// デバイス配列
+	float							m_StickDeadZone;	// スティックのデッドゾーン 0..1
+	float							m_TriggerThreshold;	// トリガ押下のしきい値 0..1
+	mutable std::mutex				m_Mutex;			// スレッドセーフ用ミューテックス
 };

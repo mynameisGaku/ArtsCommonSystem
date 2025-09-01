@@ -24,6 +24,13 @@ namespace ACSM_Input
 	void GetRightStick(float& outRX, float& outRY);
 	void GetTriggers(float& outL, float& outR);
 	void GetAndFlushGyro(float& outX, float& outY, float& outZ); // ジャイロ
+
+	bool GetButton(int button, int padNum);
+	bool GetButtonDown(int button, int padNum);
+	bool GetButtonUp(int button, int padNum);
+	void GetLeftStick(float& outLX, float& outLY, int padNum);
+	void GetRightStick(float& outRX, float& outRY, int padNum);
+	void GetTriggers(float& outL, float& outR, int padNum);
 		
 	/// <summary>
 	/// 仮想キー名に物理入力を登録する
