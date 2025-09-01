@@ -5,9 +5,6 @@
 
 namespace seecs { class ECS; }
 
-class MovementSystem;
-class RenderingSystem;
-
 class ECSTestApp : public ApplicationBase
 {
 public:
@@ -32,6 +29,4 @@ public:
 
 private:
     seecs::ECS* m_pECS;
-	MovementSystem* m_pMovementSystem;
-    RenderingSystem* m_pRenderingSystem;
 };

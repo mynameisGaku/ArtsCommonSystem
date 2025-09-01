@@ -34,9 +34,6 @@
     <Filter Include="src\modules\input">
       <UniqueIdentifier>{ade3f00f-7dc5-4807-89a0-934f7a039aa6}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\utl">
-      <UniqueIdentifier>{ac6691e1-559a-4721-958f-37c193276bd8}</UniqueIdentifier>
-    </Filter>
     <Filter Include="src\extension\nlohmann">
       <UniqueIdentifier>{5b4e8bf6-ad55-425e-877f-7a7f7f72f69d}</UniqueIdentifier>
     </Filter>
@@ -49,21 +46,15 @@
     <Filter Include="src\extension\Joyshock">
       <UniqueIdentifier>{bcbafc5b-0c12-4fab-aed0-5fe869bec46c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\utl">
+      <UniqueIdentifier>{ac6691e1-559a-4721-958f-37c193276bd8}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\application\base\ApplicationBase.h">
       <Filter>src\application\base</Filter>
     </ClInclude>
     <ClInclude Include="src\application\ecs_test\ECSTestApp.h">
-      <Filter>src\application\ecs_test</Filter>
-    </ClInclude>
-    <ClInclude Include="src\application\ecs_test\MovementSystem.h">
-      <Filter>src\application\ecs_test</Filter>
-    </ClInclude>
-    <ClInclude Include="src\application\ecs_test\Position.h">
-      <Filter>src\application\ecs_test</Filter>
-    </ClInclude>
-    <ClInclude Include="src\application\ecs_test\Velocity.h">
       <Filter>src\application\ecs_test</Filter>
     </ClInclude>
     <ClInclude Include="src\modules\dxlib\ACSM_Dxlib.h">
@@ -266,18 +257,6 @@
     </ClInclude>
     <ClInclude Include="src\modules\input\KeyWrapper.h">
       <Filter>src\modules\input</Filter>
-    </ClInclude>
-    <ClInclude Include="src\application\ecs_test\RenderingSystem.h">
-      <Filter>src\application\ecs_test</Filter>
-    </ClInclude>
-    <ClInclude Include="src\application\ecs_test\Color.h">
-      <Filter>src\application\ecs_test</Filter>
-    </ClInclude>
-    <ClInclude Include="src\application\ecs_test\Scale.h">
-      <Filter>src\application\ecs_test</Filter>
-    </ClInclude>
-    <ClInclude Include="src\core\System.h">
-      <Filter>src\core</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

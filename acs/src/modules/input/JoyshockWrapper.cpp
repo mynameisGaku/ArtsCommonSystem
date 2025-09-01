@@ -11,7 +11,6 @@ namespace
 		{
 			return 0.0f;
 		}
-
 		const float sign = (v >= 0.0f) ? 1.0f : -1.0f;
 		const float t = (std::fabs(v) - dz) / (1.0f - dz);
 		return std::clamp(sign * t, -1.0f, 1.0f);
@@ -40,9 +39,17 @@ void JoyshockWrapper::Destroy()
 
 JoyshockWrapper::JoyshockWrapper()
 	: m_Initialized(false)
-	, m_StickDeadZone(0.10f)     // 初期値：10%
-	, m_TriggerThreshold(0.10f)  // 初期値：10%
+	, m_StickDeadZone(0.10f)
+	, m_TriggerThreshold(0.10f)
 {
+	m_XInputDevices.resize(XUSER_MAX_COUNT);
+	for (auto& d : m_XInputDevices)
+	{
+		d.connected = false;
+		d.currXinputState = ::XINPUT_STATE{};
+		d.prevXinputState = ::XINPUT_STATE{};
+		d.handle = -1;
+	}
 }
 
 JoyshockWrapper::~JoyshockWrapper()
@@ -59,10 +66,13 @@ bool JoyshockWrapper::Initialize()
 		return true;
 	}
 
-	const int connected = JslConnectDevices();      // 現在接続されているデバイスを検出
-	(void)connected;                                 // 戻り値はすぐには使用しない（RefreshHandleList で正確に反映）
+	const int connected = JslConnectDevices();
+	(void)connected;
 
 	RefreshHandleList();
+
+	RefreshXInputHandleList();
+
 	m_Initialized = true;
 	return true;
 }
@@ -77,7 +87,17 @@ void JoyshockWrapper::Finalize()
 	}
 
 	m_Devices.clear();
-	JslDisconnectAndDisposeAll();                    // すべてのデバイス切断
+	JslDisconnectAndDisposeAll();
+
+	// XInput を初期化状態へ
+	for (auto& d : m_XInputDevices)
+	{
+		d.connected = false;
+		d.currXinputState = ::XINPUT_STATE{};
+		d.prevXinputState = ::XINPUT_STATE{};
+		d.handle = -1;
+	}
+
 	m_Initialized = false;
 }
 
@@ -90,11 +110,9 @@ void JoyshockWrapper::RescanDevices()
 		return;
 	}
 
-	// 既存接続を維持したまま再検出（JSL v3 以降は安全）
 	JslConnectDevices();
 	RefreshHandleList();
 
-	// XInput更新
 	RefreshXInputHandleList();
 }
 
@@ -122,17 +140,17 @@ void JoyshockWrapper::Update()
 
 		dev.prevButtons = dev.currButtons;
 
-		// アナログ含む簡易状態取得
 		dev.state = JslGetSimpleState(dev.handle);
 		dev.currButtons = static_cast<uint32_t>(dev.state.buttons);
 
-		// ジャイロは必要に応じて逐次取得（ここでは直近値を保持）
 		float gx = 0.0f, gy = 0.0f, gz = 0.0f;
 		JslGetAndFlushAccumulatedGyro(dev.handle, gx, gy, gz);
 		dev.lastGyroX = gx;
 		dev.lastGyroY = gy;
 		dev.lastGyroZ = gz;
 	}
+
+	RefreshXInputHandleList();
 }
 
 int JoyshockWrapper::GetDeviceCount() const
@@ -247,7 +265,6 @@ void JoyshockWrapper::GetTriggers(int index, float& outL, float& outR) const
 	float l = m_Devices[index].state.lTrigger;
 	float r = m_Devices[index].state.rTrigger;
 
-	// Nintendo 系は 0/1 の場合あり。しきい値を超えたら 1 とみなす。
 	l = (l >= m_TriggerThreshold) ? l : 0.0f;
 	r = (r >= m_TriggerThreshold) ? r : 0.0f;
 
@@ -265,7 +282,6 @@ void JoyshockWrapper::GetAndFlushGyro(int index, float& outX, float& outY, float
 		return;
 	}
 
-	// Update 内でも一度読み出しているが、ここで再度読み出して最新を返す。
 	float gx = 0.0f, gy = 0.0f, gz = 0.0f;
 	JslGetAndFlushAccumulatedGyro(m_Devices[index].handle, gx, gy, gz);
 	m_Devices[index].lastGyroX = gx;
@@ -341,156 +357,111 @@ void JoyshockWrapper::GetAndFlushGyro(float& outX, float& outY, float& outZ)
 
 bool JoyshockWrapper::GetXInputButton(int button, int padNum)
 {
-	if (m_XInputDevices[padNum].connected)
+	if (padNum < 0 || padNum >= static_cast<int>(m_XInputDevices.size()))
 	{
-		int _button = 0;
-
-		switch (button)
-		{
-		case 0x1000: _button = JSMASK_S; break;			// XINPUT_GAMEPAD_A
-		case 0x2000: _button = JSMASK_W; break;			// XINPUT_GAMEPAD_B
-		case 0x4000: _button = JSMASK_E; break;			// XINPUT_GAMEPAD_X
-		case 0x8000: _button = JSMASK_N; break;			// XINPUT_GAMEPAD_Y
-		case 0x0100: _button = JSMASK_L; break;			// XINPUT_GAMEPAD_LEFT_SHOULDER
-		case 0x0200: _button = JSMASK_R; break;			// XINPUT_GAMEPAD_RIGHT_SHOULDER
-		case 0x0010: _button = JSMASK_MINUS; break;		// XINPUT_GAMEPAD_BACK
-		case 0x0020: _button = JSMASK_PLUS; break;		// XINPUT_GAMEPAD_START
-		case 0x0040: _button = JSMASK_LCLICK; break;	// XINPUT_GAMEPAD_LEFT_THUMB
-		case 0x0080: _button = JSMASK_RCLICK; break;	// XINPUT_GAMEPAD_RIGHT_THUMB
-		case 0x0001: _button = JSMASK_UP; break;		// XINPUT_GAMEPAD_DPAD_UP
-		case 0x0002: _button = JSMASK_DOWN; break;		// XINPUT_GAMEPAD_DPAD_DOWN
-		case 0x0004: _button = JSMASK_LEFT; break;		// XINPUT_GAMEPAD_DPAD_LEFT
-		case 0x0008: _button = JSMASK_RIGHT; break;		// XINPUT_GAMEPAD_DPAD_RIGHT
-		default: return false; // 未対応
-		}
-		const DWORD currB = m_XInputDevices[padNum].currXinputState.Gamepad.wButtons;
-		return (currB & button) != 0;
+		return false;
 	}
-	return false;
+	if (!m_XInputDevices[padNum].connected)
+	{
+		return false;
+	}
+	const DWORD currB = m_XInputDevices[padNum].currXinputState.Gamepad.wButtons;
+	return (currB & static_cast<DWORD>(button)) != 0;
 }
 
 bool JoyshockWrapper::GetXInputButtonDown(int button, int padNum)
 {
-	if (m_XInputDevices[padNum].connected)
+	if (padNum < 0 || padNum >= static_cast<int>(m_XInputDevices.size()))
 	{
-		int _button = 0;
-
-		switch (button)
-		{
-		case 0x1000: _button = JSMASK_S; break;			// XINPUT_GAMEPAD_A
-		case 0x2000: _button = JSMASK_W; break;			// XINPUT_GAMEPAD_B
-		case 0x4000: _button = JSMASK_E; break;			// XINPUT_GAMEPAD_X
-		case 0x8000: _button = JSMASK_N; break;			// XINPUT_GAMEPAD_Y
-		case 0x0100: _button = JSMASK_L; break;			// XINPUT_GAMEPAD_LEFT_SHOULDER
-		case 0x0200: _button = JSMASK_R; break;			// XINPUT_GAMEPAD_RIGHT_SHOULDER
-		case 0x0010: _button = JSMASK_MINUS; break;		// XINPUT_GAMEPAD_BACK
-		case 0x0020: _button = JSMASK_PLUS; break;		// XINPUT_GAMEPAD_START
-		case 0x0040: _button = JSMASK_LCLICK; break;	// XINPUT_GAMEPAD_LEFT_THUMB
-		case 0x0080: _button = JSMASK_RCLICK; break;	// XINPUT_GAMEPAD_RIGHT_THUMB
-		case 0x0001: _button = JSMASK_UP; break;		// XINPUT_GAMEPAD_DPAD_UP
-		case 0x0002: _button = JSMASK_DOWN; break;		// XINPUT_GAMEPAD_DPAD_DOWN
-		case 0x0004: _button = JSMASK_LEFT; break;		// XINPUT_GAMEPAD_DPAD_LEFT
-		case 0x0008: _button = JSMASK_RIGHT; break;		// XINPUT_GAMEPAD_DPAD_RIGHT
-		default: return false; // 未対応
-		}
-		const DWORD prevB = m_XInputDevices[padNum].prevXinputState.Gamepad.wButtons;
-		const DWORD currB = m_XInputDevices[padNum].currXinputState.Gamepad.wButtons;
-		return ((~prevB) & currB & button) != 0;
+		return false;
 	}
-	return false;
+	if (!m_XInputDevices[padNum].connected)
+	{
+		return false;
+	}
+	const DWORD prevB = m_XInputDevices[padNum].prevXinputState.Gamepad.wButtons;
+	const DWORD currB = m_XInputDevices[padNum].currXinputState.Gamepad.wButtons;
+	return ((~prevB) & currB & static_cast<DWORD>(button)) != 0;
 }
 
 bool JoyshockWrapper::GetXInputButtonUp(int button, int padNum)
 {
-	if (m_XInputDevices[padNum].connected)
+	if (padNum < 0 || padNum >= static_cast<int>(m_XInputDevices.size()))
 	{
-		int _button = 0;
-
-		switch (button)
-		{
-		case 0x1000: _button = JSMASK_S; break;			// XINPUT_GAMEPAD_A
-		case 0x2000: _button = JSMASK_W; break;			// XINPUT_GAMEPAD_B
-		case 0x4000: _button = JSMASK_E; break;			// XINPUT_GAMEPAD_X
-		case 0x8000: _button = JSMASK_N; break;			// XINPUT_GAMEPAD_Y
-		case 0x0100: _button = JSMASK_L; break;			// XINPUT_GAMEPAD_LEFT_SHOULDER
-		case 0x0200: _button = JSMASK_R; break;			// XINPUT_GAMEPAD_RIGHT_SHOULDER
-		case 0x0010: _button = JSMASK_MINUS; break;		// XINPUT_GAMEPAD_BACK
-		case 0x0020: _button = JSMASK_PLUS; break;		// XINPUT_GAMEPAD_START
-		case 0x0040: _button = JSMASK_LCLICK; break;	// XINPUT_GAMEPAD_LEFT_THUMB
-		case 0x0080: _button = JSMASK_RCLICK; break;	// XINPUT_GAMEPAD_RIGHT_THUMB
-		case 0x0001: _button = JSMASK_UP; break;		// XINPUT_GAMEPAD_DPAD_UP
-		case 0x0002: _button = JSMASK_DOWN; break;		// XINPUT_GAMEPAD_DPAD_DOWN
-		case 0x0004: _button = JSMASK_LEFT; break;		// XINPUT_GAMEPAD_DPAD_LEFT
-		case 0x0008: _button = JSMASK_RIGHT; break;		// XINPUT_GAMEPAD_DPAD_RIGHT
-		default: return false; // 未対応
-		}
-		const DWORD prevB = m_XInputDevices[padNum].prevXinputState.Gamepad.wButtons;
-		const DWORD currB = m_XInputDevices[padNum].currXinputState.Gamepad.wButtons;
-		return ((prevB) & (~currB) & button) != 0;
+		return false;
 	}
-	return false;
+	if (!m_XInputDevices[padNum].connected)
+	{
+		return false;
+	}
+	const DWORD prevB = m_XInputDevices[padNum].prevXinputState.Gamepad.wButtons;
+	const DWORD currB = m_XInputDevices[padNum].currXinputState.Gamepad.wButtons;
+	return ((prevB) & (~currB) & static_cast<DWORD>(button)) != 0;
 }
 
 void JoyshockWrapper::GetXInputLeftStick(float& outLX, float& outLY, int padNum) const
 {
-	outLX = m_XInputDevices[padNum].connected
-		? static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.sThumbLX) / 32768.0f
-		: 0.0f;
-	outLY = m_XInputDevices[padNum].connected
-		? static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.sThumbLY) / 32768.0f
-		: 0.0f;
+	outLX = 0.0f;
+	outLY = 0.0f;
+	if (padNum < 0 || padNum >= static_cast<int>(m_XInputDevices.size()) || !m_XInputDevices[padNum].connected)
+	{
+		return;
+	}
+	outLX = static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.sThumbLX) / 32768.0f;
+	outLY = static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.sThumbLY) / 32768.0f;
 	outLX = ApplyDeadZone(outLX, m_StickDeadZone);
 	outLY = ApplyDeadZone(outLY, m_StickDeadZone);
 }
 
 void JoyshockWrapper::GetXInputRightStick(float& outRX, float& outRY, int padNum) const
 {
-	outRX = m_XInputDevices[padNum].connected
-		? static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.sThumbRX) / 32768.0f
-		: 0.0f;
-	outRY = m_XInputDevices[padNum].connected
-		? static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.sThumbRY) / 32768.0f
-		: 0.0f;
+	outRX = 0.0f;
+	outRY = 0.0f;
+	if (padNum < 0 || padNum >= static_cast<int>(m_XInputDevices.size()) || !m_XInputDevices[padNum].connected)
+	{
+		return;
+	}
+	outRX = static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.sThumbRX) / 32768.0f;
+	outRY = static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.sThumbRY) / 32768.0f;
 	outRX = ApplyDeadZone(outRX, m_StickDeadZone);
 	outRY = ApplyDeadZone(outRY, m_StickDeadZone);
 }
 
 void JoyshockWrapper::GetXInputTriggers(float& outL, float& outR, int padNum) const
 {
-	outL = m_XInputDevices[padNum].connected
-		? static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.bLeftTrigger) / 255.0f
-		: 0.0f;
-	outR = m_XInputDevices[padNum].connected
-		? static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.bRightTrigger) / 255.0f
-		: 0.0f;
-	// Xbox 系は 0/1 の場合あり。しきい値を超えたら 1 とみなす。
+	outL = 0.0f;
+	outR = 0.0f;
+	if (padNum < 0 || padNum >= static_cast<int>(m_XInputDevices.size()) || !m_XInputDevices[padNum].connected)
+	{
+		return;
+	}
+	outL = static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.bLeftTrigger) / 255.0f;
+	outR = static_cast<float>(m_XInputDevices[padNum].currXinputState.Gamepad.bRightTrigger) / 255.0f;
+
 	outL = (outL >= m_TriggerThreshold) ? outL : 0.0f;
 	outR = (outR >= m_TriggerThreshold) ? outR : 0.0f;
+
 	outL = std::clamp(outL, 0.0f, 1.0f);
 	outR = std::clamp(outR, 0.0f, 1.0f);
 }
 
 void JoyshockWrapper::RefreshHandleList()
 {
-	// 既存配列を維持しつつ、JSL から最新ハンドル列を取得して反映する
 	std::vector<int> temp;
-	temp.resize(64); // 一旦十分なサイズを確保
+	temp.resize(64);
 	int count = JslGetConnectedDeviceHandles(temp.data(), static_cast<int>(temp.size()));
 	if (count > static_cast<int>(temp.size()))
 	{
-		// 必要に応じて再確保
 		temp.resize(count);
 		count = JslGetConnectedDeviceHandles(temp.data(), static_cast<int>(temp.size()));
 	}
 	temp.resize(std::max(0, count));
 
-	// 新リストに合わせて m_Devices を再構成
 	std::vector<DeviceState> newList;
 	newList.reserve(temp.size());
 
 	for (int h : temp)
 	{
-		// 既存に同ハンドルがあれば状態を引き継ぐ
 		auto it = std::find_if(m_Devices.begin(), m_Devices.end(),
 			[h](const DeviceState& d)
 			{
@@ -511,7 +482,6 @@ void JoyshockWrapper::RefreshHandleList()
 			d.state = JOY_SHOCK_STATE{};
 			d.lastGyroX = d.lastGyroY = d.lastGyroZ = 0.0f;
 
-			// 初回サンプルを取得しておく
 			d.state = JslGetSimpleState(h);
 			d.currButtons = static_cast<uint32_t>(d.state.buttons);
 
@@ -529,28 +499,26 @@ bool JoyshockWrapper::IsValidIndex(int index) const
 
 void JoyshockWrapper::RefreshXInputHandleList()
 {
-	DWORD dwResult;
 	for (DWORD i = 0; i < XUSER_MAX_COUNT; i++)
 	{
-		::XINPUT_STATE state;
-		ZeroMemory(&state, sizeof(::XINPUT_STATE));
+		::XINPUT_STATE state{};
+		const DWORD rv = XInputGetState(i, &state);
 
-		// Simply get the state of the controller from XInput.
-		dwResult = XInputGetState(i, &state);
+		auto& xd = m_XInputDevices[i];
 
-		if (dwResult == ERROR_SUCCESS)
+		if (rv == ERROR_SUCCESS)
 		{
-			m_XInputDevices[i].connected = true;
-			m_XInputDevices[i].prevXinputState = m_XInputDevices[i].currXinputState;
-			m_XInputDevices[i].currXinputState = state;
-			m_XInputDevices[i].handle = i;
+			xd.connected = true;
+			xd.prevXinputState = xd.currXinputState;
+			xd.currXinputState = state;
+			xd.handle = static_cast<int>(i);
 		}
 		else
 		{
-			m_XInputDevices[i].connected = false;
-			m_XInputDevices[i].currXinputState = ::XINPUT_STATE{};
-			m_XInputDevices[i].prevXinputState = ::XINPUT_STATE{};
-			m_XInputDevices[i].handle = -1;
+			xd.connected = false;
+			xd.prevXinputState = ::XINPUT_STATE{};
+			xd.currXinputState = ::XINPUT_STATE{};
+			xd.handle = -1;
 		}
 	}
 }

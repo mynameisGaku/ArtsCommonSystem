@@ -6,6 +6,8 @@
 #pragma comment(lib, "xinput.lib")
 #pragma comment(lib, "JoyShockLibrary.lib")
 
+#include <malloc.h>
+#include <crtdbg.h>
 #include <array>
 #include <vector>
 #include <unordered_map>

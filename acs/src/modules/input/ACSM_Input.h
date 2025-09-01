@@ -2,10 +2,11 @@
 #define ACSM_INPUT
 #pragma comment(lib, "JoyShockLibrary.lib")
 
+#include "Pch.h"
 #include "KeyWrapper.h"
 
 namespace ACSM_Input
-{
+{	
 	void Initialize();
 	void Finalize();
 	void Update();
@@ -23,7 +24,7 @@ namespace ACSM_Input
 	void GetLeftStick(float& outLX, float& outLY);
 	void GetRightStick(float& outRX, float& outRY);
 	void GetTriggers(float& outL, float& outR);
-	void GetAndFlushGyro(float& outX, float& outY, float& outZ); // ジャイロ
+	void GetAndFlushGyro(float& outX, float& outY, float& outZ);
 
 	bool GetButton(int button, int padNum);
 	bool GetButtonDown(int button, int padNum);
@@ -31,25 +32,19 @@ namespace ACSM_Input
 	void GetLeftStick(float& outLX, float& outLY, int padNum);
 	void GetRightStick(float& outRX, float& outRY, int padNum);
 	void GetTriggers(float& outL, float& outR, int padNum);
-		
+
 	/// <summary>
 	/// 仮想キー名に物理入力を登録する
+	/// 0xFF以下 = Keyboard VK / それ以外 = Pad（JSL or XInput）
 	/// </summary>
-	/// <param name="key">任意の登録名</param>
-	/// <param name="button">0xFF以下ならキーボードVK、0xFFよりも↑なら JoyShock のボタンマスク</param>
-	/// <returns></returns>
 	bool SubscribeVirtualKey(const std::string& key, int button);
 
-	///<summary>仮想キーの現在状態（押下中）を取得する。</summary>
+	///<summary>仮想キー（押下中/Down/Up）</summary>
 	bool GetVirtualKey(const std::string& key);
-
-	///<summary>仮想キーの押した瞬間を取得する（前フレーム非押下 → 今フレーム押下）。</summary>
 	bool GetVirtualKeyDown(const std::string& key);
-
-	///<summary>仮想キーの離した瞬間を取得する（前フレーム押下 → 今フレーム非押下）。</summary>
 	bool GetVirtualKeyUp(const std::string& key);
 
-	// jsonからキー設定を読み込む
+	// jsonからキー設定を読み込む（Keyboard / Pad(JSL) / XPad(XInput)）
 	void SubscribeVirtualKeyFromJson(const std::string& path);
 
 #ifdef ACSM_DXLIB
@@ -69,6 +64,13 @@ namespace ACSM_Input
 	void SetMousePosition(int x, int y);
 	void SetMouseVisible(bool visible);
 #endif
+
+	bool GetXInputButton(int xinputButton, int padNum = 0);
+	bool GetXInputButtonDown(int xinputButton, int padNum = 0);
+	bool GetXInputButtonUp(int xinputButton, int padNum = 0);
+	void GetXInputLeftStick(float& outLX, float& outLY, int padNum = 0);
+	void GetXInputRightStick(float& outRX, float& outRY, int padNum = 0);
+	void GetXInputTriggers(float& outL, float& outR, int padNum = 0);
 };
 
 using namespace ACSM_Input;

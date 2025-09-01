@@ -21,16 +21,7 @@
   <ItemGroup>
     <ClInclude Include="Pch.h" />
     <ClInclude Include="src\application\base\ApplicationBase.h" />
-    <ClInclude Include="src\application\ecs_test\Color.h" />
     <ClInclude Include="src\application\ecs_test\ECSTestApp.h" />
-    <ClInclude Include="src\application\ecs_test\MovementSystem.h" />
-    <ClInclude Include="src\application\ecs_test\Name.h" />
-    <ClInclude Include="src\application\ecs_test\Position.h" />
-    <ClInclude Include="src\application\ecs_test\RenderingSystem.h" />
-    <ClInclude Include="src\application\ecs_test\Scale.h" />
-    <ClInclude Include="src\application\ecs_test\Tag_Player.h" />
-    <ClInclude Include="src\application\ecs_test\Velocity.h" />
-    <ClInclude Include="src\core\System.h" />
     <ClInclude Include="src\core\UseModules.h" />
     <ClInclude Include="src\extension\ImGui\imconfig.h" />
     <ClInclude Include="src\extension\ImGui\imgui.h" />
