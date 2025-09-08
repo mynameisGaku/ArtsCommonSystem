@@ -15,7 +15,8 @@
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 {
 	SetOutApplicationLogValidFlag(FALSE);
-	SetWindowSize(800, 600);
+	SetWindowSize(1280, 720);
+	SetGraphMode(1280, 720, 32);
 	ChangeWindowMode(TRUE);
 	if (DxLib_Init() == -1)
 	{
