@@ -269,9 +269,9 @@ class KeyWrapper
 public:
 
 	static KeyWrapper& Instance();
-	static void Destroy();
 
-	void Finalize();
+	void Destroy();
+	void Uninitialize();
 
 	void Update();
 

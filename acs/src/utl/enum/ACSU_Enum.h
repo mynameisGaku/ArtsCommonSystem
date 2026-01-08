@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include "Pch.h"
 
-namespace ACSM_Enum
+namespace ACSU_Enum
 {
 	/// <summary>
 	/// string -> enum

@@ -10,7 +10,7 @@ namespace
 	{
 		std::unordered_map<std::string, uint32_t>* kPadMap =
 			new std::unordered_map<std::string, uint32_t>{
-				{ "S", JSMASK_S }, { "PAD_S", JSMASK_S },
+				{ "Instance", JSMASK_S }, { "PAD_S", JSMASK_S },
 				{ "W", JSMASK_W }, { "PAD_W", JSMASK_W },
 				{ "E", JSMASK_E }, { "PAD_E", JSMASK_E },
 				{ "N", JSMASK_N }, { "PAD_N", JSMASK_N },
@@ -79,7 +79,7 @@ namespace ACS_Mouse
 		g_pButtonsPrev = new std::unordered_map<MouseButton, bool>;
 	}
 
-	void Finalize()
+	void Destroy()
 	{
 		delete g_pButtons;
 		delete g_pButtonsPrev;
@@ -126,7 +126,7 @@ namespace ASC_VirtualKey
 		s_pPrev = new std::unordered_map<std::string, bool>;
 	}
 
-	void Finalize()
+	void Destroy()
 	{
 		delete s_pBindings;
 		delete s_pCurr;
@@ -230,10 +230,10 @@ void ACSM_Input::Initialize()
 	ACS_Mouse::Initialize();
 	ASC_VirtualKey::Initialize();
 }
-void ACSM_Input::Finalize()
+void ACSM_Input::Destroy()
 {
-	ACS_Mouse::Finalize();
-	ASC_VirtualKey::Finalize();
+	ACS_Mouse::Destroy();
+	ASC_VirtualKey::Destroy();
 	JoyshockWrapper::Instance().Destroy();
 	KeyWrapper::Instance().Destroy();
 }
@@ -407,7 +407,7 @@ void ACSM_Input::SubscribeVirtualKeyFromJson(const std::string& path)
 			std::string keyName = value["KeyName"];
 
 			// 既存の ToEnum を使いつつ、未対応なら文字列で XPad を拾う
-			DeviceType device = ACSM_Enum::ToEnum<DeviceType>(deviceName, DeviceType::None);
+			DeviceType device = ACSU_Enum::ToEnum<DeviceType>(deviceName, DeviceType::None);
 			if (device == DeviceType::None)
 			{
 				if (deviceName == "XPad" || deviceName == "xpad" || deviceName == "XINPUT")
@@ -428,7 +428,7 @@ void ACSM_Input::SubscribeVirtualKeyFromJson(const std::string& path)
 			{
 			case DeviceType::Keyboard:
 			{
-				KeyCode keyCode = ACSM_Enum::ToEnum(keyName, KeyCode::NONE);
+				KeyCode keyCode = ACSU_Enum::ToEnum(keyName, KeyCode::NONE);
 				if (keyCode != KeyCode::NONE)
 				{
 					Binding b{};

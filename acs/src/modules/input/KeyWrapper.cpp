@@ -28,7 +28,6 @@ KeyWrapper::KeyWrapper()
 
 KeyWrapper::~KeyWrapper()
 {
-	Finalize();
 }
 
 void KeyWrapper::Destroy()
@@ -40,8 +39,10 @@ void KeyWrapper::Destroy()
 	m_pInstance = nullptr;
 }
 
-void KeyWrapper::Finalize()
+void KeyWrapper::Uninitialize()
 {
+	std::memset(m_KeyState, 0, sizeof(m_KeyState));
+	std::memset(m_KeyStatePrev, 0, sizeof(m_KeyStatePrev));
 }
 
 void KeyWrapper::Update()

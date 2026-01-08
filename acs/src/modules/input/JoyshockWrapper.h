@@ -48,7 +48,6 @@ class JoyshockWrapper
 {
 public:
 	static JoyshockWrapper& Instance();
-	static void Destroy();
 
 	///<summary>
 	/// 初期化。接続済みデバイスを検出して内部状態を構築する。
@@ -59,7 +58,12 @@ public:
 	///<summary>
 	/// 終了処理。全デバイス切断と内部リソースの解放を行う。
 	///</summary>
-	void Finalize();
+	void Destroy();
+
+	/// <summary>
+	/// コンポーネントやライブラリの初期化を解除する。内部リソースの解放や終了処理を行うために呼び出す関数。
+	/// </summary>
+	void Uninitialize();
 
 	///<summary>
 	/// デバイスの再検出（ホットプラグ対応）。既存接続を維持したまま新規デバイスを追加検出する。

@@ -1,312 +1,423 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="src">
+    <Filter Include="app">
+      <UniqueIdentifier>{2a91d551-0f17-4e3b-9e36-b97c24e2872a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources">
+      <UniqueIdentifier>{2a272b4a-ffd6-4218-a04f-afefd8eb9413}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src">
       <UniqueIdentifier>{2ea6b130-7e07-4bd4-b67d-5a54c1543fef}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\modules">
+    <Filter Include="acs_core_sources\src\modules">
       <UniqueIdentifier>{c456d0c6-b3c5-4b3e-af84-7b2b0ada3f37}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\core">
-      <UniqueIdentifier>{a97e9dba-9748-4111-b66c-1c941554c36a}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\extension">
-      <UniqueIdentifier>{ae126d97-f0d2-4215-8e9b-f63fcee10fae}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\application">
-      <UniqueIdentifier>{69b6d858-74b7-4eec-be4e-ceca471426fb}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\application\base">
-      <UniqueIdentifier>{38c42595-31e1-471d-8aee-e5f998d7490e}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\modules\ecs">
-      <UniqueIdentifier>{b35f8696-ae17-410e-8d80-c83e4b0e10cd}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\application\ecs_test">
-      <UniqueIdentifier>{3ba5bb74-29a3-4dee-9d08-0973432e028d}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\modules\dxlib">
+    <Filter Include="acs_core_sources\src\modules\dxlib">
       <UniqueIdentifier>{fccba595-35b5-4261-9ed7-b982524505c3}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\extension\ImGui">
-      <UniqueIdentifier>{6cc2da2a-b1d4-4e47-9f66-cbe9aaa1dce4}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\modules\input">
+    <Filter Include="acs_core_sources\src\modules\input">
       <UniqueIdentifier>{ade3f00f-7dc5-4807-89a0-934f7a039aa6}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\extension\nlohmann">
+    <Filter Include="acs_core_sources\src\core">
+      <UniqueIdentifier>{a97e9dba-9748-4111-b66c-1c941554c36a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\extension">
+      <UniqueIdentifier>{ae126d97-f0d2-4215-8e9b-f63fcee10fae}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\extension\ImGui">
+      <UniqueIdentifier>{6cc2da2a-b1d4-4e47-9f66-cbe9aaa1dce4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\extension\nlohmann">
       <UniqueIdentifier>{5b4e8bf6-ad55-425e-877f-7a7f7f72f69d}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\extension\uuid4">
+    <Filter Include="acs_core_sources\src\extension\uuid4">
       <UniqueIdentifier>{ef01af4d-5932-4e5a-aab3-e95546f9b97f}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\extension\magic_enum">
+    <Filter Include="acs_core_sources\src\extension\magic_enum">
       <UniqueIdentifier>{66dc91dd-15eb-4b5f-8668-f988722a3a3e}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\extension\Joyshock">
+    <Filter Include="acs_core_sources\src\extension\Joyshock">
       <UniqueIdentifier>{bcbafc5b-0c12-4fab-aed0-5fe869bec46c}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\utl">
+    <Filter Include="acs_core_sources\src\utl">
       <UniqueIdentifier>{ac6691e1-559a-4721-958f-37c193276bd8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\pre-compile">
+      <UniqueIdentifier>{a8caed03-2c49-470f-bc90-3982945f152b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\core\components">
+      <UniqueIdentifier>{027d2f8d-dac9-4edf-9e00-8e64a3141307}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="app\scenes">
+      <UniqueIdentifier>{f0a70bd4-4f6a-4214-b1dc-369fc7bd9e73}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="app\components">
+      <UniqueIdentifier>{9377249f-516e-41bd-a682-da891b03d12a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\core\sky">
+      <UniqueIdentifier>{d5fbd9de-410b-470c-b3a4-efedfae5c2af}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\application\base\ApplicationBase.h">
-      <Filter>src\application\base</Filter>
-    </ClInclude>
-    <ClInclude Include="src\application\ecs_test\ECSTestApp.h">
-      <Filter>src\application\ecs_test</Filter>
-    </ClInclude>
     <ClInclude Include="src\modules\dxlib\ACSM_Dxlib.h">
-      <Filter>src\modules\dxlib</Filter>
+      <Filter>acs_core_sources\src\modules\dxlib</Filter>
     </ClInclude>
     <ClInclude Include="src\core\UseModules.h">
-      <Filter>src\core</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\ACSM_ECS.h">
-      <Filter>src\modules\ecs</Filter>
+      <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
     <ClInclude Include="Pch.h">
-      <Filter>src</Filter>
-    </ClInclude>
-    <ClInclude Include="src\modules\ecs\seecs.h">
-      <Filter>src\modules\ecs</Filter>
+      <Filter>acs_core_sources\src</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imconfig.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imgui.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imgui_impl_dx9.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imgui_impl_dx11.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imgui_impl_dxlib.hpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imgui_impl_win32.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imgui_internal.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imstb_rectpack.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imstb_textedit.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imstb_truetype.h">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClInclude>
-    <ClInclude Include="src\utl\enum\ACSM_Enum.h">
-      <Filter>src\utl</Filter>
+    <ClInclude Include="src\utl\enum\ACSU_Enum.h">
+      <Filter>acs_core_sources\src\utl</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\uuid4\uuid4.h">
-      <Filter>src\extension\uuid4</Filter>
+      <Filter>acs_core_sources\src\extension\uuid4</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\adl_serializer.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\byte_container_with_subtype.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\abi_macros.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\conversions\from_json.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\conversions\to_chars.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\conversions\to_json.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\exceptions.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\hash.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\input\binary_reader.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\input\input_adapters.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\input\json_sax.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\input\lexer.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\input\parser.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\input\position_t.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\iterators\internal_iterator.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\iterators\iteration_proxy.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\iterators\iterator_traits.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\iterators\iter_impl.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\iterators\json_reverse_iterator.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\iterators\primitive_iterator.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\json_custom_base_class.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\json_pointer.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\json_ref.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\macro_scope.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\macro_unscope.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\call_std\begin.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\call_std\end.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\cpp_future.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\detected.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\identity_tag.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\is_sax.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\std_fs.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\type_traits.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\meta\void_t.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\output\binary_writer.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\output\output_adapters.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\output\serializer.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\string_concat.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\string_escape.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\detail\value_t.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\json.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\json_fwd.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\ordered_map.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\thirdparty\hedley\hedley.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\nlohmann\thirdparty\hedley\hedley_undef.hpp">
-      <Filter>src\extension\nlohmann</Filter>
+      <Filter>acs_core_sources\src\extension\nlohmann</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\magic_enum\magic_enum.hpp">
-      <Filter>src\extension\magic_enum</Filter>
+      <Filter>acs_core_sources\src\extension\magic_enum</Filter>
     </ClInclude>
     <ClInclude Include="src\modules\input\ACSM_Input.h">
-      <Filter>src\modules\input</Filter>
+      <Filter>acs_core_sources\src\modules\input</Filter>
     </ClInclude>
     <ClInclude Include="src\modules\input\JoyshockWrapper.h">
-      <Filter>src\modules\input</Filter>
+      <Filter>acs_core_sources\src\modules\input</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\Joyshock\JoyShockLibrary.h">
-      <Filter>src\extension\Joyshock</Filter>
+      <Filter>acs_core_sources\src\extension\Joyshock</Filter>
     </ClInclude>
     <ClInclude Include="src\modules\input\KeyWrapper.h">
-      <Filter>src\modules\input</Filter>
+      <Filter>acs_core_sources\src\modules\input</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\CoreMacros.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\ApplicationManager.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\IApplication.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="app\App.h">
+      <Filter>app</Filter>
+    </ClInclude>
+    <ClInclude Include="src\pre-compile\stl_pre_compile.h">
+      <Filter>acs_core_sources\src\pre-compile</Filter>
+    </ClInclude>
+    <ClInclude Include="src\pre-compile\acs_pre_compile.h">
+      <Filter>acs_core_sources\src\pre-compile</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\IScene.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\time\ACSU_Time.h">
+      <Filter>acs_core_sources\src\utl</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\SceneManager.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\IObject.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\GameObject.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\ACSU_Math.h">
+      <Filter>acs_core_sources\src\utl</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\Transform.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\TransformMath.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\Component.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\components\CameraComponent.h">
+      <Filter>acs_core_sources\src\core\components</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\SceneBase.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="app\GameScene.h">
+      <Filter>app\scenes</Filter>
+    </ClInclude>
+    <ClInclude Include="app\TitleScene.h">
+      <Filter>app\scenes</Filter>
+    </ClInclude>
+    <ClInclude Include="app\SpriteComponent.h">
+      <Filter>app\components</Filter>
+    </ClInclude>
+    <ClInclude Include="app\BoxRenderComponent.h">
+      <Filter>app\components</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\message\MessageBroker.h">
+      <Filter>acs_core_sources\src\utl</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\Blackboard.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\BlackboardKeys.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\TransformTRS.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\sky\SkyTextureGenerator.h">
+      <Filter>acs_core_sources\src\core\sky</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\sky\SkyComponent.h">
+      <Filter>acs_core_sources\src\core\sky</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\sky\SkyMeshComponent.h">
+      <Filter>acs_core_sources\src\core\sky</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp">
-      <Filter>src\application\ecs_test</Filter>
-    </ClCompile>
     <ClCompile Include="src\main.cpp">
-      <Filter>src</Filter>
+      <Filter>acs_core_sources\src</Filter>
     </ClCompile>
     <ClCompile Include="Pch.cpp">
-      <Filter>src</Filter>
+      <Filter>acs_core_sources\src</Filter>
     </ClCompile>
     <ClCompile Include="src\modules\dxlib\ACSM_Dxlib.cpp">
-      <Filter>src\modules\dxlib</Filter>
+      <Filter>acs_core_sources\src\modules\dxlib</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui.cpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui_draw.cpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui_impl_dx9.cpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui_impl_dx11.cpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui_impl_win32.cpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui_ja_gryph_ranges.cpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui_tables.cpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\ImGui\imgui_widgets.cpp">
-      <Filter>src\extension\ImGui</Filter>
+      <Filter>acs_core_sources\src\extension\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="src\extension\uuid4\uuid4.cpp">
-      <Filter>src\extension\uuid4</Filter>
+      <Filter>acs_core_sources\src\extension\uuid4</Filter>
     </ClCompile>
     <ClCompile Include="src\modules\input\JoyshockWrapper.cpp">
-      <Filter>src\modules\input</Filter>
+      <Filter>acs_core_sources\src\modules\input</Filter>
     </ClCompile>
     <ClCompile Include="src\modules\input\KeyWrapper.cpp">
-      <Filter>src\modules\input</Filter>
+      <Filter>acs_core_sources\src\modules\input</Filter>
     </ClCompile>
     <ClCompile Include="src\modules\input\ACSM_Input.cpp">
-      <Filter>src\modules\input</Filter>
+      <Filter>acs_core_sources\src\modules\input</Filter>
     </ClCompile>
+    <ClCompile Include="app\App.cpp">
+      <Filter>app</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utl\time\ACSU_Time.cpp">
+      <Filter>acs_core_sources\src\utl</Filter>
+    </ClCompile>
+    <ClCompile Include="app\GameScene.cpp">
+      <Filter>app\scenes</Filter>
+    </ClCompile>
+    <ClCompile Include="app\TitleScene.cpp">
+      <Filter>app\scenes</Filter>
+    </ClCompile>
+    <ClCompile Include="app\BoxRenderComponent.cpp">
+      <Filter>app\components</Filter>
+    </ClCompile>
+    <ClCompile Include="app\SpriteComponent.cpp">
+      <Filter>app\components</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\Transform.cpp">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\components\CameraComponent.cpp">
+      <Filter>acs_core_sources\src\core\components</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\sky\SkyComponent.cpp">
+      <Filter>acs_core_sources\src\core\sky</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\sky\SkyMeshComponent.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\utl\message\MessageBroker.inl">
+      <Filter>acs_core_sources\src\utl</Filter>
+    </None>
   </ItemGroup>
 </Project>

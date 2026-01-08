@@ -8,12 +8,22 @@
 
 #include "Pch.h"
 
-#include <extension/ImGui/imgui_impl_dxlib.hpp>
-
-#include <application/ecs_test/ECSTestApp.h>
+void Shutdown()
+{
+	ImGui_ImplDXlib_Shutdown();
+	ImGui::DestroyContext();
+	DxLib_End();
+#ifdef _CRTDBG_MAP_ALLOC
+#ifdef _DEBUG
+	_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
+	_CrtDumpMemoryLeaks();
+#endif
+#endif
+}
 
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 {
+
 	SetOutApplicationLogValidFlag(FALSE);
 	SetWindowSize(1280, 720);
 	SetGraphMode(1280, 720, 32);
@@ -40,36 +50,39 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 	ImGui_ImplDXlib_Init();
 
 	SetChangeScreenModeGraphicsSystemResetFlag(FALSE);
-#if ECSTEST
-	ECSTestApp app;
-#else
-	ApplicationBase app;
-#endif
+
+	ApplicationManager* appManager = ApplicationManager::GetInstance();
+	IApplication* app = appManager->GetCurrentApplication();
+
+	if (app == nullptr)
+	{
+		appManager->Destroy();
+		Shutdown();
+		return 0;
+	}
 
 	SetDrawScreen(DX_SCREEN_BACK);
 	SetAlwaysRunFlag(TRUE);
 	SetUseZBuffer3D(TRUE);
 	SetWriteZBuffer3D(TRUE);
 
-	app.OnStart();
+	app->OnStart();
 
 	const int targetFPS = 60;
 	const int frameDelay = 1000 / targetFPS;
 
-	while (true)
+	while (ProcessMessage() == 0 && CheckHitKey(KEY_INPUT_ESCAPE) == 0)
 	{
 		ImGui_ImplDXlib_NewFrame();
 		ImGui::NewFrame();
 
 		int startTime = GetNowCount();
 
-		app.Update();
-		ClearDrawScreen();
-		app.Draw();
+		app->OnUpdate();
+		app->OnDraw();
 
-		if (ProcessMessage() == -1)
-			break;
 		ScreenFlip();
+		ClearDrawScreen();
 
 		int elapsedTime = GetNowCount() - startTime;
 		if (elapsedTime < frameDelay)
@@ -88,19 +101,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 		}
 	}
 
-	app.OnDestroy();
+	app->OnDestroy();
 
-	ImGui_ImplDXlib_Shutdown();
-	ImGui::DestroyContext();
-
-	DxLib_End();
-
-#ifdef _CRTDBG_MAP_ALLOC
-#ifdef _DEBUG
-	_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
-	_CrtDumpMemoryLeaks();
-#endif
-#endif
+	Shutdown();
 
 	return 0;
 }

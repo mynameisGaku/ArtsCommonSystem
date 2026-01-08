@@ -5016,13 +5016,13 @@ bool ImGui::ColorEdit4(const char* label, float col[4], ImGuiColorEditFlags flag
         {
             {   "%3d",   "%3d",   "%3d",   "%3d" }, // Short display
             { "R:%3d", "G:%3d", "B:%3d", "A:%3d" }, // Long display for RGBA
-            { "H:%3d", "S:%3d", "V:%3d", "A:%3d" }  // Long display for HSVA
+            { "H:%3d", "Instance:%3d", "V:%3d", "A:%3d" }  // Long display for HSVA
         };
         static const char* fmt_table_float[3][4] =
         {
             {   "%0.3f",   "%0.3f",   "%0.3f",   "%0.3f" }, // Short display
             { "R:%0.3f", "G:%0.3f", "B:%0.3f", "A:%0.3f" }, // Long display for RGBA
-            { "H:%0.3f", "S:%0.3f", "V:%0.3f", "A:%0.3f" }  // Long display for HSVA
+            { "H:%0.3f", "Instance:%0.3f", "V:%0.3f", "A:%0.3f" }  // Long display for HSVA
         };
         const int fmt_idx = hide_prefix ? 0 : (flags & ImGuiColorEditFlags_DisplayHSV) ? 2 : 1;
 
@@ -5701,9 +5701,9 @@ void ImGui::ColorTooltip(const char* text, const float* col, ImGuiColorEditFlags
     else if (flags & ImGuiColorEditFlags_InputHSV)
     {
         if (flags & ImGuiColorEditFlags_NoAlpha)
-            Text("H: %.3f, S: %.3f, V: %.3f", col[0], col[1], col[2]);
+            Text("H: %.3f, Instance: %.3f, V: %.3f", col[0], col[1], col[2]);
         else
-            Text("H: %.3f, S: %.3f, V: %.3f, A: %.3f", col[0], col[1], col[2], col[3]);
+            Text("H: %.3f, Instance: %.3f, V: %.3f, A: %.3f", col[0], col[1], col[2], col[3]);
     }
     EndTooltip();
 }

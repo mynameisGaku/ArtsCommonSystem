@@ -8,7 +8,7 @@
 namespace ACSM_Input
 {	
 	void Initialize();
-	void Finalize();
+	void Destroy();
 	void Update();
 
 	bool GetKey(int key);

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -19,9 +19,30 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="app\BoxRenderComponent.h" />
+    <ClInclude Include="app\GameScene.h" />
+    <ClInclude Include="app\App.h" />
+    <ClInclude Include="app\SpriteComponent.h" />
+    <ClInclude Include="app\TitleScene.h" />
     <ClInclude Include="Pch.h" />
-    <ClInclude Include="src\application\base\ApplicationBase.h" />
-    <ClInclude Include="src\application\ecs_test\ECSTestApp.h" />
+    <ClInclude Include="src\core\Blackboard.h" />
+    <ClInclude Include="src\core\Component.h" />
+    <ClInclude Include="src\core\components\CameraComponent.h" />
+    <ClInclude Include="src\core\GameObject.h" />
+    <ClInclude Include="src\core\IApplication.h" />
+    <ClInclude Include="src\core\ApplicationManager.h" />
+    <ClInclude Include="src\core\CoreMacros.h" />
+    <ClInclude Include="src\core\IObject.h" />
+    <ClInclude Include="src\core\IScene.h" />
+    <ClInclude Include="src\core\BlackboardKeys.h" />
+    <ClInclude Include="src\core\SceneBase.h" />
+    <ClInclude Include="src\core\SceneManager.h" />
+    <ClInclude Include="src\core\sky\SkyComponent.h" />
+    <ClInclude Include="src\core\sky\SkyMeshComponent.h" />
+    <ClInclude Include="src\core\sky\SkyTextureGenerator.h" />
+    <ClInclude Include="src\core\Transform.h" />
+    <ClInclude Include="src\core\TransformMath.h" />
+    <ClInclude Include="src\core\TransformTRS.h" />
     <ClInclude Include="src\core\UseModules.h" />
     <ClInclude Include="src\extension\ImGui\imconfig.h" />
     <ClInclude Include="src\extension\ImGui\imgui.h" />
@@ -82,21 +103,35 @@
     <ClInclude Include="src\extension\nlohmann\thirdparty\hedley\hedley_undef.hpp" />
     <ClInclude Include="src\extension\uuid4\uuid4.h" />
     <ClInclude Include="src\modules\dxlib\ACSM_Dxlib.h" />
-    <ClInclude Include="src\modules\ecs\ACSM_ECS.h" />
-    <ClInclude Include="src\modules\ecs\seecs.h" />
     <ClInclude Include="src\modules\input\ACSM_Input.h" />
     <ClInclude Include="src\modules\input\JoyshockWrapper.h" />
     <ClInclude Include="src\modules\input\KeyWrapper.h" />
-    <ClInclude Include="src\utl\enum\ACSM_Enum.h" />
+    <ClInclude Include="src\pre-compile\acs_pre_compile.h" />
+    <ClInclude Include="src\pre-compile\stl_pre_compile.h" />
+    <ClInclude Include="src\utl\enum\ACSU_Enum.h" />
+    <ClInclude Include="src\utl\math\ACSU_Math.h" />
+    <ClInclude Include="src\utl\message\MessageBroker.h" />
+    <ClInclude Include="src\utl\time\ACSU_Time.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="app\BoxRenderComponent.cpp">
+      <RuntimeLibrary Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <ClCompile Include="app\GameScene.cpp" />
+    <ClCompile Include="app\App.cpp" />
+    <ClCompile Include="app\SpriteComponent.cpp" />
+    <ClCompile Include="app\TitleScene.cpp" />
     <ClCompile Include="Pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="src\application\ecs_test\ECSTestApp.cpp" />
+    <ClCompile Include="src\core\components\CameraComponent.cpp" />
+    <ClCompile Include="src\core\sky\SkyComponent.cpp" />
+    <ClCompile Include="src\core\sky\SkyMeshComponent.cpp" />
+    <ClCompile Include="src\core\Transform.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui_draw.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui_impl_dx11.cpp" />
@@ -111,6 +146,10 @@
     <ClCompile Include="src\modules\input\ACSM_Input.cpp" />
     <ClCompile Include="src\modules\input\JoyshockWrapper.cpp" />
     <ClCompile Include="src\modules\input\KeyWrapper.cpp" />
+    <ClCompile Include="src\utl\time\ACSU_Time.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\utl\message\MessageBroker.inl" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -123,26 +162,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
@@ -271,6 +310,5 @@
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-  </ImportGroup>
+  <ImportGroup Label="ExtensionTargets" />
 </Project>

@@ -81,3 +81,8 @@ const VECTOR_D operator *(const VECTOR_D& v, const MATRIX_D& m1);
 
 VECTOR& operator *=(VECTOR& v, const MATRIX& m1);
 VECTOR_D& operator *=(VECTOR_D& v, const MATRIX_D& m1);
+
+namespace ACSM_Dxlib
+{
+    
+}

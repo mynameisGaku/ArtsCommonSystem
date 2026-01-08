@@ -37,47 +37,7 @@ void JoyshockWrapper::Destroy()
 	m_pInstance = nullptr;
 }
 
-JoyshockWrapper::JoyshockWrapper()
-	: m_Initialized(false)
-	, m_StickDeadZone(0.10f)
-	, m_TriggerThreshold(0.10f)
-{
-	m_XInputDevices.resize(XUSER_MAX_COUNT);
-	for (auto& d : m_XInputDevices)
-	{
-		d.connected = false;
-		d.currXinputState = ::XINPUT_STATE{};
-		d.prevXinputState = ::XINPUT_STATE{};
-		d.handle = -1;
-	}
-}
-
-JoyshockWrapper::~JoyshockWrapper()
-{
-	Finalize();
-}
-
-bool JoyshockWrapper::Initialize()
-{
-	std::lock_guard<std::mutex> lock(m_Mutex);
-
-	if (m_Initialized)
-	{
-		return true;
-	}
-
-	const int connected = JslConnectDevices();
-	(void)connected;
-
-	RefreshHandleList();
-
-	RefreshXInputHandleList();
-
-	m_Initialized = true;
-	return true;
-}
-
-void JoyshockWrapper::Finalize()
+void JoyshockWrapper::Uninitialize()
 {
 	std::lock_guard<std::mutex> lock(m_Mutex);
 
@@ -99,6 +59,46 @@ void JoyshockWrapper::Finalize()
 	}
 
 	m_Initialized = false;
+}
+
+JoyshockWrapper::JoyshockWrapper()
+	: m_Initialized(false)
+	, m_StickDeadZone(0.10f)
+	, m_TriggerThreshold(0.10f)
+{
+	m_XInputDevices.resize(XUSER_MAX_COUNT);
+	for (auto& d : m_XInputDevices)
+	{
+		d.connected = false;
+		d.currXinputState = ::XINPUT_STATE{};
+		d.prevXinputState = ::XINPUT_STATE{};
+		d.handle = -1;
+	}
+}
+
+JoyshockWrapper::~JoyshockWrapper()
+{
+
+}
+
+bool JoyshockWrapper::Initialize()
+{
+	std::lock_guard<std::mutex> lock(m_Mutex);
+
+	if (m_Initialized)
+	{
+		return true;
+	}
+
+	const int connected = JslConnectDevices();
+	(void)connected;
+
+	RefreshHandleList();
+
+	RefreshXInputHandleList();
+
+	m_Initialized = true;
+	return true;
 }
 
 void JoyshockWrapper::RescanDevices()
