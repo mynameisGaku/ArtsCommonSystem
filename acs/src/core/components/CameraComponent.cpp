@@ -40,8 +40,8 @@ void CameraComponent::Draw(float)
 
 #if ACSU_HAS_DXLIB
     // forward = (0,0,1) を回転で向ける
-    const ACSU_Math::Vec3 forwardLocal(0.0f, 0.0f, 1.0f);
-    const ACSU_Math::Vec3 forward = trs.rotation.RotateVector(forwardLocal);
+    const ACSU_Math::Vector3 forwardLocal = trs.forward;
+    const ACSU_Math::Vector3 forward = trs.rotation.Euler(forwardLocal).eulerAngles();
 
     VECTOR pos;
     pos.x = trs.position.x;
@@ -54,7 +54,7 @@ void CameraComponent::Draw(float)
     target.z = trs.position.z + forward.z;
 
     // DxLibの「UpVecY」版を使う（up=(0,1,0)固定）
-    SetCameraPositionAndTarget_UpVecY(pos, target);
+    SetCameraPositionAndTargetAndUpVec(pos, target, VECTOR(trs.up.x, trs.up.y, trs.up.z));
 
     SetupCamera_Perspective(m_FovY);
     SetCameraNearFar(m_NearZ, m_FarZ);

@@ -28,7 +28,7 @@ private:
 private:
     SetupParam m_Param;
 
-    int m_Handle = -1;
+	std::vector<int> m_Handles;
     int m_Frame = 0;
     float m_Timer = 0.0f;
 };

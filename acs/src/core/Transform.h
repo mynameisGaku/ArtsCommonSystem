@@ -6,33 +6,120 @@
 class Transform : public Component
 {
 public:
-    const ACSU_Math::Mat4& GetWorldMatrix()
+    const ACSU_Math::Matrix4x4& GetWorldMatrix()
     {
         UpdateIfNeeded();
         return m_WorldMatrix;
     }
 
-    void SetLocalPosition(const ACSU_Math::Vec3& v)
+    const ACSU_Math::Matrix4x4& GetLocalMatrix()
+    {
+        UpdateIfNeeded();
+        return m_LocalMatrix;
+	}
+
+    const ACSU_Math::Vector3 GetWorldPosition()
+    {
+        UpdateIfNeeded();
+        return ACSU_Math::Vector3(
+            m_WorldMatrix.m03,
+            m_WorldMatrix.m13,
+            m_WorldMatrix.m23
+        );
+	}
+
+    const ACSU_Math::Quaternion GetWorldRotation()
+    {
+        UpdateIfNeeded();
+        ACSU_Math::Vector3 pos, scale;
+        ACSU_Math::Quaternion rot;
+        ACSU_Math::DecomposeTRS(m_WorldMatrix, pos, rot, scale);
+        return rot;
+	}
+
+    const ACSU_Math::Vector3 GetWorldScale()
+    {
+        UpdateIfNeeded();
+        ACSU_Math::Vector3 pos, scale;
+        ACSU_Math::Quaternion rot;
+        ACSU_Math::DecomposeTRS(m_WorldMatrix, pos, rot, scale);
+        return scale;
+    }
+
+    const ACSU_Math::Vector3 GetRightVector()
+    {
+        UpdateIfNeeded();
+        return ACSU_Math::Vector3(
+            m_WorldMatrix.m00,
+            m_WorldMatrix.m10,
+            m_WorldMatrix.m20
+        ).normalized();
+	}
+
+    const ACSU_Math::Vector3 GetUpVector()
+    {
+        UpdateIfNeeded();
+        return ACSU_Math::Vector3(
+            m_WorldMatrix.m01,
+            m_WorldMatrix.m11,
+            m_WorldMatrix.m21
+        ).normalized();
+    }
+
+    const ACSU_Math::Vector3 GetForwardVector()
+    {
+        UpdateIfNeeded();
+        return ACSU_Math::Vector3(
+            m_WorldMatrix.m02,
+            m_WorldMatrix.m12,
+            m_WorldMatrix.m22
+        ).normalized();
+	}
+
+    const std::uint32_t GetWorldVersion() const
+    {
+        return m_WorldVersion;
+	}
+
+    void SetLocalPosition(const ACSU_Math::Vector3& v)
     {
         m_LocalPosition = v;
         MarkLocalDirty();
     }
 
-    void SetLocalRotation(const ACSU_Math::Quat& q)
+    void SetLocalRotation(const ACSU_Math::Quaternion& q)
     {
         m_LocalRotation = q;
         MarkLocalDirty();
     }
 
-    void SetLocalScale(const ACSU_Math::Vec3& v)
+    void SetLocalScale(const ACSU_Math::Vector3& v)
     {
         m_LocalScale = v;
         MarkLocalDirty();
     }
 
-    const ACSU_Math::Vec3& GetLocalPosition() const { return m_LocalPosition; }
-    const ACSU_Math::Quat& GetLocalRotation() const { return m_LocalRotation; }
-    const ACSU_Math::Vec3& GetLocalScale() const { return m_LocalScale; }
+    void RotateLocal(const ACSU_Math::Quaternion& delta)
+    {
+        m_LocalRotation = (m_LocalRotation * delta).normalized();
+        MarkLocalDirty();
+    }
+
+    void RotateEulerLocal(const ACSU_Math::Vector3& eulerDegrees)
+    {
+        ACSU_Math::Quaternion delta = ACSU_Math::Quaternion::Euler(
+            eulerDegrees.x,
+            eulerDegrees.y,
+            eulerDegrees.z
+        );
+
+        m_LocalRotation = (m_LocalRotation * delta).normalized();
+        MarkLocalDirty();
+    }
+
+    const ACSU_Math::Vector3& GetLocalPosition() const { return m_LocalPosition; }
+    const ACSU_Math::Quaternion& GetLocalRotation() const { return m_LocalRotation; }
+    const ACSU_Math::Vector3& GetLocalScale() const { return m_LocalScale; }
 
     void SetParent(Transform* parent, bool keepWorld)
     {
@@ -41,7 +128,7 @@ public:
             return;
         }
 
-        const ACSU_Math::Mat4 oldWorld = GetWorldMatrix();
+        const ACSU_Math::Matrix4x4 oldWorld = GetWorldMatrix();
 
         DetachFromParent();
         m_Parent = parent;
@@ -49,7 +136,7 @@ public:
 
         if (keepWorld)
         {
-            ACSU_Math::Mat4 parentWorld;
+            ACSU_Math::Matrix4x4 parentWorld;
 
             if (m_Parent != nullptr)
             {
@@ -57,10 +144,10 @@ public:
             }
             else
             {
-                parentWorld = ACSU_Math::Mat4::Identity();
+                parentWorld = ACSU_Math::Matrix4x4::identity();
             }
 
-            const ACSU_Math::Mat4 newLocal =
+            const ACSU_Math::Matrix4x4 newLocal =
                 ACSU_Math::InverseMatrix(parentWorld) * oldWorld;
 
             ACSU_Math::DecomposeTRS(
@@ -162,12 +249,12 @@ private:
     }
 
 private:
-    ACSU_Math::Vec3 m_LocalPosition = ACSU_Math::Vec3::Zero();
-    ACSU_Math::Quat m_LocalRotation = ACSU_Math::Quat::Identity();
-    ACSU_Math::Vec3 m_LocalScale = ACSU_Math::Vec3::One();
+    ACSU_Math::Vector3 m_LocalPosition = ACSU_Math::Vector3::zero();
+    ACSU_Math::Quaternion m_LocalRotation = ACSU_Math::Quaternion::identity();
+    ACSU_Math::Vector3 m_LocalScale = ACSU_Math::Vector3::one();
 
-    ACSU_Math::Mat4 m_LocalMatrix;
-    ACSU_Math::Mat4 m_WorldMatrix;
+    ACSU_Math::Matrix4x4 m_LocalMatrix;
+    ACSU_Math::Matrix4x4 m_WorldMatrix;
 
     bool m_LocalDirty = true;
     bool m_WorldDirty = true;

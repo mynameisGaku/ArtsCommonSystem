@@ -1,7 +1,7 @@
 #include "Pch.h"
 #include "BoxRenderComponent.h"
 
-BoxRenderComponent::BoxRenderComponent(const ACSU_Math::Vec3& position, float size)
+BoxRenderComponent::BoxRenderComponent(const ACSU_Math::Vector3& position, float size)
 {
 	m_position = position;
 	m_size = size;

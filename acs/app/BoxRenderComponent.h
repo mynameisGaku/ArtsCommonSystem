@@ -5,9 +5,9 @@
 class BoxRenderComponent : public Component
 {
 public:
-	BoxRenderComponent(const ACSU_Math::Vec3& position, float size);
+	BoxRenderComponent(const ACSU_Math::Vector3& position, float size);
 	void Draw(float deltaTime) override;
 private:
-	ACSU_Math::Vec3 m_position;
+	ACSU_Math::Vector3 m_position;
 	float m_size;
 };

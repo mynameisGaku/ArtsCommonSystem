@@ -27,12 +27,11 @@ void GameScene::OnPostFixedUpdate(float fixedDeltaTime)
 
 void GameScene::OnPreRender(float deltaTime)
 {
-	DrawString(250, 100, "GameScene", 0xffffff);
 }
 
 void GameScene::OnPostRender(float deltaTime)
 {
-	DrawString(50, 100, "GameScene", 0xffffff);
+	DrawString(50, 100, "GameScene", 0xff00ff);
 }
 
 void GameScene::OnDestroy()

@@ -1,8 +1,8 @@
 #include "SpriteComponent.h"
 
-static float ExtractZRadiansFromQuat(const ACSU_Math::Quat& qIn)
+static float ExtractZRadiansFromQuat(const ACSU_Math::Quaternion& qIn)
 {
-    ACSU_Math::Quat q = qIn.Normalized();
+    ACSU_Math::Quaternion q = qIn.normalized();
 
     float siny_cosp = 2.0f * (q.w * q.z + q.x * q.y);
     float cosy_cosp = 1.0f - 2.0f * (q.y * q.y + q.z * q.z);
@@ -17,12 +17,12 @@ void SpriteComponent::Setup(const SetupParam& p)
 
 void SpriteComponent::EnsureLoaded()
 {
-    if (m_Handle != -1)
+    if (m_Param.Path == nullptr)
     {
         return;
     }
 
-    if (m_Param.Path == nullptr)
+    if (m_Handles.size() > 0)
     {
         return;
     }
@@ -33,9 +33,7 @@ void SpriteComponent::EnsureLoaded()
         return;
     }
 
-    // DxLib の LoadDivGraph は配列が必要
-    // ここでは total が小さい想定で動的確保（スマポ無し）
-    int* handles = new int[total];
+    std::vector<int> temp(total, 0);
 
     int ok = LoadDivGraph(
         m_Param.Path,
@@ -44,18 +42,13 @@ void SpriteComponent::EnsureLoaded()
         m_Param.DivY,
         m_Param.CellW,
         m_Param.CellH,
-        handles
+        temp.data()
     );
 
     if (ok == 0)
     {
-        // 先頭を基準に連番として扱う実装にしている場合があるので、
-        // ここは「配列を保持する」方が安全。
-        // いったん最小のため、先頭だけ保持し、配列は破棄する。
-        m_Handle = handles[0];
+		m_Handles = std::move(temp);
     }
-
-    delete[] handles;
 }
 
 void SpriteComponent::Update(float dt)
@@ -83,7 +76,7 @@ void SpriteComponent::Draw(float)
 {
     EnsureLoaded();
 
-    if (m_Handle == -1)
+    if (m_Handles.empty())
     {
         return;
     }
@@ -111,7 +104,6 @@ void SpriteComponent::Draw(float)
     float sx = trs.scale.x;
     float sy = trs.scale.y;
 
-    // 非等方スケール反映（使えない環境ならここがコンパイルで落ちるので、2Fに差し替え）
     DrawRotaGraph3F(
         x,
         y,
@@ -120,7 +112,7 @@ void SpriteComponent::Draw(float)
         sx,
         sy,
         angle,
-        m_Handle + m_Frame,
+        m_Handles[m_Frame],
         TRUE,
         FALSE
     );
@@ -128,9 +120,11 @@ void SpriteComponent::Draw(float)
 
 void SpriteComponent::Destroy()
 {
-    if (m_Handle != -1)
+	for (auto h : m_Handles)
     {
-        DeleteGraph(m_Handle);
-        m_Handle = -1;
+        if (h != -1)
+        {
+            DeleteGraph(h);
+        }
     }
 }

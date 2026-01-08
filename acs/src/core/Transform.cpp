@@ -14,9 +14,9 @@ void Transform::WriteWorldTRSToBlackboardIfChanged()
     }
 
     TransformTRS trs;
-    trs.position = ACSU_Math::Vec3::Zero();
-    trs.rotation = ACSU_Math::Quat::Identity();
-    trs.scale = ACSU_Math::Vec3::One();
+    trs.position = ACSU_Math::Vector3::zero();
+    trs.rotation = ACSU_Math::Quaternion::identity();
+    trs.scale = ACSU_Math::Vector3::one();
 
     m_WorldMatrix.DecomposeTRS(trs.position, trs.rotation, trs.scale);
 

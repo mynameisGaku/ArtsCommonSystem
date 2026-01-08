@@ -55,8 +55,11 @@
     <Filter Include="app\components">
       <UniqueIdentifier>{9377249f-516e-41bd-a682-da891b03d12a}</UniqueIdentifier>
     </Filter>
-    <Filter Include="acs_core_sources\src\core\sky">
-      <UniqueIdentifier>{d5fbd9de-410b-470c-b3a4-efedfae5c2af}</UniqueIdentifier>
+    <Filter Include="assets">
+      <UniqueIdentifier>{434ad593-910f-410f-8750-9f9cd061a6bb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="assets\shader">
+      <UniqueIdentifier>{9dc74f59-41b1-4d88-b4ce-0d65fd50dc07}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -330,14 +333,8 @@
     <ClInclude Include="src\core\TransformTRS.h">
       <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
-    <ClInclude Include="src\core\sky\SkyTextureGenerator.h">
-      <Filter>acs_core_sources\src\core\sky</Filter>
-    </ClInclude>
-    <ClInclude Include="src\core\sky\SkyComponent.h">
-      <Filter>acs_core_sources\src\core\sky</Filter>
-    </ClInclude>
-    <ClInclude Include="src\core\sky\SkyMeshComponent.h">
-      <Filter>acs_core_sources\src\core\sky</Filter>
+    <ClInclude Include="app\SkyComponent.h">
+      <Filter>app\components</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -410,14 +407,21 @@
     <ClCompile Include="src\core\components\CameraComponent.cpp">
       <Filter>acs_core_sources\src\core\components</Filter>
     </ClCompile>
-    <ClCompile Include="src\core\sky\SkyComponent.cpp">
-      <Filter>acs_core_sources\src\core\sky</Filter>
+    <ClCompile Include="app\SkyComponent.cpp">
+      <Filter>app\components</Filter>
     </ClCompile>
-    <ClCompile Include="src\core\sky\SkyMeshComponent.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\utl\message\MessageBroker.inl">
       <Filter>acs_core_sources\src\utl</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="assets\shader\SkyVS.hlsl">
+      <Filter>assets\shader</Filter>
+    </FxCompile>
+    <FxCompile Include="assets\shader\SkyPS.hlsl">
+      <Filter>assets\shader</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>
