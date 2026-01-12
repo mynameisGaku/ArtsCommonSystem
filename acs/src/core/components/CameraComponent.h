@@ -26,9 +26,9 @@ public:
         m_FarZ = farZ;
     }
 
-    void SetFovY(float fovYRadians)
+    void SetFov(float fov)
     {
-        m_FovY = fovYRadians;
+        m_FovY = fov * 3.1415926535f / 180.0f;
     }
 
 private:

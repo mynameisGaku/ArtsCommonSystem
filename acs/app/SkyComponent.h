@@ -5,69 +5,74 @@
 class SkyComponent : public Component
 {
 public:
-    struct SetupParam
-    {
-        float Radius = 5000.0f;
-        int Slices = 64;
-        int Stacks = 32;
+	struct SetupParam
+	{
+		float Radius = 5000.0f;
+		int Slices = 64;
+		int Stacks = 32;
 
-        bool DisableLighting = true;
-        bool DisableZBuffer = true;
+		bool DisableLighting = true;
+		bool DisableZBuffer = true;
 
-        // コンパイル済みPSバイナリ(.pso)へのパス
-        const char* PixelShaderPath = nullptr;
-    };
+		// Precompiled PS binary path (.pso)
+		const char* PixelShaderPath = nullptr;
+	};
 
-    struct SkyParamsCB
-    {
-        float SunDirX;
-        float SunDirY;
-        float SunDirZ;
-        float Intensity;
+	// Unity Skybox/Procedural に準拠したパラメータ構造体
+	struct SkyParamsCB
+	{
+		float SunDirX;
+		float SunDirY;
+		float SunDirZ;
+		float SunSize;          // 0.0 ~ 1.0
 
-        float Turbidity;
-        float Exposure;
-        float Time;
-        float Padding;
-    };
+		float SkyTintR;         // Sky Tint
+		float SkyTintG;
+		float SkyTintB;
+		float AtmosphereThick;  // Atmosphere Thickness
 
+		float GroundColorR;     // Ground Color
+		float GroundColorG;
+		float GroundColorB;
+		float Exposure;         // Exposure
+
+		float HorizonColorR;    // Horizon Color (計算または指定)
+		float HorizonColorG;
+		float HorizonColorB;
+		float SunConvergence;   // Sun Convergence
+
+		float Time;
+		float CloudDensity;
+		float CloudSharpness;
+		float Padding;
+	};
 
 public:
-    bool Setup(const SetupParam& p);
+	bool Setup(const SetupParam& p);
 
-    void Start() override;
-    void Update(float dt) override;
-    void Draw(float dt) override;
-    void Destroy() override;
-
-private:
-    void EnsureCreated();
-    void RebuildMesh();
-    void UpdateParamTextureIfNeeded();
-
-    static unsigned char ToUNormByte(float v01);
-    static unsigned char ToSNormByte(float vNeg1To1);
+	void Start() override;
+	void Update(float dt) override;
+	void Draw(float dt) override;
+	void Destroy() override;
 
 private:
-    float m_Time = 0.0f;
+	void EnsureCreated();
+	void RebuildMesh();
 
-    SetupParam m_Param;
+	static unsigned char ToUNormByte(float v01);
+	static unsigned char ToSNormByte(float vNeg1To1);
 
-    int m_PS = -1;
+private:
+	float m_Time = 0.0f;
 
-    int m_ParamSoftImage = -1; // 4x1
-    int m_ParamGraph = -1;
+	SetupParam m_Param;
 
-    int m_PSCBuffer = -1;
+	int m_PS = -1;
+	int m_PSCBuffer = -1;
 
-    std::vector<VERTEX3DSHADER> m_UnitVertices;
-    std::vector<VERTEX3DSHADER> m_DrawVertices;
-    std::vector<unsigned short> m_Indices;
+	std::vector<VERTEX3DSHADER> m_UnitVertices;
+	std::vector<VERTEX3DSHADER> m_DrawVertices;
+	std::vector<unsigned short> m_Indices;
 
-    bool m_Created = false;
-
-    std::uint32_t m_LastSunVer = 0;
-    std::uint32_t m_LastIntVer = 0;
-    std::uint32_t m_LastTurbVer = 0;
-    std::uint32_t m_LastExpoVer = 0;
+	bool m_Created = false;
 };
