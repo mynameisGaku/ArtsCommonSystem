@@ -5,7 +5,8 @@
 class GameScene : public SceneBase
 {
 public:
-	void OnInitialize() override;
+	void OnAwake() override;
+	void OnStart() override;
 	void OnPreUpdate(float deltaTime) override;
 	void OnPostUpdate(float deltaTime) override;
 	void OnPreFixedUpdate(float fixedDeltaTime) override;

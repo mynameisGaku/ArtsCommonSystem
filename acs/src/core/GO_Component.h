@@ -3,10 +3,10 @@
 
 class GameObject;
 
-class Component : public IObject
+class GO_Component : public IObject
 {
 public:
-    virtual ~Component()
+    virtual ~GO_Component()
     {
     }
 
@@ -52,18 +52,19 @@ public:
         m_Enabled = enabled;
     }
 
-    void SetDrawOrder(int order)
+    void SetLayer(int order)
     {
         m_drawOrder = order;
 	}
 
-	int GetDrawOrder() const
+	int GetLayerIndex() const
     {
         return m_drawOrder;
 	}
 
 protected:
     friend class GameObject;
+    friend class GOC_TransformUpdater;
 
     void SetOwner(GameObject* owner)
     {

@@ -2,7 +2,7 @@
 
 #include <Pch.h>
 
-class SpriteComponent : public Component
+class GOC_Sprite : public GO_Component
 {
 public:
     struct SetupParam

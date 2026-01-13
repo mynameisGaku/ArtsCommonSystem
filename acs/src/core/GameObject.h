@@ -5,13 +5,17 @@
 #include "Blackboard.h"
 #include "BlackboardKeys.h"
 #include "Transform.h"
+#include "components/GOC_TransformUpdater.h"
+
+class SceneBase;
 
 class GameObject : public IObject
 {
 public:
     GameObject()
     {
-        AddComponent<Transform>();
+        AddGOC<Transform>();
+        AddGOC<GOC_TransformUpdater>();
     }
 
     virtual ~GameObject()
@@ -25,30 +29,30 @@ public:
     }
 
     template<class T, class... Args>
-    T* AddComponent(Args&&... args)
+    T* AddGOC(Args&&... args)
     {
-        static_assert(std::is_base_of_v<Component, T>);
+        static_assert(std::is_base_of_v<GO_Component, T>);
 
         if constexpr (std::is_same_v<T, Transform>)
         {
-            if (GetComponent<Transform>() != nullptr)
+            if (GetGOC<Transform>() != nullptr)
             {
-                return GetComponent<Transform>();
+                return GetGOC<Transform>();
             }
         }
 
         T* c = new T(std::forward<Args>(args)...);
         c->SetOwner(this);
-        m_Components.push_back(c);
+        m_GOCs.push_back(c);
         return c;
     }
 
     template<class T>
-    T* GetComponent() const
+    T* GetGOC() const
     {
-        static_assert(std::is_base_of_v<Component, T>);
+        static_assert(std::is_base_of_v<GO_Component, T>);
 
-        for (Component* c : m_Components)
+        for (GO_Component* c : m_GOCs)
         {
             if (auto casted = dynamic_cast<T*>(c))
             {
@@ -62,19 +66,19 @@ public:
     template<class T>
     bool RemoveComponent()
     {
-        static_assert(std::is_base_of_v<Component, T>);
+        static_assert(std::is_base_of_v<GO_Component, T>);
 
         if constexpr (std::is_same_v<T, Transform>)
         {
             return false;
         }
 
-        for (auto it = m_Components.begin(); it != m_Components.end(); ++it)
+        for (auto it = m_GOCs.begin(); it != m_GOCs.end(); ++it)
         {
             if (dynamic_cast<T*>(*it) != nullptr)
             {
                 delete* it;
-                m_Components.erase(it);
+                m_GOCs.erase(it);
                 return true;
             }
         }
@@ -84,7 +88,7 @@ public:
 
     void Awake() override
     {
-        for (Component* c : m_Components)
+        for (GO_Component* c : m_GOCs)
         {
             if (c->IsEnabled())
             {
@@ -95,7 +99,7 @@ public:
 
     void Start() override
     {
-        for (Component* c : m_Components)
+        for (GO_Component* c : m_GOCs)
         {
             if (c->IsEnabled())
             {
@@ -106,7 +110,7 @@ public:
 
     void Update(float deltaTime) override
     {
-        for (Component* c : m_Components)
+        for (GO_Component* c : m_GOCs)
         {
             if (c->IsEnabled())
             {
@@ -117,7 +121,7 @@ public:
 
     void FixedUpdate(float fixedDeltaTime) override
     {
-        for (Component* c : m_Components)
+        for (GO_Component* c : m_GOCs)
         {
             if (c->IsEnabled())
             {
@@ -130,14 +134,14 @@ public:
     {
         // sort
         std::sort(
-            m_Components.begin(),
-            m_Components.end(),
-            [](Component* a, Component* b)
+            m_GOCs.begin(),
+            m_GOCs.end(),
+            [](GO_Component* a, GO_Component* b)
             {
-                return a->GetDrawOrder() < b->GetDrawOrder();
+                return a->GetLayerIndex() < b->GetLayerIndex();
 			});
 
-        for (Component* c : m_Components)
+        for (GO_Component* c : m_GOCs)
         {
             if (c->IsEnabled())
             {
@@ -148,13 +152,13 @@ public:
 
     void Destroy() override
     {
-        for (Component* c : m_Components)
+        for (GO_Component* c : m_GOCs)
         {
             c->Destroy();
             delete c;
         }
 
-        m_Components.clear();
+        m_GOCs.clear();
     }
 
     void DontDestroyOnLoad()
@@ -167,19 +171,23 @@ public:
         return m_DontDestroyOnLoad;
     }
 
-    void SetDrawOrder(int order)
-	{
-        m_DrawOrder = order;
-	}
+    void SetLayer(const std::string& layerName);
 
-    int GetDrawOrder() const
+    int GetLayerIndex() const
     {
-        return m_DrawOrder;
+        return m_LayerIndex;
 	}
+    
+    void SetScene(SceneBase* scene)
+    {
+        m_pScene = scene;
+    }
 
 private:
-    std::vector<Component*> m_Components;
+    SceneBase* m_pScene;
+    std::vector<GO_Component*> m_GOCs;
     bool m_DontDestroyOnLoad = false;
+    int m_LayerIndex;
 	int m_DrawOrder = 0;
     Blackboard m_Blackboard;
 };

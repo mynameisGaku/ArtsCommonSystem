@@ -64,9 +64,9 @@ template <typename T>
 class Subject : public ISubject
 {
 public:
-    using Callback = std::function<void(const T&)>;
+    using FadeinCallback = std::function<void(const T&)>;
 
-    int Add(Callback callback)
+    int Add(FadeinCallback callback)
     {
         int id = nextId_++;
         subscribers_[id] = std::move(callback);
@@ -89,7 +89,7 @@ public:
 
 private:
     int nextId_ = 0;
-    std::unordered_map<int, Callback> subscribers_;
+    std::unordered_map<int, FadeinCallback> subscribers_;
 };
 
 // 受信設定を行うビルダークラス (単一)
@@ -176,7 +176,7 @@ template <typename... Ts>
 class ObservableZip
 {
 public:
-    using Callback = std::function<void(const Ts&...)>;
+    using FadeinCallback = std::function<void(const Ts&...)>;
 
     ObservableZip()
         : filters_(std::function<bool(const Ts&)>([](const Ts&)
@@ -201,7 +201,7 @@ public:
         return *this;
     }
 
-    Subscription Subscribe(Callback onNext);
+    Subscription Subscribe(FadeinCallback onNext);
 
 private:
     std::tuple<std::function<bool(const Ts&)>...> filters_;
@@ -295,13 +295,13 @@ Subscription Observable<T>::Subscribe(std::function<void(const T&)> onNext)
 
 // ObservableZip<Ts...> の実装
 template <typename... Ts>
-Subscription ObservableZip<Ts...>::Subscribe(Callback onNext)
+Subscription ObservableZip<Ts...>::Subscribe(FadeinCallback onNext)
 {
     struct State
     {
         std::tuple<std::deque<Ts>...> queues;
         std::tuple<std::function<bool(const Ts&)>...> filters;
-        Callback onNext;
+        FadeinCallback onNext;
         bool active = true;
 
         bool AllNonEmptyImpl()

@@ -300,10 +300,10 @@
     <ClInclude Include="src\core\TransformMath.h">
       <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
-    <ClInclude Include="src\core\Component.h">
+    <ClInclude Include="src\core\GO_Component.h">
       <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
-    <ClInclude Include="src\core\components\CameraComponent.h">
+    <ClInclude Include="src\core\components\GOC_Camera.h">
       <Filter>acs_core_sources\src\core\components</Filter>
     </ClInclude>
     <ClInclude Include="src\core\SceneBase.h">
@@ -315,10 +315,7 @@
     <ClInclude Include="app\TitleScene.h">
       <Filter>app\scenes</Filter>
     </ClInclude>
-    <ClInclude Include="app\SpriteComponent.h">
-      <Filter>app\components</Filter>
-    </ClInclude>
-    <ClInclude Include="app\BoxRenderComponent.h">
+    <ClInclude Include="app\GOC_Sprite.h">
       <Filter>app\components</Filter>
     </ClInclude>
     <ClInclude Include="src\utl\message\MessageBroker.h">
@@ -333,7 +330,19 @@
     <ClInclude Include="src\core\TransformTRS.h">
       <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
-    <ClInclude Include="app\SkyComponent.h">
+    <ClInclude Include="src\core\components\GOC_TransformUpdater.h">
+      <Filter>acs_core_sources\src\core\components</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\components\GOC_Sky.h">
+      <Filter>acs_core_sources\src\core\components</Filter>
+    </ClInclude>
+    <ClInclude Include="app\GOC_Rotator.h">
+      <Filter>app\components</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\LayerManager.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="app\GOC_Fader.h">
       <Filter>app\components</Filter>
     </ClInclude>
   </ItemGroup>
@@ -395,19 +404,31 @@
     <ClCompile Include="app\TitleScene.cpp">
       <Filter>app\scenes</Filter>
     </ClCompile>
-    <ClCompile Include="app\BoxRenderComponent.cpp">
-      <Filter>app\components</Filter>
-    </ClCompile>
-    <ClCompile Include="app\SpriteComponent.cpp">
+    <ClCompile Include="app\GOC_Sprite.cpp">
       <Filter>app\components</Filter>
     </ClCompile>
     <ClCompile Include="src\core\Transform.cpp">
       <Filter>acs_core_sources\src\core</Filter>
     </ClCompile>
-    <ClCompile Include="src\core\components\CameraComponent.cpp">
+    <ClCompile Include="src\core\components\GOC_Camera.cpp">
       <Filter>acs_core_sources\src\core\components</Filter>
     </ClCompile>
-    <ClCompile Include="app\SkyComponent.cpp">
+    <ClCompile Include="src\core\components\GOC_TransformUpdater.cpp">
+      <Filter>acs_core_sources\src\core\components</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\components\GOC_Sky.cpp">
+      <Filter>acs_core_sources\src\core\components</Filter>
+    </ClCompile>
+    <ClCompile Include="app\GOC_Rotator.cpp">
+      <Filter>app\components</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\LayerManager.cpp">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\GameObject.cpp">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="app\GOC_Fader.cpp">
       <Filter>app\components</Filter>
     </ClCompile>
   </ItemGroup>

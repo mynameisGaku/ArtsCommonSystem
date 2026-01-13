@@ -23,6 +23,12 @@ void Shutdown()
 
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 {
+	//_CrtSetBreakAlloc(242);
+
+	ApplicationManager* appManager = ApplicationManager::GetInstance();
+	IApplication* app = appManager->GetCurrentApplication();
+
+	app->OnBoot();
 
 	SetOutApplicationLogValidFlag(FALSE);
 	SetWindowSize(1280, 720);
@@ -50,9 +56,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 	ImGui_ImplDXlib_Init();
 
 	SetChangeScreenModeGraphicsSystemResetFlag(FALSE);
-
-	ApplicationManager* appManager = ApplicationManager::GetInstance();
-	IApplication* app = appManager->GetCurrentApplication();
 
 	if (app == nullptr)
 	{
@@ -102,6 +105,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 	}
 
 	app->OnDestroy();
+	appManager->Destroy();
 
 	Shutdown();
 

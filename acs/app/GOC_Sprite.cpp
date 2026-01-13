@@ -1,4 +1,4 @@
-#include "SpriteComponent.h"
+#include "GOC_Sprite.h"
 
 static float ExtractZRadiansFromQuat(const ACSU_Math::Quaternion& qIn)
 {
@@ -10,12 +10,12 @@ static float ExtractZRadiansFromQuat(const ACSU_Math::Quaternion& qIn)
     return std::atan2(siny_cosp, cosy_cosp);
 }
 
-void SpriteComponent::Setup(const SetupParam& p)
+void GOC_Sprite::Setup(const SetupParam& p)
 {
     m_Param = p;
 }
 
-void SpriteComponent::EnsureLoaded()
+void GOC_Sprite::EnsureLoaded()
 {
     if (m_Param.Path == nullptr)
     {
@@ -51,7 +51,7 @@ void SpriteComponent::EnsureLoaded()
     }
 }
 
-void SpriteComponent::Update(float dt)
+void GOC_Sprite::Update(float dt)
 {
     int total = m_Param.DivX * m_Param.DivY;
     if (total <= 1)
@@ -72,7 +72,7 @@ void SpriteComponent::Update(float dt)
     }
 }
 
-void SpriteComponent::Draw(float)
+void GOC_Sprite::Draw(float)
 {
     EnsureLoaded();
 
@@ -118,13 +118,7 @@ void SpriteComponent::Draw(float)
     );
 }
 
-void SpriteComponent::Destroy()
+void GOC_Sprite::Destroy()
 {
-	for (auto h : m_Handles)
-    {
-        if (h != -1)
-        {
-            DeleteGraph(h);
-        }
-    }
+    DeleteSharingGraph(m_Handles[0]);
 }

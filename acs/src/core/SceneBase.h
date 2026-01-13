@@ -1,20 +1,84 @@
 #pragma once
 
 #include <Pch.h>
-#include "components/CameraComponent.h"
+#include "components/GOC_Camera.h"
+#include "components/GOC_Sky.h"
 
 class SceneBase : public IScene
 {
 public:
+
+    SceneBase()
+    {
+        m_NewObjects = new std::vector<GameObject*>();
+        m_Objects = new std::vector<GameObject*>();
+        m_DestroyQueue = new std::vector<GameObject*>();
+    }
+
     virtual ~SceneBase()
     {
+        delete m_NewObjects;
+        m_NewObjects = nullptr;
+        delete m_Objects;
+        m_Objects = nullptr;
+        delete m_DestroyQueue;
+        m_DestroyQueue = nullptr;
     }
 
     void Initialize() final
     {
         m_Started = false;
 
-        OnInitialize();
+        m_pLayerManager = new LayerManager();
+        m_pLayerManager->AddLayer("Sky", 0);
+        m_pLayerManager->AddLayer("Default", 1);
+        m_pLayerManager->AddLayer("UI", 2);
+
+        // Scene default setup
+        {
+            GameObject* skyObj = CreateGameObject<GameObject>();
+            GameObject* cameraObj = CreateGameObject<GameObject>();
+
+            // Camera default setup
+            {
+                auto* cam = cameraObj->AddGOC<GOC_Camera>();
+                cam->SetNearFar(0.1f, 10000000.0f);
+                cam->SetFov(75.0f);
+            }
+
+            // Sky default setup
+            {
+                skyObj->SetLayer("Sky");
+                auto* sky = skyObj->AddGOC<GOC_Sky>();
+
+                GOC_Sky::SetupParam sp;
+                sp.Radius = 50000.0f;
+                sp.PixelShaderPath = "assets/shader/SkyPS.pso";
+                sky->Setup(sp);
+
+                auto& env = sky->GetSettings();
+                env.CurrentTime = 0.3f;
+                env.TimeSpeed = 0.05f;
+                env.CloudDensity = 0.5f;
+                env.SunSize = 0.001f;
+            }
+
+            // Set default position
+            {
+                auto* cameraTrs = cameraObj->GetGOC<Transform>();
+                cameraTrs->SetLocalRotation(ACSU_Math::Quaternion::Euler(ACSU_Math::Vector3(0.0f, 90.0f, 0.0f)));
+                auto* skyTrs = skyObj->GetGOC<Transform>();
+                skyTrs->SetLocalPosition(cameraTrs->GetWorldPosition());
+            }
+        }
+
+        if (not m_Awaked)
+        {
+            OnAwake();
+            m_Awaked = true;
+        }
+
+        OnStart();
 
         EnsureDefaultCamera();
 
@@ -33,7 +97,7 @@ public:
 
         OnPreUpdate(deltaTime);
 
-        for (GameObject* obj : m_Objects)
+        for (GameObject* obj : (*m_Objects))
         {
             if (obj != nullptr)
             {
@@ -50,7 +114,7 @@ public:
     {
         OnPreFixedUpdate(fixedDeltaTime);
 
-        for (GameObject* obj : m_Objects)
+        for (GameObject* obj : (*m_Objects))
         {
             if (obj != nullptr)
             {
@@ -67,14 +131,14 @@ public:
 
 		// 描画順にソート
         std::sort(
-            m_Objects.begin(),
-            m_Objects.end(),
+            (*m_Objects).begin(),
+            (*m_Objects).end(),
             [](GameObject* a, GameObject* b)
             {
-                return a->GetDrawOrder() < b->GetDrawOrder();
+                return a->GetLayerIndex() < b->GetLayerIndex();
             });
 
-        for (GameObject* obj : m_Objects)
+        for (GameObject* obj : (*m_Objects))
         {
             if (obj != nullptr)
             {
@@ -89,7 +153,7 @@ public:
     {
         OnDestroy();
 
-        for (GameObject* obj : m_Objects)
+        for (GameObject* obj : (*m_Objects))
         {
             if (obj != nullptr)
             {
@@ -98,11 +162,14 @@ public:
             }
         }
 
-        m_Objects.clear();
-        m_NewObjects.clear();
-        m_DestroyQueue.clear();
+        (*m_Objects).clear();
+        (*m_NewObjects).clear();
+        (*m_DestroyQueue).clear();
 
-        m_MainCamera = nullptr;
+        delete m_pLayerManager;
+
+        m_pLayerManager = nullptr;
+        m_pMainCamera = nullptr;
         m_Started = false;
     }
 
@@ -113,7 +180,9 @@ public:
         static_assert(std::is_base_of_v<GameObject, T>);
 
         T* obj = new T(std::forward<Args>(args)...);
-        m_NewObjects.push_back(obj);
+        obj->SetScene(this);
+        obj->SetLayer("Default");
+        (*m_NewObjects).push_back(obj);
         return obj;
     }
 
@@ -124,24 +193,24 @@ public:
             return;
         }
 
-        if (std::find(m_DestroyQueue.begin(), m_DestroyQueue.end(), obj) != m_DestroyQueue.end())
+        if (std::find((*m_DestroyQueue).begin(), (*m_DestroyQueue).end(), obj) != (*m_DestroyQueue).end())
         {
             return;
         }
 
-        m_DestroyQueue.push_back(obj);
+        (*m_DestroyQueue).push_back(obj);
     }
 
-    CameraComponent* GetMainCamera() const
+    GOC_Camera* GetMainCamera() const
     {
-        return m_MainCamera;
+        return m_pMainCamera;
     }
 
     std::vector<GameObject*> CollectDontDestroyOnLoad()
     {
         std::vector<GameObject*> result;
 
-        for (GameObject* obj : m_Objects)
+        for (GameObject* obj : (*m_Objects))
         {
             if (obj != nullptr && obj->IsDontDestroyOnLoad())
             {
@@ -152,7 +221,7 @@ public:
         // 次シーンに渡すので、このシーン側の所有から外す
         for (GameObject* keep : result)
         {
-            ErasePtr(m_Objects, keep);
+            ErasePtr((*m_Objects), keep);
         }
 
         return result;
@@ -164,16 +233,29 @@ public:
         {
             if (obj != nullptr)
             {
-                m_Objects.push_back(obj);
+                (*m_Objects).push_back(obj);
             }
         }
     }
 
+    int GetLayerIndex(const std::string& layerName)
+    {
+        return m_pLayerManager->GetLayerValue(layerName);
+    }
+
 protected:
+
+    /// <summary>
+    /// 生成した最初にのみ呼ばだされるオーバーライドできる仮想メソッド。
+    /// </summary>
+    virtual void OnAwake()
+    {
+    }
+
     /// <summary>
     /// 初期化処理を行うためにオーバーライドできる仮想メソッド。
     /// </summary>
-    virtual void OnInitialize()
+    virtual void OnStart()
     {
     }
 
@@ -240,48 +322,48 @@ private:
     {
         if (FindAnyCamera() != nullptr)
         {
-            if (m_MainCamera == nullptr)
+            if (m_pMainCamera == nullptr)
             {
-                m_MainCamera = FindAnyCamera();
-                m_MainCamera->SetMain(true);
+                m_pMainCamera = FindAnyCamera();
+                m_pMainCamera->SetMain(true);
             }
             return;
         }
 
         GameObject* cameraObj = CreateGameObject<GameObject>();
-        CameraComponent* cam = cameraObj->AddComponent<CameraComponent>();
+        GOC_Camera* cam = cameraObj->AddGOC<GOC_Camera>();
         cam->SetMain(true);
 
-        m_MainCamera = cam;
+        m_pMainCamera = cam;
 
         // 必要なら初期位置
         // cameraObj->GetTransform().SetLocalPosition(...);
     }
 
-    CameraComponent* FindAnyCamera()
+    GOC_Camera* FindAnyCamera()
     {
-        for (GameObject* obj : m_Objects)
+        for (GameObject* obj : (*m_Objects))
         {
             if (obj == nullptr)
             {
                 continue;
             }
 
-            CameraComponent* cam = obj->GetComponent<CameraComponent>();
+            GOC_Camera* cam = obj->GetGOC<GOC_Camera>();
             if (cam != nullptr)
             {
                 return cam;
             }
         }
 
-        for (GameObject* obj : m_NewObjects)
+        for (GameObject* obj : (*m_NewObjects))
         {
             if (obj == nullptr)
             {
                 continue;
             }
 
-            CameraComponent* cam = obj->GetComponent<CameraComponent>();
+            GOC_Camera* cam = obj->GetGOC<GOC_Camera>();
             if (cam != nullptr)
             {
                 return cam;
@@ -293,23 +375,23 @@ private:
 
     void CallAwakeForNewObjects()
     {
-        if (m_NewObjects.empty())
+        if ((*m_NewObjects).empty())
         {
             return;
         }
 
-        for (GameObject* obj : m_NewObjects)
+        for (GameObject* obj : (*m_NewObjects))
         {
-            m_Objects.push_back(obj);
+            (*m_Objects).push_back(obj);
             obj->Awake();
         }
 
-        m_NewObjects.clear();
+        (*m_NewObjects).clear();
     }
 
     void CallStartOnce()
     {
-        for (GameObject* obj : m_Objects)
+        for (GameObject* obj : (*m_Objects))
         {
             if (obj != nullptr)
             {
@@ -322,12 +404,12 @@ private:
 
     void FlushDestroyQueue()
     {
-        if (m_DestroyQueue.empty())
+        if ((*m_DestroyQueue).empty())
         {
             return;
         }
 
-        for (GameObject* obj : m_DestroyQueue)
+        for (GameObject* obj : (*m_DestroyQueue))
         {
             if (obj == nullptr)
             {
@@ -335,14 +417,14 @@ private:
             }
 
             // まだ所有している場合のみ破棄
-            if (ErasePtr(m_Objects, obj))
+            if (ErasePtr((*m_Objects), obj))
             {
                 obj->Destroy();
                 delete obj;
             }
         }
 
-        m_DestroyQueue.clear();
+        (*m_DestroyQueue).clear();
     }
 
     static bool ErasePtr(std::vector<GameObject*>& v, GameObject* ptr)
@@ -358,10 +440,13 @@ private:
     }
 
 private:
-    std::vector<GameObject*> m_Objects;
-    std::vector<GameObject*> m_NewObjects;
-    std::vector<GameObject*> m_DestroyQueue;
+    std::vector<GameObject*>* m_Objects;
+    std::vector<GameObject*>* m_NewObjects;
+    std::vector<GameObject*>* m_DestroyQueue;
 
-    CameraComponent* m_MainCamera = nullptr;
+    LayerManager* m_pLayerManager = nullptr;
+
+    GOC_Camera* m_pMainCamera = nullptr;
     bool m_Started = false;
+    bool m_Awaked = false;
 };

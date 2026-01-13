@@ -19,16 +19,18 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="app\BoxRenderComponent.h" />
     <ClInclude Include="app\GameScene.h" />
     <ClInclude Include="app\App.h" />
-    <ClInclude Include="app\SkyComponent.h" />
-    <ClInclude Include="app\SpriteComponent.h" />
+    <ClInclude Include="app\GOC_Fader.h" />
+    <ClInclude Include="app\GOC_Rotator.h" />
+    <ClInclude Include="app\GOC_Sprite.h" />
     <ClInclude Include="app\TitleScene.h" />
     <ClInclude Include="Pch.h" />
     <ClInclude Include="src\core\Blackboard.h" />
-    <ClInclude Include="src\core\Component.h" />
-    <ClInclude Include="src\core\components\CameraComponent.h" />
+    <ClInclude Include="src\core\GO_Component.h" />
+    <ClInclude Include="src\core\components\GOC_Camera.h" />
+    <ClInclude Include="src\core\components\GOC_Sky.h" />
+    <ClInclude Include="src\core\components\GOC_TransformUpdater.h" />
     <ClInclude Include="src\core\GameObject.h" />
     <ClInclude Include="src\core\IApplication.h" />
     <ClInclude Include="src\core\ApplicationManager.h" />
@@ -36,6 +38,7 @@
     <ClInclude Include="src\core\IObject.h" />
     <ClInclude Include="src\core\IScene.h" />
     <ClInclude Include="src\core\BlackboardKeys.h" />
+    <ClInclude Include="src\core\LayerManager.h" />
     <ClInclude Include="src\core\SceneBase.h" />
     <ClInclude Include="src\core\SceneManager.h" />
     <ClInclude Include="src\core\Transform.h" />
@@ -112,14 +115,11 @@
     <ClInclude Include="src\utl\time\ACSU_Time.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="app\BoxRenderComponent.cpp">
-      <RuntimeLibrary Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">MultiThreadedDebug</RuntimeLibrary>
-      <RuntimeLibrary Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">MultiThreadedDebug</RuntimeLibrary>
-    </ClCompile>
     <ClCompile Include="app\GameScene.cpp" />
     <ClCompile Include="app\App.cpp" />
-    <ClCompile Include="app\SkyComponent.cpp" />
-    <ClCompile Include="app\SpriteComponent.cpp" />
+    <ClCompile Include="app\GOC_Fader.cpp" />
+    <ClCompile Include="app\GOC_Rotator.cpp" />
+    <ClCompile Include="app\GOC_Sprite.cpp" />
     <ClCompile Include="app\TitleScene.cpp" />
     <ClCompile Include="Pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
@@ -127,7 +127,11 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="src\core\components\CameraComponent.cpp" />
+    <ClCompile Include="src\core\components\GOC_Camera.cpp" />
+    <ClCompile Include="src\core\components\GOC_Sky.cpp" />
+    <ClCompile Include="src\core\components\GOC_TransformUpdater.cpp" />
+    <ClCompile Include="src\core\GameObject.cpp" />
+    <ClCompile Include="src\core\LayerManager.cpp" />
     <ClCompile Include="src\core\Transform.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui_draw.cpp" />

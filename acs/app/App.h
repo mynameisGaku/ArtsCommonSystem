@@ -4,6 +4,7 @@
 class App final : public IApplication
 {
 public:
+	void OnBoot() override;
 	void OnStart() override;
 	void OnUpdate() override;
 	void OnDraw() override;

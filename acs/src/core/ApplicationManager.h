@@ -9,6 +9,11 @@ private:
     static ApplicationManager* m_pInstance;
 
 public:
+    ApplicationManager()
+    {
+        m_Applications = new std::unordered_map<std::string, IApplication*>();
+    }
+
     static ApplicationManager* GetInstance()
     {
         if (m_pInstance == nullptr)
@@ -20,11 +25,13 @@ public:
 
     void Destroy()
     {
-        for (auto& pair : m_Applications)
+        for (auto& pair : (*m_Applications))
         {
             delete pair.second;
         }
-        m_Applications.clear();
+        (*m_Applications).clear();
+        delete m_Applications;
+        m_Applications = nullptr;
         delete m_pInstance;
         m_pInstance = nullptr;
     }
@@ -36,20 +43,20 @@ public:
             "Application registration failed. Please check the classes that the application extends.");
 
         const std::string key = name;
-        if (m_Applications.find(key) != m_Applications.end())
+        if ((*m_Applications).find(key) != (*m_Applications).end())
         {
             return;
         }
 
         IApplication* app = new App();
-        m_Applications[key] = app;
+        (*m_Applications)[key] = app;
     }
 
     void SetDefault(const char* name)
     {
         const std::string key = name;
-        auto it = m_Applications.find(key);
-        if (it == m_Applications.end())
+        auto it = (*m_Applications).find(key);
+        if (it == (*m_Applications).end())
         {
             return;
         }
@@ -62,6 +69,6 @@ public:
     }
 
 private:
-    std::unordered_map<std::string, IApplication*> m_Applications;
+    std::unordered_map<std::string, IApplication*>* m_Applications;
     IApplication* m_pCurrentApp = nullptr;
 };

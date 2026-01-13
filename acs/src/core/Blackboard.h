@@ -74,7 +74,7 @@ private:
 
     Entry* FindOrCreate(Key key)
     {
-        for (auto& e : m_Entries)
+        for (auto& e : (*m_Entries))
         {
             if (e.key == key)
             {
@@ -84,13 +84,13 @@ private:
 
         Entry ne;
         ne.key = key;
-        m_Entries.push_back(ne);
-        return &m_Entries.back();
+        (*m_Entries).push_back(ne);
+        return &(*m_Entries).back();
     }
 
     const Entry* Find(Key key) const
     {
-        for (const auto& e : m_Entries)
+        for (const auto& e : (*m_Entries))
         {
             if (e.key == key)
             {
@@ -100,6 +100,17 @@ private:
         return nullptr;
     }
 
+public:
+    Blackboard()
+    {
+        m_Entries = new std::vector<Entry>();
+    }
+
+    ~Blackboard()
+    {
+        delete m_Entries;
+        m_Entries = nullptr;
+    }
 private:
-    std::vector<Entry> m_Entries;
+    std::vector<Entry>* m_Entries;
 };

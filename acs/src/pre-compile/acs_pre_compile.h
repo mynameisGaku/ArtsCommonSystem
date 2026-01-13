@@ -17,10 +17,11 @@
 #include <core/TransformTRS.h>
 #include <core/IScene.h>
 #include <core/IObject.h>
-#include <core/Component.h>
+#include <core/GO_Component.h>
 #include <core/TransformMath.h>
 #include <core/GameObject.h>
 #include <core/Transform.h>
+#include <core/LayerManager.h>
 #include <core/SceneBase.h>
 #include <core/SceneManager.h>
 #include <core/IApplication.h>

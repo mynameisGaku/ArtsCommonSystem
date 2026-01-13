@@ -48,7 +48,7 @@ namespace ACSM_Input
 	void SubscribeVirtualKeyFromJson(const std::string& path);
 
 #ifdef ACSM_DXLIB
-	POINT GetMousePoint();
+	ACSU_Math::Vector2 GetMousePoint();
 	enum class MouseButton
 	{
 		Left = 0,

@@ -2,7 +2,7 @@
 
 #include "JoyshockWrapper.h"
 #include "KeyWrapper.h"
-#include <Xinput.h> // ★ 追加
+#include <Xinput.h> 
 
 namespace
 {
@@ -476,12 +476,12 @@ void ACSM_Input::SubscribeVirtualKeyFromJson(const std::string& path)
 }
 
 #ifdef ACSM_DXLIB
-POINT ACSM_Input::GetMousePoint()
+ACSU_Math::Vector2 ACSM_Input::GetMousePoint()
 {
-	POINT pos{};
+	ACSU_Math::Vector2 pos{};
 	int tmpX, tmpY;
 	DxLib::GetMousePoint(&tmpX, &tmpY);
-	pos = { (LONG)tmpX, (LONG)tmpY };
+	pos = { (float)tmpX, (float)tmpY };
 	return pos;
 }
 bool ACSM_Input::GetMouseButton(MouseButton button)

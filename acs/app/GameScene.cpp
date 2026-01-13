@@ -1,8 +1,31 @@
 #include "GameScene.h"
 
+#include "GOC_Fader.h"
 
-void GameScene::OnInitialize()
+namespace
 {
+	GameObject* faderObj = nullptr;
+}
+
+void GameScene::OnAwake()
+{
+}
+
+void GameScene::OnStart()
+{
+	faderObj = CreateGameObject<GameObject>();
+	auto* fader = faderObj->AddGOC<GOC_Fader>();
+	{
+		GOC_Fader::SetupParameter param{};
+		param.Color = 0x000000;
+		param.Duration = 0.2f;
+		param.FadeoutCallback = []()
+			{
+				SceneManager::GetInstance()->ChangeScene("Title");
+			};
+		fader->Setup(param);
+		fader->Fadein();
+	}
 }
 
 void GameScene::OnPreUpdate(float deltaTime)
@@ -11,9 +34,10 @@ void GameScene::OnPreUpdate(float deltaTime)
 
 void GameScene::OnPostUpdate(float deltaTime)
 {
-	if (ACSM_Input::GetKeyDown(KeyCode::T))
+	if (ACSM_Input::GetKeyDown(KeyCode::Z))
 	{
-		SceneManager::GetInstance()->ChangeScene("Title");
+		auto* fader = faderObj->GetGOC<GOC_Fader>();
+		fader->Fadeout();
 	}
 }
 
@@ -36,4 +60,5 @@ void GameScene::OnPostRender(float deltaTime)
 
 void GameScene::OnDestroy()
 {
+	faderObj = nullptr;
 }

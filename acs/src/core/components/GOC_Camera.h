@@ -2,10 +2,10 @@
 
 #include <Pch.h>
 
-class CameraComponent : public Component
+class GOC_Camera : public GO_Component
 {
 public:
-    CameraComponent();
+    GOC_Camera();
 
     void Start() override;
     void Draw(float deltaTime) override;

@@ -2,8 +2,6 @@
 
 #include <Pch.h>
 #include "IScene.h"
-
-// SceneBase を使うなら include（使わないなら消してOK）
 #include "SceneBase.h"
 
 class SceneManager
@@ -51,7 +49,7 @@ public:
             return;
         }
 
-        IScene* scene = new Scene();
+        SceneBase* scene = new Scene();
         m_Scenes[key] = scene;
     }
 
@@ -150,9 +148,8 @@ private:
     SceneManager()
     {
     }
-
 private:
     std::string m_NextSceneName;
-    IScene* m_pCurrentScene = nullptr;
-    std::unordered_map<std::string, IScene*> m_Scenes;
+    SceneBase* m_pCurrentScene = nullptr;
+    std::unordered_map<std::string, SceneBase*> m_Scenes;
 };

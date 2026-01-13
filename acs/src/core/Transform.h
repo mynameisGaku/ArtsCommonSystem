@@ -3,7 +3,7 @@
 #include <Pch.h>
 #include "GameObject.h"
 
-class Transform : public Component
+class Transform : public GO_Component
 {
 public:
     const ACSU_Math::Matrix4x4& GetWorldMatrix()
