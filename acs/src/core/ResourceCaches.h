@@ -1,7 +1,5 @@
 #pragma once
 #include <Pch.h>
-#include <vector> // 追加: 複数のハンドルを管理するため
-#include "DxLib.h"
 
 enum ResourceType
 {

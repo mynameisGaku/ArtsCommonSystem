@@ -25,30 +25,28 @@
     <ClInclude Include="app\App.h" />
     <ClInclude Include="app\GOC_EcsWorld.h" />
     <ClInclude Include="app\GOC_Fader.h" />
+    <ClInclude Include="app\GOC_Mesh.h" />
     <ClInclude Include="app\GOC_Rotator.h" />
     <ClInclude Include="app\GOC_Sprite.h" />
     <ClInclude Include="app\TitleScene.h" />
     <ClInclude Include="Pch.h" />
-    <ClInclude Include="src\core\Blackboard.h" />
+    <ClInclude Include="src\core\components\GOC_Light.h" />
     <ClInclude Include="src\core\GO_Component.h" />
     <ClInclude Include="src\core\components\GOC_Camera.h" />
     <ClInclude Include="src\core\components\GOC_Sky.h" />
-    <ClInclude Include="src\core\components\GOC_TransformUpdater.h" />
     <ClInclude Include="src\core\GameObject.h" />
     <ClInclude Include="src\core\IApplication.h" />
     <ClInclude Include="src\core\ApplicationManager.h" />
     <ClInclude Include="src\core\CoreMacros.h" />
     <ClInclude Include="src\core\IObject.h" />
     <ClInclude Include="src\core\IScene.h" />
-    <ClInclude Include="src\core\BlackboardKeys.h" />
     <ClInclude Include="src\core\LayerManager.h" />
     <ClInclude Include="src\core\ResourceCaches.h" />
     <ClInclude Include="src\core\ResourceManager.h" />
     <ClInclude Include="src\core\SceneBase.h" />
+    <ClInclude Include="src\core\SceneContext.h" />
     <ClInclude Include="src\core\SceneManager.h" />
     <ClInclude Include="src\core\Transform.h" />
-    <ClInclude Include="src\core\TransformMath.h" />
-    <ClInclude Include="src\core\TransformTRS.h" />
     <ClInclude Include="src\core\UseModules.h" />
     <ClInclude Include="src\extension\entt\entt.hpp" />
     <ClInclude Include="src\extension\ImGui\imconfig.h" />
@@ -117,6 +115,23 @@
     <ClInclude Include="src\pre-compile\stl_pre_compile.h" />
     <ClInclude Include="src\utl\enum\ACSU_Enum.h" />
     <ClInclude Include="src\utl\math\ACSU_Math.h" />
+    <ClInclude Include="src\utl\math\ACSU_Math_Wrappers.h" />
+    <ClInclude Include="src\utl\math\Bounds.h" />
+    <ClInclude Include="src\utl\math\Color.h" />
+    <ClInclude Include="src\utl\math\MathCommon.h" />
+    <ClInclude Include="src\utl\math\MathDxLibConverter.h" />
+    <ClInclude Include="src\utl\math\Mathf.h" />
+    <ClInclude Include="src\utl\math\Matrix4x4.h" />
+    <ClInclude Include="src\utl\math\Plane.h" />
+    <ClInclude Include="src\utl\math\Quaternion.h" />
+    <ClInclude Include="src\utl\math\Ray.h" />
+    <ClInclude Include="src\utl\math\Rect.h" />
+    <ClInclude Include="src\utl\math\Vector2.h" />
+    <ClInclude Include="src\utl\math\Vector2Int.h" />
+    <ClInclude Include="src\utl\math\Vector3.h" />
+    <ClInclude Include="src\utl\math\Vector3Int.h" />
+    <ClInclude Include="src\utl\math\Vector4.h" />
+    <ClInclude Include="src\utl\math\Vector4Int.h" />
     <ClInclude Include="src\utl\message\MessageBroker.h" />
     <ClInclude Include="src\utl\time\ACSU_Time.h" />
   </ItemGroup>
@@ -125,6 +140,7 @@
     <ClCompile Include="app\App.cpp" />
     <ClCompile Include="app\GOC_EcsWorld.cpp" />
     <ClCompile Include="app\GOC_Fader.cpp" />
+    <ClCompile Include="app\GOC_Mesh.cpp" />
     <ClCompile Include="app\GOC_Rotator.cpp" />
     <ClCompile Include="app\GOC_Sprite.cpp" />
     <ClCompile Include="app\TitleScene.cpp" />
@@ -135,11 +151,12 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="src\core\components\GOC_Camera.cpp" />
+    <ClCompile Include="src\core\components\GOC_Light.cpp" />
     <ClCompile Include="src\core\components\GOC_Sky.cpp" />
-    <ClCompile Include="src\core\components\GOC_TransformUpdater.cpp" />
     <ClCompile Include="src\core\GameObject.cpp" />
     <ClCompile Include="src\core\LayerManager.cpp" />
     <ClCompile Include="src\core\ResourceManager.cpp" />
+    <ClCompile Include="src\core\SceneBase.cpp" />
     <ClCompile Include="src\core\Transform.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui_draw.cpp" />
@@ -155,6 +172,10 @@
     <ClCompile Include="src\modules\input\ACSM_Input.cpp" />
     <ClCompile Include="src\modules\input\JoyshockWrapper.cpp" />
     <ClCompile Include="src\modules\input\KeyWrapper.cpp" />
+    <ClCompile Include="src\utl\math\Matrix4x4.cpp" />
+    <ClCompile Include="src\utl\math\Quaternion.cpp" />
+    <ClCompile Include="src\utl\math\Vector2.cpp" />
+    <ClCompile Include="src\utl\math\Vector3.cpp" />
     <ClCompile Include="src\utl\time\ACSU_Time.cpp" />
   </ItemGroup>
   <ItemGroup>

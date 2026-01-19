@@ -4,12 +4,15 @@
 #include "GOC_Rotator.h"
 #include "GOC_Fader.h"
 #include "GOC_EcsWorld.h"
+#include "GOC_Mesh.h"
 
 namespace
 {
 	GameObject* spriteObj = nullptr;
 	GameObject* faderObj = nullptr;
 	GameObject* ecsWorld = nullptr;
+	GameObject* lightObj = nullptr;
+	GameObject* meshObj = nullptr;
 }
 
 void TitleScene::OnAwake()
@@ -53,9 +56,25 @@ void TitleScene::OnStart()
 			};
 		fader->Setup(param);
 		fader->Fadein();
+		faderObj->SetLayer("UI");
 	}
 
-	// --- ECS Initialize ---
+	lightObj = CreateGameObject<GameObject>();
+	{
+		auto* light = lightObj->AddGOC<GOC_Light>();
+
+		light->SetupDirectional(ACSU_Math::Vector3(1.0f, 1.0f, 1.0f), 1.0f);
+	}
+
+	meshObj = CreateGameObject<GameObject>();
+	{
+		auto* mesh = meshObj->AddGOC<GOC_Mesh>();
+		mesh->Setup("assets/models/NoFaceGuy_Original.mv1");
+		Transform* meshTrs = meshObj->GetGOC<Transform>();
+		meshTrs->SetLocalPosition(ACSU_Math::Vector3(1.0f, 0.0f, 0.0f));
+		meshTrs->SetLocalScale(ACSU_Math::Vector3(1.0f, 1.0f, 1.0f));
+	}
+
 	ecsWorld = CreateGameObject<GameObject>();
 	auto* world = ecsWorld->AddGOC<GOC_EcsWorld>();
 }
@@ -64,6 +83,24 @@ void TitleScene::OnPreUpdate(float deltaTime)
 {
 	auto mousePos = ACSM_Input::GetMousePoint();
 	spriteObj->GetGOC<Transform>()->SetLocalPosition(ACSU_Math::Vector3(mousePos.x, mousePos.y, 0.0f));
+
+	const SceneContext& ctx = GetContext();
+	ACSU_Math::Vector3 currentSunDir = ctx.SunDirection;
+
+	if (lightObj)
+	{
+		if (auto* light = lightObj->GetGOC<GOC_Light>())
+		{
+			light->SetDirection(currentSunDir);
+		}
+	}
+
+	auto* mesh = meshObj->GetGOC<GOC_Mesh>();
+	mesh->Setup("assets/models/NoFaceGuy_Original.mv1");
+	Transform* meshTrs = meshObj->GetGOC<Transform>();
+	meshTrs->Move(Vector3(1.0f * deltaTime, 0.0f, 0.0f));
+	meshTrs->SetLocalScale(ACSU_Math::Vector3(1.0f, 1.0f, 1.0f));
+	meshTrs->RotateEulerLocal(ACSU_Math::Vector3(0.0f, 1.0f, 0.0f));
 }
 
 void TitleScene::OnPostUpdate(float deltaTime)

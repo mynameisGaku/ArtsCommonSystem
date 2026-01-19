@@ -15,22 +15,23 @@
 
 #include <core/ResourceCaches.h>
 #include <core/ResourceManager.h>
-#include <core/Blackboard.h>
-#include <core/BlackboardKeys.h>
-#include <core/TransformTRS.h>
 #include <core/IScene.h>
 #include <core/IObject.h>
 #include <core/GO_Component.h>
-#include <core/TransformMath.h>
 #include <core/GameObject.h>
 #include <core/Transform.h>
 #include <core/LayerManager.h>
+#include <core/SceneContext.h>
 #include <core/SceneBase.h>
 #include <core/SceneManager.h>
 #include <core/IApplication.h>
 #include <core/ApplicationManager.h>
 #include <core/CoreMacros.h>
 #include <core/UseModules.h>
+
+#include <core/components/GOC_Camera.h>
+#include <core/components/GOC_Sky.h>
+#include <core/components/GOC_Light.h>
 
 #ifdef ACSM_INPUT
 #include <modules/input/JoyshockWrapper.h>

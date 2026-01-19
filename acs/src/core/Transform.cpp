@@ -1,26 +1,30 @@
 #include "Pch.h"
 
-void Transform::WriteWorldTRSToBlackboardIfChanged()
+void Transform::SetWorldRotation(const ACSU_Math::Quaternion& worldRotation)
 {
-    GameObject* go = GetGameObject();
-    if (go == nullptr)
+    if (m_Parent)
+    {
+        ACSU_Math::Quaternion parentRot = m_Parent->GetWorldRotation();
+        m_LocalRotation = ACSU_Math::Quaternion::Inverse(parentRot) * worldRotation;
+    }
+    else
+    {
+        m_LocalRotation = worldRotation;
+    }
+    MarkLocalDirty();
+}
+
+void Transform::LookAt(const ACSU_Math::Vector3& target, const ACSU_Math::Vector3& worldUp)
+{
+    ACSU_Math::Vector3 worldPos = GetWorldPosition();
+    ACSU_Math::Vector3 forward = target - worldPos;
+
+    if (forward.sqrMagnitude() < ACSU_Math::Mathf::Epsilon)
     {
         return;
     }
 
-    if (m_LastPushedWorldVersion == m_WorldVersion)
-    {
-        return;
-    }
+    ACSU_Math::Quaternion rot = ACSU_Math::Quaternion::LookRotation(forward, worldUp);
 
-    TransformTRS trs;
-    trs.position = ACSU_Math::Vector3::zero();
-    trs.rotation = ACSU_Math::Quaternion::identity();
-    trs.scale = ACSU_Math::Vector3::one();
-
-    m_WorldMatrix.DecomposeTRS(trs.position, trs.rotation, trs.scale);
-
-    go->GetBlackboard().Set(BlackboardKeys::TransformWorldTRS, trs);
-
-    m_LastPushedWorldVersion = m_WorldVersion;
+    SetWorldRotation(rot);
 }

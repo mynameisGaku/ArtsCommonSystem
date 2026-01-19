@@ -81,6 +81,8 @@ private:
 	SetupParam m_Param;
 	EnvironmentSettings m_EnvSettings;
 
+	ACSU_Math::Vector3 m_CurrentSunDirection = { 0, -1, 0 };
+
 	int m_PS = -1;
 	int m_PSCBuffer = -1;
 

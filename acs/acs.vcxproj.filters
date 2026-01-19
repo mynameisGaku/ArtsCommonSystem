@@ -73,6 +73,15 @@
     <Filter Include="acs_core_sources\src\extension\entt">
       <UniqueIdentifier>{e9d849a3-ffaa-4bee-ae4e-8b5c3ac2086a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="acs_core_sources\src\utl\Math">
+      <UniqueIdentifier>{ff55a92d-b44f-4fd2-8fbf-5ec178e70b02}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\utl\Time">
+      <UniqueIdentifier>{774492a3-5bf2-4bab-9f5b-89ccd606d017}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\utl\Enum">
+      <UniqueIdentifier>{b51b3278-bfec-4cb1-8b27-71a1e2bd7fd3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\modules\dxlib\ACSM_Dxlib.h">
@@ -113,9 +122,6 @@
     </ClInclude>
     <ClInclude Include="src\extension\ImGui\imstb_truetype.h">
       <Filter>acs_core_sources\src\extension\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="src\utl\enum\ACSU_Enum.h">
-      <Filter>acs_core_sources\src\utl</Filter>
     </ClInclude>
     <ClInclude Include="src\extension\uuid4\uuid4.h">
       <Filter>acs_core_sources\src\extension\uuid4</Filter>
@@ -291,9 +297,6 @@
     <ClInclude Include="src\core\IScene.h">
       <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
-    <ClInclude Include="src\utl\time\ACSU_Time.h">
-      <Filter>acs_core_sources\src\utl</Filter>
-    </ClInclude>
     <ClInclude Include="src\core\SceneManager.h">
       <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
@@ -303,13 +306,7 @@
     <ClInclude Include="src\core\GameObject.h">
       <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
-    <ClInclude Include="src\utl\math\ACSU_Math.h">
-      <Filter>acs_core_sources\src\utl</Filter>
-    </ClInclude>
     <ClInclude Include="src\core\Transform.h">
-      <Filter>acs_core_sources\src\core</Filter>
-    </ClInclude>
-    <ClInclude Include="src\core\TransformMath.h">
       <Filter>acs_core_sources\src\core</Filter>
     </ClInclude>
     <ClInclude Include="src\core\GO_Component.h">
@@ -329,21 +326,6 @@
     </ClInclude>
     <ClInclude Include="app\GOC_Sprite.h">
       <Filter>app\components</Filter>
-    </ClInclude>
-    <ClInclude Include="src\utl\message\MessageBroker.h">
-      <Filter>acs_core_sources\src\utl</Filter>
-    </ClInclude>
-    <ClInclude Include="src\core\Blackboard.h">
-      <Filter>acs_core_sources\src\core</Filter>
-    </ClInclude>
-    <ClInclude Include="src\core\BlackboardKeys.h">
-      <Filter>acs_core_sources\src\core</Filter>
-    </ClInclude>
-    <ClInclude Include="src\core\TransformTRS.h">
-      <Filter>acs_core_sources\src\core</Filter>
-    </ClInclude>
-    <ClInclude Include="src\core\components\GOC_TransformUpdater.h">
-      <Filter>acs_core_sources\src\core\components</Filter>
     </ClInclude>
     <ClInclude Include="src\core\components\GOC_Sky.h">
       <Filter>acs_core_sources\src\core\components</Filter>
@@ -374,6 +356,78 @@
     </ClInclude>
     <ClInclude Include="src\core\ResourceManager.h">
       <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\components\GOC_Light.h">
+      <Filter>acs_core_sources\src\core\components</Filter>
+    </ClInclude>
+    <ClInclude Include="app\GOC_Mesh.h">
+      <Filter>app\components</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\SceneContext.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\ACSU_Math.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\MathCommon.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Matrix4x4.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Quaternion.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Vector3.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\time\ACSU_Time.h">
+      <Filter>acs_core_sources\src\utl\Time</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\enum\ACSU_Enum.h">
+      <Filter>acs_core_sources\src\utl\Enum</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Vector2.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Vector4.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Plane.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Rect.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Ray.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Bounds.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Color.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Mathf.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\MathDxLibConverter.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Vector2Int.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Vector3Int.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\Vector4Int.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\message\MessageBroker.h">
+      <Filter>acs_core_sources\src\utl</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utl\math\ACSU_Math_Wrappers.h">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -425,9 +479,6 @@
     <ClCompile Include="app\App.cpp">
       <Filter>app</Filter>
     </ClCompile>
-    <ClCompile Include="src\utl\time\ACSU_Time.cpp">
-      <Filter>acs_core_sources\src\utl</Filter>
-    </ClCompile>
     <ClCompile Include="app\GameScene.cpp">
       <Filter>app\scenes</Filter>
     </ClCompile>
@@ -441,9 +492,6 @@
       <Filter>acs_core_sources\src\core</Filter>
     </ClCompile>
     <ClCompile Include="src\core\components\GOC_Camera.cpp">
-      <Filter>acs_core_sources\src\core\components</Filter>
-    </ClCompile>
-    <ClCompile Include="src\core\components\GOC_TransformUpdater.cpp">
       <Filter>acs_core_sources\src\core\components</Filter>
     </ClCompile>
     <ClCompile Include="src\core\components\GOC_Sky.cpp">
@@ -466,6 +514,30 @@
     </ClCompile>
     <ClCompile Include="src\core\ResourceManager.cpp">
       <Filter>acs_core_sources\src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\components\GOC_Light.cpp">
+      <Filter>acs_core_sources\src\core\components</Filter>
+    </ClCompile>
+    <ClCompile Include="app\GOC_Mesh.cpp">
+      <Filter>app\components</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\SceneBase.cpp">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utl\time\ACSU_Time.cpp">
+      <Filter>acs_core_sources\src\utl\Time</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utl\math\Vector3.cpp">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utl\math\Quaternion.cpp">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utl\math\Matrix4x4.cpp">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utl\math\Vector2.cpp">
+      <Filter>acs_core_sources\src\utl\Math</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

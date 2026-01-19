@@ -35,7 +35,7 @@ void GOC_Sprite::EnsureLoaded()
 
     std::vector<int> temp(total, 0);
 
-    int ok = DivGraph(
+    int ok = ACS_LoadDivGraph(
         m_Param.Path,
         total,
         m_Param.DivX,
@@ -87,22 +87,19 @@ void GOC_Sprite::Draw(float)
         return;
     }
 
-    TransformTRS trs;
-    if (!go->GetBlackboard().Get(BlackboardKeys::TransformWorldTRS, trs))
-    {
-        return;
-    }
+    Transform* transform = go->GetGOC<Transform>();
+    if (transform == nullptr) return;
 
-    float x = trs.position.x;
-    float y = trs.position.y;
+    float x = transform->GetWorldPosition().x;
+    float y = transform->GetWorldPosition().y;
 
-    float angle = ExtractZRadiansFromQuat(trs.rotation);
+    float angle = ExtractZRadiansFromQuat(transform->GetLocalRotation());
 
     float cx = static_cast<float>(m_Param.CellW) * 0.5f;
     float cy = static_cast<float>(m_Param.CellH) * 0.5f;
 
-    float sx = trs.scale.x;
-    float sy = trs.scale.y;
+    float sx = transform->GetLocalScale().x;
+    float sy = transform->GetLocalScale().y;
 
     DrawRotaGraph3F(
         x,

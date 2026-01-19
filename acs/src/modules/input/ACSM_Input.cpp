@@ -216,7 +216,7 @@ namespace ASC_VirtualKey
 		return now && !prev;
 	}
 
-	bool GetUp(const std::string& name)
+	bool Up(const std::string& name)
 	{
 		const bool now = Get(name);
 		const bool prev = (s_pPrev->find(name) != s_pPrev->end()) ? (*s_pPrev)[name] : false;
@@ -380,7 +380,7 @@ bool ACSM_Input::GetVirtualKeyDown(const std::string& key)
 }
 bool ACSM_Input::GetVirtualKeyUp(const std::string& key)
 {
-	return ASC_VirtualKey::GetUp(key);
+	return ASC_VirtualKey::Up(key);
 }
 
 void ACSM_Input::SubscribeVirtualKeyFromJson(const std::string& path)

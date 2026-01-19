@@ -94,76 +94,119 @@ void GOC_Sky::Update(float deltaTime)
 
 void GOC_Sky::UpdateEnvironmentLogic(float dt)
 {
+	// -------------------------------------------------------------
+	// 1. 時間の進行処理
+	// -------------------------------------------------------------
 	if (m_EnvSettings.AutoProgress)
 	{
 		m_EnvSettings.CurrentTime += m_EnvSettings.TimeSpeed * dt;
+		// 時間を 0.0 ～ 1.0 の範囲に正規化
 		if (m_EnvSettings.CurrentTime > 1.0f) m_EnvSettings.CurrentTime -= 1.0f;
 		if (m_EnvSettings.CurrentTime < 0.0f) m_EnvSettings.CurrentTime += 1.0f;
 	}
 
+	// -------------------------------------------------------------
+	// 2. 太陽の位置計算（提示されたロジック）
+	// -------------------------------------------------------------
+	// 0.25f (6:00) を基準に回転させる
 	float theta = (m_EnvSettings.CurrentTime - 0.25f) * (2.0f * 3.14159265f);
-	float sunY = std::sin(theta);
-	float sunH = std::cos(theta);
+	float sunY = std::sin(theta); // 高さ
+	float sunH = std::cos(theta); // 水平成分
 	ACSU_Math::Vector3 sunDir(sunH, sunY, 0.0f);
+	sunDir.Normalize(); // 念のため正規化
 
+	// メンバ変数にも保持しておく（必要であれば）
+	m_CurrentSunDirection = sunDir;
+
+	// -------------------------------------------------------------
+	// 3. 空の色・大気パラメータの計算（昼・夕方・夜の分岐）
+	// -------------------------------------------------------------
 	ACSU_Math::Vector3 cSky, cHorz, cGnd;
 	float atmosphere = 1.0f;
 	float exposure = 1.0f;
 
-	if (sunY >= 0.0f) // 昼間～日没
+	if (sunY >= 0.0f) // 昼間 ～ 日没
 	{
+		// 太陽の高さ(0.0~0.2)に応じて夕方具合を計算
 		float t = std::clamp(sunY / 0.2f, 0.0f, 1.0f);
-		t = std::pow(t, 0.5f);
+		t = std::pow(t, 0.5f); // ガンマ補正的なカーブで変化を滑らかに
 
+		// 夕焼け色 と 昼間の色 をブレンド
 		cSky = LerpColor(m_EnvSettings.SunsetSkyColor, m_EnvSettings.DaySkyColor, t);
 		cHorz = LerpColor(m_EnvSettings.SunsetHorizonColor, m_EnvSettings.DayHorizonColor, t);
 		cGnd = LerpColor(m_EnvSettings.SunsetGroundColor, m_EnvSettings.DayGroundColor, t);
-		atmosphere = Lerp(2.0f, 1.0f, t);
-		exposure = Lerp(1.0f, 1.3f, t);
+
+		atmosphere = Lerp(2.0f, 1.0f, t);   // 夕方は大気が厚く見える演出
+		exposure = Lerp(1.0f, 1.3f, t);     // 昼間は露出を上げる
 	}
 	else // 夜間
 	{
+		// 日没直後(0.0) ～ 完全な夜(0.2以上)
 		float t = std::clamp(std::abs(sunY) / 0.2f, 0.0f, 1.0f);
 
+		// 夕焼け色 と 夜の色 をブレンド
 		cSky = LerpColor(m_EnvSettings.SunsetSkyColor, m_EnvSettings.NightSkyColor, t);
 		cHorz = LerpColor(m_EnvSettings.SunsetHorizonColor, m_EnvSettings.NightHorizonColor, t);
 		cGnd = LerpColor(m_EnvSettings.SunsetGroundColor, m_EnvSettings.NightGroundColor, t);
+
 		atmosphere = 1.0f;
-		exposure = Lerp(1.5f, 0.5f, t);
+		exposure = Lerp(1.5f, 0.5f, t);     // 夜は少し暗く
 	}
 
-	GameObject* go = GetGameObject();
-	if (go)
-	{
-		Blackboard& bb = go->GetBlackboard();
-		bb.Set(BlackboardKeys::SunDirection, sunDir);
-		bb.Set(BlackboardKeys::SkyTint, cSky);
-		bb.Set(BlackboardKeys::HorizonColor, cHorz);
-		bb.Set(BlackboardKeys::GroundColor, cGnd);
-		bb.Set(BlackboardKeys::AtmosphereThick, atmosphere);
-		bb.Set(BlackboardKeys::Exposure, exposure);
-		bb.Set(BlackboardKeys::SunSize, m_EnvSettings.SunSize);
-		bb.Set(BlackboardKeys::SunConvergence, m_EnvSettings.SunConvergence);
-		bb.Set(BlackboardKeys::Turbidity, m_EnvSettings.CloudDensity);
-	}
+	// -------------------------------------------------------------
+	// 4. SceneContext への反映（ゲーム全体での共有）
+	// -------------------------------------------------------------
+	// SceneBase.h/cpp の設計に合わせて、BlackboardではなくContextを使います
+	SceneContext& ctx = GetGameObject()->GetSceneContext();
+
+	ctx.SunDirection = sunDir;
+
+	ctx.SkyTint = cSky;
+	ctx.HorizonColor = cHorz;
+	ctx.GroundColor = cGnd;
+	ctx.SunSize = m_EnvSettings.SunSize;
+	ctx.SunConvergence = m_EnvSettings.SunConvergence;
+	ctx.Turbidity = m_EnvSettings.CloudDensity;
+	ctx.Exposure = exposure;
+
+	// もしBlackboardも必要であれば、ここで以前のようにSetしてください。
+	// GameObject* go = GetGameObject();
+	// if(go) { ... }
+
+	// -------------------------------------------------------------
+	// 5. シェーダー定数バッファへの転送（描画への反映）
+	// -------------------------------------------------------------
 
 	void* p = GetBufferShaderConstantBuffer(m_PSCBuffer);
 	if (p != nullptr)
 	{
 		SkyParamsCB* cb = static_cast<SkyParamsCB*>(p);
 
-		cb->SunDirX = sunDir.x; cb->SunDirY = sunDir.y; cb->SunDirZ = sunDir.z;
+		// 構造体の中身を埋める
+		cb->SunDirX = m_CurrentSunDirection.x;
+		cb->SunDirY = m_CurrentSunDirection.y;
+		cb->SunDirZ = m_CurrentSunDirection.z;
 		cb->SunSize = m_EnvSettings.SunSize;
-		cb->SkyTintR = cSky.x; cb->SkyTintG = cSky.y; cb->SkyTintB = cSky.z;
-		cb->AtmosphereThick = atmosphere;
-		cb->GroundColorR = cGnd.x; cb->GroundColorG = cGnd.y; cb->GroundColorB = cGnd.z;
-		cb->Exposure = exposure;
-		cb->HorizonColorR = cHorz.x; cb->HorizonColorG = cHorz.y; cb->HorizonColorB = cHorz.z;
+
+		cb->SkyTintR = cSky.x;
+		cb->SkyTintG = cSky.y;
+		cb->SkyTintB = cSky.z;
+		cb->AtmosphereThick = 1.0f; // 大気の厚み（デフォルト1.0）
+
+		cb->GroundColorR = cGnd.x;
+		cb->GroundColorG = cGnd.y;
+		cb->GroundColorB = cGnd.z;
+		cb->Exposure = 1.0f; // 露出（デフォルト1.0）
+
+		cb->HorizonColorR = cHorz.x;
+		cb->HorizonColorG = cHorz.y;
+		cb->HorizonColorB = cHorz.z;
 		cb->SunConvergence = m_EnvSettings.SunConvergence;
 
-		cb->Time = m_TotalTime;
+		cb->Time = m_EnvSettings.CurrentTime;
 		cb->CloudDensity = m_EnvSettings.CloudDensity;
 		cb->CloudSharpness = m_EnvSettings.CloudSharpness;
+		cb->Padding = 0.0f;
 
 		UpdateShaderConstantBuffer(m_PSCBuffer);
 	}
@@ -176,12 +219,12 @@ void GOC_Sky::Draw(float dt)
 	GameObject* go = GetGameObject();
 	if (!go) return;
 
-	TransformTRS camTrs;
 	ACSU_Math::Vector3 camPos(0, 0, 0);
-	if (go->GetBlackboard().Get(BlackboardKeys::TransformWorldTRS, camTrs))
-	{
-		camPos = camTrs.position;
-	}
+
+	Transform* transform = go->GetGOC<Transform>();
+	if (transform == nullptr) return;
+	
+	camPos = transform->GetLocalPosition();
 
 	float rad = m_Param.Radius;
 	size_t count = m_UnitVertices.size();

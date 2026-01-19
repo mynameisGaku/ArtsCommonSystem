@@ -50,19 +50,19 @@ private:
 	std::unordered_map<std::string, ResourceCache*> m_caches;
 };
 
-static int Graph(const std::string& path)
+static int ACS_LoadGraph(const std::string& path)
 {
 	return ResourceManager::GetInstance()->LoadGraph(path);
 }
-static int Sound(const std::string& path)
+static int ACS_LoadSound(const std::string& path)
 {
 	return ResourceManager::GetInstance()->LoadSound(path);
 }
-static int Model(const std::string& path)
+static int ACS_LoadModel(const std::string& path)
 {
 	return ResourceManager::GetInstance()->LoadModel(path);
 }
-static int DivGraph(const std::string& path, int AllNum, int XNum, int YNum, int XSize, int YSize, int* HandleBuf)
+static int ACS_LoadDivGraph(const std::string& path, int AllNum, int XNum, int YNum, int XSize, int YSize, int* HandleBuf)
 {
 	return ResourceManager::GetInstance()->LoadDivGraph(path, AllNum, XNum, YNum, XSize, YSize, HandleBuf);
 }

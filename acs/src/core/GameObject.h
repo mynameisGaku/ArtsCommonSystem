@@ -2,30 +2,21 @@
 
 #include <Pch.h>
 
-#include "Blackboard.h"
-#include "BlackboardKeys.h"
-#include "Transform.h"
-#include "components/GOC_TransformUpdater.h"
-
 class SceneBase;
+struct SceneContext;
+class Transform;
 
 class GameObject : public IObject
 {
 public:
-    GameObject()
-    {
-        AddGOC<Transform>();
-        AddGOC<GOC_TransformUpdater>();
-    }
+    GameObject();
+    virtual ~GameObject();
 
-    virtual ~GameObject()
+    template<class T>
+    static std::uint32_t GetComponentTypeID()
     {
-        Destroy();
-    }
-
-    Blackboard& GetBlackboard()
-    {
-        return m_Blackboard;
+        static char dummy;
+        return static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(&dummy));
     }
 
     template<class T, class... Args>
@@ -44,6 +35,7 @@ public:
         T* c = new T(std::forward<Args>(args)...);
         c->SetOwner(this);
         m_GOCs.push_back(c);
+        m_ComponentCache[GetComponentTypeID<T>()] = c;
         return c;
     }
 
@@ -51,15 +43,11 @@ public:
     T* GetGOC() const
     {
         static_assert(std::is_base_of_v<GO_Component, T>);
-
-        for (GO_Component* c : m_GOCs)
+        auto it = m_ComponentCache.find(GetComponentTypeID<T>());
+        if (it != m_ComponentCache.end())
         {
-            if (auto casted = dynamic_cast<T*>(c))
-            {
-                return casted;
-            }
+            return static_cast<T*>(it->second);
         }
-
         return nullptr;
     }
 
@@ -67,127 +55,58 @@ public:
     bool RemoveComponent()
     {
         static_assert(std::is_base_of_v<GO_Component, T>);
-
         if constexpr (std::is_same_v<T, Transform>)
         {
             return false;
         }
-
-        for (auto it = m_GOCs.begin(); it != m_GOCs.end(); ++it)
+        auto it = m_ComponentCache.find(GetComponentTypeID<T>());
+        if (it == m_ComponentCache.end())
         {
-            if (dynamic_cast<T*>(*it) != nullptr)
-            {
-                delete* it;
-                m_GOCs.erase(it);
-                return true;
-            }
+            return false;
         }
-
+        GO_Component* target = it->second;
+        m_ComponentCache.erase(it);
+        auto vecIt = std::find(m_GOCs.begin(), m_GOCs.end(), target);
+        if (vecIt != m_GOCs.end())
+        {
+            delete* vecIt;
+            m_GOCs.erase(vecIt);
+            return true;
+        }
         return false;
     }
 
-    void Awake() override
-    {
-        for (GO_Component* c : m_GOCs)
-        {
-            if (c->IsEnabled())
-            {
-                c->Awake();
-            }
-        }
-    }
 
-    void Start() override
-    {
-        for (GO_Component* c : m_GOCs)
-        {
-            if (c->IsEnabled())
-            {
-                c->Start();
-            }
-        }
-    }
+    void Awake() override;
+    void Start() override;
+    void Update(float deltaTime) override;
+    void FixedUpdate(float fixedDeltaTime) override;
+    void Draw(float deltaTime) override;
+    void Destroy() override;
 
-    void Update(float deltaTime) override
-    {
-        for (GO_Component* c : m_GOCs)
-        {
-            if (c->IsEnabled())
-            {
-                c->Update(deltaTime);
-            }
-        }
-    }
-
-    void FixedUpdate(float fixedDeltaTime) override
-    {
-        for (GO_Component* c : m_GOCs)
-        {
-            if (c->IsEnabled())
-            {
-                c->FixedUpdate(fixedDeltaTime);
-            }
-        }
-    }
-
-    void Draw(float deltaTime) override
-    {
-        // sort
-        std::sort(
-            m_GOCs.begin(),
-            m_GOCs.end(),
-            [](GO_Component* a, GO_Component* b)
-            {
-                return a->GetLayerIndex() < b->GetLayerIndex();
-			});
-
-        for (GO_Component* c : m_GOCs)
-        {
-            if (c->IsEnabled())
-            {
-                c->Draw(deltaTime);
-            }
-        }
-    }
-
-    void Destroy() override
-    {
-        for (GO_Component* c : m_GOCs)
-        {
-            c->Destroy();
-            delete c;
-        }
-
-        m_GOCs.clear();
-    }
-
-    void DontDestroyOnLoad()
-    {
-        m_DontDestroyOnLoad = true;
-    }
-
-    bool IsDontDestroyOnLoad() const
-    {
-        return m_DontDestroyOnLoad;
-    }
+    void DontDestroyOnLoad();
+    bool IsDontDestroyOnLoad() const;
 
     void SetLayer(const std::string& layerName);
+    int GetLayerIndex() const;
 
-    int GetLayerIndex() const
-    {
-        return m_LayerIndex;
-	}
-    
-    void SetScene(SceneBase* scene)
-    {
-        m_pScene = scene;
-    }
+    void SetScene(SceneBase* scene);
+    SceneBase* GetScene() const;
+    SceneContext& GetSceneContext();
+
+    void SetName(const std::string& name);
+    const std::string& GetName() const;
+
+    void SetEnabled(bool enable);
+    bool IsEnabled() const;
 
 private:
-    SceneBase* m_pScene;
+    std::string m_Name = "GameObject";
+    SceneBase* m_pScene = nullptr;
     std::vector<GO_Component*> m_GOCs;
+    std::unordered_map<std::uint32_t, GO_Component*> m_ComponentCache;
     bool m_DontDestroyOnLoad = false;
-    int m_LayerIndex;
-	int m_DrawOrder = 0;
-    Blackboard m_Blackboard;
+    int m_LayerIndex = 0;
+    int m_DrawOrder = 0;
+    bool m_isEnabled = true;
 };
