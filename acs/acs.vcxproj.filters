@@ -61,6 +61,18 @@
     <Filter Include="assets\shader">
       <UniqueIdentifier>{9dc74f59-41b1-4d88-b4ce-0d65fd50dc07}</UniqueIdentifier>
     </Filter>
+    <Filter Include="app\ecs">
+      <UniqueIdentifier>{85a68789-2d29-4295-91b9-3fc26ed5e765}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="app\ecs\components">
+      <UniqueIdentifier>{26c9e5f6-9169-4e50-a642-f624c81d42c4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="app\ecs\systems">
+      <UniqueIdentifier>{2bfd6c3f-2788-44f3-aa8e-fd5af2b5bc05}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="acs_core_sources\src\extension\entt">
+      <UniqueIdentifier>{e9d849a3-ffaa-4bee-ae4e-8b5c3ac2086a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\modules\dxlib\ACSM_Dxlib.h">
@@ -345,6 +357,24 @@
     <ClInclude Include="app\GOC_Fader.h">
       <Filter>app\components</Filter>
     </ClInclude>
+    <ClInclude Include="app\ecs\components\ECS_Components.h">
+      <Filter>app\ecs\components</Filter>
+    </ClInclude>
+    <ClInclude Include="app\ecs\systems\ECS_Systems.h">
+      <Filter>app\ecs\systems</Filter>
+    </ClInclude>
+    <ClInclude Include="src\extension\entt\entt.hpp">
+      <Filter>acs_core_sources\src\extension\entt</Filter>
+    </ClInclude>
+    <ClInclude Include="app\GOC_EcsWorld.h">
+      <Filter>app\components</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\ResourceCaches.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\ResourceManager.h">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
@@ -431,11 +461,12 @@
     <ClCompile Include="app\GOC_Fader.cpp">
       <Filter>app\components</Filter>
     </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="src\utl\message\MessageBroker.inl">
-      <Filter>acs_core_sources\src\utl</Filter>
-    </None>
+    <ClCompile Include="app\GOC_EcsWorld.cpp">
+      <Filter>app\components</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\ResourceManager.cpp">
+      <Filter>acs_core_sources\src\core</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="assets\shader\SkyVS.hlsl">

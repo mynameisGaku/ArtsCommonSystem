@@ -3,11 +3,13 @@
 #include "GOC_Sprite.h"
 #include "GOC_Rotator.h"
 #include "GOC_Fader.h"
+#include "GOC_EcsWorld.h"
 
 namespace
 {
 	GameObject* spriteObj = nullptr;
 	GameObject* faderObj = nullptr;
+	GameObject* ecsWorld = nullptr;
 }
 
 void TitleScene::OnAwake()
@@ -28,7 +30,7 @@ void TitleScene::OnStart()
 		param.CellW = 48;
 		param.CellH = 48;
 		param.Loop = true;
-		param.FrameTime = 50.0;
+		param.FrameTime = 0.1;
 		spr->Setup(param);
 	}
 	auto* rotator = spriteObj->AddGOC<GOC_Rotator>();
@@ -52,6 +54,10 @@ void TitleScene::OnStart()
 		fader->Setup(param);
 		fader->Fadein();
 	}
+
+	// --- ECS Initialize ---
+	ecsWorld = CreateGameObject<GameObject>();
+	auto* world = ecsWorld->AddGOC<GOC_EcsWorld>();
 }
 
 void TitleScene::OnPreUpdate(float deltaTime)
@@ -72,7 +78,11 @@ void TitleScene::OnPostUpdate(float deltaTime)
 void TitleScene::OnPreFixedUpdate(float fixedDeltaTime) {}
 void TitleScene::OnPostFixedUpdate(float fixedDeltaTime) {}
 void TitleScene::OnPreRender(float deltaTime) {}
-void TitleScene::OnPostRender(float deltaTime) {}
+void TitleScene::OnPostRender(float deltaTime)
+{
+	DrawString(50, 100, "TitleScene", 0xff0000);
+	DrawFormatString(50, 150, 0xff0000, "fps : %.f", GetFPS());
+}
 void TitleScene::OnDestroy()
 {
 }

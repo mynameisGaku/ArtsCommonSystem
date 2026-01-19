@@ -7,10 +7,10 @@ namespace BlackboardKeys
 
     static constexpr std::uint32_t SunDirection = 0x3101; // ACSU_Math::Vector3
 
-    // --- Unity Skybox Parameters ---
+    // --- Skybox Parameters ---
     static constexpr std::uint32_t SkyTint = 0x3102; // Vector3 (Color)
     static constexpr std::uint32_t GroundColor = 0x3103; // Vector3 (Color)
-    static constexpr std::uint32_t HorizonColor = 0x3104; // Vector3 (Color) - 計算で出してもいいが、制御できた方が楽
+    static constexpr std::uint32_t HorizonColor = 0x3104; // Vector3 (Color)
 
     static constexpr std::uint32_t SunSize = 0x3105; // float
     static constexpr std::uint32_t SunConvergence = 0x3106; // float

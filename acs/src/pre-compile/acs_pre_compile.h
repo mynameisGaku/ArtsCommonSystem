@@ -6,12 +6,15 @@
 #include <extension/nlohmann/json.hpp>
 #include <extension/nlohmann/json_fwd.hpp>
 #include <extension/uuid4/uuid4.h>
+#include <extension/entt/entt.hpp>
 
 #include <utl/math/ACSU_Math.h>
 #include <utl/enum/ACSU_Enum.h>
 #include <utl/time/ACSU_Time.h>
 #include <utl/message/MessageBroker.h>
 
+#include <core/ResourceCaches.h>
+#include <core/ResourceManager.h>
 #include <core/Blackboard.h>
 #include <core/BlackboardKeys.h>
 #include <core/TransformTRS.h>

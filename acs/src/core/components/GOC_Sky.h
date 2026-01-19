@@ -5,7 +5,6 @@
 class GOC_Sky : public GO_Component
 {
 public:
-	// 静的な初期化パラメータ（メッシュやシェーダーパスなど）
 	struct SetupParam
 	{
 		float Radius = 50000.0f;
@@ -16,38 +15,31 @@ public:
 		const char* PixelShaderPath = nullptr;
 	};
 
-	// 動的な環境設定（色、時間、速度など）
 	struct EnvironmentSettings
 	{
-		// 時間制御
-		float CurrentTime = 0.2f;       // 0.0 ~ 1.0 (0.0=真夜中, 0.25=日の出, 0.5=正午, 0.75=日没)
-		float TimeSpeed = 0.05f;        // 1秒あたりに進む時間の割合 (0.0で停止)
-		bool AutoProgress = true;       // Updateで自動的に時間を進めるか
+		float CurrentTime = 0.2f;
+		float TimeSpeed = 0.05f;
+		bool AutoProgress = true;
 
-		// 太陽・雲
 		float SunSize = 0.04f;
 		float SunConvergence = 150.0f;
 		float CloudDensity = 0.5f;
 		float CloudSharpness = 0.1f;
 
-		// 昼の色設定
 		ACSU_Math::Vector3 DaySkyColor = { 0.10f, 0.40f, 0.80f };
 		ACSU_Math::Vector3 DayHorizonColor = { 0.60f, 0.80f, 0.95f };
 		ACSU_Math::Vector3 DayGroundColor = { 0.37f, 0.35f, 0.34f };
 
-		// 夕方の色設定
 		ACSU_Math::Vector3 SunsetSkyColor = { 0.10f, 0.05f, 0.20f };
 		ACSU_Math::Vector3 SunsetHorizonColor = { 1.0f, 0.30f, 0.05f };
 		ACSU_Math::Vector3 SunsetGroundColor = { 0.25f, 0.20f, 0.20f };
 
-		// 夜の色設定
 		ACSU_Math::Vector3 NightSkyColor = { 0.01f, 0.01f, 0.05f };
 		ACSU_Math::Vector3 NightHorizonColor = { 0.02f, 0.02f, 0.10f };
 		ACSU_Math::Vector3 NightGroundColor = { 0.05f, 0.05f, 0.05f };
 	};
 
 private:
-	// シェーダー定数バッファ用構造体（内部利用）
 	struct SkyParamsCB
 	{
 		float SunDirX, SunDirY, SunDirZ, SunSize;
@@ -78,17 +70,16 @@ public:
 private:
 	void EnsureCreated();
 	void RebuildMesh();
-	void UpdateEnvironmentLogic(float dt); // 計算ロジック
+	void UpdateEnvironmentLogic(float dt);
 
-	// ヘルパー関数
 	static float Lerp(float a, float b, float t);
 	static ACSU_Math::Vector3 LerpColor(const ACSU_Math::Vector3& a, const ACSU_Math::Vector3& b, float t);
 
 private:
-	float m_TotalTime = 0.0f; // シェーダーに渡す累積時間
+	float m_TotalTime = 0.0f;
 
 	SetupParam m_Param;
-	EnvironmentSettings m_EnvSettings; // 現在の設定
+	EnvironmentSettings m_EnvSettings;
 
 	int m_PS = -1;
 	int m_PSCBuffer = -1;

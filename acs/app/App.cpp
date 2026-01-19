@@ -6,11 +6,13 @@
 
 void App::OnBoot()
 {
-	// アプリ起動後に入る場所。 DXLIBの初期化前なので、ここで事前オプションの設定を行う
+    // アプリ起動後に入る場所。 DXLIBの初期化前なので、ここで事前オプションの設定を行う
+
 }
 
 void App::OnStart()
 {
+	ResourceManager::GetInstance()->SetReserve(500);
 	ACSM_Input::Initialize();
 	ACSU_Time::Init();
 
@@ -35,4 +37,5 @@ void App::OnDestroy()
 {
 	SceneManager::GetInstance()->Destroy();
 	ACSM_Input::Destroy();
+	ResourceManager::GetInstance()->Destroy();
 }

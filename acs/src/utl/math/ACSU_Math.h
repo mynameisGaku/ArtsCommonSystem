@@ -1135,7 +1135,6 @@ namespace ACSU_Math
             return Quaternion(n.x * s, n.y * s, n.z * s, std::cosf(rad));
         }
 
-        // Quaternion.Euler: rotations are applied in ZXY order.
         static inline Quaternion Euler(float xDegrees, float yDegrees, float zDegrees)
         {
             float xr = xDegrees * Mathf::Deg2Rad * 0.5f;
@@ -1187,10 +1186,6 @@ namespace ACSU_Math
             float m21 = 2.0f * (yz + wx);
             float m22 = 1.0f - 2.0f * (xx + yy);
 
-            // ZXY extraction.
-            // x = asin(clamp(m21, -1, 1))
-            // z = atan2(-m01, m11)
-            // y = atan2(-m20, m22)
             float xRad = std::asinf(Mathf::Clamp(m21, -1.0f, 1.0f));
             float zRad;
             float yRad;
@@ -1236,7 +1231,6 @@ namespace ACSU_Math
             Vector3 r = Vector3::Cross(u, f);
             if (r.sqrMagnitude() < 1.0e-15f)
             {
-                // up and forward are colinear -> pick an arbitrary orthogonal up
                 u = std::fabs(f.y) < 0.999f ? Vector3::up() : Vector3::right();
                 r = Vector3::Cross(u, f);
             }
@@ -1393,7 +1387,6 @@ namespace ACSU_Math
 
         friend inline Vector3 operator*(const Quaternion& rotation, const Vector3& point)
         {
-            // Unity-style: q * v * q^-1 optimized.
             float num = rotation.x * 2.0f;
             float num2 = rotation.y * 2.0f;
             float num3 = rotation.z * 2.0f;
@@ -1420,7 +1413,6 @@ namespace ACSU_Math
 
     struct Matrix4x4
     {
-        // Unity-style naming: m[row][col] => m00..m33
         float m00; float m01; float m02; float m03;
         float m10; float m11; float m12; float m13;
         float m20; float m21; float m22; float m23;
@@ -1593,7 +1585,6 @@ namespace ACSU_Math
             return t;
         }
 
-        // General 4x4 inverse (Gauss-Jordan). Works for typical TRS matrices too.
         static inline Matrix4x4 Inverse(const Matrix4x4& m)
         {
             float a[4][8];
@@ -1697,15 +1688,12 @@ namespace ACSU_Math
             );
         }
 
-        // TRS分解: position, rotation, scale を抽出
         inline void DecomposeTRS(Vector3& outPosition, Quaternion& outRotation, Vector3& outScale) const
         {
-            // position抽出
             outPosition.x = m03;
             outPosition.y = m13;
             outPosition.z = m23;
 
-            // scale抽出
             Vector3 col0(m00, m10, m20);
             Vector3 col1(m01, m11, m21);
             Vector3 col2(m02, m12, m22);
@@ -1714,23 +1702,19 @@ namespace ACSU_Math
             outScale.y = col1.magnitude();
             outScale.z = col2.magnitude();
 
-            // scale除去
             Vector3 normCol0 = (outScale.x > 1e-8f) ? (col0 / outScale.x) : Vector3::zero();
             Vector3 normCol1 = (outScale.y > 1e-8f) ? (col1 / outScale.y) : Vector3::zero();
             Vector3 normCol2 = (outScale.z > 1e-8f) ? (col2 / outScale.z) : Vector3::zero();
 
-            // 回転行列生成
             Matrix4x4 rotMat = Matrix4x4::identity();
             rotMat.m00 = normCol0.x; rotMat.m01 = normCol1.x; rotMat.m02 = normCol2.x;
             rotMat.m10 = normCol0.y; rotMat.m11 = normCol1.y; rotMat.m12 = normCol2.y;
             rotMat.m20 = normCol0.z; rotMat.m21 = normCol1.z; rotMat.m22 = normCol2.z;
 
-            // 回転抽出
             outRotation = RotationMatrixToQuaternion(rotMat);
         }
 
     private:
-        // 回転行列からクォータニオンへ変換
         static inline Quaternion RotationMatrixToQuaternion(const Matrix4x4& m)
         {
             float trace = m.m00 + m.m11 + m.m22;

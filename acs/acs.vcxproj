@@ -19,8 +19,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="app\ecs\components\ECS_Components.h" />
+    <ClInclude Include="app\ecs\systems\ECS_Systems.h" />
     <ClInclude Include="app\GameScene.h" />
     <ClInclude Include="app\App.h" />
+    <ClInclude Include="app\GOC_EcsWorld.h" />
     <ClInclude Include="app\GOC_Fader.h" />
     <ClInclude Include="app\GOC_Rotator.h" />
     <ClInclude Include="app\GOC_Sprite.h" />
@@ -39,12 +42,15 @@
     <ClInclude Include="src\core\IScene.h" />
     <ClInclude Include="src\core\BlackboardKeys.h" />
     <ClInclude Include="src\core\LayerManager.h" />
+    <ClInclude Include="src\core\ResourceCaches.h" />
+    <ClInclude Include="src\core\ResourceManager.h" />
     <ClInclude Include="src\core\SceneBase.h" />
     <ClInclude Include="src\core\SceneManager.h" />
     <ClInclude Include="src\core\Transform.h" />
     <ClInclude Include="src\core\TransformMath.h" />
     <ClInclude Include="src\core\TransformTRS.h" />
     <ClInclude Include="src\core\UseModules.h" />
+    <ClInclude Include="src\extension\entt\entt.hpp" />
     <ClInclude Include="src\extension\ImGui\imconfig.h" />
     <ClInclude Include="src\extension\ImGui\imgui.h" />
     <ClInclude Include="src\extension\ImGui\imgui_impl_dx11.h" />
@@ -117,6 +123,7 @@
   <ItemGroup>
     <ClCompile Include="app\GameScene.cpp" />
     <ClCompile Include="app\App.cpp" />
+    <ClCompile Include="app\GOC_EcsWorld.cpp" />
     <ClCompile Include="app\GOC_Fader.cpp" />
     <ClCompile Include="app\GOC_Rotator.cpp" />
     <ClCompile Include="app\GOC_Sprite.cpp" />
@@ -132,6 +139,7 @@
     <ClCompile Include="src\core\components\GOC_TransformUpdater.cpp" />
     <ClCompile Include="src\core\GameObject.cpp" />
     <ClCompile Include="src\core\LayerManager.cpp" />
+    <ClCompile Include="src\core\ResourceManager.cpp" />
     <ClCompile Include="src\core\Transform.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui.cpp" />
     <ClCompile Include="src\extension\ImGui\imgui_draw.cpp" />
@@ -148,9 +156,6 @@
     <ClCompile Include="src\modules\input\JoyshockWrapper.cpp" />
     <ClCompile Include="src\modules\input\KeyWrapper.cpp" />
     <ClCompile Include="src\utl\time\ACSU_Time.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="src\utl\message\MessageBroker.inl" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="assets\shader\SkyPS.hlsl">

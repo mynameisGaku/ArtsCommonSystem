@@ -1,9 +1,6 @@
 ﻿#pragma once
 #include "Pch.h"
 
-// Windows仮想キーを 0x00 ～ 0xFF の256個すべて列挙。
-// 既知のキーは公式に準拠した名称、未割当・予約は UNASSIGNED_xx / OEM_SPECIFIC_xx などで穴埋め。
-// 値は unsigned char に収まります（KeyWrapper の引数に static_cast<unsigned char> で渡せます）。
 enum KeyCode : unsigned char
 {
 	NONE = 0x00,  // Unassigned/Reserved

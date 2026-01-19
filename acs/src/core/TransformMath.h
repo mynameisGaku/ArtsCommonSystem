@@ -14,7 +14,6 @@ namespace ACSU_Math
         return Matrix4x4::Inverse(m);
     }
 
-    // DecomposeTRS: •ª‰ğ‚µ‚Ä position, rotation, scale ‚ğ’Šo
     inline void DecomposeTRS(const Matrix4x4& m, Vector3& outPosition, Quaternion& outRotation, Vector3& outScale)
     {
         outPosition = Vector3(m.m03, m.m13, m.m23);

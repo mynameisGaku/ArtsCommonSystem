@@ -35,7 +35,7 @@ void GOC_Sprite::EnsureLoaded()
 
     std::vector<int> temp(total, 0);
 
-    int ok = LoadDivGraph(
+    int ok = DivGraph(
         m_Param.Path,
         total,
         m_Param.DivX,
@@ -120,5 +120,4 @@ void GOC_Sprite::Draw(float)
 
 void GOC_Sprite::Destroy()
 {
-    DeleteSharingGraph(m_Handles[0]);
 }

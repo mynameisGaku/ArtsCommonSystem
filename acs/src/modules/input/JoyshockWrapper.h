@@ -49,71 +49,40 @@ class JoyshockWrapper
 public:
 	static JoyshockWrapper& Instance();
 
-	///<summary>
-	/// 初期化。接続済みデバイスを検出して内部状態を構築する。
-	///</summary>
-	/// <returns>成功なら true</returns>
+
 	bool Initialize();
 
-	///<summary>
-	/// 終了処理。全デバイス切断と内部リソースの解放を行う。
-	///</summary>
+
 	void Destroy();
 
-	/// <summary>
-	/// コンポーネントやライブラリの初期化を解除する。内部リソースの解放や終了処理を行うために呼び出す関数。
-	/// </summary>
+
 	void Uninitialize();
 
-	///<summary>
-	/// デバイスの再検出（ホットプラグ対応）。既存接続を維持したまま新規デバイスを追加検出する。
-	///</summary>
+
 	void RescanDevices();
 
-	///<summary>
-	/// 1フレーム更新。各デバイスの状態を取得し、押下遷移（Down/Up）を算出する。
-	///</summary>
+
 	void Update();
 
-	///<summary>
-	/// 接続中デバイス数を取得する。
-	///</summary>
-	/// <returns>接続台数</returns>
 	int GetDeviceCount() const;
 
-	///<summary>
-	/// インデックスから JSL のデバイスハンドルを取得する。
-	///</summary>
-	/// <param name="index">0 〜 GetDeviceCount()-1</param>
-	/// <returns>JSL ハンドル（int）。不正時は 0</returns>
 	int GetHandleByIndex(int index) const;
 
-	///<summary>
-	/// 指定デバイスが接続中かを取得する。
-	///</summary>
-	/// <param name="index">デバイスインデックス</param>
-	/// <returns>接続中なら true</returns>
 	bool IsConnected(int index) const;
 
-	///<summary>
-	/// 生ボタンビットの現在状態を取得する（JSL の `JOY_SHOCK_STATE.buttons` 用マスクを渡す）。
-	///</summary>
 	bool GetRawButton(int index, uint32_t buttonMask) const;
 	bool GetRawButtonDown(int index, uint32_t buttonMask) const;
 	bool GetRawButtonUp(int index, uint32_t buttonMask) const;
 
-	///<summary>左/右スティック、トリガ、ジャイロ（JSL）</summary>
 	void GetLeftStick(int index, float& outLX, float& outLY) const;
 	void GetRightStick(int index, float& outRX, float& outRY) const;
 	void GetTriggers(int index, float& outL, float& outR) const;
 	void GetAndFlushGyro(int index, float& outX, float& outY, float& outZ);
 
-	///<summary>ジャイロ設定・デッドゾーン</summary>
 	void SetAutomaticCalibration(int index, bool enable);
 	void SetGyroSpace(int index, int space);
 	void SetDeadZones(float stickDeadZone, float triggerThreshold);
 
-	///<summary>デフォルト（index=0）ショートカット</summary>
 	bool GetRawButton(uint32_t buttonMask) const;
 	bool GetRawButtonDown(uint32_t buttonMask) const;
 	bool GetRawButtonUp(uint32_t buttonMask) const;

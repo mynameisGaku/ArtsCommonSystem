@@ -29,7 +29,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 	IApplication* app = appManager->GetCurrentApplication();
 
 	app->OnBoot();
-
+	SetWaitVSyncFlag(FALSE);
 	SetOutApplicationLogValidFlag(FALSE);
 	SetWindowSize(1280, 720);
 	SetGraphMode(1280, 720, 32);
@@ -71,7 +71,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ INT)
 
 	app->OnStart();
 
-	const int targetFPS = 240;
+	const int targetFPS = 60;
 	const int frameDelay = 1000 / targetFPS;
 
 	while (ProcessMessage() == 0 && CheckHitKey(KEY_INPUT_ESCAPE) == 0)

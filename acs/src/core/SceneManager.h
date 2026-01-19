@@ -106,7 +106,6 @@ public:
                     }
                     else
                     {
-                        // SceneBaseˆÈŠO‚É“n‚¹‚È‚¢‚Ì‚ÅƒŠ[ƒN‰ñ”ğ‚Ì‚½‚ß”jŠü
                         for (GameObject* obj : carry)
                         {
                             if (obj != nullptr)

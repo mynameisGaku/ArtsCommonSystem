@@ -49,7 +49,6 @@ void JoyshockWrapper::Uninitialize()
 	m_Devices.clear();
 	JslDisconnectAndDisposeAll();
 
-	// XInput を初期化状態へ
 	for (auto& d : m_XInputDevices)
 	{
 		d.connected = false;

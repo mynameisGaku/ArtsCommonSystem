@@ -335,9 +335,6 @@ private:
         cam->SetMain(true);
 
         m_pMainCamera = cam;
-
-        // •K—v‚È‚ç‰ŠúˆÊ’u
-        // cameraObj->GetTransform().SetLocalPosition(...);
     }
 
     GOC_Camera* FindAnyCamera()

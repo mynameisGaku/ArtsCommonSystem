@@ -33,18 +33,12 @@ namespace ACSM_Input
 	void GetRightStick(float& outRX, float& outRY, int padNum);
 	void GetTriggers(float& outL, float& outR, int padNum);
 
-	/// <summary>
-	/// 仮想キー名に物理入力を登録する
-	/// 0xFF以下 = Keyboard VK / それ以外 = Pad（JSL or XInput）
-	/// </summary>
 	bool SubscribeVirtualKey(const std::string& key, int button);
 
-	///<summary>仮想キー（押下中/Down/Up）</summary>
 	bool GetVirtualKey(const std::string& key);
 	bool GetVirtualKeyDown(const std::string& key);
 	bool GetVirtualKeyUp(const std::string& key);
 
-	// jsonからキー設定を読み込む（Keyboard / Pad(JSL) / XPad(XInput)）
 	void SubscribeVirtualKeyFromJson(const std::string& path);
 
 #ifdef ACSM_DXLIB

@@ -362,11 +362,8 @@ bool ACSM_Input::SubscribeVirtualKey(const std::string& key, int button)
 	}
 	else
 	{
-		// ここは JSL の JSMASK_* / もしくは XINPUT_GAMEPAD_* の両方が来うる
-		// 利用側（JSON購読）でデバイス種別を分けるため、直接ここでは Pad に寄せない。
-		// 既定は JSL（Pad）として扱うユーティリティ。XPad は JSON 側で明示する。
 		Binding b{};
-		b.type = DeviceType::Pad; // 既定（JSL）
+		b.type = DeviceType::Pad;
 		b.code = static_cast<unsigned int>(button);
 		b.deviceIndex = 0;
 		return Subscribe(key, b);

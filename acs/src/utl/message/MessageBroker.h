@@ -2,7 +2,6 @@
 
 #include <Pch.h>
 
-// 購読解除を管理するトークン
 class Subscription
 {
 public:
@@ -53,13 +52,11 @@ private:
     UnsubscribeFunc unsubscribeFunc_;
 };
 
-// 型消去のための基底クラス
 struct ISubject
 {
     virtual ~ISubject() = default;
 };
 
-// 特定のメッセージ型を管理するクラス
 template <typename T>
 class Subject : public ISubject
 {
@@ -92,7 +89,6 @@ private:
     std::unordered_map<int, FadeinCallback> subscribers_;
 };
 
-// 受信設定を行うビルダークラス (単一)
 template <typename T>
 class Observable
 {
@@ -121,7 +117,6 @@ private:
     std::function<bool(const T&)> filter_;
 };
 
-// C++11向け: index_sequence 代替
 template <size_t... Is>
 struct IndexSequence
 {
@@ -138,7 +133,6 @@ struct MakeIndexSequence<0, Is...>
     using type = IndexSequence<Is...>;
 };
 
-// tuple apply (C++11)
 template <typename Func, typename Tuple, size_t... Is>
 auto ApplyImpl(Func&& f, Tuple&& t, IndexSequence<Is...>)
 -> decltype(f(std::get<Is>(t)...))
@@ -161,7 +155,6 @@ auto Apply(Func&& f, Tuple&& t)
     );
 }
 
-// ここが修正ポイント：ローカルクラス内メンバテンプレートをやめて、外に出す
 template <typename T, typename... Ts>
 T PopFrontFromQueues(std::tuple<std::deque<Ts>...>& queues)
 {
@@ -171,7 +164,6 @@ T PopFrontFromQueues(std::tuple<std::deque<Ts>...>& queues)
     return v;
 }
 
-// 可変長 Zip: Ts... が全部そろった時だけ通知
 template <typename... Ts>
 class ObservableZip
 {
@@ -186,7 +178,6 @@ public:
     {
     }
 
-    // 特定型だけフィルタ（任意）
     template <typename U>
     ObservableZip<Ts...>& Where(std::function<bool(const U&)> predicate)
     {
@@ -207,7 +198,6 @@ private:
     std::tuple<std::function<bool(const Ts&)>...> filters_;
 };
 
-// シングルトンのブローカー
 class MessageBroker
 {
 public:
@@ -228,14 +218,12 @@ public:
         }
     }
 
-    // 単一型
     template <typename T>
     Observable<T> Receive()
     {
         return Observable<T>();
     }
 
-    // 可変長（2個以上）
     template <typename T1, typename T2, typename... Ts>
     ObservableZip<T1, T2, Ts...> Receive()
     {
@@ -277,7 +265,6 @@ private:
     std::unordered_map<std::type_index, std::unique_ptr<ISubject>> subjects_;
 };
 
-// Observable<T> の実装
 template <typename T>
 Subscription Observable<T>::Subscribe(std::function<void(const T&)> onNext)
 {
@@ -293,7 +280,6 @@ Subscription Observable<T>::Subscribe(std::function<void(const T&)> onNext)
     );
 }
 
-// ObservableZip<Ts...> の実装
 template <typename... Ts>
 Subscription ObservableZip<Ts...>::Subscribe(FadeinCallback onNext)
 {
