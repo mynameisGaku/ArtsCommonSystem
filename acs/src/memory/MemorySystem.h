@@ -1,17 +1,4 @@
-// =============================================================================
-// ACS Memory — MemorySystem（セグメント管理ファサード）
-// -----------------------------------------------------------------------------
-// 起動時に各 Segment の予算（仮想予約サイズ + 初期コミット）を設定し、
-// ランタイム中は ScopedMemorySegment で「現在のセグメント」を切り替えるか、
-// MemorySystem::Get(Segment) で明示的にアロケータを取り出して使う。
-//
-// 内部実装:
-//   Default / Permanent / Resource / Develop → TlsfAllocator (VM-backed)
-//   Temp                                     → LinearAllocator (毎フレーム Reset)
-//
-// スレッド安全性:
-//   セグメントごとに内部 Mutex で保護。
-// =============================================================================
+// セグメント別メモリ管理ファサード（VM 予約 + アロケータ + 予算）
 #pragma once
 
 #include "foundation/Types.h"
@@ -46,12 +33,9 @@ struct SegmentStats {
     u64         budget;
 };
 
-// =============================================================================
-// MemorySystem — グローバル静的 API
-// =============================================================================
 class MemorySystem {
 public:
-    // 全セグメントを設定で初期化
+    // 全セグメントを設定で初期化（多重 Init はエラー）
     static Result<void> Init(const MemorySystemConfig& cfg) noexcept;
 
     // 全セグメントを解放
@@ -60,13 +44,13 @@ public:
     // 既定設定（小規模テスト・デフォルト用）
     static MemorySystemConfig DefaultConfig() noexcept;
 
-    // セグメント別アロケータ取得。Init 前に呼ぶと nullptr。
+    // セグメント別アロケータ取得（Init 前は nullptr）
     static Allocator* Get(Segment s) noexcept;
 
     // 「現在のセグメント」を取得（ScopedMemorySegment が設定したもの）
     static Segment Current() noexcept;
 
-    // 現在のセグメント用アロケータを返す
+    // 現在セグメントのアロケータ
     static Allocator* CurrentAllocator() noexcept;
 
     // Temp セグメントを巻き戻す（フレーム先頭で 1 回呼ぶ）
@@ -76,12 +60,7 @@ public:
     static u32 GetStats(SegmentStats* out, u32 max_count) noexcept;
 };
 
-// =============================================================================
-// ScopedMemorySegment — RAII でセグメントを切り替える
-// -----------------------------------------------------------------------------
-// スコープ内の MemorySystem::Current() / CurrentAllocator() は指定された
-// セグメントを返す。スコープ脱出で元に戻る。
-// =============================================================================
+// RAII でセグメントを切り替える（スコープ脱出で元に戻る）
 class ScopedMemorySegment {
 public:
     explicit ScopedMemorySegment(Segment s) noexcept;

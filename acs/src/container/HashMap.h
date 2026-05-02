@@ -1,21 +1,4 @@
-// =============================================================================
-// ACS Container — HashMap<K,V> (Robin Hood + ankerl::unordered_dense レイアウト)
-// -----------------------------------------------------------------------------
-// 設計方針:
-//   ・密値配列 (Array<Pair<K,V>>) + 8 バイトインデックスバケット
-//   ・Robin Hood ハッシング（プローブ距離平準化）
-//   ・8 ビット fingerprint で >99% の不一致キーを早期排除
-//   ・後方シフト削除（tombstone 不要）
-//   ・load factor 0.8、容量は常に 2 のべき乗
-//
-// 性能特性:
-//   ・lookup / insert: O(1) 期待
-//   ・rehash: O(n) シングルスレッド (HOT データには事前 Reserve 推奨)
-//   ・iteration: 密配列なのでキャッシュフレンドリー
-//
-// スレッド安全性:
-//   NOT thread-safe。並行アクセスは外部 Mutex / RwLock で保護すること。
-// =============================================================================
+// Robin Hood ハッシュマップ（密値配列 + 8 バイトインデックスバケット）
 #pragma once
 
 #include "foundation/Types.h"
@@ -78,7 +61,7 @@ public:
         InsertImpl(key, Move(value));
     }
 
-    // 検索: 見つかれば値へのポインタ、なければ nullptr
+    // 検索（見つかれば値ポインタ、なければ nullptr）
     V* Find(const K& key) noexcept {
         if (_bucket_count == 0) return nullptr;
         u64 h = H{}(key);
@@ -88,9 +71,9 @@ public:
         while (true) {
             const Bucket& b = _buckets[ideal];
             if (b.dist_fp == 0) return nullptr;            // 空スロット → 未存在
-            if (b.Distance() < dist) return nullptr;        // Robin Hood: 自分より距離小 → 未存在
+            if (b.Distance() < dist) return nullptr;       // Robin Hood: 自分より距離小 → 未存在
             if (b.Fingerprint() == fp) {
-                // fingerprint 一致 → 実キー比較
+                // fingerprint 一致なら実キー比較
                 if (_values[b.value_idx].first == key) return &_values[b.value_idx].second;
             }
             ideal = (ideal + 1) & _bucket_mask;
@@ -104,7 +87,7 @@ public:
 
     bool Contains(const K& key) const noexcept { return Find(key) != nullptr; }
 
-    // 削除: 後方シフトで埋める（tombstone なし）
+    // 削除（後方シフトで埋めて tombstone を残さない）
     bool Remove(const K& key) noexcept {
         if (_bucket_count == 0) return false;
         u64 h = H{}(key);
@@ -135,7 +118,7 @@ public:
                         if (m_dist > _bucket_count) break;
                     }
                 }
-                // 後方シフト削除: 削除位置に後続を 1 つずつ詰める
+                // 後方シフト: 削除位置に後続を 1 つずつ詰める
                 u32 next_idx = (ideal + 1) & _bucket_mask;
                 while (true) {
                     Bucket& nx = _buckets[next_idx];
@@ -168,7 +151,7 @@ public:
         if (cap > _bucket_count) Rehash(cap);
     }
 
-    // range-for 用: 密配列の begin/end を直接公開
+    // range-for 用（密配列の begin/end を直接公開）
     EntryType*       begin()       noexcept { return _values.begin(); }
     EntryType*       end()         noexcept { return _values.end();   }
     const EntryType* begin() const noexcept { return _values.begin(); }
@@ -177,9 +160,7 @@ public:
 private:
     static constexpr u32 kLoadFactorPct = 80;
 
-    // バケット (8 バイト)
-    //   dist_fp:   上位 24bit がプローブ距離、下位 8bit が fingerprint
-    //   value_idx: _values 配列内のインデックス
+    // バケット (8 バイト): dist_fp 上位 24bit=距離 / 下位 8bit=fingerprint, value_idx=値 idx
     struct Bucket {
         u32 dist_fp;
         u32 value_idx;
@@ -194,7 +175,7 @@ private:
         return _bucket_count == 0 ? 16 : _bucket_count * 2;
     }
 
-    // 全バケットを破棄して new_count 分を再構築。値配列は維持。
+    // 全バケットを破棄して new_count 分を再構築（値配列は維持）
     void Rehash(usize new_count) noexcept {
         ACS_ASSERT((new_count & (new_count - 1)) == 0);
         Bucket* old_buckets = _buckets;
@@ -214,7 +195,7 @@ private:
         if (old_buckets) _alloc->Free(old_buckets);
     }
 
-    // value_idx vidx を、対応するバケットに Robin Hood 挿入
+    // value_idx vidx を Robin Hood 挿入（より遠いブロックに出会ったら入れ替え）
     void ReinsertBucket(u32 vidx) noexcept {
         u64 h = H{}(_values[vidx].first);
         u32 ideal = static_cast<u32>(h) & _bucket_mask;
@@ -230,7 +211,7 @@ private:
                 slot.SetDistance(dist);
                 return;
             }
-            // Robin Hood: 自分より距離が小さいスロットを見つけたら入れ替え
+            // 自分より距離が小さいスロットを見つけたら入れ替え
             if (slot.Distance() < dist) {
                 Bucket tmp = slot;
                 slot = nb;

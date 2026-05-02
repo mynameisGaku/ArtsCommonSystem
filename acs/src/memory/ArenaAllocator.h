@@ -1,16 +1,4 @@
-// =============================================================================
-// ACS Memory — アリーナ（ページバック式バンプ）アロケータ
-// -----------------------------------------------------------------------------
-// LinearAllocator と似ているが、容量を固定せず「ページが足りなくなったら
-// 追加ページを backing から取って繋げる」方式。サイズが事前に分からない
-// 場面（パース、ノード木の構築等）で便利。
-//
-// Reset(false) で全ページを再利用、Reset(true) でページを backing に返す。
-//
-// スレッド安全性:
-//   - 同一ページ内のバンプはアトミック CAS（マルチスレッド OK）
-//   - 新ページ確保（Grow パス）は Mutex で直列化
-// =============================================================================
+// ページバック式バンプアロケータ（容量を固定せず、満杯になったらページ追加）
 #pragma once
 
 #include "memory/Allocator.h"
@@ -21,8 +9,7 @@ namespace acs {
 
 class ArenaAllocator final : public Allocator {
 public:
-    // 1 ページのサイズ（既定 64KB）。page_size より大きい確保要求は
-    // 専用のページが 1 つ作られる。
+    // 1 ページあたりのサイズを指定（既定 64KB）
     ArenaAllocator(usize page_size = 64 * 1024,
                    Allocator* backing = nullptr) noexcept;
     ~ArenaAllocator() noexcept override;
@@ -33,8 +20,7 @@ public:
     void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept override;
     void  Free (void* ptr) noexcept override;  // no-op
 
-    // 全確保済みメモリを「無効」にする。release_pages=true ならページも解放。
-    // false なら次の Alloc で再利用される（OS への返却なし、高速）。
+    // 全確保を「無効」にする。release_pages=true なら backing にページを返却
     void Reset(bool release_pages = false) noexcept;
 
     u64 BytesAllocated() const noexcept override { return _bytes.Load(MemoryOrder::Acquire); }
@@ -44,9 +30,9 @@ public:
 private:
     // 1 ページの管理ヘッダ
     struct Page {
-        Page*       next;     // ページの単方向リンク
-        u8*         base;     // ページのデータ領域先頭
-        u64         size;     // ページのデータ領域サイズ
+        Page*       next;     // 単方向リンク
+        u8*         base;     // データ領域先頭
+        u64         size;     // データ領域サイズ
         Atomic<u64> used;     // 現在のカーソル位置
     };
 
@@ -56,7 +42,7 @@ private:
     usize         _page_size = 0;
     Atomic<Page*> _current  {nullptr};   // 現在書き込み中のページ
     Page*         _pages    = nullptr;   // 全ページのリスト
-    Mutex         _grow_lock;            // 新ページ確保用ロック
+    Mutex         _grow_lock;            // 新ページ確保用
     Atomic<u64>   _bytes {0};
     mutable Atomic<u64> _peak  {0};
 };

@@ -1,21 +1,4 @@
-// =============================================================================
-// ACS Foundation — 非同期スレッドセーフ Logger
-// -----------------------------------------------------------------------------
-// Phase 1 の構成:
-//   - Vyukov 境界付き MPMC リング（シーケンス番号方式）
-//   - プロデューサ側: vsnprintf でセル内に書き込み、シーケンス番号の release
-//     ストアで公開
-//   - コンシューマ側: 専用ライタースレッドが定期的にドレイン
-//   - 出力先 (cfg で選択):
-//       * stdout (cfg.console)
-//       * OutputDebugString (cfg.debug_output)
-//       * ファイル (cfg.file_path)
-//   - バックプレッシャ: リングが満杯なら DROP し、dropped カウンタを加算
-//
-// すべての _Interlocked* は ARM64 では _acq / _rel サフィックス版を使い、
-// x64 では完全バリアの基本版を使う（ハードウェアレベルで等価）。
-// STL / 例外 / RTTI を一切使わない。
-// =============================================================================
+// 非同期スレッドセーフ Logger（Vyukov MPMC ring + writer thread）
 #pragma once
 
 #include "foundation/Types.h"
@@ -24,15 +7,14 @@
 
 namespace acs {
 
-// ---- ログレベル ---------------------------------------------------------
-// 数値が小さいほど詳細。Off は出力完全無効化。
+// ログレベル（数値が小さいほど詳細）
 enum class LogSeverity : u8 {
-    Trace = 0,  // 詳細トレース（毎フレームの細かいイベント）
-    Debug = 1,  // デバッグ情報（開発時のみ有用）
-    Info  = 2,  // 通常情報（起動完了、状態遷移など）
-    Warn  = 3,  // 警告（動作は続くが要注意）
-    Error = 4,  // エラー（処理失敗）
-    Fatal = 5,  // 致命エラー（プロセス継続困難）
+    Trace = 0,  // 詳細トレース
+    Debug = 1,  // デバッグ情報
+    Info  = 2,  // 通常情報
+    Warn  = 3,  // 警告
+    Error = 4,  // エラー
+    Fatal = 5,  // 致命エラー
     Off   = 6,  // 出力停止
 };
 
@@ -50,38 +32,36 @@ constexpr const char* ToString(LogSeverity s) noexcept {
     return "?";
 }
 
-// ---- Logger 設定 -------------------------------------------------------
+// Logger 設定
 struct LogConfig {
     const wchar_t* file_path     = nullptr;            // nullptr ならファイル無効
     LogSeverity    min_severity  = LogSeverity::Info;  // 出力最小レベル
-    u32            ring_capacity = 4096;               // リング長 (2 のべき乗、16 未満は 16 に切り上げ)
+    u32            ring_capacity = 4096;               // リング長（2 のべき乗、16 未満は 16 に切り上げ）
     bool           console       = true;               // stdout 出力する
     bool           debug_output  = true;               // OutputDebugStringA 出力する
 };
 
-// ---- Logger 静的 API ---------------------------------------------------
 class Logger {
 public:
-    // 初期化。多重呼び出しは無視される（単一ロガー想定）。
+    // 初期化（多重呼び出しは無視）
     static void Init(const LogConfig& cfg) noexcept;
 
-    // ライタースレッドを停止し、リソースを開放する。
+    // ライタースレッドを停止しリソース解放
     static void Shutdown() noexcept;
 
-    // 同期点。残っているレコードをすべて書き出す（テスト/シャットダウン用）。
+    // 残レコードを書き出すまで待つ
     static void Flush() noexcept;
 
-    // 最小ログレベルを動的に変更する。スレッドセーフ。
+    // 最小ログレベルを動的に変更（スレッドセーフ）
     static void SetMinSeverity(LogSeverity s) noexcept;
 
-    // 指定レベルの出力が有効かを取得（マクロ側で軽量フィルタするため）。
+    // 指定レベルが出力対象か
     static bool Enabled(LogSeverity s) noexcept;
 
-    // リング満杯で破棄されたレコード数の合計。
+    // リング満杯で破棄されたレコード総数
     static u64 DroppedCount() noexcept;
 
-    // 実際の書き込み関数。フォーマットは printf 互換。
-    // ※ ホットパスのインライン肥大化を避けるため NEVERINLINE を付与。
+    // 実書き込み関数（printf 互換、ホットパス肥大化を避けるため NEVERINLINE）
     ACS_NEVERINLINE static void Write(LogSeverity sev,
                                       SourceLoc   loc,
                                       const char* fmt,
@@ -90,13 +70,7 @@ public:
 
 } // namespace acs
 
-// =============================================================================
-// レベル別マクロ
-// -----------------------------------------------------------------------------
-// 例:
-//   ACS_LOG_INFO("started: build=%s", build_tag);
-//   ACS_LOG_ERROR("could not open %s (err=%lu)", path, GetLastError());
-// =============================================================================
+// 内部マクロ: 指定レベルが有効ならログを出力
 #define ACS_LOG(sev, fmt, ...)                                                 \
     do {                                                                       \
         if (::acs::Logger::Enabled(sev))                                       \

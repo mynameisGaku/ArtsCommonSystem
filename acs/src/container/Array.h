@@ -1,20 +1,4 @@
-// =============================================================================
-// ACS Container — Array<T>（std::vector 代替、可変長配列）
-// -----------------------------------------------------------------------------
-// 主要特徴:
-//   - アロケータをコンストラクタで注入可能（DefaultAllocator もしくは指定）
-//   - ムーブ専用（コピーしたい場合は明示的に Clone() を呼ぶ）
-//   - トリビアルコピー可能型は MemCopy/MemMove で高速処理
-//
-// スレッド安全性:
-//   Array<T> 自体は単一スレッド前提。並行読み取りは OK だが書き込みを
-//   含む場合は外部 Mutex / RwLock で保護すること。
-//
-// 性能注意:
-//   _alloc->Alloc() は仮想呼び出し → vtable 1 段間接。Grow は cold path
-//   なのでホットパスへの影響は限定的だが、頻繁に Grow する場合は事前に
-//   Reserve() で予約しておくこと。
-// =============================================================================
+// 可変長配列（std::vector 代替、アロケータ注入可能、ムーブ専用）
 #pragma once
 
 #include "foundation/Types.h"
@@ -31,18 +15,17 @@ namespace acs {
 template<typename T>
 class Array {
 public:
-    // ---- コンストラクタ ----
     Array() noexcept : _alloc(&DefaultAllocator()) {}
     explicit Array(Allocator& a) noexcept : _alloc(&a) {}
     Array(usize initial_capacity, Allocator& a = DefaultAllocator()) noexcept : _alloc(&a) {
         Reserve(initial_capacity);
     }
 
-    // コピー禁止（明示的な Clone を強制してパフォーマンス事故を防ぐ）
+    // 明示的な Clone を強制してパフォーマンス事故を防ぐためコピー禁止
     Array(const Array&) = delete;
     Array& operator=(const Array&) = delete;
 
-    // ムーブ可
+    // ムーブで所有権を奪う
     Array(Array&& o) noexcept
         : _data(o._data), _size(o._size), _capacity(o._capacity), _alloc(o._alloc) {
         o._data = nullptr; o._size = 0; o._capacity = 0;
@@ -57,9 +40,8 @@ public:
     }
     ~Array() noexcept { Clear(); Free(); }
 
-    // ---- 容量／サイズ ----
-    usize Size()     const noexcept { return _size; }       // 要素数
-    usize Capacity() const noexcept { return _capacity; }   // 確保済み容量
+    usize Size()     const noexcept { return _size; }
+    usize Capacity() const noexcept { return _capacity; }
     bool  IsEmpty()  const noexcept { return _size == 0; }
 
     // 容量を予約（既存要素は保持）
@@ -85,7 +67,7 @@ public:
         _size = new_size;
     }
 
-    // サイズを 0 に（容量は保持、デストラクタは呼ぶ）
+    // サイズを 0 に（容量は保持）
     void Clear() noexcept {
         if constexpr (!IsTriviallyDestructibleV<T>) {
             for (usize i = _size; i-- > 0;) _data[i].~T();
@@ -99,7 +81,6 @@ public:
         Grow(_size);
     }
 
-    // ---- アクセス ----
     T*       Data()       noexcept { return _data; }
     const T* Data() const noexcept { return _data; }
     T&       operator[](usize i)       noexcept { ACS_ASSERT(i < _size); return _data[i]; }
@@ -117,7 +98,6 @@ public:
     Span<T>       AsSpan()       noexcept { return Span<T>(_data, _size); }
     Span<const T> AsSpan() const noexcept { return Span<const T>(_data, _size); }
 
-    // ---- 変更 ----
     void PushBack(const T& v) noexcept {
         if (_size == _capacity) Grow(NextGrow(_size + 1));
         ::new (&_data[_size]) T(v);
@@ -140,7 +120,7 @@ public:
         if constexpr (!IsTriviallyDestructibleV<T>) _data[_size].~T();
     }
 
-    // 高速削除: 末尾要素を i 番にムーブして縮める（順序は保たれない）
+    // i 番に末尾要素をムーブして縮める（順序は保たれない、削除が高速）
     void RemoveAtSwap(usize i) noexcept {
         ACS_ASSERT(i < _size);
         --_size;
@@ -163,7 +143,7 @@ public:
     Allocator* GetAllocator() const noexcept { return _alloc; }
 
 private:
-    // 容量増加戦略: 8 → 12 → 18 → 27 → ...（約 1.5 倍）
+    // 容量増加戦略（約 1.5 倍ずつ）
     static usize NextGrow(usize required) noexcept {
         usize n = 8;
         while (n < required) n += n / 2 + 1;
@@ -180,7 +160,7 @@ private:
                 MemCopy(new_data, _data, sizeof(T) * _size);  // POD はバルクコピー
             } else {
                 for (usize i = 0; i < _size; ++i) {
-                    ::new (&new_data[i]) T(Move(_data[i]));    // ムーブコンストラクト
+                    ::new (&new_data[i]) T(Move(_data[i]));
                     if constexpr (!IsTriviallyDestructibleV<T>) _data[i].~T();
                 }
             }

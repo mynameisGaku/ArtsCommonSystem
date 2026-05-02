@@ -1,17 +1,4 @@
-// =============================================================================
-// ACS Memory — TLSF アロケータ（Two-Level Segregated Fit）
-// -----------------------------------------------------------------------------
-// 2 段ビットマップでフリーリストをインデックス化し、O(1) の alloc/free を
-// 実現する汎用アロケータ。
-//
-// 構成定数:
-//   FL_INDEX_MAX  = 32     最大単一ブロック 4 GiB
-//   SL_INDEX_LOG2 = 5      各 FL を 32 サブバケットに分割
-//   16 バイト整列、最小ブロックサイズ 32 バイト
-//
-// スレッド安全性:
-//   単一スレッド前提。並列アクセス時は外部 Mutex で保護すること。
-// =============================================================================
+// TLSF アロケータ（Two-Level Segregated Fit、O(1) alloc/free）
 #pragma once
 
 #include "foundation/Types.h"
@@ -23,30 +10,26 @@ namespace acs {
 
 namespace tlsf {
 
-constexpr int FL_INDEX_MAX     = 32;
-constexpr int SL_INDEX_LOG2    = 5;
-constexpr int SL_INDEX_COUNT   = 1 << SL_INDEX_LOG2;          // 32
-constexpr int FL_INDEX_SHIFT   = SL_INDEX_LOG2 + 2;           // 7
-constexpr int FL_INDEX_COUNT   = FL_INDEX_MAX - FL_INDEX_SHIFT + 1;  // 26
-constexpr int SMALL_BLOCK_SIZE = 1 << FL_INDEX_SHIFT;         // 128B
+// 構成定数
+constexpr int FL_INDEX_MAX     = 32;                          // 最大単一ブロック 4 GiB
+constexpr int SL_INDEX_LOG2    = 5;                           // 32 サブバケット
+constexpr int SL_INDEX_COUNT   = 1 << SL_INDEX_LOG2;
+constexpr int FL_INDEX_SHIFT   = SL_INDEX_LOG2 + 2;
+constexpr int FL_INDEX_COUNT   = FL_INDEX_MAX - FL_INDEX_SHIFT + 1;
+constexpr int SMALL_BLOCK_SIZE = 1 << FL_INDEX_SHIFT;
 constexpr int ALIGN_SIZE       = 16;
 constexpr int MIN_BLOCK_SIZE   = 32;
 
-// ブロックヘッダ。フリー時はリストポインタが payload とオーバーレイする。
+// ブロックヘッダ。フリー時はリストポインタが payload とオーバーレイする
 struct BlockHeader {
     BlockHeader* prev_phys_block;   // 物理的に前のブロック
-    usize        size_and_flags;    // 上位ビット: サイズ, ビット 0: this_free, ビット 1: prev_free
+    usize        size_and_flags;    // 上位ビット=サイズ、ビット 0=this_free、ビット 1=prev_free
     BlockHeader* next_free;         // フリー時のみ有効
     BlockHeader* prev_free;         // フリー時のみ有効
 };
 
 } // namespace tlsf
 
-// =============================================================================
-// TlsfAllocator — TLSF 本体
-// -----------------------------------------------------------------------------
-// VmReservation を裏に持って動的ページコミットと組み合わせることもできる。
-// =============================================================================
 class TlsfAllocator final : public Allocator {
 public:
     TlsfAllocator() noexcept = default;
@@ -58,14 +41,13 @@ public:
     // 単一プールで初期化（pool_base は 16 バイト整列、pool_size >= 1KB 推奨）
     Result<void> Init(void* pool_base, usize pool_size) noexcept;
 
-    // VmReservation を保持しつつ commit_initial バイトを TLSF プールとして登録
+    // VmReservation を保持しつつ commit_initial バイトをプールとして登録
     Result<void> InitWithReservation(VmReservation&& reservation,
                                      usize commit_initial) noexcept;
 
     // 追加プール登録（既存プール枯渇時など）
     Result<void> AddPool(void* pool_base, usize pool_size) noexcept;
 
-    // ---- Allocator IF ----
     void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept override;
     void  Free (void* ptr)                                  noexcept override;
     void* Realloc(void* ptr, usize old_size, usize new_size,
@@ -75,7 +57,6 @@ public:
     u64 PeakBytes()      const noexcept override { return _bytes_peak; }
     const char* Name()   const noexcept override { return "TLSF"; }
 
-    // 統計取得
     struct Stats {
         u64 bytes_used;
         u64 bytes_peak;

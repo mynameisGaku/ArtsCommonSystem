@@ -1,22 +1,11 @@
-// =============================================================================
-// ACS Test — アサーションマクロ群
-// -----------------------------------------------------------------------------
-// テスト内で条件を検証するマクロ。失敗しても続行（中断はしない）。
-// 失敗カウンタは TLS に持つので並列テスト実行にも対応可能。
-//
-// 提供:
-//   EXPECT_TRUE(expr)           — expr が true なら成功
-//   EXPECT_FALSE(expr)          — expr が false なら成功
-//   EXPECT_EQ(a, b)             — a == b なら成功
-//   EXPECT_NE(a, b)             — a != b なら成功
-//   EXPECT_NEAR(a, b, eps)      — |a - b| <= eps なら成功（浮動小数比較）
-// =============================================================================
+// テスト内で条件を検証するアサートマクロ群（失敗してもテストは続行する）
 #pragma once
 
 #include "test/Test.h"
 #include "foundation/SourceLoc.h"
 #include "foundation/Compiler.h"
 
+// expr が true でなければ失敗を記録
 #define EXPECT_TRUE(expr)                                                     \
     do {                                                                      \
         if (!(expr)) {                                                        \
@@ -25,6 +14,7 @@
         }                                                                     \
     } while (0)
 
+// expr が false でなければ失敗を記録
 #define EXPECT_FALSE(expr)                                                    \
     do {                                                                      \
         if ((expr)) {                                                         \
@@ -33,6 +23,7 @@
         }                                                                     \
     } while (0)
 
+// a == b でなければ失敗を記録
 #define EXPECT_EQ(a, b)                                                       \
     do {                                                                      \
         auto _av = (a);                                                       \
@@ -44,6 +35,7 @@
         }                                                                     \
     } while (0)
 
+// a != b でなければ失敗を記録
 #define EXPECT_NE(a, b)                                                       \
     do {                                                                      \
         auto _av = (a);                                                       \
@@ -55,6 +47,7 @@
         }                                                                     \
     } while (0)
 
+// |a - b| が eps 以下でなければ失敗を記録（浮動小数比較）
 #define EXPECT_NEAR(a, b, eps)                                                \
     do {                                                                      \
         f32 _diff = (f32)((a) - (b));                                         \
