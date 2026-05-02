@@ -10,6 +10,7 @@ acs_module(
         Vec.h
         Mat.h
         Quat.h
+        Camera.h
         MathDispatch.h
     PUBLIC_DEPS
         Foundation
