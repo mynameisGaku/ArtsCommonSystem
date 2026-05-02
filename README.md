@@ -1,71 +1,69 @@
-# 🎮 Arts Common System (ACS)
+# Arts Common System (ACS)
 
-> ゲーム開発をもっと楽しく、もっと便利に。  
-> Developed by students at [Arts College Yokohama](https://www.kccollege.ac.jp/)
-
----
-
-## 🚀 What's ACS?
-
-**Arts Common System (ACS)** は、ゲーム制作の現場で頻出する処理やシステムを共通化・再利用することを目的とした **コアシステム** です。  
-ライブラリではなく、**ゲーム開発に特化した基盤システム** として設計されています。
-
-### 🔧 特徴
-
-- プロジェクト横断で使える共通機能を搭載
-- 機能はモジュール化を進行中（必要なものだけ選択可）
-- 学生プロジェクト向けに軽量・柔軟な設計
-- 今後も継続的にアップデート予定！
+> ゲーム開発の基盤となる、モジュール式 C++20 ランタイム。
+> Originally developed by students at [Arts College Yokohama](https://www.kccollege.ac.jp/).
 
 ---
 
-## 👨‍💻 開発チーム
+## 概要
 
-このプロジェクトは、**アーツカレッジヨコハマ ゲームクリエイター学科** の学生3名によって開発されています。  
-各自が異なる専門性を活かし、分業・連携しながら日々改良を重ねています。
+ACS はゲーム制作の現場で頻出する処理を共通化・再利用することを目的とした
+**コアランタイム**です。Phase 1 では以下を**ゼロから**再構築しました（既存
+DXLib ベース実装を完全に廃棄）：
 
----
+- **STL を使用しない** — `Array<T>`, `String`, `HashMap<K,V>`, `Atomic<T>`,
+  `Thread`, `Mutex`, `RwLock`, `UniquePtr<T>`, `Rc<T>` などを自前実装
+- **全機能スレッドセーフ** — ロックフリー / Win32 SRWLOCK / `_Interlocked*`
+- **SIMD 対応** — DirectXMath を x64 バックエンドにラップ、CPU 機能の実行時検出
+- **詳細なエラー報告** — `Result<T,E>`, `ACS_ASSERT`, スタックトレース付き Panic
+- **UE 風モジュールシステム** — `modules.cmake` でモジュールと機能を選択
 
-## 🎯 目指すもの
+## Phase 1 モジュール
 
-ACSのゴールは、  
-> **ゲーム制作を"面倒くさい"から"楽しい"に変えること。**
+| モジュール | 主要内容 |
+|---|---|
+| `Foundation` | Types, SourceLoc, Result, Assert, Panic, StackTrace, async Logger |
+| `Threading`  | Atomic, Mutex, RwLock, ConditionVar, Thread, work-stealing ThreadPool |
+| `Memory`     | Allocator IF, System/Linear/Pool(lock-free)/Arena allocators, UniquePtr, Rc |
+| `Container`  | Span, Array, String (SSO), StringView, HashMap (Robin-Hood), Hash |
+| `Math`       | Vec2/3/4, Mat4, Quat (DirectXMath wrapper), CPU detect, runtime dispatch |
+| `Test`       | `ACS_TEST` マクロ + `EXPECT_*` 群 + ランナー |
 
-「何度も書くのが面倒」「プロジェクトごとに毎回作るのが大変」  
-そんなあなたの負担を、ACSが軽減します。
+詳細は [`acs/docs/ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) を参照。
 
----
+## ビルド
 
-## 📦 予定されている機能例（開発中含む）
+要件: Windows + Visual Studio 2022 (MSVC) または Clang-cl, CMake 3.24+
 
-- 🚶 入力管理（Input Manager）
-- 🧠 ビヘイビアツリー／状態遷移
-- 🧱 ECS（Entity Component System）ベース構成
-- 🔗 ネットワーク対応（P2P / クライアントサーバ）
-- 🔍 インスペクターによるリアルタイムデバッグ
-- 💾 セーブ・ロード管理
-- 🎨 アセット管理・Prefab機構
-- などなど！
+```pwsh
+cd acs
+cmake -S . -B build -G Ninja
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
----
+## モジュールの選択（UE 風）
 
-## 📘 使用方法（Coming Soon）
+`acs/modules.cmake` を編集して、ビルドするモジュールと機能を選択：
 
-初期導入・使い方ガイド・モジュール単位の解説は、今後追加予定です。
+```cmake
+acs_enable_module(Foundation REQUIRED FEATURES STACKTRACE LOG_FILE_SINK)
+acs_enable_module(Math       REQUIRED FEATURES DIRECTXMATH AVX2)
+# acs_enable_module(Render            FEATURES DX12_RAW)   # Phase 2
+```
 
----
+各モジュールには `WITH_ACS_<NAME>=1`、各機能には `WITH_<FEATURE>=1` の
+プリプロセッサ define が自動的に付与され、コード側で `#if` ガード可能。
 
-## 🤝 コントリビューションについて
+## Phase 2 予定
 
-このプロジェクトは教育・学習目的で開発されていますが、  
-外部からのフィードバックや改善提案も歓迎しています！
+| モジュール | 候補バックエンド |
+|---|---|
+| Render | DirectX 12 (raw + DirectX-Headers + D3D12MA), The-Forge, または bgfx (一つ採用) |
+| Asset  | DDS / glTF / wav 等 |
+| ECS    | entt または自前 archetype |
+| Editor | Dear ImGui (DX12 バックエンド) |
 
----
-
-## 📝 ライセンス
+## ライセンス
 
 教育目的での使用に限定されています。商用利用・外部配布は事前許可が必要です。
-
----
-
-> 最終更新: 2025年7月現在
