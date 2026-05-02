@@ -1,16 +1,21 @@
-// ACS Container — Robin Hood hashmap (ankerl::unordered_dense layout).
+// =============================================================================
+// ACS Container — HashMap<K,V> (Robin Hood + ankerl::unordered_dense レイアウト)
+// -----------------------------------------------------------------------------
+// 設計方針:
+//   ・密値配列 (Array<Pair<K,V>>) + 8 バイトインデックスバケット
+//   ・Robin Hood ハッシング（プローブ距離平準化）
+//   ・8 ビット fingerprint で >99% の不一致キーを早期排除
+//   ・後方シフト削除（tombstone 不要）
+//   ・load factor 0.8、容量は常に 2 のべき乗
 //
-// Layout:
-//   * `_buckets` — power-of-two-sized index table; each bucket is 8 bytes:
-//     {dist:24, fingerprint:8, value_idx:32}.
-//   * `_values`  — dense Array<Pair<K,V>> for cache-friendly iteration.
+// 性能特性:
+//   ・lookup / insert: O(1) 期待
+//   ・rehash: O(n) シングルスレッド (HOT データには事前 Reserve 推奨)
+//   ・iteration: 密配列なのでキャッシュフレンドリー
 //
-// Lookup: hash → bucket → fingerprint check → key compare. Robin Hood probing
-// keeps probe distances bounded; backward-shift deletion avoids tombstones.
-//
-// Load factor: 0.8. Capacity always a power of two.
-//
-// NOT thread-safe.
+// スレッド安全性:
+//   NOT thread-safe。並行アクセスは外部 Mutex / RwLock で保護すること。
+// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -22,6 +27,7 @@
 
 namespace acs {
 
+// キー / 値ペア
 template<typename K, typename V>
 struct Pair {
     K first;
@@ -65,23 +71,26 @@ public:
     usize Size() const noexcept     { return _values.Size(); }
     bool  IsEmpty() const noexcept  { return _values.IsEmpty(); }
 
-    // Insert or assign.
+    // 挿入または上書き
     void Insert(const K& key, V value) noexcept {
+        // load factor 超過なら容量倍増
         if ((Size() + 1) * 100 > _bucket_count * kLoadFactorPct) Rehash(NextCapacity());
         InsertImpl(key, Move(value));
     }
 
+    // 検索: 見つかれば値へのポインタ、なければ nullptr
     V* Find(const K& key) noexcept {
         if (_bucket_count == 0) return nullptr;
         u64 h = H{}(key);
         u32 ideal = static_cast<u32>(h) & _bucket_mask;
-        u32 fp = static_cast<u32>((h >> 56) | 0x01);
+        u32 fp = static_cast<u32>((h >> 56) | 0x01);  // fingerprint（0 を避ける）
         u32 dist = 0;
         while (true) {
             const Bucket& b = _buckets[ideal];
-            if (b.dist_fp == 0) return nullptr;
-            if (b.Distance() < dist) return nullptr;
+            if (b.dist_fp == 0) return nullptr;            // 空スロット → 未存在
+            if (b.Distance() < dist) return nullptr;        // Robin Hood: 自分より距離小 → 未存在
             if (b.Fingerprint() == fp) {
+                // fingerprint 一致 → 実キー比較
                 if (_values[b.value_idx].first == key) return &_values[b.value_idx].second;
             }
             ideal = (ideal + 1) & _bucket_mask;
@@ -95,6 +104,7 @@ public:
 
     bool Contains(const K& key) const noexcept { return Find(key) != nullptr; }
 
+    // 削除: 後方シフトで埋める（tombstone なし）
     bool Remove(const K& key) noexcept {
         if (_bucket_count == 0) return false;
         u64 h = H{}(key);
@@ -107,8 +117,8 @@ public:
             if (b.Distance() < dist) return false;
             if (b.Fingerprint() == fp && _values[b.value_idx].first == key) {
                 u32 vidx = b.value_idx;
-                _values.RemoveAtSwap(vidx);
-                // If we swapped, update the bucket pointing at the moved value.
+                _values.RemoveAtSwap(vidx);  // 末尾と入れ替えて削除
+                // 末尾要素が動いたなら、それを指していたバケットの value_idx を更新
                 if (vidx != _values.Size()) {
                     u64 mh = H{}(_values[vidx].first);
                     u32 m_ideal = static_cast<u32>(mh) & _bucket_mask;
@@ -125,7 +135,7 @@ public:
                         if (m_dist > _bucket_count) break;
                     }
                 }
-                // Backward-shift to fill the slot.
+                // 後方シフト削除: 削除位置に後続を 1 つずつ詰める
                 u32 next_idx = (ideal + 1) & _bucket_mask;
                 while (true) {
                     Bucket& nx = _buckets[next_idx];
@@ -150,6 +160,7 @@ public:
         if (_buckets) MemSet(_buckets, 0, sizeof(Bucket) * _bucket_count);
     }
 
+    // 容量予約（事前に呼んでおくと挿入中の rehash を防げる）
     void Reserve(usize n) noexcept {
         usize need = (n * 100 + kLoadFactorPct - 1) / kLoadFactorPct;
         usize cap = 16;
@@ -157,6 +168,7 @@ public:
         if (cap > _bucket_count) Rehash(cap);
     }
 
+    // range-for 用: 密配列の begin/end を直接公開
     EntryType*       begin()       noexcept { return _values.begin(); }
     EntryType*       end()         noexcept { return _values.end();   }
     const EntryType* begin() const noexcept { return _values.begin(); }
@@ -165,8 +177,11 @@ public:
 private:
     static constexpr u32 kLoadFactorPct = 80;
 
+    // バケット (8 バイト)
+    //   dist_fp:   上位 24bit がプローブ距離、下位 8bit が fingerprint
+    //   value_idx: _values 配列内のインデックス
     struct Bucket {
-        u32 dist_fp;   // upper 24 bits: distance, lower 8 bits: fingerprint
+        u32 dist_fp;
         u32 value_idx;
 
         u32 Distance()    const noexcept { return dist_fp >> 8; }
@@ -179,10 +194,10 @@ private:
         return _bucket_count == 0 ? 16 : _bucket_count * 2;
     }
 
+    // 全バケットを破棄して new_count 分を再構築。値配列は維持。
     void Rehash(usize new_count) noexcept {
         ACS_ASSERT((new_count & (new_count - 1)) == 0);
         Bucket* old_buckets = _buckets;
-        usize   old_count   = _bucket_count;
 
         void* mem = _alloc->Alloc(sizeof(Bucket) * new_count, alignof(Bucket), SourceLoc::Current());
         ACS_ASSERTF(mem, "HashMap::Rehash: alloc failed (cap=%zu)", new_count);
@@ -191,15 +206,15 @@ private:
         _bucket_mask  = static_cast<u32>(new_count - 1);
         MemSet(_buckets, 0, sizeof(Bucket) * new_count);
 
-        // Re-insert by walking dense values.
+        // 全 value を順に再挿入
         for (u32 vi = 0; vi < _values.Size(); ++vi) {
             ReinsertBucket(vi);
         }
 
         if (old_buckets) _alloc->Free(old_buckets);
-        (void)old_count;
     }
 
+    // value_idx vidx を、対応するバケットに Robin Hood 挿入
     void ReinsertBucket(u32 vidx) noexcept {
         u64 h = H{}(_values[vidx].first);
         u32 ideal = static_cast<u32>(h) & _bucket_mask;
@@ -215,6 +230,7 @@ private:
                 slot.SetDistance(dist);
                 return;
             }
+            // Robin Hood: 自分より距離が小さいスロットを見つけたら入れ替え
             if (slot.Distance() < dist) {
                 Bucket tmp = slot;
                 slot = nb;
@@ -232,7 +248,7 @@ private:
         u32 ideal = static_cast<u32>(h) & _bucket_mask;
         u32 fp = static_cast<u32>((h >> 56) | 0x01);
 
-        // Check for existing key.
+        // 既存キーチェック
         u32 probe = ideal;
         u32 dist = 0;
         while (true) {
@@ -240,14 +256,14 @@ private:
             if (b.dist_fp == 0) break;
             if (b.Distance() < dist) break;
             if (b.Fingerprint() == fp && _values[b.value_idx].first == key) {
-                _values[b.value_idx].second = Move(value);
+                _values[b.value_idx].second = Move(value);  // 上書き
                 return;
             }
             probe = (probe + 1) & _bucket_mask;
             ++dist;
         }
 
-        // New entry: append to dense storage, robin-hood insert into buckets.
+        // 新規エントリ: 値配列末尾に追加 → Robin Hood 挿入
         u32 new_idx = static_cast<u32>(_values.Size());
         _values.PushBack(EntryType{ key, Move(value) });
         Bucket nb;
@@ -274,10 +290,10 @@ private:
         }
     }
 
-    Array<EntryType> _values;
+    Array<EntryType> _values;            // 密値配列（イテレーションが速い）
     Bucket*          _buckets      = nullptr;
     usize            _bucket_count = 0;
-    u32              _bucket_mask  = 0;
+    u32              _bucket_mask  = 0;  // bucket_count - 1
     Allocator*       _alloc        = nullptr;
 };
 

@@ -1,12 +1,21 @@
-// ACS Math — Vec2 / Vec3 / Vec4.
+// =============================================================================
+// ACS Math — Vec2 / Vec3 / Vec4 ベクトル型
+// -----------------------------------------------------------------------------
+// 格納レイアウトは DirectXMath の XMFLOAT* に一致:
+//   Vec2: 8 バイト   (XMFLOAT2 と互換)
+//   Vec3: 16 バイト  (Vec4 形状にパディング、SIMD フレンドリー)
+//   Vec4: 16 バイト  (XMFLOAT4A と互換、整列必須)
 //
-// Storage layout matches DirectXMath's XMFLOAT* counterparts:
-//   Vec2:  packed 8B (XMFLOAT2)
-//   Vec3:  packed 16B (Vec4-shaped, w=0) — pad-to-16 for SIMD friendliness
-//   Vec4:  16B aligned (XMFLOAT4A)
+// 演算は内部で XMVECTOR (= __m128) に Load → 計算 → Store。
+// SSE2/SSE4.1/AVX/AVX2 のどれを使うかは DirectXMath が
+// /arch:* フラグから自動選択する（モジュール全体に AVX2 を当てる場合は
+// CMake の ACS_MATH_AVX2 オプションを ON）。
 //
-// Operations route through DirectXMath's XMVECTOR internally so we get
-// SSE2/SSE4.1/AVX/AVX2 acceleration via Microsoft-maintained intrinsics.
+// 性能注意:
+//   1 回ずつの演算では Load/Store のラウンドトリップが発生する。
+//   タイトループでは MathDispatch::TransformPoints などの
+//   バッチ API を使うこと。
+// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -19,6 +28,9 @@ namespace acs {
 
 namespace dxm = DirectX;
 
+// =============================================================================
+// Vec2 — 8B、SIMD 不使用（小さすぎてメリット薄い）
+// =============================================================================
 struct Vec2 {
     f32 x, y;
 
@@ -46,7 +58,12 @@ inline f32 LengthSq(Vec2 v)    noexcept { return Dot(v, v); }
 inline f32 Length(Vec2 v)      noexcept { return Sqrt(LengthSq(v)); }
 inline Vec2 Normalize(Vec2 v)  noexcept { f32 l = Length(v); return l > 0 ? v * (1.0f/l) : Vec2::Zero(); }
 
-// ---- Vec3 ---------------------------------------------------------------
+// =============================================================================
+// Vec3 — 16B (パッド付き)、内部 SIMD
+// -----------------------------------------------------------------------------
+// 4 番目の要素 _pad は常に 0。Vec4 と互換のあるレイアウトにすることで
+// XMLoadFloat4A が使え、ロード/ストアが高速。
+// =============================================================================
 struct alignas(16) Vec3 {
     f32 x, y, z, _pad;
 
@@ -54,6 +71,7 @@ struct alignas(16) Vec3 {
     constexpr Vec3(f32 v) noexcept : x(v), y(v), z(v), _pad(0) {}
     constexpr Vec3(f32 x_, f32 y_, f32 z_) noexcept : x(x_), y(y_), z(z_), _pad(0) {}
 
+    // よく使う基底ベクトル
     static constexpr Vec3 Zero()    noexcept { return {0,0,0}; }
     static constexpr Vec3 One()     noexcept { return {1,1,1}; }
     static constexpr Vec3 UnitX()   noexcept { return {1,0,0}; }
@@ -69,13 +87,14 @@ struct alignas(16) Vec3 {
 };
 
 namespace vec3_detail {
+// Vec3 ↔ XMVECTOR 変換（パッド付きなので Float4A をそのまま使える）
 ACS_FORCEINLINE dxm::XMVECTOR Load(const Vec3& v) noexcept {
     return dxm::XMLoadFloat4A(reinterpret_cast<const dxm::XMFLOAT4A*>(&v));
 }
 ACS_FORCEINLINE Vec3 Store(dxm::XMVECTOR x) noexcept {
     Vec3 r;
     dxm::XMStoreFloat4A(reinterpret_cast<dxm::XMFLOAT4A*>(&r), x);
-    r._pad = 0;
+    r._pad = 0;  // ストア後にパッドを 0 に戻す（保守的）
     return r;
 }
 } // namespace vec3_detail
@@ -113,7 +132,9 @@ inline Vec3 Lerp(Vec3 a, Vec3 b, f32 t) noexcept {
     return vec3_detail::Store(dxm::XMVectorLerp(vec3_detail::Load(a), vec3_detail::Load(b), t));
 }
 
-// ---- Vec4 ---------------------------------------------------------------
+// =============================================================================
+// Vec4 — 16B 整列、SIMD
+// =============================================================================
 struct alignas(16) Vec4 {
     f32 x, y, z, w;
 

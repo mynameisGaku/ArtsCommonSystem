@@ -1,3 +1,19 @@
+// =============================================================================
+// ACS Threading — ThreadPool 実装
+// -----------------------------------------------------------------------------
+// 構成要素:
+//   1. WorkerDeque  — Chase-Lev SPMC deque（ワーカー 1 個につき 1 個）
+//   2. SubmissionQueue — 外部スレッドからの投入用 Mutex キュー
+//   3. Worker       — ワーカーローカル状態（deque、RNG）
+//   4. PoolState    — プール全体の状態
+//   5. WorkerMain   — 各ワーカースレッドのメインループ
+//   6. TrySteal     — 他ワーカーの deque から奪う
+//
+// Chase-Lev の特徴:
+//   - オーナーの Push / Pop は CAS フリー（最後の 1 個取りだけ CAS）
+//   - 他スレッドからの Steal は CAS が必要だが上端のみ操作
+//   - 結果として「自分のタスク中心 + 暇なら他から盗む」が低オーバーヘッドで成立
+// =============================================================================
 #include "threading/ThreadPool.h"
 #include "threading/Mutex.h"
 #include "threading/ConditionVar.h"
@@ -13,54 +29,62 @@ namespace acs {
 
 namespace {
 
-// ---- Constants ---------------------------------------------------------
-constexpr i64 kDequeCapacity     = 4096;
+// ---- 定数 ---------------------------------------------------------------
+constexpr i64 kDequeCapacity     = 4096;             // ワーカーごとの deque サイズ（2 のべき乗）
 constexpr i64 kDequeCapacityMask = kDequeCapacity - 1;
 static_assert((kDequeCapacity & kDequeCapacityMask) == 0,
               "Deque capacity must be a power of two");
 
-constexpr u32 kMaxWorkers = 256;
+constexpr u32 kMaxWorkers = 256;  // 上限（Threads[] サイズと一致）
 
-// ---- Chase-Lev SPMC deque ---------------------------------------------
-// Owner thread does Push / Pop on the bottom; thieves do Steal on the top.
-// Owner Push/Pop is atomic-free in the common case; only the bottom store
-// uses a release fence and Pop arbitrates with thieves via CAS on top when
-// the deque has exactly one item.
+// =============================================================================
+// Chase-Lev SPMC deque
+// -----------------------------------------------------------------------------
+// オーナー: Push / Pop を底（bottom）側で行う。
+// 他ワーカー: Steal を頂（top）側で行う。
+//
+// メモリ順序:
+//   - Push の bottom ストアは release（buffer 書き込みより後に publish）
+//   - Pop はオーナー専用なので relaxed + HardwareFence で底を変更
+//   - Steal は acquire で top と bottom を読み、CAS で奪取
+// =============================================================================
 struct alignas(64) WorkerDeque {
-    Atomic<i64> top    {0};
-    Atomic<i64> bottom {0};
-    Task        buffer[kDequeCapacity] {};
+    Atomic<i64> top    {0};                 // 他スレッドが奪う側
+    Atomic<i64> bottom {0};                 // オーナーが追加・取り出す側
+    Task        buffer[kDequeCapacity] {};  // タスク本体（値コピー）
 
-    // Owner only.
+    // ---- オーナー専用: 末尾に Push ----
     bool Push(const Task& t) noexcept {
         i64 b = bottom.Load(MemoryOrder::Relaxed);
         i64 tt = top.Load(MemoryOrder::Acquire);
-        if (b - tt >= kDequeCapacity) return false; // full
+        if (b - tt >= kDequeCapacity) return false;  // 満杯
         buffer[b & kDequeCapacityMask] = t;
+        // release ストアにより、上記 buffer 書き込みが他スレッドに見える
         bottom.Store(b + 1, MemoryOrder::Release);
         return true;
     }
 
-    // Owner only.
+    // ---- オーナー専用: 末尾から Pop ----
     bool Pop(Task& out) noexcept {
         i64 b = bottom.Load(MemoryOrder::Relaxed) - 1;
         bottom.Store(b, MemoryOrder::Relaxed);
-        HardwareFence(); // sequence with thief steals
+        HardwareFence();  // これより前の bottom 更新が、これより後の top 読み取りより前に見える
         i64 tt = top.Load(MemoryOrder::Relaxed);
         if (tt <= b) {
             out = buffer[b & kDequeCapacityMask];
-            if (tt != b) return true; // common case
-            // Last element — race with thieves.
+            if (tt != b) return true;  // 通常ケース
+            // 最後の 1 個 — Steal と競合する可能性あり、CAS で arbitrate
             i64 expected = tt;
             bool ok = top.CompareExchange(expected, tt + 1);
-            bottom.Store(b + 1, MemoryOrder::Relaxed);
+            bottom.Store(b + 1, MemoryOrder::Relaxed);  // 取れても取れなくても底を戻す
             return ok;
         }
+        // deque は空 — 底を元に戻す
         bottom.Store(b + 1, MemoryOrder::Relaxed);
         return false;
     }
 
-    // Thief.
+    // ---- 他ワーカー: 先頭から Steal ----
     bool Steal(Task& out) noexcept {
         i64 tt = top.Load(MemoryOrder::Acquire);
         HardwareFence();
@@ -74,10 +98,13 @@ struct alignas(64) WorkerDeque {
     }
 };
 
-// ---- Global submission queue ------------------------------------------
-// Simple intrusive linked list protected by a Mutex. External (non-worker)
-// submitters enqueue here; workers drain when their own deque + steals are
-// empty. v2: replace with Vyukov MPSC if external submission becomes hot.
+// =============================================================================
+// グローバル投入キュー
+// -----------------------------------------------------------------------------
+// プール外スレッド（メインスレッド等）からの Submit はここに入る。
+// シングル Mutex 保護のリンクトリスト。投入頻度が低い前提なので十分。
+// 高頻度になれば Vyukov MPSC に置き換える。
+// =============================================================================
 struct SubmissionNode {
     SubmissionNode* next;
     Task            task;
@@ -90,32 +117,38 @@ struct SubmissionQueue {
     u32              count = 0;
 };
 
-// ---- Worker context ---------------------------------------------------
+// =============================================================================
+// ワーカーコンテキスト
+// =============================================================================
 struct alignas(64) Worker {
-    WorkerDeque  deque;
-    u32          index;
-    Atomic<u32>  rng_state;
+    WorkerDeque  deque;       // 自分の deque
+    u32          index;       // 0..N-1
+    Atomic<u32>  rng_state;   // スティーリング先選択用 xorshift32
 };
 
-// ---- Pool state -------------------------------------------------------
+// =============================================================================
+// プール全体状態
+// =============================================================================
 struct PoolState {
-    Worker*           workers     = nullptr;
+    Worker*           workers      = nullptr;
     u32               worker_count = 0;
     Thread            threads[kMaxWorkers];
-    Atomic<u32>       running     {0};
-    SubmissionQueue   submit;
-    Mutex             wake_lock;
-    ConditionVar      wake_cv;
+    Atomic<u32>       running      {0};                    // 1=動作中, 0=停止
+    SubmissionQueue   submit;                              // 外部投入キュー
+    Mutex             wake_lock;                           // CV ガード用
+    ConditionVar      wake_cv;                             // ワーカー起床通知
 };
 
 PoolState* g_pool = nullptr;
 
+// 各ワーカースレッドだけが持つ TLS 変数
+// （ワーカー外スレッドは kNotAWorker を読む）
 ACS_THREAD_LOCAL u32 tls_worker_index = ThreadPool::kNotAWorker;
 
-// xorshift32 — small, branchless, used for steal target selection.
+// xorshift32 — 小さく分岐なしの簡易 PRNG。スティーリング先選択に使用。
 ACS_FORCEINLINE u32 XorShift32(Atomic<u32>& s) noexcept {
     u32 x = s.Load(MemoryOrder::Relaxed);
-    if (x == 0) x = 0x9E3779B9u;
+    if (x == 0) x = 0x9E3779B9u;  // 種が 0 なら黄金比固定値
     x ^= x << 13;
     x ^= x >> 17;
     x ^= x << 5;
@@ -123,6 +156,8 @@ ACS_FORCEINLINE u32 XorShift32(Atomic<u32>& s) noexcept {
     return x;
 }
 
+// 外部投入キューから 1 件取り出す（取れたら true）。
+// TryLock で衝突時は失敗にして他の経路を試す。
 bool TryDrainSubmit(Task& out) noexcept {
     SubmissionQueue& q = g_pool->submit;
     if (!q.lock.TryLock()) return false;
@@ -140,6 +175,8 @@ bool TryDrainSubmit(Task& out) noexcept {
     return got;
 }
 
+// 自分以外のワーカーから Steal を試みる。
+// 開始位置はランダム、以後リング状に巡回する。
 bool TrySteal(u32 self_index, Task& out) noexcept {
     u32 n = g_pool->worker_count;
     if (n <= 1) return false;
@@ -154,14 +191,21 @@ bool TrySteal(u32 self_index, Task& out) noexcept {
     return false;
 }
 
+// タスクを実行し、完了通知も行う。
 ACS_FORCEINLINE void Execute(const Task& t, u32 worker_index) noexcept {
     if (t.fn) t.fn(t.user, worker_index);
     if (t.counter) t.counter->Done();
 }
 
+// ワーカースレッドのメインループ:
+//   1. 自分の deque から Pop
+//   2. 失敗なら 外部キューから Drain
+//   3. それでも失敗なら 他ワーカーから Steal
+//   4. 全て失敗なら CV で短時間スリープ
 void WorkerMain(void* arg) noexcept {
     Worker* w = static_cast<Worker*>(arg);
     tls_worker_index = w->index;
+    // PRNG 種を index で決定（再現性確保）
     w->rng_state.Store(0x9E3779B9u ^ (w->index * 2654435761u), MemoryOrder::Relaxed);
 
     while (g_pool->running.Load(MemoryOrder::Acquire)) {
@@ -170,7 +214,7 @@ void WorkerMain(void* arg) noexcept {
         if (TryDrainSubmit(t))          { Execute(t, w->index); continue; }
         if (TrySteal(w->index, t))      { Execute(t, w->index); continue; }
 
-        // Idle: park on wake CV with a short timeout so we re-check periodically.
+        // 全部空だったので CV で 2ms 待機（NotifyOne で起こされる）
         ScopedLock lk(g_pool->wake_lock);
         g_pool->wake_cv.WaitFor(g_pool->wake_lock, 2);
     }
@@ -179,20 +223,21 @@ void WorkerMain(void* arg) noexcept {
 
 } // namespace
 
-// ---- Public API -----------------------------------------------------------
+// =============================================================================
+// 公開 API
+// =============================================================================
 
 Result<void> ThreadPool::Init(u32 worker_count) noexcept {
     if (g_pool != nullptr) return ACS_ERR(Threading, 2, "ThreadPool already initialized");
     if (worker_count == 0) worker_count = HardwareConcurrency();
     if (worker_count > kMaxWorkers) worker_count = kMaxWorkers;
 
-    // Allocate pool state from process heap.
+    // PoolState はプロセスヒープから 0 クリア確保
     void* mem = ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(PoolState));
     if (!mem) return ACS_ERR(Memory, 2, "ThreadPool state alloc failed");
     g_pool = ::new (mem) PoolState();
 
-    // Allocate workers (cache-aligned). VirtualAlloc gives 64KB granularity but
-    // we only need page granularity — HeapAlloc + manual alignment.
+    // ワーカー配列確保（64 バイト整列のため少し余分に確保して手動アライン）
     usize total = sizeof(Worker) * worker_count + 64;
     void* wmem = ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, total);
     if (!wmem) {
@@ -210,12 +255,13 @@ Result<void> ThreadPool::Init(u32 worker_count) noexcept {
     g_pool->worker_count = worker_count;
     g_pool->running.Store(1, MemoryOrder::Release);
 
+    // ワーカースレッドを起動
     for (u32 i = 0; i < worker_count; ++i) {
         ThreadConfig cfg {};
         cfg.name = L"acs::ThreadPool worker";
         auto r = Thread::Spawn(&WorkerMain, &g_pool->workers[i], cfg);
         if (r.IsErr()) {
-            // Tear down what we created.
+            // 失敗時のロールバック
             g_pool->running.Store(0, MemoryOrder::Release);
             g_pool->wake_cv.NotifyAll();
             for (u32 j = 0; j < i; ++j) g_pool->threads[j].Join();
@@ -233,10 +279,10 @@ Result<void> ThreadPool::Init(u32 worker_count) noexcept {
 void ThreadPool::Shutdown() noexcept {
     if (!g_pool) return;
     g_pool->running.Store(0, MemoryOrder::Release);
-    g_pool->wake_cv.NotifyAll();
+    g_pool->wake_cv.NotifyAll();  // 全ワーカーを起こして終了させる
     for (u32 i = 0; i < g_pool->worker_count; ++i) g_pool->threads[i].Join();
 
-    // Drain any remaining submission nodes.
+    // 残った投入ノードを破棄
     {
         ScopedLock lk(g_pool->submit.lock);
         SubmissionNode* n = g_pool->submit.head;
@@ -250,13 +296,7 @@ void ThreadPool::Shutdown() noexcept {
         g_pool->submit.count = 0;
     }
 
-    // Free workers (HeapAlloc'd with extra 64-byte slack — the original
-    // pointer is the aligned address minus its alignment offset; we leak
-    // the small slack since we didn't store the original. To avoid that,
-    // re-derive: we know aligned came from a HeapAlloc base — search for
-    // the heap entry by the rounded-down 64KB allocation granularity is
-    // unreliable. Simpler: leak workers slack on shutdown. Acceptable —
-    // the entire pool tears down at most once per process.
+    // ワーカー破棄
     Worker* base = g_pool->workers;
     for (u32 i = 0; i < g_pool->worker_count; ++i) base[i].~Worker();
     g_pool->workers = nullptr;
@@ -275,22 +315,25 @@ u32 ThreadPool::CurrentWorkerIndex() noexcept {
     return tls_worker_index;
 }
 
+// タスクを投入する。ワーカー内からなら自 deque へ Push（ローカリティ）、
+// それ以外は外部キューへ。CV で寝ているワーカーを 1 体起こす。
 Result<void> ThreadPool::Submit(const Task& t) noexcept {
     if (!g_pool) return ACS_ERR(Threading, 3, "ThreadPool not initialized");
     if (!t.fn)   return ACS_ERR(Threading, 4, "Task fn is null");
 
     if (t.counter) t.counter->Add(1);
 
-    // If submitter is a worker, push to its own deque (LIFO local locality).
+    // 自ワーカーの deque へ Push を試みる
     u32 wi = tls_worker_index;
     if (wi != kNotAWorker) {
         if (g_pool->workers[wi].deque.Push(t)) {
             g_pool->wake_cv.NotifyOne();
             return Ok();
         }
-        // Local deque full — fall through to global queue.
+        // 自 deque が満杯 — グローバルキューにフォールバック
     }
 
+    // 外部キューにエンキュー
     auto* node = static_cast<SubmissionNode*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(SubmissionNode)));
     if (!node) {
         if (t.counter) t.counter->Done();
@@ -309,6 +352,8 @@ Result<void> ThreadPool::Submit(const Task& t) noexcept {
     return Ok();
 }
 
+// counter が 0 になるまで待機。待機中は他のタスクをスティールして実行。
+// 「待つだけ」ではなく「働きながら待つ」のがミソ（Naughty Dog 流）。
 void ThreadPool::Wait(CompletionCounter& counter) noexcept {
     if (!g_pool) return;
     u32 self = tls_worker_index;
@@ -321,7 +366,7 @@ void ThreadPool::Wait(CompletionCounter& counter) noexcept {
         if (!got && TryDrainSubmit(t)) got = true;
         if (!got && self != kNotAWorker && TrySteal(self, t)) got = true;
         if (!got) {
-            // Try stealing from any worker even if we're not a worker.
+            // 外部スレッドからの Wait — 全ワーカー deque を順にスチール試行
             if (self == kNotAWorker) {
                 for (u32 i = 0; i < g_pool->worker_count; ++i) {
                     if (g_pool->workers[i].deque.Steal(t)) { got = true; break; }
@@ -331,25 +376,31 @@ void ThreadPool::Wait(CompletionCounter& counter) noexcept {
         if (got) {
             Execute(t, self == kNotAWorker ? 0 : self);
         } else {
-            SpinHint();
+            SpinHint();  // PAUSE / YIELD で電力節約
         }
     }
 }
 
+// =============================================================================
+// ParallelFor の補助構造体
+// =============================================================================
 namespace {
 struct PFContext {
-    void (*body)(u32 i, u32 worker_index, void* user);
-    void* user;
-    u32 begin;
-    u32 end;
+    void (*body)(u32 i, u32 worker_index, void* user);  // ユーザー関数
+    void* user;                                          // ユーザーデータ
+    u32 begin;                                           // チャンクの開始
+    u32 end;                                             // チャンクの終端
 };
 
+// 1 チャンクを順次実行するアダプタ
 void PFRangeFn(void* arg, u32 worker_index) noexcept {
     auto* r = static_cast<PFContext*>(arg);
     for (u32 i = r->begin; i < r->end; ++i) r->body(i, worker_index, r->user);
 }
 } // namespace
 
+// 並列 for ループ。
+// [begin, end) を grain で分割し、チャンク数だけ Submit して Wait。
 Result<void> ThreadPool::ParallelFor(u32 begin, u32 end, u32 grain,
                                      void (*body)(u32, u32, void*), void* user) noexcept {
     if (!g_pool) return ACS_ERR(Threading, 5, "ThreadPool not initialized");
@@ -360,7 +411,7 @@ Result<void> ThreadPool::ParallelFor(u32 begin, u32 end, u32 grain,
     u32 total = end - begin;
     u32 chunks = (total + grain - 1) / grain;
 
-    // Allocate one PFContext per chunk in a single contiguous block.
+    // チャンクごとの PFContext を 1 つの連続ブロックで確保
     auto* ranges = static_cast<PFContext*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(PFContext) * chunks));
     if (!ranges) return ACS_ERR(Memory, 5, "ParallelFor range alloc failed");
 
@@ -375,7 +426,7 @@ Result<void> ThreadPool::ParallelFor(u32 begin, u32 end, u32 grain,
         Task t { &PFRangeFn, &ranges[c], &counter };
         auto r = Submit(t);
         if (r.IsErr()) {
-            // Wait for what we already queued before bailing.
+            // 投入失敗 — 既に投入済みのものは待ってから返す
             Wait(counter);
             ::HeapFree(::GetProcessHeap(), 0, ranges);
             return r;

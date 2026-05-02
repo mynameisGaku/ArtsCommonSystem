@@ -3,6 +3,7 @@ add_executable(acs_unit_tests
     foundation_tests.cpp
     threading_tests.cpp
     memory_tests.cpp
+    memory_system_tests.cpp
     container_tests.cpp
     math_tests.cpp
 )

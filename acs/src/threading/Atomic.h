@@ -1,15 +1,18 @@
-// ACS Threading — Atomic<T> wrapper.
+// =============================================================================
+// ACS Threading — Atomic<T>（std::atomic 代替）
+// -----------------------------------------------------------------------------
+// MSVC の _Interlocked* 組み込み関数をテンプレートでラップ。
+// サポート対象: 1 / 2 / 4 / 8 バイトの整数 / 列挙 / ポインタ。
 //
-// Built on MSVC `_Interlocked*` intrinsics. Supports T sizes 1/2/4/8 and
-// pointer types. Loads/stores honour MemoryOrder; RMW ops are full barriers
-// on x64 and use suffixed intrinsics on ARM64.
-//
-// Notes:
-//   * On x86-64, every `_Interlocked*` is already a full hardware barrier;
-//     plain MOVs of naturally-aligned values up to 8 bytes have acquire/release
-//     semantics. The MemoryOrder argument matters mostly to the compiler.
-//   * On ARM64, we route to `_acq` / `_rel` / `_nf` suffixed variants when
-//     available.
+// メモ:
+//   - x64 では「自然整列の 8 バイト以下のロード/ストア」は CPU レベルで
+//     アトミック。さらに普通の MOV が acquire / release セマンティクスを
+//     満たすため、Load/Store はコンパイラバリアだけで足りる。
+//   - ARM64 では弱メモリモデルなので、明示的に _acq / _rel サフィックスを
+//     付けた組み込みを呼んで dmb を最小化する。
+//   - RMW 系（Exchange / CompareExchange / FetchAdd...）は x64 では常に
+//     完全バリア。ARM64 ではサフィックス付き版を使うが現状実装は無印で統一。
+// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -20,15 +23,18 @@
 
 namespace acs {
 
+// =============================================================================
+// 内部実装ヘルパ（テンプレート分岐用）
+// =============================================================================
 namespace atomic_detail {
 
-// ---- Load ---------------------------------------------------------------
+// ---- ロード ----
+// acquire セマンティクスでのロード。x64 では普通のロード + コンパイラバリア。
 template<typename T>
 ACS_FORCEINLINE T LoadAcquire(const volatile T* p) noexcept {
     static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
                   "Atomic load: unsupported size");
 #if ACS_ARCH_X64
-    // Naturally aligned loads ≤ 8B are atomic and have acquire semantics on x86-64.
     T v = *p;
     CompilerBarrier();
     return v;
@@ -40,12 +46,14 @@ ACS_FORCEINLINE T LoadAcquire(const volatile T* p) noexcept {
 #endif
 }
 
+// relaxed ロード（順序保証なし、最高速）
 template<typename T>
 ACS_FORCEINLINE T LoadRelaxed(const volatile T* p) noexcept {
     return *p;
 }
 
-// ---- Store --------------------------------------------------------------
+// ---- ストア ----
+// release セマンティクスでのストア。
 template<typename T>
 ACS_FORCEINLINE void StoreRelease(volatile T* p, T v) noexcept {
 #if ACS_ARCH_X64
@@ -61,10 +69,12 @@ ACS_FORCEINLINE void StoreRelease(volatile T* p, T v) noexcept {
 #endif
 }
 
+// relaxed ストア
 template<typename T>
 ACS_FORCEINLINE void StoreRelaxed(volatile T* p, T v) noexcept { *p = v; }
 
-// ---- Exchange -----------------------------------------------------------
+// ---- Exchange (アトミック交換) ----
+// 古い値を返しつつ新しい値を書き込む（XCHG 相当）
 template<typename T>
 ACS_FORCEINLINE T Exchange(volatile T* p, T v) noexcept {
     if constexpr (sizeof(T) == 1) return (T)_InterlockedExchange8 ((volatile char*)p,    (char)v);
@@ -73,7 +83,9 @@ ACS_FORCEINLINE T Exchange(volatile T* p, T v) noexcept {
     if constexpr (sizeof(T) == 8) return (T)_InterlockedExchange64((volatile __int64*)p, (__int64)v);
 }
 
-// ---- Compare-Exchange ---------------------------------------------------
+// ---- CompareExchange (CAS) ----
+// 比較交換: *p == expected なら *p = desired にして true を返す。
+// 失敗時は expected に「実際の値」を書き戻して false を返す。
 template<typename T>
 ACS_FORCEINLINE bool CompareExchange(volatile T* p, T& expected, T desired) noexcept {
     T orig;
@@ -87,11 +99,12 @@ ACS_FORCEINLINE bool CompareExchange(volatile T* p, T& expected, T desired) noex
         orig = (T)_InterlockedCompareExchange64((volatile __int64*)p, (__int64)desired, (__int64)expected);
 
     bool ok = orig == expected;
-    expected = orig;
+    expected = orig;  // 失敗時は呼び出し元へ「実際の値」を返す
     return ok;
 }
 
-// ---- Fetch ops ----------------------------------------------------------
+// ---- FetchAdd / FetchSub ----
+// 加算 / 減算しつつ「加算前」の値を返す
 template<typename T>
 ACS_FORCEINLINE T FetchAdd(volatile T* p, T v) noexcept {
     if constexpr (sizeof(T) == 4) return (T)_InterlockedExchangeAdd  ((volatile long*)p,    (long)v);
@@ -100,9 +113,11 @@ ACS_FORCEINLINE T FetchAdd(volatile T* p, T v) noexcept {
 
 template<typename T>
 ACS_FORCEINLINE T FetchSub(volatile T* p, T v) noexcept {
-    return FetchAdd(p, static_cast<T>(0) - v);
+    return FetchAdd(p, static_cast<T>(0) - v);  // 2 の補数で減算を加算として扱う
 }
 
+// ---- FetchOr / FetchAnd ----
+// ビット OR / AND しつつ「演算前」の値を返す
 template<typename T>
 ACS_FORCEINLINE T FetchOr(volatile T* p, T v) noexcept {
     if constexpr (sizeof(T) == 1) return (T)_InterlockedOr8 ((volatile char*)p,    (char)v);
@@ -122,6 +137,9 @@ ACS_FORCEINLINE T FetchAnd(volatile T* p, T v) noexcept {
 } // namespace atomic_detail
 
 
+// =============================================================================
+// Atomic<T> — 値型用
+// =============================================================================
 template<typename T>
 class Atomic {
     static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
@@ -130,18 +148,22 @@ public:
     Atomic() noexcept = default;
     constexpr explicit Atomic(T v) noexcept : _v(v) {}
 
+    // アトミック型はコピーできない（std::atomic と同様の制約）
     Atomic(const Atomic&) = delete;
     Atomic& operator=(const Atomic&) = delete;
 
+    // ---- ロード ----
     ACS_FORCEINLINE T Load(MemoryOrder o = MemoryOrder::SeqCst) const noexcept {
         return o == MemoryOrder::Relaxed
             ? atomic_detail::LoadRelaxed (&_v)
             : atomic_detail::LoadAcquire (&_v);
     }
+    // ---- ストア ----
     ACS_FORCEINLINE void Store(T v, MemoryOrder o = MemoryOrder::SeqCst) noexcept {
         if (o == MemoryOrder::Relaxed) atomic_detail::StoreRelaxed(&_v, v);
         else                           atomic_detail::StoreRelease(&_v, v);
     }
+    // ---- RMW 群 ----
     ACS_FORCEINLINE T Exchange(T v) noexcept                          { return atomic_detail::Exchange(&_v, v); }
     ACS_FORCEINLINE bool CompareExchange(T& expected, T desired) noexcept {
         return atomic_detail::CompareExchange(&_v, expected, desired);
@@ -151,6 +173,7 @@ public:
     ACS_FORCEINLINE T FetchOr (T v) noexcept                          { return atomic_detail::FetchOr (&_v, v); }
     ACS_FORCEINLINE T FetchAnd(T v) noexcept                          { return atomic_detail::FetchAnd(&_v, v); }
 
+    // ---- インクリメント / デクリメント ----
     ACS_FORCEINLINE T operator++()    noexcept { return FetchAdd((T)1) + (T)1; }
     ACS_FORCEINLINE T operator++(int) noexcept { return FetchAdd((T)1); }
     ACS_FORCEINLINE T operator--()    noexcept { return FetchSub((T)1) - (T)1; }
@@ -160,7 +183,9 @@ private:
     volatile T _v {};
 };
 
-// Pointer specialization (always 8 bytes on x64).
+// =============================================================================
+// Atomic<T*> — ポインタ用特殊化（ポインタは x64 では常に 8 バイト）
+// =============================================================================
 template<typename T>
 class Atomic<T*> {
 public:

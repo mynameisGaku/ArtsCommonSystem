@@ -1,8 +1,17 @@
-// ACS Memory — Linear (bump) allocator backed by a single contiguous block.
+// =============================================================================
+// ACS Memory — リニア（バンプ）アロケータ
+// -----------------------------------------------------------------------------
+// 単一の連続メモリブロックを「カーソルを進めるだけ」で確保する超高速
+// アロケータ。Free は no-op で、Reset() で全体を巻き戻す。
 //
-// Thread-safe: cursor advance is an atomic CAS loop. Free is a no-op; the
-// only way to release memory is Reset(), which is NOT safe to call while
-// other threads are allocating from this allocator.
+// 用途:
+//   - フレームスクラッチ（毎フレーム最初に Reset）
+//   - 短命オブジェクトのバッチ確保（パース結果、コマンドバッファ等）
+//
+// スレッド安全性:
+//   - Alloc はアトミック CAS で衝突回避（マルチスレッド OK）
+//   - Reset は他スレッドの Alloc 中に呼んではいけない
+// =============================================================================
 #pragma once
 
 #include "memory/Allocator.h"
@@ -12,18 +21,20 @@ namespace acs {
 
 class LinearAllocator final : public Allocator {
 public:
-    // Pre-allocates `capacity` bytes from `backing`. If `backing` is null,
-    // bytes are obtained from the engine default allocator and freed in dtor.
+    // capacity バイトの連続バッファを backing から確保する。
+    // backing が null なら DefaultAllocator() を使う。
     LinearAllocator(usize capacity, Allocator* backing = nullptr) noexcept;
     ~LinearAllocator() noexcept override;
 
+    // コピー禁止
     LinearAllocator(const LinearAllocator&) = delete;
     LinearAllocator& operator=(const LinearAllocator&) = delete;
 
     void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept override;
-    void  Free (void* ptr) noexcept override; // no-op
+    void  Free (void* ptr) noexcept override;  // no-op（個別解放は不可）
 
-    // Reset cursor to 0. NOT thread-safe with concurrent Alloc.
+    // カーソルを 0 に戻す（全確保済みメモリが「無効」になる）。
+    // 並行 Alloc 中に呼ぶと UB。
     void Reset() noexcept;
 
     u64 BytesAllocated() const noexcept override { return _used.Load(MemoryOrder::Acquire); }
@@ -32,12 +43,12 @@ public:
     const char* Name()   const noexcept override { return "Linear"; }
 
 private:
-    u8*           _base     = nullptr;
-    u64           _capacity = 0;
-    Allocator*    _backing  = nullptr;
+    u8*           _base     = nullptr;        // 確保したバッファ先頭
+    u64           _capacity = 0;              // バッファ長
+    Allocator*    _backing  = nullptr;        // バッファ確保元
     bool          _owns_backing = false;
-    Atomic<u64>   _used {0};
-    mutable Atomic<u64> _peak {0};
+    Atomic<u64>   _used {0};                  // 現在のカーソル位置
+    mutable Atomic<u64> _peak {0};            // ピーク位置
 };
 
 } // namespace acs

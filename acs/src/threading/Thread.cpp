@@ -1,3 +1,9 @@
+// =============================================================================
+// ACS Threading — Thread 実装
+// -----------------------------------------------------------------------------
+// CreateThread のラッパ。トランポリン関数で TLS 設定 → ユーザー関数呼び出し
+// → コンテキスト解放 を行う。
+// =============================================================================
 #include "threading/Thread.h"
 #include "foundation/Platform.h"
 #include "foundation/Move.h"
@@ -6,20 +12,23 @@ namespace acs {
 
 namespace {
 
+// CreateThread に渡すコンテキスト（一時的にヒープ確保）
 struct StartCtx {
-    ThreadEntry entry;
-    void*       user;
-    const wchar_t* name;
+    ThreadEntry entry;       // ユーザー関数
+    void*       user;        // ユーザーデータ
+    const wchar_t* name;     // デバッガ名（任意）
 };
 
+// 全スレッドの最初に実行される関数。エントリ関数を呼ぶ前に
+// スレッド名を設定し、コンテキストを解放する。
 DWORD WINAPI Trampoline(LPVOID arg) noexcept {
     StartCtx* ctx = static_cast<StartCtx*>(arg);
     ThreadEntry e = ctx->entry;
     void* u       = ctx->user;
     const wchar_t* name = ctx->name;
     if (name) ::SetThreadDescription(::GetCurrentThread(), name);
-    ::HeapFree(::GetProcessHeap(), 0, ctx);
-    e(u);
+    ::HeapFree(::GetProcessHeap(), 0, ctx);  // ctx はもう不要
+    e(u);                                     // ユーザー関数本体
     return 0;
 }
 
@@ -38,10 +47,12 @@ u32 HardwareConcurrency() noexcept {
     return si.dwNumberOfProcessors == 0 ? 1 : si.dwNumberOfProcessors;
 }
 
+// デストラクタ: ハンドルが残っていれば閉じる（Detach 相当）
 Thread::~Thread() noexcept {
     if (_handle) ::CloseHandle(_handle);
 }
 
+// ムーブ: ハンドル所有権を移譲
 Thread::Thread(Thread&& other) noexcept : _handle(other._handle), _id(other._id) {
     other._handle = nullptr;
     other._id     = {};
@@ -56,9 +67,11 @@ Thread& Thread::operator=(Thread&& other) noexcept {
     return *this;
 }
 
+// スレッドを生成して起動する。Trampoline 経由で entry を呼ぶ。
 Result<Thread> Thread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& cfg) noexcept {
     if (!entry) return ACS_ERR(Threading, 1, "Thread::Spawn called with null entry");
 
+    // ユーザー関数情報を保持する一時オブジェクトをヒープに確保
     auto* ctx = static_cast<StartCtx*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(StartCtx)));
     if (!ctx) return ACS_ERR(Memory, 1, "Thread::Spawn HeapAlloc failed");
     ctx->entry = entry;
@@ -74,6 +87,7 @@ Result<Thread> Thread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& 
         ::HeapFree(::GetProcessHeap(), 0, ctx);
         return ACS_ERR_OS(OS, 1, "CreateThread failed", err);
     }
+    // 任意設定: 優先度とアフィニティ
     if (cfg.priority != 0) ::SetThreadPriority(h, cfg.priority);
     if (cfg.affinity != 0) ::SetThreadAffinityMask(h, static_cast<DWORD_PTR>(cfg.affinity));
 
@@ -83,6 +97,7 @@ Result<Thread> Thread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& 
     return Result<Thread>(OkInit, Move(t));
 }
 
+// スレッド終了まで待機し、ハンドルを閉じる。
 void Thread::Join() noexcept {
     if (!_handle) return;
     ::WaitForSingleObject(_handle, INFINITE);
@@ -90,6 +105,7 @@ void Thread::Join() noexcept {
     _handle = nullptr;
 }
 
+// ハンドルだけ閉じてスレッドは独立して継続する。
 void Thread::Detach() noexcept {
     if (_handle) {
         ::CloseHandle(_handle);

@@ -1,3 +1,10 @@
+// =============================================================================
+// ACS Math — MathDispatch 実装
+// -----------------------------------------------------------------------------
+// CPU 機能を見て関数ポインタテーブルを構築。
+// 現状は SSE2 ベースライン経路のみ実装。AVX2 専用ビルド (/arch:AVX2 で
+// 別 TU) は v2 で追加予定。
+// =============================================================================
 #include "math/MathDispatch.h"
 #include "math/Cpu.h"
 #include "threading/Atomic.h"
@@ -6,7 +13,7 @@ namespace acs {
 
 namespace {
 
-// SSE2-baseline implementations (always available on x64).
+// SSE2 ベースライン実装（DirectXMath が /arch:SSE2 で動作）
 void TransformPointsScalar(const Vec3* in, Vec3* out, usize count, const Mat4& m) noexcept {
     for (usize i = 0; i < count; ++i) {
         out[i] = TransformPoint(in[i], m);
@@ -18,12 +25,8 @@ void TransformVectorsScalar(const Vec3* in, Vec3* out, usize count, const Mat4& 
     }
 }
 
-// AVX2 fast path. DirectXMath picks the best instruction set per /arch flag,
-// so this primarily gives the compiler a wider register window for unrolling.
-// In v2 we'll split this into a separate /arch:AVX2-compiled TU; for Phase 1
-// the dispatch table simply selects between two function pointers that route
-// to the same scalar fallback. This preserves the API surface while leaving
-// real AVX2 specialization for follow-up work.
+// AVX2 経路 — Phase 1 では未実装でスカラフォールバック
+// v2 で /arch:AVX2 でコンパイルした別 TU の実装に切り替える
 void TransformPointsAvx2(const Vec3* in, Vec3* out, usize count, const Mat4& m) noexcept {
     TransformPointsScalar(in, out, count, m);
 }
@@ -34,6 +37,7 @@ void TransformVectorsAvx2(const Vec3* in, Vec3* out, usize count, const Mat4& m)
 MathDispatch  g_dispatch {};
 Atomic<u32>   g_inited {0};
 
+// CPU 機能を見て関数ポインタを差し替える
 void Init() noexcept {
     if (HasAvx2()) {
         g_dispatch.transform_points  = &TransformPointsAvx2;

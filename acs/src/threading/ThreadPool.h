@@ -1,17 +1,21 @@
-// ACS Threading — Work-stealing thread pool.
+// =============================================================================
+// ACS Threading — ワークスティーリング ThreadPool
+// -----------------------------------------------------------------------------
+// アーキテクチャ:
+//   - 各論理 CPU ごとに 1 ワーカースレッド（CPU 数は HardwareConcurrency 既定）
+//   - 各ワーカーは Chase-Lev SPMC deque を所有
+//       * オーナー側（Push / Pop）: 通常ケースで CAS 不要
+//       * 他ワーカー（Steal）: 上端を CAS で奪取
+//   - 外部スレッド（プールメンバ外）からの投入は Mutex 保護のグローバル
+//     キューに入れ、いずれかのワーカーが回収する
+//   - Wait は「スティーリングに参加」しながら待つ（ヘルプスチール方式）
+//     これにより Nested ParallelFor 等でデッドロックしない
 //
-// Architecture:
-//   * One pinned worker per logical CPU (configurable).
-//   * Each worker owns a fixed-capacity Chase-Lev SPMC deque (Push/Pop on the
-//     owner side require no atomics in the common case; Steal is CAS-based).
-//   * External submitters drop work into a global Mutex-protected ready queue
-//     that any worker can drain.
-//   * Waiting participates in stealing (help-stealing) to avoid blocking and
-//     to preserve forward progress under nested parallel_for.
+// タスクは小さな POD（fn / user / counter ポインタ）で、deque スロットに
+// 値コピーする。ホットパスでヒープ確保しないため非常に低レイテンシ。
 //
-// Tasks are POD copied by value into deque slots to avoid heap allocation in
-// the hot path. Completion is tracked through a caller-supplied
-// CompletionCounter; pass nullptr for fire-and-forget semantics.
+// 完了は CompletionCounter で追跡する。null を渡せば fire-and-forget。
+// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -20,56 +24,70 @@
 
 namespace acs {
 
+// =============================================================================
+// CompletionCounter — タスク群の完了待機用カウンタ
+// -----------------------------------------------------------------------------
+// Submit 時に Add() され、タスク完了時に Done() される。
+// Pending() が 0 になれば全タスク完了。Wait() でブロック可能。
+// =============================================================================
 class CompletionCounter {
 public:
     CompletionCounter() noexcept = default;
     explicit CompletionCounter(u32 initial) noexcept : _v(initial) {}
 
+    // コピー禁止（共有しても同期にならないため）
     CompletionCounter(const CompletionCounter&) = delete;
     CompletionCounter& operator=(const CompletionCounter&) = delete;
 
-    void Add(u32 n = 1) noexcept   { _v.FetchAdd(n); }
-    void Done()         noexcept   { _v.FetchSub(1); }
-    u32  Pending() const noexcept  { return _v.Load(MemoryOrder::Acquire); }
-    bool Finished() const noexcept { return Pending() == 0; }
+    void Add(u32 n = 1) noexcept   { _v.FetchAdd(n); }                       // タスク投入時
+    void Done()         noexcept   { _v.FetchSub(1); }                       // タスク完了時
+    u32  Pending() const noexcept  { return _v.Load(MemoryOrder::Acquire); } // 残数
+    bool Finished() const noexcept { return Pending() == 0; }                // 全完了か
 
 private:
     mutable Atomic<u32> _v {0};
 };
 
+// タスク本体の関数型。worker_index は実行中ワーカーの ID（0..N-1）。
 using TaskFn = void (*)(void* user, u32 worker_index);
 
+// 1 つのタスク。POD なので deque に値コピーされる。
 struct Task {
-    TaskFn              fn       = nullptr;
-    void*               user     = nullptr;
-    CompletionCounter*  counter  = nullptr;
+    TaskFn              fn       = nullptr;  // 実行する関数
+    void*               user     = nullptr;  // ユーザーデータ
+    CompletionCounter*  counter  = nullptr;  // 完了通知先（任意、null 可）
 };
 
+// =============================================================================
+// ThreadPool — グローバル共有のワークスティーリングプール
+// =============================================================================
 class ThreadPool {
 public:
-    // Initialize pool with `worker_count` workers (0 -> HardwareConcurrency()).
-    // Calling Init() again after Shutdown() is allowed.
+    // 初期化。worker_count=0 で論理 CPU 数を採用。
+    // 二重 Init はエラー。Shutdown 後は再初期化可能。
     static Result<void> Init(u32 worker_count = 0) noexcept;
     static void         Shutdown() noexcept;
 
+    // 起動中のワーカー数（未初期化なら 0）
     static u32          WorkerCount() noexcept;
 
-    // Returns the worker index of the calling thread (0..N-1) or kNotAWorker
-    // if the calling thread is not one of the pool's workers.
+    // 呼び出しスレッドがプールワーカーであれば 0..N-1 を返す。
+    // ワーカー外なら kNotAWorker (= 0xFFFFFFFF)。
     static u32          CurrentWorkerIndex() noexcept;
     static constexpr u32 kNotAWorker = 0xFFFFFFFFu;
 
-    // Submit a single task. If counter is non-null, it is incremented before
-    // submission and decremented when the task finishes.
+    // タスク投入。counter が非 null なら Submit 時に Add(1)、完了時に Done()。
+    // ワーカー内から呼ぶと自分の deque に LIFO で積み（ローカリティ最適）、
+    // 外部から呼ぶとグローバルキューを経由する。
     static Result<void> Submit(const Task& t) noexcept;
 
-    // Block until counter reaches 0. While blocked, the caller participates in
-    // task stealing so deeply nested workloads do not deadlock.
+    // counter が 0 になるまで待つ。待機中はスティーリングに参加するため、
+    // 子タスクを生成して待つ Nested 呼び出しでもデッドロックしない。
     static void         Wait(CompletionCounter& counter) noexcept;
 
-    // Convenience: parallel_for divides [begin, end) into chunks of `grain`
-    // and dispatches them. Caller supplies storage for the per-range function
-    // pointer + a pointer-sized user value.
+    // 並列 for ループ。[begin, end) を grain サイズの塊に分割し、
+    // 各チャンクをタスクとして Submit → Wait する。
+    // body は (i, worker_index, user) を受け取る関数ポインタ。
     static Result<void> ParallelFor(u32 begin, u32 end, u32 grain,
                                     void (*body)(u32 i, u32 worker_index, void* user),
                                     void* user) noexcept;

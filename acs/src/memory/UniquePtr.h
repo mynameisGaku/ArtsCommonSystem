@@ -1,4 +1,14 @@
-// ACS Memory — UniquePtr<T>: movable-only owning smart pointer.
+// =============================================================================
+// ACS Memory — UniquePtr<T>（std::unique_ptr 代替）
+// -----------------------------------------------------------------------------
+// 単独所有のスマートポインタ。ムーブのみ可、コピー不可。
+// 破棄時に Allocator::Free を呼んで自動解放する。
+//
+// 例:
+//   auto p = MakeUnique<Mesh>(args...);
+//   p->Render();
+//   // スコープ脱出で自動的に解放
+// =============================================================================
 #pragma once
 
 #include "memory/Allocator.h"
@@ -11,16 +21,21 @@ template<typename T>
 class UniquePtr {
 public:
     UniquePtr() noexcept = default;
+
+    // 既存ポインタからの構築（所有権を奪う）
     explicit UniquePtr(T* p, Allocator* a = nullptr) noexcept
         : _ptr(p), _alloc(a ? a : &DefaultAllocator()) {}
 
+    // コピー禁止
     UniquePtr(const UniquePtr&) = delete;
     UniquePtr& operator=(const UniquePtr&) = delete;
 
+    // ムーブ: 所有権を譲渡
     UniquePtr(UniquePtr&& o) noexcept : _ptr(o._ptr), _alloc(o._alloc) {
         o._ptr = nullptr;
     }
 
+    // U → T への変換ムーブ（基底クラスへのアップキャスト等）
     template<typename U>
     UniquePtr(UniquePtr<U>&& o) noexcept : _ptr(o.Release()), _alloc(o.GetAllocator()) {}
 
@@ -35,6 +50,7 @@ public:
 
     ~UniquePtr() noexcept { Reset(); }
 
+    // ---- アクセス ----
     T*       Get()       noexcept { return _ptr; }
     const T* Get() const noexcept { return _ptr; }
 
@@ -42,12 +58,14 @@ public:
     T* operator->() const noexcept { return _ptr; }
     explicit operator bool() const noexcept { return _ptr != nullptr; }
 
+    // 所有権を放棄して生ポインタを返す（呼び出し側が解放責任を持つ）
     T* Release() noexcept {
         T* p = _ptr;
         _ptr = nullptr;
         return p;
     }
 
+    // 既存対象を破棄して新しい対象を保持（または null にする）
     void Reset(T* p = nullptr) noexcept {
         if (_ptr) Delete(*_alloc, _ptr);
         _ptr = p;
@@ -60,6 +78,9 @@ private:
     Allocator* _alloc = nullptr;
 };
 
+// ---- ファクトリ -----------------------------------------------------------
+
+// デフォルトアロケータで構築
 template<typename T, typename... Args>
 ACS_FORCEINLINE UniquePtr<T> MakeUnique(Args&&... args) noexcept {
     Allocator& a = DefaultAllocator();
@@ -67,6 +88,7 @@ ACS_FORCEINLINE UniquePtr<T> MakeUnique(Args&&... args) noexcept {
     return UniquePtr<T>(p, &a);
 }
 
+// 指定アロケータで構築
 template<typename T, typename... Args>
 ACS_FORCEINLINE UniquePtr<T> MakeUniqueIn(Allocator& a, Args&&... args) noexcept {
     T* p = New<T>(a, Forward<Args>(args)...);

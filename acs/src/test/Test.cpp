@@ -1,3 +1,9 @@
+// =============================================================================
+// ACS Test — Test フレームワーク 実装
+// -----------------------------------------------------------------------------
+// グローバル単方向リストへの登録、全テスト実行、結果集計。
+// 失敗カウンタは thread_local にして、並列テストにも対応可能。
+// =============================================================================
 #include "test/Test.h"
 #include "foundation/Platform.h"
 #include "threading/Mutex.h"
@@ -12,9 +18,11 @@ namespace {
 TestCase* g_head = nullptr;
 TestCase* g_tail = nullptr;
 Mutex     g_reg_lock;
+// テスト本体内の失敗数カウンタ（テストごとに 0 にリセット）
 thread_local int g_current_failures = 0;
 }
 
+// ACS_TEST マクロから呼ばれる: テストケースを末尾に追加
 void Register(TestCase* tc) noexcept {
     ScopedLock lk(g_reg_lock);
     if (!g_head) g_head = tc;
@@ -22,6 +30,7 @@ void Register(TestCase* tc) noexcept {
     g_tail = tc;
 }
 
+// EXPECT_* マクロから呼ばれる失敗報告
 void RecordFailure(SourceLoc loc, const char* expr, const char* fmt, ...) noexcept {
     ++g_current_failures;
     char msg[512];
@@ -33,6 +42,7 @@ void RecordFailure(SourceLoc loc, const char* expr, const char* fmt, ...) noexce
               loc.File(), loc.Line(), loc.Function(), expr, msg);
 }
 
+// 補助情報の出力（合否判定には影響しない）
 void RecordInfo(SourceLoc loc, const char* fmt, ...) noexcept {
     char msg[512];
     va_list ap;
@@ -42,6 +52,7 @@ void RecordInfo(SourceLoc loc, const char* fmt, ...) noexcept {
     ::fprintf(stderr, "    [INFO] %s:%u %s\n", loc.File(), loc.Line(), msg);
 }
 
+// 全テスト実行、結果サマリ出力
 int RunAll() noexcept {
     u32 total = 0, passed = 0, failed = 0;
     for (TestCase* tc = g_head; tc; tc = tc->next) ++total;

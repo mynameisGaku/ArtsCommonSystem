@@ -1,9 +1,17 @@
-// Assert is header-only; this TU exists so MSBuild has a non-empty .cpp for the
-// foundation static library on platforms that need at least one object file
-// per archive. Future inline-out assertions can move here.
+// =============================================================================
+// ACS Foundation — Assert 実装
+// -----------------------------------------------------------------------------
+// アサート関連のロジックは全てヘッダ内マクロで完結している。
+// 本ファイルは静的ライブラリのアーカイブを「空でない」状態にするための
+// アンカーシンボルだけを提供する（一部のリンカ/ビルダがオブジェクト 0 個の
+// 静的ライブラリを許容しないため）。
+//
+// 将来、アサート関連の非インライン処理（カウンタ/レート制限/UI ダイアログ等）
+// を追加するならここに置く。
+// =============================================================================
 #include "foundation/Assert.h"
 
 namespace acs::detail {
-// Anchor symbol — keeps the TU non-empty.
+// TU を空でなくするためのアンカー
 [[maybe_unused]] inline int kAssertAnchor = 0;
 }
