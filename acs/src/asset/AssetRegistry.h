@@ -34,6 +34,9 @@ public:
     // ローダを登録（拡張子マッチで使われる、所有権はレジストリ側に渡らない）
     void RegisterLoader(IAssetLoader* loader) noexcept;
 
+    // 標準ローダ群を一括登録 (Image / Audio / Mesh / Text / Binary)
+    void RegisterDefaultLoaders() noexcept;
+
     // 同期ロード（ファイル読み込み + ローダ呼び出し、キャッシュ済みなら即返却）
     Result<Rc<Asset>> Load(const wchar_t* path) noexcept;
 

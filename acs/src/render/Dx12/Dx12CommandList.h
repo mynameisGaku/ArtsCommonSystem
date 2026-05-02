@@ -26,6 +26,14 @@ public:
     void SetViewport(const Viewport& vp) noexcept override;
     void SetScissor (const ScissorRect& sr) noexcept override;
 
+    void SetPipeline(IRhiPipeline& pipeline) noexcept override;
+    void SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept override;
+    void SetIndexBuffer(IRhiBuffer& ib) noexcept override;
+    void Draw(u32 vertex_count, u32 first_vertex = 0) noexcept override;
+    void DrawIndexed(u32 index_count, u32 first_index = 0, i32 base_vertex = 0) noexcept override;
+
+    void* NativeHandle() noexcept override { return _cmd_list; }
+
 private:
     Dx12Device*                     _device     = nullptr;
     ID3D12CommandAllocator*         _allocator  = nullptr;

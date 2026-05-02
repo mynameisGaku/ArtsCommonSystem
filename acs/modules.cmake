@@ -44,3 +44,6 @@ acs_enable_module(Render
 )
 
 acs_enable_module(App)
+
+# ---- ImGui (任意): ImGui を使いたいときだけ有効化 ----
+acs_enable_module(Imgui)

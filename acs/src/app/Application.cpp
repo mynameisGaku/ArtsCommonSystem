@@ -83,6 +83,9 @@ int Application::Run(const AppConfig& cfg) noexcept {
                  _renderer.Device()->BackendName(),
                  _renderer.Device()->AdapterName());
 
+    // 標準アセットローダを登録（画像/音声/メッシュ/テキスト/バイナリ）
+    _assets.RegisterDefaultLoaders();
+
     // 派生クラスの初期化フック
     OnStart();
 

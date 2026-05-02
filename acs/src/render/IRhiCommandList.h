@@ -33,6 +33,24 @@ public:
     // ビューポート / シザーを設定
     virtual void SetViewport(const Viewport& vp) noexcept = 0;
     virtual void SetScissor (const ScissorRect& sr) noexcept = 0;
+
+    // パイプラインを設定（次の Draw 命令で使う VS+PS+入力レイアウト等）
+    virtual void SetPipeline(class IRhiPipeline& pipeline) noexcept = 0;
+
+    // 頂点バッファをスロット 0 にバインド（stride はパイプライン側で指定済み）
+    virtual void SetVertexBuffer(class IRhiBuffer& vb, u32 stride) noexcept = 0;
+
+    // インデックスバッファをバインド（type は Index16 / Index32）
+    virtual void SetIndexBuffer(class IRhiBuffer& ib) noexcept = 0;
+
+    // 非インデックス描画
+    virtual void Draw(u32 vertex_count, u32 first_vertex = 0) noexcept = 0;
+
+    // インデックス描画
+    virtual void DrawIndexed(u32 index_count, u32 first_index = 0, i32 base_vertex = 0) noexcept = 0;
+
+    // バックエンド固有のネイティブハンドル取得（ImGui 等の外部統合で使う）
+    virtual void* NativeHandle() noexcept = 0;
 };
 
 // コマンドリストを作成

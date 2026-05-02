@@ -36,4 +36,8 @@ endif()
 
 if(ACS_BUILD_SAMPLES)
     add_subdirectory(samples/HelloWindow)
+    add_subdirectory(samples/HelloTriangle)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloImGui/CMakeLists.txt")
+        add_subdirectory(samples/HelloImGui)
+    endif()
 endif()
