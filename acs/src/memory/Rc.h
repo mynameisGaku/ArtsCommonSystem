@@ -61,6 +61,19 @@ public:
         o._ptr = nullptr;
         o._cb  = nullptr;
     }
+
+    // U が T の派生型なら Rc<U> から Rc<T> へアップキャスト変換できる
+    template<typename U>
+    Rc(const Rc<U>& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
+        if (_cb) _cb->strong.FetchAdd(1);
+    }
+    template<typename U>
+    Rc(Rc<U>&& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
+        o._ptr = nullptr;
+        o._cb  = nullptr;
+    }
+
+    template<typename U> friend class Rc;  // U → T 変換のために privates を共有
     Rc& operator=(const Rc& o) noexcept {
         if (this == &o) return *this;
         Release();

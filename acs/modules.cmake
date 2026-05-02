@@ -1,13 +1,10 @@
-# ACS — Module enablement.
+# ACS — モジュール有効化設定
 #
-# Edit this file to choose which modules to build and which features to
-# enable. The CMake build will validate dependencies (e.g. enabling
-# Threading without Foundation will fail loudly) and emit corresponding
-# WITH_ACS_<MODULE> / WITH_<FEATURE> preprocessor defines.
-#
-# Inspired by Unreal Engine's .Build.cs / .uplugin model.
+# このファイルを編集してビルドするモジュールと機能を選ぶ。
+# CMake は依存関係を検証し、対応する WITH_ACS_<MODULE> / WITH_<FEATURE>
+# プリプロセッサ define を自動的に付与する。
 
-# ---- Phase 1: Core runtime ------------------------------------------------
+# ---- Phase 1: ランタイム基盤 ---------------------------------------------
 acs_enable_module(Foundation REQUIRED
     FEATURES STACKTRACE LOG_FILE_SINK LOG_DEBUG_OUTPUT
 )
@@ -18,6 +15,7 @@ acs_enable_module(Threading REQUIRED
 
 acs_enable_module(Memory REQUIRED
     FEATURES LINEAR_ALLOCATOR POOL_ALLOCATOR ARENA_ALLOCATOR
+             VIRTUAL_MEMORY TLSF SEGMENT_SYSTEM SNAPSHOT
 )
 
 acs_enable_module(Container REQUIRED
@@ -29,16 +27,20 @@ acs_enable_module(Math REQUIRED
 )
 
 acs_enable_module(Test
-    # Test framework — disable for shipping builds.
+    # テストフレームワーク（ship build では無効化推奨）
 )
 
-# ---- Phase 2 (planned, not yet implemented) -------------------------------
-# acs_enable_module(Render
-#     # Pick exactly one rendering backend:
-#     FEATURES         DX12_RAW                     # raw DirectX 12
-#     # FEATURES       THE_FORGE                    # ConfettiFX/The-Forge
-#     # FEATURES       BGFX                         # bkaradzic/bgfx
-# )
-# acs_enable_module(Asset)
-# acs_enable_module(ECS FEATURES ENTT_BACKEND)
-# acs_enable_module(Editor FEATURES IMGUI)
+# ---- Phase 2: プラットフォーム / ECS / アセット / レンダ / アプリ ---------
+acs_enable_module(Platform
+    FEATURES WINDOW INPUT
+)
+
+acs_enable_module(Ecs)
+
+acs_enable_module(Asset)
+
+acs_enable_module(Render
+    FEATURES DX12_RAW
+)
+
+acs_enable_module(App)

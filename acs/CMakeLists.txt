@@ -15,20 +15,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ACS_BUILD_TESTS    "Build ACS unit tests"               ON)
+option(ACS_BUILD_SAMPLES  "Build sample applications"          ON)
 option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
 
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-# ---- 1. Discover everything available under src/<mod>/Module.cmake -------
+# ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
 acs_discover_modules("${ACS_SOURCE_ROOT}")
 
-# ---- 2. User picks what to build ----------------------------------------
+# ---- 2. ユーザーが modules.cmake で有効化する -----------------------------
 include("${CMAKE_CURRENT_SOURCE_DIR}/modules.cmake")
 
-# ---- 3. Validate, create targets, apply WITH_ACS_* defines --------------
+# ---- 3. 依存関係を検証して target を生成、WITH_ACS_* define を付与 -------
 acs_finalize_modules()
 
 if(ACS_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+if(ACS_BUILD_SAMPLES)
+    add_subdirectory(samples/HelloWindow)
 endif()
