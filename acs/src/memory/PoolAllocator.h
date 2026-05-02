@@ -46,6 +46,14 @@ public:
     }
     const char* Name()   const noexcept override { return "Pool"; }
 
+    // ptr がこのプールから払い出されたものか判定（Heap フォールバックとの区別用）
+    bool Contains(const void* ptr) const noexcept {
+        if (!_storage || !ptr) return false;
+        const u8* p = static_cast<const u8*>(ptr);
+        const u8* end = _storage + _block_size * _block_count;
+        return p >= _storage && p < end;
+    }
+
 private:
     // フリーリストノード（フリーブロックの先頭にオーバーレイ配置）
     struct Node {
