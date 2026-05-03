@@ -1,0 +1,71 @@
+# ACS — モジュール有効化設定
+#
+# このファイルを編集してビルドするモジュールと機能を選ぶ。
+# CMake は依存関係を検証し、対応する WITH_ACS_<MODULE> / WITH_<FEATURE>
+# プリプロセッサ define を自動的に付与する。
+
+# ---- Phase 1: ランタイム基盤 ---------------------------------------------
+acs_enable_module(Foundation REQUIRED
+    FEATURES STACKTRACE LOG_FILE_SINK LOG_DEBUG_OUTPUT
+)
+
+acs_enable_module(Threading REQUIRED
+    FEATURES THREADPOOL
+)
+
+acs_enable_module(Memory REQUIRED
+    FEATURES LINEAR_ALLOCATOR POOL_ALLOCATOR ARENA_ALLOCATOR
+             VIRTUAL_MEMORY TLSF SEGMENT_SYSTEM SNAPSHOT
+)
+
+acs_enable_module(Container REQUIRED
+    FEATURES HASHMAP STRING_SSO
+)
+
+acs_enable_module(Math REQUIRED
+    FEATURES DIRECTXMATH AVX2 RUNTIME_DISPATCH
+)
+
+acs_enable_module(Test
+    # テストフレームワーク（ship build では無効化推奨）
+)
+
+# ---- Phase 2: プラットフォーム / ECS / アセット / レンダ / アプリ ---------
+acs_enable_module(Platform
+    FEATURES WINDOW INPUT
+)
+
+acs_enable_module(Ecs)
+
+acs_enable_module(Event)
+
+acs_enable_module(Asset)
+
+#
+# Render バックエンド選択について
+#
+#   生 DX12 (デフォルト):       cmake configure で何も指定しない
+#   Diligent Engine に切替:      -DACS_RENDER_DILIGENT=ON -DACS_RENDER_DX12_RAW=OFF
+#   両方併存（過渡期用）:         -DACS_RENDER_DILIGENT=ON -DACS_RENDER_DX12_RAW=ON
+#                                  実際にどちらが使われるかは CreateRhiDevice() の
+#                                  実体（リンク時の選択）で決まる。
+#
+# Diligent ON のときは初回 cmake configure で DiligentCore/Tools/FX を git clone
+# するため数分〜十数分かかる。CMake のキャッシュを保持していれば 2 回目以降は
+# 高速。
+#
+acs_enable_module(Render
+    FEATURES DX12_RAW
+)
+
+acs_enable_module(App)
+
+# ---- Phase 4: 音声・ネットワーク ----
+acs_enable_module(Audio
+    FEATURES XAUDIO2
+)
+
+acs_enable_module(Network)
+
+# ---- ImGui (任意): ImGui を使いたいときだけ有効化 ----
+acs_enable_module(Imgui)

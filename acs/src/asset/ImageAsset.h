@@ -1,0 +1,55 @@
+// 画像アセット
+//
+// 対応拡張子（stb_image 経由）:
+//   png / jpg / jpeg / bmp / tga / gif / hdr / pic / pnm / ppm / pgm / psd
+#pragma once
+
+#include "foundation/Types.h"
+#include "container/Array.h"
+#include "asset/Asset.h"
+#include "asset/IAssetLoader.h"
+#include "container/Hash.h"
+
+namespace acs {
+
+// ピクセルフォーマット（チャンネル数で識別）
+enum class PixelFormat : u8 {
+    R8,           // 8-bit 単チャンネル（グレースケール）
+    R8G8,         // 8-bit RG（グレースケール + アルファ）
+    R8G8B8,       // 8-bit RGB
+    R8G8B8A8,     // 8-bit RGBA
+    R32G32B32_F,  // 32-bit float RGB（HDR）
+    R32G32B32A32_F, // 32-bit float RGBA（HDR）
+};
+
+// 画像 1 枚分のデータ（CPU 側のピクセル列）
+class ImageAsset : public Asset {
+public:
+    ACS_ASSET_TYPE("ImageAsset")
+
+    ImageAsset() noexcept = default;
+    ImageAsset(u32 w, u32 h, PixelFormat fmt, Array<byte>&& pixels) noexcept
+        : _width(w), _height(h), _format(fmt), _pixels(Move(pixels)) {}
+
+    u32         Width()  const noexcept { return _width; }
+    u32         Height() const noexcept { return _height; }
+    PixelFormat Format() const noexcept { return _format; }
+    const byte* Pixels() const noexcept { return _pixels.Data(); }
+    usize       PixelByteCount() const noexcept { return _pixels.Size(); }
+
+private:
+    u32         _width  = 0;
+    u32         _height = 0;
+    PixelFormat _format = PixelFormat::R8G8B8A8;
+    Array<byte> _pixels;
+};
+
+// 画像ローダ (stb_image)
+class ImageAssetLoader final : public IAssetLoader {
+public:
+    AssetType   TypeId()    const noexcept override { return ImageAsset::StaticType(); }
+    const char* Extension() const noexcept override { return "png"; }
+    Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept override;
+};
+
+} // namespace acs

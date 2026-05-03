@@ -1,0 +1,50 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "dx12-debug",
+            "displayName": "DX12 (raw) — Debug",
+            "description": "既存の独自 DX12 バックエンド。デフォルト。",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/cmake-build-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE":      "Debug",
+                "ACS_RENDER_DX12_RAW":   "ON",
+                "ACS_RENDER_DILIGENT":   "OFF"
+            }
+        },
+        {
+            "name": "dx12-release",
+            "inherits": "dx12-debug",
+            "displayName": "DX12 (raw) — Release",
+            "binaryDir": "${sourceDir}/cmake-build-release",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        },
+        {
+            "name": "diligent-debug",
+            "displayName": "Diligent Engine — Debug",
+            "description": "クロスプラットフォーム対応 (DX12 + 後で Vulkan/Metal も)。初回 configure は重い。",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/cmake-build-diligent-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE":      "Debug",
+                "ACS_RENDER_DX12_RAW":   "OFF",
+                "ACS_RENDER_DILIGENT":   "ON"
+            }
+        },
+        {
+            "name": "diligent-release",
+            "inherits": "diligent-debug",
+            "displayName": "Diligent Engine — Release",
+            "binaryDir": "${sourceDir}/cmake-build-diligent-release",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        }
+    ],
+    "buildPresets": [
+        { "name": "dx12-debug",       "configurePreset": "dx12-debug" },
+        { "name": "dx12-release",     "configurePreset": "dx12-release" },
+        { "name": "diligent-debug",   "configurePreset": "diligent-debug" },
+        { "name": "diligent-release", "configurePreset": "diligent-release" }
+    ]
+}

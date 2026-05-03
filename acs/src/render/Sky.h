@@ -1,0 +1,80 @@
+// 手続き生成スカイ（グラデーション + 太陽）
+//
+// 用途: 3D シーンの背景に「空」を描く。シーン描画より先に呼ぶ。
+//       テクスチャ（キューブマップ）不要、ピクセルシェーダで天頂・地平線・
+//       地面の色を補間して描画する。
+//
+// 使い方:
+//   Sky sky;
+//   sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
+//   sky.PresetDay();
+//
+//   // 描画フレーム中、シーンの最初に
+//   sky.Render(*cl, camera);
+//   // ... StandardShader でメッシュを描く ...
+#pragma once
+
+#include "foundation/Result.h"
+#include "memory/UniquePtr.h"
+#include "math/Vec.h"
+#include "math/Mat.h"
+#include "render/IRhiDevice.h"
+#include "render/IRhiShader.h"
+#include "render/IRhiPipeline.h"
+#include "render/IRhiBuffer.h"
+#include "render/IRhiCommandList.h"
+
+namespace acs {
+
+class Camera;
+
+class Sky {
+public:
+    Sky() noexcept = default;
+    ~Sky() noexcept = default;
+
+    Sky(const Sky&)            = delete;
+    Sky& operator=(const Sky&) = delete;
+
+    Result<void> Init(IRhiDevice& device,
+                      Format rt_format    = Format::B8G8R8A8_UNorm,
+                      Format depth_format = Format::D32_Float) noexcept;
+    void Shutdown() noexcept;
+
+    // パラメータ設定（カメラと同じ右手 / 左手系の前提なし、シェーダで normalize する）
+    void SetSunDirection(Vec3 dir) noexcept;       // 原点から太陽へ向く方向
+    void SetSunColor(Vec3 c)       noexcept { _sun_color = c; }
+    void SetSunRadius(f32 angular) noexcept { _sun_radius  = angular; }   // 視線角の cos 値からの差（0.001 = 鋭い、0.05 = 大きい）
+    void SetSunGlow(f32 angular)   noexcept { _sun_glow    = angular; }   // 太陽の周りのハロー
+    void SetZenithColor(Vec3 c)    noexcept { _zenith  = c; }   // 天頂の色
+    void SetHorizonColor(Vec3 c)   noexcept { _horizon = c; }   // 地平線の色
+    void SetGroundColor(Vec3 c)    noexcept { _ground  = c; }   // 地面方向の色
+
+    // プリセット
+    void PresetDay()    noexcept;    // 青空 + 白い太陽
+    void PresetSunset() noexcept;    // 茜色 + 暖色太陽
+    void PresetNight()  noexcept;    // 紺青 + 弱い月光
+
+    // 現在の太陽パラメータ取得（StandardShader と整合させたいときに）
+    Vec3 SunDirection() const noexcept { return _sun_dir; }
+    Vec3 SunColor()     const noexcept { return _sun_color; }
+
+    // 描画（先頭で呼ぶ。深度バッファは「背景に塗る」想定で書込み無し・テスト無し）
+    void Render(IRhiCommandList& cl, const Camera& camera) noexcept;
+
+private:
+    UniquePtr<IRhiShader>   _vs;
+    UniquePtr<IRhiShader>   _ps;
+    UniquePtr<IRhiPipeline> _pipeline;
+    UniquePtr<IRhiBuffer>   _cb;
+
+    Vec3 _sun_dir    = Vec3{0.5f, 0.8f, 0.3f};
+    Vec3 _sun_color  = Vec3{1.0f, 0.95f, 0.85f};
+    f32  _sun_radius = 0.0006f;
+    f32  _sun_glow   = 0.04f;
+    Vec3 _zenith     = Vec3{0.18f, 0.40f, 0.78f};
+    Vec3 _horizon    = Vec3{0.70f, 0.80f, 0.95f};
+    Vec3 _ground     = Vec3{0.20f, 0.18f, 0.16f};
+};
+
+} // namespace acs
