@@ -3,6 +3,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         Mvvm.cpp
+        Convert.cpp
         ImguiBindings.cpp
     HEADERS
         Observable.h
@@ -10,6 +11,7 @@ acs_module(
         Binder.h
         Derived.h
         Command.h
+        Convert.h
         ViewModel.h
         ImguiBindings.h
     PUBLIC_DEPS

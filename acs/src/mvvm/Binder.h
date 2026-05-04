@@ -16,6 +16,7 @@
 #pragma once
 
 #include "mvvm/Observable.h"
+#include "mvvm/Convert.h"
 
 namespace acs {
 
@@ -135,6 +136,38 @@ private:
 template<typename T>
 inline void CopyOnce(const Observable<T>& src, Observable<T>& dst) noexcept {
     dst.Set(src.Get());
+}
+
+// ============================================================================
+// Bind(src, dst) — 暗黙変換つき汎用バインドファクトリ
+// ----------------------------------------------------------------------------
+// 同じ型なら OneWayBinder、違う型なら DefaultConverter<Src, Dst> を経由した
+// OneWayConvertBinder を返す。返り値は prvalue なので C++17 の copy elision で
+// auto に直接受けられる。
+//
+// 例:
+//   Observable<f32> hp{100};
+//   Observable<String> hp_text;
+//   auto b = Bind(hp, hp_text);    // f32 → String 自動変換
+//
+//   Observable<i32> a, b;
+//   auto b2 = Bind(a, b);          // 同型 → OneWayBinder<i32>
+// ============================================================================
+template<typename T>
+inline OneWayBinder<T> Bind(Observable<T>& src, Observable<T>& dst) noexcept {
+    return OneWayBinder<T>(src, dst);
+}
+
+template<typename Src, typename Dst>
+inline OneWayConvertBinder<Src, Dst> Bind(Observable<Src>& src, Observable<Dst>& dst) noexcept {
+    return OneWayConvertBinder<Src, Dst>(
+        src, dst, &mvvm::DefaultConverter<Src, Dst>::Convert, nullptr);
+}
+
+// 双方向版 (両方向に DefaultConverter が定義されている型ペアでのみ使える)
+template<typename T>
+inline TwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
+    return TwoWayBinder<T>(a, b);
 }
 
 } // namespace acs

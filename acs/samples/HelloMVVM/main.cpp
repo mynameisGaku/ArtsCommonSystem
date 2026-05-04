@@ -68,14 +68,11 @@ public:
         // OneWayBinder: メイン VM の hp が hp_mirror に流れる
         _hp_mirror_binder = new OneWayBinder<f32>(_vm.hp, _hp_mirror);
 
-        // OneWayConvertBinder: hp(i32) → hp_text(String) に変換
+        // 暗黙変換: f32 → String を組込みの DefaultConverter で 1 行
+        // (例: 100.0f → "100" / 50.5f → "50.5")。lambda 不要。
         _hp_text_binder = new OneWayConvertBinder<f32, String>(
             _vm.hp, _hp_text,
-            [](const f32& v, void*) {
-                char buf[32];
-                std::snprintf(buf, sizeof(buf), "HP: %.0f", v);
-                return String{buf};
-            },
+            &mvvm::DefaultConverter<f32, String>::Convert,
             nullptr);
 
         // Derived: hp / max_hp = ratio (lazy recompute)
@@ -139,8 +136,14 @@ public:
             mvvm::imgui::BindProgress("Mirror HP", _hp_mirror, 0.0f, 100.0f);
 
             ImGui::Spacing();
-            ImGui::Text("OneWayConvertBinder: f32 → String に変換");
-            ImGui::Text("変換結果: %s", _hp_text.Get().Data());
+            ImGui::Text("組込み暗黙変換: f32 → String (DefaultConverter 自動選択)");
+            ImGui::Text("HP 文字列: \"%s\"", _hp_text.Get().Data());
+
+            ImGui::Spacing();
+            ImGui::Text("Bind(src, dst) ファクトリは型違いでも自動で converter 選択:");
+            ImGui::BulletText("Observable<f32> → Observable<String>: \"%s\"", _hp_text.Get().Data());
+            ImGui::BulletText("Observable<i32> → Observable<f32>: 同型なら OneWayBinder");
+            ImGui::BulletText("Observable<String> → Observable<i32>: パース失敗時 0");
         }
 
         // ③ Derived =============================================
