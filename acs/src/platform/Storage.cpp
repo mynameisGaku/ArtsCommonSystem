@@ -1,16 +1,20 @@
 // Storage 実装（INI 形式 key=value、UTF-8）
 #include "platform/Storage.h"
 #include "platform/FileSystem.h"
+#include "foundation/Compiler.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
-#include <Windows.h>
-#include <ShlObj.h>
-
-// Windows.h で `CreateDirectory` が `CreateDirectoryW` に展開されると
-// FileSystem::CreateDirectory もマクロ置換されて衝突する。マクロを取り消す。
-#ifdef CreateDirectory
-    #undef CreateDirectory
+#if ACS_PLATFORM_WINDOWS
+    #include <Windows.h>
+    #include <ShlObj.h>
+    // CreateDirectory マクロが FileSystem::CreateDirectory と衝突するので解除
+    #ifdef CreateDirectory
+        #undef CreateDirectory
+    #endif
+#elif ACS_PLATFORM_POSIX
+    #include <cstdlib>     // getenv
+    #include <wchar.h>
 #endif
 
 #include <cstring>
@@ -244,21 +248,55 @@ Result<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
                                      wchar_t* out, usize cap) noexcept {
     if (!out || cap == 0) return ACS_ERR(IO, 110, "GetAppDataPath: bad args");
 
-    // %APPDATA%（FOLDERID_RoamingAppData）を取得
+#if ACS_PLATFORM_WINDOWS
+    // Windows: SHGetKnownFolderPath で %APPDATA%（FOLDERID_RoamingAppData）
     PWSTR appdata = nullptr;
     HRESULT hr = ::SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appdata);
     if (FAILED(hr) || !appdata) {
         if (appdata) ::CoTaskMemFree(appdata);
         return ACS_ERR_OS(OS, 111, "SHGetKnownFolderPath failed", static_cast<u32>(hr));
     }
-
     Concat(out, cap,
            appdata,
            sub_dir   ? sub_dir   : L"acs",
            file_name ? file_name : L"storage.ini");
     ::CoTaskMemFree(appdata);
+#elif ACS_PLATFORM_POSIX
+    // POSIX: $XDG_DATA_HOME 優先、fallback で $HOME/.local/share (Linux) /
+    //        $HOME/Library/Application Support (macOS)
+    const char* xdg = std::getenv("XDG_DATA_HOME");
+    const char* home = std::getenv("HOME");
+    char base[1024]; base[0] = 0;
+    if (xdg && xdg[0]) {
+        std::snprintf(base, sizeof(base), "%s", xdg);
+    } else if (home && home[0]) {
+    #if ACS_PLATFORM_MACOS
+        std::snprintf(base, sizeof(base), "%s/Library/Application Support", home);
+    #else
+        std::snprintf(base, sizeof(base), "%s/.local/share", home);
+    #endif
+    } else {
+        return ACS_ERR(OS, 112, "neither XDG_DATA_HOME nor HOME set");
+    }
+    // narrow → wide 変換 (簡易、ASCII 範囲は 1:1)
+    char fullpath[1024];
+    char sub_narrow[256] = "acs";
+    char file_narrow[256] = "storage.ini";
+    if (sub_dir) {
+        std::wcstombs(sub_narrow, sub_dir, sizeof(sub_narrow) - 1);
+        sub_narrow[sizeof(sub_narrow) - 1] = 0;
+    }
+    if (file_name) {
+        std::wcstombs(file_narrow, file_name, sizeof(file_narrow) - 1);
+        file_narrow[sizeof(file_narrow) - 1] = 0;
+    }
+    std::snprintf(fullpath, sizeof(fullpath), "%s/%s/%s", base, sub_narrow, file_narrow);
+    // narrow → wide で out へ書き戻し
+    std::mbstowcs(out, fullpath, cap - 1);
+    out[cap - 1] = 0;
+#endif
 
-    // 親ディレクトリを事前作成（Save で再度作るが、Load 前に呼ぶケースもあるので）
+    // 親ディレクトリを事前作成
     wchar_t parent[1024];
     DirOf(out, parent, 1024);
     if (parent[0]) {
@@ -275,15 +313,30 @@ Result<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
 namespace {
 bool Utf8ToWide(const char* utf8, wchar_t* out, usize cap) noexcept {
     if (!utf8 || !out || cap == 0) return false;
+#if ACS_PLATFORM_WINDOWS
     int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out,
                                   static_cast<int>(cap));
     return n > 0;
+#else
+    // POSIX: mbstowcs (現在ロケールに依存。UTF-8 系ロケールが標準前提)
+    usize n = std::mbstowcs(out, utf8, cap - 1);
+    if (n == static_cast<usize>(-1)) return false;
+    out[n < cap ? n : cap - 1] = 0;
+    return true;
+#endif
 }
 bool WideToUtf8(const wchar_t* wide, char* out, usize cap) noexcept {
     if (!wide || !out || cap == 0) return false;
+#if ACS_PLATFORM_WINDOWS
     int n = ::WideCharToMultiByte(CP_UTF8, 0, wide, -1, out,
                                   static_cast<int>(cap), nullptr, nullptr);
     return n > 0;
+#else
+    usize n = std::wcstombs(out, wide, cap - 1);
+    if (n == static_cast<usize>(-1)) return false;
+    out[n < cap ? n : cap - 1] = 0;
+    return true;
+#endif
 }
 } // namespace
 

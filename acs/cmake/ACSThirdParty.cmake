@@ -83,6 +83,26 @@ endfunction()
 # ImGui は src/imgui/Module.cmake が独自に FetchContent するため、
 # ここでは扱わない（重複ダウンロードを避ける）。
 
+# ---- miniaudio (single-header audio library, BSD-licensed) ----------------
+# Win = WASAPI / DSound、Linux = ALSA / PulseAudio、macOS = CoreAudio を内部選択。
+# acs_third_party::miniaudio は include パスのみ提供する INTERFACE。
+# 実装は AudioEngine.cpp 内で MA_IMPLEMENTATION を define して inline する。
+function(acs_third_party_miniaudio)
+    if(TARGET acs_third_party::miniaudio)
+        return()
+    endif()
+    FetchContent_Declare(
+        acs_miniaudio
+        GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+        GIT_TAG        master
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(acs_miniaudio)
+    add_library(acs_third_party_miniaudio INTERFACE)
+    target_include_directories(acs_third_party_miniaudio INTERFACE "${acs_miniaudio_SOURCE_DIR}")
+    add_library(acs_third_party::miniaudio ALIAS acs_third_party_miniaudio)
+endfunction()
+
 # ---- Diligent Engine (DiligentCore + DiligentTools + DiligentFX) ----------
 # acs_third_party::diligent_core / ::diligent_tools / ::diligent_fx を提供する。
 # 現在は DX12 のみ有効化。Vulkan / Metal は後続フェーズで段階的に有効化する。
