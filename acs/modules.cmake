@@ -73,3 +73,7 @@ acs_enable_module(Imgui)
 # Mvvm は ACS_MVVM_IMGUI_BINDINGS=ON のときだけ Imgui に依存する。
 # 普通のビルドでは Imgui の後に Mvvm を入れておくと依存解決が素直。
 acs_enable_module(Mvvm)
+
+# Ui — ACS 純正 UI フレームワーク (Widget + Layout + Renderer)。Mvvm と組み合わせて
+# 使うことで MVVM パターンを完結させる。
+acs_enable_module(Ui)

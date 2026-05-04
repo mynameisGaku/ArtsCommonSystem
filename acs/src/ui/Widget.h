@@ -1,0 +1,164 @@
+// Widget — ACS UI フレームワークの基底クラス
+//
+// 設計:
+//   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
+//   ・MVVM 駆動: 各 Widget は Observable<T> プロパティを公開し、ViewModel と Bind 可能
+//   ・SpriteBatch + Font で描画 (Diligent / Dx12 を意識しない)
+//   ・親 → 子の所有を UniquePtr<Widget> で表現、Add で子を取り込む
+//   ・Layout は親の Layout モードに応じて子に再帰的に配置
+//
+// 使い方:
+//   StackPanel root;
+//   root.SetPadding(8);
+//   auto* btn = root.Add<Button>("OK");
+//   btn->on_clicked.Subscribe(...);
+//
+//   // 毎フレーム:
+//   ui_renderer.Render(root, *cmd, screen_w, screen_h);
+//   ui_input.Dispatch(root);
+#pragma once
+
+#include "foundation/Types.h"
+#include "container/Array.h"
+#include "memory/UniquePtr.h"
+#include "math/Vec.h"
+
+namespace acs {
+
+// 矩形 (UI 座標、左上原点ピクセル単位)
+struct UiRect {
+    f32 x = 0, y = 0, w = 0, h = 0;
+    bool Contains(f32 px, f32 py) const noexcept {
+        return px >= x && px < x + w && py >= y && py < y + h;
+    }
+};
+
+// 整列方向
+enum class StackDir : u8 { Vertical, Horizontal };
+
+// アンカー / 余白
+struct UiPadding { f32 l = 0, t = 0, r = 0, b = 0; };
+
+// Widget の基底
+class Widget {
+public:
+    Widget() noexcept = default;
+    virtual ~Widget() noexcept = default;
+
+    Widget(const Widget&) = delete;
+    Widget& operator=(const Widget&) = delete;
+
+    // ---- 子ウィジェットの管理 -------------------------------------------
+    template<typename W, typename... Args>
+    W* Add(Args&&... args) noexcept {
+        auto u = MakeUnique<W>(Forward<Args>(args)...);
+        W* raw = u.Get();
+        raw->_parent = this;
+        _children.PushBack(Move(u));
+        return raw;
+    }
+
+    Widget* Parent() const noexcept { return _parent; }
+    usize   ChildCount() const noexcept { return _children.Size(); }
+    Widget* Child(usize i) const noexcept { return i < _children.Size() ? _children[i].Get() : nullptr; }
+
+    // ---- 表示 ----
+    bool   visible = true;
+    UiRect rect;                    // レイアウト後に確定する絶対座標
+    UiRect requested;               // 要望サイズ (0 = レイアウトに任せる)
+
+    // ---- フォーカス / hover ----
+    bool hovered = false;
+    bool focused = false;
+    bool pressed = false;           // 直近のフレームで押下されているか (Button 等で使う)
+
+    // ---- 仮想メソッド: Layout は親が呼ぶ。Render は UiRenderer が呼ぶ ----
+    virtual void Layout(f32 x, f32 y, f32 w, f32 h) noexcept {
+        rect = { x, y, w, h };
+    }
+
+    virtual void Render(class UiRenderer& r) noexcept {
+        // 既定は子だけ描画する (visible なものに絞り)
+        for (usize i = 0; i < _children.Size(); ++i) {
+            if (_children[i] && _children[i]->visible) _children[i]->Render(r);
+        }
+    }
+
+    // 入力が来たときの hit-test (true なら自身が拾う、false なら通過)
+    virtual bool HitTest(f32 px, f32 py) const noexcept {
+        return rect.Contains(px, py);
+    }
+
+    // クリック / drag / 文字入力等のイベント処理。デフォは何もしない。
+    virtual void OnPointerDown(f32 /*px*/, f32 /*py*/) noexcept {}
+    virtual void OnPointerUp  (f32 /*px*/, f32 /*py*/) noexcept {}
+    virtual void OnPointerMove(f32 /*px*/, f32 /*py*/) noexcept {}
+    virtual void OnTextInput  (u32 /*codepoint*/) noexcept {}
+    virtual void OnKey        (i32 /*key*/, bool /*pressed*/) noexcept {}
+
+    // 子を含めた hit test (subclass で再帰的にヒットテストする補助)
+    Widget* HitTestRecursive(f32 px, f32 py) noexcept {
+        if (!visible) return nullptr;
+        // 後ろの子 (上に描画されてる) から優先的にヒット
+        for (usize i = _children.Size(); i > 0; --i) {
+            Widget* c = _children[i - 1].Get();
+            if (c) {
+                if (Widget* h = c->HitTestRecursive(px, py)) return h;
+            }
+        }
+        return HitTest(px, py) ? this : nullptr;
+    }
+
+protected:
+    Widget*                       _parent   = nullptr;
+    Array<UniquePtr<Widget>>      _children;
+};
+
+// ---------- レイアウト系 ----------
+
+// StackPanel: 縦 or 横にきれいに並べる
+class StackPanel : public Widget {
+public:
+    StackPanel() noexcept = default;
+
+    StackDir   dir      = StackDir::Vertical;
+    f32        spacing  = 4.0f;
+    UiPadding  padding{ 8, 8, 8, 8 };
+
+    void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
+        rect = { x, y, w, h };
+        f32 cx = x + padding.l;
+        f32 cy = y + padding.t;
+        f32 cw = w - padding.l - padding.r;
+        f32 ch = h - padding.t - padding.b;
+
+        for (usize i = 0; i < _children.Size(); ++i) {
+            Widget* c = _children[i].Get();
+            if (!c || !c->visible) continue;
+
+            if (dir == StackDir::Vertical) {
+                f32 child_h = c->requested.h > 0 ? c->requested.h : 24.0f;
+                c->Layout(cx, cy, cw, child_h);
+                cy += child_h + spacing;
+            } else {
+                f32 child_w = c->requested.w > 0 ? c->requested.w : 80.0f;
+                c->Layout(cx, cy, child_w, ch);
+                cx += child_w + spacing;
+            }
+        }
+    }
+};
+
+// Container: 自身は描画せず、レイアウトだけ親と同じ範囲を子に渡す (透過パネル)
+class Container : public Widget {
+public:
+    void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
+        rect = { x, y, w, h };
+        for (usize i = 0; i < _children.Size(); ++i) {
+            Widget* c = _children[i].Get();
+            if (c && c->visible) c->Layout(x, y, w, h);
+        }
+    }
+};
+
+} // namespace acs
