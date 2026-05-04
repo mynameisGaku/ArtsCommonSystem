@@ -6,12 +6,16 @@ acs_module(
         ImguiBindings.cpp
     HEADERS
         Observable.h
+        ObservableArray.h
         Binder.h
+        Derived.h
+        Command.h
         ViewModel.h
         ImguiBindings.h
     PUBLIC_DEPS
         Foundation
         Container
+        Math
         Imgui
 )
 

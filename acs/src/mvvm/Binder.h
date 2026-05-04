@@ -86,4 +86,55 @@ private:
     ObservableHandle _h;
 };
 
+// View → ViewModel 方向 (= OneWayBinder の引数順を反転しただけ)。
+// 「View が編集して VM に書き戻すだけ」という意図を読みやすくする alias。
+template<typename T>
+using OneWayToVMBinder = OneWayBinder<T>;
+
+// 変換関数つき OneWay Binder (Src → Dst、別の型に変換)
+//
+// 使い方:
+//   Observable<i32>      hp { 100 };
+//   Observable<String>   hp_text;
+//   static String IntToText(const i32& v, void* /*user*/) noexcept {
+//       char buf[32]; std::snprintf(buf, sizeof(buf), "HP: %d", v);
+//       return String{buf};
+//   }
+//   OneWayConvertBinder<i32, String> bind(hp, hp_text, &IntToText, nullptr);
+template<typename Src, typename Dst>
+class OneWayConvertBinder {
+public:
+    using ConvertFn = Dst (*)(const Src& v, void* user);
+
+    OneWayConvertBinder(Observable<Src>& src, Observable<Dst>& dst,
+                        ConvertFn fn, void* user) noexcept
+        : _src(&src), _dst(&dst), _fn(fn), _user(user) {
+        dst.Set(fn(src.Get(), user));
+        _h = src.Subscribe(&OnChanged, this);
+    }
+    ~OneWayConvertBinder() noexcept {
+        if (_src) _src->Unsubscribe(_h);
+    }
+    OneWayConvertBinder(const OneWayConvertBinder&)            = delete;
+    OneWayConvertBinder& operator=(const OneWayConvertBinder&) = delete;
+
+private:
+    static void OnChanged(const Src& v, void* user) noexcept {
+        auto* self = static_cast<OneWayConvertBinder*>(user);
+        if (self->_fn) self->_dst->Set(self->_fn(v, self->_user));
+    }
+    Observable<Src>*  _src  = nullptr;
+    Observable<Dst>*  _dst  = nullptr;
+    ConvertFn         _fn   = nullptr;
+    void*             _user = nullptr;
+    ObservableHandle  _h;
+};
+
+// 1 回だけ src の値を dst にコピーする (live binding ではなく初期化用)。
+// クラスではなく関数: lifetime を持たないので class にする意義がない。
+template<typename T>
+inline void CopyOnce(const Observable<T>& src, Observable<T>& dst) noexcept {
+    dst.Set(src.Get());
+}
+
 } // namespace acs

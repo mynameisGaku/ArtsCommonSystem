@@ -70,8 +70,10 @@ public:
         Notify();
     }
 
-    // 強制通知 (値が同じでも発火、内部コンテナが書き換えられた場合等)
-    void Touch() noexcept { Notify(); }
+    // 強制通知 (値が同じでも発火、内部コンテナが書き換えられた場合等)。
+    // 命名: 旧 Touch() の方が手早いが意図が読み取りにくいので ForceNotify を推奨。
+    void ForceNotify() noexcept { Notify(); }
+    void Touch()       noexcept { Notify(); }   // 後方互換 alias
 
     // 監視を追加
     ObservableHandle Subscribe(Listener cb, void* user) noexcept {

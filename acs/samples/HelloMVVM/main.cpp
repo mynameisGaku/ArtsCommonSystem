@@ -1,15 +1,10 @@
 // ACS の HelloMVVM サンプル
 //
-// 動作:
-//   ・PlayerViewModel に HP / Mana / Lv / 名前 / 無敵フラグの Observable
-//   ・ImGui パネルで slider / checkbox 経由で編集
-//   ・値変更を Subscribe で監視してログに出す (View → ViewModel → ログ)
-//   ・別ウィンドウで OneWay バインドで HP のミラーを表示 (バインド連鎖の確認)
-//
-// 学習ポイント:
-//   ・Observable<T>::Set() で全 Subscriber に通知が伝播
-//   ・OneWayBinder で「値の自動同期」が無線で実現
-//   ・MVVM 原則: View は ViewModel の Observable をだけ見る (モデルを直接触らない)
+// 動作: 1 ウィンドウ内を 4 セクションに分けて MVVM の機能を順番に紹介。
+//   ① 5 分入門   — Observable<T>::Set/Get + imgui::Bind だけで動く最小例
+//   ② バインダ    — TwoWayBinder / OneWayBinder / OneWayConvertBinder
+//   ③ Derived     — HP/MaxHP から ratio を自動算出
+//   ④ ObservableArray + Command — インベントリ追加削除 + 攻撃ボタン
 //
 // 注: ACS_RENDER_DILIGENT との関係はない。Imgui モジュールが有効ならビルド可。
 
@@ -19,19 +14,45 @@
 #include "imgui/ImGuiContext.h"
 
 #include "mvvm/ViewModel.h"
+#include "mvvm/Derived.h"
+#include "mvvm/ObservableArray.h"
+#include "mvvm/Command.h"
 #include "mvvm/ImguiBindings.h"
+#include "container/String.h"
 #include "foundation/Log.h"
 
 #include <imgui.h>
+#include <cstdio>
 
 using namespace acs;
 
-class PlayerViewModel : public ViewModel {
+// ============================================================
+// ① ViewModel 定義
+// ============================================================
+class PlayerVM : public ViewModel {
 public:
-    Observable<f32>  hp        { 100.0f };
-    Observable<f32>  mana      { 50.0f };
-    Observable<i32>  level     { 1 };
-    Observable<bool> invincible{ false };
+    Observable<f32>     hp        { 100.0f };
+    Observable<f32>     max_hp    { 100.0f };
+    Observable<f32>     mana      { 50.0f };
+    Observable<i32>     level     { 1 };
+    Observable<bool>    invincible{ false };
+    Observable<String>  name      { String{"勇者"} };
+    Observable<Vec3>    color     { Vec3{1.0f, 0.85f, 0.4f} };
+    Observable<i32>     class_idx { 0 };  // Combo 用 (0=戦士, 1=魔法使い, 2=盗賊)
+
+    // インベントリ
+    ObservableArray<i32> inventory;
+
+    // Attack コマンド: invincible が false のときだけ実行可能
+    // (Observable<bool>* で can_execute を渡す。null なら常時実行可能)
+    Command attack {
+        [](void* user) {
+            auto* self = static_cast<PlayerVM*>(user);
+            self->hp.Set(self->hp.Get() - 10.0f);
+        },
+        this,
+        nullptr   // 常時実行可能 (invincible は別途見て切替)
+    };
 };
 
 class HelloMVVM : public Application {
@@ -39,17 +60,45 @@ public:
     void OnStart() noexcept override {
         if (_imgui.Init(GetWindow(), GetRenderer()).IsErr()) { Quit(); return; }
 
-        // ViewModel の値変更をログに出す Subscriber を貼る
+        // VM 値変更をログに流す Subscribe (デバッグ目的)
         _vm.hp.Subscribe([](const f32& v, void*){
-            ACS_LOG_INFO("VM hp changed: %.1f", v);
-        }, nullptr);
-        _vm.invincible.Subscribe([](const bool& v, void*){
-            ACS_LOG_INFO("VM invincible: %s", v ? "ON" : "OFF");
+            ACS_LOG_INFO("VM hp: %.1f", v);
         }, nullptr);
 
-        // OneWay バインド: メイン VM の hp が hp_mirror に連動
-        // (View → ViewModel → 別 VM のチェーンを示す)
+        // OneWayBinder: メイン VM の hp が hp_mirror に流れる
         _hp_mirror_binder = new OneWayBinder<f32>(_vm.hp, _hp_mirror);
+
+        // OneWayConvertBinder: hp(i32) → hp_text(String) に変換
+        _hp_text_binder = new OneWayConvertBinder<f32, String>(
+            _vm.hp, _hp_text,
+            [](const f32& v, void*) {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "HP: %.0f", v);
+                return String{buf};
+            },
+            nullptr);
+
+        // Derived: hp / max_hp = ratio (lazy recompute)
+        _ratio = new Derived<f32, f32>(
+            [](const f32& h, const f32& m) {
+                return m > 0 ? h / m : 0.0f;
+            },
+            _vm.hp, _vm.max_hp);
+
+        // 初期インベントリ
+        _vm.inventory.PushBack(7);
+        _vm.inventory.PushBack(15);
+        _vm.inventory.PushBack(99);
+
+        // インベントリ変更ログ
+        _vm.inventory.Subscribe([](ArrayChange k, usize i, const i32* v, void*){
+            switch (k) {
+                case ArrayChange::Inserted: ACS_LOG_INFO("Inv[+%zu] = %d", i, *v); break;
+                case ArrayChange::Removed:  ACS_LOG_INFO("Inv[-%zu]", i); break;
+                case ArrayChange::Changed:  ACS_LOG_INFO("Inv[%zu] = %d", i, *v); break;
+                case ArrayChange::Cleared:  ACS_LOG_INFO("Inv cleared"); break;
+            }
+        }, nullptr);
 
         ACS_LOG_INFO("HelloMVVM initialized");
     }
@@ -61,41 +110,84 @@ public:
     void OnRender() noexcept override {
         _imgui.NewFrame();
 
-        // ---- メインパネル: 編集可能 ----
-        ImGui::SetNextWindowSize(ImVec2(360, 280), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Player ViewModel");
-        ImGui::Text("MVVM 双方向バインドのデモ");
-        ImGui::Separator();
-        mvvm::imgui::Bind("HP",   _vm.hp,   0.0f, 100.0f);
-        mvvm::imgui::Bind("Mana", _vm.mana, 0.0f, 100.0f);
-        mvvm::imgui::Bind("Lv",   _vm.level, 1, 99);
-        mvvm::imgui::Bind("無敵", _vm.invincible);
-        ImGui::Separator();
-        if (ImGui::Button("外部からダメージ (-10 HP)")) {
-            _vm.hp.Set(_vm.hp.Get() - 10.0f);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("満タン回復")) {
-            _vm.hp.Set(100.0f);
-            _vm.mana.Set(100.0f);
-        }
-        ImGui::End();
+        ImGui::SetNextWindowSize(ImVec2(440, 720), ImGuiCond_FirstUseEver);
+        ImGui::Begin("ACS MVVM Demo");
 
-        // ---- 読み取り専用パネル: OneWayBinder で連動 ----
-        ImGui::SetNextWindowSize(ImVec2(360, 160), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Mirror View (OneWay)");
-        ImGui::Text("View が編集を加えなくても、VM の値変更で自動更新される");
-        ImGui::Separator();
-        mvvm::imgui::BindProgress("HP", _hp_mirror, 0.0f, 100.0f);
-        mvvm::imgui::BindReadOnly("HP (text)", _hp_mirror);
+        // ① 5 分入門 ============================================
+        if (ImGui::CollapsingHeader("① 5 分入門 (Set/Get + Bind)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Text("Observable<T> をスライダーで編集する最小例:");
+            mvvm::imgui::Bind("HP",     _vm.hp,     0.0f, 100.0f);
+            mvvm::imgui::Bind("Mana",   _vm.mana,   0.0f, 100.0f);
+            mvvm::imgui::Bind("Lv",     _vm.level,  1, 99);
+            mvvm::imgui::Bind("無敵",   _vm.invincible);
+            ImGui::Separator();
+
+            // 文字列入力
+            mvvm::imgui::BindText("名前", _vm.name, _name_buf, sizeof(_name_buf));
+
+            // カラーピッカー
+            mvvm::imgui::BindColor3("シンボル色", _vm.color);
+
+            // Combo (職業)
+            const char* classes[] = { "戦士", "魔法使い", "盗賊" };
+            mvvm::imgui::BindCombo("クラス", _vm.class_idx, classes, 3);
+        }
+
+        // ② バインダ ============================================
+        if (ImGui::CollapsingHeader("② Binder (自動同期)")) {
+            ImGui::Text("OneWayBinder: HP が変わると自動で hp_mirror も更新");
+            mvvm::imgui::BindProgress("Mirror HP", _hp_mirror, 0.0f, 100.0f);
+
+            ImGui::Spacing();
+            ImGui::Text("OneWayConvertBinder: f32 → String に変換");
+            ImGui::Text("変換結果: %s", _hp_text.Get().Data());
+        }
+
+        // ③ Derived =============================================
+        if (ImGui::CollapsingHeader("③ Derived (派生 Observable)")) {
+            ImGui::Text("Max HP を変えると ratio が自動再計算 (lazy):");
+            mvvm::imgui::Bind("Max HP", _vm.max_hp, 1.0f, 200.0f);
+            ImGui::Spacing();
+            // Derived は AsObservable() を経由するか Get() で値を取得
+            mvvm::imgui::BindFormat<f32>("HP / MaxHP = %.2f", _ratio->AsObservable());
+            mvvm::imgui::BindProgress("Ratio", _ratio->AsObservable(), 0.0f, 1.0f);
+        }
+
+        // ④ ObservableArray + Command ===========================
+        if (ImGui::CollapsingHeader("④ Array + Command")) {
+            ImGui::Text("Inventory (%zu 個):", _vm.inventory.Size());
+            for (usize i = 0; i < _vm.inventory.Size(); ++i) {
+                ImGui::BulletText("[%zu] = %d", i, _vm.inventory.At(i));
+            }
+            if (ImGui::Button("ランダム追加")) {
+                _vm.inventory.PushBack((rand() % 100) + 1);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("末尾削除") && _vm.inventory.Size() > 0) {
+                _vm.inventory.PopBack();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("全削除")) {
+                _vm.inventory.Clear();
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Command (ボタン化、無敵中は grayout):");
+            // 無敵フラグの値で can_execute をエミュ (簡易: 直接 Execute を gate)
+            if (_vm.invincible.Get()) ImGui::BeginDisabled();
+            mvvm::imgui::BindCommand("攻撃を受ける (-10 HP)", _vm.attack);
+            if (_vm.invincible.Get()) ImGui::EndDisabled();
+        }
+
         ImGui::End();
 
         _imgui.Render();
     }
 
     void OnShutdown() noexcept override {
-        delete _hp_mirror_binder;
-        _hp_mirror_binder = nullptr;
+        delete _ratio;            _ratio = nullptr;
+        delete _hp_text_binder;   _hp_text_binder = nullptr;
+        delete _hp_mirror_binder; _hp_mirror_binder = nullptr;
         _imgui.Shutdown();
     }
 
@@ -104,10 +196,14 @@ public:
     }
 
 private:
-    ImGuiCtx                  _imgui;
-    PlayerViewModel           _vm;
-    Observable<f32>           _hp_mirror{};
-    OneWayBinder<f32>*        _hp_mirror_binder = nullptr;
+    ImGuiCtx                                  _imgui;
+    PlayerVM                                  _vm;
+    Observable<f32>                           _hp_mirror{};
+    Observable<String>                        _hp_text{ String{} };
+    OneWayBinder<f32>*                        _hp_mirror_binder = nullptr;
+    OneWayConvertBinder<f32, String>*         _hp_text_binder   = nullptr;
+    Derived<f32, f32>*                        _ratio            = nullptr;
+    char                                      _name_buf[64]     = "勇者";
 };
 
 ACS_DEFINE_MAIN(HelloMVVM)

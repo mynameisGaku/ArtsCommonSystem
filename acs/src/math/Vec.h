@@ -47,6 +47,9 @@ struct Vec2 {
     Vec2& operator/=(f32 s)  noexcept { f32 r = 1.0f/s; x*=r; y*=r; return *this; }
 };
 
+inline bool operator==(Vec2 a, Vec2 b) noexcept { return a.x == b.x && a.y == b.y; }
+inline bool operator!=(Vec2 a, Vec2 b) noexcept { return !(a == b); }
+
 inline Vec2 operator+(Vec2 a, Vec2 b) noexcept { return {a.x+b.x, a.y+b.y}; }
 inline Vec2 operator-(Vec2 a, Vec2 b) noexcept { return {a.x-b.x, a.y-b.y}; }
 inline Vec2 operator*(Vec2 v, f32 s)  noexcept { return {v.x*s, v.y*s}; }
@@ -98,6 +101,11 @@ ACS_FORCEINLINE Vec3 Store(dxm::XMVECTOR x) noexcept {
     return r;
 }
 } // namespace vec3_detail
+
+inline bool operator==(Vec3 a, Vec3 b) noexcept {
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+inline bool operator!=(Vec3 a, Vec3 b) noexcept { return !(a == b); }
 
 inline Vec3 operator+(Vec3 a, Vec3 b) noexcept {
     return vec3_detail::Store(dxm::XMVectorAdd(vec3_detail::Load(a), vec3_detail::Load(b)));
@@ -157,6 +165,11 @@ ACS_FORCEINLINE Vec4 Store(dxm::XMVECTOR x) noexcept {
     return r;
 }
 } // namespace vec4_detail
+
+inline bool operator==(Vec4 a, Vec4 b) noexcept {
+    return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
+}
+inline bool operator!=(Vec4 a, Vec4 b) noexcept { return !(a == b); }
 
 inline Vec4 operator+(Vec4 a, Vec4 b) noexcept {
     return vec4_detail::Store(dxm::XMVectorAdd(vec4_detail::Load(a), vec4_detail::Load(b)));
