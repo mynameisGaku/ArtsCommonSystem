@@ -17,6 +17,9 @@ Testing/
 .idea/
 *.iml
 
+# ---- Claude Code 個人設定 (per-user 許可ルール等) -------------------------
+.claude/settings.local.json
+
 # ---- ACS ランタイム生成物 ---------------------------------------------------
 build-out.log
 configure.log
