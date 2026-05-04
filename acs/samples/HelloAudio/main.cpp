@@ -7,6 +7,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 #include "audio/AudioEngine.h"
 #include "asset/AudioAsset.h"
@@ -17,11 +18,7 @@ using namespace acs;
 class HelloAudio : public Application {
 public:
     void OnStart() noexcept override {
-        if (auto r = _engine.Init(); r.IsErr()) {
-            ACS_LOG_ERROR("Audio init failed: %s", r.Error().message);
-            Quit();
-            return;
-        }
+        ACS_SAMPLE_INIT(_engine.Init());
         // wav / mp3 / flac / ogg のいずれでも OK（拡張子を変えるだけ）
         auto a = GetAssets().Load(L"test.wav");
         if (a.IsErr()) {

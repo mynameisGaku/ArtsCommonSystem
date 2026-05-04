@@ -58,24 +58,19 @@ public:
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
 
-        if (auto r = _sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat());
-            r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(_sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
         _sky.PresetDay();
 
-        if (auto r = _shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat());
-            r.IsErr()) { Quit(); return; }
-
-        if (auto r = _shadow.Init(*dev, /*size=*/2048); r.IsErr()) {
-            ACS_LOG_ERROR("ShadowMap init"); Quit(); return;
-        }
+        ACS_SAMPLE_INIT(_shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
+        ACS_SAMPLE_INIT(_shadow.Init(*dev, /*size=*/2048));
 
         // メッシュ
         auto cube   = Primitive::MakeCube(1.0f);
         auto sphere = Primitive::MakeSphere(0.5f, 32, 16);
         auto plane  = Primitive::MakePlane(40.0f, 40.0f);
-        if (auto r = UploadMesh(*dev, *cube,   _gm_cube);   r.IsErr()) { Quit(); return; }
-        if (auto r = UploadMesh(*dev, *sphere, _gm_sphere); r.IsErr()) { Quit(); return; }
-        if (auto r = UploadMesh(*dev, *plane,  _gm_plane);  r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *cube,   _gm_cube));
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *plane,  _gm_plane));
 
         BuildScene();
 

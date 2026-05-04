@@ -36,17 +36,14 @@ public:
         if (!dev) { Quit(); return; }
 
         // === SpriteBatch ===
-        if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat()); r.IsErr()) {
-            ACS_LOG_ERROR("SpriteBatch init: %s", r.Error().message);
-            Quit(); return;
-        }
+        ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
         // === フォント (3 サイズ) ===
         // Sample::TryLoadDefaultUIFont が OS 別の標準フォント候補を順に試す。
         // タイトル/本文は漢字込み (include_cjk=true、atlas 2048)、小さい方は速度優先で外す。
-        if (Sample::TryLoadDefaultUIFont(_title_font, *dev, 64.0f, 2048, true).IsErr())  { Quit(); return; }
-        if (Sample::TryLoadDefaultUIFont(_body_font,  *dev, 24.0f, 2048, true).IsErr())  { Quit(); return; }
-        if (Sample::TryLoadDefaultUIFont(_small_font, *dev, 16.0f, 1024, false).IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_title_font, *dev, 64.0f, 2048, true));
+        ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_body_font,  *dev, 24.0f, 2048, true));
+        ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_small_font, *dev, 16.0f, 1024, false));
 
         ACS_LOG_INFO("HelloText initialized");
     }

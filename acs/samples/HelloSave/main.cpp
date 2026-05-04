@@ -35,12 +35,8 @@ public:
         if (!dev) { Quit(); return; }
 
         // セーブパス解決 + ロード
-        if (auto r = Storage::GetAppDataPath(L"acs_demo", L"hello_save.ini",
-                                              _save_path, 260); r.IsErr()) {
-            ACS_LOG_ERROR("AppData path: %s", r.Error().message);
-            Quit();
-            return;
-        }
+        ACS_SAMPLE_INIT(Storage::GetAppDataPath(L"acs_demo", L"hello_save.ini",
+                                                 _save_path, 260));
         ACS_LOG_INFO("Save file: %ls", _save_path);
         if (auto r = _store.Load(_save_path); r.IsErr()) {
             ACS_LOG_WARN("Storage::Load failed: %s (continuing with empty)", r.Error().message);
@@ -59,9 +55,7 @@ public:
         }
 
         // 描画資源
-        if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat()); r.IsErr()) {
-            Quit(); return;
-        }
+        ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
         (void)Sample::TryLoadDefaultUIFont(_font_big,   *dev, 32.0f, 1024, true);
         (void)Sample::TryLoadDefaultUIFont(_font_small, *dev, 18.0f, 1024, true);
 

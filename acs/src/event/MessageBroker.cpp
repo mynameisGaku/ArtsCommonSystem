@@ -26,7 +26,7 @@ MessageBroker::Channel* MessageBroker::GetChannel(EventTypeId id, bool create) n
 }
 
 SubscriptionHandle MessageBroker::SubscribeRaw(EventTypeId channel,
-                                                EventCallback cb, void* user) noexcept {
+                                                MessageCallback cb, void* user) noexcept {
     if (!cb) return kInvalidSubscription;
     Channel* ch = GetChannel(channel, true);
     if (!ch) return kInvalidSubscription;

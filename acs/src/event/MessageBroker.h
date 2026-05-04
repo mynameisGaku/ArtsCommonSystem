@@ -65,7 +65,7 @@ struct SubscriptionHandle {
 inline constexpr SubscriptionHandle kInvalidSubscription{};
 
 // 購読コールバック型
-using EventCallback = void (*)(const void* payload, void* user);
+using MessageCallback = void (*)(const void* payload, void* user);
 
 class MessageBroker {
 public:
@@ -77,7 +77,7 @@ public:
 
     // E 型のイベントを購読する
     template<typename E>
-    SubscriptionHandle Subscribe(EventCallback cb, void* user) noexcept {
+    SubscriptionHandle Subscribe(MessageCallback cb, void* user) noexcept {
         return SubscribeRaw(GetEventTypeId<E>(), cb, user);
     }
 
@@ -98,7 +98,7 @@ private:
         u32           id          = 0;        // 1-based
         u32           generation  = 0;
         bool          active      = false;
-        EventCallback cb          = nullptr;
+        MessageCallback cb          = nullptr;
         void*         user        = nullptr;
     };
 
@@ -111,7 +111,7 @@ private:
     };
 
     SubscriptionHandle SubscribeRaw(EventTypeId channel,
-                                     EventCallback cb, void* user) noexcept;
+                                     MessageCallback cb, void* user) noexcept;
     void PublishRaw(EventTypeId channel, const void* payload) noexcept;
     Channel* GetChannel(EventTypeId id, bool create) noexcept;
 

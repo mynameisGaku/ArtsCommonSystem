@@ -76,9 +76,7 @@ public:
         if (!dev) { Quit(); return; }
 
         // SpriteBatch
-        if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat()); r.IsErr()) {
-            ACS_LOG_ERROR("SpriteBatch init"); Quit(); return;
-        }
+        ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
         // フォント (OS 別の標準フォント候補を Sample helper で解決)
         (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);

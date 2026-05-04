@@ -40,17 +40,15 @@ public:
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
 
-        if (auto r = _sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat());
-            r.IsErr()) { ACS_LOG_ERROR("Sky init"); Quit(); return; }
+        ACS_SAMPLE_INIT(_sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
         _sky.PresetDay();
 
-        if (auto r = _shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat());
-            r.IsErr()) { ACS_LOG_ERROR("Shader init"); Quit(); return; }
+        ACS_SAMPLE_INIT(_shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
 
         auto sphere = Primitive::MakeSphere(1.0f, 48, 24);
         auto plane  = Primitive::MakePlane(50.0f, 50.0f);
-        if (auto r = UploadMesh(*dev, *sphere, _gm_sphere); r.IsErr()) { Quit(); return; }
-        if (auto r = UploadMesh(*dev, *plane,  _gm_plane);  r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *plane,  _gm_plane));
 
         _batch.Init(*dev, GetRenderer().ColorFormat());
         (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);

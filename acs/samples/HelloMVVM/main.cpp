@@ -10,6 +10,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 #include "imgui/ImGuiContext.h"
 
@@ -58,7 +59,7 @@ public:
 class HelloMVVM : public Application {
 public:
     void OnStart() noexcept override {
-        if (_imgui.Init(GetWindow(), GetRenderer()).IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(_imgui.Init(GetWindow(), GetRenderer()));
 
         // VM 値変更をログに流す Subscribe (デバッグ目的)
         _vm.hp.Subscribe([](const f32& v, void*){

@@ -30,7 +30,7 @@ public:
     ThreadAffinityGuard() noexcept = default;
 
     void Check() noexcept {
-        const u64 cur = static_cast<u64>(GetThreadId());
+        const u64 cur = static_cast<u64>(acs::CurrentThreadId().raw);
         u64 expected = _expected_thread;
         if (expected == 0) {
             // 初回: 現在のスレッドを固定

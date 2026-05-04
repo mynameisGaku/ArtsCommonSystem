@@ -44,14 +44,8 @@ public:
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
 
-        if (auto r = Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f); r.IsErr()) {
-            ACS_LOG_ERROR("default UI font load failed");
-            Quit(); return;
-        }
-        if (auto r = _ui.Init(*dev, GetRenderer().ColorFormat(), &_font); r.IsErr()) {
-            ACS_LOG_ERROR("UiRenderer init failed");
-            Quit(); return;
-        }
+        ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f));
+        ACS_SAMPLE_INIT(_ui.Init(*dev, GetRenderer().ColorFormat(), &_font));
 
         BuildUI();
 

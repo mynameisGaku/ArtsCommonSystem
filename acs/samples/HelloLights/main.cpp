@@ -51,15 +51,14 @@ public:
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
 
-        if (auto r = _shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat());
-            r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(_shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
 
         auto cube   = Primitive::MakeCube(1.0f);
         auto sphere = Primitive::MakeSphere(0.5f, 32, 16);
         auto plane  = Primitive::MakePlane(20.0f, 20.0f);
-        if (auto r = UploadMesh(*dev, *cube,   _gm_cube);   r.IsErr()) { Quit(); return; }
-        if (auto r = UploadMesh(*dev, *sphere, _gm_sphere); r.IsErr()) { Quit(); return; }
-        if (auto r = UploadMesh(*dev, *plane,  _gm_plane);  r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *cube,   _gm_cube));
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *plane,  _gm_plane));
 
         BuildScene();
 

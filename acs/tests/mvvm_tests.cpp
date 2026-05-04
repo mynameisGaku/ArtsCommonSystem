@@ -233,7 +233,7 @@ ACS_TEST(Mvvm, MakeBindUniquePtr) {
     Observable<f32> a{ 1.0f };
     Observable<f32> b;
     auto bind = MakeBind(a, b);
-    EXPECT_TRUE(bind != nullptr);
+    EXPECT_TRUE(bind.Get() != nullptr);
     EXPECT_EQ(b.Get(), 1.0f);
 
     a.Set(2.5f);

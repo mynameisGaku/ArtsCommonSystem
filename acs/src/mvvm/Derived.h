@@ -41,11 +41,22 @@ public:
     // 引数を pack で受けるのは可変個数のため。実体は ComputeFn。
     // 例: [](const f32& h, const f32& m){ return h/m; }
 
-    template<typename... DepRefs>
-    Derived(T (*fn)(const D&...), DepRefs&... deps) noexcept
-        : _fn(reinterpret_cast<void*>(fn))
+    // Fn は非キャプチャ lambda または関数ポインタ (任意の N に対する fixed-arity)。
+    // _fn は内部 void* に統一格納し、Recompute() で N 別に reinterpret_cast する。
+    template<typename Fn, typename... DepRefs>
+    Derived(Fn fn, DepRefs&... deps) noexcept
     {
         constexpr usize N = sizeof...(DepRefs);
+        static_assert(N >= 1 && N <= kMaxDeps, "Derived supports 1..4 deps");
+        if constexpr (N == 1) {
+            _fn = reinterpret_cast<void*>(static_cast<T(*)(const D&)>(fn));
+        } else if constexpr (N == 2) {
+            _fn = reinterpret_cast<void*>(static_cast<T(*)(const D&, const D&)>(fn));
+        } else if constexpr (N == 3) {
+            _fn = reinterpret_cast<void*>(static_cast<T(*)(const D&, const D&, const D&)>(fn));
+        } else if constexpr (N == 4) {
+            _fn = reinterpret_cast<void*>(static_cast<T(*)(const D&, const D&, const D&, const D&)>(fn));
+        }
         _dep_count = N;
         usize i = 0;
         // 初期値計算 + Subscribe

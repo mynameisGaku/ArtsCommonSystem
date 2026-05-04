@@ -62,13 +62,8 @@ public:
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
 
-        if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat()); r.IsErr()) {
-            Quit(); return;
-        }
-        if (auto r = _ps.Init(8192); r.IsErr()) {
-            ACS_LOG_ERROR("ParticleSystem init failed");
-            Quit(); return;
-        }
+        ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
+        ACS_SAMPLE_INIT(_ps.Init(8192));
 
         u8 px[kTexSize * kTexSize * 4];
         GenerateGlow(px);

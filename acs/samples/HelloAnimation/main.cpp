@@ -165,27 +165,20 @@ public:
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
 
-        if (auto r = _sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat());
-            r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(_sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
         _sky.PresetSunset();
 
-        if (auto r = _shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat());
-            r.IsErr()) { ACS_LOG_ERROR("Skinned shader init"); Quit(); return; }
-        if (auto r = _std_shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat());
-            r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(_shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
+        ACS_SAMPLE_INIT(_std_shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
 
         // 地面用プレーン
         auto plane = Primitive::MakePlane(40.0f, 40.0f);
-        if (auto r = UploadMesh(*dev, *plane, _gm_plane); r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, _gm_plane));
 
         // スキンメッシュ生成 + GPU アップロード
         _snake = BuildSnake();
         if (!_snake) { Quit(); return; }
-        if (auto r = UploadSkinnedMesh(*dev, *_snake, _gm_snake); r.IsErr()) {
-            ACS_LOG_ERROR("Snake upload failed: %s", r.Error().message);
-            Quit();
-            return;
-        }
+        ACS_SAMPLE_INIT(UploadSkinnedMesh(*dev, *_snake, _gm_snake));
         _player.SetMesh(_snake.Get());
         _player.Play(0, /*loop=*/true);
 

@@ -68,10 +68,8 @@ public:
         if (!dev) { Quit(); return; }
 
         // Fallback は英語固定。Active だけ切替。
-        if (auto r = _loc.LoadFallbackBytes(reinterpret_cast<const u8*>(kEn),
-                                            std::strlen(kEn)); r.IsErr()) {
-            Quit(); return;
-        }
+        ACS_SAMPLE_INIT(_loc.LoadFallbackBytes(reinterpret_cast<const u8*>(kEn),
+                                                 std::strlen(kEn)));
         SwitchTo(0);    // 起動時は日本語
 
         _batch.Init(*dev, GetRenderer().ColorFormat());

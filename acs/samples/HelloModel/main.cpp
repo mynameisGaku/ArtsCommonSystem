@@ -16,6 +16,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 
 #include "asset/MeshPrimitive.h"
@@ -41,14 +42,9 @@ public:
         if (!dev) { Quit(); return; }
 
         // === 標準ライティングシェーダ ===
-        if (auto r = _shader.Init(*dev,
-                                  GetRenderer().ColorFormat(),
-                                  GetRenderer().DepthFormat());
-            r.IsErr()) {
-            ACS_LOG_ERROR("StandardShader::Init failed: %s", r.Error().message);
-            Quit();
-            return;
-        }
+        ACS_SAMPLE_INIT(_shader.Init(*dev,
+                                     GetRenderer().ColorFormat(),
+                                     GetRenderer().DepthFormat()));
 
         // === プリミティブをアップロード ===
         auto sphere = Primitive::MakeSphere(0.8f, 48, 24);
@@ -56,9 +52,9 @@ public:
         auto cube   = Primitive::MakeCube(0.6f);
 
         if (!sphere || !plane || !cube) { Quit(); return; }
-        if (auto r = UploadMesh(*dev, *sphere, _gm_sphere); r.IsErr()) { Quit(); return; }
-        if (auto r = UploadMesh(*dev, *plane,  _gm_plane);  r.IsErr()) { Quit(); return; }
-        if (auto r = UploadMesh(*dev, *cube,   _gm_cube);   r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *plane,  _gm_plane));
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *cube,   _gm_cube));
 
         // === オプションで非同期ロードを試みる（ファイルが無くても OK）===
         // 標準ローダ群は Application が自動で登録済み。

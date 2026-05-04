@@ -18,6 +18,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 
 #include "render/SpriteBatch.h"
@@ -71,7 +72,7 @@ public:
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
 
-        if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat()); r.IsErr()) { Quit(); return; }
+        ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
         // 円型テクスチャ
         u8 pixels[kBallTexSize * kBallTexSize * 4];
