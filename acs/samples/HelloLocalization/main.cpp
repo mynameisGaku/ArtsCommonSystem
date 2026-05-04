@@ -12,6 +12,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 #include "platform/Localization.h"
 
@@ -74,17 +75,8 @@ public:
         SwitchTo(0);    // 起動時は日本語
 
         _batch.Init(*dev, GetRenderer().ColorFormat());
-        const wchar_t* fp[] = {
-            L"C:\\Windows\\Fonts\\meiryo.ttc",
-            L"C:\\Windows\\Fonts\\msgothic.ttc",
-            L"C:\\Windows\\Fonts\\arial.ttf",
-        };
-        for (auto p : fp) {
-            if (_font_big  .LoadFromFile(*dev, p, 36.0f, 1024, true).IsOk()) break;
-        }
-        for (auto p : fp) {
-            if (_font_small.LoadFromFile(*dev, p, 20.0f, 1024, true).IsOk()) break;
-        }
+        (void)Sample::TryLoadDefaultUIFont(_font_big,   *dev, 36.0f, 1024, true);
+        (void)Sample::TryLoadDefaultUIFont(_font_small, *dev, 20.0f, 1024, true);
     }
 
     void OnUpdate(f32 /*dt*/) noexcept override {

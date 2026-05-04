@@ -13,6 +13,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 
 #include "asset/MeshPrimitive.h"
@@ -69,12 +70,7 @@ public:
 
         // HUD 用 (LDR バックバッファに直接描く)
         if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat()); r.IsErr()) { Quit(); return; }
-        const wchar_t* fp[] = {
-            L"C:\\Windows\\Fonts\\meiryo.ttc",
-            L"C:\\Windows\\Fonts\\msgothic.ttc",
-            L"C:\\Windows\\Fonts\\arial.ttf",
-        };
-        for (auto p : fp) { if (_font.LoadFromFile(*dev, p, 18.0f).IsOk()) break; }
+        (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
         const f32 aspect = static_cast<f32>(sw) / static_cast<f32>(sh);
         _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);

@@ -15,6 +15,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 
 #include "render/SpriteBatch.h"
@@ -41,17 +42,11 @@ public:
         }
 
         // === フォント (3 サイズ) ===
-        // Windows 既定の meiryo.ttc (メイリオ) を使う。無ければ別フォントへフォールバック。
-        const wchar_t* font_paths[] = {
-            L"C:\\Windows\\Fonts\\meiryo.ttc",
-            L"C:\\Windows\\Fonts\\YuGothR.ttc",
-            L"C:\\Windows\\Fonts\\msgothic.ttc",
-            L"C:\\Windows\\Fonts\\arial.ttf",
-        };
-        // タイトル/本文は漢字込み (include_cjk=true)、小さい方は速度優先で外す
-        if (!TryLoadFont(*dev, _title_font, 64.0f, font_paths, true))  { Quit(); return; }
-        if (!TryLoadFont(*dev, _body_font,  24.0f, font_paths, true))  { Quit(); return; }
-        if (!TryLoadFont(*dev, _small_font, 16.0f, font_paths, false)) { Quit(); return; }
+        // Sample::TryLoadDefaultUIFont が OS 別の標準フォント候補を順に試す。
+        // タイトル/本文は漢字込み (include_cjk=true、atlas 2048)、小さい方は速度優先で外す。
+        if (Sample::TryLoadDefaultUIFont(_title_font, *dev, 64.0f, 2048, true).IsErr())  { Quit(); return; }
+        if (Sample::TryLoadDefaultUIFont(_body_font,  *dev, 24.0f, 2048, true).IsErr())  { Quit(); return; }
+        if (Sample::TryLoadDefaultUIFont(_small_font, *dev, 16.0f, 1024, false).IsErr()) { Quit(); return; }
 
         ACS_LOG_INFO("HelloText initialized");
     }
@@ -132,22 +127,6 @@ public:
     }
 
 private:
-    template <usize N>
-    bool TryLoadFont(IRhiDevice& dev, Font& f, f32 size,
-                     const wchar_t* (&paths)[N],
-                     bool include_cjk) noexcept {
-        const u32 atlas = include_cjk ? 2048u : 1024u;
-        for (usize i = 0; i < N; ++i) {
-            if (auto r = f.LoadFromFile(dev, paths[i], size, atlas, include_cjk); r.IsOk()) {
-                ACS_LOG_INFO("Font loaded: %ls (size=%.1f, cjk=%d)",
-                             paths[i], size, include_cjk ? 1 : 0);
-                return true;
-            }
-        }
-        ACS_LOG_ERROR("No font could be loaded");
-        return false;
-    }
-
     SpriteBatch _batch;
     Font _title_font, _body_font, _small_font;
     f32 _time = 0.0f;

@@ -14,6 +14,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 
 #include "render/SpriteBatch.h"
@@ -79,15 +80,8 @@ public:
             ACS_LOG_ERROR("SpriteBatch init"); Quit(); return;
         }
 
-        // フォント
-        const wchar_t* fp[] = {
-            L"C:\\Windows\\Fonts\\meiryo.ttc",
-            L"C:\\Windows\\Fonts\\msgothic.ttc",
-            L"C:\\Windows\\Fonts\\arial.ttf",
-        };
-        for (auto p : fp) {
-            if (_font.LoadFromFile(*dev, p, 18.0f).IsOk()) break;
-        }
+        // フォント (OS 別の標準フォント候補を Sample helper で解決)
+        (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
         // ボールテクスチャ生成
         u8 pixels[kBallTexSize * kBallTexSize * 4];

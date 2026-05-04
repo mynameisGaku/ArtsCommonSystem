@@ -1,5 +1,13 @@
 // ViewModel — MVVM の M-V-VM のうち中央の VM 基底クラス
 //
+// MVVM は **一般的な UI architecture pattern** (WPF / Xamarin / Vue / React 等で
+// 共通) であり、UE5 の UMG ViewModel 専用の概念ではない。
+// ACS の MVVM は次の 3 層で構成される:
+//   Model     = ゲームロジック / アセット / ECS 内のデータ
+//   View      = src/ui/ の Widget tree (Label / Button / Slider 等)、または
+//               src/imgui/ の ImGui (ad-hoc デバッグ用、本番 UI は src/ui/ 推奨)
+//   ViewModel = この基底を継承して Observable<T> プロパティを公開するクラス
+//
 // 使い方:
 //   class PlayerViewModel : public ViewModel {
 //   public:

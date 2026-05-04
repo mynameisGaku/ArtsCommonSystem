@@ -16,7 +16,8 @@ const wchar_t* DefaultUIFontPath() noexcept {
 #endif
 }
 
-Result<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px) noexcept {
+Result<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px,
+                                   u32 atlas_size, bool include_cjk) noexcept {
     // OS 別の候補リスト。最初に LoadFromFile が成功したら採用。
     static const wchar_t* const kCandidates[] = {
 #if ACS_PLATFORM_WINDOWS
@@ -39,7 +40,7 @@ Result<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px) n
     };
 
     for (const wchar_t* const* p = kCandidates; *p; ++p) {
-        auto r = font.LoadFromFile(device, *p, size_px);
+        auto r = font.LoadFromFile(device, *p, size_px, atlas_size, include_cjk);
         if (r.IsOk()) return Ok();
     }
     return ACS_ERR(Asset, 5, "no default UI font found on this platform");

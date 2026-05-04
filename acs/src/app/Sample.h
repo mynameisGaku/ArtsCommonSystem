@@ -42,8 +42,13 @@ namespace Sample {
 // (見つからなければ最初の候補を返す。後段の LoadFromFile が IsErr を返す)
 const wchar_t* DefaultUIFontPath() noexcept;
 
-// 候補フォントを順に試して最初に成功したものをロードする
-Result<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px = 18.0f) noexcept;
+// 候補フォントを順に試して最初に成功したものをロードする。
+//   atlas_size  : Font のアトラスサイズ (LoadFromFile に渡す)
+//   include_cjk : 日本語等を含めるか (true で大きな atlas を使う)
+Result<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
+                                   f32  size_px     = 18.0f,
+                                   u32  atlas_size  = 1024,
+                                   bool include_cjk = false) noexcept;
 
 } // namespace Sample
 } // namespace acs

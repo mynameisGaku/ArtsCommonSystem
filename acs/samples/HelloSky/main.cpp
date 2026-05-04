@@ -13,6 +13,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 
 #include "asset/MeshPrimitive.h"
@@ -52,12 +53,7 @@ public:
         if (auto r = UploadMesh(*dev, *plane,  _gm_plane);  r.IsErr()) { Quit(); return; }
 
         _batch.Init(*dev, GetRenderer().ColorFormat());
-        const wchar_t* fp[] = {
-            L"C:\\Windows\\Fonts\\meiryo.ttc",
-            L"C:\\Windows\\Fonts\\msgothic.ttc",
-            L"C:\\Windows\\Fonts\\arial.ttf",
-        };
-        for (auto p : fp) { if (_font.LoadFromFile(*dev, p, 18.0f).IsOk()) break; }
+        (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
         const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                            static_cast<f32>(GetRenderer().Swapchain()->Height());

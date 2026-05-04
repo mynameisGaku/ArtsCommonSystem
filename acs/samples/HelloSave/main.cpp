@@ -14,6 +14,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 #include "platform/Storage.h"
 
@@ -61,17 +62,8 @@ public:
         if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat()); r.IsErr()) {
             Quit(); return;
         }
-        const wchar_t* fp[] = {
-            L"C:\\Windows\\Fonts\\meiryo.ttc",
-            L"C:\\Windows\\Fonts\\msgothic.ttc",
-            L"C:\\Windows\\Fonts\\arial.ttf",
-        };
-        for (auto p : fp) {
-            if (_font_big.LoadFromFile(*dev, p, 32.0f, 1024, true).IsOk()) break;
-        }
-        for (auto p : fp) {
-            if (_font_small.LoadFromFile(*dev, p, 18.0f, 1024, true).IsOk()) break;
-        }
+        (void)Sample::TryLoadDefaultUIFont(_font_big,   *dev, 32.0f, 1024, true);
+        (void)Sample::TryLoadDefaultUIFont(_font_small, *dev, 18.0f, 1024, true);
 
         ACS_LOG_INFO("HelloSave: launches=%lld, clicks=%lld, high_score=%lld",
                      launches, static_cast<long long>(_clicks),

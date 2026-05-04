@@ -9,6 +9,7 @@
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 
 #include "render/SpriteBatch.h"
@@ -80,14 +81,7 @@ public:
         _ps.SetTexture(_glow.Get());
 
         // フォント
-        const wchar_t* fp[] = {
-            L"C:\\Windows\\Fonts\\meiryo.ttc",
-            L"C:\\Windows\\Fonts\\msgothic.ttc",
-            L"C:\\Windows\\Fonts\\arial.ttf",
-        };
-        for (auto p : fp) {
-            if (_font.LoadFromFile(*dev, p, 18.0f, 1024, true).IsOk()) break;
-        }
+        (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
         ApplyPreset(0, Vec2{400, 400});
         ACS_LOG_INFO("HelloParticles initialized");
