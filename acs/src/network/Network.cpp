@@ -1,11 +1,18 @@
-// ネットワーク共通（WSAStartup, IpAddress 文字列パース）
+// ネットワーク共通（プラットフォーム別 init / IpAddress 文字列パース）
 #include "network/Network.h"
 #include "network/IpAddress.h"
-#include "foundation/Platform.h"
+#include "foundation/Compiler.h"
 #include "threading/Atomic.h"
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#if ACS_PLATFORM_WINDOWS
+    #include "foundation/Platform.h"
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+#elif ACS_PLATFORM_POSIX
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+#endif
 
 namespace acs {
 
@@ -16,18 +23,25 @@ Atomic<u32> g_init_count{0};
 Result<void> Network::Init() noexcept {
     // 多重 Init は参照カウントで安全に
     if (g_init_count.FetchAdd(1) > 0) return Ok();
+#if ACS_PLATFORM_WINDOWS
     WSADATA d{};
     int r = ::WSAStartup(MAKEWORD(2, 2), &d);
     if (r != 0) {
         g_init_count.FetchSub(1);
         return ACS_ERR_OS(IO, 200, "WSAStartup failed", static_cast<u32>(r));
     }
+#endif
+    // POSIX は何もしない (BSD sockets は process ロード時から使える)
     return Ok();
 }
 
 void Network::Shutdown() noexcept {
     u32 prev = g_init_count.FetchSub(1);
-    if (prev == 1) ::WSACleanup();
+    if (prev == 1) {
+#if ACS_PLATFORM_WINDOWS
+        ::WSACleanup();
+#endif
+    }
 }
 
 bool Network::IsInitialized() noexcept {

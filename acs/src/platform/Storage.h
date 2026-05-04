@@ -50,13 +50,16 @@ public:
     }
 
     // INI 形式ファイルから読み込む。ファイルが無ければ空のままで成功扱い。
+    // (Windows 既存の wchar_t API + UTF-8 const char* 受口の両方を提供)
     Result<void> Load(const wchar_t* path) noexcept;
+    Result<void> Load(const char*    path_utf8) noexcept;
 
     // バイト列（INI 形式 UTF-8、改行区切り）から読み込む。実行ファイル埋め込みなど。
     Result<void> LoadFromBytes(const u8* data, usize size) noexcept;
 
     // INI 形式ファイルへ保存。親ディレクトリは作成する。
     Result<void> Save(const wchar_t* path) noexcept;
+    Result<void> Save(const char*    path_utf8) noexcept;
 
     // 全エントリ削除（ファイルは触らない）
     void Clear() noexcept { _entries.Clear(); }
@@ -86,6 +89,12 @@ public:
     static Result<void> GetAppDataPath(const wchar_t* sub_dir,
                                        const wchar_t* file_name,
                                        wchar_t* out, usize cap) noexcept;
+
+    // UTF-8 受口版。中で MultiByteToWideChar / std::filesystem を呼んで処理する。
+    // Linux / macOS では XDG_DATA_HOME / ~/Library/Application Support を見る。
+    static Result<void> GetAppDataPath(const char* sub_dir_utf8,
+                                       const char* file_name_utf8,
+                                       char* out_utf8, usize cap) noexcept;
 
 private:
     struct Entry {

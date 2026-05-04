@@ -268,4 +268,54 @@ Result<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
     return Ok();
 }
 
+// ----------------------------------------------------------------------------
+// UTF-8 受口版 — wchar_t に変換して既存実装に委譲
+// (Linux/macOS では既存実装側もまだ Win32 依存。後続フェーズで完全 portable に)
+// ----------------------------------------------------------------------------
+namespace {
+bool Utf8ToWide(const char* utf8, wchar_t* out, usize cap) noexcept {
+    if (!utf8 || !out || cap == 0) return false;
+    int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out,
+                                  static_cast<int>(cap));
+    return n > 0;
+}
+bool WideToUtf8(const wchar_t* wide, char* out, usize cap) noexcept {
+    if (!wide || !out || cap == 0) return false;
+    int n = ::WideCharToMultiByte(CP_UTF8, 0, wide, -1, out,
+                                  static_cast<int>(cap), nullptr, nullptr);
+    return n > 0;
+}
+} // namespace
+
+Result<void> Storage::Load(const char* path_utf8) noexcept {
+    wchar_t buf[1024];
+    if (!Utf8ToWide(path_utf8, buf, 1024)) {
+        return ACS_ERR(IO, 120, "Storage::Load(utf8): conversion failed");
+    }
+    return Load(buf);
+}
+
+Result<void> Storage::Save(const char* path_utf8) noexcept {
+    wchar_t buf[1024];
+    if (!Utf8ToWide(path_utf8, buf, 1024)) {
+        return ACS_ERR(IO, 121, "Storage::Save(utf8): conversion failed");
+    }
+    return Save(buf);
+}
+
+Result<void> Storage::GetAppDataPath(const char* sub_dir_utf8,
+                                     const char* file_name_utf8,
+                                     char* out_utf8, usize cap) noexcept {
+    if (!out_utf8 || cap == 0) return ACS_ERR(IO, 122, "bad args");
+    wchar_t sub[256], name[256], path[1024];
+    if (sub_dir_utf8   && !Utf8ToWide(sub_dir_utf8,   sub,  256)) return ACS_ERR(IO, 123, "sub_dir utf8");
+    if (file_name_utf8 && !Utf8ToWide(file_name_utf8, name, 256)) return ACS_ERR(IO, 124, "file_name utf8");
+    auto r = GetAppDataPath(sub_dir_utf8 ? sub : nullptr,
+                             file_name_utf8 ? name : nullptr,
+                             path, 1024);
+    if (r.IsErr()) return r;
+    if (!WideToUtf8(path, out_utf8, cap)) return ACS_ERR(IO, 125, "result utf8");
+    return Ok();
+}
+
 } // namespace acs
