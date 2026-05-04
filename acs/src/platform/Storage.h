@@ -90,8 +90,7 @@ public:
                                        const wchar_t* file_name,
                                        wchar_t* out, usize cap) noexcept;
 
-    // UTF-8 受口版。中で MultiByteToWideChar / std::filesystem を呼んで処理する。
-    // Linux / macOS では XDG_DATA_HOME / ~/Library/Application Support を見る。
+    // UTF-8 受口版。中で MultiByteToWideChar 経由で wchar_t 版に委譲。
     static Result<void> GetAppDataPath(const char* sub_dir_utf8,
                                        const char* file_name_utf8,
                                        char* out_utf8, usize cap) noexcept;
