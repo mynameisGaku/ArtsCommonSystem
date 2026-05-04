@@ -332,4 +332,24 @@ void StandardShader::SetObject(const Mat4& model, Vec3 base_color,
     _object_cb->Update(&cb, sizeof(cb));
 }
 
+void StandardShader::DrawMesh(IRhiCommandList& cmd,
+                              const GpuMesh& mesh,
+                              const Mat4& model,
+                              Vec3 base_color,
+                              f32  specular_strength,
+                              f32  shininess,
+                              IRhiTexture* albedo) noexcept {
+    if (!_pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
+    SetObject(model, base_color, specular_strength, shininess);
+
+    cmd.SetPipeline(*_pipeline);
+    cmd.SetConstantBuffer(0, *_frame_cb);
+    cmd.SetConstantBuffer(1, *_object_cb);
+    cmd.SetTexture(0, albedo ? *albedo : *_white);
+    cmd.SetTexture(1, *ShadowTextureOrDefault());
+    cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
+    cmd.SetIndexBuffer(*mesh.index_buffer);
+    cmd.DrawIndexed(mesh.index_count);
+}
+
 } // namespace acs

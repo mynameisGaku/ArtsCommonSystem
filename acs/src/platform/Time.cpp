@@ -1,50 +1,49 @@
-// 時間計測実装
+// 時間計測実装 — std::chrono::steady_clock ベース (完全 portable)
+//
+// QueryPerformanceCounter を直接使うのを止めて、std::chrono に統一。
+// 精度は同等 (Windows では steady_clock の実装が QPC ベース)、
+// Linux/macOS では clock_gettime(CLOCK_MONOTONIC) ベース。
 #include "platform/Time.h"
-#include "foundation/Platform.h"
+#include <chrono>
 
 namespace acs {
 
 namespace {
+using SteadyClock = std::chrono::steady_clock;
 struct TimeState {
-    LARGE_INTEGER freq;
-    LARGE_INTEGER start;
-    TimeState() noexcept {
-        ::QueryPerformanceFrequency(&freq);
-        ::QueryPerformanceCounter(&start);
-    }
+    SteadyClock::time_point start;
+    TimeState() noexcept : start(SteadyClock::now()) {}
 };
 const TimeState& GetTimeState() noexcept { static TimeState s; return s; }
 } // namespace
 
 f64 Clock::SecondsSinceStartup() noexcept {
-    LARGE_INTEGER now;
-    ::QueryPerformanceCounter(&now);
-    const auto& s = GetTimeState();
-    return static_cast<f64>(now.QuadPart - s.start.QuadPart) / static_cast<f64>(s.freq.QuadPart);
+    using namespace std::chrono;
+    auto dt = SteadyClock::now() - GetTimeState().start;
+    return duration<f64>(dt).count();
 }
 
 u64 Clock::MillisSinceStartup() noexcept {
-    LARGE_INTEGER now;
-    ::QueryPerformanceCounter(&now);
-    const auto& s = GetTimeState();
-    return static_cast<u64>((now.QuadPart - s.start.QuadPart) * 1000 / s.freq.QuadPart);
+    using namespace std::chrono;
+    auto dt = SteadyClock::now() - GetTimeState().start;
+    return static_cast<u64>(duration_cast<milliseconds>(dt).count());
 }
 
 u64 Clock::Ticks() noexcept {
-    LARGE_INTEGER now;
-    ::QueryPerformanceCounter(&now);
-    return static_cast<u64>(now.QuadPart);
+    // 内部表現の生 tick (ナノ秒 or プラットフォーム依存)
+    return static_cast<u64>(SteadyClock::now().time_since_epoch().count());
 }
 
 u64 Clock::TicksPerSecond() noexcept {
-    return static_cast<u64>(GetTimeState().freq.QuadPart);
+    using Period = SteadyClock::period;   // ratio<num, den>
+    // ticks/sec = den / num
+    return static_cast<u64>(Period::den / Period::num);
 }
 
 FrameTimer::FrameTimer() noexcept {
     _last_ticks = Clock::Ticks();
 }
 
-// dt を計算して内部状態を進める
 f32 FrameTimer::Tick() noexcept {
     u64 now = Clock::Ticks();
     u64 freq = Clock::TicksPerSecond();

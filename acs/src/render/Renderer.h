@@ -1,15 +1,28 @@
-// 高レベル Renderer（初学者向け、ウィンドウへ簡単に描画する API）
+// 高レベル Renderer（ウィンドウへの描画ループを統括する司令塔）
 //
-// 使い方:
+// 使い方 (典型的):
 //   Renderer rdr;
 //   rdr.Init(window);
 //   while (!window.ShouldClose()) {
 //       window.PollEvents();
-//       rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});  // 背景色を渡してクリア
-//       // ここで描画コマンドを追加（v1 では Clear のみ）
+//       rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});
+//       // BeginFrame 後は GetCommandList() でコマンドを積める。
+//       // 高レベルヘルパ:
+//       //   StandardShader  — Lambert+Blinn-Phong + シャドウマップ
+//       //   SkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
+//       //   Sky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
+//       //   SpriteBatch     — 2D スプライト + フォント
+//       //   Font            — TrueType -> アトラス -> SpriteBatch
+//       //   ParticleSystem  — 簡易 GPU パーティクル
+//       //   ShadowMap       — depth-only パス
+//       //   PostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
 //       rdr.EndFrame();
 //   }
 //   rdr.Shutdown();
+//
+// HDR ポストプロセス経路を組むときは Application::OnCustomFrame() を override
+// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → PostProcess.Render() →
+// Present までを直接書く (HelloBloom 参照)。
 #pragma once
 
 #include "foundation/Result.h"

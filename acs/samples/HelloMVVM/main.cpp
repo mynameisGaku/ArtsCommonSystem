@@ -65,15 +65,12 @@ public:
             ACS_LOG_INFO("VM hp: %.1f", v);
         }, nullptr);
 
-        // OneWayBinder: メイン VM の hp が hp_mirror に流れる
-        _hp_mirror_binder = new OneWayBinder<f32>(_vm.hp, _hp_mirror);
+        // OneWayBinder: VM の hp が hp_mirror に流れる
+        // MakeBind は UniquePtr を返すので、自分で new/delete する必要なし。
+        _hp_mirror_binder = MakeBind(_vm.hp, _hp_mirror);
 
-        // 暗黙変換: f32 → String を組込みの DefaultConverter で 1 行
-        // (例: 100.0f → "100" / 50.5f → "50.5")。lambda 不要。
-        _hp_text_binder = new OneWayConvertBinder<f32, String>(
-            _vm.hp, _hp_text,
-            &mvvm::DefaultConverter<f32, String>::Convert,
-            nullptr);
+        // 暗黙変換: f32 → String を組込みの DefaultConverter で 1 行 (lambda 不要)
+        _hp_text_binder = MakeBindConvert<f32, String>(_vm.hp, _hp_text);
 
         // Derived: hp / max_hp = ratio (lazy recompute)
         _ratio = new Derived<f32, f32>(
@@ -188,9 +185,9 @@ public:
     }
 
     void OnShutdown() noexcept override {
-        delete _ratio;            _ratio = nullptr;
-        delete _hp_text_binder;   _hp_text_binder = nullptr;
-        delete _hp_mirror_binder; _hp_mirror_binder = nullptr;
+        delete _ratio; _ratio = nullptr;     // Derived はまだ生 new (将来 MakeDerived 化)
+        _hp_text_binder.Reset();              // UniquePtr — 自動で Unsubscribe
+        _hp_mirror_binder.Reset();
         _imgui.Shutdown();
     }
 
@@ -203,8 +200,8 @@ private:
     PlayerVM                                  _vm;
     Observable<f32>                           _hp_mirror{};
     Observable<String>                        _hp_text{ String{} };
-    OneWayBinder<f32>*                        _hp_mirror_binder = nullptr;
-    OneWayConvertBinder<f32, String>*         _hp_text_binder   = nullptr;
+    UniquePtr<OneWayBinder<f32>>              _hp_mirror_binder;
+    UniquePtr<OneWayConvertBinder<f32, String>> _hp_text_binder;
     Derived<f32, f32>*                        _ratio            = nullptr;
     char                                      _name_buf[64]     = "勇者";
 };

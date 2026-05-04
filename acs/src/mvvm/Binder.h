@@ -17,6 +17,7 @@
 
 #include "mvvm/Observable.h"
 #include "mvvm/Convert.h"
+#include "memory/UniquePtr.h"
 
 namespace acs {
 
@@ -87,10 +88,7 @@ private:
     ObservableHandle _h;
 };
 
-// View → ViewModel 方向 (= OneWayBinder の引数順を反転しただけ)。
-// 「View が編集して VM に書き戻すだけ」という意図を読みやすくする alias。
-template<typename T>
-using OneWayToVMBinder = OneWayBinder<T>;
+// View → ViewModel 方向は OneWayBinder(view, vm) と書く (alias は提供しない、混乱の元)。
 
 // 変換関数つき OneWay Binder (Src → Dst、別の型に変換)
 //
@@ -164,10 +162,49 @@ inline OneWayConvertBinder<Src, Dst> Bind(Observable<Src>& src, Observable<Dst>&
         src, dst, &mvvm::DefaultConverter<Src, Dst>::Convert, nullptr);
 }
 
-// 双方向版 (両方向に DefaultConverter が定義されている型ペアでのみ使える)
+// 双方向版
 template<typename T>
 inline TwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
     return TwoWayBinder<T>(a, b);
+}
+
+// ============================================================================
+// MakeBind / MakeTwoWayBind / MakeBindConvert — UniquePtr 版
+// ----------------------------------------------------------------------------
+// Bind() の生 OneWayBinder を返す版だと、コピー/ムーブ不可なため member 変数として
+// 持てない (member 初期化順、ヒープ確保が必要)。Make* 系は UniquePtr を返すので、
+// クラスメンバとして自然に持てる + dtor で自動的に Unsubscribe される。
+//
+//   class MyApp {
+//       UniquePtr<OneWayBinder<f32>> _bind;
+//       void OnStart() {
+//           _bind = MakeBind(vm.hp, view.hp);
+//           // OnShutdown で _bind.Reset() するか、デストラクタ任せ
+//       }
+//   };
+// ============================================================================
+template<typename T>
+inline UniquePtr<OneWayBinder<T>> MakeBind(Observable<T>& src, Observable<T>& dst) noexcept {
+    return MakeUnique<OneWayBinder<T>>(src, dst);
+}
+
+template<typename T>
+inline UniquePtr<TwoWayBinder<T>> MakeTwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
+    return MakeUnique<TwoWayBinder<T>>(a, b);
+}
+
+template<typename Src, typename Dst>
+inline UniquePtr<OneWayConvertBinder<Src, Dst>>
+MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst) noexcept {
+    return MakeUnique<OneWayConvertBinder<Src, Dst>>(
+        src, dst, &mvvm::DefaultConverter<Src, Dst>::Convert, nullptr);
+}
+
+template<typename Src, typename Dst>
+inline UniquePtr<OneWayConvertBinder<Src, Dst>>
+MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst,
+                Dst (*fn)(const Src&, void*), void* user) noexcept {
+    return MakeUnique<OneWayConvertBinder<Src, Dst>>(src, dst, fn, user);
 }
 
 } // namespace acs

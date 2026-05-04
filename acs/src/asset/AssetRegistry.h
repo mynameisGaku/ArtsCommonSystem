@@ -54,8 +54,9 @@ public:
     // 全キャッシュをクリア
     void Clear() noexcept;
 
-    // 内部用（LoadAsync ワーカーから呼ばれる、ロック付きで cache へ挿入）
-    void _AsyncCacheInsert(AssetId id, Rc<Asset> a) noexcept;
+    // ワーカースレッドから cache へロック付きで挿入する内部 API。
+    // 命名規則: 公開 API には先頭 _ を使わず、内部用のコメントで意図を示す。
+    void AsyncCacheInsert(AssetId id, Rc<Asset> a) noexcept;
 
 private:
     // 拡張子から適切なローダを選ぶ（マッチなしならフォールバック "*" を返す）

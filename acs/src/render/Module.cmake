@@ -51,16 +51,8 @@ if(ACS_RENDER_DX12_RAW)
         Dx12/Dx12Pipeline.cpp
         Dx12/Dx12Texture.cpp
     )
-    list(APPEND _acs_render_headers
-        Dx12/Dx12Common.h
-        Dx12/Dx12Device.h
-        Dx12/Dx12Swapchain.h
-        Dx12/Dx12CommandList.h
-        Dx12/Dx12Buffer.h
-        Dx12/Dx12Shader.h
-        Dx12/Dx12Pipeline.h
-        Dx12/Dx12Texture.h
-    )
+    # 注: Dx12/*.h はバックエンド内部実装専用。public HEADERS には載せない。
+    # (load via .cpp 経由のみ。IRhi* インターフェイスだけが外向き)
 endif()
 
 if(ACS_RENDER_DILIGENT)
@@ -75,24 +67,17 @@ if(ACS_RENDER_DILIGENT)
         Diligent/DiligentMemoryAdapter.cpp
         Diligent/DiligentBackend.cpp
     )
-    list(APPEND _acs_render_headers
-        Diligent/DiligentCommon.h
-        Diligent/DiligentDevice.h
-        Diligent/DiligentSwapchain.h
-        Diligent/DiligentCommandList.h
-        Diligent/DiligentBuffer.h
-        Diligent/DiligentShader.h
-        Diligent/DiligentPipeline.h
-        Diligent/DiligentTexture.h
-        Diligent/DiligentMemoryAdapter.h
-    )
+    # Diligent/*.h も public HEADERS には載せない (バックエンド内部)
 endif()
 
-set(_acs_render_link_public d3d12 dxgi d3dcompiler dxguid)
+# DX12 / Diligent ライブラリは PRIVATE にして外向きに leak させない。
+# IRhi* インターフェイスだけが Render の public 顔。
 set(_acs_render_link_private acs_third_party::stb)
-
+if(ACS_RENDER_DX12_RAW)
+    list(APPEND _acs_render_link_private d3d12 dxgi d3dcompiler dxguid)
+endif()
 if(ACS_RENDER_DILIGENT)
-    list(APPEND _acs_render_link_public acs_third_party::diligent_core)
+    list(APPEND _acs_render_link_private acs_third_party::diligent_core)
 endif()
 
 acs_module(
@@ -108,7 +93,6 @@ acs_module(
         Platform
         Asset
     LINK_PRIVATE ${_acs_render_link_private}
-    LINK_PUBLIC  ${_acs_render_link_public}
 )
 
 acs_module_feature(MODULE Render NAME DX12_RAW

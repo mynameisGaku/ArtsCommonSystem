@@ -3,10 +3,12 @@ acs_module(
     TYPE    Runtime
     SOURCES
         Application.cpp
+        Sample.cpp
     HEADERS
         AppConfig.h
         Application.h
         EntryPoint.h
+        Sample.h
     PUBLIC_DEPS
         Foundation
         Memory

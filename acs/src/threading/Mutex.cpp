@@ -1,36 +1,55 @@
 // =============================================================================
-// ACS Threading — Mutex 実装
-// -----------------------------------------------------------------------------
-// Win32 SRWLOCK の薄いラッパ。SRWLOCK は静的初期化フリーかつ非常に軽量。
+// ACS Threading — Mutex 実装 (Win32 SRWLOCK / POSIX pthread_mutex_t)
 // =============================================================================
 #include "threading/Mutex.h"
-#include "foundation/Platform.h"
+#include "foundation/Compiler.h"
 
-// SRWLOCK は今のところ void* と同じサイズ。サイズ変更が将来あれば
-// ストレージレイアウトを再検討する必要がある（コンパイル時検出）。
-static_assert(sizeof(SRWLOCK) == sizeof(void*),
-              "SRWLOCK shape changed — Mutex storage layout must be updated");
+#if ACS_PLATFORM_WINDOWS
+    #include "foundation/Platform.h"
 
-namespace acs {
+    static_assert(sizeof(SRWLOCK) <= sizeof(void*) * 8,
+                  "SRWLOCK too large for Mutex inline storage");
 
-// SRWLOCK_INIT 相当の初期化を呼ぶ。
-Mutex::Mutex() noexcept {
-    InitializeSRWLock(reinterpret_cast<SRWLOCK*>(&_srw[0]));
-}
+    namespace acs {
 
-// 排他ロック（書き込み側）取得
-void Mutex::Lock() noexcept {
-    AcquireSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_srw[0]));
-}
+    Mutex::Mutex() noexcept {
+        InitializeSRWLock(reinterpret_cast<SRWLOCK*>(&_impl[0]));
+    }
+    void Mutex::Lock() noexcept {
+        AcquireSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_impl[0]));
+    }
+    bool Mutex::TryLock() noexcept {
+        return TryAcquireSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_impl[0])) != 0;
+    }
+    void Mutex::Unlock() noexcept {
+        ReleaseSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_impl[0]));
+    }
 
-// 排他ロック取得試行
-bool Mutex::TryLock() noexcept {
-    return TryAcquireSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_srw[0])) != 0;
-}
+    } // namespace acs
 
-// 排他ロック解除
-void Mutex::Unlock() noexcept {
-    ReleaseSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_srw[0]));
-}
+#elif ACS_PLATFORM_POSIX
+    #include <pthread.h>
 
-} // namespace acs
+    static_assert(sizeof(pthread_mutex_t) <= sizeof(void*) * 8,
+                  "pthread_mutex_t too large for Mutex inline storage");
+
+    namespace acs {
+
+    Mutex::Mutex() noexcept {
+        pthread_mutex_init(reinterpret_cast<pthread_mutex_t*>(&_impl[0]), nullptr);
+    }
+    void Mutex::Lock() noexcept {
+        pthread_mutex_lock(reinterpret_cast<pthread_mutex_t*>(&_impl[0]));
+    }
+    bool Mutex::TryLock() noexcept {
+        return pthread_mutex_trylock(reinterpret_cast<pthread_mutex_t*>(&_impl[0])) == 0;
+    }
+    void Mutex::Unlock() noexcept {
+        pthread_mutex_unlock(reinterpret_cast<pthread_mutex_t*>(&_impl[0]));
+    }
+
+    } // namespace acs
+
+#else
+    #error "ACS Mutex: unsupported platform"
+#endif

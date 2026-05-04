@@ -2,7 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 project(ACS LANGUAGES C CXX VERSION 0.1.0)
 
 if(NOT WIN32)
-    message(FATAL_ERROR "ACS currently targets Windows only")
+    message(WARNING
+        "ACS は現状 Windows がフル動作。Linux/macOS は段階的移植中。"
+        "Foundation/Threading/Math/Container 等のコアは通るが、"
+        "Window/Audio/DX12 周りはまだ動かない。")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -27,6 +30,9 @@ option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
 option(ACS_RENDER_DX12_RAW "Build raw DX12 RHI backend"            ON)
 option(ACS_RENDER_DILIGENT "Build Diligent Engine RHI backend"     OFF)
 option(ACS_DILIGENT_VULKAN "Build Diligent Vulkan backend (requires ACS_RENDER_DILIGENT=ON)" OFF)
+
+# MVVM の ImGui アダプタをビルドするか。OFF にすれば Mvvm モジュールは Imgui に依存しない。
+option(ACS_MVVM_IMGUI_BINDINGS "Build MVVM ImGui binding adapter (requires Imgui module)" ON)
 
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -104,5 +110,8 @@ if(ACS_BUILD_SAMPLES)
     endif()
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloMVVM/CMakeLists.txt")
         add_subdirectory(samples/HelloMVVM)
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloECS/CMakeLists.txt")
+        add_subdirectory(samples/HelloECS)
     endif()
 endif()

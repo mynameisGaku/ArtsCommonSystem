@@ -36,13 +36,33 @@
 #endif
 
 // ---- プラットフォーム検出 -------------------------------------------------
-// Phase 1 では Windows のみ対応。他 OS は将来追加。
+// 現状フル動作対応は Windows のみ。Linux/macOS は最低限ヘッダが通るところまで。
 #if defined(_WIN32) || defined(_WIN64)
     #define ACS_PLATFORM_WINDOWS 1
     #define ACS_PLATFORM_NAME "windows"
+#elif defined(__linux__)
+    #define ACS_PLATFORM_LINUX 1
+    #define ACS_PLATFORM_NAME "linux"
+#elif defined(__APPLE__)
+    #define ACS_PLATFORM_MACOS 1
+    #define ACS_PLATFORM_NAME "macos"
 #else
-    #error "ACS Phase 1 currently targets Windows only"
+    #error "ACS: 未対応のプラットフォーム"
 #endif
+
+// 未定義のフラグは 0 で埋める
+#ifndef ACS_PLATFORM_WINDOWS
+    #define ACS_PLATFORM_WINDOWS 0
+#endif
+#ifndef ACS_PLATFORM_LINUX
+    #define ACS_PLATFORM_LINUX 0
+#endif
+#ifndef ACS_PLATFORM_MACOS
+    #define ACS_PLATFORM_MACOS 0
+#endif
+
+// 便利な集約フラグ
+#define ACS_PLATFORM_POSIX (ACS_PLATFORM_LINUX || ACS_PLATFORM_MACOS)
 
 // ---- アーキテクチャ検出 ---------------------------------------------------
 // x86-64 と ARM64 をサポート。SIMD やスレッド原語の選択に使用。

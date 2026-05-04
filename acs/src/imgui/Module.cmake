@@ -11,23 +11,31 @@ FetchContent_MakeAvailable(imgui_src)
 
 # ImGui 本体を静的ライブラリとして構築
 # 公式リポジトリは CMakeLists を持たないため自前で add_library
+# Backend (Win32 / DX12) は ACS_RENDER_DX12_RAW のときだけ追加。
+# Diligent や別バックエンドの場合は ACS 側で別の Backend を組む想定。
 if(NOT TARGET imgui)
-    add_library(imgui STATIC
+    set(_imgui_sources
         ${imgui_src_SOURCE_DIR}/imgui.cpp
         ${imgui_src_SOURCE_DIR}/imgui_draw.cpp
         ${imgui_src_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_src_SOURCE_DIR}/imgui_tables.cpp
         ${imgui_src_SOURCE_DIR}/imgui_demo.cpp
-        ${imgui_src_SOURCE_DIR}/backends/imgui_impl_win32.cpp
-        ${imgui_src_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
     )
+    if(WIN32)
+        list(APPEND _imgui_sources ${imgui_src_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
+    endif()
+    if(ACS_RENDER_DX12_RAW)
+        list(APPEND _imgui_sources ${imgui_src_SOURCE_DIR}/backends/imgui_impl_dx12.cpp)
+    endif()
+    add_library(imgui STATIC ${_imgui_sources})
     target_include_directories(imgui PUBLIC
         ${imgui_src_SOURCE_DIR}
         ${imgui_src_SOURCE_DIR}/backends
     )
-    target_link_libraries(imgui PUBLIC d3d12 dxgi)
+    if(ACS_RENDER_DX12_RAW)
+        target_link_libraries(imgui PUBLIC d3d12 dxgi)
+    endif()
     if(MSVC)
-        # ImGui 自体は ACS の厳格な警告レベルに合わないので緩める
         target_compile_options(imgui PRIVATE /W3 /wd4244 /wd4267)
     endif()
 endif()

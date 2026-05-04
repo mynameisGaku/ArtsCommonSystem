@@ -41,14 +41,15 @@ public:
     MessagePipe(const MessagePipe&) = delete;
     MessagePipe& operator=(const MessagePipe&) = delete;
 
-    // 値を末尾に積む (常に成功、上限なし)
-    void Push(T value) noexcept {
+    // 値を末尾に積む。Close() 済みなら false、追加成功なら true。
+    bool Push(T value) noexcept {
         {
             ScopedLock lock(_mtx);
-            if (_closed) return;          // closed 後は黙って捨てる
+            if (_closed) return false;
             _q.PushBack(Move(value));
         }
         _cv.NotifyOne();
+        return true;
     }
 
     // 即座に取り出し試行 (空なら false)

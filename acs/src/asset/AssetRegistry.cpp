@@ -142,7 +142,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     a->SetState(AssetState::Ready);
 
     // キャッシュ登録
-    job->registry->_AsyncCacheInsert(job->id, a);
+    job->registry->AsyncCacheInsert(job->id, a);
 
     job->state->result = Move(a);
     job->state->counter.Done();
@@ -150,7 +150,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
 }
 } // namespace
 
-void AssetRegistry::_AsyncCacheInsert(AssetId id, Rc<Asset> a) noexcept {
+void AssetRegistry::AsyncCacheInsert(AssetId id, Rc<Asset> a) noexcept {
     ScopedLock lk(_lock);
     _cache.Insert(id, Move(a));
 }

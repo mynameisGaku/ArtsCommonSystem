@@ -113,6 +113,10 @@ int Application::Run(const AppConfig& cfg) noexcept {
         }
     }
 
+    // 派生クラスが GPU リソースを保持しているはずなので、OnShutdown より先に
+    // GPU 完了を待つ。これを忘れると use-after-free でクラッシュしがち。
+    if (_renderer.Device()) _renderer.Device()->WaitIdle();
+
     // 派生クラスの終了フック
     OnShutdown();
 

@@ -16,8 +16,12 @@
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
 //                 lights, 2, Vec3{0.1f, 0.1f, 0.15f});
 //
-//   shd.SetObject(model_mat, Vec3{1,1,1}, /*specular_strength=*/0.5f, /*shininess=*/64.0f);
+// 簡単版 (1 関数で 1 体描画):
+//   shd.DrawMesh(*renderer.CommandList(), gm, model_mat,
+//                Vec3{1,1,1}, 0.5f, 64.0f, /*albedo=*/nullptr);
 //
+// 細かい制御版 (オブジェクト CB を上書きしないとき等):
+//   shd.SetObject(model_mat, Vec3{1,1,1}, /*specular_strength=*/0.5f, /*shininess=*/64.0f);
 //   auto* cl = renderer.CommandList();
 //   cl->SetPipeline(*shd.Pipeline());
 //   cl->SetConstantBuffer(0, *shd.PerFrameCB());
@@ -27,6 +31,9 @@
 //   cl->SetIndexBuffer (*gm.index_buffer);
 //   cl->DrawIndexed(gm.index_count);
 #pragma once
+
+#include "render/RenderAssets.h"   // GpuMesh
+#include "render/IRhiCommandList.h"
 
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
@@ -111,6 +118,21 @@ public:
 
     // テクスチャを指定したくない場合に渡せる 1×1 白テクスチャ
     IRhiTexture*   DefaultWhiteTexture() const noexcept { return _white.Get(); }
+
+    // 1 関数で描画 1 体分: SetPipeline + CB + Texture + VB/IB + DrawIndexed をまとめる。
+    // 細かく制御したい場合は Pipeline()/PerFrameCB()/PerObjectCB() を直接使う。
+    //
+    //   shd.SetLights(...) は事前に呼んでおく (Frame CB 設定)。
+    //   この DrawMesh は Object CB の更新 + 1 回の描画コマンド発行を行う。
+    //
+    //   albedo = nullptr で DefaultWhiteTexture が使われる。
+    void DrawMesh(class IRhiCommandList& cmd,
+                  const struct GpuMesh& mesh,
+                  const Mat4& model,
+                  Vec3 base_color        = Vec3{1, 1, 1},
+                  f32  specular_strength = 0.0f,
+                  f32  shininess         = 32.0f,
+                  IRhiTexture* albedo    = nullptr) noexcept;
 
 private:
     void FlushFrameCB() noexcept;

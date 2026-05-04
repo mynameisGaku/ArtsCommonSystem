@@ -27,13 +27,14 @@
 #include "foundation/Types.h"
 #include "foundation/Move.h"
 #include "container/Array.h"
+#include "threading/ThreadAffinity.h"
 
 namespace acs {
 
 // 購読ハンドル
 struct ObservableHandle {
-    u32 id         = 0;   // 1-based
-    u32 generation = 0;
+    u32 id         = 0;    // 1-based、Slot のインデックス 1..N
+    u64 generation = 0;    // 64-bit にして wrap 起因の誤判定を実質ゼロに
 
     bool IsValid() const noexcept { return id != 0; }
     bool operator==(const ObservableHandle& o) const noexcept {
@@ -60,23 +61,24 @@ public:
 
     // 値を変更し、変わった場合のみ全監視者に通知
     void Set(const T& v) noexcept {
+        ACS_THREAD_AFFINITY_CHECK();
         if (_value == v) return;
         _value = v;
         Notify();
     }
     void Set(T&& v) noexcept {
+        ACS_THREAD_AFFINITY_CHECK();
         if (_value == v) return;
         _value = Move(v);
         Notify();
     }
 
-    // 強制通知 (値が同じでも発火、内部コンテナが書き換えられた場合等)。
-    // 命名: 旧 Touch() の方が手早いが意図が読み取りにくいので ForceNotify を推奨。
+    // 強制通知 (値が同じでも発火、内部コンテナが書き換えられた場合等)
     void ForceNotify() noexcept { Notify(); }
-    void Touch()       noexcept { Notify(); }   // 後方互換 alias
 
     // 監視を追加
     ObservableHandle Subscribe(Listener cb, void* user) noexcept {
+        ACS_THREAD_AFFINITY_CHECK();
         if (!cb) return kInvalidObservable;
         u32 idx;
         if (_free_indices.Size() > 0) {
@@ -148,7 +150,7 @@ private:
 
     struct Slot {
         u32      id          = 0;
-        u32      generation  = 0;
+        u64      generation  = 0;
         bool     active      = false;
         Listener cb          = nullptr;
         void*    user        = nullptr;
@@ -160,6 +162,7 @@ private:
     Array<u32>   _pending_cancel;
     u32          _next_id      = 1;
     i32          _notify_depth = 0;
+    ACS_THREAD_AFFINITY_FIELD();
 };
 
 } // namespace acs

@@ -1,5 +1,10 @@
 // MessageBroker — 型ベースの pub/sub イベントバス
 //
+// **スレッド契約 (重要)**: MessageBroker は **シングルスレッド前提** です。
+//   Subscribe / Publish / Unsubscribe を異なるスレッドから呼ぶと未定義動作。
+//   スレッド間通信が必要な場合は MessagePipe<T> (event/MessagePipe.h) を使う。
+//   (型 ID 採番だけ Atomic を使うのは複数スレッドで同じ型 E の id が一致するため)
+//
 // 使い方:
 //   struct DamageEvent { EntityId target; f32 amount; };
 //

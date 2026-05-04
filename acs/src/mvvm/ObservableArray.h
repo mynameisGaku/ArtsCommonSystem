@@ -26,6 +26,7 @@
 
 #include "foundation/Types.h"
 #include "foundation/Move.h"
+#include "foundation/Assert.h"
 #include "container/Array.h"
 
 namespace acs {
@@ -165,8 +166,12 @@ public:
 
 private:
     void AssertMutationOK() const noexcept {
-        // listener の中から Add/Remove を呼んだら一貫性が崩れる。Debug では assert。
-        // Release では何もしない (= 自己責任)。
+        // listener (Notify) 中に Add/Remove を呼ぶと要素配列の再配置で
+        // 同じ listener ループに dangling pointer が渡される危険がある。
+        // Debug ビルドで検出 (Release はコスト 0)。
+        ACS_ASSERTF(_notify_depth == 0,
+                    "ObservableArray: mutation during Notify is not allowed (depth=%d)",
+                    _notify_depth);
     }
 
     void Notify(ArrayChange kind, usize index, const T* value) noexcept {

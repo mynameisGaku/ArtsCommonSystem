@@ -18,6 +18,7 @@ acs_module(
         Thread.h
         ThreadId.h
         ThreadPool.h
+        ThreadAffinity.h
         JobGraph.h
     PUBLIC_DEPS
         Foundation

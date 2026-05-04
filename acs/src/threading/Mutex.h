@@ -28,8 +28,9 @@ public:
     void Unlock()  noexcept;             // ロック解除
 
 private:
-    // SRWLOCK 実体。<windows.h> をヘッダで取り込まないため void* で持つ。
-    void* _srw[1];
+    // 内部実装は OS 別 (.cpp で SRWLOCK / pthread_mutex_t)。
+    // pthread_mutex_t は glibc/musl/macOS で 40〜64 byte。広めに 8 ポインタ分確保。
+    void* _impl[8];
 };
 
 } // namespace acs

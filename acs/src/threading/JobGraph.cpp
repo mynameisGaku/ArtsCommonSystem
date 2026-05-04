@@ -67,29 +67,68 @@ Result<void> JobGraph::Submit() noexcept {
         return Ok();
     }
 
+    // ---- サイクル検知 (Kahn 法、O(N + E)) ----
+    {
+        const u32 N = static_cast<u32>(_jobs.Size());
+        Array<u32> remaining;
+        remaining.Resize(N);
+        for (u32 i = 0; i < N; ++i) {
+            remaining[i] = _jobs[i]->deps_remaining.Load(MemoryOrder::Acquire);
+        }
+        Array<u32> queue;
+        queue.Reserve(N);
+        for (u32 i = 0; i < N; ++i) if (remaining[i] == 0) queue.PushBack(i);
+
+        u32 visited = 0;
+        while (queue.Size() > 0) {
+            u32 idx = queue[queue.Size() - 1];
+            queue.PopBack();
+            ++visited;
+            const auto& deps = _jobs[idx]->dependents;
+            for (usize k = 0; k < deps.Size(); ++k) {
+                u32 dep_idx = deps[k];
+                if (--remaining[dep_idx] == 0) queue.PushBack(dep_idx);
+            }
+        }
+        if (visited != N) {
+            ACS_LOG_ERROR("JobGraph::Submit: dependency cycle detected (visited=%u/%u)",
+                          visited, N);
+            return ACS_ERR(Threading, 3, "JobGraph: dependency cycle");
+        }
+    }
+
     _submitted = true;
 
-    // 全 job を counter にカウント (それぞれ ThreadPool::Submit が +1 するが、
-    // ここでは依存待ち状態の job も含めて先に積んでおく必要がある)
+    // 全 job 数を counter に積む (Submit 失敗時は後で巻き戻す)
     _counter.Add(static_cast<u32>(_jobs.Size()));
 
     // 依存 0 の job を ThreadPool に投入
     bool any_started = false;
+    u32 submitted_count = 0;
     for (usize i = 0; i < _jobs.Size(); ++i) {
         Job* j = _jobs[i];
         if (j->deps_remaining.Load(MemoryOrder::Acquire) == 0) {
             Task t{};
             t.fn      = &JobGraph::JobThunk;
             t.user    = j;
-            t.counter = nullptr;  // すでに上で加算済みなので Submit に再加算させない
-            (void)ThreadPool::Submit(t);
+            t.counter = nullptr;
+            auto r = ThreadPool::Submit(t);
+            if (r.IsErr()) {
+                ACS_LOG_ERROR("JobGraph::Submit: ThreadPool::Submit failed: %s",
+                              r.Error().message);
+                // 既に Add 済みのカウンタを巻き戻す (デッドロック回避)
+                u32 unstarted = static_cast<u32>(_jobs.Size()) - submitted_count;
+                for (u32 k = 0; k < unstarted; ++k) _counter.Done();
+                return r;
+            }
+            ++submitted_count;
             any_started = true;
         }
     }
 
     if (!any_started && _jobs.Size() > 0) {
-        // 全部依存待ちだとデッドロック (循環依存)
-        ACS_LOG_ERROR("JobGraph::Submit: no entry job (cyclic dependency?)");
+        // サイクル検知を抜けてここに来たら、空のグラフ (entry も無い) のはず
+        ACS_LOG_ERROR("JobGraph::Submit: no entry job after cycle check");
         return ACS_ERR(Threading, 2, "JobGraph: no entry job");
     }
     return Ok();

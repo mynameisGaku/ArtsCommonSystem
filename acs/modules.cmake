@@ -39,8 +39,6 @@ acs_enable_module(Ecs)
 
 acs_enable_module(Event)
 
-acs_enable_module(Mvvm)
-
 acs_enable_module(Asset)
 
 #
@@ -71,3 +69,7 @@ acs_enable_module(Network)
 
 # ---- ImGui (任意): ImGui を使いたいときだけ有効化 ----
 acs_enable_module(Imgui)
+
+# Mvvm は ACS_MVVM_IMGUI_BINDINGS=ON のときだけ Imgui に依存する。
+# 普通のビルドでは Imgui の後に Mvvm を入れておくと依存解決が素直。
+acs_enable_module(Mvvm)
