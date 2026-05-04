@@ -1,65 +1,35 @@
-// AudioEngine 実装 (miniaudio backend、cross-platform)
-//
-// miniaudio は single-header library。本ファイルでのみ MA_IMPLEMENTATION を
-// define して実装をリンク (他の TU は API 部のみ参照)。
-//
-// AudioAsset の raw PCM samples を ma_audio_buffer (data source) に乗せ、
-// ma_sound から再生する。slot は最大 64 個 (kMaxVoices)、generation 付き
-// SoundHandle で stale handle を弾く。
-
+// XAudio2 ベースの音声エンジン実装
 #include "audio/AudioEngine.h"
+#include "foundation/Platform.h"
 #include "foundation/Log.h"
 #include "threading/ScopedLock.h"
 
-// miniaudio: 警告抑制 + 機能の絞り込み (decoder/device は使う、エンコーダは不要)
-#if defined(_MSC_VER)
-    #pragma warning(push)
-    #pragma warning(disable: 4244 4267 4456 4459 4701 4702 4456 4244)
-#endif
-
-#define MA_IMPLEMENTATION
-#define MA_NO_ENCODING        // エンコード機能は不要 (再生のみ)
-#define MA_NO_GENERATION      // 波形ジェネレータも不要
-#include "miniaudio.h"
-
-#if defined(_MSC_VER)
-    #pragma warning(pop)
-#endif
+#include <xaudio2.h>
 
 namespace acs {
 
 namespace {
 
-constexpr u32 kMaxVoices = 64;
+constexpr u32 kMaxVoices = 64;  // 同時再生上限
 
 // 1 個の発音スロット
 struct VoiceSlot {
-    ma_sound        sound{};
-    ma_audio_buffer buffer{};
-    Array<byte>     buffer_copy;     // PCM データを ma_audio_buffer の寿命中保持
-    u32             generation = 0;
-    bool            sound_init = false;
-    bool            buffer_init = false;
-    bool            in_use     = false;
+    IXAudio2SourceVoice* voice      = nullptr;
+    Array<byte>          buffer_copy;     // XAudio2 が再生中はバッファを保持
+    u32                  generation = 0;
+    bool                 in_use     = false;
 };
-
-ma_format ToMaFormat(SampleFormat f) noexcept {
-    switch (f) {
-        case SampleFormat::PCM_S16: return ma_format_s16;
-        case SampleFormat::PCM_F32: return ma_format_f32;
-    }
-    return ma_format_s16;
-}
 
 } // namespace
 
 struct AudioEngine::Impl {
-    ma_engine               engine{};
-    bool                    engine_initialized = false;
+    IXAudio2*               xaudio2          = nullptr;
+    IXAudio2MasteringVoice* mastering        = nullptr;
+    bool                    com_initialized  = false;
 
     Mutex                   lock;
     VoiceSlot               slots[kMaxVoices] {};
-    u32                     active_count       = 0;
+    u32                     active_count     = 0;
 };
 
 AudioEngine::~AudioEngine() noexcept {
@@ -70,24 +40,42 @@ Result<void> AudioEngine::Init() noexcept {
     if (_impl) return ACS_ERR(Generic, 1, "AudioEngine already initialized");
     _impl = new Impl();
 
-    ma_engine_config cfg = ma_engine_config_init();
-    ma_result r = ma_engine_init(&cfg, &_impl->engine);
-    if (r != MA_SUCCESS) {
-        delete _impl; _impl = nullptr;
-        return ACS_ERR_OS(Generic, 2, "ma_engine_init failed", static_cast<u32>(r));
-    }
-    _impl->engine_initialized = true;
+    // COM 初期化（マルチスレッド形式、XAudio2 が要求）
+    HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (SUCCEEDED(hr)) _impl->com_initialized = true;
 
-    ACS_LOG_INFO("AudioEngine initialized (miniaudio)");
+    // XAudio2 エンジン作成
+    hr = ::XAudio2Create(&_impl->xaudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+    if (FAILED(hr)) {
+        Shutdown();
+        return ACS_ERR_OS(Generic, 2, "XAudio2Create failed", static_cast<u32>(hr));
+    }
+
+    // マスタリングボイス（最終出力）
+    hr = _impl->xaudio2->CreateMasteringVoice(&_impl->mastering);
+    if (FAILED(hr)) {
+        Shutdown();
+        return ACS_ERR_OS(Generic, 3, "CreateMasteringVoice failed", static_cast<u32>(hr));
+    }
+
+    ACS_LOG_INFO("AudioEngine initialized (XAudio2)");
     return Ok();
 }
 
 void AudioEngine::Shutdown() noexcept {
     if (!_impl) return;
     StopAll();
-    if (_impl->engine_initialized) {
-        ma_engine_uninit(&_impl->engine);
-        _impl->engine_initialized = false;
+    if (_impl->mastering) {
+        _impl->mastering->DestroyVoice();
+        _impl->mastering = nullptr;
+    }
+    if (_impl->xaudio2) {
+        _impl->xaudio2->Release();
+        _impl->xaudio2 = nullptr;
+    }
+    if (_impl->com_initialized) {
+        ::CoUninitialize();
+        _impl->com_initialized = false;
     }
     delete _impl;
     _impl = nullptr;
@@ -100,24 +88,10 @@ u32 FindFreeSlot(AudioEngine::Impl& impl) noexcept {
     }
     return 0xFFFFFFFFu;
 }
-
-void DestroySlot(VoiceSlot& slot) noexcept {
-    if (slot.sound_init) {
-        ma_sound_uninit(&slot.sound);
-        slot.sound_init = false;
-    }
-    if (slot.buffer_init) {
-        ma_audio_buffer_uninit(&slot.buffer);
-        slot.buffer_init = false;
-    }
-    slot.buffer_copy.Clear();
-    ++slot.generation;
-    slot.in_use = false;
-}
 } // namespace
 
 SoundHandle AudioEngine::Play(const AudioAsset& asset, f32 volume, bool loop) noexcept {
-    if (!_impl || !_impl->engine_initialized) return kInvalidSound;
+    if (!_impl || !_impl->xaudio2) return kInvalidSound;
     if (asset.SampleByteCount() == 0) return kInvalidSound;
 
     ScopedLock lk(_impl->lock);
@@ -126,52 +100,62 @@ SoundHandle AudioEngine::Play(const AudioAsset& asset, f32 volume, bool loop) no
     if (idx == 0xFFFFFFFFu) return kInvalidSound;
     VoiceSlot& slot = _impl->slots[idx];
 
-    // PCM データをコピーしておく (asset の寿命に依存しないように)
+    // ソースボイスのフォーマット設定
+    WAVEFORMATEX wf{};
+    wf.wFormatTag      = (asset.Format() == SampleFormat::PCM_F32) ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM;
+    wf.nChannels       = asset.Channels();
+    wf.nSamplesPerSec  = asset.SampleRate();
+    wf.wBitsPerSample  = (asset.Format() == SampleFormat::PCM_F32) ? 32 : 16;
+    wf.nBlockAlign     = (wf.nChannels * wf.wBitsPerSample) / 8;
+    wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
+    wf.cbSize          = 0;
+
+    HRESULT hr = _impl->xaudio2->CreateSourceVoice(&slot.voice, &wf);
+    if (FAILED(hr)) return kInvalidSound;
+
+    // サンプルデータを再生中保持するためコピー
     slot.buffer_copy.Resize(asset.SampleByteCount());
     for (usize i = 0; i < asset.SampleByteCount(); ++i)
         slot.buffer_copy[i] = asset.Samples()[i];
 
-    // 1 サンプル当たりのバイト数 = チャンネル × フォーマットサイズ
-    ma_format fmt = ToMaFormat(asset.Format());
-    u32 frame_bytes = ma_get_bytes_per_frame(fmt, asset.Channels());
-    u64 frame_count = frame_bytes > 0 ? slot.buffer_copy.Size() / frame_bytes : 0;
-    if (frame_count == 0) return kInvalidSound;
-
-    // ma_audio_buffer に raw PCM を乗せる
-    ma_audio_buffer_config bcfg = ma_audio_buffer_config_init(
-        fmt, asset.Channels(), frame_count, slot.buffer_copy.Data(), nullptr);
-    if (ma_audio_buffer_init(&bcfg, &slot.buffer) != MA_SUCCESS) return kInvalidSound;
-    slot.buffer_init = true;
-
-    // ma_sound として登録 (data source = audio_buffer)
-    if (ma_sound_init_from_data_source(
-            &_impl->engine, &slot.buffer, 0, nullptr, &slot.sound) != MA_SUCCESS) {
-        DestroySlot(slot);
-        return kInvalidSound;
-    }
-    slot.sound_init = true;
+    XAUDIO2_BUFFER xb{};
+    xb.AudioBytes = static_cast<UINT32>(slot.buffer_copy.Size());
+    xb.pAudioData = slot.buffer_copy.Data();
+    xb.Flags = XAUDIO2_END_OF_STREAM;
+    xb.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
 
     if (volume < 0) volume = 0;
     if (volume > 1) volume = 1;
-    ma_sound_set_volume(&slot.sound, volume);
-    ma_sound_set_looping(&slot.sound, loop ? MA_TRUE : MA_FALSE);
 
-    if (ma_sound_start(&slot.sound) != MA_SUCCESS) {
-        DestroySlot(slot);
-        return kInvalidSound;
-    }
-
+    slot.voice->SubmitSourceBuffer(&xb);
+    slot.voice->SetVolume(volume);
+    slot.voice->Start(0);
     slot.in_use = true;
     ++_impl->active_count;
-    return SoundHandle{ idx, slot.generation };
+
+    SoundHandle h{ idx, slot.generation };
+    return h;
 }
+
+namespace {
+void DestroySlot(VoiceSlot& slot) noexcept {
+    if (slot.voice) {
+        slot.voice->Stop(0);
+        slot.voice->FlushSourceBuffers();
+        slot.voice->DestroyVoice();
+        slot.voice = nullptr;
+    }
+    slot.buffer_copy.Clear();
+    ++slot.generation;
+    slot.in_use = false;
+}
+} // namespace
 
 void AudioEngine::Stop(SoundHandle h) noexcept {
     if (!_impl || !h.IsValid() || h.index >= kMaxVoices) return;
     ScopedLock lk(_impl->lock);
     VoiceSlot& slot = _impl->slots[h.index];
     if (!slot.in_use || slot.generation != h.generation) return;
-    if (slot.sound_init) ma_sound_stop(&slot.sound);
     DestroySlot(slot);
     if (_impl->active_count > 0) --_impl->active_count;
 }
@@ -183,18 +167,14 @@ void AudioEngine::SetVolume(SoundHandle h, f32 volume) noexcept {
     if (!slot.in_use || slot.generation != h.generation) return;
     if (volume < 0) volume = 0;
     if (volume > 1) volume = 1;
-    if (slot.sound_init) ma_sound_set_volume(&slot.sound, volume);
+    if (slot.voice) slot.voice->SetVolume(volume);
 }
 
 void AudioEngine::StopAll() noexcept {
     if (!_impl) return;
     ScopedLock lk(_impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
-        if (_impl->slots[i].in_use) {
-            if (_impl->slots[i].sound_init)
-                ma_sound_stop(&_impl->slots[i].sound);
-            DestroySlot(_impl->slots[i]);
-        }
+        if (_impl->slots[i].in_use) DestroySlot(_impl->slots[i]);
     }
     _impl->active_count = 0;
 }

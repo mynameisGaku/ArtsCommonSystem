@@ -36,8 +36,7 @@ public:
     void NotifyAll() noexcept;       // 待機中の全スレッドを起こす
 
 private:
-    // 内部実装: Win32 CONDITION_VARIABLE / POSIX pthread_cond_t
-    void* _impl[8];
+    void* _cv[1];                    // CONDITION_VARIABLE 実体
 };
 
 } // namespace acs

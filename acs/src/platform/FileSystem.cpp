@@ -1,59 +1,51 @@
-// ファイル I/O 実装 — std::filesystem + std::ifstream/ofstream で portable
-//
-// 旧実装は Win32 CreateFileW 直叩きだったが、std 実装に置換。Windows でも
-// MSVC の std::filesystem は内部で同じ API を呼ぶので性能差は無視できる。
-// 公開 API は wchar_t* のままで Win 後方互換、内部で std::filesystem::path に
-// 変換 (Win では native wchar、POSIX では UTF-8 narrow に変換)。
+// ファイル I/O 実装（Win32 Create/Read/Write FileW）
 #include "platform/FileSystem.h"
-#include "foundation/Compiler.h"
+#include "foundation/Platform.h"
 #include "foundation/Move.h"
-
-#include <filesystem>
-#include <fstream>
-#include <system_error>
-
-namespace fs = std::filesystem;
 
 namespace acs {
 
 namespace {
 
-// wchar_t* → fs::path (両プラットフォーム対応)。POSIX では wcstombs で UTF-8 narrow へ。
-fs::path ToPath(const wchar_t* p) noexcept {
-    if (!p) return fs::path{};
-#if ACS_PLATFORM_WINDOWS
-    return fs::path{ p };
-#else
-    // wchar_t を UTF-8 char* に変換 (簡易版: ASCII 範囲なら 1:1、CJK は wcstombs)
-    char buf[1024];
-    std::mbstate_t st{};
-    const wchar_t* src = p;
-    std::wcsrtombs(buf, &src, sizeof(buf) - 1, &st);
-    buf[sizeof(buf) - 1] = 0;
-    return fs::path{ buf };
-#endif
+// 共通: 読み取り用に CreateFile してハンドルを取得
+HANDLE OpenForRead(const wchar_t* path) noexcept {
+    return ::CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
+                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+}
+
+// 共通: 書き込み用に CreateFile してハンドルを取得（上書き）
+HANDLE OpenForWrite(const wchar_t* path) noexcept {
+    return ::CreateFileW(path, GENERIC_WRITE, 0, nullptr,
+                         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 }
 
 } // namespace
 
 // ファイル全体をバイト列として読み込む
 Result<Array<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
-    fs::path p = ToPath(path);
-    std::error_code ec;
-    auto sz = fs::file_size(p, ec);
-    if (ec) return ACS_ERR_OS(IO, 100, "file_size failed", static_cast<u32>(ec.value()));
-    if (sz > 0xFFFFFFFFull) return ACS_ERR(IO, 102, "File too large (>4GB)");
+    HANDLE h = OpenForRead(path);
+    if (h == INVALID_HANDLE_VALUE)
+        return ACS_ERR_OS(IO, 100, "CreateFileW (read) failed", ::GetLastError());
 
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return ACS_ERR(IO, 103, "ifstream open failed");
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(h, &size)) {
+        DWORD err = ::GetLastError();
+        ::CloseHandle(h);
+        return ACS_ERR_OS(IO, 101, "GetFileSizeEx failed", err);
+    }
+    if (size.QuadPart > 0xFFFFFFFFLL) {
+        ::CloseHandle(h);
+        return ACS_ERR(IO, 102, "File too large (>4GB)");
+    }
 
     Array<byte> buf;
-    buf.Resize(static_cast<usize>(sz));
-    if (sz > 0) {
-        f.read(reinterpret_cast<char*>(buf.Data()), static_cast<std::streamsize>(sz));
-        if (f.gcount() != static_cast<std::streamsize>(sz))
-            return ACS_ERR(IO, 104, "ifstream short read");
-    }
+    buf.Resize(static_cast<usize>(size.QuadPart));
+    DWORD read = 0;
+    BOOL ok = ::ReadFile(h, buf.Data(), static_cast<DWORD>(buf.Size()), &read, nullptr);
+    DWORD err = ok ? 0 : ::GetLastError();
+    ::CloseHandle(h);
+    if (!ok || read != buf.Size())
+        return ACS_ERR_OS(IO, 103, "ReadFile failed", err);
     return Result<Array<byte>>(OkInit, Move(buf));
 }
 
@@ -71,13 +63,15 @@ Result<Array<char>> FileSystem::ReadAllText(const wchar_t* path) noexcept {
 
 // バイト列を書き出す（上書き）
 Result<void> FileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
-    fs::path p = ToPath(path);
-    std::ofstream f(p, std::ios::binary | std::ios::trunc);
-    if (!f) return ACS_ERR(IO, 110, "ofstream open failed");
-    if (size > 0) {
-        f.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
-        if (!f.good()) return ACS_ERR(IO, 111, "ofstream write failed");
-    }
+    HANDLE h = OpenForWrite(path);
+    if (h == INVALID_HANDLE_VALUE)
+        return ACS_ERR_OS(IO, 110, "CreateFileW (write) failed", ::GetLastError());
+    DWORD wrote = 0;
+    BOOL ok = ::WriteFile(h, data, static_cast<DWORD>(size), &wrote, nullptr);
+    DWORD err = ok ? 0 : ::GetLastError();
+    ::CloseHandle(h);
+    if (!ok || wrote != size)
+        return ACS_ERR_OS(IO, 111, "WriteFile failed", err);
     return Ok();
 }
 
@@ -90,41 +84,54 @@ Result<void> FileSystem::WriteAllText(const wchar_t* path, const char* text) noe
 
 // ファイルサイズ取得
 Result<u64> FileSystem::FileSize(const wchar_t* path) noexcept {
-    fs::path p = ToPath(path);
-    std::error_code ec;
-    auto sz = fs::file_size(p, ec);
-    if (ec) return ACS_ERR_OS(IO, 120, "file_size failed", static_cast<u32>(ec.value()));
-    return Result<u64>(OkInit, static_cast<u64>(sz));
+    WIN32_FILE_ATTRIBUTE_DATA d{};
+    if (!::GetFileAttributesExW(path, GetFileExInfoStandard, &d))
+        return ACS_ERR_OS(IO, 120, "GetFileAttributesExW failed", ::GetLastError());
+    LARGE_INTEGER sz{};
+    sz.LowPart = d.nFileSizeLow;
+    sz.HighPart = static_cast<LONG>(d.nFileSizeHigh);
+    return Result<u64>(OkInit, static_cast<u64>(sz.QuadPart));
 }
 
 // ファイル存在確認
 bool FileSystem::Exists(const wchar_t* path) noexcept {
-    std::error_code ec;
-    return fs::is_regular_file(ToPath(path), ec);
+    DWORD a = ::GetFileAttributesW(path);
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
 // ディレクトリ存在確認
 bool FileSystem::DirectoryExists(const wchar_t* path) noexcept {
-    std::error_code ec;
-    return fs::is_directory(ToPath(path), ec);
+    DWORD a = ::GetFileAttributesW(path);
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
-// ディレクトリ作成 (親も再帰作成、既存なら成功扱い)
+// ディレクトリ作成（既に存在する場合は成功扱い、親も再帰作成）
 Result<void> FileSystem::CreateDirectory(const wchar_t* path) noexcept {
-    fs::path p = ToPath(path);
-    std::error_code ec;
-    if (fs::is_directory(p, ec)) return Ok();
-    fs::create_directories(p, ec);
-    if (ec) return ACS_ERR_OS(IO, 130, "create_directories failed",
-                               static_cast<u32>(ec.value()));
+    if (DirectoryExists(path)) return Ok();
+    wchar_t buf[1024];
+    usize n = 0;
+    while (path[n] && n < 1023) { buf[n] = path[n]; ++n; }
+    buf[n] = 0;
+    for (usize i = 0; i < n; ++i) {
+        wchar_t c = buf[i];
+        if ((c == L'\\' || c == L'/') && i > 0) {
+            buf[i] = 0;
+            if (!DirectoryExists(buf)) ::CreateDirectoryW(buf, nullptr);
+            buf[i] = c;
+        }
+    }
+    if (!::CreateDirectoryW(path, nullptr)) {
+        DWORD err = ::GetLastError();
+        if (err != ERROR_ALREADY_EXISTS)
+            return ACS_ERR_OS(IO, 130, "CreateDirectoryW failed", err);
+    }
     return Ok();
 }
 
 // ファイル削除
 Result<void> FileSystem::Delete(const wchar_t* path) noexcept {
-    std::error_code ec;
-    if (!fs::remove(ToPath(path), ec))
-        return ACS_ERR_OS(IO, 140, "remove failed", static_cast<u32>(ec.value()));
+    if (!::DeleteFileW(path))
+        return ACS_ERR_OS(IO, 140, "DeleteFileW failed", ::GetLastError());
     return Ok();
 }
 

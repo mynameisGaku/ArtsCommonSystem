@@ -35,8 +35,7 @@ public:
     void UnlockExclusive()  noexcept;    // 解除
 
 private:
-    // 内部実装: Win32 SRWLOCK / POSIX pthread_rwlock_t (どちらも 8 ポインタ以下)
-    void* _impl[8];
+    void* _srw[1];                       // SRWLOCK 実体
 };
 
 } // namespace acs

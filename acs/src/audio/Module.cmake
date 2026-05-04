@@ -1,5 +1,3 @@
-acs_third_party_miniaudio()
-
 acs_module(
     NAME    Audio
     TYPE    Runtime
@@ -15,13 +13,12 @@ acs_module(
         Container
         Threading
         Asset
-    LINK_PRIVATE
-        acs_third_party::miniaudio
+    LINK_PUBLIC
+        xaudio2
+        ole32
 )
 
-# miniaudio は single-header で内部の OS API (WASAPI/ALSA/CoreAudio) を選択する。
-# Windows では XAudio2 ではなく WASAPI が使われる。
-acs_module_feature(MODULE Audio NAME MINIAUDIO
-    DEFINE AUDIO_MINIAUDIO
-    DESCRIPTION "Use miniaudio backend (single-header, cross-platform)"
+acs_module_feature(MODULE Audio NAME XAUDIO2
+    DEFINE AUDIO_XAUDIO2
+    DESCRIPTION "Use XAudio2 backend"
     DEFAULT ON)

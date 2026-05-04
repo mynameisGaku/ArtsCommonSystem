@@ -1,14 +1,7 @@
-// ネットワークサブシステム初期化
+// ネットワークサブシステム初期化（WSAStartup ラッパ）
 //
 // 使い方: アプリ起動時に一度 Network::Init() を呼ぶ。Application が
 //         Audio/Network 系を自動初期化することは無いので、明示的に呼ぶこと。
-//
-// プラットフォーム:
-//   Windows: WSAStartup 内部で呼ぶ
-//   POSIX  : Init / Shutdown は no-op (BSD sockets は OS が管理)
-//
-// TcpConnection / TcpListener / UdpSocket の実装は現在 Windows 限定。
-// POSIX 経路は将来 BSD sockets ifdef で追加予定。
 #pragma once
 
 #include "foundation/Types.h"

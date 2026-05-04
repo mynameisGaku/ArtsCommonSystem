@@ -2,10 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 project(ACS LANGUAGES C CXX VERSION 0.1.0)
 
 if(NOT WIN32)
-    message(WARNING
-        "ACS は現状 Windows がフル動作。Linux/macOS は段階的移植中。"
-        "Foundation/Threading/Math/Container 等のコアは通るが、"
-        "Window/Audio/DX12 周りはまだ動かない。")
+    message(FATAL_ERROR "ACS currently targets Windows only")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
