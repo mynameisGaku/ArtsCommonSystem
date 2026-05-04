@@ -120,3 +120,14 @@ acs_module_feature(MODULE Render NAME DILIGENT
     DEFINE RENDER_DILIGENT
     DESCRIPTION "Use Diligent Engine as RHI backend (DX12/Vulkan/Metal cross-platform)"
     DEFAULT ${ACS_RENDER_DILIGENT})
+
+# Diligent の Vulkan バックエンドビルド有無 (DiligentDevice.cpp が #if ACS_DILIGENT_VULKAN で判別)
+# acs_module_feature は WITH_<DEFINE> を生やすが、ここでは生 ACS_DILIGENT_VULKAN という名前で
+# define したいので別途 target_compile_definitions ... と書きたいところだが、
+# 既存パターンに揃えて feature 経由で WITH_RENDER_DILIGENT_VULKAN を生やし、
+# DiligentDevice.cpp は ACS_DILIGENT_VULKAN もしくは WITH_RENDER_DILIGENT_VULKAN の
+# どちらでも見られるよう書く方針にする。
+acs_module_feature(MODULE Render NAME DILIGENT_VULKAN
+    DEFINE RENDER_DILIGENT_VULKAN
+    DESCRIPTION "Build Diligent Vulkan backend (only meaningful with ACS_RENDER_DILIGENT=ON)"
+    DEFAULT ${ACS_DILIGENT_VULKAN})

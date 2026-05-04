@@ -25,6 +25,9 @@
 #endif
 
 #include "EngineFactoryD3D12.h"
+#if WITH_RENDER_DILIGENT_VULKAN
+#include "EngineFactoryVk.h"
+#endif
 #include "RenderDevice.h"
 #include "DeviceContext.h"
 #include "SwapChain.h"

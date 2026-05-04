@@ -12,7 +12,9 @@
 
 // 前方宣言（DiligentCommon.h を漏らさない）
 namespace Diligent {
+    struct IEngineFactory;
     struct IEngineFactoryD3D12;
+    struct IEngineFactoryVk;
     struct IRenderDevice;
     struct IDeviceContext;
     struct IFence;
@@ -32,14 +34,20 @@ public:
     Result<void> Init(const DeviceConfig& cfg) noexcept;
 
     // ---- IRhiDevice ----
-    const char* BackendName() const noexcept override { return "Diligent-DX12"; }
+    const char* BackendName() const noexcept override { return _backend_name; }
     const char* AdapterName() const noexcept override { return _adapter_name; }
     void        WaitIdle()    noexcept override;
 
+    // 実際に選ばれたバックエンド種別
+    RhiBackendKind ActualBackend() const noexcept { return _actual_backend; }
+
     // ---- 内部公開（他の Diligent* バックエンドが触れる）----
-    Diligent::IEngineFactoryD3D12* Factory()   const noexcept { return _factory; }
-    Diligent::IRenderDevice*       RenderDev() const noexcept { return _device; }
-    Diligent::IDeviceContext*      Context()   const noexcept { return _context; }
+    // Factory は Vulkan / D3D12 で別型。汎用には IEngineFactory を返す。
+    Diligent::IEngineFactory*      FactoryGeneric() const noexcept { return _factory_generic; }
+    Diligent::IEngineFactoryD3D12* Factory()        const noexcept { return _factory; }
+    Diligent::IEngineFactoryVk*    FactoryVk()      const noexcept { return _factory_vk; }
+    Diligent::IRenderDevice*       RenderDev()      const noexcept { return _device; }
+    Diligent::IDeviceContext*      Context()        const noexcept { return _context; }
 
     // フレーム同期: ExecuteCommandLists 後に Signal して値を返す。
     // CommandList::Submit がこれを呼ぶ想定。
@@ -52,15 +60,22 @@ public:
     void AdvanceFrameSlot() noexcept { _frame_slot = (_frame_slot + 1) % kFramesInFlight; }
 
 private:
+    Result<void> InitD3D12(const DeviceConfig& cfg) noexcept;
+    Result<void> InitVulkan(const DeviceConfig& cfg) noexcept;
+
     // Diligent オブジェクトは生ポインタで保持し、Release() を明示的に呼んで破棄する。
     // RefCntAutoPtr を使わずに済ませることでヘッダから Diligent 依存を切り離す。
-    Diligent::IEngineFactoryD3D12* _factory   = nullptr;
-    Diligent::IRenderDevice*       _device    = nullptr;
-    Diligent::IDeviceContext*      _context   = nullptr;
-    Diligent::IFence*              _idle_fence = nullptr;
-    u64                            _idle_value = 0;
-    u32                            _frame_slot = 0;
+    Diligent::IEngineFactory*      _factory_generic = nullptr;  // _factory or _factory_vk と同じ実体
+    Diligent::IEngineFactoryD3D12* _factory       = nullptr;     // D3D12 経路
+    Diligent::IEngineFactoryVk*    _factory_vk    = nullptr;     // Vulkan 経路
+    Diligent::IRenderDevice*       _device        = nullptr;
+    Diligent::IDeviceContext*      _context       = nullptr;
+    Diligent::IFence*              _idle_fence    = nullptr;
+    u64                            _idle_value    = 0;
+    u32                            _frame_slot    = 0;
+    RhiBackendKind                 _actual_backend = RhiBackendKind::Auto;
     char                           _adapter_name[128]{};
+    const char*                    _backend_name  = "Diligent";
 };
 
 } // namespace acs

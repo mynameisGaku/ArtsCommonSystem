@@ -26,6 +26,7 @@ option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
 # 両方 ON でも構わない（実行時に CreateRhiDevice が振り分ける）。
 option(ACS_RENDER_DX12_RAW "Build raw DX12 RHI backend"            ON)
 option(ACS_RENDER_DILIGENT "Build Diligent Engine RHI backend"     OFF)
+option(ACS_DILIGENT_VULKAN "Build Diligent Vulkan backend (requires ACS_RENDER_DILIGENT=ON)" OFF)
 
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -100,5 +101,8 @@ if(ACS_BUILD_SAMPLES)
     # HelloBloom は Diligent backend 専用のため、ACS_RENDER_DILIGENT のときだけ追加
     if(ACS_RENDER_DILIGENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloBloom/CMakeLists.txt")
         add_subdirectory(samples/HelloBloom)
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloMVVM/CMakeLists.txt")
+        add_subdirectory(samples/HelloMVVM)
     endif()
 endif()

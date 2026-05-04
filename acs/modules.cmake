@@ -39,6 +39,8 @@ acs_enable_module(Ecs)
 
 acs_enable_module(Event)
 
+acs_enable_module(Mvvm)
+
 acs_enable_module(Asset)
 
 #

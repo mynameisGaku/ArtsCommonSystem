@@ -7,6 +7,7 @@ acs_module(
         ConditionVar.cpp
         Thread.cpp
         ThreadPool.cpp
+        JobGraph.cpp
     HEADERS
         Atomic.h
         MemoryOrder.h
@@ -17,6 +18,7 @@ acs_module(
         Thread.h
         ThreadId.h
         ThreadPool.h
+        JobGraph.h
     PUBLIC_DEPS
         Foundation
 )

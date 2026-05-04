@@ -8,6 +8,7 @@ add_executable(acs_unit_tests
     math_tests.cpp
     ecs_tests.cpp
     event_tests.cpp
+    jobgraph_tests.cpp
 )
 
 acs_apply_compiler_options(acs_unit_tests)

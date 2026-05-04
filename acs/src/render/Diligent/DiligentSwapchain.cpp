@@ -40,16 +40,27 @@ Result<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConf
 
     Diligent::FullScreenModeDesc fs{};
 
-    auto* factory = device.Factory();
     auto* dev     = device.RenderDev();
     auto* ctx     = device.Context();
-    if (!factory || !dev || !ctx) {
+    if (!dev || !ctx) {
         return ACS_ERR(Render, 111, "DiligentSwapchain: device not initialized");
     }
 
-    factory->CreateSwapChainD3D12(dev, ctx, sd, fs, win, &_swap);
+    if (device.ActualBackend() == RhiBackendKind::Vulkan) {
+#if WITH_RENDER_DILIGENT_VULKAN
+        auto* factory = device.FactoryVk();
+        if (!factory) return ACS_ERR(Render, 113, "Vulkan factory missing");
+        factory->CreateSwapChainVk(dev, ctx, sd, win, &_swap);
+#else
+        return ACS_ERR(Render, 114, "Vulkan backend not built");
+#endif
+    } else {
+        auto* factory = device.Factory();
+        if (!factory) return ACS_ERR(Render, 115, "D3D12 factory missing");
+        factory->CreateSwapChainD3D12(dev, ctx, sd, fs, win, &_swap);
+    }
     if (!_swap) {
-        return ACS_ERR(Render, 112, "CreateSwapChainD3D12 failed");
+        return ACS_ERR(Render, 112, "CreateSwapChain failed");
     }
 
     ACS_LOG_INFO("Diligent swapchain created: %ux%u, format=%d, buffers=%u",

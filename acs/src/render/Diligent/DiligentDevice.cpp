@@ -1,4 +1,4 @@
-// DiligentDevice 実装（D3D12 バックエンド経路）
+// DiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
 #include "render/Diligent/DiligentDevice.h"
 
 #if WITH_RENDER_DILIGENT
@@ -19,10 +19,31 @@ DiligentDevice::~DiligentDevice() noexcept {
     if (_context)    { _context->Flush(); _context->Release(); _context = nullptr; }
     if (_device)     { _device->Release();  _device  = nullptr; }
     if (_factory)    { _factory->Release(); _factory = nullptr; }
+#if WITH_RENDER_DILIGENT_VULKAN
+    if (_factory_vk) { _factory_vk->Release(); _factory_vk = nullptr; }
+#endif
+    _factory_generic = nullptr;
 }
 
 Result<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
-    // EngineFactoryD3D12 を取得
+    // バックエンドの選択
+    RhiBackendKind kind = cfg.backend;
+    if (kind == RhiBackendKind::Auto) kind = RhiBackendKind::D3D12;
+
+#if WITH_RENDER_DILIGENT_VULKAN
+    if (kind == RhiBackendKind::Vulkan) {
+        return InitVulkan(cfg);
+    }
+#else
+    if (kind == RhiBackendKind::Vulkan) {
+        ACS_LOG_ERROR("Diligent: Vulkan backend requested but WITH_RENDER_DILIGENT_VULKAN=0");
+        return ACS_ERR(Render, 99, "Vulkan backend not built");
+    }
+#endif
+    return InitD3D12(cfg);
+}
+
+Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     auto* GetFactory = Diligent::LoadGraphicsEngineD3D12();
     if (!GetFactory) {
         ACS_LOG_ERROR("Diligent: LoadGraphicsEngineD3D12 returned null");
@@ -34,8 +55,10 @@ Result<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
         return ACS_ERR(Render, 101, "GetEngineFactoryD3D12 failed");
     }
     _factory->AddRef();
+    _factory_generic = _factory;
+    _actual_backend  = RhiBackendKind::D3D12;
+    _backend_name    = "Diligent-D3D12";
 
-    // 作成情報
     Diligent::EngineD3D12CreateInfo eci{};
     eci.GraphicsAPIVersion = {12, 0};
     if (cfg.enable_debug_layer) {
@@ -43,14 +66,11 @@ Result<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
     }
     eci.NumDeferredContexts = 0;
 
-    // ACS の Memory モジュールを Diligent の内部アロケータとして使う
-    // （MemorySystem::Get(Segment::Resource) → 描画リソース系の確保が ACS 経路を通る）
     if (auto* mem_seg = MemorySystem::Get(Segment::Resource)) {
         eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
             DiligentMemoryAdapter::Create(mem_seg));
     }
 
-    // アダプタ列挙して prefer_high_perf に従って選択
     Diligent::Uint32 num_adapters = 0;
     _factory->EnumerateAdapters(eci.GraphicsAPIVersion, num_adapters, nullptr);
     if (num_adapters == 0) {
@@ -71,24 +91,86 @@ Result<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
     std::strncpy(_adapter_name, adapters[selected].Description, sizeof(_adapter_name) - 1);
     _adapter_name[sizeof(_adapter_name) - 1] = 0;
 
-    // デバイス + 即時コンテキスト作成
     _factory->CreateDeviceAndContextsD3D12(eci, &_device, &_context);
     if (!_device || !_context) {
         ACS_LOG_ERROR("Diligent: CreateDeviceAndContextsD3D12 failed");
         return ACS_ERR(Render, 103, "CreateDeviceAndContextsD3D12 failed");
     }
 
-    // 待機用 Fence を作る
     Diligent::FenceDesc fd;
     fd.Name = "ACS_DiligentDevice_IdleFence";
     fd.Type = Diligent::FENCE_TYPE_GENERAL;
     _device->CreateFence(fd, &_idle_fence);
-    if (!_idle_fence) {
-        ACS_LOG_WARN("Diligent: CreateFence for idle returned null (WaitIdle will fall back to Flush)");
+
+    ACS_LOG_INFO("Diligent D3D12 device created: %s", _adapter_name);
+    return Ok();
+}
+
+Result<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
+#if WITH_RENDER_DILIGENT_VULKAN
+    auto* GetFactory = Diligent::LoadGraphicsEngineVk();
+    if (!GetFactory) {
+        ACS_LOG_ERROR("Diligent: LoadGraphicsEngineVk returned null");
+        return ACS_ERR(Render, 110, "LoadGraphicsEngineVk failed");
+    }
+    _factory_vk = GetFactory();
+    if (!_factory_vk) {
+        ACS_LOG_ERROR("Diligent: GetEngineFactoryVk returned null");
+        return ACS_ERR(Render, 111, "GetEngineFactoryVk failed");
+    }
+    _factory_vk->AddRef();
+    _factory_generic = _factory_vk;
+    _actual_backend  = RhiBackendKind::Vulkan;
+    _backend_name    = "Diligent-Vulkan";
+
+    Diligent::EngineVkCreateInfo eci{};
+    if (cfg.enable_debug_layer) {
+        eci.EnableValidation = true;
+    }
+    eci.NumDeferredContexts = 0;
+
+    if (auto* mem_seg = MemorySystem::Get(Segment::Resource)) {
+        eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
+            DiligentMemoryAdapter::Create(mem_seg));
     }
 
-    ACS_LOG_INFO("Diligent device created: %s", _adapter_name);
+    Diligent::Uint32 num_adapters = 0;
+    _factory_vk->EnumerateAdapters({}, num_adapters, nullptr);
+    if (num_adapters == 0) {
+        ACS_LOG_ERROR("Diligent: No Vulkan adapter found");
+        return ACS_ERR(Render, 112, "No Vulkan adapter");
+    }
+    constexpr Diligent::Uint32 kMaxAdapters = 8;
+    Diligent::GraphicsAdapterInfo adapters[kMaxAdapters]{};
+    Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;
+    _factory_vk->EnumerateAdapters({}, enumerate, adapters);
+    Diligent::Uint32 selected = 0;
+    if (cfg.prefer_high_perf) {
+        for (Diligent::Uint32 i = 0; i < enumerate; ++i) {
+            if (adapters[i].Type == Diligent::ADAPTER_TYPE_DISCRETE) { selected = i; break; }
+        }
+    }
+    eci.AdapterId = selected;
+    std::strncpy(_adapter_name, adapters[selected].Description, sizeof(_adapter_name) - 1);
+    _adapter_name[sizeof(_adapter_name) - 1] = 0;
+
+    _factory_vk->CreateDeviceAndContextsVk(eci, &_device, &_context);
+    if (!_device || !_context) {
+        ACS_LOG_ERROR("Diligent: CreateDeviceAndContextsVk failed");
+        return ACS_ERR(Render, 113, "CreateDeviceAndContextsVk failed");
+    }
+
+    Diligent::FenceDesc fd;
+    fd.Name = "ACS_DiligentDevice_IdleFence";
+    fd.Type = Diligent::FENCE_TYPE_GENERAL;
+    _device->CreateFence(fd, &_idle_fence);
+
+    ACS_LOG_INFO("Diligent Vulkan device created: %s", _adapter_name);
     return Ok();
+#else
+    (void)cfg;
+    return ACS_ERR(Render, 114, "Vulkan backend not built (WITH_RENDER_DILIGENT_VULKAN=0)");
+#endif
 }
 
 void DiligentDevice::WaitIdle() noexcept {

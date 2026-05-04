@@ -92,9 +92,14 @@ function(acs_third_party_diligent)
     endif()
 
     # Diligent 内のデフォルトを ACS 向けに上書き（FetchContent 前に設定する必要あり）
+    # ACS_DILIGENT_VULKAN=ON のときだけ Vulkan バックエンドも一緒にビルドする。
     if(WIN32)
         set(DILIGENT_NO_OPENGL    ON  CACHE BOOL "" FORCE)
-        set(DILIGENT_NO_VULKAN    ON  CACHE BOOL "" FORCE)  # 将来 ON にする
+        if(ACS_DILIGENT_VULKAN)
+            set(DILIGENT_NO_VULKAN OFF CACHE BOOL "" FORCE)
+        else()
+            set(DILIGENT_NO_VULKAN ON  CACHE BOOL "" FORCE)
+        endif()
         set(DILIGENT_NO_DIRECT3D11 ON CACHE BOOL "" FORCE)
         set(DILIGENT_NO_METAL     ON  CACHE BOOL "" FORCE)
         set(DILIGENT_NO_WEBGPU    ON  CACHE BOOL "" FORCE)
@@ -145,6 +150,11 @@ function(acs_third_party_diligent)
         Diligent-GraphicsTools
         Diligent-ShaderTools
     )
+    if(ACS_DILIGENT_VULKAN)
+        target_link_libraries(acs_third_party_diligent_core INTERFACE
+            Diligent-GraphicsEngineVk-static
+        )
+    endif()
     target_include_directories(acs_third_party_diligent_core INTERFACE
         "${acs_diligent_core_SOURCE_DIR}"
         "${acs_diligent_core_SOURCE_DIR}/Graphics/GraphicsEngine/interface"
