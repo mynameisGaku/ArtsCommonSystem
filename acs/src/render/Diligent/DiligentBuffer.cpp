@@ -22,7 +22,12 @@ Diligent::BIND_FLAGS BindFromUsage(BufferUsage u) noexcept {
         case BufferUsage::Index16:  return Diligent::BIND_INDEX_BUFFER;
         case BufferUsage::Index32:  return Diligent::BIND_INDEX_BUFFER;
         case BufferUsage::Uniform:  return Diligent::BIND_UNIFORM_BUFFER;
-        case BufferUsage::Storage:  return Diligent::BIND_UNORDERED_ACCESS;
+        // structured buffer: compute / pixel shader で SRV としても UAV と
+        // しても使えるように両 bind flag を立てる。Diligent の state tracker
+        // が SRV ↔ UAV 遷移を自動で扱ってくれる。
+        case BufferUsage::Storage:  return static_cast<Diligent::BIND_FLAGS>(
+                                       Diligent::BIND_UNORDERED_ACCESS |
+                                       Diligent::BIND_SHADER_RESOURCE);
         case BufferUsage::Staging:  return Diligent::BIND_NONE;
     }
     return Diligent::BIND_NONE;

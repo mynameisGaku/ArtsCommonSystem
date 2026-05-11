@@ -60,40 +60,21 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
         return ACS_ERR(Render, 151, "DiligentPipeline: VS missing");
     }
 
-    // PipelineDesc.cbuffer_names / texture_names が未指定の slot を shader
-    // reflection で補完する。ACS の slot 番号 (b0, b1, ...) と shader 内の
-    // declaration 順序が一致する想定 (HLSL は宣言順 = register slot 順が
-    // 典型)。VS と PS の resource を名前で union して unique 名を slot 順
-    // に格納する。これにより HelloMesh 等の独自 shader sample で
-    // pd.cbuffer_names[0] = "Frame" を明示しなくても自動で binding 解決。
-    {
-        const char* cb_auto[kMaxResourceSlots] = {};
-        const char* tex_auto[kMaxResourceSlots] = {};
-        u32 cb_cnt = 0, tex_cnt = 0;
-        auto add_unique = [](const char* arr[], u32& cnt, const char* name) {
-            for (u32 i = 0; i < cnt; ++i) {
-                if (arr[i] && name && std::strcmp(arr[i], name) == 0) return;
-            }
-            if (cnt < kMaxResourceSlots) arr[cnt++] = name;
-        };
-        auto visit = [&](DiligentShader* sh) {
-            if (!sh || !sh->Native()) return;
-            auto* n = sh->Native();
-            Diligent::Uint32 rc = n->GetResourceCount();
-            for (Diligent::Uint32 i = 0; i < rc; ++i) {
-                Diligent::ShaderResourceDesc rd;
-                n->GetResourceDesc(i, rd);
-                if (rd.Type == Diligent::SHADER_RESOURCE_TYPE_CONSTANT_BUFFER) {
-                    add_unique(cb_auto, cb_cnt, rd.Name);
-                } else if (rd.Type == Diligent::SHADER_RESOURCE_TYPE_TEXTURE_SRV) {
-                    add_unique(tex_auto, tex_cnt, rd.Name);
-                }
-            }
-        };
-        visit(vs); visit(ps);
-        for (u32 i = 0; i < kMaxResourceSlots; ++i) {
-            if (!_cb_names[i]  && cb_auto[i])  _cb_names[i]  = cb_auto[i];
-            if (!_tex_names[i] && tex_auto[i]) _tex_names[i] = tex_auto[i];
+    // PipelineDesc.cbuffer_names / texture_names が未指定の slot を、shader
+    // が source parse して保持してる register(bN/tN) → 名前マッピングから
+    // 補完する。VS と PS で同 slot に異なる名前がある場合は VS を優先 (ACS
+    // 慣行: VS / PS で同じ cbuffer を共有)。Diligent::ShaderResourceDesc に
+    // BindPoint が無い問題を回避し、HLSL declaration 順依存を消す。
+    for (u32 i = 0; i < kMaxResourceSlots && i < DiligentShader::kMaxSlots; ++i) {
+        if (!_cb_names[i]) {
+            const char* n = vs->CbufferNameAt(i);
+            if (!n && ps) n = ps->CbufferNameAt(i);
+            if (n) _cb_names[i] = n;
+        }
+        if (!_tex_names[i]) {
+            const char* n = ps ? ps->TextureNameAt(i) : nullptr;
+            if (!n) n = vs->TextureNameAt(i);
+            if (n) _tex_names[i] = n;
         }
     }
     // PS は depth-only pass (ShadowMap 等) で null OK。NumRenderTargets=0、
@@ -116,13 +97,14 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     gp.PrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
     gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
-    // Diligent は swapchain への描画時に Y-flip 相当の補正が入る (vulkan/gl と
-    // d3d で NDC が違うのを吸収する側面)。その影響で色 pass (PS あり) では
-    // triangle winding sense が D3D raw と逆になる → CCW=front にする。
-    // shadow / depth-only pass (PS なし) は内部 texture へ書くため Y-flip
-    // 補正の影響を受けず、D3D 既定の CW=front のまま使う。
-    // 症状: false 固定にすると色 pass で法線が逆に見える / true 固定にすると
-    // shadow pass で全 pixel が影判定になり真っ黒になる。
+    // 経験的に: 色 pass (PS あり) で `true`、depth-only (PS なし) で `false`
+    // にすると ACS sample 群 (HelloLights / Bloom / Shadows / Sky / Mesh ...)
+    // で正しい winding になる。Diligent の D3D12 backend が swap chain / RT
+    // 種別で内部的に何か変換してると推測。
+    // 注: HelloBloom の off-screen HDR RT (PS あり、has_ps=true) も `true`
+    // で正常動作。off-screen color RT で誤動作する suspected ケースは現状
+    // 未観測。将来 RT 種別ごとに分けたくなったら PipelineDesc に
+    // `target_kind = Swapchain/OffscreenColor/Depth` を追加する。
     gp.RasterizerDesc.FrontCounterClockwise = has_ps;
     gp.DepthStencilDesc.DepthEnable = desc.depth_test && desc.depth_format != Format::Unknown;
     gp.DepthStencilDesc.DepthWriteEnable = desc.depth_write;
