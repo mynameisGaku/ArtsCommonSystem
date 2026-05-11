@@ -156,6 +156,7 @@ public:
         pd.depth_write   = true;
         pd.cull_mode     = CullMode::Back;
         pd.cbuffer_slots = 1;       // b0 = MVP
+        pd.cbuffer_names[0] = "Frame";  // Diligent では cbuffer 名で resolve するため必須
         pd.vertex_stride = sizeof(Vertex);
         pd.layout[0] = { "POSITION", 0, Format::R32G32B32_Float, 0 };
         pd.layout[1] = { "COLOR",    0, Format::R32G32B32_Float, sizeof(f32) * 3 };

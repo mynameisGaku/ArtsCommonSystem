@@ -8,6 +8,8 @@
 #include "render/Diligent/DiligentShader.h"
 #include "foundation/Log.h"
 
+#include <cstring>
+
 namespace acs {
 
 namespace {
@@ -56,6 +58,43 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     auto* ps = static_cast<DiligentShader*>(desc.ps);
     if (!vs || !vs->Native()) {
         return ACS_ERR(Render, 151, "DiligentPipeline: VS missing");
+    }
+
+    // PipelineDesc.cbuffer_names / texture_names が未指定の slot を shader
+    // reflection で補完する。ACS の slot 番号 (b0, b1, ...) と shader 内の
+    // declaration 順序が一致する想定 (HLSL は宣言順 = register slot 順が
+    // 典型)。VS と PS の resource を名前で union して unique 名を slot 順
+    // に格納する。これにより HelloMesh 等の独自 shader sample で
+    // pd.cbuffer_names[0] = "Frame" を明示しなくても自動で binding 解決。
+    {
+        const char* cb_auto[kMaxResourceSlots] = {};
+        const char* tex_auto[kMaxResourceSlots] = {};
+        u32 cb_cnt = 0, tex_cnt = 0;
+        auto add_unique = [](const char* arr[], u32& cnt, const char* name) {
+            for (u32 i = 0; i < cnt; ++i) {
+                if (arr[i] && name && std::strcmp(arr[i], name) == 0) return;
+            }
+            if (cnt < kMaxResourceSlots) arr[cnt++] = name;
+        };
+        auto visit = [&](DiligentShader* sh) {
+            if (!sh || !sh->Native()) return;
+            auto* n = sh->Native();
+            Diligent::Uint32 rc = n->GetResourceCount();
+            for (Diligent::Uint32 i = 0; i < rc; ++i) {
+                Diligent::ShaderResourceDesc rd;
+                n->GetResourceDesc(i, rd);
+                if (rd.Type == Diligent::SHADER_RESOURCE_TYPE_CONSTANT_BUFFER) {
+                    add_unique(cb_auto, cb_cnt, rd.Name);
+                } else if (rd.Type == Diligent::SHADER_RESOURCE_TYPE_TEXTURE_SRV) {
+                    add_unique(tex_auto, tex_cnt, rd.Name);
+                }
+            }
+        };
+        visit(vs); visit(ps);
+        for (u32 i = 0; i < kMaxResourceSlots; ++i) {
+            if (!_cb_names[i]  && cb_auto[i])  _cb_names[i]  = cb_auto[i];
+            if (!_tex_names[i] && tex_auto[i]) _tex_names[i] = tex_auto[i];
+        }
     }
     // PS は depth-only pass (ShadowMap 等) で null OK。NumRenderTargets=0、
     // RTVFormats[0]=UNKNOWN にして PSO 作成する。
