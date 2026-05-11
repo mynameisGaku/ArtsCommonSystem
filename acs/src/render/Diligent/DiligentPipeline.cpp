@@ -71,7 +71,12 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     gp.PrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
     gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
-    gp.RasterizerDesc.FrontCounterClockwise = false;
+    // Diligent は Vulkan 互換のため projection matrix の Y を内部 flip する
+    // (DX12 raw とは異なる)。それに伴い triangle winding の sense も反転する
+    // 必要がある: D3D 直叩きでは "CW = front" でも、Diligent 経由では
+    // "CCW = front" にしないと back-face が camera 側に来てしまう。
+    // 症状: 面の法線が逆に見える / 内側が照らされる。
+    gp.RasterizerDesc.FrontCounterClockwise = true;
     gp.DepthStencilDesc.DepthEnable = desc.depth_test && desc.depth_format != Format::Unknown;
     gp.DepthStencilDesc.DepthWriteEnable = desc.depth_write;
     gp.DepthStencilDesc.DepthFunc   = Diligent::COMPARISON_FUNC_LESS_EQUAL;
@@ -83,15 +88,24 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     psoCI.pPS = ps->Native();
 
     // 入力レイアウト（最大 8 要素）
+    // Diligent の InputIndex は D3D12 では HLSL semantic index と一致しないと
+    // PSO 作成が失敗する (例: POSITION0/NORMAL0/TEXCOORD0 → 全て 0)。
+    // ACS は ACS::InputElement::semantic_index を持つのでそれを使う。
     Diligent::LayoutElement layout[8]{};
     for (u32 i = 0; i < desc.layout_count && i < 8; ++i) {
         const auto& e = desc.layout[i];
-        layout[i].InputIndex      = i;
+        layout[i].InputIndex      = e.semantic_index;
         layout[i].BufferSlot      = 0;
         layout[i].NumComponents   = 0;
         layout[i].ValueType       = Diligent::VT_FLOAT32;
         layout[i].IsNormalized    = false;
         layout[i].RelativeOffset  = e.offset;
+        // Stride = 1 頂点全体のサイズ。各 LayoutElement で同じ buffer slot (=0)
+        // を共有する場合、すべて同じ値を入れる。0 のままだと Diligent は要素
+        // の sum で auto 計算するが、MeshVertex に tangent/color 等の余分が
+        // ある場合に実 stride と食い違い、後続頂点が誤 offset で読まれて
+        // ジオメトリが破壊される。
+        layout[i].Stride          = desc.vertex_stride;
         layout[i].HLSLSemantic    = e.semantic_name ? e.semantic_name : "POSITION";
 
         switch (e.format) {

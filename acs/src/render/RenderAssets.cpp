@@ -55,7 +55,7 @@ Result<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out)
     BufferDesc vb_desc{};
     vb_desc.size  = mesh.Vertices().Size() * sizeof(MeshVertex);
     vb_desc.usage = BufferUsage::Vertex;
-    vb_desc.cpu_writable = true;          // v1: アップロードヒープに永続マップで簡易対応
+    vb_desc.cpu_writable = false;         // 静的 mesh は USAGE_IMMUTABLE で扱う
     vb_desc.initial_data = mesh.Vertices().Data();
     auto vbr = CreateRhiBuffer(device, vb_desc);
     if (vbr.IsErr()) return Err<void>(vbr.Error());
@@ -68,7 +68,7 @@ Result<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out)
         BufferDesc ib_desc{};
         ib_desc.size  = mesh.Indices().Size() * sizeof(u32);
         ib_desc.usage = BufferUsage::Index32;
-        ib_desc.cpu_writable = true;
+        ib_desc.cpu_writable = false;     // 静的 mesh は USAGE_IMMUTABLE
         ib_desc.initial_data = mesh.Indices().Data();
         auto ibr = CreateRhiBuffer(device, ib_desc);
         if (ibr.IsErr()) return Err<void>(ibr.Error());
@@ -86,7 +86,7 @@ Result<void> UploadSkinnedMesh(IRhiDevice& device, const SkinnedMeshAsset& mesh,
     BufferDesc vb{};
     vb.size = mesh.Vertices().Size() * sizeof(SkinnedVertex);
     vb.usage = BufferUsage::Vertex;
-    vb.cpu_writable = true;
+    vb.cpu_writable = false;          // 静的 mesh は USAGE_IMMUTABLE
     vb.initial_data = mesh.Vertices().Data();
     auto vbr = CreateRhiBuffer(device, vb);
     if (vbr.IsErr()) return Err<void>(vbr.Error());
@@ -98,7 +98,7 @@ Result<void> UploadSkinnedMesh(IRhiDevice& device, const SkinnedMeshAsset& mesh,
         BufferDesc ib{};
         ib.size = mesh.Indices().Size() * sizeof(u32);
         ib.usage = BufferUsage::Index32;
-        ib.cpu_writable = true;
+        ib.cpu_writable = false;      // 静的 mesh は USAGE_IMMUTABLE
         ib.initial_data = mesh.Indices().Data();
         auto ibr = CreateRhiBuffer(device, ib);
         if (ibr.IsErr()) return Err<void>(ibr.Error());

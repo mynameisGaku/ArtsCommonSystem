@@ -30,11 +30,15 @@ Result<void> DiligentShader::Init(DiligentDevice& device, const ShaderDesc& desc
     sci.EntryPoint     = desc.entry_point ? desc.entry_point : "main";
 
     // Diligent 新版で UseCombinedTextureSamplers / CombinedSamplerSuffix は
-    // ShaderCreateInfo から ShaderDesc に移動した
+    // ShaderCreateInfo から ShaderDesc に移動した。
+    // true にすると Diligent が <texture>_sampler 名で sampler を自動紐付け
+    // するので、PSO 側の ImmutableSamplerDesc::SamplerOrTextureName に
+    // テクスチャ名 ("albedo" 等) を渡すだけで sampler binding が成立する。
+    // (D3D12 でも HLSL は分離宣言のまま、紐付けの abstraction)
     Diligent::ShaderDesc sd;
     sd.Name                       = desc.debug_name ? desc.debug_name : "ACS_Shader";
     sd.ShaderType                 = diligent_detail::ToDiligent(desc.stage);
-    sd.UseCombinedTextureSamplers = true;  // OpenGL/Vulkan で必要
+    sd.UseCombinedTextureSamplers = true;
     sd.CombinedSamplerSuffix      = "_sampler";
     sci.Desc                      = sd;
 

@@ -51,6 +51,12 @@ Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
         ACS_LOG_ERROR("Diligent: GetEngineFactoryD3D12 returned null");
         return ACS_ERR(Render, 101, "GetEngineFactoryD3D12 failed");
     }
+    // 新版 Diligent は d3d12.dll の明示ロードが必要。EnumerateAdapters の前に呼ぶ
+    // (CreateDeviceAndContextsD3D12 は内部で auto-load するが、EnumerateAdapters は手動)
+    if (!_factory->LoadD3D12()) {
+        ACS_LOG_ERROR("Diligent: LoadD3D12 failed (d3d12.dll not found?)");
+        return ACS_ERR(Render, 104, "LoadD3D12 failed");
+    }
     _factory->AddRef();
     _factory_generic = _factory;
     _actual_backend  = RhiBackendKind::D3D12;
@@ -58,15 +64,20 @@ Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
 
     Diligent::EngineD3D12CreateInfo eci{};
     eci.GraphicsAPIVersion = {12, 0};
-    if (cfg.enable_debug_layer) {
-        eci.EnableValidation = true;
-    }
+    // PSO 作成失敗デバッグ中。production は cfg.enable_debug_layer に戻す
+    eci.EnableValidation = true;
     eci.NumDeferredContexts = 0;
 
-    if (auto* mem_seg = MemorySystem::Get(Segment::Resource)) {
-        eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
-            DiligentMemoryAdapter::Create(mem_seg));
-    }
+    // TODO: カスタムアロケータ (DiligentMemoryAdapter→TLSF) を注入すると
+    // 初期化中に TLSF 内部で access violation。Diligent の allocation pattern
+    // (高頻度 alloc/free + 多サイズ) に TLSF 側の thread-safety か境界処理が
+    // 追いついていない疑い。当面は Diligent の default allocator (malloc/free
+    // ベース) に任せる。性能計測したくなったら Allocator 側を直してから戻す。
+    // 旧コード:
+    // if (auto* mem_seg = MemorySystem::Get(Segment::Resource)) {
+    //     eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
+    //         DiligentMemoryAdapter::Create(mem_seg));
+    // }
 
     Diligent::Uint32 num_adapters = 0;
     _factory->EnumerateAdapters(eci.GraphicsAPIVersion, num_adapters, nullptr);

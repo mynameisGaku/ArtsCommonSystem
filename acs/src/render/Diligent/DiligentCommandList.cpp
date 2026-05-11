@@ -223,7 +223,11 @@ void DiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
     Diligent::DrawAttribs da;
     da.NumVertices  = vertex_count;
     da.StartVertexLocation = first_vertex;
-    da.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+    // SetVertexBuffers / SetIndexBuffer / CommitShaderResources を TRANSITION
+    // モードで呼んでいるので resource state は自動遷移済。VERIFY_STATES は
+    // 「事前 state チェック」で false positive を出す (実遷移より前に検査)
+    // ため、production では NONE を使う。
+    da.Flags = Diligent::DRAW_FLAG_NONE;
     ctx->Draw(da);
 }
 
@@ -240,7 +244,7 @@ void DiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base
     dia.IndexType    = _is_index32 ? Diligent::VT_UINT32 : Diligent::VT_UINT16;
     dia.FirstIndexLocation = first_index;
     dia.BaseVertex   = base_vertex;
-    dia.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+    dia.Flags = Diligent::DRAW_FLAG_NONE;
     ctx->DrawIndexed(dia);
 }
 

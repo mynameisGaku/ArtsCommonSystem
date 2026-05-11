@@ -33,27 +33,37 @@ Result<void> DiligentBuffer::Init(DiligentDevice& device, const BufferDesc& desc
     _device  = &device;
     _size    = desc.size;
     _usage   = desc.usage;
-    _dynamic = desc.cpu_writable;
 
     auto* dev = device.RenderDev();
     if (!dev) return ACS_ERR(Render, 120, "DiligentBuffer: device not initialized");
 
     Diligent::BufferDesc bd;
-    bd.Name           = "ACS_Buffer";
-    bd.Size           = static_cast<Diligent::Uint64>(desc.size);
-    bd.BindFlags      = BindFromUsage(desc.usage);
-    bd.Usage          = desc.cpu_writable ? Diligent::USAGE_DYNAMIC : Diligent::USAGE_DEFAULT;
-    bd.CPUAccessFlags = desc.cpu_writable ? Diligent::CPU_ACCESS_WRITE : Diligent::CPU_ACCESS_NONE;
+    bd.Name      = "ACS_Buffer";
+    bd.Size      = static_cast<Diligent::Uint64>(desc.size);
+    bd.BindFlags = BindFromUsage(desc.usage);
+
     if (desc.usage == BufferUsage::Staging) {
+        // CPU 読み戻し用
         bd.Usage          = Diligent::USAGE_STAGING;
         bd.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+    } else if (!desc.cpu_writable && desc.initial_data) {
+        // 静的データ (vertex/index for static mesh 等): IMMUTABLE で作って
+        // 以後 read-only。CreateBuffer 時に初期データ流し込み、re-update 不可。
+        // Diligent の resource state tracker が正しく VERTEX_BUFFER/INDEX_BUFFER
+        // 状態に置いてくれるので、後の Draw で COPY_DEST 状態残り問題が起きない。
+        bd.Usage          = Diligent::USAGE_IMMUTABLE;
+        bd.CPUAccessFlags = Diligent::CPU_ACCESS_NONE;
+    } else {
+        // 動的更新する constant buffer 等は USAGE_DEFAULT + UpdateBuffer 経路。
+        // (USAGE_DYNAMIC はフレーム末で破棄されるので vertex/index には使わない)
+        bd.Usage          = Diligent::USAGE_DEFAULT;
+        bd.CPUAccessFlags = Diligent::CPU_ACCESS_NONE;
     }
 
     Diligent::BufferData  bdata;
     Diligent::BufferData* p_init = nullptr;
     if (desc.initial_data && desc.size > 0 &&
-        bd.Usage != Diligent::USAGE_DYNAMIC &&
-        bd.Usage != Diligent::USAGE_STAGING) {
+        (bd.Usage == Diligent::USAGE_DEFAULT || bd.Usage == Diligent::USAGE_IMMUTABLE)) {
         bdata.pData    = desc.initial_data;
         bdata.DataSize = static_cast<Diligent::Uint64>(desc.size);
         p_init = &bdata;
@@ -64,9 +74,8 @@ Result<void> DiligentBuffer::Init(DiligentDevice& device, const BufferDesc& desc
         return ACS_ERR(Render, 121, "CreateBuffer failed");
     }
 
-    // dynamic + 初期データの場合は Update で書き込み
-    if (desc.initial_data && desc.size > 0 &&
-        (bd.Usage == Diligent::USAGE_DYNAMIC || bd.Usage == Diligent::USAGE_STAGING)) {
+    // STAGING は別途 Update で書く (USAGE_DEFAULT は CreateBuffer 時に流し込み済)
+    if (desc.initial_data && desc.size > 0 && bd.Usage == Diligent::USAGE_STAGING) {
         Update(desc.initial_data, desc.size, 0);
     }
 
@@ -78,7 +87,8 @@ void DiligentBuffer::Update(const void* data, usize size, usize offset) noexcept
     auto* ctx = _device->Context();
     if (!ctx) return;
 
-    if (_dynamic) {
+    // USAGE_DEFAULT は UpdateBuffer、USAGE_STAGING は Map で書く
+    if (_usage == BufferUsage::Staging) {
         void* p = nullptr;
         ctx->MapBuffer(_buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, p);
         if (p) {

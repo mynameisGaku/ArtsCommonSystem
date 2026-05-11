@@ -35,7 +35,6 @@ private:
     Diligent::IBuffer* _buffer = nullptr;
     usize              _size   = 0;
     BufferUsage        _usage  = BufferUsage::Vertex;
-    bool               _dynamic = false;
 };
 
 } // namespace acs

@@ -72,9 +72,12 @@ public:
     }
 
     void OnShutdown() noexcept override {
-        _hp_label_binder.Reset();
-        _hp_text_binder.Reset();
-        _root.Reset();
+        // Binder と _root (Widget tree) は member 宣言順の自動破棄に任せる:
+        //   ・declaration order: _root → ... → _hp_*_binder (binder 系が後)
+        //   ・dtor order は declaration order の REVERSE → binder が先に死ぬ
+        //   ・→ Binder::~ が Observable::Unsubscribe する時点で Observable は生きてる
+        // ここで明示的に _root.Reset() すると Observable<f32>::value 等が先に死に、
+        // 後の binder の ~ が dangling pointer を叩いて AV する。
         _ui.Shutdown();
         _font.Shutdown();
     }
