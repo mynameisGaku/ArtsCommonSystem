@@ -148,7 +148,29 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
 }
 
 void DiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
-    // Diligent は次の SetTexture で自動 SHADER_RESOURCE 遷移するので何もしない
+    // RT texture の RTV → SRV 遷移は Diligent が次の SetTexture で自動。
+    // ただし RT 復帰はやってくれないので、main pass に戻したいときは
+    // BeginRenderToSwapchain で記憶した swap chain RTV + main pass DSV +
+    // viewport を再 bind する (EndShadowPass と同じパターン)。
+    // 復帰先が無い場合 (= フレーム冒頭の swap chain bind 前 等) は noop。
+    if (!_device || !_main_swapchain) return;
+    auto* ctx = _device->Context();
+    if (!ctx) return;
+    auto* swap = _main_swapchain->SwapChain();
+    if (!swap) return;
+    auto* rtv = swap->GetCurrentBackBufferRTV();
+    auto* dsv = _main_depth ? _main_depth->DsvView() : nullptr;
+    Diligent::ITextureView* rtvs[1] = { rtv };
+    ctx->SetRenderTargets(1, rtvs, dsv,
+                          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    Viewport vp;
+    vp.width  = static_cast<f32>(_main_swapchain->Width());
+    vp.height = static_cast<f32>(_main_swapchain->Height());
+    SetViewport(vp);
+    ScissorRect sr;
+    sr.right  = static_cast<i32>(_main_swapchain->Width());
+    sr.bottom = static_cast<i32>(_main_swapchain->Height());
+    SetScissor(sr);
 }
 
 void DiligentCommandList::SetViewport(const Viewport& vp) noexcept {
