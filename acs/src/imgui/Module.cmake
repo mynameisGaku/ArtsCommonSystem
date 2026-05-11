@@ -1,5 +1,14 @@
 include(FetchContent)
 
+# acs_imgui module は ImGuiContext で ImGui_ImplDX12_* を直叩きしているため
+# DX12 raw backend が無効なビルドでは module 全体を skip する。
+# Phase 30+ で Diligent backend 用の ImGui integration を追加したら、ここの
+# ガードを「DX12 OR Diligent ImGui」に広げる予定。
+if(NOT ACS_RENDER_DX12_RAW)
+    message(STATUS "acs_imgui: ACS_RENDER_DX12_RAW=OFF のため module を skip")
+    return()
+endif()
+
 # ImGui を取得（公式リポジトリから docking ブランチ）
 FetchContent_Declare(
     imgui_src

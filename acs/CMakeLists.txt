@@ -50,7 +50,11 @@ endif()
 if(ACS_BUILD_SAMPLES)
     add_subdirectory(samples/HelloWindow)
     add_subdirectory(samples/HelloTriangle)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloImGui/CMakeLists.txt")
+    # ImGui sample / MVVM sample (ImGui adapter 経由) は acs_imgui module が
+    # DX12 raw backend 直叩き実装のため、Diligent 単独ビルドだとリンクエラー
+    # (ImGui_ImplDX12_Init 等が未解決)。Phase 30+ で Diligent 用 ImGui backend
+    # を整備するまで Diligent build からは除外する。両方有効ビルドは OK。
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloImGui/CMakeLists.txt" AND ACS_RENDER_DX12_RAW)
         add_subdirectory(samples/HelloImGui)
     endif()
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloAudio/CMakeLists.txt")
@@ -105,7 +109,9 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DILIGENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloBloom/CMakeLists.txt")
         add_subdirectory(samples/HelloBloom)
     endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloMVVM/CMakeLists.txt")
+    # HelloMVVM は acs_imgui を依存に持つため HelloImGui と同じく
+    # Diligent 単独 build からは除外する。
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloMVVM/CMakeLists.txt" AND ACS_RENDER_DX12_RAW)
         add_subdirectory(samples/HelloMVVM)
     endif()
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloECS/CMakeLists.txt")

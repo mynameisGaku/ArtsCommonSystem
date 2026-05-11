@@ -11,8 +11,10 @@ set(_acs_mvvm_headers
 )
 set(_acs_mvvm_public_deps Foundation Memory Container Math Threading)
 
-# ImGui アダプタは ACS_MVVM_IMGUI_BINDINGS が ON のときだけ追加
-if(ACS_MVVM_IMGUI_BINDINGS)
+# ImGui アダプタは ACS_MVVM_IMGUI_BINDINGS が ON かつ Imgui module が build
+# 可能 (= ACS_RENDER_DX12_RAW=ON) のときだけ追加。Diligent 単独 build では
+# Imgui module が skip されるので自動で外す。
+if(ACS_MVVM_IMGUI_BINDINGS AND ACS_RENDER_DX12_RAW)
     list(APPEND _acs_mvvm_sources ImguiBindings.cpp)
     list(APPEND _acs_mvvm_headers ImguiBindings.h)
     list(APPEND _acs_mvvm_public_deps Imgui)
