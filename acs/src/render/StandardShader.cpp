@@ -66,25 +66,30 @@ VSOut VSMain(VSIn v) {
     return o;
 }
 
-// シャドウ係数: 1=完全に光が当たる、0=影、PCF で中間値
+// シャドウ係数: 1=完全に光が当たる、0=影、PCF で中間値。
+// single-return で FXC X4000 (potentially uninitialized) 警告を回避。
 float ComputeShadow(float3 world_p) {
-    if (shadow_params.y < 0.5) return 1.0;     // 無効化
-    float4 lp = mul(float4(world_p, 1.0), light_view_proj);
-    float3 ndc = lp.xyz / lp.w;
-    if (ndc.x < -1.0 || ndc.x > 1.0 ||
-        ndc.y < -1.0 || ndc.y > 1.0 ||
-        ndc.z <  0.0 || ndc.z > 1.0) return 1.0;
-    float2 uv = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
-    float my_d = ndc.z;
-    float bias = shadow_params.x;
-    float ts   = shadow_params.z;
-    // 4-tap PCF
-    float lit = 0;
-    lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-    lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-    lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-    lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-    return lit * 0.25;
+    float result = 1.0;
+    if (shadow_params.y >= 0.5) {
+        float4 lp = mul(float4(world_p, 1.0), light_view_proj);
+        float3 ndc = lp.xyz / lp.w;
+        if (ndc.x >= -1.0 && ndc.x <= 1.0 &&
+            ndc.y >= -1.0 && ndc.y <= 1.0 &&
+            ndc.z >=  0.0 && ndc.z <= 1.0) {
+            float2 uv  = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
+            float my_d = ndc.z;
+            float bias = shadow_params.x;
+            float ts   = shadow_params.z;
+            // 4-tap PCF
+            float lit = 0;
+            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
+            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
+            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
+            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
+            result = lit * 0.25;
+        }
+    }
+    return result;
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {

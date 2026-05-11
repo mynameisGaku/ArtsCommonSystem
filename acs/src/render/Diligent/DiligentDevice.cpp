@@ -64,8 +64,7 @@ Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
 
     Diligent::EngineD3D12CreateInfo eci{};
     eci.GraphicsAPIVersion = {12, 0};
-    // PSO 作成失敗デバッグ中。production は cfg.enable_debug_layer に戻す
-    eci.EnableValidation = true;
+    eci.EnableValidation = cfg.enable_debug_layer;
     eci.NumDeferredContexts = 0;
 
     // TODO: カスタムアロケータ (DiligentMemoryAdapter→TLSF) を注入すると
