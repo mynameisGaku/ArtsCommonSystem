@@ -54,29 +54,37 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
 
     auto* vs = static_cast<DiligentShader*>(desc.vs);
     auto* ps = static_cast<DiligentShader*>(desc.ps);
-    if (!vs || !vs->Native() || !ps || !ps->Native()) {
-        return ACS_ERR(Render, 151, "DiligentPipeline: VS or PS missing");
+    if (!vs || !vs->Native()) {
+        return ACS_ERR(Render, 151, "DiligentPipeline: VS missing");
     }
+    // PS は depth-only pass (ShadowMap 等) で null OK。NumRenderTargets=0、
+    // RTVFormats[0]=UNKNOWN にして PSO 作成する。
 
     Diligent::GraphicsPipelineStateCreateInfo psoCI;
     psoCI.PSODesc.Name            = "ACS_GraphicsPSO";
     psoCI.PSODesc.PipelineType    = Diligent::PIPELINE_TYPE_GRAPHICS;
 
+    const bool has_ps = ps && ps->Native();
+
     auto& gp = psoCI.GraphicsPipeline;
-    gp.NumRenderTargets             = 1;
-    gp.RTVFormats[0]                = diligent_detail::ToDiligent(desc.rt_format);
+    gp.NumRenderTargets             = has_ps ? 1u : 0u;
+    gp.RTVFormats[0]                = has_ps
+                                       ? diligent_detail::ToDiligent(desc.rt_format)
+                                       : Diligent::TEX_FORMAT_UNKNOWN;
     gp.DSVFormat                    = (desc.depth_format == Format::Unknown)
                                        ? Diligent::TEX_FORMAT_UNKNOWN
                                        : diligent_detail::ToDiligent(desc.depth_format);
     gp.PrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
     gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
-    // Diligent は Vulkan 互換のため projection matrix の Y を内部 flip する
-    // (DX12 raw とは異なる)。それに伴い triangle winding の sense も反転する
-    // 必要がある: D3D 直叩きでは "CW = front" でも、Diligent 経由では
-    // "CCW = front" にしないと back-face が camera 側に来てしまう。
-    // 症状: 面の法線が逆に見える / 内側が照らされる。
-    gp.RasterizerDesc.FrontCounterClockwise = true;
+    // Diligent は swapchain への描画時に Y-flip 相当の補正が入る (vulkan/gl と
+    // d3d で NDC が違うのを吸収する側面)。その影響で色 pass (PS あり) では
+    // triangle winding sense が D3D raw と逆になる → CCW=front にする。
+    // shadow / depth-only pass (PS なし) は内部 texture へ書くため Y-flip
+    // 補正の影響を受けず、D3D 既定の CW=front のまま使う。
+    // 症状: false 固定にすると色 pass で法線が逆に見える / true 固定にすると
+    // shadow pass で全 pixel が影判定になり真っ黒になる。
+    gp.RasterizerDesc.FrontCounterClockwise = has_ps;
     gp.DepthStencilDesc.DepthEnable = desc.depth_test && desc.depth_format != Format::Unknown;
     gp.DepthStencilDesc.DepthWriteEnable = desc.depth_write;
     gp.DepthStencilDesc.DepthFunc   = Diligent::COMPARISON_FUNC_LESS_EQUAL;
@@ -85,7 +93,7 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     gp.BlendDesc.RenderTargets[0].RenderTargetWriteMask = Diligent::COLOR_MASK_ALL;
 
     psoCI.pVS = vs->Native();
-    psoCI.pPS = ps->Native();
+    psoCI.pPS = has_ps ? ps->Native() : nullptr;
 
     // 入力レイアウト（最大 8 要素）
     // Diligent の InputIndex は D3D12 では HLSL semantic index と一致しないと

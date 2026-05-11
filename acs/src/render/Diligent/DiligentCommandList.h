@@ -10,6 +10,8 @@ namespace acs {
 
 class DiligentDevice;
 class DiligentPipeline;
+class DiligentSwapchain;
+class DiligentTexture;
 
 class DiligentCommandList final : public IRhiCommandList {
 public:
@@ -55,9 +57,13 @@ public:
     void* NativeHandle() noexcept override;
 
 private:
-    DiligentDevice*   _device   = nullptr;
-    DiligentPipeline* _pipeline = nullptr;
-    bool              _is_index32 = false;
+    DiligentDevice*    _device   = nullptr;
+    DiligentPipeline*  _pipeline = nullptr;
+    bool               _is_index32 = false;
+    // フレーム内 main pass の RT を記憶する: shadow / off-screen pass を
+    // 途中で挟んでも EndShadowPass / EndRenderToTexture で復帰させるため。
+    DiligentSwapchain* _main_swapchain     = nullptr;
+    DiligentTexture*   _main_depth         = nullptr;
 };
 
 } // namespace acs

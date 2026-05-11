@@ -311,12 +311,15 @@ void StandardShader::FlushFrameCB() noexcept {
     }
     cb.light_view_proj = _light_vp;
     // shadow_params: x=bias, y=enabled, z=texel_size, w=pad
+    // PCF offset 用の texel_size は「1 texel 分」だと 4 tap が同じ texel に
+    // 落ちて binary 化する (= 影エッジが階段状)。隣接 texel に届かせるため
+    // 2 texel 分 (= 1/1024) にして bilinear sample で滑らかなエッジを得る。
+    // 厳密には ShadowMap::Size() から取るべきだが、現状の固定 2048 想定で
+    // 近似値で良い。
     cb.shadow_params = Vec4{
         _shadow_bias,
         _shadow_tex ? 1.0f : 0.0f,
-        // texel size — assume square shadow map; shader uses this for PCF offset
-        // 1/2048 = 0.000488, ユーザは ShadowMap でサイズを決めるので近似値で OK
-        1.0f / 2048.0f,
+        2.0f / 2048.0f,
         0.0f
     };
     _frame_cb->Update(&cb, sizeof(cb));
