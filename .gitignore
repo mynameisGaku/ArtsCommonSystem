@@ -19,6 +19,10 @@ Testing/
 
 # ---- Claude Code 個人設定 (per-user 許可ルール等) -------------------------
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# ---- Claude Code 動作確認の screenshot 出力 (PowerShell capture) ----------
+screenshots/
 
 # ---- ACS ランタイム生成物 ---------------------------------------------------
 build-out.log
