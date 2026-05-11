@@ -44,12 +44,9 @@ Result<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
 }
 
 Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
-    auto* GetFactory = Diligent::LoadGraphicsEngineD3D12();
-    if (!GetFactory) {
-        ACS_LOG_ERROR("Diligent: LoadGraphicsEngineD3D12 returned null");
-        return ACS_ERR(Render, 100, "LoadGraphicsEngineD3D12 failed");
-    }
-    _factory = GetFactory();
+    // 静的リンク (Diligent-GraphicsEngineD3D12-static) では LoadGraphicsEngineD3D12
+    // (DLL ロード経由) は宣言されない。GetEngineFactoryD3D12 を直接呼ぶ。
+    _factory = Diligent::GetEngineFactoryD3D12();
     if (!_factory) {
         ACS_LOG_ERROR("Diligent: GetEngineFactoryD3D12 returned null");
         return ACS_ERR(Render, 101, "GetEngineFactoryD3D12 failed");
@@ -108,12 +105,7 @@ Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
 
 Result<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
 #if WITH_RENDER_DILIGENT_VULKAN
-    auto* GetFactory = Diligent::LoadGraphicsEngineVk();
-    if (!GetFactory) {
-        ACS_LOG_ERROR("Diligent: LoadGraphicsEngineVk returned null");
-        return ACS_ERR(Render, 110, "LoadGraphicsEngineVk failed");
-    }
-    _factory_vk = GetFactory();
+    _factory_vk = Diligent::GetEngineFactoryVk();
     if (!_factory_vk) {
         ACS_LOG_ERROR("Diligent: GetEngineFactoryVk returned null");
         return ACS_ERR(Render, 111, "GetEngineFactoryVk failed");

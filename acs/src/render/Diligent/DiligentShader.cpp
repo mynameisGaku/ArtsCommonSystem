@@ -26,15 +26,17 @@ Result<void> DiligentShader::Init(DiligentDevice& device, const ShaderDesc& desc
     // Diligent 内蔵の DXC コンパイラを使う（DX12/Vulkan/Metal すべての変換に対応）
     sci.ShaderCompiler = Diligent::SHADER_COMPILER_DEFAULT;
     sci.HLSLVersion    = {6, 0};
-    sci.UseCombinedTextureSamplers = true;  // OpenGL/Vulkan で必要
-    sci.CombinedSamplerSuffix      = "_sampler";
     sci.Source         = desc.hlsl_source;
     sci.EntryPoint     = desc.entry_point ? desc.entry_point : "main";
 
+    // Diligent 新版で UseCombinedTextureSamplers / CombinedSamplerSuffix は
+    // ShaderCreateInfo から ShaderDesc に移動した
     Diligent::ShaderDesc sd;
-    sd.Name       = desc.debug_name ? desc.debug_name : "ACS_Shader";
-    sd.ShaderType = diligent_detail::ToDiligent(desc.stage);
-    sci.Desc      = sd;
+    sd.Name                       = desc.debug_name ? desc.debug_name : "ACS_Shader";
+    sd.ShaderType                 = diligent_detail::ToDiligent(desc.stage);
+    sd.UseCombinedTextureSamplers = true;  // OpenGL/Vulkan で必要
+    sd.CombinedSamplerSuffix      = "_sampler";
+    sci.Desc                      = sd;
 
     dev->CreateShader(sci, &_shader);
     if (!_shader) {
