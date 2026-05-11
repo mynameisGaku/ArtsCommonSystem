@@ -11,6 +11,7 @@ set(_acs_render_sources
     Renderer.cpp
     RenderAssets.cpp
     StandardShader.cpp
+    PbrShader.cpp
     SpriteBatch.cpp
     Font.cpp
     Sky.cpp
@@ -32,6 +33,7 @@ set(_acs_render_headers
     Renderer.h
     RenderAssets.h
     StandardShader.h
+    PbrShader.h
     SpriteBatch.h
     Font.h
     Sky.h

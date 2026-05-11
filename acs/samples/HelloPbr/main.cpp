@@ -1,0 +1,176 @@
+// ACS の HelloPbr サンプル
+//
+// 動作:
+//   ・5×5 の球を並べて metallic (X 方向) × roughness (Y 方向) を変える
+//     クラシックな PBR material ball グリッド
+//   ・1 つの dir light + 1 つの point light で照明
+//   ・WASD でカメラ移動、矢印で視点回転
+//   ・Esc 終了
+//
+// 学習ポイント:
+//   ・StandardShader (Blinn-Phong) と PbrShader (Cook-Torrance) の違い
+//   ・metallic = 0 (dielectric) で reflectance F0 = 0.04 固定
+//   ・metallic = 1 (metal) で diffuse 無し + F0 = base_color
+//   ・roughness ↓ で highlight シャープ、↑ でぼやけ
+
+#include "app/Application.h"
+#include "app/EntryPoint.h"
+#include "app/Sample.h"
+#include "platform/Input.h"
+
+#include "asset/MeshPrimitive.h"
+#include "asset/MeshAsset.h"
+
+#include "render/PbrShader.h"
+#include "render/RenderAssets.h"
+#include "render/SpriteBatch.h"
+#include "render/Font.h"
+
+#include "math/Camera.h"
+#include "math/Mat.h"
+#include "math/Math.h"
+
+#include "memory/UniquePtr.h"
+#include "foundation/Log.h"
+
+#include <cstdio>
+
+using namespace acs;
+
+namespace {
+constexpr u32 kGridSize = 5;        // 5x5 = 25 sphere
+constexpr f32 kSpacing  = 1.4f;
+} // namespace
+
+class HelloPbr : public Application {
+public:
+    void OnStart() noexcept override {
+        IRhiDevice* dev = GetRenderer().Device();
+        if (!dev) { Quit(); return; }
+
+        ACS_SAMPLE_INIT(_shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
+
+        auto sphere = Primitive::MakeSphere(0.55f, 48, 24);
+        auto plane  = Primitive::MakePlane(20.0f, 20.0f);
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *plane,  _gm_plane));
+
+        _batch.Init(*dev, GetRenderer().ColorFormat());
+        (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+
+        const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
+                           static_cast<f32>(GetRenderer().Swapchain()->Height());
+        _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
+        _cam_pos = Vec3{0, 2.0f, -7.5f};
+    }
+
+    void OnUpdate(f32 dt) noexcept override {
+        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        _time += dt;
+
+        const f32 mv = 5.0f * dt, tr = 1.5f * dt;
+        if (Input::IsKeyDown(Key::Left))  _cam_yaw -= tr;
+        if (Input::IsKeyDown(Key::Right)) _cam_yaw += tr;
+        if (Input::IsKeyDown(Key::Up))    _cam_pitch -= tr * 0.8f;
+        if (Input::IsKeyDown(Key::Down))  _cam_pitch += tr * 0.8f;
+        const f32 limit = 0.45f * kPi;
+        if (_cam_pitch >  limit) _cam_pitch =  limit;
+        if (_cam_pitch < -limit) _cam_pitch = -limit;
+        Vec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
+                     -Sin(_cam_pitch),
+                      Cos(_cam_yaw) * Cos(_cam_pitch) };
+        Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
+        if (Input::IsKeyDown(Key::W)) _cam_pos += forward * mv;
+        if (Input::IsKeyDown(Key::S)) _cam_pos -= forward * mv;
+        if (Input::IsKeyDown(Key::D)) _cam_pos += right   * mv;
+        if (Input::IsKeyDown(Key::A)) _cam_pos -= right   * mv;
+        _camera.SetLookAt(_cam_pos, _cam_pos + forward);
+    }
+
+    void OnRender() noexcept override {
+        IRhiCommandList* cl = GetRenderer().CommandList();
+        if (!cl) return;
+
+        DirLight lights[1];
+        lights[0].direction = Vec3{-0.4f, -0.8f, 0.5f};
+        lights[0].color     = Vec3{1.0f, 0.95f, 0.9f};
+
+        // 旋回する点光源で highlight をハッキリ見せる
+        PointLight pts[1];
+        pts[0].position = Vec3{Sin(_time * 0.6f) * 4.0f, 1.5f,
+                              Cos(_time * 0.6f) * 4.0f - 2.0f};
+        pts[0].color    = Vec3{0.7f, 0.6f, 1.0f};
+        pts[0].range    = 8.0f;
+
+        Vec3 ambient{0.05f, 0.06f, 0.08f};
+        _shader.SetLights(_camera.ViewProjection(), _camera.Eye(),
+                         lights, 1, ambient);
+        _shader.SetPointLights(pts, 1);
+
+        cl->SetPipeline(*_shader.Pipeline());
+        cl->SetConstantBuffer(0, *_shader.PerFrameCB());
+        cl->SetConstantBuffer(1, *_shader.PerObjectCB());
+        cl->SetTexture(0, *_shader.DefaultWhiteTexture());
+
+        // 地面 (PBR で metallic=0, roughness=0.8 の灰色)
+        _shader.SetObject(Mat4::Translation(Vec3{0, -0.6f, 0}),
+                          Vec3{0.5f, 0.5f, 0.5f}, 0.0f, 0.8f, 1.0f);
+        cl->SetVertexBuffer(*_gm_plane.vertex_buffer, _gm_plane.vertex_stride);
+        cl->SetIndexBuffer(*_gm_plane.index_buffer);
+        cl->DrawIndexed(_gm_plane.index_count);
+
+        // material grid: X = metallic 0..1, Y = roughness 0..1
+        cl->SetVertexBuffer(*_gm_sphere.vertex_buffer, _gm_sphere.vertex_stride);
+        cl->SetIndexBuffer(*_gm_sphere.index_buffer);
+        const Vec3 base{0.85f, 0.4f, 0.3f};      // 銅っぽい色
+        for (u32 y = 0; y < kGridSize; ++y) {
+            for (u32 x = 0; x < kGridSize; ++x) {
+                const f32 metallic  = static_cast<f32>(x) / (kGridSize - 1);
+                const f32 roughness = 0.05f + static_cast<f32>(y) / (kGridSize - 1) * 0.95f;
+                const f32 px = (static_cast<f32>(x) - (kGridSize - 1) * 0.5f) * kSpacing;
+                const f32 py = (static_cast<f32>(y) - (kGridSize - 1) * 0.5f) * kSpacing + 1.2f;
+                _shader.SetObject(Mat4::Translation(Vec3{px, py, 2.0f}),
+                                  base, metallic, roughness, 1.0f);
+                cl->DrawIndexed(_gm_sphere.index_count);
+            }
+        }
+
+        // HUD
+        if (_font.AtlasTexture()) {
+            const u32 sw = GetRenderer().Swapchain()->Width();
+            const u32 sh = GetRenderer().Swapchain()->Height();
+            _batch.Begin(*cl, sw, sh);
+            char buf[160];
+            std::snprintf(buf, sizeof(buf),
+                          "PBR: %ux%u sphere (X→metallic, Y→roughness)  FPS: %.1f",
+                          kGridSize, kGridSize, static_cast<double>(FPS()));
+            _batch.DrawString(_font, buf, 20, 20, Vec4{1, 1, 1, 1});
+            _batch.DrawString(_font,
+                              "WASD: 移動  矢印: 視点  Esc: 終了",
+                              20, 44, Vec4{0.7f, 0.85f, 1.0f, 1});
+            _batch.End();
+        }
+    }
+
+    void OnShutdown() noexcept override {
+        if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
+        _font.Shutdown();
+        _batch.Shutdown();
+        _gm_plane  = GpuMesh{};
+        _gm_sphere = GpuMesh{};
+        _shader.Shutdown();
+    }
+
+private:
+    PbrShader      _shader;
+    GpuMesh        _gm_sphere, _gm_plane;
+    SpriteBatch    _batch;
+    Font           _font;
+    Camera         _camera;
+    Vec3           _cam_pos{0, 2.0f, -7.5f};
+    f32            _cam_yaw   = 0.0f;
+    f32            _cam_pitch = 0.0f;
+    f32            _time      = 0.0f;
+};
+
+ACS_DEFINE_MAIN(HelloPbr)
