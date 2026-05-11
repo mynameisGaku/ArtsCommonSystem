@@ -23,9 +23,13 @@ Result<void> DiligentShader::Init(DiligentDevice& device, const ShaderDesc& desc
 
     Diligent::ShaderCreateInfo sci;
     sci.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;
-    // Diligent 内蔵の DXC コンパイラを使う（DX12/Vulkan/Metal すべての変換に対応）
+    // DEFAULT は D3D12 だと FXC (SM 5.1 上限)。DXC に切り替えると SM6.0+
+    // 利用可だが、dxcompiler.dll をビルド成果物に同梱する設定が要る。
+    // Phase 30 で post-build copy / NuGet 取得を整備したらここを
+    // SHADER_COMPILER_DXC に上げる。現状は FXC で十分 (compute / wave 等
+    // SM6 専用機能はまだ未使用)。
     sci.ShaderCompiler = Diligent::SHADER_COMPILER_DEFAULT;
-    sci.HLSLVersion    = {6, 0};
+    sci.HLSLVersion    = {5, 1};
     sci.Source         = desc.hlsl_source;
     sci.EntryPoint     = desc.entry_point ? desc.entry_point : "main";
 
