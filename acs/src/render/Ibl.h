@@ -56,6 +56,14 @@ public:
     Result<void> EnsureEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
                                   const Sky& sky) noexcept;
 
+    // 既存 env cubemap を破棄して equirectangular HDR 画像 (e.g. .hdr ファイル) から
+    // 新しい env cubemap を生成する。`rgba_float` は width × height × 4 個の float、
+    // memory layout は row-major / top-down (v=0 が天頂 +Y、v=1 が天底 -Y)。
+    // 内部で R32G32B32A32_Float の Texture2D に upload → 6 face をピクセル shader で
+    // 塗り直す。irradiance / prefilter は呼び出し側で再 Ensure する必要あり。
+    Result<void> LoadEquirectHdrFromMemory(IRhiDevice& device, IRhiCommandList& cl,
+                                            const f32* rgba_float, u32 width, u32 height) noexcept;
+
     // 初回呼び出しで diffuse irradiance cubemap (32x32x6, R11G11B10_Float) を
     // env cubemap の半球積分から作る。EnsureEnvCubemap が完了していないと失敗。
     // 出力 = (1/π) ∫_Ω L_env(ω) (N·ω) dω → Lambert diffuse の ambient 項として

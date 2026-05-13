@@ -460,6 +460,69 @@ struct PrefilterCBLayout {
     f32 pad5;
 };
 
+// ---- Equirectangular HDR → cubemap 変換 ----
+//
+// 各 cubemap face 各 texel の world direction N を球面座標 (phi, theta) に変換し、
+// equirect texture から sample。phi = atan2(N.x, N.z)、theta = acos(N.y)。
+//
+// equirect 規約: u = phi/(2π) + 0.5 (0=後方, 0.25=右, 0.5=前方, 0.75=左)、v = theta/π
+//   (0 = +Y zenith, 1 = -Y nadir)。これは Polyhaven / sIBL Archive 等の HDR と一致。
+const char* kEquirectToCubeHLSL = R"(
+#pragma pack_matrix(row_major)
+
+cbuffer EqToCube : register(b0) {
+    int4 face_pad;
+};
+
+Texture2D    equirect          : register(t0);
+SamplerState equirect_sampler  : register(s0);
+
+struct VSOut {
+    float4 pos : SV_POSITION;
+    float2 uv  : TEXCOORD0;
+};
+
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o;
+    o.uv  = uv;
+    o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
+    return o;
+}
+
+float3 CubeFaceDir(float2 uv01, int face) {
+    float2 m = uv01 * 2.0 - 1.0;
+    if (face == 0) return float3( 1.0, -m.y, -m.x);
+    if (face == 1) return float3(-1.0, -m.y,  m.x);
+    if (face == 2) return float3( m.x,  1.0,  m.y);
+    if (face == 3) return float3( m.x, -1.0, -m.y);
+    if (face == 4) return float3( m.x, -m.y,  1.0);
+    return                 float3(-m.x, -m.y, -1.0);
+}
+
+static const float PI     = 3.14159265358979;
+static const float TWO_PI = 6.28318530717958;
+
+float4 PSMain(VSOut v) : SV_TARGET {
+    float3 N = normalize(CubeFaceDir(v.uv, face_pad.x));
+    // equirect 座標 (sIBL Archive 規約)
+    float phi   = atan2(N.x, N.z);            // [-π, π]
+    float theta = acos(clamp(N.y, -1.0, 1.0));// [0, π]
+    float2 uv;
+    uv.x = phi / TWO_PI + 0.5;                 // [0, 1]
+    uv.y = theta / PI;                         // [0, 1], v=0 が +Y
+    float3 c = equirect.SampleLevel(equirect_sampler, uv, 0).rgb;
+    return float4(c, 1.0);
+}
+)";
+
+struct EquirectCBLayout {
+    i32 face_index;
+    i32 pad0;
+    i32 pad1;
+    i32 pad2;
+};
+
 } // namespace
 
 Result<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
@@ -656,6 +719,120 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     // 共用する設計なので、何かしらの "終わり" 通知が必要。
     cl.EndRenderToTexture(*_env_cube);
 
+    return Ok();
+}
+
+Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
+        IRhiDevice& device, IRhiCommandList& cl,
+        const f32* rgba_float, u32 width, u32 height) noexcept {
+    if (!IsDiligentBackend(device)) {
+        ACS_LOG_WARN("ImageBasedLighting: LoadEquirectHdr skipped (backend != Diligent)");
+        return Ok();
+    }
+    if (!rgba_float || width == 0 || height == 0) {
+        return ACS_ERR(Render, 165, "LoadEquirectHdrFromMemory: invalid input");
+    }
+
+    // env / irradiance / prefilter を全て無効化 → caller が Ensure* を呼び直す
+    ResetEnvCubemap();
+
+    // 1) equirect Texture2D (R32G32B32A32_Float、CPU 提供データを直接 upload)
+    UniquePtr<IRhiTexture> equirect;
+    {
+        TextureDesc td{};
+        td.width  = width;
+        td.height = height;
+        td.format = Format::R32G32B32A32_Float;
+        td.initial_data      = rgba_float;
+        td.initial_data_size = static_cast<usize>(width) * height * 4u * sizeof(f32);
+        auto r = CreateRhiTexture(device, td);
+        if (r.IsErr()) return Err<void>(r.Error());
+        equirect = Move(r.Value());
+    }
+
+    // 2) 出力 env cubemap (Sky 由来と同サイズ、R11G11B10_Float、per-slice RTV)
+    {
+        TextureDesc td{};
+        td.width            = kEnvCubeSize;
+        td.height           = kEnvCubeSize;
+        td.format           = Format::R11G11B10_Float;
+        td.array_size       = 6;
+        td.is_cubemap       = true;
+        td.is_render_target = true;
+        td.per_slice_rtv    = true;
+        auto r = CreateRhiTexture(device, td);
+        if (r.IsErr()) return Err<void>(r.Error());
+        _env_cube = Move(r.Value());
+    }
+
+    // 3) 一時 VS/PS/Pipeline/CB
+    UniquePtr<IRhiShader>   vs;
+    UniquePtr<IRhiShader>   ps;
+    UniquePtr<IRhiPipeline> pipeline;
+    UniquePtr<IRhiBuffer>   cb;
+
+    ShaderDesc vs_d{};
+    vs_d.stage = ShaderStage::Vertex;
+    vs_d.hlsl_source = kEquirectToCubeHLSL;
+    vs_d.entry_point = "VSMain";
+    vs_d.debug_name  = "IblEqToCube.VS";
+    if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
+    else vs = Move(r.Value());
+
+    ShaderDesc ps_d{};
+    ps_d.stage = ShaderStage::Pixel;
+    ps_d.hlsl_source = kEquirectToCubeHLSL;
+    ps_d.entry_point = "PSMain";
+    ps_d.debug_name  = "IblEqToCube.PS";
+    if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
+    else ps = Move(r.Value());
+
+    BufferDesc cbd{};
+    cbd.size = (sizeof(EquirectCBLayout) + 255u) & ~static_cast<usize>(255u);
+    cbd.usage = BufferUsage::Uniform;
+    cbd.cpu_writable = true;
+    if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
+    else cb = Move(r.Value());
+
+    PipelineDesc pd{};
+    pd.vs            = vs.Get();
+    pd.ps            = ps.Get();
+    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.rt_format     = Format::R11G11B10_Float;
+    pd.depth_format  = Format::Unknown;
+    pd.depth_test    = false;
+    pd.depth_write   = false;
+    pd.cull_mode     = CullMode::None;
+    pd.blend_mode    = BlendMode::Opaque;
+    pd.cbuffer_slots = 1;
+    pd.texture_slots = 1;
+    pd.cbuffer_names[0] = "EqToCube";
+    pd.texture_names[0] = "equirect";
+    pd.static_sampler_count = 1;
+    pd.static_samplers[0].filter    = SamplerFilter::Linear;
+    pd.static_samplers[0].address_u = SamplerAddress::Wrap;     // 経度方向は wrap
+    pd.static_samplers[0].address_v = SamplerAddress::Clamp;    // 緯度方向は clamp
+    pd.vertex_stride = 0;
+    pd.layout_count  = 0;
+    if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
+    else pipeline = Move(r.Value());
+
+    // 4) 6 face を描く
+    ClearColor black{0, 0, 0, 1};
+    cl.SetPipeline(*pipeline);
+    cl.SetConstantBuffer(0, *cb);
+    cl.SetTexture(0, *equirect);
+    for (u32 face = 0; face < 6; ++face) {
+        EquirectCBLayout data{};
+        data.face_index = static_cast<i32>(face);
+        cb->Update(&data, sizeof(data));
+
+        cl.BeginRenderToTextureSlice(*_env_cube, face, 0, black);
+        cl.Draw(3);
+    }
+    cl.EndRenderToTexture(*_env_cube);
+
+    _env_built = true;
     return Ok();
 }
 

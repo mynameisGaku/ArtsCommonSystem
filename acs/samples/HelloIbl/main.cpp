@@ -1,17 +1,16 @@
-// ACS の HelloIbl サンプル — Phase 31 Step 3 マイルストーン
+// ACS の HelloIbl サンプル — Phase 31 IBL + Phase 32a HDR / ACES tonemap
 //
 // 動作:
-//   ・初フレームで BRDF LUT (256x256 RG16F) を生成
-//   ・同時に Sky procedural から env cubemap (256x256x6 R11G11B10_Float) をキャプチャ
+//   ・初フレームで BRDF LUT (256x256 RG16F) + env cubemap (256x256x6 R11G11B10F)
+//     + irradiance (32x32x6) + prefilter (128x128x6 5 mips) を一括生成
 //   ・以降のフレームで:
-//     - env cubemap を skybox として fullscreen 背景描画
-//     - BRDF LUT を画面右上に重ねて表示
-//     - 1/2/3 キーで Sky preset (Day / Sunset / Night) を切替 → cubemap 再生成
+//     - 背景: env / irradiance / prefilter mip 0..4 を切替 (I キー)
+//     - 5x5 sphere grid を IBL のみで点灯 (X=metallic, Y=roughness)
+//     - BRDF LUT を画面右上にオーバーレイ表示
+//     - 1/2/3 で Sky preset (Day / Sunset / Night) 切替 → cubemap 再生成
+//     - シーンは HDR R16G16B16A16_Float RT に描画 → Bloom + ACES tonemap で LDR 出力
 //
-// 後続ステップ (Step 4+) で irradiance / prefilter / PbrShader IBL を順次組み込み、
-// 5x5 sphere grid を IBL のみで点灯する形に拡張する。
-//
-// 注: -DACS_RENDER_DILIGENT=ON 必須 (per-slice RT / cubemap / R11G11B10F が Diligent 専用)。
+// 注: -DACS_RENDER_DILIGENT=ON 必須 (per-slice RT / cubemap / R11G11B10F / HDR が Diligent 専用)。
 #include "app/Application.h"
 #include "app/EntryPoint.h"
 #include "app/Sample.h"
@@ -23,9 +22,12 @@
 #include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
 #include "render/Font.h"
+#include "render/PostProcess.h"
 
 #include "asset/MeshPrimitive.h"
 #include "asset/MeshAsset.h"
+
+#include "container/Array.h"
 
 #include "math/Camera.h"
 #include "math/Mat.h"
@@ -42,21 +44,35 @@ public:
     void OnStart() noexcept override {
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
+        IRhiSwapchain* sc = GetRenderer().Swapchain();
+        if (!sc) { Quit(); return; }
 
-        ACS_SAMPLE_INIT(_sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
+        const u32 sw = sc->Width();
+        const u32 sh = sc->Height();
+
+        // HDR PostProcess (Bloom + ACES Tonemap) — HDR RT は R16G16B16A16_Float
+        ACS_SAMPLE_INIT(_post.Init(*dev, sw, sh, GetRenderer().ColorFormat()));
+
+        // シーン側は HDR RT format に揃える
+        ACS_SAMPLE_INIT(_sky.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
         _sky.PresetDay();
-        ACS_SAMPLE_INIT(_pbr.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
+        ACS_SAMPLE_INIT(_pbr.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
 
         auto sphere = Primitive::MakeSphere(0.55f, 48, 24);
         ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
 
+        // SpriteBatch は LDR backbuffer (tonemap 後)
         ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
         (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
-        const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
-                           static_cast<f32>(GetRenderer().Swapchain()->Height());
+        const f32 aspect = static_cast<f32>(sw) / static_cast<f32>(sh);
         _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
         _cam_pos = Vec3{0, 1.0f, -5.0f};
+
+        // Bloom 強度はデフォルトより少し弱めに (Day sky は十分明るいので)
+        _post_params.bloom_threshold = 1.5f;
+        _post_params.bloom_intensity = 0.4f;
+        _post_params.exposure        = 1.0f;
     }
 
     void OnUpdate(f32 dt) noexcept override {
@@ -72,10 +88,21 @@ public:
         if (Input::IsKeyPressed(Key::Num3)) {
             _sky.PresetNight();  _current_preset = 2; _need_recapture = true;
         }
+        if (Input::IsKeyPressed(Key::Num4)) {
+            _current_preset = 3; _need_studio_hdr = true;
+        }
         if (Input::IsKeyPressed(Key::I)) {
-            // 0=env / 1=irradiance / 2..6=prefilter mip 0..4
             _display_mode = (_display_mode + 1) % 7;
         }
+        // B キーで bloom on/off (verify HDR clip 防止効果)
+        if (Input::IsKeyPressed(Key::B)) {
+            _post_params.bloom_enabled = !_post_params.bloom_enabled;
+        }
+        // E/Q で露出 ±
+        if (Input::IsKeyDown(Key::E)) _post_params.exposure += dt * 0.5f;
+        if (Input::IsKeyDown(Key::Q)) _post_params.exposure -= dt * 0.5f;
+        if (_post_params.exposure < 0.1f) _post_params.exposure = 0.1f;
+        if (_post_params.exposure > 4.0f) _post_params.exposure = 4.0f;
 
         // 視点を矢印 (回転) + WASD (移動) で操作
         const f32 mv = 4.0f * dt, tr = 1.5f * dt;
@@ -98,41 +125,60 @@ public:
         _camera.SetLookAt(_cam_pos, _cam_pos + forward);
     }
 
-    void OnRender() noexcept override {
-        IRhiDevice*     dev = GetRenderer().Device();
-        IRhiCommandList* cl = GetRenderer().CommandList();
-        if (!dev || !cl) return;
+    // OnCustomFrame() で HDR 経路に切替えてデフォルトフローを置き換える。
+    // 1) IBL build (必要なら、RT を一時的に切替)
+    // 2) HDR RT にシーン (skybox + sphere grid) を描画
+    // 3) PostProcess.Render で Bloom + Tonemap → LDR backbuffer
+    // 4) SpriteBatch HUD を LDR backbuffer に
+    bool OnCustomFrame() noexcept override {
+        IRhiDevice*      dev  = GetRenderer().Device();
+        IRhiCommandList* cl   = GetRenderer().CommandList();
+        IRhiSwapchain*   sc   = GetRenderer().Swapchain();
+        IRhiTexture*     hdr  = _post.HdrRenderTarget();
+        IRhiTexture*     depth = GetRenderer().DepthBuffer();
+        if (!dev || !cl || !sc || !hdr) return false;
 
-        // Sky preset が変わったら env cubemap を再生成。
-        // GPU が前フレームの draw でこの env_cube を参照しているうちに Reset
-        // すると UB なので、Reset 前に WaitIdle で完了を待つ。
-        // ResetEnvCubemap は env_cube + irradiance だけ消し、BRDF LUT と
-        // skybox preview pipeline は残す (cheap)。
+        const u32 buf_idx = sc->AcquireNextImage();
+        cl->Begin();
+
+        // Sky preset が変わった場合、env / irradiance / prefilter を作り直す
         if (_need_recapture) {
             dev->WaitIdle();
             _ibl.ResetEnvCubemap();
             _need_recapture = false;
         }
-
-        if (!_ibl.HasBrdfLut()) {
-            if (auto r = _ibl.EnsureBrdfLut(*dev, *cl); r.IsErr())
-                ACS_LOG_ERROR("HelloIbl: EnsureBrdfLut failed");
-        }
-        if (!_ibl.HasEnvCubemap()) {
-            if (auto r = _ibl.EnsureEnvCubemap(*dev, *cl, _sky); r.IsErr())
-                ACS_LOG_ERROR("HelloIbl: EnsureEnvCubemap failed");
-        }
-        if (!_ibl.HasIrradianceMap()) {
-            if (auto r = _ibl.EnsureIrradiance(*dev, *cl); r.IsErr())
-                ACS_LOG_ERROR("HelloIbl: EnsureIrradiance failed");
-        }
-        if (!_ibl.HasPrefilterMap()) {
-            if (auto r = _ibl.EnsurePrefilter(*dev, *cl); r.IsErr())
-                ACS_LOG_ERROR("HelloIbl: EnsurePrefilter failed");
+        // Studio HDR preset: equirect float texture を CPU で合成 → LoadEquirectHdr で
+        // env cubemap として焼く。
+        if (_need_studio_hdr) {
+            dev->WaitIdle();
+            BuildStudioHdrEquirect();
+            auto r = _ibl.LoadEquirectHdrFromMemory(
+                *dev, *cl,
+                _equirect_rgba.Data(),
+                kEquirectWidth, kEquirectHeight);
+            if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: LoadEquirectHdr failed");
+            _need_studio_hdr = false;
         }
 
-        // 背景: 'I' でモード巡回
-        //   0=env / 1=irradiance / 2..6=prefilter mip 0..4
+        // ===== IBL build (まだ作ってないものだけ。一度作れば cache される) =====
+        // BeginRenderToTexture(hdr) の前にやる: IBL の RT 切替は _main_swapchain を
+        // 触らないので、HDR pass に影響しない。
+        if (!_ibl.HasBrdfLut())       _ibl.EnsureBrdfLut(*dev, *cl);
+        if (!_ibl.HasEnvCubemap())    _ibl.EnsureEnvCubemap(*dev, *cl, _sky);
+        if (!_ibl.HasIrradianceMap()) _ibl.EnsureIrradiance(*dev, *cl);
+        if (!_ibl.HasPrefilterMap())  _ibl.EnsurePrefilter(*dev, *cl);
+
+        // ===== 1) HDR RT にシーン描画 =====
+        cl->BeginRenderToTexture(*hdr, ClearColor{0, 0, 0, 1}, depth, 1.0f);
+
+        Viewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
+                       vp.height = static_cast<f32>(hdr->Height());
+        cl->SetViewport(vp);
+        ScissorRect svr{}; svr.right  = static_cast<i32>(hdr->Width());
+                           svr.bottom = static_cast<i32>(hdr->Height());
+        cl->SetScissor(svr);
+
+        // 背景 skybox
         IRhiTexture* display_cube = nullptr;
         f32          mip_level    = 0.0f;
         if (_display_mode == 0) {
@@ -146,25 +192,20 @@ public:
         if (display_cube) {
             _ibl.DrawSkybox(*dev, *cl, *display_cube,
                             _camera.ViewProjection(), _camera.Eye(),
-                            GetRenderer().ColorFormat(), GetRenderer().DepthFormat(),
+                            _post.HdrFormat(), GetRenderer().DepthFormat(),
                             mip_level);
         }
 
-        // === PBR sphere grid (5x5)、IBL のみで点灯 ===
-        // ・PbrShader.SetIbl() で irradiance / prefilter / brdf を提供
-        // ・SetLights で direct light count=0 + ambient=(0,0,0) を渡す。IBL ambient
-        //   が ibl_enabled=1 で flat ambient を置換するので、見た目は IBL 由来の
-        //   照り返し + Fresnel rim だけになる。Day preset の sky 反射が球面に出る。
+        // 5x5 sphere grid (IBL only)
         _pbr.SetIbl(_ibl.IrradianceMap(), _ibl.PrefilterMap(), _ibl.BrdfLut(),
                     _ibl.PrefilterMips());
         _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
                        nullptr, 0, Vec3{0, 0, 0});
-        // ダミー point lights (count=0) でリセット
         _pbr.SetPointLights(nullptr, 0);
 
         constexpr u32 kGrid = 5;
         constexpr f32 kSpacing = 1.4f;
-        const Vec3 base_color{0.95f, 0.4f, 0.3f};         // 銅系 (metallic で映える)
+        const Vec3 base_color{0.95f, 0.4f, 0.3f};
         for (u32 y = 0; y < kGrid; ++y) {
             for (u32 x = 0; x < kGrid; ++x) {
                 const f32 metallic  = static_cast<f32>(x) / (kGrid - 1);
@@ -177,14 +218,18 @@ public:
             }
         }
 
-        // 右上に BRDF LUT を重ね表示
+        cl->EndRenderToTexture(*hdr);
+
+        // ===== 2) Bloom + ACES Tonemap → LDR backbuffer =====
+        _post.Render(*cl, *sc, buf_idx, _post_params);
+
+        // ===== 3) SpriteBatch HUD (LDR backbuffer) =====
         IRhiTexture* lut = _ibl.BrdfLut();
-        const u32 sw = GetRenderer().Swapchain()->Width();
-        const u32 sh = GetRenderer().Swapchain()->Height();
+        const u32 sw = sc->Width();
+        const u32 sh = sc->Height();
 
         _batch.Begin(*cl, sw, sh);
         if (lut) {
-            // 半透明背景 + LUT + 枠
             _batch.DrawRect(static_cast<f32>(sw) - 280, 20,
                             260, 320, Vec4{0, 0, 0, 0.55f});
             _batch.Draw(*lut,
@@ -194,18 +239,20 @@ public:
         if (_font.AtlasTexture()) {
             char buf[160];
             std::snprintf(buf, sizeof(buf),
-                          "Phase 31 IBL  FPS: %.1f", static_cast<double>(FPS()));
+                          "Phase 31/32a IBL+HDR  FPS: %.1f", static_cast<double>(FPS()));
             _batch.DrawString(_font, buf, 20, 20, Vec4{1, 1, 1, 1});
 
             const char* preset =
                 (_current_preset == 0) ? "Day" :
-                (_current_preset == 1) ? "Sunset" : "Night";
-            std::snprintf(buf, sizeof(buf), "Sky preset: [%s]   (1/2/3 で切替)", preset);
+                (_current_preset == 1) ? "Sunset" :
+                (_current_preset == 2) ? "Night" : "Studio HDR";
+            std::snprintf(buf, sizeof(buf),
+                          "Env preset: [%s]   (1/2/3 で sky procedural、4 で Studio HDR)", preset);
             _batch.DrawString(_font, buf, 20, 44, Vec4{0.85f, 0.95f, 1.0f, 1});
 
             const char* view_label = nullptr;
             switch (_display_mode) {
-                case 0: view_label = "Env cubemap (Sky procedural)";          break;
+                case 0: view_label = "Env cubemap";                            break;
                 case 1: view_label = "Irradiance (Lambert 半球積分)";          break;
                 case 2: view_label = "Prefilter mip 0 (roughness 0.00)";       break;
                 case 3: view_label = "Prefilter mip 1 (roughness 0.25)";       break;
@@ -217,8 +264,15 @@ public:
             std::snprintf(buf, sizeof(buf),
                           "Display: %s   (I で切替)", view_label);
             _batch.DrawString(_font, buf, 20, 68, Vec4{1.0f, 0.95f, 0.7f, 1});
+
+            std::snprintf(buf, sizeof(buf),
+                          "Exposure: %.2f   Bloom: %s   (Q/E で露出 / B でbloom)",
+                          static_cast<double>(_post_params.exposure),
+                          _post_params.bloom_enabled ? "ON" : "OFF");
+            _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
+
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
-                              20, 92, Vec4{0.7f, 0.85f, 1.0f, 1});
+                              20, 116, Vec4{0.7f, 0.85f, 1.0f, 1});
             if (lut) {
                 _batch.DrawString(_font, "BRDF LUT",
                                   static_cast<f32>(sw) - 260, 36, Vec4{1, 1, 1, 1});
@@ -227,6 +281,61 @@ public:
             }
         }
         _batch.End();
+
+        cl->EndRenderToSwapchain(*sc, buf_idx);
+        cl->End();
+        cl->Submit();
+        sc->Present();
+        return true;
+    }
+
+    // CPU で equirect (256x128 RGBA float) を合成: 4 つの色つき HDR パネル光源 +
+    // 暗灰色背景。各パネルは異なる azimuth (phi) の同じ仰角 (theta = 60°、地平より少し上)
+    // にあり、Studio 風の「4 灯セットアップ」を模擬する。metallic sphere に 4 色の
+    // 明るい反射が現れるはず。
+    void BuildStudioHdrEquirect() noexcept {
+        if (_equirect_rgba.Size() == 0) {
+            _equirect_rgba.Resize(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
+        }
+        const f32 background[3] = {0.03f, 0.03f, 0.04f};
+        struct Panel { f32 phi; f32 r, g, b; };
+        const Panel panels[4] = {
+            {0.0f,             8.0f, 2.0f, 1.5f},      // 前方 (赤橙)
+            {kPi * 0.5f,       1.5f, 8.0f, 2.5f},      // 右   (黄緑)
+            {kPi,              1.5f, 2.5f, 8.0f},      // 後方 (青)
+            {kPi * 1.5f,       8.0f, 7.5f, 4.0f},      // 左   (白橙、暖色キー)
+        };
+        const f32 target_theta = kPi * 0.4f;      // 地平のやや上 (60°≒0.4π)
+        const f32 panel_radius = 0.10f;           // panel が広がる角度 (≈18°)
+
+        for (u32 y = 0; y < kEquirectHeight; ++y) {
+            const f32 theta = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(kEquirectHeight) * kPi;
+            for (u32 x = 0; x < kEquirectWidth; ++x) {
+                const f32 phi_norm = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kEquirectWidth);
+                const f32 phi      = phi_norm * 2.0f * kPi - kPi;  // [-π, π]
+
+                f32 r = background[0], g = background[1], b = background[2];
+                for (u32 i = 0; i < 4; ++i) {
+                    f32 dphi = phi - panels[i].phi;
+                    while (dphi >  kPi) dphi -= 2.0f * kPi;
+                    while (dphi < -kPi) dphi += 2.0f * kPi;
+                    const f32 dtheta = theta - target_theta;
+                    const f32 d2 = dphi * dphi + dtheta * dtheta;
+                    if (d2 < panel_radius * panel_radius) {
+                        // gaussian-ish falloff
+                        const f32 k = 1.0f - d2 / (panel_radius * panel_radius);
+                        r += panels[i].r * k;
+                        g += panels[i].g * k;
+                        b += panels[i].b * k;
+                    }
+                }
+                const u32 idx = (y * kEquirectWidth + x) * 4u;
+                _equirect_rgba[idx + 0] = r;
+                _equirect_rgba[idx + 1] = g;
+                _equirect_rgba[idx + 2] = b;
+                _equirect_rgba[idx + 3] = 1.0f;
+            }
+        }
     }
 
     void OnShutdown() noexcept override {
@@ -237,9 +346,14 @@ public:
         _pbr.Shutdown();
         _ibl.Shutdown();
         _sky.Shutdown();
+        _post.Shutdown();
     }
 
 private:
+    static constexpr u32 kEquirectWidth  = 512;
+    static constexpr u32 kEquirectHeight = 256;
+
+    PostProcess        _post;
     ImageBasedLighting _ibl;
     Sky                _sky;
     PbrShader          _pbr;
@@ -247,12 +361,15 @@ private:
     SpriteBatch        _batch;
     Font               _font;
     Camera             _camera;
+    PostProcessParams  _post_params;
+    Array<f32>         _equirect_rgba;          // 4 ch float
     Vec3               _cam_pos   = Vec3{0, 1.0f, -5.0f};
     f32                _cam_yaw   = 0.0f;
     f32                _cam_pitch = 0.0f;
-    i32                _current_preset = 0;     // 0=Day, 1=Sunset, 2=Night
-    bool               _need_recapture = false;
-    u32                _display_mode   = 0;     // 0=env / 1=irradiance / 2..6=prefilter mip 0..4
+    i32                _current_preset = 0;
+    bool               _need_recapture  = false;
+    bool               _need_studio_hdr = false;
+    u32                _display_mode    = 0;
 };
 
 ACS_DEFINE_MAIN(HelloIbl)
