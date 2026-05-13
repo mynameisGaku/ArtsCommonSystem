@@ -87,6 +87,12 @@ public:
     // (1x1 black cubemap / 2D) を bind する。
     void BindIblTextures(IRhiCommandList& cmd) noexcept;
 
+    // SH 9 (Ramamoorthi) ambient mode を有効化する (Phase 32c)。
+    // `sh9` は ImageBasedLighting::ComputeSh9FromEquirect で得られた 9 RGB 係数。
+    // 有効化中は cubemap irradiance ではなく SH 9 から復元した diffuse irradiance を使う。
+    // SetSh9(nullptr) で OFF に戻す。SetIbl が前段で呼ばれてないと意味がない。
+    void SetSh9(const Vec4* sh9_or_null) noexcept;
+
     // PBR material 設定。base_color は非金属時の albedo、金属時の F0 tint。
     // metallic [0,1], roughness [0,1] は線形 (perceptual ではなく直接 GGX に
     // 渡す)、ao [0,1] は ambient のみに乗算 (direct light には影響しない)。
@@ -141,6 +147,10 @@ private:
     IRhiTexture* _ibl_brdf       = nullptr;
     u32          _ibl_mips       = 0;
     bool         _ibl_enabled    = false;
+
+    // SH 9 light probe (optional Phase 32c)
+    Vec4         _sh9[9]         = {};
+    bool         _sh9_enabled    = false;
 };
 
 } // namespace acs

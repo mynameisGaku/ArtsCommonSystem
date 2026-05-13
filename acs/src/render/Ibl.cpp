@@ -722,6 +722,79 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     return Ok();
 }
 
+void ImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
+                                                  u32 width, u32 height,
+                                                  Vec4 out_sh_rgb[9]) noexcept {
+    // 初期化
+    for (u32 i = 0; i < 9; ++i) out_sh_rgb[i] = Vec4{0, 0, 0, 0};
+    if (!rgba_float || width == 0 || height == 0) return;
+
+    // SH basis 定数 (Ramamoorthi-Hanrahan 2001、Stupid SH Tricks の表記)
+    // c0 = 1/2 * sqrt(1/π)        (l=0)
+    // c1 = sqrt(3/(4π)) * (x,y,z)  (l=1)
+    // c2 (l=2): xy / xz / yz / (3z²-1) / (x²-y²) 系
+    const f32 inv_2sqrtPi   = 0.282094791773878f;     // 1/(2√π)
+    const f32 sqrt3_2sqrtPi = 0.488602511902920f;     // √3/(2√π)
+    const f32 sqrt15_2sqrtPi = 1.092548430592079f;    // √15/(2√π)
+    const f32 sqrt5_4sqrtPi  = 0.315391565252520f;    // √5/(4√π)
+    const f32 sqrt15_4sqrtPi = 0.546274215296039f;    // √15/(4√π)
+
+    const f32 dPhi   = 2.0f * kPi / static_cast<f32>(width);
+    const f32 dTheta = kPi / static_cast<f32>(height);
+
+    f64 sh_r[9] = {0,0,0,0,0,0,0,0,0};
+    f64 sh_g[9] = {0,0,0,0,0,0,0,0,0};
+    f64 sh_b[9] = {0,0,0,0,0,0,0,0,0};
+
+    for (u32 y = 0; y < height; ++y) {
+        const f32 theta = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(height) * kPi;
+        const f32 sinT  = Sin(theta);
+        const f32 cosT  = Cos(theta);
+        const f32 weight = sinT * dPhi * dTheta;   // 球面要素 dω = sinθ dθ dφ
+        for (u32 x = 0; x < width; ++x) {
+            const f32 phi = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(width)
+                            * 2.0f * kPi - kPi;
+            const f32 sinP = Sin(phi);
+            const f32 cosP = Cos(phi);
+            // direction (右手座標、equirect 規約 phi=0 が +Z、theta=0 が +Y)
+            const f32 nx = sinT * sinP;
+            const f32 ny = cosT;
+            const f32 nz = sinT * cosP;
+
+            const u32 idx = (y * width + x) * 4u;
+            const f32 r = rgba_float[idx + 0];
+            const f32 g = rgba_float[idx + 1];
+            const f32 b = rgba_float[idx + 2];
+
+            // SH basis values (cartesian form)
+            f32 Y[9];
+            Y[0] = inv_2sqrtPi;                                       // l=0
+            Y[1] = sqrt3_2sqrtPi * ny;                                 // l=1, m=-1 (y)
+            Y[2] = sqrt3_2sqrtPi * nz;                                 // l=1, m=0  (z)
+            Y[3] = sqrt3_2sqrtPi * nx;                                 // l=1, m=1  (x)
+            Y[4] = sqrt15_2sqrtPi * nx * ny;                           // l=2, m=-2 (xy)
+            Y[5] = sqrt15_2sqrtPi * ny * nz;                           // l=2, m=-1 (yz)
+            Y[6] = sqrt5_4sqrtPi  * (3.0f * nz * nz - 1.0f);           // l=2, m=0
+            Y[7] = sqrt15_2sqrtPi * nx * nz;                           // l=2, m=1  (xz)
+            Y[8] = sqrt15_4sqrtPi * (nx * nx - ny * ny);               // l=2, m=2
+
+            for (u32 i = 0; i < 9; ++i) {
+                sh_r[i] += static_cast<f64>(r) * Y[i] * weight;
+                sh_g[i] += static_cast<f64>(g) * Y[i] * weight;
+                sh_b[i] += static_cast<f64>(b) * Y[i] * weight;
+            }
+        }
+    }
+    for (u32 i = 0; i < 9; ++i) {
+        out_sh_rgb[i] = Vec4{
+            static_cast<f32>(sh_r[i]),
+            static_cast<f32>(sh_g[i]),
+            static_cast<f32>(sh_b[i]),
+            0.0f
+        };
+    }
+}
+
 Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
         IRhiDevice& device, IRhiCommandList& cl,
         const f32* rgba_float, u32 width, u32 height) noexcept {

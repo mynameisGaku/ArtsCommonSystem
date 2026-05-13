@@ -64,6 +64,17 @@ public:
     Result<void> LoadEquirectHdrFromMemory(IRhiDevice& device, IRhiCommandList& cl,
                                             const f32* rgba_float, u32 width, u32 height) noexcept;
 
+    // SH 9 light probe (Phase 32c)。equirect 画像から Ramamoorthi-Hanrahan の
+    // L_l,m 球面調和係数 9 個を CPU 側で計算し、`out_sh_rgb[9]` に書き出す。
+    //   `out_sh_rgb[i].xyz` = RGB 係数、`.w` 不使用 (CB layout の便宜上 Vec4)
+    // 後段 PbrShader 側で SH 9 ambient mode に切替できる (irradiance cubemap の
+    // 圧縮版とみなせる、メモリ 144B のみで diffuse irradiance を近似)。
+    //
+    // 規約: equirect の v=0 が +Y、v=1 が -Y、u=0 が phi=-π。
+    static void ComputeSh9FromEquirect(const f32* rgba_float,
+                                        u32 width, u32 height,
+                                        Vec4 out_sh_rgb[9]) noexcept;
+
     // 初回呼び出しで diffuse irradiance cubemap (32x32x6, R11G11B10_Float) を
     // env cubemap の半球積分から作る。EnsureEnvCubemap が完了していないと失敗。
     // 出力 = (1/π) ∫_Ω L_env(ω) (N·ω) dω → Lambert diffuse の ambient 項として

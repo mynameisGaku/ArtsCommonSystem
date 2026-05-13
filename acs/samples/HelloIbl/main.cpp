@@ -78,21 +78,30 @@ public:
     void OnUpdate(f32 dt) noexcept override {
         if (Input::IsKeyPressed(Key::Escape)) Quit();
 
-        // 1/2/3 で sky preset 切替 → 次フレームで cubemap が再生成される
+        // 1/2/3/4 で env 切替。SH9 mode が有効中は SH 9 係数も再計算が必要
         if (Input::IsKeyPressed(Key::Num1)) {
-            _sky.PresetDay();    _current_preset = 0; _need_recapture = true;
+            _sky.PresetDay();    _current_preset = 0;
+            _need_recapture = true; _need_sh9_rebuild = _use_sh9;
         }
         if (Input::IsKeyPressed(Key::Num2)) {
-            _sky.PresetSunset(); _current_preset = 1; _need_recapture = true;
+            _sky.PresetSunset(); _current_preset = 1;
+            _need_recapture = true; _need_sh9_rebuild = _use_sh9;
         }
         if (Input::IsKeyPressed(Key::Num3)) {
-            _sky.PresetNight();  _current_preset = 2; _need_recapture = true;
+            _sky.PresetNight();  _current_preset = 2;
+            _need_recapture = true; _need_sh9_rebuild = _use_sh9;
         }
         if (Input::IsKeyPressed(Key::Num4)) {
-            _current_preset = 3; _need_studio_hdr = true;
+            _current_preset = 3;
+            _need_studio_hdr = true; _need_sh9_rebuild = _use_sh9;
         }
         if (Input::IsKeyPressed(Key::I)) {
             _display_mode = (_display_mode + 1) % 7;
+        }
+        // SH9 toggle: 現在の irradiance cubemap から計算した SH 9 で diffuse を再構築
+        if (Input::IsKeyPressed(Key::S)) {
+            _use_sh9 = !_use_sh9;
+            _need_sh9_rebuild = _use_sh9;     // 必要なときに再計算
         }
         // B キーで bloom on/off (verify HDR clip 防止効果)
         if (Input::IsKeyPressed(Key::B)) {
@@ -199,6 +208,16 @@ public:
         // 5x5 sphere grid (IBL only)
         _pbr.SetIbl(_ibl.IrradianceMap(), _ibl.PrefilterMap(), _ibl.BrdfLut(),
                     _ibl.PrefilterMips());
+
+        // SH9 mode: 現在の env cubemap (sky or studio HDR) から SH 9 を計算して PbrShader へ
+        if (_need_sh9_rebuild) {
+            BuildEquirectFromCurrentEnv();
+            ImageBasedLighting::ComputeSh9FromEquirect(
+                _equirect_rgba.Data(), kEquirectWidth, kEquirectHeight, _sh9);
+            _need_sh9_rebuild = false;
+        }
+        _pbr.SetSh9(_use_sh9 ? _sh9 : nullptr);
+
         _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
                        nullptr, 0, Vec3{0, 0, 0});
         _pbr.SetPointLights(nullptr, 0);
@@ -266,9 +285,10 @@ public:
             _batch.DrawString(_font, buf, 20, 68, Vec4{1.0f, 0.95f, 0.7f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "Exposure: %.2f   Bloom: %s   (Q/E で露出 / B でbloom)",
+                          "Exposure: %.2f   Bloom: %s   Diffuse: %s   (Q/E exp, B bloom, S SH9)",
                           static_cast<double>(_post_params.exposure),
-                          _post_params.bloom_enabled ? "ON" : "OFF");
+                          _post_params.bloom_enabled ? "ON" : "OFF",
+                          _use_sh9 ? "SH9 (light probe)" : "Irradiance cube");
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
@@ -287,6 +307,71 @@ public:
         cl->Submit();
         sc->Present();
         return true;
+    }
+
+    // 現在の Sky procedural を CPU 側で評価して equirect float bitmap に焼く。
+    // ProcSky (Ibl.cpp の HLSL) と同じ式を C++ で実装。Studio HDR preset の場合は
+    // _equirect_rgba にもう焼かれているので何もしない。
+    void BuildEquirectFromCurrentEnv() noexcept {
+        if (_equirect_rgba.Size() == 0) {
+            _equirect_rgba.Resize(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
+        }
+        if (_current_preset == 3) {
+            // Studio HDR は BuildStudioHdrEquirect で既に焼いてある
+            return;
+        }
+        auto safe_sqrt_n = [](Vec3 v) noexcept {
+            f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
+            if (len2 < 1e-12f) return Vec3{0, 1, 0};
+            f32 inv = 1.0f / Sqrt(len2);
+            return Vec3{v.x * inv, v.y * inv, v.z * inv};
+        };
+        auto smoothstep = [](f32 a, f32 b, f32 x) noexcept {
+            f32 t = (x - a) / (b - a);
+            t = Saturate(t);
+            return t * t * (3.0f - 2.0f * t);
+        };
+
+        const Vec3 sun_dir = safe_sqrt_n(_sky.SunDirection());
+        const Vec3 sun_col = _sky.SunColor();
+        const Vec3 zenith  = _sky.ZenithColor();
+        const Vec3 horizon = _sky.HorizonColor();
+        const Vec3 ground  = _sky.GroundColor();
+        const f32  sun_r   = _sky.SunRadius();
+        const f32  sun_g   = _sky.SunGlow();
+
+        for (u32 y = 0; y < kEquirectHeight; ++y) {
+            const f32 theta = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(kEquirectHeight) * kPi;
+            const f32 sinT = Sin(theta), cosT = Cos(theta);
+            for (u32 x = 0; x < kEquirectWidth; ++x) {
+                const f32 phi_norm = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kEquirectWidth);
+                const f32 phi = phi_norm * 2.0f * kPi - kPi;
+                // equirect 規約: phi=0 が +Z、theta=0 が +Y
+                const Vec3 dir{ sinT * Sin(phi), cosT, sinT * Cos(phi) };
+
+                Vec3 sky;
+                if (dir.y >= 0.0f) {
+                    const f32 k = Pow(Saturate(dir.y), 0.6f);
+                    sky = horizon * (1.0f - k) + zenith * k;
+                } else {
+                    const f32 k = Pow(Saturate(-dir.y), 0.6f);
+                    sky = horizon * (1.0f - k) + ground * k;
+                }
+                const f32 c = Saturate(dir.x * sun_dir.x + dir.y * sun_dir.y + dir.z * sun_dir.z);
+                const f32 ang = 1.0f - c;
+                if (ang < sun_r) {
+                    sky = sun_col;
+                } else if (ang < sun_g) {
+                    const f32 k = 1.0f - smoothstep(sun_r, sun_g, ang);
+                    sky = sky * (1.0f - k) + sun_col * k;
+                }
+                const u32 idx = (y * kEquirectWidth + x) * 4u;
+                _equirect_rgba[idx + 0] = sky.x;
+                _equirect_rgba[idx + 1] = sky.y;
+                _equirect_rgba[idx + 2] = sky.z;
+                _equirect_rgba[idx + 3] = 1.0f;
+            }
+        }
     }
 
     // CPU で equirect (256x128 RGBA float) を合成: 4 つの色つき HDR パネル光源 +
@@ -350,8 +435,8 @@ public:
     }
 
 private:
-    static constexpr u32 kEquirectWidth  = 512;
-    static constexpr u32 kEquirectHeight = 256;
+    static constexpr u32 kEquirectWidth  = 256;       // SH9 計算用、小さめで十分
+    static constexpr u32 kEquirectHeight = 128;
 
     PostProcess        _post;
     ImageBasedLighting _ibl;
@@ -363,13 +448,16 @@ private:
     Camera             _camera;
     PostProcessParams  _post_params;
     Array<f32>         _equirect_rgba;          // 4 ch float
+    Vec4               _sh9[9]      = {};        // 計算済 SH 9 係数 (xyz=RGB)
     Vec3               _cam_pos   = Vec3{0, 1.0f, -5.0f};
     f32                _cam_yaw   = 0.0f;
     f32                _cam_pitch = 0.0f;
     i32                _current_preset = 0;
-    bool               _need_recapture  = false;
-    bool               _need_studio_hdr = false;
-    u32                _display_mode    = 0;
+    bool               _need_recapture   = false;
+    bool               _need_studio_hdr  = false;
+    bool               _use_sh9          = false;
+    bool               _need_sh9_rebuild = false;
+    u32                _display_mode     = 0;
 };
 
 ACS_DEFINE_MAIN(HelloIbl)

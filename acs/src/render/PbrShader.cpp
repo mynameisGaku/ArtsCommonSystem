@@ -30,7 +30,8 @@ cbuffer Frame : register(b0) {
     float4   light_color[ACS_MAX_DIR_LIGHTS];
     float4   point_pos_range [ACS_MAX_POINT_LIGHTS];
     float4   point_color     [ACS_MAX_POINT_LIGHTS];
-    float4   ibl_params;                              // x=ibl_enabled (0/1), y=prefilter_mip_count
+    float4   ibl_params;                              // x=ibl_enabled, y=prefilter_mip_count, z=use_sh9
+    float4   sh9[9];                                  // SH 9 coefficients (RGB)、z モードで使用
 };
 
 cbuffer Object : register(b1) {
@@ -96,6 +97,25 @@ float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness) {
     return F0 + (max(r, F0) - F0) * pow(saturate(1.0 - cosTheta), 5.0);
 }
 
+// SH 9 reconstruction (Ramamoorthi-Hanrahan 2001、Stupid SH Tricks p.6)
+//   irradiance(N) ≈ c4*L[0] - c5*L[6] + c3*L[6]*z² + c1*L[8]*(x²-y²)
+//                + 2 c1 (L[4]*xy + L[7]*xz + L[5]*yz) + 2 c2 (L[3]*x + L[1]*y + L[2]*z)
+float3 Sh9Irradiance(float3 N, float4 L[9]) {
+    const float c1 = 0.429043;
+    const float c2 = 0.511664;
+    const float c3 = 0.743125;
+    const float c4 = 0.886227;
+    const float c5 = 0.247708;
+    float x = N.x, y = N.y, z = N.z;
+    float3 e = c4 * L[0].rgb
+             + 2.0 * c2 * (L[3].rgb * x + L[1].rgb * y + L[2].rgb * z)
+             + c5 * (-L[6].rgb)
+             + 2.0 * c1 * (L[4].rgb * x * y + L[7].rgb * x * z + L[5].rgb * y * z)
+             + c3 * L[6].rgb * z * z
+             + c1 * L[8].rgb * (x * x - y * y);
+    return max(e, float3(0, 0, 0));    // clamp 負値 (アンダーシュート対策)
+}
+
 // IBL ambient (split-sum approximation):
 //   diffuse_ibl  = (1 - F) * (1 - metallic) * base * irradiance.Sample(N)
 //   specular_ibl = prefilter.SampleLevel(R, roughness * (mips-1)) * (F0 * lut.r + lut.g)
@@ -109,7 +129,13 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 base,
     float3 F  = FresnelSchlickRoughness(NoV, F0, roughness);
 
     float3 kd = (1.0 - F) * (1.0 - metallic);
-    float3 irr = irradiance.SampleLevel(irradiance_sampler, N, 0).rgb;
+    // diffuse: SH 9 か cubemap か。ibl_params.z >= 0.5 で SH モード
+    float3 irr;
+    if (ibl_params.z >= 0.5) {
+        irr = Sh9Irradiance(N, sh9);
+    } else {
+        irr = irradiance.SampleLevel(irradiance_sampler, N, 0).rgb;
+    }
     float3 diffuse_ibl = kd * base * irr;
 
     // prefilter は mip = roughness * (mip_count - 1)。Sample (with HW mip
@@ -206,7 +232,8 @@ struct FrameCBLayout {
     Vec4 light_color [kMaxDirLights];
     Vec4 point_pos_range[kMaxPointLights];
     Vec4 point_color    [kMaxPointLights];
-    Vec4 ibl_params;        // x=ibl_enabled, y=prefilter_mip_count
+    Vec4 ibl_params;        // x=ibl_enabled, y=prefilter_mip_count, z=use_sh9
+    Vec4 sh9[9];            // SH 9 coefficients (xyz=RGB, w=pad)
 };
 
 struct ObjectCBLayout {
@@ -369,6 +396,17 @@ void PbrShader::SetIbl(IRhiTexture* irradiance,
     FlushFrameCB();
 }
 
+void PbrShader::SetSh9(const Vec4* sh9_or_null) noexcept {
+    if (sh9_or_null) {
+        for (u32 i = 0; i < 9; ++i) _sh9[i] = sh9_or_null[i];
+        _sh9_enabled = true;
+    } else {
+        for (u32 i = 0; i < 9; ++i) _sh9[i] = Vec4{0, 0, 0, 0};
+        _sh9_enabled = false;
+    }
+    FlushFrameCB();
+}
+
 void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     if (_ibl_enabled) {
         cmd.SetTexture(1, *_ibl_irradiance);
@@ -422,8 +460,10 @@ void PbrShader::FlushFrameCB() noexcept {
     cb.ibl_params = Vec4{
         _ibl_enabled ? 1.0f : 0.0f,
         static_cast<f32>(_ibl_mips),
-        0, 0
+        _sh9_enabled ? 1.0f : 0.0f,
+        0
     };
+    for (u32 i = 0; i < 9; ++i) cb.sh9[i] = _sh9[i];
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
