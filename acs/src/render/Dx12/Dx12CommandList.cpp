@@ -194,6 +194,12 @@ void Dx12CommandList::BeginRenderToTexture(IRhiTexture& /*rt*/, const ClearColor
 
 void Dx12CommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {}
 
+// IBL / cubemap 描画は Diligent backend 専用機能 (Phase 31)。
+// Dx12 raw backend には実装しない。
+void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& /*rt*/,
+                                                 u32 /*slice*/, u32 /*mip*/,
+                                                 const ClearColor& /*clear*/) noexcept {}
+
 void Dx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
     auto& dx_depth = static_cast<Dx12Texture&>(depth);
     if (!dx_depth.IsDepth() || !dx_depth.HasSrv()) return;

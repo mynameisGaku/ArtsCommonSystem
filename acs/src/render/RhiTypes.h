@@ -13,7 +13,9 @@ enum class Format : u8 {
     R8G8B8A8_UNorm_sRGB,   // sRGB 解釈
     R8G8B8A8_UInt,         // 整数 4 ch（ボーン indices 等）
     B8G8R8A8_UNorm,        // BGRA 配置（Win32 ネイティブ）
+    R16G16_Float,          // BRDF LUT 等の 2 ch 半精度
     R16G16B16A16_Float,    // HDR レンダーターゲット用
+    R11G11B10_Float,       // 32bit にパック済みコンパクト HDR (環境/IBL prefilter 向け)
     R32G32_Float,          // 2D 座標バッファ
     R32G32B32_Float,       // 3D 座標バッファ
     R32G32B32A32_Float,    // 4D ベクトル

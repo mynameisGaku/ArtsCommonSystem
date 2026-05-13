@@ -92,8 +92,12 @@ public:
         if (!cl) return;
 
         DirLight lights[1];
-        lights[0].direction = Vec3{-0.4f, -0.8f, 0.5f};
-        lights[0].color     = Vec3{1.0f, 0.95f, 0.9f};
+        // direction = surface から light source へ向くベクトル (y+ = 上空の太陽)。
+        // HelloLights / HelloRaycast3D の慣習に合わせて y を正にする。
+        lights[0].direction = Vec3{0.4f, 0.8f, -0.5f};
+        // LDR backbuffer (B8G8R8A8_UNorm) なので強度 1.x 程度に抑えて clip 回避。
+        // HDR + ACES tonemap は Phase 31+ で。
+        lights[0].color     = Vec3{1.4f, 1.33f, 1.26f};
 
         // 旋回する点光源で highlight をハッキリ見せる
         PointLight pts[1];
@@ -128,7 +132,9 @@ public:
                 const f32 metallic  = static_cast<f32>(x) / (kGridSize - 1);
                 const f32 roughness = 0.05f + static_cast<f32>(y) / (kGridSize - 1) * 0.95f;
                 const f32 px = (static_cast<f32>(x) - (kGridSize - 1) * 0.5f) * kSpacing;
-                const f32 py = (static_cast<f32>(y) - (kGridSize - 1) * 0.5f) * kSpacing + 1.2f;
+                // +3.0 でグリッド全体を床より上に。床 y=-0.6 + sphere radius 0.55 を考慮し
+                // row 0 (y=0) の sphere bottom (py - 0.55) が床より上になるように +3.0 を選択。
+                const f32 py = (static_cast<f32>(y) - (kGridSize - 1) * 0.5f) * kSpacing + 3.0f;
                 _shader.SetObject(Mat4::Translation(Vec3{px, py, 2.0f}),
                                   base, metallic, roughness, 1.0f);
                 cl->DrawIndexed(_gm_sphere.index_count);

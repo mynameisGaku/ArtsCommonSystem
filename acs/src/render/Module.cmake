@@ -19,6 +19,7 @@ set(_acs_render_sources
     SkinnedShader.cpp
     ShadowMap.cpp
     PostProcess.cpp
+    Ibl.cpp
 )
 set(_acs_render_headers
     RhiTypes.h
@@ -41,6 +42,7 @@ set(_acs_render_headers
     SkinnedShader.h
     ShadowMap.h
     PostProcess.h
+    Ibl.h
 )
 
 if(ACS_RENDER_DX12_RAW)

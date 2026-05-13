@@ -50,6 +50,13 @@ public:
     // RT 描画を終了 → 次パスで SRV としてサンプルできる状態に遷移
     virtual void EndRenderToTexture(class IRhiTexture& rt) noexcept = 0;
 
+    // cubemap 1 面 or 2D 配列 1 スライスに描画 (per_slice_rtv=true で作成済が前提)。
+    // cubemap なら face は 0..5 (+X,-X,+Y,-Y,+Z,-Z の順)。mip は描画先 mip レベル。
+    // 復帰は EndRenderToTexture と同じ挙動 (main pass RT を再 bind)。
+    virtual void BeginRenderToTextureSlice(class IRhiTexture& rt,
+                                            u32 slice, u32 mip,
+                                            const ClearColor& clear) noexcept = 0;
+
     // ビューポート / シザーを設定
     virtual void SetViewport(const Viewport& vp) noexcept = 0;
     virtual void SetScissor (const ScissorRect& sr) noexcept = 0;

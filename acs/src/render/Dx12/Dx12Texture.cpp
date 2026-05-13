@@ -15,7 +15,9 @@ u32 BytesPerPixel(Format f) noexcept {
         case Format::R8G8B8A8_UNorm:
         case Format::R8G8B8A8_UNorm_sRGB:
         case Format::B8G8R8A8_UNorm:           return 4;
+        case Format::R16G16_Float:             return 4;
         case Format::R16G16B16A16_Float:       return 8;
+        case Format::R11G11B10_Float:          return 4;
         case Format::R32G32_Float:             return 8;
         case Format::R32G32B32_Float:          return 12;
         case Format::R32G32B32A32_Float:       return 16;

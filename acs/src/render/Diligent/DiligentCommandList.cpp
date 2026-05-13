@@ -147,6 +147,38 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
     SetScissor(sr);
 }
 
+void DiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
+                                                     const ClearColor& clear) noexcept {
+    if (!_device) return;
+    auto* ctx = _device->Context();
+    if (!ctx) return;
+    auto& t = static_cast<DiligentTexture&>(rt);
+    auto* rtv = t.RtvSlice(slice, mip);
+    if (!rtv) return;
+
+    Diligent::ITextureView* rtvs[1] = { rtv };
+    ctx->SetRenderTargets(1, rtvs, nullptr,
+                          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    const float clr[4] = { clear.r, clear.g, clear.b, clear.a };
+    ctx->ClearRenderTarget(rtv, clr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+
+    // mip 描画では viewport も縮める
+    u32 w = t.Width();
+    u32 h = t.Height();
+    for (u32 i = 0; i < mip; ++i) {
+        w = w > 1 ? w / 2 : 1;
+        h = h > 1 ? h / 2 : 1;
+    }
+    Viewport vp;
+    vp.width  = static_cast<f32>(w);
+    vp.height = static_cast<f32>(h);
+    SetViewport(vp);
+    ScissorRect sr;
+    sr.right  = static_cast<i32>(w);
+    sr.bottom = static_cast<i32>(h);
+    SetScissor(sr);
+}
+
 void DiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
     // RT texture の RTV → SRV 遷移は Diligent が次の SetTexture で自動。
     // ただし RT 復帰はやってくれないので、main pass に戻したいときは

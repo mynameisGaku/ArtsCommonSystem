@@ -55,9 +55,14 @@ public:
     void PresetSunset() noexcept;    // 茜色 + 暖色太陽
     void PresetNight()  noexcept;    // 紺青 + 弱い月光
 
-    // 現在の太陽パラメータ取得（StandardShader と整合させたいときに）
+    // 現在の太陽パラメータ取得（StandardShader / IBL と整合させたいときに）
     Vec3 SunDirection() const noexcept { return _sun_dir; }
     Vec3 SunColor()     const noexcept { return _sun_color; }
+    f32  SunRadius()    const noexcept { return _sun_radius; }
+    f32  SunGlow()      const noexcept { return _sun_glow; }
+    Vec3 ZenithColor()  const noexcept { return _zenith; }
+    Vec3 HorizonColor() const noexcept { return _horizon; }
+    Vec3 GroundColor()  const noexcept { return _ground; }
 
     // 描画（先頭で呼ぶ。深度バッファは「背景に塗る」想定で書込み無し・テスト無し）
     void Render(IRhiCommandList& cl, const Camera& camera) noexcept;

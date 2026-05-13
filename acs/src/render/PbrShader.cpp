@@ -238,9 +238,13 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.static_samplers[0].address_u = SamplerAddress::Wrap;
     pd.static_samplers[0].address_v = SamplerAddress::Wrap;
     pd.vertex_stride = sizeof(MeshVertex);
+    // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
+    // → position@0, normal@16, uv@32 (Standard と一致)。
+    // 12/24 にしてしまうと normal が position パディング + normal の途中を読んで
+    // ジオメトリが破壊され、PBR が「黒っぽくべったり影」状態に見える。
     pd.layout[0] = { "POSITION", 0, Format::R32G32B32_Float, 0  };
-    pd.layout[1] = { "NORMAL",   0, Format::R32G32B32_Float, 12 };
-    pd.layout[2] = { "TEXCOORD", 0, Format::R32G32_Float,    24 };
+    pd.layout[1] = { "NORMAL",   0, Format::R32G32B32_Float, 16 };
+    pd.layout[2] = { "TEXCOORD", 0, Format::R32G32_Float,    32 };
     pd.layout_count = 3;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr())
         return Err<void>(r.Error());
