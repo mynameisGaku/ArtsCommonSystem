@@ -322,6 +322,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.static_samplers[3].filter    = SamplerFilter::Linear;
     pd.static_samplers[3].address_u = SamplerAddress::Clamp;
     pd.static_samplers[3].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[3].address_w = SamplerAddress::Clamp;     // 2D LUT で w 軸は未使用だが一貫性のため
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
