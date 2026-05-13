@@ -30,6 +30,7 @@ cbuffer Frame : register(b0) {
     float4   light_color[ACS_MAX_DIR_LIGHTS];
     float4   point_pos_range [ACS_MAX_POINT_LIGHTS];
     float4   point_color     [ACS_MAX_POINT_LIGHTS];
+    float4   ibl_params;                              // x=ibl_enabled (0/1), y=prefilter_mip_count
 };
 
 cbuffer Object : register(b1) {
@@ -38,8 +39,14 @@ cbuffer Object : register(b1) {
     float4   pbr_params;     // x=metallic, y=roughness, z=ao, w=pad
 };
 
-Texture2D    albedo : register(t0);
-SamplerState albedo_sampler : register(s0);
+Texture2D    albedo          : register(t0);
+TextureCube  irradiance       : register(t1);
+TextureCube  prefilter        : register(t2);
+Texture2D    brdf_lut         : register(t3);
+SamplerState albedo_sampler     : register(s0);
+SamplerState irradiance_sampler : register(s1);
+SamplerState prefilter_sampler  : register(s2);
+SamplerState brdf_lut_sampler   : register(s3);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -82,6 +89,39 @@ float3 F_Schlick(float VdotH, float3 F0) {
     return F0 + (1.0 - F0) * f;
 }
 
+// Karis "Real Shading in UE4" 流 Fresnel with roughness。
+// 低 NoV (grazing) で粗い表面は full Fresnel しないという経験的補正。
+float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness) {
+    float3 r = (float3)(1.0 - roughness);
+    return F0 + (max(r, F0) - F0) * pow(saturate(1.0 - cosTheta), 5.0);
+}
+
+// IBL ambient (split-sum approximation):
+//   diffuse_ibl  = (1 - F) * (1 - metallic) * base * irradiance.Sample(N)
+//   specular_ibl = prefilter.SampleLevel(R, roughness * (mips-1)) * (F0 * lut.r + lut.g)
+float3 ComputeIblAmbient(float3 N, float3 V, float3 base,
+                        float metallic, float roughness, float ao)
+{
+    float NoV = saturate(dot(N, V));
+    float3 R  = reflect(-V, N);
+
+    float3 F0 = lerp(float3(0.04, 0.04, 0.04), base, metallic);
+    float3 F  = FresnelSchlickRoughness(NoV, F0, roughness);
+
+    float3 kd = (1.0 - F) * (1.0 - metallic);
+    float3 irr = irradiance.SampleLevel(irradiance_sampler, N, 0).rgb;
+    float3 diffuse_ibl = kd * base * irr;
+
+    // prefilter は mip = roughness * (mip_count - 1)。Sample (with HW mip
+    // selection) ではなく SampleLevel で明示することで filtering を確実にする。
+    float mip_lvl = roughness * max(ibl_params.y - 1.0, 0.0);
+    float3 prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
+    float2 lut_xy = brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, roughness), 0).rg;
+    float3 specular_ibl = prefilt * (F0 * lut_xy.x + lut_xy.y);
+
+    return (diffuse_ibl + specular_ibl) * ao;
+}
+
 // Cook-Torrance BRDF * NdotL (light vector L is from surface to light source).
 float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
                        float3 base, float metallic, float roughness)
@@ -117,8 +157,15 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  roughness  = max(pbr_params.y, 0.04);     // 0 は数値不安定
     float  ao         = pbr_params.z;
 
-    // 環境光 (IBL 未実装、Phase 31 で置換予定)。AO は ambient のみに乗せる。
-    float3 col = ambient.xyz * albedo_rgb * ao;
+    // 環境光: ibl_params.x が 1 なら IBL ambient、0 なら flat ambient。
+    // uniform branching なので片方の TextureCube サンプルは PSO の dead code
+    // として削除される (FXC の判断による)。
+    float3 col;
+    if (ibl_params.x >= 0.5) {
+        col = ComputeIblAmbient(N, V, albedo_rgb, metallic, roughness, ao);
+    } else {
+        col = ambient.xyz * albedo_rgb * ao;
+    }
 
     // 有向光源
     int dir_count = (int)ambient.w;
@@ -159,6 +206,7 @@ struct FrameCBLayout {
     Vec4 light_color [kMaxDirLights];
     Vec4 point_pos_range[kMaxPointLights];
     Vec4 point_color    [kMaxPointLights];
+    Vec4 ibl_params;        // x=ibl_enabled, y=prefilter_mip_count
 };
 
 struct ObjectCBLayout {
@@ -209,7 +257,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
         return Err<void>(r.Error());
     else _object_cb = Move(r.Value());
 
-    // 1x1 白テクスチャ
+    // 1x1 白テクスチャ (albedo fallback)
     const u8 white[4] = {255, 255, 255, 255};
     TextureDesc td{};
     td.width = 1; td.height = 1;
@@ -218,6 +266,29 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     if (auto r = CreateRhiTexture(device, td); r.IsErr())
         return Err<void>(r.Error());
     else _white = Move(r.Value());
+
+    // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
+    // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
+    // SRB に valid な texture を bind する必要があるので作っておく。内容は
+    // undefined (driver は通常 0 化する)。
+    TextureDesc ic{};
+    ic.width = 1; ic.height = 1;
+    ic.format = Format::R11G11B10_Float;
+    ic.array_size = 6;
+    ic.is_cubemap = true;
+    if (auto r = CreateRhiTexture(device, ic); r.IsErr())
+        return Err<void>(r.Error());
+    else _ibl_irradiance_fb = Move(r.Value());
+    if (auto r = CreateRhiTexture(device, ic); r.IsErr())
+        return Err<void>(r.Error());
+    else _ibl_prefilter_fb = Move(r.Value());
+
+    TextureDesc bt{};
+    bt.width = 1; bt.height = 1;
+    bt.format = Format::R16G16_Float;
+    if (auto r = CreateRhiTexture(device, bt); r.IsErr())
+        return Err<void>(r.Error());
+    else _ibl_brdf_fb = Move(r.Value());
 
     PipelineDesc pd{};
     pd.vs = _vs.Get();
@@ -229,14 +300,28 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.depth_write   = true;
     pd.cull_mode     = CullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 1;
+    pd.texture_slots = 4;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
-    pd.static_sampler_count = 1;
+    pd.texture_names[1] = "irradiance";
+    pd.texture_names[2] = "prefilter";
+    pd.texture_names[3] = "brdf_lut";
+    pd.static_sampler_count = 4;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Wrap;
     pd.static_samplers[0].address_v = SamplerAddress::Wrap;
+    pd.static_samplers[1].filter    = SamplerFilter::Linear;
+    pd.static_samplers[1].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[1].address_w = SamplerAddress::Clamp;
+    pd.static_samplers[2].filter    = SamplerFilter::Linear;
+    pd.static_samplers[2].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[2].address_w = SamplerAddress::Clamp;
+    pd.static_samplers[3].filter    = SamplerFilter::Linear;
+    pd.static_samplers[3].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[3].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -257,9 +342,42 @@ void PbrShader::Shutdown() noexcept {
     _pipeline.Reset();
     _object_cb.Reset();
     _frame_cb.Reset();
+    _ibl_brdf_fb.Reset();
+    _ibl_prefilter_fb.Reset();
+    _ibl_irradiance_fb.Reset();
     _white.Reset();
     _ps.Reset();
     _vs.Reset();
+    _ibl_irradiance = nullptr;
+    _ibl_prefilter  = nullptr;
+    _ibl_brdf       = nullptr;
+    _ibl_mips       = 0;
+    _ibl_enabled    = false;
+}
+
+void PbrShader::SetIbl(IRhiTexture* irradiance,
+                       IRhiTexture* prefilter,
+                       IRhiTexture* brdf_lut,
+                       u32 prefilter_mips) noexcept {
+    _ibl_irradiance = irradiance;
+    _ibl_prefilter  = prefilter;
+    _ibl_brdf       = brdf_lut;
+    _ibl_mips       = prefilter_mips;
+    _ibl_enabled    = (irradiance != nullptr) && (prefilter != nullptr)
+                       && (brdf_lut != nullptr) && (prefilter_mips > 0);
+    FlushFrameCB();
+}
+
+void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
+    if (_ibl_enabled) {
+        cmd.SetTexture(1, *_ibl_irradiance);
+        cmd.SetTexture(2, *_ibl_prefilter);
+        cmd.SetTexture(3, *_ibl_brdf);
+    } else {
+        if (_ibl_irradiance_fb) cmd.SetTexture(1, *_ibl_irradiance_fb);
+        if (_ibl_prefilter_fb)  cmd.SetTexture(2, *_ibl_prefilter_fb);
+        if (_ibl_brdf_fb)       cmd.SetTexture(3, *_ibl_brdf_fb);
+    }
 }
 
 void PbrShader::SetLights(const Mat4& vp, Vec3 eye,
@@ -300,6 +418,11 @@ void PbrShader::FlushFrameCB() noexcept {
         cb.point_pos_range[i] = Vec4{p.x, p.y, p.z, _point_lights[i].range};
         cb.point_color[i]     = Vec4{c.x, c.y, c.z, 1};
     }
+    cb.ibl_params = Vec4{
+        _ibl_enabled ? 1.0f : 0.0f,
+        static_cast<f32>(_ibl_mips),
+        0, 0
+    };
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
@@ -322,6 +445,7 @@ void PbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const Mat4& 
     cmd.SetConstantBuffer(0, *_frame_cb);
     cmd.SetConstantBuffer(1, *_object_cb);
     cmd.SetTexture(0, *(albedo ? albedo : _white.Get()));
+    BindIblTextures(cmd);
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     cmd.SetIndexBuffer(*mesh.index_buffer);
     cmd.DrawIndexed(mesh.index_count);

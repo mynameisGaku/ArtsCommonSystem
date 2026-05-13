@@ -162,9 +162,8 @@ VSOut VSMain(uint id : SV_VertexID) {
     return o;
 }
 
-// 標準 D3D11/12 cubemap face mapping。
+// 標準 D3D11/12 cubemap face mapping (TextureCube.Sample で direct に使える形式)。
 // uv.y=0 が face row 0 (= 後で TextureCube.Sample が返す top) になる前提。
-// Filament の cmgen が採用してる formulation と同等。
 float3 CubeFaceDir(float2 uv01, int face) {
     float2 m = uv01 * 2.0 - 1.0;
     if (face == 0) return float3( 1.0, -m.y, -m.x);    // +X
@@ -480,6 +479,9 @@ Result<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
         ACS_LOG_WARN("ImageBasedLighting: BRDF LUT skipped (backend != Diligent)");
         return Ok();
     }
+    // 前回失敗で残った半端テクスチャは破棄。途中失敗時にも次回呼び出しで
+    // 確実に rebuild されるよう、入口で全 reset しておく。
+    _brdf_lut.Reset();
 
     // 1) RT 用テクスチャ
     TextureDesc td{};
@@ -560,6 +562,7 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
         ACS_LOG_WARN("ImageBasedLighting: env cubemap skipped (backend != Diligent)");
         return Ok();
     }
+    _env_cube.Reset();
 
     // 1) cubemap (6 face, R11G11B10_Float, per-slice RTV)
     TextureDesc td{};
@@ -659,6 +662,8 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
 Result<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
                                                    IRhiCommandList& cl) noexcept {
     if (_irradiance_built) return Ok();
+    // Diligent でなければ silent no-op (EnsureBrdfLut/EnsureEnvCubemap と一貫した挙動)
+    if (!IsDiligentBackend(device)) return Ok();
     if (!_env_cube) {
         return ACS_ERR(Render, 160,
             "ImageBasedLighting::EnsureIrradiance: env cubemap not built yet");
@@ -675,6 +680,7 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
         ACS_LOG_WARN("ImageBasedLighting: irradiance skipped (backend != Diligent)");
         return Ok();
     }
+    _irradiance_cube.Reset();
 
     // 1) irradiance cubemap (6 face, 32x32, R11G11B10_Float, per-slice RTV)
     TextureDesc td{};
@@ -765,6 +771,7 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
 Result<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (_prefilter_built) return Ok();
+    if (!IsDiligentBackend(device)) return Ok();
     if (!_env_cube) {
         return ACS_ERR(Render, 161,
             "ImageBasedLighting::EnsurePrefilter: env cubemap not built yet");
@@ -781,6 +788,8 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
         ACS_LOG_WARN("ImageBasedLighting: prefilter skipped (backend != Diligent)");
         return Ok();
     }
+    _prefilter_cube.Reset();
+    _prefilter_mips = 0;
 
     // 1) prefilter cubemap (6 face, 128x128, 5 mips, R11G11B10_Float, per-slice RTV)
     TextureDesc td{};

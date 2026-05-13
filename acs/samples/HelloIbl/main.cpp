@@ -19,10 +19,16 @@
 
 #include "render/Ibl.h"
 #include "render/Sky.h"
+#include "render/PbrShader.h"
+#include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
 #include "render/Font.h"
 
+#include "asset/MeshPrimitive.h"
+#include "asset/MeshAsset.h"
+
 #include "math/Camera.h"
+#include "math/Mat.h"
 #include "math/Math.h"
 
 #include "foundation/Log.h"
@@ -39,6 +45,10 @@ public:
 
         ACS_SAMPLE_INIT(_sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
         _sky.PresetDay();
+        ACS_SAMPLE_INIT(_pbr.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
+
+        auto sphere = Primitive::MakeSphere(0.55f, 48, 24);
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
 
         ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
         (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
@@ -46,6 +56,7 @@ public:
         const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                            static_cast<f32>(GetRenderer().Swapchain()->Height());
         _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
+        _cam_pos = Vec3{0, 1.0f, -5.0f};
     }
 
     void OnUpdate(f32 dt) noexcept override {
@@ -66,8 +77,8 @@ public:
             _display_mode = (_display_mode + 1) % 7;
         }
 
-        // 視点を矢印で旋回
-        const f32 tr = 1.5f * dt;
+        // 視点を矢印 (回転) + WASD (移動) で操作
+        const f32 mv = 4.0f * dt, tr = 1.5f * dt;
         if (Input::IsKeyDown(Key::Left))  _cam_yaw -= tr;
         if (Input::IsKeyDown(Key::Right)) _cam_yaw += tr;
         if (Input::IsKeyDown(Key::Up))    _cam_pitch -= tr * 0.8f;
@@ -79,7 +90,12 @@ public:
         Vec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
                      -Sin(_cam_pitch),
                       Cos(_cam_yaw) * Cos(_cam_pitch) };
-        _camera.SetLookAt(Vec3{0, 1.0f, 0}, Vec3{0, 1.0f, 0} + forward);
+        Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
+        if (Input::IsKeyDown(Key::W)) _cam_pos += forward * mv;
+        if (Input::IsKeyDown(Key::S)) _cam_pos -= forward * mv;
+        if (Input::IsKeyDown(Key::D)) _cam_pos += right   * mv;
+        if (Input::IsKeyDown(Key::A)) _cam_pos -= right   * mv;
+        _camera.SetLookAt(_cam_pos, _cam_pos + forward);
     }
 
     void OnRender() noexcept override {
@@ -134,6 +150,33 @@ public:
                             mip_level);
         }
 
+        // === PBR sphere grid (5x5)、IBL のみで点灯 ===
+        // ・PbrShader.SetIbl() で irradiance / prefilter / brdf を提供
+        // ・SetLights で direct light count=0 + ambient=(0,0,0) を渡す。IBL ambient
+        //   が ibl_enabled=1 で flat ambient を置換するので、見た目は IBL 由来の
+        //   照り返し + Fresnel rim だけになる。Day preset の sky 反射が球面に出る。
+        _pbr.SetIbl(_ibl.IrradianceMap(), _ibl.PrefilterMap(), _ibl.BrdfLut(),
+                    _ibl.PrefilterMips());
+        _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
+                       nullptr, 0, Vec3{0, 0, 0});
+        // ダミー point lights (count=0) でリセット
+        _pbr.SetPointLights(nullptr, 0);
+
+        constexpr u32 kGrid = 5;
+        constexpr f32 kSpacing = 1.4f;
+        const Vec3 base_color{0.95f, 0.4f, 0.3f};         // 銅系 (metallic で映える)
+        for (u32 y = 0; y < kGrid; ++y) {
+            for (u32 x = 0; x < kGrid; ++x) {
+                const f32 metallic  = static_cast<f32>(x) / (kGrid - 1);
+                const f32 roughness = 0.05f + static_cast<f32>(y) / (kGrid - 1) * 0.95f;
+                const f32 px = (static_cast<f32>(x) - (kGrid - 1) * 0.5f) * kSpacing;
+                const f32 py = (static_cast<f32>(y) - (kGrid - 1) * 0.5f) * kSpacing + 1.5f;
+                _pbr.DrawMesh(*cl, _gm_sphere,
+                              Mat4::Translation(Vec3{px, py, 3.0f}),
+                              base_color, metallic, roughness, 1.0f);
+            }
+        }
+
         // 右上に BRDF LUT を重ね表示
         IRhiTexture* lut = _ibl.BrdfLut();
         const u32 sw = GetRenderer().Swapchain()->Width();
@@ -174,7 +217,7 @@ public:
             std::snprintf(buf, sizeof(buf),
                           "Display: %s   (I で切替)", view_label);
             _batch.DrawString(_font, buf, 20, 68, Vec4{1.0f, 0.95f, 0.7f, 1});
-            _batch.DrawString(_font, "矢印: 視点回転   Esc: 終了",
+            _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
                               20, 92, Vec4{0.7f, 0.85f, 1.0f, 1});
             if (lut) {
                 _batch.DrawString(_font, "BRDF LUT",
@@ -190,6 +233,8 @@ public:
         if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
         _font.Shutdown();
         _batch.Shutdown();
+        _gm_sphere = GpuMesh{};
+        _pbr.Shutdown();
         _ibl.Shutdown();
         _sky.Shutdown();
     }
@@ -197,9 +242,12 @@ public:
 private:
     ImageBasedLighting _ibl;
     Sky                _sky;
+    PbrShader          _pbr;
+    GpuMesh            _gm_sphere;
     SpriteBatch        _batch;
     Font               _font;
     Camera             _camera;
+    Vec3               _cam_pos   = Vec3{0, 1.0f, -5.0f};
     f32                _cam_yaw   = 0.0f;
     f32                _cam_pitch = 0.0f;
     i32                _current_preset = 0;     // 0=Day, 1=Sunset, 2=Night

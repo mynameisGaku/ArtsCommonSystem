@@ -115,6 +115,10 @@ public:
         cl->SetConstantBuffer(0, *_shader.PerFrameCB());
         cl->SetConstantBuffer(1, *_shader.PerObjectCB());
         cl->SetTexture(0, *_shader.DefaultWhiteTexture());
+        // PBR pipeline は IBL 用 texture slot 1-3 も持つので fallback を bind
+        // しておく (HelloPbr では IBL を使わないので shader 側で uniform-branch
+        // して flat ambient に落ちる)
+        _shader.BindIblTextures(*cl);
 
         // 地面 (PBR で metallic=0, roughness=0.8 の灰色)
         _shader.SetObject(Mat4::Translation(Vec3{0, -0.6f, 0}),

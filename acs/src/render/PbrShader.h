@@ -72,6 +72,21 @@ public:
                    Vec3 ambient_color) noexcept;
     void SetPointLights(const PointLight* lights, u32 count) noexcept;
 
+    // IBL textures をバインドする (任意)。
+    // irradiance/prefilter/brdf_lut 3 つともに非 null かつ prefilter_mips > 0
+    // のときに IBL ambient が有効化される。それ以外は flat ambient (= 既存挙動)。
+    // 通常は `ImageBasedLighting::IrradianceMap()` / `PrefilterMap()` /
+    // `BrdfLut()` / `PrefilterMips()` をそのまま渡せばよい。
+    void SetIbl(IRhiTexture* irradiance,
+                IRhiTexture* prefilter,
+                IRhiTexture* brdf_lut,
+                u32 prefilter_mips) noexcept;
+
+    // SetTexture(0, albedo) と並んで IBL slot 1/2/3 を bind するヘルパ。
+    // SetIbl で非 null をセットしてあれば実テクスチャ、そうでなければ fallback
+    // (1x1 black cubemap / 2D) を bind する。
+    void BindIblTextures(IRhiCommandList& cmd) noexcept;
+
     // PBR material 設定。base_color は非金属時の albedo、金属時の F0 tint。
     // metallic [0,1], roughness [0,1] は線形 (perceptual ではなく直接 GGX に
     // 渡す)、ao [0,1] は ambient のみに乗算 (direct light には影響しない)。
@@ -105,6 +120,12 @@ private:
     UniquePtr<IRhiBuffer>   _frame_cb;
     UniquePtr<IRhiBuffer>   _object_cb;
     UniquePtr<IRhiTexture>  _white;
+    // IBL を使わないときに texture slot 1-3 に bind するための fallback。
+    // shader は ibl_params.x で uniform branching し、ここを sample しないが
+    // SRB の bind は必須。1x1 cubemap / 1x1 2D で、内容は undefined (zero 化される)。
+    UniquePtr<IRhiTexture>  _ibl_irradiance_fb;     // 1x1x6 R11G11B10F cubemap
+    UniquePtr<IRhiTexture>  _ibl_prefilter_fb;       // 1x1x6 R11G11B10F cubemap
+    UniquePtr<IRhiTexture>  _ibl_brdf_fb;            // 1x1   RG16F 2D
 
     Mat4       _vp;
     Vec3       _eye      = Vec3{0, 0, 0};
@@ -113,6 +134,13 @@ private:
     u32        _dir_count = 0;
     PointLight _point_lights[4];
     u32        _point_count = 0;
+
+    // SetIbl で渡された (非所有) ポインタ。3 つとも非 null かつ _ibl_mips > 0 なら有効。
+    IRhiTexture* _ibl_irradiance = nullptr;
+    IRhiTexture* _ibl_prefilter  = nullptr;
+    IRhiTexture* _ibl_brdf       = nullptr;
+    u32          _ibl_mips       = 0;
+    bool         _ibl_enabled    = false;
 };
 
 } // namespace acs
