@@ -84,6 +84,14 @@ public:
         _post_params.bloom_threshold = 1.5f;
         _post_params.bloom_intensity = 0.4f;
         _post_params.exposure        = 1.0f;
+
+        // Color grading (Phase 34h) cinematic look: 軽い暖色 + 彩度ブースト + コントラスト
+        _post_params.cg_saturation   = 1.10f;
+        _post_params.cg_contrast     = 1.08f;
+        _post_params.cg_temperature  = 0.08f;     // 暖色寄り
+        _post_params.cg_tint         = -0.02f;    // 軽く緑寄り (映画 teal-orange)
+        _post_params.cg_lift         = Vec3{0.005f, 0.0f, 0.01f};      // 影に微かな青冷感
+        _post_params.cg_gain         = Vec3{1.04f, 1.02f, 0.98f};      // ハイライトを暖色に
     }
 
     void OnUpdate(f32 dt) noexcept override {

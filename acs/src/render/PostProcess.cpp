@@ -108,6 +108,9 @@ cbuffer Post : register(b0) {
     float4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind (0=ACES, 1=AgX, 2=Reinhard ext)
     float4 params2;   // x=vignette_intensity, y=vignette_radius, z=chromatic_aberration, w=grain_intensity
     float4 params3;   // x=grain_time, y=ssr_intensity, zw=pad
+    float4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
+    float4 cg_lift;   // xyz=lift (shadow offset)
+    float4 cg_gain;   // xyz=gain (highlight multiplier)
 };
 Texture2D    hdr   : register(t0);
 Texture2D    bloom : register(t1);
@@ -156,6 +159,29 @@ float3 Tonemap(float3 c, int kind) {
     return ACESFilm(c);
 }
 
+// Color grading (Phase 34h): tonemap 後 (LDR) に適用する ASC-CDL 風補正。
+//   1) lift / gain: shadow offset + highlight multiplier
+//   2) contrast: 0.5 を pivot とした curve
+//   3) saturation: Rec.709 luminance を基準に grayscale との lerp
+//   4) temperature / tint: 色温度シフト (簡易、CIE xy chroma 風)
+float3 ColorGrade(float3 c) {
+    // lift + gain
+    c = c * cg_gain.rgb + cg_lift.rgb;
+    // contrast (pivot=0.5)
+    c = (c - 0.5) * cg0.y + 0.5;
+    c = max(c, 0.0);
+    // temperature/tint: 赤↔青 と緑↔マゼンタの加算シフト
+    c.r += cg0.z * 0.10;     // temp +1 → +0.1 red
+    c.b -= cg0.z * 0.10;     // temp +1 → -0.1 blue
+    c.g += cg0.w * 0.10;     // tint +1 → +0.1 green
+    c.r -= cg0.w * 0.05;
+    c.b -= cg0.w * 0.05;
+    // saturation (Rec.709 luminance)
+    float lum = dot(c, float3(0.2126, 0.7152, 0.0722));
+    c = lerp(float3(lum, lum, lum), c, cg0.x);
+    return max(c, 0.0);
+}
+
 // procedural noise (Inigo Quilez 風) — film grain 用、低コスト
 float HashGrain(float2 p, float t) {
     p = frac(p * float2(123.34, 456.21));
@@ -187,6 +213,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     int kind = (int)params1.w;
     float3 mapped = Tonemap(mixed, kind);
 
+    // 2.5) Color grading (Phase 34h、tonemap 後 LDR で適用)
+    mapped = ColorGrade(mapped);
+
     // 3) Vignette (radial darkening)
     float vig_r = max(params2.y, 1e-4);
     float vig_i = params2.x;
@@ -211,7 +240,10 @@ struct PostCBLayout {
     Vec4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
     Vec4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind
     Vec4 params2;   // x=vignette_intensity, y=vignette_radius, z=ca, w=grain
-    Vec4 params3;   // x=grain_time
+    Vec4 params3;   // x=grain_time, y=ssr_intensity
+    Vec4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
+    Vec4 cg_lift;   // xyz=lift
+    Vec4 cg_gain;   // xyz=gain
 };
 
 template<typename T>
@@ -465,6 +497,9 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
     l.params2 = Vec4{ p.vignette_intensity, p.vignette_radius,
                       p.chromatic_aberration, p.grain_intensity };
     l.params3 = Vec4{ p.grain_time, p.ssr_intensity, 0, 0 };
+    l.cg0     = Vec4{ p.cg_saturation, p.cg_contrast, p.cg_temperature, p.cg_tint };
+    l.cg_lift = Vec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
+    l.cg_gain = Vec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace

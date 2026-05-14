@@ -16,6 +16,7 @@
 
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
+#include "math/Vec.h"
 #include "render/IRhiDevice.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiSwapchain.h"
@@ -55,6 +56,14 @@ struct PostProcessParams {
     // null で SSR 無し。Bloom と並んで mix される。intensity は SSR shader 側で適用済 (二重なし)。
     IRhiTexture* ssr_texture = nullptr;
     f32          ssr_intensity = 1.0f; // tonemap 側で SSR の最終 mix 強度 (デフォルト 1.0)
+
+    // Color grading (Phase 34h、ASC-CDL 風)。tonemap 後 / gamma 前に適用。
+    f32  cg_saturation   = 1.0f;       // 0=モノクロ、1=neutral、>1=彩度ブースト
+    f32  cg_contrast     = 1.0f;       // 0..2、中心 0.5 を pivot とした contrast curve
+    f32  cg_temperature  = 0.0f;       // -1=cool/blue、0=neutral、+1=warm/orange
+    f32  cg_tint         = 0.0f;       // -1=green、0=neutral、+1=magenta
+    Vec3 cg_lift         = Vec3{0, 0, 0};   // shadow 域の色 offset (足し算)
+    Vec3 cg_gain         = Vec3{1, 1, 1};   // highlight 域の色 multiplier
 };
 
 class PostProcess {
