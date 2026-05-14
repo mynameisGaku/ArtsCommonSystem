@@ -21,17 +21,24 @@ const char* kPbrHLSL = R"(
 #define ACS_MAX_DIR_LIGHTS   4
 #define ACS_MAX_POINT_LIGHTS 4
 
+#define ACS_MAX_AREA_LIGHTS 2
+
 cbuffer Frame : register(b0) {
     float4x4 view_proj;
     float4   camera_pos;                              // xyz=eye, w=pad
     float4   ambient;                                 // xyz=ambient color, w=dir_count
-    float4   point_count_pad;                         // x=point_count
+    float4   point_count_pad;                         // x=point_count, y=area_count
     float4   light_dir  [ACS_MAX_DIR_LIGHTS];
     float4   light_color[ACS_MAX_DIR_LIGHTS];
     float4   point_pos_range [ACS_MAX_POINT_LIGHTS];
     float4   point_color     [ACS_MAX_POINT_LIGHTS];
     float4   ibl_params;                              // x=ibl_enabled, y=prefilter_mip_count, z=use_sh9
     float4   sh9[9];                                  // SH 9 coefficients (RGB)、z モードで使用
+    // 矩形 area light: center (world), axis_x*half_width, axis_y*half_height, color
+    float4   area_center [ACS_MAX_AREA_LIGHTS];
+    float4   area_axis_x [ACS_MAX_AREA_LIGHTS];
+    float4   area_axis_y [ACS_MAX_AREA_LIGHTS];
+    float4   area_color  [ACS_MAX_AREA_LIGHTS];
 };
 
 cbuffer Object : register(b1) {
@@ -308,6 +315,49 @@ float4 PSMain(VSOut v) : SV_TARGET {
         col += light_color[i].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol);
     }
 
+    // 矩形 area light: 4x4 stratified sample で Monte Carlo 積分。
+    // それぞれのサンプル点を point light として扱い、area 全面積で正規化する。
+    // (面積光の特徴: 軟らかい highlight elongation、近距離での明るい照り)
+    int area_count = (int)point_count_pad.y;
+    [unroll]
+    for (int a = 0; a < ACS_MAX_AREA_LIGHTS; ++a) {
+        if (a >= area_count) break;
+        float3 area_c = area_center[a].xyz;
+        float3 axisX  = area_axis_x[a].xyz;
+        float3 axisY  = area_axis_y[a].xyz;
+        float3 col_a  = area_color[a].xyz;
+        // 面の normal は cross(axisX, axisY) 正規化方向
+        float3 area_n = normalize(cross(axisX, axisY));
+        // light 後ろ側にあるピクセルは寄与なし (両面 emit でないとして)
+        float facing = dot(area_n, v.world_p - area_c);
+        if (facing > 0.0) {
+            float3 area_sum = float3(0, 0, 0);
+            const int kSamples = 4;
+            [unroll]
+            for (int sy = 0; sy < kSamples; ++sy) {
+                float vy = ((float)sy + 0.5) / (float)kSamples * 2.0 - 1.0;
+                [unroll]
+                for (int sx = 0; sx < kSamples; ++sx) {
+                    float vx = ((float)sx + 0.5) / (float)kSamples * 2.0 - 1.0;
+                    float3 sample_pos = area_c + axisX * vx + axisY * vy;
+                    float3 to_l = sample_pos - v.world_p;
+                    float  dist = length(to_l);
+                    float3 L = to_l / max(dist, 1e-4);
+                    // inverse square + 面要素の cos(法線方向)
+                    float cos_area = saturate(-dot(area_n, L));
+                    float att = cos_area / max(dist * dist, 1e-4);
+                    float3 base_brdf = BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness,
+                                                        anisotropy, aniso_T_world);
+                    ClearcoatTerm cc = EvalClearcoat(N, V, L, clearcoat, coat_roughness);
+                    area_sum += (base_brdf * cc.attenuation + cc.spec_times_nol) * att;
+                }
+            }
+            // (axisX × axisY の長さ) = 面の半面積 ×4。N_sample で割って full area で乗算。
+            float area = 4.0 * length(cross(axisX, axisY));
+            col += col_a * area_sum * (area / (float)(kSamples * kSamples));
+        }
+    }
+
     // 点光源 (距離減衰)
     int pt_count = (int)point_count_pad.x;
     [unroll]
@@ -332,17 +382,22 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 constexpr u32 kMaxDirLights   = 4;
 constexpr u32 kMaxPointLights = 4;
+constexpr u32 kMaxAreaLights  = 2;
 struct FrameCBLayout {
     Mat4 view_proj;
     Vec4 camera_pos;
     Vec4 ambient;
-    Vec4 point_count_pad;
+    Vec4 point_count_pad;       // x=point_count, y=area_count
     Vec4 light_dir   [kMaxDirLights];
     Vec4 light_color [kMaxDirLights];
     Vec4 point_pos_range[kMaxPointLights];
     Vec4 point_color    [kMaxPointLights];
-    Vec4 ibl_params;        // x=ibl_enabled, y=prefilter_mip_count, z=use_sh9
-    Vec4 sh9[9];            // SH 9 coefficients (xyz=RGB, w=pad)
+    Vec4 ibl_params;
+    Vec4 sh9[9];
+    Vec4 area_center [kMaxAreaLights];
+    Vec4 area_axis_x [kMaxAreaLights];
+    Vec4 area_axis_y [kMaxAreaLights];
+    Vec4 area_color  [kMaxAreaLights];
 };
 
 struct ObjectCBLayout {
@@ -549,13 +604,20 @@ void PbrShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
     FlushFrameCB();
 }
 
+void PbrShader::SetAreaLights(const AreaLight* lights, u32 count) noexcept {
+    if (count > kMaxAreaLights) count = kMaxAreaLights;
+    _area_count = count;
+    for (u32 i = 0; i < count; ++i) _area_lights[i] = lights[i];
+    FlushFrameCB();
+}
+
 void PbrShader::FlushFrameCB() noexcept {
     if (!_frame_cb) return;
     FrameCBLayout cb{};
     cb.view_proj  = _vp;
     cb.camera_pos = Vec4{_eye.x, _eye.y, _eye.z, 1.0f};
     cb.ambient    = Vec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
-    cb.point_count_pad = Vec4{static_cast<f32>(_point_count), 0, 0, 0};
+    cb.point_count_pad = Vec4{static_cast<f32>(_point_count), static_cast<f32>(_area_count), 0, 0};
     for (u32 i = 0; i < _dir_count; ++i) {
         const Vec3& d = _dir_lights[i].direction;
         const Vec3& c = _dir_lights[i].color;
@@ -567,6 +629,13 @@ void PbrShader::FlushFrameCB() noexcept {
         const Vec3& c = _point_lights[i].color;
         cb.point_pos_range[i] = Vec4{p.x, p.y, p.z, _point_lights[i].range};
         cb.point_color[i]     = Vec4{c.x, c.y, c.z, 1};
+    }
+    for (u32 i = 0; i < _area_count; ++i) {
+        const AreaLight& a = _area_lights[i];
+        cb.area_center[i] = Vec4{a.center.x, a.center.y, a.center.z, 0};
+        cb.area_axis_x[i] = Vec4{a.axis_x.x, a.axis_x.y, a.axis_x.z, 0};
+        cb.area_axis_y[i] = Vec4{a.axis_y.x, a.axis_y.y, a.axis_y.z, 0};
+        cb.area_color[i]  = Vec4{a.color.x,  a.color.y,  a.color.z,  0};
     }
     cb.ibl_params = Vec4{
         _ibl_enabled ? 1.0f : 0.0f,

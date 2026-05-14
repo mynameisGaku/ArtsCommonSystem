@@ -105,6 +105,7 @@ public:
         }
         if (Input::IsKeyPressed(Key::C)) _use_clearcoat = !_use_clearcoat;
         if (Input::IsKeyPressed(Key::Z)) _use_anisotropy = !_use_anisotropy;
+        if (Input::IsKeyPressed(Key::L)) _use_area_light = !_use_area_light;
         // B キーで bloom on/off (verify HDR clip 防止効果)
         if (Input::IsKeyPressed(Key::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
@@ -234,6 +235,18 @@ public:
                        &sun, 1, Vec3{0, 0, 0});
         _pbr.SetPointLights(nullptr, 0);
 
+        // 矩形 area light (Phase 33b): 球グリッドの前方上空に置いた 2x1 矩形パネル
+        if (_use_area_light) {
+            PbrShader::AreaLight rect;
+            rect.center = Vec3{0.0f, 4.0f, 1.0f};      // 上空、camera 側
+            rect.axis_x = Vec3{1.0f, 0.0f, 0.0f};      // 横半幅 = 1
+            rect.axis_y = Vec3{0.0f, 0.0f, 0.5f};      // 奥行半高 = 0.5
+            rect.color  = Vec3{5.0f, 4.5f, 3.5f};      // 暖色 HDR
+            _pbr.SetAreaLights(&rect, 1);
+        } else {
+            _pbr.SetAreaLights(nullptr, 0);
+        }
+
         constexpr u32 kGrid = 5;
         constexpr f32 kSpacing = 1.4f;
         const Vec3 base_color{0.95f, 0.4f, 0.3f};
@@ -310,9 +323,10 @@ public:
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "Material:  Clearcoat=%s  Anisotropic=%s   (C/Z でトグル)",
+                          "Material:  Clearcoat=%s  Anisotropic=%s  AreaLight=%s   (C/Z/L)",
                           _use_clearcoat ? "ON" : "OFF",
-                          _use_anisotropy ? "ON" : "OFF");
+                          _use_anisotropy ? "ON" : "OFF",
+                          _use_area_light ? "ON" : "OFF");
             _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
                               20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
@@ -482,6 +496,7 @@ private:
     bool               _need_sh9_rebuild = false;
     bool               _use_clearcoat    = false;
     bool               _use_anisotropy   = false;
+    bool               _use_area_light   = false;
     u32                _display_mode     = 0;
 };
 

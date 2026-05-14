@@ -72,6 +72,20 @@ public:
                    Vec3 ambient_color) noexcept;
     void SetPointLights(const PointLight* lights, u32 count) noexcept;
 
+    // 矩形 area light (Phase 33b)。
+    //   center    : 矩形中心の world position
+    //   axis_x    : 矩形の +X 方向 半幅ベクトル (= 右方向 × half_width)
+    //   axis_y    : 矩形の +Y 方向 半高ベクトル (= 上方向 × half_height)
+    //   color     : 放射輝度 (W/m²/sr スケールで HDR 値 OK)
+    // 法線方向は cross(axis_x, axis_y) 正規化、その逆方向に光を放つ (片面 emit)。
+    struct AreaLight {
+        Vec3 center;
+        Vec3 axis_x;
+        Vec3 axis_y;
+        Vec3 color;
+    };
+    void SetAreaLights(const AreaLight* lights, u32 count) noexcept;
+
     // IBL textures をバインドする (任意)。
     // irradiance/prefilter/brdf_lut 3 つともに非 null かつ prefilter_mips > 0
     // のときに IBL ambient が有効化される。それ以外は flat ambient (= 既存挙動)。
@@ -149,6 +163,8 @@ private:
     u32        _dir_count = 0;
     PointLight _point_lights[4];
     u32        _point_count = 0;
+    AreaLight  _area_lights[2];
+    u32        _area_count = 0;
 
     // SetIbl で渡された (非所有) ポインタ。3 つとも非 null かつ _ibl_mips > 0 なら有効。
     IRhiTexture* _ibl_irradiance = nullptr;
