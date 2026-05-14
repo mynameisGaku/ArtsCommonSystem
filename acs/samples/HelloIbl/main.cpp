@@ -220,7 +220,7 @@ public:
         if (_current_preset == 3) sun_dir = Vec3{0.3f, 0.6f, -0.5f};
         else                       sun_dir = _sky.SunDirection();
         if (_use_shadows) {
-            _shadow.SetDirectionalLight(sun_dir, Vec3{0, 2.0f, 3.0f}, 8.5f);
+            _shadow.SetDirectionalLight(sun_dir, Vec3{0, 1.5f, 3.0f}, 9.0f);
             cl->BeginShadowPass(*_shadow.DepthTexture(), 1.0f);
             cl->SetPipeline(*_shadow.CasterPipeline());
             cl->SetConstantBuffer(0, *_shadow.LightCB());
@@ -232,7 +232,7 @@ public:
             for (u32 y = 0; y < kGridCast; ++y) {
                 for (u32 x = 0; x < kGridCast; ++x) {
                     const f32 px = (static_cast<f32>(x) - (kGridCast - 1) * 0.5f) * kSpacingCast;
-                    const f32 py = (static_cast<f32>(y) - (kGridCast - 1) * 0.5f) * kSpacingCast + 1.5f;
+                    const f32 py = (static_cast<f32>(y) - (kGridCast - 1) * 0.5f) * kSpacingCast + 2.5f;
                     _shadow.SetCaster(Mat4::Translation(Vec3{px, py, 3.0f}));
                     cl->SetConstantBuffer(1, *_shadow.CasterObjectCB());
                     cl->DrawIndexed(_gm_sphere.index_count);
@@ -367,7 +367,7 @@ public:
                 const f32 metallic  = static_cast<f32>(x) / (kGrid - 1);
                 const f32 roughness = 0.05f + static_cast<f32>(y) / (kGrid - 1) * 0.95f;
                 const f32 px = (static_cast<f32>(x) - (kGrid - 1) * 0.5f) * kSpacing;
-                const f32 py = (static_cast<f32>(y) - (kGrid - 1) * 0.5f) * kSpacing + 1.5f;
+                const f32 py = (static_cast<f32>(y) - (kGrid - 1) * 0.5f) * kSpacing + 2.5f;
                 _pbr.DrawMesh(*cl, _gm_sphere,
                               Mat4::Translation(Vec3{px, py, 3.0f}),
                               base_color, metallic, roughness, 1.0f);
