@@ -20,6 +20,8 @@
 #include "render/Sky.h"
 #include "render/Atmosphere.h"
 #include "render/ShadowMap.h"
+#include "render/Ssr.h"
+#include "math/Mat.h"
 #include "render/PbrShader.h"
 #include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
@@ -67,6 +69,8 @@ public:
 
         // ShadowMap (Phase 34b): 2048 pixels
         ACS_SAMPLE_INIT(_shadow.Init(*dev, 2048));
+        // SSR (Phase 34e): HDR と同フォーマット / 同サイズで scratch を確保
+        ACS_SAMPLE_INIT(_ssr.Init(*dev, _post.HdrFormat(), sw, sh));
 
         // SpriteBatch は LDR backbuffer (tonemap 後)
         ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
@@ -120,6 +124,7 @@ public:
         if (Input::IsKeyPressed(Key::G)) _use_probe_grid = !_use_probe_grid;
         if (Input::IsKeyPressed(Key::F)) _use_fog = !_use_fog;
         if (Input::IsKeyPressed(Key::H)) _use_shadows = !_use_shadows;
+        if (Input::IsKeyPressed(Key::R)) _show_ssr = !_show_ssr;
         // film grain アニメ用に時間累積
         _post_params.grain_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
@@ -376,6 +381,18 @@ public:
 
         cl->EndRenderToTexture(*hdr);
 
+        // ===== SSR pass (Phase 34e、'R' で可視化) =====
+        // 結果は _ssr.OutputTexture() に書かれる。最終 HDR への composite は
+        // additive blend pipeline + BeginRenderToTextureNoClear が要るので
+        // 次セッションで infrastructure 拡張時に統合する。今は overlay 表示。
+        if (_show_ssr) {
+            _ssr.Render(*dev, *cl, *hdr, *depth,
+                        _camera.ViewProjection(),
+                        Inverse(_camera.ViewProjection()),
+                        _camera.Eye(),
+                        /*intensity=*/0.8f);
+        }
+
         // ===== 2) Bloom + ACES Tonemap → LDR backbuffer =====
         _post.Render(*cl, *sc, buf_idx, _post_params);
 
@@ -391,6 +408,17 @@ public:
             _batch.Draw(*lut,
                         static_cast<f32>(sw) - 270, 60,
                         240, 240);
+        }
+        // SSR overlay debug (Phase 34e、左下に sub-window)
+        if (_show_ssr && _ssr.OutputTexture()) {
+            _batch.DrawRect(20, static_cast<f32>(sh) - 280,
+                            420, 260, Vec4{0, 0, 0, 0.6f});
+            _batch.Draw(*_ssr.OutputTexture(), 30, static_cast<f32>(sh) - 270,
+                        400, 240);
+            if (_font.AtlasTexture()) {
+                _batch.DrawString(_font, "SSR debug overlay",
+                                  30, static_cast<f32>(sh) - 268, Vec4{1, 1, 1, 1});
+            }
         }
         if (_font.AtlasTexture()) {
             char buf[160];
@@ -574,6 +602,7 @@ public:
         if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
         _font.Shutdown();
         _batch.Shutdown();
+        _ssr.Shutdown();
         _shadow.Shutdown();
         _gm_plane = GpuMesh{};
         _gm_sphere = GpuMesh{};
@@ -613,7 +642,9 @@ private:
     bool               _use_fog          = false;
     bool               _need_atmosphere  = false;
     bool               _use_shadows      = false;
+    bool               _show_ssr         = false;
     ShadowMap          _shadow;
+    Ssr                _ssr;
     GpuMesh            _gm_plane;
     u32                _display_mode     = 0;
 };
