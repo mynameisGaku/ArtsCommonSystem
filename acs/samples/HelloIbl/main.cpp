@@ -218,7 +218,8 @@ public:
         // 滑らかになる。jitter mat = identity with M[3][0..1] = jx_ndc / jy_ndc。
         // 注意: shadow pass はライト視点なので jitter しない (caster と影 map が
         // 同じビューなら遮蔽判定はそのまま正しい)。
-        Mat4 vp_for_render = _camera.ViewProjection();
+        const Mat4 vp_no_jitter = _camera.ViewProjection();
+        Mat4 vp_for_render = vp_no_jitter;
         if (_use_taa) {
             const u32 idx = (_taa_frame_index % 8) + 1;  // +1 で Halton(0)=0 を避ける
             const f32 jx = Halton(idx, 2) - 0.5f;        // [-0.5, 0.5) sub-pixel
@@ -228,7 +229,7 @@ public:
             Mat4 jmat = Mat4::Identity();
             jmat.m[3][0] = jx_ndc;
             jmat.m[3][1] = jy_ndc;
-            vp_for_render = vp_for_render * jmat;
+            vp_for_render = vp_no_jitter * jmat;
             _taa_frame_index = (_taa_frame_index + 1u) % 1024u;
         }
 
@@ -523,9 +524,21 @@ public:
         // TAA (Phase 34f) を毎フレーム params に反映
         _post_params.taa_enabled = _use_taa;
         _post_params.taa_blend_factor = 0.1f;     // current 10% + history 90%
+        // Phase 34f-2: camera motion 由来の history reprojection。
+        // 注意 (frame 0 garbage 回避): まだ _prev_vp_no_jitter が default (identity) のときに
+        // reproject すると world 座標を clip 座標と誤解して prev_ndc が破綻する。
+        // _taa_prev_vp_valid フラグで「前フレーム VP を本物で書いた」状態を保証してから
+        // depth_texture を渡す。最初の 1 フレームは depth=null で reproject 無効化。
+        _post_params.taa_depth_texture            = (_use_taa && _taa_prev_vp_valid) ? depth : nullptr;
+        _post_params.taa_view_proj_no_jitter      = vp_no_jitter;
+        _post_params.taa_prev_view_proj_no_jitter = _prev_vp_no_jitter;
 
         // ===== 2) Bloom + ACES Tonemap → LDR backbuffer (SSR も additive mix) =====
         _post.Render(*cl, *sc, buf_idx, _post_params);
+
+        // 次フレーム用に保存 (jitter なしの true VP)
+        _prev_vp_no_jitter = vp_no_jitter;
+        _taa_prev_vp_valid = true;
 
         // ===== 3) SpriteBatch HUD (LDR backbuffer) =====
         IRhiTexture* lut = _ibl.BrdfLut();
@@ -872,6 +885,8 @@ private:
     bool               _ssao_warm        = false; // _ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
     bool               _use_taa          = true;  // Phase 34f: TAA 有効 ('T' でトグル)
     u32                _taa_frame_index  = 0;     // Halton(2,3) 用カウンタ
+    Mat4               _prev_vp_no_jitter{};      // Phase 34f-2: 前フレームの jitter なし VP
+    bool               _taa_prev_vp_valid = false;// 上が本物の VP (default identity 以外) か
     bool               _use_ssgi         = true;  // Phase 33c: SSGI 有効 ('J' でトグル)
     bool               _ssgi_warm        = false; // _ssgi.Render が 1 度以上走った？
     bool               _use_lightmap     = true;  // Phase 33f: lightmap 有効 ('K' でトグル)

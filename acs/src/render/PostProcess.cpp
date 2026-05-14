@@ -101,9 +101,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// TAA resolve (Phase 34f): current HDR + history HDR → blended HDR。
-// neighborhood AABB clamping で motion ghost を抑える (motion vec 無し版)。
+// TAA resolve (Phase 34f / 34f-2): current HDR + history HDR + depth →
+// reprojected & neighborhood-clamped blend。
+//
+// Phase 34f-2: 別 CB (TaaReproj at b1) に view_proj + inv_view_proj +
+// prev_view_proj を入れて、camera motion 由来の motion vec を計算。
+// reproject_enabled = 0 のときは motion=0 で静的 reprojection (frame 34f-1 互換)。
 const char* kTaaResolvePS = R"(
+#pragma pack_matrix(row_major)
 cbuffer Post : register(b0) {
     float4 params0;
     float4 params1;       // y=texel_w, z=texel_h
@@ -113,18 +118,50 @@ cbuffer Post : register(b0) {
     float4 cg_lift;
     float4 cg_gain;
     float4 cas_params;
-    float4 taa_params;    // x=blend_factor (current weight)、yz=pad
+    float4 taa_params;    // x=blend_factor (current weight)、y=reproject_enabled
+};
+cbuffer TaaReproj : register(b1) {
+    float4x4 taa_inv_view_proj;
+    float4x4 taa_prev_view_proj;
 };
 Texture2D    current_hdr : register(t0);
 Texture2D    history_hdr : register(t1);
+Texture2D    scene_depth : register(t2);
 SamplerState current_hdr_sampler : register(s0);
 SamplerState history_hdr_sampler : register(s1);
+SamplerState scene_depth_sampler : register(s2);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
+float2 ComputeMotionUv(float2 uv) {
+    // 現フレームの depth から world pos を復元、前フレームの VP で clip pos を計算、
+    // ndc → uv に戻して motion vec を作る。camera 動きのみ反映 (object 動きは見えない)。
+    float depth = scene_depth.SampleLevel(scene_depth_sampler, uv, 0).r;
+    if (depth >= 0.9999) return uv;            // sky は motion 0 (history そのまま)
+    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+    clip.y = -clip.y;
+    float4 wp = mul(clip, taa_inv_view_proj);
+    wp.xyz /= max(wp.w, 1e-6);
+    float4 prev_clip = mul(float4(wp.xyz, 1.0), taa_prev_view_proj);
+    if (prev_clip.w < 1e-4) return uv;
+    float2 prev_ndc = prev_clip.xy / prev_clip.w;
+    float2 prev_uv = float2(prev_ndc.x * 0.5 + 0.5, -prev_ndc.y * 0.5 + 0.5);
+    return prev_uv;
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 cur = current_hdr.SampleLevel(current_hdr_sampler, v.uv, 0).rgb;
-    float3 hist = history_hdr.SampleLevel(history_hdr_sampler, v.uv, 0).rgb;
+
+    // History を sample する位置: reproject 有効なら motion vec で offset
+    float2 hist_uv = v.uv;
+    if (taa_params.y >= 0.5) {
+        hist_uv = ComputeMotionUv(v.uv);
+        // 画面外に飛んだ場合は clamp (border の history が出ないように)
+        if (any(hist_uv < 0.0) || any(hist_uv > 1.0)) {
+            hist_uv = v.uv;        // fallback: 静的 reprojection
+        }
+    }
+    float3 hist = history_hdr.SampleLevel(history_hdr_sampler, hist_uv, 0).rgb;
 
     // Neighborhood AABB clamp: 3x3 neighborhood の current min/max を取り、
     // history がその範囲外なら clamp で抑える。motion 時の古い色を排除する。
@@ -334,7 +371,13 @@ struct PostCBLayout {
     Vec4 cg_lift;   // xyz=lift
     Vec4 cg_gain;   // xyz=gain
     Vec4 cas_params;// x=cas_strength
-    Vec4 taa_params;// x=blend_factor (Phase 34f TAA)
+    Vec4 taa_params;// x=blend_factor (Phase 34f TAA)、y=reproject_enabled (Phase 34f-2)
+};
+
+// Phase 34f-2: TAA reprojection 用の別 CB (b1 で bind)。
+struct TaaReprojCBLayout {
+    Mat4 inv_view_proj;
+    Mat4 prev_view_proj;
 };
 
 template<typename T>
@@ -377,10 +420,31 @@ Result<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     if (cbr.IsErr()) return Err<void>(cbr.Error());
     _cb_post = Move(cbr.Value());
 
+    // Phase 34f-2: TaaReproj CB (b1)
+    BufferDesc rcbd{};
+    rcbd.size = CBSize<TaaReprojCBLayout>();
+    rcbd.usage = BufferUsage::Uniform;
+    rcbd.cpu_writable = true;
+    auto rcbr = CreateRhiBuffer(device, rcbd);
+    if (rcbr.IsErr()) return Err<void>(rcbr.Error());
+    _cb_taa_reproj = Move(rcbr.Value());
+
+    // depth が未指定だった時のための 1x1 fallback (depth>=0.9999 になるよう 255 で fill)
+    const u8 far_depth[4] = { 255, 255, 255, 255 };
+    TextureDesc td{};
+    td.width = 1; td.height = 1;
+    td.format = Format::R8G8B8A8_UNorm;
+    td.initial_data = far_depth; td.initial_data_size = 4;
+    auto dfb = CreateRhiTexture(device, td);
+    if (dfb.IsErr()) return Err<void>(dfb.Error());
+    _taa_depth_fb = Move(dfb.Value());
+
     return Ok();
 }
 
 void PostProcess::Shutdown() noexcept {
+    _taa_depth_fb.Reset();
+    _cb_taa_reproj.Reset();
     _cb_post.Reset();
     _pipe_tonemap.Reset();
     _pipe_taa_resolve.Reset();
@@ -543,24 +607,29 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_upsample = Move(r.Value());
     }
-    // TAA Resolve: current HDR + history HDR → resolved HDR (新 RT)、Opaque
+    // TAA Resolve: current HDR + history HDR + scene_depth → resolved HDR (新 RT)、Opaque
     {
         PipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_taa_resolve.Get();
         pd.rt_format = _hdr_format;
-        pd.cbuffer_slots = 1;
-        pd.texture_slots = 2;
+        pd.cbuffer_slots = 2;       // b0=Post, b1=TaaReproj (Phase 34f-2)
+        pd.texture_slots = 3;
         pd.cbuffer_names[0] = "Post";
+        pd.cbuffer_names[1] = "TaaReproj";
         pd.texture_names[0] = "current_hdr";
         pd.texture_names[1] = "history_hdr";
-        pd.static_sampler_count = 2;
+        pd.texture_names[2] = "scene_depth";
+        pd.static_sampler_count = 3;
         for (u32 i = 0; i < 2; ++i) {
             pd.static_samplers[i].filter    = SamplerFilter::Linear;
             pd.static_samplers[i].address_u = SamplerAddress::Clamp;
             pd.static_samplers[i].address_v = SamplerAddress::Clamp;
         }
+        pd.static_samplers[2].filter    = SamplerFilter::Point;     // depth は離散値
+        pd.static_samplers[2].address_u = SamplerAddress::Clamp;
+        pd.static_samplers[2].address_v = SamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_taa_resolve = Move(r.Value());
@@ -641,7 +710,10 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
     l.cg_lift = Vec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
     l.cg_gain = Vec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
     l.cas_params = Vec4{ p.cas_strength < 0 ? 0.0f : p.cas_strength, 0, 0, 0 };
-    l.taa_params = Vec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor, 0, 0, 0 };
+    // Phase 34f-2: reproject_enabled は taa_depth_texture が指定されてるかで判定。
+    const f32 reproject_enabled = (p.taa_enabled && p.taa_depth_texture) ? 1.0f : 0.0f;
+    l.taa_params = Vec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor,
+                         reproject_enabled, 0, 0 };
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace
@@ -712,11 +784,23 @@ void PostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams&
 
     UpdatePostCB(_cb_post.Get(), p, 1.0f / cur_rt->Width(), 1.0f / cur_rt->Height());
 
+    // Phase 34f-2: TaaReproj CB を埋める。`taa_view_proj_no_jitter` が単位行列の
+    // ままなら inv は単位、prev も単位で motion=0 になる (= 静的 reprojection 動作)。
+    TaaReprojCBLayout r{};
+    r.inv_view_proj  = Inverse(p.taa_view_proj_no_jitter);
+    r.prev_view_proj = p.taa_prev_view_proj_no_jitter;
+    if (_cb_taa_reproj) _cb_taa_reproj->Update(&r, sizeof(r));
+
+    // depth fallback: 指定があれば実 depth、なければ 1x1 全 255 (depth>=0.9999 で sky 扱い)
+    IRhiTexture* depth_src = p.taa_depth_texture ? p.taa_depth_texture : _taa_depth_fb.Get();
+
     cmd.BeginRenderToTexture(*cur_rt, ClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*_pipe_taa_resolve);
     cmd.SetConstantBuffer(0, *_cb_post);
+    if (_cb_taa_reproj) cmd.SetConstantBuffer(1, *_cb_taa_reproj);
     cmd.SetTexture(0, *_hdr_rt);                   // current HDR
     cmd.SetTexture(1, *hist_input);                // history (or current on frame 0)
+    if (depth_src) cmd.SetTexture(2, *depth_src);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*cur_rt);
 }

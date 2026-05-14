@@ -17,6 +17,7 @@
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
 #include "math/Vec.h"
+#include "math/Mat.h"
 #include "render/IRhiDevice.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiSwapchain.h"
@@ -77,14 +78,21 @@ struct PostProcessParams {
     f32  cas_strength    = 0.0f;
 
     // TAA (Phase 34f、Temporal Anti-Aliasing)。Halton jitter を Camera で applied
-    // した上で、history と neighborhood-clamp blend して resolve する。motion
-    // vector は Phase 34f-2 で追加予定 (今は static シーン or 緩いカメラ動き向け)。
+    // した上で、history と neighborhood-clamp blend して resolve する。
+    // Phase 34f-2: 任意で depth_texture + view_proj + prev_view_proj を渡すと
+    // camera motion 由来の history reprojection を行う (動く mesh は対象外)。
     //   false: 無効、tonemap は直接 HDR RT を読む
     //   true : Pass_TaaResolve を実行、tonemap は resolved RT を読む
     bool taa_enabled = false;
     // history 重み (現フレームに何%取り込むか)。0.1 = 10% current + 90% history が
     // 標準。値が小さいほどスムージング強い (motion ghost も増える)。
     f32  taa_blend_factor = 0.1f;
+    // TAA reprojection 用 (Phase 34f-2)。null なら motion=0 (= 静的 reprojection 無し、
+    // カメラ動かしたとき ghost する)。set すると camera motion 由来の motion vec で
+    // history を offset sample する。
+    IRhiTexture* taa_depth_texture = nullptr;
+    Mat4         taa_view_proj_no_jitter{};      // Halton 適用前の view_proj
+    Mat4         taa_prev_view_proj_no_jitter{}; // 前フレームの view_proj (Halton 適用前)
 };
 
 class PostProcess {
@@ -165,6 +173,8 @@ private:
     UniquePtr<IRhiShader>   _ps_taa_resolve;
     UniquePtr<IRhiPipeline> _pipe_taa_resolve;
     u32                     _taa_frame = 0;
+    UniquePtr<IRhiBuffer>   _cb_taa_reproj;     // Phase 34f-2: separate b1 で行列 2 枚
+    UniquePtr<IRhiTexture>  _taa_depth_fb;      // depth 未指定時の fallback (1x1)
 };
 
 } // namespace acs
