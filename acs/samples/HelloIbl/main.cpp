@@ -107,6 +107,7 @@ public:
         if (Input::IsKeyPressed(Key::Z)) _use_anisotropy = !_use_anisotropy;
         if (Input::IsKeyPressed(Key::L)) _use_area_light = !_use_area_light;
         if (Input::IsKeyPressed(Key::G)) _use_probe_grid = !_use_probe_grid;
+        if (Input::IsKeyPressed(Key::F)) _use_fog = !_use_fog;
         // B キーで bloom on/off (verify HDR clip 防止効果)
         if (Input::IsKeyPressed(Key::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
@@ -235,6 +236,12 @@ public:
         _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
                        &sun, 1, Vec3{0, 0, 0});
         _pbr.SetPointLights(nullptr, 0);
+        // Volumetric fog (Phase 33e): 灰色 fog、密度 0.12 / 高さ減衰 0.2
+        if (_use_fog) {
+            _pbr.SetFog(Vec3{0.65f, 0.7f, 0.8f}, 0.12f, 0.2f, 0.0f);
+        } else {
+            _pbr.SetFog(Vec3{0, 0, 0}, 0.0f);
+        }
 
         // 静的光プローブグリッド (Phase 33d): 2 つの probe を赤/青に手調整
         // 球グリッドの左右に配置 → 球は世界座標 X に応じて赤↔青 ambient が blend
@@ -523,6 +530,7 @@ private:
     bool               _use_anisotropy   = false;
     bool               _use_area_light   = false;
     bool               _use_probe_grid   = false;
+    bool               _use_fog          = false;
     u32                _display_mode     = 0;
 };
 

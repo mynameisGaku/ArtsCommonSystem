@@ -44,6 +44,10 @@ cbuffer Frame : register(b0) {
     float4   probe_params;            // x=probe_count (0..4)
     float4   probe_pos [4];           // 各 probe world pos (xyz)
     float4   probe_sh9 [4 * 9];       // 各 probe の SH 9 係数 (xyz=RGB)
+
+    // Volumetric fog (Phase 33e)
+    float4   fog_color_density;       // xyz=fog color, w=density (0=off)
+    float4   fog_height_params;       // x=height_falloff, y=fog_height_base, zw=pad
 };
 
 cbuffer Object : register(b1) {
@@ -417,6 +421,19 @@ float4 PSMain(VSOut v) : SV_TARGET {
         col += point_color[j].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol) * att;
     }
 
+    // Volumetric fog (Phase 33e): exponential height fog
+    //   density = fog_density * exp(-height_falloff * (world_y - fog_base))
+    //   transmittance = exp(-density * dist)
+    if (fog_color_density.w > 0.0) {
+        float3 to_cam = v.world_p - camera_pos.xyz;
+        float dist = length(to_cam);
+        // height attenuation (h を上にいくと density 減衰、地面近くで濃い)
+        float h = v.world_p.y - fog_height_params.y;
+        float density = fog_color_density.w * exp(-fog_height_params.x * max(h, 0.0));
+        float transmittance = exp(-density * dist);
+        col = col * transmittance + fog_color_density.xyz * (1.0 - transmittance);
+    }
+
     return float4(col, base_color.w);
 }
 )";
@@ -442,6 +459,8 @@ struct FrameCBLayout {
     Vec4 probe_params;
     Vec4 probe_pos[4];
     Vec4 probe_sh9[4 * 9];
+    Vec4 fog_color_density;
+    Vec4 fog_height_params;
 };
 
 struct ObjectCBLayout {
@@ -606,6 +625,12 @@ void PbrShader::SetIbl(IRhiTexture* irradiance,
     FlushFrameCB();
 }
 
+void PbrShader::SetFog(Vec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
+    _fog_color_density = Vec4{color.x, color.y, color.z, density};
+    _fog_height_params = Vec4{height_falloff, height_base, 0, 0};
+    FlushFrameCB();
+}
+
 void PbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
     if (count > 4) count = 4;
     _probe_count = count;
@@ -700,6 +725,8 @@ void PbrShader::FlushFrameCB() noexcept {
     cb.probe_params = Vec4{static_cast<f32>(_probe_count), 0, 0, 0};
     for (u32 i = 0; i < 4; ++i) cb.probe_pos[i] = _probe_pos[i];
     for (u32 i = 0; i < 4 * 9; ++i) cb.probe_sh9[i] = _probe_sh9[i];
+    cb.fog_color_density = _fog_color_density;
+    cb.fog_height_params = _fog_height_params;
     cb.ibl_params = Vec4{
         _ibl_enabled ? 1.0f : 0.0f,
         static_cast<f32>(_ibl_mips),

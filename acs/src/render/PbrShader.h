@@ -118,6 +118,14 @@ public:
     };
     void SetProbeGrid(const LightProbe* probes, u32 count) noexcept;
 
+    // Volumetric exponential height fog (Phase 33e)。
+    //   color    : fog 色 (HDR scale も可)
+    //   density  : 単位距離あたりの吸収率。0 で fog OFF
+    //   height_falloff: y 軸方向の指数減衰。> 0 で上空ほど薄く、地面近くで濃く
+    //   height_base   : fog 基準 y (この高さで density フル、上で減衰開始)
+    void SetFog(Vec3 color, f32 density,
+                f32 height_falloff = 0.5f, f32 height_base = 0.0f) noexcept;
+
     // PBR material 設定。base_color は非金属時の albedo、金属時の F0 tint。
     // metallic [0,1], roughness [0,1] は線形 (perceptual ではなく直接 GGX に
     // 渡す)、ao [0,1] は ambient のみに乗算 (direct light には影響しない)。
@@ -192,6 +200,10 @@ private:
     Vec4         _probe_pos[4]      = {};
     Vec4         _probe_sh9[4 * 9]  = {};
     u32          _probe_count       = 0;
+
+    // Volumetric fog (Phase 33e)
+    Vec4         _fog_color_density = Vec4{0, 0, 0, 0};
+    Vec4         _fog_height_params = Vec4{0.5f, 0, 0, 0};
 
     // 拡張 material (Phase 33a)、SetObject で reset、SetExtParams で上書き
     Vec4         _ext_params     = Vec4{0, 0.5f, 0, 0};
