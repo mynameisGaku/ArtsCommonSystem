@@ -22,6 +22,7 @@ set(_acs_render_sources
     Ibl.cpp
     Atmosphere.cpp
     Ssr.cpp
+    Ssao.cpp
 )
 set(_acs_render_headers
     RhiTypes.h
@@ -47,6 +48,7 @@ set(_acs_render_headers
     Ibl.h
     Atmosphere.h
     Ssr.h
+    Ssao.h
 )
 
 if(ACS_RENDER_DX12_RAW)

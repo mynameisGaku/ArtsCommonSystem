@@ -475,7 +475,7 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_upsample = Move(r.Value());
     }
-    // Tonemap: HDR + bloom → backbuffer、Opaque
+    // Tonemap: HDR + bloom + ssr → backbuffer、Opaque
     {
         PipelineDesc pd{};
         FillFullscreenLayout(pd);
@@ -489,15 +489,11 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.texture_names[1] = "bloom";
         pd.texture_names[2] = "ssr";
         pd.static_sampler_count = 3;
-        pd.static_samplers[0].filter    = SamplerFilter::Linear;
-        pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[0].address_v = SamplerAddress::Clamp;
-        pd.static_samplers[1].filter    = SamplerFilter::Linear;
-        pd.static_samplers[1].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[1].address_v = SamplerAddress::Clamp;
-        pd.static_samplers[2].filter    = SamplerFilter::Linear;
-        pd.static_samplers[2].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[2].address_v = SamplerAddress::Clamp;
+        for (u32 i = 0; i < 3; ++i) {
+            pd.static_samplers[i].filter    = SamplerFilter::Linear;
+            pd.static_samplers[i].address_u = SamplerAddress::Clamp;
+            pd.static_samplers[i].address_v = SamplerAddress::Clamp;
+        }
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_tonemap = Move(r.Value());

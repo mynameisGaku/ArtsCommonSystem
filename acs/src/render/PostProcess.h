@@ -57,6 +57,13 @@ struct PostProcessParams {
     IRhiTexture* ssr_texture = nullptr;
     f32          ssr_intensity = 1.0f; // tonemap 側で SSR の最終 mix 強度 (デフォルト 1.0)
 
+    // SSAO の composite は PbrShader 側に移動 (Phase 34j-2)。
+    // 理由: tonemap PSO の slot 3 に新規 SRV を追加すると Diligent の combined
+    // sampler binding が期待通り動かず、sample が常に 0 を返す現象に当たった
+    // (詳細は Phase 34j-fix の commit メッセージ参照)。
+    // PbrShader はすでに 6 slot で安定運用しており、slot 6 に SSAO を追加する
+    // 方が確実に動作する。HelloIbl から PbrShader::SetSsao() で渡す。
+
     // Color grading (Phase 34h、ASC-CDL 風)。tonemap 後 / gamma 前に適用。
     f32  cg_saturation   = 1.0f;       // 0=モノクロ、1=neutral、>1=彩度ブースト
     f32  cg_contrast     = 1.0f;       // 0..2、中心 0.5 を pivot とした contrast curve

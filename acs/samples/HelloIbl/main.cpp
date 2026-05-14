@@ -21,6 +21,7 @@
 #include "render/Atmosphere.h"
 #include "render/ShadowMap.h"
 #include "render/Ssr.h"
+#include "render/Ssao.h"
 #include "math/Mat.h"
 #include "render/PbrShader.h"
 #include "render/RenderAssets.h"
@@ -71,6 +72,8 @@ public:
         ACS_SAMPLE_INIT(_shadow.Init(*dev, 2048));
         // SSR (Phase 34e): HDR と同フォーマット / 同サイズで scratch を確保
         ACS_SAMPLE_INIT(_ssr.Init(*dev, _post.HdrFormat(), sw, sh));
+        // SSAO (Phase 34j): depth から visibility を計算、frame size と同じ解像度
+        ACS_SAMPLE_INIT(_ssao.Init(*dev, sw, sh));
 
         // SpriteBatch は LDR backbuffer (tonemap 後)
         ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
@@ -136,6 +139,7 @@ public:
         if (Input::IsKeyPressed(Key::F)) _use_fog = !_use_fog;
         if (Input::IsKeyPressed(Key::H)) _use_shadows = !_use_shadows;
         if (Input::IsKeyPressed(Key::R)) _show_ssr = !_show_ssr;
+        if (Input::IsKeyPressed(Key::O)) _use_ssao = !_use_ssao;
         // film grain アニメ用に時間累積
         _post_params.grain_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
@@ -396,10 +400,11 @@ public:
         // 結果は _ssr.OutputTexture() に書かれる。最終 HDR への composite は
         // additive blend pipeline + BeginRenderToTextureNoClear が要るので
         // 次セッションで infrastructure 拡張時に統合する。今は overlay 表示。
+        const Mat4 inv_vp = Inverse(_camera.ViewProjection());
         if (_show_ssr) {
             _ssr.Render(*dev, *cl, *hdr, *depth,
                         _camera.ViewProjection(),
-                        Inverse(_camera.ViewProjection()),
+                        inv_vp,
                         _camera.Eye(),
                         /*intensity=*/0.8f);
             _post_params.ssr_texture   = _ssr.OutputTexture();
@@ -407,6 +412,18 @@ public:
         } else {
             _post_params.ssr_texture   = nullptr;
             _post_params.ssr_intensity = 0.0f;
+        }
+
+        // ===== SSAO pass (Phase 34j、'O' で toggle) =====
+        // depth から visibility を計算して _ssao.OutputTexture() に書く。
+        // composite (HDR への乗算) は次の Phase で対応する。現状は HUD に overlay
+        // 表示するのみで、シーン色には影響しない。
+        if (_use_ssao) {
+            _ssao.Render(*dev, *cl, *depth,
+                         _camera.ViewProjection(), inv_vp,
+                         _camera.Eye(),
+                         /*intensity=*/1.0f,
+                         /*radius=*/0.5f);
         }
 
         // ===== 2) Bloom + ACES Tonemap → LDR backbuffer (SSR も additive mix) =====
@@ -434,6 +451,18 @@ public:
             if (_font.AtlasTexture()) {
                 _batch.DrawString(_font, "SSR debug overlay",
                                   30, static_cast<f32>(sh) - 268, Vec4{1, 1, 1, 1});
+            }
+        }
+        // SSAO overlay debug (Phase 34j、右下に sub-window)
+        if (_use_ssao && _ssao.OutputTexture()) {
+            const f32 ax = static_cast<f32>(sw) - 440;
+            const f32 ay = static_cast<f32>(sh) - 280;
+            _batch.DrawRect(ax, ay, 420, 260, Vec4{0, 0, 0, 0.6f});
+            _batch.Draw(*_ssao.OutputTexture(), ax + 10, ay + 10,
+                        400, 240);
+            if (_font.AtlasTexture()) {
+                _batch.DrawString(_font, "SSAO debug overlay (visibility)",
+                                  ax + 10, ay + 12, Vec4{1, 1, 1, 1});
             }
         }
         if (_font.AtlasTexture()) {
@@ -474,13 +503,14 @@ public:
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "Material: CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s",
+                          "Material: CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s",
                           _use_clearcoat ? "ON" : "OFF",
                           _use_anisotropy ? "ON" : "OFF",
                           _use_area_light ? "ON" : "OFF",
                           _use_probe_grid ? "ON" : "OFF",
                           _use_fog ? "ON" : "OFF",
-                          _use_shadows ? "ON" : "OFF");
+                          _use_shadows ? "ON" : "OFF",
+                          _use_ssao ? "ON" : "OFF");
             _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
                               20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
@@ -618,6 +648,7 @@ public:
         if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
         _font.Shutdown();
         _batch.Shutdown();
+        _ssao.Shutdown();
         _ssr.Shutdown();
         _shadow.Shutdown();
         _gm_plane = GpuMesh{};
@@ -659,8 +690,10 @@ private:
     bool               _need_atmosphere  = false;
     bool               _use_shadows      = false;
     bool               _show_ssr         = false;
+    bool               _use_ssao         = false; // overlay 確認用 (composite は次 Phase)
     ShadowMap          _shadow;
     Ssr                _ssr;
+    Ssao               _ssao;
     GpuMesh            _gm_plane;
     u32                _display_mode     = 0;
 };
