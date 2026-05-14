@@ -64,6 +64,10 @@ struct PostProcessParams {
     f32  cg_tint         = 0.0f;       // -1=green、0=neutral、+1=magenta
     Vec3 cg_lift         = Vec3{0, 0, 0};   // shadow 域の色 offset (足し算)
     Vec3 cg_gain         = Vec3{1, 1, 1};   // highlight 域の色 multiplier
+
+    // CAS Sharpening (Phase 34i、AMD FSR 簡略版)。Color grading 後 / gamma 前に適用。
+    // 0 = disable、0.3 = subtle、0.6 = neutral、1.0 = strong。負値は不可。
+    f32  cas_strength    = 0.0f;
 };
 
 class PostProcess {

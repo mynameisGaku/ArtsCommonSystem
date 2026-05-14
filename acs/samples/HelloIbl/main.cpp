@@ -92,6 +92,9 @@ public:
         _post_params.cg_tint         = -0.02f;    // 軽く緑寄り (映画 teal-orange)
         _post_params.cg_lift         = Vec3{0.005f, 0.0f, 0.01f};      // 影に微かな青冷感
         _post_params.cg_gain         = Vec3{1.04f, 1.02f, 0.98f};      // ハイライトを暖色に
+
+        // CAS sharpening (Phase 34i): subtle clarity boost、UE5 デフォルト相当 0.4
+        _post_params.cas_strength    = 0.4f;
     }
 
     void OnUpdate(f32 dt) noexcept override {

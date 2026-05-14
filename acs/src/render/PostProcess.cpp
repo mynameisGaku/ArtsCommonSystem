@@ -111,6 +111,7 @@ cbuffer Post : register(b0) {
     float4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
     float4 cg_lift;   // xyz=lift (shadow offset)
     float4 cg_gain;   // xyz=gain (highlight multiplier)
+    float4 cas_params;// x=cas_strength (0=disable、Phase 34i)
 };
 Texture2D    hdr   : register(t0);
 Texture2D    bloom : register(t1);
@@ -213,6 +214,38 @@ float4 PSMain(VSOut v) : SV_TARGET {
         hdr_col = hdr.Sample(hdr_sampler, v.uv).rgb;
     }
     hdr_col *= params0.w;       // exposure
+
+    // CAS sharpening (Phase 34i、AMD FSR 簡略版、HDR-aware):
+    // 注: center に CA が乗っていて neighbor が乗っていない非対称があるが、
+    // 既定 ca=0.002 (≒ 0.4 texel) の小オフセットで実害は無視できる。CA を強くするとき
+    // (>0.01) は CAS と併用しないか、neighbor 側にも CA を適用するべき (4 倍コスト)。
+    // AMD FSR 原典は LDR (0..1) 前提で `min(amin, 1-amax)` を headroom 推定に使う。
+    // HDR で amax > 1 の場合 `1-amax < 0` で ratio=0 になり sharpen が消える bug がある。
+    // → 修正: amp 計算は Reinhard 圧縮 (`x / (1+x)`) で 0..1 域に写してから行い、
+    //         sharpen 本体は HDR original 値に対して適用する。
+    if (cas_params.x > 1e-4) {
+        float2 px = float2(params1.y, params1.z);
+        // neighbor は CA なしで raw HDR を read (CA は装飾、CAS は構造保持)
+        float3 nN = hdr.SampleLevel(hdr_sampler, v.uv + float2(0,    -px.y), 0).rgb * params0.w;
+        float3 nS = hdr.SampleLevel(hdr_sampler, v.uv + float2(0,     px.y), 0).rgb * params0.w;
+        float3 nE = hdr.SampleLevel(hdr_sampler, v.uv + float2( px.x, 0   ), 0).rgb * params0.w;
+        float3 nW = hdr.SampleLevel(hdr_sampler, v.uv + float2(-px.x, 0   ), 0).rgb * params0.w;
+        // Reinhard 圧縮 (`x / (1+x)`) で 0..1 域に写す。amax < 1 が保証されるので
+        // `1 - amax > 0` で AMD FSR の headroom 計算が破綻しない。
+        float3 rC = hdr_col / (1.0 + hdr_col);
+        float3 rN = nN      / (1.0 + nN);
+        float3 rS = nS      / (1.0 + nS);
+        float3 rE = nE      / (1.0 + nE);
+        float3 rW = nW      / (1.0 + nW);
+        float3 amin = min(min(min(rN, rS), min(rE, rW)), rC);
+        float3 amax = max(max(max(rN, rS), max(rE, rW)), rC);
+        float3 ratio = saturate(min(amin, 1.0 - amax) / max(amax, 1e-5));
+        float3 amp = sqrt(ratio);
+        float3 w = -amp * (cas_params.x * 0.125);    // 負係数、neighbor を減算で sharpen
+        // sharpen 本体は HDR original 値に対して適用 (Reinhard で評価した amp/w を使う)
+        hdr_col = (hdr_col + (nN + nS + nE + nW) * w) / (1.0 + 4.0 * w);
+    }
+
     float3 bloom_col = bloom.Sample(bloom_sampler, v.uv).rgb * params0.y;
     float3 ssr_col   = ssr.Sample(ssr_sampler, v.uv).rgb * params3.y;
     float3 mixed = hdr_col + bloom_col + ssr_col;
@@ -252,6 +285,7 @@ struct PostCBLayout {
     Vec4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
     Vec4 cg_lift;   // xyz=lift
     Vec4 cg_gain;   // xyz=gain
+    Vec4 cas_params;// x=cas_strength
 };
 
 template<typename T>
@@ -508,6 +542,7 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
     l.cg0     = Vec4{ p.cg_saturation, p.cg_contrast, p.cg_temperature, p.cg_tint };
     l.cg_lift = Vec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
     l.cg_gain = Vec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
+    l.cas_params = Vec4{ p.cas_strength < 0 ? 0.0f : p.cas_strength, 0, 0, 0 };
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace
