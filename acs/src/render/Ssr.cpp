@@ -57,13 +57,15 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (dot(R, V) < -0.95) return float4(0, 0, 0, 0); // 真後ろ反射は無視
 
     // Ray march (world space で前進、screen に投影)
-    const int   kSteps   = 32;
+    // M2 fix: 最終 step が thickness より長くなって near-miss を見逃す問題を回避するため
+    // step 数を 48 に増やし、加速率を 0.015 に下げる (合計距離≒max_ray_dist の 1.45 倍)。
+    const int   kSteps   = 48;
     const float kStepLen = max(params.y, 0.5) / float(kSteps);   // max_ray_dist / N
     const float thickness = max(params.w, 0.05);
     float3 ray_pos = wp + N * 0.02 + R * 0.02;    // 起点 offset で self-hit 回避
     [loop]
     for (int i = 0; i < kSteps; ++i) {
-        ray_pos += R * (kStepLen * (1.0 + float(i) * 0.03));   // accelerating step
+        ray_pos += R * (kStepLen * (1.0 + float(i) * 0.015));  // 緩めの accelerating step
         float4 clip = mul(float4(ray_pos, 1.0), view_proj);
         if (clip.w <= 0.0) break;                              // 背面
         clip.xyz /= clip.w;

@@ -135,6 +135,10 @@ public:
     // depth: ShadowMap::DepthTexture()、light_vp: ShadowMap::LightViewProjection()
     // null で OFF。bias は 0.001..0.01 程度 (acne 回避)。
     //   filter_radius (Phase 34b-2): PCSS 強度。0 = hard PCF、1 = 標準、>1 で柔らか
+    //
+    // **重要**: shadow を disable したいときは必ず `SetShadowMap(nullptr, ...)` を使うこと。
+    // `_shadow_params.y` を直接 0 にして再有効化する経路は texel_size=0 の場合 PCSS の
+    // blocker search で search_r=0 になり結果が壊れる。常にこの API 経由で更新する。
     void SetShadowMap(IRhiTexture* depth, const Mat4& light_vp,
                       f32 bias = 0.002f, f32 texel_size = 1.0f / 2048.0f,
                       f32 filter_radius = 1.0f) noexcept;

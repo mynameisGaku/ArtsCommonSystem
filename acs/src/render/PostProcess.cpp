@@ -145,7 +145,9 @@ float3 AgxLook(float3 x) {
            - 0.00232;
 }
 float3 AgxTonemap(float3 x) {
-    return AgxLook(AgxLog(x));
+    // AgxLook 末尾の定数項 -0.00232 と grain 加算で x=0 付近が負値に落ちる
+    // ケースがあるので、Filament 公式実装と同じく結果を saturate でガード。
+    return saturate(AgxLook(AgxLog(x)));
 }
 
 // Reinhard 拡張 (Lottes/Hable 風)
@@ -160,22 +162,28 @@ float3 Tonemap(float3 c, int kind) {
 }
 
 // Color grading (Phase 34h): tonemap 後 (LDR) に適用する ASC-CDL 風補正。
-//   1) lift / gain: shadow offset + highlight multiplier
-//   2) contrast: 0.5 を pivot とした curve
-//   3) saturation: Rec.709 luminance を基準に grayscale との lerp
-//   4) temperature / tint: 色温度シフト (簡易、CIE xy chroma 風)
+// 適用順序:
+//   1) lift + gain (SOP の S/O 部分): shadow offset + highlight multiplier
+//   2) contrast (SOP の Power 相当、簡易 pivot=0.5 線形): スロープ調整
+//   3) temperature / tint: 色温度シフト (RGB シフト方式、CIE chroma は近似)
+//   4) saturation (SAT、最後): Rec.709 luminance との lerp
+// 注: 標準 CDL は SOP → SAT。本実装は temp/tint を SAT の前に置いている (映画 teal-orange
+// grade の典型) ため、sat=0 (モノクロ化) でも temp/tint shift が完全には消えない。
+// neutral 期待挙動が要るなら SAT 後にもう一度 luma 取り直しが必要だが、現状の cinematic
+// 用途では問題なし。
 float3 ColorGrade(float3 c) {
     // lift + gain
     c = c * cg_gain.rgb + cg_lift.rgb;
     // contrast (pivot=0.5)
     c = (c - 0.5) * cg0.y + 0.5;
     c = max(c, 0.0);
-    // temperature/tint: 赤↔青 と緑↔マゼンタの加算シフト
+    // temperature: 暖色 (+1) で red↑ / blue↓
     c.r += cg0.z * 0.10;     // temp +1 → +0.1 red
     c.b -= cg0.z * 0.10;     // temp +1 → -0.1 blue
-    c.g += cg0.w * 0.10;     // tint +1 → +0.1 green
-    c.r -= cg0.w * 0.05;
-    c.b -= cg0.w * 0.05;
+    // tint: ASC-CDL / DaVinci 規約に合わせ +1 で magenta (R+B↑、G↓)、-1 で green
+    c.g -= cg0.w * 0.10;     // tint +1 → -0.1 green
+    c.r += cg0.w * 0.05;
+    c.b += cg0.w * 0.05;
     // saturation (Rec.709 luminance)
     float lum = dot(c, float3(0.2126, 0.7152, 0.0722));
     c = lerp(float3(lum, lum, lum), c, cg0.x);
