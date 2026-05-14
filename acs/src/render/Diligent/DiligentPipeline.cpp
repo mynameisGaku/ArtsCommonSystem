@@ -87,10 +87,34 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     const bool has_ps = ps && ps->Native();
 
     auto& gp = psoCI.GraphicsPipeline;
-    gp.NumRenderTargets             = has_ps ? 1u : 0u;
-    gp.RTVFormats[0]                = has_ps
-                                       ? diligent_detail::ToDiligent(desc.rt_format)
-                                       : Diligent::TEX_FORMAT_UNKNOWN;
+    // MRT 対応 (Phase 34d-2): desc.rt_count > 0 のとき rt_formats[] を使い、
+    // それ以外は legacy 単一 RT (desc.rt_format)。
+    if (has_ps) {
+        if (desc.rt_count > 0) {
+            // strict validation: 過大値を silent 切り詰めると caller の想定と乖離するので reject
+            if (desc.rt_count > 8) {
+                return ACS_ERR(Render, 154,
+                    "DiligentPipeline: rt_count must be <= 8 (got too large)");
+            }
+            // 各 slot が valid format か検証 (Unknown は MRT で意味なし)
+            for (u32 i = 0; i < desc.rt_count; ++i) {
+                if (desc.rt_formats[i] == Format::Unknown) {
+                    return ACS_ERR(Render, 155,
+                        "DiligentPipeline: rt_formats[i] must be set for all i < rt_count");
+                }
+            }
+            gp.NumRenderTargets = static_cast<u8>(desc.rt_count);
+            for (u32 i = 0; i < desc.rt_count; ++i) {
+                gp.RTVFormats[i] = diligent_detail::ToDiligent(desc.rt_formats[i]);
+            }
+        } else {
+            gp.NumRenderTargets = 1u;
+            gp.RTVFormats[0]    = diligent_detail::ToDiligent(desc.rt_format);
+        }
+    } else {
+        gp.NumRenderTargets = 0u;
+        gp.RTVFormats[0]    = Diligent::TEX_FORMAT_UNKNOWN;
+    }
     gp.DSVFormat                    = (desc.depth_format == Format::Unknown)
                                        ? Diligent::TEX_FORMAT_UNKNOWN
                                        : diligent_detail::ToDiligent(desc.depth_format);

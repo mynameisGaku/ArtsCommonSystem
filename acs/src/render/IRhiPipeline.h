@@ -38,7 +38,15 @@ struct PipelineDesc {
     IRhiShader*       vs            = nullptr;
     IRhiShader*       ps            = nullptr;
     PrimitiveTopology topology      = PrimitiveTopology::TriangleList;
-    Format            rt_format     = Format::B8G8R8A8_UNorm;  // 描画先フォーマット
+    // 単一 RT (legacy / 既定経路): rt_count == 0 のとき rt_format を使う。
+    Format            rt_format     = Format::B8G8R8A8_UNorm;
+    // MRT (Phase 34d-2): rt_count > 0 のとき rt_formats[0..rt_count-1] を使い、
+    // rt_format は無視される。最大 8 RT。
+    // **rt_count 未満の各 slot は valid (≠ Unknown) format が必須**。Unknown が
+    // 残っていると DiligentPipeline::Init が ACS_ERR(Render, 155) を返す。
+    // Diligent backend のみ実装、Dx12 raw は stub (warning ログ 1 回)。
+    Format            rt_formats[8] = {};
+    u32               rt_count      = 0;
     Format            depth_format  = Format::Unknown;          // Unknown なら深度なし
     u32               vertex_stride = 0;                        // 1 頂点のバイト数
     InputElement      layout[8]     = {};                       // 入力レイアウト

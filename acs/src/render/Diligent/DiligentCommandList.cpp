@@ -147,6 +147,60 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
     SetScissor(sr);
 }
 
+void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
+                                                   const ClearColor& clear,
+                                                   IRhiTexture* depth,
+                                                   f32 depth_clear) noexcept {
+    if (!_device || rt_count == 0 || rt_count > 8 || !rts) return;
+    auto* ctx = _device->Context();
+    if (!ctx) return;
+
+    Diligent::ITextureView* rtvs[8] = {};
+    u32 valid_count = 0;
+    u32 ref_w = 0, ref_h = 0;
+    for (u32 i = 0; i < rt_count; ++i) {
+        if (!rts[i]) continue;
+        auto* tex = static_cast<DiligentTexture*>(rts[i]);
+        auto* rtv = tex->RtvView();
+        if (!rtv) continue;
+        // 全 RT が同サイズ前提 (Diligent / D3D12 では viewport が 1 つしか付かない、
+        // ピクセル単位 raster 範囲は最小 RT のサイズで clip される)。debug build で
+        // 検出して strict 違反を early-fail する。
+        if (valid_count == 0) {
+            ref_w = tex->Width();
+            ref_h = tex->Height();
+        } else if (tex->Width() != ref_w || tex->Height() != ref_h) {
+            ACS_LOG_WARN("BeginRenderToTextureMrt: RT %u size %ux%u != ref %ux%u",
+                         i, tex->Width(), tex->Height(), ref_w, ref_h);
+        }
+        rtvs[valid_count++] = rtv;
+    }
+    if (valid_count == 0) return;
+
+    auto* dsv = depth ? static_cast<DiligentTexture*>(depth)->DsvView() : nullptr;
+    ctx->SetRenderTargets(valid_count, rtvs, dsv,
+                          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    const float clr[4] = { clear.r, clear.g, clear.b, clear.a };
+    for (u32 i = 0; i < valid_count; ++i) {
+        ctx->ClearRenderTarget(rtvs[i], clr,
+                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
+    if (dsv) {
+        ctx->ClearDepthStencil(dsv, Diligent::CLEAR_DEPTH_FLAG, depth_clear, 0,
+                               Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
+    // Viewport は最初の RT のサイズに合わせる (全 RT が同サイズ前提)
+    auto* first = static_cast<DiligentTexture*>(rts[0]);
+    Viewport vp;
+    vp.width  = static_cast<f32>(first->Width());
+    vp.height = static_cast<f32>(first->Height());
+    SetViewport(vp);
+    ScissorRect sr;
+    sr.right  = static_cast<i32>(first->Width());
+    sr.bottom = static_cast<i32>(first->Height());
+    SetScissor(sr);
+}
+
 void DiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
                                                      const ClearColor& clear) noexcept {
     if (!_device) return;

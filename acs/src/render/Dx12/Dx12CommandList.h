@@ -34,6 +34,10 @@ public:
     void EndRenderToTexture(IRhiTexture& rt) noexcept override;
     void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
                                     const ClearColor& clear) noexcept override;
+    void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
+                                  const ClearColor& clear,
+                                  IRhiTexture* depth = nullptr,
+                                  f32 depth_clear = 1.0f) noexcept override;
 
     void SetViewport(const Viewport& vp) noexcept override;
     void SetScissor (const ScissorRect& sr) noexcept override;

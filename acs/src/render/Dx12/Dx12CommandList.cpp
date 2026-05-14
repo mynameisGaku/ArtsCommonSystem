@@ -8,6 +8,7 @@
 #include "render/IRhiBuffer.h"
 #include "render/IRhiTexture.h"
 #include "memory/UniquePtr.h"
+#include "foundation/Log.h"
 
 namespace acs {
 
@@ -199,6 +200,19 @@ void Dx12CommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {}
 void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& /*rt*/,
                                                  u32 /*slice*/, u32 /*mip*/,
                                                  const ClearColor& /*clear*/) noexcept {}
+
+// MRT (Phase 34d-2) も同様、Diligent 専用。Dx12 raw では stub。
+// 誤って Dx12 raw backend で MRT を呼んだケースを log で検出可能にする。
+void Dx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* /*rts*/, u32 /*rt_count*/,
+                                                const ClearColor& /*clear*/,
+                                                IRhiTexture* /*depth*/, f32 /*depth_clear*/) noexcept {
+    static bool warned_once = false;
+    if (!warned_once) {
+        ACS_LOG_WARN("Dx12CommandList::BeginRenderToTextureMrt is not implemented for raw DX12 "
+                     "backend (Phase 34d-2 is Diligent-only). Build with -DACS_RENDER_DILIGENT=ON.");
+        warned_once = true;
+    }
+}
 
 void Dx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
     auto& dx_depth = static_cast<Dx12Texture&>(depth);

@@ -57,6 +57,15 @@ public:
                                             u32 slice, u32 mip,
                                             const ClearColor& clear) noexcept = 0;
 
+    // MRT 描画開始 (Phase 34d-2)。最大 8 個の color RT を同時 bind、depth は optional。
+    // クリア色は単一値で全 RT に適用 (個別クリアが要れば別 API か手動で SetTexture 前 clear)。
+    // 終了は EndRenderToTexture(rts[0]) で main pass に復帰可。
+    // Diligent backend で実装、Dx12 raw は stub (no-op)。
+    virtual void BeginRenderToTextureMrt(class IRhiTexture* const* rts, u32 rt_count,
+                                          const ClearColor& clear,
+                                          class IRhiTexture* depth = nullptr,
+                                          f32 depth_clear = 1.0f) noexcept = 0;
+
     // ビューポート / シザーを設定
     virtual void SetViewport(const Viewport& vp) noexcept = 0;
     virtual void SetScissor (const ScissorRect& sr) noexcept = 0;
