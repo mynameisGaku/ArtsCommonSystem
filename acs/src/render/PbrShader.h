@@ -107,6 +107,17 @@ public:
     // SetSh9(nullptr) で OFF に戻す。SetIbl が前段で呼ばれてないと意味がない。
     void SetSh9(const Vec4* sh9_or_null) noexcept;
 
+    // 静的光プローブグリッド (Phase 33d)。各 probe = (位置 + SH9 9 係数)。
+    // count > 0 のとき、PbrShader は SH9 single mode より優先して probe grid を使う
+    // (world position から IDW で blend)。
+    //   probe_positions: 4 個まで、xyz=world、w=未使用
+    //   probe_sh9      : probe ごとに連続した 9 個 (count * 9 個の Vec4)
+    struct LightProbe {
+        Vec3 position;
+        Vec4 sh9[9];     // xyz=RGB
+    };
+    void SetProbeGrid(const LightProbe* probes, u32 count) noexcept;
+
     // PBR material 設定。base_color は非金属時の albedo、金属時の F0 tint。
     // metallic [0,1], roughness [0,1] は線形 (perceptual ではなく直接 GGX に
     // 渡す)、ao [0,1] は ambient のみに乗算 (direct light には影響しない)。
@@ -176,6 +187,11 @@ private:
     // SH 9 light probe (optional Phase 32c)
     Vec4         _sh9[9]         = {};
     bool         _sh9_enabled    = false;
+
+    // 静的光プローブグリッド (Phase 33d)、最大 4 個
+    Vec4         _probe_pos[4]      = {};
+    Vec4         _probe_sh9[4 * 9]  = {};
+    u32          _probe_count       = 0;
 
     // 拡張 material (Phase 33a)、SetObject で reset、SetExtParams で上書き
     Vec4         _ext_params     = Vec4{0, 0.5f, 0, 0};

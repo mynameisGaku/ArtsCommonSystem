@@ -106,6 +106,7 @@ public:
         if (Input::IsKeyPressed(Key::C)) _use_clearcoat = !_use_clearcoat;
         if (Input::IsKeyPressed(Key::Z)) _use_anisotropy = !_use_anisotropy;
         if (Input::IsKeyPressed(Key::L)) _use_area_light = !_use_area_light;
+        if (Input::IsKeyPressed(Key::G)) _use_probe_grid = !_use_probe_grid;
         // B キーで bloom on/off (verify HDR clip 防止効果)
         if (Input::IsKeyPressed(Key::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
@@ -234,6 +235,30 @@ public:
         _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
                        &sun, 1, Vec3{0, 0, 0});
         _pbr.SetPointLights(nullptr, 0);
+
+        // 静的光プローブグリッド (Phase 33d): 2 つの probe を赤/青に手調整
+        // 球グリッドの左右に配置 → 球は世界座標 X に応じて赤↔青 ambient が blend
+        if (_use_probe_grid) {
+            // 計算済 _sh9 (現 env の SH9) をベースに、赤と青に着色
+            PbrShader::LightProbe p[2];
+            // 左 probe (赤光)
+            p[0].position = Vec3{-4.0f, 1.5f, 3.0f};
+            for (u32 k = 0; k < 9; ++k) {
+                p[0].sh9[k] = _sh9[k];
+            }
+            // l=0 (DC) に赤を強める
+            p[0].sh9[0] = p[0].sh9[0] + Vec4{2.5f, 0.4f, 0.4f, 0};
+            // 右 probe (青光)
+            p[1].position = Vec3{+4.0f, 1.5f, 3.0f};
+            for (u32 k = 0; k < 9; ++k) {
+                p[1].sh9[k] = _sh9[k];
+            }
+            p[1].sh9[0] = p[1].sh9[0] + Vec4{0.4f, 0.4f, 2.5f, 0};
+            _pbr.SetProbeGrid(p, 2);
+            _need_sh9_rebuild = true;       // SH9 base が古ければ次フレームで再計算
+        } else {
+            _pbr.SetProbeGrid(nullptr, 0);
+        }
 
         // 矩形 area light (Phase 33b): 球グリッドの前方上空に置いた 2x1 矩形パネル
         if (_use_area_light) {
@@ -497,6 +522,7 @@ private:
     bool               _use_clearcoat    = false;
     bool               _use_anisotropy   = false;
     bool               _use_area_light   = false;
+    bool               _use_probe_grid   = false;
     u32                _display_mode     = 0;
 };
 

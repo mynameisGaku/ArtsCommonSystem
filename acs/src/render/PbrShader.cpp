@@ -39,6 +39,11 @@ cbuffer Frame : register(b0) {
     float4   area_axis_x [ACS_MAX_AREA_LIGHTS];
     float4   area_axis_y [ACS_MAX_AREA_LIGHTS];
     float4   area_color  [ACS_MAX_AREA_LIGHTS];
+
+    // 静的光プローブグリッド (Phase 33d)
+    float4   probe_params;            // x=probe_count (0..4)
+    float4   probe_pos [4];           // 各 probe world pos (xyz)
+    float4   probe_sh9 [4 * 9];       // 各 probe の SH 9 係数 (xyz=RGB)
 };
 
 cbuffer Object : register(b1) {
@@ -160,6 +165,10 @@ ClearcoatTerm EvalClearcoat(float3 N, float3 V, float3 L,
     return o;
 }
 
+// プローブ grid (Phase 33d): 各 probe ごとに SH9 を保持し、world_p から距離重み付き
+// (IDW、power=4 で局所性強め) で blend する。1 probe ならその係数をそのまま使う。
+float3 ProbeGridIrradiance(float3 world_p, float3 N);
+
 // SH 9 reconstruction (Ramamoorthi-Hanrahan 2001、Stupid SH Tricks p.6)
 //   irradiance(N) ≈ c4*L[0] - c5*L[6] + c3*L[6]*z² + c1*L[8]*(x²-y²)
 //                + 2 c1 (L[4]*xy + L[7]*xz + L[5]*yz) + 2 c2 (L[3]*x + L[1]*y + L[2]*z)
@@ -178,11 +187,41 @@ float3 Sh9Irradiance(float3 N, float4 L[9]) {
              + c1 * L[8].rgb * (x * x - y * y);
     return max(e, float3(0, 0, 0));    // clamp 負値 (アンダーシュート対策)
 }
+)" R"(
+float3 ProbeGridIrradiance(float3 world_p, float3 N) {
+    int n = (int)probe_params.x;
+    if (n <= 0) return float3(0, 0, 0);
+    // IDW: w[i] = 1 / (dist²)²
+    float total_w = 0.0;
+    float ws[4] = {0, 0, 0, 0};
+    [unroll]
+    for (int i = 0; i < 4; ++i) {
+        if (i >= n) { ws[i] = 0; continue; }
+        float3 d = world_p - probe_pos[i].xyz;
+        float dist2 = max(dot(d, d), 1e-4);
+        ws[i] = 1.0 / (dist2 * dist2);
+        total_w += ws[i];
+    }
+    float inv = 1.0 / max(total_w, 1e-6);
+    float4 blended[9];
+    [unroll]
+    for (int k = 0; k < 9; ++k) blended[k] = float4(0, 0, 0, 0);
+    [unroll]
+    for (int j = 0; j < 4; ++j) {
+        if (j >= n) break;
+        float w = ws[j] * inv;
+        [unroll]
+        for (int k = 0; k < 9; ++k) {
+            blended[k] += probe_sh9[j * 9 + k] * w;
+        }
+    }
+    return max(Sh9Irradiance(N, blended), float3(0, 0, 0));
+}
 
 // IBL ambient (split-sum approximation):
 //   diffuse_ibl  = (1 - F) * (1 - metallic) * base * irradiance.Sample(N)
 //   specular_ibl = prefilter.SampleLevel(R, roughness * (mips-1)) * (F0 * lut.r + lut.g)
-float3 ComputeIblAmbient(float3 N, float3 V, float3 base,
+float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
                         float metallic, float roughness, float ao)
 {
     float NoV = saturate(dot(N, V));
@@ -192,9 +231,11 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 base,
     float3 F  = FresnelSchlickRoughness(NoV, F0, roughness);
 
     float3 kd = (1.0 - F) * (1.0 - metallic);
-    // diffuse: SH 9 か cubemap か。ibl_params.z >= 0.5 で SH モード
+    // diffuse: probe grid (Phase 33d) > SH9 single (Phase 32c) > cubemap (Phase 31) の優先順
     float3 irr;
-    if (ibl_params.z >= 0.5) {
+    if (probe_params.x >= 1.0) {
+        irr = ProbeGridIrradiance(world_p, N);
+    } else if (ibl_params.z >= 0.5) {
         irr = Sh9Irradiance(N, sh9);
     } else {
         irr = irradiance.SampleLevel(irradiance_sampler, N, 0).rgb;
@@ -296,7 +337,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // として削除される (FXC の判断による)。
     float3 col;
     if (ibl_params.x >= 0.5) {
-        float3 base_ibl = ComputeIblAmbient(N, V, albedo_rgb, metallic, roughness, ao);
+        float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao);
         IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness);
         col = base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao;
     } else {
@@ -398,6 +439,9 @@ struct FrameCBLayout {
     Vec4 area_axis_x [kMaxAreaLights];
     Vec4 area_axis_y [kMaxAreaLights];
     Vec4 area_color  [kMaxAreaLights];
+    Vec4 probe_params;
+    Vec4 probe_pos[4];
+    Vec4 probe_sh9[4 * 9];
 };
 
 struct ObjectCBLayout {
@@ -562,6 +606,22 @@ void PbrShader::SetIbl(IRhiTexture* irradiance,
     FlushFrameCB();
 }
 
+void PbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
+    if (count > 4) count = 4;
+    _probe_count = count;
+    for (u32 i = 0; i < count; ++i) {
+        _probe_pos[i] = Vec4{probes[i].position.x, probes[i].position.y, probes[i].position.z, 0};
+        for (u32 k = 0; k < 9; ++k) {
+            _probe_sh9[i * 9 + k] = probes[i].sh9[k];
+        }
+    }
+    for (u32 i = count; i < 4; ++i) {
+        _probe_pos[i] = Vec4{0, 0, 0, 0};
+        for (u32 k = 0; k < 9; ++k) _probe_sh9[i * 9 + k] = Vec4{0, 0, 0, 0};
+    }
+    FlushFrameCB();
+}
+
 void PbrShader::SetSh9(const Vec4* sh9_or_null) noexcept {
     if (sh9_or_null) {
         for (u32 i = 0; i < 9; ++i) _sh9[i] = sh9_or_null[i];
@@ -637,6 +697,9 @@ void PbrShader::FlushFrameCB() noexcept {
         cb.area_axis_y[i] = Vec4{a.axis_y.x, a.axis_y.y, a.axis_y.z, 0};
         cb.area_color[i]  = Vec4{a.color.x,  a.color.y,  a.color.z,  0};
     }
+    cb.probe_params = Vec4{static_cast<f32>(_probe_count), 0, 0, 0};
+    for (u32 i = 0; i < 4; ++i) cb.probe_pos[i] = _probe_pos[i];
+    for (u32 i = 0; i < 4 * 9; ++i) cb.probe_sh9[i] = _probe_sh9[i];
     cb.ibl_params = Vec4{
         _ibl_enabled ? 1.0f : 0.0f,
         static_cast<f32>(_ibl_mips),
