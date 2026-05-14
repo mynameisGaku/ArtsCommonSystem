@@ -119,6 +119,13 @@ public:
     // viewport_inv_size は SSAO の値を再利用するので別途渡さない。
     void SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept;
 
+    // Lightmap (Phase 33f)。baked static GI texture を mesh の uv で sample。
+    //   lightmap_tex: 静的に焼かれた間接光 (任意フォーマット、RGB が使われる)
+    //   intensity: 0=OFF、1=通常、>1=強調
+    // 注意: mesh の uv が global lightmap 座標系として作られている前提。本実装
+    // では uv2 を別途持たず単一 uv で済ませる (Cornell box 等の per-instance 用途)。
+    void SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept;
+
     // SH 9 (Ramamoorthi) ambient mode を有効化する (Phase 32c)。
     // `sh9` は ImageBasedLighting::ComputeSh9FromEquirect で得られた 9 RGB 係数。
     // 有効化中は cubemap irradiance ではなく SH 9 から復元した diffuse irradiance を使う。
@@ -250,6 +257,11 @@ private:
     IRhiTexture* _ssgi_tex       = nullptr;
     f32          _ssgi_intensity = 0.0f;
     UniquePtr<IRhiTexture> _ssgi_fb;    // 1x1 R11G11B10F fallback (initial 0)
+
+    // Lightmap (Phase 33f)、SetLightmap で差し替え可能
+    IRhiTexture* _lightmap_tex       = nullptr;
+    f32          _lightmap_intensity = 0.0f;
+    UniquePtr<IRhiTexture> _lightmap_fb;  // 1x1 RGBA8 黒 fallback
 
     // Shadow map (Phase 34b)
     IRhiTexture* _shadow_depth   = nullptr;

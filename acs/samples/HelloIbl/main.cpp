@@ -92,6 +92,12 @@ public:
         // SSGI (Phase 33c): scene_color + depth → 1 bounce indirect light
         ACS_SAMPLE_INIT(_ssgi.Init(*dev, sw, sh));
 
+        // Lightmap (Phase 33f): 球グリッドの直下にある床用に静的 AO を CPU 焼き。
+        // 球 5x5 を Sphere-Ray analytical hit で覆い、各 plane texel で hemisphere
+        // sampling して visibility を求める。Phase 33f-2 で CPU baker を別 module
+        // に切り出す予定だが、今は inline で済ませる (sample 内 demo 用)。
+        ACS_SAMPLE_INIT(BakeAndUploadLightmap(*dev));
+
         // SpriteBatch は LDR backbuffer (tonemap 後)
         ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
         (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
@@ -159,6 +165,7 @@ public:
         if (Input::IsKeyPressed(Key::O)) _use_ssao = !_use_ssao;
         if (Input::IsKeyPressed(Key::T)) _use_taa  = !_use_taa;
         if (Input::IsKeyPressed(Key::J)) _use_ssgi = !_use_ssgi;
+        if (Input::IsKeyPressed(Key::K)) _use_lightmap = !_use_lightmap;
         // film grain アニメ用に時間累積
         _post_params.grain_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
@@ -431,10 +438,18 @@ public:
 
         // 地面プレーン (Phase 34b shadow caster ターゲット)。中性灰、roughness 高め
         // → 影がはっきり写る。clearcoat / anisotropy は無効に上書き。
+        // Phase 33f: 床のみ lightmap を bind (sphere grid 球には焼いてないので OFF)。
         _pbr.SetExtParams(0.0f, 0.08f, 0.0f, Vec3{1, 0, 0});
+        if (_use_lightmap && _lightmap) {
+            _pbr.SetLightmap(_lightmap.Get(), /*intensity=*/0.8f);
+        } else {
+            _pbr.SetLightmap(nullptr, 0.0f);
+        }
         _pbr.DrawMesh(*cl, _gm_plane,
                       Mat4::Translation(Vec3{0, -0.6f, 3.0f}),
                       Vec3{0.5f, 0.5f, 0.55f}, 0.0f, 0.85f, 1.0f);
+        // 球グリッド draw 前に lightmap を解除 (球には焼いてないので付けない)
+        _pbr.SetLightmap(nullptr, 0.0f);
 
         constexpr u32 kGrid = 5;
         constexpr f32 kSpacing = 1.4f;
@@ -586,7 +601,7 @@ public:
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "Material: CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s SSGI=%s",
+                          "CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s SSGI=%s LM=%s",
                           _use_clearcoat ? "ON" : "OFF",
                           _use_anisotropy ? "ON" : "OFF",
                           _use_area_light ? "ON" : "OFF",
@@ -595,7 +610,8 @@ public:
                           _use_shadows ? "ON" : "OFF",
                           _use_ssao ? "ON" : "OFF",
                           _use_taa ? "ON" : "OFF",
-                          _use_ssgi ? "ON" : "OFF");
+                          _use_ssgi ? "ON" : "OFF",
+                          _use_lightmap ? "ON" : "OFF");
             _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
                               20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
@@ -613,6 +629,82 @@ public:
         cl->Submit();
         sc->Present();
         return true;
+    }
+
+    // Phase 33f: 床用 lightmap を CPU 焼き。256x256 RGBA8、各 texel に
+    // 「球グリッド上方からの sky 寄与 × visibility」を入れる。Sphere occlusion
+    // は analytical ray-vs-sphere、sky color は固定 (Day preset)。簡易だが
+    // 床にスフィア真下の影 + 開けた所の明るい indirect が出る。
+    Result<void> BakeAndUploadLightmap(IRhiDevice& dev) noexcept {
+        constexpr u32 kSize = 256;
+        Array<u8> rgba; rgba.Resize(static_cast<usize>(kSize) * kSize * 4u);
+
+        // 球グリッドのパラメータ (OnCustomFrame の draw 計算と一致)
+        constexpr u32 kGrid = 5;
+        constexpr f32 kSpacing = 1.4f;
+        constexpr f32 kSphereR = 0.55f;
+        constexpr f32 kCenterY = 2.5f;       // py = (gy - 2)*1.4 + 2.5
+        constexpr f32 kCenterZ = 3.0f;
+        constexpr f32 kPlaneY = -0.6f;
+        constexpr f32 kPlaneSize = 40.0f;    // MakePlane(40,40)
+        const Vec3 kSkyColor{0.85f, 0.92f, 1.0f};   // 弱い暖青 (Day sky horizon 近似)
+
+        for (u32 y = 0; y < kSize; ++y) {
+            for (u32 x = 0; x < kSize; ++x) {
+                const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kSize);
+                const f32 v = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(kSize);
+                // Plane UV は [0,1] が plane center (40x40) を覆う想定。
+                // MakePlane の uv 規約に合わせ、中心 (0, kPlaneY, kCenterZ) からの XZ。
+                const f32 wx = (u - 0.5f) * kPlaneSize;
+                const f32 wz = (v - 0.5f) * kPlaneSize + kCenterZ;
+
+                // 8 方向の hemisphere ray を analytical でテスト (上半球、jitter なし)
+                constexpr u32 kRays = 8;
+                u32 hit_count = 0;
+                for (u32 r = 0; r < kRays; ++r) {
+                    // hemisphere direction (上半球の固定方向)
+                    const f32 ang = static_cast<f32>(r) * (2.0f * kPi / static_cast<f32>(kRays));
+                    const f32 spread = 0.7f;        // sin(45°) 程度の広がり
+                    const Vec3 rd{spread * Cos(ang), 1.0f - spread * 0.5f, spread * Sin(ang)};
+                    // 球グリッド 25 個と Ray-Sphere intersection
+                    bool hit_any = false;
+                    for (u32 gy = 0; gy < kGrid && !hit_any; ++gy) {
+                        for (u32 gx = 0; gx < kGrid && !hit_any; ++gx) {
+                            const f32 px = (static_cast<f32>(gx) - 2.0f) * kSpacing;
+                            const f32 py = (static_cast<f32>(gy) - 2.0f) * kSpacing + kCenterY;
+                            const Vec3 sp{px, py, kCenterZ};
+                            const Vec3 oc{wx - sp.x, kPlaneY - sp.y, wz - sp.z};
+                            const f32 b = oc.x*rd.x + oc.y*rd.y + oc.z*rd.z;
+                            const f32 c = oc.x*oc.x + oc.y*oc.y + oc.z*oc.z - kSphereR*kSphereR;
+                            const f32 disc = b*b - c;
+                            if (disc > 0.0f) {
+                                const f32 t = -b - Sqrt(disc);
+                                if (t > 0.01f && t < 20.0f) hit_any = true;
+                            }
+                        }
+                    }
+                    if (hit_any) ++hit_count;
+                }
+                const f32 vis = 1.0f - static_cast<f32>(hit_count) / static_cast<f32>(kRays);
+                // 結果は sky_color * visibility (RGB)。8-bit に量子化。
+                const Vec3 lm{kSkyColor.x * vis, kSkyColor.y * vis, kSkyColor.z * vis};
+                const usize idx = (static_cast<usize>(y) * kSize + x) * 4u;
+                rgba[idx + 0] = static_cast<u8>(Saturate(lm.x) * 255.0f);
+                rgba[idx + 1] = static_cast<u8>(Saturate(lm.y) * 255.0f);
+                rgba[idx + 2] = static_cast<u8>(Saturate(lm.z) * 255.0f);
+                rgba[idx + 3] = 255;
+            }
+        }
+
+        TextureDesc td{};
+        td.width = kSize; td.height = kSize;
+        td.format = Format::R8G8B8A8_UNorm;
+        td.initial_data = rgba.Data();
+        td.initial_data_size = rgba.Size();
+        auto r = CreateRhiTexture(dev, td);
+        if (r.IsErr()) return Err<void>(r.Error());
+        _lightmap = Move(r.Value());
+        return Ok();
     }
 
     // 現在の Sky procedural を CPU 側で評価して equirect float bitmap に焼く。
@@ -782,6 +874,8 @@ private:
     u32                _taa_frame_index  = 0;     // Halton(2,3) 用カウンタ
     bool               _use_ssgi         = true;  // Phase 33c: SSGI 有効 ('J' でトグル)
     bool               _ssgi_warm        = false; // _ssgi.Render が 1 度以上走った？
+    bool               _use_lightmap     = true;  // Phase 33f: lightmap 有効 ('K' でトグル)
+    UniquePtr<IRhiTexture> _lightmap;             // 床用 baked lightmap (256x256 RGBA8)
     ShadowMap          _shadow;
     Ssr                _ssr;
     Ssao               _ssao;

@@ -63,6 +63,11 @@ cbuffer Frame : register(b0) {
     // SSGI (Phase 33c): screen-space indirect light を ambient に加算。
     //   x = enabled (0/1)、y = intensity (typical 0.5..2.0)、zw = pad
     float4   ssgi_params;
+
+    // Lightmap (Phase 33f): baked static GI を mesh の uv で sample して
+    // ambient/indirect 項に加算。SSGI と排他ではない (両方有効化可)。
+    //   x = enabled (0/1)、y = intensity、zw = pad
+    float4   lightmap_params;
 };
 
 cbuffer Object : register(b1) {
@@ -82,6 +87,7 @@ Texture2D    normal_map        : register(t4);
 Texture2D    shadow_map        : register(t5);
 Texture2D    ssao_map          : register(t6);
 Texture2D    ssgi_color        : register(t7);
+Texture2D    lightmap          : register(t8);
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
@@ -90,6 +96,7 @@ SamplerState normal_map_sampler : register(s4);
 SamplerState shadow_map_sampler : register(s5);
 SamplerState ssao_map_sampler   : register(s6);
 SamplerState ssgi_color_sampler : register(s7);
+SamplerState lightmap_sampler   : register(s8);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -487,6 +494,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
         col += gi * albedo_rgb * (1.0 - metallic) * ssgi_params.y * ssao_factor;
     }
 
+    // Lightmap (Phase 33f): mesh の uv で baked static GI を sample して
+    // ambient に加算。非金属の diffuse のみ (metallic surface には baked light は乗らない)。
+    if (lightmap_params.x >= 0.5) {
+        float3 lm = lightmap.SampleLevel(lightmap_sampler, v.uv, 0).rgb;
+        col += lm * albedo_rgb * (1.0 - metallic) * lightmap_params.y;
+    }
+
     // 有向光源 (i==0 のみ shadow_map で遮蔽)
     float shadow = ComputeShadow(v.world_p);
     int dir_count = (int)ambient.w;
@@ -606,6 +620,7 @@ struct FrameCBLayout {
     Vec4 shadow_params;
     Vec4 ssao_params;       // Phase 34j-2: x=enabled, y=intensity, zw=inv_viewport
     Vec4 ssgi_params;       // Phase 33c: x=enabled, y=intensity, zw=pad
+    Vec4 lightmap_params;   // Phase 33f: x=enabled, y=intensity, zw=pad
 };
 
 struct ObjectCBLayout {
@@ -711,6 +726,17 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
         return Err<void>(r.Error());
     else _ssgi_fb = Move(r.Value());
 
+    // Lightmap fallback: 1x1 RGBA8 全 0 (baked light なし)。
+    // lightmap_params.x=0 で shader が早期 return するので unused。
+    const u8 zero_rgba[4] = { 0, 0, 0, 0 };
+    TextureDesc lt{};
+    lt.width = 1; lt.height = 1;
+    lt.format = Format::R8G8B8A8_UNorm;
+    lt.initial_data = zero_rgba; lt.initial_data_size = 4;
+    if (auto r = CreateRhiTexture(device, lt); r.IsErr())
+        return Err<void>(r.Error());
+    else _lightmap_fb = Move(r.Value());
+
     // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
     // SRB に valid な texture を bind する必要があるので作っておく。内容は
@@ -744,7 +770,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.depth_write   = true;
     pd.cull_mode     = CullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 8;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut, t4=normal_map, t5=shadow_map, t6=ssao_map, t7=ssgi_color
+    pd.texture_slots = 9;     // t0=albedo .. t8=lightmap (Phase 33f)
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -755,7 +781,8 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.texture_names[5] = "shadow_map";
     pd.texture_names[6] = "ssao_map";
     pd.texture_names[7] = "ssgi_color";
-    pd.static_sampler_count = 8;
+    pd.texture_names[8] = "lightmap";
+    pd.static_sampler_count = 9;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Wrap;
     pd.static_samplers[0].address_v = SamplerAddress::Wrap;
@@ -783,6 +810,9 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.static_samplers[7].filter    = SamplerFilter::Linear;       // SSGI も linear で blur 効果
     pd.static_samplers[7].address_u = SamplerAddress::Clamp;
     pd.static_samplers[7].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[8].filter    = SamplerFilter::Linear;       // lightmap は linear で texel boundary を smooth
+    pd.static_samplers[8].address_u = SamplerAddress::Clamp;       // 端を伸ばす (タイリングしない baked light)
+    pd.static_samplers[8].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -811,6 +841,8 @@ void PbrShader::Shutdown() noexcept {
     _ssao_tex = nullptr;
     _ssgi_fb.Reset();
     _ssgi_tex = nullptr;
+    _lightmap_fb.Reset();
+    _lightmap_tex = nullptr;
     _ibl_brdf_fb.Reset();
     _ibl_prefilter_fb.Reset();
     _ibl_irradiance_fb.Reset();
@@ -904,6 +936,12 @@ void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     } else if (_ssgi_fb) {
         cmd.SetTexture(7, *_ssgi_fb);
     }
+    // Lightmap (Phase 33f): slot 8
+    if (_lightmap_tex) {
+        cmd.SetTexture(8, *_lightmap_tex);
+    } else if (_lightmap_fb) {
+        cmd.SetTexture(8, *_lightmap_fb);
+    }
 }
 
 void PbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
@@ -922,6 +960,12 @@ void PbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
 void PbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
     _ssgi_tex       = ssgi_tex;
     _ssgi_intensity = intensity < 0 ? 0.0f : intensity;
+    FlushFrameCB();
+}
+
+void PbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
+    _lightmap_tex       = lightmap_tex;
+    _lightmap_intensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
@@ -1007,6 +1051,11 @@ void PbrShader::FlushFrameCB() noexcept {
     cb.ssgi_params = Vec4{
         _ssgi_tex ? 1.0f : 0.0f,
         _ssgi_intensity,
+        0, 0
+    };
+    cb.lightmap_params = Vec4{
+        _lightmap_tex ? 1.0f : 0.0f,
+        _lightmap_intensity,
         0, 0
     };
     for (u32 i = 0; i < 9; ++i) cb.sh9[i] = _sh9[i];
