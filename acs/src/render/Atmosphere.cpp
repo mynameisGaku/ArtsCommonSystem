@@ -169,6 +169,22 @@ Array<f32> Atmosphere::BakeEquirect(u32 width, u32 height,
             } else {
                 col = SingleScatter(viewer, view_dir, sun_dir, params.sun_intensity,
                                     params.ray_steps, params.sun_steps);
+                // Sun disc: 視線と太陽方向のコサインが小範囲内なら HDR な太陽色を加算。
+                // 大気透過 (sun direction での累積) は SingleScatter 内で間接的に考慮されるが、
+                // 鋭い disc 自体は別途乗算。Bloom と合わさって光輪 → glare に見える。
+                const f32 cos_to_sun = view_dir.x*sun_dir.x + view_dir.y*sun_dir.y + view_dir.z*sun_dir.z;
+                const f32 sun_cos_size = 0.9998f;     // 太陽の見かけ径 cos (~1.2°)
+                if (cos_to_sun > sun_cos_size) {
+                    // 透過率 (太陽光が大気を通って観察者まで届く比率) で disc 輝度を補正
+                    f32 t_sun = RaySphereOuter(viewer, sun_dir, kAtmosphereRadius);
+                    Vec3 T = (t_sun > 0)
+                        ? Transmittance(viewer, sun_dir, t_sun, params.sun_steps)
+                        : Vec3{1, 1, 1};
+                    const f32 disc_strength = 250.0f;  // HDR、Bloom が乗ると光輪に
+                    col.x += params.sun_intensity.x * T.x * disc_strength;
+                    col.y += params.sun_intensity.y * T.y * disc_strength;
+                    col.z += params.sun_intensity.z * T.z * disc_strength;
+                }
             }
 
             const u32 idx = (y * width + x) * 4u;
