@@ -59,14 +59,16 @@ cbuffer Object : register(b1) {
     float4   aniso_tangent;  // xyz=anisotropic tangent direction (world)、w=pad
 };
 
-Texture2D    albedo          : register(t0);
-TextureCube  irradiance       : register(t1);
-TextureCube  prefilter        : register(t2);
-Texture2D    brdf_lut         : register(t3);
+Texture2D    albedo           : register(t0);
+TextureCube  irradiance        : register(t1);
+TextureCube  prefilter         : register(t2);
+Texture2D    brdf_lut          : register(t3);
+Texture2D    normal_map        : register(t4);
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
 SamplerState brdf_lut_sampler   : register(s3);
+SamplerState normal_map_sampler : register(s4);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -107,6 +109,25 @@ float G_Smith(float NdotV, float NdotL, float roughness) {
 float3 F_Schlick(float VdotH, float3 F0) {
     float f = pow(saturate(1.0 - VdotH), 5.0);
     return F0 + (1.0 - F0) * f;
+}
+
+// ddx/ddy 由来の screen-space TBN を使って tangent-space normal を world-space に変換。
+// vertex tangent が無くても normal map を使える Schueler 法。
+float3 PerturbNormal(float3 worldP, float3 worldN, float2 uv, float3 tangent_n) {
+    float3 dp_dx = ddx(worldP);
+    float3 dp_dy = ddy(worldP);
+    float2 duv_dx = ddx(uv);
+    float2 duv_dy = ddy(uv);
+    // determinant 不変な TBN 構築
+    float3 dp_dy_perp = cross(dp_dy, worldN);
+    float3 dp_dx_perp = cross(worldN, dp_dx);
+    float3 t = dp_dy_perp * duv_dx.x + dp_dx_perp * duv_dy.x;
+    float3 b = dp_dy_perp * duv_dx.y + dp_dx_perp * duv_dy.y;
+    float invmax = rsqrt(max(dot(t, t), dot(b, b)));
+    float3 N_perturbed = normalize(t * (tangent_n.x * invmax)
+                                  + b * (tangent_n.y * invmax)
+                                  + worldN * tangent_n.z);
+    return N_perturbed;
 }
 
 // Karis "Real Shading in UE4" 流 Fresnel with roughness。
@@ -324,6 +345,11 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
 
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.world_n);
+    // Normal map perturbation (Phase 34g)。fallback 1x1 (0.5,0.5,1.0) なら無変化。
+    float3 nm = normal_map.Sample(normal_map_sampler, v.uv).rgb * 2.0 - 1.0;
+    // 単位長に正規化 (sampler の linear interp で長さズレが起きるため)
+    nm = normalize(nm + float3(0, 0, 1e-6));
+    N = PerturbNormal(v.world_p, N, v.uv, nm);
     float3 V = normalize(camera_pos.xyz - v.world_p);
 
     float3 albedo_rgb = albedo.Sample(albedo_sampler, v.uv).rgb * base_color.xyz;
@@ -523,6 +549,16 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
         return Err<void>(r.Error());
     else _white = Move(r.Value());
 
+    // Normal map fallback: 1x1 RGBA8 (128,128,255,0) = tangent (0,0,1) → 無変化
+    const u8 flat_nrm[4] = { 128, 128, 255, 0 };
+    TextureDesc nt{};
+    nt.width = 1; nt.height = 1;
+    nt.format = Format::R8G8B8A8_UNorm;
+    nt.initial_data = flat_nrm; nt.initial_data_size = 4;
+    if (auto r = CreateRhiTexture(device, nt); r.IsErr())
+        return Err<void>(r.Error());
+    else _normal_map_fb = Move(r.Value());
+
     // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
     // SRB に valid な texture を bind する必要があるので作っておく。内容は
@@ -556,14 +592,15 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.depth_write   = true;
     pd.cull_mode     = CullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 4;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut
+    pd.texture_slots = 5;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut, t4=normal_map
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
     pd.texture_names[1] = "irradiance";
     pd.texture_names[2] = "prefilter";
     pd.texture_names[3] = "brdf_lut";
-    pd.static_sampler_count = 4;
+    pd.texture_names[4] = "normal_map";
+    pd.static_sampler_count = 5;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Wrap;
     pd.static_samplers[0].address_v = SamplerAddress::Wrap;
@@ -579,6 +616,9 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.static_samplers[3].address_u = SamplerAddress::Clamp;
     pd.static_samplers[3].address_v = SamplerAddress::Clamp;
     pd.static_samplers[3].address_w = SamplerAddress::Clamp;     // 2D LUT で w 軸は未使用だが一貫性のため
+    pd.static_samplers[4].filter    = SamplerFilter::Linear;
+    pd.static_samplers[4].address_u = SamplerAddress::Wrap;       // normal map は wrap (tileable)
+    pd.static_samplers[4].address_v = SamplerAddress::Wrap;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -599,6 +639,8 @@ void PbrShader::Shutdown() noexcept {
     _pipeline.Reset();
     _object_cb.Reset();
     _frame_cb.Reset();
+    _normal_map_fb.Reset();
+    _normal_map = nullptr;
     _ibl_brdf_fb.Reset();
     _ibl_prefilter_fb.Reset();
     _ibl_irradiance_fb.Reset();
@@ -668,6 +710,16 @@ void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
         if (_ibl_prefilter_fb)  cmd.SetTexture(2, *_ibl_prefilter_fb);
         if (_ibl_brdf_fb)       cmd.SetTexture(3, *_ibl_brdf_fb);
     }
+    // Normal map (Phase 34g): 必ず slot 4 を bind
+    if (_normal_map) {
+        cmd.SetTexture(4, *_normal_map);
+    } else if (_normal_map_fb) {
+        cmd.SetTexture(4, *_normal_map_fb);
+    }
+}
+
+void PbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
+    _normal_map = tex;
 }
 
 void PbrShader::SetLights(const Mat4& vp, Vec3 eye,

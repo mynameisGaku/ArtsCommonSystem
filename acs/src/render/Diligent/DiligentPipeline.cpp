@@ -163,7 +163,7 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     psoCI.PSODesc.ResourceLayout.DefaultVariableType =
         Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC;
 
-    constexpr u32 kMaxStaticSamplers = 4;
+    constexpr u32 kMaxStaticSamplers = 8;
     Diligent::ImmutableSamplerDesc samplers[kMaxStaticSamplers]{};
     u32 ns = desc.static_sampler_count > kMaxStaticSamplers
               ? kMaxStaticSamplers : desc.static_sampler_count;

@@ -50,7 +50,7 @@ struct PipelineDesc {
     // テクスチャ t0..t{texture_slots-1}（SRV、Draw 前に SetTexture で割当）
     u32               texture_slots = 0;
     // サンプラ s0..s{static_sampler_count-1}（パイプラインに焼き込み）
-    SamplerDesc       static_samplers[4]      = {};
+    SamplerDesc       static_samplers[8]      = {};
     u32               static_sampler_count    = 0;
 
     // --- HLSL リソース名（Diligent backend が名前ベースで SRB lookup するために必要） ---

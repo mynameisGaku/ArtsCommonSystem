@@ -101,6 +101,11 @@ public:
     // (1x1 black cubemap / 2D) を bind する。
     void BindIblTextures(IRhiCommandList& cmd) noexcept;
 
+    // Normal map (Phase 34g) を設定。null で fallback (flat normal、無変化)。
+    // ddx/ddy 由来の screen-space TBN を shader が自前で計算するので、
+    // 頂点 tangent は不要。tileable な RGB8 (DirectX 流: (R,G,B)=tangent×0.5+0.5) 想定。
+    void SetNormalMap(IRhiTexture* tex) noexcept;
+
     // SH 9 (Ramamoorthi) ambient mode を有効化する (Phase 32c)。
     // `sh9` は ImageBasedLighting::ComputeSh9FromEquirect で得られた 9 RGB 係数。
     // 有効化中は cubemap irradiance ではなく SH 9 から復元した diffuse irradiance を使う。
@@ -174,6 +179,7 @@ private:
     UniquePtr<IRhiTexture>  _ibl_irradiance_fb;     // 1x1x6 R11G11B10F cubemap
     UniquePtr<IRhiTexture>  _ibl_prefilter_fb;       // 1x1x6 R11G11B10F cubemap
     UniquePtr<IRhiTexture>  _ibl_brdf_fb;            // 1x1   RG16F 2D
+    UniquePtr<IRhiTexture>  _normal_map_fb;          // 1x1   RGBA8 flat normal
 
     Mat4       _vp;
     Vec3       _eye      = Vec3{0, 0, 0};
@@ -204,6 +210,9 @@ private:
     // Volumetric fog (Phase 33e)
     Vec4         _fog_color_density = Vec4{0, 0, 0, 0};
     Vec4         _fog_height_params = Vec4{0.5f, 0, 0, 0};
+
+    // Normal map (Phase 34g)、SetNormalMap で差し替え可能
+    IRhiTexture* _normal_map = nullptr;
 
     // 拡張 material (Phase 33a)、SetObject で reset、SetExtParams で上書き
     Vec4         _ext_params     = Vec4{0, 0.5f, 0, 0};
