@@ -44,6 +44,20 @@
 
 using namespace acs;
 
+namespace {
+// Halton(i, b) ∈ [0, 1): low-discrepancy 1D sequence used as TAA sub-pixel jitter.
+// 2 つの異なる base (典型的に 2, 3) で xy ペアを作る (Halton(2,3) sequence)。
+constexpr f32 Halton(u32 i, u32 b) noexcept {
+    f32 f = 1.0f, r = 0.0f;
+    while (i > 0) {
+        f /= static_cast<f32>(b);
+        r += f * static_cast<f32>(i % b);
+        i /= b;
+    }
+    return r;
+}
+} // namespace
+
 class HelloIbl : public Application {
 public:
     void OnStart() noexcept override {
@@ -140,6 +154,7 @@ public:
         if (Input::IsKeyPressed(Key::H)) _use_shadows = !_use_shadows;
         if (Input::IsKeyPressed(Key::R)) _show_ssr = !_show_ssr;
         if (Input::IsKeyPressed(Key::O)) _use_ssao = !_use_ssao;
+        if (Input::IsKeyPressed(Key::T)) _use_taa  = !_use_taa;
         // film grain アニメ用に時間累積
         _post_params.grain_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
@@ -185,6 +200,26 @@ public:
         IRhiTexture*     hdr  = _post.HdrRenderTarget();
         IRhiTexture*     depth = GetRenderer().DepthBuffer();
         if (!dev || !cl || !sc || !hdr) return false;
+
+        // TAA Halton(2,3) sub-pixel jitter (Phase 34f): 8 フレーム周期で
+        // sub-pixel ぶん xy をずらした projection を rendering 全体 (skybox,
+        // PbrShader, SSR, SSAO) に渡す。これにより複数フレームの累積でエッジが
+        // 滑らかになる。jitter mat = identity with M[3][0..1] = jx_ndc / jy_ndc。
+        // 注意: shadow pass はライト視点なので jitter しない (caster と影 map が
+        // 同じビューなら遮蔽判定はそのまま正しい)。
+        Mat4 vp_for_render = _camera.ViewProjection();
+        if (_use_taa) {
+            const u32 idx = (_taa_frame_index % 8) + 1;  // +1 で Halton(0)=0 を避ける
+            const f32 jx = Halton(idx, 2) - 0.5f;        // [-0.5, 0.5) sub-pixel
+            const f32 jy = Halton(idx, 3) - 0.5f;
+            const f32 jx_ndc = jx * 2.0f / static_cast<f32>(hdr->Width());
+            const f32 jy_ndc = jy * 2.0f / static_cast<f32>(hdr->Height());
+            Mat4 jmat = Mat4::Identity();
+            jmat.m[3][0] = jx_ndc;
+            jmat.m[3][1] = jy_ndc;
+            vp_for_render = vp_for_render * jmat;
+            _taa_frame_index = (_taa_frame_index + 1u) % 1024u;
+        }
 
         const u32 buf_idx = sc->AcquireNextImage();
         cl->Begin();
@@ -284,7 +319,7 @@ public:
         }
         if (display_cube) {
             _ibl.DrawSkybox(*dev, *cl, *display_cube,
-                            _camera.ViewProjection(), _camera.Eye(),
+                            vp_for_render, _camera.Eye(),
                             _post.HdrFormat(), GetRenderer().DepthFormat(),
                             mip_level);
         }
@@ -312,7 +347,7 @@ public:
             sun.direction = _sky.SunDirection();
             sun.color     = _sky.SunColor() * 0.9f;
         }
-        _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
+        _pbr.SetLights(vp_for_render, _camera.Eye(),
                        &sun, 1, Vec3{0, 0, 0});
         _pbr.SetPointLights(nullptr, 0);
 
@@ -416,10 +451,10 @@ public:
         // 結果は _ssr.OutputTexture() に書かれる。最終 HDR への composite は
         // additive blend pipeline + BeginRenderToTextureNoClear が要るので
         // 次セッションで infrastructure 拡張時に統合する。今は overlay 表示。
-        const Mat4 inv_vp = Inverse(_camera.ViewProjection());
+        const Mat4 inv_vp = Inverse(vp_for_render);
         if (_show_ssr) {
             _ssr.Render(*dev, *cl, *hdr, *depth,
-                        _camera.ViewProjection(),
+                        vp_for_render,
                         inv_vp,
                         _camera.Eye(),
                         /*intensity=*/0.8f);
@@ -439,12 +474,16 @@ public:
         // ことに注意。実用上 60 FPS なら 16ms 遅延で問題なし。
         if (_use_ssao) {
             _ssao.Render(*dev, *cl, *depth,
-                         _camera.ViewProjection(), inv_vp,
+                         vp_for_render, inv_vp,
                          _camera.Eye(),
                          /*intensity=*/1.0f,
                          /*radius=*/0.5f);
             _ssao_warm = true;     // 次フレームから PbrShader が SSAO texture を読める
         }
+
+        // TAA (Phase 34f) を毎フレーム params に反映
+        _post_params.taa_enabled = _use_taa;
+        _post_params.taa_blend_factor = 0.1f;     // current 10% + history 90%
 
         // ===== 2) Bloom + ACES Tonemap → LDR backbuffer (SSR も additive mix) =====
         _post.Render(*cl, *sc, buf_idx, _post_params);
@@ -523,14 +562,15 @@ public:
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "Material: CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s",
+                          "Material: CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s",
                           _use_clearcoat ? "ON" : "OFF",
                           _use_anisotropy ? "ON" : "OFF",
                           _use_area_light ? "ON" : "OFF",
                           _use_probe_grid ? "ON" : "OFF",
                           _use_fog ? "ON" : "OFF",
                           _use_shadows ? "ON" : "OFF",
-                          _use_ssao ? "ON" : "OFF");
+                          _use_ssao ? "ON" : "OFF",
+                          _use_taa ? "ON" : "OFF");
             _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
                               20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
@@ -712,6 +752,8 @@ private:
     bool               _show_ssr         = false;
     bool               _use_ssao         = true;  // Phase 34j-2: PbrShader 側で composite (1-frame latency)
     bool               _ssao_warm        = false; // _ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
+    bool               _use_taa          = true;  // Phase 34f: TAA 有効 ('T' でトグル)
+    u32                _taa_frame_index  = 0;     // Halton(2,3) 用カウンタ
     ShadowMap          _shadow;
     Ssr                _ssr;
     Ssao               _ssao;

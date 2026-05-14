@@ -75,6 +75,16 @@ struct PostProcessParams {
     // CAS Sharpening (Phase 34i、AMD FSR 簡略版)。Color grading 後 / gamma 前に適用。
     // 0 = disable、0.3 = subtle、0.6 = neutral、1.0 = strong。負値は不可。
     f32  cas_strength    = 0.0f;
+
+    // TAA (Phase 34f、Temporal Anti-Aliasing)。Halton jitter を Camera で applied
+    // した上で、history と neighborhood-clamp blend して resolve する。motion
+    // vector は Phase 34f-2 で追加予定 (今は static シーン or 緩いカメラ動き向け)。
+    //   false: 無効、tonemap は直接 HDR RT を読む
+    //   true : Pass_TaaResolve を実行、tonemap は resolved RT を読む
+    bool taa_enabled = false;
+    // history 重み (現フレームに何%取り込むか)。0.1 = 10% current + 90% history が
+    // 標準。値が小さいほどスムージング強い (motion ghost も増える)。
+    f32  taa_blend_factor = 0.1f;
 };
 
 class PostProcess {
@@ -118,6 +128,7 @@ private:
     void Pass_Extract  (IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
     void Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept;
     void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius) noexcept;
+    void Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
     void Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
                         const PostProcessParams& p) noexcept;
 
@@ -146,6 +157,14 @@ private:
 
     // 共通の動的 CB
     UniquePtr<IRhiBuffer>   _cb_post;          // 各パスのパラメータを統一して入れる
+
+    // TAA (Phase 34f): ping-pong history RT + resolve pipeline。
+    // _taa[N%2] が current frame の resolved 出力、_taa[(N+1)%2] が previous frame の
+    // resolved 出力 (= history input)。frame index で role を swap する。
+    UniquePtr<IRhiTexture>  _taa[2];
+    UniquePtr<IRhiShader>   _ps_taa_resolve;
+    UniquePtr<IRhiPipeline> _pipe_taa_resolve;
+    u32                     _taa_frame = 0;
 };
 
 } // namespace acs

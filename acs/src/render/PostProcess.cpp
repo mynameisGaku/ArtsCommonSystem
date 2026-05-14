@@ -101,6 +101,53 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+// TAA resolve (Phase 34f): current HDR + history HDR → blended HDR。
+// neighborhood AABB clamping で motion ghost を抑える (motion vec 無し版)。
+const char* kTaaResolvePS = R"(
+cbuffer Post : register(b0) {
+    float4 params0;
+    float4 params1;       // y=texel_w, z=texel_h
+    float4 params2;
+    float4 params3;
+    float4 cg0;
+    float4 cg_lift;
+    float4 cg_gain;
+    float4 cas_params;
+    float4 taa_params;    // x=blend_factor (current weight)、yz=pad
+};
+Texture2D    current_hdr : register(t0);
+Texture2D    history_hdr : register(t1);
+SamplerState current_hdr_sampler : register(s0);
+SamplerState history_hdr_sampler : register(s1);
+
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+float4 PSMain(VSOut v) : SV_TARGET {
+    float3 cur = current_hdr.SampleLevel(current_hdr_sampler, v.uv, 0).rgb;
+    float3 hist = history_hdr.SampleLevel(history_hdr_sampler, v.uv, 0).rgb;
+
+    // Neighborhood AABB clamp: 3x3 neighborhood の current min/max を取り、
+    // history がその範囲外なら clamp で抑える。motion 時の古い色を排除する。
+    float2 tx = float2(params1.y, params1.z);
+    float3 nmin = cur, nmax = cur;
+    [unroll]
+    for (int dy = -1; dy <= 1; ++dy) {
+        [unroll]
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+            float3 c = current_hdr.SampleLevel(current_hdr_sampler, v.uv + float2(dx, dy) * tx, 0).rgb;
+            nmin = min(nmin, c);
+            nmax = max(nmax, c);
+        }
+    }
+    hist = clamp(hist, nmin, nmax);
+
+    float a = saturate(taa_params.x);
+    if (a < 1e-4) a = 0.1;          // ガード (CB 0 で全 history になるのを避ける)
+    return float4(lerp(hist, cur, a), 1.0);
+}
+)";
+
 // Tonemap + cinematic post-FX: chromatic aberration → HDR mix → tonemap → vignette → grain → gamma
 const char* kTonemapPS = R"(
 cbuffer Post : register(b0) {
@@ -112,6 +159,7 @@ cbuffer Post : register(b0) {
     float4 cg_lift;   // xyz=lift (shadow offset)
     float4 cg_gain;   // xyz=gain (highlight multiplier)
     float4 cas_params;// x=cas_strength (0=disable、Phase 34i)
+    float4 taa_params;// x=blend_factor (Phase 34f、tonemap は読まないが CB レイアウト整合のため)
 };
 Texture2D    hdr   : register(t0);
 Texture2D    bloom : register(t1);
@@ -286,6 +334,7 @@ struct PostCBLayout {
     Vec4 cg_lift;   // xyz=lift
     Vec4 cg_gain;   // xyz=gain
     Vec4 cas_params;// x=cas_strength
+    Vec4 taa_params;// x=blend_factor (Phase 34f TAA)
 };
 
 template<typename T>
@@ -334,16 +383,20 @@ Result<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
 void PostProcess::Shutdown() noexcept {
     _cb_post.Reset();
     _pipe_tonemap.Reset();
+    _pipe_taa_resolve.Reset();
     _pipe_upsample.Reset();
     _pipe_downsample.Reset();
     _pipe_extract.Reset();
     _ps_tonemap.Reset();
+    _ps_taa_resolve.Reset();
     _ps_upsample.Reset();
     _ps_downsample.Reset();
     _ps_extract.Reset();
     _vs_fullscreen.Reset();
+    for (auto& t : _taa) t.Reset();
     for (auto& m : _bloom_mips) m.Reset();
     _hdr_rt.Reset();
+    _taa_frame = 0;
     _device = nullptr;
 }
 
@@ -352,8 +405,10 @@ Result<void> PostProcess::Resize(u32 width, u32 height) noexcept {
     if (width == _width && height == _height) return Ok();
     _hdr_rt.Reset();
     for (auto& m : _bloom_mips) m.Reset();
+    for (auto& t : _taa) t.Reset();
     _width  = width;
     _height = height;
+    _taa_frame = 0;     // reset TAA state on resize (history は size 違いで使えない)
     return CreateRenderTargets(*_device, width, height);
 }
 
@@ -381,6 +436,18 @@ Result<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) 
         auto br = CreateRhiTexture(device, bd);
         if (br.IsErr()) return Err<void>(br.Error());
         _bloom_mips[i] = Move(br.Value());
+    }
+
+    // TAA history ping-pong RT (Phase 34f): HDR と同サイズ + 同フォーマット
+    for (u32 i = 0; i < 2; ++i) {
+        TextureDesc tt{};
+        tt.width  = w;
+        tt.height = h;
+        tt.format = _hdr_format;
+        tt.is_render_target = true;
+        auto tr = CreateRhiTexture(device, tt);
+        if (tr.IsErr()) return Err<void>(tr.Error());
+        _taa[i] = Move(tr.Value());
     }
     return Ok();
 }
@@ -411,10 +478,11 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         out = Move(r.Value());
         return Ok();
     };
-    if (auto r = compile_ps(kExtractPS,    "Bloom.Extract",    _ps_extract);    r.IsErr()) return r;
-    if (auto r = compile_ps(kDownsamplePS, "Bloom.Downsample", _ps_downsample); r.IsErr()) return r;
-    if (auto r = compile_ps(kUpsamplePS,   "Bloom.Upsample",   _ps_upsample);   r.IsErr()) return r;
-    if (auto r = compile_ps(kTonemapPS,    "Tonemap",          _ps_tonemap);    r.IsErr()) return r;
+    if (auto r = compile_ps(kExtractPS,     "Bloom.Extract",    _ps_extract);     r.IsErr()) return r;
+    if (auto r = compile_ps(kDownsamplePS,  "Bloom.Downsample", _ps_downsample);  r.IsErr()) return r;
+    if (auto r = compile_ps(kUpsamplePS,    "Bloom.Upsample",   _ps_upsample);    r.IsErr()) return r;
+    if (auto r = compile_ps(kTaaResolvePS,  "Taa.Resolve",      _ps_taa_resolve); r.IsErr()) return r;
+    if (auto r = compile_ps(kTonemapPS,     "Tonemap",          _ps_tonemap);     r.IsErr()) return r;
 
     // ---- Pipelines ----
     // Extract: HDR → bloom_mips[0]、Opaque blend
@@ -475,6 +543,29 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_upsample = Move(r.Value());
     }
+    // TAA Resolve: current HDR + history HDR → resolved HDR (新 RT)、Opaque
+    {
+        PipelineDesc pd{};
+        FillFullscreenLayout(pd);
+        pd.vs = _vs_fullscreen.Get();
+        pd.ps = _ps_taa_resolve.Get();
+        pd.rt_format = _hdr_format;
+        pd.cbuffer_slots = 1;
+        pd.texture_slots = 2;
+        pd.cbuffer_names[0] = "Post";
+        pd.texture_names[0] = "current_hdr";
+        pd.texture_names[1] = "history_hdr";
+        pd.static_sampler_count = 2;
+        for (u32 i = 0; i < 2; ++i) {
+            pd.static_samplers[i].filter    = SamplerFilter::Linear;
+            pd.static_samplers[i].address_u = SamplerAddress::Clamp;
+            pd.static_samplers[i].address_v = SamplerAddress::Clamp;
+        }
+        auto r = CreateRhiPipeline(device, pd);
+        if (r.IsErr()) return Err<void>(r.Error());
+        _pipe_taa_resolve = Move(r.Value());
+    }
+
     // Tonemap: HDR + bloom + ssr → backbuffer、Opaque
     {
         PipelineDesc pd{};
@@ -506,8 +597,15 @@ void PostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buf
                           const PostProcessParams& params) noexcept {
     if (!_hdr_rt || !_pipe_extract) return;
 
+    // TAA Resolve (Phase 34f): current HDR + previous resolved (history) → new resolved。
+    // 後段で Pass_Tonemap が resolved を読むよう振る舞う (Pass_Tonemap 側で taa_enabled
+    // を見て参照を差し替える)。
+    if (params.taa_enabled) {
+        Pass_TaaResolve(cmd, params);
+    }
+
     if (params.bloom_enabled) {
-        // 1) Extract: HDR → mip[0]
+        // 1) Extract: HDR (もしくは TAA resolved) → mip[0]
         Pass_Extract(cmd, params);
 
         // 2) Downsample: mip[i] → mip[i+1]
@@ -521,8 +619,12 @@ void PostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buf
         }
     }
 
-    // 4) Tonemap: HDR + mip[0] → backbuffer
+    // 4) Tonemap: HDR (or TAA resolved) + mip[0] → backbuffer
     Pass_Tonemap(cmd, swapchain, buffer_index, params);
+
+    if (params.taa_enabled) {
+        _taa_frame++;
+    }
 }
 
 namespace {
@@ -539,6 +641,7 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
     l.cg_lift = Vec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
     l.cg_gain = Vec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
     l.cas_params = Vec4{ p.cas_strength < 0 ? 0.0f : p.cas_strength, 0, 0, 0 };
+    l.taa_params = Vec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor, 0, 0, 0 };
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace
@@ -548,10 +651,17 @@ void PostProcess::Pass_Extract(IRhiCommandList& cmd, const PostProcessParams& p)
     if (!dst || !_hdr_rt) return;
     UpdatePostCB(_cb_post.Get(), p, 1.0f / dst->Width(), 1.0f / dst->Height());
 
+    // TAA 有効時は resolved (_taa[cur]) を読む。そうでなければ raw _hdr_rt。
+    // resolved を読むことで bloom の firefly が temporal stable になり、明滅が消える。
+    IRhiTexture* src = _hdr_rt.Get();
+    if (p.taa_enabled && _taa[_taa_frame % 2]) {
+        src = _taa[_taa_frame % 2].Get();
+    }
+
     cmd.BeginRenderToTexture(*dst, ClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*_pipe_extract);
     cmd.SetConstantBuffer(0, *_cb_post);
-    cmd.SetTexture(0, *_hdr_rt);
+    cmd.SetTexture(0, *src);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*dst);
 }
@@ -588,14 +698,43 @@ void PostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius) no
     cmd.EndRenderToTexture(*dst);
 }
 
+void PostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
+    auto* cur_rt = _taa[_taa_frame % 2].Get();         // 今フレームの書き先
+    auto* hist_rt = _taa[(_taa_frame + 1) % 2].Get();   // 前フレームの resolved
+    if (!cur_rt || !hist_rt || !_hdr_rt) return;
+
+    // Cold-start (frame 0): history RT が未書き込み = Diligent の未定義メモリを
+    // 読む可能性がある。current_hdr を history slot にも bind することで
+    // output = lerp(current, current, a) = current となり、garbage を完全排除。
+    // 翌フレームからは history RT に実 resolved が入っているので通常 path。
+    const bool first_frame = (_taa_frame == 0);
+    IRhiTexture* hist_input = first_frame ? _hdr_rt.Get() : hist_rt;
+
+    UpdatePostCB(_cb_post.Get(), p, 1.0f / cur_rt->Width(), 1.0f / cur_rt->Height());
+
+    cmd.BeginRenderToTexture(*cur_rt, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.SetPipeline(*_pipe_taa_resolve);
+    cmd.SetConstantBuffer(0, *_cb_post);
+    cmd.SetTexture(0, *_hdr_rt);                   // current HDR
+    cmd.SetTexture(1, *hist_input);                // history (or current on frame 0)
+    cmd.Draw(3, 0);
+    cmd.EndRenderToTexture(*cur_rt);
+}
+
 void PostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
                                 const PostProcessParams& p) noexcept {
     UpdatePostCB(_cb_post.Get(), p, 1.0f / sc.Width(), 1.0f / sc.Height());
 
+    // TAA 有効時は _taa[現フレーム index] を、そうでなければ _hdr_rt を tonemap input にする。
+    IRhiTexture* tonemap_src = _hdr_rt.Get();
+    if (p.taa_enabled && _taa[_taa_frame % 2]) {
+        tonemap_src = _taa[_taa_frame % 2].Get();
+    }
+
     cmd.BeginRenderToSwapchain(sc, buf_idx, ClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*_pipe_tonemap);
     cmd.SetConstantBuffer(0, *_cb_post);
-    if (_hdr_rt) cmd.SetTexture(0, *_hdr_rt);
+    if (tonemap_src) cmd.SetTexture(0, *tonemap_src);
     if (_bloom_mips[0]) cmd.SetTexture(1, *_bloom_mips[0]);
     // SSR slot: ユーザー指定があれば本物、なければ 0 寄与の bloom mip[最深] を fallback として使う
     // (SSR shader が `* ssr_intensity` で 0 にして無害化)
