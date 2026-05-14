@@ -48,6 +48,10 @@ cbuffer Frame : register(b0) {
     // Volumetric fog (Phase 33e)
     float4   fog_color_density;       // xyz=fog color, w=density (0=off)
     float4   fog_height_params;       // x=height_falloff, y=fog_height_base, zw=pad
+
+    // Shadow map (Phase 34b、第 0 番目の dir light のみ対応)
+    float4x4 shadow_view_proj;
+    float4   shadow_params;           // x=bias, y=enabled (0/1), z=texel_size, w=filter_radius
 };
 
 cbuffer Object : register(b1) {
@@ -64,11 +68,13 @@ TextureCube  irradiance        : register(t1);
 TextureCube  prefilter         : register(t2);
 Texture2D    brdf_lut          : register(t3);
 Texture2D    normal_map        : register(t4);
+Texture2D    shadow_map        : register(t5);
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
 SamplerState brdf_lut_sampler   : register(s3);
 SamplerState normal_map_sampler : register(s4);
+SamplerState shadow_map_sampler : register(s5);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -109,6 +115,32 @@ float G_Smith(float NdotV, float NdotL, float roughness) {
 float3 F_Schlick(float VdotH, float3 F0) {
     float f = pow(saturate(1.0 - VdotH), 5.0);
     return F0 + (1.0 - F0) * f;
+}
+
+// シャドウマップ係数 (1=完全照明、0=完全遮蔽)。4-tap PCF + bias。
+// StandardShader.cpp の ComputeShadow と同等。single-return で X4000 回避。
+float ComputeShadow(float3 world_p) {
+    float result = 1.0;
+    if (shadow_params.y >= 0.5) {
+        float4 lp = mul(float4(world_p, 1.0), shadow_view_proj);
+        float3 ndc = lp.xyz / lp.w;
+        if (ndc.x >= -1.0 && ndc.x <= 1.0 &&
+            ndc.y >= -1.0 && ndc.y <= 1.0 &&
+            ndc.z >=  0.0 && ndc.z <= 1.0) {
+            float2 uv = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
+            float my_d = ndc.z;
+            float bias = shadow_params.x;
+            float ts = shadow_params.z;
+            // 4-tap PCF (bilinear sample で滑らかなエッジ)
+            float lit = 0;
+            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
+            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
+            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
+            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
+            result = lit * 0.25;
+        }
+    }
+    return result;
 }
 
 // ddx/ddy 由来の screen-space TBN を使って tangent-space normal を world-space に変換。
@@ -374,7 +406,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
         col = ambient.xyz * albedo_rgb * ao;
     }
 
-    // 有向光源
+    // 有向光源 (i==0 のみ shadow_map で遮蔽)
+    float shadow = ComputeShadow(v.world_p);
     int dir_count = (int)ambient.w;
     [unroll]
     for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
@@ -383,7 +416,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float3 base_brdf = BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness,
                                             anisotropy, aniso_T_world);
         ClearcoatTerm cc = EvalClearcoat(N, V, L, clearcoat, coat_roughness);
-        col += light_color[i].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol);
+        float k = (i == 0) ? shadow : 1.0;
+        col += light_color[i].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol) * k;
     }
 
     // 矩形 area light: 4x4 stratified sample で Monte Carlo 積分。
@@ -487,6 +521,8 @@ struct FrameCBLayout {
     Vec4 probe_sh9[4 * 9];
     Vec4 fog_color_density;
     Vec4 fog_height_params;
+    Mat4 shadow_view_proj;
+    Vec4 shadow_params;
 };
 
 struct ObjectCBLayout {
@@ -549,6 +585,17 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
         return Err<void>(r.Error());
     else _white = Move(r.Value());
 
+    // Shadow map fallback: 1x1 RGBA8 全 255 (.r=1.0 = far、shadow_params.y=0 で
+    // shader 側が早期 return するので実際には sample されない。SRB の有効 binding 要件用)。
+    const u8 far_depth[4] = { 255, 255, 255, 255 };
+    TextureDesc sd{};
+    sd.width = 1; sd.height = 1;
+    sd.format = Format::R8G8B8A8_UNorm;
+    sd.initial_data = far_depth; sd.initial_data_size = 4;
+    if (auto r = CreateRhiTexture(device, sd); r.IsErr())
+        return Err<void>(r.Error());
+    else _shadow_fb = Move(r.Value());
+
     // Normal map fallback: 1x1 RGBA8 (128,128,255,0) = tangent (0,0,1) → 無変化
     const u8 flat_nrm[4] = { 128, 128, 255, 0 };
     TextureDesc nt{};
@@ -592,7 +639,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.depth_write   = true;
     pd.cull_mode     = CullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 5;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut, t4=normal_map
+    pd.texture_slots = 6;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut, t4=normal_map, t5=shadow_map
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -600,7 +647,8 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.texture_names[2] = "prefilter";
     pd.texture_names[3] = "brdf_lut";
     pd.texture_names[4] = "normal_map";
-    pd.static_sampler_count = 5;
+    pd.texture_names[5] = "shadow_map";
+    pd.static_sampler_count = 6;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Wrap;
     pd.static_samplers[0].address_v = SamplerAddress::Wrap;
@@ -619,6 +667,9 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.static_samplers[4].filter    = SamplerFilter::Linear;
     pd.static_samplers[4].address_u = SamplerAddress::Wrap;       // normal map は wrap (tileable)
     pd.static_samplers[4].address_v = SamplerAddress::Wrap;
+    pd.static_samplers[5].filter    = SamplerFilter::Linear;
+    pd.static_samplers[5].address_u = SamplerAddress::Clamp;       // shadow map は clamp
+    pd.static_samplers[5].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -639,6 +690,8 @@ void PbrShader::Shutdown() noexcept {
     _pipeline.Reset();
     _object_cb.Reset();
     _frame_cb.Reset();
+    _shadow_fb.Reset();
+    _shadow_depth = nullptr;
     _normal_map_fb.Reset();
     _normal_map = nullptr;
     _ibl_brdf_fb.Reset();
@@ -716,10 +769,24 @@ void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     } else if (_normal_map_fb) {
         cmd.SetTexture(4, *_normal_map_fb);
     }
+    // Shadow map (Phase 34b): slot 5
+    if (_shadow_depth) {
+        cmd.SetTexture(5, *_shadow_depth);
+    } else if (_shadow_fb) {
+        cmd.SetTexture(5, *_shadow_fb);
+    }
 }
 
 void PbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
     _normal_map = tex;
+}
+
+void PbrShader::SetShadowMap(IRhiTexture* depth, const Mat4& light_vp,
+                              f32 bias, f32 texel_size) noexcept {
+    _shadow_depth     = depth;
+    _shadow_view_proj = light_vp;
+    _shadow_params    = Vec4{bias, depth ? 1.0f : 0.0f, texel_size, 0};
+    FlushFrameCB();
 }
 
 void PbrShader::SetLights(const Mat4& vp, Vec3 eye,
@@ -779,6 +846,8 @@ void PbrShader::FlushFrameCB() noexcept {
     for (u32 i = 0; i < 4 * 9; ++i) cb.probe_sh9[i] = _probe_sh9[i];
     cb.fog_color_density = _fog_color_density;
     cb.fog_height_params = _fog_height_params;
+    cb.shadow_view_proj  = _shadow_view_proj;
+    cb.shadow_params     = _shadow_params;
     cb.ibl_params = Vec4{
         _ibl_enabled ? 1.0f : 0.0f,
         static_cast<f32>(_ibl_mips),

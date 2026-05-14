@@ -19,6 +19,7 @@
 #include "render/Ibl.h"
 #include "render/Sky.h"
 #include "render/Atmosphere.h"
+#include "render/ShadowMap.h"
 #include "render/PbrShader.h"
 #include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
@@ -61,6 +62,11 @@ public:
 
         auto sphere = Primitive::MakeSphere(0.55f, 48, 24);
         ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
+        auto plane  = Primitive::MakePlane(40.0f, 40.0f);
+        ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, _gm_plane));
+
+        // ShadowMap (Phase 34b): 2048 pixels
+        ACS_SAMPLE_INIT(_shadow.Init(*dev, 2048));
 
         // SpriteBatch は LDR backbuffer (tonemap 後)
         ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
@@ -113,6 +119,7 @@ public:
         if (Input::IsKeyPressed(Key::L)) _use_area_light = !_use_area_light;
         if (Input::IsKeyPressed(Key::G)) _use_probe_grid = !_use_probe_grid;
         if (Input::IsKeyPressed(Key::F)) _use_fog = !_use_fog;
+        if (Input::IsKeyPressed(Key::H)) _use_shadows = !_use_shadows;
         // film grain アニメ用に時間累積
         _post_params.grain_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
@@ -206,6 +213,34 @@ public:
         if (!_ibl.HasIrradianceMap()) _ibl.EnsureIrradiance(*dev, *cl);
         if (!_ibl.HasPrefilterMap())  _ibl.EnsurePrefilter(*dev, *cl);
 
+        // ===== Shadow pass (Phase 34b、'H' で有効) =====
+        // 球グリッドの中心 (0, 2, 3) 周辺を 8.5 半径でカバーする orthographic 影行列。
+        // 太陽方角は現在の sky preset に従う (Studio HDR は前方上向き)。
+        Vec3 sun_dir;
+        if (_current_preset == 3) sun_dir = Vec3{0.3f, 0.6f, -0.5f};
+        else                       sun_dir = _sky.SunDirection();
+        if (_use_shadows) {
+            _shadow.SetDirectionalLight(sun_dir, Vec3{0, 2.0f, 3.0f}, 8.5f);
+            cl->BeginShadowPass(*_shadow.DepthTexture(), 1.0f);
+            cl->SetPipeline(*_shadow.CasterPipeline());
+            cl->SetConstantBuffer(0, *_shadow.LightCB());
+            // sphere casters
+            constexpr u32 kGridCast = 5;
+            constexpr f32 kSpacingCast = 1.4f;
+            cl->SetVertexBuffer(*_gm_sphere.vertex_buffer, _gm_sphere.vertex_stride);
+            cl->SetIndexBuffer(*_gm_sphere.index_buffer);
+            for (u32 y = 0; y < kGridCast; ++y) {
+                for (u32 x = 0; x < kGridCast; ++x) {
+                    const f32 px = (static_cast<f32>(x) - (kGridCast - 1) * 0.5f) * kSpacingCast;
+                    const f32 py = (static_cast<f32>(y) - (kGridCast - 1) * 0.5f) * kSpacingCast + 1.5f;
+                    _shadow.SetCaster(Mat4::Translation(Vec3{px, py, 3.0f}));
+                    cl->SetConstantBuffer(1, *_shadow.CasterObjectCB());
+                    cl->DrawIndexed(_gm_sphere.index_count);
+                }
+            }
+            cl->EndShadowPass(*_shadow.DepthTexture());
+        }
+
         // ===== 1) HDR RT にシーン描画 =====
         cl->BeginRenderToTexture(*hdr, ClearColor{0, 0, 0, 1}, depth, 1.0f);
 
@@ -260,6 +295,14 @@ public:
         _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
                        &sun, 1, Vec3{0, 0, 0});
         _pbr.SetPointLights(nullptr, 0);
+
+        // Shadow map (Phase 34b)
+        if (_use_shadows) {
+            _pbr.SetShadowMap(_shadow.DepthTexture(), _shadow.LightViewProjection(),
+                              0.002f, 1.0f / static_cast<f32>(_shadow.Size()));
+        } else {
+            _pbr.SetShadowMap(nullptr, Mat4{}, 0, 0);
+        }
         // Volumetric fog (Phase 33e): 灰色 fog、密度 0.12 / 高さ減衰 0.2
         if (_use_fog) {
             _pbr.SetFog(Vec3{0.65f, 0.7f, 0.8f}, 0.12f, 0.2f, 0.0f);
@@ -302,6 +345,13 @@ public:
         } else {
             _pbr.SetAreaLights(nullptr, 0);
         }
+
+        // 地面プレーン (Phase 34b shadow caster ターゲット)。中性灰、roughness 高め
+        // → 影がはっきり写る。clearcoat / anisotropy は無効に上書き。
+        _pbr.SetExtParams(0.0f, 0.08f, 0.0f, Vec3{1, 0, 0});
+        _pbr.DrawMesh(*cl, _gm_plane,
+                      Mat4::Translation(Vec3{0, -0.6f, 3.0f}),
+                      Vec3{0.5f, 0.5f, 0.55f}, 0.0f, 0.85f, 1.0f);
 
         constexpr u32 kGrid = 5;
         constexpr f32 kSpacing = 1.4f;
@@ -380,10 +430,13 @@ public:
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "Material:  Clearcoat=%s  Anisotropic=%s  AreaLight=%s   (C/Z/L)",
+                          "Material: CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s",
                           _use_clearcoat ? "ON" : "OFF",
                           _use_anisotropy ? "ON" : "OFF",
-                          _use_area_light ? "ON" : "OFF");
+                          _use_area_light ? "ON" : "OFF",
+                          _use_probe_grid ? "ON" : "OFF",
+                          _use_fog ? "ON" : "OFF",
+                          _use_shadows ? "ON" : "OFF");
             _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
                               20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
@@ -521,6 +574,8 @@ public:
         if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
         _font.Shutdown();
         _batch.Shutdown();
+        _shadow.Shutdown();
+        _gm_plane = GpuMesh{};
         _gm_sphere = GpuMesh{};
         _pbr.Shutdown();
         _ibl.Shutdown();
@@ -557,6 +612,9 @@ private:
     bool               _use_probe_grid   = false;
     bool               _use_fog          = false;
     bool               _need_atmosphere  = false;
+    bool               _use_shadows      = false;
+    ShadowMap          _shadow;
+    GpuMesh            _gm_plane;
     u32                _display_mode     = 0;
 };
 

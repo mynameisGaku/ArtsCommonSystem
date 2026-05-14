@@ -131,6 +131,12 @@ public:
     void SetFog(Vec3 color, f32 density,
                 f32 height_falloff = 0.5f, f32 height_base = 0.0f) noexcept;
 
+    // Shadow map (Phase 34b、第 0 番目 dir light のみ)。
+    // depth: ShadowMap::DepthTexture()、light_vp: ShadowMap::LightViewProjection()
+    // null で OFF。bias は 0.001..0.01 程度 (acne 回避)。
+    void SetShadowMap(IRhiTexture* depth, const Mat4& light_vp,
+                      f32 bias = 0.002f, f32 texel_size = 1.0f / 2048.0f) noexcept;
+
     // PBR material 設定。base_color は非金属時の albedo、金属時の F0 tint。
     // metallic [0,1], roughness [0,1] は線形 (perceptual ではなく直接 GGX に
     // 渡す)、ao [0,1] は ambient のみに乗算 (direct light には影響しない)。
@@ -213,6 +219,12 @@ private:
 
     // Normal map (Phase 34g)、SetNormalMap で差し替え可能
     IRhiTexture* _normal_map = nullptr;
+
+    // Shadow map (Phase 34b)
+    IRhiTexture* _shadow_depth   = nullptr;
+    Mat4         _shadow_view_proj{};
+    Vec4         _shadow_params  = Vec4{0.002f, 0, 1.0f/2048.0f, 0};
+    UniquePtr<IRhiTexture> _shadow_fb;   // fallback (1x1 depth-ish texture、未バインド時用)
 
     // 拡張 material (Phase 33a)、SetObject で reset、SetExtParams で上書き
     Vec4         _ext_params     = Vec4{0, 0.5f, 0, 0};
