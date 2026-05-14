@@ -59,6 +59,10 @@ cbuffer Frame : register(b0) {
     //   z = 1 / viewport_width
     //   w = 1 / viewport_height
     float4   ssao_params;
+
+    // SSGI (Phase 33c): screen-space indirect light を ambient に加算。
+    //   x = enabled (0/1)、y = intensity (typical 0.5..2.0)、zw = pad
+    float4   ssgi_params;
 };
 
 cbuffer Object : register(b1) {
@@ -77,6 +81,7 @@ Texture2D    brdf_lut          : register(t3);
 Texture2D    normal_map        : register(t4);
 Texture2D    shadow_map        : register(t5);
 Texture2D    ssao_map          : register(t6);
+Texture2D    ssgi_color        : register(t7);
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
@@ -84,6 +89,7 @@ SamplerState brdf_lut_sampler   : register(s3);
 SamplerState normal_map_sampler : register(s4);
 SamplerState shadow_map_sampler : register(s5);
 SamplerState ssao_map_sampler   : register(s6);
+SamplerState ssgi_color_sampler : register(s7);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -472,6 +478,15 @@ float4 PSMain(VSOut v) : SV_TARGET {
         col = ambient.xyz * albedo_rgb * ao * ssao_factor;
     }
 
+    // SSGI (Phase 33c): screen-space 1 bounce indirect light を ambient に加算。
+    // 非金属の albedo に modulate (Lambertian-like)、AO も乗せる (SSGI ray 自身は
+    // hemisphere sampling だが、SSAO の幾何遮蔽でさらに抑える)。
+    if (ssgi_params.x >= 0.5) {
+        float2 screen_uv = v.pos.xy * float2(ssao_params.z, ssao_params.w);
+        float3 gi = ssgi_color.SampleLevel(ssgi_color_sampler, screen_uv, 0).rgb;
+        col += gi * albedo_rgb * (1.0 - metallic) * ssgi_params.y * ssao_factor;
+    }
+
     // 有向光源 (i==0 のみ shadow_map で遮蔽)
     float shadow = ComputeShadow(v.world_p);
     int dir_count = (int)ambient.w;
@@ -590,6 +605,7 @@ struct FrameCBLayout {
     Mat4 shadow_view_proj;
     Vec4 shadow_params;
     Vec4 ssao_params;       // Phase 34j-2: x=enabled, y=intensity, zw=inv_viewport
+    Vec4 ssgi_params;       // Phase 33c: x=enabled, y=intensity, zw=pad
 };
 
 struct ObjectCBLayout {
@@ -684,6 +700,17 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
         return Err<void>(r.Error());
     else _ssao_fb = Move(r.Value());
 
+    // SSGI fallback: 1x1 R11G11B10F、初期値 0 (indirect light なし)。SRB binding 用。
+    // initial_data 経路は R11G11B10F でサポート無いので、blank RT として作る。
+    // ssgi_params.x=0 で shader が早期 return するので内容は未定義のままで OK。
+    TextureDesc gt{};
+    gt.width = 1; gt.height = 1;
+    gt.format = Format::R11G11B10_Float;
+    gt.is_render_target = true;     // RT 兼用にすると SRV が自動で付く
+    if (auto r = CreateRhiTexture(device, gt); r.IsErr())
+        return Err<void>(r.Error());
+    else _ssgi_fb = Move(r.Value());
+
     // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
     // SRB に valid な texture を bind する必要があるので作っておく。内容は
@@ -717,7 +744,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.depth_write   = true;
     pd.cull_mode     = CullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 7;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut, t4=normal_map, t5=shadow_map, t6=ssao_map
+    pd.texture_slots = 8;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut, t4=normal_map, t5=shadow_map, t6=ssao_map, t7=ssgi_color
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -727,7 +754,8 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.texture_names[4] = "normal_map";
     pd.texture_names[5] = "shadow_map";
     pd.texture_names[6] = "ssao_map";
-    pd.static_sampler_count = 7;
+    pd.texture_names[7] = "ssgi_color";
+    pd.static_sampler_count = 8;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Wrap;
     pd.static_samplers[0].address_v = SamplerAddress::Wrap;
@@ -752,6 +780,9 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.static_samplers[6].filter    = SamplerFilter::Linear;       // SSAO は linear で smooth
     pd.static_samplers[6].address_u = SamplerAddress::Clamp;
     pd.static_samplers[6].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[7].filter    = SamplerFilter::Linear;       // SSGI も linear で blur 効果
+    pd.static_samplers[7].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[7].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -778,6 +809,8 @@ void PbrShader::Shutdown() noexcept {
     _normal_map = nullptr;
     _ssao_fb.Reset();
     _ssao_tex = nullptr;
+    _ssgi_fb.Reset();
+    _ssgi_tex = nullptr;
     _ibl_brdf_fb.Reset();
     _ibl_prefilter_fb.Reset();
     _ibl_irradiance_fb.Reset();
@@ -865,6 +898,12 @@ void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     } else if (_ssao_fb) {
         cmd.SetTexture(6, *_ssao_fb);
     }
+    // SSGI color (Phase 33c): slot 7
+    if (_ssgi_tex) {
+        cmd.SetTexture(7, *_ssgi_tex);
+    } else if (_ssgi_fb) {
+        cmd.SetTexture(7, *_ssgi_fb);
+    }
 }
 
 void PbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
@@ -877,6 +916,12 @@ void PbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
     _ssao_intensity = intensity < 0 ? 0.0f : intensity;
     _ssao_inv_w     = (viewport_w > 0) ? (1.0f / static_cast<f32>(viewport_w)) : 0.0f;
     _ssao_inv_h     = (viewport_h > 0) ? (1.0f / static_cast<f32>(viewport_h)) : 0.0f;
+    FlushFrameCB();
+}
+
+void PbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
+    _ssgi_tex       = ssgi_tex;
+    _ssgi_intensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
@@ -958,6 +1003,11 @@ void PbrShader::FlushFrameCB() noexcept {
         _ssao_intensity,
         _ssao_inv_w,
         _ssao_inv_h
+    };
+    cb.ssgi_params = Vec4{
+        _ssgi_tex ? 1.0f : 0.0f,
+        _ssgi_intensity,
+        0, 0
     };
     for (u32 i = 0; i < 9; ++i) cb.sh9[i] = _sh9[i];
     _frame_cb->Update(&cb, sizeof(cb));

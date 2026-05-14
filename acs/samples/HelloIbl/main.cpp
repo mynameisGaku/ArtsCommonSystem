@@ -22,6 +22,7 @@
 #include "render/ShadowMap.h"
 #include "render/Ssr.h"
 #include "render/Ssao.h"
+#include "render/Ssgi.h"
 #include "math/Mat.h"
 #include "render/PbrShader.h"
 #include "render/RenderAssets.h"
@@ -88,6 +89,8 @@ public:
         ACS_SAMPLE_INIT(_ssr.Init(*dev, _post.HdrFormat(), sw, sh));
         // SSAO (Phase 34j): depth から visibility を計算、frame size と同じ解像度
         ACS_SAMPLE_INIT(_ssao.Init(*dev, sw, sh));
+        // SSGI (Phase 33c): scene_color + depth → 1 bounce indirect light
+        ACS_SAMPLE_INIT(_ssgi.Init(*dev, sw, sh));
 
         // SpriteBatch は LDR backbuffer (tonemap 後)
         ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
@@ -155,6 +158,7 @@ public:
         if (Input::IsKeyPressed(Key::R)) _show_ssr = !_show_ssr;
         if (Input::IsKeyPressed(Key::O)) _use_ssao = !_use_ssao;
         if (Input::IsKeyPressed(Key::T)) _use_taa  = !_use_taa;
+        if (Input::IsKeyPressed(Key::J)) _use_ssgi = !_use_ssgi;
         // film grain アニメ用に時間累積
         _post_params.grain_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
@@ -367,6 +371,14 @@ public:
             _pbr.SetSsao(nullptr, 0.0f, 0, 0);
         }
 
+        // SSGI color (Phase 33c)。SSAO と同じ 1-frame latency パターン。
+        // _ssgi_warm で frame 0 の garbage read を回避。intensity 0.6 が typical。
+        if (_use_ssgi && _ssgi_warm) {
+            _pbr.SetSsgi(_ssgi.OutputTexture(), /*intensity=*/0.6f);
+        } else {
+            _pbr.SetSsgi(nullptr, 0.0f);
+        }
+
         // Shadow map (Phase 34b)
         if (_use_shadows) {
             _pbr.SetShadowMap(_shadow.DepthTexture(), _shadow.LightViewProjection(),
@@ -481,6 +493,18 @@ public:
             _ssao_warm = true;     // 次フレームから PbrShader が SSAO texture を読める
         }
 
+        // ===== SSGI pass (Phase 33c、'J' で toggle) =====
+        // scene HDR + depth から indirect bounce を screen-space で推定。
+        // 1-frame latency (SSAO と同じ pattern)。
+        if (_use_ssgi) {
+            _ssgi.Render(*dev, *cl, *hdr, *depth,
+                         vp_for_render, inv_vp,
+                         _camera.Eye(),
+                         /*intensity=*/1.0f,
+                         /*max_distance=*/5.0f);
+            _ssgi_warm = true;
+        }
+
         // TAA (Phase 34f) を毎フレーム params に反映
         _post_params.taa_enabled = _use_taa;
         _post_params.taa_blend_factor = 0.1f;     // current 10% + history 90%
@@ -562,7 +586,7 @@ public:
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "Material: CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s",
+                          "Material: CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s SSGI=%s",
                           _use_clearcoat ? "ON" : "OFF",
                           _use_anisotropy ? "ON" : "OFF",
                           _use_area_light ? "ON" : "OFF",
@@ -570,7 +594,8 @@ public:
                           _use_fog ? "ON" : "OFF",
                           _use_shadows ? "ON" : "OFF",
                           _use_ssao ? "ON" : "OFF",
-                          _use_taa ? "ON" : "OFF");
+                          _use_taa ? "ON" : "OFF",
+                          _use_ssgi ? "ON" : "OFF");
             _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
                               20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
@@ -708,6 +733,7 @@ public:
         if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
         _font.Shutdown();
         _batch.Shutdown();
+        _ssgi.Shutdown();
         _ssao.Shutdown();
         _ssr.Shutdown();
         _shadow.Shutdown();
@@ -754,9 +780,12 @@ private:
     bool               _ssao_warm        = false; // _ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
     bool               _use_taa          = true;  // Phase 34f: TAA 有効 ('T' でトグル)
     u32                _taa_frame_index  = 0;     // Halton(2,3) 用カウンタ
+    bool               _use_ssgi         = true;  // Phase 33c: SSGI 有効 ('J' でトグル)
+    bool               _ssgi_warm        = false; // _ssgi.Render が 1 度以上走った？
     ShadowMap          _shadow;
     Ssr                _ssr;
     Ssao               _ssao;
+    Ssgi               _ssgi;
     GpuMesh            _gm_plane;
     u32                _display_mode     = 0;
 };
