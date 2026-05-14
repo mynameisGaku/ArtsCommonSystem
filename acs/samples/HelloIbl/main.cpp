@@ -103,6 +103,8 @@ public:
             _use_sh9 = !_use_sh9;
             _need_sh9_rebuild = _use_sh9;     // 必要なときに再計算
         }
+        if (Input::IsKeyPressed(Key::C)) _use_clearcoat = !_use_clearcoat;
+        if (Input::IsKeyPressed(Key::Z)) _use_anisotropy = !_use_anisotropy;
         // B キーで bloom on/off (verify HDR clip 防止効果)
         if (Input::IsKeyPressed(Key::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
@@ -218,13 +220,29 @@ public:
         }
         _pbr.SetSh9(_use_sh9 ? _sh9 : nullptr);
 
+        // 太陽の direct light を 1 灯追加 (Studio HDR では中央パネルを sun に見立てる)。
+        // これで clear-coat / anisotropic の direct specular が見える。
+        DirLight sun;
+        if (_current_preset == 3) {
+            sun.direction = Vec3{0, 0.4f, 1.0f};
+            sun.color     = Vec3{0.7f, 0.7f, 0.7f};
+        } else {
+            sun.direction = _sky.SunDirection();
+            sun.color     = _sky.SunColor() * 0.9f;
+        }
         _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
-                       nullptr, 0, Vec3{0, 0, 0});
+                       &sun, 1, Vec3{0, 0, 0});
         _pbr.SetPointLights(nullptr, 0);
 
         constexpr u32 kGrid = 5;
         constexpr f32 kSpacing = 1.4f;
         const Vec3 base_color{0.95f, 0.4f, 0.3f};
+        // material 拡張 (clear-coat / anisotropic) を有効化
+        const f32  cc   = _use_clearcoat  ? 1.0f : 0.0f;
+        const f32  ccr  = 0.08f;                      // 鏡面に近い clear-coat
+        const f32  aniso = _use_anisotropy ? 0.8f : 0.0f;
+        const Vec3 tan_dir{1, 0, 0};                  // 横方向の brushed pattern
+        _pbr.SetExtParams(cc, ccr, aniso, tan_dir);
         for (u32 y = 0; y < kGrid; ++y) {
             for (u32 x = 0; x < kGrid; ++x) {
                 const f32 metallic  = static_cast<f32>(x) / (kGrid - 1);
@@ -291,8 +309,13 @@ public:
                           _use_sh9 ? "SH9 (light probe)" : "Irradiance cube");
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
+            std::snprintf(buf, sizeof(buf),
+                          "Material:  Clearcoat=%s  Anisotropic=%s   (C/Z でトグル)",
+                          _use_clearcoat ? "ON" : "OFF",
+                          _use_anisotropy ? "ON" : "OFF");
+            _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
-                              20, 116, Vec4{0.7f, 0.85f, 1.0f, 1});
+                              20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
             if (lut) {
                 _batch.DrawString(_font, "BRDF LUT",
                                   static_cast<f32>(sw) - 260, 36, Vec4{1, 1, 1, 1});
@@ -457,6 +480,8 @@ private:
     bool               _need_studio_hdr  = false;
     bool               _use_sh9          = false;
     bool               _need_sh9_rebuild = false;
+    bool               _use_clearcoat    = false;
+    bool               _use_anisotropy   = false;
     u32                _display_mode     = 0;
 };
 

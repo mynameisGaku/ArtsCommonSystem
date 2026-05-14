@@ -102,6 +102,15 @@ public:
                    f32  roughness  = 0.5f,
                    f32  ao         = 1.0f) noexcept;
 
+    // 拡張 material (Phase 33a)。次回 SetObject() で reset されるので、
+    // SetObject の直後に呼ぶこと。または SetObjectEx() を使う。
+    //   clearcoat (0..1)     : 透明な top-coat ラッカー強度
+    //   clearcoat_roughness  : top-coat の粗さ (0=mirror, 1=matte)
+    //   anisotropy (-1..1)   : 0=isotropic、±で tangent/bitangent 方向に伸びる
+    //   tangent              : anisotropic 主軸 world direction (anisotropy=0 なら未使用)
+    void SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
+                      f32 anisotropy, Vec3 tangent = Vec3{1, 0, 0}) noexcept;
+
     IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
     IRhiBuffer*   PerFrameCB()  const noexcept { return _frame_cb.Get(); }
     IRhiBuffer*   PerObjectCB() const noexcept { return _object_cb.Get(); }
@@ -151,6 +160,10 @@ private:
     // SH 9 light probe (optional Phase 32c)
     Vec4         _sh9[9]         = {};
     bool         _sh9_enabled    = false;
+
+    // 拡張 material (Phase 33a)、SetObject で reset、SetExtParams で上書き
+    Vec4         _ext_params     = Vec4{0, 0.5f, 0, 0};
+    Vec4         _aniso_tangent  = Vec4{1, 0, 0, 0};
 };
 
 } // namespace acs

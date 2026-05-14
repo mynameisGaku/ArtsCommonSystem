@@ -38,6 +38,9 @@ cbuffer Object : register(b1) {
     float4x4 model;
     float4   base_color;     // xyz=color, w=alpha
     float4   pbr_params;     // x=metallic, y=roughness, z=ao, w=pad
+    float4   ext_params;     // x=clearcoat (0..1)、y=clearcoat_roughness (0..1)
+                             // z=anisotropy (-1..1)、w=enable_flags (bit0=clearcoat, bit1=aniso)
+    float4   aniso_tangent;  // xyz=anisotropic tangent direction (world)、w=pad
 };
 
 Texture2D    albedo          : register(t0);
@@ -97,6 +100,59 @@ float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness) {
     return F0 + (max(r, F0) - F0) * pow(saturate(1.0 - cosTheta), 5.0);
 }
 
+// Anisotropic GGX (Walter / Heitz)。
+// αx, αy は tangent / bitangent 方向別の roughness² (アスペクト比は anisotropy で制御)。
+float D_GGX_Aniso(float NoH, float ToH, float BoH, float ax, float ay) {
+    float t1 = ToH / max(ax, 1e-4);
+    float t2 = BoH / max(ay, 1e-4);
+    float t3 = NoH;
+    float a2 = t1 * t1 + t2 * t2 + t3 * t3;
+    return 1.0 / max(PI * ax * ay * a2 * a2, 1e-7);
+}
+
+// Anisotropic Smith G (Heitz 2014 separable form)
+float G_Smith_Aniso(float NoV, float ToV, float BoV,
+                   float NoL, float ToL, float BoL,
+                   float ax, float ay) {
+    float lambdaV = NoL * sqrt(ax * ax * ToV * ToV + ay * ay * BoV * BoV + NoV * NoV);
+    float lambdaL = NoV * sqrt(ax * ax * ToL * ToL + ay * ay * BoL * BoL + NoL * NoL);
+    return 0.5 / max(lambdaV + lambdaL, 1e-7);
+}
+
+// Clear-coat layer (top-coat lacquer, dielectric IOR ≈ 1.5 → F0 = 0.04)。
+// 戻り値: (1) coat の specular [* NoL]、(2) 入射光が base 層に届く割合 (= 1 - F_coat)
+struct ClearcoatTerm { float3 spec_times_nol; float attenuation; };
+ClearcoatTerm EvalClearcoat(float3 N, float3 V, float3 L,
+                            float clearcoat, float coat_roughness) {
+    ClearcoatTerm o;
+    o.spec_times_nol = float3(0, 0, 0);
+    o.attenuation    = 1.0;
+    if (clearcoat <= 0.0) return o;
+
+    float3 H = normalize(V + L);
+    float NdotL = saturate(dot(N, L));
+    if (NdotL <= 0.0) return o;
+    float NdotV = saturate(dot(N, V));
+    float NdotH = saturate(dot(N, H));
+    float VdotH = saturate(dot(V, H));
+
+    float a  = max(coat_roughness * coat_roughness, 1e-3);
+    float a2 = a * a;
+    float Dc = a2 / max(PI * pow(NdotH * NdotH * (a2 - 1.0) + 1.0, 2.0), 1e-7);
+    // 簡易 Smith G (isotropic、coat 層は metallic 不可なので一般 GGX で十分)
+    float k = (coat_roughness + 1.0); k = k * k * 0.125;
+    float Gv = NdotV / max(NdotV * (1.0 - k) + k, 1e-7);
+    float Gl = NdotL / max(NdotL * (1.0 - k) + k, 1e-7);
+    float Gc = Gv * Gl;
+    float Fc = 0.04 + (1.0 - 0.04) * pow(saturate(1.0 - VdotH), 5.0);
+
+    float spec = (Dc * Gc * Fc) / max(4.0 * NdotV * NdotL, 1e-7);
+    o.spec_times_nol = float3(spec, spec, spec) * NdotL * clearcoat;
+    // base 層への透過: 1 - Fc * clearcoat (energy conservation)
+    o.attenuation = 1.0 - Fc * clearcoat;
+    return o;
+}
+
 // SH 9 reconstruction (Ramamoorthi-Hanrahan 2001、Stupid SH Tricks p.6)
 //   irradiance(N) ≈ c4*L[0] - c5*L[6] + c3*L[6]*z² + c1*L[8]*(x²-y²)
 //                + 2 c1 (L[4]*xy + L[7]*xz + L[5]*yz) + 2 c2 (L[3]*x + L[1]*y + L[2]*z)
@@ -148,9 +204,33 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 base,
     return (diffuse_ibl + specular_ibl) * ao;
 }
 
+// IBL specular for clear-coat layer (split-sum、F0=0.04 固定の dielectric)。
+// 戻り値: (1) coat の IBL specular、(2) base 層への透過率 (= 1 - F_coat)。
+struct IblCoatTerm { float3 spec; float attenuation; };
+IblCoatTerm ComputeIblClearcoat(float3 N, float3 V, float clearcoat, float coat_roughness) {
+    IblCoatTerm o;
+    o.spec = float3(0, 0, 0);
+    o.attenuation = 1.0;
+    if (clearcoat <= 0.0) return o;
+    float NoV = saturate(dot(N, V));
+    float3 R  = reflect(-V, N);
+    float3 F0c = float3(0.04, 0.04, 0.04);
+    float3 Fc  = FresnelSchlickRoughness(NoV, F0c, coat_roughness);
+    float mip_lvl = coat_roughness * max(ibl_params.y - 1.0, 0.0);
+    float3 prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
+    float2 lut_xy = brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, coat_roughness), 0).rg;
+    o.spec = prefilt * (F0c * lut_xy.x + lut_xy.y) * clearcoat;
+    // base 透過: Fresnel * clearcoat 強度ぶんを引く
+    o.attenuation = 1.0 - max(Fc.r, max(Fc.g, Fc.b)) * clearcoat;
+    return o;
+}
+
 // Cook-Torrance BRDF * NdotL (light vector L is from surface to light source).
+// anisotropy ≠ 0 のとき D / G を anisotropic 版に切替える。tangent (T) はオブジェクト
+// から与えられる主軸方向、B (bitangent) は cross(N, T) で生成。
 float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
-                       float3 base, float metallic, float roughness)
+                       float3 base, float metallic, float roughness,
+                       float anisotropy, float3 T_world)
 {
     float3 H = normalize(V + L);
     float NdotL = saturate(dot(N, L));
@@ -159,17 +239,33 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
     float NdotH = saturate(dot(N, H));
     float VdotH = saturate(dot(V, H));
 
-    // 非金属の標準 F0 = 0.04 (sRGB linear)、金属は base_color を tint に。
     float3 F0 = lerp(float3(0.04, 0.04, 0.04), base, metallic);
     float  a  = roughness * roughness;
-    float  a2 = a * a;
-
-    float  D = D_GGX(NdotH, a2);
-    float  G = G_Smith(NdotV, NdotL, roughness);
+    float  D, G;
     float3 F = F_Schlick(VdotH, F0);
 
+    if (abs(anisotropy) > 1e-3) {
+        // anisotropy=-1 で完全に tangent 方向に伸びる、+1 で bitangent 方向に。
+        // ax / ay は a を中心に anisotropy で偏らせる (Filament 流)。
+        float aniso = clamp(anisotropy, -0.99, 0.99);
+        float ax = max(a * (1.0 + aniso), 1e-3);
+        float ay = max(a * (1.0 - aniso), 1e-3);
+        float3 T_unit = normalize(T_world - N * dot(T_world, N));     // Gram-Schmidt
+        float3 B_unit = cross(N, T_unit);
+        float ToH = dot(T_unit, H), BoH = dot(B_unit, H);
+        float ToV = dot(T_unit, V), BoV = dot(B_unit, V);
+        float ToL = dot(T_unit, L), BoL = dot(B_unit, L);
+        D = D_GGX_Aniso(NdotH, ToH, BoH, ax, ay);
+        G = G_Smith_Aniso(NdotV, ToV, BoV, NdotL, ToL, BoL, ax, ay) * 4.0 * NdotV * NdotL;
+        // 注: G_Smith_Aniso は (G / (4 NoV NoL)) 形式 (Heitz 2014) なので、
+        //   spec = D F G_native / (4 NoV NoL) に揃えるため逆スケール
+    } else {
+        D = D_GGX(NdotH, a * a);
+        G = G_Smith(NdotV, NdotL, roughness);
+    }
+
     float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 1e-7);
-    float3 kd = (1.0 - F) * (1.0 - metallic);        // 金属は diffuse 無し
+    float3 kd = (1.0 - F) * (1.0 - metallic);
     float3 diffuse = kd * base / PI;
     return (diffuse + specular) * NdotL;
 }
@@ -182,13 +278,20 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  metallic   = pbr_params.x;
     float  roughness  = max(pbr_params.y, 0.04);     // 0 は数値不安定
     float  ao         = pbr_params.z;
+    // 拡張 material
+    float  clearcoat       = saturate(ext_params.x);
+    float  coat_roughness  = max(ext_params.y, 0.04);
+    float  anisotropy      = ext_params.z;
+    float3 aniso_T_world   = aniso_tangent.xyz;
 
     // 環境光: ibl_params.x が 1 なら IBL ambient、0 なら flat ambient。
     // uniform branching なので片方の TextureCube サンプルは PSO の dead code
     // として削除される (FXC の判断による)。
     float3 col;
     if (ibl_params.x >= 0.5) {
-        col = ComputeIblAmbient(N, V, albedo_rgb, metallic, roughness, ao);
+        float3 base_ibl = ComputeIblAmbient(N, V, albedo_rgb, metallic, roughness, ao);
+        IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness);
+        col = base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao;
     } else {
         col = ambient.xyz * albedo_rgb * ao;
     }
@@ -199,7 +302,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
     for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
         if (i >= dir_count) break;
         float3 L = normalize(light_dir[i].xyz);
-        col += light_color[i].xyz * BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness);
+        float3 base_brdf = BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness,
+                                            anisotropy, aniso_T_world);
+        ClearcoatTerm cc = EvalClearcoat(N, V, L, clearcoat, coat_roughness);
+        col += light_color[i].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol);
     }
 
     // 点光源 (距離減衰)
@@ -214,7 +320,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float3 L = to_light / max(dist, 1e-4);
         float  att = 1.0 - dist / rng;
         att = att * att;
-        col += point_color[j].xyz * BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness) * att;
+        float3 base_brdf = BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness,
+                                            anisotropy, aniso_T_world);
+        ClearcoatTerm cc = EvalClearcoat(N, V, L, clearcoat, coat_roughness);
+        col += point_color[j].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol) * att;
     }
 
     return float4(col, base_color.w);
@@ -240,6 +349,8 @@ struct ObjectCBLayout {
     Mat4 model;
     Vec4 base_color;
     Vec4 pbr_params;        // x=metallic, y=roughness, z=ao, w=pad
+    Vec4 ext_params;        // x=clearcoat, y=coat_roughness, z=anisotropy, w=flags
+    Vec4 aniso_tangent;     // xyz=tangent world, w=pad
 };
 
 template<typename T>
@@ -474,7 +585,18 @@ void PbrShader::SetObject(const Mat4& model, Vec3 base_color,
     cb.model = model;
     cb.base_color = Vec4{base_color.x, base_color.y, base_color.z, 1.0f};
     cb.pbr_params = Vec4{metallic, roughness, ao, 0};
+    cb.ext_params    = _ext_params;
+    cb.aniso_tangent = _aniso_tangent;
     _object_cb->Update(&cb, sizeof(cb));
+}
+
+void PbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
+                             f32 anisotropy, Vec3 tangent) noexcept {
+    _ext_params    = Vec4{clearcoat, clearcoat_roughness, anisotropy, 0};
+    _aniso_tangent = Vec4{tangent.x, tangent.y, tangent.z, 0};
+    // 注: SetObject が CB を flush するので、SetExtParams 単独では反映されない。
+    // SetObject 直後に呼んでも次の SetObject で 上書き されない (member に格納)。
+    // 描画前に SetObject() が再度呼ばれて反映される設計。
 }
 
 void PbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const Mat4& model,
