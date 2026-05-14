@@ -52,27 +52,30 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 V = normalize(eye.xyz - wp);
     if (dot(N, V) < 0.0) N = -N;
 
-    // HBAO-lite: 4 方向 × 4 step、view space で sample
-    const int   kDirs  = 4;
-    const int   kSteps = 4;
+    // HBAO-lite: 6 方向 × 6 step、view space で sample (Phase 34j-3: noise 抑制で品質向上)
+    const int   kDirs  = 6;
+    const int   kSteps = 6;
     const float kRadius = max(params.y, 0.05);
     const float kIntensity = params.x;
 
-    // Per-pixel jitter で banding 抑制 (Interleaved Gradient Noise、Jorge Jimenez)
-    float jitter = frac(52.9829189 * frac(dot(v.pos.xy, float2(0.06711056, 0.00583715))));
+    // Per-pixel jitter で banding 抑制 (Interleaved Gradient Noise、Jorge Jimenez)。
+    // 2 種類用意してそれぞれ direction / step に与え、互いに無相関にしてノイズ模様
+    // を「斑」ではなく「微粒」にする。
+    float jitter1 = frac(52.9829189 * frac(dot(v.pos.xy, float2(0.06711056, 0.00583715))));
+    float jitter2 = frac(31.4159265 * frac(dot(v.pos.xy, float2(0.04711057, 0.01183715))));
 
     float ao_sum = 0.0;
     int   ao_cnt = 0;
     [unroll]
     for (int d = 0; d < kDirs; ++d) {
-        float angle = (float(d) + jitter) * (3.14159 / float(kDirs));
+        float angle = (float(d) + jitter1) * (3.14159 / float(kDirs));
         float2 dir_uv = float2(cos(angle), sin(angle));
         // 半径を screen-space pixel に変換: 大雑把に depth に比例
         // (透視投影で近い物体は radius 大きく、遠い物体は小さく)
         float screen_radius = kRadius * 0.5 / max(depth, 0.01);
         [unroll]
         for (int s = 1; s <= kSteps; ++s) {
-            float t = (float(s) + jitter * 0.5) / float(kSteps);
+            float t = (float(s) + jitter2 * 0.5) / float(kSteps);
             float2 off = dir_uv * screen_radius * t;
             float2 sample_uv = v.uv + off;
             if (sample_uv.x < 0 || sample_uv.x > 1 || sample_uv.y < 0 || sample_uv.y > 1) continue;
