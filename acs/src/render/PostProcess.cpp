@@ -101,11 +101,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// Tonemap: HDR + Bloom を合成して ACES Filmic + sRGB ガンマで LDR 出力
+// Tonemap + cinematic post-FX: chromatic aberration → HDR mix → tonemap → vignette → grain → gamma
 const char* kTonemapPS = R"(
 cbuffer Post : register(b0) {
     float4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
-    float4 params1;   // x=gamma, ...
+    float4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind (0=ACES, 1=AgX, 2=Reinhard ext)
+    float4 params2;   // x=vignette_intensity, y=vignette_radius, z=chromatic_aberration, w=grain_intensity
+    float4 params3;   // x=grain_time, yzw=pad
 };
 Texture2D    hdr : register(t0);
 Texture2D    bloom : register(t1);
@@ -120,13 +122,83 @@ float3 ACESFilm(float3 x) {
     return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
 }
 
+// AgX (Troy Sobotka 2024、Filament の実装に近い形)。
+// ACES より highlight 圧縮が緩く、彩度の暴発が少ない (UE5 デフォルトに近い見え方)。
+float3 AgxLog(float3 x) {
+    return clamp((log2(max(x, 1e-10)) + 12.47393) / (4.026069 + 12.47393), 0.0, 1.0);
+}
+float3 AgxLook(float3 x) {
+    // 6th 次多項式 sigmoid
+    float3 x2 = x * x;
+    float3 x4 = x2 * x2;
+    return + 15.5 * x4 * x2
+           - 40.14 * x4 * x
+           + 31.96 * x4
+           - 6.868 * x2 * x
+           + 0.4298 * x2
+           + 0.1191 * x
+           - 0.00232;
+}
+float3 AgxTonemap(float3 x) {
+    return AgxLook(AgxLog(x));
+}
+
+// Reinhard 拡張 (Lottes/Hable 風)
+float3 ReinhardExt(float3 x, float white2) {
+    return (x * (1.0 + x / white2)) / (1.0 + x);
+}
+
+float3 Tonemap(float3 c, int kind) {
+    if (kind == 1) return AgxTonemap(c);
+    if (kind == 2) return ReinhardExt(c, 16.0);
+    return ACESFilm(c);
+}
+
+// procedural noise (Inigo Quilez 風) — film grain 用、低コスト
+float HashGrain(float2 p, float t) {
+    p = frac(p * float2(123.34, 456.21));
+    p += dot(p, p + 45.32 + t);
+    return frac(p.x * p.y);
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
-    float3 hdr_col   = hdr.Sample(hdr_sampler,     v.uv).rgb * params0.w;  // exposure
-    float3 bloom_col = bloom.Sample(bloom_sampler, v.uv).rgb * params0.y;   // intensity
+    // 1) Chromatic aberration: 中心から放射方向に R/G/B を分けてサンプル
+    float2 center = float2(0.5, 0.5);
+    float2 dir = v.uv - center;
+    float dist_radial = length(dir);
+    float ca = params2.z;
+    float3 hdr_col;
+    if (ca > 1e-5) {
+        float2 ofs = dir * ca;
+        hdr_col.r = hdr.Sample(hdr_sampler, v.uv + ofs).r;
+        hdr_col.g = hdr.Sample(hdr_sampler, v.uv      ).g;
+        hdr_col.b = hdr.Sample(hdr_sampler, v.uv - ofs).b;
+    } else {
+        hdr_col = hdr.Sample(hdr_sampler, v.uv).rgb;
+    }
+    hdr_col *= params0.w;       // exposure
+    float3 bloom_col = bloom.Sample(bloom_sampler, v.uv).rgb * params0.y;
     float3 mixed = hdr_col + bloom_col;
-    float3 mapped = ACESFilm(mixed);
-    // ガンマ
-    mapped = pow(mapped, 1.0 / max(params1.x, 0.0001));
+
+    // 2) Tonemap
+    int kind = (int)params1.w;
+    float3 mapped = Tonemap(mixed, kind);
+
+    // 3) Vignette (radial darkening)
+    float vig_r = max(params2.y, 1e-4);
+    float vig_i = params2.x;
+    float vig = smoothstep(1.0, vig_r, dist_radial * 1.414);     // 1.414 ~= sqrt(2)
+    mapped *= lerp(1.0 - vig_i, 1.0, vig);
+
+    // 4) Film grain (HDR 後、Gamma 前)
+    float g_i = params2.w;
+    if (g_i > 1e-5) {
+        float n = HashGrain(v.uv * 1024.0, params3.x);
+        mapped += (n - 0.5) * g_i;
+    }
+
+    // 5) Gamma
+    mapped = pow(max(mapped, 0.0), 1.0 / max(params1.x, 0.0001));
     return float4(mapped, 1.0);
 }
 )";
@@ -134,7 +206,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
 // 各パスで使う共通の動的 CB レイアウト
 struct PostCBLayout {
     Vec4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
-    Vec4 params1;   // x=gamma, y=texel_w, z=texel_h, w=pad
+    Vec4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind
+    Vec4 params2;   // x=vignette_intensity, y=vignette_radius, z=ca, w=grain
+    Vec4 params3;   // x=grain_time
 };
 
 template<typename T>
@@ -380,7 +454,10 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
     if (!cb) return;
     PostCBLayout l{};
     l.params0 = Vec4{ p.bloom_threshold, p.bloom_intensity, p.bloom_radius, p.exposure };
-    l.params1 = Vec4{ p.gamma, texel_w, texel_h, 0.0f };
+    l.params1 = Vec4{ p.gamma, texel_w, texel_h, static_cast<f32>(p.tonemap_kind) };
+    l.params2 = Vec4{ p.vignette_intensity, p.vignette_radius,
+                      p.chromatic_aberration, p.grain_intensity };
+    l.params3 = Vec4{ p.grain_time, 0, 0, 0 };
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace

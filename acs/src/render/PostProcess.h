@@ -37,6 +37,17 @@ struct PostProcessParams {
     // Tonemap
     f32   exposure         = 1.0f;     // 露出 (1.0 = 中性)
     f32   gamma            = 2.2f;     // 出力ガンマ
+    // 0=ACES Filmic (Narkowicz)、1=AgX (Sobotka)、2=Reinhard 拡張
+    // AgX は彩度を控えめにする tonemap (UE5 デフォルトに近い neutral look)。
+    // 既存サンプル互換のため初期値は ACES。
+    i32   tonemap_kind     = 0;
+
+    // Cinematic post-FX (Phase 34a)
+    f32   vignette_intensity = 0.2f;   // 端の暗化強度 0..1
+    f32   vignette_radius    = 0.5f;   // vignette が始まる半径 (0=中心、1=端)
+    f32   chromatic_aberration = 0.002f; // RGB 半径方向の offset。0 で disable
+    f32   grain_intensity    = 0.015f; // film grain 強度 0..0.1
+    f32   grain_time         = 0.0f;   // procedural noise シード (Application から dt 累積)
 };
 
 class PostProcess {

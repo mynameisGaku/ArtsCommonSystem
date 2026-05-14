@@ -108,6 +108,8 @@ public:
         if (Input::IsKeyPressed(Key::L)) _use_area_light = !_use_area_light;
         if (Input::IsKeyPressed(Key::G)) _use_probe_grid = !_use_probe_grid;
         if (Input::IsKeyPressed(Key::F)) _use_fog = !_use_fog;
+        // film grain アニメ用に時間累積
+        _post_params.grain_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
         if (Input::IsKeyPressed(Key::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
