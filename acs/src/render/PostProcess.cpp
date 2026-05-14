@@ -107,12 +107,14 @@ cbuffer Post : register(b0) {
     float4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
     float4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind (0=ACES, 1=AgX, 2=Reinhard ext)
     float4 params2;   // x=vignette_intensity, y=vignette_radius, z=chromatic_aberration, w=grain_intensity
-    float4 params3;   // x=grain_time, yzw=pad
+    float4 params3;   // x=grain_time, y=ssr_intensity, zw=pad
 };
-Texture2D    hdr : register(t0);
+Texture2D    hdr   : register(t0);
 Texture2D    bloom : register(t1);
+Texture2D    ssr   : register(t2);
 SamplerState hdr_sampler   : register(s0);
 SamplerState bloom_sampler : register(s1);
+SamplerState ssr_sampler   : register(s2);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -178,7 +180,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     }
     hdr_col *= params0.w;       // exposure
     float3 bloom_col = bloom.Sample(bloom_sampler, v.uv).rgb * params0.y;
-    float3 mixed = hdr_col + bloom_col;
+    float3 ssr_col   = ssr.Sample(ssr_sampler, v.uv).rgb * params3.y;
+    float3 mixed = hdr_col + bloom_col + ssr_col;
 
     // 2) Tonemap
     int kind = (int)params1.w;
@@ -406,17 +409,21 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.ps = _ps_tonemap.Get();
         pd.rt_format = _color_format;
         pd.cbuffer_slots = 1;
-        pd.texture_slots = 2;
+        pd.texture_slots = 3;       // t0=hdr, t1=bloom, t2=ssr (Phase 34e)
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "hdr";
         pd.texture_names[1] = "bloom";
-        pd.static_sampler_count = 2;
+        pd.texture_names[2] = "ssr";
+        pd.static_sampler_count = 3;
         pd.static_samplers[0].filter    = SamplerFilter::Linear;
         pd.static_samplers[0].address_u = SamplerAddress::Clamp;
         pd.static_samplers[0].address_v = SamplerAddress::Clamp;
         pd.static_samplers[1].filter    = SamplerFilter::Linear;
         pd.static_samplers[1].address_u = SamplerAddress::Clamp;
         pd.static_samplers[1].address_v = SamplerAddress::Clamp;
+        pd.static_samplers[2].filter    = SamplerFilter::Linear;
+        pd.static_samplers[2].address_u = SamplerAddress::Clamp;
+        pd.static_samplers[2].address_v = SamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_tonemap = Move(r.Value());
@@ -457,7 +464,7 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
     l.params1 = Vec4{ p.gamma, texel_w, texel_h, static_cast<f32>(p.tonemap_kind) };
     l.params2 = Vec4{ p.vignette_intensity, p.vignette_radius,
                       p.chromatic_aberration, p.grain_intensity };
-    l.params3 = Vec4{ p.grain_time, 0, 0, 0 };
+    l.params3 = Vec4{ p.grain_time, p.ssr_intensity, 0, 0 };
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace
@@ -516,6 +523,13 @@ void PostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_
     cmd.SetConstantBuffer(0, *_cb_post);
     if (_hdr_rt) cmd.SetTexture(0, *_hdr_rt);
     if (_bloom_mips[0]) cmd.SetTexture(1, *_bloom_mips[0]);
+    // SSR slot: ユーザー指定があれば本物、なければ 0 寄与の bloom mip[最深] を fallback として使う
+    // (SSR shader が `* ssr_intensity` で 0 にして無害化)
+    if (p.ssr_texture) {
+        cmd.SetTexture(2, *p.ssr_texture);
+    } else if (_bloom_mips[kBloomMips - 1]) {
+        cmd.SetTexture(2, *_bloom_mips[kBloomMips - 1]);  // 1/32 mip、SSR 指定なしなら ssr_intensity=0 で寄与なし
+    }
     cmd.Draw(3, 0);
     cmd.EndRenderToSwapchain(sc, buf_idx);
 }

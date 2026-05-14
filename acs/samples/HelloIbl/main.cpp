@@ -391,9 +391,14 @@ public:
                         Inverse(_camera.ViewProjection()),
                         _camera.Eye(),
                         /*intensity=*/0.8f);
+            _post_params.ssr_texture   = _ssr.OutputTexture();
+            _post_params.ssr_intensity = 1.0f;
+        } else {
+            _post_params.ssr_texture   = nullptr;
+            _post_params.ssr_intensity = 0.0f;
         }
 
-        // ===== 2) Bloom + ACES Tonemap → LDR backbuffer =====
+        // ===== 2) Bloom + ACES Tonemap → LDR backbuffer (SSR も additive mix) =====
         _post.Render(*cl, *sc, buf_idx, _post_params);
 
         // ===== 3) SpriteBatch HUD (LDR backbuffer) =====

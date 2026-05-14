@@ -26,6 +26,8 @@
 
 namespace acs {
 
+class IRhiTexture;
+
 // ポストプロセス効果のパラメータ
 struct PostProcessParams {
     // Bloom
@@ -48,6 +50,11 @@ struct PostProcessParams {
     f32   chromatic_aberration = 0.002f; // RGB 半径方向の offset。0 で disable
     f32   grain_intensity    = 0.015f; // film grain 強度 0..0.1
     f32   grain_time         = 0.0f;   // procedural noise シード (Application から dt 累積)
+
+    // SSR composite (Phase 34e、Ssr.OutputTexture() を直接 tonemap 直前に additive 加算)
+    // null で SSR 無し。Bloom と並んで mix される。intensity は SSR shader 側で適用済 (二重なし)。
+    IRhiTexture* ssr_texture = nullptr;
+    f32          ssr_intensity = 1.0f; // tonemap 側で SSR の最終 mix 強度 (デフォルト 1.0)
 };
 
 class PostProcess {
