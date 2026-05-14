@@ -18,6 +18,7 @@
 
 #include "render/Ibl.h"
 #include "render/Sky.h"
+#include "render/Atmosphere.h"
 #include "render/PbrShader.h"
 #include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
@@ -94,6 +95,10 @@ public:
         if (Input::IsKeyPressed(Key::Num4)) {
             _current_preset = 3;
             _need_studio_hdr = true; _need_sh9_rebuild = _use_sh9;
+        }
+        if (Input::IsKeyPressed(Key::Num5)) {
+            _current_preset = 4;
+            _need_atmosphere = true; _need_sh9_rebuild = _use_sh9;
         }
         if (Input::IsKeyPressed(Key::I)) {
             _display_mode = (_display_mode + 1) % 7;
@@ -174,6 +179,23 @@ public:
                 kEquirectWidth, kEquirectHeight);
             if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: LoadEquirectHdr failed");
             _need_studio_hdr = false;
+        }
+        // Atmosphere preset (Phase 34c): Hillaire 風物理大気を CPU で焼く
+        if (_need_atmosphere) {
+            dev->WaitIdle();
+            AtmosphereParams ap;
+            ap.sun_dir       = Vec3{0.3f, 0.5f, 0.5f};
+            ap.sun_intensity = Vec3{22.0f, 22.0f, 22.0f};
+            ap.ray_steps     = 32;
+            ap.sun_steps     = 8;
+            auto baked = Atmosphere::BakeEquirect(kEquirectWidth, kEquirectHeight, ap);
+            _equirect_rgba = Move(baked);
+            auto r = _ibl.LoadEquirectHdrFromMemory(
+                *dev, *cl,
+                _equirect_rgba.Data(),
+                kEquirectWidth, kEquirectHeight);
+            if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: Atmosphere bake failed");
+            _need_atmosphere = false;
         }
 
         // ===== IBL build (まだ作ってないものだけ。一度作れば cache される) =====
@@ -329,9 +351,10 @@ public:
             const char* preset =
                 (_current_preset == 0) ? "Day" :
                 (_current_preset == 1) ? "Sunset" :
-                (_current_preset == 2) ? "Night" : "Studio HDR";
+                (_current_preset == 2) ? "Night" :
+                (_current_preset == 3) ? "Studio HDR" : "Hillaire Atmosphere";
             std::snprintf(buf, sizeof(buf),
-                          "Env preset: [%s]   (1/2/3 で sky procedural、4 で Studio HDR)", preset);
+                          "Env preset: [%s]   (1/2/3 sky / 4 Studio HDR / 5 Atmosphere)", preset);
             _batch.DrawString(_font, buf, 20, 44, Vec4{0.85f, 0.95f, 1.0f, 1});
 
             const char* view_label = nullptr;
@@ -533,6 +556,7 @@ private:
     bool               _use_area_light   = false;
     bool               _use_probe_grid   = false;
     bool               _use_fog          = false;
+    bool               _need_atmosphere  = false;
     u32                _display_mode     = 0;
 };
 

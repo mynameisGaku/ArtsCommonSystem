@@ -20,6 +20,7 @@ set(_acs_render_sources
     ShadowMap.cpp
     PostProcess.cpp
     Ibl.cpp
+    Atmosphere.cpp
 )
 set(_acs_render_headers
     RhiTypes.h
@@ -43,6 +44,7 @@ set(_acs_render_headers
     ShadowMap.h
     PostProcess.h
     Ibl.h
+    Atmosphere.h
 )
 
 if(ACS_RENDER_DX12_RAW)
