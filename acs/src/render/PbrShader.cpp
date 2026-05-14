@@ -52,6 +52,13 @@ cbuffer Frame : register(b0) {
     // Shadow map (Phase 34b、第 0 番目の dir light のみ対応)
     float4x4 shadow_view_proj;
     float4   shadow_params;           // x=bias, y=enabled (0/1), z=texel_size, w=filter_radius
+
+    // SSAO (Phase 34j-2): screen-space AO テクスチャを ambient/indirect 項に乗算。
+    //   x = enabled (0/1)
+    //   y = intensity (0=neutral, 1=通常、>1=強調)
+    //   z = 1 / viewport_width
+    //   w = 1 / viewport_height
+    float4   ssao_params;
 };
 
 cbuffer Object : register(b1) {
@@ -69,12 +76,14 @@ TextureCube  prefilter         : register(t2);
 Texture2D    brdf_lut          : register(t3);
 Texture2D    normal_map        : register(t4);
 Texture2D    shadow_map        : register(t5);
+Texture2D    ssao_map          : register(t6);
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
 SamplerState brdf_lut_sampler   : register(s3);
 SamplerState normal_map_sampler : register(s4);
 SamplerState shadow_map_sampler : register(s5);
+SamplerState ssao_map_sampler   : register(s6);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -441,6 +450,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  anisotropy      = ext_params.z;
     float3 aniso_T_world   = aniso_tangent.xyz;
 
+    // SSAO modulation factor (Phase 34j-2): screen-space AO テクスチャから visibility を読み、
+    // ambient/indirect 項に掛ける。direct light には影響しない (物理的に AO は indirect 専用)。
+    // ssao_params.x=0 で無効 (factor=1)。ssao_params.zw = 1/viewport_size。
+    float ssao_factor = 1.0;
+    if (ssao_params.x >= 0.5) {
+        float2 screen_uv = v.pos.xy * float2(ssao_params.z, ssao_params.w);
+        float ssao_vis = ssao_map.SampleLevel(ssao_map_sampler, screen_uv, 0).r;
+        ssao_factor = saturate(1.0 - (1.0 - ssao_vis) * ssao_params.y);
+    }
+
     // 環境光: ibl_params.x が 1 なら IBL ambient、0 なら flat ambient。
     // uniform branching なので片方の TextureCube サンプルは PSO の dead code
     // として削除される (FXC の判断による)。
@@ -448,9 +467,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (ibl_params.x >= 0.5) {
         float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao);
         IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness);
-        col = base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao;
+        col = (base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao) * ssao_factor;
     } else {
-        col = ambient.xyz * albedo_rgb * ao;
+        col = ambient.xyz * albedo_rgb * ao * ssao_factor;
     }
 
     // 有向光源 (i==0 のみ shadow_map で遮蔽)
@@ -570,6 +589,7 @@ struct FrameCBLayout {
     Vec4 fog_height_params;
     Mat4 shadow_view_proj;
     Vec4 shadow_params;
+    Vec4 ssao_params;       // Phase 34j-2: x=enabled, y=intensity, zw=inv_viewport
 };
 
 struct ObjectCBLayout {
@@ -653,6 +673,17 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
         return Err<void>(r.Error());
     else _normal_map_fb = Move(r.Value());
 
+    // SSAO fallback: 1x1 全 255 = visibility 1.0 (AO 無し)。ssao_params.x=0 でも
+    // SRB に valid texture を bind する要件のため作成しておく。
+    const u8 full_vis[4] = { 255, 255, 255, 255 };
+    TextureDesc st{};
+    st.width = 1; st.height = 1;
+    st.format = Format::R8G8B8A8_UNorm;
+    st.initial_data = full_vis; st.initial_data_size = 4;
+    if (auto r = CreateRhiTexture(device, st); r.IsErr())
+        return Err<void>(r.Error());
+    else _ssao_fb = Move(r.Value());
+
     // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
     // SRB に valid な texture を bind する必要があるので作っておく。内容は
@@ -686,7 +717,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.depth_write   = true;
     pd.cull_mode     = CullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 6;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut, t4=normal_map, t5=shadow_map
+    pd.texture_slots = 7;     // t0=albedo, t1=irradiance, t2=prefilter, t3=brdf_lut, t4=normal_map, t5=shadow_map, t6=ssao_map
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -695,7 +726,8 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.texture_names[3] = "brdf_lut";
     pd.texture_names[4] = "normal_map";
     pd.texture_names[5] = "shadow_map";
-    pd.static_sampler_count = 6;
+    pd.texture_names[6] = "ssao_map";
+    pd.static_sampler_count = 7;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Wrap;
     pd.static_samplers[0].address_v = SamplerAddress::Wrap;
@@ -717,6 +749,9 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.static_samplers[5].filter    = SamplerFilter::Linear;
     pd.static_samplers[5].address_u = SamplerAddress::Clamp;       // shadow map は clamp
     pd.static_samplers[5].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[6].filter    = SamplerFilter::Linear;       // SSAO は linear で smooth
+    pd.static_samplers[6].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[6].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -741,6 +776,8 @@ void PbrShader::Shutdown() noexcept {
     _shadow_depth = nullptr;
     _normal_map_fb.Reset();
     _normal_map = nullptr;
+    _ssao_fb.Reset();
+    _ssao_tex = nullptr;
     _ibl_brdf_fb.Reset();
     _ibl_prefilter_fb.Reset();
     _ibl_irradiance_fb.Reset();
@@ -822,10 +859,25 @@ void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     } else if (_shadow_fb) {
         cmd.SetTexture(5, *_shadow_fb);
     }
+    // SSAO map (Phase 34j-2): slot 6
+    if (_ssao_tex) {
+        cmd.SetTexture(6, *_ssao_tex);
+    } else if (_ssao_fb) {
+        cmd.SetTexture(6, *_ssao_fb);
+    }
 }
 
 void PbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
     _normal_map = tex;
+}
+
+void PbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
+                        u32 viewport_w, u32 viewport_h) noexcept {
+    _ssao_tex       = ssao_tex;
+    _ssao_intensity = intensity < 0 ? 0.0f : intensity;
+    _ssao_inv_w     = (viewport_w > 0) ? (1.0f / static_cast<f32>(viewport_w)) : 0.0f;
+    _ssao_inv_h     = (viewport_h > 0) ? (1.0f / static_cast<f32>(viewport_h)) : 0.0f;
+    FlushFrameCB();
 }
 
 void PbrShader::SetShadowMap(IRhiTexture* depth, const Mat4& light_vp,
@@ -900,6 +952,12 @@ void PbrShader::FlushFrameCB() noexcept {
         static_cast<f32>(_ibl_mips),
         _sh9_enabled ? 1.0f : 0.0f,
         0
+    };
+    cb.ssao_params = Vec4{
+        (_ssao_tex && _ssao_inv_w > 0 && _ssao_inv_h > 0) ? 1.0f : 0.0f,
+        _ssao_intensity,
+        _ssao_inv_w,
+        _ssao_inv_h
     };
     for (u32 i = 0; i < 9; ++i) cb.sh9[i] = _sh9[i];
     _frame_cb->Update(&cb, sizeof(cb));

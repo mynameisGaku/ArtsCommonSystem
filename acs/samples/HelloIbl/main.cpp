@@ -316,6 +316,22 @@ public:
                        &sun, 1, Vec3{0, 0, 0});
         _pbr.SetPointLights(nullptr, 0);
 
+        // SSAO map (Phase 34j-2、PbrShader 側で indirect 項に乗算)。
+        // 1-frame latency: PbrShader が読むのは前フレーム末で書かれた _ssao の中身。
+        // 60 FPS なら 16ms 遅延でカメラ移動時の追従が遅れる程度、視覚的に許容。
+        //
+        // 注意 (cold-start hazard): _ssao.OutputTexture() を frame 0 で渡すと
+        // Diligent は RT 初期化を保証してないので未定義値を読む可能性がある。
+        // `_ssao_warm` フラグで「1 回でも _ssao.Render が走った」ことを保証してから
+        // bind する。フレーム 0 は PbrShader が _ssao_fb (1x1 白 = visibility 1) に
+        // フォールバックする。
+        if (_use_ssao && _ssao_warm) {
+            _pbr.SetSsao(_ssao.OutputTexture(), /*intensity=*/1.0f,
+                         hdr->Width(), hdr->Height());
+        } else {
+            _pbr.SetSsao(nullptr, 0.0f, 0, 0);
+        }
+
         // Shadow map (Phase 34b)
         if (_use_shadows) {
             _pbr.SetShadowMap(_shadow.DepthTexture(), _shadow.LightViewProjection(),
@@ -416,14 +432,18 @@ public:
 
         // ===== SSAO pass (Phase 34j、'O' で toggle) =====
         // depth から visibility を計算して _ssao.OutputTexture() に書く。
-        // composite (HDR への乗算) は次の Phase で対応する。現状は HUD に overlay
-        // 表示するのみで、シーン色には影響しない。
+        // 注意: この SSAO pass は HDR scene 描画よりあと (depth が完成済の状態)
+        // に走らせる必要があるので、 HDR の EndRenderToTexture と PostProcess
+        // の前の間に置く。今回 (Phase 34j-2) はこの後の PbrShader でも sample
+        // 対象とするが、PbrShader は次のフレームで適用される (1 frame latency)
+        // ことに注意。実用上 60 FPS なら 16ms 遅延で問題なし。
         if (_use_ssao) {
             _ssao.Render(*dev, *cl, *depth,
                          _camera.ViewProjection(), inv_vp,
                          _camera.Eye(),
                          /*intensity=*/1.0f,
                          /*radius=*/0.5f);
+            _ssao_warm = true;     // 次フレームから PbrShader が SSAO texture を読める
         }
 
         // ===== 2) Bloom + ACES Tonemap → LDR backbuffer (SSR も additive mix) =====
@@ -690,7 +710,8 @@ private:
     bool               _need_atmosphere  = false;
     bool               _use_shadows      = false;
     bool               _show_ssr         = false;
-    bool               _use_ssao         = false; // overlay 確認用 (composite は次 Phase)
+    bool               _use_ssao         = true;  // Phase 34j-2: PbrShader 側で composite (1-frame latency)
+    bool               _ssao_warm        = false; // _ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
     ShadowMap          _shadow;
     Ssr                _ssr;
     Ssao               _ssao;

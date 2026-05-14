@@ -106,6 +106,13 @@ public:
     // 頂点 tangent は不要。tileable な RGB8 (DirectX 流: (R,G,B)=tangent×0.5+0.5) 想定。
     void SetNormalMap(IRhiTexture* tex) noexcept;
 
+    // SSAO map (Phase 34j-2)。screen-space AO の visibility テクスチャ。
+    //   ssao_tex: Ssao::OutputTexture() (R8G8B8A8_UNorm、.r=visibility)。null で OFF。
+    //   intensity: 0=neutral (AO 無視)、1=通常、>1=AO 強調
+    //   viewport_w/h: tonemap 前の HDR RT サイズ (pixel)。0/0 で SSAO を強制 OFF。
+    void SetSsao(IRhiTexture* ssao_tex, f32 intensity,
+                 u32 viewport_w, u32 viewport_h) noexcept;
+
     // SH 9 (Ramamoorthi) ambient mode を有効化する (Phase 32c)。
     // `sh9` は ImageBasedLighting::ComputeSh9FromEquirect で得られた 9 RGB 係数。
     // 有効化中は cubemap irradiance ではなく SH 9 から復元した diffuse irradiance を使う。
@@ -225,6 +232,13 @@ private:
 
     // Normal map (Phase 34g)、SetNormalMap で差し替え可能
     IRhiTexture* _normal_map = nullptr;
+
+    // SSAO map (Phase 34j-2)、SetSsao で差し替え可能
+    IRhiTexture* _ssao_tex     = nullptr;
+    f32          _ssao_intensity = 0.0f;
+    f32          _ssao_inv_w   = 0.0f;
+    f32          _ssao_inv_h   = 0.0f;
+    UniquePtr<IRhiTexture> _ssao_fb;     // 1x1 全 255 fallback (visibility=1)
 
     // Shadow map (Phase 34b)
     IRhiTexture* _shadow_depth   = nullptr;
