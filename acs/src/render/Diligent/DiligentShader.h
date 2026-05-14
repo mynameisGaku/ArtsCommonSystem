@@ -34,9 +34,9 @@ public:
     Diligent::IShader* Native() const noexcept { return _shader; }
 
     // HLSL source を parse して取得した register binding。slot は b0/t0/s0
-    // 等の数字。array index は ACS の slot 番号と一致する想定 (上限 8)。
+    // 等の数字。array index は ACS の slot 番号と一致する想定 (上限 16)。
     // 取得できなかった slot は空文字列。
-    static constexpr u32 kMaxSlots    = 8;
+    static constexpr u32 kMaxSlots    = 16;     // Phase 33f-prep: 8→16
     static constexpr u32 kMaxNameLen  = 64;
     const char* CbufferNameAt(u32 slot) const noexcept {
         return slot < kMaxSlots && _cb_names[slot][0] ? _cb_names[slot] : nullptr;

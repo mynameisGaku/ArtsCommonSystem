@@ -58,7 +58,8 @@ struct PipelineDesc {
     // テクスチャ t0..t{texture_slots-1}（SRV、Draw 前に SetTexture で割当）
     u32               texture_slots = 0;
     // サンプラ s0..s{static_sampler_count-1}（パイプラインに焼き込み）
-    SamplerDesc       static_samplers[8]      = {};
+    // 容量 16 (Phase 33f / Lightmap 以降の slot 追加に備えて 8→16 へ拡張)。
+    SamplerDesc       static_samplers[16]     = {};
     u32               static_sampler_count    = 0;
 
     // --- HLSL リソース名（Diligent backend が名前ベースで SRB lookup するために必要） ---
@@ -74,8 +75,8 @@ struct PipelineDesc {
     //
     // Diligent では HLSL サンプラ名は「<texture>_sampler」固定（CombinedSamplerSuffix）。
     // 例: Texture2D albedo;   SamplerState albedo_sampler;
-    const char*       cbuffer_names[8] = {};
-    const char*       texture_names[8] = {};
+    const char*       cbuffer_names[16] = {};
+    const char*       texture_names[16] = {};
 
     // === ラスタライザ / ブレンド ===
     CullMode          cull_mode  = CullMode::None;

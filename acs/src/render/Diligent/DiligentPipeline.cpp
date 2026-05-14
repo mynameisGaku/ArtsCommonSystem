@@ -15,15 +15,21 @@ namespace acs {
 namespace {
 // "cb0".."cb7" / "t0".."t7" の固定文字列（フォールバック名）。
 // PipelineDesc.cbuffer_names / texture_names が省略されたとき使われる。
-const char* const kCbFallback[8] = { "cb0","cb1","cb2","cb3","cb4","cb5","cb6","cb7" };
-const char* const kTexFallback[8] = { "t0","t1","t2","t3","t4","t5","t6","t7" };
+const char* const kCbFallback[16] = {
+    "cb0","cb1","cb2","cb3","cb4","cb5","cb6","cb7",
+    "cb8","cb9","cb10","cb11","cb12","cb13","cb14","cb15"
+};
+const char* const kTexFallback[16] = {
+    "t0","t1","t2","t3","t4","t5","t6","t7",
+    "t8","t9","t10","t11","t12","t13","t14","t15"
+};
 } // namespace
 
 const char* DiligentPipeline::FallbackCbName(u32 slot) noexcept {
-    return slot < 8 ? kCbFallback[slot] : "cb_invalid";
+    return slot < 16 ? kCbFallback[slot] : "cb_invalid";
 }
 const char* DiligentPipeline::FallbackTexName(u32 slot) noexcept {
-    return slot < 8 ? kTexFallback[slot] : "t_invalid";
+    return slot < 16 ? kTexFallback[slot] : "t_invalid";
 }
 
 const char* DiligentPipeline::CbufferName(u32 slot) const noexcept {
@@ -187,7 +193,7 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     psoCI.PSODesc.ResourceLayout.DefaultVariableType =
         Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC;
 
-    constexpr u32 kMaxStaticSamplers = 8;
+    constexpr u32 kMaxStaticSamplers = 16;     // Phase 33f-prep: 8→16
     Diligent::ImmutableSamplerDesc samplers[kMaxStaticSamplers]{};
     u32 ns = desc.static_sampler_count > kMaxStaticSamplers
               ? kMaxStaticSamplers : desc.static_sampler_count;
