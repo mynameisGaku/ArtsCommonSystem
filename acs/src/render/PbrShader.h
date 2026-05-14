@@ -134,8 +134,10 @@ public:
     // Shadow map (Phase 34b、第 0 番目 dir light のみ)。
     // depth: ShadowMap::DepthTexture()、light_vp: ShadowMap::LightViewProjection()
     // null で OFF。bias は 0.001..0.01 程度 (acne 回避)。
+    //   filter_radius (Phase 34b-2): PCSS 強度。0 = hard PCF、1 = 標準、>1 で柔らか
     void SetShadowMap(IRhiTexture* depth, const Mat4& light_vp,
-                      f32 bias = 0.002f, f32 texel_size = 1.0f / 2048.0f) noexcept;
+                      f32 bias = 0.002f, f32 texel_size = 1.0f / 2048.0f,
+                      f32 filter_radius = 1.0f) noexcept;
 
     // PBR material 設定。base_color は非金属時の albedo、金属時の F0 tint。
     // metallic [0,1], roughness [0,1] は線形 (perceptual ではなく直接 GGX に

@@ -117,8 +117,14 @@ float3 F_Schlick(float VdotH, float3 F0) {
     return F0 + (1.0 - F0) * f;
 }
 
-// シャドウマップ係数 (1=完全照明、0=完全遮蔽)。4-tap PCF + bias。
-// StandardShader.cpp の ComputeShadow と同等。single-return で X4000 回避。
+// PCSS (Percentage-Closer Soft Shadow、Fernando 2005)。
+// 1) blocker search: receiver の周囲で実際の occluder の avg depth を求める
+// 2) penumbra width = (receiver - blocker_avg) / blocker_avg * light_size_uv
+// 3) penumbra に応じた radius で PCF (4x4)、receiver が遠いほど影が柔らかく
+// 完全遮蔽 / 完全照明の早期 return で blocker が無い場合の負荷を抑える。
+//
+// 単純な 4-tap PCF にフォールバックしたいときは shadow_params.w に 0 を渡す
+// (filter_radius、デフォルト 1.0 = PCSS、0 = hard 4-tap)
 float ComputeShadow(float3 world_p) {
     float result = 1.0;
     if (shadow_params.y >= 0.5) {
@@ -131,13 +137,54 @@ float ComputeShadow(float3 world_p) {
             float my_d = ndc.z;
             float bias = shadow_params.x;
             float ts = shadow_params.z;
-            // 4-tap PCF (bilinear sample で滑らかなエッジ)
-            float lit = 0;
-            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-            result = lit * 0.25;
+            float kFilter = shadow_params.w;     // 0=hard PCF、>0=PCSS
+
+            // ---- Blocker search (16 tap、半径 = 4 * texel) ----
+            float blocker_sum = 0;
+            int   blocker_cnt = 0;
+            const int kBlockerN = 4;
+            float search_r = ts * 4.0;
+            [unroll]
+            for (int by = -kBlockerN/2; by < kBlockerN/2; ++by) {
+                [unroll]
+                for (int bx = -kBlockerN/2; bx < kBlockerN/2; ++bx) {
+                    float2 off = float2(bx, by) * (search_r * 0.5);
+                    float sd = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
+                    if (sd + bias < my_d) {
+                        blocker_sum += sd;
+                        blocker_cnt += 1;
+                    }
+                }
+            }
+
+            if (blocker_cnt == 0) {
+                // 完全照明: 周囲に occluder がない
+                result = 1.0;
+            } else if (blocker_cnt == kBlockerN * kBlockerN) {
+                // 完全遮蔽: 周囲全て occluder。bias 内に入れなくて影
+                result = 0.0;
+            } else {
+                float blocker_avg = blocker_sum / float(blocker_cnt);
+                // penumbra ≒ (receiver - blocker) * light_size / blocker。
+                // ortho 影なので light_size は固定 (UV 上の太陽径)。
+                float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
+                float filter_r = max(penumbra * 0.01 * kFilter, ts);   // 最低 1 texel
+                // 4x4 PCF (Hammersley-ish stratified) で penumbra-sized blur
+                float lit = 0;
+                const int kPcfN = 4;
+                [unroll]
+                for (int py = 0; py < kPcfN; ++py) {
+                    [unroll]
+                    for (int px = 0; px < kPcfN; ++px) {
+                        float2 jitter = float2((float)px / (kPcfN-1) - 0.5,
+                                              (float)py / (kPcfN-1) - 0.5);
+                        float2 off = jitter * filter_r * 2.0;
+                        float sd = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
+                        lit += (sd + bias >= my_d) ? 1.0 : 0.0;
+                    }
+                }
+                result = lit / float(kPcfN * kPcfN);
+            }
         }
     }
     return result;
@@ -782,10 +829,10 @@ void PbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
 }
 
 void PbrShader::SetShadowMap(IRhiTexture* depth, const Mat4& light_vp,
-                              f32 bias, f32 texel_size) noexcept {
+                              f32 bias, f32 texel_size, f32 filter_radius) noexcept {
     _shadow_depth     = depth;
     _shadow_view_proj = light_vp;
-    _shadow_params    = Vec4{bias, depth ? 1.0f : 0.0f, texel_size, 0};
+    _shadow_params    = Vec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
     FlushFrameCB();
 }
 
