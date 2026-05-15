@@ -501,10 +501,12 @@ public:
         // 対象とするが、PbrShader は次のフレームで適用される (1 frame latency)
         // ことに注意。実用上 60 FPS なら 16ms 遅延で問題なし。
         if (_use_ssao) {
+            // Phase 34j-5: horizon-based occlusion は遮蔽が強めに出るので
+            // intensity を 1.0 → 0.7 に下げてバランスを取る。
             _ssao.Render(*dev, *cl, *depth,
                          vp_for_render, inv_vp,
                          _camera.Eye(),
-                         /*intensity=*/1.0f,
+                         /*intensity=*/0.7f,
                          /*radius=*/0.5f);
             _ssao_warm = true;     // 次フレームから PbrShader が SSAO texture を読める
         }

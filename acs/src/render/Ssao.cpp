@@ -64,8 +64,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float jitter1 = frac(52.9829189 * frac(dot(v.pos.xy, float2(0.06711056, 0.00583715))));
     float jitter2 = frac(31.4159265 * frac(dot(v.pos.xy, float2(0.04711057, 0.01183715))));
 
-    float ao_sum = 0.0;
-    int   ao_cnt = 0;
+    // Phase 34j-5: horizon-based occlusion (HBAO 本来の形)。
+    // 各 slice 方向で「最も遮蔽の強いサンプル (= horizon)」を 1 つ取り、全 slice
+    // で平均する。素朴な「全サンプルの ndot 平均」だと、近接の強い遮蔽が遠方の
+    // 弱いサンプルで薄まってしまうが、slice ごとに max を取ることで contact
+    // shadow がシャープに残る。物理的にも「1 方向で遮蔽されていればその方向の
+    // 光は来ない」= horizon の考え方に沿う。
+    float slice_sum = 0.0;
     [unroll]
     for (int d = 0; d < kDirs; ++d) {
         float angle = (float(d) + jitter1) * (3.14159 / float(kDirs));
@@ -73,6 +78,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
         // 半径を screen-space pixel に変換: 大雑把に depth に比例
         // (透視投影で近い物体は radius 大きく、遠い物体は小さく)
         float screen_radius = kRadius * 0.5 / max(depth, 0.01);
+        float horizon = 0.0;       // この slice の最大遮蔽量
         [unroll]
         for (int s = 1; s <= kSteps; ++s) {
             float t = (float(s) + jitter2 * 0.5) / float(kSteps);
@@ -90,12 +96,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
             float ndot = max(dot(N, dir), 0.0);
             // 距離 falloff (近いほど影響大、kRadius で 0)
             float falloff = 1.0 - smoothstep(kRadius * 0.5, kRadius, dist);
-            ao_sum += ndot * falloff;
-            ao_cnt += 1;
+            horizon = max(horizon, ndot * falloff);    // slice 内は max (= horizon)
         }
+        slice_sum += horizon;
     }
 
-    float ao = (ao_cnt > 0) ? saturate(1.0 - (ao_sum / float(ao_cnt)) * kIntensity) : 1.0;
+    // 全 slice の horizon 平均を遮蔽量とする。horizon-based は sum-average より
+    // 遮蔽が強く出るので、呼び出し側 (HelloIbl) の intensity を下げて調整する。
+    float ao = saturate(1.0 - (slice_sum / float(kDirs)) * kIntensity);
     return float4(ao, ao, ao, 1.0);
 }
 )";
