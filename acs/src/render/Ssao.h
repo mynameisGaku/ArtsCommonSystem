@@ -9,8 +9,9 @@
 // 制限:
 //   - depth-only (G-buffer normal なし)、depth-derivative で screen-space normal を再構成
 //   - 単純な uniform random direction、Halton 等の low-discrepancy 未使用
-//   - blur pass なし (フル解像度で計算、ノイズは少なめ)
-//   - 4 direction × 4 step = 16 sample / pixel、UE5 比だと粗いが educational 用途で十分
+//   - 6 direction × 6 step = 36 sample / pixel (Phase 34j-3)
+//   - Phase 34j-4: depth-aware bilateral blur pass を追加 (raw → blurred)。
+//     OutputTexture() は blur 後を返す。
 #pragma once
 
 #include "foundation/Result.h"
@@ -52,7 +53,10 @@ public:
                 f32 intensity = 1.0f,
                 f32 radius    = 0.5f) noexcept;
 
-    IRhiTexture* OutputTexture() const noexcept { return _output.Get(); }
+    // Phase 34j-4: blur 後の RT を返す (PbrShader / overlay はこちらを読む)。
+    IRhiTexture* OutputTexture() const noexcept { return _blur_output.Get(); }
+    // raw (blur 前) が必要なデバッグ用途向け。
+    IRhiTexture* RawTexture() const noexcept { return _output.Get(); }
 
 private:
     Result<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
@@ -62,10 +66,13 @@ private:
     u32                     _width  = 0;
     u32                     _height = 0;
 
-    UniquePtr<IRhiTexture>  _output;
+    UniquePtr<IRhiTexture>  _output;       // SSAO raw
+    UniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 34j-4)
     UniquePtr<IRhiShader>   _vs;
     UniquePtr<IRhiShader>   _ps;
+    UniquePtr<IRhiShader>   _blur_ps;      // Phase 34j-4 blur PS
     UniquePtr<IRhiPipeline> _pipeline;
+    UniquePtr<IRhiPipeline> _blur_pipeline;// Phase 34j-4
     UniquePtr<IRhiBuffer>   _cb;
 };
 
