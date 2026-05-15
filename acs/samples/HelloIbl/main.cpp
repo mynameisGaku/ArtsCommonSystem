@@ -515,8 +515,14 @@ public:
         // scene HDR + depth から indirect bounce を screen-space で推定。
         // 1-frame latency (SSAO と同じ pattern)。
         if (_use_ssgi) {
+            // Phase 33c-3: temporal accumulation 用に前フレームの jitter なし VP を
+            // 渡す (TAA と共用)。frame 0 は _prev_vp_no_jitter が default identity
+            // なので、現フレームの VP を prev として渡し reprojection を motion 0 に
+            // しておく (TAA と同じ cold-start ガード)。
+            const Mat4& ssgi_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
+                                                          : vp_no_jitter;
             _ssgi.Render(*dev, *cl, *hdr, *depth,
-                         vp_for_render, inv_vp,
+                         vp_for_render, inv_vp, ssgi_prev_vp,
                          _camera.Eye(),
                          /*intensity=*/1.0f,
                          /*max_distance=*/5.0f);

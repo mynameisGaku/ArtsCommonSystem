@@ -15,6 +15,7 @@ cbuffer SsgiCB : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;       // xyz = world pos
     float4   params;    // x=intensity, y=max_distance, z=texel_w, w=texel_h
+    float4x4 prev_view_proj;   // raw pass では未使用、CB レイアウト整合のため宣言
 };
 
 Texture2D    scene_color : register(t0);
@@ -132,6 +133,7 @@ cbuffer SsgiCB : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;
     float4   params;     // z=texel_w, w=texel_h
+    float4x4 prev_view_proj;   // blur pass では未使用、CB レイアウト整合のため宣言
 };
 
 Texture2D    ssgi_raw    : register(t0);
@@ -179,11 +181,86 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+// Phase 33c-3: temporal accumulation。blur 済み SSGI を、前フレームの結果
+// (history) と reprojection + neighborhood clamp して時間積分する。4 ray の
+// ノイズが時間方向にも平均されて大幅に減る。TAA の resolve と同じ構造。
+const char* kSsgiTemporalHLSL = R"(
+#pragma pack_matrix(row_major)
+
+cbuffer SsgiCB : register(b0) {
+    float4x4 view_proj;
+    float4x4 inv_view_proj;
+    float4   eye;
+    float4   params;          // z=texel_w, w=texel_h
+    float4x4 prev_view_proj;   // Phase 33c-3: reprojection 用
+};
+
+Texture2D    current_gi  : register(t0);   // blur 済み SSGI (今フレーム)
+Texture2D    history_gi  : register(t1);   // 前フレームの temporal 結果
+Texture2D    scene_depth : register(t2);
+SamplerState current_gi_sampler  : register(s0);
+SamplerState history_gi_sampler  : register(s1);
+SamplerState scene_depth_sampler : register(s2);
+
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o;
+    o.uv  = uv;
+    o.pos = float4(uv * 2.0 - 1.0, 0.0, 1.0);
+    o.pos.y = -o.pos.y;
+    return o;
+}
+
+// camera motion 由来の history reproject (TAA ComputeMotionUv と同形)
+float2 ReprojectUv(float2 uv) {
+    float depth = scene_depth.SampleLevel(scene_depth_sampler, uv, 0).r;
+    if (depth >= 0.9999) return uv;
+    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+    clip.y = -clip.y;
+    float4 wp = mul(clip, inv_view_proj);
+    wp.xyz /= max(wp.w, 1e-6);
+    float4 pc = mul(float4(wp.xyz, 1.0), prev_view_proj);
+    if (pc.w < 1e-4) return uv;
+    float2 pn = pc.xy / pc.w;
+    return float2(pn.x * 0.5 + 0.5, -pn.y * 0.5 + 0.5);
+}
+
+float4 PSMain(VSOut v) : SV_TARGET {
+    float3 cur = current_gi.SampleLevel(current_gi_sampler, v.uv, 0).rgb;
+
+    float2 huv = ReprojectUv(v.uv);
+    if (any(huv < 0.0) || any(huv > 1.0)) huv = v.uv;   // 画面外は静的 fallback
+    float3 hist = history_gi.SampleLevel(history_gi_sampler, huv, 0).rgb;
+
+    // Neighborhood clamp (3x3 of current) で disocclusion ghost を抑える
+    float2 tx = float2(params.z, params.w);
+    float3 nmin = cur, nmax = cur;
+    [unroll]
+    for (int dy = -1; dy <= 1; ++dy) {
+        [unroll]
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+            float3 c = current_gi.SampleLevel(current_gi_sampler,
+                                              v.uv + float2(dx, dy) * tx, 0).rgb;
+            nmin = min(nmin, c);
+            nmax = max(nmax, c);
+        }
+    }
+    hist = clamp(hist, nmin, nmax);
+
+    // exponential moving average (current 12%)
+    return float4(lerp(hist, cur, 0.12), 1.0);
+}
+)";
+
 struct SsgiCBLayout {
     Mat4 view_proj;
     Mat4 inv_view_proj;
     Vec4 eye;
     Vec4 params;
+    Mat4 prev_view_proj;       // Phase 33c-3
 };
 
 template<typename T>
@@ -228,6 +305,14 @@ Result<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
     auto br = CreateRhiTexture(device, td);
     if (br.IsErr()) return Err<void>(br.Error());
     _blur_output = Move(br.Value());
+
+    // Phase 33c-3: temporal accumulation の history ping-pong
+    for (u32 i = 0; i < 2; ++i) {
+        _history[i].Reset();
+        auto hr = CreateRhiTexture(device, td);
+        if (hr.IsErr()) return Err<void>(hr.Error());
+        _history[i] = Move(hr.Value());
+    }
     return Ok();
 }
 
@@ -311,18 +396,61 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     bpd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, bpd); r.IsErr()) return Err<void>(r.Error());
     else _blur_pipeline = Move(r.Value());
+
+    // Phase 33c-3: temporal pipeline (current_gi + history_gi + scene_depth → history)
+    ShaderDesc tps_d{};
+    tps_d.stage = ShaderStage::Pixel;
+    tps_d.hlsl_source = kSsgiTemporalHLSL;
+    tps_d.entry_point = "PSMain";
+    tps_d.debug_name  = "SsgiTemporal.PS";
+    if (auto r = CreateRhiShader(device, tps_d); r.IsErr()) return Err<void>(r.Error());
+    else _temporal_ps = Move(r.Value());
+
+    PipelineDesc tpd{};
+    tpd.vs            = _vs.Get();
+    tpd.ps            = _temporal_ps.Get();
+    tpd.topology      = PrimitiveTopology::TriangleList;
+    tpd.rt_format     = Format::R11G11B10_Float;
+    tpd.depth_format  = Format::Unknown;
+    tpd.depth_test    = false;
+    tpd.depth_write   = false;
+    tpd.cull_mode     = CullMode::None;
+    tpd.blend_mode    = BlendMode::Opaque;
+    tpd.cbuffer_slots = 1;
+    tpd.texture_slots = 3;
+    tpd.cbuffer_names[0] = "SsgiCB";
+    tpd.texture_names[0] = "current_gi";
+    tpd.texture_names[1] = "history_gi";
+    tpd.texture_names[2] = "scene_depth";
+    tpd.static_sampler_count = 3;
+    for (u32 i = 0; i < 2; ++i) {
+        tpd.static_samplers[i].filter    = SamplerFilter::Linear;
+        tpd.static_samplers[i].address_u = SamplerAddress::Clamp;
+        tpd.static_samplers[i].address_v = SamplerAddress::Clamp;
+    }
+    tpd.static_samplers[2].filter    = SamplerFilter::Point;
+    tpd.static_samplers[2].address_u = SamplerAddress::Clamp;
+    tpd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    tpd.vertex_stride = 0;
+    tpd.layout_count  = 0;
+    if (auto r = CreateRhiPipeline(device, tpd); r.IsErr()) return Err<void>(r.Error());
+    else _temporal_pipeline = Move(r.Value());
     return Ok();
 }
 
 void Ssgi::Shutdown() noexcept {
+    _temporal_pipeline.Reset();
     _blur_pipeline.Reset();
     _pipeline.Reset();
     _cb.Reset();
+    _temporal_ps.Reset();
     _blur_ps.Reset();
     _ps.Reset();
     _vs.Reset();
+    for (auto& h : _history) h.Reset();
     _blur_output.Reset();
     _output.Reset();
+    _temporal_frame = 0;
     _device = nullptr;
 }
 
@@ -331,6 +459,7 @@ Result<void> Ssgi::Resize(u32 width, u32 height) noexcept {
     if (width == _width && height == _height) return Ok();
     _width  = width;
     _height = height;
+    _temporal_frame = 0;     // history は size 違いで使えないので reset
     return CreateOutputRT(*_device, width, height);
 }
 
@@ -338,15 +467,18 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color,
                   IRhiTexture& scene_depth,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
+                  const Mat4& prev_view_proj,
                   Vec3 eye, f32 intensity, f32 max_distance) noexcept {
-    if (!_output || !_blur_output || !_pipeline || !_blur_pipeline || !_cb) return;
+    if (!_output || !_blur_output || !_history[0] || !_history[1] ||
+        !_pipeline || !_blur_pipeline || !_temporal_pipeline || !_cb) return;
     SsgiCBLayout data{};
-    data.view_proj     = view_proj;
-    data.inv_view_proj = inv_view_proj;
-    data.eye           = Vec4{eye.x, eye.y, eye.z, 1};
-    data.params        = Vec4{intensity, max_distance,
-                              1.0f / static_cast<f32>(_width),
-                              1.0f / static_cast<f32>(_height)};
+    data.view_proj      = view_proj;
+    data.inv_view_proj  = inv_view_proj;
+    data.eye            = Vec4{eye.x, eye.y, eye.z, 1};
+    data.params         = Vec4{intensity, max_distance,
+                               1.0f / static_cast<f32>(_width),
+                               1.0f / static_cast<f32>(_height)};
+    data.prev_view_proj = prev_view_proj;
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: SSGI raw → _output
@@ -366,6 +498,25 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetTexture(1, scene_depth);
     cl.Draw(3);
     cl.EndRenderToTexture(*_blur_output);
+
+    // Pass 3 (Phase 33c-3): temporal accumulation → _history[cur]
+    const u32 cur  = _temporal_frame & 1u;
+    const u32 prev = cur ^ 1u;
+    // Cold-start: frame 0 は history が未初期化なので blur 結果を history slot に
+    // bind する (lerp(blur, blur, a) = blur で garbage 排除)。翌フレーム以降は
+    // 実 history を使う。
+    IRhiTexture* hist_in = (_temporal_frame == 0u) ? _blur_output.Get()
+                                                   : _history[prev].Get();
+    cl.BeginRenderToTexture(*_history[cur], ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    cl.SetPipeline(*_temporal_pipeline);
+    cl.SetConstantBuffer(0, *_cb);
+    cl.SetTexture(0, *_blur_output);   // current (blur 済み)
+    cl.SetTexture(1, *hist_in);        // history (or blur on frame 0)
+    cl.SetTexture(2, scene_depth);
+    cl.Draw(3);
+    cl.EndRenderToTexture(*_history[cur]);
+
+    ++_temporal_frame;
 }
 
 } // namespace acs

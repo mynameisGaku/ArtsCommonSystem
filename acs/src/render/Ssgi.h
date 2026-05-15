@@ -40,9 +40,11 @@ public:
     void Shutdown() noexcept;
     Result<void> Resize(u32 width, u32 height) noexcept;
 
-    // SSGI を 1 pass で計算して内部 RT に書く。
+    // SSGI を計算して内部 RT に書く (raw → blur → temporal の 3 pass)。
     //   scene_color: 現在フレームの HDR scene RT
     //   scene_depth: shader-visible depth (SSR/SSAO と同じ)
+    //   prev_view_proj: 前フレームの view_proj (Phase 33c-3 temporal reproject 用)。
+    //                   identity を渡すと reprojection 無効 (= 静的 accumulate)。
     //   intensity:   indirect light の倍率 (0=無効、1=neutral、>1=強調)
     //   max_distance: ray march の世界距離上限 (世界座標、典型 5.0)
     void Render(IRhiDevice& device, IRhiCommandList& cl,
@@ -50,13 +52,16 @@ public:
                 IRhiTexture& scene_depth,
                 const Mat4& view_proj,
                 const Mat4& inv_view_proj,
+                const Mat4& prev_view_proj,
                 Vec3 eye,
                 f32 intensity   = 1.0f,
                 f32 max_distance = 5.0f) noexcept;
 
-    // Phase 33c-2: blur 後の RT を返す。raw は 4 ray のみで強ノイズなので
-    // PbrShader は blur 済みを読む。
-    IRhiTexture* OutputTexture() const noexcept { return _blur_output.Get(); }
+    // Phase 33c-3: temporal accumulation 後の history RT を返す (= 直近の Render
+    // が書き込んだ index)。PbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
+    IRhiTexture* OutputTexture() const noexcept {
+        return _history[_temporal_frame == 0u ? 0u : ((_temporal_frame - 1u) & 1u)].Get();
+    }
     IRhiTexture* RawTexture()    const noexcept { return _output.Get(); }
 
 private:
@@ -69,12 +74,16 @@ private:
 
     UniquePtr<IRhiTexture>  _output;       // SSGI raw
     UniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 33c-2)
+    UniquePtr<IRhiTexture>  _history[2];   // temporal accumulation ping-pong (Phase 33c-3)
     UniquePtr<IRhiShader>   _vs;
     UniquePtr<IRhiShader>   _ps;
     UniquePtr<IRhiShader>   _blur_ps;      // Phase 33c-2
+    UniquePtr<IRhiShader>   _temporal_ps;  // Phase 33c-3
     UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiPipeline> _blur_pipeline;// Phase 33c-2
+    UniquePtr<IRhiPipeline> _blur_pipeline;    // Phase 33c-2
+    UniquePtr<IRhiPipeline> _temporal_pipeline;// Phase 33c-3
     UniquePtr<IRhiBuffer>   _cb;
+    u32                     _temporal_frame = 0;
 };
 
 } // namespace acs
