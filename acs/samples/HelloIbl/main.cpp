@@ -109,7 +109,11 @@ public:
         // Bloom 強度はデフォルトより少し弱めに (Day sky は十分明るいので)
         _post_params.bloom_threshold = 1.5f;
         _post_params.bloom_intensity = 0.4f;
-        _post_params.exposure        = 1.0f;
+        // Phase 34k: 初期 preset は Day。露出目標 0.7、adapted も同値で初期化
+        // (起動時に 1.0→0.7 へ慣れる演出は不要なので合わせておく)。
+        _exposure_target   = 0.7f;
+        _adapted_exposure  = 0.7f;
+        _post_params.exposure = 0.7f;
 
         // Color grading (Phase 34h) cinematic look: 軽い暖色 + 彩度ブースト + コントラスト
         _post_params.cg_saturation   = 1.10f;
@@ -126,26 +130,33 @@ public:
     void OnUpdate(f32 dt) noexcept override {
         if (Input::IsKeyPressed(Key::Escape)) Quit();
 
-        // 1/2/3/4 で env 切替。SH9 mode が有効中は SH 9 係数も再計算が必要
+        // 1/2/3/4 で env 切替。SH9 mode が有効中は SH 9 係数も再計算が必要。
+        // Phase 34k: preset ごとに露出目標を変える → _adapted_exposure がじわっと
+        // 追従して eye adaptation (目が明暗に慣れる) 演出になる。
         if (Input::IsKeyPressed(Key::Num1)) {
             _sky.PresetDay();    _current_preset = 0;
             _need_recapture = true; _need_sh9_rebuild = _use_sh9;
+            _exposure_target = 0.7f;     // Day: 明るいので露出を絞る
         }
         if (Input::IsKeyPressed(Key::Num2)) {
             _sky.PresetSunset(); _current_preset = 1;
             _need_recapture = true; _need_sh9_rebuild = _use_sh9;
+            _exposure_target = 1.0f;
         }
         if (Input::IsKeyPressed(Key::Num3)) {
             _sky.PresetNight();  _current_preset = 2;
             _need_recapture = true; _need_sh9_rebuild = _use_sh9;
+            _exposure_target = 1.8f;     // Night: 暗いので露出を上げる
         }
         if (Input::IsKeyPressed(Key::Num4)) {
             _current_preset = 3;
             _need_studio_hdr = true; _need_sh9_rebuild = _use_sh9;
+            _exposure_target = 1.0f;
         }
         if (Input::IsKeyPressed(Key::Num5)) {
             _current_preset = 4;
             _need_atmosphere = true; _need_sh9_rebuild = _use_sh9;
+            _exposure_target = 0.85f;
         }
         if (Input::IsKeyPressed(Key::I)) {
             _display_mode = (_display_mode + 1) % 7;
@@ -172,11 +183,21 @@ public:
         if (Input::IsKeyPressed(Key::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
         }
-        // E/Q で露出 ±
-        if (Input::IsKeyDown(Key::E)) _post_params.exposure += dt * 0.5f;
-        if (Input::IsKeyDown(Key::Q)) _post_params.exposure -= dt * 0.5f;
-        if (_post_params.exposure < 0.1f) _post_params.exposure = 0.1f;
-        if (_post_params.exposure > 4.0f) _post_params.exposure = 4.0f;
+        // E/Q で露出 ± (Phase 34k: 露出「目標」を動かす。実露出 _adapted_exposure は
+        // 後段でこの目標へ dt 補間して追従する → 手動調整でも eye adaptation 質感)
+        if (Input::IsKeyDown(Key::E)) _exposure_target += dt * 0.5f;
+        if (Input::IsKeyDown(Key::Q)) _exposure_target -= dt * 0.5f;
+        if (_exposure_target < 0.1f) _exposure_target = 0.1f;
+        if (_exposure_target > 4.0f) _exposure_target = 4.0f;
+
+        // Phase 34k: eye adaptation — adapted を target へスムーズ補間。
+        // adapt_rate を大きくすると速く慣れる。2.5 で ~0.4 秒程度。
+        {
+            f32 k = dt * 2.5f;
+            if (k > 1.0f) k = 1.0f;
+            _adapted_exposure += (_exposure_target - _adapted_exposure) * k;
+            _post_params.exposure = _adapted_exposure;
+        }
 
         // 視点を矢印 (回転) + WASD (移動) で操作
         const f32 mv = 4.0f * dt, tr = 1.5f * dt;
@@ -895,6 +916,8 @@ private:
     u32                _taa_frame_index  = 0;     // Halton(2,3) 用カウンタ
     Mat4               _prev_vp_no_jitter{};      // Phase 34f-2: 前フレームの jitter なし VP
     bool               _taa_prev_vp_valid = false;// 上が本物の VP (default identity 以外) か
+    f32                _exposure_target  = 0.7f;  // Phase 34k: 露出目標 (preset / Q-E で動く)
+    f32                _adapted_exposure = 0.7f;  // Phase 34k: 実露出 (target へ dt 補間)
     bool               _use_ssgi         = true;  // Phase 33c: SSGI 有効 ('J' でトグル)
     bool               _ssgi_warm        = false; // _ssgi.Render が 1 度以上走った？
     bool               _use_lightmap     = true;  // Phase 33f: lightmap 有効 ('K' でトグル)
