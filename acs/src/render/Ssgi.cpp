@@ -122,6 +122,63 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+// Phase 33c-2: depth-aware bilateral blur (RGB)。SSGI raw は 4 ray のみで
+// 強ノイズなので、depth 不連続を跨がない 5x5 blur で平滑化する。
+const char* kSsgiBlurHLSL = R"(
+#pragma pack_matrix(row_major)
+
+cbuffer SsgiCB : register(b0) {
+    float4x4 view_proj;
+    float4x4 inv_view_proj;
+    float4   eye;
+    float4   params;     // z=texel_w, w=texel_h
+};
+
+Texture2D    ssgi_raw    : register(t0);
+Texture2D    scene_depth : register(t1);
+SamplerState ssgi_raw_sampler    : register(s0);
+SamplerState scene_depth_sampler : register(s1);
+
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o;
+    o.uv  = uv;
+    o.pos = float4(uv * 2.0 - 1.0, 0.0, 1.0);
+    o.pos.y = -o.pos.y;
+    return o;
+}
+
+float4 PSMain(VSOut v) : SV_TARGET {
+    float2 tx = float2(params.z, params.w);
+    float center_d = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).r;
+
+    float3 sum = float3(0, 0, 0);
+    float  wsum = 0.0;
+    const int kR = 2;
+    [unroll]
+    for (int dy = -kR; dy <= kR; ++dy) {
+        [unroll]
+        for (int dx = -kR; dx <= kR; ++dx) {
+            float2 uv = v.uv + float2(dx, dy) * tx;
+            float3 gi = ssgi_raw.SampleLevel(ssgi_raw_sampler, uv, 0).rgb;
+            float  d  = scene_depth.SampleLevel(scene_depth_sampler, uv, 0).r;
+            float sw = exp(-float(dx*dx + dy*dy) / 8.0);
+            float dd = d - center_d;
+            float dw = exp(-dd * dd * 25000.0);
+            float w  = sw * dw;
+            sum  += gi * w;
+            wsum += w;
+        }
+    }
+    float3 result = (wsum > 1e-5)
+                    ? sum / wsum
+                    : ssgi_raw.SampleLevel(ssgi_raw_sampler, v.uv, 0).rgb;
+    return float4(result, 1.0);
+}
+)";
+
 struct SsgiCBLayout {
     Mat4 view_proj;
     Mat4 inv_view_proj;
@@ -156,6 +213,7 @@ Result<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
 
 Result<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
+    _blur_output.Reset();
     TextureDesc td{};
     td.width  = width;
     td.height = height;
@@ -165,6 +223,11 @@ Result<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
     auto r = CreateRhiTexture(device, td);
     if (r.IsErr()) return Err<void>(r.Error());
     _output = Move(r.Value());
+
+    // Phase 33c-2: blur 後の RT
+    auto br = CreateRhiTexture(device, td);
+    if (br.IsErr()) return Err<void>(br.Error());
+    _blur_output = Move(br.Value());
     return Ok();
 }
 
@@ -211,14 +274,54 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
     else _pipeline = Move(r.Value());
+
+    // Phase 33c-2: blur pipeline (ssgi_raw + scene_depth → blurred)。
+    // VS は本体と同じ fullscreen-triangle なので _vs を再利用。
+    ShaderDesc bps_d{};
+    bps_d.stage = ShaderStage::Pixel;
+    bps_d.hlsl_source = kSsgiBlurHLSL;
+    bps_d.entry_point = "PSMain";
+    bps_d.debug_name  = "SsgiBlur.PS";
+    if (auto r = CreateRhiShader(device, bps_d); r.IsErr()) return Err<void>(r.Error());
+    else _blur_ps = Move(r.Value());
+
+    PipelineDesc bpd{};
+    bpd.vs            = _vs.Get();
+    bpd.ps            = _blur_ps.Get();
+    bpd.topology      = PrimitiveTopology::TriangleList;
+    bpd.rt_format     = Format::R11G11B10_Float;
+    bpd.depth_format  = Format::Unknown;
+    bpd.depth_test    = false;
+    bpd.depth_write   = false;
+    bpd.cull_mode     = CullMode::None;
+    bpd.blend_mode    = BlendMode::Opaque;
+    bpd.cbuffer_slots = 1;
+    bpd.texture_slots = 2;
+    bpd.cbuffer_names[0] = "SsgiCB";
+    bpd.texture_names[0] = "ssgi_raw";
+    bpd.texture_names[1] = "scene_depth";
+    bpd.static_sampler_count = 2;
+    bpd.static_samplers[0].filter    = SamplerFilter::Linear;
+    bpd.static_samplers[0].address_u = SamplerAddress::Clamp;
+    bpd.static_samplers[0].address_v = SamplerAddress::Clamp;
+    bpd.static_samplers[1].filter    = SamplerFilter::Point;
+    bpd.static_samplers[1].address_u = SamplerAddress::Clamp;
+    bpd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    bpd.vertex_stride = 0;
+    bpd.layout_count  = 0;
+    if (auto r = CreateRhiPipeline(device, bpd); r.IsErr()) return Err<void>(r.Error());
+    else _blur_pipeline = Move(r.Value());
     return Ok();
 }
 
 void Ssgi::Shutdown() noexcept {
+    _blur_pipeline.Reset();
     _pipeline.Reset();
     _cb.Reset();
+    _blur_ps.Reset();
     _ps.Reset();
     _vs.Reset();
+    _blur_output.Reset();
     _output.Reset();
     _device = nullptr;
 }
@@ -236,7 +339,7 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
                   Vec3 eye, f32 intensity, f32 max_distance) noexcept {
-    if (!_output || !_pipeline || !_cb) return;
+    if (!_output || !_blur_output || !_pipeline || !_blur_pipeline || !_cb) return;
     SsgiCBLayout data{};
     data.view_proj     = view_proj;
     data.inv_view_proj = inv_view_proj;
@@ -246,6 +349,7 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                               1.0f / static_cast<f32>(_height)};
     _cb->Update(&data, sizeof(data));
 
+    // Pass 1: SSGI raw → _output
     cl.BeginRenderToTexture(*_output, ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
     cl.SetPipeline(*_pipeline);
     cl.SetConstantBuffer(0, *_cb);
@@ -253,6 +357,15 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetTexture(1, scene_depth);
     cl.Draw(3);
     cl.EndRenderToTexture(*_output);
+
+    // Pass 2 (Phase 33c-2): depth-aware bilateral blur → _blur_output
+    cl.BeginRenderToTexture(*_blur_output, ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    cl.SetPipeline(*_blur_pipeline);
+    cl.SetConstantBuffer(0, *_cb);
+    cl.SetTexture(0, *_output);       // SSGI raw
+    cl.SetTexture(1, scene_depth);
+    cl.Draw(3);
+    cl.EndRenderToTexture(*_blur_output);
 }
 
 } // namespace acs

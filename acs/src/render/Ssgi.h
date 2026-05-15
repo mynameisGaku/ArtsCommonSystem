@@ -54,7 +54,10 @@ public:
                 f32 intensity   = 1.0f,
                 f32 max_distance = 5.0f) noexcept;
 
-    IRhiTexture* OutputTexture() const noexcept { return _output.Get(); }
+    // Phase 33c-2: blur 後の RT を返す。raw は 4 ray のみで強ノイズなので
+    // PbrShader は blur 済みを読む。
+    IRhiTexture* OutputTexture() const noexcept { return _blur_output.Get(); }
+    IRhiTexture* RawTexture()    const noexcept { return _output.Get(); }
 
 private:
     Result<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
@@ -64,10 +67,13 @@ private:
     u32                     _width  = 0;
     u32                     _height = 0;
 
-    UniquePtr<IRhiTexture>  _output;
+    UniquePtr<IRhiTexture>  _output;       // SSGI raw
+    UniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 33c-2)
     UniquePtr<IRhiShader>   _vs;
     UniquePtr<IRhiShader>   _ps;
+    UniquePtr<IRhiShader>   _blur_ps;      // Phase 33c-2
     UniquePtr<IRhiPipeline> _pipeline;
+    UniquePtr<IRhiPipeline> _blur_pipeline;// Phase 33c-2
     UniquePtr<IRhiBuffer>   _cb;
 };
 
