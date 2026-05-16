@@ -23,6 +23,7 @@
 #include "render/Ssr.h"
 #include "render/Ssao.h"
 #include "render/Ssgi.h"
+#include "render/MotionVector.h"
 #include "math/Mat.h"
 #include "render/PbrShader.h"
 #include "render/RenderAssets.h"
@@ -91,6 +92,8 @@ public:
         ACS_SAMPLE_INIT(_ssao.Init(*dev, sw, sh));
         // SSGI (Phase 33c): scene_color + depth → 1 bounce indirect light
         ACS_SAMPLE_INIT(_ssgi.Init(*dev, sw, sh));
+        // Motion vector (Phase 34f-3): 動的 mesh の screen-space motion を焼く
+        ACS_SAMPLE_INIT(_motion.Init(*dev, sw, sh));
 
         // Lightmap (Phase 33f): 球グリッドの直下にある床用に静的 AO を CPU 焼き。
         // 球 5x5 を Sphere-Ray analytical hit で覆い、各 plane texel で hemisphere
@@ -131,6 +134,21 @@ public:
 
         // CAS sharpening (Phase 34i): subtle clarity boost、UE5 デフォルト相当 0.4
         _post_params.cas_strength    = 0.4f;
+
+        // 動的球 (Phase 34f-3) の初期 transform。frame 0 で prev==curr になるよう
+        // curr と同値で prev も初期化する。
+        for (u32 i = 0; i < kDynCount; ++i) {
+            _dyn_curr[i] = ComputeDynTransform(i, 0.0f);
+            _dyn_prev[i] = _dyn_curr[i];
+        }
+    }
+
+    // 動的球 i の時刻 t における transform。中心 (0, 3, 1) のまわりを XY 平面で
+    // 公転させる (画面内を大きく掃くので、motion vector 無しだと TAA で trail が出る)。
+    Mat4 ComputeDynTransform(u32 i, f32 t) const noexcept {
+        const f32 a = t * 1.8f + static_cast<f32>(i) * (2.0f * kPi / 3.0f);
+        const f32 r = 2.2f;
+        return Mat4::Translation(Vec3{ Cos(a) * r, 3.0f + Sin(a) * r, 1.0f });
     }
 
     void OnUpdate(f32 dt) noexcept override {
@@ -183,8 +201,11 @@ public:
         if (Input::IsKeyPressed(Key::T)) _use_taa  = !_use_taa;
         if (Input::IsKeyPressed(Key::J)) _use_ssgi = !_use_ssgi;
         if (Input::IsKeyPressed(Key::K)) _use_lightmap = !_use_lightmap;
-        // film grain アニメ用に時間累積
+        // M で motion vector (動的 mesh の TAA reprojection) を toggle
+        if (Input::IsKeyPressed(Key::M)) _use_motion_vec = !_use_motion_vec;
+        // film grain アニメ用に時間累積 + 動的球の公転時刻
         _post_params.grain_time += dt;
+        _anim_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
         if (Input::IsKeyPressed(Key::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
@@ -251,6 +272,13 @@ public:
         IRhiTexture*     hdr  = _post.HdrRenderTarget();
         IRhiTexture*     depth = GetRenderer().DepthBuffer();
         if (!dev || !cl || !sc || !hdr) return false;
+
+        // 動的球 (Phase 34f-3) の transform を更新: prev ← 前フレームの curr。
+        // color pass と motion pass の両方がこの curr / prev を参照する。
+        for (u32 i = 0; i < kDynCount; ++i) {
+            _dyn_prev[i] = _dyn_curr[i];
+            _dyn_curr[i] = ComputeDynTransform(i, _anim_time);
+        }
 
         // TAA Halton(2,3) sub-pixel jitter (Phase 34f): 8 フレーム周期で
         // sub-pixel ぶん xy をずらした projection を rendering 全体 (skybox,
@@ -513,6 +541,14 @@ public:
             }
         }
 
+        // 動的球 (Phase 34f-3): グリッド前方を公転する 3 球。明るいシアンで
+        // warm な静的グリッドと区別。motion vector OFF だと TAA で trail が出る。
+        _pbr.SetExtParams(0.0f, 0.5f, 0.0f, Vec3{1, 0, 0});
+        for (u32 i = 0; i < kDynCount; ++i) {
+            _pbr.DrawMesh(*cl, _gm_sphere, _dyn_curr[i],
+                          Vec3{0.10f, 0.70f, 0.90f}, 0.0f, 0.25f, 1.0f);
+        }
+
         cl->EndRenderToTexture(*hdr);
 
         // ===== SSR pass (Phase 34e、'R' で可視化) =====
@@ -568,6 +604,38 @@ public:
                          /*max_distance=*/5.0f);
             _ssgi_warm = true;
         }
+
+        // ===== Motion vector pass (Phase 34f-3、'M' で toggle) =====
+        // 全 mesh を再ラスタライズして screen-space motion vector を焼く。TAA は
+        // これで動く mesh も正しく reproject し、ghost / trail を消す。静的 mesh は
+        // prev == curr、camera 動きは前フレーム VP との差で表現される。
+        if (_use_motion_vec) {
+            // frame 0 は前フレーム VP が未確定なので prev=curr で motion 0 にする。
+            const Mat4 motion_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
+                                                           : vp_no_jitter;
+            _motion.Begin(*cl, vp_no_jitter, motion_prev_vp);
+            // 床 (静的: prev == curr)
+            const Mat4 plane_model = Mat4::Translation(Vec3{0, -0.6f, 3.0f});
+            _motion.DrawMesh(*cl, _gm_plane, plane_model, plane_model);
+            // 静的グリッド球 25 (color pass と同じ transform 計算、prev == curr)
+            for (u32 y = 0; y < kGrid; ++y) {
+                for (u32 x = 0; x < kGrid; ++x) {
+                    const f32 px = (static_cast<f32>(x) - (kGrid - 1) * 0.5f) * kSpacing;
+                    const f32 py = (static_cast<f32>(y) - (kGrid - 1) * 0.5f) * kSpacing + 2.5f;
+                    const Mat4 m = Mat4::Translation(Vec3{px, py, 3.0f});
+                    _motion.DrawMesh(*cl, _gm_sphere, m, m);
+                }
+            }
+            // 動的球 (prev != curr → object motion を含む)
+            for (u32 i = 0; i < kDynCount; ++i) {
+                _motion.DrawMesh(*cl, _gm_sphere, _dyn_curr[i], _dyn_prev[i]);
+            }
+            _motion.End(*cl);
+        }
+        // TAA へ motion texture を渡す。frame 0 は prev VP 未確定なので渡さず、
+        // depth reprojection 側の cold-start ガードに委ねる。
+        _post_params.taa_motion_texture =
+            (_use_motion_vec && _taa_prev_vp_valid) ? _motion.OutputTexture() : nullptr;
 
         // TAA (Phase 34f) を毎フレーム params に反映
         _post_params.taa_enabled = _use_taa;
@@ -670,7 +738,7 @@ public:
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s SSGI=%s LM=%s",
+                          "CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s SSGI=%s LM=%s MV=%s",
                           _use_clearcoat ? "ON" : "OFF",
                           _use_anisotropy ? "ON" : "OFF",
                           _use_area_light ? "ON" : "OFF",
@@ -680,7 +748,8 @@ public:
                           _use_ssao ? "ON" : "OFF",
                           _use_taa ? "ON" : "OFF",
                           _use_ssgi ? "ON" : "OFF",
-                          _use_lightmap ? "ON" : "OFF");
+                          _use_lightmap ? "ON" : "OFF",
+                          _use_motion_vec ? "ON" : "OFF");
             _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
             _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
                               20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
@@ -894,6 +963,7 @@ public:
         if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
         _font.Shutdown();
         _batch.Shutdown();
+        _motion.Shutdown();
         _ssgi.Shutdown();
         _ssao.Shutdown();
         _ssr.Shutdown();
@@ -909,6 +979,7 @@ public:
 private:
     static constexpr u32 kEquirectWidth  = 256;       // SH9 計算用、小さめで十分
     static constexpr u32 kEquirectHeight = 128;
+    static constexpr u32 kDynCount       = 3;         // Phase 34f-3: 動的球の数
 
     PostProcess        _post;
     ImageBasedLighting _ibl;
@@ -955,6 +1026,11 @@ private:
     Ssr                _ssr;
     Ssao               _ssao;
     Ssgi               _ssgi;
+    MotionVector       _motion;                    // Phase 34f-3: 動的 mesh motion vector
+    bool               _use_motion_vec   = true;   // Phase 34f-3: 'M' で toggle
+    Mat4               _dyn_curr[kDynCount] = {};  // 動的球の現フレーム transform
+    Mat4               _dyn_prev[kDynCount] = {};  // 動的球の前フレーム transform
+    f32                _anim_time        = 0.0f;   // 動的球公転の時刻アキュムレータ
     GpuMesh            _gm_plane;
     u32                _display_mode     = 0;
 };

@@ -24,6 +24,7 @@ set(_acs_render_sources
     Ssr.cpp
     Ssao.cpp
     Ssgi.cpp
+    MotionVector.cpp
 )
 set(_acs_render_headers
     RhiTypes.h
@@ -51,6 +52,7 @@ set(_acs_render_headers
     Ssr.h
     Ssao.h
     Ssgi.h
+    MotionVector.h
 )
 
 if(ACS_RENDER_DX12_RAW)

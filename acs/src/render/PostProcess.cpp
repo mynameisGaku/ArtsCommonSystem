@@ -118,7 +118,7 @@ cbuffer Post : register(b0) {
     float4 cg_lift;
     float4 cg_gain;
     float4 cas_params;
-    float4 taa_params;    // x=blend_factor (current weight)、y=reproject_enabled
+    float4 taa_params;    // x=blend_factor、y=reproject_enabled、z=motion_texture_mode
 };
 cbuffer TaaReproj : register(b1) {
     float4x4 taa_inv_view_proj;
@@ -152,14 +152,21 @@ float2 ComputeMotionUv(float2 uv) {
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 cur = current_hdr.SampleLevel(current_hdr_sampler, v.uv, 0).rgb;
 
-    // History を sample する位置: reproject 有効なら motion vec で offset
+    // History を sample する位置を決める:
+    //   taa_params.z >= 0.5: motion texture モード (Phase 34f-3)。scene_depth slot を
+    //     motion vector (camera+object 動き) として再解釈し、そのまま reproject する。
+    //     動く mesh も正しく history を引けるので ghost / trail が消える。
+    //   taa_params.y >= 0.5: depth reprojection モード (Phase 34f-2、camera 動きのみ)。
     float2 hist_uv = v.uv;
-    if (taa_params.y >= 0.5) {
+    if (taa_params.z >= 0.5) {
+        float2 mv = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).rg;
+        hist_uv = v.uv + mv;
+    } else if (taa_params.y >= 0.5) {
         hist_uv = ComputeMotionUv(v.uv);
-        // 画面外に飛んだ場合は clamp (border の history が出ないように)
-        if (any(hist_uv < 0.0) || any(hist_uv > 1.0)) {
-            hist_uv = v.uv;        // fallback: 静的 reprojection
-        }
+    }
+    // 画面外に飛んだ場合は clamp (border の history が出ないように)
+    if (any(hist_uv < 0.0) || any(hist_uv > 1.0)) {
+        hist_uv = v.uv;            // fallback: 静的 reprojection
     }
     float3 hist = history_hdr.SampleLevel(history_hdr_sampler, hist_uv, 0).rgb;
 
@@ -990,8 +997,10 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
     l.cas_params = Vec4{ p.cas_strength < 0 ? 0.0f : p.cas_strength, 0, 0, 0 };
     // Phase 34f-2: reproject_enabled は taa_depth_texture が指定されてるかで判定。
     const f32 reproject_enabled = (p.taa_enabled && p.taa_depth_texture) ? 1.0f : 0.0f;
+    // Phase 34f-3: motion texture があれば motion mode (depth reprojection より優先)。
+    const f32 motion_mode = (p.taa_enabled && p.taa_motion_texture) ? 1.0f : 0.0f;
     l.taa_params = Vec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor,
-                         reproject_enabled, 0, 0 };
+                         reproject_enabled, motion_mode, 0 };
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace
@@ -1072,8 +1081,13 @@ void PostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams&
     r.prev_view_proj = p.taa_prev_view_proj_no_jitter;
     if (_cb_taa_reproj) _cb_taa_reproj->Update(&r, sizeof(r));
 
-    // depth fallback: 指定があれば実 depth、なければ 1x1 全 255 (depth>=0.9999 で sky 扱い)
-    IRhiTexture* depth_src = p.taa_depth_texture ? p.taa_depth_texture : _taa_depth_fb.Get();
+    // t2 slot: Phase 34f-3 で motion texture が指定されていればそれを bind、
+    // なければ depth (指定があれば実 depth、なければ 1x1 全 255 で sky 扱い)。
+    // shader 側は taa_params.z で解釈を切り替えるので PSO の slot 数は不変。
+    IRhiTexture* slot2_tex = p.taa_motion_texture
+                           ? p.taa_motion_texture
+                           : (p.taa_depth_texture ? p.taa_depth_texture
+                                                  : _taa_depth_fb.Get());
 
     cmd.BeginRenderToTexture(*cur_rt, ClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*_pipe_taa_resolve);
@@ -1081,7 +1095,7 @@ void PostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams&
     if (_cb_taa_reproj) cmd.SetConstantBuffer(1, *_cb_taa_reproj);
     cmd.SetTexture(0, *scene);                     // current HDR (露出適用後 or raw)
     cmd.SetTexture(1, *hist_input);                // history (or current on frame 0)
-    if (depth_src) cmd.SetTexture(2, *depth_src);
+    if (slot2_tex) cmd.SetTexture(2, *slot2_tex);  // depth または motion vector
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*cur_rt);
 }

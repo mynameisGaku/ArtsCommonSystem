@@ -93,6 +93,12 @@ struct PostProcessParams {
     IRhiTexture* taa_depth_texture = nullptr;
     Mat4         taa_view_proj_no_jitter{};      // Halton 適用前の view_proj
     Mat4         taa_prev_view_proj_no_jitter{}; // 前フレームの view_proj (Halton 適用前)
+    // Phase 34f-3: 動的 mesh 対応の motion vector テクスチャ (MotionVector モジュール)。
+    // 非 null なら TAA は depth reprojection の代わりにこの texture で history を
+    // 引く。motion vector は camera 動き + object 動きの両方を含むので、動く mesh の
+    // ghost / trail が消える。null なら従来の depth reprojection にフォールバック。
+    // depth slot (t2) を再利用して bind するため TAA resolve PSO の slot 数は不変。
+    IRhiTexture* taa_motion_texture = nullptr;
 
     // Auto-exposure (Phase 34k-2): GPU でシーンの平均輝度を測定し、露出を自動算出する。
     // Phase 34k の CPU eye-adaptation を「実測輝度ベース」へ置き換える本実装。
