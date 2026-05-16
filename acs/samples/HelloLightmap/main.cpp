@@ -6,8 +6,10 @@
 //     パストレースでベイクする (cosine-weighted hemisphere sampling + 軸並行
 //     平面交差 + 最大 5 バウンス)。固定係数の擬似 1-bounce ではなく、壁どうしの
 //     多重反射 color bleeding が物理的に焼き込まれる
-//   ・MC ノイズは 3x3 box blur で均し、R8G8B8A8 テクスチャ化して PbrShader の
-//     lightmap slot (t8、Phase 33f で追加) 経由で表示する
+//   ・MC ノイズは 3x3 box blur で均し、HDR テクスチャ (R32G32B32A32F) 化して
+//     PbrShader の lightmap slot (t8、Phase 33f で追加) 経由で表示する
+//   ・シーンは HDR RT に描画 → Bloom + ACES tonemap で LDR 出力。lightmap が
+//     HDR なので天井 (光源) が飽和せず、tonemap で自然にロールオフし bloom で光る
 //   ・WASD でカメラ移動、矢印で視点回転、Esc 終了
 //
 // 学習ポイント:
@@ -28,6 +30,7 @@
 #include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
 #include "render/Font.h"
+#include "render/PostProcess.h"
 
 #include "container/Array.h"
 #include "math/Camera.h"
@@ -53,9 +56,10 @@ constexpr u32 kLmSize      = 64;   // lightmap 解像度 (1 面あたり)
 constexpr u32 kBakeRays    = 64;   // texel あたりの path 数 (Phase 33f-3: 24→64)
 constexpr u32 kBounceDepth = 5;    // 1 path の最大バウンス数 (multi-bounce GI)
 
-// 天井光源の放射輝度。lightmap は RGBA8 (0..1) なので、texel の入射 irradiance
-// 平均が飽和しすぎない値にしてある (E ≒ 0.6*kLight + bounces で概ね 1.0 以内)。
-const Vec3 kLightRadiance{1.4f, 1.3f, 1.15f};
+// 天井光源の放射輝度。lightmap は HDR (R32G32B32A32F) なので飽和の心配がなく、
+// 物理的に明るい値を入れられる。tonemap (ACES) 後に程よい明るさになるよう調整
+// した値 (絵作りで自由に変えてよい)。
+const Vec3 kLightRadiance{4.5f, 4.2f, 3.8f};
 
 // Cornell box の 1 面。MakePlane (XZ 平面、法線 +Y) を model で配置する。
 //   axis / axis_value / u_min.. : ray cast 用の world-space 軸並行平面パラメータ
@@ -69,7 +73,7 @@ struct Quad {
     Vec3                   normal;        // world-space 法線 (model から導出)
     f32                    plane_w, plane_h;  // MakePlane のローカルサイズ
     UniquePtr<IRhiTexture> lightmap;
-    Array<u8>              lm_data;        // bake 結果 (RGBA8)
+    Array<Vec4>            lm_data;        // bake 結果 (HDR、RGBA float)
     // 面が乗る軸 (0=x, 1=y, 2=z) と、その軸の値。残り 2 軸が矩形範囲。
     i32                    axis;
     f32                    axis_value;
@@ -142,20 +146,34 @@ public:
     void OnStart() noexcept override {
         IRhiDevice* dev = GetRenderer().Device();
         if (!dev) { Quit(); return; }
+        IRhiSwapchain* sc = GetRenderer().Swapchain();
+        if (!sc) { Quit(); return; }
 
-        ACS_SAMPLE_INIT(_pbr.Init(*dev, GetRenderer().ColorFormat(),
+        // HDR PostProcess (Bloom + ACES tonemap)。シーンは HDR RT に描く。
+        ACS_SAMPLE_INIT(_post.Init(*dev, sc->Width(), sc->Height(),
+                                   GetRenderer().ColorFormat()));
+        // PbrShader は HDR RT フォーマットに合わせて init する。
+        ACS_SAMPLE_INIT(_pbr.Init(*dev, _post.HdrFormat(),
                                   GetRenderer().DepthFormat()));
 
         BuildCornellBox(*dev);
         BakeLightmaps(*dev);
 
+        // SpriteBatch は tonemap 後の LDR backbuffer に描く。
         _batch.Init(*dev, GetRenderer().ColorFormat());
         (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
-        const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
-                           static_cast<f32>(GetRenderer().Swapchain()->Height());
+        const f32 aspect = static_cast<f32>(sc->Width()) /
+                           static_cast<f32>(sc->Height());
         _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.05f, 100.0f);
         _cam_pos = Vec3{0.0f, 1.0f, -0.9f};
+
+        // PostProcess パラメータ (絵作りで調整可)。
+        _post_params.bloom_threshold    = 2.5f;   // 天井 (光源) だけが bloom する閾値
+        _post_params.bloom_intensity    = 0.5f;
+        _post_params.grain_intensity    = 0.0f;   // GI デモなので film grain は切る
+        _post_params.vignette_intensity = 0.15f;
+        _post_params.ssr_intensity      = 0.0f;   // SSR 未使用 (fallback mip の誤加算防止)
     }
 
     void OnUpdate(f32 dt) noexcept override {
@@ -181,13 +199,29 @@ public:
         _camera.SetLookAt(_cam_pos, _cam_pos + forward);
     }
 
-    void OnRender() noexcept override {
-        IRhiCommandList* cl = GetRenderer().CommandList();
-        if (!cl) return;
+    // OnCustomFrame: HDR RT にシーンを描き、PostProcess (Bloom + ACES tonemap)
+    // で LDR backbuffer へ。HDR lightmap の高輝度が tonemap で自然にロールオフする。
+    bool OnCustomFrame() noexcept override {
+        IRhiDevice*      dev   = GetRenderer().Device();
+        IRhiCommandList* cl    = GetRenderer().CommandList();
+        IRhiSwapchain*   sc    = GetRenderer().Swapchain();
+        IRhiTexture*     hdr   = _post.HdrRenderTarget();
+        IRhiTexture*     depth = GetRenderer().DepthBuffer();
+        if (!dev || !cl || !sc || !hdr) return false;
 
-        // 動的ライトは使わず ambient のみ。間接光は lightmap が担う。
-        // lightmap は ambient/IBL 項に加算合成されるので、ここでの ambient は
-        // ごく弱くしておく (真っ黒を避ける程度)。
+        const u32 buf_idx = sc->AcquireNextImage();
+        cl->Begin();
+
+        // ===== HDR RT に Cornell box を描画 =====
+        cl->BeginRenderToTexture(*hdr, ClearColor{0, 0, 0, 1}, depth, 1.0f);
+        Viewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
+                       vp.height = static_cast<f32>(hdr->Height());
+        cl->SetViewport(vp);
+        ScissorRect svr{}; svr.right  = static_cast<i32>(hdr->Width());
+                           svr.bottom = static_cast<i32>(hdr->Height());
+        cl->SetScissor(svr);
+
+        // 動的ライトは使わず ごく弱い ambient のみ。間接光は lightmap が担う。
         _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
                        nullptr, 0, Vec3{0.02f, 0.02f, 0.02f});
         _pbr.SetPointLights(nullptr, 0);
@@ -212,14 +246,19 @@ public:
             cl->SetIndexBuffer(*q.mesh.index_buffer);
             cl->DrawIndexed(q.mesh.index_count);
         }
+        cl->EndRenderToTexture(*hdr);
 
+        // ===== Bloom + ACES tonemap → LDR backbuffer =====
+        _post.Render(*cl, *sc, buf_idx, _post_params);
+
+        // ===== HUD (LDR backbuffer) =====
         if (_font.AtlasTexture()) {
-            const u32 sw = GetRenderer().Swapchain()->Width();
-            const u32 sh = GetRenderer().Swapchain()->Height();
+            const u32 sw = sc->Width();
+            const u32 sh = sc->Height();
             _batch.Begin(*cl, sw, sh);
             char buf[160];
             std::snprintf(buf, sizeof(buf),
-                          "Cornell box - path-traced lightmap (%u rays x %u bounces)  FPS: %.1f",
+                          "Cornell box - path-traced HDR lightmap (%u rays x %u bounces)  FPS: %.1f",
                           kBakeRays, kBounceDepth, static_cast<double>(FPS()));
             _batch.DrawString(_font, buf, 20, 20, Vec4{1, 1, 1, 1});
             std::snprintf(buf, sizeof(buf), "Lightmap: %s   (L で切替)",
@@ -229,6 +268,12 @@ public:
                               20, 68, Vec4{0.7f, 0.85f, 1.0f, 1});
             _batch.End();
         }
+
+        cl->EndRenderToSwapchain(*sc, buf_idx);
+        cl->End();
+        cl->Submit();
+        sc->Present();
+        return true;
     }
 
     void OnShutdown() noexcept override {
@@ -240,6 +285,7 @@ public:
             _quads[i].mesh = GpuMesh{};
         }
         _pbr.Shutdown();
+        _post.Shutdown();
     }
 
 private:
@@ -359,7 +405,7 @@ private:
 
         for (u32 qi = 0; qi < kQuadCount; ++qi) {
             Quad& q = _quads[qi];
-            q.lm_data.Resize(static_cast<usize>(kLmSize) * kLmSize * 4u);
+            q.lm_data.Resize(static_cast<usize>(kLmSize) * kLmSize);   // 1 Vec4 / texel
 
             if (q.emissive) {
                 // 天井 = 光源。受光ではなく放射輝度そのものを焼く
@@ -408,21 +454,18 @@ private:
                 }
             }
 
-            // float irradiance → RGBA8 量子化
+            // float irradiance をそのまま HDR lightmap へ (量子化・clamp なし)
             for (u32 i = 0; i < kLmSize * kLmSize; ++i) {
                 const Vec3 c = blurred[i];
-                q.lm_data[i * 4u + 0] = ToU8(c.x);
-                q.lm_data[i * 4u + 1] = ToU8(c.y);
-                q.lm_data[i * 4u + 2] = ToU8(c.z);
-                q.lm_data[i * 4u + 3] = 255;
+                q.lm_data[i] = Vec4{c.x, c.y, c.z, 1.0f};
             }
 
             TextureDesc td{};
             td.width  = kLmSize;
             td.height = kLmSize;
-            td.format = Format::R8G8B8A8_UNorm;
+            td.format = Format::R32G32B32A32_Float;
             td.initial_data      = q.lm_data.Data();
-            td.initial_data_size = q.lm_data.Size();
+            td.initial_data_size = q.lm_data.Size() * sizeof(Vec4);
             auto r = CreateRhiTexture(dev, td);
             if (r.IsErr()) {
                 ACS_LOG_ERROR("HelloLightmap: lightmap texture 生成失敗 (quad %u)", qi);
@@ -432,16 +475,13 @@ private:
         }
     }
 
-    static u8 ToU8(f32 v) noexcept {
-        const f32 c = Saturate(v);
-        return static_cast<u8>(c * 255.0f + 0.5f);
-    }
-
-    PbrShader   _pbr;
-    Quad        _quads[kQuadCount];
-    SpriteBatch _batch;
-    Font        _font;
-    Camera      _camera;
+    PbrShader         _pbr;
+    PostProcess       _post;
+    PostProcessParams _post_params;
+    Quad              _quads[kQuadCount];
+    SpriteBatch       _batch;
+    Font              _font;
+    Camera            _camera;
     Vec3        _cam_pos{0, 1.0f, -0.9f};
     f32         _cam_yaw   = 0.0f;
     f32         _cam_pitch = 0.0f;
