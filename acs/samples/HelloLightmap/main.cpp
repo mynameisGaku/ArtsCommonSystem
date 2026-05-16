@@ -1,16 +1,20 @@
-// ACS の HelloLightmap サンプル — Phase 33f-2: 静的ライトマップ baker
+// ACS の HelloLightmap サンプル — Phase 33f-3: multi-bounce path-traced lightmap
 //
 // 動作:
 //   ・古典的な Cornell box (床 / 天井 / 奥壁 / 左壁(赤) / 右壁(緑)) を構築
-//   ・天井を発光面とみなし、各面の lightmap テクセルへ CPU で 1-bounce GI を
-//     ベイクする (hemisphere ray cast + 軸並行平面との交差判定)
-//   ・ベイク結果を R8G8B8A8 テクスチャ化し、PbrShader の lightmap slot (t8、
-//     Phase 33f で追加) 経由で表示する
+//   ・天井を発光面とみなし、各面の lightmap テクセルへ CPU で multi-bounce GI を
+//     パストレースでベイクする (cosine-weighted hemisphere sampling + 軸並行
+//     平面交差 + 最大 5 バウンス)。固定係数の擬似 1-bounce ではなく、壁どうしの
+//     多重反射 color bleeding が物理的に焼き込まれる
+//   ・MC ノイズは 3x3 box blur で均し、R8G8B8A8 テクスチャ化して PbrShader の
+//     lightmap slot (t8、Phase 33f で追加) 経由で表示する
 //   ・WASD でカメラ移動、矢印で視点回転、Esc 終了
 //
 // 学習ポイント:
 //   ・動的ライティング無しでも、事前計算した間接光で「赤/緑の壁の照り返しが
 //     床に色づく」color bleeding が表現できる
+//   ・cosine-weighted path tracing なら throughput に albedo を畳むだけで
+//     多重反射が自然に積算される (π が pdf と相殺するので係数調整が不要)
 //   ・lightmap は mesh の uv で引く (このサンプルは 1 面 = 1 テクスチャ)
 #include "app/Application.h"
 #include "app/EntryPoint.h"
@@ -45,8 +49,13 @@ constexpr f32 kBoxMinX = -1.0f, kBoxMaxX = 1.0f;
 constexpr f32 kBoxMinY =  0.0f, kBoxMaxY = 2.0f;
 constexpr f32 kBoxMinZ = -1.0f, kBoxMaxZ = 2.0f;
 
-constexpr u32 kLmSize = 64;        // lightmap 解像度 (1 面あたり)
-constexpr u32 kBakeRays = 24;      // texel あたりの hemisphere ray 数
+constexpr u32 kLmSize      = 64;   // lightmap 解像度 (1 面あたり)
+constexpr u32 kBakeRays    = 64;   // texel あたりの path 数 (Phase 33f-3: 24→64)
+constexpr u32 kBounceDepth = 5;    // 1 path の最大バウンス数 (multi-bounce GI)
+
+// 天井光源の放射輝度。lightmap は RGBA8 (0..1) なので、texel の入射 irradiance
+// 平均が飽和しすぎない値にしてある (E ≒ 0.6*kLight + bounces で概ね 1.0 以内)。
+const Vec3 kLightRadiance{1.4f, 1.3f, 1.15f};
 
 // Cornell box の 1 面。MakePlane (XZ 平面、法線 +Y) を model で配置する。
 //   axis / axis_value / u_min.. : ray cast 用の world-space 軸並行平面パラメータ
@@ -87,6 +96,43 @@ f32 RayQuad(Vec3 o, Vec3 d, const Quad& q) noexcept {
     else                  { pu = p.x; pv = p.y; }
     if (pu < q.u_min || pu > q.u_max || pv < q.v_min || pv > q.v_max) return -1.0f;
     return t;
+}
+
+// componentwise 乗算 (Vec3 には Hadamard 積の operator が無いので自前で持つ)。
+inline Vec3 Hadamard(Vec3 a, Vec3 b) noexcept {
+    return Vec3{a.x * b.x, a.y * b.y, a.z * b.z};
+}
+
+// 軽量 RNG (xorshift32)。texel ごとに seed して bake の再現性を持たせる。
+struct Rng {
+    u32 state;
+    f32 NextF() noexcept {                       // [0, 1)
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        return static_cast<f32>(state & 0x00FFFFFFu) / 16777216.0f;
+    }
+};
+
+// 法線 N に直交する tangent / bitangent を作る。
+inline void MakeTBN(Vec3 N, Vec3& T, Vec3& B) noexcept {
+    T = (Abs(N.y) > 0.9f) ? Vec3{1, 0, 0} : Vec3{0, 1, 0};
+    T = Normalize(T - N * Dot(T, N));
+    B = Cross(N, T);
+}
+
+// cosine-weighted hemisphere sampling。pdf = cosθ/π なので、この方向で
+// 入射放射輝度を平均すると cosine 重みと pdf の π が相殺し、「入射 irradiance の
+// 平均」がそのまま得られる (PbrShader が描画時に albedo を掛ける)。
+inline Vec3 CosineSampleHemisphere(Vec3 N, Vec3 T, Vec3 B, Rng& rng) noexcept {
+    const f32 u1  = rng.NextF();
+    const f32 u2  = rng.NextF();
+    const f32 r   = Sqrt(u1);
+    const f32 phi = 6.2831853f * u2;
+    const f32 x = r * Cos(phi);
+    const f32 y = r * Sin(phi);
+    const f32 z = Sqrt(1.0f - u1);               // u1∈[0,1) なので 1-u1 > 0
+    return Normalize(T * x + B * y + N * z);
 }
 
 } // namespace
@@ -173,8 +219,8 @@ public:
             _batch.Begin(*cl, sw, sh);
             char buf[160];
             std::snprintf(buf, sizeof(buf),
-                          "Cornell box - baked lightmap (%u rays/texel)  FPS: %.1f",
-                          kBakeRays, static_cast<double>(FPS()));
+                          "Cornell box - path-traced lightmap (%u rays x %u bounces)  FPS: %.1f",
+                          kBakeRays, kBounceDepth, static_cast<double>(FPS()));
             _batch.DrawString(_font, buf, 20, 20, Vec4{1, 1, 1, 1});
             std::snprintf(buf, sizeof(buf), "Lightmap: %s   (L で切替)",
                           _show_lightmap ? "ON" : "OFF");
@@ -267,65 +313,108 @@ private:
         return TransformPoint(Vec3{lx, 0.0f, lz}, q.model);
     }
 
-    // hemisphere ray cast で 1-bounce GI を焼く
+    // 1 本の path をトレースし、texel への入射放射輝度を返す。
+    // origin から cosine-weighted hemisphere へ飛ばし、拡散面で反射を繰り返す。
+    // 光源 (天井) に届いたら、それまでの throughput を掛けた放射輝度を返す。
+    // throughput は receiver の albedo を畳まない (PbrShader が描画時に lm * albedo
+    // するため)。cosine-weighted なので複数 path の平均 = 入射 irradiance の平均。
+    Vec3 PathTrace(Vec3 origin, Vec3 normal, Rng& rng) const noexcept {
+        Vec3 throughput{1.0f, 1.0f, 1.0f};
+        Vec3 o = origin;
+        Vec3 N = normal;
+        for (u32 b = 0; b < kBounceDepth; ++b) {
+            Vec3 T, B;
+            MakeTBN(N, T, B);
+            const Vec3 dir = CosineSampleHemisphere(N, T, B, rng);
+
+            // Cornell box の全 5 面と交差、最近を採用。
+            // 平面 quad + hemisphere 方向なので自己交差は幾何的に起きない。
+            f32 best_t = 1e9f;
+            i32 best_q = -1;
+            for (u32 hj = 0; hj < kQuadCount; ++hj) {
+                const f32 t = RayQuad(o, dir, _quads[hj]);
+                if (t > 0.0f && t < best_t) { best_t = t; best_q = static_cast<i32>(hj); }
+            }
+            if (best_q < 0) return Vec3{0, 0, 0};              // 開口へ脱出
+            const Quad& hq = _quads[static_cast<u32>(best_q)];
+            if (hq.emissive) {
+                return Hadamard(throughput, kLightRadiance);   // 光源に到達
+            }
+            // 非発光面で拡散反射: hit albedo を throughput に畳んで path 継続
+            throughput = Hadamard(throughput, hq.albedo);
+            o = o + dir * best_t + hq.normal * 1e-3f;          // 次の origin
+            N = hq.normal;
+        }
+        return Vec3{0, 0, 0};       // kBounceDepth 以内に光源へ届かず
+    }
+
+    // Multi-bounce path tracing で静的 GI を焼く (Phase 33f-3)。
+    // 各 texel から kBakeRays 本の path を hemisphere へ飛ばし、最大 kBounceDepth
+    // 回まで拡散反射を追跡する。固定係数の擬似 1-bounce ではなく、赤/緑壁の
+    // 多重反射 color bleeding が物理的に出る。結果は入射 irradiance の平均で、
+    // 描画時に PbrShader が albedo を掛ける。最後に 3x3 box blur で MC ノイズを均す。
     void BakeLightmaps(IRhiDevice& dev) noexcept {
-        // 天井光源の放射色 (HDR 的に強め)
-        const Vec3 kLight{3.2f, 3.0f, 2.7f};
+        Array<Vec3> raw;      raw.Resize(static_cast<usize>(kLmSize) * kLmSize);
+        Array<Vec3> blurred;  blurred.Resize(static_cast<usize>(kLmSize) * kLmSize);
 
         for (u32 qi = 0; qi < kQuadCount; ++qi) {
             Quad& q = _quads[qi];
             q.lm_data.Resize(static_cast<usize>(kLmSize) * kLmSize * 4u);
 
-            // 面ローカルの tangent / bitangent (法線に直交する 2 軸)
-            Vec3 N = q.normal;
-            Vec3 T = (Abs(N.y) > 0.9f) ? Vec3{1, 0, 0} : Vec3{0, 1, 0};
-            T = Normalize(T - N * Dot(T, N));
-            Vec3 B = Cross(N, T);
+            if (q.emissive) {
+                // 天井 = 光源。受光ではなく放射輝度そのものを焼く
+                // (描画時に albedo が掛かり、box 内で最も明るい面になる)。
+                for (usize i = 0; i < raw.Size(); ++i) raw[i] = kLightRadiance;
+            } else {
+                const Vec3 N = q.normal;
+                for (u32 ty = 0; ty < kLmSize; ++ty) {
+                    for (u32 tx = 0; tx < kLmSize; ++tx) {
+                        const f32 tu = (static_cast<f32>(tx) + 0.5f) / kLmSize;
+                        const f32 tv = (static_cast<f32>(ty) + 0.5f) / kLmSize;
+                        const Vec3 wp     = TexelToWorld(q, tu, tv);
+                        const Vec3 origin = wp + N * 0.01f;     // self-hit 回避
 
-            for (u32 ty = 0; ty < kLmSize; ++ty) {
-                for (u32 tx = 0; tx < kLmSize; ++tx) {
-                    const f32 tu = (static_cast<f32>(tx) + 0.5f) / kLmSize;
-                    const f32 tv = (static_cast<f32>(ty) + 0.5f) / kLmSize;
-                    const Vec3 wp = TexelToWorld(q, tu, tv);
-                    const Vec3 origin = wp + N * 0.01f;     // self-hit 回避
+                        // texel ごとに decorrelate した seed (再現性あり)
+                        Rng rng{ (qi * 2654435761u) ^ (ty * 40503u)
+                                 ^ (tx * 73856093u) ^ 0x9E3779B9u };
+                        if (rng.state == 0u) rng.state = 1u;
 
-                    Vec3 accum{0, 0, 0};
-                    for (u32 r = 0; r < kBakeRays; ++r) {
-                        // hemisphere の準乱数方向 (cosine-weighted 近似)
-                        const f32 a = (static_cast<f32>(r) + 0.5f) / kBakeRays;
-                        const f32 phi = a * 6.2831853f * 7.0f;          // 螺旋
-                        const f32 cz  = Sqrt(1.0f - a);                  // cosine 寄り
-                        const f32 sr  = Sqrt(1.0f - cz * cz);
-                        const Vec3 local{sr * Cos(phi), sr * Sin(phi), cz};
-                        const Vec3 dir = Normalize(T * local.x + B * local.y + N * local.z);
-
-                        // Cornell box の全 5 面と交差、最近を採用
-                        f32 best_t = 1e9f;
-                        i32 best_q = -1;
-                        for (u32 hj = 0; hj < kQuadCount; ++hj) {
-                            if (hj == qi) continue;
-                            const f32 t = RayQuad(origin, dir, _quads[hj]);
-                            if (t > 0.0f && t < best_t) { best_t = t; best_q = static_cast<i32>(hj); }
+                        Vec3 e{0, 0, 0};
+                        for (u32 r = 0; r < kBakeRays; ++r) {
+                            e += PathTrace(origin, N, rng);
                         }
-                        if (best_q < 0) continue;            // 開口へ抜けた
-                        const Quad& hitq = _quads[best_q];
-                        if (hitq.emissive) {
-                            // 直接光: 天井光源にレイが到達
-                            accum += kLight;
-                        } else {
-                            // 1-bounce: 当たった壁の albedo を弱い反射光として
-                            // (壁自体も天井光を受けている、という近似で固定係数)
-                            accum += hitq.albedo * 0.55f;
+                        raw[static_cast<usize>(ty) * kLmSize + tx] =
+                            e * (1.0f / static_cast<f32>(kBakeRays));
+                    }
+                }
+            }
+
+            // 3x3 box blur で MC ノイズを均す (indirect は低周波なので質感は保たれる)。
+            for (i32 ty = 0; ty < static_cast<i32>(kLmSize); ++ty) {
+                for (i32 tx = 0; tx < static_cast<i32>(kLmSize); ++tx) {
+                    Vec3 sum{0, 0, 0};
+                    u32  n = 0;
+                    for (i32 dy = -1; dy <= 1; ++dy) {
+                        for (i32 dx = -1; dx <= 1; ++dx) {
+                            const i32 sx = tx + dx, sy = ty + dy;
+                            if (sx < 0 || sx >= static_cast<i32>(kLmSize) ||
+                                sy < 0 || sy >= static_cast<i32>(kLmSize)) continue;
+                            sum += raw[static_cast<usize>(sy) * kLmSize + sx];
+                            ++n;
                         }
                     }
-                    accum = accum * (1.0f / static_cast<f32>(kBakeRays));
-
-                    const usize idx = (static_cast<usize>(ty) * kLmSize + tx) * 4u;
-                    q.lm_data[idx + 0] = ToU8(accum.x);
-                    q.lm_data[idx + 1] = ToU8(accum.y);
-                    q.lm_data[idx + 2] = ToU8(accum.z);
-                    q.lm_data[idx + 3] = 255;
+                    blurred[static_cast<usize>(ty) * kLmSize + tx] =
+                        sum * (1.0f / static_cast<f32>(n));
                 }
+            }
+
+            // float irradiance → RGBA8 量子化
+            for (u32 i = 0; i < kLmSize * kLmSize; ++i) {
+                const Vec3 c = blurred[i];
+                q.lm_data[i * 4u + 0] = ToU8(c.x);
+                q.lm_data[i * 4u + 1] = ToU8(c.y);
+                q.lm_data[i * 4u + 2] = ToU8(c.z);
+                q.lm_data[i * 4u + 3] = 255;
             }
 
             TextureDesc td{};
