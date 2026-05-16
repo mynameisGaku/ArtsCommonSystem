@@ -127,4 +127,8 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DILIGENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloIbl/CMakeLists.txt")
         add_subdirectory(samples/HelloIbl)
     endif()
+    # HelloLightmap (Phase 33f-2): Cornell box + CPU lightmap baker。Diligent 専用。
+    if(ACS_RENDER_DILIGENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloLightmap/CMakeLists.txt")
+        add_subdirectory(samples/HelloLightmap)
+    endif()
 endif()
