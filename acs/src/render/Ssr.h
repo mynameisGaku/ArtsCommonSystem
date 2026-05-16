@@ -8,9 +8,10 @@
 //   - normal は depth derivatives (ddx/ddy of reconstructed world pos) から得る
 //     (G-buffer normal は Phase 34d-2 待ち、これで暫定運用)
 //
-// 簡略: 32 step linear march、accelerating step、binary search 無し。
-// glossy reflection (mip サンプル) も無し。Phase 35+ で hierarchical-Z + roughness
-// に拡張可能。
+// 48 step linear march + accelerating step + 8-step binary search refinement
+// (Phase 34e-fix: 粗 march だけだと反射が滲むので交差点を二分探索で精密化)。
+// glossy reflection (roughness 別 mip サンプル) は未対応 — rough 面でも鋭い反射に
+// なる。roughness G-buffer が要るときは Phase 35+ で hierarchical-Z と併せて拡張。
 #pragma once
 
 #include "foundation/Result.h"

@@ -56,15 +56,19 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 R = reflect(-V, N);
     if (dot(R, V) < -0.95) return float4(0, 0, 0, 0); // 真後ろ反射は無視
 
-    // Ray march (world space で前進、screen に投影)
-    // M2 fix: 最終 step が thickness より長くなって near-miss を見逃す問題を回避するため
-    // step 数を 48 に増やし、加速率を 0.015 に下げる (合計距離≒max_ray_dist の 1.45 倍)。
-    const int   kSteps   = 48;
-    const float kStepLen = max(params.y, 0.5) / float(kSteps);   // max_ray_dist / N
+    // Ray march: world space で粗く前進して geometry を貫いた step を検出し、
+    // そのあと binary search で交差点を絞り込む。粗 march だけだと hit 位置が
+    // step 長ぶんずれ、反射が縦に滲んでガビガビになる (Phase 34e-fix)。
+    const int   kSteps    = 48;
+    const float kStepLen  = max(params.y, 0.5) / float(kSteps);   // max_ray_dist / N
     const float thickness = max(params.w, 0.05);
-    float3 ray_pos = wp + N * 0.02 + R * 0.02;    // 起点 offset で self-hit 回避
+
+    float3 ray_pos  = wp + N * 0.02 + R * 0.02;   // 起点 offset で self-hit 回避
+    float3 prev_pos = ray_pos;                    // 直前 step (geometry 手前のはず)
+    bool   hit = false;
     [loop]
     for (int i = 0; i < kSteps; ++i) {
+        prev_pos = ray_pos;
         ray_pos += R * (kStepLen * (1.0 + float(i) * 0.015));  // 緩めの accelerating step
         float4 clip = mul(float4(ray_pos, 1.0), view_proj);
         if (clip.w <= 0.0) break;                              // 背面
@@ -73,19 +77,41 @@ float4 PSMain(VSOut v) : SV_TARGET {
         if (clip.x < -1.0 || clip.x > 1.0 || clip.y < -1.0 || clip.y > 1.0) break;
         float2 ray_uv = clip.xy * 0.5 + 0.5;
         float scene_d = scene_depth.SampleLevel(scene_depth_sampler, ray_uv, 0).r;
-        float ray_d   = clip.z;
-        // 衝突判定: ray の depth がシーン depth より奥にある (thickness 以内)
-        if (ray_d > scene_d && ray_d - scene_d < thickness) {
-            // sky をヒットは skip
-            if (scene_d >= 0.9999) break;
-            float3 hit_color = scene_color.SampleLevel(scene_color_sampler, ray_uv, 0).rgb;
-            // 端のフェードアウト (rect から離れるほど薄める)
-            float2 dist2edge = min(ray_uv, 1.0 - ray_uv);
-            float edge_fade = saturate(min(dist2edge.x, dist2edge.y) * 8.0);
-            return float4(hit_color * params.x * edge_fade, 1.0);
+        if (scene_d >= 0.9999) continue;                       // sky は貫通
+        // 衝突判定: ray depth がシーン depth より奥 (thickness 以内)
+        if (clip.z > scene_d && clip.z - scene_d < thickness) {
+            hit = true;
+            break;
         }
     }
-    return float4(0, 0, 0, 0);
+    if (!hit) return float4(0, 0, 0, 0);
+
+    // Binary search: prev_pos (geometry 手前) と ray_pos (奥) の間で交差点を
+    // 二分探索する。8 回で step を 1/256 に絞れるので反射が鋭くなる。
+    float3 lo = prev_pos;
+    float3 hi = ray_pos;
+    [unroll]
+    for (int b = 0; b < 8; ++b) {
+        float3 mid = (lo + hi) * 0.5;
+        float4 mc  = mul(float4(mid, 1.0), view_proj);
+        mc.xyz /= max(mc.w, 1e-6);
+        mc.y = -mc.y;
+        float2 mid_uv = mc.xy * 0.5 + 0.5;
+        float  md = scene_depth.SampleLevel(scene_depth_sampler, mid_uv, 0).r;
+        if (mc.z > md) hi = mid;     // mid は geometry より奥 → 交差は手前側
+        else           lo = mid;    // mid は手前 → 交差は奥側
+    }
+
+    // 絞り込んだ交差点で scene color を sample
+    float4 fc = mul(float4(hi, 1.0), view_proj);
+    fc.xyz /= max(fc.w, 1e-6);
+    fc.y = -fc.y;
+    float2 final_uv  = fc.xy * 0.5 + 0.5;
+    float3 hit_color = scene_color.SampleLevel(scene_color_sampler, final_uv, 0).rgb;
+    // 端のフェードアウト (画面端へ近づくほど薄める)
+    float2 dist2edge = min(final_uv, 1.0 - final_uv);
+    float  edge_fade = saturate(min(dist2edge.x, dist2edge.y) * 8.0);
+    return float4(hit_color * params.x * edge_fade, 1.0);
 }
 )";
 
