@@ -522,12 +522,12 @@ public:
         // 対象とするが、PbrShader は次のフレームで適用される (1 frame latency)
         // ことに注意。実用上 60 FPS なら 16ms 遅延で問題なし。
         if (_use_ssao) {
-            // Phase 34j-5: horizon-based occlusion は遮蔽が強めに出るので
-            // intensity を 1.0 → 0.7 に下げてバランスを取る。
+            // Phase 34j-6: GTAO は view 空間で計算するので view 行列も渡す。
+            // GTAO の analytical 積分は適度な遮蔽量に収まるので intensity 1.0。
             _ssao.Render(*dev, *cl, *depth,
-                         vp_for_render, inv_vp,
+                         vp_for_render, inv_vp, _camera.View(),
                          _camera.Eye(),
-                         /*intensity=*/0.7f,
+                         /*intensity=*/1.0f,
                          /*radius=*/0.5f);
             _ssao_warm = true;     // 次フレームから PbrShader が SSAO texture を読める
         }

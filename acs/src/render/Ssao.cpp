@@ -15,6 +15,7 @@ cbuffer SsaoCB : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;              // xyz = world pos
     float4   params;           // x=intensity, y=radius, z=texel_w, w=texel_h
+    float4x4 view;             // Phase 34j-6 GTAO: world → view 変換
 };
 
 Texture2D    scene_depth : register(t0);
@@ -39,71 +40,112 @@ float3 ReconstructWorldPos(float2 uv, float depth) {
     return wp.xyz / max(wp.w, 1e-6);
 }
 
+// uv + depth → view-space pos (world を経由して view 変換)
+float3 ReconstructViewPos(float2 uv, float depth) {
+    return mul(float4(ReconstructWorldPos(uv, depth), 1.0), view).xyz;
+}
+
+// GTAO (Jimenez et al. 2016 "Practical Realtime Strategies for Accurate
+// Indirect Occlusion")。各 slice で view ベクトルに対する両側の horizon angle
+// を screen-march で求め、normal を slice 平面に射影した角度 n を使って
+// cosine-weighted visibility を analytical に積分する。HBAO の「最大遮蔽」より
+// 物理的に正確 (法線半球の被覆率をちゃんと積分する)。
 float4 PSMain(VSOut v) : SV_TARGET {
     float depth = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).r;
-    if (depth >= 0.9999) return float4(1, 1, 1, 1);   // sky → no AO (visibility = 1)
+    if (depth >= 0.9999) return float4(1, 1, 1, 1);   // sky → no AO
 
-    float3 wp  = ReconstructWorldPos(v.uv, depth);
-    // depth-derivative 由来の screen-space normal
-    float3 dpx = ddx(wp);
-    float3 dpy = ddy(wp);
-    float3 N = normalize(cross(dpy, dpx));
-    // camera 側を向くように補正
-    float3 V = normalize(eye.xyz - wp);
+    // view-space position / normal
+    float3 P = ReconstructViewPos(v.uv, depth);
+    float3 dPdx = ddx(P);
+    float3 dPdy = ddy(P);
+    float3 N = normalize(cross(dPdy, dPdx));
+    float3 V = normalize(-P);             // view 空間: eye = 原点
     if (dot(N, V) < 0.0) N = -N;
 
-    // HBAO-lite: 6 方向 × 6 step、view space で sample (Phase 34j-3: noise 抑制で品質向上)
-    const int   kDirs  = 6;
-    const int   kSteps = 6;
+    const int   kSlices = 3;
+    const int   kSteps  = 6;
     const float kRadius = max(params.y, 0.05);
     const float kIntensity = params.x;
+    const float PI = 3.14159265;
+    const float HALF_PI = 1.57079632;
 
-    // Per-pixel jitter で banding 抑制 (Interleaved Gradient Noise、Jorge Jimenez)。
-    // 2 種類用意してそれぞれ direction / step に与え、互いに無相関にしてノイズ模様
-    // を「斑」ではなく「微粒」にする。
-    float jitter1 = frac(52.9829189 * frac(dot(v.pos.xy, float2(0.06711056, 0.00583715))));
-    float jitter2 = frac(31.4159265 * frac(dot(v.pos.xy, float2(0.04711057, 0.01183715))));
+    // Interleaved Gradient Noise jitter (slice 角 / step 距離をずらして banding 抑制)
+    float jitter = frac(52.9829189 * frac(dot(v.pos.xy, float2(0.06711056, 0.00583715))));
 
-    // Phase 34j-5: horizon-based occlusion (HBAO 本来の形)。
-    // 各 slice 方向で「最も遮蔽の強いサンプル (= horizon)」を 1 つ取り、全 slice
-    // で平均する。素朴な「全サンプルの ndot 平均」だと、近接の強い遮蔽が遠方の
-    // 弱いサンプルで薄まってしまうが、slice ごとに max を取ることで contact
-    // shadow がシャープに残る。物理的にも「1 方向で遮蔽されていればその方向の
-    // 光は来ない」= horizon の考え方に沿う。
-    float slice_sum = 0.0;
+    float visibility = 0.0;
     [unroll]
-    for (int d = 0; d < kDirs; ++d) {
-        float angle = (float(d) + jitter1) * (3.14159 / float(kDirs));
-        float2 dir_uv = float2(cos(angle), sin(angle));
-        // 半径を screen-space pixel に変換: 大雑把に depth に比例
-        // (透視投影で近い物体は radius 大きく、遠い物体は小さく)
-        float screen_radius = kRadius * 0.5 / max(depth, 0.01);
-        float horizon = 0.0;       // この slice の最大遮蔽量
-        [unroll]
-        for (int s = 1; s <= kSteps; ++s) {
-            float t = (float(s) + jitter2 * 0.5) / float(kSteps);
-            float2 off = dir_uv * screen_radius * t;
-            float2 sample_uv = v.uv + off;
-            if (sample_uv.x < 0 || sample_uv.x > 1 || sample_uv.y < 0 || sample_uv.y > 1) continue;
-            float sample_d = scene_depth.SampleLevel(scene_depth_sampler, sample_uv, 0).r;
-            if (sample_d >= 0.9999) continue;
-            float3 sample_wp = ReconstructWorldPos(sample_uv, sample_d);
-            float3 delta = sample_wp - wp;
-            float  dist  = length(delta);
-            if (dist < 1e-4 || dist > kRadius) continue;
-            float3 dir = delta / dist;
-            // sample point が surface normal の上にあれば occluder
-            float ndot = max(dot(N, dir), 0.0);
-            // 距離 falloff (近いほど影響大、kRadius で 0)
-            float falloff = 1.0 - smoothstep(kRadius * 0.5, kRadius, dist);
-            horizon = max(horizon, ndot * falloff);    // slice 内は max (= horizon)
-        }
-        slice_sum += horizon;
-    }
+    for (int s = 0; s < kSlices; ++s) {
+        float phi = (float(s) + jitter) * (PI / float(kSlices));
+        float2 dir = float2(cos(phi), sin(phi));        // screen-space slice 方向
 
-    // 全 slice の horizon 平均を遮蔽量とする。horizon-based は sum-average より
-    // 遮蔽が強く出るので、呼び出し側 (HelloIbl) の intensity を下げて調整する。
-    float ao = saturate(1.0 - (slice_sum / float(kDirs)) * kIntensity);
+        // slice 平面: P, V, と screen 方向。view 空間では screen x/y ≈ view x/y。
+        float3 omega  = float3(dir.x, dir.y, 0.0);
+        float3 sliceN = normalize(cross(omega, V));     // slice 平面の法線
+        // N を slice 平面に射影
+        float3 projN  = N - sliceN * dot(N, sliceN);
+        float  projNLen = length(projN);
+        if (projNLen < 1e-4) continue;
+        float3 projNn = projN / projNLen;
+        // projN の V に対する角度 n (slice 平面内、符号付き)
+        float n = acos(clamp(dot(projNn, V), -1.0, 1.0));
+        float3 omegaIn = normalize(omega - sliceN * dot(omega, sliceN));
+        if (dot(projNn, omegaIn) < 0.0) n = -n;
+
+        // 両側の horizon cos を screen-march で探す
+        float cH1 = -1.0;   // -omega 側 (init = 最も低い地平)
+        float cH2 = -1.0;   // +omega 側
+        // world radius → screen UV。非線形 depth ではなく view-space linear Z
+        // (P.z) で割る。透視投影では screen size ∝ world size / view_z なので
+        // これが次元的に正しい。0.5 は fov/aspect 由来の proj scale の粗い近似。
+        float screen_r = kRadius * 0.5 / max(P.z, 0.1);
+        [unroll]
+        for (int t = 1; t <= kSteps; ++t) {
+            float tt = (float(t) - 0.5 + jitter * 0.5) / float(kSteps);
+            float2 off = dir * screen_r * tt;
+
+            float2 uvA = v.uv + off;     // +omega 側
+            if (uvA.x >= 0.0 && uvA.x <= 1.0 && uvA.y >= 0.0 && uvA.y <= 1.0) {
+                float dA = scene_depth.SampleLevel(scene_depth_sampler, uvA, 0).r;
+                if (dA < 0.9999) {
+                    float3 D = ReconstructViewPos(uvA, dA) - P;
+                    float  dl = length(D);
+                    if (dl > 1e-4 && dl < kRadius) {
+                        float c  = dot(D / dl, V);
+                        float fo = saturate(1.0 - dl / kRadius);   // 距離 falloff
+                        cH2 = max(cH2, lerp(-1.0, c, fo));
+                    }
+                }
+            }
+            float2 uvB = v.uv - off;     // -omega 側
+            if (uvB.x >= 0.0 && uvB.x <= 1.0 && uvB.y >= 0.0 && uvB.y <= 1.0) {
+                float dB = scene_depth.SampleLevel(scene_depth_sampler, uvB, 0).r;
+                if (dB < 0.9999) {
+                    float3 D = ReconstructViewPos(uvB, dB) - P;
+                    float  dl = length(D);
+                    if (dl > 1e-4 && dl < kRadius) {
+                        float c  = dot(D / dl, V);
+                        float fo = saturate(1.0 - dl / kRadius);
+                        cH1 = max(cH1, lerp(-1.0, c, fo));
+                    }
+                }
+            }
+        }
+
+        // horizon cos → angle。-omega 側は負角、+omega 側は正角。
+        float h1 = -acos(clamp(cH1, -1.0, 1.0));
+        float h2 =  acos(clamp(cH2, -1.0, 1.0));
+        // normal 半球にクランプ (h は n ± HALF_PI の範囲に収める)
+        h1 = n + max(h1 - n, -HALF_PI);
+        h2 = n + min(h2 - n,  HALF_PI);
+        // GTAO analytical integral (Jimenez 2016 Listing)
+        float a1 = -cos(2.0 * h1 - n) + cos(n) + 2.0 * h1 * sin(n);
+        float a2 = -cos(2.0 * h2 - n) + cos(n) + 2.0 * h2 * sin(n);
+        visibility += projNLen * 0.25 * (a1 + a2);
+    }
+    visibility = saturate(visibility / float(kSlices));
+
+    // visibility = 見える割合 (1=全開放、0=全遮蔽)。intensity で AO 強度調整。
+    float ao = saturate(1.0 - (1.0 - visibility) * kIntensity);
     return float4(ao, ao, ao, 1.0);
 }
 )";
@@ -119,6 +161,7 @@ cbuffer SsaoCB : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;
     float4   params;     // z=texel_w, w=texel_h
+    float4x4 view;       // blur では未使用、CB レイアウト整合のため宣言
 };
 
 Texture2D    ssao_raw    : register(t0);
@@ -173,6 +216,7 @@ struct SsaoCBLayout {
     Mat4 inv_view_proj;
     Vec4 eye;
     Vec4 params;
+    Mat4 view;             // Phase 34j-6 GTAO
 };
 
 template<typename T>
@@ -323,6 +367,7 @@ Result<void> Ssao::Resize(u32 width, u32 height) noexcept {
 void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
+                  const Mat4& view,
                   Vec3 eye, f32 intensity, f32 radius) noexcept {
     if (!_output || !_blur_output || !_pipeline || !_blur_pipeline || !_cb) return;
     SsaoCBLayout data{};
@@ -332,6 +377,7 @@ void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     data.params        = Vec4{intensity, radius,
                                1.0f / static_cast<f32>(_width),
                                1.0f / static_cast<f32>(_height)};
+    data.view          = view;       // Phase 34j-6 GTAO: world → view
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: SSAO raw → _output

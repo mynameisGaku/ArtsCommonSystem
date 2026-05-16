@@ -39,9 +39,10 @@ public:
     void Shutdown() noexcept;
     Result<void> Resize(u32 width, u32 height) noexcept;
 
-    // SSAO を計算して内部 RT に書く。
+    // SSAO (Phase 34j-6 から GTAO) を計算して内部 RT に書く。
     //   scene_depth: shader_visible_depth=true な depth buffer
     //   inv_view_proj: 現フレーム VP の逆 (depth+uv → world)
+    //   view: world → view 変換 (GTAO の slice 計算は view 空間で行う)
     //   eye: カメラ world pos
     //   intensity: 遮蔽強度 (0=AO 無効、1=neutral、>1=過度に暗く)
     //   radius:    AO の最大半径 (world units、0.5 ~ 2.0 が典型)
@@ -49,6 +50,7 @@ public:
                 IRhiTexture& scene_depth,
                 const Mat4& view_proj,
                 const Mat4& inv_view_proj,
+                const Mat4& view,
                 Vec3 eye,
                 f32 intensity = 1.0f,
                 f32 radius    = 0.5f) noexcept;
