@@ -109,11 +109,17 @@ public:
         // Bloom 強度はデフォルトより少し弱めに (Day sky は十分明るいので)
         _post_params.bloom_threshold = 1.5f;
         _post_params.bloom_intensity = 0.4f;
-        // Phase 34k: 初期 preset は Day。露出目標 0.7、adapted も同値で初期化
-        // (起動時に 1.0→0.7 へ慣れる演出は不要なので合わせておく)。
+        // Phase 34k: 手動モード用の初期露出。preset Day = 0.7、adapted も同値に。
         _exposure_target   = 0.7f;
         _adapted_exposure  = 0.7f;
-        _post_params.exposure = 0.7f;
+        // Phase 34k-2: 既定で GPU auto-exposure を有効化。シーン輝度を GPU で実測
+        // して露出を自動算出 → preset 切替 (Day↔Night) でも自動で再露出され、
+        // eye adaptation が演出として効く。'U' で手動 (Phase 34k) モードへ切替可。
+        _use_auto_exposure = true;
+        _post_params.auto_exposure_enabled = true;
+        _post_params.auto_exposure_key     = _auto_key;
+        _post_params.auto_exposure_speed   = 1.5f;   // τ≈0.7s のシネマ的順応速度
+        _post_params.exposure              = 1.0f;   // 露出は GPU 側が決める
 
         // Color grading (Phase 34h) cinematic look: 軽い暖色 + 彩度ブースト + コントラスト
         _post_params.cg_saturation   = 1.10f;
@@ -183,21 +189,34 @@ public:
         if (Input::IsKeyPressed(Key::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
         }
-        // E/Q で露出 ± (Phase 34k: 露出「目標」を動かす。実露出 _adapted_exposure は
-        // 後段でこの目標へ dt 補間して追従する → 手動調整でも eye adaptation 質感)
-        if (Input::IsKeyDown(Key::E)) _exposure_target += dt * 0.5f;
-        if (Input::IsKeyDown(Key::Q)) _exposure_target -= dt * 0.5f;
-        if (_exposure_target < 0.1f) _exposure_target = 0.1f;
-        if (_exposure_target > 4.0f) _exposure_target = 4.0f;
+        // U で露出モード切替: GPU auto-exposure (実測) ⇔ 手動 (Phase 34k CPU 補間)
+        if (Input::IsKeyPressed(Key::U)) _use_auto_exposure = !_use_auto_exposure;
 
-        // Phase 34k: eye adaptation — adapted を target へスムーズ補間。
-        // adapt_rate を大きくすると速く慣れる。2.5 で ~0.4 秒程度。
-        {
+        if (_use_auto_exposure) {
+            // Phase 34k-2: 露出は GPU が実測輝度から算出。Q/E は目標平均輝度 (key) を
+            // 動かして全体の明暗を補正する (EV compensation 相当)。
+            if (Input::IsKeyDown(Key::E)) _auto_key += dt * 0.3f;
+            if (Input::IsKeyDown(Key::Q)) _auto_key -= dt * 0.3f;
+            if (_auto_key < 0.1f) _auto_key = 0.1f;
+            if (_auto_key > 2.0f) _auto_key = 2.0f;
+            _post_params.auto_exposure_enabled = true;
+            _post_params.auto_exposure_key     = _auto_key;
+            _post_params.exposure              = 1.0f;   // 露出は GPU 側で適用済み
+        } else {
+            // Phase 34k: 手動の露出目標 + CPU eye adaptation。Q/E で目標を動かし、
+            // _adapted_exposure が dt 補間で追従する (~0.4 秒で順応)。
+            if (Input::IsKeyDown(Key::E)) _exposure_target += dt * 0.5f;
+            if (Input::IsKeyDown(Key::Q)) _exposure_target -= dt * 0.5f;
+            if (_exposure_target < 0.1f) _exposure_target = 0.1f;
+            if (_exposure_target > 4.0f) _exposure_target = 4.0f;
             f32 k = dt * 2.5f;
             if (k > 1.0f) k = 1.0f;
             _adapted_exposure += (_exposure_target - _adapted_exposure) * k;
-            _post_params.exposure = _adapted_exposure;
+            _post_params.auto_exposure_enabled = false;
+            _post_params.exposure              = _adapted_exposure;
         }
+        // auto-exposure の eye adaptation 補間に使うフレーム時間を渡す
+        _post_params.delta_time = dt;
 
         // 視点を矢印 (回転) + WASD (移動) で操作
         const f32 mv = 4.0f * dt, tr = 1.5f * dt;
@@ -635,9 +654,17 @@ public:
                           "Display: %s   (I で切替)", view_label);
             _batch.DrawString(_font, buf, 20, 68, Vec4{1.0f, 0.95f, 0.7f, 1});
 
+            char exp_label[48];
+            if (_use_auto_exposure) {
+                std::snprintf(exp_label, sizeof(exp_label), "AUTO (key %.2f)",
+                              static_cast<double>(_auto_key));
+            } else {
+                std::snprintf(exp_label, sizeof(exp_label), "%.2f (manual)",
+                              static_cast<double>(_post_params.exposure));
+            }
             std::snprintf(buf, sizeof(buf),
-                          "Exposure: %.2f   Bloom: %s   Diffuse: %s   (Q/E exp, B bloom, S SH9)",
-                          static_cast<double>(_post_params.exposure),
+                          "Exposure: %s   Bloom: %s   Diffuse: %s   (U auto, Q/E exp, B bloom)",
+                          exp_label,
                           _post_params.bloom_enabled ? "ON" : "OFF",
                           _use_sh9 ? "SH9 (light probe)" : "Irradiance cube");
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
@@ -918,6 +945,8 @@ private:
     bool               _taa_prev_vp_valid = false;// 上が本物の VP (default identity 以外) か
     f32                _exposure_target  = 0.7f;  // Phase 34k: 露出目標 (preset / Q-E で動く)
     f32                _adapted_exposure = 0.7f;  // Phase 34k: 実露出 (target へ dt 補間)
+    bool               _use_auto_exposure = true; // Phase 34k-2: GPU auto-exposure ('U' で手動切替)
+    f32                _auto_key          = 0.5f; // Phase 34k-2: 自動露出の目標平均輝度 (Q/E で調整)
     bool               _use_ssgi         = true;  // Phase 33c: SSGI 有効 ('J' でトグル)
     bool               _ssgi_warm        = false; // _ssgi.Render が 1 度以上走った？
     bool               _use_lightmap     = true;  // Phase 33f: lightmap 有効 ('K' でトグル)

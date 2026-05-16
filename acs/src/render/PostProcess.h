@@ -93,6 +93,19 @@ struct PostProcessParams {
     IRhiTexture* taa_depth_texture = nullptr;
     Mat4         taa_view_proj_no_jitter{};      // Halton 適用前の view_proj
     Mat4         taa_prev_view_proj_no_jitter{}; // 前フレームの view_proj (Halton 適用前)
+
+    // Auto-exposure (Phase 34k-2): GPU でシーンの平均輝度を測定し、露出を自動算出する。
+    // Phase 34k の CPU eye-adaptation を「実測輝度ベース」へ置き換える本実装。
+    //   false: 従来どおり exposure をそのまま使う (既存サンプル互換)。
+    //   true : luma reduction → 露出順応 → ExposureApply の 3 pass を内部で実行。
+    //          露出はシーン輝度から自動算出され、exposure は「自動露出にさらに掛ける
+    //          手動補正 (EV compensation)」として働く (中性 = 1.0)。
+    bool auto_exposure_enabled = false;
+    f32  auto_exposure_key     = 0.5f;    // 露出後の目標平均輝度。大きいほど明るく写る
+    f32  auto_exposure_min     = 0.05f;   // 自動露出の下限 (明所での白飛びを防ぐ)
+    f32  auto_exposure_max     = 12.0f;   // 自動露出の上限 (暗所での黒つぶれを防ぐ)
+    f32  auto_exposure_speed   = 1.8f;    // eye adaptation 速度 (/秒、大きいほど速く順応)
+    f32  delta_time            = 0.0166f; // 露出順応の時間補間に使うフレーム時間
 };
 
 class PostProcess {
@@ -140,6 +153,14 @@ private:
     void Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
                         const PostProcessParams& p) noexcept;
 
+    // Auto-exposure (Phase 34k-2)
+    void Pass_LumaReduce  (IRhiCommandList& cmd) noexcept;
+    void Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
+    void Pass_ExposureApply(IRhiCommandList& cmd) noexcept;
+    // 下流パス (TAA / Bloom / Tonemap) が読むシーン texture。auto-exposure 有効なら
+    // 露出適用後の _exposed_rt、そうでなければ raw _hdr_rt。
+    IRhiTexture* SceneInput(const PostProcessParams& p) const noexcept;
+
     IRhiDevice* _device = nullptr;
     u32         _width  = 0;
     u32         _height = 0;
@@ -175,6 +196,28 @@ private:
     u32                     _taa_frame = 0;
     UniquePtr<IRhiBuffer>   _cb_taa_reproj;     // Phase 34f-2: separate b1 で行列 2 枚
     UniquePtr<IRhiTexture>  _taa_depth_fb;      // depth 未指定時の fallback (1x1)
+
+    // Auto-exposure (Phase 34k-2): GPU luminance 測定 + eye adaptation。
+    // _luma_mips は _hdr_rt の 1/2 から 1x1 まで縮約する mip chain。最深段 (1x1) に
+    // シーン平均 log2 輝度が入る。_exposure[2] は順応済み露出を保持する 1x1 ping-pong
+    // (frame N が _exposure[N%2] に書き、_exposure[(N+1)%2] = 前フレーム値を読む)。
+    // _exposed_rt は _hdr_rt に自動露出を掛けた結果で、下流パスはこれを読む。
+    static constexpr u32 kMaxLumaMips = 13;     // 4K (3840) でも floor(log2)+1 に収まる
+    UniquePtr<IRhiTexture>  _luma_mips[kMaxLumaMips];
+    u32                     _luma_mip_count = 0;
+    UniquePtr<IRhiTexture>  _exposure[2];       // 1x1、順応済み露出 (ping-pong)
+    UniquePtr<IRhiTexture>  _exposed_rt;        // _hdr_rt * auto exposure
+    UniquePtr<IRhiShader>   _ps_luma_extract;   // HDR → log2 輝度 (downsample 兼)
+    UniquePtr<IRhiShader>   _ps_luma_down;      // log2 輝度の box average
+    UniquePtr<IRhiShader>   _ps_exposure;       // 露出順応 (eye adaptation)
+    UniquePtr<IRhiShader>   _ps_expose_apply;   // _hdr_rt * 露出 → _exposed_rt
+    UniquePtr<IRhiPipeline> _pipe_luma_extract;
+    UniquePtr<IRhiPipeline> _pipe_luma_down;
+    UniquePtr<IRhiPipeline> _pipe_exposure;
+    UniquePtr<IRhiPipeline> _pipe_expose_apply;
+    UniquePtr<IRhiBuffer>   _cb_auto;           // auto-exposure 用パラメータ CB
+    u32                     _auto_frame = 0;    // 露出 ping-pong / cold-start 判定用
+    Format                  _luma_format = Format::R16G16_Float;
 };
 
 } // namespace acs
