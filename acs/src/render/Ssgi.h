@@ -47,6 +47,10 @@ public:
     //                   identity を渡すと reprojection 無効 (= 静的 accumulate)。
     //   intensity:   indirect light の倍率 (0=無効、1=neutral、>1=強調)
     //   max_distance: ray march の世界距離上限 (世界座標、典型 5.0)
+    //   motion_texture: Phase 34f-3。非 null なら temporal pass が depth reprojection
+    //                   ではなくこの motion vector で history を引く (動く mesh も
+    //                   ghost せず追従)。MotionVector::OutputTexture() を渡す。
+    //                   null なら従来の camera-only depth reprojection。
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color,
                 IRhiTexture& scene_depth,
@@ -55,7 +59,8 @@ public:
                 const Mat4& prev_view_proj,
                 Vec3 eye,
                 f32 intensity   = 1.0f,
-                f32 max_distance = 5.0f) noexcept;
+                f32 max_distance = 5.0f,
+                IRhiTexture* motion_texture = nullptr) noexcept;
 
     // Phase 33c-3: temporal accumulation 後の history RT を返す (= 直近の Render
     // が書き込んだ index)。PbrShader はこれを読む (blur + 時間積分でノイズ除去済)。

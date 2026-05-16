@@ -193,11 +193,12 @@ cbuffer SsgiCB : register(b0) {
     float4   eye;
     float4   params;          // z=texel_w, w=texel_h
     float4x4 prev_view_proj;   // Phase 33c-3: reprojection 用
+    float4   temporal_params;  // Phase 34f-3: x=motion_texture_mode
 };
 
 Texture2D    current_gi  : register(t0);   // blur 済み SSGI (今フレーム)
 Texture2D    history_gi  : register(t1);   // 前フレームの temporal 結果
-Texture2D    scene_depth : register(t2);
+Texture2D    scene_depth : register(t2);   // Phase 34f-3: motion mode では motion vector
 SamplerState current_gi_sampler  : register(s0);
 SamplerState history_gi_sampler  : register(s1);
 SamplerState scene_depth_sampler : register(s2);
@@ -230,7 +231,16 @@ float2 ReprojectUv(float2 uv) {
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 cur = current_gi.SampleLevel(current_gi_sampler, v.uv, 0).rgb;
 
-    float2 huv = ReprojectUv(v.uv);
+    // Phase 34f-3: motion texture モードなら scene_depth slot を motion vector
+    // として再解釈し、動く mesh も含めて history を reproject する。
+    // 非モードなら従来の camera-only depth reprojection。
+    float2 huv;
+    if (temporal_params.x >= 0.5) {
+        float2 mv = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).rg;
+        huv = v.uv + mv;
+    } else {
+        huv = ReprojectUv(v.uv);
+    }
     if (any(huv < 0.0) || any(huv > 1.0)) huv = v.uv;   // 画面外は静的 fallback
     float3 hist = history_gi.SampleLevel(history_gi_sampler, huv, 0).rgb;
 
@@ -261,6 +271,7 @@ struct SsgiCBLayout {
     Vec4 eye;
     Vec4 params;
     Mat4 prev_view_proj;       // Phase 33c-3
+    Vec4 temporal_params;      // Phase 34f-3: x=motion_texture_mode (0/1)
 };
 
 template<typename T>
@@ -468,7 +479,8 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
                   const Mat4& prev_view_proj,
-                  Vec3 eye, f32 intensity, f32 max_distance) noexcept {
+                  Vec3 eye, f32 intensity, f32 max_distance,
+                  IRhiTexture* motion_texture) noexcept {
     if (!_output || !_blur_output || !_history[0] || !_history[1] ||
         !_pipeline || !_blur_pipeline || !_temporal_pipeline || !_cb) return;
     SsgiCBLayout data{};
@@ -479,6 +491,8 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                                1.0f / static_cast<f32>(_width),
                                1.0f / static_cast<f32>(_height)};
     data.prev_view_proj = prev_view_proj;
+    // Phase 34f-3: motion texture が指定されていれば temporal pass を motion mode に。
+    data.temporal_params = Vec4{ motion_texture ? 1.0f : 0.0f, 0, 0, 0 };
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: SSGI raw → _output
@@ -512,7 +526,9 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, *_blur_output);   // current (blur 済み)
     cl.SetTexture(1, *hist_in);        // history (or blur on frame 0)
-    cl.SetTexture(2, scene_depth);
+    // Phase 34f-3: t2 は motion texture (あれば) または scene_depth。
+    // shader 側が temporal_params.x で解釈を切替えるので PSO の slot 数は不変。
+    cl.SetTexture(2, motion_texture ? *motion_texture : scene_depth);
     cl.Draw(3);
     cl.EndRenderToTexture(*_history[cur]);
 

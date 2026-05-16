@@ -551,6 +551,40 @@ public:
 
         cl->EndRenderToTexture(*hdr);
 
+        // ===== Motion vector pass (Phase 34f-3、'M' で toggle) =====
+        // 全 mesh を再ラスタライズして screen-space motion vector を焼く。TAA と
+        // temporal SSGI がこれで動く mesh を正しく reproject し ghost / trail を消す。
+        // SSGI が現フレームの motion を読むため SSGI より前に実行する。静的 mesh は
+        // prev == curr、camera 動きは前フレーム VP との差で表現される。
+        if (_use_motion_vec) {
+            // frame 0 は前フレーム VP が未確定なので prev=curr で motion 0 にする。
+            const Mat4 motion_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
+                                                           : vp_no_jitter;
+            _motion.Begin(*cl, vp_no_jitter, motion_prev_vp);
+            // 床 (静的: prev == curr)
+            const Mat4 plane_model = Mat4::Translation(Vec3{0, -0.6f, 3.0f});
+            _motion.DrawMesh(*cl, _gm_plane, plane_model, plane_model);
+            // 静的グリッド球 25 (color pass と同じ transform 計算、prev == curr)
+            for (u32 y = 0; y < kGrid; ++y) {
+                for (u32 x = 0; x < kGrid; ++x) {
+                    const f32 px = (static_cast<f32>(x) - (kGrid - 1) * 0.5f) * kSpacing;
+                    const f32 py = (static_cast<f32>(y) - (kGrid - 1) * 0.5f) * kSpacing + 2.5f;
+                    const Mat4 m = Mat4::Translation(Vec3{px, py, 3.0f});
+                    _motion.DrawMesh(*cl, _gm_sphere, m, m);
+                }
+            }
+            // 動的球 (prev != curr → object motion を含む)
+            for (u32 i = 0; i < kDynCount; ++i) {
+                _motion.DrawMesh(*cl, _gm_sphere, _dyn_curr[i], _dyn_prev[i]);
+            }
+            _motion.End(*cl);
+        }
+        // motion texture を TAA / SSGI へ渡す。frame 0 は prev VP 未確定なので渡さず、
+        // depth reprojection 側の cold-start ガードに委ねる。
+        IRhiTexture* motion_tex =
+            (_use_motion_vec && _taa_prev_vp_valid) ? _motion.OutputTexture() : nullptr;
+        _post_params.taa_motion_texture = motion_tex;
+
         // ===== SSR pass (Phase 34e、'R' で可視化) =====
         // 結果は _ssr.OutputTexture() に書かれる。最終 HDR への composite は
         // additive blend pipeline + BeginRenderToTextureNoClear が要るので
@@ -595,47 +629,18 @@ public:
             // 渡す (TAA と共用)。frame 0 は _prev_vp_no_jitter が default identity
             // なので、現フレームの VP を prev として渡し reprojection を motion 0 に
             // しておく (TAA と同じ cold-start ガード)。
+            // Phase 34f-3: motion_tex を渡すと temporal pass が動く mesh も正しく
+            // reproject する (null なら従来の depth reprojection にフォールバック)。
             const Mat4& ssgi_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
                                                           : vp_no_jitter;
             _ssgi.Render(*dev, *cl, *hdr, *depth,
                          vp_for_render, inv_vp, ssgi_prev_vp,
                          _camera.Eye(),
                          /*intensity=*/1.0f,
-                         /*max_distance=*/5.0f);
+                         /*max_distance=*/5.0f,
+                         motion_tex);
             _ssgi_warm = true;
         }
-
-        // ===== Motion vector pass (Phase 34f-3、'M' で toggle) =====
-        // 全 mesh を再ラスタライズして screen-space motion vector を焼く。TAA は
-        // これで動く mesh も正しく reproject し、ghost / trail を消す。静的 mesh は
-        // prev == curr、camera 動きは前フレーム VP との差で表現される。
-        if (_use_motion_vec) {
-            // frame 0 は前フレーム VP が未確定なので prev=curr で motion 0 にする。
-            const Mat4 motion_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
-                                                           : vp_no_jitter;
-            _motion.Begin(*cl, vp_no_jitter, motion_prev_vp);
-            // 床 (静的: prev == curr)
-            const Mat4 plane_model = Mat4::Translation(Vec3{0, -0.6f, 3.0f});
-            _motion.DrawMesh(*cl, _gm_plane, plane_model, plane_model);
-            // 静的グリッド球 25 (color pass と同じ transform 計算、prev == curr)
-            for (u32 y = 0; y < kGrid; ++y) {
-                for (u32 x = 0; x < kGrid; ++x) {
-                    const f32 px = (static_cast<f32>(x) - (kGrid - 1) * 0.5f) * kSpacing;
-                    const f32 py = (static_cast<f32>(y) - (kGrid - 1) * 0.5f) * kSpacing + 2.5f;
-                    const Mat4 m = Mat4::Translation(Vec3{px, py, 3.0f});
-                    _motion.DrawMesh(*cl, _gm_sphere, m, m);
-                }
-            }
-            // 動的球 (prev != curr → object motion を含む)
-            for (u32 i = 0; i < kDynCount; ++i) {
-                _motion.DrawMesh(*cl, _gm_sphere, _dyn_curr[i], _dyn_prev[i]);
-            }
-            _motion.End(*cl);
-        }
-        // TAA へ motion texture を渡す。frame 0 は prev VP 未確定なので渡さず、
-        // depth reprojection 側の cold-start ガードに委ねる。
-        _post_params.taa_motion_texture =
-            (_use_motion_vec && _taa_prev_vp_valid) ? _motion.OutputTexture() : nullptr;
 
         // TAA (Phase 34f) を毎フレーム params に反映
         _post_params.taa_enabled = _use_taa;
