@@ -68,6 +68,10 @@ cbuffer Frame : register(b0) {
     // ambient/indirect 項に加算。SSGI と排他ではない (両方有効化可)。
     //   x = enabled (0/1)、y = intensity、zw = pad
     float4   lightmap_params;
+
+    // SSR (Phase 34e-2fix): screen-space reflection を IBL specular に blend。
+    //   x = enabled (0/1)、y = intensity、zw = pad。screen UV は ssao_params.zw を流用。
+    float4   ssr_params;
 };
 
 cbuffer Object : register(b1) {
@@ -88,6 +92,7 @@ Texture2D    shadow_map        : register(t5);
 Texture2D    ssao_map          : register(t6);
 Texture2D    ssgi_color        : register(t7);
 Texture2D    lightmap          : register(t8);
+Texture2D    ssr_color         : register(t9);
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
@@ -97,6 +102,7 @@ SamplerState shadow_map_sampler : register(s5);
 SamplerState ssao_map_sampler   : register(s6);
 SamplerState ssgi_color_sampler : register(s7);
 SamplerState lightmap_sampler   : register(s8);
+SamplerState ssr_color_sampler  : register(s9);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -348,7 +354,8 @@ float3 ProbeGridIrradiance(float3 world_p, float3 N) {
 //   diffuse_ibl  = (1 - F) * (1 - metallic) * base * irradiance.Sample(N)
 //   specular_ibl = prefilter.SampleLevel(R, roughness * (mips-1)) * (F0 * lut.r + lut.g)
 float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
-                        float metallic, float roughness, float ao)
+                        float metallic, float roughness, float ao,
+                        float3 ssr_radiance, float ssr_weight)
 {
     float NoV = saturate(dot(N, V));
     float3 R  = reflect(-V, N);
@@ -373,7 +380,10 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     float mip_lvl = roughness * max(ibl_params.y - 1.0, 0.0);
     float3 prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
     float2 lut_xy = brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, roughness), 0).rg;
-    float3 specular_ibl = prefilt * (F0 * lut_xy.x + lut_xy.y);
+    // Phase 34e-2fix: 反射元の radiance を環境 prefilter (off-screen) から SSR
+    // (on-screen の実ジオメトリ) へ blend。BRDF 応答 (split-sum scale+bias) は共通。
+    float3 reflected = lerp(prefilt, ssr_radiance, saturate(ssr_weight));
+    float3 specular_ibl = reflected * (F0 * lut_xy.x + lut_xy.y);
 
     return (diffuse_ibl + specular_ibl) * ao;
 }
@@ -473,12 +483,39 @@ float4 PSMain(VSOut v) : SV_TARGET {
         ssao_factor = saturate(1.0 - (1.0 - ssao_vis) * ssao_params.y);
     }
 
+    // SSR (Phase 34e-2fix): screen-space reflection を roughness 依存の blur で
+    // sample する。rough 面ほど反射をぼかし weight も下げる → smooth 面は SSR を、
+    // rough 面は環境 prefilter を反射元に使う物理的に正しい挙動になる。
+    // screen UV / viewport は SSAO の値 (ssao_params.zw) を流用する。
+    float3 ssr_rgb    = float3(0, 0, 0);
+    float  ssr_weight = 0.0;
+    if (ssr_params.x >= 0.5) {
+        float2 ssr_uv = v.pos.xy * float2(ssao_params.z, ssao_params.w);
+        float  blur   = roughness * 0.015;
+        float3 sum    = float3(0, 0, 0);
+        float  amask  = 0.0;
+        [unroll]
+        for (int sy = -1; sy <= 1; ++sy) {
+            [unroll]
+            for (int sx = -1; sx <= 1; ++sx) {
+                float4 s = ssr_color.SampleLevel(ssr_color_sampler,
+                              ssr_uv + float2(sx, sy) * blur, 0);
+                sum   += s.rgb;
+                amask += s.a;
+            }
+        }
+        ssr_rgb    = sum * (1.0 / 9.0);
+        // hit mask * intensity * (1-roughness) で rough 面ほど SSR を弱める
+        ssr_weight = (amask / 9.0) * ssr_params.y * (1.0 - roughness);
+    }
+
     // 環境光: ibl_params.x が 1 なら IBL ambient、0 なら flat ambient。
     // uniform branching なので片方の TextureCube サンプルは PSO の dead code
     // として削除される (FXC の判断による)。
     float3 col;
     if (ibl_params.x >= 0.5) {
-        float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao);
+        float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao,
+                                            ssr_rgb, ssr_weight);
         IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness);
         col = (base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao) * ssao_factor;
     } else {
@@ -621,6 +658,7 @@ struct FrameCBLayout {
     Vec4 ssao_params;       // Phase 34j-2: x=enabled, y=intensity, zw=inv_viewport
     Vec4 ssgi_params;       // Phase 33c: x=enabled, y=intensity, zw=pad
     Vec4 lightmap_params;   // Phase 33f: x=enabled, y=intensity, zw=pad
+    Vec4 ssr_params;        // Phase 34e-2fix: x=enabled, y=intensity, zw=pad
 };
 
 struct ObjectCBLayout {
@@ -737,6 +775,16 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
         return Err<void>(r.Error());
     else _lightmap_fb = Move(r.Value());
 
+    // SSR fallback: 1x1 RGBA8 全 0 (.a=0 → hit mask 0 = 反射なし)。
+    // ssr_params.x=0 で shader が早期 return するので unused だが SRB binding 用。
+    TextureDesc rt{};
+    rt.width = 1; rt.height = 1;
+    rt.format = Format::R8G8B8A8_UNorm;
+    rt.initial_data = zero_rgba; rt.initial_data_size = 4;
+    if (auto r = CreateRhiTexture(device, rt); r.IsErr())
+        return Err<void>(r.Error());
+    else _ssr_fb = Move(r.Value());
+
     // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
     // SRB に valid な texture を bind する必要があるので作っておく。内容は
@@ -770,7 +818,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.depth_write   = true;
     pd.cull_mode     = CullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 9;     // t0=albedo .. t8=lightmap (Phase 33f)
+    pd.texture_slots = 10;    // t0=albedo .. t8=lightmap, t9=ssr_color (Phase 34e-2fix)
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -782,7 +830,8 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.texture_names[6] = "ssao_map";
     pd.texture_names[7] = "ssgi_color";
     pd.texture_names[8] = "lightmap";
-    pd.static_sampler_count = 9;
+    pd.texture_names[9] = "ssr_color";
+    pd.static_sampler_count = 10;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Wrap;
     pd.static_samplers[0].address_v = SamplerAddress::Wrap;
@@ -813,6 +862,9 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.static_samplers[8].filter    = SamplerFilter::Linear;       // lightmap は linear で texel boundary を smooth
     pd.static_samplers[8].address_u = SamplerAddress::Clamp;       // 端を伸ばす (タイリングしない baked light)
     pd.static_samplers[8].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[9].filter    = SamplerFilter::Linear;       // SSR も linear、画面外参照は clamp
+    pd.static_samplers[9].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[9].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -843,6 +895,8 @@ void PbrShader::Shutdown() noexcept {
     _ssgi_tex = nullptr;
     _lightmap_fb.Reset();
     _lightmap_tex = nullptr;
+    _ssr_fb.Reset();
+    _ssr_tex = nullptr;
     _ibl_brdf_fb.Reset();
     _ibl_prefilter_fb.Reset();
     _ibl_irradiance_fb.Reset();
@@ -942,6 +996,12 @@ void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     } else if (_lightmap_fb) {
         cmd.SetTexture(8, *_lightmap_fb);
     }
+    // SSR (Phase 34e-2fix): slot 9
+    if (_ssr_tex) {
+        cmd.SetTexture(9, *_ssr_tex);
+    } else if (_ssr_fb) {
+        cmd.SetTexture(9, *_ssr_fb);
+    }
 }
 
 void PbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
@@ -960,6 +1020,12 @@ void PbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
 void PbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
     _ssgi_tex       = ssgi_tex;
     _ssgi_intensity = intensity < 0 ? 0.0f : intensity;
+    FlushFrameCB();
+}
+
+void PbrShader::SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept {
+    _ssr_tex       = ssr_tex;
+    _ssr_intensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
@@ -1056,6 +1122,11 @@ void PbrShader::FlushFrameCB() noexcept {
     cb.lightmap_params = Vec4{
         _lightmap_tex ? 1.0f : 0.0f,
         _lightmap_intensity,
+        0, 0
+    };
+    cb.ssr_params = Vec4{
+        _ssr_tex ? 1.0f : 0.0f,
+        _ssr_intensity,
         0, 0
     };
     for (u32 i = 0; i < 9; ++i) cb.sh9[i] = _sh9[i];

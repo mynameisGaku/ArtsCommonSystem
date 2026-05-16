@@ -119,6 +119,14 @@ public:
     // viewport_inv_size は SSAO の値を再利用するので別途渡さない。
     void SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept;
 
+    // SSR (Phase 34e-2fix): screen-space reflection を IBL specular に blend する。
+    //   ssr_tex: Ssr::OutputTexture() (HDR、.rgb=反射放射輝度、.a=hit mask)。null で OFF。
+    //   intensity: 0=OFF、1=通常。roughness が高い面ほど自動で寄与が下がる
+    //              (rough 面は環境 prefilter、smooth 面は SSR を反射元に使う)。
+    // 物理的に正しい roughness 依存反射のため、tonemap 合成ではなく PbrShader 側で
+    // 合成する (SSAO/SSGI と同じ方式)。viewport は SSAO の値を再利用。
+    void SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept;
+
     // Lightmap (Phase 33f)。baked static GI texture を mesh の uv で sample。
     //   lightmap_tex: 静的に焼かれた間接光 (任意フォーマット、RGB が使われる)
     //   intensity: 0=OFF、1=通常、>1=強調
@@ -257,6 +265,11 @@ private:
     IRhiTexture* _ssgi_tex       = nullptr;
     f32          _ssgi_intensity = 0.0f;
     UniquePtr<IRhiTexture> _ssgi_fb;    // 1x1 R11G11B10F fallback (initial 0)
+
+    // SSR (Phase 34e-2fix)、SetSsr で差し替え可能
+    IRhiTexture* _ssr_tex       = nullptr;
+    f32          _ssr_intensity = 0.0f;
+    UniquePtr<IRhiTexture> _ssr_fb;     // 1x1 RGBA8 黒 (hit mask 0) fallback
 
     // Lightmap (Phase 33f)、SetLightmap で差し替え可能
     IRhiTexture* _lightmap_tex       = nullptr;

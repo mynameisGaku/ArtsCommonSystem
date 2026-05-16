@@ -134,6 +134,9 @@ public:
 
         // CAS sharpening (Phase 34i): subtle clarity boost、UE5 デフォルト相当 0.4
         _post_params.cas_strength    = 0.4f;
+        // SSR は PbrShader 側で合成する (Phase 34e-2fix) ので tonemap 側の SSR は
+        // 無効化。intensity 0 にしないと fallback bloom mip が誤加算される。
+        _post_params.ssr_intensity   = 0.0f;
 
         // 動的球 (Phase 34f-3) の初期 transform。frame 0 で prev==curr になるよう
         // curr と同値で prev も初期化する。
@@ -440,11 +443,13 @@ public:
         // `_ssao_warm` フラグで「1 回でも _ssao.Render が走った」ことを保証してから
         // bind する。フレーム 0 は PbrShader が _ssao_fb (1x1 白 = visibility 1) に
         // フォールバックする。
+        // 注: SSAO 無効時も viewport サイズは渡す。SSGI / SSR が screen UV を
+        // ssao_params.zw から得るため、ここを 0 にすると参照が壊れる。
         if (_use_ssao && _ssao_warm) {
             _pbr.SetSsao(_ssao.OutputTexture(), /*intensity=*/1.0f,
                          hdr->Width(), hdr->Height());
         } else {
-            _pbr.SetSsao(nullptr, 0.0f, 0, 0);
+            _pbr.SetSsao(nullptr, 0.0f, hdr->Width(), hdr->Height());
         }
 
         // SSGI color (Phase 33c)。SSAO と同じ 1-frame latency パターン。
@@ -453,6 +458,15 @@ public:
             _pbr.SetSsgi(_ssgi.OutputTexture(), /*intensity=*/0.6f);
         } else {
             _pbr.SetSsgi(nullptr, 0.0f);
+        }
+
+        // SSR (Phase 34e-2fix)。PbrShader 側で roughness 依存合成 (rough 面ほど
+        // 反射が弱まる)。SSAO/SSGI と同じ 1-frame latency — SSR pass は color 描画後に
+        // 走るので、ここで渡すのは前フレームの結果。_ssr_warm で frame 0 garbage 回避。
+        if (_show_ssr && _ssr_warm) {
+            _pbr.SetSsr(_ssr.OutputTexture(), /*intensity=*/1.0f);
+        } else {
+            _pbr.SetSsr(nullptr, 0.0f);
         }
 
         // Shadow map (Phase 34b)
@@ -505,8 +519,11 @@ public:
             _pbr.SetAreaLights(nullptr, 0);
         }
 
-        // 地面プレーン (Phase 34b shadow caster ターゲット)。中性灰、roughness 高め
-        // → 影がはっきり写る。clearcoat / anisotropy は無効に上書き。
+        // 地面プレーン (Phase 34b shadow caster ターゲット)。中性灰。
+        // Phase 34e-2fix: roughness を 0.85→0.35 に下げ glossy な床に。roughness 依存
+        // SSR が「磨かれた床に球が映り込む」絵を物理的に正しく出す (rough すぎると
+        // 反射が弱く・SSR の意味が薄い)。影は diffuse 項に出るので glossy でも残る。
+        // clearcoat / anisotropy は無効に上書き。
         // Phase 33f: 床のみ lightmap を bind (sphere grid 球には焼いてないので OFF)。
         _pbr.SetExtParams(0.0f, 0.08f, 0.0f, Vec3{1, 0, 0});
         if (_use_lightmap && _lightmap) {
@@ -516,7 +533,7 @@ public:
         }
         _pbr.DrawMesh(*cl, _gm_plane,
                       Mat4::Translation(Vec3{0, -0.6f, 3.0f}),
-                      Vec3{0.5f, 0.5f, 0.55f}, 0.0f, 0.85f, 1.0f);
+                      Vec3{0.5f, 0.5f, 0.55f}, 0.0f, /*roughness=*/0.35f, 1.0f);
         // 球グリッド draw 前に lightmap を解除 (球には焼いてないので付けない)
         _pbr.SetLightmap(nullptr, 0.0f);
 
@@ -585,22 +602,19 @@ public:
             (_use_motion_vec && _taa_prev_vp_valid) ? _motion.OutputTexture() : nullptr;
         _post_params.taa_motion_texture = motion_tex;
 
-        // ===== SSR pass (Phase 34e、'R' で可視化) =====
-        // 結果は _ssr.OutputTexture() に書かれる。最終 HDR への composite は
-        // additive blend pipeline + BeginRenderToTextureNoClear が要るので
-        // 次セッションで infrastructure 拡張時に統合する。今は overlay 表示。
+        // ===== SSR pass (Phase 34e、'R' で toggle) =====
+        // SSR を計算して _ssr.OutputTexture() に書く。最終合成は PbrShader 側
+        // (Phase 34e-2fix、roughness 依存で env prefilter と blend) なので、ここでは
+        // 次フレームの PbrShader 用に焼くだけ (1-frame latency)。
+        // intensity は 1.0 固定 — 反射強度は PbrShader::SetSsr 側で一元管理する。
         const Mat4 inv_vp = Inverse(vp_for_render);
         if (_show_ssr) {
             _ssr.Render(*dev, *cl, *hdr, *depth,
                         vp_for_render,
                         inv_vp,
                         _camera.Eye(),
-                        /*intensity=*/0.8f);
-            _post_params.ssr_texture   = _ssr.OutputTexture();
-            _post_params.ssr_intensity = 1.0f;
-        } else {
-            _post_params.ssr_texture   = nullptr;
-            _post_params.ssr_intensity = 0.0f;
+                        /*intensity=*/1.0f);
+            _ssr_warm = true;     // 次フレームから PbrShader が SSR texture を読める
         }
 
         // ===== SSAO pass (Phase 34j、'O' で toggle) =====
@@ -1013,6 +1027,7 @@ private:
     bool               _need_atmosphere  = false;
     bool               _use_shadows      = false;
     bool               _show_ssr         = false;
+    bool               _ssr_warm         = false; // Phase 34e-2fix: _ssr.Render が 1 度以上走った？
     bool               _use_ssao         = true;  // Phase 34j-2: PbrShader 側で composite (1-frame latency)
     bool               _ssao_warm        = false; // _ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
     bool               _use_taa          = true;  // Phase 34f: TAA 有効 ('T' でトグル)
