@@ -49,13 +49,16 @@ constexpr u32 kLmSize = 64;        // lightmap 解像度 (1 面あたり)
 constexpr u32 kBakeRays = 24;      // texel あたりの hemisphere ray 数
 
 // Cornell box の 1 面。MakePlane (XZ 平面、法線 +Y) を model で配置する。
-// 面ローカルの uv (0..1) が world のどの矩形に対応するかを baker が知る必要が
-// あるので、平面方程式と矩形範囲も保持する。
+//   axis / axis_value / u_min.. : ray cast 用の world-space 軸並行平面パラメータ
+//   plane_w / plane_h           : MakePlane に渡したローカルサイズ。baker が
+//                                 texel uv → ローカル座標 → model → world と
+//                                 変換するのに使う (回転を model に委ねる)。
 struct Quad {
     GpuMesh                mesh;
     Mat4                   model;
     Vec3                   albedo;
-    Vec3                   normal;        // world-space 法線
+    Vec3                   normal;        // world-space 法線 (model から導出)
+    f32                    plane_w, plane_h;  // MakePlane のローカルサイズ
     UniquePtr<IRhiTexture> lightmap;
     Array<u8>              lm_data;        // bake 結果 (RGBA8)
     // 面が乗る軸 (0=x, 1=y, 2=z) と、その軸の値。残り 2 軸が矩形範囲。
@@ -196,16 +199,19 @@ public:
 private:
     static constexpr u32 kQuadCount = 5;
 
-    // 1 面を初期化 (mesh upload + 平面パラメータ設定)
+    // 1 面を初期化 (mesh upload + 平面パラメータ設定)。
+    // world 法線は手書きせず、ローカル +Y を model で変換して導出する。
     void InitQuad(IRhiDevice& dev, Quad& q, f32 w, f32 h, const Mat4& model,
-                  Vec3 albedo, Vec3 normal, i32 axis, f32 axis_value,
+                  Vec3 albedo, i32 axis, f32 axis_value,
                   f32 u_min, f32 u_max, f32 v_min, f32 v_max,
                   bool emissive) noexcept {
         auto plane = Primitive::MakePlane(w, h);
         (void)UploadMesh(dev, *plane, q.mesh);
         q.model      = model;
         q.albedo     = albedo;
-        q.normal     = normal;
+        q.plane_w    = w;
+        q.plane_h    = h;
+        q.normal     = Normalize(TransformVector(Vec3{0, 1, 0}, model));
         q.axis       = axis;
         q.axis_value = axis_value;
         q.u_min = u_min; q.u_max = u_max;
@@ -218,42 +224,47 @@ private:
         const Vec3 red  {0.65f, 0.10f, 0.10f};
         const Vec3 green{0.10f, 0.55f, 0.12f};
 
-        // 床: y=0、法線 +Y。MakePlane(2,3) は XZ 平面に作られる前提。
+        // model は Rotation * Translation の順 (ACS の row-major では「先に
+        // 回転、次に平行移動」= ローカルで回転してから world 位置へ移動)。
+        // MakePlane(w,h) は XZ 平面: ローカル u→+X, v→-Z。回転後の world 軸への
+        // 写像を考慮して w/h を割り当てる (例: 壁は回転で v→Z, u→Y になる)。
+
+        // 床: y=0、法線 +Y。回転なし。u→X(幅2), v→Z(奥行3)。
         InitQuad(dev, _quads[0], 2.0f, 3.0f,
                  Mat4::Translation(Vec3{0.0f, kBoxMinY, 0.5f}),
-                 white, Vec3{0, 1, 0}, /*axis(y)=*/1, kBoxMinY,
+                 white, /*axis(y)=*/1, kBoxMinY,
                  kBoxMinX, kBoxMaxX, kBoxMinZ, kBoxMaxZ, false);
-        // 天井: y=2、法線 -Y。X 軸 π 回転で裏返す。emissive = 光源。
+        // 天井: y=2、法線 -Y。X 軸 π 回転で裏返す。emissive = 光源。u→X, v→Z。
         InitQuad(dev, _quads[1], 2.0f, 3.0f,
-                 Mat4::Translation(Vec3{0.0f, kBoxMaxY, 0.5f}) * Mat4::RotationX(kPi),
-                 white, Vec3{0, -1, 0}, /*axis(y)=*/1, kBoxMaxY,
+                 Mat4::RotationX(kPi) * Mat4::Translation(Vec3{0.0f, kBoxMaxY, 0.5f}),
+                 white, /*axis(y)=*/1, kBoxMaxY,
                  kBoxMinX, kBoxMaxX, kBoxMinZ, kBoxMaxZ, true);
-        // 奥壁: z=2、法線 -Z。X 軸 -π/2 回転で XZ 平面 → XY 平面。
+        // 奥壁: z=2、法線 -Z。X 軸 -π/2 回転。u→X(幅2), v→Y(高さ2)。
         InitQuad(dev, _quads[2], 2.0f, 2.0f,
-                 Mat4::Translation(Vec3{0.0f, 1.0f, kBoxMaxZ}) * Mat4::RotationX(-kPi * 0.5f),
-                 white, Vec3{0, 0, -1}, /*axis(z)=*/2, kBoxMaxZ,
+                 Mat4::RotationX(-kPi * 0.5f) * Mat4::Translation(Vec3{0.0f, 1.0f, kBoxMaxZ}),
+                 white, /*axis(z)=*/2, kBoxMaxZ,
                  kBoxMinX, kBoxMaxX, kBoxMinY, kBoxMaxY, false);
-        // 左壁: x=-1、法線 +X、赤。Z 軸 -π/2 回転。
-        InitQuad(dev, _quads[3], 3.0f, 2.0f,
-                 Mat4::Translation(Vec3{kBoxMinX, 1.0f, 0.5f}) * Mat4::RotationZ(-kPi * 0.5f),
-                 red, Vec3{1, 0, 0}, /*axis(x)=*/0, kBoxMinX,
+        // 左壁: x=-1、法線 +X、赤。Z 軸 -π/2 回転。u→Y(高さ2), v→Z(奥行3)。
+        InitQuad(dev, _quads[3], 2.0f, 3.0f,
+                 Mat4::RotationZ(-kPi * 0.5f) * Mat4::Translation(Vec3{kBoxMinX, 1.0f, 0.5f}),
+                 red, /*axis(x)=*/0, kBoxMinX,
                  kBoxMinY, kBoxMaxY, kBoxMinZ, kBoxMaxZ, false);
-        // 右壁: x=1、法線 -X、緑。Z 軸 +π/2 回転。
-        InitQuad(dev, _quads[4], 3.0f, 2.0f,
-                 Mat4::Translation(Vec3{kBoxMaxX, 1.0f, 0.5f}) * Mat4::RotationZ(kPi * 0.5f),
-                 green, Vec3{0, -1, 0}, /*axis(x)=*/0, kBoxMaxX,
+        // 右壁: x=1、法線 -X、緑。Z 軸 +π/2 回転。u→Y(高さ2), v→Z(奥行3)。
+        InitQuad(dev, _quads[4], 2.0f, 3.0f,
+                 Mat4::RotationZ(kPi * 0.5f) * Mat4::Translation(Vec3{kBoxMaxX, 1.0f, 0.5f}),
+                 green, /*axis(x)=*/0, kBoxMaxX,
                  kBoxMinY, kBoxMaxY, kBoxMinZ, kBoxMaxZ, false);
-        // 右壁の normal を修正 (上で誤って 0,-1,0 を入れているため)
-        _quads[4].normal = Vec3{-1, 0, 0};
     }
 
-    // 面 q のテクセル (tu,tv)∈[0,1] を world 座標へ。q の矩形範囲を線形補間。
+    // 面 q のテクセル (tu,tv)∈[0,1] を world 座標へ。
+    // MakePlane の uv 規約 (u→ローカル +X, v→ローカル -Z) でローカル平面座標に
+    // 戻し、quad の model 行列で world へ変換する。これで描画時に PbrShader が
+    // mesh の uv で lightmap を引く位置と、baker が焼いた位置が厳密に一致する
+    // (回転・平行移動は model に委ねるので軸の取り違えが起きない)。
     Vec3 TexelToWorld(const Quad& q, f32 tu, f32 tv) const noexcept {
-        const f32 u = q.u_min + (q.u_max - q.u_min) * tu;
-        const f32 v = q.v_min + (q.v_max - q.v_min) * tv;
-        if (q.axis == 0) return Vec3{q.axis_value, u, v};
-        if (q.axis == 1) return Vec3{u, q.axis_value, v};
-        return Vec3{u, v, q.axis_value};
+        const f32 lx = (tu - 0.5f) * q.plane_w;
+        const f32 lz = (0.5f - tv) * q.plane_h;
+        return TransformPoint(Vec3{lx, 0.0f, lz}, q.model);
     }
 
     // hemisphere ray cast で 1-bounce GI を焼く
