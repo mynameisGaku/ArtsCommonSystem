@@ -526,6 +526,9 @@ public:
         // clearcoat / anisotropy は無効に上書き。
         // Phase 33f: 床のみ lightmap を bind (sphere grid 球には焼いてないので OFF)。
         _pbr.SetExtParams(0.0f, 0.08f, 0.0f, Vec3{1, 0, 0});
+        // 床・グリッド球は非発光。動的オーブ (後段) が emissive を立てるので、
+        // ここで 0 に戻しておく (member は次の SetObject まで持続するため)。
+        _pbr.SetEmissive(Vec3{0, 0, 0}, 0.0f);
         if (_use_lightmap && _lightmap) {
             _pbr.SetLightmap(_lightmap.Get(), /*intensity=*/0.8f);
         } else {
@@ -558,13 +561,21 @@ public:
             }
         }
 
-        // 動的球 (Phase 34f-3): グリッド前方を公転する 3 球。明るいシアンで
-        // warm な静的グリッドと区別。motion vector OFF だと TAA で trail が出る。
+        // 動的球 (Phase 34f-3 + 34l): グリッド前方を公転する発光オーブ 3 個。
+        // emissive + bloom で光り、motion vector で TAA の trail も出ない。
+        // glossy な床にも映り込む (SSR が scene color = 発光込みを反射するため)。
+        const Vec3 kOrbGlow[3] = {
+            Vec3{1.00f, 0.45f, 0.15f},   // 暖色オレンジ
+            Vec3{0.25f, 1.00f, 0.40f},   // 緑
+            Vec3{0.30f, 0.55f, 1.00f},   // 青
+        };
         _pbr.SetExtParams(0.0f, 0.5f, 0.0f, Vec3{1, 0, 0});
         for (u32 i = 0; i < kDynCount; ++i) {
+            _pbr.SetEmissive(kOrbGlow[i], /*strength=*/3.0f);
             _pbr.DrawMesh(*cl, _gm_sphere, _dyn_curr[i],
-                          Vec3{0.10f, 0.70f, 0.90f}, 0.0f, 0.25f, 1.0f);
+                          kOrbGlow[i], 0.0f, 0.35f, 1.0f);
         }
+        _pbr.SetEmissive(Vec3{0, 0, 0}, 0.0f);   // 後続描画のため reset
 
         cl->EndRenderToTexture(*hdr);
 

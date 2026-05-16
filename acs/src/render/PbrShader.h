@@ -189,6 +189,12 @@ public:
     void SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
                       f32 anisotropy, Vec3 tangent = Vec3{1, 0, 0}) noexcept;
 
+    // Emissive (Phase 34l): 自己発光色。lighting とは無関係に最終色へ加算され、
+    // HDR パイプラインで tonemap / bloom に乗る (strength > 1 で発光が bloom する)。
+    // SetExtParams と同じく member に格納され、次の SetObject / DrawMesh が反映する。
+    // SetEmissive(Vec3{0,0,0}, 0) で無効化。既定は無効 (他 sample に影響しない)。
+    void SetEmissive(Vec3 color, f32 strength = 1.0f) noexcept;
+
     IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
     IRhiBuffer*   PerFrameCB()  const noexcept { return _frame_cb.Get(); }
     IRhiBuffer*   PerObjectCB() const noexcept { return _object_cb.Get(); }
@@ -285,6 +291,9 @@ private:
     // 拡張 material (Phase 33a)、SetObject で reset、SetExtParams で上書き
     Vec4         _ext_params     = Vec4{0, 0.5f, 0, 0};
     Vec4         _aniso_tangent  = Vec4{1, 0, 0, 0};
+
+    // Emissive (Phase 34l)、SetEmissive で上書き。xyz=color*strength、既定 0 (無効)
+    Vec4         _emissive       = Vec4{0, 0, 0, 0};
 };
 
 } // namespace acs

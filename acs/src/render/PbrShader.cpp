@@ -81,6 +81,7 @@ cbuffer Object : register(b1) {
     float4   ext_params;     // x=clearcoat (0..1)、y=clearcoat_roughness (0..1)
                              // z=anisotropy (-1..1)、w=enable_flags (bit0=clearcoat, bit1=aniso)
     float4   aniso_tangent;  // xyz=anisotropic tangent direction (world)、w=pad
+    float4   emissive;       // Phase 34l: xyz=自己発光色 * strength、w=pad
 };
 
 Texture2D    albedo           : register(t0);
@@ -613,6 +614,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
         col += point_color[j].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol) * att;
     }
 
+    // Emissive (Phase 34l): 自己発光。lighting と無関係に加算する。fog より前に
+    // 足すので、発光体も距離フォグで減衰する (遠くの発光は霞む)。
+    col += emissive.rgb;
+
     // Volumetric fog (Phase 33e): exponential height fog
     //   density = fog_density * exp(-height_falloff * (world_y - fog_base))
     //   transmittance = exp(-density * dist)
@@ -667,6 +672,7 @@ struct ObjectCBLayout {
     Vec4 pbr_params;        // x=metallic, y=roughness, z=ao, w=pad
     Vec4 ext_params;        // x=clearcoat, y=coat_roughness, z=anisotropy, w=flags
     Vec4 aniso_tangent;     // xyz=tangent world, w=pad
+    Vec4 emissive;          // Phase 34l: xyz=emissive color * strength, w=pad
 };
 
 template<typename T>
@@ -1142,6 +1148,7 @@ void PbrShader::SetObject(const Mat4& model, Vec3 base_color,
     cb.pbr_params = Vec4{metallic, roughness, ao, 0};
     cb.ext_params    = _ext_params;
     cb.aniso_tangent = _aniso_tangent;
+    cb.emissive      = _emissive;
     _object_cb->Update(&cb, sizeof(cb));
 }
 
@@ -1152,6 +1159,12 @@ void PbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
     // 注: SetObject が CB を flush するので、SetExtParams 単独では反映されない。
     // SetObject 直後に呼んでも次の SetObject で 上書き されない (member に格納)。
     // 描画前に SetObject() が再度呼ばれて反映される設計。
+}
+
+void PbrShader::SetEmissive(Vec3 color, f32 strength) noexcept {
+    const f32 s = strength < 0.0f ? 0.0f : strength;
+    _emissive = Vec4{color.x * s, color.y * s, color.z * s, 0.0f};
+    // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
 void PbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const Mat4& model,
