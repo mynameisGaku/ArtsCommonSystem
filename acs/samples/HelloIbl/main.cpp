@@ -633,7 +633,8 @@ public:
                         inv_vp,
                         ssr_prev_vp,
                         _camera.Eye(),
-                        /*intensity=*/1.0f);
+                        /*intensity=*/1.0f,
+                        motion_tex);
             _ssr_warm = true;     // 次フレームから PbrShader が SSR texture を読める
         }
 

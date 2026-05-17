@@ -163,12 +163,12 @@ cbuffer SsrCB : register(b0) {
     float4   eye;
     float4   params;
     float4x4 prev_view_proj;     // Phase 34e-3: reprojection 用
-    float4   temporal_params;    // x=texel_w, y=texel_h, z=blend_factor
+    float4   temporal_params;    // x=texel_w, y=texel_h, z=blend_factor, w=motion_mode
 };
 
 Texture2D    current_ssr : register(t0);   // jitter 付き raw SSR (今フレーム)
 Texture2D    history_ssr : register(t1);   // 前フレームの temporal 結果
-Texture2D    scene_depth : register(t2);
+Texture2D    scene_depth : register(t2);   // motion_mode では motion vector として再解釈
 SamplerState current_ssr_sampler : register(s0);
 SamplerState history_ssr_sampler : register(s1);
 SamplerState scene_depth_sampler : register(s2);
@@ -201,7 +201,16 @@ float2 ReprojectUv(float2 uv) {
 float4 PSMain(VSOut v) : SV_TARGET {
     float4 cur = current_ssr.SampleLevel(current_ssr_sampler, v.uv, 0);
 
-    float2 huv = ReprojectUv(v.uv);
+    // Phase 34p: motion texture モードなら scene_depth slot を motion vector として
+    // 再解釈し、動く mesh の反射も history を正しく追従させる (SSGI temporal と同形)。
+    // 非モードは従来の camera-only depth reprojection。
+    float2 huv;
+    if (temporal_params.w >= 0.5) {
+        float2 mv = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).rg;
+        huv = v.uv + mv;
+    } else {
+        huv = ReprojectUv(v.uv);
+    }
     if (any(huv < 0.0) || any(huv > 1.0)) huv = v.uv;   // 画面外は静的 fallback
     float4 hist = history_ssr.SampleLevel(history_ssr_sampler, huv, 0);
 
@@ -403,7 +412,8 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& normal_gbuffer,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
                   const Mat4& prev_view_proj,
-                  Vec3 eye, f32 intensity) noexcept {
+                  Vec3 eye, f32 intensity,
+                  IRhiTexture* motion_texture) noexcept {
     if (!_output || !_history[0] || !_history[1] ||
         !_pipeline || !_temporal_pipeline || !_cb) return;
 
@@ -421,7 +431,8 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     data.prev_view_proj = prev_view_proj;
     data.temporal_params = Vec4{ 1.0f / static_cast<f32>(_width),
                                  1.0f / static_cast<f32>(_height),
-                                 /*blend=*/0.1f, 0 };
+                                 /*blend=*/0.1f,
+                                 /*motion_mode=*/motion_texture ? 1.0f : 0.0f };
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: raw SSR (jitter 付き march) → _output
@@ -445,7 +456,9 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, *_output);        // current (jitter 付き raw)
     cl.SetTexture(1, *hist_in);        // history (or raw on frame 0)
-    cl.SetTexture(2, scene_depth);
+    // Phase 34p: motion texture (あれば) で動く mesh の反射 ghost を消す。
+    // shader が temporal_params.w で解釈を切替えるので PSO の slot 数は不変。
+    cl.SetTexture(2, motion_texture ? *motion_texture : scene_depth);
     cl.Draw(3);
     cl.EndRenderToTexture(*_history[cur]);
 
