@@ -8,7 +8,8 @@
 // 出力: ssgi_color (RGB)、PbrShader が ambient/indirect 項に加算
 //
 // 制限:
-//   - depth-only normal 再構成 (G-buffer normal なし)、SSAO と同じ式
+//   - 法線は MotionVector の normal G-buffer (world normal) から sample (Phase 34o、
+//     旧 depth 微分 cross(ddx,ddy) は faceted で hemisphere ray がブロック状だった)
 //   - 8 step / 4 ray = 32 sample/pixel (画質と速度のバランス)
 //   - 反射的なシャープなパスは捨て、diffuse-ish な広い hemisphere に絞る
 //   - 1 bounce のみ (Lumen の voxel cone tracing 等は未対応)
@@ -43,6 +44,7 @@ public:
     // SSGI を計算して内部 RT に書く (raw → blur → temporal の 3 pass)。
     //   scene_color: 現在フレームの HDR scene RT
     //   scene_depth: shader-visible depth (SSR/SSAO と同じ)
+    //   normal_gbuffer: MotionVector の world-space normal G-buffer (RGBA16F)
     //   prev_view_proj: 前フレームの view_proj (Phase 33c-3 temporal reproject 用)。
     //                   identity を渡すと reprojection 無効 (= 静的 accumulate)。
     //   intensity:   indirect light の倍率 (0=無効、1=neutral、>1=強調)
@@ -54,6 +56,7 @@ public:
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color,
                 IRhiTexture& scene_depth,
+                IRhiTexture& normal_gbuffer,
                 const Mat4& view_proj,
                 const Mat4& inv_view_proj,
                 const Mat4& prev_view_proj,

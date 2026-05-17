@@ -18,8 +18,10 @@ cbuffer SsaoCB : register(b0) {
     float4x4 view;             // Phase 34j-6 GTAO: world → view 変換
 };
 
-Texture2D    scene_depth : register(t0);
-SamplerState scene_depth_sampler : register(s0);
+Texture2D    scene_depth    : register(t0);
+Texture2D    normal_gbuffer : register(t1);   // world-space normal (Phase 34m/34o)
+SamplerState scene_depth_sampler    : register(s0);
+SamplerState normal_gbuffer_sampler : register(s1);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -54,11 +56,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float depth = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).r;
     if (depth >= 0.9999) return float4(1, 1, 1, 1);   // sky → no AO
 
-    // view-space position / normal
+    // view-space position
     float3 P = ReconstructViewPos(v.uv, depth);
-    float3 dPdx = ddx(P);
-    float3 dPdy = ddy(P);
-    float3 N = normalize(cross(dPdy, dPdx));
+    // normal G-buffer の world normal を view 空間へ変換 (Phase 34o)。
+    // 旧 cross(ddx,ddy) は 2x2 quad 単位で faceted になり、GTAO の slice 平面
+    // 射影が段差状にずれて AO がブロック状になっていた。
+    float3 Nw = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
+    float3 N  = normalize(mul(float4(Nw, 0.0), view).xyz);
     float3 V = normalize(-P);             // view 空間: eye = 原点
     if (dot(N, V) < 0.0) N = -N;
 
@@ -292,13 +296,17 @@ Result<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     pd.cull_mode     = CullMode::None;
     pd.blend_mode    = BlendMode::Opaque;
     pd.cbuffer_slots = 1;
-    pd.texture_slots = 1;
+    pd.texture_slots = 2;
     pd.cbuffer_names[0] = "SsaoCB";
     pd.texture_names[0] = "scene_depth";
-    pd.static_sampler_count = 1;
+    pd.texture_names[1] = "normal_gbuffer";
+    pd.static_sampler_count = 2;
     pd.static_samplers[0].filter    = SamplerFilter::Point;       // depth は離散値 → Point
     pd.static_samplers[0].address_u = SamplerAddress::Clamp;
     pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[1].filter    = SamplerFilter::Point;       // 法線は per-pixel 厳密に
+    pd.static_samplers[1].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[1].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -366,6 +374,7 @@ Result<void> Ssao::Resize(u32 width, u32 height) noexcept {
 
 void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
+                  IRhiTexture& normal_gbuffer,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
                   const Mat4& view,
                   Vec3 eye, f32 intensity, f32 radius) noexcept {
@@ -385,6 +394,7 @@ void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetPipeline(*_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, scene_depth);
+    cl.SetTexture(1, normal_gbuffer);
     cl.Draw(3);
     cl.EndRenderToTexture(*_output);
 

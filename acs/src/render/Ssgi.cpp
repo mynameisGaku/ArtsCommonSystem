@@ -18,10 +18,12 @@ cbuffer SsgiCB : register(b0) {
     float4x4 prev_view_proj;   // raw pass では未使用、CB レイアウト整合のため宣言
 };
 
-Texture2D    scene_color : register(t0);
-Texture2D    scene_depth : register(t1);
-SamplerState scene_color_sampler : register(s0);
-SamplerState scene_depth_sampler : register(s1);
+Texture2D    scene_color    : register(t0);
+Texture2D    scene_depth    : register(t1);
+Texture2D    normal_gbuffer : register(t2);   // world-space normal (Phase 34m/34o)
+SamplerState scene_color_sampler    : register(s0);
+SamplerState scene_depth_sampler    : register(s1);
+SamplerState normal_gbuffer_sampler : register(s2);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -46,10 +48,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (depth >= 0.9999) return float4(0, 0, 0, 1);   // sky → no indirect light
 
     float3 wp = ReconstructWorldPos(v.uv, depth);
-    // SSAO と同じ depth-derivative normal 再構成
-    float3 dpx = ddx(wp);
-    float3 dpy = ddy(wp);
-    float3 N = normalize(cross(dpy, dpx));
+    // normal G-buffer から per-pixel world normal を sample (Phase 34o)。
+    // 旧 cross(ddx,ddy) は 2x2 quad 単位で faceted になり、hemisphere の
+    // ray 方向が段差状にずれて GI のサンプリングがブロック状になっていた。
+    float3 N = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
     float3 V = normalize(eye.xyz - wp);
     if (dot(N, V) < 0.0) N = -N;
 
@@ -355,17 +357,21 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     pd.cull_mode     = CullMode::None;
     pd.blend_mode    = BlendMode::Opaque;
     pd.cbuffer_slots = 1;
-    pd.texture_slots = 2;
+    pd.texture_slots = 3;
     pd.cbuffer_names[0] = "SsgiCB";
     pd.texture_names[0] = "scene_color";
     pd.texture_names[1] = "scene_depth";
-    pd.static_sampler_count = 2;
+    pd.texture_names[2] = "normal_gbuffer";
+    pd.static_sampler_count = 3;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Clamp;
     pd.static_samplers[0].address_v = SamplerAddress::Clamp;
     pd.static_samplers[1].filter    = SamplerFilter::Point;       // depth は離散値
     pd.static_samplers[1].address_u = SamplerAddress::Clamp;
     pd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[2].filter    = SamplerFilter::Point;       // 法線は per-pixel 厳密に
+    pd.static_samplers[2].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[2].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -477,6 +483,7 @@ Result<void> Ssgi::Resize(u32 width, u32 height) noexcept {
 void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color,
                   IRhiTexture& scene_depth,
+                  IRhiTexture& normal_gbuffer,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
                   const Mat4& prev_view_proj,
                   Vec3 eye, f32 intensity, f32 max_distance,
@@ -501,6 +508,7 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, scene_color);
     cl.SetTexture(1, scene_depth);
+    cl.SetTexture(2, normal_gbuffer);
     cl.Draw(3);
     cl.EndRenderToTexture(*_output);
 

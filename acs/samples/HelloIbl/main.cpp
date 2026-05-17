@@ -585,9 +585,9 @@ public:
         // reproject するのに、normal は SSR が faceted な反射ベクトル (旧 ddx/ddy
         // 由来) を避けるのに使う。SSGI が現フレームの motion を読むため SSGI より
         // 前に実行する。静的 mesh は prev == curr。
-        // 'M' は motion の TAA/SSGI 消費を toggle するだけ。SSR は normal を要るので
-        // _show_ssr の間はパス自体を走らせる。
-        if (_use_motion_vec || _show_ssr) {
+        // motion + normal は SSR/SSGI/SSAO/TAA 全てが使うため geometry パスは常時
+        // 実行する。'M' は motion の TAA/SSGI 消費を toggle するだけで、パスは止めない。
+        {
             // frame 0 は前フレーム VP が未確定なので prev=curr で motion 0 にする。
             const Mat4 motion_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
                                                            : vp_no_jitter;
@@ -648,6 +648,7 @@ public:
             // Phase 34j-6: GTAO は view 空間で計算するので view 行列も渡す。
             // GTAO の analytical 積分は適度な遮蔽量に収まるので intensity 1.0。
             _ssao.Render(*dev, *cl, *depth,
+                         *_motion.OutputNormalTexture(),
                          vp_for_render, inv_vp, _camera.View(),
                          _camera.Eye(),
                          /*intensity=*/1.0f,
@@ -668,6 +669,7 @@ public:
             const Mat4& ssgi_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
                                                           : vp_no_jitter;
             _ssgi.Render(*dev, *cl, *hdr, *depth,
+                         *_motion.OutputNormalTexture(),
                          vp_for_render, inv_vp, ssgi_prev_vp,
                          _camera.Eye(),
                          /*intensity=*/1.0f,

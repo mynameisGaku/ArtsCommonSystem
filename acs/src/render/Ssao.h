@@ -7,7 +7,8 @@
 // PostProcess の tonemap 入力に bind し、hdr_col に乗算合成する。
 //
 // 制限:
-//   - depth-only (G-buffer normal なし)、depth-derivative で screen-space normal を再構成
+//   - 法線は MotionVector の normal G-buffer (world normal) を view 空間へ変換して
+//     使う (Phase 34o、旧 depth 微分 cross(ddx,ddy) は faceted で AO がブロック状だった)
 //   - 単純な uniform random direction、Halton 等の low-discrepancy 未使用
 //   - 6 direction × 6 step = 36 sample / pixel (Phase 34j-3)
 //   - Phase 34j-4: depth-aware bilateral blur pass を追加 (raw → blurred)。
@@ -41,6 +42,7 @@ public:
 
     // SSAO (Phase 34j-6 から GTAO) を計算して内部 RT に書く。
     //   scene_depth: shader_visible_depth=true な depth buffer
+    //   normal_gbuffer: MotionVector の world-space normal G-buffer (RGBA16F)
     //   inv_view_proj: 現フレーム VP の逆 (depth+uv → world)
     //   view: world → view 変換 (GTAO の slice 計算は view 空間で行う)
     //   eye: カメラ world pos
@@ -48,6 +50,7 @@ public:
     //   radius:    AO の最大半径 (world units、0.5 ~ 2.0 が典型)
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_depth,
+                IRhiTexture& normal_gbuffer,
                 const Mat4& view_proj,
                 const Mat4& inv_view_proj,
                 const Mat4& view,
