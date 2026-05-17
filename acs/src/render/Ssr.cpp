@@ -17,10 +17,12 @@ cbuffer SsrCB : register(b0) {
     float4   params;         // x=intensity, y=max_ray_dist, z=frame_jitter, w=thickness
 };
 
-Texture2D    scene_color : register(t0);
-Texture2D    scene_depth : register(t1);
-SamplerState scene_color_sampler : register(s0);
-SamplerState scene_depth_sampler : register(s1);
+Texture2D    scene_color    : register(t0);
+Texture2D    scene_depth    : register(t1);
+Texture2D    normal_gbuffer : register(t2);   // world-space normal (Phase 34m)
+SamplerState scene_color_sampler    : register(s0);
+SamplerState scene_depth_sampler    : register(s1);
+SamplerState normal_gbuffer_sampler : register(s2);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -47,11 +49,11 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     float3 wp = ReconstructWorldPos(v.uv, depth);
     float3 V  = normalize(eye.xyz - wp);
-    // depth derivatives 由来の screen-space normal
-    float3 dpx = ddx(wp);
-    float3 dpy = ddy(wp);
-    float3 N = normalize(cross(dpy, dpx));
-    // facing 補正 (depth-derived normal が反対向くケース)
+    // normal G-buffer から per-pixel world normal を sample (Phase 34m)。
+    // 旧 cross(ddx,ddy) は 2x2 quad 単位で faceted になり、曲面の反射ベクトルが
+    // 段差状にずれて反射がガビガビになっていた。geometry 由来の補間法線で根本解決。
+    float3 N = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
+    // facing 補正 (背面 normal の保険、通常は no-op)
     if (dot(N, V) < 0.0) N = -N;
     float3 R = reflect(-V, N);
     if (dot(R, V) < -0.95) return float4(0, 0, 0, 0); // 真後ろ反射は無視
@@ -284,17 +286,22 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     pd.cull_mode     = CullMode::None;
     pd.blend_mode    = BlendMode::Opaque;
     pd.cbuffer_slots = 1;
-    pd.texture_slots = 2;
+    pd.texture_slots = 3;
     pd.cbuffer_names[0] = "SsrCB";
     pd.texture_names[0] = "scene_color";
     pd.texture_names[1] = "scene_depth";
-    pd.static_sampler_count = 2;
+    pd.texture_names[2] = "normal_gbuffer";
+    pd.static_sampler_count = 3;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Clamp;
     pd.static_samplers[0].address_v = SamplerAddress::Clamp;
     pd.static_samplers[1].filter    = SamplerFilter::Point;
     pd.static_samplers[1].address_u = SamplerAddress::Clamp;
     pd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    // normal G-buffer は Point sample (silhouette を跨ぐ法線の線形混色を避ける)
+    pd.static_samplers[2].filter    = SamplerFilter::Point;
+    pd.static_samplers[2].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[2].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -366,6 +373,7 @@ Result<void> Ssr::Resize(u32 width, u32 height) noexcept {
 
 void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color, IRhiTexture& scene_depth,
+                  IRhiTexture& normal_gbuffer,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
                   const Mat4& prev_view_proj,
                   Vec3 eye, f32 intensity) noexcept {
@@ -395,6 +403,7 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, scene_color);
     cl.SetTexture(1, scene_depth);
+    cl.SetTexture(2, normal_gbuffer);
     cl.Draw(3);
     cl.EndRenderToTexture(*_output);
 

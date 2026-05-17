@@ -8,16 +8,21 @@ namespace acs {
 
 namespace {
 
-// VS: 現フレーム / 前フレームの clip pos を計算。
-// PS: それぞれを UV に直して motion vector (prev_uv - curr_uv) を出力。
-//   curr_mvp = curr_model * view_proj
-//   prev_mvp = prev_model * prev_view_proj  (いずれも jitter なし)
+// motion + normal G-buffer の geometry pass (Phase 34f-3 + 34m)。
+// MRT 2 枚出力:
+//   SV_Target0 (RG16F)        = screen-space motion vector (prev_uv - curr_uv)
+//   SV_Target1 (RGBA16F .xyz) = world-space normal
+// 法線は頂点法線を model で world 変換 → ピクセル補間 → 正規化。曲面でも
+// 補間されるので非 faceted (depth-derivative の cross(ddx,ddy) と違い段差が出ない)。
+// SSR/SSGI/SSAO はこの normal を sample して品質の高い screen-space 効果を得る。
+//   curr_mvp = curr_model * view_proj、prev_mvp = prev_model * prev_view_proj
 const char* kMotionHLSL = R"(
 #pragma pack_matrix(row_major)
 
 cbuffer MotionCB : register(b0) {
     float4x4 curr_mvp;
     float4x4 prev_mvp;
+    float4x4 curr_model;     // 頂点法線を world へ変換するため (Phase 34m)
 };
 
 struct VSIn {
@@ -29,6 +34,11 @@ struct VSOut {
     float4 pos       : SV_POSITION;
     float4 curr_clip : TEXCOORD0;
     float4 prev_clip : TEXCOORD1;
+    float3 world_n   : TEXCOORD2;
+};
+struct PSOut {
+    float4 motion : SV_TARGET0;   // RG16F:   prev_uv - curr_uv
+    float4 normal : SV_TARGET1;   // RGBA16F: world-space normal (.xyz)
 };
 
 VSOut VSMain(VSIn v) {
@@ -36,24 +46,32 @@ VSOut VSMain(VSIn v) {
     o.pos       = mul(float4(v.pos, 1.0), curr_mvp);
     o.curr_clip = o.pos;
     o.prev_clip = mul(float4(v.pos, 1.0), prev_mvp);
+    // 法線を world へ (回転 / 一様スケールのみ前提、非一様スケールは未対応)
+    o.world_n   = mul(float4(v.nrm, 0.0), curr_model).xyz;
     return o;
 }
 
-float4 PSMain(VSOut i) : SV_TARGET {
+PSOut PSMain(VSOut i) {
     // perspective divide で NDC、それを UV に変換 (y は反転)
     float2 curr_ndc = i.curr_clip.xy / max(i.curr_clip.w, 1e-6);
     float2 prev_ndc = i.prev_clip.xy / max(i.prev_clip.w, 1e-6);
     float2 curr_uv  = float2(curr_ndc.x * 0.5 + 0.5, -curr_ndc.y * 0.5 + 0.5);
     float2 prev_uv  = float2(prev_ndc.x * 0.5 + 0.5, -prev_ndc.y * 0.5 + 0.5);
+    PSOut o;
     // TAA は hist_uv = uv + motion で前フレームを引く → motion = prev_uv - curr_uv
-    return float4(prev_uv - curr_uv, 0.0, 0.0);
+    o.motion = float4(prev_uv - curr_uv, 0.0, 0.0);
+    // 補間後に正規化 → 曲面でも滑らかな per-pixel 法線
+    o.normal = float4(normalize(i.world_n), 0.0);
+    return o;
 }
 )";
 
 // per-object 定数バッファ。curr/prev とも CPU 側で model*VP を合成して渡す。
+// curr_model は法線の world 変換用に別途渡す。
 struct MotionCB {
     Mat4 curr_mvp;
     Mat4 prev_mvp;
+    Mat4 curr_model;
 };
 
 } // namespace
@@ -67,7 +85,7 @@ Result<void> MotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexc
     if (auto r = CreatePipeline(device);                 r.IsErr()) return r;
 
     BufferDesc cbd{};
-    cbd.size         = 256;          // MotionCB (128B) を 256 アラインで確保
+    cbd.size         = 256;          // MotionCB (192B) を 256 アラインで確保
     cbd.usage        = BufferUsage::Uniform;
     cbd.cpu_writable = true;
     auto cbr = CreateRhiBuffer(device, cbd);
@@ -83,6 +101,7 @@ void MotionVector::Shutdown() noexcept {
     _ps.Reset();
     _vs.Reset();
     _depth.Reset();
+    _normal.Reset();
     _motion.Reset();
     _device = nullptr;
     _width  = 0;
@@ -94,6 +113,7 @@ Result<void> MotionVector::Resize(u32 width, u32 height) noexcept {
     if (width == 0 || height == 0) return Ok();
     if (width == _width && height == _height) return Ok();
     _motion.Reset();
+    _normal.Reset();
     _depth.Reset();
     _width  = width;
     _height = height;
@@ -110,6 +130,16 @@ Result<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexc
     auto mr = CreateRhiTexture(device, md);
     if (mr.IsErr()) return Err<void>(mr.Error());
     _motion = Move(mr.Value());
+
+    // normal RT: RGBA16F。.xyz に world-space normal。SSR/SSGI/SSAO が sample する。
+    TextureDesc nd{};
+    nd.width  = w;
+    nd.height = h;
+    nd.format = Format::R16G16B16A16_Float;
+    nd.is_render_target = true;
+    auto nr = CreateRhiTexture(device, nd);
+    if (nr.IsErr()) return Err<void>(nr.Error());
+    _normal = Move(nr.Value());
 
     // 内部 depth: occlusion 判定用 (SRV は不要)。
     TextureDesc dd{};
@@ -147,7 +177,10 @@ Result<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
     pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R16G16_Float;
+    // MRT: t0 = motion (RG16F)、t1 = world normal (RGBA16F)
+    pd.rt_count      = 2;
+    pd.rt_formats[0] = Format::R16G16_Float;
+    pd.rt_formats[1] = Format::R16G16B16A16_Float;
     pd.depth_format  = Format::D32_Float;
     pd.depth_test    = true;
     pd.depth_write   = true;
@@ -171,12 +204,14 @@ Result<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
 
 void MotionVector::Begin(IRhiCommandList& cl,
                          const Mat4& view_proj, const Mat4& prev_view_proj) noexcept {
-    if (!_motion || !_depth || !_pipeline) return;
+    if (!_motion || !_normal || !_depth || !_pipeline) return;
     _vp      = view_proj;
     _prev_vp = prev_view_proj;
-    // motion RT を (0,0) クリア → 描かれない pixel (= sky 等) は motion 0 になり、
-    // TAA は hist_uv = uv で reproject 無し (= 従来の sky 挙動と同じ)。
-    cl.BeginRenderToTexture(*_motion, ClearColor{0, 0, 0, 0}, _depth.Get(), 1.0f);
+    // motion / normal RT を (0,0,0,0) クリア → 描かれない pixel (= sky 等) は
+    // motion 0 (TAA は hist_uv = uv で reproject 無し)、normal 0 (SSR/SSGI/SSAO は
+    // sky を depth で先に弾くので未使用)。
+    IRhiTexture* rts[2] = { _motion.Get(), _normal.Get() };
+    cl.BeginRenderToTextureMrt(rts, 2, ClearColor{0, 0, 0, 0}, _depth.Get(), 1.0f);
     cl.SetPipeline(*_pipeline);
 }
 
@@ -184,8 +219,9 @@ void MotionVector::DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
                             const Mat4& model, const Mat4& prev_model) noexcept {
     if (!_cb || !mesh.vertex_buffer || !mesh.index_buffer) return;
     MotionCB cb{};
-    cb.curr_mvp = model      * _vp;
-    cb.prev_mvp = prev_model * _prev_vp;
+    cb.curr_mvp   = model      * _vp;
+    cb.prev_mvp   = prev_model * _prev_vp;
+    cb.curr_model = model;
     _cb->Update(&cb, sizeof(cb));
 
     cl.SetConstantBuffer(0, *_cb);

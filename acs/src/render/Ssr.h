@@ -5,8 +5,9 @@
 //     reflection ray を screen space で march
 //   - 衝突したら scene_color を sample、ray 起点に reflection を加算
 //   - 結果は別 HDR RT (= ssr_rt) に書き出し → caller が composite で本 HDR へ加算
-//   - normal は depth derivatives (ddx/ddy of reconstructed world pos) から得る
-//     (G-buffer normal は Phase 34d-2 待ち、これで暫定運用)
+//   - normal は MotionVector パスが出力する normal G-buffer (RGBA16F world normal)
+//     から sample する (Phase 34m)。旧 depth-derivative cross(ddx,ddy) は 2x2 quad
+//     単位で faceted になり、曲面の反射ベクトルが段差状になってガビガビだった
 //
 // 48 step linear march + accelerating step + 8-step binary search refinement
 // (Phase 34e-fix: 粗 march だけだと反射が滲むので交差点を二分探索で精密化)。
@@ -48,8 +49,9 @@ public:
     Result<void> Resize(u32 width, u32 height) noexcept;
 
     // SSR を計算する (raw march → temporal accumulation の 2 pass)。
-    //   scene_color: 現フレームの HDR scene
-    //   scene_depth: 現フレームの depth buffer (shader_visible_depth=true 必須)
+    //   scene_color:    現フレームの HDR scene
+    //   scene_depth:    現フレームの depth buffer (shader_visible_depth=true 必須)
+    //   normal_gbuffer: MotionVector パスの world-space normal G-buffer (RGBA16F)
     //   view_proj / inv_view_proj: 現フレームのカメラ行列 (row-major)
     //   prev_view_proj: 前フレームの view_proj (Phase 34e-3 temporal reproject 用)。
     //                   identity を渡すと reprojection 無効 (静的 accumulate)。
@@ -57,6 +59,7 @@ public:
     //   intensity: SSR 強度 (0..2)
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color, IRhiTexture& scene_depth,
+                IRhiTexture& normal_gbuffer,
                 const Mat4& view_proj, const Mat4& inv_view_proj,
                 const Mat4& prev_view_proj,
                 Vec3 eye, f32 intensity = 0.6f) noexcept;

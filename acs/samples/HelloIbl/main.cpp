@@ -579,12 +579,15 @@ public:
 
         cl->EndRenderToTexture(*hdr);
 
-        // ===== Motion vector pass (Phase 34f-3、'M' で toggle) =====
-        // 全 mesh を再ラスタライズして screen-space motion vector を焼く。TAA と
-        // temporal SSGI がこれで動く mesh を正しく reproject し ghost / trail を消す。
-        // SSGI が現フレームの motion を読むため SSGI より前に実行する。静的 mesh は
-        // prev == curr、camera 動きは前フレーム VP との差で表現される。
-        if (_use_motion_vec) {
+        // ===== Geometry G-buffer pass (motion + normal、Phase 34f-3 / 34m) =====
+        // 全 mesh を再ラスタライズし MRT 2 枚 (screen-space motion vector +
+        // world-space normal) を焼く。motion は TAA / temporal SSGI が動く mesh を
+        // reproject するのに、normal は SSR が faceted な反射ベクトル (旧 ddx/ddy
+        // 由来) を避けるのに使う。SSGI が現フレームの motion を読むため SSGI より
+        // 前に実行する。静的 mesh は prev == curr。
+        // 'M' は motion の TAA/SSGI 消費を toggle するだけ。SSR は normal を要るので
+        // _show_ssr の間はパス自体を走らせる。
+        if (_use_motion_vec || _show_ssr) {
             // frame 0 は前フレーム VP が未確定なので prev=curr で motion 0 にする。
             const Mat4 motion_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
                                                            : vp_no_jitter;
@@ -625,6 +628,7 @@ public:
             const Mat4& ssr_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
                                                          : vp_no_jitter;
             _ssr.Render(*dev, *cl, *hdr, *depth,
+                        *_motion.OutputNormalTexture(),
                         vp_for_render,
                         inv_vp,
                         ssr_prev_vp,

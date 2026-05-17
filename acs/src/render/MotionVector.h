@@ -1,10 +1,13 @@
-// 動的 mesh motion vector G-buffer (Phase 34f-3)
+// motion + normal G-buffer の geometry pass (Phase 34f-3 / 34m)
 //
-// シーンの全 mesh を再ラスタライズし、各 pixel の screen-space motion vector
-// (prev_uv - curr_uv) を RG16F テクスチャへ書き出す。motion vector は camera 動き
-// と object 動きの両方を含む (前フレームの model 行列 + 前フレームの VP で
-// prev clip pos を求める)。TAA はこのテクスチャで history を正確に reproject し、
-// 動く mesh の ghost / trail を消す。
+// シーンの全 mesh を再ラスタライズし、MRT 2 枚を書き出す:
+//   - motion (RG16F)  : screen-space motion vector (prev_uv - curr_uv)。camera
+//                       動きと object 動きの両方を含む (前フレームの model + VP)。
+//                       TAA が history を正確に reproject し ghost / trail を消す。
+//   - normal (RGBA16F): world-space normal。頂点法線をピクセル補間したもので、
+//                       depth-derivative の cross(ddx,ddy) と違い曲面でも段差が
+//                       出ない。SSR/SSGI/SSAO がこれを sample し、faceted な
+//                       反射ベクトル由来のジャギーを根本解消する (Phase 34m)。
 //
 // Phase 34f-2 までの TAA は depth からの camera reprojection のみ対応で、
 // 動く mesh は ghost していた。本モジュールがその穴を埋める。
@@ -68,6 +71,9 @@ public:
     // 出力 motion vector テクスチャ (RG16F、.rg = prev_uv - curr_uv)。
     IRhiTexture* OutputTexture() const noexcept { return _motion.Get(); }
 
+    // 出力 world-space normal テクスチャ (RGBA16F、.xyz = normalized world normal)。
+    IRhiTexture* OutputNormalTexture() const noexcept { return _normal.Get(); }
+
 private:
     Result<void> CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
     Result<void> CreatePipeline(IRhiDevice& device) noexcept;
@@ -79,11 +85,12 @@ private:
     Mat4                    _prev_vp{};   // Begin で渡された前フレーム VP
 
     UniquePtr<IRhiTexture>  _motion;      // RG16F、screen-space motion (prev_uv - curr_uv)
+    UniquePtr<IRhiTexture>  _normal;      // RGBA16F、world-space normal (.xyz)
     UniquePtr<IRhiTexture>  _depth;       // D32、occlusion 用の内部 depth
     UniquePtr<IRhiShader>   _vs;
     UniquePtr<IRhiShader>   _ps;
     UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiBuffer>   _cb;          // MotionCB { curr_mvp, prev_mvp }
+    UniquePtr<IRhiBuffer>   _cb;          // MotionCB { curr_mvp, prev_mvp, curr_model }
 };
 
 } // namespace acs
