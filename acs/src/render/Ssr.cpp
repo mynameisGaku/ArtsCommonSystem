@@ -59,10 +59,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     // ===== screen-space DDA ray march (McGuire & Mara 2014, Phase 34n) =====
     // 反射レイを screen 空間へ射影し 1 texel/step で行進する。NDC depth は screen
-    // 空間で線形 (射影変換は直線を直線に写すため NDC 3 空間でもレイは直線) なので、
-    // レイ depth は端点間の線形補間で正確。world 固定ステップ march は screen 空間で
-    // サンプリングが疎になり反射像がレイ方向に伸びてスメアしていた — DDA で根本解決。
-    // hit の厚み判定は world 空間距離で行い NDC depth の非線形性に依存しない (34n-2)。
+    // 空間で線形 (射影変換は直線を直線に写し、perspective divide 後の NDC 空間でも
+    // レイは直線 → z_ndc は screen 座標の affine 関数。ラスタライザが三角形の depth を
+    // 線形補間できるのと同じ原理) なので、レイ depth は端点間の線形補間で正確。world
+    // 固定ステップ march は screen 空間でサンプリングが疎になり反射像がレイ方向に
+    // 伸びてスメアしていた — DDA で根本解決。hit は depth 区間の straddle で交差を
+    // 確定し、surface 奥へ回り込んだら world 距離で occlusion を判定する (34n-3)。
     float2 res    = float2(1.0 / temporal_params.x, 1.0 / temporal_params.y);
     float  maxLen = max(params.y, 0.5);
 
@@ -102,12 +104,11 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  z = n0.z + dzStep * jitter;
     float  thicknessW = max(params.w, 0.01);           // hit 受理の world 距離厚み
 
-    float2 hit_uv  = float2(0, 0);
-    float  hit_i   = 0.0;
-    bool   hit     = false;
-    bool   inFront = false;
+    float2 hit_uv = float2(0, 0);
+    bool   hit = false;
     [loop]
     for (float i = 0.0; i < marchMax; i += 1.0) {
+        float z_prev = z;
         p += dpStep;
         z += dzStep;
         if (i < 1.0) continue;                         // 起点 texel skip
@@ -116,26 +117,36 @@ float4 PSMain(VSOut v) : SV_TARGET {
             uv_s.y < 0.0 || uv_s.y > 1.0) break;       // 画面外で打ち切り
         float sd = scene_depth.SampleLevel(scene_depth_sampler, uv_s, 0).r;
         if (sd >= 0.9999) continue;                    // sky は貫通
-        if (z < sd) { inFront = true; continue; }      // レイは surface 手前 → 前進
-        if (!inFront) continue;                        // 一度も手前にいない → self-hit 回避
-        // レイが surface depth に到達 → world 空間距離で交差を確定
-        float3 ray_wp   = ReconstructWorldPos(uv_s, z);
+        float z_lo = min(z_prev, z);
+        float z_hi = max(z_prev, z);
+        if (z_hi < sd) continue;                       // レイは surface 手前 → 前進
+
+        // レイが surface depth に到達。straddle (z_lo<=sd<=z_hi) なら当 texel 内で
+        // 交差確定。完全に奥 (z_lo>sd) なら world 距離で occlusion かを判定する。
         float3 scene_wp = ReconstructWorldPos(uv_s, sd);
-        if (distance(ray_wp, scene_wp) <= thicknessW) {
-            hit    = true;
-            hit_uv = uv_s;
-            hit_i  = i;
+        bool   within   = (z_lo <= sd);
+        if (!within) {
+            float3 ray_wp = ReconstructWorldPos(uv_s, z_lo);   // レイの surface 最接近点
+            within = (distance(ray_wp, scene_wp) <= thicknessW);
         }
-        break;                                         // hit か occluded → 行進終了
+        if (within) {
+            // 起点至近の交差は self-reflection なので除外
+            if (distance(scene_wp, wp) > 0.05) {
+                hit    = true;
+                hit_uv = uv_s;
+                break;
+            }
+            continue;                                  // self-hit → 行進継続
+        }
+        break;                                         // surface 奥 (occluded) → 終了
     }
     if (!hit) return float4(0, 0, 0, 0);
 
     float3 hit_color = scene_color.SampleLevel(scene_color_sampler, hit_uv, 0).rgb;
-    // 画面端フェード + 行進距離フェード (512 texel 上限の打ち切りを滑らかに)
+    // 画面端フェード (反射先が画面端に近いほど薄める)
     float2 d2e       = min(hit_uv, 1.0 - hit_uv);
     float  edge_fade = saturate(min(d2e.x, d2e.y) * 8.0);
-    float  dist_fade = saturate((512.0 - hit_i) / 128.0);
-    return float4(hit_color * params.x * edge_fade * dist_fade, 1.0);
+    return float4(hit_color * params.x * edge_fade, 1.0);
 }
 )";
 
@@ -406,7 +417,7 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     data.view_proj      = view_proj;
     data.inv_view_proj  = inv_view_proj;
     data.eye            = Vec4{eye.x, eye.y, eye.z, 1};
-    data.params         = Vec4{intensity, /*max_dist=*/12.0f, jitter, /*thickness_world=*/0.5f};
+    data.params         = Vec4{intensity, /*max_dist=*/12.0f, jitter, /*thickness_world=*/0.3f};
     data.prev_view_proj = prev_view_proj;
     data.temporal_params = Vec4{ 1.0f / static_cast<f32>(_width),
                                  1.0f / static_cast<f32>(_height),
