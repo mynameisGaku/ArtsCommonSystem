@@ -175,9 +175,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
             float2 cuv = float2(cn.x * 0.5 + 0.5, -cn.y * 0.5 + 0.5);
             float  sd  = scene_depth.SampleLevel(scene_depth_sampler, cuv, 0).r;
             if (sd >= 0.9999) continue;               // sky は貫通
-            // ray が scene surface に入り込んだ (奥へ薄く潜った) → 光路に geometry。
-            // 厚み上限で「遠い前景の裏」を誤検出しないようにする。
-            if (cn.z > sd + 0.0008 && cn.z - sd < 0.02) { contact = 0.0; break; }
+            // ray が scene surface の奥へ入った → 光路に geometry の可能性。
+            // 厚みは NDC depth 差ではなく world 距離で判定する (NDC は非線形で
+            // 距離次元にならない)。ray 点 sp と scene surface 点の world 距離が
+            // 近ければ「光路の遮蔽体」、遠ければ「無関係な前景の裏」。
+            if (cn.z > sd + 0.0008) {
+                float3 scene_wp = ReconstructWorldPos(cuv, sd);
+                if (distance(sp, scene_wp) < 0.10) { contact = 0.0; break; }
+            }
         }
     }
     return float4(ao, contact, 0.0, 1.0);

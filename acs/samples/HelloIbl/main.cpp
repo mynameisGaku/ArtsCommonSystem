@@ -730,7 +730,7 @@ public:
             _batch.Draw(*_ssao.OutputTexture(), ax + 10, ay + 10,
                         400, 240);
             if (_font.AtlasTexture()) {
-                _batch.DrawString(_font, "SSAO debug overlay (visibility)",
+                _batch.DrawString(_font, "SSAO debug (R=AO  G=contact shadow)",
                                   ax + 10, ay + 12, Vec4{1, 1, 1, 1});
             }
         }
