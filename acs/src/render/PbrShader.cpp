@@ -477,11 +477,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // SSAO modulation factor (Phase 34j-2): screen-space AO テクスチャから visibility を読み、
     // ambient/indirect 項に掛ける。direct light には影響しない (物理的に AO は indirect 専用)。
     // ssao_params.x=0 で無効 (factor=1)。ssao_params.zw = 1/viewport_size。
-    float ssao_factor = 1.0;
+    // SSAO map の .r = AO visibility、.g = contact shadow (Phase 34q)。
+    float ssao_factor    = 1.0;
+    float contact_shadow = 1.0;
     if (ssao_params.x >= 0.5) {
         float2 screen_uv = v.pos.xy * float2(ssao_params.z, ssao_params.w);
-        float ssao_vis = ssao_map.SampleLevel(ssao_map_sampler, screen_uv, 0).r;
-        ssao_factor = saturate(1.0 - (1.0 - ssao_vis) * ssao_params.y);
+        float2 ssao_rg = ssao_map.SampleLevel(ssao_map_sampler, screen_uv, 0).rg;
+        ssao_factor    = saturate(1.0 - (1.0 - ssao_rg.x) * ssao_params.y);
+        contact_shadow = ssao_rg.y;
     }
 
     // SSR (Phase 34e-2fix): screen-space reflection を roughness 依存の blur で
@@ -549,7 +552,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float3 base_brdf = BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness,
                                             anisotropy, aniso_T_world);
         ClearcoatTerm cc = EvalClearcoat(N, V, L, clearcoat, coat_roughness);
-        float k = (i == 0) ? shadow : 1.0;
+        // i==0 (= sun) は shadow map (PCSS) と contact shadow (Phase 34q) の両方で遮蔽
+        float k = (i == 0) ? (shadow * contact_shadow) : 1.0;
         col += light_color[i].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol) * k;
     }
 

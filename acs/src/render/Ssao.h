@@ -3,8 +3,8 @@
 // HBAO-lite: depth-only horizon-based AO。各 pixel から N 方向に screen-space で
 // march して horizon angle を求め、ambient occlusion を出す。
 //
-// 出力は R8G8B8A8_UNorm の RT、.r channel に visibility (1=完全照明、0=完全遮蔽)。
-// PostProcess の tonemap 入力に bind し、hdr_col に乗算合成する。
+// 出力は R8G8B8A8_UNorm の RT。.r = AO visibility、.g = contact shadow (Phase 34q、
+// ともに 1=照明 / 0=遮蔽)。PbrShader が .r を ambient、.g を direct light に乗算する。
 //
 // 制限:
 //   - 法線は MotionVector の normal G-buffer (world normal) を view 空間へ変換して
@@ -46,6 +46,7 @@ public:
     //   inv_view_proj: 現フレーム VP の逆 (depth+uv → world)
     //   view: world → view 変換 (GTAO の slice 計算は view 空間で行う)
     //   eye: カメラ world pos
+    //   light_dir: dir light 0 への方向 (world、surface→light)。contact shadow march 方向。
     //   intensity: 遮蔽強度 (0=AO 無効、1=neutral、>1=過度に暗く)
     //   radius:    AO の最大半径 (world units、0.5 ~ 2.0 が典型)
     void Render(IRhiDevice& device, IRhiCommandList& cl,
@@ -54,7 +55,7 @@ public:
                 const Mat4& view_proj,
                 const Mat4& inv_view_proj,
                 const Mat4& view,
-                Vec3 eye,
+                Vec3 eye, Vec3 light_dir,
                 f32 intensity = 1.0f,
                 f32 radius    = 0.5f) noexcept;
 

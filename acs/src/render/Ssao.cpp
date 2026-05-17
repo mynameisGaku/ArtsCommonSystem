@@ -16,6 +16,7 @@ cbuffer SsaoCB : register(b0) {
     float4   eye;              // xyz = world pos
     float4   params;           // x=intensity, y=radius, z=texel_w, w=texel_h
     float4x4 view;             // Phase 34j-6 GTAO: world → view 変換
+    float4   light_dir;        // Phase 34q: dir light 0 への方向 (xyz, world、surface→light)
 };
 
 Texture2D    scene_depth    : register(t0);
@@ -150,7 +151,36 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     // visibility = 見える割合 (1=全開放、0=全遮蔽)。intensity で AO 強度調整。
     float ao = saturate(1.0 - (1.0 - visibility) * kIntensity);
-    return float4(ao, ao, ao, 1.0);
+
+    // ===== Contact shadow (Phase 34q) =====
+    // dir light 0 へ向かう短距離 screen-space ray march。surface と光源の間に
+    // geometry があれば直接光が遮られている (= 接地影)。shadow map が拾えない
+    // 細かい接触遮蔽 (球と床の接地際など) を補う。結果は .g に焼き、blur で軟化、
+    // PbrShader が direct light に乗算する。
+    float contact = 1.0;
+    float3 Pw = ReconstructWorldPos(v.uv, depth);
+    float3 L  = normalize(light_dir.xyz);             // 光源へ向かう方向 (surface→light)
+    if (dot(Nw, L) > 0.02) {                          // 光に面した pixel のみ march
+        const int   kCSteps = 16;
+        const float kCDist  = 0.45;                   // contact 距離 (world units)
+        float3 cs0   = Pw + Nw * 0.012;               // self-occlusion バイアス
+        float  cstep = kCDist / float(kCSteps);
+        [loop]
+        for (int cs = 1; cs <= kCSteps; ++cs) {
+            float3 sp = cs0 + L * (cstep * (float(cs) - 0.5 + jitter));
+            float4 cp = mul(float4(sp, 1.0), view_proj);
+            if (cp.w < 1e-4) break;
+            float3 cn = cp.xyz / cp.w;
+            if (cn.x < -1.0 || cn.x > 1.0 || cn.y < -1.0 || cn.y > 1.0) break;
+            float2 cuv = float2(cn.x * 0.5 + 0.5, -cn.y * 0.5 + 0.5);
+            float  sd  = scene_depth.SampleLevel(scene_depth_sampler, cuv, 0).r;
+            if (sd >= 0.9999) continue;               // sky は貫通
+            // ray が scene surface に入り込んだ (奥へ薄く潜った) → 光路に geometry。
+            // 厚み上限で「遠い前景の裏」を誤検出しないようにする。
+            if (cn.z > sd + 0.0008 && cn.z - sd < 0.02) { contact = 0.0; break; }
+        }
+    }
+    return float4(ao, contact, 0.0, 1.0);
 }
 )";
 
@@ -166,6 +196,7 @@ cbuffer SsaoCB : register(b0) {
     float4   eye;
     float4   params;     // z=texel_w, w=texel_h
     float4x4 view;       // blur では未使用、CB レイアウト整合のため宣言
+    float4   light_dir;  // blur では未使用、CB レイアウト整合のため宣言
 };
 
 Texture2D    ssao_raw    : register(t0);
@@ -188,15 +219,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float2 tx = float2(params.z, params.w);
     float center_d = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).r;
 
-    // 5x5 depth-aware bilateral blur
-    float sum = 0.0, wsum = 0.0;
+    // 5x5 depth-aware bilateral blur (.r=AO, .g=contact shadow を一括平滑化)
+    float2 sum = float2(0, 0);
+    float  wsum = 0.0;
     const int kR = 2;
     [unroll]
     for (int dy = -kR; dy <= kR; ++dy) {
         [unroll]
         for (int dx = -kR; dx <= kR; ++dx) {
             float2 uv = v.uv + float2(dx, dy) * tx;
-            float ao = ssao_raw.SampleLevel(ssao_raw_sampler, uv, 0).r;
+            float2 oc = ssao_raw.SampleLevel(ssao_raw_sampler, uv, 0).rg;
             float d  = scene_depth.SampleLevel(scene_depth_sampler, uv, 0).r;
             // spatial gaussian (sigma ~= 2 px)
             float sw = exp(-float(dx*dx + dy*dy) / 8.0);
@@ -204,14 +236,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
             float dd = d - center_d;
             float dw = exp(-dd * dd * 25000.0);
             float w  = sw * dw;
-            sum  += ao * w;
+            sum  += oc * w;
             wsum += w;
         }
     }
-    float result = (wsum > 1e-5)
-                   ? sum / wsum
-                   : ssao_raw.SampleLevel(ssao_raw_sampler, v.uv, 0).r;
-    return float4(result, result, result, 1.0);
+    float2 result = (wsum > 1e-5)
+                    ? sum / wsum
+                    : ssao_raw.SampleLevel(ssao_raw_sampler, v.uv, 0).rg;
+    return float4(result.x, result.y, 0.0, 1.0);
 }
 )";
 
@@ -221,6 +253,7 @@ struct SsaoCBLayout {
     Vec4 eye;
     Vec4 params;
     Mat4 view;             // Phase 34j-6 GTAO
+    Vec4 light_dir;        // Phase 34q: contact shadow 用 dir light 0 方向
 };
 
 template<typename T>
@@ -377,7 +410,8 @@ void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& normal_gbuffer,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
                   const Mat4& view,
-                  Vec3 eye, f32 intensity, f32 radius) noexcept {
+                  Vec3 eye, Vec3 light_dir,
+                  f32 intensity, f32 radius) noexcept {
     if (!_output || !_blur_output || !_pipeline || !_blur_pipeline || !_cb) return;
     SsaoCBLayout data{};
     data.view_proj     = view_proj;
@@ -387,6 +421,7 @@ void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                                1.0f / static_cast<f32>(_width),
                                1.0f / static_cast<f32>(_height)};
     data.view          = view;       // Phase 34j-6 GTAO: world → view
+    data.light_dir     = Vec4{light_dir.x, light_dir.y, light_dir.z, 0};
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: SSAO raw → _output

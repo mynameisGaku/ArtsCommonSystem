@@ -651,7 +651,7 @@ public:
             _ssao.Render(*dev, *cl, *depth,
                          *_motion.OutputNormalTexture(),
                          vp_for_render, inv_vp, _camera.View(),
-                         _camera.Eye(),
+                         _camera.Eye(), sun.direction,
                          /*intensity=*/1.0f,
                          /*radius=*/0.5f);
             _ssao_warm = true;     // 次フレームから PbrShader が SSAO texture を読める
