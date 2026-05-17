@@ -13,8 +13,10 @@ const char* kSsrHLSL = R"(
 cbuffer SsrCB : register(b0) {
     float4x4 view_proj;
     float4x4 inv_view_proj;
-    float4   eye;            // xyz = world pos
-    float4   params;         // x=intensity, y=max_ray_dist, z=frame_jitter, w=thickness
+    float4   eye;             // xyz = world pos
+    float4   params;          // x=intensity, y=max_ray_dist, z=frame_jitter, w=thickness_scale
+    float4x4 prev_view_proj;  // raw march では未使用 (CB layout 整合のため宣言)
+    float4   temporal_params; // x=1/width, y=1/height, z=blend
 };
 
 Texture2D    scene_color    : register(t0);
@@ -49,76 +51,87 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     float3 wp = ReconstructWorldPos(v.uv, depth);
     float3 V  = normalize(eye.xyz - wp);
-    // normal G-buffer から per-pixel world normal を sample (Phase 34m)。
-    // 旧 cross(ddx,ddy) は 2x2 quad 単位で faceted になり、曲面の反射ベクトルが
-    // 段差状にずれて反射がガビガビになっていた。geometry 由来の補間法線で根本解決。
-    float3 N = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
-    // facing 補正 (背面 normal の保険、通常は no-op)
-    if (dot(N, V) < 0.0) N = -N;
-    float3 R = reflect(-V, N);
-    if (dot(R, V) < -0.95) return float4(0, 0, 0, 0); // 真後ろ反射は無視
+    // normal G-buffer から per-pixel world normal を sample (Phase 34m)
+    float3 N  = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
+    if (dot(N, V) < 0.0) N = -N;                       // facing 補正 (背面の保険)
+    float3 R  = reflect(-V, N);
+    if (dot(R, V) < -0.95) return float4(0, 0, 0, 0);  // 真後ろ反射は SSR データ無し
 
-    // Ray march: world space で粗く前進して geometry を貫いた step を検出し、
-    // そのあと binary search で交差点を絞り込む。粗 march だけだと hit 位置が
-    // step 長ぶんずれ、反射が縦に滲んでガビガビになる (Phase 34e-fix)。
-    const int   kSteps    = 48;
-    const float kStepLen  = max(params.y, 0.5) / float(kSteps);   // max_ray_dist / N
-    const float thickness = max(params.w, 0.05);
+    // ===== screen-space DDA ray march (McGuire & Mara 2014, Phase 34n) =====
+    // world 空間固定ステップ march は screen 空間でサンプリングが疎になり、反射先が
+    // カメラ近傍/grazing だと 1 step が多 pixel に飛んで交差がレイ方向に量子化され、
+    // 反射像が伸びてスメアした。反射レイを screen 空間へ射影し 1 texel/step で歩く。
+    // NDC depth は screen 空間で線形なので、レイ depth は端点間の線形補間で正確。
+    float2 res    = float2(1.0 / temporal_params.x, 1.0 / temporal_params.y);
+    float  maxLen = max(params.y, 0.5);
 
-    // per-frame + per-pixel jitter で ray 起点を 1 step 未満ずらす (Phase 34e-3)。
-    // binary search 後でも hit/miss 境界が毎フレーム散り、temporal 累積で
-    // silhouette のジャギーが時間方向に均される。
+    // レイ起点を法線方向へ僅かに持ち上げ self-intersection を避ける
+    float3 w0 = wp + N * 0.02;
+    float3 w1 = w0 + R * maxLen;
+
+    float4 c0 = mul(float4(w0, 1.0), view_proj);
+    float4 c1 = mul(float4(w1, 1.0), view_proj);
+    // 終点が near 面より手前 (w<=0) なら w が正の範囲で打ち切る (perspective divide 保護)
+    if (c1.w <= 1.0e-4) {
+        float t = (c0.w - 1.0e-4) / (c0.w - c1.w);
+        c1 = lerp(c0, c1, t);
+    }
+
+    // perspective divide → screen pixel 座標 + NDC depth
+    float3 n0  = c0.xyz / c0.w;
+    float3 n1  = c1.xyz / c1.w;
+    float2 uv0 = float2(n0.x * 0.5 + 0.5, -n0.y * 0.5 + 0.5);
+    float2 uv1 = float2(n1.x * 0.5 + 0.5, -n1.y * 0.5 + 0.5);
+    float2 p0  = uv0 * res;
+    float2 p1  = uv1 * res;
+
+    // DDA: screen 上の長辺を 1 texel/step で歩く
+    float2 dp        = p1 - p0;
+    float  stepCount = max(abs(dp.x), abs(dp.y));
+    if (stepCount < 1.0) return float4(0, 0, 0, 0);    // レイが画面上ほぼ点 → 反射なし
+    float2 dpStep    = dp / stepCount;                 // 1 step の pixel 増分 (片軸 ±1)
+    float  dzStep    = (n1.z - n0.z) / stepCount;      // 1 step の NDC depth 増分 (一定)
+    float  marchMax  = min(stepCount, 256.0);          // 反射距離の上限 (256 texel)
+
+    // hit 受理厚み: レイ自身の depth 勾配ベース (grazing は薄く steep は厚く、
+    // 固定 clip-space 厚みの depth 非線形による破綻を避ける)
+    float thickness = abs(dzStep) * max(params.w, 1.0) + 2.0e-5;
+
+    // per-frame + per-pixel jitter で開始位置を 1 texel 未満ずらす (temporal dither)
     float ign    = frac(52.9829189 * frac(dot(v.pos.xy, float2(0.06711056, 0.00583715))));
-    float jitter = frac(ign + params.z);          // params.z = 毎フレーム値
+    float jitter = frac(ign + params.z);
 
-    float3 ray_pos  = wp + N * 0.02 + R * (0.02 + kStepLen * jitter);  // 起点 offset + jitter
-    float3 prev_pos = ray_pos;                    // 直前 step (geometry 手前のはず)
+    float2 p = p0   + dpStep * jitter;
+    float  z = n0.z + dzStep * jitter;
+
+    float2 hit_uv = float2(0, 0);
     bool   hit = false;
     [loop]
-    for (int i = 0; i < kSteps; ++i) {
-        prev_pos = ray_pos;
-        ray_pos += R * (kStepLen * (1.0 + float(i) * 0.015));  // 緩めの accelerating step
-        float4 clip = mul(float4(ray_pos, 1.0), view_proj);
-        if (clip.w <= 0.0) break;                              // 背面
-        clip.xyz /= clip.w;
-        clip.y = -clip.y;
-        if (clip.x < -1.0 || clip.x > 1.0 || clip.y < -1.0 || clip.y > 1.0) break;
-        float2 ray_uv = clip.xy * 0.5 + 0.5;
-        float scene_d = scene_depth.SampleLevel(scene_depth_sampler, ray_uv, 0).r;
-        if (scene_d >= 0.9999) continue;                       // sky は貫通
-        // 衝突判定: ray depth がシーン depth より奥 (thickness 以内)
-        if (clip.z > scene_d && clip.z - scene_d < thickness) {
-            hit = true;
+    for (float i = 0.0; i < marchMax; i += 1.0) {
+        float z_prev = z;
+        p += dpStep;
+        z += dzStep;
+        if (i < 2.0) continue;                         // 起点近傍は self-hit 回避でスキップ
+        float2 uv_s = p / res;
+        if (uv_s.x < 0.0 || uv_s.x > 1.0 ||
+            uv_s.y < 0.0 || uv_s.y > 1.0) break;       // 画面外で打ち切り
+        float sd = scene_depth.SampleLevel(scene_depth_sampler, uv_s, 0).r;
+        if (sd >= 0.9999) continue;                    // sky は貫通
+        // レイの depth 区間 [z_lo,z_hi] が surface を厚み thickness 以内でまたいだ → hit
+        float z_lo = min(z_prev, z);
+        float z_hi = max(z_prev, z);
+        if (z_hi >= sd && z_lo <= sd + thickness) {
+            hit    = true;
+            hit_uv = uv_s;
             break;
         }
     }
     if (!hit) return float4(0, 0, 0, 0);
 
-    // Binary search: prev_pos (geometry 手前) と ray_pos (奥) の間で交差点を
-    // 二分探索する。8 回で step を 1/256 に絞れるので反射が鋭くなる。
-    float3 lo = prev_pos;
-    float3 hi = ray_pos;
-    [unroll]
-    for (int b = 0; b < 8; ++b) {
-        float3 mid = (lo + hi) * 0.5;
-        float4 mc  = mul(float4(mid, 1.0), view_proj);
-        mc.xyz /= max(mc.w, 1e-6);
-        mc.y = -mc.y;
-        float2 mid_uv = mc.xy * 0.5 + 0.5;
-        float  md = scene_depth.SampleLevel(scene_depth_sampler, mid_uv, 0).r;
-        if (mc.z > md) hi = mid;     // mid は geometry より奥 → 交差は手前側
-        else           lo = mid;    // mid は手前 → 交差は奥側
-    }
-
-    // 絞り込んだ交差点で scene color を sample
-    float4 fc = mul(float4(hi, 1.0), view_proj);
-    fc.xyz /= max(fc.w, 1e-6);
-    fc.y = -fc.y;
-    float2 final_uv  = fc.xy * 0.5 + 0.5;
-    float3 hit_color = scene_color.SampleLevel(scene_color_sampler, final_uv, 0).rgb;
-    // 端のフェードアウト (画面端へ近づくほど薄める)
-    float2 dist2edge = min(final_uv, 1.0 - final_uv);
-    float  edge_fade = saturate(min(dist2edge.x, dist2edge.y) * 8.0);
+    float3 hit_color = scene_color.SampleLevel(scene_color_sampler, hit_uv, 0).rgb;
+    // 画面端フェード (反射先が画面端に近いほど薄める)
+    float2 d2e       = min(hit_uv, 1.0 - hit_uv);
+    float  edge_fade = saturate(min(d2e.x, d2e.y) * 8.0);
     return float4(hit_color * params.x * edge_fade, 1.0);
 }
 )";
@@ -390,7 +403,7 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     data.view_proj      = view_proj;
     data.inv_view_proj  = inv_view_proj;
     data.eye            = Vec4{eye.x, eye.y, eye.z, 1};
-    data.params         = Vec4{intensity, /*max_dist=*/12.0f, jitter, /*thickness=*/0.4f};
+    data.params         = Vec4{intensity, /*max_dist=*/12.0f, jitter, /*thickness_scale=*/3.0f};
     data.prev_view_proj = prev_view_proj;
     data.temporal_params = Vec4{ 1.0f / static_cast<f32>(_width),
                                  1.0f / static_cast<f32>(_height),

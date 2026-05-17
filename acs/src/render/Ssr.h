@@ -9,8 +9,10 @@
 //     から sample する (Phase 34m)。旧 depth-derivative cross(ddx,ddy) は 2x2 quad
 //     単位で faceted になり、曲面の反射ベクトルが段差状になってガビガビだった
 //
-// 48 step linear march + accelerating step + 8-step binary search refinement
-// (Phase 34e-fix: 粗 march だけだと反射が滲むので交差点を二分探索で精密化)。
+// ray march は screen-space DDA (McGuire & Mara 2014、Phase 34n)。反射レイを
+// screen 空間へ射影し 1 texel/step で行進する。world 空間固定ステップ march は
+// screen 空間でサンプリングが疎になり、反射先がカメラ近傍/grazing だと 1 step が
+// 多 pixel に飛んで反射像がレイ方向に伸びてスメアしていた — DDA で根本解決。
 //
 // Phase 34e-3: temporal accumulation。raw SSR を per-frame jitter 付きで撃ち、
 // 履歴 (reproject + neighborhood clamp) と時間方向に平均することで、ray-march の
