@@ -620,9 +620,14 @@ public:
         // intensity は 1.0 固定 — 反射強度は PbrShader::SetSsr 側で一元管理する。
         const Mat4 inv_vp = Inverse(vp_for_render);
         if (_show_ssr) {
+            // temporal SSR (Phase 34e-3) の reproject 用に前フレームの jitter なし
+            // VP を渡す。frame 0 は未確定なので現 VP を渡し reprojection を無効化。
+            const Mat4& ssr_prev_vp = _taa_prev_vp_valid ? _prev_vp_no_jitter
+                                                         : vp_no_jitter;
             _ssr.Render(*dev, *cl, *hdr, *depth,
                         vp_for_render,
                         inv_vp,
+                        ssr_prev_vp,
                         _camera.Eye(),
                         /*intensity=*/1.0f);
             _ssr_warm = true;     // 次フレームから PbrShader が SSR texture を読める

@@ -14,7 +14,7 @@ cbuffer SsrCB : register(b0) {
     float4x4 view_proj;
     float4x4 inv_view_proj;
     float4   eye;            // xyz = world pos
-    float4   params;         // x=intensity, y=max_ray_dist, z=step_count, w=thickness
+    float4   params;         // x=intensity, y=max_ray_dist, z=frame_jitter, w=thickness
 };
 
 Texture2D    scene_color : register(t0);
@@ -63,7 +63,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
     const float kStepLen  = max(params.y, 0.5) / float(kSteps);   // max_ray_dist / N
     const float thickness = max(params.w, 0.05);
 
-    float3 ray_pos  = wp + N * 0.02 + R * 0.02;   // 起点 offset で self-hit 回避
+    // per-frame + per-pixel jitter で ray 起点を 1 step 未満ずらす (Phase 34e-3)。
+    // binary search 後でも hit/miss 境界が毎フレーム散り、temporal 累積で
+    // silhouette のジャギーが時間方向に均される。
+    float ign    = frac(52.9829189 * frac(dot(v.pos.xy, float2(0.06711056, 0.00583715))));
+    float jitter = frac(ign + params.z);          // params.z = 毎フレーム値
+
+    float3 ray_pos  = wp + N * 0.02 + R * (0.02 + kStepLen * jitter);  // 起点 offset + jitter
     float3 prev_pos = ray_pos;                    // 直前 step (geometry 手前のはず)
     bool   hit = false;
     [loop]
@@ -115,11 +121,92 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+// Phase 34e-3: temporal accumulation。jitter 付き raw SSR を、前フレームの履歴と
+// reproject + neighborhood clamp して時間方向に平均する。silhouette のジャギーや
+// march の量子化ノイズが大幅に減る。RGBA 全 ch を扱う (.a = hit mask も平滑化され、
+// hit/miss 境界がアンチエイリアスされる)。temporal SSGI と同形。
+const char* kSsrTemporalHLSL = R"(
+#pragma pack_matrix(row_major)
+
+cbuffer SsrCB : register(b0) {
+    float4x4 view_proj;
+    float4x4 inv_view_proj;
+    float4   eye;
+    float4   params;
+    float4x4 prev_view_proj;     // Phase 34e-3: reprojection 用
+    float4   temporal_params;    // x=texel_w, y=texel_h, z=blend_factor
+};
+
+Texture2D    current_ssr : register(t0);   // jitter 付き raw SSR (今フレーム)
+Texture2D    history_ssr : register(t1);   // 前フレームの temporal 結果
+Texture2D    scene_depth : register(t2);
+SamplerState current_ssr_sampler : register(s0);
+SamplerState history_ssr_sampler : register(s1);
+SamplerState scene_depth_sampler : register(s2);
+
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o;
+    o.uv  = uv;
+    o.pos = float4(uv * 2.0 - 1.0, 0.0, 1.0);
+    o.pos.y = -o.pos.y;
+    return o;
+}
+
+// camera motion 由来の history reproject (反射元サーフェスの動きで履歴をずらす)
+float2 ReprojectUv(float2 uv) {
+    float depth = scene_depth.SampleLevel(scene_depth_sampler, uv, 0).r;
+    if (depth >= 0.9999) return uv;
+    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+    clip.y = -clip.y;
+    float4 wp = mul(clip, inv_view_proj);
+    wp.xyz /= max(wp.w, 1e-6);
+    float4 pc = mul(float4(wp.xyz, 1.0), prev_view_proj);
+    if (pc.w < 1e-4) return uv;
+    float2 pn = pc.xy / pc.w;
+    return float2(pn.x * 0.5 + 0.5, -pn.y * 0.5 + 0.5);
+}
+
+float4 PSMain(VSOut v) : SV_TARGET {
+    float4 cur = current_ssr.SampleLevel(current_ssr_sampler, v.uv, 0);
+
+    float2 huv = ReprojectUv(v.uv);
+    if (any(huv < 0.0) || any(huv > 1.0)) huv = v.uv;   // 画面外は静的 fallback
+    float4 hist = history_ssr.SampleLevel(history_ssr_sampler, huv, 0);
+
+    // Neighborhood clamp (3x3 of current)。camera 回転時の古い反射の残像を抑える。
+    // rgb と hit mask (.a) の両方を clamp する。
+    float2 tx = float2(temporal_params.x, temporal_params.y);
+    float4 nmin = cur, nmax = cur;
+    [unroll]
+    for (int dy = -1; dy <= 1; ++dy) {
+        [unroll]
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+            float4 c = current_ssr.SampleLevel(current_ssr_sampler,
+                                               v.uv + float2(dx, dy) * tx, 0);
+            nmin = min(nmin, c);
+            nmax = max(nmax, c);
+        }
+    }
+    hist = clamp(hist, nmin, nmax);
+
+    // exponential moving average。jitter してあるので強めに累積してよい。
+    float a = saturate(temporal_params.z);
+    if (a < 1e-4) a = 0.1;
+    return lerp(hist, cur, a);
+}
+)";
+
 struct SsrCBLayout {
     Mat4 view_proj;
     Mat4 inv_view_proj;
     Vec4 eye;
     Vec4 params;
+    Mat4 prev_view_proj;     // Phase 34e-3: temporal reproject 用
+    Vec4 temporal_params;    // Phase 34e-3: x=texel_w, y=texel_h, z=blend_factor
 };
 
 template<typename T>
@@ -158,6 +245,14 @@ Result<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noex
     auto r = CreateRhiTexture(device, td);
     if (r.IsErr()) return Err<void>(r.Error());
     _output = Move(r.Value());
+
+    // Phase 34e-3: temporal accumulation の history ping-pong
+    for (u32 i = 0; i < 2; ++i) {
+        _history[i].Reset();
+        auto hr = CreateRhiTexture(device, td);
+        if (hr.IsErr()) return Err<void>(hr.Error());
+        _history[i] = Move(hr.Value());
+    }
     return Ok();
 }
 
@@ -204,15 +299,59 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
     else _pipeline = Move(r.Value());
+
+    // Phase 34e-3: temporal pipeline (current_ssr + history_ssr + scene_depth → history)。
+    // VS は fullscreen-triangle で raw と同形なので _vs を再利用。
+    ShaderDesc tps_d{};
+    tps_d.stage = ShaderStage::Pixel;
+    tps_d.hlsl_source = kSsrTemporalHLSL;
+    tps_d.entry_point = "PSMain";
+    tps_d.debug_name  = "SsrTemporal.PS";
+    if (auto r = CreateRhiShader(device, tps_d); r.IsErr()) return Err<void>(r.Error());
+    else _temporal_ps = Move(r.Value());
+
+    PipelineDesc tpd{};
+    tpd.vs            = _vs.Get();
+    tpd.ps            = _temporal_ps.Get();
+    tpd.topology      = PrimitiveTopology::TriangleList;
+    tpd.rt_format     = _hdr_format;
+    tpd.depth_format  = Format::Unknown;
+    tpd.depth_test    = false;
+    tpd.depth_write   = false;
+    tpd.cull_mode     = CullMode::None;
+    tpd.blend_mode    = BlendMode::Opaque;
+    tpd.cbuffer_slots = 1;
+    tpd.texture_slots = 3;
+    tpd.cbuffer_names[0] = "SsrCB";
+    tpd.texture_names[0] = "current_ssr";
+    tpd.texture_names[1] = "history_ssr";
+    tpd.texture_names[2] = "scene_depth";
+    tpd.static_sampler_count = 3;
+    for (u32 i = 0; i < 2; ++i) {
+        tpd.static_samplers[i].filter    = SamplerFilter::Linear;
+        tpd.static_samplers[i].address_u = SamplerAddress::Clamp;
+        tpd.static_samplers[i].address_v = SamplerAddress::Clamp;
+    }
+    tpd.static_samplers[2].filter    = SamplerFilter::Point;
+    tpd.static_samplers[2].address_u = SamplerAddress::Clamp;
+    tpd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    tpd.vertex_stride = 0;
+    tpd.layout_count  = 0;
+    if (auto r = CreateRhiPipeline(device, tpd); r.IsErr()) return Err<void>(r.Error());
+    else _temporal_pipeline = Move(r.Value());
     return Ok();
 }
 
 void Ssr::Shutdown() noexcept {
+    _temporal_pipeline.Reset();
     _pipeline.Reset();
     _cb.Reset();
+    _temporal_ps.Reset();
     _ps.Reset();
     _vs.Reset();
+    for (auto& h : _history) h.Reset();
     _output.Reset();
+    _temporal_frame = 0;
     _device = nullptr;
 }
 
@@ -221,21 +360,36 @@ Result<void> Ssr::Resize(u32 width, u32 height) noexcept {
     if (width == _width && height == _height) return Ok();
     _width = width;
     _height = height;
+    _temporal_frame = 0;     // history は size 違いで使えないので reset
     return CreateOutputRT(*_device, width, height);
 }
 
 void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color, IRhiTexture& scene_depth,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
+                  const Mat4& prev_view_proj,
                   Vec3 eye, f32 intensity) noexcept {
-    if (!_output || !_pipeline || !_cb) return;
+    if (!_output || !_history[0] || !_history[1] ||
+        !_pipeline || !_temporal_pipeline || !_cb) return;
+
+    // per-frame jitter 値: frac(frame * 黄金比) で低 discrepancy に散らす。
+    // frame は 1024 で wrap して f32 精度内に収める。
+    const u32 jf     = _temporal_frame & 1023u;
+    const f32 jt     = static_cast<f32>(jf) * 0.61803399f;
+    const f32 jitter = jt - static_cast<f32>(static_cast<u32>(jt));
+
     SsrCBLayout data{};
-    data.view_proj     = view_proj;
-    data.inv_view_proj = inv_view_proj;
-    data.eye           = Vec4{eye.x, eye.y, eye.z, 1};
-    data.params        = Vec4{intensity, /*max_dist=*/12.0f, /*step_count=*/32.0f, /*thickness=*/0.4f};
+    data.view_proj      = view_proj;
+    data.inv_view_proj  = inv_view_proj;
+    data.eye            = Vec4{eye.x, eye.y, eye.z, 1};
+    data.params         = Vec4{intensity, /*max_dist=*/12.0f, jitter, /*thickness=*/0.4f};
+    data.prev_view_proj = prev_view_proj;
+    data.temporal_params = Vec4{ 1.0f / static_cast<f32>(_width),
+                                 1.0f / static_cast<f32>(_height),
+                                 /*blend=*/0.1f, 0 };
     _cb->Update(&data, sizeof(data));
 
+    // Pass 1: raw SSR (jitter 付き march) → _output
     cl.BeginRenderToTexture(*_output, ClearColor{0, 0, 0, 0}, nullptr, 1.0f);
     cl.SetPipeline(*_pipeline);
     cl.SetConstantBuffer(0, *_cb);
@@ -243,6 +397,23 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetTexture(1, scene_depth);
     cl.Draw(3);
     cl.EndRenderToTexture(*_output);
+
+    // Pass 2: temporal accumulation → _history[cur]
+    const u32 cur  = _temporal_frame & 1u;
+    const u32 prev = cur ^ 1u;
+    // Cold-start (frame 0): history 未初期化なので raw (_output) を history slot に
+    // bind する。reproject はほぼ identity、clamp 後 lerp(raw, raw, a)=raw で garbage 排除。
+    IRhiTexture* hist_in = (_temporal_frame == 0u) ? _output.Get() : _history[prev].Get();
+    cl.BeginRenderToTexture(*_history[cur], ClearColor{0, 0, 0, 0}, nullptr, 1.0f);
+    cl.SetPipeline(*_temporal_pipeline);
+    cl.SetConstantBuffer(0, *_cb);
+    cl.SetTexture(0, *_output);        // current (jitter 付き raw)
+    cl.SetTexture(1, *hist_in);        // history (or raw on frame 0)
+    cl.SetTexture(2, scene_depth);
+    cl.Draw(3);
+    cl.EndRenderToTexture(*_history[cur]);
+
+    ++_temporal_frame;
 }
 
 } // namespace acs
