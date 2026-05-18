@@ -455,6 +455,28 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
     return (diffuse + specular) * NdotL;
 }
 
+// per-pixel マテリアル (1 光源ぶんの BRDF 評価に要るパラメータ束)。
+// Phase 35: sheen / iridescence / SSS の lobe パラメータはここに足していく。
+struct SurfaceMaterial {
+    float3 albedo;
+    float  metallic;
+    float  roughness;
+    float  clearcoat;
+    float  coat_roughness;
+    float  anisotropy;
+    float3 aniso_tangent;
+};
+
+// 1 光源ぶんの layered BRDF を評価 (現状: base Cook-Torrance + clearcoat 層)。
+// L = surface→light、戻り値は放射輝度係数 (光色・距離減衰・shadow は呼び側で乗算)。
+// dir/area/point の 3 ループはこの 1 関数を呼ぶだけにし、lobe 追加を 1 箇所に集約する。
+float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
+    float3 base_brdf = BrdfCookTorrance(N, V, L, m.albedo, m.metallic, m.roughness,
+                                        m.anisotropy, m.aniso_tangent);
+    ClearcoatTerm cc = EvalClearcoat(N, V, L, m.clearcoat, m.coat_roughness);
+    return base_brdf * cc.attenuation + cc.spec_times_nol;
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.world_n);
     // Normal map perturbation (Phase 34g)。fallback 1x1 (0.5,0.5,1.0) なら無変化。
@@ -473,6 +495,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  coat_roughness  = max(ext_params.y, 0.04);
     float  anisotropy      = ext_params.z;
     float3 aniso_T_world   = aniso_tangent.xyz;
+
+    // 光源ループ 3 種 (dir/area/point) が共有する per-pixel マテリアル
+    SurfaceMaterial mat;
+    mat.albedo         = albedo_rgb;
+    mat.metallic       = metallic;
+    mat.roughness      = roughness;
+    mat.clearcoat      = clearcoat;
+    mat.coat_roughness = coat_roughness;
+    mat.anisotropy     = anisotropy;
+    mat.aniso_tangent  = aniso_T_world;
 
     // SSAO modulation factor (Phase 34j-2): screen-space AO テクスチャから visibility を読み、
     // ambient/indirect 項に掛ける。direct light には影響しない (物理的に AO は indirect 専用)。
@@ -549,12 +581,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
         if (i >= dir_count) break;
         float3 L = normalize(light_dir[i].xyz);
-        float3 base_brdf = BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness,
-                                            anisotropy, aniso_T_world);
-        ClearcoatTerm cc = EvalClearcoat(N, V, L, clearcoat, coat_roughness);
         // i==0 (= sun) は shadow map (PCSS) と contact shadow (Phase 34q) の両方で遮蔽
         float k = (i == 0) ? (shadow * contact_shadow) : 1.0;
-        col += light_color[i].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol) * k;
+        col += light_color[i].xyz * EvalSurfaceForLight(N, V, L, mat) * k;
     }
 
     // 矩形 area light: 4x4 stratified sample で Monte Carlo 積分。
@@ -588,10 +617,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
                     // inverse square + 面要素の cos(法線方向)
                     float cos_area = saturate(-dot(area_n, L));
                     float att = cos_area / max(dist * dist, 1e-4);
-                    float3 base_brdf = BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness,
-                                                        anisotropy, aniso_T_world);
-                    ClearcoatTerm cc = EvalClearcoat(N, V, L, clearcoat, coat_roughness);
-                    area_sum += (base_brdf * cc.attenuation + cc.spec_times_nol) * att;
+                    area_sum += EvalSurfaceForLight(N, V, L, mat) * att;
                 }
             }
             // (axisX × axisY の長さ) = 面の半面積 ×4。N_sample で割って full area で乗算。
@@ -612,10 +638,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float3 L = to_light / max(dist, 1e-4);
         float  att = 1.0 - dist / rng;
         att = att * att;
-        float3 base_brdf = BrdfCookTorrance(N, V, L, albedo_rgb, metallic, roughness,
-                                            anisotropy, aniso_T_world);
-        ClearcoatTerm cc = EvalClearcoat(N, V, L, clearcoat, coat_roughness);
-        col += point_color[j].xyz * (base_brdf * cc.attenuation + cc.spec_times_nol) * att;
+        col += point_color[j].xyz * EvalSurfaceForLight(N, V, L, mat) * att;
     }
 
     // Emissive (Phase 34l): 自己発光。lighting と無関係に加算する。fog より前に
