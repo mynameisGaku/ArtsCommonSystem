@@ -381,7 +381,7 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     // Sheen ambient (Phase 35-1a): irradiance を sheen 色で着色した簡易 ambient + base 減衰
     if (sheenWeight > 0.0) {
         float maxC = max(sheenColor.r, max(sheenColor.g, sheenColor.b));
-        diffuse_ibl = diffuse_ibl * (1.0 - sheenWeight * maxC * 0.5)
+        diffuse_ibl = diffuse_ibl * saturate(1.0 - sheenWeight * maxC * 0.5)
                     + irr * sheenColor * sheenWeight * 0.25;
     }
 
@@ -512,7 +512,8 @@ float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
                      * (D_Charlie(NoH, m.sheen_roughness) * V_Neubelt(NoV, NoL))
                      * NoL * m.sheen_weight;
         float  maxC = max(m.sheen_color.r, max(m.sheen_color.g, m.sheen_color.b));
-        lit = lit * (1.0 - m.sheen_weight * maxC * 0.5) + sheen;
+        // saturate: SetSheen が範囲クランプ済だが、CB を直接書く経路でも負にしない防御。
+        lit = lit * saturate(1.0 - m.sheen_weight * maxC * 0.5) + sheen;
     }
     return lit;
 }
@@ -1242,9 +1243,12 @@ void PbrShader::SetEmissive(Vec3 color, f32 strength) noexcept {
 }
 
 void PbrShader::SetSheen(Vec3 sheen_color, f32 weight, f32 roughness) noexcept {
-    const f32 w = weight    < 0.0f  ? 0.0f  : weight;
+    // weight は [0,1] の blend 係数、sheen_color は反射率なので各 ch を [0,1] に収める。
+    // これでシェーダの energy 減衰係数 (1 - weight*maxC*0.5) が負へ振れない。
+    auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+    const f32 w = sat01(weight);
     const f32 r = roughness < 0.04f ? 0.04f : roughness;
-    _sheen_params = Vec4{sheen_color.x, sheen_color.y, sheen_color.z, w};
+    _sheen_params = Vec4{sat01(sheen_color.x), sat01(sheen_color.y), sat01(sheen_color.z), w};
     _sheen_rough  = Vec4{r, 0, 0, 0};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
