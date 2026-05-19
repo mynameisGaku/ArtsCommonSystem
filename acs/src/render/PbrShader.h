@@ -209,6 +209,12 @@ public:
     void SetIridescence(f32 weight, f32 thickness_nm = 400.0f,
                         f32 film_ior = 1.4f) noexcept;
 
+    // Subsurface scattering (Phase 35-2): 肌/ロウ/大理石のような内部散乱の質感。
+    // wrapped diffuse (terminator の柔らかさ) + 裏面 translucency (逆光の透け) を
+    // 解析近似で直接光に加算する。LUT・追加 pass 不要。
+    //   sss_color: 内部散乱の色 (肌なら赤み)。weight=0 で無効 (既定、他 sample 無影響)。
+    void SetSubsurface(Vec3 sss_color, f32 weight) noexcept;
+
     IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
     IRhiBuffer*   PerFrameCB()  const noexcept { return _frame_cb.Get(); }
     IRhiBuffer*   PerObjectCB() const noexcept { return _object_cb.Get(); }
@@ -316,6 +322,9 @@ private:
     // Iridescence (Phase 35-1b)、SetIridescence で上書き。
     // x=weight (既定 0=OFF)、y=thickness(nm)、z=film IOR
     Vec4         _irid_params    = Vec4{0, 400.0f, 1.4f, 0};
+
+    // Subsurface (Phase 35-2)、SetSubsurface で上書き。xyz=color, w=weight (既定 0=OFF)
+    Vec4         _sss_params     = Vec4{0, 0, 0, 0};
 };
 
 } // namespace acs

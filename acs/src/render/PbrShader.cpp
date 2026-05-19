@@ -85,6 +85,7 @@ cbuffer Object : register(b1) {
     float4   sheen_params;   // Phase 35-1a: xyz=sheen color, w=sheen weight (0=OFF)
     float4   sheen_rough;    // Phase 35-1a: x=sheen roughness, yzw=pad
     float4   irid_params;    // Phase 35-1b: x=weight, y=thickness(nm), z=film IOR, w=pad
+    float4   sss_params;     // Phase 35-2: xyz=subsurface color, w=weight (0=OFF)
 };
 
 Texture2D    albedo           : register(t0);
@@ -594,6 +595,8 @@ struct SurfaceMaterial {
     float  sheen_roughness;
     float3 irid_fresnel;      // Phase 35-1b: 薄膜変調済 Fresnel (NoV で評価済)
     float  irid_weight;       // 0 = iridescence OFF
+    float3 sss_color;         // Phase 35-2: subsurface (内部散乱) の色
+    float  sss_weight;        // 0 = SSS OFF
 };
 
 // 1 光源ぶんの layered BRDF を評価 (base Cook-Torrance + clearcoat 層 + sheen 層)。
@@ -619,6 +622,21 @@ float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
         float  maxC = max(m.sheen_color.r, max(m.sheen_color.g, m.sheen_color.b));
         // saturate: SetSheen が範囲クランプ済だが、CB を直接書く経路でも負にしない防御。
         lit = lit * saturate(1.0 - m.sheen_weight * maxC * 0.5) + sheen;
+    }
+
+    // Subsurface scattering (Phase 35-2): 肌/ロウ/玉 の内部散乱を解析近似で加算。
+    // (1) wrapped diffuse の Lambert 超過分 = terminator の柔らかい回り込み。
+    // (2) 裏面 translucency = 薄い部分を光が透ける逆光グロー (Barre-Brisebois 2011)。
+    // LUT も追加 pass も不要。直接光専用 (IBL は terminator が無いので非適用)。
+    if (m.sss_weight > 0.0) {
+        const float kWrap = 0.5, kDistortion = 0.2, kPower = 3.0, kTransScale = 0.6;
+        float  noL    = dot(N, L);
+        float  noL_w  = saturate((noL + kWrap) / (1.0 + kWrap));
+        float  wrapEx = max(noL_w - saturate(noL), 0.0);          // (1)
+        float3 Lt     = normalize(-L + N * kDistortion);
+        float  trans  = pow(saturate(dot(V, Lt)), kPower);        // (2)
+        lit += m.sss_color * m.albedo
+             * (wrapEx / PI + trans * kTransScale) * m.sss_weight;
     }
     return lit;
 }
@@ -662,6 +680,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
         mat.irid_fresnel = EvalIridescence(1.0, irid_params.z, saturate(dot(N, V)),
                                            irid_params.y, F0_base);
     }
+    mat.sss_color  = sss_params.xyz;          // Phase 35-2
+    mat.sss_weight = sss_params.w;
 
     // SSAO modulation factor (Phase 34j-2): screen-space AO テクスチャから visibility を読み、
     // ambient/indirect 項に掛ける。direct light には影響しない (物理的に AO は indirect 専用)。
@@ -861,6 +881,7 @@ struct ObjectCBLayout {
     Vec4 sheen_params;      // Phase 35-1a: xyz=sheen color, w=sheen weight
     Vec4 sheen_rough;       // Phase 35-1a: x=sheen roughness, yzw=pad
     Vec4 irid_params;       // Phase 35-1b: x=weight, y=thickness(nm), z=film IOR, w=pad
+    Vec4 sss_params;        // Phase 35-2: xyz=subsurface color, w=weight
 };
 
 template<typename T>
@@ -1340,6 +1361,7 @@ void PbrShader::SetObject(const Mat4& model, Vec3 base_color,
     cb.sheen_params  = _sheen_params;
     cb.sheen_rough   = _sheen_rough;
     cb.irid_params   = _irid_params;
+    cb.sss_params    = _sss_params;
     _object_cb->Update(&cb, sizeof(cb));
 }
 
@@ -1375,6 +1397,14 @@ void PbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexc
     const f32 t = thickness_nm < 0.0f ? 0.0f : thickness_nm;
     const f32 i = film_ior < 1.0f ? 1.0f : film_ior;
     _irid_params = Vec4{w, t, i, 0};
+    // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
+}
+
+void PbrShader::SetSubsurface(Vec3 sss_color, f32 weight) noexcept {
+    // weight は [0,1] の blend 係数、sss_color は内部散乱の色 (各 ch [0,1])。
+    auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+    _sss_params = Vec4{sat01(sss_color.x), sat01(sss_color.y), sat01(sss_color.z),
+                       sat01(weight)};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
