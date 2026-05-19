@@ -54,6 +54,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (dot(refractDir, refractDir) < 1e-4) refractDir = -V;   // TIR 保険 (eta<1 では原理上発生しない)
     float3 exitPoint  = v.world_p + refractDir * material.y;
     float4 clip       = mul(float4(exitPoint, 1.0), view_proj);
+    // exitPoint がカメラ後方 (clip.w<=0) になったら屈折を諦め world_p を投影する
+    // (= 素通し)。透過光線は必ず奥へ進むので実際には稀だが、screen 投影の保険。
+    if (clip.w < 1e-4) clip = mul(float4(v.world_p, 1.0), view_proj);
     float2 refractUV  = clip.xy / clip.w * float2(0.5, -0.5) + 0.5;
     float3 refracted  = background.SampleLevel(background_sampler,
                                                saturate(refractUV), 0).rgb;
@@ -61,7 +64,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     // --- Fresnel 反射 (環境マップ) ---
     float  NoV = saturate(dot(N, V));
-    float  F   = 0.04 + 0.96 * pow(1.0 - NoV, 5.0);      // F0=0.04 (誘電体)
+    float  F   = 0.04 + 0.96 * pow(saturate(1.0 - NoV), 5.0);   // F0=0.04 (誘電体)
     float3 reflected = env.SampleLevel(env_sampler, reflect(-V, N), 0).rgb;
 
     // 屈折と反射を Fresnel で混合
