@@ -41,6 +41,8 @@ public:
                               IRhiTexture* depth = nullptr,
                               f32 depth_clear = 1.0f) noexcept override;
     void EndRenderToTexture(IRhiTexture& rt) noexcept override;
+    void BeginRenderToTextureLoad(IRhiTexture& rt,
+                                   IRhiTexture* depth = nullptr) noexcept override;
     void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
                                     const ClearColor& clear) noexcept override;
     void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,

@@ -147,6 +147,30 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
     SetScissor(sr);
 }
 
+void DiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
+                                                    IRhiTexture* depth) noexcept {
+    if (!_device) return;
+    auto* ctx = _device->Context();
+    if (!ctx) return;
+    auto& t = static_cast<DiligentTexture&>(rt);
+    auto* rtv = t.RtvView();
+    if (!rtv) return;
+    auto* dsv = depth ? static_cast<DiligentTexture*>(depth)->DsvView() : nullptr;
+
+    Diligent::ITextureView* rtvs[1] = { rtv };
+    ctx->SetRenderTargets(1, rtvs, dsv,
+                          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    // clear は行わない (load semantics)。viewport / scissor は dst RT サイズに揃える。
+    Viewport vp;
+    vp.width  = static_cast<f32>(t.Width());
+    vp.height = static_cast<f32>(t.Height());
+    SetViewport(vp);
+    ScissorRect sr;
+    sr.right  = static_cast<i32>(t.Width());
+    sr.bottom = static_cast<i32>(t.Height());
+    SetScissor(sr);
+}
+
 void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
                                                    const ClearColor& clear,
                                                    IRhiTexture* depth,

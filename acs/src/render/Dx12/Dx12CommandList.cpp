@@ -195,6 +195,10 @@ void Dx12CommandList::BeginRenderToTexture(IRhiTexture& /*rt*/, const ClearColor
 
 void Dx12CommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {}
 
+// Phase 35-3b: SS 屈折用の load 版。Dx12 raw backend は Diligent と同じく未実装。
+void Dx12CommandList::BeginRenderToTextureLoad(IRhiTexture& /*rt*/,
+                                                IRhiTexture* /*depth*/) noexcept {}
+
 // IBL / cubemap 描画は Diligent backend 専用機能 (Phase 31)。
 // Dx12 raw backend には実装しない。
 void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& /*rt*/,
