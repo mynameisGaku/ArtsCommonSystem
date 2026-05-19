@@ -5,7 +5,8 @@
 //     + irradiance (32x32x6) + prefilter (128x128x6 5 mips) を一括生成
 //   ・以降のフレームで:
 //     - 背景: env / irradiance / prefilter mip 0..4 を切替 (I キー)
-//     - 5x5 sphere grid を IBL のみで点灯 (X=metallic, Y=roughness)
+//     - 5x5 sphere grid を IBL のみで点灯 (X=metallic, Y=roughness。最上段は
+//       cloth/velvet 行で X 方向に sheen weight 0→1 を掃引、Phase 35-1a)
 //     - BRDF LUT を画面右上にオーバーレイ表示
 //     - 1/2/3 で Sky preset (Day / Sunset / Night) 切替 → cubemap 再生成
 //     - シーンは HDR R16G16B16A16_Float RT に描画 → Bloom + ACES tonemap で LDR 出力
@@ -550,8 +551,14 @@ public:
         const Vec3 tan_dir{1, 0, 0};                  // 横方向の brushed pattern
         _pbr.SetExtParams(cc, ccr, aniso, tan_dir);
         for (u32 y = 0; y < kGrid; ++y) {
+            // 最上段 (y=kGrid-1) は cloth/velvet 行 (Phase 35-1a sheen demo):
+            // metallic=0 固定で、sheen weight を X 方向に 0→1 掃引する。
+            const bool cloth_row = (y == kGrid - 1);
             for (u32 x = 0; x < kGrid; ++x) {
-                const f32 metallic  = static_cast<f32>(x) / (kGrid - 1);
+                const f32 sheen_w = cloth_row ? static_cast<f32>(x) / (kGrid - 1) : 0.0f;
+                _pbr.SetSheen(Vec3{0.95f, 0.90f, 0.78f}, sheen_w, 0.4f);
+                const f32 metallic  = cloth_row ? 0.0f
+                                                : static_cast<f32>(x) / (kGrid - 1);
                 const f32 roughness = 0.05f + static_cast<f32>(y) / (kGrid - 1) * 0.95f;
                 const f32 px = (static_cast<f32>(x) - (kGrid - 1) * 0.5f) * kSpacing;
                 const f32 py = (static_cast<f32>(y) - (kGrid - 1) * 0.5f) * kSpacing + 2.5f;
@@ -560,6 +567,7 @@ public:
                               base_color, metallic, roughness, 1.0f);
             }
         }
+        _pbr.SetSheen(Vec3{0, 0, 0}, 0.0f, 0.3f);   // 後続 (オーブ等) のため sheen reset
 
         // 動的球 (Phase 34f-3 + 34l): グリッド前方を公転する発光オーブ 3 個。
         // emissive + bloom で光り、motion vector で TAA の trail も出ない。

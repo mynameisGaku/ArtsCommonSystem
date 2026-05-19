@@ -195,6 +195,13 @@ public:
     // SetEmissive(Vec3{0,0,0}, 0) で無効化。既定は無効 (他 sample に影響しない)。
     void SetEmissive(Vec3 color, f32 strength = 1.0f) noexcept;
 
+    // Sheen (Phase 35-1a): 布/ベルベットの retro-reflective fuzz 層。base BRDF に
+    // 加算され、エネルギー保存のため base を簡易減衰させる。
+    //   sheen_color: 毛羽の色 (RGB)。weight=0 で無効 (既定、他 sample に影響しない)。
+    //   weight     : 0=OFF、1=フル。roughness: Charlie 分布の幅 (大きいほど soft)。
+    // SetExtParams と同じく member に格納され、次の SetObject / DrawMesh が反映する。
+    void SetSheen(Vec3 sheen_color, f32 weight, f32 roughness = 0.3f) noexcept;
+
     IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
     IRhiBuffer*   PerFrameCB()  const noexcept { return _frame_cb.Get(); }
     IRhiBuffer*   PerObjectCB() const noexcept { return _object_cb.Get(); }
@@ -294,6 +301,10 @@ private:
 
     // Emissive (Phase 34l)、SetEmissive で上書き。xyz=color*strength、既定 0 (無効)
     Vec4         _emissive       = Vec4{0, 0, 0, 0};
+
+    // Sheen (Phase 35-1a)、SetSheen で上書き。xyz=color, w=weight (既定 0=OFF)
+    Vec4         _sheen_params   = Vec4{0, 0, 0, 0};
+    Vec4         _sheen_rough    = Vec4{0.3f, 0, 0, 0};
 };
 
 } // namespace acs

@@ -82,6 +82,8 @@ cbuffer Object : register(b1) {
                              // z=anisotropy (-1..1)、w=enable_flags (bit0=clearcoat, bit1=aniso)
     float4   aniso_tangent;  // xyz=anisotropic tangent direction (world)、w=pad
     float4   emissive;       // Phase 34l: xyz=自己発光色 * strength、w=pad
+    float4   sheen_params;   // Phase 35-1a: xyz=sheen color, w=sheen weight (0=OFF)
+    float4   sheen_rough;    // Phase 35-1a: x=sheen roughness, yzw=pad
 };
 
 Texture2D    albedo           : register(t0);
@@ -356,7 +358,8 @@ float3 ProbeGridIrradiance(float3 world_p, float3 N) {
 //   specular_ibl = prefilter.SampleLevel(R, roughness * (mips-1)) * (F0 * lut.r + lut.g)
 float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
                         float metallic, float roughness, float ao,
-                        float3 ssr_radiance, float ssr_weight)
+                        float3 ssr_radiance, float ssr_weight,
+                        float3 sheenColor, float sheenWeight)
 {
     float NoV = saturate(dot(N, V));
     float3 R  = reflect(-V, N);
@@ -375,6 +378,12 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
         irr = irradiance.SampleLevel(irradiance_sampler, N, 0).rgb;
     }
     float3 diffuse_ibl = kd * base * irr;
+    // Sheen ambient (Phase 35-1a): irradiance を sheen 色で着色した簡易 ambient + base 減衰
+    if (sheenWeight > 0.0) {
+        float maxC = max(sheenColor.r, max(sheenColor.g, sheenColor.b));
+        diffuse_ibl = diffuse_ibl * (1.0 - sheenWeight * maxC * 0.5)
+                    + irr * sheenColor * sheenWeight * 0.25;
+    }
 
     // prefilter は mip = roughness * (mip_count - 1)。Sample (with HW mip
     // selection) ではなく SampleLevel で明示することで filtering を確実にする。
@@ -455,8 +464,21 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
     return (diffuse + specular) * NdotL;
 }
 
+// Charlie sheen distribution (Estevez & Kulla 2017)。布/ベルベットの retro-reflective ローブ。
+float D_Charlie(float NoH, float sheenRoughness) {
+    float a   = max(sheenRoughness, 1e-3);
+    float inv = 1.0 / a;
+    float s2  = saturate(1.0 - NoH * NoH);   // sin^2(theta)
+    return (2.0 + inv) * pow(s2, inv * 0.5) / (2.0 * PI);
+}
+
+// Neubelt visibility (Filament cloth)。柔らかい減衰、解析式で LUT 不要。
+float V_Neubelt(float NoV, float NoL) {
+    return saturate(1.0 / (4.0 * (NoL + NoV - NoL * NoV)));
+}
+
 // per-pixel マテリアル (1 光源ぶんの BRDF 評価に要るパラメータ束)。
-// Phase 35: sheen / iridescence / SSS の lobe パラメータはここに足していく。
+// Phase 35: lobe パラメータ (sheen / 今後 iridescence / SSS) はここに足していく。
 struct SurfaceMaterial {
     float3 albedo;
     float  metallic;
@@ -465,18 +487,36 @@ struct SurfaceMaterial {
     float  coat_roughness;
     float  anisotropy;
     float3 aniso_tangent;
+    float3 sheen_color;       // Phase 35-1a: 布の毛羽色
+    float  sheen_weight;      // 0 = sheen OFF
+    float  sheen_roughness;
 };
 
-// 1 光源ぶんの layered BRDF を評価 (現状: base Cook-Torrance + clearcoat 層)。
+// 1 光源ぶんの layered BRDF を評価 (base Cook-Torrance + clearcoat 層 + sheen 層)。
 // L = surface→light、戻り値は放射輝度係数 (光色・距離減衰・shadow は呼び側で乗算)。
 // dir/area/point の 3 ループはこの 1 関数を呼ぶだけにし、lobe 追加を 1 箇所に集約する。
 float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
     float3 base_brdf = BrdfCookTorrance(N, V, L, m.albedo, m.metallic, m.roughness,
                                         m.anisotropy, m.aniso_tangent);
     ClearcoatTerm cc = EvalClearcoat(N, V, L, m.clearcoat, m.coat_roughness);
-    return base_brdf * cc.attenuation + cc.spec_times_nol;
-}
+    float3 lit = base_brdf * cc.attenuation + cc.spec_times_nol;
 
+    // Sheen (Phase 35-1a): 布/ベルベットの fuzz 層を base に加算。エネルギー保存の
+    // ため base を簡易減衰 (厳密な sheen directional albedo は将来 LUT 化を検討)。
+    if (m.sheen_weight > 0.0) {
+        float  NoL = saturate(dot(N, L));
+        float  NoV = saturate(dot(N, V)) + 1e-5;
+        float3 H   = normalize(V + L);
+        float  NoH = saturate(dot(N, H));
+        float3 sheen = m.sheen_color
+                     * (D_Charlie(NoH, m.sheen_roughness) * V_Neubelt(NoV, NoL))
+                     * NoL * m.sheen_weight;
+        float  maxC = max(m.sheen_color.r, max(m.sheen_color.g, m.sheen_color.b));
+        lit = lit * (1.0 - m.sheen_weight * maxC * 0.5) + sheen;
+    }
+    return lit;
+}
+)" R"(
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.world_n);
     // Normal map perturbation (Phase 34g)。fallback 1x1 (0.5,0.5,1.0) なら無変化。
@@ -505,6 +545,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     mat.coat_roughness = coat_roughness;
     mat.anisotropy     = anisotropy;
     mat.aniso_tangent  = aniso_T_world;
+    mat.sheen_color     = sheen_params.xyz;
+    mat.sheen_weight    = sheen_params.w;
+    mat.sheen_roughness = sheen_rough.x;
 
     // SSAO modulation factor (Phase 34j-2): screen-space AO テクスチャから visibility を読み、
     // ambient/indirect 項に掛ける。direct light には影響しない (物理的に AO は indirect 専用)。
@@ -551,7 +594,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 col;
     if (ibl_params.x >= 0.5) {
         float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao,
-                                            ssr_rgb, ssr_weight);
+                                            ssr_rgb, ssr_weight, sheen_params.xyz, sheen_params.w);
         IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness);
         col = (base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao) * ssao_factor;
     } else {
@@ -700,6 +743,8 @@ struct ObjectCBLayout {
     Vec4 ext_params;        // x=clearcoat, y=coat_roughness, z=anisotropy, w=flags
     Vec4 aniso_tangent;     // xyz=tangent world, w=pad
     Vec4 emissive;          // Phase 34l: xyz=emissive color * strength, w=pad
+    Vec4 sheen_params;      // Phase 35-1a: xyz=sheen color, w=sheen weight
+    Vec4 sheen_rough;       // Phase 35-1a: x=sheen roughness, yzw=pad
 };
 
 template<typename T>
@@ -1176,6 +1221,8 @@ void PbrShader::SetObject(const Mat4& model, Vec3 base_color,
     cb.ext_params    = _ext_params;
     cb.aniso_tangent = _aniso_tangent;
     cb.emissive      = _emissive;
+    cb.sheen_params  = _sheen_params;
+    cb.sheen_rough   = _sheen_rough;
     _object_cb->Update(&cb, sizeof(cb));
 }
 
@@ -1191,6 +1238,14 @@ void PbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
 void PbrShader::SetEmissive(Vec3 color, f32 strength) noexcept {
     const f32 s = strength < 0.0f ? 0.0f : strength;
     _emissive = Vec4{color.x * s, color.y * s, color.z * s, 0.0f};
+    // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
+}
+
+void PbrShader::SetSheen(Vec3 sheen_color, f32 weight, f32 roughness) noexcept {
+    const f32 w = weight    < 0.0f  ? 0.0f  : weight;
+    const f32 r = roughness < 0.04f ? 0.04f : roughness;
+    _sheen_params = Vec4{sheen_color.x, sheen_color.y, sheen_color.z, w};
+    _sheen_rough  = Vec4{r, 0, 0, 0};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
