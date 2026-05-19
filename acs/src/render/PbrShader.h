@@ -202,6 +202,13 @@ public:
     // SetExtParams と同じく member に格納され、次の SetObject / DrawMesh が反映する。
     void SetSheen(Vec3 sheen_color, f32 weight, f32 roughness = 0.3f) noexcept;
 
+    // Iridescence (Phase 35-1b): 薄膜干渉。シャボン玉/タマムシ的に視角で色が変わる。
+    // base の Fresnel を Belcour-Barla 2017 の薄膜モデルで変調する。
+    //   weight      : 0=OFF (既定、他 sample に影響しない)、1=フル。
+    //   thickness_nm: 膜厚 (nm、~100-1000)。film_ior: 薄膜の屈折率 (シャボン~1.33)。
+    void SetIridescence(f32 weight, f32 thickness_nm = 400.0f,
+                        f32 film_ior = 1.4f) noexcept;
+
     IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
     IRhiBuffer*   PerFrameCB()  const noexcept { return _frame_cb.Get(); }
     IRhiBuffer*   PerObjectCB() const noexcept { return _object_cb.Get(); }
@@ -305,6 +312,10 @@ private:
     // Sheen (Phase 35-1a)、SetSheen で上書き。xyz=color, w=weight (既定 0=OFF)
     Vec4         _sheen_params   = Vec4{0, 0, 0, 0};
     Vec4         _sheen_rough    = Vec4{0.3f, 0, 0, 0};
+
+    // Iridescence (Phase 35-1b)、SetIridescence で上書き。
+    // x=weight (既定 0=OFF)、y=thickness(nm)、z=film IOR
+    Vec4         _irid_params    = Vec4{0, 400.0f, 1.4f, 0};
 };
 
 } // namespace acs

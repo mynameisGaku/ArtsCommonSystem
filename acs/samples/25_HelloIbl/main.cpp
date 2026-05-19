@@ -6,7 +6,8 @@
 //   ・以降のフレームで:
 //     - 背景: env / irradiance / prefilter mip 0..4 を切替 (I キー)
 //     - 5x5 sphere grid を IBL のみで点灯 (X=metallic, Y=roughness。最上段は
-//       cloth/velvet 行で X 方向に sheen weight 0→1 を掃引、Phase 35-1a)
+//       cloth/velvet 行で sheen weight 0→1、最下段は薄膜干渉で膜厚を X 掃引、
+//       Phase 35-1a/1b)
 //     - BRDF LUT を画面右上にオーバーレイ表示
 //     - 1/2/3 で Sky preset (Day / Sunset / Night) 切替 → cubemap 再生成
 //     - シーンは HDR R16G16B16A16_Float RT に描画 → Bloom + ACES tonemap で LDR 出力
@@ -551,12 +552,16 @@ public:
         const Vec3 tan_dir{1, 0, 0};                  // 横方向の brushed pattern
         _pbr.SetExtParams(cc, ccr, aniso, tan_dir);
         for (u32 y = 0; y < kGrid; ++y) {
-            // 最上段 (y=kGrid-1) は cloth/velvet 行 (Phase 35-1a sheen demo):
-            // metallic=0 固定で、sheen weight を X 方向に 0→1 掃引する。
+            // 最上段 (y=kGrid-1) = cloth/velvet 行 (Phase 35-1a sheen demo)、
+            // 最下段 (y=0) = 薄膜干渉行 (Phase 35-1b iridescence demo)。
             const bool cloth_row = (y == kGrid - 1);
+            const bool irid_row  = (y == 0);
             for (u32 x = 0; x < kGrid; ++x) {
                 const f32 sheen_w = cloth_row ? static_cast<f32>(x) / (kGrid - 1) : 0.0f;
                 _pbr.SetSheen(Vec3{0.95f, 0.90f, 0.78f}, sheen_w, 0.4f);
+                // iridescence 行は膜厚を X 方向に 200→1000nm 掃引し色変化を見せる。
+                const f32 film_nm = 200.0f + static_cast<f32>(x) / (kGrid - 1) * 800.0f;
+                _pbr.SetIridescence(irid_row ? 1.0f : 0.0f, film_nm, 1.4f);
                 const f32 metallic  = cloth_row ? 0.0f
                                                 : static_cast<f32>(x) / (kGrid - 1);
                 const f32 roughness = 0.05f + static_cast<f32>(y) / (kGrid - 1) * 0.95f;
@@ -567,7 +572,8 @@ public:
                               base_color, metallic, roughness, 1.0f);
             }
         }
-        _pbr.SetSheen(Vec3{0, 0, 0}, 0.0f, 0.3f);   // 後続 (オーブ等) のため sheen reset
+        _pbr.SetSheen(Vec3{0, 0, 0}, 0.0f, 0.3f);       // 後続 (オーブ等) のため reset
+        _pbr.SetIridescence(0.0f, 400.0f, 1.4f);        // 同上、iridescence も reset
 
         // 動的球 (Phase 34f-3 + 34l): グリッド前方を公転する発光オーブ 3 個。
         // emissive + bloom で光り、motion vector で TAA の trail も出ない。

@@ -84,6 +84,7 @@ cbuffer Object : register(b1) {
     float4   emissive;       // Phase 34l: xyz=自己発光色 * strength、w=pad
     float4   sheen_params;   // Phase 35-1a: xyz=sheen color, w=sheen weight (0=OFF)
     float4   sheen_rough;    // Phase 35-1a: x=sheen roughness, yzw=pad
+    float4   irid_params;    // Phase 35-1b: x=weight, y=thickness(nm), z=film IOR, w=pad
 };
 
 Texture2D    albedo           : register(t0);
@@ -359,7 +360,8 @@ float3 ProbeGridIrradiance(float3 world_p, float3 N) {
 float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
                         float metallic, float roughness, float ao,
                         float3 ssr_radiance, float ssr_weight,
-                        float3 sheenColor, float sheenWeight)
+                        float3 sheenColor, float sheenWeight,
+                        float3 iridFresnel, float iridWeight)
 {
     float NoV = saturate(dot(N, V));
     float3 R  = reflect(-V, N);
@@ -393,7 +395,9 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     // Phase 34e-2fix: 反射元の radiance を環境 prefilter (off-screen) から SSR
     // (on-screen の実ジオメトリ) へ blend。BRDF 応答 (split-sum scale+bias) は共通。
     float3 reflected = lerp(prefilt, ssr_radiance, saturate(ssr_weight));
-    float3 specular_ibl = reflected * (F0 * lut_xy.x + lut_xy.y);
+    // Iridescence (Phase 35-1b): split-sum の F0 を薄膜変調した値へ差し替える
+    float3 specF0 = lerp(F0, iridFresnel, iridWeight);
+    float3 specular_ibl = reflected * (specF0 * lut_xy.x + lut_xy.y);
 
     return (diffuse_ibl + specular_ibl) * ao;
 }
@@ -419,12 +423,108 @@ IblCoatTerm ComputeIblClearcoat(float3 N, float3 V, float clearcoat, float coat_
     return o;
 }
 
+// ===== Iridescence: thin-film interference (Phase 35-1b) =====
+// Belcour & Barla 2017 の解析モデル (glTF KHR_materials_iridescence 準拠)。
+// 薄膜の多重反射の干渉を spectral に評価し RGB へ射影する。LUT 不要。
+
+// IOR → 垂直入射 Fresnel reflectance (F0)
+float IorToFresnel0(float transmitted, float incident) {
+    float r = (transmitted - incident) / (transmitted + incident);
+    return r * r;
+}
+float3 IorToFresnel0(float3 transmitted, float incident) {
+    float3 r = (transmitted - incident) / (transmitted + incident);
+    return r * r;
+}
+// F0 → IOR (下地マテリアルの IOR を base F0 から復元)
+float3 Fresnel0ToIor(float3 f0) {
+    float3 s = sqrt(clamp(f0, 0.0, 0.9999));
+    return (1.0 + s) / (1.0 - s);
+}
+// Schlick Fresnel (薄膜の界面反射用、scalar / RGB の overload)
+float IridFresnel(float cosT, float f0) {
+    float t = 1.0 - cosT; float t2 = t * t;
+    return f0 + (1.0 - f0) * (t2 * t2 * t);
+}
+float3 IridFresnel(float cosT, float3 f0) {
+    float t = 1.0 - cosT; float t2 = t * t;
+    return f0 + (1.0 - f0) * (t2 * t2 * t);
+}
+
+// 光路差 OPD (nm) を CIE color matching の Gaussian fit で RGB 応答へ (Belcour-Barla)。
+float3 EvalSensitivity(float opd, float3 shift) {
+    float  phase = 2.0 * PI * opd * 1.0e-9;
+    float3 val = float3(5.4856e-13, 4.4201e-13, 5.2481e-13);
+    float3 pos = float3(1.6810e+06, 1.7953e+06, 2.2084e+06);
+    float3 var = float3(4.3278e+09, 9.3046e+09, 6.6121e+09);
+    float3 xyz = val * sqrt(2.0 * PI * var) * cos(pos * phase + shift)
+               * exp(-(phase * phase) * var);
+    xyz.x += 9.7470e-14 * sqrt(2.0 * PI * 4.5282e+09)
+           * cos(2.2399e+06 * phase + shift.x) * exp(-4.5282e+09 * (phase * phase));
+    xyz /= 1.0685e-7;
+    // XYZ → linear sRGB (Rec.709 / D65)
+    float3x3 XYZ_TO_RGB = float3x3( 3.2404542, -1.5371385, -0.4985314,
+                                   -0.9692660,  1.8760108,  0.0415560,
+                                    0.0556434, -0.2040259,  1.0572252);
+    return mul(XYZ_TO_RGB, xyz);
+}
+
+// 薄膜干渉で base の Fresnel F0 を変調した RGB reflectance を返す (Belcour-Barla 2017)。
+//   outsideIor : 媒質 IOR (空気 = 1.0)、filmIor: 薄膜 IOR、cosTheta1: 入射角 cos、
+//   thicknessNm: 膜厚 (nm)、baseF0: 下地マテリアルの F0 (RGB)。
+float3 EvalIridescence(float outsideIor, float filmIor, float cosTheta1,
+                       float thicknessNm, float3 baseF0) {
+    // 膜厚 0 付近で filmIor を媒質側へ寄せ、効果を滑らかに消す
+    float iridIor = lerp(outsideIor, filmIor, smoothstep(0.0, 0.03, thicknessNm));
+    // 膜内の屈折角 (Snell の法則)
+    float sinTheta2Sq = (outsideIor / iridIor) * (outsideIor / iridIor)
+                      * (1.0 - cosTheta1 * cosTheta1);
+    float cosTheta2Sq = 1.0 - sinTheta2Sq;
+    if (cosTheta2Sq < 0.0) return float3(1.0, 1.0, 1.0);   // 全反射
+    float cosTheta2 = sqrt(cosTheta2Sq);
+
+    // 第 1 界面 (媒質 → 膜): 反射率と位相シフト
+    float R12   = IridFresnel(cosTheta1, IorToFresnel0(iridIor, outsideIor));
+    float T121  = 1.0 - R12;
+    float phi12 = (iridIor < outsideIor) ? PI : 0.0;
+    float phi21 = PI - phi12;
+
+    // 第 2 界面 (膜 → 下地): 反射率と位相シフト (RGB 別)
+    float3 baseIor = Fresnel0ToIor(baseF0);
+    float3 R23   = IridFresnel(cosTheta2, IorToFresnel0(baseIor, iridIor));
+    float3 phi23 = float3((baseIor.x < iridIor) ? PI : 0.0,
+                          (baseIor.y < iridIor) ? PI : 0.0,
+                          (baseIor.z < iridIor) ? PI : 0.0);
+
+    // 光路差と総位相
+    float  opd = 2.0 * iridIor * thicknessNm * cosTheta2;
+    float3 phi = float3(phi21, phi21, phi21) + phi23;
+
+    // 多重反射の等比級数 (Airy 総和)
+    float3 R123 = clamp(R12 * R23, 1e-5, 0.9999);
+    float3 r123 = sqrt(R123);
+    float3 Rs   = (T121 * T121) * R23 / (float3(1.0, 1.0, 1.0) - R123);
+
+    // m=0 (DC) 項
+    float3 I = float3(R12, R12, R12) + Rs;
+    // m>0 (干渉) 項: dirac ペアを 2 次まで
+    float3 Cm = Rs - float3(T121, T121, T121);
+    [unroll]
+    for (int m = 1; m <= 2; ++m) {
+        Cm *= r123;
+        float3 Sm = 2.0 * EvalSensitivity(float(m) * opd, float(m) * phi);
+        I += Cm * Sm;
+    }
+    return max(I, float3(0.0, 0.0, 0.0));
+}
+
 // Cook-Torrance BRDF * NdotL (light vector L is from surface to light source).
 // anisotropy ≠ 0 のとき D / G を anisotropic 版に切替える。tangent (T) はオブジェクト
 // から与えられる主軸方向、B (bitangent) は cross(N, T) で生成。
 float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
                        float3 base, float metallic, float roughness,
-                       float anisotropy, float3 T_world)
+                       float anisotropy, float3 T_world,
+                       float3 iridFresnel, float iridWeight)
 {
     float3 H = normalize(V + L);
     float NdotL = saturate(dot(N, L));
@@ -437,6 +537,8 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
     float  a  = roughness * roughness;
     float  D, G;
     float3 F = F_Schlick(VdotH, F0);
+    // Iridescence (Phase 35-1b): 薄膜干渉で base Fresnel を変調 (NoV 評価済の値へ blend)。
+    F = lerp(F, iridFresnel, iridWeight);
 
     if (abs(anisotropy) > 1e-3) {
         // anisotropy=-1 で完全に tangent 方向に伸びる、+1 で bitangent 方向に。
@@ -490,6 +592,8 @@ struct SurfaceMaterial {
     float3 sheen_color;       // Phase 35-1a: 布の毛羽色
     float  sheen_weight;      // 0 = sheen OFF
     float  sheen_roughness;
+    float3 irid_fresnel;      // Phase 35-1b: 薄膜変調済 Fresnel (NoV で評価済)
+    float  irid_weight;       // 0 = iridescence OFF
 };
 
 // 1 光源ぶんの layered BRDF を評価 (base Cook-Torrance + clearcoat 層 + sheen 層)。
@@ -497,7 +601,8 @@ struct SurfaceMaterial {
 // dir/area/point の 3 ループはこの 1 関数を呼ぶだけにし、lobe 追加を 1 箇所に集約する。
 float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
     float3 base_brdf = BrdfCookTorrance(N, V, L, m.albedo, m.metallic, m.roughness,
-                                        m.anisotropy, m.aniso_tangent);
+                                        m.anisotropy, m.aniso_tangent,
+                                        m.irid_fresnel, m.irid_weight);
     ClearcoatTerm cc = EvalClearcoat(N, V, L, m.clearcoat, m.coat_roughness);
     float3 lit = base_brdf * cc.attenuation + cc.spec_times_nol;
 
@@ -549,6 +654,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
     mat.sheen_color     = sheen_params.xyz;
     mat.sheen_weight    = sheen_params.w;
     mat.sheen_roughness = sheen_rough.x;
+    // Iridescence (Phase 35-1b): 薄膜 Fresnel を per-pixel に 1 度だけ NoV で評価。
+    mat.irid_weight  = irid_params.x;
+    mat.irid_fresnel = float3(0.0, 0.0, 0.0);
+    if (irid_params.x > 0.0) {
+        float3 F0_base = lerp(float3(0.04, 0.04, 0.04), albedo_rgb, metallic);
+        mat.irid_fresnel = EvalIridescence(1.0, irid_params.z, saturate(dot(N, V)),
+                                           irid_params.y, F0_base);
+    }
 
     // SSAO modulation factor (Phase 34j-2): screen-space AO テクスチャから visibility を読み、
     // ambient/indirect 項に掛ける。direct light には影響しない (物理的に AO は indirect 専用)。
@@ -595,7 +708,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 col;
     if (ibl_params.x >= 0.5) {
         float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao,
-                                            ssr_rgb, ssr_weight, sheen_params.xyz, sheen_params.w);
+                                            ssr_rgb, ssr_weight, sheen_params.xyz, sheen_params.w,
+                                            mat.irid_fresnel, mat.irid_weight);
         IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness);
         col = (base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao) * ssao_factor;
     } else {
@@ -746,6 +860,7 @@ struct ObjectCBLayout {
     Vec4 emissive;          // Phase 34l: xyz=emissive color * strength, w=pad
     Vec4 sheen_params;      // Phase 35-1a: xyz=sheen color, w=sheen weight
     Vec4 sheen_rough;       // Phase 35-1a: x=sheen roughness, yzw=pad
+    Vec4 irid_params;       // Phase 35-1b: x=weight, y=thickness(nm), z=film IOR, w=pad
 };
 
 template<typename T>
@@ -1224,6 +1339,7 @@ void PbrShader::SetObject(const Mat4& model, Vec3 base_color,
     cb.emissive      = _emissive;
     cb.sheen_params  = _sheen_params;
     cb.sheen_rough   = _sheen_rough;
+    cb.irid_params   = _irid_params;
     _object_cb->Update(&cb, sizeof(cb));
 }
 
@@ -1250,6 +1366,15 @@ void PbrShader::SetSheen(Vec3 sheen_color, f32 weight, f32 roughness) noexcept {
     const f32 r = roughness < 0.04f ? 0.04f : roughness;
     _sheen_params = Vec4{sat01(sheen_color.x), sat01(sheen_color.y), sat01(sheen_color.z), w};
     _sheen_rough  = Vec4{r, 0, 0, 0};
+    // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
+}
+
+void PbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexcept {
+    // weight は [0,1] の blend 係数。thickness は非負、film_ior は物理的に >= 1。
+    const f32 w = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
+    const f32 t = thickness_nm < 0.0f ? 0.0f : thickness_nm;
+    const f32 i = film_ior < 1.0f ? 1.0f : film_ior;
+    _irid_params = Vec4{w, t, i, 0};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
