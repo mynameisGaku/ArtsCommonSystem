@@ -83,10 +83,9 @@ void Blit::Shutdown() noexcept {
 
 void Blit::Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept {
     if (!_pipeline) return;
-    // 全 pixel が src で上書きされるので clear 自体は無駄だが、
-    // BeginRenderToTexture は clear color を要求する API なので 0 を渡す。
-    ClearColor clear{0.0f, 0.0f, 0.0f, 0.0f};
-    cmd.BeginRenderToTexture(dst, clear, nullptr, 1.0f);
+    // 全 pixel が src で上書きされるので clear 不要 → load 版で開始する。
+    // (本コミットで追加した BeginRenderToTextureLoad の自然な利用例)。
+    cmd.BeginRenderToTextureLoad(dst, nullptr);
     cmd.SetPipeline(*_pipeline);
     cmd.SetTexture(0, src);
     cmd.Draw(3, 0);                          // fullscreen 三角形 (頂点バッファ無し)

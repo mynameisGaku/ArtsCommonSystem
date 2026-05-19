@@ -54,7 +54,13 @@ public:
     // さらに描画 (例: スクリーンスペース屈折オブジェクトを既存の opaque 上に
     // 追加描画) する用途で使う。BeginRenderToTexture と同じ resource state
     // 遷移と viewport / scissor 設定を行うが、clear は行わない。
-    // 終了は EndRenderToTexture(rt) を呼ぶ。
+    // 終了は EndRenderToTexture(rt) を呼ぶ (BeginRenderToTexture と共通)。
+    //
+    // 制約: depth を渡すとそれは DSV (DEPTH_WRITE) として bind される。
+    // 同じ depth を SRV として sample したい場合 (例: 深度を読む SS 屈折) は
+    // depth=nullptr を渡し、depth を SetTexture で SRV 経由で別途バインドする
+    // こと (D3D12/Diligent はサブリソースの DEPTH_WRITE と SHADER_RESOURCE
+    // 同時保持を禁じる)。
     virtual void BeginRenderToTextureLoad(class IRhiTexture& rt,
                                            class IRhiTexture* depth = nullptr) noexcept = 0;
 

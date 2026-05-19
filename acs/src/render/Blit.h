@@ -42,8 +42,9 @@ public:
 
     // src を dst へコピー (フルスクリーン pass)。
     // dst は is_render_target=true で Init 時の rt_format と一致すること。
-    // 内部で BeginRenderToTexture(dst) → SetPipeline → SetTexture → Draw(3) →
-    // EndRenderToTexture(dst) を行う。viewport は dst のサイズに自動設定される。
+    // 内部で BeginRenderToTextureLoad(dst) → SetPipeline → SetTexture → Draw(3)
+    // → EndRenderToTexture(dst) を行う。全 pixel を上書きするので clear 不要。
+    // viewport は dst のサイズに自動設定される。
     void Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept;
 
     IRhiPipeline* Pipeline() const noexcept { return _pipeline.Get(); }
