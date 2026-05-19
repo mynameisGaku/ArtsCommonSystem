@@ -422,7 +422,7 @@ IblCoatTerm ComputeIblClearcoat(float3 N, float3 V, float clearcoat, float coat_
     o.attenuation = 1.0 - max(Fc.r, max(Fc.g, Fc.b)) * clearcoat;
     return o;
 }
-
+)" R"(
 // ===== Iridescence: thin-film interference (Phase 35-1b) =====
 // Belcour & Barla 2017 の解析モデル (glTF KHR_materials_iridescence 準拠)。
 // 薄膜の多重反射の干渉を spectral に評価し RGB へ射影する。LUT 不要。
@@ -443,11 +443,11 @@ float3 Fresnel0ToIor(float3 f0) {
 }
 // Schlick Fresnel (薄膜の界面反射用、scalar / RGB の overload)
 float IridFresnel(float cosT, float f0) {
-    float t = 1.0 - cosT; float t2 = t * t;
+    float t = saturate(1.0 - cosT); float t2 = t * t;
     return f0 + (1.0 - f0) * (t2 * t2 * t);
 }
 float3 IridFresnel(float cosT, float3 f0) {
-    float t = 1.0 - cosT; float t2 = t * t;
+    float t = saturate(1.0 - cosT); float t2 = t * t;
     return f0 + (1.0 - f0) * (t2 * t2 * t);
 }
 
