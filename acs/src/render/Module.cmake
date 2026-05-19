@@ -25,6 +25,7 @@ set(_acs_render_sources
     Ssao.cpp
     Ssgi.cpp
     MotionVector.cpp
+    RefractionShader.cpp
 )
 set(_acs_render_headers
     RhiTypes.h
@@ -53,6 +54,8 @@ set(_acs_render_headers
     Ssao.h
     Ssgi.h
     MotionVector.h
+    RefractionShader.h
+    Render.h
 )
 
 if(ACS_RENDER_DX12_RAW)
