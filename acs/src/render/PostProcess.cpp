@@ -51,7 +51,20 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// Downsample: 13-tap (Jimenez SIGGRAPH 2014 の partial)
+// Downsample: 13-tap Jimenez (Call of Duty: Advanced Warfare、SIGGRAPH 2014)。
+// Phase 36-1: 旧 5-tap "簡易" 版は box artifact (がびがび halo) の主因だったので
+// 本実装 (5 つの partial-box average を Karis-style weighted blend) に置換。
+//
+// Sample layout (t = 1 source texel):
+//   A . B . C
+//   . J . K .
+//   D . E . F      (center = E)
+//   . L . M .
+//   G . H . I
+//
+// 5 box (各 4-tap average) を:
+//   center box (JKLM): weight 0.5
+//   4 corner box (ABDE, BCEF, DEGH, EFHI): each weight 0.125
 const char* kDownsamplePS = R"(
 cbuffer Post : register(b0) {
     float4 params0;
@@ -63,13 +76,30 @@ struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float4 PSMain(VSOut v) : SV_TARGET {
     float2 t = float2(params1.y, params1.z);
-    // 13-tap Jimenez (簡易版: 6-tap 中心重み付け)
-    float3 a = src.Sample(src_sampler, v.uv + float2(-1, -1) * t).rgb;
-    float3 b = src.Sample(src_sampler, v.uv + float2( 1, -1) * t).rgb;
-    float3 c = src.Sample(src_sampler, v.uv + float2(-1,  1) * t).rgb;
-    float3 d = src.Sample(src_sampler, v.uv + float2( 1,  1) * t).rgb;
+    // 外周 (radius 2 texel)
+    float3 a = src.Sample(src_sampler, v.uv + t * float2(-2.0, -2.0)).rgb;
+    float3 b = src.Sample(src_sampler, v.uv + t * float2( 0.0, -2.0)).rgb;
+    float3 c = src.Sample(src_sampler, v.uv + t * float2( 2.0, -2.0)).rgb;
+    float3 d = src.Sample(src_sampler, v.uv + t * float2(-2.0,  0.0)).rgb;
     float3 e = src.Sample(src_sampler, v.uv).rgb;
-    float3 sum = (a + b + c + d) * 0.25 * 0.5 + e * 0.5;
+    float3 f = src.Sample(src_sampler, v.uv + t * float2( 2.0,  0.0)).rgb;
+    float3 g = src.Sample(src_sampler, v.uv + t * float2(-2.0,  2.0)).rgb;
+    float3 h = src.Sample(src_sampler, v.uv + t * float2( 0.0,  2.0)).rgb;
+    float3 i = src.Sample(src_sampler, v.uv + t * float2( 2.0,  2.0)).rgb;
+    // 内側 (radius 1 texel) — 中心 box
+    float3 j = src.Sample(src_sampler, v.uv + t * float2(-1.0, -1.0)).rgb;
+    float3 k = src.Sample(src_sampler, v.uv + t * float2( 1.0, -1.0)).rgb;
+    float3 l = src.Sample(src_sampler, v.uv + t * float2(-1.0,  1.0)).rgb;
+    float3 m = src.Sample(src_sampler, v.uv + t * float2( 1.0,  1.0)).rgb;
+
+    // 5 partial box average
+    float3 c0 = (j + k + l + m) * 0.25;   // 中心 box (weight 0.5)
+    float3 c1 = (a + b + d + e) * 0.25;   // 左上
+    float3 c2 = (b + c + e + f) * 0.25;   // 右上
+    float3 c3 = (d + e + g + h) * 0.25;   // 左下
+    float3 c4 = (e + f + h + i) * 0.25;   // 右下
+
+    float3 sum = c0 * 0.5 + (c1 + c2 + c3 + c4) * 0.125;
     return float4(sum, 1.0);
 }
 )";

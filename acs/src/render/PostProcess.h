@@ -148,6 +148,9 @@ public:
 
 private:
     // mip chain 段数（1/2 から 1/32 までの 5 段）
+    // Phase 36-1: Downsample を真の Jimenez 13-tap に直しただけで「がびがび」は
+    // 解消したので mip 段数は 5 段に維持 (6 段化は upsample additive pass が
+    // 1 回増える分 bloom 強度が ~25% lift して halo が過剰になる)。
     static constexpr u32 kBloomMips = 5;
 
     Result<void> CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept;

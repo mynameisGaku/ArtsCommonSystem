@@ -158,8 +158,10 @@ public:
         _camera.SetPerspective(45.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
 
         // post params: 控えめな bloom + ACES + mild vignette
-        _post_params.bloom_threshold      = 1.4f;
-        _post_params.bloom_intensity      = 0.45f;
+        // sun.color が 1.2x (HelloIbl 0.9x 互換) なので threshold もそれ相応に下げて
+        // emissive orb (strength=4.0) の bloom がちゃんと光るようにする。
+        _post_params.bloom_threshold      = 1.0f;
+        _post_params.bloom_intensity      = 0.40f;
         _post_params.vignette_intensity   = 0.25f;
         _post_params.chromatic_aberration = 0.0f;        // 邪魔なので OFF
         _post_params.grain_intensity      = 0.0f;
@@ -240,7 +242,7 @@ public:
         // PBR scene — light + IBL + 1-frame-latency 合成 (SSR / SSAO)
         DirLight sun{};
         sun.direction = _sky.SunDirection();
-        sun.color     = _sky.SunColor() * 4.5f;
+        sun.color     = _sky.SunColor() * 1.2f;
         _pbr.SetLights(vp_for_render, _cam_pos, &sun, 1, Vec3{0, 0, 0});
         _pbr.SetIbl(_ibl.IrradianceMap(), _ibl.PrefilterMap(),
                     _ibl.BrdfLut(), _ibl.PrefilterMips());

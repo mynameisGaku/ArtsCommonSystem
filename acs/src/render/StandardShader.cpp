@@ -69,7 +69,15 @@ VSOut VSMain(VSIn v) {
 
 // シャドウ係数: 1=完全に光が当たる、0=影、PCF で中間値。
 // single-return で FXC X4000 (potentially uninitialized) 警告を回避。
+//
+// Phase 36-1: 旧 4-tap grid PCF → Vogel disk 16-tap に拡張。
+// 円形均一分布なので 16-tap でも grid 4x4 (16-tap) より模様 (ストリーク)
+// が出にくく、影 edge の aliasing が大幅に減る。disk radius = texel × 2.5。
 float ComputeShadow(float3 world_p) {
+    static const int kPcfTaps = 16;
+    // golden angle = π * (3 - sqrt(5))、Vogel 1979 sunflower lattice の角度間隔
+    static const float kGoldenAngle = 2.39996323;
+
     float result = 1.0;
     if (shadow_params.y >= 0.5) {
         float4 lp = mul(float4(world_p, 1.0), light_view_proj);
@@ -80,14 +88,20 @@ float ComputeShadow(float3 world_p) {
             float2 uv  = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
             float my_d = ndc.z;
             float bias = shadow_params.x;
-            float ts   = shadow_params.z;
-            // 4-tap PCF
-            float lit = 0;
-            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts, -ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2(-ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-            lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + float2( ts,  ts), 0).r + bias >= my_d) ? 1.0 : 0.0;
-            result = lit * 0.25;
+            // disk radius = texel × 5.0 (HelloShadows の shadow_map 2048 / scene
+            // radius 12 = 11.7mm/texel に対して penumbra ~6cm を作る)。Vogel 円形
+            // 分布なので grid 同等半径より light leak しにくい。
+            float disk = shadow_params.z * 5.0;
+            // Vogel disk 16-tap PCF
+            float lit = 0.0;
+            [unroll]
+            for (int i = 0; i < kPcfTaps; ++i) {
+                float r = sqrt((float(i) + 0.5) / float(kPcfTaps));
+                float a = float(i) * kGoldenAngle;
+                float2 off = float2(cos(a), sin(a)) * r * disk;
+                lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r + bias >= my_d) ? 1.0 : 0.0;
+            }
+            result = lit / float(kPcfTaps);
         }
     }
     return result;
