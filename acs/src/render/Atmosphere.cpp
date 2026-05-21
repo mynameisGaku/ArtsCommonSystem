@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Physical atmospheric scattering 実装 (Phase 34c)
 #include "render/Atmosphere.h"
 #include "math/Math.h"

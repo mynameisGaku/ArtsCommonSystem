@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 標準ライティングシェーダ実装
 #include "render/StandardShader.h"
 #include "asset/MeshAsset.h"

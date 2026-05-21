@@ -15,6 +15,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# clang-tidy / IDE 言語サーバ (clangd, VS, Rider, CLion) のための compile_commands.json
+# Phase 3c (StyleGuide v1) — リント基盤の最小実装。詳細は docs/StyleGuide.md §12.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "Export compile_commands.json for clang-tidy / IDE.")
+
 option(ACS_BUILD_TESTS    "Build ACS unit tests"               ON)
 option(ACS_BUILD_SAMPLES  "Build sample applications"          ON)
 option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
@@ -42,93 +46,119 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/modules.cmake")
 # ---- 3. 依存関係を検証して target を生成、WITH_ACS_* define を付与 -------
 acs_finalize_modules()
 
+# ---- 4. サンプル / 自作ゲーム向けの集約ターゲット ACS::Game ----------------
+# 標準的なゲームに必要な 10 モジュールを 1 つにまとめた INTERFACE ターゲット。
+# サンプルや自作ゲームの CMakeLists は target_link_libraries(mygame PRIVATE
+# ACS::Game) の 1 行で済む。音声 / ネットワーク / ImGui / MVVM / UI などの
+# 追加モジュールは ACS::Audio などを個別に足す。
+add_library(acs_game INTERFACE)
+add_library(ACS::Game ALIAS acs_game)
+target_link_libraries(acs_game INTERFACE
+    ACS::Foundation ACS::Threading ACS::Memory ACS::Container ACS::Math
+    ACS::Platform ACS::Asset ACS::Ecs ACS::Render ACS::App)
+
 if(ACS_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
 
 if(ACS_BUILD_SAMPLES)
-    add_subdirectory(samples/HelloWindow)
-    add_subdirectory(samples/HelloTriangle)
-    # ImGui sample / MVVM sample (ImGui adapter 経由) は acs_imgui module が
-    # DX12 raw backend 直叩き実装のため、Diligent 単独ビルドだとリンクエラー
-    # (ImGui_ImplDX12_Init 等が未解決)。Phase 30+ で Diligent 用 ImGui backend
-    # を整備するまで Diligent build からは除外する。両方有効ビルドは OK。
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloImGui/CMakeLists.txt" AND ACS_RENDER_DX12_RAW)
-        add_subdirectory(samples/HelloImGui)
+    # サンプルは学習順に 00〜26 の番号付きディレクトリに並ぶ。
+    # 一覧・推奨学習順・各サンプルのビルド要件は samples/README.md を参照。
+
+    # --- (0) 最も簡単な入口: acs::easy レイヤ（クラス・継承なしで書ける）---
+    add_subdirectory(samples/00_HelloEasy)
+
+    # --- (1) 入門: 2D とゲームの基礎（HLSL を書かない）---
+    add_subdirectory(samples/01_HelloWindow)
+    add_subdirectory(samples/02_HelloSprite)
+    add_subdirectory(samples/03_HelloText)
+    add_subdirectory(samples/04_HelloECS)
+    add_subdirectory(samples/05_HelloSave)
+    add_subdirectory(samples/06_HelloLocalization)
+    add_subdirectory(samples/07_HelloAudio)
+    add_subdirectory(samples/08_HelloPhysics2D)
+    add_subdirectory(samples/09_HelloParticles)
+
+    # --- (2) 3D 入門: StandardShader（HLSL を書かない）---
+    add_subdirectory(samples/10_HelloModel)
+    add_subdirectory(samples/11_HelloRaycast3D)
+    add_subdirectory(samples/12_HelloLights)
+    add_subdirectory(samples/13_HelloSky)
+    add_subdirectory(samples/14_HelloShadows)
+    add_subdirectory(samples/15_HelloAnimation)
+
+    # --- (3) 低レベル RHI: HLSL を直接書く発展編 ---
+    add_subdirectory(samples/16_HelloTriangle)
+    add_subdirectory(samples/17_HelloMesh)
+    add_subdirectory(samples/18_HelloTextured)
+
+    # --- (4) UI・ツール・通信 ---
+    add_subdirectory(samples/19_HelloUI)
+    # 20_HelloMVVM / 21_HelloImGui は acs_imgui が DX12 raw backend を直接叩く
+    # 実装のため、Diligent 単独ビルドだと ImGui_ImplDX12_Init 等が未解決になる。
+    # よって ACS_RENDER_DX12_RAW のときのみビルドする（両方有効ビルドは OK）。
+    if(ACS_RENDER_DX12_RAW)
+        add_subdirectory(samples/20_HelloMVVM)
+        add_subdirectory(samples/21_HelloImGui)
     endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloAudio/CMakeLists.txt")
-        add_subdirectory(samples/HelloAudio)
+    add_subdirectory(samples/22_HelloNet)
+
+    # --- (5) 上級グラフィックス ---
+    add_subdirectory(samples/23_HelloPbr)
+    # 24〜26 は Diligent backend 専用（HDR / per-slice RT / cubemap など Diligent
+    # 実装にのみ存在する機能を使う）。diligent-* プリセットでのみビルドされる。
+    if(ACS_RENDER_DILIGENT)
+        add_subdirectory(samples/24_HelloBloom)
+        add_subdirectory(samples/25_HelloIbl)
+        add_subdirectory(samples/26_HelloLightmap)
+        # 27 (Phase 35-3d 直後の cinematic demo) も Diligent 専用
+        # (HDR + per-slice RT + RefractionShader が Diligent 要)
+        add_subdirectory(samples/27_HelloShowcase)
     endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloNet/CMakeLists.txt")
-        add_subdirectory(samples/HelloNet)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloMesh/CMakeLists.txt")
-        add_subdirectory(samples/HelloMesh)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloTextured/CMakeLists.txt")
-        add_subdirectory(samples/HelloTextured)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloModel/CMakeLists.txt")
-        add_subdirectory(samples/HelloModel)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloSprite/CMakeLists.txt")
-        add_subdirectory(samples/HelloSprite)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloText/CMakeLists.txt")
-        add_subdirectory(samples/HelloText)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloPhysics2D/CMakeLists.txt")
-        add_subdirectory(samples/HelloPhysics2D)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloRaycast3D/CMakeLists.txt")
-        add_subdirectory(samples/HelloRaycast3D)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloSky/CMakeLists.txt")
-        add_subdirectory(samples/HelloSky)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloSave/CMakeLists.txt")
-        add_subdirectory(samples/HelloSave)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloParticles/CMakeLists.txt")
-        add_subdirectory(samples/HelloParticles)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloAnimation/CMakeLists.txt")
-        add_subdirectory(samples/HelloAnimation)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloLocalization/CMakeLists.txt")
-        add_subdirectory(samples/HelloLocalization)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloLights/CMakeLists.txt")
-        add_subdirectory(samples/HelloLights)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloShadows/CMakeLists.txt")
-        add_subdirectory(samples/HelloShadows)
-    endif()
-    # HelloBloom は Diligent backend 専用のため、ACS_RENDER_DILIGENT のときだけ追加
-    if(ACS_RENDER_DILIGENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloBloom/CMakeLists.txt")
-        add_subdirectory(samples/HelloBloom)
-    endif()
-    # HelloMVVM は acs_imgui を依存に持つため HelloImGui と同じく
-    # Diligent 単独 build からは除外する。
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloMVVM/CMakeLists.txt" AND ACS_RENDER_DX12_RAW)
-        add_subdirectory(samples/HelloMVVM)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloECS/CMakeLists.txt")
-        add_subdirectory(samples/HelloECS)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloUI/CMakeLists.txt")
-        add_subdirectory(samples/HelloUI)
-    endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloPbr/CMakeLists.txt")
-        add_subdirectory(samples/HelloPbr)
-    endif()
-    # HelloIbl は Diligent backend 専用 (per-slice RT / R16G16F 依存)
-    if(ACS_RENDER_DILIGENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloIbl/CMakeLists.txt")
-        add_subdirectory(samples/HelloIbl)
-    endif()
-    # HelloLightmap (Phase 33f-2): Cornell box + CPU lightmap baker。Diligent 専用。
-    if(ACS_RENDER_DILIGENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/samples/HelloLightmap/CMakeLists.txt")
-        add_subdirectory(samples/HelloLightmap)
-    endif()
+endif()
+
+# ============================================================================
+# acs_lint — clang-tidy リントターゲット (Phase 3c)
+# ----------------------------------------------------------------------------
+# 使い方:  cmake --build <build-dir> --target acs_lint
+# 役割:    .clang-tidy + compile_commands.json で src/ samples/ tests/ を走査
+# 範囲:    PR で変更されたファイルのみリントしたい場合は run-clang-tidy.py に
+#          -files <regex> を渡して呼び出す。WarningsAsErrors は .clang-tidy 側
+#          で narrow に絞ってあるため、初回でも CI ゲートが破綻しない。
+# 詳細:    docs/StyleGuide.md §12.6
+# ============================================================================
+find_program(ACS_CLANG_TIDY_EXE
+    NAMES clang-tidy clang-tidy-18 clang-tidy-17 clang-tidy-16
+    HINTS "$ENV{ProgramFiles}/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/x64/bin"
+          "$ENV{ProgramFiles}/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin"
+          "$ENV{ProgramFiles}/Microsoft Visual Studio/2022/Professional/VC/Tools/Llvm/x64/bin"
+          "$ENV{ProgramFiles}/LLVM/bin"
+          "C:/Program Files/LLVM/bin"
+    DOC "clang-tidy executable used by the acs_lint target")
+
+if(ACS_CLANG_TIDY_EXE)
+    file(GLOB_RECURSE ACS_LINT_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.inl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/samples/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp")
+    # _deps/ や cmake-build-* 以下は除外（third-party / build artifact）
+    list(FILTER ACS_LINT_SOURCES EXCLUDE REGEX "(/_deps/|/cmake-build-)")
+
+    add_custom_target(acs_lint
+        COMMAND ${ACS_CLANG_TIDY_EXE}
+                --quiet
+                -p "${CMAKE_BINARY_DIR}"
+                --config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy
+                ${ACS_LINT_SOURCES}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running clang-tidy on src/ samples/ tests/ (config: .clang-tidy)"
+        VERBATIM USES_TERMINAL)
+    message(STATUS "ACS: acs_lint ターゲットを登録 (clang-tidy at ${ACS_CLANG_TIDY_EXE})")
+else()
+    message(STATUS "ACS: clang-tidy が見つからないため acs_lint ターゲットは未登録。")
+    message(STATUS "       インストール後 cmake を再 configure すれば有効になる。")
 endif()

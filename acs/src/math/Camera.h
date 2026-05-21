@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // カメラ（ビュー行列 + プロジェクション行列のヘルパ）
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Diligent バックエンドのファクトリ集約
 // IRhi* インターフェイスの Create*() 関数を Diligent 経由で実装する。
 // このファイルは WITH_RENDER_DILIGENT が ON のときだけ意味を持つ。

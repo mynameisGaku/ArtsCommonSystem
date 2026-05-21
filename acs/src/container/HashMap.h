@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Robin Hood ハッシュマップ（密値配列 + 8 バイトインデックスバケット）
 #pragma once
 

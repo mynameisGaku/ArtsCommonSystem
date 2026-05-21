@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ページバック式バンプアロケータ（容量を固定せず、満杯になったらページ追加）
 #pragma once
 

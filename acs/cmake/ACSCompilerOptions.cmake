@@ -44,5 +44,7 @@ function(acs_apply_compiler_options tgt)
 
     if(ACS_ENABLE_ASSERTS)
         target_compile_definitions(${tgt} PUBLIC ACS_ASSERTS_ENABLED=1)
+    else()
+        target_compile_definitions(${tgt} PUBLIC ACS_ASSERTS_ENABLED=0)
     endif()
 endfunction()

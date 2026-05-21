@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // エンティティ ID（世代付きハンドル）
 //
 // EntityId は 64 ビットで「インデックス + 世代」を表す。

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DiligentMemoryAdapter 実装（Phase 18.7 で本実装）
 //
 // Diligent の IMemoryAllocator は以下の仮想関数を持つ:

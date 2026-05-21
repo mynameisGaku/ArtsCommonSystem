@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ネットワークサブシステム初期化（WSAStartup ラッパ）
 //
 // 使い方: アプリ起動時に一度 Network::Init() を呼ぶ。Application が

@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+# ACS Lint Gate (Phase 3c)
+# ----------------------------------------------------------------------------
+# Runs clang-format dry-run + clang-tidy via the acs_lint CMake target on PRs
+# touching C++ sources. The .clang-tidy file's WarningsAsErrors is narrow on
+# purpose so the gate stays green on first activation.
+#
+# Activation: this workflow runs on push/PR after the repo is pushed to a
+# GitHub remote. Until then it lives dormant in .github/workflows/ as a seed.
+# ============================================================================
+name: lint
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "src/**"
+      - "samples/**"
+      - "tests/**"
+      - ".clang-format"
+      - ".clang-tidy"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - ".github/workflows/lint.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "samples/**"
+      - "tests/**"
+      - ".clang-format"
+      - ".clang-tidy"
+      - "CMakeLists.txt"
+      - "cmake/**"
+
+jobs:
+  format:
+    name: clang-format dry-run
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: clang-format --dry-run
+        shell: pwsh
+        run: |
+          # PR changed files only; on push to main, all files
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+              $files = git diff --name-only --diff-filter=AM `
+                  origin/$($env:GITHUB_BASE_REF)...HEAD `
+                  -- 'src/*.h' 'src/*.hpp' 'src/*.cpp' 'src/*.inl' `
+                     'samples/*.h' 'samples/*.cpp' `
+                     'tests/*.h' 'tests/*.cpp'
+          } else {
+              $files = git ls-files `
+                  'src/*.h' 'src/*.hpp' 'src/*.cpp' 'src/*.inl' `
+                  'samples/*.h' 'samples/*.cpp' `
+                  'tests/*.h' 'tests/*.cpp'
+          }
+          if (-not $files) { exit 0 }
+          clang-format --dry-run --Werror @files
+
+  tidy:
+    name: clang-tidy (acs_lint)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Ninja" `
+                -DACS_BUILD_TESTS=ON `
+                -DACS_BUILD_SAMPLES=ON `
+                -DACS_RENDER_DX12_RAW=ON `
+                -DCMAKE_BUILD_TYPE=Debug `
+                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run acs_lint target
+        shell: pwsh
+        run: cmake --build build --target acs_lint

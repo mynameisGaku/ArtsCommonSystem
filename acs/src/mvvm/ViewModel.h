@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ViewModel — MVVM の M-V-VM のうち中央の VM 基底クラス
 //
 // MVVM は **一般的な UI architecture pattern** (WPF / Xamarin / Vue / React 等で

@@ -1,9 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS Memory — VirtualMemory 実装
 // =============================================================================
 #include "memory/VirtualMemory.h"
 #include "foundation/Platform.h"
 #include "foundation/Move.h"
+#include "foundation/Compiler.h"   // ACS_TARGET_AVX
 
 #include <immintrin.h>
 #include <cstring>
@@ -166,7 +168,9 @@ Result<void> VmReservation::Decommit(usize offset, usize size) noexcept {
 // =============================================================================
 // VmZeroFastNT — Non-Temporal write 版高速ゼロクリア
 // =============================================================================
-void VmZeroFastNT(void* dst, usize size) noexcept {
+// ACS_TARGET_AVX: この関数だけ AVX を許可する（Clang/clang-cl は AVX 組み込み
+// 関数を使う関数に target 属性を要求する。MSVC では空に展開される）。
+ACS_TARGET_AVX void VmZeroFastNT(void* dst, usize size) noexcept {
     constexpr usize kBlock = 256;  // 8 × 32B
     if (size < kBlock || (reinterpret_cast<uptr>(dst) & 31) != 0) {
         ::memset(dst, 0, size);

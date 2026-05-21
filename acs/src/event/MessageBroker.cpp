@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // MessageBroker 実装
 #include "event/MessageBroker.h"
 

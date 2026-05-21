@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DX12 テクスチャ実装
 #include "render/Dx12/Dx12Texture.h"
 #include "render/Dx12/Dx12Device.h"

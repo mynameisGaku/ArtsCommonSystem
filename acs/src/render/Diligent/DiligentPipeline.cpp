@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DiligentPipeline 実装
 #include "render/Diligent/DiligentPipeline.h"
 

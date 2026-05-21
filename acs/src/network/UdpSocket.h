@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // UDP ソケット（コネクションレス）
 //
 // 使い方:

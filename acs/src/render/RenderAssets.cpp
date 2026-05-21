@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Asset → GPU リソース変換ヘルパ実装
 #include "render/RenderAssets.h"
 #include "asset/ImageAsset.h"

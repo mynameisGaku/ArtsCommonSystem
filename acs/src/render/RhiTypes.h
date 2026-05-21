@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // RHI 共通型（フォーマット、Viewport、ClearColor など、バックエンド非依存）
 #pragma once
 

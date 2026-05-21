@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // コンポーネント型 ID の取得（型ごとに一意な番号を割り当てる）
 //
 // 仕組み: GetComponentTypeId<T>() を呼ぶと、初回呼び出し時に新しい u32 を割り当てる。

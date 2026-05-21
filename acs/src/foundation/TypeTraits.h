@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 必要最小限の型特性のみ提供（<type_traits> 代替）
 #pragma once
 

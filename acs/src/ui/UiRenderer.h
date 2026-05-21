@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // UiRenderer — Widget tree を SpriteBatch + Font で描画する
 //
 // 使い方:

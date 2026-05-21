@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ImGui を ACS Window + Renderer に統合する薄いラッパ
 //
 // 使い方:

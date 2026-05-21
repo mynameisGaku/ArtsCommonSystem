@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 高レベル Renderer（ウィンドウへの描画ループを統括する司令塔）
 //
 // 使い方 (典型的):

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 可変長配列（std::vector 代替、アロケータ注入可能、ムーブ専用）
 #pragma once
 

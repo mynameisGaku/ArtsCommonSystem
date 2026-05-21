@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Screen-Space Reflection 実装 (Phase 34e)
 #include "render/Ssr.h"
 #include "foundation/Move.h"

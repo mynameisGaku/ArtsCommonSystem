@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // HDR ポストプロセス (Bloom + Tonemap) パイプライン
 //
 // 想定ワークフロー:

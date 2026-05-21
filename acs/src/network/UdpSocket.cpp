@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // UDP ソケット実装
 #include "network/UdpSocket.h"
 #include "network/Network.h"

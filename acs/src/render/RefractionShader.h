@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // スクリーンスペース屈折シェーダ (Phase 3)
 //
 // 用途: ガラス・水・氷のような透明屈折オブジェクトを描画する。屈折は
@@ -59,22 +60,29 @@ public:
     void SetFrame(const Mat4& view_projection, Vec3 camera_pos) noexcept;
 
     // 描画オブジェクトごとに呼ぶ。
-    //   ior      : 屈折率 (ガラス~1.5、水~1.33、ダイヤ~2.4)
-    //   thickness: 屈折方向に背景を sample する距離 (大きいほど歪みが強い)
-    //   tint     : ガラスの吸収色 (透明=白、色付きガラス=その色)
-    void SetObject(const Mat4& model, f32 ior, f32 thickness, Vec3 tint) noexcept;
+    //   ior       : 屈折率 (ガラス~1.5、水~1.33、ダイヤ~2.4)
+    //   thickness : 屈折方向に背景を sample する距離 (大きいほど歪みが強い)
+    //   tint      : ガラスの吸収色 (透明=白、色付きガラス=その色)
+    //   roughness : 表面荒さ (Phase 35-3d、0=クリア、1=完全フロステッド)
+    //   dispersion: 色収差/分散 (Phase 35-3e、0=色分離無し、1=強プリズム/ダイヤ風)
+    void SetObject(const Mat4& model, f32 ior, f32 thickness, Vec3 tint,
+                   f32 roughness = 0.0f, f32 dispersion = 0.0f) noexcept;
 
     IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
     IRhiBuffer*   PerFrameCB()  const noexcept { return _frame_cb.Get(); }
     IRhiBuffer*   PerObjectCB() const noexcept { return _object_cb.Get(); }
 
     // 1 関数で 1 体描画: SetObject + CB/Texture バインド + DrawIndexed をまとめる。
-    //   background: 屈折で sample する opaque シーンの複製
-    //   env       : Fresnel 反射に使う環境キューブマップ
+    //   background : 屈折で sample する opaque シーンの複製
+    //   env        : Fresnel 反射に使う環境キューブマップ
+    //   roughness  : 表面荒さ (Phase 35-3d、0=clear、>0 で多タップでブラー = frosted)
+    //   dispersion : 色収差/分散 (Phase 35-3e、0=なし、>0 でプリズム/ダイヤ風の色分離)
     void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const Mat4& model,
                   IRhiTexture& background, IRhiTexture& env,
                   f32 ior = 1.5f, f32 thickness = 0.5f,
-                  Vec3 tint = Vec3{1, 1, 1}) noexcept;
+                  Vec3 tint = Vec3{1, 1, 1},
+                  f32 roughness = 0.0f,
+                  f32 dispersion = 0.0f) noexcept;
 
 private:
     UniquePtr<IRhiShader>   _vs;

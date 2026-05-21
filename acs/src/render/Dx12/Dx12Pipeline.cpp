@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DX12 グラフィックスパイプライン実装
 #include "render/Dx12/Dx12Pipeline.h"
 #include "render/Dx12/Dx12Device.h"

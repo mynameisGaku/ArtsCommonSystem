@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ワークスチール ThreadPool（Chase-Lev SPMC deque + help-stealing wait）
 #pragma once
 

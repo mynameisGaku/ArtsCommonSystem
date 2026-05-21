@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // TwoWayBinder<T> — 2 つの Observable<T> を双方向同期させる
 //
 // 使い方:

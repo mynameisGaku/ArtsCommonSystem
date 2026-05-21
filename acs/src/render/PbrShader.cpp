@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // PbrShader 実装 — Cook-Torrance BRDF (GGX + Smith + Schlick)
 #include "render/PbrShader.h"
 #include "asset/MeshAsset.h"   // MeshVertex
@@ -49,9 +50,17 @@ cbuffer Frame : register(b0) {
     float4   fog_color_density;       // xyz=fog color, w=density (0=off)
     float4   fog_height_params;       // x=height_falloff, y=fog_height_base, zw=pad
 
-    // Shadow map (Phase 34b、第 0 番目の dir light のみ対応)
-    float4x4 shadow_view_proj;
-    float4   shadow_params;           // x=bias, y=enabled (0/1), z=texel_size, w=filter_radius
+    // Shadow map (Phase 34b + CSM = Cascaded Shadow Map)
+    // shadow_view_proj[c]: 各 cascade の light VP (最大 4 cascade)
+    // shadow_params       : x=bias, y=enabled (0/1), z=texel_size (cascade-local), w=filter_radius
+    // cascade_splits      : xyzw = 各 cascade の view-space z far (cascade 選択の閾値)
+    //                       single mode は全成分が inf で常に cascade 0
+    // cascade_uv_scale    : x=atlas X 方向のスケール (single mode=1、N cascade=1/N)
+    //                       y=1.0 (常)、zw=pad
+    float4x4 shadow_view_proj[4];
+    float4   shadow_params;
+    float4   cascade_splits;
+    float4   cascade_uv_scale;
 
     // SSAO (Phase 34j-2): screen-space AO テクスチャを ambient/indirect 項に乗算。
     //   x = enabled (0/1)
@@ -115,6 +124,7 @@ struct VSOut {
     float3 world_p : POSITION;
     float3 world_n : NORMAL;
     float2 uv      : TEXCOORD0;
+    float  view_z  : TEXCOORD1;     // CSM の cascade 選択に使う view-space depth
 };
 
 VSOut VSMain(VSIn v) {
@@ -124,6 +134,8 @@ VSOut VSMain(VSIn v) {
     o.pos     = mul(wp, view_proj);
     o.world_n = mul(float4(v.nrm, 0.0), model).xyz;
     o.uv      = v.uv;
+    // LH perspective では clip.w == view-space z。CSM cascade 選択に使う。
+    o.view_z  = o.pos.w;
     return o;
 }
 
@@ -158,69 +170,87 @@ float3 F_Schlick(float VdotH, float3 F0) {
 //
 // 単純な 4-tap PCF にフォールバックしたいときは shadow_params.w に 0 を渡す
 // (filter_radius、デフォルト 1.0 = PCSS、0 = hard 4-tap)
-float ComputeShadow(float3 world_p) {
+float ComputeShadow(float3 world_p, float view_z) {
     float result = 1.0;
-    if (shadow_params.y >= 0.5) {
-        float4 lp = mul(float4(world_p, 1.0), shadow_view_proj);
-        float3 ndc = lp.xyz / lp.w;
-        if (ndc.x >= -1.0 && ndc.x <= 1.0 &&
-            ndc.y >= -1.0 && ndc.y <= 1.0 &&
-            ndc.z >=  0.0 && ndc.z <= 1.0) {
-            float2 uv = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
-            float my_d = ndc.z;
-            float bias = shadow_params.x;
-            float ts = shadow_params.z;
-            float kFilter = shadow_params.w;     // 0=hard PCF、>0=PCSS
+    if (shadow_params.y < 0.5) return result;
 
-            // ---- Blocker search (16 tap、半径 = 4 * texel) ----
-            float blocker_sum = 0;
-            int   blocker_cnt = 0;
-            const int kBlockerN = 4;
-            float search_r = ts * 4.0;
-            [unroll]
-            for (int by = -kBlockerN/2; by < kBlockerN/2; ++by) {
-                [unroll]
-                for (int bx = -kBlockerN/2; bx < kBlockerN/2; ++bx) {
-                    float2 off = float2(bx, by) * (search_r * 0.5);
-                    float sd = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
-                    if (sd + bias < my_d) {
-                        blocker_sum += sd;
-                        blocker_cnt += 1;
-                    }
-                }
-            }
+    // ---- Cascade selection by view-space z (Phase 34b part 3 CSM) ----
+    // single mode では cascade_splits.xyzw = inf なので常に cascade 0。
+    int cascade = 0;
+    if (view_z > cascade_splits.x) cascade = 1;
+    if (view_z > cascade_splits.y) cascade = 2;
+    if (view_z > cascade_splits.z) cascade = 3;
 
-            if (blocker_cnt == 0) {
-                // 完全照明: 周囲に occluder がない
-                result = 1.0;
-            } else if (blocker_cnt == kBlockerN * kBlockerN) {
-                // 完全遮蔽: 周囲全て occluder。bias 内に入れなくて影
-                result = 0.0;
-            } else {
-                float blocker_avg = blocker_sum / float(blocker_cnt);
-                // penumbra ≒ (receiver - blocker) * light_size / blocker。
-                // ortho 影なので light_size は固定 (UV 上の太陽径)。
-                float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
-                float filter_r = max(penumbra * 0.01 * kFilter, ts);   // 最低 1 texel
-                // 4x4 PCF (Hammersley-ish stratified) で penumbra-sized blur
-                float lit = 0;
-                const int kPcfN = 4;
-                [unroll]
-                for (int py = 0; py < kPcfN; ++py) {
-                    [unroll]
-                    for (int px = 0; px < kPcfN; ++px) {
-                        float2 jitter = float2((float)px / (kPcfN-1) - 0.5,
-                                              (float)py / (kPcfN-1) - 0.5);
-                        float2 off = jitter * filter_r * 2.0;
-                        float sd = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
-                        lit += (sd + bias >= my_d) ? 1.0 : 0.0;
-                    }
-                }
-                result = lit / float(kPcfN * kPcfN);
+    float4 lp = mul(float4(world_p, 1.0), shadow_view_proj[cascade]);
+    float3 ndc = lp.xyz / lp.w;
+    if (ndc.x < -1.0 || ndc.x > 1.0 ||
+        ndc.y < -1.0 || ndc.y > 1.0 ||
+        ndc.z <  0.0 || ndc.z > 1.0) {
+        return result;
+    }
+
+    // cascade-local UV → atlas UV
+    float2 base_uv = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
+    float  scale_x = cascade_uv_scale.x;            // single=1, N-cascade=1/N
+    float  ofs_x   = float(cascade) * scale_x;      // atlas X 開始位置
+
+    float my_d = ndc.z;
+    float bias = shadow_params.x;
+    float ts   = shadow_params.z;                   // cascade-local texel size
+    float kFilter = shadow_params.w;                // 0=hard PCF、>0=PCSS
+
+    // ---- Blocker search (PCSS Fernando 2005、16 tap、半径 = 4 * texel) ----
+    // offset は cascade-local base UV 空間で計算 → atlas に投影してから sample。
+    // atlas_uv.x は cascade 領域 [ofs_x, ofs_x+scale_x] にクランプして
+    // 隣接 cascade に kernel が漏れて偽の影/光が混入するのを防ぐ (atlas-boundary PCF leak)。
+    // 半 texel の inset で隣接 cascade 0 と完全に分離する。
+    const float kHalfTexelInset = ts * 0.5 * scale_x;
+    float blocker_sum = 0;
+    int   blocker_cnt = 0;
+    const int kBlockerN = 4;
+    float search_r = ts * 4.0;
+    [unroll]
+    for (int by = -kBlockerN/2; by < kBlockerN/2; ++by) {
+        [unroll]
+        for (int bx = -kBlockerN/2; bx < kBlockerN/2; ++bx) {
+            float2 off       = float2(bx, by) * (search_r * 0.5);
+            float2 atlas_uv  = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
+            atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
+                                            ofs_x + scale_x - kHalfTexelInset);
+            float sd = shadow_map.SampleLevel(shadow_map_sampler, atlas_uv, 0).r;
+            if (sd + bias < my_d) {
+                blocker_sum += sd;
+                blocker_cnt += 1;
             }
         }
     }
-    return result;
+
+    if (blocker_cnt == 0) return 1.0;
+    if (blocker_cnt == kBlockerN * kBlockerN) return 0.0;
+
+    float blocker_avg = blocker_sum / float(blocker_cnt);
+    // penumbra ≒ (receiver - blocker) * light_size / blocker (UV 上の太陽径は固定)
+    float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
+    float filter_r = max(penumbra * 0.01 * kFilter, ts);
+
+    // ---- 4x4 PCF (stratified) で penumbra-sized blur ----
+    float lit = 0;
+    const int kPcfN = 4;
+    [unroll]
+    for (int py = 0; py < kPcfN; ++py) {
+        [unroll]
+        for (int px = 0; px < kPcfN; ++px) {
+            float2 jitter = float2((float)px / (kPcfN-1) - 0.5,
+                                   (float)py / (kPcfN-1) - 0.5);
+            float2 off      = jitter * filter_r * 2.0;
+            float2 atlas_uv = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
+            atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
+                                            ofs_x + scale_x - kHalfTexelInset);
+            float sd = shadow_map.SampleLevel(shadow_map_sampler, atlas_uv, 0).r;
+            lit += (sd + bias >= my_d) ? 1.0 : 0.0;
+        }
+    }
+    return lit / float(kPcfN * kPcfN);
 }
 
 // ddx/ddy 由来の screen-space TBN を使って tangent-space normal を world-space に変換。
@@ -753,7 +783,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     }
 
     // 有向光源 (i==0 のみ shadow_map で遮蔽)
-    float shadow = ComputeShadow(v.world_p);
+    float shadow = ComputeShadow(v.world_p, v.view_z);
     int dir_count = (int)ambient.w;
     [unroll]
     for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
@@ -863,8 +893,12 @@ struct FrameCBLayout {
     Vec4 probe_sh9[4 * 9];
     Vec4 fog_color_density;
     Vec4 fog_height_params;
-    Mat4 shadow_view_proj;
-    Vec4 shadow_params;
+    // CSM 対応 (Phase 34b part 3): single mode は shadow_view_proj[0] のみ使用、
+    // 残りは backward compat の inf split で常にスキップ。
+    Mat4 shadow_view_proj[4];   // 各 cascade の light VP
+    Vec4 shadow_params;         // x=bias, y=enabled, z=texel_size, w=filter_radius
+    Vec4 cascade_splits;        // xyzw = cascade 0/1/2/3 の view-space z far (inf=未使用)
+    Vec4 cascade_uv_scale;      // x=atlas X scale (single=1, N-cascade=1/N)、y=1、zw=pad
     Vec4 ssao_params;       // Phase 34j-2: x=enabled, y=intensity, zw=inv_viewport
     Vec4 ssgi_params;       // Phase 33c: x=enabled, y=intensity, zw=pad
     Vec4 lightmap_params;   // Phase 33f: x=enabled, y=intensity, zw=pad
@@ -1253,8 +1287,39 @@ void PbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
 void PbrShader::SetShadowMap(IRhiTexture* depth, const Mat4& light_vp,
                               f32 bias, f32 texel_size, f32 filter_radius) noexcept {
     _shadow_depth     = depth;
-    _shadow_view_proj = light_vp;
+    // 後方互換: 全 cascade スロットに同じ VP を書き、splits を inf にして
+    // HLSL の cascade 選択が常に cascade 0 を選ぶようにする。
+    // uv_scale = {1, 1, 0, 0} で atlas 変換をパススルー (single texture モード)。
+    for (u32 c = 0; c < kMaxShadowCascades; ++c) _shadow_view_proj[c] = light_vp;
+    _shadow_params     = Vec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
+    _cascade_splits    = Vec4{1e30f, 1e30f, 1e30f, 1e30f};
+    _cascade_uv_scale  = Vec4{1.0f, 1.0f, 0, 0};
+    FlushFrameCB();
+}
+
+void PbrShader::SetShadowMapCascades(IRhiTexture* depth,
+                                      const Mat4* light_vp,
+                                      const f32*  cascade_splits,
+                                      u32 cascade_count,
+                                      f32 bias, f32 texel_size,
+                                      f32 filter_radius) noexcept {
+    _shadow_depth = depth;
+    if (cascade_count == 0) cascade_count = 1;
+    if (cascade_count > kMaxShadowCascades) cascade_count = kMaxShadowCascades;
+    for (u32 c = 0; c < cascade_count; ++c) _shadow_view_proj[c] = light_vp[c];
+    // 未使用 slot は cascade_count-1 を再利用 (cascade 選択結果が不正値になっても無害)
+    for (u32 c = cascade_count; c < kMaxShadowCascades; ++c)
+        _shadow_view_proj[c] = light_vp[cascade_count - 1];
+
+    // cascade_splits xyzw に 4 cascade の z far を詰め、未使用は inf
+    f32 splits[kMaxShadowCascades] = {1e30f, 1e30f, 1e30f, 1e30f};
+    for (u32 c = 0; c < cascade_count; ++c) splits[c] = cascade_splits[c];
+    _cascade_splits = Vec4{splits[0], splits[1], splits[2], splits[3]};
+
     _shadow_params    = Vec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
+    // atlas X scale = 1 / cascade_count (single mode は cascade_count=1 で 1)
+    const f32 scale_x = 1.0f / static_cast<f32>(cascade_count);
+    _cascade_uv_scale = Vec4{scale_x, 1.0f, 0, 0};
     FlushFrameCB();
 }
 
@@ -1315,8 +1380,11 @@ void PbrShader::FlushFrameCB() noexcept {
     for (u32 i = 0; i < 4 * 9; ++i) cb.probe_sh9[i] = _probe_sh9[i];
     cb.fog_color_density = _fog_color_density;
     cb.fog_height_params = _fog_height_params;
-    cb.shadow_view_proj  = _shadow_view_proj;
+    for (u32 c = 0; c < kMaxShadowCascades; ++c)
+        cb.shadow_view_proj[c] = _shadow_view_proj[c];
     cb.shadow_params     = _shadow_params;
+    cb.cascade_splits    = _cascade_splits;
+    cb.cascade_uv_scale  = _cascade_uv_scale;
     cb.ibl_params = Vec4{
         _ibl_enabled ? 1.0f : 0.0f,
         static_cast<f32>(_ibl_mips),

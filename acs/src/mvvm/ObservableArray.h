@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ObservableArray<T> — 要素の追加・削除・変更を通知する配列
 //
 // 使い方:

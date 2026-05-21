@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // システム関数の登録と実行（World に対して毎フレーム呼ばれる関数の登録機構）
 //
 // 使い方:

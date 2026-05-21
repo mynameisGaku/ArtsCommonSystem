@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Screen-Space Reflection (Phase 34e)
 //
 // 設計:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // acs::Sample 実装 — デフォルトフォント解決
 #include "app/Sample.h"
 #include "render/Font.h"

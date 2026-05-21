@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 画像アセット実装（stb_image によるデコード）
 #include "asset/ImageAsset.h"
 #include "memory/Memory.h"

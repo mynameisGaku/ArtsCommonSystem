@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DiligentBuffer 実装
 #include "render/Diligent/DiligentBuffer.h"
 

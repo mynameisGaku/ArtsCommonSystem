@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Mvvm × ImGui バインディング実装
 #include "mvvm/ImguiBindings.h"
 #include "container/String.h"

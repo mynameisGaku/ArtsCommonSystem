@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Diligent Engine 経由の RHI デバイス実装
 // IRhiDevice を継承し、内部で IRenderDevice / IDeviceContext / EngineFactory を保持。
 //

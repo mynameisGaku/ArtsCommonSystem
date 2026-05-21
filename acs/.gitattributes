@@ -1,0 +1,116 @@
+# ============================================================================
+# ACS git attributes (Phase 0 / Option A+).
+# Enforce LF line endings, UTF-8 source, and binary classification.
+# ============================================================================
+* text=auto eol=lf
+
+# ---- C/C++ source -----------------------------------------------------------
+*.h           text eol=lf
+*.hpp         text eol=lf
+*.c           text eol=lf
+*.cc          text eol=lf
+*.cpp         text eol=lf
+*.inl         text eol=lf
+
+# ---- Shader source ---------------------------------------------------------
+*.hlsl        text eol=lf linguist-language=HLSL
+*.fx          text eol=lf
+*.fxh         text eol=lf
+*.shader      text eol=lf
+*.glsl        text eol=lf linguist-language=GLSL
+
+# ---- Build / config --------------------------------------------------------
+*.cmake          text eol=lf
+CMakeLists.txt   text eol=lf
+*.json           text eol=lf
+*.yml            text eol=lf
+*.yaml           text eol=lf
+*.toml           text eol=lf
+*.ini            text eol=lf
+*.md             text eol=lf
+.clang-format    text eol=lf
+.clang-tidy      text eol=lf
+.editorconfig    text eol=lf
+.gitattributes   text eol=lf
+
+# ---- Windows shell stays CRLF ----------------------------------------------
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+*.psm1        text eol=crlf
+*.psd1        text eol=crlf
+
+# ---- Image / texture (binary) ----------------------------------------------
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.tga         binary
+*.dds         binary
+*.bmp         binary
+*.ico         binary
+*.gif         binary
+*.exr         binary
+*.hdr         binary
+*.ktx         binary
+*.ktx2        binary
+
+# ---- Audio (binary) --------------------------------------------------------
+*.wav         binary
+*.ogg         binary
+*.mp3         binary
+*.opus        binary
+*.flac        binary
+
+# ---- Fonts (binary) --------------------------------------------------------
+*.ttf         binary
+*.otf         binary
+*.woff        binary
+*.woff2       binary
+
+# ---- 3D assets (binary) ----------------------------------------------------
+*.fbx         binary
+*.glb         binary
+*.gltf        text eol=lf
+*.obj         text eol=lf
+*.mtl         text eol=lf
+
+# ---- Documents / archives (binary) -----------------------------------------
+*.pdf         binary
+*.zip         binary
+*.7z          binary
+*.tar         binary
+*.tar.gz      binary
+*.tgz         binary
+
+# ---- Toolchain artifacts (binary) ------------------------------------------
+*.dll         binary
+*.lib         binary
+*.exe         binary
+*.pdb         binary
+*.exp         binary
+*.obj         binary
+*.so          binary
+*.a           binary
+*.dylib       binary
+
+# ---- ACS-native binary formats ---------------------------------------------
+*.acpak           binary
+*.abin            binary
+*.tdat            binary
+*.acsr            binary
+*.acsperf         binary
+*.bakemanifest    binary
+*.ghost           binary
+*.lightmap        binary
+
+# ---- ACS-native text formats (diff-friendly) -------------------------------
+*.atxt            text eol=lf
+*.scene           text eol=lf
+*.prefab          text eol=lf
+*.dlg             text eol=lf
+*.cutscene        text eol=lf
+
+# ---- linguist hints for GitHub display -------------------------------------
+cmake-build-*/**    linguist-generated=true
+samples/**          linguist-documentation=false
+docs/**             linguist-documentation=true

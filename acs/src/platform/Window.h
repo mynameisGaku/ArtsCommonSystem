@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Win32 ウィンドウ（イベント駆動、初学者向け簡易 API）
 //
 // 使い方:
@@ -69,6 +70,10 @@ public:
     // タイトル変更（FPS 表示など）
     void SetTitle(const wchar_t* title) noexcept;
 
+    // ボーダーレス全画面の ON/OFF。元のウィンドウ位置・スタイルを記憶して復元する。
+    void SetFullscreen(bool on) noexcept;
+    bool IsFullscreen() const noexcept { return _fullscreen; }
+
     // 内部用: WindowProc から呼ばれるイベント発行
     void DispatchEvent_Internal(const Event& e) noexcept;
     // 内部用: WindowProc から呼ばれるサイズ更新
@@ -81,6 +86,10 @@ private:
     bool            _should_close  = false;
     EventCallback   _callback      = nullptr;
     void*           _callback_user = nullptr;
+    // フルスクリーン状態（ウィンドウ生成直後のムーブのみ想定。ムーブ後の保持は非対応）
+    bool            _fullscreen    = false;
+    i32             _saved_style   = 0;          // 全画面化前の GWL_STYLE
+    i32             _saved_rect[4] {};           // 全画面化前の窓矩形 (l,t,r,b)
 };
 
 } // namespace acs

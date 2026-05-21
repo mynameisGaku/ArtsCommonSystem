@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Diligent Engine 経由のシェーダ
 //
 // 注: Diligent は内部で HLSL → SPIRV/MSL/GLSL に変換するため、

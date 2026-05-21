@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // PostProcess (Bloom + ACES Tonemap) 実装
 #include "render/PostProcess.h"
 #include "foundation/Move.h"

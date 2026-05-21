@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Observable<T> — 監視可能な値 (MVVM の中核)
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Storage 実装（INI 形式 key=value、UTF-8）
 #include "platform/Storage.h"
 #include "platform/FileSystem.h"

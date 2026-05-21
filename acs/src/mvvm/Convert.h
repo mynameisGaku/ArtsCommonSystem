@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 組込み暗黙変換 — i32/u32/f32/f64/bool/String の主要ペアを Bind 一発で
 //
 // 使い方:

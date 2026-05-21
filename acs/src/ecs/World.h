@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ECS の World（エンティティとコンポーネントを管理する中心）
 //
 // 使い方:

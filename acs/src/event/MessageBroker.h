@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // MessageBroker — 型ベースの pub/sub イベントバス
 //
 // **スレッド契約 (重要)**: MessageBroker は **シングルスレッド前提** です。

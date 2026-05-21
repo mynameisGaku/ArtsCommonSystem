@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // TCP 接続実装
 #include "network/TcpConnection.h"
 #include "network/Network.h"

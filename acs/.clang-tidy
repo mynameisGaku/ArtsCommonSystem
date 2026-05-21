@@ -1,0 +1,148 @@
+# ============================================================================
+# ACS clang-tidy config (Phase 0 / Option A+).
+#
+# Strategy: standard checks ON as warnings, naming rules ENFORCED to ACS style,
+# custom acs-* rules (R001-R048) wired in when the out-of-tree plugin lands
+# in Phase 3.
+#
+# WarningsAsErrors is intentionally narrow at Phase 0 so existing src/ passes
+# without churn. Promote checks to error as cleanups land in Phase 1+.
+# ============================================================================
+---
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-branch-clone,
+  cert-*,
+  -cert-err58-cpp,
+  -cert-dcl21-cpp,
+  -cert-err33-c,
+  concurrency-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-do-while,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-init-variables,
+  hicpp-*,
+  -hicpp-no-array-decay,
+  -hicpp-vararg,
+  -hicpp-signed-bitwise,
+  -hicpp-special-member-functions,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-include-cleaner,
+  -misc-use-anonymous-namespace,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -modernize-avoid-c-arrays,
+  -modernize-use-default-member-init,
+  performance-*,
+  portability-*,
+  -portability-simd-intrinsics,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -readability-named-parameter,
+  -readability-uppercase-literal-suffix,
+  -readability-else-after-return,
+  -readability-redundant-access-specifiers,
+  acs-*
+
+# Phase 0: only the load-bearing checks are errors. Promote as cleanups land.
+WarningsAsErrors: >
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  cert-dcl58-cpp,
+  cppcoreguidelines-slicing,
+  modernize-use-override,
+  performance-move-const-arg,
+  acs-*
+
+HeaderFilterRegex: '^(src|samples|tests|easy)/.*\.(h|hpp|inl)$'
+FormatStyle: file
+SystemHeaders: false
+UseColor: true
+
+CheckOptions:
+  # ---- Identifier naming (R020-R029, calibrated against src/ tree) ---------
+  # Classes / structs / enums / template params: PascalCase, no prefix.
+  - { key: readability-identifier-naming.NamespaceCase,                value: lower_case }
+  - { key: readability-identifier-naming.ClassCase,                    value: CamelCase  }
+  - { key: readability-identifier-naming.StructCase,                   value: CamelCase  }
+  - { key: readability-identifier-naming.UnionCase,                    value: CamelCase  }
+  - { key: readability-identifier-naming.TypedefCase,                  value: CamelCase  }
+  - { key: readability-identifier-naming.TypeAliasCase,                value: CamelCase  }
+  - { key: readability-identifier-naming.TypeAliasIgnoredRegexp,       value: '^(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|usize|isize|uptr|iptr|byte|c8|c16|c32)$' }
+  - { key: readability-identifier-naming.TypeTemplateParameterCase,    value: CamelCase  }
+  - { key: readability-identifier-naming.TemplateParameterCase,        value: CamelCase  }
+  - { key: readability-identifier-naming.EnumCase,                     value: CamelCase  }
+  - { key: readability-identifier-naming.EnumConstantCase,             value: CamelCase  }
+  # NOTE: clang-tidy IgnoredRegexp uses POSIX ERE — PCRE (?:...) non-capturing
+  # groups are rejected ("Invalid IgnoredRegexp regular expression"). Use plain
+  # capture groups instead. Pattern covers: _Count sentinel, OS/IO acronyms,
+  # and graphics-format enums like R8G8B8A8 / R32G32_Float.
+  - { key: readability-identifier-naming.EnumConstantIgnoredRegexp,    value: '^_Count$|^OS$|^IO$|^[A-Z][0-9]+([A-Z][0-9]+)*(_[A-Za-z]+)?$' }
+  - { key: readability-identifier-naming.ScopedEnumConstantCase,       value: CamelCase  }
+
+  # Functions / methods: PascalCase across visibility levels.
+  - { key: readability-identifier-naming.FunctionCase,                 value: CamelCase  }
+  - { key: readability-identifier-naming.FunctionIgnoredRegexp,        value: '^(begin|end|cbegin|cend|rbegin|rend|crbegin|crend|size|empty|data)$' }
+  - { key: readability-identifier-naming.MethodCase,                   value: CamelCase  }
+  - { key: readability-identifier-naming.MethodIgnoredRegexp,          value: '^(begin|end|cbegin|cend|rbegin|rend|crbegin|crend|size|empty|data|operator.*)$' }
+  - { key: readability-identifier-naming.PublicMethodCase,             value: CamelCase  }
+  - { key: readability-identifier-naming.ProtectedMethodCase,          value: CamelCase  }
+  - { key: readability-identifier-naming.PrivateMethodCase,            value: CamelCase  }
+  - { key: readability-identifier-naming.VirtualMethodCase,            value: CamelCase  }
+
+  # Locals & parameters: snake_case. (math 1-letter exempted via identifier-length disable.)
+  - { key: readability-identifier-naming.VariableCase,                 value: lower_case }
+  - { key: readability-identifier-naming.LocalVariableCase,            value: lower_case }
+  - { key: readability-identifier-naming.ParameterCase,                value: lower_case }
+  - { key: readability-identifier-naming.PointerParameterCase,         value: lower_case }
+
+  # Class members: private/protected `_snake_case`, public POD `snake_case`.
+  - { key: readability-identifier-naming.MemberCase,                   value: lower_case }
+  - { key: readability-identifier-naming.PublicMemberCase,             value: lower_case }
+  - { key: readability-identifier-naming.ProtectedMemberCase,          value: lower_case }
+  - { key: readability-identifier-naming.ProtectedMemberPrefix,        value: '_'        }
+  - { key: readability-identifier-naming.PrivateMemberCase,            value: lower_case }
+  - { key: readability-identifier-naming.PrivateMemberPrefix,          value: '_'        }
+  - { key: readability-identifier-naming.ClassMemberCase,              value: lower_case }
+
+  # Constants: kPascalCase for compile-time constants.
+  - { key: readability-identifier-naming.ConstantCase,                 value: CamelCase  }
+  - { key: readability-identifier-naming.ConstantPrefix,               value: 'k'        }
+  - { key: readability-identifier-naming.GlobalConstantCase,           value: CamelCase  }
+  - { key: readability-identifier-naming.GlobalConstantPrefix,         value: 'k'        }
+  - { key: readability-identifier-naming.StaticConstantCase,           value: CamelCase  }
+  - { key: readability-identifier-naming.StaticConstantPrefix,         value: 'k'        }
+  - { key: readability-identifier-naming.ConstexprVariableCase,        value: CamelCase  }
+  - { key: readability-identifier-naming.ConstexprVariablePrefix,      value: 'k'        }
+  - { key: readability-identifier-naming.LocalConstantCase,            value: lower_case }   # locals stay snake even when const
+
+  # Macros: UPPER_CASE with ACS_ prefix.
+  - { key: readability-identifier-naming.MacroDefinitionCase,          value: UPPER_CASE }
+  - { key: readability-identifier-naming.MacroDefinitionIgnoredRegexp, value: '^_?[A-Z][A-Z0-9_]*$' }
+
+  # ---- Other readability tuning -------------------------------------------
+  - { key: readability-function-size.LineThreshold,                    value: '200' }
+  - { key: readability-function-size.StatementThreshold,               value: '150' }
+  - { key: readability-implicit-bool-conversion.AllowIntegerConditions, value: '1' }
+  - { key: readability-implicit-bool-conversion.AllowPointerConditions, value: '1' }
+  - { key: modernize-loop-convert.MinConfidence,                       value: reasonable }
+  - { key: performance-unnecessary-value-param.AllowedTypes,           value: 'Span;StringView;SourceLoc' }
+  - { key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor, value: '1' }
+  - { key: cppcoreguidelines-special-member-functions.AllowMissingMoveFunctions, value: '1' }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 非同期アセットロードの結果ハンドル
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DiligentSwapchain 実装
 #include "render/Diligent/DiligentSwapchain.h"
 

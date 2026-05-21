@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 再生中の音声を識別するハンドル
 //
 // AudioEngine が発行する。世代付きで、停止後に同じスロットが再利用されても

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // GPU バッファ抽象（頂点・インデックス・定数バッファ用）
 #pragma once
 

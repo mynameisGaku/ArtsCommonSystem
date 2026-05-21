@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Diligent Engine 経由のコマンドリスト
 // Diligent は IDeviceContext 自体がコマンドキューを持つ即時 API なので、
 // ACS の CommandList 概念は IDeviceContext の薄いラッパとして実装する。

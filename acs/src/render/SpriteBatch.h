@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 2D スプライト描画ヘルパ（バッチ式）
 //
 // 用途: ピクセル座標で 2D スプライト・矩形を描く。一般的な「ゲーム HUD」や
@@ -68,6 +69,30 @@ public:
     void DrawString(const class Font& font, const char* utf8_text,
                   f32 x, f32 y, Vec4 color = Vec4{1,1,1,1}) noexcept;
 
+    // 回転付き描画。(cx,cy) を中心に radians だけ回転してテクスチャ(の一部)を描く。
+    // 通常スプライトと同じ 4 頂点 / 6 インデックスなので同一バッチに乗る。
+    void DrawRotated(IRhiTexture& tex,
+                     f32 cx, f32 cy, f32 w, f32 h, f32 radians,
+                     f32 u0, f32 v0, f32 u1, f32 v1,
+                     Vec4 tint = Vec4{1,1,1,1}) noexcept;
+
+    // 回転付き単色矩形。(cx,cy) を中心に radians だけ回転。
+    void DrawRectRotated(f32 cx, f32 cy, f32 w, f32 h, f32 radians,
+                         Vec4 color) noexcept;
+
+    // 単色の塗りつぶし三角形。4 頂点目に 3 頂点目を重ね、退化した三角形を
+    // 1 枚挟むことで、通常スプライトと同じ 4 頂点バッチに乗せる。
+    void DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+                      Vec4 color) noexcept;
+
+    // 2D カメラ。(cam_x,cam_y) を画面中心に映し、zoom 倍で拡縮する。
+    // Begin() で恒等（カメラ無し）にリセットされる。
+    void SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept;
+
+    // クリップ矩形。以降の描画をこの矩形内（画面座標）に制限する。
+    void SetClipRect(i32 x, i32 y, i32 w, i32 h) noexcept;
+    void ClearClipRect() noexcept;
+
     // 描画終了（残りバッチを GPU に送る）
     void End() noexcept;
 
@@ -81,6 +106,7 @@ private:
 
     void Flush() noexcept;
     void EnsurePipeline() noexcept;
+    void WriteScreenCBuffer() noexcept;   // screen サイズ + view を _cb に書く
 
     UniquePtr<IRhiShader>   _vs;
     UniquePtr<IRhiShader>   _ps;
@@ -98,6 +124,9 @@ private:
     IRhiCommandList* _cl            = nullptr;
     u32              _screen_w      = 1;
     u32              _screen_h      = 1;
+    f32              _view_x        = 0.0f;   // カメラ中心 X（ワールド座標）
+    f32              _view_y        = 0.0f;   // カメラ中心 Y
+    f32              _view_zoom     = 1.0f;   // ズーム倍率
 };
 
 } // namespace acs

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // UTF-8 可変長文字列（SSO 22 バイト対応、std::string 代替）
 #pragma once
 

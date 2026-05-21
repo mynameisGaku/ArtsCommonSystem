@@ -1,4 +1,5 @@
-// ShadowMap 実装
+// SPDX-License-Identifier: Apache-2.0
+// ShadowMap 実装 (single + CSM atlas)
 #include "render/ShadowMap.h"
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用
 #include "math/Math.h"
@@ -42,17 +43,40 @@ ACS_FORCEINLINE Vec3 NormalizeSafe(Vec3 v) noexcept {
     return { v.x * inv, v.y * inv, v.z * inv };
 }
 
+ACS_FORCEINLINE f32 Distance3(const Vec3& a, const Vec3& b) noexcept {
+    const f32 dx = a.x - b.x;
+    const f32 dy = a.y - b.y;
+    const f32 dz = a.z - b.z;
+    return Sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// row-major: v_out = v * M (row vector times matrix)
+ACS_FORCEINLINE Vec4 MulRowVec4(const Vec4& v, const Mat4& m) noexcept {
+    return Vec4{
+        v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + v.w * m.m[3][0],
+        v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + v.w * m.m[3][1],
+        v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2] + v.w * m.m[3][2],
+        v.x * m.m[0][3] + v.y * m.m[1][3] + v.z * m.m[2][3] + v.w * m.m[3][3],
+    };
+}
+
 } // namespace
 
-Result<void> ShadowMap::Init(IRhiDevice& device, u32 size) noexcept {
+Result<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) noexcept {
     if (size == 0) size = 2048;
-    _size = size;
+    if (cascade_count == 0) cascade_count = 1;
+    if (cascade_count > kMaxCascades) cascade_count = kMaxCascades;
+    _size          = size;
+    _cascade_count = cascade_count;
 
-    // ===== 深度テクスチャ（SRV 可視）=====
+    // ===== 深度テクスチャ（SRV 可視）======================================
+    // single mode (cascade_count=1): size × size
+    // CSM mode    (cascade_count≥2): atlas = (size * cascade_count) × size
     TextureDesc td{};
-    td.width  = size; td.height = size;
+    td.width  = size * cascade_count;
+    td.height = size;
     td.format = Format::D32_Float;
-    td.is_depth_target = true;
+    td.is_depth_target      = true;
     td.shader_visible_depth = true;
     auto tr = CreateRhiTexture(device, td);
     if (tr.IsErr()) return Err<void>(tr.Error());
@@ -105,6 +129,9 @@ Result<void> ShadowMap::Init(IRhiDevice& device, u32 size) noexcept {
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
     _pipeline = Move(pl_r.Value());
 
+    // 未使用 cascade スロットは inf split で「常に cascade 0 を選択」に
+    for (u32 c = 0; c < kMaxCascades; ++c) _cascade_splits[c] = 1e30f;
+
     return Ok();
 }
 
@@ -114,7 +141,8 @@ void ShadowMap::Shutdown() noexcept {
     _light_cb.Reset();
     _vs.Reset();
     _depth.Reset();
-    _size = 0;
+    _size          = 0;
+    _cascade_count = 1;
 }
 
 void ShadowMap::SetDirectionalLight(Vec3 light_dir, Vec3 center, f32 radius) noexcept {
@@ -124,19 +152,140 @@ void ShadowMap::SetDirectionalLight(Vec3 light_dir, Vec3 center, f32 radius) noe
         center.y + dir.y * radius * 2.5f,
         center.z + dir.z * radius * 2.5f,
     };
-    // up は dir と平行にならないよう場合分け
     Vec3 up = Vec3{0, 1, 0};
     if (Abs(dir.y) > 0.95f) up = Vec3{0, 0, 1};
 
     Mat4 view = Mat4::LookAtLH(light_pos, center, up);
     Mat4 proj = Mat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
-    _light_vp = view * proj;
+    _light_vp[0] = view * proj;
+    // 残りの cascade は同じ VP を入れて split を inf に (常に cascade 0 が当たる)
+    for (u32 c = 1; c < kMaxCascades; ++c) {
+        _light_vp[c]       = _light_vp[0];
+        _cascade_splits[c] = 1e30f;
+    }
+    _cascade_splits[0] = 1e30f;   // single mode は cascade 0 が全範囲
 
-    if (_light_cb) _light_cb->Update(&_light_vp, sizeof(Mat4));
+    if (_light_cb) _light_cb->Update(&_light_vp[0], sizeof(Mat4));
+}
+
+void ShadowMap::SetDirectionalLightCascades(Vec3 light_dir,
+                                             const Mat4& view, const Mat4& proj,
+                                             f32 near_z, f32 far_z,
+                                             f32 lambda) noexcept {
+    if (lambda < 0.0f) lambda = 0.0f;
+    if (lambda > 1.0f) lambda = 1.0f;
+    if (near_z < 1e-3f) near_z = 1e-3f;
+    if (far_z <= near_z) far_z = near_z + 1.0f;
+
+    // === Zhang practical split ===
+    // splits[i] = (1-λ)*uniform + λ*log
+    // 配列要素は cascade 境界の view-space z (splits[0]=near、splits[N]=far)
+    f32 splits[kMaxCascades + 1] = {};
+    splits[0] = near_z;
+    splits[_cascade_count] = far_z;
+    const f32 inv_n = 1.0f / static_cast<f32>(_cascade_count);
+    for (u32 c = 1; c < _cascade_count; ++c) {
+        const f32 f         = static_cast<f32>(c) * inv_n;
+        const f32 uniform_v = near_z + (far_z - near_z) * f;
+        const f32 log_v     = near_z * Pow(far_z / near_z, f);
+        splits[c] = lambda * log_v + (1.0f - lambda) * uniform_v;
+    }
+
+    // === 全 frustum の world-space コーナー 8 個を取得 ===
+    // ndc corner → view-projection 逆変換で world に戻す
+    const Mat4 vp     = view * proj;
+    const Mat4 inv_vp = Inverse(vp);
+    const Vec4 ndc[8] = {
+        Vec4{-1, -1, 0, 1}, Vec4{ 1, -1, 0, 1}, Vec4{ 1,  1, 0, 1}, Vec4{-1,  1, 0, 1},  // near
+        Vec4{-1, -1, 1, 1}, Vec4{ 1, -1, 1, 1}, Vec4{ 1,  1, 1, 1}, Vec4{-1,  1, 1, 1},  // far
+    };
+    Vec3 fcorners[8];
+    for (u32 i = 0; i < 8; ++i) {
+        const Vec4 w = MulRowVec4(ndc[i], inv_vp);  // row-major: ndc * inv_vp
+        const f32  iw = 1.0f / w.w;
+        fcorners[i] = Vec3{ w.x * iw, w.y * iw, w.z * iw };
+    }
+
+    // === 各 cascade の sub-frustum bounding sphere → light VP ===
+    Vec3 dir = NormalizeSafe(light_dir);
+    Vec3 up  = (Abs(dir.y) > 0.95f) ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
+
+    const f32 inv_full = 1.0f / (far_z - near_z);
+    for (u32 c = 0; c < _cascade_count; ++c) {
+        const f32 z_n = splits[c];
+        const f32 z_f = splits[c + 1];
+        const f32 t_n = (z_n - near_z) * inv_full;
+        const f32 t_f = (z_f - near_z) * inv_full;
+
+        Vec3 sub[8];
+        for (u32 i = 0; i < 4; ++i) {
+            const Vec3 ray = fcorners[i + 4] - fcorners[i];
+            sub[i]     = fcorners[i] + ray * t_n;
+            sub[i + 4] = fcorners[i] + ray * t_f;
+        }
+
+        // 中心 = 8 corner の平均、半径 = max distance
+        Vec3 center{0, 0, 0};
+        for (u32 i = 0; i < 8; ++i) center += sub[i];
+        center *= 0.125f;
+        f32 radius = 0.0f;
+        for (u32 i = 0; i < 8; ++i) {
+            const f32 d = Distance3(sub[i], center);
+            if (d > radius) radius = d;
+        }
+        if (radius < 1e-3f) radius = 1e-3f;
+
+        // Light VP: center を見るカメラ、ortho 幅は半径×2.5 (10% margin、large caster の
+        // edge clip 防止。single-cascade SetDirectionalLight と同じ margin)。
+        const Vec3 light_pos{
+            center.x + dir.x * radius * 2.5f,
+            center.y + dir.y * radius * 2.5f,
+            center.z + dir.z * radius * 2.5f,
+        };
+        const Mat4 view_l = Mat4::LookAtLH(light_pos, center, up);
+        const Mat4 proj_l = Mat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
+        _light_vp[c]       = view_l * proj_l;
+        _cascade_splits[c] = z_f;            // view-space z far (cascade 選択の閾値)
+    }
+    // 未使用 cascade は inf で「常にスキップ」
+    for (u32 c = _cascade_count; c < kMaxCascades; ++c) {
+        _light_vp[c]       = _light_vp[_cascade_count - 1];
+        _cascade_splits[c] = 1e30f;
+    }
+
+    // default: LightCB に cascade 0 を書いておく
+    if (_light_cb) _light_cb->Update(&_light_vp[0], sizeof(Mat4));
+}
+
+void ShadowMap::SetCurrentCascade(u32 cascade) noexcept {
+    if (cascade >= _cascade_count) cascade = 0;
+    if (_light_cb) _light_cb->Update(&_light_vp[cascade], sizeof(Mat4));
 }
 
 void ShadowMap::SetCaster(const Mat4& model) noexcept {
     if (_object_cb) _object_cb->Update(&model, sizeof(Mat4));
+}
+
+Viewport ShadowMap::CascadeViewport(u32 cascade) const noexcept {
+    if (cascade >= _cascade_count) cascade = 0;
+    Viewport vp{};
+    vp.x         = static_cast<f32>(cascade * _size);
+    vp.y         = 0.0f;
+    vp.width     = static_cast<f32>(_size);
+    vp.height    = static_cast<f32>(_size);
+    vp.min_depth = 0.0f;
+    vp.max_depth = 1.0f;
+    return vp;
+}
+
+ScissorRect ShadowMap::CascadeScissor(u32 cascade) const noexcept {
+    if (cascade >= _cascade_count) cascade = 0;
+    ScissorRect r{};
+    r.left   = static_cast<i32>(cascade * _size);
+    r.top    = 0;
+    r.right  = static_cast<i32>((cascade + 1) * _size);
+    r.bottom = static_cast<i32>(_size);
+    return r;
 }
 
 } // namespace acs

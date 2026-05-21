@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // World.Query<Pos, Vel>().Each(...) を提供するクエリヘルパ
 //
 // 仕組み: 指定された全コンポーネントを持つエンティティを選び出して、

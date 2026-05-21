@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Diligent Engine 共通ヘッダ
 // ACS の RhiTypes と Diligent の対応構造体を相互変換する関数を集約。
 // .cpp 側からのみインクルードする想定（IRhi* 利用側には漏らさない）。

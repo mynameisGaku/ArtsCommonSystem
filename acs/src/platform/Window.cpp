@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Win32 ウィンドウ実装
 #include "platform/Window.h"
 #include "platform/InputCodes.h"
@@ -294,6 +295,38 @@ void Window::SetEventCallback(EventCallback cb, void* user) noexcept {
 
 void Window::SetTitle(const wchar_t* title) noexcept {
     if (_hwnd) ::SetWindowTextW(static_cast<HWND>(_hwnd), title);
+}
+
+void Window::SetFullscreen(bool on) noexcept {
+    if (!_hwnd || on == _fullscreen) return;
+    HWND hwnd = static_cast<HWND>(_hwnd);
+    if (on) {
+        // 現在の窓矩形・スタイルを記憶
+        RECT r{};
+        ::GetWindowRect(hwnd, &r);
+        _saved_rect[0] = r.left;  _saved_rect[1] = r.top;
+        _saved_rect[2] = r.right; _saved_rect[3] = r.bottom;
+        _saved_style = static_cast<i32>(::GetWindowLongW(hwnd, GWL_STYLE));
+        // 現在のモニタ全体を覆うボーダーレス窓へ
+        HMONITOR mon = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi{}; mi.cbSize = sizeof(mi);
+        ::GetMonitorInfoW(mon, &mi);
+        ::SetWindowLongW(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        ::SetWindowPos(hwnd, HWND_TOP,
+                       mi.rcMonitor.left, mi.rcMonitor.top,
+                       mi.rcMonitor.right  - mi.rcMonitor.left,
+                       mi.rcMonitor.bottom - mi.rcMonitor.top,
+                       SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    } else {
+        // 記憶した窓に戻す
+        ::SetWindowLongW(hwnd, GWL_STYLE, static_cast<LONG>(_saved_style));
+        ::SetWindowPos(hwnd, HWND_TOP,
+                       _saved_rect[0], _saved_rect[1],
+                       _saved_rect[2] - _saved_rect[0],
+                       _saved_rect[3] - _saved_rect[1],
+                       SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    }
+    _fullscreen = on;
 }
 
 } // namespace acs

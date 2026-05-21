@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ECS World 実装
 #include "ecs/World.h"
 

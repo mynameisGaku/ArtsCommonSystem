@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
 #include "render/Diligent/DiligentDevice.h"
 

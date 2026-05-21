@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS Foundation — コンパイラ／プラットフォーム検出マクロ
 // -----------------------------------------------------------------------------
@@ -95,6 +96,21 @@
     #define ACS_CACHELINE_ALIGN __attribute__((aligned(64)))
     #define ACS_DLLEXPORT       __attribute__((visibility("default")))
     #define ACS_DLLIMPORT
+#endif
+
+// ---- SIMD ターゲット属性 --------------------------------------------------
+// 特定の関数だけ AVX / AVX2 を有効化するための属性。
+// Clang / GCC は組み込み関数 (_mm256_* 等) をターゲット機能でゲートするため、
+// AVX 命令を使う関数には per-function の target 属性が必要。MSVC は組み込み
+// 関数をゲートしないので空でよい。
+// 用途: ランタイム CPU 判定で AVX 経路を選ぶコードで、AVX 組み込み関数を使う
+//       関数に付与する（ベースラインは SSE2 のまま、その関数だけ AVX 許可）。
+#if ACS_COMPILER_MSVC
+    #define ACS_TARGET_AVX
+    #define ACS_TARGET_AVX2
+#else
+    #define ACS_TARGET_AVX   __attribute__((target("avx")))
+    #define ACS_TARGET_AVX2  __attribute__((target("avx2,fma")))
 #endif
 
 // ---- 分岐予測ヒント -------------------------------------------------------

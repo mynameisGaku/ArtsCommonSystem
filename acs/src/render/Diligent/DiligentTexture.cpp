@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DiligentTexture 実装
 #include "render/Diligent/DiligentTexture.h"
 

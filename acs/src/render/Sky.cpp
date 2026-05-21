@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 手続き生成スカイ実装
 #include "render/Sky.h"
 #include "math/Camera.h"

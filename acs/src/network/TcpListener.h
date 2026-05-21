@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // TCP リスナー（接続を待ち受ける側）
 //
 // 使い方 (サーバ側):

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 時間計測（高精度タイマ + フレーム時間管理）
 //
 // 使い方:

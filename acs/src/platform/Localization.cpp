@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Localization 実装
 #include "platform/Localization.h"
 #include "foundation/Move.h"

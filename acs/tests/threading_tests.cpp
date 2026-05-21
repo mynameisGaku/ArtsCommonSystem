@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "threading/Atomic.h"
@@ -52,7 +53,7 @@ ACS_TEST(Threading, ThreadPoolSubmitMany) {
         };
         t.user = &counter;
         t.counter = &done;
-        ThreadPool::Submit(t);
+        (void)ThreadPool::Submit(t);
     }
     ThreadPool::Wait(done);
     EXPECT_EQ(counter.Load(), N);
@@ -61,9 +62,10 @@ ACS_TEST(Threading, ThreadPoolSubmitMany) {
 }
 
 ACS_TEST(Threading, ParallelForCovers) {
-    ThreadPool::Init(4);
+    auto rinit = ThreadPool::Init(4);
+    EXPECT_TRUE(rinit.IsOk());
     Atomic<u32> seen{0};
-    ThreadPool::ParallelFor(0, 10000, 64,
+    (void)ThreadPool::ParallelFor(0, 10000, 64,
         [](u32 /*i*/, u32 /*w*/, void* user){
             static_cast<Atomic<u32>*>(user)->FetchAdd(1);
         }, &seen);
@@ -73,7 +75,8 @@ ACS_TEST(Threading, ParallelForCovers) {
 
 // ノードプール経由で大量タスクを処理（Heap フォールバックが起きても破綻しない）
 ACS_TEST(Threading, ThreadPoolHighLoad) {
-    ThreadPool::Init(4);
+    auto rinit = ThreadPool::Init(4);
+    EXPECT_TRUE(rinit.IsOk());
     Atomic<u32> counter{0};
     CompletionCounter done;
     constexpr u32 N = 50000;
@@ -84,7 +87,7 @@ ACS_TEST(Threading, ThreadPoolHighLoad) {
         };
         t.user = &counter;
         t.counter = &done;
-        ThreadPool::Submit(t);
+        (void)ThreadPool::Submit(t);
     }
     ThreadPool::Wait(done);
     EXPECT_EQ(counter.Load(), N);
@@ -93,11 +96,12 @@ ACS_TEST(Threading, ThreadPoolHighLoad) {
 
 // 入れ子 ParallelFor がデッドロックしないこと（help-stealing が効く）
 ACS_TEST(Threading, NestedParallelFor) {
-    ThreadPool::Init(4);
+    auto rinit = ThreadPool::Init(4);
+    EXPECT_TRUE(rinit.IsOk());
     Atomic<u32> total{0};
-    ThreadPool::ParallelFor(0, 10, 1,
+    (void)ThreadPool::ParallelFor(0, 10, 1,
         [](u32 /*i*/, u32 /*w*/, void* user){
-            ThreadPool::ParallelFor(0, 100, 16,
+            (void)ThreadPool::ParallelFor(0, 100, 16,
                 [](u32 /*j*/, u32 /*w*/, void* u2){
                     static_cast<Atomic<u32>*>(u2)->FetchAdd(1);
                 }, user);

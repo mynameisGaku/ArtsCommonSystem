@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 2D テクスチャ抽象（GPU 上の画像。シェーダから読める SRV を持つ）
 //
 // 使い方:

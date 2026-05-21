@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Widget — ACS UI フレームワークの基底クラス
 //
 // 設計:

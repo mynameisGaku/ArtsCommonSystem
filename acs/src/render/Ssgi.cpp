@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Screen-Space Global Illumination 実装 (Phase 33c)
 #include "render/Ssgi.h"
 #include "foundation/Move.h"

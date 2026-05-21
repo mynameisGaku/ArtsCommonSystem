@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ImGui を ACS Window + Renderer に統合する薄いラッパ実装
 #include "imgui/ImGuiContext.h"
 #include "platform/Window.h"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DX12 デバイス実装
 #pragma once
 

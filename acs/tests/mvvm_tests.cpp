@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS MVVM — Observable / Derived / Binder / Convert / Command / ObservableArray
 // =============================================================================

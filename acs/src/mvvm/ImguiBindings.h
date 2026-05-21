@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Mvvm ↔ ImGui ヘルパ — Observable<T> をフレーム描画にバインドする
 //
 // 使い方:
@@ -56,11 +57,13 @@ void BindText(const char* label, Observable<acs::String>& v,
 // === printf 形式の表示専用ラベル (例: "HP: %d") ===
 template<typename T>
 void BindFormat(const char* fmt, const Observable<T>& v) noexcept;
-// プリミティブ型は明示インスタンシエーション (ImguiBindings.cpp 側で実装)
-extern template void BindFormat<f32>(const char*, const Observable<f32>&) noexcept;
-extern template void BindFormat<f64>(const char*, const Observable<f64>&) noexcept;
-extern template void BindFormat<i32>(const char*, const Observable<i32>&) noexcept;
-extern template void BindFormat<u32>(const char*, const Observable<u32>&) noexcept;
+// プリミティブ型ごとの実装は ImguiBindings.cpp で明示的に特殊化している。
+// 特殊化の「宣言」をここに置く（primary template が使われる前に特殊化が
+// 見えている必要がある — extern template との併用は標準上 ill-formed）。
+template<> void BindFormat<f32>(const char*, const Observable<f32>&) noexcept;
+template<> void BindFormat<f64>(const char*, const Observable<f64>&) noexcept;
+template<> void BindFormat<i32>(const char*, const Observable<i32>&) noexcept;
+template<> void BindFormat<u32>(const char*, const Observable<u32>&) noexcept;
 
 // === Command (ボタン) ===
 //   can_execute=false の間は grayout 表示

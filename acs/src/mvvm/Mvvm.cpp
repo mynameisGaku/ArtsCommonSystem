@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // MVVM モジュール本体は header-only (Observable / Binder / ViewModel)。
 // このファイルは静的ライブラリとしてリンクするためのプレースホルダ。
 // ImGui アダプタが有効な場合のみ ImguiBindings.cpp が追加される。

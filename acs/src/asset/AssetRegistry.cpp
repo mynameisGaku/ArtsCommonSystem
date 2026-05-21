@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // AssetRegistry 実装
 #include "asset/AssetRegistry.h"
 #include "asset/BinaryAsset.h"

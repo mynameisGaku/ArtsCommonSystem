@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Physical atmospheric scattering (Hillaire 2020 / Bruneton 風) — Phase 34c
 //
 // Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。

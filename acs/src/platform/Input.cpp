@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 入力ポーリング実装
 #include "platform/Input.h"
 #include "foundation/Platform.h"
@@ -19,6 +20,11 @@ struct InputState {
     f32  mouse_x_prev = 0, mouse_y_prev = 0;
     f32  wheel_accum = 0;     // 当該フレーム中に積み上げ
     f32  wheel_frame = 0;     // Update 時にスナップショット
+
+    // テキスト入力（このフレームに積み上げた UTF-8 文字列、NUL 終端）
+    char text_utf8[256] {};
+    u32  text_len     = 0;
+    u32  hi_surrogate = 0;    // UTF-16 上位サロゲート待ち
 
     // ゲームパッド (XInput) — 4 人分
     XINPUT_STATE pad_now [4] {};
@@ -61,6 +67,30 @@ ACS_FORCEINLINE f32 NormalizeTrigger(BYTE v) noexcept {
     return static_cast<f32>(v) / 255.0f;
 }
 
+// コードポイントを UTF-8 で text_utf8 末尾に追記する
+void AppendTextUtf8(InputState& s, u32 cp) noexcept {
+    char tmp[4];
+    u32  n = 0;
+    if (cp < 0x80) {
+        tmp[0] = static_cast<char>(cp); n = 1;
+    } else if (cp < 0x800) {
+        tmp[0] = static_cast<char>(0xC0 | (cp >> 6));
+        tmp[1] = static_cast<char>(0x80 | (cp & 0x3F)); n = 2;
+    } else if (cp < 0x10000) {
+        tmp[0] = static_cast<char>(0xE0 | (cp >> 12));
+        tmp[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        tmp[2] = static_cast<char>(0x80 | (cp & 0x3F)); n = 3;
+    } else {
+        tmp[0] = static_cast<char>(0xF0 | (cp >> 18));
+        tmp[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        tmp[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        tmp[3] = static_cast<char>(0x80 | (cp & 0x3F)); n = 4;
+    }
+    if (s.text_len + n + 1 > sizeof(s.text_utf8)) return;   // バッファ満杯
+    for (u32 i = 0; i < n; ++i) s.text_utf8[s.text_len++] = tmp[i];
+    s.text_utf8[s.text_len] = 0;
+}
+
 } // namespace
 
 // フレーム先頭で呼ぶ：状態をフレーム間で進める
@@ -78,6 +108,10 @@ void Input::Update() noexcept {
     // ホイール: フレーム中に積み上げた値をスナップショット → 累積をリセット
     g_input.wheel_frame = g_input.wheel_accum;
     g_input.wheel_accum = 0.0f;
+
+    // テキスト入力: 前フレームの入力をクリア
+    g_input.text_len     = 0;
+    g_input.text_utf8[0] = 0;
 
     // ゲームパッド: XInput を 4 ポート分ポーリング
     for (DWORD i = 0; i < 4; ++i) {
@@ -111,6 +145,23 @@ void Input::OnEvent(const Event& e) noexcept {
         case EventType::MouseScrolled:
             g_input.wheel_accum += e.mouse_scroll.y;
             break;
+        case EventType::CharInput: {
+            u32 cp = e.char_input.codepoint;
+            if (cp >= 0xD800 && cp <= 0xDBFF) {            // UTF-16 上位サロゲート
+                g_input.hi_surrogate = cp;
+            } else if (cp >= 0xDC00 && cp <= 0xDFFF) {     // 下位サロゲート
+                if (g_input.hi_surrogate) {
+                    cp = 0x10000u + ((g_input.hi_surrogate - 0xD800u) << 10)
+                                  + (cp - 0xDC00u);
+                    g_input.hi_surrogate = 0;
+                    AppendTextUtf8(g_input, cp);
+                }
+            } else {
+                g_input.hi_surrogate = 0;
+                AppendTextUtf8(g_input, cp);
+            }
+            break;
+        }
         default: break;
     }
 }
@@ -127,6 +178,8 @@ Vec2 Input::MousePos()   noexcept { return Vec2(g_input.mouse_x, g_input.mouse_y
 Vec2 Input::MouseDelta() noexcept { return Vec2(g_input.mouse_x - g_input.mouse_x_prev,
                                                  g_input.mouse_y - g_input.mouse_y_prev); }
 f32  Input::MouseWheel() noexcept { return g_input.wheel_frame; }
+
+const char* Input::TextInput() noexcept { return g_input.text_utf8; }
 
 bool Input::IsGamepadConnected(u32 idx) noexcept {
     if (idx >= 4) return false;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // フルスクリーン texture コピー (ブリット) ユーティリティ (Phase 35-3b)
 //
 // 用途: 1 つの Texture2D (通常は描画済みの RT) をもう 1 つの Texture2D

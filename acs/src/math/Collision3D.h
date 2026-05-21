@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 3D 衝突判定プリミティブ（AABB / 球 / 平面 / レイ）
 //
 // 使い方:

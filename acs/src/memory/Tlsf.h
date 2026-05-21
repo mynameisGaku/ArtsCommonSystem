@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // TLSF アロケータ（Two-Level Segregated Fit、O(1) alloc/free）
 #pragma once
 

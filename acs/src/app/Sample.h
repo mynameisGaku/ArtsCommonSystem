@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // acs::Sample — サンプル用の高レベル便利機能まとめ
 //
 // 目的:

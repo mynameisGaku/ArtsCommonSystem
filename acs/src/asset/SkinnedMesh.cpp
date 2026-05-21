@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // SkinnedMeshAsset + AnimationPlayer 実装
 #include "asset/SkinnedMesh.h"
 #include "math/Math.h"

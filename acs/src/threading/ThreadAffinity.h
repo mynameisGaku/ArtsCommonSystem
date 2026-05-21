@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ThreadAffinity — クラスごとに「どのスレッドから呼べるか」を Debug ビルドで検証する
 //
 // 使い方:

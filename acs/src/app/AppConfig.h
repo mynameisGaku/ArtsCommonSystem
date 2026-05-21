@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // アプリケーション初期化オプション
 #pragma once
 

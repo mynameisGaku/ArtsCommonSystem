@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // セグメント別メモリ管理ファサード（VM 予約 + アロケータ + 予算）
 #pragma once
 

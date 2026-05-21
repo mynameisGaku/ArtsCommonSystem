@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ファイル I/O 実装（Win32 Create/Read/Write FileW）
 #include "platform/FileSystem.h"
 #include "foundation/Platform.h"

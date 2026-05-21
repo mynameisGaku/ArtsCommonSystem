@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 2D 衝突判定プリミティブ（AABB / 円 / 線分 / 点）
 //
 // ヘッダオンリー、ゲーム実装に直結する最小集合：

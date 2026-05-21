@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 連続メモリ領域への非所有ビュー（std::span 代替）。
 // 所有権を持たないため、参照先のライフタイムに注意すること。
 #pragma once

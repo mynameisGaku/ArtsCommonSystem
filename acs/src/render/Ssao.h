@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Screen-Space Ambient Occlusion (Phase 34j)
 //
 // HBAO-lite: depth-only horizon-based AO。各 pixel から N 方向に screen-space で

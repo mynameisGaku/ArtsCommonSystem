@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ECS の動作確認テスト
 #include "test/Test.h"
 #include "test/Expect.h"

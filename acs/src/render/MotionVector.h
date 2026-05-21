@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // motion + normal G-buffer の geometry pass (Phase 34f-3 / 34m)
 //
 // シーンの全 mesh を再ラスタライズし、MRT 2 枚を書き出す:

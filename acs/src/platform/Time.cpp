@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 時間計測実装 — std::chrono::steady_clock ベース (完全 portable)
 //
 // QueryPerformanceCounter を直接使うのを止めて、std::chrono に統一。

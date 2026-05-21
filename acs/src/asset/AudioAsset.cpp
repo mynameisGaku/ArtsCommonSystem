@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 音声アセット実装（dr_wav / dr_mp3 / dr_flac / stb_vorbis）
 #include "asset/AudioAsset.h"
 #include "memory/Memory.h"

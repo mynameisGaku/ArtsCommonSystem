@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 標準ウィジェット — Label / Button / Slider / Checkbox / TextInput
 //
 // すべての widget は Observable<T> プロパティで状態を公開しているので、

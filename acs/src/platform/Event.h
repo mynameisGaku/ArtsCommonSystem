@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ウィンドウ・入力イベント定義（Window がアプリにイベント通知するときに使う）
 #pragma once
 

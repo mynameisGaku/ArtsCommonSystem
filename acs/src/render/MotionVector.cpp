@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // MotionVector 実装 (Phase 34f-3)
 #include "render/MotionVector.h"
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Screen-Space Global Illumination (Phase 33c)
 //
 // 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした

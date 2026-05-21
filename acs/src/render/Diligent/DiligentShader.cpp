@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DiligentShader 実装
 #include "render/Diligent/DiligentShader.h"
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // SkinnedShader 実装
 #include "render/SkinnedShader.h"
 #include "asset/SkinnedMesh.h"        // SkinnedVertex を使う

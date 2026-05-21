@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // テスト内で条件を検証するアサートマクロ群（失敗してもテストは続行する）
 #pragma once
 

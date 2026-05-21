@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // MessagePipe<T> — スレッド間 MPMC キュー (mutex + condvar 実装)
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // シェーダ抽象（HLSL ソースをコンパイルして保持）
 #pragma once
 

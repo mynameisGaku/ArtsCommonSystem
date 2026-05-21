@@ -1,91 +1,101 @@
-# ACS Architecture (Phase 1)
+# ACS アーキテクチャ
 
-This document describes the **post-rebuild** architecture of Arts Common System.
-Phase 1 covers the **runtime foundation**: types, threading, memory, containers,
-math. Phase 2 (rendering, ECS, asset, editor) is planned but not yet implemented.
+本書は Arts Common System（ACS）のアーキテクチャを説明します。ACS は
+Windows / DirectX 12 向けのモジュール式 C++20 ゲームフレームワークです。
+ACS はランタイム基盤（型・スレッド・メモリ・コンテナ・数学）から始まり、
+現在はプラットフォーム・ECS・イベント・アセット・描画・音声・ネットワーク・
+UI までを含みます。**下記の 17 モジュールはすべて実装済みです。**
 
-## Design Principles
+## 設計原則
 
-1. **No STL.** `std::vector`, `std::string`, `std::atomic`, `std::thread`,
-   `std::mutex`, `std::function`, `<algorithm>`, `<type_traits>` etc. are not
-   used. Replacements live under `acs::` (`Array<T>`, `String`, `Atomic<T>`,
-   `Thread`, `Mutex`, ...). C standard headers (`<cstdint>`, `<cstddef>`,
-   `<cstring>`, `<cstdio>`, `<cmath>`), compiler intrinsics (`<intrin.h>`,
-   `<immintrin.h>`), and Windows SDK (`<windows.h>`, `<DbgHelp.h>`,
-   `<DirectXMath.h>`) are explicitly allowed.
-2. **No exceptions, no RTTI.** Errors flow through `Result<T, ErrorCode>`. The
-   compiler is configured with `/EHs-c- /GR- /D_HAS_EXCEPTIONS=0`.
-3. **Thread-safe by default.** Every public API documents and enforces its
-   thread-safety contract. Containers are not internally locked but are safe
-   to use behind the engine's RwLock / Mutex / Atomic primitives.
-4. **SIMD where it matters.** Math types pad to 16 bytes for SSE friendliness
-   and route through DirectXMath (SSE2 baseline; SSE4.1/AVX/AVX2 fast paths
-   selected via runtime CPU detection).
-5. **Diagnostic-first error reporting.** Every assert, panic, and error
-   captures `__FILE__`, `__LINE__`, `__FUNCTION__` via `SourceLoc` (a custom
-   `source_location` shim using compiler builtins). Panics dump a symbolicated
-   stack trace via DbgHelp.
-6. **Modular like Unreal.** Modules are discovered from `src/<mod>/Module.cmake`
-   and enabled via the user-editable `modules.cmake`. Each enabled module
-   exposes a static library target `ACS::<Name>` and a `WITH_ACS_<NAME>=1`
-   compile-time define; per-module features add `WITH_<FEATURE>=1`.
+1. **STL を使わない。** `std::vector`, `std::string`, `std::atomic`,
+   `std::thread`, `std::mutex`, `std::function`, `<algorithm>`,
+   `<type_traits>` などは使用しません。代替は `acs::` 名前空間にあります
+   （`Array<T>`, `String`, `Atomic<T>`, `Thread`, `Mutex`, ...）。C 標準
+   ヘッダ（`<cstdint>`, `<cstddef>`, `<cstring>`, `<cstdio>`, `<cmath>`）、
+   コンパイラ組み込み（`<intrin.h>`, `<immintrin.h>`）、Windows SDK
+   （`<windows.h>`, `<DbgHelp.h>`, `<DirectXMath.h>`）は明示的に許可します。
+2. **例外なし・RTTI なし。** エラーは `Result<T, ErrorCode>` で伝搬します。
+   コンパイラは `/EHs-c- /GR- /D_HAS_EXCEPTIONS=0` で構成されます。
+3. **既定でスレッドセーフ。** すべての公開 API はスレッド安全性の契約を
+   ドキュメント化し守ります。コンテナ自体は内部ロックを持ちませんが、
+   エンジンの RwLock / Mutex / Atomic プリミティブの背後で安全に使えます。
+4. **必要な所に SIMD。** 数学型は SSE に適するよう 16 バイト境界にパディング
+   し、DirectXMath を経由します（SSE2 をベースラインに、SSE4.1/AVX/AVX2 の
+   高速パスを実行時 CPU 検出で選択）。
+5. **診断優先のエラー報告。** すべてのアサート・パニック・エラーは
+   `SourceLoc`（コンパイラ組み込みを使った独自の `source_location` shim）で
+   `__FILE__` / `__LINE__` / `__FUNCTION__` を記録します。パニックは DbgHelp
+   経由でシンボル化済みスタックトレースを出力します。
+6. **Unreal 風のモジュール構成。** モジュールは `src/<mod>/Module.cmake` から
+   発見され、ユーザーが編集する `modules.cmake` で有効化されます。有効化された
+   各モジュールは静的ライブラリターゲット `ACS::<Name>` と、コンパイル時 define
+   `WITH_ACS_<NAME>=1` を公開します。モジュール個別の機能には `WITH_<FEATURE>=1`
+   が付きます。
 
-## Module Layout
+## モジュール構成
 
 ```
 acs/
 ├── CMakeLists.txt
-├── modules.cmake               # USER: which modules + features to build
+├── CMakePresets.json           # ビルドプリセット (dx12 / diligent)
+├── modules.cmake               # ユーザー編集: どのモジュール/機能を作るか
 ├── cmake/
 │   ├── ACSCompilerOptions.cmake
-│   └── ACSModuleSystem.cmake
-├── src/
+│   ├── ACSModuleSystem.cmake
+│   └── ACSThirdParty.cmake
+├── src/                        # 各 <mod>/ に Module.cmake がある
 │   ├── foundation/             # Types, SourceLoc, Result, Assert, Panic, Log
-│   │   └── Module.cmake
-│   ├── threading/              # Atomic, Mutex, RwLock, Thread, ThreadPool
-│   │   └── Module.cmake
+│   ├── threading/              # Atomic, Mutex, RwLock, Thread, ThreadPool, JobGraph
 │   ├── memory/                 # Allocator, System/Linear/Pool/Arena, UniquePtr, Rc
-│   │   └── Module.cmake
 │   ├── container/              # Array, String, HashMap, Hash, Span
-│   │   └── Module.cmake
-│   ├── math/                   # Vec, Mat, Quat, CPU detection, dispatch
-│   │   └── Module.cmake
-│   └── test/                   # Tiny test framework + EXPECT_* macros
-│       └── Module.cmake
-└── tests/                      # Module unit tests
-    └── CMakeLists.txt
+│   ├── math/                   # Vec, Mat, Quat, Camera, Collision2D/3D, dispatch
+│   ├── test/                   # 小さなテストフレームワーク + EXPECT_* マクロ
+│   ├── platform/               # Window, Input, Time, FileSystem
+│   ├── ecs/                    # World, EntityId, Query, System
+│   ├── event/                  # TimerManager, MessageBroker (pub/sub)
+│   ├── asset/                  # AssetRegistry, 画像/メッシュ/音声ローダ, 非同期ロード
+│   ├── render/                 # Renderer, RHI, StandardShader, PbrShader, SpriteBatch
+│   ├── app/                    # Application, AppConfig, EntryPoint
+│   ├── audio/                  # XAudio2 再生
+│   ├── network/                # TCP ソケット
+│   ├── imgui/                  # Dear ImGui 統合
+│   ├── mvvm/                   # MVVM データバインディング
+│   └── ui/                     # Widget ベースの UI フレームワーク
+├── samples/                    # 26 個のサンプルプログラム (samples/README.md 参照)
+└── tests/                      # モジュール単体テスト
 ```
 
-### Dependency Graph
+### 依存グラフ
 
-```
-                    Foundation
-                  /     |       \
-            Threading   |        Math
-                  \     |       /
-                  Memory       (Math depends on Threading for CPU dispatch)
-                     |
-                  Container
-                     |
-                   Test
-```
+モジュールは `Foundation` を最下層とする階層 DAG を成します。各モジュールは
+`src/<mod>/Module.cmake` で `PUBLIC_DEPS` / `PRIVATE_DEPS` を宣言し、
+`acs_finalize_modules()` が構成時にすべての依存先も有効化されているか検証します。
+おおまかには：
 
-## Key Design Decisions
+- `Foundation` は何にも依存しない。
+- `Threading` / `Memory` / `Container` / `Math` / `Test` は `Foundation` の上に乗る。
+- `Platform` / `Ecs` / `Event` が OS・エンティティ・メッセージング層を足す。
+- `Asset` と `Render` がコンテンツ読み込みとグラフィックスを提供する。
+- `App` がウィンドウ + レンダラ + ECS を `Application` ループにまとめる。
+- `Audio` / `Network` / `Imgui` / `Mvvm` / `Ui` はより高レベルの opt-in。
 
-| Subsystem | Choice | Rationale |
+## 主要な設計判断
+
+| サブシステム | 採用したもの | 理由 |
 |---|---|---|
-| Logger | Per-cell Vyukov bounded MPMC ring + writer thread | Producer hot path is one CAS; writer drains lock-freely. Reference: 1024cores.net Vyukov MPMC, Quill async logger. |
-| ThreadPool | Per-worker Chase-Lev SPMC deque + global Mutex submission | Owner Push/Pop is atomic-free in the common case; external submit goes through a Mutex-protected fallback. Steal participates in `Wait()` to avoid deadlock. Reference: Chase & Lev SPAA 2005, enkiTS, Naughty Dog GDC 2015. |
-| Atomic | Win32 `_Interlocked*` intrinsics | No `std::atomic`. Suffix variants (`_acq`, `_rel`) on ARM64; full-fence baseline on x64. |
-| HashMap | Robin Hood + dense values + 8-bit fingerprint | ankerl::unordered_dense layout — fastest unsuccessful lookup, no tombstones, contiguous iteration. SIMD probing deferred to v2. |
-| Allocators | Virtual `Allocator` base + System / Linear / Pool / Arena | Pool uses lock-free Treiber stack with 17-bit ABA tag in the upper bits of pointers (47-bit user space on x64). |
-| Math | DirectXMath wrapped behind `Vec3 / Vec4 / Mat4 / Quat` | Microsoft-maintained, SSE2-AVX2 paths included, NEON-on-Windows ready. We expose ergonomic POD types and dispatch batch ops via a function-pointer table. |
-| String | 24-byte SSO (22 inline bytes) + heap fallback | Matches absl/folly-style layout sized to a typical x64 cache-line third. |
-| Test | Custom `ACS_TEST(Suite, Name)` macro + `EXPECT_*` | Avoids GoogleTest dependency. Mutex-protected registry, per-test failure counter. |
+| Logger | セルごとの Vyukov 有界 MPMC リング + writer スレッド | プロデューサのホットパスは CAS 1 回。writer がロックフリーに排出する。参考: 1024cores.net Vyukov MPMC, Quill async logger。 |
+| ThreadPool | worker ごとの Chase-Lev SPMC deque + グローバル Mutex 投入 | 所有者の Push/Pop は通常ケースでアトミック操作なし。外部投入は Mutex 保護のフォールバックを通る。Steal は `Wait()` に参加してデッドロックを回避。参考: Chase & Lev SPAA 2005, enkiTS, Naughty Dog GDC 2015。 |
+| Atomic | Win32 `_Interlocked*` 組み込み | `std::atomic` 不使用。ARM64 では接尾辞付き（`_acq` / `_rel`）、x64 ではフルフェンスをベースラインに。 |
+| HashMap | Robin Hood + 値の密配置 + 8-bit フィンガープリント | ankerl::unordered_dense レイアウト — 失敗ルックアップが最速、tombstone なし、連続イテレーション可。SIMD プロービングは v2 に延期。 |
+| Allocator 群 | 仮想 `Allocator` 基底 + System / Linear / Pool / Arena | Pool はロックフリーな Treiber スタックを使い、ポインタ上位ビットに 17-bit の ABA タグを置く（x64 のユーザー空間 47-bit）。 |
+| Math | DirectXMath を `Vec3 / Vec4 / Mat4 / Quat` でラップ | Microsoft 保守、SSE2〜AVX2 パス同梱、Windows 上 NEON 対応も視野。人間に優しい POD 型を公開し、バッチ演算は関数ポインタテーブルでディスパッチ。 |
+| String | 24 バイトの SSO（22 バイトをインライン）+ ヒープフォールバック | absl/folly 風のレイアウト。x64 のキャッシュライン 1/3 程度のサイズに合わせている。 |
+| Test | 独自 `ACS_TEST(Suite, Name)` マクロ + `EXPECT_*` | GoogleTest 依存を避ける。Mutex 保護のレジストリ、テストごとの失敗カウンタ。 |
 
-## Adding a New Module
+## 新しいモジュールの追加
 
-1. Create `src/mymod/Module.cmake`:
+1. `src/mymod/Module.cmake` を作る：
     ```cmake
     acs_module(
         NAME    MyMod
@@ -97,20 +107,27 @@ acs/
     acs_module_feature(MODULE MyMod NAME FANCY
         DEFINE MYMOD_FANCY DESCRIPTION "Enable fancy mode" DEFAULT OFF)
     ```
-2. Drop the source/header files alongside it.
-3. Enable in `modules.cmake`:
+2. ソース/ヘッダファイルを同じディレクトリに置く。
+3. `modules.cmake` で有効化する：
     ```cmake
     acs_enable_module(MyMod FEATURES FANCY)
     ```
-4. Reconfigure CMake — the new `ACS::MyMod` target appears, with the module
-   define `WITH_ACS_MYMOD=1` and the feature define `WITH_MYMOD_FANCY=1`
-   visible to PUBLIC consumers.
+4. CMake を再構成する — 新しい `ACS::MyMod` ターゲットが現れ、モジュール
+   define `WITH_ACS_MYMOD=1` と機能 define `WITH_MYMOD_FANCY=1` が PUBLIC
+   利用者から見えるようになる。
 
-## Phase 2 Roadmap
+## レンダラバックエンド
 
-| Module | Backend candidates | Notes |
+`Render` モジュールは 2 つの交換可能な RHI バックエンドをサポートし、構成時に
+選択します（`CMakePresets.json` 参照）：
+
+| バックエンド | CMake オプション | 備考 |
 |---|---|---|
-| Render | DirectX 12 (raw + DirectX-Headers + D3D12MA), or The-Forge, or bgfx | Pick exactly one; **The-Forge and bgfx cannot coexist** — both are full RHI abstractions. |
-| Asset | Custom (DDS/glTF/wav) | Streaming-friendly. |
-| ECS | entt or hand-rolled archetype | entt is mature header-only but uses STL. A from-scratch archetype ECS over `Array<T>` keeps the no-STL invariant. |
-| Editor | Dear ImGui (DX12 backend) | The-Forge and bgfx both ship ImGui integrations. |
+| Raw DX12 | `ACS_RENDER_DX12_RAW=ON`（既定） | 自前の DirectX 12 バックエンド。 |
+| Diligent | `ACS_RENDER_DILIGENT=ON` | Diligent Engine 経由。初回構成でクローンする（約 10 分）。Vulkan / クロスプラットフォームへの道。 |
+
+`CreateRhiDevice()` がリンクされたバックエンドへディスパッチします。ECS は
+no-STL 不変条件を守るため `Array<T>` 上の自前 sparse-set 設計を用います。
+アセット（画像・glTF/FBX メッシュ・音声）は `AssetRegistry` 経由で読み込まれ、
+非同期ロードも選べます。ImGui 統合は現状 raw DX12 バックエンドのみを対象と
+しています。

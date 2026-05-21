@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 単一連続バッファのバンプアロケータ（Free は no-op、Reset で全体巻き戻し）
 #pragma once
 

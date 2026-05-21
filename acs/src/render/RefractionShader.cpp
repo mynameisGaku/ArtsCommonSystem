@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // スクリーンスペース屈折シェーダ実装 (Phase 3)
 #include "render/RefractionShader.h"
 #include "asset/MeshAsset.h"
@@ -20,7 +21,7 @@ cbuffer Frame : register(b0) {
 
 cbuffer Object : register(b1) {
     float4x4 model;
-    float4   material;       // x=ior, y=thickness, zw=pad
+    float4   material;       // x=ior, y=thickness, z=roughness, w=dispersion (Phase 35-3e)
     float4   tint;           // xyz=glass tint (吸収色), w=pad
 };
 
@@ -41,25 +42,77 @@ VSOut VSMain(VSIn v) {
     return o;
 }
 
+// 屈折 UV を 1 つの IOR について計算するヘルパー。
+//   N        : 法線 (world)、V: surface->eye (world、正規化)、eta: n1/n2
+//   world_p  : 表面 world 位置 (exitPoint 計算の起点)
+//   thickness: 屈折先までの world 距離 (material.y)
+// 戻り値: screen UV ([0,1] にクランプ前)。clip.w < ~0 の場合は world_p の投影を返す。
+float2 ComputeRefractUV(float3 N, float3 V, float eta, float3 world_p, float thickness) {
+    float3 refractDir = refract(-V, N, eta);
+    if (dot(refractDir, refractDir) < 1e-4) refractDir = -V;   // TIR 保険
+    float3 exitPoint = world_p + refractDir * thickness;
+    float4 clip = mul(float4(exitPoint, 1.0), view_proj);
+    if (clip.w < 1e-4) clip = mul(float4(world_p, 1.0), view_proj);
+    return clip.xy / clip.w * float2(0.5, -0.5) + 0.5;
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.world_n);
     float3 V = normalize(camera_pos.xyz - v.world_p);   // surface->eye
-    float  ior = max(material.x, 1.0);
-    float  eta = 1.0 / ior;                              // 空気->ガラス
 
-    // --- 屈折 ---
-    // 視線 (-V) を界面で屈折させ、その先 thickness ぶんの点 (exitPoint) を
-    // screen へ投影、その UV で background を sample する (= 屈折で歪んだ背景)。
-    float3 refractDir = refract(-V, N, eta);
-    if (dot(refractDir, refractDir) < 1e-4) refractDir = -V;   // TIR 保険 (eta<1 では原理上発生しない)
-    float3 exitPoint  = v.world_p + refractDir * material.y;
-    float4 clip       = mul(float4(exitPoint, 1.0), view_proj);
-    // exitPoint がカメラ後方 (clip.w<=0) になったら屈折を諦め world_p を投影する
-    // (= 素通し)。透過光線は必ず奥へ進むので実際には稀だが、screen 投影の保険。
-    if (clip.w < 1e-4) clip = mul(float4(v.world_p, 1.0), view_proj);
-    float2 refractUV  = clip.xy / clip.w * float2(0.5, -0.5) + 0.5;
-    float3 refracted  = background.SampleLevel(background_sampler,
-                                               saturate(refractUV), 0).rgb;
+    // --- IOR / dispersion (Phase 35-3e) ---
+    // chromatic dispersion: 値 > 0 のとき R/G/B で IOR をずらし、プリズム/
+    // ダイヤ風に色を分離。物理的には Cauchy 分散の単純化 (R が IOR 低、B が高)。
+    float ior        = max(material.x, 1.0);
+    float dispersion = saturate(material.w);
+    float ior_r = max(ior - dispersion * 0.04, 1.0);   // 赤は屈折弱め
+    float ior_g = ior;
+    float ior_b = ior + dispersion * 0.04;             // 青は屈折強め
+    float eta_r = 1.0 / ior_r;
+    float eta_g = 1.0 / ior_g;
+    float eta_b = 1.0 / ior_b;
+
+    // 屈折先の UV を chunk ごとに計算 (refractUV.G は roughness ブラー / Fresnel
+    // 反射ベクトルの基準にもなるので必ず計算)。
+    float2 refractUV_g = ComputeRefractUV(N, V, eta_g, v.world_p, material.y);
+    float2 refractUV_r = (dispersion > 0.001)
+                            ? ComputeRefractUV(N, V, eta_r, v.world_p, material.y)
+                            : refractUV_g;
+    float2 refractUV_b = (dispersion > 0.001)
+                            ? ComputeRefractUV(N, V, eta_b, v.world_p, material.y)
+                            : refractUV_g;
+
+    // --- background sample (Phase 35-3d roughness blur + 35-3e dispersion) ---
+    // roughness < 0.005 で 1-tap shape paths、それ以外で 8-tap golden disk。
+    // dispersion > 0 で RGB を別々に sample して色分離 (clear path のみ 3 sample、
+    // frosted path は 3 ch × 8 tap = 24 tap)。
+    float  roughness  = saturate(material.z);
+    float3 refracted;
+    if (roughness < 0.005) {
+        // Clear glass — 1 tap per channel
+        float r = background.SampleLevel(background_sampler, saturate(refractUV_r), 0).r;
+        float g = background.SampleLevel(background_sampler, saturate(refractUV_g), 0).g;
+        float b = background.SampleLevel(background_sampler, saturate(refractUV_b), 0).b;
+        refracted = float3(r, g, b);
+    } else {
+        // Frosted glass — 8-tap Vogel disk per channel (uniform branch)
+        const float kGoldenAngle = 2.39996323;
+        const int   kTaps        = 8;
+        const float kRadius      = roughness * 0.02;
+        float3 sum = 0;
+        [unroll]
+        for (int t = 0; t < kTaps; ++t) {
+            float ft = (float(t) + 0.5) / float(kTaps);
+            float r2 = sqrt(ft) * kRadius;
+            float a  = float(t) * kGoldenAngle;
+            float2 off = float2(cos(a), sin(a)) * r2;
+            float rv = background.SampleLevel(background_sampler, saturate(refractUV_r + off), 0).r;
+            float gv = background.SampleLevel(background_sampler, saturate(refractUV_g + off), 0).g;
+            float bv = background.SampleLevel(background_sampler, saturate(refractUV_b + off), 0).b;
+            sum += float3(rv, gv, bv);
+        }
+        refracted = sum / float(kTaps);
+    }
     refracted *= tint.xyz;                               // ガラスの吸収色
 
     // --- Fresnel 反射 (環境マップ) ---
@@ -80,7 +133,7 @@ struct FrameCBLayout {
 
 struct ObjectCBLayout {
     Mat4 model;
-    Vec4 material;       // x=ior, y=thickness
+    Vec4 material;       // x=ior, y=thickness, z=roughness (35-3d), w=dispersion (35-3e)
     Vec4 tint;           // xyz=glass tint
 };
 
@@ -183,12 +236,14 @@ void RefractionShader::SetFrame(const Mat4& view_projection, Vec3 camera_pos) no
 }
 
 void RefractionShader::SetObject(const Mat4& model, f32 ior, f32 thickness,
-                                 Vec3 tint) noexcept {
+                                 Vec3 tint, f32 roughness, f32 dispersion) noexcept {
     if (!_object_cb) return;
+    const f32 r = roughness < 0.0f ? 0.0f : (roughness > 1.0f ? 1.0f : roughness);
+    const f32 d = dispersion < 0.0f ? 0.0f : (dispersion > 1.0f ? 1.0f : dispersion);
     ObjectCBLayout cb{};
     cb.model    = model;
     cb.material = Vec4{ior < 1.0f ? 1.0f : ior,
-                       thickness < 0.0f ? 0.0f : thickness, 0, 0};
+                       thickness < 0.0f ? 0.0f : thickness, r, d};
     cb.tint     = Vec4{tint.x, tint.y, tint.z, 0};
     _object_cb->Update(&cb, sizeof(cb));
 }
@@ -196,9 +251,9 @@ void RefractionShader::SetObject(const Mat4& model, f32 ior, f32 thickness,
 void RefractionShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh,
                                 const Mat4& model, IRhiTexture& background,
                                 IRhiTexture& env, f32 ior, f32 thickness,
-                                Vec3 tint) noexcept {
+                                Vec3 tint, f32 roughness, f32 dispersion) noexcept {
     if (!_pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
-    SetObject(model, ior, thickness, tint);
+    SetObject(model, ior, thickness, tint, roughness, dispersion);
 
     cmd.SetPipeline(*_pipeline);
     cmd.SetConstantBuffer(0, *_frame_cb);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // フォント実装（stb_truetype による TTF パース + アトラス焼き込み）
 #include "render/Font.h"
 #include "platform/FileSystem.h"

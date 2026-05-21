@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DX12 シェーダ実装（D3DCompile による HLSL コンパイル）
 #include "foundation/Log.h"            // Win32 ヘッダ前に読む（マクロ衝突回避）
 #include "memory/UniquePtr.h"

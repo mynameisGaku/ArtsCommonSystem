@@ -1,25 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
 // Application 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
 // 使い方:
 //   class MyGame : public Application {
 //   public:
-//       void OnStart() override {
-//           Logger::Info("ゲーム開始");
+//       // フックは必ず noexcept override で宣言する
+//       // （基底のフックが noexcept のため。noexcept を省くとコンパイルエラー）
+//       void OnStart() noexcept override {
+//           ACS_LOG_INFO("ゲーム開始");
 //       }
-//       void OnUpdate(f32 dt) override {
+//       void OnUpdate(f32 dt) noexcept override {
 //           if (Input::IsKeyPressed(Key::Escape)) Quit();
 //       }
-//       void OnRender() override {
+//       void OnRender() noexcept override {
 //           // 描画コマンド (BeginFrame / EndFrame は基底が呼ぶ)
 //       }
 //   };
 //
-//   int main() {
-//       MyGame g;
-//       AppConfig cfg;
-//       cfg.title = L"My Game";
-//       return g.Run(cfg);
-//   }
+//   ACS_DEFINE_MAIN(MyGame)   // エントリポイントを自動生成 (app/EntryPoint.h)
 #pragma once
 
 #include "foundation/Types.h"
@@ -47,6 +45,12 @@ public:
 
     // 終了要求（ループを抜ける、OnShutdown が呼ばれる）
     void Quit() noexcept { _running = false; }
+
+    // 背景クリア色を動的に変更する（次フレームの描画から反映される）。
+    // 既定値は AppConfig の clear_r/g/b/a（起動時）。
+    void SetClearColor(f32 r, f32 g, f32 b, f32 a = 1.0f) noexcept {
+        _clear_color = ClearColor{ r, g, b, a };
+    }
 
     // 初学者がアクセスしやすいようにエンジンサブシステムを公開
     Window&         GetWindow()        noexcept { return _window; }
@@ -87,6 +91,7 @@ private:
     f32            _dt       = 0.0f;
     bool           _running  = true;
     AppConfig      _cfg;
+    ClearColor     _clear_color{};   // BeginFrame に渡す現在のクリア色
 };
 
 } // namespace acs

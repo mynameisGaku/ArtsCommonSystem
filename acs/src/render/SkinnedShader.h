@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // スキンメッシュ用ライティングシェーダ（GPU スキニング）
 //
 // StandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。

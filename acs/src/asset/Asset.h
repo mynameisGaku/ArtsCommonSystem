@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // アセット基底クラス
 //
 // 全アセット型は Asset を継承する。Type() で実行時の型 ID を取得できる。

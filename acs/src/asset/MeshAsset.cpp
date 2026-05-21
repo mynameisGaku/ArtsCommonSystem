@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // メッシュアセット実装（cgltf / 自前 OBJ / ufbx）
 #include "asset/MeshAsset.h"
 #include "memory/Memory.h"

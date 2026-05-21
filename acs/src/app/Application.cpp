@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Application 実装
 #include "app/Application.h"
 #include "foundation/Log.h"
@@ -23,6 +24,7 @@ void Application::EventBridge(void* user, const Event& e) noexcept {
 
 int Application::Run(const AppConfig& cfg) noexcept {
     _cfg = cfg;
+    _clear_color = ClearColor{ cfg.clear_r, cfg.clear_g, cfg.clear_b, cfg.clear_a };
 
     // ロガー初期化（最初に立ち上げて以降のエラーを記録できるように）
     LogConfig lc{};
@@ -106,8 +108,8 @@ int Application::Run(const AppConfig& cfg) noexcept {
 
         // フレーム描画 — OnCustomFrame() が true を返すなら派生クラスに完全委譲
         if (!OnCustomFrame()) {
-            ClearColor cc{ cfg.clear_r, cfg.clear_g, cfg.clear_b, cfg.clear_a };
-            _renderer.BeginFrame(cc);
+            // _clear_color は既定で AppConfig 由来。SetClearColor() で毎フレーム変更可能。
+            _renderer.BeginFrame(_clear_color);
             OnRender();
             _renderer.EndFrame();
         }

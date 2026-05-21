@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 手続き生成プリミティブ実装
 #include "asset/MeshPrimitive.h"
 #include "asset/MeshAsset.h"

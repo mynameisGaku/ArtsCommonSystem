@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DiligentCommandList 実装
 #include "render/Diligent/DiligentCommandList.h"
 

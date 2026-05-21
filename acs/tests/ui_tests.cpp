@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS UI — Widget レイアウト + 入力ハンドリング
 // (Renderer 不要、Layout 計算 + Observable 値伝搬の純 logic テスト)

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // コマンドリスト抽象（GPU に送る命令を記録するバッファ）
 #pragma once
 

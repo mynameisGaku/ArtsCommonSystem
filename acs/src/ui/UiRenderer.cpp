@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // UiRenderer / UiInput 実装
 #include "ui/UiRenderer.h"
 #include "platform/Input.h"

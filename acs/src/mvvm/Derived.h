@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Derived<T, Deps...> — N 個の Observable から派生する読み取り専用 Observable
 //
 // 使い方:

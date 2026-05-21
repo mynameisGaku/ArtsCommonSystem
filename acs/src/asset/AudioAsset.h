@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 音声アセット
 //
 // 対応拡張子:

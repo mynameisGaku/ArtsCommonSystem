@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 高レベル Renderer 実装
 #include "render/Renderer.h"
 #include "platform/Window.h"

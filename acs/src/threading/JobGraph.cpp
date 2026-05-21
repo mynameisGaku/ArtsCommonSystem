@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // JobGraph 実装
 #include "threading/JobGraph.h"
 #include "foundation/Log.h"

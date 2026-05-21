@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 標準ライティングシェーダ（最大 4 灯 + Blinn-Phong スペキュラ）
 //
 // 用途: メッシュアセット (位置 + 法線 + UV) を、複数の有向光源 +

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // キーボード / マウスボタン / ゲームパッドボタンの定数
 #pragma once
 

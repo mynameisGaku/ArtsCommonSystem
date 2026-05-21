@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // std::source_location 相当をコンパイラ組み込みで実装する
 #pragma once
 

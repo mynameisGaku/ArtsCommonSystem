@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 画像アセット
 //
 // 対応拡張子（stb_image 経由）:

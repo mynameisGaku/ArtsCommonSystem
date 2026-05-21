@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // フルスクリーン texture コピー実装 (Phase 35-3b)
 #include "render/Blit.h"
 #include "foundation/Move.h"

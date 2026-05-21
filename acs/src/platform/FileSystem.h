@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ファイル I/O とパス操作
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 設定 / セーブデータ用 key-value ストア（INI 形式）
 //
 // 用途: ゲーム設定（音量・解像度）、セーブデータ（ハイスコア・進行度）の

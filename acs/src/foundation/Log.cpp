@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 非同期スレッドセーフ Logger 実装
 #include "foundation/Log.h"
 #include "foundation/Platform.h"

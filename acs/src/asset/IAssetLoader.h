@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // アセットローダのインターフェイス
 //
 // 各アセット型 (Texture, Mesh, Audio など) ごとにローダを実装し、

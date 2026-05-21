@@ -1,0 +1,105 @@
+# ============================================================================
+# ACS coding-style formatter config (Phase 0 / Option A+).
+# Calibrated against existing src/ tree so `clang-format --dry-run` is zero-diff.
+# Reference: docs/StyleGuide.md (to be written in Phase 2).
+# ============================================================================
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+
+# ---- Indentation -----------------------------------------------------------
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+AccessModifierOffset: -4              # public:/private: align with class body left edge
+NamespaceIndentation: None            # `namespace acs { ... }` body at column 0
+IndentCaseLabels: false
+IndentPPDirectives: AfterHash
+
+# ---- Line length -----------------------------------------------------------
+# Code aims at ~100; the limit is 120 so existing table-aligned blocks
+# (Limits.h:25-28, Atomic.h:80-83) survive unscathed.
+ColumnLimit: 120
+ReflowComments: false                 # do not reflow Japanese banner comments
+PenaltyExcessCharacter: 1000000
+
+# ---- Braces (K&R / Egyptian — same line) -----------------------------------
+BreakBeforeBraces: Attach
+Cpp11BracedListStyle: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse  # `if (!p) return;` is canonical
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: All
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+
+# ---- Pointers & references (west — `T* p`, `T& r`) -------------------------
+PointerAlignment: Left
+ReferenceAlignment: Pointer           # follow PointerAlignment
+DerivePointerAlignment: false
+
+# ---- Spacing ---------------------------------------------------------------
+SpaceBeforeParens: ControlStatements  # `if (`, `for (` but `Foo()`
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: false      # `template<typename T>` (no space)
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+SpaceInEmptyParentheses: false
+SpacesInAngles: Never
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# ---- Wrapping --------------------------------------------------------------
+AlwaysBreakTemplateDeclarations: Yes  # `template<...>\nT Foo()`
+AlwaysBreakAfterReturnType: None      # leading return type stays on same line
+BinPackArguments: true
+BinPackParameters: true
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+PenaltyBreakAssignment: 80
+PenaltyBreakBeforeFirstCallParameter: 80
+PenaltyReturnTypeOnItsOwnLine: 200
+
+# ---- Alignment -------------------------------------------------------------
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None    # table-aligned members allowed but not forced
+AlignConsecutiveMacros: AcrossEmptyLines
+AlignEscapedNewlines: Left
+AlignOperands: Align
+AlignTrailingComments: true
+
+# ---- Includes --------------------------------------------------------------
+# Preserve author-supplied order (foundation/Types.h → TypeTraits.h → ...).
+# ACS uses semantic-dependency order, not lexical sort.
+SortIncludes: false
+IncludeBlocks: Preserve
+
+# ---- Namespace -------------------------------------------------------------
+FixNamespaceComments: true            # ensures `} // namespace acs`
+ShortNamespaceLines: 1
+CompactNamespaces: false
+
+# ---- Initializer lists / inheritance ---------------------------------------
+BreakConstructorInitializers: BeforeColon
+PackConstructorInitializers: NextLine
+BreakInheritanceList: BeforeColon
+EmptyLineBeforeAccessModifier: LogicalBlock
+
+# ---- Modernization (opt-in safe) -------------------------------------------
+InsertBraces: false                   # do not auto-brace existing one-liners
+RemoveBracesLLVM: false
+RemoveSemicolon: false
+SeparateDefinitionBlocks: Leave
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SortUsingDeclarations: false
+
+# ---- Other -----------------------------------------------------------------
+UseCRLF: false                        # LF line endings everywhere

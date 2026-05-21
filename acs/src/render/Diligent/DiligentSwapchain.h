@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Diligent Engine 経由の Swapchain
 #pragma once
 

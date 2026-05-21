@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Sparse Set: エンティティ → コンポーネント値の高速対応表
 //
 // 構造:

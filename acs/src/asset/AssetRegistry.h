@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // アセットレジストリ（パスからロードして共有保持する）
 //
 // 使い方:

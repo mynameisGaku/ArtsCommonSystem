@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 共通エントリポイントマクロ
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // TimerManager — フレーム単位の遅延 / 周期タイマー
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Screen-Space Ambient Occlusion 実装 (Phase 34j、HBAO-lite)
 #include "render/Ssao.h"
 #include "foundation/Move.h"

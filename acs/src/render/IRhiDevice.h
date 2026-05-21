@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // RHI デバイス抽象（GPU との対話を表す。DX12 / Vulkan で実装される）
 #pragma once
 

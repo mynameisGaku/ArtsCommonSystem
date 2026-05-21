@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ネットワーク共通（WSAStartup, IpAddress 文字列パース）
 #include "network/Network.h"
 #include "network/IpAddress.h"

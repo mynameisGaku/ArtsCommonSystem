@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 非同期スレッドセーフ Logger（Vyukov MPMC ring + writer thread）
 #pragma once
 

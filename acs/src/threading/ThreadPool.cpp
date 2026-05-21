@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ワークスティーリング ThreadPool 実装（Chase-Lev SPMC deque + ノードプール）
 #include "threading/ThreadPool.h"
 #include "threading/Mutex.h"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // ACS の HelloIbl サンプル — Phase 31 IBL + Phase 32a HDR / ACES tonemap
 //
 // 動作:
@@ -26,6 +27,8 @@
 #include "render/Ssao.h"
 #include "render/Ssgi.h"
 #include "render/MotionVector.h"
+#include "render/RefractionShader.h"
+#include "render/Blit.h"
 #include "math/Mat.h"
 #include "render/PbrShader.h"
 #include "render/RenderAssets.h"
@@ -86,8 +89,8 @@ public:
         auto plane  = Primitive::MakePlane(40.0f, 40.0f);
         ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, _gm_plane));
 
-        // ShadowMap (Phase 34b): 2048 pixels
-        ACS_SAMPLE_INIT(_shadow.Init(*dev, 2048));
+        // ShadowMap (Phase 34b + 34b part 3 CSM): 2048 px × 3 cascade atlas
+        ACS_SAMPLE_INIT(_shadow.Init(*dev, 2048, /*cascade_count=*/3));
         // SSR (Phase 34e): HDR と同フォーマット / 同サイズで scratch を確保
         ACS_SAMPLE_INIT(_ssr.Init(*dev, _post.HdrFormat(), sw, sh));
         // SSAO (Phase 34j): depth から visibility を計算、frame size と同じ解像度
@@ -96,6 +99,27 @@ public:
         ACS_SAMPLE_INIT(_ssgi.Init(*dev, sw, sh));
         // Motion vector (Phase 34f-3): 動的 mesh の screen-space motion を焼く
         ACS_SAMPLE_INIT(_motion.Init(*dev, sw, sh));
+
+        // Refraction (Phase 35-3b/3c): screen-space 屈折 + 背景キャプチャ用 RT。
+        // _bg_rt は opaque pass の HDR をコピーする先 (同一 RT の read+write 不可
+        // 回避)。HDR と同じフォーマット・解像度で確保。
+        ACS_SAMPLE_INIT(_refr.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
+        ACS_SAMPLE_INIT(_blit.Init(*dev, _post.HdrFormat()));
+        {
+            TextureDesc bg_td{};
+            bg_td.width            = sw;
+            bg_td.height           = sh;
+            bg_td.format           = _post.HdrFormat();
+            bg_td.is_render_target = true;
+            auto bg_r = CreateRhiTexture(*dev, bg_td);
+            if (bg_r.IsErr()) {
+                ACS_LOG_ERROR("HelloIbl: refraction background RT 作成に失敗: %s",
+                              bg_r.Error().message);
+                Quit();
+                return;
+            }
+            _bg_rt = Move(bg_r.Value());
+        }
 
         // Lightmap (Phase 33f): 球グリッドの直下にある床用に静的 AO を CPU 焼き。
         // 球 5x5 を Sphere-Ray analytical hit で覆い、各 plane texel で hemisphere
@@ -202,6 +226,8 @@ public:
         if (Input::IsKeyPressed(Key::F)) _use_fog = !_use_fog;
         if (Input::IsKeyPressed(Key::H)) _use_shadows = !_use_shadows;
         if (Input::IsKeyPressed(Key::R)) _show_ssr = !_show_ssr;
+        // X でガラス球 (screen-space 屈折) のデモ toggle
+        if (Input::IsKeyPressed(Key::X)) _show_refraction = !_show_refraction;
         if (Input::IsKeyPressed(Key::O)) _use_ssao = !_use_ssao;
         if (Input::IsKeyPressed(Key::T)) _use_taa  = !_use_taa;
         if (Input::IsKeyPressed(Key::J)) _use_ssgi = !_use_ssgi;
@@ -348,10 +374,10 @@ public:
         // ===== IBL build (まだ作ってないものだけ。一度作れば cache される) =====
         // BeginRenderToTexture(hdr) の前にやる: IBL の RT 切替は _main_swapchain を
         // 触らないので、HDR pass に影響しない。
-        if (!_ibl.HasBrdfLut())       _ibl.EnsureBrdfLut(*dev, *cl);
-        if (!_ibl.HasEnvCubemap())    _ibl.EnsureEnvCubemap(*dev, *cl, _sky);
-        if (!_ibl.HasIrradianceMap()) _ibl.EnsureIrradiance(*dev, *cl);
-        if (!_ibl.HasPrefilterMap())  _ibl.EnsurePrefilter(*dev, *cl);
+        if (!_ibl.HasBrdfLut())       (void)_ibl.EnsureBrdfLut(*dev, *cl);
+        if (!_ibl.HasEnvCubemap())    (void)_ibl.EnsureEnvCubemap(*dev, *cl, _sky);
+        if (!_ibl.HasIrradianceMap()) (void)_ibl.EnsureIrradiance(*dev, *cl);
+        if (!_ibl.HasPrefilterMap())  (void)_ibl.EnsurePrefilter(*dev, *cl);
 
         // ===== Shadow pass (Phase 34b、'H' で有効) =====
         // 球グリッドの中心 (0, 2, 3) 周辺を 8.5 半径でカバーする orthographic 影行列。
@@ -360,22 +386,32 @@ public:
         if (_current_preset == 3) sun_dir = Vec3{0.3f, 0.6f, -0.5f};
         else                       sun_dir = _sky.SunDirection();
         if (_use_shadows) {
-            _shadow.SetDirectionalLight(sun_dir, Vec3{0, 1.5f, 3.0f}, 9.0f);
-            cl->BeginShadowPass(*_shadow.DepthTexture(), 1.0f);
+            // CSM (Phase 34b part 3): カメラ frustum を 3 cascade に分けて atlas へ焼く。
+            // near=0.1 / far=40 で scene 範囲 (object は 30m 内) をカバー。
+            _shadow.SetDirectionalLightCascades(sun_dir,
+                                                 _camera.View(), _camera.Projection(),
+                                                 /*near=*/0.1f, /*far=*/40.0f);
+            cl->BeginShadowPass(*_shadow.DepthTexture(), 1.0f);   // atlas 全体 clear
             cl->SetPipeline(*_shadow.CasterPipeline());
-            cl->SetConstantBuffer(0, *_shadow.LightCB());
-            // sphere casters
+
             constexpr u32 kGridCast = 5;
             constexpr f32 kSpacingCast = 1.4f;
-            cl->SetVertexBuffer(*_gm_sphere.vertex_buffer, _gm_sphere.vertex_stride);
-            cl->SetIndexBuffer(*_gm_sphere.index_buffer);
-            for (u32 y = 0; y < kGridCast; ++y) {
-                for (u32 x = 0; x < kGridCast; ++x) {
-                    const f32 px = (static_cast<f32>(x) - (kGridCast - 1) * 0.5f) * kSpacingCast;
-                    const f32 py = (static_cast<f32>(y) - (kGridCast - 1) * 0.5f) * kSpacingCast + 2.5f;
-                    _shadow.SetCaster(Mat4::Translation(Vec3{px, py, 3.0f}));
-                    cl->SetConstantBuffer(1, *_shadow.CasterObjectCB());
-                    cl->DrawIndexed(_gm_sphere.index_count);
+            for (u32 c = 0; c < _shadow.CascadeCount(); ++c) {
+                // cascade ごとに viewport / scissor / light VP を切替えて caster 描画
+                cl->SetViewport(_shadow.CascadeViewport(c));
+                cl->SetScissor(_shadow.CascadeScissor(c));
+                _shadow.SetCurrentCascade(c);
+                cl->SetConstantBuffer(0, *_shadow.LightCB());
+                cl->SetVertexBuffer(*_gm_sphere.vertex_buffer, _gm_sphere.vertex_stride);
+                cl->SetIndexBuffer(*_gm_sphere.index_buffer);
+                for (u32 y = 0; y < kGridCast; ++y) {
+                    for (u32 x = 0; x < kGridCast; ++x) {
+                        const f32 px = (static_cast<f32>(x) - (kGridCast - 1) * 0.5f) * kSpacingCast;
+                        const f32 py = (static_cast<f32>(y) - (kGridCast - 1) * 0.5f) * kSpacingCast + 2.5f;
+                        _shadow.SetCaster(Mat4::Translation(Vec3{px, py, 3.0f}));
+                        cl->SetConstantBuffer(1, *_shadow.CasterObjectCB());
+                        cl->DrawIndexed(_gm_sphere.index_count);
+                    }
                 }
             }
             cl->EndShadowPass(*_shadow.DepthTexture());
@@ -471,10 +507,18 @@ public:
             _pbr.SetSsr(nullptr, 0.0f);
         }
 
-        // Shadow map (Phase 34b)
+        // Shadow map (Phase 34b + CSM): cascade VP / split を一括で渡す。
         if (_use_shadows) {
-            _pbr.SetShadowMap(_shadow.DepthTexture(), _shadow.LightViewProjection(),
-                              0.002f, 1.0f / static_cast<f32>(_shadow.Size()));
+            Mat4 vps   [ShadowMap::kMaxCascades] = {};
+            f32  splits[ShadowMap::kMaxCascades] = {};
+            for (u32 c = 0; c < _shadow.CascadeCount(); ++c) {
+                vps[c]    = _shadow.LightViewProjection(c);
+                splits[c] = _shadow.CascadeSplit(c);
+            }
+            _pbr.SetShadowMapCascades(_shadow.DepthTexture(), vps, splits,
+                                       _shadow.CascadeCount(),
+                                       /*bias=*/0.002f,
+                                       /*texel_size=*/1.0f / static_cast<f32>(_shadow.Size()));
         } else {
             _pbr.SetShadowMap(nullptr, Mat4{}, 0, 0);
         }
@@ -596,6 +640,42 @@ public:
 
         cl->EndRenderToTexture(*hdr);
 
+        // ===== Refraction pass (Phase 35-3b/3c) =====
+        // opaque HDR scene を _bg_rt へ複製 (同一 RT の read+write 不可なので)、
+        // HDR を clear なし (Load) で再 bind → ガラス球を 1 個描く。屈折 PS は
+        // _bg_rt を screen-space で UV ずらし sample、Fresnel で env reflection と
+        // blend、吸収 tint で着色。深度は読み書き両方 (DSV) として bind し z-test
+        // を有効に: グリッド/床にめり込まず、奥のオブジェクトは正しく透過する。
+        if (_show_refraction) {
+            _blit.Copy(*cl, *hdr, *_bg_rt);
+            cl->BeginRenderToTextureLoad(*hdr, depth);
+            cl->SetViewport(vp);
+            cl->SetScissor(svr);
+            _refr.SetFrame(vp_for_render, _camera.Eye());
+            // env cubemap: prefilter cube (env_cube より rough lobe にマッチ。mip 0 が
+            // 鏡面に最も近く、IBL.PrefilterMap が無いケースは EnvCubemap にフォールバック)。
+            IRhiTexture* env_for_refr = _ibl.HasPrefilterMap() ? _ibl.PrefilterMap()
+                                                                : _ibl.EnvCubemap();
+            if (env_for_refr) {
+                // 透明ガラス球 (左): roughness=0 で 1-tap シャープな屈折 +
+                // dispersion=0.4 でダイヤ/プリズム風の色分離 (Phase 35-3e)
+                const Mat4 clear_model =
+                    Mat4::Scale(Vec3{1.4f, 1.4f, 1.4f}) * Mat4::Translation(kGlassPos);
+                _refr.DrawMesh(*cl, _gm_sphere, clear_model, *_bg_rt, *env_for_refr,
+                               /*ior=*/1.5f, /*thickness=*/0.4f, Vec3{1, 1, 1},
+                               /*roughness=*/0.0f, /*dispersion=*/0.4f);
+                // フロステッドガラス球 (右)：roughness=0.5 で 8-tap disk ブラー
+                // (Phase 35-3d、すりガラスのような半透明)
+                const Mat4 frosted_model =
+                    Mat4::Scale(Vec3{1.2f, 1.2f, 1.2f}) * Mat4::Translation(kFrostedGlassPos);
+                _refr.DrawMesh(*cl, _gm_sphere, frosted_model, *_bg_rt, *env_for_refr,
+                               /*ior=*/1.5f, /*thickness=*/0.4f,
+                               Vec3{0.95f, 0.97f, 1.0f},     // 弱く青に着色
+                               /*roughness=*/0.5f);
+            }
+            cl->EndRenderToTexture(*hdr);
+        }
+
         // ===== Geometry G-buffer pass (motion + normal、Phase 34f-3 / 34m) =====
         // 全 mesh を再ラスタライズし MRT 2 枚 (screen-space motion vector +
         // world-space normal) を焼く。motion は TAA / temporal SSGI が動く mesh を
@@ -624,6 +704,17 @@ public:
             // 動的球 (prev != curr → object motion を含む)
             for (u32 i = 0; i < kDynCount; ++i) {
                 _motion.DrawMesh(*cl, _gm_sphere, _dyn_curr[i], _dyn_prev[i]);
+            }
+            // ガラス球 (Phase 35-3b/3c + 35-3d): 静止 (prev == curr)。
+            // motion パスに含めると TAA が動かない silhouette を正しく扱える
+            // (SSGI/SSR が後段で normal を読むためにも、ガラス位置の normal が G-buffer に必要)。
+            if (_show_refraction) {
+                const Mat4 clear_model =
+                    Mat4::Scale(Vec3{1.4f, 1.4f, 1.4f}) * Mat4::Translation(kGlassPos);
+                _motion.DrawMesh(*cl, _gm_sphere, clear_model, clear_model);
+                const Mat4 frosted_model =
+                    Mat4::Scale(Vec3{1.2f, 1.2f, 1.2f}) * Mat4::Translation(kFrostedGlassPos);
+                _motion.DrawMesh(*cl, _gm_sphere, frosted_model, frosted_model);
             }
             _motion.End(*cl);
         }
@@ -797,7 +888,7 @@ public:
             _batch.DrawString(_font, buf, 20, 92, Vec4{0.9f, 0.9f, 0.9f, 1});
 
             std::snprintf(buf, sizeof(buf),
-                          "CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s SSGI=%s LM=%s MV=%s",
+                          "CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s SSGI=%s LM=%s MV=%s Refract=%s",
                           _use_clearcoat ? "ON" : "OFF",
                           _use_anisotropy ? "ON" : "OFF",
                           _use_area_light ? "ON" : "OFF",
@@ -808,9 +899,10 @@ public:
                           _use_taa ? "ON" : "OFF",
                           _use_ssgi ? "ON" : "OFF",
                           _use_lightmap ? "ON" : "OFF",
-                          _use_motion_vec ? "ON" : "OFF");
+                          _use_motion_vec ? "ON" : "OFF",
+                          _show_refraction ? "ON" : "OFF");
             _batch.DrawString(_font, buf, 20, 116, Vec4{0.9f, 0.9f, 0.9f, 1});
-            _batch.DrawString(_font, "WASD: 移動   矢印: 視点回転   Esc: 終了",
+            _batch.DrawString(_font, "WASD: 移動  矢印: 視点  X: 屈折demo  Esc: 終了",
                               20, 140, Vec4{0.7f, 0.85f, 1.0f, 1});
             if (lut) {
                 _batch.DrawString(_font, "BRDF LUT",
@@ -1022,6 +1114,9 @@ public:
         if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
         _font.Shutdown();
         _batch.Shutdown();
+        _bg_rt.Reset();
+        _blit.Shutdown();
+        _refr.Shutdown();
         _motion.Shutdown();
         _ssgi.Shutdown();
         _ssao.Shutdown();
@@ -1088,6 +1183,12 @@ private:
     Ssgi               _ssgi;
     MotionVector       _motion;                    // Phase 34f-3: 動的 mesh motion vector
     bool               _use_motion_vec   = true;   // Phase 34f-3: 'M' で toggle
+    RefractionShader   _refr;                      // Phase 35-3b/3c: screen-space 屈折
+    Blit               _blit;                      // Phase 35-3b/3c: HDR -> _bg_rt コピー
+    UniquePtr<IRhiTexture> _bg_rt;                 // Phase 35-3b/3c: 屈折用 background キャプチャ
+    bool               _show_refraction = true;   // 'X' で glass sphere demo toggle
+    static constexpr Vec3 kGlassPos{-1.4f, 1.5f, 0.0f};      // 透明クリアガラス (左)
+    static constexpr Vec3 kFrostedGlassPos{1.4f, 1.5f, 0.0f}; // フロステッド (右、Phase 35-3d)
     Mat4               _dyn_curr[kDynCount] = {};  // 動的球の現フレーム transform
     Mat4               _dyn_prev[kDynCount] = {};  // 動的球の前フレーム transform
     f32                _anim_time        = 0.0f;   // 動的球公転の時刻アキュムレータ

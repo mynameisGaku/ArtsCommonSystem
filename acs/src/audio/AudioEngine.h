@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // XAudio2 ベースの音声エンジン
 //
 // 使い方:
@@ -54,6 +55,13 @@ public:
 
     // 全音停止
     void StopAll() noexcept;
+
+    // マスター音量（最終出力の音量、0.0..1.0）
+    void SetMasterVolume(f32 volume) noexcept;
+
+    // 再生中の音をすべて一時停止 / 再開（再生位置は保持される）
+    void PauseAll() noexcept;
+    void ResumeAll() noexcept;
 
     // 現在再生中のスロット数 (デバッグ用)
     u32 ActiveCount() const noexcept;

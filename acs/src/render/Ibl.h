@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Image-Based Lighting (Phase 31)
 //
 // PBR の ambient 項を「環境マップから事前積分した光」で置き換える。

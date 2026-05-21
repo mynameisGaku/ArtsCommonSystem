@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Command — VM のアクション (ボタン等) を ViewModel 側に置くためのヘルパ
 //
 // 使い方:

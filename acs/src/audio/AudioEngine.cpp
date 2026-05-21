@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // XAudio2 ベースの音声エンジン実装
 #include "audio/AudioEngine.h"
 #include "foundation/Platform.h"
@@ -82,7 +83,23 @@ void AudioEngine::Shutdown() noexcept {
 }
 
 namespace {
+void DestroySlot(VoiceSlot& slot) noexcept;   // 前方宣言（FindFreeSlot が回収に使う）
+
 u32 FindFreeSlot(AudioEngine::Impl& impl) noexcept {
+    // 自然に再生が終わった一発再生ボイスを回収する。これをしないと、
+    // 一発再生を kMaxVoices 回呼んだ時点でスロットが尽き、以降の Play が
+    // 無音になる。ループ再生は BuffersQueued が 0 にならず回収されない。
+    for (u32 i = 0; i < kMaxVoices; ++i) {
+        VoiceSlot& s = impl.slots[i];
+        if (s.in_use && s.voice) {
+            XAUDIO2_VOICE_STATE st{};
+            s.voice->GetState(&st);
+            if (st.BuffersQueued == 0) {
+                DestroySlot(s);
+                if (impl.active_count > 0) --impl.active_count;
+            }
+        }
+    }
     for (u32 i = 0; i < kMaxVoices; ++i) {
         if (!impl.slots[i].in_use) return i;
     }
@@ -177,6 +194,31 @@ void AudioEngine::StopAll() noexcept {
         if (_impl->slots[i].in_use) DestroySlot(_impl->slots[i]);
     }
     _impl->active_count = 0;
+}
+
+void AudioEngine::SetMasterVolume(f32 volume) noexcept {
+    if (!_impl || !_impl->mastering) return;
+    if (volume < 0) volume = 0;
+    if (volume > 1) volume = 1;
+    _impl->mastering->SetVolume(volume);
+}
+
+void AudioEngine::PauseAll() noexcept {
+    if (!_impl) return;
+    ScopedLock lk(_impl->lock);
+    for (u32 i = 0; i < kMaxVoices; ++i) {
+        VoiceSlot& s = _impl->slots[i];
+        if (s.in_use && s.voice) s.voice->Stop(0);
+    }
+}
+
+void AudioEngine::ResumeAll() noexcept {
+    if (!_impl) return;
+    ScopedLock lk(_impl->lock);
+    for (u32 i = 0; i < kMaxVoices; ++i) {
+        VoiceSlot& s = _impl->slots[i];
+        if (s.in_use && s.voice) s.voice->Start(0);
+    }
 }
 
 u32 AudioEngine::ActiveCount() const noexcept {

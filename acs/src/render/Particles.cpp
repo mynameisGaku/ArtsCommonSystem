@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 2D パーティクルシステム実装
 #include "render/Particles.h"
 #include "render/SpriteBatch.h"

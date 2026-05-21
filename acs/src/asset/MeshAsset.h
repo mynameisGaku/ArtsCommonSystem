@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // メッシュアセット
 //
 // 対応拡張子: gltf / glb / obj / fbx

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // TCP 接続（送信・受信）
 //
 // 使い方 (クライアント側):

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Asset → GPU リソース変換ヘルパ
 //
 // ImageAsset を GPU テクスチャに、MeshAsset を頂点+インデックスバッファに変換する

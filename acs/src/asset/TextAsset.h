@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // テキストアセット（UTF-8 文字列を保持）
 //
 // 対応拡張子: txt / json / xml / yaml / yml / toml / ini / csv / md / log / hlsl /

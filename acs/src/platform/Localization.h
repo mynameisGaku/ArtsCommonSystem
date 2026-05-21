@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 多言語対応（i18n）
 //
 // 設計:

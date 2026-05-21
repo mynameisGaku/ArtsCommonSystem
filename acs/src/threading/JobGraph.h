@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // JobGraph — 依存関係付き並列タスクスケジューラ
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // フォント（TTF を GPU テクスチャアトラスに焼いて、文字描画に使う）
 //
 // 使い方:

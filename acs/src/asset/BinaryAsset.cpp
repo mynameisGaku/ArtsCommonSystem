@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // BinaryAsset のローダ実装
 #include "asset/BinaryAsset.h"
 

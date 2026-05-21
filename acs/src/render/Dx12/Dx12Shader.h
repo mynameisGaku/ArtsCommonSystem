@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DX12 シェーダ実装（D3DCompile による HLSL コンパイル）
 #pragma once
 

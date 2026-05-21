@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // String 関連の暗黙変換実装
 #include "mvvm/Convert.h"
 #include "container/String.h"

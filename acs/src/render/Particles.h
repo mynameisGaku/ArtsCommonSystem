@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // 2D パーティクルシステム（CPU プール + SpriteBatch 描画）
 //
 // 用途: 火花・煙・爆発・魔法効果など、ゲームの視覚エフェクト全般。

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // PBR (Cook-Torrance BRDF) ライティングシェーダ — Metalness/Roughness workflow
 //
 // 用途: メッシュアセット (位置 + 法線 + UV) を、複数の有向光源 + 環境光 +
@@ -171,6 +172,21 @@ public:
                       f32 bias = 0.002f, f32 texel_size = 1.0f / 2048.0f,
                       f32 filter_radius = 1.0f) noexcept;
 
+    // CSM 用 (Phase 34b part 3): 複数 cascade の VP と split を一括設定。
+    //   light_vp[c]      : 各 cascade の light VP (c=0..cascade_count-1)
+    //   cascade_splits[c]: 各 cascade の view-space z far (cascade 選択の閾値)
+    //   cascade_count    : 使用する cascade 数 (1..4)
+    //   bias / texel_size: PCSS パラメータ (single API と同じ意味)
+    // ShadowMap が atlas で確保した深度テクスチャを渡し、HLSL 側で view_z から
+    // cascade を選択 + atlas UV 変換でサンプルする。null depth で disable。
+    void SetShadowMapCascades(IRhiTexture* depth,
+                               const Mat4* light_vp,
+                               const f32*  cascade_splits,
+                               u32 cascade_count,
+                               f32 bias = 0.002f,
+                               f32 texel_size = 1.0f / 2048.0f,
+                               f32 filter_radius = 1.0f) noexcept;
+
     // PBR material 設定。base_color は非金属時の albedo、金属時の F0 tint。
     // metallic [0,1], roughness [0,1] は線形 (perceptual ではなく直接 GGX に
     // 渡す)、ao [0,1] は ambient のみに乗算 (direct light には影響しない)。
@@ -302,10 +318,14 @@ private:
     f32          _lightmap_intensity = 0.0f;
     UniquePtr<IRhiTexture> _lightmap_fb;  // 1x1 RGBA8 黒 fallback
 
-    // Shadow map (Phase 34b)
-    IRhiTexture* _shadow_depth   = nullptr;
-    Mat4         _shadow_view_proj{};
-    Vec4         _shadow_params  = Vec4{0.002f, 0, 1.0f/2048.0f, 0};
+    // Shadow map (Phase 34b + CSM = Phase 34b part 3)。
+    // ShadowMap::kMaxCascades と一致 (現状 4)。Frame CB の shadow_view_proj[4] と対応。
+    static constexpr u32 kMaxShadowCascades = 4;
+    IRhiTexture* _shadow_depth          = nullptr;
+    Mat4         _shadow_view_proj[kMaxShadowCascades] = {};   // 各 cascade の light VP
+    Vec4         _shadow_params         = Vec4{0.002f, 0, 1.0f/2048.0f, 0};
+    Vec4         _cascade_splits        = Vec4{1e30f, 1e30f, 1e30f, 1e30f};  // single mode: 常に cascade 0
+    Vec4         _cascade_uv_scale      = Vec4{1.0f, 1.0f, 0, 0};            // single mode: atlas 変換無し
     UniquePtr<IRhiTexture> _shadow_fb;   // fallback (1x1 depth-ish texture、未バインド時用)
 
     // 拡張 material (Phase 33a)、SetObject で reset、SetExtParams で上書き

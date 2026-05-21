@@ -77,3 +77,7 @@ acs_enable_module(Mvvm)
 # Ui — ACS 純正 UI フレームワーク (Widget + Layout + Renderer)。Mvvm と組み合わせて
 # 使うことで MVVM パターンを完結させる。
 acs_enable_module(Ui)
+
+# Easy — 初学者向けの「簡単モード」ファサード。Application / RHI を内部に隠し、
+# 手続き的な関数だけで 2D ゲームを書ける（acs::easy）。
+acs_enable_module(Easy)

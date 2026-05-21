@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS Foundation — Result<T, E> 型（例外なしエラー伝搬）
 // -----------------------------------------------------------------------------
@@ -25,6 +26,7 @@
 #include "foundation/TypeTraits.h"
 #include "foundation/Move.h"
 #include "foundation/Error.h"
+#include "foundation/Assert.h"
 
 namespace acs {
 
@@ -42,7 +44,7 @@ inline constexpr detail::ErrTag   ErrInit{};   // エラー側構築用タグ
 // Result<T, E> — T 値を持つ成功または E エラーのいずれか
 // =============================================================================
 template<typename T, typename E = ErrorCode>
-class Result {
+class [[nodiscard]] Result {
 public:
     using ValueType = T;
     using ErrorType = E;
@@ -122,13 +124,15 @@ public:
     explicit operator bool() const noexcept { return _has_value; } // if (r) で成功判定
 
     // ---- 値アクセス（Ok 側）---------------------------------------------
-    // 注: IsErr() の状態で呼ぶと未定義動作。事前に IsOk() を確認すること。
-    T&       Value()       noexcept { return _storage._value; }
-    const T& Value() const noexcept { return _storage._value; }
+    // 注: IsErr() の状態で Value() を呼ぶと ACS_ASSERT で即座に停止する
+    //     （誤用を確実に検出するため）。呼ぶ前に IsOk() で成功を確認すること。
+    T&       Value()       noexcept { ACS_ASSERT(_has_value); return _storage._value; }
+    const T& Value() const noexcept { ACS_ASSERT(_has_value); return _storage._value; }
 
     // ---- エラーアクセス（Err 側）----------------------------------------
-    E&       Error()       noexcept { return _storage._error; }
-    const E& Error() const noexcept { return _storage._error; }
+    // 注: IsOk() の状態で Error() を呼ぶと ACS_ASSERT で即座に停止する。
+    E&       Error()       noexcept { ACS_ASSERT(!_has_value); return _storage._error; }
+    const E& Error() const noexcept { ACS_ASSERT(!_has_value); return _storage._error; }
 
     // 値を取得、エラー時は fallback を返す（簡易デフォルト適用）
     T ValueOr(T fallback) const noexcept {
@@ -162,7 +166,7 @@ private:
 // =============================================================================
 // 例: Result<void> Save() — 保存が成功したかだけを返す。
 template<typename E>
-class Result<void, E> {
+class [[nodiscard]] Result<void, E> {
 public:
     using ValueType = void;
     using ErrorType = E;
@@ -202,8 +206,9 @@ public:
     bool IsErr() const noexcept { return !_has_value; }
     explicit operator bool() const noexcept { return _has_value; }
 
-    E&       Error()       noexcept { return _storage._error; }
-    const E& Error() const noexcept { return _storage._error; }
+    // 注: IsOk() の状態で Error() を呼ぶと ACS_ASSERT で即座に停止する。
+    E&       Error()       noexcept { ACS_ASSERT(!_has_value); return _storage._error; }
+    const E& Error() const noexcept { ACS_ASSERT(!_has_value); return _storage._error; }
 
 private:
     void Destroy() noexcept {

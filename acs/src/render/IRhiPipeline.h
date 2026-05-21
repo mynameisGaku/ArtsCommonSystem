@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // グラフィックスパイプライン抽象（VS+PS+頂点レイアウト+ターゲットフォーマット）
 #pragma once
 

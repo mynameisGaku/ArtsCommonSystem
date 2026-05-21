@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // プラットフォーム固有の OS ヘッダを 1 箇所に閉じ込め、他のヘッダを軽量に保つ
 #pragma once
 

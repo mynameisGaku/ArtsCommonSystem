@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Image-Based Lighting 実装 (Phase 31)
 //
 // 現段階の機能: BRDF LUT 生成、Sky → env cubemap キャプチャ、skybox preview 描画。

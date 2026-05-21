@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IPv4 アドレス（v1 では v6 は未対応）
 //
 // 使い方:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DX12 バックエンド共通ヘッダ（COM ポインタ、変換ユーティリティ）
 #pragma once
 
