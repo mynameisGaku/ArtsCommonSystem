@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar K — InspectorSeam 実装 (Phase 2)
+//
+// 設計のポイント:
+//   ・Provider レジストリは線形 `Array<Provider*>`。Phase 2 想定の登録数は
+//     数十オブジェクト程度なので、線形検索 (Register の重複判定 / Unregister の
+//     探索) で十分。hash 化は Phase K-3+ で必要になれば再考。
+//   ・Provider の所有権は持たない。`ClearAll()` でも Provider 自体は破棄しない。
+//   ・全 noexcept。エラーは現状なし (Phase 2 は登録 / 取得 / 通知のみ)。
+
+#include "gameframework/InspectorSeam.h"
+
+namespace acs::game {
+
+// ---- Init ---------------------------------------------------------------
+
+void InspectorSeam::Init() noexcept {
+    // Phase 2 では何もしない (予約点)。
+    //
+    // TODO(Phase K-3):
+    //   ・ImGui / ACS::Ui との接続点 (window / docking 等) の遅延セットアップ。
+    //   ・既存登録済み Provider に対する late-binding 用フックの初期化。
+    //
+    // 多重呼び出し可: 何度呼んでも副作用なし。
+}
+
+// ---- RegisterProvider ---------------------------------------------------
+
+void InspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
+    if (provider == nullptr) {
+        // nullptr は無視 (呼び出し側の境界条件を吸収する)。
+        return;
+    }
+    // 重複登録は no-op で弾く。誤って同じ Provider を二重に Register しても
+    // UI 側で同じオブジェクトが 2 回描画されるのを防ぐ。
+    for (usize i = 0; i < _providers.Size(); ++i) {
+        if (_providers[i] == provider) {
+            return;
+        }
+    }
+    _providers.PushBack(provider);
+}
+
+// ---- UnregisterProvider -------------------------------------------------
+
+void InspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept {
+    if (provider == nullptr) {
+        // nullptr は no-op (Register と対称)。
+        return;
+    }
+    // 該当エントリを 1 件だけ削除する (Register が重複弾きしているので、
+    // 同一ポインタは高々 1 件しか存在しない前提)。
+    // 順序保存は不要 (UI 描画順は Phase K-3 で別途決める想定)、最後の要素を
+    // 上書きして PopBack する swap-remove で削除コストを O(1) に。
+    const usize n = _providers.Size();
+    for (usize i = 0; i < n; ++i) {
+        if (_providers[i] == provider) {
+            const usize last = n - 1;
+            if (i != last) {
+                _providers[i] = _providers[last];
+            }
+            _providers.PopBack();
+            return;
+        }
+    }
+    // 未登録の Provider を Unregister しても no-op (呼び出し側のライフサイクル
+    // ミスを致命化しない)。
+}
+
+// ---- ProviderCount / GetProvider ----------------------------------------
+
+u32 InspectorSeam::ProviderCount() const noexcept {
+    return static_cast<u32>(_providers.Size());
+}
+
+IInspectableProvider* InspectorSeam::GetProvider(u32 index) const noexcept {
+    if (index >= _providers.Size()) {
+        // 範囲外は nullptr を返す (Array::operator[] の ASSERT を避ける防御)。
+        return nullptr;
+    }
+    return _providers[index];
+}
+
+// ---- NotifyFieldChanged -------------------------------------------------
+
+void InspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept {
+    if (provider_index >= _providers.Size()) {
+        // 範囲外は no-op。UI 側のリストと本体側の登録が一瞬ずれることがあるため
+        // 防御的にチェックする。
+        return;
+    }
+    IInspectableProvider* prov = _providers[provider_index];
+    if (prov == nullptr) {
+        // 通常は到達しないが、念のための null チェック。
+        return;
+    }
+    // obj_index / field_index の妥当性検証は Provider 側に委ねる
+    // (Provider しか実際のオブジェクト / フィールド数を知らないため)。
+    prov->OnFieldChanged(obj_index, field_index);
+}
+
+// ---- ClearAll -----------------------------------------------------------
+
+void InspectorSeam::ClearAll() noexcept {
+    // Provider は non-owning なので破棄せず、配列だけ空にする。
+    // 容量は保持 (Reserve 状態を保つ ≒ 次回再登録時のアロケーション節約)。
+    _providers.Clear();
+}
+
+} // namespace acs::game

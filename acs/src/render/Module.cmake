@@ -26,6 +26,7 @@ set(_acs_render_sources
     Ssgi.cpp
     MotionVector.cpp
     RefractionShader.cpp
+    HiZ.cpp
     Blit.cpp
 )
 set(_acs_render_headers
@@ -56,6 +57,7 @@ set(_acs_render_headers
     Ssgi.h
     MotionVector.h
     RefractionShader.h
+    HiZ.h
     Blit.h
     Render.h
 )

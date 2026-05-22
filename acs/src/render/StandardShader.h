@@ -99,7 +99,13 @@ public:
     // シャドウマップ設定。tex は ShadowMap::DepthTexture()、light_vp は同 LightViewProjection()。
     // tex に nullptr を渡すとシャドウ無効化（描画は影なしで進む）。
     // bias はシャドウアクネ回避用（一般に 0.0005..0.005）。
-    void SetShadowMap(IRhiTexture* tex, const Mat4& light_vp, f32 bias = 0.001f) noexcept;
+    //
+    // Phase 36-2 PCSS: filter_radius は影の柔らかさスケール。
+    //   0    = hard PCF (penumbra 計算しても min(=1 texel) で実質ハード影)
+    //   1.0  = 標準 PCSS (Fernando 2005 light_size=0.01 相当、PbrShader と一致)
+    //   >1   = より柔らかい penumbra (面光源を大きく見せたいとき)
+    void SetShadowMap(IRhiTexture* tex, const Mat4& light_vp,
+                      f32 bias = 0.001f, f32 filter_radius = 1.0f) noexcept;
     bool IsShadowEnabled() const noexcept { return _shadow_tex != nullptr; }
     IRhiTexture* ShadowTextureOrDefault() const noexcept {
         return _shadow_tex ? _shadow_tex : _white.Get();
@@ -155,6 +161,7 @@ private:
     u32        _point_count = 0;
     Mat4       _light_vp;
     f32        _shadow_bias = 0.001f;
+    f32        _shadow_filter = 1.0f;       // Phase 36-2 PCSS: filter_radius (w of shadow_params)
     IRhiTexture* _shadow_tex = nullptr;     // 弱参照（user owns）
 };
 

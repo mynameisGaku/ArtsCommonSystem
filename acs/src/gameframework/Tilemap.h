@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar Q — Tilemap (2D タイルマップ data structure)
+//
+// 2D グリッド上に `TileId` を並べる data-only コンテナ。レイヤー対応
+// (背景 / フォアグラウンド / コリジョン用などをそれぞれ別 grid として
+// 持てる)、tile↔world 座標変換、Fill / FillRect ユーティリティを提供する。
+//
+// 使い方:
+//   Tilemap map;
+//   map.Init(/*width=*/64, /*height=*/48, /*layer_count=*/2, /*tile_size=*/16.0f);
+//
+//   map.Fill(TileId{1}, /*layer=*/0);          // layer 0 を tile 1 で埋める
+//   map.SetTile(10, 5, TileId{2}, /*layer=*/0); // 個別タイル設定
+//   map.FillRect(0, 0, 4, 4, TileId{3}, 1);     // layer 1 に 4x4 矩形塗り
+//
+//   // 描画ループ
+//   const TileId* layer0 = map.LayerData(0);
+//   for (u32 y = 0; y < map.Height(); ++y) {
+//       for (u32 x = 0; x < map.Width(); ++x) {
+//           TileId t = layer0[y * map.Width() + x];
+//           if (t.IsEmpty()) continue;
+//           Vec2 wpos = map.TileToWorld(x, y);
+//           // DrawSprite(t, wpos)...
+//       }
+//   }
+//
+//   // hit-test (例: マウス座標が tile のどれを指しているか)
+//   u32 tx, ty;
+//   if (map.WorldToTile(mouse_world, tx, ty)) {
+//       TileId hovered = map.GetTile(tx, ty, 0);
+//   }
+//
+// 設計 (Phase 1 = Pillar Q v1):
+//   ・**TileId = u16**: 65535 種類のタイル ID を許容。0 = 空 (背景透過扱い)。
+//     描画側が atlas index として解釈するか辞書 lookup するかは利用者責任。
+//   ・**レイヤー = 独立した Array<TileId>**: layer 数 N に対して N 本の
+//     row-major (`y * width + x`) フラット配列。layer 0 が最背面、
+//     layer_count-1 が最前面という慣習だが順序は描画側で自由に決めて良い。
+//     `LayerData(L)` で生ポインタを返すので GPU upload / tile renderer
+//     から直接舐められる。
+//   ・**tile_size**: world unit / tile (典型的に px = world unit のとき 16, 32)。
+//     座標変換は `TileToWorld` が tile (x,y) の **中心** world 位置 (一致しやすい
+//     スプライト描画基準)。
+//   ・**WorldToTile**: world.x / tile_size を floor。範囲外 (負値含む) は
+//     false を返す。usize→u32 cast の安全性のため負値は早期 reject。
+//   ・**非コピー・非ムーブ**: シーン所有 / Pool 経由想定。複製したい場合は
+//     利用者側で明示的に Clone (今は提供しない)。
+//   ・**全 noexcept / STL 不使用 / acs::Array のみ**: 規約準拠。
+//
+// 範囲外 (将来拡張):
+//   ・auto-tiling / wang tiles の lookup table。
+//   ・per-tile flags (flip x/y, rotate90, collision-type) ─ 必要なら別配列で
+//     追加して TileId 自体は純粋 ID のままにする方針。
+//   ・スパース / chunk 化 (巨大マップ向け)。
+#pragma once
+
+#include "foundation/Types.h"
+#include "container/Array.h"
+#include "math/Vec.h"
+
+namespace acs::game {
+
+// 1 セル = 1 個の TileId。0 を「空 (no tile)」として予約。
+struct TileId {
+    u16 value = 0;
+    constexpr TileId() noexcept = default;
+    constexpr explicit TileId(u16 v) noexcept : value(v) {}
+    constexpr bool IsEmpty() const noexcept { return value == 0; }
+    constexpr bool operator==(TileId o) const noexcept { return value == o.value; }
+    constexpr bool operator!=(TileId o) const noexcept { return value != o.value; }
+};
+
+class Tilemap {
+public:
+    Tilemap() noexcept = default;
+    ~Tilemap() noexcept = default;
+
+    // 非コピー・非ムーブ
+    Tilemap(const Tilemap&)            = delete;
+    Tilemap& operator=(const Tilemap&) = delete;
+    Tilemap(Tilemap&&)                 = delete;
+    Tilemap& operator=(Tilemap&&)      = delete;
+
+    // グリッドを (width x height) で初期化、`layer_count` レイヤー分の
+    // バッファを確保し全 tile を 0 (空) でゼロクリア。`tile_size` は world
+    // 単位での 1 tile の辺長 (典型 16.0f / 32.0f)。
+    // 不正値 (0) は安全な既定 (width/height は 1、layer_count は 1、
+    // tile_size は 16.0f) にフォールバック。
+    void Init(u32 width, u32 height, u32 layer_count = 1, f32 tile_size = 16.0f) noexcept;
+
+    // 個別タイル設定。範囲外 (x / y / layer) は no-op。
+    void SetTile(u32 x, u32 y, TileId tile, u32 layer = 0) noexcept;
+
+    // 個別タイル取得。範囲外なら空 TileId{0}。
+    TileId GetTile(u32 x, u32 y, u32 layer = 0) const noexcept;
+
+    // 指定レイヤー全体を tile で埋める。範囲外 layer は no-op。
+    void Fill(TileId tile, u32 layer = 0) noexcept;
+
+    // 半開区間ではなく **閉区間** [x0..x1] x [y0..y1] を塗る。
+    // x0 > x1 / y0 > y1 は swap 扱い、グリッド境界で clamp。
+    // 範囲外 layer は no-op。
+    void FillRect(u32 x0, u32 y0, u32 x1, u32 y1, TileId tile, u32 layer = 0) noexcept;
+
+    // 全レイヤーを 0 (空) で埋める (サイズは保持)。
+    void Clear() noexcept;
+
+    u32 Width()      const noexcept { return _width; }
+    u32 Height()     const noexcept { return _height; }
+    u32 LayerCount() const noexcept { return static_cast<u32>(_layers.Size()); }
+    f32 TileSize()   const noexcept { return _tile_size; }
+
+    // tile (x,y) の **中心** world 座標。範囲外 (x>=width / y>=height) でも
+    // 計算式そのものを返す (デバッグ用に左下原点で連続を期待する利用者が
+    // 居るため明示的にチェックしない)。
+    Vec2 TileToWorld(u32 x, u32 y) const noexcept;
+
+    // world → tile。範囲外 (グリッド外 / 負値) は false。
+    // 成功時のみ out_x / out_y を書き込む。
+    bool WorldToTile(Vec2 world, u32& out_x, u32& out_y) const noexcept;
+
+    // 描画用 raw データ。size = Width() * Height()、layout = row-major
+    // (`y * width + x`)。範囲外 layer は nullptr。
+    const TileId* LayerData(u32 layer) const noexcept;
+
+private:
+    Array<Array<TileId>> _layers {};      // _layers[L] = row-major (w*h)
+    u32                  _width      = 0;
+    u32                  _height     = 0;
+    f32                  _tile_size  = 16.0f;
+};
+
+} // namespace acs::game

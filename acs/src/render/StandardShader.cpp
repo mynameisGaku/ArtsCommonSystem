@@ -67,44 +67,77 @@ VSOut VSMain(VSIn v) {
     return o;
 }
 
-// シャドウ係数: 1=完全に光が当たる、0=影、PCF で中間値。
-// single-return で FXC X4000 (potentially uninitialized) 警告を回避。
+// シャドウ係数: 1=完全に光が当たる、0=影、中間で半影。
 //
-// Phase 36-1: 旧 4-tap grid PCF → Vogel disk 16-tap に拡張。
-// 円形均一分布なので 16-tap でも grid 4x4 (16-tap) より模様 (ストリーク)
-// が出にくく、影 edge の aliasing が大幅に減る。disk radius = texel × 2.5。
+// PCSS (Percentage-Closer Soft Shadow、Fernando 2005)。
+// 1) blocker search (4x4 = 16 tap、半径 = 4 * texel) で receiver の周囲の
+//    実遮蔽点 avg depth を求める
+// 2) penumbra width = (receiver - blocker_avg) / blocker_avg * light_size
+//    遮蔽点が receiver から遠いほど影が大きく柔らかくなる物理的挙動
+// 3) penumbra サイズで stratified 4x4 PCF
+// 早期 return (全 lit / 全 occluded) で blocker が無い空中の負荷を抑える。
+//
+// shadow_params.w = filter_radius (0=hard PCF、1.0=PCSS 標準、>1 で更に柔らか)
 float ComputeShadow(float3 world_p) {
-    static const int kPcfTaps = 16;
-    // golden angle = π * (3 - sqrt(5))、Vogel 1979 sunflower lattice の角度間隔
-    static const float kGoldenAngle = 2.39996323;
+    if (shadow_params.y < 0.5) return 1.0;
 
-    float result = 1.0;
-    if (shadow_params.y >= 0.5) {
-        float4 lp = mul(float4(world_p, 1.0), light_view_proj);
-        float3 ndc = lp.xyz / lp.w;
-        if (ndc.x >= -1.0 && ndc.x <= 1.0 &&
-            ndc.y >= -1.0 && ndc.y <= 1.0 &&
-            ndc.z >=  0.0 && ndc.z <= 1.0) {
-            float2 uv  = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
-            float my_d = ndc.z;
-            float bias = shadow_params.x;
-            // disk radius = texel × 5.0 (HelloShadows の shadow_map 2048 / scene
-            // radius 12 = 11.7mm/texel に対して penumbra ~6cm を作る)。Vogel 円形
-            // 分布なので grid 同等半径より light leak しにくい。
-            float disk = shadow_params.z * 5.0;
-            // Vogel disk 16-tap PCF
-            float lit = 0.0;
-            [unroll]
-            for (int i = 0; i < kPcfTaps; ++i) {
-                float r = sqrt((float(i) + 0.5) / float(kPcfTaps));
-                float a = float(i) * kGoldenAngle;
-                float2 off = float2(cos(a), sin(a)) * r * disk;
-                lit += (shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r + bias >= my_d) ? 1.0 : 0.0;
+    float4 lp = mul(float4(world_p, 1.0), light_view_proj);
+    float3 ndc = lp.xyz / lp.w;
+    if (ndc.x < -1.0 || ndc.x > 1.0 ||
+        ndc.y < -1.0 || ndc.y > 1.0 ||
+        ndc.z <  0.0 || ndc.z > 1.0) {
+        return 1.0;
+    }
+
+    float2 uv    = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
+    float  my_d  = ndc.z;
+    float  bias  = shadow_params.x;
+    float  ts    = shadow_params.z;       // 1 texel in UV
+    float  kFilt = shadow_params.w;       // 0=hard、>0=PCSS scale
+
+    // ---- 1) Blocker search ----
+    float blocker_sum = 0;
+    int   blocker_cnt = 0;
+    const int kBlockerN = 4;
+    float search_r = ts * 4.0;
+    [unroll]
+    for (int by = -kBlockerN/2; by < kBlockerN/2; ++by) {
+        [unroll]
+        for (int bx = -kBlockerN/2; bx < kBlockerN/2; ++bx) {
+            float2 off = float2(bx, by) * (search_r * 0.5);
+            float sd = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
+            if (sd + bias < my_d) {
+                blocker_sum += sd;
+                blocker_cnt += 1;
             }
-            result = lit / float(kPcfTaps);
         }
     }
-    return result;
+    if (blocker_cnt == 0) return 1.0;
+    if (blocker_cnt == kBlockerN * kBlockerN) return 0.0;
+
+    float blocker_avg = blocker_sum / float(blocker_cnt);
+
+    // ---- 2) Penumbra width ----
+    // light_size_uv = 0.01 をハードコード、kFilt で全体スケーリング。
+    // PbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
+    float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
+    float filter_r = max(penumbra * 0.01 * kFilt, ts);
+
+    // ---- 3) Penumbra-sized stratified 4x4 PCF ----
+    float lit = 0;
+    const int kPcfN = 4;
+    [unroll]
+    for (int py = 0; py < kPcfN; ++py) {
+        [unroll]
+        for (int px = 0; px < kPcfN; ++px) {
+            float2 jitter = float2((float)px / (kPcfN - 1) - 0.5,
+                                   (float)py / (kPcfN - 1) - 0.5);
+            float2 off    = jitter * filter_r * 2.0;
+            float  sd     = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
+            lit += (sd + bias >= my_d) ? 1.0 : 0.0;
+        }
+    }
+    return lit / float(kPcfN * kPcfN);
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
@@ -303,10 +336,12 @@ void StandardShader::SetPointLights(const PointLight* lights, u32 count) noexcep
     FlushFrameCB();
 }
 
-void StandardShader::SetShadowMap(IRhiTexture* tex, const Mat4& light_vp, f32 bias) noexcept {
-    _shadow_tex = tex;
-    _light_vp   = light_vp;
-    _shadow_bias = bias;
+void StandardShader::SetShadowMap(IRhiTexture* tex, const Mat4& light_vp,
+                                   f32 bias, f32 filter_radius) noexcept {
+    _shadow_tex    = tex;
+    _light_vp      = light_vp;
+    _shadow_bias   = bias;
+    _shadow_filter = filter_radius;
     FlushFrameCB();
 }
 
@@ -330,17 +365,16 @@ void StandardShader::FlushFrameCB() noexcept {
         cb.point_color[i]     = Vec4{c.x, c.y, c.z, 1};
     }
     cb.light_view_proj = _light_vp;
-    // shadow_params: x=bias, y=enabled, z=texel_size, w=pad
-    // PCF offset 用の texel_size は「1 texel 分」だと 4 tap が同じ texel に
-    // 落ちて binary 化する (= 影エッジが階段状)。隣接 texel に届かせるため
-    // 2 texel 分 (= 1/1024) にして bilinear sample で滑らかなエッジを得る。
-    // 厳密には ShadowMap::Size() から取るべきだが、現状の固定 2048 想定で
-    // 近似値で良い。
+    // shadow_params: x=bias, y=enabled (0/1), z=texel_size (UV)、w=filter_radius
+    // texel_size は ShadowMap 固定 2048 想定 (PbrShader と同じ近似)。PCSS は
+    // 1 texel offset でも blocker search が正しく機能するため、Vogel 時代の
+    // 2-texel bilinear 補正は不要 (penumbra 計算で自動的にエッジが広がる)。
+    // w=0 で hard、w=1 で PbrShader と同じ標準 PCSS。
     cb.shadow_params = Vec4{
         _shadow_bias,
         _shadow_tex ? 1.0f : 0.0f,
-        2.0f / 2048.0f,
-        0.0f
+        1.0f / 2048.0f,
+        _shadow_filter
     };
     _frame_cb->Update(&cb, sizeof(cb));
 }

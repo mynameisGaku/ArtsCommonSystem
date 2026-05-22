@@ -59,9 +59,23 @@ public:
     // 毎フレーム呼ぶ (カメラの view-projection と world 空間の eye 位置)。
     void SetFrame(const Mat4& view_projection, Vec3 camera_pos) noexcept;
 
+    // Phase 35-3f thickness map: 背面 (cull=Front で描いた) 深度を渡すと、
+    // 各 pixel の表面/背面 view-space z 差から実厚みを計算し、Beer-Lambert
+    // 吸収 (tint^thickness) と屈折オフセットの両方で使う。スカラー thickness
+    // (SetObject の引数) は back_depth が無いか enabled=0 のときの fallback。
+    //
+    //   back_depth : 透明オブジェクトの背面深度を焼いた D32_Float
+    //                (shader_visible_depth=true)。null で従来のスカラー厚みに戻る。
+    //   near / far : カメラの透視 near/far。NDC depth → view-space z 逆変換に使う。
+    //   screen_w / screen_h: 主パス HDR RT の解像度 (SV_POSITION から UV を作るため)。
+    void SetBackDepth(IRhiTexture* back_depth, f32 near, f32 far,
+                       u32 screen_w, u32 screen_h) noexcept;
+
     // 描画オブジェクトごとに呼ぶ。
     //   ior       : 屈折率 (ガラス~1.5、水~1.33、ダイヤ~2.4)
-    //   thickness : 屈折方向に背景を sample する距離 (大きいほど歪みが強い)
+    //   thickness : 屈折方向に背景を sample する距離 (大きいほど歪みが強い)。
+    //                Phase 35-3f で back_depth がセットされていれば per-pixel
+    //                計測値が優先され、本引数は fallback として残る。
     //   tint      : ガラスの吸収色 (透明=白、色付きガラス=その色)
     //   roughness : 表面荒さ (Phase 35-3d、0=クリア、1=完全フロステッド)
     //   dispersion: 色収差/分散 (Phase 35-3e、0=色分離無し、1=強プリズム/ダイヤ風)
@@ -90,6 +104,19 @@ private:
     UniquePtr<IRhiPipeline> _pipeline;
     UniquePtr<IRhiBuffer>   _frame_cb;
     UniquePtr<IRhiBuffer>   _object_cb;
+
+    // Phase 35-3f thickness map
+    IRhiTexture*           _back_depth   = nullptr;     // 弱参照 (caller owns)
+    UniquePtr<IRhiTexture> _back_depth_fb;              // 1x1 R32F fallback (enabled=0 用)
+    f32                    _back_near    = 0.1f;
+    f32                    _back_far     = 100.0f;
+    u32                    _screen_w     = 1;
+    u32                    _screen_h     = 1;
+    bool                   _back_enabled = false;
+    // SetFrame で view_proj / camera_pos を覚えておく (SetBackDepth が screen
+    // params だけ更新する際に同じ Frame CB を再書き込みする必要がある)。
+    Mat4                   _vp           = {};
+    Vec3                   _eye          = Vec3{0, 0, 0};
 };
 
 } // namespace acs

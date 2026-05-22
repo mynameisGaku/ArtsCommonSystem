@@ -184,3 +184,39 @@ Result<void> Setup() noexcept {
 準備ができたら、`samples/01_HelloWindow` を真似て自分のゲーム用フォルダを作り、
 `Application` を継承して開発を始めましょう。CMake の書き方は
 `samples/README.md` の「自分のゲームを作る」節を参照してください。
+
+## ゲームを配布する（ZIP 化）
+
+完成したゲームを友だちに渡すときは、exe・依存 DLL・アセットをまとめた ZIP を
+1 行で作れます。
+
+自分のゲームの `CMakeLists.txt` に 1 行追加するだけ：
+
+```cmake
+add_executable(my_game main.cpp)
+target_link_libraries(my_game PRIVATE ACS::Easy)
+acs_package_game(my_game ASSETS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assets)
+```
+
+ビルド後、`package` ターゲットで ZIP を作ります：
+
+```pwsh
+cmake --build build --config Release
+cmake --build build --target package
+# → build/ACS-0.1.0-win64.zip ができる
+```
+
+ZIP の中身：
+
+```
+my_game/
+    my_game.exe
+    d3dcompiler_47.dll        # 依存 DLL は自動収集
+    ... (Diligent DLL など)
+    assets/
+        ... (ASSETS_DIR の中身)
+```
+
+ZIP を相手に渡し、`my_game.exe` をダブルクリックすればすぐ動きます。
+`samples/00_HelloEasy/CMakeLists.txt` も同じ仕組みで `hello_easy` を ZIP 化
+できるので、まずはサンプルで試して動作確認するのがおすすめです。

@@ -7,6 +7,7 @@
 cmake-build-*/
 build/
 out/
+sln/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake

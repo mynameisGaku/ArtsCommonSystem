@@ -10,6 +10,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ACSCompilerOptions)
 include(ACSModuleSystem)
 include(ACSThirdParty)
+include(ACSPackage)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,60 +63,76 @@ if(ACS_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+# 「VS 2026 でこの 1 サンプルだけ開きたい」用フィルタ。空 = 全 sample 有効
+# (デフォルト挙動)。scripts/gen-vs-solutions.ps1 からサンプルごとに値を渡す
+# ことで、1 sln = engine + sample 1 個の小さなソリューションを生成できる。
+set(ACS_ONLY_SAMPLE "" CACHE STRING
+    "If set, only this sample dir is added (e.g. 28_HelloGameFramework). Empty = all.")
+
+# `add_subdirectory(samples/<dir>)` のラッパ。ACS_ONLY_SAMPLE が空 or 一致時のみ追加。
+function(acs_add_sample sample_dir)
+    if("${ACS_ONLY_SAMPLE}" STREQUAL "" OR "${ACS_ONLY_SAMPLE}" STREQUAL "${sample_dir}")
+        add_subdirectory(samples/${sample_dir})
+    endif()
+endfunction()
+
 if(ACS_BUILD_SAMPLES)
-    # サンプルは学習順に 00〜26 の番号付きディレクトリに並ぶ。
+    # サンプルは学習順に 00〜28 の番号付きディレクトリに並ぶ。
     # 一覧・推奨学習順・各サンプルのビルド要件は samples/README.md を参照。
 
     # --- (0) 最も簡単な入口: acs::easy レイヤ（クラス・継承なしで書ける）---
-    add_subdirectory(samples/00_HelloEasy)
+    acs_add_sample(00_HelloEasy)
 
     # --- (1) 入門: 2D とゲームの基礎（HLSL を書かない）---
-    add_subdirectory(samples/01_HelloWindow)
-    add_subdirectory(samples/02_HelloSprite)
-    add_subdirectory(samples/03_HelloText)
-    add_subdirectory(samples/04_HelloECS)
-    add_subdirectory(samples/05_HelloSave)
-    add_subdirectory(samples/06_HelloLocalization)
-    add_subdirectory(samples/07_HelloAudio)
-    add_subdirectory(samples/08_HelloPhysics2D)
-    add_subdirectory(samples/09_HelloParticles)
+    acs_add_sample(01_HelloWindow)
+    acs_add_sample(02_HelloSprite)
+    acs_add_sample(03_HelloText)
+    acs_add_sample(04_HelloECS)
+    acs_add_sample(05_HelloSave)
+    acs_add_sample(06_HelloLocalization)
+    acs_add_sample(07_HelloAudio)
+    acs_add_sample(08_HelloPhysics2D)
+    acs_add_sample(09_HelloParticles)
 
     # --- (2) 3D 入門: StandardShader（HLSL を書かない）---
-    add_subdirectory(samples/10_HelloModel)
-    add_subdirectory(samples/11_HelloRaycast3D)
-    add_subdirectory(samples/12_HelloLights)
-    add_subdirectory(samples/13_HelloSky)
-    add_subdirectory(samples/14_HelloShadows)
-    add_subdirectory(samples/15_HelloAnimation)
+    acs_add_sample(10_HelloModel)
+    acs_add_sample(11_HelloRaycast3D)
+    acs_add_sample(12_HelloLights)
+    acs_add_sample(13_HelloSky)
+    acs_add_sample(14_HelloShadows)
+    acs_add_sample(15_HelloAnimation)
 
     # --- (3) 低レベル RHI: HLSL を直接書く発展編 ---
-    add_subdirectory(samples/16_HelloTriangle)
-    add_subdirectory(samples/17_HelloMesh)
-    add_subdirectory(samples/18_HelloTextured)
+    acs_add_sample(16_HelloTriangle)
+    acs_add_sample(17_HelloMesh)
+    acs_add_sample(18_HelloTextured)
 
     # --- (4) UI・ツール・通信 ---
-    add_subdirectory(samples/19_HelloUI)
+    acs_add_sample(19_HelloUI)
     # 20_HelloMVVM / 21_HelloImGui は acs_imgui が DX12 raw backend を直接叩く
     # 実装のため、Diligent 単独ビルドだと ImGui_ImplDX12_Init 等が未解決になる。
     # よって ACS_RENDER_DX12_RAW のときのみビルドする（両方有効ビルドは OK）。
     if(ACS_RENDER_DX12_RAW)
-        add_subdirectory(samples/20_HelloMVVM)
-        add_subdirectory(samples/21_HelloImGui)
+        acs_add_sample(20_HelloMVVM)
+        acs_add_sample(21_HelloImGui)
     endif()
-    add_subdirectory(samples/22_HelloNet)
+    acs_add_sample(22_HelloNet)
 
     # --- (5) 上級グラフィックス ---
-    add_subdirectory(samples/23_HelloPbr)
-    # 24〜26 は Diligent backend 専用（HDR / per-slice RT / cubemap など Diligent
+    acs_add_sample(23_HelloPbr)
+    # 24〜27 は Diligent backend 専用（HDR / per-slice RT / cubemap など Diligent
     # 実装にのみ存在する機能を使う）。diligent-* プリセットでのみビルドされる。
     if(ACS_RENDER_DILIGENT)
-        add_subdirectory(samples/24_HelloBloom)
-        add_subdirectory(samples/25_HelloIbl)
-        add_subdirectory(samples/26_HelloLightmap)
+        acs_add_sample(24_HelloBloom)
+        acs_add_sample(25_HelloIbl)
+        acs_add_sample(26_HelloLightmap)
         # 27 (Phase 35-3d 直後の cinematic demo) も Diligent 専用
         # (HDR + per-slice RT + RefractionShader が Diligent 要)
-        add_subdirectory(samples/27_HelloShowcase)
+        acs_add_sample(27_HelloShowcase)
     endif()
+
+    # --- (6) GameFramework (Phase 1 Pillar A: Scene 切替の最小デモ) ---
+    acs_add_sample(28_HelloGameFramework)
 endif()
 
 # ============================================================================
@@ -162,3 +179,12 @@ else()
     message(STATUS "ACS: clang-tidy が見つからないため acs_lint ターゲットは未登録。")
     message(STATUS "       インストール後 cmake を再 configure すれば有効になる。")
 endif()
+
+# ============================================================================
+# 配布パッケージング (Phase 4 beginner-UX)
+# ----------------------------------------------------------------------------
+# acs_package_game() を呼んだ実行ファイル (samples/00_HelloEasy 等) を
+# `cmake --build <build> --target package` で ZIP 化する。詳細は
+# cmake/ACSPackage.cmake のヘッダコメント。
+# ============================================================================
+acs_enable_packaging()

@@ -63,13 +63,17 @@ public:
     //   motion_texture: Phase 34p。非 null なら temporal pass が動く mesh の反射を
     //                   motion vector で reproject (null なら camera-only depth
     //                   reproject)。MotionVector::OutputTexture() を渡す。
+    //   hiz_texture: Phase 36-3a。非 null なら 1/8 解像度 coarse min-depth として
+    //                ray march の skip-ahead に使う (HiZ::Texture())。null なら
+    //                旧 1 texel/step DDA (動作互換)。空中レイで 4-6 倍高速化。
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color, IRhiTexture& scene_depth,
                 IRhiTexture& normal_gbuffer,
                 const Mat4& view_proj, const Mat4& inv_view_proj,
                 const Mat4& prev_view_proj,
                 Vec3 eye, f32 intensity = 0.6f,
-                IRhiTexture* motion_texture = nullptr) noexcept;
+                IRhiTexture* motion_texture = nullptr,
+                IRhiTexture* hiz_texture    = nullptr) noexcept;
 
     // Phase 34e-3: temporal accumulation 後の history を返す (PbrShader / overlay 用)。
     IRhiTexture* OutputTexture() const noexcept {

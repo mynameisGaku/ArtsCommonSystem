@@ -13,7 +13,7 @@
 //   ・ShadowMap::SetDirectionalLight でライト VP を計算
 //   ・cl->BeginShadowPass / EndShadowPass の使い方
 //   ・StandardShader::SetShadowMap で主パスにシャドウを通知
-//   ・PCF 4-tap でソフトシャドウ風
+//   ・PCSS (Fernando 2005) で物理的に正しいソフトシャドウ
 
 #include "app/Application.h"
 #include "app/EntryPoint.h"
@@ -185,7 +185,7 @@ public:
             _batch.Begin(*cl, sw, sh);
             char buf[160];
             std::snprintf(buf, sizeof(buf),
-                          "シャドウマップ %ux%u  PCF Vogel-16  FPS: %.1f",
+                          "シャドウマップ %ux%u  PCSS 4x4+4x4  FPS: %.1f",
                           _shadow.Size(), _shadow.Size(), static_cast<double>(FPS()));
             _batch.DrawString(_font, buf, 20, 20, Vec4{1, 1, 1, 1});
             _batch.DrawString(_font, "WASD: 移動  矢印: 視点  Space: 太陽回転  Esc: 終了",

@@ -170,23 +170,16 @@ float3 F_Schlick(float VdotH, float3 F0) {
 //
 // 単純な 4-tap PCF にフォールバックしたいときは shadow_params.w に 0 を渡す
 // (filter_radius、デフォルト 1.0 = PCSS、0 = hard 4-tap)
-float ComputeShadow(float3 world_p, float view_z) {
-    float result = 1.0;
-    if (shadow_params.y < 0.5) return result;
-
-    // ---- Cascade selection by view-space z (Phase 34b part 3 CSM) ----
-    // single mode では cascade_splits.xyzw = inf なので常に cascade 0。
-    int cascade = 0;
-    if (view_z > cascade_splits.x) cascade = 1;
-    if (view_z > cascade_splits.y) cascade = 2;
-    if (view_z > cascade_splits.z) cascade = 3;
-
+//
+// 単一 cascade ぶんの PCSS シャドウ係数 (atlas UV へ展開、kernel leak 防止)。
+// 戻り値 1.0 = 完全照明 / 0.0 = 完全遮蔽 / NDC out も 1.0 (cascade 範囲外)。
+float SamplePcssCascade(int cascade, float3 world_p) {
     float4 lp = mul(float4(world_p, 1.0), shadow_view_proj[cascade]);
     float3 ndc = lp.xyz / lp.w;
     if (ndc.x < -1.0 || ndc.x > 1.0 ||
         ndc.y < -1.0 || ndc.y > 1.0 ||
         ndc.z <  0.0 || ndc.z > 1.0) {
-        return result;
+        return 1.0;
     }
 
     // cascade-local UV → atlas UV
@@ -194,17 +187,17 @@ float ComputeShadow(float3 world_p, float view_z) {
     float  scale_x = cascade_uv_scale.x;            // single=1, N-cascade=1/N
     float  ofs_x   = float(cascade) * scale_x;      // atlas X 開始位置
 
-    float my_d = ndc.z;
-    float bias = shadow_params.x;
-    float ts   = shadow_params.z;                   // cascade-local texel size
-    float kFilter = shadow_params.w;                // 0=hard PCF、>0=PCSS
+    float my_d   = ndc.z;
+    float bias   = shadow_params.x;
+    float ts     = shadow_params.z;                 // cascade-local texel size
+    float kFilt  = shadow_params.w;                 // 0=hard PCF、>0=PCSS
 
-    // ---- Blocker search (PCSS Fernando 2005、16 tap、半径 = 4 * texel) ----
-    // offset は cascade-local base UV 空間で計算 → atlas に投影してから sample。
     // atlas_uv.x は cascade 領域 [ofs_x, ofs_x+scale_x] にクランプして
     // 隣接 cascade に kernel が漏れて偽の影/光が混入するのを防ぐ (atlas-boundary PCF leak)。
     // 半 texel の inset で隣接 cascade 0 と完全に分離する。
     const float kHalfTexelInset = ts * 0.5 * scale_x;
+
+    // ---- Blocker search (PCSS Fernando 2005、16 tap、半径 = 4 * texel) ----
     float blocker_sum = 0;
     int   blocker_cnt = 0;
     const int kBlockerN = 4;
@@ -231,7 +224,7 @@ float ComputeShadow(float3 world_p, float view_z) {
     float blocker_avg = blocker_sum / float(blocker_cnt);
     // penumbra ≒ (receiver - blocker) * light_size / blocker (UV 上の太陽径は固定)
     float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
-    float filter_r = max(penumbra * 0.01 * kFilter, ts);
+    float filter_r = max(penumbra * 0.01 * kFilt, ts);
 
     // ---- 4x4 PCF (stratified) で penumbra-sized blur ----
     float lit = 0;
@@ -251,6 +244,49 @@ float ComputeShadow(float3 world_p, float view_z) {
         }
     }
     return lit / float(kPcfN * kPcfN);
+}
+
+// CSM 全体 (cascade 選択 + boundary blending)。
+// Phase 36-2 cascade blending: 各 cascade の末尾 kBlendRatio (=15%) は
+// 次 cascade と線形ブレンドして「カスケード seam」(解像度切替の影段差) を除去。
+// blend 領域では PCSS を 2 回呼ぶので約 2x コスト、それ以外は単発。
+float ComputeShadow(float3 world_p, float view_z) {
+    if (shadow_params.y < 0.5) return 1.0;
+
+    // ---- Cascade selection by view-space z (Phase 34b part 3 CSM) ----
+    // single mode では cascade_splits.xyzw = inf なので常に cascade 0、
+    // ブレンドも next_split=inf で発動しない (= 後方互換)。
+    int cascade = 0;
+    if (view_z > cascade_splits.x) cascade = 1;
+    if (view_z > cascade_splits.y) cascade = 2;
+    if (view_z > cascade_splits.z) cascade = 3;
+
+    float shadow_c = SamplePcssCascade(cascade, world_p);
+
+    // ---- Cascade boundary blending (Phase 36-2) ----
+    // 末尾 cascade (=3 or cascade_splits[c+1]>=1e29) は次が無いので blend しない。
+    float prev_split = (cascade == 0) ? 0.0 :
+                       (cascade == 1) ? cascade_splits.x :
+                       (cascade == 2) ? cascade_splits.y :
+                                        cascade_splits.z;
+    float next_split = (cascade == 0) ? cascade_splits.x :
+                       (cascade == 1) ? cascade_splits.y :
+                       (cascade == 2) ? cascade_splits.z :
+                                        1e30;
+
+    if (next_split < 1e29) {
+        const float kBlendRatio = 0.15;
+        float cascade_range = max(next_split - prev_split, 1e-3);
+        float blend_width   = cascade_range * kBlendRatio;
+        float blend_start   = next_split - blend_width;
+        if (view_z > blend_start) {
+            float t = saturate((view_z - blend_start) / blend_width);
+            float shadow_next = SamplePcssCascade(cascade + 1, world_p);
+            shadow_c = lerp(shadow_c, shadow_next, t);
+        }
+    }
+
+    return shadow_c;
 }
 
 // ddx/ddy 由来の screen-space TBN を使って tangent-space normal を world-space に変換。

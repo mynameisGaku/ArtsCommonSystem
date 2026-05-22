@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar Q Phase 3 — WaterVolume 実装
+//
+// AABB ベースの水域管理 + 浮力計算。slot+generation handle pattern は
+// CollisionWorld2D / TriggerWorld2D と同等。Phase 3 は線形走査 (典型 N ≤ 数十)。
+#include "gameframework/WaterVolume.h"
+
+namespace acs::game {
+
+// ----- 内部ヘルパ -----------------------------------------------------------
+
+// AABB と点の包含判定。center / half_size から min/max を構築して比較。
+// half_size 各成分は非負想定。負値が来ても |.| を取らずに比較に任せる
+// (= 必ず外れる結果になり、利用者の構成ミスとして安全側に倒れる)。
+static bool ContainsPoint(const WaterVolumeInfo& v, Vec2 pos) noexcept {
+    const f32 dx = pos.x - v.center.x;
+    const f32 dy = pos.y - v.center.y;
+    return (dx >= -v.half_size.x) && (dx <= v.half_size.x)
+        && (dy >= -v.half_size.y) && (dy <= v.half_size.y);
+}
+
+// ----- Slot 管理 ------------------------------------------------------------
+
+// index 0 は invalid handle に予約 (CollisionWorld2D と同じ規約)。
+u32 WaterVolume::AcquireSlot() noexcept {
+    for (u32 i = 1; i < _slots.Size(); ++i) {
+        if (!_slots[i].active) return i;
+    }
+    if (_slots.IsEmpty()) {
+        _slots.PushBack({});   // dummy at index 0
+    }
+    _slots.PushBack({});
+    return static_cast<u32>(_slots.Size()) - 1u;
+}
+
+// ----- パブリック API -------------------------------------------------------
+
+WaterVolumeId WaterVolume::AddVolume(const WaterVolumeInfo& info) noexcept {
+    const u32 idx = AcquireSlot();
+    Slot& s = _slots[idx];
+    s.info   = info;
+    s.gen    = static_cast<u8>(s.gen + 1u);
+    if (s.gen == 0) s.gen = 1;     // 0 を予約値として避ける (Add 時の安全弁)
+    s.active = true;
+    ++_volume_count;
+    _cache_dirty = true;
+    return WaterVolumeId{idx, s.gen};
+}
+
+void WaterVolume::RemoveVolume(WaterVolumeId id) noexcept {
+    if (!id.IsValid() || id.Index() >= _slots.Size()) return;
+    Slot& s = _slots[id.Index()];
+    if (!s.active || s.gen != id.Generation()) return;
+    s.active = false;
+    if (_volume_count > 0) --_volume_count;
+    _cache_dirty = true;
+}
+
+void WaterVolume::UpdateVolume(WaterVolumeId id, Vec2 center, Vec2 half_size) noexcept {
+    if (!id.IsValid() || id.Index() >= _slots.Size()) return;
+    Slot& s = _slots[id.Index()];
+    if (!s.active || s.gen != id.Generation()) return;
+    s.info.center    = center;
+    s.info.half_size = half_size;
+    // surface_y / buoyancy_strength / drag / water_color は info から不変。
+    // 水面位置を変えたい時は Remove → Add で。
+    _cache_dirty = true;
+}
+
+bool WaterVolume::IsUnderwater(Vec2 pos) const noexcept {
+    // index 0 は invalid 予約なので 1 から走査。
+    for (u32 i = 1; i < _slots.Size(); ++i) {
+        const Slot& s = _slots[i];
+        if (!s.active) continue;
+        if (ContainsPoint(s.info, pos)) return true;
+    }
+    return false;
+}
+
+f32 WaterVolume::SubmersionDepth(Vec2 pos) const noexcept {
+    for (u32 i = 1; i < _slots.Size(); ++i) {
+        const Slot& s = _slots[i];
+        if (!s.active) continue;
+        if (!ContainsPoint(s.info, pos)) continue;
+        const f32 depth = s.info.surface_y - pos.y;
+        // depth が負 (pos が surface_y より上) の場合は 0 にクランプ。
+        // AABB 内だが「水面より上」の異常な surface_y 設定でも 0 を返して
+        // 利用側の浮力計算が暴走しないようにする。
+        return depth > 0.0f ? depth : 0.0f;
+    }
+    return 0.0f;
+}
+
+Vec2 WaterVolume::ComputeBuoyancyForce(Vec2 pos, Vec2 velocity, f32 mass) const noexcept {
+    // 全 volume の寄与を加算。重なる volume があれば力も重畳。
+    f32  total_depth_strength = 0.0f;  // Σ (buoyancy_strength * depth) を蓄積
+    f32  total_drag           = 0.0f;  // Σ drag を蓄積
+    bool in_water             = false;
+
+    for (u32 i = 1; i < _slots.Size(); ++i) {
+        const Slot& s = _slots[i];
+        if (!s.active) continue;
+        if (!ContainsPoint(s.info, pos)) continue;
+
+        in_water = true;
+
+        f32 depth = s.info.surface_y - pos.y;
+        if (depth < 0.0f) depth = 0.0f;
+
+        total_depth_strength += s.info.buoyancy_strength * depth;
+        total_drag           += s.info.drag;
+    }
+
+    if (!in_water) return Vec2{0.0f, 0.0f};
+
+    // 浮力 = (0, +Σ(strength * depth) * mass)
+    // drag = -velocity * Σ(drag)
+    const f32 fy = total_depth_strength * mass;
+    return Vec2{
+        -velocity.x * total_drag,
+        fy - velocity.y * total_drag,
+    };
+}
+
+const WaterVolumeInfo* WaterVolume::AllVolumes(u32& out_count) const noexcept {
+    RebuildPackedCacheIfNeeded();
+    out_count = static_cast<u32>(_packed_cache.Size());
+    return out_count > 0 ? _packed_cache.Data() : nullptr;
+}
+
+void WaterVolume::ClearAll() noexcept {
+    _slots.Clear();
+    _packed_cache.Clear();
+    _volume_count = 0;
+    _cache_dirty  = false;   // 空状態は dirty 不要
+}
+
+// ----- private キャッシュ --------------------------------------------------
+
+void WaterVolume::RebuildPackedCacheIfNeeded() const noexcept {
+    if (!_cache_dirty) return;
+    _packed_cache.Clear();
+    for (u32 i = 1; i < _slots.Size(); ++i) {
+        const Slot& s = _slots[i];
+        if (s.active) _packed_cache.PushBack(s.info);
+    }
+    _cache_dirty = false;
+}
+
+} // namespace acs::game

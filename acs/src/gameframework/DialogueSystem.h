@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework 完成度システム v7 — DialogueSystem
+//
+// シナリオ / NPC 会話 / イベントシーンで使うダイアログ駆動 state holder。
+// 1 行ずつテキストを送り出し、タイプライタ演出と分岐選択肢を扱う。
+// 描画 / 入力 / 音声には触らず、「今どの行が」「何文字まで見えていて」
+// 「選択肢を提示中か」を保持するだけ。実描画は caller (UI 層) の責任。
+//
+// 役割:
+//   ・行コレクションの保持 (AddLine で順次追加)
+//   ・分岐選択肢の登録 (AddChoices: 特定 line 直後に提示する選択肢群)
+//   ・タイプライタ演出 (cps = chars per second, Tick で _visible_chars 増)
+//   ・auto-advance: line に紐づく choices が無く、_auto_advance_delay > 0 の
+//     ときは「タイプ完了 + 一定秒経過」で勝手に次行へ進む
+//   ・分岐選択 (ChooseOption: choices[i].next_line_index にジャンプ)
+//
+// 設計選択:
+//   ・**文字列を所有しない**: DialogueLine::text は const char* で参照のみ持つ。
+//     scenario データは literal / バンドル等で別に管理する想定 (STL <string> 禁止)。
+//   ・**type_speed_cps <= 0 は瞬時表示**: 計算分岐を 1 ヶ所に集約。
+//   ・**choices は別 Array**: ChoicesAt は (line_index, choice_start, choice_count)
+//     のみ持ち、実選択肢は `_all_choices` から slice する。挿入順に並ぶ前提で
+//     線形検索 (典型シナリオで N < 数百なので問題なし)。
+//   ・**auto-advance は per-line ではなく system 共通の delay**: 仕様簡素化。
+//     選択肢が登録されている line では auto-advance 抑止。
+//   ・**非コピー・非ムーブ**: state holder の唯一性 (現在行 / タイプ進行) を
+//     担保するため。
+//
+// 参考: SpriteAnimator (frame-based progression), Sequence (action 連鎖)
+#pragma once
+
+#include "foundation/Types.h"
+#include "container/Array.h"
+
+namespace acs::game {
+
+// 1 行のダイアログ。文字列は所有しない (literal / 外部バンドル参照)。
+struct DialogueLine {
+    const char* speaker        = nullptr;  // 発話者名 (nullptr 可)
+    const char* text           = nullptr;  // 本文 (nullptr は空行扱い)
+    f32         type_speed_cps = 30.0f;    // タイプ速度 (chars per second)、<=0 で瞬時
+};
+
+// 選択肢 1 つ。next_line_index が範囲外 (= line 数以上) ならダイアログ終了。
+struct DialogueChoice {
+    const char* text            = nullptr;
+    u32         next_line_index = 0xFFFFFFFFu;  // 範囲外で「終了」を表現
+};
+
+class DialogueSystem {
+public:
+    DialogueSystem() noexcept = default;
+    ~DialogueSystem() noexcept = default;
+
+    // 進行状態の唯一性を担保するため非コピー・非ムーブ
+    DialogueSystem(const DialogueSystem&)            = delete;
+    DialogueSystem& operator=(const DialogueSystem&) = delete;
+    DialogueSystem(DialogueSystem&&)                 = delete;
+    DialogueSystem& operator=(DialogueSystem&&)      = delete;
+
+    // ----- セットアップ -----
+    // 行を末尾に追加。挿入順に再生される。
+    void AddLine(const DialogueLine& line) noexcept;
+
+    // at_line_index 番の行が表示完了したあとに提示する選択肢群を登録。
+    // 同じ line に複数回 AddChoices すると 2 回目以降は無視 (= 上書き禁止)。
+    // count == 0 / choices == nullptr / at_line_index 範囲外 は no-op。
+    void AddChoices(u32 at_line_index,
+                    const DialogueChoice* choices, u32 count) noexcept;
+
+    // ----- 再生制御 -----
+    // 先頭行から再生開始。lines が空なら no-op (= IsActive() は false のまま)。
+    void Start() noexcept;
+
+    // 次の行へ。タイプが完了していて、かつ choices が pending でないときのみ進む。
+    // 末尾行で呼ぶと _completed = true / _active = false に遷移。
+    void AdvanceLine() noexcept;
+
+    // 現在行を即座に全文表示 (タイプ中なら強制完了)。
+    void SkipTypewriter() noexcept;
+
+    // 分岐選択を確定。choice_index は ChoiceCount() 未満必須、範囲外は no-op。
+    // 確定後、選択肢の next_line_index にジャンプする (範囲外なら終了)。
+    void ChooseOption(u32 choice_index) noexcept;
+
+    // ダイアログ全体をリセット (登録済み line / choices も破棄)。
+    void Reset() noexcept;
+
+    // ----- 進行確認 -----
+    bool IsActive()    const noexcept { return _active; }
+    bool IsCompleted() const noexcept { return _completed; }
+    // 「タイプが完了し」「選択肢が登録されていて」「まだ選択されていない」状態
+    bool HasChoicesPending() const noexcept;
+    // タイプライタが進行中か (= _visible_chars < 全長)
+    bool IsTyping() const noexcept { return _active && _typing; }
+
+    // ----- 現在状態のアクセサ -----
+    // 非アクティブ時は nullptr。
+    const DialogueLine* CurrentLine() const noexcept;
+
+    // タイプライタで現在見えている文字数 (text の先頭から)。
+    u32 VisibleCharCount() const noexcept { return _visible_chars; }
+
+    // pending な選択肢の本数 / 配列ポインタ。pending でなければ 0 / nullptr。
+    u32                   ChoiceCount() const noexcept;
+    const DialogueChoice* Choices()     const noexcept;
+
+    // ----- フレーム更新 -----
+    // dt 秒進める。タイプライタ進行 / auto-advance を行う。
+    // dt <= 0 や非アクティブ時は no-op。
+    void Tick(f32 dt) noexcept;
+
+    // auto-advance を有効化したいときに呼ぶ。delay <= 0 で無効化 (= 既定)。
+    // 選択肢が pending な line では発火しない。
+    void SetAutoAdvanceDelay(f32 delay_sec) noexcept;
+    f32  AutoAdvanceDelay() const noexcept { return _auto_advance_delay; }
+
+private:
+    // 「line_index 直後に提示する選択肢」の範囲記録
+    struct ChoicesAt {
+        u32 line_index   = 0;
+        u32 choice_start = 0;
+        u32 choice_count = 0;
+    };
+
+    // _current_line_index に対応する ChoicesAt を返す (なければ nullptr)。
+    const ChoicesAt* FindChoicesForCurrent() const noexcept;
+
+    // 現在行の全文字数 (text == nullptr のときは 0)。
+    u32 CurrentLineLength() const noexcept;
+
+    // current_line が変わったときの初期化 (visible_chars=0, typing=true 等)。
+    // 末尾を超えていれば _completed=true、_active=false にする。
+    void EnterLine(u32 new_index) noexcept;
+
+    Array<DialogueLine>   _lines;
+    Array<ChoicesAt>      _choices_at;     // line_index 昇順想定 (線形検索)
+    Array<DialogueChoice> _all_choices;    // 全 choice をフラットに保持
+
+    u32  _current_line_index = 0;
+    u32  _visible_chars      = 0;
+    f32  _char_accum         = 0.0f;       // 累積 char 単位 (整数化されて _visible_chars 化)
+    f32  _post_type_elapsed  = 0.0f;       // タイプ完了後の経過 (auto-advance 用)
+
+    f32  _auto_advance_delay = 0.0f;       // <= 0 で無効
+
+    bool _active             = false;
+    bool _completed          = false;
+    bool _typing             = false;
+    // 選択肢が pending なときに choice_consumed=false。ChooseOption で true 化。
+    bool _choices_consumed   = true;
+};
+
+} // namespace acs::game

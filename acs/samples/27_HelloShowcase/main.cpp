@@ -36,6 +36,7 @@
 #include "render/Blit.h"
 #include "render/Ssr.h"
 #include "render/Ssao.h"
+#include "render/HiZ.h"
 #include "render/MotionVector.h"
 #include "render/PostProcess.h"
 #include "render/RenderAssets.h"
@@ -129,6 +130,8 @@ public:
 
         // SSR (env reflection composite via PbrShader、Phase 34e-2fix)
         ACS_SAMPLE_INIT(_ssr.Init(*dev, _post.HdrFormat(), sw, sh));
+        // Hi-Z coarse min-depth (Phase 36-3a) — SSR の skip-ahead 用 1/8 解像度
+        ACS_SAMPLE_INIT(_hiz.Init(*dev, sw, sh));
         // GTAO (Phase 34j-6) — indirect/ambient AO
         ACS_SAMPLE_INIT(_ssao.Init(*dev, sw, sh));
         // Motion vector — TAA / SSR temporal の object motion 用
@@ -386,11 +389,14 @@ public:
 
         // ============ SSR pass ('R' で toggle) ============
         if (_show_ssr) {
+            // Hi-Z (Phase 36-3a): SSR の skip-ahead 用 coarse min-depth を depth から焼く
+            _hiz.Build(*dev, *cl, *depth);
             const Mat4& ssr_prev_vp = _prev_vp_valid ? _prev_vp_no_jitter : vp_no_jitter;
             _ssr.Render(*dev, *cl, *hdr, *depth,
                         *_motion.OutputNormalTexture(),
                         vp_for_render, inv_vp, ssr_prev_vp,
-                        _cam_pos, /*intensity=*/0.7f, motion_tex);
+                        _cam_pos, /*intensity=*/0.7f, motion_tex,
+                        _hiz.Texture());
             _ssr_warm = true;
         }
 
@@ -458,6 +464,7 @@ public:
         _ssr.Shutdown();
         _gm_floor  = GpuMesh{};
         _gm_sphere = GpuMesh{};
+        _hiz.Shutdown();
         _pbr.Shutdown();
         _ibl.Shutdown();
         _sky.Shutdown();
@@ -471,6 +478,7 @@ private:
     PbrShader          _pbr;
     Ssr                _ssr;
     Ssao               _ssao;
+    HiZ                _hiz;            // Phase 36-3a: SSR の skip-ahead 用 coarse min-depth
     MotionVector       _motion;
     RefractionShader   _refr;
     Blit               _blit;

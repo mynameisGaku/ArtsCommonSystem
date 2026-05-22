@@ -18,14 +18,19 @@ cbuffer SsrCB : register(b0) {
     float4   params;          // x=intensity, y=max_ray_dist, z=frame_jitter, w=thickness_world
     float4x4 prev_view_proj;  // raw march では未使用 (CB layout 整合のため宣言)
     float4   temporal_params; // x=1/width, y=1/height, z=blend
+    // Phase 36-3a Hi-Z: ray march の skip-ahead
+    // x=enabled (0/1), y=block_size (=8), z=1/hiz_w, w=1/hiz_h
+    float4   hiz_params;
 };
 
 Texture2D    scene_color    : register(t0);
 Texture2D    scene_depth    : register(t1);
 Texture2D    normal_gbuffer : register(t2);   // world-space normal (Phase 34m)
+Texture2D    hiz_min        : register(t3);   // Phase 36-3a 1/8 coarse min-depth
 SamplerState scene_color_sampler    : register(s0);
 SamplerState scene_depth_sampler    : register(s1);
 SamplerState normal_gbuffer_sampler : register(s2);
+SamplerState hiz_min_sampler        : register(s3);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -109,6 +114,30 @@ float4 PSMain(VSOut v) : SV_TARGET {
     bool   hit = false;
     [loop]
     for (float i = 0.0; i < marchMax; i += 1.0) {
+        // ===== Phase 36-3a Hi-Z skip-ahead =====
+        // 1/8 解像度の "min depth" を読み、ray.z がそれより手前 (= ブロック内の
+        // 全 surface より手前) なら、ray.z が min に追いつくまで複数 texel を
+        // 一気に飛ばす。ブロック越境を防ぐため 1 ブロック分 (=8 texel) を上限と
+        // し、ブロック境界以降は次イテレーションで再 sample する。
+        if (hiz_params.x >= 0.5 && i > 0.0 && dzStep > 1.0e-6) {
+            float2 hiz_uv = p / res;
+            if (hiz_uv.x >= 0.0 && hiz_uv.x <= 1.0 &&
+                hiz_uv.y >= 0.0 && hiz_uv.y <= 1.0) {
+                float coarse_min = hiz_min.SampleLevel(hiz_min_sampler, hiz_uv, 0).r;
+                if (coarse_min > 0.0 && z + dzStep < coarse_min) {
+                    float skip = floor((coarse_min - z) / dzStep);
+                    // 1 ブロック内に留まる (= 8 - 1 = 7 texel まで) で安全
+                    skip = clamp(skip, 0.0, hiz_params.y - 1.0);
+                    if (skip > 0.0) {
+                        p += dpStep * skip;
+                        z += dzStep * skip;
+                        i += skip;
+                        if (i >= marchMax) break;
+                    }
+                }
+            }
+        }
+
         float z_prev = z;
         p += dpStep;
         z += dzStep;
@@ -246,6 +275,7 @@ struct SsrCBLayout {
     Vec4 params;
     Mat4 prev_view_proj;     // Phase 34e-3: temporal reproject 用
     Vec4 temporal_params;    // Phase 34e-3: x=texel_w, y=texel_h, z=blend_factor
+    Vec4 hiz_params;         // Phase 36-3a: x=enabled, y=block_size, z/w=1/hiz_size (raw shader のみ参照)
 };
 
 template<typename T>
@@ -323,12 +353,13 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     pd.cull_mode     = CullMode::None;
     pd.blend_mode    = BlendMode::Opaque;
     pd.cbuffer_slots = 1;
-    pd.texture_slots = 3;
+    pd.texture_slots = 4;
     pd.cbuffer_names[0] = "SsrCB";
     pd.texture_names[0] = "scene_color";
     pd.texture_names[1] = "scene_depth";
     pd.texture_names[2] = "normal_gbuffer";
-    pd.static_sampler_count = 3;
+    pd.texture_names[3] = "hiz_min";
+    pd.static_sampler_count = 4;
     pd.static_samplers[0].filter    = SamplerFilter::Linear;
     pd.static_samplers[0].address_u = SamplerAddress::Clamp;
     pd.static_samplers[0].address_v = SamplerAddress::Clamp;
@@ -339,6 +370,10 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     pd.static_samplers[2].filter    = SamplerFilter::Point;
     pd.static_samplers[2].address_u = SamplerAddress::Clamp;
     pd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    // Hi-Z は Point sample (8x8 ブロック境界をまたぐ補間で false skip を防ぐ)
+    pd.static_samplers[3].filter    = SamplerFilter::Point;
+    pd.static_samplers[3].address_u = SamplerAddress::Clamp;
+    pd.static_samplers[3].address_v = SamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -414,7 +449,8 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   const Mat4& view_proj, const Mat4& inv_view_proj,
                   const Mat4& prev_view_proj,
                   Vec3 eye, f32 intensity,
-                  IRhiTexture* motion_texture) noexcept {
+                  IRhiTexture* motion_texture,
+                  IRhiTexture* hiz_texture) noexcept {
     if (!_output || !_history[0] || !_history[1] ||
         !_pipeline || !_temporal_pipeline || !_cb) return;
 
@@ -423,6 +459,16 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     const u32 jf     = _temporal_frame & 1023u;
     const f32 jt     = static_cast<f32>(jf) * 0.61803399f;
     const f32 jitter = jt - static_cast<f32>(static_cast<u32>(jt));
+
+    // Hi-Z params (Phase 36-3a)
+    f32 hiz_enabled = hiz_texture ? 1.0f : 0.0f;
+    f32 hiz_inv_w = 0.0f, hiz_inv_h = 0.0f;
+    if (hiz_texture) {
+        const u32 hw = hiz_texture->Width();
+        const u32 hh = hiz_texture->Height();
+        if (hw > 0) hiz_inv_w = 1.0f / static_cast<f32>(hw);
+        if (hh > 0) hiz_inv_h = 1.0f / static_cast<f32>(hh);
+    }
 
     SsrCBLayout data{};
     data.view_proj      = view_proj;
@@ -434,6 +480,7 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                                  1.0f / static_cast<f32>(_height),
                                  /*blend=*/0.1f,
                                  /*motion_mode=*/motion_texture ? 1.0f : 0.0f };
+    data.hiz_params     = Vec4{hiz_enabled, /*block_size=*/8.0f, hiz_inv_w, hiz_inv_h};
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: raw SSR (jitter 付き march) → _output
@@ -443,6 +490,8 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetTexture(0, scene_color);
     cl.SetTexture(1, scene_depth);
     cl.SetTexture(2, normal_gbuffer);
+    // Hi-Z slot t3: null fallback は scene_depth (enabled=0 で読まれない)
+    cl.SetTexture(3, hiz_texture ? *hiz_texture : scene_depth);
     cl.Draw(3);
     cl.EndRenderToTexture(*_output);
 
