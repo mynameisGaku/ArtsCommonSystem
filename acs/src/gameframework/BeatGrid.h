@@ -17,9 +17,9 @@
 //           _grid.SetOnEndCallback (&RhythmScene::OnEnd,   this);
 //
 //           acs::game::BeatNote notes[] = {
-//               { 1.000f, acs::game::BeatLane::Left,  false, 0.0f },
-//               { 1.500f, acs::game::BeatLane::Down,  false, 0.0f },
-//               { 2.000f, acs::game::BeatLane::Up,    true,  0.5f },
+//               { 1.000f, acs::game::EBeatLane::Left,  false, 0.0f },
+//               { 1.500f, acs::game::EBeatLane::Down,  false, 0.0f },
+//               { 2.000f, acs::game::EBeatLane::Up,    true,  0.5f },
 //           };
 //           _grid.LoadChart(notes, 3, 120.0f);
 //           _grid.Start();
@@ -27,11 +27,11 @@
 //       void OnUpdate(f32 dt) noexcept override { _grid.Tick(dt); }
 //       void OnInput() noexcept {
 //           if (key_left_pressed)
-//               (void)_grid.Tap(acs::game::BeatLane::Left);
+//               (void)_grid.Tap(acs::game::EBeatLane::Left);
 //       }
 //
-//       static void OnJudge(void* self, acs::game::BeatLane lane,
-//                           acs::game::Judgement j, u32 combo) noexcept { ... }
+//       static void OnJudge(void* self, acs::game::EBeatLane lane,
+//                           acs::game::EJudgement j, u32 combo) noexcept { ... }
 //       static void OnEnd  (void* self, u32 hits, u32 misses, f32 acc) noexcept { ... }
 //   };
 //
@@ -42,7 +42,7 @@
 //     |delta| <= perfect_ms → Perfect
 //     |delta| <= great_ms   → Great
 //     |delta| <= good_ms    → Good
-//     それ以外 → 該当 note なし扱い (戻り値 Judgement::Miss を返すが内部統計は
+//     それ以外 → 該当 note なし扱い (戻り値 EJudgement::Miss を返すが内部統計は
 //                                     更新しない、note 自体は未消化のまま)。
 //   ・**hold note**: is_hold==true は「押し続ける」note だが本 Phase では
 //     先頭の Tap を通常 note と同じく判定し、hold_duration_sec は情報として
@@ -71,7 +71,7 @@ namespace acs::game {
 
 // 入力レーン。4 ボタン (DDR / 太鼓系) + 拡張 2 ボタン (太鼓のドン / カッ、
 // あるいは特殊ボタン)。値は安定 (save / replay 互換のため末尾追加のみ)。
-enum class BeatLane : u8 {
+enum class EBeatLane : u8 {
     Left    = 0,
     Down    = 1,
     Up      = 2,
@@ -82,7 +82,7 @@ enum class BeatLane : u8 {
 constexpr u32 kBeatLaneCount = 6u;
 
 // 判定結果。値が小さいほど良い (Perfect=0)。
-enum class Judgement : u8 {
+enum class EJudgement : u8 {
     Perfect = 0,
     Great   = 1,
     Good    = 2,
@@ -92,7 +92,7 @@ enum class Judgement : u8 {
 // 譜面上の 1 note。time_sec は楽曲頭からの絶対秒。
 struct BeatNote {
     f32      time_sec          = 0.0f;
-    BeatLane lane              = BeatLane::Left;
+    EBeatLane lane              = EBeatLane::Left;
     bool     is_hold           = false;
     f32      hold_duration_sec = 0.0f;
 };
@@ -102,7 +102,7 @@ struct BeatNote {
 // lane : 判定対象 note の lane (Miss 時は元 note の lane)。
 // j    : 判定結果。
 // combo: 判定後の current_combo (Miss 後は 0)。
-using JudgeCallback = void(*)(void* user, BeatLane lane, Judgement j, u32 combo) noexcept;
+using JudgeCallback = void(*)(void* user, EBeatLane lane, EJudgement j, u32 combo) noexcept;
 
 // 譜面終了 callback。全 note 判定完了の次 Tick で 1 度だけ発火。
 // user    : SetOnEndCallback で渡した不透明ポインタ。
@@ -153,11 +153,11 @@ public:
 
     // ----- 入力判定 -----
     // lane の最近 note (judged=false) と current_time の差分から判定。
-    // 該当 note (= |delta| <= good_window) が無ければ Judgement::Miss を返すが
+    // 該当 note (= |delta| <= good_window) が無ければ EJudgement::Miss を返すが
     // 統計 / コンボには影響を与えない (= caller への通知のみ)。
     // 該当 note があれば judged=true を立て、統計 / コンボを更新、判定 callback
     // を発火する。
-    Judgement Tap(BeatLane lane) noexcept;
+    EJudgement Tap(EBeatLane lane) noexcept;
 
     // 毎フレーム呼ぶ。dt <= 0 は無視。
     // current_time を進め、good_window を過ぎて未判定の note を Miss として
@@ -187,13 +187,13 @@ public:
 private:
     // 最近 note 探索: 同一 lane / judged=false の中で |time-current| が最小の
     // index を返す。該当なしなら _notes.Size() を返す (= npos)。
-    usize FindNearestNote(BeatLane lane) const noexcept;
+    usize FindNearestNote(EBeatLane lane) const noexcept;
     // ms 値を sec に変換 (= ms * 0.001)。負値は 0 にクランプ。
     static f32 MsToSec(f32 ms) noexcept;
-    // |delta_sec| から Judgement を決める。good_window より外なら Miss。
-    Judgement ClassifyDelta(f32 abs_delta_sec) const noexcept;
+    // |delta_sec| から EJudgement を決める。good_window より外なら Miss。
+    EJudgement ClassifyDelta(f32 abs_delta_sec) const noexcept;
     // 判定確定処理: stats / combo / callback 発火を一括で行う。
-    void ApplyJudgement(BeatLane lane, Judgement j) noexcept;
+    void ApplyJudgement(EBeatLane lane, EJudgement j) noexcept;
 
     // ----- 譜面 -----
     Array<BeatNote> _notes;

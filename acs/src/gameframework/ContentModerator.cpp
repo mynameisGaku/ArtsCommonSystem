@@ -96,8 +96,8 @@ ModerationResult ClassifyText(const char* text) noexcept {
     ModerationResult r{};
     if (text == nullptr || text[0] == '\0') {
         // 空文字は Allow (= 上位層で長さチェックする責務)。
-        r.verdict = ModerationVerdict::Allow;
-        r.rating  = ContentRating::Safe;
+        r.verdict = EModerationVerdict::Allow;
+        r.rating  = EContentRating::Safe;
         r.reason  = nullptr;
         return r;
     }
@@ -105,8 +105,8 @@ ModerationResult ClassifyText(const char* text) noexcept {
     // ---- (1) ハードコード Block: SexualMinor 関連 keyword -----------------
     for (u64 i = 0; i < kHardcodedBlockWordCount; ++i) {
         if (ContainsCaseInsensitive(text, kHardcodedBlockWords[i])) {
-            r.verdict = ModerationVerdict::Block;
-            r.rating  = ContentRating::SexualMinor_HardcodedBlock;
+            r.verdict = EModerationVerdict::Block;
+            r.rating  = EContentRating::SexualMinor_HardcodedBlock;
             r.reason  = "hardcoded block: sexual content involving minors";
             return r;
         }
@@ -115,16 +115,16 @@ ModerationResult ClassifyText(const char* text) noexcept {
     // ---- (2) 一般 NG ワード -------------------------------------------------
     for (u64 i = 0; i < kBlockedWordCount; ++i) {
         if (ContainsCaseInsensitive(text, kBlockedWords[i])) {
-            r.verdict = ModerationVerdict::Block;
-            r.rating  = ContentRating::Mature;
+            r.verdict = EModerationVerdict::Block;
+            r.rating  = EContentRating::Mature;
             r.reason  = "blocked: contains prohibited word";
             return r;
         }
     }
 
     // ---- (3) Allow ----------------------------------------------------------
-    r.verdict = ModerationVerdict::Allow;
-    r.rating  = ContentRating::Safe;
+    r.verdict = EModerationVerdict::Allow;
+    r.rating  = EContentRating::Safe;
     r.reason  = nullptr;
     return r;
 }
@@ -151,8 +151,8 @@ Result<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_id
     // 現状は全部 Allow で素通し。実装後は kHardcodedBlockWords と同等の二段判定
     // (= SexualMinor 検出時はハードコード Block) を画像側にも適用すること。
     ModerationResult r{};
-    r.verdict = ModerationVerdict::Allow;
-    r.rating  = ContentRating::Safe;
+    r.verdict = EModerationVerdict::Allow;
+    r.rating  = EContentRating::Safe;
     r.reason  = nullptr;
     return r;
 }

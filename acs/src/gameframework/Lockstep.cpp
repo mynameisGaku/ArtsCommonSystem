@@ -61,7 +61,7 @@ inline u32 BitsOf(f32 v) noexcept {
 
 } // namespace
 
-void Lockstep::Init(NetMode mode, u32 tick_rate_hz) noexcept {
+void Lockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
     _mode          = mode;
     // tick_rate_hz == 0 は意味を成さないので最低 1 に丸める。0 除算防止。
     _tick_rate_hz  = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
@@ -73,7 +73,7 @@ void Lockstep::Init(NetMode mode, u32 tick_rate_hz) noexcept {
 
 void Lockstep::RecordInput(const InputFrame& frame) noexcept {
     // Replay モード中は記録しない (上書きを防ぐ)。
-    if (_mode == NetMode::Replay) {
+    if (_mode == ENetMode::Replay) {
         return;
     }
     _frames.PushBack(frame);
@@ -84,7 +84,7 @@ void Lockstep::RecordInput(const InputFrame& frame) noexcept {
 }
 
 void Lockstep::StartReplay() noexcept {
-    _mode          = NetMode::Replay;
+    _mode          = ENetMode::Replay;
     _replay_cursor = 0;
     _current_tick  = 0;
     // _frames はそのまま。Local で記録した内容を頭から再生する。
@@ -92,7 +92,7 @@ void Lockstep::StartReplay() noexcept {
 
 bool Lockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept {
     // Replay モード以外では取り出しを禁止する (誤用検知)。
-    if (_mode != NetMode::Replay) {
+    if (_mode != ENetMode::Replay) {
         return false;
     }
     const usize n = _frames.Size();

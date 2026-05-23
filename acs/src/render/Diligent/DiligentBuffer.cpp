@@ -17,19 +17,19 @@ DiligentBuffer::~DiligentBuffer() noexcept {
 }
 
 namespace {
-Diligent::BIND_FLAGS BindFromUsage(BufferUsage u) noexcept {
+Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
     switch (u) {
-        case BufferUsage::Vertex:   return Diligent::BIND_VERTEX_BUFFER;
-        case BufferUsage::Index16:  return Diligent::BIND_INDEX_BUFFER;
-        case BufferUsage::Index32:  return Diligent::BIND_INDEX_BUFFER;
-        case BufferUsage::Uniform:  return Diligent::BIND_UNIFORM_BUFFER;
+        case EBufferUsage::Vertex:   return Diligent::BIND_VERTEX_BUFFER;
+        case EBufferUsage::Index16:  return Diligent::BIND_INDEX_BUFFER;
+        case EBufferUsage::Index32:  return Diligent::BIND_INDEX_BUFFER;
+        case EBufferUsage::Uniform:  return Diligent::BIND_UNIFORM_BUFFER;
         // structured buffer: compute / pixel shader で SRV としても UAV と
         // しても使えるように両 bind flag を立てる。Diligent の state tracker
         // が SRV ↔ UAV 遷移を自動で扱ってくれる。
-        case BufferUsage::Storage:  return static_cast<Diligent::BIND_FLAGS>(
+        case EBufferUsage::Storage:  return static_cast<Diligent::BIND_FLAGS>(
                                        Diligent::BIND_UNORDERED_ACCESS |
                                        Diligent::BIND_SHADER_RESOURCE);
-        case BufferUsage::Staging:  return Diligent::BIND_NONE;
+        case EBufferUsage::Staging:  return Diligent::BIND_NONE;
     }
     return Diligent::BIND_NONE;
 }
@@ -48,7 +48,7 @@ Result<void> DiligentBuffer::Init(DiligentDevice& device, const BufferDesc& desc
     bd.Size      = static_cast<Diligent::Uint64>(desc.size);
     bd.BindFlags = BindFromUsage(desc.usage);
 
-    if (desc.usage == BufferUsage::Staging) {
+    if (desc.usage == EBufferUsage::Staging) {
         // CPU 読み戻し用
         bd.Usage          = Diligent::USAGE_STAGING;
         bd.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
@@ -94,7 +94,7 @@ void DiligentBuffer::Update(const void* data, usize size, usize offset) noexcept
     if (!ctx) return;
 
     // USAGE_DEFAULT は UpdateBuffer、USAGE_STAGING は Map で書く
-    if (_usage == BufferUsage::Staging) {
+    if (_usage == EBufferUsage::Staging) {
         void* p = nullptr;
         ctx->MapBuffer(_buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, p);
         if (p) {

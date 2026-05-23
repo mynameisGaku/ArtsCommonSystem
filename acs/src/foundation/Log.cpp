@@ -17,7 +17,7 @@ constexpr u32 kMessageMax = 480;  // 1 メッセージ最大長
 // セル: ログレコードを保持する固定サイズスロット（64B 整列でフォルスシェアリング回避）
 struct alignas(64) Cell {
     volatile LONG64 sequence;       // CAS 調停用シーケンス番号
-    LogSeverity     severity;
+    ELogSeverity     severity;
     u8              _pad0[7];
     SourceLoc       loc;
     DWORD           thread_id;
@@ -39,7 +39,7 @@ struct LoggerState {
     ACS_CACHELINE_ALIGN volatile LONG64 dropped     = 0;
 
     // ホットパスの severity ゲートも別ラインに
-    ACS_CACHELINE_ALIGN volatile LONG min_severity = static_cast<LONG>(LogSeverity::Info);
+    ACS_CACHELINE_ALIGN volatile LONG min_severity = static_cast<LONG>(ELogSeverity::Info);
 
     HANDLE              writer_thread     = nullptr;
     volatile LONG       running           = 0;
@@ -267,11 +267,11 @@ void Logger::Flush() noexcept {
     if (g_state.out_file != INVALID_HANDLE_VALUE) ::FlushFileBuffers(g_state.out_file);
 }
 
-void Logger::SetMinSeverity(LogSeverity s) noexcept {
+void Logger::SetMinSeverity(ELogSeverity s) noexcept {
     ::_InterlockedExchange(&g_state.min_severity, static_cast<LONG>(s));
 }
 
-bool Logger::Enabled(LogSeverity s) noexcept {
+bool Logger::Enabled(ELogSeverity s) noexcept {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return false;
     return static_cast<LONG>(s) >= ::_InterlockedExchangeAdd(&g_state.min_severity, 0);
 }
@@ -281,7 +281,7 @@ u64 Logger::DroppedCount() noexcept {
 }
 
 // プロデューサ実体（Vyukov 風 CAS でセル予約 → 書き込み → release 公開）
-void Logger::Write(LogSeverity sev, SourceLoc loc, const char* fmt, ...) noexcept {
+void Logger::Write(ELogSeverity sev, SourceLoc loc, const char* fmt, ...) noexcept {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
     if (static_cast<LONG>(sev) < ::_InterlockedExchangeAdd(&g_state.min_severity, 0)) return;
 

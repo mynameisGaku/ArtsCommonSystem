@@ -11,7 +11,7 @@
 //   HealthId enemy  = hp.Spawn(50.0f);
 //
 //   // ダメージ適用 (戻り値 true = 致死)
-//   if (hp.ApplyDamage(enemy, 30.0f, DamageType::Fire)) {
+//   if (hp.ApplyDamage(enemy, 30.0f, EDamageType::Fire)) {
 //       // 死亡処理 (callback 経由でも通知)
 //   }
 //
@@ -40,7 +40,7 @@
 //     is_alive は自動で true にならない (Revive 経由を強制)。
 //   ・**Revive は is_alive=false 専用**: 生存中の Revive は no-op。hp_fraction で
 //     復活時 HP 割合を指定 (0.0 = 1 HP に clamp、1.0 = full)。
-//   ・**DamageType は enum**: 属性 (Fire / Ice 等) は将来の耐性計算 / VFX 振り分け
+//   ・**EDamageType は enum**: 属性 (Fire / Ice 等) は将来の耐性計算 / VFX 振り分け
 //     用。本クラスでは値をそのまま受け取り callback に伝えるだけで、ダメージ倍率は
 //     掛けない (caller が Resistance を考慮した最終量を渡す方針)。
 //   ・**非コピー・非ムーブ**: Game / Scene 単位で 1 個保持される想定で、所有権
@@ -50,7 +50,7 @@
 //   ・自然回復 (regen) は本クラスでは扱わない (Tick 内で全 entity を回す方式は
 //     pillar 越境になるため、caller が Heal を毎フレ呼ぶ方が柔軟)
 //   ・DoT (継続ダメージ) 管理 — Status Effect モジュールで別途
-//   ・ResistanceTable (DamageType → 倍率) — 戦闘パラメータレイヤで別途
+//   ・ResistanceTable (EDamageType → 倍率) — 戦闘パラメータレイヤで別途
 #pragma once
 
 #include "foundation/Types.h"
@@ -95,7 +95,7 @@ struct HealthState {
 // ダメージ属性。耐性計算 / VFX 振り分けに使う識別子。
 // 本クラスはダメージ倍率を掛けないが、callback / 履歴に種別として伝える。
 //   True: 耐性無効の確定ダメージ (デバッグ / 環境ダメージ用)。
-enum class DamageType : u8 {
+enum class EDamageType : u8 {
     Physical  = 0,
     Fire      = 1,
     Ice       = 2,
@@ -107,8 +107,8 @@ enum class DamageType : u8 {
 // 死亡時 callback。std::function 不使用ポリシーに従い、void* user を介して
 // コンテキストを引き回す。state 更新後 (is_alive=false 確定後) に呼ばれる。
 //   id           : 死亡した entity の HealthId
-//   lethal_type  : 致死を与えた DamageType
-using DeathCallback = void(*)(void* user, HealthId id, DamageType lethal_type) noexcept;
+//   lethal_type  : 致死を与えた EDamageType
+using DeathCallback = void(*)(void* user, HealthId id, EDamageType lethal_type) noexcept;
 
 class HealthSystem {
 public:
@@ -134,7 +134,7 @@ public:
     //   ・既に死亡中: false 返却で no-op (HP は変動しない)
     //   ・amount <= 0: false 返却で no-op
     //   ・HP > 0 で残った: false 返却 (致死では無い)
-    bool ApplyDamage(HealthId id, f32 amount, DamageType type = DamageType::Physical) noexcept;
+    bool ApplyDamage(HealthId id, f32 amount, EDamageType type = EDamageType::Physical) noexcept;
 
     // 回復。max_hp で clamp。死亡中でも HP は加算されるが is_alive は変動しない
     // (Revive 経由のみ復活可能)。amount <= 0 は no-op。

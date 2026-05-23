@@ -12,7 +12,7 @@
 //       void OnEnter() noexcept override {
 //           // (Phase 3+ で Camera2D が IShakeTarget を派生したら直接渡せる)
 //           // CameraShakePresets::ApplyPreset(Services().Camera(),
-//           //                                 ShakePreset::ExplosionLarge);
+//           //                                 EShakePreset::ExplosionLarge);
 //       }
 //   };
 //
@@ -28,7 +28,7 @@
 //     Camera2D が IShakeTarget を派生するまでの間も spec として正しい
 //     形を維持できる。テスト用の MockShakeTarget でユニットテストも書ける。
 //   ・**preset 値は static const 関数で配る**: 単純な定数なので constexpr
-//     にしたい所だが、Custom enum case + 拡張 (将来 ShakePreset を増やす)
+//     にしたい所だが、Custom enum case + 拡張 (将来 EShakePreset を増やす)
 //     を見越して関数経由に統一。コンパイラは余裕で fold する。
 //   ・**Custom preset は名前 + ShakeParams を Array に保持**: 件数は典型 0〜
 //     20 程度なので線形検索。const char* は呼び出し側が保証する static
@@ -56,11 +56,11 @@
 
 namespace acs::game {
 
-// ---- ShakePreset enum -----------------------------------------------------
+// ---- EShakePreset enum -----------------------------------------------------
 // trauma 加算 + amp/decay 上書きで「爆発っぽい」「地震っぽい」を一発で出す
 // ためのプリセット種別。Custom は名前付きカスタムを表す哨兵 (GetPreset では
 // 中立値を返す)。
-enum class ShakePreset : u8 {
+enum class EShakePreset : u8 {
     ExplosionSmall = 0,   // 手榴弾 / 小爆弾。短く激しく。
     ExplosionLarge,       // 大爆発 / ロケット直撃。長く強く。
     EarthquakeShort,      // ステージギミック型短震動。
@@ -124,7 +124,7 @@ public:
     // preset 用の trauma/amplitude/decay/freq 値を返す。Custom が渡された
     // 場合は中立値 (= ZeroParams 相当) を返す (Custom は名前経由で
     // ApplyCustomByName 専用)。
-    static ShakeParams GetPreset(ShakePreset preset) noexcept;
+    static ShakeParams GetPreset(EShakePreset preset) noexcept;
 
     // ---- 組み込み preset 適用 -------------------------------------------
     // preset を target に流し込む。順序:
@@ -132,7 +132,7 @@ public:
     //   2) SetShakeDecayRate(params.decay_rate)
     //   3) AddShake(params.trauma)  ← 加算 (累積)
     // Custom が渡された場合は no-op (caller は ApplyCustomByName を使う)。
-    static void ApplyPreset(IShakeTarget& target, ShakePreset preset) noexcept;
+    static void ApplyPreset(IShakeTarget& target, EShakePreset preset) noexcept;
 
     // ---- カスタム preset 登録 -------------------------------------------
     // name は呼び出し側が保証する static lifetime の文字列 (リテラル想定)。

@@ -7,7 +7,7 @@
 //   1) 隣接 swap (TrySwap) → match が発生したら確定、無ければ戻す。
 //   2) 3 個以上の縦横連続を検出 (DetectMatches) → MatchInfo の列を吐く。
 //   3) ResolveAllMatches でマッチを順次消化:
-//        - SpecialKind 効果 (Bomb=3x3 / Lightning=行+列 / Rainbow=同色全消し) を適用
+//        - ESpecialKind 効果 (Bomb=3x3 / Lightning=行+列 / Rainbow=同色全消し) を適用
 //        - 空になった cell に対し ApplyGravity / RefillFromTop で重力 + 補充
 //        - 再度マッチが発生するか走査 (cascade) → stable まで反復
 //      返却値は除去総数。chain level も内部カウンタで保持し連鎖判定に使える。
@@ -30,7 +30,7 @@
 //   ・**マッチ検出**: O(w*h) の水平 / 垂直 2 パス走査。3 個以上の連続を 1 個の
 //     `MatchInfo` として吐く (length>=3, horizontal フラグ)。出力バッファ満杯
 //     なら検出継続 (count は上限まで)。重複検出は走査構造上発生しない。
-//   ・**SpecialKind 効果**: 消去時に Bomb→周囲 3x3 / Lightning→同行 + 同列 /
+//   ・**ESpecialKind 効果**: 消去時に Bomb→周囲 3x3 / Lightning→同行 + 同列 /
 //     Rainbow→同色全消去。波及で他の Special を巻き込んだ場合は recursive に
 //     チェーン (visited 配列で再入防止)。
 //   ・**重力**: 列ごとに「下から上に空を吸い上げる」1-step ApplyGravity と、
@@ -59,10 +59,10 @@ namespace acs::game {
 
 // セル 1 個の状態。
 // `color = 0` は「空」と等価 (empty フラグと冗長だが API 都合で両方持つ)。
-// `special` は SpecialKind の u8 表現 (sizeof 削減のため enum 値を生で保持)。
+// `special` は ESpecialKind の u8 表現 (sizeof 削減のため enum 値を生で保持)。
 struct GridCell {
     u8   color   = 0;       // 1..color_count = 色、0 = 空
-    u8   special = 0;       // SpecialKind enum 値
+    u8   special = 0;       // ESpecialKind enum 値
     bool empty   = true;    // color == 0 と等価だが冪等性のため明示
 };
 
@@ -79,7 +79,7 @@ struct MatchInfo {
 
 // セルの「特殊」種別。Normal=普通の宝石、Bomb=3x3 範囲消去、
 // Lightning=同行+同列消去、Rainbow=盤面の同色全消去。
-enum class SpecialKind : u8 {
+enum class ESpecialKind : u8 {
     Normal    = 0,
     Bomb      = 1,
     Lightning = 2,
@@ -90,7 +90,7 @@ class MatchGrid {
 public:
     // 消去 1 個ごとの callback (VFX / SFX / score hook 想定)。
     // user は SetOnClearCallback で与えた opaque ポインタ。
-    using ClearCallback = void(*)(void* user, u32 x, u32 y, u8 color, SpecialKind special) noexcept;
+    using ClearCallback = void(*)(void* user, u32 x, u32 y, u8 color, ESpecialKind special) noexcept;
 
     MatchGrid() noexcept = default;
     ~MatchGrid() noexcept = default;
@@ -114,7 +114,7 @@ public:
 
     // 個別 cell 書き換え。color==0 のとき empty=true / special=Normal を強制。
     // 範囲外は no-op。
-    void Set(u32 x, u32 y, u8 color, SpecialKind special = SpecialKind::Normal) noexcept;
+    void Set(u32 x, u32 y, u8 color, ESpecialKind special = ESpecialKind::Normal) noexcept;
 
     // 全 cell を 1..color_count のランダム色で埋める。
     // 初期 3-連続が発生しないよう、各 cell の左 2 個 / 上 2 個が同色のときは
@@ -170,8 +170,8 @@ private:
     // 既に空 / visited のときは no-op。
     void ClearOne(u32 x, u32 y, Array<u8>& visited) noexcept;
 
-    // SpecialKind 効果を適用して波及範囲も ClearOne する。
-    void ApplySpecialEffect(u32 x, u32 y, u8 color, SpecialKind sp, Array<u8>& visited) noexcept;
+    // ESpecialKind 効果を適用して波及範囲も ClearOne する。
+    void ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp, Array<u8>& visited) noexcept;
 
     // FillRandom 内部用: (x, y) に色を置くとき左 2 個 / 上 2 個と被らない色を選ぶ。
     u8 PickColorAvoidingMatch(u32 x, u32 y, Random& rng) const noexcept;

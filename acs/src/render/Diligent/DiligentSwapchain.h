@@ -33,12 +33,12 @@ public:
 
     // 内部公開
     Diligent::ISwapChain* SwapChain() const noexcept { return _swap; }
-    Format                ColorFormat() const noexcept { return _format; }
+    EFormat                ColorFormat() const noexcept { return _format; }
 
 private:
     DiligentDevice*       _device       = nullptr;
     Diligent::ISwapChain* _swap         = nullptr;
-    Format                _format       = Format::B8G8R8A8_UNorm;
+    EFormat                _format       = EFormat::B8G8R8A8_UNorm;
     u32                   _width        = 0;
     u32                   _height       = 0;
     u32                   _buffer_count = 2;

@@ -127,7 +127,7 @@ public:
     //   width / height: 出力解像度（通常はバックバッファサイズ）
     //   color_format  : 最終出力 (バックバッファ) のフォーマット
     Result<void> Init(IRhiDevice& device, u32 width, u32 height,
-                       Format color_format) noexcept;
+                       EFormat color_format) noexcept;
 
     void Shutdown() noexcept;
 
@@ -136,7 +136,7 @@ public:
 
     // シーンが描かれる HDR RT を取得（Renderer がここに描画する）
     IRhiTexture* HdrRenderTarget() const noexcept { return _hdr_rt.Get(); }
-    Format       HdrFormat()       const noexcept { return _hdr_format; }
+    EFormat       HdrFormat()       const noexcept { return _hdr_format; }
 
     // Bloom + Tonemap を実行して swapchain buffer に書き出す
     //   cmd      : 既に Begin 済みの command list
@@ -174,8 +174,8 @@ private:
     IRhiDevice* _device = nullptr;
     u32         _width  = 0;
     u32         _height = 0;
-    Format      _color_format = Format::B8G8R8A8_UNorm;
-    Format      _hdr_format   = Format::R16G16B16A16_Float;
+    EFormat      _color_format = EFormat::B8G8R8A8_UNorm;
+    EFormat      _hdr_format   = EFormat::R16G16B16A16_Float;
 
     // メイン HDR RT (シーン描画先)
     UniquePtr<IRhiTexture> _hdr_rt;
@@ -227,7 +227,7 @@ private:
     UniquePtr<IRhiPipeline> _pipe_expose_apply;
     UniquePtr<IRhiBuffer>   _cb_auto;           // auto-exposure 用パラメータ CB
     u32                     _auto_frame = 0;    // 露出 ping-pong / cold-start 判定用
-    Format                  _luma_format = Format::R16G16_Float;
+    EFormat                  _luma_format = EFormat::R16G16_Float;
 };
 
 } // namespace acs

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — Segment 列挙
+// ACS Memory — ESegment 列挙
 // -----------------------------------------------------------------------------
 // メモリを目的別の論理ヒープに分割する。各セグメントには独立した予算と
 // 寿命特性があり、フラグメンテーションを「目的・寿命」で隔離する。
@@ -17,7 +17,7 @@
 
 namespace acs {
 
-enum class Segment : u8 {
+enum class ESegment : u8 {
     Default   = 0,
     Permanent = 1,
     Temp      = 2,
@@ -26,19 +26,19 @@ enum class Segment : u8 {
     _Count
 };
 
-constexpr const char* ToString(Segment s) noexcept {
+constexpr const char* ToString(ESegment s) noexcept {
     switch (s) {
-        case Segment::Default:   return "Default";
-        case Segment::Permanent: return "Permanent";
-        case Segment::Temp:      return "Temp";
-        case Segment::Resource:  return "Resource";
-        case Segment::Develop:   return "Develop";
+        case ESegment::Default:   return "Default";
+        case ESegment::Permanent: return "Permanent";
+        case ESegment::Temp:      return "Temp";
+        case ESegment::Resource:  return "Resource";
+        case ESegment::Develop:   return "Develop";
         default: return "?";
     }
 }
 
 // 各 alloc に付与するヘッダの「種別」タグ（プロファイラで分類するため）
-enum class AllocKind : u8 {
+enum class EAllocKind : u8 {
     Generic   = 0,
     Engine    = 1,
     Game      = 2,

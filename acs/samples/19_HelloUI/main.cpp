@@ -58,7 +58,7 @@ public:
     }
 
     void OnUpdate(f32 /*dt*/) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
         // Widget tree への入力配信
         _input.Dispatch(*_root);
     }
@@ -87,7 +87,7 @@ private:
     void BuildUI() noexcept {
         // ルートは画面全体に配置される StackPanel (左寄せパネル)
         _root = MakeUnique<StackPanel>();
-        _root->dir = StackDir::Vertical;
+        _root->dir = EStackDir::Vertical;
         _root->padding = UiPadding{ 24, 24, 24, 24 };
         _root->spacing = 8.0f;
 

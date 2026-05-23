@@ -99,10 +99,10 @@ public:
                        "(stub: link a concrete matchmaker implementation)");
     }
 
-    MatchStatus PollStatus(MatchTicket t) noexcept override {
+    EMatchStatus PollStatus(MatchTicket t) noexcept override {
         (void)t;
         // stub は検索を一切走らせないので、どの ticket も Failed 扱い。
-        return MatchStatus::Failed;
+        return EMatchStatus::Failed;
     }
 
     Result<void> AcceptMatch(MatchTicket t) noexcept override {

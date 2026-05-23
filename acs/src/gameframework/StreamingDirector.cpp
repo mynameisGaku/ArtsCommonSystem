@@ -80,7 +80,7 @@ void StreamingDirector::EnqueueInRange() noexcept {
             if (Find(cid) != nullptr) continue;   // 既に管理下 (どの状態でも)
             ChunkInfo info{};
             info.id      = cid;
-            info.state   = ChunkState::Queued;
+            info.state   = EChunkState::Queued;
             info.elapsed = 0.0f;
             _chunks.PushBack(info);
         }
@@ -92,7 +92,7 @@ void StreamingDirector::PromoteQueuedToLoading() noexcept {
     u32 loading_now = 0;
     const usize n = _chunks.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_chunks[i].state == ChunkState::Loading) ++loading_now;
+        if (_chunks[i].state == EChunkState::Loading) ++loading_now;
     }
     // 空きスロットが無ければ何もしない。
     if (loading_now >= _max_concurrent_loads) return;
@@ -100,8 +100,8 @@ void StreamingDirector::PromoteQueuedToLoading() noexcept {
     // 先頭から走査して Queued を Loading に昇格。
     // (Phase P-2 でビューア距離による優先度ソートを入れる予定。今はキュー順 = 挿入順。)
     for (usize i = 0; i < n; ++i) {
-        if (_chunks[i].state != ChunkState::Queued) continue;
-        _chunks[i].state   = ChunkState::Loading;
+        if (_chunks[i].state != EChunkState::Queued) continue;
+        _chunks[i].state   = EChunkState::Loading;
         _chunks[i].elapsed = 0.0f;
         // TODO(Phase P-2): ここで AssetBundle::BeginLoad() を発行する。
         //   _chunks[i].bundle.Add(ChunkAssetPath(cid));
@@ -123,32 +123,32 @@ void StreamingDirector::Tick(f32 dt) noexcept {
     for (usize i = 0; i < _chunks.Size(); ++i) {
         ChunkInfo& c = _chunks[i];
         switch (c.state) {
-        case ChunkState::Loading: {
+        case EChunkState::Loading: {
             c.elapsed += dt;
             // TODO(Phase P-2): bundle.IsLoaded() を見て遷移する。
             // 現状は simulated time での近似。
             if (c.elapsed >= kSimulatedLoadSeconds) {
-                c.state   = ChunkState::Loaded;
+                c.state   = EChunkState::Loaded;
                 c.elapsed = 0.0f;
             }
             break;
         }
-        case ChunkState::Loaded: {
+        case EChunkState::Loaded: {
             if (!InRange(c.id)) {
                 // 範囲外に出た → Unloading 経由で破棄。
-                c.state = ChunkState::Unloading;
+                c.state = EChunkState::Unloading;
             }
             break;
         }
-        case ChunkState::Queued: {
+        case EChunkState::Queued: {
             if (!InRange(c.id)) {
                 // 範囲外に出た Queued は load 開始すらしていないので即 Unloaded。
-                c.state = ChunkState::Unloading;
+                c.state = EChunkState::Unloading;
             }
             break;
         }
-        case ChunkState::Unloading:
-        case ChunkState::Unloaded:
+        case EChunkState::Unloading:
+        case EChunkState::Unloaded:
         default:
             // Unloading は次ステップで Array から除去される。
             // Unloaded は通常 _chunks に存在しないが、防御的に no-op。
@@ -162,7 +162,7 @@ void StreamingDirector::Tick(f32 dt) noexcept {
     {
         usize i = 0;
         while (i < _chunks.Size()) {
-            if (_chunks[i].state == ChunkState::Unloading) {
+            if (_chunks[i].state == EChunkState::Unloading) {
                 // swap-erase で O(1) 削除 (順序は保たない = ChunkInfo は (cx,cy) で識別)
                 const usize last = _chunks.Size() - 1;
                 if (i != last) _chunks[i] = _chunks[last];
@@ -177,16 +177,16 @@ void StreamingDirector::Tick(f32 dt) noexcept {
     PromoteQueuedToLoading();
 }
 
-ChunkState StreamingDirector::GetState(ChunkId id) const noexcept {
+EChunkState StreamingDirector::GetState(ChunkId id) const noexcept {
     const ChunkInfo* c = Find(id);
-    return c != nullptr ? c->state : ChunkState::Unloaded;
+    return c != nullptr ? c->state : EChunkState::Unloaded;
 }
 
 u32 StreamingDirector::LoadedCount() const noexcept {
     u32 n = 0;
     const usize sz = _chunks.Size();
     for (usize i = 0; i < sz; ++i) {
-        if (_chunks[i].state == ChunkState::Loaded) ++n;
+        if (_chunks[i].state == EChunkState::Loaded) ++n;
     }
     return n;
 }
@@ -195,7 +195,7 @@ u32 StreamingDirector::LoadingCount() const noexcept {
     u32 n = 0;
     const usize sz = _chunks.Size();
     for (usize i = 0; i < sz; ++i) {
-        if (_chunks[i].state == ChunkState::Loading) ++n;
+        if (_chunks[i].state == EChunkState::Loading) ++n;
     }
     return n;
 }

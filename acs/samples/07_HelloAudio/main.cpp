@@ -31,9 +31,9 @@ public:
     }
 
     void OnUpdate(f32 /*dt*/) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-        if (Input::IsKeyPressed(Key::Space)) {
+        if (Input::IsKeyPressed(EKey::Space)) {
             // 再生中なら止める、止まっていれば再生
             if (_handle.IsValid()) {
                 _engine.Stop(_handle);
@@ -43,8 +43,8 @@ public:
                 _handle = _engine.Play(*a, _volume, /*loop*/ false);
             }
         }
-        if (Input::IsKeyPressed(Key::Up))   { _volume += 0.1f; if (_volume > 1) _volume = 1; _engine.SetVolume(_handle, _volume); }
-        if (Input::IsKeyPressed(Key::Down)) { _volume -= 0.1f; if (_volume < 0) _volume = 0; _engine.SetVolume(_handle, _volume); }
+        if (Input::IsKeyPressed(EKey::Up))   { _volume += 0.1f; if (_volume > 1) _volume = 1; _engine.SetVolume(_handle, _volume); }
+        if (Input::IsKeyPressed(EKey::Down)) { _volume -= 0.1f; if (_volume < 0) _volume = 0; _engine.SetVolume(_handle, _volume); }
     }
 
     void OnShutdown() noexcept override {

@@ -147,10 +147,10 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> SkinnedShader::Init(IRhiDevice& device, Format rt_format, Format depth_format) noexcept {
+Result<void> SkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     // === シェーダ ===
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkinnedHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Skinned.VS";
@@ -159,7 +159,7 @@ Result<void> SkinnedShader::Init(IRhiDevice& device, Format rt_format, Format de
     _vs = Move(vs_r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkinnedHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Skinned.PS";
@@ -170,7 +170,7 @@ Result<void> SkinnedShader::Init(IRhiDevice& device, Format rt_format, Format de
     // === 定数バッファ ===
     BufferDesc fcb{};
     fcb.size = CBSize<FrameCBLayout>();
-    fcb.usage = BufferUsage::Uniform;
+    fcb.usage = EBufferUsage::Uniform;
     fcb.cpu_writable = true;
     auto fcb_r = CreateRhiBuffer(device, fcb);
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
@@ -178,7 +178,7 @@ Result<void> SkinnedShader::Init(IRhiDevice& device, Format rt_format, Format de
 
     BufferDesc ocb{};
     ocb.size = CBSize<ObjectCBLayout>();
-    ocb.usage = BufferUsage::Uniform;
+    ocb.usage = EBufferUsage::Uniform;
     ocb.cpu_writable = true;
     auto ocb_r = CreateRhiBuffer(device, ocb);
     if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
@@ -186,7 +186,7 @@ Result<void> SkinnedShader::Init(IRhiDevice& device, Format rt_format, Format de
 
     BufferDesc bcb{};
     bcb.size = CBSize<BonesCBLayout>();        // 64 * 64 = 4096B、256 アラインで 4096
-    bcb.usage = BufferUsage::Uniform;
+    bcb.usage = EBufferUsage::Uniform;
     bcb.cpu_writable = true;
     auto bcb_r = CreateRhiBuffer(device, bcb);
     if (bcb_r.IsErr()) return Err<void>(bcb_r.Error());
@@ -201,7 +201,7 @@ Result<void> SkinnedShader::Init(IRhiDevice& device, Format rt_format, Format de
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
     TextureDesc td{};
     td.width = 1; td.height = 1;
-    td.format = Format::R8G8B8A8_UNorm;
+    td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = white_pixel;
     td.initial_data_size = 4;
     auto wt_r = CreateRhiTexture(device, td);
@@ -212,12 +212,12 @@ Result<void> SkinnedShader::Init(IRhiDevice& device, Format rt_format, Format de
     PipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
-    pd.depth_test    = depth_format != Format::Unknown;
+    pd.depth_test    = depth_format != EFormat::Unknown;
     pd.depth_write   = true;
-    pd.cull_mode     = CullMode::Back;
+    pd.cull_mode     = ECullMode::Back;
     pd.cbuffer_slots = 3;     // b0=Frame, b1=Object, b2=Bones
     pd.texture_slots = 1;
     pd.cbuffer_names[0] = "Frame";
@@ -225,15 +225,15 @@ Result<void> SkinnedShader::Init(IRhiDevice& device, Format rt_format, Format de
     pd.cbuffer_names[2] = "Bones";
     pd.texture_names[0] = "albedo";
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Wrap;
-    pd.static_samplers[0].address_v = SamplerAddress::Wrap;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Wrap;
+    pd.static_samplers[0].address_v = ESamplerAddress::Wrap;
     pd.vertex_stride = sizeof(SkinnedVertex);    // 64
-    pd.layout[0] = { "POSITION",     0, Format::R32G32B32_Float,    0  };
-    pd.layout[1] = { "NORMAL",       0, Format::R32G32B32_Float,    16 };
-    pd.layout[2] = { "TEXCOORD",     0, Format::R32G32_Float,       32 };
-    pd.layout[3] = { "BLENDINDICES", 0, Format::R8G8B8A8_UInt,      40 };
-    pd.layout[4] = { "BLENDWEIGHT",  0, Format::R32G32B32A32_Float, 44 };
+    pd.layout[0] = { "POSITION",     0, EFormat::R32G32B32_Float,    0  };
+    pd.layout[1] = { "NORMAL",       0, EFormat::R32G32B32_Float,    16 };
+    pd.layout[2] = { "TEXCOORD",     0, EFormat::R32G32_Float,       32 };
+    pd.layout[3] = { "BLENDINDICES", 0, EFormat::R8G8B8A8_UInt,      40 };
+    pd.layout[4] = { "BLENDWEIGHT",  0, EFormat::R32G32B32A32_Float, 44 };
     pd.layout_count = 5;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());

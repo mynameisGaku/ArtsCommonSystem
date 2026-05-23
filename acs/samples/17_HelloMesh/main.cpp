@@ -103,7 +103,7 @@ public:
 
         // === シェーダ ===
         ShaderDesc vs_desc{};
-        vs_desc.stage = ShaderStage::Vertex;
+        vs_desc.stage = EShaderStage::Vertex;
         vs_desc.hlsl_source = kHLSL;
         vs_desc.entry_point = "VSMain";
         vs_desc.debug_name  = "Mesh.VS";
@@ -112,7 +112,7 @@ public:
         } else _vs = Move(r.Value());
 
         ShaderDesc ps_desc{};
-        ps_desc.stage = ShaderStage::Pixel;
+        ps_desc.stage = EShaderStage::Pixel;
         ps_desc.hlsl_source = kHLSL;
         ps_desc.entry_point = "PSMain";
         ps_desc.debug_name  = "Mesh.PS";
@@ -123,7 +123,7 @@ public:
         // === 頂点 / インデックスバッファ ===
         BufferDesc vb_desc{};
         vb_desc.size = sizeof(kCubeVertices);
-        vb_desc.usage = BufferUsage::Vertex;
+        vb_desc.usage = EBufferUsage::Vertex;
         vb_desc.cpu_writable = true;
         vb_desc.initial_data = kCubeVertices;
         if (auto r = CreateRhiBuffer(*dev, vb_desc); r.IsErr()) {
@@ -132,7 +132,7 @@ public:
 
         BufferDesc ib_desc{};
         ib_desc.size = sizeof(kCubeIndices);
-        ib_desc.usage = BufferUsage::Index16;
+        ib_desc.usage = EBufferUsage::Index16;
         ib_desc.cpu_writable = true;
         ib_desc.initial_data = kCubeIndices;
         if (auto r = CreateRhiBuffer(*dev, ib_desc); r.IsErr()) {
@@ -142,7 +142,7 @@ public:
         // === 定数バッファ（MVP）  256B にアライン ===
         BufferDesc cb_desc{};
         cb_desc.size = 256;
-        cb_desc.usage = BufferUsage::Uniform;
+        cb_desc.usage = EBufferUsage::Uniform;
         cb_desc.cpu_writable = true;
         if (auto r = CreateRhiBuffer(*dev, cb_desc); r.IsErr()) {
             ACS_LOG_ERROR("CB create: %s", r.Error().message); Quit(); return;
@@ -152,17 +152,17 @@ public:
         PipelineDesc pd{};
         pd.vs = _vs.Get();
         pd.ps = _ps.Get();
-        pd.topology      = PrimitiveTopology::TriangleList;
+        pd.topology      = EPrimitiveTopology::TriangleList;
         pd.rt_format     = GetRenderer().ColorFormat();
         pd.depth_format  = GetRenderer().DepthFormat();
         pd.depth_test    = true;
         pd.depth_write   = true;
-        pd.cull_mode     = CullMode::Back;
+        pd.cull_mode     = ECullMode::Back;
         pd.cbuffer_slots = 1;       // b0 = MVP
         pd.cbuffer_names[0] = "Frame";  // Diligent では cbuffer 名で resolve するため必須
         pd.vertex_stride = sizeof(Vertex);
-        pd.layout[0] = { "POSITION", 0, Format::R32G32B32_Float, 0 };
-        pd.layout[1] = { "COLOR",    0, Format::R32G32B32_Float, sizeof(f32) * 3 };
+        pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
+        pd.layout[1] = { "COLOR",    0, EFormat::R32G32B32_Float, sizeof(f32) * 3 };
         pd.layout_count = 2;
         if (auto r = CreateRhiPipeline(*dev, pd); r.IsErr()) {
             ACS_LOG_ERROR("Pipeline create: %s", r.Error().message); Quit(); return;
@@ -177,14 +177,14 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
         // 自転
         _angle += dt * 0.8f;
 
         // カメラを矢印キーで左右回転
-        if (Input::IsKeyDown(Key::Left))  _cam_yaw -= dt * 1.5f;
-        if (Input::IsKeyDown(Key::Right)) _cam_yaw += dt * 1.5f;
+        if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
+        if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
 
         const f32 cam_dist = 5.0f;
         Vec3 eye{ Sin(_cam_yaw) * cam_dist, 2.0f, -Cos(_cam_yaw) * cam_dist };

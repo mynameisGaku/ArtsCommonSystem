@@ -15,8 +15,8 @@
 //       OpenWindow(1280, 720, "はじめてのゲーム");
 //       float x = 600;
 //       while (NextFrame()) {                 // ウィンドウを閉じると false
-//           if (IsKeyDown(Key::Right)) x += 5;
-//           if (IsKeyDown(Key::Left))  x -= 5;
+//           if (IsKeyDown(EKey::Right)) x += 5;
+//           if (IsKeyDown(EKey::Left))  x -= 5;
 //           DrawRect(x, 320, 80, 80, Color::Sky);
 //       }
 //   }
@@ -50,9 +50,9 @@
 namespace acs::easy {
 
 // acs 側の入力コード列挙をこの名前空間でも使えるよう再公開する。
-using acs::Key;
-using acs::MouseButton;
-using acs::GamepadButton;
+using acs::EKey;
+using acs::EMouseButton;
+using acs::EGamepadButton;
 
 // ---- 色 --------------------------------------------------------------------
 // 各成分は 0.0〜1.0。Color::Red などの定数を使うか、Rgb(255,0,0) で作る。
@@ -230,11 +230,11 @@ void ResumeAllSounds() noexcept;
 // ===========================================================================
 // 入力 — キーボード
 // ===========================================================================
-bool IsKeyDown    (Key key) noexcept;   // 押されている間ずっと true
-bool IsKeyPressed (Key key) noexcept;   // 押した瞬間のフレームだけ true
-bool IsKeyReleased(Key key) noexcept;   // 離した瞬間のフレームだけ true
+bool IsKeyDown    (EKey key) noexcept;   // 押されている間ずっと true
+bool IsKeyPressed (EKey key) noexcept;   // 押した瞬間のフレームだけ true
+bool IsKeyReleased(EKey key) noexcept;   // 離した瞬間のフレームだけ true
 // このフレームに入力された文字（UTF-8、IME 確定後。無ければ ""）。名前入力に。
-// バックスペースや Enter は IsKeyPressed(Key::Backspace / Key::Enter) で取る。
+// バックスペースや Enter は IsKeyPressed(EKey::Backspace / EKey::Enter) で取る。
 const char* TextInput() noexcept;
 
 // ===========================================================================
@@ -242,17 +242,17 @@ const char* TextInput() noexcept;
 // ===========================================================================
 f32  MouseX() noexcept;                 // マウス X（ウィンドウ内ピクセル＝画面座標）
 f32  MouseY() noexcept;
-bool IsMouseDown    (MouseButton button = MouseButton::Left) noexcept;
-bool IsMousePressed (MouseButton button = MouseButton::Left) noexcept;
-bool IsMouseReleased(MouseButton button = MouseButton::Left) noexcept;
+bool IsMouseDown    (EMouseButton button = EMouseButton::Left) noexcept;
+bool IsMousePressed (EMouseButton button = EMouseButton::Left) noexcept;
+bool IsMouseReleased(EMouseButton button = EMouseButton::Left) noexcept;
 f32  MouseWheel() noexcept;              // ホイール回転（奥+ / 手前-）
 
 // ===========================================================================
 // 入力 — ゲームパッド（player は 0〜3、省略時は 0）
 // ===========================================================================
 bool IsGamepadConnected(i32 player = 0) noexcept;
-bool IsGamepadDown   (GamepadButton button, i32 player = 0) noexcept;
-bool IsGamepadPressed(GamepadButton button, i32 player = 0) noexcept;
+bool IsGamepadDown   (EGamepadButton button, i32 player = 0) noexcept;
+bool IsGamepadPressed(EGamepadButton button, i32 player = 0) noexcept;
 f32  GamepadLeftX (i32 player = 0) noexcept;   // スティック -1.0〜+1.0
 f32  GamepadLeftY (i32 player = 0) noexcept;
 f32  GamepadRightX(i32 player = 0) noexcept;

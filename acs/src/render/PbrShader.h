@@ -63,8 +63,8 @@ public:
     PbrShader& operator=(const PbrShader&) = delete;
 
     Result<void> Init(IRhiDevice& device,
-                      Format rt_format    = Format::B8G8R8A8_UNorm,
-                      Format depth_format = Format::D32_Float) noexcept;
+                      EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
+                      EFormat depth_format = EFormat::D32_Float) noexcept;
     void Shutdown() noexcept;
 
     void SetLights(const Mat4& view_projection,

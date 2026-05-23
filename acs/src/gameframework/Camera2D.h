@@ -3,13 +3,13 @@
 //
 // 2D カメラ: position / zoom / rotation、target 追従 (指数 smoothing)、
 // screen shake (trauma 方式)、world↔screen 座標変換、world boundary clamping。
-// SceneServices 経由で自動 tick (`Svc::Camera2D` を WantedServices に含める)。
+// SceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
 //   public:
-//       Svc WantedServices() const noexcept override {
-//           return Svc::Default2D | Svc::Camera2D;
+//       ESvc WantedServices() const noexcept override {
+//           return ESvc::Default2D | ESvc::Camera2D;
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           // player の位置にカメラを追従

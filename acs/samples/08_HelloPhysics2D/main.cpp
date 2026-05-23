@@ -87,7 +87,7 @@ public:
         GenerateBallTexture(pixels);
         TextureDesc td{};
         td.width = kBallTexSize; td.height = kBallTexSize;
-        td.format = Format::R8G8B8A8_UNorm;
+        td.format = EFormat::R8G8B8A8_UNorm;
         td.initial_data = pixels;
         td.initial_data_size = sizeof(pixels);
         if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) { Quit(); return; }
@@ -100,10 +100,10 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
-        if (Input::IsKeyPressed(Key::Space)) _ball_count = 0;
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Space)) _ball_count = 0;
 
-        if (Input::IsMouseButtonPressed(MouseButton::Left)) {
+        if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
             Vec2 mp = Input::MousePos();
             SpawnBallAt(mp.x, mp.y);
         }

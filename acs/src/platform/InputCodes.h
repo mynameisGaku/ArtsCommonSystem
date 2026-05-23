@@ -6,8 +6,8 @@
 
 namespace acs {
 
-// キーボードキー（Virtual Key Code に近い列挙、初学者にも分かりやすい名前）
-enum class Key : u16 {
+// キーボードキー（Virtual EKey Code に近い列挙、初学者にも分かりやすい名前）
+enum class EKey : u16 {
     Unknown = 0,
 
     // 文字キー
@@ -46,7 +46,7 @@ enum class Key : u16 {
 };
 
 // マウスボタン
-enum class MouseButton : u8 {
+enum class EMouseButton : u8 {
     Left   = 0,
     Right  = 1,
     Middle = 2,
@@ -56,7 +56,7 @@ enum class MouseButton : u8 {
 };
 
 // ゲームパッドボタン (XInput 互換)
-enum class GamepadButton : u8 {
+enum class EGamepadButton : u8 {
     A,        B,        X,        Y,
     Up,       Down,     Left,     Right,    // D-Pad
     LeftBumper,         RightBumper,
@@ -66,7 +66,7 @@ enum class GamepadButton : u8 {
 };
 
 // ゲームパッドの軸 (-1.0 〜 +1.0、トリガーは 0.0 〜 1.0)
-enum class GamepadAxis : u8 {
+enum class EGamepadAxis : u8 {
     LeftX,    LeftY,
     RightX,   RightY,
     LeftTrigger,  RightTrigger,

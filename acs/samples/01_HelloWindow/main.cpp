@@ -26,13 +26,13 @@ public:
 
     void OnUpdate(f32 dt) noexcept override {
         // Esc 押下で終了
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
         // WASD で背景色を変える（押している間ずっと変化）
-        if (Input::IsKeyDown(Key::W)) _r += dt;
-        if (Input::IsKeyDown(Key::S)) _r -= dt;
-        if (Input::IsKeyDown(Key::A)) _g += dt;
-        if (Input::IsKeyDown(Key::D)) _g -= dt;
+        if (Input::IsKeyDown(EKey::W)) _r += dt;
+        if (Input::IsKeyDown(EKey::S)) _r -= dt;
+        if (Input::IsKeyDown(EKey::A)) _g += dt;
+        if (Input::IsKeyDown(EKey::D)) _g -= dt;
         // 0..1 にクランプ
         if (_r < 0) _r = 0; if (_r > 1) _r = 1;
         if (_g < 0) _g = 0; if (_g > 1) _g = 1;

@@ -13,7 +13,7 @@ using namespace acs;
 // ---- StackPanel: 縦並び ----------------------------------------------------
 ACS_TEST(Ui, StackPanelVertical) {
     StackPanel root;
-    root.dir = StackDir::Vertical;
+    root.dir = EStackDir::Vertical;
     root.padding = UiPadding{ 8, 8, 8, 8 };
     root.spacing = 4.0f;
 
@@ -41,7 +41,7 @@ ACS_TEST(Ui, StackPanelVertical) {
 // ---- StackPanel: 横並び ----------------------------------------------------
 ACS_TEST(Ui, StackPanelHorizontal) {
     StackPanel root;
-    root.dir = StackDir::Horizontal;
+    root.dir = EStackDir::Horizontal;
     root.padding = UiPadding{ 0, 0, 0, 0 };
     root.spacing = 10.0f;
 

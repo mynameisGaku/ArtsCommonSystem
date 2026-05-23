@@ -56,7 +56,7 @@ struct ChunkId {
 //   Loading:   実 asset load 進行中 (elapsed が積算される)
 //   Loaded:    使用可能。範囲外に出るまで保持。
 //   Unloading: 範囲外に出て解放処理中 (Phase P-2 で async unload するための予約状態)
-enum class ChunkState : u8 {
+enum class EChunkState : u8 {
     Unloaded  = 0,
     Queued    = 1,
     Loading   = 2,
@@ -103,7 +103,7 @@ public:
     void Tick(f32 dt) noexcept;
 
     // 指定チャンクの現状態を返す。未登録チャンクは Unloaded。
-    ChunkState GetState(ChunkId id) const noexcept;
+    EChunkState GetState(ChunkId id) const noexcept;
 
     // Loaded 状態のチャンク数。
     u32 LoadedCount() const noexcept;
@@ -124,7 +124,7 @@ private:
     // elapsed は Loading 中のみ意味を持つ (Loaded 到達後はリセットされる)。
     struct ChunkInfo {
         ChunkId    id      {};
-        ChunkState state   = ChunkState::Unloaded;
+        EChunkState state   = EChunkState::Unloaded;
         f32        elapsed = 0.0f;
     };
 

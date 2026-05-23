@@ -74,7 +74,7 @@ Result<void> JobGraph::Submit() noexcept {
         Array<u32> remaining;
         remaining.Resize(N);
         for (u32 i = 0; i < N; ++i) {
-            remaining[i] = _jobs[i]->deps_remaining.Load(MemoryOrder::Acquire);
+            remaining[i] = _jobs[i]->deps_remaining.Load(EMemoryOrder::Acquire);
         }
         Array<u32> queue;
         queue.Reserve(N);
@@ -108,7 +108,7 @@ Result<void> JobGraph::Submit() noexcept {
     u32 submitted_count = 0;
     for (usize i = 0; i < _jobs.Size(); ++i) {
         Job* j = _jobs[i];
-        if (j->deps_remaining.Load(MemoryOrder::Acquire) == 0) {
+        if (j->deps_remaining.Load(EMemoryOrder::Acquire) == 0) {
             Task t{};
             t.fn      = &JobGraph::JobThunk;
             t.user    = j;

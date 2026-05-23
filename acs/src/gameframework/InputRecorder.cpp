@@ -29,7 +29,7 @@ namespace acs::game {
 // -----------------------------------------------------------------------------
 
 void InputRecorder::StartRecording(u32 tick_rate_hz) noexcept {
-    _mode = RecorderMode::Recording;
+    _mode = ERecorderMode::Recording;
     // tick_rate_hz == 0 は意味を成さないので最低 1 に丸める。0 除算防止 +
     // Lockstep::Init と同じ規約。
     _tick_rate_hz = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
@@ -42,7 +42,7 @@ void InputRecorder::StartRecording(u32 tick_rate_hz) noexcept {
 void InputRecorder::StopRecording() noexcept {
     // Idle に戻すだけで samples / tick_rate_hz は保持。直後に SaveToBuffer を
     // 呼ぶ想定。Capture/ConsumeSample 双方の no-op 条件を兼ねる。
-    _mode = RecorderMode::Idle;
+    _mode = ERecorderMode::Idle;
 }
 
 // -----------------------------------------------------------------------------
@@ -50,7 +50,7 @@ void InputRecorder::StopRecording() noexcept {
 // -----------------------------------------------------------------------------
 
 void InputRecorder::StartReplay() noexcept {
-    _mode         = RecorderMode::Replaying;
+    _mode         = ERecorderMode::Replaying;
     _cursor       = 0;
     _current_tick = 0;
     // _samples はそのまま。直前に Capture した内容を頭から再生する想定。
@@ -58,7 +58,7 @@ void InputRecorder::StartReplay() noexcept {
 
 void InputRecorder::StopReplay() noexcept {
     // Idle に戻すだけ。再度 StartReplay すれば cursor は 0 から再開する。
-    _mode = RecorderMode::Idle;
+    _mode = ERecorderMode::Idle;
 }
 
 // -----------------------------------------------------------------------------
@@ -69,7 +69,7 @@ void InputRecorder::Capture(const InputSample& s) noexcept {
     // Recording モード以外では記録しない (Idle / Replaying 中の誤呼び出しを許容)。
     // 黙って no-op にする理由: ゲームループから無条件に Capture を呼べる設計に
     // しておくと、上位層の if 分岐が不要になり録画開始/停止だけで切り替えできる。
-    if (_mode != RecorderMode::Recording) {
+    if (_mode != ERecorderMode::Recording) {
         return;
     }
     _samples.PushBack(s);
@@ -84,7 +84,7 @@ void InputRecorder::Capture(const InputSample& s) noexcept {
 
 bool InputRecorder::ConsumeSample(u32 tick, InputSample& out) noexcept {
     // Replaying モード以外では取り出しを禁止する (誤用検知)。
-    if (_mode != RecorderMode::Replaying) {
+    if (_mode != ERecorderMode::Replaying) {
         return false;
     }
     const usize n = _samples.Size();

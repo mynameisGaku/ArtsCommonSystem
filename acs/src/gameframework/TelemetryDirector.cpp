@@ -13,14 +13,14 @@
 //     残す = 次回 Flush で再送される。Phase 2 の stub backend は必ず Err を
 //     返すため、実機テストでは _failed_count が増える挙動が観察される。
 //   ・consent ガード: PrivacyDirector が attach されていれば
-//     HasConsent(ConsentCategory::Telemetry) を毎 TrackEvent / Flush で確認。
+//     HasConsent(EConsentCategory::Telemetry) を毎 TrackEvent / Flush で確認。
 //     nullptr 注入時はガードスキップ (テスト用)。
 //   ・timestamp は Clock::MillisSinceStartup()。Pillar S の Achievement と同じ
 //     起動相対 ms 設計 (Phase 3 で wall clock 切替予定)。
 #include "gameframework/TelemetryDirector.h"
 
 #include "gameframework/BackendClient.h"      // IBackendClient::SendTelemetry()
-#include "gameframework/PrivacyDirector.h"    // ConsentCategory::Telemetry
+#include "gameframework/PrivacyDirector.h"    // EConsentCategory::Telemetry
 #include "platform/Time.h"                    // Clock::MillisSinceStartup()
 #include "foundation/Result.h"                // Result<void>::IsErr()
 
@@ -112,7 +112,7 @@ void TelemetryDirector::TrackEvent(const char*   event_name,
     // consent ガード: privacy attach されていて Telemetry consent が無ければ無視。
     // GDPR 要件 (同意取得前に追跡を開始しない)。
     if (_privacy != nullptr &&
-        !_privacy->HasConsent(ConsentCategory::Telemetry)) {
+        !_privacy->HasConsent(EConsentCategory::Telemetry)) {
         return;
     }
 
@@ -151,7 +151,7 @@ void TelemetryDirector::Flush() noexcept {
     // consent ガード: 投入時に弾いているが、TrackEvent 後に Revoke された場合に
     // 備えて Flush でも再確認。consent 無しなら送信せずタイマーだけリセット。
     if (_privacy != nullptr &&
-        !_privacy->HasConsent(ConsentCategory::Telemetry)) {
+        !_privacy->HasConsent(EConsentCategory::Telemetry)) {
         _elapsed_since_flush = 0.0f;
         return;
     }

@@ -15,72 +15,72 @@ void Window::DispatchEvent_Internal(const Event& e) noexcept {
 
 namespace {
 
-// VK_* (Win32 仮想キーコード) → Key 変換
-Key VkToKey(WPARAM vk, LPARAM lParam) noexcept {
+// VK_* (Win32 仮想キーコード) → EKey 変換
+EKey VkToKey(WPARAM vk, LPARAM lParam) noexcept {
     bool extended = (lParam & (1 << 24)) != 0;  // 右側修飾キー判別用
     switch (vk) {
-        case 'A': return Key::A; case 'B': return Key::B; case 'C': return Key::C;
-        case 'D': return Key::D; case 'E': return Key::E; case 'F': return Key::F;
-        case 'G': return Key::G; case 'H': return Key::H; case 'I': return Key::I;
-        case 'J': return Key::J; case 'K': return Key::K; case 'L': return Key::L;
-        case 'M': return Key::M; case 'N': return Key::N; case 'O': return Key::O;
-        case 'P': return Key::P; case 'Q': return Key::Q; case 'R': return Key::R;
-        case 'S': return Key::S; case 'T': return Key::T; case 'U': return Key::U;
-        case 'V': return Key::V; case 'W': return Key::W; case 'X': return Key::X;
-        case 'Y': return Key::Y; case 'Z': return Key::Z;
-        case '0': return Key::Num0; case '1': return Key::Num1; case '2': return Key::Num2;
-        case '3': return Key::Num3; case '4': return Key::Num4; case '5': return Key::Num5;
-        case '6': return Key::Num6; case '7': return Key::Num7; case '8': return Key::Num8;
-        case '9': return Key::Num9;
-        case VK_F1: return Key::F1;   case VK_F2: return Key::F2;   case VK_F3: return Key::F3;
-        case VK_F4: return Key::F4;   case VK_F5: return Key::F5;   case VK_F6: return Key::F6;
-        case VK_F7: return Key::F7;   case VK_F8: return Key::F8;   case VK_F9: return Key::F9;
-        case VK_F10: return Key::F10; case VK_F11: return Key::F11; case VK_F12: return Key::F12;
-        case VK_SHIFT:   return extended ? Key::RightShift : Key::LeftShift;
-        case VK_CONTROL: return extended ? Key::RightCtrl  : Key::LeftCtrl;
-        case VK_MENU:    return extended ? Key::RightAlt   : Key::LeftAlt;
-        case VK_LWIN:    return Key::LeftSuper;
-        case VK_RWIN:    return Key::RightSuper;
-        case VK_UP:    return Key::Up;
-        case VK_DOWN:  return Key::Down;
-        case VK_LEFT:  return Key::Left;
-        case VK_RIGHT: return Key::Right;
-        case VK_SPACE:    return Key::Space;
-        case VK_RETURN:   return Key::Enter;
-        case VK_TAB:      return Key::Tab;
-        case VK_BACK:     return Key::Backspace;
-        case VK_ESCAPE:   return Key::Escape;
-        case VK_INSERT:   return Key::Insert;
-        case VK_DELETE:   return Key::Delete;
-        case VK_HOME:     return Key::Home;
-        case VK_END:      return Key::End;
-        case VK_PRIOR:    return Key::PageUp;
-        case VK_NEXT:     return Key::PageDown;
-        case VK_CAPITAL:  return Key::CapsLock;
-        case VK_NUMLOCK:  return Key::NumLock;
-        case VK_SCROLL:   return Key::ScrollLock;
-        case VK_OEM_MINUS: return Key::Minus;
-        case VK_OEM_PLUS:  return Key::Equal;
-        case VK_OEM_4:     return Key::LeftBracket;
-        case VK_OEM_6:     return Key::RightBracket;
-        case VK_OEM_5:     return Key::Backslash;
-        case VK_OEM_1:     return Key::Semicolon;
-        case VK_OEM_7:     return Key::Apostrophe;
-        case VK_OEM_COMMA: return Key::Comma;
-        case VK_OEM_PERIOD:return Key::Period;
-        case VK_OEM_2:     return Key::Slash;
-        case VK_OEM_3:     return Key::Grave;
-        case VK_NUMPAD0: return Key::KP0; case VK_NUMPAD1: return Key::KP1;
-        case VK_NUMPAD2: return Key::KP2; case VK_NUMPAD3: return Key::KP3;
-        case VK_NUMPAD4: return Key::KP4; case VK_NUMPAD5: return Key::KP5;
-        case VK_NUMPAD6: return Key::KP6; case VK_NUMPAD7: return Key::KP7;
-        case VK_NUMPAD8: return Key::KP8; case VK_NUMPAD9: return Key::KP9;
-        case VK_ADD:      return Key::KPAdd;
-        case VK_SUBTRACT: return Key::KPSubtract;
-        case VK_MULTIPLY: return Key::KPMultiply;
-        case VK_DIVIDE:   return Key::KPDivide;
-        case VK_DECIMAL:  return Key::KPDecimal;
-        default:          return Key::Unknown;
+        case 'A': return EKey::A; case 'B': return EKey::B; case 'C': return EKey::C;
+        case 'D': return EKey::D; case 'E': return EKey::E; case 'F': return EKey::F;
+        case 'G': return EKey::G; case 'H': return EKey::H; case 'I': return EKey::I;
+        case 'J': return EKey::J; case 'K': return EKey::K; case 'L': return EKey::L;
+        case 'M': return EKey::M; case 'N': return EKey::N; case 'O': return EKey::O;
+        case 'P': return EKey::P; case 'Q': return EKey::Q; case 'R': return EKey::R;
+        case 'S': return EKey::S; case 'T': return EKey::T; case 'U': return EKey::U;
+        case 'V': return EKey::V; case 'W': return EKey::W; case 'X': return EKey::X;
+        case 'Y': return EKey::Y; case 'Z': return EKey::Z;
+        case '0': return EKey::Num0; case '1': return EKey::Num1; case '2': return EKey::Num2;
+        case '3': return EKey::Num3; case '4': return EKey::Num4; case '5': return EKey::Num5;
+        case '6': return EKey::Num6; case '7': return EKey::Num7; case '8': return EKey::Num8;
+        case '9': return EKey::Num9;
+        case VK_F1: return EKey::F1;   case VK_F2: return EKey::F2;   case VK_F3: return EKey::F3;
+        case VK_F4: return EKey::F4;   case VK_F5: return EKey::F5;   case VK_F6: return EKey::F6;
+        case VK_F7: return EKey::F7;   case VK_F8: return EKey::F8;   case VK_F9: return EKey::F9;
+        case VK_F10: return EKey::F10; case VK_F11: return EKey::F11; case VK_F12: return EKey::F12;
+        case VK_SHIFT:   return extended ? EKey::RightShift : EKey::LeftShift;
+        case VK_CONTROL: return extended ? EKey::RightCtrl  : EKey::LeftCtrl;
+        case VK_MENU:    return extended ? EKey::RightAlt   : EKey::LeftAlt;
+        case VK_LWIN:    return EKey::LeftSuper;
+        case VK_RWIN:    return EKey::RightSuper;
+        case VK_UP:    return EKey::Up;
+        case VK_DOWN:  return EKey::Down;
+        case VK_LEFT:  return EKey::Left;
+        case VK_RIGHT: return EKey::Right;
+        case VK_SPACE:    return EKey::Space;
+        case VK_RETURN:   return EKey::Enter;
+        case VK_TAB:      return EKey::Tab;
+        case VK_BACK:     return EKey::Backspace;
+        case VK_ESCAPE:   return EKey::Escape;
+        case VK_INSERT:   return EKey::Insert;
+        case VK_DELETE:   return EKey::Delete;
+        case VK_HOME:     return EKey::Home;
+        case VK_END:      return EKey::End;
+        case VK_PRIOR:    return EKey::PageUp;
+        case VK_NEXT:     return EKey::PageDown;
+        case VK_CAPITAL:  return EKey::CapsLock;
+        case VK_NUMLOCK:  return EKey::NumLock;
+        case VK_SCROLL:   return EKey::ScrollLock;
+        case VK_OEM_MINUS: return EKey::Minus;
+        case VK_OEM_PLUS:  return EKey::Equal;
+        case VK_OEM_4:     return EKey::LeftBracket;
+        case VK_OEM_6:     return EKey::RightBracket;
+        case VK_OEM_5:     return EKey::Backslash;
+        case VK_OEM_1:     return EKey::Semicolon;
+        case VK_OEM_7:     return EKey::Apostrophe;
+        case VK_OEM_COMMA: return EKey::Comma;
+        case VK_OEM_PERIOD:return EKey::Period;
+        case VK_OEM_2:     return EKey::Slash;
+        case VK_OEM_3:     return EKey::Grave;
+        case VK_NUMPAD0: return EKey::KP0; case VK_NUMPAD1: return EKey::KP1;
+        case VK_NUMPAD2: return EKey::KP2; case VK_NUMPAD3: return EKey::KP3;
+        case VK_NUMPAD4: return EKey::KP4; case VK_NUMPAD5: return EKey::KP5;
+        case VK_NUMPAD6: return EKey::KP6; case VK_NUMPAD7: return EKey::KP7;
+        case VK_NUMPAD8: return EKey::KP8; case VK_NUMPAD9: return EKey::KP9;
+        case VK_ADD:      return EKey::KPAdd;
+        case VK_SUBTRACT: return EKey::KPSubtract;
+        case VK_MULTIPLY: return EKey::KPMultiply;
+        case VK_DIVIDE:   return EKey::KPDivide;
+        case VK_DECIMAL:  return EKey::KPDecimal;
+        default:          return EKey::Unknown;
     }
 }
 
@@ -140,9 +140,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
         case WM_LBUTTONUP:   case WM_RBUTTONUP:   case WM_MBUTTONUP: {
             bool down = (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN);
-            MouseButton b = MouseButton::Left;
-            if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) b = MouseButton::Right;
-            if (msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP) b = MouseButton::Middle;
+            EMouseButton b = EMouseButton::Left;
+            if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) b = EMouseButton::Right;
+            if (msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP) b = EMouseButton::Middle;
             Event e{};
             e.type = down ? EventType::MouseButtonPressed : EventType::MouseButtonReleased;
             e.mouse_button.button = b;

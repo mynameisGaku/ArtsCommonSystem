@@ -18,7 +18,7 @@ f32 HungerSystem::Clamp(f32 v, f32 lo, f32 hi) noexcept {
     return v;
 }
 
-u32 HungerSystem::StatIndex(SurvivalStat stat) noexcept {
+u32 HungerSystem::StatIndex(ESurvivalStat stat) noexcept {
     const u32 idx = static_cast<u32>(stat);
     if (idx >= kSurvivalStatCount) return ~0u;
     return idx;
@@ -63,7 +63,7 @@ void HungerSystem::Init() noexcept {
     _survivors.PushBack(SurvivorSlot{});
 }
 
-void HungerSystem::ConfigureStat(SurvivalStat stat, const StatConfig& config) noexcept {
+void HungerSystem::ConfigureStat(ESurvivalStat stat, const StatConfig& config) noexcept {
     const u32 idx = StatIndex(stat);
     if (idx == ~0u) return;
     if (_configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
@@ -138,7 +138,7 @@ void HungerSystem::RemoveSurvivor(SurvivorId id) noexcept {
 // stat 操作
 // ----------------------------------------------------------------------------
 
-void HungerSystem::RestoreStat(SurvivorId id, SurvivalStat stat, f32 amount) noexcept {
+void HungerSystem::RestoreStat(SurvivorId id, ESurvivalStat stat, f32 amount) noexcept {
     if (amount <= 0.0f) return;
     SurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
@@ -149,7 +149,7 @@ void HungerSystem::RestoreStat(SurvivorId id, SurvivalStat stat, f32 amount) noe
     st.current = Clamp(st.current + amount, 0.0f, st.max);
 }
 
-void HungerSystem::DrainStat(SurvivorId id, SurvivalStat stat, f32 amount) noexcept {
+void HungerSystem::DrainStat(SurvivorId id, ESurvivalStat stat, f32 amount) noexcept {
     if (amount <= 0.0f) return;
     SurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
@@ -161,7 +161,7 @@ void HungerSystem::DrainStat(SurvivorId id, SurvivalStat stat, f32 amount) noexc
     // critical / damage callback は Tick で一元管理するため、ここでは発火しない。
 }
 
-void HungerSystem::SetStat(SurvivorId id, SurvivalStat stat, f32 value) noexcept {
+void HungerSystem::SetStat(SurvivorId id, ESurvivalStat stat, f32 value) noexcept {
     SurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
     const u32 sidx = StatIndex(stat);
@@ -175,7 +175,7 @@ void HungerSystem::SetStat(SurvivorId id, SurvivalStat stat, f32 value) noexcept
 // 問い合わせ
 // ----------------------------------------------------------------------------
 
-f32 HungerSystem::GetStat(SurvivorId id, SurvivalStat stat) const noexcept {
+f32 HungerSystem::GetStat(SurvivorId id, ESurvivalStat stat) const noexcept {
     const SurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return 0.0f;
     const u32 sidx = StatIndex(stat);
@@ -183,7 +183,7 @@ f32 HungerSystem::GetStat(SurvivorId id, SurvivalStat stat) const noexcept {
     return s->stats[sidx].current;
 }
 
-bool HungerSystem::IsCritical(SurvivorId id, SurvivalStat stat) const noexcept {
+bool HungerSystem::IsCritical(SurvivorId id, ESurvivalStat stat) const noexcept {
     const SurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return false;
     const u32 sidx = StatIndex(stat);
@@ -266,7 +266,7 @@ void HungerSystem::Tick(f32 dt) noexcept {
                 if (_on_critical != nullptr) {
                     const SurvivorId id = SurvivorId::Pack(static_cast<u32>(si), slot.gen);
                     _on_critical(_on_critical_user, id,
-                                 static_cast<SurvivalStat>(st_i), now_critical);
+                                 static_cast<ESurvivalStat>(st_i), now_critical);
                 }
             }
 
@@ -277,7 +277,7 @@ void HungerSystem::Tick(f32 dt) noexcept {
                     const f32 dmg = cfg.zero_damage_per_sec * dt;
                     const SurvivorId id = SurvivorId::Pack(static_cast<u32>(si), slot.gen);
                     _on_damage(_on_damage_user, id,
-                               static_cast<SurvivalStat>(st_i), dmg);
+                               static_cast<ESurvivalStat>(st_i), dmg);
                 }
             }
         }

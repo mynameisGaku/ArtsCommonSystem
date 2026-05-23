@@ -18,7 +18,7 @@ public:
 
     u32    Width()       const noexcept override { return _width; }
     u32    Height()      const noexcept override { return _height; }
-    Format PixelFormat() const noexcept override { return _format; }
+    EFormat EPixelFormat() const noexcept override { return _format; }
 
     // 内部使用: SRV の GPU ハンドル（ルート記述子テーブルにバインド）
     D3D12_GPU_DESCRIPTOR_HANDLE SrvGpuHandle() const noexcept;
@@ -38,7 +38,7 @@ private:
     ID3D12Resource*       _resource = nullptr;
     u32                   _width    = 0;
     u32                   _height   = 0;
-    Format                _format   = Format::Unknown;
+    EFormat                _format   = EFormat::Unknown;
     i32                   _srv_slot = -1;
     i32                   _dsv_slot = -1;
     bool                  _is_depth = false;

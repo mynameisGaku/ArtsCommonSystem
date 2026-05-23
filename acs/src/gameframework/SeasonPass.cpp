@@ -145,10 +145,10 @@ u32 SeasonPass::CurrentTier() const noexcept {
     return best;
 }
 
-SeasonStatus SeasonPass::Status() const noexcept {
-    if (_current_time < _info.start_timestamp) return SeasonStatus::NotStarted;
-    if (_current_time >= _info.end_timestamp)  return SeasonStatus::Ended;
-    return SeasonStatus::Active;
+ESeasonStatus SeasonPass::Status() const noexcept {
+    if (_current_time < _info.start_timestamp) return ESeasonStatus::NotStarted;
+    if (_current_time >= _info.end_timestamp)  return ESeasonStatus::Ended;
+    return ESeasonStatus::Active;
 }
 
 // =============================================================================

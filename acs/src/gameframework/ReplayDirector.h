@@ -61,8 +61,8 @@
 //      (Pillar M Phase 2) で「ReplayDirector が両者を所有」or「seam 経由で
 //      参照する」かを決めた上で接続する。本 header では .cpp 内で完結する
 //      forward decl のみ。
-//   ・**ReplayMode の 4 状態**: Idle / Recording / Playback / Paused。
-//      InputRecorder の RecorderMode と Lockstep の NetMode と異なり、UI が
+//   ・**EReplayMode の 4 状態**: Idle / Recording / Playback / Paused。
+//      InputRecorder の ERecorderMode と Lockstep の ENetMode と異なり、UI が
 //      Pause/Resume を必要とするので Paused を専用状態として持つ。Paused
 //      からの遷移は Resume (→ Playback) と Stop (→ Idle) のみ。
 //   ・**ReplayMetadata は trivially-copyable POD**: `const char*` 文字列は
@@ -101,10 +101,10 @@ class InputRecorder;
 class Lockstep;
 
 // =============================================================================
-// ReplayMode — ReplayDirector の動作モード
+// EReplayMode — ReplayDirector の動作モード
 // -----------------------------------------------------------------------------
-// InputRecorder の RecorderMode (Idle/Recording/Replaying) と Lockstep の
-// NetMode (Local/Lockstep/Replay) を統合し、UI が要求する Pause/Resume を
+// InputRecorder の ERecorderMode (Idle/Recording/Replaying) と Lockstep の
+// ENetMode (Local/Lockstep/Replay) を統合し、UI が要求する Pause/Resume を
 // 加えた 4 状態。状態遷移図:
 //
 //   Idle ── StartRecording ──> Recording ── StopRecording ──> Idle
@@ -115,7 +115,7 @@ class Lockstep;
 //
 // Recording から Playback への直接遷移は禁止 (一旦 Stop を挟む)。
 // =============================================================================
-enum class ReplayMode : u8 {
+enum class EReplayMode : u8 {
     Idle      = 0,  // 録画も再生もしない (初期状態 / 停止状態)
     Recording = 1,  // 録画中 (Tick で _current_tick を進める)
     Playback  = 2,  // 再生中 (Tick で _current_tick を speed 倍で進める)
@@ -193,7 +193,7 @@ public:
     void StopPlayback() noexcept;
 
     // ----- 状態 query -----
-    ReplayMode CurrentMode()         const noexcept { return _mode; }
+    EReplayMode CurrentMode()         const noexcept { return _mode; }
     f32        PlaybackSpeed()       const noexcept { return _playback_speed; }
     u32        CurrentTick()         const noexcept { return _current_tick; }
     u32        DurationTicks()       const noexcept { return _metadata.duration_ticks; }
@@ -229,7 +229,7 @@ public:
     Result<void> LoadReplay(const wchar_t* file_path) noexcept;
 
 private:
-    ReplayMode     _mode             = ReplayMode::Idle;
+    EReplayMode     _mode             = EReplayMode::Idle;
     ReplayMetadata _metadata         {};         // 現在の録画 / 再生対象の metadata
     u32            _current_tick     = 0;        // 録画中: 次に書き込む tick / 再生中: 次に消費する tick
     f32            _playback_speed   = 1.0f;     // 再生倍速 (1.0 = 等倍)

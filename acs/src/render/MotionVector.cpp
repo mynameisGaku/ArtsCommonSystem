@@ -87,7 +87,7 @@ Result<void> MotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexc
 
     BufferDesc cbd{};
     cbd.size         = 256;          // MotionCB (192B) を 256 アラインで確保
-    cbd.usage        = BufferUsage::Uniform;
+    cbd.usage        = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     auto cbr = CreateRhiBuffer(device, cbd);
     if (cbr.IsErr()) return Err<void>(cbr.Error());
@@ -126,7 +126,7 @@ Result<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexc
     TextureDesc md{};
     md.width  = w;
     md.height = h;
-    md.format = Format::R16G16_Float;
+    md.format = EFormat::R16G16_Float;
     md.is_render_target = true;
     auto mr = CreateRhiTexture(device, md);
     if (mr.IsErr()) return Err<void>(mr.Error());
@@ -136,7 +136,7 @@ Result<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexc
     TextureDesc nd{};
     nd.width  = w;
     nd.height = h;
-    nd.format = Format::R16G16B16A16_Float;
+    nd.format = EFormat::R16G16B16A16_Float;
     nd.is_render_target = true;
     auto nr = CreateRhiTexture(device, nd);
     if (nr.IsErr()) return Err<void>(nr.Error());
@@ -146,7 +146,7 @@ Result<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexc
     TextureDesc dd{};
     dd.width  = w;
     dd.height = h;
-    dd.format = Format::D32_Float;
+    dd.format = EFormat::D32_Float;
     dd.is_depth_target = true;
     auto dr = CreateRhiTexture(device, dd);
     if (dr.IsErr()) return Err<void>(dr.Error());
@@ -157,7 +157,7 @@ Result<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexc
 
 Result<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
-    vs_d.stage       = ShaderStage::Vertex;
+    vs_d.stage       = EShaderStage::Vertex;
     vs_d.hlsl_source = kMotionHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "MotionVector.VS";
@@ -166,7 +166,7 @@ Result<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     _vs = Move(vs_r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage       = ShaderStage::Pixel;
+    ps_d.stage       = EShaderStage::Pixel;
     ps_d.hlsl_source = kMotionHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "MotionVector.PS";
@@ -177,24 +177,24 @@ Result<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     // MRT: t0 = motion (RG16F)、t1 = world normal (RGBA16F)
     pd.rt_count      = 2;
-    pd.rt_formats[0] = Format::R16G16_Float;
-    pd.rt_formats[1] = Format::R16G16B16A16_Float;
-    pd.depth_format  = Format::D32_Float;
+    pd.rt_formats[0] = EFormat::R16G16_Float;
+    pd.rt_formats[1] = EFormat::R16G16B16A16_Float;
+    pd.depth_format  = EFormat::D32_Float;
     pd.depth_test    = true;
     pd.depth_write   = true;
     // 全面ラスタライズ + depth test で frontmost が勝つ。winding 依存を避けるため
     // cull は無効 (closed mesh では裏面が depth で落ちるので実害なし)。
-    pd.cull_mode     = CullMode::None;
+    pd.cull_mode     = ECullMode::None;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 0;
     pd.cbuffer_names[0] = "MotionCB";
     pd.vertex_stride = sizeof(MeshVertex);
-    pd.layout[0] = { "POSITION", 0, Format::R32G32B32_Float, 0  };
-    pd.layout[1] = { "NORMAL",   0, Format::R32G32B32_Float, 16 };
-    pd.layout[2] = { "TEXCOORD", 0, Format::R32G32_Float,    32 };
+    pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 };
+    pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());

@@ -24,7 +24,7 @@
 //           _spatial.SetListener({{0,0,0}, {0,0,1}, {0,1,0}});
 //           // 敵から鳴る連続音 (max 20m 圏内で減衰、線形カーブ)
 //           u32 src = _spatial.RegisterSource({5,0,3}, 20.0f,
-//                                             acs::game::AttenuationCurve::Linear);
+//                                             acs::game::EAttenuationCurve::Linear);
 //           _src_enemy = src;
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
@@ -106,17 +106,17 @@ struct AudioSource3D {
     f32                max_distance = 20.0f;
     bool               active       = true;
     // curve はメンバ末尾に置いて u8 詰めを促す。Phase H-3 では Linear がデフォルト。
-    u8                 curve        = 0; // = AttenuationCurve::Linear
+    u8                 curve        = 0; // = EAttenuationCurve::Linear
 };
 
 // =============================================================================
-// AttenuationCurve — 距離 → 音量カーブ種別
+// EAttenuationCurve — 距離 → 音量カーブ種別
 // -----------------------------------------------------------------------------
 // Linear:      シューティングの被弾音などゲーム的にわかりやすい
 // Inverse:     物理に近い、自然な減衰 (1/r ベース)
 // Exponential: 急峻に消える、足音や草擦れ音向け
 // =============================================================================
-enum class AttenuationCurve : u8 {
+enum class EAttenuationCurve : u8 {
     Linear      = 0,
     Inverse     = 1,
     Exponential = 2,
@@ -223,7 +223,7 @@ public:
     // 新規 source を登録、source_id を返す (1.. の単調増加)。
     // max_distance <= 0 はデフォルト (20m) にクランプ。
     u32  RegisterSource(Vec3 pos, f32 max_distance,
-                        AttenuationCurve curve) noexcept;
+                        EAttenuationCurve curve) noexcept;
     // 位置 / 速度を更新。stale ID は no-op (警告ログのみ)。
     void UpdateSource(u32 id, Vec3 pos, Vec3 vel = Vec3::Zero()) noexcept;
     // 基準ゲイン [0, 1] を変更。範囲外は clamp + 警告。

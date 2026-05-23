@@ -57,13 +57,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
-Result<void> SpriteBatch::Init(IRhiDevice& device, Format rt_format, u32 max_sprites) noexcept {
+Result<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites) noexcept {
     if (max_sprites == 0) max_sprites = 4096;
     _max_sprites = max_sprites;
 
     // === シェーダ ===
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSpriteHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Sprite.VS";
@@ -72,7 +72,7 @@ Result<void> SpriteBatch::Init(IRhiDevice& device, Format rt_format, u32 max_spr
     _vs = Move(vs_r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSpriteHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Sprite.PS";
@@ -84,7 +84,7 @@ Result<void> SpriteBatch::Init(IRhiDevice& device, Format rt_format, u32 max_spr
     const usize vb_size = sizeof(Vertex) * 4 * max_sprites;
     BufferDesc vbd{};
     vbd.size = vb_size;
-    vbd.usage = BufferUsage::Vertex;
+    vbd.usage = EBufferUsage::Vertex;
     vbd.cpu_writable = true;       // 自動で frame-cycled になる
     auto vb_r = CreateRhiBuffer(device, vbd);
     if (vb_r.IsErr()) return Err<void>(vb_r.Error());
@@ -110,7 +110,7 @@ Result<void> SpriteBatch::Init(IRhiDevice& device, Format rt_format, u32 max_spr
     }
     BufferDesc ibd{};
     ibd.size = sizeof(u16) * idx_count;
-    ibd.usage = BufferUsage::Index16;
+    ibd.usage = EBufferUsage::Index16;
     ibd.cpu_writable = true;
     ibd.initial_data = idx_ptr;
     auto ib_r = CreateRhiBuffer(device, ibd);
@@ -121,7 +121,7 @@ Result<void> SpriteBatch::Init(IRhiDevice& device, Format rt_format, u32 max_spr
     // === 定数バッファ（screen size）===
     BufferDesc cbd{};
     cbd.size = 256;
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     auto cb_r = CreateRhiBuffer(device, cbd);
     if (cb_r.IsErr()) return Err<void>(cb_r.Error());
@@ -131,7 +131,7 @@ Result<void> SpriteBatch::Init(IRhiDevice& device, Format rt_format, u32 max_spr
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
     TextureDesc td{};
     td.width = 1; td.height = 1;
-    td.format = Format::R8G8B8A8_UNorm;
+    td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = white_pixel;
     td.initial_data_size = 4;
     auto wt_r = CreateRhiTexture(device, td);
@@ -142,24 +142,24 @@ Result<void> SpriteBatch::Init(IRhiDevice& device, Format rt_format, u32 max_spr
     PipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
-    pd.depth_format  = Format::Unknown;   // 2D は深度無し
+    pd.depth_format  = EFormat::Unknown;   // 2D は深度無し
     pd.depth_test    = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::AlphaBlend;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::AlphaBlend;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 1;
     pd.cbuffer_names[0] = "Screen";
     pd.texture_names[0] = "atlas";
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(Vertex);
-    pd.layout[0] = { "POSITION", 0, Format::R32G32_Float,    0  };
-    pd.layout[1] = { "TEXCOORD", 0, Format::R32G32_Float,    8  };
-    pd.layout[2] = { "COLOR",    0, Format::R32G32B32A32_Float, 16 };
+    pd.layout[0] = { "POSITION", 0, EFormat::R32G32_Float,    0  };
+    pd.layout[1] = { "TEXCOORD", 0, EFormat::R32G32_Float,    8  };
+    pd.layout[2] = { "COLOR",    0, EFormat::R32G32B32A32_Float, 16 };
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());

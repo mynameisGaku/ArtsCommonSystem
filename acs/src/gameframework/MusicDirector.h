@@ -7,7 +7,7 @@
 // 側が同列に保持する想定 (BGM 状態はシーン切替で途切れない方が自然)。
 //
 // 機能:
-//   ・MusicState (6 種): Silent / Calm / Tension / Combat / Victory / GameOver
+//   ・EMusicState (6 種): Silent / Calm / Tension / Combat / Victory / GameOver
 //   ・state -> track 配列 (1 状態に複数 track を登録、intensity range で選択)
 //   ・SetState(state, transition_sec) で状態クロスフェード
 //   ・SetIntensity(0..1) で「同じ状態内での激しさ」を表現
@@ -52,7 +52,7 @@ namespace acs::game {
 
 // 適応 BGM の状態。値は安定なので save に書ける (将来 enum 追加時は末尾追加のみ、
 // 既存値の意味は不変とする規約)。
-enum class MusicState : u8 {
+enum class EMusicState : u8 {
     Silent   = 0,  // 無音 (タイトル前 / 思索シーン等)
     Calm     = 1,  // 平穏 (探索 / 街)
     Tension  = 2,  // 緊張 (敵接近 / ステルス)
@@ -74,7 +74,7 @@ struct MusicTrack {
 
 class MusicDirector {
 public:
-    // MusicState の総数。enum 末尾追加時はここを増やす。
+    // EMusicState の総数。enum 末尾追加時はここを増やす。
     static constexpr u32 kStateCount = 6;
     // 全 state 合計の track 登録上限 (リザーブ目安、超えても自動拡張する)。
     static constexpr u32 kTrackReserveHint = 16;
@@ -91,16 +91,16 @@ public:
     // 同一 state に複数 track 登録可。intensity range が重なる場合は登録順で
     // 最初に該当した track が選択される (Phase 2 で優先度 API を追加予定)。
     // asset_path == nullptr は警告 + 無視。
-    void RegisterTrack(MusicState state, const MusicTrack& track) noexcept;
+    void RegisterTrack(EMusicState state, const MusicTrack& track) noexcept;
 
     // ----- 状態遷移 -----
     // current state → state にクロスフェード開始。
     //   transition_sec <= 0: 即時切替 (progress=1 にスナップ)。
     //   同一 state 再要求: no-op (現行 BGM 継続、transition は途中なら継続)。
-    void SetState(MusicState state, f32 transition_sec = 2.0f) noexcept;
+    void SetState(EMusicState state, f32 transition_sec = 2.0f) noexcept;
 
-    MusicState CurrentState() const noexcept { return _current_state; }
-    MusicState TargetState()  const noexcept { return _target_state; }
+    EMusicState CurrentState() const noexcept { return _current_state; }
+    EMusicState TargetState()  const noexcept { return _target_state; }
 
     // クロスフェード中 (current != target かつ progress < 1) なら true。
     bool IsTransitioning() const noexcept;
@@ -144,7 +144,7 @@ private:
     void RebuildStateIndex() noexcept;
     // state 内の track 配列から intensity に合う track index を _tracks 上で返す。
     // 該当なしの場合 npos 相当 (= _tracks.Size()) を返す。
-    usize FindTrackForState(MusicState state, f32 intensity) const noexcept;
+    usize FindTrackForState(EMusicState state, f32 intensity) const noexcept;
     static f32 Clamp01(f32 v) noexcept;
     static void LogTodoOnce(const char* what) noexcept;
 
@@ -155,8 +155,8 @@ private:
     u32 _state_count[kStateCount] {};
 
     // ----- 状態遷移 -----
-    MusicState _current_state = MusicState::Silent;
-    MusicState _target_state  = MusicState::Silent;
+    EMusicState _current_state = EMusicState::Silent;
+    EMusicState _target_state  = EMusicState::Silent;
     f32        _transition_duration = 0.0f;
     f32        _transition_elapsed  = 0.0f;
     f32        _transition_progress = 1.0f;  // [0, 1]。1 = 完了 / snap 済み

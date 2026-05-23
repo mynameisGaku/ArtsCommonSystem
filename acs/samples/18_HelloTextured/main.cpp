@@ -129,7 +129,7 @@ public:
 
         // === シェーダ ===
         ShaderDesc vs_desc{};
-        vs_desc.stage = ShaderStage::Vertex;
+        vs_desc.stage = EShaderStage::Vertex;
         vs_desc.hlsl_source = kHLSL;
         vs_desc.entry_point = "VSMain";
         vs_desc.debug_name  = "Tex.VS";
@@ -138,7 +138,7 @@ public:
         } else _vs = Move(r.Value());
 
         ShaderDesc ps_desc{};
-        ps_desc.stage = ShaderStage::Pixel;
+        ps_desc.stage = EShaderStage::Pixel;
         ps_desc.hlsl_source = kHLSL;
         ps_desc.entry_point = "PSMain";
         ps_desc.debug_name  = "Tex.PS";
@@ -149,7 +149,7 @@ public:
         // === バッファ ===
         BufferDesc vb{};
         vb.size = sizeof(kCubeVertices);
-        vb.usage = BufferUsage::Vertex; vb.cpu_writable = true;
+        vb.usage = EBufferUsage::Vertex; vb.cpu_writable = true;
         vb.initial_data = kCubeVertices;
         if (auto r = CreateRhiBuffer(*dev, vb); r.IsErr()) {
             ACS_LOG_ERROR("頂点バッファ作成に失敗: %s", r.Error().message); Quit(); return;
@@ -158,7 +158,7 @@ public:
 
         BufferDesc ib{};
         ib.size = sizeof(kCubeIndices);
-        ib.usage = BufferUsage::Index16; ib.cpu_writable = true;
+        ib.usage = EBufferUsage::Index16; ib.cpu_writable = true;
         ib.initial_data = kCubeIndices;
         if (auto r = CreateRhiBuffer(*dev, ib); r.IsErr()) {
             ACS_LOG_ERROR("インデックスバッファ作成に失敗: %s", r.Error().message); Quit(); return;
@@ -166,7 +166,7 @@ public:
         else _ib = Move(r.Value());
 
         BufferDesc cb_d{};
-        cb_d.size = 256; cb_d.usage = BufferUsage::Uniform; cb_d.cpu_writable = true;
+        cb_d.size = 256; cb_d.usage = EBufferUsage::Uniform; cb_d.cpu_writable = true;
         if (auto r = CreateRhiBuffer(*dev, cb_d); r.IsErr()) {
             ACS_LOG_ERROR("定数バッファ作成に失敗: %s", r.Error().message); Quit(); return;
         }
@@ -179,7 +179,7 @@ public:
         TextureDesc td{};
         td.width  = kTexSize;
         td.height = kTexSize;
-        td.format = Format::R8G8B8A8_UNorm;
+        td.format = EFormat::R8G8B8A8_UNorm;
         td.initial_data = pixels;
         td.initial_data_size = sizeof(pixels);
         if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) {
@@ -190,21 +190,21 @@ public:
         PipelineDesc pd{};
         pd.vs = _vs.Get();
         pd.ps = _ps.Get();
-        pd.topology      = PrimitiveTopology::TriangleList;
+        pd.topology      = EPrimitiveTopology::TriangleList;
         pd.rt_format     = GetRenderer().ColorFormat();
         pd.depth_format  = GetRenderer().DepthFormat();
         pd.depth_test    = true;
         pd.depth_write   = true;
-        pd.cull_mode     = CullMode::Back;
+        pd.cull_mode     = ECullMode::Back;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 1;
         pd.static_sampler_count = 1;
-        pd.static_samplers[0].filter      = SamplerFilter::Point;     // ピクセルアートっぽい外観
-        pd.static_samplers[0].address_u   = SamplerAddress::Wrap;
-        pd.static_samplers[0].address_v   = SamplerAddress::Wrap;
+        pd.static_samplers[0].filter      = ESamplerFilter::Point;     // ピクセルアートっぽい外観
+        pd.static_samplers[0].address_u   = ESamplerAddress::Wrap;
+        pd.static_samplers[0].address_v   = ESamplerAddress::Wrap;
         pd.vertex_stride = sizeof(Vertex);
-        pd.layout[0] = { "POSITION",  0, Format::R32G32B32_Float, 0 };
-        pd.layout[1] = { "TEXCOORD",  0, Format::R32G32_Float,    sizeof(f32) * 3 };
+        pd.layout[0] = { "POSITION",  0, EFormat::R32G32B32_Float, 0 };
+        pd.layout[1] = { "TEXCOORD",  0, EFormat::R32G32_Float,    sizeof(f32) * 3 };
         pd.layout_count = 2;
         if (auto r = CreateRhiPipeline(*dev, pd); r.IsErr()) {
             ACS_LOG_ERROR("Pipeline create: %s", r.Error().message); Quit(); return;
@@ -219,11 +219,11 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
         _angle += dt * 0.6f;
-        if (Input::IsKeyDown(Key::Left))  _cam_yaw -= dt * 1.5f;
-        if (Input::IsKeyDown(Key::Right)) _cam_yaw += dt * 1.5f;
+        if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
+        if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
 
         Vec3 eye{ Sin(_cam_yaw) * 5.0f, 1.5f, -Cos(_cam_yaw) * 5.0f };
         _camera.SetLookAt(eye, {0, 0, 0});

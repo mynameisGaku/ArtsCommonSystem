@@ -47,7 +47,7 @@ Result<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConf
         return ACS_ERR(Render, 111, "DiligentSwapchain: device not initialized");
     }
 
-    if (device.ActualBackend() == RhiBackendKind::Vulkan) {
+    if (device.ActualBackend() == ERhiBackendKind::Vulkan) {
 #if WITH_RENDER_DILIGENT_VULKAN
         auto* factory = device.FactoryVk();
         if (!factory) return ACS_ERR(Render, 113, "Vulkan factory missing");

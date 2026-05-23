@@ -40,7 +40,7 @@ public:
     void        WaitIdle()    noexcept override;
 
     // 実際に選ばれたバックエンド種別
-    RhiBackendKind ActualBackend() const noexcept { return _actual_backend; }
+    ERhiBackendKind ActualBackend() const noexcept { return _actual_backend; }
 
     // ---- 内部公開（他の Diligent* バックエンドが触れる）----
     // Factory は Vulkan / D3D12 で別型。汎用には IEngineFactory を返す。
@@ -74,7 +74,7 @@ private:
     Diligent::IFence*              _idle_fence    = nullptr;
     u64                            _idle_value    = 0;
     u32                            _frame_slot    = 0;
-    RhiBackendKind                 _actual_backend = RhiBackendKind::Auto;
+    ERhiBackendKind                 _actual_backend = ERhiBackendKind::Auto;
     char                           _adapter_name[128]{};
     const char*                    _backend_name  = "Diligent";
 };

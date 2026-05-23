@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework メタ層 — PrivacyDirector 実装
 //
-// consent 状態は bit flag (ConsentCategory) を 1 個の u32 にまとめて持つ。
+// consent 状態は bit flag (EConsentCategory) を 1 個の u32 にまとめて持つ。
 // Grant/Revoke は単純な OR / AND-NOT で、複合カテゴリ (Analytics | Marketing)
 // にも対応する。Required (= 0) は「同意不要」を表すため特別扱い:
 //   ・GrantConsent(Required) は何もしない (bit が無いので OR で変化なし)
@@ -19,18 +19,18 @@ namespace acs::game {
 
 // Required(=0) を除いた全カテゴリの bit 集合。GrantAll/RevokeAll で使う。
 // 新カテゴリ追加時はここに OR で追記する必要がある (静的に閉じておく)。
-static constexpr ConsentCategory kAllCategories =
-    ConsentCategory::Analytics
-    | ConsentCategory::Marketing
-    | ConsentCategory::Personalization
-    | ConsentCategory::ThirdPartySharing
-    | ConsentCategory::Telemetry
-    | ConsentCategory::CrashReports;
+static constexpr EConsentCategory kAllCategories =
+    EConsentCategory::Analytics
+    | EConsentCategory::Marketing
+    | EConsentCategory::Personalization
+    | EConsentCategory::ThirdPartySharing
+    | EConsentCategory::Telemetry
+    | EConsentCategory::CrashReports;
 
-// ConsentCategory 同士の bit 操作ユーティリティ。
+// EConsentCategory 同士の bit 操作ユーティリティ。
 // & ~b で「b に含まれる bit を a から落とす」を表現する。
-static constexpr ConsentCategory AndNot(ConsentCategory a, ConsentCategory b) noexcept {
-    return static_cast<ConsentCategory>(static_cast<u32>(a) & ~static_cast<u32>(b));
+static constexpr EConsentCategory AndNot(EConsentCategory a, EConsentCategory b) noexcept {
+    return static_cast<EConsentCategory>(static_cast<u32>(a) & ~static_cast<u32>(b));
 }
 
 // ----- 初期化 ---------------------------------------------------------------
@@ -44,13 +44,13 @@ void PrivacyDirector::Init(u32 current_policy_version) noexcept {
 
 // ----- 同意操作 -------------------------------------------------------------
 
-void PrivacyDirector::GrantConsent(ConsentCategory cat) noexcept {
+void PrivacyDirector::GrantConsent(EConsentCategory cat) noexcept {
     // OR で bit を立てる。複合 (Analytics | Marketing) もそのまま受理。
     // Required(=0) を渡されても OR で変化なしなので分岐不要。
     _status.granted_mask = _status.granted_mask | cat;
 }
 
-void PrivacyDirector::RevokeConsent(ConsentCategory cat) noexcept {
+void PrivacyDirector::RevokeConsent(EConsentCategory cat) noexcept {
     // & ~cat で bit を落とす。Required(=0) は ~0 = 全 bit になるため
     // 「Required を revoke」要求は実質 no-op。明示判定はせず数学に任せる。
     _status.granted_mask = AndNot(_status.granted_mask, cat);
@@ -63,16 +63,16 @@ void PrivacyDirector::GrantAll() noexcept {
 
 void PrivacyDirector::RevokeAll() noexcept {
     // 全カテゴリ OFF (= Required のみ)。"Reject All" ボタン相当。
-    _status.granted_mask = ConsentCategory::Required;
+    _status.granted_mask = EConsentCategory::Required;
 }
 
 // ----- 問い合わせ -----------------------------------------------------------
 
-bool PrivacyDirector::HasConsent(ConsentCategory cat) const noexcept {
+bool PrivacyDirector::HasConsent(EConsentCategory cat) const noexcept {
     // Required (=0) は仕様により常に true (法的同意不要のカテゴリ)。
     // GDPR/CCPA でも「サービス提供に必要不可欠な処理」は同意なしで許される
     // ため、ローカルセーブ等を Required で分類するとこの分岐に乗る。
-    if (cat == ConsentCategory::Required) return true;
+    if (cat == EConsentCategory::Required) return true;
 
     // 複合カテゴリ判定: cat の **全ての** bit が立っているかを確認する。
     // 部分一致を許すとセキュリティ上の "うっかり許可" を生む。
@@ -81,7 +81,7 @@ bool PrivacyDirector::HasConsent(ConsentCategory cat) const noexcept {
     return (mask & want) == want;
 }
 
-ConsentCategory PrivacyDirector::GrantedMask() const noexcept {
+EConsentCategory PrivacyDirector::GrantedMask() const noexcept {
     return _status.granted_mask;
 }
 

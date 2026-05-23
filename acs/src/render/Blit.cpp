@@ -32,9 +32,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
-Result<void> Blit::Init(IRhiDevice& device, Format rt_format) noexcept {
+Result<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kBlitHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Blit.VS";
@@ -43,7 +43,7 @@ Result<void> Blit::Init(IRhiDevice& device, Format rt_format) noexcept {
     _vs = Move(vs_r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kBlitHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Blit.PS";
@@ -54,20 +54,20 @@ Result<void> Blit::Init(IRhiDevice& device, Format rt_format) noexcept {
     PipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
-    pd.depth_format  = Format::Unknown;       // depth 不使用
+    pd.depth_format  = EFormat::Unknown;       // depth 不使用
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;        // 3 頂点の fullscreen 三角形
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;        // 3 頂点の fullscreen 三角形
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 0;
     pd.texture_slots = 1;
     pd.texture_names[0] = "src";
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
     // 頂点バッファ無し (SV_VertexID 駆動): vertex_stride=0, layout_count=0 (既定値)
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());

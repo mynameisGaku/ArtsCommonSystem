@@ -26,7 +26,7 @@ namespace acs::game {
 
 // ---- Stub: Init / Shutdown ------------------------------------------------
 
-Result<void> VoiceChatBackendStub::Init(VoiceProvider p) noexcept {
+Result<void> VoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
     // provider 選択は記録するが、Stub は SDK 接続を行わないので IsAvailable は
     // false のまま。多重 Init は明示的に許容 (テスト容易性のため)。
     _provider = p;
@@ -36,13 +36,13 @@ Result<void> VoiceChatBackendStub::Init(VoiceProvider p) noexcept {
 
 void VoiceChatBackendStub::Shutdown() noexcept {
     // Init() 前に呼ばれても安全。状態は完全に初期値に戻す。
-    _provider = VoiceProvider::None;
+    _provider = EVoiceProvider::None;
     _initialized = false;
 }
 
 // ---- Stub: チャンネル参加 / 離脱 -----------------------------------------
 
-Result<void> VoiceChatBackendStub::JoinChannel(VoiceChannel ch, const char* channel_id) noexcept {
+Result<void> VoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
     (void)ch;
     (void)channel_id;
     if (!_initialized) {
@@ -53,7 +53,7 @@ Result<void> VoiceChatBackendStub::JoinChannel(VoiceChannel ch, const char* chan
                    "VoiceChatBackendStub: JoinChannel is not implemented (link real voice SDK)");
 }
 
-Result<void> VoiceChatBackendStub::LeaveChannel(VoiceChannel ch) noexcept {
+Result<void> VoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
     (void)ch;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
@@ -99,14 +99,14 @@ Result<void> VoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32
 
 // ---- Stub: 参加者取得 ----------------------------------------------------
 
-u32 VoiceChatBackendStub::ParticipantCount(VoiceChannel ch) noexcept {
+u32 VoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
     (void)ch;
     // Stub は誰も join していない扱い。UI 側は 0 をそのまま「参加者なし」表示に
     // 反映できる。Result を返さない設計なので未初期化との区別は意図的に省略。
     return 0;
 }
 
-Result<VoiceParticipant> VoiceChatBackendStub::GetParticipant(VoiceChannel ch, u32 index) noexcept {
+Result<VoiceParticipant> VoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
     (void)ch;
     (void)index;
     if (!_initialized) {

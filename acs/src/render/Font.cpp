@@ -162,7 +162,7 @@ Result<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize t
     // ===== GPU テクスチャ作成 =====
     TextureDesc td{};
     td.width = atlas_size; td.height = atlas_size;
-    td.format = Format::R8G8B8A8_UNorm;
+    td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = atlas_rgba;
     td.initial_data_size = rgba_bytes;
     auto tr = CreateRhiTexture(device, td);

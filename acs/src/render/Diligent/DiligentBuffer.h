@@ -25,7 +25,7 @@ public:
 
     // ---- IRhiBuffer ----
     usize       Size()  const noexcept override { return _size; }
-    BufferUsage Usage() const noexcept override { return _usage; }
+    EBufferUsage Usage() const noexcept override { return _usage; }
     void        Update(const void* data, usize size, usize offset = 0) noexcept override;
 
     // 内部公開
@@ -35,7 +35,7 @@ private:
     DiligentDevice*    _device = nullptr;
     Diligent::IBuffer* _buffer = nullptr;
     usize              _size   = 0;
-    BufferUsage        _usage  = BufferUsage::Vertex;
+    EBufferUsage        _usage  = EBufferUsage::Vertex;
 };
 
 } // namespace acs

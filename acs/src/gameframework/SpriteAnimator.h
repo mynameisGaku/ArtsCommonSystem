@@ -6,7 +6,7 @@
 // 自分の Sprite/Quad に適用する責務分離 = テスタブルかつ asset 層と独立にビルド可能。
 //
 // 機能:
-//   ・PlayMode = Loop / PingPong / Once
+//   ・EPlayMode = Loop / PingPong / Once
 //   ・Play / Pause / Stop / Tick / SetCurrentFrame / SetFps
 //   ・PingPong は端で折り返す (例: 4 frame → 0,1,2,3,2,1,0,1,2,3,…)
 //   ・Once は末尾で停止し IsFinished() = true
@@ -15,7 +15,7 @@
 //
 // 使い方:
 //   SpriteAnimator anim;
-//   anim.Init(/*frame_count=*/8, /*fps=*/12.0f, PlayMode::Loop);
+//   anim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);
 //   anim.AddFrameEvent(4, [](void* ud) noexcept {
 //       static_cast<MyActor*>(ud)->OnFootstep();
 //   }, this);
@@ -41,7 +41,7 @@
 
 namespace acs::game {
 
-enum class PlayMode : u8 {
+enum class EPlayMode : u8 {
     Loop     = 0,  // 0→N-1→0→N-1→… と循環
     PingPong = 1,  // 0→N-1→0→N-1→… と折り返し (両端 1 度ずつ)
     Once     = 2,  // 0→N-1 で停止
@@ -62,7 +62,7 @@ public:
 
     // 初期化。frame_count==0 や fps<=0 は安全な既定にフォールバック (frame=1, fps=1)。
     // 既存の frame event は維持される (= Reset 用途では再 Init せず Stop を使う)。
-    void Init(u32 frame_count, f32 fps, PlayMode mode = PlayMode::Loop) noexcept;
+    void Init(u32 frame_count, f32 fps, EPlayMode mode = EPlayMode::Loop) noexcept;
 
     // 再生制御。Play は現在位置から再開、Stop は先頭に戻して停止、
     // Pause は位置維持で停止。
@@ -91,7 +91,7 @@ public:
 
     f32      Fps()        const noexcept { return _fps; }
     u32      FrameCount() const noexcept { return _frame_count; }
-    PlayMode Mode()       const noexcept { return _mode; }
+    EPlayMode Mode()       const noexcept { return _mode; }
 
     // frame に進入した瞬間 1 度だけ cb を呼ぶ。同じ frame に複数登録すれば
     // 登録順に発火。重複は許容 (= 利用者の責任で重複を避ける)。
@@ -116,7 +116,7 @@ private:
 
     u32       _frame_count   = 1;
     f32       _fps           = 1.0f;
-    PlayMode  _mode          = PlayMode::Loop;
+    EPlayMode  _mode          = EPlayMode::Loop;
     f32       _elapsed       = 0.0f;
     u32       _current_frame = 0;
     bool      _playing       = false;

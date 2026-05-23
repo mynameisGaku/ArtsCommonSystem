@@ -29,7 +29,7 @@ struct KindDefaults {
     u32 value;
 };
 
-// 列挙順 = PickupKind enum 順。インデックスは static_cast<u8>(kind)。
+// 列挙順 = EPickupKind enum 順。インデックスは static_cast<u8>(kind)。
 // 配列サイズ = enum 値の数 (Custom 含む 8 個)。
 constexpr KindDefaults kKindDefaults[8] = {
     // HealthOrb : 小さめ・吸引強め・短寿命・回復量 10
@@ -44,7 +44,7 @@ constexpr KindDefaults kKindDefaults[8] = {
     { 20.0f,  20.0f, 30.0f, 30u },
     // PowerUp   : 大・吸引なし・長寿命・パワー id (value で区別想定)
     { 18.0f,  20.0f, 20.0f,  1u },
-    // Key       : 中・吸引なし・無期限・id 1
+    // EKey       : 中・吸引なし・無期限・id 1
     { 14.0f,   0.0f,  0.0f,  1u },
     // Custom    : 既定値は呼出側に任せる (radius のみ確保、magnet 0、無期限、value 0)
     { 10.0f,   0.0f,  0.0f,  0u },
@@ -194,7 +194,7 @@ void PickupSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
 // ランダムスポーン / kind 別操作
 // =============================================================================
 
-void PickupSystem::SpawnRandomAt(PickupKind kind, Vec2 center, f32 spread_radius) noexcept {
+void PickupSystem::SpawnRandomAt(EPickupKind kind, Vec2 center, f32 spread_radius) noexcept {
     // kind の index を範囲 clamp (enum 拡張時の保険)。
     u8 ki = static_cast<u8>(kind);
     if (ki >= 8u) ki = 7u;  // Custom にフォールバック
@@ -217,7 +217,7 @@ void PickupSystem::SpawnRandomAt(PickupKind kind, Vec2 center, f32 spread_radius
     (void)Spawn(info);
 }
 
-void PickupSystem::DespawnAllOfKind(PickupKind kind) noexcept {
+void PickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
     const usize n = _slots.Size();
     for (usize i = 1; i < n; ++i) {
         Slot& s = _slots[i];
@@ -228,7 +228,7 @@ void PickupSystem::DespawnAllOfKind(PickupKind kind) noexcept {
     }
 }
 
-u32 PickupSystem::CountOfKind(PickupKind kind) const noexcept {
+u32 PickupSystem::CountOfKind(EPickupKind kind) const noexcept {
     u32 count = 0;
     const usize n = _slots.Size();
     for (usize i = 1; i < n; ++i) {

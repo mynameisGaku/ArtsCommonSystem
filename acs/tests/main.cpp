@@ -6,7 +6,7 @@ int main() {
     acs::LogConfig cfg{};
     cfg.console = true;
     cfg.debug_output = false;
-    cfg.min_severity = acs::LogSeverity::Info;
+    cfg.min_severity = acs::ELogSeverity::Info;
     acs::Logger::Init(cfg);
 
     int rc = acs::test::RunAll();

@@ -9,7 +9,7 @@ namespace acs {
 // ============================================================================
 // UiRenderer
 // ============================================================================
-Result<void> UiRenderer::Init(IRhiDevice& device, Format rt_format, Font* default_font) noexcept {
+Result<void> UiRenderer::Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept {
     auto r = _batch.Init(device, rt_format);
     if (r.IsErr()) return r;
     _font = default_font;
@@ -129,14 +129,14 @@ void UiInput::Dispatch(Widget& root) noexcept {
     if (_pressed && _pressed != _hovered) _pressed->OnPointerMove(mx, my);
 
     // クリック
-    if (Input::IsMouseButtonPressed(MouseButton::Left)) {
+    if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
         if (_focused && _focused != hit) _focused->focused = false;
         _focused = hit;
         if (_focused) _focused->focused = true;
         _pressed = hit;
         if (_pressed) _pressed->OnPointerDown(mx, my);
     }
-    if (Input::IsMouseButtonReleased(MouseButton::Left)) {
+    if (Input::IsMouseButtonReleased(EMouseButton::Left)) {
         if (_pressed) _pressed->OnPointerUp(mx, my);
         _pressed = nullptr;
     }

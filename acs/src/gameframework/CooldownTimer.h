@@ -20,7 +20,7 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _cd.Tick(dt);
-//           if (input.JustPressed(Key::Z) && _cd.TryUse(_fireball)) {
+//           if (input.JustPressed(EKey::Z) && _cd.TryUse(_fireball)) {
 //               SpawnFireball();
 //           }
 //       }

@@ -52,9 +52,9 @@
 //   hs.Init();
 //
 //   // 1) stat ごとに decay/critical/damage を config
-//   hs.ConfigureStat(SurvivalStat::Hunger,
+//   hs.ConfigureStat(ESurvivalStat::Hunger,
 //       StatConfig{ /*max*/100.0f, /*decay*/0.5f, /*critical*/20.0f, /*zero_dmg*/2.0f });
-//   hs.ConfigureStat(SurvivalStat::Thirst,
+//   hs.ConfigureStat(ESurvivalStat::Thirst,
 //       StatConfig{ 100.0f, 1.0f, 25.0f, 3.0f });   // 喉は空腹より速い
 //
 //   // 2) survivor を追加 (= 全 stat が max でスタート)
@@ -65,7 +65,7 @@
 //   hs.SetOnDamageCallback(&MyOnDamage, &game_ctx);
 //
 //   // 4) ゲーム中: アイテム使用で stat 回復
-//   hs.RestoreStat(player, SurvivalStat::Hunger, 30.0f);   // 肉を食べた
+//   hs.RestoreStat(player, ESurvivalStat::Hunger, 30.0f);   // 肉を食べた
 //
 //   // 5) 毎フレ
 //   hs.Tick(dt);
@@ -85,11 +85,11 @@
 
 namespace acs::game {
 
-// ---- SurvivalStat ----------------------------------------------------------
+// ---- ESurvivalStat ----------------------------------------------------------
 // 生存統計値の種別。array index として直接使うため値は連続。Custom1 / Custom2
 // はゲーム固有 (例: Radiation / Oxygen / Bleeding) を載せる拡張枠。
 //   kCount = stat 種別の総数 (= 7)。配列サイズや loop 終端に使う。
-enum class SurvivalStat : u8 {
+enum class ESurvivalStat : u8 {
     Hunger  = 0,   // 空腹
     Thirst  = 1,   // 喉の渇き
     Energy  = 2,   // 疲労 (= スタミナの長期版)
@@ -157,13 +157,13 @@ public:
     // critical 状態の遷移通知。entered_critical=true で「閾値を割って入った」、
     // false で「復帰した」を意味する。発火タイミングは Tick 内 + stat の値が
     // 書き換わった直後。
-    using CriticalCallback = void(*)(void* user, SurvivorId id, SurvivalStat stat,
+    using CriticalCallback = void(*)(void* user, SurvivorId id, ESurvivalStat stat,
                                       bool entered_critical) noexcept;
 
     // stat=0 滞在中の HP ダメージ通知。Tick 内で dt × zero_damage_per_sec を
     // 計算して呼び出す。HealthBridge を実装する側はここで HealthSystem::ApplyDamage
     // を呼ぶ想定。1 フレで複数 stat 同時発火しうる。
-    using DamageCallback = void(*)(void* user, SurvivorId id, SurvivalStat stat,
+    using DamageCallback = void(*)(void* user, SurvivorId id, ESurvivalStat stat,
                                     f32 damage) noexcept;
 
     HungerSystem()  noexcept = default;
@@ -185,7 +185,7 @@ public:
     // stat 種別ごとの decay / critical / damage 設定を上書き。Init 後に呼ぶ。
     // 既存 survivor の StatState には影響しない (= 既に走っている survivor の
     // max が変わると不整合になるので、ゲーム起動時に一括設定する想定)。
-    void ConfigureStat(SurvivalStat stat, const StatConfig& config) noexcept;
+    void ConfigureStat(ESurvivalStat stat, const StatConfig& config) noexcept;
 
     // ---- survivor 管理 ----------------------------------------------------
     // 新規 survivor を登録。全 stat が config.max_value で初期化される。
@@ -198,22 +198,22 @@ public:
 
     // ---- stat 操作 (clamp(0, max) を強制) ---------------------------------
     // 加算 (回復)。0 以下 amount は no-op。invalid id は no-op。
-    void RestoreStat(SurvivorId id, SurvivalStat stat, f32 amount) noexcept;
+    void RestoreStat(SurvivorId id, ESurvivalStat stat, f32 amount) noexcept;
 
     // 減算 (消費)。0 以下 amount は no-op。invalid id は no-op。
     // critical 跨ぎ / zero 到達があれば次回 Tick で callback が発火する設計
     // (= 即時 callback はせず、Tick で一元管理して再入を避ける)。
-    void DrainStat(SurvivorId id, SurvivalStat stat, f32 amount) noexcept;
+    void DrainStat(SurvivorId id, ESurvivalStat stat, f32 amount) noexcept;
 
     // 絶対値で設定。負値は 0 に、max 超過は max に clamp。invalid id は no-op。
-    void SetStat(SurvivorId id, SurvivalStat stat, f32 value) noexcept;
+    void SetStat(SurvivorId id, ESurvivalStat stat, f32 value) noexcept;
 
     // ---- 問い合わせ -------------------------------------------------------
     // 現在値を返す。invalid id / 範囲外 stat は 0.0f。
-    f32 GetStat(SurvivorId id, SurvivalStat stat) const noexcept;
+    f32 GetStat(SurvivorId id, ESurvivalStat stat) const noexcept;
 
     // is_critical フラグを返す。invalid id は false。
-    bool IsCritical(SurvivorId id, SurvivalStat stat) const noexcept;
+    bool IsCritical(SurvivorId id, ESurvivalStat stat) const noexcept;
 
     // この survivor が「生きているか」: 全 stat が 0 ではない & (HealthBridge が
     // セットされていれば) HP > 0。HealthBridge 未設定なら stat 部分だけで判定。
@@ -264,7 +264,7 @@ private:
     static f32 Clamp(f32 v, f32 lo, f32 hi) noexcept;
 
     // stat enum を array index に変換 (範囲外は ~0u で哨兵)。
-    static u32 StatIndex(SurvivalStat stat) noexcept;
+    static u32 StatIndex(ESurvivalStat stat) noexcept;
 
     // ---- 状態 -----------------------------------------------------------
     Array<StatConfig>    _configs   {};   // 7 stat の共通 config

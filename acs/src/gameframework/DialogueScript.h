@@ -62,7 +62,7 @@ namespace acs::game {
 //   Wait       : 時間経過待ち (arg_f=seconds) — 自動で進行
 //   Jump       : 指定ラベルへジャンプ (arg1=label)
 //   EndScene   : スクリプト終了 (End callback 発火)
-enum class ScriptOpKind : u8 {
+enum class EScriptOpKind : u8 {
     Say        = 0,
     Show       = 1,
     Hide       = 2,
@@ -78,7 +78,7 @@ enum class ScriptOpKind : u8 {
 
 // 1 つの命令。文字列は所有しない (literal / バンドル参照)。
 struct ScriptOp {
-    ScriptOpKind kind  = ScriptOpKind::Say;
+    EScriptOpKind kind  = EScriptOpKind::Say;
     const char*  arg1  = nullptr;  // kind に応じた第 1 引数 (speaker / character_id / bgm_id 等)
     const char*  arg2  = nullptr;  // kind に応じた第 2 引数 (text / sprite_id / jump_label 等)
     f32          arg_f = 0.0f;     // 数値引数 (volume / wait 秒数)
@@ -98,7 +98,7 @@ struct ScriptChoice {
 //   AwaitingInput  : Say op 完了後、Advance 待ち
 //   AwaitingChoice : Choice op 群を展開済み、SelectChoice 待ち
 //   Finished       : EndScene op に到達、または op 列を末尾まで実行完了
-enum class DialogueScriptState : u8 {
+enum class EDialogueScriptState : u8 {
     Idle           = 0,
     Playing        = 1,
     AwaitingInput  = 2,
@@ -150,7 +150,7 @@ public:
 
     // ----- 進行制御 -----
     bool                IsPlaying() const noexcept;
-    DialogueScriptState State()     const noexcept { return _state; }
+    EDialogueScriptState State()     const noexcept { return _state; }
 
     // Say op の AwaitingInput を解除し、次 op へ進む。
     // State != AwaitingInput では no-op。
@@ -220,7 +220,7 @@ private:
     u32 _current_op_index = 0u;             // 次に実行する op の index
     f32 _wait_remaining   = 0.0f;           // Wait op の残り秒数 (>0 で Playing 継続)
 
-    DialogueScriptState _state = DialogueScriptState::Idle;
+    EDialogueScriptState _state = EDialogueScriptState::Idle;
 
     // ---- callbacks ----
     SayCallback           _say_cb          = nullptr; void* _say_user          = nullptr;

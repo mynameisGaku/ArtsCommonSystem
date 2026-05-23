@@ -92,7 +92,7 @@ void HealthSystem::Despawn(HealthId id) noexcept {
 // ダメージ / 回復 / 状態操作
 // ----------------------------------------------------------------------------
 
-bool HealthSystem::ApplyDamage(HealthId id, f32 amount, DamageType type) noexcept {
+bool HealthSystem::ApplyDamage(HealthId id, f32 amount, EDamageType type) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return false;
     if (!s->state.is_alive) return false;   // 既に死亡 → no-op

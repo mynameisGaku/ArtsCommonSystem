@@ -73,7 +73,7 @@ Result<void> HiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexce
 
     BufferDesc cbd{};
     cbd.size = CBSize<HiZCBLayout>();
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else _cb = Move(r.Value());
@@ -94,9 +94,9 @@ Result<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
     // R16_Float が enum 未定義のため R16G16_Float (RG 2ch half) を採用。
     // .r に min depth、.g は未使用 (PS は float4 を返すが .g 以降は捨てられる)。
     // 16-bit half は [0,1] NDC depth に対し 10-bit mantissa = ~0.1% 精度 → skip
-    // 距離計算用途には十分。32-bit が要るなら R16G16B16A16_Float か Format に
+    // 距離計算用途には十分。32-bit が要るなら R16G16B16A16_Float か EFormat に
     // R32_Float を新規追加する必要がある (将来課題)。
-    td.format = Format::R16G16_Float;
+    td.format = EFormat::R16G16_Float;
     td.is_render_target = true;
     auto r = CreateRhiTexture(device, td);
     if (r.IsErr()) return Err<void>(r.Error());
@@ -106,7 +106,7 @@ Result<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
 
 Result<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kHiZHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "HiZ.VS";
@@ -114,7 +114,7 @@ Result<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     else _vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kHiZHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "HiZ.PS";
@@ -124,21 +124,21 @@ Result<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R16G16_Float;
-    pd.depth_format  = Format::Unknown;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::R16G16_Float;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 1;
     pd.cbuffer_names[0] = "HiZCB";
     pd.texture_names[0] = "scene_depth";
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter    = SamplerFilter::Point;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Point;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());

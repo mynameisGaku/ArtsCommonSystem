@@ -19,7 +19,7 @@ namespace acs::game {
 //   wind_strength    : [0,1]、Storm/Sandstorm = 1
 //   fog_density      : 霧密度倍率 (Fog で大、Sandstorm でも視界不良)
 //
-// 並びは WeatherKind の数値順 (Clear=0 .. Sandstorm=7) と一致させる。
+// 並びは EWeatherKind の数値順 (Clear=0 .. Sandstorm=7) と一致させる。
 static const WeatherSystem::KindParams kParamsTable[8] = {
     // Clear      晴天: 何も足さず、何も引かない基準値
     { 1.00f, 0.00f, Vec3{1.00f, 1.00f, 1.00f}, 0.10f, 1.00f },
@@ -39,7 +39,7 @@ static const WeatherSystem::KindParams kParamsTable[8] = {
     { 0.50f, 1.50f, Vec3{1.10f, 0.85f, 0.55f}, 1.00f, 3.00f },
 };
 
-const WeatherSystem::KindParams& WeatherSystem::Params(WeatherKind k) noexcept {
+const WeatherSystem::KindParams& WeatherSystem::Params(EWeatherKind k) noexcept {
     // 範囲外は Clear にフォールバック (將来の enum 拡張で size > 8 となる場合の
     // 安全網)。現状の enum 定義では決して走らない。
     const u32 idx = static_cast<u32>(k);
@@ -49,7 +49,7 @@ const WeatherSystem::KindParams& WeatherSystem::Params(WeatherKind k) noexcept {
 
 // ----- 状態制御 -------------------------------------------------------------
 
-void WeatherSystem::SetWeather(WeatherKind kind, f32 transition_duration) noexcept {
+void WeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noexcept {
     // 同一天候: 既にその天候なので即完了状態に揃える。
     if (kind == _current && _transition_t >= 1.0f) {
         _target              = kind;
@@ -106,8 +106,8 @@ void WeatherSystem::Tick(f32 dt) noexcept {
 }
 
 void WeatherSystem::Reset() noexcept {
-    _current             = WeatherKind::Clear;
-    _target              = WeatherKind::Clear;
+    _current             = EWeatherKind::Clear;
+    _target              = EWeatherKind::Clear;
     _transition_duration = 0.0f;
     _transition_elapsed  = 0.0f;
     _transition_t        = 1.0f;

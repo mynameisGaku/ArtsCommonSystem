@@ -49,61 +49,61 @@ void GameFlow::BuildTransitionTable() noexcept {
         }
     }
 
-    auto allow = [this](FlowState from, FlowState to) noexcept {
+    auto allow = [this](EFlowState from, EFlowState to) noexcept {
         _allowed[IndexOf(from)][IndexOf(to)] = true;
     };
 
     // Splash → MainTitle, ExitingGame
-    allow(FlowState::Splash,      FlowState::MainTitle);
-    allow(FlowState::Splash,      FlowState::ExitingGame);
+    allow(EFlowState::Splash,      EFlowState::MainTitle);
+    allow(EFlowState::Splash,      EFlowState::ExitingGame);
 
     // MainTitle → MainMenu, Credits, ExitingGame
-    allow(FlowState::MainTitle,   FlowState::MainMenu);
-    allow(FlowState::MainTitle,   FlowState::Credits);
-    allow(FlowState::MainTitle,   FlowState::ExitingGame);
+    allow(EFlowState::MainTitle,   EFlowState::MainMenu);
+    allow(EFlowState::MainTitle,   EFlowState::Credits);
+    allow(EFlowState::MainTitle,   EFlowState::ExitingGame);
 
     // MainMenu → MainTitle, Settings, Credits, Loading, ExitingGame
-    allow(FlowState::MainMenu,    FlowState::MainTitle);
-    allow(FlowState::MainMenu,    FlowState::Settings);
-    allow(FlowState::MainMenu,    FlowState::Credits);
-    allow(FlowState::MainMenu,    FlowState::Loading);
-    allow(FlowState::MainMenu,    FlowState::ExitingGame);
+    allow(EFlowState::MainMenu,    EFlowState::MainTitle);
+    allow(EFlowState::MainMenu,    EFlowState::Settings);
+    allow(EFlowState::MainMenu,    EFlowState::Credits);
+    allow(EFlowState::MainMenu,    EFlowState::Loading);
+    allow(EFlowState::MainMenu,    EFlowState::ExitingGame);
 
     // Settings → MainMenu, PauseMenu (呼び出し側がどちらから入ったか管理)
-    allow(FlowState::Settings,    FlowState::MainMenu);
-    allow(FlowState::Settings,    FlowState::PauseMenu);
+    allow(EFlowState::Settings,    EFlowState::MainMenu);
+    allow(EFlowState::Settings,    EFlowState::PauseMenu);
 
     // Credits → MainTitle, MainMenu, ExitingGame
-    allow(FlowState::Credits,     FlowState::MainTitle);
-    allow(FlowState::Credits,     FlowState::MainMenu);
-    allow(FlowState::Credits,     FlowState::ExitingGame);
+    allow(EFlowState::Credits,     EFlowState::MainTitle);
+    allow(EFlowState::Credits,     EFlowState::MainMenu);
+    allow(EFlowState::Credits,     EFlowState::ExitingGame);
 
     // Loading → Gameplay, MainMenu (ロード失敗時の戻り)
-    allow(FlowState::Loading,     FlowState::Gameplay);
-    allow(FlowState::Loading,     FlowState::MainMenu);
+    allow(EFlowState::Loading,     EFlowState::Gameplay);
+    allow(EFlowState::Loading,     EFlowState::MainMenu);
 
     // Gameplay → PauseMenu, GameOver, Loading, ExitingGame
-    allow(FlowState::Gameplay,    FlowState::PauseMenu);
-    allow(FlowState::Gameplay,    FlowState::GameOver);
-    allow(FlowState::Gameplay,    FlowState::Loading);
-    allow(FlowState::Gameplay,    FlowState::ExitingGame);
+    allow(EFlowState::Gameplay,    EFlowState::PauseMenu);
+    allow(EFlowState::Gameplay,    EFlowState::GameOver);
+    allow(EFlowState::Gameplay,    EFlowState::Loading);
+    allow(EFlowState::Gameplay,    EFlowState::ExitingGame);
 
     // PauseMenu → Gameplay, Settings, MainMenu, ExitingGame
-    allow(FlowState::PauseMenu,   FlowState::Gameplay);
-    allow(FlowState::PauseMenu,   FlowState::Settings);
-    allow(FlowState::PauseMenu,   FlowState::MainMenu);
-    allow(FlowState::PauseMenu,   FlowState::ExitingGame);
+    allow(EFlowState::PauseMenu,   EFlowState::Gameplay);
+    allow(EFlowState::PauseMenu,   EFlowState::Settings);
+    allow(EFlowState::PauseMenu,   EFlowState::MainMenu);
+    allow(EFlowState::PauseMenu,   EFlowState::ExitingGame);
 
     // GameOver → Gameplay (Continue), MainTitle, MainMenu, ExitingGame
-    allow(FlowState::GameOver,    FlowState::Gameplay);
-    allow(FlowState::GameOver,    FlowState::MainTitle);
-    allow(FlowState::GameOver,    FlowState::MainMenu);
-    allow(FlowState::GameOver,    FlowState::ExitingGame);
+    allow(EFlowState::GameOver,    EFlowState::Gameplay);
+    allow(EFlowState::GameOver,    EFlowState::MainTitle);
+    allow(EFlowState::GameOver,    EFlowState::MainMenu);
+    allow(EFlowState::GameOver,    EFlowState::ExitingGame);
 
     // ExitingGame からはどこにも行けない (終端)。
 }
 
-void GameFlow::Init(FlowState initial_state) noexcept {
+void GameFlow::Init(EFlowState initial_state) noexcept {
     // 既存スロットを破棄して再構築 (複数回 Init 対応)。
     _states.Clear();
     for (u32 i = 0; i < kFlowStateCount; ++i) {
@@ -132,7 +132,7 @@ void GameFlow::Init(FlowState initial_state) noexcept {
     }
 }
 
-bool GameFlow::CanTransitionTo(FlowState to) const noexcept {
+bool GameFlow::CanTransitionTo(EFlowState to) const noexcept {
     if (!_initialized) return false;
     const u32 from_idx = IndexOf(_current);
     const u32 to_idx   = IndexOf(to);
@@ -141,7 +141,7 @@ bool GameFlow::CanTransitionTo(FlowState to) const noexcept {
     return _allowed[from_idx][to_idx];
 }
 
-void GameFlow::RequestTransition(FlowState to, f32 fade_sec) noexcept {
+void GameFlow::RequestTransition(EFlowState to, f32 fade_sec) noexcept {
     if (!_initialized) return;
     if (_is_transitioning) return;            // 進行中の追加要求は無視
     if (!CanTransitionTo(to)) return;          // 不正遷移は無視
@@ -167,7 +167,7 @@ void GameFlow::RequestTransition(FlowState to, f32 fade_sec) noexcept {
     _fade_progress = 0.0f;
 }
 
-void GameFlow::SetOnEnterCallback(FlowState state, StateCallback cb, void* user) noexcept {
+void GameFlow::SetOnEnterCallback(EFlowState state, StateCallback cb, void* user) noexcept {
     if (!_initialized) return;
     const u32 idx = IndexOf(state);
     if (idx >= kFlowStateCount) return;
@@ -176,7 +176,7 @@ void GameFlow::SetOnEnterCallback(FlowState state, StateCallback cb, void* user)
     slot.enter_user = user;
 }
 
-void GameFlow::SetOnExitCallback(FlowState state, StateCallback cb, void* user) noexcept {
+void GameFlow::SetOnExitCallback(EFlowState state, StateCallback cb, void* user) noexcept {
     if (!_initialized) return;
     const u32 idx = IndexOf(state);
     if (idx >= kFlowStateCount) return;

@@ -10,7 +10,7 @@
 //           ACS_LOG_INFO("ゲーム開始");
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           if (Input::IsKeyPressed(Key::Escape)) Quit();
+//           if (Input::IsKeyPressed(EKey::Escape)) Quit();
 //       }
 //       void OnRender() noexcept override {
 //           // 描画コマンド (BeginFrame / EndFrame は基底が呼ぶ)

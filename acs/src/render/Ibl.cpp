@@ -551,7 +551,7 @@ Result<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     TextureDesc td{};
     td.width            = kBrdfLutSize;
     td.height           = kBrdfLutSize;
-    td.format           = Format::R16G16_Float;
+    td.format           = EFormat::R16G16_Float;
     td.is_render_target = true;
     auto t_r = CreateRhiTexture(device, td);
     if (t_r.IsErr()) return Err<void>(t_r.Error());
@@ -563,7 +563,7 @@ Result<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     UniquePtr<IRhiPipeline> pipeline;
 
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kBrdfLutHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "IblBrdfLut.VS";
@@ -572,7 +572,7 @@ Result<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     else vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kBrdfLutHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "IblBrdfLut.PS";
@@ -583,13 +583,13 @@ Result<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     PipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R16G16_Float;
-    pd.depth_format  = Format::Unknown;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::R16G16_Float;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 0;
     pd.texture_slots = 0;
     pd.vertex_stride = 0;
@@ -632,7 +632,7 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     TextureDesc td{};
     td.width            = kEnvCubeSize;
     td.height           = kEnvCubeSize;
-    td.format           = Format::R11G11B10_Float;
+    td.format           = EFormat::R11G11B10_Float;
     td.array_size       = 6;
     td.is_cubemap       = true;
     td.is_render_target = true;
@@ -648,7 +648,7 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     UniquePtr<IRhiBuffer>   cb;
 
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kEnvCaptureHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "IblEnvCapture.VS";
@@ -656,7 +656,7 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     else vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kEnvCaptureHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "IblEnvCapture.PS";
@@ -667,7 +667,7 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     cbd.size = sizeof(EnvCaptureCBLayout);
     // 256B align (DX12 CB 制約)
     cbd.size = (cbd.size + 255u) & ~static_cast<usize>(255u);
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else cb = Move(r.Value());
@@ -675,13 +675,13 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     PipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R11G11B10_Float;
-    pd.depth_format  = Format::Unknown;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::R11G11B10_Float;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 0;
     pd.cbuffer_names[0] = "EnvCapture";
@@ -816,7 +816,7 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
         TextureDesc td{};
         td.width  = width;
         td.height = height;
-        td.format = Format::R32G32B32A32_Float;
+        td.format = EFormat::R32G32B32A32_Float;
         td.initial_data      = rgba_float;
         td.initial_data_size = static_cast<usize>(width) * height * 4u * sizeof(f32);
         auto r = CreateRhiTexture(device, td);
@@ -829,7 +829,7 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
         TextureDesc td{};
         td.width            = kEnvCubeSize;
         td.height           = kEnvCubeSize;
-        td.format           = Format::R11G11B10_Float;
+        td.format           = EFormat::R11G11B10_Float;
         td.array_size       = 6;
         td.is_cubemap       = true;
         td.is_render_target = true;
@@ -846,7 +846,7 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     UniquePtr<IRhiBuffer>   cb;
 
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kEquirectToCubeHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "IblEqToCube.VS";
@@ -854,7 +854,7 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     else vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kEquirectToCubeHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "IblEqToCube.PS";
@@ -863,7 +863,7 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
 
     BufferDesc cbd{};
     cbd.size = (sizeof(EquirectCBLayout) + 255u) & ~static_cast<usize>(255u);
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else cb = Move(r.Value());
@@ -871,21 +871,21 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     PipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R11G11B10_Float;
-    pd.depth_format  = Format::Unknown;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::R11G11B10_Float;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 1;
     pd.cbuffer_names[0] = "EqToCube";
     pd.texture_names[0] = "equirect";
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Wrap;     // 経度方向は wrap
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;    // 緯度方向は clamp
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Wrap;     // 経度方向は wrap
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;    // 緯度方向は clamp
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -937,7 +937,7 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     TextureDesc td{};
     td.width            = kIrradianceSize;
     td.height           = kIrradianceSize;
-    td.format           = Format::R11G11B10_Float;
+    td.format           = EFormat::R11G11B10_Float;
     td.array_size       = 6;
     td.is_cubemap       = true;
     td.is_render_target = true;
@@ -953,7 +953,7 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     UniquePtr<IRhiBuffer>   cb;
 
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kIrradianceHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "IblIrradiance.VS";
@@ -961,7 +961,7 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     else vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kIrradianceHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "IblIrradiance.PS";
@@ -970,7 +970,7 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
 
     BufferDesc cbd{};
     cbd.size = (sizeof(IrradianceCBLayout) + 255u) & ~static_cast<usize>(255u);
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else cb = Move(r.Value());
@@ -978,22 +978,22 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     PipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R11G11B10_Float;
-    pd.depth_format  = Format::Unknown;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::R11G11B10_Float;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 1;
     pd.cbuffer_names[0] = "Irradiance";
     pd.texture_names[0] = "env";
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_w = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_w = ESamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -1046,7 +1046,7 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     TextureDesc td{};
     td.width            = kPrefilterSize;
     td.height           = kPrefilterSize;
-    td.format           = Format::R11G11B10_Float;
+    td.format           = EFormat::R11G11B10_Float;
     td.array_size       = 6;
     td.is_cubemap       = true;
     td.mip_levels       = kPrefilterMips;
@@ -1064,7 +1064,7 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     UniquePtr<IRhiBuffer>   cb;
 
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kPrefilterHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "IblPrefilter.VS";
@@ -1072,7 +1072,7 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     else vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kPrefilterHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "IblPrefilter.PS";
@@ -1081,7 +1081,7 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
 
     BufferDesc cbd{};
     cbd.size = (sizeof(PrefilterCBLayout) + 255u) & ~static_cast<usize>(255u);
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else cb = Move(r.Value());
@@ -1089,22 +1089,22 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     PipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R11G11B10_Float;
-    pd.depth_format  = Format::Unknown;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::R11G11B10_Float;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 1;
     pd.cbuffer_names[0] = "Prefilter";
     pd.texture_names[0] = "env";
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_w = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_w = ESamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -1132,8 +1132,8 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
 }
 
 Result<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
-                                                       Format rt_format,
-                                                       Format depth_format) noexcept {
+                                                       EFormat rt_format,
+                                                       EFormat depth_format) noexcept {
     if (_sky_pipeline && _sky_rt_format == rt_format && _sky_depth_format == depth_format) {
         return Ok();
     }
@@ -1144,7 +1144,7 @@ Result<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     _sky_vs.Reset();
 
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyboxHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "IblSkybox.VS";
@@ -1152,7 +1152,7 @@ Result<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     else _sky_vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyboxHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "IblSkybox.PS";
@@ -1161,7 +1161,7 @@ Result<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
 
     BufferDesc cbd{};
     cbd.size = (sizeof(SkyboxCBLayout) + 255u) & ~static_cast<usize>(255u);
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else _sky_cb = Move(r.Value());
@@ -1169,22 +1169,22 @@ Result<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     PipelineDesc pd{};
     pd.vs            = _sky_vs.Get();
     pd.ps            = _sky_ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
     pd.depth_test    = false;     // 背景は最遠なので深度テスト不要
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 1;
     pd.cbuffer_names[0] = "Skybox";
     pd.texture_names[0] = "env";
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_w = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_w = ESamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -1198,7 +1198,7 @@ Result<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
 void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                      IRhiTexture& cube,
                                      const Mat4& view_proj, Vec3 eye,
-                                     Format rt_format, Format depth_format,
+                                     EFormat rt_format, EFormat depth_format,
                                      f32 mip_level) noexcept {
     if (!IsDiligentBackend(device)) return;
     if (auto r = EnsureSkyboxPipeline(device, rt_format, depth_format); r.IsErr()) return;
@@ -1217,7 +1217,7 @@ void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
 
 void ImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                         const Mat4& view_proj, Vec3 eye,
-                                        Format rt_format, Format depth_format) noexcept {
+                                        EFormat rt_format, EFormat depth_format) noexcept {
     if (!_env_cube) return;
     DrawSkybox(device, cl, *_env_cube, view_proj, eye, rt_format, depth_format);
 }
@@ -1238,8 +1238,8 @@ void ImageBasedLighting::Shutdown() noexcept {
     _sky_cb.Reset();
     _sky_ps.Reset();
     _sky_vs.Reset();
-    _sky_rt_format    = Format::Unknown;
-    _sky_depth_format = Format::Unknown;
+    _sky_rt_format    = EFormat::Unknown;
+    _sky_depth_format = EFormat::Unknown;
     _prefilter_cube.Reset();
     _prefilter_mips   = 0;
     _irradiance_cube.Reset();

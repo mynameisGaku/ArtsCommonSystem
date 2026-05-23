@@ -19,7 +19,7 @@ namespace {
 // 共通: MeshAsset を Rc<Asset> として返すヘルパ
 Rc<Asset> WrapMesh(AssetId id, Rc<MeshAsset>&& m) noexcept {
     m->SetId(id);
-    m->SetState(AssetState::Ready);
+    m->SetState(EAssetState::Ready);
     return Rc<Asset>(Move(m));
 }
 

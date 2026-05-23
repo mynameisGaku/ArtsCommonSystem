@@ -119,10 +119,10 @@ SoundHandle AudioEngine::Play(const AudioAsset& asset, f32 volume, bool loop) no
 
     // ソースボイスのフォーマット設定
     WAVEFORMATEX wf{};
-    wf.wFormatTag      = (asset.Format() == SampleFormat::PCM_F32) ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM;
+    wf.wFormatTag      = (asset.EFormat() == ESampleFormat::PCM_F32) ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM;
     wf.nChannels       = asset.Channels();
     wf.nSamplesPerSec  = asset.SampleRate();
-    wf.wBitsPerSample  = (asset.Format() == SampleFormat::PCM_F32) ? 32 : 16;
+    wf.wBitsPerSample  = (asset.EFormat() == ESampleFormat::PCM_F32) ? 32 : 16;
     wf.nBlockAlign     = (wf.nChannels * wf.wBitsPerSample) / 8;
     wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
     wf.cbSize          = 0;

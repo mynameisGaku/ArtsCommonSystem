@@ -100,13 +100,13 @@ public:
     void DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
                     IRhiTexture& cube,
                     const Mat4& view_proj, Vec3 eye,
-                    Format rt_format, Format depth_format,
+                    EFormat rt_format, EFormat depth_format,
                     f32 mip_level = 0.0f) noexcept;
 
     // 利便用 (env_cube を skybox 描画)
     void DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
                        const Mat4& view_proj, Vec3 eye,
-                       Format rt_format, Format depth_format) noexcept;
+                       EFormat rt_format, EFormat depth_format) noexcept;
 
     // 環境 cubemap (+ それに依存する irradiance / 将来の prefilter) だけを reset。
     // Sky preset 切替などで env を作り直したいとき、BRDF LUT (sky 非依存) は
@@ -140,7 +140,7 @@ private:
     Result<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
     Result<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
     Result<void> EnsureSkyboxPipeline(IRhiDevice& device,
-                                      Format rt_format, Format depth_format) noexcept;
+                                      EFormat rt_format, EFormat depth_format) noexcept;
 
     UniquePtr<IRhiTexture>  _brdf_lut;
     UniquePtr<IRhiTexture>  _env_cube;
@@ -153,8 +153,8 @@ private:
     UniquePtr<IRhiShader>   _sky_ps;
     UniquePtr<IRhiPipeline> _sky_pipeline;
     UniquePtr<IRhiBuffer>   _sky_cb;
-    Format                  _sky_rt_format    = Format::Unknown;
-    Format                  _sky_depth_format = Format::Unknown;
+    EFormat                  _sky_rt_format    = EFormat::Unknown;
+    EFormat                  _sky_depth_format = EFormat::Unknown;
 
     bool _brdf_built       = false;
     bool _env_built        = false;

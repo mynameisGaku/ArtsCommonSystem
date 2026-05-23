@@ -17,7 +17,7 @@ public:
     HrResult Init(Dx12Device& device, const BufferDesc& desc) noexcept;
 
     usize       Size()  const noexcept override { return _size; }
-    BufferUsage Usage() const noexcept override { return _usage; }
+    EBufferUsage Usage() const noexcept override { return _usage; }
 
     void Update(const void* data, usize size, usize offset = 0) noexcept override;
 
@@ -33,7 +33,7 @@ private:
     void*           _mapped       = nullptr;     // cpu_writable=true なら永続マップ
     usize           _size         = 0;            // 1 フレームスロットあたりサイズ
     usize           _slot_stride  = 0;            // ring 用ストライド（256 align、リング無効なら 0）
-    BufferUsage     _usage        = BufferUsage::Vertex;
+    EBufferUsage     _usage        = EBufferUsage::Vertex;
     bool            _cpu_writable = false;
     bool            _frame_cycled = false;       // Uniform + cpu_writable で自動 ON
 };

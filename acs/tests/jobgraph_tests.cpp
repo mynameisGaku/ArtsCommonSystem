@@ -55,9 +55,9 @@ ACS_TEST(JobGraph, LinearChainExecutesInOrder) {
     g.Wait();
 
     // 全 job が走ったこと
-    EXPECT_TRUE(ctx_a.counter.Load(MemoryOrder::Acquire) >= 1);
-    EXPECT_TRUE(ctx_b.counter.Load(MemoryOrder::Acquire) >= 1);
-    EXPECT_TRUE(ctx_c.counter.Load(MemoryOrder::Acquire) >= 1);
+    EXPECT_TRUE(ctx_a.counter.Load(EMemoryOrder::Acquire) >= 1);
+    EXPECT_TRUE(ctx_b.counter.Load(EMemoryOrder::Acquire) >= 1);
+    EXPECT_TRUE(ctx_c.counter.Load(EMemoryOrder::Acquire) >= 1);
 
     ThreadPool::Shutdown();
 }
@@ -78,7 +78,7 @@ ACS_TEST(JobGraph, ParallelJobsAllRun) {
     g.Wait();
 
     for (u32 i = 0; i < N; ++i) {
-        EXPECT_TRUE(ctxs[i].counter.Load(MemoryOrder::Acquire) >= 1);
+        EXPECT_TRUE(ctxs[i].counter.Load(EMemoryOrder::Acquire) >= 1);
     }
     EXPECT_EQ(g.JobCount(), N);
     ThreadPool::Shutdown();

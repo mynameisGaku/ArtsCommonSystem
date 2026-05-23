@@ -15,14 +15,14 @@ namespace acs {
 
 namespace {
 
-// PrimitiveTopology → D3D12_PRIMITIVE_TOPOLOGY 変換
-D3D12_PRIMITIVE_TOPOLOGY ToD3DPrimitive(PrimitiveTopology t) noexcept {
+// EPrimitiveTopology → D3D12_PRIMITIVE_TOPOLOGY 変換
+D3D12_PRIMITIVE_TOPOLOGY ToD3DPrimitive(EPrimitiveTopology t) noexcept {
     switch (t) {
-        case PrimitiveTopology::PointList:     return D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-        case PrimitiveTopology::LineList:      return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
-        case PrimitiveTopology::LineStrip:     return D3D_PRIMITIVE_TOPOLOGY_LINESTRIP;
-        case PrimitiveTopology::TriangleList:  return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        case PrimitiveTopology::TriangleStrip: return D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+        case EPrimitiveTopology::PointList:     return D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+        case EPrimitiveTopology::LineList:      return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+        case EPrimitiveTopology::LineStrip:     return D3D_PRIMITIVE_TOPOLOGY_LINESTRIP;
+        case EPrimitiveTopology::TriangleList:  return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        case EPrimitiveTopology::TriangleStrip: return D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
     }
     return D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
 }
@@ -275,7 +275,7 @@ void Dx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     D3D12_INDEX_BUFFER_VIEW v{};
     v.BufferLocation = b.Gpu();
     v.SizeInBytes    = static_cast<UINT>(b.Size());
-    v.Format = (b.Usage() == BufferUsage::Index32) ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
+    v.EFormat = (b.Usage() == EBufferUsage::Index32) ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
     _cmd_list->IASetIndexBuffer(&v);
 }
 

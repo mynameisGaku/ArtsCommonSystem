@@ -75,7 +75,7 @@ Result<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) no
     TextureDesc td{};
     td.width  = size * cascade_count;
     td.height = size;
-    td.format = Format::D32_Float;
+    td.format = EFormat::D32_Float;
     td.is_depth_target      = true;
     td.shader_visible_depth = true;
     auto tr = CreateRhiTexture(device, td);
@@ -84,7 +84,7 @@ Result<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) no
 
     // ===== Caster VS =====
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kCasterHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "ShadowCaster.VS";
@@ -95,7 +95,7 @@ Result<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) no
     // ===== 定数バッファ =====
     BufferDesc cbd{};
     cbd.size = 256;
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     auto lb_r = CreateRhiBuffer(device, cbd);
     if (lb_r.IsErr()) return Err<void>(lb_r.Error());
@@ -109,21 +109,21 @@ Result<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) no
     PipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = nullptr;          // depth-only
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::Unknown;       // ps==nullptr なら無視される
-    pd.depth_format  = Format::D32_Float;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::Unknown;       // ps==nullptr なら無視される
+    pd.depth_format  = EFormat::D32_Float;
     pd.depth_test    = true;
     pd.depth_write   = true;
     // 「シャドウアクネ」回避のため front-cull で物体の裏側深度を書く
-    pd.cull_mode     = CullMode::Front;
+    pd.cull_mode     = ECullMode::Front;
     pd.cbuffer_slots = 2;
     pd.texture_slots = 0;
     pd.cbuffer_names[0] = "LightFrame";
     pd.cbuffer_names[1] = "CasterObject";
     pd.vertex_stride = sizeof(MeshVertex);
-    pd.layout[0] = { "POSITION", 0, Format::R32G32B32_Float, 0  };
-    pd.layout[1] = { "NORMAL",   0, Format::R32G32B32_Float, 16 };
-    pd.layout[2] = { "TEXCOORD", 0, Format::R32G32_Float,    32 };
+    pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 };
+    pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());

@@ -183,15 +183,15 @@ struct ArrayCtx {
     int last_idx = -1;
     int last_val = -1;
 };
-void OnArr(ArrayChange k, usize idx, const i32* v, void* user) {
+void OnArr(EArrayChange k, usize idx, const i32* v, void* user) {
     auto* c = static_cast<ArrayCtx*>(user);
     c->last_idx = static_cast<int>(idx);
     if (v) c->last_val = *v;
     switch (k) {
-        case ArrayChange::Inserted: c->inserted++; break;
-        case ArrayChange::Removed:  c->removed++;  break;
-        case ArrayChange::Changed:  c->changed++;  break;
-        case ArrayChange::Cleared:  c->cleared++;  break;
+        case EArrayChange::Inserted: c->inserted++; break;
+        case EArrayChange::Removed:  c->removed++;  break;
+        case EArrayChange::Changed:  c->changed++;  break;
+        case EArrayChange::Cleared:  c->cleared++;  break;
     }
 }
 } // namespace

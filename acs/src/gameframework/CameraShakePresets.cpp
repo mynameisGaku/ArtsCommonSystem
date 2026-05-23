@@ -50,23 +50,23 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 //
 // `static const` でテーブル化すると thread-local 初期化が絡むので、関数 switch
 // で素直に書く (コンパイラは余裕でテーブル化する)。
-ShakeParams BuiltinParams(ShakePreset p) noexcept {
+ShakeParams BuiltinParams(EShakePreset p) noexcept {
     switch (p) {
-        case ShakePreset::ExplosionSmall:
+        case EShakePreset::ExplosionSmall:
             return ShakeParams{0.4f, 0.6f, 1.5f, 25.0f, 0.27f};
-        case ShakePreset::ExplosionLarge:
+        case EShakePreset::ExplosionLarge:
             return ShakeParams{0.8f, 1.2f, 1.0f, 20.0f, 0.80f};
-        case ShakePreset::EarthquakeShort:
+        case EShakePreset::EarthquakeShort:
             return ShakeParams{0.5f, 0.7f, 0.8f, 12.0f, 0.62f};
-        case ShakePreset::EarthquakeLong:
+        case EShakePreset::EarthquakeLong:
             return ShakeParams{0.6f, 0.9f, 0.3f, 8.0f, 2.00f};
-        case ShakePreset::HitImpact:
+        case EShakePreset::HitImpact:
             return ShakeParams{0.3f, 0.4f, 2.0f, 30.0f, 0.15f};
-        case ShakePreset::RocketLaunch:
+        case EShakePreset::RocketLaunch:
             return ShakeParams{0.5f, 0.35f, 1.2f, 28.0f, 0.42f};
-        case ShakePreset::MeteorImpact:
+        case EShakePreset::MeteorImpact:
             return ShakeParams{0.9f, 1.5f, 0.7f, 16.0f, 1.28f};
-        case ShakePreset::Custom:
+        case EShakePreset::Custom:
         default:
             // Custom 哨兵 / 未知値 — 中立 (= 適用しても見た目には影響しない値)。
             return ShakeParams{0.0f, 0.0f, 1.0f, 25.0f, 0.0f};
@@ -79,14 +79,14 @@ ShakeParams BuiltinParams(ShakePreset p) noexcept {
 // 組み込み preset
 // =============================================================================
 
-ShakeParams CameraShakePresets::GetPreset(ShakePreset preset) noexcept {
+ShakeParams CameraShakePresets::GetPreset(EShakePreset preset) noexcept {
     return BuiltinParams(preset);
 }
 
 void CameraShakePresets::ApplyPreset(IShakeTarget& target,
-                                     ShakePreset   preset) noexcept {
+                                     EShakePreset   preset) noexcept {
     // Custom は名前経由 (ApplyCustomByName) 専用 — 即値経由では no-op。
-    if (preset == ShakePreset::Custom) return;
+    if (preset == EShakePreset::Custom) return;
 
     const ShakeParams p = BuiltinParams(preset);
     // 順序: 静的パラメータを先に上書きしてから trauma を累積。

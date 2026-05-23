@@ -10,7 +10,7 @@
 // 学習ポイント:
 //   ・SpriteBatch::Begin/Draw/End の使い方
 //   ・ピクセル座標で 2D を描く（左上原点）
-//   ・α ブレンド (BlendMode::AlphaBlend)
+//   ・α ブレンド (EBlendMode::AlphaBlend)
 //   ・テクスチャ無しの色矩形は DrawRect
 
 #include "app/Application.h"
@@ -85,7 +85,7 @@ public:
         GenerateSpriteTexture(pixels);
         TextureDesc td{};
         td.width = kTexSize; td.height = kTexSize;
-        td.format = Format::R8G8B8A8_UNorm;
+        td.format = EFormat::R8G8B8A8_UNorm;
         td.initial_data = pixels;
         td.initial_data_size = sizeof(pixels);
         if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) {
@@ -99,11 +99,11 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
         // スペースキーで増加、Backspace で削減
-        if (Input::IsKeyPressed(Key::Space))     SpawnSprites(_sprite_count + 10);
-        if (Input::IsKeyPressed(Key::Backspace)) SpawnSprites(_sprite_count >= 10 ? _sprite_count - 10 : 0);
+        if (Input::IsKeyPressed(EKey::Space))     SpawnSprites(_sprite_count + 10);
+        if (Input::IsKeyPressed(EKey::Backspace)) SpawnSprites(_sprite_count >= 10 ? _sprite_count - 10 : 0);
 
         // スプライト物理更新（壁で反射）
         const u32 sw = GetRenderer().Swapchain()->Width();

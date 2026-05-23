@@ -51,21 +51,21 @@
 //
 // Phase 8 (Pillar A v3 §3.1 SceneServices) 確認:
 //   ・**SceneServices ハブ**: GameplayScene が `WantedServices()` で
-//     `Svc::Default2D` (Clock|Tweens|Sequences|Input) を宣言。フレームワークが
+//     `ESvc::Default2D` (Clock|Tweens|Sequences|Input) を宣言。フレームワークが
 //     SceneServices を構築 → attach → 自動 tick (PreUpdate Clock、scene
 //     OnUpdate、PostUpdate Tweens/Sequences の 2 phase)。シーン側は
 //     `Services().Tweens()` 等で取得、`_clock.Tick(dt)` 系の手動 tick 不要に。
 //     Title/Pause は inline 直接保持 (旧パターン) を維持し、両方の使い方を対比。
 //
 // Phase 9 (Pillar E Phase 1 = Camera2D) 確認:
-//   ・**Camera2D**: GameplayScene の WantedServices に `Svc::Camera2D` 追加。
+//   ・**Camera2D**: GameplayScene の WantedServices に `ESvc::Camera2D` 追加。
 //     spoke[0] の world 位置を毎フレーム SetTargetPos して **追従**、Score
 //     アクション (Space) で `AddShake(0.5)` で **画面振動** (trauma 方式)。
 //     1 秒毎ログにカメラ位置と trauma 値を出力 → 値変化で追従/減衰を観察可能。
 //
 // Phase 10 (Pillar F Phase 1 = CollisionWorld2D) 確認:
 //   ・**CollisionWorld2D + SpatialGrid**: GameplayScene の WantedServices に
-//     `Svc::Physics2D` 追加。spoke[0/1] の世界位置に Circle を登録、毎フレーム
+//     `ESvc::Physics2D` 追加。spoke[0/1] の世界位置に Circle を登録、毎フレーム
 //     `UpdateCircle` で位置追従。原点中心の Aabb と `OverlapAabb` で重なり
 //     検出、原点向きの Ray で `Raycast` の最近接 hit を 1s 毎ログ。
 //
@@ -159,8 +159,8 @@ private:
 class GameplayScene : public Scene {
 public:
     // Phase 8+9+10: services 宣言。Default2D + Camera2D + Physics2D。
-    Svc WantedServices() const noexcept override {
-        return Svc::Default2D | Svc::Camera2D | Svc::Physics2D;
+    ESvc WantedServices() const noexcept override {
+        return ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D;
     }
 
     void OnEnter()                noexcept override;
@@ -224,8 +224,8 @@ void TitleScene::OnEnter() noexcept {
 }
 void TitleScene::OnExit() noexcept { ACS_LOG_INFO("[Title] exit"); }
 void TitleScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(Key::Escape)) GetGame().Quit();
-    if (Input::IsKeyPressed(Key::Space)) {
+    if (Input::IsKeyPressed(EKey::Escape)) GetGame().Quit();
+    if (Input::IsKeyPressed(EKey::Space)) {
         Scenes().ChangeScene(MakeUnique<GameplayScene>());
         return;
     }
@@ -303,12 +303,12 @@ void GameplayScene::OnEnter() noexcept {
     // Phase 8: InputMap も Services 経由
     InputMap& im = Services().Input();
     im.ClearAll();
-    im.BindKey(ActionId("Pause"),   Key::P);
-    im.BindKey(ActionId("Pause"),   Key::Enter);
-    im.BindKey(ActionId("Score"),   Key::Space);
-    im.BindKey(ActionId("ToTitle"), Key::Backspace);
-    im.BindKey(ActionId("Quit"),    Key::Escape);
-    im.BindAxisKeys(ActionId("MoveX"), Key::A, Key::D);
+    im.BindKey(ActionId("Pause"),   EKey::P);
+    im.BindKey(ActionId("Pause"),   EKey::Enter);
+    im.BindKey(ActionId("Score"),   EKey::Space);
+    im.BindKey(ActionId("ToTitle"), EKey::Backspace);
+    im.BindKey(ActionId("Quit"),    EKey::Escape);
+    im.BindAxisKeys(ActionId("MoveX"), EKey::A, EKey::D);
 
     auto* prof = GetGame().AppState<PlayerProfile>();
     if (prof) {
@@ -449,8 +449,8 @@ void PauseScene::OnExit() noexcept {
     ACS_LOG_INFO("[Pause] exit");
 }
 void PauseScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(Key::Escape)) GetGame().Quit();
-    if (Input::IsKeyPressed(Key::P)) {
+    if (Input::IsKeyPressed(EKey::Escape)) GetGame().Quit();
+    if (Input::IsKeyPressed(EKey::P)) {
         Scenes().PopScene();
         return;
     }

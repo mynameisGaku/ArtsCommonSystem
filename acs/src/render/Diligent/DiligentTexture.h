@@ -28,7 +28,7 @@ public:
     // ---- IRhiTexture ----
     u32    Width()       const noexcept override { return _width; }
     u32    Height()      const noexcept override { return _height; }
-    Format PixelFormat() const noexcept override { return _format; }
+    EFormat EPixelFormat() const noexcept override { return _format; }
     u32    MipLevels()   const noexcept override { return _mips; }
     u32    ArraySize()   const noexcept override { return _array_size; }
     bool   IsCubemap()   const noexcept override { return _is_cubemap; }
@@ -60,7 +60,7 @@ private:
     u32                     _height  = 0;
     u32                     _mips    = 1;
     u32                     _array_size = 1;
-    Format                  _format  = Format::R8G8B8A8_UNorm;
+    EFormat                  _format  = EFormat::R8G8B8A8_UNorm;
     bool                    _is_rt    = false;
     bool                    _is_depth = false;
     bool                    _depth_srv = false;

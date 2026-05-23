@@ -68,13 +68,13 @@
 namespace acs::game {
 
 // =============================================================================
-// XrPlatform — 想定する XR backend プラットフォーム列挙
+// EXrPlatform — 想定する XR backend プラットフォーム列挙
 // -----------------------------------------------------------------------------
 // `Unknown` は「Init 時に明示せず、backend に自動検出させる」用途。stub では
 // 常に Unknown のまま留まる。具象 backend は実行時に選ばれた SDK 種別を
 // 反映する。
 // =============================================================================
-enum class XrPlatform : u8 {
+enum class EXrPlatform : u8 {
     Unknown        = 0,   // 未指定 / 検出失敗 (stub のデフォルト)
     MetaQuest      = 1,   // Meta Quest 2 / 3 / Pro (Oculus / Meta XR SDK)
     ValveIndex     = 2,   // Valve Index (OpenVR / SteamVR)
@@ -144,7 +144,7 @@ public:
 
     // backend を初期化 (XR ランタイム接続 / セッション開始 / リファレンス空間設定)。
     // `platform == Unknown` のときは backend が利用可能な SDK を自動検出する。
-    virtual Result<void> Init(XrPlatform platform = XrPlatform::Unknown) noexcept = 0;
+    virtual Result<void> Init(EXrPlatform platform = EXrPlatform::Unknown) noexcept = 0;
 
     // backend を破棄 (セッション終了 / loader unload)。Init 前に呼んでも安全。
     virtual void Shutdown() noexcept = 0;
@@ -153,7 +153,7 @@ public:
     virtual bool IsInitialized() const noexcept = 0;
 
     // 現在 active な backend プラットフォーム。Init 前 / Shutdown 後 / stub は Unknown。
-    virtual XrPlatform ActivePlatform() const noexcept = 0;
+    virtual EXrPlatform ActivePlatform() const noexcept = 0;
 
     // 直近 Tick 時点の HMD ポーズ。Init 前 / stub は原点 (zero pose) を返す。
     virtual XrPose HeadPose() const noexcept = 0;
@@ -199,10 +199,10 @@ public:
     OpenXrBridgeStub() noexcept = default;
     ~OpenXrBridgeStub() noexcept override = default;
 
-    Result<void>      Init(XrPlatform platform = XrPlatform::Unknown) noexcept override;
+    Result<void>      Init(EXrPlatform platform = EXrPlatform::Unknown) noexcept override;
     void              Shutdown()                                      noexcept override;
     bool              IsInitialized()                           const noexcept override { return _initialized; }
-    XrPlatform        ActivePlatform()                          const noexcept override { return XrPlatform::Unknown; }
+    EXrPlatform        ActivePlatform()                          const noexcept override { return EXrPlatform::Unknown; }
     XrPose            HeadPose()                                const noexcept override { return XrPose{}; }
     XrControllerState LeftController()                          const noexcept override { return XrControllerState{}; }
     XrControllerState RightController()                         const noexcept override { return XrControllerState{}; }

@@ -13,14 +13,14 @@
 //       acs::game::WeatherSystem _weather;
 //
 //       void OnEnter() noexcept override {
-//           _weather.SetWeather(acs::game::WeatherKind::Clear);
+//           _weather.SetWeather(acs::game::EWeatherKind::Clear);
 //           _weather.SetWindDirection(acs::Vec2{1.0f, 0.0f});
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _weather.Tick(dt);
 //           // 雨へ 8 秒掛けて遷移
 //           if (player.EnteredRainZone()) _weather.SetWeather(
-//               acs::game::WeatherKind::Rain, 8.0f);
+//               acs::game::EWeatherKind::Rain, 8.0f);
 //
 //           Renderer().SetAmbientMultiplier(_weather.AmbientLightMultiplier());
 //           Renderer().SetSkyTint          (_weather.SkyTintMultiplier());
@@ -62,7 +62,7 @@ namespace acs::game {
 
 // 天候種別。レンダラ / 粒子 / 音響側で参照する。値は安定なので save に書ける
 // (将来 enum 追加時は末尾追加のみ、既存値の意味は不変とする規約)。
-enum class WeatherKind : u8 {
+enum class EWeatherKind : u8 {
     Clear     = 0,  // 快晴 / 通常
     Cloudy    = 1,  // 曇り
     Rain      = 2,  // 雨
@@ -86,10 +86,10 @@ public:
     // ----- 天候設定 -----
     // 同一天候への設定は遷移をスキップして即完了状態にする。
     // transition_duration <= 0 は即時切替 (transition_t = 1)。
-    void SetWeather(WeatherKind kind, f32 transition_duration = 5.0f) noexcept;
+    void SetWeather(EWeatherKind kind, f32 transition_duration = 5.0f) noexcept;
 
-    WeatherKind CurrentWeather() const noexcept { return _current; }
-    WeatherKind TargetWeather()  const noexcept { return _target; }
+    EWeatherKind CurrentWeather() const noexcept { return _current; }
+    EWeatherKind TargetWeather()  const noexcept { return _target; }
 
     // [0, 1]。1 で遷移完了 (current == target に snap 済み)。
     f32 TransitionT() const noexcept { return _transition_t; }
@@ -128,10 +128,10 @@ public:
     };
 
 private:
-    static const KindParams& Params(WeatherKind k) noexcept;
+    static const KindParams& Params(EWeatherKind k) noexcept;
 
-    WeatherKind _current = WeatherKind::Clear;
-    WeatherKind _target  = WeatherKind::Clear;
+    EWeatherKind _current = EWeatherKind::Clear;
+    EWeatherKind _target  = EWeatherKind::Clear;
 
     // 遷移残り時間 [s]。> 0 の間 Tick で減算し、transition_t を更新する。
     f32 _transition_duration = 0.0f;

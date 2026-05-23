@@ -35,7 +35,7 @@ public:
     UiRenderer(const UiRenderer&) = delete;
     UiRenderer& operator=(const UiRenderer&) = delete;
 
-    Result<void> Init(IRhiDevice& device, Format rt_format, Font* default_font) noexcept;
+    Result<void> Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept;
     void Shutdown() noexcept;
 
     // 1 フレーム描画

@@ -18,14 +18,14 @@ public:
 
     ID3D12PipelineState*   Pso()           const noexcept { return _pso; }
     ID3D12RootSignature*   RootSignature() const noexcept { return _root_sig; }
-    PrimitiveTopology      Topology()      const noexcept { return _topology; }
+    EPrimitiveTopology      Topology()      const noexcept { return _topology; }
     u32                    CBufferSlots()  const noexcept { return _cbuffer_slots; }
     u32                    TextureSlots()  const noexcept { return _texture_slots; }
 
 private:
     ID3D12PipelineState* _pso      = nullptr;
     ID3D12RootSignature* _root_sig = nullptr;
-    PrimitiveTopology    _topology = PrimitiveTopology::TriangleList;
+    EPrimitiveTopology    _topology = EPrimitiveTopology::TriangleList;
     u32                  _cbuffer_slots = 0;
     u32                  _texture_slots = 0;
 };

@@ -12,7 +12,7 @@
 //   なら local pending queue に積むだけのオフラインモードで動作する
 //   (デバッグ / Demo build / 単体テスト用)。
 //
-//   GDPR / CCPA 要件: PrivacyDirector の ConsentCategory::Telemetry が無ければ
+//   GDPR / CCPA 要件: PrivacyDirector の EConsentCategory::Telemetry が無ければ
 //   TrackEvent() / Flush() はすべて no-op。consent 未取得状態で TrackEvent 経由
 //   の暗黙 opt-in を発生させない (consent dialogue 表示前の起動シーケンスでも
 //   安全に呼べる)。

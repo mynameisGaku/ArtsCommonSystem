@@ -44,7 +44,7 @@ void DialogueScript::Init() noexcept {
     _current_choices.Clear();
     _current_op_index = 0u;
     _wait_remaining   = 0.0f;
-    _state            = DialogueScriptState::Idle;
+    _state            = EDialogueScriptState::Idle;
 }
 
 void DialogueScript::LoadScript(const ScriptOp* ops, u32 op_count, const char* script_id) noexcept {
@@ -54,7 +54,7 @@ void DialogueScript::LoadScript(const ScriptOp* ops, u32 op_count, const char* s
     _script_id        = script_id;
     _current_op_index = 0u;
     _wait_remaining   = 0.0f;
-    _state            = DialogueScriptState::Idle;
+    _state            = EDialogueScriptState::Idle;
 
     if (ops == nullptr || op_count == 0u) return;
 
@@ -82,7 +82,7 @@ void DialogueScript::AddLabel(const char* label, u32 op_index) noexcept {
 void DialogueScript::Start(const char* start_label) noexcept {
     if (_ops.Size() == 0) {
         // 空スクリプト: 即 Finished にして End callback を発火
-        _state = DialogueScriptState::Playing;
+        _state = EDialogueScriptState::Playing;
         EnterFinished();
         return;
     }
@@ -92,7 +92,7 @@ void DialogueScript::Start(const char* start_label) noexcept {
         const u32 resolved = ResolveLabel(start_label);
         if (resolved == kInvalidIndex) {
             // ラベル未解決: 仕様簡素化のため即 Finished に倒す
-            _state = DialogueScriptState::Playing;
+            _state = EDialogueScriptState::Playing;
             EnterFinished();
             return;
         }
@@ -102,12 +102,12 @@ void DialogueScript::Start(const char* start_label) noexcept {
     _current_op_index = start_index;
     _wait_remaining   = 0.0f;
     _current_choices.Clear();
-    _state            = DialogueScriptState::Playing;
+    _state            = EDialogueScriptState::Playing;
     RunUntilBlocked();
 }
 
 void DialogueScript::Stop() noexcept {
-    _state            = DialogueScriptState::Idle;
+    _state            = EDialogueScriptState::Idle;
     _current_op_index = 0u;
     _wait_remaining   = 0.0f;
     _current_choices.Clear();
@@ -120,7 +120,7 @@ void DialogueScript::ClearAll() noexcept {
     _script_id        = nullptr;
     _current_op_index = 0u;
     _wait_remaining   = 0.0f;
-    _state            = DialogueScriptState::Idle;
+    _state            = EDialogueScriptState::Idle;
 
     _say_cb      = nullptr; _say_user      = nullptr;
     _show_cb     = nullptr; _show_user     = nullptr;
@@ -134,21 +134,21 @@ void DialogueScript::ClearAll() noexcept {
 }
 
 bool DialogueScript::IsPlaying() const noexcept {
-    return _state == DialogueScriptState::Playing
-        || _state == DialogueScriptState::AwaitingInput
-        || _state == DialogueScriptState::AwaitingChoice;
+    return _state == EDialogueScriptState::Playing
+        || _state == EDialogueScriptState::AwaitingInput
+        || _state == EDialogueScriptState::AwaitingChoice;
 }
 
 void DialogueScript::Advance() noexcept {
-    if (_state != DialogueScriptState::AwaitingInput) return;
+    if (_state != EDialogueScriptState::AwaitingInput) return;
     // Say op を消費して次へ
     _current_op_index += 1u;
-    _state = DialogueScriptState::Playing;
+    _state = EDialogueScriptState::Playing;
     RunUntilBlocked();
 }
 
 void DialogueScript::SelectChoice(u32 choice_index) noexcept {
-    if (_state != DialogueScriptState::AwaitingChoice) return;
+    if (_state != EDialogueScriptState::AwaitingChoice) return;
     if (choice_index >= static_cast<u32>(_current_choices.Size())) return;
 
     const ScriptChoice& c = _current_choices[choice_index];
@@ -158,13 +158,13 @@ void DialogueScript::SelectChoice(u32 choice_index) noexcept {
 
     if (target == kInvalidIndex) {
         // ジャンプ先が無い / 未解決: スクリプト終了に倒す
-        _state = DialogueScriptState::Playing;
+        _state = EDialogueScriptState::Playing;
         EnterFinished();
         return;
     }
 
     _current_op_index = target;
-    _state            = DialogueScriptState::Playing;
+    _state            = EDialogueScriptState::Playing;
     RunUntilBlocked();
 }
 
@@ -174,12 +174,12 @@ const ScriptOp* DialogueScript::CurrentOp() const noexcept {
 }
 
 u32 DialogueScript::CurrentChoiceCount() const noexcept {
-    if (_state != DialogueScriptState::AwaitingChoice) return 0;
+    if (_state != EDialogueScriptState::AwaitingChoice) return 0;
     return static_cast<u32>(_current_choices.Size());
 }
 
 const ScriptChoice* DialogueScript::CurrentChoice(u32 index) const noexcept {
-    if (_state != DialogueScriptState::AwaitingChoice) return nullptr;
+    if (_state != EDialogueScriptState::AwaitingChoice) return nullptr;
     if (index >= static_cast<u32>(_current_choices.Size())) return nullptr;
     return &_current_choices[index];
 }
@@ -187,7 +187,7 @@ const ScriptChoice* DialogueScript::CurrentChoice(u32 index) const noexcept {
 void DialogueScript::Tick(f32 dt) noexcept {
     // Wait タイマは Playing 状態でのみ進める。
     // AwaitingInput / AwaitingChoice / Idle / Finished は no-op。
-    if (_state != DialogueScriptState::Playing) return;
+    if (_state != EDialogueScriptState::Playing) return;
     if (dt <= 0.0f) return;
 
     if (_wait_remaining > 0.0f) {
@@ -246,7 +246,7 @@ void DialogueScript::RunUntilBlocked() noexcept {
     // 即進行系を一気に消化し、停止ポイント (Say / Choice / Wait / EndScene / 末尾) で抜ける。
     const u32 n = static_cast<u32>(_ops.Size());
 
-    while (_state == DialogueScriptState::Playing) {
+    while (_state == EDialogueScriptState::Playing) {
         if (_current_op_index >= n) {
             EnterFinished();
             return;
@@ -254,20 +254,20 @@ void DialogueScript::RunUntilBlocked() noexcept {
 
         const ScriptOp& op = _ops[_current_op_index];
         switch (op.kind) {
-        case ScriptOpKind::Say:
+        case EScriptOpKind::Say:
             // Say は停止ポイント
             if (_say_cb != nullptr) {
                 _say_cb(_say_user, op.arg1, op.arg2);
             }
-            _state = DialogueScriptState::AwaitingInput;
+            _state = EDialogueScriptState::AwaitingInput;
             return;
 
-        case ScriptOpKind::Choice:
+        case EScriptOpKind::Choice:
             // Choice 群を展開して AwaitingChoice に遷移
             EnterChoiceGroup();
             return;
 
-        case ScriptOpKind::Wait:
+        case EScriptOpKind::Wait:
             // Wait は Playing を維持しつつ Tick で消化するため、ここで抜ける
             _wait_remaining = (op.arg_f > 0.0f) ? op.arg_f : 0.0f;
             if (_wait_remaining <= 0.0f) {
@@ -277,17 +277,17 @@ void DialogueScript::RunUntilBlocked() noexcept {
             }
             return;
 
-        case ScriptOpKind::EndScene:
+        case EScriptOpKind::EndScene:
             EnterFinished();
             return;
 
-        case ScriptOpKind::Show:
-        case ScriptOpKind::Hide:
-        case ScriptOpKind::Background:
-        case ScriptOpKind::PlayBgm:
-        case ScriptOpKind::StopBgm:
-        case ScriptOpKind::PlaySe:
-        case ScriptOpKind::Jump:
+        case EScriptOpKind::Show:
+        case EScriptOpKind::Hide:
+        case EScriptOpKind::Background:
+        case EScriptOpKind::PlayBgm:
+        case EScriptOpKind::StopBgm:
+        case EScriptOpKind::PlaySe:
+        case EScriptOpKind::Jump:
             ExecuteImmediateOp(op);
             // ExecuteImmediateOp が _current_op_index を進める (Jump は飛ばす)
             break;
@@ -301,7 +301,7 @@ void DialogueScript::EnterChoiceGroup() noexcept {
 
     // _current_op_index 起点から連続する Choice op を全て選択肢に展開
     u32 i = _current_op_index;
-    while (i < n && _ops[i].kind == ScriptOpKind::Choice) {
+    while (i < n && _ops[i].kind == EScriptOpKind::Choice) {
         ScriptChoice c;
         c.label      = _ops[i].arg1;
         c.jump_label = _ops[i].arg2;
@@ -318,7 +318,7 @@ void DialogueScript::EnterChoiceGroup() noexcept {
 
     // _current_op_index 自体は「選択肢群の先頭 Choice op」を指したまま残す。
     // SelectChoice が jump_label でジャンプ先を解決するので、選択後はそちらに飛ぶ。
-    _state = DialogueScriptState::AwaitingChoice;
+    _state = EDialogueScriptState::AwaitingChoice;
 
     if (_choice_cb != nullptr) {
         const ScriptChoice* base = (_current_choices.Size() > 0) ? &_current_choices[0] : nullptr;
@@ -328,37 +328,37 @@ void DialogueScript::EnterChoiceGroup() noexcept {
 
 void DialogueScript::ExecuteImmediateOp(const ScriptOp& op) noexcept {
     switch (op.kind) {
-    case ScriptOpKind::Show:
+    case EScriptOpKind::Show:
         if (_show_cb != nullptr) _show_cb(_show_user, op.arg1, op.arg2);
         _current_op_index += 1u;
         break;
 
-    case ScriptOpKind::Hide:
+    case EScriptOpKind::Hide:
         if (_hide_cb != nullptr) _hide_cb(_hide_user, op.arg1, op.arg2);
         _current_op_index += 1u;
         break;
 
-    case ScriptOpKind::Background:
+    case EScriptOpKind::Background:
         if (_bg_cb != nullptr) _bg_cb(_bg_user, op.arg1);
         _current_op_index += 1u;
         break;
 
-    case ScriptOpKind::PlayBgm:
+    case EScriptOpKind::PlayBgm:
         if (_play_bgm_cb != nullptr) _play_bgm_cb(_play_bgm_user, op.arg1, op.arg_f);
         _current_op_index += 1u;
         break;
 
-    case ScriptOpKind::StopBgm:
+    case EScriptOpKind::StopBgm:
         if (_stop_bgm_cb != nullptr) _stop_bgm_cb(_stop_bgm_user, op.arg1, op.arg_f);
         _current_op_index += 1u;
         break;
 
-    case ScriptOpKind::PlaySe:
+    case EScriptOpKind::PlaySe:
         if (_play_se_cb != nullptr) _play_se_cb(_play_se_user, op.arg1, op.arg_f);
         _current_op_index += 1u;
         break;
 
-    case ScriptOpKind::Jump: {
+    case EScriptOpKind::Jump: {
         const u32 target = ResolveLabel(op.arg1);
         if (target == kInvalidIndex) {
             // ジャンプ先未解決はスクリプト終了に倒す
@@ -377,8 +377,8 @@ void DialogueScript::ExecuteImmediateOp(const ScriptOp& op) noexcept {
 }
 
 void DialogueScript::EnterFinished() noexcept {
-    if (_state == DialogueScriptState::Finished) return;
-    _state          = DialogueScriptState::Finished;
+    if (_state == EDialogueScriptState::Finished) return;
+    _state          = EDialogueScriptState::Finished;
     _wait_remaining = 0.0f;
     _current_choices.Clear();
     if (_end_cb != nullptr) {

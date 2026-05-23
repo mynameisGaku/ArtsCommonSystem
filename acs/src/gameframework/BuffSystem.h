@@ -22,7 +22,7 @@
 //   ・**registry は `Array<BuffDef>`**: BuffDef はゲーム起動時に一括 Register
 //     される静的データ想定。id は const char* で文字列リテラルを参照する想定
 //     (`<string>` 禁止、所有しない、長寿命を caller が保証)。
-//   ・**BuffStackPolicy 3 種**:
+//   ・**EBuffStackPolicy 3 種**:
 //       - Refresh : 既存があれば remaining_sec を duration_sec で上書き (stack は据置)。
 //                   毒系の「重ねがけで時間延長」のような感覚。
 //       - Stack   : 既存があれば stack++ (max_stack で clamp)、remaining_sec も
@@ -60,11 +60,11 @@
 //   // 1) バフ定義を起動時に一括登録 (id は文字列リテラル想定)
 //   bs.RegisterBuff({
 //       /*id*/             "poison.snake",
-//       /*kind*/           BuffKind::Poison,
+//       /*kind*/           EBuffKind::Poison,
 //       /*duration_sec*/   8.0f,
 //       /*tick_interval*/  1.0f,        // 1 秒ごとに tick callback
 //       /*magnitude*/      5.0f,        // 1 tick で 5 ダメージ
-//       /*stack_policy*/   BuffStackPolicy::Stack,
+//       /*stack_policy*/   EBuffStackPolicy::Stack,
 //       /*max_stack*/      5,
 //       /*is_debuff*/      true,
 //   });
@@ -100,22 +100,22 @@
 
 namespace acs::game {
 
-// ---- BuffStackPolicy --------------------------------------------------------
+// ---- EBuffStackPolicy --------------------------------------------------------
 // 同 owner に既に同 id の buff があるときの ApplyBuff の挙動。
 //   Refresh : remaining_sec を duration_sec で上書き (stack は据置)。
 //   Stack   : stack++ (max_stack で clamp)、remaining_sec も最新値で reset。
 //   Ignore  : 何もしない (= 「最初の 1 枚しか効かない」)。
-enum class BuffStackPolicy : u8 {
+enum class EBuffStackPolicy : u8 {
     Refresh,
     Stack,
     Ignore,
 };
 
-// ---- BuffKind ---------------------------------------------------------------
+// ---- EBuffKind ---------------------------------------------------------------
 // バフ / デバフの大分類タグ。具体的なゲームロジックは呼出側が `kind` を見て
 // 切替える想定 (= ACS 側は値を保存するだけで強制しない)。`Custom` はゲーム
 // 固有の独自種別のための拡張枠。
-enum class BuffKind : u8 {
+enum class EBuffKind : u8 {
     AttackUp,
     DefenseUp,
     SpeedUp,
@@ -144,11 +144,11 @@ enum class BuffKind : u8 {
 //                       Manager は強制せず、値を保存して照会できるようにするだけ。
 struct BuffDef {
     const char*     id                = nullptr;
-    BuffKind        kind              = BuffKind::Custom;
+    EBuffKind        kind              = EBuffKind::Custom;
     f32             duration_sec      = 0.0f;
     f32             tick_interval_sec = 0.0f;
     f32             magnitude         = 0.0f;
-    BuffStackPolicy stack_policy      = BuffStackPolicy::Refresh;
+    EBuffStackPolicy stack_policy      = EBuffStackPolicy::Refresh;
     u32             max_stack         = 1;
     bool            is_debuff         = false;
 };

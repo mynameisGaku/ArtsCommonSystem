@@ -118,7 +118,7 @@ public:
 // =============================================================================
 
 // マッチ検索の進行状態。
-enum class MatchStatus : u8 {
+enum class EMatchStatus : u8 {
     Searching = 0,  // まだ相手を探している
     Matched   = 1,  // 相手が見つかり、AcceptMatch 待ち
     Cancelled = 2,  // 呼出側が CancelSearch した
@@ -155,7 +155,7 @@ public:
 
     // 現在の検索状態を返す。`t.IsValid() == false` は Failed を返す。
     // 副作用なし (内部 pump は IBackendClient::Tick 等に委譲する想定)。
-    virtual MatchStatus PollStatus(MatchTicket t) noexcept = 0;
+    virtual EMatchStatus PollStatus(MatchTicket t) noexcept = 0;
 
     // Matched 状態の ticket を確定。失敗時は kSub_Timeout / kSub_ServerError 等。
     // 他プレイヤーが Decline / Timeout した場合は再度 Searching 状態に戻る

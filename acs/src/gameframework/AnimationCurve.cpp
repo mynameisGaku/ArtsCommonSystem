@@ -32,7 +32,7 @@ static u32 LowerBoundByTime(const Array<CurveKey>& keys, f32 time) noexcept {
     return lo;
 }
 
-void AnimationCurve::AddKey(f32 time, f32 value, CurveInterpolation interp) noexcept {
+void AnimationCurve::AddKey(f32 time, f32 value, ECurveInterpolation interp) noexcept {
     const u32 pos = LowerBoundByTime(_keys, time);
     // 同 time の key が既にある → 上書き (in_interp は維持して out_interp と value のみ更新)
     if (pos < _keys.Size() && _keys[pos].time == time) {
@@ -67,8 +67,8 @@ void AnimationCurve::AddKeyHermite(f32 time, f32 value,
         _keys[pos].value       = value;
         _keys[pos].in_tangent  = in_tangent;
         _keys[pos].out_tangent = out_tangent;
-        _keys[pos].in_interp   = CurveInterpolation::Hermite;
-        _keys[pos].out_interp  = CurveInterpolation::Hermite;
+        _keys[pos].in_interp   = ECurveInterpolation::Hermite;
+        _keys[pos].out_interp  = ECurveInterpolation::Hermite;
         return;
     }
 
@@ -77,8 +77,8 @@ void AnimationCurve::AddKeyHermite(f32 time, f32 value,
     k.value       = value;
     k.in_tangent  = in_tangent;
     k.out_tangent = out_tangent;
-    k.in_interp   = CurveInterpolation::Hermite;
-    k.out_interp  = CurveInterpolation::Hermite;
+    k.in_interp   = ECurveInterpolation::Hermite;
+    k.out_interp  = ECurveInterpolation::Hermite;
     _keys.PushBack(k);
 
     for (u32 i = static_cast<u32>(_keys.Size()) - 1u; i > pos; --i) {
@@ -182,11 +182,11 @@ u32 AnimationCurve::FindSegmentIndex(f32 time) const noexcept {
 f32 AnimationCurve::InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
                                        f32 t, f32 dt) noexcept {
     switch (k0.out_interp) {
-    case CurveInterpolation::Step:
+    case ECurveInterpolation::Step:
         return k0.value;
-    case CurveInterpolation::Linear:
+    case ECurveInterpolation::Linear:
         return k0.value + (k1.value - k0.value) * t;
-    case CurveInterpolation::Hermite: {
+    case ECurveInterpolation::Hermite: {
         // 3 次 Hermite。タンジェントは「単位 1 秒あたりの傾き」を保存している
         // ため、segment 長 dt で乗算してこの segment 内の傾きにスケールする。
         const f32 t2  = t * t;

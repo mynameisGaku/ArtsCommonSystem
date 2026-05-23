@@ -12,7 +12,7 @@
 //     ・ネットワーク同期待ち       (NetworkSync)
 //   これらを単純な on/off bool で管理すると、片方が解除されたら resume
 //   してしまい「メニュー閉じたらフォーカス喪失中なのに動き出した」等の
-//   バグを生む。PauseDirector は **bit OR された PauseReason mask** を
+//   バグを生む。PauseDirector は **bit OR された EPauseReason mask** を
 //   持ち、「mask が完全に 0 になるまでは pause」という stack 的挙動で
 //   この問題を回避する。
 //
@@ -21,19 +21,19 @@
 //   pause.SetNormalTimeScale(1.0f);
 //
 //   // ユーザがメニューを開いた
-//   pause.Pause(PauseReason::UserMenu);
+//   pause.Pause(EPauseReason::UserMenu);
 //   game.SetTimeScale(pause.EffectiveTimeScale());  // 0.0f
 //
 //   // 同時に OS メニューも表示された
-//   pause.Pause(PauseReason::SystemMenu);
+//   pause.Pause(EPauseReason::SystemMenu);
 //   // mask = UserMenu | SystemMenu
 //
 //   // ユーザがメニューを閉じた → ただし SystemMenu は残っている
-//   pause.Resume(PauseReason::UserMenu);
+//   pause.Resume(EPauseReason::UserMenu);
 //   game.SetTimeScale(pause.EffectiveTimeScale());  // まだ 0.0f
 //
 //   // OS メニューも閉じた
-//   pause.Resume(PauseReason::SystemMenu);
+//   pause.Resume(EPauseReason::SystemMenu);
 //   game.SetTimeScale(pause.EffectiveTimeScale());  // 1.0f に復帰
 //
 // 設計選択:
@@ -71,14 +71,14 @@
 namespace acs::game {
 
 // =============================================================================
-// PauseReason — bit flag で表す pause 理由
+// EPauseReason — bit flag で表す pause 理由
 // -----------------------------------------------------------------------------
 // 各 reason は独立に on/off できる必要があり、同時に複数立ち得る (e.g.
 // UserMenu と FocusLost が同時)。None (= 0) は「pause 中ではない」を
 // 表す特異値で、Pause(None) / Resume(None) は no-op。Custom1/Custom2 は
 // ゲーム固有の理由 (e.g. "ボスイントロムービー") を割り当てる予備枠。
 // =============================================================================
-enum class PauseReason : u32 {
+enum class EPauseReason : u32 {
     None        = 0,         // pause 中ではない (特異値)
     UserMenu    = 1u << 0,   // ユーザがメニューを開いた
     SystemMenu  = 1u << 1,   // OS / システムメニュー表示中
@@ -90,11 +90,11 @@ enum class PauseReason : u32 {
     Custom2     = 1u << 7,   // ゲーム固有の予備枠 2
 };
 
-constexpr PauseReason operator|(PauseReason a, PauseReason b) noexcept {
-    return static_cast<PauseReason>(static_cast<u32>(a) | static_cast<u32>(b));
+constexpr EPauseReason operator|(EPauseReason a, EPauseReason b) noexcept {
+    return static_cast<EPauseReason>(static_cast<u32>(a) | static_cast<u32>(b));
 }
-constexpr PauseReason operator&(PauseReason a, PauseReason b) noexcept {
-    return static_cast<PauseReason>(static_cast<u32>(a) & static_cast<u32>(b));
+constexpr EPauseReason operator&(EPauseReason a, EPauseReason b) noexcept {
+    return static_cast<EPauseReason>(static_cast<u32>(a) & static_cast<u32>(b));
 }
 
 // =============================================================================
@@ -106,7 +106,7 @@ constexpr PauseReason operator&(PauseReason a, PauseReason b) noexcept {
 // paused: 遷移方向。true = 立ち上がり (= pause へ)、false = 立ち下がり (= resume へ)。
 // user: SetCallback() で渡したコンテキストポインタ。
 // =============================================================================
-using PauseEventCallback = void(*)(void* user, PauseReason reason, bool paused) noexcept;
+using PauseEventCallback = void(*)(void* user, EPauseReason reason, bool paused) noexcept;
 
 // =============================================================================
 // PauseDirector — pause stack 管理
@@ -129,19 +129,19 @@ public:
     //         既に立っている bit は callback を呼ばない (no-op)。
     // Resume: 指定 reason の bit を落とす (& ~reason)。
     //         既に落ちている bit は callback を呼ばない (no-op)。
-    void Pause(PauseReason reason)  noexcept;
-    void Resume(PauseReason reason) noexcept;
+    void Pause(EPauseReason reason)  noexcept;
+    void Resume(EPauseReason reason) noexcept;
 
     // ----- 問い合わせ -----
     // IsPausedFor: reason の **全ての** bit が立っているかを確認 (複合 reason 可)。
     //   None (= 0) を渡した場合は仕様により常に true (空集合は包含される)。
-    bool IsPausedFor(PauseReason reason) const noexcept;
+    bool IsPausedFor(EPauseReason reason) const noexcept;
 
     // 1 つでも reason が立っていれば true。EffectiveTimeScale() の判定基準。
     bool IsPaused() const noexcept;
 
     // 現在立っている全 reason の bit OR。デバッグ表示や永続化に使う。
-    PauseReason ActiveReasons() const noexcept;
+    EPauseReason ActiveReasons() const noexcept;
 
     // ----- 一括解除 -----
     // 全 reason を一気に落とす。callback は立っていた各 bit について発火する。

@@ -101,7 +101,7 @@ u32 UiLayer::AddButton(const char* label, acs::Vec2 pos, acs::Vec2 size) noexcep
     }
     WidgetEntry e{};
     e.handle       = _next_handle++;
-    e.kind         = WidgetKind::Button;
+    e.kind         = EWidgetKind::Button;
     e.pos          = pos;
     e.size         = size;
     e.text         = label;          // 非所有、寿命は呼び出し側保証
@@ -118,7 +118,7 @@ u32 UiLayer::AddText(const char* text, acs::Vec2 pos) noexcept {
     }
     WidgetEntry e{};
     e.handle       = _next_handle++;
-    e.kind         = WidgetKind::Text;
+    e.kind         = EWidgetKind::Text;
     e.pos          = pos;
     e.size         = acs::Vec2{0.0f, 0.0f};  // Phase H-2 でフォントメトリックから計算
     e.text         = text;                    // 非所有
@@ -133,7 +133,7 @@ bool UiLayer::IsButtonPressed(u32 handle) const noexcept {
     if (idx == kInvalidIndex) return false;
     const WidgetEntry& e = _widgets[idx];
     // Text widget には押下概念がない。Button のみが押下対象。
-    if (e.kind != WidgetKind::Button) return false;
+    if (e.kind != EWidgetKind::Button) return false;
     return e.just_pressed;
 }
 

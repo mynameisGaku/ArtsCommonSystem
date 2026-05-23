@@ -25,15 +25,15 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
-void LocalizationDirector::SetLocale(Locale loc) noexcept {
+void LocalizationDirector::SetLocale(ELocale loc) noexcept {
     _current = loc;
 }
 
-Locale LocalizationDirector::CurrentLocale() const noexcept {
+ELocale LocalizationDirector::CurrentLocale() const noexcept {
     return _current;
 }
 
-void LocalizationDirector::RegisterString(Locale loc, const char* key, const char* value) noexcept {
+void LocalizationDirector::RegisterString(ELocale loc, const char* key, const char* value) noexcept {
     // key == nullptr は意味を持たないので静かに弾く (PO/CSV からの取り込みで
     // null が混じっても registry を壊さない)。value == nullptr は許容
     // (「存在するが空翻訳」を表現する余地、Get では nullptr のままで返さず
@@ -64,8 +64,8 @@ const char* LocalizationDirector::Get(const char* key) const noexcept {
 
     // 2) Default(=En) にフォールバック (現 locale が既に Default の場合は同じ
     //    探索になるが、コストは線形 1 回分なので素直に走らせる)
-    if (_current != Locale::Default) {
-        const isize idx = FindIndex(Locale::Default, key);
+    if (_current != ELocale::Default) {
+        const isize idx = FindIndex(ELocale::Default, key);
         if (idx >= 0) {
             const char* v = _entries[static_cast<usize>(idx)].value;
             return (v != nullptr) ? v : "";
@@ -78,7 +78,7 @@ const char* LocalizationDirector::Get(const char* key) const noexcept {
     return key;
 }
 
-const char* LocalizationDirector::GetForLocale(Locale loc, const char* key) const noexcept {
+const char* LocalizationDirector::GetForLocale(ELocale loc, const char* key) const noexcept {
     if (key == nullptr) return "";
     const isize idx = FindIndex(loc, key);
     if (idx >= 0) {
@@ -95,7 +95,7 @@ bool LocalizationDirector::Has(const char* key) const noexcept {
     return FindIndex(_current, key) >= 0;
 }
 
-u32 LocalizationDirector::KeyCount(Locale loc) const noexcept {
+u32 LocalizationDirector::KeyCount(ELocale loc) const noexcept {
     u32 n = 0;
     const usize total = _entries.Size();
     for (usize i = 0; i < total; ++i) {
@@ -108,7 +108,7 @@ void LocalizationDirector::Clear() noexcept {
     _entries.Clear();
 }
 
-void LocalizationDirector::ClearLocale(Locale loc) noexcept {
+void LocalizationDirector::ClearLocale(ELocale loc) noexcept {
     // 指定 locale 以外を残して再構築。Array に Erase が無いので、生存要素を
     // 前詰めしてから末尾を切る (RemoveAtSwap だと順序が壊れて Get の先頭一致
     // 挙動が不安定になるため使わない)。
@@ -129,7 +129,7 @@ void LocalizationDirector::ClearLocale(Locale loc) noexcept {
     }
 }
 
-isize LocalizationDirector::FindIndex(Locale loc, const char* key) const noexcept {
+isize LocalizationDirector::FindIndex(ELocale loc, const char* key) const noexcept {
     if (key == nullptr) return -1;
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {

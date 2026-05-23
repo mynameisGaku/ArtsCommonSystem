@@ -57,7 +57,7 @@ public:
     void OnStart() noexcept override {
         // 1. シェーダコンパイル（VS + PS）
         ShaderDesc vs_desc{};
-        vs_desc.stage = ShaderStage::Vertex;
+        vs_desc.stage = EShaderStage::Vertex;
         vs_desc.hlsl_source = kHLSL;
         vs_desc.entry_point = "VSMain";
         vs_desc.debug_name  = "Triangle.VS";
@@ -70,7 +70,7 @@ public:
         _vs = Move(vs_r.Value());
 
         ShaderDesc ps_desc{};
-        ps_desc.stage = ShaderStage::Pixel;
+        ps_desc.stage = EShaderStage::Pixel;
         ps_desc.hlsl_source = kHLSL;
         ps_desc.entry_point = "PSMain";
         ps_desc.debug_name  = "Triangle.PS";
@@ -90,7 +90,7 @@ public:
         };
         BufferDesc vb_desc{};
         vb_desc.size = sizeof(verts);
-        vb_desc.usage = BufferUsage::Vertex;
+        vb_desc.usage = EBufferUsage::Vertex;
         vb_desc.cpu_writable = true;
         vb_desc.initial_data = verts;
         auto vb_r = CreateRhiBuffer(*GetRenderer().Device(), vb_desc);
@@ -105,12 +105,12 @@ public:
         PipelineDesc pd{};
         pd.vs = _vs.Get();
         pd.ps = _ps.Get();
-        pd.topology = PrimitiveTopology::TriangleList;
-        pd.rt_format = Format::B8G8R8A8_UNorm;
-        pd.depth_format = Format::Unknown;
+        pd.topology = EPrimitiveTopology::TriangleList;
+        pd.rt_format = EFormat::B8G8R8A8_UNorm;
+        pd.depth_format = EFormat::Unknown;
         pd.vertex_stride = sizeof(Vertex);
-        pd.layout[0] = { "POSITION", 0, Format::R32G32B32_Float, 0 };
-        pd.layout[1] = { "COLOR",    0, Format::R32G32B32_Float, sizeof(f32) * 3 };
+        pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
+        pd.layout[1] = { "COLOR",    0, EFormat::R32G32B32_Float, sizeof(f32) * 3 };
         pd.layout_count = 2;
         auto pl_r = CreateRhiPipeline(*GetRenderer().Device(), pd);
         if (pl_r.IsErr()) {
@@ -124,7 +124,7 @@ public:
     }
 
     void OnUpdate(f32 /*dt*/) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
     }
 
     void OnRender() noexcept override {

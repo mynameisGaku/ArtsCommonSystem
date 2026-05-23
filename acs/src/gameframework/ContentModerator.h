@@ -19,7 +19,7 @@
 //   ・**SexualMinor_HardcodedBlock は seam を無視して常に Block**: 法令遵守の最重要
 //     ガードレールとして、どんな実装でも (= 実 SDK / Stub / モック いずれでも) この
 //     レーティングに分類された入力は **必ず** Block を返す契約とする。実装側で
-//     "Allow に降格する" 余地を残さない。詳細は ContentRating コメント参照。
+//     "Allow に降格する" 余地を残さない。詳細は EContentRating コメント参照。
 //   ・**所有しない const char***: `<string>` 不使用 (ACS 規約)。`ModerationResult::reason`
 //     は static literal or 実装内部の static thread_local バッファを指す。寿命は
 //     「次の Moderate*() 呼び出しまで」を保証する。
@@ -56,20 +56,20 @@ inline constexpr u16 kSubContentModeratorNotImplemented = 1301;  // Stub によ�
 inline constexpr u16 kSubContentModeratorBadArgument    = 1302;  // nullptr / size==0 等
 
 // =============================================================================
-// ModerationVerdict — UI フロー制御の 3 値判定
+// EModerationVerdict — UI フロー制御の 3 値判定
 // -----------------------------------------------------------------------------
 //   Allow = そのまま公開して良い
 //   Warn  = 公開前にユーザー or モデレーターの確認が必要 (= "borderline")
 //   Block = 公開してはならない (法令違反 / コミュニティガイドライン違反)
 // =============================================================================
-enum class ModerationVerdict : u8 {
+enum class EModerationVerdict : u8 {
     Allow = 0,
     Warn  = 1,
     Block = 2,
 };
 
 // =============================================================================
-// ContentRating — レーティング軸 (年齢ゲート / Storefront age rating 表示用)
+// EContentRating — レーティング軸 (年齢ゲート / Storefront age rating 表示用)
 // -----------------------------------------------------------------------------
 //   Safe                       = 全年齢
 //   Mild                       = 軽度の暴力 / 風刺 等 (PG 相当)
@@ -82,7 +82,7 @@ enum class ModerationVerdict : u8 {
 // "Allow に降格する" 経路を残さないことで、法令遵守上の最重要ガードレールを
 // シーム層 (= 本ファイル) で保証する。
 // =============================================================================
-enum class ContentRating : u8 {
+enum class EContentRating : u8 {
     Safe                       = 0,
     Mild                       = 1,
     Mature                     = 2,
@@ -97,8 +97,8 @@ enum class ContentRating : u8 {
 // 寿命は「次の Moderate*() 呼び出しまで」。呼び出し側はその前に消費すること。
 // =============================================================================
 struct ModerationResult {
-    ModerationVerdict verdict = ModerationVerdict::Allow;
-    ContentRating     rating  = ContentRating::Safe;
+    EModerationVerdict verdict = EModerationVerdict::Allow;
+    EContentRating     rating  = EContentRating::Safe;
     const char*       reason  = nullptr;   // Warn/Block で有効、Allow では nullptr 可
 };
 
@@ -121,8 +121,8 @@ struct ModerationResult {
 //       bool TryPostChat(const char* user_id, const char* text) noexcept {
 //           auto r = _mod->ModerateText(user_id, text);
 //           if (!r) { LogError(); return false; }
-//           if (r.Value().verdict == ModerationVerdict::Block) { ShowBlockedUi(r.Value().reason); return false; }
-//           if (r.Value().verdict == ModerationVerdict::Warn ) { ShowWarnUi (r.Value().reason); /* 続行可 */ }
+//           if (r.Value().verdict == EModerationVerdict::Block) { ShowBlockedUi(r.Value().reason); return false; }
+//           if (r.Value().verdict == EModerationVerdict::Warn ) { ShowWarnUi (r.Value().reason); /* 続行可 */ }
 //           PostChat(text);
 //           return true;
 //       }

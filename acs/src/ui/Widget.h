@@ -35,7 +35,7 @@ struct UiRect {
 };
 
 // 整列方向
-enum class StackDir : u8 { Vertical, Horizontal };
+enum class EStackDir : u8 { Vertical, Horizontal };
 
 // アンカー / 余白
 struct UiPadding { f32 l = 0, t = 0, r = 0, b = 0; };
@@ -122,7 +122,7 @@ class StackPanel : public Widget {
 public:
     StackPanel() noexcept = default;
 
-    StackDir   dir      = StackDir::Vertical;
+    EStackDir   dir      = EStackDir::Vertical;
     f32        spacing  = 4.0f;
     UiPadding  padding{ 8, 8, 8, 8 };
 
@@ -137,7 +137,7 @@ public:
             Widget* c = _children[i].Get();
             if (!c || !c->visible) continue;
 
-            if (dir == StackDir::Vertical) {
+            if (dir == EStackDir::Vertical) {
                 f32 child_h = c->requested.h > 0 ? c->requested.h : 24.0f;
                 c->Layout(cx, cy, cw, child_h);
                 cy += child_h + spacing;

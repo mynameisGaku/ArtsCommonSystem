@@ -45,7 +45,7 @@ Settings::Entry& Settings::UpsertEntry(const char* key) noexcept {
     }
     Entry e;
     e.key  = key;
-    e.kind = SettingKind::None;
+    e.kind = ESettingKind::None;
     _entries.PushBack(e);
     return _entries[_entries.Size() - 1];
 }
@@ -56,28 +56,28 @@ Settings::Entry& Settings::UpsertEntry(const char* key) noexcept {
 void Settings::SetF32(const char* key, f32 v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
-    e.kind     = SettingKind::F32;
+    e.kind     = ESettingKind::F32;
     e.value.f  = v;
 }
 
 void Settings::SetI32(const char* key, i32 v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
-    e.kind     = SettingKind::I32;
+    e.kind     = ESettingKind::I32;
     e.value.i  = v;
 }
 
 void Settings::SetBool(const char* key, bool v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
-    e.kind     = SettingKind::Bool;
+    e.kind     = ESettingKind::Bool;
     e.value.b  = v;
 }
 
 void Settings::SetString(const char* key, const char* v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
-    e.kind     = SettingKind::String;
+    e.kind     = ESettingKind::String;
     e.value.s  = v;  // 非所有: 呼び出し側が寿命を保証する
 }
 
@@ -88,7 +88,7 @@ f32 Settings::GetF32(const char* key, f32 default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
     const Entry& e = _entries[static_cast<usize>(idx)];
-    if (e.kind != SettingKind::F32) return default_value;
+    if (e.kind != ESettingKind::F32) return default_value;
     return e.value.f;
 }
 
@@ -96,7 +96,7 @@ i32 Settings::GetI32(const char* key, i32 default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
     const Entry& e = _entries[static_cast<usize>(idx)];
-    if (e.kind != SettingKind::I32) return default_value;
+    if (e.kind != ESettingKind::I32) return default_value;
     return e.value.i;
 }
 
@@ -104,7 +104,7 @@ bool Settings::GetBool(const char* key, bool default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
     const Entry& e = _entries[static_cast<usize>(idx)];
-    if (e.kind != SettingKind::Bool) return default_value;
+    if (e.kind != ESettingKind::Bool) return default_value;
     return e.value.b;
 }
 
@@ -112,7 +112,7 @@ const char* Settings::GetString(const char* key, const char* default_value) cons
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
     const Entry& e = _entries[static_cast<usize>(idx)];
-    if (e.kind != SettingKind::String) return default_value;
+    if (e.kind != ESettingKind::String) return default_value;
     return e.value.s;
 }
 

@@ -10,7 +10,7 @@
 //   ・mip_levels=1 の単独 RT を採用 (true Hi-Z mip chain は Diligent の
 //     whole-resource transition との相性が悪いため、同一テクスチャ内 mip 間
 //     read-write を避ける)
-//   ・Format は R16G16_Float (=BRDF LUT と同じ)。.r に min depth、.g は未使用。
+//   ・EFormat は R16G16_Float (=BRDF LUT と同じ)。.r に min depth、.g は未使用。
 //     16-bit half は [0,1] NDC depth に対し ~0.1% 精度 → skip 用途十分。
 //   ・sky pixel (depth >= 0.9999) は無視 — 屋外シーンで「ground - sky」の
 //     skip が大きく走るのは安全 (空には反射先が無い)

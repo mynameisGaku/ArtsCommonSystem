@@ -66,14 +66,14 @@ public:
     }
 
     void OnUpdate(f32 /*dt*/) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-        if (Input::IsKeyPressed(Key::Space)) {
+        if (Input::IsKeyPressed(EKey::Space)) {
             ++_clicks;
             if (_clicks > _high_score) _high_score = _clicks;
             _dirty = true;
         }
-        if (Input::IsKeyPressed(Key::R)) {
+        if (Input::IsKeyPressed(EKey::R)) {
             // 全リセット（起動回数も初期化）
             _store.Clear();
             _clicks = 0;
@@ -82,7 +82,7 @@ public:
             _store.SetString("player_name", "プレイヤー");
             _dirty = true;
         }
-        if (Input::IsKeyPressed(Key::S)) {
+        if (Input::IsKeyPressed(EKey::S)) {
             FlushAndSave();
         }
     }

@@ -61,7 +61,7 @@ Result<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& de
     td.Width     = _width;
     td.Height    = _height;
     td.ArraySize = _array_size;        // cubemap も含めて Diligent はここで指定
-    td.Format    = diligent_detail::ToDiligent(_format);
+    td.EFormat    = diligent_detail::ToDiligent(_format);
     td.MipLevels = _mips;
     td.SampleCount = 1;
     td.Usage     = Diligent::USAGE_DEFAULT;
@@ -92,12 +92,12 @@ Result<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& de
         sub_data.pData       = desc.initial_data;
         sub_data.Stride      = static_cast<Diligent::Uint64>(_width) * 4;  // RGBA8 想定（32bpp）
         // フォーマットによって stride を補正
-        if (_format == Format::R32G32B32A32_Float)      sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 16;
-        else if (_format == Format::R16G16B16A16_Float) sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 8;
-        else if (_format == Format::R32G32B32_Float)    sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 12;
-        else if (_format == Format::R32G32_Float)       sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 8;
-        else if (_format == Format::R11G11B10_Float)    sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 4;
-        else if (_format == Format::R16G16_Float)       sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 4;
+        if (_format == EFormat::R32G32B32A32_Float)      sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 16;
+        else if (_format == EFormat::R16G16B16A16_Float) sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 8;
+        else if (_format == EFormat::R32G32B32_Float)    sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 12;
+        else if (_format == EFormat::R32G32_Float)       sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 8;
+        else if (_format == EFormat::R11G11B10_Float)    sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 4;
+        else if (_format == EFormat::R16G16_Float)       sub_data.Stride = static_cast<Diligent::Uint64>(_width) * 4;
         initial.pSubResources   = &sub_data;
         initial.NumSubresources = 1;
         p_init = &initial;
@@ -130,7 +130,7 @@ Result<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& de
                 vd.ViewType        = Diligent::TEXTURE_VIEW_RENDER_TARGET;
                 // cubemap でも array RTV として slice を指す (Diligent 推奨)
                 vd.TextureDim      = Diligent::RESOURCE_DIM_TEX_2D_ARRAY;
-                vd.Format          = td.Format;
+                vd.EFormat          = td.EFormat;
                 vd.MostDetailedMip = m;
                 vd.NumMipLevels    = 1;
                 vd.FirstArraySlice = s;

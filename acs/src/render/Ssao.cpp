@@ -279,7 +279,7 @@ Result<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
 
     BufferDesc cbd{};
     cbd.size = CBSize<SsaoCBLayout>();
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else _cb = Move(r.Value());
@@ -293,8 +293,8 @@ Result<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
     TextureDesc td{};
     td.width  = width;
     td.height = height;
-    // RGBA8 だが .r のみ使用 (R8_UNorm を Format に追加するより既存型流用が小コスト)
-    td.format = Format::R8G8B8A8_UNorm;
+    // RGBA8 だが .r のみ使用 (R8_UNorm を EFormat に追加するより既存型流用が小コスト)
+    td.format = EFormat::R8G8B8A8_UNorm;
     td.is_render_target = true;
     auto r = CreateRhiTexture(device, td);
     if (r.IsErr()) return Err<void>(r.Error());
@@ -309,7 +309,7 @@ Result<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
 
 Result<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsaoHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Ssao.VS";
@@ -317,7 +317,7 @@ Result<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     else _vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsaoHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Ssao.PS";
@@ -327,25 +327,25 @@ Result<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R8G8B8A8_UNorm;
-    pd.depth_format  = Format::Unknown;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::R8G8B8A8_UNorm;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 2;
     pd.cbuffer_names[0] = "SsaoCB";
     pd.texture_names[0] = "scene_depth";
     pd.texture_names[1] = "normal_gbuffer";
     pd.static_sampler_count = 2;
-    pd.static_samplers[0].filter    = SamplerFilter::Point;       // depth は離散値 → Point
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[1].filter    = SamplerFilter::Point;       // 法線は per-pixel 厳密に
-    pd.static_samplers[1].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Point;       // depth は離散値 → Point
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[1].filter    = ESamplerFilter::Point;       // 法線は per-pixel 厳密に
+    pd.static_samplers[1].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -355,7 +355,7 @@ Result<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     // VS は SSAO 本体と同じ fullscreen-triangle なので _vs を再利用する
     // (kSsaoHLSL と kSsaoBlurHLSL の VSMain は同一構造)。
     ShaderDesc bps_d{};
-    bps_d.stage = ShaderStage::Pixel;
+    bps_d.stage = EShaderStage::Pixel;
     bps_d.hlsl_source = kSsaoBlurHLSL;
     bps_d.entry_point = "PSMain";
     bps_d.debug_name  = "SsaoBlur.PS";
@@ -365,25 +365,25 @@ Result<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc bpd{};
     bpd.vs            = _vs.Get();
     bpd.ps            = _blur_ps.Get();
-    bpd.topology      = PrimitiveTopology::TriangleList;
-    bpd.rt_format     = Format::R8G8B8A8_UNorm;
-    bpd.depth_format  = Format::Unknown;
+    bpd.topology      = EPrimitiveTopology::TriangleList;
+    bpd.rt_format     = EFormat::R8G8B8A8_UNorm;
+    bpd.depth_format  = EFormat::Unknown;
     bpd.depth_test    = false;
     bpd.depth_write   = false;
-    bpd.cull_mode     = CullMode::None;
-    bpd.blend_mode    = BlendMode::Opaque;
+    bpd.cull_mode     = ECullMode::None;
+    bpd.blend_mode    = EBlendMode::Opaque;
     bpd.cbuffer_slots = 1;
     bpd.texture_slots = 2;
     bpd.cbuffer_names[0] = "SsaoCB";
     bpd.texture_names[0] = "ssao_raw";
     bpd.texture_names[1] = "scene_depth";
     bpd.static_sampler_count = 2;
-    bpd.static_samplers[0].filter    = SamplerFilter::Linear;     // AO は linear で補間
-    bpd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    bpd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    bpd.static_samplers[1].filter    = SamplerFilter::Point;      // depth は離散値
-    bpd.static_samplers[1].address_u = SamplerAddress::Clamp;
-    bpd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    bpd.static_samplers[0].filter    = ESamplerFilter::Linear;     // AO は linear で補間
+    bpd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    bpd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    bpd.static_samplers[1].filter    = ESamplerFilter::Point;      // depth は離散値
+    bpd.static_samplers[1].address_u = ESamplerAddress::Clamp;
+    bpd.static_samplers[1].address_v = ESamplerAddress::Clamp;
     bpd.vertex_stride = 0;
     bpd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, bpd); r.IsErr()) return Err<void>(r.Error());

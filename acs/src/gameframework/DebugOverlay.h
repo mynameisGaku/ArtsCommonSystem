@@ -17,12 +17,12 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _overlay.Tick(dt);
-//           if (Input::IsKeyPressed(Key::F3)) _overlay.Toggle();
+//           if (Input::IsKeyPressed(EKey::F3)) _overlay.Toggle();
 //       }
 //       void OnDraw() noexcept override {
 //           if (!_overlay.IsVisible()) return;
 //           char line[128];
-//           Format(line, "FPS %.1f (avg %.1f)", _overlay.CurrentFps(),
+//           EFormat(line, "FPS %.1f (avg %.1f)", _overlay.CurrentFps(),
 //                                                _overlay.AverageFps());
 //           DrawString(8, 8, line);
 //           // ...etc, watches を順に描画

@@ -56,7 +56,7 @@ class MyGame : public Application {
 // 手書きピクセルから直接
 TextureDesc td{};
 td.width = 64; td.height = 64;
-td.format = Format::R8G8B8A8_UNorm;
+td.format = EFormat::R8G8B8A8_UNorm;
 td.initial_data = pixels;            // 64*64*4 bytes RGBA
 td.initial_data_size = 64*64*4;
 // Result は失敗しうる。Value() を呼ぶ前に必ず IsErr() を確認すること。
@@ -124,7 +124,7 @@ sb.DrawRect(0, 0, screen_w, 32, Vec4{0,0,0,0.5f});       // 半透明バー
 sb.End();
 ```
 - 同じテクスチャの連続 Draw は自動でバッチ
-- `BlendMode::AlphaBlend` で透明 PNG が綺麗に出る
+- `EBlendMode::AlphaBlend` で透明 PNG が綺麗に出る
 - 深度テスト無効（HUD・2D ゲーム想定）
 
 ## テキスト描画（TTF + UTF-8 + 漢字）

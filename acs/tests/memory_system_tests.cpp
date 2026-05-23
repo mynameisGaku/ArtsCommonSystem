@@ -67,7 +67,7 @@ ACS_TEST(MemSystem, SegmentInitGet) {
     auto r = MemorySystem::Init(cfg);
     EXPECT_TRUE(r.IsOk());
 
-    Allocator* a = MemorySystem::Get(Segment::Default);
+    Allocator* a = MemorySystem::Get(ESegment::Default);
     EXPECT_TRUE(a != nullptr);
 
     void* p = a->Alloc(1024, 16, SourceLoc::Current());
@@ -82,10 +82,10 @@ ACS_TEST(MemSystem, ScopedSegmentSwitch) {
     auto r = MemorySystem::Init(MemorySystem::DefaultConfig());
     EXPECT_TRUE(r.IsOk());
 
-    EXPECT_EQ(MemorySystem::Current(), Segment::Default);
+    EXPECT_EQ(MemorySystem::Current(), ESegment::Default);
     {
-        ScopedMemorySegment s(Segment::Temp);
-        EXPECT_EQ(MemorySystem::Current(), Segment::Temp);
+        ScopedMemorySegment s(ESegment::Temp);
+        EXPECT_EQ(MemorySystem::Current(), ESegment::Temp);
         Allocator* a = MemorySystem::CurrentAllocator();
         EXPECT_TRUE(a != nullptr);
         if (a) {
@@ -93,7 +93,7 @@ ACS_TEST(MemSystem, ScopedSegmentSwitch) {
             EXPECT_TRUE(p != nullptr);
         }
     }
-    EXPECT_EQ(MemorySystem::Current(), Segment::Default);
+    EXPECT_EQ(MemorySystem::Current(), ESegment::Default);
 
     MemorySystem::ResetTemp();
     MemorySystem::Shutdown();
@@ -105,7 +105,7 @@ ACS_TEST(MemSystem, SnapshotWrite) {
     EXPECT_TRUE(r.IsOk());
 
     // いくつか allocate して使用率を上げる
-    Allocator* a = MemorySystem::Get(Segment::Default);
+    Allocator* a = MemorySystem::Get(ESegment::Default);
     if (a) {
         for (int i = 0; i < 10; ++i) (void)a->Alloc(1024 * 64, 16, SourceLoc::Current());
     }

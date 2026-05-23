@@ -22,14 +22,14 @@ namespace acs {
 
 namespace {
 // dr_libs / stb_vorbis から取得したサンプル列を AudioAsset に詰める共通処理
-Rc<Asset> MakeAudio(AssetId id, u32 sr, u8 ch, SampleFormat fmt, u64 frames,
+Rc<Asset> MakeAudio(AssetId id, u32 sr, u8 ch, ESampleFormat fmt, u64 frames,
                     const void* src, usize src_bytes) noexcept {
     Array<byte> samples;
     samples.Resize(src_bytes);
     MemCopy(samples.Data(), src, src_bytes);
     Rc<AudioAsset> a = MakeRc<AudioAsset>(sr, ch, fmt, frames, Move(samples));
     a->SetId(id);
-    a->SetState(AssetState::Ready);
+    a->SetState(EAssetState::Ready);
     return Rc<Asset>(Move(a));
 }
 } // namespace
@@ -49,7 +49,7 @@ Result<Rc<Asset>> WavAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
     ::drwav_uninit(&wav);
     if (read == 0) return ACS_ERR(Asset, 201, "drwav_read_pcm_frames_s16 failed");
     return Result<Rc<Asset>>(OkInit,
-        MakeAudio(id, sr, ch, SampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
+        MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
 }
 
 // ---- MP3 (dr_mp3) -------------------------------------------------------
@@ -67,7 +67,7 @@ Result<Rc<Asset>> Mp3AssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
     ::drmp3_uninit(&mp3);
     if (read == 0) return ACS_ERR(Asset, 211, "drmp3_read_pcm_frames_s16 failed");
     return Result<Rc<Asset>>(OkInit,
-        MakeAudio(id, sr, ch, SampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
+        MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
 }
 
 // ---- FLAC (dr_flac) -----------------------------------------------------
@@ -84,7 +84,7 @@ Result<Rc<Asset>> FlacAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& 
     ::drflac_close(flac);
     if (read == 0) return ACS_ERR(Asset, 221, "drflac_read_pcm_frames_s16 failed");
     return Result<Rc<Asset>>(OkInit,
-        MakeAudio(id, sr, ch, SampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
+        MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
 }
 
 // ---- OGG Vorbis (stb_vorbis) -------------------------------------------
@@ -106,7 +106,7 @@ Result<Rc<Asset>> OggAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
     ::stb_vorbis_close(v);
     if (got <= 0) return ACS_ERR(Asset, 231, "stb_vorbis_get_samples_short_interleaved failed");
     return Result<Rc<Asset>>(OkInit,
-        MakeAudio(id, sr, ch, SampleFormat::PCM_S16, static_cast<u64>(got), tmp.Data(), tmp.Size()));
+        MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, static_cast<u64>(got), tmp.Data(), tmp.Size()));
 }
 
 } // namespace acs

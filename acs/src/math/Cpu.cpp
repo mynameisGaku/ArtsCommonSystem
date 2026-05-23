@@ -64,13 +64,13 @@ void DetectInternal() noexcept {
 // 1 度だけ DetectInternal を呼ぶ。CAS で「初期化中」状態に遷移できた
 // スレッドだけが実行し、他は完了まで spin で待つ。
 const CpuFeatures& Cpu() noexcept {
-    if (g_inited.Load(MemoryOrder::Acquire) == 0) {
+    if (g_inited.Load(EMemoryOrder::Acquire) == 0) {
         u32 expected = 0;
         if (g_inited.CompareExchange(expected, 1)) {
             DetectInternal();
-            g_inited.Store(2, MemoryOrder::Release);
+            g_inited.Store(2, EMemoryOrder::Release);
         } else {
-            while (g_inited.Load(MemoryOrder::Acquire) != 2) SpinHint();
+            while (g_inited.Load(EMemoryOrder::Acquire) != 2) SpinHint();
         }
     }
     return g_features;

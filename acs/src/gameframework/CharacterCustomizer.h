@@ -16,9 +16,9 @@
 //   CharacterCustomizer cc;
 //
 //   // 起動時にゲーム or アセットバンドル側で全 cosmetic を登録。
-//   cc.RegisterCosmetic({ "hat.red_cap",   "Red Cap",   CosmeticSlot::Head,
+//   cc.RegisterCosmetic({ "hat.red_cap",   "Red Cap",   ECosmeticSlot::Head,
 //                         "art/cosmetic/hat_red.fbx", false, "common" });
-//   cc.RegisterCosmetic({ "skin.gold",     "Gold Skin", CosmeticSlot::Body,
+//   cc.RegisterCosmetic({ "skin.gold",     "Gold Skin", ECosmeticSlot::Body,
 //                         "art/cosmetic/skin_gold.fbx", true,  "rare"   });
 //   // ...
 //
@@ -37,7 +37,7 @@
 // 設計選択 (Pillar O Phase 3):
 //   ・**id は const char* 非所有**: ACS の STL 禁止方針 + Entitlement / Achievement
 //     と一貫。文字列リテラル or 長寿命バッファ前提 (呼出側保証)。
-//   ・**slot は固定 enum**: CosmeticSlot は 11 種類で固定。slot ごとに最大 1 つの
+//   ・**slot は固定 enum**: ECosmeticSlot は 11 種類で固定。slot ごとに最大 1 つの
 //     cosmetic が装着可能 (装着すると同 slot の既存装着は自動で外れる)。
 //     ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
 //   ・**Def + Unlocked 状態を並行 Array で持つ**: AchievementManager と同じ Def/State
@@ -75,11 +75,11 @@
 
 namespace acs::game {
 
-// ---- CosmeticSlot: 装着位置 ------------------------------------------------
+// ---- ECosmeticSlot: 装着位置 ------------------------------------------------
 // 11 種類で固定 (Phase 3)。slot index は固定長配列のキーとしても使うため、
 // 数値順に連続させること (中抜けすると _equipped_in_slot[] が穴あきになる)。
 // ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
-enum class CosmeticSlot : u8 {
+enum class ECosmeticSlot : u8 {
     Head         = 0,
     Body         = 1,
     Hands        = 2,
@@ -93,7 +93,7 @@ enum class CosmeticSlot : u8 {
     ColorPalette = 10,
 };
 
-// 固定長配列のサイズ定数 (CosmeticSlot enum の総数)。
+// 固定長配列のサイズ定数 (ECosmeticSlot enum の総数)。
 // 新規 slot 追加時はここも更新する (static_assert はないので手で守る)。
 inline constexpr u32 kCosmeticSlotCount = 11;
 
@@ -108,7 +108,7 @@ inline constexpr u32 kCosmeticSlotCount = 11;
 struct CosmeticItem {
     const char*  id           = nullptr;
     const char*  display_name = nullptr;
-    CosmeticSlot slot         = CosmeticSlot::Head;
+    ECosmeticSlot slot         = ECosmeticSlot::Head;
     const char*  asset_path   = nullptr;
     bool         is_premium   = false;
     const char*  rarity       = nullptr;
@@ -120,7 +120,7 @@ struct CosmeticItem {
 //   slot    : 変更があった slot。
 //   item_id : 装着された id (リテラル) or nullptr (= 解除)。
 // レンダラ側でこの callback を購読し、対応する mesh / material を差し替える。
-using EquipCallback = void(*)(void* user, CosmeticSlot slot, const char* item_id) noexcept;
+using EquipCallback = void(*)(void* user, ECosmeticSlot slot, const char* item_id) noexcept;
 
 // ---- CharacterCustomizer ---------------------------------------------------
 class CharacterCustomizer {
@@ -156,10 +156,10 @@ public:
     bool EquipCosmetic(const char* id) noexcept;
 
     // 指定 slot から装着を外す。既に空なら no-op (callback も呼ばない)。
-    void UnequipSlot(CosmeticSlot slot) noexcept;
+    void UnequipSlot(ECosmeticSlot slot) noexcept;
 
     // 指定 slot に現在装着されている cosmetic の id を返す。未装着 / 範囲外は nullptr。
-    const char* EquippedInSlot(CosmeticSlot slot) const noexcept;
+    const char* EquippedInSlot(ECosmeticSlot slot) const noexcept;
 
     // ---- 照会 ------------------------------------------------------------
     // 登録済 cosmetic の総件数。
@@ -170,7 +170,7 @@ public:
 
     // 指定 slot に該当する登録済 cosmetic の件数。装着状態とは無関係。
     // UI で「Head slot の選択肢を一覧表示」する際に使う。
-    u32 CountInSlot(CosmeticSlot slot) const noexcept;
+    u32 CountInSlot(ECosmeticSlot slot) const noexcept;
 
     // 単一 cosmetic 取得。見つからなければ nullptr。返却ポインタは次の
     // RegisterCosmetic() / ClearAll() で無効化される可能性がある。

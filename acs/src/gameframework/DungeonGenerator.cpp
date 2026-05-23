@@ -59,12 +59,12 @@ void DungeonGenerator::Clear() noexcept {
     _seed   = 0;
 }
 
-TileKind DungeonGenerator::At(u32 x, u32 y) const noexcept {
-    if (x >= _width || y >= _height) return TileKind::Wall;
+ETileKind DungeonGenerator::At(u32 x, u32 y) const noexcept {
+    if (x >= _width || y >= _height) return ETileKind::Wall;
     return _grid[static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x)];
 }
 
-void DungeonGenerator::SetTile(u32 x, u32 y, TileKind kind) noexcept {
+void DungeonGenerator::SetTile(u32 x, u32 y, ETileKind kind) noexcept {
     if (x >= _width || y >= _height) return;
     _grid[static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x)] = kind;
 }
@@ -88,9 +88,9 @@ void DungeonGenerator::GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) con
 }
 
 bool DungeonGenerator::IsWalkable(u32 x, u32 y) const noexcept {
-    const TileKind k = At(x, y);
-    return k == TileKind::Floor || k == TileKind::Door
-        || k == TileKind::Corridor || k == TileKind::Stairs;
+    const ETileKind k = At(x, y);
+    return k == ETileKind::Floor || k == ETileKind::Door
+        || k == ETileKind::Corridor || k == ETileKind::Stairs;
 }
 
 u32 DungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
@@ -102,7 +102,7 @@ u32 DungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
     for (u32 attempt = 1; attempt <= 100u; ++attempt) {
         const u32 x = r.NextU32() % _width;
         const u32 y = r.NextU32() % _height;
-        if (At(x, y) == TileKind::Floor) {
+        if (At(x, y) == ETileKind::Floor) {
             out_x = x; out_y = y;
             return attempt;
         }
@@ -141,7 +141,7 @@ void DungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     _grid.Clear();
     const usize cells = static_cast<usize>(width) * static_cast<usize>(height);
     _grid.Resize(cells);
-    for (usize i = 0; i < cells; ++i) _grid[i] = TileKind::Wall;
+    for (usize i = 0; i < cells; ++i) _grid[i] = ETileKind::Wall;
     _rooms.Clear();
     _seed = config.seed;
 
@@ -284,7 +284,7 @@ void DungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
         for (u32 yy = ry; yy < ry + rh; ++yy) {
             const usize row = static_cast<usize>(yy) * static_cast<usize>(_width);
             for (u32 xx = rx; xx < rx + rw; ++xx) {
-                _grid[row + static_cast<usize>(xx)] = TileKind::Floor;
+                _grid[row + static_cast<usize>(xx)] = ETileKind::Floor;
             }
         }
         n.rep_room = room.id;
@@ -345,13 +345,13 @@ void DungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
                 if (horiz_y >= _height) break;
                 const usize idx2 = static_cast<usize>(horiz_y) * static_cast<usize>(_width)
                                   + static_cast<usize>(x);
-                if (_grid[idx2] == TileKind::Wall) _grid[idx2] = TileKind::Corridor;
+                if (_grid[idx2] == ETileKind::Wall) _grid[idx2] = ETileKind::Corridor;
             }
             for (u32 y = vy0; y <= vy1 && y < _height; ++y) {
                 if (vert_x >= _width) break;
                 const usize idx2 = static_cast<usize>(y) * static_cast<usize>(_width)
                                   + static_cast<usize>(vert_x);
-                if (_grid[idx2] == TileKind::Wall) _grid[idx2] = TileKind::Corridor;
+                if (_grid[idx2] == ETileKind::Wall) _grid[idx2] = ETileKind::Corridor;
             }
 
             // 親の代表はランダムに左右どちらかから引き継ぐ
@@ -370,7 +370,7 @@ void DungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
         const u32 sy = r.y + r.h / 2u;
         if (sx < _width && sy < _height) {
             _grid[static_cast<usize>(sy) * static_cast<usize>(_width)
-                + static_cast<usize>(sx)] = TileKind::Stairs;
+                + static_cast<usize>(sx)] = ETileKind::Stairs;
         }
     }
 

@@ -162,7 +162,7 @@ public:
 //   Init(kind) で 1 度だけ初期化、Shutdown() で 1 度だけ破棄。
 //   kind 切替は Shutdown → Init(new_kind) の 2 段で行う。
 // =============================================================================
-enum class UpscalerKind : u8 {
+enum class EUpscalerKind : u8 {
     Off    = 0,   // 無効化 (ネイティブ解像度のままパススルー)
     FSR    = 1,   // AMD FidelityFX Super Resolution
     DLSS   = 2,   // NVIDIA Deep Learning Super Sampling
@@ -176,10 +176,10 @@ public:
 
     // 指定 kind で初期化。`Off` の場合は no-op 成功でよい。
     // 既に Init 済みの状態で再呼出した場合の挙動は実装定義 (推奨: 失敗を返す)。
-    virtual Result<void> Init(UpscalerKind k) noexcept = 0;
+    virtual Result<void> Init(EUpscalerKind k) noexcept = 0;
 
     // 現在 active な kind。Init 前 / Shutdown 後は Off を返す。
-    virtual UpscalerKind ActiveKind() const noexcept = 0;
+    virtual EUpscalerKind ActiveKind() const noexcept = 0;
 
     // 破棄 (SDK セッション解放 / バッファ返却)。多重 Shutdown は no-op で良い。
     virtual void Shutdown() noexcept = 0;
@@ -209,7 +209,7 @@ protected:
 // フォールバック (= ネイティブ描画) を書けるようにするための placeholder。
 //
 // 仕様:
-//   ・`Init(UpscalerKind::Off)` は成功。
+//   ・`Init(EUpscalerKind::Off)` は成功。
 //   ・`Init(非 Off)` は NotImplemented を返す。
 //   ・入出力サイズは常に 0 (使われない側として安全な値)。
 // =============================================================================
@@ -218,9 +218,9 @@ public:
     UpscalerStub() noexcept = default;
     ~UpscalerStub() noexcept override = default;
 
-    Result<void> Init(UpscalerKind k)     noexcept override;
-    UpscalerKind ActiveKind()       const noexcept override { return _kind; }
-    void         Shutdown()               noexcept override { _kind = UpscalerKind::Off; }
+    Result<void> Init(EUpscalerKind k)     noexcept override;
+    EUpscalerKind ActiveKind()       const noexcept override { return _kind; }
+    void         Shutdown()               noexcept override { _kind = EUpscalerKind::Off; }
 
     u32 InputWidth()   const noexcept override { return 0; }
     u32 InputHeight()  const noexcept override { return 0; }
@@ -228,7 +228,7 @@ public:
     u32 OutputHeight() const noexcept override { return 0; }
 
 private:
-    UpscalerKind _kind = UpscalerKind::Off;
+    EUpscalerKind _kind = EUpscalerKind::Off;
 };
 
 // =============================================================================

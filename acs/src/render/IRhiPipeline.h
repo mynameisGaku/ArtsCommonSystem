@@ -17,19 +17,19 @@ class IRhiDevice;
 struct InputElement {
     const char* semantic_name  = "POSITION";  // HLSL のセマンティック名
     u32         semantic_index = 0;
-    Format      format         = Format::R32G32B32_Float;
+    EFormat      format         = EFormat::R32G32B32_Float;
     u32         offset         = 0;            // 頂点構造体内のバイトオフセット
 };
 
 // カリング設定
-enum class CullMode : u8 {
+enum class ECullMode : u8 {
     None,   // カリング無し（両面描画）
     Front,  // 表面カリング
     Back,   // 裏面カリング（一般的）
 };
 
 // ブレンド設定（不透明 / 半透明）
-enum class BlendMode : u8 {
+enum class EBlendMode : u8 {
     Opaque,        // 不透明（既定）
     AlphaBlend,    // src_alpha * src + (1-src_alpha) * dst（一般的な半透明）
     Additive,      // src + dst（加算）
@@ -38,17 +38,17 @@ enum class BlendMode : u8 {
 struct PipelineDesc {
     IRhiShader*       vs            = nullptr;
     IRhiShader*       ps            = nullptr;
-    PrimitiveTopology topology      = PrimitiveTopology::TriangleList;
+    EPrimitiveTopology topology      = EPrimitiveTopology::TriangleList;
     // 単一 RT (legacy / 既定経路): rt_count == 0 のとき rt_format を使う。
-    Format            rt_format     = Format::B8G8R8A8_UNorm;
+    EFormat            rt_format     = EFormat::B8G8R8A8_UNorm;
     // MRT (Phase 34d-2): rt_count > 0 のとき rt_formats[0..rt_count-1] を使い、
     // rt_format は無視される。最大 8 RT。
     // **rt_count 未満の各 slot は valid (≠ Unknown) format が必須**。Unknown が
     // 残っていると DiligentPipeline::Init が ACS_ERR(Render, 155) を返す。
     // Diligent backend のみ実装、Dx12 raw は stub (warning ログ 1 回)。
-    Format            rt_formats[8] = {};
+    EFormat            rt_formats[8] = {};
     u32               rt_count      = 0;
-    Format            depth_format  = Format::Unknown;          // Unknown なら深度なし
+    EFormat            depth_format  = EFormat::Unknown;          // Unknown なら深度なし
     u32               vertex_stride = 0;                        // 1 頂点のバイト数
     InputElement      layout[8]     = {};                       // 入力レイアウト
     u32               layout_count  = 0;
@@ -80,8 +80,8 @@ struct PipelineDesc {
     const char*       texture_names[16] = {};
 
     // === ラスタライザ / ブレンド ===
-    CullMode          cull_mode  = CullMode::None;
-    BlendMode         blend_mode = BlendMode::Opaque;
+    ECullMode          cull_mode  = ECullMode::None;
+    EBlendMode         blend_mode = EBlendMode::Opaque;
     bool              depth_test  = false;   // depth_format != Unknown のとき有効
     bool              depth_write = true;
 };

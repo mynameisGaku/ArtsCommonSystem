@@ -74,15 +74,15 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
-        if (Input::IsKeyPressed(Key::Num1)) _params.bloom_intensity = 0.0f;
-        if (Input::IsKeyPressed(Key::Num2)) _params.bloom_intensity = 0.6f;
-        if (Input::IsKeyPressed(Key::Num3)) _params.bloom_intensity = 1.5f;
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Num1)) _params.bloom_intensity = 0.0f;
+        if (Input::IsKeyPressed(EKey::Num2)) _params.bloom_intensity = 0.6f;
+        if (Input::IsKeyPressed(EKey::Num3)) _params.bloom_intensity = 1.5f;
 
         _angle += dt * 0.5f;
         const f32 cam_dist = 7.0f;
-        _cam_yaw += (Input::IsKeyDown(Key::Right) ? 1.0f : 0.0f) * dt;
-        _cam_yaw -= (Input::IsKeyDown(Key::Left)  ? 1.0f : 0.0f) * dt;
+        _cam_yaw += (Input::IsKeyDown(EKey::Right) ? 1.0f : 0.0f) * dt;
+        _cam_yaw -= (Input::IsKeyDown(EKey::Left)  ? 1.0f : 0.0f) * dt;
         Vec3 cam{ Sin(_cam_yaw) * cam_dist, 2.0f, -Cos(_cam_yaw) * cam_dist };
         _camera.SetLookAt(cam, Vec3{0, 1, 0});
     }

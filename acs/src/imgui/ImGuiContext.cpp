@@ -126,7 +126,7 @@ void ImGuiCtx::OnEvent(const Event& e) noexcept {
     switch (e.type) {
         case EventType::KeyPressed:
         case EventType::KeyRepeat:
-            // ACS の Key と ImGui の Key は別マッピング — 主要キーのみ対応
+            // ACS の EKey と ImGui の EKey は別マッピング — 主要キーのみ対応
             // 完全対応は v2（VK→ImGuiKey 変換テーブル追加）
             break;
         case EventType::KeyReleased:

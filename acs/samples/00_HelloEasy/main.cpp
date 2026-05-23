@@ -24,14 +24,14 @@ int main() {
     const float speed = 360.0f;            // 1 秒あたりの移動ピクセル数
 
     while (NextFrame()) {                   // ウィンドウを閉じると終了
-        if (IsKeyPressed(Key::Escape)) Quit();
+        if (IsKeyPressed(EKey::Escape)) Quit();
 
         // 入力で四角を動かす（DeltaTime を掛けてフレームレート非依存に）
         const float step = speed * DeltaTime();
-        if (IsKeyDown(Key::Right) || IsKeyDown(Key::D)) x += step;
-        if (IsKeyDown(Key::Left)  || IsKeyDown(Key::A)) x -= step;
-        if (IsKeyDown(Key::Down)  || IsKeyDown(Key::S)) y += step;
-        if (IsKeyDown(Key::Up)    || IsKeyDown(Key::W)) y -= step;
+        if (IsKeyDown(EKey::Right) || IsKeyDown(EKey::D)) x += step;
+        if (IsKeyDown(EKey::Left)  || IsKeyDown(EKey::A)) x -= step;
+        if (IsKeyDown(EKey::Down)  || IsKeyDown(EKey::S)) y += step;
+        if (IsKeyDown(EKey::Up)    || IsKeyDown(EKey::W)) y -= step;
 
         // 描画
         DrawLine(0, 380, ScreenWidth(), 380, Color::Gray, 2.0f);

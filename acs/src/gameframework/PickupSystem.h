@@ -22,7 +22,7 @@
 //   ps.Init();
 //
 //   PickupInfo info{};
-//   info.kind          = PickupKind::Coin;
+//   info.kind          = EPickupKind::Coin;
 //   info.item_id       = "coin.gold";
 //   info.world_pos     = { 100.0f, 50.0f };
 //   info.radius        = 12.0f;    // 拾取半径
@@ -78,17 +78,17 @@
 
 namespace acs::game {
 
-// ---- PickupKind: 拾える物の分類 -------------------------------------------
+// ---- EPickupKind: 拾える物の分類 -------------------------------------------
 // 一般的な 2D ゲームで使われる pickup の種類を 7 個と「ユーザ定義」を含めて 8 個。
 // 列挙値の数値は安定値 (Save/Load で永続化される想定。途中に挿入しない)。
-enum class PickupKind : u8 {
+enum class EPickupKind : u8 {
     HealthOrb = 0,
     ManaOrb   = 1,
     Coin      = 2,
     Gem       = 3,
     AmmoBox   = 4,
     PowerUp   = 5,
-    Key       = 6,
+    EKey       = 6,
     Custom    = 7,
 };
 
@@ -121,7 +121,7 @@ struct PickupId {
 //                 0 以下になった瞬間に ExpireCallback 発火 + Despawn。
 // value         : 通貨価値 / 回復量等の数値。コールバックで素通しされる。
 struct PickupInfo {
-    PickupKind  kind          = PickupKind::Custom;
+    EPickupKind  kind          = EPickupKind::Custom;
     const char* item_id       = nullptr;
     Vec2        world_pos     = Vec2::Zero();
     f32         radius        = 0.0f;
@@ -139,7 +139,7 @@ public:
     //   kind    : pickup 種別
     //   item_id : pickup の item_id (生ポインタを素通し、文字列リテラル想定)
     //   value   : pickup の value (通貨価値 / 回復量等)
-    using PickupCallback = void(*)(void* user, PickupId id, PickupKind kind,
+    using PickupCallback = void(*)(void* user, PickupId id, EPickupKind kind,
                                     const char* item_id, u32 value) noexcept;
 
     // 寿命切れコールバック。拾われずに lifetime が尽きて消滅した時に呼ばれる。
@@ -193,13 +193,13 @@ public:
     // 円内ランダムスポーン。center を中心に半径 spread_radius の円板内一様サンプル
     // (Random::Global().PointInCircle) で位置を決め、kind 別の既定値で Spawn する。
     // 既定値テーブルは .cpp 内で定義。
-    void SpawnRandomAt(PickupKind kind, Vec2 center, f32 spread_radius) noexcept;
+    void SpawnRandomAt(EPickupKind kind, Vec2 center, f32 spread_radius) noexcept;
 
     // 指定 kind の pickup を全消滅させる (コールバックは呼ばない、bulk cleanup 用)。
-    void DespawnAllOfKind(PickupKind kind) noexcept;
+    void DespawnAllOfKind(EPickupKind kind) noexcept;
 
     // 指定 kind の active pickup 数を返す。
-    u32 CountOfKind(PickupKind kind) const noexcept;
+    u32 CountOfKind(EPickupKind kind) const noexcept;
 
     // 全 pickup を消滅。コールバック設定は維持される。
     void ClearAll() noexcept;

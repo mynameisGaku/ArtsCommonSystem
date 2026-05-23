@@ -20,7 +20,7 @@ WaveSpawner::WaveSpawner() noexcept {
 }
 
 void WaveSpawner::Init() noexcept {
-    _state              = WaveState::Idle;
+    _state              = EWaveState::Idle;
     _current_wave       = 0u;
     _wave_timer         = 0.0f;
     _intermission_timer = 0.0f;
@@ -44,7 +44,7 @@ void WaveSpawner::Reset() noexcept {
 }
 
 void WaveSpawner::ClearAll() noexcept {
-    _state              = WaveState::Idle;
+    _state              = EWaveState::Idle;
     _current_wave       = 0u;
     _wave_timer         = 0.0f;
     _intermission_timer = 0.0f;
@@ -84,9 +84,9 @@ u32 WaveSpawner::TotalWaves() const noexcept {
 // state transition
 // ----------------------------------------------------------------------------
 
-void WaveSpawner::TransitionTo(WaveState next) noexcept {
+void WaveSpawner::TransitionTo(EWaveState next) noexcept {
     if (next == _state) return;  // no-op
-    const WaveState prev = _state;
+    const EWaveState prev = _state;
     _state = next;
 
     // 遷移時の補助タイマ初期化:
@@ -95,9 +95,9 @@ void WaveSpawner::TransitionTo(WaveState next) noexcept {
     //   WaitingClear     → 何もしない (wave_timer は加算継続)
     //   Cleared          → intermission_timer = 0
     //   AllComplete/Idle → タイマは保持 (caller が問い合わせる用)
-    if (next == WaveState::Spawning) {
+    if (next == EWaveState::Spawning) {
         _wave_timer = 0.0f;
-    } else if (next == WaveState::Cleared) {
+    } else if (next == EWaveState::Cleared) {
         _intermission_timer = 0.0f;
     }
 
@@ -116,7 +116,7 @@ void WaveSpawner::TransitionTo(WaveState next) noexcept {
 
 void WaveSpawner::StartWaves() noexcept {
     // 進行中の呼び出しは誤用なので警告 + no-op (= 意図しない state 巻き戻しを防ぐ)。
-    if (_state == WaveState::Spawning || _state == WaveState::WaitingClear) {
+    if (_state == EWaveState::Spawning || _state == EWaveState::WaitingClear) {
         ACS_LOG_WARN("WaveSpawner::StartWaves: already running (state=%u)",
                      static_cast<u32>(_state));
         return;
@@ -125,7 +125,7 @@ void WaveSpawner::StartWaves() noexcept {
     // 空 queue で開始 → 即 AllComplete (state callback が必要なら発火する)。
     if (_waves.IsEmpty()) {
         _current_wave = 0u;
-        TransitionTo(WaveState::AllComplete);
+        TransitionTo(EWaveState::AllComplete);
         return;
     }
 
@@ -141,7 +141,7 @@ void WaveSpawner::StartWaves() noexcept {
         const usize m = s.Size();
         for (usize j = 0; j < m; ++j) s[j] = 0u;
     }
-    TransitionTo(WaveState::Spawning);
+    TransitionTo(EWaveState::Spawning);
 }
 
 void WaveSpawner::StopWaves() noexcept {
@@ -156,7 +156,7 @@ void WaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
     (void)enemy_id;  // 識別子マッチングは行わない (上位責務)、ログ目的のみ予約。
 
     // 進行中の wave がない / 既に全滅済みなら no-op (過剰 kill 防御)。
-    if (_state != WaveState::Spawning && _state != WaveState::WaitingClear) {
+    if (_state != EWaveState::Spawning && _state != EWaveState::WaitingClear) {
         return;
     }
     if (_alive_count == 0u) {
@@ -169,8 +169,8 @@ void WaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
     // Spawning 中 + alive==0 はまだ全 rule が発火しきっていない可能性があり、
     // ここでは Cleared にせず Spawning 継続する (= TickSpawning が rule 完走 →
     // WaitingClear → 即 Cleared を保証する)。
-    if (_state == WaveState::WaitingClear && _alive_count == 0u) {
-        TransitionTo(WaveState::Cleared);
+    if (_state == EWaveState::WaitingClear && _alive_count == 0u) {
+        TransitionTo(EWaveState::Cleared);
     }
 }
 
@@ -187,7 +187,7 @@ void WaveSpawner::TickSpawning(f32 dt) noexcept {
 
     // 空 wave (rule_count == 0): 即 WaitingClear へ。alive_count は 0 のまま。
     if (def.rule_count == 0u || def.rules == nullptr) {
-        TransitionTo(WaveState::WaitingClear);
+        TransitionTo(EWaveState::WaitingClear);
         return;
     }
 
@@ -249,7 +249,7 @@ void WaveSpawner::TickSpawning(f32 dt) noexcept {
     // 遷移する。これは Tick() のメインループ側で再判定するので、ここでは
     // WaitingClear に上げるだけ。
     if (total_completed_rules >= def.rule_count) {
-        TransitionTo(WaveState::WaitingClear);
+        TransitionTo(EWaveState::WaitingClear);
     }
 }
 
@@ -262,7 +262,7 @@ void WaveSpawner::AdvanceToNextWave() noexcept {
     if (next_index >= _waves.Size()) {
         // 最後の wave を終えた → AllComplete。_current_wave はそのまま (最後の
         // 有効 wave index を保持) で callback に渡す。
-        TransitionTo(WaveState::AllComplete);
+        TransitionTo(EWaveState::AllComplete);
         return;
     }
 
@@ -274,7 +274,7 @@ void WaveSpawner::AdvanceToNextWave() noexcept {
         const usize m = s.Size();
         for (usize j = 0; j < m; ++j) s[j] = 0u;
     }
-    TransitionTo(WaveState::Spawning);
+    TransitionTo(EWaveState::Spawning);
 }
 
 // ----------------------------------------------------------------------------
@@ -296,7 +296,7 @@ void WaveSpawner::SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void*
 // ----------------------------------------------------------------------------
 
 u32 WaveSpawner::EnemiesSpawnedInWave() const noexcept {
-    if (_state == WaveState::Idle || _state == WaveState::AllComplete) return 0u;
+    if (_state == EWaveState::Idle || _state == EWaveState::AllComplete) return 0u;
     if (_current_wave >= _waves.Size()) return 0u;
     const Array<u32>& s = _waves[_current_wave].spawned_per_rule;
     u32 total = 0u;
@@ -318,23 +318,23 @@ void WaveSpawner::Tick(f32 dt) noexcept {
     // と複数遷移し得る (= 大 dt or 短い intermission / 短い wave)。安全弁として
     // 最大ループ回数を 32 にキャップ (= 同 dt で 32 wave 跨ぐのは病的ケースのみ)。
     for (u32 iter = 0; iter < 32u; ++iter) {
-        const WaveState prev_state = _state;
+        const EWaveState prev_state = _state;
 
         switch (_state) {
-            case WaveState::Idle:
-            case WaveState::AllComplete:
+            case EWaveState::Idle:
+            case EWaveState::AllComplete:
                 return;  // 何もしない
 
-            case WaveState::Spawning:
+            case EWaveState::Spawning:
                 TickSpawning(dt);
                 // TickSpawning 内で WaitingClear に遷移し得る。さらに alive==0 なら
                 // この iter 末で WaitingClear → Cleared に上げる (下の処理に流す)。
-                if (_state == WaveState::WaitingClear && _alive_count == 0u) {
-                    TransitionTo(WaveState::Cleared);
+                if (_state == EWaveState::WaitingClear && _alive_count == 0u) {
+                    TransitionTo(EWaveState::Cleared);
                 }
                 break;
 
-            case WaveState::WaitingClear:
+            case EWaveState::WaitingClear:
                 // ここでは spawn は終わっているが alive>0 のはず。何もしないで
                 // NotifyEnemyKilled を待つ。dt はカウンタに加算しておく (= 演出/
                 // 統計用、HUD に wave 経過秒として出せる)。
@@ -342,11 +342,11 @@ void WaveSpawner::Tick(f32 dt) noexcept {
                 // 防衛的に alive==0 を再チェック (= NotifyEnemyKilled が外から
                 // 来て前 iter で alive を減らしていた場合に対応)。
                 if (_alive_count == 0u) {
-                    TransitionTo(WaveState::Cleared);
+                    TransitionTo(EWaveState::Cleared);
                 }
                 break;
 
-            case WaveState::Cleared: {
+            case EWaveState::Cleared: {
                 // intermission を進める。閾値到達で次 wave へ。
                 // _wave_timer も加算継続する (= 「wave 開始からの経過秒」契約)。
                 _wave_timer         += dt;

@@ -71,7 +71,7 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
         // 球の自転
         _angle += dt * 0.6f;
@@ -80,10 +80,10 @@ public:
         const f32 move_speed = 4.0f * dt;
         const f32 turn_speed = 1.6f * dt;
 
-        if (Input::IsKeyDown(Key::Left))  _cam_yaw -= turn_speed;
-        if (Input::IsKeyDown(Key::Right)) _cam_yaw += turn_speed;
-        if (Input::IsKeyDown(Key::Up))    _cam_pitch -= turn_speed * 0.8f;
-        if (Input::IsKeyDown(Key::Down))  _cam_pitch += turn_speed * 0.8f;
+        if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= turn_speed;
+        if (Input::IsKeyDown(EKey::Right)) _cam_yaw += turn_speed;
+        if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= turn_speed * 0.8f;
+        if (Input::IsKeyDown(EKey::Down))  _cam_pitch += turn_speed * 0.8f;
         // ピッチ制限
         const f32 limit = 0.45f * kPi;
         if (_cam_pitch >  limit) _cam_pitch =  limit;
@@ -94,10 +94,10 @@ public:
                       Cos(_cam_yaw) * Cos(_cam_pitch) };
         Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
 
-        if (Input::IsKeyDown(Key::W)) _cam_pos += forward * move_speed;
-        if (Input::IsKeyDown(Key::S)) _cam_pos -= forward * move_speed;
-        if (Input::IsKeyDown(Key::D)) _cam_pos += right   * move_speed;
-        if (Input::IsKeyDown(Key::A)) _cam_pos -= right   * move_speed;
+        if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * move_speed;
+        if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * move_speed;
+        if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * move_speed;
+        if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * move_speed;
 
         Vec3 target = _cam_pos + forward;
         _camera.SetLookAt(_cam_pos, target);

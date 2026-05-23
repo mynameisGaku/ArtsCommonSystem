@@ -45,7 +45,7 @@ public:
     Ssr& operator=(const Ssr&) = delete;
 
     // hdr_format: SSR 出力テクスチャのフォーマット (シーン HDR と同じ R16G16B16A16F 推奨)
-    Result<void> Init(IRhiDevice& device, Format hdr_format,
+    Result<void> Init(IRhiDevice& device, EFormat hdr_format,
                        u32 width, u32 height) noexcept;
     void Shutdown() noexcept;
 
@@ -80,7 +80,7 @@ public:
         return _history[_temporal_frame == 0u ? 0u : ((_temporal_frame - 1u) & 1u)].Get();
     }
     IRhiTexture*  RawTexture()    const noexcept { return _output.Get(); }
-    Format        OutputFormat() const noexcept { return _hdr_format; }
+    EFormat        OutputFormat() const noexcept { return _hdr_format; }
 
 private:
     Result<void> CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept;
@@ -89,7 +89,7 @@ private:
     IRhiDevice*             _device = nullptr;
     u32                     _width  = 0;
     u32                     _height = 0;
-    Format                  _hdr_format = Format::R16G16B16A16_Float;
+    EFormat                  _hdr_format = EFormat::R16G16B16A16_Float;
 
     UniquePtr<IRhiTexture>  _output;        // raw SSR (jitter 付き march)
     UniquePtr<IRhiTexture>  _history[2];    // Phase 34e-3: temporal accumulation ping-pong

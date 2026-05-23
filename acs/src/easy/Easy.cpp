@@ -179,7 +179,7 @@ UniquePtr<IRhiTexture> MakeCircleTexture(IRhiDevice& device) noexcept {
     TextureDesc desc{};
     desc.width             = N;
     desc.height            = N;
-    desc.format            = Format::R8G8B8A8_UNorm;
+    desc.format            = EFormat::R8G8B8A8_UNorm;
     desc.initial_data      = p;
     desc.initial_data_size = px.Size();
     auto r = CreateRhiTexture(device, desc);
@@ -443,7 +443,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
 
     // 7. アセット・描画ヘルパ（ポスト有効時は SpriteBatch を HDR RT 向けに作る）
     g_state.assets.RegisterDefaultLoaders();
-    const Format batch_fmt = g_state.post_available
+    const EFormat batch_fmt = g_state.post_available
         ? g_state.post.HdrFormat() : g_state.renderer.ColorFormat();
     if (auto r = g_state.batch.Init(*dev, batch_fmt, 16384); r.IsErr()) {
         ACS_LOG_ERROR("easy: 描画系の初期化に失敗: %s", r.Error().message);
@@ -1017,9 +1017,9 @@ void ResumeAllSounds() noexcept {
 // ============================================================================
 // 入力 — キーボード
 // ============================================================================
-bool IsKeyDown    (Key key) noexcept { return Input::IsKeyDown(key); }
-bool IsKeyPressed (Key key) noexcept { return Input::IsKeyPressed(key); }
-bool IsKeyReleased(Key key) noexcept { return Input::IsKeyReleased(key); }
+bool IsKeyDown    (EKey key) noexcept { return Input::IsKeyDown(key); }
+bool IsKeyPressed (EKey key) noexcept { return Input::IsKeyPressed(key); }
+bool IsKeyReleased(EKey key) noexcept { return Input::IsKeyReleased(key); }
 const char* TextInput() noexcept { return Input::TextInput(); }
 
 // ============================================================================
@@ -1027,9 +1027,9 @@ const char* TextInput() noexcept { return Input::TextInput(); }
 // ============================================================================
 f32  MouseX() noexcept { return Input::MousePos().x; }
 f32  MouseY() noexcept { return Input::MousePos().y; }
-bool IsMouseDown    (MouseButton button) noexcept { return Input::IsMouseButtonDown(button); }
-bool IsMousePressed (MouseButton button) noexcept { return Input::IsMouseButtonPressed(button); }
-bool IsMouseReleased(MouseButton button) noexcept { return Input::IsMouseButtonReleased(button); }
+bool IsMouseDown    (EMouseButton button) noexcept { return Input::IsMouseButtonDown(button); }
+bool IsMousePressed (EMouseButton button) noexcept { return Input::IsMouseButtonPressed(button); }
+bool IsMouseReleased(EMouseButton button) noexcept { return Input::IsMouseButtonReleased(button); }
 f32  MouseWheel() noexcept { return Input::MouseWheel(); }
 
 // ============================================================================
@@ -1038,29 +1038,29 @@ f32  MouseWheel() noexcept { return Input::MouseWheel(); }
 bool IsGamepadConnected(i32 player) noexcept {
     return Input::IsGamepadConnected(GpIdx(player));
 }
-bool IsGamepadDown(GamepadButton button, i32 player) noexcept {
+bool IsGamepadDown(EGamepadButton button, i32 player) noexcept {
     return Input::IsGamepadButtonDown(GpIdx(player), button);
 }
-bool IsGamepadPressed(GamepadButton button, i32 player) noexcept {
+bool IsGamepadPressed(EGamepadButton button, i32 player) noexcept {
     return Input::IsGamepadButtonPressed(GpIdx(player), button);
 }
 f32 GamepadLeftX(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), GamepadAxis::LeftX);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftX);
 }
 f32 GamepadLeftY(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), GamepadAxis::LeftY);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftY);
 }
 f32 GamepadRightX(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), GamepadAxis::RightX);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightX);
 }
 f32 GamepadRightY(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), GamepadAxis::RightY);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightY);
 }
 f32 GamepadLeftTrigger(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), GamepadAxis::LeftTrigger);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftTrigger);
 }
 f32 GamepadRightTrigger(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), GamepadAxis::RightTrigger);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightTrigger);
 }
 
 // ============================================================================

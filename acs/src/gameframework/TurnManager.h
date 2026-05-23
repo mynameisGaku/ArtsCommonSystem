@@ -22,7 +22,7 @@
 //     なので AoS で十分。AP 更新が支配的なので cache 局所性も悪くない。
 //   ・**turn order は別 Array<u32>**: initiative 順に並べ替えた slot index を
 //     保持。Array<SideSlot> 自体を並べ替えると stable ID が崩れるため。
-//   ・**TurnPhase** は 5 値: Setup (Init 直後 / StartRound 前) / PlayerTurn /
+//   ・**ETurnPhase** は 5 値: Setup (Init 直後 / StartRound 前) / PlayerTurn /
 //     EnemyTurn / EnvironmentTurn / EndOfRound (StartRound 直後の一瞬の遷移
 //     状態。callback 経由で外部に通知される)。
 //   ・**SideKind 推定**: is_player_controlled=true → PlayerTurn。false かつ
@@ -52,7 +52,7 @@ namespace acs::game {
 // 値は安定なので save / replay に書ける (将来追加時は末尾追加のみ、既存値
 // の意味は不変とする規約)。EndOfRound は StartRound 内で一瞬発生する遷移
 // 状態で、RoundEndCallback 発火直後に最初の side の phase に切り替わる。
-enum class TurnPhase : u8 {
+enum class ETurnPhase : u8 {
     Setup            = 0, // Init 直後 / StartRound 前 (side 登録中)
     PlayerTurn       = 1, // is_player_controlled=true な side のターン
     EnemyTurn        = 2, // 通常敵 side のターン
@@ -158,7 +158,7 @@ public:
     // 現ターン側 ID。Setup / EndOfRound 中は invalid id を返す。
     TurnSideId CurrentTurnSide() const noexcept;
 
-    TurnPhase CurrentPhase() const noexcept { return _phase; }
+    ETurnPhase CurrentPhase() const noexcept { return _phase; }
     u32       CurrentRound() const noexcept { return _round; }
 
     // stale handle / 未登録 ID は nullptr。返却された pointer は次の
@@ -208,8 +208,8 @@ private:
     // 見つからなければ kInvalidOrderIndex を設定。
     void AdvanceToNextActor(u32 start_from) noexcept;
 
-    // current slot の is_player_controlled / display_name から TurnPhase を推定。
-    static TurnPhase ClassifyPhase(const SideSlot& s) noexcept;
+    // current slot の is_player_controlled / display_name から ETurnPhase を推定。
+    static ETurnPhase ClassifyPhase(const SideSlot& s) noexcept;
 
     // display_name が "Env" (3 文字) で始まるかの簡易判定。
     static bool IsEnvironmentName(const char* name) noexcept;
@@ -219,7 +219,7 @@ private:
     Array<u32>      _turn_order;     // initiative 順に並んだ slot index 列
     u32             _active_count          = 0u; // RemoveSide で減る
     u32             _round                 = 0u; // StartRound で +1
-    TurnPhase       _phase                 = TurnPhase::Setup;
+    ETurnPhase       _phase                 = ETurnPhase::Setup;
 
     // _turn_order 内の現在位置。kInvalidOrderIndex は「現ターン無し」。
     static constexpr u32 kInvalidOrderIndex = 0xFFFFFFFFu;

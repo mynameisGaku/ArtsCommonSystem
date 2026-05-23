@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — PauseDirector 実装
 //
-// pause 状態は bit flag (PauseReason) を 1 個の u32 にまとめて持つ。
+// pause 状態は bit flag (EPauseReason) を 1 個の u32 にまとめて持つ。
 // Pause/Resume は単純な OR / AND-NOT で、複合 reason (UserMenu | SystemMenu)
 // にも対応する。None (= 0) は「pause 中ではない」を表す特異値で:
 //   ・Pause(None)  は no-op (OR で変化なし → callback も呼ばれない)
@@ -19,7 +19,7 @@ namespace acs::game {
 
 // ----- 内部ヘルパ -----------------------------------------------------------
 
-// PauseReason の bit 操作ユーティリティ。
+// EPauseReason の bit 操作ユーティリティ。
 // & ~b で「b に含まれる bit を a から落とす」を表現する。
 static constexpr u32 AndNotBits(u32 a, u32 b) noexcept {
     return a & ~b;
@@ -27,7 +27,7 @@ static constexpr u32 AndNotBits(u32 a, u32 b) noexcept {
 
 // ----- pause 操作 -----------------------------------------------------------
 
-void PauseDirector::Pause(PauseReason reason) noexcept {
+void PauseDirector::Pause(EPauseReason reason) noexcept {
     // OR で bit を立てる。複合 (UserMenu | SystemMenu) もそのまま受理。
     // None (= 0) を渡されても OR で変化なしなので分岐不要。
     const u32 add        = static_cast<u32>(reason);
@@ -37,7 +37,7 @@ void PauseDirector::Pause(PauseReason reason) noexcept {
     FireTransitions(newly_set, /*paused=*/true);
 }
 
-void PauseDirector::Resume(PauseReason reason) noexcept {
+void PauseDirector::Resume(EPauseReason reason) noexcept {
     // & ~reason で bit を落とす。None (= 0) は ~0 で全 bit になるが
     // _mask & 全 bit = _mask なので変化なし (no-op)。明示判定は不要。
     const u32 remove     = static_cast<u32>(reason);
@@ -50,7 +50,7 @@ void PauseDirector::Resume(PauseReason reason) noexcept {
 
 // ----- 問い合わせ -----------------------------------------------------------
 
-bool PauseDirector::IsPausedFor(PauseReason reason) const noexcept {
+bool PauseDirector::IsPausedFor(EPauseReason reason) const noexcept {
     // 複合 reason 判定: reason の **全ての** bit が立っているかを確認する。
     // 部分一致を許すと「UserMenu | SystemMenu の片方だけで true」のような
     // 紛らわしい挙動になる。
@@ -65,8 +65,8 @@ bool PauseDirector::IsPaused() const noexcept {
     return _mask != 0u;
 }
 
-PauseReason PauseDirector::ActiveReasons() const noexcept {
-    return static_cast<PauseReason>(_mask);
+EPauseReason PauseDirector::ActiveReasons() const noexcept {
+    return static_cast<EPauseReason>(_mask);
 }
 
 // ----- 一括解除 -------------------------------------------------------------
@@ -116,14 +116,14 @@ void PauseDirector::FireTransitions(u32 changed_bits, bool paused) const noexcep
     if (_callback == nullptr) return;
     if (changed_bits == 0u)   return;
 
-    // PauseReason は 8 bit (Custom2 = 1<<7) しか定義していないが、
+    // EPauseReason は 8 bit (Custom2 = 1<<7) しか定義していないが、
     // 将来拡張に備えて 32 bit 全てを舐める。0 bit は分岐で skip するので
     // コストは無視できる。
     for (u32 i = 0u; i < 32u; ++i) {
         const u32 bit = 1u << i;
         if ((changed_bits & bit) == 0u) continue;
         _callback(_callback_user,
-                  static_cast<PauseReason>(bit),
+                  static_cast<EPauseReason>(bit),
                   paused);
     }
 }

@@ -4,12 +4,12 @@
 // 使い方:
 //   ObservableArray<int> inv;
 //
-//   inv.Subscribe([](ArrayChange kind, usize idx, const int* v, void*){
+//   inv.Subscribe([](EArrayChange kind, usize idx, const int* v, void*){
 //       switch (kind) {
-//           case ArrayChange::Inserted: ACS_LOG_INFO("Add[%zu] = %d", idx, *v); break;
-//           case ArrayChange::Removed:  ACS_LOG_INFO("Remove[%zu]", idx);       break;
-//           case ArrayChange::Changed:  ACS_LOG_INFO("Set[%zu] = %d", idx, *v); break;
-//           case ArrayChange::Cleared:  ACS_LOG_INFO("Cleared all");            break;
+//           case EArrayChange::Inserted: ACS_LOG_INFO("Add[%zu] = %d", idx, *v); break;
+//           case EArrayChange::Removed:  ACS_LOG_INFO("Remove[%zu]", idx);       break;
+//           case EArrayChange::Changed:  ACS_LOG_INFO("Set[%zu] = %d", idx, *v); break;
+//           case EArrayChange::Cleared:  ACS_LOG_INFO("Cleared all");            break;
 //       }
 //   }, nullptr);
 //
@@ -32,7 +32,7 @@
 
 namespace acs {
 
-enum class ArrayChange : u8 {
+enum class EArrayChange : u8 {
     Inserted,   // index に value を挿入した
     Removed,    // index にあった要素を削除した (通知時 value はもう存在しない → nullptr)
     Changed,    // index の要素を別の値に書き換えた (value = 新値)
@@ -55,7 +55,7 @@ inline constexpr ArrayObserverHandle kInvalidArrayObserver{};
 template<typename T>
 class ObservableArray {
 public:
-    using Listener = void (*)(ArrayChange kind, usize index, const T* value, void* user);
+    using Listener = void (*)(EArrayChange kind, usize index, const T* value, void* user);
 
     ObservableArray() noexcept = default;
     ~ObservableArray() noexcept = default;
@@ -68,7 +68,7 @@ public:
         AssertMutationOK();
         usize idx = _items.Size();
         _items.PushBack(Move(v));
-        Notify(ArrayChange::Inserted, idx, &_items[idx]);
+        Notify(EArrayChange::Inserted, idx, &_items[idx]);
     }
 
     // 末尾の要素を削除 (空なら no-op)
@@ -78,7 +78,7 @@ public:
         usize idx = _items.Size() - 1;
         // PopBack 後は要素アクセスできないので value=nullptr で通知
         _items.PopBack();
-        Notify(ArrayChange::Removed, idx, nullptr);
+        Notify(EArrayChange::Removed, idx, nullptr);
     }
 
     // 任意 index を削除 (末尾入れ替えではなく前詰め — 順序保持)
@@ -89,7 +89,7 @@ public:
             _items[i - 1] = Move(_items[i]);
         }
         _items.PopBack();
-        Notify(ArrayChange::Removed, index, nullptr);
+        Notify(EArrayChange::Removed, index, nullptr);
     }
 
     // 要素を書き換え (同値ならスキップ)
@@ -98,7 +98,7 @@ public:
         if (_items[index] == v) return;
         AssertMutationOK();
         _items[index] = Move(v);
-        Notify(ArrayChange::Changed, index, &_items[index]);
+        Notify(EArrayChange::Changed, index, &_items[index]);
     }
 
     // 全削除
@@ -106,7 +106,7 @@ public:
         if (_items.Size() == 0) return;
         AssertMutationOK();
         _items.Clear();
-        Notify(ArrayChange::Cleared, 0, nullptr);
+        Notify(EArrayChange::Cleared, 0, nullptr);
     }
 
     // ---- 読み取り ----
@@ -175,7 +175,7 @@ private:
                     _notify_depth);
     }
 
-    void Notify(ArrayChange kind, usize index, const T* value) noexcept {
+    void Notify(EArrayChange kind, usize index, const T* value) noexcept {
         ++_notify_depth;
         const usize n = _slots.Size();
         for (usize i = 0; i < n; ++i) {

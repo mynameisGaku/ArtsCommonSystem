@@ -160,7 +160,7 @@ bool CraftingSystem::StartCraft(const char* recipe_id,
                                 const char* current_workbench,
                                 u32         player_level) noexcept {
     // 既に Crafting 中は上書き不可 (= 並列クラフト禁止、明示的に CancelCraft が必要)。
-    if (_status == CraftStatus::Crafting) return false;
+    if (_status == ECraftStatus::Crafting) return false;
 
     // CanCraft と同じ条件で事前判定。CanCraft が true なら StartCraft も成功する不変条件。
     if (!CanCraft(recipe_id, current_workbench, player_level)) return false;
@@ -206,15 +206,15 @@ bool CraftingSystem::StartCraft(const char* recipe_id,
     _current_recipe         = &_recipes[slot];
     _current_duration_sec   = (r.craft_duration_sec > 0.0f) ? r.craft_duration_sec : 0.0f;
     _current_remaining_sec  = _current_duration_sec;
-    _status                 = CraftStatus::Crafting;
+    _status                 = ECraftStatus::Crafting;
     return true;
 }
 
 void CraftingSystem::CancelCraft() noexcept {
-    if (_status != CraftStatus::Crafting) return;
+    if (_status != ECraftStatus::Crafting) return;
     if (_current_recipe == nullptr) {
         // 不整合 (Crafting なのに recipe が nullptr) — defensive に Idle に戻す。
-        _status                = CraftStatus::Idle;
+        _status                = ECraftStatus::Idle;
         _current_remaining_sec = 0.0f;
         _current_duration_sec  = 0.0f;
         return;
@@ -232,7 +232,7 @@ void CraftingSystem::CancelCraft() noexcept {
         }
     }
 
-    _status                = CraftStatus::Cancelled;
+    _status                = ECraftStatus::Cancelled;
     _current_remaining_sec = 0.0f;
     // _current_recipe / _current_duration_sec は CurrentRecipeId() で参照できるよう保持。
 }
@@ -241,12 +241,12 @@ void CraftingSystem::CancelCraft() noexcept {
 // 状態取得
 // =============================================================================
 
-CraftStatus CraftingSystem::Status() const noexcept {
+ECraftStatus CraftingSystem::Status() const noexcept {
     return _status;
 }
 
 f32 CraftingSystem::CraftProgress() const noexcept {
-    if (_status != CraftStatus::Crafting) return 0.0f;
+    if (_status != ECraftStatus::Crafting) return 0.0f;
     if (_current_duration_sec <= 0.0f) return 1.0f;  // 即時完了 recipe
     const f32 done = _current_duration_sec - _current_remaining_sec;
     const f32 p    = done / _current_duration_sec;
@@ -256,7 +256,7 @@ f32 CraftingSystem::CraftProgress() const noexcept {
 }
 
 f32 CraftingSystem::CraftRemainingSec() const noexcept {
-    if (_status != CraftStatus::Crafting) return 0.0f;
+    if (_status != ECraftStatus::Crafting) return 0.0f;
     return _current_remaining_sec;
 }
 
@@ -270,11 +270,11 @@ const char* CraftingSystem::CurrentRecipeId() const noexcept {
 // =============================================================================
 
 void CraftingSystem::Tick(f32 dt) noexcept {
-    if (_status != CraftStatus::Crafting) return;
+    if (_status != ECraftStatus::Crafting) return;
     if (dt <= 0.0f)                       return;
     if (_current_recipe == nullptr) {
         // 不整合 — defensive に停止。
-        _status = CraftStatus::Idle;
+        _status = ECraftStatus::Idle;
         return;
     }
 
@@ -298,7 +298,7 @@ void CraftingSystem::Tick(f32 dt) noexcept {
 
         // 状態遷移 → Completed。callback は遷移後に呼ぶ (callback 内で状態取得しても
         // Completed が見えるようにする)。
-        _status = CraftStatus::Completed;
+        _status = ECraftStatus::Completed;
         if (_on_complete != nullptr) {
             _on_complete(_on_complete_user, r.recipe_id, r.result_item_id, r.result_count);
         }
@@ -327,7 +327,7 @@ void CraftingSystem::ClearAll() noexcept {
     _inv_user         = nullptr;
     _on_complete      = nullptr;
     _on_complete_user = nullptr;
-    _status                = CraftStatus::Idle;
+    _status                = ECraftStatus::Idle;
     _current_recipe        = nullptr;
     _current_duration_sec  = 0.0f;
     _current_remaining_sec = 0.0f;

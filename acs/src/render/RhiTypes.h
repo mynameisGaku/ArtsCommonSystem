@@ -8,7 +8,7 @@
 namespace acs {
 
 // ピクセルフォーマット（DX12 / Vulkan 等で共通の論理フォーマット）
-enum class Format : u8 {
+enum class EFormat : u8 {
     Unknown = 0,
     R8G8B8A8_UNorm,        // 8bit × 4 チャンネル、画像系の標準
     R8G8B8A8_UNorm_sRGB,   // sRGB 解釈
@@ -51,7 +51,7 @@ struct ClearColor {
 };
 
 // プリミティブ種別
-enum class PrimitiveTopology : u8 {
+enum class EPrimitiveTopology : u8 {
     PointList,
     LineList,
     LineStrip,
@@ -60,7 +60,7 @@ enum class PrimitiveTopology : u8 {
 };
 
 // リソース状態（DX12 と Vulkan barrier の共通抽象）
-enum class ResourceState : u8 {
+enum class EResourceState : u8 {
     Common,
     RenderTarget,
     Present,

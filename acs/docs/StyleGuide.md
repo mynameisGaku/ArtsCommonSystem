@@ -52,7 +52,7 @@ ACS は以下の **5 つの言語制約** の上に成り立つ。これらは�
 ```cpp
 class  Renderer { /* ... */ };
 struct ErrorCode { /* ... */ };
-enum class LogSeverity : u8 { Trace, Debug, Info, Warn, Error, Fatal };
+enum class ELogSeverity : u8 { Trace, Debug, Info, Warn, Error, Fatal };
 template<typename T> class Array { /* ... */ };
 ```
 
@@ -114,19 +114,26 @@ static constexpr i32    kInvalidEntityId  = -1;
 
 ACS の公開マクロは必ず `ACS_` プレフィックス。内部ヘルパーは `_acs_` (小文字) 始まり。
 
-### 2.7 `enum class` — `PascalCase`
+### 2.7 `enum class` — `E` プレフィックス + `PascalCase` (Phase 19a〜)
 
 ```cpp
-enum class ErrCategory : u16 { None, Generic, Memory, OS, IO, Container, /* ... */ };
-enum class LogSeverity : u8  { Trace, Debug, Info, Warn, Error, Fatal, Off };
+enum class ErrCategory  : u16 { None, Generic, Memory, OS, IO, Container, /* ... */ };  // 既に E 始まり、二重 E 不要
+enum class ELogSeverity : u8  { Trace, Debug, Info, Warn, Error, Fatal, Off };
+enum class EFlowState   : u8  { Splash, MainTitle, MainMenu, /* ... */ };
 ```
 
-- 型名: PascalCase、**`E` プレフィックスなし** (UE5 流は不採用)。
+- 型名: **`E` プレフィックス + PascalCase** (Phase 19a で確定)。
 - 値: PascalCase。
 - 必ず **underlying type を明示** (`: u8` / `: u16` / `: u32`)。
 - 必ず **`enum class`** (素の `enum` は禁止)。
 
-**例外 / Exception**: HLSL の format に対応する `PixelFormat` 値 (`R8`, `R8G8B8A8`, `R32G32B32_F` 等) は HLSL 慣習に従う。
+**例外 / Exceptions**:
+- 既に `E` で始まる単語 (e.g., `ErrCategory`, `EmitterHandle`, `EventType`) は二重 E を避けて従来名のまま。
+- HLSL format 値 (`R8`, `R8G8B8A8`, `R32G32B32_F` 等) は HLSL 慣習に従う (型名は `EPixelFormat` で E prefix 適用)。
+
+**Phase 19a の経緯**: ACS は元々 enum class に prefix なしだったが、UE5 経験者の親和性 + grep ヒット率向上 + interface の `I` prefix と整合させるため `E` prefix を必須化した。`scripts/rename_enums_to_e_prefix.py` で機械的に rename 済み (~80 enum / 254 file / 2551 replacement)。
+
+**例外 / Exception**: HLSL の format に対応する `EPixelFormat` 値 (`R8`, `R8G8B8A8`, `R32G32B32_F` 等) は HLSL 慣習に従う (値名のみ、型名は `E` prefix 適用)。
 
 ### 2.8 名前空間 / Namespaces — 小文字
 
@@ -547,7 +554,7 @@ void WorkerEntry(void* user) noexcept {  // noexcept 必須
 
 ### 7.3 Atomic は `acs::Atomic<T>`
 
-`std::atomic<T>` は不可。`acs::Atomic<T>` を使う。memory order は `acs::MemoryOrder` 経由。
+`std::atomic<T>` は不可。`acs::Atomic<T>` を使う。memory order は `acs::EMemoryOrder` 経由。
 
 ### 7.4 Mutex 取得は `ScopedLock`
 

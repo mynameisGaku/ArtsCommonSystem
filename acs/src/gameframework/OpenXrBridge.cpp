@@ -43,7 +43,7 @@ namespace acs::game {
 // `_initialized` は false のまま据え置く (Init 失敗時に initialized=true にすると
 // 上位の IsInitialized 判定が壊れるため)。
 // =============================================================================
-Result<void> OpenXrBridgeStub::Init(XrPlatform platform) noexcept {
+Result<void> OpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
     (void)platform;  // stub は platform 自動検出も特定指定も実装していない
     return ACS_ERR(Generic, xr_err::kSub_NotImplemented,
                    "OpenXrBridgeStub::Init: XR backend not integrated (Phase X-1 stub)");

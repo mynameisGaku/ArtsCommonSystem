@@ -15,7 +15,7 @@ class Window;
 // スワップチェイン作成オプション
 struct SwapchainConfig {
     Window* window      = nullptr;
-    Format  format      = Format::B8G8R8A8_UNorm;
+    EFormat  format      = EFormat::B8G8R8A8_UNorm;
     u32     buffer_count = 2;          // 2 = ダブルバッファ、3 = トリプルバッファ
     bool    vsync       = true;
 };

@@ -15,7 +15,7 @@
 //   ・両者は独立。GameFlow は SceneManager に依存しない (テスト容易性のため)。
 //
 // 設計選択:
-//   ・**enum FlowState (10 状態固定)**: ゲームの抽象状態を列挙。動的追加なし。
+//   ・**enum EFlowState (10 状態固定)**: ゲームの抽象状態を列挙。動的追加なし。
 //   ・**遷移は要求 + Tick 適用**: RequestTransition で要求 → Tick が fade_out 中
 //     はカウントダウン → 完了したら _OnExit → state 切替 → _OnEnter → fade_in。
 //     これにより「現在 / 次の state が両方分かる」期間を作り、UI 側で overlay
@@ -40,12 +40,12 @@
 //
 // 使い方:
 //   acs::game::GameFlow flow;
-//   flow.SetOnEnterCallback(FlowState::Gameplay, &MyApp::OnGameplayEnter, this);
-//   flow.Init(FlowState::Splash);
+//   flow.SetOnEnterCallback(EFlowState::Gameplay, &MyApp::OnGameplayEnter, this);
+//   flow.Init(EFlowState::Splash);
 //   // ... 毎フレーム:
 //   flow.Tick(dt);
-//   if (input.JustPressed(Key::Enter) && flow.CurrentState() == FlowState::MainTitle) {
-//       flow.RequestTransition(FlowState::MainMenu, 0.5f);
+//   if (input.JustPressed(EKey::Enter) && flow.CurrentState() == EFlowState::MainTitle) {
+//       flow.RequestTransition(EFlowState::MainMenu, 0.5f);
 //   }
 //   if (flow.IsTransitioning()) {
 //       // fade overlay を FadeProgress() の alpha で描く
@@ -59,7 +59,7 @@ namespace acs::game {
 
 // 高レベルゲームフロー状態。10 個固定 (Init 時に内部 _states を 10 個確保)。
 // 列挙順序は kFlowStateCount (= 10) に合わせること。
-enum class FlowState : u8 {
+enum class EFlowState : u8 {
     Splash       = 0,   // ロゴ表示 (Studio / Publisher / Engine)
     MainTitle    = 1,   // タイトル画面 (PRESS START 待機)
     MainMenu     = 2,   // メインメニュー (NewGame / Load / Settings / Exit)
@@ -72,14 +72,14 @@ enum class FlowState : u8 {
     ExitingGame  = 9,   // アプリ終了直前 (シャットダウン処理中)
 };
 
-// FlowState の総数 (内部 _states 配列サイズに使う)。
+// EFlowState の総数 (内部 _states 配列サイズに使う)。
 inline constexpr u32 kFlowStateCount = 10;
 
 // 遷移メタデータ。RequestTransition で内部に保持され、Tick で進行する。
 // fade_in_sec / fade_out_sec が両方 0 の場合は「即時遷移」(Tick 1 回で完了)。
 struct FlowTransition {
-    FlowState from         = FlowState::Splash;
-    FlowState to           = FlowState::Splash;
+    EFlowState from         = EFlowState::Splash;
+    EFlowState to           = EFlowState::Splash;
     f32       fade_in_sec  = 0.0f;   // 新 state 入場時の fade-in 秒数
     f32       fade_out_sec = 0.0f;   // 旧 state 退場時の fade-out 秒数
 };
@@ -89,7 +89,7 @@ public:
     // 関数ポインタ型コールバック。第 1 引数 user は SetOn...Callback で渡した値
     // (任意のオブジェクト this 等)、第 2 引数 entered_state は遷移先 (Enter) or
     // 遷移元 (Exit) の state ID。
-    using StateCallback = void(*)(void* user, FlowState entered_state) noexcept;
+    using StateCallback = void(*)(void* user, EFlowState entered_state) noexcept;
 
     GameFlow()  noexcept = default;
     ~GameFlow() noexcept = default;
@@ -102,15 +102,15 @@ public:
     // ----- 初期化 -----
     // 内部の state スロット (10 個) と遷移許可テーブルを構築し、initial_state
     // に入る (このとき該当 state の OnEnter があれば即発火)。複数回呼ぶと再初期化。
-    void Init(FlowState initial_state = FlowState::Splash) noexcept;
+    void Init(EFlowState initial_state = EFlowState::Splash) noexcept;
 
     // ----- 状態 query -----
-    FlowState CurrentState()    const noexcept { return _current; }
-    FlowState PendingState()    const noexcept { return _pending; }
+    EFlowState CurrentState()    const noexcept { return _current; }
+    EFlowState PendingState()    const noexcept { return _pending; }
     bool      IsTransitioning() const noexcept { return _is_transitioning; }
 
     // 遷移の合法性を返す。Init 後の table を参照。同一 state (from==to) は false。
-    bool CanTransitionTo(FlowState to) const noexcept;
+    bool CanTransitionTo(EFlowState to) const noexcept;
 
     // 現在 fade overlay の進捗 [0, 1]。fade_out 中は 0→1、切替後の fade_in 中は
     // 1→0。非遷移中は 0。
@@ -120,13 +120,13 @@ public:
     // 不正遷移は no-op。既に遷移中の追加要求も no-op (= 後勝ちしない、現遷移を
     // 完了させてから次を受け付ける設計)。fade_sec=0 の場合は即時遷移。
     // 内部実装上は fade_in / fade_out を等分 (fade_sec / 2 ずつ) する。
-    void RequestTransition(FlowState to, f32 fade_sec = 0.3f) noexcept;
+    void RequestTransition(EFlowState to, f32 fade_sec = 0.3f) noexcept;
 
     // ----- コールバック設定 -----
     // 各 state につき OnEnter / OnExit を 1 個ずつ登録できる。範囲外の state は
     // no-op。cb=nullptr の登録で解除可能。
-    void SetOnEnterCallback(FlowState state, StateCallback cb, void* user) noexcept;
-    void SetOnExitCallback (FlowState state, StateCallback cb, void* user) noexcept;
+    void SetOnEnterCallback(EFlowState state, StateCallback cb, void* user) noexcept;
+    void SetOnExitCallback (EFlowState state, StateCallback cb, void* user) noexcept;
 
     // ----- 駆動 -----
     // fade timer を進め、必要なら _current の切替と enter/exit コールバックを
@@ -154,14 +154,14 @@ private:
 
     // 内部 helper: state → 配列インデックス。範囲外なら kFlowStateCount を返す
     // (= 呼び出し側で skip 判定用)。
-    static u32 IndexOf(FlowState s) noexcept { return static_cast<u32>(s); }
+    static u32 IndexOf(EFlowState s) noexcept { return static_cast<u32>(s); }
 
     Array<StateSlot> _states;          // size = kFlowStateCount
     bool             _allowed[kFlowStateCount][kFlowStateCount] = {};
     bool             _initialized      = false;
 
-    FlowState _current          = FlowState::Splash;
-    FlowState _pending          = FlowState::Splash;
+    EFlowState _current          = EFlowState::Splash;
+    EFlowState _pending          = EFlowState::Splash;
     Phase     _phase            = Phase::Idle;
     bool      _is_transitioning = false;
 

@@ -33,10 +33,10 @@ bool TurnManager::IsEnvironmentName(const char* name) noexcept {
     return true;
 }
 
-TurnPhase TurnManager::ClassifyPhase(const SideSlot& s) noexcept {
-    if (s.view.is_player_controlled) return TurnPhase::PlayerTurn;
-    if (IsEnvironmentName(s.view.display_name)) return TurnPhase::EnvironmentTurn;
-    return TurnPhase::EnemyTurn;
+ETurnPhase TurnManager::ClassifyPhase(const SideSlot& s) noexcept {
+    if (s.view.is_player_controlled) return ETurnPhase::PlayerTurn;
+    if (IsEnvironmentName(s.view.display_name)) return ETurnPhase::EnvironmentTurn;
+    return ETurnPhase::EnemyTurn;
 }
 
 u32 TurnManager::AcquireSlot() noexcept {
@@ -94,7 +94,7 @@ void TurnManager::Init() noexcept {
     _turn_order.Clear();
     _active_count        = 0u;
     _round               = 0u;
-    _phase               = TurnPhase::Setup;
+    _phase               = ETurnPhase::Setup;
     _current_order_index = kInvalidOrderIndex;
     // callback は保持 (Init は再 enter 用)。
 }
@@ -129,7 +129,7 @@ TurnSideId TurnManager::AddSide(const char* display_name, u32 max_ap, u32 initia
     // ラウンド進行中に追加された side は今ラウンドには参加しない (has_acted=true)。
     // Setup 中 (phase==Setup) なら通常通り未行動 (has_acted=false)。
     // ※ StartRound 時に has_acted は false に refill されるのでどちらでも次ラウンドからは参加可能。
-    const bool mid_round = (_phase != TurnPhase::Setup);
+    const bool mid_round = (_phase != ETurnPhase::Setup);
     s.view.current_action_points = mid_round ? 0u : max_ap;
     s.view.initiative            = initiative;
     s.view.is_player_controlled  = is_player_controlled;
@@ -196,13 +196,13 @@ void TurnManager::RemoveSide(TurnSideId id) noexcept {
             AdvanceToNextActor(start_from);
             if (_current_order_index == kInvalidOrderIndex) {
                 // ラウンド終了 → 次ラウンド開始
-                _phase = TurnPhase::EndOfRound;
+                _phase = ETurnPhase::EndOfRound;
                 if (_on_round_end != nullptr) {
                     _on_round_end(_on_round_end_user, _round);
                 }
                 // side が残っていなければ Setup に戻る
                 if (_active_count == 0u) {
-                    _phase = TurnPhase::Setup;
+                    _phase = ETurnPhase::Setup;
                     return;
                 }
                 StartRound();
@@ -226,7 +226,7 @@ void TurnManager::RemoveSide(TurnSideId id) noexcept {
 
     // active side が 0 になったら Setup へ戻す (callback 後でも安全)
     if (_active_count == 0u) {
-        _phase               = TurnPhase::Setup;
+        _phase               = ETurnPhase::Setup;
         _current_order_index = kInvalidOrderIndex;
         _turn_order.Clear();
     }
@@ -313,7 +313,7 @@ void TurnManager::StartRound() noexcept {
     if (_current_order_index == kInvalidOrderIndex) {
         // 例外: active_count > 0 だが turn_order に未行動 side がいない (= 不整合)
         // 防御的に Setup に戻す。
-        _phase = TurnPhase::Setup;
+        _phase = ETurnPhase::Setup;
         return;
     }
 
@@ -329,7 +329,7 @@ void TurnManager::StartRound() noexcept {
 
 void TurnManager::EndCurrentTurn() noexcept {
     // Setup / EndOfRound 中の呼び出しは no-op
-    if (_phase == TurnPhase::Setup || _phase == TurnPhase::EndOfRound) return;
+    if (_phase == ETurnPhase::Setup || _phase == ETurnPhase::EndOfRound) return;
     if (_current_order_index == kInvalidOrderIndex) return;
     if (_current_order_index >= _turn_order.Size()) return;
 
@@ -358,7 +358,7 @@ void TurnManager::EndCurrentTurn() noexcept {
     }
 
     // 全 side 行動完了 → EndOfRound → StartRound 連鎖
-    _phase = TurnPhase::EndOfRound;
+    _phase = ETurnPhase::EndOfRound;
     const u32 ending_round = _round;
     if (_on_round_end != nullptr) {
         _on_round_end(_on_round_end_user, ending_round);
@@ -366,7 +366,7 @@ void TurnManager::EndCurrentTurn() noexcept {
 
     // callback 内で ClearAll / RemoveSide により side が 0 になった可能性に備える
     if (_active_count == 0u) {
-        _phase               = TurnPhase::Setup;
+        _phase               = ETurnPhase::Setup;
         _current_order_index = kInvalidOrderIndex;
         _turn_order.Clear();
         return;
@@ -381,7 +381,7 @@ void TurnManager::EndCurrentTurn() noexcept {
 
 bool TurnManager::TryConsumeAP(u32 amount) noexcept {
     if (amount == 0u) return false;
-    if (_phase == TurnPhase::Setup || _phase == TurnPhase::EndOfRound) return false;
+    if (_phase == ETurnPhase::Setup || _phase == ETurnPhase::EndOfRound) return false;
     if (_current_order_index == kInvalidOrderIndex) return false;
     if (_current_order_index >= _turn_order.Size()) return false;
 
@@ -401,7 +401,7 @@ bool TurnManager::TryConsumeAP(u32 amount) noexcept {
 // ----------------------------------------------------------------------------
 
 TurnSideId TurnManager::CurrentTurnSide() const noexcept {
-    if (_phase == TurnPhase::Setup || _phase == TurnPhase::EndOfRound) return {};
+    if (_phase == ETurnPhase::Setup || _phase == ETurnPhase::EndOfRound) return {};
     if (_current_order_index == kInvalidOrderIndex) return {};
     if (_current_order_index >= _turn_order.Size()) return {};
 
@@ -422,7 +422,7 @@ const TurnSideState* TurnManager::GetSideState(TurnSideId id) const noexcept {
 }
 
 u32 TurnManager::TurnsRemainingThisRound() const noexcept {
-    if (_phase == TurnPhase::Setup || _phase == TurnPhase::EndOfRound) return 0u;
+    if (_phase == ETurnPhase::Setup || _phase == ETurnPhase::EndOfRound) return 0u;
 
     u32 count = 0u;
     const usize order_n = _turn_order.Size();

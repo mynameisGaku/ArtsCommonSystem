@@ -5,7 +5,7 @@
 #include "threading/ScopedLock.h"
 #include "threading/ConditionVar.h"
 #include "threading/Thread.h"
-#include "threading/MemoryOrder.h"
+#include "threading/EMemoryOrder.h"
 #include "memory/PoolAllocator.h"
 #include "foundation/Platform.h"
 #include "foundation/Assert.h"
@@ -37,39 +37,39 @@ struct alignas(64) WorkerDeque {
 
     // オーナー専用: 末尾に Push（buffer 書き込み後に release で公開）
     bool Push(const Task& t) noexcept {
-        i64 b = bottom.Load(MemoryOrder::Relaxed);
-        i64 tt = top.Load(MemoryOrder::Acquire);
+        i64 b = bottom.Load(EMemoryOrder::Relaxed);
+        i64 tt = top.Load(EMemoryOrder::Acquire);
         if (b - tt >= kDequeCapacity) return false;  // 満杯
         buffer[b & kDequeCapacityMask] = t;
-        bottom.Store(b + 1, MemoryOrder::Release);
+        bottom.Store(b + 1, EMemoryOrder::Release);
         return true;
     }
 
     // オーナー専用: 末尾から Pop
     bool Pop(Task& out) noexcept {
-        i64 b = bottom.Load(MemoryOrder::Relaxed) - 1;
-        bottom.Store(b, MemoryOrder::Relaxed);
+        i64 b = bottom.Load(EMemoryOrder::Relaxed) - 1;
+        bottom.Store(b, EMemoryOrder::Relaxed);
         HardwareFence();  // bottom 更新と top 読み取りの順序付け
-        i64 tt = top.Load(MemoryOrder::Relaxed);
+        i64 tt = top.Load(EMemoryOrder::Relaxed);
         if (tt <= b) {
             out = buffer[b & kDequeCapacityMask];
             if (tt != b) return true;  // 通常ケース
             // 最後の 1 個 — Steal と競合する可能性、CAS で arbitrate
             i64 expected = tt;
             bool ok = top.CompareExchange(expected, tt + 1);
-            bottom.Store(b + 1, MemoryOrder::Relaxed);
+            bottom.Store(b + 1, EMemoryOrder::Relaxed);
             return ok;
         }
         // deque は空 — 底を元に戻す
-        bottom.Store(b + 1, MemoryOrder::Relaxed);
+        bottom.Store(b + 1, EMemoryOrder::Relaxed);
         return false;
     }
 
     // 他ワーカー: 先頭から Steal
     bool Steal(Task& out) noexcept {
-        i64 tt = top.Load(MemoryOrder::Acquire);
+        i64 tt = top.Load(EMemoryOrder::Acquire);
         HardwareFence();
-        i64 b = bottom.Load(MemoryOrder::Acquire);
+        i64 b = bottom.Load(EMemoryOrder::Acquire);
         if (tt < b) {
             out = buffer[tt & kDequeCapacityMask];
             i64 expected = tt;
@@ -120,12 +120,12 @@ ACS_THREAD_LOCAL u32 tls_worker_index = ThreadPool::kNotAWorker;
 
 // xorshift32（スティーリング先選択用の小さな PRNG）
 ACS_FORCEINLINE u32 XorShift32(Atomic<u32>& s) noexcept {
-    u32 x = s.Load(MemoryOrder::Relaxed);
+    u32 x = s.Load(EMemoryOrder::Relaxed);
     if (x == 0) x = 0x9E3779B9u;
     x ^= x << 13;
     x ^= x >> 17;
     x ^= x << 5;
-    s.Store(x, MemoryOrder::Relaxed);
+    s.Store(x, EMemoryOrder::Relaxed);
     return x;
 }
 
@@ -195,9 +195,9 @@ ACS_FORCEINLINE void Execute(const Task& t, u32 worker_index) noexcept {
 void WorkerMain(void* arg) noexcept {
     Worker* w = static_cast<Worker*>(arg);
     tls_worker_index = w->index;
-    w->rng_state.Store(0x9E3779B9u ^ (w->index * 2654435761u), MemoryOrder::Relaxed);
+    w->rng_state.Store(0x9E3779B9u ^ (w->index * 2654435761u), EMemoryOrder::Relaxed);
 
-    while (g_pool->running.Load(MemoryOrder::Acquire)) {
+    while (g_pool->running.Load(EMemoryOrder::Acquire)) {
         Task t {};
         if (w->deque.Pop(t))            { Execute(t, w->index); continue; }
         if (TryDrainSubmit(t))          { Execute(t, w->index); continue; }
@@ -252,7 +252,7 @@ Result<void> ThreadPool::Init(u32 worker_count) noexcept {
     g_pool->submit_node_pool = ::new (pool_mem) PoolAllocator(
         sizeof(SubmissionNode), kSubmitNodePoolCount, alignof(SubmissionNode));
 
-    g_pool->running.Store(1, MemoryOrder::Release);
+    g_pool->running.Store(1, EMemoryOrder::Release);
 
     // ワーカースレッド起動
     for (u32 i = 0; i < worker_count; ++i) {
@@ -261,7 +261,7 @@ Result<void> ThreadPool::Init(u32 worker_count) noexcept {
         auto r = Thread::Spawn(&WorkerMain, &g_pool->workers[i], cfg);
         if (r.IsErr()) {
             // 失敗時のロールバック
-            g_pool->running.Store(0, MemoryOrder::Release);
+            g_pool->running.Store(0, EMemoryOrder::Release);
             g_pool->wake_cv.NotifyAll();
             for (u32 j = 0; j < i; ++j) g_pool->threads[j].Join();
             g_pool->submit_node_pool->~PoolAllocator();
@@ -279,7 +279,7 @@ Result<void> ThreadPool::Init(u32 worker_count) noexcept {
 
 void ThreadPool::Shutdown() noexcept {
     if (!g_pool) return;
-    g_pool->running.Store(0, MemoryOrder::Release);
+    g_pool->running.Store(0, EMemoryOrder::Release);
     g_pool->wake_cv.NotifyAll();
     for (u32 i = 0; i < g_pool->worker_count; ++i) g_pool->threads[i].Join();
 

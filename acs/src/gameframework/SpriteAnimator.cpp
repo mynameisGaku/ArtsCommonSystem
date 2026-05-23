@@ -12,7 +12,7 @@
 
 namespace acs::game {
 
-void SpriteAnimator::Init(u32 frame_count, f32 fps, PlayMode mode) noexcept {
+void SpriteAnimator::Init(u32 frame_count, f32 fps, EPlayMode mode) noexcept {
     _frame_count   = frame_count == 0u ? 1u : frame_count;
     _fps           = fps > 0.0f ? fps : 1.0f;
     _mode          = mode;
@@ -25,7 +25,7 @@ void SpriteAnimator::Init(u32 frame_count, f32 fps, PlayMode mode) noexcept {
 void SpriteAnimator::Play() noexcept {
     // Once が末尾で終わっているときに Play() されたら先頭に巻き戻して再生
     // (= 「もう一回」を Play 単独で実現する一般的な期待挙動)
-    if (_finished && _mode == PlayMode::Once) {
+    if (_finished && _mode == EPlayMode::Once) {
         _elapsed       = 0.0f;
         _current_frame = 0;
         _finished      = false;
@@ -53,17 +53,17 @@ u32 SpriteAnimator::ComputeFrame(f32 elapsed) const noexcept {
     if (_frame_count <= 1u) return 0;
 
     switch (_mode) {
-    case PlayMode::Loop: {
+    case EPlayMode::Loop: {
         return raw % _frame_count;
     }
-    case PlayMode::PingPong: {
+    case EPlayMode::PingPong: {
         // 周期長: 0→N-1→0 で合計 2*(N-1) frame
         const u32 period = (_frame_count - 1u) * 2u;
         const u32 m      = raw % period;
         // 前半 [0, N-1] はそのまま、後半 [N, 2N-2] は折り返す
         return m < _frame_count ? m : (period - m);
     }
-    case PlayMode::Once: {
+    case EPlayMode::Once: {
         return raw >= _frame_count ? (_frame_count - 1u) : raw;
     }
     }
@@ -80,7 +80,7 @@ void SpriteAnimator::Tick(f32 dt) noexcept {
 
     // _elapsed を周期内に丸めて f32 精度ロスを防ぐ
     bool wrapped = false;
-    if (_mode == PlayMode::Loop && _frame_count > 0u) {
+    if (_mode == EPlayMode::Loop && _frame_count > 0u) {
         const f32 period_sec = static_cast<f32>(_frame_count) / _fps;
         if (period_sec > 0.0f) {
             while (_elapsed >= period_sec) {
@@ -88,7 +88,7 @@ void SpriteAnimator::Tick(f32 dt) noexcept {
                 wrapped = true;
             }
         }
-    } else if (_mode == PlayMode::PingPong && _frame_count > 1u) {
+    } else if (_mode == EPlayMode::PingPong && _frame_count > 1u) {
         const f32 period_sec = static_cast<f32>((_frame_count - 1u) * 2u) / _fps;
         if (period_sec > 0.0f) {
             while (_elapsed >= period_sec) {
@@ -96,7 +96,7 @@ void SpriteAnimator::Tick(f32 dt) noexcept {
                 wrapped = true;
             }
         }
-    } else if (_mode == PlayMode::Once) {
+    } else if (_mode == EPlayMode::Once) {
         // 末尾 frame の終端時刻 = frame_count / fps でクランプ
         const f32 end_sec = static_cast<f32>(_frame_count) / _fps;
         if (_elapsed >= end_sec) {
@@ -136,18 +136,18 @@ f32 SpriteAnimator::NormalizedTime() const noexcept {
     if (_frame_count == 0u || _fps <= 0.0f) return 0.0f;
 
     switch (_mode) {
-    case PlayMode::Loop: {
+    case EPlayMode::Loop: {
         const f32 period_sec = static_cast<f32>(_frame_count) / _fps;
         if (period_sec <= 0.0f) return 0.0f;
         return Saturate(_elapsed / period_sec);
     }
-    case PlayMode::PingPong: {
+    case EPlayMode::PingPong: {
         if (_frame_count <= 1u) return 0.0f;
         const f32 period_sec = static_cast<f32>((_frame_count - 1u) * 2u) / _fps;
         if (period_sec <= 0.0f) return 0.0f;
         return Saturate(_elapsed / period_sec);
     }
-    case PlayMode::Once: {
+    case EPlayMode::Once: {
         const f32 end_sec = static_cast<f32>(_frame_count) / _fps;
         if (end_sec <= 0.0f) return 0.0f;
         return Saturate(_elapsed / end_sec);

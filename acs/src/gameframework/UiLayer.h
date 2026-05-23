@@ -74,7 +74,7 @@ namespace game {
 
 // UiLayer が扱う widget の種類。Phase H-1 はボタンとテキストのみ。Phase H-2 で
 // Slider / Checkbox / TextInput を追加する想定。
-enum class WidgetKind : u8 {
+enum class EWidgetKind : u8 {
     None    = 0,
     Button  = 1,  // クリックで押下イベントを発火する短形ボタン
     Text    = 2,  // 単純な静的テキスト (押下ヒットテストなし)
@@ -90,7 +90,7 @@ enum class WidgetKind : u8 {
 //                    呼び出し側が IsButtonPressed で読み取って消費する想定)
 struct WidgetEntry {
     u32         handle       = 0;
-    WidgetKind  kind         = WidgetKind::None;
+    EWidgetKind  kind         = EWidgetKind::None;
     acs::Vec2   pos         {0.0f, 0.0f};
     acs::Vec2   size        {0.0f, 0.0f};
     const char* text         = nullptr;

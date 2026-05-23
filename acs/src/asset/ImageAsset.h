@@ -14,7 +14,7 @@
 namespace acs {
 
 // ピクセルフォーマット（チャンネル数で識別）
-enum class PixelFormat : u8 {
+enum class EPixelFormat : u8 {
     R8,           // 8-bit 単チャンネル（グレースケール）
     R8G8,         // 8-bit RG（グレースケール + アルファ）
     R8G8B8,       // 8-bit RGB
@@ -29,19 +29,19 @@ public:
     ACS_ASSET_TYPE("ImageAsset")
 
     ImageAsset() noexcept = default;
-    ImageAsset(u32 w, u32 h, PixelFormat fmt, Array<byte>&& pixels) noexcept
+    ImageAsset(u32 w, u32 h, EPixelFormat fmt, Array<byte>&& pixels) noexcept
         : _width(w), _height(h), _format(fmt), _pixels(Move(pixels)) {}
 
     u32         Width()  const noexcept { return _width; }
     u32         Height() const noexcept { return _height; }
-    PixelFormat Format() const noexcept { return _format; }
+    EPixelFormat EFormat() const noexcept { return _format; }
     const byte* Pixels() const noexcept { return _pixels.Data(); }
     usize       PixelByteCount() const noexcept { return _pixels.Size(); }
 
 private:
     u32         _width  = 0;
     u32         _height = 0;
-    PixelFormat _format = PixelFormat::R8G8B8A8;
+    EPixelFormat _format = EPixelFormat::R8G8B8A8;
     Array<byte> _pixels;
 };
 

@@ -29,9 +29,9 @@ bool StrEq(const char* a, const char* b) noexcept {
 // 「id 未発見」を表す哨兵値 (AchievementManager と同じ慣習)。
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
-// CosmeticSlot を _equipped_in_slot[] のインデックスに変換 (範囲外は kNotFound)。
+// ECosmeticSlot を _equipped_in_slot[] のインデックスに変換 (範囲外は kNotFound)。
 // 不正値が enum class 経由で渡された場合のガード (将来 slot 追加し忘れ防止)。
-u32 SlotIndex(CosmeticSlot slot) noexcept {
+u32 SlotIndex(ECosmeticSlot slot) noexcept {
     const u32 idx = static_cast<u32>(slot);
     return (idx < kCosmeticSlotCount) ? idx : kNotFound;
 }
@@ -135,7 +135,7 @@ bool CharacterCustomizer::EquipCosmetic(const char* id) noexcept {
     return true;
 }
 
-void CharacterCustomizer::UnequipSlot(CosmeticSlot slot) noexcept {
+void CharacterCustomizer::UnequipSlot(ECosmeticSlot slot) noexcept {
     const u32 slot_idx = SlotIndex(slot);
     if (slot_idx == kNotFound) return;
     if (_equipped_in_slot[slot_idx] == nullptr) return;  // 既に空 (callback も呼ばない)
@@ -146,7 +146,7 @@ void CharacterCustomizer::UnequipSlot(CosmeticSlot slot) noexcept {
     }
 }
 
-const char* CharacterCustomizer::EquippedInSlot(CosmeticSlot slot) const noexcept {
+const char* CharacterCustomizer::EquippedInSlot(ECosmeticSlot slot) const noexcept {
     const u32 slot_idx = SlotIndex(slot);
     if (slot_idx == kNotFound) return nullptr;
     return _equipped_in_slot[slot_idx];
@@ -169,7 +169,7 @@ u32 CharacterCustomizer::UnlockedCount() const noexcept {
     return c;
 }
 
-u32 CharacterCustomizer::CountInSlot(CosmeticSlot slot) const noexcept {
+u32 CharacterCustomizer::CountInSlot(ECosmeticSlot slot) const noexcept {
     u32 c = 0;
     const usize n = _items.Size();
     for (usize i = 0; i < n; ++i) {

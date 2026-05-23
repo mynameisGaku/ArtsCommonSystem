@@ -19,7 +19,7 @@ public:
 
     HrResult Init(Dx12Device& device, const ShaderDesc& desc) noexcept;
 
-    ShaderStage Stage() const noexcept override { return _stage; }
+    EShaderStage Stage() const noexcept override { return _stage; }
     const byte* Bytecode() const noexcept override {
         return _blob ? static_cast<const byte*>(_blob->GetBufferPointer()) : nullptr;
     }
@@ -29,7 +29,7 @@ public:
 
 private:
     ID3DBlob*    _blob  = nullptr;
-    ShaderStage  _stage = ShaderStage::Vertex;
+    EShaderStage  _stage = EShaderStage::Vertex;
 };
 
 } // namespace acs

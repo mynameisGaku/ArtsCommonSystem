@@ -20,7 +20,7 @@ public:
 
     void Add(u32 n = 1) noexcept   { _v.FetchAdd(n); }                       // タスク投入時
     void Done()         noexcept   { _v.FetchSub(1); }                       // タスク完了時
-    u32  Pending() const noexcept  { return _v.Load(MemoryOrder::Acquire); } // 残数
+    u32  Pending() const noexcept  { return _v.Load(EMemoryOrder::Acquire); } // 残数
     bool Finished() const noexcept { return Pending() == 0; }                // 全完了か
 
 private:

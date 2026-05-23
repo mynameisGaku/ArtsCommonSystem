@@ -80,7 +80,7 @@ public:
     // ----- Services (Phase 8、Pillar A v3 §3.1) -----
     // 派生クラスで override し、使うサービスを bit flag で宣言。default は None
     // (= サービス無し、scenes が直接メンバーで service 持つ古いパターン互換)。
-    virtual Svc WantedServices() const noexcept { return Svc::None; }
+    virtual ESvc WantedServices() const noexcept { return ESvc::None; }
 
     // SceneManager が attach 済の SceneServices。WantedServices が None で
     // attach されていない場合は ACS_ASSERT で停止 (= 使う気がないなら呼ばない)。

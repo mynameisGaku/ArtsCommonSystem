@@ -12,9 +12,9 @@
 //
 // 使い方:
 //   AnimationCurve fade;
-//   fade.AddKey(0.0f, 0.0f, CurveInterpolation::Linear);
-//   fade.AddKey(0.5f, 0.8f, CurveInterpolation::Linear);
-//   fade.AddKey(1.0f, 1.0f, CurveInterpolation::Hermite); // 出口を滑らか
+//   fade.AddKey(0.0f, 0.0f, ECurveInterpolation::Linear);
+//   fade.AddKey(0.5f, 0.8f, ECurveInterpolation::Linear);
+//   fade.AddKey(1.0f, 1.0f, ECurveInterpolation::Hermite); // 出口を滑らか
 //   fade.SetPostWrap(AnimationCurve::WrapMode::Clamp);
 //   // 毎フレーム:
 //   f32 alpha = fade.Evaluate(t);
@@ -46,7 +46,7 @@ namespace acs::game {
 // 各 key で in 側 / out 側それぞれに指定する補間方式。
 // segment [k_i, k_{i+1}] の補間は k_i.out_interp が支配する。
 // k_{i+1}.in_interp は (将来) Hermite tangent 自動計算等で参照される予約フィールド。
-enum class CurveInterpolation : u8 {
+enum class ECurveInterpolation : u8 {
     Step    = 0,  // 直前 key の value をそのまま使う (階段)
     Linear  = 1,  // 線形補間
     Hermite = 2,  // 3 次 Hermite (in_tangent / out_tangent を使う)
@@ -57,8 +57,8 @@ struct CurveKey {
     f32                value       = 0.0f;
     f32                in_tangent  = 0.0f;  // この key に「入ってくる側」の傾き
     f32                out_tangent = 0.0f;  // この key から「出ていく側」の傾き
-    CurveInterpolation in_interp   = CurveInterpolation::Linear;
-    CurveInterpolation out_interp  = CurveInterpolation::Linear;
+    ECurveInterpolation in_interp   = ECurveInterpolation::Linear;
+    ECurveInterpolation out_interp  = ECurveInterpolation::Linear;
 };
 
 class AnimationCurve {
@@ -83,7 +83,7 @@ public:
     // それ以外は time 昇順を保つよう binary search で位置を決めて挿入する。
     // in_interp は新規挿入時のみ interp と同値で初期化。
     void AddKey(f32 time, f32 value,
-                CurveInterpolation interp = CurveInterpolation::Linear) noexcept;
+                ECurveInterpolation interp = ECurveInterpolation::Linear) noexcept;
 
     // Hermite モード専用の便利 add。タンジェントは「単位 1.0 秒あたりの傾き」で渡す。
     // 既存 key を上書きする場合は in/out 両 tangent を更新し、両 interp を Hermite に。
@@ -96,7 +96,7 @@ public:
     void ClearKeys() noexcept;
 
     u32             KeyCount() const noexcept { return static_cast<u32>(_keys.Size()); }
-    const CurveKey* Key(u32 index) const noexcept {
+    const CurveKey* EKey(u32 index) const noexcept {
         return index < _keys.Size() ? &_keys[index] : nullptr;
     }
 

@@ -105,7 +105,7 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
             }
             // 各 slot が valid format か検証 (Unknown は MRT で意味なし)
             for (u32 i = 0; i < desc.rt_count; ++i) {
-                if (desc.rt_formats[i] == Format::Unknown) {
+                if (desc.rt_formats[i] == EFormat::Unknown) {
                     return ACS_ERR(Render, 155,
                         "DiligentPipeline: rt_formats[i] must be set for all i < rt_count");
                 }
@@ -122,11 +122,11 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
         gp.NumRenderTargets = 0u;
         gp.RTVFormats[0]    = Diligent::TEX_FORMAT_UNKNOWN;
     }
-    gp.DSVFormat                    = (desc.depth_format == Format::Unknown)
+    gp.DSVFormat                    = (desc.depth_format == EFormat::Unknown)
                                        ? Diligent::TEX_FORMAT_UNKNOWN
                                        : diligent_detail::ToDiligent(desc.depth_format);
-    gp.PrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
-    gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
+    gp.EPrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
+    gp.RasterizerDesc.ECullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
     // 経験的に: 色 pass (PS あり) で `true`、depth-only (PS なし) で `false`
     // にすると ACS sample 群 (HelloLights / Bloom / Shadows / Sky / Mesh ...)
@@ -137,7 +137,7 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     // 未観測。将来 RT 種別ごとに分けたくなったら PipelineDesc に
     // `target_kind = Swapchain/OffscreenColor/Depth` を追加する。
     gp.RasterizerDesc.FrontCounterClockwise = has_ps;
-    gp.DepthStencilDesc.DepthEnable = desc.depth_test && desc.depth_format != Format::Unknown;
+    gp.DepthStencilDesc.DepthEnable = desc.depth_test && desc.depth_format != EFormat::Unknown;
     gp.DepthStencilDesc.DepthWriteEnable = desc.depth_write;
     gp.DepthStencilDesc.DepthFunc   = Diligent::COMPARISON_FUNC_LESS_EQUAL;
 
@@ -169,16 +169,16 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
         layout[i].HLSLSemantic    = e.semantic_name ? e.semantic_name : "POSITION";
 
         switch (e.format) {
-            case Format::R32G32_Float:
+            case EFormat::R32G32_Float:
                 layout[i].ValueType = Diligent::VT_FLOAT32; layout[i].NumComponents = 2; break;
-            case Format::R32G32B32_Float:
+            case EFormat::R32G32B32_Float:
                 layout[i].ValueType = Diligent::VT_FLOAT32; layout[i].NumComponents = 3; break;
-            case Format::R32G32B32A32_Float:
+            case EFormat::R32G32B32A32_Float:
                 layout[i].ValueType = Diligent::VT_FLOAT32; layout[i].NumComponents = 4; break;
-            case Format::R8G8B8A8_UNorm:
+            case EFormat::R8G8B8A8_UNorm:
                 layout[i].ValueType = Diligent::VT_UINT8;   layout[i].NumComponents = 4;
                 layout[i].IsNormalized = true; break;
-            case Format::R8G8B8A8_UInt:
+            case EFormat::R8G8B8A8_UInt:
                 layout[i].ValueType = Diligent::VT_UINT8;   layout[i].NumComponents = 4;
                 layout[i].IsNormalized = false; break;
             default:

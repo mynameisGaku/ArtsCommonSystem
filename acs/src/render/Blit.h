@@ -37,7 +37,7 @@ public:
 
     // 初期化。rt_format は Copy の出力 RT のフォーマット (PSO に焼き込む)。
     // 出力 RT を別フォーマットに切り替えたい場合は別 Blit インスタンスを使うこと。
-    Result<void> Init(IRhiDevice& device, Format rt_format) noexcept;
+    Result<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
 
     void Shutdown() noexcept;
 

@@ -79,10 +79,10 @@ public:
     }
 
     void OnUpdate(f32 /*dt*/) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
-        if (Input::IsKeyPressed(Key::F1)) SwitchTo(0);
-        if (Input::IsKeyPressed(Key::F2)) SwitchTo(1);
-        if (Input::IsKeyPressed(Key::F3)) SwitchTo(2);
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::F1)) SwitchTo(0);
+        if (Input::IsKeyPressed(EKey::F2)) SwitchTo(1);
+        if (Input::IsKeyPressed(EKey::F3)) SwitchTo(2);
     }
 
     void OnRender() noexcept override {

@@ -21,13 +21,13 @@
 //
 //   // 武器定義 (文字列リテラルは caller 側で長寿命を保証)。
 //   ws.RegisterWeapon({ "pistol", "9mm Pistol",
-//                       acs::game::WeaponKind::Pistol,
+//                       acs::game::EWeaponKind::Pistol,
 //                       /*fire_rate*/ 6.0f, /*reload*/ 1.4f,
 //                       /*mag*/ 12, /*reserve*/ 48,
 //                       /*dmg*/ 18.0f, /*spread*/ 1.5f,
 //                       /*pellets*/ 1, "proj.bullet_9mm" });
 //   ws.RegisterWeapon({ "shotgun", "Pump Shotgun",
-//                       acs::game::WeaponKind::Shotgun,
+//                       acs::game::EWeaponKind::Shotgun,
 //                       1.0f, 2.6f, 6, 24,
 //                       12.0f, 6.0f, 8, "proj.pellet_12g" });
 //
@@ -39,10 +39,10 @@
 //
 //   void Update(f32 dt) {
 //       ws.Tick(dt);
-//       if (input.JustPressed(Key::Mouse0)) ws.TryFire();
-//       if (input.JustPressed(Key::R))      ws.StartReload();
-//       if (input.JustPressed(Key::Num1))   ws.EquipWeapon("pistol");
-//       if (input.JustPressed(Key::Num2))   ws.EquipWeapon("shotgun");
+//       if (input.JustPressed(EKey::Mouse0)) ws.TryFire();
+//       if (input.JustPressed(EKey::R))      ws.StartReload();
+//       if (input.JustPressed(EKey::Num1))   ws.EquipWeapon("pistol");
+//       if (input.JustPressed(EKey::Num2))   ws.EquipWeapon("shotgun");
 //   }
 //
 // 設計選択:
@@ -87,10 +87,10 @@
 
 namespace acs::game {
 
-// ---- WeaponKind: 武器のジャンル ------------------------------------------
+// ---- EWeaponKind: 武器のジャンル ------------------------------------------
 // UI 表示 / アニメーション分岐 / damage type 判定等のためのメタ情報。
 // 機械的な fire 挙動は WeaponDef の各パラメタで完全に決まり、`kind` は参考値。
-enum class WeaponKind : u8 {
+enum class EWeaponKind : u8 {
     Pistol,         // 単発ハンドガン
     Rifle,          // フルオート / セミオート長銃
     Shotgun,        // ペレット拡散
@@ -116,7 +116,7 @@ enum class WeaponKind : u8 {
 struct WeaponDef {
     const char* id                = nullptr;
     const char* display_name      = nullptr;
-    WeaponKind  kind              = WeaponKind::Custom;
+    EWeaponKind  kind              = EWeaponKind::Custom;
     f32         fire_rate_per_sec = 1.0f;
     f32         reload_sec        = 1.0f;
     u32         mag_size          = 1u;

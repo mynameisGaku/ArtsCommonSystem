@@ -6,8 +6,8 @@
 //       Input::Update();           // フレーム先頭で呼ぶ
 //       w.PollEvents();
 //
-//       if (Input::IsKeyDown(Key::Space)) Jump();
-//       if (Input::IsMouseButtonPressed(MouseButton::Left)) Shoot();
+//       if (Input::IsKeyDown(EKey::Space)) Jump();
+//       if (Input::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
 //       Vec2 m = Input::MousePos();
 //   }
 //
@@ -33,14 +33,14 @@ public:
     static void OnEvent(const Event& e) noexcept;
 
     // キーボード
-    static bool IsKeyDown(Key k) noexcept;       // 押されているか
-    static bool IsKeyPressed(Key k) noexcept;     // このフレームで押されたか
-    static bool IsKeyReleased(Key k) noexcept;    // このフレームで離されたか
+    static bool IsKeyDown(EKey k) noexcept;       // 押されているか
+    static bool IsKeyPressed(EKey k) noexcept;     // このフレームで押されたか
+    static bool IsKeyReleased(EKey k) noexcept;    // このフレームで離されたか
 
     // マウス
-    static bool IsMouseButtonDown(MouseButton b) noexcept;
-    static bool IsMouseButtonPressed(MouseButton b) noexcept;
-    static bool IsMouseButtonReleased(MouseButton b) noexcept;
+    static bool IsMouseButtonDown(EMouseButton b) noexcept;
+    static bool IsMouseButtonPressed(EMouseButton b) noexcept;
+    static bool IsMouseButtonReleased(EMouseButton b) noexcept;
     static Vec2 MousePos() noexcept;             // 現在の位置（クライアント座標）
     static Vec2 MouseDelta() noexcept;            // 前フレームからの移動量
     static f32  MouseWheel() noexcept;            // このフレームのホイール回転（正:奥, 負:手前）
@@ -50,9 +50,9 @@ public:
 
     // ゲームパッド (XInput、player_index = 0..3)
     static bool IsGamepadConnected(u32 player_index) noexcept;
-    static bool IsGamepadButtonDown(u32 player_index, GamepadButton b) noexcept;
-    static bool IsGamepadButtonPressed(u32 player_index, GamepadButton b) noexcept;
-    static f32  GamepadAxisValue(u32 player_index, GamepadAxis axis) noexcept;
+    static bool IsGamepadButtonDown(u32 player_index, EGamepadButton b) noexcept;
+    static bool IsGamepadButtonPressed(u32 player_index, EGamepadButton b) noexcept;
+    static f32  GamepadAxisValue(u32 player_index, EGamepadAxis axis) noexcept;
 };
 
 } // namespace acs

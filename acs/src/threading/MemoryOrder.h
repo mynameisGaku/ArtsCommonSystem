@@ -6,7 +6,7 @@
 // にしつつ、実装は MSVC の _Interlocked* + サフィックス付き組み込み
 // (_acq / _rel / _nf) を直接使う。
 //
-// 注意: x64 では各 _Interlocked* は完全バリア相当。MemoryOrder の指定は
+// 注意: x64 では各 _Interlocked* は完全バリア相当。EMemoryOrder の指定は
 // 主にコンパイラ最適化への抑制ヒントとして機能する。ARM64 ではサフィックス
 // 付きを使い分けて余計な dmb 命令を省く。
 // =============================================================================
@@ -24,7 +24,7 @@ namespace acs {
 //   Release = release (先行のロード/ストアを下に動かさない)
 //   AcqRel  = acq_rel (RMW で両方)
 //   SeqCst  = seq_cst (全スレッドで全順序)
-enum class MemoryOrder : int {
+enum class EMemoryOrder : int {
     Relaxed = 0,
     Acquire = 1,
     Release = 2,

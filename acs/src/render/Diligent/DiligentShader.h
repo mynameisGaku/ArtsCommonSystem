@@ -27,7 +27,7 @@ public:
     Result<void> Init(DiligentDevice& device, const ShaderDesc& desc) noexcept;
 
     // ---- IRhiShader ----
-    ShaderStage Stage()         const noexcept override { return _stage; }
+    EShaderStage Stage()         const noexcept override { return _stage; }
     const byte* Bytecode()      const noexcept override { return nullptr; }
     usize       BytecodeSize()  const noexcept override { return 0; }
 
@@ -49,7 +49,7 @@ public:
 private:
     DiligentDevice*    _device = nullptr;
     Diligent::IShader* _shader = nullptr;
-    ShaderStage        _stage  = ShaderStage::Vertex;
+    EShaderStage        _stage  = EShaderStage::Vertex;
     // HLSL source 内の `cbuffer X : register(bN)` / `Texture2D Y : register(tN)`
     // から取得した N → 名前のマッピング (Diligent::ShaderResourceDesc に
     // BindPoint が無いため source parse で代用)。

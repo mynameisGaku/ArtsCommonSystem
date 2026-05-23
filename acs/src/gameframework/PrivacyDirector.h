@@ -3,7 +3,7 @@
 //
 // 役割:
 //   ゲーム内で扱う個人情報・解析・広告・テレメトリといった
-//   「ユーザーの同意」が必要な機能を、bit flag で表す ConsentCategory に
+//   「ユーザーの同意」が必要な機能を、bit flag で表す EConsentCategory に
 //   集約して一元管理する director。GDPR (欧州) / CCPA (カリフォルニア) /
 //   COPPA (児童) 等への対応で必須となる「事前同意の取得」「カテゴリ別の
 //   on/off」「ポリシー版の追跡」「永続化」を共通基盤として提供する。
@@ -15,18 +15,18 @@
 //
 //   if (privacy.RequiresInitialConsent() || privacy.IsPolicyOutdated()) {
 //       // 同意ダイアログを出して、ユーザーの選択を反映する。
-//       privacy.GrantConsent(ConsentCategory::Analytics);
-//       privacy.RevokeConsent(ConsentCategory::Marketing);
+//       privacy.GrantConsent(EConsentCategory::Analytics);
+//       privacy.RevokeConsent(EConsentCategory::Marketing);
 //       privacy.MarkInitialConsentShown();
 //       privacy.SaveConsent(L"user/consent.bin");
 //   }
 //
-//   if (privacy.HasConsent(ConsentCategory::Analytics)) {
+//   if (privacy.HasConsent(EConsentCategory::Analytics)) {
 //       AnalyticsBackend::SendEvent(...);
 //   }
 //
 // 設計選択:
-//   ・**bit flag 中心**: SceneServices と同じく ConsentCategory を bit OR で
+//   ・**bit flag 中心**: SceneServices と同じく EConsentCategory を bit OR で
 //     合成する設計。「Analytics は ON だが Marketing は OFF」のような
 //     カテゴリ別 on/off が必須要件 (GDPR の granular consent) なので、
 //     enum class : u32 + operator|/& を提供する。
@@ -64,14 +64,14 @@
 namespace acs::game {
 
 // =============================================================================
-// ConsentCategory — bit flag で表す同意カテゴリ
+// EConsentCategory — bit flag で表す同意カテゴリ
 // -----------------------------------------------------------------------------
 // 各カテゴリは独立に on/off できる必要がある (GDPR granular consent)。
 // Required (= 0) は「同意不要 = 常に許可」を表す特異値で、ゲームの基本動作に
 // 必要なサービス (ローカルセーブ等) を分類するためのマーカ。HasConsent()
 // に Required を渡した場合は常に true。
 // =============================================================================
-enum class ConsentCategory : u32 {
+enum class EConsentCategory : u32 {
     Required          = 0,         // 法的同意不要 (常に許可される基本機能)
     Analytics         = 1u << 0,   // ゲームプレイ統計 / 行動ログ
     Marketing         = 1u << 1,   // 広告 / 販促 / プッシュ通知
@@ -81,11 +81,11 @@ enum class ConsentCategory : u32 {
     CrashReports      = 1u << 5,   // クラッシュ収集 (個別 opt-out 用)
 };
 
-constexpr ConsentCategory operator|(ConsentCategory a, ConsentCategory b) noexcept {
-    return static_cast<ConsentCategory>(static_cast<u32>(a) | static_cast<u32>(b));
+constexpr EConsentCategory operator|(EConsentCategory a, EConsentCategory b) noexcept {
+    return static_cast<EConsentCategory>(static_cast<u32>(a) | static_cast<u32>(b));
 }
-constexpr ConsentCategory operator&(ConsentCategory a, ConsentCategory b) noexcept {
-    return static_cast<ConsentCategory>(static_cast<u32>(a) & static_cast<u32>(b));
+constexpr EConsentCategory operator&(EConsentCategory a, EConsentCategory b) noexcept {
+    return static_cast<EConsentCategory>(static_cast<u32>(a) & static_cast<u32>(b));
 }
 
 // =============================================================================
@@ -97,7 +97,7 @@ constexpr ConsentCategory operator&(ConsentCategory a, ConsentCategory b) noexce
 // epoch ms 等で保持する想定 (Phase 2 で TimeSource を確定したら代入)。
 // =============================================================================
 struct ConsentStatus {
-    ConsentCategory granted_mask      = ConsentCategory::Required;  // bit OR された同意 mask
+    EConsentCategory granted_mask      = EConsentCategory::Required;  // bit OR された同意 mask
     u64             consent_timestamp = 0;                          // 最後に同意した時刻 (epoch ms 等)
     u32             policy_version    = 0;                          // 同意時のポリシー版
 };
@@ -127,8 +127,8 @@ public:
     // GrantConsent: 指定カテゴリの bit を立てる (OR)。
     // RevokeConsent: 指定カテゴリの bit を落とす (& ~cat)。
     // どちらも複合 (`Analytics | Marketing`) を渡せる。
-    void GrantConsent(ConsentCategory cat)  noexcept;
-    void RevokeConsent(ConsentCategory cat) noexcept;
+    void GrantConsent(EConsentCategory cat)  noexcept;
+    void RevokeConsent(EConsentCategory cat) noexcept;
 
     // ----- 一括操作 -----
     // GrantAll: Required を除く全カテゴリを ON にする (= "Accept All")。
@@ -139,8 +139,8 @@ public:
     // ----- 問い合わせ -----
     // HasConsent: cat の **全ての** bit が立っているかを確認 (複合 cat 可)。
     //   Required (= 0) を渡した場合は仕様により常に true。
-    bool            HasConsent(ConsentCategory cat) const noexcept;
-    ConsentCategory GrantedMask()                   const noexcept;
+    bool            HasConsent(EConsentCategory cat) const noexcept;
+    EConsentCategory GrantedMask()                   const noexcept;
 
     // ----- 初回ダイアログ判定 -----
     // RequiresInitialConsent: まだ consent ダイアログを 1 度も提示していないなら true。

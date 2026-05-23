@@ -18,7 +18,7 @@
 
 #include "foundation/Types.h"
 #include "foundation/Compiler.h"
-#include "threading/MemoryOrder.h"
+#include "threading/EMemoryOrder.h"
 
 #include <intrin.h>
 
@@ -154,14 +154,14 @@ public:
     Atomic& operator=(const Atomic&) = delete;
 
     // ---- ロード ----
-    ACS_FORCEINLINE T Load(MemoryOrder o = MemoryOrder::SeqCst) const noexcept {
-        return o == MemoryOrder::Relaxed
+    ACS_FORCEINLINE T Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept {
+        return o == EMemoryOrder::Relaxed
             ? atomic_detail::LoadRelaxed (&_v)
             : atomic_detail::LoadAcquire (&_v);
     }
     // ---- ストア ----
-    ACS_FORCEINLINE void Store(T v, MemoryOrder o = MemoryOrder::SeqCst) noexcept {
-        if (o == MemoryOrder::Relaxed) atomic_detail::StoreRelaxed(&_v, v);
+    ACS_FORCEINLINE void Store(T v, EMemoryOrder o = EMemoryOrder::SeqCst) noexcept {
+        if (o == EMemoryOrder::Relaxed) atomic_detail::StoreRelaxed(&_v, v);
         else                           atomic_detail::StoreRelease(&_v, v);
     }
     // ---- RMW 群 ----
@@ -196,14 +196,14 @@ public:
     Atomic(const Atomic&) = delete;
     Atomic& operator=(const Atomic&) = delete;
 
-    ACS_FORCEINLINE T* Load(MemoryOrder o = MemoryOrder::SeqCst) const noexcept {
-        return reinterpret_cast<T*>(o == MemoryOrder::Relaxed
+    ACS_FORCEINLINE T* Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept {
+        return reinterpret_cast<T*>(o == EMemoryOrder::Relaxed
             ? atomic_detail::LoadRelaxed (reinterpret_cast<const volatile uptr*>(&_v))
             : atomic_detail::LoadAcquire (reinterpret_cast<const volatile uptr*>(&_v)));
     }
-    ACS_FORCEINLINE void Store(T* v, MemoryOrder o = MemoryOrder::SeqCst) noexcept {
+    ACS_FORCEINLINE void Store(T* v, EMemoryOrder o = EMemoryOrder::SeqCst) noexcept {
         uptr p = reinterpret_cast<uptr>(v);
-        if (o == MemoryOrder::Relaxed) atomic_detail::StoreRelaxed(reinterpret_cast<volatile uptr*>(&_v), p);
+        if (o == EMemoryOrder::Relaxed) atomic_detail::StoreRelaxed(reinterpret_cast<volatile uptr*>(&_v), p);
         else                           atomic_detail::StoreRelease(reinterpret_cast<volatile uptr*>(&_v), p);
     }
     ACS_FORCEINLINE T* Exchange(T* v) noexcept {

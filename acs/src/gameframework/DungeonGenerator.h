@@ -23,11 +23,11 @@
 //   for (u32 y = 0; y < gen.Height(); ++y) {
 //       for (u32 x = 0; x < gen.Width(); ++x) {
 //           switch (gen.At(x, y)) {
-//               case TileKind::Wall:     DrawSprite(wall, x, y); break;
-//               case TileKind::Floor:    DrawSprite(floor, x, y); break;
-//               case TileKind::Door:     DrawSprite(door, x, y); break;
-//               case TileKind::Corridor: DrawSprite(floor, x, y); break;
-//               case TileKind::Stairs:   DrawSprite(stairs, x, y); break;
+//               case ETileKind::Wall:     DrawSprite(wall, x, y); break;
+//               case ETileKind::Floor:    DrawSprite(floor, x, y); break;
+//               case ETileKind::Door:     DrawSprite(door, x, y); break;
+//               case ETileKind::Corridor: DrawSprite(floor, x, y); break;
+//               case ETileKind::Stairs:   DrawSprite(stairs, x, y); break;
 //           }
 //       }
 //   }
@@ -37,8 +37,8 @@
 //   gen.GetRoomCenter(0, px, py);
 //
 // 設計選択:
-//   ・**TileKind = u8**: 5 種類しか無いので u8 で十分。row-major 1D の
-//     acs::Array<TileKind> に格納 (Tilemap と異なる layered 構造は不要)。
+//   ・**ETileKind = u8**: 5 種類しか無いので u8 で十分。row-major 1D の
+//     acs::Array<ETileKind> に格納 (Tilemap と異なる layered 構造は不要)。
 //   ・**Room = 矩形 + id**: id は生成順 0..N-1。重複しない部屋を保証。
 //   ・**BSP partition tree は temp**: 生成中だけ必要なので Array<BspNode>
 //     を ローカル変数 として持ち、Generate 終了で破棄する。永続データは
@@ -62,7 +62,7 @@ namespace acs::game {
 
 // ---- Tile 種別 -------------------------------------------------------------
 // At() が返す値。u8 で 5 種類を表現。
-enum class TileKind : u8 {
+enum class ETileKind : u8 {
     Wall     = 0, // 通行不可
     Floor    = 1, // 部屋の床
     Door     = 2, // 部屋⇔廊下の境界 (将来拡張用、現状は使用しないが API は保持)
@@ -118,9 +118,9 @@ public:
 
     // ---- グリッド読み書き ----------------------------------------------------
     // 範囲外は Wall (通行不可) を返す。
-    TileKind At(u32 x, u32 y) const noexcept;
+    ETileKind At(u32 x, u32 y) const noexcept;
     // 範囲外は no-op。
-    void SetTile(u32 x, u32 y, TileKind kind) noexcept;
+    void SetTile(u32 x, u32 y, ETileKind kind) noexcept;
 
     // ---- 部屋情報 -----------------------------------------------------------
     u32 RoomCount() const noexcept { return static_cast<u32>(_rooms.Size()); }
@@ -147,7 +147,7 @@ private:
     // ---- 永続データ ---------------------------------------------------------
     u32              _width  = 0;
     u32              _height = 0;
-    Array<TileKind>  _grid;   // row-major (width * height)
+    Array<ETileKind>  _grid;   // row-major (width * height)
     Array<Room>      _rooms;  // 生成順
     u32              _seed   = 0; // 直近 Generate の seed (FindRandomFloor 等で再利用)
 };

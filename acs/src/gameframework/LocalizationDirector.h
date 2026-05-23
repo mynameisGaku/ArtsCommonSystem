@@ -8,12 +8,12 @@
 //
 // 使い方:
 //   LocalizationDirector loc;
-//   loc.RegisterString(Locale::En, "ui.title",      "Adventure of Claude");
-//   loc.RegisterString(Locale::Ja, "ui.title",      "クロードの冒険");
-//   loc.RegisterString(Locale::En, "ui.start",      "Start");
-//   loc.RegisterString(Locale::Ja, "ui.start",      "はじめる");
+//   loc.RegisterString(ELocale::En, "ui.title",      "Adventure of Claude");
+//   loc.RegisterString(ELocale::Ja, "ui.title",      "クロードの冒険");
+//   loc.RegisterString(ELocale::En, "ui.start",      "Start");
+//   loc.RegisterString(ELocale::Ja, "ui.start",      "はじめる");
 //
-//   loc.SetLocale(Locale::Ja);
+//   loc.SetLocale(ELocale::Ja);
 //   const char* title = loc.Get("ui.title");   // -> "クロードの冒険"
 //   const char* miss  = loc.Get("ui.missing"); // -> "ui.missing" (key 自身)
 //
@@ -38,7 +38,7 @@
 //   ・**全 noexcept**: 例外不使用方針 (Result<T,E> + bool 戻り値)。
 //
 // 範囲外 (Phase 2+ で):
-//   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`Format` 層を別途用意する想定。
+//   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`EFormat` 層を別途用意する想定。
 //   ・複数形 (plural rules) / 性別 (gender) / ICU MessageFormat 相当
 //   ・右から左 (RTL) レイアウト判定 (Pillar Q Polish 側の UI 描画で扱う)
 //   ・フォントフォールバック (CJK / Cyrillic / Arabic 等のグリフセット切替)
@@ -53,7 +53,7 @@ namespace acs::game {
 
 // ロケール識別子。市場想定の主要 11 言語 + Default(=En)。
 // 値は将来の永続化 (Settings) との互換性のため u32 で連番固定。新規追加は末尾 append。
-enum class Locale : u32 {
+enum class ELocale : u32 {
     En      = 0,    // English
     Ja      = 1,    // 日本語
     Fr      = 2,    // Français
@@ -82,15 +82,15 @@ public:
     // ----- ロケール設定 -----
     // 現在の取得対象ロケールを切り替える (UI 言語切替で呼ばれる)。
     // 切替後 Get(key) は新 locale で検索 → Default → key の順に解決される。
-    void   SetLocale    (Locale loc) noexcept;
-    Locale CurrentLocale() const noexcept;
+    void   SetLocale    (ELocale loc) noexcept;
+    ELocale CurrentLocale() const noexcept;
 
     // ----- 文字列登録 -----
     // 指定 locale に key→value を 1 件登録する。key/value は所有しない
     // (寿命は呼び出し側保証、リテラル or 長寿命バッファ前提)。
     // 同 (locale, key) の重複は禁止せず後追い append (Get は先頭一致を返す)。
     // key == nullptr は no-op で防御 (流入経路で nullptr が混じっても壊さない)。
-    void RegisterString(Locale loc, const char* key, const char* value) noexcept;
+    void RegisterString(ELocale loc, const char* key, const char* value) noexcept;
 
     // ----- 取得 -----
     // 現 locale で key を引く。無ければ Default(En) で引く。それでも無ければ
@@ -102,33 +102,33 @@ public:
     // 指定 locale で key を引く。当該 locale に無ければ key 自身を返す
     // (Default フォールバックは行わない、明示指定なので素直に欠落を返す)。
     // key == nullptr の場合は空文字 "" を返す。
-    const char* GetForLocale(Locale loc, const char* key) const noexcept;
+    const char* GetForLocale(ELocale loc, const char* key) const noexcept;
 
     // 現 locale に key が登録されているか (Default フォールバックは見ない)。
     // key == nullptr は false。
     bool Has(const char* key) const noexcept;
 
     // 指定 locale の登録件数。
-    u32 KeyCount(Locale loc) const noexcept;
+    u32 KeyCount(ELocale loc) const noexcept;
 
     // ----- 削除 -----
     // 全 locale の全エントリを削除。
     void Clear() noexcept;
     // 指定 locale のエントリのみ削除 (他 locale は保持)。
-    void ClearLocale(Locale loc) noexcept;
+    void ClearLocale(ELocale loc) noexcept;
 
 private:
     // 1 件のエントリ。locale + key + value を持つ。key/value は非所有 const char*。
     struct LocaleEntry {
-        Locale      locale = Locale::Default;
+        ELocale      locale = ELocale::Default;
         const char* key    = nullptr;
         const char* value  = nullptr;
     };
 
     // (locale, key) 一致 entry の index を返す。未検出は -1。
-    isize FindIndex(Locale loc, const char* key) const noexcept;
+    isize FindIndex(ELocale loc, const char* key) const noexcept;
 
-    Locale              _current = Locale::Default;
+    ELocale              _current = ELocale::Default;
     Array<LocaleEntry>  _entries;
 };
 

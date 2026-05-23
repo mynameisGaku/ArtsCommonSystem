@@ -5,14 +5,14 @@
 
 namespace acs::game {
 
-SceneServices::SceneServices(Svc wanted) noexcept
+SceneServices::SceneServices(ESvc wanted) noexcept
     : _wanted(wanted) {
-    if (Has(Svc::Clock))     _clock     = MakeUnique<SceneClock>();
-    if (Has(Svc::Tweens))    _tweens    = MakeUnique<TweenManager>();
-    if (Has(Svc::Sequences)) _sequences = MakeUnique<SequenceRunner>();
-    if (Has(Svc::Input))     _input     = MakeUnique<InputMap>();
-    if (Has(Svc::Camera2D))  _camera    = MakeUnique<acs::game::Camera2D>();
-    if (Has(Svc::Physics2D)) {
+    if (Has(ESvc::Clock))     _clock     = MakeUnique<SceneClock>();
+    if (Has(ESvc::Tweens))    _tweens    = MakeUnique<TweenManager>();
+    if (Has(ESvc::Sequences)) _sequences = MakeUnique<SequenceRunner>();
+    if (Has(ESvc::Input))     _input     = MakeUnique<InputMap>();
+    if (Has(ESvc::Camera2D))  _camera    = MakeUnique<acs::game::Camera2D>();
+    if (Has(ESvc::Physics2D)) {
         _physics = MakeUnique<CollisionWorld2D>();
         _physics->Init();   // 既定 cell_size=64
     }
@@ -20,37 +20,37 @@ SceneServices::SceneServices(Svc wanted) noexcept
 
 SceneClock& SceneServices::Clock() noexcept {
     ACS_ASSERTF(_clock.Get() != nullptr,
-                "SceneServices::Clock() called but Svc::Clock not requested in WantedServices()");
+                "SceneServices::Clock() called but ESvc::Clock not requested in WantedServices()");
     return *_clock;
 }
 
 TweenManager& SceneServices::Tweens() noexcept {
     ACS_ASSERTF(_tweens.Get() != nullptr,
-                "SceneServices::Tweens() called but Svc::Tweens not requested in WantedServices()");
+                "SceneServices::Tweens() called but ESvc::Tweens not requested in WantedServices()");
     return *_tweens;
 }
 
 SequenceRunner& SceneServices::Sequences() noexcept {
     ACS_ASSERTF(_sequences.Get() != nullptr,
-                "SceneServices::Sequences() called but Svc::Sequences not requested in WantedServices()");
+                "SceneServices::Sequences() called but ESvc::Sequences not requested in WantedServices()");
     return *_sequences;
 }
 
 InputMap& SceneServices::Input() noexcept {
     ACS_ASSERTF(_input.Get() != nullptr,
-                "SceneServices::Input() called but Svc::Input not requested in WantedServices()");
+                "SceneServices::Input() called but ESvc::Input not requested in WantedServices()");
     return *_input;
 }
 
 acs::game::Camera2D& SceneServices::Camera() noexcept {
     ACS_ASSERTF(_camera.Get() != nullptr,
-                "SceneServices::Camera() called but Svc::Camera2D not requested in WantedServices()");
+                "SceneServices::Camera() called but ESvc::Camera2D not requested in WantedServices()");
     return *_camera;
 }
 
 CollisionWorld2D& SceneServices::Physics() noexcept {
     ACS_ASSERTF(_physics.Get() != nullptr,
-                "SceneServices::Physics() called but Svc::Physics2D not requested in WantedServices()");
+                "SceneServices::Physics() called but ESvc::Physics2D not requested in WantedServices()");
     return *_physics;
 }
 

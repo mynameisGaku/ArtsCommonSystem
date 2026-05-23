@@ -18,7 +18,7 @@ struct AppConfig {
     bool           start_clear = true;     // BeginFrame で背景色クリアするか
 
     // ロガー
-    LogSeverity    log_severity = LogSeverity::Info;
+    ELogSeverity    log_severity = ELogSeverity::Info;
     const wchar_t* log_file     = nullptr;
 
     // メモリシステム（nullptr で既定設定を使う）

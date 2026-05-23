@@ -11,7 +11,7 @@ Result<Rc<Asset>> TextAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& 
     text[bytes.Size()] = '\0';
     Rc<TextAsset> a = MakeRc<TextAsset>(Move(text));
     a->SetId(id);
-    a->SetState(AssetState::Ready);
+    a->SetState(EAssetState::Ready);
     return Result<Rc<Asset>>(OkInit, Rc<Asset>(Move(a)));
 }
 

@@ -13,7 +13,7 @@
 //
 // 使い方 (想定):
 //   Lockstep ls;
-//   ls.Init(NetMode::Local, /*tick_rate_hz=*/60);
+//   ls.Init(ENetMode::Local, /*tick_rate_hz=*/60);
 //
 //   // ゲームループ (Local 中):
 //   InputFrame f{ _tick, /*player_id=*/0, _buttons, _stick };
@@ -99,13 +99,13 @@ struct InputFrame {
 };
 
 // =============================================================================
-// NetMode — 入力レイヤの動作モード
+// ENetMode — 入力レイヤの動作モード
 // -----------------------------------------------------------------------------
 // Lockstep は同一クラスで「単独プレイ」「ネット対戦」「リプレイ再生」の 3 モード
 // を扱う。モード切替時は state を Clear せず、cursor だけリセットする (Local 中
 // に記録した frames を StartReplay で再生する用途を想定)。
 // =============================================================================
-enum class NetMode : u8 {
+enum class ENetMode : u8 {
     Local    = 0,  // 単独プレイ / 入力を記録するが配信はしない
     Lockstep = 1,  // ネット対戦 / 入力を記録 + リモートから受信した frame を取り込む
     Replay   = 2,  // 過去の入力列を再生 / RecordInput は受け付けない
@@ -141,7 +141,7 @@ public:
     // ----- 初期化 -----
     // mode を設定し、tick / cursor をリセットする。tick_rate_hz は replay の
     // sample rate 整合検証用 (ファイルに保存される)。既存 frames は破棄しない。
-    void Init(NetMode mode, u32 tick_rate_hz = 60) noexcept;
+    void Init(ENetMode mode, u32 tick_rate_hz = 60) noexcept;
 
     // ----- 記録 -----
     // 入力 1 件を記録する。Replay モード中は no-op (記録しない)。
@@ -161,7 +161,7 @@ public:
     // ----- 状態 query -----
     u32 CurrentTick() const noexcept { return _current_tick; }
     u32 InputCount() const noexcept;
-    NetMode Mode() const noexcept { return _mode; }
+    ENetMode Mode() const noexcept { return _mode; }
     u32 TickRateHz() const noexcept { return _tick_rate_hz; }
 
     // 全 input frame の FNV-1a-like u64 hash。決定論検証 / replay 同期ずれ検知用。
@@ -182,7 +182,7 @@ public:
     Result<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    NetMode           _mode          = NetMode::Local;
+    ENetMode           _mode          = ENetMode::Local;
     u32               _tick_rate_hz  = 60;     // sample rate (Hz)
     u32               _current_tick  = 0;      // 次に書き込む / 消費する tick
     u32               _replay_cursor = 0;      // ConsumeInput の線形検索開始 index

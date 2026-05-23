@@ -15,9 +15,9 @@
 //       u32 ObjectCount() noexcept override { return 1; }
 //       InspectableObject GetObject(u32) noexcept override {
 //           static InspectableField fields[] = {
-//               { "speed",      FieldKind::F32,  &_speed,      0, nullptr },
-//               { "hp",         FieldKind::I32,  &_hp,         0, nullptr },
-//               { "invincible", FieldKind::Bool, &_invincible, 0, nullptr },
+//               { "speed",      EFieldKind::F32,  &_speed,      0, nullptr },
+//               { "hp",         EFieldKind::I32,  &_hp,         0, nullptr },
+//               { "invincible", EFieldKind::Bool, &_invincible, 0, nullptr },
 //           };
 //           return { "Player", "P1", fields, 3 };
 //       }
@@ -74,7 +74,7 @@ namespace acs::game {
 // ---- フィールド種別 ------------------------------------------------------
 // 描画 / 編集レイヤが switch して扱う「データの型タグ」。
 // 現状は最小セット: スカラ + Vec2-4 + 文字列 (read-only) + Enum (整数 + ラベル配列)。
-enum class FieldKind : u8 {
+enum class EFieldKind : u8 {
     Bool,    // bool*
     I32,     // i32*
     U32,     // u32*
@@ -91,7 +91,7 @@ enum class FieldKind : u8 {
 // Provider が保持する (static / メンバ)。InspectorSeam はコピーしない。
 struct InspectableField {
     const char*  name             = nullptr;  // フィールド表示名 (caller 所有、リテラル想定)
-    FieldKind    kind             = FieldKind::Bool;
+    EFieldKind    kind             = EFieldKind::Bool;
     void*        data             = nullptr;  // 該当型へのポインタ。kind に応じてキャスト
     u32          enum_value_count = 0;        // kind == Enum のときの有効ラベル数
     const char** enum_values      = nullptr;  // kind == Enum のときの値 → ラベル配列

@@ -198,13 +198,13 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
-        if (Input::IsKeyPressed(Key::Space)) {
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Space)) {
             if (_player.IsPlaying()) _player.Pause(); else _player.Resume();
         }
 
-        if (Input::IsKeyDown(Key::Left))  _cam_yaw -= dt * 1.0f;
-        if (Input::IsKeyDown(Key::Right)) _cam_yaw += dt * 1.0f;
+        if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
+        if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
         const f32 cam_dist = 8.0f;
         _cam_pos = Vec3{ Sin(_cam_yaw) * cam_dist, 3.0f, -Cos(_cam_yaw) * cam_dist };
         _camera.SetLookAt(_cam_pos, Vec3{0, 2, 0});

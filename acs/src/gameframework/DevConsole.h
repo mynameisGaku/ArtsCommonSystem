@@ -38,7 +38,7 @@
 //   con.RegisterCommand("quit", &MyApp::QuitCmd, this, "exit the application");
 //   con.RegisterCommand("help", &MyApp::HelpCmd, this, "list commands");
 //   ...
-//   if (Input::IsKeyPressed(Key::Tilde)) con.Toggle();
+//   if (Input::IsKeyPressed(EKey::Tilde)) con.Toggle();
 //   if (con.IsOpen() && enter_pressed) {
 //       con.PushHistory(input_buf);
 //       con.Execute(input_buf);

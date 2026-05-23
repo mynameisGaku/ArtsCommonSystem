@@ -51,7 +51,7 @@ void PartySystem::EmplaceSelfAsLeader() noexcept {
 }
 
 Result<void> PartySystem::CreateParty(const char* party_name) noexcept {
-    if (_state != PartyState::Solo) {
+    if (_state != EPartyState::Solo) {
         // 既にパーティ所属中 / 状態遷移中での再要求は許可しない。先に LeaveParty を
         // 完了させること。Generic + subcode 1 = "invalid state for CreateParty"。
         return ACS_ERR(Generic, 1, "PartySystem::CreateParty: not in Solo state");
@@ -63,14 +63,14 @@ Result<void> PartySystem::CreateParty(const char* party_name) noexcept {
     _party_name    = party_name;
     _party_id      = nullptr;  // 自分作成時は SDK が後で割り当てる想定
     _pending_timer = 0.0f;
-    _state         = PartyState::Joining;
+    _state         = EPartyState::Joining;
     // TODO(Phase T-2): SteamworksBridge.CreateLobby(party_name) を発行し、
     //   Tick() 中に PollResult を見て InParty 遷移する。失敗時は Solo に戻す。
     return Ok();
 }
 
 Result<void> PartySystem::JoinParty(const char* party_id) noexcept {
-    if (_state != PartyState::Solo) {
+    if (_state != EPartyState::Solo) {
         return ACS_ERR(Generic, 3, "PartySystem::JoinParty: not in Solo state");
     }
     if (party_id == nullptr) {
@@ -79,25 +79,25 @@ Result<void> PartySystem::JoinParty(const char* party_id) noexcept {
     _party_name    = nullptr;
     _party_id      = party_id;
     _pending_timer = 0.0f;
-    _state         = PartyState::Joining;
+    _state         = EPartyState::Joining;
     // TODO(Phase T-2): SteamworksBridge.JoinLobby(party_id) を発行。
     return Ok();
 }
 
 Result<void> PartySystem::LeaveParty() noexcept {
-    if (_state != PartyState::InParty) {
+    if (_state != EPartyState::InParty) {
         // Joining / Leaving / Solo からの離脱は no-op ではなくエラーで返す
         // (上位レイヤで状態整合を取れていない時に気付けるように)。
         return ACS_ERR(Generic, 5, "PartySystem::LeaveParty: not in InParty state");
     }
     _pending_timer = 0.0f;
-    _state         = PartyState::Leaving;
+    _state         = EPartyState::Leaving;
     // TODO(Phase T-2): SteamworksBridge.LeaveLobby(_party_id) を発行。
     return Ok();
 }
 
 Result<void> PartySystem::InviteFriend(const char* friend_id) noexcept {
-    if (_state != PartyState::InParty) {
+    if (_state != EPartyState::InParty) {
         return ACS_ERR(Generic, 6, "PartySystem::InviteFriend: not in InParty state");
     }
     if (friend_id == nullptr) {
@@ -124,7 +124,7 @@ const PartyMember* PartySystem::Members() const noexcept {
 
 void PartySystem::Tick(f32 dt) noexcept {
     // Solo / InParty では時間進行は不要 (将来 idle 検出を入れる場合はここを拡張)。
-    if (_state == PartyState::Joining) {
+    if (_state == EPartyState::Joining) {
         _pending_timer += dt;
         if (_pending_timer >= kPendingDurationSec) {
             // 仮想 SDK 完了: メンバリストに自分をリーダーとして登録、InParty へ。
@@ -132,11 +132,11 @@ void PartySystem::Tick(f32 dt) noexcept {
             _members.Clear();
             EmplaceSelfAsLeader();
             _pending_timer = 0.0f;
-            _state         = PartyState::InParty;
+            _state         = EPartyState::InParty;
         }
         return;
     }
-    if (_state == PartyState::Leaving) {
+    if (_state == EPartyState::Leaving) {
         _pending_timer += dt;
         if (_pending_timer >= kPendingDurationSec) {
             // 仮想 SDK 完了: メンバリストをクリアして Solo に戻す。
@@ -144,7 +144,7 @@ void PartySystem::Tick(f32 dt) noexcept {
             _party_name    = nullptr;
             _party_id      = nullptr;
             _pending_timer = 0.0f;
-            _state         = PartyState::Solo;
+            _state         = EPartyState::Solo;
         }
         return;
     }

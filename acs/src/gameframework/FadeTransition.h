@@ -12,7 +12,7 @@
 //       acs::game::FadeTransition _fade;
 //       void OnEnter() noexcept override {
 //           // 画面が黒から徐々に明けるフェードイン
-//           _fade.StartFade(FadeKind::FadeIn, /*out=*/0.0f, /*in=*/0.5f);
+//           _fade.StartFade(EFadeKind::FadeIn, /*out=*/0.0f, /*in=*/0.5f);
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _fade.Tick(dt);
@@ -63,7 +63,7 @@
 
 namespace acs::game {
 
-enum class FadeKind : u32 {
+enum class EFadeKind : u32 {
     None       = 0,
     FadeIn     = 1,  // 暗黒 → 明 (alpha 1→0)
     FadeOut    = 2,  // 明 → 暗黒 (alpha 0→1)
@@ -71,7 +71,7 @@ enum class FadeKind : u32 {
     CrossFade  = 4,  // 0→0.5→0 軽量代用
 };
 
-enum class FadePhase : u32 {
+enum class EFadePhase : u32 {
     Idle       = 0,
     FadingOut  = 1,  // alpha 増加中
     MidPause   = 2,  // 暗転待機 (シーン切替タイミング)
@@ -92,16 +92,16 @@ public:
     // out_duration: FadingOut にかける秒数 (FadeIn の時は無視)
     // in_duration : FadingIn にかける秒数 (FadeOut の時は無視)
     // mid_pause   : MidPause を保持する秒数。0 でも 1 Tick は MidPause を通る。
-    void StartFade(FadeKind kind,
+    void StartFade(EFadeKind kind,
                    f32 out_duration = 0.3f,
                    f32 in_duration  = 0.3f,
                    f32 mid_pause    = 0.0f) noexcept;
 
     // ----- 状態 -----
-    bool      IsActive()      const noexcept { return _phase != FadePhase::Idle; }
-    bool      IsMidPause()    const noexcept { return _phase == FadePhase::MidPause; }
-    FadePhase CurrentPhase()  const noexcept { return _phase; }
-    FadeKind  CurrentKind()   const noexcept { return _kind; }
+    bool      IsActive()      const noexcept { return _phase != EFadePhase::Idle; }
+    bool      IsMidPause()    const noexcept { return _phase == EFadePhase::MidPause; }
+    EFadePhase CurrentPhase()  const noexcept { return _phase; }
+    EFadeKind  CurrentKind()   const noexcept { return _kind; }
 
     // [0, 1]、描画側 overlay の不透明度
     f32  OverlayAlpha() const noexcept { return _alpha; }
@@ -120,8 +120,8 @@ private:
     // CrossFade のピーク alpha (= 0.5 が「画面が半透けまで暗くなって戻る」相当)
     static constexpr f32 kCrossFadePeak = 0.5f;
 
-    FadePhase _phase         = FadePhase::Idle;
-    FadeKind  _kind          = FadeKind::None;
+    EFadePhase _phase         = EFadePhase::Idle;
+    EFadeKind  _kind          = EFadeKind::None;
 
     f32  _alpha              = 0.0f;
     Vec3 _color              {0.0f, 0.0f, 0.0f};  // 既定: black

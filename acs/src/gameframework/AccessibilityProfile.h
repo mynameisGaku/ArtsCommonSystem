@@ -53,7 +53,7 @@ namespace acs::game {
 //   Achromatopsia: 全色盲 (モノクロ)
 // 実 LUT / シェーダパラメータの解決はポストプロセスパスが担当。
 // =============================================================================
-enum class ColorblindMode : u8 {
+enum class EColorblindMode : u8 {
     None         = 0,
     Protanopia   = 1,
     Deuteranopia = 2,
@@ -67,7 +67,7 @@ enum class ColorblindMode : u8 {
 //   Reduced : 控えめ (大きなカメラ振動・ホワイトフラッシュを抑制)
 //   Off     : 完全停止 (UI フェード以外の動きを全カット)
 // =============================================================================
-enum class MotionReduction : u8 {
+enum class EMotionReduction : u8 {
     Full    = 0,
     Reduced = 1,
     Off     = 2,
@@ -81,7 +81,7 @@ enum class MotionReduction : u8 {
 //   ExtraLarge : 1.5x
 // 実 px サイズの解決は UI レイヤが担当。
 // =============================================================================
-enum class TextSize : u8 {
+enum class ETextSize : u8 {
     Small      = 0,
     Medium     = 1,
     Large      = 2,
@@ -94,9 +94,9 @@ enum class TextSize : u8 {
 //   UI から渡されたスナップショットを Set() で一括反映する用途。
 // =============================================================================
 struct AccessibilitySettings {
-    ColorblindMode  colorblind             = ColorblindMode::None;
-    MotionReduction motion                 = MotionReduction::Full;
-    TextSize        text_size              = TextSize::Medium;
+    EColorblindMode  colorblind             = EColorblindMode::None;
+    EMotionReduction motion                 = EMotionReduction::Full;
+    ETextSize        text_size              = ETextSize::Medium;
     bool            screen_reader_enabled  = false;
     bool            subtitles_enabled      = false;
     bool            sfx_subtitles_enabled  = false;  // `[door creaks]` 等
@@ -118,7 +118,7 @@ struct AccessibilitySettings {
 //   AAC       : 補助代替コミュニケーション (screen_reader=true, switch_device=true)
 //   OneHanded : 片手操作 (one_handed_mode=true)
 // =============================================================================
-enum class Preset : u8 {
+enum class EPreset : u8 {
     Default   = 0,
     Dyslexia  = 1,
     ADHD      = 2,
@@ -149,15 +149,15 @@ public:
     // ----- プリセット -----
     // プリセット適用 (現値を破棄して preset 既定で上書き)。
     // Default を指定すると Reset() と同等。
-    void ApplyPreset(Preset p) noexcept;
+    void ApplyPreset(EPreset p) noexcept;
 
     // 全フィールドをコンストラクト時のデフォルトに戻す。
     void Reset() noexcept;
 
     // ----- 個別 setter (頻用フィールドのみ) -----
-    void SetColorblindMode (ColorblindMode m)  noexcept { _settings.colorblind = m; }
-    void SetMotionReduction(MotionReduction m) noexcept { _settings.motion     = m; }
-    void SetTextSize       (TextSize s)        noexcept { _settings.text_size  = s; }
+    void SetColorblindMode (EColorblindMode m)  noexcept { _settings.colorblind = m; }
+    void SetMotionReduction(EMotionReduction m) noexcept { _settings.motion     = m; }
+    void SetTextSize       (ETextSize s)        noexcept { _settings.text_size  = s; }
     void EnableScreenReader(bool b)            noexcept { _settings.screen_reader_enabled = b; }
     void EnableSubtitles   (bool b)            noexcept { _settings.subtitles_enabled     = b; }
     void EnableSfxSubtitles(bool b)            noexcept { _settings.sfx_subtitles_enabled = b; }
@@ -169,9 +169,9 @@ public:
     void SetFlashIntensityScale(f32 s)         noexcept { _settings.flash_intensity_scale = s; }
 
     // ----- 個別 getter (頻用フィールドのみ) -----
-    ColorblindMode  GetColorblindMode () const noexcept { return _settings.colorblind; }
-    MotionReduction GetMotionReduction() const noexcept { return _settings.motion;     }
-    TextSize        GetTextSize       () const noexcept { return _settings.text_size;  }
+    EColorblindMode  GetColorblindMode () const noexcept { return _settings.colorblind; }
+    EMotionReduction GetMotionReduction() const noexcept { return _settings.motion;     }
+    ETextSize        GetTextSize       () const noexcept { return _settings.text_size;  }
     bool IsScreenReaderEnabled  () const noexcept { return _settings.screen_reader_enabled; }
     bool AreSubtitlesEnabled    () const noexcept { return _settings.subtitles_enabled;     }
     bool AreSfxSubtitlesEnabled () const noexcept { return _settings.sfx_subtitles_enabled; }

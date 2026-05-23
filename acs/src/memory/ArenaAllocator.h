@@ -24,8 +24,8 @@ public:
     // 全確保を「無効」にする。release_pages=true なら backing にページを返却
     void Reset(bool release_pages = false) noexcept;
 
-    u64 BytesAllocated() const noexcept override { return _bytes.Load(MemoryOrder::Acquire); }
-    u64 PeakBytes()      const noexcept override { return _peak.Load(MemoryOrder::Acquire); }
+    u64 BytesAllocated() const noexcept override { return _bytes.Load(EMemoryOrder::Acquire); }
+    u64 PeakBytes()      const noexcept override { return _peak.Load(EMemoryOrder::Acquire); }
     const char* Name()   const noexcept override { return "Arena"; }
 
 private:

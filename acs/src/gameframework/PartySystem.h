@@ -93,7 +93,7 @@ struct PartyMember {
 //                                              \-(timeout/err)-> Solo
 //   InParty --[LeaveParty]--> Leaving --(complete)--> Solo
 //   ※ Joining / Leaving は非同期 SDK 呼び出し完了待ちの中間状態。
-enum class PartyState : u8 {
+enum class EPartyState : u8 {
     Solo     = 0,  // パーティ非所属 (初期値)
     InParty  = 1,  // パーティ所属中
     Joining  = 2,  // 参加要求送信済 / 応答待ち
@@ -130,8 +130,8 @@ public:
     Result<void> InviteFriend(const char* friend_id) noexcept;
 
     // ----- state query -----
-    bool       IsInParty()    const noexcept { return _state == PartyState::InParty; }
-    PartyState State()        const noexcept { return _state; }
+    bool       IsInParty()    const noexcept { return _state == EPartyState::InParty; }
+    EPartyState State()        const noexcept { return _state; }
 
     // ----- メンバアクセス -----
     // パーティ内メンバ数 (自分含む)。Solo 状態は 0。
@@ -164,7 +164,7 @@ private:
     // platform_id を取得して差し替える)。
     void EmplaceSelfAsLeader() noexcept;
 
-    PartyState         _state          = PartyState::Solo;
+    EPartyState         _state          = EPartyState::Solo;
     const char*        _party_name     = nullptr;   // CreateParty 時に保持 (非所有)
     const char*        _party_id       = nullptr;   // JoinParty 時に保持 (非所有)
     f32                _pending_timer  = 0.0f;      // Joining / Leaving 経過秒

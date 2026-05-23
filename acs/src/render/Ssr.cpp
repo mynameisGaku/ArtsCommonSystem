@@ -285,7 +285,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> Ssr::Init(IRhiDevice& device, Format hdr_format, u32 width, u32 height) noexcept {
+Result<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
     _device = &device;
     _hdr_format = hdr_format;
     _width = width;
@@ -296,7 +296,7 @@ Result<void> Ssr::Init(IRhiDevice& device, Format hdr_format, u32 width, u32 hei
 
     BufferDesc cbd{};
     cbd.size = CBSize<SsrCBLayout>();
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else _cb = Move(r.Value());
@@ -327,7 +327,7 @@ Result<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noex
 
 Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsrHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Ssr.VS";
@@ -335,7 +335,7 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     else _vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsrHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Ssr.PS";
@@ -345,13 +345,13 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = _hdr_format;
-    pd.depth_format  = Format::Unknown;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 4;
     pd.cbuffer_names[0] = "SsrCB";
@@ -360,20 +360,20 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     pd.texture_names[2] = "normal_gbuffer";
     pd.texture_names[3] = "hiz_min";
     pd.static_sampler_count = 4;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[1].filter    = SamplerFilter::Point;
-    pd.static_samplers[1].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[1].filter    = ESamplerFilter::Point;
+    pd.static_samplers[1].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
     // normal G-buffer は Point sample (silhouette を跨ぐ法線の線形混色を避ける)
-    pd.static_samplers[2].filter    = SamplerFilter::Point;
-    pd.static_samplers[2].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[2].filter    = ESamplerFilter::Point;
+    pd.static_samplers[2].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
     // Hi-Z は Point sample (8x8 ブロック境界をまたぐ補間で false skip を防ぐ)
-    pd.static_samplers[3].filter    = SamplerFilter::Point;
-    pd.static_samplers[3].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[3].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[3].filter    = ESamplerFilter::Point;
+    pd.static_samplers[3].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[3].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -382,7 +382,7 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     // Phase 34e-3: temporal pipeline (current_ssr + history_ssr + scene_depth → history)。
     // VS は fullscreen-triangle で raw と同形なので _vs を再利用。
     ShaderDesc tps_d{};
-    tps_d.stage = ShaderStage::Pixel;
+    tps_d.stage = EShaderStage::Pixel;
     tps_d.hlsl_source = kSsrTemporalHLSL;
     tps_d.entry_point = "PSMain";
     tps_d.debug_name  = "SsrTemporal.PS";
@@ -392,13 +392,13 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc tpd{};
     tpd.vs            = _vs.Get();
     tpd.ps            = _temporal_ps.Get();
-    tpd.topology      = PrimitiveTopology::TriangleList;
+    tpd.topology      = EPrimitiveTopology::TriangleList;
     tpd.rt_format     = _hdr_format;
-    tpd.depth_format  = Format::Unknown;
+    tpd.depth_format  = EFormat::Unknown;
     tpd.depth_test    = false;
     tpd.depth_write   = false;
-    tpd.cull_mode     = CullMode::None;
-    tpd.blend_mode    = BlendMode::Opaque;
+    tpd.cull_mode     = ECullMode::None;
+    tpd.blend_mode    = EBlendMode::Opaque;
     tpd.cbuffer_slots = 1;
     tpd.texture_slots = 3;
     tpd.cbuffer_names[0] = "SsrCB";
@@ -407,13 +407,13 @@ Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     tpd.texture_names[2] = "scene_depth";
     tpd.static_sampler_count = 3;
     for (u32 i = 0; i < 2; ++i) {
-        tpd.static_samplers[i].filter    = SamplerFilter::Linear;
-        tpd.static_samplers[i].address_u = SamplerAddress::Clamp;
-        tpd.static_samplers[i].address_v = SamplerAddress::Clamp;
+        tpd.static_samplers[i].filter    = ESamplerFilter::Linear;
+        tpd.static_samplers[i].address_u = ESamplerAddress::Clamp;
+        tpd.static_samplers[i].address_v = ESamplerAddress::Clamp;
     }
-    tpd.static_samplers[2].filter    = SamplerFilter::Point;
-    tpd.static_samplers[2].address_u = SamplerAddress::Clamp;
-    tpd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    tpd.static_samplers[2].filter    = ESamplerFilter::Point;
+    tpd.static_samplers[2].address_u = ESamplerAddress::Clamp;
+    tpd.static_samplers[2].address_v = ESamplerAddress::Clamp;
     tpd.vertex_stride = 0;
     tpd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, tpd); r.IsErr()) return Err<void>(r.Error());

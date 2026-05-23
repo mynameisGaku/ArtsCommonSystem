@@ -12,10 +12,10 @@ namespace {
 
 // 現フレーム / 前フレームの押下状態（フレーム遷移で「Pressed/Released」を判定）
 struct InputState {
-    bool keys_now [(usize)Key::_Count]         {};
-    bool keys_prev[(usize)Key::_Count]         {};
-    bool mb_now [(usize)MouseButton::_Count]   {};
-    bool mb_prev[(usize)MouseButton::_Count]   {};
+    bool keys_now [(usize)EKey::_Count]         {};
+    bool keys_prev[(usize)EKey::_Count]         {};
+    bool mb_now [(usize)EMouseButton::_Count]   {};
+    bool mb_prev[(usize)EMouseButton::_Count]   {};
     f32  mouse_x = 0, mouse_y = 0;
     f32  mouse_x_prev = 0, mouse_y_prev = 0;
     f32  wheel_accum = 0;     // 当該フレーム中に積み上げ
@@ -34,8 +34,8 @@ struct InputState {
 
 InputState g_input;
 
-// XInput ボタンビット → GamepadButton 変換テーブル
-constexpr WORD kPadBits[(usize)GamepadButton::_Count] = {
+// XInput ボタンビット → EGamepadButton 変換テーブル
+constexpr WORD kPadBits[(usize)EGamepadButton::_Count] = {
     XINPUT_GAMEPAD_A,              // A
     XINPUT_GAMEPAD_B,              // B
     XINPUT_GAMEPAD_X,              // X
@@ -96,9 +96,9 @@ void AppendTextUtf8(InputState& s, u32 cp) noexcept {
 // フレーム先頭で呼ぶ：状態をフレーム間で進める
 void Input::Update() noexcept {
     // キーボード / マウス: 現フレーム → 前フレームに移し替え
-    for (usize i = 0; i < (usize)Key::_Count; ++i)
+    for (usize i = 0; i < (usize)EKey::_Count; ++i)
         g_input.keys_prev[i] = g_input.keys_now[i];
-    for (usize i = 0; i < (usize)MouseButton::_Count; ++i)
+    for (usize i = 0; i < (usize)EMouseButton::_Count; ++i)
         g_input.mb_prev[i] = g_input.mb_now[i];
 
     // マウス位置の差分を確定
@@ -166,13 +166,13 @@ void Input::OnEvent(const Event& e) noexcept {
     }
 }
 
-bool Input::IsKeyDown(Key k) noexcept     { return g_input.keys_now[(usize)k]; }
-bool Input::IsKeyPressed(Key k) noexcept  { return g_input.keys_now[(usize)k] && !g_input.keys_prev[(usize)k]; }
-bool Input::IsKeyReleased(Key k) noexcept { return !g_input.keys_now[(usize)k] && g_input.keys_prev[(usize)k]; }
+bool Input::IsKeyDown(EKey k) noexcept     { return g_input.keys_now[(usize)k]; }
+bool Input::IsKeyPressed(EKey k) noexcept  { return g_input.keys_now[(usize)k] && !g_input.keys_prev[(usize)k]; }
+bool Input::IsKeyReleased(EKey k) noexcept { return !g_input.keys_now[(usize)k] && g_input.keys_prev[(usize)k]; }
 
-bool Input::IsMouseButtonDown(MouseButton b) noexcept     { return g_input.mb_now[(usize)b]; }
-bool Input::IsMouseButtonPressed(MouseButton b) noexcept  { return g_input.mb_now[(usize)b] && !g_input.mb_prev[(usize)b]; }
-bool Input::IsMouseButtonReleased(MouseButton b) noexcept { return !g_input.mb_now[(usize)b] && g_input.mb_prev[(usize)b]; }
+bool Input::IsMouseButtonDown(EMouseButton b) noexcept     { return g_input.mb_now[(usize)b]; }
+bool Input::IsMouseButtonPressed(EMouseButton b) noexcept  { return g_input.mb_now[(usize)b] && !g_input.mb_prev[(usize)b]; }
+bool Input::IsMouseButtonReleased(EMouseButton b) noexcept { return !g_input.mb_now[(usize)b] && g_input.mb_prev[(usize)b]; }
 
 Vec2 Input::MousePos()   noexcept { return Vec2(g_input.mouse_x, g_input.mouse_y); }
 Vec2 Input::MouseDelta() noexcept { return Vec2(g_input.mouse_x - g_input.mouse_x_prev,
@@ -186,14 +186,14 @@ bool Input::IsGamepadConnected(u32 idx) noexcept {
     return g_input.pad_connected[idx];
 }
 
-bool Input::IsGamepadButtonDown(u32 idx, GamepadButton b) noexcept {
+bool Input::IsGamepadButtonDown(u32 idx, EGamepadButton b) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
     WORD bit = kPadBits[(usize)b];
     if (bit == 0) return false;
     return (g_input.pad_now[idx].Gamepad.wButtons & bit) != 0;
 }
 
-bool Input::IsGamepadButtonPressed(u32 idx, GamepadButton b) noexcept {
+bool Input::IsGamepadButtonPressed(u32 idx, EGamepadButton b) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
     WORD bit = kPadBits[(usize)b];
     if (bit == 0) return false;
@@ -202,16 +202,16 @@ bool Input::IsGamepadButtonPressed(u32 idx, GamepadButton b) noexcept {
     return now && !prev;
 }
 
-f32 Input::GamepadAxisValue(u32 idx, GamepadAxis axis) noexcept {
+f32 Input::GamepadAxisValue(u32 idx, EGamepadAxis axis) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return 0.0f;
     const auto& g = g_input.pad_now[idx].Gamepad;
     switch (axis) {
-        case GamepadAxis::LeftX:        return NormalizeStick(g.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
-        case GamepadAxis::LeftY:        return NormalizeStick(g.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
-        case GamepadAxis::RightX:       return NormalizeStick(g.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
-        case GamepadAxis::RightY:       return NormalizeStick(g.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
-        case GamepadAxis::LeftTrigger:  return NormalizeTrigger(g.bLeftTrigger);
-        case GamepadAxis::RightTrigger: return NormalizeTrigger(g.bRightTrigger);
+        case EGamepadAxis::LeftX:        return NormalizeStick(g.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+        case EGamepadAxis::LeftY:        return NormalizeStick(g.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+        case EGamepadAxis::RightX:       return NormalizeStick(g.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+        case EGamepadAxis::RightY:       return NormalizeStick(g.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+        case EGamepadAxis::LeftTrigger:  return NormalizeTrigger(g.bLeftTrigger);
+        case EGamepadAxis::RightTrigger: return NormalizeTrigger(g.bRightTrigger);
         default: return 0.0f;
     }
 }

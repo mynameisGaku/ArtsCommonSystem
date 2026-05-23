@@ -19,7 +19,7 @@ namespace {
 struct RgbColor { u8 r, g, b; };
 
 // セグメントごとの固定色（バーの色だけで識別できる）
-constexpr RgbColor kSegmentColor[(usize)Segment::_Count] = {
+constexpr RgbColor kSegmentColor[(usize)ESegment::_Count] = {
     /* Default   */ {  60, 120, 220 },
     /* Permanent */ { 110, 200, 110 },
     /* Temp      */ { 240, 180,  60 },
@@ -46,8 +46,8 @@ int FormatBytes(char* buf, usize cap, u64 b) noexcept {
 
 // SVG 出力: 各セグメントを 1 行のバーとして描画
 Result<void> MemorySnapshot::WriteSvg(const wchar_t* path, u32 width, u32 row_height) noexcept {
-    SegmentStats stats[(usize)Segment::_Count];
-    u32 n = MemorySystem::GetStats(stats, (u32)Segment::_Count);
+    SegmentStats stats[(usize)ESegment::_Count];
+    u32 n = MemorySystem::GetStats(stats, (u32)ESegment::_Count);
     if (n == 0) return ACS_ERR(Memory, 40, "MemorySystem has no segments");
 
     // ファイルを上書き作成
@@ -164,8 +164,8 @@ ACS_FORCEINLINE void PutPixel(u8* row, u32 x, RgbColor c) noexcept {
 } // namespace
 
 Result<void> MemorySnapshot::WriteBmp(const wchar_t* path, u32 width, u32 row_height) noexcept {
-    SegmentStats stats[(usize)Segment::_Count];
-    u32 n = MemorySystem::GetStats(stats, (u32)Segment::_Count);
+    SegmentStats stats[(usize)ESegment::_Count];
+    u32 n = MemorySystem::GetStats(stats, (u32)ESegment::_Count);
     if (n == 0) return ACS_ERR(Memory, 41, "MemorySystem has no segments");
 
     u32 height = n * row_height;
@@ -232,11 +232,11 @@ Result<void> MemorySnapshot::WriteBmp(const wchar_t* path, u32 width, u32 row_he
 
 // stdout への簡易テキスト表（CI ログ・コンソール確認用）
 void MemorySnapshot::DumpToStdOut() noexcept {
-    SegmentStats stats[(usize)Segment::_Count];
-    u32 n = MemorySystem::GetStats(stats, (u32)Segment::_Count);
+    SegmentStats stats[(usize)ESegment::_Count];
+    u32 n = MemorySystem::GetStats(stats, (u32)ESegment::_Count);
     ::printf("[ACS Memory Snapshot]\n");
     ::printf("  %-12s | %-12s | %-12s | %-12s | %-12s\n",
-             "Segment", "Reserve", "Committed", "Used", "Peak");
+             "ESegment", "Reserve", "Committed", "Used", "Peak");
     ::printf("  %s\n", "-----------------------------------------------------------------------------");
     for (u32 i = 0; i < n; ++i) {
         const SegmentStats& s = stats[i];

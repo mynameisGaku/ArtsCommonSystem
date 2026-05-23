@@ -172,13 +172,13 @@ bool BuffSystem::ApplyBuff(BuffOwnerId owner, const char* buff_id) noexcept {
     // 既存あり → policy で分岐
     BuffInstance& existing = s->buffs[static_cast<usize>(inst_slot)];
     switch (def.stack_policy) {
-        case BuffStackPolicy::Refresh:
+        case EBuffStackPolicy::Refresh:
             // タイマだけ巻き直し。stack は据置。
             existing.remaining_sec = def.duration_sec;
             // tick_accum は据置 (= 「次の毒 tick まで残り 0.3 秒」を保つ方が UX 上自然)。
             return true;
 
-        case BuffStackPolicy::Stack:
+        case EBuffStackPolicy::Stack:
             // stack++ を max_stack で clamp。max_stack 到達済でも true を返す
             // (= 「掛け直し成功」として扱う、タイマは確実にリフレッシュされる)。
             if (existing.stack < def.max_stack) {
@@ -188,7 +188,7 @@ bool BuffSystem::ApplyBuff(BuffOwnerId owner, const char* buff_id) noexcept {
             // tick_accum は据置 (Refresh と同方針)。
             return true;
 
-        case BuffStackPolicy::Ignore:
+        case EBuffStackPolicy::Ignore:
             // 既存があれば何もしない。
             return false;
     }

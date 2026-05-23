@@ -14,8 +14,8 @@
 //           s->SpawnEnemyAt(enemy_id, pos);
 //       }
 //       static void OnWaveState(void* self, u32 idx,
-//                               acs::game::WaveState from,
-//                               acs::game::WaveState to) noexcept {
+//                               acs::game::EWaveState from,
+//                               acs::game::EWaveState to) noexcept {
 //           // BGM / UI / カメラ演出をここで連動
 //       }
 //
@@ -69,7 +69,7 @@
 namespace acs::game {
 
 // 全 wave 共通の進行 state。値は安定 (save / replay に書ける、enum 追加は末尾のみ)。
-enum class WaveState : u8 {
+enum class EWaveState : u8 {
     Idle         = 0,  // StartWaves 前 / Reset 後 (= 何もしていない)
     Spawning     = 1,  // 現 wave の rule を実行中 (= まだ全部湧かせていない)
     WaitingClear = 2,  // 全 rule 発火済、残敵が 0 になるのを待っている
@@ -113,7 +113,7 @@ using SpawnCallback = void(*)(void* user, const char* enemy_id, Vec2 spawn_pos) 
 
 // wave state 遷移時の callback。wave_index は遷移時点の current wave index
 // (= AllComplete への遷移時は最後の wave の index)。
-using WaveStateChangeCallback = void(*)(void* user, u32 wave_index, WaveState from, WaveState to) noexcept;
+using WaveStateChangeCallback = void(*)(void* user, u32 wave_index, EWaveState from, EWaveState to) noexcept;
 
 class WaveSpawner {
 public:
@@ -168,7 +168,7 @@ public:
     void NotifyEnemyKilled(const char* enemy_id) noexcept;
 
     // ----- 問い合わせ -----
-    WaveState CurrentState() const noexcept { return _state; }
+    EWaveState CurrentState() const noexcept { return _state; }
 
     // 現在処理中の wave index。Idle では 0、AllComplete では TotalWaves() を返す
     // (= 範囲外の sentinel として使える、TotalWaves() 自身は有効 wave index 数)。
@@ -206,7 +206,7 @@ private:
     };
 
     // 内部 state 遷移。same-state は no-op (callback 不発火)。
-    void TransitionTo(WaveState next) noexcept;
+    void TransitionTo(EWaveState next) noexcept;
 
     // 現 wave の全 rule に対して 1 Tick 分の進行を行い、満たしている発火を実行。
     // 全 rule の count を満たしたら WaitingClear に自動遷移する。
@@ -216,7 +216,7 @@ private:
     void AdvanceToNextWave() noexcept;
 
     // ----- state -----
-    WaveState _state = WaveState::Idle;
+    EWaveState _state = EWaveState::Idle;
 
     // 現 wave index (0-based)。Idle では 0、AllComplete では TotalWaves()。
     u32 _current_wave = 0u;

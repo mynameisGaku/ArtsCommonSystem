@@ -9,7 +9,7 @@
 namespace acs {
 
 // ログレベル（数値が小さいほど詳細）
-enum class LogSeverity : u8 {
+enum class ELogSeverity : u8 {
     Trace = 0,  // 詳細トレース
     Debug = 1,  // デバッグ情報
     Info  = 2,  // 通常情報
@@ -20,15 +20,15 @@ enum class LogSeverity : u8 {
 };
 
 // ログレベルを文字列化（出力フォーマット用）
-constexpr const char* ToString(LogSeverity s) noexcept {
+constexpr const char* ToString(ELogSeverity s) noexcept {
     switch (s) {
-        case LogSeverity::Trace: return "TRACE";
-        case LogSeverity::Debug: return "DEBUG";
-        case LogSeverity::Info:  return "INFO";
-        case LogSeverity::Warn:  return "WARN";
-        case LogSeverity::Error: return "ERROR";
-        case LogSeverity::Fatal: return "FATAL";
-        case LogSeverity::Off:   return "OFF";
+        case ELogSeverity::Trace: return "TRACE";
+        case ELogSeverity::Debug: return "DEBUG";
+        case ELogSeverity::Info:  return "INFO";
+        case ELogSeverity::Warn:  return "WARN";
+        case ELogSeverity::Error: return "ERROR";
+        case ELogSeverity::Fatal: return "FATAL";
+        case ELogSeverity::Off:   return "OFF";
     }
     return "?";
 }
@@ -36,7 +36,7 @@ constexpr const char* ToString(LogSeverity s) noexcept {
 // Logger 設定
 struct LogConfig {
     const wchar_t* file_path     = nullptr;            // nullptr ならファイル無効
-    LogSeverity    min_severity  = LogSeverity::Info;  // 出力最小レベル
+    ELogSeverity    min_severity  = ELogSeverity::Info;  // 出力最小レベル
     u32            ring_capacity = 4096;               // リング長（2 のべき乗、16 未満は 16 に切り上げ）
     bool           console       = true;               // stdout 出力する
     bool           debug_output  = true;               // OutputDebugStringA 出力する
@@ -54,16 +54,16 @@ public:
     static void Flush() noexcept;
 
     // 最小ログレベルを動的に変更（スレッドセーフ）
-    static void SetMinSeverity(LogSeverity s) noexcept;
+    static void SetMinSeverity(ELogSeverity s) noexcept;
 
     // 指定レベルが出力対象か
-    static bool Enabled(LogSeverity s) noexcept;
+    static bool Enabled(ELogSeverity s) noexcept;
 
     // リング満杯で破棄されたレコード総数
     static u64 DroppedCount() noexcept;
 
     // 実書き込み関数（printf 互換、ホットパス肥大化を避けるため NEVERINLINE）
-    ACS_NEVERINLINE static void Write(LogSeverity sev,
+    ACS_NEVERINLINE static void Write(ELogSeverity sev,
                                       SourceLoc   loc,
                                       const char* fmt,
                                       ...) noexcept;
@@ -79,9 +79,9 @@ public:
                                  fmt, ##__VA_ARGS__);                          \
     } while (0)
 
-#define ACS_LOG_TRACE(fmt, ...) ACS_LOG(::acs::LogSeverity::Trace, fmt, ##__VA_ARGS__)
-#define ACS_LOG_DEBUG(fmt, ...) ACS_LOG(::acs::LogSeverity::Debug, fmt, ##__VA_ARGS__)
-#define ACS_LOG_INFO(fmt, ...)  ACS_LOG(::acs::LogSeverity::Info,  fmt, ##__VA_ARGS__)
-#define ACS_LOG_WARN(fmt, ...)  ACS_LOG(::acs::LogSeverity::Warn,  fmt, ##__VA_ARGS__)
-#define ACS_LOG_ERROR(fmt, ...) ACS_LOG(::acs::LogSeverity::Error, fmt, ##__VA_ARGS__)
-#define ACS_LOG_FATAL(fmt, ...) ACS_LOG(::acs::LogSeverity::Fatal, fmt, ##__VA_ARGS__)
+#define ACS_LOG_TRACE(fmt, ...) ACS_LOG(::acs::ELogSeverity::Trace, fmt, ##__VA_ARGS__)
+#define ACS_LOG_DEBUG(fmt, ...) ACS_LOG(::acs::ELogSeverity::Debug, fmt, ##__VA_ARGS__)
+#define ACS_LOG_INFO(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Info,  fmt, ##__VA_ARGS__)
+#define ACS_LOG_WARN(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Warn,  fmt, ##__VA_ARGS__)
+#define ACS_LOG_ERROR(fmt, ...) ACS_LOG(::acs::ELogSeverity::Error, fmt, ##__VA_ARGS__)
+#define ACS_LOG_FATAL(fmt, ...) ACS_LOG(::acs::ELogSeverity::Fatal, fmt, ##__VA_ARGS__)

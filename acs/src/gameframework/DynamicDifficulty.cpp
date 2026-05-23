@@ -57,13 +57,13 @@ constexpr f32 kSegTwoThirds         = 2.0f / 3.0f;
 // Adaptive はここに来ない (= Adaptive 切替時の current 維持は呼出側で処理済み)。
 // 念のためフォールバックとして Normal の連続値を返す。
 // =============================================================================
-f32 DynamicDifficulty::ContinuousFromDiscrete(DifficultyLevel m) noexcept {
+f32 DynamicDifficulty::ContinuousFromDiscrete(EDifficultyLevel m) noexcept {
     switch (m) {
-        case DifficultyLevel::Easy:     return 0.0f;
-        case DifficultyLevel::Normal:   return kSegThird;
-        case DifficultyLevel::Hard:     return kSegTwoThirds;
-        case DifficultyLevel::VeryHard: return 1.0f;
-        case DifficultyLevel::Adaptive: return kSegThird;  // fallback
+        case EDifficultyLevel::Easy:     return 0.0f;
+        case EDifficultyLevel::Normal:   return kSegThird;
+        case EDifficultyLevel::Hard:     return kSegTwoThirds;
+        case EDifficultyLevel::VeryHard: return 1.0f;
+        case EDifficultyLevel::Adaptive: return kSegThird;  // fallback
     }
     return kSegThird;
 }
@@ -100,20 +100,20 @@ f32 DynamicDifficulty::SampleCurve(f32 t, const f32 vals[4]) noexcept {
 // current を保持。これにより「Adaptive 中だが UI から Normal を強制」みたいな
 // 用例でプレイヤーが期待する離散値が即反映される。
 // =============================================================================
-void DynamicDifficulty::Init(DifficultyLevel base_level) noexcept {
+void DynamicDifficulty::Init(EDifficultyLevel base_level) noexcept {
     _stats        = PlayerSkillStats{};
     _session_time = 0.0f;
     _mode         = base_level;
-    if (base_level == DifficultyLevel::Adaptive) {
+    if (base_level == EDifficultyLevel::Adaptive) {
         _current_difficulty = 0.5f;  // 中庸スタート、Tick で target へ寄せる
     } else {
         _current_difficulty = ContinuousFromDiscrete(base_level);
     }
 }
 
-void DynamicDifficulty::SetMode(DifficultyLevel mode) noexcept {
+void DynamicDifficulty::SetMode(EDifficultyLevel mode) noexcept {
     _mode = mode;
-    if (mode != DifficultyLevel::Adaptive) {
+    if (mode != EDifficultyLevel::Adaptive) {
         // 離散モードへの切替は値を即スナップ (UI 反映が遅れない方が直感的)
         _current_difficulty = ContinuousFromDiscrete(mode);
     }
@@ -183,28 +183,28 @@ void DynamicDifficulty::ResetStats() noexcept {
 // テーブル直接参照のほうが意図が読めて分岐コストも誤差レベル。
 // =============================================================================
 f32 DynamicDifficulty::EnemyHealthMultiplier() const noexcept {
-    if (_mode == DifficultyLevel::Adaptive) {
+    if (_mode == EDifficultyLevel::Adaptive) {
         return SampleCurve(_current_difficulty, kEnemyHpTable);
     }
     return kEnemyHpTable[static_cast<u32>(_mode)];
 }
 
 f32 DynamicDifficulty::EnemyDamageMultiplier() const noexcept {
-    if (_mode == DifficultyLevel::Adaptive) {
+    if (_mode == EDifficultyLevel::Adaptive) {
         return SampleCurve(_current_difficulty, kEnemyDmgTable);
     }
     return kEnemyDmgTable[static_cast<u32>(_mode)];
 }
 
 f32 DynamicDifficulty::EnemySpeedMultiplier() const noexcept {
-    if (_mode == DifficultyLevel::Adaptive) {
+    if (_mode == EDifficultyLevel::Adaptive) {
         return SampleCurve(_current_difficulty, kEnemySpdTable);
     }
     return kEnemySpdTable[static_cast<u32>(_mode)];
 }
 
 f32 DynamicDifficulty::PlayerHealthMultiplier() const noexcept {
-    if (_mode == DifficultyLevel::Adaptive) {
+    if (_mode == EDifficultyLevel::Adaptive) {
         return SampleCurve(_current_difficulty, kPlayerHpTable);
     }
     return kPlayerHpTable[static_cast<u32>(_mode)];
@@ -285,7 +285,7 @@ void DynamicDifficulty::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     _session_time += dt;
 
-    if (_mode != DifficultyLevel::Adaptive) {
+    if (_mode != EDifficultyLevel::Adaptive) {
         // 離散モードは current が固定 (SetMode で snap 済み) なので何もしない
         return;
     }

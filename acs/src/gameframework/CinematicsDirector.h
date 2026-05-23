@@ -46,17 +46,17 @@
 //       void OnEnter() noexcept override {
 //           TimelineKeyframe kf;
 //           kf.time_sec = 0.0f;
-//           kf.kind     = TimelineTrackKind::PlayMusic;
+//           kf.kind     = ETimelineTrackKind::PlayMusic;
 //           kf.payload.music = {"opening_theme", 1.5f};
 //           _cine.AddKeyframe(kf);
 //
 //           kf.time_sec = 2.0f;
-//           kf.kind     = TimelineTrackKind::MoveCamera;
+//           kf.kind     = ETimelineTrackKind::MoveCamera;
 //           kf.payload.camera = {Vec2{100, 200}, 1.5f, 3.0f};
 //           _cine.AddKeyframe(kf);
 //
 //           kf.time_sec = 3.0f;
-//           kf.kind     = TimelineTrackKind::ShowDialogue;
+//           kf.kind     = ETimelineTrackKind::ShowDialogue;
 //           kf.payload.dialogue = {"line_intro_001"};
 //           _cine.AddKeyframe(kf);
 //
@@ -87,7 +87,7 @@ namespace acs::game {
 //   ShowDialogue : ダイアログ行表示を要求 (line_id を caller に渡す)
 //   PlayMusic    : BGM 切替を要求 (music_id / fade を caller に渡す)
 //   FireEvent    : 汎用イベント発火 (event_id を caller に渡す、フラグ立て等)
-enum class TimelineTrackKind : u8 {
+enum class ETimelineTrackKind : u8 {
     Wait         = 0,
     MoveCamera   = 1,
     ShowDialogue = 2,
@@ -99,7 +99,7 @@ enum class TimelineTrackKind : u8 {
 // payload は active な kind に対応するフィールドのみが意味を持つ。
 struct TimelineKeyframe {
     f32               time_sec = 0.0f;                  // タイムライン上の発火時刻 [秒]
-    TimelineTrackKind kind     = TimelineTrackKind::Wait;
+    ETimelineTrackKind kind     = ETimelineTrackKind::Wait;
 
     union Payload {
         struct {

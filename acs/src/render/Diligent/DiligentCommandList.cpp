@@ -338,7 +338,7 @@ void DiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     if (!ctx) return;
     auto& b = static_cast<DiligentBuffer&>(ib);
     if (!b.Native()) return;
-    _is_index32 = (b.Usage() == BufferUsage::Index32);
+    _is_index32 = (b.Usage() == EBufferUsage::Index32);
     ctx->SetIndexBuffer(b.Native(), 0,
                         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }

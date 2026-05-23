@@ -2,17 +2,17 @@
 // GameFramework Pillar A — SceneServices (Phase 8、v3 spec §3.1)
 //
 // シーンが必要なサービス (SceneClock / TweenManager / SequenceRunner / InputMap)
-// を bit flag (`Svc`) で宣言、SceneServices が遅延 alloc して保持する取り付けハブ。
+// を bit flag (`ESvc`) で宣言、SceneServices が遅延 alloc して保持する取り付けハブ。
 // Game/SceneManager が自動で tick + scene 切替に追従。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
 //   public:
-//       Svc WantedServices() const noexcept override {
-//           return Svc::Default2D;  // Clock | Tweens | Sequences | Input
+//       ESvc WantedServices() const noexcept override {
+//           return ESvc::Default2D;  // Clock | Tweens | Sequences | Input
 //       }
 //       void OnEnter() noexcept override {
-//           Services().Input().BindKey(ActionId("Jump"), Key::Space);
+//           Services().Input().BindKey(ActionId("Jump"), EKey::Space);
 //           Services().Tweens().Tween(&_color, c1, c2, 2.0f, Easing::InOutSine);
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
@@ -35,7 +35,7 @@
 //
 // 範囲外 (Phase 8 では):
 //   ・Camera2D / Physics2D / Audio / Events / Debug / Timers / Ui の各サービス
-//     (該当 Pillar 実装時に Svc enum と SceneServices に追加)。
+//     (該当 Pillar 実装時に ESvc enum と SceneServices に追加)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -49,7 +49,7 @@
 
 namespace acs::game {
 
-enum class Svc : u32 {
+enum class ESvc : u32 {
     None       = 0,
     Clock      = 1u << 0,
     Tweens     = 1u << 1,
@@ -61,27 +61,27 @@ enum class Svc : u32 {
     Default2D  = Clock | Tweens | Sequences | Input,
 };
 
-constexpr Svc operator|(Svc a, Svc b) noexcept {
-    return static_cast<Svc>(static_cast<u32>(a) | static_cast<u32>(b));
+constexpr ESvc operator|(ESvc a, ESvc b) noexcept {
+    return static_cast<ESvc>(static_cast<u32>(a) | static_cast<u32>(b));
 }
-constexpr Svc operator&(Svc a, Svc b) noexcept {
-    return static_cast<Svc>(static_cast<u32>(a) & static_cast<u32>(b));
+constexpr ESvc operator&(ESvc a, ESvc b) noexcept {
+    return static_cast<ESvc>(static_cast<u32>(a) & static_cast<u32>(b));
 }
-constexpr bool SvcHas(Svc mask, Svc flag) noexcept {
+constexpr bool SvcHas(ESvc mask, ESvc flag) noexcept {
     return (static_cast<u32>(mask) & static_cast<u32>(flag)) != 0u;
 }
 
 class SceneServices {
 public:
     // Wanted bit を見て該当サービスを alloc。未要求は null のまま。
-    explicit SceneServices(Svc wanted) noexcept;
+    explicit SceneServices(ESvc wanted) noexcept;
     ~SceneServices() noexcept = default;
 
     SceneServices(const SceneServices&)            = delete;
     SceneServices& operator=(const SceneServices&) = delete;
 
-    Svc  Wanted() const noexcept { return _wanted; }
-    bool Has(Svc s) const noexcept { return SvcHas(_wanted, s); }
+    ESvc  Wanted() const noexcept { return _wanted; }
+    bool Has(ESvc s) const noexcept { return SvcHas(_wanted, s); }
 
     // Accessors. 該当サービスが要求されていなければ ACS_ASSERT で停止。
     SceneClock&          Clock()     noexcept;
@@ -101,7 +101,7 @@ public:
     f32  _ScaledDt(f32 raw_dt) const noexcept;
 
 private:
-    Svc                       _wanted = Svc::None;
+    ESvc                       _wanted = ESvc::None;
     UniquePtr<SceneClock>     _clock;
     UniquePtr<TweenManager>   _tweens;
     UniquePtr<SequenceRunner> _sequences;

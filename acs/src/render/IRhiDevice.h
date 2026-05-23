@@ -29,7 +29,7 @@ public:
 };
 
 // バックエンド選択 (Diligent 経由のときのみ意味を持つ。Dx12 raw backend は無視)
-enum class RhiBackendKind : u8 {
+enum class ERhiBackendKind : u8 {
     Auto    = 0,   // 利用可能な中で最良 (Diligent: D3D12 を優先)
     D3D12   = 1,   // 強制的に DX12 を使う
     Vulkan  = 2,   // 強制的に Vulkan を使う (要 ACS_DILIGENT_VULKAN=ON)
@@ -39,7 +39,7 @@ enum class RhiBackendKind : u8 {
 struct DeviceConfig {
     bool           enable_debug_layer = false;            // Debug ビルドのみ ON 推奨
     bool           prefer_high_perf   = true;             // 統合 GPU よりディスクリート GPU を優先
-    RhiBackendKind backend            = RhiBackendKind::Auto;
+    ERhiBackendKind backend            = ERhiBackendKind::Auto;
 };
 
 // デバイスを作成する（バックエンドはビルド設定で決まる）

@@ -33,8 +33,8 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _tut.Tick(dt);
-//           if (input.JustPressed(Key::W)) _tut.NotifyAction("move");
-//           if (input.JustPressed(Key::Space)) _tut.NotifyAction("jump");
+//           if (input.JustPressed(EKey::W)) _tut.NotifyAction("move");
+//           if (input.JustPressed(EKey::Space)) _tut.NotifyAction("jump");
 //       }
 //   };
 #pragma once

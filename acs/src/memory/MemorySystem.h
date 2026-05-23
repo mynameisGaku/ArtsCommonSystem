@@ -5,13 +5,13 @@
 #include "foundation/Types.h"
 #include "foundation/Result.h"
 #include "memory/Allocator.h"
-#include "memory/Segment.h"
+#include "memory/ESegment.h"
 
 namespace acs {
 
 // 1 セグメントの設定
 struct SegmentConfig {
-    Segment      segment;
+    ESegment      segment;
     usize        reserve_bytes;     // 仮想予約サイズ
     usize        commit_initial;    // 初回コミット量
     usize        budget_hard_cap;   // ハード予算（超過時は alloc 失敗）
@@ -20,12 +20,12 @@ struct SegmentConfig {
 
 // MemorySystem 全体の初期化設定
 struct MemorySystemConfig {
-    SegmentConfig segments[(usize)Segment::_Count];
+    SegmentConfig segments[(usize)ESegment::_Count];
 };
 
 // セグメントの統計
 struct SegmentStats {
-    Segment     segment;
+    ESegment     segment;
     const char* name;
     u64         reserve;
     u64         committed;
@@ -46,10 +46,10 @@ public:
     static MemorySystemConfig DefaultConfig() noexcept;
 
     // セグメント別アロケータ取得（Init 前は nullptr）
-    static Allocator* Get(Segment s) noexcept;
+    static Allocator* Get(ESegment s) noexcept;
 
     // 「現在のセグメント」を取得（ScopedMemorySegment が設定したもの）
-    static Segment Current() noexcept;
+    static ESegment Current() noexcept;
 
     // 現在セグメントのアロケータ
     static Allocator* CurrentAllocator() noexcept;
@@ -64,14 +64,14 @@ public:
 // RAII でセグメントを切り替える（スコープ脱出で元に戻る）
 class ScopedMemorySegment {
 public:
-    explicit ScopedMemorySegment(Segment s) noexcept;
+    explicit ScopedMemorySegment(ESegment s) noexcept;
     ~ScopedMemorySegment() noexcept;
 
     ScopedMemorySegment(const ScopedMemorySegment&) = delete;
     ScopedMemorySegment& operator=(const ScopedMemorySegment&) = delete;
 
 private:
-    Segment _previous;
+    ESegment _previous;
 };
 
 } // namespace acs

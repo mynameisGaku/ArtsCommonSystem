@@ -49,7 +49,7 @@
 //
 //   ProjectileDef bullet{};
 //   bullet.id            = "bullet_9mm";
-//   bullet.kind          = ProjectileKind::Bullet;
+//   bullet.kind          = EProjectileKind::Bullet;
 //   bullet.speed         = 800.0f;
 //   bullet.lifetime_sec  = 1.5f;
 //   bullet.radius        = 2.0f;
@@ -98,11 +98,11 @@
 namespace acs::game {
 
 // ---------------------------------------------------------------------------
-// ProjectileKind — 弾種ヒント (VFX / SE 振り分け用、本クラスでは挙動に使わない)
+// EProjectileKind — 弾種ヒント (VFX / SE 振り分け用、本クラスでは挙動に使わない)
 // ---------------------------------------------------------------------------
 // 描画側 / SE 側がアセット切り替えのキーとして利用する。本クラスは値を保持して
 // HitCallback / ExpireCallback で伝えるのみ。
-enum class ProjectileKind : u8 {
+enum class EProjectileKind : u8 {
     Bullet    = 0,
     Rocket    = 1,
     Arrow     = 2,
@@ -127,7 +127,7 @@ enum class ProjectileKind : u8 {
 // `homing_strength`: 向き補正の強さ [0,1] (毎フレーム単位ベクトル LERP の係数)。
 struct ProjectileDef {
     const char*    id              = nullptr;
-    ProjectileKind kind            = ProjectileKind::Bullet;
+    EProjectileKind kind            = EProjectileKind::Bullet;
     f32            speed           = 0.0f;
     f32            lifetime_sec    = 0.0f;
     f32            radius          = 0.0f;

@@ -961,9 +961,9 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_format) noexcept {
+Result<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kPbrHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Pbr.VS";
@@ -972,7 +972,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     else _vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kPbrHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Pbr.PS";
@@ -982,7 +982,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
 
     BufferDesc fb{};
     fb.size = CBSize<FrameCBLayout>();
-    fb.usage = BufferUsage::Uniform;
+    fb.usage = EBufferUsage::Uniform;
     fb.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, fb); r.IsErr())
         return Err<void>(r.Error());
@@ -990,7 +990,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
 
     BufferDesc ob{};
     ob.size = CBSize<ObjectCBLayout>();
-    ob.usage = BufferUsage::Uniform;
+    ob.usage = EBufferUsage::Uniform;
     ob.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, ob); r.IsErr())
         return Err<void>(r.Error());
@@ -1000,7 +1000,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     const u8 white[4] = {255, 255, 255, 255};
     TextureDesc td{};
     td.width = 1; td.height = 1;
-    td.format = Format::R8G8B8A8_UNorm;
+    td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = white; td.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, td); r.IsErr())
         return Err<void>(r.Error());
@@ -1011,7 +1011,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     const u8 far_depth[4] = { 255, 255, 255, 255 };
     TextureDesc sd{};
     sd.width = 1; sd.height = 1;
-    sd.format = Format::R8G8B8A8_UNorm;
+    sd.format = EFormat::R8G8B8A8_UNorm;
     sd.initial_data = far_depth; sd.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, sd); r.IsErr())
         return Err<void>(r.Error());
@@ -1021,7 +1021,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     const u8 flat_nrm[4] = { 128, 128, 255, 0 };
     TextureDesc nt{};
     nt.width = 1; nt.height = 1;
-    nt.format = Format::R8G8B8A8_UNorm;
+    nt.format = EFormat::R8G8B8A8_UNorm;
     nt.initial_data = flat_nrm; nt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, nt); r.IsErr())
         return Err<void>(r.Error());
@@ -1032,7 +1032,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     const u8 full_vis[4] = { 255, 255, 255, 255 };
     TextureDesc st{};
     st.width = 1; st.height = 1;
-    st.format = Format::R8G8B8A8_UNorm;
+    st.format = EFormat::R8G8B8A8_UNorm;
     st.initial_data = full_vis; st.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, st); r.IsErr())
         return Err<void>(r.Error());
@@ -1043,7 +1043,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     // ssgi_params.x=0 で shader が早期 return するので内容は未定義のままで OK。
     TextureDesc gt{};
     gt.width = 1; gt.height = 1;
-    gt.format = Format::R11G11B10_Float;
+    gt.format = EFormat::R11G11B10_Float;
     gt.is_render_target = true;     // RT 兼用にすると SRV が自動で付く
     if (auto r = CreateRhiTexture(device, gt); r.IsErr())
         return Err<void>(r.Error());
@@ -1054,7 +1054,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     const u8 zero_rgba[4] = { 0, 0, 0, 0 };
     TextureDesc lt{};
     lt.width = 1; lt.height = 1;
-    lt.format = Format::R8G8B8A8_UNorm;
+    lt.format = EFormat::R8G8B8A8_UNorm;
     lt.initial_data = zero_rgba; lt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, lt); r.IsErr())
         return Err<void>(r.Error());
@@ -1064,7 +1064,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     // ssr_params.x=0 で shader が早期 return するので unused だが SRB binding 用。
     TextureDesc rt{};
     rt.width = 1; rt.height = 1;
-    rt.format = Format::R8G8B8A8_UNorm;
+    rt.format = EFormat::R8G8B8A8_UNorm;
     rt.initial_data = zero_rgba; rt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, rt); r.IsErr())
         return Err<void>(r.Error());
@@ -1076,7 +1076,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     // undefined (driver は通常 0 化する)。
     TextureDesc ic{};
     ic.width = 1; ic.height = 1;
-    ic.format = Format::R11G11B10_Float;
+    ic.format = EFormat::R11G11B10_Float;
     ic.array_size = 6;
     ic.is_cubemap = true;
     if (auto r = CreateRhiTexture(device, ic); r.IsErr())
@@ -1088,7 +1088,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
 
     TextureDesc bt{};
     bt.width = 1; bt.height = 1;
-    bt.format = Format::R16G16_Float;
+    bt.format = EFormat::R16G16_Float;
     if (auto r = CreateRhiTexture(device, bt); r.IsErr())
         return Err<void>(r.Error());
     else _ibl_brdf_fb = Move(r.Value());
@@ -1096,12 +1096,12 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     PipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
     pd.depth_test    = true;
     pd.depth_write   = true;
-    pd.cull_mode     = CullMode::Back;
+    pd.cull_mode     = ECullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
     pd.texture_slots = 10;    // t0=albedo .. t8=lightmap, t9=ssr_color (Phase 34e-2fix)
     pd.cbuffer_names[0] = "Frame";
@@ -1117,47 +1117,47 @@ Result<void> PbrShader::Init(IRhiDevice& device, Format rt_format, Format depth_
     pd.texture_names[8] = "lightmap";
     pd.texture_names[9] = "ssr_color";
     pd.static_sampler_count = 10;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Wrap;
-    pd.static_samplers[0].address_v = SamplerAddress::Wrap;
-    pd.static_samplers[1].filter    = SamplerFilter::Linear;
-    pd.static_samplers[1].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[1].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[1].address_w = SamplerAddress::Clamp;
-    pd.static_samplers[2].filter    = SamplerFilter::Linear;
-    pd.static_samplers[2].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[2].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[2].address_w = SamplerAddress::Clamp;
-    pd.static_samplers[3].filter    = SamplerFilter::Linear;
-    pd.static_samplers[3].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[3].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[3].address_w = SamplerAddress::Clamp;     // 2D LUT で w 軸は未使用だが一貫性のため
-    pd.static_samplers[4].filter    = SamplerFilter::Linear;
-    pd.static_samplers[4].address_u = SamplerAddress::Wrap;       // normal map は wrap (tileable)
-    pd.static_samplers[4].address_v = SamplerAddress::Wrap;
-    pd.static_samplers[5].filter    = SamplerFilter::Linear;
-    pd.static_samplers[5].address_u = SamplerAddress::Clamp;       // shadow map は clamp
-    pd.static_samplers[5].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[6].filter    = SamplerFilter::Linear;       // SSAO は linear で smooth
-    pd.static_samplers[6].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[6].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[7].filter    = SamplerFilter::Linear;       // SSGI も linear で blur 効果
-    pd.static_samplers[7].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[7].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[8].filter    = SamplerFilter::Linear;       // lightmap は linear で texel boundary を smooth
-    pd.static_samplers[8].address_u = SamplerAddress::Clamp;       // 端を伸ばす (タイリングしない baked light)
-    pd.static_samplers[8].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[9].filter    = SamplerFilter::Linear;       // SSR も linear、画面外参照は clamp
-    pd.static_samplers[9].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[9].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Wrap;
+    pd.static_samplers[0].address_v = ESamplerAddress::Wrap;
+    pd.static_samplers[1].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[1].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[1].address_w = ESamplerAddress::Clamp;
+    pd.static_samplers[2].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[2].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[2].address_w = ESamplerAddress::Clamp;
+    pd.static_samplers[3].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[3].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[3].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[3].address_w = ESamplerAddress::Clamp;     // 2D LUT で w 軸は未使用だが一貫性のため
+    pd.static_samplers[4].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[4].address_u = ESamplerAddress::Wrap;       // normal map は wrap (tileable)
+    pd.static_samplers[4].address_v = ESamplerAddress::Wrap;
+    pd.static_samplers[5].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[5].address_u = ESamplerAddress::Clamp;       // shadow map は clamp
+    pd.static_samplers[5].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[6].filter    = ESamplerFilter::Linear;       // SSAO は linear で smooth
+    pd.static_samplers[6].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[6].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[7].filter    = ESamplerFilter::Linear;       // SSGI も linear で blur 効果
+    pd.static_samplers[7].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[7].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[8].filter    = ESamplerFilter::Linear;       // lightmap は linear で texel boundary を smooth
+    pd.static_samplers[8].address_u = ESamplerAddress::Clamp;       // 端を伸ばす (タイリングしない baked light)
+    pd.static_samplers[8].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[9].filter    = ESamplerFilter::Linear;       // SSR も linear、画面外参照は clamp
+    pd.static_samplers[9].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[9].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
     // 12/24 にしてしまうと normal が position パディング + normal の途中を読んで
     // ジオメトリが破壊され、PBR が「黒っぽくべったり影」状態に見える。
-    pd.layout[0] = { "POSITION", 0, Format::R32G32B32_Float, 0  };
-    pd.layout[1] = { "NORMAL",   0, Format::R32G32B32_Float, 16 };
-    pd.layout[2] = { "TEXCOORD", 0, Format::R32G32_Float,    32 };
+    pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 };
+    pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
     pd.layout_count = 3;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr())
         return Err<void>(r.Error());

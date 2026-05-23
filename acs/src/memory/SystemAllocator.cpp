@@ -56,7 +56,7 @@ void* SystemAllocator::Alloc(usize size, usize alignment, SourceLoc /*loc*/) noe
     // 統計更新（atomic）
     u64 cur = _bytes.FetchAdd(actual) + actual;
     // ピーク更新は CAS で（cur > peak の間ループ）
-    u64 peak = _peak.Load(MemoryOrder::Relaxed);
+    u64 peak = _peak.Load(EMemoryOrder::Relaxed);
     while (cur > peak && !_peak.CompareExchange(peak, cur)) {}
     return p;
 }

@@ -22,8 +22,8 @@ public:
     // カーソルを 0 に戻す（並行 Alloc 中に呼ぶと UB）
     void Reset() noexcept;
 
-    u64 BytesAllocated() const noexcept override { return _used.Load(MemoryOrder::Acquire); }
-    u64 PeakBytes()      const noexcept override { return _peak.Load(MemoryOrder::Acquire); }
+    u64 BytesAllocated() const noexcept override { return _used.Load(EMemoryOrder::Acquire); }
+    u64 PeakBytes()      const noexcept override { return _peak.Load(EMemoryOrder::Acquire); }
     u64 Capacity()       const noexcept          { return _capacity; }
     const char* Name()   const noexcept override { return "Linear"; }
 

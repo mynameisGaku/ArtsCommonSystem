@@ -10,20 +10,20 @@ namespace acs {
 
 namespace {
 
-// Format のピクセルあたりバイト数（簡易）
-u32 BytesPerPixel(Format f) noexcept {
+// EFormat のピクセルあたりバイト数（簡易）
+u32 BytesPerPixel(EFormat f) noexcept {
     switch (f) {
-        case Format::R8G8B8A8_UNorm:
-        case Format::R8G8B8A8_UNorm_sRGB:
-        case Format::B8G8R8A8_UNorm:           return 4;
-        case Format::R16G16_Float:             return 4;
-        case Format::R16G16B16A16_Float:       return 8;
-        case Format::R11G11B10_Float:          return 4;
-        case Format::R32G32_Float:             return 8;
-        case Format::R32G32B32_Float:          return 12;
-        case Format::R32G32B32A32_Float:       return 16;
-        case Format::D24_UNorm_S8_UInt:        return 4;
-        case Format::D32_Float:                return 4;
+        case EFormat::R8G8B8A8_UNorm:
+        case EFormat::R8G8B8A8_UNorm_sRGB:
+        case EFormat::B8G8R8A8_UNorm:           return 4;
+        case EFormat::R16G16_Float:             return 4;
+        case EFormat::R16G16B16A16_Float:       return 8;
+        case EFormat::R11G11B10_Float:          return 4;
+        case EFormat::R32G32_Float:             return 8;
+        case EFormat::R32G32B32_Float:          return 12;
+        case EFormat::R32G32B32A32_Float:       return 16;
+        case EFormat::D24_UNorm_S8_UInt:        return 4;
+        case EFormat::D32_Float:                return 4;
         default:                                return 0;
     }
 }
@@ -81,7 +81,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
     td.Height = desc.height;
     td.DepthOrArraySize = 1;
     td.MipLevels = static_cast<UINT16>(desc.mip_levels);
-    td.Format = resource_fmt;
+    td.EFormat = resource_fmt;
     td.SampleDesc.Count = 1;
     td.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     td.Flags  = D3D12_RESOURCE_FLAG_NONE;
@@ -96,7 +96,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
     D3D12_CLEAR_VALUE* clear_ptr = nullptr;
     if (desc.is_depth_target) {
         init_state = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-        clear_val.Format = dsv_fmt;          // typed format for clear
+        clear_val.EFormat = dsv_fmt;          // typed format for clear
         clear_val.DepthStencil.Depth = 1.0f;
         clear_val.DepthStencil.Stencil = 0;
         clear_ptr = &clear_val;
@@ -116,7 +116,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
         _dsv_slot = device.AllocateDsvSlot();
         if (_dsv_slot < 0) { r.hr = E_OUTOFMEMORY; return r; }
         D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
-        dsv.Format = dsv_fmt;
+        dsv.EFormat = dsv_fmt;
         dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
         dsv.Flags = D3D12_DSV_FLAG_NONE;
         device.D3DDevice()->CreateDepthStencilView(
@@ -127,7 +127,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
             _srv_slot = device.AllocateSrvSlot();
             if (_srv_slot < 0) { r.hr = E_OUTOFMEMORY; return r; }
             D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-            srv.Format = depth_srv_fmt;
+            srv.EFormat = depth_srv_fmt;
             srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
             srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
             srv.Texture2D.MipLevels = 1;
@@ -157,7 +157,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
         ub.Height = 1;
         ub.DepthOrArraySize = 1;
         ub.MipLevels = 1;
-        ub.Format = DXGI_FORMAT_UNKNOWN;
+        ub.EFormat = DXGI_FORMAT_UNKNOWN;
         ub.SampleDesc.Count = 1;
         ub.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
@@ -230,7 +230,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
     _current_state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-    srv.Format = typed_fmt;
+    srv.EFormat = typed_fmt;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = static_cast<UINT>(desc.mip_levels);

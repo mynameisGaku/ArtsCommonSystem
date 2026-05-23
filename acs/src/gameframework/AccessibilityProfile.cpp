@@ -60,44 +60,44 @@ void AccessibilityProfile::Reset() noexcept {
 //   OneHanded : 片手操作
 //               - one_handed_mode ON (UI 配置・入力マッピング再構成)
 // =============================================================================
-void AccessibilityProfile::ApplyPreset(Preset p) noexcept {
+void AccessibilityProfile::ApplyPreset(EPreset p) noexcept {
     // まずデフォルトに戻して、preset 固有の差分のみ上書きする方針。
     _settings = AccessibilitySettings{};
 
     switch (p) {
-        case Preset::Default:
+        case EPreset::Default:
             // 何もしない (Reset 済み)。
             break;
 
-        case Preset::Dyslexia:
-            _settings.text_size         = TextSize::Large;
+        case EPreset::Dyslexia:
+            _settings.text_size         = ETextSize::Large;
             _settings.high_contrast_ui  = true;
             _settings.subtitles_enabled = true;
             break;
 
-        case Preset::ADHD:
-            _settings.motion             = MotionReduction::Reduced;
+        case EPreset::ADHD:
+            _settings.motion             = EMotionReduction::Reduced;
             _settings.screen_shake_scale = 0.5f;
             break;
 
-        case Preset::Autism:
-            _settings.motion                = MotionReduction::Reduced;
+        case EPreset::Autism:
+            _settings.motion                = EMotionReduction::Reduced;
             _settings.flash_intensity_scale = 0.3f;
             _settings.sfx_subtitles_enabled = true;
             break;
 
-        case Preset::Aphasia:
-            _settings.text_size             = TextSize::Large;
+        case EPreset::Aphasia:
+            _settings.text_size             = ETextSize::Large;
             _settings.screen_reader_enabled = true;
             _settings.subtitles_enabled     = true;
             break;
 
-        case Preset::AAC:
+        case EPreset::AAC:
             _settings.screen_reader_enabled = true;
             _settings.switch_device_input   = true;
             break;
 
-        case Preset::OneHanded:
+        case EPreset::OneHanded:
             _settings.one_handed_mode = true;
             break;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Diligent Engine の IMemoryAllocator を ACS Memory モジュールにブリッジする
 // EngineCreateInfo::pRawMemAllocator にこれを渡すと、Diligent の内部 malloc が
-// ACS の Allocator (Segment::RenderInternal 等) を経由するようになる。
+// ACS の Allocator (ESegment::RenderInternal 等) を経由するようになる。
 #pragma once
 
 #include "foundation/Types.h"

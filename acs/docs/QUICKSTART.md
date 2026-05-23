@@ -20,7 +20,7 @@ public:
 
     void OnUpdate(f32 dt) noexcept override {
         // 毎フレーム呼ばれる（ゲームロジック）
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
     }
 
     void OnRender() noexcept override {
@@ -76,16 +76,16 @@ IDE を使う場合は `acs/` を開けばプリセットが自動認識され�
 
 ### 1. キー入力
 ```cpp
-if (Input::IsKeyDown(Key::W)) move_forward();   // 押されている間
-if (Input::IsKeyPressed(Key::Space)) jump();    // 押した瞬間
-if (Input::IsKeyReleased(Key::F)) release();    // 離した瞬間
+if (Input::IsKeyDown(EKey::W)) move_forward();   // 押されている間
+if (Input::IsKeyPressed(EKey::Space)) jump();    // 押した瞬間
+if (Input::IsKeyReleased(EKey::F)) release();    // 離した瞬間
 ```
 
 ### 2. マウス
 ```cpp
 Vec2 mouse = Input::MousePos();
 Vec2 delta = Input::MouseDelta();
-if (Input::IsMouseButtonPressed(MouseButton::Left)) shoot();
+if (Input::IsMouseButtonPressed(EMouseButton::Left)) shoot();
 ```
 
 ### 3. ECS

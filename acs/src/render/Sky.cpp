@@ -99,9 +99,9 @@ ACS_FORCEINLINE Vec3 NormalizeSafe(Vec3 v) noexcept {
 
 void Sky::SetSunDirection(Vec3 dir) noexcept { _sun_dir = NormalizeSafe(dir); }
 
-Result<void> Sky::Init(IRhiDevice& device, Format rt_format, Format depth_format) noexcept {
+Result<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Sky.VS";
@@ -110,7 +110,7 @@ Result<void> Sky::Init(IRhiDevice& device, Format rt_format, Format depth_format
     _vs = Move(vs_r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Sky.PS";
@@ -120,7 +120,7 @@ Result<void> Sky::Init(IRhiDevice& device, Format rt_format, Format depth_format
 
     BufferDesc cbd{};
     cbd.size = CBSize<SkyCB>();
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     auto cb_r = CreateRhiBuffer(device, cbd);
     if (cb_r.IsErr()) return Err<void>(cb_r.Error());
@@ -129,13 +129,13 @@ Result<void> Sky::Init(IRhiDevice& device, Format rt_format, Format depth_format
     PipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
     pd.depth_test    = false;          // sky は最初に塗るだけ。既存深度は維持
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 0;
     pd.cbuffer_names[0] = "Sky";

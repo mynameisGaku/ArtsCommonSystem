@@ -176,10 +176,10 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) { Quit(); return; }
-        if (Input::IsKeyPressed(Key::P)) _paused = !_paused;
-        if (Input::IsKeyPressed(Key::R)) _show_ssr = !_show_ssr;
-        if (Input::IsKeyPressed(Key::X)) _show_refraction = !_show_refraction;
+        if (Input::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+        if (Input::IsKeyPressed(EKey::P)) _paused = !_paused;
+        if (Input::IsKeyPressed(EKey::R)) _show_ssr = !_show_ssr;
+        if (Input::IsKeyPressed(EKey::X)) _show_refraction = !_show_refraction;
 
         if (!_paused) {
             _orbit_angle += dt * 0.20f;     // 約 31 秒で 1 周

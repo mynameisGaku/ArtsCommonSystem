@@ -48,7 +48,7 @@
 //     9 個以上の key 変化が起きる頻度が事実上ゼロのため (10 finger 同時入力でも
 //     状態変化点に限定すれば 8 で足りる)。9 個以上の場合は呼び出し側で 2 tick に
 //     分割するか、Phase D-2 で variable-length encoding を導入する。
-//   ・**RecorderMode の 3 状態**: Lockstep の NetMode (Local/Lockstep/Replay) と
+//   ・**ERecorderMode の 3 状態**: Lockstep の ENetMode (Local/Lockstep/Replay) と
 //     異なり、こちらは「録画もしない・録画する・再生する」の 3 状態のみ。
 //     ネットコードは Lockstep 側に分離してあるため、InputRecorder は録画/再生に
 //     特化する。
@@ -110,13 +110,13 @@ struct InputSample {
 };
 
 // =============================================================================
-// RecorderMode — InputRecorder の動作モード
+// ERecorderMode — InputRecorder の動作モード
 // -----------------------------------------------------------------------------
-// Lockstep の NetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
+// Lockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
 // 再生する」の 3 状態のみで完結する。モード切替時は state を Clear せず、
 // cursor だけリセットする (録画した内容をそのまま StartReplay で再生する想定)。
 // =============================================================================
-enum class RecorderMode : u8 {
+enum class ERecorderMode : u8 {
     Idle      = 0,  // 録画も再生もしない (初期状態)
     Recording = 1,  // Capture() で sample を蓄積する
     Replaying = 2,  // ConsumeSample() で蓄積済み sample を取り出す
@@ -177,7 +177,7 @@ public:
     bool ConsumeSample(u32 tick, InputSample& out) noexcept;
 
     // ----- 状態 query -----
-    RecorderMode CurrentMode() const noexcept { return _mode; }
+    ERecorderMode CurrentMode() const noexcept { return _mode; }
     u32          SampleCount() const noexcept;
     u32          CurrentTick() const noexcept { return _current_tick; }
     u32          TickRateHz()  const noexcept { return _tick_rate_hz; }
@@ -197,7 +197,7 @@ public:
     Result<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    RecorderMode       _mode          = RecorderMode::Idle;
+    ERecorderMode       _mode          = ERecorderMode::Idle;
     u32                _tick_rate_hz  = 60;  // sample rate (Hz)
     u32                _current_tick  = 0;   // 次に書き込む / 消費する tick
     u32                _cursor        = 0;   // ConsumeSample の線形検索開始 index

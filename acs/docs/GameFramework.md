@@ -101,7 +101,7 @@ v3 仕様の要点（詳細は本節末の確定事項）:
 に束ね、シーンが**使うものだけ宣言**して遅延生成する:
 
 ```cpp
-enum class Svc : u32 {
+enum class ESvc : u32 {
     None=0, Tweens=1<<0, Input=1<<1, Camera2D=1<<2, Physics2D=1<<3,
     Ui=1<<4, Audio=1<<5, Events=1<<6, Debug=1<<7, Timers=1<<8,
     Default2D = Tweens|Input|Camera2D|Physics2D|Audio|Events|Debug|Timers,
@@ -117,8 +117,8 @@ public:
 };
 ```
 
-`Scene` は `virtual Svc WantedServices() const noexcept` を 1 つ override するだけ。
-メニュー画面は `Svc::Ui|Svc::Audio` のみ宣言し ECS/物理のコストを払わない。
+`Scene` は `virtual ESvc WantedServices() const noexcept` を 1 つ override するだけ。
+メニュー画面は `ESvc::Ui|ESvc::Audio` のみ宣言し ECS/物理のコストを払わない。
 `Game` が v3 で定めたシーム地点で `SceneServices` を生成・tick する。
 
 ### 3.2 取り付け機構（全サブシステムはこの 2 つのどちらか）
@@ -461,8 +461,8 @@ v6 は「土台」（シーン・ノード・時間・入力・衝突・セー�
 | システム | 配置 | 内容 |
 |---|---|---|
 | `LocalizationDirector` | H・Game グローバル | i18n 統合。多書記体系フォントセット、実行時言語切替（UI/会話を再フロー）、ローカライズ素材、複数形・引数整形、疑似ローカライズ |
-| `UiKit`（`UiLayer` 昇格） | H・`Svc::Ui` | **フォーカスナビゲーション**（ゲームパッド/キーボードで UI 操作 — 出荷必須）、メニュープリセット（メイン/ポーズ/設定/確認ダイアログ）、HUD ヘルパ（バー/カウンタ/ゲージ/トースト）、UI アニメーション、UI 効果音 |
-| `Dialogue` | H・`Svc::Dialogue`（新） | 分岐会話/テキストイベント/カットシーン。`.dlg` テキスト形式、タイプライタ表示、選択肢、条件/フラグ（`DialogueVars` をセーブ永続化）、`CutsceneTrack`（Sequence の上の演出層） |
+| `UiKit`（`UiLayer` 昇格） | H・`ESvc::Ui` | **フォーカスナビゲーション**（ゲームパッド/キーボードで UI 操作 — 出荷必須）、メニュープリセット（メイン/ポーズ/設定/確認ダイアログ）、HUD ヘルパ（バー/カウンタ/ゲージ/トースト）、UI アニメーション、UI 効果音 |
+| `Dialogue` | H・`ESvc::Dialogue`（新） | 分岐会話/テキストイベント/カットシーン。`.dlg` テキスト形式、タイプライタ表示、選択肢、条件/フラグ（`DialogueVars` をセーブ永続化）、`CutsceneTrack`（Sequence の上の演出層） |
 | `MusicDirector`（`AudioDirector` 吸収） | H・Game グローバル | 適応的・レイヤ式 BGM。バスミキサ、ステム層 + intensity カーブ、スティンガー、拍同期の量子化遷移 |
 | `Progress` | G・Game グローバル | 実績/統計/アンロック/マイルストーン。宣言的トリガー（統計閾値で自動アンロック）、セーブ永続化、Steam/コンソール連携 seam |
 | `Accessibility` | H・Game グローバル | テキスト拡大、色覚モード、字幕、画面シェイク/フラッシュ低減（光過敏対策）、モーション低減、ホールド/タップ変換、ハイコントラスト UI |
@@ -551,7 +551,7 @@ v7 までは `StateMachine` と `CollisionWorld2D` のみで、本格 BT・経�
   UntilSuccess/Cooldown）+ リーフ（Action/Condition、Callback ボディ + 反射フィールド）。
   `.bt` テキスト形式 + コード DSL の両対応。`BehaviorTreeComponent` でアタッチ。BT と
   `StateMachine` は併存（BT = 階層化決定木、SM = 順次状態）。
-- **`PathfindingSystem`** — A* on 2D nav grid。`Svc::Pathfind`。重み付きタイル（沼=遅い）、
+- **`PathfindingSystem`** — A* on 2D nav grid。`ESvc::Pathfind`。重み付きタイル（沼=遅い）、
   動的障害物、非同期パス要求（future-like）。`Tilemap` から自動 grid 構築。
 - **`Tilemap`** — `TilemapNode2D`。レイヤ（地面/壁/装飾/空）、per-tile property
   (`HashMap<String, Value>`)、Tiled `.tmx` 対応、レイヤ × チャンク単位の 1 ドロー。
@@ -760,7 +760,7 @@ Pillar J Ph12〜13 の前提。
 
 ### 14.1 3D サポート（既存 Pillar B/E/F/H 拡張）
 
-**スコープ判断: (d) 2D primary + opt-in 第一級 3D layer**（Unity 流）。`Svc::Scene3D|
+**スコープ判断: (d) 2D primary + opt-in 第一級 3D layer**（Unity 流）。`ESvc::Scene3D|
 Camera3D|Physics3D|Lighting3D` を `WantedServices` で課金式 opt-in、メニュー画面に
 3D コストを払わせない。
 
@@ -911,7 +911,7 @@ v8 までは「**何ができるか**」、v9 Pillar P は「**大きくなっ�
     で利用。
   - **`GpuMemoryBudget`** — texture/mesh GPU bytes 追跡 + evict 候補返却（自動 evict
     せず policy は `AssetStreamer`）。
-  - **AllocTracker (debug)** — Pillar K Profiler HUD で per-`AllocKind` 表示、
+  - **AllocTracker (debug)** — Pillar K Profiler HUD で per-`EAllocKind` 表示、
     leak 検出。
   - **`FrameAlloc<T>`** — `Temp` segment 簡易 API、フレーム頭で auto-reset。
 - **Threading 深度**:
@@ -1087,7 +1087,7 @@ solver を v1.1 → v1 に格上げ**:
 ### 15.2 Pillar R — Polish & Game Feel（新規 18 番目）
 
 「プレイヤーが感じる完成度」の層。**Pillar Q と同じく conductor 役** — 既存 pillar を
-借りて作曲する。各サブシステムは `Svc::*` opt-in（idle ゲームに photo mode コストを
+借りて作曲する。各サブシステムは `ESvc::*` opt-in（idle ゲームに photo mode コストを
 払わせない）。
 
 - **Slow-motion / time-control 深度** — `Node2D::SetTimeScale(0.5f)`（per-node、
@@ -1200,7 +1200,7 @@ solver を v1.1 → v1 に格上げ**:
 | **Docs viewer in-engine** — `DocsViewerScreen` で `docs/*.md` を in-game 閲覧 | UiKit | |
 | **Asset diff/inspect CLI** — `acs_diff` (Pillar J reflection 経由 semantic diff)、`acs_assetinspect` (texture/audio/scene contents dump) | `tools/` | |
 | **Cinematics editor** — timeline editor (multi-track / ripple edit / time scrubber / preview)、`.cutscene` 保存 | `tools/cineedit/` | ~1500 |
-| **Locale workflow** — `acs_loc_extract/diff/validate` | `tools/` | |
+| **ELocale workflow** — `acs_loc_extract/diff/validate` | `tools/` | |
 
 ### 15.5 移植性 seam — 5 段階の現実的拡張
 
@@ -1330,7 +1330,7 @@ v9/v10 seam を **concrete bridge module** として実装する仕組み:
 ### 16.3 Pillar T — Community / Social / Communication（新規 20 番目）
 
 「ゲームプレイの上の社会層」。**default-off で solo game は LOC ゼロ**。すべて
-`Svc::Social*` opt-in。
+`ESvc::Social*` opt-in。
 
 - **`IFriendsService`** — Steam / Epic / Xbox / PSN / Switch friends + `PlayerIdentity`
   で cross-platform mapping。online/offline/in-game/away/busy/invisible
@@ -1405,7 +1405,7 @@ v7 Accessibility baseline を大きく超える深度 + multimedia 統合（TTS/
 ### 16.5 Pillar U — AI / ML 統合（新規 21 番目）
 
 **設計判断**: AI を**新ピラーに隔離**、コア 18 pillar は AI を知らない。`ACS_GAME_AI_ENABLED=OFF`
-で完全に消える。**4 大不変条件**: (a) 全 AI 機能 `Svc::Ai*` opt-in / (b) 全機能 offline
+で完全に消える。**4 大不変条件**: (a) 全 AI 機能 `ESvc::Ai*` opt-in / (b) 全機能 offline
 fallback 必須 / (c) **決定論ゾーンへ AI 混入禁止**（コンパイル時 check） / (d) クラウド
 送信データは明示同意・破棄可能（`PrivacyDirector` 配下）。
 
@@ -1863,7 +1863,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`Game::Run` フレーム順序確定**（`OnStart` → `OnUpdate` の中で: scene 遷移 → input poll →
   Scene::OnUpdate → Resolve transforms → fixed-step accumulator drain → Scene::OnDraw →
   GPU defer-delete pump → present → OnEvent / OnCustomFrame）
-- **`SceneServices`**: `Svc::* enum class : u64`（拡張余地）+ 固定配列 24 サービススロット
+- **`SceneServices`**: `ESvc::* enum class : u64`（拡張余地）+ 固定配列 24 サービススロット
 - **Scene 状態機**: Constructed/Spawning/Active/Paused/Suspending/Exiting/Destroyed
 - **`SceneManager`**: push/pop/replace/swap、mid-frame 要求は fence point まで deferred
 - **GPU 3-frame deferred deletion**: 仕様 v6 §11A 既知 — `IRhiDevice` に
@@ -1970,7 +1970,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 
 ### 18.10 Pillar K（Editor / Dev Tools）内部
 - **全 `#if ACS_GAME_DEBUG`** — ship では public header の no-op マクロのみ
-- **`Inspector`**: reflection-driven field widget dispatch table（per-FieldKind）
+- **`Inspector`**: reflection-driven field widget dispatch table（per-EFieldKind）
 - **Picking**: viewport → Pillar F raycast → topmost node
 - **Gizmo**: handle mesh + screen-space ray test pick + snap-to-grid
 - **Undo/Redo**: reflection 駆動スナップショット、in-memory binary writer
@@ -2144,7 +2144,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`Logger`**: channel filter + runtime CVar toggle + crash dump に Scene snapshot 同梱
 
 ### 18.22 完成度システム 9 内部
-- **`LocalizationDirector`**: `LanguageDef{id, name, strings_path, fonts, layout}` + `Tr/Format/Plural` +
+- **`LocalizationDirector`**: `LanguageDef{id, name, strings_path, fonts, layout}` + `Tr/EFormat/Plural` +
   argument substitution + pseudoloc + locale-specific plural rules
 - **`UiKit`**: 既存 widget tree 拡張 + 9-point anchor + min/max/preferred + FocusManager spatial nav +
   Screen push/pop + HUD widgets + Observable<T> MVVM

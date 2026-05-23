@@ -19,13 +19,13 @@
 namespace acs {
 
 // 現在のスレッドが選択しているセグメント（ScopedMemorySegment で切替）
-ACS_THREAD_LOCAL Segment tls_current_segment = Segment::Default;
+ACS_THREAD_LOCAL ESegment tls_current_segment = ESegment::Default;
 
 namespace {
 
 // 1 セグメント分のアロケータホルダ
 struct SegmentSlot {
-    Segment         segment        = Segment::Default;
+    ESegment         segment        = ESegment::Default;
     bool            use_linear     = false;
     bool            initialized    = false;
     Mutex           lock;            // TLSF 単一スレッド前提を保護
@@ -81,8 +81,8 @@ private:
 
 // プロセスに 1 つだけのグローバル状態
 struct State {
-    SegmentSlot      slots[(usize)Segment::_Count];
-    SegmentAllocator allocators[(usize)Segment::_Count];
+    SegmentSlot      slots[(usize)ESegment::_Count];
+    SegmentAllocator allocators[(usize)ESegment::_Count];
     bool             inited = false;
 };
 State g_state;
@@ -92,18 +92,18 @@ State g_state;
 // 既定設定（小規模テスト用、すぐ動かしたいとき向け）
 MemorySystemConfig MemorySystem::DefaultConfig() noexcept {
     MemorySystemConfig c {};
-    auto setup = [](SegmentConfig& s, Segment seg, u64 reserve, u64 commit, bool lin) {
+    auto setup = [](SegmentConfig& s, ESegment seg, u64 reserve, u64 commit, bool lin) {
         s.segment         = seg;
         s.reserve_bytes   = reserve;
         s.commit_initial  = commit;
         s.budget_hard_cap = reserve;
         s.use_linear      = lin;
     };
-    setup(c.segments[(usize)Segment::Default],   Segment::Default,   256ull << 20,  16ull << 20, false);
-    setup(c.segments[(usize)Segment::Permanent], Segment::Permanent,  64ull << 20,  16ull << 20, false);
-    setup(c.segments[(usize)Segment::Temp],      Segment::Temp,       32ull << 20,  32ull << 20, true);
-    setup(c.segments[(usize)Segment::Resource],  Segment::Resource,  512ull << 20,  64ull << 20, false);
-    setup(c.segments[(usize)Segment::Develop],   Segment::Develop,    64ull << 20,   8ull << 20, false);
+    setup(c.segments[(usize)ESegment::Default],   ESegment::Default,   256ull << 20,  16ull << 20, false);
+    setup(c.segments[(usize)ESegment::Permanent], ESegment::Permanent,  64ull << 20,  16ull << 20, false);
+    setup(c.segments[(usize)ESegment::Temp],      ESegment::Temp,       32ull << 20,  32ull << 20, true);
+    setup(c.segments[(usize)ESegment::Resource],  ESegment::Resource,  512ull << 20,  64ull << 20, false);
+    setup(c.segments[(usize)ESegment::Develop],   ESegment::Develop,    64ull << 20,   8ull << 20, false);
     return c;
 }
 
@@ -111,7 +111,7 @@ MemorySystemConfig MemorySystem::DefaultConfig() noexcept {
 Result<void> MemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
     if (g_state.inited) return ACS_ERR(Memory, 30, "MemorySystem already initialized");
 
-    for (usize i = 0; i < (usize)Segment::_Count; ++i) {
+    for (usize i = 0; i < (usize)ESegment::_Count; ++i) {
         const SegmentConfig& sc = cfg.segments[i];
         SegmentSlot& slot = g_state.slots[i];
         slot.segment = sc.segment;
@@ -146,7 +146,7 @@ Result<void> MemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
 
 void MemorySystem::Shutdown() noexcept {
     if (!g_state.inited) return;
-    for (usize i = 0; i < (usize)Segment::_Count; ++i) {
+    for (usize i = 0; i < (usize)ESegment::_Count; ++i) {
         SegmentSlot& slot = g_state.slots[i];
         if (!slot.initialized) continue;
         if (slot.use_linear && slot.linear) {
@@ -160,12 +160,12 @@ void MemorySystem::Shutdown() noexcept {
     g_state.inited = false;
 }
 
-Allocator* MemorySystem::Get(Segment s) noexcept {
+Allocator* MemorySystem::Get(ESegment s) noexcept {
     if (!g_state.inited) return nullptr;
     return &g_state.allocators[(usize)s];
 }
 
-Segment MemorySystem::Current() noexcept {
+ESegment MemorySystem::Current() noexcept {
     return tls_current_segment;
 }
 
@@ -176,7 +176,7 @@ Allocator* MemorySystem::CurrentAllocator() noexcept {
 // Temp セグメントを巻き戻す（フレーム先頭で 1 回呼ぶ）
 void MemorySystem::ResetTemp() noexcept {
     if (!g_state.inited) return;
-    SegmentSlot& slot = g_state.slots[(usize)Segment::Temp];
+    SegmentSlot& slot = g_state.slots[(usize)ESegment::Temp];
     if (slot.initialized && slot.use_linear && slot.linear) {
         ScopedLock lk(slot.lock);
         slot.linear->Reset();
@@ -187,7 +187,7 @@ void MemorySystem::ResetTemp() noexcept {
 u32 MemorySystem::GetStats(SegmentStats* out, u32 max_count) noexcept {
     if (!g_state.inited || !out || max_count == 0) return 0;
     u32 n = 0;
-    for (usize i = 0; i < (usize)Segment::_Count && n < max_count; ++i) {
+    for (usize i = 0; i < (usize)ESegment::_Count && n < max_count; ++i) {
         SegmentSlot& slot = g_state.slots[i];
         if (!slot.initialized) continue;
         SegmentStats& s = out[n++];
@@ -206,7 +206,7 @@ u32 MemorySystem::GetStats(SegmentStats* out, u32 max_count) noexcept {
 // ScopedMemorySegment — RAII セグメント切替
 // =============================================================================
 // コンストラクタで TLS の現在セグメントを上書き、デストラクタで元に戻す
-ScopedMemorySegment::ScopedMemorySegment(Segment s) noexcept
+ScopedMemorySegment::ScopedMemorySegment(ESegment s) noexcept
     : _previous(tls_current_segment) {
     tls_current_segment = s;
 }

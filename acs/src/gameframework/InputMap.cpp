@@ -5,32 +5,32 @@
 
 namespace acs::game {
 
-void InputMap::BindKey(ActionId action, Key key) noexcept {
+void InputMap::BindKey(ActionId action, EKey key) noexcept {
     Binding b;
     b.action = action;
-    b.kind   = BindKind::Key;
+    b.kind   = BindKind::EKey;
     b.code   = static_cast<u32>(key);
     _bindings.PushBack(b);
 }
 
-void InputMap::BindMouseButton(ActionId action, MouseButton mb) noexcept {
+void InputMap::BindMouseButton(ActionId action, EMouseButton mb) noexcept {
     Binding b;
     b.action = action;
-    b.kind   = BindKind::MouseButton;
+    b.kind   = BindKind::EMouseButton;
     b.code   = static_cast<u32>(mb);
     _bindings.PushBack(b);
 }
 
-void InputMap::BindGamepad(ActionId action, GamepadButton gb, u32 player_index) noexcept {
+void InputMap::BindGamepad(ActionId action, EGamepadButton gb, u32 player_index) noexcept {
     Binding b;
     b.action = action;
-    b.kind   = BindKind::GamepadButton;
+    b.kind   = BindKind::EGamepadButton;
     b.code   = static_cast<u32>(gb);
     b.player = player_index;
     _bindings.PushBack(b);
 }
 
-void InputMap::BindAxisKeys(ActionId action, Key neg, Key pos) noexcept {
+void InputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
     Binding b;
     b.action   = action;
     b.kind     = BindKind::Axis1D;
@@ -59,14 +59,14 @@ bool InputMap::IsPressed(ActionId action) const noexcept {
         const Binding& b = _bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
-        case BindKind::Key:
-            if (Input::IsKeyPressed(static_cast<Key>(b.code))) return true;
+        case BindKind::EKey:
+            if (Input::IsKeyPressed(static_cast<EKey>(b.code))) return true;
             break;
-        case BindKind::MouseButton:
-            if (Input::IsMouseButtonPressed(static_cast<MouseButton>(b.code))) return true;
+        case BindKind::EMouseButton:
+            if (Input::IsMouseButtonPressed(static_cast<EMouseButton>(b.code))) return true;
             break;
-        case BindKind::GamepadButton:
-            if (Input::IsGamepadButtonPressed(b.player, static_cast<GamepadButton>(b.code))) return true;
+        case BindKind::EGamepadButton:
+            if (Input::IsGamepadButtonPressed(b.player, static_cast<EGamepadButton>(b.code))) return true;
             break;
         case BindKind::Axis1D:
             // axis は Pressed の概念なし (常に false)
@@ -81,19 +81,19 @@ bool InputMap::IsHeld(ActionId action) const noexcept {
         const Binding& b = _bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
-        case BindKind::Key:
-            if (Input::IsKeyDown(static_cast<Key>(b.code))) return true;
+        case BindKind::EKey:
+            if (Input::IsKeyDown(static_cast<EKey>(b.code))) return true;
             break;
-        case BindKind::MouseButton:
-            if (Input::IsMouseButtonDown(static_cast<MouseButton>(b.code))) return true;
+        case BindKind::EMouseButton:
+            if (Input::IsMouseButtonDown(static_cast<EMouseButton>(b.code))) return true;
             break;
-        case BindKind::GamepadButton:
-            if (Input::IsGamepadButtonDown(b.player, static_cast<GamepadButton>(b.code))) return true;
+        case BindKind::EGamepadButton:
+            if (Input::IsGamepadButtonDown(b.player, static_cast<EGamepadButton>(b.code))) return true;
             break;
         case BindKind::Axis1D:
             // axis は |Axis| > 0 で Held とみなす
-            if (Input::IsKeyDown(static_cast<Key>(b.code)) ||
-                Input::IsKeyDown(static_cast<Key>(b.code_pos))) return true;
+            if (Input::IsKeyDown(static_cast<EKey>(b.code)) ||
+                Input::IsKeyDown(static_cast<EKey>(b.code_pos))) return true;
             break;
         }
     }
@@ -105,13 +105,13 @@ bool InputMap::IsReleased(ActionId action) const noexcept {
         const Binding& b = _bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
-        case BindKind::Key:
-            if (Input::IsKeyReleased(static_cast<Key>(b.code))) return true;
+        case BindKind::EKey:
+            if (Input::IsKeyReleased(static_cast<EKey>(b.code))) return true;
             break;
-        case BindKind::MouseButton:
-            if (Input::IsMouseButtonReleased(static_cast<MouseButton>(b.code))) return true;
+        case BindKind::EMouseButton:
+            if (Input::IsMouseButtonReleased(static_cast<EMouseButton>(b.code))) return true;
             break;
-        case BindKind::GamepadButton:
+        case BindKind::EGamepadButton:
             // GamepadButtonReleased が無いので Released は今フェーズ未対応 (always false)
             break;
         case BindKind::Axis1D:
@@ -127,8 +127,8 @@ f32 InputMap::Axis(ActionId action) const noexcept {
         const Binding& b = _bindings[i];
         if (b.action != action) continue;
         if (b.kind != BindKind::Axis1D) continue;
-        const bool n = Input::IsKeyDown(static_cast<Key>(b.code));
-        const bool p = Input::IsKeyDown(static_cast<Key>(b.code_pos));
+        const bool n = Input::IsKeyDown(static_cast<EKey>(b.code));
+        const bool p = Input::IsKeyDown(static_cast<EKey>(b.code_pos));
         // 両方押下は 0 (相殺)、片方なら ±1
         if (n && !p) acc -= 1.0f;
         else if (p && !n) acc += 1.0f;

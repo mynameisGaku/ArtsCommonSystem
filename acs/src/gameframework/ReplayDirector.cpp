@@ -59,7 +59,7 @@ inline f32 ClampSpeed(f32 v) noexcept {
 // -----------------------------------------------------------------------------
 
 void ReplayDirector::Init() noexcept {
-    _mode             = ReplayMode::Idle;
+    _mode             = EReplayMode::Idle;
     _metadata         = ReplayMetadata{};   // 全 field を default に戻す
     _current_tick     = 0;
     _playback_speed   = 1.0f;
@@ -74,11 +74,11 @@ void ReplayDirector::Init() noexcept {
 Result<void> ReplayDirector::StartRecording(const ReplayMetadata& meta) noexcept {
     // Idle 以外からの直接遷移は禁止。Recording 中の再開や Playback 中の
     // 切り替えは意図しない上書きが起こりやすいため、明示的な Stop を強制する。
-    if (_mode != ReplayMode::Idle) {
+    if (_mode != EReplayMode::Idle) {
         return ACS_ERR(Generic, kSub_BadMode,
                        "ReplayDirector::StartRecording: must be Idle");
     }
-    _mode             = ReplayMode::Recording;
+    _mode             = EReplayMode::Recording;
     _metadata         = meta;            // POD copy (const char* はポインタコピー)
     _current_tick     = 0;
     _tick_accumulator = 0.0f;
@@ -90,14 +90,14 @@ Result<void> ReplayDirector::StartRecording(const ReplayMetadata& meta) noexcept
 Result<void> ReplayDirector::StopRecording() noexcept {
     // Recording 以外からの呼び出しは誤用扱い。Playback 中に StopRecording を
     // 呼んでしまった場合に黙って Idle にすると metadata が壊れるため明示エラー。
-    if (_mode != ReplayMode::Recording) {
+    if (_mode != EReplayMode::Recording) {
         return ACS_ERR(Generic, kSub_BadMode,
                        "ReplayDirector::StopRecording: must be Recording");
     }
     // 録画した tick 数を確定。LoadReplay 後の再生で ProgressNormalized が
     // 正しく計算できるよう metadata に焼き込む。
     _metadata.duration_ticks = _current_tick;
-    _mode                    = ReplayMode::Idle;
+    _mode                    = EReplayMode::Idle;
     _tick_accumulator        = 0.0f;
     return Result<void>{};
 }
@@ -107,11 +107,11 @@ Result<void> ReplayDirector::StopRecording() noexcept {
 // -----------------------------------------------------------------------------
 
 Result<void> ReplayDirector::StartPlayback() noexcept {
-    if (_mode != ReplayMode::Idle) {
+    if (_mode != EReplayMode::Idle) {
         return ACS_ERR(Generic, kSub_BadMode,
                        "ReplayDirector::StartPlayback: must be Idle");
     }
-    _mode             = ReplayMode::Playback;
+    _mode             = EReplayMode::Playback;
     _current_tick     = 0;
     _tick_accumulator = 0.0f;
     // _metadata はそのまま (StartRecording 直後の再生、または LoadReplay 後の
@@ -121,23 +121,23 @@ Result<void> ReplayDirector::StartPlayback() noexcept {
 
 void ReplayDirector::PausePlayback() noexcept {
     // Playback 以外では no-op (Paused 中の再 Pause / Idle 中の誤呼び出しを許容)。
-    if (_mode == ReplayMode::Playback) {
-        _mode = ReplayMode::Paused;
+    if (_mode == EReplayMode::Playback) {
+        _mode = EReplayMode::Paused;
     }
 }
 
 void ReplayDirector::ResumePlayback() noexcept {
     // Paused 以外では no-op。
-    if (_mode == ReplayMode::Paused) {
-        _mode = ReplayMode::Playback;
+    if (_mode == EReplayMode::Paused) {
+        _mode = EReplayMode::Playback;
     }
 }
 
 void ReplayDirector::StopPlayback() noexcept {
     // Playback / Paused → Idle。Recording / Idle 中の呼び出しは黙って no-op
     // (Stop は冪等であってほしい UX)。
-    if (_mode == ReplayMode::Playback || _mode == ReplayMode::Paused) {
-        _mode             = ReplayMode::Idle;
+    if (_mode == EReplayMode::Playback || _mode == EReplayMode::Paused) {
+        _mode             = EReplayMode::Idle;
         _tick_accumulator = 0.0f;
     }
 }
@@ -183,7 +183,7 @@ void ReplayDirector::Tick(f32 dt) noexcept {
         return;
     }
 
-    if (_mode == ReplayMode::Recording) {
+    if (_mode == EReplayMode::Recording) {
         // 録画中: tick_rate_hz * dt 分だけ _current_tick を進める。
         // 実入力 capture は InputRecorder / Lockstep 側で別途行う前提なので、
         // ここは単純な tick カウンタの前進のみ。
@@ -196,7 +196,7 @@ void ReplayDirector::Tick(f32 dt) noexcept {
         return;
     }
 
-    if (_mode == ReplayMode::Playback) {
+    if (_mode == EReplayMode::Playback) {
         // 再生中: dt * playback_speed * tick_rate_hz 分だけ _current_tick を進める。
         _tick_accumulator += dt * _playback_speed * static_cast<f32>(_tick_rate_hz);
         if (_tick_accumulator >= 1.0f) {
@@ -209,7 +209,7 @@ void ReplayDirector::Tick(f32 dt) noexcept {
         const u32 d = _metadata.duration_ticks;
         if (d != 0 && _current_tick >= d) {
             _current_tick     = d;
-            _mode             = ReplayMode::Idle;
+            _mode             = EReplayMode::Idle;
             _tick_accumulator = 0.0f;
         }
         return;

@@ -11,12 +11,12 @@
 //     を保持する。CombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
 //     視点 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) で
 //     抽象化されている。
-//   ・上位 (Game / Scene) が「CombatState → MusicState」マッピングを定義し、
+//   ・上位 (Game / Scene) が「ECombatState → EMusicState」マッピングを定義し、
 //     OnStateChange callback の中で MusicDirector::SetState を呼ぶ運用を想定。
 //     本クラスは AudioEngine 等の下位リソースを直接知らない。
 //
 // 機能:
-//   ・CombatState (6 種): Peaceful / Alert / Engaged / BossFight / Victory / Retreat
+//   ・ECombatState (6 種): Peaceful / Alert / Engaged / BossFight / Victory / Retreat
 //   ・敵検出 / 戦闘開始 / 戦闘終了 / ボス遭遇 / ボス撃破 を notify API として提供
 //   ・ThreatLevel() [0,1] — engaged 中は時間と共に上昇、平和になると低下する
 //     連続値。BGM intensity や ambient color へ供給するのに使える。
@@ -64,7 +64,7 @@ namespace acs::game {
 
 // 戦闘フェーズ。値は安定なので save / replay に書ける (将来 enum 追加時は末尾
 // 追加のみ、既存値の意味は不変とする規約)。
-enum class CombatState : u8 {
+enum class ECombatState : u8 {
     Peaceful  = 0,  // 敵未検出 / 平穏 (探索 / 街)
     Alert     = 1,  // 敵検出済 / 未交戦 (見張られている、ステルス可能)
     Engaged   = 2,  // 一般敵と交戦中
@@ -87,11 +87,11 @@ struct EnemyAwareness {
 // state 遷移時に発火する関数ポインタ。std::function 不使用ポリシーに従い、
 // void* user を介してコンテキストを引き回す。
 //   from / to は実際に遷移した state (同一値で呼ばれることはない、no-op 抑止)。
-using StateChangeCallback = void(*)(void* user, CombatState from, CombatState to) noexcept;
+using StateChangeCallback = void(*)(void* user, ECombatState from, ECombatState to) noexcept;
 
 class CombatStateMachine {
 public:
-    // CombatState 総数 (debug / table sizing 用に公開)。
+    // ECombatState 総数 (debug / table sizing 用に公開)。
     static constexpr u32 kStateCount = 6;
     // 想定並列敵数 (= reserve hint)。多めに見ても 16 で十分、それ超えは自動拡張。
     static constexpr u32 kEnemyReserveHint = 16;
@@ -136,7 +136,7 @@ public:
     void NotifyBossDefeated() noexcept;
 
     // ----- 問い合わせ -----
-    CombatState CurrentState() const noexcept { return _state; }
+    ECombatState CurrentState() const noexcept { return _state; }
 
     // 連続値 [0, 1]。BGM intensity / ambient saturation / camera shake に流す想定。
     // 内部の smooth interpolation 結果なので、state 遷移直後でも急変しない。
@@ -162,18 +162,18 @@ public:
 private:
     // 内部 state 遷移。同一 state への遷移は no-op (callback 不発火)。
     // 必要に応じて _threat_target を新 state 既定値に再設定する。
-    void TransitionTo(CombatState next) noexcept;
+    void TransitionTo(ECombatState next) noexcept;
 
     // EnemyAwareness を id で線形探索。見つからなければ npos 相当 (= _enemies.Size())。
     usize FindEnemy(u32 enemy_id) const noexcept;
 
     // _state に紐づく既定 threat target を返す ([0, 1])。
-    static f32 DefaultThreatTarget(CombatState state) noexcept;
+    static f32 DefaultThreatTarget(ECombatState state) noexcept;
 
     static f32 Clamp01(f32 v) noexcept;
 
     // ----- state -----
-    CombatState _state = CombatState::Peaceful;
+    ECombatState _state = ECombatState::Peaceful;
 
     // ----- threat level smoothing -----
     // _threat_target: state によって決まる目標値 + Engaged 中のドリフト加算。
@@ -189,7 +189,7 @@ private:
 
     // BossFight に入る前の state を覚えておき、NotifyBossDefeated 後に
     // engaged 敵が残っていれば Engaged、いなければ Victory に戻す。
-    CombatState _pre_boss_state = CombatState::Peaceful;
+    ECombatState _pre_boss_state = ECombatState::Peaceful;
 
     // ----- callback -----
     StateChangeCallback _callback     = nullptr;

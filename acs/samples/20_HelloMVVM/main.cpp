@@ -87,12 +87,12 @@ public:
         _vm.inventory.PushBack(99);
 
         // インベントリ変更ログ
-        _vm.inventory.Subscribe([](ArrayChange k, usize i, const i32* v, void*){
+        _vm.inventory.Subscribe([](EArrayChange k, usize i, const i32* v, void*){
             switch (k) {
-                case ArrayChange::Inserted: ACS_LOG_INFO("Inv[+%zu] = %d", i, *v); break;
-                case ArrayChange::Removed:  ACS_LOG_INFO("Inv[-%zu]", i); break;
-                case ArrayChange::Changed:  ACS_LOG_INFO("Inv[%zu] = %d", i, *v); break;
-                case ArrayChange::Cleared:  ACS_LOG_INFO("Inv cleared"); break;
+                case EArrayChange::Inserted: ACS_LOG_INFO("Inv[+%zu] = %d", i, *v); break;
+                case EArrayChange::Removed:  ACS_LOG_INFO("Inv[-%zu]", i); break;
+                case EArrayChange::Changed:  ACS_LOG_INFO("Inv[%zu] = %d", i, *v); break;
+                case EArrayChange::Cleared:  ACS_LOG_INFO("Inv cleared"); break;
             }
         }, nullptr);
 
@@ -100,7 +100,7 @@ public:
     }
 
     void OnUpdate(f32 /*dt*/) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
     }
 
     void OnRender() noexcept override {

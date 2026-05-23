@@ -47,12 +47,12 @@ const GridCell& MatchGrid::Get(u32 x, u32 y) const noexcept {
     return _cells[Idx(x, y)];
 }
 
-void MatchGrid::Set(u32 x, u32 y, u8 color, SpecialKind special) noexcept {
+void MatchGrid::Set(u32 x, u32 y, u8 color, ESpecialKind special) noexcept {
     if (x >= _width || y >= _height) return;
     GridCell& c = _cells[Idx(x, y)];
     if (color == 0u) {
         c.color   = 0u;
-        c.special = static_cast<u8>(SpecialKind::Normal);
+        c.special = static_cast<u8>(ESpecialKind::Normal);
         c.empty   = true;
     } else {
         c.color   = color;
@@ -117,7 +117,7 @@ void MatchGrid::FillRandom(u32 seed) noexcept {
             const u8 c = PickColorAvoidingMatch(x, y, rng);
             GridCell& cell = _cells[Idx(x, y)];
             cell.color   = c;
-            cell.special = static_cast<u8>(SpecialKind::Normal);
+            cell.special = static_cast<u8>(ESpecialKind::Normal);
             cell.empty   = (c == 0u);
         }
     }
@@ -239,11 +239,11 @@ void MatchGrid::ClearOne(u32 x, u32 y, Array<u8>& visited) noexcept {
     if (c.empty) return;
 
     const u8 color           = c.color;
-    const SpecialKind sp     = static_cast<SpecialKind>(c.special);
+    const ESpecialKind sp     = static_cast<ESpecialKind>(c.special);
 
     // 先に「空」にしてから special を波及させる (再入時の二重カウント防止)。
     c.color   = 0u;
-    c.special = static_cast<u8>(SpecialKind::Normal);
+    c.special = static_cast<u8>(ESpecialKind::Normal);
     c.empty   = true;
 
     ++_total_cleared;
@@ -252,15 +252,15 @@ void MatchGrid::ClearOne(u32 x, u32 y, Array<u8>& visited) noexcept {
     }
 
     // special 波及
-    if (sp != SpecialKind::Normal) {
+    if (sp != ESpecialKind::Normal) {
         ApplySpecialEffect(x, y, color, sp, visited);
     }
 }
 
-void MatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, SpecialKind sp,
+void MatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp,
                                    Array<u8>& visited) noexcept {
     switch (sp) {
-    case SpecialKind::Bomb: {
+    case ESpecialKind::Bomb: {
         // 3x3 範囲 (中心は既に消去済み、visited フラグで弾かれる)
         const u32 x0 = (x >= 1u) ? (x - 1u) : 0u;
         const u32 y0 = (y >= 1u) ? (y - 1u) : 0u;
@@ -273,13 +273,13 @@ void MatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, SpecialKind sp,
         }
         break;
     }
-    case SpecialKind::Lightning: {
+    case ESpecialKind::Lightning: {
         // 同行 + 同列
         for (u32 xx = 0; xx < _width;  ++xx) ClearOne(xx, y, visited);
         for (u32 yy = 0; yy < _height; ++yy) ClearOne(x, yy, visited);
         break;
     }
-    case SpecialKind::Rainbow: {
+    case ESpecialKind::Rainbow: {
         // 盤面の同色全消去 (Rainbow が起動した時点の color を対象)。
         // color==0 (理論上発生しない) のときは no-op。
         if (color == 0u) break;
@@ -293,7 +293,7 @@ void MatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, SpecialKind sp,
         }
         break;
     }
-    case SpecialKind::Normal:
+    case ESpecialKind::Normal:
     default:
         break;
     }
@@ -338,7 +338,7 @@ u32 MatchGrid::RefillFromTop() noexcept {
         GridCell& c = _cells[Idx(x, 0u)];
         if (c.empty) {
             c.color   = static_cast<u8>(1u + (rng.NextU32() % _color_count));
-            c.special = static_cast<u8>(SpecialKind::Normal);
+            c.special = static_cast<u8>(ESpecialKind::Normal);
             c.empty   = false;
             ++filled;
         }

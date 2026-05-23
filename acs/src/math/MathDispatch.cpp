@@ -52,13 +52,13 @@ void Init() noexcept {
 } // namespace
 
 const MathDispatch& GetMathDispatch() noexcept {
-    if (g_inited.Load(MemoryOrder::Acquire) == 0) {
+    if (g_inited.Load(EMemoryOrder::Acquire) == 0) {
         u32 expected = 0;
         if (g_inited.CompareExchange(expected, 1)) {
             Init();
-            g_inited.Store(2, MemoryOrder::Release);
+            g_inited.Store(2, EMemoryOrder::Release);
         } else {
-            while (g_inited.Load(MemoryOrder::Acquire) != 2) SpinHint();
+            while (g_inited.Load(EMemoryOrder::Acquire) != 2) SpinHint();
         }
     }
     return g_dispatch;

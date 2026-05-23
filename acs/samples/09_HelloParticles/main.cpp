@@ -70,7 +70,7 @@ public:
         GenerateGlow(px);
         TextureDesc td{};
         td.width = kTexSize; td.height = kTexSize;
-        td.format = Format::R8G8B8A8_UNorm;
+        td.format = EFormat::R8G8B8A8_UNorm;
         td.initial_data = px; td.initial_data_size = sizeof(px);
         if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) { Quit(); return; }
         else _glow = Move(r.Value());
@@ -84,22 +84,22 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
-        if (Input::IsKeyPressed(Key::Space)) {
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Space)) {
             _ps.Emitter().active = !_ps.Emitter().active;
         }
 
         Vec2 mp = Input::MousePos();
-        if (Input::IsKeyPressed(Key::Num1)) ApplyPreset(0, mp);
-        if (Input::IsKeyPressed(Key::Num2)) ApplyPreset(1, mp);
-        if (Input::IsKeyPressed(Key::Num3)) ApplyPreset(2, mp);
-        if (Input::IsKeyPressed(Key::Num4)) ApplyPreset(3, mp);
+        if (Input::IsKeyPressed(EKey::Num1)) ApplyPreset(0, mp);
+        if (Input::IsKeyPressed(EKey::Num2)) ApplyPreset(1, mp);
+        if (Input::IsKeyPressed(EKey::Num3)) ApplyPreset(2, mp);
+        if (Input::IsKeyPressed(EKey::Num4)) ApplyPreset(3, mp);
 
         // エミッタを毎フレームマウス位置に追従
         _ps.Emitter().position = mp;
 
         // 左クリックで爆発
-        if (Input::IsMouseButtonPressed(MouseButton::Left)) {
+        if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
             EmitterDesc burst = EmitterDesc::Sparks(mp);
             burst.rate_per_sec = 0;            // バーストのみ
             burst.life_seconds = 0.8f;

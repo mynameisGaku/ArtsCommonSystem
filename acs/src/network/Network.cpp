@@ -32,7 +32,7 @@ void Network::Shutdown() noexcept {
 }
 
 bool Network::IsInitialized() noexcept {
-    return g_init_count.Load(MemoryOrder::Acquire) > 0;
+    return g_init_count.Load(EMemoryOrder::Acquire) > 0;
 }
 
 // "192.168.0.1" 等の文字列を IpAddress に変換

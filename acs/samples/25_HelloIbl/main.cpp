@@ -181,74 +181,74 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
         // 1/2/3/4 で env 切替。SH9 mode が有効中は SH 9 係数も再計算が必要。
         // Phase 34k: preset ごとに露出目標を変える → _adapted_exposure がじわっと
         // 追従して eye adaptation (目が明暗に慣れる) 演出になる。
-        if (Input::IsKeyPressed(Key::Num1)) {
+        if (Input::IsKeyPressed(EKey::Num1)) {
             _sky.PresetDay();    _current_preset = 0;
             _need_recapture = true; _need_sh9_rebuild = _use_sh9;
             _exposure_target = 0.7f;     // Day: 明るいので露出を絞る
         }
-        if (Input::IsKeyPressed(Key::Num2)) {
+        if (Input::IsKeyPressed(EKey::Num2)) {
             _sky.PresetSunset(); _current_preset = 1;
             _need_recapture = true; _need_sh9_rebuild = _use_sh9;
             _exposure_target = 1.0f;
         }
-        if (Input::IsKeyPressed(Key::Num3)) {
+        if (Input::IsKeyPressed(EKey::Num3)) {
             _sky.PresetNight();  _current_preset = 2;
             _need_recapture = true; _need_sh9_rebuild = _use_sh9;
             _exposure_target = 1.8f;     // Night: 暗いので露出を上げる
         }
-        if (Input::IsKeyPressed(Key::Num4)) {
+        if (Input::IsKeyPressed(EKey::Num4)) {
             _current_preset = 3;
             _need_studio_hdr = true; _need_sh9_rebuild = _use_sh9;
             _exposure_target = 1.0f;
         }
-        if (Input::IsKeyPressed(Key::Num5)) {
+        if (Input::IsKeyPressed(EKey::Num5)) {
             _current_preset = 4;
             _need_atmosphere = true; _need_sh9_rebuild = _use_sh9;
             _exposure_target = 0.85f;
         }
-        if (Input::IsKeyPressed(Key::I)) {
+        if (Input::IsKeyPressed(EKey::I)) {
             _display_mode = (_display_mode + 1) % 7;
         }
         // SH9 toggle: 現在の irradiance cubemap から計算した SH 9 で diffuse を再構築
-        if (Input::IsKeyPressed(Key::S)) {
+        if (Input::IsKeyPressed(EKey::S)) {
             _use_sh9 = !_use_sh9;
             _need_sh9_rebuild = _use_sh9;     // 必要なときに再計算
         }
-        if (Input::IsKeyPressed(Key::C)) _use_clearcoat = !_use_clearcoat;
-        if (Input::IsKeyPressed(Key::Z)) _use_anisotropy = !_use_anisotropy;
-        if (Input::IsKeyPressed(Key::L)) _use_area_light = !_use_area_light;
-        if (Input::IsKeyPressed(Key::G)) _use_probe_grid = !_use_probe_grid;
-        if (Input::IsKeyPressed(Key::F)) _use_fog = !_use_fog;
-        if (Input::IsKeyPressed(Key::H)) _use_shadows = !_use_shadows;
-        if (Input::IsKeyPressed(Key::R)) _show_ssr = !_show_ssr;
+        if (Input::IsKeyPressed(EKey::C)) _use_clearcoat = !_use_clearcoat;
+        if (Input::IsKeyPressed(EKey::Z)) _use_anisotropy = !_use_anisotropy;
+        if (Input::IsKeyPressed(EKey::L)) _use_area_light = !_use_area_light;
+        if (Input::IsKeyPressed(EKey::G)) _use_probe_grid = !_use_probe_grid;
+        if (Input::IsKeyPressed(EKey::F)) _use_fog = !_use_fog;
+        if (Input::IsKeyPressed(EKey::H)) _use_shadows = !_use_shadows;
+        if (Input::IsKeyPressed(EKey::R)) _show_ssr = !_show_ssr;
         // X でガラス球 (screen-space 屈折) のデモ toggle
-        if (Input::IsKeyPressed(Key::X)) _show_refraction = !_show_refraction;
-        if (Input::IsKeyPressed(Key::O)) _use_ssao = !_use_ssao;
-        if (Input::IsKeyPressed(Key::T)) _use_taa  = !_use_taa;
-        if (Input::IsKeyPressed(Key::J)) _use_ssgi = !_use_ssgi;
-        if (Input::IsKeyPressed(Key::K)) _use_lightmap = !_use_lightmap;
+        if (Input::IsKeyPressed(EKey::X)) _show_refraction = !_show_refraction;
+        if (Input::IsKeyPressed(EKey::O)) _use_ssao = !_use_ssao;
+        if (Input::IsKeyPressed(EKey::T)) _use_taa  = !_use_taa;
+        if (Input::IsKeyPressed(EKey::J)) _use_ssgi = !_use_ssgi;
+        if (Input::IsKeyPressed(EKey::K)) _use_lightmap = !_use_lightmap;
         // M で motion vector (動的 mesh の TAA reprojection) を toggle
-        if (Input::IsKeyPressed(Key::M)) _use_motion_vec = !_use_motion_vec;
+        if (Input::IsKeyPressed(EKey::M)) _use_motion_vec = !_use_motion_vec;
         // film grain アニメ用に時間累積 + 動的球の公転時刻
         _post_params.grain_time += dt;
         _anim_time += dt;
         // B キーで bloom on/off (verify HDR clip 防止効果)
-        if (Input::IsKeyPressed(Key::B)) {
+        if (Input::IsKeyPressed(EKey::B)) {
             _post_params.bloom_enabled = !_post_params.bloom_enabled;
         }
         // U で露出モード切替: GPU auto-exposure (実測) ⇔ 手動 (Phase 34k CPU 補間)
-        if (Input::IsKeyPressed(Key::U)) _use_auto_exposure = !_use_auto_exposure;
+        if (Input::IsKeyPressed(EKey::U)) _use_auto_exposure = !_use_auto_exposure;
 
         if (_use_auto_exposure) {
             // Phase 34k-2: 露出は GPU が実測輝度から算出。Q/E は目標平均輝度 (key) を
             // 動かして全体の明暗を補正する (EV compensation 相当)。
-            if (Input::IsKeyDown(Key::E)) _auto_key += dt * 0.3f;
-            if (Input::IsKeyDown(Key::Q)) _auto_key -= dt * 0.3f;
+            if (Input::IsKeyDown(EKey::E)) _auto_key += dt * 0.3f;
+            if (Input::IsKeyDown(EKey::Q)) _auto_key -= dt * 0.3f;
             if (_auto_key < 0.1f) _auto_key = 0.1f;
             if (_auto_key > 2.0f) _auto_key = 2.0f;
             _post_params.auto_exposure_enabled = true;
@@ -257,8 +257,8 @@ public:
         } else {
             // Phase 34k: 手動の露出目標 + CPU eye adaptation。Q/E で目標を動かし、
             // _adapted_exposure が dt 補間で追従する (~0.4 秒で順応)。
-            if (Input::IsKeyDown(Key::E)) _exposure_target += dt * 0.5f;
-            if (Input::IsKeyDown(Key::Q)) _exposure_target -= dt * 0.5f;
+            if (Input::IsKeyDown(EKey::E)) _exposure_target += dt * 0.5f;
+            if (Input::IsKeyDown(EKey::Q)) _exposure_target -= dt * 0.5f;
             if (_exposure_target < 0.1f) _exposure_target = 0.1f;
             if (_exposure_target > 4.0f) _exposure_target = 4.0f;
             f32 k = dt * 2.5f;
@@ -272,10 +272,10 @@ public:
 
         // 視点を矢印 (回転) + WASD (移動) で操作
         const f32 mv = 4.0f * dt, tr = 1.5f * dt;
-        if (Input::IsKeyDown(Key::Left))  _cam_yaw -= tr;
-        if (Input::IsKeyDown(Key::Right)) _cam_yaw += tr;
-        if (Input::IsKeyDown(Key::Up))    _cam_pitch -= tr * 0.8f;
-        if (Input::IsKeyDown(Key::Down))  _cam_pitch += tr * 0.8f;
+        if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
+        if (Input::IsKeyDown(EKey::Right)) _cam_yaw += tr;
+        if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
+        if (Input::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
         const f32 limit = 0.45f * kPi;
         if (_cam_pitch >  limit) _cam_pitch =  limit;
         if (_cam_pitch < -limit) _cam_pitch = -limit;
@@ -284,10 +284,10 @@ public:
                      -Sin(_cam_pitch),
                       Cos(_cam_yaw) * Cos(_cam_pitch) };
         Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
-        if (Input::IsKeyDown(Key::W)) _cam_pos += forward * mv;
-        if (Input::IsKeyDown(Key::S)) _cam_pos -= forward * mv;
-        if (Input::IsKeyDown(Key::D)) _cam_pos += right   * mv;
-        if (Input::IsKeyDown(Key::A)) _cam_pos -= right   * mv;
+        if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
+        if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
+        if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
+        if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * mv;
         _camera.SetLookAt(_cam_pos, _cam_pos + forward);
     }
 
@@ -987,7 +987,7 @@ public:
 
         TextureDesc td{};
         td.width = kSize; td.height = kSize;
-        td.format = Format::R8G8B8A8_UNorm;
+        td.format = EFormat::R8G8B8A8_UNorm;
         td.initial_data = rgba.Data();
         td.initial_data_size = rgba.Size();
         auto r = CreateRhiTexture(dev, td);

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar D — InputMap (Phase 6)
 //
-// 物理入力 (Key/MouseButton/GamepadButton) を「名前付きアクション」に束ねる
+// 物理入力 (EKey/EMouseButton/EGamepadButton) を「名前付きアクション」に束ねる
 // マッピング層。ゲームロジックが物理キーから疎結合になり、キーコンフィグ UI も
 // 後付けで書けるようになる。
 //
 // 使い方:
 //   InputMap im;
-//   im.BindKey         (ActionId("Jump"),  Key::Space);
-//   im.BindGamepad     (ActionId("Jump"),  GamepadButton::A);
-//   im.BindAxisKeys    (ActionId("MoveX"), Key::A, Key::D);
+//   im.BindKey         (ActionId("Jump"),  EKey::Space);
+//   im.BindGamepad     (ActionId("Jump"),  EGamepadButton::A);
+//   im.BindAxisKeys    (ActionId("MoveX"), EKey::A, EKey::D);
 //
 //   if (im.IsPressed(ActionId("Jump"))) DoJump();
 //   f32 mv_x = im.Axis(ActionId("MoveX"));  // -1, 0, +1
@@ -70,10 +70,10 @@ public:
     InputMap& operator=(const InputMap&) = delete;
 
     // ----- bind -----
-    void BindKey         (ActionId action, Key key) noexcept;
-    void BindMouseButton (ActionId action, MouseButton mb) noexcept;
-    void BindGamepad     (ActionId action, GamepadButton gb, u32 player_index = 0) noexcept;
-    void BindAxisKeys    (ActionId action, Key neg, Key pos) noexcept;
+    void BindKey         (ActionId action, EKey key) noexcept;
+    void BindMouseButton (ActionId action, EMouseButton mb) noexcept;
+    void BindGamepad     (ActionId action, EGamepadButton gb, u32 player_index = 0) noexcept;
+    void BindAxisKeys    (ActionId action, EKey neg, EKey pos) noexcept;
 
     // 指定 action の全 binding を削除
     void Unbind  (ActionId action) noexcept;
@@ -87,17 +87,17 @@ public:
 
 private:
     enum class BindKind : u8 {
-        Key,
-        MouseButton,
-        GamepadButton,
+        EKey,
+        EMouseButton,
+        EGamepadButton,
         Axis1D,
     };
 
     struct Binding {
         ActionId action;
         BindKind kind;
-        u32      code      = 0;     // Key/MouseButton/GamepadButton enum value (= code_neg for Axis)
-        u32      code_pos  = 0;     // Axis 専用 (pos 方向の Key)
+        u32      code      = 0;     // EKey/EMouseButton/EGamepadButton enum value (= code_neg for Axis)
+        u32      code_pos  = 0;     // Axis 専用 (pos 方向の EKey)
         u32      player    = 0;     // Gamepad 専用
     };
 

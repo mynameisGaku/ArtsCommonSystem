@@ -137,11 +137,11 @@ struct SeasonInfo {
     u32         max_tier         = 0;
 };
 
-// ---- SeasonStatus: 時刻ベースのシーズン状態 -------------------------------
+// ---- ESeasonStatus: 時刻ベースのシーズン状態 -------------------------------
 //   NotStarted : 現在時刻 < start_timestamp
 //   Active     : start_timestamp <= 現在時刻 < end_timestamp
 //   Ended      : 現在時刻 >= end_timestamp (or EndSeason() 手動呼出)
-enum class SeasonStatus : u8 {
+enum class ESeasonStatus : u8 {
     NotStarted = 0,
     Active     = 1,
     Ended      = 2,
@@ -191,7 +191,7 @@ public:
     // 累積 xp と各 tier の xp_threshold を比較し、解放済みの最大 tier_index を返す。
     // どの tier も到達していなければ ~0u (= 「未到達」を表す哨兵値)。
     u32          CurrentTier() const noexcept;
-    SeasonStatus Status()      const noexcept;
+    ESeasonStatus Status()      const noexcept;
 
     // ---- Premium Pass -----------------------------------------------------
     bool HasPremiumPass() const noexcept;

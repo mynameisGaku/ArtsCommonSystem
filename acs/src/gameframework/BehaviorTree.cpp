@@ -17,7 +17,7 @@ void BtSelector::AddChild(UniquePtr<BtNode> child) noexcept {
     _children.PushBack(Move(child));
 }
 
-BtStatus BtSelector::Tick(void* blackboard, f32 dt) noexcept {
+EBtStatus BtSelector::Tick(void* blackboard, f32 dt) noexcept {
     // OR セマンティクス: Running か Success を見つけたらその時点で抜ける。
     //   ・Running → 子がまだ進行中、Selector も Running を伝播
     //   ・Success → この子で目的達成、Selector も Success
@@ -27,12 +27,12 @@ BtStatus BtSelector::Tick(void* blackboard, f32 dt) noexcept {
     for (usize i = 0; i < n; ++i) {
         BtNode* c = _children[i].Get();
         if (c == nullptr) continue;            // 万一の null 安全 (本来 AddChild で弾く)
-        const BtStatus s = c->Tick(blackboard, dt);
-        if (s == BtStatus::Running) return BtStatus::Running;
-        if (s == BtStatus::Success) return BtStatus::Success;
+        const EBtStatus s = c->Tick(blackboard, dt);
+        if (s == EBtStatus::Running) return EBtStatus::Running;
+        if (s == EBtStatus::Success) return EBtStatus::Success;
         // Failure: 次の子へ
     }
-    return BtStatus::Failure;
+    return EBtStatus::Failure;
 }
 
 // ---- BtSequence --------------------------------------------------------------
@@ -42,7 +42,7 @@ void BtSequence::AddChild(UniquePtr<BtNode> child) noexcept {
     _children.PushBack(Move(child));
 }
 
-BtStatus BtSequence::Tick(void* blackboard, f32 dt) noexcept {
+EBtStatus BtSequence::Tick(void* blackboard, f32 dt) noexcept {
     // AND セマンティクス: Running か Failure を見つけたらその時点で抜ける。
     //   ・Running → 子がまだ進行中、Sequence も Running
     //   ・Failure → この子で失敗、Sequence も Failure
@@ -52,19 +52,19 @@ BtStatus BtSequence::Tick(void* blackboard, f32 dt) noexcept {
     for (usize i = 0; i < n; ++i) {
         BtNode* c = _children[i].Get();
         if (c == nullptr) continue;
-        const BtStatus s = c->Tick(blackboard, dt);
-        if (s == BtStatus::Running) return BtStatus::Running;
-        if (s == BtStatus::Failure) return BtStatus::Failure;
+        const EBtStatus s = c->Tick(blackboard, dt);
+        if (s == EBtStatus::Running) return EBtStatus::Running;
+        if (s == EBtStatus::Failure) return EBtStatus::Failure;
         // Success: 次の子へ
     }
-    return BtStatus::Success;
+    return EBtStatus::Success;
 }
 
 // ---- BtAction ----------------------------------------------------------------
 
-BtStatus BtAction::Tick(void* blackboard, f32 dt) noexcept {
+EBtStatus BtAction::Tick(void* blackboard, f32 dt) noexcept {
     // 関数ポインタ未設定はソフトフェイル: Failure を返して composite が前進する。
-    if (_fn == nullptr) return BtStatus::Failure;
+    if (_fn == nullptr) return EBtStatus::Failure;
     return _fn(blackboard, dt);
 }
 
@@ -75,9 +75,9 @@ void BehaviorTree::SetRoot(UniquePtr<BtNode> root) noexcept {
     _root = Move(root);
 }
 
-BtStatus BehaviorTree::Tick(void* blackboard, f32 dt) noexcept {
+EBtStatus BehaviorTree::Tick(void* blackboard, f32 dt) noexcept {
     // root 未設定の tree は「常に失敗」として扱う (composite と同じ規約)。
-    if (!_root) return BtStatus::Failure;
+    if (!_root) return EBtStatus::Failure;
     return _root->Tick(blackboard, dt);
 }
 

@@ -14,7 +14,7 @@
 //  ・Tick での Miss 検出は good_window を 1 frame でも過ぎたら確定。dt が
 //    大きく複数 note を一括で Miss する場合も同一 Tick 内で全て発火する。
 //  ・Pause 中の Tap は受理する (current_time は止まっているので判定結果は
-//    pause 直前と同じ)。Stop 中の Tap は再生していないため Judgement::Miss
+//    pause 直前と同じ)。Stop 中の Tap は再生していないため EJudgement::Miss
 //    (該当 note 無し扱い) を返すのみ。
 #include "gameframework/BeatGrid.h"
 
@@ -29,14 +29,14 @@ f32 BeatGrid::MsToSec(f32 ms) noexcept {
     return ms * 0.001f;
 }
 
-Judgement BeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
-    if (abs_delta_sec <= _perfect_window_sec) return Judgement::Perfect;
-    if (abs_delta_sec <= _great_window_sec)   return Judgement::Great;
-    if (abs_delta_sec <= _good_window_sec)    return Judgement::Good;
-    return Judgement::Miss;
+EJudgement BeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
+    if (abs_delta_sec <= _perfect_window_sec) return EJudgement::Perfect;
+    if (abs_delta_sec <= _great_window_sec)   return EJudgement::Great;
+    if (abs_delta_sec <= _good_window_sec)    return EJudgement::Good;
+    return EJudgement::Miss;
 }
 
-usize BeatGrid::FindNearestNote(BeatLane lane) const noexcept {
+usize BeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
     const usize n = _notes.Size();
     usize best_idx = n;            // npos
     f32   best_abs = _good_window_sec; // good_window を超える note は対象外
@@ -55,12 +55,12 @@ usize BeatGrid::FindNearestNote(BeatLane lane) const noexcept {
     return best_idx;
 }
 
-void BeatGrid::ApplyJudgement(BeatLane lane, Judgement j) noexcept {
+void BeatGrid::ApplyJudgement(EBeatLane lane, EJudgement j) noexcept {
     switch (j) {
-        case Judgement::Perfect: ++_perfect_count; ++_current_combo; break;
-        case Judgement::Great:   ++_great_count;   ++_current_combo; break;
-        case Judgement::Good:    ++_good_count;    ++_current_combo; break;
-        case Judgement::Miss:    ++_miss_count;    _current_combo = 0u; break;
+        case EJudgement::Perfect: ++_perfect_count; ++_current_combo; break;
+        case EJudgement::Great:   ++_great_count;   ++_current_combo; break;
+        case EJudgement::Good:    ++_good_count;    ++_current_combo; break;
+        case EJudgement::Miss:    ++_miss_count;    _current_combo = 0u; break;
     }
     if (_current_combo > _max_combo) _max_combo = _current_combo;
 
@@ -178,25 +178,25 @@ void BeatGrid::Resume() noexcept {
 // 入力 / 駆動
 // ----------------------------------------------------------------------------
 
-Judgement BeatGrid::Tap(BeatLane lane) noexcept {
+EJudgement BeatGrid::Tap(EBeatLane lane) noexcept {
     // 停止中は判定対象なし
-    if (!_playing) return Judgement::Miss;
+    if (!_playing) return EJudgement::Miss;
 
     const usize idx = FindNearestNote(lane);
     if (idx >= _notes.Size()) {
         // good_window 内に該当 note なし: caller への通知は Miss だが
         // 統計には影響させない (空打ち)。
-        return Judgement::Miss;
+        return EJudgement::Miss;
     }
 
     const BeatNote& note = _notes[idx];
     f32 delta = note.time_sec - _current_time;
     if (delta < 0.0f) delta = -delta;
-    const Judgement j = ClassifyDelta(delta);
+    const EJudgement j = ClassifyDelta(delta);
 
     // ClassifyDelta は FindNearestNote の best_abs <= good_window 制約により
     // ここで Miss にはならないはずだが、defense-in-depth で再確認。
-    if (j == Judgement::Miss) return Judgement::Miss;
+    if (j == EJudgement::Miss) return EJudgement::Miss;
 
     _judged[idx] = true;
     ApplyJudgement(lane, j);
@@ -219,7 +219,7 @@ void BeatGrid::Tick(f32 dt) noexcept {
         if (_judged[i]) continue;
         if (_notes[i].time_sec < miss_threshold) {
             _judged[i] = true;
-            ApplyJudgement(_notes[i].lane, Judgement::Miss);
+            ApplyJudgement(_notes[i].lane, EJudgement::Miss);
         }
     }
 

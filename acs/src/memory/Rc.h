@@ -102,7 +102,7 @@ public:
     explicit operator bool() const noexcept { return _ptr != nullptr; }
 
     // 現在の参照数（デバッグ用、相対値）
-    u32 UseCount() const noexcept { return _cb ? _cb->strong.Load(MemoryOrder::Acquire) : 0; }
+    u32 UseCount() const noexcept { return _cb ? _cb->strong.Load(EMemoryOrder::Acquire) : 0; }
 
     template<typename U, typename... Args> friend Rc<U> MakeRc(Args&&...) noexcept;
     template<typename U, typename... Args> friend Rc<U> MakeRcIn(Allocator&, Args&&...) noexcept;

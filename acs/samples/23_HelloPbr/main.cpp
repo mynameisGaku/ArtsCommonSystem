@@ -66,14 +66,14 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
         _time += dt;
 
         const f32 mv = 5.0f * dt, tr = 1.5f * dt;
-        if (Input::IsKeyDown(Key::Left))  _cam_yaw -= tr;
-        if (Input::IsKeyDown(Key::Right)) _cam_yaw += tr;
-        if (Input::IsKeyDown(Key::Up))    _cam_pitch -= tr * 0.8f;
-        if (Input::IsKeyDown(Key::Down))  _cam_pitch += tr * 0.8f;
+        if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
+        if (Input::IsKeyDown(EKey::Right)) _cam_yaw += tr;
+        if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
+        if (Input::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
         const f32 limit = 0.45f * kPi;
         if (_cam_pitch >  limit) _cam_pitch =  limit;
         if (_cam_pitch < -limit) _cam_pitch = -limit;
@@ -81,10 +81,10 @@ public:
                      -Sin(_cam_pitch),
                       Cos(_cam_yaw) * Cos(_cam_pitch) };
         Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
-        if (Input::IsKeyDown(Key::W)) _cam_pos += forward * mv;
-        if (Input::IsKeyDown(Key::S)) _cam_pos -= forward * mv;
-        if (Input::IsKeyDown(Key::D)) _cam_pos += right   * mv;
-        if (Input::IsKeyDown(Key::A)) _cam_pos -= right   * mv;
+        if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
+        if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
+        if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
+        if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * mv;
         _camera.SetLookAt(_cam_pos, _cam_pos + forward);
     }
 

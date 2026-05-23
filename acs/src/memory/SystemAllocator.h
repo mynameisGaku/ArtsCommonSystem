@@ -33,8 +33,8 @@ public:
                   usize alignment, SourceLoc loc)             noexcept override;
 
     // 統計取得（アトミックで集計）
-    u64 BytesAllocated() const noexcept override { return _bytes.Load(MemoryOrder::Acquire); }
-    u64 PeakBytes()      const noexcept override { return _peak.Load(MemoryOrder::Acquire); }
+    u64 BytesAllocated() const noexcept override { return _bytes.Load(EMemoryOrder::Acquire); }
+    u64 PeakBytes()      const noexcept override { return _peak.Load(EMemoryOrder::Acquire); }
     const char* Name()   const noexcept override { return "System"; }
 
 private:

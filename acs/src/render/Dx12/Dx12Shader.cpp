@@ -21,9 +21,9 @@ HrResult Dx12Shader::Init(Dx12Device& /*device*/, const ShaderDesc& desc) noexce
     const char* target = desc.target;
     if (!target) {
         switch (desc.stage) {
-            case ShaderStage::Vertex:  target = "vs_5_1"; break;
-            case ShaderStage::Pixel:   target = "ps_5_1"; break;
-            case ShaderStage::Compute: target = "cs_5_1"; break;
+            case EShaderStage::Vertex:  target = "vs_5_1"; break;
+            case EShaderStage::Pixel:   target = "ps_5_1"; break;
+            case EShaderStage::Compute: target = "cs_5_1"; break;
         }
     }
 

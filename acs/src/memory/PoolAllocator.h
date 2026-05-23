@@ -43,7 +43,7 @@ public:
 
     // 現在の使用量 = 生存ブロック数 × ブロックサイズ
     u64 BytesAllocated() const noexcept override {
-        return _live.Load(MemoryOrder::Acquire) * _block_size;
+        return _live.Load(EMemoryOrder::Acquire) * _block_size;
     }
     const char* Name()   const noexcept override { return "Pool"; }
 

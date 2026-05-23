@@ -58,7 +58,7 @@ namespace acs::game {
 
 // 1 つの値の型タグ。Set 系で書き込まれ、Get 系で kind 一致を確認する。
 // 不一致な型での Get は default_value を返す (silent fallback)。
-enum class SettingKind : u8 {
+enum class ESettingKind : u8 {
     None,   // 未設定 (内部用、外部からは見えない)
     F32,
     I32,
@@ -109,7 +109,7 @@ private:
     // key / string 値は非所有 const char* (寿命は呼び出し側保証)。
     struct Entry {
         const char* key  = nullptr;
-        SettingKind kind = SettingKind::None;
+        ESettingKind kind = ESettingKind::None;
         union Value {
             f32         f;
             i32         i;

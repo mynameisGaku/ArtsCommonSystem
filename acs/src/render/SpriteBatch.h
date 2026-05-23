@@ -42,7 +42,7 @@ public:
     // 初期化（VS+PS、パイプライン、頂点/インデックスバッファを作成）
     // max_sprites: 1 フレームで描けるスプライト総数の上限
     Result<void> Init(IRhiDevice& device,
-                      Format rt_format     = Format::B8G8R8A8_UNorm,
+                      EFormat rt_format     = EFormat::B8G8R8A8_UNorm,
                       u32 max_sprites      = 4096) noexcept;
 
     void Shutdown() noexcept;

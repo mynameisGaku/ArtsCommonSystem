@@ -14,7 +14,7 @@ namespace acs {
 using AssetType = u32;
 
 // ロード状態
-enum class AssetState : u8 {
+enum class EAssetState : u8 {
     Unloaded = 0,   // 未ロード
     Loading  = 1,   // ロード中（非同期）
     Ready    = 2,   // 利用可能
@@ -30,15 +30,15 @@ public:
     virtual AssetType Type() const noexcept = 0;
 
     AssetId   Id()    const noexcept { return _id; }
-    AssetState State() const noexcept { return _state; }
+    EAssetState State() const noexcept { return _state; }
 
     // レジストリから設定される（一般ユーザは触らない）
     void SetId(AssetId id) noexcept       { _id = id; }
-    void SetState(AssetState s) noexcept  { _state = s; }
+    void SetState(EAssetState s) noexcept  { _state = s; }
 
 private:
     AssetId    _id    = kInvalidAssetId;
-    AssetState _state = AssetState::Unloaded;
+    EAssetState _state = EAssetState::Unloaded;
 };
 
 // 派生クラスで型 ID を簡単に宣言するためのヘルパマクロ

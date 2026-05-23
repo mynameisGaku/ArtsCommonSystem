@@ -4,7 +4,7 @@
 // 使い方:
 //   TextureDesc d{};
 //   d.width = 256; d.height = 256;
-//   d.format = Format::R8G8B8A8_UNorm;
+//   d.format = EFormat::R8G8B8A8_UNorm;
 //   d.initial_data = pixels;          // RGBA 8bit、上から下、左から右の順
 //   d.initial_data_size = 256*256*4;
 //   auto tex = CreateRhiTexture(device, d).Value();
@@ -25,7 +25,7 @@ class IRhiDevice;
 struct TextureDesc {
     u32         width            = 0;
     u32         height           = 0;
-    Format      format           = Format::R8G8B8A8_UNorm;
+    EFormat      format           = EFormat::R8G8B8A8_UNorm;
     u32         mip_levels       = 1;             // 1 = ベースのみ。>1 で生成する場合は per_slice_rtv を併用してミップ毎に描画する
     u32         array_size       = 1;             // 1 = 単一、6 = cubemap、>1 = テクスチャ配列
     bool        is_cubemap       = false;         // true なら array_size==6 を要求（Diligent: RESOURCE_DIM_TEX_CUBE）
@@ -43,7 +43,7 @@ public:
 
     virtual u32    Width()      const noexcept = 0;
     virtual u32    Height()     const noexcept = 0;
-    virtual Format PixelFormat() const noexcept = 0;
+    virtual EFormat EPixelFormat() const noexcept = 0;
 
     // Phase 31 で追加。既存バックエンドは安全な既定値を返してよい。
     virtual u32    MipLevels()  const noexcept { return 1; }

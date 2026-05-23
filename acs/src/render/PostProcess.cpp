@@ -529,13 +529,13 @@ constexpr usize CBSize() noexcept {
 
 // 全画面三角形 (頂点バッファ無し) のパイプライン共通設定
 void FillFullscreenLayout(PipelineDesc& pd) noexcept {
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
-    pd.cull_mode     = CullMode::None;
+    pd.cull_mode     = ECullMode::None;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.depth_format  = Format::Unknown;
+    pd.depth_format  = EFormat::Unknown;
 }
 
 } // namespace
@@ -545,7 +545,7 @@ PostProcess::~PostProcess() noexcept {
 }
 
 Result<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
-                                Format color_format) noexcept {
+                                EFormat color_format) noexcept {
     _device = &device;
     _color_format = color_format;
     _width = width;
@@ -556,7 +556,7 @@ Result<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
 
     BufferDesc cbd{};
     cbd.size         = CBSize<PostCBLayout>();
-    cbd.usage        = BufferUsage::Uniform;
+    cbd.usage        = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     auto cbr = CreateRhiBuffer(device, cbd);
     if (cbr.IsErr()) return Err<void>(cbr.Error());
@@ -565,7 +565,7 @@ Result<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     // Phase 34f-2: TaaReproj CB (b1)
     BufferDesc rcbd{};
     rcbd.size = CBSize<TaaReprojCBLayout>();
-    rcbd.usage = BufferUsage::Uniform;
+    rcbd.usage = EBufferUsage::Uniform;
     rcbd.cpu_writable = true;
     auto rcbr = CreateRhiBuffer(device, rcbd);
     if (rcbr.IsErr()) return Err<void>(rcbr.Error());
@@ -574,7 +574,7 @@ Result<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     // Phase 34k-2: auto-exposure 用 CB
     BufferDesc acbd{};
     acbd.size = CBSize<AutoExposureCBLayout>();
-    acbd.usage = BufferUsage::Uniform;
+    acbd.usage = EBufferUsage::Uniform;
     acbd.cpu_writable = true;
     auto acbr = CreateRhiBuffer(device, acbd);
     if (acbr.IsErr()) return Err<void>(acbr.Error());
@@ -584,7 +584,7 @@ Result<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     const u8 far_depth[4] = { 255, 255, 255, 255 };
     TextureDesc td{};
     td.width = 1; td.height = 1;
-    td.format = Format::R8G8B8A8_UNorm;
+    td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = far_depth; td.initial_data_size = 4;
     auto dfb = CreateRhiTexture(device, td);
     if (dfb.IsErr()) return Err<void>(dfb.Error());
@@ -735,7 +735,7 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     // ---- 共通 VS ----
     {
         ShaderDesc sd{};
-        sd.stage = ShaderStage::Vertex;
+        sd.stage = EShaderStage::Vertex;
         sd.hlsl_source = kFullscreenVS;
         sd.entry_point = "VSMain";
         sd.debug_name  = "Fullscreen.VS";
@@ -748,7 +748,7 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     auto compile_ps = [&](const char* src, const char* name,
                           UniquePtr<IRhiShader>& out) -> Result<void> {
         ShaderDesc sd{};
-        sd.stage = ShaderStage::Pixel;
+        sd.stage = EShaderStage::Pixel;
         sd.hlsl_source = src;
         sd.entry_point = "PSMain";
         sd.debug_name  = name;
@@ -780,9 +780,9 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "src";
         pd.static_sampler_count = 1;
-        pd.static_samplers[0].filter    = SamplerFilter::Linear;
-        pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+        pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+        pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_extract = Move(r.Value());
@@ -799,9 +799,9 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "src";
         pd.static_sampler_count = 1;
-        pd.static_samplers[0].filter    = SamplerFilter::Linear;
-        pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+        pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+        pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_downsample = Move(r.Value());
@@ -813,15 +813,15 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_upsample.Get();
         pd.rt_format = _hdr_format;
-        pd.blend_mode = BlendMode::Additive;
+        pd.blend_mode = EBlendMode::Additive;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 1;
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "src";
         pd.static_sampler_count = 1;
-        pd.static_samplers[0].filter    = SamplerFilter::Linear;
-        pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+        pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+        pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_upsample = Move(r.Value());
@@ -842,13 +842,13 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.texture_names[2] = "scene_depth";
         pd.static_sampler_count = 3;
         for (u32 i = 0; i < 2; ++i) {
-            pd.static_samplers[i].filter    = SamplerFilter::Linear;
-            pd.static_samplers[i].address_u = SamplerAddress::Clamp;
-            pd.static_samplers[i].address_v = SamplerAddress::Clamp;
+            pd.static_samplers[i].filter    = ESamplerFilter::Linear;
+            pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
+            pd.static_samplers[i].address_v = ESamplerAddress::Clamp;
         }
-        pd.static_samplers[2].filter    = SamplerFilter::Point;     // depth は離散値
-        pd.static_samplers[2].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[2].address_v = SamplerAddress::Clamp;
+        pd.static_samplers[2].filter    = ESamplerFilter::Point;     // depth は離散値
+        pd.static_samplers[2].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_taa_resolve = Move(r.Value());
@@ -869,9 +869,9 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.texture_names[2] = "ssr";
         pd.static_sampler_count = 3;
         for (u32 i = 0; i < 3; ++i) {
-            pd.static_samplers[i].filter    = SamplerFilter::Linear;
-            pd.static_samplers[i].address_u = SamplerAddress::Clamp;
-            pd.static_samplers[i].address_v = SamplerAddress::Clamp;
+            pd.static_samplers[i].filter    = ESamplerFilter::Linear;
+            pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
+            pd.static_samplers[i].address_v = ESamplerAddress::Clamp;
         }
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
@@ -891,9 +891,9 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "src";
         pd.static_sampler_count = 1;
-        pd.static_samplers[0].filter    = SamplerFilter::Linear;
-        pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+        pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+        pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_luma_extract = Move(r.Value());
@@ -910,9 +910,9 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "src";
         pd.static_sampler_count = 1;
-        pd.static_samplers[0].filter    = SamplerFilter::Linear;
-        pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-        pd.static_samplers[0].address_v = SamplerAddress::Clamp;
+        pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+        pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         _pipe_luma_down = Move(r.Value());
@@ -931,9 +931,9 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.texture_names[1] = "prev_exp";
         pd.static_sampler_count = 2;
         for (u32 i = 0; i < 2; ++i) {
-            pd.static_samplers[i].filter    = SamplerFilter::Linear;
-            pd.static_samplers[i].address_u = SamplerAddress::Clamp;
-            pd.static_samplers[i].address_v = SamplerAddress::Clamp;
+            pd.static_samplers[i].filter    = ESamplerFilter::Linear;
+            pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
+            pd.static_samplers[i].address_v = ESamplerAddress::Clamp;
         }
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
@@ -952,9 +952,9 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.texture_names[1] = "exposure";
         pd.static_sampler_count = 2;
         for (u32 i = 0; i < 2; ++i) {
-            pd.static_samplers[i].filter    = SamplerFilter::Linear;
-            pd.static_samplers[i].address_u = SamplerAddress::Clamp;
-            pd.static_samplers[i].address_v = SamplerAddress::Clamp;
+            pd.static_samplers[i].filter    = ESamplerFilter::Linear;
+            pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
+            pd.static_samplers[i].address_v = ESamplerAddress::Clamp;
         }
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());

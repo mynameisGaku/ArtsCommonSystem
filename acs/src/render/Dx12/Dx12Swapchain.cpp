@@ -25,9 +25,9 @@ HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noe
     DXGI_SWAP_CHAIN_DESC1 sd{};
     sd.Width  = _width;
     sd.Height = _height;
-    sd.Format = ToDxgiFormat(cfg.format);
+    sd.EFormat = ToDxgiFormat(cfg.format);
     sd.SampleDesc.Count = 1;
-    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.EBufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.BufferCount = _buffer_count;
     sd.Scaling = DXGI_SCALING_NONE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;

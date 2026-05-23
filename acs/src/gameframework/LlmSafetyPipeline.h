@@ -14,7 +14,7 @@
 //
 // 設計判断:
 //   ・**bit flag で個別 on/off**: シーン (チュートリアル / 児童向け / 大人向け) ごとに
-//     PII redaction だけ無効化したい等の要望に応えるため、Svc/SceneServices と
+//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/SceneServices と
 //     同じ「mask で機能宣言」スタイルに揃える。
 //   ・**stub 実装**: Phase 1 (本フェーズ) は単純な文字列長 / keyword チェックのみ。
 //     実 jailbreak 検出器・PII regex・コンテンツ分類器は Phase 2 以降で差し込み。
@@ -44,42 +44,42 @@
 namespace acs::game {
 
 // =============================================================================
-// SafetyRule — どの安全機能を有効化するかの bit flag
+// ESafetyRule — どの安全機能を有効化するかの bit flag
 // -----------------------------------------------------------------------------
 // `Default` = 全機能 on。ゲーム側で必要に応じて個別に EnableRule(...) で外す。
 // =============================================================================
-enum class SafetyRule : u32 {
+enum class ESafetyRule : u32 {
     None                = 0,
     InputValidation     = 1u << 0,  // 空文字 / 長すぎる入力を弾く
     JailbreakDetection  = 1u << 1,  // "ignore previous instructions" 等の典型句を弾く
     PiiRedaction        = 1u << 2,  // 個人情報を `[REDACTED]` に置換 (Phase 2 では stub)
-    ContentRating       = 1u << 3,  // 暴力 / 性的 / 自傷 / ヘイトを弾く (Phase 2 では stub)
+    EContentRating       = 1u << 3,  // 暴力 / 性的 / 自傷 / ヘイトを弾く (Phase 2 では stub)
     TokenBudget         = 1u << 4,  // 入出力トークン上限 (簡易: 1 token ≒ 4 byte)
     RefusalEnforcement  = 1u << 5,  // キャラ設定逸脱を弾く (Phase 2 では stub)
 
     Default = InputValidation | JailbreakDetection | PiiRedaction
-            | ContentRating   | TokenBudget        | RefusalEnforcement,
+            | EContentRating   | TokenBudget        | RefusalEnforcement,
 };
 
-constexpr SafetyRule operator|(SafetyRule a, SafetyRule b) noexcept {
-    return static_cast<SafetyRule>(static_cast<u32>(a) | static_cast<u32>(b));
+constexpr ESafetyRule operator|(ESafetyRule a, ESafetyRule b) noexcept {
+    return static_cast<ESafetyRule>(static_cast<u32>(a) | static_cast<u32>(b));
 }
-constexpr SafetyRule operator&(SafetyRule a, SafetyRule b) noexcept {
-    return static_cast<SafetyRule>(static_cast<u32>(a) & static_cast<u32>(b));
+constexpr ESafetyRule operator&(ESafetyRule a, ESafetyRule b) noexcept {
+    return static_cast<ESafetyRule>(static_cast<u32>(a) & static_cast<u32>(b));
 }
-constexpr bool SafetyHas(SafetyRule mask, SafetyRule flag) noexcept {
+constexpr bool SafetyHas(ESafetyRule mask, ESafetyRule flag) noexcept {
     return (static_cast<u32>(mask) & static_cast<u32>(flag)) != 0u;
 }
 
 // =============================================================================
-// SafetyVerdict — パイプラインの判定結果
+// ESafetyVerdict — パイプラインの判定結果
 // -----------------------------------------------------------------------------
 //   Pass            = 安全に通過、`filtered_text` は入力をそのまま返す
 //   Refused         = 規約違反 / jailbreak 検出 → 文字列は返さず `refusal_reason` を埋める
 //   Filtered        = 危険箇所だけ除去して通過 → `filtered_text` に置換済み文字列
 //   BudgetExceeded  = トークン予算超過 → 上位は LLM 呼び出しを skip すべし
 // =============================================================================
-enum class SafetyVerdict : u32 {
+enum class ESafetyVerdict : u32 {
     Pass            = 0,
     Refused         = 1,
     Filtered        = 2,
@@ -94,7 +94,7 @@ enum class SafetyVerdict : u32 {
 // 消費すること。
 // =============================================================================
 struct SafetyResult {
-    SafetyVerdict verdict        = SafetyVerdict::Pass;
+    ESafetyVerdict verdict        = ESafetyVerdict::Pass;
     const char*   filtered_text  = nullptr;  // Pass / Filtered で有効、それ以外 nullptr
     const char*   refusal_reason = nullptr;  // Refused で有効、それ以外 nullptr
     u32           input_tokens   = 0;        // 概算トークン数 (= byte_len / 4)
@@ -114,11 +114,11 @@ struct SafetyResult {
 //   pipe.SetCharacterAnchor("You are a friendly shopkeeper in a fantasy RPG.");
 //
 //   auto in_res = pipe.ValidateInput(player_text);
-//   if (in_res.verdict != SafetyVerdict::Pass) { ShowRefusalUi(in_res.refusal_reason); return; }
+//   if (in_res.verdict != ESafetyVerdict::Pass) { ShowRefusalUi(in_res.refusal_reason); return; }
 //
 //   auto llm_text = my_llm.Generate(player_text);
 //   auto out_res = pipe.FilterOutput(llm_text);
-//   if (out_res.verdict == SafetyVerdict::Refused) { NpcBecomesSilent(); return; }
+//   if (out_res.verdict == ESafetyVerdict::Refused) { NpcBecomesSilent(); return; }
 //   DisplayNpcLine(out_res.filtered_text);
 // =============================================================================
 class LlmSafetyPipeline {
@@ -133,7 +133,7 @@ public:
     LlmSafetyPipeline& operator=(LlmSafetyPipeline&&)      = delete;
 
     // 初期化。bit flag で機能を選択。多重 Init は最新 rules で上書き。
-    void Init(SafetyRule rules = SafetyRule::Default) noexcept;
+    void Init(ESafetyRule rules = ESafetyRule::Default) noexcept;
 
     // 入出力それぞれのトークン上限。0 を指定すると当該方向のチェック無効。
     // 規定値: max_input_tokens = 2048, max_output_tokens = 1024。
@@ -152,15 +152,15 @@ public:
 
     // LLM 応答を検証 / フィルタ (UI 表示前)。
     // - PiiRedaction: 個人情報を `[REDACTED]` に置換 → Filtered (Phase 2: stub)
-    // - ContentRating: 危険スコア超過 → Refused (Phase 2: stub)
+    // - EContentRating: 危険スコア超過 → Refused (Phase 2: stub)
     // - RefusalEnforcement: キャラ逸脱 → Refused (Phase 2: stub)
     // - TokenBudget: output_tokens > max_output_tokens → BudgetExceeded
     SafetyResult FilterOutput(const char* llm_response) noexcept;
 
     // rules マスク操作
-    bool       IsRuleEnabled(SafetyRule rule) const noexcept;
-    void       EnableRule(SafetyRule rule, bool enable) noexcept;
-    SafetyRule Rules() const noexcept { return _rules; }
+    bool       IsRuleEnabled(ESafetyRule rule) const noexcept;
+    void       EnableRule(ESafetyRule rule, bool enable) noexcept;
+    ESafetyRule Rules() const noexcept { return _rules; }
 
     // 統計 (テレメトリ / デバッグ用)
     u32  RefusedCount()  const noexcept { return _refused_count; }
@@ -170,7 +170,7 @@ public:
     void Reset() noexcept;
 
 private:
-    SafetyRule  _rules               = SafetyRule::Default;
+    ESafetyRule  _rules               = ESafetyRule::Default;
     u32         _max_input_tokens    = 2048;
     u32         _max_output_tokens   = 1024;
     const char* _character_anchor    = nullptr;  // 非所有

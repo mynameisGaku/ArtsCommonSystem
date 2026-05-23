@@ -63,16 +63,16 @@ public:
     }
 
     void OnUpdate(f32 dt) noexcept override {
-        if (Input::IsKeyPressed(Key::Escape)) Quit();
-        if (Input::IsKeyPressed(Key::Num1)) { _sky.PresetDay();    _preset = 0; }
-        if (Input::IsKeyPressed(Key::Num2)) { _sky.PresetSunset(); _preset = 1; }
-        if (Input::IsKeyPressed(Key::Num3)) { _sky.PresetNight();  _preset = 2; }
+        if (Input::IsKeyPressed(EKey::Escape)) Quit();
+        if (Input::IsKeyPressed(EKey::Num1)) { _sky.PresetDay();    _preset = 0; }
+        if (Input::IsKeyPressed(EKey::Num2)) { _sky.PresetSunset(); _preset = 1; }
+        if (Input::IsKeyPressed(EKey::Num3)) { _sky.PresetNight();  _preset = 2; }
 
         _angle += dt * 0.5f;
 
         // カメラ周回
-        if (Input::IsKeyDown(Key::Left))  _cam_yaw -= dt * 1.0f;
-        if (Input::IsKeyDown(Key::Right)) _cam_yaw += dt * 1.0f;
+        if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
+        if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
         const f32 cam_dist = 6.0f;
         _cam_pos = Vec3{ Sin(_cam_yaw) * cam_dist, 2.5f, -Cos(_cam_yaw) * cam_dist };
         _camera.SetLookAt(_cam_pos, Vec3{0, 1, 0});

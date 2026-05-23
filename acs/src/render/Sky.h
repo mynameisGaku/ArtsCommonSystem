@@ -38,8 +38,8 @@ public:
     Sky& operator=(const Sky&) = delete;
 
     Result<void> Init(IRhiDevice& device,
-                      Format rt_format    = Format::B8G8R8A8_UNorm,
-                      Format depth_format = Format::D32_Float) noexcept;
+                      EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
+                      EFormat depth_format = EFormat::D32_Float) noexcept;
     void Shutdown() noexcept;
 
     // パラメータ設定（カメラと同じ右手 / 左手系の前提なし、シェーダで normalize する）

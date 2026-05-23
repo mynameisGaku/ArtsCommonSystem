@@ -59,12 +59,12 @@ Result<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
 // =============================================================================
 // UpscalerStub — Off のみ受け付ける
 // -----------------------------------------------------------------------------
-// `UpscalerKind::Off` への Init は「無効化を選んだ」状態として成功扱い。
+// `EUpscalerKind::Off` への Init は「無効化を選んだ」状態として成功扱い。
 // それ以外 (FSR / DLSS / XeSS / Custom) は SDK 未統合なので NotImplemented。
 // =============================================================================
-Result<void> UpscalerStub::Init(UpscalerKind k) noexcept {
-    if (k == UpscalerKind::Off) {
-        _kind = UpscalerKind::Off;
+Result<void> UpscalerStub::Init(EUpscalerKind k) noexcept {
+    if (k == EUpscalerKind::Off) {
+        _kind = EUpscalerKind::Off;
         return Ok();
     }
     // SDK 同梱前提の kind が要求された → 上位は fallback パスを取るべき。

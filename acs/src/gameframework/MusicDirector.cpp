@@ -54,7 +54,7 @@ MusicDirector::MusicDirector() noexcept {
 // track 登録
 // ----------------------------------------------------------------------------
 
-void MusicDirector::RegisterTrack(MusicState state, const MusicTrack& track) noexcept {
+void MusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) noexcept {
     if (track.asset_path == nullptr) {
         ACS_LOG_WARN("MusicDirector::RegisterTrack: asset_path=nullptr → ignored");
         return;
@@ -98,7 +98,7 @@ void MusicDirector::RebuildStateIndex() noexcept {
     // 将来 UnregisterTrack を導入する際の hook 用に空関数として残す。
 }
 
-usize MusicDirector::FindTrackForState(MusicState state, f32 intensity) const noexcept {
+usize MusicDirector::FindTrackForState(EMusicState state, f32 intensity) const noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) return _tracks.Size();
     const u32 first = _state_first[state_idx];
@@ -128,7 +128,7 @@ usize MusicDirector::FindTrackForState(MusicState state, f32 intensity) const no
 // 状態遷移
 // ----------------------------------------------------------------------------
 
-void MusicDirector::SetState(MusicState state, f32 transition_sec) noexcept {
+void MusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) {
         ACS_LOG_WARN("MusicDirector::SetState: invalid state=%u → ignored", state_idx);
@@ -250,8 +250,8 @@ void MusicDirector::Tick(f32 dt) noexcept {
 
 void MusicDirector::Stop() noexcept {
     LogTodoOnce("Stop");
-    _current_state        = MusicState::Silent;
-    _target_state         = MusicState::Silent;
+    _current_state        = EMusicState::Silent;
+    _target_state         = EMusicState::Silent;
     _transition_duration  = 0.0f;
     _transition_elapsed   = 0.0f;
     _transition_progress  = 1.0f;

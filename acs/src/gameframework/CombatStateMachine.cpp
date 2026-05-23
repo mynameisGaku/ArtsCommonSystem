@@ -27,14 +27,14 @@ f32 CombatStateMachine::Clamp01(f32 v) noexcept {
 //   BossFight = 1.00 — ボス戦 (BGM Combat 最大 / 振動最大)
 //   Victory   = 0.40 — 勝利直後 (Engaged からの自然な減衰、Calm へは Reset で)
 //   Retreat   = 0.20 — 撤退 (緊張感は残るが Combat ではない)
-f32 CombatStateMachine::DefaultThreatTarget(CombatState state) noexcept {
+f32 CombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
     switch (state) {
-        case CombatState::Peaceful:  return 0.0f;
-        case CombatState::Alert:     return 0.3f;
-        case CombatState::Engaged:   return 0.7f;
-        case CombatState::BossFight: return 1.0f;
-        case CombatState::Victory:   return 0.4f;
-        case CombatState::Retreat:   return 0.2f;
+        case ECombatState::Peaceful:  return 0.0f;
+        case ECombatState::Alert:     return 0.3f;
+        case ECombatState::Engaged:   return 0.7f;
+        case ECombatState::BossFight: return 1.0f;
+        case ECombatState::Victory:   return 0.4f;
+        case ECombatState::Retreat:   return 0.2f;
     }
     return 0.0f;  // unreachable, defensive default
 }
@@ -48,11 +48,11 @@ CombatStateMachine::CombatStateMachine() noexcept {
 }
 
 void CombatStateMachine::Init() noexcept {
-    _state             = CombatState::Peaceful;
-    _threat_target     = DefaultThreatTarget(CombatState::Peaceful);
+    _state             = ECombatState::Peaceful;
+    _threat_target     = DefaultThreatTarget(ECombatState::Peaceful);
     _threat_current    = 0.0f;
     _engaged_elapsed   = 0.0f;
-    _pre_boss_state    = CombatState::Peaceful;
+    _pre_boss_state    = ECombatState::Peaceful;
     _enemies.Clear();
     // _callback / _callback_user は保持 (Init は scene 再 enter 用と位置付け)。
 }
@@ -85,23 +85,23 @@ u32 CombatStateMachine::EngagedEnemyCount() const noexcept {
 }
 
 bool CombatStateMachine::IsInCombat() const noexcept {
-    return _state == CombatState::Engaged || _state == CombatState::BossFight;
+    return _state == ECombatState::Engaged || _state == ECombatState::BossFight;
 }
 
 // ----------------------------------------------------------------------------
 // state 遷移コア
 // ----------------------------------------------------------------------------
 
-void CombatStateMachine::TransitionTo(CombatState next) noexcept {
+void CombatStateMachine::TransitionTo(ECombatState next) noexcept {
     if (next == _state) return;  // no-op (callback 不発火)
-    const CombatState prev = _state;
+    const ECombatState prev = _state;
     _state = next;
 
     // 新 state の既定 threat target をセット (Tick 内で smooth に追従)。
     _threat_target = DefaultThreatTarget(next);
 
     // Engaged ドリフトタイマは Engaged へ "入った瞬間" にリセット。
-    if (next == CombatState::Engaged) {
+    if (next == ECombatState::Engaged) {
         _engaged_elapsed = 0.0f;
     } else {
         _engaged_elapsed = 0.0f;
@@ -134,8 +134,8 @@ void CombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     // state 遷移: Peaceful のみ Alert に上げる。Alert / Engaged / BossFight /
     // Victory / Retreat の場合は state 据置 (新規敵検出だけでは BossFight が
     // 解除されたりはしない、という意味)。
-    if (_state == CombatState::Peaceful) {
-        TransitionTo(CombatState::Alert);
+    if (_state == ECombatState::Peaceful) {
+        TransitionTo(ECombatState::Alert);
     }
 }
 
@@ -154,9 +154,9 @@ void CombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     }
 
     // BossFight 中は state 据置 (boss 優先)。それ以外なら Engaged へ。
-    if (_state == CombatState::BossFight) return;
-    if (_state != CombatState::Engaged) {
-        TransitionTo(CombatState::Engaged);
+    if (_state == ECombatState::BossFight) return;
+    if (_state != ECombatState::Engaged) {
+        TransitionTo(ECombatState::Engaged);
     }
 }
 
@@ -173,11 +173,11 @@ void CombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept 
     }
 
     // BossFight 中は boss 撃破が別 API なので、ここでは state を動かさない。
-    if (_state == CombatState::BossFight) return;
+    if (_state == ECombatState::BossFight) return;
 
     // 残りの engaged 数を見て、0 なら Victory / Retreat に遷移、>0 なら継続。
     if (EngagedEnemyCount() == 0) {
-        TransitionTo(victory ? CombatState::Victory : CombatState::Retreat);
+        TransitionTo(victory ? ECombatState::Victory : ECombatState::Retreat);
     }
 }
 
@@ -197,18 +197,18 @@ void CombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
 
     // 復帰先を覚えておく: Engaged 中なら Engaged に、それ以外なら Peaceful に
     // 戻す (= 一般敵が残っていない状況での孤独なボス撃破は Victory に行く)。
-    _pre_boss_state = (_state == CombatState::Engaged) ? CombatState::Engaged
-                                                       : CombatState::Peaceful;
+    _pre_boss_state = (_state == ECombatState::Engaged) ? ECombatState::Engaged
+                                                       : ECombatState::Peaceful;
 
     // どの state からでも BossFight に割り込み遷移。
-    if (_state != CombatState::BossFight) {
-        TransitionTo(CombatState::BossFight);
+    if (_state != ECombatState::BossFight) {
+        TransitionTo(ECombatState::BossFight);
     }
 }
 
 void CombatStateMachine::NotifyBossDefeated() noexcept {
     // BossFight 以外で呼ばれたら警告 + no-op (誤用検出)。
-    if (_state != CombatState::BossFight) {
+    if (_state != ECombatState::BossFight) {
         ACS_LOG_WARN("CombatStateMachine::NotifyBossDefeated: not in BossFight (state=%u)",
                      static_cast<u32>(_state));
         return;
@@ -229,9 +229,9 @@ void CombatStateMachine::NotifyBossDefeated() noexcept {
     //   >0 → Engaged (一般敵がまだ残っている)
     //    0 → Victory (= boss 撃破で全戦闘終了)
     if (EngagedEnemyCount() > 0) {
-        TransitionTo(CombatState::Engaged);
+        TransitionTo(ECombatState::Engaged);
     } else {
-        TransitionTo(CombatState::Victory);
+        TransitionTo(ECombatState::Victory);
     }
 }
 
@@ -247,7 +247,7 @@ void CombatStateMachine::Tick(f32 dt) noexcept {
     // 連動させた cap 加算)。Engaged 以外では _engaged_elapsed=0 にリセット
     // 済みなので drift=0。
     f32 effective_target = _threat_target;
-    if (_state == CombatState::Engaged) {
+    if (_state == ECombatState::Engaged) {
         _engaged_elapsed += dt;
         const f32 drift = _engaged_elapsed * 0.005f;  // 60s で +0.3
         const f32 drift_capped = drift > 0.3f ? 0.3f : drift;
@@ -257,7 +257,7 @@ void CombatStateMachine::Tick(f32 dt) noexcept {
     // 指数減衰追従: tau=0.5s で current → effective_target。
     // alpha = 1 - exp(-dt/tau)。tau=0.5s なら dt=16ms で alpha≈0.0317。
     // BossFight だけは tau=0.25s に短縮し、立ち上がりを鋭くする。
-    const f32 tau = (_state == CombatState::BossFight) ? 0.25f : 0.5f;
+    const f32 tau = (_state == ECombatState::BossFight) ? 0.25f : 0.5f;
     // 近似式 (Taylor 展開): alpha ≈ dt / (tau + dt)。STL 不使用方針で expf を
     // 避け、十分滑らかな一次遅れに収まる近似を採用。
     const f32 alpha = dt / (tau + dt);

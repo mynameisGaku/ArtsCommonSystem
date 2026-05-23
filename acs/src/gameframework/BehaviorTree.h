@@ -29,7 +29,7 @@
 //     PartialTick 派生を追加する想定だが、本最小実装ではスコープ外。
 //
 // 設計選択:
-//   ・leaf アクションは **関数ポインタ** `BtStatus(*)(void* bb, f32 dt) noexcept`。
+//   ・leaf アクションは **関数ポインタ** `EBtStatus(*)(void* bb, f32 dt) noexcept`。
 //     `std::function` 不使用 (ACS 規約)。型消去のヒープ確保 / 例外を避けるため。
 //     必要なキャプチャは blackboard 経由か `bb` を `Self*` にキャストして取り回す。
 //   ・blackboard は `void*` (user 定義の任意構造体)。BT 側で型を持たないことで
@@ -43,12 +43,12 @@
 // 使い方:
 //   struct EnemyBb { Vec3 pos; bool sees_player; };
 //
-//   static BtStatus MoveToPlayer(void* bb, f32 dt) noexcept {
+//   static EBtStatus MoveToPlayer(void* bb, f32 dt) noexcept {
 //       auto* e = static_cast<EnemyBb*>(bb);
 //       // ... move toward player ...
-//       return reached ? BtStatus::Success : BtStatus::Running;
+//       return reached ? EBtStatus::Success : EBtStatus::Running;
 //   }
-//   static BtStatus Patrol(void* bb, f32 dt) noexcept { ... }
+//   static EBtStatus Patrol(void* bb, f32 dt) noexcept { ... }
 //
 //   class Enemy {
 //       acs::game::BehaviorTree _bt;
@@ -79,7 +79,7 @@ namespace acs::game {
 //   Running = まだ実行中 (次フレームに継続)
 //   Success = このノードは目的達成 (composite が次へ進める判断材料)
 //   Failure = このノードは失敗   (composite が次へ進める判断材料)
-enum class BtStatus : u8 {
+enum class EBtStatus : u8 {
     Running = 0,
     Success = 1,
     Failure = 2,
@@ -97,7 +97,7 @@ public:
     BtNode& operator=(BtNode&&)      = delete;
 
     // 1 フレーム分の評価。blackboard は user 定義 (typically `Self*` にキャスト)。
-    virtual BtStatus Tick(void* blackboard, f32 dt) noexcept = 0;
+    virtual EBtStatus Tick(void* blackboard, f32 dt) noexcept = 0;
 };
 
 // Selector ("OR" 合成): 子を順に Tick し、最初に Running か Success を返した子で停止。
@@ -111,7 +111,7 @@ public:
     // 子の所有権を奪う。nullptr 渡しは no-op (ソフトフェイル)。
     void AddChild(UniquePtr<BtNode> child) noexcept;
 
-    BtStatus Tick(void* blackboard, f32 dt) noexcept override;
+    EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
     usize ChildCount() const noexcept { return _children.Size(); }
 
@@ -130,7 +130,7 @@ public:
     // 子の所有権を奪う。nullptr 渡しは no-op (ソフトフェイル)。
     void AddChild(UniquePtr<BtNode> child) noexcept;
 
-    BtStatus Tick(void* blackboard, f32 dt) noexcept override;
+    EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
     usize ChildCount() const noexcept { return _children.Size(); }
 
@@ -143,12 +143,12 @@ private:
 //   ・fn が nullptr の場合は常に Failure を返す (ソフトフェイル)。
 class BtAction : public BtNode {
 public:
-    using Fn = BtStatus(*)(void* blackboard, f32 dt) noexcept;
+    using Fn = EBtStatus(*)(void* blackboard, f32 dt) noexcept;
 
     explicit BtAction(Fn fn) noexcept : _fn(fn) {}
     ~BtAction() noexcept override = default;
 
-    BtStatus Tick(void* blackboard, f32 dt) noexcept override;
+    EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
 private:
     Fn _fn = nullptr;
@@ -171,7 +171,7 @@ public:
     void SetRoot(UniquePtr<BtNode> root) noexcept;
 
     // 1 フレーム分の評価。root 未設定なら Failure を返す。
-    BtStatus Tick(void* blackboard, f32 dt) noexcept;
+    EBtStatus Tick(void* blackboard, f32 dt) noexcept;
 
     bool HasRoot() const noexcept { return static_cast<bool>(_root); }
 

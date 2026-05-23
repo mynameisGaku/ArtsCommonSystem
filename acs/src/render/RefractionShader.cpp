@@ -174,11 +174,11 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> RefractionShader::Init(IRhiDevice& device, Format rt_format,
-                                    Format depth_format) noexcept {
+Result<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
+                                    EFormat depth_format) noexcept {
     // === シェーダコンパイル ===
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kRefractionHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Refraction.VS";
@@ -187,7 +187,7 @@ Result<void> RefractionShader::Init(IRhiDevice& device, Format rt_format,
     _vs = Move(vs_r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kRefractionHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Refraction.PS";
@@ -198,7 +198,7 @@ Result<void> RefractionShader::Init(IRhiDevice& device, Format rt_format,
     // === 定数バッファ ===
     BufferDesc fcb{};
     fcb.size = CBSize<FrameCBLayout>();
-    fcb.usage = BufferUsage::Uniform;
+    fcb.usage = EBufferUsage::Uniform;
     fcb.cpu_writable = true;
     auto fcb_r = CreateRhiBuffer(device, fcb);
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
@@ -206,7 +206,7 @@ Result<void> RefractionShader::Init(IRhiDevice& device, Format rt_format,
 
     BufferDesc ocb{};
     ocb.size = CBSize<ObjectCBLayout>();
-    ocb.usage = BufferUsage::Uniform;
+    ocb.usage = EBufferUsage::Uniform;
     ocb.cpu_writable = true;
     auto ocb_r = CreateRhiBuffer(device, ocb);
     if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
@@ -216,13 +216,13 @@ Result<void> RefractionShader::Init(IRhiDevice& device, Format rt_format,
     PipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
+    pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
-    pd.depth_test    = depth_format != Format::Unknown;
+    pd.depth_test    = depth_format != EFormat::Unknown;
     pd.depth_write   = true;
-    pd.cull_mode     = CullMode::Back;
-    pd.blend_mode    = BlendMode::Opaque;   // SS 屈折は背景を曲げて不透明描画する
+    pd.cull_mode     = ECullMode::Back;
+    pd.blend_mode    = EBlendMode::Opaque;   // SS 屈折は背景を曲げて不透明描画する
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
     pd.texture_slots = 3;     // t0=background, t1=env, t2=back_depth (Phase 35-3f)
     pd.cbuffer_names[0] = "Frame";
@@ -231,20 +231,20 @@ Result<void> RefractionShader::Init(IRhiDevice& device, Format rt_format,
     pd.texture_names[1] = "env";
     pd.texture_names[2] = "back_depth";
     pd.static_sampler_count = 3;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[1].filter    = SamplerFilter::Linear;
-    pd.static_samplers[1].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[1].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[1].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
     // back_depth は Point sample (深度の bilinear 補間は silhouette でアーティファクト)
-    pd.static_samplers[2].filter    = SamplerFilter::Point;
-    pd.static_samplers[2].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[2].filter    = ESamplerFilter::Point;
+    pd.static_samplers[2].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
-    pd.layout[0] = { "POSITION", 0, Format::R32G32B32_Float, 0  };
-    pd.layout[1] = { "NORMAL",   0, Format::R32G32B32_Float, 16 }; // Vec3 はアライン 16
-    pd.layout[2] = { "TEXCOORD", 0, Format::R32G32_Float,    32 };
+    pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // Vec3 はアライン 16
+    pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
@@ -252,12 +252,12 @@ Result<void> RefractionShader::Init(IRhiDevice& device, Format rt_format,
 
     // Phase 35-3f back_depth fallback: 1x1 R32G32_Float texture。.r = 1.0 を
     // 入れ、shader の「back_d >= 0.9999 → スカラー fallback」分岐に必ず hit
-    // させる (R32_Float が Format 未定義のため 2ch を採用、.g は捨てられる)。
+    // させる (R32_Float が EFormat 未定義のため 2ch を採用、.g は捨てられる)。
     {
         const f32 data[2] = { 1.0f, 0.0f };
         TextureDesc td{};
         td.width = 1; td.height = 1;
-        td.format = Format::R32G32_Float;
+        td.format = EFormat::R32G32_Float;
         td.initial_data = data;
         td.initial_data_size = sizeof(data);
         auto fb_r = CreateRhiTexture(device, td);

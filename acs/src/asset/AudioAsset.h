@@ -17,7 +17,7 @@
 namespace acs {
 
 // サンプルフォーマット
-enum class SampleFormat : u8 {
+enum class ESampleFormat : u8 {
     PCM_S16,   // 16-bit 符号付き整数
     PCM_F32,   // 32-bit 浮動小数
 };
@@ -27,14 +27,14 @@ public:
     ACS_ASSET_TYPE("AudioAsset")
 
     AudioAsset() noexcept = default;
-    AudioAsset(u32 sample_rate, u8 channels, SampleFormat fmt,
+    AudioAsset(u32 sample_rate, u8 channels, ESampleFormat fmt,
                u64 frame_count, Array<byte>&& samples) noexcept
         : _sample_rate(sample_rate), _channels(channels), _format(fmt),
           _frame_count(frame_count), _samples(Move(samples)) {}
 
     u32          SampleRate() const noexcept { return _sample_rate; }
     u8           Channels()   const noexcept { return _channels; }
-    SampleFormat Format()     const noexcept { return _format; }
+    ESampleFormat EFormat()     const noexcept { return _format; }
     u64          FrameCount() const noexcept { return _frame_count; }
     const byte*  Samples()    const noexcept { return _samples.Data(); }
     usize        SampleByteCount() const noexcept { return _samples.Size(); }
@@ -47,7 +47,7 @@ public:
 private:
     u32          _sample_rate = 0;
     u8           _channels    = 0;
-    SampleFormat _format      = SampleFormat::PCM_S16;
+    ESampleFormat _format      = ESampleFormat::PCM_S16;
     u64          _frame_count = 0;     // 1 フレーム = チャンネル数分のサンプル
     Array<byte>  _samples;             // インターリーブ済み生データ
 };

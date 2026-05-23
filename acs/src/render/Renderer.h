@@ -67,8 +67,8 @@ public:
     IRhiTexture*    DepthBuffer() const noexcept { return _depth.Get(); }
 
     // 描画ターゲットのフォーマット（パイプライン作成時に必要）
-    Format          ColorFormat() const noexcept { return _color_format; }
-    Format          DepthFormat() const noexcept { return _depth_format; }
+    EFormat          ColorFormat() const noexcept { return _color_format; }
+    EFormat          DepthFormat() const noexcept { return _depth_format; }
 
 private:
     Result<void> RebuildDepth(u32 w, u32 h) noexcept;
@@ -77,8 +77,8 @@ private:
     UniquePtr<IRhiSwapchain>   _swapchain;
     UniquePtr<IRhiCommandList> _cmd;
     UniquePtr<IRhiTexture>     _depth;
-    Format                      _color_format  = Format::B8G8R8A8_UNorm;
-    Format                      _depth_format  = Format::D32_Float;
+    EFormat                      _color_format  = EFormat::B8G8R8A8_UNorm;
+    EFormat                      _depth_format  = EFormat::D32_Float;
     u32                         _current_buffer = 0;
     bool                        _enable_depth   = true;
     bool                        _frame_open     = false;

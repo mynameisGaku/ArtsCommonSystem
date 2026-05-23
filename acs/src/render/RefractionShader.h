@@ -50,8 +50,8 @@ public:
     //   rt_format    : 描画先 RT のフォーマット (通常 HDR = R16G16B16A16_Float)
     //   depth_format : 深度フォーマット (opaque pass と同じものを渡す)
     Result<void> Init(IRhiDevice& device,
-                      Format rt_format    = Format::B8G8R8A8_UNorm,
-                      Format depth_format = Format::D32_Float) noexcept;
+                      EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
+                      EFormat depth_format = EFormat::D32_Float) noexcept;
 
     // 全リソース解放
     void Shutdown() noexcept;

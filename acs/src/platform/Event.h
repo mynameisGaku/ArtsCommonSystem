@@ -29,8 +29,8 @@ struct Event {
     EventType type = EventType::None;
     union {
         struct { u32 width, height; }                    resize;        // WindowResize
-        struct { Key key; bool repeat; }                 key;           // Key*
-        struct { MouseButton button; }                   mouse_button;  // MouseButton*
+        struct { EKey key; bool repeat; }                 key;           // EKey*
+        struct { EMouseButton button; }                   mouse_button;  // EMouseButton*
         struct { f32 x, y; f32 dx, dy; }                 mouse_move;    // MouseMoved
         struct { f32 x, y; }                             mouse_scroll;  // MouseScrolled
         struct { u32 codepoint; }                        char_input;    // CharInput

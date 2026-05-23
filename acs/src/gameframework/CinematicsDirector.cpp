@@ -136,11 +136,11 @@ void CinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
 
 void CinematicsDirector::FireOne(const TimelineKeyframe& kf) noexcept {
     switch (kf.kind) {
-    case TimelineTrackKind::Wait:
+    case ETimelineTrackKind::Wait:
         // 何もしない (時間進行マーカー)。
         break;
 
-    case TimelineTrackKind::MoveCamera:
+    case ETimelineTrackKind::MoveCamera:
         if (_camera_cb != nullptr) {
             _camera_cb(_camera_user,
                        kf.payload.camera.target_pos,
@@ -149,13 +149,13 @@ void CinematicsDirector::FireOne(const TimelineKeyframe& kf) noexcept {
         }
         break;
 
-    case TimelineTrackKind::ShowDialogue:
+    case ETimelineTrackKind::ShowDialogue:
         if (_dialogue_cb != nullptr) {
             _dialogue_cb(_dialogue_user, kf.payload.dialogue.line_id);
         }
         break;
 
-    case TimelineTrackKind::PlayMusic:
+    case ETimelineTrackKind::PlayMusic:
         if (_music_cb != nullptr) {
             _music_cb(_music_user,
                       kf.payload.music.music_id,
@@ -163,7 +163,7 @@ void CinematicsDirector::FireOne(const TimelineKeyframe& kf) noexcept {
         }
         break;
 
-    case TimelineTrackKind::FireEvent:
+    case ETimelineTrackKind::FireEvent:
         if (_event_cb != nullptr) {
             _event_cb(_event_user, kf.payload.event.event_id);
         }

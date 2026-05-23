@@ -9,33 +9,33 @@ namespace acs {
 
 namespace {
 
-// PrimitiveTopology → DX12 トポロジ種別
-D3D12_PRIMITIVE_TOPOLOGY_TYPE ToD3DTopologyType(PrimitiveTopology t) noexcept {
+// EPrimitiveTopology → DX12 トポロジ種別
+D3D12_PRIMITIVE_TOPOLOGY_TYPE ToD3DTopologyType(EPrimitiveTopology t) noexcept {
     switch (t) {
-        case PrimitiveTopology::PointList:     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
-        case PrimitiveTopology::LineList:
-        case PrimitiveTopology::LineStrip:     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-        case PrimitiveTopology::TriangleList:
-        case PrimitiveTopology::TriangleStrip: return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        case EPrimitiveTopology::PointList:     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+        case EPrimitiveTopology::LineList:
+        case EPrimitiveTopology::LineStrip:     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+        case EPrimitiveTopology::TriangleList:
+        case EPrimitiveTopology::TriangleStrip: return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     }
     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 }
 
-// CullMode → DX12
-D3D12_CULL_MODE ToD3DCullMode(CullMode m) noexcept {
+// ECullMode → DX12
+D3D12_CULL_MODE ToD3DCullMode(ECullMode m) noexcept {
     switch (m) {
-        case CullMode::None:  return D3D12_CULL_MODE_NONE;
-        case CullMode::Front: return D3D12_CULL_MODE_FRONT;
-        case CullMode::Back:  return D3D12_CULL_MODE_BACK;
+        case ECullMode::None:  return D3D12_CULL_MODE_NONE;
+        case ECullMode::Front: return D3D12_CULL_MODE_FRONT;
+        case ECullMode::Back:  return D3D12_CULL_MODE_BACK;
     }
     return D3D12_CULL_MODE_NONE;
 }
 
 // ラスタライザのデフォルト設定
-D3D12_RASTERIZER_DESC MakeRasterizer(CullMode cull) noexcept {
+D3D12_RASTERIZER_DESC MakeRasterizer(ECullMode cull) noexcept {
     D3D12_RASTERIZER_DESC r{};
     r.FillMode = D3D12_FILL_MODE_SOLID;
-    r.CullMode = ToD3DCullMode(cull);
+    r.ECullMode = ToD3DCullMode(cull);
     r.FrontCounterClockwise = FALSE;
     r.DepthClipEnable = TRUE;
     r.MultisampleEnable = FALSE;
@@ -44,7 +44,7 @@ D3D12_RASTERIZER_DESC MakeRasterizer(CullMode cull) noexcept {
 }
 
 // ブレンド設定（不透明・α・加算）
-D3D12_BLEND_DESC MakeBlend(BlendMode mode) noexcept {
+D3D12_BLEND_DESC MakeBlend(EBlendMode mode) noexcept {
     D3D12_BLEND_DESC b{};
     b.AlphaToCoverageEnable = FALSE;
     b.IndependentBlendEnable = FALSE;
@@ -53,17 +53,17 @@ D3D12_BLEND_DESC MakeBlend(BlendMode mode) noexcept {
     rt.LogicOp = D3D12_LOGIC_OP_NOOP;
     rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     switch (mode) {
-        case BlendMode::Opaque:
+        case EBlendMode::Opaque:
             rt.BlendEnable = FALSE;
             rt.SrcBlend = D3D12_BLEND_ONE; rt.DestBlend = D3D12_BLEND_ZERO; rt.BlendOp = D3D12_BLEND_OP_ADD;
             rt.SrcBlendAlpha = D3D12_BLEND_ONE; rt.DestBlendAlpha = D3D12_BLEND_ZERO; rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
             break;
-        case BlendMode::AlphaBlend:
+        case EBlendMode::AlphaBlend:
             rt.BlendEnable = TRUE;
             rt.SrcBlend = D3D12_BLEND_SRC_ALPHA; rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA; rt.BlendOp = D3D12_BLEND_OP_ADD;
             rt.SrcBlendAlpha = D3D12_BLEND_ONE; rt.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA; rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
             break;
-        case BlendMode::Additive:
+        case EBlendMode::Additive:
             rt.BlendEnable = TRUE;
             rt.SrcBlend = D3D12_BLEND_SRC_ALPHA; rt.DestBlend = D3D12_BLEND_ONE; rt.BlendOp = D3D12_BLEND_OP_ADD;
             rt.SrcBlendAlpha = D3D12_BLEND_ONE; rt.DestBlendAlpha = D3D12_BLEND_ONE; rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
@@ -83,23 +83,23 @@ D3D12_DEPTH_STENCIL_DESC MakeDepthStencil(bool enabled, bool write) noexcept {
     return d;
 }
 
-// SamplerFilter → DX12 フィルタ
-D3D12_FILTER ToD3DFilter(SamplerFilter f) noexcept {
+// ESamplerFilter → DX12 フィルタ
+D3D12_FILTER ToD3DFilter(ESamplerFilter f) noexcept {
     switch (f) {
-        case SamplerFilter::Point:        return D3D12_FILTER_MIN_MAG_MIP_POINT;
-        case SamplerFilter::Linear:       return D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        case SamplerFilter::Anisotropic:  return D3D12_FILTER_ANISOTROPIC;
+        case ESamplerFilter::Point:        return D3D12_FILTER_MIN_MAG_MIP_POINT;
+        case ESamplerFilter::Linear:       return D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        case ESamplerFilter::Anisotropic:  return D3D12_FILTER_ANISOTROPIC;
     }
     return D3D12_FILTER_MIN_MAG_MIP_LINEAR;
 }
 
-// SamplerAddress → DX12
-D3D12_TEXTURE_ADDRESS_MODE ToD3DAddress(SamplerAddress a) noexcept {
+// ESamplerAddress → DX12
+D3D12_TEXTURE_ADDRESS_MODE ToD3DAddress(ESamplerAddress a) noexcept {
     switch (a) {
-        case SamplerAddress::Wrap:    return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        case SamplerAddress::Mirror:  return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
-        case SamplerAddress::Clamp:   return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        case SamplerAddress::Border:  return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        case ESamplerAddress::Wrap:    return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        case ESamplerAddress::Mirror:  return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+        case ESamplerAddress::Clamp:   return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        case ESamplerAddress::Border:  return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
     }
     return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
 }
@@ -111,7 +111,7 @@ D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexc
     d.AddressV = ToD3DAddress(s.address_v);
     d.AddressW = ToD3DAddress(s.address_w);
     d.MipLODBias = 0.0f;
-    d.MaxAnisotropy = (s.filter == SamplerFilter::Anisotropic) ? s.max_anisotropy : 0;
+    d.MaxAnisotropy = (s.filter == ESamplerFilter::Anisotropic) ? s.max_anisotropy : 0;
     d.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
     d.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
     d.MinLOD = s.min_lod;
@@ -208,7 +208,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const PipelineDesc& desc) noexce
     for (u32 i = 0; i < desc.layout_count && i < 8; ++i) {
         ie[i].SemanticName = desc.layout[i].semantic_name;
         ie[i].SemanticIndex = desc.layout[i].semantic_index;
-        ie[i].Format = ToDxgiFormat(desc.layout[i].format);
+        ie[i].EFormat = ToDxgiFormat(desc.layout[i].format);
         ie[i].InputSlot = 0;
         ie[i].AlignedByteOffset = desc.layout[i].offset;
         ie[i].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
@@ -227,7 +227,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const PipelineDesc& desc) noexce
     // depth-only: PS なし
     pd.RasterizerState   = MakeRasterizer(desc.cull_mode);
     pd.BlendState        = MakeBlend(desc.blend_mode);
-    pd.DepthStencilState = MakeDepthStencil(desc.depth_test && desc.depth_format != Format::Unknown,
+    pd.DepthStencilState = MakeDepthStencil(desc.depth_test && desc.depth_format != EFormat::Unknown,
                                             desc.depth_write);
     pd.SampleMask = UINT_MAX;
     pd.PrimitiveTopologyType = ToD3DTopologyType(desc.topology);

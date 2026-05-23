@@ -58,7 +58,7 @@ PoolAllocator::PoolAllocator(usize block_size, usize block_count,
         prev = n;
     }
     u64 packed = Pack(this, prev, 0);
-    _head_packed.Store(packed, MemoryOrder::Release);
+    _head_packed.Store(packed, EMemoryOrder::Release);
 }
 
 PoolAllocator::~PoolAllocator() noexcept {
@@ -72,7 +72,7 @@ void* PoolAllocator::Alloc(usize size, usize alignment, SourceLoc /*loc*/) noexc
     if (alignment > _alignment) return nullptr;
 
     while (true) {
-        u64 head = _head_packed.Load(MemoryOrder::Acquire);
+        u64 head = _head_packed.Load(EMemoryOrder::Acquire);
         Node* top = static_cast<Node*>(UnpackPtr(head));
         if (!top) return nullptr;  // プール枯渇
         u64 tag = UnpackTag(head);
@@ -93,7 +93,7 @@ void PoolAllocator::Free(void* ptr) noexcept {
     if (!ptr) return;
     Node* n = static_cast<Node*>(ptr);
     while (true) {
-        u64 head = _head_packed.Load(MemoryOrder::Acquire);
+        u64 head = _head_packed.Load(EMemoryOrder::Acquire);
         Node* top = static_cast<Node*>(UnpackPtr(head));
         u64 tag = UnpackTag(head);
         n->next = top;

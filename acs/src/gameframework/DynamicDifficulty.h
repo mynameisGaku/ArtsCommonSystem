@@ -21,7 +21,7 @@
 //   class GameplayScene : public Scene {
 //       acs::game::DynamicDifficulty _dda;
 //       void OnEnter() noexcept override {
-//           _dda.Init(acs::game::DifficultyLevel::Adaptive);
+//           _dda.Init(acs::game::EDifficultyLevel::Adaptive);
 //       }
 //       void OnPlayerDeath() noexcept {
 //           _dda.RecordDeath();
@@ -82,10 +82,10 @@
 
 namespace acs::game {
 
-// ---- DifficultyLevel -------------------------------------------------------
+// ---- EDifficultyLevel -------------------------------------------------------
 // 5 モード。`Adaptive` 以外は離散値直接マップで Tick が no-op (近い動作)。
 // `Adaptive` 時のみ Tick で skill→target→smooth lerp を進める。
-enum class DifficultyLevel : u8 {
+enum class EDifficultyLevel : u8 {
     Easy     = 0,
     Normal   = 1,
     Hard     = 2,
@@ -121,14 +121,14 @@ public:
     // ----- 初期化 / モード切替 -----
     // base_level: 初期モード。Adaptive 指定時は `_current_difficulty` を
     //             0.5 (= Normal 相当) スタートにして、Tick で target に寄せていく。
-    void Init(DifficultyLevel base_level = DifficultyLevel::Normal) noexcept;
+    void Init(EDifficultyLevel base_level = EDifficultyLevel::Normal) noexcept;
 
     // モード切替。離散モードへの変更は `_current_difficulty` を該当段の
     // 連続値 (Easy=0 / Normal=1/3 / Hard=2/3 / VeryHard=1) に即スナップ。
     // Adaptive へ切替時は現在値を保持して target に向かって lerp 続行。
-    void SetMode(DifficultyLevel mode) noexcept;
+    void SetMode(EDifficultyLevel mode) noexcept;
 
-    DifficultyLevel CurrentMode() const noexcept { return _mode; }
+    EDifficultyLevel CurrentMode() const noexcept { return _mode; }
 
     // ----- 統計記録 (gameplay 側がイベント駆動で呼ぶ) -----
     void RecordDeath()           noexcept;
@@ -168,12 +168,12 @@ private:
     f32 ComputeAdaptiveTarget() const noexcept;
 
     // 離散モード → 連続値 [0,1] 対応 (Easy=0, Normal=1/3, Hard=2/3, VeryHard=1)。
-    static f32 ContinuousFromDiscrete(DifficultyLevel m) noexcept;
+    static f32 ContinuousFromDiscrete(EDifficultyLevel m) noexcept;
 
     // 連続値 [0,1] を 4 段表 (vals[4]) で線形補間。区間 0.0..1/3..2/3..1.0。
     static f32 SampleCurve(f32 t, const f32 vals[4]) noexcept;
 
-    DifficultyLevel _mode               = DifficultyLevel::Normal;
+    EDifficultyLevel _mode               = EDifficultyLevel::Normal;
     f32             _current_difficulty = 0.333333f;  // Normal start (= 1/3)
     PlayerSkillStats _stats {};
 

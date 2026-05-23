@@ -99,7 +99,7 @@ Result<Rc<Asset>> AssetRegistry::Load(const wchar_t* path) noexcept {
 
     Rc<Asset> a = Move(asset_r.Value());
     a->SetId(id);
-    a->SetState(AssetState::Ready);
+    a->SetState(EAssetState::Ready);
 
     // キャッシュに登録
     {
@@ -140,7 +140,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
 
     Rc<Asset> a = Move(asset_r.Value());
     a->SetId(job->id);
-    a->SetState(AssetState::Ready);
+    a->SetState(EAssetState::Ready);
 
     // キャッシュ登録
     job->registry->AsyncCacheInsert(job->id, a);

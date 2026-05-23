@@ -25,11 +25,11 @@
 //   inv.Init(/*slot_count=*/ 30);
 //
 //   // 起動時にアイテム定義を一度ずつ登録。
-//   inv.RegisterItem({ "potion.heal",     "Heal Potion",   ItemCategory::Consumable, 99,
+//   inv.RegisterItem({ "potion.heal",     "Heal Potion",   EItemCategory::Consumable, 99,
 //                      "ui/icon/potion_heal.png", true });
-//   inv.RegisterItem({ "ore.iron",        "Iron Ore",      ItemCategory::Material,   999,
+//   inv.RegisterItem({ "ore.iron",        "Iron Ore",      EItemCategory::Material,   999,
 //                      "ui/icon/ore_iron.png",    true });
-//   inv.RegisterItem({ "quest.key.ruins", "Ruins Key",     ItemCategory::Quest,      1,
+//   inv.RegisterItem({ "quest.key.ruins", "Ruins EKey",     EItemCategory::Quest,      1,
 //                      "ui/icon/key_ruins.png",   false });
 //
 //   // (任意) 変更通知 callback (UI 反映 / SFX 等)。
@@ -84,10 +84,10 @@
 
 namespace acs::game {
 
-// ---- ItemCategory: アイテム分類 --------------------------------------------
+// ---- EItemCategory: アイテム分類 --------------------------------------------
 // UI のタブフィルタや、AddItem / Drop の挙動分岐の参考に使う。
 // Manager は中身を解釈しない (= 値を保存して照会できるようにするだけ)。
-enum class ItemCategory : u8 {
+enum class EItemCategory : u8 {
     Consumable = 0,  // ポーション / 食料 / 弾薬等の消費アイテム
     Equipment  = 1,  // 装備品 (見た目 cosmetic は CharacterCustomizer 側)
     Material   = 2,  // クラフト素材 / 鉱石 / ハーブ等
@@ -107,7 +107,7 @@ enum class ItemCategory : u8 {
 struct ItemDef {
     const char*  id           = nullptr;
     const char*  display_name = nullptr;
-    ItemCategory category     = ItemCategory::Consumable;
+    EItemCategory category     = EItemCategory::Consumable;
     u32          max_stack    = 1;
     const char*  icon_path    = nullptr;
     bool         can_drop     = true;

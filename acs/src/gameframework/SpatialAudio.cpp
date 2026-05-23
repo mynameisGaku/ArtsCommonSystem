@@ -89,7 +89,7 @@ void SpatialAudio::SetListener(const AudioListener& l) noexcept {
 // =============================================================================
 
 u32 SpatialAudio::RegisterSource(Vec3 pos, f32 max_distance,
-                                  AttenuationCurve curve) noexcept {
+                                  EAttenuationCurve curve) noexcept {
     AudioSource3D s {};
     s.source_id    = _next_source_id++;
     s.position     = pos;
@@ -153,14 +153,14 @@ f32 SpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
 
     // 0 距離は max 音量。各 curve で d=0 → 1, d=max → 0 を満たすように設計。
     f32 atten = 1.0f;
-    const AttenuationCurve curve = static_cast<AttenuationCurve>(s.curve);
+    const EAttenuationCurve curve = static_cast<EAttenuationCurve>(s.curve);
     switch (curve) {
-    case AttenuationCurve::Linear: {
+    case EAttenuationCurve::Linear: {
         // 素朴な線形: vol = 1 - d / max_d
         atten = 1.0f - (d / s.max_distance);
         break;
     }
-    case AttenuationCurve::Inverse: {
+    case EAttenuationCurve::Inverse: {
         // 1 / (1 + r) 型を max_distance でスケール。
         //   ref_d = max_d / 8 を「半減距離の目安」とし、max_d で 0 に到達するよう
         //   tail を線形ブレンドで打ち切る (純粋 inverse は無限遠で 0 にしか
@@ -171,7 +171,7 @@ f32 SpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
         atten = base * (1.0f - t);              // tail で 0 へ収束
         break;
     }
-    case AttenuationCurve::Exponential: {
+    case EAttenuationCurve::Exponential: {
         // e^(-k * d) 型、k = 4 / max_d で max_d で約 e^-4 ≈ 0.018。
         // 同じく tail を線形ブレンドして max_d で 0 に到達させる。
         const f32 k     = 4.0f / s.max_distance;

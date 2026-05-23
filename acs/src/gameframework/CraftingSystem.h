@@ -130,13 +130,13 @@ struct CraftRecipe {
     u32               unlock_level       = 0;
 };
 
-// ---- CraftStatus: 現在のクラフト状態 ---------------------------------------
+// ---- ECraftStatus: 現在のクラフト状態 ---------------------------------------
 // Idle      : 何もクラフトしていない (初期 / Cancel 後 / Completed の次の StartCraft 後)。
 // Crafting  : Tick で進行中。
 // Completed : 直前の Tick で完了 → result が grant 済。次の StartCraft / ClearAll まで保持。
 // Cancelled : Crafting 中に CancelCraft で取り消し → ingredient 返却済。
 //             次の StartCraft で Idle 経由せず Crafting に上書きされる。
-enum class CraftStatus : u8 {
+enum class ECraftStatus : u8 {
     Idle      = 0,
     Crafting  = 1,
     Completed = 2,
@@ -230,7 +230,7 @@ public:
 
     // ---- 状態取得 ----------------------------------------------------------
     // 現在のクラフト状態。
-    CraftStatus Status() const noexcept;
+    ECraftStatus Status() const noexcept;
 
     // クラフト進行率 [0, 1]。Crafting 時のみ意味を持つ (それ以外は 0)。
     // craft_duration_sec <= 0 のレシピでは Tick 後 1.0 を返す (即時完了)。
@@ -276,7 +276,7 @@ private:
     void*            _on_complete_user = nullptr;
 
     // 現在のクラフト状態。
-    CraftStatus _status               = CraftStatus::Idle;
+    ECraftStatus _status               = ECraftStatus::Idle;
     // 現在のクラフト対象 recipe (= _recipes の要素を指す or nullptr)。
     // Crafting / Completed / Cancelled の間は有効、Idle / ClearAll で nullptr。
     const CraftRecipe* _current_recipe = nullptr;

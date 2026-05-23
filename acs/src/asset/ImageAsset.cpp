@@ -29,9 +29,9 @@ Result<Rc<Asset>> ImageAssetLoader::LoadFromBytes(AssetId id, const Array<byte>&
         ::stbi_image_free(px);
 
         Rc<ImageAsset> a = MakeRc<ImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
-                                               PixelFormat::R32G32B32A32_F, Move(pixels));
+                                               EPixelFormat::R32G32B32A32_F, Move(pixels));
         a->SetId(id);
-        a->SetState(AssetState::Ready);
+        a->SetState(EAssetState::Ready);
         return Result<Rc<Asset>>(OkInit, Rc<Asset>(Move(a)));
     }
 
@@ -48,9 +48,9 @@ Result<Rc<Asset>> ImageAssetLoader::LoadFromBytes(AssetId id, const Array<byte>&
     ::stbi_image_free(px);
 
     Rc<ImageAsset> a = MakeRc<ImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
-                                           PixelFormat::R8G8B8A8, Move(pixels));
+                                           EPixelFormat::R8G8B8A8, Move(pixels));
     a->SetId(id);
-    a->SetState(AssetState::Ready);
+    a->SetState(EAssetState::Ready);
     return Result<Rc<Asset>>(OkInit, Rc<Asset>(Move(a)));
 }
 

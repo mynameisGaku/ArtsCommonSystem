@@ -294,7 +294,7 @@ Result<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
 
     BufferDesc cbd{};
     cbd.size = CBSize<SsgiCBLayout>();
-    cbd.usage = BufferUsage::Uniform;
+    cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else _cb = Move(r.Value());
@@ -309,7 +309,7 @@ Result<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
     td.width  = width;
     td.height = height;
     // RGB 用、低帯域。R11G11B10F が HDR-friendly でメモリも小さい。
-    td.format = Format::R11G11B10_Float;
+    td.format = EFormat::R11G11B10_Float;
     td.is_render_target = true;
     auto r = CreateRhiTexture(device, td);
     if (r.IsErr()) return Err<void>(r.Error());
@@ -332,7 +332,7 @@ Result<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
 
 Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
-    vs_d.stage = ShaderStage::Vertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsgiHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Ssgi.VS";
@@ -340,7 +340,7 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     else _vs = Move(r.Value());
 
     ShaderDesc ps_d{};
-    ps_d.stage = ShaderStage::Pixel;
+    ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsgiHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Ssgi.PS";
@@ -350,13 +350,13 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
-    pd.topology      = PrimitiveTopology::TriangleList;
-    pd.rt_format     = Format::R11G11B10_Float;
-    pd.depth_format  = Format::Unknown;
+    pd.topology      = EPrimitiveTopology::TriangleList;
+    pd.rt_format     = EFormat::R11G11B10_Float;
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = CullMode::None;
-    pd.blend_mode    = BlendMode::Opaque;
+    pd.cull_mode     = ECullMode::None;
+    pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 3;
     pd.cbuffer_names[0] = "SsgiCB";
@@ -364,15 +364,15 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     pd.texture_names[1] = "scene_depth";
     pd.texture_names[2] = "normal_gbuffer";
     pd.static_sampler_count = 3;
-    pd.static_samplers[0].filter    = SamplerFilter::Linear;
-    pd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[1].filter    = SamplerFilter::Point;       // depth は離散値
-    pd.static_samplers[1].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[1].address_v = SamplerAddress::Clamp;
-    pd.static_samplers[2].filter    = SamplerFilter::Point;       // 法線は per-pixel 厳密に
-    pd.static_samplers[2].address_u = SamplerAddress::Clamp;
-    pd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[1].filter    = ESamplerFilter::Point;       // depth は離散値
+    pd.static_samplers[1].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[2].filter    = ESamplerFilter::Point;       // 法線は per-pixel 厳密に
+    pd.static_samplers[2].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -381,7 +381,7 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     // Phase 33c-2: blur pipeline (ssgi_raw + scene_depth → blurred)。
     // VS は本体と同じ fullscreen-triangle なので _vs を再利用。
     ShaderDesc bps_d{};
-    bps_d.stage = ShaderStage::Pixel;
+    bps_d.stage = EShaderStage::Pixel;
     bps_d.hlsl_source = kSsgiBlurHLSL;
     bps_d.entry_point = "PSMain";
     bps_d.debug_name  = "SsgiBlur.PS";
@@ -391,25 +391,25 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc bpd{};
     bpd.vs            = _vs.Get();
     bpd.ps            = _blur_ps.Get();
-    bpd.topology      = PrimitiveTopology::TriangleList;
-    bpd.rt_format     = Format::R11G11B10_Float;
-    bpd.depth_format  = Format::Unknown;
+    bpd.topology      = EPrimitiveTopology::TriangleList;
+    bpd.rt_format     = EFormat::R11G11B10_Float;
+    bpd.depth_format  = EFormat::Unknown;
     bpd.depth_test    = false;
     bpd.depth_write   = false;
-    bpd.cull_mode     = CullMode::None;
-    bpd.blend_mode    = BlendMode::Opaque;
+    bpd.cull_mode     = ECullMode::None;
+    bpd.blend_mode    = EBlendMode::Opaque;
     bpd.cbuffer_slots = 1;
     bpd.texture_slots = 2;
     bpd.cbuffer_names[0] = "SsgiCB";
     bpd.texture_names[0] = "ssgi_raw";
     bpd.texture_names[1] = "scene_depth";
     bpd.static_sampler_count = 2;
-    bpd.static_samplers[0].filter    = SamplerFilter::Linear;
-    bpd.static_samplers[0].address_u = SamplerAddress::Clamp;
-    bpd.static_samplers[0].address_v = SamplerAddress::Clamp;
-    bpd.static_samplers[1].filter    = SamplerFilter::Point;
-    bpd.static_samplers[1].address_u = SamplerAddress::Clamp;
-    bpd.static_samplers[1].address_v = SamplerAddress::Clamp;
+    bpd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    bpd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    bpd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    bpd.static_samplers[1].filter    = ESamplerFilter::Point;
+    bpd.static_samplers[1].address_u = ESamplerAddress::Clamp;
+    bpd.static_samplers[1].address_v = ESamplerAddress::Clamp;
     bpd.vertex_stride = 0;
     bpd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, bpd); r.IsErr()) return Err<void>(r.Error());
@@ -417,7 +417,7 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
 
     // Phase 33c-3: temporal pipeline (current_gi + history_gi + scene_depth → history)
     ShaderDesc tps_d{};
-    tps_d.stage = ShaderStage::Pixel;
+    tps_d.stage = EShaderStage::Pixel;
     tps_d.hlsl_source = kSsgiTemporalHLSL;
     tps_d.entry_point = "PSMain";
     tps_d.debug_name  = "SsgiTemporal.PS";
@@ -427,13 +427,13 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     PipelineDesc tpd{};
     tpd.vs            = _vs.Get();
     tpd.ps            = _temporal_ps.Get();
-    tpd.topology      = PrimitiveTopology::TriangleList;
-    tpd.rt_format     = Format::R11G11B10_Float;
-    tpd.depth_format  = Format::Unknown;
+    tpd.topology      = EPrimitiveTopology::TriangleList;
+    tpd.rt_format     = EFormat::R11G11B10_Float;
+    tpd.depth_format  = EFormat::Unknown;
     tpd.depth_test    = false;
     tpd.depth_write   = false;
-    tpd.cull_mode     = CullMode::None;
-    tpd.blend_mode    = BlendMode::Opaque;
+    tpd.cull_mode     = ECullMode::None;
+    tpd.blend_mode    = EBlendMode::Opaque;
     tpd.cbuffer_slots = 1;
     tpd.texture_slots = 3;
     tpd.cbuffer_names[0] = "SsgiCB";
@@ -442,13 +442,13 @@ Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     tpd.texture_names[2] = "scene_depth";
     tpd.static_sampler_count = 3;
     for (u32 i = 0; i < 2; ++i) {
-        tpd.static_samplers[i].filter    = SamplerFilter::Linear;
-        tpd.static_samplers[i].address_u = SamplerAddress::Clamp;
-        tpd.static_samplers[i].address_v = SamplerAddress::Clamp;
+        tpd.static_samplers[i].filter    = ESamplerFilter::Linear;
+        tpd.static_samplers[i].address_u = ESamplerAddress::Clamp;
+        tpd.static_samplers[i].address_v = ESamplerAddress::Clamp;
     }
-    tpd.static_samplers[2].filter    = SamplerFilter::Point;
-    tpd.static_samplers[2].address_u = SamplerAddress::Clamp;
-    tpd.static_samplers[2].address_v = SamplerAddress::Clamp;
+    tpd.static_samplers[2].filter    = ESamplerFilter::Point;
+    tpd.static_samplers[2].address_u = ESamplerAddress::Clamp;
+    tpd.static_samplers[2].address_v = ESamplerAddress::Clamp;
     tpd.vertex_stride = 0;
     tpd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, tpd); r.IsErr()) return Err<void>(r.Error());

@@ -12,14 +12,14 @@
 namespace acs {
 
 // テクスチャのフィルタ
-enum class SamplerFilter : u8 {
+enum class ESamplerFilter : u8 {
     Point,        // ニアレストネイバー（ドット絵向け）
     Linear,       // バイリニア / トライリニア（普通の写真向け）
     Anisotropic,  // 異方性フィルタ（高品質）
 };
 
 // UV のラップ方式
-enum class SamplerAddress : u8 {
+enum class ESamplerAddress : u8 {
     Wrap,    // 繰り返し（タイリング）
     Mirror,  // 鏡像繰り返し
     Clamp,   // 端の色で塗る
@@ -27,13 +27,13 @@ enum class SamplerAddress : u8 {
 };
 
 struct SamplerDesc {
-    SamplerFilter  filter      = SamplerFilter::Linear;
-    SamplerAddress address_u   = SamplerAddress::Wrap;
-    SamplerAddress address_v   = SamplerAddress::Wrap;
-    SamplerAddress address_w   = SamplerAddress::Wrap;
+    ESamplerFilter  filter      = ESamplerFilter::Linear;
+    ESamplerAddress address_u   = ESamplerAddress::Wrap;
+    ESamplerAddress address_v   = ESamplerAddress::Wrap;
+    ESamplerAddress address_w   = ESamplerAddress::Wrap;
     f32            min_lod     = 0.0f;
     f32            max_lod     = 1000.0f;
-    u32            max_anisotropy = 16;       // SamplerFilter::Anisotropic のときのみ有効
+    u32            max_anisotropy = 16;       // ESamplerFilter::Anisotropic のときのみ有効
 };
 
 } // namespace acs

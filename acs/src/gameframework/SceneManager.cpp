@@ -52,8 +52,8 @@ void SceneManager::DoPushInternal(Game& game, UniquePtr<Scene> next,
     next->_SetContext(&game, this);
     // Phase 8: WantedServices に基づいて SceneServices を構築・attach。
     // None なら空の SceneServices だが、Services() を呼ばない限りコスト 0。
-    const Svc wanted = next->WantedServices();
-    if (wanted != Svc::None) {
+    const ESvc wanted = next->WantedServices();
+    if (wanted != ESvc::None) {
         next->_AttachServices(MakeUnique<SceneServices>(wanted));
     }
     _stack.PushBack(Move(next));

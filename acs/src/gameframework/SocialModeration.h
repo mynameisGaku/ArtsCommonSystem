@@ -43,7 +43,7 @@
 //   ReportRecord rep{};
 //   rep.reported_user_id = "steam:76561198000000999";
 //   rep.reporter_user_id = "steam:76561198000000001";  // local player
-//   rep.category         = ReportCategory::Harassment;
+//   rep.category         = EReportCategory::Harassment;
 //   rep.note             = "voice chat で継続的に侮辱発言";
 //   rep.timestamp        = NowUnixSec();
 //   (void)mod.SubmitReport(rep);  // 失敗時は pending queue へ
@@ -85,7 +85,7 @@ namespace acs::game {
 // 通報カテゴリ。プラットフォーム規約 (Steam / PSN / Xbox / NSO) で共通的に
 // 求められる種別を最小公倍数として定義。プラットフォーム固有の細分カテゴリ
 // (Steam の「不正な広告」等) は将来 OtherToxicity 内の note で表現する想定。
-enum class ReportCategory : u8 {
+enum class EReportCategory : u8 {
     Harassment        = 0,  // 嫌がらせ / 暴言 / つきまとい
     HateSpeech        = 1,  // ヘイトスピーチ / 差別表現
     Cheating          = 2,  // チート / マクロ / 不正ツール
@@ -100,7 +100,7 @@ enum class ReportCategory : u8 {
 struct ReportRecord {
     const char*    reported_user_id = nullptr;  // 通報対象 (SDK 固有 ID)
     const char*    reporter_user_id = nullptr;  // 通報者 (通常 local player)
-    ReportCategory category         = ReportCategory::OtherToxicity;
+    EReportCategory category         = EReportCategory::OtherToxicity;
     const char*    note             = nullptr;  // 自由記述 (空文字 or nullptr 可)
     u64            timestamp        = 0;        // 通報時刻 (呼び出し側基準)
 };

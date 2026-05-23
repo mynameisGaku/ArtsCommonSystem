@@ -28,15 +28,15 @@ DiligentDevice::~DiligentDevice() noexcept {
 
 Result<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
     // バックエンドの選択
-    RhiBackendKind kind = cfg.backend;
-    if (kind == RhiBackendKind::Auto) kind = RhiBackendKind::D3D12;
+    ERhiBackendKind kind = cfg.backend;
+    if (kind == ERhiBackendKind::Auto) kind = ERhiBackendKind::D3D12;
 
 #if WITH_RENDER_DILIGENT_VULKAN
-    if (kind == RhiBackendKind::Vulkan) {
+    if (kind == ERhiBackendKind::Vulkan) {
         return InitVulkan(cfg);
     }
 #else
-    if (kind == RhiBackendKind::Vulkan) {
+    if (kind == ERhiBackendKind::Vulkan) {
         ACS_LOG_ERROR("Diligent: Vulkan backend requested but WITH_RENDER_DILIGENT_VULKAN=0");
         return ACS_ERR(Render, 99, "Vulkan backend not built");
     }
@@ -60,7 +60,7 @@ Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     }
     _factory->AddRef();
     _factory_generic = _factory;
-    _actual_backend  = RhiBackendKind::D3D12;
+    _actual_backend  = ERhiBackendKind::D3D12;
     _backend_name    = "Diligent-D3D12";
 
     Diligent::EngineD3D12CreateInfo eci{};
@@ -74,7 +74,7 @@ Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     // 追いついていない疑い。当面は Diligent の default allocator (malloc/free
     // ベース) に任せる。性能計測したくなったら Allocator 側を直してから戻す。
     // 旧コード:
-    // if (auto* mem_seg = MemorySystem::Get(Segment::Resource)) {
+    // if (auto* mem_seg = MemorySystem::Get(ESegment::Resource)) {
     //     eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
     //         DiligentMemoryAdapter::Create(mem_seg));
     // }
@@ -123,7 +123,7 @@ Result<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
     }
     _factory_vk->AddRef();
     _factory_generic = _factory_vk;
-    _actual_backend  = RhiBackendKind::Vulkan;
+    _actual_backend  = ERhiBackendKind::Vulkan;
     _backend_name    = "Diligent-Vulkan";
 
     Diligent::EngineVkCreateInfo eci{};
@@ -132,7 +132,7 @@ Result<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
     }
     eci.NumDeferredContexts = 0;
 
-    if (auto* mem_seg = MemorySystem::Get(Segment::Resource)) {
+    if (auto* mem_seg = MemorySystem::Get(ESegment::Resource)) {
         eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
             DiligentMemoryAdapter::Create(mem_seg));
     }

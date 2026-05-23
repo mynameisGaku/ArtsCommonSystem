@@ -42,7 +42,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const BufferDesc& desc) noexcept {
     rd.Height = 1;
     rd.DepthOrArraySize = 1;
     rd.MipLevels = 1;
-    rd.Format = DXGI_FORMAT_UNKNOWN;
+    rd.EFormat = DXGI_FORMAT_UNKNOWN;
     rd.SampleDesc.Count = 1;
     rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     rd.Flags = D3D12_RESOURCE_FLAG_NONE;
