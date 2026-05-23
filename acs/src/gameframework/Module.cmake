@@ -130,6 +130,11 @@ acs_module(
         tools/fxedit/ParticleEditorPanel.cpp
         tools/fxedit/ParticleEditorPreview.cpp
         tools/fxedit/FxeditSerializer.cpp
+        # ----- Phase 20: SceneInspector (in-game editor、tools/inspector/) -----
+        tools/inspector/HierarchyPanel.cpp
+        tools/inspector/InspectorPanel.cpp
+        tools/inspector/EditorToolbar.cpp
+        tools/inspector/SelectionService.cpp
     HEADERS
         GameFramework.h
         Game.h
@@ -256,6 +261,11 @@ acs_module(
         tools/fxedit/ParticleEditorPanel.h
         tools/fxedit/ParticleEditorPreview.h
         tools/fxedit/FxeditSerializer.h
+        # ----- Phase 20: SceneInspector (in-game editor、tools/inspector/) -----
+        tools/inspector/HierarchyPanel.h
+        tools/inspector/InspectorPanel.h
+        tools/inspector/EditorToolbar.h
+        tools/inspector/SelectionService.h
         EntryPoint.h
     PUBLIC_DEPS
         Foundation

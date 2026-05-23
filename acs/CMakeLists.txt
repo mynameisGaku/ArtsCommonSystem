@@ -139,6 +139,12 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(29_HelloParticleEditor)
     endif()
+
+    # --- (8) GameFramework Phase 20: SceneInspector (Hierarchy + Inspector + Toolbar) ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(30_HelloSceneInspector)
+    endif()
 endif()
 
 # ============================================================================
