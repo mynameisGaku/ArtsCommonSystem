@@ -133,6 +133,12 @@ if(ACS_BUILD_SAMPLES)
 
     # --- (6) GameFramework (Phase 1 Pillar A: Scene 切替の最小デモ) ---
     acs_add_sample(28_HelloGameFramework)
+
+    # --- (7) GameFramework Phase 19b: 対話的 Particle エディタ ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(29_HelloParticleEditor)
+    endif()
 endif()
 
 # ============================================================================

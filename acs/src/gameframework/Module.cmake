@@ -126,6 +126,10 @@ acs_module(
         CheckpointSystem.cpp
         HungerSystem.cpp
         DialogueScript.cpp
+        # ----- Phase 19b: ParticleEditor (in-game editor、tools/fxedit/) -----
+        tools/fxedit/ParticleEditorPanel.cpp
+        tools/fxedit/ParticleEditorPreview.cpp
+        tools/fxedit/FxeditSerializer.cpp
     HEADERS
         GameFramework.h
         Game.h
@@ -248,6 +252,10 @@ acs_module(
         CheckpointSystem.h
         HungerSystem.h
         DialogueScript.h
+        # ----- Phase 19b: ParticleEditor (in-game editor、tools/fxedit/) -----
+        tools/fxedit/ParticleEditorPanel.h
+        tools/fxedit/ParticleEditorPreview.h
+        tools/fxedit/FxeditSerializer.h
         EntryPoint.h
     PUBLIC_DEPS
         Foundation
