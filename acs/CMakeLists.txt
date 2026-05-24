@@ -151,6 +151,30 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(31_HelloModelViewer)
     endif()
+
+    # --- (10) GameFramework Phase 22: AnimCurveEditor (editor_core + animcurve/) ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(32_HelloAnimCurveEditor)
+    endif()
+
+    # --- (11) GameFramework Phase 22: BehaviorTreeEditor (editor_core + btedit/) ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(33_HelloBehaviorTreeEditor)
+    endif()
+
+    # --- (12) GameFramework Phase 22: LevelEditor (editor_core + leveledit/) ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(34_HelloLevelEditor)
+    endif()
+
+    # --- (13) GameFramework Phase 22: SpriteAtlasEditor (editor_core + spriteatlas/) ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(35_HelloSpriteAtlasEditor)
+    endif()
 endif()
 
 # ============================================================================

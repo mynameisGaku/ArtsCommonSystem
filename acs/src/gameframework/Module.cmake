@@ -149,6 +149,11 @@ acs_module(
         tools/modelview/ModelInspectorPanel.cpp
         tools/modelview/ModelMaterialPanel.cpp
         tools/modelview/ModelAnimationPanel.cpp
+        # ----- Phase 22: editor 4 種 (animcurve / btedit / leveledit / spriteatlas) -----
+        tools/animcurve/AnimCurveEditorPanel.cpp
+        tools/btedit/BehaviorTreeEditorPanel.cpp
+        tools/leveledit/LevelEditorPanel.cpp
+        tools/spriteatlas/SpriteAtlasEditorPanel.cpp
     HEADERS
         GameFramework.h
         Game.h
@@ -295,6 +300,11 @@ acs_module(
         tools/modelview/ModelInspectorPanel.h
         tools/modelview/ModelMaterialPanel.h
         tools/modelview/ModelAnimationPanel.h
+        # ----- Phase 22: editor 4 種 (animcurve / btedit / leveledit / spriteatlas) -----
+        tools/animcurve/AnimCurveEditorPanel.h
+        tools/btedit/BehaviorTreeEditorPanel.h
+        tools/leveledit/LevelEditorPanel.h
+        tools/spriteatlas/SpriteAtlasEditorPanel.h
         EntryPoint.h
     PUBLIC_DEPS
         Foundation
