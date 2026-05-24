@@ -135,6 +135,15 @@ acs_module(
         tools/inspector/InspectorPanel.cpp
         tools/inspector/EditorToolbar.cpp
         tools/inspector/SelectionService.cpp
+        # ----- Phase 21a: editor 共通基盤 (tools/editor_core/) -----
+        tools/editor_core/EditorPanel.cpp
+        tools/editor_core/EditorWorkspace.cpp
+        tools/editor_core/UndoStack.cpp
+        tools/editor_core/EditorCamera.cpp
+        tools/editor_core/AssetBrowser.cpp
+        tools/editor_core/PropertyDrawer.cpp
+        tools/editor_core/EditorGizmo.cpp
+        tools/editor_core/EditorTheme.cpp
     HEADERS
         GameFramework.h
         Game.h
@@ -266,6 +275,16 @@ acs_module(
         tools/inspector/InspectorPanel.h
         tools/inspector/EditorToolbar.h
         tools/inspector/SelectionService.h
+        # ----- Phase 21a: editor 共通基盤 (tools/editor_core/) -----
+        tools/editor_core/EditorPanel.h
+        tools/editor_core/EditorWorkspace.h
+        tools/editor_core/EditorCommand.h
+        tools/editor_core/UndoStack.h
+        tools/editor_core/EditorCamera.h
+        tools/editor_core/AssetBrowser.h
+        tools/editor_core/PropertyDrawer.h
+        tools/editor_core/EditorGizmo.h
+        tools/editor_core/EditorTheme.h
         EntryPoint.h
     PUBLIC_DEPS
         Foundation
