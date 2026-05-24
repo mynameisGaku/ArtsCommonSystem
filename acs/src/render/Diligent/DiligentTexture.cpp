@@ -61,7 +61,7 @@ Result<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& de
     td.Width     = _width;
     td.Height    = _height;
     td.ArraySize = _array_size;        // cubemap も含めて Diligent はここで指定
-    td.EFormat    = diligent_detail::ToDiligent(_format);
+    td.Format    = diligent_detail::ToDiligent(_format);
     td.MipLevels = _mips;
     td.SampleCount = 1;
     td.Usage     = Diligent::USAGE_DEFAULT;
@@ -130,7 +130,7 @@ Result<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& de
                 vd.ViewType        = Diligent::TEXTURE_VIEW_RENDER_TARGET;
                 // cubemap でも array RTV として slice を指す (Diligent 推奨)
                 vd.TextureDim      = Diligent::RESOURCE_DIM_TEX_2D_ARRAY;
-                vd.EFormat          = td.EFormat;
+                vd.Format          = td.Format;
                 vd.MostDetailedMip = m;
                 vd.NumMipLevels    = 1;
                 vd.FirstArraySlice = s;

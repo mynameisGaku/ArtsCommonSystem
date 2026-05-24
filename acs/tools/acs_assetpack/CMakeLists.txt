@@ -29,4 +29,5 @@ target_link_libraries(acs_assetpack_cli PRIVATE
     ACS::Container
     ACS::Memory
     ACS::Platform
-    Bcrypt.lib)   # Phase 24 AcpakCrypto (AES-256-GCM via Windows CNG) 用予約リンク
+    Bcrypt.lib    # Phase 24 AcpakCrypto (AES-256-GCM via Windows CNG)
+    Shell32.lib)  # CommandLineToArgvW (UTF-16 引数 parse)

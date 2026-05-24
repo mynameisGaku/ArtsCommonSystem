@@ -109,7 +109,9 @@ using JudgeCallback = void(*)(void* user, EBeatLane lane, EJudgement j, u32 comb
 // hits    : Perfect+Great+Good の合計。
 // misses  : Miss の合計。
 // accuracy: Accuracy() と同値 ([0, 1])。
-using EndCallback = void(*)(void* user, u32 hits, u32 misses, f32 accuracy) noexcept;
+// 注意: 同 namespace acs::game に DialogueScript::EndCallback が居るため
+// BeatGrid 側は `BeatEndCallback` という固有名にしている (rename Phase 19a-fix part 2)。
+using BeatEndCallback = void(*)(void* user, u32 hits, u32 misses, f32 accuracy) noexcept;
 
 class BeatGrid {
 public:
@@ -177,7 +179,7 @@ public:
     void SetOnJudgeCallback(JudgeCallback cb, void* user) noexcept {
         _judge_cb = cb; _judge_user = user;
     }
-    void SetOnEndCallback(EndCallback cb, void* user) noexcept {
+    void SetOnEndCallback(BeatEndCallback cb, void* user) noexcept {
         _end_cb = cb; _end_user = user;
     }
 
@@ -223,7 +225,7 @@ private:
     // ----- callback -----
     JudgeCallback _judge_cb   = nullptr;
     void*         _judge_user = nullptr;
-    EndCallback   _end_cb     = nullptr;
+    BeatEndCallback _end_cb   = nullptr;
     void*         _end_user   = nullptr;
 };
 

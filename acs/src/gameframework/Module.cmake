@@ -338,6 +338,10 @@ acs_module(
         Platform
         Render
         App
+        # Phase 19b+: editor panel が ImGui を .cpp で使うため
+        # (header からは imgui.h を漏らさない方針だが、依存解決のため PUBLIC で
+        # 含めておく。Phase 21a editor_core 以降の panel 全部が ImGui に依存)。
+        Imgui
     LINK_PUBLIC
         # XAudio2Backend.cpp が呼ぶ Win32 / COM 系ライブラリ。
         # (Audio モジュールと同じ綴り。Windows SDK 同梱なので third_party 不要。)

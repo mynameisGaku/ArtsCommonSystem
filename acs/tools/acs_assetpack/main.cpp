@@ -42,7 +42,8 @@
 #include "foundation/Result.h"
 #include "foundation/Move.h"        // acs::Move (rvalue cast)
 
-#include <cstdio>   // printf / wprintf / fwprintf / fputs
+#include <cstdio>     // printf / wprintf / fwprintf / fputs
+#include <shellapi.h> // CommandLineToArgvW
 
 using namespace acs;
 using namespace acs::assetpack;

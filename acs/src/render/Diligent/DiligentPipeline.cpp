@@ -125,8 +125,8 @@ Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& 
     gp.DSVFormat                    = (desc.depth_format == EFormat::Unknown)
                                        ? Diligent::TEX_FORMAT_UNKNOWN
                                        : diligent_detail::ToDiligent(desc.depth_format);
-    gp.EPrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
-    gp.RasterizerDesc.ECullMode      = diligent_detail::ToDiligent(desc.cull_mode);
+    gp.PrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
+    gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
     // 経験的に: 色 pass (PS あり) で `true`、depth-only (PS なし) で `false`
     // にすると ACS sample 群 (HelloLights / Bloom / Shadows / Sky / Mesh ...)

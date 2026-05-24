@@ -275,7 +275,7 @@ void Dx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     D3D12_INDEX_BUFFER_VIEW v{};
     v.BufferLocation = b.Gpu();
     v.SizeInBytes    = static_cast<UINT>(b.Size());
-    v.EFormat = (b.Usage() == EBufferUsage::Index32) ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
+    v.Format = (b.Usage() == EBufferUsage::Index32) ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
     _cmd_list->IASetIndexBuffer(&v);
 }
 

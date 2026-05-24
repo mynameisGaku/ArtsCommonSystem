@@ -35,7 +35,7 @@ D3D12_CULL_MODE ToD3DCullMode(ECullMode m) noexcept {
 D3D12_RASTERIZER_DESC MakeRasterizer(ECullMode cull) noexcept {
     D3D12_RASTERIZER_DESC r{};
     r.FillMode = D3D12_FILL_MODE_SOLID;
-    r.ECullMode = ToD3DCullMode(cull);
+    r.CullMode = ToD3DCullMode(cull);
     r.FrontCounterClockwise = FALSE;
     r.DepthClipEnable = TRUE;
     r.MultisampleEnable = FALSE;
@@ -208,7 +208,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const PipelineDesc& desc) noexce
     for (u32 i = 0; i < desc.layout_count && i < 8; ++i) {
         ie[i].SemanticName = desc.layout[i].semantic_name;
         ie[i].SemanticIndex = desc.layout[i].semantic_index;
-        ie[i].EFormat = ToDxgiFormat(desc.layout[i].format);
+        ie[i].Format = ToDxgiFormat(desc.layout[i].format);
         ie[i].InputSlot = 0;
         ie[i].AlignedByteOffset = desc.layout[i].offset;
         ie[i].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;

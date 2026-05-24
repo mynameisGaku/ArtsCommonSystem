@@ -81,7 +81,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
     td.Height = desc.height;
     td.DepthOrArraySize = 1;
     td.MipLevels = static_cast<UINT16>(desc.mip_levels);
-    td.EFormat = resource_fmt;
+    td.Format = resource_fmt;
     td.SampleDesc.Count = 1;
     td.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     td.Flags  = D3D12_RESOURCE_FLAG_NONE;
@@ -96,7 +96,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
     D3D12_CLEAR_VALUE* clear_ptr = nullptr;
     if (desc.is_depth_target) {
         init_state = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-        clear_val.EFormat = dsv_fmt;          // typed format for clear
+        clear_val.Format = dsv_fmt;          // typed format for clear
         clear_val.DepthStencil.Depth = 1.0f;
         clear_val.DepthStencil.Stencil = 0;
         clear_ptr = &clear_val;
@@ -116,7 +116,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
         _dsv_slot = device.AllocateDsvSlot();
         if (_dsv_slot < 0) { r.hr = E_OUTOFMEMORY; return r; }
         D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
-        dsv.EFormat = dsv_fmt;
+        dsv.Format = dsv_fmt;
         dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
         dsv.Flags = D3D12_DSV_FLAG_NONE;
         device.D3DDevice()->CreateDepthStencilView(
@@ -127,7 +127,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
             _srv_slot = device.AllocateSrvSlot();
             if (_srv_slot < 0) { r.hr = E_OUTOFMEMORY; return r; }
             D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-            srv.EFormat = depth_srv_fmt;
+            srv.Format = depth_srv_fmt;
             srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
             srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
             srv.Texture2D.MipLevels = 1;
@@ -157,7 +157,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
         ub.Height = 1;
         ub.DepthOrArraySize = 1;
         ub.MipLevels = 1;
-        ub.EFormat = DXGI_FORMAT_UNKNOWN;
+        ub.Format = DXGI_FORMAT_UNKNOWN;
         ub.SampleDesc.Count = 1;
         ub.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
@@ -230,7 +230,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept
     _current_state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-    srv.EFormat = typed_fmt;
+    srv.Format = typed_fmt;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = static_cast<UINT>(desc.mip_levels);
