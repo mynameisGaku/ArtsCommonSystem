@@ -215,19 +215,28 @@ void ParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept 
 //
 // ImGui 関数の戻り値 (= true on change) を捕まえて _dirty を立てる。
 // =============================================================================
-void ParticleEditorPanel::DrawUI(ParticleEffectSystem& system) noexcept {
+void ParticleEditorPanel::DrawUI() noexcept {
+    // Phase 24: EditorPanel 継承で no-param DrawUI 化。target system は
+    // SetTargetSystem() で事前に set 想定 (nullptr のときは live particle
+    // 数を "(no system)" 表示)。
     if (!ImGui::Begin("Particle Editor")) {
         ImGui::End();
         return;
     }
 
-    // ヘッダ行: 現在の active particle 数 (system 由来) と emitter 数。
+    // ヘッダ行: 現在の active particle 数 (target_system 由来) と emitter 数。
     // editor 内の emitter 数と system 側の真の emitter 数は別物だが、
     // particle 数は system が真値なので分けて表示する。
-    ImGui::Text("Editor Emitters: %u / %u    Live Particles: %u",
-                static_cast<unsigned>(_emitters.Size()),
-                static_cast<unsigned>(kMaxEmitters),
-                static_cast<unsigned>(system.ActiveParticleCount()));
+    if (_target_system != nullptr) {
+        ImGui::Text("Editor Emitters: %u / %u    Live Particles: %u",
+                    static_cast<unsigned>(_emitters.Size()),
+                    static_cast<unsigned>(kMaxEmitters),
+                    static_cast<unsigned>(_target_system->ActiveParticleCount()));
+    } else {
+        ImGui::Text("Editor Emitters: %u / %u    Live Particles: (no system attached)",
+                    static_cast<unsigned>(_emitters.Size()),
+                    static_cast<unsigned>(kMaxEmitters));
+    }
     ImGui::Separator();
 
     // ----- 2 カラムレイアウト -----

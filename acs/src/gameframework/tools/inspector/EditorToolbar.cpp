@@ -125,7 +125,9 @@ void EditorToolbar::ApplyStateToGame(Game& game) noexcept {
 // (BeginMainMenuBar は editor アプリ側で既に使われている可能性があるため、
 //  toolbar 専用 window でレイアウト衝突を避ける。)
 // ============================================================================
-void EditorToolbar::DrawUI(Game& game) noexcept {
+void EditorToolbar::DrawUI() noexcept {
+    // Phase 24: EditorPanel 継承で no-param 化。Game は SetGame で事前 set。
+    // nullptr のときは UI のみ描画して time scale 反映を skip。
     // フラグ: タイトルバー / リサイズ無し、main viewport 上端に固定する
     // 想定だが、初回 ImGui Init では既定位置に置き、ユーザが動かせるよう
     // collapsible だけ無効化する保守的な設定。
@@ -202,7 +204,9 @@ void EditorToolbar::DrawUI(Game& game) noexcept {
     // ボタン操作の結果を本フレームの末尾で 1 度だけ反映する。
     // (ボタン処理ごとに SetTimeScale を呼ぶと、同フレーム内で複数回
     //  TimeScale が動くのを避けるため最後にまとめる。)
-    ApplyStateToGame(game);
+    if (_game != nullptr) {
+        ApplyStateToGame(*_game);
+    }
 
     // ----- Stepping の自動 Pause 復帰 -----
     // Stepping は「本フレーム 1 回だけ Playing 相当の dt を走らせる」一時状態。

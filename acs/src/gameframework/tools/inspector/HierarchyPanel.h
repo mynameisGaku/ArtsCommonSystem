@@ -61,6 +61,8 @@ namespace acs::game {
 class Node2D;
 } // namespace acs::game
 
+#include "gameframework/tools/editor_core/EditorPanel.h"
+
 namespace acs::game::inspector {
 
 // 別エージェントが作成中の selection 集中点。forward decl のみ受ける。
@@ -68,8 +70,9 @@ class SelectionService;
 
 // ---------------------------------------------------------------------------
 // HierarchyPanel — ImGui ベースの Node2D 階層ツリー
+// (Phase 24: editor_core::EditorPanel 継承)
 // ---------------------------------------------------------------------------
-class HierarchyPanel {
+class HierarchyPanel : public ::acs::game::editor_core::EditorPanel {
 public:
     // 右クリック context menu の追加項目を外部に委譲するためのコールバック。
     // 標準の "Delete" / "Duplicate" / "Reparent" は本パネル内で描画するため、
@@ -96,7 +99,14 @@ public:
     // メイン ImGui window 描画。`Begin("Scene Hierarchy")` 1 window で完結。
     // root_node 配下を再帰 TreeNode で描画する。root 自体も最上位 TreeNode と
     // して表示される (= ユーザは root をクリックして scene 全体を選択できる)。
-    void DrawUI(class Node2D& root_node) noexcept;
+    // Phase 24: EditorPanel 継承で no-param DrawUI 化。root node は SetRootNode で
+    // 事前 set する。
+    void SetRootNode(class Node2D* root) noexcept { _root_node = root; }
+    class Node2D* RootNode() const noexcept { return _root_node; }
+
+    // EditorPanel override
+    const char* Title() const noexcept override { return "Scene Hierarchy"; }
+    void DrawUI() noexcept override;
 
     // SelectionService を注入。nullptr で内部 selection モードに戻せる。
     void SetSelectionService(class SelectionService* svc) noexcept;
@@ -149,6 +159,9 @@ private:
 
     // drag drop payload の識別子文字列 (ImGui 仕様: 32 文字以内)。
     static constexpr const char* kDragDropId = "HIER_NODE_PTR";
+
+    // Phase 24: 事前 set される root node (DrawUI で再帰描画の起点)
+    class Node2D*             _root_node          = nullptr;
 
     Array<CollapsedEntry>     _collapsed_map      {};
     SelectionService*         _selection_service  = nullptr;

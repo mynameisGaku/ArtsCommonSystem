@@ -62,6 +62,8 @@ class InspectorSeam;       // 前方宣言は本パネル内では不要 (header
                            // 仕様一貫性のため宣言を残す
 }
 
+#include "gameframework/tools/editor_core/EditorPanel.h"
+
 namespace acs::game::inspector {
 
 // 別エージェントが作成中の SelectionService。本パネルは forward-decl で受け、
@@ -71,8 +73,9 @@ class SelectionService;
 
 // ---------------------------------------------------------------------------
 // InspectorPanel — ImGui ベースの field property editor
+// (Phase 24: editor_core::EditorPanel 継承)
 // ---------------------------------------------------------------------------
-class InspectorPanel {
+class InspectorPanel : public ::acs::game::editor_core::EditorPanel {
 public:
     // field 変更通知 callback。`user` は SetOnFieldChangeCallback の第二引数で
     // 渡したポインタがそのまま戻る (closure 代替)。`field_name` は Provider が
@@ -107,7 +110,13 @@ public:
     //
     // Provider 解決は `seam.GetProvider(node_id)` を呼ぶ (NodeId 受けの API を
     // 想定)。nullptr が返ったら "(No provider)" を表示。
-    void DrawUI(class InspectorSeam& seam, NodeId selected_id) noexcept;
+    // Phase 24: EditorPanel 継承で no-param DrawUI 化。InspectorSeam は
+    // SetInspectorSeam で事前 set、selection は SelectionService 経由で取得。
+    void SetInspectorSeam(class InspectorSeam* seam) noexcept { _inspector_seam = seam; }
+    class InspectorSeam* InspectorSeamPtr() const noexcept { return _inspector_seam; }
+
+    const char* Title() const noexcept override { return "Inspector"; }
+    void DrawUI() noexcept override;
 
     // SelectionService を登録。nullptr で解除。SelectionService の保持期間は
     // 呼び出し側責務 (non-owning)。
@@ -138,6 +147,9 @@ private:
 
     // SelectionService (non-owning)。nullptr ならば DrawUI 引数を採用。
     SelectionService*    _selection_service = nullptr;
+
+    // Phase 24: 事前 set される InspectorSeam (DrawUI で provider lookup に使う)
+    class InspectorSeam* _inspector_seam    = nullptr;
 
     // 直近フレームで field 変更が起きたか。外部が IsAnyFieldDirty() で読み、
     // ClearDirtyFlag() でクリアする。

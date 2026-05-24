@@ -382,11 +382,19 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
 //   │     ...                                    │
 //   └─────────────────────────────────────────────┘
 // =============================================================================
-void HierarchyPanel::DrawUI(Node2D& root_node) noexcept {
+void HierarchyPanel::DrawUI() noexcept {
+    // Phase 24: EditorPanel 継承で no-param 化。SetRootNode で事前 set された
+    // _root_node を root に描画。null なら "(no root set)" メッセージ表示。
     if (!ImGui::Begin("Scene Hierarchy")) {
         ImGui::End();
         return;
     }
+    if (_root_node == nullptr) {
+        ImGui::TextUnformatted("(no root node attached; call SetRootNode)");
+        ImGui::End();
+        return;
+    }
+    Node2D& root_node = *_root_node;
 
     // ----- Toolbar -----
     if (ImGui::Button("Expand All")) {

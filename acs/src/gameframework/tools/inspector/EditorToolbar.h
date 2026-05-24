@@ -57,6 +57,8 @@ namespace acs::game {
 class Game;
 } // namespace acs::game
 
+#include "gameframework/tools/editor_core/EditorPanel.h"
+
 namespace acs::game::inspector {
 
 // ---- editor 再生状態 -----------------------------------------------------
@@ -72,7 +74,8 @@ enum class EEditorState : u8 {
 using SaveSceneCallback = void (*)(void* user) noexcept;
 
 // ---- EditorToolbar — 再生制御 + Save + DebugOverlay 切替 ----------------
-class EditorToolbar {
+// (Phase 24: editor_core::EditorPanel 継承)
+class EditorToolbar : public ::acs::game::editor_core::EditorPanel {
 public:
     EditorToolbar() noexcept = default;
     ~EditorToolbar() noexcept = default;
@@ -90,10 +93,16 @@ public:
     // 後始末 (callback / 内部参照を解除)。多重呼び出し可。
     void Shutdown() noexcept;
 
+    // Phase 24: EditorPanel 継承で no-param 化。Game は SetGame で事前 set。
+    void SetGame(Game* game) noexcept { _game = game; }
+    Game* GameRef() const noexcept { return _game; }
+
+    const char* Title() const noexcept override { return "Editor Toolbar"; }
+
     // 毎フレーム描画。ImGui main menu bar の下 (or 独立 window) に Play /
     // Pause / Step / Save / DebugOverlay ボタン行を描画する。
-    // game は SetTimeScale 反映に使う。
-    void DrawUI(Game& game) noexcept;
+    // 内部 _game ptr が nullptr のときは TimeScale 反映を skip (UI のみ動作)。
+    void DrawUI() noexcept override;
 
     // Play ↔ Pause の切替。
     //   Playing → Paused: 現 TimeScale を `_normal_time_scale` に記録して 0 にする。
@@ -133,6 +142,10 @@ private:
 
     SaveSceneCallback _save_cb            = nullptr;
     void*             _save_user          = nullptr;
+
+    // Phase 24: 事前 set される Game ptr。nullptr のときは UI 更新のみで
+    // Game::SetTimeScale 反映を skip。
+    Game*             _game               = nullptr;
 };
 
 } // namespace acs::game::inspector

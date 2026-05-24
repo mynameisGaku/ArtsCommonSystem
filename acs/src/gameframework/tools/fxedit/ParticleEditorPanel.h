@@ -71,13 +71,15 @@
 #include "container/Array.h"
 #include "foundation/Types.h"
 #include "gameframework/ParticleEffectSystem.h"
+#include "gameframework/tools/editor_core/EditorPanel.h"
 
 namespace acs::game::fxedit {
 
 // ---------------------------------------------------------------------------
 // ParticleEditorPanel — ImGui ベースの emitter property editor
+// (Phase 24: editor_core::EditorPanel 継承)
 // ---------------------------------------------------------------------------
-class ParticleEditorPanel {
+class ParticleEditorPanel : public ::acs::game::editor_core::EditorPanel {
 public:
     // Save / Load callback 型。`user` は SetSaveCallback / SetLoadCallback の
     // 第二引数で渡したポインタがそのまま戻る (closure 代替)。
@@ -101,10 +103,18 @@ public:
     // 明示 Shutdown は冪等)。多重 Shutdown 可能。
     void Shutdown() noexcept;
 
-    // メイン ImGui window 描画。`Begin("Particle Editor")` から始まる
-    // 単一 window レイアウト。`system` は read-only にしか触らない
-    // (active particle 数の表示等)。
-    void DrawUI(class ParticleEffectSystem& system) noexcept;
+    // Phase 24: EditorPanel 基底に乗せるため、target system は SetTargetSystem
+    // で先に set してから DrawUI() を呼ぶパターンに変更。
+    void SetTargetSystem(class ParticleEffectSystem* system) noexcept { _target_system = system; }
+    class ParticleEffectSystem* TargetSystem() const noexcept { return _target_system; }
+
+    // EditorPanel override: タイトル。
+    const char* Title() const noexcept override { return "Particle Editor"; }
+
+    // EditorPanel override: メイン ImGui window 描画。target system が set されて
+    // いれば active particle 数を表示。`Begin("Particle Editor")` から始まる
+    // 単一 window レイアウト。
+    void DrawUI() noexcept override;
 
     // 新規 emitter を default param で末尾に追加し、selection を新規 emitter
     // に移す。上限 (kMaxEmitters) に達したら no-op。
@@ -166,6 +176,10 @@ private:
     void*         _save_user    = nullptr;
     LoadCallback  _load_cb      = nullptr;
     void*         _load_user    = nullptr;
+
+    // Phase 24: read-only target (active particle count 表示用)。
+    // nullptr のときは "(no system attached)" を表示。
+    class ParticleEffectSystem* _target_system = nullptr;
 };
 
 } // namespace acs::game::fxedit

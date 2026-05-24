@@ -236,14 +236,23 @@ void InspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* user
 // ・Provider の各オブジェクトを type/instance ヘッダ + field 配列で描画。
 // ・field が変わったら _dirty を立て + callback を発火。
 // =============================================================================
-void InspectorPanel::DrawUI(InspectorSeam& seam, NodeId selected_id) noexcept {
+void InspectorPanel::DrawUI() noexcept {
+    // Phase 24: EditorPanel 継承で no-param 化。
+    // - InspectorSeam は SetInspectorSeam で事前 set
+    // - NodeId は SelectionService::CurrentSelection() で取得 (なければ invalid)
     if (!ImGui::Begin("Inspector")) {
         ImGui::End();
         return;
     }
+    if (_inspector_seam == nullptr) {
+        ImGui::TextUnformatted("(no InspectorSeam attached; call SetInspectorSeam)");
+        ImGui::End();
+        return;
+    }
+    InspectorSeam& seam = *_inspector_seam;
 
     // ----- 選択 NodeId の解決 -----
-    NodeId effective = selected_id;
+    NodeId effective {};
     if (_selection_service != nullptr) {
         NodeId from_svc = _selection_service->CurrentSelection();
         if (from_svc.IsValid()) {

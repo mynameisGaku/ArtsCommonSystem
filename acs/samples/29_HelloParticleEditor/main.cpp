@@ -153,7 +153,9 @@ void ParticleEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
     }
 
     // ----- Panel: emitter パラメータ編集 -----
-    _editor_panel.DrawUI(_particle_system);
+    // Phase 24: EditorPanel 基底に乗ったため SetTargetSystem 後に no-arg DrawUI。
+    _editor_panel.SetTargetSystem(&_particle_system);
+    _editor_panel.DrawUI();
 
     // ----- Preview: 描画 + Burst/Restart ボタン -----
     _editor_preview.DrawUI(

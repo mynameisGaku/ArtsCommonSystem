@@ -282,19 +282,20 @@ void SceneInspectorScene::OnRender(RenderContext& /*rc*/) noexcept {
     }
 
     // ---- Editor Toolbar: Play / Pause / Step / 等の global コマンド ----
-    // EditorToolbar の DrawUI は `Game&` を取り、Quit 含む top-level 操作を
-    // 受け持つ契約 (= 仕様メモ §4 の依頼)。
-    _toolbar.DrawUI(GetGame());
+    // Phase 24: EditorPanel 基底に乗ったため SetGame + no-arg DrawUI に変更。
+    _toolbar.SetGame(&GetGame());
+    _toolbar.DrawUI();
 
     // ---- Hierarchy: Node2D ツリー描画 + 選択操作 ----
-    // root 配下を再帰 TreeNode で表示。クリック → SelectionService に伝播 →
-    // Inspector が次フレームで反映する。
-    _hierarchy_panel.DrawUI(_root_node);
+    // Phase 24: SetRootNode + no-arg DrawUI。
+    _hierarchy_panel.SetRootNode(&_root_node);
+    _hierarchy_panel.DrawUI();
 
     // ---- Inspector: 選択 Node の field を Provider 経由で編集 ----
-    // 第 2 引数 selected_id は SelectionService 注入済みなので fallback 用。
-    // 注入時は InspectorPanel が SelectionService::CurrentSelection() を優先採用する。
-    _inspector_panel.DrawUI(_seam, _selection.CurrentSelection());
+    // Phase 24: SetInspectorSeam + no-arg DrawUI、selection は
+    // SelectionService 経由 (SetSelectionService 済) で取得される。
+    _inspector_panel.SetInspectorSeam(&_seam);
+    _inspector_panel.DrawUI();
 }
 
 // ----------------------------------------------------------------------------
