@@ -82,6 +82,12 @@ acs_enable_module(Ui)
 # 手続き的な関数だけで 2D ゲームを書ける（acs::easy）。
 acs_enable_module(Easy)
 
+# AssetPack — `.acpak` v1 アーカイブ (raw bytes + CRC32) の Reader/Writer を提供
+# する独立エンジンモジュール。名前空間 acs::assetpack、CMake target ACS::AssetPack。
+# GameFramework Pillar G (acs::game::IAssetPackReader) の concrete backend として
+# も使える設計。詳細 docs/AssetPack.md
+acs_enable_module(AssetPack)
+
 # GameFramework — Application の上に Scene 切替・固定タイムステップ等を載せる
 # フレームワーク。Phase 1 (Pillar A: App & Scene) は v3 確定設計の最小骨格のみ。
 # 名前空間 acs::game、CMake target ACS::GameFramework。詳細 docs/GameFramework.md

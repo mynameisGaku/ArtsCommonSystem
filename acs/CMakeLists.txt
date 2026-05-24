@@ -175,6 +175,18 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(35_HelloSpriteAtlasEditor)
     endif()
+
+    # --- (14) GameFramework Phase 23: FontEditor (editor_core + fontedit/) ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(36_HelloFontEditor)
+    endif()
+
+    # --- (15) GameFramework Phase 23: CinematicsTimelineEditor (editor_core + cinetimeline/) ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(37_HelloCinematicsEditor)
+    endif()
 endif()
 
 # ============================================================================

@@ -154,6 +154,9 @@ acs_module(
         tools/btedit/BehaviorTreeEditorPanel.cpp
         tools/leveledit/LevelEditorPanel.cpp
         tools/spriteatlas/SpriteAtlasEditorPanel.cpp
+        # ----- Phase 23: Font + Cinematics editor (v10 著作ツール深度 完結) -----
+        tools/fontedit/FontEditorPanel.cpp
+        tools/cinetimeline/CinematicsTimelineEditorPanel.cpp
     HEADERS
         GameFramework.h
         Game.h
@@ -305,6 +308,9 @@ acs_module(
         tools/btedit/BehaviorTreeEditorPanel.h
         tools/leveledit/LevelEditorPanel.h
         tools/spriteatlas/SpriteAtlasEditorPanel.h
+        # ----- Phase 23: Font + Cinematics editor (v10 著作ツール深度 完結) -----
+        tools/fontedit/FontEditorPanel.h
+        tools/cinetimeline/CinematicsTimelineEditorPanel.h
         EntryPoint.h
     PUBLIC_DEPS
         Foundation
