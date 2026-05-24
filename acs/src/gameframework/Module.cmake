@@ -144,6 +144,11 @@ acs_module(
         tools/editor_core/PropertyDrawer.cpp
         tools/editor_core/EditorGizmo.cpp
         tools/editor_core/EditorTheme.cpp
+        # ----- Phase 21b: ModelViewer (in-game editor、tools/modelview/) -----
+        tools/modelview/ModelViewerPanel.cpp
+        tools/modelview/ModelInspectorPanel.cpp
+        tools/modelview/ModelMaterialPanel.cpp
+        tools/modelview/ModelAnimationPanel.cpp
     HEADERS
         GameFramework.h
         Game.h
@@ -285,6 +290,11 @@ acs_module(
         tools/editor_core/PropertyDrawer.h
         tools/editor_core/EditorGizmo.h
         tools/editor_core/EditorTheme.h
+        # ----- Phase 21b: ModelViewer (in-game editor、tools/modelview/) -----
+        tools/modelview/ModelViewerPanel.h
+        tools/modelview/ModelInspectorPanel.h
+        tools/modelview/ModelMaterialPanel.h
+        tools/modelview/ModelAnimationPanel.h
         EntryPoint.h
     PUBLIC_DEPS
         Foundation

@@ -145,6 +145,12 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(30_HelloSceneInspector)
     endif()
+
+    # --- (9) GameFramework Phase 21b: ModelViewer (editor_core + modelview/) ---
+    # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(31_HelloModelViewer)
+    endif()
 endif()
 
 # ============================================================================
