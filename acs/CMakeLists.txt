@@ -199,6 +199,14 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(37_HelloCinematicsEditor)
     endif()
+
+    # --- (16) GameFramework Phase 25: HelloFullGame (Pillar A-X dogfood) ---
+    # 完結 mini top-down shoot-em-up。5 wave クリアで Victory、HighScore 永続化。
+    # ACS::Imgui に link するため ACS_RENDER_DX12_RAW のみ (sample 本体は ImGui
+    # を直接使わないが、CMakeLists で link 指定があるためガード必要)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(38_HelloFullGame)
+    endif()
 endif()
 
 # ============================================================================

@@ -163,6 +163,10 @@ acs_module(
         # ACS は現状 Windows/DX12 専用なので無条件にビルドして OK (将来クロス
         # プラットフォーム化する場合は `if(WIN32) … endif()` で囲む)。
         audio_backend/XAudio2Backend.cpp
+        # ----- Phase 25: Pillar L/M/N 補完 (AnimGraph/NetSnapshot/ScriptHost) -----
+        AnimationGraph.cpp
+        NetSnapshot.cpp
+        ScriptHost.cpp
     HEADERS
         GameFramework.h
         Game.h
@@ -322,6 +326,10 @@ acs_module(
         # ----- Phase 2: AudioDirector の concrete backend (Windows / XAudio2) -----
         audio_backend/IAudioBackend.h
         audio_backend/XAudio2Backend.h
+        # ----- Phase 25: Pillar L/M/N 補完 (AnimGraph/NetSnapshot/ScriptHost) -----
+        AnimationGraph.h
+        NetSnapshot.h
+        ScriptHost.h
     PUBLIC_DEPS
         Foundation
         Memory
