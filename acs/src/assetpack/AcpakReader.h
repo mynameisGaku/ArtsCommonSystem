@@ -37,6 +37,7 @@
 #include "container/Array.h"
 
 #include "assetpack/AcpakFormat.h"
+#include "assetpack/AcpakCrypto.h"  // AcpakKey (Phase 2: 暗号化 pak の鍵注入)
 
 namespace acs::assetpack {
 
@@ -56,6 +57,10 @@ public:
     //   ・file_path は UTF-16 (Windows convention)。
     //   ・成功すると以降の API が有効になる。多重 Open は前回を自動 Close する。
     //   ・失敗時は内部状態は Close() 後と同じになる (IsOpen() == false)。
+    //   ・**暗号化 pak** (AcpakFlagEncrypted) を Open する前に SetKey() で
+    //     鍵を与えておく必要がある。鍵なしで encrypted pak を開いて ReadFile
+    //     を呼ぶと ACS_ERR(Asset, kAcpakSubCryptoKey) を返す。Open 自体は
+    //     header と file table (= nonce/tag を含む) だけを読むので鍵不要。
     //
     // 主なエラー:
     //   ・ACS_ERR(IO, kAcpakSubIOFailure)     — CreateFileW / ReadFile 失敗
@@ -63,8 +68,12 @@ public:
     //   ・ACS_ERR(Asset, kAcpakSubBadMagic)   — magic mismatch
     //   ・ACS_ERR(Asset, kAcpakSubBadVersion) — version mismatch
     //   ・ACS_ERR(Asset, kAcpakSubBadFlags)   — 未知 flags bit が立っている
-    //   ・ACS_ERR(Asset, kAcpakSubNotImplemented) — encrypted / compressed flag
     Result<void> Open(const wchar_t* file_path) noexcept;
+
+    // 暗号化 pak の復号鍵を設定する。Open の前後どちらでも呼べる。
+    // ReadFile 内で AES-256-GCM 復号に使われる。flags=0 の pak では無視される。
+    // Close すると内部の鍵情報も 0 クリアされる。
+    void SetKey(const AcpakKey& key) noexcept;
 
     // ハンドルを閉じ、文字列 pool + entry 配列を解放する。
     // Open 前 / 既に Close 済でも安全 (no-op)。
@@ -130,6 +139,11 @@ private:
     u64                   _table_offset = 0;        // header.file_table_offset
     Array<AcpakFileEntry> _entries;                 // file table の in-memory 表現
     Array<wchar_t>        _string_pool;             // path 文字列の連結 (NUL 区切り)
+
+    // Phase 2: 暗号化 pak の復号鍵。flags=0 のときは未使用。
+    // Close で _has_key=false にリセットされ、_key も 0 クリアされる。
+    AcpakKey              _key{};
+    bool                  _has_key     = false;
 };
 
 } // namespace acs::assetpack

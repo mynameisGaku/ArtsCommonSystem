@@ -24,6 +24,9 @@
 #include "foundation/Log.h"
 #include "memory/Memory.h"         // MemCopy / MemSet
 
+#include "assetpack/AcpakCrypto.h" // Phase 2: AES-256-GCM 復号
+#include "assetpack/AcpakLz4.h"    // Phase 2: LZ4 解凍
+
 namespace acs::assetpack {
 
 // ============================================================================
@@ -135,6 +138,15 @@ void AcpakReader::Close() noexcept {
     _table_offset = 0;
     _entries.Clear();
     _string_pool.Clear();
+
+    // 鍵情報の defensive zero (再 Open のときに古い鍵が漏れないよう)。
+    MemSet(_key.bytes, 0, sizeof(_key.bytes));
+    _has_key = false;
+}
+
+void AcpakReader::SetKey(const AcpakKey& key) noexcept {
+    MemCopy(_key.bytes, key.bytes, sizeof(_key.bytes));
+    _has_key = true;
 }
 
 Result<void> AcpakReader::Open(const wchar_t* file_path) noexcept {
@@ -223,17 +235,12 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
                        "AcpakReader::Open: unsupported .acpak version");
     }
 
-    // Phase 1: 未知 flags bit (Encrypted / Compressed) は受け付けない
+    // Phase 2: Encrypted / Compressed bit は実装済。未知 bit のみ拒否する。
     const u32 known_flags = static_cast<u32>(AcpakFlagEncrypted) |
                             static_cast<u32>(AcpakFlagCompressed);
     if ((flags & ~known_flags) != 0) {
         return ACS_ERR(Asset, kAcpakSubBadFlags,
                        "AcpakReader::Open: unknown flag bits in header");
-    }
-    if (flags & (static_cast<u32>(AcpakFlagEncrypted) |
-                 static_cast<u32>(AcpakFlagCompressed))) {
-        return ACS_ERR(Asset, kAcpakSubNotImplemented,
-                       "AcpakReader::Open: encrypted/compressed not implemented (Phase 2)");
     }
 
     if (file_count > 0 && file_table_offset >= _file_size) {
@@ -252,7 +259,7 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
     // ---- Pass 1: 各 entry のメタデータと path 長を読み、path 文字列を
     //              `paths_temp` (Array<wchar_t>) に連結する -----------------
     // 内部表現: entry のうち path だけ後で resolve するので、index 配列を別途
-    // 保持する。
+    // 保持する。Phase 2: encrypted pak のときは追加で cipher_nonce/tag も読む。
     struct RawEntry {
         u32 path_len;          // wchar_t 数
         u32 path_pool_offset;  // _string_pool 内の先頭オフセット (wchar_t 単位)
@@ -260,7 +267,13 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
         u64 size_uncompressed;
         u64 size_stored;
         u32 crc32;
+        u8  cipher_nonce[12];  // encrypted pak でのみ有効
+        u8  cipher_tag[16];    // encrypted pak でのみ有効
     };
+
+    const bool is_encrypted = (flags & static_cast<u32>(AcpakFlagEncrypted)) != 0u;
+    const bool is_compressed = (flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
+    (void)is_compressed;  // ReadFile 側でのみ参照する (記号として残す)
 
     Array<RawEntry>   raws;
     Array<wchar_t>    paths_temp;
@@ -294,7 +307,11 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
         const u64 path_bytes = static_cast<u64>(path_len) * sizeof(wchar_t);
         // entry の残りサイズ: path + offset(8) + size_uncompressed(8) +
         // size_stored(8) + crc32(4) = path_bytes + 28
-        if (cursor + path_bytes + 28u > _file_size) {
+        // Phase 2: encrypted のときはさらに cipher_nonce(12) + cipher_tag(16) = 28
+        const u64 tail_bytes = is_encrypted
+                                   ? (28u + kAcpakCipherFieldsDiskSize)
+                                   : 28u;
+        if (cursor + path_bytes + tail_bytes > _file_size) {
             return ACS_ERR(IO, kAcpakSubBadSize,
                            "AcpakReader::Open: file table truncated (entry)");
         }
@@ -317,12 +334,14 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
         cursor += path_bytes;
 
         // offset / size_uncompressed / size_stored / crc32 (28 バイト)
-        u8 tail[28];
-        if (!ReadAt(h, cursor, tail, 28, err)) {
+        // + 暗号化時は nonce(12) + tag(16) を続けて読む。
+        u8 tail[28 + 12 + 16];
+        const u32 tail_read = static_cast<u32>(tail_bytes);
+        if (!ReadAt(h, cursor, tail, tail_read, err)) {
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,
                               "AcpakReader::Open: ReadFile (entry tail) failed", err);
         }
-        cursor += 28;
+        cursor += tail_read;
 
         RawEntry r{};
         r.path_len          = path_len;
@@ -331,16 +350,22 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
         r.size_uncompressed = ReadU64LE(tail + 8);
         r.size_stored       = ReadU64LE(tail + 16);
         r.crc32             = ReadU32LE(tail + 24);
+        if (is_encrypted) {
+            MemCopy(r.cipher_nonce, tail + 28, 12);
+            MemCopy(r.cipher_tag,   tail + 40, 16);
+        }
+        // else: ゼロ初期化のまま (RawEntry r{} で 0 クリア済)
 
         // sanity: entry が指す data 領域が file_size に収まっているか
         if (r.offset + r.size_stored > _file_size) {
             return ACS_ERR(IO, kAcpakSubBadSize,
                            "AcpakReader::Open: entry data range out of file");
         }
-        // Phase 1: stored == uncompressed (圧縮/暗号化なし)
-        if (r.size_stored != r.size_uncompressed) {
-            return ACS_ERR(Asset, kAcpakSubNotImplemented,
-                           "AcpakReader::Open: stored != uncompressed (Phase 2)");
+        // Phase 2: stored != uncompressed は AcpakFlagCompressed のときだけ許容。
+        // Compressed 立ってないのに stored != uncompressed なら破損アーカイブ。
+        if (!is_compressed && r.size_stored != r.size_uncompressed) {
+            return ACS_ERR(Asset, kAcpakSubBadSize,
+                           "AcpakReader::Open: stored != uncompressed but flag clear");
         }
 
         raws.PushBack(r);
@@ -367,6 +392,9 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
         e.size_uncompressed = r.size_uncompressed;
         e.size_stored       = r.size_stored;
         e.crc32             = r.crc32;
+        // 暗号化フィールドは encrypted pak のみ意味あり、それ以外は 0。
+        MemCopy(e.cipher_nonce, r.cipher_nonce, 12);
+        MemCopy(e.cipher_tag,   r.cipher_tag,   16);
         _entries.PushBack(e);
     }
 
@@ -445,18 +473,101 @@ Result<u64> AcpakReader::ReadFile(const wchar_t* path,
                        "AcpakReader::ReadFile: buffer too small");
     }
 
-    // Phase 1: stored == uncompressed (LoadHeaderAndTable で検証済)。
-    // 生バイトをそのまま out_buffer に読み出す。
+    const bool is_encrypted  = (_flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
+    const bool is_compressed = (_flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
+
     HANDLE h = static_cast<HANDLE>(_file_handle);
-    DWORD err = 0;
-    if (e->size_uncompressed > 0) {
-        if (!ReadAt(h, e->offset, out_buffer, e->size_uncompressed, err)) {
+    DWORD  err = 0;
+
+    // 暗号化 pak で鍵未設定なら早期に弾く (Decrypt がいずれにせよ失敗するが、
+    // 専用 subcode で返した方がトラブルシュートに親切)。
+    if (is_encrypted && !_has_key) {
+        return ACS_ERR(Asset, kAcpakSubCryptoKey,
+                       "AcpakReader::ReadFile: encrypted pak but no key set");
+    }
+
+    // ---- pipeline 設計 (decrypt-then-decompress) -------------------------
+    //
+    //   ディスク → [size_stored bytes (ciphertext or stored)]
+    //     ↓ (encrypted ? AES-GCM decrypt : noop)
+    //     [size_stored bytes (compressed or raw)]
+    //     ↓ (compressed ? LZ4 decompress : noop)
+    //     [size_uncompressed bytes (final plaintext)]
+    //     ↓ CRC32 検証
+    //     out_buffer
+    //
+    // 中間段が必要かは flags の組み合わせ次第:
+    //   ・flags == 0           : ディスク直 → out_buffer (中間バッファ不要)
+    //   ・compressed only      : ディスク → tmp(size_stored) → LZ4 → out_buffer
+    //   ・encrypted only       : ディスク → out_buffer に load → in-place decrypt
+    //                            (size_stored == size_uncompressed なので buffer OK)
+    //   ・encrypted+compressed : ディスク → tmp(size_stored) → in-place decrypt
+    //                            → LZ4 → out_buffer
+    //
+    // tmp バッファは size_stored バイト確保する。
+
+    Array<u8> tmp;   // 圧縮中間バッファ (圧縮 flag のときのみ使う)
+    void* stored_dst = nullptr;   // ディスク から最初に読み込む先
+
+    if (is_compressed) {
+        // 中間バッファ確保
+        if (e->size_stored > 0xFFFFFFFFu) {
+            return ACS_ERR(Asset, kAcpakSubBadSize,
+                           "AcpakReader::ReadFile: stored size > 4GiB (LZ4 limit)");
+        }
+        tmp.Resize(static_cast<usize>(e->size_stored));
+        stored_dst = tmp.IsEmpty() ? nullptr : tmp.Data();
+    } else {
+        // 非圧縮なら out_buffer 直接 (size_stored == size_uncompressed)
+        stored_dst = out_buffer;
+    }
+
+    // ---- ディスク read -----------------------------------------------------
+    if (e->size_stored > 0) {
+        if (!ReadAt(h, e->offset, stored_dst, e->size_stored, err)) {
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,
                               "AcpakReader::ReadFile: ReadFile (data) failed", err);
         }
     }
 
-    // CRC32 検証 (改竄 / 破損検知)
+    // ---- AES-GCM 復号 (in-place) -------------------------------------------
+    // size_stored == 0 (= 元から空ファイル) でも GMAC 動作で tag 検証を行う。
+    // ここを skip すると空ファイルの cipher_tag が攻撃者に書き換え自由になる。
+    if (is_encrypted) {
+        u8* p = static_cast<u8*>(stored_dst);
+        auto dr = AcpakCrypto::Decrypt(_key,
+                                       e->cipher_nonce,
+                                       e->cipher_tag,
+                                       p, e->size_stored,
+                                       p);
+        if (dr.IsErr()) {
+            // tag mismatch は改竄、その他は CNG エラー — 呼び出し側にそのまま
+            // 伝搬する (subcode が原因を示す)。
+            return dr.Error();
+        }
+    }
+
+    // ---- LZ4 解凍 ---------------------------------------------------------
+    if (is_compressed && e->size_uncompressed > 0) {
+        if (e->size_uncompressed > 0xFFFFFFFFu) {
+            return ACS_ERR(Asset, kAcpakSubBadSize,
+                           "AcpakReader::ReadFile: uncompressed size > 4GiB (LZ4 limit)");
+        }
+        auto dr = AcpakLz4::Decompress(tmp.Data(),
+                                       static_cast<u32>(e->size_stored),
+                                       static_cast<u8*>(out_buffer),
+                                       static_cast<u32>(buffer_size));
+        if (dr.IsErr()) {
+            return dr.Error();
+        }
+        if (static_cast<u64>(dr.Value()) != e->size_uncompressed) {
+            // 解凍結果サイズが TOC と一致しない = 破損 or バグ
+            return ACS_ERR(Asset, kAcpakSubBadSize,
+                           "AcpakReader::ReadFile: LZ4 decompressed size mismatch");
+        }
+    }
+
+    // ---- CRC32 検証 (元の生バイトに対して) --------------------------------
     const u32 actual = ComputeCrc32(out_buffer, e->size_uncompressed);
     if (actual != e->crc32) {
         ACS_LOG_WARN("AcpakReader::ReadFile: CRC mismatch (expected=0x%08x, actual=0x%08x)",

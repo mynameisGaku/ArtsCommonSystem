@@ -1,35 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — SaveSlot<T> 非テンプレート helper 実装 (Phase 1 stub)
-//
+// =============================================================================
+// GameFramework Pillar J — SaveSlot<T> 非テンプレート helper 実装
+// -----------------------------------------------------------------------------
 // このファイルは SaveSlot.h で宣言した `detail::SaveSlot_*` 群の本体を実装する。
 // テンプレート毎にコードが複製されないよう、bit-precise な I/O ロジックは
-// すべてここに集約する。
+// すべてここに集約する (Save/Load は SaveArchive::WriteToFile / ReadFromFile
+// に委譲、Exists/Delete は acs::FileSystem に委譲)。
 //
-// Phase 1 (現在):
-//   ・Exists / Delete は acs::FileSystem を呼んで本物の挙動を提供する。
-//   ・Save / Load は ACS_ERR(IO, kSub_NotImplemented) を返す stub のまま。
+// 設計の流れ:
+//   Save  → CheckInitialized → SaveArchive::WriteToFile (header + payload + crc)
+//   Load  → CheckInitialized → SaveArchive::ReadFromFile (verify + copy)
+//   Exists → FileSystem::Exists
+//   Delete → CheckInitialized → FileSystem::Exists (べき等) → FileSystem::Delete
 //
-// Phase 2 (次):
-//   ・Save: header (magic/version/payload_size/reserved) + payload + crc32 を
-//     temp file (".tmp" suffix) に WriteAllBytes → FileSystem::Rename
-//     (atomic move) で本ファイルに置き換える。
-//   ・Load: ReadAllBytes → magic / version / size / crc32 検証 → memcpy。
-//   ・CRC-32 ルーチンは acs::Hash 系に追加 (poly 0xEDB88320)。
+// 「未初期化 (Init() 未呼出)」を表す internal subcode は、SaveArchive の
+// ESaveArchiveSubCode に該当値が無いため独自に 100 番台で持つ。
+// =============================================================================
 #include "gameframework/SaveSlot.h"
 
+#include "gameframework/SaveArchive.h"
 #include "platform/FileSystem.h"
 
 namespace acs::game::detail {
 
 namespace {
 
-// 未初期化 (file_path == nullptr) 判定を一箇所に集約する。
-// 呼出側は Init() を忘れているプログラミングミスなので、Warn ログを出す。
+// 未初期化を示す独自 subcode (ESaveArchiveSubCode と衝突しない値域)。
+// 値は SaveArchive の 1..7 とは別空間にして、上位層が両方の subcode を
+// 区別して扱えるようにしておく。
+constexpr u16 kSubSlotNotInitialized = 100u;
+
+// 未初期化 (file_path == nullptr) を判定する。
+// 呼出側は Init() を忘れているプログラミングミスなので Warn ログを出す。
 inline Result<void> CheckInitialized(const wchar_t* file_path,
                                      const char*    operation) noexcept {
     if (file_path == nullptr) {
         ACS_LOG_WARN("SaveSlot::%s called before Init()", operation);
-        return ACS_ERR(IO, SaveArchive::kSub_NotInitialized,
+        return ACS_ERR(IO, kSubSlotNotInitialized,
                        "SaveSlot is not initialized");
     }
     return Ok();
@@ -38,63 +45,71 @@ inline Result<void> CheckInitialized(const wchar_t* file_path,
 } // namespace
 
 // -----------------------------------------------------------------------------
-// SaveSlot_SaveBytes — Phase 1: stub (NotImplemented を返す)
+// SaveSlot_SaveBytes — SaveArchive 経由で payload を保存
 // -----------------------------------------------------------------------------
-// Phase 2 の擬似コード:
+// 現状は SaveArchive::WriteToFile を直接呼ぶ薄いラッパ。
+// 将来 atomic rename を入れる場合はここで:
 //   1. tmp_path = file_path + L".tmp"
-//   2. buf = [magic(4)][version(4)][payload_size(4)][reserved(4)]
-//             [payload(payload_size)][crc32(4)]
-//   3. FileSystem::WriteAllBytes(tmp_path, buf, total)
-//   4. FileSystem::Rename(tmp_path, file_path)   ※atomic
-//   5. 途中失敗時は tmp_path を best-effort で削除して abort
+//   2. SaveArchive::WriteToFile(tmp_path, ...)
+//   3. FileSystem::Rename(tmp_path, file_path)
+// に書き換える (Phase 2 候補)。
 Result<void> SaveSlot_SaveBytes(const wchar_t* file_path,
+                                u32            version,
                                 const void*    payload,
                                 usize          payload_size) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Save"));
-    (void)payload;
-    (void)payload_size;
-    // Phase 1: 実 I/O は未接続。"動くが必ず失敗する" 状態にしておき、
-    // 上位層 (PhotoMode の sample 等) が Result を握りつぶさない設計を強制する。
-    return ACS_ERR(IO, SaveArchive::kSub_NotImplemented,
-                   "SaveSlot::Save is not yet implemented (Phase 1 stub)");
+    return SaveArchive::WriteToFile(file_path,
+                                    version,
+                                    payload,
+                                    static_cast<u64>(payload_size));
 }
 
 // -----------------------------------------------------------------------------
-// SaveSlot_LoadBytes — Phase 1: stub (NotImplemented を返す)
+// SaveSlot_LoadBytes — SaveArchive 経由で payload を読み込み
 // -----------------------------------------------------------------------------
-// Phase 2 の擬似コード:
-//   1. ReadAllBytes(file_path) → buf
-//   2. buf.size() < kHeaderSize + kFooterSize なら kSub_BadSize
-//   3. magic 検証 → 不一致なら kSub_BadMagic
-//   4. version 検証 → kVersion と不一致なら kSub_BadVersion
-//   5. payload_size 検証 → 引数 payload_size と不一致なら kSub_BadSize
-//   6. crc32 計算 → footer と不一致なら kSub_BadCrc
-//   7. memcpy(payload_out, &buf[kHeaderSize], payload_size)
+// payload_size と header.payload_size の一致は SaveArchive 側が
+// kSubBufferTooSmall で検出する。version 不一致は kSubMigrationNeeded で
+// そのまま伝搬する (呼び出し側が migrate ハンドラに分岐するための情報)。
 Result<void> SaveSlot_LoadBytes(const wchar_t* file_path,
+                                u32            expected_version,
                                 void*          payload_out,
                                 usize          payload_size) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Load"));
-    (void)payload_out;
-    (void)payload_size;
-    return ACS_ERR(IO, SaveArchive::kSub_NotImplemented,
-                   "SaveSlot::Load is not yet implemented (Phase 1 stub)");
+    u64 actual_payload_size = 0;
+    auto r = SaveArchive::ReadFromFile(file_path,
+                                       payload_out,
+                                       static_cast<u64>(payload_size),
+                                       expected_version,
+                                       actual_payload_size);
+    if (r.IsErr()) return r.Error();
+    // header.payload_size が sizeof(T) と完全一致することを追加で確認する
+    // (SaveArchive 側は ">=" 比較しかしないため、シュリンク/拡張時に検出)。
+    if (actual_payload_size != static_cast<u64>(payload_size)) {
+        ACS_LOG_WARN("SaveSlot::Load: payload size mismatch (file=%llu, T=%llu)",
+                     static_cast<unsigned long long>(actual_payload_size),
+                     static_cast<unsigned long long>(payload_size));
+        return ACS_ERR(
+            Asset,
+            static_cast<u16>(ESaveArchiveSubCode::kSubBufferTooSmall),
+            "SaveSlot::Load: header.payload_size != sizeof(T)");
+    }
+    return Ok();
 }
 
 // -----------------------------------------------------------------------------
-// SaveSlot_Exists — Phase 1: 本物の動作 (FileSystem::Exists 委譲)
+// SaveSlot_Exists — FileSystem::Exists 委譲
 // -----------------------------------------------------------------------------
-// 未初期化なら false を返すだけで warning も出さない (Exists は判定 API なので
-// 通常フローで file が無い状態を聞かれるのは正常)。
+// 未初期化なら false (warning 出さない、判定 API として正常な呼び方を許す)。
 bool SaveSlot_Exists(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return false;
     return FileSystem::Exists(file_path);
 }
 
 // -----------------------------------------------------------------------------
-// SaveSlot_Delete — Phase 1: 本物の動作 (べき等)
+// SaveSlot_Delete — FileSystem::Delete 委譲 (べき等)
 // -----------------------------------------------------------------------------
-// ファイルが無い場合は成功扱いにする (削除済み = 望ましい状態に既にある)。
-// 未初期化は IO error として返す (これは呼出側のミス)。
+// ファイルが無い場合は成功扱い (削除済み = 望ましい状態に既にある)。
+// 未初期化は IO error として返す (呼出側のプログラミングミス)。
 Result<void> SaveSlot_Delete(const wchar_t* file_path) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Delete"));
     if (!FileSystem::Exists(file_path)) {

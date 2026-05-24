@@ -33,6 +33,16 @@
 //       crc32               : u32 (size_uncompressed バイトに対する CRC32、
 //                                  poly=0xEDB88320, init=0xFFFFFFFF, xorout=
 //                                  0xFFFFFFFF)
+//       cipher_nonce[12]    : (only if header.flags & AcpakFlagEncrypted)
+//                              AES-256-GCM 用 per-file nonce。CSPRNG で生成。
+//       cipher_tag[16]      : (only if header.flags & AcpakFlagEncrypted)
+//                              AES-256-GCM 認証タグ。Encrypt 時に書き出し、
+//                              Decrypt 時に検証。
+//
+//   下位互換: header.flags & AcpakFlagEncrypted == 0 のときは cipher_nonce /
+//   cipher_tag を file table に書かない (= v1 raw レイアウトと完全一致)。
+//   AcpakReader::Open は flags を見て分岐するので、v1 で作成した .acpak は
+//   v2 ライブラリでもそのまま読める。
 //
 // 全数値は little-endian、host 側もすべて little-endian 前提 (ACS 対応プラット
 // フォームは Win/x64 と将来の ARM64 = little-endian only)。
@@ -74,9 +84,9 @@ inline constexpr u8 kAcpakMagic[8] = {
 inline constexpr u32 kAcpakVersion = 1u;
 
 // ---- フラグ (header.flags の bitfield) -----------------------------------
-// Phase 1 では Encrypted / Compressed は仕様だけ予約し、本実装は flags = 0
-// (raw bytes、完全性検証のみ) のパスのみ。Encrypted / Compressed が立った
-// アーカイブを Open すると Reader は NotImplemented を返す。
+// Phase 2 で Encrypted / Compressed 共に実装済。順序は **compress-then-encrypt**
+// (AssetPack.md §5)。読み出し時は **decrypt-then-decompress** の逆順。
+// Reader/Writer は flags を見て pipeline を組み立てる。
 enum EAcpakFlags : u32 {
     AcpakFlagNone        = 0u,
     AcpakFlagEncrypted   = 1u << 0,  // 各 file data が AES-256-GCM 暗号化 (Phase 2)
@@ -110,6 +120,12 @@ struct AcpakHeader {
 // で 40 になり得るため、I/O は kAcpakHeaderDiskSize で明示的に行う)。
 inline constexpr usize kAcpakHeaderDiskSize = 36;
 
+// file table 内の各 entry が暗号化フラグ立ち時に追加で持つバイト数。
+// = cipher_nonce(12) + cipher_tag(16) = 28
+// Reader/Writer は header.flags & AcpakFlagEncrypted のときだけこの 28 バイトを
+// 読み書きする。v1 (flags=0) では 0 バイト = レイアウト変更なし。
+inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u;
+
 static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8,
               "Fixed-width integer types broken");
 static_assert(sizeof(((AcpakHeader*)0)->magic) == 8,
@@ -123,12 +139,19 @@ static_assert(sizeof(((AcpakHeader*)0)->magic) == 8,
 // 文字列の寿命:
 //   ・Reader が Open した時点で文字列 pool を確保し、Close するまでこの
 //     ポインタは有効。Close 後にアクセスするのは UB。
+//
+// 暗号化フィールド (Phase 2 拡張):
+//   ・cipher_nonce / cipher_tag は AcpakFlagEncrypted が立った pak でのみ
+//     ディスクから読み込まれる。flags=0 (v1) の pak ではゼロクリアされる。
+//   ・AES-256-GCM の規格上、nonce は 96bit (12B)、tag は 128bit (16B) 固定。
 struct AcpakFileEntry {
     const wchar_t* path;              // Reader 内文字列 pool への参照
     u64            offset;            // アーカイブ先頭からの絶対オフセット
     u64            size_uncompressed; // 復号 + 解凍後のバイト数
     u64            size_stored;       // アーカイブ上の生バイト数
     u32            crc32;             // size_uncompressed バイトに対する CRC32
+    u8             cipher_nonce[12];  // AES-256-GCM nonce (encrypted pak のみ)
+    u8             cipher_tag[16];    // AES-256-GCM 認証タグ (encrypted pak のみ)
 };
 
 // ---- エラーコード subcode (ErrCategory::IO / ErrCategory::Asset 配下) ----
@@ -140,7 +163,9 @@ inline constexpr u16 kAcpakSubBadVersion       = 1302; // version が kAcpakVers
 inline constexpr u16 kAcpakSubBadSize          = 1303; // ファイル長が想定外 / 範囲外
 inline constexpr u16 kAcpakSubBadCrc           = 1304; // CRC mismatch (破損 or 改竄)
 inline constexpr u16 kAcpakSubBadFlags         = 1305; // 未知 flags bit が立っている
-inline constexpr u16 kAcpakSubNotImplemented   = 1306; // encrypted / compressed (Phase 2)
+inline constexpr u16 kAcpakSubNotImplemented   = 1306; // (Phase 1 残留) encrypted/compressed
+                                                       // Phase 2 で実装済のため未使用。
+                                                       // 将来別の未実装機能用に再利用可。
 inline constexpr u16 kAcpakSubNotOpen          = 1307; // Open() 前の API 呼び出し
 inline constexpr u16 kAcpakSubNotFound         = 1308; // path / index が pak 内に無い
 inline constexpr u16 kAcpakSubBufferTooSmall   = 1309; // ReadFile の out_buffer が小さすぎ

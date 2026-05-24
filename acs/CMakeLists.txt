@@ -22,6 +22,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "Export compile_commands.jso
 
 option(ACS_BUILD_TESTS    "Build ACS unit tests"               ON)
 option(ACS_BUILD_SAMPLES  "Build sample applications"          ON)
+option(ACS_BUILD_TOOLS    "Build ACS CLI tools (acs_assetpack)" ON)
 option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
 
 # RHI バックエンド選択（Render モジュールが参照する。ACS_Render_* 系の feature と
@@ -61,6 +62,17 @@ target_link_libraries(acs_game INTERFACE
 if(ACS_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+# ---- 5. CLI ツール群 (acs/tools/<name>/CMakeLists.txt) --------------------
+# 配布用 ZIP には含めない開発時ユーティリティ。AssetPack モジュールが有効な
+# ときだけ acs_assetpack を組み込む (依存欠落でビルドが落ちないように)。
+if(ACS_BUILD_TOOLS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/acs_assetpack/CMakeLists.txt")
+    get_property(_acs_enabled_mods GLOBAL PROPERTY _ACS_ENABLED_MODULES)
+    list(FIND _acs_enabled_mods "AssetPack" _acs_assetpack_idx)
+    if(NOT _acs_assetpack_idx EQUAL -1)
+        add_subdirectory(tools/acs_assetpack)
+    endif()
 endif()
 
 # 「VS 2026 でこの 1 サンプルだけ開きたい」用フィルタ。空 = 全 sample 有効

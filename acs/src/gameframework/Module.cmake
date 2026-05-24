@@ -39,6 +39,7 @@ acs_module(
         Entitlement.cpp
         AudioDirector.cpp
         SaveSlot.cpp
+        SaveArchive.cpp
         ModRegistry.cpp
         SteamworksBridge.cpp
         BackendClient.cpp
@@ -157,6 +158,11 @@ acs_module(
         # ----- Phase 23: Font + Cinematics editor (v10 著作ツール深度 完結) -----
         tools/fontedit/FontEditorPanel.cpp
         tools/cinetimeline/CinematicsTimelineEditorPanel.cpp
+        # ----- Phase 2: AudioDirector の concrete backend (Windows / XAudio2) -----
+        # IAudioBackend は header-only seam、XAudio2Backend は Windows 専用実装。
+        # ACS は現状 Windows/DX12 専用なので無条件にビルドして OK (将来クロス
+        # プラットフォーム化する場合は `if(WIN32) … endif()` で囲む)。
+        audio_backend/XAudio2Backend.cpp
     HEADERS
         GameFramework.h
         Game.h
@@ -191,6 +197,7 @@ acs_module(
         Entitlement.h
         AudioDirector.h
         SaveSlot.h
+        SaveArchive.h
         ModRegistry.h
         SteamworksBridge.h
         BackendClient.h
@@ -312,6 +319,9 @@ acs_module(
         tools/fontedit/FontEditorPanel.h
         tools/cinetimeline/CinematicsTimelineEditorPanel.h
         EntryPoint.h
+        # ----- Phase 2: AudioDirector の concrete backend (Windows / XAudio2) -----
+        audio_backend/IAudioBackend.h
+        audio_backend/XAudio2Backend.h
     PUBLIC_DEPS
         Foundation
         Memory
@@ -320,4 +330,9 @@ acs_module(
         Platform
         Render
         App
+    LINK_PUBLIC
+        # XAudio2Backend.cpp が呼ぶ Win32 / COM 系ライブラリ。
+        # (Audio モジュールと同じ綴り。Windows SDK 同梱なので third_party 不要。)
+        xaudio2
+        ole32
 )

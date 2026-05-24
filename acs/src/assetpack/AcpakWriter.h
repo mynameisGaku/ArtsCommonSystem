@@ -38,6 +38,7 @@
 #include "container/Array.h"
 
 #include "assetpack/AcpakFormat.h"
+#include "assetpack/AcpakCrypto.h"  // AcpakKey (Phase 2: 暗号化 pak の鍵注入)
 
 namespace acs::assetpack {
 
@@ -54,11 +55,18 @@ public:
     // ---- ライフサイクル -----------------------------------------------------
 
     // 出力ファイルを開く。既存ファイルは上書き (CREATE_ALWAYS)。
-    //   ・flags は AcpakFlagNone のみ実装 (= Phase 1)。
-    //   ・Encrypted / Compressed bit を含むと ACS_ERR(Asset, kAcpakSubNotImplemented)。
+    //   ・flags は AcpakFlagNone / AcpakFlagCompressed / AcpakFlagEncrypted の
+    //     任意組み合わせ (Phase 2 で全 bit 実装済)。
+    //   ・Encrypted を立てる場合は **Open より前に** SetKey() を呼んで鍵を
+    //     設定すること。鍵未設定で Encrypted Open すると Finalize 時に
+    //     ACS_ERR(Asset, kAcpakSubCryptoKey) を返す (Open 自体は成功する)。
     //   ・既に Open 状態なら ACS_ERR(IO, kAcpakSubAlreadyOpen)。
     //   ・成功すると以降 AddFile / Finalize が呼べる。
     Result<void> Open(const wchar_t* output_path, EAcpakFlags flags) noexcept;
+
+    // 暗号化用の鍵を設定する。Open 前後どちらでも呼べる。
+    // flags に AcpakFlagEncrypted が含まれているときに Finalize で使われる。
+    void SetKey(const AcpakKey& key) noexcept;
 
     // ハンドルを閉じる。Finalize 前に呼ぶと書きかけアーカイブが残るため、
     // ベストエフォートでファイルを削除する (実装は単純に CloseHandle だけ呼ぶ
@@ -101,6 +109,10 @@ private:
     u32                 _flags       = 0;         // header.flags
     bool                _finalized   = false;     // Finalize 済か
     Array<PendingEntry> _pending;                 // AddFile が積んだ entry 群
+
+    // Phase 2: 暗号化鍵 (AcpakFlagEncrypted のときに Finalize で使う)。
+    AcpakKey            _key{};
+    bool                _has_key     = false;
 };
 
 } // namespace acs::assetpack

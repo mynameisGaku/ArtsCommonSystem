@@ -26,6 +26,9 @@
 #include "foundation/Log.h"
 #include "memory/Memory.h"
 
+#include "assetpack/AcpakCrypto.h" // Phase 2: AES-256-GCM 暗号化
+#include "assetpack/AcpakLz4.h"    // Phase 2: LZ4 圧縮
+
 namespace acs::assetpack {
 
 // ============================================================================
@@ -144,6 +147,15 @@ void AcpakWriter::ResetState() noexcept {
     _flags     = 0;
     _finalized = false;
     _pending.Clear();
+
+    // 鍵 defensive zero
+    MemSet(_key.bytes, 0, sizeof(_key.bytes));
+    _has_key = false;
+}
+
+void AcpakWriter::SetKey(const AcpakKey& key) noexcept {
+    MemCopy(_key.bytes, key.bytes, sizeof(_key.bytes));
+    _has_key = true;
 }
 
 Result<void> AcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) noexcept {
@@ -156,13 +168,7 @@ Result<void> AcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) no
                        "AcpakWriter::Open: output_path is null");
     }
 
-    // Phase 1: encrypted / compressed は未実装
-    if (static_cast<u32>(flags) & (static_cast<u32>(AcpakFlagEncrypted) |
-                                   static_cast<u32>(AcpakFlagCompressed))) {
-        return ACS_ERR(Asset, kAcpakSubNotImplemented,
-                       "AcpakWriter::Open: encrypted/compressed not implemented (Phase 2)");
-    }
-    // 未知 flag bit があれば拒否
+    // Phase 2: encrypted / compressed は実装済。未知 flag bit のみ拒否。
     const u32 known_flags = static_cast<u32>(AcpakFlagEncrypted) |
                             static_cast<u32>(AcpakFlagCompressed);
     if ((static_cast<u32>(flags) & ~known_flags) != 0) {
@@ -235,7 +241,35 @@ Result<void> AcpakWriter::AddFile(const wchar_t* virtual_path,
 
 // ----------------------------------------------------------------------------
 // Finalize — pending entry 群をディスクに書き出し、最後にヘッダを更新
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Phase 2 では各 entry に対し **compress-then-encrypt** パイプラインを通す。
+//   1. (元データ ptr, size) → CRC32 計算 (元バイト基準)
+//   2. compressed 立ち & 圧縮効果あり (< original * 0.97) → LZ4 圧縮
+//      圧縮効果が薄ければ生格納フォールバック (AcpakFileEntry::size_stored ==
+//      size_uncompressed のまま)。この判断は per-entry に独立。
+//      ※ AssetPack.md §5 の "97%" 安全規則。アーカイブがバラより大きくなる
+//          ことを防ぐ。
+//   3. encrypted 立ち → CSPRNG nonce 生成 → AES-256-GCM 暗号化 (tag 出力)
+//   4. ディスクに stored bytes を書く
+//   5. file table に (offset, size_unc, size_st, crc32, nonce?, tag?) を書く
+//
+// 注意: 圧縮判定は per-entry なので、同 .acpak 内でも一部は LZ4、一部は生格納
+// と混在しうる。Reader は size_stored / size_uncompressed の値だけで pipeline
+// を構成できる (圧縮しないエントリは LZ4 ステージが no-op になる)。
+//
+// 圧縮 + 暗号化が両方立っている場合のフォールバック:
+//   ・LZ4 で生格納に倒れた entry でも、暗号化は通常通り行う (size_stored ==
+//     size_uncompressed のままで AES-GCM)。
+//   ・Reader は size_stored == size_uncompressed のとき LZ4 をスキップする
+//     pipeline になっている (= AcpakReader::ReadFile の is_compressed
+//     ブロックで full_match 0 のときも単に noop)。
+//   ・ただし現実装の Reader はファイル単位の per-entry "compressed?" 判定を
+//     持たない (header flags のみ参照)。そこで Reader は「compressed flag が
+//     立っていれば常に LZ4 Decompress を試みる」設計。
+//     → そのため Writer 側は「compressed flag 立ち時は entry が短くても
+//       必ず LZ4 を通し、たとえ size_stored > size_uncompressed でも保存する」
+//       挙動とする。"97%" 安全規則は Phase 3 で per-entry flag を追加して
+//       再検討する (今は単純化を優先)。
 Result<void> AcpakWriter::Finalize() noexcept {
     if (_file_handle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
@@ -257,28 +291,89 @@ Result<void> AcpakWriter::Finalize() noexcept {
                           "AcpakWriter::Finalize: SetFilePointerEx failed", err);
     }
 
-    // 各 entry の offset と crc32 を控える小さな構造体。
+    const bool is_encrypted  = (_flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
+    const bool is_compressed = (_flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
+
+    // 暗号化が立っているのに鍵未設定なら早期に弾く (失敗のソースを明確化)。
+    if (is_encrypted && !_has_key) {
+        return ACS_ERR(Asset, kAcpakSubCryptoKey,
+                       "AcpakWriter::Finalize: encrypted flag set but no key");
+    }
+
+    // 各 entry の (offset, size_unc, size_st, crc32, nonce[12], tag[16]) を控える。
     struct WrittenEntry {
         u64 offset;
-        u64 size;
+        u64 size_unc;             // 元データのバイト数
+        u64 size_stored;          // ディスク上のバイト数 (圧縮+暗号化済)
         u32 crc32;
+        u8  cipher_nonce[12];
+        u8  cipher_tag[16];
     };
     Array<WrittenEntry> written;
     written.Reserve(_pending.Size());
+
+    // 中間バッファは entry 間で再利用する (Array<u8> を 2 つ用意)。
+    Array<u8> stage_compress;   // LZ4 圧縮出力先
+    Array<u8> stage_encrypt;    // AES-GCM 暗号化出力先 (in-place 可だが安全のため別)
 
     // ---- ファイルデータ書き出し -------------------------------------------
     for (usize i = 0; i < _pending.Size(); ++i) {
         const PendingEntry& p = _pending[i];
 
         WrittenEntry w{};
-        w.offset = Tell(h);
-        w.size   = p.size;
-        w.crc32  = ComputeCrc32(p.data, p.size);
+        w.offset   = Tell(h);
+        w.size_unc = p.size;
+        w.crc32    = ComputeCrc32(p.data, p.size);
 
-        if (!WriteAll(h, p.data, p.size, err)) {
-            return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                              "AcpakWriter::Finalize: WriteFile (data) failed", err);
+        // ステージごとの (data, size) を pipeline で更新していく。
+        const u8* stage_ptr  = static_cast<const u8*>(p.data);
+        u64       stage_size = p.size;
+
+        // ---- 圧縮 (compress-then-encrypt の 1 段目) --------------------
+        if (is_compressed) {
+            if (p.size > 0xFFFFFFFFu) {
+                return ACS_ERR(Asset, kAcpakSubBadSize,
+                               "AcpakWriter::Finalize: input > 4GiB (LZ4 limit)");
+            }
+            const u32 src_size = static_cast<u32>(p.size);
+            const u32 dst_cap  = AcpakLz4::MaxCompressedSize(src_size);
+            stage_compress.Resize(dst_cap);
+            auto cr = AcpakLz4::Compress(static_cast<const u8*>(p.data),
+                                         src_size,
+                                         stage_compress.Data(),
+                                         dst_cap);
+            if (cr.IsErr()) return cr.Error();
+            stage_ptr  = stage_compress.Data();
+            stage_size = cr.Value();
         }
+
+        // ---- 暗号化 (compress-then-encrypt の 2 段目) -------------------
+        if (is_encrypted) {
+            // CSPRNG nonce 生成
+            AcpakCrypto::GenerateRandomNonce(w.cipher_nonce);
+
+            // 出力バッファ (= 同 size の別領域、in-place も可だが分離で安全)
+            stage_encrypt.Resize(static_cast<usize>(stage_size));
+            auto er = AcpakCrypto::Encrypt(_key,
+                                           w.cipher_nonce,
+                                           stage_ptr, stage_size,
+                                           stage_encrypt.Data(),
+                                           w.cipher_tag);
+            if (er.IsErr()) return er.Error();
+            stage_ptr  = stage_encrypt.Data();
+            // size 不変 (AES-GCM は size == size)
+        }
+
+        w.size_stored = stage_size;
+
+        // ---- ディスク書き出し ----------------------------------------
+        if (stage_size > 0) {
+            if (!WriteAll(h, stage_ptr, stage_size, err)) {
+                return ACS_ERR_OS(IO, kAcpakSubIOFailure,
+                                  "AcpakWriter::Finalize: WriteFile (data) failed", err);
+            }
+        }
+
         written.PushBack(w);
     }
 
@@ -292,10 +387,11 @@ Result<void> AcpakWriter::Finalize() noexcept {
 
         // path_len (4) + path (len*2) + offset (8) + size_unc (8) + size_st (8)
         // + crc32 (4) を 1 つの一時バッファに詰めて書く。
-        // long path 対応で path_bytes は可変なので、大きめのスタックバッファ
-        // (260 wchar = 520 + 32 = 552B) を使う。それ以上は heap で。
+        // Phase 2: 暗号化のとき末尾に cipher_nonce(12) + cipher_tag(16) を続ける。
         const u64 path_bytes  = static_cast<u64>(len) * sizeof(wchar_t);
-        const u64 entry_bytes = 4u + path_bytes + 28u;
+        const u64 tail_bytes  = is_encrypted ? (28u + kAcpakCipherFieldsDiskSize)
+                                              : 28u;
+        const u64 entry_bytes = 4u + path_bytes + tail_bytes;
 
         u8  stack_buf[1024];
         u8* buf = stack_buf;
@@ -311,9 +407,13 @@ Result<void> AcpakWriter::Finalize() noexcept {
         }
         u8* tail = buf + 4 + path_bytes;
         WriteU64LE(tail + 0,  w.offset);
-        WriteU64LE(tail + 8,  w.size);  // size_uncompressed
-        WriteU64LE(tail + 16, w.size);  // size_stored (Phase 1: 同値)
+        WriteU64LE(tail + 8,  w.size_unc);     // size_uncompressed
+        WriteU64LE(tail + 16, w.size_stored);  // size_stored (Phase 2: 圧縮+暗号化後)
         WriteU32LE(tail + 24, w.crc32);
+        if (is_encrypted) {
+            MemCopy(tail + 28,      w.cipher_nonce, 12);
+            MemCopy(tail + 28 + 12, w.cipher_tag,   16);
+        }
 
         if (!WriteAll(h, buf, entry_bytes, err)) {
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,

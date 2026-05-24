@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — AudioDirector 実装 (Phase 1: bridge スケルトン)
+// GameFramework Pillar H — AudioDirector 実装 (Phase 2: 実 backend 接続)
 //
-// state machine + volume 計算を完全実装。AudioEngine 接続箇所には
-// ACS_LOG_INFO("TODO: ...") を一度だけ残し、Phase 2 で繋ぐ。
+// state machine + volume 計算 + `IAudioBackend*` delegate を完全実装。
+// backend == nullptr のときは従来 (Phase 1) 通り state-only で動く。
 #include "gameframework/AudioDirector.h"
 #include "foundation/Log.h"
+#include "gameframework/audio_backend/IAudioBackend.h"
 
 namespace acs::game {
 
@@ -63,6 +64,11 @@ void AudioDirector::SetMasterVolume(f32 v) noexcept {
         ACS_LOG_WARN("AudioDirector::SetMasterVolume: out-of-range %.3f → clamped to %.3f", v, c);
     }
     _master_volume = c;
+    // backend 直接 master volume (mastering voice の master gain) は本層では
+    // 触らない: master * bgm/sfx は Tick で voice ごとに合成して反映する方が
+    // ducking / fade と整合が取りやすい。
+    // (SetMasterVolume を backend->SetMasterVolume に流したい場合は
+    //  XAudio2Backend のような派生 API を呼ぶ。本層では state のみ保持。)
 }
 
 void AudioDirector::SetBgmVolume(f32 v) noexcept {
@@ -92,26 +98,36 @@ void AudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexce
     }
     // 同一 BGM 再要求は no-op (current の loop / target を尊重)。
     if (_bgm[0].active && _bgm[0].name == name) {
-        // ポインタ一致 = literal 同一を意図 (Phase 2 で strcmp に置き換え検討)。
+        // ポインタ一致 = literal 同一を意図 (Phase 3 で strcmp に置き換え検討)。
         return;
     }
     LogTodoOnce("PlayBgm");
 
     // 既存遷移中 (slot[1] active) → 強制的に current に格上げして上書き。
+    // backend voice が slot[0] に残っていれば backend->StopVoice で先に止める
+    // (clip 再生が走っていた場合、新規 PlayBgm でリセットされる正当な経路)。
     if (_bgm[1].active) {
+        if (_backend != nullptr && _bgm[0].voice.IsValid()) {
+            _backend->StopVoice(_bgm[0].voice);
+        }
         _bgm[0] = _bgm[1];
         _bgm[1] = BgmSlot{};
     }
 
     if (fade_in_sec <= 0.0f) {
         // 即時切替: current を直ちに置換、gain=1 にスナップ。
-        _bgm[0].name     = name;
-        _bgm[0].gain     = 1.0f;
-        _bgm[0].target   = 1.0f;
+        // 既存 backend voice があれば止めてから新規 state を入れる。
+        if (_backend != nullptr && _bgm[0].voice.IsValid()) {
+            _backend->StopVoice(_bgm[0].voice);
+        }
+        _bgm[0].name         = name;
+        _bgm[0].gain         = 1.0f;
+        _bgm[0].target       = 1.0f;
         _bgm[0].fade_per_sec = 0.0f;
-        _bgm[0].loop     = loop;
-        _bgm[0].active   = true;
-        _bgm[1]          = BgmSlot{};
+        _bgm[0].loop         = loop;
+        _bgm[0].active       = true;
+        _bgm[0].voice        = kInvalidAudioVoice;  // 名前ベースは voice 未紐付
+        _bgm[1]              = BgmSlot{};
         return;
     }
 
@@ -126,6 +142,7 @@ void AudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexce
     _bgm[1].fade_per_sec = 1.0f / fade_in_sec;
     _bgm[1].loop         = loop;
     _bgm[1].active       = true;
+    _bgm[1].voice        = kInvalidAudioVoice;  // 名前ベースは voice 未紐付
 }
 
 void AudioDirector::StopBgm(f32 fade_out_sec) noexcept {
@@ -225,16 +242,24 @@ f32 AudioDirector::ComputeDuckEnvelope() const noexcept {
 void AudioDirector::Pause() noexcept {
     if (_paused) return;
     _paused = true;
-    LogTodoOnce("Pause");
+    // backend に Pause API は無いので「全 BGM voice の volume を 0 に落とす」で
+    // 代用する… のは破綻 (Resume 時に fade in が要る)。XAudio2 の Stop/Start は
+    // 「voice の再生位置を保持したまま」止められる API だが、IAudioBackend には
+    // pause API を切らない方針なので、本層では state-only で表現する。
+    // 結果: pause 中も backend 側は鳴り続ける可能性あり。本格的 pause は
+    //       backend 拡張 (XAudio2Backend::PauseAll 等) を別途追加する想定。
 }
 
 void AudioDirector::Resume() noexcept {
     if (!_paused) return;
     _paused = false;
-    LogTodoOnce("Resume");
 }
 
 void AudioDirector::StopAll() noexcept {
+    // backend が居れば全 voice を実停止 (clip 再生のもの含む)。
+    if (_backend != nullptr) {
+        _backend->StopAllVoices();
+    }
     _bgm[0] = BgmSlot{};
     _bgm[1] = BgmSlot{};
     for (u32 i = 0; i < kMaxSfxVoices; ++i) {
@@ -244,7 +269,6 @@ void AudioDirector::StopAll() noexcept {
     _duck_active     = false;
     _duck_remaining  = 0.0f;
     _duck_total      = 0.0f;
-    LogTodoOnce("StopAll");
 }
 
 // ----------------------------------------------------------------------------
@@ -252,9 +276,13 @@ void AudioDirector::StopAll() noexcept {
 // ----------------------------------------------------------------------------
 
 void AudioDirector::Tick(f32 dt) noexcept {
+    // backend tick は pause 中でも呼ぶ (完了 voice の slot 回収を止めると
+    // 復帰時に古い voice が残るため)。
+    if (_backend != nullptr) {
+        _backend->Tick(dt < 0.0f ? 0.0f : dt);
+    }
     if (_paused) return;
     if (dt < 0.0f) dt = 0.0f;
-    LogTodoOnce("Tick");
 
     // 1) BGM クロスフェード進行
     for (u32 i = 0; i < 2; ++i) {
@@ -268,14 +296,21 @@ void AudioDirector::Tick(f32 dt) noexcept {
             s.gain -= delta;
             if (s.gain <= s.target) s.gain = s.target;
         }
-        // fade out 完了で slot 開放
+        // fade out 完了で slot 開放 (backend voice があれば実停止)
         if (s.target == 0.0f && s.gain <= 0.0f) {
+            if (_backend != nullptr && s.voice.IsValid()) {
+                _backend->StopVoice(s.voice);
+            }
             s = BgmSlot{};
         }
     }
     // 2) 遷移完了で swap (slot[1] が満タンに達した → slot[0] に格上げ)
     if (_bgm[1].active && _bgm[1].gain >= _bgm[1].target && _bgm[1].target >= 1.0f) {
-        // current slot は既に fade out で消えているか、ここで強制クリア。
+        // current slot は既に fade out で消えているはずだが、念のため backend
+        // voice が残っていれば実停止してから上書き。
+        if (_backend != nullptr && _bgm[0].voice.IsValid() && _bgm[0].voice._packed != _bgm[1].voice._packed) {
+            _backend->StopVoice(_bgm[0].voice);
+        }
         _bgm[0] = _bgm[1];
         _bgm[1] = BgmSlot{};
     }
@@ -289,8 +324,19 @@ void AudioDirector::Tick(f32 dt) noexcept {
         }
     }
 
-    // 4) SFX one-shot の状態更新は Phase 2 で AudioEngine からの完了 cb 経由。
-    //    現状は active を維持し続ける (= ring overwrite で押し出される)。
+    // 4) BGM voice の実 volume を毎フレ反映 (cross-fade gain + duck envelope +
+    //    master * bgm bus を合成)。backend voice が紐付いている slot のみ対象。
+    if (_backend != nullptr) {
+        const f32 master_bgm = _master_volume * _bgm_volume * ComputeDuckEnvelope();
+        for (u32 i = 0; i < 2; ++i) {
+            const BgmSlot& s = _bgm[i];
+            if (!s.active || !s.voice.IsValid()) continue;
+            _backend->SetVoiceVolume(s.voice, master_bgm * s.gain);
+        }
+    }
+
+    // 5) SFX one-shot の state は ring overwrite で押し出される (完了通知 cb は
+    //    本層では持たず、backend 側 Tick の自然回収に委ねる)。
 }
 
 // ----------------------------------------------------------------------------
@@ -308,6 +354,114 @@ f32 AudioDirector::EffectiveBgmVolume() const noexcept {
 f32 AudioDirector::EffectiveSfxVolume() const noexcept {
     if (_paused) return 0.0f;
     return _master_volume * _sfx_volume;
+}
+
+// ----------------------------------------------------------------------------
+// clip 直接再生 (Phase 2 で追加)
+// ----------------------------------------------------------------------------
+
+AudioVoiceHandle AudioDirector::PlayBgmClip(const AudioClipDesc& clip,
+                                            f32 fade_in_sec,
+                                            bool loop) noexcept {
+    if (_backend == nullptr) {
+        // backend 未設定: state 更新もスキップ (clip API は backend 必須の契約)。
+        return kInvalidAudioVoice;
+    }
+
+    // 既存 BGM voice を停止 (cross-fade 用に slot[0] に格上げ → slot[1] に新規)。
+    // 名前ベース PlayBgm と違い、clip 直接再生は「いま即時に新音を入れたい」
+    // 要求が強いので、遷移中 (slot[1] active) なら slot[0] の voice は即停止。
+    if (_bgm[1].active) {
+        if (_bgm[0].voice.IsValid()) _backend->StopVoice(_bgm[0].voice);
+        _bgm[0] = _bgm[1];
+        _bgm[1] = BgmSlot{};
+    }
+
+    // 新 voice を backend に出す。初期 volume は 0 (Tick で master*bgm*duck*gain
+    // を反映する)、pitch は 1.0 固定 (BGM の pitch 制御は別 API 検討)。
+    const AudioVoiceHandle handle = _backend->PlayLooped(clip, 0.0f, 1.0f);
+    if (!handle.IsValid() && loop) {
+        // ループ用に PlayLooped したが失敗 → 一発再生フォールバックは BGM
+        // 用途的に意味薄なので、ここは諦めて InvalidHandle を返す。
+        return kInvalidAudioVoice;
+    }
+    if (!loop) {
+        // BGM だが loop なし指定 (stinger 演出) → PlayOneShot に切替。
+        // PlayLooped が成功していたら、ここでは止めずに以降のロジックで上書き
+        // することにする。
+        if (handle.IsValid()) _backend->StopVoice(handle);
+        const AudioVoiceHandle one = _backend->PlayOneShot(clip, 0.0f, 1.0f);
+        if (!one.IsValid()) return kInvalidAudioVoice;
+        if (fade_in_sec <= 0.0f) {
+            // 即時切替: slot[0] = 新 voice、gain=1。
+            if (_bgm[0].voice.IsValid()) _backend->StopVoice(_bgm[0].voice);
+            _bgm[0]              = BgmSlot{};
+            _bgm[0].gain         = 1.0f;
+            _bgm[0].target       = 1.0f;
+            _bgm[0].fade_per_sec = 0.0f;
+            _bgm[0].loop         = false;
+            _bgm[0].active       = true;
+            _bgm[0].voice        = one;
+            _bgm[1]              = BgmSlot{};
+            // 初回 volume はこの場で反映 (Tick を待たない)。
+            _backend->SetVoiceVolume(one, _master_volume * _bgm_volume * ComputeDuckEnvelope());
+            return one;
+        }
+        _bgm[1]              = BgmSlot{};
+        _bgm[1].gain         = 0.0f;
+        _bgm[1].target       = 1.0f;
+        _bgm[1].fade_per_sec = 1.0f / fade_in_sec;
+        _bgm[1].loop         = false;
+        _bgm[1].active       = true;
+        _bgm[1].voice        = one;
+        // 既存 BGM は fade out
+        if (_bgm[0].active) {
+            _bgm[0].target       = 0.0f;
+            _bgm[0].fade_per_sec = _bgm[0].gain / fade_in_sec;
+        }
+        return one;
+    }
+
+    // loop=true の典型 BGM 経路。
+    if (fade_in_sec <= 0.0f) {
+        // 即時切替: 既存 slot[0] voice を止めて新規を slot[0] に。
+        if (_bgm[0].voice.IsValid()) _backend->StopVoice(_bgm[0].voice);
+        _bgm[0]              = BgmSlot{};
+        _bgm[0].gain         = 1.0f;
+        _bgm[0].target       = 1.0f;
+        _bgm[0].fade_per_sec = 0.0f;
+        _bgm[0].loop         = true;
+        _bgm[0].active       = true;
+        _bgm[0].voice        = handle;
+        _bgm[1]              = BgmSlot{};
+        _backend->SetVoiceVolume(handle, _master_volume * _bgm_volume * ComputeDuckEnvelope());
+        return handle;
+    }
+
+    // cross-fade: 既存は fade out、新規は slot[1] で fade in。
+    if (_bgm[0].active) {
+        _bgm[0].target       = 0.0f;
+        _bgm[0].fade_per_sec = _bgm[0].gain / fade_in_sec;
+    }
+    _bgm[1]              = BgmSlot{};
+    _bgm[1].gain         = 0.0f;
+    _bgm[1].target       = 1.0f;
+    _bgm[1].fade_per_sec = 1.0f / fade_in_sec;
+    _bgm[1].loop         = true;
+    _bgm[1].active       = true;
+    _bgm[1].voice        = handle;
+    return handle;
+}
+
+AudioVoiceHandle AudioDirector::PlaySfxClip(const AudioClipDesc& clip,
+                                            f32 volume_scale,
+                                            f32 pitch) noexcept {
+    if (_backend == nullptr) return kInvalidAudioVoice;
+    if (volume_scale <= 0.0f) return kInvalidAudioVoice;
+
+    // SFX の最終 volume = master * sfx_bus * volume_scale (duck は SFX には掛けない)。
+    const f32 final_vol = _master_volume * _sfx_volume * volume_scale;
+    return _backend->PlayOneShot(clip, final_vol, pitch);
 }
 
 } // namespace acs::game

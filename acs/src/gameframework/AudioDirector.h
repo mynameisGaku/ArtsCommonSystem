@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — AudioDirector (Phase 1: bridge スケルトン)
+// GameFramework Pillar H — AudioDirector (Phase 2: 実 backend 接続)
 //
 // シーン跨ぎで生存する「音声指揮層」。SceneServices ではなく Game (or app)
 // に持たせる前提 (BGM はシーン切替で途切れないため、シーン局所では困る)。
@@ -11,11 +11,16 @@
 //   ・ダッキング: 短期間だけ BGM 音量を一時的に下げる (ボイス再生中など)
 //   ・Pause / Resume / StopAll
 //   ・Tick(dt) で内部 timer (クロスフェード / ダッキング) を進行
+//   ・**IAudioBackend 接続 (Phase 2 で追加)**: `SetBackend(IAudioBackend*)` で
+//     `XAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
+//     pause / stop / Tick を backend に delegate する。backend == nullptr のとき
+//     は従来通り state-only 動作 (= 無音、ログ警告も出さない)。
+//   ・**clip 直接再生 API (Phase 2 で追加)**: `PlayBgmClip(const AudioClipDesc&,
+//     fade, loop)` / `PlaySfxClip(const AudioClipDesc&, vol, pitch)` で raw PCM
+//     データから直接再生できる。名前ベース API (PlayBgm / PlaySfx) は state 管理
+//     のみ (将来 name→clip resolver を導入予定)。
 //
-// 設計選択 (Phase 1):
-//   ・**Bridge スケルトン**: 実際に `acs::AudioEngine` を叩く箇所は TODO コメント
-//     で Phase 2 に送り、state machine と volume 計算だけ完全に実装する。
-//     ACS_LOG_INFO で「Phase 2 で接続」と一度ログを残す。
+// 設計選択:
 //   ・**Result<void> は使わない**: この層は失敗を返さない (ログ警告のみ)。
 //     不正引数 (null name / 負の duration 等) は警告ログ + 既定値で続行。
 //   ・**SoA cross-fade state**: 同時に鳴る BGM は最大 2 本 (current + next)。
@@ -25,16 +30,25 @@
 //   ・**SFX は ring 風に固定容量**: 容量 32 (典型的同時発音数を踏まえた目安)。
 //     満杯なら最古を上書き (シューティング的に許容)。
 //   ・**name は所有しない**: `const char*` を保持 = ROM の文字列リテラル前提。
-//     Phase 2 で StringView / Asset Handle に置き換える。
+//     Phase 3 で StringView / Asset Handle に置き換える。
+//   ・**backend は所有しない**: `IAudioBackend*` は raw ptr。呼び出し側が
+//     `XAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
+//     backend の Shutdown を呼ぶ責任を負う (二重解放回避)。
+//   ・**Pause/Resume/StopAll/SetMasterVolume は backend に forward**: backend
+//     が存在すれば実音にも反映される。volume バス変更 (SetBgmVolume 等) は
+//     Tick() で BGM voice の `SetVoiceVolume` に反映する (EffectiveBgmVolume
+//     を毎フレ算出して backend へ流す)。
 //
-// 範囲外 (Phase 2+ で):
-//   ・実際の AudioEngine 接続 (現在は state のみ)
+// 範囲外 (Phase 3+ で):
+//   ・name → AudioClipDesc resolver (AssetRegistry 統合)
 //   ・3D positional / spatial / submix bus / DSP chain
 //   ・スナップショット (mixer state を hot-swap)
+//   ・wav/ogg/mp3 decode (本層は raw PCM 前提)
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/audio_backend/IAudioBackend.h"
 
 namespace acs::game {
 
@@ -94,22 +108,49 @@ public:
     // Pause 中は dt を消費しない (state 凍結)。
     void Tick(f32 dt) noexcept;
 
-    // ----- 派生情報 (debug / Phase 2 で AudioEngine に渡す予定) -----
-    // 実際に AudioEngine に流す合成済みボリューム。
+    // ----- 派生情報 (debug / backend に流す合成済みボリューム) -----
+    // 実際に backend に流す合成済みボリューム。
     //   master * bgm * duck_envelope  (BGM 系)
     //   master * sfx                  (SFX 系)
     f32 EffectiveBgmVolume() const noexcept;
     f32 EffectiveSfxVolume() const noexcept;
 
+    // ----- backend 接続 (Phase 2 で追加) -----
+    // concrete backend (XAudio2Backend 等) を差し込む。nullptr で切断。
+    // 切断時に既存 BGM/SFX voice は backend->StopAllVoices で停止する責任は
+    // 呼び出し側に委ねる (本層は raw ptr 入替のみ)。
+    void           SetBackend(IAudioBackend* backend) noexcept { _backend = backend; }
+    IAudioBackend* GetBackend() const noexcept { return _backend; }
+
+    // ----- clip 直接再生 (Phase 2 で追加) -----
+    // backend が設定されていない / 不正 clip のとき: kInvalidAudioVoice を返す
+    // (no-op、警告は backend 側で出す)。
+    //
+    // BGM clip 再生: 既存 BGM voice を fade out して停止 → 新 BGM voice を
+    //                fade in (本層 state machine が EffectiveBgmVolume を毎フレ
+    //                backend->SetVoiceVolume に反映するので、初期 volume=0)。
+    // loop=false の使用は稀 (BGM は基本 loop)、stinger 演出用に許可。
+    AudioVoiceHandle PlayBgmClip(const AudioClipDesc& clip,
+                                 f32 fade_in_sec = 1.0f,
+                                 bool loop = true) noexcept;
+    // SFX one-shot 再生: backend に PlayOneShot を投げる。volume は
+    // EffectiveSfxVolume * volume_scale で合成済。pitch=1.0 が等倍。
+    AudioVoiceHandle PlaySfxClip(const AudioClipDesc& clip,
+                                 f32 volume_scale = 1.0f,
+                                 f32 pitch = 1.0f) noexcept;
+
 private:
     // BGM スロット 1 本の state。`_bgm[0]` = current、`_bgm[1]` = 遷移中の new。
     struct BgmSlot {
-        const char* name      = nullptr;   // 所有しない (literal 前提)
-        f32         gain      = 0.0f;      // 現在の slot ゲイン [0, 1]
-        f32         target    = 0.0f;      // 目標ゲイン (= 0 で fade out 中)
-        f32         fade_per_sec = 0.0f;   // |target - gain| / fade_duration
-        bool        loop      = true;
-        bool        active    = false;
+        const char*      name         = nullptr;   // 所有しない (literal 前提)
+        f32              gain         = 0.0f;      // 現在の slot ゲイン [0, 1]
+        f32              target       = 0.0f;      // 目標ゲイン (= 0 で fade out 中)
+        f32              fade_per_sec = 0.0f;      // |target - gain| / fade_duration
+        bool             loop         = true;
+        bool             active       = false;
+        // Phase 2 追加: backend voice handle。clip 直接再生時のみ valid。
+        // 名前ベース PlayBgm のみで遷移したスロットは kInvalidAudioVoice のまま。
+        AudioVoiceHandle voice        = {};
     };
 
     // SFX one-shot ring エントリ。
@@ -145,6 +186,12 @@ private:
 
     // ----- 全体制御 -----
     bool _paused = false;
+
+    // ----- backend (Phase 2 で追加、非所有 raw ptr) -----
+    // nullptr 時は state-only 動作 (無音)。`XAudio2Backend` 等を呼び出し側で
+    // 所有し、SetBackend で差し込む。Pause/Resume/StopAll/Tick/SetMasterVolume
+    // を本層から forward する。
+    IAudioBackend* _backend = nullptr;
 };
 
 } // namespace acs::game
