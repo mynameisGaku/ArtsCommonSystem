@@ -5,7 +5,7 @@
 #include "threading/ScopedLock.h"
 #include "threading/ConditionVar.h"
 #include "threading/Thread.h"
-#include "threading/EMemoryOrder.h"
+#include "threading/MemoryOrder.h"
 #include "memory/PoolAllocator.h"
 #include "foundation/Platform.h"
 #include "foundation/Assert.h"

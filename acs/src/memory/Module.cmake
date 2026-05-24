@@ -23,7 +23,7 @@ acs_module(
         Rc.h
         VirtualMemory.h
         Tlsf.h
-        ESegment.h
+        Segment.h
         MemorySystem.h
         MemorySnapshot.h
     PUBLIC_DEPS

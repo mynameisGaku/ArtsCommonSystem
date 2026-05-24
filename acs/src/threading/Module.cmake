@@ -10,7 +10,7 @@ acs_module(
         JobGraph.cpp
     HEADERS
         Atomic.h
-        EMemoryOrder.h
+        MemoryOrder.h
         Mutex.h
         RwLock.h
         ConditionVar.h

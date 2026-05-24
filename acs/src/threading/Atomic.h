@@ -18,7 +18,7 @@
 
 #include "foundation/Types.h"
 #include "foundation/Compiler.h"
-#include "threading/EMemoryOrder.h"
+#include "threading/MemoryOrder.h"
 
 #include <intrin.h>
 

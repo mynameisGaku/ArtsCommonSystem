@@ -5,7 +5,7 @@
 #include "foundation/Types.h"
 #include "foundation/Result.h"
 #include "memory/Allocator.h"
-#include "memory/ESegment.h"
+#include "memory/Segment.h"
 
 namespace acs {
 
