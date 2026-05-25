@@ -123,22 +123,14 @@ function(acs_third_party_diligent)
         GIT_TAG        v2.5.6
         GIT_SHALLOW    TRUE
     )
-    FetchContent_Declare(
-        acs_diligent_tools
-        GIT_REPOSITORY https://github.com/DiligentGraphics/DiligentTools.git
-        GIT_TAG        v2.5.6
-        GIT_SHALLOW    TRUE
-    )
-    FetchContent_Declare(
-        acs_diligent_fx
-        GIT_REPOSITORY https://github.com/DiligentGraphics/DiligentFX.git
-        GIT_TAG        v2.5.6
-        GIT_SHALLOW    TRUE
-    )
-    # Core を先に MakeAvailable（Tools / FX が依存するため）
+    # 注意 (Phase 19a-fix-3): Diligent-Tools / DiligentFX は ACS が一切使って
+    # おらず (`src/render/Module.cmake` は `acs_third_party::diligent_core`
+    # しかリンクしない)、`MakeAvailable` で取得すると Diligent 内部の相対
+    # include path (`../../../DiligentCore/...`) が FetchContent layout
+    # (`_deps/acs_diligent_*-src/`) と合わず Build Solution が壊れる。
+    # 不要なので Fetch しない。将来 PBR/IBL の Diligent 標準実装が欲しく
+    # なったら、ここを再有効化 + relative include path の修正を別途行う。
     FetchContent_MakeAvailable(acs_diligent_core)
-    FetchContent_MakeAvailable(acs_diligent_tools)
-    FetchContent_MakeAvailable(acs_diligent_fx)
 
     # ACS 側に公開する集約 INTERFACE ターゲット
     add_library(acs_third_party_diligent_core INTERFACE)
@@ -170,30 +162,7 @@ function(acs_third_party_diligent)
     )
     add_library(acs_third_party::diligent_core ALIAS acs_third_party_diligent_core)
 
-    add_library(acs_third_party_diligent_tools INTERFACE)
-    target_link_libraries(acs_third_party_diligent_tools INTERFACE
-        Diligent-TextureLoader
-        Diligent-RenderStateNotation
-        Diligent-AssetLoader
-        acs_third_party_diligent_core
-    )
-    target_include_directories(acs_third_party_diligent_tools INTERFACE
-        "${acs_diligent_tools_SOURCE_DIR}/TextureLoader/interface"
-        "${acs_diligent_tools_SOURCE_DIR}/AssetLoader/interface"
-        "${acs_diligent_tools_SOURCE_DIR}/RenderStateNotation/interface"
-    )
-    add_library(acs_third_party::diligent_tools ALIAS acs_third_party_diligent_tools)
-
-    add_library(acs_third_party_diligent_fx INTERFACE)
-    target_link_libraries(acs_third_party_diligent_fx INTERFACE
-        DiligentFX
-        acs_third_party_diligent_tools
-    )
-    target_include_directories(acs_third_party_diligent_fx INTERFACE
-        "${acs_diligent_fx_SOURCE_DIR}/PostProcess/interface"
-        "${acs_diligent_fx_SOURCE_DIR}/Components/interface"
-        "${acs_diligent_fx_SOURCE_DIR}/PBR/interface"
-        "${acs_diligent_fx_SOURCE_DIR}/Hydrogent/interface"
-    )
-    add_library(acs_third_party::diligent_fx ALIAS acs_third_party_diligent_fx)
+    # Phase 19a-fix-3: diligent_tools / diligent_fx INTERFACE target は ACS が
+    # 誰もリンクしておらず (上記コメント参照)、Fetch を止めた今、これらを
+    # 公開すると linker error になる。declaring side を完全に削除。
 endfunction()
