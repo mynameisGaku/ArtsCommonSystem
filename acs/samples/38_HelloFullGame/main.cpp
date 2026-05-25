@@ -367,6 +367,8 @@ private:
     f32      _fire_cd        = 0.0f; // 発射 cooldown timer
     bool     _victory        = false;
     bool     _game_over_req  = false;
+    f32      _last_dt        = 1.0f / 60.0f; // FPS 表示用、最新 dt をキャッシュ
+    f32      _fps_ema        = 60.0f;        // 指数移動平均で smoothing
 };
 
 // =============================================================================
@@ -663,6 +665,14 @@ void GameplayScene::OnExit() noexcept {
 }
 
 void GameplayScene::OnUpdate(f32 dt) noexcept {
+    // ----- FPS 計測 -----
+    _last_dt = dt;
+    if (dt > 0.0f) {
+        const f32 inst_fps = 1.0f / dt;
+        // EMA で smoothing (= 表示がぶれない)
+        _fps_ema = _fps_ema * 0.9f + inst_fps * 0.1f;
+    }
+
     const InputMap& im = Services().Input();
     if (im.IsPressed(ActionId("Quit"))) {
         GetGame().Quit();
@@ -812,27 +822,32 @@ void GameplayScene::OnRender(RenderContext& rc) noexcept {
         sb.DrawRect(p.x - kEnemyRadius, p.y - kEnemyRadius, sz, sz, kColorEnemy);
     }
 
-    // 弾 (黄色い小矩形 + 速度方向に伸びる残像)
-    // 低 FPS 環境でも動きが滑らかに見えるよう、velocity * t で 3 段のフェード
-    // 残像を引く (motion blur 風)。各 trail は alpha を半減させて重ねる。
+    // 弾: 直前フレーム分の経路を「実 frame dt × N 等分」の連続矩形で塗り、
+    // 低 FPS でも滑らかな「線」に見えるようにする。
+    // trail の総延長は最低 1 frame 分の移動量 (= velocity * _last_dt) を確保し、
+    // 30 fps なら trail が 30 px、15 fps なら 60 px と自動で伸びる。
+    // 32 ステップで sub-pixel overlap させて「点列」感を消す。
     {
         u32 n = 0;
         const ProjectileInstance* bs = _bullets.AllAlive(n);
-        constexpr f32 kTrailStepSec[3] = { 0.020f, 0.040f, 0.060f };
-        constexpr f32 kTrailAlpha[3]   = { 0.60f,  0.30f,  0.12f  };
+        const f32 sz = kBulletRadius * 2.0f;
+        // trail 時間 = 直前 frame dt の 1.2 倍 (少し長めに伸ばして次の弾と繋ぐ)
+        const f32 trail_sec = _last_dt * 1.2f;
+        constexpr u32 kSteps = 32;
         for (u32 i = 0; i < n; ++i) {
             const Vec2 p = bs[i].position;
             const Vec2 v = bs[i].velocity;
-            const f32 sz = kBulletRadius * 2.0f;
-            // 残像 (奥から順に描いて手前を上書き)
-            for (i32 t = 2; t >= 0; --t) {
-                const Vec2 tp = Vec2{ p.x - v.x * kTrailStepSec[t],
-                                       p.y - v.y * kTrailStepSec[t] };
+            // trail (奥から手前へ。alpha は 0 → 1 に立ち上げる)
+            for (u32 s = 1; s <= kSteps; ++s) {
+                const f32 t = static_cast<f32>(s) / static_cast<f32>(kSteps);
+                const Vec2 tp = Vec2{ p.x - v.x * trail_sec * t,
+                                       p.y - v.y * trail_sec * t };
+                const f32 a = (1.0f - t) * 0.65f; // 手前 (近い) ほど不透明
                 sb.DrawRect(tp.x - kBulletRadius, tp.y - kBulletRadius, sz, sz,
                             Vec4{ kColorBullet.x, kColorBullet.y, kColorBullet.z,
-                                  kColorBullet.w * kTrailAlpha[t] });
+                                  kColorBullet.w * a });
             }
-            // 本体
+            // 本体 (最も手前、完全不透明)
             sb.DrawRect(p.x - kBulletRadius, p.y - kBulletRadius, sz, sz, kColorBullet);
         }
     }
@@ -942,6 +957,15 @@ void GameplayScene::OnRender(RenderContext& rc) noexcept {
         sb.DrawString(body, buf,
                       static_cast<f32>(sw) * 0.5f - ww * 0.5f, 50.0f,
                       Vec4{0.5f, 0.8f, 1, 1});
+
+        // FPS (左下、診断用)
+        std::snprintf(buf, sizeof(buf), "FPS: %.0f  (dt: %.1f ms)",
+                      static_cast<double>(_fps_ema),
+                      static_cast<double>(_last_dt * 1000.0f));
+        const Vec4 fps_col = (_fps_ema >= 55.0f) ? Vec4{0.5f, 1, 0.5f, 1}
+                            : (_fps_ema >= 30.0f) ? Vec4{1, 1, 0.4f, 1}
+                                                   : Vec4{1, 0.4f, 0.4f, 1};
+        sb.DrawString(body, buf, 20.0f, static_cast<f32>(sh) - 30.0f, fps_col);
     }
 
     sb.End();
