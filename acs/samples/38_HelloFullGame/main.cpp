@@ -42,13 +42,17 @@
 
 #include "gameframework/GameFramework.h"
 #include "render/SpriteBatch.h"
+#include "render/Font.h"
 #include "render/Renderer.h"
 #include "render/IRhiSwapchain.h"
 #include "render/IRhiCommandList.h"
+#include "app/Sample.h"
 #include "platform/Input.h"
 #include "foundation/Log.h"
 #include "math/Math.h"
 #include "math/Vec.h"
+
+#include <cstdio>  // snprintf for HUD digits
 
 using namespace acs;
 using namespace acs::game;
@@ -187,6 +191,10 @@ public:
             if (auto* dev = GetRenderer().Device()) dev->WaitIdle();
             _sprites.Shutdown();
         }
+        if (_font_initialized) {
+            _font_title.Shutdown();
+            _font_body.Shutdown();
+        }
         Game::OnShutdown();
     }
 
@@ -210,7 +218,18 @@ public:
         }
         _sprite_initialized = true;
         ACS_LOG_INFO("[FullGame] SpriteBatch initialized");
+
+        // Font も同じタイミングで遅延 init (Device 必須)。
+        // OS 既定 UI フォント (Meiryo / Yu Gothic 等) を size 24 / 16 で 2 つ。
+        // CJK 不要 (English 表示のみ) で atlas 1024。
+        Sample::TryLoadDefaultUIFont(_font_title, *dev, 36.0f, 1024, false);
+        Sample::TryLoadDefaultUIFont(_font_body,  *dev, 18.0f, 1024, false);
+        _font_initialized = true;
     }
+
+    Font& FontTitle() noexcept { return _font_title; }
+    Font& FontBody()  noexcept { return _font_body; }
+    bool  FontReady() const noexcept { return _font_initialized; }
 
     HighScore&         GetHighScore() noexcept { return _highscore; }
     SaveSlot<HighScore>& HighScoreSlot() noexcept { return _highscore_slot; }
@@ -238,7 +257,10 @@ private:
     SaveSlot<HighScore> _highscore_slot;
     HighScore           _highscore{};
     SpriteBatch         _sprites;
+    Font                _font_title;
+    Font                _font_body;
     bool                _sprite_initialized = false;
+    bool                _font_initialized   = false;
 };
 
 // =============================================================================
@@ -462,6 +484,36 @@ void TitleScene::OnRender(RenderContext& rc) noexcept {
                     240.0f, 30.0f, Vec4{0.1f, 0.1f, 0.1f, 0.7f});
         sb.DrawRect(static_cast<f32>(sw) - 254.0f, static_cast<f32>(sh) - 44.0f,
                     228.0f, 18.0f, Vec4{1.0f, 0.85f, 0.20f, 0.9f});
+    }
+
+    // ----- テキストラベル -----
+    if (app.FontReady()) {
+        Font& title_font = app.FontTitle();
+        Font& body_font  = app.FontBody();
+        const char* kTitle = "ACS Hello Full Game";
+        const f32 tw = title_font.MeasureWidth(kTitle);
+        sb.DrawString(title_font, kTitle, cx - tw * 0.5f, cy - 18.0f,
+                      Vec4{1.0f, 1.0f, 1.0f, 1.0f});
+
+        const char* kPress = "Press Space to Start";
+        const f32 pw = body_font.MeasureWidth(kPress);
+        sb.DrawString(body_font, kPress, cx - pw * 0.5f, cy + 128.0f,
+                      Vec4{1.0f, 1.0f, 1.0f, alpha});
+
+        const char* kHelp = "WASD: Move    Mouse: Aim    LMB: Fire    Esc: Quit";
+        const f32 hw = body_font.MeasureWidth(kHelp);
+        sb.DrawString(body_font, kHelp, cx - hw * 0.5f, static_cast<f32>(sh) - 60.0f,
+                      Vec4{0.8f, 0.8f, 0.85f, 0.9f});
+
+        if (hs.best_score > 0) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "Best: %llu",
+                          static_cast<unsigned long long>(hs.best_score));
+            sb.DrawString(body_font, buf,
+                          static_cast<f32>(sw) - 250.0f,
+                          static_cast<f32>(sh) - 47.0f,
+                          Vec4{0.1f, 0.1f, 0.1f, 1.0f});
+        }
     }
 
     sb.End();
@@ -850,6 +902,34 @@ void GameplayScene::OnRender(RenderContext& rc) noexcept {
         }
     }
 
+    // ----- HUD テキストラベル -----
+    if (app.FontReady()) {
+        Font& body = app.FontBody();
+        char buf[64];
+
+        // HP の数値ラベル (左上、bar の上に重ねる)
+        const f32 hp_cur = _health.GetCurrentHp(_player_health);
+        std::snprintf(buf, sizeof(buf), "HP %.0f / %.0f",
+                      static_cast<double>(hp_cur), static_cast<double>(kPlayerHp));
+        sb.DrawString(body, buf, 28.0f, 50.0f, Vec4{1, 1, 1, 1});
+
+        // Score 数値 (右上)
+        const u64 sc = _score.CurrentScore();
+        std::snprintf(buf, sizeof(buf), "Score: %llu",
+                      static_cast<unsigned long long>(sc));
+        const f32 sw_w = body.MeasureWidth(buf);
+        sb.DrawString(body, buf, static_cast<f32>(sw) - 20.0f - sw_w, 50.0f,
+                      Vec4{1, 1, 0.4f, 1});
+
+        // Wave 数値 (中央上)
+        std::snprintf(buf, sizeof(buf), "Wave %u / %u",
+                      _waves.CurrentWaveIndex() + 1u, _waves.TotalWaves());
+        const f32 ww = body.MeasureWidth(buf);
+        sb.DrawString(body, buf,
+                      static_cast<f32>(sw) * 0.5f - ww * 0.5f, 50.0f,
+                      Vec4{0.5f, 0.8f, 1, 1});
+    }
+
     sb.End();
 }
 
@@ -1092,6 +1172,44 @@ void GameOverScene::OnRender(RenderContext& rc) noexcept {
                 Vec4{0.85f, 0.85f, 0.85f, 0.7f});  // R: title へ
     sb.DrawRect(cx +  20.0f, static_cast<f32>(sh) - 80.0f, 200.0f, 40.0f,
                 Vec4{0.50f, 0.50f, 0.50f, 0.7f});  // Esc: quit
+
+    // ----- テキストラベル -----
+    if (app.FontReady()) {
+        Font& title_font = app.FontTitle();
+        Font& body       = app.FontBody();
+
+        const char* result_text = _did_win ? "VICTORY!" : "GAME OVER";
+        const f32 rw = title_font.MeasureWidth(result_text);
+        sb.DrawString(title_font, result_text, cx - rw * 0.5f, cy - 18.0f,
+                      Vec4{1, 1, 1, 1});
+
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "Final Score: %llu",
+                      static_cast<unsigned long long>(_final_score));
+        const f32 fw = body.MeasureWidth(buf);
+        sb.DrawString(body, buf, cx - fw * 0.5f, score_y + 7.0f,
+                      Vec4{0.1f, 0.1f, 0.1f, 1});
+
+        std::snprintf(buf, sizeof(buf), "%sBest: %llu",
+                      _is_new_record ? "[NEW!] " : "",
+                      static_cast<unsigned long long>(_saved_best));
+        const f32 bw = body.MeasureWidth(buf);
+        sb.DrawString(body, buf, cx - bw * 0.5f, best_y + 7.0f,
+                      Vec4{0.1f, 0.1f, 0.1f, best_alpha});
+
+        const char* kR  = "R: Title";
+        const char* kEs = "Esc: Quit";
+        const f32 rrw = body.MeasureWidth(kR);
+        const f32 erw = body.MeasureWidth(kEs);
+        sb.DrawString(body, kR,
+                      cx - 220.0f + (200.0f - rrw) * 0.5f,
+                      static_cast<f32>(sh) - 70.0f,
+                      Vec4{0.1f, 0.1f, 0.1f, 1});
+        sb.DrawString(body, kEs,
+                      cx +  20.0f + (200.0f - erw) * 0.5f,
+                      static_cast<f32>(sh) - 70.0f,
+                      Vec4{0.1f, 0.1f, 0.1f, 1});
+    }
 
     sb.End();
 }
