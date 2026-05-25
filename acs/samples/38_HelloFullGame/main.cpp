@@ -812,13 +812,27 @@ void GameplayScene::OnRender(RenderContext& rc) noexcept {
         sb.DrawRect(p.x - kEnemyRadius, p.y - kEnemyRadius, sz, sz, kColorEnemy);
     }
 
-    // 弾 (黄色い小矩形)
+    // 弾 (黄色い小矩形 + 速度方向に伸びる残像)
+    // 低 FPS 環境でも動きが滑らかに見えるよう、velocity * t で 3 段のフェード
+    // 残像を引く (motion blur 風)。各 trail は alpha を半減させて重ねる。
     {
         u32 n = 0;
         const ProjectileInstance* bs = _bullets.AllAlive(n);
+        constexpr f32 kTrailStepSec[3] = { 0.020f, 0.040f, 0.060f };
+        constexpr f32 kTrailAlpha[3]   = { 0.60f,  0.30f,  0.12f  };
         for (u32 i = 0; i < n; ++i) {
             const Vec2 p = bs[i].position;
+            const Vec2 v = bs[i].velocity;
             const f32 sz = kBulletRadius * 2.0f;
+            // 残像 (奥から順に描いて手前を上書き)
+            for (i32 t = 2; t >= 0; --t) {
+                const Vec2 tp = Vec2{ p.x - v.x * kTrailStepSec[t],
+                                       p.y - v.y * kTrailStepSec[t] };
+                sb.DrawRect(tp.x - kBulletRadius, tp.y - kBulletRadius, sz, sz,
+                            Vec4{ kColorBullet.x, kColorBullet.y, kColorBullet.z,
+                                  kColorBullet.w * kTrailAlpha[t] });
+            }
+            // 本体
             sb.DrawRect(p.x - kBulletRadius, p.y - kBulletRadius, sz, sz, kColorBullet);
         }
     }
