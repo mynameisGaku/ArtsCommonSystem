@@ -5,6 +5,13 @@ if(NOT WIN32)
     message(FATAL_ERROR "ACS currently targets Windows only")
 endif()
 
+# Visual Studio Solution Explorer をフォルダ分けする (engine / game / third_party 等)。
+# 各 target に `FOLDER` プロパティを set すると、その階層に表示される。
+# - acs_module()       → "engine"
+# - acs_add_sample()   → "game"
+# - acs_third_party_diligent() の Diligent ターゲット → "third_party"
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(ACSCompilerOptions)
@@ -82,9 +89,23 @@ set(ACS_ONLY_SAMPLE "" CACHE STRING
     "If set, only this sample dir is added (e.g. 28_HelloGameFramework). Empty = all.")
 
 # `add_subdirectory(samples/<dir>)` のラッパ。ACS_ONLY_SAMPLE が空 or 一致時のみ追加。
+# 追加後に取り込んだ全 target を Solution Explorer の "game" フォルダにまとめる。
 function(acs_add_sample sample_dir)
     if("${ACS_ONLY_SAMPLE}" STREQUAL "" OR "${ACS_ONLY_SAMPLE}" STREQUAL "${sample_dir}")
+        # add_subdirectory 前後の target diff を取って、サンプルで作られた target を game folder へ移す。
+        get_property(_before_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+        get_property(_before_imports DIRECTORY PROPERTY IMPORTED_TARGETS)
         add_subdirectory(samples/${sample_dir})
+        get_property(_after_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(_t ${_after_targets})
+            if(NOT _t IN_LIST _before_targets)
+                # サンプルが作った target だけ FOLDER 設定 (INTERFACE は除外)
+                get_target_property(_type ${_t} TYPE)
+                if(NOT _type STREQUAL "INTERFACE_LIBRARY")
+                    set_target_properties(${_t} PROPERTIES FOLDER "game")
+                endif()
+            endif()
+        endforeach()
     endif()
 endfunction()
 

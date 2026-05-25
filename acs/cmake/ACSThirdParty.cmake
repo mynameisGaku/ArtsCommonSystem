@@ -132,6 +132,27 @@ function(acs_third_party_diligent)
     # なったら、ここを再有効化 + relative include path の修正を別途行う。
     FetchContent_MakeAvailable(acs_diligent_core)
 
+    # Diligent の大量の target を Solution Explorer "third_party/Diligent" フォルダに集約。
+    # 既知の主要 target を folder 移動する (TARGET 存在確認付き)。
+    set(_diligent_targets
+        Diligent-BuildSettings Diligent-Common Diligent-GraphicsAccessories
+        Diligent-GraphicsEngine Diligent-GraphicsEngineD3D12-static
+        Diligent-GraphicsEngineD3D12-shared Diligent-GraphicsEngineNextGenBase
+        Diligent-GraphicsTools Diligent-Platforms Diligent-Primitives
+        Diligent-PublicBuildSettings Diligent-ShaderTools Diligent-Win32Platform
+        Diligent-BasicPlatform Diligent-HLSL2GLSLConverterLib Diligent-Archiver-static
+        Diligent-Archiver-shared
+        SPIRV xxHash glslang-default-resource-limits GenericCodeGen MachineIndependent
+        OSDependent SPIRV-Tools-static SPIRV-Tools-opt glslang HLSL OGLCompiler
+        spirv-cross-core spirv-cross-glsl spirv-cross-hlsl spirv-cross-msl
+        spirv-cross-cpp spirv-cross-reflect spirv-cross-util volk_headers
+    )
+    foreach(_t ${_diligent_targets})
+        if(TARGET ${_t})
+            set_target_properties(${_t} PROPERTIES FOLDER "third_party/Diligent")
+        endif()
+    endforeach()
+
     # ACS 側に公開する集約 INTERFACE ターゲット
     add_library(acs_third_party_diligent_core INTERFACE)
     target_link_libraries(acs_third_party_diligent_core INTERFACE
