@@ -358,10 +358,11 @@ void ProjectileSystem::Tick(f32 dt) noexcept {
         }
     }
 
-    // Tick 終端で snapshot を再構築しておく (次フレ AllAlive を hot path にする)。
-    if (_snapshot_dirty_size != _alive_count) {
-        RebuildAliveSnapshot();
-    }
+    // Tick で alive bullet 全部の position を更新したので、snapshot は
+    // alive_count が変わっていなくても **古いまま**。必ず rebuild する。
+    // (これを忘れると AllAlive が古い position を返し、bullet が動いていない
+    //  ように見える — 2026-05-26 ユーザー実機検証で発覚)
+    RebuildAliveSnapshot();
 }
 
 // =============================================================================
