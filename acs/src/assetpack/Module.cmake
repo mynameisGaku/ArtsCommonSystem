@@ -46,7 +46,7 @@ acs_module(
         AcpakLz4.h
     PUBLIC_DEPS
         Foundation
-        Container
+        FContainer
         Memory
         Platform
     # Bcrypt.lib は AcpakCrypto.cpp が AES-256-GCM / PBKDF2 / CSPRNG に使う。

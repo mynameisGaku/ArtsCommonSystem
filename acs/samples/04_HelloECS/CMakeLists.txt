@@ -1,4 +1,4 @@
-## HelloECS — ECS / Event / Timer / 並列イテレーション デモ。
+## HelloECS — ECS / FEvent / Timer / 並列イテレーション デモ。
 ##
 ## 構成:
 ##   main.cpp             - ACS_DEFINE_MAIN(HelloECSApp) のみ

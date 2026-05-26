@@ -20,7 +20,7 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        Container
+        FContainer
         Math
     LINK_PRIVATE
         Shell32

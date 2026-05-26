@@ -10,10 +10,10 @@ acs_module(
         Foundation
         Threading
         Memory
-        Container
+        FContainer
         Math
         Platform
-        Asset
+        FAsset
         Render
         Audio
 )

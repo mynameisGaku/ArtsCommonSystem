@@ -10,6 +10,6 @@ acs_module(
         MessagePipe.h
     PUBLIC_DEPS
         Foundation
-        Container
+        FContainer
         Threading
 )

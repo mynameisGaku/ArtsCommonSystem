@@ -15,7 +15,7 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        Container
+        FContainer
     LINK_PUBLIC
         ws2_32
 )

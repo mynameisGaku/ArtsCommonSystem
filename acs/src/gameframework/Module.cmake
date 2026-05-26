@@ -333,7 +333,7 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        Container
+        FContainer
         Math
         Platform
         Render
