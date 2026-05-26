@@ -50,7 +50,7 @@
 //   ・`#` 始まりはコメント (parse 時にスキップ)。
 //   ・空行スキップ。
 //   ・未知 key は無視 (前方互換: 将来 key を増やしても旧ローダで読める)。
-//   ・実 `ParticleEmitterDef` 構造体は color が Vec3、gravity が Vec2 であり、
+//   ・実 `ParticleEmitterDef` 構造体は color が FVec3、gravity が FVec2 であり、
 //     テキスト形式の 4 番目 (alpha) / 3 番目 (z) 成分はシリアライズ側で 1.0/0.0
 //     を埋め、デシリアライズ側で破棄する。`spread_radians` は emitter def の
 //     正式メンバではないため将来拡張用の予約 key として読み込みのみサポート
@@ -63,11 +63,11 @@
 //   ・**Magic + Version**: 先頭行で `ACS_FXEDIT 1` を要求。Phase 2 以降 schema が
 //     変わったら version をインクリメントし、後方互換ローダが分岐する。
 //   ・**非コピー・非ムーブ static class**: state を持たないため。
-//   ・**全 noexcept / STL 不使用 / Result<T, ErrorCode>**: ACS 規約。
+//   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 規約。
 //   ・**file I/O は acs::FileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
 //     直接呼ばず、Win32 CreateFileW ベースの platform/FileSystem を使うことで
 //     wchar_t パスや GetLastError 由来エラーが一貫して扱える。
-//   ・**name buffer は呼び出し側持ち**: 内部に `Array<char>` を持つ設計も
+//   ・**name buffer は呼び出し側持ち**: 内部に `TArray<char>` を持つ設計も
 //     可能だが、ロード結果を ParticleEditor 側に流し込む際にコピーが必要に
 //     なるため、最初から呼び出し側 buffer に書き込む方式にして余計な
 //     allocation を省く。format は `name0\0name1\0name2\0...` 連結。
@@ -75,7 +75,7 @@
 // 範囲外 (Phase 2+ で検討):
 //   ・curve-based 補間 (color over lifetime 等) の serialize 形式。
 //   ・テクスチャ参照 (path string) の serialize。
-//   ・3D 化 (Vec3 gravity / Vec3 position 等)。
+//   ・3D 化 (FVec3 gravity / FVec3 position 等)。
 //   ・unicode emitter 名 (現状 ASCII printable のみ)。
 //   ・エスケープシーケンス (現状 `"` を含む name は不正)。
 //
@@ -129,7 +129,7 @@ public:
     // ParticleEditor 側の UI 想定で 31 文字 (+NUL = 32B) としておく。
     static constexpr usize       kMaxEmitterName     = 31;
 
-    // ---- ErrorCode subcode 定義 (ErrCategory::IO) -----------------------
+    // ---- FErrorCode subcode 定義 (ErrCategory::IO) -----------------------
     // SaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
     enum SubCode : u16 {
         kSub_OK                = 0,
@@ -151,7 +151,7 @@ public:
     // names:     emitter 名 (C 文字列) の配列。nullptr 個別要素は "" 扱い。
     //            ただし names ポインタ自体が nullptr の場合は kSub_NullArgs。
     // count:     emitter 個数 (0 も valid: ヘッダだけ書き出す)。
-    static Result<void, ErrorCode> Save(const wchar_t*             file_path,
+    static TResult<void, FErrorCode> Save(const wchar_t*             file_path,
                                         const ParticleEmitterDef*  defs,
                                         const char* const*         names,
                                         u32                        count) noexcept;
@@ -166,7 +166,7 @@ public:
     // name_buffer_capacity:  out_name_buffer のバイト数。
     // max_emitters:          out_defs の要素数 (= 受け入れ可能な最大 emitter 数)。
     // 戻り値: 成功時は実際にロードした emitter 数 (<= max_emitters)。
-    static Result<u32, ErrorCode> Load(const wchar_t*       file_path,
+    static TResult<u32, FErrorCode> Load(const wchar_t*       file_path,
                                        ParticleEmitterDef*  out_defs,
                                        char*                out_name_buffer,
                                        u32                  name_buffer_capacity,

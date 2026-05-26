@@ -31,9 +31,9 @@ private:
     acs::ImGuiCtx                                       _imgui;
     PlayerVM                                            _vm;
     acs::Observable<acs::f32>                           _hp_mirror{};
-    acs::Observable<acs::String>                        _hp_text  { acs::String{} };
-    acs::UniquePtr<acs::OneWayBinder<acs::f32>>         _hp_mirror_binder;
-    acs::UniquePtr<acs::OneWayConvertBinder<acs::f32, acs::String>> _hp_text_binder;
+    acs::Observable<acs::FString>                        _hp_text  { acs::FString{} };
+    acs::TUniquePtr<acs::OneWayBinder<acs::f32>>         _hp_mirror_binder;
+    acs::TUniquePtr<acs::OneWayConvertBinder<acs::f32, acs::FString>> _hp_text_binder;
     acs::Derived<acs::f32, acs::f32>*                   _ratio = nullptr;
     char                                                _name_buf[64] = "勇者";
 };

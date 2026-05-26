@@ -73,9 +73,9 @@ public:
     f32 TimeOfDay() const noexcept { return _hours; }
 
     // ----- 色・方向 (補間結果を pull) -----
-    Vec3 SkyColor()     const noexcept;
-    Vec3 AmbientColor() const noexcept;
-    Vec3 SunDirection() const noexcept;
+    FVec3 SkyColor()     const noexcept;
+    FVec3 AmbientColor() const noexcept;
+    FVec3 SunDirection() const noexcept;
 
     // ----- 昼夜判定 -----
     bool IsDay()   const noexcept { return _hours >= 6.0f && _hours < 18.0f; }
@@ -100,8 +100,8 @@ public:
     // アクセスする必要があるので public 配置 (テストや拡張カスタムにも便利)。
     struct TimeStop {
         f32  hour;
-        Vec3 sky;
-        Vec3 ambient;
+        FVec3 sky;
+        FVec3 ambient;
     };
 
 private:

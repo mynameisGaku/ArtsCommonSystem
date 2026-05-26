@@ -75,7 +75,7 @@
 //   ・**Tonemap mode は u32 enum 風 (0=ACES / 1=Reinhard / 2=Linear)**:
 //     PbrShader / Tonemap の既存 enum (`render/PostProcess.h` 等) との連携は
 //     Sample 31 側で行う (本 panel は u32 で受け流し)。
-//   ・**Background color は Vec4** (RGBA): renderer の clear color 用。alpha は
+//   ・**Background color は FVec4** (RGBA): renderer の clear color 用。alpha は
 //     通常 1.0 だが、screenshot 用 alpha 0 利用も将来想定。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。文字列は wchar_t 固定長バッファのみ。
@@ -173,13 +173,13 @@ public:
     // sun light direction (normalized 推奨だが panel 内では正規化しない =
     // renderer 側が必要なら Normalize する)。default = (0.3, -0.7, 0.6) (= 太陽が
     // やや右上から差す典型的 3-quarter ライト)。
-    void SetLightDirection(acs::Vec3 dir) noexcept;
-    acs::Vec3 LightDirection() const noexcept;
+    void SetLightDirection(acs::FVec3 dir) noexcept;
+    acs::FVec3 LightDirection() const noexcept;
 
     // sun light color (RGB, linear space, 通常 1.0 中心)。default = white (1,1,1)。
     // HDR 強度を出したい場合は >1.0 を入れる (renderer 側で乗算される想定)。
-    void SetLightColor(acs::Vec3 color) noexcept;
-    acs::Vec3 LightColor() const noexcept;
+    void SetLightColor(acs::FVec3 color) noexcept;
+    acs::FVec3 LightColor() const noexcept;
 
     // IBL (environment-based indirect lighting) を有効にするか。
     // default = true (= sample 25 HelloIbl と同じ既定 ON)。
@@ -199,8 +199,8 @@ public:
     // viewport background color (RGBA, linear space)。default =
     // (0.15, 0.15, 0.18, 1.0) (= editor 風暗グレー)。renderer 側で
     // clear color として使う。alpha は通常 1.0 だが screenshot 用 0 もあり得る。
-    void SetBackgroundColor(acs::Vec4 color) noexcept;
-    acs::Vec4 BackgroundColor() const noexcept;
+    void SetBackgroundColor(acs::FVec4 color) noexcept;
+    acs::FVec4 BackgroundColor() const noexcept;
 
     // ----- 表示 toggle -----------------------------------------------------
 
@@ -252,13 +252,13 @@ private:
 
     // ---- Lighting 状態 ----
     // 既定値はヘッダコメントの設計選択節と一致 (sun が右上から斜めに差す形)。
-    acs::Vec3 _light_dir   {0.3f, -0.7f, 0.6f};   // direction (renderer 側で正規化)
-    acs::Vec3 _light_color {1.0f, 1.0f, 1.0f};    // RGB linear
+    acs::FVec3 _light_dir   {0.3f, -0.7f, 0.6f};   // direction (renderer 側で正規化)
+    acs::FVec3 _light_color {1.0f, 1.0f, 1.0f};    // RGB linear
     bool      _ibl_enabled = true;
     u32       _tonemap_mode = 0u;                  // 0=ACES, 1=Reinhard, 2=Linear
 
     // ---- 背景 / 表示 toggle ----
-    acs::Vec4 _bg_color    {0.15f, 0.15f, 0.18f, 1.0f};
+    acs::FVec4 _bg_color    {0.15f, 0.15f, 0.18f, 1.0f};
     bool      _show_grid           = true;
     bool      _show_bone_skeleton  = false;
 };

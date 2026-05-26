@@ -30,7 +30,7 @@
 //   ・**preset 値は static const 関数で配る**: 単純な定数なので constexpr
 //     にしたい所だが、Custom enum case + 拡張 (将来 EShakePreset を増やす)
 //     を見越して関数経由に統一。コンパイラは余裕で fold する。
-//   ・**Custom preset は名前 + ShakeParams を Array に保持**: 件数は典型 0〜
+//   ・**Custom preset は名前 + ShakeParams を TArray に保持**: 件数は典型 0〜
 //     20 程度なので線形検索。const char* は呼び出し側が保証する static
 //     lifetime 想定 (AchievementManager / Entitlement と同設計、STL <string>
 //     不使用)。
@@ -157,7 +157,7 @@ private:
     // 名前で線形検索 (件数は典型 < 20)。見つからなければ ~0u を返す。
     u32 FindCustomIndex(const char* name) const noexcept;
 
-    Array<CustomEntry> _customs;
+    TArray<CustomEntry> _customs;
 };
 
 } // namespace acs::game

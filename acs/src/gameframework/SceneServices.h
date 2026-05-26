@@ -26,8 +26,8 @@
 // 設計選択:
 //   ・**bit flag 宣言**: `WantedServices()` で宣言したサービスだけ alloc。
 //     使わないシーン (例: メニュー) は Physics/Tweens のコストを払わない。
-//   ・**遅延 alloc**: constructor 内で wanted bit を見て UniquePtr<T> を作る。
-//     未要求のサービスは UniquePtr が null、accessor 呼出は assert で検出。
+//   ・**遅延 alloc**: constructor 内で wanted bit を見て TUniquePtr<T> を作る。
+//     未要求のサービスは TUniquePtr が null、accessor 呼出は assert で検出。
 //   ・**2 phase tick**: PreUpdate (Clock 進行) → scene.OnUpdate → PostUpdate
 //     (Tweens/Sequences tick)。新規スケジュールは次フレーム頭から進行 (predictable)。
 //   ・**自動 pause**: シーンが下位に追いやられた間は OnUpdate が呼ばれず、
@@ -102,12 +102,12 @@ public:
 
 private:
     ESvc                       _wanted = ESvc::None;
-    UniquePtr<SceneClock>     _clock;
-    UniquePtr<TweenManager>   _tweens;
-    UniquePtr<SequenceRunner> _sequences;
-    UniquePtr<InputMap>       _input;
-    UniquePtr<acs::game::Camera2D> _camera;
-    UniquePtr<CollisionWorld2D>    _physics;
+    TUniquePtr<SceneClock>     _clock;
+    TUniquePtr<TweenManager>   _tweens;
+    TUniquePtr<SequenceRunner> _sequences;
+    TUniquePtr<InputMap>       _input;
+    TUniquePtr<acs::game::Camera2D> _camera;
+    TUniquePtr<CollisionWorld2D>    _physics;
 };
 
 } // namespace acs::game

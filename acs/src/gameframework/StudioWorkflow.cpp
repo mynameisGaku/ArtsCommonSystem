@@ -12,7 +12,7 @@
 //     のように null-object パターンで保持し、後から具象実装に差し替える経路を
 //     確保する。
 //   ・stub に対する LockAsset / SubmitBuild 等の呼び出しは「成功扱いで黙る」ではなく
-//     **必ず Result<...> Err を返す** ことで、本番ビルドに stub が紛れ込んだ
+//     **必ず TResult<...> Err を返す** ことで、本番ビルドに stub が紛れ込んだ
 //     ケースを QA 工程で検出可能にしておく。
 //
 // 将来 (Phase 2 以降, StudioWorkflow モジュール本実装フェーズ):
@@ -45,7 +45,7 @@ namespace acs::game {
 // 各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
 // -----------------------------------------------------------------------------
 
-Result<void> AssetLockingStub::LockAsset(const char* asset_path, const char* user) noexcept {
+TResult<void> AssetLockingStub::LockAsset(const char* asset_path, const char* user) noexcept {
     (void)asset_path;
     (void)user;
     return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
@@ -53,16 +53,16 @@ Result<void> AssetLockingStub::LockAsset(const char* asset_path, const char* use
                    "(stub: link a concrete asset locking backend such as Perforce/Plastic)");
 }
 
-Result<void> AssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
+TResult<void> AssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
     (void)asset_path;
     return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                    "IAssetLockingBackend::UnlockAsset is not implemented "
                    "(stub: link a concrete asset locking backend such as Perforce/Plastic)");
 }
 
-Result<AssetLockInfo> AssetLockingStub::QueryLock(const char* asset_path) noexcept {
+TResult<AssetLockInfo> AssetLockingStub::QueryLock(const char* asset_path) noexcept {
     (void)asset_path;
-    return Result<AssetLockInfo>(
+    return TResult<AssetLockInfo>(
         ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                 "IAssetLockingBackend::QueryLock is not implemented "
                 "(stub: link a concrete asset locking backend such as Perforce/Plastic)"));
@@ -75,23 +75,23 @@ Result<AssetLockInfo> AssetLockingStub::QueryLock(const char* asset_path) noexce
 // 各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
 // -----------------------------------------------------------------------------
 
-Result<u64> BuildFarmStub::SubmitBuild(const BuildRequest& req) noexcept {
+TResult<u64> BuildFarmStub::SubmitBuild(const BuildRequest& req) noexcept {
     (void)req;
-    return Result<u64>(
+    return TResult<u64>(
         ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                 "IBuildFarmBackend::SubmitBuild is not implemented "
                 "(stub: link a concrete build farm backend such as Jenkins/TeamCity)"));
 }
 
-Result<IBuildFarmBackend::BuildResult> BuildFarmStub::PollBuild(u64 build_id) noexcept {
+TResult<IBuildFarmBackend::BuildResult> BuildFarmStub::PollBuild(u64 build_id) noexcept {
     (void)build_id;
-    return Result<IBuildFarmBackend::BuildResult>(
+    return TResult<IBuildFarmBackend::BuildResult>(
         ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                 "IBuildFarmBackend::PollBuild is not implemented "
                 "(stub: link a concrete build farm backend such as Jenkins/TeamCity)"));
 }
 
-Result<void> BuildFarmStub::CancelBuild(u64 build_id) noexcept {
+TResult<void> BuildFarmStub::CancelBuild(u64 build_id) noexcept {
     (void)build_id;
     return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                    "IBuildFarmBackend::CancelBuild is not implemented "

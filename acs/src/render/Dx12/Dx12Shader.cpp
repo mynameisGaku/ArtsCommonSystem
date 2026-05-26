@@ -56,7 +56,7 @@ HrResult Dx12Shader::Init(Dx12Device& /*device*/, const ShaderDesc& desc) noexce
 
 // ファクトリ
 #if !WITH_RENDER_DILIGENT
-Result<UniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const ShaderDesc& desc) noexcept {
+TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const ShaderDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 40, "CreateRhiShader: device is not DX12");
@@ -65,8 +65,8 @@ Result<UniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const ShaderDe
     HrResult r = s->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 41, "Dx12Shader::Init failed (compile)", static_cast<u32>(r.hr));
-    UniquePtr<IRhiShader> base(s.Release(), s.GetAllocator());
-    return Result<UniquePtr<IRhiShader>>(OkInit, Move(base));
+    TUniquePtr<IRhiShader> base(s.Release(), s.GetAllocator());
+    return TResult<TUniquePtr<IRhiShader>>(OkInit, Move(base));
 }
 #endif
 

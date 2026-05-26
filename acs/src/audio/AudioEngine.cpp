@@ -16,7 +16,7 @@ constexpr u32 kMaxVoices = 64;  // 同時再生上限
 // 1 個の発音スロット
 struct VoiceSlot {
     IXAudio2SourceVoice* voice      = nullptr;
-    Array<byte>          buffer_copy;     // XAudio2 が再生中はバッファを保持
+    TArray<byte>          buffer_copy;     // XAudio2 が再生中はバッファを保持
     u32                  generation = 0;
     bool                 in_use     = false;
 };
@@ -37,7 +37,7 @@ AudioEngine::~AudioEngine() noexcept {
     Shutdown();
 }
 
-Result<void> AudioEngine::Init() noexcept {
+TResult<void> AudioEngine::Init() noexcept {
     if (_impl) return ACS_ERR(Generic, 1, "AudioEngine already initialized");
     _impl = new Impl();
 

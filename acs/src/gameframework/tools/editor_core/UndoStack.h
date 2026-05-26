@@ -20,13 +20,13 @@
 //   }
 //
 // 設計選択 (Phase 21a):
-//   ・**UniquePtr<EditorCommand> を 2 本の Array に積む**: undo / redo の
+//   ・**TUniquePtr<EditorCommand> を 2 本の TArray に積む**: undo / redo の
 //     LIFO スタック。基底ポインタなので polymorphic dispatch (virtual Execute /
 //     Undo / Description) で派生型を意識せず巻き戻せる。
 //   ・**Push で所有権を奪う (raw pointer 引数 + delete 責任)**: 既存サンプル
 //     (HierarchyPanel 等) と同じく ImGui 連携の単純な C-API 風シグネチャに
 //     揃える。caller は `cmd.Release()` で渡す or 自分で New してそのまま渡す。
-//     Push 内で UniquePtr に詰め直してから _undo_stack に PushBack することで
+//     Push 内で TUniquePtr に詰め直してから _undo_stack に PushBack することで
 //     その後の代入 / pop で自動 delete される。
 //   ・**Push 内で Execute も実行**: GUI コードが「new EditorCommand → Push」
 //     しか書かなくて済む (= Execute 忘れを構造的に防ぐ)。Redo 経路でも
@@ -37,8 +37,8 @@
 //     "redo の未来" は破棄される (Git の reset --hard 相当)。branched history
 //     は将来拡張で別レイヤに分離する。
 //   ・**max_history 上限 + oldest drop**: 古い undo を 1 件 (FIFO 的に) 落として
-//     上限を守る。下端 drop なので UniquePtr の delete が自動走り、メモリリーク
-//     しない。Array に LIFO + 上限管理しか要らない用途で circular buffer は不要
+//     上限を守る。下端 drop なので TUniquePtr の delete が自動走り、メモリリーク
+//     しない。TArray に LIFO + 上限管理しか要らない用途で circular buffer は不要
 //     (上限超は希なはず、上限超時に O(N) shift しても害は少ない)。
 //   ・**CanMerge / MergeWith**: Push 時に「直前の _undo_stack.Back() が merge
 //     可能か」を判定し、可能なら新 cmd を merge してそのまま破棄する (= スタッ
@@ -89,7 +89,7 @@ using CommandExecutedCallback =
 // =============================================================================
 // UndoStack — Editor 共通の undo/redo ハブ
 // -----------------------------------------------------------------------------
-// 非コピー / 非ムーブ、全 noexcept、STL 不使用 (`acs::Array` + `acs::UniquePtr`)。
+// 非コピー / 非ムーブ、全 noexcept、STL 不使用 (`acs::TArray` + `acs::TUniquePtr`)。
 // =============================================================================
 class UndoStack {
 public:
@@ -106,7 +106,7 @@ public:
     // 0 を渡された場合は default (64) にフォールバックする。
     void Init(u32 max_history = 64) noexcept;
 
-    // 1 件積む。所有権を奪う (内部で UniquePtr に詰め直して破棄責任を引き取る)。
+    // 1 件積む。所有権を奪う (内部で TUniquePtr に詰め直して破棄責任を引き取る)。
     // 動作順:
     //   1. cmd == nullptr なら no-op (誤呼び対策、cmd は delete されない)。
     //   2. cmd->Execute() を呼ぶ。
@@ -146,7 +146,7 @@ public:
     const char* UndoDescription() const noexcept;
     const char* RedoDescription() const noexcept;
 
-    // 全 cmd 破棄。UniquePtr の dtor で自動 delete される。
+    // 全 cmd 破棄。TUniquePtr の dtor で自動 delete される。
     void Clear() noexcept;
 
     // (cb, user) ペアを 1 個保持する (= 単一購読モード)。複数購読は今のところ
@@ -159,8 +159,8 @@ private:
     // PushBack 後にのみ呼ぶ前提なので、超過量は高々 1。
     void DropOldestIfOverflow() noexcept;
 
-    Array<UniquePtr<EditorCommand>> _undo_stack {};
-    Array<UniquePtr<EditorCommand>> _redo_stack {};
+    TArray<TUniquePtr<EditorCommand>> _undo_stack {};
+    TArray<TUniquePtr<EditorCommand>> _redo_stack {};
     u32                             _max_history = 64;
     CommandExecutedCallback         _cb          = nullptr;
     void*                           _cb_user     = nullptr;

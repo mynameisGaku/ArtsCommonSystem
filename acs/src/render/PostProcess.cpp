@@ -499,27 +499,27 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 // 各パスで使う共通の動的 CB レイアウト
 struct PostCBLayout {
-    Vec4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
-    Vec4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind
-    Vec4 params2;   // x=vignette_intensity, y=vignette_radius, z=ca, w=grain
-    Vec4 params3;   // x=grain_time, y=ssr_intensity
-    Vec4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
-    Vec4 cg_lift;   // xyz=lift
-    Vec4 cg_gain;   // xyz=gain
-    Vec4 cas_params;// x=cas_strength
-    Vec4 taa_params;// x=blend_factor (Phase 34f TAA)、y=reproject_enabled (Phase 34f-2)
+    FVec4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
+    FVec4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind
+    FVec4 params2;   // x=vignette_intensity, y=vignette_radius, z=ca, w=grain
+    FVec4 params3;   // x=grain_time, y=ssr_intensity
+    FVec4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
+    FVec4 cg_lift;   // xyz=lift
+    FVec4 cg_gain;   // xyz=gain
+    FVec4 cas_params;// x=cas_strength
+    FVec4 taa_params;// x=blend_factor (Phase 34f TAA)、y=reproject_enabled (Phase 34f-2)
 };
 
 // Phase 34f-2: TAA reprojection 用の別 CB (b1 で bind)。
 struct TaaReprojCBLayout {
-    Mat4 inv_view_proj;
-    Mat4 prev_view_proj;
+    FMat4 inv_view_proj;
+    FMat4 prev_view_proj;
 };
 
 // Phase 34k-2: auto-exposure 用 CB (Exposure adapt パスで b0 に bind)。
 struct AutoExposureCBLayout {
-    Vec4 a0;   // x=key, y=min_exp, z=max_exp, w=speed
-    Vec4 a1;   // x=dt, y=warm (0=cold start)
+    FVec4 a0;   // x=key, y=min_exp, z=max_exp, w=speed
+    FVec4 a1;   // x=dt, y=warm (0=cold start)
 };
 
 template<typename T>
@@ -544,7 +544,7 @@ PostProcess::~PostProcess() noexcept {
     Shutdown();
 }
 
-Result<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
+TResult<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
                                 EFormat color_format) noexcept {
     _device = &device;
     _color_format = color_format;
@@ -629,7 +629,7 @@ void PostProcess::Shutdown() noexcept {
     _device = nullptr;
 }
 
-Result<void> PostProcess::Resize(u32 width, u32 height) noexcept {
+TResult<void> PostProcess::Resize(u32 width, u32 height) noexcept {
     if (!_device) return ACS_ERR(Render, 300, "PostProcess::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _hdr_rt.Reset();
@@ -646,7 +646,7 @@ Result<void> PostProcess::Resize(u32 width, u32 height) noexcept {
     return CreateRenderTargets(*_device, width, height);
 }
 
-Result<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
+TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // メイン HDR RT
     TextureDesc td{};
     td.width  = w;
@@ -731,7 +731,7 @@ Result<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) 
     return Ok();
 }
 
-Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
+TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     // ---- 共通 VS ----
     {
         ShaderDesc sd{};
@@ -746,7 +746,7 @@ Result<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
 
     // ---- 各 PS ----
     auto compile_ps = [&](const char* src, const char* name,
-                          UniquePtr<IRhiShader>& out) -> Result<void> {
+                          TUniquePtr<IRhiShader>& out) -> TResult<void> {
         ShaderDesc sd{};
         sd.stage = EShaderStage::Pixel;
         sd.hlsl_source = src;
@@ -1017,20 +1017,20 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
                   f32 texel_w, f32 texel_h) noexcept {
     if (!cb) return;
     PostCBLayout l{};
-    l.params0 = Vec4{ p.bloom_threshold, p.bloom_intensity, p.bloom_radius, p.exposure };
-    l.params1 = Vec4{ p.gamma, texel_w, texel_h, static_cast<f32>(p.tonemap_kind) };
-    l.params2 = Vec4{ p.vignette_intensity, p.vignette_radius,
+    l.params0 = FVec4{ p.bloom_threshold, p.bloom_intensity, p.bloom_radius, p.exposure };
+    l.params1 = FVec4{ p.gamma, texel_w, texel_h, static_cast<f32>(p.tonemap_kind) };
+    l.params2 = FVec4{ p.vignette_intensity, p.vignette_radius,
                       p.chromatic_aberration, p.grain_intensity };
-    l.params3 = Vec4{ p.grain_time, p.ssr_intensity, 0, 0 };
-    l.cg0     = Vec4{ p.cg_saturation, p.cg_contrast, p.cg_temperature, p.cg_tint };
-    l.cg_lift = Vec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
-    l.cg_gain = Vec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
-    l.cas_params = Vec4{ p.cas_strength < 0 ? 0.0f : p.cas_strength, 0, 0, 0 };
+    l.params3 = FVec4{ p.grain_time, p.ssr_intensity, 0, 0 };
+    l.cg0     = FVec4{ p.cg_saturation, p.cg_contrast, p.cg_temperature, p.cg_tint };
+    l.cg_lift = FVec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
+    l.cg_gain = FVec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
+    l.cas_params = FVec4{ p.cas_strength < 0 ? 0.0f : p.cas_strength, 0, 0, 0 };
     // Phase 34f-2: reproject_enabled は taa_depth_texture が指定されてるかで判定。
     const f32 reproject_enabled = (p.taa_enabled && p.taa_depth_texture) ? 1.0f : 0.0f;
     // Phase 34f-3: motion texture があれば motion mode (depth reprojection より優先)。
     const f32 motion_mode = (p.taa_enabled && p.taa_motion_texture) ? 1.0f : 0.0f;
-    l.taa_params = Vec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor,
+    l.taa_params = FVec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor,
                          reproject_enabled, motion_mode, 0 };
     cb->Update(&l, sizeof(l), 0);
 }
@@ -1206,11 +1206,11 @@ void PostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessPara
     if (!avg || !cur || !prev) return;
 
     AutoExposureCBLayout l{};
-    l.a0 = Vec4{ p.auto_exposure_key, p.auto_exposure_min,
+    l.a0 = FVec4{ p.auto_exposure_key, p.auto_exposure_min,
                  p.auto_exposure_max, p.auto_exposure_speed };
     // frame 0 は prev が未初期化 (Diligent の未定義メモリ) なので warm=0 で
     // 目標露出を直接採用し、garbage からの補間を回避する (TAA cold-start と同じ考え方)。
-    l.a1 = Vec4{ p.delta_time, _auto_frame == 0 ? 0.0f : 1.0f, 0.0f, 0.0f };
+    l.a1 = FVec4{ p.delta_time, _auto_frame == 0 ? 0.0f : 1.0f, 0.0f, 0.0f };
     _cb_auto->Update(&l, sizeof(l));
 
     cmd.BeginRenderToTexture(*cur, ClearColor{0,0,0,1}, nullptr, 1.0f);

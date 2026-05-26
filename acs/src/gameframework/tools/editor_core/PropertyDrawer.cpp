@@ -57,8 +57,8 @@ void DrawTooltip(const char* tooltip) noexcept {
 // すべて DrawerFn シグネチャ (= `void (const PropertyContext&) noexcept`) で
 // 統一。data_ptr の型は drawer 名で暗黙に決まる:
 //   "F32Slider"  → f32*
-//   "Vec2Drag"   → f32[2] (= acs::Vec2 連続 x/y を想定)
-//   "Vec3Drag"   → f32[3] (= acs::Vec3 連続 x/y/z、ただし Vec3 は alignas(16) で
+//   "Vec2Drag"   → f32[2] (= acs::FVec2 連続 x/y を想定)
+//   "Vec3Drag"   → f32[3] (= acs::FVec3 連続 x/y/z、ただし FVec3 は alignas(16) で
 //                          padding を含むため呼び出し側で 3 要素にコピーして渡す
 //                          パターン。本 drawer は f32* を素直に 3 要素読む)
 //   "Vec4Drag"   → f32[4]

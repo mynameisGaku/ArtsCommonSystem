@@ -23,7 +23,7 @@
 //   ・Easing.h は固定数式 11 種類で十分軽量だが、デザイナが任意の曲線を
 //     差し込みたい局面 (ボス演出曲線, カスタム UI スライドカーブ) に対応するため
 //     キー打ち式の曲線を別途用意する。
-//   ・key は time 昇順で内部 Array に保持。AddKey は二分探索で適切位置に挿入する
+//   ・key は time 昇順で内部 TArray に保持。AddKey は二分探索で適切位置に挿入する
 //     ことで Evaluate を O(log N) に保つ (Sequence の sorted insert と同方針)。
 //   ・各 key は in_interp / out_interp を持ち、segment [k_i, k_{i+1}] の補間方式は
 //     k_i.out_interp で決定。Step → 左 value 保持。Linear → 線形。Hermite →
@@ -134,7 +134,7 @@ private:
     static f32 InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
                                   f32 t, f32 dt) noexcept;
 
-    Array<CurveKey> _keys;
+    TArray<CurveKey> _keys;
     WrapMode        _pre_wrap  = WrapMode::Clamp;
     WrapMode        _post_wrap = WrapMode::Clamp;
 };

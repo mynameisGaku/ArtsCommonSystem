@@ -23,7 +23,7 @@ HANDLE OpenForWrite(const wchar_t* path) noexcept {
 } // namespace
 
 // ファイル全体をバイト列として読み込む
-Result<Array<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
+TResult<TArray<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
     HANDLE h = OpenForRead(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 100, "CreateFileW (read) failed", ::GetLastError());
@@ -39,7 +39,7 @@ Result<Array<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
         return ACS_ERR(IO, 102, "File too large (>4GB)");
     }
 
-    Array<byte> buf;
+    TArray<byte> buf;
     buf.Resize(static_cast<usize>(size.QuadPart));
     DWORD read = 0;
     BOOL ok = ::ReadFile(h, buf.Data(), static_cast<DWORD>(buf.Size()), &read, nullptr);
@@ -47,23 +47,23 @@ Result<Array<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
     ::CloseHandle(h);
     if (!ok || read != buf.Size())
         return ACS_ERR_OS(IO, 103, "ReadFile failed", err);
-    return Result<Array<byte>>(OkInit, Move(buf));
+    return TResult<TArray<byte>>(OkInit, Move(buf));
 }
 
 // ファイル全体を文字列として読み込む（末尾に NUL を付与する）
-Result<Array<char>> FileSystem::ReadAllText(const wchar_t* path) noexcept {
+TResult<TArray<char>> FileSystem::ReadAllText(const wchar_t* path) noexcept {
     auto br = ReadAllBytes(path);
-    if (br.IsErr()) return Err<Array<char>>(br.Error());
-    Array<byte>& b = br.Value();
-    Array<char> out;
+    if (br.IsErr()) return Err<TArray<char>>(br.Error());
+    TArray<byte>& b = br.Value();
+    TArray<char> out;
     out.Resize(b.Size() + 1);
     for (usize i = 0; i < b.Size(); ++i) out[i] = static_cast<char>(b[i]);
     out[b.Size()] = '\0';
-    return Result<Array<char>>(OkInit, Move(out));
+    return TResult<TArray<char>>(OkInit, Move(out));
 }
 
 // バイト列を書き出す（上書き）
-Result<void> FileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
+TResult<void> FileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
     HANDLE h = OpenForWrite(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 110, "CreateFileW (write) failed", ::GetLastError());
@@ -77,21 +77,21 @@ Result<void> FileSystem::WriteAllBytes(const wchar_t* path, const byte* data, us
 }
 
 // 文字列を書き出す（NUL 終端は書かない）
-Result<void> FileSystem::WriteAllText(const wchar_t* path, const char* text) noexcept {
+TResult<void> FileSystem::WriteAllText(const wchar_t* path, const char* text) noexcept {
     usize len = 0;
     while (text && text[len]) ++len;
     return WriteAllBytes(path, reinterpret_cast<const byte*>(text), len);
 }
 
 // ファイルサイズ取得
-Result<u64> FileSystem::FileSize(const wchar_t* path) noexcept {
+TResult<u64> FileSystem::FileSize(const wchar_t* path) noexcept {
     WIN32_FILE_ATTRIBUTE_DATA d{};
     if (!::GetFileAttributesExW(path, GetFileExInfoStandard, &d))
         return ACS_ERR_OS(IO, 120, "GetFileAttributesExW failed", ::GetLastError());
     LARGE_INTEGER sz{};
     sz.LowPart = d.nFileSizeLow;
     sz.HighPart = static_cast<LONG>(d.nFileSizeHigh);
-    return Result<u64>(OkInit, static_cast<u64>(sz.QuadPart));
+    return TResult<u64>(OkInit, static_cast<u64>(sz.QuadPart));
 }
 
 // ファイル存在確認
@@ -107,7 +107,7 @@ bool FileSystem::DirectoryExists(const wchar_t* path) noexcept {
 }
 
 // ディレクトリ作成（既に存在する場合は成功扱い、親も再帰作成）
-Result<void> FileSystem::CreateDirectory(const wchar_t* path) noexcept {
+TResult<void> FileSystem::CreateDirectory(const wchar_t* path) noexcept {
     if (DirectoryExists(path)) return Ok();
     wchar_t buf[1024];
     usize n = 0;
@@ -130,7 +130,7 @@ Result<void> FileSystem::CreateDirectory(const wchar_t* path) noexcept {
 }
 
 // ファイル削除
-Result<void> FileSystem::Delete(const wchar_t* path) noexcept {
+TResult<void> FileSystem::Delete(const wchar_t* path) noexcept {
     if (!::DeleteFileW(path))
         return ACS_ERR_OS(IO, 140, "DeleteFileW failed", ::GetLastError());
     return Ok();

@@ -37,7 +37,7 @@ void HelloLightsApp::OnStart() noexcept {
     const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                        static_cast<f32>(GetRenderer().Swapchain()->Height());
     _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
-    _cam_pos = Vec3{0, 3.0f, -8.0f};
+    _cam_pos = FVec3{0, 3.0f, -8.0f};
 }
 
 void HelloLightsApp::OnUpdate(f32 dt) noexcept {
@@ -54,10 +54,10 @@ void HelloLightsApp::OnUpdate(f32 dt) noexcept {
     const f32 limit = 0.45f * kPi;
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;
-    Vec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
+    FVec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
                  -Sin(_cam_pitch),
                   Cos(_cam_yaw) * Cos(_cam_pitch) };
-    Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
+    FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
     if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
     if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
     if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
@@ -81,9 +81,9 @@ void HelloLightsApp::OnRender() noexcept {
         std::snprintf(buf, sizeof(buf),
                       "点光源 %u 灯 + 微弱 dir ライト   FPS: %.1f",
                       kPointCount, static_cast<double>(FPS()));
-        _batch.DrawString(_font, buf, 20, 20, Vec4{1,1,1,1});
+        _batch.DrawString(_font, buf, 20, 20, FVec4{1,1,1,1});
         _batch.DrawString(_font, "WASD: 移動  矢印: 視点  Esc: 終了",
-                        20, 44, Vec4{0.8f, 0.85f, 0.95f, 1});
+                        20, 44, FVec4{0.8f, 0.85f, 0.95f, 1});
         _batch.End();
     }
 }

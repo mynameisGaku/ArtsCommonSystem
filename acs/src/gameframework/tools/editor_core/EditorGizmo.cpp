@@ -7,7 +7,7 @@
 //     ロックし続ける (途中で別軸が hot になっても掴んだ軸を保持)。
 //   ・Manipulate → drag 中のとき限定で、現マウス ray と hot 軸/平面の交点を
 //     drag_start_world と比較して delta を計算し inout_* に加算する。
-//   ・DrawGizmo → DebugDraw (Vec2) に対し、3D 入力を XY 平面へ射影して描画。
+//   ・DrawGizmo → DebugDraw (FVec2) に対し、3D 入力を XY 平面へ射影して描画。
 //     Z 軸ハンドルは「中心からマーカー一個」だけ表示 (top-down view では Z が
 //     画面に向くため、線として描けない)。
 //   ・ray-axis hit test = 「ray と無限直線の最近接距離 ≤ _handle_radius」かつ
@@ -33,43 +33,43 @@ namespace {
 // f32 の絶対値 (math/Math.h の Abs を inline で経由するためのローカル alias)。
 ACS_FORCEINLINE f32 Abs32(f32 v) noexcept { return v < 0.0f ? -v : v; }
 
-// Vec3 dot
-ACS_FORCEINLINE f32 Dot3(acs::Vec3 a, acs::Vec3 b) noexcept {
+// FVec3 dot
+ACS_FORCEINLINE f32 Dot3(acs::FVec3 a, acs::FVec3 b) noexcept {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
 // 「軸ベース 3 つ (X / Y / Z)」を rotation_euler から取得。
 // Local space では quat 回転を適用、World space では単位ベクトル。
 struct AxisBasis {
-    acs::Vec3 x;
-    acs::Vec3 y;
-    acs::Vec3 z;
+    acs::FVec3 x;
+    acs::FVec3 y;
+    acs::FVec3 z;
 };
 
-ACS_FORCEINLINE AxisBasis MakeBasis(EGizmoSpace space, acs::Vec3 rot_euler) noexcept {
+ACS_FORCEINLINE AxisBasis MakeBasis(EGizmoSpace space, acs::FVec3 rot_euler) noexcept {
     AxisBasis b{};
     if (space == EGizmoSpace::World) {
-        b.x = acs::Vec3{1.0f, 0.0f, 0.0f};
-        b.y = acs::Vec3{0.0f, 1.0f, 0.0f};
-        b.z = acs::Vec3{0.0f, 0.0f, 1.0f};
+        b.x = acs::FVec3{1.0f, 0.0f, 0.0f};
+        b.y = acs::FVec3{0.0f, 1.0f, 0.0f};
+        b.z = acs::FVec3{0.0f, 0.0f, 1.0f};
     } else {
         // Local: euler (pitch, yaw, roll) を quat に → 単位軸を回転。
-        // Quat::Euler は (pitch=X, yaw=Y, roll=Z) のラジアン規約。
-        const acs::Quat q = acs::Quat::Euler(rot_euler.x, rot_euler.y, rot_euler.z);
-        b.x = acs::Rotate(q, acs::Vec3{1.0f, 0.0f, 0.0f});
-        b.y = acs::Rotate(q, acs::Vec3{0.0f, 1.0f, 0.0f});
-        b.z = acs::Rotate(q, acs::Vec3{0.0f, 0.0f, 1.0f});
+        // FQuat::Euler は (pitch=X, yaw=Y, roll=Z) のラジアン規約。
+        const acs::FQuat q = acs::FQuat::Euler(rot_euler.x, rot_euler.y, rot_euler.z);
+        b.x = acs::Rotate(q, acs::FVec3{1.0f, 0.0f, 0.0f});
+        b.y = acs::Rotate(q, acs::FVec3{0.0f, 1.0f, 0.0f});
+        b.z = acs::Rotate(q, acs::FVec3{0.0f, 0.0f, 1.0f});
     }
     return b;
 }
 
 // 軸 EGizmoAxis::X/Y/Z を AxisBasis から取り出す。
-ACS_FORCEINLINE acs::Vec3 PickAxisVec(const AxisBasis& b, EGizmoAxis a) noexcept {
+ACS_FORCEINLINE acs::FVec3 PickAxisVec(const AxisBasis& b, EGizmoAxis a) noexcept {
     switch (a) {
         case EGizmoAxis::X: return b.x;
         case EGizmoAxis::Y: return b.y;
         case EGizmoAxis::Z: return b.z;
-        default:            return acs::Vec3{0.0f, 0.0f, 0.0f};
+        default:            return acs::FVec3{0.0f, 0.0f, 0.0f};
     }
 }
 
@@ -83,8 +83,8 @@ struct ClosestRayLine {
     bool parallel;
 };
 
-ClosestRayLine ClosestPointsRayLine(acs::Vec3 ray_o, acs::Vec3 ray_d,
-                                    acs::Vec3 line_p, acs::Vec3 line_d) noexcept {
+ClosestRayLine ClosestPointsRayLine(acs::FVec3 ray_o, acs::FVec3 ray_d,
+                                    acs::FVec3 line_p, acs::FVec3 line_d) noexcept {
     // Real-Time Rendering / Eberly "3D Game Engine Design" 5.1.1 を参照。
     // 2 直線 L1(t)=ray_o + ray_d*t, L2(s)=line_p + line_d*s の最近接ペアは
     //   d.dd  = dot(ray_d, ray_d)
@@ -96,7 +96,7 @@ ClosestRayLine ClosestPointsRayLine(acs::Vec3 ray_o, acs::Vec3 ray_d,
     //   t = (d.ee * d.dr - d.de * d.er) / denom
     //   s = (d.de * d.dr - d.dd * d.er) / denom
     ClosestRayLine r{};
-    const acs::Vec3 diff = line_p - ray_o;
+    const acs::FVec3 diff = line_p - ray_o;
     const f32 a = Dot3(ray_d, ray_d);
     const f32 b = Dot3(ray_d, line_d);
     const f32 c = Dot3(line_d, line_d);
@@ -114,16 +114,16 @@ ClosestRayLine ClosestPointsRayLine(acs::Vec3 ray_o, acs::Vec3 ray_d,
         r.line_s = (b * d - a * e) / denom;
     }
     // 最近接点
-    const acs::Vec3 p_ray  = ray_o  + ray_d  * r.ray_t;
-    const acs::Vec3 p_line = line_p + line_d * r.line_s;
-    const acs::Vec3 diff2  = p_ray - p_line;
+    const acs::FVec3 p_ray  = ray_o  + ray_d  * r.ray_t;
+    const acs::FVec3 p_line = line_p + line_d * r.line_s;
+    const acs::FVec3 diff2  = p_ray - p_line;
     r.dist_sq = Dot3(diff2, diff2);
     return r;
 }
 
 // ray と plane(point, normal) の交差 t を計算。平行なら false。
-bool RayPlaneIntersect(acs::Vec3 ray_o, acs::Vec3 ray_d,
-                       acs::Vec3 plane_p, acs::Vec3 plane_n,
+bool RayPlaneIntersect(acs::FVec3 ray_o, acs::FVec3 ray_d,
+                       acs::FVec3 plane_p, acs::FVec3 plane_n,
                        f32& out_t) noexcept {
     const f32 nd = Dot3(plane_n, ray_d);
     if (Abs32(nd) < 1e-8f) {
@@ -140,9 +140,9 @@ bool RayPlaneIntersect(acs::Vec3 ray_o, acs::Vec3 ray_d,
 // 平面ハンドル EGizmoAxis::XY/XZ/YZ の normal と (planar) u/v 軸を返す。
 // world space ベース → AxisBasis を渡すと local 対応。
 struct PlaneFrame {
-    acs::Vec3 n;  // 法線
-    acs::Vec3 u;  // 平面上の "横" 軸
-    acs::Vec3 v;  // 平面上の "縦" 軸
+    acs::FVec3 n;  // 法線
+    acs::FVec3 u;  // 平面上の "横" 軸
+    acs::FVec3 v;  // 平面上の "縦" 軸
 };
 
 PlaneFrame MakePlaneFrame(const AxisBasis& b, EGizmoAxis axis) noexcept {
@@ -166,23 +166,23 @@ void EditorGizmo::Init() noexcept {
     // callback / snap step / ハンドル形状は意図的に維持 (= editor セッションを
     // またいだ復帰を想定)。完全初期化したい場合は Shutdown を呼ぶ。
     _state                = GizmoState{};
-    _drag_origin_pos      = acs::Vec3{};
-    _drag_origin_rot      = acs::Vec3{};
-    _drag_origin_scl      = acs::Vec3{};
+    _drag_origin_pos      = acs::FVec3{};
+    _drag_origin_rot      = acs::FVec3{};
+    _drag_origin_scl      = acs::FVec3{};
     _drag_origin_set      = false;
-    _last_ray_origin      = acs::Vec3{};
-    _last_ray_direction   = acs::Vec3{0.0f, 0.0f, 1.0f};
+    _last_ray_origin      = acs::FVec3{};
+    _last_ray_direction   = acs::FVec3{0.0f, 0.0f, 1.0f};
 }
 
 void EditorGizmo::Shutdown() noexcept {
     // 完全初期化: state + callback + snap step + ハンドル形状をすべて default に。
     _state                = GizmoState{};
-    _drag_origin_pos      = acs::Vec3{};
-    _drag_origin_rot      = acs::Vec3{};
-    _drag_origin_scl      = acs::Vec3{};
+    _drag_origin_pos      = acs::FVec3{};
+    _drag_origin_rot      = acs::FVec3{};
+    _drag_origin_scl      = acs::FVec3{};
     _drag_origin_set      = false;
-    _last_ray_origin      = acs::Vec3{};
-    _last_ray_direction   = acs::Vec3{0.0f, 0.0f, 1.0f};
+    _last_ray_origin      = acs::FVec3{};
+    _last_ray_direction   = acs::FVec3{0.0f, 0.0f, 1.0f};
     _snap_translate       = 0.0f;
     _snap_rotate          = 0.0f;
     _snap_scale           = 0.0f;
@@ -277,8 +277,8 @@ void EditorGizmo::SetOnManipulateCallback(ManipulateCallback cb, void* user) noe
 //   (dragging)  + lmb_up                         → drag 終了 → callback 発火
 //   (!dragging) + !lmb_held                       → hot_axis を毎フレーム再判定
 // ============================================================================
-void EditorGizmo::ProcessInput(acs::Vec3 mouse_ray_origin,
-                                acs::Vec3 mouse_ray_direction,
+void EditorGizmo::ProcessInput(acs::FVec3 mouse_ray_origin,
+                                acs::FVec3 mouse_ray_direction,
                                 bool lmb_down,
                                 bool lmb_held,
                                 bool lmb_up) noexcept {
@@ -312,7 +312,7 @@ void EditorGizmo::ProcessInput(acs::Vec3 mouse_ray_origin,
         if (lmb_down && _state.hot_axis != EGizmoAxis::None_) {
             // drag_start_world (= 現マウス ray と hot 軸/平面の交点) を保存。
             // 失敗時 (= ray 平行) は drag 開始しない (= no-op で保留)。
-            acs::Vec3 hit{};
+            acs::FVec3 hit{};
             if (RaycastToHot(mouse_ray_origin, mouse_ray_direction, hit)) {
                 _state.dragging         = true;
                 _state.drag_start_world = hit;
@@ -342,9 +342,9 @@ void EditorGizmo::ProcessInput(acs::Vec3 mouse_ray_origin,
 //   Scale:
 //     軸方向 drag 距離を _axis_length で割って倍率に変換、hot 軸の scale に加算。
 // ============================================================================
-bool EditorGizmo::Manipulate(acs::Vec3& inout_position,
-                              acs::Vec3& inout_rotation_euler,
-                              acs::Vec3& inout_scale) noexcept {
+bool EditorGizmo::Manipulate(acs::FVec3& inout_position,
+                              acs::FVec3& inout_rotation_euler,
+                              acs::FVec3& inout_scale) noexcept {
     if (!_state.dragging) {
         return false;
     }
@@ -365,24 +365,24 @@ bool EditorGizmo::Manipulate(acs::Vec3& inout_position,
     }
 
     // 現フレームの hot 軸 / 平面と現マウス ray の交点を取得。
-    acs::Vec3 hit_now{};
+    acs::FVec3 hit_now{};
     if (!RaycastToHot(_last_ray_origin, _last_ray_direction, hit_now)) {
         // 平行などで hit が取れないフレームは inout を触らず true を返す
         // (drag 状態は維持される)。
         return true;
     }
 
-    const acs::Vec3 raw_delta = hit_now - _state.drag_start_world;
+    const acs::FVec3 raw_delta = hit_now - _state.drag_start_world;
     const AxisBasis basis     = MakeBasis(_state.space, _drag_origin_rot);
 
     switch (_state.mode) {
         case EGizmoMode::Translate: {
-            acs::Vec3 delta = raw_delta;
+            acs::FVec3 delta = raw_delta;
             // 軸ハンドルなら 1 軸へ射影、平面ハンドルなら 2 軸分そのまま使う。
             if (_state.hot_axis == EGizmoAxis::X ||
                 _state.hot_axis == EGizmoAxis::Y ||
                 _state.hot_axis == EGizmoAxis::Z) {
-                const acs::Vec3 axis = PickAxisVec(basis, _state.hot_axis);
+                const acs::FVec3 axis = PickAxisVec(basis, _state.hot_axis);
                 const f32 t = Dot3(raw_delta, axis);
                 delta = axis * t;
             }
@@ -398,14 +398,14 @@ bool EditorGizmo::Manipulate(acs::Vec3& inout_position,
             // euler 成分に加算する。pivot は _drag_origin_pos。
             // 厳密には軸まわりの平面投影が必要だが、Phase 21a 範囲では sweep 角度
             // の符号付き大きさで近似する。
-            const acs::Vec3 v0 = _state.drag_start_world - _drag_origin_pos;
-            const acs::Vec3 v1 = hit_now                 - _drag_origin_pos;
+            const acs::FVec3 v0 = _state.drag_start_world - _drag_origin_pos;
+            const acs::FVec3 v1 = hit_now                 - _drag_origin_pos;
             // 軸ベクトル取得 (rotate モードでは X/Y/Z ハンドルのみ有効、
             // 平面ハンドルは hot にならない設計だが念のため default で X)。
-            const acs::Vec3 axis = PickAxisVec(basis,
+            const acs::FVec3 axis = PickAxisVec(basis,
                 _state.hot_axis == EGizmoAxis::None_ ? EGizmoAxis::X : _state.hot_axis);
             // 軸まわりの符号付き角度: atan2(dot(axis, cross(v0,v1)), dot(v0,v1))
-            const acs::Vec3 cr = acs::Cross(v0, v1);
+            const acs::FVec3 cr = acs::Cross(v0, v1);
             const f32 sin_a = Dot3(axis, cr);
             const f32 cos_a = Dot3(v0, v1);
             f32 angle = acs::ATan2(sin_a, cos_a);
@@ -415,7 +415,7 @@ bool EditorGizmo::Manipulate(acs::Vec3& inout_position,
             }
             // 累積回転を _drag_origin_rot に加算。hot 軸の euler 成分にのみ加算
             // (= 簡易だが editor 用途では実用範囲)。
-            acs::Vec3 result = _drag_origin_rot;
+            acs::FVec3 result = _drag_origin_rot;
             switch (_state.hot_axis) {
                 case EGizmoAxis::X: result.x += angle; break;
                 case EGizmoAxis::Y: result.y += angle; break;
@@ -433,14 +433,14 @@ bool EditorGizmo::Manipulate(acs::Vec3& inout_position,
                 _state.hot_axis != EGizmoAxis::Z) {
                 return true;
             }
-            const acs::Vec3 axis = PickAxisVec(basis, _state.hot_axis);
+            const acs::FVec3 axis = PickAxisVec(basis, _state.hot_axis);
             const f32 signed_dist = Dot3(raw_delta, axis);
             f32 factor = signed_dist / _axis_length;  // 0 で 1.0x、+1 で 2.0x 相当
             // snap (倍率刻み)
             if (_snap_scale > 0.0f) {
                 factor = ApplySnap(factor, _snap_scale);
             }
-            acs::Vec3 result = _drag_origin_scl;
+            acs::FVec3 result = _drag_origin_scl;
             switch (_state.hot_axis) {
                 case EGizmoAxis::X: result.x += factor; break;
                 case EGizmoAxis::Y: result.y += factor; break;
@@ -467,9 +467,9 @@ bool EditorGizmo::Manipulate(acs::Vec3& inout_position,
 // X 軸 = 赤、Y 軸 = 緑、Z 軸 = 青、平面ハンドル = 半透明黄、hot は白ハイライト。
 // ============================================================================
 void EditorGizmo::DrawGizmo(DebugDraw& dd,
-                             acs::Vec3 position,
-                             acs::Vec3 rotation_euler,
-                             acs::Vec3 scale) noexcept {
+                             acs::FVec3 position,
+                             acs::FVec3 rotation_euler,
+                             acs::FVec3 scale) noexcept {
     // mode None は描画しない。
     if (_state.mode == EGizmoMode::None) {
         return;
@@ -479,36 +479,36 @@ void EditorGizmo::DrawGizmo(DebugDraw& dd,
     const AxisBasis basis = MakeBasis(_state.space, rotation_euler);
 
     // 3D → 2D 射影 (XY 平面、Z 捨てる)。
-    auto to2 = [](acs::Vec3 v) noexcept -> acs::Vec2 {
-        return acs::Vec2{v.x, v.y};
+    auto to2 = [](acs::FVec3 v) noexcept -> acs::FVec2 {
+        return acs::FVec2{v.x, v.y};
     };
 
     // 色定義: 通常色 / hot 時の白ハイライト。
-    constexpr acs::Vec4 kColX     = {1.0f, 0.2f, 0.2f, 1.0f};   // 赤
-    constexpr acs::Vec4 kColY     = {0.2f, 1.0f, 0.2f, 1.0f};   // 緑
-    constexpr acs::Vec4 kColZ     = {0.2f, 0.4f, 1.0f, 1.0f};   // 青
-    constexpr acs::Vec4 kColHot   = {1.0f, 1.0f, 1.0f, 1.0f};   // 白
-    constexpr acs::Vec4 kColPlane = {1.0f, 1.0f, 0.0f, 0.5f};   // 半透明黄
+    constexpr acs::FVec4 kColX     = {1.0f, 0.2f, 0.2f, 1.0f};   // 赤
+    constexpr acs::FVec4 kColY     = {0.2f, 1.0f, 0.2f, 1.0f};   // 緑
+    constexpr acs::FVec4 kColZ     = {0.2f, 0.4f, 1.0f, 1.0f};   // 青
+    constexpr acs::FVec4 kColHot   = {1.0f, 1.0f, 1.0f, 1.0f};   // 白
+    constexpr acs::FVec4 kColPlane = {1.0f, 1.0f, 0.0f, 0.5f};   // 半透明黄
 
-    const auto axis_color = [this](EGizmoAxis a, acs::Vec4 base) noexcept -> acs::Vec4 {
+    const auto axis_color = [this](EGizmoAxis a, acs::FVec4 base) noexcept -> acs::FVec4 {
         return (_state.hot_axis == a) ? kColHot : base;
     };
 
     // ----- 軸 line (X / Y / Z) -----
-    const acs::Vec2 center2 = to2(position);
+    const acs::FVec2 center2 = to2(position);
     {
-        const acs::Vec3 ex = position + basis.x * _axis_length;
+        const acs::FVec3 ex = position + basis.x * _axis_length;
         dd.DrawLine(center2, to2(ex), axis_color(EGizmoAxis::X, kColX));
     }
     {
-        const acs::Vec3 ey = position + basis.y * _axis_length;
+        const acs::FVec3 ey = position + basis.y * _axis_length;
         dd.DrawLine(center2, to2(ey), axis_color(EGizmoAxis::Y, kColY));
     }
     {
         // Z 軸: 2D 射影では「中央から短い + マーカー」で表現。
-        const acs::Vec3 ez = position + basis.z * _axis_length;
-        const acs::Vec2 ez2 = to2(ez);
-        const acs::Vec4 col = axis_color(EGizmoAxis::Z, kColZ);
+        const acs::FVec3 ez = position + basis.z * _axis_length;
+        const acs::FVec2 ez2 = to2(ez);
+        const acs::FVec4 col = axis_color(EGizmoAxis::Z, kColZ);
         // 通常 line も描く (basis.z の XY 成分が 0 でなければ可視)。
         dd.DrawLine(center2, ez2, col);
         // 加えて + マーカー (Z 軸先端の手がかり)。
@@ -522,11 +522,11 @@ void EditorGizmo::DrawGizmo(DebugDraw& dd,
         const f32 h = _plane_handle_size;
         // XY 平面: basis.x / basis.y で形成。
         {
-            const acs::Vec3 p00 = position;
-            const acs::Vec3 p10 = position + basis.x * h;
-            const acs::Vec3 p11 = position + basis.x * h + basis.y * h;
-            const acs::Vec3 p01 = position + basis.y * h;
-            const acs::Vec4 col = axis_color(EGizmoAxis::XY, kColPlane);
+            const acs::FVec3 p00 = position;
+            const acs::FVec3 p10 = position + basis.x * h;
+            const acs::FVec3 p11 = position + basis.x * h + basis.y * h;
+            const acs::FVec3 p01 = position + basis.y * h;
+            const acs::FVec4 col = axis_color(EGizmoAxis::XY, kColPlane);
             dd.DrawLine(to2(p00), to2(p10), col);
             dd.DrawLine(to2(p10), to2(p11), col);
             dd.DrawLine(to2(p11), to2(p01), col);
@@ -534,11 +534,11 @@ void EditorGizmo::DrawGizmo(DebugDraw& dd,
         }
         // XZ 平面
         {
-            const acs::Vec3 p00 = position;
-            const acs::Vec3 p10 = position + basis.x * h;
-            const acs::Vec3 p11 = position + basis.x * h + basis.z * h;
-            const acs::Vec3 p01 = position + basis.z * h;
-            const acs::Vec4 col = axis_color(EGizmoAxis::XZ, kColPlane);
+            const acs::FVec3 p00 = position;
+            const acs::FVec3 p10 = position + basis.x * h;
+            const acs::FVec3 p11 = position + basis.x * h + basis.z * h;
+            const acs::FVec3 p01 = position + basis.z * h;
+            const acs::FVec4 col = axis_color(EGizmoAxis::XZ, kColPlane);
             dd.DrawLine(to2(p00), to2(p10), col);
             dd.DrawLine(to2(p10), to2(p11), col);
             dd.DrawLine(to2(p11), to2(p01), col);
@@ -546,11 +546,11 @@ void EditorGizmo::DrawGizmo(DebugDraw& dd,
         }
         // YZ 平面
         {
-            const acs::Vec3 p00 = position;
-            const acs::Vec3 p10 = position + basis.y * h;
-            const acs::Vec3 p11 = position + basis.y * h + basis.z * h;
-            const acs::Vec3 p01 = position + basis.z * h;
-            const acs::Vec4 col = axis_color(EGizmoAxis::YZ, kColPlane);
+            const acs::FVec3 p00 = position;
+            const acs::FVec3 p10 = position + basis.y * h;
+            const acs::FVec3 p11 = position + basis.y * h + basis.z * h;
+            const acs::FVec3 p01 = position + basis.z * h;
+            const acs::FVec4 col = axis_color(EGizmoAxis::YZ, kColPlane);
             dd.DrawLine(to2(p00), to2(p10), col);
             dd.DrawLine(to2(p10), to2(p11), col);
             dd.DrawLine(to2(p11), to2(p01), col);
@@ -573,12 +573,12 @@ void EditorGizmo::DrawGizmo(DebugDraw& dd,
         }
         // X 軸まわりの "axis 表示" line (= 2D では円が見えないので直線で代用)
         {
-            const acs::Vec3 ex = position + basis.x * r;
+            const acs::FVec3 ex = position + basis.x * r;
             dd.DrawLine(to2(position), to2(ex), axis_color(EGizmoAxis::X, kColX));
         }
         // Y 軸まわりの "axis 表示" line
         {
-            const acs::Vec3 ey = position + basis.y * r;
+            const acs::FVec3 ey = position + basis.y * r;
             dd.DrawLine(to2(position), to2(ey), axis_color(EGizmoAxis::Y, kColY));
         }
     }
@@ -600,8 +600,8 @@ void EditorGizmo::DrawGizmo(DebugDraw& dd,
 // 優先順: 平面ハンドル > 軸ハンドル (平面は「軸 2 本の交点近辺」にあるため、
 // 軸より先に判定しないと常に軸が勝ってしまう)。
 // ============================================================================
-EGizmoAxis EditorGizmo::PickAxis(acs::Vec3 ray_origin,
-                                   acs::Vec3 ray_direction) const noexcept {
+EGizmoAxis EditorGizmo::PickAxis(acs::FVec3 ray_origin,
+                                   acs::FVec3 ray_direction) const noexcept {
     if (_state.mode == EGizmoMode::None) {
         return EGizmoAxis::None_;
     }
@@ -616,7 +616,7 @@ EGizmoAxis EditorGizmo::PickAxis(acs::Vec3 ray_origin,
     // gizmo 中心と仮定する。drag 開始前は (0,0,0) を中心と仮定するため、editor
     // 統合層が「ProcessInput 直前に SetCenter(node.WorldPosition()) を呼ぶ」運用が
     // 望ましいが、現状は API 簡略化のため省略。
-    const acs::Vec3 center = _drag_origin_pos;
+    const acs::FVec3 center = _drag_origin_pos;
 
     EGizmoAxis best        = EGizmoAxis::None_;
     f32        best_metric = 1e30f;  // 軸: dist_sq、平面: t (近い方が勝ち)
@@ -630,8 +630,8 @@ EGizmoAxis EditorGizmo::PickAxis(acs::Vec3 ray_origin,
             if (!RayPlaneIntersect(ray_origin, ray_direction, center, pf.n, t)) {
                 continue;
             }
-            const acs::Vec3 hit = ray_origin + ray_direction * t;
-            const acs::Vec3 rel = hit - center;
+            const acs::FVec3 hit = ray_origin + ray_direction * t;
+            const acs::FVec3 rel = hit - center;
             const f32 u = Dot3(rel, pf.u);
             const f32 v = Dot3(rel, pf.v);
             const f32 h = _plane_handle_size;
@@ -652,7 +652,7 @@ EGizmoAxis EditorGizmo::PickAxis(acs::Vec3 ray_origin,
     // scale モードでも軸ハンドル (X/Y/Z) は有効。
     // rotate モードでも X/Y/Z は有効 (= 各軸まわりの回転)。
     const EGizmoAxis axes[3]      = { EGizmoAxis::X,  EGizmoAxis::Y,  EGizmoAxis::Z  };
-    const acs::Vec3  axis_vecs[3] = { basis.x,        basis.y,        basis.z       };
+    const acs::FVec3  axis_vecs[3] = { basis.x,        basis.y,        basis.z       };
     const f32 r_sq = _handle_radius * _handle_radius;
     f32 best_dist_sq = 1e30f;
     EGizmoAxis best_axis = EGizmoAxis::None_;
@@ -683,20 +683,20 @@ EGizmoAxis EditorGizmo::PickAxis(acs::Vec3 ray_origin,
 // 軸ハンドル: ray と axis-line の最近接点 (line 上の point) を hit とする。
 // 平面ハンドル: ray-plane 交点をそのまま hit とする。
 // ============================================================================
-bool EditorGizmo::RaycastToHot(acs::Vec3 ray_origin,
-                                acs::Vec3 ray_direction,
-                                acs::Vec3& out_hit) const noexcept {
+bool EditorGizmo::RaycastToHot(acs::FVec3 ray_origin,
+                                acs::FVec3 ray_direction,
+                                acs::FVec3& out_hit) const noexcept {
     if (_state.hot_axis == EGizmoAxis::None_) {
         return false;
     }
     const AxisBasis basis  = MakeBasis(_state.space, _drag_origin_rot);
-    const acs::Vec3 center = _drag_origin_pos;
+    const acs::FVec3 center = _drag_origin_pos;
 
     switch (_state.hot_axis) {
         case EGizmoAxis::X:
         case EGizmoAxis::Y:
         case EGizmoAxis::Z: {
-            const acs::Vec3 axis = PickAxisVec(basis, _state.hot_axis);
+            const acs::FVec3 axis = PickAxisVec(basis, _state.hot_axis);
             const ClosestRayLine cr = ClosestPointsRayLine(ray_origin, ray_direction,
                                                            center, axis);
             if (cr.parallel) {
@@ -737,8 +737,8 @@ f32 EditorGizmo::ApplySnap(f32 value, f32 step) noexcept {
     return acs::Round(value / step) * step;
 }
 
-acs::Vec3 EditorGizmo::ApplySnap(acs::Vec3 v, f32 step) noexcept {
-    return acs::Vec3{ApplySnap(v.x, step), ApplySnap(v.y, step), ApplySnap(v.z, step)};
+acs::FVec3 EditorGizmo::ApplySnap(acs::FVec3 v, f32 step) noexcept {
+    return acs::FVec3{ApplySnap(v.x, step), ApplySnap(v.y, step), ApplySnap(v.z, step)};
 }
 
 // ============================================================================
@@ -765,7 +765,7 @@ void EditorGizmo::FireDragEnd() noexcept {
     // Phase 21a: 代表 delta は Zero。editor は「drag 終了通知」だけを受け取り、
     // 自前で node の現 transform と _drag_origin_* を比較する想定。
     // (= EditorGizmo を更に深く統合する Phase 21b で delta キャッシュを追加予定。)
-    _cb(_cb_user, _state.mode, acs::Vec3{});
+    _cb(_cb_user, _state.mode, acs::FVec3{});
 }
 
 } // namespace acs::game::editor_core

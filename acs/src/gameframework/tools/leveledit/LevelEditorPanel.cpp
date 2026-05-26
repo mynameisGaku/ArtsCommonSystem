@@ -6,7 +6,7 @@
 //   ・SetTilemap / brush / layer / tile id / show grid / snap-to-grid のアクセサ
 //   ・ImGui canvas (InvisibleButton + ImDrawList) ベースの tilemap 描画 +
 //     マウス → world → tile 座標変換 + 4 ブラシ (Paint/Erase/Fill/Pick) の処理
-//   ・flood-fill (Fill ブラシ) を反復スタック (= Array<u32>) で実装
+//   ・flood-fill (Fill ブラシ) を反復スタック (= TArray<u32>) で実装
 //   ・tile id を疑似乱数ハッシュで色化 (placeholder)
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 
@@ -102,9 +102,9 @@ void FloodFill(class Tilemap& map, u32 layer,
     const u16 start_id = map.GetTile(sx, sy, layer).value;
     if (start_id == new_id) return;   // 同じ id なら何もしない
 
-    // 反復スタック (Array<u32>): 各要素は y * w + x の cell index。
+    // 反復スタック (TArray<u32>): 各要素は y * w + x の cell index。
     // 再帰だと巨大マップで stack overflow するため明示スタックを使う。
-    Array<u32> stack;
+    TArray<u32> stack;
     stack.Reserve(64u);
     stack.PushBack(sy * w + sx);
 
@@ -426,7 +426,7 @@ void LevelEditorPanel::DrawUI() noexcept {
             const bool mmb = io.MouseDown[ImGuiMouseButton_Middle];
             const bool rmb = io.MouseDown[ImGuiMouseButton_Right];
             const ImVec2 mdelta = io.MouseDelta;
-            _camera.HandleMouseInput(Vec2{mdelta.x, mdelta.y},
+            _camera.HandleMouseInput(FVec2{mdelta.x, mdelta.y},
                                      /*lmb=*/false, rmb, mmb, wheel);
         }
         // smoothing tick (Workspace 側でも呼ばれる可能性があるが、二重 Tick も
@@ -445,7 +445,7 @@ void LevelEditorPanel::DrawUI() noexcept {
                 for (u32 x = 0; x < map_w; ++x) {
                     const u16 tid = map.GetTile(x, y, L).value;
                     if (tid == 0u && L > 0u) continue;   // 上層の空は skip
-                    const Vec2 wp_center = map.TileToWorld(x, y);
+                    const FVec2 wp_center = map.TileToWorld(x, y);
                     const ImVec2 a = WorldToScreen(wp_center.x - half_ts,
                                                    wp_center.y + half_ts,
                                                    cam_x, cam_y,
@@ -502,11 +502,11 @@ void LevelEditorPanel::DrawUI() noexcept {
                           cam_x, cam_y, pixels_per_world, canvas_center,
                           wx, wy);
             u32 tx = 0u, ty = 0u;
-            const bool in_grid = map.WorldToTile(Vec2{wx, wy}, tx, ty);
+            const bool in_grid = map.WorldToTile(FVec2{wx, wy}, tx, ty);
 
             if (in_grid) {
                 // hovered tile のハイライト (snap_to_grid=true なら太枠)
-                const Vec2 hc = map.TileToWorld(tx, ty);
+                const FVec2 hc = map.TileToWorld(tx, ty);
                 const ImVec2 ha = WorldToScreen(hc.x - half_ts, hc.y + half_ts,
                                                 cam_x, cam_y,
                                                 pixels_per_world, canvas_center);
@@ -605,7 +605,7 @@ void LevelEditorPanel::DrawUI() noexcept {
             // Tilemap 全体が画面に収まる camera 位置 / zoom に
             const f32 fw = static_cast<f32>(map_w) * tile_size;
             const f32 fh = static_cast<f32>(map_h) * tile_size;
-            _camera.FrameToBoundingBox2D(Vec2{0.0f, 0.0f}, Vec2{fw, fh});
+            _camera.FrameToBoundingBox2D(FVec2{0.0f, 0.0f}, FVec2{fw, fh});
         }
         ImGui::SameLine();
         if (ImGui::Button("Reset")) {

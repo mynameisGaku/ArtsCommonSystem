@@ -53,8 +53,8 @@ protected:
         }
     }
 
-    Array<u32> _sparse;   // entity_index -> dense_index
-    Array<u32> _dense;    // dense_index -> entity_index
+    TArray<u32> _sparse;   // entity_index -> dense_index
+    TArray<u32> _dense;    // dense_index -> entity_index
 };
 
 // 型付き SparseSet（コンポーネント T 専用）
@@ -114,7 +114,7 @@ public:
     void RemoveErased(u32 entity_index) noexcept override { Remove(entity_index); }
 
 private:
-    Array<T> _data;
+    TArray<T> _data;
 };
 
 } // namespace acs

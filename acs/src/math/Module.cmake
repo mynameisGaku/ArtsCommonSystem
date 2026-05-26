@@ -9,7 +9,7 @@ acs_module(
         Math.h
         Vec.h
         Mat.h
-        Quat.h
+        FQuat.h
         Camera.h
         Collision2D.h
         Collision3D.h

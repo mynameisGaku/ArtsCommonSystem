@@ -10,7 +10,7 @@ namespace acs::Primitive {
 namespace {
 
 // 1 頂点を MeshVertex 形式で push する小ヘルパ
-void PushVertex(Array<MeshVertex>& dst, Vec3 pos, Vec3 nrm, f32 u, f32 v) noexcept {
+void PushVertex(TArray<MeshVertex>& dst, FVec3 pos, FVec3 nrm, f32 u, f32 v) noexcept {
     MeshVertex mv;
     mv.position = pos;
     mv.normal   = nrm;
@@ -22,9 +22,9 @@ void PushVertex(Array<MeshVertex>& dst, Vec3 pos, Vec3 nrm, f32 u, f32 v) noexce
 } // namespace
 
 // ---- Cube --------------------------------------------------------------
-Rc<MeshAsset> MakeCube(f32 size) noexcept {
+TRc<MeshAsset> MakeCube(f32 size) noexcept {
     auto m = MakeRc<MeshAsset>();
-    if (!m) return Rc<MeshAsset>();
+    if (!m) return TRc<MeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     V.Reserve(24);
@@ -34,8 +34,8 @@ Rc<MeshAsset> MakeCube(f32 size) noexcept {
     // 6 面 × 4 頂点 = 24 頂点
     // 各面は ( base_corner, normal ) で表す。UV は (0,0) (1,0) (1,1) (0,1) を割当。
     struct Face {
-        Vec3 a, b, c, d;
-        Vec3 n;
+        FVec3 a, b, c, d;
+        FVec3 n;
     };
     const Face faces[6] = {
         // -Z (前面)
@@ -68,13 +68,13 @@ Rc<MeshAsset> MakeCube(f32 size) noexcept {
     return m;
 }
 
-// ---- Sphere (UV) -------------------------------------------------------
-Rc<MeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
+// ---- FSphere (UV) -------------------------------------------------------
+TRc<MeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
     if (segments < 3) segments = 3;
     if (rings    < 2) rings    = 2;
 
     auto m = MakeRc<MeshAsset>();
-    if (!m) return Rc<MeshAsset>();
+    if (!m) return TRc<MeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     V.Reserve((segments + 1) * (rings + 1));
@@ -91,8 +91,8 @@ Rc<MeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
             const f32 sin_theta = Sin(theta);
             const f32 cos_theta = Cos(theta);
 
-            Vec3 nrm{ sin_phi * cos_theta, cos_phi, sin_phi * sin_theta };
-            Vec3 pos{ nrm.x * radius, nrm.y * radius, nrm.z * radius };
+            FVec3 nrm{ sin_phi * cos_theta, cos_phi, sin_phi * sin_theta };
+            FVec3 pos{ nrm.x * radius, nrm.y * radius, nrm.z * radius };
             PushVertex(V, pos, nrm, u_t, v_t);
         }
     }
@@ -115,16 +115,16 @@ Rc<MeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
     return m;
 }
 
-// ---- Plane (XZ) --------------------------------------------------------
-Rc<MeshAsset> MakePlane(f32 width, f32 depth) noexcept {
+// ---- FPlane (XZ) --------------------------------------------------------
+TRc<MeshAsset> MakePlane(f32 width, f32 depth) noexcept {
     auto m = MakeRc<MeshAsset>();
-    if (!m) return Rc<MeshAsset>();
+    if (!m) return TRc<MeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
 
     const f32 hw = width * 0.5f;
     const f32 hd = depth * 0.5f;
-    const Vec3 up{0, 1, 0};
+    const FVec3 up{0, 1, 0};
     PushVertex(V, {-hw, 0, -hd}, up, 0, 1);
     PushVertex(V, { hw, 0, -hd}, up, 1, 1);
     PushVertex(V, { hw, 0,  hd}, up, 1, 0);

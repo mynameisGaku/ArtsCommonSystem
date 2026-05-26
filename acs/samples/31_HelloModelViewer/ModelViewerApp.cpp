@@ -41,7 +41,7 @@ void ModelViewerApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> ModelViewerApp::InitialScene() noexcept {
+TUniquePtr<Scene> ModelViewerApp::InitialScene() noexcept {
     return MakeUnique<ModelViewerScene>();
 }
 

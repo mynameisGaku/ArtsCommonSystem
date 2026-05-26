@@ -39,7 +39,7 @@
 // 設計選択 (Phase H-3):
 //   ・**listener は 1 個** (プレイヤ耳位置 = カメラに同期するのが典型)。
 //     スプリットスクリーンで複数 listener が必要になったら Phase 2 で配列化。
-//   ・**source は AoS (Array of Structures)**: SoA は AudioEngine voice
+//   ・**source は AoS (TArray of Structures)**: SoA は AudioEngine voice
 //     バインドより後段の Phase 2 で検討。現状は ~32 source 規模の想定。
 //   ・**source_id は単調増加 u32** (1..): 0 = 無効 ID。再利用しない (re-use しない)
 //     ので update/remove に対する stale ID 検出が単純化する。
@@ -82,9 +82,9 @@ namespace acs::game {
 // 既定値は原点 + 標準 Z+ forward / Y+ up (DirectXMath 慣習)。
 // =============================================================================
 struct AudioListener {
-    Vec3 position = Vec3::Zero();
-    Vec3 forward  = Vec3::Forward();
-    Vec3 up       = Vec3::Up();
+    FVec3 position = FVec3::Zero();
+    FVec3 forward  = FVec3::Forward();
+    FVec3 up       = FVec3::Up();
 };
 
 // =============================================================================
@@ -100,8 +100,8 @@ struct AudioListener {
 // =============================================================================
 struct AudioSource3D {
     u32                source_id    = 0;
-    Vec3               position     = Vec3::Zero();
-    Vec3               velocity     = Vec3::Zero();
+    FVec3               position     = FVec3::Zero();
+    FVec3               velocity     = FVec3::Zero();
     f32                volume       = 1.0f;
     f32                max_distance = 20.0f;
     bool               active       = true;
@@ -142,7 +142,7 @@ class IHrtfRenderer {
 public:
     virtual ~IHrtfRenderer() noexcept = default;
 
-    virtual Result<void> Init() noexcept = 0;
+    virtual TResult<void> Init() noexcept = 0;
     virtual void Shutdown() noexcept = 0;
 
     // HRTF が有効か (= 実 convolution が走るか) を上位層に通知。
@@ -182,7 +182,7 @@ public:
     HrtfRendererStub() noexcept = default;
     ~HrtfRendererStub() noexcept override = default;
 
-    Result<void> Init() noexcept override;
+    TResult<void> Init() noexcept override;
     void         Shutdown() noexcept override;
     bool         IsHrtfEnabled() const noexcept override { return false; }
     void         SetListener(const AudioListener& listener) noexcept override;
@@ -222,10 +222,10 @@ public:
     // ----- source 管理 -----
     // 新規 source を登録、source_id を返す (1.. の単調増加)。
     // max_distance <= 0 はデフォルト (20m) にクランプ。
-    u32  RegisterSource(Vec3 pos, f32 max_distance,
+    u32  RegisterSource(FVec3 pos, f32 max_distance,
                         EAttenuationCurve curve) noexcept;
     // 位置 / 速度を更新。stale ID は no-op (警告ログのみ)。
-    void UpdateSource(u32 id, Vec3 pos, Vec3 vel = Vec3::Zero()) noexcept;
+    void UpdateSource(u32 id, FVec3 pos, FVec3 vel = FVec3::Zero()) noexcept;
     // 基準ゲイン [0, 1] を変更。範囲外は clamp + 警告。
     void SetSourceVolume(u32 id, f32 v) noexcept;
     // source を削除 (= active=false にマーク、内部 slot は使い回さない)。
@@ -249,7 +249,7 @@ private:
     usize FindIndex(u32 id) const noexcept;
 
     AudioListener     _listener {};
-    Array<AudioSource3D> _sources;
+    TArray<AudioSource3D> _sources;
     u32               _next_source_id = 1;  // 0 = 無効予約
 };
 

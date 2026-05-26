@@ -20,7 +20,7 @@
 //   theme.SaveTheme(L"data/editor/theme.acstheme");
 //
 // 設計選択 (Pillar editor_core Phase 21a):
-//   ・**ACS::Vec4 ベース、ImVec4 は .cpp 内変換のみ**: ヘッダから <imgui.h> を
+//   ・**ACS::FVec4 ベース、ImVec4 は .cpp 内変換のみ**: ヘッダから <imgui.h> を
 //     漏らさないことで、本ヘッダを include しても include order が壊れない
 //     (InspectorPanel / ParticleEditorPanel と同パターン)。
 //   ・**preset = 「色パレット定数 + spacing + corner」のスナップショット**:
@@ -115,7 +115,7 @@ enum class EEditorThemePreset : u8 {
 // =============================================================================
 // EditorThemeColors — preset 1 個分のカラーパレット
 // -----------------------------------------------------------------------------
-// 各メンバは RGBA `[0, 1]` 範囲の `acs::Vec4`。ImGui の ImVec4 と同じ意味論
+// 各メンバは RGBA `[0, 1]` 範囲の `acs::FVec4`。ImGui の ImVec4 と同じ意味論
 // (= sRGB 線形値、α は 0 = 完全透明 / 1 = 不透明)。
 //
 // パレット内訳:
@@ -138,19 +138,19 @@ enum class EEditorThemePreset : u8 {
 //   error          : エラーメッセージ用 (同上)
 // =============================================================================
 struct EditorThemeColors {
-    Vec4 window_bg{};
-    Vec4 title_bg{};
-    Vec4 button_bg{};
-    Vec4 button_hover{};
-    Vec4 button_active{};
-    Vec4 frame_bg{};
-    Vec4 text{};
-    Vec4 text_disabled{};
-    Vec4 border{};
-    Vec4 separator{};
-    Vec4 accent{};
-    Vec4 warning{};
-    Vec4 error{};
+    FVec4 window_bg{};
+    FVec4 title_bg{};
+    FVec4 button_bg{};
+    FVec4 button_hover{};
+    FVec4 button_active{};
+    FVec4 frame_bg{};
+    FVec4 text{};
+    FVec4 text_disabled{};
+    FVec4 border{};
+    FVec4 separator{};
+    FVec4 accent{};
+    FVec4 warning{};
+    FVec4 error{};
 };
 
 // =============================================================================

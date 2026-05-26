@@ -106,7 +106,7 @@ void BehaviorTreeEditorPanel::Init() noexcept {
 }
 
 void BehaviorTreeEditorPanel::Shutdown() noexcept {
-    // 多重 Shutdown 可。Array は Clear() で要素破棄 + 容量保持。
+    // 多重 Shutdown 可。TArray は Clear() で要素破棄 + 容量保持。
     _nodes.Clear();
     _history.Clear();
     _history_head = 0;

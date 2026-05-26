@@ -85,7 +85,7 @@ void HelloIblApp::OnStart() noexcept {
         _bg_rt = Move(bg_r.Value());
     }
 
-    // 床用 lightmap を CPU 焼き。Sphere-Ray analytical hit で覆い、各 plane texel
+    // 床用 lightmap を CPU 焼き。FSphere-FRay analytical hit で覆い、各 plane texel
     // で hemisphere sampling して visibility を求める。実装は IblLightmapBaker.cpp。
     {
         auto lm_r = BakeFloorLightmap(*dev);
@@ -103,7 +103,7 @@ void HelloIblApp::OnStart() noexcept {
 
     const f32 aspect = static_cast<f32>(sw) / static_cast<f32>(sh);
     _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
-    _cam_pos = Vec3{0, 1.0f, -5.0f};
+    _cam_pos = FVec3{0, 1.0f, -5.0f};
 
     // Bloom 強度はデフォルトより少し弱めに (Day sky は十分明るいので)
     _post_params.bloom_threshold = 1.5f;
@@ -125,8 +125,8 @@ void HelloIblApp::OnStart() noexcept {
     _post_params.cg_contrast     = 1.08f;
     _post_params.cg_temperature  = 0.08f;     // 暖色寄り
     _post_params.cg_tint         = -0.02f;    // 軽く緑寄り (映画 teal-orange)
-    _post_params.cg_lift         = Vec3{0.005f, 0.0f, 0.01f};      // 影に微かな青冷感
-    _post_params.cg_gain         = Vec3{1.04f, 1.02f, 0.98f};      // ハイライトを暖色に
+    _post_params.cg_lift         = FVec3{0.005f, 0.0f, 0.01f};      // 影に微かな青冷感
+    _post_params.cg_gain         = FVec3{1.04f, 1.02f, 0.98f};      // ハイライトを暖色に
 
     // CAS sharpening: subtle clarity boost、UE5 デフォルト相当 0.4
     _post_params.cas_strength    = 0.4f;
@@ -142,10 +142,10 @@ void HelloIblApp::OnStart() noexcept {
     }
 }
 
-Mat4 HelloIblApp::ComputeDynTransform(u32 i, f32 t) const noexcept {
+FMat4 HelloIblApp::ComputeDynTransform(u32 i, f32 t) const noexcept {
     const f32 a = t * 1.8f + static_cast<f32>(i) * (2.0f * kPi / 3.0f);
     const f32 r = 2.2f;
-    return Mat4::Translation(Vec3{ Cos(a) * r, 3.0f + Sin(a) * r, 1.0f });
+    return FMat4::Translation(FVec3{ Cos(a) * r, 3.0f + Sin(a) * r, 1.0f });
 }
 
 void HelloIblApp::OnUpdate(f32 dt) noexcept {
@@ -217,10 +217,10 @@ void HelloIblApp::OnUpdate(f32 dt) noexcept {
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;
 
-    Vec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
+    FVec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
                  -Sin(_cam_pitch),
                   Cos(_cam_yaw) * Cos(_cam_pitch) };
-    Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
+    FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
     if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
     if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
     if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
@@ -245,8 +245,8 @@ bool HelloIblApp::OnCustomFrame() noexcept {
 
     // TAA Halton(2,3) sub-pixel jitter を skybox / PbrShader / SSR / SSAO の
     // VP に適用する。複数フレームの累積でエッジが滑らかになる。
-    const Mat4 vp_no_jitter = _camera.ViewProjection();
-    const Mat4 vp_for_render = BuildJitteredViewProjection(*this, vp_no_jitter,
+    const FMat4 vp_no_jitter = _camera.ViewProjection();
+    const FMat4 vp_for_render = BuildJitteredViewProjection(*this, vp_no_jitter,
                                                            hdr->Width(), hdr->Height());
 
     const u32 buf_idx = sc->AcquireNextImage();
@@ -255,7 +255,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     ApplyPresetRebuilds(*this);
 
     // ===== Shadow pass (CSM、'H' で有効) =====
-    const Vec3 sun_dir = ResolveSunDirection(*this);
+    const FVec3 sun_dir = ResolveSunDirection(*this);
     RenderShadowPass(*this, sun_dir);
 
     // ===== 1) HDR RT にシーン描画 =====
@@ -301,8 +301,8 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     // これで clear-coat / anisotropic の direct specular が見える。
     DirLight sun;
     if (_current_preset == 3) {
-        sun.direction = Vec3{0, 0.4f, 1.0f};
-        sun.color     = Vec3{0.7f, 0.7f, 0.7f};
+        sun.direction = FVec3{0, 0.4f, 1.0f};
+        sun.color     = FVec3{0.7f, 0.7f, 0.7f};
     } else {
         sun.direction = _sky.SunDirection();
         sun.color     = _sky.SunColor() * 0.9f;
@@ -328,7 +328,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     _post_params.taa_motion_texture = motion_tex;
 
     // ===== Screen-space effects (1-frame latency) =====
-    const Mat4 inv_vp = Inverse(vp_for_render);
+    const FMat4 inv_vp = Inverse(vp_for_render);
     RenderSsrPass(*this, vp_for_render, inv_vp, vp_no_jitter);
     RenderSsaoPass(*this, vp_for_render, inv_vp, sun.direction);
     RenderSsgiPass(*this, vp_for_render, inv_vp, vp_no_jitter);

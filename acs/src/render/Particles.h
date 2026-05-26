@@ -9,13 +9,13 @@
 //   ps.SetTexture(my_circle_tex);            // null なら 1×1 白
 //
 //   EmitterDesc d;
-//   d.position = Vec2{400, 300};
-//   d.velocity = Vec2{0, -120};
-//   d.velocity_variance = Vec2{60, 30};
-//   d.gravity = Vec2{0, 200};
+//   d.position = FVec2{400, 300};
+//   d.velocity = FVec2{0, -120};
+//   d.velocity_variance = FVec2{60, 30};
+//   d.gravity = FVec2{0, 200};
 //   d.size_start = 32; d.size_end = 0;
-//   d.color_start = Vec4{1, 0.7f, 0.2f, 1};
-//   d.color_end   = Vec4{1, 0.1f, 0.0f, 0};
+//   d.color_start = FVec4{1, 0.7f, 0.2f, 1};
+//   d.color_end   = FVec4{1, 0.1f, 0.0f, 0};
 //   d.life_seconds = 1.0f;
 //   d.rate_per_sec = 200;
 //   ps.SetEmitter(d);
@@ -43,16 +43,16 @@ class SpriteBatch;
 
 // エミッタのパラメータ（粒子の初期分布を決める）
 struct EmitterDesc {
-    Vec2  position           = Vec2{0, 0};
-    Vec2  spawn_offset_min   = Vec2{0, 0};       // 出現範囲（min..max）
-    Vec2  spawn_offset_max   = Vec2{0, 0};
-    Vec2  velocity           = Vec2{0, -100};
-    Vec2  velocity_variance  = Vec2{30, 30};
-    Vec2  gravity            = Vec2{0, 0};
+    FVec2  position           = FVec2{0, 0};
+    FVec2  spawn_offset_min   = FVec2{0, 0};       // 出現範囲（min..max）
+    FVec2  spawn_offset_max   = FVec2{0, 0};
+    FVec2  velocity           = FVec2{0, -100};
+    FVec2  velocity_variance  = FVec2{30, 30};
+    FVec2  gravity            = FVec2{0, 0};
     f32   size_start         = 16.0f;
     f32   size_end           = 0.0f;
-    Vec4  color_start        = Vec4{1, 1, 1, 1};
-    Vec4  color_end          = Vec4{1, 1, 1, 0};
+    FVec4  color_start        = FVec4{1, 1, 1, 1};
+    FVec4  color_end          = FVec4{1, 1, 1, 0};
     f32   life_seconds       = 1.0f;
     f32   life_variance      = 0.2f;            // ±このぶんランダム
     f32   rate_per_sec       = 60.0f;
@@ -60,10 +60,10 @@ struct EmitterDesc {
     bool  active             = true;             // false で生成停止
 
     // プリセット ----------------------------------------------------------
-    static EmitterDesc Fire(Vec2 pos)     noexcept;
-    static EmitterDesc Sparks(Vec2 pos)   noexcept;
-    static EmitterDesc Fountain(Vec2 pos) noexcept;
-    static EmitterDesc Smoke(Vec2 pos)    noexcept;
+    static EmitterDesc Fire(FVec2 pos)     noexcept;
+    static EmitterDesc Sparks(FVec2 pos)   noexcept;
+    static EmitterDesc Fountain(FVec2 pos) noexcept;
+    static EmitterDesc Smoke(FVec2 pos)    noexcept;
 };
 
 class ParticleSystem {
@@ -75,7 +75,7 @@ public:
     ParticleSystem& operator=(const ParticleSystem&) = delete;
 
     // max_particles ぶんのプールを確保。テクスチャは後で SetTexture で。
-    Result<void> Init(u32 max_particles = 4096) noexcept;
+    TResult<void> Init(u32 max_particles = 4096) noexcept;
     void Shutdown() noexcept;
 
     // null 渡しなら DrawRect 相当の白矩形（SpriteBatch の内部白テクスチャ）
@@ -103,12 +103,12 @@ public:
 
 private:
     struct Particle {
-        Vec2 pos;
-        Vec2 vel;
+        FVec2 pos;
+        FVec2 vel;
         f32  age;
         f32  life;
         f32  size_start, size_end;
-        Vec4 color_start, color_end;
+        FVec4 color_start, color_end;
     };
 
     void SpawnOne() noexcept;

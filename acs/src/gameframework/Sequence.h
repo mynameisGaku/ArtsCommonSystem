@@ -15,11 +15,11 @@
 // 使い方:
 //   class TitleScene : public Scene {
 //       SequenceRunner _seqs;
-//       Vec3 _logo_color;
+//       FVec3 _logo_color;
 //       void OnEnter() noexcept override {
 //           Sequence s;
 //           s.Wait(0.3f)
-//            .Tween(&_logo_color, Vec3{0,0,0}, Vec3{1,1,1}, 0.5f, Easing::OutCubic)
+//            .Tween(&_logo_color, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
 //            .Wait(1.0f)
 //            .Call(&TitleScene::FadeOutBegin, this);
 //           _seqs.Start(Move(s));
@@ -39,7 +39,7 @@
 
 namespace acs::game {
 
-// アクション 1 つを表す POD。Sequence 内で Array に詰めて持つ。
+// アクション 1 つを表す POD。Sequence 内で TArray に詰めて持つ。
 struct SeqAction {
     enum class Kind : u8 { Wait, Call, TweenF, TweenV2, TweenV3 };
 
@@ -54,12 +54,12 @@ struct SeqAction {
     f32*  tween_f_target  = nullptr;
     f32   tween_f_from    = 0.0f;
     f32   tween_f_to      = 0.0f;
-    Vec2* tween_v2_target = nullptr;
-    Vec2  tween_v2_from   {};
-    Vec2  tween_v2_to     {};
-    Vec3* tween_v3_target = nullptr;
-    Vec3  tween_v3_from   {};
-    Vec3  tween_v3_to     {};
+    FVec2* tween_v2_target = nullptr;
+    FVec2  tween_v2_from   {};
+    FVec2  tween_v2_to     {};
+    FVec3* tween_v3_target = nullptr;
+    FVec3  tween_v3_from   {};
+    FVec3  tween_v3_to     {};
 
     Easing::EasingFn ease = Easing::Linear;
 };
@@ -80,9 +80,9 @@ public:
     Sequence& Call(void(*fn)(void* user) noexcept, void* user = nullptr) noexcept;
     Sequence& Tween(f32* target,  f32  from, f32  to, f32 duration,
                      Easing::EasingFn ease = Easing::Linear) noexcept;
-    Sequence& Tween(Vec2* target, Vec2 from, Vec2 to, f32 duration,
+    Sequence& Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                      Easing::EasingFn ease = Easing::Linear) noexcept;
-    Sequence& Tween(Vec3* target, Vec3 from, Vec3 to, f32 duration,
+    Sequence& Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                      Easing::EasingFn ease = Easing::Linear) noexcept;
 
     // ループ回数。0 = 無限。既定 1 (1 回再生で終了)。
@@ -91,11 +91,11 @@ public:
         return *this;
     }
 
-    const Array<SeqAction>& Actions() const noexcept { return _actions; }
+    const TArray<SeqAction>& Actions() const noexcept { return _actions; }
     u32 LoopCount() const noexcept { return _loop_count; }
 
 private:
-    Array<SeqAction> _actions;
+    TArray<SeqAction> _actions;
     u32              _loop_count = 1;
 };
 
@@ -143,7 +143,7 @@ private:
     void AdvanceToNext(Slot& s) noexcept;
     void FinishAction(Slot& s, const SeqAction& act) noexcept;
 
-    Array<Slot> _slots;
+    TArray<Slot> _slots;
     u32         _active_count = 0;
 };
 

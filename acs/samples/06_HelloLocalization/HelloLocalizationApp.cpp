@@ -45,32 +45,32 @@ void HelloLocalizationApp::OnRender() noexcept {
 
     _batch.Begin(*cl, sw, sh);
     _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
-                    Vec4{0.10f, 0.13f, 0.20f, 1});
+                    FVec4{0.10f, 0.13f, 0.20f, 1});
     _batch.DrawRect(40, 40, static_cast<f32>(sw - 80), static_cast<f32>(sh - 80),
-                    Vec4{0.16f, 0.20f, 0.30f, 1});
+                    FVec4{0.16f, 0.20f, 0.30f, 1});
 
     if (_font_big.AtlasTexture()) {
         _batch.DrawString(_font_big, _loc.Tr("title"),
-                        80, 80, Vec4{1, 0.85f, 0.4f, 1});
+                        80, 80, FVec4{1, 0.85f, 0.4f, 1});
     }
     if (_font_small.AtlasTexture()) {
         _batch.DrawString(_font_small, _loc.Tr("greeting"),
-                        80, 150, Vec4{0.95f, 0.95f, 1, 1});
+                        80, 150, FVec4{0.95f, 0.95f, 1, 1});
 
         const char* lang_name = (_lang == 0) ? "(日本語 / Japanese)"
                               : (_lang == 1) ? "(English)"
                               : "(Français)";
         _batch.DrawString(_font_small, lang_name,
-                        80, 180, Vec4{0.6f, 0.7f, 0.85f, 1});
+                        80, 180, FVec4{0.6f, 0.7f, 0.85f, 1});
 
-        _batch.DrawString(_font_small, _loc.Tr("menu.start"),   80, 240, Vec4{1,1,1,1});
-        _batch.DrawString(_font_small, _loc.Tr("menu.options"), 80, 270, Vec4{1,1,1,1});
-        _batch.DrawString(_font_small, _loc.Tr("menu.exit"),    80, 300, Vec4{1,1,1,1});
+        _batch.DrawString(_font_small, _loc.Tr("menu.start"),   80, 240, FVec4{1,1,1,1});
+        _batch.DrawString(_font_small, _loc.Tr("menu.options"), 80, 270, FVec4{1,1,1,1});
+        _batch.DrawString(_font_small, _loc.Tr("menu.exit"),    80, 300, FVec4{1,1,1,1});
 
         _batch.DrawString(_font_small, _loc.Tr("note"),
-                        80, static_cast<f32>(sh - 130), Vec4{0.7f, 0.7f, 0.8f, 1});
+                        80, static_cast<f32>(sh - 130), FVec4{0.7f, 0.7f, 0.8f, 1});
         _batch.DrawString(_font_small, _loc.Tr("hint"),
-                        80, static_cast<f32>(sh - 90), Vec4{0.6f, 0.7f, 0.95f, 1});
+                        80, static_cast<f32>(sh - 90), FVec4{0.6f, 0.7f, 0.95f, 1});
     }
     _batch.End();
 }

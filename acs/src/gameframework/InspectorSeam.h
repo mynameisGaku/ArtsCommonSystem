@@ -53,9 +53,9 @@
 //     コピーしない。
 //   ・**OnFieldChanged は通知のみ**: UI 側で値を書き換えた後に呼ばれる。Provider は
 //     再バリデーション (clamp / 派生値の再計算 / dirty flag) をここで行う。
-//   ・**non-copy / non-move**: 内部の Array<Provider*> 所有を曖昧にしない。
+//   ・**non-copy / non-move**: 内部の TArray<Provider*> 所有を曖昧にしない。
 //   ・**全 noexcept**: ACS 規約。エラーは現状なし (Phase 2 は登録 / 取得のみ)。
-//   ・**STL 不使用**: `acs::Array<IInspectableProvider*>` で保持。
+//   ・**STL 不使用**: `acs::TArray<IInspectableProvider*>` で保持。
 //
 // 範囲外 (Phase K-3 以降で):
 //   ・実 ImGui / ACS::Ui との接続 (描画 + 編集 widget)
@@ -73,16 +73,16 @@ namespace acs::game {
 
 // ---- フィールド種別 ------------------------------------------------------
 // 描画 / 編集レイヤが switch して扱う「データの型タグ」。
-// 現状は最小セット: スカラ + Vec2-4 + 文字列 (read-only) + Enum (整数 + ラベル配列)。
+// 現状は最小セット: スカラ + FVec2-4 + 文字列 (read-only) + Enum (整数 + ラベル配列)。
 enum class EFieldKind : u8 {
     Bool,    // bool*
     I32,     // i32*
     U32,     // u32*
     F32,     // f32*
-    Vec2,    // acs::Vec2*  (描画側は data を Vec2* にキャスト)
-    Vec3,    // acs::Vec3*
-    Vec4,    // acs::Vec4*
-    String,  // const char**  (read-only 想定。書き換えは Phase K-3+)
+    FVec2,    // acs::FVec2*  (描画側は data を FVec2* にキャスト)
+    FVec3,    // acs::FVec3*
+    FVec4,    // acs::FVec4*
+    FString,  // const char**  (read-only 想定。書き換えは Phase K-3+)
     Enum,    // i32* + enum_values[0..enum_value_count) のラベル
 };
 
@@ -142,7 +142,7 @@ public:
     InspectorSeam() noexcept = default;
     ~InspectorSeam() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 Array<Provider*> の所有を曖昧にしない。
+    // 非コピー・非ムーブ: 内部 TArray<Provider*> の所有を曖昧にしない。
     InspectorSeam(const InspectorSeam&)            = delete;
     InspectorSeam& operator=(const InspectorSeam&) = delete;
     InspectorSeam(InspectorSeam&&)                 = delete;
@@ -179,7 +179,7 @@ public:
     //   持たない純粋なレジストリのままにする。
 
 private:
-    Array<IInspectableProvider*> _providers;
+    TArray<IInspectableProvider*> _providers;
 };
 
 } // namespace acs::game

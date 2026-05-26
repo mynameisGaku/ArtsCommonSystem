@@ -46,7 +46,7 @@ public:
     Window& operator=(Window&& o) noexcept;
 
     // ウィンドウ生成（失敗時は Err）
-    static Result<Window> Create(const WindowConfig& cfg) noexcept;
+    static TResult<Window> Create(const WindowConfig& cfg) noexcept;
 
     // メッセージキューを処理（メインループで毎フレーム呼ぶ）
     void PollEvents() noexcept;

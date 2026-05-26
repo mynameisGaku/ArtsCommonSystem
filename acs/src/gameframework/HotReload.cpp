@@ -2,7 +2,7 @@
 // GameFramework Pillar K — HotReload 実装 (Phase 2 seam)
 //
 // 設計のポイント (詳細はヘッダ参照):
-//   ・watched paths / callbacks / pending events の 3 つの Array を持つレジストリ。
+//   ・watched paths / callbacks / pending events の 3 つの TArray を持つレジストリ。
 //   ・実 FS watcher の起動は Phase K-3 に委ね、Tick() は no-op。
 //   ・FIFO 順を保つため pending events は ConsumeNextEvent で「先頭取り出し +
 //     shift-left」する (swap-remove は順序を壊すので不採用)。pending size は
@@ -38,7 +38,7 @@ void HotReloadWatcher::Init() noexcept {
     //     後の WatchDirectory / WatchFile で inotify_add_watch を呼ぶ。
     //   ・macOS: FSEventStreamCreate を構成する。
     //   ・いずれも `IFileSystemWatcher` 抽象越しに呼び、本 class はその所有を
-    //     `acs::UniquePtr<IFileSystemWatcher>` で持つ予定。
+    //     `acs::TUniquePtr<IFileSystemWatcher>` で持つ予定。
     //
     // 多重呼び出し可: 何度呼んでも副作用なし。
 }

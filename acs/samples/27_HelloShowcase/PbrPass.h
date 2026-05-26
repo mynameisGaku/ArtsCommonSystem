@@ -28,11 +28,11 @@ void ExecutePbrPass(Assets& a,
                      acs::IRhiTexture& hdr,
                      acs::IRhiTexture& depth,
                      const acs::Camera& camera,
-                     const acs::Mat4& view_proj_jittered,
-                     acs::Vec3 cam_pos,
+                     const acs::FMat4& view_proj_jittered,
+                     acs::FVec3 cam_pos,
                      acs::f32 orb_phase,
                      bool ssr_warm,
                      bool ssao_warm,
-                     acs::Mat4 (&orb_curr_out)[kOrbCount]) noexcept;
+                     acs::FMat4 (&orb_curr_out)[kOrbCount]) noexcept;
 
 } // namespace helloshowcase

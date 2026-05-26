@@ -204,7 +204,7 @@ private:
 
     static f32 Clamp(f32 v, f32 lo, f32 hi) noexcept;
 
-    Array<Slot>    _slots;
+    TArray<Slot>    _slots;
     u32            _entity_count = 0;
 
     DeathCallback  _on_death       = nullptr;

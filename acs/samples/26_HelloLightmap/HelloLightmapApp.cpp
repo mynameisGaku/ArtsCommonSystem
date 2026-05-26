@@ -42,7 +42,7 @@ void HelloLightmapApp::OnStart() noexcept {
     const f32 aspect = static_cast<f32>(sc->Width()) /
                        static_cast<f32>(sc->Height());
     _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.05f, 100.0f);
-    _cam_pos = Vec3{0.0f, 1.0f, -0.9f};
+    _cam_pos = FVec3{0.0f, 1.0f, -0.9f};
 
     // PostProcess パラメータ (絵作りで調整可)。
     _post_params.bloom_threshold    = 2.5f;   // 天井 (光源) だけが bloom する閾値
@@ -64,10 +64,10 @@ void HelloLightmapApp::OnUpdate(f32 dt) noexcept {
     const f32 limit = 0.45f * kPi;
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;
-    Vec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
+    FVec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
                  -Sin(_cam_pitch),
                   Cos(_cam_yaw) * Cos(_cam_pitch) };
-    Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
+    FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
     if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
     if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
     if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
@@ -99,7 +99,7 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
 
     // 動的ライトは使わず ごく弱い ambient のみ。間接光は lightmap が担う。
     _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
-                   nullptr, 0, Vec3{0.02f, 0.02f, 0.02f});
+                   nullptr, 0, FVec3{0.02f, 0.02f, 0.02f});
     _pbr.SetPointLights(nullptr, 0);
 
     cl->SetPipeline(*_pbr.Pipeline());
@@ -136,12 +136,12 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
         std::snprintf(buf, sizeof(buf),
                       "Cornell box - path-traced HDR lightmap (%u rays x %u bounces)  FPS: %.1f",
                       kBakeRays, kBounceDepth, static_cast<double>(FPS()));
-        _batch.DrawString(_font, buf, 20, 20, Vec4{1, 1, 1, 1});
+        _batch.DrawString(_font, buf, 20, 20, FVec4{1, 1, 1, 1});
         std::snprintf(buf, sizeof(buf), "Lightmap: %s   (L で切替)",
                       _show_lightmap ? "ON" : "OFF");
-        _batch.DrawString(_font, buf, 20, 44, Vec4{1.0f, 0.95f, 0.7f, 1});
+        _batch.DrawString(_font, buf, 20, 44, FVec4{1.0f, 0.95f, 0.7f, 1});
         _batch.DrawString(_font, "WASD: 移動   矢印: 視点   Esc: 終了",
-                          20, 68, Vec4{0.7f, 0.85f, 1.0f, 1});
+                          20, 68, FVec4{0.7f, 0.85f, 1.0f, 1});
         _batch.End();
     }
 

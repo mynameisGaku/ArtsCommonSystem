@@ -91,7 +91,7 @@ public:
     virtual ~IRhiPipeline() noexcept = default;
 };
 
-Result<UniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
+TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
                                                        const PipelineDesc& desc) noexcept;
 
 } // namespace acs

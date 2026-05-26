@@ -62,14 +62,14 @@ public:
     VmReservation& operator=(VmReservation&& o) noexcept;
 
     // 仮想範囲予約（VirtualAlloc MEM_RESERVE）
-    static Result<VmReservation> Reserve(usize capacity_bytes) noexcept;
+    static TResult<VmReservation> Reserve(usize capacity_bytes) noexcept;
 
     void Release() noexcept;
 
     // 物理ページ確保。LRU ヒット時はシステムコールを省略する。
-    Result<void> Commit  (usize offset, usize size) noexcept;
+    TResult<void> Commit  (usize offset, usize size) noexcept;
     // 物理ページ返却（実際の VirtualFree は LRU エビクト時）
-    Result<void> Decommit(usize offset, usize size) noexcept;
+    TResult<void> Decommit(usize offset, usize size) noexcept;
 
     void* Base()      const noexcept { return _base; }
     usize Capacity()  const noexcept { return _capacity; }

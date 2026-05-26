@@ -22,7 +22,7 @@
 //   ・**stat enum は固定 7 値 (Hunger / Thirst / Energy / Sanity / Warmth /
 //     Custom1 / Custom2)**: array index として直接使う。Custom1/2 はゲーム
 //     固有 (例: Radiation, Oxygen) を載せる拡張枠。
-//   ・**各 survivor は固定 7 stat の Array を保持**: SoA にする旨味は少ない
+//   ・**各 survivor は固定 7 stat の TArray を保持**: SoA にする旨味は少ない
 //     (1 survivor あたり stat は 7 個固定で、横断クエリは Tick だけなので
 //     dense layout で十分)。AddSurvivor で 7 個ぶん push して以後固定。
 //   ・**StatConfig は stat 種別ごとに 1 個固定** (= 全 survivor で共通): 個体差
@@ -42,7 +42,7 @@
 //     独立に attach/detach 可能。
 //   ・**OverallSurvivalHealth(id)** : 全 stat の (current / max) の平均を [0,1]
 //     で返す。UI のキャラ状態バー (= 「生存度メータ」) 表示用。
-//   ・**非コピー・非ムーブ**: 内部 Array<SurvivorSlot> がさらに Array<StatState>
+//   ・**非コピー・非ムーブ**: 内部 TArray<SurvivorSlot> がさらに TArray<StatState>
 //     を持つ二段ネスト構造で、callback の発火タイミングで外部参照が破綻する
 //     可能性があるため。Game / Scene 単位で 1 個保持の想定。
 //   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
@@ -169,7 +169,7 @@ public:
     HungerSystem()  noexcept = default;
     ~HungerSystem() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 Array<SurvivorSlot> + その中の Array<StatState>。
+    // 非コピー・非ムーブ: 内部 TArray<SurvivorSlot> + その中の TArray<StatState>。
     HungerSystem(const HungerSystem&)            = delete;
     HungerSystem& operator=(const HungerSystem&) = delete;
     HungerSystem(HungerSystem&&)                 = delete;
@@ -250,7 +250,7 @@ private:
     // 各 survivor の StatState を 7 個固定で持つ。`in_use=false` の slot は
     // AddSurvivor で再利用される。gen は 1 以上で配り、0 は「未使用」を意味する。
     struct SurvivorSlot {
-        Array<StatState> stats {};
+        TArray<StatState> stats {};
         u8               gen     = 0u;
         bool             in_use  = false;
     };
@@ -267,8 +267,8 @@ private:
     static u32 StatIndex(ESurvivalStat stat) noexcept;
 
     // ---- 状態 -----------------------------------------------------------
-    Array<StatConfig>    _configs   {};   // 7 stat の共通 config
-    Array<SurvivorSlot>  _survivors {};   // SurvivorSlot 配列 (generational)
+    TArray<StatConfig>    _configs   {};   // 7 stat の共通 config
+    TArray<SurvivorSlot>  _survivors {};   // SurvivorSlot 配列 (generational)
     u32                  _survivor_count = 0u;
 
     CriticalCallback     _on_critical       = nullptr;

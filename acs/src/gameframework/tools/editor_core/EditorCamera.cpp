@@ -24,10 +24,10 @@ inline f32 ClampF(f32 v, f32 lo, f32 hi) noexcept {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// Vec3 同士の lerp (Math.h の Lerp(Vec3) は SIMD 経由で提供されている)。
+// FVec3 同士の lerp (Math.h の Lerp(FVec3) は SIMD 経由で提供されている)。
 // state field を 1 つずつ補間したいので、ここでは展開した形を使う。
-inline Vec3 LerpVec3(Vec3 a, Vec3 b, f32 t) noexcept {
-    return Vec3{a.x + (b.x - a.x) * t,
+inline FVec3 LerpVec3(FVec3 a, FVec3 b, f32 t) noexcept {
+    return FVec3{a.x + (b.x - a.x) * t,
                 a.y + (b.y - a.y) * t,
                 a.z + (b.z - a.z) * t};
 }
@@ -64,7 +64,7 @@ void EditorCamera::SetMode(EEditorCameraMode mode) noexcept {
 // =============================================================================
 // 入力ハンドラ
 // =============================================================================
-void EditorCamera::HandleMouseInput(Vec2 mouse_delta,
+void EditorCamera::HandleMouseInput(FVec2 mouse_delta,
                                     bool lmb, bool rmb, bool mmb,
                                     f32 wheel_delta) noexcept {
     // 規約 (ヘッダ参照):
@@ -95,25 +95,25 @@ void EditorCamera::HandleMouseInput(Vec2 mouse_delta,
 // =============================================================================
 // Pan / Orbit / Dolly
 // =============================================================================
-void EditorCamera::Pan(Vec2 screen_delta) noexcept {
+void EditorCamera::Pan(FVec2 screen_delta) noexcept {
     if (_mode == EEditorCameraMode::Mode3D) {
         // 3D pan: orbit target を camera right / up 方向に平行移動。
         // delta は distance * sensitivity でスケール (距離に応じて pan 速度が
         // 変わる = 遠くから見ているときは粗く、近づくと細かく動く)。
-        const Vec3 forward = -OrbitDirection();           // target - eye 方向
-        const Vec3 world_up{0.0f, 1.0f, 0.0f};
-        Vec3 right = Cross(world_up, forward);
+        const FVec3 forward = -OrbitDirection();           // target - eye 方向
+        const FVec3 world_up{0.0f, 1.0f, 0.0f};
+        FVec3 right = Cross(world_up, forward);
         if (LengthSq(right) < kEpsilon) {
             // ほぼ真上 / 真下を向いている場合は X 軸を fallback として使用。
-            right = Vec3::UnitX();
+            right = FVec3::UnitX();
         } else {
             right = Normalize(right);
         }
-        const Vec3 up = Normalize(Cross(forward, right));
+        const FVec3 up = Normalize(Cross(forward, right));
         const f32 scale = _state.distance * kPanScale3D;
         // screen X の +delta で 「右へドラッグ」 → カメラ視点は左に動く感覚に
         // するため target を -right 方向に。Y も同様 (画面上方向ドラッグで上へ)。
-        const Vec3 shift = right * (-screen_delta.x * scale)
+        const FVec3 shift = right * (-screen_delta.x * scale)
                          + up    * ( screen_delta.y * scale);
         _smooth_target.target  = _smooth_target.target  + shift;
     } else {
@@ -163,30 +163,30 @@ void EditorCamera::Reset() noexcept {
     EditorCameraState s{};
     if (_mode == EEditorCameraMode::Mode3D) {
         // 3D の標準: target=origin、distance=10、pitch=-30° で見下ろし、yaw=0。
-        s.target    = Vec3{0.0f, 0.0f, 0.0f};
+        s.target    = FVec3{0.0f, 0.0f, 0.0f};
         s.distance  = 10.0f;
         s.yaw_rad   = 0.0f;
         s.pitch_rad = -30.0f * kDeg2Rad;
-        s.up        = Vec3{0.0f, 1.0f, 0.0f};
+        s.up        = FVec3{0.0f, 1.0f, 0.0f};
         s.fov_deg   = 60.0f;
         s.zoom_2d   = 1.0f;
         // position は ComputeEye 相当の値を入れておく (debug overlay 用)
         const f32 cy = Cos(s.pitch_rad);
-        const Vec3 dir{Sin(s.yaw_rad) * cy, Sin(s.pitch_rad), Cos(s.yaw_rad) * cy};
+        const FVec3 dir{Sin(s.yaw_rad) * cy, Sin(s.pitch_rad), Cos(s.yaw_rad) * cy};
         s.position = s.target + dir * s.distance;
     } else {
         // 2D の標準: position=origin、zoom=1.0
-        s.position = Vec3{0.0f, 0.0f, 0.0f};
-        s.target   = Vec3{0.0f, 0.0f, 0.0f};
+        s.position = FVec3{0.0f, 0.0f, 0.0f};
+        s.target   = FVec3{0.0f, 0.0f, 0.0f};
         s.zoom_2d  = 1.0f;
         s.fov_deg  = 60.0f;
-        s.up       = Vec3{0.0f, 1.0f, 0.0f};
+        s.up       = FVec3{0.0f, 1.0f, 0.0f};
     }
     _state         = s;
     _smooth_target = s;
 }
 
-void EditorCamera::FrameToBoundingSphere(Vec3 center, f32 radius) noexcept {
+void EditorCamera::FrameToBoundingSphere(FVec3 center, f32 radius) noexcept {
     if (radius < kEpsilon) radius = kEpsilon;
     if (_mode == EEditorCameraMode::Mode3D) {
         // distance = radius / sin(fov/2) で sphere がちょうど縦に収まる。
@@ -208,9 +208,9 @@ void EditorCamera::FrameToBoundingSphere(Vec3 center, f32 radius) noexcept {
     }
 }
 
-void EditorCamera::FrameToBoundingBox2D(Vec2 min_xy, Vec2 max_xy) noexcept {
+void EditorCamera::FrameToBoundingBox2D(FVec2 min_xy, FVec2 max_xy) noexcept {
     // 中心 / 半幅・半高
-    const Vec2 c{(min_xy.x + max_xy.x) * 0.5f,
+    const FVec2 c{(min_xy.x + max_xy.x) * 0.5f,
                  (min_xy.y + max_xy.y) * 0.5f};
     const f32 hw = (max_xy.x - min_xy.x) * 0.5f;
     const f32 hh = (max_xy.y - min_xy.y) * 0.5f;
@@ -225,50 +225,50 @@ void EditorCamera::FrameToBoundingBox2D(Vec2 min_xy, Vec2 max_xy) noexcept {
         _smooth_target.zoom_2d    = z;
     } else {
         // 3D: 2D bounds を XZ 平面の外接 sphere とみなして再委譲
-        FrameToBoundingSphere(Vec3{c.x, 0.0f, c.y}, r);
+        FrameToBoundingSphere(FVec3{c.x, 0.0f, c.y}, r);
     }
 }
 
 // =============================================================================
 // 行列
 // =============================================================================
-Vec3 EditorCamera::OrbitDirection() const noexcept {
+FVec3 EditorCamera::OrbitDirection() const noexcept {
     // yaw=0, pitch=0 で +Z 方向 (LH 既定の forward 反対)。pitch 上昇で +Y へ。
     // ここで返すのは (eye - target) の正規化方向 (= "back" 方向)。
     const f32 cy = Cos(_state.pitch_rad);
-    return Vec3{Sin(_state.yaw_rad) * cy,
+    return FVec3{Sin(_state.yaw_rad) * cy,
                 Sin(_state.pitch_rad),
                 Cos(_state.yaw_rad) * cy};
 }
 
-Vec3 EditorCamera::ComputeEye() const noexcept {
+FVec3 EditorCamera::ComputeEye() const noexcept {
     return _state.target + OrbitDirection() * _state.distance;
 }
 
-Mat4 EditorCamera::ViewMatrix() const noexcept {
+FMat4 EditorCamera::ViewMatrix() const noexcept {
     if (_mode == EEditorCameraMode::Mode3D) {
-        const Vec3 eye = ComputeEye();
-        return Mat4::LookAtLH(eye, _state.target, _state.up);
+        const FVec3 eye = ComputeEye();
+        return FMat4::LookAtLH(eye, _state.target, _state.up);
     } else {
         // 2D: 真上 (= Z 軸負側) から XY 平面を見下ろす。eye の Z は適当な
         // 負値で、target は eye の Z=0 プロジェクション。LookAt の up は +Y。
-        const Vec3 eye    {_state.position.x, _state.position.y, -1.0f};
-        const Vec3 target {_state.position.x, _state.position.y,  0.0f};
-        return Mat4::LookAtLH(eye, target, Vec3{0.0f, 1.0f, 0.0f});
+        const FVec3 eye    {_state.position.x, _state.position.y, -1.0f};
+        const FVec3 target {_state.position.x, _state.position.y,  0.0f};
+        return FMat4::LookAtLH(eye, target, FVec3{0.0f, 1.0f, 0.0f});
     }
 }
 
-Mat4 EditorCamera::ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane) const noexcept {
+FMat4 EditorCamera::ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane) const noexcept {
     if (aspect < kEpsilon) aspect = 1.0f;
     if (_mode == EEditorCameraMode::Mode3D) {
         const f32 fov_rad = _state.fov_deg * kDeg2Rad;
-        return Mat4::PerspectiveFovLH(fov_rad, aspect, near_plane, far_plane);
+        return FMat4::PerspectiveFovLH(fov_rad, aspect, near_plane, far_plane);
     } else {
         // 2D: ortho。幅 = base_ortho_size / zoom_2d、高さ = 幅 / aspect。
         const f32 zoom = _state.zoom_2d > 0.001f ? _state.zoom_2d : 0.001f;
         const f32 width  = _base_ortho_size / zoom;
         const f32 height = width / aspect;
-        return Mat4::OrthoLH(width, height, near_plane, far_plane);
+        return FMat4::OrthoLH(width, height, near_plane, far_plane);
     }
 }
 
@@ -283,7 +283,7 @@ void EditorCamera::SetFovDeg(f32 deg) noexcept {
     _smooth_target.fov_deg = deg;
 }
 
-void EditorCamera::SetTarget(Vec3 target) noexcept {
+void EditorCamera::SetTarget(FVec3 target) noexcept {
     _state.target         = target;
     _smooth_target.target = target;
     if (_mode == EEditorCameraMode::Mode2D) {
@@ -295,16 +295,16 @@ void EditorCamera::SetTarget(Vec3 target) noexcept {
     }
 }
 
-void EditorCamera::SetPosition(Vec3 position) noexcept {
+void EditorCamera::SetPosition(FVec3 position) noexcept {
     if (_mode == EEditorCameraMode::Mode3D) {
         // 3D: position = eye として扱い、(target からの spherical) を逆算。
         // direction = position - target, distance = length, yaw/pitch = polar.
-        const Vec3 dir = position - _state.target;
+        const FVec3 dir = position - _state.target;
         const f32 d    = Length(dir);
         if (d > kEpsilon) {
             _state.distance        = d;
             _smooth_target.distance = d;
-            const Vec3 nd = dir * (1.0f / d);
+            const FVec3 nd = dir * (1.0f / d);
             // pitch = asin(y), yaw = atan2(x, z)
             f32 pitch = ASin(nd.y);
             pitch = ClampF(pitch, -kPitchLimit, kPitchLimit);

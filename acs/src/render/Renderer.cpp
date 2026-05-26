@@ -10,7 +10,7 @@ Renderer::~Renderer() noexcept {
     Shutdown();
 }
 
-Result<void> Renderer::Init(Window& w, bool enable_debug, bool enable_depth) noexcept {
+TResult<void> Renderer::Init(Window& w, bool enable_debug, bool enable_depth) noexcept {
     _enable_depth = enable_depth;
     _color_format = EFormat::B8G8R8A8_UNorm;
     _depth_format = EFormat::D32_Float;
@@ -46,7 +46,7 @@ Result<void> Renderer::Init(Window& w, bool enable_debug, bool enable_depth) noe
     return Ok();
 }
 
-Result<void> Renderer::RebuildDepth(u32 w, u32 h) noexcept {
+TResult<void> Renderer::RebuildDepth(u32 w, u32 h) noexcept {
     _depth.Reset();
     if (w == 0 || h == 0) return Ok();
     TextureDesc td{};

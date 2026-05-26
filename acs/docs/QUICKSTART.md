@@ -61,11 +61,11 @@ IDE を使う場合は `acs/` を開けばプリセットが自動認識され�
 
 | モジュール | 役割 | 主なクラス |
 |---|---|---|
-| Foundation | 基本型・エラー処理・ログ | `Result<T,E>`, `Logger`, `ACS_ASSERT` |
+| Foundation | 基本型・エラー処理・ログ | `TResult<T,E>`, `Logger`, `ACS_ASSERT` |
 | Threading | 並列処理 | `Atomic<T>`, `Mutex`, `ThreadPool` |
-| Memory | メモリ管理 | `Allocator`, `MemorySystem`, `UniquePtr<T>`, `Rc<T>` |
-| Container | コンテナ | `Array<T>`, `String`, `HashMap<K,V>` |
-| Math | 数学 | `Vec2/3/4`, `Mat4`, `Quat` |
+| Memory | メモリ管理 | `Allocator`, `MemorySystem`, `TUniquePtr<T>`, `TRc<T>` |
+| Container | コンテナ | `TArray<T>`, `FString`, `THashMap<K,V>` |
+| Math | 数学 | `FVec2/3/4`, `FMat4`, `FQuat` |
 | Platform | OS 層 | `Window`, `Input`, `Time`, `FileSystem` |
 | Ecs | エンティティ・コンポーネント | `World`, `EntityId`, `Query<...>` |
 | Asset | アセット管理 | `AssetRegistry`, 画像/メッシュ/音声ローダ, 非同期ロード |
@@ -83,21 +83,21 @@ if (Input::IsKeyReleased(EKey::F)) release();    // 離した瞬間
 
 ### 2. マウス
 ```cpp
-Vec2 mouse = Input::MousePos();
-Vec2 delta = Input::MouseDelta();
+FVec2 mouse = Input::MousePos();
+FVec2 delta = Input::MouseDelta();
 if (Input::IsMouseButtonPressed(EMouseButton::Left)) shoot();
 ```
 
 ### 3. ECS
 ```cpp
-// コンポーネントは Vec3 などを包んだ POD（samples/04_HelloECS と同じ流儀）
-struct Position { Vec3 v; };
-struct Velocity { Vec3 v; };
+// コンポーネントは FVec3 などを包んだ POD（samples/04_HelloECS と同じ流儀）
+struct Position { FVec3 v; };
+struct Velocity { FVec3 v; };
 
 World& w = GetWorld();
 EntityId player = w.Create();
-w.Add<Position>(player, { Vec3{0, 0, 0} });
-w.Add<Velocity>(player, { Vec3{1, 0, 0} });
+w.Add<Position>(player, { FVec3{0, 0, 0} });
+w.Add<Velocity>(player, { FVec3{1, 0, 0} });
 
 w.Query<Position, Velocity>().Each([dt](EntityId, Position& p, Velocity& v) {
     p.v.x += v.v.x * dt;
@@ -113,7 +113,7 @@ if (data.IsErr()) {
     ACS_LOG_ERROR("save not found: %s", data.Error().message);
     return;
 }
-Array<byte>& bytes = data.Value();
+TArray<byte>& bytes = data.Value();
 ```
 
 ### 5. ログ出力
@@ -132,7 +132,7 @@ MemorySnapshot::DumpToStdOut();             // コンソールへテキスト
 
 ## エラー処理の流儀
 
-ACS は例外を使いません。失敗する関数は `Result<T, ErrorCode>` を返します。
+ACS は例外を使いません。失敗する関数は `TResult<T, FErrorCode>` を返します。
 **`Value()` は成功時のみ呼べます** — `IsErr()` で確認せずに呼ぶと `ACS_ASSERT`
 で停止します（アサート無効のリリースビルドでは未定義動作）。必ず下記のように
 `IsErr()` を確認してから `Value()` を呼んでください。
@@ -148,7 +148,7 @@ Window& w = wr.Value();
 
 `ACS_TRY` マクロで早期 return も書けます：
 ```cpp
-Result<void> Setup() noexcept {
+TResult<void> Setup() noexcept {
     ACS_TRY(MemorySystem::Init(MemorySystem::DefaultConfig()));
     ACS_TRY(ThreadPool::Init());
     return Ok();
@@ -177,7 +177,7 @@ Result<void> Setup() noexcept {
 `24`〜`26` は Diligent バックエンド（`diligent-*` プリセット）が必要です。
 各サンプルのビルド要件は `samples/README.md` を参照してください。
 
-コア API（`Array` / `Result` / `World` など描画以外）の使用例は
+コア API（`TArray` / `TResult` / `World` など描画以外）の使用例は
 `acs/tests/*_tests.cpp` も参考になります。グラフィックス API の使い方は
 上記サンプルと [`RECIPES.md`](RECIPES.md) を参照してください。
 

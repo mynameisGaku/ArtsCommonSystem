@@ -29,7 +29,7 @@ void EnemyPool::Shutdown() noexcept {
 }
 
 void EnemyPool::Spawn(GameplayScene& scene, Node2D& root, HealthSystem& health,
-                     u32 current_wave, Vec2 pos) noexcept {
+                     u32 current_wave, FVec2 pos) noexcept {
     u32 slot = kMaxEnemies;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
         if (!_enemies[i].alive) { slot = i; break; }
@@ -54,7 +54,7 @@ void EnemyPool::Spawn(GameplayScene& scene, Node2D& root, HealthSystem& health,
 }
 
 bool EnemyPool::TickChaseAndContact(GameplayScene& scene, HealthSystem& health,
-                                    Vec2 player_pos, f32 dt) noexcept {
+                                    FVec2 player_pos, f32 dt) noexcept {
     CollisionWorld2D& phy = scene.Services().Physics();
     bool any_contact_lethal = false;
 
@@ -63,8 +63,8 @@ bool EnemyPool::TickChaseAndContact(GameplayScene& scene, HealthSystem& health,
         if (!e.alive || e.node == nullptr) continue;
 
         // プレイヤーへ単純追跡。AI は方向ベクトル正規化 → 等速移動のみ。
-        Vec2 ep   = e.node->Local().position;
-        const Vec2 dir = Normalize(player_pos - ep);
+        FVec2 ep   = e.node->Local().position;
+        const FVec2 dir = Normalize(player_pos - ep);
         if (LengthSq(dir) > 0.0f) {
             ep = ep + dir * (kEnemySpeed * dt);
             e.node->Local().position = ep;
@@ -96,7 +96,7 @@ void EnemyPool::ApplyHit(GameplayScene& scene, HealthSystem& health,
     if (!e.alive) return;
 
     const bool lethal = health.ApplyDamage(e.hp, dmg, EDamageType::Physical);
-    const Vec2 ep = e.node ? e.node->Local().position : Vec2{0.0f, 0.0f};
+    const FVec2 ep = e.node ? e.node->Local().position : FVec2{0.0f, 0.0f};
 
     // 死亡 / 非死亡どちらでも被弾エフェクトは出す。死亡ならスコア + Wave 通知も。
     scene.GetHitEffects().TriggerEnemyHit(scene, ep);
@@ -116,7 +116,7 @@ void EnemyPool::DrawAll(SpriteBatch& sb) const noexcept {
     for (u32 i = 0; i < kMaxEnemies; ++i) {
         const EnemyInstance& e = _enemies[i];
         if (!e.alive || e.node == nullptr) continue;
-        const Vec2 p = e.node->Local().position;
+        const FVec2 p = e.node->Local().position;
         sb.DrawRect(p.x - kEnemyRadius, p.y - kEnemyRadius, sz, sz, kColorEnemy);
     }
 }

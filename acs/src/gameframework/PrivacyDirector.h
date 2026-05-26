@@ -46,7 +46,7 @@
 //     を返す stub にしておく (SaveSlot 等と同じ規約)。
 //   ・**非コピー・非ムーブ**: アプリ全体で 1 個運用される director なので、
 //     誤って値渡しされて consent 状態が分裂しないよう移動コンストラクタも禁止。
-//   ・**全 noexcept**: ACS 規約に従い例外なし。Result<void, ErrorCode> で
+//   ・**全 noexcept**: ACS 規約に従い例外なし。TResult<void, FErrorCode> で
 //     エラーを伝搬する。
 //
 // 範囲外 (Phase 2+ で):
@@ -169,10 +169,10 @@ public:
     //   Phase 1 では ACS_ERR(IO, kSub_NotImplemented) を返す stub。
     // LoadConsent: file_path から ConsentStatus を読み出して内部状態を復元する。
     //   Phase 1 では ACS_ERR(IO, kSub_NotImplemented) を返す stub。
-    Result<void> SaveConsent(const wchar_t* file_path) noexcept;
-    Result<void> LoadConsent(const wchar_t* file_path) noexcept;
+    TResult<void> SaveConsent(const wchar_t* file_path) noexcept;
+    TResult<void> LoadConsent(const wchar_t* file_path) noexcept;
 
-    // 共通エラー subcode (Result<...,ErrorCode> の subcode に入る)。
+    // 共通エラー subcode (TResult<...,FErrorCode> の subcode に入る)。
     enum SubCode : u16 {
         kSub_NotInitialized = 1,  // Init() 未呼出で Save/Load した
         kSub_BadPath        = 2,  // file_path が nullptr

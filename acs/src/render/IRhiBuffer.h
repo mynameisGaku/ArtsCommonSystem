@@ -39,6 +39,6 @@ public:
     virtual void Update(const void* data, usize size, usize offset = 0) noexcept = 0;
 };
 
-Result<UniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const BufferDesc& desc) noexcept;
+TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const BufferDesc& desc) noexcept;
 
 } // namespace acs

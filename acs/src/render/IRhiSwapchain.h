@@ -41,7 +41,7 @@ public:
 };
 
 // スワップチェインを作成
-Result<UniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
+TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
                                                           const SwapchainConfig& cfg) noexcept;
 
 } // namespace acs

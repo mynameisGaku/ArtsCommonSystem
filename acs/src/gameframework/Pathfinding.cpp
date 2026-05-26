@@ -104,7 +104,7 @@ usize NavGrid::PopLowestF() noexcept {
 
 // ---- Reconstruct ---------------------------------------------------------------
 
-void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, Array<PathPoint>& out_path) const noexcept {
+void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_path) const noexcept {
     // goal から came_from を辿って start まで遡り、out_path に逆順で push。
     // 最後に reverse して start → goal の順にする。
     out_path.Clear();
@@ -134,7 +134,7 @@ void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, Array<PathPoint>& out_pat
 
 bool NavGrid::FindPath(u32 start_x, u32 start_y,
                        u32 goal_x,  u32 goal_y,
-                       Array<PathPoint>& out_path) noexcept {
+                       TArray<PathPoint>& out_path) noexcept {
     out_path.Clear();
 
     // ----- 早期失敗ガード -----

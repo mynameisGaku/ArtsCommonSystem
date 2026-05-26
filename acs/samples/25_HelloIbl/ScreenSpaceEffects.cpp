@@ -11,8 +11,8 @@ using namespace acs;
 
 namespace helloibl {
 
-void RenderSsrPass(HelloIblApp& app, const Mat4& vp_for_render,
-                   const Mat4& inv_vp, const Mat4& vp_no_jitter) noexcept {
+void RenderSsrPass(HelloIblApp& app, const FMat4& vp_for_render,
+                   const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
     if (!app._show_ssr) return;
 
     IRhiDevice*      dev   = app.GetRenderer().Device();
@@ -27,7 +27,7 @@ void RenderSsrPass(HelloIblApp& app, const Mat4& vp_for_render,
 
     // temporal SSR の reproject 用に前フレームの jitter なし VP を渡す。
     // frame 0 は未確定なので現 VP を渡し reprojection を無効化。
-    const Mat4& ssr_prev_vp = app._taa_prev_vp_valid ? app._prev_vp_no_jitter
+    const FMat4& ssr_prev_vp = app._taa_prev_vp_valid ? app._prev_vp_no_jitter
                                                      : vp_no_jitter;
     IRhiTexture* motion_tex = (app._use_motion_vec && app._taa_prev_vp_valid)
                                   ? app._motion.OutputTexture() : nullptr;
@@ -40,8 +40,8 @@ void RenderSsrPass(HelloIblApp& app, const Mat4& vp_for_render,
     app._ssr_warm = true;     // 次フレームから PbrShader が SSR texture を読める
 }
 
-void RenderSsaoPass(HelloIblApp& app, const Mat4& vp_for_render,
-                    const Mat4& inv_vp, const Vec3& sun_dir) noexcept {
+void RenderSsaoPass(HelloIblApp& app, const FMat4& vp_for_render,
+                    const FMat4& inv_vp, const FVec3& sun_dir) noexcept {
     if (!app._use_ssao) return;
 
     IRhiDevice*      dev   = app.GetRenderer().Device();
@@ -60,8 +60,8 @@ void RenderSsaoPass(HelloIblApp& app, const Mat4& vp_for_render,
     app._ssao_warm = true;     // 次フレームから PbrShader が SSAO texture を読める
 }
 
-void RenderSsgiPass(HelloIblApp& app, const Mat4& vp_for_render,
-                    const Mat4& inv_vp, const Mat4& vp_no_jitter) noexcept {
+void RenderSsgiPass(HelloIblApp& app, const FMat4& vp_for_render,
+                    const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
     if (!app._use_ssgi) return;
 
     IRhiDevice*      dev   = app.GetRenderer().Device();
@@ -75,7 +75,7 @@ void RenderSsgiPass(HelloIblApp& app, const Mat4& vp_for_render,
     // prev として渡し reprojection を motion 0 にしておく (TAA と同じ cold-start ガード)。
     // motion_tex を渡すと temporal pass が動く mesh も正しく reproject する
     // (null なら従来の depth reprojection にフォールバック)。
-    const Mat4& ssgi_prev_vp = app._taa_prev_vp_valid ? app._prev_vp_no_jitter
+    const FMat4& ssgi_prev_vp = app._taa_prev_vp_valid ? app._prev_vp_no_jitter
                                                       : vp_no_jitter;
     IRhiTexture* motion_tex = (app._use_motion_vec && app._taa_prev_vp_valid)
                                   ? app._motion.OutputTexture() : nullptr;

@@ -45,7 +45,7 @@ TweenHandle TweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
     return TweenHandle{idx, s.generation};
 }
 
-TweenHandle TweenManager::Tween(Vec2* target, Vec2 from, Vec2 to, f32 duration,
+TweenHandle TweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                                  Easing::EasingFn ease) noexcept {
     if (target == nullptr) return {};
     if (duration <= 0.0f) {
@@ -54,7 +54,7 @@ TweenHandle TweenManager::Tween(Vec2* target, Vec2 from, Vec2 to, f32 duration,
     }
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
-    s.kind    = Kind::Vec2;
+    s.kind    = Kind::FVec2;
     s.from_v2 = from;
     s.to_v2   = to;
     FillCommon(s, target, duration, ease);
@@ -62,7 +62,7 @@ TweenHandle TweenManager::Tween(Vec2* target, Vec2 from, Vec2 to, f32 duration,
     return TweenHandle{idx, s.generation};
 }
 
-TweenHandle TweenManager::Tween(Vec3* target, Vec3 from, Vec3 to, f32 duration,
+TweenHandle TweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                                  Easing::EasingFn ease) noexcept {
     if (target == nullptr) return {};
     if (duration <= 0.0f) {
@@ -71,7 +71,7 @@ TweenHandle TweenManager::Tween(Vec3* target, Vec3 from, Vec3 to, f32 duration,
     }
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
-    s.kind    = Kind::Vec3;
+    s.kind    = Kind::FVec3;
     s.from_v3 = from;
     s.to_v3   = to;
     FillCommon(s, target, duration, ease);
@@ -95,8 +95,8 @@ void TweenManager::CompleteAll() noexcept {
         if (!s.active) continue;
         switch (s.kind) {
         case Kind::F32:  *static_cast<f32*>(s.target)  = s.to_f;  break;
-        case Kind::Vec2: *static_cast<Vec2*>(s.target) = s.to_v2; break;
-        case Kind::Vec3: *static_cast<Vec3*>(s.target) = s.to_v3; break;
+        case Kind::FVec2: *static_cast<FVec2*>(s.target) = s.to_v2; break;
+        case Kind::FVec3: *static_cast<FVec3*>(s.target) = s.to_v3; break;
         default: break;
         }
         s.active = false;
@@ -144,8 +144,8 @@ void TweenManager::Tick(f32 dt) noexcept {
                           : s.from_f + (s.to_f - s.from_f) * e;
             break;
         }
-        case Kind::Vec2: {
-            Vec2* p = static_cast<Vec2*>(s.target);
+        case Kind::FVec2: {
+            FVec2* p = static_cast<FVec2*>(s.target);
             if (finished) {
                 *p = s.to_v2;
             } else {
@@ -154,8 +154,8 @@ void TweenManager::Tick(f32 dt) noexcept {
             }
             break;
         }
-        case Kind::Vec3: {
-            Vec3* p = static_cast<Vec3*>(s.target);
+        case Kind::FVec3: {
+            FVec3* p = static_cast<FVec3*>(s.target);
             if (finished) {
                 *p = s.to_v3;
             } else {

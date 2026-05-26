@@ -13,7 +13,7 @@
 //    SceneCommandQueue は editor / 連打抑制が想定 N、現実的に数〜数十の想定なので
 //    O(N^2) で十分。N が大きくなったら merge sort に差し替え可能。
 //  ・Flush 後の物理削除は「実行済 one_shot を後ろから順に PopBack または RemoveAtSwap」
-//    で行うと安定順序が崩れるため、新しい Array に「残す要素」だけを書き戻す方式を
+//    で行うと安定順序が崩れるため、新しい TArray に「残す要素」だけを書き戻す方式を
 //    採用する (空間効率より単純さ優先、N が小さいので問題なし)。
 //  ・全 noexcept、STL 不使用、`<string>` 禁止。`<cstring>` (strcmp) のみ許可。
 #include "gameframework/SceneCommandQueue.h"
@@ -156,12 +156,12 @@ void SceneCommandQueue::Flush() noexcept {
     //    再エントランシ安全性パターン。
     const usize snapshot_size = _records.Size();
 
-    // 3. 「保持する command」 (= 再エントラント追加 + 実行後 repeating) を新 Array に
+    // 3. 「保持する command」 (= 再エントラント追加 + 実行後 repeating) を新 TArray に
     //    積みなおす。snapshot 範囲の repeating は実行後に残す、one_shot は破棄、
     //    snapshot 範囲外 (Flush 中に追加) は実行せず全て残す。
-    //    安定順序を維持するため、新 Array で書き戻す方式を採用 (PopBack/Swap は
+    //    安定順序を維持するため、新 TArray で書き戻す方式を採用 (PopBack/Swap は
     //    順序破壊が起き得るため避ける)。
-    Array<CommandRecord> retained;
+    TArray<CommandRecord> retained;
 
     for (usize i = 0; i < snapshot_size; ++i) {
         // ループ内で _records が再 alloc される可能性に備え、各反復で値をコピー。

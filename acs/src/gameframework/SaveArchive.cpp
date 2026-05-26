@@ -139,8 +139,8 @@ bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
     return true;
 }
 
-// ---- enum class → u16 (ErrorCode.subcode に入れるための reduction) ------
-// ESaveArchiveSubCode は u32 だが ErrorCode.subcode は u16。Phase 1 の値は
+// ---- enum class → u16 (FErrorCode.subcode に入れるための reduction) ------
+// ESaveArchiveSubCode は u32 だが FErrorCode.subcode は u16。Phase 1 の値は
 // 1..7 のみなので無問題だが、明示的に縮約しておく。
 constexpr u16 SubU16(ESaveArchiveSubCode sc) noexcept {
     return static_cast<u16>(static_cast<u32>(sc));
@@ -166,7 +166,7 @@ bool ParseHeader(const u8* header_buf,
 // ---- open helper: ファイルを read で開く (file not found は専用 subcode) ---
 // CreateFileW の失敗を ERROR_FILE_NOT_FOUND と他で分け、より上位のセーブ UI
 // が「continue 表示」を出すかを判断しやすくする。
-Result<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
+TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
                        "SaveArchive: file_path is null");
@@ -182,7 +182,7 @@ Result<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
                           "SaveArchive: CreateFileW (read) failed", err);
     }
-    return Result<HANDLE>(OkInit, h);
+    return TResult<HANDLE>(OkInit, h);
 }
 
 } // namespace
@@ -194,7 +194,7 @@ Result<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
 // (= electricity loss / disk full) はファイルが破損する可能性があるが、
 // atomic rename は呼び出し側の SaveSlot が ".tmp" 経由で担当する設計。
 // ============================================================================
-Result<void> SaveArchive::WriteToFile(const wchar_t* file_path,
+TResult<void> SaveArchive::WriteToFile(const wchar_t* file_path,
                                       u32            version,
                                       const void*    payload,
                                       u64            payload_size) noexcept {
@@ -265,7 +265,7 @@ Result<void> SaveArchive::WriteToFile(const wchar_t* file_path,
 // out_capacity 検査 → version 検査 → payload 読込 → CRC 計算 → 一致確認、
 // の順で fail-fast する。
 // ============================================================================
-Result<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
+TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
                                       void*          out_payload,
                                       u64            out_capacity,
                                       u32            expected_version,
@@ -361,13 +361,13 @@ Result<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
     }
 
     ::CloseHandle(h);
-    return Result<u32>(OkInit, version);
+    return TResult<u32>(OkInit, version);
 }
 
 // ============================================================================
 // SaveArchive::PeekVersion — header のみ読んで version を返す
 // ============================================================================
-Result<u32> SaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
+TResult<u32> SaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
     auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
@@ -387,13 +387,13 @@ Result<u32> SaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
                        "SaveArchive::PeekVersion: magic mismatch (not an .acssave)");
     }
-    return Result<u32>(OkInit, version);
+    return TResult<u32>(OkInit, version);
 }
 
 // ============================================================================
 // SaveArchive::PeekPayloadSize — header のみ読んで payload_size を返す
 // ============================================================================
-Result<u64> SaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
+TResult<u64> SaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
@@ -413,7 +413,7 @@ Result<u64> SaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
                        "SaveArchive::PeekPayloadSize: magic mismatch (not an .acssave)");
     }
-    return Result<u64>(OkInit, payload_size);
+    return TResult<u64>(OkInit, payload_size);
 }
 
 } // namespace acs::game

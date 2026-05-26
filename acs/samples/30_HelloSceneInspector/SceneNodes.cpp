@@ -28,8 +28,8 @@ InspectableObject PlayerNode::GetObject(u32 /*index*/) noexcept {
     _fields[0] = { "speed",      EFieldKind::F32,  &_speed,      0, nullptr };
     _fields[1] = { "hp",         EFieldKind::I32,  &_hp,         0, nullptr };
     _fields[2] = { "invincible", EFieldKind::Bool, &_invincible, 0, nullptr };
-    _fields[3] = { "color",      EFieldKind::Vec3, &_color,      0, nullptr };
-    _fields[4] = { "position",   EFieldKind::Vec2, &_position,   0, nullptr };
+    _fields[3] = { "color",      EFieldKind::FVec3, &_color,      0, nullptr };
+    _fields[4] = { "position",   EFieldKind::FVec2, &_position,   0, nullptr };
 
     InspectableObject obj{};
     obj.type_name     = "Player";

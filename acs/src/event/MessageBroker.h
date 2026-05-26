@@ -104,11 +104,11 @@ private:
     };
 
     struct Channel {
-        Array<Slot>  slots;
-        Array<u32>   free_indices;
+        TArray<Slot>  slots;
+        TArray<u32>   free_indices;
         u32          next_id      = 1;
         i32          publish_depth = 0;       // Publish 中ネストレベル (>0 なら遅延 Cancel)
-        Array<u32>   pending_cancel;          // publish_depth > 0 のとき Cancel を貯める
+        TArray<u32>   pending_cancel;          // publish_depth > 0 のとき Cancel を貯める
     };
 
     SubscriptionHandle SubscribeRaw(EventTypeId channel,
@@ -116,7 +116,7 @@ private:
     void PublishRaw(EventTypeId channel, const void* payload) noexcept;
     Channel* GetChannel(EventTypeId id, bool create) noexcept;
 
-    Array<Channel*> _channels;   // EventTypeId -> Channel*
+    TArray<Channel*> _channels;   // EventTypeId -> Channel*
 };
 
 } // namespace acs

@@ -248,7 +248,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const PipelineDesc& desc) noexce
 
 // ファクトリ
 #if !WITH_RENDER_DILIGENT
-Result<UniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
+TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
                                                   const PipelineDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
@@ -258,8 +258,8 @@ Result<UniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
     HrResult r = p->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 51, "Dx12Pipeline::Init failed", static_cast<u32>(r.hr));
-    UniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());
-    return Result<UniquePtr<IRhiPipeline>>(OkInit, Move(base));
+    TUniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());
+    return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
 }
 #endif
 

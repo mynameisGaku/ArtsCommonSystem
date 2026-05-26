@@ -18,10 +18,10 @@ namespace {
 
 // オーブの発光色。emissive ベース + base_color にも同じ色を与えると、
 // PbrShader の emissive 寄与と reflection の見た目が一致する。
-constexpr Vec3 kOrbGlow[kDynCount] = {
-    Vec3{1.00f, 0.45f, 0.15f},   // 暖色オレンジ
-    Vec3{0.25f, 1.00f, 0.40f},   // 緑
-    Vec3{0.30f, 0.55f, 1.00f},   // 青
+constexpr FVec3 kOrbGlow[kDynCount] = {
+    FVec3{1.00f, 0.45f, 0.15f},   // 暖色オレンジ
+    FVec3{0.25f, 1.00f, 0.40f},   // 緑
+    FVec3{0.30f, 0.55f, 1.00f},   // 青
 };
 
 } // anonymous namespace
@@ -39,13 +39,13 @@ void DrawDynamicOrbs(HelloIblApp& app) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 
-    app._pbr.SetExtParams(0.0f, 0.5f, 0.0f, Vec3{1, 0, 0});
+    app._pbr.SetExtParams(0.0f, 0.5f, 0.0f, FVec3{1, 0, 0});
     for (u32 i = 0; i < kDynCount; ++i) {
         app._pbr.SetEmissive(kOrbGlow[i], /*strength=*/3.0f);
         app._pbr.DrawMesh(*cl, app._gm_sphere, app._dyn_curr[i],
                           kOrbGlow[i], 0.0f, 0.35f, 1.0f);
     }
-    app._pbr.SetEmissive(Vec3{0, 0, 0}, 0.0f);   // 後続描画のため reset
+    app._pbr.SetEmissive(FVec3{0, 0, 0}, 0.0f);   // 後続描画のため reset
 }
 
 } // namespace helloibl

@@ -65,7 +65,7 @@ u32 ParticleEffectSystem::AcquireEmitterSlot() noexcept {
 // 3) gen を 1 進める (0 にラップしたら 1 に戻す。0 は IsValid==false なので
 //    handle として配ってはいけない)。
 // =============================================================================
-EmitterHandle ParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def, Vec2 pos) noexcept {
+EmitterHandle ParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept {
     if (def.lifetime_sec <= 0.0f) return {};
 
     const u32 idx = AcquireEmitterSlot();
@@ -94,7 +94,7 @@ EmitterHandle ParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def,
 // gen 一致のチェックで「DestroyEmitter 後に同 slot が別 emitter に化けても
 // 古い handle で誤上書きしない」ことを保証する。
 // =============================================================================
-void ParticleEffectSystem::SetEmitterPosition(EmitterHandle h, Vec2 pos) noexcept {
+void ParticleEffectSystem::SetEmitterPosition(EmitterHandle h, FVec2 pos) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= _emitters.Size()) return;
@@ -214,7 +214,7 @@ void ParticleEffectSystem::EmitOne(const Emitter& e) noexcept {
     const f32 speed = NextRandRange(e.def.speed_min, e.def.speed_max);
 
     p.position    = e.pos;
-    p.velocity    = Vec2{ dx * speed, dy * speed };
+    p.velocity    = FVec2{ dx * speed, dy * speed };
     p.age         = 0.0f;
     p.lifetime    = e.def.lifetime_sec;
     p.color_start = e.def.color_start;

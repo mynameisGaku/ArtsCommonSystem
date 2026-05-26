@@ -48,10 +48,10 @@ public:
 
     // src_width / src_height は scene_depth の解像度。Hi-Z は内部で
     // ceil(src_w / 8) x ceil(src_h / 8) サイズで確保される。
-    Result<void> Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept;
+    TResult<void> Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept;
     void Shutdown() noexcept;
 
-    Result<void> Resize(u32 src_width, u32 src_height) noexcept;
+    TResult<void> Resize(u32 src_width, u32 src_height) noexcept;
 
     // scene_depth (shader_visible_depth=true の D32_Float) から coarse min を焼く。
     void Build(IRhiDevice& device, IRhiCommandList& cl,
@@ -67,18 +67,18 @@ public:
     static constexpr u32 kBlockSize = 8;
 
 private:
-    Result<void> CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept;
-    Result<void> CreatePipeline(IRhiDevice& device) noexcept;
+    TResult<void> CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept;
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
     IRhiDevice* _device = nullptr;
     u32 _src_w = 0, _src_h = 0;
     u32 _hiz_w = 0, _hiz_h = 0;
 
-    UniquePtr<IRhiTexture>  _hiz;       // R32_Float, 1 mip, src/8
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiBuffer>   _cb;
+    TUniquePtr<IRhiTexture>  _hiz;       // R32_Float, 1 mip, src/8
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiBuffer>   _cb;
 };
 
 } // namespace acs

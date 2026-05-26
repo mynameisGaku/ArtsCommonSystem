@@ -32,9 +32,9 @@ constexpr f32 kDeathCamRate     = 0.5f;     // /s (= 2 秒で 0→1)
 //   source_direction が零ベクトル相当なら矢印を **更新しない** (= 既存の矢印
 //   decay をそのまま継続)。これは「環境ダメージは矢印を出さない」要件。
 //   非零なら正規化して _dir_vec に格納、_dir_intensity = 1.0 リセット。
-//   Normalize(零) は Vec2::Zero() を返すので、LengthSq による判定で除外。
+//   Normalize(零) は FVec2::Zero() を返すので、LengthSq による判定で除外。
 // =============================================================================
-void DamageFeedback::TakeDamage(f32 amount, Vec2 source_direction) noexcept {
+void DamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
     if (amount <= 0.0f) {
         // 0 / 負ダメージは fail-safe で何もしない (回復扱いは別 API の責務)
         return;
@@ -96,7 +96,7 @@ void DamageFeedback::Tick(f32 dt) noexcept {
 // progress リセットは「初回 trigger 時のみ」に限定して、矢印 / 赤エッジは
 // 別系統として残す (=「赤エッジが残ったまま death cam に入る」自然な遷移)。
 // =============================================================================
-void DamageFeedback::TriggerDeathCam(Vec3 killer_pos) noexcept {
+void DamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
     _killer_pos = killer_pos;
     if (!_death_cam_active) {
         _death_cam_active = true;
@@ -123,10 +123,10 @@ void DamageFeedback::ExitDeathCam() noexcept {
 void DamageFeedback::Reset() noexcept {
     _red_intensity        = 0.0f;
     _dir_intensity        = 0.0f;
-    _dir_vec              = Vec2{0.0f, 0.0f};
+    _dir_vec              = FVec2{0.0f, 0.0f};
     _death_cam_active     = false;
     _death_cam_t          = 0.0f;
-    _killer_pos           = Vec3{0.0f, 0.0f, 0.0f};
+    _killer_pos           = FVec3{0.0f, 0.0f, 0.0f};
     _recent_damage_total  = 0.0f;
 }
 

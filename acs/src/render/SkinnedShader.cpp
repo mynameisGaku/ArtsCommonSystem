@@ -120,24 +120,24 @@ float4 PSMain(VSOut v) : SV_TARGET {
 constexpr u32 kMaxDirLights   = 4;
 constexpr u32 kMaxPointLights = 4;
 struct FrameCBLayout {
-    Mat4 view_proj;
-    Vec4 camera_pos;
-    Vec4 ambient;
-    Vec4 point_count_pad;
-    Vec4 light_dir[kMaxDirLights];
-    Vec4 light_color[kMaxDirLights];
-    Vec4 point_pos_range[kMaxPointLights];
-    Vec4 point_color[kMaxPointLights];
+    FMat4 view_proj;
+    FVec4 camera_pos;
+    FVec4 ambient;
+    FVec4 point_count_pad;
+    FVec4 light_dir[kMaxDirLights];
+    FVec4 light_color[kMaxDirLights];
+    FVec4 point_pos_range[kMaxPointLights];
+    FVec4 point_color[kMaxPointLights];
 };
 
 struct ObjectCBLayout {
-    Mat4 model;
-    Vec4 base_color;
-    Vec4 material;
+    FMat4 model;
+    FVec4 base_color;
+    FVec4 material;
 };
 
 struct BonesCBLayout {
-    Mat4 palette[SkinnedShader::kMaxBones];
+    FMat4 palette[SkinnedShader::kMaxBones];
 };
 
 template<typename T>
@@ -147,7 +147,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> SkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> SkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     // === シェーダ ===
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -194,7 +194,7 @@ Result<void> SkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat 
 
     // ボーンを最初は単位行列で初期化しておく（SetBonePalette 前に Draw されてもおかしくならない）
     BonesCBLayout initial{};
-    for (u32 i = 0; i < kMaxBones; ++i) initial.palette[i] = Mat4::Identity();
+    for (u32 i = 0; i < kMaxBones; ++i) initial.palette[i] = FMat4::Identity();
     _bones_cb->Update(&initial, sizeof(initial));
 
     // === 1×1 白テクスチャ ===
@@ -252,17 +252,17 @@ void SkinnedShader::Shutdown() noexcept {
     _vs.Reset();
 }
 
-void SkinnedShader::SetFrame(const Mat4& vp, Vec3 cam, Vec3 light_dir,
-                             Vec3 light_color, Vec3 ambient) noexcept {
+void SkinnedShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
+                             FVec3 light_color, FVec3 ambient) noexcept {
     DirLight one;
     one.direction = light_dir;
     one.color     = light_color;
     SetLights(vp, cam, &one, 1, ambient);
 }
 
-void SkinnedShader::SetLights(const Mat4& vp, Vec3 cam,
+void SkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
                               const DirLight* lights, u32 count,
-                              Vec3 ambient) noexcept {
+                              FVec3 ambient) noexcept {
     if (count > kMaxDirLights) count = kMaxDirLights;
     _vp = vp;
     _eye = cam;
@@ -283,40 +283,40 @@ void SkinnedShader::FlushFrameCB() noexcept {
     if (!_frame_cb) return;
     FrameCBLayout cb{};
     cb.view_proj  = _vp;
-    cb.camera_pos = Vec4{_eye.x, _eye.y, _eye.z, 1.0f};
-    cb.ambient    = Vec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
-    cb.point_count_pad = Vec4{static_cast<f32>(_point_count), 0, 0, 0};
+    cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
+    cb.ambient    = FVec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
+    cb.point_count_pad = FVec4{static_cast<f32>(_point_count), 0, 0, 0};
     for (u32 i = 0; i < _dir_count; ++i) {
-        const Vec3& d = _dir_lights[i].direction;
-        const Vec3& c = _dir_lights[i].color;
-        cb.light_dir[i]   = Vec4{d.x, d.y, d.z, 0};
-        cb.light_color[i] = Vec4{c.x, c.y, c.z, 1};
+        const FVec3& d = _dir_lights[i].direction;
+        const FVec3& c = _dir_lights[i].color;
+        cb.light_dir[i]   = FVec4{d.x, d.y, d.z, 0};
+        cb.light_color[i] = FVec4{c.x, c.y, c.z, 1};
     }
     for (u32 i = 0; i < _point_count; ++i) {
-        const Vec3& p = _point_lights[i].position;
-        const Vec3& c = _point_lights[i].color;
-        cb.point_pos_range[i] = Vec4{p.x, p.y, p.z, _point_lights[i].range};
-        cb.point_color[i]     = Vec4{c.x, c.y, c.z, 1};
+        const FVec3& p = _point_lights[i].position;
+        const FVec3& c = _point_lights[i].color;
+        cb.point_pos_range[i] = FVec4{p.x, p.y, p.z, _point_lights[i].range};
+        cb.point_color[i]     = FVec4{c.x, c.y, c.z, 1};
     }
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
-void SkinnedShader::SetObject(const Mat4& model, Vec3 base_color,
+void SkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
                               f32 specular_strength, f32 shininess) noexcept {
     if (!_object_cb) return;
     ObjectCBLayout cb{};
     cb.model      = model;
-    cb.base_color = Vec4{base_color.x, base_color.y, base_color.z, 1.0f};
-    cb.material   = Vec4{specular_strength, shininess, 0, 0};
+    cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
+    cb.material   = FVec4{specular_strength, shininess, 0, 0};
     _object_cb->Update(&cb, sizeof(cb));
 }
 
-void SkinnedShader::SetBonePalette(const Mat4* palette, u32 count) noexcept {
+void SkinnedShader::SetBonePalette(const FMat4* palette, u32 count) noexcept {
     if (!_bones_cb) return;
     if (count > kMaxBones) count = kMaxBones;
     BonesCBLayout cb{};
     for (u32 i = 0; i < count; ++i) cb.palette[i] = palette[i];
-    for (u32 i = count; i < kMaxBones; ++i) cb.palette[i] = Mat4::Identity();
+    for (u32 i = count; i < kMaxBones; ++i) cb.palette[i] = FMat4::Identity();
     _bones_cb->Update(&cb, sizeof(cb));
 }
 

@@ -37,18 +37,18 @@ public:
     void Shutdown() noexcept;
 
     // MVP をホスト側計算して CB に書き戻す。aspect は swapchain から caller 側で求める。
-    void UpdateMvp(const acs::Mat4& view, const acs::Mat4& proj, acs::f32 angle) noexcept;
+    void UpdateMvp(const acs::FMat4& view, const acs::FMat4& proj, acs::f32 angle) noexcept;
 
     // 1 フレーム分の draw call をコマンドリストに発行する。pipeline 未初期化なら no-op。
     void Render(acs::IRhiCommandList& cl) noexcept;
 
 private:
-    acs::UniquePtr<acs::IRhiShader>   _vs;
-    acs::UniquePtr<acs::IRhiShader>   _ps;
-    acs::UniquePtr<acs::IRhiBuffer>   _vb;
-    acs::UniquePtr<acs::IRhiBuffer>   _ib;
-    acs::UniquePtr<acs::IRhiBuffer>   _cb;
-    acs::UniquePtr<acs::IRhiPipeline> _pipeline;
+    acs::TUniquePtr<acs::IRhiShader>   _vs;
+    acs::TUniquePtr<acs::IRhiShader>   _ps;
+    acs::TUniquePtr<acs::IRhiBuffer>   _vb;
+    acs::TUniquePtr<acs::IRhiBuffer>   _ib;
+    acs::TUniquePtr<acs::IRhiBuffer>   _cb;
+    acs::TUniquePtr<acs::IRhiPipeline> _pipeline;
 };
 
 } // namespace hellomv

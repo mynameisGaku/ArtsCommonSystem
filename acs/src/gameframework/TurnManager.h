@@ -18,10 +18,10 @@
 //   ・**TurnSideId** は 24bit index + 8bit gen の packed handle (CooldownId /
 //     SceneTimer / CollisionWorld2D と同じパターン)。RemoveSide → 再 AddSide
 //     で slot が再利用されても、古い ID が stale として検出できる。
-//   ・**Side ストレージは AoS Array**: side 数は通常 2〜8 程度、多くて十数
+//   ・**Side ストレージは AoS TArray**: side 数は通常 2〜8 程度、多くて十数
 //     なので AoS で十分。AP 更新が支配的なので cache 局所性も悪くない。
-//   ・**turn order は別 Array<u32>**: initiative 順に並べ替えた slot index を
-//     保持。Array<SideSlot> 自体を並べ替えると stable ID が崩れるため。
+//   ・**turn order は別 TArray<u32>**: initiative 順に並べ替えた slot index を
+//     保持。TArray<SideSlot> 自体を並べ替えると stable ID が崩れるため。
 //   ・**ETurnPhase** は 5 値: Setup (Init 直後 / StartRound 前) / PlayerTurn /
 //     EnemyTurn / EnvironmentTurn / EndOfRound (StartRound 直後の一瞬の遷移
 //     状態。callback 経由で外部に通知される)。
@@ -162,7 +162,7 @@ public:
     u32       CurrentRound() const noexcept { return _round; }
 
     // stale handle / 未登録 ID は nullptr。返却された pointer は次の
-    // AddSide / RemoveSide / ClearAll / Init までしか有効ではない (Array 再確保で
+    // AddSide / RemoveSide / ClearAll / Init までしか有効ではない (TArray 再確保で
     // 無効化される可能性あり)。
     const TurnSideState* GetSideState(TurnSideId id) const noexcept;
 
@@ -215,8 +215,8 @@ private:
     static bool IsEnvironmentName(const char* name) noexcept;
 
     // ----- データ -----
-    Array<SideSlot> _slots;          // AoS、AddSide 順
-    Array<u32>      _turn_order;     // initiative 順に並んだ slot index 列
+    TArray<SideSlot> _slots;          // AoS、AddSide 順
+    TArray<u32>      _turn_order;     // initiative 順に並んだ slot index 列
     u32             _active_count          = 0u; // RemoveSide で減る
     u32             _round                 = 0u; // StartRound で +1
     ETurnPhase       _phase                 = ETurnPhase::Setup;

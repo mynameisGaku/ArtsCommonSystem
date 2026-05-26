@@ -18,7 +18,7 @@ class ParticleScene {
 public:
     // ParticleSystem の初期化 + 初期 preset の適用。
     // 失敗時は false。
-    bool Init(acs::IRhiTexture* glow_tex, acs::Vec2 initial_pos) noexcept;
+    bool Init(acs::IRhiTexture* glow_tex, acs::FVec2 initial_pos) noexcept;
 
     void Shutdown() noexcept;
 
@@ -33,7 +33,7 @@ public:
                 acs::f32 fps) noexcept;
 
 private:
-    void ApplyPreset(acs::u32 idx, acs::Vec2 pos) noexcept;
+    void ApplyPreset(acs::u32 idx, acs::FVec2 pos) noexcept;
 
     acs::ParticleSystem _ps;
     acs::u32            _preset = 0;

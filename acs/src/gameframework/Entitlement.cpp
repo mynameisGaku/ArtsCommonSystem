@@ -65,7 +65,7 @@ void EntitlementRegistry::Clear() noexcept {
 }
 
 u32 EntitlementRegistry::Count() const noexcept {
-    // Array<T>::Size() は usize (= size_t) を返す。Pillar O の entitlement 件数は
+    // TArray<T>::Size() は usize (= size_t) を返す。Pillar O の entitlement 件数は
     // 現実的に u32 範囲を超えないので、上位ビットを切り捨てる cast で十分。
     return static_cast<u32>(_infos.Size());
 }

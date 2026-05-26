@@ -32,13 +32,13 @@
 //   //   }
 //
 // 設計選択 (Phase 21a editor_core):
-//   ・**非コピー / 非ムーブ**: 内部 Array<AssetEntry> + 文字列バッファ pool の
+//   ・**非コピー / 非ムーブ**: 内部 TArray<AssetEntry> + 文字列バッファ pool の
 //     所有を曖昧にしない (HierarchyPanel / InspectorPanel と同じ規約)。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / 列挙失敗を
 //     no-op (= 空ツリー) で表現する。
-//   ・**STL 不使用**: ファイル列挙結果は `acs::Array<AssetEntry>`、文字列は
-//     Array<wchar_t> + Array<char> の linear pool に積む方式 (= path / short_name
-//     の生存期間を Pool の clear/再生成で揃え、AssetEntry はオフセットではなく
+//   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<AssetEntry>`、文字列は
+//     TArray<wchar_t> + TArray<char> の linear pool に積む方式 (= path / short_name
+//     の生存期間を TPool の clear/再生成で揃え、AssetEntry はオフセットではなく
 //     stabilize された pointer をそのまま持つ。再 Refresh で全部使い直す)。
 //   ・**ImGui ヘッダは .cpp 側のみ**: ヘッダから imgui 依存を漏らさない方針
 //     (ParticleEditorPanel / HierarchyPanel と同じ)。
@@ -128,7 +128,7 @@ public:
     AssetBrowser() noexcept = default;
     ~AssetBrowser() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 Array / Pool / callback 状態の所有を曖昧に
+    // 非コピー・非ムーブ: 内部 TArray / TPool / callback 状態の所有を曖昧に
     // しない (ACS 規約)。
     AssetBrowser(const AssetBrowser&)            = delete;
     AssetBrowser& operator=(const AssetBrowser&) = delete;
@@ -140,7 +140,7 @@ public:
     // nullptr / 空文字を渡した場合は L"assets" を既定として採用する。
     void Init(const wchar_t* root_directory) noexcept;
 
-    // 後片付け: 文字列 pool / Array / callback を全解放。多重 Shutdown 可能。
+    // 後片付け: 文字列 pool / TArray / callback を全解放。多重 Shutdown 可能。
     void Shutdown() noexcept;
 
     // current_directory 配下を rescan する。pool は丸ごと再構築されるため
@@ -207,7 +207,7 @@ public:
 
     // パス pool / 名前 pool の初期容量 (= 1 文字あたりのバイト数 × 平均長 ×
     // 期待 entry 数)。assets/ ルートでよく取られる 256〜1024 entry / 平均
-    // 64 文字 を見越して 64 KB を確保する (足りなければ Array が自動成長)。
+    // 64 文字 を見越して 64 KB を確保する (足りなければ TArray が自動成長)。
     static constexpr usize kInitialPathPoolBytes = 64u * 1024u;
 
     // 1 entry あたりの最大 path 長 (wchar_t 単位、終端含まず)。FindFirstFileW
@@ -223,13 +223,13 @@ private:
 
     // current_directory 配下を rescan した結果の AssetEntry 群。
     // entry の path / short_name pointer は下の pool 内を指している。
-    Array<AssetEntry>      _entries {};
+    TArray<AssetEntry>      _entries {};
 
     // 文字列 pool (wchar_t 用 = path、char 用 = short_name)。Refresh で
     // Clear & 再構築。Reserve しておけば address 安定性が確保される
     // (= 一度 Reserve した capacity を超えなければ Grow しない)。
-    Array<wchar_t>         _path_pool {};
-    Array<char>            _name_pool {};
+    TArray<wchar_t>         _path_pool {};
+    TArray<char>            _name_pool {};
 
     // 選択中 entry の index (= _entries 内の位置)。-1 で未選択。
     // i32 を採用するのは ParticleEditorPanel と同じ規約 (-1 = 「なし」)。

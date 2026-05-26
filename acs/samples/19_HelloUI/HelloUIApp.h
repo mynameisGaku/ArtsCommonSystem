@@ -8,7 +8,7 @@
 //   - Widget tree (StackPanel + 子) で UI を組み立て
 //   - Observable<T> プロパティ経由で VM ↔ UI を接続
 //   - MakeTwoWayBind で双方向自動同期
-//   - MakeBindConvert で f32 → String 変換 (HP 値 → ラベル文字)
+//   - MakeBindConvert で f32 → FString 変換 (HP 値 → ラベル文字)
 //
 // 破棄順の注意 (詳細は HelloUIApp.cpp::OnShutdown のコメント参照):
 //   _root / Binder 群はメンバ宣言順の自動破棄に任せる。手動で _root.Reset() を
@@ -40,15 +40,15 @@ private:
     acs::UiRenderer                                          _ui;
     acs::UiInput                                             _input;
     PlayerVM                                                 _vm;
-    acs::UniquePtr<acs::StackPanel>                          _root;
+    acs::TUniquePtr<acs::StackPanel>                          _root;
     acs::Label*                                              _lbl_hp = nullptr;
     // Binder 群は _root より後に宣言 → dtor で先に死ぬ。OnShutdown コメント参照。
-    acs::UniquePtr<acs::TwoWayBinder<acs::f32>>              _hp_slider_binder;
-    acs::UniquePtr<acs::TwoWayBinder<acs::f32>>              _mp_slider_binder;
-    acs::UniquePtr<acs::TwoWayBinder<bool>>                  _invincible_binder;
-    acs::UniquePtr<acs::TwoWayBinder<acs::String>>           _name_binder;
-    acs::UniquePtr<acs::OneWayConvertBinder<acs::f32, acs::String>> _hp_text_binder;
-    acs::UniquePtr<acs::OneWayBinder<acs::String>>           _hp_label_binder;
+    acs::TUniquePtr<acs::TwoWayBinder<acs::f32>>              _hp_slider_binder;
+    acs::TUniquePtr<acs::TwoWayBinder<acs::f32>>              _mp_slider_binder;
+    acs::TUniquePtr<acs::TwoWayBinder<bool>>                  _invincible_binder;
+    acs::TUniquePtr<acs::TwoWayBinder<acs::FString>>           _name_binder;
+    acs::TUniquePtr<acs::OneWayConvertBinder<acs::f32, acs::FString>> _hp_text_binder;
+    acs::TUniquePtr<acs::OneWayBinder<acs::FString>>           _hp_label_binder;
 };
 
 } // namespace helloui

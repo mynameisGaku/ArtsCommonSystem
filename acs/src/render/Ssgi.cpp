@@ -269,12 +269,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct SsgiCBLayout {
-    Mat4 view_proj;
-    Mat4 inv_view_proj;
-    Vec4 eye;
-    Vec4 params;
-    Mat4 prev_view_proj;       // Phase 33c-3
-    Vec4 temporal_params;      // Phase 34f-3: x=motion_texture_mode (0/1)
+    FMat4 view_proj;
+    FMat4 inv_view_proj;
+    FVec4 eye;
+    FVec4 params;
+    FMat4 prev_view_proj;       // Phase 33c-3
+    FVec4 temporal_params;      // Phase 34f-3: x=motion_texture_mode (0/1)
 };
 
 template<typename T>
@@ -284,7 +284,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     _device = &device;
     _width  = width;
     _height = height;
@@ -302,7 +302,7 @@ Result<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     return Ok();
 }
 
-Result<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     _blur_output.Reset();
     TextureDesc td{};
@@ -330,7 +330,7 @@ Result<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
     return Ok();
 }
 
-Result<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsgiHLSL;
@@ -472,7 +472,7 @@ void Ssgi::Shutdown() noexcept {
     _device = nullptr;
 }
 
-Result<void> Ssgi::Resize(u32 width, u32 height) noexcept {
+TResult<void> Ssgi::Resize(u32 width, u32 height) noexcept {
     if (!_device) return ACS_ERR(Render, 340, "Ssgi::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width  = width;
@@ -485,22 +485,22 @@ void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
-                  const Mat4& view_proj, const Mat4& inv_view_proj,
-                  const Mat4& prev_view_proj,
-                  Vec3 eye, f32 intensity, f32 max_distance,
+                  const FMat4& view_proj, const FMat4& inv_view_proj,
+                  const FMat4& prev_view_proj,
+                  FVec3 eye, f32 intensity, f32 max_distance,
                   IRhiTexture* motion_texture) noexcept {
     if (!_output || !_blur_output || !_history[0] || !_history[1] ||
         !_pipeline || !_blur_pipeline || !_temporal_pipeline || !_cb) return;
     SsgiCBLayout data{};
     data.view_proj      = view_proj;
     data.inv_view_proj  = inv_view_proj;
-    data.eye            = Vec4{eye.x, eye.y, eye.z, 1};
-    data.params         = Vec4{intensity, max_distance,
+    data.eye            = FVec4{eye.x, eye.y, eye.z, 1};
+    data.params         = FVec4{intensity, max_distance,
                                1.0f / static_cast<f32>(_width),
                                1.0f / static_cast<f32>(_height)};
     data.prev_view_proj = prev_view_proj;
     // Phase 34f-3: motion texture が指定されていれば temporal pass を motion mode に。
-    data.temporal_params = Vec4{ motion_texture ? 1.0f : 0.0f, 0, 0, 0 };
+    data.temporal_params = FVec4{ motion_texture ? 1.0f : 0.0f, 0, 0, 0 };
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: SSGI raw → _output

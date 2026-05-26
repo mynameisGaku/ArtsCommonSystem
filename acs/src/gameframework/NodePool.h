@@ -2,7 +2,7 @@
 // GameFramework Pillar B Phase 4 — NodePool (Node2D の generational pool)
 //
 // シーン全体で唯一の `Node2D*` レジストリ。`Node2D` インスタンス自体は親の
-// `_children` (UniquePtr<Node2D>) が所有し続け、本 pool は **参照のみ** を
+// `_children` (TUniquePtr<Node2D>) が所有し続け、本 pool は **参照のみ** を
 // 保持して安定した `NodeId` を発行する。同時に発行済 `NodeId` の **stale 検出**
 // (= 既に Unregister されたハンドル) を提供する。
 //
@@ -17,7 +17,7 @@
 //
 //   // 後で stale 検査付きで取り出し:
 //   if (Node2D* p = pool.Get(enemy_id)) {
-//       p->Local().position += Vec2{1, 0};
+//       p->Local().position += FVec2{1, 0};
 //   }
 //
 //   // 破棄時:
@@ -25,8 +25,8 @@
 //   enemy_ptr->Destroy();        // scene tree からは別途 reap される
 //
 // 設計選択 (Phase 4 = Pillar B Phase 4):
-//   ・**non-owning**: 所有権は Node2D の親 (=UniquePtr<Node2D>) 側にあり、本 pool
-//     は raw ポインタだけ持つ。Pool の破棄や ClearAll は Node2D を delete しない。
+//   ・**non-owning**: 所有権は Node2D の親 (=TUniquePtr<Node2D>) 側にあり、本 pool
+//     は raw ポインタだけ持つ。TPool の破棄や ClearAll は Node2D を delete しない。
 //   ・**Slot = {ptr, gen, active}**: CollisionWorld2D::Slot と同じパターン。
 //     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
 //   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
@@ -39,7 +39,7 @@
 //     で 16M Node を生成することはまずあり得ないが安全策として明示拒否。
 //   ・**IdOf は線形探索**: ポインタ → NodeId の逆引きは利用頻度が低い (基本は
 //     RegisterExistingNode の戻り値を保持する) ため、専用 hash は持たない。
-//     真に必要なら呼び出し側で HashMap<Node2D*, NodeId> を別途持てば良い。
+//     真に必要なら呼び出し側で THashMap<Node2D*, NodeId> を別途持てば良い。
 //   ・**非コピー・非ムーブ**: pool 自体は固定オブジェクトとして scene が所有する想定。
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約に厳格準拠。
 #pragma once
@@ -53,7 +53,7 @@ namespace acs::game {
 class Node2D;   // forward decl — full include は .cpp 側 (Node2D::_SetId 呼出のため)
 
 /// Node2D 群を pool で管理し、安定した NodeId を発行 + stale 検出する。
-/// 所有権は持たない (Node2D は親の UniquePtr が所有)。
+/// 所有権は持たない (Node2D は親の TUniquePtr が所有)。
 class NodePool {
 public:
     NodePool()  noexcept = default;
@@ -104,7 +104,7 @@ public:
 
 private:
     struct Slot {
-        Node2D* ptr    = nullptr;   // 非所有 (Node2D の所有は親 UniquePtr 側)
+        Node2D* ptr    = nullptr;   // 非所有 (Node2D の所有は親 TUniquePtr 側)
         u8      gen    = 0;          // 0 は予約 (= invalid handle と一致)。有効 slot は 1..255
         bool    active = false;
     };
@@ -116,8 +116,8 @@ private:
     /// 24bit index 上限 (NodeId pack 仕様に合わせる)。
     static constexpr u32 kMaxIndex = 0x00FFFFFFu;   // = 16,777,215
 
-    Array<Slot> _slots;          // index 0 は dummy (= invalid 用予約)
-    Array<u32>  _free_indices;   // LIFO stack。pop → 再利用 slot、empty → 末尾追加
+    TArray<Slot> _slots;          // index 0 は dummy (= invalid 用予約)
+    TArray<u32>  _free_indices;   // LIFO stack。pop → 再利用 slot、empty → 末尾追加
     u32         _active_count = 0;
 };
 

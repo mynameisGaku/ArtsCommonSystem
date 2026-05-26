@@ -33,23 +33,23 @@ void SceneInspectorScene::_build_node_tree() noexcept {
     // root → wheel (30 deg/s で自転) → spoke[0/1]
     //      → player (Inspector 編集対象、wheel と兄弟)
     auto wheel_up = MakeUnique<WheelNode>(0.5f /*rad/s*/);
-    wheel_up->Local().position = Vec2{ 4.0f, 0.0f };
+    wheel_up->Local().position = FVec2{ 4.0f, 0.0f };
     wheel_up->_SetId(NodeId{ 2u, 1u });
     Node2D& wheel_ref = _root_node.AddChild(Move(wheel_up));
     _wheel = static_cast<WheelNode*>(&wheel_ref);
 
     auto sp0_up = MakeUnique<Node2D>();
-    sp0_up->Local().position = Vec2{ 2.0f, 0.0f };
+    sp0_up->Local().position = FVec2{ 2.0f, 0.0f };
     sp0_up->_SetId(NodeId{ 3u, 1u });
     _spoke[0] = &wheel_ref.AddChild(Move(sp0_up));
 
     auto sp1_up = MakeUnique<Node2D>();
-    sp1_up->Local().position = Vec2{ 0.0f, 2.0f };
+    sp1_up->Local().position = FVec2{ 0.0f, 2.0f };
     sp1_up->_SetId(NodeId{ 4u, 1u });
     _spoke[1] = &wheel_ref.AddChild(Move(sp1_up));
 
     auto player_up = MakeUnique<PlayerNode>();
-    player_up->Local().position = Vec2{ -4.0f, 0.0f };
+    player_up->Local().position = FVec2{ -4.0f, 0.0f };
     // NodeId{1, 1}: index=1 (root が将来 0 に振られる想定)、generation=1。
     player_up->_SetId(NodeId{ 1u, 1u });
     Node2D& player_ref = _root_node.AddChild(Move(player_up));

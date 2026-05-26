@@ -27,8 +27,8 @@
 //     スケルトンでは elapsed += dt で simulated load time = 0.5s/chunk として進行。
 //   ・Pillar G の AssetBundle と二段構え: 1 chunk = 1 AssetBundle 相当の単位を想定し、
 //     Phase P-2 で StreamingDirector が AssetBundle を保有する形に拡張する。
-//   ・非コピー・非ムーブ (内部 Array 規約 / 単一所有を強制)。
-//   ・全 API noexcept、STL 不使用 (acs::Array<ChunkInfo> で管理)。
+//   ・非コピー・非ムーブ (内部 TArray 規約 / 単一所有を強制)。
+//   ・全 API noexcept、STL 不使用 (acs::TArray<ChunkInfo> で管理)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -88,7 +88,7 @@ public:
 
     // ビューア (カメラ) のワールド座標を更新する。
     // 次の Tick() で必要なチャンクの load/unload が再評価される。
-    void SetViewerPos(Vec2 pos) noexcept;
+    void SetViewerPos(FVec2 pos) noexcept;
 
     // 同時 Loading 数の上限を設定する (既定 4)。0 を渡した場合 1 にクランプ。
     // Loading 中の数がこれを超えると新規 Queued は次フレームに繰り越される。
@@ -152,11 +152,11 @@ private:
     i32 _view_radius          = 2;
     u32 _max_concurrent_loads = 4;
 
-    Vec2 _viewer_pos = {0.0f, 0.0f};
+    FVec2 _viewer_pos = {0.0f, 0.0f};
 
-    // 管理対象チャンク群。範囲外で Unloaded 確定したものは Array から除去する
+    // 管理対象チャンク群。範囲外で Unloaded 確定したものは TArray から除去する
     // (= Unloaded 状態の ChunkInfo は内部に残らない、というインバリアント)。
-    Array<ChunkInfo> _chunks;
+    TArray<ChunkInfo> _chunks;
 };
 
 } // namespace acs::game

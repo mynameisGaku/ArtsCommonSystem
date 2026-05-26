@@ -22,21 +22,21 @@ namespace acs::game {
 // 並びは EWeatherKind の数値順 (Clear=0 .. Sandstorm=7) と一致させる。
 static const WeatherSystem::KindParams kParamsTable[8] = {
     // Clear      晴天: 何も足さず、何も引かない基準値
-    { 1.00f, 0.00f, Vec3{1.00f, 1.00f, 1.00f}, 0.10f, 1.00f },
+    { 1.00f, 0.00f, FVec3{1.00f, 1.00f, 1.00f}, 0.10f, 1.00f },
     // Cloudy     曇り: 全体的に少しトーン落ち、わずかに灰青寄りに
-    { 0.85f, 0.00f, Vec3{0.85f, 0.88f, 0.92f}, 0.25f, 1.20f },
+    { 0.85f, 0.00f, FVec3{0.85f, 0.88f, 0.92f}, 0.25f, 1.20f },
     // Rain       雨: 暗化 + 雨滴粒子 + やや強い風 + 霧少々
-    { 0.70f, 1.00f, Vec3{0.70f, 0.75f, 0.85f}, 0.50f, 1.40f },
+    { 0.70f, 1.00f, FVec3{0.70f, 0.75f, 0.85f}, 0.50f, 1.40f },
     // HeavyRain  豪雨: さらに暗く粒子密度 2x
-    { 0.55f, 2.00f, Vec3{0.55f, 0.60f, 0.70f}, 0.70f, 1.80f },
+    { 0.55f, 2.00f, FVec3{0.55f, 0.60f, 0.70f}, 0.70f, 1.80f },
     // Snow       雪: 雨より明るく (雪の反射)、青白い tint、弱風
-    { 0.90f, 1.20f, Vec3{0.95f, 0.97f, 1.05f}, 0.30f, 1.30f },
+    { 0.90f, 1.20f, FVec3{0.95f, 0.97f, 1.05f}, 0.30f, 1.30f },
     // Storm      嵐: 一番暗く、最大粒子 / 最大風 / 強い霧
-    { 0.50f, 2.50f, Vec3{0.45f, 0.50f, 0.60f}, 1.00f, 2.00f },
+    { 0.50f, 2.50f, FVec3{0.45f, 0.50f, 0.60f}, 1.00f, 2.00f },
     // Fog        霧: 明度ほぼ通常、霧密度のみ突出、粒子は出さない
-    { 0.80f, 0.00f, Vec3{0.85f, 0.85f, 0.85f}, 0.15f, 4.00f },
+    { 0.80f, 0.00f, FVec3{0.85f, 0.85f, 0.85f}, 0.15f, 4.00f },
     // Sandstorm  砂嵐: 黄褐色 tint、視界不良、最大風
-    { 0.50f, 1.50f, Vec3{1.10f, 0.85f, 0.55f}, 1.00f, 3.00f },
+    { 0.50f, 1.50f, FVec3{1.10f, 0.85f, 0.55f}, 1.00f, 3.00f },
 };
 
 const WeatherSystem::KindParams& WeatherSystem::Params(EWeatherKind k) noexcept {
@@ -111,7 +111,7 @@ void WeatherSystem::Reset() noexcept {
     _transition_duration = 0.0f;
     _transition_elapsed  = 0.0f;
     _transition_t        = 1.0f;
-    _wind_dir            = Vec2{1.0f, 0.0f};
+    _wind_dir            = FVec2{1.0f, 0.0f};
 }
 
 // ----- 描画 / lighting 用 modifier (current → target を線形補間) ------------
@@ -128,7 +128,7 @@ f32 WeatherSystem::ParticleDensity() const noexcept {
     return Lerp(a.particle_density, b.particle_density, _transition_t);
 }
 
-Vec3 WeatherSystem::SkyTintMultiplier() const noexcept {
+FVec3 WeatherSystem::SkyTintMultiplier() const noexcept {
     const KindParams& a = Params(_current);
     const KindParams& b = Params(_target);
     return Lerp(a.sky_tint, b.sky_tint, _transition_t);

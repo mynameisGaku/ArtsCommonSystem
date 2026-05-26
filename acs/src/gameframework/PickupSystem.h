@@ -40,7 +40,7 @@
 // 設計選択:
 //   ・**PickupId**: 32bit packed = 24bit index + 8bit generation。CollisionWorld2D の
 //     ShapeId / NodeId と同じパターン。slot 再利用しても古い handle は無効化される。
-//   ・**Slot Array**: 内部 `Array<Slot>` に固定。index 0 は予約 (= invalid)。
+//   ・**Slot TArray**: 内部 `TArray<Slot>` に固定。index 0 は予約 (= invalid)。
 //     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
 //     末尾に PushBack。Despawn は active=false、slot は再利用。
 //   ・**磁石効果は equal-step**: `|player - pickup| < magnet_radius` のとき
@@ -123,7 +123,7 @@ struct PickupId {
 struct PickupInfo {
     EPickupKind  kind          = EPickupKind::Custom;
     const char* item_id       = nullptr;
-    Vec2        world_pos     = Vec2::Zero();
+    FVec2        world_pos     = FVec2::Zero();
     f32         radius        = 0.0f;
     f32         magnet_radius = 0.0f;
     f32         lifetime_sec  = 0.0f;
@@ -175,7 +175,7 @@ public:
     //   2) |player - pickup| < magnet_radius なら pickup_pos を player 方向へ
     //      magnet_strength * dt だけ動かす。
     //   3) |player - pickup| < radius なら PickupCallback + Despawn。
-    void Tick(f32 dt, Vec2 player_pos, f32 magnet_strength) noexcept;
+    void Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept;
 
     // active pickup の総数。
     u32 AlivePickupCount() const noexcept;
@@ -193,7 +193,7 @@ public:
     // 円内ランダムスポーン。center を中心に半径 spread_radius の円板内一様サンプル
     // (Random::Global().PointInCircle) で位置を決め、kind 別の既定値で Spawn する。
     // 既定値テーブルは .cpp 内で定義。
-    void SpawnRandomAt(EPickupKind kind, Vec2 center, f32 spread_radius) noexcept;
+    void SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_radius) noexcept;
 
     // 指定 kind の pickup を全消滅させる (コールバックは呼ばない、bulk cleanup 用)。
     void DespawnAllOfKind(EPickupKind kind) noexcept;
@@ -214,7 +214,7 @@ private:
     // 未使用 slot を 1 つ確保し index を返す。index 0 は予約 (= invalid)。
     u32 AcquireSlot() noexcept;
 
-    Array<Slot>     _slots;
+    TArray<Slot>     _slots;
     u32             _alive_count = 0;
 
     PickupCallback  _on_pickup       = nullptr;

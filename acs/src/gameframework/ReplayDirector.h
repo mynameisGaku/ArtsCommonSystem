@@ -68,12 +68,12 @@
 //   ・**ReplayMetadata は trivially-copyable POD**: `const char*` 文字列は
 //      呼び出し側が寿命を保証する static / 長寿命 buffer を渡す規約
 //      (Settings / AccessibilityProfile と同じ STL 不使用方針)。Phase R-4 で
-//      acs::String への置換は検討するが、現状は raw pointer。
+//      acs::FString への置換は検討するが、現状は raw pointer。
 //   ・**SetPlaybackSpeed は範囲 clamp**: 0 < speed <= 16 の範囲外は最寄りの
 //      有効値に丸める。負値や 0 は Paused を別 API で扱うため認めない。
 //   ・**SeekToTick は duration を超えたら末尾に clamp**: replay 終了後に進む
 //      意味がないので duration_ticks を上限とする。0 未満は 0 に clamp。
-//   ・**全 noexcept**: ACS 全体方針。エラーは `Result<T, ErrorCode>` で伝搬する。
+//   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 director の長寿命オブジェクト。
 //      録画中の state が分裂すると replay のメタデータ整合が崩れるため、
 //      Lockstep / InputRecorder / Settings と同じ方針で最初から非コピー・
@@ -171,17 +171,17 @@ public:
     // ----- 録画開始 / 停止 -----
     // StartRecording: mode を Recording に切り替え、metadata をコピー保存。
     //   呼び出し前の mode が Idle 以外なら kSub_BadMode (誤遷移防止)。
-    Result<void> StartRecording(const ReplayMetadata& meta) noexcept;
+    TResult<void> StartRecording(const ReplayMetadata& meta) noexcept;
 
     // StopRecording: Recording から Idle へ。metadata.duration_ticks に
     //   _current_tick を確定書き込みする。Recording 以外で呼ぶと kSub_BadMode。
-    Result<void> StopRecording() noexcept;
+    TResult<void> StopRecording() noexcept;
 
     // ----- 再生開始 / 停止 -----
     // StartPlayback: 録画したものを再生する。Idle 以外で呼ぶと kSub_BadMode。
     //   _current_tick = 0 にリセット。metadata は LoadReplay 経由 or 直前の
     //   StartRecording で設定済みである前提。
-    Result<void> StartPlayback() noexcept;
+    TResult<void> StartPlayback() noexcept;
 
     // PausePlayback: Playback → Paused。Playback 以外では no-op。
     void PausePlayback() noexcept;
@@ -221,12 +221,12 @@ public:
     // ----- 永続化 (Phase R-4 で実装) -----
     // SaveReplay: 現在の metadata + 紐付け先 .acsr / .acsl を file_path に書き出す。
     //   Phase R-3 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
-    Result<void> SaveReplay(const wchar_t* file_path) noexcept;
+    TResult<void> SaveReplay(const wchar_t* file_path) noexcept;
 
     // LoadReplay: file_path から metadata + .acsr / .acsl を復元する。
     //   呼び出し前に Init() で状態をクリアしておくことを推奨。
     //   Phase R-3 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
-    Result<void> LoadReplay(const wchar_t* file_path) noexcept;
+    TResult<void> LoadReplay(const wchar_t* file_path) noexcept;
 
 private:
     EReplayMode     _mode             = EReplayMode::Idle;

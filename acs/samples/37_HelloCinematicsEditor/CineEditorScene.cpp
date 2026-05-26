@@ -13,7 +13,7 @@ using namespace acs::game;
 namespace hellocine {
 
 // ---- runtime callback (= keyframe 発火可視化用、ACS_LOG_INFO に出力) ----
-void CineEditorScene::OnCamera(void* /*user*/, Vec2 target, f32 zoom, f32 dur) noexcept {
+void CineEditorScene::OnCamera(void* /*user*/, FVec2 target, f32 zoom, f32 dur) noexcept {
     ACS_LOG_INFO("[CineEditor] Camera fire -> target=(%.2f, %.2f) zoom=%.2f dur=%.2f",
                  static_cast<double>(target.x), static_cast<double>(target.y),
                  static_cast<double>(zoom), static_cast<double>(dur));

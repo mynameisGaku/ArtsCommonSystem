@@ -20,7 +20,7 @@
 //   ・敵検出 / 戦闘開始 / 戦闘終了 / ボス遭遇 / ボス撃破 を notify API として提供
 //   ・ThreatLevel() [0,1] — engaged 中は時間と共に上昇、平和になると低下する
 //     連続値。BGM intensity や ambient color へ供給するのに使える。
-//   ・EnemyAwareness を Array で管理し、複数敵 (= maybe sneak / multi engage) を
+//   ・EnemyAwareness を TArray で管理し、複数敵 (= maybe sneak / multi engage) を
 //     並列に追跡。EngagedEnemyCount() で「実際に交戦中の敵数」を返す。
 //   ・OnStateChange callback で外部ディレクタ (Music / Ambient / UI) と疎結合連動。
 //
@@ -73,7 +73,7 @@ enum class ECombatState : u8 {
     Retreat   = 5,  // 戦闘から撤退 / 敗北
 };
 
-// 1 敵分の認識情報。CombatStateMachine が内部 Array で保持する。
+// 1 敵分の認識情報。CombatStateMachine が内部 TArray で保持する。
 //   enemy_id        : ゲーム側で割り振る一意 ID (NodeId などをそのまま渡せる)
 //   awareness_level : [0, 1]。1.0 = 完全に検出、0.0 = 未検出。Notify*EnemyDetected
 //                     で 1.0 に上書き、Retreat / Victory で 0.0 に減衰させる。
@@ -185,7 +185,7 @@ private:
     f32 _engaged_elapsed = 0.0f;
 
     // ----- enemy 追跡 -----
-    Array<EnemyAwareness> _enemies;
+    TArray<EnemyAwareness> _enemies;
 
     // BossFight に入る前の state を覚えておき、NotifyBossDefeated 後に
     // engaged 敵が残っていれば Engaged、いなければ Victory に戻す。

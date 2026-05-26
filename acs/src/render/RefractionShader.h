@@ -16,7 +16,7 @@
 //   refr.Init(*device, hdr_format, depth_format);
 //   refr.SetFrame(camera.ViewProjection(), camera.Eye());
 //   refr.DrawMesh(*cl, glass_mesh, model, background_tex, env_cubemap,
-//                 /*ior=*/1.5f, /*thickness=*/0.5f, /*tint=*/Vec3{1,1,1});
+//                 /*ior=*/1.5f, /*thickness=*/0.5f, /*tint=*/FVec3{1,1,1});
 //
 // blend は Opaque。屈折オブジェクトは「背景を曲げた色」を不透明に書き込むため
 // alpha blend は不要 (深度も書き、後続の描画を正しく遮蔽する)。
@@ -49,7 +49,7 @@ public:
     // 初期化 (VS+PS コンパイル + パイプライン + 定数バッファ)。
     //   rt_format    : 描画先 RT のフォーマット (通常 HDR = R16G16B16A16_Float)
     //   depth_format : 深度フォーマット (opaque pass と同じものを渡す)
-    Result<void> Init(IRhiDevice& device,
+    TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
                       EFormat depth_format = EFormat::D32_Float) noexcept;
 
@@ -57,7 +57,7 @@ public:
     void Shutdown() noexcept;
 
     // 毎フレーム呼ぶ (カメラの view-projection と world 空間の eye 位置)。
-    void SetFrame(const Mat4& view_projection, Vec3 camera_pos) noexcept;
+    void SetFrame(const FMat4& view_projection, FVec3 camera_pos) noexcept;
 
     // Phase 35-3f thickness map: 背面 (cull=Front で描いた) 深度を渡すと、
     // 各 pixel の表面/背面 view-space z 差から実厚みを計算し、Beer-Lambert
@@ -79,7 +79,7 @@ public:
     //   tint      : ガラスの吸収色 (透明=白、色付きガラス=その色)
     //   roughness : 表面荒さ (Phase 35-3d、0=クリア、1=完全フロステッド)
     //   dispersion: 色収差/分散 (Phase 35-3e、0=色分離無し、1=強プリズム/ダイヤ風)
-    void SetObject(const Mat4& model, f32 ior, f32 thickness, Vec3 tint,
+    void SetObject(const FMat4& model, f32 ior, f32 thickness, FVec3 tint,
                    f32 roughness = 0.0f, f32 dispersion = 0.0f) noexcept;
 
     IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
@@ -91,23 +91,23 @@ public:
     //   env        : Fresnel 反射に使う環境キューブマップ
     //   roughness  : 表面荒さ (Phase 35-3d、0=clear、>0 で多タップでブラー = frosted)
     //   dispersion : 色収差/分散 (Phase 35-3e、0=なし、>0 でプリズム/ダイヤ風の色分離)
-    void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const Mat4& model,
+    void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
                   IRhiTexture& background, IRhiTexture& env,
                   f32 ior = 1.5f, f32 thickness = 0.5f,
-                  Vec3 tint = Vec3{1, 1, 1},
+                  FVec3 tint = FVec3{1, 1, 1},
                   f32 roughness = 0.0f,
                   f32 dispersion = 0.0f) noexcept;
 
 private:
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiBuffer>   _frame_cb;
-    UniquePtr<IRhiBuffer>   _object_cb;
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiBuffer>   _frame_cb;
+    TUniquePtr<IRhiBuffer>   _object_cb;
 
     // Phase 35-3f thickness map
     IRhiTexture*           _back_depth   = nullptr;     // 弱参照 (caller owns)
-    UniquePtr<IRhiTexture> _back_depth_fb;              // 1x1 R32F fallback (enabled=0 用)
+    TUniquePtr<IRhiTexture> _back_depth_fb;              // 1x1 R32F fallback (enabled=0 用)
     f32                    _back_near    = 0.1f;
     f32                    _back_far     = 100.0f;
     u32                    _screen_w     = 1;
@@ -115,8 +115,8 @@ private:
     bool                   _back_enabled = false;
     // SetFrame で view_proj / camera_pos を覚えておく (SetBackDepth が screen
     // params だけ更新する際に同じ Frame CB を再書き込みする必要がある)。
-    Mat4                   _vp           = {};
-    Vec3                   _eye          = Vec3{0, 0, 0};
+    FMat4                   _vp           = {};
+    FVec3                   _eye          = FVec3{0, 0, 0};
 };
 
 } // namespace acs

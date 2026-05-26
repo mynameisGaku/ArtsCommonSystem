@@ -41,7 +41,7 @@ TileId Tilemap::GetTile(u32 x, u32 y, u32 layer) const noexcept {
 
 void Tilemap::Fill(TileId tile, u32 layer) noexcept {
     if (layer >= _layers.Size()) return;
-    Array<TileId>& buf = _layers[layer];
+    TArray<TileId>& buf = _layers[layer];
     const usize n = buf.Size();
     for (usize i = 0; i < n; ++i) buf[i] = tile;
 }
@@ -62,7 +62,7 @@ void Tilemap::FillRect(u32 x0, u32 y0, u32 x1, u32 y1, TileId tile, u32 layer) n
     if (x1 > max_x) x1 = max_x;
     if (y1 > max_y) y1 = max_y;
 
-    Array<TileId>& buf = _layers[layer];
+    TArray<TileId>& buf = _layers[layer];
     for (u32 y = y0; y <= y1; ++y) {
         const usize row = static_cast<usize>(y) * static_cast<usize>(_width);
         for (u32 x = x0; x <= x1; ++x) {
@@ -74,21 +74,21 @@ void Tilemap::FillRect(u32 x0, u32 y0, u32 x1, u32 y1, TileId tile, u32 layer) n
 void Tilemap::Clear() noexcept {
     const u32 layer_count = static_cast<u32>(_layers.Size());
     for (u32 L = 0; L < layer_count; ++L) {
-        Array<TileId>& buf = _layers[L];
+        TArray<TileId>& buf = _layers[L];
         const usize n = buf.Size();
         for (usize i = 0; i < n; ++i) buf[i] = TileId{};
     }
 }
 
-Vec2 Tilemap::TileToWorld(u32 x, u32 y) const noexcept {
+FVec2 Tilemap::TileToWorld(u32 x, u32 y) const noexcept {
     // tile の **中心** world 位置。原点を tile(0,0) の中心に置く慣習。
     // +0.5 オフセットで grid line ではなく cell centroid を返す。
     const f32 fx = (static_cast<f32>(x) + 0.5f) * _tile_size;
     const f32 fy = (static_cast<f32>(y) + 0.5f) * _tile_size;
-    return Vec2{fx, fy};
+    return FVec2{fx, fy};
 }
 
-bool Tilemap::WorldToTile(Vec2 world, u32& out_x, u32& out_y) const noexcept {
+bool Tilemap::WorldToTile(FVec2 world, u32& out_x, u32& out_y) const noexcept {
     if (!(_tile_size > 0.0f)) return false;
     // 早期 reject: 負値や原点未満 (TileToWorld は半セルオフセットなので
     // world.x < 0 は確実にグリッド外、x = 0 〜 width*tile_size を有効範囲とする)。

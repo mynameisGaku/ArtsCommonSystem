@@ -11,19 +11,19 @@
 //   class MoveNodeCommand : public EditorCommand { ... };  // header 下に inline 例
 //
 //   // editor 側:
-//   acs::UniquePtr<MoveNodeCommand> cmd = acs::MakeUnique<MoveNodeCommand>(
+//   acs::TUniquePtr<MoveNodeCommand> cmd = acs::MakeUnique<MoveNodeCommand>(
 //       &node, old_pos, new_pos);
 //   undo_stack.Push(cmd.Release());   // 所有権を渡す + Execute 実行
 //
 // 設計選択 (Phase 21a):
-//   ・**純粋抽象 + virtual dtor**: ベース型を `UniquePtr<EditorCommand>` で
+//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<EditorCommand>` で
 //     UndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
 //     ACS 規約。
 //   ・**非コピー / 非ムーブ**: 「実行済み command を後から複製」は意味的に怪しい
 //     (二重 Undo 等の事故源)。意図的な複製は派生クラス側で factory を用意する。
 //   ・**Description は const char***: undo history UI (ImGui MenuItem の
 //     "Undo Move Node" 表示) に直接渡す想定。動的文字列が要る派生クラスは
-//     自分で `Array<char>` 等を抱える。
+//     自分で `TArray<char>` 等を抱える。
 //   ・**CanMerge / MergeWith**: 連続 slider / drag 操作 (例: position を
 //     1 フレームに 60 回いじる) を 1 件にまとめる。default は merge 拒否。
 //     merge する派生は **同じ対象 + 同じ "種類"** を確認したうえで、自身の
@@ -106,9 +106,9 @@ public:
 // 教科書的な使用例。連続 drag を 1 件にまとめる CanMerge 実装も持つ。
 //
 // 使い方 (UndoStack 経由):
-//   const acs::Vec2 old_pos = node.Local().position;
-//   const acs::Vec2 new_pos = old_pos + delta;
-//   acs::UniquePtr<MoveNodeCommand> c = acs::MakeUnique<MoveNodeCommand>(
+//   const acs::FVec2 old_pos = node.Local().position;
+//   const acs::FVec2 new_pos = old_pos + delta;
+//   acs::TUniquePtr<MoveNodeCommand> c = acs::MakeUnique<MoveNodeCommand>(
 //       &node, old_pos, new_pos);
 //   undo_stack.Push(c.Release());
 //
@@ -124,7 +124,7 @@ public:
 // =============================================================================
 class MoveNodeCommand : public EditorCommand {
 public:
-    MoveNodeCommand(Node2D* target, Vec2 old_pos, Vec2 new_pos) noexcept
+    MoveNodeCommand(Node2D* target, FVec2 old_pos, FVec2 new_pos) noexcept
         : _target(target), _old_pos(old_pos), _new_pos(new_pos) {}
 
     void Execute() noexcept override {
@@ -171,8 +171,8 @@ public:
 
     // ----- アクセサ (テスト / inspector 表示用) -----
     const Node2D* Target() const noexcept { return _target; }
-    Vec2          OldPosition() const noexcept { return _old_pos; }
-    Vec2          NewPosition() const noexcept { return _new_pos; }
+    FVec2          OldPosition() const noexcept { return _old_pos; }
+    FVec2          NewPosition() const noexcept { return _new_pos; }
 
 private:
     // 派生固有の kind 識別用の静的アドレス。内容は使わない、アドレスだけが ID。
@@ -184,8 +184,8 @@ private:
     }
 
     Node2D* _target  = nullptr;
-    Vec2    _old_pos {};
-    Vec2    _new_pos {};
+    FVec2    _old_pos {};
+    FVec2    _new_pos {};
 };
 
 } // namespace acs::game::editor_core

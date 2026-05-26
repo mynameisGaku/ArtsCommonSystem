@@ -9,7 +9,7 @@ const wchar_t* DefaultUIFontPath() noexcept {
     return L"C:\\Windows\\Fonts\\meiryo.ttc";
 }
 
-Result<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px,
+TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px,
                                    u32 atlas_size, bool include_cjk) noexcept {
     // Windows 標準フォント候補。最初に LoadFromFile が成功したら採用。
     static const wchar_t* const kCandidates[] = {

@@ -42,7 +42,7 @@ void SpriteAtlasApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> SpriteAtlasApp::InitialScene() noexcept {
+TUniquePtr<Scene> SpriteAtlasApp::InitialScene() noexcept {
     return MakeUnique<SpriteAtlasScene>();
 }
 

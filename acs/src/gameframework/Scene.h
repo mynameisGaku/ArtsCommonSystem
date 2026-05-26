@@ -100,7 +100,7 @@ public:
         _game   = g;
         _scenes = sm;
     }
-    void _AttachServices(UniquePtr<SceneServices> svc) noexcept {
+    void _AttachServices(TUniquePtr<SceneServices> svc) noexcept {
         _services = Move(svc);
     }
     SceneServices* _ServicesOrNull() const noexcept { return _services.Get(); }
@@ -108,7 +108,7 @@ public:
 private:
     Game*                    _game     = nullptr;
     SceneManager*            _scenes   = nullptr;
-    UniquePtr<SceneServices> _services;
+    TUniquePtr<SceneServices> _services;
 };
 
 } // namespace game

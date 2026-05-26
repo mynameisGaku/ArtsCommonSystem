@@ -17,12 +17,12 @@ namespace acs::game {
 // 0:00 と 22:00 が同じ夜色なので 22:00→24:00 (= 0:00) 区間も自然にループ。
 const AmbientDirector::TimeStop AmbientDirector::_stops[6] = {
     //   hour  sky (RGB linear-ish 0..1)        ambient (RGB)
-    {  0.0f,  Vec3{0.02f, 0.03f, 0.10f},  Vec3{0.03f, 0.04f, 0.10f} }, // 真夜中 紺
-    {  4.0f,  Vec3{0.08f, 0.06f, 0.18f},  Vec3{0.10f, 0.07f, 0.12f} }, // 夜明け前 紫紺
-    {  6.0f,  Vec3{0.95f, 0.55f, 0.25f},  Vec3{0.55f, 0.30f, 0.20f} }, // 朝焼け 橙 / 赤茶
-    { 12.0f,  Vec3{0.40f, 0.65f, 0.95f},  Vec3{0.95f, 0.95f, 0.95f} }, // 昼 青空 / 白
-    { 18.0f,  Vec3{0.65f, 0.25f, 0.45f},  Vec3{0.90f, 0.55f, 0.25f} }, // 夕焼け 紫赤 / 橙
-    { 22.0f,  Vec3{0.02f, 0.03f, 0.10f},  Vec3{0.03f, 0.04f, 0.10f} }, // 夜 紺
+    {  0.0f,  FVec3{0.02f, 0.03f, 0.10f},  FVec3{0.03f, 0.04f, 0.10f} }, // 真夜中 紺
+    {  4.0f,  FVec3{0.08f, 0.06f, 0.18f},  FVec3{0.10f, 0.07f, 0.12f} }, // 夜明け前 紫紺
+    {  6.0f,  FVec3{0.95f, 0.55f, 0.25f},  FVec3{0.55f, 0.30f, 0.20f} }, // 朝焼け 橙 / 赤茶
+    { 12.0f,  FVec3{0.40f, 0.65f, 0.95f},  FVec3{0.95f, 0.95f, 0.95f} }, // 昼 青空 / 白
+    { 18.0f,  FVec3{0.65f, 0.25f, 0.45f},  FVec3{0.90f, 0.55f, 0.25f} }, // 夕焼け 紫赤 / 橙
+    { 22.0f,  FVec3{0.02f, 0.03f, 0.10f},  FVec3{0.03f, 0.04f, 0.10f} }, // 夜 紺
 };
 
 // ----- 時刻ユーティリティ ---------------------------------------------------
@@ -79,17 +79,17 @@ static StopPair FindPair(const AmbientDirector::TimeStop (&stops)[6], f32 hours)
 
 // ----- パブリック getter ----------------------------------------------------
 
-Vec3 AmbientDirector::SkyColor() const noexcept {
+FVec3 AmbientDirector::SkyColor() const noexcept {
     const StopPair p = FindPair(_stops, _hours);
     return Lerp(p.a->sky, p.b->sky, p.t);
 }
 
-Vec3 AmbientDirector::AmbientColor() const noexcept {
+FVec3 AmbientDirector::AmbientColor() const noexcept {
     const StopPair p = FindPair(_stops, _hours);
     return Lerp(p.a->ambient, p.b->ambient, p.t);
 }
 
-Vec3 AmbientDirector::SunDirection() const noexcept {
+FVec3 AmbientDirector::SunDirection() const noexcept {
     // hour_angle = (hour - 6) / 12 * π:
     //   06:00 →  0     : 東地平線 (x=+1, y= 0)
     //   12:00 →  π/2   : 天頂   (x= 0, y=+1)
@@ -100,7 +100,7 @@ Vec3 AmbientDirector::SunDirection() const noexcept {
     const f32 cx = Cos(angle);
     const f32 sy = Sin(angle);
     // 既に単位長 (cos²+sin²=1) なので Normalize 不要。z=0 は方位固定 (真南北軌道)。
-    return Vec3{ cx, sy, 0.0f };
+    return FVec3{ cx, sy, 0.0f };
 }
 
 } // namespace acs::game

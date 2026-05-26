@@ -20,8 +20,8 @@ public:
     acs::Observable<acs::f32>     mana      { 50.0f };
     acs::Observable<acs::i32>     level     { 1 };
     acs::Observable<bool>         invincible{ false };
-    acs::Observable<acs::String>  name      { acs::String{"勇者"} };
-    acs::Observable<acs::Vec3>    color     { acs::Vec3{1.0f, 0.85f, 0.4f} };
+    acs::Observable<acs::FString>  name      { acs::FString{"勇者"} };
+    acs::Observable<acs::FVec3>    color     { acs::FVec3{1.0f, 0.85f, 0.4f} };
     acs::Observable<acs::i32>     class_idx { 0 };   // 0=戦士 / 1=魔法使い / 2=盗賊
 
     acs::ObservableArray<acs::i32> inventory;

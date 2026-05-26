@@ -27,9 +27,9 @@
 //     委譲する。詳細は gameframework/SaveArchive.h を参照。
 //   ・**スキーマ進化耐性**: T を直接 memcpy で書く current design は schema 固定
 //     な T 専用。SaveArchive の version パラメータを使って schema 変更を検知できる
-//     (デフォルト version=1)。version 不一致時は ErrorCode.subcode に
+//     (デフォルト version=1)。version 不一致時は FErrorCode.subcode に
 //     ESaveArchiveSubCode::kSubMigrationNeeded が入る。
-//   ・**例外なし**: 全 noexcept、エラーは Result<T, ErrorCode> で伝搬する。
+//   ・**例外なし**: 全 noexcept、エラーは TResult<T, FErrorCode> で伝搬する。
 //   ・**STL 不使用**: container 依存も無し。ファイル I/O は SaveArchive 経由
 //     (Win32 直叩き) に委譲。
 #pragma once
@@ -71,14 +71,14 @@ public:
     //    ESaveArchiveSubCode::kSubMigrationNeeded が返って migrate しやすい。
     //  ・atomic 性は提供しない (CREATE_ALWAYS で truncate write)。電源断耐性が
     //    必要な場合は tmp file + Rename を呼出側で組むこと (Phase 2 候補)。
-    Result<void> Save(const T& data, u32 version = 1u) noexcept;
+    TResult<void> Save(const T& data, u32 version = 1u) noexcept;
 
     // Load: ファイルから読み出して T を返す (SaveArchive::ReadFromFile 経由)。
     //  ・expected_version != header.version の場合は
     //    Err(Asset, ESaveArchiveSubCode::kSubMigrationNeeded) を返す。
     //    呼び出し側は SaveArchive::PeekVersion で旧 version を取り直して
     //    migrate するパスに分岐できる。
-    Result<T> Load(u32 expected_version = 1u) noexcept;
+    TResult<T> Load(u32 expected_version = 1u) noexcept;
 
     // Exists: ファイルがあるかだけを判定する。
     //  未初期化 (Init 未呼出) なら常に false。
@@ -86,7 +86,7 @@ public:
 
     // Delete: ファイルを削除する。
     //  未初期化 / ファイルが既に無い場合は成功扱い (べき等)。
-    Result<void> Delete() noexcept;
+    TResult<void> Delete() noexcept;
 
     // 内部状態用 getter (テスト・診断用)。
     const wchar_t* FilePath() const noexcept { return _file_path; }
@@ -109,23 +109,23 @@ namespace detail {
 // テンプレート化された SaveSlot<T> がここを呼ぶ形にして、
 // T ごとにオブジェクトコードが膨らまないようにする。
 // 中身は SaveArchive::WriteToFile / ReadFromFile への薄いラッパ。
-Result<void> SaveSlot_SaveBytes(const wchar_t* file_path,
+TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
                                 u32            version,
                                 const void*    payload,
                                 usize          payload_size) noexcept;
 
-Result<void> SaveSlot_LoadBytes(const wchar_t* file_path,
+TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
                                 u32            expected_version,
                                 void*          payload_out,
                                 usize          payload_size) noexcept;
 
 bool         SaveSlot_Exists(const wchar_t* file_path) noexcept;
-Result<void> SaveSlot_Delete(const wchar_t* file_path) noexcept;
+TResult<void> SaveSlot_Delete(const wchar_t* file_path) noexcept;
 
 } // namespace detail
 
 template<typename T>
-Result<void> SaveSlot<T>::Save(const T& data, u32 version) noexcept {
+TResult<void> SaveSlot<T>::Save(const T& data, u32 version) noexcept {
     return detail::SaveSlot_SaveBytes(_file_path,
                                       version,
                                       static_cast<const void*>(&data),
@@ -133,14 +133,14 @@ Result<void> SaveSlot<T>::Save(const T& data, u32 version) noexcept {
 }
 
 template<typename T>
-Result<T> SaveSlot<T>::Load(u32 expected_version) noexcept {
+TResult<T> SaveSlot<T>::Load(u32 expected_version) noexcept {
     T out{};
     auto r = detail::SaveSlot_LoadBytes(_file_path,
                                         expected_version,
                                         static_cast<void*>(&out),
                                         sizeof(T));
     if (r.IsErr()) return r.Error();
-    return Result<T>(OkInit, static_cast<T&&>(out));
+    return TResult<T>(OkInit, static_cast<T&&>(out));
 }
 
 template<typename T>
@@ -149,7 +149,7 @@ bool SaveSlot<T>::Exists() const noexcept {
 }
 
 template<typename T>
-Result<void> SaveSlot<T>::Delete() noexcept {
+TResult<void> SaveSlot<T>::Delete() noexcept {
     return detail::SaveSlot_Delete(_file_path);
 }
 

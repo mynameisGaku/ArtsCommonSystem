@@ -69,7 +69,7 @@ Thread& Thread::operator=(Thread&& other) noexcept {
 }
 
 // スレッドを生成して起動する。Trampoline 経由で entry を呼ぶ。
-Result<Thread> Thread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& cfg) noexcept {
+TResult<Thread> Thread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& cfg) noexcept {
     if (!entry) return ACS_ERR(Threading, 1, "Thread::Spawn called with null entry");
 
     // ユーザー関数情報を保持する一時オブジェクトをヒープに確保
@@ -95,7 +95,7 @@ Result<Thread> Thread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& 
     Thread t;
     t._handle = h;
     t._id     = ThreadId{ static_cast<u32>(tid) };
-    return Result<Thread>(OkInit, Move(t));
+    return TResult<Thread>(OkInit, Move(t));
 }
 
 // スレッド終了まで待機し、ハンドルを閉じる。

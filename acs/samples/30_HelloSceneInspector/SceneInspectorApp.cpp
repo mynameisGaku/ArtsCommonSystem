@@ -41,7 +41,7 @@ void SceneInspectorApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> SceneInspectorApp::InitialScene() noexcept {
+TUniquePtr<Scene> SceneInspectorApp::InitialScene() noexcept {
     return MakeUnique<SceneInspectorScene>();
 }
 

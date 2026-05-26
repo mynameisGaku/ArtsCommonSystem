@@ -19,17 +19,17 @@ struct Pair {
 };
 
 template<typename K, typename V, typename H = Hasher<K>>
-class HashMap {
+class THashMap {
 public:
     using EntryType = Pair<K, V>;
 
-    HashMap() noexcept : _values(DefaultAllocator()), _alloc(&DefaultAllocator()) {}
-    explicit HashMap(Allocator& a) noexcept : _values(a), _alloc(&a) {}
+    THashMap() noexcept : _values(DefaultAllocator()), _alloc(&DefaultAllocator()) {}
+    explicit THashMap(Allocator& a) noexcept : _values(a), _alloc(&a) {}
 
-    HashMap(const HashMap&) = delete;
-    HashMap& operator=(const HashMap&) = delete;
+    THashMap(const THashMap&) = delete;
+    THashMap& operator=(const THashMap&) = delete;
 
-    HashMap(HashMap&& o) noexcept
+    THashMap(THashMap&& o) noexcept
         : _values(Move(o._values)), _buckets(o._buckets),
           _bucket_count(o._bucket_count), _bucket_mask(o._bucket_mask),
           _alloc(o._alloc) {
@@ -37,7 +37,7 @@ public:
         o._bucket_count = 0;
         o._bucket_mask = 0;
     }
-    HashMap& operator=(HashMap&& o) noexcept {
+    THashMap& operator=(THashMap&& o) noexcept {
         if (this == &o) return *this;
         if (_buckets) _alloc->Free(_buckets);
         _values = Move(o._values);
@@ -50,7 +50,7 @@ public:
         o._bucket_mask = 0;
         return *this;
     }
-    ~HashMap() noexcept { if (_buckets) _alloc->Free(_buckets); }
+    ~THashMap() noexcept { if (_buckets) _alloc->Free(_buckets); }
 
     usize Size() const noexcept     { return _values.Size(); }
     bool  IsEmpty() const noexcept  { return _values.IsEmpty(); }
@@ -83,7 +83,7 @@ public:
     }
 
     const V* Find(const K& key) const noexcept {
-        return const_cast<HashMap*>(this)->Find(key);
+        return const_cast<THashMap*>(this)->Find(key);
     }
 
     bool Contains(const K& key) const noexcept { return Find(key) != nullptr; }
@@ -182,7 +182,7 @@ private:
         Bucket* old_buckets = _buckets;
 
         void* mem = _alloc->Alloc(sizeof(Bucket) * new_count, alignof(Bucket), SourceLoc::Current());
-        ACS_ASSERTF(mem, "HashMap::Rehash: alloc failed (cap=%zu)", new_count);
+        ACS_ASSERTF(mem, "THashMap::Rehash: alloc failed (cap=%zu)", new_count);
         _buckets = static_cast<Bucket*>(mem);
         _bucket_count = new_count;
         _bucket_mask  = static_cast<u32>(new_count - 1);
@@ -272,7 +272,7 @@ private:
         }
     }
 
-    Array<EntryType> _values;            // 密値配列（イテレーションが速い）
+    TArray<EntryType> _values;            // 密値配列（イテレーションが速い）
     Bucket*          _buckets      = nullptr;
     usize            _bucket_count = 0;
     u32              _bucket_mask  = 0;  // bucket_count - 1

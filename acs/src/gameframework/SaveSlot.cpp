@@ -32,7 +32,7 @@ constexpr u16 kSubSlotNotInitialized = 100u;
 
 // 未初期化 (file_path == nullptr) を判定する。
 // 呼出側は Init() を忘れているプログラミングミスなので Warn ログを出す。
-inline Result<void> CheckInitialized(const wchar_t* file_path,
+inline TResult<void> CheckInitialized(const wchar_t* file_path,
                                      const char*    operation) noexcept {
     if (file_path == nullptr) {
         ACS_LOG_WARN("SaveSlot::%s called before Init()", operation);
@@ -53,7 +53,7 @@ inline Result<void> CheckInitialized(const wchar_t* file_path,
 //   2. SaveArchive::WriteToFile(tmp_path, ...)
 //   3. FileSystem::Rename(tmp_path, file_path)
 // に書き換える (Phase 2 候補)。
-Result<void> SaveSlot_SaveBytes(const wchar_t* file_path,
+TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
                                 u32            version,
                                 const void*    payload,
                                 usize          payload_size) noexcept {
@@ -70,7 +70,7 @@ Result<void> SaveSlot_SaveBytes(const wchar_t* file_path,
 // payload_size と header.payload_size の一致は SaveArchive 側が
 // kSubBufferTooSmall で検出する。version 不一致は kSubMigrationNeeded で
 // そのまま伝搬する (呼び出し側が migrate ハンドラに分岐するための情報)。
-Result<void> SaveSlot_LoadBytes(const wchar_t* file_path,
+TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
                                 u32            expected_version,
                                 void*          payload_out,
                                 usize          payload_size) noexcept {
@@ -110,7 +110,7 @@ bool SaveSlot_Exists(const wchar_t* file_path) noexcept {
 // -----------------------------------------------------------------------------
 // ファイルが無い場合は成功扱い (削除済み = 望ましい状態に既にある)。
 // 未初期化は IO error として返す (呼出側のプログラミングミス)。
-Result<void> SaveSlot_Delete(const wchar_t* file_path) noexcept {
+TResult<void> SaveSlot_Delete(const wchar_t* file_path) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Delete"));
     if (!FileSystem::Exists(file_path)) {
         return Ok();

@@ -21,7 +21,7 @@
 //   ・視野角に依存しない 360 度判定。
 //
 // 設計選択:
-//   ・target は `acs::Array<PerceptionTarget>` で線形管理。
+//   ・target は `acs::TArray<PerceptionTarget>` で線形管理。
 //     N が小さい想定 (1 NPC あたり数〜数十 target) なので hash map 不要。
 //     RemoveAtSwap で順序非保証の高速削除。
 //   ・cos(fov/2) は SetConfig 呼び出し時に 1 回だけ計算してキャッシュ。
@@ -39,8 +39,8 @@
 //   cfg.hearing_range = 5.0f;
 //   perc.SetConfig(cfg);
 //
-//   perc.AddTarget(/*id=*/1, acs::Vec2{ 3.0f, 0.0f });
-//   perc.SetEyePos(acs::Vec2{ 0.0f, 0.0f }, acs::Vec2{ 1.0f, 0.0f });   // +X 向き
+//   perc.AddTarget(/*id=*/1, acs::FVec2{ 3.0f, 0.0f });
+//   perc.SetEyePos(acs::FVec2{ 0.0f, 0.0f }, acs::FVec2{ 1.0f, 0.0f });   // +X 向き
 //   perc.Tick(/*dt=*/0.016f);
 //
 //   if (perc.IsTargetVisible(1)) { /* 視認した */ }
@@ -66,7 +66,7 @@ struct SenseConfig {
 // 知覚対象 1 件。pos / id は外部から与え、is_visible / is_audible は
 // Tick が更新する出力スロット。
 struct PerceptionTarget {
-    Vec2 pos        = Vec2::Zero();
+    FVec2 pos        = FVec2::Zero();
     u32  id         = 0;
     bool is_visible = false;
     bool is_audible = false;
@@ -90,18 +90,18 @@ public:
 
     // eye 位置と forward ベクトル (正規化済み前提) を更新する。
     // forward が長さ 0 だった場合は (1, 0) にフォールバックする。
-    void SetEyePos(Vec2 pos, Vec2 forward) noexcept;
+    void SetEyePos(FVec2 pos, FVec2 forward) noexcept;
 
     // 新規 target を追加。同じ id が既に存在する場合は pos を更新するだけ
     // (UpdateTarget と同じ振る舞いで、重複追加を防ぐ)。
-    void AddTarget(u32 id, Vec2 pos) noexcept;
+    void AddTarget(u32 id, FVec2 pos) noexcept;
 
     // 指定 id の target を削除。存在しなければ no-op。順序は保持されない。
     void RemoveTarget(u32 id) noexcept;
 
     // 指定 id の target 位置を更新。存在しなければ no-op
     // (= AddTarget せず静かに無視。AI が削除済み target を参照するケースの想定)。
-    void UpdateTarget(u32 id, Vec2 pos) noexcept;
+    void UpdateTarget(u32 id, FVec2 pos) noexcept;
 
     // 指定 id の target が前回 Tick 時点で visible/audible だったか。
     // 存在しなければ false。
@@ -133,11 +133,11 @@ private:
     f32         _cos_half_fov   = 1.0f;   // SetConfig でキャッシュ (= cos(fov/2))
 
     // ---- eye 状態 ----
-    Vec2        _eye_pos        = Vec2::Zero();
-    Vec2        _eye_forward    = Vec2{1.0f, 0.0f};   // 既定 +X
+    FVec2        _eye_pos        = FVec2::Zero();
+    FVec2        _eye_forward    = FVec2{1.0f, 0.0f};   // 既定 +X
 
     // ---- target ----
-    Array<PerceptionTarget> _targets;
+    TArray<PerceptionTarget> _targets;
 };
 
 } // namespace acs::game

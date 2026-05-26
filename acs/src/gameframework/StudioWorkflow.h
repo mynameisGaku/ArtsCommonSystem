@@ -46,7 +46,7 @@
 //   ・**所有しない const char*** : 文字列は呼び出し側 / 外部 SDK のライフタイムに
 //     従う。Backend はコピーしない (STL <string> 不使用方針)。利用側は
 //     `QueryLock()` の戻り値を「ティック内のみ有効」と扱うこと。
-//   ・**Result<T, ErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は IsConnected
+//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は IsConnected
 //     が常に false で、各操作は `ACS_ERR(Generic, kSub_NotImplemented, "...")` を
 //     返す (BackendClient / SteamworksBridge と同じ defensive pattern)。
 //   ・**Build ID は不透明 u64**: SubmitBuild の戻り値 / PollBuild の入力。実装側で
@@ -122,15 +122,15 @@ public:
     // 指定アセットを `user` の名前でロックする。既にロック中なら kSub_AlreadyLocked。
     // `asset_path` / `user` は呼出側が寿命保証する文字列 (string literal or member
     // バッファ)。Backend は内部でコピーしない。
-    virtual Result<void> LockAsset(const char* asset_path, const char* user) noexcept = 0;
+    virtual TResult<void> LockAsset(const char* asset_path, const char* user) noexcept = 0;
 
     // ロック解除。`asset_path` が未ロック状態なら kSub_NotFound。
     // 他ユーザーのロックを解除する権限は実装依存 (P4 では admin 権限が要る)。
-    virtual Result<void> UnlockAsset(const char* asset_path) noexcept = 0;
+    virtual TResult<void> UnlockAsset(const char* asset_path) noexcept = 0;
 
     // 指定アセットの現在のロック状態を取得。未ロックなら kSub_NotFound。
     // 戻り値の文字列メンバの寿命は次の Backend 呼び出しまで保証する。
-    virtual Result<AssetLockInfo> QueryLock(const char* asset_path) noexcept = 0;
+    virtual TResult<AssetLockInfo> QueryLock(const char* asset_path) noexcept = 0;
 
     // バックエンドへ現在接続できているか。Stub は常に false。
     virtual bool IsConnected() const noexcept = 0;
@@ -174,17 +174,17 @@ public:
     // ビルドを farm に投入。成功時は非ゼロの `build_id` を返す。
     // `req.preset` / `req.branch` / `req.commit_sha` のいずれかが nullptr なら
     // kSub_BadArgument を返す責務は具象実装側 (stub では NotImplemented を優先)。
-    virtual Result<u64> SubmitBuild(const BuildRequest& req) noexcept = 0;
+    virtual TResult<u64> SubmitBuild(const BuildRequest& req) noexcept = 0;
 
     // ビルド状態を取得。`build_id == 0` は kSub_BadArgument、未知の ID は kSub_NotFound。
     // 進行中は IsOk な BuildResult を返してもよい (success=false / artifact_url=nullptr)
     // が、本 I/F では「完了したかどうか」を呼出側に明示するため、進行中は IsErr を
     // 返す実装も許容する (kSub_NotFound 以外の Generic エラーで返すなど。具象側の
     // ポリシー)。
-    virtual Result<BuildResult> PollBuild(u64 build_id) noexcept = 0;
+    virtual TResult<BuildResult> PollBuild(u64 build_id) noexcept = 0;
 
     // ビルドのキャンセル要求。完了済み / 未知 ID への要求は kSub_NotFound。
-    virtual Result<void> CancelBuild(u64 build_id) noexcept = 0;
+    virtual TResult<void> CancelBuild(u64 build_id) noexcept = 0;
 
     // バックエンドへ現在接続できているか。Stub は常に false。
     virtual bool IsConnected() const noexcept = 0;
@@ -203,9 +203,9 @@ public:
     AssetLockingStub() noexcept = default;
     ~AssetLockingStub() noexcept override = default;
 
-    Result<void>           LockAsset(const char* asset_path, const char* user) noexcept override;
-    Result<void>           UnlockAsset(const char* asset_path) noexcept override;
-    Result<AssetLockInfo>  QueryLock(const char* asset_path) noexcept override;
+    TResult<void>           LockAsset(const char* asset_path, const char* user) noexcept override;
+    TResult<void>           UnlockAsset(const char* asset_path) noexcept override;
+    TResult<AssetLockInfo>  QueryLock(const char* asset_path) noexcept override;
     bool                   IsConnected() const noexcept override { return false; }
 };
 
@@ -214,9 +214,9 @@ public:
     BuildFarmStub() noexcept = default;
     ~BuildFarmStub() noexcept override = default;
 
-    Result<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
-    Result<BuildResult>  PollBuild(u64 build_id) noexcept override;
-    Result<void>         CancelBuild(u64 build_id) noexcept override;
+    TResult<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
+    TResult<BuildResult>  PollBuild(u64 build_id) noexcept override;
+    TResult<void>         CancelBuild(u64 build_id) noexcept override;
     bool                 IsConnected() const noexcept override { return false; }
 };
 

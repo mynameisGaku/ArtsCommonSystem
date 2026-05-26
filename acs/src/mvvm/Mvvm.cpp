@@ -17,8 +17,8 @@ template class Observable<u32>;
 template class Observable<f32>;
 template class Observable<f64>;
 template class Observable<bool>;
-template class Observable<Vec2>;
-template class Observable<Vec3>;
-template class Observable<Vec4>;
-template class Observable<String>;
+template class Observable<FVec2>;
+template class Observable<FVec3>;
+template class Observable<FVec4>;
+template class Observable<FString>;
 } // namespace acs

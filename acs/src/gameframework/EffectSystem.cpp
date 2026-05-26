@@ -14,7 +14,7 @@ namespace acs::game {
 // duration <= 0 はノーオプ (Flash を消したい場合は intensity=0 を渡せばよいが、
 // 0 duration は除算を避けたいので明示的に early-return)。
 // =============================================================================
-void EffectSystem::Flash(Vec3 color, f32 intensity, f32 duration) noexcept {
+void EffectSystem::Flash(FVec3 color, f32 intensity, f32 duration) noexcept {
     if (duration <= 0.0f) {
         // すでに走っていた flash を即座に消す
         _flash_t     = 0.0f;

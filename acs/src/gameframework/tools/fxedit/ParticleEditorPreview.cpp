@@ -135,12 +135,12 @@ void ParticleEditorPreview::DrawUI(ParticleEffectSystem& system,
     ImGui::Separator();
 
     // ---- Spawn position editor ----
-    // Vec2 のメモリレイアウトは {f32 x, f32 y} contiguous なので、ImGui::DragFloat2
+    // FVec2 のメモリレイアウトは {f32 x, f32 y} contiguous なので、ImGui::DragFloat2
     // にそのままアドレスを渡せる。値が変わったら即時 system 側にも反映する。
     {
         f32 tmp[2] = { _spawn_pos.x, _spawn_pos.y };
         if (ImGui::DragFloat2("Spawn Pos", tmp, 1.0f)) {
-            _spawn_pos = Vec2{ tmp[0], tmp[1] };
+            _spawn_pos = FVec2{ tmp[0], tmp[1] };
             if (HasPreview(_preview_handle)) {
                 system.SetEmitterPosition(_preview_handle, _spawn_pos);
             }
@@ -252,7 +252,7 @@ void ParticleEditorPreview::StopAll(ParticleEffectSystem& system) noexcept {
 // system 側にも即時反映する (UI からの呼出しと API 呼出しで挙動を揃える)。
 // (UI 経由の更新は DrawUI 内で同じことを行うが、二重反映でも no-op で安全。)
 // ============================================================================
-void ParticleEditorPreview::SetSpawnPos(Vec2 pos) noexcept {
+void ParticleEditorPreview::SetSpawnPos(FVec2 pos) noexcept {
     _spawn_pos = pos;
     // system reference は受け取らない API なので、内部値だけ更新。次の Tick /
     // Recreate 時に反映される。

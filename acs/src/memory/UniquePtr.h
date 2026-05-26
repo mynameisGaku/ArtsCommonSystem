@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — UniquePtr<T>（std::unique_ptr 代替）
+// ACS Memory — TUniquePtr<T>（std::unique_ptr 代替）
 // -----------------------------------------------------------------------------
 // 単独所有のスマートポインタ。ムーブのみ可、コピー不可。
 // 破棄時に Allocator::Free を呼んで自動解放する。
@@ -19,28 +19,28 @@
 namespace acs {
 
 template<typename T>
-class UniquePtr {
+class TUniquePtr {
 public:
-    UniquePtr() noexcept = default;
+    TUniquePtr() noexcept = default;
 
     // 既存ポインタからの構築（所有権を奪う）
-    explicit UniquePtr(T* p, Allocator* a = nullptr) noexcept
+    explicit TUniquePtr(T* p, Allocator* a = nullptr) noexcept
         : _ptr(p), _alloc(a ? a : &DefaultAllocator()) {}
 
     // コピー禁止
-    UniquePtr(const UniquePtr&) = delete;
-    UniquePtr& operator=(const UniquePtr&) = delete;
+    TUniquePtr(const TUniquePtr&) = delete;
+    TUniquePtr& operator=(const TUniquePtr&) = delete;
 
     // ムーブ: 所有権を譲渡
-    UniquePtr(UniquePtr&& o) noexcept : _ptr(o._ptr), _alloc(o._alloc) {
+    TUniquePtr(TUniquePtr&& o) noexcept : _ptr(o._ptr), _alloc(o._alloc) {
         o._ptr = nullptr;
     }
 
     // U → T への変換ムーブ（基底クラスへのアップキャスト等）
     template<typename U>
-    UniquePtr(UniquePtr<U>&& o) noexcept : _ptr(o.Release()), _alloc(o.GetAllocator()) {}
+    TUniquePtr(TUniquePtr<U>&& o) noexcept : _ptr(o.Release()), _alloc(o.GetAllocator()) {}
 
-    UniquePtr& operator=(UniquePtr&& o) noexcept {
+    TUniquePtr& operator=(TUniquePtr&& o) noexcept {
         if (this == &o) return *this;
         Reset();
         _ptr = o._ptr;
@@ -49,10 +49,10 @@ public:
         return *this;
     }
 
-    ~UniquePtr() noexcept { Reset(); }
+    ~TUniquePtr() noexcept { Reset(); }
 
     // ---- アクセス ----
-    // std::unique_ptr<T>::get() と同じ意味論。UniquePtr の const 性と T の const 性は独立。
+    // std::unique_ptr<T>::get() と同じ意味論。TUniquePtr の const 性と T の const 性は独立。
     T* Get() const noexcept { return _ptr; }
 
     T& operator*()  const noexcept { return *_ptr; }
@@ -83,17 +83,17 @@ private:
 
 // デフォルトアロケータで構築
 template<typename T, typename... Args>
-ACS_FORCEINLINE UniquePtr<T> MakeUnique(Args&&... args) noexcept {
+ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... args) noexcept {
     Allocator& a = DefaultAllocator();
     T* p = New<T>(a, Forward<Args>(args)...);
-    return UniquePtr<T>(p, &a);
+    return TUniquePtr<T>(p, &a);
 }
 
 // 指定アロケータで構築
 template<typename T, typename... Args>
-ACS_FORCEINLINE UniquePtr<T> MakeUniqueIn(Allocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(Allocator& a, Args&&... args) noexcept {
     T* p = New<T>(a, Forward<Args>(args)...);
-    return UniquePtr<T>(p, &a);
+    return TUniquePtr<T>(p, &a);
 }
 
 } // namespace acs

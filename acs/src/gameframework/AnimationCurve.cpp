@@ -2,7 +2,7 @@
 // GameFramework Pillar C — AnimationCurve 実装 (Phase 3)
 //
 // アルゴリズム:
-//   ・AddKey:  内部 Array を time 昇順に保つよう、二分探索で挿入位置を決める。
+//   ・AddKey:  内部 TArray を time 昇順に保つよう、二分探索で挿入位置を決める。
 //              同 time の key が既にあれば上書き (新規生成ではなく値更新)。
 //   ・Evaluate: time を WrapMode で [0, Duration] に折り返した後、segment を
 //              二分探索で特定 → 左 key の out_interp で補間。
@@ -21,7 +21,7 @@ namespace acs::game {
 
 // time 昇順を保ったまま挿入位置を返す (= 二分探索の lower_bound)
 // 同 time の key があればその index を返し、上書き処理に流す。
-static u32 LowerBoundByTime(const Array<CurveKey>& keys, f32 time) noexcept {
+static u32 LowerBoundByTime(const TArray<CurveKey>& keys, f32 time) noexcept {
     u32 lo = 0;
     u32 hi = static_cast<u32>(keys.Size());
     while (lo < hi) {
@@ -41,7 +41,7 @@ void AnimationCurve::AddKey(f32 time, f32 value, ECurveInterpolation interp) noe
         return;
     }
 
-    // 末尾に追加してから後ろ向きに 1 個ずつ swap する (Array は中間 insert を
+    // 末尾に追加してから後ろ向きに 1 個ずつ swap する (TArray は中間 insert を
     // 提供しないため。N が大きくない前提 = キー打ち数百個までを想定)
     CurveKey k;
     k.time        = time;
@@ -90,7 +90,7 @@ void AnimationCurve::AddKeyHermite(f32 time, f32 value,
 
 void AnimationCurve::RemoveKey(u32 index) noexcept {
     if (index >= _keys.Size()) return;
-    // 順序を保つため左詰め (Array::RemoveAtSwap は順序を崩すので使えない)
+    // 順序を保つため左詰め (TArray::RemoveAtSwap は順序を崩すので使えない)
     for (u32 i = index; i + 1u < _keys.Size(); ++i) {
         _keys[i] = _keys[i + 1u];
     }

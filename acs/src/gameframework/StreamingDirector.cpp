@@ -6,8 +6,8 @@
 // 接続する (1 chunk = 1 AssetBundle 相当)。
 //
 // 設計メモ:
-//   ・Unloaded 状態の ChunkInfo は内部 Array に残さない (= Find() == nullptr が Unloaded)。
-//     これにより Array サイズはおおむね「保持半径内のチャンク数 + 範囲外で Unloading 進行中」
+//   ・Unloaded 状態の ChunkInfo は内部 TArray に残さない (= Find() == nullptr が Unloaded)。
+//     これにより TArray サイズはおおむね「保持半径内のチャンク数 + 範囲外で Unloading 進行中」
 //     に収まる。view_radius=2 なら 25 chunks 前後。
 //   ・Loading の同時上限は Promote 時点でのみチェック。既に Loading 中のチャンクが
 //     その後の Tick() で進行することは妨げない (= 完了優先で枠を空ける方針)。
@@ -27,7 +27,7 @@ void StreamingDirector::Init(f32 chunk_size, i32 view_radius_chunks) noexcept {
     // (Init を「設定値の更新」用途でも呼べるようにするため)。
 }
 
-void StreamingDirector::SetViewerPos(Vec2 pos) noexcept {
+void StreamingDirector::SetViewerPos(FVec2 pos) noexcept {
     _viewer_pos = pos;
 }
 
@@ -65,7 +65,7 @@ bool StreamingDirector::InRange(ChunkId id) const noexcept {
     const i32 dx = id.cx - v.cx;
     const i32 dy = id.cy - v.cy;
     // 矩形 (チェビシェフ) 範囲: max(|dx|, |dy|) <= view_radius。
-    // 円形にしたい場合は Phase P-2 で Vec2 距離判定に切り替える。
+    // 円形にしたい場合は Phase P-2 で FVec2 距離判定に切り替える。
     const i32 adx = dx >= 0 ? dx : -dx;
     const i32 ady = dy >= 0 ? dy : -dy;
     const i32 mx  = adx > ady ? adx : ady;
@@ -119,7 +119,7 @@ void StreamingDirector::Tick(f32 dt) noexcept {
 
     // 2. Loading の進捗を進めて完了で Loaded へ、範囲外 Loaded は Unloading へ。
     //    走査中に EraseSwap せず、Unloaded フラグを別途立てて後で一括除去する
-    //    (Array のインデックス安定性を保つため)。
+    //    (TArray のインデックス安定性を保つため)。
     for (usize i = 0; i < _chunks.Size(); ++i) {
         ChunkInfo& c = _chunks[i];
         switch (c.state) {
@@ -150,15 +150,15 @@ void StreamingDirector::Tick(f32 dt) noexcept {
         case EChunkState::Unloading:
         case EChunkState::Unloaded:
         default:
-            // Unloading は次ステップで Array から除去される。
+            // Unloading は次ステップで TArray から除去される。
             // Unloaded は通常 _chunks に存在しないが、防御的に no-op。
             break;
         }
     }
 
     // 3. Unloading のものを実際に破棄する。
-    //    TODO(Phase P-2): ここで bundle.Unload() を呼び、Rc<Asset> を drop。
-    //    Phase P-1 はメタデータだけなので Array から除去するのみ。
+    //    TODO(Phase P-2): ここで bundle.Unload() を呼び、TRc<Asset> を drop。
+    //    Phase P-1 はメタデータだけなので TArray から除去するのみ。
     {
         usize i = 0;
         while (i < _chunks.Size()) {

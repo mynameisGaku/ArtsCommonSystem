@@ -28,14 +28,14 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == 0 && *b == 0;
 }
 
-void RTrim(String& s) noexcept {
+void RTrim(FString& s) noexcept {
     while (s.Size() > 0) {
         const char c = s[s.Size() - 1];
         if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
-            // String には Pop が無いので新しい文字列を作って置換
-            String t;
+            // FString には Pop が無いので新しい文字列を作って置換
+            FString t;
             t.Reserve(s.Size() - 1);
-            t.Append(StringView(s.Data(), s.Size() - 1));
+            t.Append(FStringView(s.Data(), s.Size() - 1));
             s = Move(t);
         } else {
             break;
@@ -77,11 +77,11 @@ void Storage::SetString(const char* key, const char* value) noexcept {
     if (!key) return;
     Entry* e = FindEntry(key);
     if (e) {
-        e->value = String(value ? value : "");
+        e->value = FString(value ? value : "");
     } else {
         Entry ne;
-        ne.key   = String(key);
-        ne.value = String(value ? value : "");
+        ne.key   = FString(key);
+        ne.value = FString(value ? value : "");
         _entries.PushBack(Move(ne));
     }
 }
@@ -157,7 +157,7 @@ const Storage::Entry* Storage::FindEntry(const char* key) const noexcept {
     return const_cast<Storage*>(this)->FindEntry(key);
 }
 
-Result<void> Storage::Load(const wchar_t* path) noexcept {
+TResult<void> Storage::Load(const wchar_t* path) noexcept {
     if (!path) return ACS_ERR(IO, 100, "Storage::Load: null path");
     if (!FileSystem::Exists(path)) {
         // 無ければ空状態のまま成功扱い
@@ -165,11 +165,11 @@ Result<void> Storage::Load(const wchar_t* path) noexcept {
     }
     auto bytes_r = FileSystem::ReadAllBytes(path);
     if (bytes_r.IsErr()) return Err<void>(bytes_r.Error());
-    const Array<byte>& bytes = bytes_r.Value();
+    const TArray<byte>& bytes = bytes_r.Value();
     return LoadFromBytes(reinterpret_cast<const u8*>(bytes.Data()), bytes.Size());
 }
 
-Result<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
+TResult<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
     _entries.Clear();
     if (!data) return Ok();
 
@@ -186,7 +186,7 @@ Result<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
     while (p < end) {
         const char* line_start = p;
         while (p < end && *p != '\n' && *p != '\r') ++p;
-        StringView line{ line_start, static_cast<usize>(p - line_start) };
+        FStringView line{ line_start, static_cast<usize>(p - line_start) };
         // 改行文字をスキップ
         while (p < end && (*p == '\n' || *p == '\r')) ++p;
 
@@ -206,14 +206,14 @@ Result<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
         usize ve = line.Size();
 
         Entry e;
-        e.key   = String(StringView(line.Data() + ks, ke - ks));
-        e.value = String(StringView(line.Data() + vs, ve - vs));
+        e.key   = FString(FStringView(line.Data() + ks, ke - ks));
+        e.value = FString(FStringView(line.Data() + vs, ve - vs));
         _entries.PushBack(Move(e));
     }
     return Ok();
 }
 
-Result<void> Storage::Save(const wchar_t* path) noexcept {
+TResult<void> Storage::Save(const wchar_t* path) noexcept {
     if (!path) return ACS_ERR(IO, 101, "Storage::Save: null path");
 
     // 親ディレクトリを作成（無ければ）
@@ -227,9 +227,9 @@ Result<void> Storage::Save(const wchar_t* path) noexcept {
         }
     }
 
-    String out;
+    FString out;
     out.Reserve(64 * (_entries.Size() + 1));
-    out.Append(StringView("# acs Storage\n"));
+    out.Append(FStringView("# acs Storage\n"));
     for (usize i = 0; i < _entries.Size(); ++i) {
         out.Append(_entries[i].key.View());
         out.Append('=');
@@ -240,7 +240,7 @@ Result<void> Storage::Save(const wchar_t* path) noexcept {
         reinterpret_cast<const byte*>(out.Data()), out.Size());
 }
 
-Result<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
+TResult<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
                                      const wchar_t* file_name,
                                      wchar_t* out, usize cap) noexcept {
     if (!out || cap == 0) return ACS_ERR(IO, 110, "GetAppDataPath: bad args");
@@ -288,7 +288,7 @@ bool WideToUtf8(const wchar_t* wide, char* out, usize cap) noexcept {
 }
 } // namespace
 
-Result<void> Storage::Load(const char* path_utf8) noexcept {
+TResult<void> Storage::Load(const char* path_utf8) noexcept {
     wchar_t buf[1024];
     if (!Utf8ToWide(path_utf8, buf, 1024)) {
         return ACS_ERR(IO, 120, "Storage::Load(utf8): conversion failed");
@@ -296,7 +296,7 @@ Result<void> Storage::Load(const char* path_utf8) noexcept {
     return Load(buf);
 }
 
-Result<void> Storage::Save(const char* path_utf8) noexcept {
+TResult<void> Storage::Save(const char* path_utf8) noexcept {
     wchar_t buf[1024];
     if (!Utf8ToWide(path_utf8, buf, 1024)) {
         return ACS_ERR(IO, 121, "Storage::Save(utf8): conversion failed");
@@ -304,7 +304,7 @@ Result<void> Storage::Save(const char* path_utf8) noexcept {
     return Save(buf);
 }
 
-Result<void> Storage::GetAppDataPath(const char* sub_dir_utf8,
+TResult<void> Storage::GetAppDataPath(const char* sub_dir_utf8,
                                      const char* file_name_utf8,
                                      char* out_utf8, usize cap) noexcept {
     if (!out_utf8 || cap == 0) return ACS_ERR(IO, 122, "bad args");

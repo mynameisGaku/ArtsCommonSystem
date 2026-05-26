@@ -117,12 +117,12 @@ void HelloTexturedApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
     if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
 
-    Vec3 eye{ Sin(_cam_yaw) * 5.0f, 1.5f, -Cos(_cam_yaw) * 5.0f };
+    FVec3 eye{ Sin(_cam_yaw) * 5.0f, 1.5f, -Cos(_cam_yaw) * 5.0f };
     _camera.SetLookAt(eye, {0, 0, 0});
 
-    Mat4 model = Mat4::RotationY(_angle) * Mat4::RotationX(_angle * 0.4f);
-    Mat4 mvp   = model * _camera.View() * _camera.Projection();
-    _cb->Update(&mvp, sizeof(Mat4));
+    FMat4 model = FMat4::RotationY(_angle) * FMat4::RotationX(_angle * 0.4f);
+    FMat4 mvp   = model * _camera.View() * _camera.Projection();
+    _cb->Update(&mvp, sizeof(FMat4));
 }
 
 void HelloTexturedApp::OnRender() noexcept {

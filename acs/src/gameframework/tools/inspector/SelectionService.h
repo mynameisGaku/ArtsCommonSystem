@@ -31,9 +31,9 @@
 //   ・**from / to を渡す**: 単純な「to」だけだと、購読側で前回値を覚えて
 //     diff を取る必要が出る。差分通知の典型形は (from, to) なのでハブ側で
 //     渡す。`ClearSelection()` は `to = NodeId{}` (invalid) として通知される。
-//   ・**STL 不使用**: 登録 list は `acs::Array<CallbackEntry>`。
+//   ・**STL 不使用**: 登録 list は `acs::TArray<CallbackEntry>`。
 //   ・**全 noexcept**: ACS 規約。エラーは null/重複弾きで安全 no-op。
-//   ・**非コピー / 非ムーブ**: 内部 Array<CallbackEntry> の所有を曖昧にしない。
+//   ・**非コピー / 非ムーブ**: 内部 TArray<CallbackEntry> の所有を曖昧にしない。
 //   ・**Game / SceneManager への依存なし**: NodeId だけを扱うため、選択対象が
 //     生きているか / どの Scene に属するかの検証は購読側責務。これで
 //     editor の "選択は残るが対象は破棄済み" のケースも素直に表現できる。
@@ -113,7 +113,7 @@ private:
     void FireChange(NodeId from, NodeId to) const noexcept;
 
     NodeId               _current;        // 現選択 (default = invalid)
-    Array<CallbackEntry> _callbacks;      // 登録 callback 群
+    TArray<CallbackEntry> _callbacks;      // 登録 callback 群
 };
 
 } // namespace acs::game::inspector

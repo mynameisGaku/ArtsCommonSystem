@@ -17,13 +17,13 @@ public:
     ACS_ASSET_TYPE("BinaryAsset")
 
     BinaryAsset() noexcept = default;
-    explicit BinaryAsset(Array<byte>&& bytes) noexcept : _bytes(Move(bytes)) {}
+    explicit BinaryAsset(TArray<byte>&& bytes) noexcept : _bytes(Move(bytes)) {}
 
-    const Array<byte>& Bytes() const noexcept { return _bytes; }
-    Array<byte>&       Bytes()       noexcept { return _bytes; }
+    const TArray<byte>& Bytes() const noexcept { return _bytes; }
+    TArray<byte>&       Bytes()       noexcept { return _bytes; }
 
 private:
-    Array<byte> _bytes;
+    TArray<byte> _bytes;
 };
 
 // 拡張子フォールバックローダ（任意の拡張子を担当する）
@@ -32,7 +32,7 @@ public:
     AssetType   TypeId()    const noexcept override { return BinaryAsset::StaticType(); }
     const char* Extension() const noexcept override { return "*"; }  // 全拡張子のフォールバック
 
-    Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

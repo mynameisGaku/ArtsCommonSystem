@@ -10,9 +10,9 @@
 //   ・**voice handle 方式**: BGM / SFX を統一的に「voice」として扱い、24bit
 //     index + 8bit generation で一意化する。slot 再利用時の use-after-free
 //     を generation で検出。
-//   ・**Result<void, ErrorCode> for Init**: backend 初期化のみ失敗ありえる
+//   ・**TResult<void, FErrorCode> for Init**: backend 初期化のみ失敗ありえる
 //     (COM init / device 取得失敗等)。Play 系は noexcept で「鳴らせなければ
-//     InvalidHandle を返す」設計 (1 フレで何度も呼ぶ hot path なので Result
+//     InvalidHandle を返す」設計 (1 フレで何度も呼ぶ hot path なので TResult
 //     を回避)。
 //   ・**Tick(dt)**: 再生完了済 voice の slot 解放を backend 側に畳み込む。
 //     ゲーム側は dt を渡すだけで一発再生の自然回収を任せられる。
@@ -36,7 +36,7 @@
 
 namespace acs::game {
 
-// ---- ErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
+// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
 // SteamworksBridge / VoiceChat と同様、Generic + 安定 subcode で表現。
 // 呼び出し側は `err.subcode == kSubAudioComInitFailed` 等でフィルタ可能。
 inline constexpr u16 kSubAudioAlreadyInitialized = 1200;  // Init を 2 回呼んだ
@@ -109,7 +109,7 @@ public:
 
     // backend 初期化。max_voices は同時発音数の上限 (slot 数)。0 は不正。
     // 多重 Init は kSubAudioAlreadyInitialized エラー。
-    virtual Result<void> Init(u32 max_voices = 64) noexcept = 0;
+    virtual TResult<void> Init(u32 max_voices = 64) noexcept = 0;
 
     // 全 voice を停止して資源解放。Init 前に呼んでも安全 (no-op)。
     virtual void Shutdown() noexcept = 0;

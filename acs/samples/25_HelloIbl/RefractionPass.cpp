@@ -13,7 +13,7 @@ using namespace acs;
 
 namespace helloibl {
 
-void RenderRefractionPass(HelloIblApp& app, const Mat4& vp_for_render,
+void RenderRefractionPass(HelloIblApp& app, const FMat4& vp_for_render,
                           const Viewport& vp, const ScissorRect& svr) noexcept {
     if (!app._show_refraction) return;
 
@@ -35,17 +35,17 @@ void RenderRefractionPass(HelloIblApp& app, const Mat4& vp_for_render,
     if (env_for_refr) {
         // 透明ガラス球 (左): roughness=0 で 1-tap シャープな屈折 +
         // dispersion=0.4 でダイヤ/プリズム風の色分離
-        const Mat4 clear_model =
-            Mat4::Scale(Vec3{1.4f, 1.4f, 1.4f}) * Mat4::Translation(kGlassPos);
+        const FMat4 clear_model =
+            FMat4::Scale(FVec3{1.4f, 1.4f, 1.4f}) * FMat4::Translation(kGlassPos);
         app._refr.DrawMesh(*cl, app._gm_sphere, clear_model, *app._bg_rt, *env_for_refr,
-                           /*ior=*/1.5f, /*thickness=*/0.4f, Vec3{1, 1, 1},
+                           /*ior=*/1.5f, /*thickness=*/0.4f, FVec3{1, 1, 1},
                            /*roughness=*/0.0f, /*dispersion=*/0.4f);
         // フロステッドガラス球 (右): roughness=0.5 で 8-tap disk ブラー
-        const Mat4 frosted_model =
-            Mat4::Scale(Vec3{1.2f, 1.2f, 1.2f}) * Mat4::Translation(kFrostedGlassPos);
+        const FMat4 frosted_model =
+            FMat4::Scale(FVec3{1.2f, 1.2f, 1.2f}) * FMat4::Translation(kFrostedGlassPos);
         app._refr.DrawMesh(*cl, app._gm_sphere, frosted_model, *app._bg_rt, *env_for_refr,
                            /*ior=*/1.5f, /*thickness=*/0.4f,
-                           Vec3{0.95f, 0.97f, 1.0f},     // 弱く青に着色
+                           FVec3{0.95f, 0.97f, 1.0f},     // 弱く青に着色
                            /*roughness=*/0.5f);
     }
     cl->EndRenderToTexture(*hdr);

@@ -12,7 +12,7 @@ Transform2D Node2D::World() const noexcept {
     return _parent->World().Compose(_local);
 }
 
-Node2D& Node2D::AddChild(UniquePtr<Node2D> child) noexcept {
+Node2D& Node2D::AddChild(TUniquePtr<Node2D> child) noexcept {
     // 重複防止 (nullptr ならエスケープ)。null の場合は自身を返して
     // チェイン記述が壊れないようにする (将来 stale id 対策の sentinel として)。
     if (!child) return *this;
@@ -115,14 +115,14 @@ void Node2D::ResolveStructuralChanges() noexcept {
         if (c != nullptr) c->ResolveStructuralChanges();
     }
 
-    // 2) 親側で pending_destroy な子を OnDespawn して Array から除く。
+    // 2) 親側で pending_destroy な子を OnDespawn して TArray から除く。
     //    順序を保つために compact pattern (read=r, write=w) を使う。
-    //    生存ノードは ranges を維持、destroy 対象は OnDespawn してから UniquePtr が
+    //    生存ノードは ranges を維持、destroy 対象は OnDespawn してから TUniquePtr が
     //    Move 上書きで破棄される (= ノード本体のデストラクタが走る)。
     //    また pending_reparent_target が立っている子は new_parent 側へ Move する
     //    (= w 側からも除く)。Reparent 対象の Move は本ループの後 _move_outs に集めて
     //    一括で new_parent->_children に PushBack する。
-    Array<UniquePtr<Node2D>> reparent_pending;
+    TArray<TUniquePtr<Node2D>> reparent_pending;
 
     u32 w = 0;
     for (u32 r = 0; r < _children.Size(); ++r) {
@@ -140,8 +140,8 @@ void Node2D::ResolveStructuralChanges() noexcept {
             }
             c->_components.Clear();
             c->OnDespawn();
-            // 続いて UniquePtr<Node2D> をリセット (= ノードのデストラクタ →
-            // children Array のデストラクタが走り、子ノードのデストラクタ
+            // 続いて TUniquePtr<Node2D> をリセット (= ノードのデストラクタ →
+            // children TArray のデストラクタが走り、子ノードのデストラクタ
             // (memory release) は子→親の順)。
             _children[r].Reset();
         } else if (c->_pending_reparent_target != nullptr) {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework 完成度システム v7 — Progression 実装
 //
-// AchievementManager / Entitlement と同じ「Def + State の並行 Array」pattern。
+// AchievementManager / Entitlement と同じ「Def + State の並行 TArray」pattern。
 // id 比較は STL <cstring> も避けて per-byte ループを自前で書く (Entitlement
 // / Settings と同じ StrEq pattern)。
 //
@@ -107,7 +107,7 @@ void Progression::AwardXp(u32 amount) noexcept {
 
         // Callback 通知。設定されていなければ no-op。
         // 呼出中に callback がさらに AwardXp / RegisterMilestone を叩く可能性
-        // はあるが、_defs / _states は Array 内部で再確保される場合があるため
+        // はあるが、_defs / _states は TArray 内部で再確保される場合があるため
         // callback 内での再入は推奨しない (API ドキュメント側で注意喚起)。
         // ただし最低限 _defs.Size() を毎ループ取り直すのではなく、最初に取った
         // n を信頼することで「callback 内 RegisterMilestone は次回 AwardXp で
@@ -197,7 +197,7 @@ void Progression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexce
 // ============================================================================
 // 永続化 (Phase 2 で実装)
 // ============================================================================
-// Phase 1 は TODO スタブ。形だけ Result<void> を返して呼出側の構造を
+// Phase 1 は TODO スタブ。形だけ TResult<void> を返して呼出側の構造を
 // 先に組めるようにする。Phase 2 で SaveSlot<ProgressionSaveData> 経由の
 // atomic write + 読み取りに接続する。
 //
@@ -206,7 +206,7 @@ void Progression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexce
 //   ・各 milestone の達成フラグと timestamp を id でキーにしたペア配列
 //     → スキーマ進化を考えると単純な memcpy では足りないため、
 //        SaveArchive 経由の field-by-field writer を導入してから実装する。
-Result<void> Progression::Save(const wchar_t* file_path) noexcept {
+TResult<void> Progression::Save(const wchar_t* file_path) noexcept {
     (void)file_path;
     // TODO(Phase 2): SaveSlot<ProgressionSaveData> 経由で atomic write。
     //   ・xp (u32)
@@ -217,7 +217,7 @@ Result<void> Progression::Save(const wchar_t* file_path) noexcept {
     return Ok();
 }
 
-Result<void> Progression::Load(const wchar_t* file_path) noexcept {
+TResult<void> Progression::Load(const wchar_t* file_path) noexcept {
     (void)file_path;
     // TODO(Phase 2): Save と対称な reader を実装。読み込んだ id_hash を
     //   現在登録済みの milestone 群と突き合わせ、一致した分だけ achieved /

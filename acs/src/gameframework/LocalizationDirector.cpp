@@ -4,7 +4,7 @@
 // key 比較は const char* 同士の per-byte 比較 (StrEq 相当を自前で書く)。
 // STL 禁止 + <cstring> も避ける方針で、ループを直接書いておく。
 // 文字列 ID 件数は通常 100〜2000 のオーダーなので、線形走査で十分。
-// HashMap 化は Phase 2 で計測してから検討する。
+// THashMap 化は Phase 2 で計測してから検討する。
 #include "gameframework/LocalizationDirector.h"
 
 namespace acs::game {
@@ -109,7 +109,7 @@ void LocalizationDirector::Clear() noexcept {
 }
 
 void LocalizationDirector::ClearLocale(ELocale loc) noexcept {
-    // 指定 locale 以外を残して再構築。Array に Erase が無いので、生存要素を
+    // 指定 locale 以外を残して再構築。TArray に Erase が無いので、生存要素を
     // 前詰めしてから末尾を切る (RemoveAtSwap だと順序が壊れて Get の先頭一致
     // 挙動が不安定になるため使わない)。
     const usize total = _entries.Size();
@@ -123,7 +123,7 @@ void LocalizationDirector::ClearLocale(ELocale loc) noexcept {
         }
     }
     // 末尾を縮める。Resize は LocaleEntry が trivially destructible なので
-    // 単純にサイズだけ縮める動きになる (Array<T>::Resize 実装参照)。
+    // 単純にサイズだけ縮める動きになる (TArray<T>::Resize 実装参照)。
     if (write != total) {
         _entries.Resize(write);
     }

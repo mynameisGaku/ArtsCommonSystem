@@ -259,7 +259,7 @@ void CinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
         _selected_idx = kNoKeySelected;
         return;
     }
-    // 順序保存削除 (= shift)。Array に Erase が無いので手動で詰める。
+    // 順序保存削除 (= shift)。TArray に Erase が無いので手動で詰める。
     const usize n = _keyframes.Size();
     for (usize i = idx; i + 1 < n; ++i) {
         _keyframes[i] = _keyframes[i + 1];
@@ -312,7 +312,7 @@ void CinematicsTimelineEditorPanel::BakeToDirector() noexcept {
         switch (ek.kind) {
         case ETimelineKeyKind::CameraCut:
             rk.payload.camera.target_pos =
-                Vec2{ ek.camera_target.x, ek.camera_target.y };
+                FVec2{ ek.camera_target.x, ek.camera_target.y };
             rk.payload.camera.zoom     = 1.0f;
             rk.payload.camera.duration = 0.0f;
             break;
@@ -617,7 +617,7 @@ void CinematicsTimelineEditorPanel::DrawUI() noexcept {
         } else {
             // 参照が reorder で無効化されないよう、UI 編集前に kind を controlled
             // 変数として捕獲しておく (= time の DragFloat が並び替え + PushBack
-            // による Array 再確保を引き起こすと kf 参照が dangling になる)。
+            // による TArray 再確保を引き起こすと kf 参照が dangling になる)。
             const ETimelineKeyKind kind_for_payload =
                 _keyframes[static_cast<usize>(_selected_idx)].kind;
             ImGui::Text("Kind: %s", KindName(kind_for_payload));
@@ -655,7 +655,7 @@ void CinematicsTimelineEditorPanel::DrawUI() noexcept {
                                    kf.camera_target.y,
                                    kf.camera_target.z };
                     if (ImGui::DragFloat3("target", v, 0.1f)) {
-                        kf.camera_target = Vec3{ v[0], v[1], v[2] };
+                        kf.camera_target = FVec3{ v[0], v[1], v[2] };
                         BakeToDirector();
                     }
                     break;
@@ -668,10 +668,10 @@ void CinematicsTimelineEditorPanel::DrawUI() noexcept {
                                     kf.fade_end_color.y,
                                     kf.fade_end_color.z };
                     if (ImGui::ColorEdit3("start", c0)) {
-                        kf.fade_start_color = Vec3{ c0[0], c0[1], c0[2] };
+                        kf.fade_start_color = FVec3{ c0[0], c0[1], c0[2] };
                     }
                     if (ImGui::ColorEdit3("end", c1)) {
-                        kf.fade_end_color = Vec3{ c1[0], c1[1], c1[2] };
+                        kf.fade_end_color = FVec3{ c1[0], c1[1], c1[2] };
                     }
                     break;
                 }
@@ -692,7 +692,7 @@ void CinematicsTimelineEditorPanel::DrawUI() noexcept {
                                    kf.camera_target.y,
                                    kf.camera_target.z };
                     if (ImGui::DragFloat3("position", p, 0.1f)) {
-                        kf.camera_target = Vec3{ p[0], p[1], p[2] };
+                        kf.camera_target = FVec3{ p[0], p[1], p[2] };
                     }
                     break;
                 }

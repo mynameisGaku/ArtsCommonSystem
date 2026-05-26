@@ -205,12 +205,12 @@ struct EnvCaptureCBLayout {
     i32 pad0;
     i32 pad1;
     i32 pad2;
-    Vec4 sun_dir;
-    Vec4 sun_color;
-    Vec4 sun_params;
-    Vec4 zenith;
-    Vec4 horizon;
-    Vec4 ground;
+    FVec4 sun_dir;
+    FVec4 sun_color;
+    FVec4 sun_params;
+    FVec4 zenith;
+    FVec4 horizon;
+    FVec4 ground;
 };
 
 // ---- Skybox preview (env / irradiance / prefilter cubemap を fullscreen 描画) ----
@@ -250,9 +250,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct SkyboxCBLayout {
-    Mat4 inv_view_proj;
-    Vec4 eye;
-    Vec4 mip_pad;      // x=mip level
+    FMat4 inv_view_proj;
+    FVec4 eye;
+    FVec4 mip_pad;      // x=mip level
 };
 
 // ---- Diffuse irradiance 生成 (env cubemap の半球積分) ----
@@ -526,7 +526,7 @@ struct EquirectCBLayout {
 
 } // namespace
 
-Result<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
+TResult<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
                                                 IRhiCommandList& cl) noexcept {
     if (_brdf_built) return Ok();
     auto r = BuildBrdfLut(device, cl);
@@ -535,7 +535,7 @@ Result<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
     return Ok();
 }
 
-Result<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
+TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
                                                IRhiCommandList& cl) noexcept {
     // Dx12 raw backend では何もしない (BeginRenderToTexture が空、Pipeline cast 不能)。
     // Ibl.h で「Diligent 専用」と謳っているが運用上の事故防止のため early-return。
@@ -558,9 +558,9 @@ Result<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     _brdf_lut = Move(t_r.Value());
 
     // 2) 一時 VS/PS/Pipeline (LUT は 1 回描画後は静的データなのでパイプラインは捨てる)
-    UniquePtr<IRhiShader>   vs;
-    UniquePtr<IRhiShader>   ps;
-    UniquePtr<IRhiPipeline> pipeline;
+    TUniquePtr<IRhiShader>   vs;
+    TUniquePtr<IRhiShader>   ps;
+    TUniquePtr<IRhiPipeline> pipeline;
 
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -609,7 +609,7 @@ Result<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     return Ok();
 }
 
-Result<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
+TResult<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
                                                   const Sky& sky) noexcept {
     if (_env_built) return Ok();
@@ -619,7 +619,7 @@ Result<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
     return Ok();
 }
 
-Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
+TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
                                                   const Sky& sky) noexcept {
     if (!IsDiligentBackend(device)) {
@@ -642,10 +642,10 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     _env_cube = Move(t_r.Value());
 
     // 2) 一時 VS/PS/Pipeline/CB
-    UniquePtr<IRhiShader>   vs;
-    UniquePtr<IRhiShader>   ps;
-    UniquePtr<IRhiPipeline> pipeline;
-    UniquePtr<IRhiBuffer>   cb;
+    TUniquePtr<IRhiShader>   vs;
+    TUniquePtr<IRhiShader>   ps;
+    TUniquePtr<IRhiPipeline> pipeline;
+    TUniquePtr<IRhiBuffer>   cb;
 
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -692,22 +692,22 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
 
     // 3) 6 face を順に塗る
     ClearColor black{0, 0, 0, 1};
-    const Vec3 sd = sky.SunDirection();
-    const Vec3 sc = sky.SunColor();
-    const Vec3 zn = sky.ZenithColor();
-    const Vec3 hz = sky.HorizonColor();
-    const Vec3 gr = sky.GroundColor();
+    const FVec3 sd = sky.SunDirection();
+    const FVec3 sc = sky.SunColor();
+    const FVec3 zn = sky.ZenithColor();
+    const FVec3 hz = sky.HorizonColor();
+    const FVec3 gr = sky.GroundColor();
 
     cl.SetPipeline(*pipeline);
     for (u32 face = 0; face < 6; ++face) {
         EnvCaptureCBLayout data{};
         data.face_index = static_cast<i32>(face);
-        data.sun_dir    = Vec4{sd.x, sd.y, sd.z, 0};
-        data.sun_color  = Vec4{sc.x, sc.y, sc.z, 1};
-        data.sun_params = Vec4{sky.SunRadius(), sky.SunGlow(), 0, 0};
-        data.zenith     = Vec4{zn.x, zn.y, zn.z, 1};
-        data.horizon    = Vec4{hz.x, hz.y, hz.z, 1};
-        data.ground     = Vec4{gr.x, gr.y, gr.z, 1};
+        data.sun_dir    = FVec4{sd.x, sd.y, sd.z, 0};
+        data.sun_color  = FVec4{sc.x, sc.y, sc.z, 1};
+        data.sun_params = FVec4{sky.SunRadius(), sky.SunGlow(), 0, 0};
+        data.zenith     = FVec4{zn.x, zn.y, zn.z, 1};
+        data.horizon    = FVec4{hz.x, hz.y, hz.z, 1};
+        data.ground     = FVec4{gr.x, gr.y, gr.z, 1};
         cb->Update(&data, sizeof(data));
 
         cl.BeginRenderToTextureSlice(*_env_cube, face, 0, black);
@@ -725,9 +725,9 @@ Result<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
 
 void ImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
                                                   u32 width, u32 height,
-                                                  Vec4 out_sh_rgb[9]) noexcept {
+                                                  FVec4 out_sh_rgb[9]) noexcept {
     // 初期化
-    for (u32 i = 0; i < 9; ++i) out_sh_rgb[i] = Vec4{0, 0, 0, 0};
+    for (u32 i = 0; i < 9; ++i) out_sh_rgb[i] = FVec4{0, 0, 0, 0};
     if (!rgba_float || width == 0 || height == 0) return;
 
     // SH basis 定数 (Ramamoorthi-Hanrahan 2001、Stupid SH Tricks の表記)
@@ -787,7 +787,7 @@ void ImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
         }
     }
     for (u32 i = 0; i < 9; ++i) {
-        out_sh_rgb[i] = Vec4{
+        out_sh_rgb[i] = FVec4{
             static_cast<f32>(sh_r[i]),
             static_cast<f32>(sh_g[i]),
             static_cast<f32>(sh_b[i]),
@@ -796,7 +796,7 @@ void ImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
     }
 }
 
-Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
+TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
         IRhiDevice& device, IRhiCommandList& cl,
         const f32* rgba_float, u32 width, u32 height) noexcept {
     if (!IsDiligentBackend(device)) {
@@ -811,7 +811,7 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     ResetEnvCubemap();
 
     // 1) equirect Texture2D (R32G32B32A32_Float、CPU 提供データを直接 upload)
-    UniquePtr<IRhiTexture> equirect;
+    TUniquePtr<IRhiTexture> equirect;
     {
         TextureDesc td{};
         td.width  = width;
@@ -840,10 +840,10 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     }
 
     // 3) 一時 VS/PS/Pipeline/CB
-    UniquePtr<IRhiShader>   vs;
-    UniquePtr<IRhiShader>   ps;
-    UniquePtr<IRhiPipeline> pipeline;
-    UniquePtr<IRhiBuffer>   cb;
+    TUniquePtr<IRhiShader>   vs;
+    TUniquePtr<IRhiShader>   ps;
+    TUniquePtr<IRhiPipeline> pipeline;
+    TUniquePtr<IRhiBuffer>   cb;
 
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -910,7 +910,7 @@ Result<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     return Ok();
 }
 
-Result<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
+TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
                                                    IRhiCommandList& cl) noexcept {
     if (_irradiance_built) return Ok();
     // Diligent でなければ silent no-op (EnsureBrdfLut/EnsureEnvCubemap と一貫した挙動)
@@ -925,7 +925,7 @@ Result<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
     return Ok();
 }
 
-Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
+TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (!IsDiligentBackend(device)) {
         ACS_LOG_WARN("ImageBasedLighting: irradiance skipped (backend != Diligent)");
@@ -947,10 +947,10 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     _irradiance_cube = Move(t_r.Value());
 
     // 2) 一時 VS/PS/Pipeline/CB
-    UniquePtr<IRhiShader>   vs;
-    UniquePtr<IRhiShader>   ps;
-    UniquePtr<IRhiPipeline> pipeline;
-    UniquePtr<IRhiBuffer>   cb;
+    TUniquePtr<IRhiShader>   vs;
+    TUniquePtr<IRhiShader>   ps;
+    TUniquePtr<IRhiPipeline> pipeline;
+    TUniquePtr<IRhiBuffer>   cb;
 
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -1019,7 +1019,7 @@ Result<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     return Ok();
 }
 
-Result<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
+TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (_prefilter_built) return Ok();
     if (!IsDiligentBackend(device)) return Ok();
@@ -1033,7 +1033,7 @@ Result<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
     return Ok();
 }
 
-Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
+TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
                                                  IRhiCommandList& cl) noexcept {
     if (!IsDiligentBackend(device)) {
         ACS_LOG_WARN("ImageBasedLighting: prefilter skipped (backend != Diligent)");
@@ -1058,10 +1058,10 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     _prefilter_mips  = kPrefilterMips;
 
     // 2) 一時 VS/PS/Pipeline/CB
-    UniquePtr<IRhiShader>   vs;
-    UniquePtr<IRhiShader>   ps;
-    UniquePtr<IRhiPipeline> pipeline;
-    UniquePtr<IRhiBuffer>   cb;
+    TUniquePtr<IRhiShader>   vs;
+    TUniquePtr<IRhiShader>   ps;
+    TUniquePtr<IRhiPipeline> pipeline;
+    TUniquePtr<IRhiBuffer>   cb;
 
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -1131,7 +1131,7 @@ Result<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     return Ok();
 }
 
-Result<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
+TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
                                                        EFormat rt_format,
                                                        EFormat depth_format) noexcept {
     if (_sky_pipeline && _sky_rt_format == rt_format && _sky_depth_format == depth_format) {
@@ -1197,7 +1197,7 @@ Result<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
 
 void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                      IRhiTexture& cube,
-                                     const Mat4& view_proj, Vec3 eye,
+                                     const FMat4& view_proj, FVec3 eye,
                                      EFormat rt_format, EFormat depth_format,
                                      f32 mip_level) noexcept {
     if (!IsDiligentBackend(device)) return;
@@ -1205,8 +1205,8 @@ void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
 
     SkyboxCBLayout cb{};
     cb.inv_view_proj = Inverse(view_proj);
-    cb.eye           = Vec4{eye.x, eye.y, eye.z, 1};
-    cb.mip_pad       = Vec4{mip_level, 0, 0, 0};
+    cb.eye           = FVec4{eye.x, eye.y, eye.z, 1};
+    cb.mip_pad       = FVec4{mip_level, 0, 0, 0};
     _sky_cb->Update(&cb, sizeof(cb));
 
     cl.SetPipeline(*_sky_pipeline);
@@ -1216,7 +1216,7 @@ void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
 }
 
 void ImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
-                                        const Mat4& view_proj, Vec3 eye,
+                                        const FMat4& view_proj, FVec3 eye,
                                         EFormat rt_format, EFormat depth_format) noexcept {
     if (!_env_cube) return;
     DrawSkybox(device, cl, *_env_cube, view_proj, eye, rt_format, depth_format);

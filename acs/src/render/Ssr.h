@@ -45,11 +45,11 @@ public:
     Ssr& operator=(const Ssr&) = delete;
 
     // hdr_format: SSR 出力テクスチャのフォーマット (シーン HDR と同じ R16G16B16A16F 推奨)
-    Result<void> Init(IRhiDevice& device, EFormat hdr_format,
+    TResult<void> Init(IRhiDevice& device, EFormat hdr_format,
                        u32 width, u32 height) noexcept;
     void Shutdown() noexcept;
 
-    Result<void> Resize(u32 width, u32 height) noexcept;
+    TResult<void> Resize(u32 width, u32 height) noexcept;
 
     // SSR を計算する (raw march → temporal accumulation の 2 pass)。
     //   scene_color:    現フレームの HDR scene
@@ -69,9 +69,9 @@ public:
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color, IRhiTexture& scene_depth,
                 IRhiTexture& normal_gbuffer,
-                const Mat4& view_proj, const Mat4& inv_view_proj,
-                const Mat4& prev_view_proj,
-                Vec3 eye, f32 intensity = 0.6f,
+                const FMat4& view_proj, const FMat4& inv_view_proj,
+                const FMat4& prev_view_proj,
+                FVec3 eye, f32 intensity = 0.6f,
                 IRhiTexture* motion_texture = nullptr,
                 IRhiTexture* hiz_texture    = nullptr) noexcept;
 
@@ -83,22 +83,22 @@ public:
     EFormat        OutputFormat() const noexcept { return _hdr_format; }
 
 private:
-    Result<void> CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept;
-    Result<void> CreatePipeline(IRhiDevice& device) noexcept;
+    TResult<void> CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept;
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
     IRhiDevice*             _device = nullptr;
     u32                     _width  = 0;
     u32                     _height = 0;
     EFormat                  _hdr_format = EFormat::R16G16B16A16_Float;
 
-    UniquePtr<IRhiTexture>  _output;        // raw SSR (jitter 付き march)
-    UniquePtr<IRhiTexture>  _history[2];    // Phase 34e-3: temporal accumulation ping-pong
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiShader>   _temporal_ps;   // Phase 34e-3
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiPipeline> _temporal_pipeline;  // Phase 34e-3
-    UniquePtr<IRhiBuffer>   _cb;
+    TUniquePtr<IRhiTexture>  _output;        // raw SSR (jitter 付き march)
+    TUniquePtr<IRhiTexture>  _history[2];    // Phase 34e-3: temporal accumulation ping-pong
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiShader>   _temporal_ps;   // Phase 34e-3
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiPipeline> _temporal_pipeline;  // Phase 34e-3
+    TUniquePtr<IRhiBuffer>   _cb;
     u32                     _temporal_frame = 0;
 };
 

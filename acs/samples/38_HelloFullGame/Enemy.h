@@ -38,13 +38,13 @@ public:
                acs::game::Node2D& root,
                acs::game::HealthSystem& health,
                acs::u32 current_wave,
-               acs::Vec2 pos) noexcept;
+               acs::FVec2 pos) noexcept;
 
     // プレイヤーを追跡する単純 AI を全敵にかける。物理形状も追従させる。
     // 戻り値: 接触ヒットが致死だった場合 true (シーン側で GameOver 遷移を呼ぶ)。
     bool TickChaseAndContact(GameplayScene& scene,
                              acs::game::HealthSystem& health,
-                             acs::Vec2 player_pos,
+                             acs::FVec2 player_pos,
                              acs::f32 dt) noexcept;
 
     // bullet が敵 i に当たった結果ダメージを与える。lethal なら敵を消す。

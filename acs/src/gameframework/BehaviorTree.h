@@ -34,14 +34,14 @@
 //     必要なキャプチャは blackboard 経由か `bb` を `Self*` にキャストして取り回す。
 //   ・blackboard は `void*` (user 定義の任意構造体)。BT 側で型を持たないことで
 //     どのモジュール (Pillar L AI / cutscene / UI 等) からも汎用に使える。
-//   ・子ノードは `acs::UniquePtr<BtNode>` で所有 (= move-only)。
+//   ・子ノードは `acs::TUniquePtr<BtNode>` で所有 (= move-only)。
 //     子の所有権は composite が握り、tree の寿命と一体化する。
 //   ・BehaviorTree / 各 Node は **非コピー・非ムーブ**。tree は普通フィールドとして
 //     抱えられて Tick されるだけなので、所有権を動かす運用は想定しない。
 //     構築は `BtSelector` を `MakeUnique` で作って `AddChild` で組み立てる。
 //
 // 使い方:
-//   struct EnemyBb { Vec3 pos; bool sees_player; };
+//   struct EnemyBb { FVec3 pos; bool sees_player; };
 //
 //   static EBtStatus MoveToPlayer(void* bb, f32 dt) noexcept {
 //       auto* e = static_cast<EnemyBb*>(bb);
@@ -109,14 +109,14 @@ public:
     ~BtSelector() noexcept override = default;
 
     // 子の所有権を奪う。nullptr 渡しは no-op (ソフトフェイル)。
-    void AddChild(UniquePtr<BtNode> child) noexcept;
+    void AddChild(TUniquePtr<BtNode> child) noexcept;
 
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
     usize ChildCount() const noexcept { return _children.Size(); }
 
 private:
-    Array<UniquePtr<BtNode>> _children;
+    TArray<TUniquePtr<BtNode>> _children;
 };
 
 // Sequence ("AND" 合成): 子を順に Tick し、最初に Running か Failure を返した子で停止。
@@ -128,14 +128,14 @@ public:
     ~BtSequence() noexcept override = default;
 
     // 子の所有権を奪う。nullptr 渡しは no-op (ソフトフェイル)。
-    void AddChild(UniquePtr<BtNode> child) noexcept;
+    void AddChild(TUniquePtr<BtNode> child) noexcept;
 
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
     usize ChildCount() const noexcept { return _children.Size(); }
 
 private:
-    Array<UniquePtr<BtNode>> _children;
+    TArray<TUniquePtr<BtNode>> _children;
 };
 
 // Action: 関数ポインタを呼ぶだけの末端 leaf。
@@ -166,9 +166,9 @@ public:
     BehaviorTree(BehaviorTree&&)                 = delete;
     BehaviorTree& operator=(BehaviorTree&&)      = delete;
 
-    // root を差し替える。古い root はここで破棄される (UniquePtr デストラクタ)。
+    // root を差し替える。古い root はここで破棄される (TUniquePtr デストラクタ)。
     // nullptr 渡しで tree を空にできる (以降の Tick は Failure を返す)。
-    void SetRoot(UniquePtr<BtNode> root) noexcept;
+    void SetRoot(TUniquePtr<BtNode> root) noexcept;
 
     // 1 フレーム分の評価。root 未設定なら Failure を返す。
     EBtStatus Tick(void* blackboard, f32 dt) noexcept;
@@ -176,7 +176,7 @@ public:
     bool HasRoot() const noexcept { return static_cast<bool>(_root); }
 
 private:
-    UniquePtr<BtNode> _root;
+    TUniquePtr<BtNode> _root;
 };
 
 } // namespace acs::game

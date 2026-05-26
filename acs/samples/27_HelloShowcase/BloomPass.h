@@ -24,8 +24,8 @@ void ExecuteBloomPass(Assets& a,
                        acs::u32 buffer_index,
                        acs::IRhiTexture& depth,
                        acs::PostProcessParams& post_params,
-                       const acs::Mat4& vp_no_jitter,
-                       const acs::Mat4& prev_vp_no_jitter,
+                       const acs::FMat4& vp_no_jitter,
+                       const acs::FMat4& prev_vp_no_jitter,
                        bool prev_vp_valid,
                        acs::IRhiTexture* motion_or_null) noexcept;
 

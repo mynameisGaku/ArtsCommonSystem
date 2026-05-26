@@ -18,7 +18,7 @@ void HelloGfApp::OnStart() noexcept {
     Game::OnStart();
 }
 
-UniquePtr<Scene> HelloGfApp::InitialScene() noexcept {
+TUniquePtr<Scene> HelloGfApp::InitialScene() noexcept {
     return MakeUnique<TitleScene>();
 }
 

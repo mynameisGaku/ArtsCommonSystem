@@ -35,12 +35,12 @@ void SkyScene::Render(Sky&             sky,
     lights[0].color     = sky.SunColor();
     // 2 灯目は環境光フィル。太陽の真逆から弱い青を当てて影側のクラッシュ
     // (真っ黒つぶれ) を防ぐ。Sky の zenith に近い寒色を採用。
-    lights[1].direction = Vec3{-sky.SunDirection().x,
+    lights[1].direction = FVec3{-sky.SunDirection().x,
                                 sky.SunDirection().y * 0.5f,
                                -sky.SunDirection().z};
-    lights[1].color     = Vec3{0.15f, 0.18f, 0.25f};
+    lights[1].color     = FVec3{0.15f, 0.18f, 0.25f};
 
-    Vec3 ambient;
+    FVec3 ambient;
     switch (_preset) {
         case SkyPreset::Day:    ambient = kAmbientDay;    break;
         case SkyPreset::Sunset: ambient = kAmbientSunset; break;
@@ -57,16 +57,16 @@ void SkyScene::Render(Sky&             sky,
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
     // ---- 地面 (拡散主体、わずかな specular) ----
-    shader.SetObject(Mat4::Translation(Vec3{0, 0, 0}),
-                     Vec3{0.4f, 0.45f, 0.5f}, 0.1f, 8.0f);
+    shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                     FVec3{0.4f, 0.45f, 0.5f}, 0.1f, 8.0f);
     cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
     // ---- 球 (回転 + 強い specular で太陽が反射する見せ場) ----
-    Mat4 ms = Mat4::RotationY(angle) *
-              Mat4::Translation(Vec3{0, 1.5f, 0});
-    shader.SetObject(ms, Vec3{1.0f, 0.85f, 0.4f}, 0.7f, 64.0f);
+    FMat4 ms = FMat4::RotationY(angle) *
+              FMat4::Translation(FVec3{0, 1.5f, 0});
+    shader.SetObject(ms, FVec3{1.0f, 0.85f, 0.4f}, 0.7f, 64.0f);
     cl.SetVertexBuffer(*sphere.vertex_buffer, sphere.vertex_stride);
     cl.SetIndexBuffer(*sphere.index_buffer);
     cl.DrawIndexed(sphere.index_count);

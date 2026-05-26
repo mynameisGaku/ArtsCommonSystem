@@ -30,10 +30,10 @@ void RayCaster::Update(f32 dt, RaycastTargets& targets) noexcept {
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;
 
-    const Vec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
+    const FVec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
                        -Sin(_cam_pitch),
                         Cos(_cam_yaw) * Cos(_cam_pitch) };
-    const Vec3 right  { Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
+    const FVec3 right  { Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
 
     if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * move_speed;
     if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * move_speed;
@@ -47,19 +47,19 @@ void RayCaster::Update(f32 dt, RaycastTargets& targets) noexcept {
     // best_t を 1000 で初期化 → ヒット候補の中で最も手前を残す。
     Ray3 ray{ _cam_pos, forward };
     i32  best_index = -1;
-    Vec3 best_point{};
+    FVec3 best_point{};
     f32  best_t = 1000.0f;
     const u32 n = targets.Count();
     for (u32 i = 0; i < n; ++i) {
         const Object& o = targets.At(i);
         RayHit3 h{};
-        if (o.kind == ShapeKind::Sphere) {
-            const Sphere s{ o.position, o.radius_or_half };
+        if (o.kind == ShapeKind::FSphere) {
+            const FSphere s{ o.position, o.radius_or_half };
             h = RaycastSphere(ray, s, best_t);
         } else {
             const Aabb3 box = Aabb3::FromCenterExtents(
                 o.position,
-                Vec3{o.radius_or_half, o.radius_or_half, o.radius_or_half});
+                FVec3{o.radius_or_half, o.radius_or_half, o.radius_or_half});
             h = RaycastAabb(ray, box, best_t);
         }
         if (h.hit && h.t < best_t) {

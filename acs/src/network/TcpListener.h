@@ -29,13 +29,13 @@ public:
     TcpListener& operator=(TcpListener&& o) noexcept;
 
     // 指定アドレス/ポートで Listen を開始（addr=Any() で全インターフェイス）
-    static Result<TcpListener> Listen(IpAddress addr, u16 port, u32 backlog = 16) noexcept;
+    static TResult<TcpListener> Listen(IpAddress addr, u16 port, u32 backlog = 16) noexcept;
 
     // 1 接続を受け付ける（ブロック）
-    Result<TcpConnection> Accept() noexcept;
+    TResult<TcpConnection> Accept() noexcept;
 
     // ノンブロッキング切替
-    Result<void> SetNonBlocking(bool enable) noexcept;
+    TResult<void> SetNonBlocking(bool enable) noexcept;
 
     void Close() noexcept;
 

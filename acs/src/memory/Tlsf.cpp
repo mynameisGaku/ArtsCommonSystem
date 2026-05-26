@@ -128,7 +128,7 @@ ACS_FORCEINLINE usize AdjustRequestSize(usize size, usize align) noexcept {
 TlsfAllocator::~TlsfAllocator() noexcept {}
 
 // 単一プール初期化
-Result<void> TlsfAllocator::Init(void* pool_base, usize pool_size) noexcept {
+TResult<void> TlsfAllocator::Init(void* pool_base, usize pool_size) noexcept {
     if (!pool_base || pool_size < 1024) return ACS_ERR(Memory, 20, "TLSF::Init invalid pool");
     if ((reinterpret_cast<uptr>(pool_base) & (tlsf::ALIGN_SIZE - 1)) != 0)
         return ACS_ERR(Memory, 21, "TLSF::Init pool not 16B aligned");
@@ -151,7 +151,7 @@ Result<void> TlsfAllocator::Init(void* pool_base, usize pool_size) noexcept {
 }
 
 // VmReservation も保持する初期化
-Result<void> TlsfAllocator::InitWithReservation(VmReservation&& reservation,
+TResult<void> TlsfAllocator::InitWithReservation(VmReservation&& reservation,
                                                 usize commit_initial) noexcept {
     auto cr = reservation.Commit(0, commit_initial);
     if (cr.IsErr()) return cr;
@@ -164,7 +164,7 @@ Result<void> TlsfAllocator::InitWithReservation(VmReservation&& reservation,
 }
 
 // プールを TLSF に登録（先頭にフリーブロック 1 個 + 末尾に終端番兵）
-Result<void> TlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept {
+TResult<void> TlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept {
     using namespace tlsf;
 
     // pool_size を 16B 境界に切り下げ

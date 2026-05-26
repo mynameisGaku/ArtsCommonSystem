@@ -54,7 +54,7 @@
 //
 // ACS 規約遵守:
 //   ・STL 不使用 / `<string>` 不使用 (文字列は `const char*` のみ)
-//   ・例外不使用、エラーは `Result<T, ErrorCode>` で伝搬
+//   ・例外不使用、エラーは `TResult<T, FErrorCode>` で伝搬
 //   ・全 noexcept
 //   ・`ScriptHost` / `ScriptVmStub` は シングルトン / 単一所有運用前提で
 //     コピー / ムーブ禁止
@@ -85,13 +85,13 @@ enum class EScriptLanguage : u8 {
 // -----------------------------------------------------------------------------
 // backend 中立な値受け渡し用。Lua/Wren/Python いずれも、native 関数呼び出しの
 // 引数 / 戻り値は「動的型付け値の配列」として表現される。本構造はその最大公約数
-// (Nil / Bool / Number / String / Handle) を C++ 側で素朴に表現する。
+// (Nil / Bool / Number / FString / Handle) を C++ 側で素朴に表現する。
 //
 //   ・`Nil`    : 値なし。default 状態 / 戻り値なしを表現。
 //   ・`Bool`   : 真偽値。
 //   ・`Number` : `f64` で統一 (Lua の lua_Number と同じ精度)。整数も f64 に
 //                丸めて格納する。Wren/Python も Number は double。
-//   ・`String` : `const char*`、**所有しない**。寿命は呼び出し側 (script source
+//   ・`FString` : `const char*`、**所有しない**。寿命は呼び出し側 (script source
 //                buffer / static literal) が保証する。STL `<string>` 禁止のため。
 //   ・`Handle` : `u32`、ゲーム側で割り当てる不透明 ID (entity / scene node /
 //                save slot 等)。「pointer を直接 script 側に渡さない」ための
@@ -104,7 +104,7 @@ enum class EScriptValueKind : u8 {
     Nil    = 0,
     Bool   = 1,
     Number = 2,
-    String = 3,
+    FString = 3,
     Handle = 4,
 };
 
@@ -186,7 +186,7 @@ public:
     virtual ~IScriptVm() noexcept = default;
 
     // backend を初期化 (lua_State 作成 / 標準ライブラリ open 等)。
-    virtual Result<void> Init() noexcept = 0;
+    virtual TResult<void> Init() noexcept = 0;
 
     // backend を破棄 (lua_close、native registration もこの時点で無効化)。
     virtual void Shutdown() noexcept = 0;
@@ -200,7 +200,7 @@ public:
     //                   0 渡しは「空 chunk」として成功扱いを推奨。
     // ・`chunk_name`  : エラーメッセージで使う表示名 (= ファイル名や lambda 名)。
     //                   nullptr の場合は backend のデフォルト ("?") を使う。
-    virtual Result<void> LoadScript(const char* source,
+    virtual TResult<void> LoadScript(const char* source,
                                     u32         source_len,
                                     const char* chunk_name) noexcept = 0;
 
@@ -208,7 +208,7 @@ public:
     // ・`args` / `arg_count`: 渡す引数 (nullptr + 0 で引数なし)
     // ・`ret_out`            : 戻り値書き込み先 (nullptr で「捨てる」)
     // ・未登録関数 / 実行時エラーは `script_err::kSub_CallFailed` で返す。
-    virtual Result<void> CallFunction(const char*        function_name,
+    virtual TResult<void> CallFunction(const char*        function_name,
                                       const ScriptValue* args,
                                       u32                arg_count,
                                       ScriptValue*       ret_out) noexcept = 0;
@@ -216,7 +216,7 @@ public:
     // C++ 関数を script グローバル空間に bind する。
     // ・`user` は `NativeFunction` の第 3 引数にそのまま渡される (this 束縛用)。
     // ・同名既登録は backend 依存 (上書きの場合が多い)。
-    virtual Result<void> RegisterNativeFunction(const char*    function_name,
+    virtual TResult<void> RegisterNativeFunction(const char*    function_name,
                                                 NativeFunction fn,
                                                 void*          user) noexcept = 0;
 
@@ -259,15 +259,15 @@ public:
     ScriptVmStub() noexcept = default;
     ~ScriptVmStub() noexcept override = default;
 
-    Result<void>    Init()                                                          noexcept override;
+    TResult<void>    Init()                                                          noexcept override;
     void            Shutdown()                                                      noexcept override;
     EScriptLanguage Language()                                                const noexcept override { return EScriptLanguage::Custom; }
-    Result<void>    LoadScript(const char* source, u32 source_len,
+    TResult<void>    LoadScript(const char* source, u32 source_len,
                                const char* chunk_name)                              noexcept override;
-    Result<void>    CallFunction(const char* function_name,
+    TResult<void>    CallFunction(const char* function_name,
                                  const ScriptValue* args, u32 arg_count,
                                  ScriptValue* ret_out)                              noexcept override;
-    Result<void>    RegisterNativeFunction(const char* function_name,
+    TResult<void>    RegisterNativeFunction(const char* function_name,
                                            NativeFunction fn, void* user)           noexcept override;
     void            SetGlobalNumber(const char* name, f64 value)                    noexcept override;
     f64             GetGlobalNumber(const char* name, f64 default_value)      const noexcept override;
@@ -336,17 +336,17 @@ public:
     // wide path 指定でファイルを読み込み、`IScriptVm::LoadScript` に流す。
     // ・nullptr / vm 未設定 / ファイル open 失敗等は subcode で区別。
     // ・内部読み込み上限は 64 MiB (script 1 本でこれを超えるのは異常と判断)。
-    Result<void> LoadAndRun(const wchar_t* file_path) noexcept;
+    TResult<void> LoadAndRun(const wchar_t* file_path) noexcept;
 
     // グローバル関数を呼び出す薄いラッパ (vm への単純 delegate)。
-    Result<void> CallGlobalFunction(const char*        function_name,
+    TResult<void> CallGlobalFunction(const char*        function_name,
                                     const ScriptValue* args,
                                     u32                arg_count,
                                     ScriptValue*       ret_out) noexcept;
 
     // C++ 関数を vm に登録すると同時に、本ホストの内部 registry にも記録する。
     // 失敗時 (vm 未設定 / 引数不正 / backend 拒否) は registry にも追加しない。
-    Result<void> RegisterNative(const char*    function_name,
+    TResult<void> RegisterNative(const char*    function_name,
                                 NativeFunction fn,
                                 void*          user) noexcept;
 
@@ -376,7 +376,7 @@ private:
     void FireError(const char* chunk_name, u32 line, const char* message) const noexcept;
 
     IScriptVm*           _vm           = nullptr;
-    Array<NativeEntry>   _natives;
+    TArray<NativeEntry>   _natives;
     ScriptErrorCallback  _on_error     = nullptr;
     void*                _on_error_user = nullptr;
 };

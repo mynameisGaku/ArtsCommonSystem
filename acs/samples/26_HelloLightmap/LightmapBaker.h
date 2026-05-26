@@ -6,7 +6,7 @@
 // lightmap texture に焼く。3x3 box blur で MC ノイズを均してから upload する。
 //
 // 戻り値:
-//   - 各 Quad の lightmap (UniquePtr<IRhiTexture>) が中で set される。
+//   - 各 Quad の lightmap (TUniquePtr<IRhiTexture>) が中で set される。
 //   - 失敗時は ACS_LOG_ERROR を出してそのまま継続 (該当面だけ lightmap が null)。
 //
 // 設計上の特徴:
@@ -26,14 +26,14 @@ namespace hellolightmap {
 // 戻し、quad の model 行列で world へ変換する。これで描画時に PbrShader が
 // mesh の uv で lightmap を引く位置と、baker が焼いた位置が厳密に一致する
 // (回転・平行移動は model に委ねるので軸の取り違えが起きない)。
-acs::Vec3 TexelToWorld(const Quad& q, acs::f32 tu, acs::f32 tv) noexcept;
+acs::FVec3 TexelToWorld(const Quad& q, acs::f32 tu, acs::f32 tv) noexcept;
 
 // 1 本の path をトレースし、texel への入射放射輝度を返す。
 // origin から cosine-weighted hemisphere へ飛ばし、拡散面で反射を繰り返す。
 // 光源 (天井) に届いたら、それまでの throughput を掛けた放射輝度を返す。
 // throughput は receiver の albedo を畳まない (PbrShader が描画時に lm * albedo
 // するため)。cosine-weighted なので複数 path の平均 = 入射 irradiance の平均。
-acs::Vec3 PathTrace(acs::Vec3 origin, acs::Vec3 normal,
+acs::FVec3 PathTrace(acs::FVec3 origin, acs::FVec3 normal,
                     const Quad (&quads)[kQuadCount], Rng& rng) noexcept;
 
 // すべての Quad について lightmap を baking + GPU upload する。

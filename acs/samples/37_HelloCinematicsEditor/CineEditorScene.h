@@ -37,7 +37,7 @@ private:
     acs::game::CinematicsDirector                            _director;
 
     // ---- runtime callback (= keyframe 発火可視化用、ACS_LOG_INFO に出力) ----
-    static void OnCamera(void* /*user*/, acs::Vec2 target, acs::f32 zoom, acs::f32 dur) noexcept;
+    static void OnCamera(void* /*user*/, acs::FVec2 target, acs::f32 zoom, acs::f32 dur) noexcept;
     static void OnEvent (void* /*user*/, acs::u32 event_id) noexcept;
 };
 

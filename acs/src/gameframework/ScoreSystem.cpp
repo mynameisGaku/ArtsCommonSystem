@@ -11,7 +11,7 @@
 //   ・entry log は kMaxEntries で capped。超えたら先頭要素を 1 個削って末尾に
 //     追加する単純実装 (= O(N) shift だが kMaxEntries=100 と小さく実害なし)。
 //   ・milestone 通過判定は AddScore のたびに全件走査。件数は通常 5〜20 程度を
-//     想定しており線形で十分。_milestone_hit を 1:1 並行 Array で持つことで
+//     想定しており線形で十分。_milestone_hit を 1:1 並行 TArray で持つことで
 //     「初回通過時のみ通知」を実現する。
 //   ・WARN は他 Manager と同じ Log.h 経由。重複 milestone 登録時に出力する。
 #include "gameframework/ScoreSystem.h"

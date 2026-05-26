@@ -22,8 +22,8 @@ inline constexpr acs::f32 kDamping     = 0.999f;
 
 // 1 個のボール状態
 struct Ball {
-    acs::Vec2 pos;
-    acs::Vec2 vel;
+    acs::FVec2 pos;
+    acs::FVec2 vel;
     acs::f32  radius;
     acs::f32  r, g, b;
 };

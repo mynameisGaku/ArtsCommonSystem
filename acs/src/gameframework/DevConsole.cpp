@@ -37,10 +37,10 @@ void DevConsole::FreeString(const char* s) noexcept {
 }
 
 // ============================================================================
-// リング相当 push (Array<const char*> + cap 100 + drop oldest)
+// リング相当 push (TArray<const char*> + cap 100 + drop oldest)
 // ============================================================================
 
-void DevConsole::PushLine(Array<const char*>& buf, const char* line) noexcept {
+void DevConsole::PushLine(TArray<const char*>& buf, const char* line) noexcept {
     const char* copy = DupString(line);
     if (copy == nullptr) return;  // 確保失敗時は黙って捨てる (Log 内 Log のループ防止)
 
@@ -55,7 +55,7 @@ void DevConsole::PushLine(Array<const char*>& buf, const char* line) noexcept {
     buf.PushBack(copy);
 }
 
-void DevConsole::ClearLines(Array<const char*>& buf) noexcept {
+void DevConsole::ClearLines(TArray<const char*>& buf) noexcept {
     for (usize i = 0; i < buf.Size(); ++i) {
         FreeString(buf[i]);
     }

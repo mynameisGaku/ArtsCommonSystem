@@ -51,20 +51,20 @@ public:
     MotionVector(const MotionVector&)            = delete;
     MotionVector& operator=(const MotionVector&) = delete;
 
-    Result<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
     void Shutdown() noexcept;
-    Result<void> Resize(u32 width, u32 height) noexcept;
+    TResult<void> Resize(u32 width, u32 height) noexcept;
 
     // モーションパス開始: motion RT を 0 クリア + 内部 depth を bind してパイプライン設定。
     //   view_proj      : 現フレームの jitter なし VP
     //   prev_view_proj : 前フレームの jitter なし VP
     // motion vector は jitter なしの VP で計算する (TAA jitter は color pass 専用)。
     void Begin(IRhiCommandList& cl,
-               const Mat4& view_proj, const Mat4& prev_view_proj) noexcept;
+               const FMat4& view_proj, const FMat4& prev_view_proj) noexcept;
 
     // 1 mesh の motion vector を描画。静的 mesh は prev_model に model と同値を渡す。
     void DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
-                  const Mat4& model, const Mat4& prev_model) noexcept;
+                  const FMat4& model, const FMat4& prev_model) noexcept;
 
     // モーションパス終了 (main pass の RT へ復帰)。
     void End(IRhiCommandList& cl) noexcept;
@@ -76,22 +76,22 @@ public:
     IRhiTexture* OutputNormalTexture() const noexcept { return _normal.Get(); }
 
 private:
-    Result<void> CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
-    Result<void> CreatePipeline(IRhiDevice& device) noexcept;
+    TResult<void> CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
     IRhiDevice*             _device = nullptr;
     u32                     _width  = 0;
     u32                     _height = 0;
-    Mat4                    _vp{};        // Begin で渡された現フレーム VP
-    Mat4                    _prev_vp{};   // Begin で渡された前フレーム VP
+    FMat4                    _vp{};        // Begin で渡された現フレーム VP
+    FMat4                    _prev_vp{};   // Begin で渡された前フレーム VP
 
-    UniquePtr<IRhiTexture>  _motion;      // RG16F、screen-space motion (prev_uv - curr_uv)
-    UniquePtr<IRhiTexture>  _normal;      // RGBA16F、world-space normal (.xyz)
-    UniquePtr<IRhiTexture>  _depth;       // D32、occlusion 用の内部 depth
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiBuffer>   _cb;          // MotionCB { curr_mvp, prev_mvp, curr_model }
+    TUniquePtr<IRhiTexture>  _motion;      // RG16F、screen-space motion (prev_uv - curr_uv)
+    TUniquePtr<IRhiTexture>  _normal;      // RGBA16F、world-space normal (.xyz)
+    TUniquePtr<IRhiTexture>  _depth;       // D32、occlusion 用の内部 depth
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiBuffer>   _cb;          // MotionCB { curr_mvp, prev_mvp, curr_model }
 };
 
 } // namespace acs

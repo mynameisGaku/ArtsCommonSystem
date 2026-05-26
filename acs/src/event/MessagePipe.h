@@ -104,7 +104,7 @@ public:
 private:
     mutable Mutex   _mtx;
     ConditionVar    _cv;
-    Array<T>        _q;
+    TArray<T>        _q;
     bool            _closed = false;
 };
 

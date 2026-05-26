@@ -41,7 +41,7 @@ public:
     usize Count() const noexcept { return _systems.Size(); }
 
 private:
-    Array<SystemFn> _systems;
+    TArray<SystemFn> _systems;
 };
 
 } // namespace acs

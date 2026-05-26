@@ -23,7 +23,7 @@ public:
     DiligentTexture(const DiligentTexture&) = delete;
     DiligentTexture& operator=(const DiligentTexture&) = delete;
 
-    Result<void> Init(DiligentDevice& device, const TextureDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const TextureDesc& desc) noexcept;
 
     // ---- IRhiTexture ----
     u32    Width()       const noexcept override { return _width; }
@@ -55,7 +55,7 @@ private:
     // per_slice_rtv=true のとき、array_size*mip_levels 個の RTV を Init で生成して
     // ここに保持する。これらは ITexture::CreateView で別途生成されるので
     // 明示 Release が必要 (_texture 所有ではない default view と異なる)。
-    Array<Diligent::ITextureView*> _slice_rtvs;
+    TArray<Diligent::ITextureView*> _slice_rtvs;
     u32                     _width   = 0;
     u32                     _height  = 0;
     u32                     _mips    = 1;

@@ -31,19 +31,19 @@
 //     register する。Title は "Model Info" (Unity / Godot の Inspector 表記寄り)。
 //   ・**スナップショット方式**: 元の Mesh / Skeleton / AnimationClip オブジェクト
 //     を ref で保持しない (= モデル再 load / 解放と本 panel の表示が race しない
-//     ように、name / index 等を `acs::Array<...>` に値コピーで持つ)。`const char*`
+//     ように、name / index 等を `acs::TArray<...>` に値コピーで持つ)。`const char*`
 //     name は caller 側が「panel の寿命 ≧ 文字列の寿命」を保証する責務だが、
 //     典型用途では Mesh モジュールの permanent storage を直接参照する想定なので
 //     安全 (= ImGui draw までに開放されない)。
 //   ・**3 つの可変長配列 + 1 つの fixed struct**: submeshes / bones / clips は
-//     model ごとに件数が変わるため `acs::Array<T>`。summary は単一 struct で
-//     値保持。AssetBrowser / HierarchyPanel と同形の "Array<T> を内部に持つ
+//     model ごとに件数が変わるため `acs::TArray<T>`。summary は単一 struct で
+//     値保持。AssetBrowser / HierarchyPanel と同形の "TArray<T> を内部に持つ
 //     panel" パターン。
 //   ・**has_model flag**: load 前 (= UpdateFromModel が一度も呼ばれていない) /
 //     Clear 直後の状態を識別するためのフラグ。DrawUI 冒頭で "(No model loaded)"
 //     ガイダンスを出す目的。Summary の vertex_count==0 だけでは「空のメッシュ
 //     を load した状態」と区別がつかないため、明示フラグを持つ。
-//   ・**非コピー / 非ムーブ**: 内部 Array<T> の所有を曖昧にしない (ACS 規約 +
+//   ・**非コピー / 非ムーブ**: 内部 TArray<T> の所有を曖昧にしない (ACS 規約 +
 //     他 panel 群と同形)。
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。name は
 //     `const char*` リテラル / caller 所有領域を想定。
@@ -57,8 +57,8 @@
 //   ・**Submesh / AnimationClip は ImGui::BeginTable**: name / index / count を
 //     等幅で見せたい用途に Table API が最適。CollapsingHeader でセクション
 //     開閉、Table で行ごとの値表示、という 2 段構成。
-//   ・**bounding_radius / bounding_center は Vec3 + f32**: Mesh モジュールの
-//     既存 bounds API (= AABB or Sphere) のうち、最も典型的な「中心 + 半径」を
+//   ・**bounding_radius / bounding_center は FVec3 + f32**: Mesh モジュールの
+//     既存 bounds API (= AABB or FSphere) のうち、最も典型的な「中心 + 半径」を
 //     直接渡せる形にする。AABB が欲しい場合は Phase 21c で別フィールド追加。
 //
 // 範囲外 (Phase 21b 時点で持たない、将来追加候補):
@@ -92,7 +92,7 @@ struct MeshSummary {
     u32        bone_count            = 0;   // skeleton 内 bone 数 (skeleton 無しなら 0)
     u32        animation_clip_count  = 0;   // 関連付けられた animation clip 数 (0 可)
     f32        bounding_radius       = 0.0f;// model 全体の bounding sphere 半径
-    acs::Vec3  bounding_center       = {};  // 同 bounding sphere の中心 (object 空間)
+    acs::FVec3  bounding_center       = {};  // 同 bounding sphere の中心 (object 空間)
 };
 
 // ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ public:
     ModelInspectorPanel() noexcept = default;
     ~ModelInspectorPanel() noexcept override = default;
 
-    // 非コピー / 非ムーブ: 内部 Array<...> + has_model 状態の所有を曖昧にしない
+    // 非コピー / 非ムーブ: 内部 TArray<...> + has_model 状態の所有を曖昧にしない
     // (EditorPanel 基底自体も非コピー / 非ムーブ宣言済 = 規約上の継承)。
     ModelInspectorPanel(const ModelInspectorPanel&)            = delete;
     ModelInspectorPanel& operator=(const ModelInspectorPanel&) = delete;
@@ -155,9 +155,9 @@ public:
     // 内部に保持する (submeshes / bones / clips は配列要素を値コピー)。
     // 各ポインタは nullptr 可 (count == 0 と整合させること)。
     // ・summary: 単一 struct を値コピーで保存
-    // ・submeshes[0..submesh_count): SubmeshInfo を Array に PushBack コピー
-    // ・bones[0..bone_count)        : BoneInfo を Array に PushBack コピー
-    // ・clips[0..clip_count)        : AnimationClipInfo を Array に PushBack コピー
+    // ・submeshes[0..submesh_count): SubmeshInfo を TArray に PushBack コピー
+    // ・bones[0..bone_count)        : BoneInfo を TArray に PushBack コピー
+    // ・clips[0..clip_count)        : AnimationClipInfo を TArray に PushBack コピー
     // 呼び出し後、`has_model = true` になり DrawUI が情報を表示する。
     void UpdateFromModel(const MeshSummary&        summary,
                          const SubmeshInfo*        submeshes,
@@ -213,9 +213,9 @@ public:
 private:
     // ----- 内部状態 ---------------------------------------------------------
     MeshSummary                _summary{};                // 単一 summary
-    acs::Array<SubmeshInfo>    _submeshes;                // submesh 配列
-    acs::Array<BoneInfo>       _bones;                    // bone 配列
-    acs::Array<AnimationClipInfo> _clips;                 // animation clip 配列
+    acs::TArray<SubmeshInfo>    _submeshes;                // submesh 配列
+    acs::TArray<BoneInfo>       _bones;                    // bone 配列
+    acs::TArray<AnimationClipInfo> _clips;                 // animation clip 配列
     bool                       _has_model      = false;   // UpdateFromModel 済みフラグ
 
     // bone 階層描画用の内部ヘルパ (実装は .cpp 側)。

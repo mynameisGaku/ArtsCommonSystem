@@ -42,7 +42,7 @@ void ParticleEditorApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> ParticleEditorApp::InitialScene() noexcept {
+TUniquePtr<Scene> ParticleEditorApp::InitialScene() noexcept {
     return MakeUnique<ParticleEditorScene>();
 }
 

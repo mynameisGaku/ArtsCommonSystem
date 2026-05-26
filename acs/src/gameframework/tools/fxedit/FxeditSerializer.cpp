@@ -7,7 +7,7 @@
 //   ・I/O は `acs::FileSystem::WriteAllText` / `ReadAllText` に委譲。これにより
 //     wchar_t パス + GetLastError 連携 + atomic な置き換え無しの単純上書き
 //     セマンティクスが他の ACS file 操作と一致する。
-//   ・出力 buffer は `acs::Array<char>` で動的成長させる (emitter 数に依存)。
+//   ・出力 buffer は `acs::TArray<char>` で動的成長させる (emitter 数に依存)。
 //     `Reserve(count * kMaxBytesPerEmitter + 64)` で最初から十分な容量を確保し、
 //     `AppendXxx` が再 alloc しないようにする (= STL `<sstream>` 不要)。
 //   ・数値出力は `std::snprintf "%g"`。完全往復 (round-trip) は保証しないが
@@ -18,7 +18,7 @@
 // 注意:
 //   ・本 .cpp は ParticleEmitterDef の完全型を必要とするので、ヘッダ側の
 //     forward decl だけでなく `ParticleEffectSystem.h` を include する。
-//   ・実 ParticleEmitterDef の color は Vec3 (alpha 無し)、gravity は Vec2。
+//   ・実 ParticleEmitterDef の color は FVec3 (alpha 無し)、gravity は FVec2。
 //     テキスト形式は前方互換用に色 4 成分 / 重力 3 成分まで書く / 読むが、
 //     格納できない第 4 成分 (color) / 第 3 成分 (gravity) は破棄する。
 //   ・spread_radians は ParticleEmitterDef にフィールドが無いため、書き出し時は
@@ -58,7 +58,7 @@ inline usize StrLenBounded(const char* s, usize max_len) noexcept {
 
 // out_buf に NUL 終端文字列を append し、終端 NUL は書かない (まとめて
 // 後で書く)。capacity を超えそうな場合は false を返す。
-inline bool AppendStr(Array<char>& out, const char* s, usize len) noexcept {
+inline bool AppendStr(TArray<char>& out, const char* s, usize len) noexcept {
     const usize old = out.Size();
     out.Resize(old + len);
     if (out.Size() != old + len) return false;  // alloc 失敗
@@ -66,7 +66,7 @@ inline bool AppendStr(Array<char>& out, const char* s, usize len) noexcept {
     return true;
 }
 
-inline bool AppendChar(Array<char>& out, char c) noexcept {
+inline bool AppendChar(TArray<char>& out, char c) noexcept {
     const usize old = out.Size();
     out.Resize(old + 1);
     if (out.Size() != old + 1) return false;
@@ -77,7 +77,7 @@ inline bool AppendChar(Array<char>& out, char c) noexcept {
 // "<key> v0 [v1 [v2 [v3]]]\n" 行を append する。
 //  ・count = 値の個数 (1..4)。
 //  ・prefix が non-null なら "<prefix> " を頭に付ける ("E0 " など)。
-bool AppendKeyValueLine(Array<char>& out,
+bool AppendKeyValueLine(TArray<char>& out,
                         const char*  prefix,
                         const char*  key,
                         const f32*   values,
@@ -103,7 +103,7 @@ bool AppendKeyValueLine(Array<char>& out,
 }
 
 // "<prefix> name \"<value>\"\n" を append する (引用符付き文字列 key 用)。
-bool AppendNameLine(Array<char>& out,
+bool AppendNameLine(TArray<char>& out,
                     const char*  prefix,
                     const char*  name) noexcept {
     char line[96];
@@ -293,7 +293,7 @@ u32 FxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexcep
 // =============================================================================
 // Save — defs[count] と names[count] を .fxedit テキストへ書き出す
 // =============================================================================
-Result<void, ErrorCode> FxeditSerializer::Save(const wchar_t*            file_path,
+TResult<void, FErrorCode> FxeditSerializer::Save(const wchar_t*            file_path,
                                                const ParticleEmitterDef* defs,
                                                const char* const*        names,
                                                u32                       count) noexcept {
@@ -301,7 +301,7 @@ Result<void, ErrorCode> FxeditSerializer::Save(const wchar_t*            file_pa
         return ACS_ERR(IO, kSub_NullArgs, "FxeditSerializer::Save: null argument");
     }
 
-    Array<char> out;
+    TArray<char> out;
     out.Reserve(static_cast<usize>(count) * kMaxBytesPerEmitter + 128u);
 
     // ----- header -------------------------------------------------------
@@ -405,7 +405,7 @@ Result<void, ErrorCode> FxeditSerializer::Save(const wchar_t*            file_pa
 // =============================================================================
 // Load — `.fxedit` テキストを out_defs / out_name_buffer に復元
 // =============================================================================
-Result<u32, ErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
+TResult<u32, FErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
                                               ParticleEmitterDef*  out_defs,
                                               char*                out_name_buffer,
                                               u32                  name_buffer_capacity,
@@ -426,7 +426,7 @@ Result<u32, ErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
                           "FxeditSerializer::Load: ReadAllText failed",
                           rr.Error().os_error);
     }
-    const Array<char>& text = rr.Value();
+    const TArray<char>& text = rr.Value();
     const usize text_len = text.Size() > 0 ? text.Size() - 1u : 0u; // 末尾 NUL を除いた長さ
     const char* text_ptr = text.Size() > 0 ? text.Data() : "";
 
@@ -552,15 +552,15 @@ Result<u32, ErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
         else if (KeyEquals(k2_begin, k2_end, "scale_start"))    d.scale_start       = vals[0];
         else if (KeyEquals(k2_begin, k2_end, "scale_end"))      d.scale_end         = vals[0];
         else if (KeyEquals(k2_begin, k2_end, "gravity")) {
-            // テキスト形式は 3 成分まで読むが、Vec2 のため z は破棄。
-            d.gravity = Vec2{ vals[0], vals[1] };
+            // テキスト形式は 3 成分まで読むが、FVec2 のため z は破棄。
+            d.gravity = FVec2{ vals[0], vals[1] };
         }
         else if (KeyEquals(k2_begin, k2_end, "color_start")) {
             // alpha (vals[3]) は破棄。
-            d.color_start = Vec3{ vals[0], vals[1], vals[2] };
+            d.color_start = FVec3{ vals[0], vals[1], vals[2] };
         }
         else if (KeyEquals(k2_begin, k2_end, "color_end")) {
-            d.color_end   = Vec3{ vals[0], vals[1], vals[2] };
+            d.color_end   = FVec3{ vals[0], vals[1], vals[2] };
         }
         // "spread_radians" 及び未知 key は無視 (前方互換)。
 
@@ -576,7 +576,7 @@ Result<u32, ErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
                      result_count, max_emitters);
         result_count = max_emitters;
     }
-    return Result<u32, ErrorCode>(OkInit, static_cast<u32&&>(result_count));
+    return TResult<u32, FErrorCode>(OkInit, static_cast<u32&&>(result_count));
 }
 
 } // namespace acs::game::fxedit

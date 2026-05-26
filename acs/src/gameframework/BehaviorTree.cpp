@@ -11,7 +11,7 @@ namespace acs::game {
 
 // ---- BtSelector --------------------------------------------------------------
 
-void BtSelector::AddChild(UniquePtr<BtNode> child) noexcept {
+void BtSelector::AddChild(TUniquePtr<BtNode> child) noexcept {
     // nullptr 子はそもそも tick できないので追加しない (静かに無視)。
     if (!child) return;
     _children.PushBack(Move(child));
@@ -37,7 +37,7 @@ EBtStatus BtSelector::Tick(void* blackboard, f32 dt) noexcept {
 
 // ---- BtSequence --------------------------------------------------------------
 
-void BtSequence::AddChild(UniquePtr<BtNode> child) noexcept {
+void BtSequence::AddChild(TUniquePtr<BtNode> child) noexcept {
     if (!child) return;
     _children.PushBack(Move(child));
 }
@@ -70,8 +70,8 @@ EBtStatus BtAction::Tick(void* blackboard, f32 dt) noexcept {
 
 // ---- BehaviorTree ------------------------------------------------------------
 
-void BehaviorTree::SetRoot(UniquePtr<BtNode> root) noexcept {
-    // 旧 root はここで UniquePtr デストラクタにより自動破棄される。
+void BehaviorTree::SetRoot(TUniquePtr<BtNode> root) noexcept {
+    // 旧 root はここで TUniquePtr デストラクタにより自動破棄される。
     _root = Move(root);
 }
 

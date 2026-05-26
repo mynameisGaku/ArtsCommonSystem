@@ -61,7 +61,7 @@ void JobGraph::JobThunk(void* user, u32 worker_index) noexcept {
     graph->_counter.Done();
 }
 
-Result<void> JobGraph::Submit() noexcept {
+TResult<void> JobGraph::Submit() noexcept {
     if (_submitted) return ACS_ERR(Threading, 1, "JobGraph already submitted");
     if (_jobs.Size() == 0) {
         _submitted = true;
@@ -71,12 +71,12 @@ Result<void> JobGraph::Submit() noexcept {
     // ---- サイクル検知 (Kahn 法、O(N + E)) ----
     {
         const u32 N = static_cast<u32>(_jobs.Size());
-        Array<u32> remaining;
+        TArray<u32> remaining;
         remaining.Resize(N);
         for (u32 i = 0; i < N; ++i) {
             remaining[i] = _jobs[i]->deps_remaining.Load(EMemoryOrder::Acquire);
         }
-        Array<u32> queue;
+        TArray<u32> queue;
         queue.Reserve(N);
         for (u32 i = 0; i < N; ++i) if (remaining[i] == 0) queue.PushBack(i);
 

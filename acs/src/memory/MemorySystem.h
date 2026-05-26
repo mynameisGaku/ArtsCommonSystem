@@ -37,7 +37,7 @@ struct SegmentStats {
 class MemorySystem {
 public:
     // 全セグメントを設定で初期化（多重 Init はエラー）
-    static Result<void> Init(const MemorySystemConfig& cfg) noexcept;
+    static TResult<void> Init(const MemorySystemConfig& cfg) noexcept;
 
     // 全セグメントを解放
     static void Shutdown() noexcept;

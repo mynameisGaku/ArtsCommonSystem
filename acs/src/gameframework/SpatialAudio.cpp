@@ -13,7 +13,7 @@ namespace acs::game {
 // HrtfRendererStub — 簡易 stereo panning だけ
 // =============================================================================
 
-Result<void> HrtfRendererStub::Init() noexcept {
+TResult<void> HrtfRendererStub::Init() noexcept {
     _initialized = true;
     // Phase 2 で KEMAR 256-tap IR を埋め込み配列から構築する。stub は何も
     // ロードしない (= ~140KB 削減)。一度きりログで「HRTF off」を明示。
@@ -51,13 +51,13 @@ void HrtfRendererStub::ProcessSource(const AudioSource3D& source,
     // pan を listener 基準で計算 (SpatialAudio::ComputePan と同じ式)。
     // right = up × forward。標準姿勢 (forward=Z+, up=Y+) で右ベクトル X+ を
     // 返す式で、左手系 / 右手系どちらでも符号一貫 (Y+up を共通慣習にしている)。
-    const Vec3 right = Cross(_listener.up, _listener.forward);
-    const Vec3 to_src = source.position - _listener.position;
+    const FVec3 right = Cross(_listener.up, _listener.forward);
+    const FVec3 to_src = source.position - _listener.position;
     f32 pan = 0.0f;
     const f32 len_sq = LengthSq(to_src);
     if (len_sq > kEpsilon) {
-        const Vec3 dir = Normalize(to_src);
-        const Vec3 right_n = Normalize(right);
+        const FVec3 dir = Normalize(to_src);
+        const FVec3 right_n = Normalize(right);
         pan = Dot(dir, right_n);
         // 数値誤差で [-1,1] を越えうるので clamp。
         if (pan < -1.0f) pan = -1.0f;
@@ -88,12 +88,12 @@ void SpatialAudio::SetListener(const AudioListener& l) noexcept {
 // SpatialAudio — source 管理
 // =============================================================================
 
-u32 SpatialAudio::RegisterSource(Vec3 pos, f32 max_distance,
+u32 SpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
                                   EAttenuationCurve curve) noexcept {
     AudioSource3D s {};
     s.source_id    = _next_source_id++;
     s.position     = pos;
-    s.velocity     = Vec3::Zero();
+    s.velocity     = FVec3::Zero();
     s.volume       = 1.0f;
     // 不正値は既定 20m。負 / 0 では culling が即発火して常に無音になり混乱。
     s.max_distance = (max_distance > 0.0f) ? max_distance : 20.0f;
@@ -103,7 +103,7 @@ u32 SpatialAudio::RegisterSource(Vec3 pos, f32 max_distance,
     return s.source_id;
 }
 
-void SpatialAudio::UpdateSource(u32 id, Vec3 pos, Vec3 vel) noexcept {
+void SpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= _sources.Size()) {
         ACS_LOG_WARN("SpatialAudio::UpdateSource: stale id=%u → ignored", id);
@@ -147,7 +147,7 @@ f32 SpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
     const AudioSource3D& s = _sources[idx];
     if (!s.active) return 0.0f;
 
-    const Vec3 to_src = s.position - _listener.position;
+    const FVec3 to_src = s.position - _listener.position;
     const f32  d      = Length(to_src);
     if (d >= s.max_distance) return 0.0f;  // culling
 
@@ -191,20 +191,20 @@ f32 SpatialAudio::ComputePan(u32 id) const noexcept {
     const AudioSource3D& s = _sources[idx];
     if (!s.active) return 0.0f;
 
-    const Vec3 to_src = s.position - _listener.position;
+    const FVec3 to_src = s.position - _listener.position;
     const f32  len_sq = LengthSq(to_src);
     if (len_sq <= kEpsilon) {
         // listener の真上に重なっている場合は中央 (= 0)。
         return 0.0f;
     }
     // listener の右ベクトル = up × forward (HrtfRendererStub と同じ式)。
-    const Vec3 right = Cross(_listener.up, _listener.forward);
+    const FVec3 right = Cross(_listener.up, _listener.forward);
     if (LengthSq(right) <= kEpsilon) {
         // forward と up が縮退している (= 不正な姿勢) → 中央扱い。
         return 0.0f;
     }
-    const Vec3 dir     = Normalize(to_src);
-    const Vec3 right_n = Normalize(right);
+    const FVec3 dir     = Normalize(to_src);
+    const FVec3 right_n = Normalize(right);
     f32 pan = Dot(dir, right_n);
     // 数値誤差で [-1,1] を越えうる (Normalize 後でも丸め誤差で +-1.00001 等)。
     if (pan < -1.0f) pan = -1.0f;

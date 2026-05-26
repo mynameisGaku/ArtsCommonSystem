@@ -12,7 +12,7 @@ namespace acs::game {
 // AABB と点の包含判定。center / half_size から min/max を構築して比較。
 // half_size 各成分は非負想定。負値が来ても |.| を取らずに比較に任せる
 // (= 必ず外れる結果になり、利用者の構成ミスとして安全側に倒れる)。
-static bool ContainsPoint(const WaterVolumeInfo& v, Vec2 pos) noexcept {
+static bool ContainsPoint(const WaterVolumeInfo& v, FVec2 pos) noexcept {
     const f32 dx = pos.x - v.center.x;
     const f32 dy = pos.y - v.center.y;
     return (dx >= -v.half_size.x) && (dx <= v.half_size.x)
@@ -56,7 +56,7 @@ void WaterVolume::RemoveVolume(WaterVolumeId id) noexcept {
     _cache_dirty = true;
 }
 
-void WaterVolume::UpdateVolume(WaterVolumeId id, Vec2 center, Vec2 half_size) noexcept {
+void WaterVolume::UpdateVolume(WaterVolumeId id, FVec2 center, FVec2 half_size) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
@@ -67,7 +67,7 @@ void WaterVolume::UpdateVolume(WaterVolumeId id, Vec2 center, Vec2 half_size) no
     _cache_dirty = true;
 }
 
-bool WaterVolume::IsUnderwater(Vec2 pos) const noexcept {
+bool WaterVolume::IsUnderwater(FVec2 pos) const noexcept {
     // index 0 は invalid 予約なので 1 から走査。
     for (u32 i = 1; i < _slots.Size(); ++i) {
         const Slot& s = _slots[i];
@@ -77,7 +77,7 @@ bool WaterVolume::IsUnderwater(Vec2 pos) const noexcept {
     return false;
 }
 
-f32 WaterVolume::SubmersionDepth(Vec2 pos) const noexcept {
+f32 WaterVolume::SubmersionDepth(FVec2 pos) const noexcept {
     for (u32 i = 1; i < _slots.Size(); ++i) {
         const Slot& s = _slots[i];
         if (!s.active) continue;
@@ -91,7 +91,7 @@ f32 WaterVolume::SubmersionDepth(Vec2 pos) const noexcept {
     return 0.0f;
 }
 
-Vec2 WaterVolume::ComputeBuoyancyForce(Vec2 pos, Vec2 velocity, f32 mass) const noexcept {
+FVec2 WaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) const noexcept {
     // 全 volume の寄与を加算。重なる volume があれば力も重畳。
     f32  total_depth_strength = 0.0f;  // Σ (buoyancy_strength * depth) を蓄積
     f32  total_drag           = 0.0f;  // Σ drag を蓄積
@@ -111,12 +111,12 @@ Vec2 WaterVolume::ComputeBuoyancyForce(Vec2 pos, Vec2 velocity, f32 mass) const 
         total_drag           += s.info.drag;
     }
 
-    if (!in_water) return Vec2{0.0f, 0.0f};
+    if (!in_water) return FVec2{0.0f, 0.0f};
 
     // 浮力 = (0, +Σ(strength * depth) * mass)
     // drag = -velocity * Σ(drag)
     const f32 fy = total_depth_strength * mass;
-    return Vec2{
+    return FVec2{
         -velocity.x * total_drag,
         fy - velocity.y * total_drag,
     };

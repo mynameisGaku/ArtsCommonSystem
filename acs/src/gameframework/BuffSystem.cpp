@@ -205,7 +205,7 @@ bool BuffSystem::RemoveBuff(BuffOwnerId owner, const char* buff_id) noexcept {
     if (inst_slot == kNotFound) return false;
 
     // 期限切れ callback 用に id を取り出してから swap-and-pop。
-    // (Array<BuffInstance>::RemoveAtSwap は POD なので安全)。
+    // (TArray<BuffInstance>::RemoveAtSwap は POD なので安全)。
     const char* removed_id = s->buffs[static_cast<usize>(inst_slot)].id;
     s->buffs.RemoveAtSwap(static_cast<usize>(inst_slot));
 

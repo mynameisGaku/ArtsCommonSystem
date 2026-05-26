@@ -15,7 +15,7 @@ class GameplayScene;
 
 // ----- WaveSpawner -----
 // 敵が湧くタイミング。enemy_id / spawn_pos は無視し、4 辺ランダムに置く。
-void WaveOnSpawn(void* user, const char* enemy_id, acs::Vec2 spawn_pos) noexcept;
+void WaveOnSpawn(void* user, const char* enemy_id, acs::FVec2 spawn_pos) noexcept;
 
 // wave 状態遷移ログ + 全 wave 完了で勝利遷移。
 void WaveOnState(void* user, acs::u32 wave_index,

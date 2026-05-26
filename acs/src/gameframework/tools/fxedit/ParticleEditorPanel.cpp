@@ -47,7 +47,7 @@ void ParticleEditorPanel::Init() noexcept {
 }
 
 void ParticleEditorPanel::Shutdown() noexcept {
-    // Array はデストラクタで解放されるが、明示的に Clear することで
+    // TArray はデストラクタで解放されるが、明示的に Clear することで
     // 多重 Shutdown / 再 Init の確定状態を作る。
     _emitters.Clear();
     _extra_spread_radians.Clear();
@@ -103,7 +103,7 @@ void ParticleEditorPanel::RemoveSelectedEmitter() noexcept {
 
     const usize sel = static_cast<usize>(_selected);
     // 順序保存削除 (= 後ろの要素を 1 個ずつ前に詰める)。
-    // Array に Erase API が無いので手書き。
+    // TArray に Erase API が無いので手書き。
     for (usize i = sel + 1; i < _emitters.Size(); ++i) {
         _emitters[i - 1]               = _emitters[i];
         _extra_spread_radians[i - 1]   = _extra_spread_radians[i];
@@ -296,7 +296,7 @@ void ParticleEditorPanel::DrawUI() noexcept {
         if (ImGui::Button("Load")) {
             if (_load_cb) {
                 // Load は in-out で個数を受け渡し。callback 側で kMaxEmitters
-                // 個まで埋めてもらう。内部 Array を resize してから渡す。
+                // 個まで埋めてもらう。内部 TArray を resize してから渡す。
                 _emitters.Resize(static_cast<usize>(kMaxEmitters));
                 _extra_spread_radians.Resize(static_cast<usize>(kMaxEmitters));
                 for (usize i = 0; i < _extra_spread_radians.Size(); ++i) {

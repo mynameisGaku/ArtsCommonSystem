@@ -18,7 +18,7 @@ namespace {
 
 // 1 つの Init 呼び出しに失敗したら IsErr で抜けるための短縮マクロ。
 // ACS_SAMPLE_INIT は Application::Quit() を必要とするため、free function 内では
-// 使えない。代わりに Result を伝搬する形にする。
+// 使えない。代わりに TResult を伝搬する形にする。
 #define HS_TRY(expr)                                                              \
     do {                                                                          \
         auto _r = (expr);                                                         \
@@ -31,7 +31,7 @@ namespace {
 
 } // namespace
 
-Result<void> InitializeAssets(Assets& a, IRhiDevice& dev,
+TResult<void> InitializeAssets(Assets& a, IRhiDevice& dev,
                                u32 sw, u32 sh,
                                EFormat color_fmt, EFormat depth_fmt) noexcept {
     // HDR + Bloom + ACES tonemap

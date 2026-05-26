@@ -35,7 +35,7 @@
 // 設計選択 (Phase H-1 スケルトン):
 //   ・**state holder のみ実装**: 実 Widget 生成 / 描画 / ヒットテストは現フェーズ
 //     では未接続 (Init / Tick / HandleInput 内に TODO コメントで明示)。代わりに
-//     ハンドル付きの WidgetEntry を Array で保持し、追加・削除・可視性・押下
+//     ハンドル付きの WidgetEntry を TArray で保持し、追加・削除・可視性・押下
 //     クエリは完全動作する。これにより呼び出し側 (Scene) は本 layer を通常通り
 //     使い始めることができ、Phase H-2 で `acs::ui::StackPanel` 等の実 widget
 //     接続に差し替えるだけで描画 / 入力が動く設計。
@@ -91,8 +91,8 @@ enum class EWidgetKind : u8 {
 struct WidgetEntry {
     u32         handle       = 0;
     EWidgetKind  kind         = EWidgetKind::None;
-    acs::Vec2   pos         {0.0f, 0.0f};
-    acs::Vec2   size        {0.0f, 0.0f};
+    acs::FVec2   pos         {0.0f, 0.0f};
+    acs::FVec2   size        {0.0f, 0.0f};
     const char* text         = nullptr;
     bool        visible      = true;
     bool        just_pressed = false;
@@ -133,11 +133,11 @@ public:
     // ----- 簡素 widget API -----
     // ボタンを追加。戻り値は 0 でない handle (IsButtonPressed / SetVisible /
     // Remove に渡す)。label は非所有 (寿命は呼び出し側保証)。
-    u32 AddButton(const char* label, acs::Vec2 pos, acs::Vec2 size) noexcept;
+    u32 AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noexcept;
 
     // 静的テキストを追加。戻り値は handle。text は非所有。size は描画時に
     // フォントメトリックから自動計算する想定 (Phase H-2)。
-    u32 AddText(const char* text, acs::Vec2 pos) noexcept;
+    u32 AddText(const char* text, acs::FVec2 pos) noexcept;
 
     // ボタンが「直前フレームで押されたか」を返す。Phase H-1 では HandleInput
     // で押下検出が未実装なため常に false (state holder のみ)。Phase H-2 で
@@ -161,7 +161,7 @@ private:
     // なら -1 相当 (u32 の MAX = 0xFFFFFFFFu) を返す。
     u32 FindIndex(u32 handle) const noexcept;
 
-    Array<WidgetEntry> _widgets;          // 全 widget の状態 (handle 順は保証しない)
+    TArray<WidgetEntry> _widgets;          // 全 widget の状態 (handle 順は保証しない)
     u32                _next_handle = 1;  // 次に発行する handle (0 は invalid 予約)
     bool               _initialized = false;
 };

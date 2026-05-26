@@ -79,7 +79,7 @@ void EconomyDirector::RegisterCurrency(const CurrencyDef& def) noexcept {
     }
 
     _currencies.PushBack(def);
-    // 並行 Array — 残高は 0 で初期化。
+    // 並行 TArray — 残高は 0 で初期化。
     _balances.PushBack(static_cast<u32>(0));
 }
 

@@ -20,10 +20,10 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::UniquePtr<acs::IRhiShader>   _vs;
-    acs::UniquePtr<acs::IRhiShader>   _ps;
-    acs::UniquePtr<acs::IRhiBuffer>   _vb;
-    acs::UniquePtr<acs::IRhiPipeline> _pipeline;
+    acs::TUniquePtr<acs::IRhiShader>   _vs;
+    acs::TUniquePtr<acs::IRhiShader>   _ps;
+    acs::TUniquePtr<acs::IRhiBuffer>   _vb;
+    acs::TUniquePtr<acs::IRhiPipeline> _pipeline;
 };
 
 } // namespace hellotri

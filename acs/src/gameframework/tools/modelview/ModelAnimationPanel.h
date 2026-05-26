@@ -28,7 +28,7 @@
 //     AnimationPlayer) に委譲する。`OnFrameCallback` がその橋渡し点。
 //   ・clip メタ情報 (name / duration / looping / clip_index) は外部 (model
 //     loader) が確定済みの値を `SetClips` で push する。本 panel は中身を
-//     コピー所有 (= AnimationClipBinding 配列を Array<>); pointer は持たない。
+//     コピー所有 (= AnimationClipBinding 配列を TArray<>); pointer は持たない。
 //
 // 使い方 (典型):
 //   ModelAnimationPanel anim;
@@ -54,7 +54,7 @@
 //     OnInit は基底実装 (`Workspace()` ポインタ保持) のみで十分 (= 本 panel は
 //     workspace に直接問い合わせる対象が無いため override 不要)。
 //   ・**clip リストは値コピーで保持**: `SetClips` 渡しの `AnimationClipBinding`
-//     を内部 `Array<AnimationClipBinding>` に push_back。`name` は const char*
+//     を内部 `TArray<AnimationClipBinding>` に push_back。`name` は const char*
 //     リテラル想定 (model loader が静的領域 or 永続バッファに保持) — STL
 //     `std::string` を使えないため、ポインタ寿命は呼出側責任。
 //   ・**Playing 状態は enum** (`EAnimationPlayState`): Stopped / Playing /
@@ -82,7 +82,7 @@
 //     callback 規約。Tick 終端で 1 度発火、引数は (user, clip_index, time_sec)。
 //     未設定 (nullptr) なら no-op。
 //   ・**非コピー / 非ムーブ**: 基底 EditorPanel と同じ規約 + 内部
-//     `Array<AnimationClipBinding>` の所有を曖昧にしない。
+//     `TArray<AnimationClipBinding>` の所有を曖昧にしない。
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。
 //   ・**ImGui ヘッダは .cpp 限定**: ParticleEditorPanel / ModelViewerPanel と
 //     同形 (= ヘッダから ImGui 依存を漏らさない)。
@@ -119,7 +119,7 @@ enum class EAnimationPlayState : u8 {
 // ---------------------------------------------------------------------------
 // AnimationClipBinding — model に含まれる 1 個の animation clip メタ情報
 // ---------------------------------------------------------------------------
-// `SetClips` で外部から渡す POD 構造。本 panel は値コピーで内部 Array に
+// `SetClips` で外部から渡す POD 構造。本 panel は値コピーで内部 TArray に
 // 保持する (= 呼出側はビルド済み配列を temp で渡してよい)。
 //   name       : clip 表示名。const char* リテラル / 永続バッファ想定
 //                (= 本 panel はコピー所有しない、ポインタ寿命は呼出側責任)。
@@ -149,7 +149,7 @@ public:
     ModelAnimationPanel() noexcept = default;
     ~ModelAnimationPanel() noexcept override = default;
 
-    // 非コピー・非ムーブ: 基底 EditorPanel と同規約 + 内部 Array の所有を
+    // 非コピー・非ムーブ: 基底 EditorPanel と同規約 + 内部 TArray の所有を
     // 曖昧にしない (ACS 規約)。
     ModelAnimationPanel(const ModelAnimationPanel&)            = delete;
     ModelAnimationPanel& operator=(const ModelAnimationPanel&) = delete;
@@ -162,14 +162,14 @@ public:
     // callback も nullptr に戻す (= 完全リセット)。多重 Init 可。
     void Init() noexcept;
 
-    // 内部 state を全解放 (Array の中身は ~Array で解放されるが、明示 Clear
+    // 内部 state を全解放 (TArray の中身は ~TArray で解放されるが、明示 Clear
     // で再 Init の確定状態を作る)。多重 Shutdown 可。
     void Shutdown() noexcept;
 
     // ----- clip リスト管理 -------------------------------------------------
 
     // 外部 (model loader) からの clip メタ一覧 push。`count == 0` で空。
-    // 内部 Array を `count` 個に Resize して中身を値コピーする。
+    // 内部 TArray を `count` 個に Resize して中身を値コピーする。
     // 既存の selection は reset (= 自動的に index 0 を選択、count==0 なら -1)。
     // 時刻 / state も Stopped + 0 にリセット (= モデル切替時の安全側)。
     void SetClips(const AnimationClipBinding* clips, u32 count) noexcept;
@@ -277,7 +277,7 @@ public:
 
 private:
     // 内部 clip 一覧 (値コピー所有)。name ポインタの寿命は呼出側責任。
-    Array<AnimationClipBinding> _clips {};
+    TArray<AnimationClipBinding> _clips {};
 
     // 現在選択中の clip index (`_clips` 内 index、未選択は kNoClipSelected)。
     i32 _current_clip_idx = kNoClipSelected;

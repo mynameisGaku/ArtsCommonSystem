@@ -21,7 +21,7 @@ public:
     DiligentSwapchain(const DiligentSwapchain&) = delete;
     DiligentSwapchain& operator=(const DiligentSwapchain&) = delete;
 
-    Result<void> Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept;
+    TResult<void> Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept;
 
     // ---- IRhiSwapchain ----
     u32  AcquireNextImage() noexcept override;

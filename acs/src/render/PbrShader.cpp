@@ -910,48 +910,48 @@ constexpr u32 kMaxDirLights   = 4;
 constexpr u32 kMaxPointLights = 4;
 constexpr u32 kMaxAreaLights  = 2;
 struct FrameCBLayout {
-    Mat4 view_proj;
-    Vec4 camera_pos;
-    Vec4 ambient;
-    Vec4 point_count_pad;       // x=point_count, y=area_count
-    Vec4 light_dir   [kMaxDirLights];
-    Vec4 light_color [kMaxDirLights];
-    Vec4 point_pos_range[kMaxPointLights];
-    Vec4 point_color    [kMaxPointLights];
-    Vec4 ibl_params;
-    Vec4 sh9[9];
-    Vec4 area_center [kMaxAreaLights];
-    Vec4 area_axis_x [kMaxAreaLights];
-    Vec4 area_axis_y [kMaxAreaLights];
-    Vec4 area_color  [kMaxAreaLights];
-    Vec4 probe_params;
-    Vec4 probe_pos[4];
-    Vec4 probe_sh9[4 * 9];
-    Vec4 fog_color_density;
-    Vec4 fog_height_params;
+    FMat4 view_proj;
+    FVec4 camera_pos;
+    FVec4 ambient;
+    FVec4 point_count_pad;       // x=point_count, y=area_count
+    FVec4 light_dir   [kMaxDirLights];
+    FVec4 light_color [kMaxDirLights];
+    FVec4 point_pos_range[kMaxPointLights];
+    FVec4 point_color    [kMaxPointLights];
+    FVec4 ibl_params;
+    FVec4 sh9[9];
+    FVec4 area_center [kMaxAreaLights];
+    FVec4 area_axis_x [kMaxAreaLights];
+    FVec4 area_axis_y [kMaxAreaLights];
+    FVec4 area_color  [kMaxAreaLights];
+    FVec4 probe_params;
+    FVec4 probe_pos[4];
+    FVec4 probe_sh9[4 * 9];
+    FVec4 fog_color_density;
+    FVec4 fog_height_params;
     // CSM 対応 (Phase 34b part 3): single mode は shadow_view_proj[0] のみ使用、
     // 残りは backward compat の inf split で常にスキップ。
-    Mat4 shadow_view_proj[4];   // 各 cascade の light VP
-    Vec4 shadow_params;         // x=bias, y=enabled, z=texel_size, w=filter_radius
-    Vec4 cascade_splits;        // xyzw = cascade 0/1/2/3 の view-space z far (inf=未使用)
-    Vec4 cascade_uv_scale;      // x=atlas X scale (single=1, N-cascade=1/N)、y=1、zw=pad
-    Vec4 ssao_params;       // Phase 34j-2: x=enabled, y=intensity, zw=inv_viewport
-    Vec4 ssgi_params;       // Phase 33c: x=enabled, y=intensity, zw=pad
-    Vec4 lightmap_params;   // Phase 33f: x=enabled, y=intensity, zw=pad
-    Vec4 ssr_params;        // Phase 34e-2fix: x=enabled, y=intensity, zw=pad
+    FMat4 shadow_view_proj[4];   // 各 cascade の light VP
+    FVec4 shadow_params;         // x=bias, y=enabled, z=texel_size, w=filter_radius
+    FVec4 cascade_splits;        // xyzw = cascade 0/1/2/3 の view-space z far (inf=未使用)
+    FVec4 cascade_uv_scale;      // x=atlas X scale (single=1, N-cascade=1/N)、y=1、zw=pad
+    FVec4 ssao_params;       // Phase 34j-2: x=enabled, y=intensity, zw=inv_viewport
+    FVec4 ssgi_params;       // Phase 33c: x=enabled, y=intensity, zw=pad
+    FVec4 lightmap_params;   // Phase 33f: x=enabled, y=intensity, zw=pad
+    FVec4 ssr_params;        // Phase 34e-2fix: x=enabled, y=intensity, zw=pad
 };
 
 struct ObjectCBLayout {
-    Mat4 model;
-    Vec4 base_color;
-    Vec4 pbr_params;        // x=metallic, y=roughness, z=ao, w=pad
-    Vec4 ext_params;        // x=clearcoat, y=coat_roughness, z=anisotropy, w=flags
-    Vec4 aniso_tangent;     // xyz=tangent world, w=pad
-    Vec4 emissive;          // Phase 34l: xyz=emissive color * strength, w=pad
-    Vec4 sheen_params;      // Phase 35-1a: xyz=sheen color, w=sheen weight
-    Vec4 sheen_rough;       // Phase 35-1a: x=sheen roughness, yzw=pad
-    Vec4 irid_params;       // Phase 35-1b: x=weight, y=thickness(nm), z=film IOR, w=pad
-    Vec4 sss_params;        // Phase 35-2: xyz=subsurface color, w=weight
+    FMat4 model;
+    FVec4 base_color;
+    FVec4 pbr_params;        // x=metallic, y=roughness, z=ao, w=pad
+    FVec4 ext_params;        // x=clearcoat, y=coat_roughness, z=anisotropy, w=flags
+    FVec4 aniso_tangent;     // xyz=tangent world, w=pad
+    FVec4 emissive;          // Phase 34l: xyz=emissive color * strength, w=pad
+    FVec4 sheen_params;      // Phase 35-1a: xyz=sheen color, w=sheen weight
+    FVec4 sheen_rough;       // Phase 35-1a: x=sheen roughness, yzw=pad
+    FVec4 irid_params;       // Phase 35-1b: x=weight, y=thickness(nm), z=film IOR, w=pad
+    FVec4 sss_params;        // Phase 35-2: xyz=subsurface color, w=weight
 };
 
 template<typename T>
@@ -961,7 +961,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kPbrHLSL;
@@ -1151,7 +1151,7 @@ Result<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dept
     pd.static_samplers[9].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[9].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
-    // MeshVertex の Vec3 は alignas(16) で 16 バイト境界。
+    // MeshVertex の FVec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
     // 12/24 にしてしまうと normal が position パディング + normal の途中を読んで
     // ジオメトリが破壊され、PBR が「黒っぽくべったり影」状態に見える。
@@ -1208,9 +1208,9 @@ void PbrShader::SetIbl(IRhiTexture* irradiance,
     FlushFrameCB();
 }
 
-void PbrShader::SetFog(Vec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
-    _fog_color_density = Vec4{color.x, color.y, color.z, density};
-    _fog_height_params = Vec4{height_falloff, height_base, 0, 0};
+void PbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
+    _fog_color_density = FVec4{color.x, color.y, color.z, density};
+    _fog_height_params = FVec4{height_falloff, height_base, 0, 0};
     FlushFrameCB();
 }
 
@@ -1218,24 +1218,24 @@ void PbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
     if (count > 4) count = 4;
     _probe_count = count;
     for (u32 i = 0; i < count; ++i) {
-        _probe_pos[i] = Vec4{probes[i].position.x, probes[i].position.y, probes[i].position.z, 0};
+        _probe_pos[i] = FVec4{probes[i].position.x, probes[i].position.y, probes[i].position.z, 0};
         for (u32 k = 0; k < 9; ++k) {
             _probe_sh9[i * 9 + k] = probes[i].sh9[k];
         }
     }
     for (u32 i = count; i < 4; ++i) {
-        _probe_pos[i] = Vec4{0, 0, 0, 0};
-        for (u32 k = 0; k < 9; ++k) _probe_sh9[i * 9 + k] = Vec4{0, 0, 0, 0};
+        _probe_pos[i] = FVec4{0, 0, 0, 0};
+        for (u32 k = 0; k < 9; ++k) _probe_sh9[i * 9 + k] = FVec4{0, 0, 0, 0};
     }
     FlushFrameCB();
 }
 
-void PbrShader::SetSh9(const Vec4* sh9_or_null) noexcept {
+void PbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     if (sh9_or_null) {
         for (u32 i = 0; i < 9; ++i) _sh9[i] = sh9_or_null[i];
         _sh9_enabled = true;
     } else {
-        for (u32 i = 0; i < 9; ++i) _sh9[i] = Vec4{0, 0, 0, 0};
+        for (u32 i = 0; i < 9; ++i) _sh9[i] = FVec4{0, 0, 0, 0};
         _sh9_enabled = false;
     }
     FlushFrameCB();
@@ -1320,21 +1320,21 @@ void PbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
     FlushFrameCB();
 }
 
-void PbrShader::SetShadowMap(IRhiTexture* depth, const Mat4& light_vp,
+void PbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
                               f32 bias, f32 texel_size, f32 filter_radius) noexcept {
     _shadow_depth     = depth;
     // 後方互換: 全 cascade スロットに同じ VP を書き、splits を inf にして
     // HLSL の cascade 選択が常に cascade 0 を選ぶようにする。
     // uv_scale = {1, 1, 0, 0} で atlas 変換をパススルー (single texture モード)。
     for (u32 c = 0; c < kMaxShadowCascades; ++c) _shadow_view_proj[c] = light_vp;
-    _shadow_params     = Vec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
-    _cascade_splits    = Vec4{1e30f, 1e30f, 1e30f, 1e30f};
-    _cascade_uv_scale  = Vec4{1.0f, 1.0f, 0, 0};
+    _shadow_params     = FVec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
+    _cascade_splits    = FVec4{1e30f, 1e30f, 1e30f, 1e30f};
+    _cascade_uv_scale  = FVec4{1.0f, 1.0f, 0, 0};
     FlushFrameCB();
 }
 
 void PbrShader::SetShadowMapCascades(IRhiTexture* depth,
-                                      const Mat4* light_vp,
+                                      const FMat4* light_vp,
                                       const f32*  cascade_splits,
                                       u32 cascade_count,
                                       f32 bias, f32 texel_size,
@@ -1350,18 +1350,18 @@ void PbrShader::SetShadowMapCascades(IRhiTexture* depth,
     // cascade_splits xyzw に 4 cascade の z far を詰め、未使用は inf
     f32 splits[kMaxShadowCascades] = {1e30f, 1e30f, 1e30f, 1e30f};
     for (u32 c = 0; c < cascade_count; ++c) splits[c] = cascade_splits[c];
-    _cascade_splits = Vec4{splits[0], splits[1], splits[2], splits[3]};
+    _cascade_splits = FVec4{splits[0], splits[1], splits[2], splits[3]};
 
-    _shadow_params    = Vec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
+    _shadow_params    = FVec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
     // atlas X scale = 1 / cascade_count (single mode は cascade_count=1 で 1)
     const f32 scale_x = 1.0f / static_cast<f32>(cascade_count);
-    _cascade_uv_scale = Vec4{scale_x, 1.0f, 0, 0};
+    _cascade_uv_scale = FVec4{scale_x, 1.0f, 0, 0};
     FlushFrameCB();
 }
 
-void PbrShader::SetLights(const Mat4& vp, Vec3 eye,
+void PbrShader::SetLights(const FMat4& vp, FVec3 eye,
                           const DirLight* lights, u32 count,
-                          Vec3 ambient) noexcept {
+                          FVec3 ambient) noexcept {
     _vp = vp;
     _eye = eye;
     _ambient = ambient;
@@ -1389,29 +1389,29 @@ void PbrShader::FlushFrameCB() noexcept {
     if (!_frame_cb) return;
     FrameCBLayout cb{};
     cb.view_proj  = _vp;
-    cb.camera_pos = Vec4{_eye.x, _eye.y, _eye.z, 1.0f};
-    cb.ambient    = Vec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
-    cb.point_count_pad = Vec4{static_cast<f32>(_point_count), static_cast<f32>(_area_count), 0, 0};
+    cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
+    cb.ambient    = FVec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
+    cb.point_count_pad = FVec4{static_cast<f32>(_point_count), static_cast<f32>(_area_count), 0, 0};
     for (u32 i = 0; i < _dir_count; ++i) {
-        const Vec3& d = _dir_lights[i].direction;
-        const Vec3& c = _dir_lights[i].color;
-        cb.light_dir[i]   = Vec4{d.x, d.y, d.z, 0};
-        cb.light_color[i] = Vec4{c.x, c.y, c.z, 1};
+        const FVec3& d = _dir_lights[i].direction;
+        const FVec3& c = _dir_lights[i].color;
+        cb.light_dir[i]   = FVec4{d.x, d.y, d.z, 0};
+        cb.light_color[i] = FVec4{c.x, c.y, c.z, 1};
     }
     for (u32 i = 0; i < _point_count; ++i) {
-        const Vec3& p = _point_lights[i].position;
-        const Vec3& c = _point_lights[i].color;
-        cb.point_pos_range[i] = Vec4{p.x, p.y, p.z, _point_lights[i].range};
-        cb.point_color[i]     = Vec4{c.x, c.y, c.z, 1};
+        const FVec3& p = _point_lights[i].position;
+        const FVec3& c = _point_lights[i].color;
+        cb.point_pos_range[i] = FVec4{p.x, p.y, p.z, _point_lights[i].range};
+        cb.point_color[i]     = FVec4{c.x, c.y, c.z, 1};
     }
     for (u32 i = 0; i < _area_count; ++i) {
         const AreaLight& a = _area_lights[i];
-        cb.area_center[i] = Vec4{a.center.x, a.center.y, a.center.z, 0};
-        cb.area_axis_x[i] = Vec4{a.axis_x.x, a.axis_x.y, a.axis_x.z, 0};
-        cb.area_axis_y[i] = Vec4{a.axis_y.x, a.axis_y.y, a.axis_y.z, 0};
-        cb.area_color[i]  = Vec4{a.color.x,  a.color.y,  a.color.z,  0};
+        cb.area_center[i] = FVec4{a.center.x, a.center.y, a.center.z, 0};
+        cb.area_axis_x[i] = FVec4{a.axis_x.x, a.axis_x.y, a.axis_x.z, 0};
+        cb.area_axis_y[i] = FVec4{a.axis_y.x, a.axis_y.y, a.axis_y.z, 0};
+        cb.area_color[i]  = FVec4{a.color.x,  a.color.y,  a.color.z,  0};
     }
-    cb.probe_params = Vec4{static_cast<f32>(_probe_count), 0, 0, 0};
+    cb.probe_params = FVec4{static_cast<f32>(_probe_count), 0, 0, 0};
     for (u32 i = 0; i < 4; ++i) cb.probe_pos[i] = _probe_pos[i];
     for (u32 i = 0; i < 4 * 9; ++i) cb.probe_sh9[i] = _probe_sh9[i];
     cb.fog_color_density = _fog_color_density;
@@ -1421,29 +1421,29 @@ void PbrShader::FlushFrameCB() noexcept {
     cb.shadow_params     = _shadow_params;
     cb.cascade_splits    = _cascade_splits;
     cb.cascade_uv_scale  = _cascade_uv_scale;
-    cb.ibl_params = Vec4{
+    cb.ibl_params = FVec4{
         _ibl_enabled ? 1.0f : 0.0f,
         static_cast<f32>(_ibl_mips),
         _sh9_enabled ? 1.0f : 0.0f,
         0
     };
-    cb.ssao_params = Vec4{
+    cb.ssao_params = FVec4{
         (_ssao_tex && _ssao_inv_w > 0 && _ssao_inv_h > 0) ? 1.0f : 0.0f,
         _ssao_intensity,
         _ssao_inv_w,
         _ssao_inv_h
     };
-    cb.ssgi_params = Vec4{
+    cb.ssgi_params = FVec4{
         _ssgi_tex ? 1.0f : 0.0f,
         _ssgi_intensity,
         0, 0
     };
-    cb.lightmap_params = Vec4{
+    cb.lightmap_params = FVec4{
         _lightmap_tex ? 1.0f : 0.0f,
         _lightmap_intensity,
         0, 0
     };
-    cb.ssr_params = Vec4{
+    cb.ssr_params = FVec4{
         _ssr_tex ? 1.0f : 0.0f,
         _ssr_intensity,
         0, 0
@@ -1452,13 +1452,13 @@ void PbrShader::FlushFrameCB() noexcept {
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
-void PbrShader::SetObject(const Mat4& model, Vec3 base_color,
+void PbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
     if (!_object_cb) return;
     ObjectCBLayout cb{};
     cb.model = model;
-    cb.base_color = Vec4{base_color.x, base_color.y, base_color.z, 1.0f};
-    cb.pbr_params = Vec4{metallic, roughness, ao, 0};
+    cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
+    cb.pbr_params = FVec4{metallic, roughness, ao, 0};
     cb.ext_params    = _ext_params;
     cb.aniso_tangent = _aniso_tangent;
     cb.emissive      = _emissive;
@@ -1470,28 +1470,28 @@ void PbrShader::SetObject(const Mat4& model, Vec3 base_color,
 }
 
 void PbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
-                             f32 anisotropy, Vec3 tangent) noexcept {
-    _ext_params    = Vec4{clearcoat, clearcoat_roughness, anisotropy, 0};
-    _aniso_tangent = Vec4{tangent.x, tangent.y, tangent.z, 0};
+                             f32 anisotropy, FVec3 tangent) noexcept {
+    _ext_params    = FVec4{clearcoat, clearcoat_roughness, anisotropy, 0};
+    _aniso_tangent = FVec4{tangent.x, tangent.y, tangent.z, 0};
     // 注: SetObject が CB を flush するので、SetExtParams 単独では反映されない。
     // SetObject 直後に呼んでも次の SetObject で 上書き されない (member に格納)。
     // 描画前に SetObject() が再度呼ばれて反映される設計。
 }
 
-void PbrShader::SetEmissive(Vec3 color, f32 strength) noexcept {
+void PbrShader::SetEmissive(FVec3 color, f32 strength) noexcept {
     const f32 s = strength < 0.0f ? 0.0f : strength;
-    _emissive = Vec4{color.x * s, color.y * s, color.z * s, 0.0f};
+    _emissive = FVec4{color.x * s, color.y * s, color.z * s, 0.0f};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
-void PbrShader::SetSheen(Vec3 sheen_color, f32 weight, f32 roughness) noexcept {
+void PbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept {
     // weight は [0,1] の blend 係数、sheen_color は反射率なので各 ch を [0,1] に収める。
     // これでシェーダの energy 減衰係数 (1 - weight*maxC*0.5) が負へ振れない。
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
     const f32 w = sat01(weight);
     const f32 r = roughness < 0.04f ? 0.04f : roughness;
-    _sheen_params = Vec4{sat01(sheen_color.x), sat01(sheen_color.y), sat01(sheen_color.z), w};
-    _sheen_rough  = Vec4{r, 0, 0, 0};
+    _sheen_params = FVec4{sat01(sheen_color.x), sat01(sheen_color.y), sat01(sheen_color.z), w};
+    _sheen_rough  = FVec4{r, 0, 0, 0};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
@@ -1500,20 +1500,20 @@ void PbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexc
     const f32 w = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
     const f32 t = thickness_nm < 0.0f ? 0.0f : thickness_nm;
     const f32 i = film_ior < 1.0f ? 1.0f : film_ior;
-    _irid_params = Vec4{w, t, i, 0};
+    _irid_params = FVec4{w, t, i, 0};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
-void PbrShader::SetSubsurface(Vec3 sss_color, f32 weight) noexcept {
+void PbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // weight は [0,1] の blend 係数、sss_color は内部散乱の色 (各 ch [0,1])。
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
-    _sss_params = Vec4{sat01(sss_color.x), sat01(sss_color.y), sat01(sss_color.z),
+    _sss_params = FVec4{sat01(sss_color.x), sat01(sss_color.y), sat01(sss_color.z),
                        sat01(weight)};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
-void PbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const Mat4& model,
-                        Vec3 base_color, f32 metallic, f32 roughness, f32 ao,
+void PbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
+                        FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
                         IRhiTexture* albedo) noexcept {
     if (!_pipeline || !_frame_cb || !_object_cb) return;
     SetObject(model, base_color, metallic, roughness, ao);

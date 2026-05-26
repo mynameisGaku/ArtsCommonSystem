@@ -27,7 +27,7 @@ Diligent::ITextureView* DiligentTexture::RtvSlice(u32 slice, u32 mip) const noex
     return _slice_rtvs[idx];
 }
 
-Result<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& desc) noexcept {
+TResult<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& desc) noexcept {
     _device  = &device;
     _width   = desc.width;
     _height  = desc.height;

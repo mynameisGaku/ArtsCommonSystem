@@ -20,7 +20,7 @@ u32 CollisionWorld2D::AcquireSlot() noexcept {
 ShapeId CollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
-    s.kind   = Kind::Aabb;
+    s.kind   = Kind::FAabb;
     s.aabb   = a;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;
@@ -46,7 +46,7 @@ ShapeId CollisionWorld2D::AddCircle(const Circle& c) noexcept {
 void CollisionWorld2D::UpdateAabb(ShapeId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     Slot& s = _slots[id.Index()];
-    if (!s.active || s.gen != id.Generation() || s.kind != Kind::Aabb) return;
+    if (!s.active || s.gen != id.Generation() || s.kind != Kind::FAabb) return;
     s.aabb = a;
     MarkDirty();
 }
@@ -80,8 +80,8 @@ void CollisionWorld2D::ClearAll() noexcept {
 void CollisionWorld2D::CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
     const f32 inv = 1.0f / _cell_size;
-    const Vec2 mn = a.Min();
-    const Vec2 mx = a.Max();
+    const FVec2 mn = a.Min();
+    const FVec2 mx = a.Max();
     cx_min = static_cast<i32>(Floor(mn.x * inv));
     cy_min = static_cast<i32>(Floor(mn.y * inv));
     cx_max = static_cast<i32>(Floor(mx.x * inv));
@@ -92,7 +92,7 @@ void CollisionWorld2D::CellRange(const Circle& c, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
     Aabb2 a;
     a.center    = c.center;
-    a.half_size = Vec2{c.radius, c.radius};
+    a.half_size = FVec2{c.radius, c.radius};
     CellRange(a, cx_min, cy_min, cx_max, cy_max);
 }
 
@@ -117,7 +117,7 @@ void CollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     if (!s.active) return;
     i32 cx_min = 0, cy_min = 0, cx_max = 0, cy_max = 0;
     switch (s.kind) {
-    case Kind::Aabb:   CellRange(s.aabb,   cx_min, cy_min, cx_max, cy_max); break;
+    case Kind::FAabb:   CellRange(s.aabb,   cx_min, cy_min, cx_max, cy_max); break;
     case Kind::Circle: CellRange(s.circle, cx_min, cy_min, cx_max, cy_max); break;
     default: return;
     }
@@ -141,7 +141,7 @@ void CollisionWorld2D::RebuildGridIfDirty() noexcept {
 bool CollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const noexcept {
     const Slot& s = _slots[slot_idx];
     switch (s.kind) {
-    case Kind::Aabb:   return Intersect(s.aabb,   a);
+    case Kind::FAabb:   return Intersect(s.aabb,   a);
     case Kind::Circle: return Intersect(s.circle, a);
     default: return false;
     }
@@ -150,14 +150,14 @@ bool CollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const n
 bool CollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept {
     const Slot& s = _slots[slot_idx];
     switch (s.kind) {
-    case Kind::Aabb:   return Intersect(s.aabb,   c);
+    case Kind::FAabb:   return Intersect(s.aabb,   c);
     case Kind::Circle: return Intersect(s.circle, c);
     default: return false;
     }
 }
 
 // ===== クエリ =====
-void CollisionWorld2D::OverlapAabb(const Aabb2& a, Array<ShapeId>& out, ShapeId exclude) noexcept {
+void CollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<ShapeId>& out, ShapeId exclude) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     _query_marks.Resize(_slots.Size());
@@ -182,7 +182,7 @@ void CollisionWorld2D::OverlapAabb(const Aabb2& a, Array<ShapeId>& out, ShapeId 
     }
 }
 
-void CollisionWorld2D::OverlapCircle(const Circle& c, Array<ShapeId>& out, ShapeId exclude) noexcept {
+void CollisionWorld2D::OverlapCircle(const Circle& c, TArray<ShapeId>& out, ShapeId exclude) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     _query_marks.Resize(_slots.Size());
@@ -214,11 +214,11 @@ bool CollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
     RebuildGridIfDirty();
     // Phase 1 簡略化: ray の長さ範囲を AABB で囲って overlap → 各候補に narrow raycast。
     // 後段で DDA traversal に置換 (Phase 2)。
-    Vec2 ray_min{
+    FVec2 ray_min{
         ray.origin.x + (ray.direction.x < 0 ? ray.direction.x * max_t : 0.0f),
         ray.origin.y + (ray.direction.y < 0 ? ray.direction.y * max_t : 0.0f),
     };
-    Vec2 ray_max{
+    FVec2 ray_max{
         ray.origin.x + (ray.direction.x > 0 ? ray.direction.x * max_t : 0.0f),
         ray.origin.y + (ray.direction.y > 0 ? ray.direction.y * max_t : 0.0f),
     };
@@ -244,7 +244,7 @@ bool CollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                 const Slot& s = _slots[idx];
                 RayHit2 rh{};
                 switch (s.kind) {
-                case Kind::Aabb:   rh = RaycastAabb(ray,   s.aabb,   max_t); break;
+                case Kind::FAabb:   rh = RaycastAabb(ray,   s.aabb,   max_t); break;
                 case Kind::Circle: rh = RaycastCircle(ray, s.circle, max_t); break;
                 default: break;
                 }

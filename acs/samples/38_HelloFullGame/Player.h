@@ -27,7 +27,7 @@ public:
 
     // 移動入力 + clamp + collision shape の追従。 perception 用に座標も返す。
     // 戻り値: 移動後の player 座標 (camera / perception 更新で使う)。
-    acs::Vec2 UpdateMovement(GameplayScene& scene, acs::f32 dt) noexcept;
+    acs::FVec2 UpdateMovement(GameplayScene& scene, acs::f32 dt) noexcept;
 
     // 発射ボタンが押されていれば cooldown を見て撃つ。
     void UpdateFire(GameplayScene& scene, acs::f32 dt) noexcept;
@@ -36,11 +36,11 @@ public:
     // 戻り値: true なら致死 (シーンが GameOver 遷移する)。
     bool TryTakeContactDamage(GameplayScene& scene,
                               acs::game::HealthSystem& health,
-                              acs::Vec2 player_pos) noexcept;
+                              acs::FVec2 player_pos) noexcept;
 
     // ----- アクセサ -----
     acs::game::Node2D* Node()       noexcept { return _node; }
-    acs::Vec2          Position() const noexcept;
+    acs::FVec2          Position() const noexcept;
     acs::game::HealthId  HealthHandle() const noexcept { return _health_id; }
     acs::game::ShapeId   Shape()        const noexcept { return _shape; }
     bool                 IsInvulnerable(const acs::game::HealthSystem& h) const noexcept;

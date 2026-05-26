@@ -34,7 +34,7 @@ void HelloSkyApp::OnStart() noexcept {
     const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                        static_cast<f32>(GetRenderer().Swapchain()->Height());
     _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 200.0f);
-    _cam_pos = Vec3{0, 2.0f, -6.0f};
+    _cam_pos = FVec3{0, 2.0f, -6.0f};
 
     ACS_LOG_INFO("HelloSky initialized");
 }
@@ -52,8 +52,8 @@ void HelloSkyApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
     if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
     const f32 cam_dist = 6.0f;
-    _cam_pos = Vec3{ Sin(_cam_yaw) * cam_dist, 2.5f, -Cos(_cam_yaw) * cam_dist };
-    _camera.SetLookAt(_cam_pos, Vec3{0, 1, 0});
+    _cam_pos = FVec3{ Sin(_cam_yaw) * cam_dist, 2.5f, -Cos(_cam_yaw) * cam_dist };
+    _camera.SetLookAt(_cam_pos, FVec3{0, 1, 0});
 }
 
 void HelloSkyApp::OnRender() noexcept {
@@ -71,9 +71,9 @@ void HelloSkyApp::OnRender() noexcept {
         const SkyPreset cur = _scene.CurrentPreset();
         const char* preset_name = (cur == SkyPreset::Day)    ? "[1] 昼"     :
                                   (cur == SkyPreset::Sunset) ? "[2] 夕焼け" : "[3] 夜";
-        _batch.DrawString(_font, preset_name, 20, 20, Vec4{1,1,1,1});
+        _batch.DrawString(_font, preset_name, 20, 20, FVec4{1,1,1,1});
         _batch.DrawString(_font, "1/2/3: プリセット切替  ←→: カメラ  Esc: 終了",
-                        20, 44, Vec4{0.8f,0.85f,0.95f,1});
+                        20, 44, FVec4{0.8f,0.85f,0.95f,1});
         _batch.End();
     }
 }

@@ -20,12 +20,12 @@ namespace acs {
 class MemorySnapshot {
 public:
     // SVG ファイル出力（人間可読、ラベル付き）
-    static Result<void> WriteSvg(const wchar_t* path,
+    static TResult<void> WriteSvg(const wchar_t* path,
                                  u32 width = 800,
                                  u32 row_height = 40) noexcept;
 
     // BMP ファイル出力（24bpp、外部依存ゼロ）
-    static Result<void> WriteBmp(const wchar_t* path,
+    static TResult<void> WriteBmp(const wchar_t* path,
                                  u32 width = 800,
                                  u32 row_height = 30) noexcept;
 

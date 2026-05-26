@@ -7,7 +7,7 @@
 // Assets を const & または & で受け取って動く free function 群。
 //
 // ShowcaseApp は Assets を 1 メンバとして保持し、OnStart で Initialize() を
-// 1 行で呼ぶ。Initialize() は失敗時に Result<void> を返すので、呼び出し側で
+// 1 行で呼ぶ。Initialize() は失敗時に TResult<void> を返すので、呼び出し側で
 // ACS_SAMPLE_INIT(...) を被せれば失敗時に自動 Quit() できる。
 #pragma once
 
@@ -47,7 +47,7 @@ struct Assets {
     acs::MotionVector       motion;
     acs::RefractionShader   refr;
     acs::Blit               blit;
-    acs::UniquePtr<acs::IRhiTexture> bg_rt;     // 屈折 pass が読む opaque シーンの複製先
+    acs::TUniquePtr<acs::IRhiTexture> bg_rt;     // 屈折 pass が読む opaque シーンの複製先
     acs::GpuMesh            gm_sphere;
     acs::GpuMesh            gm_floor;
     acs::SpriteBatch        batch;
@@ -62,7 +62,7 @@ struct Assets {
 //
 // 1 つでも失敗すると IsErr が返り、後段の resource は未初期化のまま残る
 // (Shutdown は安全に呼べる)。
-acs::Result<void> InitializeAssets(Assets& assets,
+acs::TResult<void> InitializeAssets(Assets& assets,
                                     acs::IRhiDevice& device,
                                     acs::u32 width, acs::u32 height,
                                     acs::EFormat color_fmt,

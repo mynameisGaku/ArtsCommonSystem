@@ -39,7 +39,7 @@
 //   ・**panel は raw pointer の非所有保持**: caller が own する (= caller が
 //     panel の lifetime を制御する) ことで、panel の動的生成 / scope-stack 配置
 //     の両方を許容する。ParticleEditorPanel / EditorToolbar と同形。
-//   ・**`acs::Array<EditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
+//   ・**`acs::TArray<EditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
 //     の表示順 = 登録順。登録順以外のソートはしない (panel 自身に dependency
 //     mask を持たせる Phase 21b 拡張で初めて並べ替えが入る予定)。
 //   ・**`UnregisterPanel` は順序保存削除**: Window メニューの並びがフレーム間で
@@ -114,7 +114,7 @@ public:
     EditorWorkspace() noexcept = default;
     ~EditorWorkspace() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 Array<EditorPanel*> + SelectionService 参照の
+    // 非コピー・非ムーブ: 内部 TArray<EditorPanel*> + SelectionService 参照の
     // 所有 / 参照関係を曖昧にしない (ACS 規約)。
     EditorWorkspace(const EditorWorkspace&)            = delete;
     EditorWorkspace& operator=(const EditorWorkspace&) = delete;
@@ -252,7 +252,7 @@ private:
     static constexpr i32 kInvalidIndex = -1;
 
     // 登録 panel 群 (raw pointer / 非所有)。順序 = 登録順 = dispatch 順。
-    Array<EditorPanel*>          _panels;
+    TArray<EditorPanel*>          _panels;
 
     // SelectionService (non-owning)。未注入時 nullptr。
     inspector::SelectionService* _selection_service          = nullptr;

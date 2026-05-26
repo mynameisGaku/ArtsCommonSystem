@@ -37,7 +37,7 @@ public:
     void SaveHighScoreIfBetter(acs::u64 final_score) noexcept;
 
 protected:
-    acs::UniquePtr<acs::game::Scene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override;
 
 private:
     acs::game::AudioDirector            _audio;

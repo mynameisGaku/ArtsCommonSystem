@@ -104,11 +104,11 @@ void ViewerScenePipeline::Shutdown() noexcept {
     _vs.Reset();
 }
 
-void ViewerScenePipeline::UpdateMvp(const Mat4& view, const Mat4& proj, f32 angle) noexcept {
+void ViewerScenePipeline::UpdateMvp(const FMat4& view, const FMat4& proj, f32 angle) noexcept {
     if (!_cb) return;
-    const Mat4 model = Mat4::RotationY(angle);
-    const Mat4 mvp = model * view * proj;
-    _cb->Update(&mvp, sizeof(Mat4));
+    const FMat4 model = FMat4::RotationY(angle);
+    const FMat4 mvp = model * view * proj;
+    _cb->Update(&mvp, sizeof(FMat4));
 }
 
 void ViewerScenePipeline::Render(IRhiCommandList& cl) noexcept {

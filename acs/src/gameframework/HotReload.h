@@ -18,7 +18,7 @@
 //
 // Ship build (`ACS_GAME_SHIPPING` 定義時) では:
 //   ・全 public メソッドが no-op になる (ヘッダで `#ifdef` 分岐、cpp 側も同様)
-//   ・内部 Array は空のまま、event は 1 つも届かない
+//   ・内部 TArray は空のまま、event は 1 つも届かない
 //   ・呼び出し側 (Editor / debug overlay 等) が `ACS_GAME_SHIPPING` で gate されて
 //     いることを前提に、最小限のシンボルだけ残す
 //   これは Pillar K の「dev tool は Ship build で完全に消える」方針を満たすため。
@@ -47,18 +47,18 @@
 //   };
 //
 // 設計選択:
-//   ・**STL 不使用**: `acs::Array<...>` 3 本 (watched paths / callbacks / events) のみ。
-//   ・**path 文字列は caller 所有 (借用)**: `const char*` を Array に保持するだけ。
+//   ・**STL 不使用**: `acs::TArray<...>` 3 本 (watched paths / callbacks / events) のみ。
+//   ・**path 文字列は caller 所有 (借用)**: `const char*` を TArray に保持するだけ。
 //     <string> 禁止。リテラル想定。動的文字列は呼び出し側が watcher 寿命中保持する。
 //   ・**コールバックは関数ポインタ + void* user**: `std::function` は heap / RTTI /
 //     例外を呼び込むため一切採用しない (DevConsole / SceneEventBus と同じ規約)。
 //   ・**コールバックは重複登録不可**: (cb, user) ペアが完全一致なら no-op で弾く。
 //     UI 側のライフサイクル誤りで二重登録 → 二重 dispatch を防ぐ。
-//   ・**非コピー・非ムーブ**: 内部 Array<const char*> / Array<HotReloadEvent> の
+//   ・**非コピー・非ムーブ**: 内部 TArray<const char*> / TArray<HotReloadEvent> の
 //     所有権を曖昧にしないため (DevConsole / InspectorSeam と同じ方針)。
 //   ・**全 noexcept**: ACS 規約。エラーは log のみ。
 //   ・**event は POD**: `HotReloadEvent` は trivially copyable (path は借用 const char*)。
-//     ConsumeNextEvent は Array の先頭を out へコピー → 1 要素 shift-left。FIFO 順を
+//     ConsumeNextEvent は TArray の先頭を out へコピー → 1 要素 shift-left。FIFO 順を
 //     保つため swap-remove ではなく shift。Phase K-3 までは event 数は <= 数十を想定。
 //   ・**ship build no-op**: `ACS_GAME_SHIPPING` 定義時はヘッダ側で本体 class を
 //     「空シェル」に置き換える。呼び出し側コードを `#ifdef` だらけにしないため、
@@ -106,7 +106,7 @@ public:
     HotReloadWatcher() noexcept = default;
     ~HotReloadWatcher() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 Array 3 本の所有を曖昧にしない。
+    // 非コピー・非ムーブ: 内部 TArray 3 本の所有を曖昧にしない。
     HotReloadWatcher(const HotReloadWatcher&)            = delete;
     HotReloadWatcher& operator=(const HotReloadWatcher&) = delete;
     HotReloadWatcher(HotReloadWatcher&&)                 = delete;
@@ -170,9 +170,9 @@ private:
         void*             user = nullptr;
     };
 
-    Array<const char*>      _watched_paths;    // caller 所有の path を借用保持
-    Array<CallbackEntry>    _callbacks;        // (cb, user) ペア集合
-    Array<HotReloadEvent>   _pending_events;   // FIFO バッファ、Tick で push、Consume で pop
+    TArray<const char*>      _watched_paths;    // caller 所有の path を借用保持
+    TArray<CallbackEntry>    _callbacks;        // (cb, user) ペア集合
+    TArray<HotReloadEvent>   _pending_events;   // FIFO バッファ、Tick で push、Consume で pop
 #endif
 };
 

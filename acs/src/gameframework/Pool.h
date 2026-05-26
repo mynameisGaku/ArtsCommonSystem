@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — Pool<T> (再利用プール)
+// GameFramework Pillar H — TPool<T> (再利用プール)
 //
 // 弾 / パーティクル / 一時敵など、「短命オブジェクトを毎フレーム大量に生成・破棄
 // する」用途のためのオブジェクトプール。new/delete を避けて GC ヒッチ・アロケータ
@@ -26,7 +26,7 @@
 //
 // 使い方:
 //   struct Bullet { f32 x, y, vx, vy; bool alive; };
-//   acs::game::Pool<Bullet> bullets;
+//   acs::game::TPool<Bullet> bullets;
 //   bullets.Init(1024);
 //
 //   if (Bullet* b = bullets.Acquire()) {
@@ -44,7 +44,7 @@
 // 注意:
 //   ・Release(nullptr) や、このプールが管理していないポインタを渡すと no-op
 //     (= ポインタ範囲チェックで弾く)。
-//   ・Acquire が返した T* は次の ResetAll() / Pool 破棄まで安定 (固定容量なので
+//   ・Acquire が返した T* は次の ResetAll() / TPool 破棄まで安定 (固定容量なので
 //     再配置されない)。
 #pragma once
 
@@ -54,15 +54,15 @@
 namespace acs::game {
 
 template<typename T>
-class Pool {
+class TPool {
 public:
-    Pool() noexcept = default;
+    TPool() noexcept = default;
 
     // 非コピー / 非ムーブ: Acquire で配った T* がムーブで無効化される事故を防ぐ。
-    Pool(const Pool&)            = delete;
-    Pool& operator=(const Pool&) = delete;
-    Pool(Pool&&)                 = delete;
-    Pool& operator=(Pool&&)      = delete;
+    TPool(const TPool&)            = delete;
+    TPool& operator=(const TPool&) = delete;
+    TPool(TPool&&)                 = delete;
+    TPool& operator=(TPool&&)      = delete;
 
     // 固定容量を予約。要素 T は default 構築される。
     // 二度目以降の呼び出しは no-op (固定容量ポリシー)。
@@ -77,7 +77,7 @@ public:
     }
 
     // 空きスロットを 1 個確保して返す。空きが無ければ nullptr。
-    // 返された T* は次の ResetAll() / Pool 破棄まで安定。
+    // 返された T* は次の ResetAll() / TPool 破棄まで安定。
     // 中身は前回使用時の値が残るので、ユーザー側で再初期化すること。
     T* Acquire() noexcept {
         if (_active_count >= _capacity) return nullptr;
@@ -125,8 +125,8 @@ public:
     }
 
 private:
-    Array<T>  _items{};         // 容量分の T 実体 (default 構築済み)
-    Array<u8> _active{};        // _active[i] == 1 なら使用中
+    TArray<T>  _items{};         // 容量分の T 実体 (default 構築済み)
+    TArray<u8> _active{};        // _active[i] == 1 なら使用中
     u32       _capacity     = 0;
     u32       _active_count = 0;
 };

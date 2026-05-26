@@ -54,8 +54,8 @@
 //     EffectiveTimeScale() は pause 中 = 0, 非 pause = _normal_time_scale。
 //   ・**非コピー・非ムーブ**: アプリ全体で 1 個運用される director なので、
 //     値渡しでスタック状態が分裂しないよう移動コンストラクタも禁止。
-//   ・**全 noexcept**: ACS 規約 (Result<T,E> + 例外なし) に従う。
-//     ただし PauseDirector は失敗し得る I/O を持たないので Result は使わず
+//   ・**全 noexcept**: ACS 規約 (TResult<T,E> + 例外なし) に従う。
+//     ただし PauseDirector は失敗し得る I/O を持たないので TResult は使わず
 //     全 API を noexcept void / 値返しで構成する。
 //
 // 範囲外 (Phase 2+ で):

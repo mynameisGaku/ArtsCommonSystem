@@ -48,12 +48,12 @@
 //   deck.Draw();                  // 1 枚ドロー (デッキが空なら discard を shuffle して reuse)
 //
 // 設計選択 (Phase 1 = card game kit ベース):
-//   ・**CardDef 登録は単一 Array<CardDef>**: カード種別は AAA でも 500〜2000 枚オーダー、
+//   ・**CardDef 登録は単一 TArray<CardDef>**: カード種別は AAA でも 500〜2000 枚オーダー、
 //     線形走査で十分 (Inventory / EconomyDirector と同じ判断)。重複登録は WARN で no-op。
 //   ・**所有しない const char***: id / display_name / description / art_path / card_type すべて
 //     呼出側 (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
 //     deck / hand / discard / exile の `const char*` 要素は `_cards[].id` を直接指す (= リテラル参照、非所有)。
-//   ・**4 ゾーン (deck / hand / discard / exile) は別 Array<const char*>**:
+//   ・**4 ゾーン (deck / hand / discard / exile) は別 TArray<const char*>**:
 //     - `deck`    : 山札。末尾が「次に引くトップ」(PopBack で O(1) ドロー)。
 //     - `hand`    : 手札。順序は登録順 (= 引いた順)、UI の表示位置に対応。
 //     - `discard` : 捨札。プレイ済み or 強制捨札されたカード。Reshuffle で deck に戻る。
@@ -222,14 +222,14 @@ private:
     u32 FindCardSlot(const char* card_id) const noexcept;
 
     // カード定義 (起動時 immutable)。
-    Array<CardDef> _cards;
+    TArray<CardDef> _cards;
 
     // 4 ゾーン。各要素は `_cards[].id` を直接指すリテラル参照ポインタ (非所有)。
     // deck は末尾がトップ、PushBack / PopBack で O(1) ドロー。
-    Array<const char*> _deck;
-    Array<const char*> _hand;
-    Array<const char*> _discard;
-    Array<const char*> _exile;
+    TArray<const char*> _deck;
+    TArray<const char*> _hand;
+    TArray<const char*> _discard;
+    TArray<const char*> _exile;
 
     // プレイ callback (C 関数ポインタ + user)。Manager は user を所有しない。
     PlayCallback _on_play      = nullptr;

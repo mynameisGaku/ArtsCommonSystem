@@ -35,7 +35,7 @@ private:
     acs::GpuMesh         _gm_sphere;
     acs::GpuMesh         _gm_plane;
     acs::Camera          _camera;
-    acs::Vec3            _cam_pos;
+    acs::FVec3            _cam_pos;
     acs::f32             _cam_yaw = 0.5f;
     acs::f32             _angle   = 0.0f;
 };

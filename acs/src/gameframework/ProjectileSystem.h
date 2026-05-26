@@ -62,7 +62,7 @@
 //   // 発射:
 //   ProjectileId pid = ps.Spawn("bullet_9mm",
 //                                /*pos=*/player_pos,
-//                                /*vel=*/Vec2{800.0f, 0.0f},
+//                                /*vel=*/FVec2{800.0f, 0.0f},
 //                                /*owner=*/player_node_id,
 //                                /*damage=*/15.0f);
 //
@@ -85,7 +85,7 @@
 //
 // 範囲外 (Phase 2+ で):
 //   ・チャージ shot / spread (n-way) - WeaponSystem 側が複数 Spawn する形で対応
-//   ・3D 弾道 (現状 Vec2 のみ)
+//   ・3D 弾道 (現状 FVec2 のみ)
 //   ・反射 / 跳弾 (壁衝突で velocity 反転) - HitCallback 内で manual に再 Spawn
 //   ・複雑な誘導 (proportional navigation など)
 //   ・テクスチャ参照 / アニメーション - 描画は user 側、本クラスは姿勢だけ管理
@@ -168,8 +168,8 @@ struct ProjectileId {
 // 弾種別アセットを引くキー)。owner_id / damage は spawn 毎に変化する値。
 struct ProjectileInstance {
     const char* def_id      = nullptr;
-    Vec2        position    {0.0f, 0.0f};
-    Vec2        velocity    {0.0f, 0.0f};
+    FVec2        position    {0.0f, 0.0f};
+    FVec2        velocity    {0.0f, 0.0f};
     f32         elapsed_sec = 0.0f;   // 出生からの経過時間 (lifetime チェック用)
     u32         hit_count   = 0u;     // 当てた回数 (max_pierces+1 で despawn)
     u32         owner_id    = 0u;     // 撃った主体の識別子 (Node2D::Id 等)
@@ -223,7 +223,7 @@ public:
     void RegisterDef(const ProjectileDef& def) noexcept;
 
     // 発射。pool 満杯なら invalid を返す。def_id が未登録なら invalid を返す。
-    ProjectileId Spawn(const char* def_id, Vec2 pos, Vec2 velocity,
+    ProjectileId Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
                        u32 owner_id, f32 damage) noexcept;
 
     // 強制 despawn。stale handle は no-op。ExpireCallback は発火しない
@@ -267,7 +267,7 @@ public:
 
     // homing 弾の追従目標位置を設定。homing=false の def を持つ弾に呼んでも
     // no-op (= 内部で homing フラグを再確認)。stale handle も no-op。
-    void SetHomingTarget(ProjectileId id, Vec2 target_pos) noexcept;
+    void SetHomingTarget(ProjectileId id, FVec2 target_pos) noexcept;
 
     // 全 projectile を即座に破棄。callback / def 登録は維持。pool 容量も維持。
     // ExpireCallback は発火しない (= サイレント全消去)。
@@ -277,17 +277,17 @@ private:
     // pool の 1 slot。active=false で空き扱い。gen は generational handle 用。
     struct Slot {
         ProjectileInstance inst         {};
-        Vec2               homing_tgt   {0.0f, 0.0f};
+        FVec2               homing_tgt   {0.0f, 0.0f};
         bool               has_homing_target = false;
         bool               active       = false;
         u8                 gen          = 0u;
     };
 
     // 登録済 def の保持 (固定容量ではなく可変、id ポインタで識別)。
-    Array<ProjectileDef> _defs;
+    TArray<ProjectileDef> _defs;
     // pool 本体 + alive 番号バッファ (AllAlive 用、Tick 終端で再構築)。
-    Array<Slot>                _slots;
-    Array<ProjectileInstance>  _alive_snapshot;  // AllAlive 専用 (連続配列で返す)
+    TArray<Slot>                _slots;
+    TArray<ProjectileInstance>  _alive_snapshot;  // AllAlive 専用 (連続配列で返す)
 
     u32 _capacity     = 0u;
     u32 _alive_count  = 0u;

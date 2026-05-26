@@ -26,7 +26,7 @@ EFormat ToRhiFormat(EPixelFormat f) noexcept {
 
 } // namespace
 
-Result<UniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAsset& img) noexcept {
+TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAsset& img) noexcept {
     if (img.Width() == 0 || img.Height() == 0)
         return ACS_ERR(Render, 80, "UploadTexture: empty image");
 
@@ -48,7 +48,7 @@ Result<UniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAsse
     return CreateRhiTexture(device, d);
 }
 
-Result<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out) noexcept {
+TResult<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 82, "UploadMesh: empty mesh");
 
@@ -79,7 +79,7 @@ Result<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out)
     return Ok();
 }
 
-Result<void> UploadSkinnedMesh(IRhiDevice& device, const SkinnedMeshAsset& mesh,
+TResult<void> UploadSkinnedMesh(IRhiDevice& device, const SkinnedMeshAsset& mesh,
                                SkinnedGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 84, "UploadSkinnedMesh: empty mesh");

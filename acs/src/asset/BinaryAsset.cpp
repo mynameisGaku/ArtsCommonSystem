@@ -4,13 +4,13 @@
 
 namespace acs {
 
-Result<Rc<Asset>> BinaryAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept {
+TResult<TRc<Asset>> BinaryAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
     // バイト列を所有する BinaryAsset を生成
-    Rc<BinaryAsset> asset = MakeRc<BinaryAsset>(bytes.Clone());
+    TRc<BinaryAsset> asset = MakeRc<BinaryAsset>(bytes.Clone());
     asset->SetId(id);
     asset->SetState(EAssetState::Ready);
-    // Rc<BinaryAsset> → Rc<Asset> にアップキャスト変換（参照カウント共有）
-    return Result<Rc<Asset>>(OkInit, Rc<Asset>(Move(asset)));
+    // TRc<BinaryAsset> → TRc<Asset> にアップキャスト変換（参照カウント共有）
+    return TResult<TRc<Asset>>(OkInit, TRc<Asset>(Move(asset)));
 }
 
 } // namespace acs

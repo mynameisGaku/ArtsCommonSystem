@@ -174,8 +174,8 @@ bool Input::IsMouseButtonDown(EMouseButton b) noexcept     { return g_input.mb_n
 bool Input::IsMouseButtonPressed(EMouseButton b) noexcept  { return g_input.mb_now[(usize)b] && !g_input.mb_prev[(usize)b]; }
 bool Input::IsMouseButtonReleased(EMouseButton b) noexcept { return !g_input.mb_now[(usize)b] && g_input.mb_prev[(usize)b]; }
 
-Vec2 Input::MousePos()   noexcept { return Vec2(g_input.mouse_x, g_input.mouse_y); }
-Vec2 Input::MouseDelta() noexcept { return Vec2(g_input.mouse_x - g_input.mouse_x_prev,
+FVec2 Input::MousePos()   noexcept { return FVec2(g_input.mouse_x, g_input.mouse_y); }
+FVec2 Input::MouseDelta() noexcept { return FVec2(g_input.mouse_x - g_input.mouse_x_prev,
                                                  g_input.mouse_y - g_input.mouse_y_prev); }
 f32  Input::MouseWheel() noexcept { return g_input.wheel_frame; }
 

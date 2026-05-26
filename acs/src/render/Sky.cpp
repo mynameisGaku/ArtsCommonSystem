@@ -73,14 +73,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct SkyCB {
-    Mat4 inv_view_proj;
-    Vec4 camera_pos;
-    Vec4 sun_dir;
-    Vec4 sun_color;
-    Vec4 sun_params;     // (radius, glow, _, _)
-    Vec4 zenith;
-    Vec4 horizon;
-    Vec4 ground;
+    FMat4 inv_view_proj;
+    FVec4 camera_pos;
+    FVec4 sun_dir;
+    FVec4 sun_color;
+    FVec4 sun_params;     // (radius, glow, _, _)
+    FVec4 zenith;
+    FVec4 horizon;
+    FVec4 ground;
 };
 
 template<typename T>
@@ -88,18 +88,18 @@ constexpr usize CBSize() noexcept {
     return (sizeof(T) + 255u) & ~static_cast<usize>(255u);
 }
 
-ACS_FORCEINLINE Vec3 NormalizeSafe(Vec3 v) noexcept {
+ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
     const f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
-    if (len2 < 1e-12f) return Vec3{0, 1, 0};
+    if (len2 < 1e-12f) return FVec3{0, 1, 0};
     const f32 inv = 1.0f / Sqrt(len2);
     return { v.x * inv, v.y * inv, v.z * inv };
 }
 
 } // namespace
 
-void Sky::SetSunDirection(Vec3 dir) noexcept { _sun_dir = NormalizeSafe(dir); }
+void Sky::SetSunDirection(FVec3 dir) noexcept { _sun_dir = NormalizeSafe(dir); }
 
-Result<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyHLSL;
@@ -156,47 +156,47 @@ void Sky::Shutdown() noexcept {
 }
 
 void Sky::PresetDay() noexcept {
-    _sun_dir     = NormalizeSafe(Vec3{0.4f, 0.7f, 0.4f});
-    _sun_color   = Vec3{1.0f, 0.95f, 0.85f};
+    _sun_dir     = NormalizeSafe(FVec3{0.4f, 0.7f, 0.4f});
+    _sun_color   = FVec3{1.0f, 0.95f, 0.85f};
     _sun_radius  = 0.0006f;
     _sun_glow    = 0.05f;
-    _zenith      = Vec3{0.15f, 0.35f, 0.78f};
-    _horizon     = Vec3{0.70f, 0.83f, 0.95f};
-    _ground      = Vec3{0.18f, 0.20f, 0.20f};
+    _zenith      = FVec3{0.15f, 0.35f, 0.78f};
+    _horizon     = FVec3{0.70f, 0.83f, 0.95f};
+    _ground      = FVec3{0.18f, 0.20f, 0.20f};
 }
 
 void Sky::PresetSunset() noexcept {
-    _sun_dir     = NormalizeSafe(Vec3{0.7f, 0.05f, 0.5f});
-    _sun_color   = Vec3{1.0f, 0.55f, 0.25f};
+    _sun_dir     = NormalizeSafe(FVec3{0.7f, 0.05f, 0.5f});
+    _sun_color   = FVec3{1.0f, 0.55f, 0.25f};
     _sun_radius  = 0.001f;
     _sun_glow    = 0.20f;
-    _zenith      = Vec3{0.06f, 0.10f, 0.30f};
-    _horizon     = Vec3{1.00f, 0.55f, 0.25f};
-    _ground      = Vec3{0.10f, 0.06f, 0.08f};
+    _zenith      = FVec3{0.06f, 0.10f, 0.30f};
+    _horizon     = FVec3{1.00f, 0.55f, 0.25f};
+    _ground      = FVec3{0.10f, 0.06f, 0.08f};
 }
 
 void Sky::PresetNight() noexcept {
-    _sun_dir     = NormalizeSafe(Vec3{0.3f, 0.6f, 0.2f});
-    _sun_color   = Vec3{0.85f, 0.85f, 0.95f};
+    _sun_dir     = NormalizeSafe(FVec3{0.3f, 0.6f, 0.2f});
+    _sun_color   = FVec3{0.85f, 0.85f, 0.95f};
     _sun_radius  = 0.0008f;
     _sun_glow    = 0.04f;
-    _zenith      = Vec3{0.02f, 0.03f, 0.08f};
-    _horizon     = Vec3{0.05f, 0.07f, 0.15f};
-    _ground      = Vec3{0.02f, 0.03f, 0.05f};
+    _zenith      = FVec3{0.02f, 0.03f, 0.08f};
+    _horizon     = FVec3{0.05f, 0.07f, 0.15f};
+    _ground      = FVec3{0.02f, 0.03f, 0.05f};
 }
 
 void Sky::Render(IRhiCommandList& cl, const Camera& camera) noexcept {
     if (!_pipeline || !_cb) return;
     SkyCB cb{};
     cb.inv_view_proj = Inverse(camera.ViewProjection());
-    Vec3 eye = camera.Eye();
-    cb.camera_pos = Vec4{eye.x, eye.y, eye.z, 1};
-    cb.sun_dir    = Vec4{_sun_dir.x, _sun_dir.y, _sun_dir.z, 0};
-    cb.sun_color  = Vec4{_sun_color.x, _sun_color.y, _sun_color.z, 1};
-    cb.sun_params = Vec4{_sun_radius, _sun_glow, 0, 0};
-    cb.zenith     = Vec4{_zenith.x, _zenith.y, _zenith.z, 1};
-    cb.horizon    = Vec4{_horizon.x, _horizon.y, _horizon.z, 1};
-    cb.ground     = Vec4{_ground.x, _ground.y, _ground.z, 1};
+    FVec3 eye = camera.Eye();
+    cb.camera_pos = FVec4{eye.x, eye.y, eye.z, 1};
+    cb.sun_dir    = FVec4{_sun_dir.x, _sun_dir.y, _sun_dir.z, 0};
+    cb.sun_color  = FVec4{_sun_color.x, _sun_color.y, _sun_color.z, 1};
+    cb.sun_params = FVec4{_sun_radius, _sun_glow, 0, 0};
+    cb.zenith     = FVec4{_zenith.x, _zenith.y, _zenith.z, 1};
+    cb.horizon    = FVec4{_horizon.x, _horizon.y, _horizon.z, 1};
+    cb.ground     = FVec4{_ground.x, _ground.y, _ground.z, 1};
     _cb->Update(&cb, sizeof(cb));
 
     cl.SetPipeline(*_pipeline);

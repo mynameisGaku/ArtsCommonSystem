@@ -127,7 +127,7 @@ private:
         bool      active = false;
     };
 
-    Array<Entry> _entries;
+    TArray<Entry> _entries;
     u32          _next_handle = 1u;  // 0 は invalid 予約
 };
 

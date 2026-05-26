@@ -67,7 +67,7 @@ void AchievementManager::UnlockInternal(u32 index) noexcept {
 
     // Bridge attach 中なら SDK へ送信。失敗時はローカル進捗には影響させない。
     if (_bridge != nullptr) {
-        Result<void> r = _bridge->UnlockAchievement(p.id);
+        TResult<void> r = _bridge->UnlockAchievement(p.id);
         if (r.IsErr()) {
             // Stub だと未実装で必ず Err になるため、Warn 1 行で抑える。
             // 実 SDK 統合後は Err = 通信失敗 / 未初期化 → 監視対象に格上げ可。

@@ -11,7 +11,7 @@ namespace acs {
 
 namespace {
 
-// HLSL ソース（VS + PS、row-major で Mat4 をそのまま受け取る）
+// HLSL ソース（VS + PS、row-major で FMat4 をそのまま受け取る）
 // 最大 4 灯の有向光源 + 4 灯の点光源 + 環境光 + Blinn-Phong スペキュラ + シャドウマップ
 const char* kStandardHLSL = R"(
 #pragma pack_matrix(row_major)
@@ -191,22 +191,22 @@ float4 PSMain(VSOut v) : SV_TARGET {
 constexpr u32 kMaxDirLights   = 4;
 constexpr u32 kMaxPointLights = 4;
 struct FrameCBLayout {
-    Mat4 view_proj;
-    Vec4 camera_pos;
-    Vec4 ambient;                                  // xyz=ambient, w=dir_count
-    Vec4 point_count_pad;                          // x=point_count
-    Vec4 light_dir  [kMaxDirLights];
-    Vec4 light_color[kMaxDirLights];
-    Vec4 point_pos_range[kMaxPointLights];
-    Vec4 point_color    [kMaxPointLights];
-    Mat4 light_view_proj;
-    Vec4 shadow_params;                            // x=bias, y=enabled, z=texel_size
+    FMat4 view_proj;
+    FVec4 camera_pos;
+    FVec4 ambient;                                  // xyz=ambient, w=dir_count
+    FVec4 point_count_pad;                          // x=point_count
+    FVec4 light_dir  [kMaxDirLights];
+    FVec4 light_color[kMaxDirLights];
+    FVec4 point_pos_range[kMaxPointLights];
+    FVec4 point_color    [kMaxPointLights];
+    FMat4 light_view_proj;
+    FVec4 shadow_params;                            // x=bias, y=enabled, z=texel_size
 };
 
 struct ObjectCBLayout {
-    Mat4 model;
-    Vec4 base_color;
-    Vec4 material;       // x=specular_strength, y=shininess
+    FMat4 model;
+    FVec4 base_color;
+    FVec4 material;       // x=specular_strength, y=shininess
 };
 
 // CB は 256B にアライン推奨（DX12 制約）
@@ -217,7 +217,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     // === シェーダコンパイル ===
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -290,7 +290,7 @@ Result<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat
     pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
-    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // Vec3 はアライン 16
+    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // FVec3 はアライン 16
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
@@ -309,17 +309,17 @@ void StandardShader::Shutdown() noexcept {
     _vs.Reset();
 }
 
-void StandardShader::SetFrame(const Mat4& vp, Vec3 cam, Vec3 light_dir,
-                              Vec3 light_color, Vec3 ambient) noexcept {
+void StandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
+                              FVec3 light_color, FVec3 ambient) noexcept {
     DirLight one;
     one.direction = light_dir;
     one.color     = light_color;
     SetLights(vp, cam, &one, 1, ambient);
 }
 
-void StandardShader::SetLights(const Mat4& vp, Vec3 cam,
+void StandardShader::SetLights(const FMat4& vp, FVec3 cam,
                                const DirLight* lights, u32 count,
-                               Vec3 ambient) noexcept {
+                               FVec3 ambient) noexcept {
     if (count > kMaxDirLights) count = kMaxDirLights;
     _vp = vp;
     _eye = cam;
@@ -336,7 +336,7 @@ void StandardShader::SetPointLights(const PointLight* lights, u32 count) noexcep
     FlushFrameCB();
 }
 
-void StandardShader::SetShadowMap(IRhiTexture* tex, const Mat4& light_vp,
+void StandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
                                    f32 bias, f32 filter_radius) noexcept {
     _shadow_tex    = tex;
     _light_vp      = light_vp;
@@ -349,20 +349,20 @@ void StandardShader::FlushFrameCB() noexcept {
     if (!_frame_cb) return;
     FrameCBLayout cb{};
     cb.view_proj  = _vp;
-    cb.camera_pos = Vec4{_eye.x, _eye.y, _eye.z, 1.0f};
-    cb.ambient    = Vec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
-    cb.point_count_pad = Vec4{static_cast<f32>(_point_count), 0, 0, 0};
+    cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
+    cb.ambient    = FVec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
+    cb.point_count_pad = FVec4{static_cast<f32>(_point_count), 0, 0, 0};
     for (u32 i = 0; i < _dir_count; ++i) {
-        const Vec3& d = _dir_lights[i].direction;
-        const Vec3& c = _dir_lights[i].color;
-        cb.light_dir[i]   = Vec4{d.x, d.y, d.z, 0};
-        cb.light_color[i] = Vec4{c.x, c.y, c.z, 1};
+        const FVec3& d = _dir_lights[i].direction;
+        const FVec3& c = _dir_lights[i].color;
+        cb.light_dir[i]   = FVec4{d.x, d.y, d.z, 0};
+        cb.light_color[i] = FVec4{c.x, c.y, c.z, 1};
     }
     for (u32 i = 0; i < _point_count; ++i) {
-        const Vec3& p = _point_lights[i].position;
-        const Vec3& c = _point_lights[i].color;
-        cb.point_pos_range[i] = Vec4{p.x, p.y, p.z, _point_lights[i].range};
-        cb.point_color[i]     = Vec4{c.x, c.y, c.z, 1};
+        const FVec3& p = _point_lights[i].position;
+        const FVec3& c = _point_lights[i].color;
+        cb.point_pos_range[i] = FVec4{p.x, p.y, p.z, _point_lights[i].range};
+        cb.point_color[i]     = FVec4{c.x, c.y, c.z, 1};
     }
     cb.light_view_proj = _light_vp;
     // shadow_params: x=bias, y=enabled (0/1), z=texel_size (UV)、w=filter_radius
@@ -370,7 +370,7 @@ void StandardShader::FlushFrameCB() noexcept {
     // 1 texel offset でも blocker search が正しく機能するため、Vogel 時代の
     // 2-texel bilinear 補正は不要 (penumbra 計算で自動的にエッジが広がる)。
     // w=0 で hard、w=1 で PbrShader と同じ標準 PCSS。
-    cb.shadow_params = Vec4{
+    cb.shadow_params = FVec4{
         _shadow_bias,
         _shadow_tex ? 1.0f : 0.0f,
         1.0f / 2048.0f,
@@ -379,20 +379,20 @@ void StandardShader::FlushFrameCB() noexcept {
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
-void StandardShader::SetObject(const Mat4& model, Vec3 base_color,
+void StandardShader::SetObject(const FMat4& model, FVec3 base_color,
                                f32 specular_strength, f32 shininess) noexcept {
     if (!_object_cb) return;
     ObjectCBLayout cb{};
     cb.model      = model;
-    cb.base_color = Vec4{base_color.x, base_color.y, base_color.z, 1.0f};
-    cb.material   = Vec4{specular_strength, shininess, 0, 0};
+    cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
+    cb.material   = FVec4{specular_strength, shininess, 0, 0};
     _object_cb->Update(&cb, sizeof(cb));
 }
 
 void StandardShader::DrawMesh(IRhiCommandList& cmd,
                               const GpuMesh& mesh,
-                              const Mat4& model,
-                              Vec3 base_color,
+                              const FMat4& model,
+                              FVec3 base_color,
                               f32  specular_strength,
                               f32  shininess,
                               IRhiTexture* albedo) noexcept {

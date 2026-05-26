@@ -24,9 +24,9 @@
 //   // 2) Manipulate: 選択中の Node の transform を渡して、drag 中なら値を
 //   //    in-place で更新する。true 戻りなら何か変更があった (= UndoCommand 発火
 //   //    タイミング判定にも使える)。
-//   acs::Vec3 pos = node.WorldPosition();
-//   acs::Vec3 rot = node.EulerRotation();
-//   acs::Vec3 scl = node.WorldScale();
+//   acs::FVec3 pos = node.WorldPosition();
+//   acs::FVec3 rot = node.EulerRotation();
+//   acs::FVec3 scl = node.WorldScale();
 //   if (gizmo.Manipulate(pos, rot, scl)) {
 //       node.SetWorldPosition(pos);
 //       node.SetEulerRotation(rot);
@@ -79,10 +79,10 @@
 //   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
 //     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
 //     (= 各軸ごとの非一様 scale を意図的に強制、Unity と同じ)。
-//   ・**DrawGizmo は DebugDraw (Vec2 ベース) に出力**: 現状 DebugDraw は 2D
+//   ・**DrawGizmo は DebugDraw (FVec2 ベース) に出力**: 現状 DebugDraw は 2D
 //     ラインバッファ (Pillar H Phase 1)。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。
-//     完全 3D viewport 描画は将来 DebugDraw3D (= Vec3 ベース) を追加した上で
+//     完全 3D viewport 描画は将来 DebugDraw3D (= FVec3 ベース) を追加した上で
 //     overload を生やす予定 (Phase 21b 以降)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。state は POD GizmoState + パラメータ群のみ。
@@ -101,7 +101,7 @@
 //   ・**collider 等の shape 編集**: AABB の各辺中央に resize handle を出す
 //     ShapeGizmo として派生クラスで実装する想定。本クラスは transform 編集に
 //     特化。
-//   ・**DebugDraw3D (= Vec3 ベース) との overload**: 現状の DrawGizmo に加えて
+//   ・**DebugDraw3D (= FVec3 ベース) との overload**: 現状の DrawGizmo に加えて
 //     `void DrawGizmo(DebugDraw3D& dd3, ...)` を追加し、3D viewport で正しい
 //     遠近表示を提供する。
 //   ・**screen-aligned ハンドル**: 既に EGizmoAxis::ScreenAlign を定義済みだが、
@@ -180,7 +180,7 @@ struct GizmoState {
     EGizmoSpace space           = EGizmoSpace::World;     // 現在の座標系
     EGizmoAxis  hot_axis        = EGizmoAxis::None_;      // ホバー or drag 中の軸
     bool        dragging        = false;                  // LMB 押下中の drag 中フラグ
-    acs::Vec3   drag_start_world{};                       // drag 開始時の world hit point
+    acs::FVec3   drag_start_world{};                       // drag 開始時の world hit point
 };
 
 // ============================================================================
@@ -188,12 +188,12 @@ struct GizmoState {
 // ----------------------------------------------------------------------------
 // drag 完了時に 1 度だけ呼ばれる (= UndoStack に MoveNodeCommand 等を push する
 // 適切なタイミング)。`delta` の意味はモード依存:
-//   Translate: world space の移動量 (Vec3)
-//   Rotate   : euler 角度の差分 (radians; Vec3)
-//   Scale    : scale 倍率の差分 (Vec3; 1.0 を基準)
+//   Translate: world space の移動量 (FVec3)
+//   Rotate   : euler 角度の差分 (radians; FVec3)
+//   Scale    : scale 倍率の差分 (FVec3; 1.0 を基準)
 // user は SetOnManipulateCallback の第二引数で渡したポインタがそのまま戻る。
 // ============================================================================
-using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::Vec3 delta) noexcept;
+using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::FVec3 delta) noexcept;
 
 // ============================================================================
 // EditorGizmo — 選択 Node の Transform を viewport 上で直接操作するハンドル
@@ -259,8 +259,8 @@ public:
     //   dragging  かつ lmb_held                       : drag 継続 (hot_axis 保持)
     //   dragging  かつ lmb_up                         : drag 終了 + callback 発火
     //   !dragging かつ !lmb_held                       : hot_axis を毎フレーム再判定
-    void ProcessInput(acs::Vec3 mouse_ray_origin,
-                      acs::Vec3 mouse_ray_direction,
+    void ProcessInput(acs::FVec3 mouse_ray_origin,
+                      acs::FVec3 mouse_ray_direction,
                       bool lmb_down,
                       bool lmb_held,
                       bool lmb_up) noexcept;
@@ -275,20 +275,20 @@ public:
     //   Scale    : inout_scale に delta を加算 (1.0 を基準とした倍率)
     //
     // pivot は inout_position をそのまま使用 (= Node のローカル原点が pivot)。
-    bool Manipulate(acs::Vec3& inout_position,
-                    acs::Vec3& inout_rotation_euler,
-                    acs::Vec3& inout_scale) noexcept;
+    bool Manipulate(acs::FVec3& inout_position,
+                    acs::FVec3& inout_rotation_euler,
+                    acs::FVec3& inout_scale) noexcept;
 
     // ----- 描画 -------------------------------------------------------------
     // DebugDraw 経由で軸 line + ハンドルを描く。実描画は dd の消費側責務。
-    // DebugDraw が 2D (Vec2) なので、Z 軸は XY 平面へ射影される (top-down view)。
+    // DebugDraw が 2D (FVec2) なので、Z 軸は XY 平面へ射影される (top-down view)。
     // 将来 DebugDraw3D が来たら overload を生やす予定。
     //
     // 描画色: X=red / Y=green / Z=blue / 平面=半透明黄色 / 選択中 hot=白ハイライト。
     void DrawGizmo(DebugDraw& dd,
-                   acs::Vec3 position,
-                   acs::Vec3 rotation_euler,
-                   acs::Vec3 scale) noexcept;
+                   acs::FVec3 position,
+                   acs::FVec3 rotation_euler,
+                   acs::FVec3 scale) noexcept;
 
     // ----- 状態問い合わせ ---------------------------------------------------
 
@@ -319,17 +319,17 @@ public:
 private:
     // ProcessInput から呼ぶ「現マウス ray がどの軸/平面に当たっているか」判定。
     // drag 中は呼ばない (hot axis を保持するため)。
-    EGizmoAxis PickAxis(acs::Vec3 ray_origin, acs::Vec3 ray_direction) const noexcept;
+    EGizmoAxis PickAxis(acs::FVec3 ray_origin, acs::FVec3 ray_direction) const noexcept;
 
     // drag 開始時 / 継続時に呼ぶ「ray と hot 軸/平面の交点 (world space)」算出。
     // 失敗時 (= ray 平行など) は inout_hit を変えず false を返す。
-    bool RaycastToHot(acs::Vec3 ray_origin,
-                      acs::Vec3 ray_direction,
-                      acs::Vec3& out_hit) const noexcept;
+    bool RaycastToHot(acs::FVec3 ray_origin,
+                      acs::FVec3 ray_direction,
+                      acs::FVec3& out_hit) const noexcept;
 
     // Manipulate 内で snap step を delta に適用するヘルパ (step==0 は no-op)。
     static f32 ApplySnap(f32 value, f32 step) noexcept;
-    static acs::Vec3 ApplySnap(acs::Vec3 v, f32 step) noexcept;
+    static acs::FVec3 ApplySnap(acs::FVec3 v, f32 step) noexcept;
 
     // drag 終了時 (lmb_up 検出時) に呼ぶ — 累積 delta を ManipulateCallback に渡す。
     void FireDragEnd() noexcept;
@@ -341,15 +341,15 @@ private:
     // drag 開始時に記録される「直近の Manipulate 入力 transform 値」。
     // 一連の drag で累積 delta を計算するために使う (drag_start_world とは別)。
     // drag_start_world はワールド空間のヒット点、これは元の transform value。
-    acs::Vec3 _drag_origin_pos{};
-    acs::Vec3 _drag_origin_rot{};
-    acs::Vec3 _drag_origin_scl{};
+    acs::FVec3 _drag_origin_pos{};
+    acs::FVec3 _drag_origin_rot{};
+    acs::FVec3 _drag_origin_scl{};
     // 初回 Manipulate で _drag_origin_* をセット済みかフラグ (= 0 判定の罠回避)。
     bool      _drag_origin_set = false;
 
     // 直近マウス ray (ProcessInput で更新、Manipulate で参照)
-    acs::Vec3 _last_ray_origin{};
-    acs::Vec3 _last_ray_direction{0.0f, 0.0f, 1.0f};
+    acs::FVec3 _last_ray_origin{};
+    acs::FVec3 _last_ray_direction{0.0f, 0.0f, 1.0f};
 
     // snap step (各モードごと、0 で disable)
     f32 _snap_translate = 0.0f;

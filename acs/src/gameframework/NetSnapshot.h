@@ -73,11 +73,11 @@
 //   ・**delta compression は v1 未実装**: 前 snapshot との XOR 差分のみを送る
 //     最適化は Phase 3 の hook ポイントとして「.cpp の CommitSnapshot 内部に
 //     TODO コメント」を残す。v1 は素直に full snapshot を毎回送る。
-//   ・**ring buffer = Array<{header, payload}> 固定容量**: snapshot は時系列順
+//   ・**ring buffer = TArray<{header, payload}> 固定容量**: snapshot は時系列順
 //     に追加され、capacity を超えたら最古を上書きする FIFO。線形検索でも
 //     buffer_capacity (= 数十) なので O(N) で十分。Phase 3 で per-sequence
 //     index を持つかは検討。
-//   ・**全 noexcept / STL 不使用 / Result<T, ErrorCode>**: ACS 全体方針。
+//   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
 //     との結合関係を分裂させないため Lockstep / BackendClient と同じ方針)。
 //
@@ -167,7 +167,7 @@ struct NetSnapshotConfig {
 //
 // 約束:
 //   ・Send/Receive は **非ブロッキング**。Send は buffer 不足なら kSub_BufferFull
-//     を返してよい。Receive は受信データなしなら out_size = 0 で成功 Result。
+//     を返してよい。Receive は受信データなしなら out_size = 0 で成功 TResult。
 //   ・Send は **メッセージ境界を保持する** 想定 (datagram / framed stream)。
 //     1 回の Receive が 1 snapshot の SnapshotHeader + payload に対応する。
 //     TCP のような stream-based transport を採用する場合は派生実装側で
@@ -184,7 +184,7 @@ public:
     INetTransport& operator=(INetTransport&&)      = delete;
 
     // 接続。address は IP/host の static / 長寿命文字列 (例 "127.0.0.1")。
-    virtual Result<void> Connect(const char* address, u16 port) noexcept = 0;
+    virtual TResult<void> Connect(const char* address, u16 port) noexcept = 0;
 
     // 切断。多重呼出 / 未接続呼出は no-op で許容 (べき等)。
     virtual void Disconnect() noexcept = 0;
@@ -193,11 +193,11 @@ public:
     virtual bool IsConnected() const noexcept = 0;
 
     // データ送信。1 呼出で 1 message を atomic に送る (境界保持)。
-    virtual Result<void> Send(const void* data, u32 size) noexcept = 0;
+    virtual TResult<void> Send(const void* data, u32 size) noexcept = 0;
 
-    // 非ブロッキング受信。受信なしなら 0 を返す成功 Result。
+    // 非ブロッキング受信。受信なしなら 0 を返す成功 TResult。
     // out_buffer は capacity バイト確保済みで呼ぶこと。1 呼出で最大 1 message。
-    virtual Result<u32> Receive(void* out_buffer, u32 capacity) noexcept = 0;
+    virtual TResult<u32> Receive(void* out_buffer, u32 capacity) noexcept = 0;
 
     // 受信側にまだ取り出していないバイト数の目安 (実装依存。0 でも可)。
     virtual u32 PendingBytesIn() const noexcept = 0;
@@ -231,11 +231,11 @@ public:
     NetTransportStub() noexcept = default;
     ~NetTransportStub() noexcept override = default;
 
-    Result<void> Connect(const char* address, u16 port) noexcept override;
+    TResult<void> Connect(const char* address, u16 port) noexcept override;
     void Disconnect() noexcept override;
     bool IsConnected() const noexcept override { return false; }
-    Result<void> Send(const void* data, u32 size) noexcept override;
-    Result<u32> Receive(void* out_buffer, u32 capacity) noexcept override;
+    TResult<void> Send(const void* data, u32 size) noexcept override;
+    TResult<u32> Receive(void* out_buffer, u32 capacity) noexcept override;
     u32 PendingBytesIn() const noexcept override { return 0; }
     u32 PendingBytesOut() const noexcept override { return 0; }
 };
@@ -316,7 +316,7 @@ private:
     // payload は AddEntitySnapshot で積んだ全 entity の concat。
     struct BufferedSnapshot {
         SnapshotHeader header {};
-        Array<u8>      payload;
+        TArray<u8>      payload;
     };
 
     // server 側: AddEntitySnapshot で 1 件ずつコピーして積む。CommitSnapshot で
@@ -324,7 +324,7 @@ private:
     struct PendingEntity {
         u32       entity_id      = 0;
         u32       component_mask = 0;
-        Array<u8> data;  // コピー保持
+        TArray<u8> data;  // コピー保持
     };
 
     // payload 内の 1 entity の wire layout (CommitSnapshot で書き出す):
@@ -338,13 +338,13 @@ private:
 
     // 補間結果を保持するための temporary 領域 (TryGetInterpolatedSnapshot が
     // 返す EntitySnapshot::component_data が指す先)。client 側のみで使う。
-    Array<u8> _interp_scratch;
+    TArray<u8> _interp_scratch;
 
     NetSnapshotConfig          _config         {};
     ENetRole                   _role           = ENetRole::Standalone;
     INetTransport*             _transport      = nullptr;
-    Array<PendingEntity>       _pending_entities;
-    Array<BufferedSnapshot>    _ring_buffer;   // capacity = config.buffer_capacity_snapshots
+    TArray<PendingEntity>       _pending_entities;
+    TArray<BufferedSnapshot>    _ring_buffer;   // capacity = config.buffer_capacity_snapshots
     u32                        _ring_head      = 0;  // 次の挿入位置 (FIFO)
     u32                        _ring_count     = 0;  // 現在の有効件数 (<= capacity)
     u32                        _next_sequence  = 1;  // server 送信時の sequence 番号 (0 は無効)

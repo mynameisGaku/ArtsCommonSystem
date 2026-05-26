@@ -125,7 +125,7 @@ inline void FormatCodepointLabel(u32 cp, c8* out, usize out_cap) noexcept {
 // Init / Shutdown
 // ============================================================================
 void FontEditorPanel::Init() noexcept {
-    // _faces (acs::Array) は Clear で size を 0 に (capacity は保持)。
+    // _faces (acs::TArray) は Clear で size を 0 に (capacity は保持)。
     _faces.Clear();
     _selected     = -1;
     _preview_size = 24.0f;
@@ -166,7 +166,7 @@ const FontFaceInfo* FontEditorPanel::GetFontFace(u32 i) const noexcept {
 
 void FontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
     if (static_cast<u32>(_faces.Size()) >= kMaxFontFaces) return;
-    // 末尾追加 + fallback_index を Array index と同期。
+    // 末尾追加 + fallback_index を TArray index と同期。
     _faces.PushBack(info);
     const u32 new_idx = static_cast<u32>(_faces.Size()) - 1u;
     _faces[new_idx].fallback_index = new_idx;
@@ -177,7 +177,7 @@ void FontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
 void FontEditorPanel::RemoveFontFace(u32 i) noexcept {
     const u32 count = static_cast<u32>(_faces.Size());
     if (i >= count) return;
-    // 順序保持削除: i 以降を 1 つ前にシフトしてから PopBack。Array に
+    // 順序保持削除: i 以降を 1 つ前にシフトしてから PopBack。TArray に
     // RemoveAt (順序保持) が無いため、PODs だけ手で詰める。
     for (usize k = static_cast<usize>(i); k + 1u < static_cast<usize>(count); ++k) {
         _faces[k] = _faces[k + 1u];

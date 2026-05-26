@@ -20,7 +20,7 @@ void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
     if (Input::IsKeyPressed(EKey::Space)) _ball_count = 0;
 
     if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
-        Vec2 mp = Input::MousePos();
+        FVec2 mp = Input::MousePos();
         SpawnBallAt(mp.x, mp.y);
     }
 
@@ -51,7 +51,7 @@ void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
             Ball& bb = _balls[j];
             Circle ca{ a.pos, a.radius };
             Circle cb{ bb.pos, bb.radius };
-            Vec2 push;
+            FVec2 push;
             if (Resolve(ca, cb, push)) {
                 // 等質量と仮定して半分ずつ押し出す
                 a.pos.x  += push.x * 0.5f; a.pos.y  += push.y * 0.5f;
@@ -81,7 +81,7 @@ void PhysicsScene::Render(SpriteBatch& batch,
         const Ball& b = _balls[i];
         const f32 d = b.radius * 2.0f;
         batch.Draw(ball_tex, b.pos.x - b.radius, b.pos.y - b.radius, d, d,
-                   Vec4{b.r, b.g, b.b, 0.95f});
+                   FVec4{b.r, b.g, b.b, 0.95f});
     }
 
     // フォント未ロード時は HUD を skip (Sample::TryLoadDefaultUIFont が失敗するケース)。
@@ -89,10 +89,10 @@ void PhysicsScene::Render(SpriteBatch& batch,
         char buf[128];
         std::snprintf(buf, sizeof(buf),
                       "balls: %u / %u   FPS: %.1f", _ball_count, kMaxBalls, fps);
-        batch.DrawString(font, buf, 20, 20, Vec4{1,1,1,1});
+        batch.DrawString(font, buf, 20, 20, FVec4{1,1,1,1});
         batch.DrawString(font,
                         "左クリック: ボール追加  Space: 全消去  Esc: 終了",
-                        20, 44, Vec4{0.7f, 0.8f, 0.9f, 1});
+                        20, 44, FVec4{0.7f, 0.8f, 0.9f, 1});
     }
 }
 

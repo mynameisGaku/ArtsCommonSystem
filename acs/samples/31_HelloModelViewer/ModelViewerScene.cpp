@@ -68,10 +68,10 @@ void ModelViewerScene::OnUpdate(f32 dt) noexcept {
     // EditorCamera::Tick (smooth target) は OnRender 側の TickAllPanels →
     // OnFrameBegin から呼ばれる想定。
     editor_core::EditorCamera& cam = _panels.Viewer().Camera();
-    const Mat4 view = cam.ViewMatrix();
+    const FMat4 view = cam.ViewMatrix();
     const f32  aspect = static_cast<f32>(GetGame().GetRenderer().Swapchain()->Width()) /
                         static_cast<f32>(GetGame().GetRenderer().Swapchain()->Height());
-    const Mat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 100.0f);
+    const FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 100.0f);
     _pipeline.UpdateMvp(view, proj, _angle);
 }
 

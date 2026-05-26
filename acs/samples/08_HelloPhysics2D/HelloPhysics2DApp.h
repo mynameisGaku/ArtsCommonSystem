@@ -26,7 +26,7 @@ public:
 private:
     acs::SpriteBatch                _batch;
     acs::Font                       _font;
-    acs::UniquePtr<acs::IRhiTexture> _tex;
+    acs::TUniquePtr<acs::IRhiTexture> _tex;
     PhysicsScene                    _scene;
 };
 

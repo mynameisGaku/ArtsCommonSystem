@@ -304,7 +304,7 @@ void Dx12CommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_ver
 
 // ファクトリ関数
 #if !WITH_RENDER_DILIGENT
-Result<UniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) noexcept {
+TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 20, "CreateRhiCommandList: device is not DX12");
@@ -314,8 +314,8 @@ Result<UniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) noex
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 21, "Dx12CommandList::Init failed", static_cast<u32>(r.hr));
     }
-    UniquePtr<IRhiCommandList> base(cl.Release(), cl.GetAllocator());
-    return Result<UniquePtr<IRhiCommandList>>(OkInit, Move(base));
+    TUniquePtr<IRhiCommandList> base(cl.Release(), cl.GetAllocator());
+    return TResult<TUniquePtr<IRhiCommandList>>(OkInit, Move(base));
 }
 #endif
 

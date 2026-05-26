@@ -24,14 +24,14 @@ ACS は **日本インディー / 学習者向け軽量 C++ ゲームフレー�
 
 - リポジトリ: https://github.com/mynameisGaku/ArtsCommonSystem
 - 作業ブランチ: `claude/phase-18-20`
-- 言語規約: STL 不使用、独自 `Array / HashMap / String / UniquePtr / Rc`、`Result<T, ErrorCode>` エラーハンドリング (例外なし)
+- 言語規約: STL 不使用、独自 `TArray / THashMap / FString / TUniquePtr / TRc`、`TResult<T, FErrorCode>` エラーハンドリング (例外なし)
 - 16 モジュール: Foundation / Threading / Memory / Container / Math / Test / Platform / Ecs / Asset / Render / App / Audio / Network / Imgui / Event / Mvvm / Ui
 
 ## 2. 設計判断 (勝手に動かさない)
 
 | 項目 | 決定 | 理由 |
 |---|---|---|
-| **GC** | 採用しない | data-oriented (ECS / SoA) と相性悪い、Rc + Move + Entity ID で完結 |
+| **GC** | 採用しない | data-oriented (ECS / SoA) と相性悪い、TRc + Move + Entity ID で完結 |
 | **Linux 対応** | しない | Windows / DX12 集中、過去に Linux 移植試行 → revert 済 |
 | **MVVM 位置付け** | 一般 UI architecture pattern として | UE5 限定じゃない、`src/ui/` が純正 Widget framework |
 | **RHI バックエンド** | Diligent Engine + 既存 DX12 raw 二刀流 | Vulkan / Metal 切替の前提 |
@@ -50,7 +50,7 @@ ACS は **日本インディー / 学習者向け軽量 C++ ゲームフレー�
   - **`acs::EventCallback` 衝突** (Window.h vs MessageBroker.h、Application.h 経由で全 sample がコンパイル不能) → broker 側を `MessageCallback` に rename
   - **`ThreadAffinity::Check`** の `GetThreadId()` (引数なし呼び出し、Win32 API は HANDLE 必須) → `acs::CurrentThreadId().raw`
   - **`mvvm/Derived.h`** constructor が C variadic 形 (`T(*)(const D&...)`) で非キャプチャ lambda を受けられず → template Fn + `if constexpr` で N=1..4 分岐
-  - **`tests/mvvm_tests.cpp`** の `bind != nullptr` (UniquePtr に `operator!=` 無し) → `bind.Get() != nullptr`
+  - **`tests/mvvm_tests.cpp`** の `bind != nullptr` (TUniquePtr に `operator!=` 無し) → `bind.Get() != nullptr`
 
 **検証**: 全 24 ターゲット (lib + tests + samples) ビルド成功、71/72 tests pass。
 1 件 fail = `Event.TimerSetIntervalRepeats` (timing flake、私の変更無関係、要別途調査)。
@@ -66,7 +66,7 @@ ACS は **日本インディー / 学習者向け軽量 C++ ゲームフレー�
 中期:
 - **archetype 検討** (10 万 entity ベンチで sparse set のボトルネック確認後)
 - **JobGraph cycle detection 強化** (Kahn 法導入済、エッジケース潰す)
-- **MessagePipe ring buffer 化** (現状 Array 前詰めで O(N) Pop)
+- **MessagePipe ring buffer 化** (現状 TArray 前詰めで O(N) Pop)
 - **Vulkan 経路の動作検証** (現状 D3D12 のみテスト想定、Diligent 経由で Vulkan SKU が有効化された場合の確認)
 
 ---

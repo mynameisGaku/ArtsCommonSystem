@@ -105,7 +105,7 @@ private:
     u32         AcquireSlot() noexcept;
     TimerHandle MakeHandle(u32 index, u8 gen) const noexcept;
 
-    Array<TimerEntry> _entries;
+    TArray<TimerEntry> _entries;
     u32               _active_count = 0u;
 };
 

@@ -29,7 +29,7 @@ public:
     ACS_ASSET_TYPE("ImageAsset")
 
     ImageAsset() noexcept = default;
-    ImageAsset(u32 w, u32 h, EPixelFormat fmt, Array<byte>&& pixels) noexcept
+    ImageAsset(u32 w, u32 h, EPixelFormat fmt, TArray<byte>&& pixels) noexcept
         : _width(w), _height(h), _format(fmt), _pixels(Move(pixels)) {}
 
     u32         Width()  const noexcept { return _width; }
@@ -42,7 +42,7 @@ private:
     u32         _width  = 0;
     u32         _height = 0;
     EPixelFormat _format = EPixelFormat::R8G8B8A8;
-    Array<byte> _pixels;
+    TArray<byte> _pixels;
 };
 
 // 画像ローダ (stb_image)
@@ -50,7 +50,7 @@ class ImageAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return ImageAsset::StaticType(); }
     const char* Extension() const noexcept override { return "png"; }
-    Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

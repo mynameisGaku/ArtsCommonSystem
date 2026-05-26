@@ -76,8 +76,8 @@ ACS_TEST(Memory, UniquePtrDestroys) {
 ACS_TEST(Memory, RcSharesAndReleases) {
     Probe::destroyed = 0;
     {
-        Rc<Probe> a = MakeRc<Probe>(7);
-        Rc<Probe> b = a;
+        TRc<Probe> a = MakeRc<Probe>(7);
+        TRc<Probe> b = a;
         EXPECT_EQ(a.UseCount(), 2u);
         EXPECT_EQ(a->v, 7);
     }

@@ -64,7 +64,7 @@ public:
     void RequestGameOver(bool victory) noexcept;
 
     // マウス座標を world に変換。Bullets と Player 共有。
-    acs::Vec2 MouseWorld() const noexcept;
+    acs::FVec2 MouseWorld() const noexcept;
 
 private:
     // ----- world state -----

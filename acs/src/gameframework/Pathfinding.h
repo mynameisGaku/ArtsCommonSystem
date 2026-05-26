@@ -10,7 +10,7 @@
 //   nav.SetWalkable(5, 10, false);                // 壁を 1 マス置く
 //   nav.SetAllowDiagonal(true);                   // 8 方向許可 (既定は 4 方向)
 //
-//   Array<NavGrid::PathPoint> path;
+//   TArray<NavGrid::PathPoint> path;
 //   if (nav.FindPath(/*start=*/0, 0, /*goal=*/20, 15, path)) {
 //       // path[0] = start, path[Size()-1] = goal の連続セル列
 //   }
@@ -21,9 +21,9 @@
 //     4 方向のみの場合は Manhattan が optimal な heuristic。
 //   ・open set は **priority queue 代わりの線形最小値走査** (Phase 2 最小実装)。
 //     N=width*height が大きくなったら binary heap へ置換 (Phase 3+)。
-//   ・closed flag は `acs::Array<u8>` (size = width*height) で O(1) lookup。
+//   ・closed flag は `acs::TArray<u8>` (size = width*height) で O(1) lookup。
 //   ・came_from / g_score も 1D 配列で持つ (index = y*width + x)。
-//   ・STL 不使用 (<algorithm> 含む)、`acs::Array` のみ。
+//   ・STL 不使用 (<algorithm> 含む)、`acs::TArray` のみ。
 //
 // 制限 (Phase 2):
 //   ・cost は固定 (terrain weight 未対応)。Phase 3 で per-cell weight を導入予定。
@@ -76,7 +76,7 @@ public:
     //   ・start == goal は「長さ 1 の path」として成功扱い。
     bool FindPath(u32 start_x, u32 start_y,
                   u32 goal_x,  u32 goal_y,
-                  Array<PathPoint>& out_path) noexcept;
+                  TArray<PathPoint>& out_path) noexcept;
 
     // 全 cell を walkable に戻す (グリッドサイズは保持)。
     void ClearWalls() noexcept;
@@ -93,7 +93,7 @@ private:
     f32 Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept;
 
     // 経路を再構築 (goal から came_from を辿って start まで戻り、逆順に並べる)。
-    void Reconstruct(u32 start_idx, u32 goal_idx, Array<PathPoint>& out_path) const noexcept;
+    void Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_path) const noexcept;
 
     // ---- 形状 ----
     u32       _width          = 0;
@@ -102,16 +102,16 @@ private:
 
     // ---- 静的状態: 通行可否 (size = width*height) ----
     // 1 = walkable, 0 = blocked。
-    Array<u8> _walkable;
+    TArray<u8> _walkable;
 
     // ---- A* 一時バッファ (FindPath 呼び出し毎に reset) ----
     // 毎回 alloc しなくて済むようメンバに保持。
-    Array<u32> _open;          // open set: 候補 cell index 列
-    Array<u8>  _closed;        // closed flag (size = width*height)
-    Array<u8>  _in_open;       // open set 在籍 flag (重複追加を防ぐ高速判定用)
-    Array<f32> _g_score;       // start からの実コスト (size = width*height)
-    Array<f32> _f_score;       // g + h (size = width*height)
-    Array<u32> _came_from;     // 親 cell index (size = width*height)。0xFFFFFFFF = 未設定
+    TArray<u32> _open;          // open set: 候補 cell index 列
+    TArray<u8>  _closed;        // closed flag (size = width*height)
+    TArray<u8>  _in_open;       // open set 在籍 flag (重複追加を防ぐ高速判定用)
+    TArray<f32> _g_score;       // start からの実コスト (size = width*height)
+    TArray<f32> _f_score;       // g + h (size = width*height)
+    TArray<u32> _came_from;     // 親 cell index (size = width*height)。0xFFFFFFFF = 未設定
 };
 
 } // namespace acs::game

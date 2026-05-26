@@ -25,7 +25,7 @@ TcpListener& TcpListener::operator=(TcpListener&& o) noexcept {
     return *this;
 }
 
-Result<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) noexcept {
+TResult<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) noexcept {
     if (!Network::IsInitialized())
         return ACS_ERR(IO, 220, "Network::Init() not called");
 
@@ -58,10 +58,10 @@ Result<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) n
 
     TcpListener l;
     l._socket = static_cast<uptr>(s);
-    return Result<TcpListener>(OkInit, Move(l));
+    return TResult<TcpListener>(OkInit, Move(l));
 }
 
-Result<TcpConnection> TcpListener::Accept() noexcept {
+TResult<TcpConnection> TcpListener::Accept() noexcept {
     if (_socket == ~uptr{0}) return ACS_ERR(IO, 224, "listener not open");
     sockaddr_in sa{};
     int len = sizeof(sa);
@@ -75,11 +75,11 @@ Result<TcpConnection> TcpListener::Accept() noexcept {
     remote.octets[2] = sa.sin_addr.S_un.S_un_b.s_b3;
     remote.octets[3] = sa.sin_addr.S_un.S_un_b.s_b4;
     remote.port      = ::ntohs(sa.sin_port);
-    return Result<TcpConnection>(OkInit,
+    return TResult<TcpConnection>(OkInit,
         TcpConnection::FromAccepted(static_cast<uptr>(cs), remote));
 }
 
-Result<void> TcpListener::SetNonBlocking(bool enable) noexcept {
+TResult<void> TcpListener::SetNonBlocking(bool enable) noexcept {
     if (_socket == ~uptr{0}) return ACS_ERR(IO, 226, "listener not open");
     u_long mode = enable ? 1 : 0;
     if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)

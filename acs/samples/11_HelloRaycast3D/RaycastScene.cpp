@@ -46,10 +46,10 @@ void RaycastScene::Render(StandardShader& shader,
     // ---- 2 灯ライティング (暖色キー + 寒色フィル) ----
     // フィルの色を寒色にして、影側でも色が完全に潰れないように演出する。
     DirLight lights[2];
-    lights[0].direction = Vec3{ 0.5f, 0.8f, 0.3f};
-    lights[0].color     = Vec3{ 1.0f, 0.9f, 0.7f};
-    lights[1].direction = Vec3{-0.4f, 0.5f,-0.7f};
-    lights[1].color     = Vec3{ 0.3f, 0.4f, 0.6f};
+    lights[0].direction = FVec3{ 0.5f, 0.8f, 0.3f};
+    lights[0].color     = FVec3{ 1.0f, 0.9f, 0.7f};
+    lights[1].direction = FVec3{-0.4f, 0.5f,-0.7f};
+    lights[1].color     = FVec3{ 0.3f, 0.4f, 0.6f};
     const Camera& cam = _caster.Camera();
     shader.SetLights(cam.ViewProjection(), cam.Eye(), lights, 2, kAmbient);
 
@@ -67,7 +67,7 @@ void RaycastScene::Render(StandardShader& shader,
 void RaycastScene::_render_targets(StandardShader& shader,
                                    IRhiCommandList& cl) noexcept {
     // 地面 (世界原点に置く)
-    shader.SetObject(Mat4::Translation(Vec3{0, 0, 0}),
+    shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
                      kPlaneColor, 0.0f, 1.0f);
     cl.SetVertexBuffer(*_gm_plane.vertex_buffer, _gm_plane.vertex_stride);
     cl.SetIndexBuffer(*_gm_plane.index_buffer);
@@ -78,17 +78,17 @@ void RaycastScene::_render_targets(StandardShader& shader,
     for (u32 i = 0; i < n; ++i) {
         const Object& o = _targets.At(i);
         const bool    selected = (static_cast<i32>(i) == _targets.HitIndex());
-        const Vec3    col   = selected ? kSelectedColor : o.base_color;
+        const FVec3    col   = selected ? kSelectedColor : o.base_color;
         const f32     spec  = selected ? 0.9f  : 0.3f;
         const f32     shine = selected ? 64.0f : 16.0f;
 
         // Scale を先に → Translation を後に (= 球/立方体のメッシュ標準サイズに
         // radius_or_half をかけてからワールド位置に運ぶ)
-        const Mat4 m = Mat4::Scale(Vec3{o.radius_or_half, o.radius_or_half, o.radius_or_half}) *
-                       Mat4::Translation(o.position);
+        const FMat4 m = FMat4::Scale(FVec3{o.radius_or_half, o.radius_or_half, o.radius_or_half}) *
+                       FMat4::Translation(o.position);
         shader.SetObject(m, col, spec, shine);
 
-        const GpuMesh& mesh = (o.kind == ShapeKind::Sphere) ? _gm_sphere : _gm_cube;
+        const GpuMesh& mesh = (o.kind == ShapeKind::FSphere) ? _gm_sphere : _gm_cube;
         cl.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
         cl.SetIndexBuffer(*mesh.index_buffer);
         cl.DrawIndexed(mesh.index_count);

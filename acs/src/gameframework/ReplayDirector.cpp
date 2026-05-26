@@ -71,7 +71,7 @@ void ReplayDirector::Init() noexcept {
 // 録画開始 / 停止
 // -----------------------------------------------------------------------------
 
-Result<void> ReplayDirector::StartRecording(const ReplayMetadata& meta) noexcept {
+TResult<void> ReplayDirector::StartRecording(const ReplayMetadata& meta) noexcept {
     // Idle 以外からの直接遷移は禁止。Recording 中の再開や Playback 中の
     // 切り替えは意図しない上書きが起こりやすいため、明示的な Stop を強制する。
     if (_mode != EReplayMode::Idle) {
@@ -84,10 +84,10 @@ Result<void> ReplayDirector::StartRecording(const ReplayMetadata& meta) noexcept
     _tick_accumulator = 0.0f;
     // _playback_speed は触らない (録画中は無意味だが、StartPlayback 後にも
     // 直前の倍速を引き継ぎたい UX を許容する)。
-    return Result<void>{};
+    return TResult<void>{};
 }
 
-Result<void> ReplayDirector::StopRecording() noexcept {
+TResult<void> ReplayDirector::StopRecording() noexcept {
     // Recording 以外からの呼び出しは誤用扱い。Playback 中に StopRecording を
     // 呼んでしまった場合に黙って Idle にすると metadata が壊れるため明示エラー。
     if (_mode != EReplayMode::Recording) {
@@ -99,14 +99,14 @@ Result<void> ReplayDirector::StopRecording() noexcept {
     _metadata.duration_ticks = _current_tick;
     _mode                    = EReplayMode::Idle;
     _tick_accumulator        = 0.0f;
-    return Result<void>{};
+    return TResult<void>{};
 }
 
 // -----------------------------------------------------------------------------
 // 再生開始 / 一時停止 / 停止
 // -----------------------------------------------------------------------------
 
-Result<void> ReplayDirector::StartPlayback() noexcept {
+TResult<void> ReplayDirector::StartPlayback() noexcept {
     if (_mode != EReplayMode::Idle) {
         return ACS_ERR(Generic, kSub_BadMode,
                        "ReplayDirector::StartPlayback: must be Idle");
@@ -116,7 +116,7 @@ Result<void> ReplayDirector::StartPlayback() noexcept {
     _tick_accumulator = 0.0f;
     // _metadata はそのまま (StartRecording 直後の再生、または LoadReplay 後の
     // 再生いずれも metadata が既に正しく設定されている前提)。
-    return Result<void>{};
+    return TResult<void>{};
 }
 
 void ReplayDirector::PausePlayback() noexcept {
@@ -229,7 +229,7 @@ void ReplayDirector::Tick(f32 dt) noexcept {
 //   3. InputRecorder::SaveToBuffer で .acsr を、Lockstep::SaveToBuffer で
 //      .acsl を file_path の隣に書き出す
 //   4. 失敗時は temp ファイルを削除して原子性を担保
-Result<void> ReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
+TResult<void> ReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
                        "ReplayDirector::SaveReplay: file_path is null");
@@ -248,7 +248,7 @@ Result<void> ReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
 //   3. .acsr / .acsl を読み、InputRecorder::LoadFromBuffer /
 //      Lockstep::LoadFromBuffer に渡す
 //   4. _current_tick = 0, _mode = Idle に戻して StartPlayback 待ち状態とする
-Result<void> ReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
+TResult<void> ReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
                        "ReplayDirector::LoadReplay: file_path is null");

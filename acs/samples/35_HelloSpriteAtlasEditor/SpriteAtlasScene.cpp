@@ -73,7 +73,7 @@ void SpriteAtlasScene::OnExit() noexcept {
     // panel 本体の internal state を解放 (name pool / selection クリア)。
     _editor_panel.Shutdown();
 
-    // SpritePack は Dtor で frame 配列を解放する (Array の所有を持つ)。
+    // SpritePack は Dtor で frame 配列を解放する (TArray の所有を持つ)。
     // 明示 ClearAll しても良いが、scene 破棄と同時なので無くても問題なし。
     _pack.ClearAll();
 

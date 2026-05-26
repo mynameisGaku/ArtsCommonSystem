@@ -37,7 +37,7 @@ public:
 
     // 初期化。rt_format は Copy の出力 RT のフォーマット (PSO に焼き込む)。
     // 出力 RT を別フォーマットに切り替えたい場合は別 Blit インスタンスを使うこと。
-    Result<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
 
     void Shutdown() noexcept;
 
@@ -51,9 +51,9 @@ public:
     IRhiPipeline* Pipeline() const noexcept { return _pipeline.Get(); }
 
 private:
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiPipeline> _pipeline;
 };
 
 } // namespace acs

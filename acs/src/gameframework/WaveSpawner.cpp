@@ -30,7 +30,7 @@ void WaveSpawner::Init() noexcept {
     // 各 wave の spawned_per_rule を全部 0 にリセット (queue 自身は保持)。
     const usize n = _waves.Size();
     for (usize i = 0; i < n; ++i) {
-        Array<u32>& s = _waves[i].spawned_per_rule;
+        TArray<u32>& s = _waves[i].spawned_per_rule;
         const usize m = s.Size();
         for (usize j = 0; j < m; ++j) {
             s[j] = 0u;
@@ -65,14 +65,14 @@ void WaveSpawner::AddWave(const WaveDef& def) noexcept {
     WaveEntry entry;
     entry.def = def;
     // spawned_per_rule を rule_count 個の 0 で初期化。
-    // Array は trivially constructible な u32 については MemSet 0 で初期化される
+    // TArray は trivially constructible な u32 については MemSet 0 で初期化される
     // ので、Resize だけで OK (= 中身は全部 0)。
     entry.spawned_per_rule.Resize(static_cast<usize>(def.rule_count));
     // Resize で 0 埋めされた前提だが、defense-in-depth で明示的に 0 を入れる。
     for (u32 i = 0; i < def.rule_count; ++i) {
         entry.spawned_per_rule[static_cast<usize>(i)] = 0u;
     }
-    // Array<Array<u32>> は move-only なので Move で挿入。
+    // TArray<TArray<u32>> は move-only なので Move で挿入。
     _waves.PushBack(Move(entry));
 }
 
@@ -137,7 +137,7 @@ void WaveSpawner::StartWaves() noexcept {
     _paused             = false;
     // 0 番 wave の spawned_per_rule を 0 に揃え直す (= 再 Start での再湧き対応)。
     {
-        Array<u32>& s = _waves[0].spawned_per_rule;
+        TArray<u32>& s = _waves[0].spawned_per_rule;
         const usize m = s.Size();
         for (usize j = 0; j < m; ++j) s[j] = 0u;
     }
@@ -270,7 +270,7 @@ void WaveSpawner::AdvanceToNextWave() noexcept {
     _alive_count  = 0u;
     // 次 wave の spawned_per_rule を 0 に揃え直す (= 再起動時の再湧きにも対応)。
     {
-        Array<u32>& s = _waves[_current_wave].spawned_per_rule;
+        TArray<u32>& s = _waves[_current_wave].spawned_per_rule;
         const usize m = s.Size();
         for (usize j = 0; j < m; ++j) s[j] = 0u;
     }
@@ -298,7 +298,7 @@ void WaveSpawner::SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void*
 u32 WaveSpawner::EnemiesSpawnedInWave() const noexcept {
     if (_state == EWaveState::Idle || _state == EWaveState::AllComplete) return 0u;
     if (_current_wave >= _waves.Size()) return 0u;
-    const Array<u32>& s = _waves[_current_wave].spawned_per_rule;
+    const TArray<u32>& s = _waves[_current_wave].spawned_per_rule;
     u32 total = 0u;
     const usize m = s.Size();
     for (usize i = 0; i < m; ++i) total += s[i];

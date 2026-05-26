@@ -25,7 +25,7 @@
 //   }
 //
 // 設計 (Pillar ジャンルキット v1):
-//   ・**1D 連続配列**: row-major (`y * width + x`)、`acs::Array<GridCell>` 1 本。
+//   ・**1D 連続配列**: row-major (`y * width + x`)、`acs::TArray<GridCell>` 1 本。
 //     範囲外 Get は内部 static の dummy empty cell を const-ref 返却 (安全)。
 //   ・**マッチ検出**: O(w*h) の水平 / 垂直 2 パス走査。3 個以上の連続を 1 個の
 //     `MatchInfo` として吐く (length>=3, horizontal フラグ)。出力バッファ満杯
@@ -42,7 +42,7 @@
 //   ・**FillRandom の no-match invariant**: 各 cell をランダムに埋めつつ、
 //     左 2 個と上 2 個が同色のときは色を 1 個ずらす (色数 >= 2 を要求)。
 //     これにより初期 3-連続が出ない決定論的埋め。
-//   ・**非コピー・非ムーブ / 全 noexcept / STL 不使用 / acs::Array のみ**: 規約準拠。
+//   ・**非コピー・非ムーブ / 全 noexcept / STL 不使用 / acs::TArray のみ**: 規約準拠。
 //
 // 範囲外 (将来拡張):
 //   ・5-連続による Lightning 生成 / T 字 L 字による Bomb 生成などの
@@ -168,15 +168,15 @@ private:
     // セルを 1 個消去し callback / counter を更新。波及 (special 効果) からの
     // 再入を視覚化するために `visited` を渡し、二度同じ座標を消さない。
     // 既に空 / visited のときは no-op。
-    void ClearOne(u32 x, u32 y, Array<u8>& visited) noexcept;
+    void ClearOne(u32 x, u32 y, TArray<u8>& visited) noexcept;
 
     // ESpecialKind 効果を適用して波及範囲も ClearOne する。
-    void ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp, Array<u8>& visited) noexcept;
+    void ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp, TArray<u8>& visited) noexcept;
 
     // FillRandom 内部用: (x, y) に色を置くとき左 2 個 / 上 2 個と被らない色を選ぶ。
     u8 PickColorAvoidingMatch(u32 x, u32 y, Random& rng) const noexcept;
 
-    Array<GridCell> _cells {};        // row-major (`y * width + x`)
+    TArray<GridCell> _cells {};        // row-major (`y * width + x`)
     u32             _width        = 0;
     u32             _height       = 0;
     u32             _color_count  = 1;

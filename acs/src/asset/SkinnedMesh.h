@@ -9,7 +9,7 @@
 //
 // ランタイム:
 //   AnimationPlayer がアニメーションをスキャンして
-//   GPU 用ボーンパレット (Mat4×N) を毎フレーム計算する。
+//   GPU 用ボーンパレット (FMat4×N) を毎フレーム計算する。
 //
 // MVP では glTF パースは省略し、ランタイムでプログラム的に
 // データを構築する API のみ提供する（asset/MeshPrimitive と同パターン）。
@@ -32,8 +32,8 @@ namespace acs {
 //   BLENDINDICES : R8G8B8A8_UINT   @ 40
 //   BLENDWEIGHT  : R32G32B32A32_Float @ 44
 struct SkinnedVertex {
-    Vec3 position;       // alignas 16 → 16 byte
-    Vec3 normal;         // alignas 16 → 16 byte
+    FVec3 position;       // alignas 16 → 16 byte
+    FVec3 normal;         // alignas 16 → 16 byte
     f32  u, v;           // 8 byte
     u8   bones[4];       // 4 byte（最大 4 ボーン影響、未使用は 0 埋め）
     f32  weights[4];     // 16 byte（合計 = 1.0、未使用は 0）
@@ -42,37 +42,37 @@ struct SkinnedVertex {
 
 // ===== ボーン =====
 struct Bone {
-    String name;
+    FString name;
     i32    parent = -1;                // -1 = ルート
-    Vec3   bind_translation = Vec3{0, 0, 0};
-    Quat   bind_rotation    = Quat{};   // identity
-    Vec3   bind_scale       = Vec3{1, 1, 1};
+    FVec3   bind_translation = FVec3{0, 0, 0};
+    FQuat   bind_rotation    = FQuat{};   // identity
+    FVec3   bind_scale       = FVec3{1, 1, 1};
 
     // バインドポーズワールドの逆行列（後で初期化）
     // すべての bind_* が設定されてから ComputeInverseBindMatrices() で計算する
-    Mat4   inverse_bind     = Mat4::Identity();
+    FMat4   inverse_bind     = FMat4::Identity();
 };
 
 // ===== アニメーションキー =====
 // 簡易版: 1 つのキーが TRS まとめて持つ（glTF と異なるが MVP として十分）
 struct AnimationKey {
     f32  time = 0.0f;
-    Vec3 translation = Vec3{0, 0, 0};
-    Quat rotation    = Quat{};
-    Vec3 scale       = Vec3{1, 1, 1};
+    FVec3 translation = FVec3{0, 0, 0};
+    FQuat rotation    = FQuat{};
+    FVec3 scale       = FVec3{1, 1, 1};
 };
 
 // ===== アニメーションチャネル =====
 struct AnimationChannel {
     i32                 bone_index = -1;
-    Array<AnimationKey> keys;             // 時刻昇順
+    TArray<AnimationKey> keys;             // 時刻昇順
 };
 
 // ===== アニメーション =====
 struct Animation {
-    String                  name;
+    FString                  name;
     f32                     duration = 0.0f;
-    Array<AnimationChannel> channels;
+    TArray<AnimationChannel> channels;
 };
 
 // ===== SkinnedMeshAsset =====
@@ -82,25 +82,25 @@ public:
 
     SkinnedMeshAsset() noexcept = default;
 
-    Array<SkinnedVertex>& Vertices()     noexcept { return _vertices; }
-    Array<u32>&           Indices()      noexcept { return _indices; }
-    Array<Bone>&          Bones()        noexcept { return _bones; }
-    Array<Animation>&     Animations()   noexcept { return _animations; }
+    TArray<SkinnedVertex>& Vertices()     noexcept { return _vertices; }
+    TArray<u32>&           Indices()      noexcept { return _indices; }
+    TArray<Bone>&          Bones()        noexcept { return _bones; }
+    TArray<Animation>&     Animations()   noexcept { return _animations; }
 
-    const Array<SkinnedVertex>& Vertices()   const noexcept { return _vertices; }
-    const Array<u32>&           Indices()    const noexcept { return _indices; }
-    const Array<Bone>&          Bones()      const noexcept { return _bones; }
-    const Array<Animation>&     Animations() const noexcept { return _animations; }
+    const TArray<SkinnedVertex>& Vertices()   const noexcept { return _vertices; }
+    const TArray<u32>&           Indices()    const noexcept { return _indices; }
+    const TArray<Bone>&          Bones()      const noexcept { return _bones; }
+    const TArray<Animation>&     Animations() const noexcept { return _animations; }
 
     // 全 bind_* が設定されてから 1 度呼ぶ。
     // Bone::inverse_bind を計算する。
     void ComputeInverseBindMatrices() noexcept;
 
 private:
-    Array<SkinnedVertex> _vertices;
-    Array<u32>           _indices;
-    Array<Bone>          _bones;
-    Array<Animation>     _animations;
+    TArray<SkinnedVertex> _vertices;
+    TArray<u32>           _indices;
+    TArray<Bone>          _bones;
+    TArray<Animation>     _animations;
 };
 
 // =============================================================================
@@ -113,7 +113,7 @@ private:
 //   ap.Play(0, /*loop=*/true);
 //   ...
 //   ap.Update(dt);
-//   Mat4 palette[64];
+//   FMat4 palette[64];
 //   u32  count = ap.WritePalette(palette, 64);
 //   shader.SetBonePalette(palette, count);
 class AnimationPlayer {
@@ -133,8 +133,8 @@ public:
     void Update(f32 dt) noexcept;
 
     // 現在の time から palette を書き込む。書き込んだボーン数を返す。
-    // out_palette はボーン数ぶん（最大 max_count）の Mat4 を保持する領域。
-    u32 WritePalette(Mat4* out_palette, u32 max_count) const noexcept;
+    // out_palette はボーン数ぶん（最大 max_count）の FMat4 を保持する領域。
+    u32 WritePalette(FMat4* out_palette, u32 max_count) const noexcept;
 
 private:
     const SkinnedMeshAsset* _mesh    = nullptr;

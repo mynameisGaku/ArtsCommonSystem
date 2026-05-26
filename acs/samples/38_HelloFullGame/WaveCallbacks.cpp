@@ -11,13 +11,13 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void WaveOnSpawn(void* user, const char* /*enemy_id*/, Vec2 /*ignored_pos*/) noexcept {
+void WaveOnSpawn(void* user, const char* /*enemy_id*/, FVec2 /*ignored_pos*/) noexcept {
     auto* scene = static_cast<GameplayScene*>(user);
 
     // 4 辺のうちランダムに 1 辺選び、その辺上のランダム位置に湧かせる。
     // margin は world エッジから余白を取って画面外湧きすぎないようにするため。
     const u32 edge = static_cast<u32>(scene->GetRng().RangeInt(0, 3));
-    Vec2 pos{0.0f, 0.0f};
+    FVec2 pos{0.0f, 0.0f};
     const f32 margin = 1.0f;
     switch (edge) {
     case 0:
@@ -63,7 +63,7 @@ bool ProjectileOnHitTest(void* user, const ProjectileInstance& p,
     for (u32 i = 0; i < kMaxEnemies; ++i) {
         const EnemyInstance& e = enemies[i];
         if (!e.alive || e.node == nullptr) continue;
-        const Vec2 ep = e.node->Local().position;
+        const FVec2 ep = e.node->Local().position;
         const f32 dx = p.position.x - ep.x;
         const f32 dy = p.position.y - ep.y;
         const f32 d2 = dx*dx + dy*dy;

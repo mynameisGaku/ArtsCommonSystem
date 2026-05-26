@@ -88,7 +88,7 @@ NTSTATUS CreateAesKey(BCRYPT_ALG_HANDLE  hAlg,
 // ============================================================================
 // AcpakCrypto::DeriveKey — PBKDF2-HMAC-SHA256 で 32 バイト鍵を導出
 // ============================================================================
-Result<AcpakKey> AcpakCrypto::DeriveKey(const u8* password,
+TResult<AcpakKey> AcpakCrypto::DeriveKey(const u8* password,
                                         u32       password_len,
                                         const u8* salt,
                                         u32       salt_len) noexcept {
@@ -130,13 +130,13 @@ Result<AcpakKey> AcpakCrypto::DeriveKey(const u8* password,
                           "AcpakCrypto::DeriveKey: BCryptDeriveKeyPBKDF2 failed",
                           static_cast<u32>(s));
     }
-    return Result<AcpakKey>(OkInit, out);
+    return TResult<AcpakKey>(OkInit, out);
 }
 
 // ============================================================================
 // AcpakCrypto::Encrypt — AES-256-GCM 暗号化 + tag 生成
 // ============================================================================
-Result<void> AcpakCrypto::Encrypt(const AcpakKey& key,
+TResult<void> AcpakCrypto::Encrypt(const AcpakKey& key,
                                   const u8        nonce[kAcpakNonceSize],
                                   const u8*       plaintext,
                                   u64             size,
@@ -222,7 +222,7 @@ Result<void> AcpakCrypto::Encrypt(const AcpakKey& key,
 // ============================================================================
 // AcpakCrypto::Decrypt — AES-256-GCM 復号 + tag 検証
 // ============================================================================
-Result<void> AcpakCrypto::Decrypt(const AcpakKey& key,
+TResult<void> AcpakCrypto::Decrypt(const AcpakKey& key,
                                   const u8        nonce[kAcpakNonceSize],
                                   const u8        tag[kAcpakTagSize],
                                   const u8*       ciphertext,
@@ -320,7 +320,7 @@ void AcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept {
     if (s != STATUS_SUCCESS) {
         // フォールバック: 全 0 (= GCM が破滅するが、CNG 異常時は他にも問題が
         // 出ているはずなので production としては事実上発生しないパス)。
-        // Phase 3 で Result<void> 化することを検討する。
+        // Phase 3 で TResult<void> 化することを検討する。
         MemSet(nonce_out, 0, kAcpakNonceSize);
     }
 }

@@ -23,7 +23,7 @@
 //   ・delta compression は v1 では未実装。Phase 3 で前 snapshot との差分を
 //     計算する hook ポイントを CommitSnapshot 内 TODO で残してある。
 //   ・全 noexcept。エラーは内部で握り潰す (transport.Send 失敗は packet
-//     loss と等価扱い)。INetTransport API は Result<T> だが、上位の
+//     loss と等価扱い)。INetTransport API は TResult<T> だが、上位の
 //     CommitSnapshot/Tick は void で「ベストエフォート」配信を表現する。
 //   ・コピー / ムーブ禁止 (header で delete 済み)。
 
@@ -74,7 +74,7 @@ void ReadHeader(const u8* src, SnapshotHeader& h) noexcept {
 // 全 API が ACS_ERR(IO, kSub_NotImplemented) を返す。BackendClientStub と
 // 同じパターン: stub が本番に混入したケースを QA で検出可能にする。
 // =============================================================================
-Result<void> NetTransportStub::Connect(const char* address, u16 port) noexcept {
+TResult<void> NetTransportStub::Connect(const char* address, u16 port) noexcept {
     (void)address;
     (void)port;
     return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
@@ -86,7 +86,7 @@ void NetTransportStub::Disconnect() noexcept {
     // stub は never-connected。no-op で安全に通す。
 }
 
-Result<void> NetTransportStub::Send(const void* data, u32 size) noexcept {
+TResult<void> NetTransportStub::Send(const void* data, u32 size) noexcept {
     (void)data;
     (void)size;
     return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
@@ -94,7 +94,7 @@ Result<void> NetTransportStub::Send(const void* data, u32 size) noexcept {
                    "(stub: link a concrete transport implementation)");
 }
 
-Result<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept {
+TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept {
     (void)out_buffer;
     (void)capacity;
     return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
@@ -259,7 +259,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // 送信用 buffer (= ring buffer に保存される表現と同じバイト列の payload 側)。
     // ring buffer には header と payload を分けて保持し、送信時は temp buffer に
     // concat する流れにする。Phase 3 で zero-copy gather IO に置換余地あり。
-    Array<u8> wire_buf;
+    TArray<u8> wire_buf;
     wire_buf.Resize(total);
     u8* p = wire_buf.Data();
 
@@ -282,7 +282,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
     }
 
     // 送信 (best-effort)。失敗してもクラッシュさせず、統計だけ更新しない。
-    Result<void> r = _transport->Send(wire_buf.Data(), static_cast<u32>(total));
+    TResult<void> r = _transport->Send(wire_buf.Data(), static_cast<u32>(total));
     if (r.IsOk()) {
         ++_packets_sent;
         _bytes_sent += static_cast<u32>(total);
@@ -342,14 +342,14 @@ void NetSnapshot::Tick(f32 dt) noexcept {
     // 受信用一時 buffer。max_payload_bytes + header 分。Phase 3 で reuse 用に
     // メンバ化する候補 (毎 Tick で再 alloc しないように)。
     const u32 cap = static_cast<u32>(kHeaderWireSize) + _config.max_payload_bytes;
-    Array<u8> rx_buf;
+    TArray<u8> rx_buf;
     rx_buf.Resize(static_cast<usize>(cap));
 
     // 1 Tick で取りきる安全上限 (transport が壊れてループが終わらない事故予防)。
     // ring buffer 容量の 2 倍を上限としておく (古い snapshot は捨てる流儀)。
     const u32 max_iters = _config.buffer_capacity_snapshots * 2u;
     for (u32 iter = 0; iter < max_iters; ++iter) {
-        Result<u32> r = _transport->Receive(rx_buf.Data(), cap);
+        TResult<u32> r = _transport->Receive(rx_buf.Data(), cap);
         if (r.IsErr()) {
             // 受信エラーは loss と等価扱い。次 Tick で再試行。
             break;

@@ -57,14 +57,14 @@ inline constexpr const char* kBulletDefId = "player_bullet";
 inline constexpr const wchar_t kSaveFile[] = L"hello_full_game_highscore.acssave";
 
 // HSL を rgb に変換せず、ベタの色定数だけ使う。
-inline constexpr acs::Vec4 kColorPlayer      {0.95f, 0.20f, 0.20f, 1.0f};
-inline constexpr acs::Vec4 kColorPlayerHurt  {1.0f,  0.6f,  0.6f,  1.0f};
-inline constexpr acs::Vec4 kColorEnemy       {0.30f, 0.45f, 0.95f, 1.0f};
-inline constexpr acs::Vec4 kColorBullet      {1.0f,  0.95f, 0.20f, 1.0f};
-inline constexpr acs::Vec4 kColorTileLight   {0.18f, 0.20f, 0.22f, 1.0f};
-inline constexpr acs::Vec4 kColorTileDark    {0.12f, 0.14f, 0.16f, 1.0f};
+inline constexpr acs::FVec4 kColorPlayer      {0.95f, 0.20f, 0.20f, 1.0f};
+inline constexpr acs::FVec4 kColorPlayerHurt  {1.0f,  0.6f,  0.6f,  1.0f};
+inline constexpr acs::FVec4 kColorEnemy       {0.30f, 0.45f, 0.95f, 1.0f};
+inline constexpr acs::FVec4 kColorBullet      {1.0f,  0.95f, 0.20f, 1.0f};
+inline constexpr acs::FVec4 kColorTileLight   {0.18f, 0.20f, 0.22f, 1.0f};
+inline constexpr acs::FVec4 kColorTileDark    {0.12f, 0.14f, 0.16f, 1.0f};
 
-inline constexpr acs::Vec3 kParticleStart{1.0f, 0.65f, 0.15f};
-inline constexpr acs::Vec3 kParticleEnd  {0.6f, 0.05f, 0.05f};
+inline constexpr acs::FVec3 kParticleStart{1.0f, 0.65f, 0.15f};
+inline constexpr acs::FVec3 kParticleEnd  {0.6f, 0.05f, 0.05f};
 
 } // namespace hellofg

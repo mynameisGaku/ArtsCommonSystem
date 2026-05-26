@@ -45,7 +45,7 @@ int FormatBytes(char* buf, usize cap, u64 b) noexcept {
 } // namespace
 
 // SVG 出力: 各セグメントを 1 行のバーとして描画
-Result<void> MemorySnapshot::WriteSvg(const wchar_t* path, u32 width, u32 row_height) noexcept {
+TResult<void> MemorySnapshot::WriteSvg(const wchar_t* path, u32 width, u32 row_height) noexcept {
     SegmentStats stats[(usize)ESegment::_Count];
     u32 n = MemorySystem::GetStats(stats, (u32)ESegment::_Count);
     if (n == 0) return ACS_ERR(Memory, 40, "MemorySystem has no segments");
@@ -163,7 +163,7 @@ ACS_FORCEINLINE void PutPixel(u8* row, u32 x, RgbColor c) noexcept {
 
 } // namespace
 
-Result<void> MemorySnapshot::WriteBmp(const wchar_t* path, u32 width, u32 row_height) noexcept {
+TResult<void> MemorySnapshot::WriteBmp(const wchar_t* path, u32 width, u32 row_height) noexcept {
     SegmentStats stats[(usize)ESegment::_Count];
     u32 n = MemorySystem::GetStats(stats, (u32)ESegment::_Count);
     if (n == 0) return ACS_ERR(Memory, 41, "MemorySystem has no segments");

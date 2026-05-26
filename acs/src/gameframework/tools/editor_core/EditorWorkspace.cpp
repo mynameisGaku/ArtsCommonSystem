@@ -2,7 +2,7 @@
 // GameFramework Pillar — editor_core / EditorWorkspace 実装 (Phase 21a)
 //
 // 仕様の意図は EditorWorkspace.h を参照。本ファイルでは:
-//   ・panel 登録 / 解除 / 探索 (Array<EditorPanel*> ベース)
+//   ・panel 登録 / 解除 / 探索 (TArray<EditorPanel*> ベース)
 //   ・1 フレーム駆動 (OnFrameBegin → DockSpace → MenuBar → DrawUI)
 //   ・ImGui DockSpaceOverViewport の生成
 //   ・Window / Layout メニューの描画
@@ -130,7 +130,7 @@ void EditorWorkspace::UnregisterPanel(EditorPanel* panel) noexcept {
     panel->OnShutdown();
 
     // 順序保存削除 (shift)。RemoveAtSwap は使わない (= UI 表示順を保ちたい)。
-    // Array に Erase API が無いため手書きシフト (= ParticleEditorPanel と同形)。
+    // TArray に Erase API が無いため手書きシフト (= ParticleEditorPanel と同形)。
     const usize sel = static_cast<usize>(idx);
     for (usize i = sel + 1; i < _panels.Size(); ++i) {
         _panels[i - 1] = _panels[i];
@@ -292,13 +292,13 @@ void EditorWorkspace::SaveLayout(const wchar_t* file_path) noexcept {
     const char* ini_ptr     = ImGui::SaveIniSettingsToMemory(&ini_size_sz);
     const u32   ini_size    = (ini_ptr != nullptr) ? static_cast<u32>(ini_size_sz) : 0u;
 
-    // ----- 出力バッファ準備 (Array<char>) -----
+    // ----- 出力バッファ準備 (TArray<char>) -----
     // 概算: ヘッダ 32B + ImGui ini (ini_size) + per-panel 64B × N
     // 確保上限を見積もって PushBack 連発するより、Resize+memcpy の方が
     // 1 度 で済む。
     const usize approx_capacity =
         64u + static_cast<usize>(ini_size) + _panels.Size() * 128u;
-    Array<char> out;
+    TArray<char> out;
     out.Reserve(approx_capacity);
 
     // 小ヘルパ: char buffer (NUL 終端の有無不問) を末尾に追記。
@@ -400,8 +400,8 @@ void EditorWorkspace::LoadLayout(const wchar_t* file_path) noexcept {
         ACS_LOG_WARN("EditorWorkspace::LoadLayout: ReadAllText failed");
         return;
     }
-    // ReadAllText は末尾 NUL 付きで返す (foundation/Result 経由 Array<char>)。
-    Array<char>& text = rr.Value();
+    // ReadAllText は末尾 NUL 付きで返す (foundation/TResult 経由 TArray<char>)。
+    TArray<char>& text = rr.Value();
     if (text.IsEmpty()) return;
 
     // ----- 行分割 in-place: '\n' を '\0' に書き換えながら走る -----

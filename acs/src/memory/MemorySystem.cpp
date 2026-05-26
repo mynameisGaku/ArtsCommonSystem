@@ -108,7 +108,7 @@ MemorySystemConfig MemorySystem::DefaultConfig() noexcept {
 }
 
 // 全セグメントを設定で初期化
-Result<void> MemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
+TResult<void> MemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
     if (g_state.inited) return ACS_ERR(Memory, 30, "MemorySystem already initialized");
 
     for (usize i = 0; i < (usize)ESegment::_Count; ++i) {

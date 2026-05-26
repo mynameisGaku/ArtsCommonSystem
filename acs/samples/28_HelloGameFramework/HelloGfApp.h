@@ -14,7 +14,7 @@ public:
     void OnStart() noexcept override;
 
 protected:
-    acs::UniquePtr<acs::game::Scene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override;
 };
 
 } // namespace hellogf

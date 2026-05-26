@@ -17,7 +17,7 @@
 //   world.UpdateCircle(player, { player_pos, 16.0f });
 //
 //   // クエリ
-//   Array<ShapeId> hits;
+//   TArray<ShapeId> hits;
 //   world.OverlapCircle({ player_pos, 32.0f }, hits);  // 32 範囲のもの全部
 //
 //   RayHit2 rh;
@@ -95,13 +95,13 @@ public:
 
     // ----- クエリ (broad-phase grid → narrow-phase math/Collision2D) -----
     // exclude: 自身を除外したい時 (PhysicsBody が自己 overlap を無視するため)。invalid なら除外無し。
-    void OverlapAabb  (const Aabb2& a,   Array<ShapeId>& out, ShapeId exclude = {}) noexcept;
-    void OverlapCircle(const Circle& c,  Array<ShapeId>& out, ShapeId exclude = {}) noexcept;
+    void OverlapAabb  (const Aabb2& a,   TArray<ShapeId>& out, ShapeId exclude = {}) noexcept;
+    void OverlapCircle(const Circle& c,  TArray<ShapeId>& out, ShapeId exclude = {}) noexcept;
     // Raycast: 最も近い shape を 1 つ返す (out_hit / out_id 設定、無ければ false)
     bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, ShapeId& out_id) noexcept;
 
 private:
-    enum class Kind : u8 { None = 0, Aabb, Circle };
+    enum class Kind : u8 { None = 0, FAabb, Circle };
 
     struct Slot {
         Kind   kind   = Kind::None;
@@ -115,7 +115,7 @@ private:
     struct GridCell {
         i32 cx = 0;
         i32 cy = 0;
-        Array<u32> shapes;
+        TArray<u32> shapes;
     };
 
     u32  AcquireSlot() noexcept;
@@ -136,13 +136,13 @@ private:
     bool NarrowIntersectAabb  (u32 slot_idx, const Aabb2& a) const noexcept;
     bool NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept;
 
-    Array<Slot>     _slots;
+    TArray<Slot>     _slots;
     u32             _shape_count = 0;
-    Array<GridCell> _cells;          // 直接 Array、cx/cy で線形検索 (Phase 1 簡略化)
+    TArray<GridCell> _cells;          // 直接 TArray、cx/cy で線形検索 (Phase 1 簡略化)
     f32             _cell_size   = 64.0f;
     bool            _dirty       = false;
     // クエリ中の重複除去用 (Phase 1: shape_count 長 bool array、簡素)
-    Array<u8>       _query_marks;
+    TArray<u8>       _query_marks;
 };
 
 } // namespace acs::game

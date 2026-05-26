@@ -6,11 +6,11 @@
 // OnDespawn を override してロジック・描画を書く。
 //
 // 設計選択 (Phase 5 = Pillar B Phase 1):
-//   ・**non-copy / non-move**: `UniquePtr<Node2D>` で所有、`Node2D*` で参照。
+//   ・**non-copy / non-move**: `TUniquePtr<Node2D>` で所有、`Node2D*` で参照。
 //     `AddChild(MakeUnique<MyNode>(args))` が標準パターン。
 //   ・**lifecycle**: `AddChild` 即時 `OnSpawn` (Phase 1 簡略化)、`Destroy()` で
 //     `_pending_destroy` をマーク、フレーム境界の `ResolveStructuralChanges()`
-//     で OnDespawn を呼んで Array から除去。子ツリーが先に reap される。
+//     で OnDespawn を呼んで TArray から除去。子ツリーが先に reap される。
 //   ・**transform**: `_local` を真値、`World()` は親をたどってオンザフライ計算
 //     (Phase 1)。dirty キャッシュは Phase 2 (大きなツリーで最適化)。
 //   ・**iteration safety**: UpdateTree/DrawTree は index ベースで走査。
@@ -78,17 +78,17 @@ public:
 
     // 子を追加 (所有権を奪う)。Spawn を即時に呼ぶ (Phase 1 簡略化)。
     // 戻り値は追加した子への参照 (チェイン記述用)。
-    Node2D& AddChild(UniquePtr<Node2D> child) noexcept;
+    Node2D& AddChild(TUniquePtr<Node2D> child) noexcept;
 
     // 自身を「破棄予定」にマーク。実際の破棄は次の ResolveStructuralChanges で
-    // 起こる (OnDespawn 呼出 → Array から除去 → デストラクタで memory release)。
+    // 起こる (OnDespawn 呼出 → TArray から除去 → デストラクタで memory release)。
     void Destroy() noexcept { _pending_destroy = true; }
     bool IsPendingDestroy() const noexcept { return _pending_destroy; }
 
     // 自分を `new_parent` の子に移動するよう要求する (フレーム境界で適用)。
     // new_parent == nullptr は不正 (警告ログ + 無視)、自分自身 or 子孫を指定した
     // 場合も不正 (cycle 検出、警告 + 無視)。ResolveStructuralChanges 内で
-    // _children Array 間を Move し、parent ポインタを書き換える。
+    // _children TArray 間を Move し、parent ポインタを書き換える。
     // OnSpawn/OnDespawn は呼ばれない (= 既に生きているノードの移動)。
     void Reparent(Node2D& new_parent) noexcept;
     bool IsPendingReparent() const noexcept { return _pending_reparent_target != nullptr; }
@@ -103,10 +103,10 @@ public:
     // T の Component2D を構築・attach し、参照を返す。OnAttach は即時呼出。
     template<typename T, typename... Args>
     T& AddComponent(Args&&... args) noexcept {
-        UniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
+        TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
         ref->_SetOwner(this);
-        _components.PushBack(UniquePtr<Component2D>(comp.Release(), comp.GetAllocator()));
+        _components.PushBack(TUniquePtr<Component2D>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
         return *ref;
     }
@@ -172,8 +172,8 @@ private:
 
     Transform2D _local{};
     Node2D*     _parent          = nullptr;
-    Array<UniquePtr<Node2D>>      _children;
-    Array<UniquePtr<Component2D>> _components;
+    TArray<TUniquePtr<Node2D>>      _children;
+    TArray<TUniquePtr<Component2D>> _components;
     NodeId      _id{};                        // Phase 3: generational handle (default = invalid)
     Node2D*     _pending_reparent_target = nullptr;  // 非 null なら次の resolve で移動
     bool        _enabled         = true;

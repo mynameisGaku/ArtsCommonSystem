@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — SceneManager (Phase 1 着手)
 //
-// UniquePtr<Scene> のスタック。top のシーンを毎フレーム update/render する。
+// TUniquePtr<Scene> のスタック。top のシーンを毎フレーム update/render する。
 // 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延 → 走査中 (Update/Render
 // 内) からの構造変更が安全。1 フレーム 1 遷移、複数要求が来た場合は後勝ち。
 //
@@ -38,10 +38,10 @@ public:
 
     // 現 top を pop して `next` を push (= 単純な画面切替)。pending が既に
     // 立っていれば上書きする (= 後勝ち)。
-    void ChangeScene(UniquePtr<Scene> next) noexcept;
+    void ChangeScene(TUniquePtr<Scene> next) noexcept;
 
     // 現 top をスタック上に残したまま `next` を push (= モーダル/ダイアログ)。
-    void PushScene(UniquePtr<Scene> next) noexcept;
+    void PushScene(TUniquePtr<Scene> next) noexcept;
 
     // top を pop (スタックが 1 枚以下なら何もせず警告)。
     void PopScene() noexcept;
@@ -81,14 +81,14 @@ private:
     enum class Op : u8 { None, Change, Push, Pop };
 
     // pause_current: Push 時に旧 top に OnPause を呼ぶか (Change は false、Push は true)。
-    void DoPushInternal(Game& game, UniquePtr<Scene> next, bool pause_current) noexcept;
+    void DoPushInternal(Game& game, TUniquePtr<Scene> next, bool pause_current) noexcept;
     // resume_new: Pop 後に新 top に OnResume を呼ぶか (Change は false、Pop は true)。
     void DoPopInternal(bool resume_new) noexcept;
 
-    Array<UniquePtr<Scene>> _stack;          // top = Back()
+    TArray<TUniquePtr<Scene>> _stack;          // top = Back()
     Op                      _pending_op   = Op::None;
-    UniquePtr<Scene>        _pending_arg;    // Change/Push の next、Pop では未使用
-    UniquePtr<Scene>        _retired[kRetireRingSize];  // GPU 遅延削除 ring buffer
+    TUniquePtr<Scene>        _pending_arg;    // Change/Push の next、Pop では未使用
+    TUniquePtr<Scene>        _retired[kRetireRingSize];  // GPU 遅延削除 ring buffer
     u32                     _retire_head  = 0;           // 次に release するスロット
 };
 

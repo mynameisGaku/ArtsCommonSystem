@@ -22,7 +22,7 @@ public:
     DiligentPipeline(const DiligentPipeline&) = delete;
     DiligentPipeline& operator=(const DiligentPipeline&) = delete;
 
-    Result<void> Init(DiligentDevice& device, const PipelineDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const PipelineDesc& desc) noexcept;
 
     // 内部公開
     Diligent::IPipelineState*           Native() const noexcept { return _pso; }

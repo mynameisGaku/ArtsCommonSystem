@@ -19,7 +19,7 @@
 //       for (u32 x = 0; x < map.Width(); ++x) {
 //           TileId t = layer0[y * map.Width() + x];
 //           if (t.IsEmpty()) continue;
-//           Vec2 wpos = map.TileToWorld(x, y);
+//           FVec2 wpos = map.TileToWorld(x, y);
 //           // DrawSprite(t, wpos)...
 //       }
 //   }
@@ -33,7 +33,7 @@
 // 設計 (Phase 1 = Pillar Q v1):
 //   ・**TileId = u16**: 65535 種類のタイル ID を許容。0 = 空 (背景透過扱い)。
 //     描画側が atlas index として解釈するか辞書 lookup するかは利用者責任。
-//   ・**レイヤー = 独立した Array<TileId>**: layer 数 N に対して N 本の
+//   ・**レイヤー = 独立した TArray<TileId>**: layer 数 N に対して N 本の
 //     row-major (`y * width + x`) フラット配列。layer 0 が最背面、
 //     layer_count-1 が最前面という慣習だが順序は描画側で自由に決めて良い。
 //     `LayerData(L)` で生ポインタを返すので GPU upload / tile renderer
@@ -43,9 +43,9 @@
 //     スプライト描画基準)。
 //   ・**WorldToTile**: world.x / tile_size を floor。範囲外 (負値含む) は
 //     false を返す。usize→u32 cast の安全性のため負値は早期 reject。
-//   ・**非コピー・非ムーブ**: シーン所有 / Pool 経由想定。複製したい場合は
+//   ・**非コピー・非ムーブ**: シーン所有 / TPool 経由想定。複製したい場合は
 //     利用者側で明示的に Clone (今は提供しない)。
-//   ・**全 noexcept / STL 不使用 / acs::Array のみ**: 規約準拠。
+//   ・**全 noexcept / STL 不使用 / acs::TArray のみ**: 規約準拠。
 //
 // 範囲外 (将来拡張):
 //   ・auto-tiling / wang tiles の lookup table。
@@ -113,18 +113,18 @@ public:
     // tile (x,y) の **中心** world 座標。範囲外 (x>=width / y>=height) でも
     // 計算式そのものを返す (デバッグ用に左下原点で連続を期待する利用者が
     // 居るため明示的にチェックしない)。
-    Vec2 TileToWorld(u32 x, u32 y) const noexcept;
+    FVec2 TileToWorld(u32 x, u32 y) const noexcept;
 
     // world → tile。範囲外 (グリッド外 / 負値) は false。
     // 成功時のみ out_x / out_y を書き込む。
-    bool WorldToTile(Vec2 world, u32& out_x, u32& out_y) const noexcept;
+    bool WorldToTile(FVec2 world, u32& out_x, u32& out_y) const noexcept;
 
     // 描画用 raw データ。size = Width() * Height()、layout = row-major
     // (`y * width + x`)。範囲外 layer は nullptr。
     const TileId* LayerData(u32 layer) const noexcept;
 
 private:
-    Array<Array<TileId>> _layers {};      // _layers[L] = row-major (w*h)
+    TArray<TArray<TileId>> _layers {};      // _layers[L] = row-major (w*h)
     u32                  _width      = 0;
     u32                  _height     = 0;
     f32                  _tile_size  = 16.0f;

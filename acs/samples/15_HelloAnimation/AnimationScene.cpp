@@ -9,9 +9,9 @@ using namespace acs;
 
 namespace helloanim {
 
-Rc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
+TRc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
     auto m = MakeRc<SkinnedMeshAsset>();
-    if (!m) return Rc<SkinnedMeshAsset>();
+    if (!m) return TRc<SkinnedMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     auto& B = m->Bones();
@@ -24,9 +24,9 @@ Rc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
         b.parent = (i == 0) ? -1 : static_cast<i32>(i - 1);
         // 各ボーンは親の +Y 方向に "セグメント長" 進んだ場所
         const f32 seg = kHeight / static_cast<f32>(kBoneCount);
-        b.bind_translation = (i == 0) ? Vec3{0, 0, 0} : Vec3{0, seg, 0};
-        b.bind_rotation = Quat{};
-        b.bind_scale    = Vec3{1, 1, 1};
+        b.bind_translation = (i == 0) ? FVec3{0, 0, 0} : FVec3{0, seg, 0};
+        b.bind_rotation = FQuat{};
+        b.bind_scale    = FVec3{1, 1, 1};
     }
     m->ComputeInverseBindMatrices();
 
@@ -51,8 +51,8 @@ Rc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
             const f32 cz = Sin(ang) * radius;
 
             SkinnedVertex v{};
-            v.position = Vec3{cx, y, cz};
-            v.normal   = Vec3{Cos(ang), 0, Sin(ang)};   // 簡易法線 (横方向)
+            v.position = FVec3{cx, y, cz};
+            v.normal   = FVec3{Cos(ang), 0, Sin(ang)};   // 簡易法線 (横方向)
             v.u        = static_cast<f32>(s) / static_cast<f32>(kSegmentCount);
             v.v        = t_y;
             v.bones[0] = static_cast<u8>(bone_lo);
@@ -84,7 +84,7 @@ Rc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
 
     // ===== アニメーション =====
     Animation anim;
-    anim.name     = String("slither");
+    anim.name     = FString("slither");
     anim.duration = kAnimDuration;
 
     // bone 0 はアニメ無し (ルート固定)。bone 1..3 を sin 波で振らせる。
@@ -99,9 +99,9 @@ Rc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
             const f32 angle = Sin(time * (kPi * 2.0f) / kAnimDuration + phase) * kAnimAngleMax;
             AnimationKey key;
             key.time = time;
-            key.translation = Vec3{0, kHeight / kBoneCount, 0};   // バインドと同じ
-            key.rotation    = Quat::AxisAngle(Vec3{0, 0, 1}, angle);
-            key.scale       = Vec3{1, 1, 1};
+            key.translation = FVec3{0, kHeight / kBoneCount, 0};   // バインドと同じ
+            key.rotation    = FQuat::AxisAngle(FVec3{0, 0, 1}, angle);
+            key.scale       = FVec3{1, 1, 1};
             ch.keys.PushBack(key);
         }
         anim.channels.PushBack(Move(ch));
@@ -117,7 +117,7 @@ void AnimationScene::Render(Sky&                sky,
                             const Camera&       camera,
                             const GpuMesh&      plane,
                             const SkinnedGpuMesh& snake_gpu,
-                            const Mat4*         palette,
+                            const FMat4*         palette,
                             u32                 palette_n) noexcept {
     // 1. 空
     sky.Render(cl, camera);
@@ -126,11 +126,11 @@ void AnimationScene::Render(Sky&                sky,
     DirLight lights[2];
     lights[0].direction = sky.SunDirection();
     lights[0].color     = sky.SunColor();
-    lights[1].direction = Vec3{-sky.SunDirection().x,
+    lights[1].direction = FVec3{-sky.SunDirection().x,
                                 sky.SunDirection().y * 0.5f,
                                -sky.SunDirection().z};
-    lights[1].color     = Vec3{0.20f, 0.10f, 0.18f};
-    const Vec3 ambient{0.15f, 0.10f, 0.12f};
+    lights[1].color     = FVec3{0.20f, 0.10f, 0.18f};
+    const FVec3 ambient{0.15f, 0.10f, 0.12f};
 
     std_shader.SetLights(camera.ViewProjection(), camera.Eye(),
                          lights, 2, ambient);
@@ -139,8 +139,8 @@ void AnimationScene::Render(Sky&                sky,
     cl.SetConstantBuffer(1, *std_shader.PerObjectCB());
     cl.SetTexture(0, *std_shader.DefaultWhiteTexture());
     cl.SetTexture(1, *std_shader.ShadowTextureOrDefault());
-    std_shader.SetObject(Mat4::Translation(Vec3{0, 0, 0}),
-                         Vec3{0.50f, 0.45f, 0.40f}, 0.05f, 4.0f);
+    std_shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                         FVec3{0.50f, 0.45f, 0.40f}, 0.05f, 4.0f);
     cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
@@ -151,8 +151,8 @@ void AnimationScene::Render(Sky&                sky,
 
     skin_shader.SetBonePalette(palette, palette_n);
 
-    skin_shader.SetObject(Mat4::Translation(Vec3{0, 0.0f, 0}),
-                          Vec3{0.95f, 0.55f, 0.35f}, 0.5f, 32.0f);
+    skin_shader.SetObject(FMat4::Translation(FVec3{0, 0.0f, 0}),
+                          FVec3{0.95f, 0.55f, 0.35f}, 0.5f, 32.0f);
 
     cl.SetPipeline(*skin_shader.Pipeline());
     cl.SetConstantBuffer(0, *skin_shader.PerFrameCB());

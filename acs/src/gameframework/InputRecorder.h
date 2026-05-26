@@ -42,7 +42,7 @@
 //
 // 設計選択 (Phase D-1 スケルトン):
 //   ・**InputSample は trivially-copyable POD**: `u32 tick + u8[8] codes +
-//     u8[8] states + Vec2 mouse_pos + u8 mouse_buttons + padding`。Array に
+//     u8[8] states + FVec2 mouse_pos + u8 mouse_buttons + padding`。TArray に
 //     詰めて bulk memcpy で I/O できるよう sizeof は 28 B 程度に収まる想定。
 //     key 変化を 8 個までに絞ったのは fighting game / ARPG / RTS で同 tick に
 //     9 個以上の key 変化が起きる頻度が事実上ゼロのため (10 finger 同時入力でも
@@ -52,7 +52,7 @@
 //     異なり、こちらは「録画もしない・録画する・再生する」の 3 状態のみ。
 //     ネットコードは Lockstep 側に分離してあるため、InputRecorder は録画/再生に
 //     特化する。
-//   ・**Array<InputSample> による線形ストレージ**: 60 Hz × 30 min = 108,000 件 ×
+//   ・**TArray<InputSample> による線形ストレージ**: 60 Hz × 30 min = 108,000 件 ×
 //     ~28 B = ~3 MB 程度。`.acsr` ファイルでもこのオーダー。長時間 TAS で
 //     1 時間分でも ~6 MB なので Phase D-2 までは無圧縮で OK。
 //   ・**ConsumeSample は線形検索 + cursor 前進**: 記録順 = tick 昇順を仮定し、
@@ -63,7 +63,7 @@
 //   ・**コピー / ムーブ禁止**: Lockstep / Settings / PartySystem と同方針。
 //     録画中の state が分裂すると再生時にズレるため、誤って値渡しされる経路を
 //     最初から塞ぐ。
-//   ・**全 noexcept**: ACS 全体方針。エラーは `Result<T, ErrorCode>` で伝搬する。
+//   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //
 // File layout (`.acsr` の SaveToBuffer / LoadFromBuffer の Phase D-2 target):
 //   offset  size  field          説明
@@ -93,7 +93,7 @@ namespace acs::game {
 // =============================================================================
 // InputSample — 1 tick 分の raw 入力サンプル
 // -----------------------------------------------------------------------------
-// trivially-copyable な POD。Array に詰めて bulk memcpy で I/O できる。
+// trivially-copyable な POD。TArray に詰めて bulk memcpy で I/O できる。
 // `key_codes_changed[i]` は今 tick に状態変化があった key code (Win32 VK_* 風 /
 // SDL scancode 風 — 解釈はアプリ層に委ねる)、`key_states[i]` は同 index の
 // press(1) / release(0) を表す。未使用スロットは key_codes_changed = 0 で埋める
@@ -105,7 +105,7 @@ struct InputSample {
     u32  tick                 = 0;     // フレーム番号 (0 起点、tick_rate_hz で時刻に変換)
     u8   key_codes_changed[8] = {};    // 状態変化した key code (未使用 slot = 0)
     u8   key_states[8]        = {};    // 同 index の press(1) / release(0)
-    Vec2 mouse_pos            {};      // マウス位置 (window-local px。座標系はアプリ側で統一)
+    FVec2 mouse_pos            {};      // マウス位置 (window-local px。座標系はアプリ側で統一)
     u8   mouse_button_states  = 0;     // マウスボタン bitmask (L=bit0, R=bit1, M=bit2, X1=bit3, X2=bit4)
 };
 
@@ -189,19 +189,19 @@ public:
     // SaveToBuffer: 現在の samples を `.acsr` file layout で buffer に書き出す。
     //   out_written には実書き込みバイト数を返す (失敗時は 0)。
     //   Phase 1 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
-    Result<void> SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept;
+    TResult<void> SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept;
 
     // LoadFromBuffer: buffer の内容を解釈して samples を復元する。
     //   呼び出し前に Clear() を呼ぶことを推奨 (本実装は append でなく置換予定)。
     //   Phase 1 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
-    Result<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
+    TResult<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
     ERecorderMode       _mode          = ERecorderMode::Idle;
     u32                _tick_rate_hz  = 60;  // sample rate (Hz)
     u32                _current_tick  = 0;   // 次に書き込む / 消費する tick
     u32                _cursor        = 0;   // ConsumeSample の線形検索開始 index
-    Array<InputSample> _samples;
+    TArray<InputSample> _samples;
 };
 
 } // namespace acs::game

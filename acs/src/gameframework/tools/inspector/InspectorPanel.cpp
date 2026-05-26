@@ -5,8 +5,8 @@
 //   ・SelectionService からの NodeId 取得 (forward-decl 経由)
 //   ・`InspectorSeam::GetProvider(NodeId)` を介した Provider 取得
 //   ・`InspectableObject::fields` の 1 件ずつを EFieldKind に応じた
-//     ImGui widget に変換 (Bool / I32 / U32 / F32 / Vec2 / Vec3 / Vec4 /
-//     Color / String / Enum)
+//     ImGui widget に変換 (Bool / I32 / U32 / F32 / FVec2 / FVec3 / FVec4 /
+//     Color / FString / Enum)
 //   ・編集発生時に dirty flag を立て + FieldChangeCallback を発火
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/inspector/InspectorPanel.h"
@@ -49,7 +49,7 @@ static IInspectableProvider* ResolveProvider(InspectorSeam& seam, NodeId id) noe
 // `true` を返す。`changed_field_name` には書き換わったフィールドの name を
 // 出力 (callback 呼び出し用)。
 //
-// String 編集は「Provider 所有の固定領域に書き戻す」と挙動が壊れる (リテラル
+// FString 編集は「Provider 所有の固定領域に書き戻す」と挙動が壊れる (リテラル
 // に書く危険) ため、Phase 20 では **read + 編集はパネル内バッファに対してのみ**
 // 行い、Provider 側への反映は callback 経由で外部に任せる暫定運用にする。
 // (= ImGui::InputText は ReadOnly フラグなしで動かすが、本 panel は data
@@ -104,9 +104,9 @@ static bool DrawField(InspectableField& field) noexcept {
         break;
     }
 
-    case EFieldKind::Vec2: {
-        // acs::Vec2 = { f32 x, f32 y } で連続レイアウト。f32[2] として直接渡す。
-        Vec2* p = static_cast<Vec2*>(field.data);
+    case EFieldKind::FVec2: {
+        // acs::FVec2 = { f32 x, f32 y } で連続レイアウト。f32[2] として直接渡す。
+        FVec2* p = static_cast<FVec2*>(field.data);
         f32 tmp[2] = { p->x, p->y };
         if (ImGui::DragFloat2(field.name, tmp, 0.1f)) {
             p->x = tmp[0];
@@ -116,11 +116,11 @@ static bool DrawField(InspectableField& field) noexcept {
         break;
     }
 
-    case EFieldKind::Vec3: {
-        // acs::Vec3 は alignas(16) で内部に _pad を含む。x/y/z は連続するが
+    case EFieldKind::FVec3: {
+        // acs::FVec3 は alignas(16) で内部に _pad を含む。x/y/z は連続するが
         // ImGui に &p->x を直接渡すと _pad を踏まずに 3 要素読むので安全。
         // ただし可読性のため一時配列に詰める。
-        Vec3* p = static_cast<Vec3*>(field.data);
+        FVec3* p = static_cast<FVec3*>(field.data);
         f32 tmp[3] = { p->x, p->y, p->z };
         if (ImGui::DragFloat3(field.name, tmp, 0.1f)) {
             p->x = tmp[0];
@@ -131,16 +131,16 @@ static bool DrawField(InspectableField& field) noexcept {
         break;
     }
 
-    case EFieldKind::Vec4: {
+    case EFieldKind::FVec4: {
         // 仕様で要求されていないが対称性のため対応 (EFieldKind に値が存在
-        // するので未対応放置は警告源)。acs::Vec4 は連続 f32[4]。
+        // するので未対応放置は警告源)。acs::FVec4 は連続 f32[4]。
         f32* p = static_cast<f32*>(field.data);
         changed = ImGui::DragFloat4(field.name, p, 0.1f);
         break;
     }
 
-    case EFieldKind::String: {
-        // String は read-only 想定 (InspectorSeam.h の Phase 2 仕様)。
+    case EFieldKind::FString: {
+        // FString は read-only 想定 (InspectorSeam.h の Phase 2 仕様)。
         // バッファコピー後 InputText を出すが、書き戻しは行わない
         // (= panel 内のローカル編集のみ、永続化は callback 経由で外部担当)。
         const char* src = static_cast<const char*>(field.data);

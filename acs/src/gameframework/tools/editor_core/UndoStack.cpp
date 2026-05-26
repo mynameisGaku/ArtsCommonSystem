@@ -2,7 +2,7 @@
 // GameFramework Tools — editor_core / UndoStack 実装 (Phase 21a)
 //
 // 設計のポイント (詳細はヘッダ参照):
-//   ・undo / redo は LIFO の `Array<UniquePtr<EditorCommand>>` で表現する。
+//   ・undo / redo は LIFO の `TArray<TUniquePtr<EditorCommand>>` で表現する。
 //   ・Push は所有権を奪い、Execute を実行、merge 判定し、redo stack を破棄する。
 //   ・上限超は最古 1 件を捨てる (PushBack 後にしか発生しないので超過量 = 1)。
 //   ・全 noexcept / STL 不使用 / 非コピー・非ムーブ。
@@ -40,12 +40,12 @@ void UndoStack::Push(EditorCommand* cmd) noexcept {
         return;
     }
 
-    // 所有権を即時に UniquePtr に詰める (= 例外 / 早期 return 経路で delete 漏れを防ぐ)。
+    // 所有権を即時に TUniquePtr に詰める (= 例外 / 早期 return 経路で delete 漏れを防ぐ)。
     // alloc は DefaultAllocator() 前提 (caller が New<T>(DefaultAllocator(), ...)
-    // で作るのが標準パターン)。別 allocator の場合、UniquePtr が delete する際に
+    // で作るのが標準パターン)。別 allocator の場合、TUniquePtr が delete する際に
     // alloc 引数 (= 第二引数) を渡す必要があるが、それは caller 側で個別に
-    // UniquePtr を作って Release してから渡す Phase 21+ 拡張で対応する。
-    UniquePtr<EditorCommand> owned(cmd, &DefaultAllocator());
+    // TUniquePtr を作って Release してから渡す Phase 21+ 拡張で対応する。
+    TUniquePtr<EditorCommand> owned(cmd, &DefaultAllocator());
 
     // 2. Execute を呼ぶ (= "Do action")。
     owned->Execute();
@@ -95,10 +95,10 @@ bool UndoStack::Undo() noexcept {
         return false;
     }
 
-    // top を取り出す。PopBack は破棄してしまうので、先に Move で別 UniquePtr に
+    // top を取り出す。PopBack は破棄してしまうので、先に Move で別 TUniquePtr に
     // 移してから PopBack する。Move 後の Back() は moved-from 状態 (= 内部
     // pointer が nullptr) なので、PopBack の dtor は何もしない。
-    UniquePtr<EditorCommand> cmd = Move(_undo_stack.Back());
+    TUniquePtr<EditorCommand> cmd = Move(_undo_stack.Back());
     _undo_stack.PopBack();
 
     // Undo を実行。基底経由なので派生の override に dispatch される。
@@ -127,7 +127,7 @@ bool UndoStack::Redo() noexcept {
     }
 
     // Undo と対称的に redo stack の top を取り出す。
-    UniquePtr<EditorCommand> cmd = Move(_redo_stack.Back());
+    TUniquePtr<EditorCommand> cmd = Move(_redo_stack.Back());
     _redo_stack.PopBack();
 
     // Execute を再実行。EditorCommand::Execute は idempotent な実装が前提
@@ -195,7 +195,7 @@ const char* UndoStack::RedoDescription() const noexcept {
 // Clear / Callback
 // ============================================================================
 void UndoStack::Clear() noexcept {
-    // UniquePtr の dtor で全 cmd が自動 delete される。Array::Clear は size を
+    // TUniquePtr の dtor で全 cmd が自動 delete される。TArray::Clear は size を
     // 0 に戻すだけで capacity は維持されるため、その後の Push で再アロケーション
     // 不要 (=「シーン切替時に Clear」のような典型用途で GC 負荷が出ない)。
     _undo_stack.Clear();
@@ -216,9 +216,9 @@ void UndoStack::DropOldestIfOverflow() noexcept {
     // 上限以下になる)。
     // 超過件数は最大でも 1 (= 直前の PushBack 1 件分のみ) を想定する。
     while (static_cast<u32>(_undo_stack.Size()) > _max_history) {
-        // 最古 = index 0 を捨てる。Array は RemoveAt(0) を持たないので、
+        // 最古 = index 0 を捨てる。TArray は RemoveAt(0) を持たないので、
         // 自前で 1 つずつ前にずらしてから PopBack する。
-        // ・要素は UniquePtr<EditorCommand> なのでムーブ可能。
+        // ・要素は TUniquePtr<EditorCommand> なのでムーブ可能。
         // ・PopBack 前に index 0 が末尾要素まで移送されていれば、PopBack の
         //   破棄で最古 cmd が dtor 経由で delete される。
         const usize n = _undo_stack.Size();

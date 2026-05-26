@@ -206,10 +206,10 @@ private:
         void*    user        = nullptr;
     };
 
-    Array<T>     _items;
-    Array<Slot>  _slots;
-    Array<u32>   _free_indices;
-    Array<u32>   _pending_cancel;
+    TArray<T>     _items;
+    TArray<Slot>  _slots;
+    TArray<u32>   _free_indices;
+    TArray<u32>   _pending_cancel;
     u32          _next_id      = 1;
     i32          _notify_depth = 0;
 };

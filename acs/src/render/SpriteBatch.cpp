@@ -57,7 +57,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
-Result<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites) noexcept {
+TResult<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites) noexcept {
     if (max_sprites == 0) max_sprites = 4096;
     _max_sprites = max_sprites;
 
@@ -203,14 +203,14 @@ void SpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcep
     cl.SetIndexBuffer(*_ib);
 }
 
-void SpriteBatch::Draw(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h, Vec4 tint) noexcept {
+void SpriteBatch::Draw(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h, FVec4 tint) noexcept {
     DrawSub(tex, x, y, w, h, 0, 0, 1, 1, tint);
 }
 
 void SpriteBatch::DrawSub(IRhiTexture& tex,
                           f32 x, f32 y, f32 w, f32 h,
                           f32 u0, f32 v0, f32 u1, f32 v1,
-                          Vec4 tint) noexcept {
+                          FVec4 tint) noexcept {
     if (!_cl) return;
     // テクスチャ切替でフラッシュ（同じテクスチャは累積）
     if (_current_tex && _current_tex != &tex) Flush();
@@ -227,14 +227,14 @@ void SpriteBatch::DrawSub(IRhiTexture& tex,
     ++_sprite_count;
 }
 
-void SpriteBatch::DrawRect(f32 x, f32 y, f32 w, f32 h, Vec4 color) noexcept {
+void SpriteBatch::DrawRect(f32 x, f32 y, f32 w, f32 h, FVec4 color) noexcept {
     DrawSub(*_white, x, y, w, h, 0, 0, 1, 1, color);
 }
 
 void SpriteBatch::DrawRotated(IRhiTexture& tex,
                               f32 cx, f32 cy, f32 w, f32 h, f32 radians,
                               f32 u0, f32 v0, f32 u1, f32 v1,
-                              Vec4 tint) noexcept {
+                              FVec4 tint) noexcept {
     if (!_cl) return;
     if (_current_tex && _current_tex != &tex) Flush();
     if (_sprite_count >= _max_sprites) return;
@@ -260,7 +260,7 @@ void SpriteBatch::DrawRotated(IRhiTexture& tex,
 }
 
 void SpriteBatch::DrawRectRotated(f32 cx, f32 cy, f32 w, f32 h, f32 radians,
-                                  Vec4 color) noexcept {
+                                  FVec4 color) noexcept {
     DrawRotated(*_white, cx, cy, w, h, radians, 0, 0, 1, 1, color);
 }
 
@@ -298,7 +298,7 @@ void SpriteBatch::ClearClipRect() noexcept {
 }
 
 void SpriteBatch::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
-                               Vec4 color) noexcept {
+                               FVec4 color) noexcept {
     if (!_cl) return;
     if (_current_tex && _current_tex != _white.Get()) Flush();
     if (_sprite_count >= _max_sprites) return;
@@ -314,7 +314,7 @@ void SpriteBatch::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
 }
 
 void SpriteBatch::DrawString(const Font& font, const char* utf8_text,
-                           f32 x, f32 y, Vec4 color) noexcept {
+                           f32 x, f32 y, FVec4 color) noexcept {
     if (!utf8_text || !font.AtlasTexture()) return;
     IRhiTexture* atlas = font.AtlasTexture();
 

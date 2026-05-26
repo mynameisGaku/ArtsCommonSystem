@@ -56,7 +56,7 @@ void HelloParticlesApp::OnStart() noexcept {
     (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
     // 画面中央付近を初期エミッタ位置に
-    if (!_scene.Init(_glow.Get(), Vec2{400, 400})) { Quit(); return; }
+    if (!_scene.Init(_glow.Get(), FVec2{400, 400})) { Quit(); return; }
 
     ACS_LOG_INFO("HelloParticles initialized");
 }
@@ -75,7 +75,7 @@ void HelloParticlesApp::OnRender() noexcept {
     _batch.Begin(*cl, sw, sh);
     // 暗めの背景（粒が映える）
     _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
-                    Vec4{0.05f, 0.06f, 0.10f, 1});
+                    FVec4{0.05f, 0.06f, 0.10f, 1});
 
     _scene.Render(_batch, _font, sh, FPS());
 

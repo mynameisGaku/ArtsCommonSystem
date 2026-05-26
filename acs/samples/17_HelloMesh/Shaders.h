@@ -7,7 +7,7 @@
 
 namespace hellomesh {
 
-// `row_major` プラグマで Mat4 (行優先) をそのまま受け取る。
+// `row_major` プラグマで FMat4 (行優先) をそのまま受け取る。
 // b0 = MVP のみ。色は頂点バッファから補間してそのまま出力。
 inline constexpr const char* kHLSL = R"(
 #pragma pack_matrix(row_major)

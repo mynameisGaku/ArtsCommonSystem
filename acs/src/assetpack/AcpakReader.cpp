@@ -4,7 +4,7 @@
 // -----------------------------------------------------------------------------
 // Phase 1 実装範囲:
 //   ・magic / version / flags 検証
-//   ・file table をエントリ毎に逐次読み出して `Array<AcpakFileEntry>` を構築
+//   ・file table をエントリ毎に逐次読み出して `TArray<AcpakFileEntry>` を構築
 //   ・各 path は `_string_pool` に NUL 終端付きで連結保存し、entry.path はその
 //     先頭へのポインタを保持する
 //   ・CRC32 (poly 0xEDB88320, init 0xFFFFFFFF, xorout 0xFFFFFFFF) 検証
@@ -149,7 +149,7 @@ void AcpakReader::SetKey(const AcpakKey& key) noexcept {
     _has_key = true;
 }
 
-Result<void> AcpakReader::Open(const wchar_t* file_path) noexcept {
+TResult<void> AcpakReader::Open(const wchar_t* file_path) noexcept {
     // 二度目以降の Open は前回を黙って閉じる (gameframework の Mount 流儀)。
     if (IsOpen()) Close();
 
@@ -197,7 +197,7 @@ Result<void> AcpakReader::Open(const wchar_t* file_path) noexcept {
 //
 // このやり方なら _string_pool は Pass 2 で 1 度だけ Resize するので、
 // PushBack 中の re-grow による dangling pointer が起きない。
-Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
+TResult<void> AcpakReader::LoadHeaderAndTable() noexcept {
     HANDLE h = static_cast<HANDLE>(_file_handle);
 
     if (_file_size < kAcpakHeaderDiskSize) {
@@ -257,7 +257,7 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
     }
 
     // ---- Pass 1: 各 entry のメタデータと path 長を読み、path 文字列を
-    //              `paths_temp` (Array<wchar_t>) に連結する -----------------
+    //              `paths_temp` (TArray<wchar_t>) に連結する -----------------
     // 内部表現: entry のうち path だけ後で resolve するので、index 配列を別途
     // 保持する。Phase 2: encrypted pak のときは追加で cipher_nonce/tag も読む。
     struct RawEntry {
@@ -275,8 +275,8 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
     const bool is_compressed = (flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
     (void)is_compressed;  // ReadFile 側でのみ参照する (記号として残す)
 
-    Array<RawEntry>   raws;
-    Array<wchar_t>    paths_temp;
+    TArray<RawEntry>   raws;
+    TArray<wchar_t>    paths_temp;
     raws.Reserve(file_count);
     // 平均 64 wchar_t + NUL 想定で 65 * file_count を予約 (= 適度な見積もり)
     paths_temp.Reserve(static_cast<usize>(file_count) * 65u);
@@ -320,7 +320,7 @@ Result<void> AcpakReader::LoadHeaderAndTable() noexcept {
         // path_len の現在末尾オフセットを記録する。
         const u32 pool_off = static_cast<u32>(paths_temp.Size());
 
-        // PushBack ループ — Array は exponential grow なので O(amortized 1)/wchar_t
+        // PushBack ループ — TArray は exponential grow なので O(amortized 1)/wchar_t
         if (path_len > 0) {
             // 効率のため Resize して直接 ReadFile する
             const usize prev_size = paths_temp.Size();
@@ -439,7 +439,7 @@ const AcpakFileEntry* AcpakReader::FindEntry(const wchar_t* path) const noexcept
 // GetUncompressedSize / ReadFile
 // ----------------------------------------------------------------------------
 
-Result<u64> AcpakReader::GetUncompressedSize(const wchar_t* path) const noexcept {
+TResult<u64> AcpakReader::GetUncompressedSize(const wchar_t* path) const noexcept {
     if (!IsOpen()) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
                        "AcpakReader::GetUncompressedSize: pak not open");
@@ -449,10 +449,10 @@ Result<u64> AcpakReader::GetUncompressedSize(const wchar_t* path) const noexcept
         return ACS_ERR(IO, kAcpakSubNotFound,
                        "AcpakReader::GetUncompressedSize: path not found");
     }
-    return Result<u64>(OkInit, e->size_uncompressed);
+    return TResult<u64>(OkInit, e->size_uncompressed);
 }
 
-Result<u64> AcpakReader::ReadFile(const wchar_t* path,
+TResult<u64> AcpakReader::ReadFile(const wchar_t* path,
                                   void*          out_buffer,
                                   u64            buffer_size) noexcept {
     if (!IsOpen()) {
@@ -506,7 +506,7 @@ Result<u64> AcpakReader::ReadFile(const wchar_t* path,
     //
     // tmp バッファは size_stored バイト確保する。
 
-    Array<u8> tmp;   // 圧縮中間バッファ (圧縮 flag のときのみ使う)
+    TArray<u8> tmp;   // 圧縮中間バッファ (圧縮 flag のときのみ使う)
     void* stored_dst = nullptr;   // ディスク から最初に読み込む先
 
     if (is_compressed) {
@@ -576,7 +576,7 @@ Result<u64> AcpakReader::ReadFile(const wchar_t* path,
                        "AcpakReader::ReadFile: CRC32 mismatch");
     }
 
-    return Result<u64>(OkInit, e->size_uncompressed);
+    return TResult<u64>(OkInit, e->size_uncompressed);
 }
 
 } // namespace acs::assetpack

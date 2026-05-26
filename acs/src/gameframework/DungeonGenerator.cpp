@@ -32,7 +32,7 @@ struct BspNode {
     u32 x1 = 0;
     u32 y1 = 0;
     u32 depth = 0;
-    // 子ノードへのインデックス (0xFFFFFFFF = なし)。Array<BspNode> 中の位置。
+    // 子ノードへのインデックス (0xFFFFFFFF = なし)。TArray<BspNode> 中の位置。
     u32 left  = 0xFFFFFFFFu;
     u32 right = 0xFFFFFFFFu;
     // このサブツリーの代表 room 番号 (廊下接続で使う)。0xFFFFFFFF = まだ無い。
@@ -148,9 +148,9 @@ void DungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     Random rng(static_cast<u64>(config.seed));
 
     // ---- 3. BSP 分割 -----------------------------------------------------------
-    // 全 partition を Array に積み、index で親子関係を保持する。
+    // 全 partition を TArray に積み、index で親子関係を保持する。
     // ルートは画面全体 (端の壁余白を確保するため [1, w-2] x [1, h-2])。
-    Array<BspNode> nodes;
+    TArray<BspNode> nodes;
     nodes.Reserve(64u);
     {
         BspNode root{};
@@ -163,7 +163,7 @@ void DungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     }
 
     // 反復的 BSP: stack に「これから分割を試みるノード index」を積む。
-    Array<u32> work;
+    TArray<u32> work;
     work.Reserve(64u);
     work.PushBack(0u);
 

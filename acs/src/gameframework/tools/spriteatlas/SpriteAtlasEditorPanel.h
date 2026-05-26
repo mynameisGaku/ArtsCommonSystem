@@ -81,7 +81,7 @@
 //     ACS 規約。frame name は SpritePack 側 (= caller 所有) のリテラル前提。
 //     panel 内で新規 frame を AddFrame するときの name は静的バッファ
 //     (`_default_frame_name_pool[]`) に書き込み、SpritePack に const char*
-//     ポインタを渡す。Pool は kMaxOwnedFrames * 32 byte 固定。
+//     ポインタを渡す。TPool は kMaxOwnedFrames * 32 byte 固定。
 //   ・**ImGui ヘッダは .cpp 限定**: ParticleEditorPanel / ModelViewerPanel と
 //     同形 (header から imgui.h を出さない)。
 //

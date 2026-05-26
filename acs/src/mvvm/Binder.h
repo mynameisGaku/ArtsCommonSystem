@@ -95,12 +95,12 @@ private:
 //
 // 使い方:
 //   Observable<i32>      hp { 100 };
-//   Observable<String>   hp_text;
-//   static String IntToText(const i32& v, void* /*user*/) noexcept {
+//   Observable<FString>   hp_text;
+//   static FString IntToText(const i32& v, void* /*user*/) noexcept {
 //       char buf[32]; std::snprintf(buf, sizeof(buf), "HP: %d", v);
-//       return String{buf};
+//       return FString{buf};
 //   }
-//   OneWayConvertBinder<i32, String> bind(hp, hp_text, &IntToText, nullptr);
+//   OneWayConvertBinder<i32, FString> bind(hp, hp_text, &IntToText, nullptr);
 template<typename Src, typename Dst>
 class OneWayConvertBinder {
 public:
@@ -146,8 +146,8 @@ inline void CopyOnce(const Observable<T>& src, Observable<T>& dst) noexcept {
 //
 // 例:
 //   Observable<f32> hp{100};
-//   Observable<String> hp_text;
-//   auto b = Bind(hp, hp_text);    // f32 → String 自動変換
+//   Observable<FString> hp_text;
+//   auto b = Bind(hp, hp_text);    // f32 → FString 自動変換
 //
 //   Observable<i32> a, b;
 //   auto b2 = Bind(a, b);          // 同型 → OneWayBinder<i32>
@@ -170,14 +170,14 @@ inline TwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
 }
 
 // ============================================================================
-// MakeBind / MakeTwoWayBind / MakeBindConvert — UniquePtr 版
+// MakeBind / MakeTwoWayBind / MakeBindConvert — TUniquePtr 版
 // ----------------------------------------------------------------------------
 // Bind() の生 OneWayBinder を返す版だと、コピー/ムーブ不可なため member 変数として
-// 持てない (member 初期化順、ヒープ確保が必要)。Make* 系は UniquePtr を返すので、
+// 持てない (member 初期化順、ヒープ確保が必要)。Make* 系は TUniquePtr を返すので、
 // クラスメンバとして自然に持てる + dtor で自動的に Unsubscribe される。
 //
 //   class MyApp {
-//       UniquePtr<OneWayBinder<f32>> _bind;
+//       TUniquePtr<OneWayBinder<f32>> _bind;
 //       void OnStart() {
 //           _bind = MakeBind(vm.hp, view.hp);
 //           // OnShutdown で _bind.Reset() するか、デストラクタ任せ
@@ -185,24 +185,24 @@ inline TwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
 //   };
 // ============================================================================
 template<typename T>
-inline UniquePtr<OneWayBinder<T>> MakeBind(Observable<T>& src, Observable<T>& dst) noexcept {
+inline TUniquePtr<OneWayBinder<T>> MakeBind(Observable<T>& src, Observable<T>& dst) noexcept {
     return MakeUnique<OneWayBinder<T>>(src, dst);
 }
 
 template<typename T>
-inline UniquePtr<TwoWayBinder<T>> MakeTwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
+inline TUniquePtr<TwoWayBinder<T>> MakeTwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
     return MakeUnique<TwoWayBinder<T>>(a, b);
 }
 
 template<typename Src, typename Dst>
-inline UniquePtr<OneWayConvertBinder<Src, Dst>>
+inline TUniquePtr<OneWayConvertBinder<Src, Dst>>
 MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst) noexcept {
     return MakeUnique<OneWayConvertBinder<Src, Dst>>(
         src, dst, &mvvm::DefaultConverter<Src, Dst>::Convert, nullptr);
 }
 
 template<typename Src, typename Dst>
-inline UniquePtr<OneWayConvertBinder<Src, Dst>>
+inline TUniquePtr<OneWayConvertBinder<Src, Dst>>
 MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst,
                 Dst (*fn)(const Src&, void*), void* user) noexcept {
     return MakeUnique<OneWayConvertBinder<Src, Dst>>(src, dst, fn, user);

@@ -22,7 +22,7 @@ public:
     DiligentCommandList(const DiligentCommandList&) = delete;
     DiligentCommandList& operator=(const DiligentCommandList&) = delete;
 
-    Result<void> Init(DiligentDevice& device) noexcept;
+    TResult<void> Init(DiligentDevice& device) noexcept;
 
     // ---- IRhiCommandList ----
     void Begin() noexcept override;

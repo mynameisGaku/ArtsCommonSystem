@@ -23,7 +23,7 @@
 //   ・**所有しない const char***: `<string>` 不使用 (ACS 規約)。`ModerationResult::reason`
 //     は static literal or 実装内部の static thread_local バッファを指す。寿命は
 //     「次の Moderate*() 呼び出しまで」を保証する。
-//   ・**Result<T, ErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は同期で常に
+//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は同期で常に
 //     Ok(...) を返し、エラーは API 通信失敗の seam 側でのみ発生。
 //   ・**Tick(dt) 必須**: 非同期モデレーション (= REST 結果ポーリング) を Bridge 側に
 //     畳み込めるよう、SteamworksBridge と同じ規約を採用。Stub では no-op。
@@ -50,7 +50,7 @@
 
 namespace acs::game {
 
-// ---- ErrorCode subcode 定義 (ErrCategory::Generic 配下) ----------------------
+// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ----------------------
 // SteamworksBridge と同じく `Generic + 安定 subcode` で未実装/未初期化を表現。
 inline constexpr u16 kSubContentModeratorNotImplemented = 1301;  // Stub による未実装
 inline constexpr u16 kSubContentModeratorBadArgument    = 1302;  // nullptr / size==0 等
@@ -142,17 +142,17 @@ public:
     // テキストモデレーション (チャット / プロフィール bio / レビュー文 等)。
     // `user_id` は通報履歴・レピュテーション参照用 (Stub では未使用、nullptr 可)。
     // `text` が nullptr / 空文字の場合の扱いは実装依存 (Stub は Allow)。
-    virtual Result<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept = 0;
+    virtual TResult<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept = 0;
 
     // 画像モデレーション (アバター / スクリーンショット投稿 / カスタムバナー 等)。
     // `image_data` は呼び出し側が所有する生バイト列 (PNG / JPEG / WebP 等の任意フォーマット)。
     // size==0 / nullptr は BadArgument エラーで返す (Stub も同様)。
-    virtual Result<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept = 0;
+    virtual TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept = 0;
 
     // ユーザー名モデレーション (アカウント作成 / 改名時)。
     // 通常 text モデレーションより厳しい (= 短い文字列内の侮辱・なりすまし検出を強化)。
     // Stub では text と同じ NG ワード辞書を流用する。
-    virtual Result<ModerationResult> ModerateUserName(const char* name) noexcept = 0;
+    virtual TResult<ModerationResult> ModerateUserName(const char* name) noexcept = 0;
 
     // 非同期処理ポンプ (REST 結果ポーリング / 内部キュー dispatch)。
     // ゲームループから毎フレーム呼ぶこと。Stub は no-op。
@@ -179,9 +179,9 @@ public:
     ContentModeratorStub() noexcept = default;
     ~ContentModeratorStub() noexcept override = default;
 
-    Result<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept override;
-    Result<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept override;
-    Result<ModerationResult> ModerateUserName(const char* name) noexcept override;
+    TResult<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept override;
+    TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept override;
+    TResult<ModerationResult> ModerateUserName(const char* name) noexcept override;
     void                     Tick(f32 dt) noexcept override;
     bool                     IsAvailable() const noexcept override { return true; }
 };

@@ -20,8 +20,8 @@ enum class SkyPreset : acs::u8 {
 
 // preset 別の ambient 色。Sky の zenith をそのまま使うと明るすぎるので
 // 各時間帯の雰囲気に合わせて減衰させた値を採用。
-inline constexpr acs::Vec3 kAmbientDay   {0.20f, 0.22f, 0.30f};
-inline constexpr acs::Vec3 kAmbientSunset{0.20f, 0.10f, 0.10f};
-inline constexpr acs::Vec3 kAmbientNight {0.04f, 0.05f, 0.10f};
+inline constexpr acs::FVec3 kAmbientDay   {0.20f, 0.22f, 0.30f};
+inline constexpr acs::FVec3 kAmbientSunset{0.20f, 0.10f, 0.10f};
+inline constexpr acs::FVec3 kAmbientNight {0.04f, 0.05f, 0.10f};
 
 } // namespace hellosky

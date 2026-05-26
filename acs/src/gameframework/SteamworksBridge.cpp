@@ -25,7 +25,7 @@ namespace acs::game {
 
 // ---- Stub: Init / Shutdown ------------------------------------------------
 
-Result<void> SteamworksBridgeStub::Init() noexcept {
+TResult<void> SteamworksBridgeStub::Init() noexcept {
     // 多重 Init は明示的に許容する。実 SDK の SteamAPI_Init() は失敗時 false を
     // 返すが、Stub はテスト容易性のため常に成功。
     _initialized = true;
@@ -55,7 +55,7 @@ PlayerIdentity SteamworksBridgeStub::GetLocalPlayer() const noexcept {
 
 // ---- Stub: Achievement / Leaderboard ------------------------------------
 
-Result<void> SteamworksBridgeStub::UnlockAchievement(const char* ach_id) noexcept {
+TResult<void> SteamworksBridgeStub::UnlockAchievement(const char* ach_id) noexcept {
     (void)ach_id;  // 未使用引数 (Stub なので no-op)
     if (!_initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized,
@@ -65,7 +65,7 @@ Result<void> SteamworksBridgeStub::UnlockAchievement(const char* ach_id) noexcep
                    "SteamworksBridgeStub: UnlockAchievement is not implemented (link real SDK)");
 }
 
-Result<void> SteamworksBridgeStub::SetLeaderboardScore(const char* board_id, i64 score) noexcept {
+TResult<void> SteamworksBridgeStub::SetLeaderboardScore(const char* board_id, i64 score) noexcept {
     (void)board_id;
     (void)score;
     if (!_initialized) {
@@ -76,13 +76,13 @@ Result<void> SteamworksBridgeStub::SetLeaderboardScore(const char* board_id, i64
                    "SteamworksBridgeStub: SetLeaderboardScore is not implemented (link real SDK)");
 }
 
-Result<i64> SteamworksBridgeStub::GetLeaderboardScore(const char* board_id) noexcept {
+TResult<i64> SteamworksBridgeStub::GetLeaderboardScore(const char* board_id) noexcept {
     (void)board_id;
     if (!_initialized) {
-        return Result<i64>(ACS_ERR(Generic, kSubSteamworksNotInitialized,
+        return TResult<i64>(ACS_ERR(Generic, kSubSteamworksNotInitialized,
                                    "SteamworksBridgeStub::GetLeaderboardScore called before Init()"));
     }
-    return Result<i64>(ACS_ERR(Generic, kSubSteamworksNotImplemented,
+    return TResult<i64>(ACS_ERR(Generic, kSubSteamworksNotImplemented,
                                "SteamworksBridgeStub: GetLeaderboardScore is not implemented (link real SDK)"));
 }
 

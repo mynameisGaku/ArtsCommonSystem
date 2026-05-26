@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar C — Tween / TweenManager (Phase 3)
 //
-// 値書き戻し型 Tween: 利用者の f32/Vec2/Vec3 変数のポインタを渡し、
+// 値書き戻し型 Tween: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
 // TweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
 // std::function 非使用方針と整合)。Easing は関数ポインタで指定。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
 //       acs::game::TweenManager _tweens;
-//       acs::Vec3 _color{0, 0, 0};
+//       acs::FVec3 _color{0, 0, 0};
 //
 //       void OnEnter() noexcept override {
 //           _tweens.Tween(&_color,
-//                          acs::Vec3{0.05f, 0.20f, 0.10f},
-//                          acs::Vec3{0.10f, 0.30f, 0.20f},
+//                          acs::FVec3{0.05f, 0.20f, 0.10f},
+//                          acs::FVec3{0.10f, 0.30f, 0.20f},
 //                          /*duration=*/2.0f,
 //                          Easing::InOutSine);
 //       }
@@ -57,9 +57,9 @@ public:
     // target が null は no-op + invalid。ease は null なら Linear 扱い。
     TweenHandle Tween(f32* target,  f32  from, f32  to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
-    TweenHandle Tween(Vec2* target, Vec2 from, Vec2 to, f32 duration,
+    TweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
-    TweenHandle Tween(Vec3* target, Vec3 from, Vec3 to, f32 duration,
+    TweenHandle Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
 
     // 進行中の Tween を中止 (target は最後に書いた値で止まる)。stale handle は無視。
@@ -79,7 +79,7 @@ public:
     void Tick(f32 dt) noexcept;
 
 private:
-    enum class Kind : u8 { None = 0, F32, Vec2, Vec3 };
+    enum class Kind : u8 { None = 0, F32, FVec2, FVec3 };
 
     struct Slot {
         Kind kind        = Kind::None;
@@ -89,10 +89,10 @@ private:
         // 型ごとの from/to (アクティブな kind のみが意味を持つ)
         f32  from_f      = 0.0f;
         f32  to_f        = 0.0f;
-        Vec2 from_v2     {};
-        Vec2 to_v2       {};
-        Vec3 from_v3     {};
-        Vec3 to_v3       {};
+        FVec2 from_v2     {};
+        FVec2 to_v2       {};
+        FVec3 from_v3     {};
+        FVec3 to_v3       {};
         f32  elapsed     = 0.0f;
         f32  duration    = 1.0f;
         Easing::EasingFn ease = Easing::Linear;
@@ -102,7 +102,7 @@ private:
     void FillCommon(Slot& s, void* target, f32 duration,
                     Easing::EasingFn ease) noexcept;
 
-    Array<Slot> _slots;
+    TArray<Slot> _slots;
     u32         _active_count = 0;
 };
 

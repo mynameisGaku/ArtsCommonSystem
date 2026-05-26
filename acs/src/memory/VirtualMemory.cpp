@@ -61,7 +61,7 @@ VmReservation& VmReservation::operator=(VmReservation&& o) noexcept {
 }
 
 // 仮想範囲を予約する（物理ページは未割当）
-Result<VmReservation> VmReservation::Reserve(usize capacity_bytes) noexcept {
+TResult<VmReservation> VmReservation::Reserve(usize capacity_bytes) noexcept {
     if (capacity_bytes == 0) return ACS_ERR(Memory, 10, "VmReservation::Reserve: capacity 0");
     usize gran = VmAllocGranularity();
     capacity_bytes = (capacity_bytes + gran - 1) & ~(gran - 1);
@@ -75,7 +75,7 @@ Result<VmReservation> VmReservation::Reserve(usize capacity_bytes) noexcept {
     r._base = base;
     r._capacity = capacity_bytes;
     r._committed = 0;
-    return Result<VmReservation>(OkInit, Move(r));
+    return TResult<VmReservation>(OkInit, Move(r));
 }
 
 void VmReservation::Release() noexcept {
@@ -133,7 +133,7 @@ void VmReservation::LruEvictAll() noexcept {
 }
 
 // 物理ページ確保（LRU ヒットなら VirtualAlloc 省略）
-Result<void> VmReservation::Commit(usize offset, usize size) noexcept {
+TResult<void> VmReservation::Commit(usize offset, usize size) noexcept {
     if (!_base) return ACS_ERR(Memory, 12, "Commit: reservation released");
     if (offset + size > _capacity) return ACS_ERR(Memory, 13, "Commit: out of reservation");
     usize page_size = VmPageSize();
@@ -155,7 +155,7 @@ Result<void> VmReservation::Commit(usize offset, usize size) noexcept {
 }
 
 // 物理ページ返却（実 VirtualFree は LRU エビクト時）
-Result<void> VmReservation::Decommit(usize offset, usize size) noexcept {
+TResult<void> VmReservation::Decommit(usize offset, usize size) noexcept {
     if (!_base) return ACS_ERR(Memory, 15, "Decommit: reservation released");
     if (offset + size > _capacity) return ACS_ERR(Memory, 16, "Decommit: out of reservation");
     usize page_size = VmPageSize();

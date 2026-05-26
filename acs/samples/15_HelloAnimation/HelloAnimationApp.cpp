@@ -60,8 +60,8 @@ void HelloAnimationApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
     if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
     const f32 cam_dist = 8.0f;
-    _cam_pos = Vec3{ Sin(_cam_yaw) * cam_dist, 3.0f, -Cos(_cam_yaw) * cam_dist };
-    _camera.SetLookAt(_cam_pos, Vec3{0, 2, 0});
+    _cam_pos = FVec3{ Sin(_cam_yaw) * cam_dist, 3.0f, -Cos(_cam_yaw) * cam_dist };
+    _camera.SetLookAt(_cam_pos, FVec3{0, 2, 0});
 
     _player.Update(dt);
 }
@@ -71,7 +71,7 @@ void HelloAnimationApp::OnRender() noexcept {
     if (!cl) return;
 
     // ボーンパレットを書き出してから scene に委譲。
-    Mat4 palette[SkinnedShader::kMaxBones];
+    FMat4 palette[SkinnedShader::kMaxBones];
     const u32 nb = _player.WritePalette(palette, SkinnedShader::kMaxBones);
 
     // Sky → 地面 → スキンメッシュ描画は scene に委譲。
@@ -88,9 +88,9 @@ void HelloAnimationApp::OnRender() noexcept {
                       "ボーン: %u  時刻: %.2fs  状態: %s",
                       nb, static_cast<double>(_player.Time()),
                       _player.IsPlaying() ? "再生中" : "停止");
-        _batch.DrawString(_font, buf, 20, 20, Vec4{1,1,1,1});
+        _batch.DrawString(_font, buf, 20, 20, FVec4{1,1,1,1});
         _batch.DrawString(_font, "Space: 再生/停止  ←→: カメラ  Esc: 終了",
-                        20, 44, Vec4{0.8f,0.85f,0.95f,1});
+                        20, 44, FVec4{0.8f,0.85f,0.95f,1});
         _batch.End();
     }
 }
@@ -101,7 +101,7 @@ void HelloAnimationApp::OnShutdown() noexcept {
     _batch.Shutdown();
     _gm_snake = SkinnedGpuMesh{};
     _gm_plane = GpuMesh{};
-    _snake    = Rc<SkinnedMeshAsset>();
+    _snake    = TRc<SkinnedMeshAsset>();
     _std_shader.Shutdown();
     _shader.Shutdown();
     _sky.Shutdown();

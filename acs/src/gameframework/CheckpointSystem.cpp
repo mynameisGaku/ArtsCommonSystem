@@ -8,7 +8,7 @@
 // 設計補足:
 //   ・id 比較は STL <cstring> を避けて per-byte ループを自前で書く
 //     (Entitlement / Progression / Settings と同じ StrEq pattern)。
-//   ・unlocked リストは const char* の Array (非所有)。文字列比較で線形検索
+//   ・unlocked リストは const char* の TArray (非所有)。文字列比較で線形検索
 //     する想定で十分高速 (典型 N <= 数十)。
 //   ・AllCheckpoints は穴を詰めるため _scratch を再構築して返す。
 //     呼出側は次の Register/Unregister/AllCheckpoints/ClearAll で無効化される
@@ -215,9 +215,9 @@ CheckpointId CheckpointSystem::CurrentCheckpoint() const noexcept {
     return _current;
 }
 
-Vec2 CheckpointSystem::CurrentSpawnPos() const noexcept {
+FVec2 CheckpointSystem::CurrentSpawnPos() const noexcept {
     const Slot* s = FindSlot(_current);
-    if (s == nullptr) return Vec2::Zero();
+    if (s == nullptr) return FVec2::Zero();
     return s->info.spawn_pos;
 }
 
@@ -225,7 +225,7 @@ u32 CheckpointSystem::LastSpawnLevelIndex() const noexcept {
     return _last_level_index;
 }
 
-bool CheckpointSystem::TriggerRespawn(Vec2& out_pos, u32& out_level_index) const noexcept {
+bool CheckpointSystem::TriggerRespawn(FVec2& out_pos, u32& out_level_index) const noexcept {
     const Slot* s = FindSlot(_current);
     if (s == nullptr) return false;
 
@@ -294,7 +294,7 @@ void CheckpointSystem::ClearAll() noexcept {
     _scratch.Clear();
     _current          = CheckpointId{};
     _last_level_index = 0;
-    _last_spawn_pos   = Vec2::Zero();
+    _last_spawn_pos   = FVec2::Zero();
     _checkpoint_count = 0;
     // callback 設定は保持 (Progression::ResetProgress / HealthSystem::ClearAll と同方針)。
 }

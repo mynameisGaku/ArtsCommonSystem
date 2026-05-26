@@ -6,7 +6,7 @@
 //
 // Save / Load は Phase 1 では TODO スタブ。Phase 2 で `acs::Storage` か
 // FileSystem 経由で INI 風 (key=value\n + 型 prefix) を実装する。Phase 1 で
-// 形だけ Result<void> を返しておくと、呼び出し側 (ゲームの起動/終了処理)
+// 形だけ TResult<void> を返しておくと、呼び出し側 (ゲームの起動/終了処理)
 // の構造を先に組めるので、空実装でも Ok() を返す方針にしている。
 #include "gameframework/Settings.h"
 
@@ -77,7 +77,7 @@ void Settings::SetBool(const char* key, bool v) noexcept {
 void Settings::SetString(const char* key, const char* v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
-    e.kind     = ESettingKind::String;
+    e.kind     = ESettingKind::FString;
     e.value.s  = v;  // 非所有: 呼び出し側が寿命を保証する
 }
 
@@ -112,7 +112,7 @@ const char* Settings::GetString(const char* key, const char* default_value) cons
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
     const Entry& e = _entries[static_cast<usize>(idx)];
-    if (e.kind != ESettingKind::String) return default_value;
+    if (e.kind != ESettingKind::FString) return default_value;
     return e.value.s;
 }
 
@@ -142,10 +142,10 @@ u32 Settings::Count() const noexcept {
 // ============================================================================
 // 永続化 (Phase 2 で実装)
 // ============================================================================
-// Phase 1 はスタブ。形だけ Result<void> を返して呼び出し側の構造を
+// Phase 1 はスタブ。形だけ TResult<void> を返して呼び出し側の構造を
 // 先に組めるようにする。Phase 2 で `acs::Storage` か FileSystem 経由の
 // atomic write + 読み取り (UTF-8 / LF, `f:key=value` のような型 prefix) を実装。
-Result<void> Settings::Save(const wchar_t* file_path) noexcept {
+TResult<void> Settings::Save(const wchar_t* file_path) noexcept {
     (void)file_path;
     // TODO(Phase 2): INI 風 key=value テキストを atomic write で書き出す。
     //   ・型 prefix: `f:audio.master=0.8`, `i:display.width=1920`,
@@ -155,10 +155,10 @@ Result<void> Settings::Save(const wchar_t* file_path) noexcept {
     return Ok();
 }
 
-Result<void> Settings::Load(const wchar_t* file_path) noexcept {
+TResult<void> Settings::Load(const wchar_t* file_path) noexcept {
     (void)file_path;
     // TODO(Phase 2): Save と対称な reader を実装。型 prefix を見て
-    //   Set{F32,I32,Bool,String} にディスパッチ。未知の prefix は警告して skip。
+    //   Set{F32,I32,Bool,FString} にディスパッチ。未知の prefix は警告して skip。
     //   ファイル不在は IO カテゴリのエラーで返す (初回起動を区別できる)。
     return Ok();
 }

@@ -25,7 +25,7 @@ UdpSocket& UdpSocket::operator=(UdpSocket&& o) noexcept {
     return *this;
 }
 
-Result<UdpSocket> UdpSocket::Bind(IpAddress addr, u16 port) noexcept {
+TResult<UdpSocket> UdpSocket::Bind(IpAddress addr, u16 port) noexcept {
     if (!Network::IsInitialized())
         return ACS_ERR(IO, 230, "Network::Init() not called");
 
@@ -49,7 +49,7 @@ Result<UdpSocket> UdpSocket::Bind(IpAddress addr, u16 port) noexcept {
 
     UdpSocket u;
     u._socket = static_cast<uptr>(s);
-    return Result<UdpSocket>(OkInit, Move(u));
+    return TResult<UdpSocket>(OkInit, Move(u));
 }
 
 isize UdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
@@ -84,7 +84,7 @@ isize UdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
     return n;
 }
 
-Result<void> UdpSocket::SetNonBlocking(bool enable) noexcept {
+TResult<void> UdpSocket::SetNonBlocking(bool enable) noexcept {
     if (_socket == ~uptr{0}) return ACS_ERR(IO, 233, "socket not open");
     u_long mode = enable ? 1 : 0;
     if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)

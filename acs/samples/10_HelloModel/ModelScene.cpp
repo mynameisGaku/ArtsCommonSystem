@@ -51,17 +51,17 @@ void ModelScene::Update(f32 dt, AssetFuture& async_mesh, bool& async_loaded) noe
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;
 
-    Vec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
+    FVec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
                  -Sin(_cam_pitch),
                   Cos(_cam_yaw) * Cos(_cam_pitch) };
-    Vec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
+    FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
 
     if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * move_speed;
     if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * move_speed;
     if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * move_speed;
     if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * move_speed;
 
-    Vec3 target = _cam_pos + forward;
+    FVec3 target = _cam_pos + forward;
     _camera.SetLookAt(_cam_pos, target);
 
     // === 非同期ロード結果の確認 ===
@@ -92,13 +92,13 @@ void ModelScene::Render(StandardShader& shader, IRhiCommandList& cl) noexcept {
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
     // ---- 中央の球 ----
-    shader.SetObject(Mat4::RotationY(_angle), kSphereColor);
+    shader.SetObject(FMat4::RotationY(_angle), kSphereColor);
     cl.SetVertexBuffer(*_gm_sphere.vertex_buffer, _gm_sphere.vertex_stride);
     cl.SetIndexBuffer(*_gm_sphere.index_buffer);
     cl.DrawIndexed(_gm_sphere.index_count);
 
     // ---- 地面プレーン ----
-    shader.SetObject(Mat4::Translation(Vec3{0, -0.8f, 0}), kPlaneColor);
+    shader.SetObject(FMat4::Translation(FVec3{0, -0.8f, 0}), kPlaneColor);
     cl.SetVertexBuffer(*_gm_plane.vertex_buffer, _gm_plane.vertex_stride);
     cl.SetIndexBuffer(*_gm_plane.index_buffer);
     cl.DrawIndexed(_gm_plane.index_count);
@@ -109,8 +109,8 @@ void ModelScene::Render(StandardShader& shader, IRhiCommandList& cl) noexcept {
     for (u32 i = 0; i < kCubeCount; ++i) {
         const f32 a = i * (kPi * 0.5f) + _angle * 0.3f;
         const f32 r = 2.5f;
-        Vec3 pos{ Sin(a) * r, -0.2f, Cos(a) * r };
-        Mat4 m = Mat4::RotationY(_angle * 1.2f) * Mat4::Translation(pos);
+        FVec3 pos{ Sin(a) * r, -0.2f, Cos(a) * r };
+        FMat4 m = FMat4::RotationY(_angle * 1.2f) * FMat4::Translation(pos);
         shader.SetObject(m, kCubeColors[i]);
         cl.DrawIndexed(_gm_cube.index_count);
     }

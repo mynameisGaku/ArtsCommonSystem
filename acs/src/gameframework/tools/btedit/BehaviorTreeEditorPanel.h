@@ -31,9 +31,9 @@
 //     EditorWorkspace に登録するだけで自動 dispatch される。Title は
 //     "Behavior Tree Editor"。
 //   ・**メタミラー方式 (前述)**: BehaviorTree.h の API を改造しないために採用。
-//     panel 内に `Array<NodeMeta>` を持ち、AddNode で順次積む。NodeId は 0 から
+//     panel 内に `TArray<NodeMeta>` を持ち、AddNode で順次積む。NodeId は 0 から
 //     panel が払い出す (= 1 panel 内で unique、複数 BT を同 panel で扱う想定なし)。
-//     parent_id は同 Array 内の id (== index、payload と一致)。kInvalidId
+//     parent_id は同 TArray 内の id (== index、payload と一致)。kInvalidId
 //     (= 0xFFFFFFFFu) を root の parent_id として使う。
 //   ・**EBtKind (Selector / Sequence / Action) を u8 enum で持つ**: 表示時の色分け
 //     と TreeNode タイプ判別に使う。BehaviorTree.h の EBtStatus と同じく u8 enum
@@ -41,7 +41,7 @@
 //   ・**status 表示色は固定リテラル**: Success=緑 (0,1,0)、Failure=赤 (1,0,0)、
 //     Running=黄 (1,1,0)。ImGui::PushStyleColor で TreeNode テキストに反映する。
 //   ・**history ring buffer は固定長 60**: 60 frame ≈ 1 秒 @ 60 fps の窓。
-//     `Array<u8>` で各要素は EBtStatus の生値 (0/1/2)。`_history_head` が次に
+//     `TArray<u8>` で各要素は EBtStatus の生値 (0/1/2)。`_history_head` が次に
 //     書き込む位置 (circular)。Reset でクリア。ImGui::PlotLines に float buffer を
 //     一度展開して渡す。
 //   ・**SelectedNodeId は u32 (-1 = none)**: ParticleEditorPanel の `_selected:i32`
@@ -124,7 +124,7 @@ public:
     BehaviorTreeEditorPanel() noexcept = default;
     ~BehaviorTreeEditorPanel() noexcept override = default;
 
-    // 非コピー / 非ムーブ: 内部 `Array<NodeMeta>` + `Array<u8>` の所有を曖昧に
+    // 非コピー / 非ムーブ: 内部 `TArray<NodeMeta>` + `TArray<u8>` の所有を曖昧に
     // しない (EditorPanel 基底もデフォルトで非コピー / 非ムーブ宣言済)。
     BehaviorTreeEditorPanel(const BehaviorTreeEditorPanel&)            = delete;
     BehaviorTreeEditorPanel& operator=(const BehaviorTreeEditorPanel&) = delete;
@@ -273,11 +273,11 @@ private:
     u32           _selected     = kInvalidId;
 
     // メタミラー本体。index == id。
-    Array<NodeMeta> _nodes;
+    TArray<NodeMeta> _nodes;
 
     // root status の履歴 ring buffer (要素は EBtStatus の u8 生値)。
     // 容量は Init で kHistorySize 個を Resize、以降 Resize しない。
-    Array<u8>     _history;
+    TArray<u8>     _history;
     // 次に書き込む位置 (circular)。0..kHistorySize-1。
     u32           _history_head = 0;
 

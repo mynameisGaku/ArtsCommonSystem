@@ -47,7 +47,7 @@ public:
 
     // ウィンドウに紐付けて初期化（DX12 Device + Swapchain + CommandList を作成）
     // enable_depth=true なら深度バッファ (D32_Float) を自動で作成する
-    Result<void> Init(Window& w, bool enable_debug = false, bool enable_depth = true) noexcept;
+    TResult<void> Init(Window& w, bool enable_debug = false, bool enable_depth = true) noexcept;
 
     // 全リソースを解放
     void Shutdown() noexcept;
@@ -71,12 +71,12 @@ public:
     EFormat          DepthFormat() const noexcept { return _depth_format; }
 
 private:
-    Result<void> RebuildDepth(u32 w, u32 h) noexcept;
+    TResult<void> RebuildDepth(u32 w, u32 h) noexcept;
 
-    UniquePtr<IRhiDevice>      _device;
-    UniquePtr<IRhiSwapchain>   _swapchain;
-    UniquePtr<IRhiCommandList> _cmd;
-    UniquePtr<IRhiTexture>     _depth;
+    TUniquePtr<IRhiDevice>      _device;
+    TUniquePtr<IRhiSwapchain>   _swapchain;
+    TUniquePtr<IRhiCommandList> _cmd;
+    TUniquePtr<IRhiTexture>     _depth;
     EFormat                      _color_format  = EFormat::B8G8R8A8_UNorm;
     EFormat                      _depth_format  = EFormat::D32_Float;
     u32                         _current_buffer = 0;

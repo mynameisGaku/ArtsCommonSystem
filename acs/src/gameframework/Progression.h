@@ -62,14 +62,14 @@
 //     - 同 id を 2 度 RegisterMilestone しても 2 回目は no-op。
 //       他 Manager 系 (Entitlement / Achievement) と同じ防御方針。
 //   ・**線形検索**:
-//     - Milestone 件数は 1 タイトルで通常 10〜100 程度。Array<T> の per-byte
+//     - Milestone 件数は 1 タイトルで通常 10〜100 程度。TArray<T> の per-byte
 //       文字列比較 + 線形走査で十分。
 //   ・**Callback は関数ポインタ + user data**:
 //     - TriggerWorld2D / SceneTimer と同じ pattern。`std::function` は STL 禁止
 //       方針で使えないので、`void(*)(void*,...)` で固定。1 種類のみ (達成時)
 //       なので命名は `MilestoneCallback`。
 //   ・**Save / Load は Phase 1 では TODO スタブ**:
-//     - SaveSlot / Settings と同じく、形だけ Result<void> を返す。実 I/O は
+//     - SaveSlot / Settings と同じく、形だけ TResult<void> を返す。実 I/O は
 //       Phase 2 で FileSystem / SaveSlot 経由で実装する。
 //   ・**全 noexcept、非コピー・非ムーブ**:
 //     - 他 Manager 系と統一。誤って値渡しされて進捗が分裂すると検知し辛い。
@@ -176,10 +176,10 @@ public:
     void SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept;
 
     // ---- 永続化 (Phase 2 で実装) ----------------------------------------
-    // Phase 1 は TODO スタブ。形だけ Result<void> を返して呼出側の構造を
+    // Phase 1 は TODO スタブ。形だけ TResult<void> を返して呼出側の構造を
     // 先に組めるようにする。Phase 2 で SaveSlot 経由の atomic write に接続。
-    Result<void> Save(const wchar_t* file_path) noexcept;
-    Result<void> Load(const wchar_t* file_path) noexcept;
+    TResult<void> Save(const wchar_t* file_path) noexcept;
+    TResult<void> Load(const wchar_t* file_path) noexcept;
 
 private:
     // id 文字列を _defs から線形検索。未検出は -1。`id == nullptr` も -1。
@@ -189,8 +189,8 @@ private:
     u32 _xp = 0;
 
     // Def / State は 1:1 対応 (同 index)。
-    Array<MilestoneDef>   _defs;
-    Array<MilestoneState> _states;
+    TArray<MilestoneDef>   _defs;
+    TArray<MilestoneState> _states;
 
     // 達成時 callback (関数ポインタ + user data)。両方 nullptr で「未設定」。
     MilestoneCallback _on_achieved      = nullptr;

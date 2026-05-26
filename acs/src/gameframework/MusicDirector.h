@@ -36,7 +36,7 @@
 //     ConsumeStinger() で取り出すまでは pending=true。複数同時投入は警告 +
 //     最新を採用 (BGM 上に重ねる前提なので、多重スタックは認知的にノイズ)。
 //   ・**name / asset_path は所有しない**: AudioDirector と同様に文字列リテラル前提。
-//     Phase 2 で StringView / Asset Handle に置き換える。
+//     Phase 2 で FStringView / Asset Handle に置き換える。
 //
 // 範囲外 (Phase 2+ で):
 //   ・AudioDirector との実結線 (実 BGM 再生)
@@ -149,7 +149,7 @@ private:
     static void LogTodoOnce(const char* what) noexcept;
 
     // ----- track 倉庫 (フラット配列) -----
-    Array<MusicTrack> _tracks;
+    TArray<MusicTrack> _tracks;
     // 各 state の _tracks 上の開始 index と個数 (SoA で state→range mapping)。
     u32 _state_first[kStateCount] {};
     u32 _state_count[kStateCount] {};

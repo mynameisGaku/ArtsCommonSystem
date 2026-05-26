@@ -43,7 +43,7 @@
 //   ・**RemoveWatch / WatchCount**: label を strcmp で検索して swap-remove。順序は
 //     保証しない (描画レイアウトは caller が安定化する責務)。
 //   ・**非コピー・非ムーブ**: 履歴バッファと watches 列の所有権を曖昧にしないため。
-//   ・**STL 不使用**: `acs::Array<f32>` / `acs::Array<Watch>` を使用、`<string>` 禁止。
+//   ・**STL 不使用**: `acs::TArray<f32>` / `acs::TArray<Watch>` を使用、`<string>` 禁止。
 //     実装側で `<cstring>` (strcmp / strlen) のみ許可。
 //
 // 範囲外 (Phase 2+ で):
@@ -124,7 +124,7 @@ public:
     u32 WatchCount() const noexcept;
 
     // 全 watch を読み取り用に列挙。out_count に件数を書き込み、生ポインタを返す。
-    // 戻り値はクラス所有の内部バッファ (`Array<Watch>` の data)、Add/Remove/Clear
+    // 戻り値はクラス所有の内部バッファ (`TArray<Watch>` の data)、Add/Remove/Clear
     // 呼出しまで有効。空のときは nullptr を返し、out_count = 0。
     const Watch* AllWatches(u32& out_count) const noexcept;
 
@@ -132,14 +132,14 @@ private:
     // 履歴は固定容量の循環バッファ。サンプル数 = 60。
     static constexpr u32 kFpsHistoryCap = 60u;
 
-    Array<f32>    _fps_history;          // size <= kFpsHistoryCap、要素は fps 値
+    TArray<f32>    _fps_history;          // size <= kFpsHistoryCap、要素は fps 値
     u32           _fps_index    = 0u;    // 次に書き込むスロット (mod kFpsHistoryCap)
     bool          _fps_filled   = false; // 履歴が一周したか (size == cap の意味)
 
     f32           _current_fps  = 0.0f;
     const char*   _scene_name   = nullptr;  // caller 所有
 
-    Array<Watch>  _watches;
+    TArray<Watch>  _watches;
     bool          _visible      = false;
 };
 

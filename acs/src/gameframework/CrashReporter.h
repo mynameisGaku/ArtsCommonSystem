@@ -32,8 +32,8 @@
 //     **抽象 interface として宣言** し、合わせて **常に NotImplemented を返す
 //     CrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
 //     居る」を保証するための fallback。
-//   ・**Result<T, ErrorCode>**: 例外不使用方針。送信失敗・未初期化・引数不正は
-//     すべて ErrorCode で伝搬。上位層は `if (r.IsErr()) { /* swallow */ }` で
+//   ・**TResult<T, FErrorCode>**: 例外不使用方針。送信失敗・未初期化・引数不正は
+//     すべて FErrorCode で伝搬。上位層は `if (r.IsErr()) { /* swallow */ }` で
 //     クラッシュ報告自体の失敗を黙って握り潰すのが基本 (二次クラッシュ防止)。
 //   ・**const char* 非所有**: exception_type / message / stack_trace / scene_name
 //     / build_id 等はすべて呼出側が寿命を保証する static / member バッファ。
@@ -109,7 +109,7 @@ public:
     // SDK 初期化。`product_id` (例: "com.example.mygame") + `version`
     // (例: "1.2.3") はサービス上で集計キーになる。両方とも呼出側が寿命を
     // 保証する static / member バッファ。多重 Init の可否は実装依存。
-    virtual Result<void> Init(const char* product_id, const char* version) noexcept = 0;
+    virtual TResult<void> Init(const char* product_id, const char* version) noexcept = 0;
 
     // 終了処理。Init() 前に呼んでも安全 (no-op)。残った breadcrumb / event は
     // 可能な範囲で flush することが望ましい (本 interface では強制しない)。
@@ -121,16 +121,16 @@ public:
     // クラッシュ 1 件を送信する。プロセスがまだ生きている前提 (uncatchable な
     // SEH/POSIX signal は具象実装の signal handler 側で別経路にする想定)。
     // `ctx` のフィールドは関数戻りまで生存していれば良い。
-    virtual Result<void> ReportCrash(const CrashContext& ctx) noexcept = 0;
+    virtual TResult<void> ReportCrash(const CrashContext& ctx) noexcept = 0;
 
     // 非致命的エラーを送信する。`category` は集計用のキー ("net" / "save" /
     // "shader" 等)、`message` は人間可読のメッセージ。
-    virtual Result<void> ReportError(const char* category, const char* message) noexcept = 0;
+    virtual TResult<void> ReportError(const char* category, const char* message) noexcept = 0;
 
     // クラッシュ前の context をリングバッファに 1 件追加する。Sentry/BugSnag の
     // breadcrumb モデル。category / message のセマンティクスは ReportError と
     // 同じだが、こちらは送信せず、ReportCrash 時にまとめて添付される想定。
-    virtual Result<void> AddBreadcrumb(const char* category, const char* message) noexcept = 0;
+    virtual TResult<void> AddBreadcrumb(const char* category, const char* message) noexcept = 0;
 
     // 匿名ユーザー ID を設定する。GDPR / CCPA 対応のため、生 email / OS account
     // 名ではなく、初回起動時に生成した UUID 等を渡すこと。`anonymous_id` の
@@ -155,12 +155,12 @@ public:
     CrashReporterStub() noexcept = default;
     ~CrashReporterStub() noexcept override = default;
 
-    Result<void> Init(const char* product_id, const char* version) noexcept override;
+    TResult<void> Init(const char* product_id, const char* version) noexcept override;
     void         Shutdown() noexcept override;
     bool         IsAvailable() const noexcept override { return false; }
-    Result<void> ReportCrash(const CrashContext& ctx) noexcept override;
-    Result<void> ReportError(const char* category, const char* message) noexcept override;
-    Result<void> AddBreadcrumb(const char* category, const char* message) noexcept override;
+    TResult<void> ReportCrash(const CrashContext& ctx) noexcept override;
+    TResult<void> ReportError(const char* category, const char* message) noexcept override;
+    TResult<void> AddBreadcrumb(const char* category, const char* message) noexcept override;
     void         SetUserId(const char* anonymous_id) noexcept override;
     void         Tick(f32 dt) noexcept override;
 };

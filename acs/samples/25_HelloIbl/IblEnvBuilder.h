@@ -7,7 +7,7 @@
 //   2) BuildStudioHdrEquirect: 4 色の HDR パネル光源を equirect に合成 (Studio HDR preset)。
 //      暗い背景 + 異なる方位の 4 灯で、metallic sphere に 4 色の反射が現れる。
 //
-// 出力は RGBA float (4 ch / pixel) の Array<f32>。サイズは IblTypes.h の
+// 出力は RGBA float (4 ch / pixel) の TArray<f32>。サイズは IblTypes.h の
 // kEquirectWidth * kEquirectHeight * 4。引数 buf は append ではなく resize される。
 #pragma once
 
@@ -20,9 +20,9 @@ namespace helloibl {
 
 // 現 Sky preset (Day / Sunset / Night) の procedural を CPU で評価して
 // equirect HDR float buffer に焼く。SH9 計算で使う。
-void BuildEquirectFromSky(const acs::Sky& sky, acs::Array<acs::f32>& buf) noexcept;
+void BuildEquirectFromSky(const acs::Sky& sky, acs::TArray<acs::f32>& buf) noexcept;
 
 // 4 灯 Studio HDR equirect を合成 (Studio preset、Sky 評価は不要)。
-void BuildStudioHdrEquirect(acs::Array<acs::f32>& buf) noexcept;
+void BuildStudioHdrEquirect(acs::TArray<acs::f32>& buf) noexcept;
 
 } // namespace helloibl

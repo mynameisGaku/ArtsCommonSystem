@@ -24,7 +24,7 @@ public:
     void Shutdown(acs::game::ProjectileSystem& sys) noexcept;
 
     // 1 発撃つ。dir_unit は正規化済みであること。SFX も鳴らす。
-    void Fire(GameplayScene& scene, acs::Vec2 from, acs::Vec2 dir_unit) noexcept;
+    void Fire(GameplayScene& scene, acs::FVec2 from, acs::FVec2 dir_unit) noexcept;
 
     // 描画 (world layer)。直前 dt を使って軌跡を 32 段の矩形で線化する。
     void DrawAll(const acs::game::ProjectileSystem& sys,

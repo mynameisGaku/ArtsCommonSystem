@@ -40,10 +40,10 @@ public:
                 const acs::GpuMesh&   plane,
                 const acs::GpuMesh&   cube,
                 const acs::GpuMesh&   sphere,
-                acs::Vec3             sun_dir) noexcept;
+                acs::FVec3             sun_dir) noexcept;
 
 private:
-    acs::Array<CasterInst> _casters;
+    acs::TArray<CasterInst> _casters;
 };
 
 } // namespace helloshadows

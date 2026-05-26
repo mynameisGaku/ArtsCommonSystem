@@ -56,12 +56,12 @@
 //     除算。LoadChart 直後は 0、再生開始前でも判定済 note があれば値を持つ。
 //     total_notes==0 のときは 1.0f (満点扱い、divide-by-zero 回避)。
 //   ・**チャート所有**: LoadChart で渡された BeatNote 配列はコピーして内部
-//     `_notes` (acs::Array<BeatNote>) に格納する。caller 側の寿命に依存しない。
+//     `_notes` (acs::TArray<BeatNote>) に格納する。caller 側の寿命に依存しない。
 //   ・**callback**: 関数ポインタ (std::function 不使用)。各 1 スロット。
 //     JudgeCallback は Tap 起因 / Tick 起因 (Miss) どちらでも発火。
 //     EndCallback は最後の note が判定された次の Tick で 1 度だけ発火。
 //   ・**非コピー・非ムーブ**、全 noexcept、STL 不使用。
-//   ・**STL 依存ゼロ**: container/Array.h と foundation/Types.h のみ。
+//   ・**STL 依存ゼロ**: container/TArray.h と foundation/Types.h のみ。
 #pragma once
 
 #include "foundation/Types.h"
@@ -198,8 +198,8 @@ private:
     void ApplyJudgement(EBeatLane lane, EJudgement j) noexcept;
 
     // ----- 譜面 -----
-    Array<BeatNote> _notes;
-    Array<bool>    _judged;  // _notes と同 size、true = 判定済 (Hit or Miss)
+    TArray<BeatNote> _notes;
+    TArray<bool>    _judged;  // _notes と同 size、true = 判定済 (Hit or Miss)
     f32             _bpm = 0.0f;
 
     // ----- 判定窓 (sec) -----

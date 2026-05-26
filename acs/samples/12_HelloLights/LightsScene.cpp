@@ -17,11 +17,11 @@ void LightsScene::Build() noexcept {
         ObjectInst o;
         o.is_sphere     = (i & 1) != 0;
         const f32 h     = 0.5f;
-        const Vec3 pos  { Sin(a) * r, h, Cos(a) * r };
-        o.model = Mat4::Translation(pos);
+        const FVec3 pos  { Sin(a) * r, h, Cos(a) * r };
+        o.model = FMat4::Translation(pos);
         // 物体側は白に近い灰色に統一: 点光源の色がそのまま乗って見えるので
         // ライトのデモとして読みやすい。
-        o.color = Vec3{0.85f, 0.85f, 0.85f};
+        o.color = FVec3{0.85f, 0.85f, 0.85f};
         _objects.PushBack(o);
     }
 }
@@ -37,13 +37,13 @@ void LightsScene::Render(StandardShader&  shader,
     // dir ライトはほぼ無効化 (ambient と同程度) に落とし、点光源の色を
     // 主役にする。完全に 0 にしないのは陰側が真っ黒になって読みにくいため。
     DirLight dir;
-    dir.direction = Vec3{0.3f, 1.0f, 0.4f};
-    dir.color     = Vec3{0.05f, 0.05f, 0.07f};
+    dir.direction = FVec3{0.3f, 1.0f, 0.4f};
+    dir.color     = FVec3{0.05f, 0.05f, 0.07f};
     shader.SetLights(camera.ViewProjection(), camera.Eye(),
-                     &dir, 1, Vec3{0.04f, 0.04f, 0.06f});
+                     &dir, 1, FVec3{0.04f, 0.04f, 0.06f});
 
     PointLight pts[kPointCount];
-    const Vec3 colors[kPointCount] = {
+    const FVec3 colors[kPointCount] = {
         {1.0f, 0.3f, 0.3f},
         {0.3f, 1.0f, 0.4f},
         {0.3f, 0.4f, 1.0f},
@@ -52,7 +52,7 @@ void LightsScene::Render(StandardShader&  shader,
     for (u32 i = 0; i < kPointCount; ++i) {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kPointCount + time * 0.4f;
         const f32 r = 4.5f;
-        pts[i].position = Vec3{ Sin(a) * r,
+        pts[i].position = FVec3{ Sin(a) * r,
                                 // 上下に揺らして床面に色を流すと、減衰が
                                 // 視覚的にわかりやすくなる。
                                 1.5f + Sin(time * 1.5f + static_cast<f32>(i)) * 0.6f,
@@ -72,8 +72,8 @@ void LightsScene::Render(StandardShader&  shader,
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
     // 床: 暗めの灰色 + roughness 0.2 で点光源のハイライトが乗りやすい。
-    shader.SetObject(Mat4::Translation(Vec3{0, 0, 0}),
-                     Vec3{0.55f, 0.55f, 0.6f}, 0.2f, 32.0f);
+    shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                     FVec3{0.55f, 0.55f, 0.6f}, 0.2f, 32.0f);
     cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
@@ -90,9 +90,9 @@ void LightsScene::Render(StandardShader&  shader,
     // base_color に流し込み・roughness=0 にして強反射させる近似。点光源の
     // 居場所を把握するのが目的の演出なので、安価なこの方法で十分。
     for (u32 i = 0; i < kPointCount; ++i) {
-        const Vec3 col = pts[i].color * 0.3f;
-        const Mat4 m = Mat4::Scale(Vec3{0.2f, 0.2f, 0.2f}) *
-                        Mat4::Translation(pts[i].position);
+        const FVec3 col = pts[i].color * 0.3f;
+        const FMat4 m = FMat4::Scale(FVec3{0.2f, 0.2f, 0.2f}) *
+                        FMat4::Translation(pts[i].position);
         shader.SetObject(m, col, 0.0f, 1.0f);
         cl.SetVertexBuffer(*sphere.vertex_buffer, sphere.vertex_stride);
         cl.SetIndexBuffer(*sphere.index_buffer);

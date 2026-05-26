@@ -71,7 +71,7 @@
 //   ・**CurrentTier() は xp_threshold ベースの線形走査**: tier 件数は通常 50〜100
 //     のオーダーなので二分探索化は不要。`xp >= threshold` を満たす最大 tier_index
 //     を返す (どれも満たさなければ ~0u = 「未到達」)。
-//   ・**claim 状態は Def と並行 Array**: ClaimState{ tier_index; free_claimed;
+//   ・**claim 状態は Def と並行 TArray**: ClaimState{ tier_index; free_claimed;
 //     premium_claimed } を Tier 定義と 1:1 で持つ。`bool` 2 つで Pillar S
 //     AchievementProgress と同じ Def/State 分離設計を踏襲。
 //   ・**status は (start/end timestamp) と現在時刻の比較**:
@@ -225,7 +225,7 @@ public:
     u32 TierCount() const noexcept;
 
 private:
-    // claim 状態。Tier と並行 Array で 1:1 対応。
+    // claim 状態。Tier と並行 TArray で 1:1 対応。
     struct ClaimState {
         u32  tier_index      = 0;     // Tier::tier_index と一致 (検索冗長化)
         bool free_claimed    = false;
@@ -249,8 +249,8 @@ private:
     u64 _current_time = 0;
 
     // Tier 定義 + claim 状態 (同 index で 1:1 対応)。
-    Array<Tier>       _tiers;
-    Array<ClaimState> _claims;
+    TArray<Tier>       _tiers;
+    TArray<ClaimState> _claims;
 };
 
 } // namespace acs::game

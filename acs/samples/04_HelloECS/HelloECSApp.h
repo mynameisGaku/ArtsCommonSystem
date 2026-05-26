@@ -34,7 +34,7 @@ private:
     acs::f32 _rnd() noexcept;
 
     acs::SpriteBatch            _batch;
-    acs::UniquePtr<acs::IRhiTexture> _tex;
+    acs::TUniquePtr<acs::IRhiTexture> _tex;
     acs::u32                    _seed = 0xCAFEBABEu;
 };
 

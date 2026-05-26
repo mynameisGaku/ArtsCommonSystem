@@ -12,7 +12,7 @@ void RaycastTargets::Init() noexcept {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kNumObjects;
         Object& o = _objects[i];
         // 球と立方体を交互に / 上下に段差を付けて見栄えに変化を出す
-        o.kind     = (i & 1) ? ShapeKind::Sphere : ShapeKind::Cube;
+        o.kind     = (i & 1) ? ShapeKind::FSphere : ShapeKind::Cube;
         o.position = { Sin(a) * kObjectArenaR,
                        1.0f + ((i & 2) ? 1.5f : 0.0f),
                        Cos(a) * kObjectArenaR };
@@ -24,7 +24,7 @@ void RaycastTargets::Init() noexcept {
     _hit_index = -1;
 }
 
-void RaycastTargets::SetHit(i32 index, Vec3 point) noexcept {
+void RaycastTargets::SetHit(i32 index, FVec3 point) noexcept {
     _hit_index = index;
     _hit_point = point;
 }
@@ -33,7 +33,7 @@ void RaycastTargets::ClearHit() noexcept {
     _hit_index = -1;
 }
 
-Vec3 RaycastTargets::_hsv_to_rgb(f32 h, f32 s, f32 v) noexcept {
+FVec3 RaycastTargets::_hsv_to_rgb(f32 h, f32 s, f32 v) noexcept {
     // h を [0,1) に折り返す (負値も拾えるように 2 段階で)
     h = h - static_cast<i32>(h);
     if (h < 0) h += 1.0f;

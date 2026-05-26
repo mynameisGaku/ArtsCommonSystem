@@ -10,7 +10,7 @@
 
 namespace hellotri {
 
-// 1 頂点 = 位置 (Vec3) + 色 (Vec3)
+// 1 頂点 = 位置 (FVec3) + 色 (FVec3)
 struct Vertex {
     acs::f32 pos[3];
     acs::f32 col[3];

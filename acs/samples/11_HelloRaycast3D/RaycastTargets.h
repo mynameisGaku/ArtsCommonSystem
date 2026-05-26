@@ -19,23 +19,23 @@ public:
     void Init() noexcept;
 
     // ヒット情報 (RayCaster から呼ばれる)
-    void SetHit(acs::i32 index, acs::Vec3 point) noexcept;
+    void SetHit(acs::i32 index, acs::FVec3 point) noexcept;
     void ClearHit() noexcept;
 
     // 読み取り専用アクセス
     acs::u32        Count()           const noexcept { return kNumObjects; }
     const Object&   At(acs::u32 i)    const noexcept { return _objects[i]; }
     acs::i32        HitIndex()        const noexcept { return _hit_index; }
-    acs::Vec3       HitPoint()        const noexcept { return _hit_point; }
+    acs::FVec3       HitPoint()        const noexcept { return _hit_point; }
     bool            HasHit()          const noexcept { return _hit_index >= 0; }
 
 private:
     // HSV→RGB (0..1)。色相を順に振って虹色配置するため。
-    static acs::Vec3 _hsv_to_rgb(acs::f32 h, acs::f32 s, acs::f32 v) noexcept;
+    static acs::FVec3 _hsv_to_rgb(acs::f32 h, acs::f32 s, acs::f32 v) noexcept;
 
     Object    _objects[kNumObjects]{};
     acs::i32  _hit_index = -1;
-    acs::Vec3 _hit_point{};
+    acs::FVec3 _hit_point{};
 };
 
 } // namespace helloraycast3d

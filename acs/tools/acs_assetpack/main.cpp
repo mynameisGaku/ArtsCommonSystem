@@ -18,9 +18,9 @@
 //   2 — runtime error (I/O 失敗 / CRC mismatch / pak 破損)
 //
 // 設計上のルール:
-//   ・STL 不使用 (Array<T> / wchar_t* のみ)
+//   ・STL 不使用 (TArray<T> / wchar_t* のみ)
 //   ・<string> 禁止 (printf / wprintf + char[256] スタックバッファ)
-//   ・例外なし (Result<T,E> を使うが、ここでは IsErr で hard-exit する CLI なので
+//   ・例外なし (TResult<T,E> を使うが、ここでは IsErr で hard-exit する CLI なので
 //     ACS_TRY マクロは使わず、明示分岐で 1 / 2 を返す)
 //   ・Windows 専用 — `main(argc, argv)` + GetCommandLineW を使って UTF-16 引数を
 //     取得する (wmain は MinGW など環境差があるため使わない)
@@ -181,9 +181,9 @@ void NormalizeSlashes(wchar_t* s) noexcept {
 }
 
 // ----------------------------------------------------------------------------
-// ErrorCode 出力 (printf ベース、ロガー初期化不要)
+// FErrorCode 出力 (printf ベース、ロガー初期化不要)
 // ----------------------------------------------------------------------------
-void PrintError(const ErrorCode& e, const char* where) noexcept {
+void PrintError(const FErrorCode& e, const char* where) noexcept {
     char  buf[256];
     const char* msg = e.message ? e.message : "(no message)";
     if (e.os_error != 0) {
@@ -205,7 +205,7 @@ void PrintError(const ErrorCode& e, const char* where) noexcept {
 // 引数 parse 用の小さなコンテナ (argv を wchar_t** に変換した結果を保持)
 // ----------------------------------------------------------------------------
 struct WideArgs {
-    Array<wchar_t*> argv;   // 各 ptr は CommandLineToArgvW の戻り値配列内を指す
+    TArray<wchar_t*> argv;   // 各 ptr は CommandLineToArgvW の戻り値配列内を指す
     void*           raw_argv = nullptr;  // LocalFree 用 (LPWSTR*)
     int             argc = 0;
 
@@ -249,11 +249,11 @@ void FormatBytes(u64 bytes, char* out, int out_size) noexcept {
 // ============================================================================
 // AddFile は data ポインタをコピーせず参照だけ保持するため、Finalize までは
 // 全ファイルの byte 配列を生かしておく必要がある。よって _all_blobs に
-// Array<byte> をすべて貯めてから Finalize する。
+// TArray<byte> をすべて貯めてから Finalize する。
 
 struct PackedBlob {
-    Array<byte>    bytes;    // ファイルの全バイト (Finalize までは生かす)
-    Array<wchar_t> path;     // pak 内仮想パス (NUL 終端)
+    TArray<byte>    bytes;    // ファイルの全バイト (Finalize までは生かす)
+    TArray<wchar_t> path;     // pak 内仮想パス (NUL 終端)
 };
 
 // dir を再帰スキャンし、各ファイルを out_blobs に push する。
@@ -261,9 +261,9 @@ struct PackedBlob {
 // rel_prefix は現在 dir の base_dir からの相対 prefix (末尾セパレータなし)。
 //
 // 戻り値: 成功 = ok / 失敗 = error code。usage error は呼び出し側で処理する。
-Result<void> ScanDirRecursive(const wchar_t*       cur_dir,
+TResult<void> ScanDirRecursive(const wchar_t*       cur_dir,
                               const wchar_t*       rel_prefix,
-                              Array<PackedBlob>&   out_blobs) noexcept {
+                              TArray<PackedBlob>&   out_blobs) noexcept {
     // ワイルドカードパス "cur_dir\\*" を作る
     wchar_t pattern[4096];
     if (!JoinPath(cur_dir, L"*", pattern, sizeof(pattern) / sizeof(pattern[0]))) {
@@ -344,7 +344,7 @@ Result<void> ScanDirRecursive(const wchar_t*       cur_dir,
     return Ok();
 }
 
-int CmdPack(const Array<wchar_t*>& argv) noexcept {
+int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     // argv: [0]=exe [1]=pack [2]=input_dir [3]=output.acpak [opts...]
     if (argv.Size() < 4) {
         std::fputs(kUsagePack, stderr);
@@ -405,7 +405,7 @@ int CmdPack(const Array<wchar_t*>& argv) noexcept {
     const EAcpakFlags flags = static_cast<EAcpakFlags>(raw_flags);
 
     // ---- 再帰スキャン → blob 配列に展開 ----------------------------------
-    Array<PackedBlob> blobs;
+    TArray<PackedBlob> blobs;
     {
         auto sr = ScanDirRecursive(input_dir, L"", blobs);
         if (sr.IsErr()) {
@@ -479,7 +479,7 @@ int CmdPack(const Array<wchar_t*>& argv) noexcept {
 // ============================================================================
 // unpack — Reader 開く → 各 entry を ReadFile → output_dir/<path> に書き出す
 // ============================================================================
-int CmdUnpack(const Array<wchar_t*>& argv) noexcept {
+int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
     if (argv.Size() < 4) {
         std::fputs(kUsageUnpack, stderr);
         return 1;
@@ -574,7 +574,7 @@ int CmdUnpack(const Array<wchar_t*>& argv) noexcept {
         }
 
         // entry のバイト数 → buffer 確保 → ReadFile
-        Array<byte> buf;
+        TArray<byte> buf;
         buf.Resize(static_cast<usize>(e->size_uncompressed));
         if (e->size_uncompressed > 0) {
             auto rr = reader.ReadFile(e->path, buf.Data(), e->size_uncompressed);
@@ -605,7 +605,7 @@ int CmdUnpack(const Array<wchar_t*>& argv) noexcept {
 // ============================================================================
 // list — entry 一覧 (path / size / crc32)
 // ============================================================================
-int CmdList(const Array<wchar_t*>& argv) noexcept {
+int CmdList(const TArray<wchar_t*>& argv) noexcept {
     if (argv.Size() < 3) {
         std::fputs(kUsageList, stderr);
         return 1;
@@ -645,7 +645,7 @@ int CmdList(const Array<wchar_t*>& argv) noexcept {
 // ============================================================================
 // verify — 全 entry を ReadFile して CRC32 検証 (失敗があれば exit 2)
 // ============================================================================
-int CmdVerify(const Array<wchar_t*>& argv) noexcept {
+int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
     if (argv.Size() < 3) {
         std::fputs(kUsageVerify, stderr);
         return 1;
@@ -671,7 +671,7 @@ int CmdVerify(const Array<wchar_t*>& argv) noexcept {
             ++fail_count;
             continue;
         }
-        Array<byte> buf;
+        TArray<byte> buf;
         buf.Resize(static_cast<usize>(e->size_uncompressed));
         auto rr = reader.ReadFile(e->path, buf.Data(), e->size_uncompressed);
         if (rr.IsErr()) {
@@ -697,7 +697,7 @@ int CmdVerify(const Array<wchar_t*>& argv) noexcept {
 // ============================================================================
 // info — header 情報のみ表示 (open 中に Reader が parse 済)
 // ============================================================================
-int CmdInfo(const Array<wchar_t*>& argv) noexcept {
+int CmdInfo(const TArray<wchar_t*>& argv) noexcept {
     if (argv.Size() < 3) {
         std::fputs(kUsageInfo, stderr);
         return 1;
@@ -749,7 +749,7 @@ int CmdInfo(const Array<wchar_t*>& argv) noexcept {
 // ============================================================================
 // help — 全体 usage または specific subcommand の usage
 // ============================================================================
-int CmdHelp(const Array<wchar_t*>& argv) noexcept {
+int CmdHelp(const TArray<wchar_t*>& argv) noexcept {
     if (argv.Size() < 3) {
         std::fputs(kUsageMain, stdout);
         return 0;

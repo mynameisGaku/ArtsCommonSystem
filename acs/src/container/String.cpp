@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Container — String 実装
+// ACS Container — FString 実装
 // -----------------------------------------------------------------------------
 // SSO の遷移ロジックと vsnprintf によるフォーマット追記。
 // =============================================================================
@@ -14,39 +14,39 @@
 namespace acs {
 
 // 既定構築: SSO で空文字列
-String::String() noexcept : _alloc(&DefaultAllocator()) {
+FString::FString() noexcept : _alloc(&DefaultAllocator()) {
     _sso.data[0] = 0;
     SetInlineLen(0);
 }
 
-String::String(Allocator& a) noexcept : _alloc(&a) {
+FString::FString(Allocator& a) noexcept : _alloc(&a) {
     _sso.data[0] = 0;
     SetInlineLen(0);
 }
 
 // C 文字列から構築
-String::String(const char* cstr, Allocator& a) noexcept : _alloc(&a) {
+FString::FString(const char* cstr, Allocator& a) noexcept : _alloc(&a) {
     _sso.data[0] = 0;
     SetInlineLen(0);
-    if (cstr) Append(StringView(cstr));
+    if (cstr) Append(FStringView(cstr));
 }
 
-// StringView から構築
-String::String(StringView v, Allocator& a) noexcept : _alloc(&a) {
+// FStringView から構築
+FString::FString(FStringView v, Allocator& a) noexcept : _alloc(&a) {
     _sso.data[0] = 0;
     SetInlineLen(0);
     Append(v);
 }
 
 // コピー: 単に Append（SSO/Heap の遷移は Append 内で適切に処理）
-String::String(const String& o) noexcept : _alloc(o._alloc) {
+FString::FString(const FString& o) noexcept : _alloc(o._alloc) {
     _sso.data[0] = 0;
     SetInlineLen(0);
     Append(o.View());
 }
 
 // ムーブ: ヒープなら所有権移譲、SSO なら memcpy
-String::String(String&& o) noexcept : _alloc(o._alloc) {
+FString::FString(FString&& o) noexcept : _alloc(o._alloc) {
     if (o.IsHeap()) {
         _heap.data     = o._heap.data;
         _heap.size     = o._heap.size;
@@ -64,14 +64,14 @@ String::String(String&& o) noexcept : _alloc(o._alloc) {
     }
 }
 
-String& String::operator=(const String& o) noexcept {
+FString& FString::operator=(const FString& o) noexcept {
     if (this == &o) return *this;
     Clear();
     Append(o.View());
     return *this;
 }
 
-String& String::operator=(String&& o) noexcept {
+FString& FString::operator=(FString&& o) noexcept {
     if (this == &o) return *this;
     Clear();
     if (IsHeap()) {
@@ -96,12 +96,12 @@ String& String::operator=(String&& o) noexcept {
     return *this;
 }
 
-String::~String() noexcept {
+FString::~FString() noexcept {
     if (IsHeap()) _alloc->Free(_heap.data);
 }
 
 // 空文字列にリセット（容量は保持）
-void String::Clear() noexcept {
+void FString::Clear() noexcept {
     if (IsHeap()) {
         _heap.size = 0;
         _heap.data[0] = 0;
@@ -112,11 +112,11 @@ void String::Clear() noexcept {
 }
 
 // 容量拡大: 必要なら SSO → Heap に遷移
-void String::Grow(usize new_capacity) noexcept {
+void FString::Grow(usize new_capacity) noexcept {
     if (new_capacity <= Capacity()) return;
     usize cap = new_capacity < 32 ? 32 : new_capacity;
     char* p = static_cast<char*>(_alloc->Alloc(cap + 1, alignof(char), SourceLoc::Current()));
-    ACS_ASSERTF(p, "String::Grow: alloc failed (cap=%zu)", cap);
+    ACS_ASSERTF(p, "FString::Grow: alloc failed (cap=%zu)", cap);
     usize old_size = Size();
     const char* old = Data();
     // NUL 含めてコピー
@@ -128,12 +128,12 @@ void String::Grow(usize new_capacity) noexcept {
     _sso.remaining = 0x80;  // ヒープフラグ
 }
 
-void String::Reserve(usize new_capacity) noexcept {
+void FString::Reserve(usize new_capacity) noexcept {
     if (new_capacity > Capacity()) Grow(new_capacity);
 }
 
 // 文字列追記。容量不足なら 1.5 倍ずつ拡大
-void String::Append(StringView v) noexcept {
+void FString::Append(FStringView v) noexcept {
     if (v.IsEmpty()) return;
     usize cur = Size();
     usize req = cur + v.Size();
@@ -149,14 +149,14 @@ void String::Append(StringView v) noexcept {
     else          SetInlineLen(static_cast<u8>(req));
 }
 
-void String::Append(char c) noexcept {
-    Append(StringView(&c, 1));
+void FString::Append(char c) noexcept {
+    Append(FStringView(&c, 1));
 }
 
 // printf スタイルのフォーマット追記
 // 1) vsnprintf(nullptr) で必要長を計算
 // 2) Reserve して書き込み
-usize String::AppendFormat(const char* fmt, ...) noexcept {
+usize FString::AppendFormat(const char* fmt, ...) noexcept {
     va_list ap;
     va_start(ap, fmt);
     va_list ap2;

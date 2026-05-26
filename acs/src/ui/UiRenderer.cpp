@@ -9,7 +9,7 @@ namespace acs {
 // ============================================================================
 // UiRenderer
 // ============================================================================
-Result<void> UiRenderer::Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept {
+TResult<void> UiRenderer::Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept {
     auto r = _batch.Init(device, rt_format);
     if (r.IsErr()) return r;
     _font = default_font;
@@ -30,11 +30,11 @@ void UiRenderer::Render(Widget& root, IRhiCommandList& cmd, u32 screen_w, u32 sc
     _frame_open = false;
 }
 
-void UiRenderer::DrawRect(f32 x, f32 y, f32 w, f32 h, const Vec4& color) noexcept {
+void UiRenderer::DrawRect(f32 x, f32 y, f32 w, f32 h, const FVec4& color) noexcept {
     if (_frame_open) _batch.DrawRect(x, y, w, h, color);
 }
 
-void UiRenderer::DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const Vec4& color, f32 t) noexcept {
+void UiRenderer::DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const FVec4& color, f32 t) noexcept {
     if (!_frame_open) return;
     _batch.DrawRect(x,             y,                 w, t, color);            // top
     _batch.DrawRect(x,             y + h - t,         w, t, color);            // bottom
@@ -42,7 +42,7 @@ void UiRenderer::DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const Vec4& color, 
     _batch.DrawRect(x + w - t,     y,                 t, h, color);            // right
 }
 
-void UiRenderer::DrawText(const char* utf8, f32 x, f32 y, const Vec4& color) noexcept {
+void UiRenderer::DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) noexcept {
     if (!_frame_open || !_font || !utf8) return;
     if (!_font->AtlasTexture()) return;
     _batch.DrawString(*_font, utf8, x, y, color);
@@ -60,7 +60,7 @@ void Label::Render(UiRenderer& r) noexcept {
 void Button::Render(UiRenderer& r) noexcept {
     if (!visible) return;
     const auto& C = r.Colors();
-    Vec4 bg = pressed ? C.button_press : (hovered ? C.button_hover : C.button_bg);
+    FVec4 bg = pressed ? C.button_press : (hovered ? C.button_hover : C.button_bg);
     r.DrawRect(rect.x, rect.y, rect.w, rect.h, bg);
     r.DrawRectOutline(rect.x, rect.y, rect.w, rect.h, C.panel_border);
     // 中央に近いテキスト (簡易: 左寄せ + 4px パディング)
@@ -98,7 +98,7 @@ void Checkbox::Render(UiRenderer& r) noexcept {
 void TextInput::Render(UiRenderer& r) noexcept {
     if (!visible) return;
     const auto& C = r.Colors();
-    Vec4 bg = focused ? C.input_focus : C.input_bg;
+    FVec4 bg = focused ? C.input_focus : C.input_bg;
     r.DrawRect(rect.x, rect.y, rect.w, rect.h, bg);
     r.DrawRectOutline(rect.x, rect.y, rect.w, rect.h, C.panel_border);
     r.DrawText(text.Get().Data(), rect.x + 6, rect.y + 4, C.text);
@@ -114,7 +114,7 @@ void TextInput::Render(UiRenderer& r) noexcept {
 // ============================================================================
 void UiInput::Dispatch(Widget& root) noexcept {
     // マウス位置取得
-    Vec2 mp = Input::MousePos();
+    FVec2 mp = Input::MousePos();
     f32 mx = mp.x, my = mp.y;
 
     // hover 更新

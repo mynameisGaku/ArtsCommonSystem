@@ -33,7 +33,7 @@
 //     handle) を保持するため、ムーブで複製されると DestroyEmitter のタイミングが
 //     不明瞭になる。明示的に削除。
 //   ・**全 noexcept**: ACS 規約。失敗は no-op で表現。
-//   ・**STL 不使用**: `acs::Array<f32>` で frame ring を保持。`<string>` 等は禁止。
+//   ・**STL 不使用**: `acs::TArray<f32>` で frame ring を保持。`<string>` 等は禁止。
 //   ・**ImGui include 可**: tools/ 配下なので tooling 層に位置し、ImGui 依存は許可。
 //
 // 範囲外 (Phase 19c+ で):
@@ -102,8 +102,8 @@ public:
     void StopAll(class ParticleEffectSystem& system) noexcept;
 
     // ----- spawn position (preview canvas 上の出生座標) -----
-    Vec2 SpawnPos() const noexcept { return _spawn_pos; }
-    void SetSpawnPos(Vec2 pos) noexcept;
+    FVec2 SpawnPos() const noexcept { return _spawn_pos; }
+    void SetSpawnPos(FVec2 pos) noexcept;
 
     // ----- stats アクセサ -----
     // 直近 Tick で記録した system の active particle 数。
@@ -126,17 +126,17 @@ private:
 
     // 現在 caller が編集中の def の snapshot (RecreatePreviewEmitter 時の copy 元)。
     // ヘッダ依存を最小化するためフル struct を持つが、ParticleEmitterDef は
-    // POD 同等 (Vec2/Vec3/f32 のみ) なのでサイズ的にも問題なし。
+    // POD 同等 (FVec2/FVec3/f32 のみ) なのでサイズ的にも問題なし。
     ParticleEmitterDef _last_def {};
     bool               _has_def_snapshot = false;
 
-    Vec2  _spawn_pos = {320.0f, 240.0f};   // preview canvas のデフォルト中央
+    FVec2  _spawn_pos = {320.0f, 240.0f};   // preview canvas のデフォルト中央
     bool  _auto_emit = true;               // 連続放出 ON
     u32   _last_active_count = 0u;         // Tick で更新
     u32   _last_capacity     = 0u;         // Tick で更新 (= pool 容量)
 
     // 60 frame ring (DebugOverlay と同パターン)
-    Array<f32> _fps_history;
+    TArray<f32> _fps_history;
     u32        _fps_index  = 0u;
     bool       _fps_filled = false;
 };

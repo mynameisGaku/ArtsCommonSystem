@@ -12,7 +12,7 @@
 //   auto* cl = renderer.CommandList();
 //   sb.Begin(*cl, screen_w, screen_h);
 //   sb.Draw(my_tex, 100, 200, 64, 64);                 // 64×64 を (100,200) に
-//   sb.DrawRect(0, 0, screen_w, 32, Vec4{0,0,0,0.5f}); // 上部に半透明バー
+//   sb.DrawRect(0, 0, screen_w, 32, FVec4{0,0,0,0.5f}); // 上部に半透明バー
 //   sb.End();
 //
 // 座標系: 左上原点、ピクセル単位。Y が下方向。
@@ -41,7 +41,7 @@ public:
 
     // 初期化（VS+PS、パイプライン、頂点/インデックスバッファを作成）
     // max_sprites: 1 フレームで描けるスプライト総数の上限
-    Result<void> Init(IRhiDevice& device,
+    TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format     = EFormat::B8G8R8A8_UNorm,
                       u32 max_sprites      = 4096) noexcept;
 
@@ -53,37 +53,37 @@ public:
     // テクスチャ全体を矩形に描く
     void Draw(IRhiTexture& tex,
               f32 x, f32 y, f32 w, f32 h,
-              Vec4 tint = Vec4{1,1,1,1}) noexcept;
+              FVec4 tint = FVec4{1,1,1,1}) noexcept;
 
     // テクスチャの一部を描く（UV 0..1）
     void DrawSub(IRhiTexture& tex,
                  f32 x, f32 y, f32 w, f32 h,
                  f32 u0, f32 v0, f32 u1, f32 v1,
-                 Vec4 tint = Vec4{1,1,1,1}) noexcept;
+                 FVec4 tint = FVec4{1,1,1,1}) noexcept;
 
     // 単色矩形（テクスチャ無し）
-    void DrawRect(f32 x, f32 y, f32 w, f32 h, Vec4 color) noexcept;
+    void DrawRect(f32 x, f32 y, f32 w, f32 h, FVec4 color) noexcept;
 
     // テキスト描画（UTF-8、Font はあらかじめ Init 済みのもの、(x,y) は行の左上）
     // \n で改行、未収録グリフはスキップ。
     void DrawString(const class Font& font, const char* utf8_text,
-                  f32 x, f32 y, Vec4 color = Vec4{1,1,1,1}) noexcept;
+                  f32 x, f32 y, FVec4 color = FVec4{1,1,1,1}) noexcept;
 
     // 回転付き描画。(cx,cy) を中心に radians だけ回転してテクスチャ(の一部)を描く。
     // 通常スプライトと同じ 4 頂点 / 6 インデックスなので同一バッチに乗る。
     void DrawRotated(IRhiTexture& tex,
                      f32 cx, f32 cy, f32 w, f32 h, f32 radians,
                      f32 u0, f32 v0, f32 u1, f32 v1,
-                     Vec4 tint = Vec4{1,1,1,1}) noexcept;
+                     FVec4 tint = FVec4{1,1,1,1}) noexcept;
 
     // 回転付き単色矩形。(cx,cy) を中心に radians だけ回転。
     void DrawRectRotated(f32 cx, f32 cy, f32 w, f32 h, f32 radians,
-                         Vec4 color) noexcept;
+                         FVec4 color) noexcept;
 
     // 単色の塗りつぶし三角形。4 頂点目に 3 頂点目を重ね、退化した三角形を
     // 1 枚挟むことで、通常スプライトと同じ 4 頂点バッチに乗せる。
     void DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
-                      Vec4 color) noexcept;
+                      FVec4 color) noexcept;
 
     // 2D カメラ。(cam_x,cam_y) を画面中心に映し、zoom 倍で拡縮する。
     // Begin() で恒等（カメラ無し）にリセットされる。
@@ -108,13 +108,13 @@ private:
     void EnsurePipeline() noexcept;
     void WriteScreenCBuffer() noexcept;   // screen サイズ + view を _cb に書く
 
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiBuffer>   _vb;
-    UniquePtr<IRhiBuffer>   _ib;
-    UniquePtr<IRhiBuffer>   _cb;       // screen size (1/w, 1/h)
-    UniquePtr<IRhiTexture>  _white;    // DrawRect 用 1×1 白テクスチャ
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiBuffer>   _vb;
+    TUniquePtr<IRhiBuffer>   _ib;
+    TUniquePtr<IRhiBuffer>   _cb;       // screen size (1/w, 1/h)
+    TUniquePtr<IRhiTexture>  _white;    // DrawRect 用 1×1 白テクスチャ
 
     Vertex*          _vertex_cpu    = nullptr;   // CPU 側の VB ステージ
     u32              _max_sprites   = 0;

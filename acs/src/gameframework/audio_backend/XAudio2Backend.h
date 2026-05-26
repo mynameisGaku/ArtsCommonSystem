@@ -11,7 +11,7 @@
 //       acs::game::XAudio2Backend _audio;
 //       acs::game::AudioDirector  _director;
 //
-//       Result<void> OnStart() noexcept override {
+//       TResult<void> OnStart() noexcept override {
 //           ACS_TRY(_audio.Init(64));      // 同時発音 64 voice
 //           _director.SetBackend(&_audio);
 //           return Ok();
@@ -64,7 +64,7 @@ public:
     XAudio2Backend& operator=(XAudio2Backend&&)      = delete;
 
     // ----- IAudioBackend 実装 -----
-    Result<void> Init(u32 max_voices = 64) noexcept override;
+    TResult<void> Init(u32 max_voices = 64) noexcept override;
     void         Shutdown() noexcept override;
     bool         IsInitialized() const noexcept override;
 

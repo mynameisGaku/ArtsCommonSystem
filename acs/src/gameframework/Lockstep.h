@@ -33,9 +33,9 @@
 //
 // 設計選択 (Phase M-1 スケルトン):
 //   ・**InputFrame は trivially-copyable POD**: `u32 tick + u32 player_id +
-//     u8 buttons + Vec2 axis` の小さな struct。padding 込みで 16〜20 B、Array
+//     u8 buttons + FVec2 axis` の小さな struct。padding 込みで 16〜20 B、TArray
 //     にぎっしり詰める想定。
-//   ・**Array<InputFrame> による線形ストレージ**: 1 セッション分の入力は
+//   ・**TArray<InputFrame> による線形ストレージ**: 1 セッション分の入力は
 //     60 Hz × 4 players × 30 min = 432,000 件 × ~20 B = ~8.6 MB 程度。
 //     大規模 MMO ではなく対戦ゲーム / リプレイ用なのでこの容量で十分。
 //     Phase M-2 で per-player ring buffer / 差分圧縮を検討する。
@@ -55,7 +55,7 @@
 //     の長寿命オブジェクト。誤って値渡しされて state が分裂すると replay の
 //     同期ずれが起きるため、Settings / PartySystem と同じく最初から非コピー・
 //     非ムーブで固定する。
-//   ・**全 noexcept**: ACS 全体方針。エラーは `Result<T, ErrorCode>` で伝搬する。
+//   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //
 // File layout (SaveToBuffer / LoadFromBuffer の Phase M-2 target):
 //   offset  size  field          説明
@@ -86,7 +86,7 @@ namespace acs::game {
 // =============================================================================
 // InputFrame — 1 tick 分の入力 (1 プレイヤー分)
 // -----------------------------------------------------------------------------
-// trivially-copyable な POD。Array に詰めて bulk memcpy で I/O できる。
+// trivially-copyable な POD。TArray に詰めて bulk memcpy で I/O できる。
 // `buttons` は最大 8 ボタンの bitmask (A/B/X/Y/L/R/Start/Select 等)。9 ボタン
 // 以上を扱いたい場合は Phase M-2 で u16 / u32 に拡張する。`axis` はアナログ
 // スティック 1 本分 (-1..1 想定だが本クラスは範囲チェックを行わない)。
@@ -95,7 +95,7 @@ struct InputFrame {
     u32  tick      = 0;      // フレーム番号 (0 起点、tick_rate_hz で時刻に変換)
     u32  player_id = 0;      // プレイヤー ID (0..N-1)
     u8   buttons   = 0;      // ボタン bitmask (8 ボタンまで)
-    Vec2 axis      {};       // アナログスティック (-1..1 範囲想定)
+    FVec2 axis      {};       // アナログスティック (-1..1 範囲想定)
 };
 
 // =============================================================================
@@ -174,19 +174,19 @@ public:
     // SaveToBuffer: 現在の frames を上記 file layout で buffer に書き出す。
     //   out_written には実書き込みバイト数を返す (失敗時は 0)。
     //   Phase 1 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
-    Result<void> SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept;
+    TResult<void> SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept;
 
     // LoadFromBuffer: buffer の内容を解釈して frames を復元する。
     //   呼び出し前に Clear() を呼ぶことを推奨 (本実装は append でなく置換予定)。
     //   Phase 1 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
-    Result<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
+    TResult<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
     ENetMode           _mode          = ENetMode::Local;
     u32               _tick_rate_hz  = 60;     // sample rate (Hz)
     u32               _current_tick  = 0;      // 次に書き込む / 消費する tick
     u32               _replay_cursor = 0;      // ConsumeInput の線形検索開始 index
-    Array<InputFrame> _frames;
+    TArray<InputFrame> _frames;
 };
 
 } // namespace acs::game

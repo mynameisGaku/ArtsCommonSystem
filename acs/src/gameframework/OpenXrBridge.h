@@ -45,7 +45,7 @@
 //   ・**`<string>` 不使用 / STL 不使用**: ACS 全体方針に沿う。プラットフォーム
 //     名や device 名はすべて enum で表現し、文字列は ACS_ERR の static literal
 //     のみ。
-//   ・**`acs::Result<T, ErrorCode>` で例外なし**: stub は Init() で NotImplemented
+//   ・**`acs::TResult<T, FErrorCode>` で例外なし**: stub は Init() で NotImplemented
 //     を返し、上位はその時点で fallback パスへ。
 //   ・**非コピー / 非ムーブ**: singleton 運用前提の seam。具象 backend も
 //     instance を 1 つだけ持つことを想定。
@@ -94,8 +94,8 @@ enum class EXrPlatform : u8 {
 // 上位が精密な向き計算をしたい場合は、自分で euler → quat / matrix へ変換する。
 // =============================================================================
 struct XrPose {
-    acs::Vec3 position           = acs::Vec3::Zero();  // world-space 位置 (m)
-    acs::Vec3 orientation_euler  = acs::Vec3::Zero();  // (pitch, yaw, roll) [rad]
+    acs::FVec3 position           = acs::FVec3::Zero();  // world-space 位置 (m)
+    acs::FVec3 orientation_euler  = acs::FVec3::Zero();  // (pitch, yaw, roll) [rad]
 };
 
 // =============================================================================
@@ -117,7 +117,7 @@ struct XrControllerState {
     f32       grip       = 0.0f;              // [0, 1] グリップボタン
     bool      button_a   = false;             // 主要ボタン A (or X)
     bool      button_b   = false;             // 主要ボタン B (or Y)
-    acs::Vec2 thumbstick = acs::Vec2::Zero(); // [-1, 1] アナログスティック
+    acs::FVec2 thumbstick = acs::FVec2::Zero(); // [-1, 1] アナログスティック
 };
 
 // =============================================================================
@@ -144,7 +144,7 @@ public:
 
     // backend を初期化 (XR ランタイム接続 / セッション開始 / リファレンス空間設定)。
     // `platform == Unknown` のときは backend が利用可能な SDK を自動検出する。
-    virtual Result<void> Init(EXrPlatform platform = EXrPlatform::Unknown) noexcept = 0;
+    virtual TResult<void> Init(EXrPlatform platform = EXrPlatform::Unknown) noexcept = 0;
 
     // backend を破棄 (セッション終了 / loader unload)。Init 前に呼んでも安全。
     virtual void Shutdown() noexcept = 0;
@@ -199,7 +199,7 @@ public:
     OpenXrBridgeStub() noexcept = default;
     ~OpenXrBridgeStub() noexcept override = default;
 
-    Result<void>      Init(EXrPlatform platform = EXrPlatform::Unknown) noexcept override;
+    TResult<void>      Init(EXrPlatform platform = EXrPlatform::Unknown) noexcept override;
     void              Shutdown()                                      noexcept override;
     bool              IsInitialized()                           const noexcept override { return _initialized; }
     EXrPlatform        ActivePlatform()                          const noexcept override { return EXrPlatform::Unknown; }

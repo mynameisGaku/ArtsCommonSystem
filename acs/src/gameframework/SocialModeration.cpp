@@ -39,7 +39,7 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 void SocialModeration::Init() noexcept {
     // Phase T-3 で永続化された block list のロード / SteamworksBridge への
-    // 接続を行う seam。現スケルトンでは no-op (Array はデフォルト初期化済み)。
+    // 接続を行う seam。現スケルトンでは no-op (TArray はデフォルト初期化済み)。
 }
 
 bool SocialModeration::FindBlocked(const char* user_id) const noexcept {
@@ -102,7 +102,7 @@ const BlockEntry* SocialModeration::AllBlocked(u32& out_count) const noexcept {
     return _blocked.Data();
 }
 
-Result<void> SocialModeration::SubmitReport(const ReportRecord& rep) noexcept {
+TResult<void> SocialModeration::SubmitReport(const ReportRecord& rep) noexcept {
     if (rep.reported_user_id == nullptr) {
         // 通報対象が空なら審査側で識別不能 (必須項目)。Generic + subcode 1。
         return ACS_ERR(Generic, 1, "SocialModeration::SubmitReport: reported_user_id is null");
@@ -122,7 +122,7 @@ u32 SocialModeration::PendingReportCount() const noexcept {
     return static_cast<u32>(_pending_reports.Size());
 }
 
-Result<void> SocialModeration::FlushReports() noexcept {
+TResult<void> SocialModeration::FlushReports() noexcept {
     // 現フェーズでは SDK 未接続のため queue を空にして Ok() を返す。
     // Phase T-3 で bridge.ReportPlayer(_pending_reports[i]) を順次呼び、
     // 成功した分だけ queue から削除する挙動に変更する。失敗が混在した場合は

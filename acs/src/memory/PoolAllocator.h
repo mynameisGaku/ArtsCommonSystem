@@ -45,7 +45,7 @@ public:
     u64 BytesAllocated() const noexcept override {
         return _live.Load(EMemoryOrder::Acquire) * _block_size;
     }
-    const char* Name()   const noexcept override { return "Pool"; }
+    const char* Name()   const noexcept override { return "TPool"; }
 
     // ptr がこのプールから払い出されたものか判定（Heap フォールバックとの区別用）
     bool Contains(const void* ptr) const noexcept {

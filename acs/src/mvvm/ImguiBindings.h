@@ -24,7 +24,7 @@
 #include "foundation/Types.h"
 #include "math/Vec.h"
 
-namespace acs { class String; }
+namespace acs { class FString; }
 
 namespace acs::mvvm::imgui {
 
@@ -35,12 +35,12 @@ void Bind(const char* label, Observable<i32>& v, i32 v_min, i32 v_max) noexcept;
 void Bind(const char* label, Observable<u32>& v, u32 v_min, u32 v_max) noexcept;
 void Bind(const char* label, Observable<bool>& v) noexcept;
 
-// === Vec2/Vec3 スライダ ===
-void BindSlider2(const char* label, Observable<Vec2>& v, f32 v_min, f32 v_max) noexcept;
-void BindSlider3(const char* label, Observable<Vec3>& v, f32 v_min, f32 v_max) noexcept;
+// === FVec2/FVec3 スライダ ===
+void BindSlider2(const char* label, Observable<FVec2>& v, f32 v_min, f32 v_max) noexcept;
+void BindSlider3(const char* label, Observable<FVec3>& v, f32 v_min, f32 v_max) noexcept;
 
-// === RGB カラーピッカー (Vec3 を 0..1 の RGB として扱う) ===
-void BindColor3(const char* label, Observable<Vec3>& v) noexcept;
+// === RGB カラーピッカー (FVec3 を 0..1 の RGB として扱う) ===
+void BindColor3(const char* label, Observable<FVec3>& v) noexcept;
 
 // === コンボボックス (i32 を index として、ラベル配列から選ぶ) ===
 //   labels   : 表示するラベルの配列 (count 個、null終端文字列)
@@ -48,10 +48,10 @@ void BindColor3(const char* label, Observable<Vec3>& v) noexcept;
 void BindCombo(const char* label, Observable<i32>& v,
                const char* const* labels, u32 count) noexcept;
 
-// === 文字列入力 (String 型 Observable を編集) ===
+// === 文字列入力 (FString 型 Observable を編集) ===
 //   persistent : caller が持つ char バッファ (フレーム間で内容保持される必要あり)
 //   cap        : persistent の容量 (バイト)
-void BindText(const char* label, Observable<acs::String>& v,
+void BindText(const char* label, Observable<acs::FString>& v,
               char* persistent, usize cap) noexcept;
 
 // === printf 形式の表示専用ラベル (例: "HP: %d") ===

@@ -14,7 +14,7 @@
 //
 //   Circle a{{px, py}, 16};
 //   Circle b{{ex, ey}, 12};
-//   Vec2 push;
+//   FVec2 push;
 //   if (Resolve(a, b, push)) { player.center += push; }
 #pragma once
 
@@ -26,55 +26,55 @@ namespace acs {
 
 // 軸並行境界ボックス（中心 + 半サイズ）
 struct Aabb2 {
-    Vec2 center;
-    Vec2 half_size;     // (w/2, h/2)
+    FVec2 center;
+    FVec2 half_size;     // (w/2, h/2)
 
     constexpr Aabb2() noexcept = default;
-    constexpr Aabb2(Vec2 c, Vec2 hs) noexcept : center(c), half_size(hs) {}
+    constexpr Aabb2(FVec2 c, FVec2 hs) noexcept : center(c), half_size(hs) {}
 
     // 左上 (min_x, min_y) と右下 (max_x, max_y) からの構築
-    static constexpr Aabb2 FromMinMax(Vec2 min, Vec2 max) noexcept {
-        Vec2 c{ (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f };
-        Vec2 hs{ (max.x - min.x) * 0.5f, (max.y - min.y) * 0.5f };
+    static constexpr Aabb2 FromMinMax(FVec2 min, FVec2 max) noexcept {
+        FVec2 c{ (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f };
+        FVec2 hs{ (max.x - min.x) * 0.5f, (max.y - min.y) * 0.5f };
         return { c, hs };
     }
     // 左上 + サイズからの構築（スプライト系で便利）
-    static constexpr Aabb2 FromTopLeftSize(Vec2 tl, Vec2 size) noexcept {
-        Vec2 c{ tl.x + size.x * 0.5f, tl.y + size.y * 0.5f };
-        Vec2 hs{ size.x * 0.5f, size.y * 0.5f };
+    static constexpr Aabb2 FromTopLeftSize(FVec2 tl, FVec2 size) noexcept {
+        FVec2 c{ tl.x + size.x * 0.5f, tl.y + size.y * 0.5f };
+        FVec2 hs{ size.x * 0.5f, size.y * 0.5f };
         return { c, hs };
     }
 
-    constexpr Vec2 Min() const noexcept { return { center.x - half_size.x, center.y - half_size.y }; }
-    constexpr Vec2 Max() const noexcept { return { center.x + half_size.x, center.y + half_size.y }; }
+    constexpr FVec2 Min() const noexcept { return { center.x - half_size.x, center.y - half_size.y }; }
+    constexpr FVec2 Max() const noexcept { return { center.x + half_size.x, center.y + half_size.y }; }
 };
 
 // 円
 struct Circle {
-    Vec2 center;
+    FVec2 center;
     f32  radius = 0.0f;
 };
 
 // レイ（始点 + 方向、必ずしも正規化されてなくて良いが、t 解釈は方向長さ依存）
 struct Ray2 {
-    Vec2 origin;
-    Vec2 direction;
+    FVec2 origin;
+    FVec2 direction;
 };
 
 // レイキャスト結果
 struct RayHit2 {
     bool hit  = false;
     f32  t    = 0.0f;       // origin + direction * t が衝突点
-    Vec2 point;
-    Vec2 normal;            // 衝突点の外向き法線（命中体表面）
+    FVec2 point;
+    FVec2 normal;            // 衝突点の外向き法線（命中体表面）
 };
 
 // ===== 点 vs 形状 =====
-ACS_FORCEINLINE bool Contains(const Aabb2& a, Vec2 p) noexcept {
+ACS_FORCEINLINE bool Contains(const Aabb2& a, FVec2 p) noexcept {
     return Abs(p.x - a.center.x) <= a.half_size.x &&
            Abs(p.y - a.center.y) <= a.half_size.y;
 }
-ACS_FORCEINLINE bool Contains(const Circle& c, Vec2 p) noexcept {
+ACS_FORCEINLINE bool Contains(const Circle& c, FVec2 p) noexcept {
     const f32 dx = p.x - c.center.x;
     const f32 dy = p.y - c.center.y;
     return dx*dx + dy*dy <= c.radius * c.radius;
@@ -103,7 +103,7 @@ ACS_FORCEINLINE bool Intersect(const Circle& c, const Aabb2& a) noexcept { retur
 
 // ===== 押し出しベクトル（A を B から離す最小ベクトル）=====
 // 戻り値: 衝突していたら true、push に A を動かすべき方向 × 距離が入る。
-ACS_FORCEINLINE bool Resolve(const Circle& a, const Circle& b, Vec2& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const Circle& a, const Circle& b, FVec2& push) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 d2 = dx*dx + dy*dy;
@@ -120,7 +120,7 @@ ACS_FORCEINLINE bool Resolve(const Circle& a, const Circle& b, Vec2& push) noexc
     return true;
 }
 
-ACS_FORCEINLINE bool Resolve(const Aabb2& a, const Aabb2& b, Vec2& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const Aabb2& a, const Aabb2& b, FVec2& push) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 px = (a.half_size.x + b.half_size.x) - Abs(dx);
@@ -137,8 +137,8 @@ ACS_FORCEINLINE bool Resolve(const Aabb2& a, const Aabb2& b, Vec2& push) noexcep
 ACS_FORCEINLINE RayHit2 RaycastAabb(const Ray2& ray, const Aabb2& a,
                                     f32 t_max = 3.4028235e38f) noexcept {
     RayHit2 r{};
-    const Vec2 mn = a.Min();
-    const Vec2 mx = a.Max();
+    const FVec2 mn = a.Min();
+    const FVec2 mx = a.Max();
     const f32 inv_dx = ray.direction.x != 0.0f ? 1.0f / ray.direction.x : 1e30f;
     const f32 inv_dy = ray.direction.y != 0.0f ? 1.0f / ray.direction.y : 1e30f;
 

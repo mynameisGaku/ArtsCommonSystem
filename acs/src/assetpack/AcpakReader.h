@@ -68,7 +68,7 @@ public:
     //   ・ACS_ERR(Asset, kAcpakSubBadMagic)   — magic mismatch
     //   ・ACS_ERR(Asset, kAcpakSubBadVersion) — version mismatch
     //   ・ACS_ERR(Asset, kAcpakSubBadFlags)   — 未知 flags bit が立っている
-    Result<void> Open(const wchar_t* file_path) noexcept;
+    TResult<void> Open(const wchar_t* file_path) noexcept;
 
     // 暗号化 pak の復号鍵を設定する。Open の前後どちらでも呼べる。
     // ReadFile 内で AES-256-GCM 復号に使われる。flags=0 の pak では無視される。
@@ -106,13 +106,13 @@ public:
     //     ACS_ERR(Asset, kAcpakSubBadCrc) を返す (buf の中身は破棄せず残るが
     //     呼び出し側はエラー時の中身を使わないこと)。
     //   ・成功時の戻り値は実際に書き込んだバイト数 (= size_uncompressed)。
-    Result<u64> ReadFile(const wchar_t* path,
+    TResult<u64> ReadFile(const wchar_t* path,
                          void*          out_buffer,
                          u64            buffer_size) noexcept;
 
     // 仮想パスの「復号 + 解凍後の」バイト数を返す。ReadFile 用バッファ事前
     // 確保に使う。未存在パスは ACS_ERR(IO, kAcpakSubNotFound)。
-    Result<u64> GetUncompressedSize(const wchar_t* path) const noexcept;
+    TResult<u64> GetUncompressedSize(const wchar_t* path) const noexcept;
 
     // ---- 診断 ---------------------------------------------------------------
 
@@ -124,7 +124,7 @@ public:
 private:
     // ヘッダ + file table をハンドルから読み出して内部状態を構築する。
     // Open() からのみ呼ばれる。失敗時は呼び出し側 (= Open) が Close を呼ぶ。
-    Result<void> LoadHeaderAndTable() noexcept;
+    TResult<void> LoadHeaderAndTable() noexcept;
 
     // file_path の wchar_t を _string_pool に追加 (NUL 付き) し、その先頭
     // ポインタを返す。
@@ -137,8 +137,8 @@ private:
     u64                   _file_size   = 0;         // CreateFileW 直後の GetFileSizeEx
     u32                   _flags       = 0;         // header.flags
     u64                   _table_offset = 0;        // header.file_table_offset
-    Array<AcpakFileEntry> _entries;                 // file table の in-memory 表現
-    Array<wchar_t>        _string_pool;             // path 文字列の連結 (NUL 区切り)
+    TArray<AcpakFileEntry> _entries;                 // file table の in-memory 表現
+    TArray<wchar_t>        _string_pool;             // path 文字列の連結 (NUL 区切り)
 
     // Phase 2: 暗号化 pak の復号鍵。flags=0 のときは未使用。
     // Close で _has_key=false にリセットされ、_key も 0 クリアされる。

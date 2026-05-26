@@ -13,8 +13,8 @@
 //   // 毎フレームの editor tick:
 //   cam.HandleMouseInput(mouse_delta, lmb, rmb, mmb, wheel);
 //   cam.Tick(dt);
-//   Mat4 view = cam.ViewMatrix();
-//   Mat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
+//   FMat4 view = cam.ViewMatrix();
+//   FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
 //
 //   // 選択へ寄せる (将来 SelectionService + bounds 計算経由):
 //   cam.FrameToBoundingSphere(node_center, node_radius);
@@ -74,9 +74,9 @@ enum class EEditorCameraMode : u8 {
 // 推奨 — そうしないと smooth_target との 2 重管理が崩れる。
 struct EditorCameraState {
     // 3D 用: orbit center / eye 算出に使用
-    Vec3 position{0.0f, 0.0f, 0.0f};      // 実 eye position (3D); 2D では (x,y) を使用
-    Vec3 target  {0.0f, 0.0f, 0.0f};      // orbit center (3D); 2D では未使用
-    Vec3 up      {0.0f, 1.0f, 0.0f};      // up vector (LookAt 用)
+    FVec3 position{0.0f, 0.0f, 0.0f};      // 実 eye position (3D); 2D では (x,y) を使用
+    FVec3 target  {0.0f, 0.0f, 0.0f};      // orbit center (3D); 2D では未使用
+    FVec3 up      {0.0f, 1.0f, 0.0f};      // up vector (LookAt 用)
 
     // 投影系
     f32  fov_deg = 60.0f;                  // 3D perspective FoV (vertical, degree)
@@ -116,14 +116,14 @@ public:
     // `wheel_delta`: ホイール量 (>0 で前進)
     // 3D: LMB or RMB drag = orbit / MMB drag = pan / wheel = dolly
     // 2D: LMB or MMB drag = pan / wheel = zoom
-    void HandleMouseInput(Vec2 mouse_delta,
+    void HandleMouseInput(FVec2 mouse_delta,
                           bool lmb, bool rmb, bool mmb,
                           f32 wheel_delta) noexcept;
 
     // 2D: screen 上での delta だけ world position を平行移動
     // 3D: orbit target を camera right / up 方向に平行移動
     //     (screen 上の見た目 delta と一致するよう distance / zoom スケール)
-    void Pan(Vec2 screen_delta) noexcept;
+    void Pan(FVec2 screen_delta) noexcept;
 
     // 3D 専用: yaw / pitch を加算 (2D では no-op)
     // pitch は ±89° にクランプして極点 gimbal flip を防止。
@@ -142,20 +142,20 @@ public:
     // 3D: bounding sphere が画面に収まるよう target を center / distance を
     //     radius / sin(fov/2) で配置 (margin 1.2x)
     // 2D: sphere → ortho 全幅 fit (z は無視)
-    void FrameToBoundingSphere(Vec3 center, f32 radius) noexcept;
+    void FrameToBoundingSphere(FVec3 center, f32 radius) noexcept;
 
     // 2D 専用: axis-aligned bounding box (XY 平面) 全体が見える zoom / pos
     // を計算 (3D では Y を 0 として近似的に Frame、distance は radius 経由)。
-    void FrameToBoundingBox2D(Vec2 min_xy, Vec2 max_xy) noexcept;
+    void FrameToBoundingBox2D(FVec2 min_xy, FVec2 max_xy) noexcept;
 
     // ----- 行列 ---------------------------------------------------------
     // LookAt ベースの view 行列 (LH)。3D は (eye, target, up)、2D は
     // (eye=(pos.x, pos.y, -1), target=(pos.x, pos.y, 0), up=+Y)。
-    Mat4 ViewMatrix() const noexcept;
+    FMat4 ViewMatrix() const noexcept;
 
     // perspective (3D) / orthographic (2D) を mode に応じて生成。
     // 2D の ortho 幅は `base_ortho_size / zoom_2d`、高さは aspect から導出。
-    Mat4 ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane) const noexcept;
+    FMat4 ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane) const noexcept;
 
     // ----- state アクセサ -----------------------------------------------
     const EditorCameraState& State() const noexcept { return _state; }
@@ -165,13 +165,13 @@ public:
 
     // 3D: orbit target を直接設定 (smooth_target にも反映 = 即追従)
     // 2D: position の (x,y) を target.xy として扱い、(pos, smooth) 共に更新
-    void SetTarget(Vec3 target) noexcept;
-    Vec3 GetTarget() const noexcept { return _state.target; }
+    void SetTarget(FVec3 target) noexcept;
+    FVec3 GetTarget() const noexcept { return _state.target; }
 
     // eye position を直接設定 (3D は target + spherical 計算で逆算 = distance
     // / yaw / pitch も更新)。2D は単に position の (x,y) を書き換える。
-    void SetPosition(Vec3 position) noexcept;
-    Vec3 GetPosition() const noexcept { return _state.position; }
+    void SetPosition(FVec3 position) noexcept;
+    FVec3 GetPosition() const noexcept { return _state.position; }
 
     // ----- driver --------------------------------------------------------
     // smooth target follow + smooth zoom 補間 (Camera2D と同じ
@@ -191,7 +191,7 @@ public:
 
     // 3D orbit の現 eye 位置を spherical 計算で算出 (target + dir*distance)。
     // ViewMatrix の内部実装と等価。debug overlay や ray pick 用に公開。
-    Vec3 ComputeEye() const noexcept;
+    FVec3 ComputeEye() const noexcept;
 
 private:
     // 3D pitch をクランプする上限 (rad)。±89° = gimbal flip 防止の典型値。
@@ -199,7 +199,7 @@ private:
 
     // 3D orbit の dir を yaw / pitch から計算 (Y-up, +Z を yaw=0 とする LH)。
     // (eye - target) の正規化ベクトルと等価。
-    Vec3 OrbitDirection() const noexcept;
+    FVec3 OrbitDirection() const noexcept;
 
     EditorCameraState _state{};                           // 公開 state (実値)
     EditorCameraState _smooth_target{};                   // 補間先 (Tick が _state を寄せる)

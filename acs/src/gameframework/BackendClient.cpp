@@ -10,7 +10,7 @@
 //   ・タイトル側が `IBackendClient* p = &acs::game::GetBackendStub();` のように
 //     null-object パターンで保持し、後から具象実装に差し替える経路を確保する。
 //   ・stub に対する Connect / SendTelemetry 呼び出しは「成功扱いで黙る」ではなく
-//     **必ず Result<...> Err を返す**ことで、本番ビルドに stub が紛れ込んだ
+//     **必ず TResult<...> Err を返す**ことで、本番ビルドに stub が紛れ込んだ
 //     ケースを QA 工程で検出可能にしておく。
 //
 // 将来 (Phase 2 以降, BackendServices モジュール本実装フェーズ):
@@ -43,7 +43,7 @@ public:
     BackendClientStub() noexcept = default;
     ~BackendClientStub() noexcept override = default;
 
-    Result<void> Connect(const char* server_url) noexcept override {
+    TResult<void> Connect(const char* server_url) noexcept override {
         (void)server_url;
         return ACS_ERR(IO, BackendError::kSub_NotImplemented,
                        "IBackendClient::Connect is not implemented "
@@ -58,7 +58,7 @@ public:
         return false;
     }
 
-    Result<void> SendTelemetry(const char* event_name,
+    TResult<void> SendTelemetry(const char* event_name,
                                const char* json_payload) noexcept override {
         (void)event_name;
         (void)json_payload;
@@ -83,7 +83,7 @@ public:
     MatchmakerStub() noexcept = default;
     ~MatchmakerStub() noexcept override = default;
 
-    Result<MatchTicket> StartSearch(const char* mode,
+    TResult<MatchTicket> StartSearch(const char* mode,
                                     u32 elo_hint) noexcept override {
         (void)mode;
         (void)elo_hint;
@@ -92,7 +92,7 @@ public:
                        "(stub: link a concrete matchmaker implementation)");
     }
 
-    Result<void> CancelSearch(MatchTicket t) noexcept override {
+    TResult<void> CancelSearch(MatchTicket t) noexcept override {
         (void)t;
         return ACS_ERR(IO, BackendError::kSub_NotImplemented,
                        "IMatchmaker::CancelSearch is not implemented "
@@ -105,7 +105,7 @@ public:
         return EMatchStatus::Failed;
     }
 
-    Result<void> AcceptMatch(MatchTicket t) noexcept override {
+    TResult<void> AcceptMatch(MatchTicket t) noexcept override {
         (void)t;
         return ACS_ERR(IO, BackendError::kSub_NotImplemented,
                        "IMatchmaker::AcceptMatch is not implemented "

@@ -158,7 +158,7 @@ void AcpakWriter::SetKey(const AcpakKey& key) noexcept {
     _has_key = true;
 }
 
-Result<void> AcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) noexcept {
+TResult<void> AcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) noexcept {
     if (_file_handle != nullptr) {
         return ACS_ERR(IO, kAcpakSubAlreadyOpen,
                        "AcpakWriter::Open: writer already open");
@@ -211,7 +211,7 @@ Result<void> AcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) no
     return Ok();
 }
 
-Result<void> AcpakWriter::AddFile(const wchar_t* virtual_path,
+TResult<void> AcpakWriter::AddFile(const wchar_t* virtual_path,
                                   const void*    data,
                                   u64            size) noexcept {
     if (_file_handle == nullptr) {
@@ -270,7 +270,7 @@ Result<void> AcpakWriter::AddFile(const wchar_t* virtual_path,
 //       必ず LZ4 を通し、たとえ size_stored > size_uncompressed でも保存する」
 //       挙動とする。"97%" 安全規則は Phase 3 で per-entry flag を追加して
 //       再検討する (今は単純化を優先)。
-Result<void> AcpakWriter::Finalize() noexcept {
+TResult<void> AcpakWriter::Finalize() noexcept {
     if (_file_handle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
                        "AcpakWriter::Finalize: writer not open");
@@ -309,12 +309,12 @@ Result<void> AcpakWriter::Finalize() noexcept {
         u8  cipher_nonce[12];
         u8  cipher_tag[16];
     };
-    Array<WrittenEntry> written;
+    TArray<WrittenEntry> written;
     written.Reserve(_pending.Size());
 
-    // 中間バッファは entry 間で再利用する (Array<u8> を 2 つ用意)。
-    Array<u8> stage_compress;   // LZ4 圧縮出力先
-    Array<u8> stage_encrypt;    // AES-GCM 暗号化出力先 (in-place 可だが安全のため別)
+    // 中間バッファは entry 間で再利用する (TArray<u8> を 2 つ用意)。
+    TArray<u8> stage_compress;   // LZ4 圧縮出力先
+    TArray<u8> stage_encrypt;    // AES-GCM 暗号化出力先 (in-place 可だが安全のため別)
 
     // ---- ファイルデータ書き出し -------------------------------------------
     for (usize i = 0; i < _pending.Size(); ++i) {
@@ -395,7 +395,7 @@ Result<void> AcpakWriter::Finalize() noexcept {
 
         u8  stack_buf[1024];
         u8* buf = stack_buf;
-        Array<u8> heap_buf;
+        TArray<u8> heap_buf;
         if (entry_bytes > sizeof(stack_buf)) {
             heap_buf.Resize(static_cast<usize>(entry_bytes));
             buf = heap_buf.Data();

@@ -21,9 +21,9 @@
 namespace acs {
 
 struct AtmosphereParams {
-    Vec3 sun_dir       = Vec3{0.4f, 0.7f, 0.4f};  // 太陽方角 (天頂方向 +Y、正規化前提)
-    Vec3 sun_intensity = Vec3{22.0f, 22.0f, 22.0f}; // sun ピーク輝度 (W/m²/sr 相当)
-    Vec3 ground_albedo = Vec3{0.10f, 0.12f, 0.10f}; // ground bounce (現状は使わず)
+    FVec3 sun_dir       = FVec3{0.4f, 0.7f, 0.4f};  // 太陽方角 (天頂方向 +Y、正規化前提)
+    FVec3 sun_intensity = FVec3{22.0f, 22.0f, 22.0f}; // sun ピーク輝度 (W/m²/sr 相当)
+    FVec3 ground_albedo = FVec3{0.10f, 0.12f, 0.10f}; // ground bounce (現状は使わず)
     u32  ray_steps     = 32;                       // view ray 沿いのサンプル数
     u32  sun_steps     = 8;                        // 各 sample から sun への光線でのサンプル数 (透過率)
 };
@@ -32,8 +32,8 @@ class Atmosphere {
 public:
     // CPU で equirect 画像を焼く。`out_rgba_float` は w*h*4 個の float、上から下、
     // v=0 が +Y 天頂、v=1 が -Y 天底 (sIBL Archive 規約と一致)。
-    // 戻り値の Array は呼び出し側に渡される (move)。
-    static Array<f32> BakeEquirect(u32 width, u32 height,
+    // 戻り値の TArray は呼び出し側に渡される (move)。
+    static TArray<f32> BakeEquirect(u32 width, u32 height,
                                     const AtmosphereParams& params) noexcept;
 };
 

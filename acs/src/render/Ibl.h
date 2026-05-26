@@ -47,14 +47,14 @@ public:
 
     // 初回呼び出しで BRDF LUT を 1 回だけ生成する。以降の呼び出しは no-op。
     // cl は frame 内 (BeginFrame と EndFrame の間) で記録中である必要あり。
-    Result<void> EnsureBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> EnsureBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
     // 初回呼び出しで env cubemap (256x256x6, R11G11B10_Float) を Sky 手続き式から
     // キャプチャする。各 face を 6 回の per-slice draw で塗る。
     // sky の現在のパラメータ (sun_dir / colors / 等) がスナップショットされる。
     // 再キャプチャしたいときは Shutdown() で全 reset するか、別途 Recapture API
     // を追加する (Step 4+ で必要なら)。
-    Result<void> EnsureEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
+    TResult<void> EnsureEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
                                   const Sky& sky) noexcept;
 
     // 既存 env cubemap を破棄して equirectangular HDR 画像 (e.g. .hdr ファイル) から
@@ -62,25 +62,25 @@ public:
     // memory layout は row-major / top-down (v=0 が天頂 +Y、v=1 が天底 -Y)。
     // 内部で R32G32B32A32_Float の Texture2D に upload → 6 face をピクセル shader で
     // 塗り直す。irradiance / prefilter は呼び出し側で再 Ensure する必要あり。
-    Result<void> LoadEquirectHdrFromMemory(IRhiDevice& device, IRhiCommandList& cl,
+    TResult<void> LoadEquirectHdrFromMemory(IRhiDevice& device, IRhiCommandList& cl,
                                             const f32* rgba_float, u32 width, u32 height) noexcept;
 
     // SH 9 light probe (Phase 32c)。equirect 画像から Ramamoorthi-Hanrahan の
     // L_l,m 球面調和係数 9 個を CPU 側で計算し、`out_sh_rgb[9]` に書き出す。
-    //   `out_sh_rgb[i].xyz` = RGB 係数、`.w` 不使用 (CB layout の便宜上 Vec4)
+    //   `out_sh_rgb[i].xyz` = RGB 係数、`.w` 不使用 (CB layout の便宜上 FVec4)
     // 後段 PbrShader 側で SH 9 ambient mode に切替できる (irradiance cubemap の
     // 圧縮版とみなせる、メモリ 144B のみで diffuse irradiance を近似)。
     //
     // 規約: equirect の v=0 が +Y、v=1 が -Y、u=0 が phi=-π。
     static void ComputeSh9FromEquirect(const f32* rgba_float,
                                         u32 width, u32 height,
-                                        Vec4 out_sh_rgb[9]) noexcept;
+                                        FVec4 out_sh_rgb[9]) noexcept;
 
     // 初回呼び出しで diffuse irradiance cubemap (32x32x6, R11G11B10_Float) を
     // env cubemap の半球積分から作る。EnsureEnvCubemap が完了していないと失敗。
     // 出力 = (1/π) ∫_Ω L_env(ω) (N·ω) dω → Lambert diffuse の ambient 項として
     // `diffuse = albedo * irradiance_cube.Sample(N)` で使う。
-    Result<void> EnsureIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> EnsureIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
     // 初回呼び出しで specular prefilter cubemap (128x128x6, R11G11B10_Float, 5 mips)
     // を env cubemap の GGX importance sampling 積分から作る。各 mip は roughness 段階に
@@ -88,7 +88,7 @@ public:
     // 実行時 PBR specular:
     //   F = F0 * lut.r + lut.g
     //   specular = prefilter.SampleLevel(R, roughness * (mips-1)).rgb * F
-    Result<void> EnsurePrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> EnsurePrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
     // デバッグ用: 任意の cubemap を fullscreen quad の skybox として現在の RT へ描画する。
     // ・rt_format / depth_format は現在 bind 中の swapchain と一致させること
@@ -99,13 +99,13 @@ public:
     //   env / irradiance では 0 を渡す。
     void DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
                     IRhiTexture& cube,
-                    const Mat4& view_proj, Vec3 eye,
+                    const FMat4& view_proj, FVec3 eye,
                     EFormat rt_format, EFormat depth_format,
                     f32 mip_level = 0.0f) noexcept;
 
     // 利便用 (env_cube を skybox 描画)
     void DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
-                       const Mat4& view_proj, Vec3 eye,
+                       const FMat4& view_proj, FVec3 eye,
                        EFormat rt_format, EFormat depth_format) noexcept;
 
     // 環境 cubemap (+ それに依存する irradiance / 将来の prefilter) だけを reset。
@@ -134,25 +134,25 @@ public:
     u32          PrefilterMips()   const noexcept { return _prefilter_mips; }
 
 private:
-    Result<void> BuildBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-    Result<void> BuildEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
+    TResult<void> BuildBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> BuildEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
                                  const Sky& sky) noexcept;
-    Result<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-    Result<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
-    Result<void> EnsureSkyboxPipeline(IRhiDevice& device,
+    TResult<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
+    TResult<void> EnsureSkyboxPipeline(IRhiDevice& device,
                                       EFormat rt_format, EFormat depth_format) noexcept;
 
-    UniquePtr<IRhiTexture>  _brdf_lut;
-    UniquePtr<IRhiTexture>  _env_cube;
-    UniquePtr<IRhiTexture>  _irradiance_cube;
-    UniquePtr<IRhiTexture>  _prefilter_cube;
+    TUniquePtr<IRhiTexture>  _brdf_lut;
+    TUniquePtr<IRhiTexture>  _env_cube;
+    TUniquePtr<IRhiTexture>  _irradiance_cube;
+    TUniquePtr<IRhiTexture>  _prefilter_cube;
     u32                     _prefilter_mips = 0;
 
     // Skybox preview パイプライン (lazy init)
-    UniquePtr<IRhiShader>   _sky_vs;
-    UniquePtr<IRhiShader>   _sky_ps;
-    UniquePtr<IRhiPipeline> _sky_pipeline;
-    UniquePtr<IRhiBuffer>   _sky_cb;
+    TUniquePtr<IRhiShader>   _sky_vs;
+    TUniquePtr<IRhiShader>   _sky_ps;
+    TUniquePtr<IRhiPipeline> _sky_pipeline;
+    TUniquePtr<IRhiBuffer>   _sky_cb;
     EFormat                  _sky_rt_format    = EFormat::Unknown;
     EFormat                  _sky_depth_format = EFormat::Unknown;
 

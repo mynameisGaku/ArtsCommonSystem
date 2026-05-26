@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Foundation — エラーコード型 (Result<T,E> の E パラメータ)
+// ACS Foundation — エラーコード型 (TResult<T,E> の E パラメータ)
 // -----------------------------------------------------------------------------
-// 例外を使わない方針のため、エラーは戻り値として伝搬する。ErrorCode は
+// 例外を使わない方針のため、エラーは戻り値として伝搬する。FErrorCode は
 // カテゴリ + サブコード + 任意の OS エラー値 + メッセージ + 発生位置 を
 // まとめて持つ POD 構造体である。
 //
@@ -34,10 +34,10 @@ enum class ErrCategory : u16 {
     UserCancel  = 10,   // ユーザーによるキャンセル
 };
 
-// ---- ErrorCode 本体 -------------------------------------------------------
+// ---- FErrorCode 本体 -------------------------------------------------------
 // すべてのフィールドは public（POD として扱えるように）。トリビアル型なので
-// Result<T, ErrorCode> の中で零コストで保持できる。
-struct ErrorCode {
+// TResult<T, FErrorCode> の中で零コストで保持できる。
+struct FErrorCode {
     ErrCategory category   = ErrCategory::None;  // 大カテゴリ
     u16         subcode    = 0;                  // モジュール固有コード
     u32         os_error   = 0;                  // GetLastError() / HRESULT
@@ -45,10 +45,10 @@ struct ErrorCode {
     SourceLoc   loc        = {};                 // 発生位置
 
     // デフォルト構築は「成功」状態。
-    constexpr ErrorCode() noexcept = default;
+    constexpr FErrorCode() noexcept = default;
 
     // 完全な初期化を行うコンストラクタ。ACS_ERR マクロから呼ばれる。
-    constexpr ErrorCode(ErrCategory c,
+    constexpr FErrorCode(ErrCategory c,
                         u16 sub,
                         const char* msg,
                         SourceLoc l = SourceLoc::Current(),
@@ -80,15 +80,15 @@ constexpr const char* ToString(ErrCategory c) noexcept {
 }
 
 // ---- 簡易構築マクロ -------------------------------------------------------
-// 呼び出し元の SourceLoc を自動的にキャプチャしつつ ErrorCode を生成する。
+// 呼び出し元の SourceLoc を自動的にキャプチャしつつ FErrorCode を生成する。
 //
 // 使い方:
 //   return ACS_ERR(IO, 1, "ファイルが開けません");
 //   return ACS_ERR_OS(OS, 5, "CreateFile failed", GetLastError());
 #define ACS_ERR(cat, sub, msg) \
-    ::acs::ErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::SourceLoc::Current())
+    ::acs::FErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::SourceLoc::Current())
 
 #define ACS_ERR_OS(cat, sub, msg, os_err) \
-    ::acs::ErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::SourceLoc::Current(), (os_err))
+    ::acs::FErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::SourceLoc::Current(), (os_err))
 
 } // namespace acs

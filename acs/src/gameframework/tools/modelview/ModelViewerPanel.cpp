@@ -111,11 +111,11 @@ void ModelViewerPanel::Init() noexcept {
 
     // Lighting / Background / 表示 toggle はヘッダ宣言時の初期化子で既に
     // セット済みだが、Init 多重呼び出しでも確定的な値になるよう明示再設定する。
-    _light_dir          = acs::Vec3{0.3f, -0.7f, 0.6f};
-    _light_color        = acs::Vec3{1.0f, 1.0f, 1.0f};
+    _light_dir          = acs::FVec3{0.3f, -0.7f, 0.6f};
+    _light_color        = acs::FVec3{1.0f, 1.0f, 1.0f};
     _ibl_enabled        = true;
     _tonemap_mode       = 0u;
-    _bg_color           = acs::Vec4{0.15f, 0.15f, 0.18f, 1.0f};
+    _bg_color           = acs::FVec4{0.15f, 0.15f, 0.18f, 1.0f};
     _show_grid          = true;
     _show_bone_skeleton = false;
 
@@ -172,18 +172,18 @@ acs::game::editor_core::EditorCamera& ModelViewerPanel::Camera() noexcept {
 // =============================================================================
 // Lighting / Background / Toggle setters
 // =============================================================================
-void ModelViewerPanel::SetLightDirection(acs::Vec3 dir) noexcept {
+void ModelViewerPanel::SetLightDirection(acs::FVec3 dir) noexcept {
     // 正規化は呼び出し側 (renderer) 任せ。panel は raw 値で持つ。
     _light_dir = dir;
 }
-acs::Vec3 ModelViewerPanel::LightDirection() const noexcept {
+acs::FVec3 ModelViewerPanel::LightDirection() const noexcept {
     return _light_dir;
 }
 
-void ModelViewerPanel::SetLightColor(acs::Vec3 color) noexcept {
+void ModelViewerPanel::SetLightColor(acs::FVec3 color) noexcept {
     _light_color = color;
 }
-acs::Vec3 ModelViewerPanel::LightColor() const noexcept {
+acs::FVec3 ModelViewerPanel::LightColor() const noexcept {
     return _light_color;
 }
 
@@ -203,10 +203,10 @@ u32 ModelViewerPanel::ToneMappingMode() const noexcept {
     return _tonemap_mode;
 }
 
-void ModelViewerPanel::SetBackgroundColor(acs::Vec4 color) noexcept {
+void ModelViewerPanel::SetBackgroundColor(acs::FVec4 color) noexcept {
     _bg_color = color;
 }
-acs::Vec4 ModelViewerPanel::BackgroundColor() const noexcept {
+acs::FVec4 ModelViewerPanel::BackgroundColor() const noexcept {
     return _bg_color;
 }
 
@@ -340,8 +340,8 @@ void ModelViewerPanel::DrawUI() noexcept {
                           ImGuiWindowFlags_NoScrollbar);
         {
             // dummy テキスト (描画 placeholder)。
-            const acs::Vec3 eye = _camera.ComputeEye();
-            const acs::Vec3 tgt = _camera.State().target;
+            const acs::FVec3 eye = _camera.ComputeEye();
+            const acs::FVec3 tgt = _camera.State().target;
             ImGui::TextDisabled("[ 3D Viewport ]  eye=(%.1f %.1f %.1f)  target=(%.1f %.1f %.1f)",
                                 eye.x, eye.y, eye.z, tgt.x, tgt.y, tgt.z);
             if (!HasModel()) {
@@ -400,13 +400,13 @@ void ModelViewerPanel::DrawUI() noexcept {
         // Light direction (DragFloat3)
         f32 ld[3] = { _light_dir.x, _light_dir.y, _light_dir.z };
         if (ImGui::DragFloat3("Light Dir", ld, 0.01f, -1.0f, 1.0f, "%.3f")) {
-            _light_dir = acs::Vec3{ ld[0], ld[1], ld[2] };
+            _light_dir = acs::FVec3{ ld[0], ld[1], ld[2] };
         }
 
         // Light color (ColorEdit3)
         f32 lc[3] = { _light_color.x, _light_color.y, _light_color.z };
         if (ImGui::ColorEdit3("Light Color", lc)) {
-            _light_color = acs::Vec3{ lc[0], lc[1], lc[2] };
+            _light_color = acs::FVec3{ lc[0], lc[1], lc[2] };
         }
 
         // IBL toggle + Tonemap combo (同じ行に並べる)
@@ -437,7 +437,7 @@ void ModelViewerPanel::DrawUI() noexcept {
         if (ImGui::ColorEdit4("Background", bg,
                               ImGuiColorEditFlags_AlphaBar |
                               ImGuiColorEditFlags_AlphaPreview)) {
-            _bg_color = acs::Vec4{ bg[0], bg[1], bg[2], bg[3] };
+            _bg_color = acs::FVec4{ bg[0], bg[1], bg[2], bg[3] };
         }
 
         // Show grid / Show bone skeleton toggle
@@ -456,7 +456,7 @@ void ModelViewerPanel::DrawUI() noexcept {
             // (origin / radius=1) で frame する (= renderer 側で bounds が
             // 計算できるようになったら Sample 31 で `FrameToBoundingSphere`
             // を直接呼ぶよう差し替える)。
-            _camera.FrameToBoundingSphere(acs::Vec3{0, 0, 0}, 1.0f);
+            _camera.FrameToBoundingSphere(acs::FVec3{0, 0, 0}, 1.0f);
         }
     }
 

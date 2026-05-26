@@ -32,7 +32,7 @@
 //      欠落しない。ただし上限は「pool 空き数」でクランプ。
 //   ・**Burst は emit_rate と独立**: `Burst()` は burst_count 個を一気に放出。
 //      連射やヒット時のフラッシュ用。
-//   ・**非コピー・非ムーブ**: Pool 同様、ポインタを外部に渡す API があるため
+//   ・**非コピー・非ムーブ**: TPool 同様、ポインタを外部に渡す API があるため
 //      コピーで実体が分裂すると未定義動作になりやすい。明示的に削除。
 //   ・**全 noexcept**: ACS 規約。失敗は invalid handle / no-op で表現。
 //
@@ -73,7 +73,7 @@
 // 範囲外 (Phase 3+ で):
 //   ・テクスチャ参照 / アニメーション (sprite sheet)
 //   ・回転 / 角速度 / 角減衰
-//   ・3D 位置 (現状は 2D Vec2)
+//   ・3D 位置 (現状は 2D FVec2)
 //   ・curve-based size/color (現状は線形補間のみ)
 //   ・GPU particle (現状は CPU)
 #pragma once
@@ -95,8 +95,8 @@ namespace acs::game {
 // `gravity`             : particle ごとの定数加速度 (px/sec^2 想定)。
 // `color_start/end`     : 線形補間される RGB (0..1)。alpha は描画側で決める。
 struct ParticleEmitterDef {
-    Vec3 color_start         {1.0f, 1.0f, 1.0f};
-    Vec3 color_end           {1.0f, 1.0f, 1.0f};
+    FVec3 color_start         {1.0f, 1.0f, 1.0f};
+    FVec3 color_end           {1.0f, 1.0f, 1.0f};
     f32  lifetime_sec        = 1.0f;
     f32  emit_rate_per_sec   = 0.0f;
     f32  burst_count         = 0.0f;
@@ -104,7 +104,7 @@ struct ParticleEmitterDef {
     f32  speed_max           = 0.0f;
     f32  scale_start         = 1.0f;
     f32  scale_end           = 1.0f;
-    Vec2 gravity             {0.0f, 0.0f};
+    FVec2 gravity             {0.0f, 0.0f};
 };
 
 // ---------------------------------------------------------------------------
@@ -113,19 +113,19 @@ struct ParticleEmitterDef {
 // 描画側はこの構造体を直接読み取り、age/lifetime から補間係数を計算する。
 // `position` / `velocity` 以外は emitter から複製してきた瞬時パラメータ。
 // 「emitter の def が後から変わっても、放出済 particle は出生時の値で進む」
-// 設計 (= self-contained particle、Pool で扱いやすい)。
+// 設計 (= self-contained particle、TPool で扱いやすい)。
 struct Particle {
-    Vec2 position           {0.0f, 0.0f};
-    Vec2 velocity           {0.0f, 0.0f};
+    FVec2 position           {0.0f, 0.0f};
+    FVec2 velocity           {0.0f, 0.0f};
     f32  age                = 0.0f;     // 経過秒、0 で出生
     f32  lifetime           = 0.0f;     // 寿命秒
-    Vec3 color_start        {1.0f, 1.0f, 1.0f};
-    Vec3 color_end          {1.0f, 1.0f, 1.0f};
+    FVec3 color_start        {1.0f, 1.0f, 1.0f};
+    FVec3 color_end          {1.0f, 1.0f, 1.0f};
     f32  scale_start        = 1.0f;
     f32  scale_end          = 1.0f;
     // 出生時に emitter からコピーする加速度。emitter 破棄後も粒子が自分の
     // gravity を持ち回るので per-particle に物理が正しく動く。
-    Vec2 gravity            {0.0f, 0.0f};
+    FVec2 gravity            {0.0f, 0.0f};
 
     // 残寿命比 (0..1)。lifetime <= 0 のときは 0 を返す (defensive)。
     f32 NormalizedAge() const noexcept {
@@ -181,10 +181,10 @@ public:
     // emitter を 1 個作成して handle を返す。pos は world 座標 (描画側解釈)。
     // emitter slot 上限 (24bit) に達した場合や lifetime_sec <= 0 の def は
     // invalid handle を返す。
-    EmitterHandle CreateEmitter(const ParticleEmitterDef& def, Vec2 pos) noexcept;
+    EmitterHandle CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept;
 
     // 既存 emitter の位置を変更。invalid / stale handle は no-op。
-    void SetEmitterPosition(EmitterHandle h, Vec2 pos) noexcept;
+    void SetEmitterPosition(EmitterHandle h, FVec2 pos) noexcept;
 
     // 既存 emitter の active 状態を変更 (false にすると自動放出を止める)。
     // invalid / stale handle は no-op。Burst は active と無関係に発火する。
@@ -221,7 +221,7 @@ private:
     // generational handle + 動作パラメータ + 連続放出のための累積器。
     struct Emitter {
         ParticleEmitterDef def        {};
-        Vec2               pos        {0.0f, 0.0f};
+        FVec2               pos        {0.0f, 0.0f};
         f32                emit_accum = 0.0f;     // 放出累積 (>=1 で 1 個出す)
         u8                 gen        = 0u;       // 0 = 未使用、配るときは 1 以上
         bool               active     = false;    // false で自動放出停止
@@ -246,9 +246,9 @@ private:
     // [min, max] の f32 (min > max は swap)。
     f32 NextRandRange(f32 min, f32 max) noexcept;
 
-    Array<Emitter>  _emitters       {};       // emitter slot 配列 (generational)
-    Array<Particle> _particles      {};       // particle pool (固定容量)
-    Array<u8>       _particle_active{};       // _particle_active[i] = 1 で使用中
+    TArray<Emitter>  _emitters       {};       // emitter slot 配列 (generational)
+    TArray<Particle> _particles      {};       // particle pool (固定容量)
+    TArray<u8>       _particle_active{};       // _particle_active[i] = 1 で使用中
     u32             _capacity         = 0u;   // particle 上限 (Init で確定)
     u32             _active_particles = 0u;   // 現在使用中 particle 数
     u32             _emitter_count    = 0u;   // 現在予約中 emitter slot 数

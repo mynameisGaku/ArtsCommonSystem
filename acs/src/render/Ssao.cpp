@@ -254,12 +254,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct SsaoCBLayout {
-    Mat4 view_proj;
-    Mat4 inv_view_proj;
-    Vec4 eye;
-    Vec4 params;
-    Mat4 view;             // Phase 34j-6 GTAO
-    Vec4 light_dir;        // Phase 34q: contact shadow 用 dir light 0 方向
+    FMat4 view_proj;
+    FMat4 inv_view_proj;
+    FVec4 eye;
+    FVec4 params;
+    FMat4 view;             // Phase 34j-6 GTAO
+    FVec4 light_dir;        // Phase 34q: contact shadow 用 dir light 0 方向
 };
 
 template<typename T>
@@ -269,7 +269,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     _device = &device;
     _width = width;
     _height = height;
@@ -287,7 +287,7 @@ Result<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     return Ok();
 }
 
-Result<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     _blur_output.Reset();
     TextureDesc td{};
@@ -307,7 +307,7 @@ Result<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
     return Ok();
 }
 
-Result<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsaoHLSL;
@@ -403,7 +403,7 @@ void Ssao::Shutdown() noexcept {
     _device = nullptr;
 }
 
-Result<void> Ssao::Resize(u32 width, u32 height) noexcept {
+TResult<void> Ssao::Resize(u32 width, u32 height) noexcept {
     if (!_device) return ACS_ERR(Render, 330, "Ssao::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width = width;
@@ -414,20 +414,20 @@ Result<void> Ssao::Resize(u32 width, u32 height) noexcept {
 void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
-                  const Mat4& view_proj, const Mat4& inv_view_proj,
-                  const Mat4& view,
-                  Vec3 eye, Vec3 light_dir,
+                  const FMat4& view_proj, const FMat4& inv_view_proj,
+                  const FMat4& view,
+                  FVec3 eye, FVec3 light_dir,
                   f32 intensity, f32 radius) noexcept {
     if (!_output || !_blur_output || !_pipeline || !_blur_pipeline || !_cb) return;
     SsaoCBLayout data{};
     data.view_proj     = view_proj;
     data.inv_view_proj = inv_view_proj;
-    data.eye           = Vec4{eye.x, eye.y, eye.z, 1};
-    data.params        = Vec4{intensity, radius,
+    data.eye           = FVec4{eye.x, eye.y, eye.z, 1};
+    data.params        = FVec4{intensity, radius,
                                1.0f / static_cast<f32>(_width),
                                1.0f / static_cast<f32>(_height)};
     data.view          = view;       // Phase 34j-6 GTAO: world → view
-    data.light_dir     = Vec4{light_dir.x, light_dir.y, light_dir.z, 0};
+    data.light_dir     = FVec4{light_dir.x, light_dir.y, light_dir.z, 0};
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: SSAO raw → _output

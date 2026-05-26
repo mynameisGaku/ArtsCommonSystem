@@ -15,7 +15,7 @@ DiligentSwapchain::~DiligentSwapchain() noexcept {
     if (_swap) { _swap->Release(); _swap = nullptr; }
 }
 
-Result<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept {
+TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept {
     _device = &device;
     _buffer_count = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
     _vsync  = cfg.vsync;

@@ -31,7 +31,7 @@
 //   ・コピー / ムーブ禁止: registry は通常 1 つの長寿命オブジェクトで運用される。
 //     誤って値渡しされた結果として entitlement が分裂すると検知しづらいため、
 //     最初から非コピー・非ムーブで固定する。
-//   ・全 noexcept: 例外不使用方針 (Result<T,E> + bool 戻り値)。
+//   ・全 noexcept: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
 //
 // 範囲外 (本フェーズでは扱わない):
 //   ・永続化 / シリアライズ (Pillar J Serialize 側で扱う)
@@ -98,7 +98,7 @@ public:
     const EntitlementInfo* AllInfos() const noexcept;
 
 private:
-    Array<EntitlementInfo> _infos;
+    TArray<EntitlementInfo> _infos;
 };
 
 } // namespace acs::game

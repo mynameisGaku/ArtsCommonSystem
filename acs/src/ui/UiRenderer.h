@@ -35,16 +35,16 @@ public:
     UiRenderer(const UiRenderer&) = delete;
     UiRenderer& operator=(const UiRenderer&) = delete;
 
-    Result<void> Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept;
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept;
     void Shutdown() noexcept;
 
     // 1 フレーム描画
     void Render(Widget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept;
 
     // ---- Widget の Render から呼ばれるプリミティブ ----
-    void DrawRect(f32 x, f32 y, f32 w, f32 h, const Vec4& color) noexcept;
-    void DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const Vec4& color, f32 thickness = 1.0f) noexcept;
-    void DrawText(const char* utf8, f32 x, f32 y, const Vec4& color) noexcept;
+    void DrawRect(f32 x, f32 y, f32 w, f32 h, const FVec4& color) noexcept;
+    void DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const FVec4& color, f32 thickness = 1.0f) noexcept;
+    void DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) noexcept;
 
     // テーマ色 (Widgets が参照)
     const UiColors& Colors() const noexcept { return _colors; }

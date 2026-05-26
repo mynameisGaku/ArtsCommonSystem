@@ -89,15 +89,15 @@ void HelloSpriteApp::OnRender() noexcept {
 
     _batch.Begin(*cl, sw, sh);
 
-    _batch.DrawRect(0, 0, static_cast<f32>(sw), 32.0f, Vec4{0, 0, 0, 0.6f});
+    _batch.DrawRect(0, 0, static_cast<f32>(sw), 32.0f, FVec4{0, 0, 0, 0.6f});
 
     for (u32 i = 0; i < _sprite_count; ++i) {
         const Sprite& s = _sprites[i];
-        _batch.Draw(*_tex, s.x, s.y, s.size, s.size, Vec4{s.r, s.g, s.b, s.a});
+        _batch.Draw(*_tex, s.x, s.y, s.size, s.size, FVec4{s.r, s.g, s.b, s.a});
     }
 
     _batch.DrawRect(0, static_cast<f32>(sh - 16), static_cast<f32>(sw), 16.0f,
-                    Vec4{0.2f, 0.5f, 0.8f, 0.5f});
+                    FVec4{0.2f, 0.5f, 0.8f, 0.5f});
 
     _batch.End();
 }

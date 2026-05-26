@@ -53,7 +53,7 @@
 //     起こしても、fn / user / one_shot を local にコピーしてから呼ぶことで安全。
 //   ・**非コピー・非ムーブ**: Scene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。
-//   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::Array<CommandRecord>` で持つ。
+//   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::TArray<CommandRecord>` で持つ。
 //
 // 範囲外 (将来フェーズで):
 //   ・スレッドセーフ (現状は同一スレッド前提、editor が別スレッドから enqueue する
@@ -124,7 +124,7 @@ private:
     // Flush の安定 priority 昇順ソート (insertion sort、N が小さい想定)。
     void StableSortByPriority() noexcept;
 
-    Array<CommandRecord> _records;
+    TArray<CommandRecord> _records;
 };
 
 } // namespace acs::game

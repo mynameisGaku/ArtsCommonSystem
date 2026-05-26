@@ -32,7 +32,7 @@ public:
 
 private:
     // Tween / Clock / Sequences / Input は Services() 経由で取得するので member は不要。
-    acs::Vec3                _color {0.05f, 0.20f, 0.10f};
+    acs::FVec3                _color {0.05f, 0.20f, 0.10f};
     acs::game::TweenHandle   _color_tween;
     bool                     _to_bright = true;
     acs::f32                 _fixed_secs = 0.0f;
@@ -50,8 +50,8 @@ private:
     acs::game::Node2D*       _ball         = nullptr;
     acs::game::ShapeId       _ground_shape;
 
-    static constexpr acs::Vec3 kColorDark  {0.05f, 0.20f, 0.10f};
-    static constexpr acs::Vec3 kColorBright{0.10f, 0.32f, 0.18f};
+    static constexpr acs::FVec3 kColorDark  {0.05f, 0.20f, 0.10f};
+    static constexpr acs::FVec3 kColorBright{0.10f, 0.32f, 0.18f};
 };
 
 } // namespace hellogf

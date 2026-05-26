@@ -26,7 +26,7 @@ DiligentDevice::~DiligentDevice() noexcept {
     _factory_generic = nullptr;
 }
 
-Result<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
+TResult<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
     // バックエンドの選択
     ERhiBackendKind kind = cfg.backend;
     if (kind == ERhiBackendKind::Auto) kind = ERhiBackendKind::D3D12;
@@ -44,7 +44,7 @@ Result<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
     return InitD3D12(cfg);
 }
 
-Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
+TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     // 静的リンク (Diligent-GraphicsEngineD3D12-static) では LoadGraphicsEngineD3D12
     // (DLL ロード経由) は宣言されない。GetEngineFactoryD3D12 を直接呼ぶ。
     _factory = Diligent::GetEngineFactoryD3D12();
@@ -114,7 +114,7 @@ Result<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     return Ok();
 }
 
-Result<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
+TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
 #if WITH_RENDER_DILIGENT_VULKAN
     _factory_vk = Diligent::GetEngineFactoryVk();
     if (!_factory_vk) {

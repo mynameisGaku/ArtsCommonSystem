@@ -17,11 +17,11 @@ void PhysicsBody2D::OnDetach() noexcept {
     _registered = false;
 }
 
-void PhysicsBody2D::RegisterShapeAt(Vec2 pos) noexcept {
+void PhysicsBody2D::RegisterShapeAt(FVec2 pos) noexcept {
     if (_world == nullptr || _registered) return;
     if (_kind == ShapeKind::Circle) {
         _handle = _world->AddCircle(Circle{pos, _radius});
-    } else if (_kind == ShapeKind::Aabb) {
+    } else if (_kind == ShapeKind::FAabb) {
         _handle = _world->AddAabb(Aabb2{pos, _half_size});
     }
     _registered = _handle.IsValid();
@@ -29,20 +29,20 @@ void PhysicsBody2D::RegisterShapeAt(Vec2 pos) noexcept {
 
 void PhysicsBody2D::SyncShapeIfRegistered() noexcept {
     if (_world == nullptr || !_registered || !HasOwner()) return;
-    const Vec2 pos = Owner().Local().position;
+    const FVec2 pos = Owner().Local().position;
     if (_kind == ShapeKind::Circle) {
         _world->UpdateCircle(_handle, Circle{pos, _radius});
-    } else if (_kind == ShapeKind::Aabb) {
+    } else if (_kind == ShapeKind::FAabb) {
         _world->UpdateAabb(_handle, Aabb2{pos, _half_size});
     }
 }
 
-bool PhysicsBody2D::WouldBlockAt(Vec2 pos) noexcept {
+bool PhysicsBody2D::WouldBlockAt(FVec2 pos) noexcept {
     if (_world == nullptr) return false;
-    Array<ShapeId> hits;
+    TArray<ShapeId> hits;
     if (_kind == ShapeKind::Circle) {
         _world->OverlapCircle(Circle{pos, _radius}, hits, _handle);
-    } else if (_kind == ShapeKind::Aabb) {
+    } else if (_kind == ShapeKind::FAabb) {
         _world->OverlapAabb(Aabb2{pos, _half_size}, hits, _handle);
     }
     return hits.Size() > 0;
@@ -57,18 +57,18 @@ void PhysicsBody2D::OnUpdate(f32 dt) noexcept {
     velocity.y += (acceleration.y + gravity.y) * dt;
 
     // 2) 軸独立移動 (X 試行 → blocked なら v.x=0、続けて Y 試行)
-    const Vec2 pos = Owner().Local().position;
-    Vec2 next = pos;
+    const FVec2 pos = Owner().Local().position;
+    FVec2 next = pos;
 
     // X 軸
-    const Vec2 try_x{pos.x + velocity.x * dt, pos.y};
+    const FVec2 try_x{pos.x + velocity.x * dt, pos.y};
     if (WouldBlockAt(try_x)) {
         velocity.x = 0.0f;
     } else {
         next.x = try_x.x;
     }
     // Y 軸 (X 試行後の位置から)
-    const Vec2 try_y{next.x, next.y + velocity.y * dt};
+    const FVec2 try_y{next.x, next.y + velocity.y * dt};
     if (WouldBlockAt(try_y)) {
         velocity.y = 0.0f;
     } else {

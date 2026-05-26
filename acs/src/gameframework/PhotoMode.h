@@ -76,7 +76,7 @@ public:
 
     // ----- カメラ自由操作 (累積 offset) -----
     // パン: 入力 delta を累積。座標系は world units 想定。
-    void MoveCamera(Vec2 delta) noexcept;
+    void MoveCamera(FVec2 delta) noexcept;
 
     // ズーム倍率の乗算的変更。zoom_delta=0.1 で +10% ズームイン。
     // 結果は [0.1, 10.0] に clamp される。
@@ -86,7 +86,7 @@ public:
     void RotateCamera(f32 rad_delta) noexcept;
 
     // ----- accessor -----
-    Vec2 CameraOffset()    const noexcept { return _offset; }
+    FVec2 CameraOffset()    const noexcept { return _offset; }
     f32  ZoomMultiplier()  const noexcept { return _zoom_mult; }
     f32  RotationOffset()  const noexcept { return _rot; }
 
@@ -108,7 +108,7 @@ public:
 
 private:
     bool       _active            = false;
-    Vec2       _offset            {0.0f, 0.0f};
+    FVec2       _offset            {0.0f, 0.0f};
     f32        _zoom_mult         = 1.0f;
     f32        _rot               = 0.0f;
     FilterKind _filter            = None;

@@ -3,7 +3,7 @@
 // ACS Threading — スレッド生成・操作（std::thread 代替）
 // -----------------------------------------------------------------------------
 // CreateThread を直接ラップ。STL の std::thread と異なり例外を投げず、失敗は
-// Result<Thread, ErrorCode> で返す。
+// TResult<Thread, FErrorCode> で返す。
 //
 // 主な機能:
 //   Thread::Spawn     — エントリ関数を別スレッドで起動
@@ -46,7 +46,7 @@ public:
     Thread& operator=(Thread&& other) noexcept;
 
     // スレッドを起動。失敗時は Err（Memory / OS カテゴリ）。
-    static Result<Thread> Spawn(ThreadEntry entry, void* user,
+    static TResult<Thread> Spawn(ThreadEntry entry, void* user,
                                 const ThreadConfig& cfg = {}) noexcept;
 
     bool Joinable() const noexcept { return _handle != nullptr; }

@@ -19,9 +19,9 @@ void HelloUIApp::OnStart() noexcept {
 
     BuildUI();
 
-    // hp (f32) → hp_label (String) → _lbl_hp->text の二段同期。
-    // Label が String しか持てないため、間に f32→String 変換 binder を挟む。
-    _hp_text_binder  = MakeBindConvert<f32, String>(_vm.hp, _vm.hp_label);
+    // hp (f32) → hp_label (FString) → _lbl_hp->text の二段同期。
+    // Label が FString しか持てないため、間に f32→FString 変換 binder を挟む。
+    _hp_text_binder  = MakeBindConvert<f32, FString>(_vm.hp, _vm.hp_label);
     _hp_label_binder = MakeBind(_vm.hp_label, _lbl_hp->text);
 
     ACS_LOG_INFO("HelloUI initialized");

@@ -93,7 +93,7 @@ u32 UiLayer::WidgetCount() const noexcept {
     return static_cast<u32>(_widgets.Size());
 }
 
-u32 UiLayer::AddButton(const char* label, acs::Vec2 pos, acs::Vec2 size) noexcept {
+u32 UiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noexcept {
     if (!_initialized) {
         // Init せずに使われたら warn (Scene 側の OnEnter で Init 漏れ検出)。
         ACS_LOG_WARN("UiLayer::AddButton called before Init (ignored)");
@@ -111,7 +111,7 @@ u32 UiLayer::AddButton(const char* label, acs::Vec2 pos, acs::Vec2 size) noexcep
     return e.handle;
 }
 
-u32 UiLayer::AddText(const char* text, acs::Vec2 pos) noexcept {
+u32 UiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
     if (!_initialized) {
         ACS_LOG_WARN("UiLayer::AddText called before Init (ignored)");
         return 0;
@@ -120,7 +120,7 @@ u32 UiLayer::AddText(const char* text, acs::Vec2 pos) noexcept {
     e.handle       = _next_handle++;
     e.kind         = EWidgetKind::Text;
     e.pos          = pos;
-    e.size         = acs::Vec2{0.0f, 0.0f};  // Phase H-2 でフォントメトリックから計算
+    e.size         = acs::FVec2{0.0f, 0.0f};  // Phase H-2 でフォントメトリックから計算
     e.text         = text;                    // 非所有
     e.visible      = true;
     e.just_pressed = false;
@@ -155,7 +155,7 @@ void UiLayer::Remove(u32 handle) noexcept {
         return;
     }
     // 末尾と swap して PopBack (順序非保持の高速削除、ハンドル探索は線形なので
-    // 順序保持不要)。Array に EraseSwap 等の API があればそちらを使うがここでは
+    // 順序保持不要)。TArray に EraseSwap 等の API があればそちらを使うがここでは
     // 明示的に書く。
     const u32 last = static_cast<u32>(_widgets.Size()) - 1u;
     if (idx != last) {

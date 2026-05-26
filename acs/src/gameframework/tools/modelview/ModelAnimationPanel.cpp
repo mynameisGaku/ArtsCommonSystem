@@ -66,7 +66,7 @@ void ModelAnimationPanel::Init() noexcept {
 }
 
 void ModelAnimationPanel::Shutdown() noexcept {
-    // Init と同じ深さの reset。Array は ~Array で破棄されるが明示 Clear で
+    // Init と同じ深さの reset。TArray は ~TArray で破棄されるが明示 Clear で
     // 多重 Shutdown / 再 Init の確定状態を作る (ParticleEditorPanel と同形)。
     _clips.Clear();
     _current_clip_idx = kNoClipSelected;

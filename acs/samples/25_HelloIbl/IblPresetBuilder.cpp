@@ -41,8 +41,8 @@ void ApplyPresetRebuilds(HelloIblApp& app) noexcept {
     if (app._need_atmosphere) {
         dev->WaitIdle();
         AtmosphereParams ap;
-        ap.sun_dir       = Vec3{0.3f, 0.5f, 0.5f};
-        ap.sun_intensity = Vec3{22.0f, 22.0f, 22.0f};
+        ap.sun_dir       = FVec3{0.3f, 0.5f, 0.5f};
+        ap.sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
         ap.ray_steps     = 32;
         ap.sun_steps     = 8;
         auto baked = Atmosphere::BakeEquirect(kEquirectWidth, kEquirectHeight, ap);

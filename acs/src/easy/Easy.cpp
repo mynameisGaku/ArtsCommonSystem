@@ -70,15 +70,15 @@ const Color Color::Clear  { 0.0f,  0.0f,  0.0f,  0.0f };
 namespace {
 
 struct SpriteSlot {
-    UniquePtr<IRhiTexture> tex;
-    String                 path;
+    TUniquePtr<IRhiTexture> tex;
+    FString                 path;
     f32                    w = 0.0f;
     f32                    h = 0.0f;
 };
 
 struct SoundSlot {
-    Rc<Asset>   asset;     // AudioAsset を再生中ずっと生かしておくため保持
-    String      path;
+    TRc<Asset>   asset;     // AudioAsset を再生中ずっと生かしておくため保持
+    FString      path;
     SoundHandle loop{};    // PlayLoop 中のハンドル（StopSound 用、無効値で初期化）
 };
 
@@ -101,10 +101,10 @@ struct EasyState {
     SpriteBatch   batch;
     Font          font;
     bool          font_ok  = false;
-    UniquePtr<IRhiTexture> circle_tex;
+    TUniquePtr<IRhiTexture> circle_tex;
 
-    Array<SpriteSlot> sprites;
-    Array<SoundSlot>  sounds;
+    TArray<SpriteSlot> sprites;
+    TArray<SoundSlot>  sounds;
 
     FrameTimer  timer;
     f32         dt    = 0.0f;
@@ -134,7 +134,7 @@ void ToWide(const char* utf8, wchar_t* out, int out_len) noexcept {
     out[out_len - 1] = 0;              // 念のため終端を保証
 }
 
-inline Vec4 ToVec4(Color c)   noexcept { return Vec4{ c.r, c.g, c.b, c.a }; }
+inline FVec4 ToVec4(Color c)   noexcept { return FVec4{ c.r, c.g, c.b, c.a }; }
 inline f32  Clamp01(f32 v)    noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
 // player_index を 0..3 に収める
@@ -156,9 +156,9 @@ u32 NextRng() noexcept {
 }
 
 // ---- 円テクスチャ生成（DrawCircle / DrawCircleOutline が使う白い円）---------
-UniquePtr<IRhiTexture> MakeCircleTexture(IRhiDevice& device) noexcept {
+TUniquePtr<IRhiTexture> MakeCircleTexture(IRhiDevice& device) noexcept {
     constexpr u32 N = 128;
-    Array<u8> px;
+    TArray<u8> px;
     px.Resize(static_cast<usize>(N) * N * 4);
     u8* p = px.Data();
     const f32 center = (N - 1) * 0.5f;
@@ -185,7 +185,7 @@ UniquePtr<IRhiTexture> MakeCircleTexture(IRhiDevice& device) noexcept {
     auto r = CreateRhiTexture(device, desc);
     if (r.IsErr()) {
         ACS_LOG_WARN("easy: 円テクスチャの作成に失敗（DrawCircle が無効化）");
-        return UniquePtr<IRhiTexture>{};
+        return TUniquePtr<IRhiTexture>{};
     }
     return Move(r.Value());
 }
@@ -210,7 +210,7 @@ bool LoadDefaultFont(IRhiDevice& device) noexcept {
 }
 
 // ---- サイズ可変テキスト描画（Font のグリフを並べ、scale 倍で拡縮）----------
-void DrawTextScaled(f32 x, f32 y, const char* text, Vec4 color, f32 scale) noexcept {
+void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noexcept {
     IRhiTexture* atlas = g_state.font.AtlasTexture();
     if (!atlas || !text) return;
     f32 pen_x     = x;
@@ -251,9 +251,9 @@ void ShutdownEasy() noexcept {
     g_state.batch.Shutdown();
     g_state.font.Shutdown();
     g_state.circle_tex.Reset();
-    g_state.sprites = Array<SpriteSlot>{};   // 全スプライトのテクスチャを解放
+    g_state.sprites = TArray<SpriteSlot>{};   // 全スプライトのテクスチャを解放
     if (g_state.audio_ok) g_state.audio.Shutdown();
-    g_state.sounds = Array<SoundSlot>{};
+    g_state.sounds = TArray<SoundSlot>{};
     g_state.assets.Clear();
     if (g_state.post_available) g_state.post.Shutdown();
     g_state.renderer.Shutdown();             // ここで GPU デバイスを破棄する
@@ -278,8 +278,8 @@ void WarnDrawOutsideFrame() noexcept {
 }
 
 // ---- セーブデータ（key=value 形式の save.dat。OpenWindow 不要で使える）-----
-struct SaveEntry { String key; String value; };
-Array<SaveEntry> g_save;
+struct SaveEntry { FString key; FString value; };
+TArray<SaveEntry> g_save;
 bool             g_save_loaded = false;
 
 void EnsureSaveLoaded() noexcept {
@@ -291,7 +291,7 @@ void EnsureSaveLoaded() noexcept {
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     if (sz > 0 && sz < 4 * 1024 * 1024) {
-        Array<char> buf;
+        TArray<char> buf;
         buf.Resize(static_cast<usize>(sz) + 1);
         const usize rd = fread(buf.Data(), 1, static_cast<usize>(sz), f);
         buf[rd] = 0;
@@ -307,8 +307,8 @@ void EnsureSaveLoaded() noexcept {
             if (*eq == '=') {
                 *eq = 0;                             // key 部を NUL 終端
                 SaveEntry e;
-                e.key   = String{ line };
-                e.value = String{ eq + 1 };
+                e.key   = FString{ line };
+                e.value = FString{ eq + 1 };
                 g_save.PushBack(Move(e));
             }
         }
@@ -347,11 +347,11 @@ void SetSaveValue(const char* key, const char* value) noexcept {
     EnsureSaveLoaded();
     SaveEntry* e = FindSave(key);
     if (e) {
-        e->value = String{ value };
+        e->value = FString{ value };
     } else {
         SaveEntry ne;
-        ne.key   = String{ key };
-        ne.value = String{ value };
+        ne.key   = FString{ key };
+        ne.value = FString{ value };
         g_save.PushBack(Move(ne));
     }
     WriteSaveFile();
@@ -635,7 +635,7 @@ void DrawRectOutline(f32 x, f32 y, f32 width, f32 height,
                      Color color, f32 thickness) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (thickness < 1.0f) thickness = 1.0f;
-    const Vec4 c = ToVec4(color);
+    const FVec4 c = ToVec4(color);
     g_state.batch.DrawRect(x, y, width, thickness, c);                       // 上辺
     g_state.batch.DrawRect(x, y + height - thickness, width, thickness, c);  // 下辺
     g_state.batch.DrawRect(x, y, thickness, height, c);                      // 左辺
@@ -662,7 +662,7 @@ void DrawCircleOutline(f32 x, f32 y, f32 radius,
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (!g_state.circle_tex || radius <= 0.0f) return;
     if (thickness < 1.0f) thickness = 1.0f;
-    const Vec4 c    = ToVec4(color);
+    const FVec4 c    = ToVec4(color);
     const f32  dot_r = thickness * 0.5f;
     // 円周に沿って小さな点を並べる。点が途切れないよう個数を円周長から決める。
     const f32 step = (dot_r > 1.0f) ? dot_r : 1.0f;
@@ -684,7 +684,7 @@ void DrawLine(f32 x1, f32 y1, f32 x2, f32 y2, Color color, f32 thickness) noexce
     const f32 dx  = x2 - x1;
     const f32 dy  = y2 - y1;
     const f32 len = Sqrt(dx * dx + dy * dy);
-    const Vec4 c  = ToVec4(color);
+    const FVec4 c  = ToVec4(color);
     if (len < 0.001f) {   // 長さ 0 の線は小さな四角で代用
         g_state.batch.DrawRect(x1 - thickness * 0.5f, y1 - thickness * 0.5f,
                               thickness, thickness, c);
@@ -721,7 +721,7 @@ void DrawSprite(Sprite sprite, f32 x, f32 y) noexcept {
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
     SpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (s.tex)
-        g_state.batch.Draw(*s.tex, x, y, s.w, s.h, Vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
+        g_state.batch.Draw(*s.tex, x, y, s.w, s.h, FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
@@ -729,7 +729,7 @@ void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
     SpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (s.tex)
-        g_state.batch.Draw(*s.tex, x, y, width, height, Vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
+        g_state.batch.Draw(*s.tex, x, y, width, height, FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
@@ -762,7 +762,7 @@ void DrawSpriteFlipped(Sprite sprite, f32 x, f32 y,
     const f32 u0 = flip_x ? 1.0f : 0.0f, u1 = flip_x ? 0.0f : 1.0f;
     const f32 v0 = flip_y ? 1.0f : 0.0f, v1 = flip_y ? 0.0f : 1.0f;
     g_state.batch.DrawSub(*s.tex, x, y, s.w, s.h, u0, v0, u1, v1,
-                         Vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
+                         FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 void DrawSpritePart(Sprite sprite, f32 x, f32 y, f32 width, f32 height,
@@ -774,7 +774,7 @@ void DrawSpritePart(Sprite sprite, f32 x, f32 y, f32 width, f32 height,
     const f32 u0 = src_x / s.w,                v0 = src_y / s.h;
     const f32 u1 = (src_x + src_width)  / s.w,  v1 = (src_y + src_height) / s.h;
     g_state.batch.DrawSub(*s.tex, x, y, width, height, u0, v0, u1, v1,
-                         Vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
+                         FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 f32 SpriteWidth(Sprite sprite) noexcept {
@@ -907,7 +907,7 @@ Sprite LoadSprite(const char* path) noexcept {
         ACS_LOG_ERROR("easy: 画像を読み込めません '%s': %s", path, r.Error().message);
         return Sprite{ 0 };
     }
-    Rc<Asset> asset = r.Value();
+    TRc<Asset> asset = r.Value();
     Asset* base = asset.Get();
     if (!base || base->Type() != ImageAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は画像ファイルではありません", path);
@@ -921,7 +921,7 @@ Sprite LoadSprite(const char* path) noexcept {
     }
     SpriteSlot slot;
     slot.tex  = Move(tx.Value());
-    slot.path = String{ path };
+    slot.path = FString{ path };
     slot.w    = static_cast<f32>(img->Width());
     slot.h    = static_cast<f32>(img->Height());
     g_state.sprites.PushBack(Move(slot));
@@ -946,15 +946,15 @@ Sound LoadSound(const char* path) noexcept {
         ACS_LOG_ERROR("easy: 音声を読み込めません '%s': %s", path, r.Error().message);
         return Sound{ 0 };
     }
-    Rc<Asset> asset = r.Value();
+    TRc<Asset> asset = r.Value();
     Asset* base = asset.Get();
     if (!base || base->Type() != AudioAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は音声ファイルではありません", path);
         return Sound{ 0 };
     }
     SoundSlot slot;
-    slot.asset = asset;            // Rc をコピー保持 -> 再生中ずっと生かす
-    slot.path  = String{ path };
+    slot.asset = asset;            // TRc をコピー保持 -> 再生中ずっと生かす
+    slot.path  = FString{ path };
     g_state.sounds.PushBack(Move(slot));
     return Sound{ static_cast<u32>(g_state.sounds.Size()) };
 }
@@ -1201,7 +1201,7 @@ bool HasSaveKey(const char* key) noexcept {
 }
 
 void DeleteAllSaves() noexcept {
-    g_save = Array<SaveEntry>{};
+    g_save = TArray<SaveEntry>{};
     g_save_loaded = true;        // 「ロード済み（空）」状態にする
     FILE* f = nullptr;
     if (fopen_s(&f, "save.dat", "wb") == 0 && f) fclose(f);

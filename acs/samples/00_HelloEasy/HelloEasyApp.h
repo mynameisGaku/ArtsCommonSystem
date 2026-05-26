@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloEasy — acs::easy レイヤを使った最も簡単な入門サンプル。
 //
-// クラス継承や Result 型を一切使わず、関数を呼ぶだけで 2D ゲームが書ける。
+// クラス継承や TResult 型を一切使わず、関数を呼ぶだけで 2D ゲームが書ける。
 #pragma once
 
 namespace hello00 {

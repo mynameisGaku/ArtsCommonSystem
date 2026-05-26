@@ -35,7 +35,7 @@ Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
 }
 } // namespace
 
-Result<void> DiligentBuffer::Init(DiligentDevice& device, const BufferDesc& desc) noexcept {
+TResult<void> DiligentBuffer::Init(DiligentDevice& device, const BufferDesc& desc) noexcept {
     _device  = &device;
     _size    = desc.size;
     _usage   = desc.usage;

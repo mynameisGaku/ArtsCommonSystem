@@ -23,14 +23,14 @@ void HelloMVVMApp::OnStart() noexcept {
         ACS_LOG_INFO("VM hp: %.1f", v);
     }, nullptr);
 
-    // MakeBind は UniquePtr を返すので、所有権だけ持っていれば
+    // MakeBind は TUniquePtr を返すので、所有権だけ持っていれば
     // 寿命管理 (Unsubscribe) は自動で走る。
     _hp_mirror_binder = MakeBind(_vm.hp, _hp_mirror);
 
     // 型が異なる Observable 同士は MakeBindConvert で繋ぐ。
-    // 組込みの DefaultConverter<f32, String> が選択されるので
+    // 組込みの DefaultConverter<f32, FString> が選択されるので
     // 変換ラムダを書く必要はない。
-    _hp_text_binder = MakeBindConvert<f32, String>(_vm.hp, _hp_text);
+    _hp_text_binder = MakeBindConvert<f32, FString>(_vm.hp, _hp_text);
 
     // Derived は依存元 Observable が変わると lazy に再計算される派生 Observable。
     _ratio = new Derived<f32, f32>(
@@ -93,14 +93,14 @@ void HelloMVVMApp::OnRender() noexcept {
         mvvm::imgui::BindProgress("Mirror HP", _hp_mirror, 0.0f, 100.0f);
 
         ImGui::Spacing();
-        ImGui::Text("組込み暗黙変換: f32 → String (DefaultConverter 自動選択)");
+        ImGui::Text("組込み暗黙変換: f32 → FString (DefaultConverter 自動選択)");
         ImGui::Text("HP 文字列: \"%s\"", _hp_text.Get().Data());
 
         ImGui::Spacing();
         ImGui::Text("Bind(src, dst) ファクトリは型違いでも自動で converter 選択:");
-        ImGui::BulletText("Observable<f32> → Observable<String>: \"%s\"", _hp_text.Get().Data());
+        ImGui::BulletText("Observable<f32> → Observable<FString>: \"%s\"", _hp_text.Get().Data());
         ImGui::BulletText("Observable<i32> → Observable<f32>: 同型なら OneWayBinder");
-        ImGui::BulletText("Observable<String> → Observable<i32>: パース失敗時 0");
+        ImGui::BulletText("Observable<FString> → Observable<i32>: パース失敗時 0");
     }
 
     // ============================================================
@@ -118,7 +118,7 @@ void HelloMVVMApp::OnRender() noexcept {
     // ============================================================
     // ④ ObservableArray + Command — コレクションとアクション
     // ============================================================
-    if (ImGui::CollapsingHeader("④ Array + Command")) {
+    if (ImGui::CollapsingHeader("④ TArray + Command")) {
         ImGui::Text("Inventory (%zu 個):", _vm.inventory.Size());
         for (usize i = 0; i < _vm.inventory.Size(); ++i) {
             ImGui::BulletText("[%zu] = %d", i, _vm.inventory.At(i));

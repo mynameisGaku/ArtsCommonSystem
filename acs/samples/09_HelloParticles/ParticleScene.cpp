@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace helloparticles {
 
-bool ParticleScene::Init(IRhiTexture* glow_tex, Vec2 initial_pos) noexcept {
+bool ParticleScene::Init(IRhiTexture* glow_tex, FVec2 initial_pos) noexcept {
     if (auto r = _ps.Init(kParticleCapacity); r.IsErr()) return false;
     _ps.SetTexture(glow_tex);
     ApplyPreset(0, initial_pos);
@@ -26,7 +26,7 @@ void ParticleScene::Update(f32 dt) noexcept {
         _ps.Emitter().active = !_ps.Emitter().active;
     }
 
-    Vec2 mp = Input::MousePos();
+    FVec2 mp = Input::MousePos();
     if (Input::IsKeyPressed(EKey::Num1)) ApplyPreset(0, mp);
     if (Input::IsKeyPressed(EKey::Num2)) ApplyPreset(1, mp);
     if (Input::IsKeyPressed(EKey::Num3)) ApplyPreset(2, mp);
@@ -63,16 +63,16 @@ void ParticleScene::Render(SpriteBatch& batch,
                       _ps.ActiveCount(), _ps.Capacity(),
                       static_cast<double>(fps),
                       _ps.Emitter().active ? "ON" : "OFF");
-        batch.DrawString(font, buf, 20, 20, Vec4{1,1,1,1});
-        batch.DrawString(font, kPresetNames[_preset], 20, 44, Vec4{1, 0.85f, 0.4f, 1});
+        batch.DrawString(font, buf, 20, 20, FVec4{1,1,1,1});
+        batch.DrawString(font, kPresetNames[_preset], 20, 44, FVec4{1, 0.85f, 0.4f, 1});
         batch.DrawString(font,
                         "1/2/3/4: 種類  Space: 連続 ON/OFF  左クリック: 爆発  Esc: 終了",
                         20, static_cast<f32>(screen_h - 32),
-                        Vec4{0.7f, 0.8f, 0.95f, 1});
+                        FVec4{0.7f, 0.8f, 0.95f, 1});
     }
 }
 
-void ParticleScene::ApplyPreset(u32 idx, Vec2 pos) noexcept {
+void ParticleScene::ApplyPreset(u32 idx, FVec2 pos) noexcept {
     _preset = idx;
     EmitterDesc d;
     switch (idx) {

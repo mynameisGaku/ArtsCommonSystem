@@ -7,9 +7,9 @@
 // BeginLoad を呼ぶと全 entry が即座に Loaded 扱いになる仮想完了モードで動作)。
 //
 // 設計メモ:
-//   ・「シーン破棄 → bundle 破棄 → Rc<Asset> drop → refcount 0 で実体解放」の流れは
-//     Phase G-2 で AssetFuture から取った Rc を Entry に保持して実現する。
-//     現スケルトンでは Rc を持たないため、Unload は status リセットのみで十分。
+//   ・「シーン破棄 → bundle 破棄 → TRc<Asset> drop → refcount 0 で実体解放」の流れは
+//     Phase G-2 で AssetFuture から取った TRc を Entry に保持して実現する。
+//     現スケルトンでは TRc を持たないため、Unload は status リセットのみで十分。
 //   ・進捗計算は entries が空の場合 1.0 を返す (=「読むものが無いので即完了」)。
 //     これは BeginLoad 前後で挙動が変わらない (Add 0 件で BeginLoad しても 1.0)。
 #include "gameframework/AssetBundle.h"
@@ -114,10 +114,10 @@ u32 AssetBundle::LoadedCount() const noexcept {
 }
 
 void AssetBundle::Unload() noexcept {
-    // TODO(Phase G-2): 各 entry の Rc<Asset> を drop し、必要なら
+    // TODO(Phase G-2): 各 entry の TRc<Asset> を drop し、必要なら
     //   AssetRegistry::Instance().Unload(AssetIdFromPath(entry.path));
     // を呼んでキャッシュからも外す。他 Scene がまだ参照していれば refcount > 0 で
-    // 実体は残り、最後の参照消失時に自動解放される (Rc の決定的破棄)。
+    // 実体は残り、最後の参照消失時に自動解放される (TRc の決定的破棄)。
     //
     // bridge スケルトン: 内部 state を Pending に戻し、_begun フラグもクリアして
     // 再利用可能な状態にする (同一 bundle インスタンスの再 Add + 再 BeginLoad を許す)。

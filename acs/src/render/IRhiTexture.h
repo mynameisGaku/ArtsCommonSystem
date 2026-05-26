@@ -51,7 +51,7 @@ public:
     virtual bool   IsCubemap()  const noexcept { return false; }
 };
 
-Result<UniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
+TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
                                                      const TextureDesc& desc) noexcept;
 
 } // namespace acs

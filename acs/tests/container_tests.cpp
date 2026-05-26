@@ -10,7 +10,7 @@
 using namespace acs;
 
 ACS_TEST(Container, ArrayPushAndIndex) {
-    Array<int> a;
+    TArray<int> a;
     for (int i = 0; i < 100; ++i) a.PushBack(i);
     EXPECT_EQ(a.Size(), (usize)100);
     EXPECT_EQ(a[0], 0);
@@ -19,7 +19,7 @@ ACS_TEST(Container, ArrayPushAndIndex) {
 }
 
 ACS_TEST(Container, ArrayResize) {
-    Array<int> a;
+    TArray<int> a;
     a.Resize(50);
     EXPECT_EQ(a.Size(), (usize)50);
     a.Resize(10);
@@ -27,23 +27,23 @@ ACS_TEST(Container, ArrayResize) {
 }
 
 ACS_TEST(Container, StringInlineAndHeap) {
-    String s("hello");
+    FString s("hello");
     EXPECT_EQ(s.Size(), (usize)5);
-    EXPECT_TRUE(s.View() == StringView("hello"));
+    EXPECT_TRUE(s.View() == FStringView("hello"));
 
-    String big;
+    FString big;
     for (int i = 0; i < 10; ++i) big.Append("0123456789");
     EXPECT_EQ(big.Size(), (usize)100);
 }
 
 ACS_TEST(Container, StringFormat) {
-    String s;
+    FString s;
     s.AppendFormat("%d-%s", 42, "abc");
-    EXPECT_TRUE(s.View() == StringView("42-abc"));
+    EXPECT_TRUE(s.View() == FStringView("42-abc"));
 }
 
 ACS_TEST(Container, HashMapInsertFindRemove) {
-    HashMap<u32, u32> m;
+    THashMap<u32, u32> m;
     for (u32 i = 0; i < 1000; ++i) m.Insert(i, i * 2);
     EXPECT_EQ(m.Size(), (usize)1000);
     for (u32 i = 0; i < 1000; ++i) {

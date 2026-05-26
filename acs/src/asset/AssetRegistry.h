@@ -7,11 +7,11 @@
 //
 //   auto r = reg.Load(L"data/save.bin");
 //   if (r.IsOk()) {
-//       Rc<Asset> a = r.Value();
+//       TRc<Asset> a = r.Value();
 //       // a を保持し続ければレジストリ内部でもキャッシュされる
 //   }
 //
-//   // 同じパスで再度 Load すれば同じ Rc を返す（キャッシュヒット）
+//   // 同じパスで再度 Load すれば同じ TRc を返す（キャッシュヒット）
 #pragma once
 
 #include "foundation/Types.h"
@@ -40,14 +40,14 @@ public:
     void RegisterDefaultLoaders() noexcept;
 
     // 同期ロード（ファイル読み込み + ローダ呼び出し、キャッシュ済みなら即返却）
-    Result<Rc<Asset>> Load(const wchar_t* path) noexcept;
+    TResult<TRc<Asset>> Load(const wchar_t* path) noexcept;
 
     // 非同期ロード（ThreadPool ワーカーで実行、AssetFuture で完了確認）
     // キャッシュ済みなら即完了状態の future を返す
     AssetFuture LoadAsync(const wchar_t* path) noexcept;
 
-    // キャッシュからのみ取得（ロードはしない、未キャッシュなら nullptr Rc）
-    Rc<Asset> Find(AssetId id) noexcept;
+    // キャッシュからのみ取得（ロードはしない、未キャッシュなら nullptr TRc）
+    TRc<Asset> Find(AssetId id) noexcept;
 
     // キャッシュから外す（ファイル変更時の再読み込み用）
     void Unload(AssetId id) noexcept;
@@ -57,15 +57,15 @@ public:
 
     // ワーカースレッドから cache へロック付きで挿入する内部 API。
     // 命名規則: 公開 API には先頭 _ を使わず、内部用のコメントで意図を示す。
-    void AsyncCacheInsert(AssetId id, Rc<Asset> a) noexcept;
+    void AsyncCacheInsert(AssetId id, TRc<Asset> a) noexcept;
 
 private:
     // 拡張子から適切なローダを選ぶ（マッチなしならフォールバック "*" を返す）
     IAssetLoader* FindLoader(const wchar_t* path) noexcept;
 
     Mutex                          _lock;
-    HashMap<AssetId, Rc<Asset>>    _cache;
-    Array<IAssetLoader*>           _loaders;
+    THashMap<AssetId, TRc<Asset>>    _cache;
+    TArray<IAssetLoader*>           _loaders;
 };
 
 } // namespace acs

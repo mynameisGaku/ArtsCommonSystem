@@ -82,8 +82,8 @@ private:
         void*           user        = nullptr;
     };
 
-    Array<Slot> _slots;
-    Array<u32>  _free_indices;  // 1-based id を再利用するための空きスロット
+    TArray<Slot> _slots;
+    TArray<u32>  _free_indices;  // 1-based id を再利用するための空きスロット
     u32         _next_id = 1;
 };
 

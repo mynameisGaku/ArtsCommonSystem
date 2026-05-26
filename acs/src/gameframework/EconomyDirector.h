@@ -60,11 +60,11 @@
 //   ed.SetOnPurchaseCallback(&OnPurchase, user_data);
 //
 // 設計選択 (Pillar O Phase 3):
-//   ・**通貨と残高は並行 Array**: CurrencyDef を Array<CurrencyDef> に、残高を
-//     Array<u32> に同 index で 1:1 で持つ。Entitlement の id 比較と同じく
+//   ・**通貨と残高は並行 TArray**: CurrencyDef を TArray<CurrencyDef> に、残高を
+//     TArray<u32> に同 index で 1:1 で持つ。Entitlement の id 比較と同じく
 //     const char* per-byte 線形検索。通貨種別はゲーム 1 セッションで通常 2〜5、
 //     多くても 10 を超えない想定なので線形で十分。
-//   ・**ShopItem は単一 Array**: 商品数は AAA でも 100〜500 程度のオーダー、
+//   ・**ShopItem は単一 TArray**: 商品数は AAA でも 100〜500 程度のオーダー、
 //     線形走査で十分。検索はすべて item_id 文字列。
 //   ・**所有しない const char***: id / display_name / currency_id すべて呼出側
 //     (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
@@ -84,7 +84,7 @@
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterCurrency /
 //     RegisterItem は no-op (アセット二重ロード保護)。Entitlement / SeasonPass /
 //     AchievementManager と同じパターン。
-//   ・**取引履歴は callback 経由のみ**: 履歴 Array を内蔵してメモリを増やすより、
+//   ・**取引履歴は callback 経由のみ**: 履歴 TArray を内蔵してメモリを増やすより、
 //     呼出側 (= Analytics / Pillar T Community) でログ収集する設計。
 //     コア API は「現在の残高と在庫」だけを真実とし、過去ログは外部責務。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -214,12 +214,12 @@ private:
     // item_id → 内部配列位置の per-element 線形検索。未検出は ~0u。
     u32 FindItemSlot(const char* item_id) const noexcept;
 
-    // 通貨定義 + 残高 (同 index で 1:1 対応の並行 Array)。
-    Array<CurrencyDef> _currencies;
-    Array<u32>         _balances;
+    // 通貨定義 + 残高 (同 index で 1:1 対応の並行 TArray)。
+    TArray<CurrencyDef> _currencies;
+    TArray<u32>         _balances;
 
     // 商品定義。
-    Array<ShopItem> _items;
+    TArray<ShopItem> _items;
 
     // 購入コールバック (C 関数ポインタ + user)。Manager は user を所有しない。
     PurchaseCallback _on_purchase      = nullptr;

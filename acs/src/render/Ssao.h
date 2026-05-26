@@ -37,9 +37,9 @@ public:
     Ssao(const Ssao&) = delete;
     Ssao& operator=(const Ssao&) = delete;
 
-    Result<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
     void Shutdown() noexcept;
-    Result<void> Resize(u32 width, u32 height) noexcept;
+    TResult<void> Resize(u32 width, u32 height) noexcept;
 
     // SSAO (Phase 34j-6 から GTAO) を計算して内部 RT に書く。
     //   scene_depth: shader_visible_depth=true な depth buffer
@@ -53,10 +53,10 @@ public:
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_depth,
                 IRhiTexture& normal_gbuffer,
-                const Mat4& view_proj,
-                const Mat4& inv_view_proj,
-                const Mat4& view,
-                Vec3 eye, Vec3 light_dir,
+                const FMat4& view_proj,
+                const FMat4& inv_view_proj,
+                const FMat4& view,
+                FVec3 eye, FVec3 light_dir,
                 f32 intensity = 1.0f,
                 f32 radius    = 0.5f) noexcept;
 
@@ -66,21 +66,21 @@ public:
     IRhiTexture* RawTexture() const noexcept { return _output.Get(); }
 
 private:
-    Result<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
-    Result<void> CreatePipeline(IRhiDevice& device) noexcept;
+    TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
     IRhiDevice*             _device = nullptr;
     u32                     _width  = 0;
     u32                     _height = 0;
 
-    UniquePtr<IRhiTexture>  _output;       // SSAO raw
-    UniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 34j-4)
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiShader>   _blur_ps;      // Phase 34j-4 blur PS
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiPipeline> _blur_pipeline;// Phase 34j-4
-    UniquePtr<IRhiBuffer>   _cb;
+    TUniquePtr<IRhiTexture>  _output;       // SSAO raw
+    TUniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 34j-4)
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiShader>   _blur_ps;      // Phase 34j-4 blur PS
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiPipeline> _blur_pipeline;// Phase 34j-4
+    TUniquePtr<IRhiBuffer>   _cb;
 };
 
 } // namespace acs

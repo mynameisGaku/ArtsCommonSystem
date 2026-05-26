@@ -135,15 +135,15 @@ ModerationResult ClassifyText(const char* text) noexcept {
 // ContentModeratorStub 実装
 // =============================================================================
 
-Result<ModerationResult> ContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
+TResult<ModerationResult> ContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
     (void)user_id;  // Stub では未使用 (実 SDK では通報履歴・レピュテーション参照に使う)
     return ClassifyText(text);
 }
 
-Result<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
+TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
     (void)user_id;
     if (image_data == nullptr || size == 0) {
-        return Result<ModerationResult>(
+        return TResult<ModerationResult>(
             ACS_ERR(Generic, kSubContentModeratorBadArgument,
                     "ContentModeratorStub::ModerateImage: image_data == nullptr or size == 0"));
     }
@@ -157,7 +157,7 @@ Result<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_id
     return r;
 }
 
-Result<ModerationResult> ContentModeratorStub::ModerateUserName(const char* name) noexcept {
+TResult<ModerationResult> ContentModeratorStub::ModerateUserName(const char* name) noexcept {
     // ユーザー名 NG チェックは text と同じ辞書を流用 (Stub なので簡略化)。
     // 実 SDK では「短い文字列内のなりすまし / leet speak / 同形異義字」検出を
     // 強化したサブ API を別途用意することが多い。

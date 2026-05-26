@@ -29,7 +29,7 @@ namespace acs::game {
 // `NotImplemented` 専用カテゴリは無いため、SaveSlot.h と同じ「Generic +
 // subcode 99」の規約に揃える。message は静的文字列リテラル (ACS の方針通り)。
 // =============================================================================
-Result<void> MlRuntimeStub::Init() noexcept {
+TResult<void> MlRuntimeStub::Init() noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::Init: ML backend not integrated (Phase U-1 stub)");
 }
@@ -39,17 +39,17 @@ void MlRuntimeStub::Shutdown() noexcept {
     // 解放対象は存在しない。
 }
 
-Result<MlModelHandle> MlRuntimeStub::LoadModel(const char* /*model_path*/) noexcept {
+TResult<MlModelHandle> MlRuntimeStub::LoadModel(const char* /*model_path*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::LoadModel: ML backend not integrated (Phase U-1 stub)");
 }
 
-Result<void> MlRuntimeStub::UnloadModel(MlModelHandle /*h*/) noexcept {
+TResult<void> MlRuntimeStub::UnloadModel(MlModelHandle /*h*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::UnloadModel: ML backend not integrated (Phase U-1 stub)");
 }
 
-Result<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
+TResult<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
                                          const f32* /*inputs*/,  u32 /*in_count*/,
                                          f32*       /*outputs*/, u32 /*out_count*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
@@ -62,7 +62,7 @@ Result<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
 // `EUpscalerKind::Off` への Init は「無効化を選んだ」状態として成功扱い。
 // それ以外 (FSR / DLSS / XeSS / Custom) は SDK 未統合なので NotImplemented。
 // =============================================================================
-Result<void> UpscalerStub::Init(EUpscalerKind k) noexcept {
+TResult<void> UpscalerStub::Init(EUpscalerKind k) noexcept {
     if (k == EUpscalerKind::Off) {
         _kind = EUpscalerKind::Off;
         return Ok();

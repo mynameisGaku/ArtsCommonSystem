@@ -14,24 +14,24 @@
 namespace acs {
 
 template<typename T>
-class Array {
+class TArray {
 public:
-    Array() noexcept : _alloc(&DefaultAllocator()) {}
-    explicit Array(Allocator& a) noexcept : _alloc(&a) {}
-    Array(usize initial_capacity, Allocator& a = DefaultAllocator()) noexcept : _alloc(&a) {
+    TArray() noexcept : _alloc(&DefaultAllocator()) {}
+    explicit TArray(Allocator& a) noexcept : _alloc(&a) {}
+    TArray(usize initial_capacity, Allocator& a = DefaultAllocator()) noexcept : _alloc(&a) {
         Reserve(initial_capacity);
     }
 
     // 明示的な Clone を強制してパフォーマンス事故を防ぐためコピー禁止
-    Array(const Array&) = delete;
-    Array& operator=(const Array&) = delete;
+    TArray(const TArray&) = delete;
+    TArray& operator=(const TArray&) = delete;
 
     // ムーブで所有権を奪う
-    Array(Array&& o) noexcept
+    TArray(TArray&& o) noexcept
         : _data(o._data), _size(o._size), _capacity(o._capacity), _alloc(o._alloc) {
         o._data = nullptr; o._size = 0; o._capacity = 0;
     }
-    Array& operator=(Array&& o) noexcept {
+    TArray& operator=(TArray&& o) noexcept {
         if (this == &o) return *this;
         Clear();
         Free();
@@ -39,7 +39,7 @@ public:
         o._data = nullptr; o._size = 0; o._capacity = 0;
         return *this;
     }
-    ~Array() noexcept { Clear(); Free(); }
+    ~TArray() noexcept { Clear(); Free(); }
 
     usize Size()     const noexcept { return _size; }
     usize Capacity() const noexcept { return _capacity; }
@@ -96,8 +96,8 @@ public:
     const T* begin() const noexcept { return _data; }
     const T* end()   const noexcept { return _data + _size; }
 
-    Span<T>       AsSpan()       noexcept { return Span<T>(_data, _size); }
-    Span<const T> AsSpan() const noexcept { return Span<const T>(_data, _size); }
+    TSpan<T>       AsSpan()       noexcept { return TSpan<T>(_data, _size); }
+    TSpan<const T> AsSpan() const noexcept { return TSpan<const T>(_data, _size); }
 
     void PushBack(const T& v) noexcept {
         if (_size == _capacity) Grow(NextGrow(_size + 1));
@@ -130,8 +130,8 @@ public:
     }
 
     // 明示的なコピー（高コストなので名前で意識させる）
-    Array Clone() const noexcept {
-        Array c(_capacity, *_alloc);
+    TArray Clone() const noexcept {
+        TArray c(_capacity, *_alloc);
         c.Resize(_size);
         if constexpr (IsTriviallyCopyableV<T>) {
             MemCopy(c._data, _data, sizeof(T) * _size);
@@ -154,7 +154,7 @@ private:
     // 新容量で再確保し、既存要素をムーブ移送
     void Grow(usize new_capacity) noexcept {
         T* new_data = static_cast<T*>(_alloc->Alloc(sizeof(T) * new_capacity, alignof(T), SourceLoc::Current()));
-        ACS_ASSERTF(new_data != nullptr, "Array::Grow: allocator returned null (cap=%zu, T=%zu)",
+        ACS_ASSERTF(new_data != nullptr, "TArray::Grow: allocator returned null (cap=%zu, T=%zu)",
                     new_capacity, sizeof(T));
         if (_data) {
             if constexpr (IsTriviallyCopyableV<T>) {

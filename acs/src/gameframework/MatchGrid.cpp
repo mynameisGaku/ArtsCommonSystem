@@ -229,7 +229,7 @@ bool MatchGrid::TrySwap(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
 // ---------------------------------------------------------------------------
 // 個別消去 + special 効果 (visited で再入防止)
 // ---------------------------------------------------------------------------
-void MatchGrid::ClearOne(u32 x, u32 y, Array<u8>& visited) noexcept {
+void MatchGrid::ClearOne(u32 x, u32 y, TArray<u8>& visited) noexcept {
     if (x >= _width || y >= _height) return;
     const usize i = Idx(x, y);
     if (visited[i]) return;
@@ -258,7 +258,7 @@ void MatchGrid::ClearOne(u32 x, u32 y, Array<u8>& visited) noexcept {
 }
 
 void MatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp,
-                                   Array<u8>& visited) noexcept {
+                                   TArray<u8>& visited) noexcept {
     switch (sp) {
     case ESpecialKind::Bomb: {
         // 3x3 範囲 (中心は既に消去済み、visited フラグで弾かれる)
@@ -355,11 +355,11 @@ u32 MatchGrid::ResolveAllMatches() noexcept {
 
     // 一時バッファ: マッチ検出結果 (最大 = 行マッチ + 列マッチ ≒ w+h 個程度)。
     // 余裕を持って w*h を上限にする (実際は遥かに少ない)。
-    Array<MatchInfo> matches;
+    TArray<MatchInfo> matches;
     matches.Resize(n);
 
     // visited は ClearOne 再入防止用 (cascade ループ間で reset)。
-    Array<u8> visited;
+    TArray<u8> visited;
     visited.Resize(n);
 
     // 連鎖が止まるまで (= マッチ検出 0) ループ。

@@ -46,7 +46,7 @@ const wchar_t* DefaultUIFontPath() noexcept;
 // 候補フォントを順に試して最初に成功したものをロードする。
 //   atlas_size  : Font のアトラスサイズ (LoadFromFile に渡す)
 //   include_cjk : 日本語等を含めるか (true で大きな atlas を使う)
-Result<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
+TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
                                    f32  size_px     = 18.0f,
                                    u32  atlas_size  = 1024,
                                    bool include_cjk = false) noexcept;
@@ -74,7 +74,7 @@ Result<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
         }                                                                          \
     } while (0)
 
-// Result<T> を受けて、成功なら value を name に束縛、失敗なら Quit + return。
+// TResult<T> を受けて、成功なら value を name に束縛、失敗なら Quit + return。
 // 使い方:
 //   ACS_SAMPLE_TAKE(tex, CreateRhiTexture(*dev, td));
 //   // 以降 tex を使える

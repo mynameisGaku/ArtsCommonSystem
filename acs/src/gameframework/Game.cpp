@@ -12,7 +12,7 @@
 namespace acs::game {
 
 void Game::OnStart() noexcept {
-    UniquePtr<Scene> first = InitialScene();
+    TUniquePtr<Scene> first = InitialScene();
     if (!first) {
         ACS_LOG_ERROR("Game::InitialScene() returned null — Quit");
         Quit();

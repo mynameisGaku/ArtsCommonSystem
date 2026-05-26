@@ -66,21 +66,21 @@ void BindProgress(const char* label, const Observable<f32>& v, f32 v_min, f32 v_
     ImGui::Text("%s", label);
 }
 
-// ---- Vec2/Vec3 ----
-void BindSlider2(const char* label, Observable<Vec2>& v, f32 v_min, f32 v_max) noexcept {
-    Vec2 tmp = v.Get();
+// ---- FVec2/FVec3 ----
+void BindSlider2(const char* label, Observable<FVec2>& v, f32 v_min, f32 v_max) noexcept {
+    FVec2 tmp = v.Get();
     if (ImGui::SliderFloat2(label, &tmp.x, v_min, v_max)) {
         v.Set(tmp);
     }
 }
-void BindSlider3(const char* label, Observable<Vec3>& v, f32 v_min, f32 v_max) noexcept {
-    Vec3 tmp = v.Get();
+void BindSlider3(const char* label, Observable<FVec3>& v, f32 v_min, f32 v_max) noexcept {
+    FVec3 tmp = v.Get();
     if (ImGui::SliderFloat3(label, &tmp.x, v_min, v_max)) {
         v.Set(tmp);
     }
 }
-void BindColor3(const char* label, Observable<Vec3>& v) noexcept {
-    Vec3 tmp = v.Get();
+void BindColor3(const char* label, Observable<FVec3>& v) noexcept {
+    FVec3 tmp = v.Get();
     if (ImGui::ColorEdit3(label, &tmp.x)) {
         v.Set(tmp);
     }
@@ -105,14 +105,14 @@ void BindCombo(const char* label, Observable<i32>& v,
 }
 
 // ---- Text 入力 ----
-void BindText(const char* label, Observable<acs::String>& v,
+void BindText(const char* label, Observable<acs::FString>& v,
               char* persistent, usize cap) noexcept {
     if (!persistent || cap == 0) return;
     if (ImGui::InputText(label, persistent, cap, ImGuiInputTextFlags_EnterReturnsTrue)) {
-        v.Set(acs::String{persistent});
+        v.Set(acs::FString{persistent});
     }
     if (ImGui::IsItemDeactivatedAfterEdit()) {
-        v.Set(acs::String{persistent});
+        v.Set(acs::FString{persistent});
     }
     // 編集中でなければ Observable の最新値を buffer に同期 (外部からの変更反映)
     if (!ImGui::IsItemActive()) {
@@ -170,11 +170,11 @@ void Bind(const char*, Observable<f64>&, f64, f64) noexcept {}
 void Bind(const char*, Observable<i32>&, i32, i32) noexcept {}
 void Bind(const char*, Observable<u32>&, u32, u32) noexcept {}
 void Bind(const char*, Observable<bool>&) noexcept {}
-void BindSlider2(const char*, Observable<Vec2>&, f32, f32) noexcept {}
-void BindSlider3(const char*, Observable<Vec3>&, f32, f32) noexcept {}
-void BindColor3(const char*, Observable<Vec3>&) noexcept {}
+void BindSlider2(const char*, Observable<FVec2>&, f32, f32) noexcept {}
+void BindSlider3(const char*, Observable<FVec3>&, f32, f32) noexcept {}
+void BindColor3(const char*, Observable<FVec3>&) noexcept {}
 void BindCombo(const char*, Observable<i32>&, const char* const*, u32) noexcept {}
-void BindText(const char*, Observable<acs::String>&, char*, usize) noexcept {}
+void BindText(const char*, Observable<acs::FString>&, char*, usize) noexcept {}
 template<> void BindFormat<f32>(const char*, const Observable<f32>&) noexcept {}
 template<> void BindFormat<f64>(const char*, const Observable<f64>&) noexcept {}
 template<> void BindFormat<i32>(const char*, const Observable<i32>&) noexcept {}

@@ -20,7 +20,7 @@ void ExecuteRefractionPass(Assets& a,
                             acs::IRhiCommandList& cl,
                             acs::IRhiTexture& hdr,
                             acs::IRhiTexture& depth,
-                            const acs::Mat4& view_proj,
-                            acs::Vec3 cam_pos) noexcept;
+                            const acs::FMat4& view_proj,
+                            acs::FVec3 cam_pos) noexcept;
 
 } // namespace helloshowcase

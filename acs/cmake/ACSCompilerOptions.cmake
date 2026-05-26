@@ -8,7 +8,7 @@ function(acs_apply_compiler_options tgt)
             /Zc:preprocessor
             /Zc:inline
             /utf-8
-            /EHs-c-          # exceptions disabled (Result<T,E> only)
+            /EHs-c-          # exceptions disabled (TResult<T,E> only)
             /GR-             # RTTI disabled
             /D_HAS_EXCEPTIONS=0
             # 警告抑制（無害／設計意図によるもの・サードパーティ起因）

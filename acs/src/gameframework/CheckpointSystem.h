@@ -58,7 +58,7 @@
 //   cps.ActivateCheckpoint("cp.stage1.secret");
 //
 //   // 死亡時 (HealthSystem の DeathCallback 内)
-//   acs::Vec2 pos; u32 lv;
+//   acs::FVec2 pos; u32 lv;
 //   if (cps.TriggerRespawn(pos, lv)) {
 //       // pos に player を移動、lv のレベルをロードし直す
 //   }
@@ -79,7 +79,7 @@
 //     sort_order は同レベル内で一意に振る前提 (重複は順序未定義)。
 //   ・**requires_unlock フラグ**: 隠し checkpoint / DLC 後アンロックを表現。
 //     UnlockCheckpoint で unlocked リストに id を追加するまで ActivateCheckpoint
-//     は false 返却で no-op。Unlock 状態は別 Array<const char*> で保持し、
+//     は false 返却で no-op。Unlock 状態は別 TArray<const char*> で保持し、
 //     ClearAll で初期化される (Save/Load 連携は外部から照会可能)。
 //   ・**active checkpoint は 1 つだけ**: 「複数同時 active」は本クラスの責務外
 //     (= ジャンルキットを超える概念)。最新の Activate が常に勝つ。
@@ -140,7 +140,7 @@ struct CheckpointId {
 //                   が false を返して no-op。隠し / DLC / 解放鍵連動を表現。
 struct CheckpointInfo {
     const char* id              = nullptr;
-    Vec2        spawn_pos       = Vec2::Zero();
+    FVec2        spawn_pos       = FVec2::Zero();
     u32         level_index     = 0;
     u32         sort_order      = 0;
     bool        one_way         = false;
@@ -148,12 +148,12 @@ struct CheckpointInfo {
 };
 
 // ---- ActivateCallback / RespawnCallback ------------------------------------
-// `void(*)(void* user, const char* checkpoint_id, acs::Vec2 spawn_pos) noexcept;`
+// `void(*)(void* user, const char* checkpoint_id, acs::FVec2 spawn_pos) noexcept;`
 // Activate 成功時 / Respawn 引き出し時にそれぞれ 1 回呼ばれる。
 // user は SetOnXxxCallback で渡したコンテキスト (Manager は所有しない)。
 // checkpoint_id は登録時の id (リテラル) がそのまま渡る。
-using ActivateCallback = void(*)(void* user, const char* checkpoint_id, Vec2 spawn_pos) noexcept;
-using RespawnCallback  = void(*)(void* user, const char* checkpoint_id, Vec2 spawn_pos) noexcept;
+using ActivateCallback = void(*)(void* user, const char* checkpoint_id, FVec2 spawn_pos) noexcept;
+using RespawnCallback  = void(*)(void* user, const char* checkpoint_id, FVec2 spawn_pos) noexcept;
 
 // ---- CheckpointSystem ------------------------------------------------------
 class CheckpointSystem {
@@ -203,9 +203,9 @@ public:
     // 現 active CheckpointId。一度も Activate されていない / 解除された場合 invalid。
     CheckpointId CurrentCheckpoint() const noexcept;
 
-    // 死亡時の復活先座標。active 無しなら Vec2::Zero() を返す
+    // 死亡時の復活先座標。active 無しなら FVec2::Zero() を返す
     // (= caller は TriggerRespawn / CurrentCheckpoint.IsValid() で先に判定すべし)。
-    Vec2 CurrentSpawnPos() const noexcept;
+    FVec2 CurrentSpawnPos() const noexcept;
 
     // 直近に active 化された checkpoint の level_index。一度も Activate されて
     // いない場合は 0 を返す (caller は CurrentCheckpoint() で先に判定すべし)。
@@ -215,7 +215,7 @@ public:
     // 戻り値 true = active checkpoint あり、out_pos / out_level_index を書き出す。
     // false = active 無し (caller は「タイトル戻り」or「レベル先頭」を選ぶ)。
     // 設定された RespawnCallback は true 時のみ発火する。
-    bool TriggerRespawn(Vec2& out_pos, u32& out_level_index) const noexcept;
+    bool TriggerRespawn(FVec2& out_pos, u32& out_level_index) const noexcept;
 
     // ---- 件数照会 -------------------------------------------------------
     u32 CheckpointCount() const noexcept;  // 登録総数 (active な slot のみ)
@@ -269,8 +269,8 @@ private:
     // Activate 共通ロジック (id / handle 版が両方ここを通る)。
     bool ActivateInternal(u32 slot_index) noexcept;
 
-    Array<Slot>          _slots;
-    Array<const char*>   _unlocked;       // unlock された checkpoint id (非所有)
+    TArray<Slot>          _slots;
+    TArray<const char*>   _unlocked;       // unlock された checkpoint id (非所有)
 
     // 現在 active な checkpoint の handle。invalid = 一度も Activate されていない。
     CheckpointId         _current;
@@ -278,13 +278,13 @@ private:
     // 直近に active 化された level_index と spawn_pos。Unregister で active slot
     // が消えても直近値として残しておく (デバッグ表示用)。
     u32                  _last_level_index = 0;
-    Vec2                 _last_spawn_pos   = Vec2::Zero();
+    FVec2                 _last_spawn_pos   = FVec2::Zero();
 
     // active な checkpoint 数 (= active=true な _slots の個数)。
     u32                  _checkpoint_count = 0;
 
     // AllCheckpoints が穴を詰めて返すための一時バッファ (mutable で const 関数から触る)。
-    mutable Array<CheckpointInfo> _scratch;
+    mutable TArray<CheckpointInfo> _scratch;
 
     ActivateCallback     _on_activate      = nullptr;
     void*                _on_activate_user = nullptr;

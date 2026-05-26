@@ -40,14 +40,14 @@ public:
     TlsfAllocator& operator=(const TlsfAllocator&) = delete;
 
     // 単一プールで初期化（pool_base は 16 バイト整列、pool_size >= 1KB 推奨）
-    Result<void> Init(void* pool_base, usize pool_size) noexcept;
+    TResult<void> Init(void* pool_base, usize pool_size) noexcept;
 
     // VmReservation を保持しつつ commit_initial バイトをプールとして登録
-    Result<void> InitWithReservation(VmReservation&& reservation,
+    TResult<void> InitWithReservation(VmReservation&& reservation,
                                      usize commit_initial) noexcept;
 
     // 追加プール登録（既存プール枯渇時など）
-    Result<void> AddPool(void* pool_base, usize pool_size) noexcept;
+    TResult<void> AddPool(void* pool_base, usize pool_size) noexcept;
 
     void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept override;
     void  Free (void* ptr)                                  noexcept override;

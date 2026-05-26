@@ -250,7 +250,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::DsvCpuHandle() const noexcept {
 
 // ファクトリ（Diligent バックエンドが有効化されている場合は Diligent 側に譲る）
 #if !WITH_RENDER_DILIGENT
-Result<UniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
+TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
                                                 const TextureDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
@@ -260,8 +260,8 @@ Result<UniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
     HrResult r = t->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 71, "Dx12Texture::Init failed", static_cast<u32>(r.hr));
-    UniquePtr<IRhiTexture> base(t.Release(), t.GetAllocator());
-    return Result<UniquePtr<IRhiTexture>>(OkInit, Move(base));
+    TUniquePtr<IRhiTexture> base(t.Release(), t.GetAllocator());
+    return TResult<TUniquePtr<IRhiTexture>>(OkInit, Move(base));
 }
 #endif
 

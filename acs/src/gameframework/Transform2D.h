@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B — Transform2D (Phase 5)
 //
-// 2D ノードの位置/回転/スケールを 20 byte の値型で表す。`Mat4` 直接保持より
+// 2D ノードの位置/回転/スケールを 20 byte の値型で表す。`FMat4` 直接保持より
 // 小さく合成が速い、かつ分解が非可逆でない (= 親 transform の rotation/scale を
 // 取り出して使える)。
 //
@@ -23,12 +23,12 @@
 namespace acs::game {
 
 struct Transform2D {
-    Vec2 position{0.0f, 0.0f};
+    FVec2 position{0.0f, 0.0f};
     f32  rotation = 0.0f;     // radians
-    Vec2 scale{1.0f, 1.0f};
+    FVec2 scale{1.0f, 1.0f};
 
     constexpr Transform2D() noexcept = default;
-    constexpr Transform2D(Vec2 pos, f32 rot, Vec2 sca) noexcept
+    constexpr Transform2D(FVec2 pos, f32 rot, FVec2 sca) noexcept
         : position(pos), rotation(rot), scale(sca) {}
 
     // 親の座標系に local を載せた world transform を返す (`world = parent.Compose(local)`)。
@@ -48,11 +48,11 @@ struct Transform2D {
     }
 
     // SpriteBatch 等で 4x4 が必要なときの変換 (Z=0、scale on XY)。
-    Mat4 ToMat4() const noexcept {
+    FMat4 ToMat4() const noexcept {
         const f32 c = Cos(rotation);
         const f32 s = Sin(rotation);
         // T * R * S を row-major で展開 (acs/Math 規約)
-        Mat4 m{};
+        FMat4 m{};
         m.m[0][0] = scale.x * c;   m.m[0][1] = scale.x * s;   m.m[0][2] = 0.0f; m.m[0][3] = 0.0f;
         m.m[1][0] = -scale.y * s;  m.m[1][1] = scale.y * c;   m.m[1][2] = 0.0f; m.m[1][3] = 0.0f;
         m.m[2][0] = 0.0f;          m.m[2][1] = 0.0f;          m.m[2][2] = 1.0f; m.m[2][3] = 0.0f;

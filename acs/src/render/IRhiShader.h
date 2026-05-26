@@ -37,6 +37,6 @@ public:
     virtual usize       BytecodeSize() const noexcept = 0;
 };
 
-Result<UniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const ShaderDesc& desc) noexcept;
+TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const ShaderDesc& desc) noexcept;
 
 } // namespace acs

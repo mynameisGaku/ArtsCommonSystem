@@ -28,7 +28,7 @@ private:
     void SpawnSprites(acs::u32 n) noexcept;
 
     acs::SpriteBatch                 _batch;
-    acs::UniquePtr<acs::IRhiTexture> _tex;
+    acs::TUniquePtr<acs::IRhiTexture> _tex;
     Sprite                           _sprites[kMaxSprites] {};
     acs::u32                         _sprite_count = 0;
 };

@@ -11,15 +11,15 @@ using namespace acs;
 
 namespace helloibl {
 
-void BuildEquirectFromSky(const Sky& sky, Array<f32>& buf) noexcept {
+void BuildEquirectFromSky(const Sky& sky, TArray<f32>& buf) noexcept {
     if (buf.Size() == 0) {
         buf.Resize(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
     }
-    auto safe_sqrt_n = [](Vec3 v) noexcept {
+    auto safe_sqrt_n = [](FVec3 v) noexcept {
         f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
-        if (len2 < 1e-12f) return Vec3{0, 1, 0};
+        if (len2 < 1e-12f) return FVec3{0, 1, 0};
         f32 inv = 1.0f / Sqrt(len2);
-        return Vec3{v.x * inv, v.y * inv, v.z * inv};
+        return FVec3{v.x * inv, v.y * inv, v.z * inv};
     };
     auto smoothstep = [](f32 a, f32 b, f32 x) noexcept {
         f32 t = (x - a) / (b - a);
@@ -27,11 +27,11 @@ void BuildEquirectFromSky(const Sky& sky, Array<f32>& buf) noexcept {
         return t * t * (3.0f - 2.0f * t);
     };
 
-    const Vec3 sun_dir = safe_sqrt_n(sky.SunDirection());
-    const Vec3 sun_col = sky.SunColor();
-    const Vec3 zenith  = sky.ZenithColor();
-    const Vec3 horizon = sky.HorizonColor();
-    const Vec3 ground  = sky.GroundColor();
+    const FVec3 sun_dir = safe_sqrt_n(sky.SunDirection());
+    const FVec3 sun_col = sky.SunColor();
+    const FVec3 zenith  = sky.ZenithColor();
+    const FVec3 horizon = sky.HorizonColor();
+    const FVec3 ground  = sky.GroundColor();
     const f32  sun_r   = sky.SunRadius();
     const f32  sun_g   = sky.SunGlow();
 
@@ -42,9 +42,9 @@ void BuildEquirectFromSky(const Sky& sky, Array<f32>& buf) noexcept {
             const f32 phi_norm = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kEquirectWidth);
             const f32 phi = phi_norm * 2.0f * kPi - kPi;
             // equirect 規約: phi=0 が +Z、theta=0 が +Y
-            const Vec3 dir{ sinT * Sin(phi), cosT, sinT * Cos(phi) };
+            const FVec3 dir{ sinT * Sin(phi), cosT, sinT * Cos(phi) };
 
-            Vec3 sky_col;
+            FVec3 sky_col;
             if (dir.y >= 0.0f) {
                 const f32 k = Pow(Saturate(dir.y), 0.6f);
                 sky_col = horizon * (1.0f - k) + zenith * k;
@@ -69,7 +69,7 @@ void BuildEquirectFromSky(const Sky& sky, Array<f32>& buf) noexcept {
     }
 }
 
-void BuildStudioHdrEquirect(Array<f32>& buf) noexcept {
+void BuildStudioHdrEquirect(TArray<f32>& buf) noexcept {
     if (buf.Size() == 0) {
         buf.Resize(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
     }

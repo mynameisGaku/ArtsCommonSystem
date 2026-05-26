@@ -22,14 +22,14 @@ struct AssetId {
 inline constexpr AssetId kInvalidAssetId = AssetId{0};
 
 // パス文字列から AssetId を生成（同じパスなら同じ ID）
-inline AssetId MakeAssetId(StringView path) noexcept {
+inline AssetId MakeAssetId(FStringView path) noexcept {
     AssetId id;
     id.value = HashBytes(path.Data(), path.Size());
     if (id.value == 0) id.value = 1;  // 0 を「無効」用に予約
     return id;
 }
 
-// HashMap<AssetId, ...> 用ハッシュ特殊化
+// THashMap<AssetId, ...> 用ハッシュ特殊化
 template<> struct Hasher<AssetId> {
     ACS_FORCEINLINE u64 operator()(AssetId id) const noexcept {
         return HashMix64(id.value);

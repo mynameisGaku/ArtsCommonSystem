@@ -243,7 +243,7 @@ Window& Window::operator=(Window&& o) noexcept {
     return *this;
 }
 
-Result<Window> Window::Create(const WindowConfig& cfg) noexcept {
+TResult<Window> Window::Create(const WindowConfig& cfg) noexcept {
     if (!EnsureWindowClass()) {
         return ACS_ERR_OS(OS, 10, "RegisterClassExW failed", ::GetLastError());
     }
@@ -276,7 +276,7 @@ Result<Window> Window::Create(const WindowConfig& cfg) noexcept {
     ::SetPropW(hwnd, kPropKey, &result);
     ::ShowWindow(hwnd, SW_SHOW);
     ::UpdateWindow(hwnd);
-    return Result<Window>(OkInit, Move(result));
+    return TResult<Window>(OkInit, Move(result));
 }
 
 void Window::PollEvents() noexcept {

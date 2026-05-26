@@ -42,7 +42,7 @@
 //   ・**Reset**: 全 category を削除し、frame 履歴もクリア。SetFrameBudget で設定
 //     した frame_budget_ms はリセットされない (頻繁に再定義する想定がない)。
 //   ・**非コピー・非ムーブ**: 履歴 / category 配列の所有権を曖昧にしないため。
-//   ・**STL 不使用**: `acs::Array<BudgetEntry>` / `acs::Array<f32>` を使用。
+//   ・**STL 不使用**: `acs::TArray<BudgetEntry>` / `acs::TArray<f32>` を使用。
 //     `<string>` 禁止。実装側で `<cstring>` (strcmp) のみ許可。
 //
 // 範囲外 (将来 phase で):
@@ -134,7 +134,7 @@ public:
     u32 CategoryCount() const noexcept;
 
     // 全 category を読み取り用に列挙。out_count に件数を書き込み、生ポインタを返す。
-    // 戻り値はクラス所有の内部バッファ (`Array<BudgetEntry>::Data`)。DefineCategory /
+    // 戻り値はクラス所有の内部バッファ (`TArray<BudgetEntry>::Data`)。DefineCategory /
     // Reset 呼出しまで有効。空のときは nullptr を返し out_count = 0。
     const BudgetEntry* AllCategories(u32& out_count) const noexcept;
 
@@ -149,11 +149,11 @@ private:
     // _categories.Size() を返す (= 範囲外)。pointer 同一 → strcmp の順。
     usize FindCategoryIndex(const char* category) const noexcept;
 
-    Array<BudgetEntry> _categories;
+    TArray<BudgetEntry> _categories;
 
     f32  _frame_budget_ms     = 0.0f;   // 0 のとき = フレーム超過判定無効
 
-    Array<f32> _frame_history;          // size <= kFrameHistoryCap、要素は合計 ms
+    TArray<f32> _frame_history;          // size <= kFrameHistoryCap、要素は合計 ms
     u32        _frame_index   = 0u;     // 次に書き込むスロット (mod kFrameHistoryCap)
     bool       _frame_filled  = false;  // 履歴が一周したか (size == cap の意味)
 

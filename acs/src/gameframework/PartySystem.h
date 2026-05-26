@@ -46,12 +46,12 @@
 //     friend_id / display_name の寿命は呼び出し側 (文字列リテラル or 長寿命
 //     バッファ) が保証する。SDK 側で動的取得した名前は呼び出し側で永続バッファに
 //     コピーして渡す責任を負う。
-//   ・**最大メンバ数は固定無し**: Array で動的拡張、現実的に 2〜8 人が大半なので
+//   ・**最大メンバ数は固定無し**: TArray で動的拡張、現実的に 2〜8 人が大半なので
 //     線形走査で十分。Pillar S の plat 制約 (例 PSN は 100 人 group 等) は bridge
 //     側で弾く。
 //   ・**コピー / ムーブ禁止**: party system は通常 1 つの長寿命オブジェクトで運用。
 //     誤って値渡しされて state が分裂すると詰むため、最初から非コピー・非ムーブ。
-//   ・**全 noexcept**: ACS 全体方針 (Result<T, ErrorCode> + bool 戻り値)。
+//   ・**全 noexcept**: ACS 全体方針 (TResult<T, FErrorCode> + bool 戻り値)。
 //
 // 範囲外 (Phase T-2 以降):
 //   ・実 SDK 接続 (SteamworksBridge / EOS / PSN / Xbox / NSO の invite/accept 送受信)
@@ -115,19 +115,19 @@ public:
     // 新規パーティ作成。Solo 状態のみ受理。party_name は const char* 非所有
     // (寿命は呼び出し側保証)。SDK 接続は seam として Joining → InParty に
     // 自動遷移する仮想完了モードで動作 (Phase T-2 で SDK 呼び出しに差し替え)。
-    Result<void> CreateParty(const char* party_name) noexcept;
+    TResult<void> CreateParty(const char* party_name) noexcept;
 
     // 既存パーティに参加。Solo 状態のみ受理。party_id は招待で受け取った
     // SDK 固有 ID。状態を Joining に遷移、Tick で timeout 監視。
-    Result<void> JoinParty(const char* party_id) noexcept;
+    TResult<void> JoinParty(const char* party_id) noexcept;
 
     // 現在のパーティから離脱。InParty 状態のみ受理。状態を Leaving に遷移。
-    Result<void> LeaveParty() noexcept;
+    TResult<void> LeaveParty() noexcept;
 
     // フレンドにパーティ招待を送る。InParty 状態のみ受理、リーダー権限は
     // 呼び出し側で判定する責任 (本 system はフラグ参照のみ)。実 invite 送信は
     // Pillar S = Storefront 側 (SteamworksBridge 等) が担当。
-    Result<void> InviteFriend(const char* friend_id) noexcept;
+    TResult<void> InviteFriend(const char* friend_id) noexcept;
 
     // ----- state query -----
     bool       IsInParty()    const noexcept { return _state == EPartyState::InParty; }
@@ -168,8 +168,8 @@ private:
     const char*        _party_name     = nullptr;   // CreateParty 時に保持 (非所有)
     const char*        _party_id       = nullptr;   // JoinParty 時に保持 (非所有)
     f32                _pending_timer  = 0.0f;      // Joining / Leaving 経過秒
-    Array<PartyMember> _members;
-    Array<Friend>      _friends;
+    TArray<PartyMember> _members;
+    TArray<Friend>      _friends;
 };
 
 } // namespace acs::game

@@ -42,7 +42,7 @@ void FontEditorApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> FontEditorApp::InitialScene() noexcept {
+TUniquePtr<Scene> FontEditorApp::InitialScene() noexcept {
     return MakeUnique<FontEditorScene>();
 }
 

@@ -24,7 +24,7 @@ namespace acs::game {
 
 // ---- Stub: Reader -------------------------------------------------------
 
-Result<void> AssetPackReaderStub::Mount(const char* pack_path) noexcept {
+TResult<void> AssetPackReaderStub::Mount(const char* pack_path) noexcept {
     (void)pack_path;  // 未使用引数 (Stub なので no-op)
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "AssetPackReaderStub: Mount is not implemented (link real AssetPack module)");
@@ -35,24 +35,24 @@ void AssetPackReaderStub::Unmount() noexcept {
     // Mount() 前に呼ばれても安全 (no-op)。
 }
 
-Result<u32> AssetPackReaderStub::FileCount() noexcept {
-    return Result<u32>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
+TResult<u32> AssetPackReaderStub::FileCount() noexcept {
+    return TResult<u32>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                "AssetPackReaderStub: FileCount is not implemented (link real AssetPack module)"));
 }
 
-Result<const char*> AssetPackReaderStub::FileName(u32 index) noexcept {
+TResult<const char*> AssetPackReaderStub::FileName(u32 index) noexcept {
     (void)index;
-    return Result<const char*>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
+    return TResult<const char*>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                        "AssetPackReaderStub: FileName is not implemented (link real AssetPack module)"));
 }
 
-Result<u64> AssetPackReaderStub::FileSize(const char* name) noexcept {
+TResult<u64> AssetPackReaderStub::FileSize(const char* name) noexcept {
     (void)name;
-    return Result<u64>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
+    return TResult<u64>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                "AssetPackReaderStub: FileSize is not implemented (link real AssetPack module)"));
 }
 
-Result<void> AssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept {
+TResult<void> AssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept {
     (void)name;
     (void)out_buffer;
     (void)buffer_size;
@@ -62,13 +62,13 @@ Result<void> AssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u64
 
 // ---- Stub: Writer -------------------------------------------------------
 
-Result<void> AssetPackWriterStub::BeginPack(const char* output_path) noexcept {
+TResult<void> AssetPackWriterStub::BeginPack(const char* output_path) noexcept {
     (void)output_path;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "AssetPackWriterStub: BeginPack is not implemented (link real AssetPack module)");
 }
 
-Result<void> AssetPackWriterStub::AddFile(const char* virtual_name, const u8* data, u64 size) noexcept {
+TResult<void> AssetPackWriterStub::AddFile(const char* virtual_name, const u8* data, u64 size) noexcept {
     (void)virtual_name;
     (void)data;
     (void)size;
@@ -76,7 +76,7 @@ Result<void> AssetPackWriterStub::AddFile(const char* virtual_name, const u8* da
                    "AssetPackWriterStub: AddFile is not implemented (link real AssetPack module)");
 }
 
-Result<void> AssetPackWriterStub::FinishPack() noexcept {
+TResult<void> AssetPackWriterStub::FinishPack() noexcept {
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "AssetPackWriterStub: FinishPack is not implemented (link real AssetPack module)");
 }

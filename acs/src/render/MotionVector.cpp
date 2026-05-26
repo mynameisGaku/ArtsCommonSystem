@@ -70,14 +70,14 @@ PSOut PSMain(VSOut i) {
 // per-object 定数バッファ。curr/prev とも CPU 側で model*VP を合成して渡す。
 // curr_model は法線の world 変換用に別途渡す。
 struct MotionCB {
-    Mat4 curr_mvp;
-    Mat4 prev_mvp;
-    Mat4 curr_model;
+    FMat4 curr_mvp;
+    FMat4 prev_mvp;
+    FMat4 curr_model;
 };
 
 } // namespace
 
-Result<void> MotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> MotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     _device = &device;
     _width  = width  > 0 ? width  : 1;
     _height = height > 0 ? height : 1;
@@ -109,7 +109,7 @@ void MotionVector::Shutdown() noexcept {
     _height = 0;
 }
 
-Result<void> MotionVector::Resize(u32 width, u32 height) noexcept {
+TResult<void> MotionVector::Resize(u32 width, u32 height) noexcept {
     if (!_device) return ACS_ERR(Render, 360, "MotionVector::Resize before Init");
     if (width == 0 || height == 0) return Ok();
     if (width == _width && height == _height) return Ok();
@@ -121,7 +121,7 @@ Result<void> MotionVector::Resize(u32 width, u32 height) noexcept {
     return CreateTargets(*_device, width, height);
 }
 
-Result<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
+TResult<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // motion RT: RG16F。.rg に screen-space motion (prev_uv - curr_uv)。
     TextureDesc md{};
     md.width  = w;
@@ -155,7 +155,7 @@ Result<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexc
     return Ok();
 }
 
-Result<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
     vs_d.stage       = EShaderStage::Vertex;
     vs_d.hlsl_source = kMotionHLSL;
@@ -204,7 +204,7 @@ Result<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
 }
 
 void MotionVector::Begin(IRhiCommandList& cl,
-                         const Mat4& view_proj, const Mat4& prev_view_proj) noexcept {
+                         const FMat4& view_proj, const FMat4& prev_view_proj) noexcept {
     if (!_motion || !_normal || !_depth || !_pipeline) return;
     _vp      = view_proj;
     _prev_vp = prev_view_proj;
@@ -217,7 +217,7 @@ void MotionVector::Begin(IRhiCommandList& cl,
 }
 
 void MotionVector::DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
-                            const Mat4& model, const Mat4& prev_model) noexcept {
+                            const FMat4& model, const FMat4& prev_model) noexcept {
     if (!_cb || !mesh.vertex_buffer || !mesh.index_buffer) return;
     MotionCB cb{};
     cb.curr_mvp   = model      * _vp;

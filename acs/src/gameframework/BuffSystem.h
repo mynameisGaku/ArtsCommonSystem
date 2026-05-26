@@ -15,11 +15,11 @@
 //     `NodeId` / `EmitterHandle` / `TimerHandle` と同一規約。`_packed == 0` を
 //     invalid とし、gen は常に 1 以上で配る (0 は「未使用 slot」を意味する)。
 //     これにより DestroyOwner 後の stale handle を gen 不一致で確実に弾ける。
-//   ・**owner ごとに sparse な buff 配列**: OwnerSlot 内に `Array<BuffInstance>`
+//   ・**owner ごとに sparse な buff 配列**: OwnerSlot 内に `TArray<BuffInstance>`
 //     を持つ。owner 数は数百、各 owner の buff 数は通常 1〜10 程度を想定。
 //     線形検索で十分。SoA にして「全 owner 横断で同じ buff_id を集める」用途は
 //     現状無いので、AoS の単純さを優先。
-//   ・**registry は `Array<BuffDef>`**: BuffDef はゲーム起動時に一括 Register
+//   ・**registry は `TArray<BuffDef>`**: BuffDef はゲーム起動時に一括 Register
 //     される静的データ想定。id は const char* で文字列リテラルを参照する想定
 //     (`<string>` 禁止、所有しない、長寿命を caller が保証)。
 //   ・**EBuffStackPolicy 3 種**:
@@ -44,12 +44,12 @@
 //     その回数分 callback を発火する (= 1 フレで 3 回毒ダメージが入ることもある)。
 //     これは「frame skip でダメージが消える」より「正しく被弾する」方が
 //     ゲームロジック上素直という判断。
-//   ・**expire は Tick の最後にまとめて発火**: ループ中に Array を圧縮すると
+//   ・**expire は Tick の最後にまとめて発火**: ループ中に TArray を圧縮すると
 //     インデックスがずれて bug の温床になる。残寿命 <= 0 になった buff を
 //     swap-and-pop で除去しつつ、その buff の id を一時バッファに記録 → 全
 //     除去完了後にコールバックを呼ぶ流れ。コールバック中に owner や buff が
 //     変化しても安全。
-//   ・**非コピー・非ムーブ**: 内部 Array<OwnerSlot> がさらに Array<BuffInstance>
+//   ・**非コピー・非ムーブ**: 内部 TArray<OwnerSlot> がさらに TArray<BuffInstance>
 //     を持つ二段ネスト構造で、ポインタ参照や AllBuffsOfOwner で生バッファを
 //     返す API があるため。ムーブで実体アドレスが変わると外部参照が破綻する。
 //   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
@@ -209,7 +209,7 @@ public:
     BuffSystem()  noexcept = default;
     ~BuffSystem() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 Array<OwnerSlot> + AllBuffsOfOwner が生バッファを
+    // 非コピー・非ムーブ: 内部 TArray<OwnerSlot> + AllBuffsOfOwner が生バッファを
     // 返す API のため。ムーブで実体アドレスが変わると外部参照が破綻する。
     BuffSystem(const BuffSystem&)            = delete;
     BuffSystem& operator=(const BuffSystem&) = delete;
@@ -298,7 +298,7 @@ private:
     // 各 owner に紐付く buff 配列。`in_use=false` の slot は再利用される。
     // gen は 1 以上で配り、0 は「未使用」を意味する (= packed == 0 と整合)。
     struct OwnerSlot {
-        Array<BuffInstance> buffs {};
+        TArray<BuffInstance> buffs {};
         u8                  gen      = 0u;
         bool                in_use   = false;
     };
@@ -316,8 +316,8 @@ private:
     static u32 FindBuffInstance(const OwnerSlot& slot, const char* buff_id) noexcept;
 
     // ---- 状態 ----------------------------------------------------------
-    Array<BuffDef>   _registry  {};  // BuffDef テーブル (id ベースで find)
-    Array<OwnerSlot> _owners    {};  // OwnerSlot 配列 (generational)
+    TArray<BuffDef>   _registry  {};  // BuffDef テーブル (id ベースで find)
+    TArray<OwnerSlot> _owners    {};  // OwnerSlot 配列 (generational)
 
     TickCallback     _on_tick        = nullptr;
     void*            _on_tick_user   = nullptr;

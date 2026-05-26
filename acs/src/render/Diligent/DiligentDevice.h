@@ -32,7 +32,7 @@ public:
     DiligentDevice& operator=(const DiligentDevice&) = delete;
 
     // 初期化（CreateRhiDevice から呼ばれる）
-    Result<void> Init(const DeviceConfig& cfg) noexcept;
+    TResult<void> Init(const DeviceConfig& cfg) noexcept;
 
     // ---- IRhiDevice ----
     const char* BackendName() const noexcept override { return _backend_name; }
@@ -61,8 +61,8 @@ public:
     void AdvanceFrameSlot() noexcept { _frame_slot = (_frame_slot + 1) % kFramesInFlight; }
 
 private:
-    Result<void> InitD3D12(const DeviceConfig& cfg) noexcept;
-    Result<void> InitVulkan(const DeviceConfig& cfg) noexcept;
+    TResult<void> InitD3D12(const DeviceConfig& cfg) noexcept;
+    TResult<void> InitVulkan(const DeviceConfig& cfg) noexcept;
 
     // Diligent オブジェクトは生ポインタで保持し、Release() を明示的に呼んで破棄する。
     // RefCntAutoPtr を使わずに済ませることでヘッダから Diligent 依存を切り離す。

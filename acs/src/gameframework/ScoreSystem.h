@@ -210,7 +210,7 @@ private:
     static f32 DefaultMultiplierFn(u32 combo) noexcept;
 
     // 加算後の milestone 走査。CurrentScore() が新しい値に更新された直後に
-    // 呼ばれる。_milestones / _milestone_hit を 1:1 並行 Array で管理する。
+    // 呼ばれる。_milestones / _milestone_hit を 1:1 並行 TArray で管理する。
     void CheckMilestones() noexcept;
 
     // ScoreEntry を log に push (capped append)。
@@ -224,11 +224,11 @@ private:
     f32 _combo_duration = 3.0f;
 
     // entry log。最大 kMaxEntries 件で capped append。
-    Array<ScoreEntry> _entries;
+    TArray<ScoreEntry> _entries;
 
-    // milestone 定義と通過済フラグ。1:1 並行 Array (= 同 index で対応)。
-    Array<u64>  _milestones;
-    Array<bool> _milestone_hit;
+    // milestone 定義と通過済フラグ。1:1 並行 TArray (= 同 index で対応)。
+    TArray<u64>  _milestones;
+    TArray<bool> _milestone_hit;
 
     // 差し替え可能な倍率関数 (nullptr = 内部デフォルト)。
     MultiplierFn _multiplier_fn = nullptr;

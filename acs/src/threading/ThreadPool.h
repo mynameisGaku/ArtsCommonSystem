@@ -40,7 +40,7 @@ struct Task {
 class ThreadPool {
 public:
     // 初期化（worker_count=0 で論理 CPU 数を採用、二重 Init はエラー）
-    static Result<void> Init(u32 worker_count = 0) noexcept;
+    static TResult<void> Init(u32 worker_count = 0) noexcept;
     static void         Shutdown() noexcept;
 
     // 起動中のワーカー数
@@ -51,13 +51,13 @@ public:
     static constexpr u32 kNotAWorker = 0xFFFFFFFFu;
 
     // タスク投入（counter が非 null なら自動で Add(1) される）
-    static Result<void> Submit(const Task& t) noexcept;
+    static TResult<void> Submit(const Task& t) noexcept;
 
     // counter が 0 になるまで待つ（待機中もスティーリングに参加）
     static void         Wait(CompletionCounter& counter) noexcept;
 
     // 並列 for ループ（[begin, end) を grain サイズに分割して投入＆Wait）
-    static Result<void> ParallelFor(u32 begin, u32 end, u32 grain,
+    static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain,
                                     void (*body)(u32 i, u32 worker_index, void* user),
                                     void* user) noexcept;
 };

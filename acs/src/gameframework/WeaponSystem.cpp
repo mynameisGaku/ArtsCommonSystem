@@ -71,7 +71,7 @@ void WeaponSystem::RegisterWeapon(const WeaponDef& def) noexcept {
     }
 
     _defs.PushBack(def);
-    // 並行 Array — reserve は 0、mag も 0 で初期化。EquipWeapon 時に新規装備の
+    // 並行 TArray — reserve は 0、mag も 0 で初期化。EquipWeapon 時に新規装備の
     // mag が 0 のままだと使い物にならないので、Equip 時に「初装備なら mag_size
     // まで充填する」フォールバックを入れる (詳細は EquipWeapon 参照)。
     ReserveSlot slot;

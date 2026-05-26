@@ -37,7 +37,7 @@ private:
     acs::GpuMesh _gm_sphere, _gm_plane, _gm_cube;
 
     acs::Camera _camera;
-    acs::Vec3   _cam_pos{0, 1.5f, -5.0f};
+    acs::FVec3   _cam_pos{0, 1.5f, -5.0f};
     acs::f32    _cam_yaw   = 0.0f;
     acs::f32    _cam_pitch = 0.0f;
     acs::f32    _angle     = 0.0f;

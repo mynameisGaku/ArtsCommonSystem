@@ -9,8 +9,8 @@ namespace acs::game {
 
 // ====== ヘルパ ======================================================
 
-Vec2 CameraStack::LerpVec2(Vec2 a, Vec2 b, f32 t) noexcept {
-    return Vec2{Lerp(a.x, b.x, t), Lerp(a.y, b.y, t)};
+FVec2 CameraStack::LerpVec2(FVec2 a, FVec2 b, f32 t) noexcept {
+    return FVec2{Lerp(a.x, b.x, t), Lerp(a.y, b.y, t)};
 }
 
 f32 CameraStack::LerpZoom(f32 a, f32 b, f32 t) noexcept {
@@ -89,16 +89,16 @@ void CameraStack::Clear() noexcept {
 
 // ====== Effective* (描画側が読む) ====================================
 
-Vec2 CameraStack::EffectivePosition() const noexcept {
-    if (_entries.IsEmpty()) return Vec2{0.0f, 0.0f};
+FVec2 CameraStack::EffectivePosition() const noexcept {
+    if (_entries.IsEmpty()) return FVec2{0.0f, 0.0f};
     const CameraEntry& top = _entries.Back();
-    const Vec2 top_pos = top.cam->EffectiveViewCenter();
+    const FVec2 top_pos = top.cam->EffectiveViewCenter();
     // 1 枚しか無い or blend 完了 → top をそのまま。
     if (_entries.Size() < 2u || top.blend_t >= 1.0f || top.blend_duration <= 0.0f) {
         return top_pos;
     }
     const CameraEntry& under = _entries[_entries.Size() - 2u];
-    const Vec2 under_pos = under.cam->EffectiveViewCenter();
+    const FVec2 under_pos = under.cam->EffectiveViewCenter();
     // is_in=true  : under → top (進捗 t で top に近づく)
     // is_in=false : top  → under (進捗 t で under に近づく)
     return top.is_in ? LerpVec2(under_pos, top_pos, top.blend_t)

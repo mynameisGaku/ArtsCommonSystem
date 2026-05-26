@@ -49,7 +49,7 @@
 //
 // ACS 規約遵守:
 //   ・STL 不使用 / `<string>` 不使用 (文字列は `const char*` のみ)
-//   ・例外不使用、エラーは `Result<T, ErrorCode>` で伝搬
+//   ・例外不使用、エラーは `TResult<T, FErrorCode>` で伝搬
 //   ・全 noexcept
 //   ・stub class はシングルトン運用前提で コピー / ムーブ禁止
 #pragma once
@@ -98,7 +98,7 @@ public:
     virtual ~IMlRuntime() noexcept = default;
 
     // backend を初期化 (DLL 読み込み / セッション作成 / GPU 取得 等)。
-    virtual Result<void> Init() noexcept = 0;
+    virtual TResult<void> Init() noexcept = 0;
 
     // backend を破棄 (LoadModel 済みハンドルも全解放してよい)。
     virtual void Shutdown() noexcept = 0;
@@ -106,17 +106,17 @@ public:
     // モデルファイルを読み込んでハンドルを返す。
     // ・`model_path` は呼び出し側が寿命を保証する文字列リテラル / 長寿命バッファ。
     // ・`nullptr` 渡しは失敗とする (実装側で防御)。
-    virtual Result<MlModelHandle> LoadModel(const char* model_path) noexcept = 0;
+    virtual TResult<MlModelHandle> LoadModel(const char* model_path) noexcept = 0;
 
     // ハンドルを解放。無効ハンドル渡しは no-op 相当 (Ok を返してよい)。
-    virtual Result<void> UnloadModel(MlModelHandle h) noexcept = 0;
+    virtual TResult<void> UnloadModel(MlModelHandle h) noexcept = 0;
 
     // 推論を 1 回実行。
     // ・`inputs` / `outputs` は呼び出し側が確保する f32 配列。
     // ・`in_count` / `out_count` はモデル定義と一致する必要がある (mismatch は失敗)。
     // ・**この呼び出しはブロッキング**。GPU バックエンドでも同期完了まで戻らない。
     //   非同期推論は Phase U-2 で別 API として追加予定。
-    virtual Result<void> RunInference(MlModelHandle h,
+    virtual TResult<void> RunInference(MlModelHandle h,
                                       const f32* inputs,  u32 in_count,
                                       f32*       outputs, u32 out_count) noexcept = 0;
 
@@ -142,11 +142,11 @@ public:
     MlRuntimeStub() noexcept = default;
     ~MlRuntimeStub() noexcept override = default;
 
-    Result<void>            Init()                                       noexcept override;
+    TResult<void>            Init()                                       noexcept override;
     void                    Shutdown()                                   noexcept override;
-    Result<MlModelHandle>   LoadModel(const char* model_path)            noexcept override;
-    Result<void>            UnloadModel(MlModelHandle h)                 noexcept override;
-    Result<void>            RunInference(MlModelHandle h,
+    TResult<MlModelHandle>   LoadModel(const char* model_path)            noexcept override;
+    TResult<void>            UnloadModel(MlModelHandle h)                 noexcept override;
+    TResult<void>            RunInference(MlModelHandle h,
                                          const f32* inputs,  u32 in_count,
                                          f32*       outputs, u32 out_count) noexcept override;
 };
@@ -176,7 +176,7 @@ public:
 
     // 指定 kind で初期化。`Off` の場合は no-op 成功でよい。
     // 既に Init 済みの状態で再呼出した場合の挙動は実装定義 (推奨: 失敗を返す)。
-    virtual Result<void> Init(EUpscalerKind k) noexcept = 0;
+    virtual TResult<void> Init(EUpscalerKind k) noexcept = 0;
 
     // 現在 active な kind。Init 前 / Shutdown 後は Off を返す。
     virtual EUpscalerKind ActiveKind() const noexcept = 0;
@@ -218,7 +218,7 @@ public:
     UpscalerStub() noexcept = default;
     ~UpscalerStub() noexcept override = default;
 
-    Result<void> Init(EUpscalerKind k)     noexcept override;
+    TResult<void> Init(EUpscalerKind k)     noexcept override;
     EUpscalerKind ActiveKind()       const noexcept override { return _kind; }
     void         Shutdown()               noexcept override { _kind = EUpscalerKind::Off; }
 

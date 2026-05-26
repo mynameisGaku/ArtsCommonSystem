@@ -22,8 +22,8 @@ void HitEffects::Init(ParticleEffectSystem& particles) noexcept {
     pdef.speed_max         = 4.5f;
     pdef.scale_start       = 0.3f;
     pdef.scale_end         = 0.0f;
-    pdef.gravity           = Vec2{0.0f, 0.0f};
-    _hit_emitter = particles.CreateEmitter(pdef, Vec2{0.0f, 0.0f});
+    pdef.gravity           = FVec2{0.0f, 0.0f};
+    _hit_emitter = particles.CreateEmitter(pdef, FVec2{0.0f, 0.0f});
     // 連続発射はせず、Burst だけ使うので非アクティブで開始する。
     particles.SetEmitterActive(_hit_emitter, false);
 }
@@ -41,18 +41,18 @@ void HitEffects::Tick(GameplayScene& scene, f32 dt) noexcept {
     }
 }
 
-void HitEffects::TriggerPlayerHurt(GameplayScene& scene, Vec2 pos) noexcept {
+void HitEffects::TriggerPlayerHurt(GameplayScene& scene, FVec2 pos) noexcept {
     _fx.TriggerShake(0.9f);
     scene.GetParticles().SetEmitterPosition(_hit_emitter, pos);
     scene.GetParticles().Burst(_hit_emitter);
     static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_player_hurt", 1.0f);
 }
 
-void HitEffects::TriggerEnemyHit(GameplayScene& scene, Vec2 pos) noexcept {
+void HitEffects::TriggerEnemyHit(GameplayScene& scene, FVec2 pos) noexcept {
     scene.GetParticles().SetEmitterPosition(_hit_emitter, pos);
     scene.GetParticles().Burst(_hit_emitter);
     _fx.TriggerShake(0.35f);
-    _fx.Flash(Vec3{1.0f, 0.95f, 0.7f}, 0.25f, 0.08f);
+    _fx.Flash(FVec3{1.0f, 0.95f, 0.7f}, 0.25f, 0.08f);
     static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_enemy_hit", 0.8f);
 }
 
@@ -67,7 +67,7 @@ void HitEffects::DrawParticles(const ParticleEffectSystem& particles,
         const f32 t   = p.NormalizedAge();
         const f32 inv = 1.0f - t;
         const f32 scale = p.scale_start * inv + p.scale_end * t;
-        const Vec3 col  = Vec3{
+        const FVec3 col  = FVec3{
             p.color_start.x * inv + p.color_end.x * t,
             p.color_start.y * inv + p.color_end.y * t,
             p.color_start.z * inv + p.color_end.z * t,
@@ -75,7 +75,7 @@ void HitEffects::DrawParticles(const ParticleEffectSystem& particles,
         const f32 alpha = inv;
         const f32 hs    = scale * 0.5f;
         sb.DrawRect(p.position.x - hs, p.position.y - hs, scale, scale,
-                    Vec4{col.x, col.y, col.z, alpha});
+                    FVec4{col.x, col.y, col.z, alpha});
     }
 }
 

@@ -156,7 +156,7 @@ private:
     // (= 呼び出し側で skip 判定用)。
     static u32 IndexOf(EFlowState s) noexcept { return static_cast<u32>(s); }
 
-    Array<StateSlot> _states;          // size = kFlowStateCount
+    TArray<StateSlot> _states;          // size = kFlowStateCount
     bool             _allowed[kFlowStateCount][kFlowStateCount] = {};
     bool             _initialized      = false;
 

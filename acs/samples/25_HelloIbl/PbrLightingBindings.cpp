@@ -22,8 +22,8 @@ void BindIbl(HelloIblApp& app) noexcept {
     app._pbr.SetSh9(app._use_sh9 ? app._sh9 : nullptr);
 }
 
-void BindSun(HelloIblApp& app, const Mat4& vp_for_render, const DirLight& sun) noexcept {
-    app._pbr.SetLights(vp_for_render, app._camera.Eye(), &sun, 1, Vec3{0, 0, 0});
+void BindSun(HelloIblApp& app, const FMat4& vp_for_render, const DirLight& sun) noexcept {
+    app._pbr.SetLights(vp_for_render, app._camera.Eye(), &sun, 1, FVec3{0, 0, 0});
     app._pbr.SetPointLights(nullptr, 0);
 }
 
@@ -59,7 +59,7 @@ void BindSsr(HelloIblApp& app) noexcept {
 
 void BindShadow(HelloIblApp& app) noexcept {
     if (app._use_shadows) {
-        Mat4 vps   [ShadowMap::kMaxCascades] = {};
+        FMat4 vps   [ShadowMap::kMaxCascades] = {};
         f32  splits[ShadowMap::kMaxCascades] = {};
         for (u32 c = 0; c < app._shadow.CascadeCount(); ++c) {
             vps[c]    = app._shadow.LightViewProjection(c);
@@ -70,16 +70,16 @@ void BindShadow(HelloIblApp& app) noexcept {
                                       /*bias=*/0.002f,
                                       /*texel_size=*/1.0f / static_cast<f32>(app._shadow.Size()));
     } else {
-        app._pbr.SetShadowMap(nullptr, Mat4{}, 0, 0);
+        app._pbr.SetShadowMap(nullptr, FMat4{}, 0, 0);
     }
 }
 
 void BindFog(HelloIblApp& app) noexcept {
     // 灰色 fog、密度 0.12 / 高さ減衰 0.2
     if (app._use_fog) {
-        app._pbr.SetFog(Vec3{0.65f, 0.7f, 0.8f}, 0.12f, 0.2f, 0.0f);
+        app._pbr.SetFog(FVec3{0.65f, 0.7f, 0.8f}, 0.12f, 0.2f, 0.0f);
     } else {
-        app._pbr.SetFog(Vec3{0, 0, 0}, 0.0f);
+        app._pbr.SetFog(FVec3{0, 0, 0}, 0.0f);
     }
 }
 
@@ -87,13 +87,13 @@ void BindProbeGrid(HelloIblApp& app) noexcept {
     if (app._use_probe_grid) {
         // 計算済 _sh9 (現 env の SH9) をベースに、左右の probe を赤/青に着色
         PbrShader::LightProbe p[2];
-        p[0].position = Vec3{-4.0f, 1.5f, 3.0f};   // 左 probe (赤光)
+        p[0].position = FVec3{-4.0f, 1.5f, 3.0f};   // 左 probe (赤光)
         for (u32 k = 0; k < 9; ++k) p[0].sh9[k] = app._sh9[k];
-        p[0].sh9[0] = p[0].sh9[0] + Vec4{2.5f, 0.4f, 0.4f, 0};   // l=0 (DC) に赤を強める
+        p[0].sh9[0] = p[0].sh9[0] + FVec4{2.5f, 0.4f, 0.4f, 0};   // l=0 (DC) に赤を強める
 
-        p[1].position = Vec3{+4.0f, 1.5f, 3.0f};   // 右 probe (青光)
+        p[1].position = FVec3{+4.0f, 1.5f, 3.0f};   // 右 probe (青光)
         for (u32 k = 0; k < 9; ++k) p[1].sh9[k] = app._sh9[k];
-        p[1].sh9[0] = p[1].sh9[0] + Vec4{0.4f, 0.4f, 2.5f, 0};
+        p[1].sh9[0] = p[1].sh9[0] + FVec4{0.4f, 0.4f, 2.5f, 0};
 
         app._pbr.SetProbeGrid(p, 2);
         app._need_sh9_rebuild = true;       // SH9 base が古ければ次フレームで再計算
@@ -106,10 +106,10 @@ void BindAreaLight(HelloIblApp& app) noexcept {
     // 球グリッドの前方上空に置いた 2x1 矩形パネル
     if (app._use_area_light) {
         PbrShader::AreaLight rect;
-        rect.center = Vec3{0.0f, 4.0f, 1.0f};      // 上空、camera 側
-        rect.axis_x = Vec3{1.0f, 0.0f, 0.0f};      // 横半幅 = 1
-        rect.axis_y = Vec3{0.0f, 0.0f, 0.5f};      // 奥行半高 = 0.5
-        rect.color  = Vec3{5.0f, 4.5f, 3.5f};      // 暖色 HDR
+        rect.center = FVec3{0.0f, 4.0f, 1.0f};      // 上空、camera 側
+        rect.axis_x = FVec3{1.0f, 0.0f, 0.0f};      // 横半幅 = 1
+        rect.axis_y = FVec3{0.0f, 0.0f, 0.5f};      // 奥行半高 = 0.5
+        rect.color  = FVec3{5.0f, 4.5f, 3.5f};      // 暖色 HDR
         app._pbr.SetAreaLights(&rect, 1);
     } else {
         app._pbr.SetAreaLights(nullptr, 0);
@@ -118,7 +118,7 @@ void BindAreaLight(HelloIblApp& app) noexcept {
 
 } // anonymous namespace
 
-void BindPbrLighting(HelloIblApp& app, const Mat4& vp_for_render, const DirLight& sun) noexcept {
+void BindPbrLighting(HelloIblApp& app, const FMat4& vp_for_render, const DirLight& sun) noexcept {
     BindIbl(app);
     BindSun(app, vp_for_render, sun);
     BindSsao(app);

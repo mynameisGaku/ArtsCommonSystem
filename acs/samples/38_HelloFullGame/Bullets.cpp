@@ -32,8 +32,8 @@ void Bullets::Shutdown(ProjectileSystem& sys) noexcept {
     sys.ClearAll();
 }
 
-void Bullets::Fire(GameplayScene& scene, Vec2 from, Vec2 dir_unit) noexcept {
-    const Vec2 vel = dir_unit * kBulletSpeed;
+void Bullets::Fire(GameplayScene& scene, FVec2 from, FVec2 dir_unit) noexcept {
+    const FVec2 vel = dir_unit * kBulletSpeed;
     const ProjectileId pid = scene.GetProjectiles().Spawn(
         kBulletDefId, from, vel, /*owner_id=*/1u, kBulletDamage);
     if (!pid.IsValid()) return;
@@ -52,15 +52,15 @@ void Bullets::DrawAll(const ProjectileSystem& sys, SpriteBatch& sb,
     constexpr u32 kSteps = 32;
 
     for (u32 i = 0; i < n; ++i) {
-        const Vec2 p = bs[i].position;
-        const Vec2 v = bs[i].velocity;
+        const FVec2 p = bs[i].position;
+        const FVec2 v = bs[i].velocity;
         for (u32 s = 1; s <= kSteps; ++s) {
             const f32 t = static_cast<f32>(s) / static_cast<f32>(kSteps);
-            const Vec2 tp = Vec2{ p.x - v.x * trail_sec * t,
+            const FVec2 tp = FVec2{ p.x - v.x * trail_sec * t,
                                    p.y - v.y * trail_sec * t };
             const f32 a = (1.0f - t) * 0.65f;
             sb.DrawRect(tp.x - kBulletRadius, tp.y - kBulletRadius, sz, sz,
-                        Vec4{ kColorBullet.x, kColorBullet.y, kColorBullet.z,
+                        FVec4{ kColorBullet.x, kColorBullet.y, kColorBullet.z,
                               kColorBullet.w * a });
         }
         sb.DrawRect(p.x - kBulletRadius, p.y - kBulletRadius, sz, sz, kColorBullet);

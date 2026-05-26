@@ -22,7 +22,7 @@
 //   // ...
 //
 //   if (const SpriteFrame* frame = pack.FindFrame("Idle_00"); frame != nullptr) {
-//       acs::Vec4 uv = pack.ComputeUv(*frame); // {u0, v0, u1, v1}
+//       acs::FVec4 uv = pack.ComputeUv(*frame); // {u0, v0, u1, v1}
 //       // → DrawSprite(uv, ...)
 //   }
 //
@@ -37,7 +37,7 @@
 //     場合は Init/AddFrame を再呼出しすることで上書き or 別 instance を作る。
 //   ・ComputeUv は atlas_width/atlas_height が 0 の場合に 0 除算を避け {0,0,0,0}
 //     を返す。SpriteAnimator と同様、不正状態でも crash しないことを優先。
-//   ・RemoveFrame は順序非保持の swap remove (= 内部 Array::RemoveAtSwap 相当)。
+//   ・RemoveFrame は順序非保持の swap remove (= 内部 TArray::RemoveAtSwap 相当)。
 //     animation はインデックスではなく名前で参照する前提なので順序破壊は許容。
 #pragma once
 
@@ -115,11 +115,11 @@ public:
     // UV 計算ヘルパ: frame の矩形を atlas size で割って [0,1] UV を返す。
     // 戻り値は {u0, v0, u1, v1}。atlas_width / atlas_height が 0 のときは
     // 0 除算を避け {0, 0, 0, 0} を返す (= 不正状態でも crash させない)。
-    acs::Vec4 ComputeUv(const SpriteFrame& frame) const noexcept;
+    acs::FVec4 ComputeUv(const SpriteFrame& frame) const noexcept;
 
 private:
     SpritePackInfo     _info;
-    Array<SpriteFrame> _frames;
+    TArray<SpriteFrame> _frames;
 };
 
 } // namespace acs::game

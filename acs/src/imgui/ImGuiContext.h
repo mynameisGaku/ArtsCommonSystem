@@ -36,7 +36,7 @@ public:
     ImGuiCtx& operator=(const ImGuiCtx&) = delete;
 
     // 初期化（Window と Renderer に紐付け）
-    Result<void> Init(Window& window, Renderer& renderer) noexcept;
+    TResult<void> Init(Window& window, Renderer& renderer) noexcept;
 
     // 解放
     void Shutdown() noexcept;

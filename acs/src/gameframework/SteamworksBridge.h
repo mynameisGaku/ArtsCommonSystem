@@ -35,7 +35,7 @@
 //   ・**所有しない const char*** : 文字列は呼び出し側 / プラットフォーム SDK の
 //     ライフタイムに従う。Bridge はコピーしない (STL <string> 不使用方針)。
 //     利用側は GetLocalPlayer() の戻り値を「ティック内のみ有効」と扱うこと。
-//   ・**Result<T, ErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
+//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
 //     成功を返し、他は ACS_ERR(Generic, kSubNotImplemented, "...") を返す。
 //   ・**Tick(dt) は必須**: Steamworks の `SteamAPI_RunCallbacks()` 相当を Bridge 側に
 //     畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバックポンプの存在を
@@ -57,7 +57,7 @@
 
 namespace acs::game {
 
-// ---- ErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
+// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
 // 本来は ErrCategory に NotImplemented を足したい所だが、Foundation の enum 変更は
 // 影響が広いため Phase 1 では Generic + 安定 subcode で表現する。
 // 利用側は `err.subcode == kSubSteamworksNotImplemented` でフィルタ可能。
@@ -87,9 +87,9 @@ public:
     ISteamworksBridge(ISteamworksBridge&&)                 = delete;
     ISteamworksBridge& operator=(ISteamworksBridge&&)      = delete;
 
-    // SDK 初期化。失敗は SDK 固有のエラーを Result で返す。多重呼び出し可否は
+    // SDK 初期化。失敗は SDK 固有のエラーを TResult で返す。多重呼び出し可否は
     // 実装依存だが、Stub は何度呼んでも成功を返す。
-    virtual Result<void> Init() noexcept = 0;
+    virtual TResult<void> Init() noexcept = 0;
 
     // SDK 終了処理。Init() 前に呼んでも安全 (no-op)。
     virtual void Shutdown() noexcept = 0;
@@ -102,14 +102,14 @@ public:
 
     // 実績解除。ach_id はプラットフォームの実績 ID 文字列 ("ACH_BOSS_01" 等)。
     // 既に解除済みの場合の振る舞いは SDK 依存 (大抵は no-op で成功)。
-    virtual Result<void> UnlockAchievement(const char* ach_id) noexcept = 0;
+    virtual TResult<void> UnlockAchievement(const char* ach_id) noexcept = 0;
 
     // リーダーボードへスコアを送信。board_id は実績と同じく文字列キー。
     // 既存値より低いかどうかは SDK 側の「上書きポリシー」設定に依存。
-    virtual Result<void> SetLeaderboardScore(const char* board_id, i64 score) noexcept = 0;
+    virtual TResult<void> SetLeaderboardScore(const char* board_id, i64 score) noexcept = 0;
 
     // 自分の現在スコアを取得。未投稿時は 0 / エラーいずれかを返す (実装依存)。
-    virtual Result<i64> GetLeaderboardScore(const char* board_id) noexcept = 0;
+    virtual TResult<i64> GetLeaderboardScore(const char* board_id) noexcept = 0;
 
     // コールバックポンプ。Steamworks では SteamAPI_RunCallbacks() 相当。
     // ゲームループから毎フレーム呼ぶこと。dt は実時間秒 (実装によっては使わない)。
@@ -127,13 +127,13 @@ public:
     SteamworksBridgeStub() noexcept = default;
     ~SteamworksBridgeStub() noexcept override = default;
 
-    Result<void>    Init() noexcept override;
+    TResult<void>    Init() noexcept override;
     void            Shutdown() noexcept override;
     bool            IsInitialized() const noexcept override { return _initialized; }
     PlayerIdentity  GetLocalPlayer() const noexcept override;
-    Result<void>    UnlockAchievement(const char* ach_id) noexcept override;
-    Result<void>    SetLeaderboardScore(const char* board_id, i64 score) noexcept override;
-    Result<i64>     GetLeaderboardScore(const char* board_id) noexcept override;
+    TResult<void>    UnlockAchievement(const char* ach_id) noexcept override;
+    TResult<void>    SetLeaderboardScore(const char* board_id, i64 score) noexcept override;
+    TResult<i64>     GetLeaderboardScore(const char* board_id) noexcept override;
     void            Tick(f32 dt) noexcept override;
 
     // 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。

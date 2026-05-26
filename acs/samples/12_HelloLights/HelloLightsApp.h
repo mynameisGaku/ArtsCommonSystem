@@ -32,7 +32,7 @@ private:
     acs::SpriteBatch        _batch;
     acs::Font               _font;
     acs::Camera             _camera;
-    acs::Vec3               _cam_pos    {0, 3, -8};
+    acs::FVec3               _cam_pos    {0, 3, -8};
     acs::f32                _cam_yaw    = 0.0f;
     acs::f32                _cam_pitch  = 0.0f;
     acs::f32                _time       = 0.0f;

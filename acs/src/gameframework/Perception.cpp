@@ -11,7 +11,7 @@
 //                     (cos は [0, π] で単調減少なので不等号が反転する)。
 //
 //   distance 0 の特殊ケース: target が eye の位置に重なっている場合、
-//   方向ベクトルが未定義になるため normalize は 0 を返す (Vec2 仕様)。
+//   方向ベクトルが未定義になるため normalize は 0 を返す (FVec2 仕様)。
 //   この場合は dot = 0 となり fov 90 度未満では false 判定されてしまうが、
 //   "足下の敵を見失う" のは違和感が大きいので、距離 0 は無条件 visible と扱う。
 //
@@ -35,12 +35,12 @@ void Perception::SetConfig(const SenseConfig& cfg) noexcept {
 
 // ---- SetEyePos --------------------------------------------------------------
 
-void Perception::SetEyePos(Vec2 pos, Vec2 forward) noexcept {
+void Perception::SetEyePos(FVec2 pos, FVec2 forward) noexcept {
     _eye_pos = pos;
     // 呼び出し側で正規化されている前提だが、長さ 0 のベクトルが渡されると
     // 視覚判定が全て fail する。フォールバックとして +X を入れて挙動を安定させる。
     if (LengthSq(forward) <= 0.0f) {
-        _eye_forward = Vec2{1.0f, 0.0f};
+        _eye_forward = FVec2{1.0f, 0.0f};
     } else {
         _eye_forward = forward;
     }
@@ -59,7 +59,7 @@ usize Perception::FindIndexById(u32 id) const noexcept {
 
 // ---- AddTarget --------------------------------------------------------------
 
-void Perception::AddTarget(u32 id, Vec2 pos) noexcept {
+void Perception::AddTarget(u32 id, FVec2 pos) noexcept {
     // 同一 id が既存ならば「位置を更新するだけ」のセマンティクス。
     // これにより呼び出し側が "Add 前に Remove が必要か" を判断しなくて済む。
     const usize idx = FindIndexById(id);
@@ -86,7 +86,7 @@ void Perception::RemoveTarget(u32 id) noexcept {
 
 // ---- UpdateTarget -----------------------------------------------------------
 
-void Perception::UpdateTarget(u32 id, Vec2 pos) noexcept {
+void Perception::UpdateTarget(u32 id, FVec2 pos) noexcept {
     const usize idx = FindIndexById(id);
     if (idx >= _targets.Size()) return;   // 削除済み target への Update は no-op
     _targets[idx].pos = pos;
@@ -132,7 +132,7 @@ void Perception::Tick(f32 /*dt*/) noexcept {
     const usize n = _targets.Size();
     for (usize i = 0; i < n; ++i) {
         PerceptionTarget& t = _targets[i];
-        const Vec2 delta    = t.pos - _eye_pos;
+        const FVec2 delta    = t.pos - _eye_pos;
         const f32  dist_sq  = LengthSq(delta);
 
         // ----- 聴覚 (距離のみ、視野角無関係) -----
@@ -152,7 +152,7 @@ void Perception::Tick(f32 /*dt*/) noexcept {
         // 視野角判定: dot(forward, normalize(delta)) >= cos(fov/2)
         //   forward は単位ベクトル、normalize(delta) も単位ベクトルなので
         //   両者の dot は cos(角度差) に等しい。
-        const Vec2 dir = Normalize(delta);
+        const FVec2 dir = Normalize(delta);
         const f32  d   = Dot(_eye_forward, dir);
         t.is_visible   = (d >= _cos_half_fov);
     }

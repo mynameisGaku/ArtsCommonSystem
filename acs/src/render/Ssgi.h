@@ -38,9 +38,9 @@ public:
     Ssgi(const Ssgi&) = delete;
     Ssgi& operator=(const Ssgi&) = delete;
 
-    Result<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
     void Shutdown() noexcept;
-    Result<void> Resize(u32 width, u32 height) noexcept;
+    TResult<void> Resize(u32 width, u32 height) noexcept;
 
     // SSGI を計算して内部 RT に書く (raw → blur → temporal の 3 pass)。
     //   scene_color: 現在フレームの HDR scene RT
@@ -58,10 +58,10 @@ public:
                 IRhiTexture& scene_color,
                 IRhiTexture& scene_depth,
                 IRhiTexture& normal_gbuffer,
-                const Mat4& view_proj,
-                const Mat4& inv_view_proj,
-                const Mat4& prev_view_proj,
-                Vec3 eye,
+                const FMat4& view_proj,
+                const FMat4& inv_view_proj,
+                const FMat4& prev_view_proj,
+                FVec3 eye,
                 f32 intensity   = 1.0f,
                 f32 max_distance = 5.0f,
                 IRhiTexture* motion_texture = nullptr) noexcept;
@@ -74,24 +74,24 @@ public:
     IRhiTexture* RawTexture()    const noexcept { return _output.Get(); }
 
 private:
-    Result<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
-    Result<void> CreatePipeline(IRhiDevice& device) noexcept;
+    TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
+    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
     IRhiDevice*             _device = nullptr;
     u32                     _width  = 0;
     u32                     _height = 0;
 
-    UniquePtr<IRhiTexture>  _output;       // SSGI raw
-    UniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 33c-2)
-    UniquePtr<IRhiTexture>  _history[2];   // temporal accumulation ping-pong (Phase 33c-3)
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiShader>   _blur_ps;      // Phase 33c-2
-    UniquePtr<IRhiShader>   _temporal_ps;  // Phase 33c-3
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiPipeline> _blur_pipeline;    // Phase 33c-2
-    UniquePtr<IRhiPipeline> _temporal_pipeline;// Phase 33c-3
-    UniquePtr<IRhiBuffer>   _cb;
+    TUniquePtr<IRhiTexture>  _output;       // SSGI raw
+    TUniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 33c-2)
+    TUniquePtr<IRhiTexture>  _history[2];   // temporal accumulation ping-pong (Phase 33c-3)
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiShader>   _blur_ps;      // Phase 33c-2
+    TUniquePtr<IRhiShader>   _temporal_ps;  // Phase 33c-3
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiPipeline> _blur_pipeline;    // Phase 33c-2
+    TUniquePtr<IRhiPipeline> _temporal_pipeline;// Phase 33c-3
+    TUniquePtr<IRhiBuffer>   _cb;
     u32                     _temporal_frame = 0;
 };
 

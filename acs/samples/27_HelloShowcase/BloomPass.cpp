@@ -13,8 +13,8 @@ void ExecuteBloomPass(Assets& a, IRhiCommandList& cl,
                       IRhiSwapchain& sc, u32 buffer_index,
                       IRhiTexture& depth,
                       PostProcessParams& post_params,
-                      const Mat4& vp_no_jitter,
-                      const Mat4& prev_vp_no_jitter,
+                      const FMat4& vp_no_jitter,
+                      const FMat4& prev_vp_no_jitter,
                       bool prev_vp_valid,
                       IRhiTexture* motion_or_null) noexcept {
     // TAA: motion vector + (前 VP が valid なら) depth を渡し、history を

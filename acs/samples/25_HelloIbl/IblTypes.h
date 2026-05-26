@@ -23,8 +23,8 @@ inline constexpr acs::u32 kEquirectHeight = 128;
 inline constexpr acs::u32 kDynCount = 3;
 
 // ガラス球のワールド配置。clear (左) / frosted (右)。
-inline constexpr acs::Vec3 kGlassPos       {-1.4f, 1.5f, 0.0f};
-inline constexpr acs::Vec3 kFrostedGlassPos{ 1.4f, 1.5f, 0.0f};
+inline constexpr acs::FVec3 kGlassPos       {-1.4f, 1.5f, 0.0f};
+inline constexpr acs::FVec3 kFrostedGlassPos{ 1.4f, 1.5f, 0.0f};
 
 // Halton(i, b) ∈ [0, 1): low-discrepancy 1D sequence used as TAA sub-pixel jitter.
 // 2 つの異なる base (典型的に 2, 3) で xy ペアを作る (Halton(2,3) sequence)。

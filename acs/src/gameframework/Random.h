@@ -17,7 +17,7 @@
 //   acs::game::Random r(0x12345678ULL);
 //   f32 t = r.NextF32Unit();                 // [0,1)
 //   i32 d = r.RangeInt(1, 6);                // dice roll
-//   acs::Vec2 p = r.PointInCircle(50.0f);    // 円板内一様
+//   acs::FVec2 p = r.PointInCircle(50.0f);    // 円板内一様
 //   acs::game::Random::Global().NextBool();  // 簡易ユースケース
 //
 // 注意:
@@ -66,14 +66,14 @@ public:
 
     // 円板内一様サンプル (rejection sampling: 2x2 box → 円内採用)。
     // 一様性は完璧、平均試行 ~4/π ≒ 1.27 回で polar 公式より速いことが多い。
-    Vec2 PointInCircle(f32 radius = 1.0f) noexcept;
+    FVec2 PointInCircle(f32 radius = 1.0f) noexcept;
 
     // 円周上一様サンプル (角度 [0, 2π) から sin/cos)。
-    Vec2 PointOnCircle(f32 radius = 1.0f) noexcept;
+    FVec2 PointOnCircle(f32 radius = 1.0f) noexcept;
 
-    // Fisher-Yates シャッフル (in-place, O(n))。Array の Size()/[] のみ要求。
+    // Fisher-Yates シャッフル (in-place, O(n))。TArray の Size()/[] のみ要求。
     template<typename T>
-    void Shuffle(Array<T>& a) noexcept;
+    void Shuffle(TArray<T>& a) noexcept;
 
     // 重み付き index 選択。weights は非負想定、合計が 0 なら 0 を返す。
     // O(count) の累積和方式。count==0 のときは 0 を返す (defensive)。
@@ -91,14 +91,14 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// template 実装: ヘッダで完結させる (Array<T> のインスタンス化を許す)
+// template 実装: ヘッダで完結させる (TArray<T> のインスタンス化を許す)
 // ---------------------------------------------------------------------------
 template<typename T>
-void Random::Shuffle(Array<T>& a) noexcept {
+void Random::Shuffle(TArray<T>& a) noexcept {
     const usize n = a.Size();
     if (n < 2) return;
     // i = n-1 ... 1 の各位置に対し、[0, i] の一様乱数 j を選び swap。
-    // 0 < n は ACS Array が usize の正値を返す前提。
+    // 0 < n は ACS TArray が usize の正値を返す前提。
     for (usize i = n - 1; i > 0; --i) {
         // RangeInt は i32 を返すので usize にキャストして比較。i は 32bit 範囲想定。
         const u32 j = NextU32() % static_cast<u32>(i + 1u);

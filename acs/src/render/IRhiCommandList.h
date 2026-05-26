@@ -111,6 +111,6 @@ public:
 };
 
 // コマンドリストを作成
-Result<UniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) noexcept;
+TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) noexcept;
 
 } // namespace acs

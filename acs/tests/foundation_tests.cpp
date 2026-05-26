@@ -9,23 +9,23 @@
 using namespace acs;
 
 ACS_TEST(Foundation, ResultOk) {
-    Result<int> r = Ok(42);
+    TResult<int> r = Ok(42);
     EXPECT_TRUE(r.IsOk());
     EXPECT_FALSE(r.IsErr());
     EXPECT_EQ(r.Value(), 42);
 }
 
 ACS_TEST(Foundation, ResultErr) {
-    Result<int> r = Err<int>(ACS_ERR(Generic, 7, "boom"));
+    TResult<int> r = Err<int>(ACS_ERR(Generic, 7, "boom"));
     EXPECT_FALSE(r.IsOk());
     EXPECT_TRUE(r.IsErr());
     EXPECT_EQ(r.Error().subcode, (u16)7);
 }
 
 ACS_TEST(Foundation, ResultVoid) {
-    Result<void> r = Ok();
+    TResult<void> r = Ok();
     EXPECT_TRUE(r.IsOk());
-    Result<void> e = Err(ACS_ERR(IO, 3, "io"));
+    TResult<void> e = Err(ACS_ERR(IO, 3, "io"));
     EXPECT_TRUE(e.IsErr());
 }
 

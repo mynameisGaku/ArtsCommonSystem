@@ -21,8 +21,8 @@ namespace helloanim {
 class AnimationScene {
 public:
     // 4 ボーンの「ヘビ風」円柱メッシュを手続き生成 (アニメ含む)。
-    // 失敗時は空の Rc を返す (呼び出し元で null チェック)。
-    static acs::Rc<acs::SkinnedMeshAsset> BuildSnake() noexcept;
+    // 失敗時は空の TRc を返す (呼び出し元で null チェック)。
+    static acs::TRc<acs::SkinnedMeshAsset> BuildSnake() noexcept;
 
     // 1 フレームの描画 (Sky → 地面 → スキンメッシュ)。
     //   sky        : 描画する Sky (App 所有、SunDirection / SunColor 取得用)
@@ -41,7 +41,7 @@ public:
                 const acs::Camera&       camera,
                 const acs::GpuMesh&      plane,
                 const acs::SkinnedGpuMesh& snake_gpu,
-                const acs::Mat4*         palette,
+                const acs::FMat4*         palette,
                 acs::u32                 palette_n) noexcept;
 };
 

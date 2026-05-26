@@ -24,10 +24,10 @@ void ExecuteSsrPass(Assets& a,
                      acs::IRhiCommandList& cl,
                      acs::IRhiTexture& hdr,
                      acs::IRhiTexture& depth,
-                     const acs::Mat4& view_proj,
-                     const acs::Mat4& inv_view_proj,
-                     const acs::Mat4& prev_view_proj,
-                     acs::Vec3 cam_pos,
+                     const acs::FMat4& view_proj,
+                     const acs::FMat4& inv_view_proj,
+                     const acs::FMat4& prev_view_proj,
+                     acs::FVec3 cam_pos,
                      acs::IRhiTexture* motion_or_null,
                      bool show_ssr) noexcept;
 
@@ -36,9 +36,9 @@ void ExecuteSsaoPass(Assets& a,
                       acs::IRhiDevice& dev,
                       acs::IRhiCommandList& cl,
                       acs::IRhiTexture& depth,
-                      const acs::Mat4& view_proj,
-                      const acs::Mat4& inv_view_proj,
-                      const acs::Mat4& view,
-                      acs::Vec3 cam_pos) noexcept;
+                      const acs::FMat4& view_proj,
+                      const acs::FMat4& inv_view_proj,
+                      const acs::FMat4& view,
+                      acs::FVec3 cam_pos) noexcept;
 
 } // namespace helloshowcase

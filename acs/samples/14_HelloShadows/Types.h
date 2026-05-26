@@ -20,8 +20,8 @@ inline constexpr acs::u32 kShadowMapSize = 2048;
 
 // 1 個のシャドウキャスタ (柱 or 球、色、配置行列)
 struct CasterInst {
-    acs::Mat4 model;
-    acs::Vec3 base_color;
+    acs::FMat4 model;
+    acs::FVec3 base_color;
     bool      is_sphere;
 };
 

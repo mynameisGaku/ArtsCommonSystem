@@ -227,7 +227,7 @@ public:
     // 多重 Init 可 (= 既存内容を破棄して再構築)。
     void Init() noexcept;
 
-    // 内部 Array を Clear するだけ (~Array が容量を解放するので明示 Shutdown は
+    // 内部 TArray を Clear するだけ (~TArray が容量を解放するので明示 Shutdown は
     // 主にライフサイクル明示用)。多重 Shutdown 可。
     void Shutdown() noexcept;
 
@@ -328,10 +328,10 @@ private:
     bool AdvanceLocalTime(f32 dt) noexcept;
 
     // ---- データ ----
-    Array<AnimationClipBinding> _clips;
-    Array<AnimationStateNode>   _state_nodes;
-    Array<AnimationTransition>  _transitions;
-    Array<Param>                _params;
+    TArray<AnimationClipBinding> _clips;
+    TArray<AnimationStateNode>   _state_nodes;
+    TArray<AnimationTransition>  _transitions;
+    TArray<Param>                _params;
 
     // ---- 実行時状態 ----
     EAnimationGraphState _current_state    = EAnimationGraphState::Idle;

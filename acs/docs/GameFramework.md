@@ -7,7 +7,7 @@
 - モジュール: `src/gameframework/` ／ CMake ターゲット `ACS::GameFramework`
 - 名前空間: `acs::game`
 - 設計方針: ACS 規約準拠（STL 不使用 / 例外不使用 / RTTI 不使用 / `noexcept` 徹底 /
-  カスタムコンテナ `UniquePtr`/`Array`/`String`/`HashMap`/`Rc`）
+  カスタムコンテナ `TUniquePtr`/`TArray`/`FString`/`THashMap`/`TRc`）
 - **基本原則: 既存エンジンを「ラップする・再実装しない」**。ECS・描画・アセット・
   音声・タイマー・スレッド・数学は既存モジュールを使う。
 
@@ -65,7 +65,7 @@
 │  ├───────────┴───────────┼──────────┴──────────┴──────────────┤ │
 │  │ G.リソース・永続化     │ H.UI・オーディオ・ツール           │ │
 │  │ AssetBundle/TypedHandle│ UiLayer · AudioDirector · Random   │ │
-│  │ SaveArchive · Settings │ Pool<T> · DebugOverlay · DebugDraw │ │
+│  │ SaveArchive · Settings │ TPool<T> · DebugOverlay · DebugDraw │ │
 │  └───────────────────────┴────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────┤
 │ 既存 ACS エンジン（ラップ対象。再実装しない）                    │
@@ -85,7 +85,7 @@
 v3 仕様の要点（詳細は本節末の確定事項）:
 
 - **`Scene`** — `OnEnter/OnUpdate/OnFixedUpdate/OnRender/OnExit/OnPause/OnResume/OnEvent`。
-- **`SceneManager`** — `UniquePtr<Scene>` のスタック。`ChangeScene`/`PushScene`/
+- **`SceneManager`** — `TUniquePtr<Scene>` のスタック。`ChangeScene`/`PushScene`/
   `PopScene`。遷移は遅延適用（1フレーム1遷移・後勝ち）。フェード遷移対応。
 - **`Game : Application`** — フレームループから駆動。固定タイムステップ
   （アキュムレータ + 暴走防止クランプ）・タイムスケール。`ACS_GAME_MAIN` でエントリ生成。
@@ -148,11 +148,11 @@ ECS `World` をシーンのメンバとして持つ（§4.6）。
 `World _world;` をメンバに持つ（フレームワークは ECS を強制しない）。
 
 ### 4.2 `Transform2D`・`Node2D`
-- **`Transform2D`** — `position`(Vec2) / `rotation`(f32 ラジアン) / `scale`(Vec2) の
-  20 バイト値型。`Mat4` ではなく専用型（小さい・合成が速い・分解が非可逆でない）。
+- **`Transform2D`** — `position`(FVec2) / `rotation`(f32 ラジアン) / `scale`(FVec2) の
+  20 バイト値型。`FMat4` ではなく専用型（小さい・合成が速い・分解が非可逆でない）。
   `operator*` で親子合成、`ToMat4()` は `SpriteBatch::SetView` 等の必要時のみ。
 - **`Node2D`** — 唯一のノードクラス（2D 専用ゆえ抽象 `Node` 基底は作らない）。
-  非コピー・非ムーブ（`UniquePtr` で所有、`NodeId`/`Node2D*` で参照）。
+  非コピー・非ムーブ（`TUniquePtr` で所有、`NodeId`/`Node2D*` で参照）。
   ライフサイクルフック（override は `noexcept` 必須）:
   `OnSpawn / OnUpdate(dt) / OnFixedUpdate / OnDraw(RenderContext&) / OnDespawn /
   OnEnabledChanged`。フックは全て「親が先」（spawn・update・draw・despawn とも
@@ -203,7 +203,7 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
 | サブシステム | 役割 |
 |---|---|
 | `Clock` | シーン単位の scaled/unscaled 時間・`dt`・`fixed_dt`・フレーム数・pause |
-| `Tween` + `TweenManager` | 値（f32/Vec2/Vec3/色）を A→B へイージング補間。`TweenManager` が所有・tick・完了処理 |
+| `Tween` + `TweenManager` | 値（f32/FVec2/FVec3/色）を A→B へイージング補間。`TweenManager` が所有・tick・完了処理 |
 | `Easing` | 約 30 種のイージング関数（linear/quad/cubic/sine/expo/circ/back/elastic/bounce の in/out/inout）。ヘッダオンリ |
 | `Sequence` + `SequenceRunner` | 時間付きアクションの連鎖（wait/call/tween/parallel/loop）。固定容量のアクション配列、関数ポインタ方式。カットシーン・出現ウェーブ |
 | `StateMachine<T>` | 小さな汎用 FSM（enter/update/exit）。AI・ゲームフロー。ヘッダオンリテンプレート |
@@ -266,7 +266,7 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
   `ACS::AssetPack`** — VFS はエンジン基盤であり、アプリ層の GameFramework には
   入れない（エンジンがアプリ層へ逆依存できないため）。Pillar G はこれを利用・統合
   する。**完全仕様は `docs/AssetPack.md`**。
-- **型付きハンドル** — `SpriteHandle`/`SoundHandle`/`MeshHandle`（`Rc<Asset>` の
+- **型付きハンドル** — `SpriteHandle`/`SoundHandle`/`MeshHandle`（`TRc<Asset>` の
   薄い型安全ラッパ。呼び出し側の `static_cast` を排除）。
 - **`AssetBundle`** — 名前付き・シーンスコープのアセット集合を非同期一括ロード
   （既存 `AssetRegistry::LoadAsync`/`AssetFuture` を使用）+ 集約進捗(0..1)。
@@ -275,7 +275,7 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
 - **`SaveArchive`** — 構造化セーブ。**タグ付きバイナリ**（フィールドごとに
   `u16 タグ + 型 + 長さ + 値`）。未知タグは長さでスキップ、欠落タグは既定値 →
   スキーマ進化耐性（旧セーブが新コードで読める）。エンベロープに magic + version
-  + crc32、temp ファイルへ書いてアトミック rename。`Result` でエラー。設定系の
+  + crc32、temp ファイルへ書いてアトミック rename。`TResult` でエラー。設定系の
   単純な key-value は既存 `Storage`（INI）をそのまま使う。**任意で HMAC-SHA256 の
   改竄タグ**を付けられる（`AssetPack` の Crypto を再利用。リーダーボード等のチート
   対策。内容暗号化は既定オフ）。
@@ -298,9 +298,9 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
   ワンショット、ダッキング。`Game` が所有しシーンをまたいで生存。
 - **`Random`** — ゲーム用 PRNG クラス（`xoshiro128**` + SplitMix64 シード）。
   インスタンス化・シード可能・決定論的。int/float 範囲・bool・重み付き選択・
-  円内/円周上の点・`Array` シャッフル・`RandomColor`。`Random::Global()` も提供。
+  円内/円周上の点・`TArray` シャッフル・`RandomColor`。`Random::Global()` も提供。
   `easy` の private xorshift を公開クラス化したもの。
-- **`Pool<T>`** — 弾/エフェクト用オブジェクトプール。世代付きハンドル
+- **`TPool<T>`** — 弾/エフェクト用オブジェクトプール。世代付きハンドル
   （`EntityId` と同形）、固定/可変容量、live のみ反復、STL 非依存。
 - **`DebugOverlay`** — FPS/フレーム時間グラフ/シーンスタック表示/ライブ調整値。
   **`SpriteBatch` で描画**（ImGui は DX12 専用なので不採用、Diligent でも動く・
@@ -326,7 +326,7 @@ E: Camera2D.h/.cpp
 F: Collision.h(再エクスポート)  SpatialGrid.h/.cpp  CollisionWorld2D.h/.cpp
    PhysicsBody2D.h/.cpp
 G: AssetHandles.h  AssetBundle.h/.cpp  SaveArchive.h/.cpp  Settings.h/.cpp
-H: UiLayer.h/.cpp  AudioDirector.h/.cpp  Random.h/.cpp  Pool.h
+H: UiLayer.h/.cpp  AudioDirector.h/.cpp  Random.h/.cpp  TPool.h
    DebugOverlay.h/.cpp  DebugDraw.h/.cpp
 GameFrameworkConfig.h  全調整定数を 1 箇所に
 ```
@@ -412,7 +412,7 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
 
 ### H. UI・音・ツール
 - `AudioDirector` のボイス寿命/ポリフォニー上限/バス音量合成、`UiLayer` の既存
-  `ui/` ツリーへの入力ルーティングとライフサイクル接続、`Pool<T>` のハンドル
+  `ui/` ツリーへの入力ルーティングとライフサイクル接続、`TPool<T>` のハンドル
   世代安全性を詳細仕様化。
 
 > 各クラスタの完全な v6 詳細設計（レッドチーム指摘の全項目・全 API・全アルゴリズム）は
@@ -510,7 +510,7 @@ v6/v7 の `SaveArchive` は**バイト列の envelope のみ**で、ノードツ
   分離でスロット選択 UI 瞬時表示。
 - **`MigrationRegistry`** — `Register(type_id, from_ver, fn)` で旧版を新スキーマへ自動変換。
   フィールド追加/削除は無コード、kind 変更は関数 1 個。
-- **参照** — `NodeRefT`/`AssetRefT`/`RcRefT`/`WeakRefT` を区別、`Rc` 循環は遅延解決。
+- **参照** — `NodeRefT`/`AssetRefT`/`RcRefT`/`WeakRefT` を区別、`TRc` 循環は遅延解決。
 - **コールバック保存しない方針**（`Transient` 属性）— 関数ポインタは保存価値<複雑度。
   再 attach は `OnSpawn`/`OnAfterLoad` で。
 
@@ -554,7 +554,7 @@ v7 までは `StateMachine` と `CollisionWorld2D` のみで、本格 BT・経�
 - **`PathfindingSystem`** — A* on 2D nav grid。`ESvc::Pathfind`。重み付きタイル（沼=遅い）、
   動的障害物、非同期パス要求（future-like）。`Tilemap` から自動 grid 構築。
 - **`Tilemap`** — `TilemapNode2D`。レイヤ（地面/壁/装飾/空）、per-tile property
-  (`HashMap<String, Value>`)、Tiled `.tmx` 対応、レイヤ × チャンク単位の 1 ドロー。
+  (`THashMap<FString, Value>`)、Tiled `.tmx` 対応、レイヤ × チャンク単位の 1 ドロー。
   **コリジョン形状自動生成 + ナビグリッド自動ビュー**で Pillar F/L へ直結。
 - **`AnimationGraph`** — クリップ間のステートマシン + パラメータ駆動遷移（`velocity > 50`
   で idle→run）+ **ブレンドツリー**（8 方向歩行を aim 角でブレンド）+ **イベント
@@ -588,7 +588,7 @@ v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけ
 - **`LockstepRunner`** — 入力フォワード、入力遅延 4〜8 ticks、**60 tick 毎の state hash
   で desync 検知**、state dump 報告。
 - **`NetDeterminism.h`** — 決定論コントラクト明文化（`time()`/`Random::Global()`/
-  `HashMap` 順序依存/FPU dispatch 禁止）。`ACS_NET_DETERMINISTIC` ビルドフラグで SSE2 固定。
+  `THashMap` 順序依存/FPU dispatch 禁止）。`ACS_NET_DETERMINISTIC` ビルドフラグで SSE2 固定。
 - **`Replication` 属性** — `[[acs::Replicated(channel, rate, interp, relevance=Distance(R))]]`、
   リフレクション駆動。`[[acs::Rpc(Reliable, ServerToClient)]]` で透過呼び出し（ローカル/
   リモートをユーザコードが区別しない）。手書きマクロ経路（`ACS_REPLICATED_BEGIN/...`）も併設。
@@ -764,14 +764,14 @@ Pillar J Ph12〜13 の前提。
 Camera3D|Physics3D|Lighting3D` を `WantedServices` で課金式 opt-in、メニュー画面に
 3D コストを払わせない。
 
-- **Object model**: `Node3D`+`Transform3D{Vec3 pos, Quat rot, Vec3 scale=44B}`+
+- **Object model**: `Node3D`+`Transform3D{FVec3 pos, FQuat rot, FVec3 scale=44B}`+
   `Component3D`。**`Node2D`/`Node3D` は別ツリー・共通基底なし**（座標規約・dirty
   伝播が別物、抽象は害）。`Scene` が `Root2D()`/`Root3D()` を持つ。
 - **Camera3D** — perspective/ortho、4 種 Rig (`Fps`/`Orbit`/`Follow`/`Cinematic`)、
   `ScreenToRay` でピック。**`CameraStack` が 2D/3D 統合の唯一の点** — `Layer{kind=
   World3D/World2D/Ui2D}` を priority 順に描画、3D+HUD/2.5D/billboard 全パターン対応。
 - **Collision3D** — `Loose Octree` broadphase + **SAT 直書き 15 ペア** narrowphase
-  （Aabb/Sphere/Capsule/Obb/Mesh）。GJK/EPA は v2。`PhysicsBody3D` は swept kinematic
+  （FAabb/FSphere/Capsule/Obb/Mesh）。GJK/EPA は v2。`PhysicsBody3D` は swept kinematic
   + collide-and-slide（rigid body solver は v2）。
 - **Lighting** — `Directional/Point/Spot/Area/Probe` 5 種 Light Component + `LightManager`
   がフレーム頭で集めて既存 `PbrShader`/`SkinnedShader` に push。IBL は `SkyboxComponent3D`
@@ -788,7 +788,7 @@ Camera3D|Physics3D|Lighting3D` を `WantedServices` で課金式 opt-in、メニ
 ### 14.2 物理深度（Pillar F 拡張 — F2 サブピラー）
 
 **判断: Box2D をラップせず自前実装**。Box2D は STL/exception を前提とした
-`b2BlockAllocator`/`b2Assert→throw` 設計で、no-STL/no-exception/no-RTTI/`Result<T,E>`
+`b2BlockAllocator`/`b2Assert→throw` 設計で、no-STL/no-exception/no-RTTI/`TResult<T,E>`
 の ACS に「shim」を被せると実質的に fork になり、4k LOC を節約できない。
 4,650 LOC で完全な PGS 系ソルバを書ける（Catto GDC 2006/2014、qu3e/Chipmunk 参考）。
 
@@ -902,12 +902,12 @@ v8 までは「**何ができるか**」、v9 Pillar P は「**大きくなっ�
   tick stride 増）+ animation LOD（off-screen pause / sample stride）。**物理は LOD
   しない**（tunneling 防止）。
 - **Large-world coordinates** — **origin rebasing** 採用（`Vec2d` 全置換は f32 shader/
-  collision の連鎖変更で v1 不可）。チャンク座標 (cx,cy)+ 局所 Vec2 のハイブリッド
+  collision の連鎖変更で v1 不可）。チャンク座標 (cx,cy)+ 局所 FVec2 のハイブリッド
   固定点が副産物。`WorldOriginRebased` event で subscriber が補正。
 - **Memory 深度**:
   - **Scene arena** — `Scene` がアリーナ所有、退出時 1 op で reset。trivially destructible
     component が opt-in。
-  - **`Pool<T>`** — Pillar H 確定。Pillar I Effects/Pillar M ghosts/Pillar L A\* node
+  - **`TPool<T>`** — Pillar H 確定。Pillar I Effects/Pillar M ghosts/Pillar L A\* node
     で利用。
   - **`GpuMemoryBudget`** — texture/mesh GPU bytes 追跡 + evict 候補返却（自動 evict
     せず policy は `AssetStreamer`）。
@@ -936,7 +936,7 @@ v8 までは「**何ができるか**」、v9 Pillar P は「**大きくなっ�
 ### 14.6 Pillar N 本設計（v8 §13.5 の sketch を本設計に格上げ）
 
 - **Lua 5.4 推奨**（LuaJIT は maintained 終了、5.4 は portable・小型・十分）。
-  longjmp は `lua_pcall` ラップで `Result<T, LuaError>` に変換、no-exception 維持。
+  longjmp は `lua_pcall` ラップで `TResult<T, LuaError>` に変換、no-exception 維持。
   **複数 Lua state**（mod ごと別 state でサンドボックス分離）、カスタム allocator は
   ACS arena。
 - **C++↔Lua バインディング自動化** — `AcsLuaBind<&Fn>::Bind(L,"name")` テンプレで
@@ -1141,7 +1141,7 @@ solver を v1.1 → v1 に格上げ**:
 - **決定論プロファイル** — `SubsystemTrait<Tag>::profile = Required/BestEffort/
   Unsupported` を全 pillar が宣言、`ACS_DET_REQUIRE`/`ACS_DET_FORBID_CALL` で
   コンパイル時に違反検出。`ACS_NET_DETERMINISTIC` ビルドで `Required` 内の
-  `time()`/`Random::Global()`/`HashMap` 反復順依存を runtime assert で禁止。
+  `time()`/`Random::Global()`/`THashMap` 反復順依存を runtime assert で禁止。
   **CI ガード**: `acs_det_test record/replay/verify` CLI が `.acsr` を再生し state hash
   完全一致を強制。「決定論で使えない機能」を `docs/Determinism.md` に列挙。
 - **テストフレームワーク `acs_test`** — STL/exception/RTTI 不使用 ACS-native。
@@ -1411,7 +1411,7 @@ fallback 必須 / (c) **決定論ゾーンへ AI 混入禁止**（コンパイ�
 
 - **v1 = seam 5 個 + AiCostTracker + AiBudget + AiPrivacyHooks**:
   - **`IMlRuntime`** — ONNX Runtime / DirectML / CoreML / NNAPI / Win11 NPU、`MlModel`
-    AssetPack 経由 `Rc<MlModel>`、quant tier (fp32/16/int8/4) 自動選択、`Pillar P
+    AssetPack 経由 `TRc<MlModel>`、quant tier (fp32/16/int8/4) 自動選択、`Pillar P
     GpuMemoryBudget` 統合
   - **`ILlmBackend`** — OpenAI/Anthropic/Gemini (Remote) + llama.cpp local + **`HybridLlmRouter`**
     (cloud→local→scripted fallback 3 段)、**`LlmSafetyPipeline` v1.1** 必須通過
@@ -1874,8 +1874,8 @@ data structure / algorithm / edge case / integration / determinism / performance
 
 ### 18.2 Pillar B（Object Model: Node2D + Node3D + ECS）内部
 - **`Node2D` メモリ 184B / 3 cache line**（hot/cold 分離）、`Node3D` 224B / 4 cache line
-- **`Component2D` ストレージ**: per-node `Array<UniquePtr<Component2D>>`（small-vector 不採用）+
-  線形クエリ（≤16 component で HashMap より速い）
+- **`Component2D` ストレージ**: per-node `TArray<TUniquePtr<Component2D>>`（small-vector 不採用）+
+  線形クエリ（≤16 component で THashMap より速い）
 - **`NodeId` packed 4B**（24bit idx + 8bit gen、wrap で slot retire）
 - **Dirty propagation**: `MarkWorldDirty` 下方再帰 + early-exit、`ResolveTransforms` 1 フレーム 1 回
 - **Spawn/Destroy/Reparent queue**: fence point で順序適用（destroy→reparent→spawn→component op）
@@ -1888,7 +1888,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 
 ### 18.3 Pillar C（時間・アニメ）内部
 - **`Clock`**: wall_dt + game_dt + per-domain scale（Gameplay/Ui/Audio/Particle/Cinematic/Photo/Tween）
-- **`Tween<T>`**: 型消去 union-based（Vec2/Vec3/Vec4/Quat/Color/f32 の 7 種、heap-free）
+- **`Tween<T>`**: 型消去 union-based（FVec2/FVec3/FVec4/FQuat/Color/f32 の 7 種、heap-free）
 - **Easing**: 30+ 標準カーブ LUT、Bezier custom（Pillar K curve editor 連動）
 - **`Sequence` ノード型**: Seq/Parallel/Wait/Call/WaitForEvent/If/Loop、pause/resume mid-sequence
 - **`StateMachine`**: HFSM（hierarchical）対応、push-down sub-state
@@ -1936,8 +1936,8 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **決定論**: SSE2 固定、body sort by BodyId、AABB tree refit 同順序
 
 ### 18.7 Pillar G + J（Resources + Serialize/Reflect/Prefab）統合内部
-- **`AssetRegistry`**: `HashMap<AssetId, Rc<Asset>>`、loader per-extension registry
-- **`AssetFuture<T>`**: `Rc<AsyncLoadState>{CompletionCounter, result, error}`
+- **`AssetRegistry`**: `THashMap<AssetId, TRc<Asset>>`、loader per-extension registry
+- **`AssetFuture<T>`**: `TRc<AsyncLoadState>{CompletionCounter, result, error}`
 - **`TypeInfo<T>`**: `ACS_REFLECT(T, ...)` macro generates specialization、TypeId = HashBytes(FQN) 64bit
 - **`FieldInfo`**: 手動 tag 宣言（u16）+ version_added/version_removed + offset + kind + attr flags
 - **`.atxt`**: S-expression line-based、git-diff-friendly、custom parser < 500 LOC
@@ -1954,7 +1954,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`Screen` push/pop**: stack、OnPushed/OnPopped、modal 入力 capture
 - **HUD widgets**: `BarWidget`/`CounterWidget`/`GaugeWidget`/`ToastWidget`/`MinimapWidget` + `Observable<T>` MVVM
 - **`Random` (xoshiro128**)**: 既存 easy/Easy.cpp の xorshift32 を昇格、`RandomChannels` 命名規約
-- **`Pool<T, N>`**: 固定 cap、generational handle、`SparseSet<T*>` live 反復
+- **`TPool<T, N>`**: 固定 cap、generational handle、`SparseSet<T*>` live 反復
 - **`DebugDraw`**: 即時モード、per-channel toggle（Physics.Shapes / Contacts / Joints / AABB / CCD / Pathfind / Trigger / SoundZones）
 - **`RenderPassRegistry`**: 5 phase ping-pong RT lazy alloc
 - **`SpriteMaterial`**: 3 built-in (Outline/Dissolve/Flash)、material 切替で batch flush
@@ -1962,11 +1962,11 @@ data structure / algorithm / edge case / integration / determinism / performance
 ### 18.9 Pillar I（Effects）内部
 - **`EffectDef`**: `.effect.tdat` data asset、reflection-registered、actions = (delay, action) tuples
 - **`EffectAction` POD union**: emit_particle/screen_flash/camera_shake/sprite_flash/spawn_sub/play_sound/spawn_decal/trigger_hit_stop
-- **`EffectSystem`**: `Pool<EffectInstance, 256>`、`EffectHandle{idx, gen}`、auto-despawn
+- **`EffectSystem`**: `TPool<EffectInstance, 256>`、`EffectHandle{idx, gen}`、auto-despawn
 - **`EffectComponent`**: Node attach、auto-clean on owner destroy
 - **Composition**: 爆発 = particles + flash + shake + hit-stop + sound、atomic 発火
 - **Determinism**: visuals = `Random::Channel("visuals")`、gameplay-affecting = `Channel("world")`
-- **Pool 枯渇**: drop new or steal lowest-priority
+- **TPool 枯渇**: drop new or steal lowest-priority
 
 ### 18.10 Pillar K（Editor / Dev Tools）内部
 - **全 `#if ACS_GAME_DEBUG`** — ship では public header の no-op マクロのみ
@@ -1983,7 +1983,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 ### 18.11 Pillar L（AI / Gameplay Depth）内部
 - **`BehaviorTree`**: flat node array、`BtNode{kind, flags, first_child, next_sibling}`、DFS tick
 - **BT 構成**: Sequence/Selector/Parallel + Inverter/Repeater/UntilSuccess/Cooldown decorator + Action/Condition leaf
-- **`Blackboard`**: per-BT instance `HashMap<String, Variant{i32/f32/Vec2/Vec3/NodeRef/AssetRef}>`
+- **`Blackboard`**: per-BT instance `THashMap<FString, Variant{i32/f32/FVec2/FVec3/NodeRef/AssetRef}>`
 - **`Pathfinding A*`**: heap open list (min-heap by f) + closed bitarray + parent chain、heuristic (Manhattan/Euclidean/Octile)
 - **Async path request**: `AsyncPathRequest{start, goal, params, on_complete}` worker pool
 - **Tilemap**: chunked (chunk_w × chunk_h)、per-tile property、Tiled `.tmx` 経由、auto collision + nav grid
@@ -2004,13 +2004,13 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`.acsr`**: Header (magic/version/level_hash/seed/total_ticks/HMAC) + delta-encoded input stream + 5s checkpoints
 
 ### 18.13 Pillar N（Mod / Lua）内部
-- **Lua 5.4 per-mod `lua_State*`**: sandbox isolation、allocator → ACS arena、panic → `Result` via `lua_pcall`
+- **Lua 5.4 per-mod `lua_State*`**: sandbox isolation、allocator → ACS arena、panic → `TResult` via `lua_pcall`
 - **Binding generation**: template `AcsLuaBind<&Fn>` stub、Pillar J `TypeInfo<T>` 経由で field auto-expose
 - **Userdata**: non-owning ref + generational handle check
 - **`LuaComponent2D`**: per-instance Lua table、`OnUpdate`/`OnEvent` = Lua function
 - **Hot-reload**: file change → reload chunk → reattach function、self table 保持
 - **Sandbox API allowlist**: `io`/`os`/`debug.*`/`package.loadlib` 除去、curated wrapper
-- **Memory quota**: custom Lua allocator が byte tracking、exceed → `LUA_ERRMEM` → Result
+- **Memory quota**: custom Lua allocator が byte tracking、exceed → `LUA_ERRMEM` → TResult
 - **CPU quota**: `lua_sethook(LUA_MASKCOUNT, N)` 命令数で time budget check
 - **Trust levels**: LocalUntrusted / CommunitySigned / OfficialTrusted、quota スケール
 - **Manifest**: `mod.toml` (id/name/version semver/author/depends/signatures/declared APIs)
@@ -2033,17 +2033,17 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`EolMode` seam**: servers shutdown → offline 継続（EU 消費者保護対応）
 
 ### 18.15 Pillar P（Scale / Streaming / Memory / Threading）内部
-- **`World` chunk grid**: `HashMap<ChunkCoord, ChunkSlot>`、residency state machine
+- **`World` chunk grid**: `THashMap<ChunkCoord, ChunkSlot>`、residency state machine
 - **Async chunk load JobGraph**: Read → Deserialize → Register collisions → GPU upload (DeferredUpload)
 - **Hysteresis**: 0.25-chunk band around boundary
 - **Ghost proxy**: pre-baked 64x64 low-res "skyline" texture for distant chunks
-- **`AssetStreamer` 5-tier priority**: bounded `Array<AssetId>` ring per tier、cheap O(1)
-- **LRU eviction**: `HashMap<AssetId, AssetCacheEntry>` walk LRU、evict if pin=0 + Rc::StrongCount==1
+- **`AssetStreamer` 5-tier priority**: bounded `TArray<AssetId>` ring per tier、cheap O(1)
+- **LRU eviction**: `THashMap<AssetId, AssetCacheEntry>` walk LRU、evict if pin=0 + TRc::StrongCount==1
 - **Mip streaming** v1.1: partial-residency [N..N-2] always、footprint → desired mip
 - **`LoDController`**: sprite mip 自動選択 + sprite swap (near/far)、behavior LOD (BT tick stride)、anim LOD
 - **物理は LOD しない**（tunneling 防止）
 - **Origin rebasing**: > 4096 units で walk all Transform2D、`MessageBroker::Publish(WorldOriginRebased)`
-- **`Pool<T, N>`**: fixed-cap、generational handle、sparse-set live iteration
+- **`TPool<T, N>`**: fixed-cap、generational handle、sparse-set live iteration
 - **`Task<>` C++20 coroutines**: custom allocator (Scene arena)、awaitables (WaitSeconds/Event/Sequence/LoadAsset)
 - **`MpmcRing<T>` / `SpscRing<T>`**: Vyukov MPMC bounded、SPSC head/tail、lock-free
 - **IO thread**: 別、long-blocking IO 隔離、SpscRing for completion
@@ -2084,7 +2084,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`PlayerIdentity`**: Steam/Epic/Xbox/PSN/Switch/GameCenter/Google/itch/GOG/Discord/GameAccount 統一
   + cross-progress + expiring `session_token`
 - **`ACS::SteamworksBridge`**: 独立 CMake module、`SteamAPI_RunCallbacks` per frame、
-  `SteamFuture<T>` で CCallResult を Result-style 化、achievements/lobbies/SDR/Workshop/Cloud/Input/
+  `SteamFuture<T>` で CCallResult を TResult-style 化、achievements/lobbies/SDR/Workshop/Cloud/Input/
   Rich Presence/Big Picture/Deck/DLC/Family Sharing/VAC/crash upload 完全実装
 - **`Game::Tick` hook**: `SteamAPI_RunCallbacks()` 1 回/frame
 - **Dedicated server build**: `acs_module(TYPE Server)` no-render no-audio、`Scene::PeerRole::DedicatedServer`
@@ -2208,7 +2208,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **VFS lookup hot path**: NormalizeLogicalPath (packer/runtime/editor 全て同一 C++ 関数) →
   HashBytes → 優先度降順 stack walk → 各 source の binary search、~10ns + log₂(mounts)
 - **ArchiveSource**: `CreateFileMapping` + `MapViewOfFile` (mmap)、TOC 即時復号 + immutable
-  `Array<TocRecord>` (lock-free read)、per-thread BCRYPT_KEY_HANDLE lazy alloc
+  `TArray<TocRecord>` (lock-free read)、per-thread BCRYPT_KEY_HANDLE lazy alloc
 - **Compress-then-encrypt + 97% 安全則**: compressed_size >= original*0.97 → STORE_RAW 切替、
   archive は loose dir より絶対大きくならない保証
 - **LZ4 invocation**: writer = `LZ4_compress_default`、reader = **`LZ4_decompress_safe` 厳守**
@@ -2278,7 +2278,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 ### 18.26 ACS 規約クロス不変条件（10 項目）
 
 1. **`NormalizeLogicalPath` 単一真実**: packer/runtime/editor/hot-reload watcher 全て同 C++ 関数
-2. **`Result<T,E>` + `ErrCategory::Crypto`** 等のサブカテゴリ、no exception、全 CLI 同パターン
+2. **`TResult<T,E>` + `ErrCategory::Crypto`** 等のサブカテゴリ、no exception、全 CLI 同パターン
 3. **`acs_lint R015` で `<Windows.h>` を `platform/` 外で構造的禁止**、13 seam が唯一エントリ
 4. **Bridge module pattern**: 独立 CMake / opt-in flag / no core symbol leak / license 隔離
 5. **All asset formats use Pillar J reflection** for diff/inspect/migrate

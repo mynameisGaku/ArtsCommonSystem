@@ -15,7 +15,7 @@ using namespace acs;
 
 namespace helloibl {
 
-Mat4 BuildJitteredViewProjection(HelloIblApp& app, const Mat4& vp_no_jitter,
+FMat4 BuildJitteredViewProjection(HelloIblApp& app, const FMat4& vp_no_jitter,
                                  u32 hdr_width, u32 hdr_height) noexcept {
     if (!app._use_taa) return vp_no_jitter;
 
@@ -26,7 +26,7 @@ Mat4 BuildJitteredViewProjection(HelloIblApp& app, const Mat4& vp_no_jitter,
     const f32 jy_ndc = jy * 2.0f / static_cast<f32>(hdr_height);
 
     // jitter mat = identity with M[3][0..1] = jx_ndc / jy_ndc
-    Mat4 jmat = Mat4::Identity();
+    FMat4 jmat = FMat4::Identity();
     jmat.m[3][0] = jx_ndc;
     jmat.m[3][1] = jy_ndc;
 

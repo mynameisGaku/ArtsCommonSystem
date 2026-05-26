@@ -41,7 +41,7 @@ void LevelEditorApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> LevelEditorApp::InitialScene() noexcept {
+TUniquePtr<Scene> LevelEditorApp::InitialScene() noexcept {
     return MakeUnique<LevelEditorScene>();
 }
 

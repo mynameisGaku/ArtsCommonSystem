@@ -15,12 +15,12 @@ namespace acs {
 namespace {
 
 // SSE2 ベースライン実装（DirectXMath が /arch:SSE2 で動作）
-void TransformPointsScalar(const Vec3* in, Vec3* out, usize count, const Mat4& m) noexcept {
+void TransformPointsScalar(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
     for (usize i = 0; i < count; ++i) {
         out[i] = TransformPoint(in[i], m);
     }
 }
-void TransformVectorsScalar(const Vec3* in, Vec3* out, usize count, const Mat4& m) noexcept {
+void TransformVectorsScalar(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
     for (usize i = 0; i < count; ++i) {
         out[i] = TransformVector(in[i], m);
     }
@@ -28,10 +28,10 @@ void TransformVectorsScalar(const Vec3* in, Vec3* out, usize count, const Mat4& 
 
 // AVX2 経路 — Phase 1 では未実装でスカラフォールバック
 // v2 で /arch:AVX2 でコンパイルした別 TU の実装に切り替える
-void TransformPointsAvx2(const Vec3* in, Vec3* out, usize count, const Mat4& m) noexcept {
+void TransformPointsAvx2(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
     TransformPointsScalar(in, out, count, m);
 }
-void TransformVectorsAvx2(const Vec3* in, Vec3* out, usize count, const Mat4& m) noexcept {
+void TransformVectorsAvx2(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
     TransformVectorsScalar(in, out, count, m);
 }
 
@@ -64,10 +64,10 @@ const MathDispatch& GetMathDispatch() noexcept {
     return g_dispatch;
 }
 
-void TransformPoints(const Vec3* in, Vec3* out, usize count, const Mat4& m) noexcept {
+void TransformPoints(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
     GetMathDispatch().transform_points(in, out, count, m);
 }
-void TransformVectors(const Vec3* in, Vec3* out, usize count, const Mat4& m) noexcept {
+void TransformVectors(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
     GetMathDispatch().transform_vectors(in, out, count, m);
 }
 

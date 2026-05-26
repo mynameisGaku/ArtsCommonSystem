@@ -32,7 +32,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
-Result<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
+TResult<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kBlitHLSL;

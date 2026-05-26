@@ -48,10 +48,10 @@ ACS は以下の **5 つの言語制約** の上に成り立つ。これらは�
 
 | 不変条件 / Invariant | 説明 / Description |
 |---|---|
-| **No STL** | `<vector>`, `<string>`, `<unordered_map>`, `<memory>`, `<functional>` 等の STL コンテナ・ユーティリティを使わない。代わりに `acs::Array<T>`, `acs::String`, `acs::HashMap<K,V>`, `acs::UniquePtr<T>`, `acs::Rc<T>`, `acs::Callback` を使う。 |
-| **No exceptions** | `throw` / `try` / `catch` を使わない。エラーは `Result<T, E>` で返す。すべての関数に `noexcept` を付ける。 |
+| **No STL** | `<vector>`, `<string>`, `<unordered_map>`, `<memory>`, `<functional>` 等の STL コンテナ・ユーティリティを使わない。代わりに `acs::TArray<T>`, `acs::FString`, `acs::THashMap<K,V>`, `acs::TUniquePtr<T>`, `acs::TRc<T>`, `acs::Callback` を使う。 |
+| **No exceptions** | `throw` / `try` / `catch` を使わない。エラーは `TResult<T, E>` で返す。すべての関数に `noexcept` を付ける。 |
 | **No RTTI** | `dynamic_cast` / `typeid` を使わない。`-fno-rtti` (Clang/GCC) または `/GR-` (MSVC) でビルドする。型識別が必要なら手書きのタグ enum を使う。 |
-| **`Result<T, E>`** | 失敗しうる関数は `Result<T, ErrorCode>` を返す。`[[nodiscard]]` でクラス自身が修飾されており、戻り値を捨てるとビルド警告。 |
+| **`TResult<T, E>`** | 失敗しうる関数は `TResult<T, FErrorCode>` を返す。`[[nodiscard]]` でクラス自身が修飾されており、戻り値を捨てるとビルド警告。 |
 | **canonical Callback** | コールバックは `using Cb = void (*)(/* payload */, void* user);` 形式 (関数ポインタ + `void*`)。`std::function` 不使用。 |
 
 ---
@@ -210,8 +210,8 @@ class IAssetLoader  { /* ... */ };
 ### 2.10 ファイル名 / File Names — `PascalCase.{h,cpp}`
 
 ```
-src/foundation/Result.h        Result.cpp
-src/container/Array.h          Array.cpp
+src/foundation/TResult.h        TResult.cpp
+src/container/TArray.h          TArray.cpp
 src/render/Diligent/DiligentDevice.h
 ```
 
@@ -312,7 +312,7 @@ T* a, b;     // NG (a は T*、b は T、罠)
 - イテレータ (`auto it = ...begin()`)
 - ラムダのキャプチャ (`auto fn = []() noexcept { ... };`)
 - 右辺で型が明白 (`auto ptr = MakeUnique<Foo>();`)
-- `Result<T>` 受け取り (`auto r = OpenFile(...);`)
+- `TResult<T>` 受け取り (`auto r = OpenFile(...);`)
 - ポインタは `auto*` で明示 (`auto* p = Get();`)
 
 禁止:
@@ -344,7 +344,7 @@ T* a, b;     // NG (a は T*、b は T、罠)
 **in-class default initializer** を優先、コンストラクタ引数バインドのみ init list:
 
 ```cpp
-class Array {
+class TArray {
 private:
     T*         _data     = nullptr;   // in-class default (preferred)
     usize      _size     = 0;
@@ -352,7 +352,7 @@ private:
     Allocator* _alloc    = nullptr;
 
 public:
-    Array(Allocator& a) noexcept : _alloc(&a) {}   // init list for arg binding
+    TArray(Allocator& a) noexcept : _alloc(&a) {}   // init list for arg binding
 };
 ```
 
@@ -361,8 +361,8 @@ public:
 ### 3.10 初期化構文 / Initialization Syntax
 
 - プリミティブ: `int x = 0;`, `f32 t = 0.0f;`, `bool ok = false;` (`=` 推奨)
-- 集約: `Vec3 v{1.0f, 2.0f, 3.0f};` (`{}` 推奨、narrowing conversion 防止)
-- コンストラクタ引数: `Array a(initial_cap, alloc);` (`()` 推奨、aggregate 衝突回避)
+- 集約: `FVec3 v{1.0f, 2.0f, 3.0f};` (`{}` 推奨、narrowing conversion 防止)
+- コンストラクタ引数: `TArray a(initial_cap, alloc);` (`()` 推奨、aggregate 衝突回避)
 
 ### 3.11 `using` vs `typedef` — `using` のみ
 
@@ -371,7 +371,7 @@ using EntityId = u32;                    // OK
 typedef u32 EntityId;                    // NG (古い C 流、不採用)
 using Callback = void (*)(void*, u32);   // OK (function ptr alias)
 template<typename T>
-using Owned = UniquePtr<T>;              // OK (template alias)
+using Owned = TUniquePtr<T>;              // OK (template alias)
 ```
 
 ### 3.12 Template 構文
@@ -379,7 +379,7 @@ using Owned = UniquePtr<T>;              // OK (template alias)
 ```cpp
 template<typename T>                          // OK
 template<class T>                             // NG (典型的に typename を使う)
-template<typename T, typename E = ErrorCode>  // OK
+template<typename T, typename E = FErrorCode>  // OK
 ```
 
 ### 3.13 アクセス指定子順序 / Access Section Order
@@ -430,24 +430,24 @@ void WriteAll(HANDLE h, /* ... */) noexcept {  // file-local function
 
 ### 3.15 出力パラメータ / Out-Parameters
 
-**原則**: 失敗しうる関数は `Result<T>` を返す。多値返却は `struct` を返す。
+**原則**: 失敗しうる関数は `TResult<T>` を返す。多値返却は `struct` を返す。
 
 ```cpp
-// OK — Result<T> で値を返す
-Result<File> OpenFile(const char* path) noexcept;
+// OK — TResult<T> で値を返す
+TResult<File> OpenFile(const char* path) noexcept;
 
 // OK — 構造体で多値返却
-struct RayHit { Vec3 point; f32 t; bool hit; };
-RayHit Intersect(const Ray& r, const Sphere& s) noexcept;
+struct RayHit { FVec3 point; f32 t; bool hit; };
+RayHit Intersect(const FRay& r, const FSphere& s) noexcept;
 
 // 例外的に許容 — 真にオプショナルな出力 (nullptr を渡せる)
 void Compute(u32 in, u32* out_optional = nullptr) noexcept;
 
 // NG — bool 戻り値 + out 参照は使わない
-bool TryOpen(const char* path, File& out_file) noexcept;  // → Result<File> にする
+bool TryOpen(const char* path, File& out_file) noexcept;  // → TResult<File> にする
 ```
 
-ポインタ形式の out (`T* out`) が許容されるのは「呼び出し側が nullptr を渡すことで出力を抑制したい」場合のみ。それ以外は `Result<T>` または struct 戻り値を使う。
+ポインタ形式の out (`T* out`) が許容されるのは「呼び出し側が nullptr を渡すことで出力を抑制したい」場合のみ。それ以外は `TResult<T>` または struct 戻り値を使う。
 
 ---
 
@@ -477,7 +477,7 @@ bool TryOpen(const char* path, File& out_file) noexcept;  // → Result<File> �
 
 ### 4.5 1 ファイル 1 主要型
 
-`src/foundation/Result.h` には `Result<T,E>` クラスが主役。同じファイル内に補助 struct (`OkTag`, `ErrTag` 等) は可。
+`src/foundation/TResult.h` には `TResult<T,E>` クラスが主役。同じファイル内に補助 struct (`OkTag`, `ErrTag` 等) は可。
 
 ### 4.6 namespace 末尾コメント — 必須
 
@@ -493,10 +493,10 @@ namespace acs {
 
 ## 5. エラー処理 / Error Handling
 
-### 5.1 `Result<T, E>` が標準
+### 5.1 `TResult<T, E>` が標準
 
 ```cpp
-Result<File, ErrorCode> OpenFile(const char* path) noexcept;
+TResult<File, FErrorCode> OpenFile(const char* path) noexcept;
 
 // 呼び出し側
 auto r = OpenFile("foo.txt");
@@ -509,7 +509,7 @@ File& f = r.Value();
 
 ### 5.2 戻り値破棄禁止 — `[[nodiscard]]`
 
-`Result<T, E>` クラス自体に `[[nodiscard]]` が付いている (foundation/Result.h)。意図的に破棄する場合は:
+`TResult<T, E>` クラス自体に `[[nodiscard]]` が付いている (foundation/TResult.h)。意図的に破棄する場合は:
 
 ```cpp
 (void)MaybeFailingCall();              // (void) で明示的破棄
@@ -523,7 +523,7 @@ EXPECT_TRUE(r.IsOk());
 ### 5.3 `ACS_TRY` / `ACS_TRY_ASSIGN` マクロ
 
 ```cpp
-Result<void> Process() noexcept {
+TResult<void> Process() noexcept {
     ACS_TRY(ValidateInput());                       // 失敗時に early-return
     ACS_TRY_ASSIGN(File f, OpenFile("data.bin"));   // 値を bind
     /* ... */
@@ -566,21 +566,21 @@ Result<void> Process() noexcept {
 
 | STL | ACS 等価物 |
 |---|---|
-| `std::vector<T>` | `acs::Array<T>` |
-| `std::string` | `acs::String` / `acs::StringView` |
-| `std::unordered_map<K,V>` | `acs::HashMap<K,V>` |
-| `std::span<T>` | `acs::Span<T>` |
-| `std::unique_ptr<T>` | `acs::UniquePtr<T>` |
-| `std::shared_ptr<T>` | `acs::Rc<T>` |
+| `std::vector<T>` | `acs::TArray<T>` |
+| `std::string` | `acs::FString` / `acs::FStringView` |
+| `std::unordered_map<K,V>` | `acs::THashMap<K,V>` |
+| `std::span<T>` | `acs::TSpan<T>` |
+| `std::unique_ptr<T>` | `acs::TUniquePtr<T>` |
+| `std::shared_ptr<T>` | `acs::TRc<T>` |
 | `std::function<...>` | `acs::Callback` (関数ポインタ + void*) |
-| `std::optional<T>` | `Result<T>` または明示的 `T*` |
+| `std::optional<T>` | `TResult<T>` または明示的 `T*` |
 
 ### 6.2 アロケータは明示的に渡す
 
 ```cpp
 // OK — Allocator& を引数として渡す (Bitsquid 流)
-Array<u32> Build(Allocator& alloc) noexcept {
-    Array<u32> a(alloc);
+TArray<u32> Build(Allocator& alloc) noexcept {
+    TArray<u32> a(alloc);
     a.Reserve(100);
     return a;
 }
@@ -592,7 +592,7 @@ Array<u32> Build(Allocator& alloc) noexcept {
 
 ### 6.4 RAII 徹底
 
-リソース所有者は `UniquePtr<T>` / `Rc<T>` / コンテナクラス。手動 `Free()` 呼び出しは原則禁止。
+リソース所有者は `TUniquePtr<T>` / `TRc<T>` / コンテナクラス。手動 `Free()` 呼び出しは原則禁止。
 
 ---
 
@@ -684,7 +684,7 @@ public:
 
 ### 9.2 `[[nodiscard]]`
 
-- `Result<T, E>` は class 自体に `[[nodiscard]]` 付与済み。
+- `TResult<T, E>` は class 自体に `[[nodiscard]]` 付与済み。
 - factory 関数 (`MakeUnique`, `CreateRhi*` 等) には個別に付与推奨。
 - getter (`Size()`, `Data()` 等) は不要。
 
@@ -695,8 +695,8 @@ POD コンストラクタ、accessor、enum stringifier、数学ヘルパー、�
 ### 9.4 trailing return type は通常使わない
 
 ```cpp
-Result<int> Foo() noexcept;           // OK (leading)
-auto Foo() noexcept -> Result<int>;   // NG (trailing は通常不要)
+TResult<int> Foo() noexcept;           // OK (leading)
+auto Foo() noexcept -> TResult<int>;   // NG (trailing は通常不要)
 ```
 
 template 戻り値で leading が表現困難な場合のみ trailing。
@@ -751,7 +751,7 @@ Doxygen `///` / `/** */` は採用しない (R045-c)。
 ```cpp
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Foundation — Result<T, E> 型（例外なしエラー伝搬）
+// ACS Foundation — TResult<T, E> 型（例外なしエラー伝搬）
 // -----------------------------------------------------------------------------
 // 設計意図、使用例、特徴を 5-30 行で記述。
 // =============================================================================
@@ -844,7 +844,7 @@ clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走
 
 | ID | 名称 / Name | 重大度 | チェック | 概要 |
 |---|---|---|---|---|
-| **R001** | no-throw | error | acs-R001 + bugprone-exception-baseclass | `throw` 禁止、`Result<T,E>` を返す |
+| **R001** | no-throw | error | acs-R001 + bugprone-exception-baseclass | `throw` 禁止、`TResult<T,E>` を返す |
 | **R002** | no-try-catch | error | acs-R002 | `try` / `catch` 禁止 |
 | **R003** | no-exception-header | error | acs-R003 | `<exception>`, `<stdexcept>` include 禁止 |
 | **R004** | no-rtti-dynamic-cast | error | acs-R004 + cppcoreguidelines-pro-type-* | `dynamic_cast` 禁止 |
@@ -893,7 +893,7 @@ clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走
 | **R030** | override-required | error | modernize-use-override | virtual override は `override` キーワード必須 |
 | **R031** | noexcept-public-fn | warning | acs-R031 | 公開 `.h` の関数は `noexcept` 必須 |
 | **R032** | noexcept-thread-entry | error | acs-R032 | スレッドエントリ・コールバックは `noexcept` 必須 |
-| **R033** | result-nodiscard | warning | acs-R033 | `Result<T,E>` を返す関数の戻り値破棄を検出 |
+| **R033** | result-nodiscard | warning | acs-R033 | `TResult<T,E>` を返す関数の戻り値破棄を検出 |
 | **R034** | lifecycle-on-prefix | info | acs-R034 | ライフサイクルフック (OnSpawn/OnUpdate/OnExit) は `On` プレフィックス |
 | **R035** | rule-of-five-or-zero | warning | cppcoreguidelines-special-member-functions | Rule of zero / five 違反 |
 | **R036** | header-pragma-once | error | acs-R036 | ヘッダは `#pragma once` (include guard 禁止) |

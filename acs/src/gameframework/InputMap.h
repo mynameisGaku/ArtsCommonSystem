@@ -101,7 +101,7 @@ private:
         u32      player    = 0;     // Gamepad 専用
     };
 
-    Array<Binding> _bindings;
+    TArray<Binding> _bindings;
 };
 
 } // namespace acs::game

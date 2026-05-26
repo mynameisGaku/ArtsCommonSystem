@@ -65,7 +65,7 @@
 //   ・**コピー / ムーブ禁止**: モデレーション state は通常 1 つの長寿命
 //     オブジェクトで運用。誤コピーで block list が分裂すると安全性が
 //     損なわれるため非コピー・非ムーブ。
-//   ・**全 noexcept**: ACS 全体方針 (Result<T, ErrorCode> + bool 戻り値)。
+//   ・**全 noexcept**: ACS 全体方針 (TResult<T, FErrorCode> + bool 戻り値)。
 //
 // 範囲外 (Phase T-3 以降):
 //   ・実 SDK 接続 (Steam ReportPlayer / EOS / PSN / Xbox Reputation / NSO)
@@ -155,7 +155,7 @@ public:
     // 通報を送信する。現フェーズでは SDK 未接続のため常に pending queue に
     // 追加して Ok() を返す (将来 backend 接続後は同期送信を試みて、失敗時
     // のみ queue に残す挙動になる)。reported_user_id == nullptr は弾く。
-    Result<void> SubmitReport(const ReportRecord& rep) noexcept;
+    TResult<void> SubmitReport(const ReportRecord& rep) noexcept;
 
     // 未送信通報の件数 (queue サイズ)。
     u32 PendingReportCount() const noexcept;
@@ -163,7 +163,7 @@ public:
     // 未送信通報をまとめて backend に送信する seam。現フェーズでは SDK 未接続
     // のため queue を空にして Ok() を返す (実 SDK 接続後は ReportPlayer を
     // 各件に対して呼び、失敗時は残す)。
-    Result<void> FlushReports() noexcept;
+    TResult<void> FlushReports() noexcept;
 
     // ----- 全消去 -----
     // ブロックリストと通報キューを両方クリアする。テスト用 / セーブデータ
@@ -175,8 +175,8 @@ private:
     // 見つかったら true、なければ false。nullptr は false。
     bool FindBlocked(const char* user_id) const noexcept;
 
-    Array<BlockEntry>   _blocked;        // ローカルブロックリスト
-    Array<ReportRecord> _pending_reports; // 未送信通報キュー
+    TArray<BlockEntry>   _blocked;        // ローカルブロックリスト
+    TArray<ReportRecord> _pending_reports; // 未送信通報キュー
 };
 
 } // namespace acs::game

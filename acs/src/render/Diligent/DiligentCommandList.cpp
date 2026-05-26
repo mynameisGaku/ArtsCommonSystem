@@ -16,7 +16,7 @@ namespace acs {
 
 DiligentCommandList::~DiligentCommandList() noexcept = default;
 
-Result<void> DiligentCommandList::Init(DiligentDevice& device) noexcept {
+TResult<void> DiligentCommandList::Init(DiligentDevice& device) noexcept {
     _device = &device;
     return Ok();
 }

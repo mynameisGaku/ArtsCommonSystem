@@ -116,7 +116,7 @@ void Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
 
 // ファクトリ関数: CreateRhiSwapchain の DX12 実装
 #if !WITH_RENDER_DILIGENT
-Result<UniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
+TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
                                                     const SwapchainConfig& cfg) noexcept {
     // RTTI 無効のため dynamic_cast は使えない。バックエンド名で判定する
     const char* bn = device.BackendName();
@@ -128,8 +128,8 @@ Result<UniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 11, "Dx12Swapchain::Init failed", static_cast<u32>(r.hr));
     }
-    UniquePtr<IRhiSwapchain> base(sc.Release(), sc.GetAllocator());
-    return Result<UniquePtr<IRhiSwapchain>>(OkInit, Move(base));
+    TUniquePtr<IRhiSwapchain> base(sc.Release(), sc.GetAllocator());
+    return TResult<TUniquePtr<IRhiSwapchain>>(OkInit, Move(base));
 }
 #endif
 

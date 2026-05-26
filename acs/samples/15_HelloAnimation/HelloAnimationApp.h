@@ -37,13 +37,13 @@ private:
     acs::SpriteBatch              _batch;
     acs::Font                     _font;
 
-    acs::Rc<acs::SkinnedMeshAsset> _snake;
+    acs::TRc<acs::SkinnedMeshAsset> _snake;
     acs::SkinnedGpuMesh            _gm_snake;
     acs::GpuMesh                   _gm_plane;
     acs::AnimationPlayer           _player;
 
     acs::Camera                   _camera;
-    acs::Vec3                     _cam_pos;
+    acs::FVec3                     _cam_pos;
     acs::f32                      _cam_yaw = 0.6f;
 };
 

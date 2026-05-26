@@ -9,18 +9,18 @@ namespace acs {
 namespace {
 
 // ローカル TRS → 行列（row-major: scale → rotation → translation）
-Mat4 ComposeTRS(Vec3 t, Quat r, Vec3 s) noexcept {
-    return Mat4::Scale(s) * ToMatrix(r) * Mat4::Translation(t);
+FMat4 ComposeTRS(FVec3 t, FQuat r, FVec3 s) noexcept {
+    return FMat4::Scale(s) * ToMatrix(r) * FMat4::Translation(t);
 }
 
 // アニメーションチャネルから時刻 t における TRS を補間サンプリング
 void SampleChannel(const AnimationChannel& ch, f32 t,
-                   Vec3& out_t, Quat& out_r, Vec3& out_s) noexcept {
+                   FVec3& out_t, FQuat& out_r, FVec3& out_s) noexcept {
     const usize n = ch.keys.Size();
     if (n == 0) {
-        out_t = Vec3{0, 0, 0};
-        out_r = Quat{};
-        out_s = Vec3{1, 1, 1};
+        out_t = FVec3{0, 0, 0};
+        out_r = FQuat{};
+        out_s = FVec3{1, 1, 1};
         return;
     }
     if (n == 1 || t <= ch.keys[0].time) {
@@ -40,13 +40,13 @@ void SampleChannel(const AnimationChannel& ch, f32 t,
     const AnimationKey& b = ch.keys[i + 1];
     const f32 dt = b.time - a.time;
     const f32 alpha = dt > 1e-6f ? (t - a.time) / dt : 0.0f;
-    out_t = Vec3{
+    out_t = FVec3{
         a.translation.x + (b.translation.x - a.translation.x) * alpha,
         a.translation.y + (b.translation.y - a.translation.y) * alpha,
         a.translation.z + (b.translation.z - a.translation.z) * alpha,
     };
     out_r = Slerp(a.rotation, b.rotation, alpha);
-    out_s = Vec3{
+    out_s = FVec3{
         a.scale.x + (b.scale.x - a.scale.x) * alpha,
         a.scale.y + (b.scale.y - a.scale.y) * alpha,
         a.scale.z + (b.scale.z - a.scale.z) * alpha,
@@ -64,13 +64,13 @@ void SkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     if (n == 0) return;
 
     // 1) 各ボーンのバインド世界行列を親から順に計算する。
-    //    Array<Bone> は親が i より小さい番号で並んでいる前提（前向き列挙可）。
-    Array<Mat4> world_at_bind;
+    //    TArray<Bone> は親が i より小さい番号で並んでいる前提（前向き列挙可）。
+    TArray<FMat4> world_at_bind;
     world_at_bind.Resize(n);
 
     for (u32 i = 0; i < n; ++i) {
         const Bone& b = _bones[i];
-        Mat4 local = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
+        FMat4 local = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
         if (b.parent < 0) {
             world_at_bind[i] = local;
         } else {
@@ -116,9 +116,9 @@ void AnimationPlayer::Update(f32 dt) noexcept {
     }
 }
 
-u32 AnimationPlayer::WritePalette(Mat4* out_palette, u32 max_count) const noexcept {
+u32 AnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
     if (!_mesh || !out_palette) return 0;
-    const Array<Bone>& bones = _mesh->Bones();
+    const TArray<Bone>& bones = _mesh->Bones();
     const u32 nb = static_cast<u32>(bones.Size());
     const u32 count = nb < max_count ? nb : max_count;
     if (count == 0) return 0;
@@ -126,8 +126,8 @@ u32 AnimationPlayer::WritePalette(Mat4* out_palette, u32 max_count) const noexce
     // 1) 各ボーンの「アニメーション後ローカル」を求める
     //    アニメ無し（_anim == -1）の場合はバインド姿勢の TRS を使う
     static constexpr u32 kStackBones = 256;
-    Mat4 local_pose[kStackBones];
-    Mat4 world_pose[kStackBones];
+    FMat4 local_pose[kStackBones];
+    FMat4 world_pose[kStackBones];
     if (count > kStackBones) {
         // ボーン数が多すぎる場合は max_count に丸めて palette に書く
         // パレット計算自体は正しく動く
@@ -146,7 +146,7 @@ u32 AnimationPlayer::WritePalette(Mat4* out_palette, u32 max_count) const noexce
         for (usize ci = 0; ci < a.channels.Size(); ++ci) {
             const AnimationChannel& ch = a.channels[ci];
             if (ch.bone_index < 0 || ch.bone_index >= static_cast<i32>(effective)) continue;
-            Vec3 t, s; Quat r;
+            FVec3 t, s; FQuat r;
             SampleChannel(ch, _time, t, r, s);
             local_pose[ch.bone_index] = ComposeTRS(t, r, s);
         }
@@ -172,7 +172,7 @@ u32 AnimationPlayer::WritePalette(Mat4* out_palette, u32 max_count) const noexce
 
     // 余り（max_count > kStackBones の場合）は単位行列で埋める
     for (u32 i = effective; i < count; ++i) {
-        out_palette[i] = Mat4::Identity();
+        out_palette[i] = FMat4::Identity();
     }
     return count;
 }

@@ -17,7 +17,7 @@
 //     今は raw token をそのまま渡し、呼び出し側がパースする。
 //   ・**履歴 / ログは内部所有のバッファに copy**: 呼び出し側で形成した文字列が
 //     スタック消滅しても保持できるよう、Push 時に DefaultAllocator から長さ +1
-//     を取って memcpy する。drop 時に Free。Array<const char*> 自体は所有ポインタを
+//     を取って memcpy する。drop 時に Free。TArray<const char*> 自体は所有ポインタを
 //     保持するだけのため、エントリ追加 / 削除のたびに自前で Alloc/Free 管理。
 //   ・**固定キャップ 100 行**: 上限到達後に push すると最古 (index 0) を Free して
 //     shift left。100 行 × O(memmove(99 ptrs)) なので push 自体は十分軽い。
@@ -132,13 +132,13 @@ private:
     static void FreeString(const char* s) noexcept;
 
     // line を buf に push、size cap 到達時は buf[0] を Free して shift left。
-    static void PushLine(Array<const char*>& buf, const char* line) noexcept;
+    static void PushLine(TArray<const char*>& buf, const char* line) noexcept;
     // buf の全エントリを Free して Clear。
-    static void ClearLines(Array<const char*>& buf) noexcept;
+    static void ClearLines(TArray<const char*>& buf) noexcept;
 
-    Array<Command>     _commands;
-    Array<const char*> _history;
-    Array<const char*> _log;
+    TArray<Command>     _commands;
+    TArray<const char*> _history;
+    TArray<const char*> _log;
     bool               _open = false;
 };
 

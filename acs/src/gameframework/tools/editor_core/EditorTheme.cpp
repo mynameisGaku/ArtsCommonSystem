@@ -4,7 +4,7 @@
 // 仕様詳細は EditorTheme.h を参照。本ファイルでは:
 //   ・preset 種別ごとの色テーブル定義 (Dark / DarkBlue / Light / HighContrast /
 //     Sepia / Custom)
-//   ・ACS::Vec4 → ImVec4 の橋渡し + ImGui::GetStyle() への適用
+//   ・ACS::FVec4 → ImVec4 の橋渡し + ImGui::GetStyle() への適用
 //   ・ImGui font_scale / corner_radius / spacing の流し込み
 //   ・DrawThemeSettingsUI: preset combo + ColorEdit4 群 + Save/Load ボタン
 //   ・SaveTheme / LoadTheme: `.acstheme` テキスト I/O (FxeditSerializer と
@@ -28,16 +28,16 @@ namespace acs::game::editor_core {
 // =============================================================================
 namespace {
 
-// ACS::Vec4 → ImVec4 の単純変換。レイアウトは互換 (どちらも float x4) だが
+// ACS::FVec4 → ImVec4 の単純変換。レイアウトは互換 (どちらも float x4) だが
 // 型は別物なので明示変換で混乱を避ける。
-ImVec4 ToImVec4(const Vec4& v) noexcept {
+ImVec4 ToImVec4(const FVec4& v) noexcept {
     return ImVec4(v.x, v.y, v.z, v.w);
 }
 
-// ImVec4 → ACS::Vec4 の逆変換 (LoadTheme で ImGui::ColorEdit が出した値を
+// ImVec4 → ACS::FVec4 の逆変換 (LoadTheme で ImGui::ColorEdit が出した値を
 // 受け取る経路では使わないが、対称性のため用意)。
-Vec4 FromImVec4(const ImVec4& v) noexcept {
-    return Vec4{v.x, v.y, v.z, v.w};
+FVec4 FromImVec4(const ImVec4& v) noexcept {
+    return FVec4{v.x, v.y, v.z, v.w};
 }
 
 // preset 名を `.acstheme` テキスト用に const char* で返す。LoadTheme の
@@ -97,84 +97,84 @@ void EditorTheme::FillPresetColors(EEditorThemePreset       preset,
                                    EditorThemeColors&       out) noexcept {
     switch (preset) {
         case EEditorThemePreset::Dark: {
-            out.window_bg     = Vec4{0.180f, 0.180f, 0.180f, 1.0f};  // #2E2E2E
-            out.title_bg      = Vec4{0.130f, 0.130f, 0.130f, 1.0f};  // #212121
-            out.button_bg     = Vec4{0.300f, 0.300f, 0.300f, 1.0f};  // #4D4D4D
-            out.button_hover  = Vec4{0.420f, 0.420f, 0.420f, 1.0f};  // #6B6B6B
-            out.button_active = Vec4{0.550f, 0.550f, 0.550f, 1.0f};  // #8C8C8C
-            out.frame_bg      = Vec4{0.230f, 0.230f, 0.230f, 1.0f};  // #3B3B3B
-            out.text          = Vec4{0.950f, 0.950f, 0.950f, 1.0f};  // #F2F2F2
-            out.text_disabled = Vec4{0.500f, 0.500f, 0.500f, 1.0f};  // #808080
-            out.border        = Vec4{0.430f, 0.430f, 0.430f, 0.50f};
-            out.separator     = Vec4{0.430f, 0.430f, 0.430f, 0.50f};
-            out.accent        = Vec4{1.000f, 0.624f, 0.251f, 1.0f};  // #FF9F40
-            out.warning       = Vec4{1.000f, 0.800f, 0.200f, 1.0f};  // #FFCC33
-            out.error         = Vec4{0.940f, 0.330f, 0.310f, 1.0f};  // #F0544F
+            out.window_bg     = FVec4{0.180f, 0.180f, 0.180f, 1.0f};  // #2E2E2E
+            out.title_bg      = FVec4{0.130f, 0.130f, 0.130f, 1.0f};  // #212121
+            out.button_bg     = FVec4{0.300f, 0.300f, 0.300f, 1.0f};  // #4D4D4D
+            out.button_hover  = FVec4{0.420f, 0.420f, 0.420f, 1.0f};  // #6B6B6B
+            out.button_active = FVec4{0.550f, 0.550f, 0.550f, 1.0f};  // #8C8C8C
+            out.frame_bg      = FVec4{0.230f, 0.230f, 0.230f, 1.0f};  // #3B3B3B
+            out.text          = FVec4{0.950f, 0.950f, 0.950f, 1.0f};  // #F2F2F2
+            out.text_disabled = FVec4{0.500f, 0.500f, 0.500f, 1.0f};  // #808080
+            out.border        = FVec4{0.430f, 0.430f, 0.430f, 0.50f};
+            out.separator     = FVec4{0.430f, 0.430f, 0.430f, 0.50f};
+            out.accent        = FVec4{1.000f, 0.624f, 0.251f, 1.0f};  // #FF9F40
+            out.warning       = FVec4{1.000f, 0.800f, 0.200f, 1.0f};  // #FFCC33
+            out.error         = FVec4{0.940f, 0.330f, 0.310f, 1.0f};  // #F0544F
             break;
         }
         case EEditorThemePreset::DarkBlue: {
-            out.window_bg     = Vec4{0.122f, 0.137f, 0.173f, 1.0f};  // #1F232C
-            out.title_bg      = Vec4{0.094f, 0.106f, 0.137f, 1.0f};  // #181B23
-            out.button_bg     = Vec4{0.180f, 0.220f, 0.290f, 1.0f};  // #2E384A
-            out.button_hover  = Vec4{0.250f, 0.310f, 0.420f, 1.0f};  // #404F6B
-            out.button_active = Vec4{0.330f, 0.420f, 0.560f, 1.0f};  // #546B8F
-            out.frame_bg      = Vec4{0.160f, 0.180f, 0.230f, 1.0f};  // #292E3B
-            out.text          = Vec4{0.870f, 0.890f, 0.930f, 1.0f};  // #DEE3ED
-            out.text_disabled = Vec4{0.450f, 0.480f, 0.540f, 1.0f};  // #737A8A
-            out.border        = Vec4{0.250f, 0.290f, 0.360f, 0.60f};
-            out.separator     = Vec4{0.250f, 0.290f, 0.360f, 0.60f};
-            out.accent        = Vec4{0.000f, 0.478f, 0.800f, 1.0f};  // #007ACC
-            out.warning       = Vec4{0.900f, 0.700f, 0.100f, 1.0f};  // #E5B219
-            out.error         = Vec4{0.960f, 0.270f, 0.270f, 1.0f};  // #F54545
+            out.window_bg     = FVec4{0.122f, 0.137f, 0.173f, 1.0f};  // #1F232C
+            out.title_bg      = FVec4{0.094f, 0.106f, 0.137f, 1.0f};  // #181B23
+            out.button_bg     = FVec4{0.180f, 0.220f, 0.290f, 1.0f};  // #2E384A
+            out.button_hover  = FVec4{0.250f, 0.310f, 0.420f, 1.0f};  // #404F6B
+            out.button_active = FVec4{0.330f, 0.420f, 0.560f, 1.0f};  // #546B8F
+            out.frame_bg      = FVec4{0.160f, 0.180f, 0.230f, 1.0f};  // #292E3B
+            out.text          = FVec4{0.870f, 0.890f, 0.930f, 1.0f};  // #DEE3ED
+            out.text_disabled = FVec4{0.450f, 0.480f, 0.540f, 1.0f};  // #737A8A
+            out.border        = FVec4{0.250f, 0.290f, 0.360f, 0.60f};
+            out.separator     = FVec4{0.250f, 0.290f, 0.360f, 0.60f};
+            out.accent        = FVec4{0.000f, 0.478f, 0.800f, 1.0f};  // #007ACC
+            out.warning       = FVec4{0.900f, 0.700f, 0.100f, 1.0f};  // #E5B219
+            out.error         = FVec4{0.960f, 0.270f, 0.270f, 1.0f};  // #F54545
             break;
         }
         case EEditorThemePreset::Light: {
-            out.window_bg     = Vec4{0.940f, 0.940f, 0.940f, 1.0f};  // #F0F0F0
-            out.title_bg      = Vec4{0.850f, 0.850f, 0.850f, 1.0f};  // #D9D9D9
-            out.button_bg     = Vec4{0.860f, 0.860f, 0.860f, 1.0f};  // #DBDBDB
-            out.button_hover  = Vec4{0.730f, 0.730f, 0.730f, 1.0f};  // #BABABA
-            out.button_active = Vec4{0.610f, 0.610f, 0.610f, 1.0f};  // #9C9C9C
-            out.frame_bg      = Vec4{1.000f, 1.000f, 1.000f, 1.0f};  // #FFFFFF
-            out.text          = Vec4{0.100f, 0.100f, 0.100f, 1.0f};  // #1A1A1A
-            out.text_disabled = Vec4{0.550f, 0.550f, 0.550f, 1.0f};  // #8C8C8C
-            out.border        = Vec4{0.000f, 0.000f, 0.000f, 0.30f};
-            out.separator     = Vec4{0.390f, 0.390f, 0.390f, 0.50f};
-            out.accent        = Vec4{0.000f, 0.470f, 0.840f, 1.0f};  // #0078D7
-            out.warning       = Vec4{0.800f, 0.520f, 0.000f, 1.0f};  // #CC8500
-            out.error         = Vec4{0.820f, 0.180f, 0.180f, 1.0f};  // #D12E2E
+            out.window_bg     = FVec4{0.940f, 0.940f, 0.940f, 1.0f};  // #F0F0F0
+            out.title_bg      = FVec4{0.850f, 0.850f, 0.850f, 1.0f};  // #D9D9D9
+            out.button_bg     = FVec4{0.860f, 0.860f, 0.860f, 1.0f};  // #DBDBDB
+            out.button_hover  = FVec4{0.730f, 0.730f, 0.730f, 1.0f};  // #BABABA
+            out.button_active = FVec4{0.610f, 0.610f, 0.610f, 1.0f};  // #9C9C9C
+            out.frame_bg      = FVec4{1.000f, 1.000f, 1.000f, 1.0f};  // #FFFFFF
+            out.text          = FVec4{0.100f, 0.100f, 0.100f, 1.0f};  // #1A1A1A
+            out.text_disabled = FVec4{0.550f, 0.550f, 0.550f, 1.0f};  // #8C8C8C
+            out.border        = FVec4{0.000f, 0.000f, 0.000f, 0.30f};
+            out.separator     = FVec4{0.390f, 0.390f, 0.390f, 0.50f};
+            out.accent        = FVec4{0.000f, 0.470f, 0.840f, 1.0f};  // #0078D7
+            out.warning       = FVec4{0.800f, 0.520f, 0.000f, 1.0f};  // #CC8500
+            out.error         = FVec4{0.820f, 0.180f, 0.180f, 1.0f};  // #D12E2E
             break;
         }
         case EEditorThemePreset::HighContrast: {
             // WCAG AAA (>= 7:1) 想定の三色設計 (黒 / 白 / 黄)。
-            out.window_bg     = Vec4{0.000f, 0.000f, 0.000f, 1.0f};  // #000000
-            out.title_bg      = Vec4{0.000f, 0.000f, 0.000f, 1.0f};
-            out.button_bg     = Vec4{0.100f, 0.100f, 0.100f, 1.0f};  // #1A1A1A
-            out.button_hover  = Vec4{1.000f, 0.843f, 0.000f, 1.0f};  // #FFD700 (黄)
-            out.button_active = Vec4{1.000f, 1.000f, 0.200f, 1.0f};  // #FFFF33
-            out.frame_bg      = Vec4{0.100f, 0.100f, 0.100f, 1.0f};
-            out.text          = Vec4{1.000f, 1.000f, 1.000f, 1.0f};  // #FFFFFF
-            out.text_disabled = Vec4{0.700f, 0.700f, 0.700f, 1.0f};
-            out.border        = Vec4{1.000f, 1.000f, 1.000f, 1.0f};  // 白枠で明示
-            out.separator     = Vec4{1.000f, 1.000f, 1.000f, 0.80f};
-            out.accent        = Vec4{1.000f, 0.843f, 0.000f, 1.0f};  // #FFD700
-            out.warning       = Vec4{1.000f, 0.843f, 0.000f, 1.0f};  // 黄
-            out.error         = Vec4{1.000f, 0.300f, 0.300f, 1.0f};  // 高彩度赤
+            out.window_bg     = FVec4{0.000f, 0.000f, 0.000f, 1.0f};  // #000000
+            out.title_bg      = FVec4{0.000f, 0.000f, 0.000f, 1.0f};
+            out.button_bg     = FVec4{0.100f, 0.100f, 0.100f, 1.0f};  // #1A1A1A
+            out.button_hover  = FVec4{1.000f, 0.843f, 0.000f, 1.0f};  // #FFD700 (黄)
+            out.button_active = FVec4{1.000f, 1.000f, 0.200f, 1.0f};  // #FFFF33
+            out.frame_bg      = FVec4{0.100f, 0.100f, 0.100f, 1.0f};
+            out.text          = FVec4{1.000f, 1.000f, 1.000f, 1.0f};  // #FFFFFF
+            out.text_disabled = FVec4{0.700f, 0.700f, 0.700f, 1.0f};
+            out.border        = FVec4{1.000f, 1.000f, 1.000f, 1.0f};  // 白枠で明示
+            out.separator     = FVec4{1.000f, 1.000f, 1.000f, 0.80f};
+            out.accent        = FVec4{1.000f, 0.843f, 0.000f, 1.0f};  // #FFD700
+            out.warning       = FVec4{1.000f, 0.843f, 0.000f, 1.0f};  // 黄
+            out.error         = FVec4{1.000f, 0.300f, 0.300f, 1.0f};  // 高彩度赤
             break;
         }
         case EEditorThemePreset::Sepia: {
-            out.window_bg     = Vec4{0.227f, 0.180f, 0.133f, 1.0f};  // #3A2E22
-            out.title_bg      = Vec4{0.184f, 0.149f, 0.114f, 1.0f};  // #2F261D
-            out.button_bg     = Vec4{0.337f, 0.275f, 0.212f, 1.0f};  // #564636
-            out.button_hover  = Vec4{0.471f, 0.388f, 0.298f, 1.0f};  // #78634C
-            out.button_active = Vec4{0.580f, 0.482f, 0.376f, 1.0f};  // #947B60
-            out.frame_bg      = Vec4{0.290f, 0.231f, 0.180f, 1.0f};  // #4A3B2E
-            out.text          = Vec4{0.957f, 0.910f, 0.847f, 1.0f};  // #F4E8D8
-            out.text_disabled = Vec4{0.620f, 0.560f, 0.490f, 1.0f};
-            out.border        = Vec4{0.560f, 0.470f, 0.380f, 0.50f};
-            out.separator     = Vec4{0.560f, 0.470f, 0.380f, 0.50f};
-            out.accent        = Vec4{0.627f, 0.439f, 0.314f, 1.0f};  // #A07050
-            out.warning       = Vec4{0.900f, 0.620f, 0.190f, 1.0f};
-            out.error         = Vec4{0.840f, 0.290f, 0.190f, 1.0f};
+            out.window_bg     = FVec4{0.227f, 0.180f, 0.133f, 1.0f};  // #3A2E22
+            out.title_bg      = FVec4{0.184f, 0.149f, 0.114f, 1.0f};  // #2F261D
+            out.button_bg     = FVec4{0.337f, 0.275f, 0.212f, 1.0f};  // #564636
+            out.button_hover  = FVec4{0.471f, 0.388f, 0.298f, 1.0f};  // #78634C
+            out.button_active = FVec4{0.580f, 0.482f, 0.376f, 1.0f};  // #947B60
+            out.frame_bg      = FVec4{0.290f, 0.231f, 0.180f, 1.0f};  // #4A3B2E
+            out.text          = FVec4{0.957f, 0.910f, 0.847f, 1.0f};  // #F4E8D8
+            out.text_disabled = FVec4{0.620f, 0.560f, 0.490f, 1.0f};
+            out.border        = FVec4{0.560f, 0.470f, 0.380f, 0.50f};
+            out.separator     = FVec4{0.560f, 0.470f, 0.380f, 0.50f};
+            out.accent        = FVec4{0.627f, 0.439f, 0.314f, 1.0f};  // #A07050
+            out.warning       = FVec4{0.900f, 0.620f, 0.190f, 1.0f};
+            out.error         = FVec4{0.840f, 0.290f, 0.190f, 1.0f};
             break;
         }
         case EEditorThemePreset::Custom:
@@ -371,7 +371,7 @@ void EditorTheme::DrawThemeSettingsUI() noexcept {
     // ---- カラー編集 -----------------------------------------------------
     // ColorEdit4 で値を drag するたびに ApplyToImGui を呼び、Custom に切替。
     bool changed = false;
-    auto edit = [&](const char* label, Vec4& v) {
+    auto edit = [&](const char* label, FVec4& v) {
         ImVec4 tmp = ToImVec4(v);
         if (ImGui::ColorEdit4(label, &tmp.x)) {
             v = FromImVec4(tmp);
@@ -466,7 +466,7 @@ void EditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
         return true;
     };
 
-    auto write_color = [&](const char* key, const Vec4& v) noexcept -> bool {
+    auto write_color = [&](const char* key, const FVec4& v) noexcept -> bool {
         return write_line("%s %.3f %.3f %.3f %.3f\n",
                           key,
                           static_cast<double>(v.x),
@@ -533,7 +533,7 @@ void EditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
                      rr.Error().os_error);
         return;
     }
-    const Array<char>& text = rr.Value();
+    const TArray<char>& text = rr.Value();
     if (text.Size() == 0) {
         ACS_LOG_WARN("EditorTheme::LoadTheme: empty file");
         return;
@@ -629,15 +629,15 @@ void EditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
             continue;
         }
 
-        // ---- カラー (Vec4) ----------------------------------------------
+        // ---- カラー (FVec4) ----------------------------------------------
         // ヘルパで `x y z w` の 4 値を読む。失敗時は黙って skip。
-        auto parse_vec4 = [&](Vec4& out_v) noexcept {
+        auto parse_vec4 = [&](FVec4& out_v) noexcept {
             char* tail = nullptr;
             const f32 x = std::strtof(q, &tail); if (tail == q) return;
             const f32 y = std::strtof(tail, &tail);
             const f32 z = std::strtof(tail, &tail);
             const f32 w = std::strtof(tail, &tail);
-            out_v = Vec4{x, y, z, w};
+            out_v = FVec4{x, y, z, w};
         };
         if      (std::strcmp(key, "window_bg")     == 0) parse_vec4(new_colors.window_bg);
         else if (std::strcmp(key, "title_bg")      == 0) parse_vec4(new_colors.title_bg);

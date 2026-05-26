@@ -161,7 +161,7 @@ void TelemetryDirector::Flush() noexcept {
     // で「未走査側を壊す」事故を防ぐ (走査済み末尾が消えるだけ)。
     for (usize i = _pending.Size(); i-- > 0;) {
         const TelemetryEvent& e = _pending[i];
-        Result<void> r = _backend->SendTelemetry(e.event_name, e.json_payload);
+        TResult<void> r = _backend->SendTelemetry(e.event_name, e.json_payload);
         if (r.IsErr()) {
             // 失敗カウンタを上げ、pending には残す = 次 Flush で再送試行。
             // stub backend では常にこの分岐 (NotImplemented) を踏む。
@@ -234,7 +234,7 @@ void TelemetryDirector::EnableCategory(const char* category, bool enabled) noexc
         }
     }
 
-    // 未登録。enabled = true (= 既定) なら登録不要 (Array サイズを増やさない)。
+    // 未登録。enabled = true (= 既定) なら登録不要 (TArray サイズを増やさない)。
     // enabled = false (= deny) のみ新規登録する。
     if (!enabled) {
         CategoryFilter f;

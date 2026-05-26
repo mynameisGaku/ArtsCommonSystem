@@ -90,7 +90,7 @@ u32 AcpakLz4::MaxCompressedSize(u32 input_size) noexcept {
 // ============================================================================
 // Compress — 単純 hash-based 1 パス LZ4
 // ============================================================================
-Result<u32> AcpakLz4::Compress(const u8* src,
+TResult<u32> AcpakLz4::Compress(const u8* src,
                                u32       src_size,
                                u8*       dst,
                                u32       dst_capacity) noexcept {
@@ -104,7 +104,7 @@ Result<u32> AcpakLz4::Compress(const u8* src,
                        "AcpakLz4::Compress: src is null but size > 0");
     }
     if (src_size == 0) {
-        return Result<u32>(OkInit, 0u);
+        return TResult<u32>(OkInit, 0u);
     }
 
     // ---- 出力 cursor / 容量チェック helper ------------------------------
@@ -141,7 +141,7 @@ Result<u32> AcpakLz4::Compress(const u8* src,
         }
         MemCopy(op, src, lit_len);
         op += lit_len;
-        return Result<u32>(OkInit, static_cast<u32>(op - dst_begin));
+        return TResult<u32>(OkInit, static_cast<u32>(op - dst_begin));
     }
 
     // ---- Hash table 初期化 (0 = 「未登録」相当として扱う) --------------
@@ -272,18 +272,18 @@ Result<u32> AcpakLz4::Compress(const u8* src,
         }
     }
 
-    return Result<u32>(OkInit, static_cast<u32>(op - dst_begin));
+    return TResult<u32>(OkInit, static_cast<u32>(op - dst_begin));
 }
 
 // ============================================================================
 // Decompress — LZ4_decompress_safe 相当 (境界検査付き)
 // ============================================================================
-Result<u32> AcpakLz4::Decompress(const u8* src,
+TResult<u32> AcpakLz4::Decompress(const u8* src,
                                  u32       src_size,
                                  u8*       dst,
                                  u32       dst_capacity) noexcept {
     if (src_size == 0) {
-        return Result<u32>(OkInit, 0u);
+        return TResult<u32>(OkInit, 0u);
     }
     if (src == nullptr || dst == nullptr) {
         return ACS_ERR(Asset, kAcpakSubLz4BadInput,
@@ -402,7 +402,7 @@ Result<u32> AcpakLz4::Decompress(const u8* src,
         op += full_match;
     }
 
-    return Result<u32>(OkInit, static_cast<u32>(op - dst_begin));
+    return TResult<u32>(OkInit, static_cast<u32>(op - dst_begin));
 }
 
 } // namespace acs::assetpack

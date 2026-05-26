@@ -18,17 +18,17 @@
 //     できる。
 //   ・slot 数の管理 (= model load 時に呼ばれる `SetMaterialSlotCount`) も
 //     ModelViewer 本体が責任を持つ。本パネルは「slot N 個」という事実だけを
-//     知って override Array を resize する。
+//     知って override TArray を resize する。
 //
 // 設計選択 (Pillar 21b — ModelViewer 第二弾):
 //   ・**EditorPanel 基底を継承**: Phase 21a で確立された `editor_core::EditorPanel`
 //     のライフサイクル (OnInit / OnShutdown / OnFrameBegin / DrawUI / WantsFocus
 //     等) を全て継承する。Workspace への登録 → 自動 dispatch が可能。
-//   ・**非コピー / 非ムーブ**: 内部 `Array<MaterialOverride>` + callback 状態の
+//   ・**非コピー / 非ムーブ**: 内部 `TArray<MaterialOverride>` + callback 状態の
 //     所有を曖昧にしない (= EditorPanel の規約と同形、ACS 規約)。
 //   ・**全 noexcept**: ACS 規約。範囲外 index は no-op、nullptr 取得は nullptr
 //     return。例外は投げない。
-//   ・**STL 不使用 / `<string>` 禁止**: override list は `acs::Array<MaterialOverride>`。
+//   ・**STL 不使用 / `<string>` 禁止**: override list は `acs::TArray<MaterialOverride>`。
 //     文字列は ImGui に渡すリテラル / スタック char[] のみ。
 //   ・**ImGui ヘッダは .cpp に閉じ込め**: header からは imgui 依存を漏らさず、
 //     InspectorPanel / ParticleEditorPanel と同パターン。
@@ -104,19 +104,19 @@ namespace acs::game::modelview {
 // `is_overridden` が true になるのは、ユーザーが UI 上のフィールドを 1 つでも
 // 触った時点。Reset ボタンで false に戻す。
 //
-// 構造体レイアウト: Vec4 / Vec3 / f32 の混在で `alignas(16)` の Vec4 が要素を
-// 整列させる。`Array<MaterialOverride>` は Resize 時に MemSet ゼロ初期化される
-// (`Array::Resize` の trivially-constructible 経路) — Vec4 / Vec3 / f32 / bool /
+// 構造体レイアウト: FVec4 / FVec3 / f32 の混在で `alignas(16)` の FVec4 が要素を
+// 整列させる。`TArray<MaterialOverride>` は Resize 時に MemSet ゼロ初期化される
+// (`TArray::Resize` の trivially-constructible 経路) — FVec4 / FVec3 / f32 / bool /
 // u32 は全 trivially-constructible なため安全。
 struct MaterialOverride {
-    // slot 番号 (0..SlotCount()-1)。Array の index と一致する重複情報だが、
+    // slot 番号 (0..SlotCount()-1)。TArray の index と一致する重複情報だが、
     // callback 経由で外部に渡す際にもう一度 index を引き直さなくて済むよう
     // 構造体内にも持たせる (デバッグ視認性も上がる)。
     u32  slot_index        = 0u;
 
     // PBR base color (RGBA)。RGB は albedo / F0 tint、A は alpha cutout を含む
     // 将来拡張用 (現状は 1.0 で OK)。default = white opaque。
-    Vec4 base_color        = Vec4{1.0f, 1.0f, 1.0f, 1.0f};
+    FVec4 base_color        = FVec4{1.0f, 1.0f, 1.0f, 1.0f};
 
     // 0 = dielectric (非金属)、1 = metal。PBR の Metallic workflow に直結。
     f32  metallic          = 0.0f;
@@ -133,7 +133,7 @@ struct MaterialOverride {
 
     // 自己発光色 (HDR scale 可、ColorEdit3 の値域は [0,1] だが、
     // emissive_intensity との積で >1 に増幅される設計)。default = 黒 (= 発光 OFF)。
-    Vec3 emissive          = Vec3{0.0f, 0.0f, 0.0f};
+    FVec3 emissive          = FVec3{0.0f, 0.0f, 0.0f};
 
     // 発光強度倍率。bloom / HDR pipeline で >1 の値で「光って見える」効果が出る。
     // default = 1.0 だが、emissive が黒なら結局 0。
@@ -160,7 +160,7 @@ public:
     ModelMaterialPanel() noexcept = default;
     ~ModelMaterialPanel() noexcept override = default;
 
-    // 非コピー・非ムーブ: 内部 Array + callback 状態の所有を曖昧にしない
+    // 非コピー・非ムーブ: 内部 TArray + callback 状態の所有を曖昧にしない
     // (EditorPanel 基底と同規約、ACS 規約)。
     ModelMaterialPanel(const ModelMaterialPanel&)            = delete;
     ModelMaterialPanel& operator=(const ModelMaterialPanel&) = delete;
@@ -178,7 +178,7 @@ public:
 
     // ----- slot 管理 --------------------------------------------------------
 
-    // model load 時に呼ばれる。Array を `count` 個に Resize し、各 slot の
+    // model load 時に呼ばれる。TArray を `count` 個に Resize し、各 slot の
     // `slot_index` を 0..count-1 でフィルする。既存 slot の値は維持されないため
     // (= 古い model の override が新 model に流れない)、明示的に default 値で
     // 初期化される。
@@ -244,7 +244,7 @@ private:
     void FireChangeCallback(u32 slot_index) noexcept;
 
     // override list (1:1 with slot index)。SetMaterialSlotCount で Resize。
-    Array<MaterialOverride> _overrides {};
+    TArray<MaterialOverride> _overrides {};
 
     // 変更通知 callback。nullptr 許容。
     MaterialChangeCallback  _on_change_cb   = nullptr;

@@ -16,7 +16,7 @@
 //   shd.SetObject(model_mat, base_color, specular, shininess);
 //
 //   // ボーンパレット（毎フレーム）
-//   Mat4 palette[64];
+//   FMat4 palette[64];
 //   u32 nb = anim_player.WritePalette(palette, 64);
 //   shd.SetBonePalette(palette, nb);
 //
@@ -54,28 +54,28 @@ public:
     SkinnedShader(const SkinnedShader&)            = delete;
     SkinnedShader& operator=(const SkinnedShader&) = delete;
 
-    Result<void> Init(IRhiDevice& device,
+    TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
                       EFormat depth_format = EFormat::D32_Float) noexcept;
     void Shutdown() noexcept;
 
     // StandardShader と同形式の API（互換）
-    void SetFrame(const Mat4& view_projection,
-                  Vec3 camera_pos,
-                  Vec3 light_dir, Vec3 light_color,
-                  Vec3 ambient_color) noexcept;
-    void SetLights(const Mat4& view_projection,
-                   Vec3 camera_pos,
+    void SetFrame(const FMat4& view_projection,
+                  FVec3 camera_pos,
+                  FVec3 light_dir, FVec3 light_color,
+                  FVec3 ambient_color) noexcept;
+    void SetLights(const FMat4& view_projection,
+                   FVec3 camera_pos,
                    const DirLight* lights, u32 count,
-                   Vec3 ambient_color) noexcept;
+                   FVec3 ambient_color) noexcept;
     void SetPointLights(const PointLight* lights, u32 count) noexcept;
-    void SetObject(const Mat4& model,
-                   Vec3 base_color = Vec3{1, 1, 1},
+    void SetObject(const FMat4& model,
+                   FVec3 base_color = FVec3{1, 1, 1},
                    f32  specular_strength = 0.0f,
                    f32  shininess = 32.0f) noexcept;
 
     // ボーンパレット（最大 kMaxBones 個）。残りは内部で単位行列で埋める。
-    void SetBonePalette(const Mat4* palette, u32 count) noexcept;
+    void SetBonePalette(const FMat4* palette, u32 count) noexcept;
 
     IRhiPipeline*  Pipeline()    const noexcept { return _pipeline.Get(); }
     IRhiBuffer*    PerFrameCB()  const noexcept { return _frame_cb.Get(); }
@@ -86,18 +86,18 @@ public:
 private:
     void FlushFrameCB() noexcept;
 
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiShader>   _ps;
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiBuffer>   _frame_cb;
-    UniquePtr<IRhiBuffer>   _object_cb;
-    UniquePtr<IRhiBuffer>   _bones_cb;
-    UniquePtr<IRhiTexture>  _white;
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiShader>   _ps;
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiBuffer>   _frame_cb;
+    TUniquePtr<IRhiBuffer>   _object_cb;
+    TUniquePtr<IRhiBuffer>   _bones_cb;
+    TUniquePtr<IRhiTexture>  _white;
 
     // Frame の状態キャッシュ（StandardShader と同パターン）
-    Mat4       _vp;
-    Vec3       _eye = Vec3{0, 0, 0};
-    Vec3       _ambient = Vec3{0, 0, 0};
+    FMat4       _vp;
+    FVec3       _eye = FVec3{0, 0, 0};
+    FVec3       _ambient = FVec3{0, 0, 0};
     DirLight   _dir_lights[4];
     u32        _dir_count = 0;
     PointLight _point_lights[4];

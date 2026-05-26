@@ -17,8 +17,8 @@ inline constexpr acs::u32 kCubeCount  = 6;
 inline constexpr acs::u32 kPointCount = 4;
 
 struct ObjectInst {
-    acs::Mat4 model;
-    acs::Vec3 color;
+    acs::FMat4 model;
+    acs::FVec3 color;
     bool      is_sphere;
 };
 

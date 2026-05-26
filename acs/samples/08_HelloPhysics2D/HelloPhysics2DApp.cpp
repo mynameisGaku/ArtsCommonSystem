@@ -80,7 +80,7 @@ void HelloPhysics2DApp::OnRender() noexcept {
 
     _batch.Begin(*cl, sw, sh);
     _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
-                    Vec4{0.05f, 0.07f, 0.10f, 1});
+                    FVec4{0.05f, 0.07f, 0.10f, 1});
 
     _scene.Render(_batch, _font, *_tex, FPS());
 

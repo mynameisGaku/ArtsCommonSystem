@@ -30,12 +30,12 @@
 //     最後の「key 自身を返す」は開発中に未翻訳箇所を画面で発見しやすくするための
 //     ガード (空文字や nullptr を返すと UI 側で別の null チェックが必要になる)。
 //   ・**線形探索**: 文字列 ID は通常 100〜2000 のオーダー、locale 切替は起動時 +
-//     設定変更時のみで頻発しないため、線形走査で十分。HashMap 化は Phase 2 で
+//     設定変更時のみで頻発しないため、線形走査で十分。THashMap 化は Phase 2 で
 //     計測してから検討する (TODO: 数千 key 規模になったら必要)。
 //   ・**コピー / ムーブ禁止**: localization は通常 1 セッション 1 オブジェクトで
 //     運用される。誤って値渡しされて分裂すると翻訳ずれを検知しづらいため、
 //     最初から非コピー・非ムーブで固定する。
-//   ・**全 noexcept**: 例外不使用方針 (Result<T,E> + bool 戻り値)。
+//   ・**全 noexcept**: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
 //
 // 範囲外 (Phase 2+ で):
 //   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`EFormat` 層を別途用意する想定。
@@ -129,7 +129,7 @@ private:
     isize FindIndex(ELocale loc, const char* key) const noexcept;
 
     ELocale              _current = ELocale::Default;
-    Array<LocaleEntry>  _entries;
+    TArray<LocaleEntry>  _entries;
 };
 
 } // namespace acs::game

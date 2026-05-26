@@ -18,7 +18,7 @@
 // 設計上の注記:
 //   ・<windows.h> / <bcrypt.h> は .cpp 局所。本ヘッダはエンジン他層から
 //     include されるので Win32 ヘッダを露出させない。
-//   ・全 API noexcept、Result<T, ErrorCode>。AES-GCM 認証タグ失敗は
+//   ・全 API noexcept、TResult<T, FErrorCode>。AES-GCM 認証タグ失敗は
 //     ACS_ERR(Asset, kAcpakSubBadCrc) として返す (= 改竄 / 破損の単一窓口)。
 //   ・STL 不使用、<string> 不使用、内部スタック / ハンドルだけで完結する。
 //   ・Decrypt は in-place 可能 (plaintext == ciphertext が OK)。CNG 自体の
@@ -43,7 +43,7 @@ struct AcpakKey {
 inline constexpr u32 kAcpakNonceSize = 12;   // 96bit (GCM 推奨幅)
 inline constexpr u32 kAcpakTagSize   = 16;   // 128bit (GCM 認証タグ)
 
-// ---- ErrorCode subcode (AssetPack の 1300 番台に追加) --------------------
+// ---- FErrorCode subcode (AssetPack の 1300 番台に追加) --------------------
 // 既存 subcode は AcpakFormat.h で予約済 (1301-1313)。crypto / lz4 用は
 // 1314-1320 で予約する。
 inline constexpr u16 kAcpakSubCryptoInit   = 1314; // BCryptOpenAlgorithmProvider 失敗
@@ -69,7 +69,7 @@ public:
     // 主なエラー:
     //   ・ACS_ERR_OS(Asset, kAcpakSubCryptoInit, ...) — algorithm provider 取得失敗
     //   ・ACS_ERR_OS(Asset, kAcpakSubCryptoKdf,  ...) — KDF 計算失敗
-    static Result<AcpakKey> DeriveKey(const u8* password,
+    static TResult<AcpakKey> DeriveKey(const u8* password,
                                       u32       password_len,
                                       const u8* salt,
                                       u32       salt_len) noexcept;
@@ -84,7 +84,7 @@ public:
     // 主なエラー:
     //   ・ACS_ERR_OS(Asset, kAcpakSubCryptoInit, ...) — provider / key 失敗
     //   ・ACS_ERR_OS(Asset, kAcpakSubCryptoOp,   ...) — BCryptEncrypt 失敗
-    static Result<void> Encrypt(const AcpakKey& key,
+    static TResult<void> Encrypt(const AcpakKey& key,
                                 const u8        nonce[kAcpakNonceSize],
                                 const u8*       plaintext,
                                 u64             size,
@@ -100,7 +100,7 @@ public:
     //   ・ACS_ERR_OS(Asset, kAcpakSubCryptoInit, ...) — provider / key 失敗
     //   ・ACS_ERR(Asset, kAcpakSubCryptoTag, ...)    — タグ検証失敗 (改竄 or 破損)
     //   ・ACS_ERR_OS(Asset, kAcpakSubCryptoOp, ...)  — その他 BCryptDecrypt 失敗
-    static Result<void> Decrypt(const AcpakKey& key,
+    static TResult<void> Decrypt(const AcpakKey& key,
                                 const u8        nonce[kAcpakNonceSize],
                                 const u8        tag[kAcpakTagSize],
                                 const u8*       ciphertext,
@@ -111,7 +111,7 @@ public:
     //   ・BCryptGenRandom + BCRYPT_USE_SYSTEM_PREFERRED_RNG で OS 標準乱数源。
     //   ・失敗時 (= OS 異常) は MemSet(0) でフォールバック。AcpakWriter は
     //     致命的でなく単に「弱い nonce」になるが、production code として
-    //     正常パスのみ通る前提。Phase 3 で Result<void> 化する余地あり。
+    //     正常パスのみ通る前提。Phase 3 で TResult<void> 化する余地あり。
     static void GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept;
 };
 

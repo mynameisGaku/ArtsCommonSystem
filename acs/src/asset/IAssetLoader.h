@@ -26,7 +26,7 @@ public:
 
     // バイト列からアセットを生成（同期）
     // 非同期化は AssetRegistry 側が ThreadPool で本関数を呼ぶ形で実現する
-    virtual Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept = 0;
+    virtual TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept = 0;
 };
 
 } // namespace acs

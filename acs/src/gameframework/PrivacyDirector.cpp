@@ -128,7 +128,7 @@ void PrivacyDirector::Reset() noexcept {
 
 // ----- 永続化 (Phase 1 stub) ------------------------------------------------
 
-Result<void> PrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
+TResult<void> PrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_BadPath,
                        "PrivacyDirector::SaveConsent received null path");
@@ -140,12 +140,12 @@ Result<void> PrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     // Phase 2 の擬似コード:
     //   1. SaveSlot<ConsentStatus> slot; slot.Init(file_path);
     //   2. slot.Save(_status);
-    //   3. エラーは Result<void> でそのまま伝搬。
+    //   3. エラーは TResult<void> でそのまま伝搬。
     return ACS_ERR(IO, kSub_NotImplemented,
                    "PrivacyDirector::SaveConsent is not yet implemented (Phase 1 stub)");
 }
 
-Result<void> PrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
+TResult<void> PrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_BadPath,
                        "PrivacyDirector::LoadConsent received null path");

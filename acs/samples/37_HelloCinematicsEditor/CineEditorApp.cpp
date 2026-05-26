@@ -42,7 +42,7 @@ void CineEditorApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> CineEditorApp::InitialScene() noexcept {
+TUniquePtr<Scene> CineEditorApp::InitialScene() noexcept {
     return MakeUnique<CineEditorScene>();
 }
 

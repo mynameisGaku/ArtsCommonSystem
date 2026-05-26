@@ -35,7 +35,7 @@ void BtEditorApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> BtEditorApp::InitialScene() noexcept {
+TUniquePtr<Scene> BtEditorApp::InitialScene() noexcept {
     return MakeUnique<BtEditorScene>();
 }
 

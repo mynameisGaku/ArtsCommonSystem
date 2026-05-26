@@ -29,12 +29,12 @@ void ParticleEditorScene::OnEnter() noexcept {
     def.speed_max          = 80.0f;
     def.scale_start        = 8.0f;
     def.scale_end          = 0.0f;
-    def.color_start        = Vec3{1.0f, 0.6f, 0.1f};   // 橙
-    def.color_end          = Vec3{0.5f, 0.0f, 0.0f};   // 暗赤
-    def.gravity            = Vec2{0.0f, 60.0f};
+    def.color_start        = FVec3{1.0f, 0.6f, 0.1f};   // 橙
+    def.color_end          = FVec3{0.5f, 0.0f, 0.0f};   // 暗赤
+    def.gravity            = FVec2{0.0f, 60.0f};
 
     // Preview が原点中心に描画する想定なので world 座標 (0,0) に配置。
-    _default_emitter = _particle_system.CreateEmitter(def, Vec2{0.0f, 0.0f});
+    _default_emitter = _particle_system.CreateEmitter(def, FVec2{0.0f, 0.0f});
     _particle_system.SetEmitterActive(_default_emitter, true);
 
     // Panel 側は SelectedIndex() のデフォルト 0 で十分動く前提なので、

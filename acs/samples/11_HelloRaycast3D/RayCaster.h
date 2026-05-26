@@ -29,13 +29,13 @@ public:
 
     // 描画側 (StandardShader::SetLights) が ViewProjection と Eye を要求する。
     const acs::Camera& Camera()  const noexcept { return _camera; }
-    acs::Vec3          Eye()     const noexcept { return _cam_pos; }
-    acs::Vec3          Forward() const noexcept { return _cam_forward; }
+    acs::FVec3          Eye()     const noexcept { return _cam_pos; }
+    acs::FVec3          Forward() const noexcept { return _cam_forward; }
 
 private:
     acs::Camera _camera;
-    acs::Vec3   _cam_pos     = kCamInitialPos;
-    acs::Vec3   _cam_forward {0, 0, 1};
+    acs::FVec3   _cam_pos     = kCamInitialPos;
+    acs::FVec3   _cam_forward {0, 0, 1};
     acs::f32    _cam_yaw     = 0.0f;
     acs::f32    _cam_pitch   = 0.0f;
 };

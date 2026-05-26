@@ -61,7 +61,7 @@ inline constexpr u64 kMaxScriptFileBytes = 64ull * 1024ull * 1024ull;  // 64 MiB
 // で表現し、上位層は `err.subcode == script_err::kSub_NotImplemented` で
 // 分岐できる。
 // =============================================================================
-Result<void> ScriptVmStub::Init() noexcept {
+TResult<void> ScriptVmStub::Init() noexcept {
     // Stub は副作用ゼロで成功させる (= 起動シーケンスを通すため)。
     // 実際のスクリプト動作は LoadScript / CallFunction の段階で
     // NotImplemented として落とす。
@@ -74,7 +74,7 @@ void ScriptVmStub::Shutdown() noexcept {
     _initialized = false;
 }
 
-Result<void> ScriptVmStub::LoadScript(const char* /*source*/,
+TResult<void> ScriptVmStub::LoadScript(const char* /*source*/,
                                       u32         /*source_len*/,
                                       const char* /*chunk_name*/) noexcept {
     if (!_initialized) {
@@ -85,7 +85,7 @@ Result<void> ScriptVmStub::LoadScript(const char* /*source*/,
                    "ScriptVmStub::LoadScript: scripting backend not integrated (Phase N-2 stub)");
 }
 
-Result<void> ScriptVmStub::CallFunction(const char* /*function_name*/,
+TResult<void> ScriptVmStub::CallFunction(const char* /*function_name*/,
                                         const ScriptValue* /*args*/, u32 /*arg_count*/,
                                         ScriptValue* /*ret_out*/) noexcept {
     if (!_initialized) {
@@ -96,7 +96,7 @@ Result<void> ScriptVmStub::CallFunction(const char* /*function_name*/,
                    "ScriptVmStub::CallFunction: scripting backend not integrated (Phase N-2 stub)");
 }
 
-Result<void> ScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
+TResult<void> ScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
                                                   NativeFunction /*fn*/,
                                                   void* /*user*/) noexcept {
     if (!_initialized) {
@@ -176,7 +176,7 @@ IScriptVm* ScriptHost::Vm() const noexcept {
     return _vm;
 }
 
-Result<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
+TResult<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // ---- 事前チェック ---------------------------------------------------
     if (_vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
@@ -223,7 +223,7 @@ Result<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     }
 
     // バッファ確保。スクリプトの読み込みは frame 跨ぎではないので、Default
-    // Allocator を直接叩く (Array<u8> + Resize でも良いが余分な fill cost を
+    // Allocator を直接叩く (TArray<u8> + Resize でも良いが余分な fill cost を
     // 避けるため、生 Alloc → Free でラウンドトリップさせる)。
     const usize buf_size = static_cast<usize>(size_u64);
     Allocator&  alloc    = DefaultAllocator();
@@ -263,7 +263,7 @@ Result<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // 固定文字列で代用する。実 Lua backend (Phase N-3) では caller から
     // explicit chunk name を取る overload を追加予定。
     const u32 src_len = (buf_size > 0xFFFFFFFFull) ? 0xFFFFFFFFu : static_cast<u32>(buf_size);
-    Result<void> r = _vm->LoadScript(reinterpret_cast<const char*>(buf),
+    TResult<void> r = _vm->LoadScript(reinterpret_cast<const char*>(buf),
                                      src_len,
                                      "<file>");
 
@@ -278,7 +278,7 @@ Result<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     return r;
 }
 
-Result<void> ScriptHost::CallGlobalFunction(const char*        function_name,
+TResult<void> ScriptHost::CallGlobalFunction(const char*        function_name,
                                             const ScriptValue* args,
                                             u32                arg_count,
                                             ScriptValue*       ret_out) noexcept {
@@ -295,14 +295,14 @@ Result<void> ScriptHost::CallGlobalFunction(const char*        function_name,
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
                        "ScriptHost::CallGlobalFunction: arg_count > 0 but args is null");
     }
-    Result<void> r = _vm->CallFunction(function_name, args, arg_count, ret_out);
+    TResult<void> r = _vm->CallFunction(function_name, args, arg_count, ret_out);
     if (r.IsErr()) {
         FireError(function_name, 0, r.Error().message);
     }
     return r;
 }
 
-Result<void> ScriptHost::RegisterNative(const char*    function_name,
+TResult<void> ScriptHost::RegisterNative(const char*    function_name,
                                         NativeFunction fn,
                                         void*          user) noexcept {
     if (_vm == nullptr) {
@@ -326,7 +326,7 @@ Result<void> ScriptHost::RegisterNative(const char*    function_name,
     }
 
     // vm 側にも登録 (backend が同名上書きをどう扱うかは backend 依存)。
-    Result<void> r = _vm->RegisterNativeFunction(function_name, fn, user);
+    TResult<void> r = _vm->RegisterNativeFunction(function_name, fn, user);
     if (r.IsErr()) {
         // backend 失敗時は本 host の registry にも追加しない (= 巻き戻し)。
         // 既に上書き済みだった場合は中途半端な状態を避けるため、巻き戻しは

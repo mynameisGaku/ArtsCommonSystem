@@ -99,7 +99,7 @@ ACS_TEST(Mvvm, DerivedRatio) {
     EXPECT_EQ(ratio.Get(), 0.25f);
 }
 
-// ---- DefaultConverter: 数値 ↔ String 変換 ---------------------------------
+// ---- DefaultConverter: 数値 ↔ FString 変換 ---------------------------------
 ACS_TEST(Mvvm, DefaultConverterNumeric) {
     EXPECT_EQ((mvvm::DefaultConverter<i32, f32>::Convert(5, nullptr)), 5.0f);
     EXPECT_EQ((mvvm::DefaultConverter<f32, i32>::Convert(3.7f, nullptr)), 3);
@@ -109,18 +109,18 @@ ACS_TEST(Mvvm, DefaultConverterNumeric) {
 }
 
 ACS_TEST(Mvvm, DefaultConverterStringRoundTrip) {
-    String s = mvvm::DefaultConverter<i32, String>::Convert(42, nullptr);
+    FString s = mvvm::DefaultConverter<i32, FString>::Convert(42, nullptr);
     EXPECT_TRUE(s.Data() != nullptr);
     // 末尾チェックは厳密にやらず、値が "42" を含むかだけ確認
     EXPECT_TRUE(s.Data()[0] == '4' && s.Data()[1] == '2');
 
-    i32 v = mvvm::DefaultConverter<String, i32>::Convert(String{"123"}, nullptr);
+    i32 v = mvvm::DefaultConverter<FString, i32>::Convert(FString{"123"}, nullptr);
     EXPECT_EQ(v, 123);
 
-    bool b = mvvm::DefaultConverter<String, bool>::Convert(String{"true"}, nullptr);
+    bool b = mvvm::DefaultConverter<FString, bool>::Convert(FString{"true"}, nullptr);
     EXPECT_TRUE(b);
 
-    bool b2 = mvvm::DefaultConverter<String, bool>::Convert(String{"false"}, nullptr);
+    bool b2 = mvvm::DefaultConverter<FString, bool>::Convert(FString{"false"}, nullptr);
     EXPECT_FALSE(b2);
 }
 
@@ -135,11 +135,11 @@ ACS_TEST(Mvvm, BindFactorySameType) {
     EXPECT_EQ(dst.Get(), 7.5f);
 }
 
-// ---- Bind ファクトリ: 型違いで暗黙変換 (f32 → String) ----------------------
+// ---- Bind ファクトリ: 型違いで暗黙変換 (f32 → FString) ----------------------
 ACS_TEST(Mvvm, BindFactoryConvert) {
     Observable<i32>    src{ 100 };
-    Observable<String> dst;
-    auto bind = Bind(src, dst);     // OneWayConvertBinder<i32, String>
+    Observable<FString> dst;
+    auto bind = Bind(src, dst);     // OneWayConvertBinder<i32, FString>
     EXPECT_TRUE(dst.Get().Data() != nullptr);
     EXPECT_TRUE(dst.Get().Data()[0] == '1');
 
@@ -229,7 +229,7 @@ ACS_TEST(Mvvm, ObservableArrayLifecycle) {
     EXPECT_EQ(arr.Size(), (usize)0);
 }
 
-// ---- MakeBind / MakeBindConvert: UniquePtr 版 ------------------------------
+// ---- MakeBind / MakeBindConvert: TUniquePtr 版 ------------------------------
 ACS_TEST(Mvvm, MakeBindUniquePtr) {
     Observable<f32> a{ 1.0f };
     Observable<f32> b;

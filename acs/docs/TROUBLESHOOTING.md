@@ -47,11 +47,11 @@ DiligentCore 等も取得します。`Failed to clone` などで構成が止ま�
 
 | STL | ACS の代替 | ヘッダ |
 |---|---|---|
-| `std::vector<T>` | `acs::Array<T>` | `container/Array.h` |
-| `std::string` | `acs::String` | `container/String.h` |
-| `std::unordered_map` | `acs::HashMap<K,V>` | `container/HashMap.h` |
-| `std::unique_ptr<T>` | `acs::UniquePtr<T>` | `memory/UniquePtr.h` |
-| `std::shared_ptr<T>` | `acs::Rc<T>` | `memory/Rc.h` |
+| `std::vector<T>` | `acs::TArray<T>` | `container/TArray.h` |
+| `std::string` | `acs::FString` | `container/FString.h` |
+| `std::unordered_map` | `acs::THashMap<K,V>` | `container/THashMap.h` |
+| `std::unique_ptr<T>` | `acs::TUniquePtr<T>` | `memory/TUniquePtr.h` |
+| `std::shared_ptr<T>` | `acs::TRc<T>` | `memory/TRc.h` |
 
 ACS は例外を無効化（`/D_HAS_EXCEPTIONS=0`）してビルドするため、`<vector>` など
 STL ヘッダを include すると STL 内部の `throw` が原因で大量のテンプレート
@@ -65,8 +65,8 @@ STL ヘッダを include すると STL 内部の `throw` が原因で大量の�
 `looser exception specification` 等のコンパイルエラーになります。
 
 ### `use of deleted function`（コンテナを `=` でコピーした）
-`Array<T>` / `HashMap<K,V>` は意図しない重いコピーを防ぐため**コピー禁止**です。
-`Array<int> b = a;` のように書くとこのエラーになります。複製したいときは
+`TArray<T>` / `THashMap<K,V>` は意図しない重いコピーを防ぐため**コピー禁止**です。
+`TArray<int> b = a;` のように書くとこのエラーになります。複製したいときは
 明示的に `b = a.Clone();` を使ってください。
 
 ### `unresolved external symbol`（リンクエラー）
@@ -106,7 +106,7 @@ ACS は Ninja の**単一構成ビルド**を使うため、`Release/` `Debug/` 
   その `.exe` のあるフォルダに設定する。
 - または絶対パスを使う。
 
-`Result` のエラー（`Asset` カテゴリ）のメッセージに探索したパスが出るので、
+`TResult` のエラー（`Asset` カテゴリ）のメッセージに探索したパスが出るので、
 まずそれを確認してください。
 
 ### `diligent-*` プリセットの初回 configure が固まったように見える
@@ -133,8 +133,8 @@ git clone するため **10 分前後かかります**。固まったように�
 
 `expr` と `location` を見れば、どのコードのどの前提が崩れたかが分かります。
 
-### `Result` の `Value()` で停止した
-`Result<T,E>` がエラーを保持している状態で `Value()` を呼ぶと、`ACS_ASSERT`
+### `TResult` の `Value()` で停止した
+`TResult<T,E>` がエラーを保持している状態で `Value()` を呼ぶと、`ACS_ASSERT`
 で停止します（誤用を早期に検出するため）。`Value()` を呼ぶ前に必ず `IsErr()`
 ／ `IsOk()` で成功を確認してください：
 

@@ -151,7 +151,7 @@ const ProjectileSystem::Slot* ProjectileSystem::FindSlot(ProjectileId id) const 
 // 4) instance を初期化。owner_id / damage は呼出側の値をそのまま使う。
 // 5) homing target は SetHomingTarget が後で設定する想定なのでここでは false。
 // =============================================================================
-ProjectileId ProjectileSystem::Spawn(const char* def_id, Vec2 pos, Vec2 velocity,
+ProjectileId ProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
                                      u32 owner_id, f32 damage) noexcept {
     const ProjectileDef* def = FindDef(def_id);
     if (def == nullptr) return ProjectileId{};
@@ -172,7 +172,7 @@ ProjectileId ProjectileSystem::Spawn(const char* def_id, Vec2 pos, Vec2 velocity
     s.inst.owner_id    = owner_id;
     s.inst.damage      = damage;
 
-    s.homing_tgt        = Vec2{0.0f, 0.0f};
+    s.homing_tgt        = FVec2{0.0f, 0.0f};
     s.has_homing_target = false;
     s.gen               = new_gen;
     s.active            = true;
@@ -282,7 +282,7 @@ void ProjectileSystem::Tick(f32 dt) noexcept {
 
         // --- (2) homing: target 方向に向き補正 (速度大きさは保持)
         if (homing && s.has_homing_target && homing_k > 0.0f) {
-            const Vec2 to_target = s.homing_tgt - s.inst.position;
+            const FVec2 to_target = s.homing_tgt - s.inst.position;
             const f32 tgt_len2 = to_target.x * to_target.x + to_target.y * to_target.y;
             const f32 vel_len2 = s.inst.velocity.x * s.inst.velocity.x
                                + s.inst.velocity.y * s.inst.velocity.y;
@@ -392,7 +392,7 @@ void ProjectileSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexce
 // SetHomingTarget の後で別の Spawn が同 slot を再利用すると、has_homing_target は
 // Spawn で false に戻されるので、stale handle 経由のターゲット汚染は起きない。
 // =============================================================================
-void ProjectileSystem::SetHomingTarget(ProjectileId id, Vec2 target_pos) noexcept {
+void ProjectileSystem::SetHomingTarget(ProjectileId id, FVec2 target_pos) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     const ProjectileDef* def = FindDef(s->inst.def_id);

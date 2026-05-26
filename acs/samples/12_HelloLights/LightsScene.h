@@ -31,7 +31,7 @@ public:
                 acs::f32                time) noexcept;
 
 private:
-    acs::Array<ObjectInst> _objects;
+    acs::TArray<ObjectInst> _objects;
 };
 
 } // namespace hellolights

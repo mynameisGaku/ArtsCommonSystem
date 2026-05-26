@@ -61,15 +61,15 @@
 //     UTF-8 リテラル) + 数値メタ。文字列は caller 所有のリテラル前提
 //     (ACS 規約: STL/`<string>` 禁止)。本 panel は const char* / const wchar_t*
 //     を非所有で参照保持。
-//   ・**`acs::Array<FontFaceInfo>` で順序保持**: 「fallback 優先順位」が UI 上
+//   ・**`acs::TArray<FontFaceInfo>` で順序保持**: 「fallback 優先順位」が UI 上
 //     の表示順 = chain 順なので、順序保持配列が自然 (= 重要、SpritePack の
 //     swap remove では順序がブレるので不向き)。RemoveAt / MoveUp / MoveDown は
 //     順序保持の swap で実装する。
-//   ・**fallback_index は struct メンバとして冗長保持**: chain 順は Array 内
+//   ・**fallback_index は struct メンバとして冗長保持**: chain 順は TArray 内
 //     index で決まるが、caller が「この face を chain の k 番目に置きたい」と
 //     いう意図情報を別途持ちたいケース (= 永続化、UI 表示) があるので、struct
 //     に索引フィールドを残す。Add/Move のたびに本 panel が `fallback_index = i`
-//     を再書き込みする (= Array index と同期)。
+//     を再書き込みする (= TArray index と同期)。
 //   ・**選択 face は単一 (i32)**、-1 = 未選択。SpriteAtlasEditorPanel と同形。
 //   ・**Preview text は `char[256]`**: ImGui::InputText に渡す固定バッファ。
 //     256 byte ≒ 85 utf-8 漢字相当 (3 byte/char) で、preview 用途には十分。
@@ -122,7 +122,7 @@ namespace acs::game::fontedit {
 //                     scale は別途 caller 計算。
 //   - char_range_min/max : 担当 Unicode 範囲。例えば JP face は 0x0020-0xFFFF
 //                          全域、emoji face は 0x1F300-0x1FAFF だけ、等。
-//   - fallback_index : chain の何番目か。Array index と一致させるよう panel が
+//   - fallback_index : chain の何番目か。TArray index と一致させるよう panel が
 //                      Add/Move のたびに再書き込みする。caller が永続化したい
 //                      場合に便利な冗長情報。
 //   - is_msdf       : この face を MSDF アトラスで焼くか (= true) / 通常の
@@ -146,7 +146,7 @@ public:
     FontEditorPanel() noexcept = default;
     ~FontEditorPanel() noexcept override = default;
 
-    // 非コピー・非ムーブ: 内部 Array<FontFaceInfo> + 静的 preview バッファの
+    // 非コピー・非ムーブ: 内部 TArray<FontFaceInfo> + 静的 preview バッファの
     // 所有関係を曖昧にしない (ACS 規約 + 他 panel 群と同形)。
     FontEditorPanel(const FontEditorPanel&)            = delete;
     FontEditorPanel& operator=(const FontEditorPanel&) = delete;
@@ -248,7 +248,7 @@ public:
 private:
     // ---- 編集対象 face 配列 (順序保持、index = fallback chain 順位) ----
     // PushBack / RemoveAt / 自前 swap で順序を維持する。
-    acs::Array<FontFaceInfo> _faces;
+    acs::TArray<FontFaceInfo> _faces;
 
     // ---- 選択中 face index (-1 = 未選択) ----
     i32 _selected = -1;

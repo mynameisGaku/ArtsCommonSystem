@@ -53,7 +53,7 @@
 //     (= スタックに積まれているが blend に絡まない下層は止めておく)。これに
 //     より「下層カメラがプレイヤーを追ってずれていく」事故を防ぐ。下層を
 //     生かしておきたいケースは呼び出し側で個別 Tick すれば良い。
-//   ・**非コピー・非ムーブ**: 内部 Array が non-owning ptr を持つだけだが、
+//   ・**非コピー・非ムーブ**: 内部 TArray が non-owning ptr を持つだけだが、
 //     SceneManager と同じく「state holder は move されない」方針で統一。
 //
 // 範囲外 (Phase 3+ で):
@@ -100,7 +100,7 @@ public:
     // ----- 描画側が読む補間結果 -----
     // active (= top) のカメラ値を、blend 中は「下層 (= 一つ下) との線形補間」
     // した値で返す。zoom は対数補間、rotation は最短角補間 (wrap-around 補正)。
-    Vec2 EffectivePosition() const noexcept;
+    FVec2 EffectivePosition() const noexcept;
     f32  EffectiveZoom()     const noexcept;
     f32  EffectiveRotation() const noexcept;
 
@@ -121,14 +121,14 @@ private:
                                             // false = フェードアウト (Pop 起源)。
     };
 
-    // [0,1] の進捗で `a` と `b` を線形補間 (Vec2)。
-    static Vec2 LerpVec2(Vec2 a, Vec2 b, f32 t) noexcept;
+    // [0,1] の進捗で `a` と `b` を線形補間 (FVec2)。
+    static FVec2 LerpVec2(FVec2 a, FVec2 b, f32 t) noexcept;
     // zoom は exp(lerp(log(a), log(b), t)) (光学的に自然な中点)。
     static f32  LerpZoom(f32 a, f32 b, f32 t) noexcept;
     // rotation は差分を [-π, π] に正規化してから lerp (最短角)。
     static f32  LerpAngle(f32 a, f32 b, f32 t) noexcept;
 
-    Array<CameraEntry> _entries;   // _entries.Back() が top (= active)
+    TArray<CameraEntry> _entries;   // _entries.Back() が top (= active)
 };
 
 } // namespace acs::game

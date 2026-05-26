@@ -10,14 +10,14 @@
 namespace acs {
 
 template<typename T>
-class Span {
+class TSpan {
 public:
-    constexpr Span() noexcept = default;
-    constexpr Span(T* data, usize size) noexcept : _data(data), _size(size) {}
+    constexpr TSpan() noexcept = default;
+    constexpr TSpan(T* data, usize size) noexcept : _data(data), _size(size) {}
 
     // C 配列からの暗黙変換（テンプレート引数 N で長さを推論）
     template<usize N>
-    constexpr Span(T (&arr)[N]) noexcept : _data(arr), _size(N) {}
+    constexpr TSpan(T (&arr)[N]) noexcept : _data(arr), _size(N) {}
 
     constexpr T*       Data()       noexcept { return _data; }
     constexpr const T* Data() const noexcept { return _data; }
@@ -34,9 +34,9 @@ public:
     constexpr const T* end()   const noexcept { return _data + _size; }
 
     // 部分範囲を取り出す (範囲外は ASSERT)
-    constexpr Span SubSpan(usize offset, usize count) const noexcept {
+    constexpr TSpan SubSpan(usize offset, usize count) const noexcept {
         ACS_ASSERT(offset + count <= _size);
-        return Span(_data + offset, count);
+        return TSpan(_data + offset, count);
     }
 
 private:

@@ -42,9 +42,9 @@
 //   inv.DropSlot(7);                                     // can_drop=true のときのみ
 //
 // 設計選択 (Pillar O/G Phase 4):
-//   ・**Item 定義は単一 Array<ItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
+//   ・**Item 定義は単一 TArray<ItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
 //     線形走査で十分 (Entitlement / EconomyDirector と同じ判断)。
-//   ・**Slot data は固定長 Array<InventorySlot>**: Init(slot_count) で Resize し、
+//   ・**Slot data は固定長 TArray<InventorySlot>**: Init(slot_count) で Resize し、
 //     以降は伸縮しない (= UI が想定する slot grid と一致)。slot 内 item_id == nullptr
 //     を「空 slot」として表す。
 //   ・**所有しない const char***: id / display_name / icon_path すべて呼出側
@@ -218,10 +218,10 @@ private:
     void NotifyChange(u32 slot_index) noexcept;
 
     // アイテム定義 (起動時 immutable)。
-    Array<ItemDef> _items;
+    TArray<ItemDef> _items;
 
     // slot data (Init で固定長 Resize、以降伸縮しない)。
-    Array<InventorySlot> _slots;
+    TArray<InventorySlot> _slots;
 
     // 変更通知 callback (C 関数ポインタ + user)。Manager は user を所有しない。
     ChangeCallback _on_change      = nullptr;

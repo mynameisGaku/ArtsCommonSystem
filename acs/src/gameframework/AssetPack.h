@@ -39,7 +39,7 @@
 //   ・**所有しない const char***: ファイル名 / pack パスは呼び出し側 / 実装側の
 //     ライフタイムに従う。Bridge はコピーしない (STL <string> 不使用方針)。
 //     `FileName(index)` の戻り値は「次の Mount/Unmount を呼ぶまで有効」と扱うこと。
-//   ・**Result<T, ErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API を
+//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API を
 //     `ACS_ERR(Generic, kSubAssetPackNotImplemented, ...)` で返す。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
 //     `GetReaderStub()` / `GetWriterStub()` を提供。実 AssetPack 未統合の
@@ -60,7 +60,7 @@
 
 namespace acs::game {
 
-// ---- ErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
+// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
 // SteamworksBridge (1001-1099) / WorkshopBridge (1101-1199) と subcode 空間が
 // 重ならないよう、AssetPack は 1200 番台を使う。
 inline constexpr u16 kSubAssetPackNotImplemented = 1201;  // Stub による未実装
@@ -92,7 +92,7 @@ public:
 
     // pak ファイルをマウントする。成功すると以降の API 呼び出しが有効になる。
     // 多重 Mount は実装依存 (大抵は前の pak を自動 Unmount してから新規 Mount)。
-    virtual Result<void> Mount(const char* pack_path) noexcept = 0;
+    virtual TResult<void> Mount(const char* pack_path) noexcept = 0;
 
     // 現在の pak をアンマウントする。Mount() 前に呼んでも安全 (no-op)。
     virtual void Unmount() noexcept = 0;
@@ -101,19 +101,19 @@ public:
     virtual bool IsMounted() const noexcept = 0;
 
     // 現在マウント中の pak に含まれるファイル数。
-    virtual Result<u32> FileCount() noexcept = 0;
+    virtual TResult<u32> FileCount() noexcept = 0;
 
     // index 番目のファイル名 (UTF-8、pak 内仮想パス)。返り値の文字列の寿命は
     // 「次の Unmount/Mount を呼ぶまで」。範囲外 index はエラー。
-    virtual Result<const char*> FileName(u32 index) noexcept = 0;
+    virtual TResult<const char*> FileName(u32 index) noexcept = 0;
 
     // 仮想ファイル名から復号 + 解凍後のオリジナルサイズを取得する。
     // ReadFile に渡すバッファサイズ事前確保用。未存在パスはエラー。
-    virtual Result<u64> FileSize(const char* name) noexcept = 0;
+    virtual TResult<u64> FileSize(const char* name) noexcept = 0;
 
     // 仮想ファイル名のデータを out_buffer に復号 + 解凍してコピーする。
     // buffer_size は FileSize() 戻り値以上必要。不足はエラー。
-    virtual Result<void> ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept = 0;
+    virtual TResult<void> ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept = 0;
 };
 
 // ---- 抽象 I/F: Writer -----------------------------------------------------
@@ -131,16 +131,16 @@ public:
 
     // 出力 pak ファイルを開いて書き込みを開始する。output_path 既存ファイルは
     // 実装依存 (大抵は truncate 上書き)。BeginPack / FinishPack 対で使う。
-    virtual Result<void> BeginPack(const char* output_path) noexcept = 0;
+    virtual TResult<void> BeginPack(const char* output_path) noexcept = 0;
 
     // 1 ファイルを pak に追加する。virtual_name は pak 内仮想パス、data はオリジナル
     // (非圧縮 / 非暗号) バイト列、size はそのサイズ。BeginPack 前に呼ぶとエラー。
     // 実装は compress-then-encrypt 順 (AssetPack.md §5) で TOC / ブロブを構築する。
-    virtual Result<void> AddFile(const char* virtual_name, const u8* data, u64 size) noexcept = 0;
+    virtual TResult<void> AddFile(const char* virtual_name, const u8* data, u64 size) noexcept = 0;
 
     // pak を確定して書き込みを終える。TOC を暗号化し、ヘッダの content_hash を
     // 確定する。これ以降の AddFile 呼び出しはエラー。
-    virtual Result<void> FinishPack() noexcept = 0;
+    virtual TResult<void> FinishPack() noexcept = 0;
 };
 
 // ---- Stub 実装: Reader ----------------------------------------------------
@@ -153,13 +153,13 @@ public:
     AssetPackReaderStub() noexcept = default;
     ~AssetPackReaderStub() noexcept override = default;
 
-    Result<void>         Mount(const char* pack_path) noexcept override;
+    TResult<void>         Mount(const char* pack_path) noexcept override;
     void                 Unmount() noexcept override;
     bool                 IsMounted() const noexcept override { return false; }
-    Result<u32>          FileCount() noexcept override;
-    Result<const char*>  FileName(u32 index) noexcept override;
-    Result<u64>          FileSize(const char* name) noexcept override;
-    Result<void>         ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept override;
+    TResult<u32>          FileCount() noexcept override;
+    TResult<const char*>  FileName(u32 index) noexcept override;
+    TResult<u64>          FileSize(const char* name) noexcept override;
+    TResult<void>         ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept override;
 };
 
 // ---- Stub 実装: Writer ----------------------------------------------------
@@ -169,9 +169,9 @@ public:
     AssetPackWriterStub() noexcept = default;
     ~AssetPackWriterStub() noexcept override = default;
 
-    Result<void>  BeginPack(const char* output_path) noexcept override;
-    Result<void>  AddFile(const char* virtual_name, const u8* data, u64 size) noexcept override;
-    Result<void>  FinishPack() noexcept override;
+    TResult<void>  BeginPack(const char* output_path) noexcept override;
+    TResult<void>  AddFile(const char* virtual_name, const u8* data, u64 size) noexcept override;
+    TResult<void>  FinishPack() noexcept override;
 };
 
 // ---- static singleton accessors -----------------------------------------

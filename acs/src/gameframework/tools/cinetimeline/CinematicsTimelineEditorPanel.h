@@ -16,7 +16,7 @@
 //     各キーフレームを「縦長の四角 marker」で描画)。マウス drag で marker の
 //     time を編集、選択中の marker は色変えで強調。
 //   ・右側 inspector: 選択中の keyframe の kind / time / kind 別パラメータを
-//     ドラッグ float 等で編集可能 (例 CameraCut なら target Vec3、FadeColor なら
+//     ドラッグ float 等で編集可能 (例 CameraCut なら target FVec3、FadeColor なら
 //     start/end color)
 //   ・下部 ruler: 0s / 1s / 2s ... の時間メモリ + 現在カーソル位置の縦線
 //
@@ -25,12 +25,12 @@
 //     データは caller 所有 (= `SetCinematicsDirector(&dir)` で raw 参照を渡す、
 //     寿命は caller 責任)。本 panel が director を生成 / 破棄しない
 //     (AnimCurveEditorPanel が AnimationCurve を non-owning で受けるのと同形)。
-//   ・panel は **editor 専用の keyframe storage** (= `EditorKeyframe` の Array)
+//   ・panel は **editor 専用の keyframe storage** (= `EditorKeyframe` の TArray)
 //     を内部に持つ。CinematicsDirector::TimelineKeyframe は payload が
 //     {camera/dialogue/music/event} の 4 種固定 union だが、editor 上では
 //     UE Sequencer / Unity Timeline のように "5 種類のオーサリング概念"
 //     (CameraCut / FadeColor / TimeScale / SpawnEffect / TriggerCallback) を
-//     扱えるように **追加 metadata** (Vec3 target / start/end color / scale 値
+//     扱えるように **追加 metadata** (FVec3 target / start/end color / scale 値
 //     / event_id / 文字列リテラル) を panel 側で保持する。Play 時に director に
 //     対応する TimelineKeyframe を AddKeyframe する設計 (= editor data →
 //     runtime data の「ベイク」)。
@@ -69,9 +69,9 @@
 //     5 種 (= 副作用ゼロな状態遷移マーカー)。両者は ToTrackKind() マッピング
 //     関数で繋ぐ。例: CameraCut → MoveCamera、FadeColor/TimeScale/SpawnEffect/
 //     TriggerCallback → FireEvent (event_id を kind ごとに別 reserve)。
-//   ・**Array<EditorKeyframe> は panel 所有**: director の internal _keyframes
+//   ・**TArray<EditorKeyframe> は panel 所有**: director の internal _keyframes
 //     を直接編集するには CinematicsDirector の private を覗く必要があり、また
-//     payload に色や Vec3 を持たせるには既存 union を拡張する必要がある。
+//     payload に色や FVec3 を持たせるには既存 union を拡張する必要がある。
 //     editor は「リッチな payload を持つ自前 storage」を持ち、Play 時に
 //     director に baked TimelineKeyframe を渡す方が依存が浅い。
 //   ・**panel-local clock (`_current_time`) と director.CurrentTime() の二重保持**:
@@ -131,7 +131,7 @@ namespace acs::game::cinetimeline {
 // ---------------------------------------------------------------------------
 // CinematicsDirector::ETimelineTrackKind (runtime 側 5 種) とは概念を意図的に
 // 分離し、オーサリング側で典型的に並べたい要素を素直に表現する。
-//   CameraCut       : カメラ位置を瞬時に切り替え (target Vec3)
+//   CameraCut       : カメラ位置を瞬時に切り替え (target FVec3)
 //   FadeColor       : 画面全体を start_color → end_color にフェード
 //   TimeScale       : ゲーム時間スケールを倍率指定 (1.0 = 等倍、0.5 = スロー)
 //   SpawnEffect     : エフェクト発火 (effect_id + position)
@@ -159,9 +159,9 @@ struct EditorKeyframe {
     // TimeScale       : time_scale を使う
     // SpawnEffect     : effect_id (event_id), spawn_position (camera_target を兼用) を使う
     // TriggerCallback : event_id を使う
-    Vec3 camera_target  { 0.0f, 0.0f, 0.0f };   // CameraCut / SpawnEffect で使用
-    Vec3 fade_start_color { 0.0f, 0.0f, 0.0f }; // FadeColor で使用 (r,g,b in [0,1])
-    Vec3 fade_end_color   { 1.0f, 1.0f, 1.0f }; // FadeColor で使用 (r,g,b in [0,1])
+    FVec3 camera_target  { 0.0f, 0.0f, 0.0f };   // CameraCut / SpawnEffect で使用
+    FVec3 fade_start_color { 0.0f, 0.0f, 0.0f }; // FadeColor で使用 (r,g,b in [0,1])
+    FVec3 fade_end_color   { 1.0f, 1.0f, 1.0f }; // FadeColor で使用 (r,g,b in [0,1])
     f32  time_scale       { 1.0f };             // TimeScale で使用
     u32  event_id         { 0u };               // SpawnEffect / TriggerCallback で使用
 
@@ -234,7 +234,7 @@ public:
 
     // ----- keyframe 操作 --------------------------------------------------
 
-    // 現在選択中の keyframe index (= 内部 Array の index)、未選択は kNoKeySelected。
+    // 現在選択中の keyframe index (= 内部 TArray の index)、未選択は kNoKeySelected。
     i32  SelectedKeyframeIndex() const noexcept;
 
     // selection を変更 (`-1 .. KeyframeCount-1` 範囲外なら kNoKeySelected に丸める)。
@@ -284,7 +284,7 @@ private:
     acs::game::CinematicsDirector* _director = nullptr;
 
     // panel 所有の keyframe 配列 (time 昇順、stable insertion で維持)。
-    Array<EditorKeyframe> _keyframes;
+    TArray<EditorKeyframe> _keyframes;
 
     // 現在選択中の keyframe index。
     i32 _selected_idx = kNoKeySelected;

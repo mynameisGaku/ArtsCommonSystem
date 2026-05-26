@@ -152,7 +152,7 @@ private:
     Slot*       Resolve(CooldownId id) noexcept;
     const Slot* Resolve(CooldownId id) const noexcept;
 
-    Array<Slot>   _slots;
+    TArray<Slot>   _slots;
     u32           _active_count = 0u;
     ReadyCallback _ready_cb     = nullptr;
     void*         _ready_user   = nullptr;

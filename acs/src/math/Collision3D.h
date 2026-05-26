@@ -3,7 +3,7 @@
 //
 // 使い方:
 //   Aabb3 box = Aabb3::FromCenterExtents({0,0,0}, {1,1,1});
-//   Sphere s{ {3,0,0}, 0.5f };
+//   FSphere s{ {3,0,0}, 0.5f };
 //   if (Intersect(box, s)) { /* 重なっている */ }
 //
 //   Ray3 ray{ camera.Eye(), forward };
@@ -19,38 +19,38 @@ namespace acs {
 
 // 軸並行境界ボックス（中心 + 半サイズ）
 struct Aabb3 {
-    Vec3 center;
-    Vec3 half_size;
+    FVec3 center;
+    FVec3 half_size;
 
     constexpr Aabb3() noexcept = default;
-    constexpr Aabb3(Vec3 c, Vec3 hs) noexcept : center(c), half_size(hs) {}
+    constexpr Aabb3(FVec3 c, FVec3 hs) noexcept : center(c), half_size(hs) {}
 
-    static constexpr Aabb3 FromMinMax(Vec3 min, Vec3 max) noexcept {
-        Vec3 c{ (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, (min.z + max.z) * 0.5f };
-        Vec3 hs{ (max.x - min.x) * 0.5f, (max.y - min.y) * 0.5f, (max.z - min.z) * 0.5f };
+    static constexpr Aabb3 FromMinMax(FVec3 min, FVec3 max) noexcept {
+        FVec3 c{ (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, (min.z + max.z) * 0.5f };
+        FVec3 hs{ (max.x - min.x) * 0.5f, (max.y - min.y) * 0.5f, (max.z - min.z) * 0.5f };
         return { c, hs };
     }
-    static constexpr Aabb3 FromCenterExtents(Vec3 center, Vec3 extents) noexcept {
+    static constexpr Aabb3 FromCenterExtents(FVec3 center, FVec3 extents) noexcept {
         return { center, extents };
     }
-    constexpr Vec3 Min() const noexcept { return { center.x - half_size.x, center.y - half_size.y, center.z - half_size.z }; }
-    constexpr Vec3 Max() const noexcept { return { center.x + half_size.x, center.y + half_size.y, center.z + half_size.z }; }
+    constexpr FVec3 Min() const noexcept { return { center.x - half_size.x, center.y - half_size.y, center.z - half_size.z }; }
+    constexpr FVec3 Max() const noexcept { return { center.x + half_size.x, center.y + half_size.y, center.z + half_size.z }; }
 };
 
 // 球
-struct Sphere {
-    Vec3 center;
+struct FSphere {
+    FVec3 center;
     f32  radius = 0.0f;
 };
 
 // 平面（法線・正規化必須、d は原点からの距離）
 // 平面式: dot(normal, p) + d = 0
-struct Plane {
-    Vec3 normal;
+struct FPlane {
+    FVec3 normal;
     f32  d = 0.0f;
 
-    static Plane FromPointNormal(Vec3 p, Vec3 n) noexcept {
-        Plane pl;
+    static FPlane FromPointNormal(FVec3 p, FVec3 n) noexcept {
+        FPlane pl;
         pl.normal = n;
         pl.d = -(n.x * p.x + n.y * p.y + n.z * p.z);
         return pl;
@@ -58,24 +58,24 @@ struct Plane {
 };
 
 struct Ray3 {
-    Vec3 origin;
-    Vec3 direction;
+    FVec3 origin;
+    FVec3 direction;
 };
 
 struct RayHit3 {
     bool hit = false;
     f32  t   = 0.0f;
-    Vec3 point;
-    Vec3 normal;
+    FVec3 point;
+    FVec3 normal;
 };
 
 // ===== 含有 =====
-ACS_FORCEINLINE bool Contains(const Aabb3& a, Vec3 p) noexcept {
+ACS_FORCEINLINE bool Contains(const Aabb3& a, FVec3 p) noexcept {
     return Abs(p.x - a.center.x) <= a.half_size.x &&
            Abs(p.y - a.center.y) <= a.half_size.y &&
            Abs(p.z - a.center.z) <= a.half_size.z;
 }
-ACS_FORCEINLINE bool Contains(const Sphere& s, Vec3 p) noexcept {
+ACS_FORCEINLINE bool Contains(const FSphere& s, FVec3 p) noexcept {
     const f32 dx = p.x - s.center.x;
     const f32 dy = p.y - s.center.y;
     const f32 dz = p.z - s.center.z;
@@ -88,15 +88,15 @@ ACS_FORCEINLINE bool Intersect(const Aabb3& a, const Aabb3& b) noexcept {
            Abs(a.center.y - b.center.y) <= (a.half_size.y + b.half_size.y) &&
            Abs(a.center.z - b.center.z) <= (a.half_size.z + b.half_size.z);
 }
-ACS_FORCEINLINE bool Intersect(const Sphere& a, const Sphere& b) noexcept {
+ACS_FORCEINLINE bool Intersect(const FSphere& a, const FSphere& b) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 dz = a.center.z - b.center.z;
     const f32 r  = a.radius + b.radius;
     return dx*dx + dy*dy + dz*dz <= r * r;
 }
-ACS_FORCEINLINE bool Intersect(const Aabb3& a, const Sphere& s) noexcept {
-    const Vec3 mn = a.Min(), mx = a.Max();
+ACS_FORCEINLINE bool Intersect(const Aabb3& a, const FSphere& s) noexcept {
+    const FVec3 mn = a.Min(), mx = a.Max();
     const f32 cx = s.center.x < mn.x ? mn.x : (s.center.x > mx.x ? mx.x : s.center.x);
     const f32 cy = s.center.y < mn.y ? mn.y : (s.center.y > mx.y ? mx.y : s.center.y);
     const f32 cz = s.center.z < mn.z ? mn.z : (s.center.z > mx.z ? mx.z : s.center.z);
@@ -105,10 +105,10 @@ ACS_FORCEINLINE bool Intersect(const Aabb3& a, const Sphere& s) noexcept {
     const f32 dz = s.center.z - cz;
     return dx*dx + dy*dy + dz*dz <= s.radius * s.radius;
 }
-ACS_FORCEINLINE bool Intersect(const Sphere& s, const Aabb3& a) noexcept { return Intersect(a, s); }
+ACS_FORCEINLINE bool Intersect(const FSphere& s, const Aabb3& a) noexcept { return Intersect(a, s); }
 
 // ===== 押し出し（弾性衝突向け）=====
-ACS_FORCEINLINE bool Resolve(const Sphere& a, const Sphere& b, Vec3& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const FSphere& a, const FSphere& b, FVec3& push) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 dz = a.center.z - b.center.z;
@@ -126,7 +126,7 @@ ACS_FORCEINLINE bool Resolve(const Sphere& a, const Sphere& b, Vec3& push) noexc
 ACS_FORCEINLINE RayHit3 RaycastAabb(const Ray3& ray, const Aabb3& a,
                                     f32 t_max = 3.4028235e38f) noexcept {
     RayHit3 r{};
-    const Vec3 mn = a.Min(), mx = a.Max();
+    const FVec3 mn = a.Min(), mx = a.Max();
     const f32 inv_dx = ray.direction.x != 0.0f ? 1.0f / ray.direction.x : 1e30f;
     const f32 inv_dy = ray.direction.y != 0.0f ? 1.0f / ray.direction.y : 1e30f;
     const f32 inv_dz = ray.direction.z != 0.0f ? 1.0f / ray.direction.z : 1e30f;
@@ -163,7 +163,7 @@ ACS_FORCEINLINE RayHit3 RaycastAabb(const Ray3& ray, const Aabb3& a,
     return r;
 }
 
-ACS_FORCEINLINE RayHit3 RaycastSphere(const Ray3& ray, const Sphere& s,
+ACS_FORCEINLINE RayHit3 RaycastSphere(const Ray3& ray, const FSphere& s,
                                       f32 t_max = 3.4028235e38f) noexcept {
     RayHit3 r{};
     const f32 ox = ray.origin.x - s.center.x;
@@ -191,7 +191,7 @@ ACS_FORCEINLINE RayHit3 RaycastSphere(const Ray3& ray, const Sphere& s,
     return r;
 }
 
-ACS_FORCEINLINE RayHit3 RaycastPlane(const Ray3& ray, const Plane& p,
+ACS_FORCEINLINE RayHit3 RaycastPlane(const Ray3& ray, const FPlane& p,
                                      f32 t_max = 3.4028235e38f) noexcept {
     RayHit3 r{};
     const f32 nd = p.normal.x * ray.direction.x + p.normal.y * ray.direction.y + p.normal.z * ray.direction.z;

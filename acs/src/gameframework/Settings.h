@@ -21,19 +21,19 @@
 //   ・**flat key-value**: key は `audio.master` のようなドット階層を文字列で表現する
 //     だけで、ツリー構造は持たない。深いネストが必要になったら Phase 2 で `Section`
 //     型を上にかぶせる方が安全 (今は YAGNI)。
-//   ・**4 型タグ付き union**: f32 / i32 / bool / const char*。Vec2/Vec3 等の複合型は
+//   ・**4 型タグ付き union**: f32 / i32 / bool / const char*。FVec2/FVec3 等の複合型は
 //     呼び出し側で複数 key (`pos.x`, `pos.y`) に分割するか、Phase 2 で配列型を追加。
 //   ・**key / string 値は非所有 const char***: ACS の STL 禁止方針 + 文字列ストア
 //     導入を避けるため、key と string 値の寿命は呼び出し側が保証する (リテラル or
 //     長寿命バッファ前提)。短命バッファ渡しが dangling になる点は要注意。
 //   ・**同 key の SetX は上書き**: 同名 key が既に存在すれば値と kind を上書きする。
 //     ユーザーが UI で「音量」を動かす度に SetF32() が呼ばれる典型ケースに合わせる。
-//   ・**線形検索**: settings 件数は通常 10〜200 程度なので Array<Entry> の線形走査で
+//   ・**線形検索**: settings 件数は通常 10〜200 程度なので TArray<Entry> の線形走査で
 //     十分。ハッシュテーブル化は計測してから検討。
 //   ・**コピー / ムーブ禁止**: settings は通常 1 セッションに 1 オブジェクト
 //     (グローバル所有) で運用される。誤って値渡しされて分裂すると同期ずれを
 //     検知しづらいため、最初から非コピー・非ムーブで固定する。
-//   ・**全 noexcept**: 例外不使用方針 (Result<T,E> + bool 戻り値)。
+//   ・**全 noexcept**: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
 //
 // Save / Load (Phase 2 で実装):
 //   ・Phase 1 では INI 風 `key=value` テキストを想定するが、実体は TODO スタブ。
@@ -43,7 +43,7 @@
 //     復元する想定。Phase 2 でフォーマット仕様を確定する。
 //
 // 範囲外 (Phase 2+):
-//   ・配列値 / Vec2 / Vec3 / Color 等の複合型 (現状は 4 プリミティブのみ)
+//   ・配列値 / FVec2 / FVec3 / Color 等の複合型 (現状は 4 プリミティブのみ)
 //   ・change notification (オブザーバ pattern / callback)
 //   ・section / namespace ツリー
 //   ・暗号化 / 改竄検知 (Pillar S Storefront / AssetPack 側で扱う)
@@ -63,7 +63,7 @@ enum class ESettingKind : u8 {
     F32,
     I32,
     Bool,
-    String,
+    FString,
 };
 
 class Settings {
@@ -101,8 +101,8 @@ public:
     // ----- 永続化 (Phase 2 で実装) -----
     // INI 風 `key=value\n` テキストを想定。Phase 1 は TODO スタブ
     // (常に Ok() を返すが何も書かない / 読まない)。
-    Result<void> Save(const wchar_t* file_path) noexcept;
-    Result<void> Load(const wchar_t* file_path) noexcept;
+    TResult<void> Save(const wchar_t* file_path) noexcept;
+    TResult<void> Load(const wchar_t* file_path) noexcept;
 
 private:
     // 1 件のエントリ。union で 4 種類の値を保持し、kind で実効型を区別する。
@@ -125,7 +125,7 @@ private:
     // FindIndex で見つかった entry を上書き or 新規 PushBack するヘルパ。
     Entry& UpsertEntry(const char* key) noexcept;
 
-    Array<Entry> _entries;
+    TArray<Entry> _entries;
 };
 
 } // namespace acs::game

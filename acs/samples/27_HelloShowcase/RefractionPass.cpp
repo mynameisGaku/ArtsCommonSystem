@@ -13,7 +13,7 @@ namespace helloshowcase {
 
 void ExecuteRefractionPass(Assets& a, IRhiCommandList& cl,
                            IRhiTexture& hdr, IRhiTexture& depth,
-                           const Mat4& view_proj, Vec3 cam_pos) noexcept {
+                           const FMat4& view_proj, FVec3 cam_pos) noexcept {
     // 背景キャプチャ: HDR の現在内容を bg_rt へ複製。
     // 同一 RT を read+write で同時 bind できないので必須。
     a.blit.Copy(cl, hdr, *a.bg_rt);
@@ -42,12 +42,12 @@ void ExecuteRefractionPass(Assets& a, IRhiCommandList& cl,
         if (k != MaterialKind::ClearGlass && k != MaterialKind::FrostedGlass) {
             continue;
         }
-        const Mat4 m = Mat4::Scale(Vec3{kSphereScale, kSphereScale, kSphereScale}) *
-                       Mat4::Translation(Vec3{kSphereX[i], kSphereY, kSphereZ});
+        const FMat4 m = FMat4::Scale(FVec3{kSphereScale, kSphereScale, kSphereScale}) *
+                       FMat4::Translation(FVec3{kSphereX[i], kSphereY, kSphereZ});
         const f32 roughness = (k == MaterialKind::FrostedGlass) ? 0.5f : 0.0f;
-        const Vec3 tint = (k == MaterialKind::FrostedGlass)
-                              ? Vec3{0.95f, 0.97f, 1.0f}    // 弱く青
-                              : Vec3{1.0f,  1.0f,  1.0f};   // クリア
+        const FVec3 tint = (k == MaterialKind::FrostedGlass)
+                              ? FVec3{0.95f, 0.97f, 1.0f}    // 弱く青
+                              : FVec3{1.0f,  1.0f,  1.0f};   // クリア
         // clear glass は dispersion を入れて diamond/prism 風の色分離を見せる
         const f32 dispersion = (k == MaterialKind::ClearGlass) ? 0.5f : 0.0f;
         a.refr.DrawMesh(cl, a.gm_sphere, m, *a.bg_rt, *env,

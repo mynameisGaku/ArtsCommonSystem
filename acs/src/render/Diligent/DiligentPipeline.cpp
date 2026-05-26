@@ -47,7 +47,7 @@ DiligentPipeline::~DiligentPipeline() noexcept {
     if (_pso) { _pso->Release(); _pso = nullptr; }
 }
 
-Result<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& desc) noexcept {
+TResult<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& desc) noexcept {
     _device = &device;
     _cb_slots  = desc.cbuffer_slots;
     _tex_slots = desc.texture_slots;

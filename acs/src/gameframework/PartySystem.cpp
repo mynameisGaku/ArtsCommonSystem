@@ -50,7 +50,7 @@ void PartySystem::EmplaceSelfAsLeader() noexcept {
     _members.PushBack(self);
 }
 
-Result<void> PartySystem::CreateParty(const char* party_name) noexcept {
+TResult<void> PartySystem::CreateParty(const char* party_name) noexcept {
     if (_state != EPartyState::Solo) {
         // 既にパーティ所属中 / 状態遷移中での再要求は許可しない。先に LeaveParty を
         // 完了させること。Generic + subcode 1 = "invalid state for CreateParty"。
@@ -69,7 +69,7 @@ Result<void> PartySystem::CreateParty(const char* party_name) noexcept {
     return Ok();
 }
 
-Result<void> PartySystem::JoinParty(const char* party_id) noexcept {
+TResult<void> PartySystem::JoinParty(const char* party_id) noexcept {
     if (_state != EPartyState::Solo) {
         return ACS_ERR(Generic, 3, "PartySystem::JoinParty: not in Solo state");
     }
@@ -84,7 +84,7 @@ Result<void> PartySystem::JoinParty(const char* party_id) noexcept {
     return Ok();
 }
 
-Result<void> PartySystem::LeaveParty() noexcept {
+TResult<void> PartySystem::LeaveParty() noexcept {
     if (_state != EPartyState::InParty) {
         // Joining / Leaving / Solo からの離脱は no-op ではなくエラーで返す
         // (上位レイヤで状態整合を取れていない時に気付けるように)。
@@ -96,7 +96,7 @@ Result<void> PartySystem::LeaveParty() noexcept {
     return Ok();
 }
 
-Result<void> PartySystem::InviteFriend(const char* friend_id) noexcept {
+TResult<void> PartySystem::InviteFriend(const char* friend_id) noexcept {
     if (_state != EPartyState::InParty) {
         return ACS_ERR(Generic, 6, "PartySystem::InviteFriend: not in InParty state");
     }
@@ -173,7 +173,7 @@ const Friend* PartySystem::Friends() const noexcept {
 // 未使用ヘルパだが、将来 InviteFriend で「ローカル list 内のフレンドのみ許可」
 // 等のポリシーが必要になったときに使う。コンパイル時の dead-code 警告を避ける
 // ため、明示的に [[maybe_unused]] でマーク。
-[[maybe_unused]] static bool FriendListContains(const Array<Friend>& list,
+[[maybe_unused]] static bool FriendListContains(const TArray<Friend>& list,
                                                 const char* platform_id) noexcept {
     if (platform_id == nullptr) return false;
     const usize n = list.Size();

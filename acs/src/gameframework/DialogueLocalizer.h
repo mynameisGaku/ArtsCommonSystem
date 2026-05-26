@@ -138,9 +138,9 @@ private:
         u32 choice_count = 0;
     };
 
-    Array<LocalizedDialogueLine>   _lines;
-    Array<ChoicesAt>               _choices_at;     // line_index 昇順想定 (線形検索)
-    Array<LocalizedDialogueChoice> _all_choices;    // 全 choice をフラットに保持
+    TArray<LocalizedDialogueLine>   _lines;
+    TArray<ChoicesAt>               _choices_at;     // line_index 昇順想定 (線形検索)
+    TArray<LocalizedDialogueChoice> _all_choices;    // 全 choice をフラットに保持
 
     LocalizationDirector* _localizer = nullptr;     // 非所有、null で detach
 };

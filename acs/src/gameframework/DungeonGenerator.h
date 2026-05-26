@@ -38,9 +38,9 @@
 //
 // 設計選択:
 //   ・**ETileKind = u8**: 5 種類しか無いので u8 で十分。row-major 1D の
-//     acs::Array<ETileKind> に格納 (Tilemap と異なる layered 構造は不要)。
+//     acs::TArray<ETileKind> に格納 (Tilemap と異なる layered 構造は不要)。
 //   ・**Room = 矩形 + id**: id は生成順 0..N-1。重複しない部屋を保証。
-//   ・**BSP partition tree は temp**: 生成中だけ必要なので Array<BspNode>
+//   ・**BSP partition tree は temp**: 生成中だけ必要なので TArray<BspNode>
 //     を ローカル変数 として持ち、Generate 終了で破棄する。永続データは
 //     grid + rooms のみ。
 //   ・**廊下は L 字**: 2 部屋の中心を結ぶ (横→縦 もしくは 縦→横)。
@@ -147,8 +147,8 @@ private:
     // ---- 永続データ ---------------------------------------------------------
     u32              _width  = 0;
     u32              _height = 0;
-    Array<ETileKind>  _grid;   // row-major (width * height)
-    Array<Room>      _rooms;  // 生成順
+    TArray<ETileKind>  _grid;   // row-major (width * height)
+    TArray<Room>      _rooms;  // 生成順
     u32              _seed   = 0; // 直近 Generate の seed (FindRandomFloor 等で再利用)
 };
 

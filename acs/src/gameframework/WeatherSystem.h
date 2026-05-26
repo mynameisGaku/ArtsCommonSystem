@@ -14,7 +14,7 @@
 //
 //       void OnEnter() noexcept override {
 //           _weather.SetWeather(acs::game::EWeatherKind::Clear);
-//           _weather.SetWindDirection(acs::Vec2{1.0f, 0.0f});
+//           _weather.SetWindDirection(acs::FVec2{1.0f, 0.0f});
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _weather.Tick(dt);
@@ -103,15 +103,15 @@ public:
     // 雨 / 雪 / 嵐中で増える粒子密度倍率 (Clear = 0)。
     f32 ParticleDensity() const noexcept;
     // sky color に乗算する補正 (1,1,1 = 無補正)。Sandstorm 時は黄褐色など。
-    Vec3 SkyTintMultiplier() const noexcept;
+    FVec3 SkyTintMultiplier() const noexcept;
     // [0, 1]。Storm = 1.0、Clear = 0.0、Rain / Snow は中間値。
     f32 WindStrength() const noexcept;
     // Fog 中で増加 (1 = 通常)。Fog / Sandstorm で大きくなる。
     f32 FogDensityMultiplier() const noexcept;
 
     // ----- 風向き (天候とは独立) -----
-    void SetWindDirection(Vec2 dir) noexcept { _wind_dir = dir; }
-    Vec2 WindDirection() const noexcept { return _wind_dir; }
+    void SetWindDirection(FVec2 dir) noexcept { _wind_dir = dir; }
+    FVec2 WindDirection() const noexcept { return _wind_dir; }
 
     // ----- リセット (初期化直後の状態へ戻す) -----
     void Reset() noexcept;
@@ -122,7 +122,7 @@ public:
     struct KindParams {
         f32  ambient_mult;
         f32  particle_density;
-        Vec3 sky_tint;
+        FVec3 sky_tint;
         f32  wind_strength;
         f32  fog_density;
     };
@@ -139,7 +139,7 @@ private:
     // [0, 1]。1 = 完了。current == target かつ duration <= 0 のとき常に 1。
     f32 _transition_t = 1.0f;
 
-    Vec2 _wind_dir{1.0f, 0.0f};
+    FVec2 _wind_dir{1.0f, 0.0f};
 };
 
 } // namespace acs::game

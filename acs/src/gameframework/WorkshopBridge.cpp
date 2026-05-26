@@ -26,7 +26,7 @@ namespace acs::game {
 
 // ---- Stub: Init / Shutdown ------------------------------------------------
 
-Result<void> WorkshopBridgeStub::Init() noexcept {
+TResult<void> WorkshopBridgeStub::Init() noexcept {
     // 多重 Init は明示的に許容する。実 SDK の SteamUGC()->Init() 相当は本来
     // 失敗パスがあるが、Stub はテスト容易性のため常に成功。
     _initialized = true;
@@ -40,18 +40,18 @@ void WorkshopBridgeStub::Shutdown() noexcept {
 
 // ---- Stub: Publish (Create / Update) ------------------------------------
 
-Result<u64> WorkshopBridgeStub::CreateItem(const char* title, const char* content_path) noexcept {
+TResult<u64> WorkshopBridgeStub::CreateItem(const char* title, const char* content_path) noexcept {
     (void)title;
     (void)content_path;
     if (!_initialized) {
-        return Result<u64>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
+        return TResult<u64>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
                                    "WorkshopBridgeStub::CreateItem called before Init()"));
     }
-    return Result<u64>(ACS_ERR(Generic, kSubWorkshopNotImplemented,
+    return TResult<u64>(ACS_ERR(Generic, kSubWorkshopNotImplemented,
                                "WorkshopBridgeStub: CreateItem is not implemented (link real SDK)"));
 }
 
-Result<void> WorkshopBridgeStub::UpdateItem(u64 item_id,
+TResult<void> WorkshopBridgeStub::UpdateItem(u64 item_id,
                                             const char* content_path,
                                             const char* change_note) noexcept {
     (void)item_id;
@@ -67,28 +67,28 @@ Result<void> WorkshopBridgeStub::UpdateItem(u64 item_id,
 
 // ---- Stub: Query -------------------------------------------------------
 
-Result<WorkshopItem> WorkshopBridgeStub::QueryItem(u64 item_id) noexcept {
+TResult<WorkshopItem> WorkshopBridgeStub::QueryItem(u64 item_id) noexcept {
     (void)item_id;
     if (!_initialized) {
-        return Result<WorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
+        return TResult<WorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
                                             "WorkshopBridgeStub::QueryItem called before Init()"));
     }
-    return Result<WorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotImplemented,
+    return TResult<WorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotImplemented,
                                         "WorkshopBridgeStub: QueryItem is not implemented (link real SDK)"));
 }
 
-Result<u32> WorkshopBridgeStub::QuerySubscribedCount() noexcept {
+TResult<u32> WorkshopBridgeStub::QuerySubscribedCount() noexcept {
     if (!_initialized) {
-        return Result<u32>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
+        return TResult<u32>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
                                    "WorkshopBridgeStub::QuerySubscribedCount called before Init()"));
     }
-    return Result<u32>(ACS_ERR(Generic, kSubWorkshopNotImplemented,
+    return TResult<u32>(ACS_ERR(Generic, kSubWorkshopNotImplemented,
                                "WorkshopBridgeStub: QuerySubscribedCount is not implemented (link real SDK)"));
 }
 
 // ---- Stub: Subscribe / Download ----------------------------------------
 
-Result<void> WorkshopBridgeStub::SubscribeItem(u64 item_id) noexcept {
+TResult<void> WorkshopBridgeStub::SubscribeItem(u64 item_id) noexcept {
     (void)item_id;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
@@ -98,7 +98,7 @@ Result<void> WorkshopBridgeStub::SubscribeItem(u64 item_id) noexcept {
                    "WorkshopBridgeStub: SubscribeItem is not implemented (link real SDK)");
 }
 
-Result<void> WorkshopBridgeStub::UnsubscribeItem(u64 item_id) noexcept {
+TResult<void> WorkshopBridgeStub::UnsubscribeItem(u64 item_id) noexcept {
     (void)item_id;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
@@ -108,7 +108,7 @@ Result<void> WorkshopBridgeStub::UnsubscribeItem(u64 item_id) noexcept {
                    "WorkshopBridgeStub: UnsubscribeItem is not implemented (link real SDK)");
 }
 
-Result<void> WorkshopBridgeStub::DownloadItem(u64 item_id) noexcept {
+TResult<void> WorkshopBridgeStub::DownloadItem(u64 item_id) noexcept {
     (void)item_id;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,

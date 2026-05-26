@@ -11,35 +11,35 @@
 
 namespace acs {
 
-class String {
+class FString {
 public:
     static constexpr usize kSsoCapacity = 22;  // インライン上限（NUL 含めず）
 
-    String() noexcept;
-    explicit String(Allocator& a) noexcept;
-    String(const char* cstr, Allocator& a = DefaultAllocator()) noexcept;
-    String(StringView v,    Allocator& a = DefaultAllocator()) noexcept;
+    FString() noexcept;
+    explicit FString(Allocator& a) noexcept;
+    FString(const char* cstr, Allocator& a = DefaultAllocator()) noexcept;
+    FString(FStringView v,    Allocator& a = DefaultAllocator()) noexcept;
 
-    String(const String& o) noexcept;
-    String(String&& o)      noexcept;
-    String& operator=(const String& o) noexcept;
-    String& operator=(String&& o)      noexcept;
-    ~String() noexcept;
+    FString(const FString& o) noexcept;
+    FString(FString&& o)      noexcept;
+    FString& operator=(const FString& o) noexcept;
+    FString& operator=(FString&& o)      noexcept;
+    ~FString() noexcept;
 
     const char* Data()  const noexcept { return IsHeap() ? _heap.data : _sso.data; }
     char*       Data()        noexcept { return IsHeap() ? _heap.data : _sso.data; }
     usize       Size()  const noexcept { return IsHeap() ? _heap.size : (kSsoCapacity - _sso.remaining); }
     usize       Capacity() const noexcept { return IsHeap() ? _heap.capacity : kSsoCapacity; }
     bool        IsEmpty() const noexcept { return Size() == 0; }
-    StringView  View()  const noexcept { return StringView(Data(), Size()); }
-    operator StringView() const noexcept { return View(); }
+    FStringView  View()  const noexcept { return FStringView(Data(), Size()); }
+    operator FStringView() const noexcept { return View(); }
 
     char&       operator[](usize i)       noexcept { ACS_ASSERT(i < Size()); return Data()[i]; }
     const char& operator[](usize i) const noexcept { ACS_ASSERT(i < Size()); return Data()[i]; }
 
     void Clear() noexcept;
     void Reserve(usize new_capacity) noexcept;
-    void Append(StringView v) noexcept;
+    void Append(FStringView v) noexcept;
     void Append(char c)        noexcept;
     void PushBack(char c)      noexcept { Append(c); }
 
@@ -72,8 +72,8 @@ private:
     Allocator* _alloc = nullptr;
 };
 
-inline bool operator==(const String& a, StringView b) noexcept { return a.View() == b; }
-inline bool operator==(StringView a, const String& b) noexcept { return a == b.View(); }
-inline bool operator==(const String& a, const String& b) noexcept { return a.View() == b.View(); }
+inline bool operator==(const FString& a, FStringView b) noexcept { return a.View() == b; }
+inline bool operator==(FStringView a, const FString& b) noexcept { return a == b.View(); }
+inline bool operator==(const FString& a, const FString& b) noexcept { return a.View() == b.View(); }
 
 } // namespace acs

@@ -12,10 +12,10 @@ namespace helloshowcase {
 
 void ExecuteSsrPass(Assets& a, IRhiDevice& dev, IRhiCommandList& cl,
                     IRhiTexture& hdr, IRhiTexture& depth,
-                    const Mat4& view_proj,
-                    const Mat4& inv_view_proj,
-                    const Mat4& prev_view_proj,
-                    Vec3 cam_pos,
+                    const FMat4& view_proj,
+                    const FMat4& inv_view_proj,
+                    const FMat4& prev_view_proj,
+                    FVec3 cam_pos,
                     IRhiTexture* motion_or_null,
                     bool show_ssr) noexcept {
     if (!show_ssr) return;
@@ -32,10 +32,10 @@ void ExecuteSsrPass(Assets& a, IRhiDevice& dev, IRhiCommandList& cl,
 
 void ExecuteSsaoPass(Assets& a, IRhiDevice& dev, IRhiCommandList& cl,
                      IRhiTexture& depth,
-                     const Mat4& view_proj,
-                     const Mat4& inv_view_proj,
-                     const Mat4& view,
-                     Vec3 cam_pos) noexcept {
+                     const FMat4& view_proj,
+                     const FMat4& inv_view_proj,
+                     const FMat4& view,
+                     FVec3 cam_pos) noexcept {
     a.ssao.Render(dev, cl, depth,
                   *a.motion.OutputNormalTexture(),
                   view_proj, inv_view_proj, view,

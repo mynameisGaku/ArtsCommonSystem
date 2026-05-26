@@ -16,17 +16,17 @@ using namespace acs;
 namespace helloibl {
 
 void RenderMotionAndNormalGBuffer(HelloIblApp& app,
-                                  const Mat4& vp_no_jitter) noexcept {
+                                  const FMat4& vp_no_jitter) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 
     // frame 0 は前フレーム VP が未確定なので prev=curr で motion 0 にする。
-    const Mat4 motion_prev_vp = app._taa_prev_vp_valid ? app._prev_vp_no_jitter
+    const FMat4 motion_prev_vp = app._taa_prev_vp_valid ? app._prev_vp_no_jitter
                                                        : vp_no_jitter;
     app._motion.Begin(*cl, vp_no_jitter, motion_prev_vp);
 
     // 床 (静的: prev == curr)
-    const Mat4 plane_model = Mat4::Translation(Vec3{0, -0.6f, 3.0f});
+    const FMat4 plane_model = FMat4::Translation(FVec3{0, -0.6f, 3.0f});
     app._motion.DrawMesh(*cl, app._gm_plane, plane_model, plane_model);
 
     // 静的グリッド球 25 (color pass と同じ transform 計算、prev == curr)
@@ -36,7 +36,7 @@ void RenderMotionAndNormalGBuffer(HelloIblApp& app,
         for (u32 x = 0; x < kGrid; ++x) {
             const f32 px = (static_cast<f32>(x) - (kGrid - 1) * 0.5f) * kSpacing;
             const f32 py = (static_cast<f32>(y) - (kGrid - 1) * 0.5f) * kSpacing + 2.5f;
-            const Mat4 m = Mat4::Translation(Vec3{px, py, 3.0f});
+            const FMat4 m = FMat4::Translation(FVec3{px, py, 3.0f});
             app._motion.DrawMesh(*cl, app._gm_sphere, m, m);
         }
     }
@@ -50,11 +50,11 @@ void RenderMotionAndNormalGBuffer(HelloIblApp& app,
     // silhouette を正しく扱える (SSGI/SSR が後段で normal を読むためにも、
     // ガラス位置の normal が G-buffer に必要)。
     if (app._show_refraction) {
-        const Mat4 clear_model =
-            Mat4::Scale(Vec3{1.4f, 1.4f, 1.4f}) * Mat4::Translation(kGlassPos);
+        const FMat4 clear_model =
+            FMat4::Scale(FVec3{1.4f, 1.4f, 1.4f}) * FMat4::Translation(kGlassPos);
         app._motion.DrawMesh(*cl, app._gm_sphere, clear_model, clear_model);
-        const Mat4 frosted_model =
-            Mat4::Scale(Vec3{1.2f, 1.2f, 1.2f}) * Mat4::Translation(kFrostedGlassPos);
+        const FMat4 frosted_model =
+            FMat4::Scale(FVec3{1.2f, 1.2f, 1.2f}) * FMat4::Translation(kFrostedGlassPos);
         app._motion.DrawMesh(*cl, app._gm_sphere, frosted_model, frosted_model);
     }
     app._motion.End(*cl);

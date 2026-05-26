@@ -75,46 +75,46 @@ void HelloSaveApp::OnRender() noexcept {
 
     _batch.Begin(*cl, sw, sh);
     _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
-                    Vec4{0.10f, 0.13f, 0.18f, 1});
+                    FVec4{0.10f, 0.13f, 0.18f, 1});
     _batch.DrawRect(40, 40, static_cast<f32>(sw - 80), static_cast<f32>(sh - 80),
-                    Vec4{0.16f, 0.20f, 0.28f, 1});
+                    FVec4{0.16f, 0.20f, 0.28f, 1});
 
     if (_font_big.AtlasTexture()) {
         char buf[256];
         std::snprintf(buf, sizeof(buf), "%s さん、ようこそ！",
                       _store.GetString("player_name", "プレイヤー"));
-        _batch.DrawString(_font_big, buf, 80, 80, Vec4{1, 0.95f, 0.7f, 1});
+        _batch.DrawString(_font_big, buf, 80, 80, FVec4{1, 0.95f, 0.7f, 1});
     }
     if (_font_small.AtlasTexture()) {
         char buf[256];
         std::snprintf(buf, sizeof(buf), "起動回数: %lld",
                       static_cast<long long>(_store.GetInt("launches", 0)));
-        _batch.DrawString(_font_small, buf, 80, 150, Vec4{0.9f,0.95f,1,1});
+        _batch.DrawString(_font_small, buf, 80, 150, FVec4{0.9f,0.95f,1,1});
 
         std::snprintf(buf, sizeof(buf), "今回のクリック数: %lld",
                       static_cast<long long>(_clicks));
-        _batch.DrawString(_font_small, buf, 80, 180, Vec4{0.9f,0.95f,1,1});
+        _batch.DrawString(_font_small, buf, 80, 180, FVec4{0.9f,0.95f,1,1});
 
         std::snprintf(buf, sizeof(buf), "ハイスコア: %lld",
                       static_cast<long long>(_high_score));
         _batch.DrawString(_font_small, buf, 80, 210,
                         (_clicks == _high_score && _clicks > 0)
-                        ? Vec4{1, 0.85f, 0.4f, 1}    // ハイスコア更新中は黄色で強調
-                        : Vec4{0.9f, 0.95f, 1, 1});
+                        ? FVec4{1, 0.85f, 0.4f, 1}    // ハイスコア更新中は黄色で強調
+                        : FVec4{0.9f, 0.95f, 1, 1});
 
         _batch.DrawString(_font_small,
                         "Space: クリック  S: 手動保存  R: リセット  Esc: 終了 (自動保存)",
                         80, static_cast<f32>(sh - 80),
-                        Vec4{0.6f, 0.7f, 0.85f, 1});
+                        FVec4{0.6f, 0.7f, 0.85f, 1});
 
         if (_dirty) {
             _batch.DrawString(_font_small, "● 未保存（終了か S で保存）",
                             80, static_cast<f32>(sh - 110),
-                            Vec4{1, 0.5f, 0.5f, 1});
+                            FVec4{1, 0.5f, 0.5f, 1});
         } else {
             _batch.DrawString(_font_small, "○ 保存済み",
                             80, static_cast<f32>(sh - 110),
-                            Vec4{0.5f, 1, 0.5f, 1});
+                            FVec4{0.5f, 1, 0.5f, 1});
         }
     }
     _batch.End();

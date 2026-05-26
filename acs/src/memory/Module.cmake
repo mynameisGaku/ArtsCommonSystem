@@ -19,8 +19,8 @@ acs_module(
         LinearAllocator.h
         PoolAllocator.h
         ArenaAllocator.h
-        UniquePtr.h
-        Rc.h
+        TUniquePtr.h
+        TRc.h
         VirtualMemory.h
         Tlsf.h
         Segment.h

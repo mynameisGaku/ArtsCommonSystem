@@ -5,7 +5,7 @@
 //   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
 //   ・MVVM 駆動: 各 Widget は Observable<T> プロパティを公開し、ViewModel と Bind 可能
 //   ・SpriteBatch + Font で描画 (Diligent / Dx12 を意識しない)
-//   ・親 → 子の所有を UniquePtr<Widget> で表現、Add で子を取り込む
+//   ・親 → 子の所有を TUniquePtr<Widget> で表現、Add で子を取り込む
 //   ・Layout は親の Layout モードに応じて子に再帰的に配置
 //
 // 使い方:
@@ -112,7 +112,7 @@ public:
 
 protected:
     Widget*                       _parent   = nullptr;
-    Array<UniquePtr<Widget>>      _children;
+    TArray<TUniquePtr<Widget>>      _children;
 };
 
 // ---------- レイアウト系 ----------

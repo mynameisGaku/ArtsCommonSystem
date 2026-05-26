@@ -117,9 +117,9 @@ private:
         bool alive      = false;
     };
 
-    Array<Slot>           _slots;          // index -> Slot
-    Array<u32>            _free_indices;   // 解放済みでまだ再利用できるスロット
-    Array<SparseSetBase*> _sets;           // ComponentTypeId -> SparseSet*
+    TArray<Slot>           _slots;          // index -> Slot
+    TArray<u32>            _free_indices;   // 解放済みでまだ再利用できるスロット
+    TArray<SparseSetBase*> _sets;           // ComponentTypeId -> SparseSet*
     u32                   _alive_count = 0;
 };
 

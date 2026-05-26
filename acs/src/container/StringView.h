@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Container — StringView（std::string_view 代替、UTF-8 非所有ビュー）
+// ACS Container — FStringView（std::string_view 代替、UTF-8 非所有ビュー）
 // -----------------------------------------------------------------------------
 // ポインタ + 長さで文字列を参照する軽量値型。所有権を持たないため、
 // 元の文字列のライフタイムに注意。
@@ -16,13 +16,13 @@
 
 namespace acs {
 
-class StringView {
+class FStringView {
 public:
-    constexpr StringView() noexcept = default;
-    constexpr StringView(const char* data, usize size) noexcept : _data(data), _size(size) {}
+    constexpr FStringView() noexcept = default;
+    constexpr FStringView(const char* data, usize size) noexcept : _data(data), _size(size) {}
 
     // C 文字列からの暗黙変換（NUL 終端を見つけて長さを計算）
-    StringView(const char* cstr) noexcept : _data(cstr), _size(0) {
+    FStringView(const char* cstr) noexcept : _data(cstr), _size(0) {
         if (cstr) while (cstr[_size]) ++_size;
     }
 
@@ -33,30 +33,30 @@ public:
     constexpr char        operator[](usize i) const noexcept { ACS_ASSERT(i < _size); return _data[i]; }
 
     // 部分文字列ビュー
-    constexpr StringView SubView(usize offset, usize count) const noexcept {
+    constexpr FStringView SubView(usize offset, usize count) const noexcept {
         ACS_ASSERT(offset + count <= _size);
-        return StringView(_data + offset, count);
+        return FStringView(_data + offset, count);
     }
 
     constexpr const char* begin() const noexcept { return _data; }
     constexpr const char* end()   const noexcept { return _data + _size; }
 
     // バイト単位の完全一致比較
-    bool Equals(StringView other) const noexcept {
+    bool Equals(FStringView other) const noexcept {
         if (_size != other._size) return false;
         for (usize i = 0; i < _size; ++i) if (_data[i] != other._data[i]) return false;
         return true;
     }
 
     // 接頭辞判定
-    bool StartsWith(StringView prefix) const noexcept {
+    bool StartsWith(FStringView prefix) const noexcept {
         if (prefix._size > _size) return false;
         for (usize i = 0; i < prefix._size; ++i) if (_data[i] != prefix._data[i]) return false;
         return true;
     }
 
     // 接尾辞判定
-    bool EndsWith(StringView suffix) const noexcept {
+    bool EndsWith(FStringView suffix) const noexcept {
         if (suffix._size > _size) return false;
         usize off = _size - suffix._size;
         for (usize i = 0; i < suffix._size; ++i) if (_data[off + i] != suffix._data[i]) return false;
@@ -68,7 +68,7 @@ private:
     usize       _size = 0;
 };
 
-inline bool operator==(StringView a, StringView b) noexcept { return a.Equals(b); }
-inline bool operator!=(StringView a, StringView b) noexcept { return !a.Equals(b); }
+inline bool operator==(FStringView a, FStringView b) noexcept { return a.Equals(b); }
+inline bool operator!=(FStringView a, FStringView b) noexcept { return !a.Equals(b); }
 
 } // namespace acs

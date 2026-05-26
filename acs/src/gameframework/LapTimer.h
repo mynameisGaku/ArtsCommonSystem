@@ -63,7 +63,7 @@
 // 範囲外 (将来 Phase で):
 //   ・周回別 split (各 checkpoint 通過時刻の累積差分) — 現状は 1 lap 単位の time
 //     だけ記録する。UI 上で詳細 split を出したくなったら `LapRecord` に
-//     Array<f32> sector_times を追加する。
+//     TArray<f32> sector_times を追加する。
 //   ・rubberband AI / handicap — DynamicDifficulty 側で別途。
 //   ・順位変動の onPositionChanged callback — UI 側で前フレームを保持して
 //     差分検出する方が柔軟と判断 (Manager 内蔵しない)。
@@ -228,7 +228,7 @@ private:
 
     struct Slot {
         RacerStats        stats;
-        Array<LapRecord>  records;
+        TArray<LapRecord>  records;
         bool              active                = false;
         bool              finished              = false;  // total_laps 到達確定
         u8                gen                   = 0;
@@ -251,7 +251,7 @@ private:
     //     比較から除外して別途処理する (Calculate*).
     bool IsBetterRank(const RacerStats& lhs, const RacerStats& rhs) const noexcept;
 
-    Array<Slot>    _slots;
+    TArray<Slot>    _slots;
     u32            _racer_count          = 0;
 
     u32            _total_laps           = 1;

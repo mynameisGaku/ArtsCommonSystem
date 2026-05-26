@@ -7,7 +7,7 @@
 
 - モジュール: `src/assetpack/` ／ ターゲット `ACS::AssetPack`
 - 依存: `Foundation Memory Container Threading Platform` + `bcrypt`（Windows CNG）+ `lz4`
-- 規約: STL 不使用 / 例外不使用 / `noexcept` / `Result<T,E>` / Windows 専用
+- 規約: STL 不使用 / 例外不使用 / `noexcept` / `TResult<T,E>` / Windows 専用
 
 ---
 
@@ -135,7 +135,7 @@ struct ArchiveKey { u8 bytes[32]; };
 class IArchiveKeyProvider {
 public:
     virtual ~IArchiveKeyProvider() noexcept = default;
-    virtual Result<void> ProvideKey(ArchiveKey& out) noexcept = 0;
+    virtual TResult<void> ProvideKey(ArchiveKey& out) noexcept = 0;
 };
 ```
 
@@ -193,10 +193,10 @@ public:
                        bool compress=true; u32 align=16; };
   class ArchiveWriter {
   public:
-      Result<void> Open(const wchar_t* out, const PackOptions&, IArchiveKeyProvider&) noexcept;
-      Result<void> AddFile(StringView logical_path, const wchar_t* disk_path) noexcept;
-      Result<void> AddEntry(StringView logical_path, Span<const byte> data) noexcept;
-      Result<void> Finalize() noexcept;
+      TResult<void> Open(const wchar_t* out, const PackOptions&, IArchiveKeyProvider&) noexcept;
+      TResult<void> AddFile(FStringView logical_path, const wchar_t* disk_path) noexcept;
+      TResult<void> AddEntry(FStringView logical_path, TSpan<const byte> data) noexcept;
+      TResult<void> Finalize() noexcept;
   };
   ```
 - **`acs_assetpack` CLI** — `tools/assetpack/`（新設の `tools/` トップディレクトリ）の
@@ -228,7 +228,7 @@ public:
 **わずか 2 箇所**（同期 `Load` と非同期ワーカ）に集約している。この 2 箇所を
 `VirtualFileSystem::ReadAsset(path)` に差し替えるだけで、`.acpak` 透過対応が
 **ローダ変更ゼロ・ゲームコード変更ゼロ**で実現する。ローダの契約
-`LoadFromBytes(AssetId, const Array<byte>&)` は不変 — バイト列がバラファイル由来か
+`LoadFromBytes(AssetId, const TArray<byte>&)` は不変 — バイト列がバラファイル由来か
 復号済み pak エントリ由来かをローダは知らないし気にしない。
 
 ### 8.2 `VirtualFileSystem` — マウントスタック
@@ -236,15 +236,15 @@ public:
 class IMountSource {                       // バラディレクトリ or 開いた .acpak
 public:
     virtual ~IMountSource() noexcept = default;
-    virtual bool Exists(u64 path_hash, StringView logical) const noexcept = 0;
-    virtual Result<Array<byte>> Read(u64 path_hash, StringView logical) noexcept = 0;
+    virtual bool Exists(u64 path_hash, FStringView logical) const noexcept = 0;
+    virtual TResult<TArray<byte>> Read(u64 path_hash, FStringView logical) noexcept = 0;
 };
 class VirtualFileSystem {
 public:
-    Result<void> MountDirectory(const wchar_t* dir, i32 priority) noexcept;
-    Result<void> MountArchive(const wchar_t* acpak, i32 priority, IArchiveKeyProvider&) noexcept;
+    TResult<void> MountDirectory(const wchar_t* dir, i32 priority) noexcept;
+    TResult<void> MountArchive(const wchar_t* acpak, i32 priority, IArchiveKeyProvider&) noexcept;
     void         Unmount(i32 priority) noexcept;
-    Result<Array<byte>> ReadAsset(const wchar_t* logical_path) noexcept;
+    TResult<TArray<byte>> ReadAsset(const wchar_t* logical_path) noexcept;
     bool         Exists(const wchar_t* logical_path) const noexcept;
 };
 ```
@@ -252,7 +252,7 @@ public:
   開発経路、現状と完全に同一挙動。
 - `ArchiveSource` — `.acpak` をメモリマップ（`CreateFileMapping`/`MapViewOfFile`）して
   `ArchiveReader` でラップ。`Read` = TOC を `path_hash` で二分探索 → ブロブをスライス
-  → GCM 復号（CNG）→ LZ4 展開 → `content_hash` 照合 → `Array<byte>` 返却。
+  → GCM 復号（CNG）→ LZ4 展開 → `content_hash` 照合 → `TArray<byte>` 返却。
 
 ### 8.3 マウント優先度
 `(priority, IMountSource)` を優先度降順で保持。`ReadAsset` はパス正規化 → ハッシュ →

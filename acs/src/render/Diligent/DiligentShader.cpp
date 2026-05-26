@@ -84,7 +84,7 @@ DiligentShader::~DiligentShader() noexcept {
     if (_shader) { _shader->Release(); _shader = nullptr; }
 }
 
-Result<void> DiligentShader::Init(DiligentDevice& device, const ShaderDesc& desc) noexcept {
+TResult<void> DiligentShader::Init(DiligentDevice& device, const ShaderDesc& desc) noexcept {
     _device = &device;
     _stage  = desc.stage;
 

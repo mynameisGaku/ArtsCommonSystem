@@ -24,7 +24,7 @@ using namespace acs;
 
 namespace helloshowcase {
 
-// ctor/dtor は明示的に cpp 側に定義する。Assets が UniquePtr<IRhiTexture> を
+// ctor/dtor は明示的に cpp 側に定義する。Assets が TUniquePtr<IRhiTexture> を
 // 抱えるため、ヘッダ側に dtor を書くと include 側が完全型を要求してしまう。
 ShowcaseApp::ShowcaseApp() noexcept = default;
 ShowcaseApp::~ShowcaseApp() noexcept = default;
@@ -75,13 +75,13 @@ void ShowcaseApp::OnUpdate(f32 dt) noexcept {
     const f32 cam_radius = 5.5f;
     const f32 cam_y_base = 1.4f;
     const f32 cam_y_bob  = 0.18f * Sin(_orbit_angle * 1.3f);     // ±18cm 縦揺れ
-    const Vec3 cam_target{0.0f, 0.4f, 0.0f};
-    _cam_pos = Vec3{
+    const FVec3 cam_target{0.0f, 0.4f, 0.0f};
+    _cam_pos = FVec3{
         cam_target.x + cam_radius * Sin(_orbit_angle),
         cam_y_base + cam_y_bob,
         cam_target.z + cam_radius * Cos(_orbit_angle),
     };
-    _camera.SetLookAt(_cam_pos, cam_target, Vec3::Up());
+    _camera.SetLookAt(_cam_pos, cam_target, FVec3::Up());
 }
 
 bool ShowcaseApp::OnCustomFrame() noexcept {
@@ -101,10 +101,10 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     ++_taa_frame_index;
     const f32 jx_ndc = jx * 2.0f / static_cast<f32>(hdr->Width());
     const f32 jy_ndc = jy * 2.0f / static_cast<f32>(hdr->Height());
-    const Mat4 view_proj_jittered = _camera.ViewProjection() *
-                                    Mat4::Translation(Vec3{jx_ndc, jy_ndc, 0.0f});
-    const Mat4 vp_no_jitter = _camera.ViewProjection();
-    const Mat4 inv_vp        = Inverse(view_proj_jittered);
+    const FMat4 view_proj_jittered = _camera.ViewProjection() *
+                                    FMat4::Translation(FVec3{jx_ndc, jy_ndc, 0.0f});
+    const FMat4 vp_no_jitter = _camera.ViewProjection();
+    const FMat4 inv_vp        = Inverse(view_proj_jittered);
 
     // ===== IBL warmup (1 度だけ走る) =====
     if (!_assets.ibl.HasBrdfLut())       (void)_assets.ibl.EnsureBrdfLut(*dev, *cl);
@@ -113,7 +113,7 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     if (!_assets.ibl.HasPrefilterMap())  (void)_assets.ibl.EnsurePrefilter(*dev, *cl);
 
     // ===== Opaque HDR pass (Sky + PBR + emissive orb) =====
-    Mat4 orb_curr[kOrbCount]{};
+    FMat4 orb_curr[kOrbCount]{};
     ExecutePbrPass(_assets, *cl, *hdr, *depth, _camera,
                    view_proj_jittered, _cam_pos, _orb_phase,
                    _ssr_warm, _ssao_warm, orb_curr);
@@ -130,7 +130,7 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
                                                  _prev_orb_phase, orb_curr);
 
     // ===== SSR / SSAO (1-frame latency で次フレームの PBR が合成) =====
-    const Mat4& ssr_prev_vp = _prev_vp_valid ? _prev_vp_no_jitter : vp_no_jitter;
+    const FMat4& ssr_prev_vp = _prev_vp_valid ? _prev_vp_no_jitter : vp_no_jitter;
     ExecuteSsrPass(_assets, *dev, *cl, *hdr, *depth,
                    view_proj_jittered, inv_vp, ssr_prev_vp,
                    _cam_pos, motion_tex, _show_ssr);

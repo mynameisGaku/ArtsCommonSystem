@@ -46,7 +46,7 @@ bool StrEqAscii(const char* a, const char* b) noexcept {
 AssetId MakeIdFromPath(const wchar_t* path) noexcept {
     usize len = 0;
     while (path[len]) ++len;
-    return MakeAssetId(StringView(reinterpret_cast<const char*>(path), len * sizeof(wchar_t)));
+    return MakeAssetId(FStringView(reinterpret_cast<const char*>(path), len * sizeof(wchar_t)));
 }
 
 } // namespace
@@ -69,7 +69,7 @@ IAssetLoader* AssetRegistry::FindLoader(const wchar_t* path) noexcept {
     return fallback;  // 拡張子マッチなければ "*" のフォールバックを返す
 }
 
-Result<Rc<Asset>> AssetRegistry::Load(const wchar_t* path) noexcept {
+TResult<TRc<Asset>> AssetRegistry::Load(const wchar_t* path) noexcept {
     if (!path) return ACS_ERR(Asset, 1, "AssetRegistry::Load: null path");
 
     AssetId id = MakeIdFromPath(path);
@@ -77,8 +77,8 @@ Result<Rc<Asset>> AssetRegistry::Load(const wchar_t* path) noexcept {
     // キャッシュにあればそのまま返す
     {
         ScopedLock lk(_lock);
-        Rc<Asset>* hit = _cache.Find(id);
-        if (hit && hit->Get()) return Result<Rc<Asset>>(OkInit, *hit);
+        TRc<Asset>* hit = _cache.Find(id);
+        if (hit && hit->Get()) return TResult<TRc<Asset>>(OkInit, *hit);
     }
 
     // 拡張子から適切なローダを選ぶ
@@ -91,13 +91,13 @@ Result<Rc<Asset>> AssetRegistry::Load(const wchar_t* path) noexcept {
 
     // ファイルを読み込む
     auto bytes_r = FileSystem::ReadAllBytes(path);
-    if (bytes_r.IsErr()) return Err<Rc<Asset>>(bytes_r.Error());
+    if (bytes_r.IsErr()) return Err<TRc<Asset>>(bytes_r.Error());
 
     // ローダ呼び出し
     auto asset_r = loader->LoadFromBytes(id, bytes_r.Value());
-    if (asset_r.IsErr()) return Err<Rc<Asset>>(asset_r.Error());
+    if (asset_r.IsErr()) return Err<TRc<Asset>>(asset_r.Error());
 
-    Rc<Asset> a = Move(asset_r.Value());
+    TRc<Asset> a = Move(asset_r.Value());
     a->SetId(id);
     a->SetState(EAssetState::Ready);
 
@@ -106,21 +106,21 @@ Result<Rc<Asset>> AssetRegistry::Load(const wchar_t* path) noexcept {
         ScopedLock lk(_lock);
         _cache.Insert(id, a);
     }
-    return Result<Rc<Asset>>(OkInit, Move(a));
+    return TResult<TRc<Asset>>(OkInit, Move(a));
 }
 
 // 非同期ロード用のワーカー引数
 namespace {
 struct AsyncLoadJob {
     AssetRegistry*           registry  = nullptr;
-    Rc<AsyncLoadState>       state;       // 結果書き込み先（worker と future で共有）
+    TRc<AsyncLoadState>       state;       // 結果書き込み先（worker と future で共有）
     IAssetLoader*            loader    = nullptr;
     AssetId                  id        = AssetId{};
     wchar_t                  path[260] = {};
 };
 
 void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
-    UniquePtr<AsyncLoadJob> job(static_cast<AsyncLoadJob*>(user));
+    TUniquePtr<AsyncLoadJob> job(static_cast<AsyncLoadJob*>(user));
 
     auto bytes_r = FileSystem::ReadAllBytes(job->path);
     if (bytes_r.IsErr()) {
@@ -138,7 +138,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
         return;
     }
 
-    Rc<Asset> a = Move(asset_r.Value());
+    TRc<Asset> a = Move(asset_r.Value());
     a->SetId(job->id);
     a->SetState(EAssetState::Ready);
 
@@ -147,11 +147,11 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
 
     job->state->result = Move(a);
     job->state->counter.Done();
-    // job は UniquePtr のスコープ抜けで自動 delete
+    // job は TUniquePtr のスコープ抜けで自動 delete
 }
 } // namespace
 
-void AssetRegistry::AsyncCacheInsert(AssetId id, Rc<Asset> a) noexcept {
+void AssetRegistry::AsyncCacheInsert(AssetId id, TRc<Asset> a) noexcept {
     ScopedLock lk(_lock);
     _cache.Insert(id, Move(a));
 }
@@ -173,7 +173,7 @@ AssetFuture AssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     // キャッシュにあれば即完了状態で返す
     {
         ScopedLock lk(_lock);
-        Rc<Asset>* hit = _cache.Find(id);
+        TRc<Asset>* hit = _cache.Find(id);
         if (hit && hit->Get()) {
             state->result = *hit;
             state->counter.Done();
@@ -225,10 +225,10 @@ AssetFuture AssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     return AssetFuture(Move(state));
 }
 
-Rc<Asset> AssetRegistry::Find(AssetId id) noexcept {
+TRc<Asset> AssetRegistry::Find(AssetId id) noexcept {
     ScopedLock lk(_lock);
-    Rc<Asset>* hit = _cache.Find(id);
-    return (hit && hit->Get()) ? *hit : Rc<Asset>();
+    TRc<Asset>* hit = _cache.Find(id);
+    return (hit && hit->Get()) ? *hit : TRc<Asset>();
 }
 
 void AssetRegistry::Unload(AssetId id) noexcept {
@@ -261,7 +261,7 @@ public:
     AliasLoader(IAssetLoader* base, const char* ext) noexcept : _base(base), _ext(ext) {}
     AssetType   TypeId()    const noexcept override { return _base->TypeId(); }
     const char* Extension() const noexcept override { return _ext; }
-    Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept override {
+    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override {
         return _base->LoadFromBytes(id, bytes);
     }
 private:

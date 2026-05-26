@@ -213,7 +213,7 @@ void WorkerMain(void* arg) noexcept {
 } // namespace
 
 // プール初期化
-Result<void> ThreadPool::Init(u32 worker_count) noexcept {
+TResult<void> ThreadPool::Init(u32 worker_count) noexcept {
     if (g_pool != nullptr) return ACS_ERR(Threading, 2, "ThreadPool already initialized");
     if (worker_count == 0) worker_count = HardwareConcurrency();
     if (worker_count > kMaxWorkers) worker_count = kMaxWorkers;
@@ -324,7 +324,7 @@ u32 ThreadPool::CurrentWorkerIndex() noexcept {
 }
 
 // タスク投入（自ワーカーなら deque、外部ならグローバルキュー経由）
-Result<void> ThreadPool::Submit(const Task& t) noexcept {
+TResult<void> ThreadPool::Submit(const Task& t) noexcept {
     if (!g_pool) return ACS_ERR(Threading, 3, "ThreadPool not initialized");
     if (!t.fn)   return ACS_ERR(Threading, 4, "Task fn is null");
 
@@ -414,7 +414,7 @@ void PFRangeFn(void* arg, u32 worker_index) noexcept {
 } // namespace
 
 // 並列 for ループ（[begin, end) を grain で分割して投入 → Wait）
-Result<void> ThreadPool::ParallelFor(u32 begin, u32 end, u32 grain,
+TResult<void> ThreadPool::ParallelFor(u32 begin, u32 end, u32 grain,
                                      void (*body)(u32, u32, void*), void* user) noexcept {
     if (!g_pool) return ACS_ERR(Threading, 5, "ThreadPool not initialized");
     if (!body)   return ACS_ERR(Threading, 6, "ParallelFor body is null");

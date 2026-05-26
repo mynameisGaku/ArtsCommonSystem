@@ -53,7 +53,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct HiZCBLayout {
-    Vec4 params;
+    FVec4 params;
 };
 
 template<typename T>
@@ -63,7 +63,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> HiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept {
+TResult<void> HiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept {
     _device = &device;
     _src_w  = src_width;
     _src_h  = src_height;
@@ -81,7 +81,7 @@ Result<void> HiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexce
     return Ok();
 }
 
-Result<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
+TResult<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
     _hiz.Reset();
     _hiz_w = (src_w + kBlockSize - 1u) / kBlockSize;
     _hiz_h = (src_h + kBlockSize - 1u) / kBlockSize;
@@ -104,7 +104,7 @@ Result<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
     return Ok();
 }
 
-Result<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kHiZHLSL;
@@ -156,7 +156,7 @@ void HiZ::Shutdown() noexcept {
     _device = nullptr;
 }
 
-Result<void> HiZ::Resize(u32 src_width, u32 src_height) noexcept {
+TResult<void> HiZ::Resize(u32 src_width, u32 src_height) noexcept {
     if (!_device) return ACS_ERR(Render, 320, "HiZ::Resize before Init");
     if (src_width == _src_w && src_height == _src_h) return Ok();
     _src_w = src_width;
@@ -169,7 +169,7 @@ void HiZ::Build(IRhiDevice& /*device*/, IRhiCommandList& cl,
     if (!_hiz || !_pipeline || !_cb) return;
 
     HiZCBLayout data{};
-    data.params = Vec4{1.0f / static_cast<f32>(_src_w),
+    data.params = FVec4{1.0f / static_cast<f32>(_src_w),
                         1.0f / static_cast<f32>(_src_h), 0, 0};
     _cb->Update(&data, sizeof(data));
 

@@ -36,7 +36,7 @@ Sequence& Sequence::Tween(f32* target, f32 from, f32 to, f32 duration,
     return *this;
 }
 
-Sequence& Sequence::Tween(Vec2* target, Vec2 from, Vec2 to, f32 duration,
+Sequence& Sequence::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                            Easing::EasingFn ease) noexcept {
     SeqAction a;
     a.kind            = SeqAction::Kind::TweenV2;
@@ -49,7 +49,7 @@ Sequence& Sequence::Tween(Vec2* target, Vec2 from, Vec2 to, f32 duration,
     return *this;
 }
 
-Sequence& Sequence::Tween(Vec3* target, Vec3 from, Vec3 to, f32 duration,
+Sequence& Sequence::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                            Easing::EasingFn ease) noexcept {
     SeqAction a;
     a.kind            = SeqAction::Kind::TweenV3;
@@ -195,7 +195,7 @@ void SequenceRunner::Tick(f32 dt) noexcept {
                         ? act.tween_f_to
                         : act.tween_f_from + (act.tween_f_to - act.tween_f_from) * e;
                 } else if (act.kind == SeqAction::Kind::TweenV2 && act.tween_v2_target) {
-                    Vec2* p = act.tween_v2_target;
+                    FVec2* p = act.tween_v2_target;
                     if (finished) {
                         *p = act.tween_v2_to;
                     } else {
@@ -203,7 +203,7 @@ void SequenceRunner::Tick(f32 dt) noexcept {
                         p->y = act.tween_v2_from.y + (act.tween_v2_to.y - act.tween_v2_from.y) * e;
                     }
                 } else if (act.kind == SeqAction::Kind::TweenV3 && act.tween_v3_target) {
-                    Vec3* p = act.tween_v3_target;
+                    FVec3* p = act.tween_v3_target;
                     if (finished) {
                         *p = act.tween_v3_to;
                     } else {

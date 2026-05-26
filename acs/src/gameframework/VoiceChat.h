@@ -39,7 +39,7 @@
 //   ・**所有しない const char***: 文字列 (user_id / display_name / channel_id) は
 //     呼び出し側 / SDK のライフタイムに従い、Bridge はコピーしない (STL <string>
 //     不使用方針)。`GetParticipant` の戻り値は「次の Tick まで有効」と扱うこと。
-//   ・**Result<T, ErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API で
+//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API で
 //     `ACS_ERR(Generic, kSubVoiceNotImplemented, ...)` を返す。
 //   ・**コピー / ムーブ禁止**: backend は通常 1 個の長寿命オブジェクトで運用。
 //     誤コピーで SDK ハンドルが二重解放されると詰むため最初から非コピー・非ムーブ。
@@ -69,7 +69,7 @@
 
 namespace acs::game {
 
-// ---- ErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
+// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
 // SteamworksBridge と同様、Foundation の ErrCategory enum を増やさず Generic +
 // 安定 subcode で表現する。呼び出し側は `err.subcode == kSubVoiceNotImplemented`
 // でフィルタ可能。
@@ -129,7 +129,7 @@ public:
 
     // SDK 初期化。`p` で使用するプロバイダを選択。Stub は受け取った p を記録
     // するのみで実 SDK 呼び出しは行わない。多重 Init は実装依存。
-    virtual Result<void> Init(EVoiceProvider p) noexcept = 0;
+    virtual TResult<void> Init(EVoiceProvider p) noexcept = 0;
 
     // SDK 終了処理。Init() 前に呼んでも安全 (no-op)。
     virtual void Shutdown() noexcept = 0;
@@ -142,29 +142,29 @@ public:
 
     // 指定チャンネルに参加。`channel_id` は SDK 固有のチャンネル ID 文字列
     // (PartySystem の party_id / マッチ ID 等を渡す想定、非所有)。
-    virtual Result<void> JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept = 0;
+    virtual TResult<void> JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept = 0;
 
     // 指定チャンネルから離脱。join 前に呼んでも安全な実装が望ましい。
-    virtual Result<void> LeaveChannel(EVoiceChannel ch) noexcept = 0;
+    virtual TResult<void> LeaveChannel(EVoiceChannel ch) noexcept = 0;
 
     // 自分のマイクをローカル側でミュート / 解除する。送信を止めるかどうかは
     // 実装依存 (Vivox はミュート時も local capture を続けるが送信を停止)。
-    virtual Result<void> SetLocalMute(bool muted) noexcept = 0;
+    virtual TResult<void> SetLocalMute(bool muted) noexcept = 0;
 
     // 指定参加者をローカル側でミュート (自分の耳でのみ無音化)。`user_id` は
     // `GetParticipant` で得た値 (非所有、SDK 側で同定可能な ID 文字列)。
-    virtual Result<void> SetParticipantMute(const char* user_id, bool muted) noexcept = 0;
+    virtual TResult<void> SetParticipantMute(const char* user_id, bool muted) noexcept = 0;
 
     // 指定参加者のローカル音量を 0.0〜1.0 (もしくは SDK が許す範囲) で設定。
     // 範囲外を渡した場合の振る舞いは実装依存 (clamp 推奨)。
-    virtual Result<void> SetParticipantVolume(const char* user_id, f32 volume) noexcept = 0;
+    virtual TResult<void> SetParticipantVolume(const char* user_id, f32 volume) noexcept = 0;
 
     // 指定チャンネルの参加者数 (自分含む)。未 join 時は 0。
     virtual u32 ParticipantCount(EVoiceChannel ch) noexcept = 0;
 
     // 指定チャンネルの index 番目の参加者を取得。範囲外 index はエラー。
     // 戻り値の `user_id` / `display_name` 寿命は次 Tick() まで保証。
-    virtual Result<VoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept = 0;
+    virtual TResult<VoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept = 0;
 
     // コールバック / 状態更新ポンプ。Vivox の Update3DPosition / Discord の
     // event pump / VAD threshold 監視を Backend 側に畳み込む。ゲームループから
@@ -174,7 +174,7 @@ public:
 
 // ---- Stub 実装 ------------------------------------------------------------
 // SDK 未統合ビルド / ユニットテスト用の no-op 実装。
-//   ・Init() は受け取った provider を記録するが Result は ACS_ERR を返す
+//   ・Init() は受け取った provider を記録するが TResult は ACS_ERR を返す
 //     (SteamworksBridge と違い、こちらは「未実装」を強調するため)。
 //   ・IsAvailable() は常に false。
 //   ・全 API が ACS_ERR(Generic, kSubVoiceNotImplemented, ...) を返す。
@@ -184,17 +184,17 @@ public:
     VoiceChatBackendStub() noexcept = default;
     ~VoiceChatBackendStub() noexcept override = default;
 
-    Result<void>             Init(EVoiceProvider p) noexcept override;
+    TResult<void>             Init(EVoiceProvider p) noexcept override;
     void                     Shutdown() noexcept override;
     bool                     IsAvailable() const noexcept override { return false; }
     EVoiceProvider            ActiveProvider() const noexcept override { return _provider; }
-    Result<void>             JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept override;
-    Result<void>             LeaveChannel(EVoiceChannel ch) noexcept override;
-    Result<void>             SetLocalMute(bool muted) noexcept override;
-    Result<void>             SetParticipantMute(const char* user_id, bool muted) noexcept override;
-    Result<void>             SetParticipantVolume(const char* user_id, f32 volume) noexcept override;
+    TResult<void>             JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept override;
+    TResult<void>             LeaveChannel(EVoiceChannel ch) noexcept override;
+    TResult<void>             SetLocalMute(bool muted) noexcept override;
+    TResult<void>             SetParticipantMute(const char* user_id, bool muted) noexcept override;
+    TResult<void>             SetParticipantVolume(const char* user_id, f32 volume) noexcept override;
     u32                      ParticipantCount(EVoiceChannel ch) noexcept override;
-    Result<VoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept override;
+    TResult<VoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept override;
     void                     Tick(f32 dt) noexcept override;
 
 private:

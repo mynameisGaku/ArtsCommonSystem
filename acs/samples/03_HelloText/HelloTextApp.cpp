@@ -50,9 +50,9 @@ void HelloTextApp::OnRender() noexcept {
 
     // 背景の二段パネル (外枠 + 内枠)
     _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
-                    Vec4{0.08f, 0.10f, 0.14f, 1.0f});
+                    FVec4{0.08f, 0.10f, 0.14f, 1.0f});
     _batch.DrawRect(40, 40, static_cast<f32>(sw - 80), static_cast<f32>(sh - 80),
-                    Vec4{0.14f, 0.18f, 0.24f, 1.0f});
+                    FVec4{0.14f, 0.18f, 0.24f, 1.0f});
 
     // タイトル: sin で左右に揺らしながら中央寄せ。影は本体より +3px オフセット。
     const char* title = "Hello, ACS! 〜 始まりの一歩 〜";
@@ -61,16 +61,16 @@ void HelloTextApp::OnRender() noexcept {
     const f32 title_x = (static_cast<f32>(sw) - title_w) * 0.5f + sway;
     const f32 title_y = 80.0f;
     _batch.DrawString(_title_font, title, title_x + 3, title_y + 3,
-                    Vec4{0, 0, 0, 0.5f});
+                    FVec4{0, 0, 0, 0.5f});
     _batch.DrawString(_title_font, title, title_x, title_y,
-                    Vec4{1.0f, 0.85f, 0.4f, 1.0f});
+                    FVec4{1.0f, 0.85f, 0.4f, 1.0f});
 
     // サブタイトル (中央寄せ)
     const char* subtitle = "ようこそ、ACS（軽量・C++ ゲーム基盤）へ";
     const f32 sub_w = _body_font.MeasureWidth(subtitle);
     _batch.DrawString(_body_font, subtitle,
                     (static_cast<f32>(sw) - sub_w) * 0.5f, 180.0f,
-                    Vec4{0.85f, 0.9f, 1.0f, 1.0f});
+                    FVec4{0.85f, 0.9f, 1.0f, 1.0f});
 
     // 説明テキスト (複数行、漢字混じり)
     const char* body =
@@ -81,7 +81,7 @@ void HelloTextApp::OnRender() noexcept {
         "・吾輩は猫である。名前はまだ無い。\n"
         "・春はあけぼの。やうやう白くなりゆく山際、すこし明かりて";
     _batch.DrawString(_body_font, body, 100, 240,
-                    Vec4{0.95f, 0.95f, 0.95f, 1.0f});
+                    FVec4{0.95f, 0.95f, 0.95f, 1.0f});
 
     // 右下: FPS / フレーム数
     char fps_buf[64];
@@ -92,12 +92,12 @@ void HelloTextApp::OnRender() noexcept {
     _batch.DrawString(_small_font, fps_buf,
                     static_cast<f32>(sw) - fps_w - 60.0f,
                     static_cast<f32>(sh) - 60.0f,
-                    Vec4{0.6f, 0.7f, 0.8f, 1.0f});
+                    FVec4{0.6f, 0.7f, 0.8f, 1.0f});
 
     // 左下: 操作ヒント
     _batch.DrawString(_small_font, "Esc で終了", 60.0f,
                     static_cast<f32>(sh) - 60.0f,
-                    Vec4{0.5f, 0.5f, 0.55f, 1.0f});
+                    FVec4{0.5f, 0.5f, 0.55f, 1.0f});
 
     _batch.End();
 }

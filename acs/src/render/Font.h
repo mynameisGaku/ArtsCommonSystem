@@ -7,7 +7,7 @@
 //
 //   // 描画フレーム中
 //   sb.Begin(*cl, sw, sh);
-//   sb.DrawText(font, "ハロー、ワールド！", 100, 100, Vec4{1,1,1,1});
+//   sb.DrawText(font, "ハロー、ワールド！", 100, 100, FVec4{1,1,1,1});
 //   sb.End();
 //
 // 対応コードポイント (デフォルト):
@@ -49,7 +49,7 @@ public:
     // TTF/OTF/TTC バイト列からアトラスを構築
     // include_cjk=true で漢字 (CJK 統合 U+4E00..U+9FAF) も含めて焼く。
     // その場合アトラスは自動で 2048 にバンプされる。
-    Result<void> LoadFromBytes(IRhiDevice& device,
+    TResult<void> LoadFromBytes(IRhiDevice& device,
                                const u8* ttf_data,
                                usize ttf_size,
                                f32 pixel_size,
@@ -57,7 +57,7 @@ public:
                                bool include_cjk = false) noexcept;
 
     // ファイルから直接ロード（FileSystem::ReadAllBytes 経由）
-    Result<void> LoadFromFile(IRhiDevice& device,
+    TResult<void> LoadFromFile(IRhiDevice& device,
                               const wchar_t* path,
                               f32 pixel_size,
                               u32 atlas_size = 1024,
@@ -82,8 +82,8 @@ public:
     f32 MeasureWidth(const char* utf8_text) const noexcept;
 
 private:
-    UniquePtr<IRhiTexture>    _atlas;
-    HashMap<u32, GlyphInfo>   _glyphs;
+    TUniquePtr<IRhiTexture>    _atlas;
+    THashMap<u32, GlyphInfo>   _glyphs;
     u32                       _atlas_size = 0;
     f32                       _pixel_size = 0;
     f32                       _ascent     = 0;

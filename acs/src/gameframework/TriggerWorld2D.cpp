@@ -39,7 +39,7 @@ TriggerId TriggerWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
 TriggerId TriggerWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     TriggerSlot& s = _slots[idx];
-    s.kind   = Kind::Aabb;
+    s.kind   = Kind::FAabb;
     s.aabb   = a;
     s.layer  = layer;
     s.gen    = static_cast<u8>(s.gen + 1u);
@@ -59,7 +59,7 @@ void TriggerWorld2D::UpdateCircle(TriggerId id, const Circle& c) noexcept {
 void TriggerWorld2D::UpdateAabb(TriggerId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     TriggerSlot& s = _slots[id.Index()];
-    if (!s.active || s.gen != id.Generation() || s.kind != Kind::Aabb) return;
+    if (!s.active || s.gen != id.Generation() || s.kind != Kind::FAabb) return;
     s.aabb = a;
 }
 
@@ -97,10 +97,10 @@ void TriggerWorld2D::ClearAll() noexcept {
 
 // ===== Narrow phase: 任意の 2 trigger の overlap 判定 =====
 bool TriggerWorld2D::ShapesOverlap(const TriggerSlot& a, const TriggerSlot& b) const noexcept {
-    if (a.kind == Kind::Aabb && b.kind == Kind::Aabb)     return Intersect(a.aabb,   b.aabb);
+    if (a.kind == Kind::FAabb && b.kind == Kind::FAabb)     return Intersect(a.aabb,   b.aabb);
     if (a.kind == Kind::Circle && b.kind == Kind::Circle) return Intersect(a.circle, b.circle);
-    if (a.kind == Kind::Aabb && b.kind == Kind::Circle)   return Intersect(a.aabb,   b.circle);
-    if (a.kind == Kind::Circle && b.kind == Kind::Aabb)   return Intersect(b.aabb,   a.circle);
+    if (a.kind == Kind::FAabb && b.kind == Kind::Circle)   return Intersect(a.aabb,   b.circle);
+    if (a.kind == Kind::Circle && b.kind == Kind::FAabb)   return Intersect(b.aabb,   a.circle);
     return false;
 }
 
@@ -206,7 +206,7 @@ void TriggerWorld2D::Tick(f32 /*dt*/) noexcept {
 
     // 3. 次フレ用に _pairs を _next_pairs で置換。
     //    swap で再確保を抑え、_next_pairs は次 Tick で Clear して再利用。
-    Array<OverlapPair> tmp = Move(_pairs);
+    TArray<OverlapPair> tmp = Move(_pairs);
     _pairs = Move(_next_pairs);
     _next_pairs = Move(tmp);
 }

@@ -23,7 +23,7 @@
 //
 //   // 毎フレーム、PhysicsBody2D に浮力を適用
 //   if (water.IsUnderwater(body.position)) {
-//       Vec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);
+//       FVec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);
 //       body.ApplyForce(f);
 //   }
 //
@@ -61,12 +61,12 @@ namespace acs::game {
 
 /// 1 つの水域の幾何 + パラメータ。WaterVolume::AddVolume / UpdateVolume で値渡し。
 struct WaterVolumeInfo {
-    Vec2 center             {0.0f, 0.0f};   // AABB 中心 (world)
-    Vec2 half_size          {1.0f, 1.0f};   // AABB 半サイズ (world、両軸 > 0 想定)
+    FVec2 center             {0.0f, 0.0f};   // AABB 中心 (world)
+    FVec2 half_size          {1.0f, 1.0f};   // AABB 半サイズ (world、両軸 > 0 想定)
     f32  buoyancy_strength  = 9.8f;         // 浮力強度 (重力相当)
     f32  drag               = 1.0f;         // 水中 drag 係数 (kg/s 粘性)
     f32  surface_y          = 1.0f;         // 水面 y 座標 (= center.y + half_size.y が自然)
-    Vec3 water_color        {0.1f, 0.3f, 0.6f}; // レンダラが水面描画に使う色 (linear RGB)
+    FVec3 water_color        {0.1f, 0.3f, 0.6f}; // レンダラが水面描画に使う色 (linear RGB)
 };
 
 /// WaterVolume を識別する packed 32bit handle (generational)。
@@ -110,23 +110,23 @@ public:
     /// 幾何のみ更新 (浮力強度 / drag / surface_y / color は不変)。stale handle は無視。
     /// `surface_y` は内部で自動更新せず info.surface_y を引き継ぐ点に注意。
     /// 水面位置を変えたい場合は Remove → Add で再登録すること。
-    void UpdateVolume(WaterVolumeId id, Vec2 center, Vec2 half_size) noexcept;
+    void UpdateVolume(WaterVolumeId id, FVec2 center, FVec2 half_size) noexcept;
 
     // ----- クエリ -----
     /// 任意の volume の AABB 内に pos が入っていれば true。
-    bool IsUnderwater(Vec2 pos) const noexcept;
+    bool IsUnderwater(FVec2 pos) const noexcept;
 
     /// 「水面からの沈み深さ」を返す。surface_y - pos.y。
     /// 戻り値 >= 0 で潜水中。水中でない (どの volume にも属さない) ときは 0。
     /// 複数 volume が重なる場合、最初に AABB 内に居る volume の surface_y を採用。
-    f32 SubmersionDepth(Vec2 pos) const noexcept;
+    f32 SubmersionDepth(FVec2 pos) const noexcept;
 
     /// pos / velocity / mass の物体に掛かる合計浮力 + drag 力を返す (world force)。
     /// 浮力  = (0, +buoyancy_strength * mass * depth)  ※ +Y 上向き想定
     /// drag  = -velocity * drag
     /// 複数 volume が重なる場合は全 volume の寄与を加算。
     /// pos が水中でない場合は (0,0)。
-    Vec2 ComputeBuoyancyForce(Vec2 pos, Vec2 velocity, f32 mass) const noexcept;
+    FVec2 ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) const noexcept;
 
     // ----- 全 volume 列挙 / 情報取得 -----
     /// active な volume 数。
@@ -153,12 +153,12 @@ private:
     /// AllVolumes() 用に active な info を `_packed_cache` に詰める。
     void RebuildPackedCacheIfNeeded() const noexcept;
 
-    Array<Slot> _slots;
+    TArray<Slot> _slots;
     u32         _volume_count = 0;
 
     // AllVolumes() の戻り値用 cache。Add/Update/Remove で dirty になる。
     // mutable なのは const なクエリ API から lazy build したいため。
-    mutable Array<WaterVolumeInfo> _packed_cache;
+    mutable TArray<WaterVolumeInfo> _packed_cache;
     mutable bool                   _cache_dirty = true;
 };
 

@@ -69,7 +69,7 @@ public:
     // color    : RGB (0..1)、描画側が `color * intensity` を加算 blend する想定
     // intensity: 最大強度 (0..1 が無難。1.0 で完全白飛び)
     // duration : 0 → fully bright、duration 経過で 0 (線形減衰)
-    void Flash(Vec3 color, f32 intensity, f32 duration) noexcept;
+    void Flash(FVec3 color, f32 intensity, f32 duration) noexcept;
 
     // ----- HitStop (一時停止) -----
     // duration 秒の間、IsHitStop() が true を返す。
@@ -91,7 +91,7 @@ public:
     // ----- accessors (描画側 / Camera2D 側が pull する) -----
     // 0 = フラッシュなし、>0 で描画側が overlay
     f32  FlashIntensity() const noexcept;
-    Vec3 FlashColor()     const noexcept { return _flash_color; }
+    FVec3 FlashColor()     const noexcept { return _flash_color; }
 
     bool IsHitStop()      const noexcept { return _hit_stop_remain > 0.0f; }
     f32  HitStopRemain()  const noexcept { return _hit_stop_remain; }
@@ -106,7 +106,7 @@ private:
     f32  _flash_t        = 0.0f;        // 残時間 (0..flash_total)
     f32  _flash_total    = 0.0f;        // 開始時 duration (除算用)
     f32  _flash_max      = 0.0f;        // ピーク intensity
-    Vec3 _flash_color   {0.0f, 0.0f, 0.0f};
+    FVec3 _flash_color   {0.0f, 0.0f, 0.0f};
 
     // HitStop state
     f32  _hit_stop_remain = 0.0f;

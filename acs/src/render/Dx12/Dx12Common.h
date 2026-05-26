@@ -11,7 +11,7 @@
 
 namespace acs {
 
-// 失敗時に HRESULT を保持する小さな結果ラッパ（既存 Result との橋渡し）
+// 失敗時に HRESULT を保持する小さな結果ラッパ（既存 TResult との橋渡し）
 struct HrResult {
     HRESULT hr = S_OK;
     bool IsOk()  const noexcept { return SUCCEEDED(hr); }

@@ -23,7 +23,7 @@ public:
 
 private:
     acs::AudioEngine _engine;
-    acs::Rc<acs::Asset> _audio;
+    acs::TRc<acs::Asset> _audio;
     acs::SoundHandle    _handle = acs::kInvalidSound;
     acs::f32            _volume = 1.0f;
 };

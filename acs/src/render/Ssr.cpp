@@ -269,13 +269,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct SsrCBLayout {
-    Mat4 view_proj;
-    Mat4 inv_view_proj;
-    Vec4 eye;
-    Vec4 params;
-    Mat4 prev_view_proj;     // Phase 34e-3: temporal reproject 用
-    Vec4 temporal_params;    // Phase 34e-3: x=texel_w, y=texel_h, z=blend_factor
-    Vec4 hiz_params;         // Phase 36-3a: x=enabled, y=block_size, z/w=1/hiz_size (raw shader のみ参照)
+    FMat4 view_proj;
+    FMat4 inv_view_proj;
+    FVec4 eye;
+    FVec4 params;
+    FMat4 prev_view_proj;     // Phase 34e-3: temporal reproject 用
+    FVec4 temporal_params;    // Phase 34e-3: x=texel_w, y=texel_h, z=blend_factor
+    FVec4 hiz_params;         // Phase 36-3a: x=enabled, y=block_size, z/w=1/hiz_size (raw shader のみ参照)
 };
 
 template<typename T>
@@ -285,7 +285,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
+TResult<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
     _device = &device;
     _hdr_format = hdr_format;
     _width = width;
@@ -304,7 +304,7 @@ Result<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 he
     return Ok();
 }
 
-Result<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     TextureDesc td{};
     td.width  = width;
@@ -325,7 +325,7 @@ Result<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noex
     return Ok();
 }
 
-Result<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     ShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsrHLSL;
@@ -434,7 +434,7 @@ void Ssr::Shutdown() noexcept {
     _device = nullptr;
 }
 
-Result<void> Ssr::Resize(u32 width, u32 height) noexcept {
+TResult<void> Ssr::Resize(u32 width, u32 height) noexcept {
     if (!_device) return ACS_ERR(Render, 320, "Ssr::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width = width;
@@ -446,9 +446,9 @@ Result<void> Ssr::Resize(u32 width, u32 height) noexcept {
 void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color, IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
-                  const Mat4& view_proj, const Mat4& inv_view_proj,
-                  const Mat4& prev_view_proj,
-                  Vec3 eye, f32 intensity,
+                  const FMat4& view_proj, const FMat4& inv_view_proj,
+                  const FMat4& prev_view_proj,
+                  FVec3 eye, f32 intensity,
                   IRhiTexture* motion_texture,
                   IRhiTexture* hiz_texture) noexcept {
     if (!_output || !_history[0] || !_history[1] ||
@@ -473,14 +473,14 @@ void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     SsrCBLayout data{};
     data.view_proj      = view_proj;
     data.inv_view_proj  = inv_view_proj;
-    data.eye            = Vec4{eye.x, eye.y, eye.z, 1};
-    data.params         = Vec4{intensity, /*max_dist=*/12.0f, jitter, /*thickness_world=*/0.3f};
+    data.eye            = FVec4{eye.x, eye.y, eye.z, 1};
+    data.params         = FVec4{intensity, /*max_dist=*/12.0f, jitter, /*thickness_world=*/0.3f};
     data.prev_view_proj = prev_view_proj;
-    data.temporal_params = Vec4{ 1.0f / static_cast<f32>(_width),
+    data.temporal_params = FVec4{ 1.0f / static_cast<f32>(_width),
                                  1.0f / static_cast<f32>(_height),
                                  /*blend=*/0.1f,
                                  /*motion_mode=*/motion_texture ? 1.0f : 0.0f };
-    data.hiz_params     = Vec4{hiz_enabled, /*block_size=*/8.0f, hiz_inv_w, hiz_inv_h};
+    data.hiz_params     = FVec4{hiz_enabled, /*block_size=*/8.0f, hiz_inv_w, hiz_inv_h};
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: raw SSR (jitter 付き march) → _output

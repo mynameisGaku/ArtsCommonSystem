@@ -188,15 +188,15 @@ void Dx12Device::WaitForFenceValue(u64 value) noexcept {
 // ファクトリ関数: CreateRhiDevice の DX12 実装
 // Diligent バックエンドが有効化されている場合は RhiBackend.cpp が実装を提供する。
 #if !WITH_RENDER_DILIGENT
-Result<UniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept {
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept {
     auto d = MakeUnique<Dx12Device>();
     if (!d) return ACS_ERR(Memory, 200, "Dx12Device alloc failed");
     HrResult r = d->Init(cfg);
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 1, "Dx12Device::Init failed", static_cast<u32>(r.hr));
     }
-    UniquePtr<IRhiDevice> base(d.Release(), d.GetAllocator());
-    return Result<UniquePtr<IRhiDevice>>(OkInit, Move(base));
+    TUniquePtr<IRhiDevice> base(d.Release(), d.GetAllocator());
+    return TResult<TUniquePtr<IRhiDevice>>(OkInit, Move(base));
 }
 #endif
 

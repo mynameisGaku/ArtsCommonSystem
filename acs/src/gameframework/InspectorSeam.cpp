@@ -2,7 +2,7 @@
 // GameFramework Pillar K — InspectorSeam 実装 (Phase 2)
 //
 // 設計のポイント:
-//   ・Provider レジストリは線形 `Array<Provider*>`。Phase 2 想定の登録数は
+//   ・Provider レジストリは線形 `TArray<Provider*>`。Phase 2 想定の登録数は
 //     数十オブジェクト程度なので、線形検索 (Register の重複判定 / Unregister の
 //     探索) で十分。hash 化は Phase K-3+ で必要になれば再考。
 //   ・Provider の所有権は持たない。`ClearAll()` でも Provider 自体は破棄しない。
@@ -75,7 +75,7 @@ u32 InspectorSeam::ProviderCount() const noexcept {
 
 IInspectableProvider* InspectorSeam::GetProvider(u32 index) const noexcept {
     if (index >= _providers.Size()) {
-        // 範囲外は nullptr を返す (Array::operator[] の ASSERT を避ける防御)。
+        // 範囲外は nullptr を返す (TArray::operator[] の ASSERT を避ける防御)。
         return nullptr;
     }
     return _providers[index];

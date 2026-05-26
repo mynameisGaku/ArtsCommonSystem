@@ -12,7 +12,7 @@
 //     ように null-object パターンで保持し、後から具象実装に差し替える経路を
 //     確保する。
 //   ・stub に対する Init / ReportCrash 呼び出しは「成功扱いで黙る」のではなく
-//     **必ず Result<...> Err を返す**ことで、本番ビルドに stub が紛れ込んだ
+//     **必ず TResult<...> Err を返す**ことで、本番ビルドに stub が紛れ込んだ
 //     ケースを QA 工程で検出可能にしておく。
 //
 // 将来 (Phase 2 以降, Pillar O 本実装フェーズ):
@@ -43,7 +43,7 @@ namespace acs::game {
 // CrashReporterStub — ICrashReporterBackend の null-object 実装
 // -----------------------------------------------------------------------------
 
-Result<void> CrashReporterStub::Init(const char* product_id, const char* version) noexcept {
+TResult<void> CrashReporterStub::Init(const char* product_id, const char* version) noexcept {
     (void)product_id;
     (void)version;
     return ACS_ERR(Generic, CrashReporterError::kSub_NotImplemented,
@@ -55,14 +55,14 @@ void CrashReporterStub::Shutdown() noexcept {
     // stub は never-initialized 状態。no-op で安全に通す。
 }
 
-Result<void> CrashReporterStub::ReportCrash(const CrashContext& ctx) noexcept {
+TResult<void> CrashReporterStub::ReportCrash(const CrashContext& ctx) noexcept {
     (void)ctx;
     return ACS_ERR(Generic, CrashReporterError::kSub_NotImplemented,
                    "ICrashReporterBackend::ReportCrash is not implemented "
                    "(stub: link a concrete crash reporter implementation)");
 }
 
-Result<void> CrashReporterStub::ReportError(const char* category, const char* message) noexcept {
+TResult<void> CrashReporterStub::ReportError(const char* category, const char* message) noexcept {
     (void)category;
     (void)message;
     return ACS_ERR(Generic, CrashReporterError::kSub_NotImplemented,
@@ -70,7 +70,7 @@ Result<void> CrashReporterStub::ReportError(const char* category, const char* me
                    "(stub: link a concrete crash reporter implementation)");
 }
 
-Result<void> CrashReporterStub::AddBreadcrumb(const char* category, const char* message) noexcept {
+TResult<void> CrashReporterStub::AddBreadcrumb(const char* category, const char* message) noexcept {
     (void)category;
     (void)message;
     return ACS_ERR(Generic, CrashReporterError::kSub_NotImplemented,
@@ -123,7 +123,7 @@ void CrashHandler::NotifyCrash(const char* exception_type, const char* message) 
     ctx.exception_type = exception_type;
     ctx.message        = message;
     // frame_count / timestamp / scene_name / build_id は呼出側が後から
-    // 拡張 API で詰める想定。stub には届かないので Result も無視で良い。
+    // 拡張 API で詰める想定。stub には届かないので TResult も無視で良い。
     (void)_backend->ReportCrash(ctx);
 }
 

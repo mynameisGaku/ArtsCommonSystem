@@ -17,7 +17,7 @@ public:
     void OnEvent(const acs::Event& e) noexcept override;
 
 protected:
-    acs::UniquePtr<acs::game::Scene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override;
 
 private:
     acs::ImGuiCtx _imgui;

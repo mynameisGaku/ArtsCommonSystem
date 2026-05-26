@@ -27,11 +27,11 @@
 //     "今右クリックされた Node2D*" を渡し、外部側で context menu 続きを描画。
 //
 // 設計選択 (Phase 20):
-//   ・**non-copy / non-move**: 内部 Array<CollapsedEntry> + raw pointer の所有を
+//   ・**non-copy / non-move**: 内部 TArray<CollapsedEntry> + raw pointer の所有を
 //     曖昧にしない。InspectorSeam / ParticleEditorPanel と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / nullptr 等を
 //     no-op で表現。
-//   ・**STL 不使用**: 折りたたみ状態は `Array<CollapsedEntry>` の linear search
+//   ・**STL 不使用**: 折りたたみ状態は `TArray<CollapsedEntry>` の linear search
 //     (= NodeId → bool マップ)。ノード数が 100k 級でなければ十分速い。binary
 //     search / hash table は Phase 20+ で必要なら導入。
 //   ・**ImGui ヘッダは .cpp 側のみ**: header からは imgui 依存を漏らさない
@@ -83,7 +83,7 @@ public:
     HierarchyPanel() noexcept = default;
     ~HierarchyPanel() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 Array<CollapsedEntry> + raw pointer の所有を
+    // 非コピー・非ムーブ: 内部 TArray<CollapsedEntry> + raw pointer の所有を
     // 曖昧にしない。
     HierarchyPanel(const HierarchyPanel&)            = delete;
     HierarchyPanel& operator=(const HierarchyPanel&) = delete;
@@ -140,7 +140,7 @@ public:
     void SetOnNodeRightClickCallback(NodeRightClickCallback cb, void* user) noexcept;
 
 private:
-    // 折りたたみ状態 1 エントリ。Array<CollapsedEntry> を NodeId で linear search
+    // 折りたたみ状態 1 エントリ。TArray<CollapsedEntry> を NodeId で linear search
     // することで「NodeId → bool collapsed」マップを実現する。
     struct CollapsedEntry {
         NodeId id      {};
@@ -163,7 +163,7 @@ private:
     // Phase 24: 事前 set される root node (DrawUI で再帰描画の起点)
     class Node2D*             _root_node          = nullptr;
 
-    Array<CollapsedEntry>     _collapsed_map      {};
+    TArray<CollapsedEntry>     _collapsed_map      {};
     SelectionService*         _selection_service  = nullptr;
     // SelectionService 未注入時のフォールバック selection。
     NodeId                    _selected_id        {};

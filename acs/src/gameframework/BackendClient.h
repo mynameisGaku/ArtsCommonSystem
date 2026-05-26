@@ -35,8 +35,8 @@
 //     **抽象 interface として宣言** し、合わせて **常に NotImplemented を返す
 //     BackendClientStub / MatchmakerStub** を提供するだけにとどめる。
 //     ACS 本体がリンク時に「最低 1 実装が居る」を保証するための fallback。
-//   ・**Result<T, ErrorCode>**: 例外不使用方針。通信失敗・タイムアウト・パース
-//     エラー等はすべて ErrorCode で伝搬し、上位層が `if (r.IsErr())` で握る。
+//   ・**TResult<T, FErrorCode>**: 例外不使用方針。通信失敗・タイムアウト・パース
+//     エラー等はすべて FErrorCode で伝搬し、上位層が `if (r.IsErr())` で握る。
 //   ・**const char* 非所有**: URL / event_name / mode 等はすべて呼び出し側が
 //     寿命を保証する static / member バッファ。STL <string> 禁止方針。
 //   ・**MatchTicket は不透明 u64**: マッチ検索の進行中状態を表す ID。実装側で
@@ -88,8 +88,8 @@ public:
 
     // 指定 URL のサーバに接続する。`server_url` は呼出側が寿命保証する
     // 静的文字列 / member バッファ (例: "https://api.example.com/v1")。
-    // 同期/非同期は実装次第だが、API 上は完了/失敗を Result で返す約束。
-    virtual Result<void> Connect(const char* server_url) noexcept = 0;
+    // 同期/非同期は実装次第だが、API 上は完了/失敗を TResult で返す約束。
+    virtual TResult<void> Connect(const char* server_url) noexcept = 0;
 
     // 接続を切る。多重呼出 / 未接続呼出は no-op で許容 (べき等)。
     virtual void Disconnect() noexcept = 0;
@@ -101,7 +101,7 @@ public:
     // `json_payload` (例: `{"level":3,"time":42.0}`) のセット。
     // 送信失敗は kSub_NetworkFailure / kSub_NotConnected 等で返る。
     // 実装は内部キューイング + 非同期 flush を選んでよい (要 Tick)。
-    virtual Result<void> SendTelemetry(const char* event_name,
+    virtual TResult<void> SendTelemetry(const char* event_name,
                                        const char* json_payload) noexcept = 0;
 
     // 非同期 RPC pump。毎フレーム呼ばれる前提で、内部キューや
@@ -147,11 +147,11 @@ public:
     // マッチ検索開始。`mode` は "ranked_1v1" / "casual_4v4" 等の文字列キー、
     // `elo_hint` は呼出側が知っている rating 推定値 (新規プレイヤーは 1500
     // 等の中央値で渡す)。実装は Glicko-2 / TrueSkill で近い rating を引く。
-    virtual Result<MatchTicket> StartSearch(const char* mode,
+    virtual TResult<MatchTicket> StartSearch(const char* mode,
                                             u32 elo_hint) noexcept = 0;
 
     // 検索キャンセル。`t.IsValid() == false` は no-op で許容 (べき等)。
-    virtual Result<void> CancelSearch(MatchTicket t) noexcept = 0;
+    virtual TResult<void> CancelSearch(MatchTicket t) noexcept = 0;
 
     // 現在の検索状態を返す。`t.IsValid() == false` は Failed を返す。
     // 副作用なし (内部 pump は IBackendClient::Tick 等に委譲する想定)。
@@ -160,7 +160,7 @@ public:
     // Matched 状態の ticket を確定。失敗時は kSub_Timeout / kSub_ServerError 等。
     // 他プレイヤーが Decline / Timeout した場合は再度 Searching 状態に戻る
     // 設計を実装側で選んでよい (本 interface では結果のみ返す)。
-    virtual Result<void> AcceptMatch(MatchTicket t) noexcept = 0;
+    virtual TResult<void> AcceptMatch(MatchTicket t) noexcept = 0;
 };
 
 // =============================================================================

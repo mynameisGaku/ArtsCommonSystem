@@ -40,7 +40,7 @@
 //   ・**`AssetPath` の drag-drop payload id は "ASSET_PATH"** (リテラル定数)。
 //     将来 AssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
 //     することで、textbox に drop すると path が書き戻される。
-//   ・**非コピー / 非ムーブ**: 内部 `Array<Entry>` の所有を曖昧にしない (ACS 規約)。
+//   ・**非コピー / 非ムーブ**: 内部 `TArray<Entry>` の所有を曖昧にしない (ACS 規約)。
 //   ・**全 noexcept / STL 不使用 / ImGui include 可**: ACS 規約に準拠。
 //     ヘッダから ImGui は include しない (.cpp 内で <imgui.h> を読む)。
 //
@@ -48,7 +48,7 @@
 //   ・**field metadata 拡張**: per-property tooltip / validation rule / step /
 //     readonly / hide 属性などを `PropertyContext` に積み上げる (今は最低限)。
 //   ・**composite drawer (struct 再帰)**: drawer 内から `DrawProperty()` を再帰呼出して
-//     ネスト struct (例: `Transform2D` = Vec2 + f32 + Vec2) を 1 個の drawer として
+//     ネスト struct (例: `Transform2D` = FVec2 + f32 + FVec2) を 1 個の drawer として
 //     扱う。本 registry はそのまま使える。
 //   ・**per-game カスタム drawer**: ゲーム固有型 (`class Health`, `class WeaponSlot`,
 //     `class StatBlock`) を inspector 上で美麗表示する目的。ゲーム側コードが
@@ -103,7 +103,7 @@ public:
     PropertyDrawerRegistry() noexcept = default;
     ~PropertyDrawerRegistry() noexcept = default;
 
-    // 非コピー / 非ムーブ: 内部 `Array<Entry>` の所有を曖昧にしない (ACS 規約)。
+    // 非コピー / 非ムーブ: 内部 `TArray<Entry>` の所有を曖昧にしない (ACS 規約)。
     PropertyDrawerRegistry(const PropertyDrawerRegistry&)            = delete;
     PropertyDrawerRegistry& operator=(const PropertyDrawerRegistry&) = delete;
     PropertyDrawerRegistry(PropertyDrawerRegistry&&)                 = delete;
@@ -169,7 +169,7 @@ private:
 
     // 動的配列。bundled 9 種 + ゲーム拡張分。少数 (~10-30 件) を想定するため
     // hash table ではなく線形探索で十分。
-    Array<Entry> _entries;
+    TArray<Entry> _entries;
 };
 
 } // namespace acs::game::editor_core

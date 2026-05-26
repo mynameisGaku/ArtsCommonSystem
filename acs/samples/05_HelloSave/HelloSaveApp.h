@@ -11,7 +11,7 @@
 // 学習ポイント:
 //   ・Storage::GetAppDataPath で OS 標準のセーブ場所を解決
 //   ・Storage::Load / Save の典型的な使い方
-//   ・型付き Get/Set (Int / Float / Bool / String)
+//   ・型付き Get/Set (Int / Float / Bool / FString)
 #pragma once
 
 #include "app/Application.h"

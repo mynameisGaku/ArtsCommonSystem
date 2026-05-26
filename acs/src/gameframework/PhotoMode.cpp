@@ -24,7 +24,7 @@ void PhotoMode::Enter(f32 current_time_scale) noexcept {
     }
     _active           = true;
     _saved_time_scale = current_time_scale;
-    _offset           = Vec2{0.0f, 0.0f};
+    _offset           = FVec2{0.0f, 0.0f};
     _zoom_mult        = 1.0f;
     _rot              = 0.0f;
     _capture_pending  = false;
@@ -47,7 +47,7 @@ void PhotoMode::Exit() noexcept {
 // MoveCamera — パン入力を累積
 //   active 中のみ反映 (撮影モード外で誤って積まないようにガード)。
 // =============================================================================
-void PhotoMode::MoveCamera(Vec2 delta) noexcept {
+void PhotoMode::MoveCamera(FVec2 delta) noexcept {
     if (!_active) return;
     _offset.x += delta.x;
     _offset.y += delta.y;

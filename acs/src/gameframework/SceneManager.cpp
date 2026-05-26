@@ -10,7 +10,7 @@
 
 namespace acs::game {
 
-void SceneManager::ChangeScene(UniquePtr<Scene> next) noexcept {
+void SceneManager::ChangeScene(TUniquePtr<Scene> next) noexcept {
     if (!next) {
         ACS_LOG_WARN("SceneManager::ChangeScene(nullptr) ignored");
         return;
@@ -19,7 +19,7 @@ void SceneManager::ChangeScene(UniquePtr<Scene> next) noexcept {
     _pending_arg = Move(next);
 }
 
-void SceneManager::PushScene(UniquePtr<Scene> next) noexcept {
+void SceneManager::PushScene(TUniquePtr<Scene> next) noexcept {
     if (!next) {
         ACS_LOG_WARN("SceneManager::PushScene(nullptr) ignored");
         return;
@@ -42,7 +42,7 @@ u32 SceneManager::Depth() const noexcept {
     return static_cast<u32>(_stack.Size());
 }
 
-void SceneManager::DoPushInternal(Game& game, UniquePtr<Scene> next,
+void SceneManager::DoPushInternal(Game& game, TUniquePtr<Scene> next,
                                    bool pause_current) noexcept {
     if (!next) return;
     // 旧 top を OnPause (Push 時のみ。Change は新 top 直入れなので skip)
@@ -82,7 +82,7 @@ void SceneManager::_ApplyPending(Game& game) noexcept {
 
     Op op = _pending_op;
     _pending_op = Op::None;
-    UniquePtr<Scene> arg = Move(_pending_arg);
+    TUniquePtr<Scene> arg = Move(_pending_arg);
 
     switch (op) {
     case Op::None:

@@ -32,7 +32,7 @@
 //   ・**所有しない const char***: 文字列は SteamworksBridge と同じく呼び出し側 /
 //     プラットフォーム SDK のライフタイムに従い、Bridge はコピーしない。
 //     QueryItem() の戻り値は「次の Tick() を呼ぶまで有効」と扱うこと。
-//   ・**Result<T, ErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
+//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
 //     成功、その他は ACS_ERR(Generic, kSubWorkshopNotImplemented, ...) を返す。
 //   ・**ダウンロード進捗は同期 poll**: GetDownloadProgress(item_id) を毎フレーム
 //     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
@@ -55,7 +55,7 @@
 
 namespace acs::game {
 
-// ---- ErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
+// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
 // SteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
 inline constexpr u16 kSubWorkshopNotImplemented = 1101;  // Stub による未実装
 inline constexpr u16 kSubWorkshopNotInitialized = 1102;  // Init() 前の API 呼び出し
@@ -88,9 +88,9 @@ public:
     IWorkshopBridge(IWorkshopBridge&&)                 = delete;
     IWorkshopBridge& operator=(IWorkshopBridge&&)      = delete;
 
-    // SDK 初期化。失敗は SDK 固有のエラーを Result で返す。多重呼び出し可否は
+    // SDK 初期化。失敗は SDK 固有のエラーを TResult で返す。多重呼び出し可否は
     // 実装依存だが、Stub は何度呼んでも成功を返す。
-    virtual Result<void> Init() noexcept = 0;
+    virtual TResult<void> Init() noexcept = 0;
 
     // SDK 終了処理。Init() 前に呼んでも安全 (no-op)。
     virtual void Shutdown() noexcept = 0;
@@ -101,28 +101,28 @@ public:
 
     // 新規 UGC アイテムの publish。content_path はローカルファイル / ディレクトリ
     // のパス (UTF-8)。成功時は SDK が割り当てた item_id を返す。
-    virtual Result<u64> CreateItem(const char* title, const char* content_path) noexcept = 0;
+    virtual TResult<u64> CreateItem(const char* title, const char* content_path) noexcept = 0;
 
     // 既存アイテムの更新 (差分アップロード)。change_note は変更履歴に表示される。
-    virtual Result<void> UpdateItem(u64 item_id,
+    virtual TResult<void> UpdateItem(u64 item_id,
                                     const char* content_path,
                                     const char* change_note) noexcept = 0;
 
     // アイテムメタ情報のクエリ。戻り値の文字列は次の Tick() まで有効。
-    virtual Result<WorkshopItem> QueryItem(u64 item_id) noexcept = 0;
+    virtual TResult<WorkshopItem> QueryItem(u64 item_id) noexcept = 0;
 
     // ローカルプレイヤーが subscribe 中のアイテム数。
-    virtual Result<u32> QuerySubscribedCount() noexcept = 0;
+    virtual TResult<u32> QuerySubscribedCount() noexcept = 0;
 
     // アイテムを subscribe する。SDK 側で自動的にダウンロードが始まる場合もある
     // (Steam の標準挙動)。
-    virtual Result<void> SubscribeItem(u64 item_id) noexcept = 0;
+    virtual TResult<void> SubscribeItem(u64 item_id) noexcept = 0;
 
     // subscribe を解除。ローカルファイルは SDK 側で削除される場合もある。
-    virtual Result<void> UnsubscribeItem(u64 item_id) noexcept = 0;
+    virtual TResult<void> UnsubscribeItem(u64 item_id) noexcept = 0;
 
     // 明示的なダウンロード開始 (subscribe 済みアイテムを再ダウンロード等)。
-    virtual Result<void> DownloadItem(u64 item_id) noexcept = 0;
+    virtual TResult<void> DownloadItem(u64 item_id) noexcept = 0;
 
     // ダウンロード進捗を [0, 1] で返す。完了済み / 未開始 / 不明な場合は -1。
     // ポーリング前提のシンプル API (Phase 3+ で非同期 callback に置き換え予定)。
@@ -146,16 +146,16 @@ public:
     WorkshopBridgeStub() noexcept = default;
     ~WorkshopBridgeStub() noexcept override = default;
 
-    Result<void>         Init() noexcept override;
+    TResult<void>         Init() noexcept override;
     void                 Shutdown() noexcept override;
     bool                 IsAvailable() const noexcept override { return false; }
-    Result<u64>          CreateItem(const char* title, const char* content_path) noexcept override;
-    Result<void>         UpdateItem(u64 item_id, const char* content_path, const char* change_note) noexcept override;
-    Result<WorkshopItem> QueryItem(u64 item_id) noexcept override;
-    Result<u32>          QuerySubscribedCount() noexcept override;
-    Result<void>         SubscribeItem(u64 item_id) noexcept override;
-    Result<void>         UnsubscribeItem(u64 item_id) noexcept override;
-    Result<void>         DownloadItem(u64 item_id) noexcept override;
+    TResult<u64>          CreateItem(const char* title, const char* content_path) noexcept override;
+    TResult<void>         UpdateItem(u64 item_id, const char* content_path, const char* change_note) noexcept override;
+    TResult<WorkshopItem> QueryItem(u64 item_id) noexcept override;
+    TResult<u32>          QuerySubscribedCount() noexcept override;
+    TResult<void>         SubscribeItem(u64 item_id) noexcept override;
+    TResult<void>         UnsubscribeItem(u64 item_id) noexcept override;
+    TResult<void>         DownloadItem(u64 item_id) noexcept override;
     f32                  GetDownloadProgress(u64 item_id) noexcept override;
     void                 Tick(f32 dt) noexcept override;
 

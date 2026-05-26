@@ -24,7 +24,7 @@
 //   header 部 (24 バイト) は固定サイズで `kHeaderSize` として公開する。
 //
 // 設計方針:
-//   ・**例外なし**: 全 API noexcept、エラーは Result<T, ErrorCode> で伝搬。
+//   ・**例外なし**: 全 API noexcept、エラーは TResult<T, FErrorCode> で伝搬。
 //   ・**STL 不使用**: <string> / <vector> / <fstream> 等は include しない。
 //     <cstdint>, <cstddef> 経由 (foundation/Types.h) のみ。
 //   ・**static のみ・非インスタンス**: 状態を持たない無名関数の集合体として
@@ -52,7 +52,7 @@
 //       }
 //   }
 //
-// エラー subcode (ErrorCode.subcode に入る):
+// エラー subcode (FErrorCode.subcode に入る):
 //   ESaveArchiveSubCode を参照。kSubMigrationNeeded は「読めたが version が
 //   違う」を示し、呼び出し側が migrate しやすいよう non-fatal な扱いを意図する。
 // =============================================================================
@@ -64,7 +64,7 @@
 namespace acs::game {
 
 // -----------------------------------------------------------------------------
-// SaveArchive エラー subcode (ErrorCode.subcode に格納)
+// SaveArchive エラー subcode (FErrorCode.subcode に格納)
 // -----------------------------------------------------------------------------
 // 上位層が switch 分岐できるよう、固定 u32 値を割り当てる。
 // 値域は 1..7 (Phase 1)。後段で増やす場合も既存値の再利用は禁止する。
@@ -118,7 +118,7 @@ public:
     //   途中失敗するとファイルは中途半端な状態で残る可能性がある。
     //   atomic rename が必要なら呼び出し側で tmp file → rename を組むこと
     //   (SaveSlot 上位層で実装する)。
-    static Result<void> WriteToFile(const wchar_t* file_path,
+    static TResult<void> WriteToFile(const wchar_t* file_path,
                                     u32            version,
                                     const void*    payload,
                                     u64            payload_size) noexcept;
@@ -144,7 +144,7 @@ public:
     //   Err(IO/Asset, ...)             — magic / crc / io 失敗
     //   Err(Asset, kSubMigrationNeeded) — version 不一致 (out_payload にはコピー
     //                                     しない、out_payload_size のみ設定)
-    static Result<u32> ReadFromFile(const wchar_t* file_path,
+    static TResult<u32> ReadFromFile(const wchar_t* file_path,
                                     void*          out_payload,
                                     u64            out_capacity,
                                     u32            expected_version,
@@ -155,12 +155,12 @@ public:
     // ファイルが存在しない / magic 不一致 / io 失敗時は対応する subcode を返す。
     //
     // 用途: タイトル画面で「セーブデータの形式が古い」表示を出すための事前判定。
-    static Result<u32> PeekVersion(const wchar_t* file_path) noexcept;
+    static TResult<u32> PeekVersion(const wchar_t* file_path) noexcept;
 
     // ---- payload_size のみ peek -----------------------------------------
     // PeekVersion と同様、header のみ読んで payload_size を返す。
     // 用途: payload を読み込む前に buffer サイズを allocate する。
-    static Result<u64> PeekPayloadSize(const wchar_t* file_path) noexcept;
+    static TResult<u64> PeekPayloadSize(const wchar_t* file_path) noexcept;
 };
 
 } // namespace acs::game

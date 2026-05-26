@@ -106,7 +106,7 @@ void FullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept {
     }
 }
 
-UniquePtr<Scene> FullGameApp::InitialScene() noexcept {
+TUniquePtr<Scene> FullGameApp::InitialScene() noexcept {
     return MakeUnique<TitleScene>();
 }
 

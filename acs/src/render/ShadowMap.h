@@ -38,7 +38,7 @@
 //
 // 主パスでの使用 (PbrShader 統合):
 //   single mode: pbr.SetShadowMap(*sm.DepthTexture(), sm.LightViewProjection(), ...);
-//   CSM mode   : Mat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
+//   CSM mode   : FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
 //                f32  spl[3] = { sm.CascadeSplit(0), sm.CascadeSplit(1), sm.CascadeSplit(2) };
 //                pbr.SetShadowMapCascades(*sm.DepthTexture(), vps, spl, sm.CascadeCount(), ...);
 #pragma once
@@ -69,22 +69,22 @@ public:
     // cascade_count = 1 (既定): single 2D depth texture (size × size)
     // cascade_count >= 2     : CSM atlas (cascade_count*size × size)
     // cascade_count > kMaxCascades は kMaxCascades にクランプ
-    Result<void> Init(IRhiDevice& device, u32 size = 2048,
+    TResult<void> Init(IRhiDevice& device, u32 size = 2048,
                       u32 cascade_count = 1) noexcept;
     void Shutdown() noexcept;
 
     // single cascade 用 (cascade_count=1 でのみ意味を持つ、後方互換)。
     // CSM mode では SetDirectionalLightCascades を使うこと。
-    void SetDirectionalLight(Vec3 light_dir,
-                              Vec3 scene_center,
+    void SetDirectionalLight(FVec3 light_dir,
+                              FVec3 scene_center,
                               f32 scene_radius) noexcept;
 
     // CSM 用: カメラ frustum を near→far で 2-4 個に「実用分割」(Zhang) して
     // 各 sub-frustum を bounding sphere で囲い ortho 投影を計算。
     //   lambda: 0 = uniform split (近景密、線形)、1 = log split (遠景均等)
     //   既定 0.5 は両者のブレンド (実用 sweet spot)
-    void SetDirectionalLightCascades(Vec3 light_dir,
-                                      const Mat4& view, const Mat4& proj,
+    void SetDirectionalLightCascades(FVec3 light_dir,
+                                      const FMat4& view, const FMat4& proj,
                                       f32 near_z, f32 far_z,
                                       f32 lambda = 0.5f) noexcept;
 
@@ -93,7 +93,7 @@ public:
     void SetCurrentCascade(u32 cascade) noexcept;
 
     // キャスター描画ごとのモデル行列を設定
-    void SetCaster(const Mat4& model) noexcept;
+    void SetCaster(const FMat4& model) noexcept;
 
     IRhiTexture*  DepthTexture()   const noexcept { return _depth.Get(); }
     IRhiPipeline* CasterPipeline() const noexcept { return _pipeline.Get(); }
@@ -101,10 +101,10 @@ public:
     IRhiBuffer*   CasterObjectCB() const noexcept { return _object_cb.Get(); } // b1 = model
 
     // single cascade 用の後方互換 getter
-    Mat4 LightViewProjection() const noexcept { return _light_vp[0]; }
+    FMat4 LightViewProjection() const noexcept { return _light_vp[0]; }
 
     // CSM 用 (cascade 0..CascadeCount()-1)
-    Mat4 LightViewProjection(u32 cascade) const noexcept {
+    FMat4 LightViewProjection(u32 cascade) const noexcept {
         return _light_vp[cascade < _cascade_count ? cascade : 0];
     }
     f32 CascadeSplit(u32 cascade) const noexcept {
@@ -120,12 +120,12 @@ public:
     u32 Size() const noexcept { return _size; }
 
 private:
-    UniquePtr<IRhiTexture>  _depth;
-    UniquePtr<IRhiShader>   _vs;
-    UniquePtr<IRhiPipeline> _pipeline;
-    UniquePtr<IRhiBuffer>   _light_cb;
-    UniquePtr<IRhiBuffer>   _object_cb;
-    Mat4                    _light_vp      [kMaxCascades] = {};
+    TUniquePtr<IRhiTexture>  _depth;
+    TUniquePtr<IRhiShader>   _vs;
+    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiBuffer>   _light_cb;
+    TUniquePtr<IRhiBuffer>   _object_cb;
+    FMat4                    _light_vp      [kMaxCascades] = {};
     f32                     _cascade_splits[kMaxCascades] = {};
     u32                     _size          = 0;
     u32                     _cascade_count = 1;

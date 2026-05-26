@@ -46,10 +46,10 @@
 //   }
 //
 // 設計選択:
-//   ・**Registry は Array<WeaponDef>**: 武器数は per-entity でせいぜい 5〜10、
+//   ・**Registry は TArray<WeaponDef>**: 武器数は per-entity でせいぜい 5〜10、
 //     線形検索で十分。const char* per-byte 比較 (Entitlement / EconomyDirector
 //     と同設計)。重複登録は WARN + 黙って no-op。
-//   ・**reserve は別 Array で per-weapon 管理**: 弾薬は武器毎に independent な
+//   ・**reserve は別 TArray で per-weapon 管理**: 弾薬は武器毎に independent な
 //     ため、weapon_id をキーに `{ weapon_id, reserve_ammo }` を保持する。
 //     EquipWeapon で current_def に切り替えた後、ammo_in_mag / reserve_ammo を
 //     その武器の slot から復元する設計。
@@ -232,7 +232,7 @@ public:
     void ClearAll() noexcept;
 
 private:
-    // 並行 Array で per-weapon の reserve_ammo を保持する。
+    // 並行 TArray で per-weapon の reserve_ammo を保持する。
     // (= 武器定義 _defs[i] に対して _reserves[i] が対応)
     struct ReserveSlot {
         const char* weapon_id    = nullptr; // _defs[i].id へのコピー (非所有、寿命は呼出側)
@@ -249,8 +249,8 @@ private:
     // 装備中武器の per-weapon 状態を _reserves[] へ書き戻す (装備切替前)。
     void SaveCurrentToSlot() noexcept;
 
-    Array<WeaponDef>   _defs;       // 武器定義 (id 線形検索)
-    Array<ReserveSlot> _reserves;   // _defs[i] と並行
+    TArray<WeaponDef>   _defs;       // 武器定義 (id 線形検索)
+    TArray<ReserveSlot> _reserves;   // _defs[i] と並行
 
     const WeaponDef* _current_def  = nullptr; // 装備中武器の定義 (Equip 前は nullptr)
     u32              _current_slot = ~0u;     // _defs / _reserves の index (Equip 前は ~0u)

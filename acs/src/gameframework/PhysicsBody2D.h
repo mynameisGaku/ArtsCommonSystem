@@ -9,11 +9,11 @@
 //
 // 使い方:
 //   auto ball = MakeUnique<Node2D>();
-//   ball->Local().position = Vec2{0, 5};
+//   ball->Local().position = FVec2{0, 5};
 //   auto& body = ball->AddComponent<PhysicsBody2D>(Services().Physics());
 //   body.SetCircle(0.5f);
-//   body.gravity = Vec2{0, -10};
-//   body.velocity = Vec2{1, 0};
+//   body.gravity = FVec2{0, -10};
+//   body.velocity = FVec2{1, 0};
 //   root.AddChild(Move(ball));
 //
 // 設計選択 (Phase 11):
@@ -52,16 +52,16 @@ public:
         // 既に登録済なら CollisionWorld 側に反映
         SyncShapeIfRegistered();
     }
-    void SetAabb(Vec2 half_size) noexcept {
-        _kind = ShapeKind::Aabb;
+    void SetAabb(FVec2 half_size) noexcept {
+        _kind = ShapeKind::FAabb;
         _half_size = half_size;
         SyncShapeIfRegistered();
     }
 
     // ----- 動力学 -----
-    Vec2 velocity     {0.0f, 0.0f};
-    Vec2 acceleration {0.0f, 0.0f};
-    Vec2 gravity      {0.0f, 0.0f};
+    FVec2 velocity     {0.0f, 0.0f};
+    FVec2 acceleration {0.0f, 0.0f};
+    FVec2 gravity      {0.0f, 0.0f};
 
     // 現在の collision handle (deregister 時に invalidated)
     ShapeId Handle() const noexcept { return _handle; }
@@ -72,16 +72,16 @@ public:
     void OnDetach() noexcept override;
 
 private:
-    enum class ShapeKind : u8 { None = 0, Circle, Aabb };
+    enum class ShapeKind : u8 { None = 0, Circle, FAabb };
 
-    bool WouldBlockAt(Vec2 pos) noexcept;
-    void RegisterShapeAt(Vec2 pos) noexcept;
+    bool WouldBlockAt(FVec2 pos) noexcept;
+    void RegisterShapeAt(FVec2 pos) noexcept;
     void SyncShapeIfRegistered() noexcept;
 
     CollisionWorld2D* _world  = nullptr;
     ShapeKind         _kind   = ShapeKind::None;
     f32               _radius = 0.5f;
-    Vec2              _half_size{0.5f, 0.5f};
+    FVec2              _half_size{0.5f, 0.5f};
     ShapeId           _handle;
     bool              _registered = false;
 };

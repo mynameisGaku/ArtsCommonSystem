@@ -18,9 +18,9 @@
 
 ```cpp
 class MyGame : public Application {
-    UniquePtr<IRhiShader>   _vs, _ps;
-    UniquePtr<IRhiBuffer>   _vb, _ib, _cb;
-    UniquePtr<IRhiPipeline> _pipe;
+    TUniquePtr<IRhiShader>   _vs, _ps;
+    TUniquePtr<IRhiBuffer>   _vb, _ib, _cb;
+    TUniquePtr<IRhiPipeline> _pipe;
     Camera _cam;
     f32    _angle = 0;
 
@@ -35,8 +35,8 @@ class MyGame : public Application {
 
     void OnUpdate(f32 dt) noexcept override {
         _angle += dt;
-        Mat4 mvp = Mat4::RotationY(_angle) * _cam.View() * _cam.Projection();
-        _cb->Update(&mvp, sizeof(Mat4));
+        FMat4 mvp = FMat4::RotationY(_angle) * _cam.View() * _cam.Projection();
+        _cb->Update(&mvp, sizeof(FMat4));
     }
 
     void OnRender() noexcept override {
@@ -59,7 +59,7 @@ td.width = 64; td.height = 64;
 td.format = EFormat::R8G8B8A8_UNorm;
 td.initial_data = pixels;            // 64*64*4 bytes RGBA
 td.initial_data_size = 64*64*4;
-// Result は失敗しうる。Value() を呼ぶ前に必ず IsErr() を確認すること。
+// TResult は失敗しうる。Value() を呼ぶ前に必ず IsErr() を確認すること。
 auto tex_r = CreateRhiTexture(*dev, td);
 if (tex_r.IsErr()) { ACS_LOG_ERROR("テクスチャ作成に失敗"); return; }
 auto tex = Move(tex_r.Value());
@@ -92,7 +92,7 @@ AssetFuture fut = registry.LoadAsync(L"big_terrain.glb");
 // ...別フレームで...
 if (fut.IsReady()) {
     auto r = fut.Get();
-    if (r.IsOk()) Rc<Asset> a = r.Value();
+    if (r.IsOk()) TRc<Asset> a = r.Value();
 }
 // または、ブロッキングで完了を待ちつつワーカー支援に参加:
 auto r = fut.Wait();
@@ -120,7 +120,7 @@ sb.Init(*renderer.Device(), renderer.ColorFormat());
 sb.Begin(*cl, screen_w, screen_h);
 sb.Draw(player_tex, x, y, 32, 32);                       // 32×32 を描く
 sb.DrawSub(atlas_tex, 0, 0, 64, 64, 0.0f, 0.0f, 0.5f, 0.5f);  // アトラスの一部
-sb.DrawRect(0, 0, screen_w, 32, Vec4{0,0,0,0.5f});       // 半透明バー
+sb.DrawRect(0, 0, screen_w, 32, FVec4{0,0,0,0.5f});       // 半透明バー
 sb.End();
 ```
 - 同じテクスチャの連続 Draw は自動でバッチ
@@ -140,7 +140,7 @@ font.LoadFromFile(*renderer.Device(),
 
 sb.Begin(*cl, sw, sh);
 sb.DrawString(font, "吾輩は猫である。\n名前はまだ無い。",
-            100, 100, Vec4{1, 0.9f, 0.4f, 1});
+            100, 100, FVec4{1, 0.9f, 0.4f, 1});
 sb.End();
 ```
 - ASCII / Latin-1 / 平仮名・片仮名 / 全角英数記号 / CJK 統合漢字（U+4E00..U+9FAF）
@@ -151,7 +151,7 @@ sb.End();
 
 ```cpp
 Aabb3 box = Aabb3::FromCenterExtents({0, 0, 0}, {1, 1, 1});
-Sphere s{ {3, 0, 0}, 0.5f };
+FSphere s{ {3, 0, 0}, 0.5f };
 
 if (Intersect(box, s)) { /* 重なってる */ }
 
@@ -159,7 +159,7 @@ Ray3 ray{ camera.Eye(), forward };
 RayHit3 h = RaycastAabb(ray, box);
 if (h.hit) { /* h.point, h.normal, h.t */ }
 
-Plane ground = Plane::FromPointNormal({0,0,0}, {0,1,0});
+FPlane ground = FPlane::FromPointNormal({0,0,0}, {0,1,0});
 RayHit3 g = RaycastPlane(ray, ground);
 ```
 
@@ -189,7 +189,7 @@ player.Play(0, /*loop=*/true);
 
 // 毎フレーム
 player.Update(dt);
-Mat4 palette[64];
+FMat4 palette[64];
 u32 nb = player.WritePalette(palette, 64);
 
 shd.SetLights(camera.ViewProjection(), camera.Eye(), lights, count, ambient);
@@ -218,19 +218,19 @@ ps.Init(8192);
 ps.SetTexture(my_glow_tex);            // null なら白矩形
 
 // プリセット 4 種
-ps.SetEmitter(EmitterDesc::Fire(Vec2{x, y}));
-ps.SetEmitter(EmitterDesc::Sparks(Vec2{x, y}));
-ps.SetEmitter(EmitterDesc::Fountain(Vec2{x, y}));
-ps.SetEmitter(EmitterDesc::Smoke(Vec2{x, y}));
+ps.SetEmitter(EmitterDesc::Fire(FVec2{x, y}));
+ps.SetEmitter(EmitterDesc::Sparks(FVec2{x, y}));
+ps.SetEmitter(EmitterDesc::Fountain(FVec2{x, y}));
+ps.SetEmitter(EmitterDesc::Smoke(FVec2{x, y}));
 
 // またはカスタム
 EmitterDesc d;
 d.position = pos;
-d.velocity = Vec2{0, -200};
-d.velocity_variance = Vec2{40, 30};
-d.gravity = Vec2{0, 200};
-d.color_start = Vec4{1, 0.7f, 0.2f, 1};
-d.color_end   = Vec4{1, 0.1f, 0,   0};
+d.velocity = FVec2{0, -200};
+d.velocity_variance = FVec2{40, 30};
+d.gravity = FVec2{0, 200};
+d.color_start = FVec4{1, 0.7f, 0.2f, 1};
+d.color_end   = FVec4{1, 0.1f, 0,   0};
 d.life_seconds = 1.0f;
 d.rate_per_sec = 200;
 ps.SetEmitter(d);
@@ -280,7 +280,7 @@ INI 形式の key-value 永続化、AppData 自動解決：
 ```cpp
 Storage cfg;
 wchar_t path[260];
-// パス取得は失敗しうる（Result<void>）。エラーなら中断する。
+// パス取得は失敗しうる（TResult<void>）。エラーなら中断する。
 if (Storage::GetAppDataPath(L"MyGame", L"settings.ini", path, 260).IsErr()) return;
 
 cfg.Load(path);                        // 無ければ空のままで成功
@@ -356,9 +356,9 @@ cl->SetTexture(1, *shd.ShadowTextureOrDefault());
 `SetLights` の有向光源と独立に追加できる。減衰は `range` ベースの 2 乗フォールオフ：
 ```cpp
 PointLight pts[3];
-pts[0].position = Vec3{ 2, 1.5f, 0};   pts[0].color = Vec3{1.0f, 0.3f, 0.3f}; pts[0].range = 6.0f;
-pts[1].position = Vec3{-2, 1.5f, 0};   pts[1].color = Vec3{0.3f, 1.0f, 0.4f}; pts[1].range = 6.0f;
-pts[2].position = Vec3{ 0, 1.5f, 3};   pts[2].color = Vec3{0.3f, 0.5f, 1.0f}; pts[2].range = 6.0f;
+pts[0].position = FVec3{ 2, 1.5f, 0};   pts[0].color = FVec3{1.0f, 0.3f, 0.3f}; pts[0].range = 6.0f;
+pts[1].position = FVec3{-2, 1.5f, 0};   pts[1].color = FVec3{0.3f, 1.0f, 0.4f}; pts[1].range = 6.0f;
+pts[2].position = FVec3{ 0, 1.5f, 3};   pts[2].color = FVec3{0.3f, 0.5f, 1.0f}; pts[2].range = 6.0f;
 
 shd.SetLights(camera.ViewProjection(), camera.Eye(),
               dir_lights, dir_count, ambient);
@@ -373,16 +373,16 @@ shd.SetPointLights(pts, 3);     // 最大 4 灯
 
 ```cpp
 DirLight lights[2];
-lights[0].direction = Vec3{ 0.5f, 0.8f, 0.3f };
-lights[0].color     = Vec3{ 1.0f, 0.9f, 0.7f };   // 暖色キーライト
-lights[1].direction = Vec3{-0.4f, 0.5f,-0.7f };
-lights[1].color     = Vec3{ 0.3f, 0.4f, 0.6f };   // 寒色フィル
+lights[0].direction = FVec3{ 0.5f, 0.8f, 0.3f };
+lights[0].color     = FVec3{ 1.0f, 0.9f, 0.7f };   // 暖色キーライト
+lights[1].direction = FVec3{-0.4f, 0.5f,-0.7f };
+lights[1].color     = FVec3{ 0.3f, 0.4f, 0.6f };   // 寒色フィル
 
 shd.SetLights(camera.ViewProjection(), camera.Eye(),
-              lights, 2, Vec3{0.08f, 0.10f, 0.14f});
+              lights, 2, FVec3{0.08f, 0.10f, 0.14f});
 
 shd.SetObject(model_mat,
-              Vec3{1.0f, 0.85f, 0.4f},   // ベース色
+              FVec3{1.0f, 0.85f, 0.4f},   // ベース色
               /*specular=*/0.6f,
               /*shininess=*/64.0f);       // 大 = シャープなハイライト
 ```
@@ -397,7 +397,7 @@ Aabb2 player = Aabb2::FromTopLeftSize({x, y}, {32, 32});
 Aabb2 wall   = Aabb2::FromTopLeftSize({0, 100}, {800, 16});
 if (Intersect(player, wall)) { /* 重なってる */ }
 
-Vec2 push;
+FVec2 push;
 Circle a{ {ax, ay}, 16 };
 Circle b{ {bx, by}, 12 };
 if (Resolve(a, b, push)) {
@@ -423,12 +423,12 @@ shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 
 // 毎フレーム
 shd.SetFrame(camera.ViewProjection(), camera.Eye(),
-             Vec3{-0.5f, 0.8f, 0.3f},   // 光源方向
-             Vec3{1, 1, 1},              // 光源色
-             Vec3{0.1f, 0.1f, 0.15f});   // 環境光
+             FVec3{-0.5f, 0.8f, 0.3f},   // 光源方向
+             FVec3{1, 1, 1},              // 光源色
+             FVec3{0.1f, 0.1f, 0.15f});   // 環境光
 
 // 各オブジェクト
-shd.SetObject(model_matrix, Vec3{1, 0.85f, 0.4f});  // ベース色
+shd.SetObject(model_matrix, FVec3{1, 0.85f, 0.4f});  // ベース色
 
 cl->SetPipeline(*shd.Pipeline());
 cl->SetConstantBuffer(0, *shd.PerFrameCB());

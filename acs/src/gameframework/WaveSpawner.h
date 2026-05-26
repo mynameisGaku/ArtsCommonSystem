@@ -9,7 +9,7 @@
 //   class GameplayScene : public Scene {
 //       acs::game::WaveSpawner _waves;
 //
-//       static void OnSpawn(void* self, const char* enemy_id, acs::Vec2 pos) noexcept {
+//       static void OnSpawn(void* self, const char* enemy_id, acs::FVec2 pos) noexcept {
 //           auto* s = static_cast<GameplayScene*>(self);
 //           s->SpawnEnemyAt(enemy_id, pos);
 //       }
@@ -37,8 +37,8 @@
 //   ・**SpawnRule は POD + ポインタ参照**: WaveDef の rules は caller 所有の
 //     SpawnRule 配列を指す軽量ハンドル。caller は wave が終わるまで配列の
 //     寿命を保証する責任を持つ (= literal / 静的定義を想定)。
-//   ・**spawned_per_rule は wave ごとに別 Array**: 各 wave が任意数の rule を
-//     持つので Array<Array<u32>> で 2 段ネスト。これは Move 可能で Array 同士の
+//   ・**spawned_per_rule は wave ごとに別 TArray**: 各 wave が任意数の rule を
+//     持つので TArray<TArray<u32>> で 2 段ネスト。これは Move 可能で TArray 同士の
 //     コピー禁止に抵触しない (PushBack(Move(inner)) で挿入)。
 //   ・**enemy_id 比較は strcmp**: const char* 一致判定は ModRegistry / DevConsole
 //     と同じく `<cstring>` strcmp 0 で行う。リテラル前提なら同一ポインタも一致するが、
@@ -90,7 +90,7 @@ struct SpawnRule {
     u32         count              = 0u;
     f32         spawn_interval_sec = 0.0f;
     f32         initial_delay_sec  = 0.0f;
-    Vec2        spawn_position     = Vec2::Zero();
+    FVec2        spawn_position     = FVec2::Zero();
 };
 
 // 1 wave 定義。rules は caller 所有のスパン (寿命は caller 保証)。
@@ -109,7 +109,7 @@ struct WaveDef {
 
 // 敵 1 体出現時の callback。caller (= Scene 側) が実 entity を生成して NodeGraph
 // に放り込む想定。enemy_id は SpawnRule の literal そのものをそのまま渡す。
-using SpawnCallback = void(*)(void* user, const char* enemy_id, Vec2 spawn_pos) noexcept;
+using SpawnCallback = void(*)(void* user, const char* enemy_id, FVec2 spawn_pos) noexcept;
 
 // wave state 遷移時の callback。wave_index は遷移時点の current wave index
 // (= AllComplete への遷移時は最後の wave の index)。
@@ -202,7 +202,7 @@ private:
     // wave + 内部進捗。spawned_per_rule[i] は rule i の発火済個数。
     struct WaveEntry {
         WaveDef     def;
-        Array<u32>  spawned_per_rule;  // size == def.rule_count
+        TArray<u32>  spawned_per_rule;  // size == def.rule_count
     };
 
     // 内部 state 遷移。same-state は no-op (callback 不発火)。
@@ -234,7 +234,7 @@ private:
     bool _paused = false;
 
     // ----- queue -----
-    Array<WaveEntry> _waves;
+    TArray<WaveEntry> _waves;
 
     // ----- callback -----
     SpawnCallback           _spawn_cb           = nullptr;

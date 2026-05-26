@@ -7,7 +7,7 @@
 //     callback に流すだけのシンプルな bridge
 //
 // 状態は持たない (進行状態は DialogueSystem 側で管理)。
-// 線形検索コストは典型シナリオ N < 数百で十分小さく、HashMap 化は不要。
+// 線形検索コストは典型シナリオ N < 数百で十分小さく、THashMap 化は不要。
 //
 // 設計上の留意:
 //   ・LocalizationDirector::Get は key == nullptr 時に空文字 "" を返す契約。

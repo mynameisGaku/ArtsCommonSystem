@@ -6,7 +6,7 @@
 //   ...
 //   if (fut.IsReady()) {
 //       auto r = fut.Get();
-//       if (r.IsOk()) Rc<Asset> a = r.Value();
+//       if (r.IsOk()) TRc<Asset> a = r.Value();
 //   }
 //   // または同期待ち（ワーカースチール参加付き）
 //   auto r = fut.Wait();
@@ -24,8 +24,8 @@ namespace acs {
 // 内部共有状態（worker と future の双方が保持）
 struct AsyncLoadState {
     CompletionCounter counter{1};   // 1 → 0 で完了
-    Rc<Asset>         result;
-    ErrorCode         error{};
+    TRc<Asset>         result;
+    FErrorCode         error{};
     bool              has_error = false;
 };
 
@@ -34,7 +34,7 @@ public:
     AssetFuture() noexcept = default;
 
     // 内部用: AssetRegistry::LoadAsync が状態を渡してくる
-    explicit AssetFuture(Rc<AsyncLoadState> s) noexcept : _state(Move(s)) {}
+    explicit AssetFuture(TRc<AsyncLoadState> s) noexcept : _state(Move(s)) {}
 
     // 完了済みか（ノンブロッキング、true ならGet がすぐ返る）
     bool IsReady() const noexcept {
@@ -45,18 +45,18 @@ public:
     bool Valid() const noexcept { return _state.Get() != nullptr; }
 
     // 完了を待って結果を取り出す（呼び出しスレッドがワーカーなら手伝う）
-    Result<Rc<Asset>> Get() noexcept {
+    TResult<TRc<Asset>> Get() noexcept {
         if (!_state.Get()) return ACS_ERR(Asset, 10, "AssetFuture: empty");
         ThreadPool::Wait(_state->counter);
-        if (_state->has_error) return Result<Rc<Asset>>(_state->error);
-        return Result<Rc<Asset>>(OkInit, _state->result);
+        if (_state->has_error) return TResult<TRc<Asset>>(_state->error);
+        return TResult<TRc<Asset>>(OkInit, _state->result);
     }
 
     // 別名: Wait() = Get() （直感的に使えるよう）
-    Result<Rc<Asset>> Wait() noexcept { return Get(); }
+    TResult<TRc<Asset>> Wait() noexcept { return Get(); }
 
 private:
-    Rc<AsyncLoadState> _state;
+    TRc<AsyncLoadState> _state;
 };
 
 } // namespace acs

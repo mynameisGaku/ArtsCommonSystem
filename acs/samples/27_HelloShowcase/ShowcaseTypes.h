@@ -40,9 +40,9 @@ inline constexpr acs::f32 kOrbY            = 0.9f;
 inline constexpr acs::f32 kOrbOrbitRadius  = 3.5f;     // 床平面で公転
 inline constexpr acs::f32 kOrbEmissiveStrength = 4.0f;
 
-inline constexpr acs::Vec3 kOrbColors[kOrbCount] = {
-    acs::Vec3{1.00f, 0.55f, 0.20f},     // orange
-    acs::Vec3{0.30f, 0.85f, 1.00f},     // cyan
+inline constexpr acs::FVec3 kOrbColors[kOrbCount] = {
+    acs::FVec3{1.00f, 0.55f, 0.20f},     // orange
+    acs::FVec3{0.30f, 0.85f, 1.00f},     // cyan
 };
 
 // Halton(i, b) ∈ [0, 1): TAA 用 low-discrepancy 1D sequence

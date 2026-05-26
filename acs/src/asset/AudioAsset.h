@@ -28,7 +28,7 @@ public:
 
     AudioAsset() noexcept = default;
     AudioAsset(u32 sample_rate, u8 channels, ESampleFormat fmt,
-               u64 frame_count, Array<byte>&& samples) noexcept
+               u64 frame_count, TArray<byte>&& samples) noexcept
         : _sample_rate(sample_rate), _channels(channels), _format(fmt),
           _frame_count(frame_count), _samples(Move(samples)) {}
 
@@ -49,7 +49,7 @@ private:
     u8           _channels    = 0;
     ESampleFormat _format      = ESampleFormat::PCM_S16;
     u64          _frame_count = 0;     // 1 フレーム = チャンネル数分のサンプル
-    Array<byte>  _samples;             // インターリーブ済み生データ
+    TArray<byte>  _samples;             // インターリーブ済み生データ
 };
 
 // 各フォーマット別のローダ（拡張子で振り分け）
@@ -57,28 +57,28 @@ class WavAssetLoader  final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return AudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "wav"; }
-    Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class Mp3AssetLoader  final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return AudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "mp3"; }
-    Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class FlacAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return AudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "flac"; }
-    Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class OggAssetLoader  final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return AudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "ogg"; }
-    Result<Rc<Asset>> LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

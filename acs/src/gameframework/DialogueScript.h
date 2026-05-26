@@ -19,13 +19,13 @@
 // 設計選択:
 //   ・**文字列を所有しない**: ScriptOp::arg1 / arg2 は const char* のまま。
 //     スクリプトデータは literal / バンドル等で別管理する想定 (STL <string>
-//     禁止 / Array<char> での deep copy も避けて allocator フリーに保つ)。
+//     禁止 / TArray<char> での deep copy も避けて allocator フリーに保つ)。
 //   ・**op_count + ops ポインタを丸ごと受け取る**: LoadScript はポインタを
-//     コピーせず内部 Array に複製する (= caller が ops を解放しても安全)。
-//     ScriptOp は POD なので Array<ScriptOp> での bulk copy は trivial。
-//   ・**ラベルは別 Array で線形検索**: 典型 N < 100 なので OK。同名ラベル
+//     コピーせず内部 TArray に複製する (= caller が ops を解放しても安全)。
+//     ScriptOp は POD なので TArray<ScriptOp> での bulk copy は trivial。
+//   ・**ラベルは別 TArray で線形検索**: 典型 N < 100 なので OK。同名ラベル
 //     登録時は最初の登録のみ有効 (= 上書き禁止)。
-//   ・**現在の選択肢は別 Array に展開**: Choice op を踏んだ際に、後続の
+//   ・**現在の選択肢は別 TArray に展開**: Choice op を踏んだ際に、後続の
 //     Choice op を「同じ Say の選択肢群」として束ねるのは仕様が複雑になる
 //     ので避ける。代わりに Choice op 1 個が arg1=label / arg2=jump_label の
 //     ペアを 1 件持つ。実用上は同じ ScriptChoice 配列を複数 op で並べる
@@ -211,9 +211,9 @@ private:
     void EnterFinished() noexcept;
 
     // ----- データ -----
-    Array<ScriptOp>       _ops;             // ロードされた命令列 (deep copy)
-    Array<LabelEntry>     _labels;          // ラベルテーブル (線形検索)
-    Array<ScriptChoice> _current_choices; // AwaitingChoice 中に展開された選択肢群
+    TArray<ScriptOp>       _ops;             // ロードされた命令列 (deep copy)
+    TArray<LabelEntry>     _labels;          // ラベルテーブル (線形検索)
+    TArray<ScriptChoice> _current_choices; // AwaitingChoice 中に展開された選択肢群
 
     const char* _script_id = nullptr;       // LoadScript で渡された ID (所有しない)
 

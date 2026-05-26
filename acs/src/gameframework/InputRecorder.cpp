@@ -16,7 +16,7 @@
 //   ・ConsumeSample は _cursor から線形走査。記録順 = tick 昇順を仮定すれば
 //     cursor 前進で amortised O(1)。Lockstep::ConsumeInput と同じ pattern。
 //   ・key_codes_changed / key_states は struct 定義時にデフォルト初期化済みなので
-//     Capture 側は値コピーのみ。InputSample の sizeof は環境依存 (Vec2 = 8 B,
+//     Capture 側は値コピーのみ。InputSample の sizeof は環境依存 (FVec2 = 8 B,
 //     padding 込みで 28〜32 B) だが、本クラスは内部で sizeof に依存しないため
 //     ABI 変動に耐える。Phase D-2 の file I/O 時は明示的に field を 1 つずつ
 //     little-endian で書き出す予定 (`InputSample` 自体の memcpy には頼らない)。
@@ -134,7 +134,7 @@ void InputRecorder::Clear() noexcept {
 //   4. write samples (field 単位で LE エンコード)
 //   5. write crc32(samples) footer
 //   6. out_written = required
-Result<void> InputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
+TResult<void> InputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
     out_written = 0;
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
@@ -142,7 +142,7 @@ Result<void> InputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_written)
     }
     (void)size;
     // Phase 1: 実 I/O は未接続。"動くが必ず失敗する" stub にしておき、
-    // 呼び出し側 (replay 保存 UI / テスト) が Result を握りつぶさない設計を強制する。
+    // 呼び出し側 (replay 保存 UI / テスト) が TResult を握りつぶさない設計を強制する。
     return ACS_ERR(IO, kSub_NotImplemented,
                    "InputRecorder::SaveToBuffer is not yet implemented (Phase D-1 stub)");
 }
@@ -158,7 +158,7 @@ Result<void> InputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_written)
 //   5. crc32 計算 → footer と不一致なら kSub_BadCrc
 //   6. _samples.Clear(); _samples.Reserve(sample_count); 順次 PushBack
 //   7. _tick_rate_hz / _current_tick を 0 にリセット (StartReplay 待ち状態)
-Result<void> InputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
+TResult<void> InputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
                        "InputRecorder::LoadFromBuffer: buffer is null");

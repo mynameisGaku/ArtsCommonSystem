@@ -22,10 +22,10 @@ namespace helloshowcase {
 
 acs::IRhiTexture* ExecuteMotionPass(Assets& a,
                                      acs::IRhiCommandList& cl,
-                                     const acs::Mat4& vp_no_jitter,
-                                     const acs::Mat4& prev_vp_no_jitter,
+                                     const acs::FMat4& vp_no_jitter,
+                                     const acs::FMat4& prev_vp_no_jitter,
                                      bool prev_vp_valid,
                                      acs::f32 prev_orb_phase,
-                                     const acs::Mat4 (&orb_curr)[kOrbCount]) noexcept;
+                                     const acs::FMat4 (&orb_curr)[kOrbCount]) noexcept;
 
 } // namespace helloshowcase

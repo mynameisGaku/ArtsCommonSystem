@@ -13,7 +13,7 @@
 //   ・JoinChannel / SetLocalMute 等の操作系は全て
 //     `ACS_ERR(Generic, kSubVoiceNotImplemented, ...)` を返し、上位ロジックで
 //     サイレントに無視するかログ出力するかを呼び出し側に委ねる。
-//   ・`ParticipantCount` は Result を返さない設計のため、Stub では単に 0 を返す
+//   ・`ParticipantCount` は TResult を返さない設計のため、Stub では単に 0 を返す
 //     (未初期化 / 未 join とも区別しない、UI 側で 0 → "誰もいない" 表示を想定)。
 //   ・`GetVoiceStub()` は Meyer's singleton。C++11 以降の規格でスレッド初回構築は
 //     保証されるため追加同期は不要。
@@ -26,7 +26,7 @@ namespace acs::game {
 
 // ---- Stub: Init / Shutdown ------------------------------------------------
 
-Result<void> VoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
+TResult<void> VoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
     // provider 選択は記録するが、Stub は SDK 接続を行わないので IsAvailable は
     // false のまま。多重 Init は明示的に許容 (テスト容易性のため)。
     _provider = p;
@@ -42,7 +42,7 @@ void VoiceChatBackendStub::Shutdown() noexcept {
 
 // ---- Stub: チャンネル参加 / 離脱 -----------------------------------------
 
-Result<void> VoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
+TResult<void> VoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
     (void)ch;
     (void)channel_id;
     if (!_initialized) {
@@ -53,7 +53,7 @@ Result<void> VoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* cha
                    "VoiceChatBackendStub: JoinChannel is not implemented (link real voice SDK)");
 }
 
-Result<void> VoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
+TResult<void> VoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
     (void)ch;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
@@ -65,7 +65,7 @@ Result<void> VoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
 
 // ---- Stub: ミュート / 音量 -----------------------------------------------
 
-Result<void> VoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
+TResult<void> VoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
     (void)muted;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
@@ -75,7 +75,7 @@ Result<void> VoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
                    "VoiceChatBackendStub: SetLocalMute is not implemented (link real voice SDK)");
 }
 
-Result<void> VoiceChatBackendStub::SetParticipantMute(const char* user_id, bool muted) noexcept {
+TResult<void> VoiceChatBackendStub::SetParticipantMute(const char* user_id, bool muted) noexcept {
     (void)user_id;
     (void)muted;
     if (!_initialized) {
@@ -86,7 +86,7 @@ Result<void> VoiceChatBackendStub::SetParticipantMute(const char* user_id, bool 
                    "VoiceChatBackendStub: SetParticipantMute is not implemented (link real voice SDK)");
 }
 
-Result<void> VoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
+TResult<void> VoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
     (void)user_id;
     (void)volume;
     if (!_initialized) {
@@ -102,19 +102,19 @@ Result<void> VoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32
 u32 VoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
     (void)ch;
     // Stub は誰も join していない扱い。UI 側は 0 をそのまま「参加者なし」表示に
-    // 反映できる。Result を返さない設計なので未初期化との区別は意図的に省略。
+    // 反映できる。TResult を返さない設計なので未初期化との区別は意図的に省略。
     return 0;
 }
 
-Result<VoiceParticipant> VoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
+TResult<VoiceParticipant> VoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
     (void)ch;
     (void)index;
     if (!_initialized) {
-        return Result<VoiceParticipant>(
+        return TResult<VoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotInitialized,
                     "VoiceChatBackendStub::GetParticipant called before Init()"));
     }
-    return Result<VoiceParticipant>(
+    return TResult<VoiceParticipant>(
         ACS_ERR(Generic, kSubVoiceNotImplemented,
                 "VoiceChatBackendStub: GetParticipant is not implemented (link real voice SDK)"));
 }

@@ -32,13 +32,13 @@
 //   ・**定義 / 進捗を別配列で持つ**: AchievementDef はゲーム起動時に固定で登録
 //     される immutable な定義 (id / 表示名 / max_progress / secret)。
 //     AchievementProgress は実行時に変化する状態 (current_progress / unlocked /
-//     unlock_timestamp)。両者を別 Array に分けることで「定義は const、状態は
+//     unlock_timestamp)。両者を別 TArray に分けることで「定義は const、状態は
 //     mutable」が型レベルで明確になる。1:1 対応で同じ index を共有する。
 //   ・**所有しない const char***: id / display_name / description は呼び出し側
 //     (ゲームコード or リソースバンドル) が保証する static lifetime の文字列
 //     リテラルを想定。Manager 側ではコピーしない (STL <string> 禁止)。
 //   ・**線形検索**: 実績件数は AAA タイトルでも通常 50〜300 程度のため、
-//     Array<T> の per-byte 文字列比較 + 線形走査で十分。ハッシュテーブル化は
+//     TArray<T> の per-byte 文字列比較 + 線形走査で十分。ハッシュテーブル化は
 //     プロファイラで実測されたら検討。
 //   ・**SteamworksBridge は seam 注入**: AttachSteamworks(nullptr) で detach。
 //     attach 中は Unlock() が成功したら自動で Bridge::UnlockAchievement() を呼ぶ。
@@ -71,7 +71,7 @@
 
 namespace acs::game {
 
-// SteamworksBridge.h を引き込むと Result<T> / Error 経由で foundation/Result 等
+// SteamworksBridge.h を引き込むと TResult<T> / Error 経由で foundation/TResult 等
 // まで芋づるに引き込んでしまう。本ヘッダは公開 API のみ薄く保つ方針なので、
 // 抽象 I/F は forward declare に留めて、実体 include は .cpp 側で行う。
 class ISteamworksBridge;
@@ -176,8 +176,8 @@ private:
     // index は FindIndex() で確定済みであること。Bridge への送信もここで実施。
     void UnlockInternal(u32 index) noexcept;
 
-    Array<AchievementDef>      _defs;
-    Array<AchievementProgress> _progress;
+    TArray<AchievementDef>      _defs;
+    TArray<AchievementProgress> _progress;
 
     // Bridge 注入用 raw ポインタ (所有しない)。寿命は呼出側 (= Application) 責務。
     ISteamworksBridge* _bridge = nullptr;

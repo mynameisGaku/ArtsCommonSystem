@@ -26,21 +26,21 @@ void GameplayScene::OnEnter() noexcept {
 
     // Node2D ツリー: root → wheel → spoke 2 個。
     auto wheel_up = MakeUnique<RotatingNode>(/*speed=*/1.0f /*rad/s*/, "wheel");
-    wheel_up->Local().position = Vec2{10.0f, 0.0f};
+    wheel_up->Local().position = FVec2{10.0f, 0.0f};
     Node2D& wheel = _root.AddChild(Move(wheel_up));
     _wheel = static_cast<RotatingNode*>(&wheel);
 
     auto sp0_up = MakeUnique<RotatingNode>(/*speed=*/0.0f, "spoke[0]");
-    sp0_up->Local().position = Vec2{2.0f, 0.0f};
+    sp0_up->Local().position = FVec2{2.0f, 0.0f};
     _spoke[0] = static_cast<RotatingNode*>(&wheel.AddChild(Move(sp0_up)));
 
     auto sp1_up = MakeUnique<RotatingNode>(/*speed=*/0.0f, "spoke[1]");
-    sp1_up->Local().position = Vec2{0.0f, 2.0f};
+    sp1_up->Local().position = FVec2{0.0f, 2.0f};
     _spoke[1] = static_cast<RotatingNode*>(&wheel.AddChild(Move(sp1_up)));
 
     // composition 版: プレーン Node2D に RotateComponent を attach (継承版との対比)。
     auto rotator_up = MakeUnique<Node2D>();
-    rotator_up->Local().position = Vec2{-10.0f, 0.0f};
+    rotator_up->Local().position = FVec2{-10.0f, 0.0f};
     Node2D& rotator = _root.AddChild(Move(rotator_up));
     rotator.AddComponent<RotateComponent>(/*speed_rps=*/2.0f);
     _rotator = &rotator;
@@ -48,20 +48,20 @@ void GameplayScene::OnEnter() noexcept {
     // spoke を Circle として CollisionWorld に登録 (世界位置は OnUpdate で追従)。
     CollisionWorld2D& phy = Services().Physics();
     for (u32 i = 0; i < 2; ++i) {
-        const Vec2 sp = _spoke[i] ? _spoke[i]->World().position : Vec2{};
+        const FVec2 sp = _spoke[i] ? _spoke[i]->World().position : FVec2{};
         _spoke_shape[i] = phy.AddCircle(Circle{sp, /*radius=*/0.5f});
     }
 
     // y=-2 中心の幅広 AABB を静的 ground として登録。
-    _ground_shape = phy.AddAabb(Aabb2{Vec2{0.0f, -2.0f}, Vec2{20.0f, 0.5f}});
+    _ground_shape = phy.AddAabb(Aabb2{FVec2{0.0f, -2.0f}, FVec2{20.0f, 0.5f}});
 
     // 落下 ball: Node2D + PhysicsBody2D。Component が phy を握って自前更新する。
     auto ball_up = MakeUnique<Node2D>();
-    ball_up->Local().position = Vec2{0.0f, 8.0f};
+    ball_up->Local().position = FVec2{0.0f, 8.0f};
     Node2D& ball_ref = _root.AddChild(Move(ball_up));
     PhysicsBody2D& body = ball_ref.AddComponent<PhysicsBody2D>(phy);
     body.SetCircle(0.5f);
-    body.gravity = Vec2{0.0f, -10.0f};
+    body.gravity = FVec2{0.0f, -10.0f};
     _ball = &ball_ref;
 
     InputMap& im = Services().Input();
@@ -134,7 +134,7 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
         CollisionWorld2D& phy = Services().Physics();
         for (u32 i = 0; i < 2; ++i) {
             if (_spoke[i] != nullptr && _spoke_shape[i].IsValid()) {
-                const Vec2 p = _spoke[i]->World().position;
+                const FVec2 p = _spoke[i]->World().position;
                 phy.UpdateCircle(_spoke_shape[i], Circle{p, 0.5f});
             }
         }
@@ -143,8 +143,8 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
     // Tween 完了で ping-pong を逆方向に張り直す (Tweens.Tick は PostUpdate で自動)。
     if (!Services().Tweens().IsActive(_color_tween)) {
         _to_bright = !_to_bright;
-        const Vec3 from = _color;
-        const Vec3 to   = _to_bright ? kColorBright : kColorDark;
+        const FVec3 from = _color;
+        const FVec3 to   = _to_bright ? kColorBright : kColorDark;
         _color_tween = Services().Tweens().Tween(&_color, from, to,
                                                   /*duration=*/2.0f, Easing::InOutSine);
     }
@@ -164,16 +164,16 @@ void GameplayScene::OnFixedUpdate(f32 dt) noexcept {
         const f32 move_x  = HasServices() ? Services().Input().Axis(ActionId("MoveX")) : 0.0f;
         const f32 sp_rot  = _spoke[0]    ? _spoke[0]->World().rotation    : 0.0f;
         const f32 rt_rot  = _rotator     ? _rotator->World().rotation     : 0.0f;
-        const Vec2 cam_p  = HasServices() ? Services().Camera().Position()      : Vec2{};
+        const FVec2 cam_p  = HasServices() ? Services().Camera().Position()      : FVec2{};
         const f32  trauma = HasServices() ? Services().Camera().TraumaLevel()  : 0.0f;
-        // 原点付近 4x4 の Aabb と overlap、+X 向き Ray で最近 hit までの t を取得。
+        // 原点付近 4x4 の FAabb と overlap、+X 向き FRay で最近 hit までの t を取得。
         u32 overlap_count = 0;
         f32 ray_t = -1.0f;
         if (HasServices()) {
-            Array<ShapeId> hits;
-            Services().Physics().OverlapAabb(Aabb2{Vec2{0,0}, Vec2{2.0f,2.0f}}, hits);
+            TArray<ShapeId> hits;
+            Services().Physics().OverlapAabb(Aabb2{FVec2{0,0}, FVec2{2.0f,2.0f}}, hits);
             overlap_count = static_cast<u32>(hits.Size());
-            Ray2 r{Vec2{0,0}, Vec2{1,0}};
+            Ray2 r{FVec2{0,0}, FVec2{1,0}};
             RayHit2 rh{};
             ShapeId rid{};
             if (Services().Physics().Raycast(r, /*max_t=*/20.0f, rh, rid)) {

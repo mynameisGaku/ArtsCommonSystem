@@ -27,7 +27,7 @@ TcpConnection& TcpConnection::operator=(TcpConnection&& o) noexcept {
     return *this;
 }
 
-Result<TcpConnection> TcpConnection::Connect(IpAddress addr, u16 port) noexcept {
+TResult<TcpConnection> TcpConnection::Connect(IpAddress addr, u16 port) noexcept {
     if (!Network::IsInitialized())
         return ACS_ERR(IO, 210, "Network::Init() not called");
 
@@ -53,7 +53,7 @@ Result<TcpConnection> TcpConnection::Connect(IpAddress addr, u16 port) noexcept 
     c._socket = static_cast<uptr>(s);
     addr.port = port;
     c._remote = addr;
-    return Result<TcpConnection>(OkInit, Move(c));
+    return TResult<TcpConnection>(OkInit, Move(c));
 }
 
 TcpConnection TcpConnection::FromAccepted(uptr socket, IpAddress remote) noexcept {
@@ -87,7 +87,7 @@ isize TcpConnection::Recv(void* buf, usize size) noexcept {
     return n;  // 0 は相手切断
 }
 
-Result<void> TcpConnection::SetNonBlocking(bool enable) noexcept {
+TResult<void> TcpConnection::SetNonBlocking(bool enable) noexcept {
     if (_socket == ~uptr{0}) return ACS_ERR(IO, 213, "socket not open");
     u_long mode = enable ? 1 : 0;
     if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)

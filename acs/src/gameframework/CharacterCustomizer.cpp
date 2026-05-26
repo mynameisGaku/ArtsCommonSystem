@@ -44,7 +44,7 @@ u32 SlotIndex(ECosmeticSlot slot) noexcept {
 
 CharacterCustomizer::CharacterCustomizer() noexcept {
     // 固定長 const char*[] を nullptr で初期化 (= 全 slot 未装着)。
-    // Array<bool> / Array<CosmeticItem> はデフォルト構築で空。
+    // TArray<bool> / TArray<CosmeticItem> はデフォルト構築で空。
     for (u32 i = 0; i < kCosmeticSlotCount; ++i) {
         _equipped_in_slot[i] = nullptr;
     }

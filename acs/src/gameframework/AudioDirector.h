@@ -21,7 +21,7 @@
 //     のみ (将来 name→clip resolver を導入予定)。
 //
 // 設計選択:
-//   ・**Result<void> は使わない**: この層は失敗を返さない (ログ警告のみ)。
+//   ・**TResult<void> は使わない**: この層は失敗を返さない (ログ警告のみ)。
 //     不正引数 (null name / 負の duration 等) は警告ログ + 既定値で続行。
 //   ・**SoA cross-fade state**: 同時に鳴る BGM は最大 2 本 (current + next)。
 //     `_bgm[0]` が現行、`_bgm[1]` が遷移中の新 BGM。遷移完了で swap。
@@ -30,7 +30,7 @@
 //   ・**SFX は ring 風に固定容量**: 容量 32 (典型的同時発音数を踏まえた目安)。
 //     満杯なら最古を上書き (シューティング的に許容)。
 //   ・**name は所有しない**: `const char*` を保持 = ROM の文字列リテラル前提。
-//     Phase 3 で StringView / Asset Handle に置き換える。
+//     Phase 3 で FStringView / Asset Handle に置き換える。
 //   ・**backend は所有しない**: `IAudioBackend*` は raw ptr。呼び出し側が
 //     `XAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
 //     backend の Shutdown を呼ぶ責任を負う (二重解放回避)。
@@ -175,7 +175,7 @@ private:
     BgmSlot _bgm[2] {};
 
     // ----- SFX ring (固定容量) -----
-    Array<SfxEntry> _sfx;   // 容量 kMaxSfxVoices で reserve、サイズも同じく予約
+    TArray<SfxEntry> _sfx;   // 容量 kMaxSfxVoices で reserve、サイズも同じく予約
     u32             _sfx_head = 0;  // 上書き時の次書込先 (FIFO)
 
     // ----- Duck state -----

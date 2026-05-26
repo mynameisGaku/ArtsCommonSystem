@@ -8,7 +8,7 @@
 //
 //       if (Input::IsKeyDown(EKey::Space)) Jump();
 //       if (Input::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
-//       Vec2 m = Input::MousePos();
+//       FVec2 m = Input::MousePos();
 //   }
 //
 // ・「Down」 = 現在押されている
@@ -41,8 +41,8 @@ public:
     static bool IsMouseButtonDown(EMouseButton b) noexcept;
     static bool IsMouseButtonPressed(EMouseButton b) noexcept;
     static bool IsMouseButtonReleased(EMouseButton b) noexcept;
-    static Vec2 MousePos() noexcept;             // 現在の位置（クライアント座標）
-    static Vec2 MouseDelta() noexcept;            // 前フレームからの移動量
+    static FVec2 MousePos() noexcept;             // 現在の位置（クライアント座標）
+    static FVec2 MouseDelta() noexcept;            // 前フレームからの移動量
     static f32  MouseWheel() noexcept;            // このフレームのホイール回転（正:奥, 負:手前）
 
     // テキスト入力（このフレームに入力された文字列、UTF-8、IME 確定後。無ければ ""）

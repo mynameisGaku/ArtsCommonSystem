@@ -29,7 +29,7 @@
 //     CollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
 //   ・**TriggerId は ShapeId と同じ generational handle** (24bit index + 8bit gen)。
 //     remove → re-add で slot 再利用しても旧 handle は無効化される。
-//   ・**overlap pair は array で保持**: 前フレの状態は `Array<OverlapPair>` に
+//   ・**overlap pair は array で保持**: 前フレの状態は `TArray<OverlapPair>` に
 //     `was_overlapping` 付きで保存。次フレで再計算し、(was, now) の組合せで
 //     どのイベントを発火するか決める。
 //   ・**layer はメタデータとして格納のみ**: Phase 3 では event 側で参照する。
@@ -115,7 +115,7 @@ public:
     void ClearAll() noexcept;
 
 private:
-    enum class Kind : u8 { None = 0, Aabb, Circle };
+    enum class Kind : u8 { None = 0, FAabb, Circle };
 
     struct TriggerSlot {
         Kind   kind   = Kind::None;
@@ -137,9 +137,9 @@ private:
     u32  AcquireSlot() noexcept;
     bool ShapesOverlap(const TriggerSlot& a, const TriggerSlot& b) const noexcept;
 
-    Array<TriggerSlot> _slots;
-    Array<OverlapPair> _pairs;         // a_idx < b_idx でソート済み
-    Array<OverlapPair> _next_pairs;    // Tick 内の作業バッファ (再確保を抑える)
+    TArray<TriggerSlot> _slots;
+    TArray<OverlapPair> _pairs;         // a_idx < b_idx でソート済み
+    TArray<OverlapPair> _next_pairs;    // Tick 内の作業バッファ (再確保を抑える)
     u32 _trigger_count = 0;
 
     TriggerEventCallback _on_enter      = nullptr;

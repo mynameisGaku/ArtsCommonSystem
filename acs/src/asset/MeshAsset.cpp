@@ -16,27 +16,27 @@ namespace acs {
 
 namespace {
 
-// 共通: MeshAsset を Rc<Asset> として返すヘルパ
-Rc<Asset> WrapMesh(AssetId id, Rc<MeshAsset>&& m) noexcept {
+// 共通: MeshAsset を TRc<Asset> として返すヘルパ
+TRc<Asset> WrapMesh(AssetId id, TRc<MeshAsset>&& m) noexcept {
     m->SetId(id);
     m->SetState(EAssetState::Ready);
-    return Rc<Asset>(Move(m));
+    return TRc<Asset>(Move(m));
 }
 
-// cgltf の attribute から Vec3 配列を読み出す
+// cgltf の attribute から FVec3 配列を読み出す
 void ReadAttributeVec3(const cgltf_accessor* a, MeshVertex* dst, usize n,
-                       usize stride, void (*setter)(MeshVertex&, Vec3)) noexcept {
+                       usize stride, void (*setter)(MeshVertex&, FVec3)) noexcept {
     if (!a) return;
     f32 buf[3];
     for (usize i = 0; i < n; ++i) {
         if (::cgltf_accessor_read_float(a, i, buf, 3)) {
-            setter(dst[i], Vec3(buf[0], buf[1], buf[2]));
+            setter(dst[i], FVec3(buf[0], buf[1], buf[2]));
         }
     }
     (void)stride;
 }
 
-// cgltf の attribute から UV (Vec2) を読み出す
+// cgltf の attribute から UV (FVec2) を読み出す
 void ReadAttributeUV(const cgltf_accessor* a, MeshVertex* dst, usize n) noexcept {
     if (!a) return;
     f32 buf[2];
@@ -49,7 +49,7 @@ void ReadAttributeUV(const cgltf_accessor* a, MeshVertex* dst, usize n) noexcept
 }
 
 // cgltf の data から MeshAsset へ詰める共通処理
-Rc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
+TRc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
     auto mesh = MakeRc<MeshAsset>();
     if (!data || data->meshes_count == 0) return mesh;
 
@@ -79,10 +79,10 @@ Rc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
             }
             if (pos)
                 ReadAttributeVec3(pos, dst, vcount, 0,
-                    [](MeshVertex& v, Vec3 x) { v.position = x; });
+                    [](MeshVertex& v, FVec3 x) { v.position = x; });
             if (nrm)
                 ReadAttributeVec3(nrm, dst, vcount, 0,
-                    [](MeshVertex& v, Vec3 x) { v.normal = x; });
+                    [](MeshVertex& v, FVec3 x) { v.normal = x; });
             if (uv0) ReadAttributeUV(uv0, dst, vcount);
 
             // インデックス取得（無ければトライアングルストリップ的に連番生成）
@@ -110,7 +110,7 @@ Rc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 } // namespace
 
 // ---- glTF / GLB (cgltf) -------------------------------------------------
-Result<Rc<Asset>> GltfAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept {
+TResult<TRc<Asset>> GltfAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     cgltf_data* data = nullptr;
     if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
@@ -121,12 +121,12 @@ Result<Rc<Asset>> GltfAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& 
         ::cgltf_free(data);
         return ACS_ERR(Asset, 301, "cgltf_load_buffers failed (external bin not supported in v1)");
     }
-    Rc<MeshAsset> mesh = BuildFromCgltf(data);
+    TRc<MeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return Result<Rc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
-Result<Rc<Asset>> GlbAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept {
+TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     opts.type = cgltf_file_type_glb;
     cgltf_data* data = nullptr;
@@ -136,19 +136,19 @@ Result<Rc<Asset>> GlbAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
         ::cgltf_free(data);
         return ACS_ERR(Asset, 311, "cgltf_load_buffers failed");
     }
-    Rc<MeshAsset> mesh = BuildFromCgltf(data);
+    TRc<MeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return Result<Rc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 // ---- OBJ (自前パーサ、最小機能) -----------------------------------------
 // v / vn / vt / f だけサポート。マテリアルは無視。
-Result<Rc<Asset>> ObjAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept {
+TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
     auto mesh = MakeRc<MeshAsset>();
-    Array<Vec3> positions;
-    Array<Vec3> normals;
+    TArray<FVec3> positions;
+    TArray<FVec3> normals;
     struct UV { f32 u, v; };
-    Array<UV> uvs;
+    TArray<UV> uvs;
 
     const char* p = reinterpret_cast<const char*>(bytes.Data());
     const char* end = p + bytes.Size();
@@ -182,13 +182,13 @@ Result<Rc<Asset>> ObjAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
             f32 x = parse_f32(p);
             f32 y = parse_f32(p);
             f32 z = parse_f32(p);
-            positions.PushBack(Vec3(x, y, z));
+            positions.PushBack(FVec3(x, y, z));
         } else if (p[0] == 'v' && p[1] == 'n') {
             p += 2;
             f32 x = parse_f32(p);
             f32 y = parse_f32(p);
             f32 z = parse_f32(p);
-            normals.PushBack(Vec3(x, y, z));
+            normals.PushBack(FVec3(x, y, z));
         } else if (p[0] == 'v' && p[1] == 't') {
             p += 2;
             f32 u = parse_f32(p);
@@ -240,11 +240,11 @@ Result<Rc<Asset>> ObjAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
     sub.first_index = 0;
     sub.index_count = static_cast<u32>(mesh->Indices().Size());
     mesh->SubMeshes().PushBack(sub);
-    return Result<Rc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 // ---- FBX (ufbx) ---------------------------------------------------------
-Result<Rc<Asset>> FbxAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& bytes) noexcept {
+TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
     ufbx_load_opts opts{};
     ufbx_error err{};
     ufbx_scene* scene = ::ufbx_load_memory(bytes.Data(), bytes.Size(), &opts, &err);
@@ -256,7 +256,7 @@ Result<Rc<Asset>> FbxAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
         ufbx_mesh* fm = scene->meshes.data[mi];
         // 三角形化（ufbx の標準ヘルパ）
         usize tri_count = fm->num_triangles;
-        Array<u32> tri_indices;
+        TArray<u32> tri_indices;
         tri_indices.Resize(tri_count * 3);
         usize triangle_idx = 0;
         for (size_t fi = 0; fi < fm->num_faces; ++fi) {
@@ -277,8 +277,8 @@ Result<Rc<Asset>> FbxAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
             ufbx_vec3 n = fm->vertex_normal.exists ? ::ufbx_get_vertex_vec3(&fm->vertex_normal, fi) : ufbx_vec3{0,0,0};
             ufbx_vec2 t = fm->vertex_uv.exists ? ::ufbx_get_vertex_vec2(&fm->vertex_uv, fi) : ufbx_vec2{0,0};
             MeshVertex v{};
-            v.position = Vec3(static_cast<f32>(p.x), static_cast<f32>(p.y), static_cast<f32>(p.z));
-            v.normal   = Vec3(static_cast<f32>(n.x), static_cast<f32>(n.y), static_cast<f32>(n.z));
+            v.position = FVec3(static_cast<f32>(p.x), static_cast<f32>(p.y), static_cast<f32>(p.z));
+            v.normal   = FVec3(static_cast<f32>(n.x), static_cast<f32>(n.y), static_cast<f32>(n.z));
             v.u        = static_cast<f32>(t.x);
             v.v        = static_cast<f32>(t.y);
             u32 idx = static_cast<u32>(mesh->Vertices().Size());
@@ -290,7 +290,7 @@ Result<Rc<Asset>> FbxAssetLoader::LoadFromBytes(AssetId id, const Array<byte>& b
         vertex_offset = static_cast<u32>(mesh->Vertices().Size());
     }
     ::ufbx_free_scene(scene);
-    return Result<Rc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 } // namespace acs

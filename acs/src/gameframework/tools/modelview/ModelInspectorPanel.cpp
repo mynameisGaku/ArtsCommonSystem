@@ -48,7 +48,7 @@ void ModelInspectorPanel::Init() noexcept {
 }
 
 void ModelInspectorPanel::Shutdown() noexcept {
-    // Array の容量も解放したいので Clear() に追加して何もしない (Array は
+    // TArray の容量も解放したいので Clear() に追加して何もしない (TArray は
     // Clear で要素数 0、Destruct で容量解放)。ここでは要素破棄のみで十分
     // (panel 自身の destructor が容量を解放する)。
     _summary    = MeshSummary{};
@@ -82,7 +82,7 @@ void ModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
         _submeshes.Reserve(submesh_count);
         for (u32 i = 0; i < submesh_count; ++i) {
             // SubmeshInfo は POD (const char* + u32 三つ) なので値コピーで OK。
-            // Array::PushBack は perfect forward され T(...) で構築する。
+            // TArray::PushBack は perfect forward され T(...) で構築する。
             _submeshes.PushBack(submeshes[i]);
         }
     }

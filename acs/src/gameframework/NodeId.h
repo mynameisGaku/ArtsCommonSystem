@@ -34,7 +34,7 @@
 // 注意:
 //   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
 //     (`& 0x00FFFFFFu`)。これは ShapeId と完全に同じ挙動。生成側 (NodePool 等)
-//     で assert / Result<E> を入れて 16M 越えを検出する責務。
+//     で assert / TResult<E> を入れて 16M 越えを検出する責務。
 #pragma once
 
 #include "foundation/Types.h"

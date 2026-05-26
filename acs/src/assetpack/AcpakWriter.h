@@ -62,7 +62,7 @@ public:
     //     ACS_ERR(Asset, kAcpakSubCryptoKey) を返す (Open 自体は成功する)。
     //   ・既に Open 状態なら ACS_ERR(IO, kAcpakSubAlreadyOpen)。
     //   ・成功すると以降 AddFile / Finalize が呼べる。
-    Result<void> Open(const wchar_t* output_path, EAcpakFlags flags) noexcept;
+    TResult<void> Open(const wchar_t* output_path, EAcpakFlags flags) noexcept;
 
     // 暗号化用の鍵を設定する。Open 前後どちらでも呼べる。
     // flags に AcpakFlagEncrypted が含まれているときに Finalize で使われる。
@@ -82,7 +82,7 @@ public:
     //   ・data / size はそのファイルの生バイト列。同様にポインタ寿命を保つ。
     //   ・Open 前に呼ぶと ACS_ERR(IO, kAcpakSubNotOpen)。
     //   ・size 0 のファイルも追加可能 (offset は header の直後を指す)。
-    Result<void> AddFile(const wchar_t* virtual_path,
+    TResult<void> AddFile(const wchar_t* virtual_path,
                          const void*    data,
                          u64            size) noexcept;
 
@@ -91,7 +91,7 @@ public:
     //   ・各ファイルの CRC32 を計算し、file table の crc32 フィールドに格納する。
     //   ・成功時はハンドルが flush 済 (Close を呼んでよい)。
     //   ・Open 前 / 2 回目の呼び出しは ACS_ERR(IO, kAcpakSubNotOpen)。
-    Result<void> Finalize() noexcept;
+    TResult<void> Finalize() noexcept;
 
 private:
     // pending entry の生表現。AddFile が積み、Finalize が消費する。
@@ -108,7 +108,7 @@ private:
     void*               _file_handle = nullptr;   // Win32 HANDLE 相当
     u32                 _flags       = 0;         // header.flags
     bool                _finalized   = false;     // Finalize 済か
-    Array<PendingEntry> _pending;                 // AddFile が積んだ entry 群
+    TArray<PendingEntry> _pending;                 // AddFile が積んだ entry 群
 
     // Phase 2: 暗号化鍵 (AcpakFlagEncrypted のときに Finalize で使う)。
     AcpakKey            _key{};

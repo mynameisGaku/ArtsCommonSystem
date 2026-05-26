@@ -53,7 +53,7 @@
 //   cs.Tick(dt);
 //
 // 設計選択 (ジャンルキット survival / crafting):
-//   ・**レシピは単一 Array<CraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
+//   ・**レシピは単一 TArray<CraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
 //     線形検索で十分。EconomyDirector / InventorySystem と同じ判断。
 //   ・**Ingredient 配列は非所有**: CraftRecipe::ingredients は呼出側が長寿命を保証する
 //     生バッファ (static / global 配列、リソースバンドル) を指す。文字列 id も同様
@@ -80,7 +80,7 @@
 //   ・**required_workbench は nullptr / "" で「不要」**: 素手で作れる recipe を表現可能。
 //   ・**重複登録は黙って弾く + WARN**: EconomyDirector / InventorySystem と同パターン。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
-//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有 + acs::Array のみ。
+//   ・**STL 不使用、`<string>` 禁止**: const char* 非所有 + acs::TArray のみ。
 //
 // 範囲外 (ジャンルキット Phase 2+ で):
 //   ・並列クラフトキュー — 必要ならインスタンスを複数持つ。
@@ -263,7 +263,7 @@ private:
     u32 FindRecipeSlot(const char* recipe_id) const noexcept;
 
     // レシピ定義 (起動時 immutable)。
-    Array<CraftRecipe> _recipes;
+    TArray<CraftRecipe> _recipes;
 
     // インベントリ adapter (C 関数ポインタ + user)。
     InventoryQueryFn   _query   = nullptr;

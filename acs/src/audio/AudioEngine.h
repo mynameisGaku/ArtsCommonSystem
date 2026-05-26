@@ -6,7 +6,7 @@
 //   engine.Init();
 //
 //   // AudioAsset (wav/mp3/flac/ogg) を Asset モジュールから取得
-//   Rc<Asset> asset = registry.Load(L"sound/bgm.ogg").Value();
+//   TRc<Asset> asset = registry.Load(L"sound/bgm.ogg").Value();
 //   auto* audio = static_cast<AudioAsset*>(asset.Get());
 //
 //   // 再生 (volume 0..1, loop は繰り返し)
@@ -38,7 +38,7 @@ public:
     AudioEngine& operator=(const AudioEngine&) = delete;
 
     // XAudio2 を初期化
-    Result<void> Init() noexcept;
+    TResult<void> Init() noexcept;
     // 全停止 + 解放
     void Shutdown() noexcept;
 

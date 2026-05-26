@@ -52,7 +52,7 @@
 //     static char[N] 等)。
 //   ・**category enable/disable**: "ui" や "debug" など、ビルドや A/B テストで
 //     送りたくないカテゴリを runtime で間引けるよう、許可リスト方式の bit に
-//     せず可変 Array<CategoryFilter> で持つ。件数は通常 10〜30 程度なので
+//     せず可変 TArray<CategoryFilter> で持つ。件数は通常 10〜30 程度なので
 //     線形検索で十分。default は「未登録 = enabled」とし、明示的に false を
 //     設定したカテゴリだけ落とす (= explicit deny list)。
 //   ・**PrivacyDirector attach optional**: nullptr 注入時は consent ガードを
@@ -75,7 +75,7 @@
 
 namespace acs::game {
 
-// BackendClient.h / PrivacyDirector.h を引き込むと Result<T> 等 foundation 系も
+// BackendClient.h / PrivacyDirector.h を引き込むと TResult<T> 等 foundation 系も
 // 芋づるで広がる。本ヘッダは公開 API のみ薄く保つ方針なので、interface /
 // class は forward declare に留めて、実体 include は .cpp 側で行う。
 class IBackendClient;
@@ -184,11 +184,11 @@ private:
     bool IsCategoryEnabledInternal(const char* category) const noexcept;
 
     // queue 上限到達時に最古 1 件を drop して 1 件分の枠を空ける。
-    // FIFO 順序は保たない (Array::RemoveAtSwap 経由) が、TimestampでGUI側
+    // FIFO 順序は保たない (TArray::RemoveAtSwap 経由) が、TimestampでGUI側
     // でソートする運用を想定。
     void DropOldestIfFull() noexcept;
 
-    // category 名と enabled flag の組。Array<...> の要素型。
+    // category 名と enabled flag の組。TArray<...> の要素型。
     struct CategoryFilter {
         const char* category = nullptr;  // 非所有 (リテラル想定)
         bool        enabled  = true;
@@ -198,8 +198,8 @@ private:
     // できる目安。AAA タイトルでも通常 1〜2 evt/sec なので 100 件は十分。
     static constexpr u32 kMaxPending = 100;
 
-    Array<TelemetryEvent>  _pending;        // 送信待ち event queue
-    Array<CategoryFilter>  _filters;        // category 別 enable/disable
+    TArray<TelemetryEvent>  _pending;        // 送信待ち event queue
+    TArray<CategoryFilter>  _filters;        // category 別 enable/disable
 
     IBackendClient*        _backend  = nullptr;  // 注入 (寿命は呼出側)
     PrivacyDirector*       _privacy  = nullptr;  // optional 注入

@@ -52,7 +52,7 @@
 //
 //           kf.time_sec = 2.0f;
 //           kf.kind     = ETimelineTrackKind::MoveCamera;
-//           kf.payload.camera = {Vec2{100, 200}, 1.5f, 3.0f};
+//           kf.payload.camera = {FVec2{100, 200}, 1.5f, 3.0f};
 //           _cine.AddKeyframe(kf);
 //
 //           kf.time_sec = 3.0f;
@@ -103,7 +103,7 @@ struct TimelineKeyframe {
 
     union Payload {
         struct {
-            Vec2 target_pos;   // カメラを向けたい world 座標
+            FVec2 target_pos;   // カメラを向けたい world 座標
             f32  zoom;         // 目標 zoom 倍率 (1.0 = 等倍)
             f32  duration;     // カメラ移動にかける秒数 (caller が Tween 等で消化)
         } camera;
@@ -126,7 +126,7 @@ struct TimelineKeyframe {
 
 // 各 track 種別の発火 callback signature。
 // すべて noexcept で user は SetXxxCallback 時に渡したコンテキスト (this 想定)。
-using CameraCallbackFn   = void(*)(void* user, Vec2 target_pos, f32 zoom, f32 duration) noexcept;
+using CameraCallbackFn   = void(*)(void* user, FVec2 target_pos, f32 zoom, f32 duration) noexcept;
 using DialogueCallbackFn = void(*)(void* user, const char* line_id) noexcept;
 using MusicCallbackFn    = void(*)(void* user, const char* music_id, f32 fade) noexcept;
 using EventCallbackFn    = void(*)(void* user, u32 event_id) noexcept;
@@ -196,7 +196,7 @@ private:
     void FireOne(const TimelineKeyframe& kf) noexcept;
 
     // 全 keyframe (time_sec 昇順、stable sort 維持)
-    Array<TimelineKeyframe> _keyframes;
+    TArray<TimelineKeyframe> _keyframes;
 
     // 現在のタイムライン時刻 [秒]、Play 開始時に 0 (Resume 時は維持)
     f32 _time = 0.0f;

@@ -15,7 +15,7 @@ namespace hellolightmap {
 // 1 面を初期化 (mesh upload + 平面パラメータ設定)。
 // world 法線は手書きせず、ローカル +Y を model で変換して導出する。
 void InitQuad(acs::IRhiDevice& dev, Quad& q, acs::f32 w, acs::f32 h,
-              const acs::Mat4& model, acs::Vec3 albedo,
+              const acs::FMat4& model, acs::FVec3 albedo,
               acs::i32 axis, acs::f32 axis_value,
               acs::f32 u_min, acs::f32 u_max,
               acs::f32 v_min, acs::f32 v_max,

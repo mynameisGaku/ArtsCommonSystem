@@ -126,7 +126,7 @@ bool Random::NextBool(f32 true_probability) noexcept {
     return NextF32Unit() < true_probability;
 }
 
-Vec2 Random::PointInCircle(f32 radius) noexcept {
+FVec2 Random::PointInCircle(f32 radius) noexcept {
     // Rejection sampling: [-1,1]^2 box でサンプル、単位円内に入るまで再試行。
     // 一様性は厳密。平均試行回数は 4/π ≒ 1.273 回 (期待値)、最大は確率的に小。
     // ループ脱出保証: bool 評価が常に確定する有限プロセス (ハード上限を持たない
@@ -136,15 +136,15 @@ Vec2 Random::PointInCircle(f32 radius) noexcept {
         const f32 y = NextF32Unit() * 2.0f - 1.0f;
         const f32 d2 = x * x + y * y;
         if (d2 <= 1.0f) {
-            return Vec2{ x * radius, y * radius };
+            return FVec2{ x * radius, y * radius };
         }
     }
 }
 
-Vec2 Random::PointOnCircle(f32 radius) noexcept {
+FVec2 Random::PointOnCircle(f32 radius) noexcept {
     // 角度を [0, 2π) で一様にサンプル、(cos, sin) で円周上の点へ。
     const f32 theta = NextF32Unit() * kTwoPi;
-    return Vec2{ Cos(theta) * radius, Sin(theta) * radius };
+    return FVec2{ Cos(theta) * radius, Sin(theta) * radius };
 }
 
 u32 Random::WeightedChoice(const f32* weights, u32 count) noexcept {

@@ -11,9 +11,9 @@ using namespace acs;
 
 namespace helloibl {
 
-Result<UniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
+TResult<TUniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
     constexpr u32 kSize = 256;
-    Array<u8> rgba; rgba.Resize(static_cast<usize>(kSize) * kSize * 4u);
+    TArray<u8> rgba; rgba.Resize(static_cast<usize>(kSize) * kSize * 4u);
 
     // 球グリッドのパラメータ (OnCustomFrame の draw 計算と一致)
     constexpr u32 kGrid = 5;
@@ -23,13 +23,13 @@ Result<UniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
     constexpr f32 kCenterZ = 3.0f;
     constexpr f32 kPlaneY = -0.6f;
     constexpr f32 kPlaneSize = 40.0f;    // MakePlane(40,40)
-    const Vec3 kSkyColor{0.85f, 0.92f, 1.0f};   // 弱い暖青 (Day sky horizon 近似)
+    const FVec3 kSkyColor{0.85f, 0.92f, 1.0f};   // 弱い暖青 (Day sky horizon 近似)
 
     for (u32 y = 0; y < kSize; ++y) {
         for (u32 x = 0; x < kSize; ++x) {
             const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kSize);
             const f32 v = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(kSize);
-            // Plane UV は [0,1] が plane center (40x40) を覆う想定。
+            // FPlane UV は [0,1] が plane center (40x40) を覆う想定。
             // MakePlane の uv 規約に合わせ、中心 (0, kPlaneY, kCenterZ) からの XZ。
             const f32 wx = (u - 0.5f) * kPlaneSize;
             const f32 wz = (v - 0.5f) * kPlaneSize + kCenterZ;
@@ -41,15 +41,15 @@ Result<UniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
                 // hemisphere direction (上半球の固定方向)
                 const f32 ang = static_cast<f32>(r) * (2.0f * kPi / static_cast<f32>(kRays));
                 const f32 spread = 0.7f;        // sin(45°) 程度の広がり
-                const Vec3 rd{spread * Cos(ang), 1.0f - spread * 0.5f, spread * Sin(ang)};
-                // 球グリッド 25 個と Ray-Sphere intersection
+                const FVec3 rd{spread * Cos(ang), 1.0f - spread * 0.5f, spread * Sin(ang)};
+                // 球グリッド 25 個と FRay-FSphere intersection
                 bool hit_any = false;
                 for (u32 gy = 0; gy < kGrid && !hit_any; ++gy) {
                     for (u32 gx = 0; gx < kGrid && !hit_any; ++gx) {
                         const f32 px = (static_cast<f32>(gx) - 2.0f) * kSpacing;
                         const f32 py = (static_cast<f32>(gy) - 2.0f) * kSpacing + kCenterY;
-                        const Vec3 sp{px, py, kCenterZ};
-                        const Vec3 oc{wx - sp.x, kPlaneY - sp.y, wz - sp.z};
+                        const FVec3 sp{px, py, kCenterZ};
+                        const FVec3 oc{wx - sp.x, kPlaneY - sp.y, wz - sp.z};
                         const f32 b = oc.x*rd.x + oc.y*rd.y + oc.z*rd.z;
                         const f32 c = oc.x*oc.x + oc.y*oc.y + oc.z*oc.z - kSphereR*kSphereR;
                         const f32 disc = b*b - c;
@@ -63,7 +63,7 @@ Result<UniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
             }
             const f32 vis = 1.0f - static_cast<f32>(hit_count) / static_cast<f32>(kRays);
             // 結果は sky_color * visibility (RGB)。8-bit に量子化。
-            const Vec3 lm{kSkyColor.x * vis, kSkyColor.y * vis, kSkyColor.z * vis};
+            const FVec3 lm{kSkyColor.x * vis, kSkyColor.y * vis, kSkyColor.z * vis};
             const usize idx = (static_cast<usize>(y) * kSize + x) * 4u;
             rgba[idx + 0] = static_cast<u8>(Saturate(lm.x) * 255.0f);
             rgba[idx + 1] = static_cast<u8>(Saturate(lm.y) * 255.0f);
@@ -79,7 +79,7 @@ Result<UniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
     td.initial_data_size = rgba.Size();
     auto r = CreateRhiTexture(dev, td);
     if (r.IsErr()) {
-        return Err<UniquePtr<IRhiTexture>>(r.Error());
+        return Err<TUniquePtr<IRhiTexture>>(r.Error());
     }
     return Ok(Move(r.Value()));
 }

@@ -18,12 +18,12 @@
 //     知らなくて済む。
 //
 // 設計選択:
-//   ・**非コピー / 非ムーブ**: 内部 `Array<ParticleEmitterDef>` の所有を
+//   ・**非コピー / 非ムーブ**: 内部 `TArray<ParticleEmitterDef>` の所有を
 //     曖昧にしない。ACS の他 system (InspectorSeam, ParticleEffectSystem 等)
 //     と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range 等を no-op /
 //     null で表現。
-//   ・**STL 不使用**: emitter list は `acs::Array<ParticleEmitterDef>`。
+//   ・**STL 不使用**: emitter list は `acs::TArray<ParticleEmitterDef>`。
 //   ・**ImGui ヘッダは .cpp 側のみ include**: header からは imgui 依存を
 //     漏らさず、ヘッダだけ見ても include order を意識せずに済むようにする。
 //   ・**SaveCallback / LoadCallback は raw function pointer + void* user**:
@@ -89,7 +89,7 @@ public:
     ParticleEditorPanel() noexcept = default;
     ~ParticleEditorPanel() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 Array<ParticleEmitterDef> の所有を曖昧にしない。
+    // 非コピー・非ムーブ: 内部 TArray<ParticleEmitterDef> の所有を曖昧にしない。
     ParticleEditorPanel(const ParticleEditorPanel&)            = delete;
     ParticleEditorPanel& operator=(const ParticleEditorPanel&) = delete;
     ParticleEditorPanel(ParticleEditorPanel&&)                 = delete;
@@ -99,7 +99,7 @@ public:
     // 多重 Init 可能 (= 完全リセット)。
     void Init() noexcept;
 
-    // 後片付け: emitter list を解放 (Array は実体破棄時にも解放するため
+    // 後片付け: emitter list を解放 (TArray は実体破棄時にも解放するため
     // 明示 Shutdown は冪等)。多重 Shutdown 可能。
     void Shutdown() noexcept;
 
@@ -163,11 +163,11 @@ public:
     void ClearDirty() noexcept { _dirty = false; }
 
 private:
-    Array<ParticleEmitterDef> _emitters {};
+    TArray<ParticleEmitterDef> _emitters {};
     // editor 専用の「将来 ParticleEmitterDef に追加される予定」の値。
     // 現状 ParticleEmitterDef に spread_radians フィールドが無いので、
     // editor 側のみで持つ。長さは _emitters と同期する。
-    Array<f32>                _extra_spread_radians {};
+    TArray<f32>                _extra_spread_radians {};
 
     i32           _selected     = -1;
     bool          _dirty        = false;

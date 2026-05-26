@@ -54,8 +54,8 @@ public:
     Camera2D& operator=(const Camera2D&) = delete;
 
     // ----- 基本 transform -----
-    Vec2 Position() const noexcept { return _position; }
-    void SetPosition(Vec2 p) noexcept { _position = p; }
+    FVec2 Position() const noexcept { return _position; }
+    void SetPosition(FVec2 p) noexcept { _position = p; }
 
     f32  Zoom() const noexcept { return _zoom; }
     void SetZoom(f32 z) noexcept { _zoom = z > 0.001f ? z : 0.001f; }
@@ -65,7 +65,7 @@ public:
 
     // ----- target follow (毎フレーム値で渡す。stable ptr 不要) -----
     // smoothing: 大きいほど snappier (typical 3..10)。0 以下で即座にスナップ。
-    void SetTargetPos(Vec2 target_pos, f32 smoothing = 5.0f) noexcept {
+    void SetTargetPos(FVec2 target_pos, f32 smoothing = 5.0f) noexcept {
         _target_pos = target_pos;
         _smoothing  = smoothing;
         _has_target = true;
@@ -84,13 +84,13 @@ public:
     void SetShakeDecayRate(f32 r) noexcept { _shake_decay = r; }
 
     // shake オフセット込みの実 view center
-    Vec2 EffectiveViewCenter() const noexcept {
-        return Vec2{_position.x + _shake_offset.x,
+    FVec2 EffectiveViewCenter() const noexcept {
+        return FVec2{_position.x + _shake_offset.x,
                      _position.y + _shake_offset.y};
     }
 
     // ----- world bounds clamp -----
-    void SetBounds(Vec2 min, Vec2 max) noexcept {
+    void SetBounds(FVec2 min, FVec2 max) noexcept {
         _bounds_min = min;
         _bounds_max = max;
         _has_bounds = true;
@@ -100,7 +100,7 @@ public:
 
     // ----- 座標変換 -----
     // 画面ピクセル → world 座標 (画面中心が view center、zoom > 1 で拡大)
-    Vec2 ScreenToWorld(Vec2 screen, u32 screen_w, u32 screen_h) const noexcept {
+    FVec2 ScreenToWorld(FVec2 screen, u32 screen_w, u32 screen_h) const noexcept {
         const f32 cx = static_cast<f32>(screen_w) * 0.5f;
         const f32 cy = static_cast<f32>(screen_h) * 0.5f;
         const f32 dx = (screen.x - cx) / _zoom;
@@ -110,12 +110,12 @@ public:
         const f32 s = Sin(-_rotation);
         const f32 rx = dx * c - dy * s;
         const f32 ry = dx * s + dy * c;
-        const Vec2 vc = EffectiveViewCenter();
-        return Vec2{vc.x + rx, vc.y + ry};
+        const FVec2 vc = EffectiveViewCenter();
+        return FVec2{vc.x + rx, vc.y + ry};
     }
 
-    Vec2 WorldToScreen(Vec2 world, u32 screen_w, u32 screen_h) const noexcept {
-        const Vec2 vc = EffectiveViewCenter();
+    FVec2 WorldToScreen(FVec2 world, u32 screen_w, u32 screen_h) const noexcept {
+        const FVec2 vc = EffectiveViewCenter();
         const f32 dx = world.x - vc.x;
         const f32 dy = world.y - vc.y;
         const f32 c = Cos(_rotation);
@@ -124,7 +124,7 @@ public:
         const f32 ry = dx * s + dy * c;
         const f32 cx = static_cast<f32>(screen_w) * 0.5f;
         const f32 cy = static_cast<f32>(screen_h) * 0.5f;
-        return Vec2{cx + rx * _zoom, cy + ry * _zoom};
+        return FVec2{cx + rx * _zoom, cy + ry * _zoom};
     }
 
     // ----- driver (Services が PostUpdate で自動呼出) -----
@@ -157,22 +157,22 @@ public:
     }
 
 private:
-    Vec2 _position    {0.0f, 0.0f};
+    FVec2 _position    {0.0f, 0.0f};
     f32  _zoom         = 1.0f;
     f32  _rotation     = 0.0f;
 
-    Vec2 _target_pos  {0.0f, 0.0f};
+    FVec2 _target_pos  {0.0f, 0.0f};
     f32  _smoothing    = 5.0f;
     bool _has_target   = false;
 
     f32  _trauma           = 0.0f;
-    Vec2 _shake_offset    {0.0f, 0.0f};
+    FVec2 _shake_offset    {0.0f, 0.0f};
     f32  _shake_seed       = 0.0f;
     f32  _shake_amplitude  = 0.5f;     // world units max @ trauma=1
     f32  _shake_decay      = 1.0f;     // 1.0 → 0.0 を 1 秒で
 
-    Vec2 _bounds_min      {0.0f, 0.0f};
-    Vec2 _bounds_max      {0.0f, 0.0f};
+    FVec2 _bounds_min      {0.0f, 0.0f};
+    FVec2 _bounds_max      {0.0f, 0.0f};
     bool _has_bounds       = false;
 };
 

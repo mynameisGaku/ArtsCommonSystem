@@ -24,7 +24,7 @@
 //       void OnRender() noexcept override {
 //           // ... 通常描画 ...
 //           if (_fade.IsActive()) {
-//               const acs::Vec3 c = _fade.OverlayColor();
+//               const acs::FVec3 c = _fade.OverlayColor();
 //               const f32       a = _fade.OverlayAlpha();
 //               SpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
 //           }
@@ -107,8 +107,8 @@ public:
     f32  OverlayAlpha() const noexcept { return _alpha; }
 
     // Overlay 色 (既定 = black)
-    Vec3 OverlayColor() const noexcept { return _color; }
-    void SetOverlayColor(Vec3 c) noexcept { _color = c; }
+    FVec3 OverlayColor() const noexcept { return _color; }
+    void SetOverlayColor(FVec3 c) noexcept { _color = c; }
 
     // ----- driver -----
     void Tick(f32 dt) noexcept;
@@ -124,7 +124,7 @@ private:
     EFadeKind  _kind          = EFadeKind::None;
 
     f32  _alpha              = 0.0f;
-    Vec3 _color              {0.0f, 0.0f, 0.0f};  // 既定: black
+    FVec3 _color              {0.0f, 0.0f, 0.0f};  // 既定: black
 
     f32  _out_duration       = 0.0f;
     f32  _in_duration        = 0.0f;

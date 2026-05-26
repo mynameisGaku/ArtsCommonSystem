@@ -43,12 +43,12 @@ public:
     Localization& operator=(const Localization&) = delete;
 
     // 現在表示中の言語をファイルから読み込む
-    Result<void> LoadActive  (const wchar_t* path) noexcept { return _active.Load(path); }
-    Result<void> LoadFallback(const wchar_t* path) noexcept { return _fallback.Load(path); }
+    TResult<void> LoadActive  (const wchar_t* path) noexcept { return _active.Load(path); }
+    TResult<void> LoadFallback(const wchar_t* path) noexcept { return _fallback.Load(path); }
 
     // バイト列から（埋め込み用）
-    Result<void> LoadActiveBytes  (const u8* data, usize size) noexcept { return _active.LoadFromBytes(data, size); }
-    Result<void> LoadFallbackBytes(const u8* data, usize size) noexcept { return _fallback.LoadFromBytes(data, size); }
+    TResult<void> LoadActiveBytes  (const u8* data, usize size) noexcept { return _active.LoadFromBytes(data, size); }
+    TResult<void> LoadFallbackBytes(const u8* data, usize size) noexcept { return _fallback.LoadFromBytes(data, size); }
 
     // active と fallback を入替え（言語切替の便利関数）
     void Swap() noexcept;

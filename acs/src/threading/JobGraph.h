@@ -61,7 +61,7 @@ public:
     void AddDependency(JobHandle upstream, JobHandle downstream) noexcept;
 
     // 全 job を ThreadPool に投入。依存 0 の job が即座に走り始める。
-    Result<void> Submit() noexcept;
+    TResult<void> Submit() noexcept;
 
     // 全 job 完了まで block (待機中もスティーリングに参加)
     void Wait() noexcept;
@@ -83,11 +83,11 @@ private:
         void*          user             = nullptr;
         Atomic<u32>    deps_remaining   {0};
         u32            initial_deps     = 0;     // Reset 用に保存
-        Array<u32>     dependents;               // この job が完了すると起動する job の index 群
+        TArray<u32>     dependents;               // この job が完了すると起動する job の index 群
         JobGraph*      owner            = nullptr;
     };
 
-    Array<Job*>        _jobs;
+    TArray<Job*>        _jobs;
     CompletionCounter  _counter;
     bool               _submitted       = false;
 };

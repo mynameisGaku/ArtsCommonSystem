@@ -13,7 +13,7 @@
 //     player_id 順は問わない (4 人対戦なら 4 frame だけ走査する)。
 //   ・ComputeChecksum は FNV-1a-like u64。OFFSET_BASIS = 0xCBF29CE484222325,
 //     PRIME = 0x100000001B3。各 InputFrame の bit パターンを 8 バイト境界で
-//     消費する単純実装。Vec2 の f32 ビットは memcpy 経由で u32 に読み替え
+//     消費する単純実装。FVec2 の f32 ビットは memcpy 経由で u32 に読み替え
 //     (strict aliasing 違反回避)。
 //   ・FNV を選んだ理由: STL 不使用 + ヘッダ追加なしで 5 行で書ける。
 //     replay 同期ずれ検知 (1〜2 bit 差分が大半) には十分な avalanche を持つ。
@@ -128,7 +128,7 @@ u64 Lockstep::ComputeChecksum() const noexcept {
         h = FnvFoldU32(h, f.tick);
         h = FnvFoldU32(h, f.player_id);
         h = FnvFold(h, f.buttons);
-        // Vec2 axis は f32 のビット表現を u32 として混ぜる。
+        // FVec2 axis は f32 のビット表現を u32 として混ぜる。
         // -0.0f と +0.0f を区別したくない場合は呼び出し側で正規化する責任。
         h = FnvFoldU32(h, BitsOf(f.axis.x));
         h = FnvFoldU32(h, BitsOf(f.axis.y));
@@ -153,7 +153,7 @@ void Lockstep::Clear() noexcept {
 //   4. write frames (bulk memcpy)
 //   5. write crc32(frames) footer
 //   6. out_written = required
-Result<void> Lockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
+TResult<void> Lockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
     out_written = 0;
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
@@ -161,7 +161,7 @@ Result<void> Lockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noex
     }
     (void)size;
     // Phase 1: 実 I/O は未接続。"動くが必ず失敗する" stub にしておき、
-    // 呼び出し側 (replay 保存 UI / テスト) が Result を握りつぶさない設計を強制する。
+    // 呼び出し側 (replay 保存 UI / テスト) が TResult を握りつぶさない設計を強制する。
     return ACS_ERR(IO, kSub_NotImplemented,
                    "Lockstep::SaveToBuffer is not yet implemented (Phase M-1 stub)");
 }
@@ -177,7 +177,7 @@ Result<void> Lockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noex
 //   5. crc32 計算 → footer と不一致なら kSub_BadCrc
 //   6. _frames.Clear(); _frames.Reserve(frame_count); 順次 PushBack
 //   7. _tick_rate_hz / _current_tick を 0 にリセット (StartReplay 待ち状態)
-Result<void> Lockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
+TResult<void> Lockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
                        "Lockstep::LoadFromBuffer: buffer is null");

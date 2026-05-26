@@ -94,10 +94,10 @@ const SpriteFrame* SpritePack::AllFrames(u32& out_count) const noexcept {
 // UV 計算
 // ============================================================================
 
-acs::Vec4 SpritePack::ComputeUv(const SpriteFrame& frame) const noexcept {
+acs::FVec4 SpritePack::ComputeUv(const SpriteFrame& frame) const noexcept {
     // atlas size が未設定 (0) なら 0 除算回避で zero UV。
     if (_info.atlas_width == 0 || _info.atlas_height == 0) {
-        return acs::Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+        return acs::FVec4(0.0f, 0.0f, 0.0f, 0.0f);
     }
     const f32 inv_w = 1.0f / static_cast<f32>(_info.atlas_width);
     const f32 inv_h = 1.0f / static_cast<f32>(_info.atlas_height);
@@ -105,7 +105,7 @@ acs::Vec4 SpritePack::ComputeUv(const SpriteFrame& frame) const noexcept {
     const f32 v0 = static_cast<f32>(frame.y)            * inv_h;
     const f32 u1 = static_cast<f32>(frame.x + frame.w)  * inv_w;
     const f32 v1 = static_cast<f32>(frame.y + frame.h)  * inv_h;
-    return acs::Vec4(u0, v0, u1, v1);
+    return acs::FVec4(u0, v0, u1, v1);
 }
 
 } // namespace acs::game

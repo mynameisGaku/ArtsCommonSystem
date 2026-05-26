@@ -99,7 +99,7 @@ public:
     ModRegistry& operator=(ModRegistry&&)      = delete;
 
     // ----- 登録 -----
-    // info を内部 Array にコピーで追加する (ModInfo は POD なので浅いコピーで OK、
+    // info を内部 TArray にコピーで追加する (ModInfo は POD なので浅いコピーで OK、
     // ただし指している文字列バッファの寿命は呼び出し側が保証する)。
     // id == nullptr のエントリは無視 (警告ログのみ)。
     void Register(const ModInfo& info) noexcept;
@@ -128,7 +128,7 @@ private:
     // 内部の id 比較ヘルパ (両者 nullptr 安全)。
     static bool IdEquals(const char* a, const char* b) noexcept;
 
-    Array<ModInfo> _mods;
+    TArray<ModInfo> _mods;
 };
 
 } // namespace acs::game

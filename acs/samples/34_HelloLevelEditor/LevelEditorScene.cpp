@@ -46,8 +46,8 @@ void LevelEditorScene::OnEnter() noexcept {
 
     // 初期視点を tilemap 全体が画面に収まる位置へ。
     _level_panel.Camera().FrameToBoundingBox2D(
-        Vec2{0.0f, 0.0f},
-        Vec2{static_cast<f32>(_tilemap.Width())  * _tilemap.TileSize(),
+        FVec2{0.0f, 0.0f},
+        FVec2{static_cast<f32>(_tilemap.Width())  * _tilemap.TileSize(),
              static_cast<f32>(_tilemap.Height()) * _tilemap.TileSize()});
 
     ACS_LOG_INFO("[LevelEditor] entered (tilemap 32x32 / 2 layer / tile_size=16, 4 ブラシ + workspace + theme)");

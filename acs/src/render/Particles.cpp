@@ -12,72 +12,72 @@ namespace acs {
 
 // ===== プリセット ===========================================================
 
-EmitterDesc EmitterDesc::Fire(Vec2 pos) noexcept {
+EmitterDesc EmitterDesc::Fire(FVec2 pos) noexcept {
     EmitterDesc d{};
     d.position           = pos;
-    d.spawn_offset_min   = Vec2{-6, 0};
-    d.spawn_offset_max   = Vec2{ 6, 0};
-    d.velocity           = Vec2{0, -120};
-    d.velocity_variance  = Vec2{40, 30};
-    d.gravity            = Vec2{0, -50};        // 上方向の浮力 (画面 Y は下が +)
+    d.spawn_offset_min   = FVec2{-6, 0};
+    d.spawn_offset_max   = FVec2{ 6, 0};
+    d.velocity           = FVec2{0, -120};
+    d.velocity_variance  = FVec2{40, 30};
+    d.gravity            = FVec2{0, -50};        // 上方向の浮力 (画面 Y は下が +)
     d.size_start         = 28.0f;
     d.size_end           = 0.0f;
-    d.color_start        = Vec4{1.0f, 0.85f, 0.3f, 1.0f};   // 黄色
-    d.color_end          = Vec4{0.4f, 0.05f, 0.0f, 0.0f};   // 暗赤、透明へ
+    d.color_start        = FVec4{1.0f, 0.85f, 0.3f, 1.0f};   // 黄色
+    d.color_end          = FVec4{0.4f, 0.05f, 0.0f, 0.0f};   // 暗赤、透明へ
     d.life_seconds       = 0.9f;
     d.life_variance      = 0.2f;
     d.rate_per_sec       = 250.0f;
     return d;
 }
 
-EmitterDesc EmitterDesc::Sparks(Vec2 pos) noexcept {
+EmitterDesc EmitterDesc::Sparks(FVec2 pos) noexcept {
     EmitterDesc d{};
     d.position           = pos;
-    d.spawn_offset_min   = Vec2{0, 0};
-    d.spawn_offset_max   = Vec2{0, 0};
-    d.velocity           = Vec2{0, 0};
-    d.velocity_variance  = Vec2{350, 350};       // 全方位に飛び散る
-    d.gravity            = Vec2{0, 600};
+    d.spawn_offset_min   = FVec2{0, 0};
+    d.spawn_offset_max   = FVec2{0, 0};
+    d.velocity           = FVec2{0, 0};
+    d.velocity_variance  = FVec2{350, 350};       // 全方位に飛び散る
+    d.gravity            = FVec2{0, 600};
     d.size_start         = 5.0f;
     d.size_end           = 1.0f;
-    d.color_start        = Vec4{1.0f, 1.0f, 0.7f, 1.0f};
-    d.color_end          = Vec4{1.0f, 0.4f, 0.1f, 0.0f};
+    d.color_start        = FVec4{1.0f, 1.0f, 0.7f, 1.0f};
+    d.color_end          = FVec4{1.0f, 0.4f, 0.1f, 0.0f};
     d.life_seconds       = 0.7f;
     d.life_variance      = 0.3f;
     d.rate_per_sec       = 80.0f;
     return d;
 }
 
-EmitterDesc EmitterDesc::Fountain(Vec2 pos) noexcept {
+EmitterDesc EmitterDesc::Fountain(FVec2 pos) noexcept {
     EmitterDesc d{};
     d.position           = pos;
-    d.spawn_offset_min   = Vec2{-2, 0};
-    d.spawn_offset_max   = Vec2{ 2, 0};
-    d.velocity           = Vec2{0, -500};
-    d.velocity_variance  = Vec2{120, 80};
-    d.gravity            = Vec2{0, 1000};
+    d.spawn_offset_min   = FVec2{-2, 0};
+    d.spawn_offset_max   = FVec2{ 2, 0};
+    d.velocity           = FVec2{0, -500};
+    d.velocity_variance  = FVec2{120, 80};
+    d.gravity            = FVec2{0, 1000};
     d.size_start         = 8.0f;
     d.size_end           = 4.0f;
-    d.color_start        = Vec4{0.6f, 0.85f, 1.0f, 1.0f};
-    d.color_end          = Vec4{0.3f, 0.5f, 0.95f, 0.0f};
+    d.color_start        = FVec4{0.6f, 0.85f, 1.0f, 1.0f};
+    d.color_end          = FVec4{0.3f, 0.5f, 0.95f, 0.0f};
     d.life_seconds       = 1.6f;
     d.life_variance      = 0.2f;
     d.rate_per_sec       = 300.0f;
     return d;
 }
 
-EmitterDesc EmitterDesc::Smoke(Vec2 pos) noexcept {
+EmitterDesc EmitterDesc::Smoke(FVec2 pos) noexcept {
     EmitterDesc d{};
     d.position           = pos;
-    d.spawn_offset_min   = Vec2{-8, -2};
-    d.spawn_offset_max   = Vec2{ 8,  2};
-    d.velocity           = Vec2{0, -40};
-    d.velocity_variance  = Vec2{20, 10};
-    d.gravity            = Vec2{0, -10};
+    d.spawn_offset_min   = FVec2{-8, -2};
+    d.spawn_offset_max   = FVec2{ 8,  2};
+    d.velocity           = FVec2{0, -40};
+    d.velocity_variance  = FVec2{20, 10};
+    d.gravity            = FVec2{0, -10};
     d.size_start         = 16.0f;
     d.size_end           = 64.0f;
-    d.color_start        = Vec4{0.6f, 0.6f, 0.6f, 0.5f};
-    d.color_end          = Vec4{0.3f, 0.3f, 0.3f, 0.0f};
+    d.color_start        = FVec4{0.6f, 0.6f, 0.6f, 0.5f};
+    d.color_end          = FVec4{0.3f, 0.3f, 0.3f, 0.0f};
     d.life_seconds       = 2.5f;
     d.life_variance      = 0.4f;
     d.rate_per_sec       = 40.0f;
@@ -90,7 +90,7 @@ ParticleSystem::~ParticleSystem() noexcept {
     Shutdown();
 }
 
-Result<void> ParticleSystem::Init(u32 max_particles) noexcept {
+TResult<void> ParticleSystem::Init(u32 max_particles) noexcept {
     if (max_particles == 0) max_particles = 1024;
     Shutdown();
     _capacity = max_particles;
@@ -190,9 +190,9 @@ void ParticleSystem::Render(SpriteBatch& sb) noexcept {
         const f32 a = p.color_start.w + (p.color_end.w - p.color_start.w) * t;
         const f32 hs = s * 0.5f;
         if (_tex) {
-            sb.Draw(*_tex, p.pos.x - hs, p.pos.y - hs, s, s, Vec4{r, g, b, a});
+            sb.Draw(*_tex, p.pos.x - hs, p.pos.y - hs, s, s, FVec4{r, g, b, a});
         } else {
-            sb.DrawRect(p.pos.x - hs, p.pos.y - hs, s, s, Vec4{r, g, b, a});
+            sb.DrawRect(p.pos.x - hs, p.pos.y - hs, s, s, FVec4{r, g, b, a});
         }
     }
 }

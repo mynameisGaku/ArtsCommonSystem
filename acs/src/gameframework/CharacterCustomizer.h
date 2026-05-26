@@ -40,9 +40,9 @@
 //   ・**slot は固定 enum**: ECosmeticSlot は 11 種類で固定。slot ごとに最大 1 つの
 //     cosmetic が装着可能 (装着すると同 slot の既存装着は自動で外れる)。
 //     ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
-//   ・**Def + Unlocked 状態を並行 Array で持つ**: AchievementManager と同じ Def/State
+//   ・**Def + Unlocked 状態を並行 TArray で持つ**: AchievementManager と同じ Def/State
 //     分離。CosmeticItem は immutable な定義、unlocked は実行時 bool。1:1 対応で
-//     同 index を共有 (Array<CosmeticItem> + Array<bool>)。
+//     同 index を共有 (TArray<CosmeticItem> + TArray<bool>)。
 //   ・**装着状態は slot indexed const char* 配列**: 線形検索を避けるため、slot を
 //     index にした固定長 const char*[kSlotCount] を持つ。各エントリは「現在装着
 //     されている cosmetic の id」(未装着なら nullptr)。 EquipCosmetic / UnequipSlot
@@ -194,10 +194,10 @@ private:
     u32 FindIndex(const char* id) const noexcept;
 
     // 登録済 cosmetic 定義 (immutable)。
-    Array<CosmeticItem> _items;
+    TArray<CosmeticItem> _items;
 
     // unlock 状態 (_items と並行配列、1:1 対応)。
-    Array<bool> _unlocked;
+    TArray<bool> _unlocked;
 
     // slot ごとの現在装着 id (kCosmeticSlotCount 個の固定長配列)。
     // 値は _items の id をそのまま指すリテラル参照 (非所有)。

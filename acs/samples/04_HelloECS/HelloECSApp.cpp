@@ -97,7 +97,7 @@ void HelloECSApp::OnRender() noexcept {
     const u32 sh = GetRenderer().Swapchain()->Height();
 
     _batch.Begin(*cl, sw, sh);
-    _batch.DrawRect(0, 0, (f32)sw, (f32)sh, Vec4{0.05f, 0.06f, 0.1f, 1});
+    _batch.DrawRect(0, 0, (f32)sw, (f32)sh, FVec4{0.05f, 0.06f, 0.1f, 1});
 
     // 描画は SpriteBatch のコマンド記録がスレッド非安全なので必ず逐次 Each()。
     // EachParallel をここで使うと未定義動作になる。
@@ -105,7 +105,7 @@ void HelloECSApp::OnRender() noexcept {
     GetWorld().Query<Position, Color>().Each(
         [this, r](EntityId, Position& p, Color& c){
             _batch.Draw(*_tex, p.v.x - r, p.v.y - r, r * 2, r * 2,
-                        Vec4{c.r, c.g, c.b, 0.95f});
+                        FVec4{c.r, c.g, c.b, 0.95f});
         });
 
     _batch.End();
@@ -122,8 +122,8 @@ void HelloECSApp::SpawnRandomEntities(u32 n) noexcept {
     World& w = GetWorld();
     for (u32 i = 0; i < n; ++i) {
         EntityId e = w.Create();
-        w.Add(e, Position{ Vec2{ _rnd() * sw, _rnd() * sh } });
-        w.Add(e, Velocity{ Vec2{ (_rnd() - 0.5f) * 200.0f, (_rnd() - 0.5f) * 200.0f } });
+        w.Add(e, Position{ FVec2{ _rnd() * sw, _rnd() * sh } });
+        w.Add(e, Velocity{ FVec2{ (_rnd() - 0.5f) * 200.0f, (_rnd() - 0.5f) * 200.0f } });
         w.Add(e, Color{ 0.5f + _rnd() * 0.5f, 0.5f + _rnd() * 0.5f, 0.5f + _rnd() * 0.5f });
     }
 }

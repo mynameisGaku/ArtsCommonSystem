@@ -51,7 +51,7 @@
 
 namespace acs::assetpack {
 
-// ---- ErrorCode subcode (AcpakCrypto と隣接、1320 番台) -------------------
+// ---- FErrorCode subcode (AcpakCrypto と隣接、1320 番台) -------------------
 inline constexpr u16 kAcpakSubLz4SrcOverflow = 1320; // src cursor が範囲外
 inline constexpr u16 kAcpakSubLz4DstOverflow = 1321; // dst capacity 超過
 inline constexpr u16 kAcpakSubLz4BadOffset   = 1322; // offset 0 / dst 範囲外参照
@@ -75,7 +75,7 @@ public:
     // 主なエラー:
     //   ・ACS_ERR(Asset, kAcpakSubLz4BadInput,    ...) — src/dst nullptr 等
     //   ・ACS_ERR(Asset, kAcpakSubLz4DstOverflow, ...) — dst_capacity 不足
-    static Result<u32> Compress(const u8* src,
+    static TResult<u32> Compress(const u8* src,
                                 u32       src_size,
                                 u8*       dst,
                                 u32       dst_capacity) noexcept;
@@ -90,7 +90,7 @@ public:
     //   ・ACS_ERR(Asset, kAcpakSubLz4SrcOverflow, ...) — 入力が途中で尽きた
     //   ・ACS_ERR(Asset, kAcpakSubLz4DstOverflow, ...) — 出力が dst を超えた
     //   ・ACS_ERR(Asset, kAcpakSubLz4BadOffset,   ...) — match offset が不正
-    static Result<u32> Decompress(const u8* src,
+    static TResult<u32> Decompress(const u8* src,
                                   u32       src_size,
                                   u8*       dst,
                                   u32       dst_capacity) noexcept;

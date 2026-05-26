@@ -55,7 +55,7 @@ ACS UI (`acs::ui::UiLayer`) は **ship 用** に保留している理由:
 ```
 +----------------------------------------------------------------------+
 |                   EditorWorkspace (Phase 21a hub)                    |
-| - panels: Array<EditorPanel*>                                        |
+| - panels: TArray<EditorPanel*>                                        |
 | - DockSpace + MenuBar 自動描画                                       |
 | - SaveLayout/LoadLayout (.acslayout)                                 |
 | - BroadcastSelectionChanged / BroadcastAssetSelected                 |
@@ -324,13 +324,13 @@ ModelViewer (3D) / LevelEditor (2D top-down) / TilemapEditor などが共有す�
 | `void Init(EEditorCameraMode mode)` | Mode2D / Mode3D で完全初期化 |
 | `void SetMode(EEditorCameraMode)` | mode 切替 (state は保持) |
 | `void HandleMouseInput(mouse_delta, lmb, rmb, mmb, wheel)` | 操作系の集約エントリポイント |
-| `void Pan(Vec2 screen_delta)` | 2D は world 平行移動、3D は orbit target 移動 |
+| `void Pan(FVec2 screen_delta)` | 2D は world 平行移動、3D は orbit target 移動 |
 | `void Orbit(f32 yaw_delta, f32 pitch_delta)` | 3D 専用、pitch ±89° clamp |
 | `void Dolly(f32 delta)` | 3D = distance / 2D = zoom_2d |
 | `void Reset()` | 初期状態に戻す |
-| `void FrameToBoundingSphere(Vec3 center, f32 radius)` | 選択へ寄せる |
-| `void FrameToBoundingBox2D(Vec2 min, Vec2 max)` | 2D 専用 |
-| `Mat4 ViewMatrix() / ProjectionMatrix(...)` | LookAt + perspective/ortho |
+| `void FrameToBoundingSphere(FVec3 center, f32 radius)` | 選択へ寄せる |
+| `void FrameToBoundingBox2D(FVec2 min, FVec2 max)` | 2D 専用 |
+| `FMat4 ViewMatrix() / ProjectionMatrix(...)` | LookAt + perspective/ortho |
 | `void Tick(f32 dt)` | smooth target follow (Camera2D と同じ指数補間) |
 
 **操作マッピング**:
@@ -345,8 +345,8 @@ cam.Init(EEditorCameraMode::Mode3D);
 
 cam.HandleMouseInput(mouse_delta, lmb, rmb, mmb, wheel);
 cam.Tick(dt);
-Mat4 view = cam.ViewMatrix();
-Mat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
+FMat4 view = cam.ViewMatrix();
+FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
 cam.FrameToBoundingSphere(node_center, node_radius);
 ```
 
@@ -467,7 +467,7 @@ if (!reg.DrawProperty("Health", ctx)) {
 | `void SetSnapRotate(f32 step_deg)` | 同上、度数 |
 | `void SetSnapScale(f32 step)` | 同上、倍率 |
 | `void ProcessInput(ray_origin, ray_dir, lmb_down, lmb_held, lmb_up)` | drag 開始/継続/終了の遷移管理 |
-| `bool Manipulate(Vec3& pos, Vec3& rot, Vec3& scl)` | drag 中なら inout を in-place 更新、true 戻り |
+| `bool Manipulate(FVec3& pos, FVec3& rot, FVec3& scl)` | drag 中なら inout を in-place 更新、true 戻り |
 | `void DrawGizmo(DebugDraw& dd, pos, rot, scl)` | DebugDraw 経由で軸 + ハンドル描画 |
 | `bool IsDragging() / EGizmoAxis HotAxis()` | 状態問い合わせ |
 | `void SetOnManipulateCallback(cb, user)` | drag 終了時 1 度発火 (UndoStack push 用) |
@@ -486,9 +486,9 @@ gizmo.SetMode(EGizmoMode::Translate);
 gizmo.SetSnapTranslate(0.5f);
 
 gizmo.ProcessInput(ray_o, ray_d, lmb_down, lmb_held, lmb_up);
-Vec3 pos = node.WorldPosition();
-Vec3 rot = node.EulerRotation();
-Vec3 scl = node.WorldScale();
+FVec3 pos = node.WorldPosition();
+FVec3 rot = node.EulerRotation();
+FVec3 scl = node.WorldScale();
 if (gizmo.Manipulate(pos, rot, scl)) {
     node.SetWorldPosition(pos);
     node.SetEulerRotation(rot);
@@ -736,7 +736,7 @@ EditorWorkspace が全 registered panel の OnAssetSelected を順に呼ぶ
 3. 文字列は二重引用符 (現状エスケープなし、ASCII printable のみ)
 4. `#` 始まりはコメント、空行スキップ
 5. 未知 key は無視 (前方互換: 将来 key を増やしても旧ローダで読める)
-6. version 不一致 / parse 失敗は ACS_LOG_WARN で握る (戻り値 silent or Result<T,E>)
+6. version 不一致 / parse 失敗は ACS_LOG_WARN で握る (戻り値 silent or TResult<T,E>)
 
 ### 5.5 callback 駆動 (`SetOn*Callback`)
 
@@ -759,7 +759,7 @@ panel.SetOnXxxCallback(&MyHandler, &my_editor);
 | SelectionService | SelectionChangeCallback (NodeId from, NodeId to) |
 | AssetBrowser | AssetSelectedCallback / AssetDoubleClickedCallback |
 | UndoStack | CommandExecutedCallback (const EditorCommand*, bool is_redo) |
-| EditorGizmo | ManipulateCallback (EGizmoMode, Vec3 delta) |
+| EditorGizmo | ManipulateCallback (EGizmoMode, FVec3 delta) |
 | ModelAnimationPanel | AnimationFrameCallback (u32 clip_index, f32 time_sec) |
 | ModelMaterialPanel | MaterialChangeCallback (u32 slot, const MaterialOverride&) |
 | AnimCurveEditorPanel | CurveChangeCallback (AnimationCurve*) |
@@ -776,7 +776,7 @@ UndoStack 連携は同じ pattern で書ける: callback の中で `New<XxxComma
 | `void Init() noexcept` | 内部 state を default に (多重 Init 可) |
 | `void Shutdown() noexcept` | 解放 (多重 Shutdown 可) |
 | `void DrawUI(...) noexcept` | ImGui::Begin/End まで完結する 1 window 描画 |
-| 非コピー / 非ムーブ | 内部 Array/callback 状態の所有を曖昧にしない |
+| 非コピー / 非ムーブ | 内部 TArray/callback 状態の所有を曖昧にしない |
 | `i32 SelectedIndex()` / `void Select(i32)` | -1 = 未選択 sentinel (`u32` ではなく `i32`) |
 | `void SetOn*Callback(cb, user) noexcept` | nullptr 渡しで解除 |
 
@@ -788,9 +788,9 @@ ACS 全体規約 (詳細は `docs/StyleGuide.md`) を editor 文脈で再確認:
 
 ### 6.1 言語制約 (5 不変条件、StyleGuide §1)
 
-- **STL 不使用**: `<vector>` / `<string>` / `<unordered_map>` / `<memory>` / `<functional>` 全部禁止。代替: `acs::Array<T>` / `acs::String` (使う場合) / `acs::HashMap<K,V>` / `acs::UniquePtr<T>` / 関数ポインタ + `void* user`。
+- **STL 不使用**: `<vector>` / `<string>` / `<unordered_map>` / `<memory>` / `<functional>` 全部禁止。代替: `acs::TArray<T>` / `acs::FString` (使う場合) / `acs::THashMap<K,V>` / `acs::TUniquePtr<T>` / 関数ポインタ + `void* user`。
 - **`<string>` 禁止**: editor 内の文字列は `const char*` (リテラル想定) または `wchar_t[N]` 固定長バッファ (`kMaxPathChars = 512u` 等)。
-- **No exceptions**: `throw` / `try` / `catch` 禁止、全関数 `noexcept`。エラーは `Result<T, ErrorCode>` または silent no-op + `ACS_LOG_WARN`。
+- **No exceptions**: `throw` / `try` / `catch` 禁止、全関数 `noexcept`。エラーは `TResult<T, FErrorCode>` または silent no-op + `ACS_LOG_WARN`。
 - **No RTTI**: `dynamic_cast` / `typeid` 禁止。型識別は `Kind()` で static アドレスを返す idiom (例: `EditorCommand::Kind()`, `BehaviorTreeEditor::EBtKind` enum)。
 - **canonical Callback**: `using Cb = void (*)(void* user, /* payload */) noexcept;`
 
@@ -807,11 +807,11 @@ ACS 全体規約 (詳細は `docs/StyleGuide.md`) を editor 文脈で再確認:
 // ↑ ImGui ヘッダは include しない
 
 class ParticleEditorPanel {
-    // ImVec2 / ImGuiCol_* も使わない (Vec2 / Vec4 で持つ)
+    // ImVec2 / ImGuiCol_* も使わない (FVec2 / FVec4 で持つ)
 };
 ```
 
-理由: editor 上位レイヤから panel を include しても include order が壊れないようにする。EditorTheme が `acs::Vec4` ベースで `EditorThemeColors` を持つのも同じ理由。
+理由: editor 上位レイヤから panel を include しても include order が壊れないようにする。EditorTheme が `acs::FVec4` ベースで `EditorThemeColors` を持つのも同じ理由。
 
 ### 6.3 非コピー / 非ムーブ
 
@@ -830,7 +830,7 @@ public:
 };
 ```
 
-理由: 内部 `Array<T>` + raw pointer + callback の所有を曖昧にしない (ACS 規約)。
+理由: 内部 `TArray<T>` + raw pointer + callback の所有を曖昧にしない (ACS 規約)。
 
 ### 6.4 E-prefix enum (Phase 19a 規約)
 
@@ -961,7 +961,7 @@ Phase 23 CinematicsEditor が完成すると、timeline 上のキーフレーム
   - 4 不変条件: (a) Pillar K seam 上に構築・重複実装しない (b) v1 はすべて in-engine UiKit (c) FMOD/Wwise seam (d) Cinematics editor は CinematicsDirector 上に被せる
   - Phase 56〜58 (著作ツール深度): Particle Editor → BT visual editor + Level editor → FMOD/Wwise seam + Cinematics editor
 - **`docs/StyleGuide.md`** — ACS Coding Style Guide v1
-  - §1 基本不変条件 (No STL / No exceptions / No RTTI / Result<T,E> / canonical Callback)
+  - §1 基本不変条件 (No STL / No exceptions / No RTTI / TResult<T,E> / canonical Callback)
   - §2 命名 (PascalCase / snake_case / E-prefix enum / I-prefix interface)
 - **`docs/ARCHITECTURE.md`** — ACS 全体アーキテクチャ
 - **`docs/QUICKSTART.md`** — beginner-UX 入門 (Phase 4 配布パッケージング含む)

@@ -212,7 +212,7 @@ void AssetBrowser::RebuildEntries() noexcept {
 
     // ----- 重要: pool の Grow による pointer 無効化対策 ---------------
     // 列挙ループ中に AppendPathOffset / AppendNameOffset が複数回呼ばれ、
-    // 内部で Array::Reserve が走ると **既存** pool 内容ごと relocation され、
+    // 内部で TArray::Reserve が走ると **既存** pool 内容ごと relocation され、
     // 過去 iteration で取った wchar_t* / char* が無効化される。これを
     // 避けるため、entry には offset を一時保管し、列挙完走後に
     // pool.Data() からの絶対ポインタへ変換する 2 段構えを取る。
@@ -224,7 +224,7 @@ void AssetBrowser::RebuildEntries() noexcept {
         u64         mtime     = 0;
         bool        is_dir    = false;
     };
-    Array<PendingEntry> pending {};
+    TArray<PendingEntry> pending {};
 
     do {
         // "." / ".." をスキップ。

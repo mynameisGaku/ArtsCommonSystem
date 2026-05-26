@@ -19,13 +19,13 @@ public:
     void OnRender(acs::game::RenderContext& rc) noexcept override;
 
 private:
-    acs::Vec3                  _bg_color  {0.06f, 0.08f, 0.16f};
+    acs::FVec3                  _bg_color  {0.06f, 0.08f, 0.16f};
     acs::game::TweenHandle     _bg_tween  {};
     bool                       _to_bright = true;
     acs::f32                   _pulse_sec = 0.0f;   // "Press Space" の点滅位相
 
-    static constexpr acs::Vec3 kBgDark   {0.06f, 0.08f, 0.16f};
-    static constexpr acs::Vec3 kBgBright {0.16f, 0.20f, 0.35f};
+    static constexpr acs::FVec3 kBgDark   {0.06f, 0.08f, 0.16f};
+    static constexpr acs::FVec3 kBgBright {0.16f, 0.20f, 0.35f};
 };
 
 } // namespace hellofg

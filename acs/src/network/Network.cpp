@@ -14,7 +14,7 @@ namespace {
 Atomic<u32> g_init_count{0};
 }
 
-Result<void> Network::Init() noexcept {
+TResult<void> Network::Init() noexcept {
     // 多重 Init は参照カウントで安全に
     if (g_init_count.FetchAdd(1) > 0) return Ok();
     WSADATA d{};

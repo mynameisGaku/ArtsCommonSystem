@@ -3,12 +3,12 @@
 // ACS Container — ハッシュ関数群
 // -----------------------------------------------------------------------------
 // バイト列用の汎用ハッシュ + 整数 / ポインタ用の高速 finalizer。
-// HashMap や Set の既定ハッシュとして使用。
+// THashMap や Set の既定ハッシュとして使用。
 //
 // 汎用バイトハッシュは xxhash-likes のシンプル版（速度・品質ともに上位）。
 // 整数 / ポインタは Murmur fmix64 系の 1 mul + 2 xor-shift で混ぜる。
 //
-// HashMap 側は「これらの結果は十分混ざっている」と仮定するため、再 mix を
+// THashMap 側は「これらの結果は十分混ざっている」と仮定するため、再 mix を
 // しない。is_avalanching の前提を破ると分布が悪化するので、独自の Hasher
 // 特殊化を追加する場合は注意すること。
 // =============================================================================
@@ -55,9 +55,9 @@ struct Hasher<T*> {
     }
 };
 
-// StringView 特殊化（バイト列ハッシュ）
-template<> struct Hasher<StringView> {
-    ACS_FORCEINLINE u64 operator()(StringView s) const noexcept {
+// FStringView 特殊化（バイト列ハッシュ）
+template<> struct Hasher<FStringView> {
+    ACS_FORCEINLINE u64 operator()(FStringView s) const noexcept {
         return HashBytes(s.Data(), s.Size());
     }
 };

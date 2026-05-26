@@ -76,7 +76,7 @@ u32 DecodeUtf8(const char** p) noexcept {
     return c;
 }
 
-Result<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize ttf_size,
+TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize ttf_size,
                                  f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
     if (!ttf_data || ttf_size == 0)
         return ACS_ERR(Asset, 200, "Font: empty TTF data");
@@ -115,7 +115,7 @@ Result<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize t
     stbtt_PackSetOversampling(&spc, 1, 1);
 
     // 範囲リストを動的構築（デフォルト + 任意で CJK）
-    Array<CpRange> active_ranges;
+    TArray<CpRange> active_ranges;
     active_ranges.Reserve(kNumDefaultRanges + 1);
     for (u32 i = 0; i < kNumDefaultRanges; ++i) {
         active_ranges.PushBack(kDefaultRanges[i]);
@@ -126,9 +126,9 @@ Result<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize t
     const u32 num_active = static_cast<u32>(active_ranges.Size());
 
     // 各範囲ぶん stbtt_packedchar を確保
-    Array<Array<stbtt_packedchar>> packed_per_range;
+    TArray<TArray<stbtt_packedchar>> packed_per_range;
     packed_per_range.Resize(num_active);
-    Array<stbtt_pack_range> ranges;
+    TArray<stbtt_pack_range> ranges;
     ranges.Resize(num_active);
     for (u32 i = 0; i < num_active; ++i) {
         packed_per_range[i].Resize(active_ranges[i].count);
@@ -196,11 +196,11 @@ Result<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize t
     return Ok();
 }
 
-Result<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
+TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
                                 f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
     auto bytes_r = FileSystem::ReadAllBytes(path);
     if (bytes_r.IsErr()) return Err<void>(bytes_r.Error());
-    const Array<byte>& bytes = bytes_r.Value();
+    const TArray<byte>& bytes = bytes_r.Value();
     return LoadFromBytes(device, reinterpret_cast<const u8*>(bytes.Data()),
                          bytes.Size(), pixel_size, atlas_size, include_cjk);
 }

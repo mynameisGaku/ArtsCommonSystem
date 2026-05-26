@@ -7,7 +7,7 @@
 // 使い方:
 //   class MyGame : public acs::game::Game {
 //   protected:
-//       acs::UniquePtr<acs::game::Scene> InitialScene() noexcept override {
+//       acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override {
 //           return acs::MakeUnique<TitleScene>();
 //       }
 //   };
@@ -67,7 +67,7 @@ public:
 
 protected:
     // 派生クラス実装必須: 最初に push される Scene を返す。
-    virtual UniquePtr<Scene> InitialScene() noexcept = 0;
+    virtual TUniquePtr<Scene> InitialScene() noexcept = 0;
 
     // Application フックを上書きして SceneManager に流す。
     // 派生がさらに override したい場合は基底を呼ぶこと。

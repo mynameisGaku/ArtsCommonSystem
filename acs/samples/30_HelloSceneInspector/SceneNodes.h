@@ -32,8 +32,8 @@ private:
     acs::f32  _speed      = 5.0f;
     acs::i32  _hp         = 100;
     bool      _invincible = false;
-    acs::Vec3 _color      { 0.2f, 0.8f, 0.3f };
-    acs::Vec2 _position   { 0.0f, 0.0f };
+    acs::FVec3 _color      { 0.2f, 0.8f, 0.3f };
+    acs::FVec2 _position   { 0.0f, 0.0f };
 
     // GetObject が毎回同じ配列のポインタを返すため、永続所有する。
     acs::game::InspectableField _fields[kFieldCount]{};

@@ -5,7 +5,7 @@
 //   ・pimpl で `<xaudio2.h>` (+ `<windows.h>`) を本 .cpp に閉じ込め、ヘッダ
 //     公開面は ACS 既存型と前方宣言だけにする。
 //   ・voice pool は固定容量。`Init(max_voices)` で確保し、Shutdown で全解放。
-//   ・PlayOneShot/PlayLooped はサンプルデータを slot 内 Array<byte> にコピー。
+//   ・PlayOneShot/PlayLooped はサンプルデータを slot 内 TArray<byte> にコピー。
 //     XAudio2 は SourceVoice 再生中に元バッファが消えると爆ぜるため、
 //     ライフタイム管理を完全に自己完結させる。
 //   ・generation 付き handle で slot 再利用時の use-after-free を防ぐ。
@@ -65,7 +65,7 @@ f32 ClampPitch(f32 p) noexcept {
 // 1 個の発音 slot。
 struct VoiceSlot {
     IXAudio2SourceVoice* voice    = nullptr;  // XAudio2 source voice
-    Array<byte>          buffer;              // 再生中保持する PCM コピー
+    TArray<byte>          buffer;              // 再生中保持する PCM コピー
     u8                   generation = 0;      // handle 検証用 (0..255 を循環)
     bool                 active    = false;   // true なら use 中
     bool                 looped    = false;   // ループ再生か (一発再生は Tick で回収)
@@ -82,7 +82,7 @@ struct XAudio2Backend::Impl {
     bool                    com_initialized  = false;  // 自分で CoInit した
     bool                    initialized      = false;  // フル init 済 (Init 成功)
 
-    Array<VoiceSlot>        slots;
+    TArray<VoiceSlot>        slots;
     u32                     max_voices       = 0;
     u32                     active_count     = 0;
 };
@@ -101,7 +101,7 @@ XAudio2Backend::~XAudio2Backend() noexcept {
 // Init / Shutdown
 // ----------------------------------------------------------------------------
 
-Result<void> XAudio2Backend::Init(u32 max_voices) noexcept {
+TResult<void> XAudio2Backend::Init(u32 max_voices) noexcept {
     if (_impl != nullptr && _impl->initialized) {
         return ACS_ERR(Generic, kSubAudioAlreadyInitialized,
                        "XAudio2Backend::Init: already initialized");
@@ -174,7 +174,7 @@ void XAudio2Backend::Shutdown() noexcept {
 
     // ---- 全 voice 停止 + destroy -----
     StopAllVoices();
-    // slot Array 自体は Impl のデストラクタで Array<VoiceSlot> 経由解放される。
+    // slot TArray 自体は Impl のデストラクタで TArray<VoiceSlot> 経由解放される。
     _impl->slots.Clear();
     _impl->max_voices = 0;
 

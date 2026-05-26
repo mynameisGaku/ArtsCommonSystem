@@ -104,7 +104,7 @@ void PickupSystem::Despawn(PickupId id) noexcept {
 // Tick (lifetime + 磁石 + 拾取)
 // =============================================================================
 
-void PickupSystem::Tick(f32 dt, Vec2 player_pos, f32 magnet_strength) noexcept {
+void PickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept {
     const usize n = _slots.Size();
     // index 0 は予約なのでスキップ。
     for (usize i = 1; i < n; ++i) {
@@ -132,18 +132,18 @@ void PickupSystem::Tick(f32 dt, Vec2 player_pos, f32 magnet_strength) noexcept {
         // ---- 2) 磁石効果 ---------------------------------------------------
         // |player - pickup| < magnet_radius のとき player 方向へ引き寄せる。
         // LengthSq で比較して sqrt を 1 回減らす。
-        const Vec2 to_player = player_pos - s.info.world_pos;
+        const FVec2 to_player = player_pos - s.info.world_pos;
         const f32  dist_sq   = LengthSq(to_player);
         const f32  mr        = s.info.magnet_radius;
         if (mr > 0.0f && dist_sq < mr * mr) {
             // Normalize は 0 ベクトルで {0,0} を返す safe 実装 (math/Vec.h 参照)。
-            const Vec2 dir = Normalize(to_player);
+            const FVec2 dir = Normalize(to_player);
             s.info.world_pos += dir * (magnet_strength * dt);
         }
 
         // ---- 3) 拾取判定 ---------------------------------------------------
         // 磁石移動後の最新位置で再評価する (1 フレームで吸い込まれて拾える)。
-        const Vec2 to_player2 = player_pos - s.info.world_pos;
+        const FVec2 to_player2 = player_pos - s.info.world_pos;
         const f32  dist_sq2   = LengthSq(to_player2);
         const f32  r          = s.info.radius;
         if (r > 0.0f && dist_sq2 < r * r) {
@@ -194,14 +194,14 @@ void PickupSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
 // ランダムスポーン / kind 別操作
 // =============================================================================
 
-void PickupSystem::SpawnRandomAt(EPickupKind kind, Vec2 center, f32 spread_radius) noexcept {
+void PickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_radius) noexcept {
     // kind の index を範囲 clamp (enum 拡張時の保険)。
     u8 ki = static_cast<u8>(kind);
     if (ki >= 8u) ki = 7u;  // Custom にフォールバック
     const KindDefaults& d = kKindDefaults[ki];
 
     // 円板内一様サンプル。spread_radius <= 0 のときは center 真上。
-    Vec2 offset = Vec2::Zero();
+    FVec2 offset = FVec2::Zero();
     if (spread_radius > 0.0f) {
         offset = Random::Global().PointInCircle(spread_radius);
     }

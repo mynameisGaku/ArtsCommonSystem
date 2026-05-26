@@ -75,18 +75,18 @@ PrefabId PrefabSystem::FindByName(const char* name) const noexcept {
     return PrefabId{};
 }
 
-UniquePtr<Node2D> PrefabSystem::Spawn(PrefabId id) noexcept {
-    if (!id.IsValid()) return UniquePtr<Node2D>{};
+TUniquePtr<Node2D> PrefabSystem::Spawn(PrefabId id) noexcept {
+    if (!id.IsValid()) return TUniquePtr<Node2D>{};
     const u32 idx = id.Index();
-    if (idx >= _entries.Size()) return UniquePtr<Node2D>{};
+    if (idx >= _entries.Size()) return TUniquePtr<Node2D>{};
     const PrefabEntry& e = _entries[idx];
     // active 検証 + 世代一致 (stale handle を弾く)。
-    if (!e.active || e.gen != id.Generation()) return UniquePtr<Node2D>{};
-    if (e.factory == nullptr)                  return UniquePtr<Node2D>{};
+    if (!e.active || e.gen != id.Generation()) return TUniquePtr<Node2D>{};
+    if (e.factory == nullptr)                  return TUniquePtr<Node2D>{};
     return e.factory(e.user_data);
 }
 
-UniquePtr<Node2D> PrefabSystem::SpawnByName(const char* name) noexcept {
+TUniquePtr<Node2D> PrefabSystem::SpawnByName(const char* name) noexcept {
     return Spawn(FindByName(name));
 }
 
@@ -117,7 +117,7 @@ const char* PrefabSystem::GetName(PrefabId id) const noexcept {
 }
 
 void PrefabSystem::ClearAll() noexcept {
-    // gen を進めず Array ごと捨てる: 古い ID 経由のアクセスは Index 範囲外
+    // gen を進めず TArray ごと捨てる: 古い ID 経由のアクセスは Index 範囲外
     // または slot 再利用後の gen 不一致のどちらかで弾かれる。
     _entries.Clear();
     _active_count = 0;

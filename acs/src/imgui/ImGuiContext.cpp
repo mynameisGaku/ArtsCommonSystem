@@ -22,7 +22,7 @@ ImGuiCtx::~ImGuiCtx() noexcept {
     Shutdown();
 }
 
-Result<void> ImGuiCtx::Init(Window& window, Renderer& renderer) noexcept {
+TResult<void> ImGuiCtx::Init(Window& window, Renderer& renderer) noexcept {
     _window = &window;
     _renderer = &renderer;
 

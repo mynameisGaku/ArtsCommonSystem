@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — Rc<T>（std::shared_ptr 代替、アトミック参照カウント）
+// ACS Memory — TRc<T>（std::shared_ptr 代替、アトミック参照カウント）
 // -----------------------------------------------------------------------------
 // 共有所有のスマートポインタ。コピー時に参照カウントを atomic incr、
 // 破棄時に decr して 0 になったら対象を解放する。
@@ -22,7 +22,7 @@ namespace acs {
 
 namespace rc_detail {
 
-// 全 Rc 共通の制御ブロック（参照カウント + アロケータ + デストラクタ）
+// 全 TRc 共通の制御ブロック（参照カウント + アロケータ + デストラクタ）
 struct ControlBlock {
     Atomic<u32> strong {1};                            // 強参照カウント
     Allocator*  alloc  = nullptr;                      // 解放に使うアロケータ
@@ -49,33 +49,33 @@ struct InlineBlock : ControlBlock {
 } // namespace rc_detail
 
 template<typename T>
-class Rc {
+class TRc {
 public:
-    Rc() noexcept = default;
+    TRc() noexcept = default;
 
     // コピー: 参照カウント increment
-    Rc(const Rc& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
+    TRc(const TRc& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
         if (_cb) _cb->strong.FetchAdd(1);
     }
     // ムーブ: カウントは触らず所有権だけ移譲
-    Rc(Rc&& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
+    TRc(TRc&& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
         o._ptr = nullptr;
         o._cb  = nullptr;
     }
 
-    // U が T の派生型なら Rc<U> から Rc<T> へアップキャスト変換できる
+    // U が T の派生型なら TRc<U> から TRc<T> へアップキャスト変換できる
     template<typename U>
-    Rc(const Rc<U>& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
+    TRc(const TRc<U>& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
         if (_cb) _cb->strong.FetchAdd(1);
     }
     template<typename U>
-    Rc(Rc<U>&& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
+    TRc(TRc<U>&& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
         o._ptr = nullptr;
         o._cb  = nullptr;
     }
 
-    template<typename U> friend class Rc;  // U → T 変換のために privates を共有
-    Rc& operator=(const Rc& o) noexcept {
+    template<typename U> friend class TRc;  // U → T 変換のために privates を共有
+    TRc& operator=(const TRc& o) noexcept {
         if (this == &o) return *this;
         Release();
         _ptr = o._ptr;
@@ -83,7 +83,7 @@ public:
         if (_cb) _cb->strong.FetchAdd(1);
         return *this;
     }
-    Rc& operator=(Rc&& o) noexcept {
+    TRc& operator=(TRc&& o) noexcept {
         if (this == &o) return *this;
         Release();
         _ptr = o._ptr;
@@ -92,7 +92,7 @@ public:
         o._cb  = nullptr;
         return *this;
     }
-    ~Rc() noexcept { Release(); }
+    ~TRc() noexcept { Release(); }
 
     // ---- アクセス ----
     T*       Get()       noexcept { return _ptr; }
@@ -104,11 +104,11 @@ public:
     // 現在の参照数（デバッグ用、相対値）
     u32 UseCount() const noexcept { return _cb ? _cb->strong.Load(EMemoryOrder::Acquire) : 0; }
 
-    template<typename U, typename... Args> friend Rc<U> MakeRc(Args&&...) noexcept;
-    template<typename U, typename... Args> friend Rc<U> MakeRcIn(Allocator&, Args&&...) noexcept;
+    template<typename U, typename... Args> friend TRc<U> MakeRc(Args&&...) noexcept;
+    template<typename U, typename... Args> friend TRc<U> MakeRcIn(Allocator&, Args&&...) noexcept;
 
 private:
-    Rc(T* p, rc_detail::ControlBlock* cb) noexcept : _ptr(p), _cb(cb) {}
+    TRc(T* p, rc_detail::ControlBlock* cb) noexcept : _ptr(p), _cb(cb) {}
 
     // 参照カウントを 1 減らし、0 なら対象を解放する
     void Release() noexcept {
@@ -128,21 +128,21 @@ private:
 
 // デフォルトアロケータで構築（make_shared 相当）
 template<typename T, typename... Args>
-ACS_FORCEINLINE Rc<T> MakeRc(Args&&... args) noexcept {
+ACS_FORCEINLINE TRc<T> MakeRc(Args&&... args) noexcept {
     return MakeRcIn<T>(DefaultAllocator(), Forward<Args>(args)...);
 }
 
 // 指定アロケータで構築
 template<typename T, typename... Args>
-ACS_FORCEINLINE Rc<T> MakeRcIn(Allocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TRc<T> MakeRcIn(Allocator& a, Args&&... args) noexcept {
     using Block = rc_detail::InlineBlock<T>;
     void* mem = a.Alloc(sizeof(Block), alignof(Block), SourceLoc::Current());
-    if (!mem) return Rc<T>();
+    if (!mem) return TRc<T>();
     auto* blk = ::new (mem) Block();
     blk->alloc = &a;
     blk->destroy = &Block::Destroy;
     ::new (blk->Get()) T(Forward<Args>(args)...);
-    return Rc<T>(blk->Get(), blk);
+    return TRc<T>(blk->Get(), blk);
 }
 
 } // namespace acs

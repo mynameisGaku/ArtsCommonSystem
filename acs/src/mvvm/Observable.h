@@ -158,9 +158,9 @@ private:
     };
 
     T            _value{};
-    Array<Slot>  _slots;
-    Array<u32>   _free_indices;
-    Array<u32>   _pending_cancel;
+    TArray<Slot>  _slots;
+    TArray<u32>   _free_indices;
+    TArray<u32>   _pending_cancel;
     u32          _next_id      = 1;
     i32          _notify_depth = 0;
     ACS_THREAD_AFFINITY_FIELD();

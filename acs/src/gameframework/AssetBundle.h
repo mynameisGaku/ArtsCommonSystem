@@ -26,13 +26,13 @@
 //   };
 //
 // 設計方針:
-//   ・シーン死亡で bundle 廃棄 → 内部 Rc<Asset> が drop → AssetRegistry の refcount
+//   ・シーン死亡で bundle 廃棄 → 内部 TRc<Asset> が drop → AssetRegistry の refcount
 //     が下がり、他参照がなければ実体メモリも解放される (GC 不要 / 決定的解放)。
 //   ・path 文字列は呼び出し側が寿命を保証する (string literal / 永続バッファ前提)。
-//     ACS 規約により <string> は使わない (const char* を Array に保持)。
+//     ACS 規約により <string> は使わない (const char* を TArray に保持)。
 //   ・実 AssetRegistry 接続は bridge スケルトンとして TODO 化。Phase G-2 で
 //     AssetFuture を統合し、Tick() で counter.Finished() を polling する想定。
-//   ・全 API noexcept (例外は使わない / Result も bundle 表層では露出しない)。
+//   ・全 API noexcept (例外は使わない / TResult も bundle 表層では露出しない)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -58,7 +58,7 @@ public:
     AssetBundle() noexcept = default;
     ~AssetBundle() noexcept = default;
 
-    // bundle は Scene にメンバとして埋め込む想定。コピー禁止 (内部 Array 規約)。
+    // bundle は Scene にメンバとして埋め込む想定。コピー禁止 (内部 TArray 規約)。
     AssetBundle(const AssetBundle&)            = delete;
     AssetBundle& operator=(const AssetBundle&) = delete;
 
@@ -88,7 +88,7 @@ public:
     // 完了 (Loaded のみ、Failed は含まない) した asset 数。
     u32 LoadedCount() const noexcept;
 
-    // 全 asset を解放する。AssetRegistry に release 通知し、内部 Array を Pending に戻す。
+    // 全 asset を解放する。AssetRegistry に release 通知し、内部 TArray を Pending に戻す。
     // シーン破棄前にこれを呼ぶと決定的タイミングで refcount を落とせる
     // (デストラクタに任せても良いが、Scene::OnExit で明示的に呼ぶのが推奨)。
     void Unload() noexcept;
@@ -105,7 +105,7 @@ private:
 
     // bundle が BeginLoad を 1 度でも実行したか (Add の閉鎖判定用)。
     bool          _begun = false;
-    Array<Entry>  _entries;
+    TArray<Entry>  _entries;
 };
 
 } // namespace acs::game

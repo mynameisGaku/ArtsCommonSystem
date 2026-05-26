@@ -39,11 +39,11 @@
 //   F32    → SliderFloat (現状の InspectableField には min/max metadata が無い
 //             ため、defaults `kDefaultSliderMin` / `kDefaultSliderMax` を使う。
 //             metadata 拡張が入ったらここで参照する)
-//   Vec2   → DragFloat2
-//   Vec3   → DragFloat3
-//   Vec4   → DragFloat4 (仕様外だが対称性のため対応)
-//   Color  → ColorEdit3 (data を Vec3* として扱う)
-//   String → InputText (`char[256]` バッファ経由)
+//   FVec2   → DragFloat2
+//   FVec3   → DragFloat3
+//   FVec4   → DragFloat4 (仕様外だが対称性のため対応)
+//   Color  → ColorEdit3 (data を FVec3* として扱う)
+//   FString → InputText (`char[256]` バッファ経由)
 //   Enum   → Combo (enum_values 文字列配列を直接 ImGui に渡す)
 //
 // 範囲外 (将来):
@@ -137,7 +137,7 @@ public:
     static constexpr f32 kDefaultSliderMin = -1000.0f;
     static constexpr f32 kDefaultSliderMax =  1000.0f;
 
-    // String 編集用スタックバッファ長 (= ImGui::InputText 制限)。
+    // FString 編集用スタックバッファ長 (= ImGui::InputText 制限)。
     static constexpr u32 kStringBufferSize = 256u;
 
 private:

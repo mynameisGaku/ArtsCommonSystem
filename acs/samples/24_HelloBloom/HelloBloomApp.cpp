@@ -58,8 +58,8 @@ void HelloBloomApp::OnUpdate(f32 dt) noexcept {
     const f32 cam_dist = 7.0f;
     _cam_yaw += (Input::IsKeyDown(EKey::Right) ? 1.0f : 0.0f) * dt;
     _cam_yaw -= (Input::IsKeyDown(EKey::Left)  ? 1.0f : 0.0f) * dt;
-    Vec3 cam{ Sin(_cam_yaw) * cam_dist, 2.0f, -Cos(_cam_yaw) * cam_dist };
-    _camera.SetLookAt(cam, Vec3{0, 1, 0});
+    FVec3 cam{ Sin(_cam_yaw) * cam_dist, 2.0f, -Cos(_cam_yaw) * cam_dist };
+    _camera.SetLookAt(cam, FVec3{0, 1, 0});
 }
 
 // true を返して Application の既定フレームフローを置き換える (HDR RT を挟むため)。
@@ -89,7 +89,7 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     DirLight dl;
     dl.direction = _sky.SunDirection();
     dl.color     = _sky.SunColor();
-    Vec3 ambient{0.05f, 0.06f, 0.10f};
+    FVec3 ambient{0.05f, 0.06f, 0.10f};
     _shader.SetLights(_camera.ViewProjection(), _camera.Eye(), &dl, 1, ambient);
 
     cl->SetPipeline(*_shader.Pipeline());
@@ -99,15 +99,15 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     cl->SetTexture(1, *_shader.ShadowTextureOrDefault());
 
     // 地面: 暗めの色にして Bloom 対象 (球) のコントラストを稼ぐ。
-    _shader.SetObject(Mat4::Translation(Vec3{0, 0, 0}),
-                      Vec3{0.10f, 0.12f, 0.15f}, 0.05f, 8.0f);
+    _shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                      FVec3{0.10f, 0.12f, 0.15f}, 0.05f, 8.0f);
     cl->SetVertexBuffer(*_gm_plane.vertex_buffer, _gm_plane.vertex_stride);
     cl->SetIndexBuffer(*_gm_plane.index_buffer);
     cl->DrawIndexed(_gm_plane.index_count);
 
     // HDR > 1.0 の色を 4 個並べる: bloom_threshold (既定 1.0) を超える成分にだけ
     // Bloom が乗る、ということを目視で示すためのデモオブジェクト。
-    const Vec3 colors[4] = {
+    const FVec3 colors[4] = {
         {6.0f, 1.0f, 0.5f},
         {0.5f, 6.0f, 1.5f},
         {1.0f, 1.5f, 8.0f},
@@ -115,8 +115,8 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     };
     for (u32 i = 0; i < 4; ++i) {
         const f32 a = _angle + i * (kPi * 0.5f);
-        const Vec3 pos{ Cos(a) * 3.0f, 1.5f, Sin(a) * 3.0f };
-        Mat4 m = Mat4::Translation(pos);
+        const FVec3 pos{ Cos(a) * 3.0f, 1.5f, Sin(a) * 3.0f };
+        FMat4 m = FMat4::Translation(pos);
         _shader.SetObject(m, colors[i], 0.0f, 1.0f);
         cl->SetVertexBuffer(*_gm_sphere.vertex_buffer, _gm_sphere.vertex_stride);
         cl->SetIndexBuffer(*_gm_sphere.index_buffer);
@@ -138,10 +138,10 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
         std::snprintf(buf, sizeof(buf),
                       "Bloom intensity = %.2f   FPS = %.1f",
                       _params.bloom_intensity, FPS());
-        _batch.DrawString(_font, buf, 20, 20, Vec4{1,1,1,1});
+        _batch.DrawString(_font, buf, 20, 20, FVec4{1,1,1,1});
         _batch.DrawString(_font,
                         "1: off  2: 0.6  3: 1.5  ←→: camera  Esc: 終了",
-                        20, 44, Vec4{0.8f,0.85f,0.95f,1});
+                        20, 44, FVec4{0.8f,0.85f,0.95f,1});
         _batch.End();
     }
 

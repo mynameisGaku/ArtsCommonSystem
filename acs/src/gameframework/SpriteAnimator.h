@@ -122,7 +122,7 @@ private:
     bool      _playing       = false;
     bool      _finished      = false;
 
-    Array<FrameEvent> _events;
+    TArray<FrameEvent> _events;
 };
 
 } // namespace acs::game

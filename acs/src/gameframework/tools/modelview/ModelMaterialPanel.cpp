@@ -2,7 +2,7 @@
 // GameFramework Pillar — modelview / ModelMaterialPanel 実装 (Phase 21b)
 //
 // 仕様の意図は ModelMaterialPanel.h を参照。本ファイルでは:
-//   ・slot list (Array<MaterialOverride>) の resize / reset / accessor
+//   ・slot list (TArray<MaterialOverride>) の resize / reset / accessor
 //   ・ImGui (CollapsingHeader + ColorEdit / SliderFloat / Button) によるレンダ
 //   ・field 変更検知時の callback 発火
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
@@ -36,12 +36,12 @@ static inline bool IsValidSlot(u32 slot_index, u32 count) noexcept {
 static inline void ResetOverrideToDefault(MaterialOverride& o) noexcept {
     // slot_index は呼び出し側責務 (= Reset 後も slot_index は保持したいため
     // ここでは触らない)。
-    o.base_color        = Vec4{1.0f, 1.0f, 1.0f, 1.0f};
+    o.base_color        = FVec4{1.0f, 1.0f, 1.0f, 1.0f};
     o.metallic          = 0.0f;
     o.roughness         = 0.5f;
     o.normal_strength   = 1.0f;
     o.ao_strength       = 1.0f;
-    o.emissive          = Vec3{0.0f, 0.0f, 0.0f};
+    o.emissive          = FVec3{0.0f, 0.0f, 0.0f};
     o.emissive_intensity = 1.0f;
     o.is_overridden     = false;
 }
@@ -58,7 +58,7 @@ void ModelMaterialPanel::Init() noexcept {
 }
 
 void ModelMaterialPanel::Shutdown() noexcept {
-    // 全状態を初期に戻す。Array はデストラクタで自然解放されるが、明示 Clear
+    // 全状態を初期に戻す。TArray はデストラクタで自然解放されるが、明示 Clear
     // することで「多重 Shutdown 後の状態」を確定させる。
     _overrides.Clear();
     _on_change_cb   = nullptr;
@@ -66,7 +66,7 @@ void ModelMaterialPanel::Shutdown() noexcept {
 }
 
 // =============================================================================
-// SetMaterialSlotCount — model load 時に呼ばれる、Array resize + slot_index 設定
+// SetMaterialSlotCount — model load 時に呼ばれる、TArray resize + slot_index 設定
 // =============================================================================
 void ModelMaterialPanel::SetMaterialSlotCount(u32 count) noexcept {
     // 上限 clamp: 不正な model でも UI が無限長 list を作らないように。
@@ -74,7 +74,7 @@ void ModelMaterialPanel::SetMaterialSlotCount(u32 count) noexcept {
         count = kMaxSlots;
     }
 
-    // Array::Resize は新規領域を MemSet 0 (trivially constructible 経路) するが、
+    // TArray::Resize は新規領域を MemSet 0 (trivially constructible 経路) するが、
     // MaterialOverride の default ctor 値 (base_color = 1,1,1,1 等) は 0 初期化
     // では再現できない。よって、resize 後に明示的に default 値を書き直す必要が
     // ある。コストは slot 数線形だが、SetMaterialSlotCount は model load 時の
@@ -252,7 +252,7 @@ void ModelMaterialPanel::DrawUI() noexcept {
             }
 
             // ----- Base Color (RGBA) -----
-            // ColorEdit4 は f32[4] を直接読み書きする。Vec4 は alignas(16)、
+            // ColorEdit4 は f32[4] を直接読み書きする。FVec4 は alignas(16)、
             // 内部 f32 x,y,z,w が連続レイアウト (alignas は配置のみ、要素間 pad なし)
             // なので &o.base_color.x を直接渡せる。
             if (ImGui::ColorEdit4("Base Color", &o.base_color.x)) {
@@ -301,7 +301,7 @@ void ModelMaterialPanel::DrawUI() noexcept {
             }
 
             // ----- Emissive (RGB) -----
-            // ColorEdit3 は f32[3] を期待。Vec3 は alignas(16) + 末尾 _pad を持つ
+            // ColorEdit3 は f32[3] を期待。FVec3 は alignas(16) + 末尾 _pad を持つ
             // が、x/y/z は連続 f32 なので &o.emissive.x を 3 要素として安全に渡せる
             // (InspectorPanel と同パターン)。
             if (ImGui::ColorEdit3("Emissive", &o.emissive.x)) {

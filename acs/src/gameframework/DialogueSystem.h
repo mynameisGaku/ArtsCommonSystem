@@ -18,7 +18,7 @@
 //   ・**文字列を所有しない**: DialogueLine::text は const char* で参照のみ持つ。
 //     scenario データは literal / バンドル等で別に管理する想定 (STL <string> 禁止)。
 //   ・**type_speed_cps <= 0 は瞬時表示**: 計算分岐を 1 ヶ所に集約。
-//   ・**choices は別 Array**: ChoicesAt は (line_index, choice_start, choice_count)
+//   ・**choices は別 TArray**: ChoicesAt は (line_index, choice_start, choice_count)
 //     のみ持ち、実選択肢は `_all_choices` から slice する。挿入順に並ぶ前提で
 //     線形検索 (典型シナリオで N < 数百なので問題なし)。
 //   ・**auto-advance は per-line ではなく system 共通の delay**: 仕様簡素化。
@@ -133,9 +133,9 @@ private:
     // 末尾を超えていれば _completed=true、_active=false にする。
     void EnterLine(u32 new_index) noexcept;
 
-    Array<DialogueLine>   _lines;
-    Array<ChoicesAt>      _choices_at;     // line_index 昇順想定 (線形検索)
-    Array<DialogueChoice> _all_choices;    // 全 choice をフラットに保持
+    TArray<DialogueLine>   _lines;
+    TArray<ChoicesAt>      _choices_at;     // line_index 昇順想定 (線形検索)
+    TArray<DialogueChoice> _all_choices;    // 全 choice をフラットに保持
 
     u32  _current_line_index = 0;
     u32  _visible_chars      = 0;

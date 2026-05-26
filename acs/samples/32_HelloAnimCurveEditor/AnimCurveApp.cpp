@@ -39,7 +39,7 @@ void AnimCurveApp::OnEvent(const Event& e) noexcept {
     Game::OnEvent(e);
 }
 
-UniquePtr<Scene> AnimCurveApp::InitialScene() noexcept {
+TUniquePtr<Scene> AnimCurveApp::InitialScene() noexcept {
     return MakeUnique<AnimCurveScene>();
 }
 

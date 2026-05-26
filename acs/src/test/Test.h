@@ -7,7 +7,7 @@
 //
 // 使い方:
 //     ACS_TEST(MathVec3, Add) {
-//         EXPECT_EQ(Vec3(1,2,3) + Vec3(4,5,6), Vec3(5,7,9));
+//         EXPECT_EQ(FVec3(1,2,3) + FVec3(4,5,6), FVec3(5,7,9));
 //     }
 //
 //     int main() { return ::acs::test::RunAll(); }

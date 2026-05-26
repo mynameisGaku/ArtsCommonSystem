@@ -154,16 +154,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 // CB レイアウト (HLSL と一致、float4 アライン)
 struct FrameCBLayout {
-    Mat4 view_proj;
-    Vec4 camera_pos;
-    Vec4 back_params;     // Phase 35-3f: x=enabled, y=near, z=far, w=pad
-    Vec4 screen_params;   // Phase 35-3f: x=1/w, y=1/h, zw=pad
+    FMat4 view_proj;
+    FVec4 camera_pos;
+    FVec4 back_params;     // Phase 35-3f: x=enabled, y=near, z=far, w=pad
+    FVec4 screen_params;   // Phase 35-3f: x=1/w, y=1/h, zw=pad
 };
 
 struct ObjectCBLayout {
-    Mat4 model;
-    Vec4 material;       // x=ior, y=thickness, z=roughness (35-3d), w=dispersion (35-3e)
-    Vec4 tint;           // xyz=glass tint
+    FMat4 model;
+    FVec4 material;       // x=ior, y=thickness, z=roughness (35-3d), w=dispersion (35-3e)
+    FVec4 tint;           // xyz=glass tint
 };
 
 // CB は 256B にアライン (DX12 制約)
@@ -174,7 +174,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-Result<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
+TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
                                     EFormat depth_format) noexcept {
     // === シェーダコンパイル ===
     ShaderDesc vs_d{};
@@ -243,7 +243,7 @@ Result<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
-    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // Vec3 はアライン 16
+    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // FVec3 はアライン 16
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
@@ -278,15 +278,15 @@ void RefractionShader::Shutdown() noexcept {
     _vs.Reset();
 }
 
-void RefractionShader::SetFrame(const Mat4& view_projection, Vec3 camera_pos) noexcept {
+void RefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos) noexcept {
     if (!_frame_cb) return;
     _vp  = view_projection;
     _eye = camera_pos;
     FrameCBLayout cb{};
     cb.view_proj  = _vp;
-    cb.camera_pos = Vec4{_eye.x, _eye.y, _eye.z, 1.0f};
-    cb.back_params = Vec4{_back_enabled ? 1.0f : 0.0f, _back_near, _back_far, 0};
-    cb.screen_params = Vec4{
+    cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
+    cb.back_params = FVec4{_back_enabled ? 1.0f : 0.0f, _back_near, _back_far, 0};
+    cb.screen_params = FVec4{
         _screen_w > 0 ? 1.0f / static_cast<f32>(_screen_w) : 0.0f,
         _screen_h > 0 ? 1.0f / static_cast<f32>(_screen_h) : 0.0f,
         0, 0};
@@ -305,31 +305,31 @@ void RefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 far
     if (_frame_cb) {
         FrameCBLayout cb{};
         cb.view_proj  = _vp;
-        cb.camera_pos = Vec4{_eye.x, _eye.y, _eye.z, 1.0f};
-        cb.back_params = Vec4{_back_enabled ? 1.0f : 0.0f, _back_near, _back_far, 0};
-        cb.screen_params = Vec4{1.0f / static_cast<f32>(_screen_w),
+        cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
+        cb.back_params = FVec4{_back_enabled ? 1.0f : 0.0f, _back_near, _back_far, 0};
+        cb.screen_params = FVec4{1.0f / static_cast<f32>(_screen_w),
                                 1.0f / static_cast<f32>(_screen_h), 0, 0};
         _frame_cb->Update(&cb, sizeof(cb));
     }
 }
 
-void RefractionShader::SetObject(const Mat4& model, f32 ior, f32 thickness,
-                                 Vec3 tint, f32 roughness, f32 dispersion) noexcept {
+void RefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
+                                 FVec3 tint, f32 roughness, f32 dispersion) noexcept {
     if (!_object_cb) return;
     const f32 r = roughness < 0.0f ? 0.0f : (roughness > 1.0f ? 1.0f : roughness);
     const f32 d = dispersion < 0.0f ? 0.0f : (dispersion > 1.0f ? 1.0f : dispersion);
     ObjectCBLayout cb{};
     cb.model    = model;
-    cb.material = Vec4{ior < 1.0f ? 1.0f : ior,
+    cb.material = FVec4{ior < 1.0f ? 1.0f : ior,
                        thickness < 0.0f ? 0.0f : thickness, r, d};
-    cb.tint     = Vec4{tint.x, tint.y, tint.z, 0};
+    cb.tint     = FVec4{tint.x, tint.y, tint.z, 0};
     _object_cb->Update(&cb, sizeof(cb));
 }
 
 void RefractionShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh,
-                                const Mat4& model, IRhiTexture& background,
+                                const FMat4& model, IRhiTexture& background,
                                 IRhiTexture& env, f32 ior, f32 thickness,
-                                Vec3 tint, f32 roughness, f32 dispersion) noexcept {
+                                FVec3 tint, f32 roughness, f32 dispersion) noexcept {
     if (!_pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
     SetObject(model, ior, thickness, tint, roughness, dispersion);
 

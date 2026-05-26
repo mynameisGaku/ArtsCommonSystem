@@ -47,12 +47,12 @@ void GameplayScene::OnEnter() noexcept {
 
     // ----- camera -----
     Camera2D& cam = Services().Camera();
-    cam.SetPosition(Vec2{0.0f, 0.0f});
+    cam.SetPosition(FVec2{0.0f, 0.0f});
     cam.SetZoom(kWorldUnit);
     cam.SetShakeAmplitude(0.4f);
     cam.SetShakeDecayRate(2.0f);
-    cam.SetBounds(Vec2{-kWorldHalfW + 6.0f, -kWorldHalfH + 4.0f},
-                  Vec2{ kWorldHalfW - 6.0f,  kWorldHalfH - 4.0f});
+    cam.SetBounds(FVec2{-kWorldHalfW + 6.0f, -kWorldHalfH + 4.0f},
+                  FVec2{ kWorldHalfW - 6.0f,  kWorldHalfH - 4.0f});
 
     // ----- floor tilemap -----
     const u32 tw = static_cast<u32>(kWorldHalfW * 2.0f);
@@ -77,7 +77,7 @@ void GameplayScene::OnEnter() noexcept {
     sc.sight_fov_rad = kPi;
     sc.hearing_range = 8.0f;
     _perception.SetConfig(sc);
-    _perception.AddTarget(/*id=*/1u, Vec2{0.0f, 0.0f});
+    _perception.AddTarget(/*id=*/1u, FVec2{0.0f, 0.0f});
 
     // ----- wave 定義 (難易度カーブ: 5+2*i 体、間隔は固定) -----
     for (u32 i = 0; i < kTotalWaves; ++i) {
@@ -85,7 +85,7 @@ void GameplayScene::OnEnter() noexcept {
         _wave_rules[i].count              = 5u + i * 2u;
         _wave_rules[i].spawn_interval_sec = kSpawnIntervalSec;
         _wave_rules[i].initial_delay_sec  = 0.8f;
-        _wave_rules[i].spawn_position     = Vec2{0.0f, 0.0f};
+        _wave_rules[i].spawn_position     = FVec2{0.0f, 0.0f};
         _wave_defs[i].wave_id               = "wave";
         _wave_defs[i].rule_count            = 1;
         _wave_defs[i].rules                 = &_wave_rules[i];
@@ -134,13 +134,13 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
     }
 
     // ----- player 入力 + 射撃 -----
-    const Vec2 player_pos = _player.UpdateMovement(*this, dt);
+    const FVec2 player_pos = _player.UpdateMovement(*this, dt);
     _perception.UpdateTarget(1u, player_pos);
     Services().Camera().SetTargetPos(player_pos, 6.0f);
     _player.UpdateFire(*this, dt);
 
     // ----- AI (敵全員でプレイヤー追跡 + 接触ダメージ判定) -----
-    _perception.SetEyePos(player_pos, Vec2{1.0f, 0.0f});
+    _perception.SetEyePos(player_pos, FVec2{1.0f, 0.0f});
     _perception.Tick(dt);
     const bool lethal_contact = _enemies.TickChaseAndContact(*this, _health, player_pos, dt);
     if (lethal_contact) {
@@ -174,7 +174,7 @@ void GameplayScene::OnRender(RenderContext& rc) noexcept {
     sb.Begin(rc.Cmd(), sw, sh);
 
     // ===== world layer (camera 投影) =====
-    const Vec2 cam_pos = Services().Camera().EffectiveViewCenter();
+    const FVec2 cam_pos = Services().Camera().EffectiveViewCenter();
     sb.SetView(cam_pos.x, cam_pos.y, kWorldUnit);
 
     // floor tiles (チェッカー柄)
@@ -189,7 +189,7 @@ void GameplayScene::OnRender(RenderContext& rc) noexcept {
             for (u32 x = 0; x < tw; ++x) {
                 const TileId t = layer0[y * tw + x];
                 if (t.IsEmpty()) continue;
-                const Vec4 col = (t.value == 1) ? kColorTileLight : kColorTileDark;
+                const FVec4 col = (t.value == 1) ? kColorTileLight : kColorTileDark;
                 sb.DrawRect(ox + static_cast<f32>(x) * ts,
                             oy + static_cast<f32>(y) * ts,
                             ts * 0.96f, ts * 0.96f, col);
@@ -203,8 +203,8 @@ void GameplayScene::OnRender(RenderContext& rc) noexcept {
     _hit_effects.DrawParticles(_particles, sb);
 
     if (_player.Node()) {
-        const Vec2 p = _player.Position();
-        const Vec4 col = _player.IsInvulnerable(_health) ? kColorPlayerHurt : kColorPlayer;
+        const FVec2 p = _player.Position();
+        const FVec4 col = _player.IsInvulnerable(_health) ? kColorPlayerHurt : kColorPlayer;
         const f32 sz = kPlayerRadius * 2.0f;
         sb.DrawRect(p.x - kPlayerRadius, p.y - kPlayerRadius, sz, sz, col);
     }
@@ -241,13 +241,13 @@ void GameplayScene::RequestGameOver(bool victory) noexcept {
     Scenes().ChangeScene(MakeUnique<GameOverScene>(_score.CurrentScore(), victory));
 }
 
-Vec2 GameplayScene::MouseWorld() const noexcept {
-    const Vec2 m = Input::MousePos();
+FVec2 GameplayScene::MouseWorld() const noexcept {
+    const FVec2 m = Input::MousePos();
     auto& app = static_cast<FullGameApp&>(GetGame());
     IRhiSwapchain* sc = app.GetRenderer().Swapchain();
     if (!sc) {
         // swapchain が出てくる前のごく初期フレームでは player 座標を返してフリーズ防止。
-        return _player.Node() ? _player.Node()->Local().position : Vec2{0.0f, 0.0f};
+        return _player.Node() ? _player.Node()->Local().position : FVec2{0.0f, 0.0f};
     }
     return Services().Camera().ScreenToWorld(m, sc->Width(), sc->Height());
 }

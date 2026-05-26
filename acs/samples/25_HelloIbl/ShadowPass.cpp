@@ -10,13 +10,13 @@ using namespace acs;
 
 namespace helloibl {
 
-Vec3 ResolveSunDirection(const HelloIblApp& app) noexcept {
+FVec3 ResolveSunDirection(const HelloIblApp& app) noexcept {
     // Studio HDR preset (3) は前方上向きの固定方向、それ以外は Sky の太陽。
-    if (app._current_preset == 3) return Vec3{0.3f, 0.6f, -0.5f};
+    if (app._current_preset == 3) return FVec3{0.3f, 0.6f, -0.5f};
     return app._sky.SunDirection();
 }
 
-void RenderShadowPass(HelloIblApp& app, const Vec3& sun_dir) noexcept {
+void RenderShadowPass(HelloIblApp& app, const FVec3& sun_dir) noexcept {
     if (!app._use_shadows) return;
 
     IRhiCommandList* cl = app.GetRenderer().CommandList();
@@ -44,7 +44,7 @@ void RenderShadowPass(HelloIblApp& app, const Vec3& sun_dir) noexcept {
             for (u32 x = 0; x < kGridCast; ++x) {
                 const f32 px = (static_cast<f32>(x) - (kGridCast - 1) * 0.5f) * kSpacingCast;
                 const f32 py = (static_cast<f32>(y) - (kGridCast - 1) * 0.5f) * kSpacingCast + 2.5f;
-                app._shadow.SetCaster(Mat4::Translation(Vec3{px, py, 3.0f}));
+                app._shadow.SetCaster(FMat4::Translation(FVec3{px, py, 3.0f}));
                 cl->SetConstantBuffer(1, *app._shadow.CasterObjectCB());
                 cl->DrawIndexed(app._gm_sphere.index_count);
             }

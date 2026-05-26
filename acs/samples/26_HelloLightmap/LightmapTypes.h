@@ -40,7 +40,7 @@ inline constexpr acs::u32 kQuadCount   = 5;    // Cornell box の面数 (床/天
 // 天井光源の放射輝度。lightmap は HDR (R32G32B32A32F) なので飽和の心配がなく、
 // 物理的に明るい値を入れられる。tonemap (ACES) 後に程よい明るさになるよう調整
 // した値 (絵作りで自由に変えてよい)。
-inline const acs::Vec3 kLightRadiance{4.5f, 4.2f, 3.8f};
+inline const acs::FVec3 kLightRadiance{4.5f, 4.2f, 3.8f};
 
 // Cornell box の 1 面。MakePlane (XZ 平面、法線 +Y) を model で配置する。
 //   axis / axis_value / u_min.. : ray cast 用の world-space 軸並行平面パラメータ
@@ -49,13 +49,13 @@ inline const acs::Vec3 kLightRadiance{4.5f, 4.2f, 3.8f};
 //                                 変換するのに使う (回転を model に委ねる)。
 struct Quad {
     acs::GpuMesh                mesh;
-    acs::Mat4                   model;
-    acs::Vec3                   albedo;
-    acs::Vec3                   normal;        // world-space 法線 (model から導出)
+    acs::FMat4                   model;
+    acs::FVec3                   albedo;
+    acs::FVec3                   normal;        // world-space 法線 (model から導出)
     acs::f32                    plane_w = 0.0f;
     acs::f32                    plane_h = 0.0f;
-    acs::UniquePtr<acs::IRhiTexture> lightmap;
-    acs::Array<acs::Vec4>       lm_data;        // bake 結果 (HDR、RGBA float)
+    acs::TUniquePtr<acs::IRhiTexture> lightmap;
+    acs::TArray<acs::FVec4>       lm_data;        // bake 結果 (HDR、RGBA float)
     // 面が乗る軸 (0=x, 1=y, 2=z) と、その軸の値。残り 2 軸が矩形範囲。
     acs::i32                    axis        = 0;
     acs::f32                    axis_value  = 0.0f;
@@ -66,7 +66,7 @@ struct Quad {
 
 // 軸並行平面 axis(=value) 上の矩形 [u_min,u_max]x[v_min,v_max] と
 // ray (o,d) の交差。hit したら t を返す (なければ -1)。
-inline acs::f32 RayQuad(acs::Vec3 o, acs::Vec3 d, const Quad& q) noexcept {
+inline acs::f32 RayQuad(acs::FVec3 o, acs::FVec3 d, const Quad& q) noexcept {
     acs::f32 od, dd;
     if (q.axis == 0)      { od = o.x; dd = d.x; }
     else if (q.axis == 1) { od = o.y; dd = d.y; }
@@ -74,7 +74,7 @@ inline acs::f32 RayQuad(acs::Vec3 o, acs::Vec3 d, const Quad& q) noexcept {
     if (dd > -1e-6f && dd < 1e-6f) return -1.0f;     // 平面と平行
     const acs::f32 t = (q.axis_value - od) / dd;
     if (t < 1e-3f) return -1.0f;                     // 後方 or 自己交差
-    const acs::Vec3 p{o.x + d.x * t, o.y + d.y * t, o.z + d.z * t};
+    const acs::FVec3 p{o.x + d.x * t, o.y + d.y * t, o.z + d.z * t};
     // axis 以外の 2 軸を取り出す
     acs::f32 pu, pv;
     if (q.axis == 0)      { pu = p.y; pv = p.z; }
@@ -84,9 +84,9 @@ inline acs::f32 RayQuad(acs::Vec3 o, acs::Vec3 d, const Quad& q) noexcept {
     return t;
 }
 
-// componentwise 乗算 (Vec3 には Hadamard 積の operator が無いので自前で持つ)。
-inline acs::Vec3 Hadamard(acs::Vec3 a, acs::Vec3 b) noexcept {
-    return acs::Vec3{a.x * b.x, a.y * b.y, a.z * b.z};
+// componentwise 乗算 (FVec3 には Hadamard 積の operator が無いので自前で持つ)。
+inline acs::FVec3 Hadamard(acs::FVec3 a, acs::FVec3 b) noexcept {
+    return acs::FVec3{a.x * b.x, a.y * b.y, a.z * b.z};
 }
 
 // 軽量 RNG (xorshift32)。texel ごとに seed して bake の再現性を持たせる。
@@ -101,8 +101,8 @@ struct Rng {
 };
 
 // 法線 N に直交する tangent / bitangent を作る。
-inline void MakeTBN(acs::Vec3 N, acs::Vec3& T, acs::Vec3& B) noexcept {
-    T = (acs::Abs(N.y) > 0.9f) ? acs::Vec3{1, 0, 0} : acs::Vec3{0, 1, 0};
+inline void MakeTBN(acs::FVec3 N, acs::FVec3& T, acs::FVec3& B) noexcept {
+    T = (acs::Abs(N.y) > 0.9f) ? acs::FVec3{1, 0, 0} : acs::FVec3{0, 1, 0};
     T = acs::Normalize(T - N * acs::Dot(T, N));
     B = acs::Cross(N, T);
 }
@@ -110,7 +110,7 @@ inline void MakeTBN(acs::Vec3 N, acs::Vec3& T, acs::Vec3& B) noexcept {
 // cosine-weighted hemisphere sampling。pdf = cosθ/π なので、この方向で
 // 入射放射輝度を平均すると cosine 重みと pdf の π が相殺し、「入射 irradiance の
 // 平均」がそのまま得られる (PbrShader が描画時に albedo を掛ける)。
-inline acs::Vec3 CosineSampleHemisphere(acs::Vec3 N, acs::Vec3 T, acs::Vec3 B, Rng& rng) noexcept {
+inline acs::FVec3 CosineSampleHemisphere(acs::FVec3 N, acs::FVec3 T, acs::FVec3 B, Rng& rng) noexcept {
     const acs::f32 u1  = rng.NextF();
     const acs::f32 u2  = rng.NextF();
     const acs::f32 r   = acs::Sqrt(u1);

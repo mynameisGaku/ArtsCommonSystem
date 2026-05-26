@@ -26,10 +26,10 @@ public:
     void Tick(GameplayScene& scene, acs::f32 dt) noexcept;
 
     // プレイヤーが敵に触れたときの強めシェイク + パーティクル。
-    void TriggerPlayerHurt(GameplayScene& scene, acs::Vec2 pos) noexcept;
+    void TriggerPlayerHurt(GameplayScene& scene, acs::FVec2 pos) noexcept;
 
     // 敵への弾命中。柔らかいシェイク + 黄色フラッシュ + パーティクル + SFX。
-    void TriggerEnemyHit(GameplayScene& scene, acs::Vec2 pos) noexcept;
+    void TriggerEnemyHit(GameplayScene& scene, acs::FVec2 pos) noexcept;
 
     // 描画 (world layer)。パーティクル群をパティクルライフ進行に応じて減衰描画。
     void DrawParticles(const acs::game::ParticleEffectSystem& particles,

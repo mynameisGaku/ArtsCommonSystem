@@ -108,7 +108,7 @@ D3D12_GPU_VIRTUAL_ADDRESS Dx12Buffer::Gpu() const noexcept {
 
 // ファクトリ
 #if !WITH_RENDER_DILIGENT
-Result<UniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const BufferDesc& desc) noexcept {
+TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const BufferDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 30, "CreateRhiBuffer: device is not DX12");
@@ -117,8 +117,8 @@ Result<UniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const BufferDe
     HrResult r = b->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 31, "Dx12Buffer::Init failed", static_cast<u32>(r.hr));
-    UniquePtr<IRhiBuffer> base(b.Release(), b.GetAllocator());
-    return Result<UniquePtr<IRhiBuffer>>(OkInit, Move(base));
+    TUniquePtr<IRhiBuffer> base(b.Release(), b.GetAllocator());
+    return TResult<TUniquePtr<IRhiBuffer>>(OkInit, Move(base));
 }
 #endif
 

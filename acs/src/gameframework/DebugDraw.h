@@ -18,15 +18,15 @@
 //     運用も可能（呼び出し責任は user に委ねる、library 側は意見を持たない）。
 //   ・**Circle は segment 化**: 内部で線分列に分解して保持。描画側はライン
 //     ジオメトリだけ扱えば OK（円専用パスを描画側に要求しない）。
-//   ・**非コピー・非ムーブ**: 内部 Array が大きくなりがちで、誤コピー事故を防ぐ。
+//   ・**非コピー・非ムーブ**: 内部 TArray が大きくなりがちで、誤コピー事故を防ぐ。
 //     ゲーム全体で 1 インスタンス（Services 経由か static）を想定。
 //
 // 使い方:
 //   acs::game::DebugDraw dd;
 //   void Frame() {
 //       dd.Clear();
-//       dd.DrawAabb(player_aabb, Vec4{1,0,0,1});
-//       dd.DrawCircle(enemy_circle, Vec4{1,1,0,1});
+//       dd.DrawAabb(player_aabb, FVec4{1,0,0,1});
+//       dd.DrawCircle(enemy_circle, FVec4{1,1,0,1});
 //       // 描画システム:
 //       for (u32 i = 0; i < dd.LineCount(); ++i) {
 //           const auto& ln = dd.Lines()[i];
@@ -47,15 +47,15 @@ public:
     // 描画システムが読み込む生バッファ要素。
     // ライン 1 本 = 2 端点 + 色。
     struct Line {
-        Vec2 a;
-        Vec2 b;
-        Vec4 color;
+        FVec2 a;
+        FVec2 b;
+        FVec4 color;
     };
 
     DebugDraw() noexcept = default;
     ~DebugDraw() noexcept = default;
 
-    // 非コピー・非ムーブ（内部 Array の誤コピー / 所有移譲事故を防ぐ）
+    // 非コピー・非ムーブ（内部 TArray の誤コピー / 所有移譲事故を防ぐ）
     DebugDraw(const DebugDraw&)            = delete;
     DebugDraw& operator=(const DebugDraw&) = delete;
     DebugDraw(DebugDraw&&)                 = delete;
@@ -63,17 +63,17 @@ public:
 
     // ---- 図形コマンド -------------------------------------------------------
     // 任意 2 点間の線分。
-    void DrawLine(Vec2 a, Vec2 b, Vec4 color) noexcept;
+    void DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept;
 
     // AABB の輪郭（4 辺）。中身は塗らない。
-    void DrawAabb(const Aabb2& a, Vec4 color) noexcept;
+    void DrawAabb(const Aabb2& a, FVec4 color) noexcept;
 
     // 円を segment 本の線分に分解した近似輪郭。segments=24 で十分滑らか。
     // segments < 3 のときは三角形扱いに丸める（縮退を防ぐ）。
-    void DrawCircle(const Circle& c, Vec4 color, u32 segments = 24) noexcept;
+    void DrawCircle(const Circle& c, FVec4 color, u32 segments = 24) noexcept;
 
     // 中心 pos の "+" 記号（横線 + 縦線 各長さ size）。位置可視化に便利。
-    void DrawCross(Vec2 pos, f32 size, Vec4 color) noexcept;
+    void DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept;
 
     // ---- バッファ管理 -------------------------------------------------------
     // 蓄積をクリア（容量は保持）。フレーム頭か描画消費後に呼ぶ。
@@ -90,7 +90,7 @@ public:
     }
 
 private:
-    Array<Line> _lines;
+    TArray<Line> _lines;
 };
 
 } // namespace acs::game

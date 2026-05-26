@@ -43,6 +43,6 @@ struct DeviceConfig {
 };
 
 // デバイスを作成する（バックエンドはビルド設定で決まる）
-Result<UniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept;
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept;
 
 } // namespace acs

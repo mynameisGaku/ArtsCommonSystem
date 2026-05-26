@@ -122,7 +122,7 @@ public:
     void Tick(f32 dt) noexcept;
 
 private:
-    Array<TutorialStep> _steps;
+    TArray<TutorialStep> _steps;
     u32                 _current_step = 0;
     bool                _active       = false;
     bool                _completed    = false;

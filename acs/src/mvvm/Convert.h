@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// 組込み暗黙変換 — i32/u32/f32/f64/bool/String の主要ペアを Bind 一発で
+// 組込み暗黙変換 — i32/u32/f32/f64/bool/FString の主要ペアを Bind 一発で
 //
 // 使い方:
 //   Observable<f32> hp{100.0f};
-//   Observable<String> hp_text;
+//   Observable<FString> hp_text;
 //
-//   auto bind = Bind(hp, hp_text);   // 自動で f32 → String 変換 (例: "100.0")
+//   auto bind = Bind(hp, hp_text);   // 自動で f32 → FString 変換 (例: "100.0")
 //
 //   Observable<i32> level{42};
 //   Observable<f32> level_f;
@@ -16,22 +16,22 @@
 //   auto bind3 = Bind(a, b);   // OneWayBinder<f32>
 //
 // サポート対象の変換マトリクス:
-//   i32  ↔ u32 / f32 / f64 / bool / String
-//   u32  ↔ i32 / f32 / f64 / bool / String
-//   f32  ↔ i32 / u32 / f64 / bool / String
-//   f64  ↔ i32 / u32 / f32 / bool / String
-//   bool ↔ i32 / u32 / f32 / f64 / String
-//   String ↔ 上記すべて (パース失敗時は T{} = 0/false/空文字)
+//   i32  ↔ u32 / f32 / f64 / bool / FString
+//   u32  ↔ i32 / f32 / f64 / bool / FString
+//   f32  ↔ i32 / u32 / f64 / bool / FString
+//   f64  ↔ i32 / u32 / f32 / bool / FString
+//   bool ↔ i32 / u32 / f32 / f64 / FString
+//   FString ↔ 上記すべて (パース失敗時は T{} = 0/false/空文字)
 //
 // 設計:
 //   ・DefaultConverter<Src, Dst>::Convert(const Src&, void*) → Dst で実装
 //   ・特殊化が無いペアは static_assert で「Bind: 既定変換が無い」と教える
-//   ・String 変換のみ .cpp に実装 (Container<String> 依存)
+//   ・FString 変換のみ .cpp に実装 (Container<FString> 依存)
 #pragma once
 
 #include "foundation/Types.h"
 
-namespace acs { class String; }
+namespace acs { class FString; }
 
 namespace acs::mvvm {
 
@@ -118,19 +118,19 @@ template<> struct DefaultConverter<bool, f64> {
 };
 
 // ==========================================================================
-//  String 関連変換 (.cpp 側に実装)
+//  FString 関連変換 (.cpp 側に実装)
 // ==========================================================================
 
-template<> struct DefaultConverter<i32, String>  { static String Convert(const i32& v, void*) noexcept; };
-template<> struct DefaultConverter<u32, String>  { static String Convert(const u32& v, void*) noexcept; };
-template<> struct DefaultConverter<f32, String>  { static String Convert(const f32& v, void*) noexcept; };
-template<> struct DefaultConverter<f64, String>  { static String Convert(const f64& v, void*) noexcept; };
-template<> struct DefaultConverter<bool, String> { static String Convert(const bool& v, void*) noexcept; };
+template<> struct DefaultConverter<i32, FString>  { static FString Convert(const i32& v, void*) noexcept; };
+template<> struct DefaultConverter<u32, FString>  { static FString Convert(const u32& v, void*) noexcept; };
+template<> struct DefaultConverter<f32, FString>  { static FString Convert(const f32& v, void*) noexcept; };
+template<> struct DefaultConverter<f64, FString>  { static FString Convert(const f64& v, void*) noexcept; };
+template<> struct DefaultConverter<bool, FString> { static FString Convert(const bool& v, void*) noexcept; };
 
-template<> struct DefaultConverter<String, i32>  { static i32  Convert(const String& v, void*) noexcept; };
-template<> struct DefaultConverter<String, u32>  { static u32  Convert(const String& v, void*) noexcept; };
-template<> struct DefaultConverter<String, f32>  { static f32  Convert(const String& v, void*) noexcept; };
-template<> struct DefaultConverter<String, f64>  { static f64  Convert(const String& v, void*) noexcept; };
-template<> struct DefaultConverter<String, bool> { static bool Convert(const String& v, void*) noexcept; };
+template<> struct DefaultConverter<FString, i32>  { static i32  Convert(const FString& v, void*) noexcept; };
+template<> struct DefaultConverter<FString, u32>  { static u32  Convert(const FString& v, void*) noexcept; };
+template<> struct DefaultConverter<FString, f32>  { static f32  Convert(const FString& v, void*) noexcept; };
+template<> struct DefaultConverter<FString, f64>  { static f64  Convert(const FString& v, void*) noexcept; };
+template<> struct DefaultConverter<FString, bool> { static bool Convert(const FString& v, void*) noexcept; };
 
 } // namespace acs::mvvm
