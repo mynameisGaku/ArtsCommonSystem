@@ -1,13 +1,24 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# ACS Coding Style Guide (v1)
+# ACS Coding Style Guide (v2)
 
 **目的 / Purpose**: ACS の唯一のコーディング規約。`.clang-format` / `.clang-tidy` / `acs_lint` が機械強制する内容と一対一で対応する。**This document is the single source of truth for ACS coding style** — what tools enforce, this doc explains.
 
 **対象 / Scope**: `src/**`, `samples/**`, `tests/**` 配下の C++ コード。`cmake-build-*/_deps/` 配下のサードパーティ、`docs/`, `cmake/` は対象外。
 
-**バージョン / Version**: v1 (2026-05-21)
+**バージョン / Version**: v2 (2026-05-26)
 
-> **基本方針 / Core philosophy** — ACS は既に内部で一貫したスタイルを持つ。本書はそれを **codify** するもので、新規ルールを多数導入するものではない。例外的な変更は §15 (Revision history) で追跡する。
+> **基本方針 / Core philosophy** — ACS v2 は UE5 風命名規則を採用する。識別子の見た目は UE5 に寄せるが、UE5 の `U` (UObject = GC) / `A` (AActor = world-placeable) のような **重い semantic baggage を持つ prefix は使わない**。ACS は GC 無し / reflection 無し / Actor-Component 階層なしのシンプル構造なので、UE5 の **`F` (non-UObject struct/class)** と意味が完全に一致する単一 prefix を全 struct/class に適用する。
+>
+> **v1 → v2 の変更点** (詳細は §15 Revision history):
+> - 全 struct / class に **`F` prefix**
+> - template に **`T` prefix**
+> - メンバ変数 `_snake_case` → **`PascalCase` (prefix 無し、UE5 純正)**
+> - bool 変数 `is_xxx` → **`bIsXxx`** (member / local 共通)
+> - ローカル変数 / 引数 `snake_case` → **`PascalCase`**
+> - 定数 `kPascalCase` 維持
+> - 関数 / メソッド `PascalCase` 維持
+> - enum `E` prefix 維持 (v1 で確定済)
+> - interface `I` prefix 維持 (v1 で確定済)
 
 ---
 
@@ -47,23 +58,46 @@ ACS は以下の **5 つの言語制約** の上に成り立つ。これらは�
 
 ## 2. 命名 / Naming
 
-### 2.1 型 / Types — `PascalCase`
+### 2.1 型 / Types — `<Prefix>PascalCase`
+
+ACS では型の種類に応じて prefix を付ける。**ACS-fit prefix scheme** = 「UE5 と同じ意味の prefix だけ採用、ACS の哲学に合わないものは使わない」。
+
+| 種別 / Kind | Prefix | 例 / Example |
+|---|---|---|
+| **struct + class** (universal) | **`F`** | `FVec2`, `FMat4`, `FResult`<br>`FScene`, `FNode2D`, `FComponent2D`, `FHealthSystem` |
+| **template** | **`T`** | `TArray<T>`, `TUniquePtr<T>`, `TResult<T,E>`, `THashMap<K,V>` |
+| **interface (純粋仮想 base)** | **`I`** | `IRhiDevice`, `IRhiBuffer`, `IAssetLoader` |
+| **enum class** | **`E`** | `EFormat`, `EFlowState`, `ELogSeverity` |
 
 ```cpp
-class  Renderer { /* ... */ };
-struct ErrorCode { /* ... */ };
+class  FRenderer { /* ... */ };
+struct FErrorCode { /* ... */ };
 enum class ELogSeverity : u8 { Trace, Debug, Info, Warn, Error, Fatal };
-template<typename T> class Array { /* ... */ };
+template<typename T> class TArray { /* ... */ };
+class IRhiDevice { virtual ~IRhiDevice() noexcept = default; /* pure virtual */ };
 ```
 
-**例外 / Exception**: プリミティブのエイリアス (`u8`, `u32`, `i64`, `f32`, `usize` 等) は小文字。これらは `foundation/Types.h` で定義されており、ビルトイン同等に扱う。
+**例外 / Exceptions**:
+- **プリミティブのエイリアス** (`u8`, `u32`, `i64`, `f32`, `usize` 等) は小文字、prefix 無し。これらは `foundation/Types.h` で定義され、ビルトイン同等に扱う。
+- 既に `F` で始まる単語 (e.g., `FrameIndex`) は二重 F を避けて `FFrameIndex` ではなく `FFrameIndex` (二重なし方針なら既存名のまま)。**v2 では一律 `F` 付与を選択** — 二重 F は許容する (例: `Foo` 型は `FFoo` になる)。
+- 既に `E` / `I` で始まる単語 (e.g., `ErrCategory`, `EventType`) は二重 E を避けて従来名のまま。`I*` も同様。
+
+**UE5 との対応**:
+- UE5 `F*` (non-UObject struct/class) ↔ ACS `F*` — 完全一致
+- UE5 `T*` (template) ↔ ACS `T*` — 完全一致
+- UE5 `E*` (enum) ↔ ACS `E*` — 完全一致
+- UE5 `I*` (interface) ↔ ACS `I*` — 完全一致
+- UE5 `U*` (UObject) — **ACS は採用しない** (GC 無し)
+- UE5 `A*` (AActor) — **ACS は採用しない** (Actor 概念無し)
+
+→ U / A を捨てることで「UE5 経験者が同じ気分で読めるけど、ACS は別物」と明確に伝わる。
 
 ### 2.2 関数 / メソッド — `PascalCase`
 
 ```cpp
 void BeginFrame() noexcept;
 bool IsOk() const noexcept;
-static UniquePtr<Renderer> Create(/* ... */);
+static TUniquePtr<FRenderer> Create(/* ... */);
 ```
 
 **例外 / Exception**:
@@ -71,26 +105,42 @@ static UniquePtr<Renderer> Create(/* ... */);
 - `operator==` / `operator[]` 等: 言語規定により小文字。
 - HLSL シェーダ内 pass を C++ 側から呼ぶ場合の `Pass_<Stage>` 形式 (e.g. `Pass_Tonemap`, `Pass_TaaResolve`) は許可。
 
-### 2.3 ローカル変数 / 引数 — `snake_case`
+### 2.3 ローカル変数 / 引数 — `PascalCase`
 
 ```cpp
-void Foo(u32 frame_index, const Mat4& view_proj) noexcept {
-    const f32 dt = ...;
-    bool has_changed = false;
+void Foo(u32 FrameIndex, const FMat4& ViewProj) noexcept {
+    const f32 Dt = ...;
+    bool bHasChanged = false;
 }
 ```
 
-**例外 / Exception**: 数学コード内の 1 文字変数 (`x`, `y`, `z`, `t`, `r`, `g`, `b`, `a`, `i`, `j`, `n`, `dx`, `dy`) は許可。
+**例外 / Exception**: 数学コード内の 1 文字変数 (`x`, `y`, `z`, `t`, `r`, `g`, `b`, `a`, `i`, `j`, `n`, `dx`, `dy`) は許可。ループ iterator `i`, `j`, `k` も小文字許可。
 
-### 2.4 クラス・メンバ変数 / Class Members
+**bool 変数は `b` 前置** (詳細は §2.11)。
+
+### 2.4 クラス・メンバ変数 / Class Members — `PascalCase` (prefix 無し)
 
 | 種別 / Kind | 規則 / Rule | 例 / Example |
 |---|---|---|
-| **private / protected member** | `_snake_case` (先頭アンダースコア) | `_data`, `_capacity`, `_has_value` |
-| **public POD struct field** | `snake_case` (アンダースコアなし) | `ErrorCode::message`, `LogConfig::file_path` |
-| **`static` class member** | `_snake_case` の場合は `_` のみ、global 風には `s_` 接頭辞 | (慣行は `_snake` で統一) |
+| **private / protected member** | `PascalCase` (prefix 無し) | `Data`, `Capacity`, `Position` |
+| **private / protected bool member** | `bPascalCase` (b 前置) | `bIsActive`, `bHasPendingDestroy` |
+| **public POD struct field** | `PascalCase` (prefix 無し) | `FErrorCode::Message`, `FLogConfig::FilePath` |
+| **public POD bool field** | `bPascalCase` | `FConfig::bEnabled` |
+| **`static` class member** | `PascalCase`、bool は `bPascalCase` | `kFooDefault` (constexpr の場合は §2.5 の k prefix) |
 
-**理由 / Rationale**: 既存コード (`src/foundation/Result.h`, `src/container/Array.h`) と Cocos2d-x の慣習に整合。`m_` プレフィックス (UE / Microsoft / Naughty Dog 流) は採用しない。
+**理由 / Rationale**: UE5 純正。`m_` prefix は採用しない (UE5 でも使われない)。bool だけ `b` 前置することで「条件式に書ける変数」が見た目で識別できる。
+
+```cpp
+class FFoo {
+public:
+    void Bar() noexcept;
+    i32  Count = 0;          // member, no prefix
+    bool bIsReady = false;   // bool member, b prefix
+private:
+    FArray<i32>* Data = nullptr;   // private, no prefix
+    bool         bDirty = false;   // private bool
+};
+```
 
 ### 2.5 定数 / Constants — `kPascalCase`
 
@@ -167,21 +217,29 @@ src/render/Diligent/DiligentDevice.h
 
 主要型と同名。Win32 / cmake / make 系ファイル名は慣習に従う (`CMakeLists.txt`, `Module.cmake`)。
 
-### 2.11 bool 命名 / Boolean Naming
+### 2.11 bool 命名 / Boolean Naming — `b` 前置
 
-- **メソッド**: `IsXxx()`, `HasXxx()`, `CanXxx()`, `ShouldXxx()` 形式。
-- **メンバ・変数**: `is_xxx`, `has_xxx`, `should_xxx`, `can_xxx` 接頭辞。**UE 流 `b` プレフィックスは不採用** (snake_case と衝突するため)。
+- **メソッド**: `IsXxx()`, `HasXxx()`, `CanXxx()`, `ShouldXxx()` 形式 (動詞的)。
+- **メンバ / ローカル / 引数**: **`bXxx`** で b 前置 (UE5 純正)。`Is` / `Has` / `Can` / `Should` を付けて意味を明確化する。
 
 ```cpp
-// OK
+// OK (v2: UE5 純正)
 bool IsAlive() const noexcept;
-bool _is_active = false;
-bool has_pending_destroy = true;
+bool bIsActive = false;
+bool bHasPendingDestroy = true;
+bool bShouldQuit = false;
 
-// NG (UE 流、ACS では使わない)
-bool bIsActive;
-bool bIsAlive;
+void Foo(bool bEnabled) noexcept {
+    bool bResult = Compute();
+}
+
+// NG (v1 までの ACS、v2 では使わない)
+bool _is_active = false;       // _snake_case
+bool is_active = false;        // snake_case 局所
+bool has_pending_destroy;      // snake_case
 ```
+
+**理由**: ローカル変数 PascalCase 化と整合させるため、bool だけ `b` 前置で「条件分岐に書ける値」を視覚的に区別する。UE5 とも同じ形式。
 
 ---
 
@@ -815,14 +873,16 @@ clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走
 
 | ID | 名称 | 重大度 | チェック | 概要 |
 |---|---|---|---|---|
-| **R020** | type-pascal-case | error | readability-identifier-naming.ClassCase | 型は PascalCase |
+| **R020a** | struct-class-f-prefix | error | acs-R020a | struct / class は `F` prefix + PascalCase |
+| **R020b** | template-t-prefix | error | acs-R020b | template class / struct は `T` prefix + PascalCase |
 | **R021** | function-pascal-case | error | readability-identifier-naming.FunctionCase | 関数・メソッドは PascalCase |
-| **R022** | variable-snake-case | error | readability-identifier-naming.VariableCase | ローカル変数・引数は snake_case |
-| **R023** | non-public-member-prefix-underscore | error | readability-identifier-naming.PrivateMemberPrefix + ProtectedMemberPrefix | private/protected メンバは `_snake_case` |
+| **R022** | variable-pascal-case | error | readability-identifier-naming.VariableCase | ローカル変数・引数は PascalCase (1 字 / iterator 例外あり) |
+| **R022b** | bool-b-prefix | warning | acs-R022b | bool 変数 (member / local / param) は `b` 前置 |
+| **R023** | member-pascal-case | error | readability-identifier-naming.MemberCase | メンバ変数は PascalCase (prefix 無し、bool のみ `b` 前置) |
 | **R024** | constant-k-pascal | error | readability-identifier-naming.ConstantPrefix='k' | constexpr 定数は `kPascalCase` |
 | **R025** | macro-acs-upper-snake | error | readability-identifier-naming.MacroDefinitionCase | マクロは `ACS_UPPER_SNAKE_CASE` |
 | **R026** | enum-class-required | error | acs-R026 | 素の `enum` 禁止、`enum class : <type>` 必須 |
-| **R027** | enum-value-pascal-case | error | readability-identifier-naming.ScopedEnumConstantCase | enum 値は PascalCase |
+| **R027** | enum-e-prefix + value-pascal-case | error | readability-identifier-naming.* + acs-R027 | enum 型は `E` prefix + PascalCase、値は PascalCase |
 | **R028** | namespace-lowercase | error | readability-identifier-naming.NamespaceCase | namespace は小文字 |
 | **R029** | interface-i-prefix | warning | acs-R029 | 純粋仮想 interface は `I` プレフィックス |
 
@@ -889,6 +949,7 @@ auto _r = ThreadPool::Submit(t);  // acs-lint: NOLINT(R033)
 | 日付 | バージョン | 変更点 |
 |---|---|---|
 | 2026-05-21 | v1.0 | 初版。Option A+ (現状 codify + 4 改善) で確定。Phase 0 で `.clang-format` 等 5 ファイル投入、Phase 1+ で `[[nodiscard]]` / 29 rename / SPDX / 11 discard fix を実施。Phase 2 で本書 + assertion triad (`ACS_CHECK` / `ACS_NOTREACHED`) を導入。R001-R048 は Phase 3 で `acs_lint` プラグインで機械化予定。 |
+| 2026-05-26 | v2.0 | **UE5 風命名規則に移行**。F prefix (struct/class) / T prefix (template) / b 前置 (bool) を追加、ローカル変数 + メンバ変数 + 引数を PascalCase 化、`_snake_case` メンバ prefix を廃止。U/A prefix は ACS の GC 無し / Actor 無し設計と合わないので採用しない (UE5 風だが ACS-fit な scheme)。R020 を R020a/R020b に分割、R022b (bool b 前置) と R023 (PascalCase member) を新設。`scripts/rename_types_to_ue5_style.py` で機械的に rename。 |
 
 ---
 
