@@ -189,7 +189,7 @@ acs_module(
         SceneServices.h
         # ----- Phase 12: parallel agent batch -----
         NodeId.h
-        TPool.h
+        Pool.h
         Random.h
         DebugDraw.h
         PhotoMode.h

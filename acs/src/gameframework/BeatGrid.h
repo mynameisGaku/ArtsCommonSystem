@@ -61,7 +61,7 @@
 //     JudgeCallback は Tap 起因 / Tick 起因 (Miss) どちらでも発火。
 //     EndCallback は最後の note が判定された次の Tick で 1 度だけ発火。
 //   ・**非コピー・非ムーブ**、全 noexcept、STL 不使用。
-//   ・**STL 依存ゼロ**: container/TArray.h と foundation/Types.h のみ。
+//   ・**STL 依存ゼロ**: container/Array.h と foundation/Types.h のみ。
 #pragma once
 
 #include "foundation/Types.h"

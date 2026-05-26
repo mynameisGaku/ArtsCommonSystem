@@ -326,7 +326,7 @@ E: Camera2D.h/.cpp
 F: Collision.h(再エクスポート)  SpatialGrid.h/.cpp  CollisionWorld2D.h/.cpp
    PhysicsBody2D.h/.cpp
 G: AssetHandles.h  AssetBundle.h/.cpp  SaveArchive.h/.cpp  Settings.h/.cpp
-H: UiLayer.h/.cpp  AudioDirector.h/.cpp  Random.h/.cpp  TPool.h
+H: UiLayer.h/.cpp  AudioDirector.h/.cpp  Random.h/.cpp  Pool.h
    DebugOverlay.h/.cpp  DebugDraw.h/.cpp
 GameFrameworkConfig.h  全調整定数を 1 箇所に
 ```

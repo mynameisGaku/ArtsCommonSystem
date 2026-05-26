@@ -47,11 +47,11 @@ DiligentCore 等も取得します。`Failed to clone` などで構成が止ま�
 
 | STL | ACS の代替 | ヘッダ |
 |---|---|---|
-| `std::vector<T>` | `acs::TArray<T>` | `container/TArray.h` |
-| `std::string` | `acs::FString` | `container/FString.h` |
-| `std::unordered_map` | `acs::THashMap<K,V>` | `container/THashMap.h` |
-| `std::unique_ptr<T>` | `acs::TUniquePtr<T>` | `memory/TUniquePtr.h` |
-| `std::shared_ptr<T>` | `acs::TRc<T>` | `memory/TRc.h` |
+| `std::vector<T>` | `acs::TArray<T>` | `container/Array.h` |
+| `std::string` | `acs::FString` | `container/String.h` |
+| `std::unordered_map` | `acs::THashMap<K,V>` | `container/HashMap.h` |
+| `std::unique_ptr<T>` | `acs::TUniquePtr<T>` | `memory/UniquePtr.h` |
+| `std::shared_ptr<T>` | `acs::TRc<T>` | `memory/Rc.h` |
 
 ACS は例外を無効化（`/D_HAS_EXCEPTIONS=0`）してビルドするため、`<vector>` など
 STL ヘッダを include すると STL 内部の `throw` が原因で大量のテンプレート

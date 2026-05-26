@@ -155,7 +155,7 @@ public:
         (void)len;
         // 仮実装: 単純連結
         // ACS FString は AppendFormat 等あるが、ここでは新規 FString を作って差し替える
-        // Container/FString.h の API に応じて要調整
+        // Container/String.h の API に応じて要調整
         char tmp[256];
         const char* src = cur.Data() ? cur.Data() : "";
         usize i = 0;

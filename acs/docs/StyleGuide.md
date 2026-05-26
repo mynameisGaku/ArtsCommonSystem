@@ -210,8 +210,8 @@ class IAssetLoader  { /* ... */ };
 ### 2.10 ファイル名 / File Names — `PascalCase.{h,cpp}`
 
 ```
-src/foundation/TResult.h        TResult.cpp
-src/container/TArray.h          TArray.cpp
+src/foundation/Result.h        Result.cpp
+src/container/Array.h          Array.cpp
 src/render/Diligent/DiligentDevice.h
 ```
 
@@ -477,7 +477,7 @@ bool TryOpen(const char* path, File& out_file) noexcept;  // → TResult<File> �
 
 ### 4.5 1 ファイル 1 主要型
 
-`src/foundation/TResult.h` には `TResult<T,E>` クラスが主役。同じファイル内に補助 struct (`OkTag`, `ErrTag` 等) は可。
+`src/foundation/Result.h` には `TResult<T,E>` クラスが主役。同じファイル内に補助 struct (`OkTag`, `ErrTag` 等) は可。
 
 ### 4.6 namespace 末尾コメント — 必須
 
@@ -509,7 +509,7 @@ File& f = r.Value();
 
 ### 5.2 戻り値破棄禁止 — `[[nodiscard]]`
 
-`TResult<T, E>` クラス自体に `[[nodiscard]]` が付いている (foundation/TResult.h)。意図的に破棄する場合は:
+`TResult<T, E>` クラス自体に `[[nodiscard]]` が付いている (foundation/Result.h)。意図的に破棄する場合は:
 
 ```cpp
 (void)MaybeFailingCall();              // (void) で明示的破棄

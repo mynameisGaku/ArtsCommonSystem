@@ -14,7 +14,7 @@ acs_module(
         TypeTraits.h
         Move.h
         Limits.h
-        TResult.h
+        Result.h
         Error.h
         Assert.h
         Panic.h

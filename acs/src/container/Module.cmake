@@ -2,15 +2,15 @@ acs_module(
     NAME    Container
     TYPE    Runtime
     SOURCES
-        FString.cpp
+        String.cpp
         Hash.cpp
     HEADERS
-        TSpan.h
-        TArray.h
-        FStringView.h
-        FString.h
+        Span.h
+        Array.h
+        StringView.h
+        String.h
         Hash.h
-        THashMap.h
+        HashMap.h
     PUBLIC_DEPS
         Foundation
         Memory
