@@ -40,6 +40,7 @@ public:
 
     // ----- アクセサ -----
     acs::game::Node2D* Node()       noexcept { return _node; }
+    const acs::game::Node2D* Node() const noexcept { return _node; }
     acs::FVec2          Position() const noexcept;
     acs::game::FHealthId  HealthHandle() const noexcept { return _health_id; }
     acs::game::FShapeId   Shape()        const noexcept { return _shape; }

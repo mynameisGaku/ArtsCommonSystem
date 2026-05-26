@@ -166,7 +166,7 @@ public:
     // 内部 EditorCamera への参照。呼出側 (renderer / panel 内 UI) が
     // `HandleMouseInput` / `Tick` / `ViewMatrix` 等を呼ぶ。
     // 寿命は本 panel の寿命と同一。
-    acs::game::editor_core::EditorCamera& FCamera() noexcept;
+    acs::game::editor_core::EditorCamera& Camera() noexcept;
 
     // ----- Lighting --------------------------------------------------------
 

@@ -166,7 +166,7 @@ public:
 
     // 内部 EditorCamera (Mode2D) への参照。呼出側 (sample 34) が
     // `HandleMouseInput` / `Tick` を呼ぶ。寿命は本 panel と同一。
-    acs::game::editor_core::EditorCamera& FCamera() noexcept;
+    acs::game::editor_core::EditorCamera& Camera() noexcept;
 
     // ----- ブラシ / レイヤ / tile id 設定 ----------------------------------
 

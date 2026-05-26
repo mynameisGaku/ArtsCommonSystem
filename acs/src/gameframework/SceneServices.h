@@ -88,7 +88,7 @@ public:
     TweenManager&        Tweens()    noexcept;
     SequenceRunner&      Sequences() noexcept;
     InputMap&            Input()     noexcept;
-    acs::game::Camera2D& FCamera()    noexcept;
+    acs::game::Camera2D& Camera()    noexcept;
     CollisionWorld2D&    Physics()   noexcept;
 
     // Game/SceneManager driver (利用者は触らない)。

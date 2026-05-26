@@ -107,7 +107,7 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
 
     Diligent::FenceDesc fd;
     fd.Name = "ACS_DiligentDevice_IdleFence";
-    fd.Type = Diligent::ENCE_TYPE_GENERAL;
+    fd.Type = Diligent::FENCE_TYPE_GENERAL;
     _device->CreateFence(fd, &_idle_fence);
 
     ACS_LOG_INFO("Diligent D3D12 device created: %s", _adapter_name);
@@ -165,7 +165,7 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
 
     Diligent::FenceDesc fd;
     fd.Name = "ACS_DiligentDevice_IdleFence";
-    fd.Type = Diligent::ENCE_TYPE_GENERAL;
+    fd.Type = Diligent::FENCE_TYPE_GENERAL;
     _device->CreateFence(fd, &_idle_fence);
 
     ACS_LOG_INFO("Diligent Vulkan device created: %s", _adapter_name);

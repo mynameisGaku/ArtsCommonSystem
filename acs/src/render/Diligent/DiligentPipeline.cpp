@@ -127,7 +127,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
                                        : diligent_detail::ToDiligent(desc.depth_format);
     gp.PrimitiveTopology            = diligent_detail::ToDiligent(desc.topology);
     gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
-    gp.RasterizerDesc.FillMode      = Diligent::ILL_MODE_SOLID;
+    gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
     // 経験的に: 色 pass (PS あり) で `true`、depth-only (PS なし) で `false`
     // にすると ACS sample 群 (HelloLights / Bloom / Shadows / Sky / Mesh ...)
     // で正しい winding になる。Diligent の D3D12 backend が swap chain / RT

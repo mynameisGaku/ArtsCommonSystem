@@ -165,7 +165,7 @@ const wchar_t* ModelViewerPanel::CurrentAssetPath() const noexcept {
 // =============================================================================
 // FCamera アクセサ
 // =============================================================================
-acs::game::editor_core::EditorCamera& ModelViewerPanel::FCamera() noexcept {
+acs::game::editor_core::EditorCamera& ModelViewerPanel::Camera() noexcept {
     return _camera;
 }
 

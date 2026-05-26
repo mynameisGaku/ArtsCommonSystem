@@ -198,7 +198,7 @@ class Tilemap* LevelEditorPanel::CurrentTilemap() const noexcept {
 // =============================================================================
 // FCamera アクセサ
 // =============================================================================
-acs::game::editor_core::EditorCamera& LevelEditorPanel::FCamera() noexcept {
+acs::game::editor_core::EditorCamera& LevelEditorPanel::Camera() noexcept {
     return _camera;
 }
 
