@@ -43,7 +43,7 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& de
     auto* dev = device.RenderDev();
     if (!dev) return ACS_ERR(Render, 120, "DiligentBuffer: device not initialized");
 
-    Diligent::FBufferDesc bd;
+    Diligent::BufferDesc bd;
     bd.Name      = "ACS_Buffer";
     bd.Size      = static_cast<Diligent::Uint64>(desc.size);
     bd.BindFlags = BindFromUsage(desc.usage);

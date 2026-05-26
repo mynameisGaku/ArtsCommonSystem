@@ -50,7 +50,7 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
     auto* dev = device.RenderDev();
     if (!dev) return ACS_ERR(Render, 130, "DiligentTexture: device not initialized");
 
-    Diligent::FTextureDesc td;
+    Diligent::TextureDesc td;
     td.Name      = "ACS_Texture";
     if (_is_cubemap)
         td.Type = Diligent::RESOURCE_DIM_TEX_CUBE;

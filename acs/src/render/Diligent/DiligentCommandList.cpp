@@ -288,7 +288,7 @@ void DiligentCommandList::SetViewport(const FViewport& vp) noexcept {
     if (!_device) return;
     auto* ctx = _device->Context();
     if (!ctx) return;
-    Diligent::FViewport dvp;
+    Diligent::Viewport dvp;
     dvp.TopLeftX = vp.x;
     dvp.TopLeftY = vp.y;
     dvp.Width    = vp.width;
