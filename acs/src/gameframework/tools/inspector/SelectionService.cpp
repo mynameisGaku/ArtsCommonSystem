@@ -2,7 +2,7 @@
 // GameFramework Pillar — SceneInspector / SelectionService 実装 (Phase 20)
 //
 // 設計のポイント (詳細はヘッダ参照):
-//   ・現選択 NodeId (1 個) + (cb, user) 登録 list の最小ハブ。
+//   ・現選択 FNodeId (1 個) + (cb, user) 登録 list の最小ハブ。
 //   ・selection 値が変化した場合のみ callback を順番に dispatch する。
 //   ・登録 / 解除は HotReloadWatcher と同じ規約: 重複弾き / 未登録 no-op。
 
@@ -16,20 +16,20 @@ namespace acs::game::inspector {
 void SelectionService::Init() noexcept {
     // 完全初期化: 現選択を invalid に、callback list を空に。
     // 容量は保持 (Reserve 状態を保つ ≒ 再 Init 後のアロケーション節約)。
-    _current = NodeId{};
+    _current = FNodeId{};
     _callbacks.Clear();
 }
 
 // ============================================================================
 // SelectNode / ClearSelection
 // ============================================================================
-void SelectionService::SelectNode(NodeId id) noexcept {
-    // 同一選択への再 Select は no-op (callback 発火しない)。NodeId 比較は
+void SelectionService::SelectNode(FNodeId id) noexcept {
+    // 同一選択への再 Select は no-op (callback 発火しない)。FNodeId 比較は
     // packed u32 の == なので O(1)。
     if (_current == id) {
         return;
     }
-    const NodeId from = _current;
+    const FNodeId from = _current;
     _current          = id;
     // _current 更新後に dispatch することで、callback 内で
     // `CurrentSelection()` を呼んだ場合に新値が見える。
@@ -41,20 +41,20 @@ void SelectionService::ClearSelection() noexcept {
     if (!_current.IsValid()) {
         return;
     }
-    const NodeId from = _current;
-    _current          = NodeId{};
+    const FNodeId from = _current;
+    _current          = FNodeId{};
     FireChange(from, _current);
 }
 
 // ============================================================================
 // 問い合わせ
 // ============================================================================
-NodeId SelectionService::CurrentSelection() const noexcept {
+FNodeId SelectionService::CurrentSelection() const noexcept {
     return _current;
 }
 
-bool SelectionService::IsSelected(NodeId id) const noexcept {
-    // NodeId::operator== は packed u32 の完全一致。
+bool SelectionService::IsSelected(FNodeId id) const noexcept {
+    // FNodeId::operator== は packed u32 の完全一致。
     // invalid 同士の比較も true になる (両方 packed == 0)。
     return _current == id;
 }
@@ -106,14 +106,14 @@ void SelectionService::ClearAll() noexcept {
     // shutdown 想定の一括破棄。callback 発火 (ClearSelection 相当) は **行わない**
     // — 購読側はもはや listening しない前提で呼ぶ API なので、ここで dispatch
     // すると逆に dangling user pointer に飛ぶリスクがある。
-    _current = NodeId{};
+    _current = FNodeId{};
     _callbacks.Clear();
 }
 
 // ============================================================================
 // 内部ヘルパ: 登録順に dispatch
 // ============================================================================
-void SelectionService::FireChange(NodeId from, NodeId to) const noexcept {
+void SelectionService::FireChange(FNodeId from, FNodeId to) const noexcept {
     // callback 内で別の panel が UnregisterCallback / RegisterCallback を
     // 呼ぶ可能性があるが、Phase 20 では「dispatch 中の自己改変は未定義」と
     // 規定する (登録 list を index で走査するので、swap-remove や PushBack が

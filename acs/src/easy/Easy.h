@@ -17,7 +17,7 @@
 //       while (NextFrame()) {                 // ウィンドウを閉じると false
 //           if (IsKeyDown(EKey::Right)) x += 5;
 //           if (IsKeyDown(EKey::Left))  x -= 5;
-//           DrawRect(x, 320, 80, 80, Color::Sky);
+//           DrawRect(x, 320, 80, 80, FColor::Sky);
 //       }
 //   }
 //
@@ -55,22 +55,22 @@ using acs::EMouseButton;
 using acs::EGamepadButton;
 
 // ---- 色 --------------------------------------------------------------------
-// 各成分は 0.0〜1.0。Color::Red などの定数を使うか、Rgb(255,0,0) で作る。
-struct Color {
+// 各成分は 0.0〜1.0。FColor::Red などの定数を使うか、Rgb(255,0,0) で作る。
+struct FColor {
     f32 r = 0.0f;
     f32 g = 0.0f;
     f32 b = 0.0f;
     f32 a = 1.0f;   // 不透明度（0=透明, 1=不透明）
 
-    static const Color Red, Green, Blue, Yellow, Cyan, Magenta;
-    static const Color White, Black, Gray, Orange, Sky, Clear;
+    static const FColor Red, Green, Blue, Yellow, Cyan, Magenta;
+    static const FColor White, Black, Gray, Orange, Sky, Clear;
 };
 
 // 0〜255 の整数で色を作る（Rgb(255,128,0) など）
-Color Rgb (u8 r, u8 g, u8 b) noexcept;
-Color Rgba(u8 r, u8 g, u8 b, u8 a) noexcept;
+FColor Rgb (u8 r, u8 g, u8 b) noexcept;
+FColor Rgba(u8 r, u8 g, u8 b, u8 a) noexcept;
 // 不透明度（0〜1）だけを変えた色を返す。半透明描画やフェードに使う。
-Color Fade(Color color, f32 alpha) noexcept;
+FColor Fade(FColor color, f32 alpha) noexcept;
 
 // ---- 素材ハンドル ----------------------------------------------------------
 // LoadSprite / LoadSound が返す、コピー可能な軽い値型（id==0 は無効）。
@@ -98,7 +98,7 @@ void Quit() noexcept;
 void SetWindowTitle(const char* title) noexcept;
 
 // 背景色を設定する（次のフレームから反映）。既定は濃い紺色。
-void SetBackground(Color color) noexcept;
+void SetBackground(FColor color) noexcept;
 
 // 全画面表示の ON/OFF（ボーダーレス）。次のフレームから反映される。
 void SetFullscreen(bool on) noexcept;
@@ -109,22 +109,22 @@ bool IsFullscreen() noexcept;
 // 図形を描く（OpenWindow の後、while(NextFrame()) ループの中で呼ぶ）
 // ===========================================================================
 
-void DrawRect(f32 x, f32 y, f32 width, f32 height, Color color) noexcept;
+void DrawRect(f32 x, f32 y, f32 width, f32 height, FColor color) noexcept;
 void DrawRectOutline(f32 x, f32 y, f32 width, f32 height,
-                     Color color, f32 thickness = 2.0f) noexcept;
+                     FColor color, f32 thickness = 2.0f) noexcept;
 // 回転した塗りつぶし長方形。(x,y) は回転前の左上、回転は中心まわり。
 void DrawRectRotated(f32 x, f32 y, f32 width, f32 height,
-                     f32 degrees, Color color) noexcept;
-void DrawCircle(f32 x, f32 y, f32 radius, Color color) noexcept;        // (x,y)=中心
+                     f32 degrees, FColor color) noexcept;
+void DrawCircle(f32 x, f32 y, f32 radius, FColor color) noexcept;        // (x,y)=中心
 void DrawCircleOutline(f32 x, f32 y, f32 radius,
-                       Color color, f32 thickness = 2.0f) noexcept;
+                       FColor color, f32 thickness = 2.0f) noexcept;
 void DrawLine(f32 x1, f32 y1, f32 x2, f32 y2,
-              Color color, f32 thickness = 2.0f) noexcept;
+              FColor color, f32 thickness = 2.0f) noexcept;
 void DrawTriangle(f32 x1, f32 y1, f32 x2, f32 y2, f32 x3, f32 y3,
-                  Color color) noexcept;
+                  FColor color) noexcept;
 void DrawTriangleOutline(f32 x1, f32 y1, f32 x2, f32 y2, f32 x3, f32 y3,
-                         Color color, f32 thickness = 2.0f) noexcept;
-void DrawPixel(f32 x, f32 y, Color color) noexcept;
+                         FColor color, f32 thickness = 2.0f) noexcept;
+void DrawPixel(f32 x, f32 y, FColor color) noexcept;
 
 // ===========================================================================
 // 画像（スプライト）を描く
@@ -134,8 +134,8 @@ void DrawSprite(Sprite sprite, f32 x, f32 y) noexcept;                       // 
 void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept; // 伸縮
 // 回転（+拡縮）。(x,y) は回転前の左上、回転は画像の中心まわり。tint で色掛け。
 void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
-                       f32 scale = 1.0f, Color tint = Color{1,1,1,1}) noexcept;
-void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, Color tint) noexcept;
+                       f32 scale = 1.0f, FColor tint = FColor{1,1,1,1}) noexcept;
+void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, FColor tint) noexcept;
 void DrawSpriteFlipped(Sprite sprite, f32 x, f32 y,
                        bool flip_x, bool flip_y) noexcept;
 // 画像の一部分を切り出して描く（スプライトシート用）。
@@ -148,12 +148,12 @@ f32 SpriteHeight(Sprite sprite) noexcept;
 // 文字を描く（UTF-8、日本語可。\n で改行）
 // ===========================================================================
 
-void DrawString(f32 x, f32 y, const char* text, Color color) noexcept;
-void DrawString(f32 x, f32 y, const char* text, Color color, f32 size) noexcept;
+void DrawString(f32 x, f32 y, const char* text, FColor color) noexcept;
+void DrawString(f32 x, f32 y, const char* text, FColor color, f32 size) noexcept;
 // center_x で中央そろえして描く。
-void DrawStringCentered(f32 center_x, f32 y, const char* text, Color color) noexcept;
+void DrawStringCentered(f32 center_x, f32 y, const char* text, FColor color) noexcept;
 void DrawStringCentered(f32 center_x, f32 y, const char* text,
-                        Color color, f32 size) noexcept;
+                        FColor color, f32 size) noexcept;
 f32 TextWidth(const char* text) noexcept;
 f32 TextWidth(const char* text, f32 size) noexcept;
 f32 TextHeight() noexcept;

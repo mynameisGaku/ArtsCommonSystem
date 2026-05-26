@@ -219,7 +219,7 @@ constexpr usize CBSize() noexcept {
 
 TResult<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     // === シェーダコンパイル ===
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kStandardHLSL;
     vs_d.entry_point = "VSMain";
@@ -228,7 +228,7 @@ TResult<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EForma
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kStandardHLSL;
     ps_d.entry_point = "PSMain";
@@ -238,7 +238,7 @@ TResult<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EForma
     _ps = Move(ps_r.Value());
 
     // === 定数バッファ ===
-    BufferDesc fcb{};
+    FBufferDesc fcb{};
     fcb.size = CBSize<FrameCBLayout>();
     fcb.usage = EBufferUsage::Uniform;
     fcb.cpu_writable = true;
@@ -246,7 +246,7 @@ TResult<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EForma
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
     _frame_cb = Move(fcb_r.Value());
 
-    BufferDesc ocb{};
+    FBufferDesc ocb{};
     ocb.size = CBSize<ObjectCBLayout>();
     ocb.usage = EBufferUsage::Uniform;
     ocb.cpu_writable = true;
@@ -256,7 +256,7 @@ TResult<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EForma
 
     // === 1×1 白テクスチャ ===
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = 1; td.height = 1;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = white_pixel;
@@ -266,7 +266,7 @@ TResult<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EForma
     _white = Move(wt_r.Value());
 
     // === パイプライン ===
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -311,14 +311,14 @@ void StandardShader::Shutdown() noexcept {
 
 void StandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
                               FVec3 light_color, FVec3 ambient) noexcept {
-    DirLight one;
+    FDirLight one;
     one.direction = light_dir;
     one.color     = light_color;
     SetLights(vp, cam, &one, 1, ambient);
 }
 
 void StandardShader::SetLights(const FMat4& vp, FVec3 cam,
-                               const DirLight* lights, u32 count,
+                               const FDirLight* lights, u32 count,
                                FVec3 ambient) noexcept {
     if (count > kMaxDirLights) count = kMaxDirLights;
     _vp = vp;

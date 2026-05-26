@@ -62,7 +62,7 @@ IDE を使う場合は `acs/` を開けばプリセットが自動認識され�
 | モジュール | 役割 | 主なクラス |
 |---|---|---|
 | Foundation | 基本型・エラー処理・ログ | `TResult<T,E>`, `Logger`, `ACS_ASSERT` |
-| Threading | 並列処理 | `Atomic<T>`, `Mutex`, `ThreadPool` |
+| Threading | 並列処理 | `TAtomic<T>`, `FMutex`, `ThreadPool` |
 | Memory | メモリ管理 | `Allocator`, `MemorySystem`, `TUniquePtr<T>`, `TRc<T>` |
 | Container | コンテナ | `TArray<T>`, `FString`, `THashMap<K,V>` |
 | Math | 数学 | `FVec2/3/4`, `FMat4`, `FQuat` |

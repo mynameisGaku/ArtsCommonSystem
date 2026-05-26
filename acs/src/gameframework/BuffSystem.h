@@ -12,7 +12,7 @@
 //
 // 設計選択 (Phase R/I — BuffSystem):
 //   ・**BuffOwnerId は 24bit index + 8bit gen の packed handle**:
-//     `NodeId` / `EmitterHandle` / `TimerHandle` と同一規約。`_packed == 0` を
+//     `FNodeId` / `FEmitterHandle` / `TimerHandle` と同一規約。`_packed == 0` を
 //     invalid とし、gen は常に 1 以上で配る (0 は「未使用 slot」を意味する)。
 //     これにより DestroyOwner 後の stale handle を gen 不一致で確実に弾ける。
 //   ・**owner ごとに sparse な buff 配列**: OwnerSlot 内に `TArray<BuffInstance>`
@@ -167,8 +167,8 @@ struct BuffInstance {
 };
 
 // ---- BuffOwnerId: 24bit index + 8bit gen を packed した opaque handle ------
-// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`NodeId` /
-// `EmitterHandle` / `TimerHandle` と同一規約。
+// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`FNodeId` /
+// `FEmitterHandle` / `TimerHandle` と同一規約。
 struct BuffOwnerId {
     u32 _packed = 0u;
 

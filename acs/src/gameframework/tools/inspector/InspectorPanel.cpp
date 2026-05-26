@@ -2,11 +2,11 @@
 // GameFramework Pillar K — InspectorPanel 実装 (Phase 20 editor 第二弾)
 //
 // 仕様の意図は InspectorPanel.h を参照。本ファイルでは:
-//   ・SelectionService からの NodeId 取得 (forward-decl 経由)
-//   ・`InspectorSeam::GetProvider(NodeId)` を介した Provider 取得
+//   ・SelectionService からの FNodeId 取得 (forward-decl 経由)
+//   ・`InspectorSeam::GetProvider(FNodeId)` を介した Provider 取得
 //   ・`InspectableObject::fields` の 1 件ずつを EFieldKind に応じた
 //     ImGui widget に変換 (Bool / I32 / U32 / F32 / FVec2 / FVec3 / FVec4 /
-//     Color / FString / Enum)
+//     FColor / FString / Enum)
 //   ・編集発生時に dirty flag を立て + FieldChangeCallback を発火
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/inspector/InspectorPanel.h"
@@ -29,18 +29,18 @@ namespace acs::game::inspector {
 // ローカルヘルパ
 // =============================================================================
 
-// `InspectorSeam::GetProvider(NodeId)` を呼ぶラッパ。
+// `InspectorSeam::GetProvider(FNodeId)` を呼ぶラッパ。
 //
-// 実 seam 側に `GetProvider(NodeId)` が無い場合のフォールバックは持たない
-// (= リンクエラーで気付かせる方針)。これは「seam の API が NodeId 受けで
+// 実 seam 側に `GetProvider(FNodeId)` が無い場合のフォールバックは持たない
+// (= リンクエラーで気付かせる方針)。これは「seam の API が FNodeId 受けで
 // 必ず存在する」前提を panel 側に明示するため。
-static IInspectableProvider* ResolveProvider(InspectorSeam& seam, NodeId id) noexcept {
+static IInspectableProvider* ResolveProvider(InspectorSeam& seam, FNodeId id) noexcept {
     if (!id.IsValid()) {
         return nullptr;
     }
     // InspectorSeam::GetProvider は u32 index (provider list 上の位置) を取る。
-    // NodeId をそのまま渡せないので index を取り出す (24bit 部分)。
-    // 本来は seam が NodeId → provider のマッピングを持つ方が自然だが、
+    // FNodeId をそのまま渡せないので index を取り出す (24bit 部分)。
+    // 本来は seam が FNodeId → provider のマッピングを持つ方が自然だが、
     // 現状の seam は index ベースなので Phase 24+ で改修予定。
     return seam.GetProvider(id.Index());
 }
@@ -203,7 +203,7 @@ void InspectorPanel::Init() noexcept {
     // 完全リセット。多重 Init を許容するため、ここでは selection / dirty を
     // クリアするだけで callback は触らない (Init は state リセット、callback
     // のクリアは Shutdown / Set*() の責務)。
-    _current_selection = NodeId {};
+    _current_selection = FNodeId {};
     _dirty             = false;
     // _selection_service / callback は維持 (= 再 Init で外部設定を壊さない)。
 }
@@ -211,7 +211,7 @@ void InspectorPanel::Init() noexcept {
 void InspectorPanel::Shutdown() noexcept {
     // 全状態を初期に戻す。外部所有の SelectionService / callback ターゲットを
     // 破棄するわけではないが、本パネルからの参照は外す。
-    _current_selection  = NodeId {};
+    _current_selection  = FNodeId {};
     _selection_service  = nullptr;
     _dirty              = false;
     _on_change_cb       = nullptr;
@@ -243,7 +243,7 @@ void InspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* user
 void InspectorPanel::DrawUI() noexcept {
     // Phase 24: EditorPanel 継承で no-param 化。
     // - InspectorSeam は SetInspectorSeam で事前 set
-    // - NodeId は SelectionService::CurrentSelection() で取得 (なければ invalid)
+    // - FNodeId は SelectionService::CurrentSelection() で取得 (なければ invalid)
     if (!ImGui::Begin("Inspector")) {
         ImGui::End();
         return;
@@ -255,23 +255,23 @@ void InspectorPanel::DrawUI() noexcept {
     }
     InspectorSeam& seam = *_inspector_seam;
 
-    // ----- 選択 NodeId の解決 -----
-    NodeId effective {};
+    // ----- 選択 FNodeId の解決 -----
+    FNodeId effective {};
     if (_selection_service != nullptr) {
-        NodeId from_svc = _selection_service->CurrentSelection();
+        FNodeId from_svc = _selection_service->CurrentSelection();
         if (from_svc.IsValid()) {
             effective = from_svc;
         }
     }
     _current_selection = effective;
 
-    // ヘッダ: 現在の選択 NodeId を表示 (デバッグ + 視認性)。
+    // ヘッダ: 現在の選択 FNodeId を表示 (デバッグ + 視認性)。
     if (!effective.IsValid()) {
         ImGui::TextDisabled("(Nothing selected)");
         ImGui::End();
         return;
     }
-    ImGui::Text("NodeId: index=%u gen=%u",
+    ImGui::Text("FNodeId: index=%u gen=%u",
                 static_cast<unsigned>(effective.Index()),
                 static_cast<unsigned>(effective.Generation()));
     ImGui::Separator();
@@ -279,7 +279,7 @@ void InspectorPanel::DrawUI() noexcept {
     // ----- Provider 解決 -----
     IInspectableProvider* prov = ResolveProvider(seam, effective);
     if (prov == nullptr) {
-        ImGui::TextDisabled("(No provider registered for this NodeId)");
+        ImGui::TextDisabled("(No provider registered for this FNodeId)");
         ImGui::End();
         return;
     }

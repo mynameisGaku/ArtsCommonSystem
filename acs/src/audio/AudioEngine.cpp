@@ -28,7 +28,7 @@ struct AudioEngine::Impl {
     IXAudio2MasteringVoice* mastering        = nullptr;
     bool                    com_initialized  = false;
 
-    Mutex                   lock;
+    FMutex                   lock;
     VoiceSlot               slots[kMaxVoices] {};
     u32                     active_count     = 0;
 };
@@ -111,7 +111,7 @@ SoundHandle AudioEngine::Play(const AudioAsset& asset, f32 volume, bool loop) no
     if (!_impl || !_impl->xaudio2) return kInvalidSound;
     if (asset.SampleByteCount() == 0) return kInvalidSound;
 
-    ScopedLock lk(_impl->lock);
+    FScopedLock lk(_impl->lock);
 
     u32 idx = FindFreeSlot(*_impl);
     if (idx == 0xFFFFFFFFu) return kInvalidSound;
@@ -170,7 +170,7 @@ void DestroySlot(VoiceSlot& slot) noexcept {
 
 void AudioEngine::Stop(SoundHandle h) noexcept {
     if (!_impl || !h.IsValid() || h.index >= kMaxVoices) return;
-    ScopedLock lk(_impl->lock);
+    FScopedLock lk(_impl->lock);
     VoiceSlot& slot = _impl->slots[h.index];
     if (!slot.in_use || slot.generation != h.generation) return;
     DestroySlot(slot);
@@ -179,7 +179,7 @@ void AudioEngine::Stop(SoundHandle h) noexcept {
 
 void AudioEngine::SetVolume(SoundHandle h, f32 volume) noexcept {
     if (!_impl || !h.IsValid() || h.index >= kMaxVoices) return;
-    ScopedLock lk(_impl->lock);
+    FScopedLock lk(_impl->lock);
     VoiceSlot& slot = _impl->slots[h.index];
     if (!slot.in_use || slot.generation != h.generation) return;
     if (volume < 0) volume = 0;
@@ -189,7 +189,7 @@ void AudioEngine::SetVolume(SoundHandle h, f32 volume) noexcept {
 
 void AudioEngine::StopAll() noexcept {
     if (!_impl) return;
-    ScopedLock lk(_impl->lock);
+    FScopedLock lk(_impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
         if (_impl->slots[i].in_use) DestroySlot(_impl->slots[i]);
     }
@@ -205,7 +205,7 @@ void AudioEngine::SetMasterVolume(f32 volume) noexcept {
 
 void AudioEngine::PauseAll() noexcept {
     if (!_impl) return;
-    ScopedLock lk(_impl->lock);
+    FScopedLock lk(_impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
         VoiceSlot& s = _impl->slots[i];
         if (s.in_use && s.voice) s.voice->Stop(0);
@@ -214,7 +214,7 @@ void AudioEngine::PauseAll() noexcept {
 
 void AudioEngine::ResumeAll() noexcept {
     if (!_impl) return;
-    ScopedLock lk(_impl->lock);
+    FScopedLock lk(_impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
         VoiceSlot& s = _impl->slots[i];
         if (s.in_use && s.voice) s.voice->Start(0);

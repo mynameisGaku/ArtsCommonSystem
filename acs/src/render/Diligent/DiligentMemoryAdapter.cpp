@@ -32,7 +32,7 @@ public:
                    const Diligent::Char* /*dbgFile*/,
                    const Diligent::Int32 /*dbgLine*/) override {
         if (!_backing || Size == 0) return nullptr;
-        return _backing->Alloc(Size, alignof(::max_align_t), SourceLoc::Current());
+        return _backing->Alloc(Size, alignof(::max_align_t), FSourceLoc::Current());
     }
 
     void Free(void* Ptr) override {
@@ -54,7 +54,7 @@ void* DiligentMemoryAdapter::Create(Allocator* backing) noexcept {
         // 自身も backing から確保（自己参照だが Diligent に渡る前なら安全）
         void* mem = backing->Alloc(sizeof(AcsMemoryAllocator),
                                    alignof(AcsMemoryAllocator),
-                                   SourceLoc::Current());
+                                   FSourceLoc::Current());
         if (!mem) return nullptr;
         g_adapter = ::new (mem) AcsMemoryAllocator(backing);
     }

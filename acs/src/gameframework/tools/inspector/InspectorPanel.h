@@ -12,13 +12,13 @@
 //     通知は `FieldChangeCallback` で外部 (undo / dirty tracker / 永続化) に
 //     委譲する。
 //   ・`SelectionService` (別エージェントで実装中) に依存する。本パネルは
-//     forward-decl のみで受け、ポインタ経由で「現在の選択 NodeId」を取得する。
+//     forward-decl のみで受け、ポインタ経由で「現在の選択 FNodeId」を取得する。
 //     SelectionService 未設定時は `DrawUI` の引数 `selected_id` を採用する。
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 dirty / selected_id / callback 状態を持つ
 //     ため、所有を曖昧にしない (ACS 規約)。
-//   ・**全 noexcept**: ACS 規約。エラーは無効 NodeId / nullptr provider を
+//   ・**全 noexcept**: ACS 規約。エラーは無効 FNodeId / nullptr provider を
 //     no-op (描画スキップ) で扱う。
 //   ・**STL 不使用**: 文字列バッファは `char[256]` などスタック領域のみ。
 //     コンテナは持たない (Provider 自身が `InspectableField[]` を所有)。
@@ -28,7 +28,7 @@
 //   ・**FieldChangeCallback は raw 関数ポインタ + void***: ACS は STL の
 //     std::function を使えないため、C スタイルの callback 規約に揃える
 //     (ParticleEditorPanel / Input.h と同形)。
-//   ・**`InspectorSeam::GetProvider(NodeId)` を仮定**: NodeId → Provider の
+//   ・**`InspectorSeam::GetProvider(FNodeId)` を仮定**: FNodeId → Provider の
 //     resolve は seam 側 API を前提に呼び出す。実 seam の `GetProvider(u32)`
 //     との overload 共存を想定。
 //
@@ -42,7 +42,7 @@
 //   FVec2   → DragFloat2
 //   FVec3   → DragFloat3
 //   FVec4   → DragFloat4 (仕様外だが対称性のため対応)
-//   Color  → ColorEdit3 (data を FVec3* として扱う)
+//   FColor  → ColorEdit3 (data を FVec3* として扱う)
 //   FString → InputText (`char[256]` バッファ経由)
 //   Enum   → Combo (enum_values 文字列配列を直接 ImGui に渡す)
 //
@@ -50,7 +50,7 @@
 //   ・field の hide / readonly 属性 (現状は全 field 編集可能扱い)
 //   ・複合型 (struct of struct / array of T) の自動展開
 //   ・undo / redo 統合
-//   ・multi-select (現状は単一 NodeId のみ)
+//   ・multi-select (現状は単一 FNodeId のみ)
 #pragma once
 
 #include "foundation/Types.h"
@@ -68,7 +68,7 @@ namespace acs::game::inspector {
 
 // 別エージェントが作成中の SelectionService。本パネルは forward-decl で受け、
 // .cpp 側で実装ヘッダ (SelectionService.h) を include して扱う。
-// 本パネルが使う最小 API は `NodeId CurrentSelection() const noexcept` 1 つのみ。
+// 本パネルが使う最小 API は `FNodeId CurrentSelection() const noexcept` 1 つのみ。
 class SelectionService;
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ public:
     // 渡したポインタがそのまま戻る (closure 代替)。`field_name` は Provider が
     // 所有するリテラル文字列 (InspectableField::name)。
     using FieldChangeCallback = void (*)(void* user,
-                                         NodeId target,
+                                         FNodeId target,
                                          const char* field_name,
                                          EFieldKind kind) noexcept;
 
@@ -102,13 +102,13 @@ public:
 
     // メイン ImGui window 描画。`Begin("Inspector")` で 1 つの window を出す。
     //
-    // 選択 NodeId の解決順:
+    // 選択 FNodeId の解決順:
     //   1. SetSelectionService() で SelectionService が設定済みなら、その
     //      `Current()` を優先採用。
     //   2. それが無効 (= !IsValid()) なら、引数 `selected_id` を使う。
     //   3. どちらも無効なら "(Nothing selected)" を表示して return。
     //
-    // Provider 解決は `seam.GetProvider(node_id)` を呼ぶ (NodeId 受けの API を
+    // Provider 解決は `seam.GetProvider(node_id)` を呼ぶ (FNodeId 受けの API を
     // 想定)。nullptr が返ったら "(No provider)" を表示。
     // Phase 24: EditorPanel 継承で no-param DrawUI 化。InspectorSeam は
     // SetInspectorSeam で事前 set、selection は SelectionService 経由で取得。
@@ -141,9 +141,9 @@ public:
     static constexpr u32 kStringBufferSize = 256u;
 
 private:
-    // 現在の選択 NodeId キャッシュ。SelectionService から取得した値、または
+    // 現在の選択 FNodeId キャッシュ。SelectionService から取得した値、または
     // DrawUI の引数で渡された値を反映する (DrawUI 末尾で更新)。デバッグ表示用。
-    NodeId               _current_selection {};
+    FNodeId               _current_selection {};
 
     // SelectionService (non-owning)。nullptr ならば DrawUI 引数を採用。
     SelectionService*    _selection_service = nullptr;

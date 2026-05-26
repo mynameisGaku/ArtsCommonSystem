@@ -49,7 +49,7 @@ TResult<void> Renderer::Init(Window& w, bool enable_debug, bool enable_depth) no
 TResult<void> Renderer::RebuildDepth(u32 w, u32 h) noexcept {
     _depth.Reset();
     if (w == 0 || h == 0) return Ok();
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width  = w;
     td.height = h;
     td.format = _depth_format;
@@ -81,11 +81,11 @@ void Renderer::BeginFrame(const ClearColor& clear) noexcept {
                                  1.0f);
 
     // 全画面ビューポート / シザーを既定で設定（描画コードで上書き可能）
-    Viewport vp{};
+    FViewport vp{};
     vp.width  = static_cast<f32>(_swapchain->Width());
     vp.height = static_cast<f32>(_swapchain->Height());
     _cmd->SetViewport(vp);
-    ScissorRect sr{};
+    FScissorRect sr{};
     sr.right  = static_cast<i32>(_swapchain->Width());
     sr.bottom = static_cast<i32>(_swapchain->Height());
     _cmd->SetScissor(sr);

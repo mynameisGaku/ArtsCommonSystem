@@ -271,7 +271,7 @@ const CheckpointInfo* CheckpointSystem::AllCheckpoints(u32& out_count) const noe
 }
 
 // =============================================================================
-// Callback
+// FCallback
 // =============================================================================
 
 void CheckpointSystem::SetOnActivateCallback(ActivateCallback cb, void* user) noexcept {

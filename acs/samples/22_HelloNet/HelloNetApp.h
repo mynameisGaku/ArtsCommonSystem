@@ -13,7 +13,7 @@
 namespace hellonet {
 
 // サーバスレッド本体 (TcpListener::Listen → Accept → Recv → Send) は
-// EchoServer.h/.cpp に free function で分離している (Thread::Spawn の引数仕様に
+// EchoServer.h/.cpp に free function で分離している (FThread::Spawn の引数仕様に
 // 合わせるため、メンバ関数ではなく free function にしている)。
 class HelloNetApp {
 public:

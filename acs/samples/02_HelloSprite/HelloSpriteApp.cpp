@@ -47,7 +47,7 @@ void HelloSpriteApp::OnStart() noexcept {
 
     u8 pixels[kTexSize * kTexSize * 4];
     GenerateSpriteTexture(pixels);
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = kTexSize; td.height = kTexSize;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = pixels;

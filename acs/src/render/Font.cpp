@@ -160,7 +160,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     DefaultAllocator().Free(atlas_r8);
 
     // ===== GPU テクスチャ作成 =====
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = atlas_size; td.height = atlas_size;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = atlas_rgba;

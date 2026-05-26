@@ -13,7 +13,7 @@ using namespace acs;
 
 ACS_TEST(Memory, SystemAllocatorRoundtrips) {
     SystemAllocator a;
-    void* p = a.Alloc(128, 16, SourceLoc::Current());
+    void* p = a.Alloc(128, 16, FSourceLoc::Current());
     EXPECT_TRUE(p != nullptr);
     EXPECT_TRUE(((uptr)p & 15ull) == 0);
     a.Free(p);
@@ -22,24 +22,24 @@ ACS_TEST(Memory, SystemAllocatorRoundtrips) {
 
 ACS_TEST(Memory, LinearAllocatorBumps) {
     LinearAllocator la(4096);
-    void* a = la.Alloc(64, 8, SourceLoc::Current());
-    void* b = la.Alloc(64, 8, SourceLoc::Current());
+    void* a = la.Alloc(64, 8, FSourceLoc::Current());
+    void* b = la.Alloc(64, 8, FSourceLoc::Current());
     EXPECT_TRUE(a != nullptr);
     EXPECT_TRUE(b != nullptr);
     EXPECT_TRUE(b > a);
     la.Reset();
-    void* c = la.Alloc(64, 8, SourceLoc::Current());
+    void* c = la.Alloc(64, 8, FSourceLoc::Current());
     EXPECT_EQ(c, a);
 }
 
 ACS_TEST(Memory, PoolAllocatorReusesSlots) {
     PoolAllocator p(64, 16);
-    void* a = p.Alloc(64, 8, SourceLoc::Current());
-    void* b = p.Alloc(64, 8, SourceLoc::Current());
+    void* a = p.Alloc(64, 8, FSourceLoc::Current());
+    void* b = p.Alloc(64, 8, FSourceLoc::Current());
     EXPECT_TRUE(a != nullptr);
     EXPECT_TRUE(b != nullptr);
     p.Free(a);
-    void* c = p.Alloc(64, 8, SourceLoc::Current());
+    void* c = p.Alloc(64, 8, FSourceLoc::Current());
     EXPECT_EQ(c, a);  // LIFO reuse
     p.Free(b);
     p.Free(c);
@@ -47,12 +47,12 @@ ACS_TEST(Memory, PoolAllocatorReusesSlots) {
 
 ACS_TEST(Memory, ArenaGrows) {
     ArenaAllocator ar(1024);
-    void* a = ar.Alloc(800, 16, SourceLoc::Current());
-    void* b = ar.Alloc(800, 16, SourceLoc::Current()); // forces new page
+    void* a = ar.Alloc(800, 16, FSourceLoc::Current());
+    void* b = ar.Alloc(800, 16, FSourceLoc::Current()); // forces new page
     EXPECT_TRUE(a != nullptr);
     EXPECT_TRUE(b != nullptr);
     ar.Reset(/*release_pages*/ false);
-    void* c = ar.Alloc(64, 16, SourceLoc::Current());
+    void* c = ar.Alloc(64, 16, FSourceLoc::Current());
     EXPECT_TRUE(c != nullptr);
 }
 

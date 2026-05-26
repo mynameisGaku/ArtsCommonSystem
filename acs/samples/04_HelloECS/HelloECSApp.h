@@ -4,7 +4,7 @@
 // ACS の ECS / Event / Timer / 並列イテレーションを 1 つの app で紹介する小品。
 //
 // やってること:
-//   ・World に 200 個の Entity を生成、各々 Position + Velocity + Color
+//   ・World に 200 個の Entity を生成、各々 Position + Velocity + FColor
 //   ・OnUpdate 毎フレーム: World.Query<Position, Velocity>().EachParallel(...) で
 //     ThreadPool 経由の並列移動更新（壁で反射）
 //   ・SpriteBatch で円型テクスチャを使って粒子のように描画

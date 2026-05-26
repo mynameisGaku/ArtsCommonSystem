@@ -14,7 +14,7 @@ public:
     Dx12Buffer() noexcept = default;
     ~Dx12Buffer() noexcept override;
 
-    HrResult Init(Dx12Device& device, const BufferDesc& desc) noexcept;
+    HrResult Init(Dx12Device& device, const FBufferDesc& desc) noexcept;
 
     usize       Size()  const noexcept override { return _size; }
     EBufferUsage Usage() const noexcept override { return _usage; }

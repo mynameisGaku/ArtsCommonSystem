@@ -29,15 +29,15 @@ public:
     // 派生クラスごとの型 ID
     virtual AssetType Type() const noexcept = 0;
 
-    AssetId   Id()    const noexcept { return _id; }
+    FAssetId   Id()    const noexcept { return _id; }
     EAssetState State() const noexcept { return _state; }
 
     // レジストリから設定される（一般ユーザは触らない）
-    void SetId(AssetId id) noexcept       { _id = id; }
+    void SetId(FAssetId id) noexcept       { _id = id; }
     void SetState(EAssetState s) noexcept  { _state = s; }
 
 private:
-    AssetId    _id    = kInvalidAssetId;
+    FAssetId    _id    = kInvalidAssetId;
     EAssetState _state = EAssetState::Unloaded;
 };
 

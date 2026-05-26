@@ -35,7 +35,7 @@ Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
 }
 } // namespace
 
-TResult<void> DiligentBuffer::Init(DiligentDevice& device, const BufferDesc& desc) noexcept {
+TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& desc) noexcept {
     _device  = &device;
     _size    = desc.size;
     _usage   = desc.usage;
@@ -43,7 +43,7 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const BufferDesc& des
     auto* dev = device.RenderDev();
     if (!dev) return ACS_ERR(Render, 120, "DiligentBuffer: device not initialized");
 
-    Diligent::BufferDesc bd;
+    Diligent::FBufferDesc bd;
     bd.Name      = "ACS_Buffer";
     bd.Size      = static_cast<Diligent::Uint64>(desc.size);
     bd.BindFlags = BindFromUsage(desc.usage);

@@ -2,7 +2,7 @@
 // 2D テクスチャ抽象（GPU 上の画像。シェーダから読める SRV を持つ）
 //
 // 使い方:
-//   TextureDesc d{};
+//   FTextureDesc d{};
 //   d.width = 256; d.height = 256;
 //   d.format = EFormat::R8G8B8A8_UNorm;
 //   d.initial_data = pixels;          // RGBA 8bit、上から下、左から右の順
@@ -22,7 +22,7 @@ namespace acs {
 
 class IRhiDevice;
 
-struct TextureDesc {
+struct FTextureDesc {
     u32         width            = 0;
     u32         height           = 0;
     EFormat      format           = EFormat::R8G8B8A8_UNorm;
@@ -52,6 +52,6 @@ public:
 };
 
 TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
-                                                     const TextureDesc& desc) noexcept;
+                                                     const FTextureDesc& desc) noexcept;
 
 } // namespace acs

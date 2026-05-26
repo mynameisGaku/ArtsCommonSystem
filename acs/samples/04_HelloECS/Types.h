@@ -11,7 +11,7 @@ namespace hello04 {
 // ため自明な値型のままにしておく (継承や仮想関数を付けない)。
 struct Position { acs::FVec2 v; };
 struct Velocity { acs::FVec2 v; };
-struct Color    { acs::f32 r, g, b; };
+struct FColor    { acs::f32 r, g, b; };
 
 // MessageBroker で publish するイベント型。POD ならどんな型でも publish できる。
 struct SpawnEvent { acs::u32 total; };

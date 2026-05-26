@@ -72,7 +72,7 @@ TResult<TUniquePtr<IRhiTexture>> BakeFloorLightmap(IRhiDevice& dev) noexcept {
         }
     }
 
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = kSize; td.height = kSize;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = rgba.Data();

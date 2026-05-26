@@ -34,7 +34,7 @@ constexpr const char* ToString(ELogSeverity s) noexcept {
 }
 
 // Logger 設定
-struct LogConfig {
+struct FLogConfig {
     const wchar_t* file_path     = nullptr;            // nullptr ならファイル無効
     ELogSeverity    min_severity  = ELogSeverity::Info;  // 出力最小レベル
     u32            ring_capacity = 4096;               // リング長（2 のべき乗、16 未満は 16 に切り上げ）
@@ -45,7 +45,7 @@ struct LogConfig {
 class Logger {
 public:
     // 初期化（多重呼び出しは無視）
-    static void Init(const LogConfig& cfg) noexcept;
+    static void Init(const FLogConfig& cfg) noexcept;
 
     // ライタースレッドを停止しリソース解放
     static void Shutdown() noexcept;
@@ -64,7 +64,7 @@ public:
 
     // 実書き込み関数（printf 互換、ホットパス肥大化を避けるため NEVERINLINE）
     ACS_NEVERINLINE static void Write(ELogSeverity sev,
-                                      SourceLoc   loc,
+                                      FSourceLoc   loc,
                                       const char* fmt,
                                       ...) noexcept;
 };
@@ -75,7 +75,7 @@ public:
 #define ACS_LOG(sev, fmt, ...)                                                 \
     do {                                                                       \
         if (::acs::Logger::Enabled(sev))                                       \
-            ::acs::Logger::Write(sev, ::acs::SourceLoc::Current(),             \
+            ::acs::Logger::Write(sev, ::acs::FSourceLoc::Current(),             \
                                  fmt, ##__VA_ARGS__);                          \
     } while (0)
 

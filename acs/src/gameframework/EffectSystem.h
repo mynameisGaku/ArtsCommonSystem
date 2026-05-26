@@ -2,7 +2,7 @@
 // GameFramework Pillar I — EffectSystem (画面演出指揮)
 //
 // 画面エフェクトの中央指揮塔: Flash (全画面色被せ) / HitStop (一時停止) /
-// Camera Shake (Camera2D 連携) をひとまとめにし、描画側 / Game ループ /
+// FCamera Shake (Camera2D 連携) をひとまとめにし、描画側 / Game ループ /
 // Camera2D が「pull する側」になる単純なバスとして振る舞う。
 //
 // 設計選択 (Phase ?? = Pillar I Phase 1):
@@ -77,7 +77,7 @@ public:
     // 重ねがけは max を採用 (短い hit stop が長い hit stop を打ち消さない)。
     void HitStop(f32 duration) noexcept;
 
-    // ----- Camera Shake (Camera2D 連携) -----
+    // ----- FCamera Shake (Camera2D 連携) -----
     // trauma      : 0..1、Camera2D::AddShake にそのまま渡せる値
     // duration_hint: 将来用 (現状未使用、API 安定のため shape を確保)
     // 同一フレーム中の複数呼出は max を保つ (max-of-frame)。

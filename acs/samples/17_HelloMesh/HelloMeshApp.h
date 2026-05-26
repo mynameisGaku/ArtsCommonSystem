@@ -4,7 +4,7 @@
 // 学習ポイント:
 //   - 定数バッファ (b0) で MVP 行列を毎フレーム更新する流れ
 //   - 深度バッファによる正しい遮蔽 (depth_test / depth_write)
-//   - PipelineDesc::cbuffer_slots / cull_mode の設定
+//   - FPipelineDesc::cbuffer_slots / cull_mode の設定
 #pragma once
 
 #include "app/Application.h"
@@ -31,7 +31,7 @@ private:
     acs::TUniquePtr<acs::IRhiBuffer>   _cb;
     acs::TUniquePtr<acs::IRhiPipeline> _pipeline;
 
-    acs::Camera _camera;
+    acs::FCamera _camera;
     acs::f32    _angle   = 0.0f;
     acs::f32    _cam_yaw = 0.0f;
 };

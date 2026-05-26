@@ -294,7 +294,7 @@ TResult<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 h
     if (auto r = CreateOutputRT(device, width, height); r.IsErr()) return r;
     if (auto r = CreatePipeline(device); r.IsErr()) return r;
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = CBSize<SsrCBLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -306,7 +306,7 @@ TResult<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 h
 
 TResult<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width  = width;
     td.height = height;
     td.format = _hdr_format;
@@ -326,7 +326,7 @@ TResult<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
 }
 
 TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsrHLSL;
     vs_d.entry_point = "VSMain";
@@ -334,7 +334,7 @@ TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsrHLSL;
     ps_d.entry_point = "PSMain";
@@ -342,7 +342,7 @@ TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -381,7 +381,7 @@ TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
 
     // Phase 34e-3: temporal pipeline (current_ssr + history_ssr + scene_depth → history)。
     // VS は fullscreen-triangle で raw と同形なので _vs を再利用。
-    ShaderDesc tps_d{};
+    FShaderDesc tps_d{};
     tps_d.stage = EShaderStage::Pixel;
     tps_d.hlsl_source = kSsrTemporalHLSL;
     tps_d.entry_point = "PSMain";
@@ -389,7 +389,7 @@ TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, tps_d); r.IsErr()) return Err<void>(r.Error());
     else _temporal_ps = Move(r.Value());
 
-    PipelineDesc tpd{};
+    FPipelineDesc tpd{};
     tpd.vs            = _vs.Get();
     tpd.ps            = _temporal_ps.Get();
     tpd.topology      = EPrimitiveTopology::TriangleList;

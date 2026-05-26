@@ -292,7 +292,7 @@ TResult<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     if (auto r = CreateOutputRT(device, width, height); r.IsErr()) return r;
     if (auto r = CreatePipeline(device); r.IsErr()) return r;
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = CBSize<SsgiCBLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -305,7 +305,7 @@ TResult<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
 TResult<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     _blur_output.Reset();
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width  = width;
     td.height = height;
     // RGB 用、低帯域。R11G11B10F が HDR-friendly でメモリも小さい。
@@ -331,7 +331,7 @@ TResult<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) no
 }
 
 TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsgiHLSL;
     vs_d.entry_point = "VSMain";
@@ -339,7 +339,7 @@ TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsgiHLSL;
     ps_d.entry_point = "PSMain";
@@ -347,7 +347,7 @@ TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -380,7 +380,7 @@ TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
 
     // Phase 33c-2: blur pipeline (ssgi_raw + scene_depth → blurred)。
     // VS は本体と同じ fullscreen-triangle なので _vs を再利用。
-    ShaderDesc bps_d{};
+    FShaderDesc bps_d{};
     bps_d.stage = EShaderStage::Pixel;
     bps_d.hlsl_source = kSsgiBlurHLSL;
     bps_d.entry_point = "PSMain";
@@ -388,7 +388,7 @@ TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, bps_d); r.IsErr()) return Err<void>(r.Error());
     else _blur_ps = Move(r.Value());
 
-    PipelineDesc bpd{};
+    FPipelineDesc bpd{};
     bpd.vs            = _vs.Get();
     bpd.ps            = _blur_ps.Get();
     bpd.topology      = EPrimitiveTopology::TriangleList;
@@ -416,7 +416,7 @@ TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     else _blur_pipeline = Move(r.Value());
 
     // Phase 33c-3: temporal pipeline (current_gi + history_gi + scene_depth → history)
-    ShaderDesc tps_d{};
+    FShaderDesc tps_d{};
     tps_d.stage = EShaderStage::Pixel;
     tps_d.hlsl_source = kSsgiTemporalHLSL;
     tps_d.entry_point = "PSMain";
@@ -424,7 +424,7 @@ TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, tps_d); r.IsErr()) return Err<void>(r.Error());
     else _temporal_ps = Move(r.Value());
 
-    PipelineDesc tpd{};
+    FPipelineDesc tpd{};
     tpd.vs            = _vs.Get();
     tpd.ps            = _temporal_ps.Get();
     tpd.topology      = EPrimitiveTopology::TriangleList;

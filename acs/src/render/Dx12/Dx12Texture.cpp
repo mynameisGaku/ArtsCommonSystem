@@ -40,7 +40,7 @@ Dx12Texture::~Dx12Texture() noexcept {
     ACS_SAFE_RELEASE(_resource);
 }
 
-HrResult Dx12Texture::Init(Dx12Device& device, const TextureDesc& desc) noexcept {
+HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcept {
     HrResult r{};
     _device = &device;
     _width  = desc.width;
@@ -251,7 +251,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::DsvCpuHandle() const noexcept {
 // ファクトリ（Diligent バックエンドが有効化されている場合は Diligent 側に譲る）
 #if !WITH_RENDER_DILIGENT
 TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
-                                                const TextureDesc& desc) noexcept {
+                                                const FTextureDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 70, "CreateRhiTexture: device is not DX12");

@@ -32,13 +32,13 @@
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / nullptr 等を
 //     no-op で表現。
 //   ・**STL 不使用**: 折りたたみ状態は `TArray<CollapsedEntry>` の linear search
-//     (= NodeId → bool マップ)。ノード数が 100k 級でなければ十分速い。binary
+//     (= FNodeId → bool マップ)。ノード数が 100k 級でなければ十分速い。binary
 //     search / hash table は Phase 20+ で必要なら導入。
 //   ・**ImGui ヘッダは .cpp 側のみ**: header からは imgui 依存を漏らさない
 //     (`ParticleEditorPanel.h` と同じ方針)。
 //   ・**SelectionService は forward decl**: header からは依存を切り、.cpp 側で
 //     のみ include する (循環や同時編集事故の回避)。実 API は
-//     `SelectionService::SelectNode(NodeId) / CurrentSelection() const`。
+//     `SelectionService::SelectNode(FNodeId) / CurrentSelection() const`。
 //   ・**Reparent は `Node2D::Reparent` の deferred 呼出**: cycle 検出 + フレーム
 //     境界での実適用は Node2D 側が責任を持つ (cycle ガード `IsAncestorOf` 済)。
 //   ・**Drag & Drop payload は `Node2D*` 直渡し**: ImGui 慣例的に `SetDragDropPayload`
@@ -111,9 +111,9 @@ public:
     // SelectionService を注入。nullptr で内部 selection モードに戻せる。
     void SetSelectionService(class SelectionService* svc) noexcept;
 
-    // 現選択ノードの NodeId。SelectionService が注入されていればそちら経由、
-    // そうでなければ内部 `_selected_id` を返す。未選択は `NodeId{}` (packed==0)。
-    NodeId SelectedNodeId() const noexcept;
+    // 現選択ノードの FNodeId。SelectionService が注入されていればそちら経由、
+    // そうでなければ内部 `_selected_id` を返す。未選択は `FNodeId{}` (packed==0)。
+    FNodeId SelectedNodeId() const noexcept;
 
     // 選択を `node` に切替。nullptr で選択解除。SelectionService 注入時は
     // そちらにも反映する。
@@ -126,7 +126,7 @@ public:
     void ExpandAll() noexcept;
 
     // 全 TreeNode を折りたたむ。次回 DrawUI で各ノード描画時に
-    // 既存 NodeId エントリを true に立てる必要があるため、ここでは
+    // 既存 FNodeId エントリを true に立てる必要があるため、ここでは
     // `_collapse_all_pending` フラグだけ立てて DrawUI で適用する。
     void CollapseAll() noexcept;
 
@@ -140,22 +140,22 @@ public:
     void SetOnNodeRightClickCallback(NodeRightClickCallback cb, void* user) noexcept;
 
 private:
-    // 折りたたみ状態 1 エントリ。TArray<CollapsedEntry> を NodeId で linear search
-    // することで「NodeId → bool collapsed」マップを実現する。
+    // 折りたたみ状態 1 エントリ。TArray<CollapsedEntry> を FNodeId で linear search
+    // することで「FNodeId → bool collapsed」マップを実現する。
     struct CollapsedEntry {
-        NodeId id      {};
+        FNodeId id      {};
         bool   collapsed = false;
     };
 
     // root_node 配下を再帰描画。`depth` は将来的なインデント / 上限ガード用。
     void DrawNodeRecursive(class Node2D& node, u32 depth) noexcept;
 
-    // NodeId → collapsed のルックアップ。エントリ無しは false (= 展開) 扱い。
-    bool IsCollapsed(NodeId id) const noexcept;
+    // FNodeId → collapsed のルックアップ。エントリ無しは false (= 展開) 扱い。
+    bool IsCollapsed(FNodeId id) const noexcept;
 
-    // NodeId に対する collapsed 状態を上書き保存 (エントリ無ければ追加)。
+    // FNodeId に対する collapsed 状態を上書き保存 (エントリ無ければ追加)。
     // c == false かつ既存エントリ無しなら no-op (= default expanded を保つ)。
-    void SetCollapsed(NodeId id, bool c) noexcept;
+    void SetCollapsed(FNodeId id, bool c) noexcept;
 
     // drag drop payload の識別子文字列 (ImGui 仕様: 32 文字以内)。
     static constexpr const char* kDragDropId = "HIER_NODE_PTR";
@@ -166,7 +166,7 @@ private:
     TArray<CollapsedEntry>     _collapsed_map      {};
     SelectionService*         _selection_service  = nullptr;
     // SelectionService 未注入時のフォールバック selection。
-    NodeId                    _selected_id        {};
+    FNodeId                    _selected_id        {};
     // 内部 selection の生ポインタ (Delete / Duplicate 用)。SelectionService 注入
     // 時もキャッシュしておく (DrawUI で更新)。
     class Node2D*             _selected_node      = nullptr;

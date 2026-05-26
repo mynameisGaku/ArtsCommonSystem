@@ -32,7 +32,7 @@ class TextAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return TextAsset::StaticType(); }
     const char* Extension() const noexcept override { return "txt"; }   // 主要拡張子
-    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

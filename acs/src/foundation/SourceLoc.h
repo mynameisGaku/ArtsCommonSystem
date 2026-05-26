@@ -7,9 +7,9 @@
 
 namespace acs {
 
-class SourceLoc {
+class FSourceLoc {
 public:
-    constexpr SourceLoc() noexcept = default;
+    constexpr FSourceLoc() noexcept = default;
 
     constexpr const char* File()     const noexcept { return _file; }
     constexpr const char* Function() const noexcept { return _func; }
@@ -17,7 +17,7 @@ public:
     constexpr u32         Column()   const noexcept { return _col;  }
 
     // デフォルト引数として渡すと呼び出し位置をキャプチャする
-    static consteval SourceLoc Current(
+    static consteval FSourceLoc Current(
         const char* file = __builtin_FILE(),
         const char* func = __builtin_FUNCTION(),
         u32 line         = __builtin_LINE(),
@@ -27,7 +27,7 @@ public:
         u32 col          = 0  // GCC は __builtin_COLUMN を持たない
 #endif
     ) noexcept {
-        SourceLoc s;
+        FSourceLoc s;
         s._file = file;
         s._func = func;
         s._line = line;

@@ -32,15 +32,15 @@ int HelloEasyApp::Run() noexcept {
         if (IsKeyDown(EKey::Down)  || IsKeyDown(EKey::S)) y += step;
         if (IsKeyDown(EKey::Up)    || IsKeyDown(EKey::W)) y -= step;
 
-        DrawLine(0, 380, ScreenWidth(), 380, Color::Gray, 2.0f);
-        DrawRect(x - 40, y - 40, 80, 80, Color::Sky);
-        DrawCircle(MouseX(), MouseY(), 28, Color::Orange);
+        DrawLine(0, 380, ScreenWidth(), 380, FColor::Gray, 2.0f);
+        DrawRect(x - 40, y - 40, 80, 80, FColor::Sky);
+        DrawCircle(MouseX(), MouseY(), 28, FColor::Orange);
 
-        DrawString(24, 20, "矢印キー / WASD で四角を動かす", Color::White);
-        DrawString(24, 52, "マウスを動かすと円がついてくる", Color::White);
-        DrawString(24, 84, "Esc で終了", Color::Gray);
+        DrawString(24, 20, "矢印キー / WASD で四角を動かす", FColor::White);
+        DrawString(24, 52, "マウスを動かすと円がついてくる", FColor::White);
+        DrawString(24, 84, "Esc で終了", FColor::Gray);
         if (IsMouseDown())
-            DrawString(24, 116, "マウス左ボタンを押している", Color::Yellow);
+            DrawString(24, 116, "マウス左ボタンを押している", FColor::Yellow);
     }
     return 0;
 }

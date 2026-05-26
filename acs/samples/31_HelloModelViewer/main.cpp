@@ -16,7 +16,7 @@
 //     ModelAnimationPanel) を 1 個の Workspace に集約。
 //   ・サンプル 17_HelloMesh と同等の "頂点+色 cube" を回転表示する 3D viewport を
 //     ImGui の外側 (= フレームバッファ直書き) に同時描画。viewport カメラは
-//     `ModelViewerPanel::Camera()` (= editor_core::EditorCamera) の view/proj を
+//     `ModelViewerPanel::FCamera()` (= editor_core::EditorCamera) の view/proj を
 //     使用するため、エディタ上でマウスドラッグ → orbit / dolly がそのまま 3D 像
 //     に反映される (panel 側の HandleMouseInput が ImGui の IO を吸い上げる前提)。
 //   ・MainMenuBar:

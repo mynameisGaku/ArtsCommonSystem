@@ -27,7 +27,7 @@ Diligent::ITextureView* DiligentTexture::RtvSlice(u32 slice, u32 mip) const noex
     return _slice_rtvs[idx];
 }
 
-TResult<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& desc) noexcept {
+TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& desc) noexcept {
     _device  = &device;
     _width   = desc.width;
     _height  = desc.height;
@@ -50,7 +50,7 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const TextureDesc& d
     auto* dev = device.RenderDev();
     if (!dev) return ACS_ERR(Render, 130, "DiligentTexture: device not initialized");
 
-    Diligent::TextureDesc td;
+    Diligent::FTextureDesc td;
     td.Name      = "ACS_Texture";
     if (_is_cubemap)
         td.Type = Diligent::RESOURCE_DIM_TEX_CUBE;

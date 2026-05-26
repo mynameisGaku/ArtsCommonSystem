@@ -181,7 +181,7 @@ public:
     // ClearAll() で無効化される。
     const CosmeticItem* AllCosmetics(u32& out_count) const noexcept;
 
-    // ---- Callback --------------------------------------------------------
+    // ---- FCallback --------------------------------------------------------
     // 装着 / 解除 callback を設定 (単一購読)。cb = nullptr で解除。
     void SetOnEquipCallback(EquipCallback cb, void* user) noexcept;
 

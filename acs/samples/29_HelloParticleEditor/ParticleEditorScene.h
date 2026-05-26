@@ -34,7 +34,7 @@ private:
     acs::game::ParticleEffectSystem          _particle_system;
     acs::game::fxedit::ParticleEditorPanel   _editor_panel;
     acs::game::fxedit::ParticleEditorPreview _editor_preview;
-    acs::game::EmitterHandle                 _default_emitter;
+    acs::game::FEmitterHandle                 _default_emitter;
 };
 
 } // namespace helloparticleed

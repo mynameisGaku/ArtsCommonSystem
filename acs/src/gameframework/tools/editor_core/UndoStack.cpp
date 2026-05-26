@@ -192,7 +192,7 @@ const char* UndoStack::RedoDescription() const noexcept {
 }
 
 // ============================================================================
-// Clear / Callback
+// Clear / FCallback
 // ============================================================================
 void UndoStack::Clear() noexcept {
     // TUniquePtr の dtor で全 cmd が自動 delete される。TArray::Clear は size を

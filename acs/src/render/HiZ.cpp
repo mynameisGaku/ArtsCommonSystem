@@ -71,7 +71,7 @@ TResult<void> HiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexc
     if (auto r = CreateRT(device, src_width, src_height); r.IsErr()) return r;
     if (auto r = CreatePipeline(device); r.IsErr()) return r;
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = CBSize<HiZCBLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -88,7 +88,7 @@ TResult<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
     if (_hiz_w < 1u) _hiz_w = 1u;
     if (_hiz_h < 1u) _hiz_h = 1u;
 
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width  = _hiz_w;
     td.height = _hiz_h;
     // R16_Float が enum 未定義のため R16G16_Float (RG 2ch half) を採用。
@@ -105,7 +105,7 @@ TResult<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
 }
 
 TResult<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kHiZHLSL;
     vs_d.entry_point = "VSMain";
@@ -113,7 +113,7 @@ TResult<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kHiZHLSL;
     ps_d.entry_point = "PSMain";
@@ -121,7 +121,7 @@ TResult<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;

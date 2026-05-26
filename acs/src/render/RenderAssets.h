@@ -46,7 +46,7 @@ struct SkinnedGpuMesh {
     TUniquePtr<IRhiBuffer> index_buffer;
     u32 vertex_count = 0;
     u32 index_count  = 0;
-    u32 vertex_stride = 0;        // SkinnedVertex のサイズ
+    u32 vertex_stride = 0;        // FSkinnedVertex のサイズ
 };
 
 // SkinnedMeshAsset → SkinnedGpuMesh

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Threading — Thread 実装
+// ACS Threading — FThread 実装
 // -----------------------------------------------------------------------------
 // CreateThread のラッパ。トランポリン関数で TLS 設定 → ユーザー関数呼び出し
 // → コンテキスト解放 を行う。
@@ -49,16 +49,16 @@ u32 HardwareConcurrency() noexcept {
 }
 
 // デストラクタ: ハンドルが残っていれば閉じる（Detach 相当）
-Thread::~Thread() noexcept {
+FThread::~FThread() noexcept {
     if (_handle) ::CloseHandle(_handle);
 }
 
 // ムーブ: ハンドル所有権を移譲
-Thread::Thread(Thread&& other) noexcept : _handle(other._handle), _id(other._id) {
+FThread::FThread(FThread&& other) noexcept : _handle(other._handle), _id(other._id) {
     other._handle = nullptr;
     other._id     = {};
 }
-Thread& Thread::operator=(Thread&& other) noexcept {
+FThread& FThread::operator=(FThread&& other) noexcept {
     if (this == &other) return *this;
     if (_handle) ::CloseHandle(_handle);
     _handle       = other._handle;
@@ -69,12 +69,12 @@ Thread& Thread::operator=(Thread&& other) noexcept {
 }
 
 // スレッドを生成して起動する。Trampoline 経由で entry を呼ぶ。
-TResult<Thread> Thread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& cfg) noexcept {
-    if (!entry) return ACS_ERR(Threading, 1, "Thread::Spawn called with null entry");
+TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& cfg) noexcept {
+    if (!entry) return ACS_ERR(Threading, 1, "FThread::Spawn called with null entry");
 
     // ユーザー関数情報を保持する一時オブジェクトをヒープに確保
     auto* ctx = static_cast<StartCtx*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(StartCtx)));
-    if (!ctx) return ACS_ERR(Memory, 1, "Thread::Spawn HeapAlloc failed");
+    if (!ctx) return ACS_ERR(Memory, 1, "FThread::Spawn HeapAlloc failed");
     ctx->entry = entry;
     ctx->user  = user;
     ctx->name  = cfg.name;
@@ -92,14 +92,14 @@ TResult<Thread> Thread::Spawn(ThreadEntry entry, void* user, const ThreadConfig&
     if (cfg.priority != 0) ::SetThreadPriority(h, cfg.priority);
     if (cfg.affinity != 0) ::SetThreadAffinityMask(h, static_cast<DWORD_PTR>(cfg.affinity));
 
-    Thread t;
+    FThread t;
     t._handle = h;
     t._id     = ThreadId{ static_cast<u32>(tid) };
-    return TResult<Thread>(OkInit, Move(t));
+    return TResult<FThread>(OkInit, Move(t));
 }
 
 // スレッド終了まで待機し、ハンドルを閉じる。
-void Thread::Join() noexcept {
+void FThread::Join() noexcept {
     if (!_handle) return;
     ::WaitForSingleObject(_handle, INFINITE);
     ::CloseHandle(_handle);
@@ -107,7 +107,7 @@ void Thread::Join() noexcept {
 }
 
 // ハンドルだけ閉じてスレッドは独立して継続する。
-void Thread::Detach() noexcept {
+void FThread::Detach() noexcept {
     if (_handle) {
         ::CloseHandle(_handle);
         _handle = nullptr;

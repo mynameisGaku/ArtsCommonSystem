@@ -21,7 +21,7 @@ namespace acs {
 // 単一オブジェクトの構築（コンストラクタ引数を完全転送）
 template<typename T, typename... Args>
 ACS_FORCEINLINE T* New(Allocator& a, Args&&... args) noexcept {
-    void* p = a.Alloc(sizeof(T), alignof(T), SourceLoc::Current());
+    void* p = a.Alloc(sizeof(T), alignof(T), FSourceLoc::Current());
     if (!p) return nullptr;
     return ::new (p) T(Forward<Args>(args)...);  // 配置 new
 }
@@ -39,7 +39,7 @@ ACS_FORCEINLINE void Delete(Allocator& a, T* p) noexcept {
 template<typename T>
 ACS_FORCEINLINE T* NewArray(Allocator& a, usize n) noexcept {
     if (n == 0) return nullptr;
-    void* p = a.Alloc(sizeof(T) * n, alignof(T), SourceLoc::Current());
+    void* p = a.Alloc(sizeof(T) * n, alignof(T), FSourceLoc::Current());
     if (!p) return nullptr;
     T* arr = static_cast<T*>(p);
     for (usize i = 0; i < n; ++i) ::new (&arr[i]) T();

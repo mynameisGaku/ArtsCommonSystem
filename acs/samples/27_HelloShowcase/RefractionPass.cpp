@@ -19,11 +19,11 @@ void ExecuteRefractionPass(Assets& a, IRhiCommandList& cl,
     a.blit.Copy(cl, hdr, *a.bg_rt);
 
     cl.BeginRenderToTextureLoad(hdr, &depth);
-    Viewport vp{};
+    FViewport vp{};
     vp.width  = static_cast<f32>(hdr.Width());
     vp.height = static_cast<f32>(hdr.Height());
     cl.SetViewport(vp);
-    ScissorRect svr{};
+    FScissorRect svr{};
     svr.right  = static_cast<i32>(hdr.Width());
     svr.bottom = static_cast<i32>(hdr.Height());
     cl.SetScissor(svr);

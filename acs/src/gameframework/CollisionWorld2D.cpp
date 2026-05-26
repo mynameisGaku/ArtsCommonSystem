@@ -17,7 +17,7 @@ u32 CollisionWorld2D::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-ShapeId CollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
+FShapeId CollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
     s.kind   = Kind::FAabb;
@@ -27,10 +27,10 @@ ShapeId CollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
     s.active = true;
     ++_shape_count;
     MarkDirty();
-    return ShapeId{idx, s.gen};
+    return FShapeId{idx, s.gen};
 }
 
-ShapeId CollisionWorld2D::AddCircle(const Circle& c) noexcept {
+FShapeId CollisionWorld2D::AddCircle(const Circle& c) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
     s.kind   = Kind::Circle;
@@ -40,10 +40,10 @@ ShapeId CollisionWorld2D::AddCircle(const Circle& c) noexcept {
     s.active = true;
     ++_shape_count;
     MarkDirty();
-    return ShapeId{idx, s.gen};
+    return FShapeId{idx, s.gen};
 }
 
-void CollisionWorld2D::UpdateAabb(ShapeId id, const Aabb2& a) noexcept {
+void CollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != Kind::FAabb) return;
@@ -51,7 +51,7 @@ void CollisionWorld2D::UpdateAabb(ShapeId id, const Aabb2& a) noexcept {
     MarkDirty();
 }
 
-void CollisionWorld2D::UpdateCircle(ShapeId id, const Circle& c) noexcept {
+void CollisionWorld2D::UpdateCircle(FShapeId id, const Circle& c) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != Kind::Circle) return;
@@ -59,7 +59,7 @@ void CollisionWorld2D::UpdateCircle(ShapeId id, const Circle& c) noexcept {
     MarkDirty();
 }
 
-void CollisionWorld2D::Remove(ShapeId id) noexcept {
+void CollisionWorld2D::Remove(FShapeId id) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
@@ -157,7 +157,7 @@ bool CollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) cons
 }
 
 // ===== クエリ =====
-void CollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<ShapeId>& out, ShapeId exclude) noexcept {
+void CollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShapeId exclude) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     _query_marks.Resize(_slots.Size());
@@ -175,14 +175,14 @@ void CollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<ShapeId>& out, ShapeId
                 if (_query_marks[idx]) continue;
                 _query_marks[idx] = 1;
                 if (NarrowIntersectAabb(idx, a)) {
-                    out.PushBack(ShapeId{idx, _slots[idx].gen});
+                    out.PushBack(FShapeId{idx, _slots[idx].gen});
                 }
             }
         }
     }
 }
 
-void CollisionWorld2D::OverlapCircle(const Circle& c, TArray<ShapeId>& out, ShapeId exclude) noexcept {
+void CollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FShapeId exclude) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     _query_marks.Resize(_slots.Size());
@@ -200,7 +200,7 @@ void CollisionWorld2D::OverlapCircle(const Circle& c, TArray<ShapeId>& out, Shap
                 if (_query_marks[idx]) continue;
                 _query_marks[idx] = 1;
                 if (NarrowIntersectCircle(idx, c)) {
-                    out.PushBack(ShapeId{idx, _slots[idx].gen});
+                    out.PushBack(FShapeId{idx, _slots[idx].gen});
                 }
             }
         }
@@ -208,7 +208,7 @@ void CollisionWorld2D::OverlapCircle(const Circle& c, TArray<ShapeId>& out, Shap
 }
 
 bool CollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
-                                RayHit2& out_hit, ShapeId& out_id) noexcept {
+                                RayHit2& out_hit, FShapeId& out_id) noexcept {
     out_hit = {};
     out_id  = {};
     RebuildGridIfDirty();
@@ -251,7 +251,7 @@ bool CollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                 if (rh.hit && rh.t < best_t) {
                     best_t = rh.t;
                     out_hit = rh;
-                    out_id  = ShapeId{idx, s.gen};
+                    out_id  = FShapeId{idx, s.gen};
                     any_hit = true;
                 }
             }

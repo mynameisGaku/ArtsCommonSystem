@@ -290,7 +290,7 @@ tlsf::BlockHeader* TlsfAllocator::MergeNext(tlsf::BlockHeader* block) noexcept {
 }
 
 // 確保
-void* TlsfAllocator::Alloc(usize size, usize alignment, SourceLoc /*loc*/) noexcept {
+void* TlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     using namespace tlsf;
     if (size == 0) return nullptr;
     if (alignment < ALIGN_SIZE) alignment = ALIGN_SIZE;
@@ -334,7 +334,7 @@ void TlsfAllocator::Free(void* ptr) noexcept {
 }
 
 void* TlsfAllocator::Realloc(void* ptr, usize old_size, usize new_size,
-                             usize alignment, SourceLoc loc) noexcept {
+                             usize alignment, FSourceLoc loc) noexcept {
     return Allocator::Realloc(ptr, old_size, new_size, alignment, loc);
 }
 

@@ -13,7 +13,7 @@ void PhysicsBody2D::OnDetach() noexcept {
     if (_world != nullptr && _registered) {
         _world->Remove(_handle);
     }
-    _handle = ShapeId{};
+    _handle = FShapeId{};
     _registered = false;
 }
 
@@ -39,7 +39,7 @@ void PhysicsBody2D::SyncShapeIfRegistered() noexcept {
 
 bool PhysicsBody2D::WouldBlockAt(FVec2 pos) noexcept {
     if (_world == nullptr) return false;
-    TArray<ShapeId> hits;
+    TArray<FShapeId> hits;
     if (_kind == ShapeKind::Circle) {
         _world->OverlapCircle(Circle{pos, _radius}, hits, _handle);
     } else if (_kind == ShapeKind::FAabb) {

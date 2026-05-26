@@ -19,7 +19,7 @@ struct alignas(64) Cell {
     volatile LONG64 sequence;       // CAS 調停用シーケンス番号
     ELogSeverity     severity;
     u8              _pad0[7];
-    SourceLoc       loc;
+    FSourceLoc       loc;
     DWORD           thread_id;
     LARGE_INTEGER   timestamp;      // QPC ティック
     u16             message_len;
@@ -180,7 +180,7 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept {
 } // namespace
 
 // 初期化
-void Logger::Init(const LogConfig& cfg) noexcept {
+void Logger::Init(const FLogConfig& cfg) noexcept {
     if (::_InterlockedCompareExchange(&g_inited, 1, 0) != 0) return;
 
     // capacity を 2 のべき乗（最低 16）に補正
@@ -281,7 +281,7 @@ u64 Logger::DroppedCount() noexcept {
 }
 
 // プロデューサ実体（Vyukov 風 CAS でセル予約 → 書き込み → release 公開）
-void Logger::Write(ELogSeverity sev, SourceLoc loc, const char* fmt, ...) noexcept {
+void Logger::Write(ELogSeverity sev, FSourceLoc loc, const char* fmt, ...) noexcept {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
     if (static_cast<LONG>(sev) < ::_InterlockedExchangeAdd(&g_state.min_severity, 0)) return;
 

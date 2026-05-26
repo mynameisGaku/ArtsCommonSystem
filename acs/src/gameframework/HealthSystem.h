@@ -2,13 +2,13 @@
 // GameFramework Pillar R/I — HealthSystem (HP / damage / death / respawn 管理)
 //
 // 複数 entity (敵 / プレイヤー / 破壊可能オブジェクト) の HP を一元管理する
-// 高レベル API。slot+generation パターンの `HealthId` で entity を識別し、
+// 高レベル API。slot+generation パターンの `FHealthId` で entity を識別し、
 // ApplyDamage / Heal / Revive / SetInvulnerable などの操作を提供する。
 //
 // 使い方:
 //   HealthSystem hp;
-//   HealthId player = hp.Spawn(/*max_hp=*/100.0f);
-//   HealthId enemy  = hp.Spawn(50.0f);
+//   FHealthId player = hp.Spawn(/*max_hp=*/100.0f);
+//   FHealthId enemy  = hp.Spawn(50.0f);
 //
 //   // ダメージ適用 (戻り値 true = 致死)
 //   if (hp.ApplyDamage(enemy, 30.0f, EDamageType::Fire)) {
@@ -25,8 +25,8 @@
 //   hp.Revive(player, 0.5f);
 //
 // 設計選択 (Pillar R/I):
-//   ・**HealthId は 24bit idx + 8bit gen の packed u32**: CollisionWorld2D の
-//     ShapeId / Node2D の NodeId と同パターン。removed slot を再利用しても古い
+//   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: CollisionWorld2D の
+//     FShapeId / Node2D の FNodeId と同パターン。removed slot を再利用しても古い
 //     handle は無効化される。0 は invalid 予約 (index 0 dummy)。
 //   ・**slot 配列 + active フラグ**: AcquireSlot で空きを線形検索、無ければ末尾
 //     拡張。Despawn では generation を進めて handle 無効化。
@@ -61,11 +61,11 @@ namespace acs::game {
 // HP 管理対象 entity の識別子。32bit packed = 24bit index + 8bit generation。
 // 0 は invalid 予約 (index 0 dummy)。Despawn → 再利用しても古い handle は
 // generation 不一致で弾かれる。
-struct HealthId {
+struct FHealthId {
     u32 _packed = 0;   // 0 = invalid。layout: low24=index, high8=generation
 
-    constexpr HealthId() noexcept = default;
-    constexpr HealthId(u32 index, u8 gen) noexcept
+    constexpr FHealthId() noexcept = default;
+    constexpr FHealthId(u32 index, u8 gen) noexcept
         : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     constexpr u32  Index() const noexcept { return _packed & 0x00FFFFFFu; }
@@ -74,8 +74,8 @@ struct HealthId {
     }
     constexpr bool IsValid() const noexcept { return _packed != 0; }
 
-    constexpr bool operator==(HealthId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(HealthId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FHealthId o) const noexcept { return _packed == o._packed; }
+    constexpr bool operator!=(FHealthId o) const noexcept { return _packed != o._packed; }
 };
 
 // 1 entity 分の HP 状態。GetState() で外部へ const 参照を返す。
@@ -106,9 +106,9 @@ enum class EDamageType : u8 {
 
 // 死亡時 callback。std::function 不使用ポリシーに従い、void* user を介して
 // コンテキストを引き回す。state 更新後 (is_alive=false 確定後) に呼ばれる。
-//   id           : 死亡した entity の HealthId
+//   id           : 死亡した entity の FHealthId
 //   lethal_type  : 致死を与えた EDamageType
-using DeathCallback = void(*)(void* user, HealthId id, EDamageType lethal_type) noexcept;
+using DeathCallback = void(*)(void* user, FHealthId id, EDamageType lethal_type) noexcept;
 
 class HealthSystem {
 public:
@@ -122,10 +122,10 @@ public:
 
     // ----- entity 登録 / 解除 -----
     // 新規 entity を full HP で登録。max_hp <= 0 の場合は 1.0 にクランプして登録。
-    HealthId Spawn(f32 max_hp) noexcept;
+    FHealthId Spawn(f32 max_hp) noexcept;
 
     // entity を破棄。slot は再利用 (generation 進む)。invalid id は no-op。
-    void Despawn(HealthId id) noexcept;
+    void Despawn(FHealthId id) noexcept;
 
     // ----- ダメージ / 回復 / 状態操作 -----
     // ダメージ適用。戻り値 true = この一撃で致死 (is_alive=false に遷移し、
@@ -134,41 +134,41 @@ public:
     //   ・既に死亡中: false 返却で no-op (HP は変動しない)
     //   ・amount <= 0: false 返却で no-op
     //   ・HP > 0 で残った: false 返却 (致死では無い)
-    bool ApplyDamage(HealthId id, f32 amount, EDamageType type = EDamageType::Physical) noexcept;
+    bool ApplyDamage(FHealthId id, f32 amount, EDamageType type = EDamageType::Physical) noexcept;
 
     // 回復。max_hp で clamp。死亡中でも HP は加算されるが is_alive は変動しない
     // (Revive 経由のみ復活可能)。amount <= 0 は no-op。
-    void Heal(HealthId id, f32 amount) noexcept;
+    void Heal(FHealthId id, f32 amount) noexcept;
 
     // duration_sec 間 invulnerable=true に。Tick で減算、0 到達で解除。
     // 既に invuln 中の場合は max(現在残り, duration_sec) で延長する。
-    void SetInvulnerable(HealthId id, f32 duration_sec) noexcept;
+    void SetInvulnerable(FHealthId id, f32 duration_sec) noexcept;
 
     // 死亡状態から復活させる。生存中なら no-op。
     //   hp_fraction: [0, 1] の HP 割合 (0.0 でも最低 1 HP は確保)。
     //                値域外は clamp。
-    void Revive(HealthId id, f32 hp_fraction = 1.0f) noexcept;
+    void Revive(FHealthId id, f32 hp_fraction = 1.0f) noexcept;
 
     // max_hp を変更。new_max <= 0 は 1.0 にクランプ。
     //   refill=true:  current_hp も new_max に揃える (full heal)
     //   refill=false: current_hp は据置だが new_max で clamp する
-    void SetMaxHp(HealthId id, f32 new_max, bool refill) noexcept;
+    void SetMaxHp(FHealthId id, f32 new_max, bool refill) noexcept;
 
     // ----- 問い合わせ -----
     // 無効 id / Despawn 済 / generation 不一致なら nullptr。
-    const HealthState* GetState(HealthId id) const noexcept;
+    const HealthState* GetState(FHealthId id) const noexcept;
 
     // 無効なら 0.0 を返す。
-    f32 GetCurrentHp(HealthId id) const noexcept;
+    f32 GetCurrentHp(FHealthId id) const noexcept;
 
     // current_hp / max_hp。無効 or max_hp<=0 なら 0.0。
-    f32 GetHpFraction(HealthId id) const noexcept;
+    f32 GetHpFraction(FHealthId id) const noexcept;
 
     // 無効 id は false。
-    bool IsAlive(HealthId id) const noexcept;
+    bool IsAlive(FHealthId id) const noexcept;
 
     // 無効 id は false。invulnerable フラグをそのまま返す (生死は問わない)。
-    bool IsInvulnerable(HealthId id) const noexcept;
+    bool IsInvulnerable(FHealthId id) const noexcept;
 
     // 全 entity 数 (生死問わず active なもの)。
     u32 EntityCount() const noexcept { return _entity_count; }
@@ -199,8 +199,8 @@ private:
     u32 AcquireSlot() noexcept;
 
     // 内部アクセサ: id が有効なら slot 参照を返し、無効なら nullptr。
-    Slot*       FindSlot(HealthId id) noexcept;
-    const Slot* FindSlot(HealthId id) const noexcept;
+    Slot*       FindSlot(FHealthId id) noexcept;
+    const Slot* FindSlot(FHealthId id) const noexcept;
 
     static f32 Clamp(f32 v, f32 lo, f32 hi) noexcept;
 

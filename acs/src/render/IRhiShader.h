@@ -18,7 +18,7 @@ enum class EShaderStage : u8 {
     Compute,
 };
 
-struct ShaderDesc {
+struct FShaderDesc {
     EShaderStage stage     = EShaderStage::Vertex;
     const char* hlsl_source = nullptr;     // HLSL ソース文字列
     const char* entry_point = "main";
@@ -37,6 +37,6 @@ public:
     virtual usize       BytecodeSize() const noexcept = 0;
 };
 
-TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const ShaderDesc& desc) noexcept;
+TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const FShaderDesc& desc) noexcept;
 
 } // namespace acs

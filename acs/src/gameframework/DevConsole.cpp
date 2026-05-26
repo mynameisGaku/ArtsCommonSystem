@@ -23,7 +23,7 @@ const char* DevConsole::DupString(const char* src) noexcept {
     while (len < kMaxLineLen && src[len] != '\0') ++len;
 
     Allocator& a = DefaultAllocator();
-    char* buf = static_cast<char*>(a.Alloc(len + 1, alignof(char), SourceLoc::Current()));
+    char* buf = static_cast<char*>(a.Alloc(len + 1, alignof(char), FSourceLoc::Current()));
     if (buf == nullptr) return nullptr;
     if (len > 0) MemCopy(buf, src, len);
     buf[len] = '\0';

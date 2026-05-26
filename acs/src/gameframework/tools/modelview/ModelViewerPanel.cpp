@@ -4,7 +4,7 @@
 // 仕様の意図は ModelViewerPanel.h を参照。本ファイルでは:
 //   ・EditorPanel 基底 hook (OnInit / DrawUI / OnAssetSelected) の override
 //   ・LoadModelAsset / ClearModel の asset path コピー保存
-//   ・Lighting / Background / Tonemap / Grid / Bone skeleton の getter/setter
+//   ・Lighting / Background / Tonemap / Grid / FBone skeleton の getter/setter
 //   ・OnAssetSelected で .mdl/.fbx/.gltf/.glb/.obj を識別して LoadModelAsset
 //   ・ImGui ベースの viewport プレースホルダ + control bar 描画
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
@@ -163,9 +163,9 @@ const wchar_t* ModelViewerPanel::CurrentAssetPath() const noexcept {
 }
 
 // =============================================================================
-// Camera アクセサ
+// FCamera アクセサ
 // =============================================================================
-acs::game::editor_core::EditorCamera& ModelViewerPanel::Camera() noexcept {
+acs::game::editor_core::EditorCamera& ModelViewerPanel::FCamera() noexcept {
     return _camera;
 }
 
@@ -266,8 +266,8 @@ void ModelViewerPanel::OnAssetSelected(const char* asset_path) noexcept {
 // =============================================================================
 // EditorPanel override: DrawUI
 // =============================================================================
-// ImGui::Begin("Model Viewport") から始まる 1 window レイアウト:
-//   ┌────────────── "Model Viewport" window ────────────────────────┐
+// ImGui::Begin("Model FViewport") から始まる 1 window レイアウト:
+//   ┌────────────── "Model FViewport" window ────────────────────────┐
 //   │ Asset: <utf-8 of _asset_path>  [Clear]                          │
 //   │ ┌──────────── viewport area (大) ────────────────────────────┐  │
 //   │ │  (renderer 側で実際の 3D を描く placeholder。Phase 21b 時点 │  │
@@ -275,11 +275,11 @@ void ModelViewerPanel::OnAssetSelected(const char* asset_path) noexcept {
 //   │ └────────────────────────────────────────────────────────────┘  │
 //   │ ── Lighting ──                                                  │
 //   │ Light Dir  : [DragFloat3]                                       │
-//   │ Light Color: [ColorEdit3]                                       │
+//   │ Light FColor: [ColorEdit3]                                       │
 //   │ [✓] IBL     Tonemap: [Combo]                                    │
 //   │ ── Background / Display ──                                      │
 //   │ Background: [ColorEdit4]                                        │
-//   │ [✓] Show Grid    [ ] Show Bone Skeleton                         │
+//   │ [✓] Show Grid    [ ] Show FBone Skeleton                         │
 //   └─────────────────────────────────────────────────────────────────┘
 //
 // Drag & Drop target としても受け取り、ASSET_PATH payload を accept すると
@@ -342,7 +342,7 @@ void ModelViewerPanel::DrawUI() noexcept {
             // dummy テキスト (描画 placeholder)。
             const acs::FVec3 eye = _camera.ComputeEye();
             const acs::FVec3 tgt = _camera.State().target;
-            ImGui::TextDisabled("[ 3D Viewport ]  eye=(%.1f %.1f %.1f)  target=(%.1f %.1f %.1f)",
+            ImGui::TextDisabled("[ 3D FViewport ]  eye=(%.1f %.1f %.1f)  target=(%.1f %.1f %.1f)",
                                 eye.x, eye.y, eye.z, tgt.x, tgt.y, tgt.z);
             if (!HasModel()) {
                 ImGui::TextDisabled("(No model loaded. Drop an .mdl/.fbx/.gltf/.glb/.obj here)");
@@ -405,7 +405,7 @@ void ModelViewerPanel::DrawUI() noexcept {
 
         // Light color (ColorEdit3)
         f32 lc[3] = { _light_color.x, _light_color.y, _light_color.z };
-        if (ImGui::ColorEdit3("Light Color", lc)) {
+        if (ImGui::ColorEdit3("Light FColor", lc)) {
             _light_color = acs::FVec3{ lc[0], lc[1], lc[2] };
         }
 
@@ -443,11 +443,11 @@ void ModelViewerPanel::DrawUI() noexcept {
         // Show grid / Show bone skeleton toggle
         ImGui::Checkbox("Show Grid", &_show_grid);
         ImGui::SameLine();
-        ImGui::Checkbox("Show Bone Skeleton", &_show_bone_skeleton);
+        ImGui::Checkbox("Show FBone Skeleton", &_show_bone_skeleton);
 
-        // Reset Camera ボタン (小さな utility)
+        // Reset FCamera ボタン (小さな utility)
         ImGui::Spacing();
-        if (ImGui::Button("Reset Camera")) {
+        if (ImGui::Button("Reset FCamera")) {
             _camera.Reset();
         }
         ImGui::SameLine();

@@ -44,7 +44,7 @@ void HelloParticlesApp::OnStart() noexcept {
     // パーティクルの粒テクスチャを CPU 側で 1 枚だけ生成し GPU へ転送
     u8 px[kTexSize * kTexSize * 4];
     GenerateGlow(px);
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = kTexSize; td.height = kTexSize;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = px; td.initial_data_size = sizeof(px);

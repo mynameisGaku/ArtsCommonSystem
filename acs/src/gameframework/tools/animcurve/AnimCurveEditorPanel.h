@@ -56,7 +56,7 @@
 //
 // 設計選択 (Phase 22 AnimCurveEditor):
 //   ・**EditorPanel 継承**: Phase 21a 共通基盤の dogfood (sample 31 ModelViewer
-//     に続く 2 つ目)。Title = "Animation Curve Editor"、DrawUI override。
+//     に続く 2 つ目)。Title = "FAnimation Curve Editor"、DrawUI override。
 //   ・**curve は raw pointer の非所有保持**: caller が own する設計
 //     (ParticleEditorPanel が ParticleEffectSystem を参照渡しで受けるのと
 //     同じ方針)。本 panel は curve の寿命に関与せず、`_curve == nullptr` 時は
@@ -182,9 +182,9 @@ public:
     // ----- EditorPanel override -------------------------------------------
 
     // window タイトル (ImGui::Begin の引数兼 ID)。固定リテラル。
-    const char* Title() const noexcept override { return "Animation Curve Editor"; }
+    const char* Title() const noexcept override { return "FAnimation Curve Editor"; }
 
-    // ImGui::Begin "Animation Curve Editor" + Toolbar + Canvas を描画。
+    // ImGui::Begin "FAnimation Curve Editor" + Toolbar + Canvas を描画。
     // curve 未バインドなら "(No curve bound)" を表示してセクションは出さない。
     void DrawUI() noexcept override;
 

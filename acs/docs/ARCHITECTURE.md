@@ -11,7 +11,7 @@ UI までを含みます。**下記の 17 モジュールはすべて実装済�
 1. **STL を使わない。** `std::vector`, `std::string`, `std::atomic`,
    `std::thread`, `std::mutex`, `std::function`, `<algorithm>`,
    `<type_traits>` などは使用しません。代替は `acs::` 名前空間にあります
-   （`TArray<T>`, `FString`, `Atomic<T>`, `Thread`, `Mutex`, ...）。C 標準
+   （`TArray<T>`, `FString`, `TAtomic<T>`, `FThread`, `FMutex`, ...）。C 標準
    ヘッダ（`<cstdint>`, `<cstddef>`, `<cstring>`, `<cstdio>`, `<cmath>`）、
    コンパイラ組み込み（`<intrin.h>`, `<immintrin.h>`）、Windows SDK
    （`<windows.h>`, `<DbgHelp.h>`, `<DirectXMath.h>`）は明示的に許可します。
@@ -19,12 +19,12 @@ UI までを含みます。**下記の 17 モジュールはすべて実装済�
    コンパイラは `/EHs-c- /GR- /D_HAS_EXCEPTIONS=0` で構成されます。
 3. **既定でスレッドセーフ。** すべての公開 API はスレッド安全性の契約を
    ドキュメント化し守ります。コンテナ自体は内部ロックを持ちませんが、
-   エンジンの RwLock / Mutex / Atomic プリミティブの背後で安全に使えます。
+   エンジンの RwLock / FMutex / TAtomic プリミティブの背後で安全に使えます。
 4. **必要な所に SIMD。** 数学型は SSE に適するよう 16 バイト境界にパディング
    し、DirectXMath を経由します（SSE2 をベースラインに、SSE4.1/AVX/AVX2 の
    高速パスを実行時 CPU 検出で選択）。
 5. **診断優先のエラー報告。** すべてのアサート・パニック・エラーは
-   `SourceLoc`（コンパイラ組み込みを使った独自の `source_location` shim）で
+   `FSourceLoc`（コンパイラ組み込みを使った独自の `source_location` shim）で
    `__FILE__` / `__LINE__` / `__FUNCTION__` を記録します。パニックは DbgHelp
    経由でシンボル化済みスタックトレースを出力します。
 6. **Unreal 風のモジュール構成。** モジュールは `src/<mod>/Module.cmake` から
@@ -45,11 +45,11 @@ acs/
 │   ├── ACSModuleSystem.cmake
 │   └── ACSThirdParty.cmake
 ├── src/                        # 各 <mod>/ に Module.cmake がある
-│   ├── foundation/             # Types, SourceLoc, TResult, Assert, Panic, Log
-│   ├── threading/              # Atomic, Mutex, RwLock, Thread, ThreadPool, JobGraph
+│   ├── foundation/             # Types, FSourceLoc, TResult, Assert, Panic, Log
+│   ├── threading/              # TAtomic, FMutex, RwLock, FThread, ThreadPool, FJobGraph
 │   ├── memory/                 # Allocator, System/Linear/TPool/Arena, TUniquePtr, TRc
 │   ├── container/              # TArray, FString, THashMap, Hash, TSpan
-│   ├── math/                   # Vec, Mat, FQuat, Camera, Collision2D/3D, dispatch
+│   ├── math/                   # Vec, Mat, FQuat, FCamera, Collision2D/3D, dispatch
 │   ├── test/                   # 小さなテストフレームワーク + EXPECT_* マクロ
 │   ├── platform/               # Window, Input, Time, FileSystem
 │   ├── ecs/                    # World, EntityId, Query, System
@@ -85,13 +85,13 @@ acs/
 | サブシステム | 採用したもの | 理由 |
 |---|---|---|
 | Logger | セルごとの Vyukov 有界 MPMC リング + writer スレッド | プロデューサのホットパスは CAS 1 回。writer がロックフリーに排出する。参考: 1024cores.net Vyukov MPMC, Quill async logger。 |
-| ThreadPool | worker ごとの Chase-Lev SPMC deque + グローバル Mutex 投入 | 所有者の Push/Pop は通常ケースでアトミック操作なし。外部投入は Mutex 保護のフォールバックを通る。Steal は `Wait()` に参加してデッドロックを回避。参考: Chase & Lev SPAA 2005, enkiTS, Naughty Dog GDC 2015。 |
-| Atomic | Win32 `_Interlocked*` 組み込み | `std::atomic` 不使用。ARM64 では接尾辞付き（`_acq` / `_rel`）、x64 ではフルフェンスをベースラインに。 |
+| ThreadPool | worker ごとの Chase-Lev SPMC deque + グローバル FMutex 投入 | 所有者の Push/Pop は通常ケースでアトミック操作なし。外部投入は FMutex 保護のフォールバックを通る。Steal は `Wait()` に参加してデッドロックを回避。参考: Chase & Lev SPAA 2005, enkiTS, Naughty Dog GDC 2015。 |
+| TAtomic | Win32 `_Interlocked*` 組み込み | `std::atomic` 不使用。ARM64 では接尾辞付き（`_acq` / `_rel`）、x64 ではフルフェンスをベースラインに。 |
 | THashMap | Robin Hood + 値の密配置 + 8-bit フィンガープリント | ankerl::unordered_dense レイアウト — 失敗ルックアップが最速、tombstone なし、連続イテレーション可。SIMD プロービングは v2 に延期。 |
 | Allocator 群 | 仮想 `Allocator` 基底 + System / Linear / TPool / Arena | TPool はロックフリーな Treiber スタックを使い、ポインタ上位ビットに 17-bit の ABA タグを置く（x64 のユーザー空間 47-bit）。 |
 | Math | DirectXMath を `FVec3 / FVec4 / FMat4 / FQuat` でラップ | Microsoft 保守、SSE2〜AVX2 パス同梱、Windows 上 NEON 対応も視野。人間に優しい POD 型を公開し、バッチ演算は関数ポインタテーブルでディスパッチ。 |
 | FString | 24 バイトの SSO（22 バイトをインライン）+ ヒープフォールバック | absl/folly 風のレイアウト。x64 のキャッシュライン 1/3 程度のサイズに合わせている。 |
-| Test | 独自 `ACS_TEST(Suite, Name)` マクロ + `EXPECT_*` | GoogleTest 依存を避ける。Mutex 保護のレジストリ、テストごとの失敗カウンタ。 |
+| Test | 独自 `ACS_TEST(Suite, Name)` マクロ + `EXPECT_*` | GoogleTest 依存を避ける。FMutex 保護のレジストリ、テストごとの失敗カウンタ。 |
 
 ## 新しいモジュールの追加
 

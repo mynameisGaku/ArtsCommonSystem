@@ -16,7 +16,7 @@ public:
     LinearAllocator(const LinearAllocator&) = delete;
     LinearAllocator& operator=(const LinearAllocator&) = delete;
 
-    void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept override;
+    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free (void* ptr) noexcept override;  // no-op（個別解放は不可）
 
     // カーソルを 0 に戻す（並行 Alloc 中に呼ぶと UB）
@@ -32,8 +32,8 @@ private:
     u64           _capacity = 0;
     Allocator*    _backing  = nullptr;
     bool          _owns_backing = false;
-    Atomic<u64>   _used {0};                  // 現在のカーソル位置
-    mutable Atomic<u64> _peak {0};            // ピーク位置
+    TAtomic<u64>   _used {0};                  // 現在のカーソル位置
+    mutable TAtomic<u64> _peak {0};            // ピーク位置
 };
 
 } // namespace acs

@@ -105,7 +105,7 @@ void Progression::AwardXp(u32 amount) noexcept {
         st.achieved           = true;
         st.achieved_timestamp = now;
 
-        // Callback 通知。設定されていなければ no-op。
+        // FCallback 通知。設定されていなければ no-op。
         // 呼出中に callback がさらに AwardXp / RegisterMilestone を叩く可能性
         // はあるが、_defs / _states は TArray 内部で再確保される場合があるため
         // callback 内での再入は推奨しない (API ドキュメント側で注意喚起)。
@@ -187,7 +187,7 @@ void Progression::ResetProgress() noexcept {
 }
 
 // ============================================================================
-// Callback
+// FCallback
 // ============================================================================
 void Progression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept {
     _on_achieved      = cb;

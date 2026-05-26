@@ -11,7 +11,7 @@ Dx12Shader::~Dx12Shader() noexcept {
     ACS_SAFE_RELEASE(_blob);
 }
 
-HrResult Dx12Shader::Init(Dx12Device& /*device*/, const ShaderDesc& desc) noexcept {
+HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexcept {
     HrResult r{};
     _stage = desc.stage;
 
@@ -56,7 +56,7 @@ HrResult Dx12Shader::Init(Dx12Device& /*device*/, const ShaderDesc& desc) noexce
 
 // ファクトリ
 #if !WITH_RENDER_DILIGENT
-TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const ShaderDesc& desc) noexcept {
+TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const FShaderDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 40, "CreateRhiShader: device is not DX12");

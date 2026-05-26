@@ -30,9 +30,9 @@ using PanicHook = void (*)(void* user, const char* msg, usize len);
 void SetPanicHook(PanicHook hook, void* user) noexcept;
 
 // パニックを発生させる。戻ることはない（[[noreturn]]）。
-//   loc  — 発生位置（通常は ACS_ASSERT が SourceLoc::Current() を渡す）
+//   loc  — 発生位置（通常は ACS_ASSERT が FSourceLoc::Current() を渡す）
 //   expr — 失敗した式の文字列（"x < size" など）
 //   fmt  — printf 形式メッセージ
-ACS_NORETURN void Panic(SourceLoc loc, const char* expr, const char* fmt, ...) noexcept;
+ACS_NORETURN void Panic(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept;
 
 } // namespace acs

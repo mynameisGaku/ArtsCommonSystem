@@ -41,7 +41,7 @@
 //     保持する。false の slot は ModelViewer 側で「元の material そのまま」と
 //     解釈する。ResetSlot で false に戻す。
 //   ・**ColorEdit3/4 + SliderFloat の値域**:
-//       Base Color (ColorEdit4)         : [0,1]^4 (= ImGui 既定)
+//       Base FColor (ColorEdit4)         : [0,1]^4 (= ImGui 既定)
 //       Metallic / Roughness / AO       : [0, 1]
 //       Normal Strength                 : [0, 2] (1.0 が neutral、< 1 で flatten、
 //                                                > 1 で誇張)
@@ -56,7 +56,7 @@
 //   │ [Reset All]                                             │
 //   │ ┌─ CollapsingHeader "Slot 0" ────────────────────────┐  │
 //   │ │ [x] Override enabled                                │  │
-//   │ │ Base Color   [ColorEdit4]                           │  │
+//   │ │ Base FColor   [ColorEdit4]                           │  │
 //   │ │ Metallic     [SliderFloat]  0..1                    │  │
 //   │ │ Roughness    [SliderFloat]  0..1                    │  │
 //   │ │ Normal Str.  [SliderFloat]  0..2                    │  │

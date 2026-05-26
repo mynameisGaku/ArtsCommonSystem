@@ -22,7 +22,7 @@ namespace acs {
 
 namespace {
 // dr_libs / stb_vorbis から取得したサンプル列を AudioAsset に詰める共通処理
-TRc<Asset> MakeAudio(AssetId id, u32 sr, u8 ch, ESampleFormat fmt, u64 frames,
+TRc<Asset> MakeAudio(FAssetId id, u32 sr, u8 ch, ESampleFormat fmt, u64 frames,
                     const void* src, usize src_bytes) noexcept {
     TArray<byte> samples;
     samples.Resize(src_bytes);
@@ -35,7 +35,7 @@ TRc<Asset> MakeAudio(AssetId id, u32 sr, u8 ch, ESampleFormat fmt, u64 frames,
 } // namespace
 
 // ---- WAV (dr_wav) -------------------------------------------------------
-TResult<TRc<Asset>> WavAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> WavAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     drwav wav{};
     if (!::drwav_init_memory(&wav, bytes.Data(), bytes.Size(), nullptr))
         return ACS_ERR(Asset, 200, "drwav_init_memory failed");
@@ -53,7 +53,7 @@ TResult<TRc<Asset>> WavAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>
 }
 
 // ---- MP3 (dr_mp3) -------------------------------------------------------
-TResult<TRc<Asset>> Mp3AssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> Mp3AssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     drmp3 mp3{};
     if (!::drmp3_init_memory(&mp3, bytes.Data(), bytes.Size(), nullptr))
         return ACS_ERR(Asset, 210, "drmp3_init_memory failed");
@@ -71,7 +71,7 @@ TResult<TRc<Asset>> Mp3AssetLoader::LoadFromBytes(AssetId id, const TArray<byte>
 }
 
 // ---- FLAC (dr_flac) -----------------------------------------------------
-TResult<TRc<Asset>> FlacAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> FlacAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     drflac* flac = ::drflac_open_memory(bytes.Data(), bytes.Size(), nullptr);
     if (!flac) return ACS_ERR(Asset, 220, "drflac_open_memory failed");
     u64 frames = flac->totalPCMFrameCount;
@@ -88,7 +88,7 @@ TResult<TRc<Asset>> FlacAssetLoader::LoadFromBytes(AssetId id, const TArray<byte
 }
 
 // ---- OGG Vorbis (stb_vorbis) -------------------------------------------
-TResult<TRc<Asset>> OggAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> OggAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     int err = 0;
     stb_vorbis* v = ::stb_vorbis_open_memory(
         reinterpret_cast<const unsigned char*>(bytes.Data()),

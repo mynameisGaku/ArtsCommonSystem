@@ -11,7 +11,7 @@
 namespace acs {
 
 namespace {
-Atomic<u32> g_init_count{0};
+TAtomic<u32> g_init_count{0};
 }
 
 TResult<void> Network::Init() noexcept {

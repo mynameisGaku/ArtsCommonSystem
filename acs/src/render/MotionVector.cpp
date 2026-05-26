@@ -85,7 +85,7 @@ TResult<void> MotionVector::Init(IRhiDevice& device, u32 width, u32 height) noex
     if (auto r = CreateTargets(device, _width, _height); r.IsErr()) return r;
     if (auto r = CreatePipeline(device);                 r.IsErr()) return r;
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size         = 256;          // MotionCB (192B) を 256 アラインで確保
     cbd.usage        = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -123,7 +123,7 @@ TResult<void> MotionVector::Resize(u32 width, u32 height) noexcept {
 
 TResult<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // motion RT: RG16F。.rg に screen-space motion (prev_uv - curr_uv)。
-    TextureDesc md{};
+    FTextureDesc md{};
     md.width  = w;
     md.height = h;
     md.format = EFormat::R16G16_Float;
@@ -133,7 +133,7 @@ TResult<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noex
     _motion = Move(mr.Value());
 
     // normal RT: RGBA16F。.xyz に world-space normal。SSR/SSGI/SSAO が sample する。
-    TextureDesc nd{};
+    FTextureDesc nd{};
     nd.width  = w;
     nd.height = h;
     nd.format = EFormat::R16G16B16A16_Float;
@@ -143,7 +143,7 @@ TResult<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noex
     _normal = Move(nr.Value());
 
     // 内部 depth: occlusion 判定用 (SRV は不要)。
-    TextureDesc dd{};
+    FTextureDesc dd{};
     dd.width  = w;
     dd.height = h;
     dd.format = EFormat::D32_Float;
@@ -156,7 +156,7 @@ TResult<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noex
 }
 
 TResult<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage       = EShaderStage::Vertex;
     vs_d.hlsl_source = kMotionHLSL;
     vs_d.entry_point = "VSMain";
@@ -165,7 +165,7 @@ TResult<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage       = EShaderStage::Pixel;
     ps_d.hlsl_source = kMotionHLSL;
     ps_d.entry_point = "PSMain";
@@ -174,7 +174,7 @@ TResult<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     _ps = Move(ps_r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;

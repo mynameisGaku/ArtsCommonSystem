@@ -129,7 +129,7 @@ Dx12Pipeline::~Dx12Pipeline() noexcept {
     ACS_SAFE_RELEASE(_root_sig);
 }
 
-HrResult Dx12Pipeline::Init(Dx12Device& device, const PipelineDesc& desc) noexcept {
+HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexcept {
     HrResult r{};
     _topology = desc.topology;
     _cbuffer_slots = desc.cbuffer_slots;
@@ -249,7 +249,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const PipelineDesc& desc) noexce
 // ファクトリ
 #if !WITH_RENDER_DILIGENT
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
-                                                  const PipelineDesc& desc) noexcept {
+                                                  const FPipelineDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 50, "CreateRhiPipeline: device is not DX12");

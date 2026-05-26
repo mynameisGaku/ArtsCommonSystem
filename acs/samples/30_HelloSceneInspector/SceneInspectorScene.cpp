@@ -34,29 +34,29 @@ void SceneInspectorScene::_build_node_tree() noexcept {
     //      → player (Inspector 編集対象、wheel と兄弟)
     auto wheel_up = MakeUnique<WheelNode>(0.5f /*rad/s*/);
     wheel_up->Local().position = FVec2{ 4.0f, 0.0f };
-    wheel_up->_SetId(NodeId{ 2u, 1u });
+    wheel_up->_SetId(FNodeId{ 2u, 1u });
     Node2D& wheel_ref = _root_node.AddChild(Move(wheel_up));
     _wheel = static_cast<WheelNode*>(&wheel_ref);
 
     auto sp0_up = MakeUnique<Node2D>();
     sp0_up->Local().position = FVec2{ 2.0f, 0.0f };
-    sp0_up->_SetId(NodeId{ 3u, 1u });
+    sp0_up->_SetId(FNodeId{ 3u, 1u });
     _spoke[0] = &wheel_ref.AddChild(Move(sp0_up));
 
     auto sp1_up = MakeUnique<Node2D>();
     sp1_up->Local().position = FVec2{ 0.0f, 2.0f };
-    sp1_up->_SetId(NodeId{ 4u, 1u });
+    sp1_up->_SetId(FNodeId{ 4u, 1u });
     _spoke[1] = &wheel_ref.AddChild(Move(sp1_up));
 
     auto player_up = MakeUnique<PlayerNode>();
     player_up->Local().position = FVec2{ -4.0f, 0.0f };
-    // NodeId{1, 1}: index=1 (root が将来 0 に振られる想定)、generation=1。
-    player_up->_SetId(NodeId{ 1u, 1u });
+    // FNodeId{1, 1}: index=1 (root が将来 0 に振られる想定)、generation=1。
+    player_up->_SetId(FNodeId{ 1u, 1u });
     Node2D& player_ref = _root_node.AddChild(Move(player_up));
     _player = static_cast<PlayerNode*>(&player_ref);
 
     // root 自体にも id を振る (Hierarchy が根クリックに反応できるように)。
-    _root_node._SetId(NodeId{ 0u, 1u });
+    _root_node._SetId(FNodeId{ 0u, 1u });
 }
 
 void SceneInspectorScene::OnExit() noexcept {

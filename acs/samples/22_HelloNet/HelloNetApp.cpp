@@ -16,7 +16,7 @@ using namespace acs;
 namespace hellonet {
 
 int HelloNetApp::Run() noexcept {
-    LogConfig lc{};
+    FLogConfig lc{};
     lc.console = true;
     Logger::Init(lc);
 
@@ -25,12 +25,12 @@ int HelloNetApp::Run() noexcept {
         return 1;
     }
 
-    auto sr = Thread::Spawn(&ServerThread, nullptr);
+    auto sr = FThread::Spawn(&ServerThread, nullptr);
     if (sr.IsErr()) {
         ACS_LOG_ERROR("Server thread spawn failed");
         return 2;
     }
-    Thread server = Move(sr.Value());
+    FThread server = Move(sr.Value());
 
     // 少し待ってから接続 (Listener が起動するまで)
     SleepMs(100);

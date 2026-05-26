@@ -62,7 +62,7 @@ TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) no
     return TResult<TUniquePtr<IRhiCommandList>>(OkInit, Move(base));
 }
 
-TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const BufferDesc& desc) noexcept {
+TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBufferDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 230, "CreateRhiBuffer: device is not Diligent");
     auto b = MakeUnique<DiligentBuffer>();
@@ -73,7 +73,7 @@ TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const Buffer
 }
 
 TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
-                                                const TextureDesc& desc) noexcept {
+                                                const FTextureDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 240, "CreateRhiTexture: device is not Diligent");
     auto t = MakeUnique<DiligentTexture>();
@@ -84,7 +84,7 @@ TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
 }
 
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
-                                                  const PipelineDesc& desc) noexcept {
+                                                  const FPipelineDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 250, "CreateRhiPipeline: device is not Diligent");
     auto p = MakeUnique<DiligentPipeline>();
@@ -94,7 +94,7 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
     return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
 }
 
-TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const ShaderDesc& desc) noexcept {
+TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const FShaderDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 260, "CreateRhiShader: device is not Diligent");
     auto s = MakeUnique<DiligentShader>();

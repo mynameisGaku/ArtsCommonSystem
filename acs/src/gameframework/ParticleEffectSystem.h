@@ -7,7 +7,7 @@
 //
 // 設計選択:
 //   ・**emitter は generational handle**: 24bit index + 8bit gen を packed した
-//      `EmitterHandle`。`SceneTimer::TimerHandle` / `TriggerWorld2D::TriggerId` と
+//      `FEmitterHandle`。`SceneTimer::TimerHandle` / `TriggerWorld2D::TriggerId` と
 //      同じ規約。slot 再利用後の stale 参照は IsValid + gen 一致で検出可能。
 //   ・**particle pool は固定容量**: `Init(max_particles)` で確保した後はリサイズ
 //      しない。リアルタイムループのフレーム落ちを避けるため、最悪ケースを上限と
@@ -137,11 +137,11 @@ struct Particle {
 };
 
 // ---------------------------------------------------------------------------
-// EmitterHandle — 24bit index + 8bit gen を packed した opaque handle
+// FEmitterHandle — 24bit index + 8bit gen を packed した opaque handle
 // ---------------------------------------------------------------------------
 // `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`SceneTimer` 等と
 // 同一規約。slot 再利用後の stale 参照は IsValid + 内部の gen 一致で検出する。
-struct EmitterHandle {
+struct FEmitterHandle {
     u32 _packed = 0u;
 
     bool IsValid() const noexcept { return _packed != 0u; }
@@ -150,8 +150,8 @@ struct EmitterHandle {
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
     static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215
 
-    static EmitterHandle Pack(u32 index, u8 gen) noexcept {
-        EmitterHandle h;
+    static FEmitterHandle Pack(u32 index, u8 gen) noexcept {
+        FEmitterHandle h;
         h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
@@ -181,22 +181,22 @@ public:
     // emitter を 1 個作成して handle を返す。pos は world 座標 (描画側解釈)。
     // emitter slot 上限 (24bit) に達した場合や lifetime_sec <= 0 の def は
     // invalid handle を返す。
-    EmitterHandle CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept;
+    FEmitterHandle CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept;
 
     // 既存 emitter の位置を変更。invalid / stale handle は no-op。
-    void SetEmitterPosition(EmitterHandle h, FVec2 pos) noexcept;
+    void SetEmitterPosition(FEmitterHandle h, FVec2 pos) noexcept;
 
     // 既存 emitter の active 状態を変更 (false にすると自動放出を止める)。
     // invalid / stale handle は no-op。Burst は active と無関係に発火する。
-    void SetEmitterActive(EmitterHandle h, bool active) noexcept;
+    void SetEmitterActive(FEmitterHandle h, bool active) noexcept;
 
     // burst_count 個一気に放出 (pool 空き数で上限クランプ)。
     // invalid / stale handle は no-op。
-    void Burst(EmitterHandle h) noexcept;
+    void Burst(FEmitterHandle h) noexcept;
 
     // emitter を破棄 (= slot 解放 + gen 進める)。既存の particle は寿命を
     // まっとうするまで生き続ける (emitter とは独立に管理されているため)。
-    void DestroyEmitter(EmitterHandle h) noexcept;
+    void DestroyEmitter(FEmitterHandle h) noexcept;
 
     // dt 秒進める。各 emitter で連続放出 → 全 particle の物理更新 → 寿命
     // 切れを pool に返却。dt <= 0 は no-op。

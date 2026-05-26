@@ -66,7 +66,7 @@ struct PostProcessParams {
     // PbrShader はすでに 6 slot で安定運用しており、slot 6 に SSAO を追加する
     // 方が確実に動作する。HelloIbl から PbrShader::SetSsao() で渡す。
 
-    // Color grading (Phase 34h、ASC-CDL 風)。tonemap 後 / gamma 前に適用。
+    // FColor grading (Phase 34h、ASC-CDL 風)。tonemap 後 / gamma 前に適用。
     f32  cg_saturation   = 1.0f;       // 0=モノクロ、1=neutral、>1=彩度ブースト
     f32  cg_contrast     = 1.0f;       // 0..2、中心 0.5 を pivot とした contrast curve
     f32  cg_temperature  = 0.0f;       // -1=cool/blue、0=neutral、+1=warm/orange
@@ -74,11 +74,11 @@ struct PostProcessParams {
     FVec3 cg_lift         = FVec3{0, 0, 0};   // shadow 域の色 offset (足し算)
     FVec3 cg_gain         = FVec3{1, 1, 1};   // highlight 域の色 multiplier
 
-    // CAS Sharpening (Phase 34i、AMD FSR 簡略版)。Color grading 後 / gamma 前に適用。
+    // CAS Sharpening (Phase 34i、AMD FSR 簡略版)。FColor grading 後 / gamma 前に適用。
     // 0 = disable、0.3 = subtle、0.6 = neutral、1.0 = strong。負値は不可。
     f32  cas_strength    = 0.0f;
 
-    // TAA (Phase 34f、Temporal Anti-Aliasing)。Halton jitter を Camera で applied
+    // TAA (Phase 34f、Temporal Anti-Aliasing)。Halton jitter を FCamera で applied
     // した上で、history と neighborhood-clamp blend して resolve する。
     // Phase 34f-2: 任意で depth_texture + view_proj + prev_view_proj を渡すと
     // camera motion 由来の history reprojection を行う (動く mesh は対象外)。

@@ -9,7 +9,7 @@
 // 設計の意図:
 //   - カテゴリで大まかに分類し、ロガー側でフィルタしやすくする
 //   - サブコードはモジュール固有の細分化に使う
-//   - SourceLoc を埋めることで「どこで失敗したか」を常時追跡できる
+//   - FSourceLoc を埋めることで「どこで失敗したか」を常時追跡できる
 // =============================================================================
 #pragma once
 
@@ -42,7 +42,7 @@ struct FErrorCode {
     u16         subcode    = 0;                  // モジュール固有コード
     u32         os_error   = 0;                  // GetLastError() / HRESULT
     const char* message    = nullptr;            // 静的文字列リテラル推奨
-    SourceLoc   loc        = {};                 // 発生位置
+    FSourceLoc   loc        = {};                 // 発生位置
 
     // デフォルト構築は「成功」状態。
     constexpr FErrorCode() noexcept = default;
@@ -51,7 +51,7 @@ struct FErrorCode {
     constexpr FErrorCode(ErrCategory c,
                         u16 sub,
                         const char* msg,
-                        SourceLoc l = SourceLoc::Current(),
+                        FSourceLoc l = FSourceLoc::Current(),
                         u32 os = 0) noexcept
         : category(c), subcode(sub), os_error(os), message(msg), loc(l) {}
 
@@ -80,15 +80,15 @@ constexpr const char* ToString(ErrCategory c) noexcept {
 }
 
 // ---- 簡易構築マクロ -------------------------------------------------------
-// 呼び出し元の SourceLoc を自動的にキャプチャしつつ FErrorCode を生成する。
+// 呼び出し元の FSourceLoc を自動的にキャプチャしつつ FErrorCode を生成する。
 //
 // 使い方:
 //   return ACS_ERR(IO, 1, "ファイルが開けません");
 //   return ACS_ERR_OS(OS, 5, "CreateFile failed", GetLastError());
 #define ACS_ERR(cat, sub, msg) \
-    ::acs::FErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::SourceLoc::Current())
+    ::acs::FErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::FSourceLoc::Current())
 
 #define ACS_ERR_OS(cat, sub, msg, os_err) \
-    ::acs::FErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::SourceLoc::Current(), (os_err))
+    ::acs::FErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::FSourceLoc::Current(), (os_err))
 
 } // namespace acs

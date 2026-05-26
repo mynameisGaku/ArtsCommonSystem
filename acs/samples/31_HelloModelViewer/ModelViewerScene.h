@@ -3,7 +3,7 @@
 //
 // editor_core と modelview の 4 panel を 1 個の Workspace に集約し、ImGui の
 // 外側 (= フレームバッファ直書き) に sample 17 同等の cube を MVP で描画する。
-// MVP は ModelViewerPanel::Camera() の view/proj を使うので、editor 上のマウス
+// MVP は ModelViewerPanel::FCamera() の view/proj を使うので、editor 上のマウス
 // ドラッグで orbit / dolly した姿勢がそのまま 3D 像に反映される。
 //
 // 本ファイルは 3 つのサブモジュールを束ねる薄いオーケストレータ:

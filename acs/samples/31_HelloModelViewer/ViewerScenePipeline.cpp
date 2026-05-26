@@ -18,7 +18,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
     }
 
     // ---- VS / PS ----
-    ShaderDesc vs_desc{};
+    FShaderDesc vs_desc{};
     vs_desc.stage       = EShaderStage::Vertex;
     vs_desc.hlsl_source = kHLSL;
     vs_desc.entry_point = "VSMain";
@@ -28,7 +28,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
         return false;
     } else { _vs = Move(r.Value()); }
 
-    ShaderDesc ps_desc{};
+    FShaderDesc ps_desc{};
     ps_desc.stage       = EShaderStage::Pixel;
     ps_desc.hlsl_source = kHLSL;
     ps_desc.entry_point = "PSMain";
@@ -39,7 +39,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
     } else { _ps = Move(r.Value()); }
 
     // ---- VB / IB ----
-    BufferDesc vb_desc{};
+    FBufferDesc vb_desc{};
     vb_desc.size = sizeof(kCubeVertices);
     vb_desc.usage = EBufferUsage::Vertex;
     vb_desc.cpu_writable = true;
@@ -49,7 +49,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
         return false;
     } else { _vb = Move(r.Value()); }
 
-    BufferDesc ib_desc{};
+    FBufferDesc ib_desc{};
     ib_desc.size = sizeof(kCubeIndices);
     ib_desc.usage = EBufferUsage::Index16;
     ib_desc.cpu_writable = true;
@@ -60,7 +60,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
     } else { _ib = Move(r.Value()); }
 
     // 定数バッファ (MVP 1 個分、256B アライン)。
-    BufferDesc cb_desc{};
+    FBufferDesc cb_desc{};
     cb_desc.size = 256;
     cb_desc.usage = EBufferUsage::Uniform;
     cb_desc.cpu_writable = true;
@@ -70,7 +70,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
     } else { _cb = Move(r.Value()); }
 
     // ---- Pipeline ----
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
     pd.topology         = EPrimitiveTopology::TriangleList;

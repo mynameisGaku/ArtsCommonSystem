@@ -37,7 +37,7 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAs
     // R8G8B8 (3ch) は GPU では 4ch にパディングが必要
     // 簡易対応: ImageAsset::Pixels() がそのまま 4ch でない場合はエラー
     // （ImageAssetLoader 側で 4ch に拡張する責務とする）
-    TextureDesc d{};
+    FTextureDesc d{};
     d.width  = img.Width();
     d.height = img.Height();
     d.format = gpu_fmt;
@@ -53,7 +53,7 @@ TResult<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out
         return ACS_ERR(Render, 82, "UploadMesh: empty mesh");
 
     // 頂点バッファ
-    BufferDesc vb_desc{};
+    FBufferDesc vb_desc{};
     vb_desc.size  = mesh.Vertices().Size() * sizeof(MeshVertex);
     vb_desc.usage = EBufferUsage::Vertex;
     vb_desc.cpu_writable = false;         // 静的 mesh は USAGE_IMMUTABLE で扱う
@@ -66,7 +66,7 @@ TResult<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out
 
     // インデックスバッファ
     if (mesh.Indices().Size() > 0) {
-        BufferDesc ib_desc{};
+        FBufferDesc ib_desc{};
         ib_desc.size  = mesh.Indices().Size() * sizeof(u32);
         ib_desc.usage = EBufferUsage::Index32;
         ib_desc.cpu_writable = false;     // 静的 mesh は USAGE_IMMUTABLE
@@ -84,8 +84,8 @@ TResult<void> UploadSkinnedMesh(IRhiDevice& device, const SkinnedMeshAsset& mesh
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 84, "UploadSkinnedMesh: empty mesh");
 
-    BufferDesc vb{};
-    vb.size = mesh.Vertices().Size() * sizeof(SkinnedVertex);
+    FBufferDesc vb{};
+    vb.size = mesh.Vertices().Size() * sizeof(FSkinnedVertex);
     vb.usage = EBufferUsage::Vertex;
     vb.cpu_writable = false;          // 静的 mesh は USAGE_IMMUTABLE
     vb.initial_data = mesh.Vertices().Data();
@@ -93,10 +93,10 @@ TResult<void> UploadSkinnedMesh(IRhiDevice& device, const SkinnedMeshAsset& mesh
     if (vbr.IsErr()) return Err<void>(vbr.Error());
     out.vertex_buffer = Move(vbr.Value());
     out.vertex_count  = static_cast<u32>(mesh.Vertices().Size());
-    out.vertex_stride = sizeof(SkinnedVertex);
+    out.vertex_stride = sizeof(FSkinnedVertex);
 
     if (mesh.Indices().Size() > 0) {
-        BufferDesc ib{};
+        FBufferDesc ib{};
         ib.size = mesh.Indices().Size() * sizeof(u32);
         ib.usage = EBufferUsage::Index32;
         ib.cpu_writable = false;      // 静的 mesh は USAGE_IMMUTABLE

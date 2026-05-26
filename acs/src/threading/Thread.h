@@ -3,12 +3,12 @@
 // ACS Threading — スレッド生成・操作（std::thread 代替）
 // -----------------------------------------------------------------------------
 // CreateThread を直接ラップ。STL の std::thread と異なり例外を投げず、失敗は
-// TResult<Thread, FErrorCode> で返す。
+// TResult<FThread, FErrorCode> で返す。
 //
 // 主な機能:
-//   Thread::Spawn     — エントリ関数を別スレッドで起動
-//   Thread::Join      — スレッド終了を待機
-//   Thread::Detach    — スレッドハンドルを切り離す
+//   FThread::Spawn     — エントリ関数を別スレッドで起動
+//   FThread::Join      — スレッド終了を待機
+//   FThread::Detach    — スレッドハンドルを切り離す
 //   SleepMs / Yield   — 現在スレッドの停止・譲渡
 //   HardwareConcurrency — 論理 CPU 数（ThreadPool のデフォルト worker 数等で使用）
 // =============================================================================
@@ -32,21 +32,21 @@ struct ThreadConfig {
 };
 
 // =============================================================================
-// Thread — RAII スレッドハンドル
+// FThread — RAII スレッドハンドル
 // =============================================================================
-class Thread {
+class FThread {
 public:
-    Thread() noexcept = default;
-    ~Thread() noexcept;                    // ハンドルが残っていれば CloseHandle
+    FThread() noexcept = default;
+    ~FThread() noexcept;                    // ハンドルが残っていれば CloseHandle
 
     // コピー不可、ムーブ可
-    Thread(const Thread&) = delete;
-    Thread& operator=(const Thread&) = delete;
-    Thread(Thread&& other) noexcept;
-    Thread& operator=(Thread&& other) noexcept;
+    FThread(const FThread&) = delete;
+    FThread& operator=(const FThread&) = delete;
+    FThread(FThread&& other) noexcept;
+    FThread& operator=(FThread&& other) noexcept;
 
     // スレッドを起動。失敗時は Err（Memory / OS カテゴリ）。
-    static TResult<Thread> Spawn(ThreadEntry entry, void* user,
+    static TResult<FThread> Spawn(ThreadEntry entry, void* user,
                                 const ThreadConfig& cfg = {}) noexcept;
 
     bool Joinable() const noexcept { return _handle != nullptr; }

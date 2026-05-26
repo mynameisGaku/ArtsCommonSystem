@@ -12,7 +12,7 @@
 //   RotateComponent.{h,cpp} - composition 版: プレーン Node2D に attach する回転
 //   RotatingNode.{h,cpp}    - 継承版: Node2D サブクラスで毎フレーム回転
 //   TitleScene.{h,cpp}      - Title 画面 (StateMachine Idle/Blink で 2s 毎に明滅)
-//   GameplayScene.{h,cpp}   - 本編 (Node2D ツリー + Tween + Camera + Physics)
+//   GameplayScene.{h,cpp}   - 本編 (Node2D ツリー + Tween + FCamera + Physics)
 //   PauseScene.{h,cpp}      - 一時停止 overlay (Sequence Loop でログを定期出力)
 //   HelloGfApp.{h,cpp}      - Game 派生クラス (AppState 構築、InitialScene 提供)
 //
@@ -20,7 +20,7 @@
 //   AppState + 固定 step + ChangeScene/PushScene/PopScene
 //   SceneClock + TweenManager + Easing
 //   StateMachine<Owner> + Sequence + SequenceRunner
-//   Transform2D + Node2D ツリー (root → wheel → spoke)
+//   FTransform2D + Node2D ツリー (root → wheel → spoke)
 //   InputMap (キー binding + 1D axis)
 //   Component2D (RotateComponent attach、継承パターンとの対比)
 //   SceneServices ハブ (Default2D を WantedServices で宣言)

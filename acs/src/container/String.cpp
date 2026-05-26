@@ -115,7 +115,7 @@ void FString::Clear() noexcept {
 void FString::Grow(usize new_capacity) noexcept {
     if (new_capacity <= Capacity()) return;
     usize cap = new_capacity < 32 ? 32 : new_capacity;
-    char* p = static_cast<char*>(_alloc->Alloc(cap + 1, alignof(char), SourceLoc::Current()));
+    char* p = static_cast<char*>(_alloc->Alloc(cap + 1, alignof(char), FSourceLoc::Current()));
     ACS_ASSERTF(p, "FString::Grow: alloc failed (cap=%zu)", cap);
     usize old_size = Size();
     const char* old = Data();

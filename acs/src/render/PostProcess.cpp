@@ -285,7 +285,7 @@ float3 Tonemap(float3 c, int kind) {
     return ACESFilm(c);
 }
 
-// Color grading (Phase 34h): tonemap 後 (LDR) に適用する ASC-CDL 風補正。
+// FColor grading (Phase 34h): tonemap 後 (LDR) に適用する ASC-CDL 風補正。
 // 適用順序:
 //   1) lift + gain (SOP の S/O 部分): shadow offset + highlight multiplier
 //   2) contrast (SOP の Power 相当、簡易 pivot=0.5 線形): スロープ調整
@@ -377,7 +377,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     int kind = (int)params1.w;
     float3 mapped = Tonemap(mixed, kind);
 
-    // 2.5) Color grading (Phase 34h、tonemap 後 LDR で適用)
+    // 2.5) FColor grading (Phase 34h、tonemap 後 LDR で適用)
     mapped = ColorGrade(mapped);
 
     // 3) Vignette (radial darkening)
@@ -528,7 +528,7 @@ constexpr usize CBSize() noexcept {
 }
 
 // 全画面三角形 (頂点バッファ無し) のパイプライン共通設定
-void FillFullscreenLayout(PipelineDesc& pd) noexcept {
+void FillFullscreenLayout(FPipelineDesc& pd) noexcept {
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
@@ -554,7 +554,7 @@ TResult<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     if (auto r = CreateRenderTargets(device, width, height); r.IsErr()) return r;
     if (auto r = CreatePipelines(device);                   r.IsErr()) return r;
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size         = CBSize<PostCBLayout>();
     cbd.usage        = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -563,7 +563,7 @@ TResult<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     _cb_post = Move(cbr.Value());
 
     // Phase 34f-2: TaaReproj CB (b1)
-    BufferDesc rcbd{};
+    FBufferDesc rcbd{};
     rcbd.size = CBSize<TaaReprojCBLayout>();
     rcbd.usage = EBufferUsage::Uniform;
     rcbd.cpu_writable = true;
@@ -572,7 +572,7 @@ TResult<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     _cb_taa_reproj = Move(rcbr.Value());
 
     // Phase 34k-2: auto-exposure 用 CB
-    BufferDesc acbd{};
+    FBufferDesc acbd{};
     acbd.size = CBSize<AutoExposureCBLayout>();
     acbd.usage = EBufferUsage::Uniform;
     acbd.cpu_writable = true;
@@ -582,7 +582,7 @@ TResult<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
 
     // depth が未指定だった時のための 1x1 fallback (depth>=0.9999 になるよう 255 で fill)
     const u8 far_depth[4] = { 255, 255, 255, 255 };
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = 1; td.height = 1;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = far_depth; td.initial_data_size = 4;
@@ -648,7 +648,7 @@ TResult<void> PostProcess::Resize(u32 width, u32 height) noexcept {
 
 TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // メイン HDR RT
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width  = w;
     td.height = h;
     td.format = _hdr_format;
@@ -662,7 +662,7 @@ TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h)
     for (u32 i = 0; i < kBloomMips; ++i) {
         mw = mw > 1 ? mw / 2 : 1;
         mh = mh > 1 ? mh / 2 : 1;
-        TextureDesc bd{};
+        FTextureDesc bd{};
         bd.width  = mw;
         bd.height = mh;
         bd.format = _hdr_format;
@@ -674,7 +674,7 @@ TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h)
 
     // TAA history ping-pong RT (Phase 34f): HDR と同サイズ + 同フォーマット
     for (u32 i = 0; i < 2; ++i) {
-        TextureDesc tt{};
+        FTextureDesc tt{};
         tt.width  = w;
         tt.height = h;
         tt.format = _hdr_format;
@@ -694,7 +694,7 @@ TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h)
         for (u32 i = 0; i < kMaxLumaMips; ++i) {
             lw = lw > 1 ? lw / 2 : 1;
             lh = lh > 1 ? lh / 2 : 1;
-            TextureDesc ld{};
+            FTextureDesc ld{};
             ld.width  = lw;
             ld.height = lh;
             ld.format = _luma_format;
@@ -708,7 +708,7 @@ TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h)
     }
     // 順応済み露出 (1x1 ping-pong)
     for (u32 i = 0; i < 2; ++i) {
-        TextureDesc ed{};
+        FTextureDesc ed{};
         ed.width  = 1;
         ed.height = 1;
         ed.format = _luma_format;
@@ -719,7 +719,7 @@ TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h)
     }
     // 露出適用後の HDR (下流パスが読む)
     {
-        TextureDesc xd{};
+        FTextureDesc xd{};
         xd.width  = w;
         xd.height = h;
         xd.format = _hdr_format;
@@ -734,7 +734,7 @@ TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h)
 TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     // ---- 共通 VS ----
     {
-        ShaderDesc sd{};
+        FShaderDesc sd{};
         sd.stage = EShaderStage::Vertex;
         sd.hlsl_source = kFullscreenVS;
         sd.entry_point = "VSMain";
@@ -747,7 +747,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     // ---- 各 PS ----
     auto compile_ps = [&](const char* src, const char* name,
                           TUniquePtr<IRhiShader>& out) -> TResult<void> {
-        ShaderDesc sd{};
+        FShaderDesc sd{};
         sd.stage = EShaderStage::Pixel;
         sd.hlsl_source = src;
         sd.entry_point = "PSMain";
@@ -770,7 +770,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     // ---- Pipelines ----
     // Extract: HDR → bloom_mips[0]、Opaque blend
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_extract.Get();
@@ -789,7 +789,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     }
     // Downsample: bloom_mips[i] → bloom_mips[i+1]、Opaque
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_downsample.Get();
@@ -808,7 +808,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     }
     // Upsample: bloom_mips[i+1] → bloom_mips[i]、Additive blend
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_upsample.Get();
@@ -828,7 +828,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     }
     // TAA Resolve: current HDR + history HDR + scene_depth → resolved HDR (新 RT)、Opaque
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_taa_resolve.Get();
@@ -856,7 +856,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
 
     // Tonemap: HDR + bloom + ssr → backbuffer、Opaque
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_tonemap.Get();
@@ -881,7 +881,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     // ---- Auto-exposure pipelines (Phase 34k-2) ----
     // Luma Extract: _hdr_rt → _luma_mips[0]、log2 輝度
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_luma_extract.Get();
@@ -900,7 +900,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     }
     // Luma Downsample: _luma_mips[i] → _luma_mips[i+1]
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_luma_down.Get();
@@ -919,7 +919,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     }
     // Exposure Adapt: avg luma (1x1) + prev exposure (1x1) → 順応済み露出 (1x1)
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_exposure.Get();
@@ -941,7 +941,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     }
     // Exposure Apply: _hdr_rt + 露出 (1x1) → _exposed_rt
     {
-        PipelineDesc pd{};
+        FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = _vs_fullscreen.Get();
         pd.ps = _ps_expose_apply.Get();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — SceneInspector / SelectionService (Phase 20 editor 第二弾)
 //
-// 現在「選択されている NodeId」を全 editor panel (HierarchyPanel /
+// 現在「選択されている FNodeId」を全 editor panel (HierarchyPanel /
 // InspectorPanel / EditorToolbar / SceneView 等) で共有するための **ハブ**。
 // 1 個のシングルなインスタンスを editor 起動コードが所有し、各 panel が
 // `RegisterCallback` で選択変更を購読する形を取る。
@@ -11,7 +11,7 @@
 //   sel.Init();
 //
 //   // panel A: コールバックで自分の描画状態を更新
-//   static void OnSelChanged(void* user, NodeId from, NodeId to) noexcept {
+//   static void OnSelChanged(void* user, FNodeId from, FNodeId to) noexcept {
 //       auto* self = static_cast<HierarchyPanel*>(user);
 //       self->ScrollTo(to);
 //   }
@@ -30,11 +30,11 @@
 //     重複弾き、Unregister で 1 件除去。dispatch 順は登録順。
 //   ・**from / to を渡す**: 単純な「to」だけだと、購読側で前回値を覚えて
 //     diff を取る必要が出る。差分通知の典型形は (from, to) なのでハブ側で
-//     渡す。`ClearSelection()` は `to = NodeId{}` (invalid) として通知される。
+//     渡す。`ClearSelection()` は `to = FNodeId{}` (invalid) として通知される。
 //   ・**STL 不使用**: 登録 list は `acs::TArray<CallbackEntry>`。
 //   ・**全 noexcept**: ACS 規約。エラーは null/重複弾きで安全 no-op。
 //   ・**非コピー / 非ムーブ**: 内部 TArray<CallbackEntry> の所有を曖昧にしない。
-//   ・**Game / SceneManager への依存なし**: NodeId だけを扱うため、選択対象が
+//   ・**Game / SceneManager への依存なし**: FNodeId だけを扱うため、選択対象が
 //     生きているか / どの Scene に属するかの検証は購読側責務。これで
 //     editor の "選択は残るが対象は破棄済み" のケースも素直に表現できる。
 //
@@ -56,9 +56,9 @@ namespace acs::game::inspector {
 // `to`  : 変更後の選択 (ClearSelection 時は invalid)。
 // `user`: RegisterCallback の第二引数で渡したコンテキストポインタ。
 // 同じ selection を再 SelectNode した場合は callback を呼ばない (no-op)。
-using SelectionChangeCallback = void (*)(void* user, NodeId from, NodeId to) noexcept;
+using SelectionChangeCallback = void (*)(void* user, FNodeId from, FNodeId to) noexcept;
 
-// ---- SelectionService — 選択 NodeId の集中点 ----------------------------
+// ---- SelectionService — 選択 FNodeId の集中点 ----------------------------
 class SelectionService {
 public:
     SelectionService() noexcept = default;
@@ -74,18 +74,18 @@ public:
     void Init() noexcept;
 
     // 現選択を `id` に切り替える。値が変化した場合のみ callback を一斉発火。
-    // invalid handle (= 既定構築 `NodeId{}`) を渡すと ClearSelection と等価。
-    void SelectNode(NodeId id) noexcept;
+    // invalid handle (= 既定構築 `FNodeId{}`) を渡すと ClearSelection と等価。
+    void SelectNode(FNodeId id) noexcept;
 
     // 現選択を invalid に戻す。前選択が valid だった場合のみ callback 発火。
     void ClearSelection() noexcept;
 
     // 現選択を取得。未選択時は invalid handle (`IsValid() == false`)。
-    NodeId CurrentSelection() const noexcept;
+    FNodeId CurrentSelection() const noexcept;
 
     // 完全一致比較 (index + generation 一致時のみ true)。
     // invalid id を渡した場合、現選択が invalid なら true、それ以外なら false。
-    bool IsSelected(NodeId id) const noexcept;
+    bool IsSelected(FNodeId id) const noexcept;
 
     // (cb, user) ペアを登録。同一ペアの重複登録は no-op で弾く。
     // cb が null の場合は登録せず no-op。
@@ -110,9 +110,9 @@ private:
 
     // 立ち上がり / 立ち下がり共通の通知ヘルパ。
     // `_current` の更新は呼び出し側で完了させてから呼ぶこと。
-    void FireChange(NodeId from, NodeId to) const noexcept;
+    void FireChange(FNodeId from, FNodeId to) const noexcept;
 
-    NodeId               _current;        // 現選択 (default = invalid)
+    FNodeId               _current;        // 現選択 (default = invalid)
     TArray<CallbackEntry> _callbacks;      // 登録 callback 群
 };
 

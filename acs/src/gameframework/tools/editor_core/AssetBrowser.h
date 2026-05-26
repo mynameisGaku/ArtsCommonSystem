@@ -57,7 +57,7 @@
 //   ・**EAssetKind は拡張子 lookup の 1 階層**: `.png/.jpg/.tga` → Texture、
 //     `.mdl/.fbx/.gltf/.glb` → Mesh、`.ttf/.otf` → Font、`.wav/.ogg/.mp3` →
 //     Audio、`.mat`/`.material` → Material、`.fx`/`.particle` → Particle、
-//     `.anim` → Animation、`.bt` → BehaviorTree、`.tilemap`/`.tmx` → Tilemap、
+//     `.anim` → FAnimation、`.bt` → BehaviorTree、`.tilemap`/`.tmx` → Tilemap、
 //     `.prefab` → Prefab、`.cine` → Cinematic、`.scene` → Scene、未知は Other。
 //     大文字小文字無視。
 //
@@ -87,7 +87,7 @@ enum class EAssetKind : u8 {
     Audio        = 4,   // .wav .ogg .mp3 .flac
     Material     = 5,   // .mat .material
     Particle     = 6,   // .fx .particle
-    Animation    = 7,   // .anim
+    FAnimation    = 7,   // .anim
     BehaviorTree = 8,   // .bt
     Tilemap      = 9,   // .tilemap .tmx
     Prefab       = 10,  // .prefab
@@ -115,7 +115,7 @@ struct AssetEntry {
 // ---------------------------------------------------------------------------
 class AssetBrowser {
 public:
-    // 選択 / ダブルクリック通知 callback。`user` は SetOn*Callback の第二引数
+    // 選択 / ダブルクリック通知 callback。`user` は SetOn*FCallback の第二引数
     // で渡したポインタがそのまま戻る (closure 代替)。`path` の寿命は
     // 「次の Refresh() まで」(= AssetEntry::path と同じルール)。
     using AssetSelectedCallback      = void (*)(void* user,

@@ -3,7 +3,7 @@
 // ACS Memory — ArenaAllocator 実装
 // -----------------------------------------------------------------------------
 // 通常確保はアトミック CAS 1 回で完了する。ページが満杯になった時だけ
-// Mutex で排他して新ページを確保する。
+// FMutex で排他して新ページを確保する。
 // =============================================================================
 #include "memory/ArenaAllocator.h"
 #include "memory/Memory.h"
@@ -22,7 +22,7 @@ ArenaAllocator::~ArenaAllocator() noexcept {
 // 新ページ確保（ヘッダ + データ + 64B 整列の余裕を 1 回で取る）
 ArenaAllocator::Page* ArenaAllocator::AllocPage(usize size) noexcept {
     usize total = sizeof(Page) + size + 64;
-    void* raw = _backing->Alloc(total, alignof(Page), SourceLoc::Current());
+    void* raw = _backing->Alloc(total, alignof(Page), FSourceLoc::Current());
     if (!raw) return nullptr;
     auto* p = static_cast<Page*>(raw);
     p->next = nullptr;
@@ -34,7 +34,7 @@ ArenaAllocator::Page* ArenaAllocator::AllocPage(usize size) noexcept {
 }
 
 // 確保
-void* ArenaAllocator::Alloc(usize size, usize alignment, SourceLoc /*loc*/) noexcept {
+void* ArenaAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     if (size == 0) return nullptr;
     if (alignment < 1) alignment = 1;
 
@@ -61,7 +61,7 @@ void* ArenaAllocator::Alloc(usize size, usize alignment, SourceLoc /*loc*/) noex
         }
 
         // 新ページが必要 — Grow ロックを取る
-        ScopedLock lk(_grow_lock);
+        FScopedLock lk(_grow_lock);
         // ロック取得中に他スレッドが既に Grow している可能性をチェック
         Page* nowp = _current.Load(EMemoryOrder::Acquire);
         if (nowp != p) continue;
@@ -82,7 +82,7 @@ void ArenaAllocator::Free(void* /*ptr*/) noexcept {
 
 // 巻き戻し or 全解放
 void ArenaAllocator::Reset(bool release_pages) noexcept {
-    ScopedLock lk(_grow_lock);
+    FScopedLock lk(_grow_lock);
     if (release_pages) {
         // 全ページを backing に返却
         Page* p = _pages;

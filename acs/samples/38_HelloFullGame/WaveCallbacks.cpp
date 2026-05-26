@@ -77,7 +77,7 @@ bool ProjectileOnHitTest(void* user, const ProjectileInstance& p,
     return false;
 }
 
-void ProjectileOnHit(void* user, ProjectileId /*pid*/, const char* /*def_id*/,
+void ProjectileOnHit(void* user, FProjectileId /*pid*/, const char* /*def_id*/,
                      u32 target_id, f32 dmg) noexcept {
     auto* scene = static_cast<GameplayScene*>(user);
     scene->GetEnemies().ApplyHit(*scene, scene->GetHealth(), target_id, dmg);

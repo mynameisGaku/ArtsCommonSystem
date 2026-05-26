@@ -3,7 +3,7 @@
 # 構成:
 #   main.cpp            - hellonet::HelloNetApp::Run() を呼ぶだけのエントリ
 #   HelloNetApp.{h,cpp} - 一連のフロー (Init → サーバ起動 → 送受信 → Shutdown)
-#   EchoServer.{h,cpp}  - Thread::Spawn から呼ぶサーバ本体
+#   EchoServer.{h,cpp}  - FThread::Spawn から呼ぶサーバ本体
 add_executable(hello_net
     main.cpp
     HelloNetApp.cpp

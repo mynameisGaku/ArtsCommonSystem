@@ -45,7 +45,7 @@ public:
     // 値を末尾に積む。Close() 済みなら false、追加成功なら true。
     bool Push(T value) noexcept {
         {
-            ScopedLock lock(_mtx);
+            FScopedLock lock(_mtx);
             if (_closed) return false;
             _q.PushBack(Move(value));
         }
@@ -55,7 +55,7 @@ public:
 
     // 即座に取り出し試行 (空なら false)
     bool TryPop(T& out) noexcept {
-        ScopedLock lock(_mtx);
+        FScopedLock lock(_mtx);
         if (_q.Size() == 0) return false;
         out = Move(_q[0]);
         // 簡易: 先頭削除は O(N) だが小規模ならコスト無視。
@@ -69,9 +69,9 @@ public:
 
     // 値が来るまで block。Close() 中に呼ばれた / 呼ばれた後なら false 返す。
     bool Pop(T& out) noexcept {
-        ScopedLock lock(_mtx);
+        FScopedLock lock(_mtx);
         while (_q.Size() == 0 && !_closed) {
-            _cv.Wait(_mtx);  // ScopedLock 内部の mutex を unlock+wait+relock
+            _cv.Wait(_mtx);  // FScopedLock 内部の mutex を unlock+wait+relock
         }
         if (_q.Size() == 0) return false;     // closed && empty
         out = Move(_q[0]);
@@ -85,24 +85,24 @@ public:
     // 待機中のすべての Pop を解放 (false で抜けさせる)
     void Close() noexcept {
         {
-            ScopedLock lock(_mtx);
+            FScopedLock lock(_mtx);
             _closed = true;
         }
         _cv.NotifyAll();
     }
 
     bool IsClosed() const noexcept {
-        ScopedLock lock(_mtx);
+        FScopedLock lock(_mtx);
         return _closed;
     }
 
     usize Size() const noexcept {
-        ScopedLock lock(_mtx);
+        FScopedLock lock(_mtx);
         return _q.Size();
     }
 
 private:
-    mutable Mutex   _mtx;
+    mutable FMutex   _mtx;
     ConditionVar    _cv;
     TArray<T>        _q;
     bool            _closed = false;

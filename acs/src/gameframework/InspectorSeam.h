@@ -2,7 +2,7 @@
 // GameFramework Pillar K — InspectorSeam (Phase 2)
 //
 // reflection-driven debug inspector の「シーム (seam)」インターフェース。
-// ゲーム内の任意のオブジェクト (Player / Enemy / Camera / Settings 等) が
+// ゲーム内の任意のオブジェクト (Player / Enemy / FCamera / Settings 等) が
 // 自身のフィールドを `IInspectableProvider` 経由で公開し、上位レイヤ
 // (ImGui / ACS::Ui / 外部 DevTool) がそれを描画 / 編集する形を取る。
 //
@@ -98,7 +98,7 @@ struct InspectableField {
 };
 
 // ---- 公開オブジェクト ---------------------------------------------------
-// Provider が公開する 1 オブジェクト (例: 1 体の Player、1 つの Camera)。
+// Provider が公開する 1 オブジェクト (例: 1 体の Player、1 つの FCamera)。
 // `fields` 配列の寿命は Provider 所有。
 struct InspectableObject {
     const char*       type_name     = nullptr;  // クラス名相当 ("Player" 等)

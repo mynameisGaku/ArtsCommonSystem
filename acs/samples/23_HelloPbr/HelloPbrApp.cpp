@@ -67,7 +67,7 @@ void HelloPbrApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
-    DirLight lights[1];
+    FDirLight lights[1];
     // direction = surface から light source へ向くベクトル (y+ = 上空の太陽)。
     // HelloLights / HelloRaycast3D の慣習に合わせて y を正にする。
     lights[0].direction = FVec3{0.4f, 0.8f, -0.5f};

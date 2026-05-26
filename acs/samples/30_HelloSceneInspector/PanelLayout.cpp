@@ -32,7 +32,7 @@ void PanelLayout::RegisterProvider(acs::game::IInspectableProvider* provider) no
     _seam.RegisterProvider(provider);
 }
 
-void PanelLayout::SelectInitial(acs::game::NodeId id) noexcept {
+void PanelLayout::SelectInitial(acs::game::FNodeId id) noexcept {
     _selection.SelectNode(id);
 }
 

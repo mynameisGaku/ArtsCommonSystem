@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// JobGraph 実装
+// FJobGraph 実装
 #include "threading/JobGraph.h"
 #include "foundation/Log.h"
 
@@ -10,7 +10,7 @@ void JobHandle::DependOn(JobHandle upstream) noexcept {
     graph->AddDependency(upstream, *this);
 }
 
-JobHandle JobGraph::Add(JobFn fn, void* user) noexcept {
+JobHandle FJobGraph::Add(JobFn fn, void* user) noexcept {
     if (_submitted || !fn) return JobHandle{};
     auto* j = new Job();
     j->fn    = fn;
@@ -21,7 +21,7 @@ JobHandle JobGraph::Add(JobFn fn, void* user) noexcept {
     return JobHandle{ this, idx };
 }
 
-void JobGraph::AddDependency(JobHandle upstream, JobHandle downstream) noexcept {
+void FJobGraph::AddDependency(JobHandle upstream, JobHandle downstream) noexcept {
     if (_submitted) return;
     if (!upstream.IsValid() || !downstream.IsValid()) return;
     if (upstream.graph != this || downstream.graph != this) return;
@@ -35,7 +35,7 @@ void JobGraph::AddDependency(JobHandle upstream, JobHandle downstream) noexcept 
     dn->deps_remaining.Store(dn->initial_deps);
 }
 
-void JobGraph::JobThunk(void* user, u32 worker_index) noexcept {
+void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
     auto* j = static_cast<Job*>(user);
     auto* graph = j->owner;
 
@@ -50,7 +50,7 @@ void JobGraph::JobThunk(void* user, u32 worker_index) noexcept {
         if (prev == 1) {
             // 自分が最後の依存を解いた → 起動
             Task t{};
-            t.fn      = &JobGraph::JobThunk;
+            t.fn      = &FJobGraph::JobThunk;
             t.user    = down;
             t.counter = nullptr;  // counter は graph 全体で 1 度だけ Add し、ここで Done する
             (void)ThreadPool::Submit(t);
@@ -61,8 +61,8 @@ void JobGraph::JobThunk(void* user, u32 worker_index) noexcept {
     graph->_counter.Done();
 }
 
-TResult<void> JobGraph::Submit() noexcept {
-    if (_submitted) return ACS_ERR(Threading, 1, "JobGraph already submitted");
+TResult<void> FJobGraph::Submit() noexcept {
+    if (_submitted) return ACS_ERR(Threading, 1, "FJobGraph already submitted");
     if (_jobs.Size() == 0) {
         _submitted = true;
         return Ok();
@@ -92,9 +92,9 @@ TResult<void> JobGraph::Submit() noexcept {
             }
         }
         if (visited != N) {
-            ACS_LOG_ERROR("JobGraph::Submit: dependency cycle detected (visited=%u/%u)",
+            ACS_LOG_ERROR("FJobGraph::Submit: dependency cycle detected (visited=%u/%u)",
                           visited, N);
-            return ACS_ERR(Threading, 3, "JobGraph: dependency cycle");
+            return ACS_ERR(Threading, 3, "FJobGraph: dependency cycle");
         }
     }
 
@@ -110,12 +110,12 @@ TResult<void> JobGraph::Submit() noexcept {
         Job* j = _jobs[i];
         if (j->deps_remaining.Load(EMemoryOrder::Acquire) == 0) {
             Task t{};
-            t.fn      = &JobGraph::JobThunk;
+            t.fn      = &FJobGraph::JobThunk;
             t.user    = j;
             t.counter = nullptr;
             auto r = ThreadPool::Submit(t);
             if (r.IsErr()) {
-                ACS_LOG_ERROR("JobGraph::Submit: ThreadPool::Submit failed: %s",
+                ACS_LOG_ERROR("FJobGraph::Submit: ThreadPool::Submit failed: %s",
                               r.Error().message);
                 // 既に Add 済みのカウンタを巻き戻す (デッドロック回避)
                 u32 unstarted = static_cast<u32>(_jobs.Size()) - submitted_count;
@@ -129,13 +129,13 @@ TResult<void> JobGraph::Submit() noexcept {
 
     if (!any_started && _jobs.Size() > 0) {
         // サイクル検知を抜けてここに来たら、空のグラフ (entry も無い) のはず
-        ACS_LOG_ERROR("JobGraph::Submit: no entry job after cycle check");
-        return ACS_ERR(Threading, 2, "JobGraph: no entry job");
+        ACS_LOG_ERROR("FJobGraph::Submit: no entry job after cycle check");
+        return ACS_ERR(Threading, 2, "FJobGraph: no entry job");
     }
     return Ok();
 }
 
-void JobGraph::Wait() noexcept {
+void FJobGraph::Wait() noexcept {
     if (!_submitted) return;
     // Submit 時に Add(N) したカウンタを、Job 完了で Done() する仕組みが要る。
     // JobThunk 内で counter.Done() を呼ぶよう改修する必要があるが、
@@ -145,7 +145,7 @@ void JobGraph::Wait() noexcept {
     ThreadPool::Wait(_counter);
 }
 
-void JobGraph::Reset() noexcept {
+void FJobGraph::Reset() noexcept {
     for (usize i = 0; i < _jobs.Size(); ++i) {
         _jobs[i]->deps_remaining.Store(_jobs[i]->initial_deps);
     }

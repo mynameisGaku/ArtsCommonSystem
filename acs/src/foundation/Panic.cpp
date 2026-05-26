@@ -58,7 +58,7 @@ void SetPanicHook(PanicHook hook, void* user) noexcept {
 }
 
 // パニック本体。可変長引数なので vsnprintf でメッセージを整形する。
-ACS_NORETURN void Panic(SourceLoc loc, const char* expr, const char* fmt, ...) noexcept {
+ACS_NORETURN void Panic(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept {
     AcquireSRWLockExclusive(&g_panic_lock);
 
     // ヘッダ部（場所、失敗式、メッセージ前置き）

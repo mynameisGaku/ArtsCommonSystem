@@ -84,7 +84,7 @@ DiligentShader::~DiligentShader() noexcept {
     if (_shader) { _shader->Release(); _shader = nullptr; }
 }
 
-TResult<void> DiligentShader::Init(DiligentDevice& device, const ShaderDesc& desc) noexcept {
+TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& desc) noexcept {
     _device = &device;
     _stage  = desc.stage;
 
@@ -105,12 +105,12 @@ TResult<void> DiligentShader::Init(DiligentDevice& device, const ShaderDesc& des
     sci.EntryPoint     = desc.entry_point ? desc.entry_point : "main";
 
     // Diligent 新版で UseCombinedTextureSamplers / CombinedSamplerSuffix は
-    // ShaderCreateInfo から ShaderDesc に移動した。
+    // ShaderCreateInfo から FShaderDesc に移動した。
     // true にすると Diligent が <texture>_sampler 名で sampler を自動紐付け
     // するので、PSO 側の ImmutableSamplerDesc::SamplerOrTextureName に
     // テクスチャ名 ("albedo" 等) を渡すだけで sampler binding が成立する。
     // (D3D12 でも HLSL は分離宣言のまま、紐付けの abstraction)
-    Diligent::ShaderDesc sd;
+    Diligent::FShaderDesc sd;
     sd.Name                       = desc.debug_name ? desc.debug_name : "ACS_Shader";
     sd.ShaderType                 = diligent_detail::ToDiligent(desc.stage);
     sd.UseCombinedTextureSamplers = true;

@@ -17,7 +17,7 @@
 
     // <windows.h> が定義する一般名のマクロを除去（ACS の関数名と衝突するため）
     #ifdef Yield
-        #undef Yield                // Thread::Yield と衝突
+        #undef Yield                // FThread::Yield と衝突
     #endif
     #ifdef CreateDirectory
         #undef CreateDirectory      // FileSystem::CreateDirectory と衝突

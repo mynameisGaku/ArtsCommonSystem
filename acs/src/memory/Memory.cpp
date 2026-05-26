@@ -38,7 +38,7 @@ int  MemCmp (const void* a, const void* b, usize n) noexcept { return ::memcmp(a
 // 効率的な realloc を持つ実装（HeapReAlloc 等）はオーバーライドすべき。
 // =============================================================================
 void* Allocator::Realloc(void* ptr, usize old_size, usize new_size,
-                         usize alignment, SourceLoc loc) noexcept {
+                         usize alignment, FSourceLoc loc) noexcept {
     if (new_size == 0) { Free(ptr); return nullptr; }
     void* p = Alloc(new_size, alignment, loc);
     if (!p) return nullptr;

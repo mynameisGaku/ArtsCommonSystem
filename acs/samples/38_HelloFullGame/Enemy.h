@@ -2,7 +2,7 @@
 // HelloFullGame — Enemy モジュール。固定容量の敵プール + AI tick + 描画。
 //
 // プール方式 (固定 kMaxEnemies スロット、swap-and-pop ではなく alive フラグ) を
-// 採用しているのは、敵に handle (NodeId / HealthId / ShapeId) を持たせる必要があり
+// 採用しているのは、敵に handle (FNodeId / FHealthId / FShapeId) を持たせる必要があり
 // 線形検索でも 64 体程度なら毎フレーム楽勝なため。
 #pragma once
 
@@ -19,8 +19,8 @@ class GameplayScene;
 // 1 体ぶんの敵レコード。
 struct EnemyInstance {
     acs::game::Node2D*  node  = nullptr;
-    acs::game::HealthId hp    {};
-    acs::game::ShapeId  shape {};
+    acs::game::FHealthId hp    {};
+    acs::game::FShapeId  shape {};
     acs::u32            wave_idx_at_spawn = 0;
     bool                alive = false;
 };

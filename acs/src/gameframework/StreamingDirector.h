@@ -37,7 +37,7 @@
 
 namespace acs::game {
 
-// チャンクの 2D 整数座標。NodeId / ShapeId と異なり generation を持たない
+// チャンクの 2D 整数座標。FNodeId / FShapeId と異なり generation を持たない
 // (同じ (cx, cy) は常に同じチャンクを指す)。比較は値ベース。
 struct ChunkId {
     i32 cx = 0;

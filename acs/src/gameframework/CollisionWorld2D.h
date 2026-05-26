@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar F Phase 1 — CollisionWorld2D + SpatialGrid (Phase 10)
 //
-// 2D 衝突判定の高レベル API。形状 (Aabb2 / Circle) を `ShapeId` で管理し、
+// 2D 衝突判定の高レベル API。形状 (Aabb2 / Circle) を `FShapeId` で管理し、
 // 内部の SpatialGrid (一様グリッド broad-phase) で O(N + K) クエリ
 // (K = 結果数) を提供する。narrow phase は `math/Collision2D.h` の
 // 既存関数 (Intersect / Resolve / RaycastAabb / RaycastCircle) を再利用。
@@ -10,25 +10,25 @@
 //   CollisionWorld2D world;
 //   world.Init(/*cell_size=*/64.0f);
 //
-//   ShapeId player = world.AddCircle({ {0,0}, 16.0f });
-//   ShapeId wall   = world.AddAabb({ {100,0}, {16,32} });
+//   FShapeId player = world.AddCircle({ {0,0}, 16.0f });
+//   FShapeId wall   = world.AddAabb({ {100,0}, {16,32} });
 //
 //   // 毎フレーム移動した形状を Update
 //   world.UpdateCircle(player, { player_pos, 16.0f });
 //
 //   // クエリ
-//   TArray<ShapeId> hits;
+//   TArray<FShapeId> hits;
 //   world.OverlapCircle({ player_pos, 32.0f }, hits);  // 32 範囲のもの全部
 //
 //   RayHit2 rh;
-//   ShapeId hit_id;
+//   FShapeId hit_id;
 //   if (world.Raycast({ origin, dir }, /*max_t=*/100.0f, rh, hit_id)) {
 //       // rh.point/normal/t、hit_id でどの形状か分かる
 //   }
 //
 // 設計 (Phase 10 = Pillar F Phase 1):
-//   ・**ShapeId**: 32bit packed = 24bit index + 8bit generation。removed slot
-//     を再利用しても古い handle は無効化される (NodeId と同パターン)。
+//   ・**FShapeId**: 32bit packed = 24bit index + 8bit generation。removed slot
+//     を再利用しても古い handle は無効化される (FNodeId と同パターン)。
 //   ・**一様グリッド**: `cell_size` で固定、shape は overlapping cells に
 //     全部登録 (= shape は複数 cell に存在し得る)。クエリ時は cell 走査して
 //     候補集合を作り、narrow phase で実際の交差判定。
@@ -46,11 +46,11 @@
 
 namespace acs::game {
 
-struct ShapeId {
+struct FShapeId {
     u32 _packed = 0;   // 0 = invalid。layout: low24=index, high8=generation
 
-    constexpr ShapeId() noexcept = default;
-    constexpr ShapeId(u32 index, u8 gen) noexcept
+    constexpr FShapeId() noexcept = default;
+    constexpr FShapeId(u32 index, u8 gen) noexcept
         : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     constexpr u32  Index() const noexcept { return _packed & 0x00FFFFFFu; }
@@ -59,8 +59,8 @@ struct ShapeId {
     }
     constexpr bool IsValid() const noexcept { return _packed != 0; }
 
-    constexpr bool operator==(ShapeId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(ShapeId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FShapeId o) const noexcept { return _packed == o._packed; }
+    constexpr bool operator!=(FShapeId o) const noexcept { return _packed != o._packed; }
 };
 
 class CollisionWorld2D {
@@ -78,15 +78,15 @@ public:
     }
 
     // ----- Shape 登録 -----
-    ShapeId AddAabb  (const Aabb2& a) noexcept;
-    ShapeId AddCircle(const Circle& c) noexcept;
+    FShapeId AddAabb  (const Aabb2& a) noexcept;
+    FShapeId AddCircle(const Circle& c) noexcept;
 
     // 形状更新 (移動した時)。dirty にして次のクエリで再構築。
-    void UpdateAabb  (ShapeId id, const Aabb2& a) noexcept;
-    void UpdateCircle(ShapeId id, const Circle& c) noexcept;
+    void UpdateAabb  (FShapeId id, const Aabb2& a) noexcept;
+    void UpdateCircle(FShapeId id, const Circle& c) noexcept;
 
     // shape 削除 (slot は再利用、generation 進む)
-    void Remove(ShapeId id) noexcept;
+    void Remove(FShapeId id) noexcept;
 
     // 全 shape 破棄。grid もクリア。
     void ClearAll() noexcept;
@@ -95,10 +95,10 @@ public:
 
     // ----- クエリ (broad-phase grid → narrow-phase math/Collision2D) -----
     // exclude: 自身を除外したい時 (PhysicsBody が自己 overlap を無視するため)。invalid なら除外無し。
-    void OverlapAabb  (const Aabb2& a,   TArray<ShapeId>& out, ShapeId exclude = {}) noexcept;
-    void OverlapCircle(const Circle& c,  TArray<ShapeId>& out, ShapeId exclude = {}) noexcept;
+    void OverlapAabb  (const Aabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
+    void OverlapCircle(const Circle& c,  TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
     // Raycast: 最も近い shape を 1 つ返す (out_hit / out_id 設定、無ければ false)
-    bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, ShapeId& out_id) noexcept;
+    bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id) noexcept;
 
 private:
     enum class Kind : u8 { None = 0, FAabb, Circle };

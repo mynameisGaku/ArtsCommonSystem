@@ -47,7 +47,7 @@
 // 将来拡張余地 (Phase 21a の範囲外、ヘッダ末尾の TODO 参照):
 //   ・preset (Top/Front/Side/3-quarter 等の標準視点を 1 ボタン)
 //   ・camera lock (Y 軸固定で yaw のみ自由 = ARPG style)
-//   ・focus to selection (現選択 NodeId にカメラを向ける、SelectionService 経由)
+//   ・focus to selection (現選択 FNodeId にカメラを向ける、SelectionService 経由)
 //   ・camera shake disable (PhotoMode 同様、editor では shake 抑止)
 //   ・rotation 2D (Camera2D と等価の axis 回転)
 //   ・FPS フリールック (orbit ではなく eye 中心の look-around)

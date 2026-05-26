@@ -11,7 +11,7 @@
 //                               Material Slot)
 //       - Bones             : CollapsingHeader + TreeNode (parent_index < 0 を
 //                               root として再帰展開)
-//       - Animation Clips   : CollapsingHeader + Table (Name / Duration / Samples
+//       - FAnimation Clips   : CollapsingHeader + Table (Name / Duration / Samples
 //                               / Looping)
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/modelview/ModelInspectorPanel.h"
@@ -96,7 +96,7 @@ void ModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
         }
     }
 
-    // ----- Animation Clips -----
+    // ----- FAnimation Clips -----
     _clips.Clear();
     if (clips != nullptr && clip_count > 0) {
         _clips.Reserve(clip_count);
@@ -216,7 +216,7 @@ void ModelInspectorPanel::DrawUI() noexcept {
     ImGui::Text("Submeshes      : %u", static_cast<unsigned>(_summary.submesh_count));
     ImGui::Text("Material slots : %u", static_cast<unsigned>(_summary.material_slot_count));
     ImGui::Text("Bones          : %u", static_cast<unsigned>(_summary.bone_count));
-    ImGui::Text("Animation clips: %u", static_cast<unsigned>(_summary.animation_clip_count));
+    ImGui::Text("FAnimation clips: %u", static_cast<unsigned>(_summary.animation_clip_count));
     ImGui::Text("Bounding center: (%.3f, %.3f, %.3f)",
                 static_cast<double>(_summary.bounding_center.x),
                 static_cast<double>(_summary.bounding_center.y),
@@ -309,9 +309,9 @@ void ModelInspectorPanel::DrawUI() noexcept {
     }
 
     // ------------------------------------------------------------------------
-    // 4) Animation Clips セクション — CollapsingHeader + Table
+    // 4) FAnimation Clips セクション — CollapsingHeader + Table
     // ------------------------------------------------------------------------
-    if (ImGui::CollapsingHeader("Animation Clips", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::CollapsingHeader("FAnimation Clips", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (_clips.IsEmpty()) {
             ImGui::TextDisabled("  (no animation clips)");
         } else {

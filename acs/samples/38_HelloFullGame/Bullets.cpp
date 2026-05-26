@@ -34,7 +34,7 @@ void Bullets::Shutdown(ProjectileSystem& sys) noexcept {
 
 void Bullets::Fire(GameplayScene& scene, FVec2 from, FVec2 dir_unit) noexcept {
     const FVec2 vel = dir_unit * kBulletSpeed;
-    const ProjectileId pid = scene.GetProjectiles().Spawn(
+    const FProjectileId pid = scene.GetProjectiles().Spawn(
         kBulletDefId, from, vel, /*owner_id=*/1u, kBulletDamage);
     if (!pid.IsValid()) return;
     static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_fire", 0.6f);

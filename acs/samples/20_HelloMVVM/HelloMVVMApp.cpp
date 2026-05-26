@@ -28,7 +28,7 @@ void HelloMVVMApp::OnStart() noexcept {
     _hp_mirror_binder = MakeBind(_vm.hp, _hp_mirror);
 
     // 型が異なる Observable 同士は MakeBindConvert で繋ぐ。
-    // 組込みの DefaultConverter<f32, FString> が選択されるので
+    // 組込みの TDefaultConverter<f32, FString> が選択されるので
     // 変換ラムダを書く必要はない。
     _hp_text_binder = MakeBindConvert<f32, FString>(_vm.hp, _hp_text);
 
@@ -93,7 +93,7 @@ void HelloMVVMApp::OnRender() noexcept {
         mvvm::imgui::BindProgress("Mirror HP", _hp_mirror, 0.0f, 100.0f);
 
         ImGui::Spacing();
-        ImGui::Text("組込み暗黙変換: f32 → FString (DefaultConverter 自動選択)");
+        ImGui::Text("組込み暗黙変換: f32 → FString (TDefaultConverter 自動選択)");
         ImGui::Text("HP 文字列: \"%s\"", _hp_text.Get().Data());
 
         ImGui::Spacing();

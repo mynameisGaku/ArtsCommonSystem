@@ -227,7 +227,7 @@ TResult<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // 避けるため、生 Alloc → Free でラウンドトリップさせる)。
     const usize buf_size = static_cast<usize>(size_u64);
     Allocator&  alloc    = DefaultAllocator();
-    void*       raw      = alloc.Alloc(buf_size, alignof(u8), SourceLoc::Current());
+    void*       raw      = alloc.Alloc(buf_size, alignof(u8), FSourceLoc::Current());
     if (raw == nullptr) {
         ::CloseHandle(h);
         return ACS_ERR(Memory, script_err::kSub_FileTooLarge,

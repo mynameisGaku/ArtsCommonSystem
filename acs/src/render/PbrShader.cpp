@@ -962,7 +962,7 @@ constexpr usize CBSize() noexcept {
 } // namespace
 
 TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kPbrHLSL;
     vs_d.entry_point = "VSMain";
@@ -971,7 +971,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
         return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kPbrHLSL;
     ps_d.entry_point = "PSMain";
@@ -980,7 +980,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
         return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
-    BufferDesc fb{};
+    FBufferDesc fb{};
     fb.size = CBSize<FrameCBLayout>();
     fb.usage = EBufferUsage::Uniform;
     fb.cpu_writable = true;
@@ -988,7 +988,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
         return Err<void>(r.Error());
     else _frame_cb = Move(r.Value());
 
-    BufferDesc ob{};
+    FBufferDesc ob{};
     ob.size = CBSize<ObjectCBLayout>();
     ob.usage = EBufferUsage::Uniform;
     ob.cpu_writable = true;
@@ -998,7 +998,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
 
     // 1x1 白テクスチャ (albedo fallback)
     const u8 white[4] = {255, 255, 255, 255};
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = 1; td.height = 1;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = white; td.initial_data_size = 4;
@@ -1009,7 +1009,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
     // Shadow map fallback: 1x1 RGBA8 全 255 (.r=1.0 = far、shadow_params.y=0 で
     // shader 側が早期 return するので実際には sample されない。SRB の有効 binding 要件用)。
     const u8 far_depth[4] = { 255, 255, 255, 255 };
-    TextureDesc sd{};
+    FTextureDesc sd{};
     sd.width = 1; sd.height = 1;
     sd.format = EFormat::R8G8B8A8_UNorm;
     sd.initial_data = far_depth; sd.initial_data_size = 4;
@@ -1019,7 +1019,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
 
     // Normal map fallback: 1x1 RGBA8 (128,128,255,0) = tangent (0,0,1) → 無変化
     const u8 flat_nrm[4] = { 128, 128, 255, 0 };
-    TextureDesc nt{};
+    FTextureDesc nt{};
     nt.width = 1; nt.height = 1;
     nt.format = EFormat::R8G8B8A8_UNorm;
     nt.initial_data = flat_nrm; nt.initial_data_size = 4;
@@ -1030,7 +1030,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
     // SSAO fallback: 1x1 全 255 = visibility 1.0 (AO 無し)。ssao_params.x=0 でも
     // SRB に valid texture を bind する要件のため作成しておく。
     const u8 full_vis[4] = { 255, 255, 255, 255 };
-    TextureDesc st{};
+    FTextureDesc st{};
     st.width = 1; st.height = 1;
     st.format = EFormat::R8G8B8A8_UNorm;
     st.initial_data = full_vis; st.initial_data_size = 4;
@@ -1041,7 +1041,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
     // SSGI fallback: 1x1 R11G11B10F、初期値 0 (indirect light なし)。SRB binding 用。
     // initial_data 経路は R11G11B10F でサポート無いので、blank RT として作る。
     // ssgi_params.x=0 で shader が早期 return するので内容は未定義のままで OK。
-    TextureDesc gt{};
+    FTextureDesc gt{};
     gt.width = 1; gt.height = 1;
     gt.format = EFormat::R11G11B10_Float;
     gt.is_render_target = true;     // RT 兼用にすると SRV が自動で付く
@@ -1052,7 +1052,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
     // Lightmap fallback: 1x1 RGBA8 全 0 (baked light なし)。
     // lightmap_params.x=0 で shader が早期 return するので unused。
     const u8 zero_rgba[4] = { 0, 0, 0, 0 };
-    TextureDesc lt{};
+    FTextureDesc lt{};
     lt.width = 1; lt.height = 1;
     lt.format = EFormat::R8G8B8A8_UNorm;
     lt.initial_data = zero_rgba; lt.initial_data_size = 4;
@@ -1062,7 +1062,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
 
     // SSR fallback: 1x1 RGBA8 全 0 (.a=0 → hit mask 0 = 反射なし)。
     // ssr_params.x=0 で shader が早期 return するので unused だが SRB binding 用。
-    TextureDesc rt{};
+    FTextureDesc rt{};
     rt.width = 1; rt.height = 1;
     rt.format = EFormat::R8G8B8A8_UNorm;
     rt.initial_data = zero_rgba; rt.initial_data_size = 4;
@@ -1074,7 +1074,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
     // SRB に valid な texture を bind する必要があるので作っておく。内容は
     // undefined (driver は通常 0 化する)。
-    TextureDesc ic{};
+    FTextureDesc ic{};
     ic.width = 1; ic.height = 1;
     ic.format = EFormat::R11G11B10_Float;
     ic.array_size = 6;
@@ -1086,14 +1086,14 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
         return Err<void>(r.Error());
     else _ibl_prefilter_fb = Move(r.Value());
 
-    TextureDesc bt{};
+    FTextureDesc bt{};
     bt.width = 1; bt.height = 1;
     bt.format = EFormat::R16G16_Float;
     if (auto r = CreateRhiTexture(device, bt); r.IsErr())
         return Err<void>(r.Error());
     else _ibl_brdf_fb = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -1360,7 +1360,7 @@ void PbrShader::SetShadowMapCascades(IRhiTexture* depth,
 }
 
 void PbrShader::SetLights(const FMat4& vp, FVec3 eye,
-                          const DirLight* lights, u32 count,
+                          const FDirLight* lights, u32 count,
                           FVec3 ambient) noexcept {
     _vp = vp;
     _eye = eye;

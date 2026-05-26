@@ -4,7 +4,7 @@
 
 namespace acs {
 
-TResult<TRc<Asset>> BinaryAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> BinaryAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     // バイト列を所有する BinaryAsset を生成
     TRc<BinaryAsset> asset = MakeRc<BinaryAsset>(bytes.Clone());
     asset->SetId(id);

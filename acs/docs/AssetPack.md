@@ -228,7 +228,7 @@ public:
 **わずか 2 箇所**（同期 `Load` と非同期ワーカ）に集約している。この 2 箇所を
 `VirtualFileSystem::ReadAsset(path)` に差し替えるだけで、`.acpak` 透過対応が
 **ローダ変更ゼロ・ゲームコード変更ゼロ**で実現する。ローダの契約
-`LoadFromBytes(AssetId, const TArray<byte>&)` は不変 — バイト列がバラファイル由来か
+`LoadFromBytes(FAssetId, const TArray<byte>&)` は不変 — バイト列がバラファイル由来か
 復号済み pak エントリ由来かをローダは知らないし気にしない。
 
 ### 8.2 `VirtualFileSystem` — マウントスタック

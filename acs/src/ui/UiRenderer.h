@@ -13,7 +13,7 @@
 //
 // 仕組み:
 //   ・SpriteBatch で矩形 + テクスチャ + 文字を発行
-//   ・Font は ACS Font (TrueType + atlas)
+//   ・Font は ACS Font (TTrueType + atlas)
 //   ・Widget::Render(*this) を再帰的に呼ぶ
 //   ・各 widget は描画ヘルパ (DrawRect / DrawText 等) で UiRenderer に依頼
 #pragma once

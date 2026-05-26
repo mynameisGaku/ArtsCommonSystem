@@ -140,7 +140,7 @@ inline void CopyOnce(const Observable<T>& src, Observable<T>& dst) noexcept {
 // ============================================================================
 // Bind(src, dst) — 暗黙変換つき汎用バインドファクトリ
 // ----------------------------------------------------------------------------
-// 同じ型なら OneWayBinder、違う型なら DefaultConverter<Src, Dst> を経由した
+// 同じ型なら OneWayBinder、違う型なら TDefaultConverter<Src, Dst> を経由した
 // OneWayConvertBinder を返す。返り値は prvalue なので C++17 の copy elision で
 // auto に直接受けられる。
 //
@@ -160,7 +160,7 @@ inline OneWayBinder<T> Bind(Observable<T>& src, Observable<T>& dst) noexcept {
 template<typename Src, typename Dst>
 inline OneWayConvertBinder<Src, Dst> Bind(Observable<Src>& src, Observable<Dst>& dst) noexcept {
     return OneWayConvertBinder<Src, Dst>(
-        src, dst, &mvvm::DefaultConverter<Src, Dst>::Convert, nullptr);
+        src, dst, &mvvm::TDefaultConverter<Src, Dst>::Convert, nullptr);
 }
 
 // 双方向版
@@ -198,7 +198,7 @@ template<typename Src, typename Dst>
 inline TUniquePtr<OneWayConvertBinder<Src, Dst>>
 MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst) noexcept {
     return MakeUnique<OneWayConvertBinder<Src, Dst>>(
-        src, dst, &mvvm::DefaultConverter<Src, Dst>::Convert, nullptr);
+        src, dst, &mvvm::TDefaultConverter<Src, Dst>::Convert, nullptr);
 }
 
 template<typename Src, typename Dst>

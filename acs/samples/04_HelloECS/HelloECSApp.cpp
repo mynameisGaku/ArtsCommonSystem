@@ -36,7 +36,7 @@ void HelloECSApp::OnStart() noexcept {
 
     u8 pixels[kBallTexSize * kBallTexSize * 4];
     GenerateBallTexture(pixels);
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = kBallTexSize; td.height = kBallTexSize;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = pixels;
@@ -102,8 +102,8 @@ void HelloECSApp::OnRender() noexcept {
     // 描画は SpriteBatch のコマンド記録がスレッド非安全なので必ず逐次 Each()。
     // EachParallel をここで使うと未定義動作になる。
     const f32 r = 8.0f;
-    GetWorld().Query<Position, Color>().Each(
-        [this, r](EntityId, Position& p, Color& c){
+    GetWorld().Query<Position, FColor>().Each(
+        [this, r](EntityId, Position& p, FColor& c){
             _batch.Draw(*_tex, p.v.x - r, p.v.y - r, r * 2, r * 2,
                         FVec4{c.r, c.g, c.b, 0.95f});
         });
@@ -124,7 +124,7 @@ void HelloECSApp::SpawnRandomEntities(u32 n) noexcept {
         EntityId e = w.Create();
         w.Add(e, Position{ FVec2{ _rnd() * sw, _rnd() * sh } });
         w.Add(e, Velocity{ FVec2{ (_rnd() - 0.5f) * 200.0f, (_rnd() - 0.5f) * 200.0f } });
-        w.Add(e, Color{ 0.5f + _rnd() * 0.5f, 0.5f + _rnd() * 0.5f, 0.5f + _rnd() * 0.5f });
+        w.Add(e, FColor{ 0.5f + _rnd() * 0.5f, 0.5f + _rnd() * 0.5f, 0.5f + _rnd() * 0.5f });
     }
 }
 

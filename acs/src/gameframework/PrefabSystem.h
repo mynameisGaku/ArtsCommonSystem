@@ -30,7 +30,7 @@
 //     側 (string literal か、別途寿命管理された永続バッファ)。PrefabSystem は
 //     ポインタを保管するだけで複製しない。これを忘れた使用は文字列が dangling
 //     になり得るので、コメントで強く注意する。
-//   ・**24bit idx + 8bit gen の packed handle**: `NodeId` / `ShapeId` と完全に
+//   ・**24bit idx + 8bit gen の packed handle**: `FNodeId` / `FShapeId` と完全に
 //     同パターン。Unregister 後の slot 再利用で生まれる stale handle 検出に
 //     generation を 1〜255 で循環させる (0 は「未使用 slot」予約)。
 //   ・**slot 0 を invalid 予約**: `PrefabId{}` (= packed == 0) がそのまま
@@ -57,7 +57,7 @@ class Node2D;
 
 /// Prefab を識別する packed 32bit handle (generational)。
 /// layout: low24 = index, high8 = generation。`_packed == 0` が invalid。
-/// `NodeId` / `ShapeId` と完全に同じパターン (Phase 0 codify 済の規約)。
+/// `FNodeId` / `FShapeId` と完全に同じパターン (Phase 0 codify 済の規約)。
 struct PrefabId {
     u32 _packed = 0;
 

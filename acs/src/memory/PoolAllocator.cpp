@@ -44,7 +44,7 @@ PoolAllocator::PoolAllocator(usize block_size, usize block_count,
 
     // ストレージ全体を 1 回確保
     usize total = static_cast<usize>(_block_size * _block_count);
-    _storage = static_cast<u8*>(_backing->Alloc(total, _alignment, SourceLoc::Current()));
+    _storage = static_cast<u8*>(_backing->Alloc(total, _alignment, FSourceLoc::Current()));
     if (!_storage) {
         _block_count = 0;
         return;
@@ -66,7 +66,7 @@ PoolAllocator::~PoolAllocator() noexcept {
 }
 
 // 確保（Treiber スタックの pop）
-void* PoolAllocator::Alloc(usize size, usize alignment, SourceLoc /*loc*/) noexcept {
+void* PoolAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     if (size == 0) return nullptr;
     if (size > _block_size) return nullptr;
     if (alignment > _alignment) return nullptr;

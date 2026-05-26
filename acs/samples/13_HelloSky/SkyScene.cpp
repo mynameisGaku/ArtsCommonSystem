@@ -20,7 +20,7 @@ void SkyScene::SetPreset(Sky& sky, SkyPreset p) noexcept {
 void SkyScene::Render(Sky&             sky,
                       StandardShader&  shader,
                       IRhiCommandList& cl,
-                      const Camera&    camera,
+                      const FCamera&    camera,
                       const GpuMesh&   plane,
                       const GpuMesh&   sphere,
                       f32              angle) noexcept {
@@ -30,7 +30,7 @@ void SkyScene::Render(Sky&             sky,
 
     // メイン光源は Sky の太陽方向 / 色と合わせる。ここがずれると
     // 「空は朝なのに地面は昼」のような不整合な絵になる。
-    DirLight lights[2];
+    FDirLight lights[2];
     lights[0].direction = sky.SunDirection();
     lights[0].color     = sky.SunColor();
     // 2 灯目は環境光フィル。太陽の真逆から弱い青を当てて影側のクラッシュ

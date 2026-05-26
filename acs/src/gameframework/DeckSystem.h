@@ -110,7 +110,7 @@ struct CardDef {
 };
 
 // ---- CardId: 場に存在する 1 枚の identity (24bit idx + 8bit gen) -----------
-// `_packed == 0` を invalid (default) として扱う。`NodeId` / `ShapeId` と同パターンで、
+// `_packed == 0` を invalid (default) として扱う。`FNodeId` / `FShapeId` と同パターンで、
 // 将来的に「同名カードでも個別の付与効果 (カウンタ / 修正値) を持たせたい」拡張で
 // idx を CardDef 登録 index、gen を世代カウンタとして使う土台にする。
 //

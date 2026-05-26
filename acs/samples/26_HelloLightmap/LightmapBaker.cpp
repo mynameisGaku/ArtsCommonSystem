@@ -109,7 +109,7 @@ void BakeLightmaps(IRhiDevice& dev, Quad (&quads)[kQuadCount]) noexcept {
             q.lm_data[i] = FVec4{c.x, c.y, c.z, 1.0f};
         }
 
-        TextureDesc td{};
+        FTextureDesc td{};
         td.width  = kLmSize;
         td.height = kLmSize;
         td.format = EFormat::R32G32B32A32_Float;

@@ -7,7 +7,7 @@
 // time slider / Loop checkbox / Speed slider / BlendWeight slider) を提供する。
 //
 // 役割分担 (Phase 21b ModelViewer 全体):
-//   ・ModelViewerPanel    : 3D viewport + Lighting / Background / Grid / Bone toggle
+//   ・ModelViewerPanel    : 3D viewport + Lighting / Background / Grid / FBone toggle
 //   ・ModelInspectorPanel : mesh 統計 (vertex/index/material/bone count)
 //   ・ModelMaterialPanel  : material slot 編集 (basecolor / metallic / roughness)
 //   ・ModelAnimationPanel : 本 panel — animation clip の再生制御 + timeline
@@ -63,7 +63,7 @@
 //     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
 //     Sample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
 //     EditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
-//     呼ぶ規約 (= Workspace の dt と Animation の dt は分離したい場面用)。
+//     呼ぶ規約 (= Workspace の dt と FAnimation の dt は分離したい場面用)。
 //   ・**duration 到達時の挙動**: clip の `is_looping` または `_loop_override`
 //     が true なら wrap (= `_current_time = fmodf(t, dur)`)、そうでなければ
 //     `_state = Stopped` + `_current_time = dur` で末尾に固定。
@@ -259,9 +259,9 @@ public:
     // ----- EditorPanel override -------------------------------------------
 
     // window タイトル (ImGui::Begin の引数兼 ID)。固定リテラル。
-    const char* Title() const noexcept override { return "Animation"; }
+    const char* Title() const noexcept override { return "FAnimation"; }
 
-    // ImGui::Begin "Animation" + ClipCombo + Time slider + Play/Pause/Stop +
+    // ImGui::Begin "FAnimation" + ClipCombo + Time slider + Play/Pause/Stop +
     // Loop checkbox + Speed slider + BlendWeight slider 描画。
     // `IsVisible()` が false なら早期 return (= close ボタンで隠せる)。
     void DrawUI() noexcept override;

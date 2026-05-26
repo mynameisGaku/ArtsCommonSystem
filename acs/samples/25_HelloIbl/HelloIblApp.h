@@ -63,13 +63,13 @@ acs::FMat4 BuildJitteredViewProjection(HelloIblApp& app, const acs::FMat4& vp_no
 void RenderShadowPass(HelloIblApp& app, const acs::FVec3& sun_dir) noexcept;
 acs::FVec3 ResolveSunDirection(const HelloIblApp& app) noexcept;
 void BindPbrLighting(HelloIblApp& app, const acs::FMat4& vp_for_render,
-                     const acs::DirLight& sun) noexcept;
+                     const acs::FDirLight& sun) noexcept;
 void DrawFloor(HelloIblApp& app) noexcept;
 void DrawSphereGrid(HelloIblApp& app) noexcept;
 void UpdateDynamicOrbs(HelloIblApp& app) noexcept;
 void DrawDynamicOrbs(HelloIblApp& app) noexcept;
 void RenderRefractionPass(HelloIblApp& app, const acs::FMat4& vp_for_render,
-                          const acs::Viewport& vp, const acs::ScissorRect& svr) noexcept;
+                          const acs::FViewport& vp, const acs::FScissorRect& svr) noexcept;
 void RenderMotionAndNormalGBuffer(HelloIblApp& app,
                                   const acs::FMat4& vp_no_jitter) noexcept;
 void RenderSsrPass(HelloIblApp& app, const acs::FMat4& vp_for_render,
@@ -99,13 +99,13 @@ private:
                                                  acs::u32, acs::u32) noexcept;
     friend void RenderShadowPass(HelloIblApp&, const acs::FVec3&) noexcept;
     friend acs::FVec3 ResolveSunDirection(const HelloIblApp&) noexcept;
-    friend void BindPbrLighting(HelloIblApp&, const acs::FMat4&, const acs::DirLight&) noexcept;
+    friend void BindPbrLighting(HelloIblApp&, const acs::FMat4&, const acs::FDirLight&) noexcept;
     friend void DrawFloor(HelloIblApp&) noexcept;
     friend void DrawSphereGrid(HelloIblApp&) noexcept;
     friend void UpdateDynamicOrbs(HelloIblApp&) noexcept;
     friend void DrawDynamicOrbs(HelloIblApp&) noexcept;
     friend void RenderRefractionPass(HelloIblApp&, const acs::FMat4&,
-                                     const acs::Viewport&, const acs::ScissorRect&) noexcept;
+                                     const acs::FViewport&, const acs::FScissorRect&) noexcept;
     friend void RenderMotionAndNormalGBuffer(HelloIblApp&, const acs::FMat4&) noexcept;
     friend void RenderSsrPass(HelloIblApp&, const acs::FMat4&, const acs::FMat4&,
                               const acs::FMat4&) noexcept;
@@ -124,7 +124,7 @@ private:
     acs::GpuMesh            _gm_plane;
     acs::SpriteBatch        _batch;
     acs::Font               _font;
-    acs::Camera             _camera;
+    acs::FCamera             _camera;
     acs::PostProcessParams  _post_params;
     acs::TArray<acs::f32>    _equirect_rgba;          // 4 ch float
     acs::FVec4               _sh9[9]   = {};          // 計算済 SH 9 係数 (xyz=RGB)

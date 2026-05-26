@@ -312,7 +312,7 @@ void ModelAnimationPanel::SetOnFrameCallback(AnimationFrameCallback cb,
 // =============================================================================
 // DrawUI — メイン ImGui window
 // =============================================================================
-// レイアウト (単一 "Animation" window 内):
+// レイアウト (単一 "FAnimation" window 内):
 //   ClipCombo (dropdown)
 //   ────────────
 //   Time slider [0, duration]

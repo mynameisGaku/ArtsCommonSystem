@@ -2,7 +2,7 @@
 // カメラ（ビュー行列 + プロジェクション行列のヘルパ）
 //
 // 使い方:
-//   Camera cam;
+//   FCamera cam;
 //   cam.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f, 0.1f, 1000.0f);
 //   cam.SetLookAt({0,2,-5}, {0,0,0}, FVec3::Up());
 //   FMat4 view_proj = cam.ViewProjection();   // GPU に送る用
@@ -15,9 +15,9 @@
 
 namespace acs {
 
-class Camera {
+class FCamera {
 public:
-    Camera() noexcept = default;
+    FCamera() noexcept = default;
 
     // パースペクティブ投影（左手系: Z+ が画面奥）
     void SetPerspective(f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {

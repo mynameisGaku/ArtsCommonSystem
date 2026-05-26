@@ -4,7 +4,7 @@
 
 namespace acs {
 
-TResult<TRc<Asset>> TextAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> TextAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     TArray<char> text;
     text.Resize(bytes.Size() + 1);
     for (usize i = 0; i < bytes.Size(); ++i) text[i] = static_cast<char>(bytes[i]);

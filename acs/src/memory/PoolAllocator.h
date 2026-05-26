@@ -34,7 +34,7 @@ public:
     PoolAllocator(const PoolAllocator&) = delete;
     PoolAllocator& operator=(const PoolAllocator&) = delete;
 
-    void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept override;
+    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free (void* ptr)                                  noexcept override;
 
     // ブロックサイズ / 総数の取得
@@ -72,9 +72,9 @@ private:
     u64               _block_count= 0;
     u64               _alignment  = 0;
     Allocator*        _backing    = nullptr;     // _storage の確保元
-    Atomic<u64>       _live {0};                 // 現在使用中のブロック数
+    TAtomic<u64>       _live {0};                 // 現在使用中のブロック数
     // フリーリストの head + ABA タグ を 1 つの 64bit にパック
-    Atomic<u64>       _head_packed {0};
+    TAtomic<u64>       _head_packed {0};
 };
 
 } // namespace acs

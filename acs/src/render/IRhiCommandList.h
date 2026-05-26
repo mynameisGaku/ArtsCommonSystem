@@ -82,8 +82,8 @@ public:
                                           f32 depth_clear = 1.0f) noexcept = 0;
 
     // ビューポート / シザーを設定
-    virtual void SetViewport(const Viewport& vp) noexcept = 0;
-    virtual void SetScissor (const ScissorRect& sr) noexcept = 0;
+    virtual void SetViewport(const FViewport& vp) noexcept = 0;
+    virtual void SetScissor (const FScissorRect& sr) noexcept = 0;
 
     // パイプラインを設定（次の Draw 命令で使う VS+PS+入力レイアウト等）
     virtual void SetPipeline(class IRhiPipeline& pipeline) noexcept = 0;

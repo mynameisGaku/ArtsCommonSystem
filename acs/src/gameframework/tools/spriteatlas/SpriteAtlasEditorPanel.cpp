@@ -295,7 +295,7 @@ void SpriteAtlasEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& wor
 //   │ [+ New] [- Delete] | Pivot: [Center][TopLeft][Custom] | Zoom: ◄►  │  <- toolbar
 //   ├──────────────────────────────────────────────────────────────────┤
 //   │ ┌─────────┐ ┌────────────────────────┐ ┌──────────────────────┐  │
-//   │ │ Frames  │ │ Atlas Viewport         │ │ Inspector            │  │
+//   │ │ Frames  │ │ Atlas FViewport         │ │ Inspector            │  │
 //   │ │ Frame_00│ │  (grid + rect overlay  │ │  name: Frame_00      │  │
 //   │ │ Frame_01│ │   + drag handle)       │ │  x: [SliderInt]      │  │
 //   │ │ Frame_02│ │                        │ │  y: [SliderInt]      │  │
@@ -366,7 +366,7 @@ void SpriteAtlasEditorPanel::DrawUI() noexcept {
 
     ImGui::Separator();
 
-    // ----- 3 カラム (List / Viewport / Inspector) のサイズ計算 -----
+    // ----- 3 カラム (List / FViewport / Inspector) のサイズ計算 -----
     const f32 content_w = ImGui::GetContentRegionAvail().x;
     const f32 left_w    = (content_w > 600.0f) ? 160.0f : content_w * 0.20f;
     const f32 right_w   = (content_w > 600.0f) ? 220.0f : content_w * 0.30f;

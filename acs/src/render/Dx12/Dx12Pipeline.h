@@ -14,7 +14,7 @@ public:
     Dx12Pipeline() noexcept = default;
     ~Dx12Pipeline() noexcept override;
 
-    HrResult Init(Dx12Device& device, const PipelineDesc& desc) noexcept;
+    HrResult Init(Dx12Device& device, const FPipelineDesc& desc) noexcept;
 
     ID3D12PipelineState*   Pso()           const noexcept { return _pso; }
     ID3D12RootSignature*   RootSignature() const noexcept { return _root_sig; }

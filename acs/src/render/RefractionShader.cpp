@@ -177,7 +177,7 @@ constexpr usize CBSize() noexcept {
 TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
                                     EFormat depth_format) noexcept {
     // === シェーダコンパイル ===
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kRefractionHLSL;
     vs_d.entry_point = "VSMain";
@@ -186,7 +186,7 @@ TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kRefractionHLSL;
     ps_d.entry_point = "PSMain";
@@ -196,7 +196,7 @@ TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     _ps = Move(ps_r.Value());
 
     // === 定数バッファ ===
-    BufferDesc fcb{};
+    FBufferDesc fcb{};
     fcb.size = CBSize<FrameCBLayout>();
     fcb.usage = EBufferUsage::Uniform;
     fcb.cpu_writable = true;
@@ -204,7 +204,7 @@ TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
     _frame_cb = Move(fcb_r.Value());
 
-    BufferDesc ocb{};
+    FBufferDesc ocb{};
     ocb.size = CBSize<ObjectCBLayout>();
     ocb.usage = EBufferUsage::Uniform;
     ocb.cpu_writable = true;
@@ -213,7 +213,7 @@ TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     _object_cb = Move(ocb_r.Value());
 
     // === パイプライン ===
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -255,7 +255,7 @@ TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     // させる (R32_Float が EFormat 未定義のため 2ch を採用、.g は捨てられる)。
     {
         const f32 data[2] = { 1.0f, 0.0f };
-        TextureDesc td{};
+        FTextureDesc td{};
         td.width = 1; td.height = 1;
         td.format = EFormat::R32G32_Float;
         td.initial_data = data;

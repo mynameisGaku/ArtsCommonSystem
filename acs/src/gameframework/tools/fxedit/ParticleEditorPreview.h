@@ -29,7 +29,7 @@
 //     に渡された `def` を copy し、`CreateEmitter(copy, spawn_pos)` で新規 instance 化。
 //   ・**frame budget 60-frame ring**: DebugOverlay と同じ循環バッファ方式
 //     (容量固定 / push 不可時は上書き)。`GraphFps()` は履歴の算術平均を返す。
-//   ・**非コピー・非ムーブ**: 内部に `EmitterHandle` (= system 内 slot を指す
+//   ・**非コピー・非ムーブ**: 内部に `FEmitterHandle` (= system 内 slot を指す
 //     handle) を保持するため、ムーブで複製されると DestroyEmitter のタイミングが
 //     不明瞭になる。明示的に削除。
 //   ・**全 noexcept**: ACS 規約。失敗は no-op で表現。
@@ -58,7 +58,7 @@ public:
     ParticleEditorPreview() noexcept = default;
     ~ParticleEditorPreview() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 EmitterHandle / 履歴バッファの所有権を曖昧にしない。
+    // 非コピー・非ムーブ: 内部 FEmitterHandle / 履歴バッファの所有権を曖昧にしない。
     ParticleEditorPreview(const ParticleEditorPreview&)            = delete;
     ParticleEditorPreview& operator=(const ParticleEditorPreview&) = delete;
     ParticleEditorPreview(ParticleEditorPreview&&)                 = delete;
@@ -66,7 +66,7 @@ public:
 
     // ----- ライフサイクル -----
     // frame budget ring を事前確保 (60 frame)。再 Init は履歴をクリア。
-    // 内部 EmitterHandle は無効化 (= 既存 preview は明示的に Recreate する必要あり)。
+    // 内部 FEmitterHandle は無効化 (= 既存 preview は明示的に Recreate する必要あり)。
     void Init() noexcept;
 
     // 後片付け。`StopAll` 相当 + 履歴 / handle のクリアを行うが、引数で system を
@@ -122,7 +122,7 @@ private:
 
     // 編集中 emitter (system 上の 1 instance を指す handle)。Init / Shutdown /
     // RecreatePreviewEmitter / StopAll で更新される。
-    EmitterHandle _preview_handle {};
+    FEmitterHandle _preview_handle {};
 
     // 現在 caller が編集中の def の snapshot (RecreatePreviewEmitter 時の copy 元)。
     // ヘッダ依存を最小化するためフル struct を持つが、ParticleEmitterDef は

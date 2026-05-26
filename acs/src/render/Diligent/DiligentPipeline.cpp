@@ -15,7 +15,7 @@ namespace acs {
 
 namespace {
 // "cb0".."cb7" / "t0".."t7" の固定文字列（フォールバック名）。
-// PipelineDesc.cbuffer_names / texture_names が省略されたとき使われる。
+// FPipelineDesc.cbuffer_names / texture_names が省略されたとき使われる。
 const char* const kCbFallback[16] = {
     "cb0","cb1","cb2","cb3","cb4","cb5","cb6","cb7",
     "cb8","cb9","cb10","cb11","cb12","cb13","cb14","cb15"
@@ -47,12 +47,12 @@ DiligentPipeline::~DiligentPipeline() noexcept {
     if (_pso) { _pso->Release(); _pso = nullptr; }
 }
 
-TResult<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc& desc) noexcept {
+TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept {
     _device = &device;
     _cb_slots  = desc.cbuffer_slots;
     _tex_slots = desc.texture_slots;
 
-    // PipelineDesc の名前を取り込む（null は維持してフォールバックさせる）
+    // FPipelineDesc の名前を取り込む（null は維持してフォールバックさせる）
     for (u32 i = 0; i < kMaxResourceSlots; ++i) {
         _cb_names[i]  = desc.cbuffer_names[i];
         _tex_names[i] = desc.texture_names[i];
@@ -67,7 +67,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc&
         return ACS_ERR(Render, 151, "DiligentPipeline: VS missing");
     }
 
-    // PipelineDesc.cbuffer_names / texture_names が未指定の slot を、shader
+    // FPipelineDesc.cbuffer_names / texture_names が未指定の slot を、shader
     // が source parse して保持してる register(bN/tN) → 名前マッピングから
     // 補完する。VS と PS で同 slot に異なる名前がある場合は VS を優先 (ACS
     // 慣行: VS / PS で同じ cbuffer を共有)。Diligent::ShaderResourceDesc に
@@ -134,7 +134,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const PipelineDesc&
     // 種別で内部的に何か変換してると推測。
     // 注: HelloBloom の off-screen HDR RT (PS あり、has_ps=true) も `true`
     // で正常動作。off-screen color RT で誤動作する suspected ケースは現状
-    // 未観測。将来 RT 種別ごとに分けたくなったら PipelineDesc に
+    // 未観測。将来 RT 種別ごとに分けたくなったら FPipelineDesc に
     // `target_kind = Swapchain/OffscreenColor/Depth` を追加する。
     gp.RasterizerDesc.FrontCounterClockwise = has_ps;
     gp.DepthStencilDesc.DepthEnable = desc.depth_test && desc.depth_format != EFormat::Unknown;

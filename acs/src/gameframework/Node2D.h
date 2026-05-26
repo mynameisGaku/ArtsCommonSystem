@@ -18,10 +18,10 @@
 //     Destroy は遅延 reap なので走査中の即時除去はしない。
 //
 // 範囲外 (Phase 5+ で):
-//   ・Component2D (Sprite/Animation/Collider など)
+//   ・Component2D (Sprite/FAnimation/Collider など)
 //   ・dirty propagation + cached world transform (パフォーマンス最適化)
 //   ・Reparent (構造変更の 3 種目)
-//   ・NodeId (stale 参照検出)
+//   ・FNodeId (stale 参照検出)
 //   ・ECS bridging
 #pragma once
 
@@ -57,11 +57,11 @@ public:
     virtual void OnDespawn()              noexcept {}
 
     // ----- Transform -----
-    Transform2D&       Local()       noexcept { return _local; }
-    const Transform2D& Local() const noexcept { return _local; }
+    FTransform2D&       Local()       noexcept { return _local; }
+    const FTransform2D& Local() const noexcept { return _local; }
 
     // 親をたどって world を合成 (Phase 1 はオンザフライ計算、キャッシュなし)
-    Transform2D World() const noexcept;
+    FTransform2D World() const noexcept;
 
     // ----- 有効/可視フラグ (subtree ごと skip 可能) -----
     void SetEnabled(bool b) noexcept { _enabled = b; }
@@ -93,11 +93,11 @@ public:
     void Reparent(Node2D& new_parent) noexcept;
     bool IsPendingReparent() const noexcept { return _pending_reparent_target != nullptr; }
 
-    // ----- NodeId (Phase 3 = Pillar B Phase 3) -----
+    // ----- FNodeId (Phase 3 = Pillar B Phase 3) -----
     // ノード単位に振られる generational handle。Scene 内で唯一であることは
     // 保証されない (生成側が一意性を管理)。default は invalid (_packed == 0)。
-    NodeId Id() const noexcept { return _id; }
-    void   _SetId(NodeId id) noexcept { _id = id; }
+    FNodeId Id() const noexcept { return _id; }
+    void   _SetId(FNodeId id) noexcept { _id = id; }
 
     // ----- Components (Phase 7、Pillar B Phase 2) -----
     // T の Component2D を構築・attach し、参照を返す。OnAttach は即時呼出。
@@ -170,11 +170,11 @@ private:
     // Reparent 操作で cycle が生じないか (= target が自分の子孫でないか) を確認。
     bool IsAncestorOf(const Node2D* candidate) const noexcept;
 
-    Transform2D _local{};
+    FTransform2D _local{};
     Node2D*     _parent          = nullptr;
     TArray<TUniquePtr<Node2D>>      _children;
     TArray<TUniquePtr<Component2D>> _components;
-    NodeId      _id{};                        // Phase 3: generational handle (default = invalid)
+    FNodeId      _id{};                        // Phase 3: generational handle (default = invalid)
     Node2D*     _pending_reparent_target = nullptr;  // 非 null なら次の resolve で移動
     bool        _enabled         = true;
     bool        _visible         = true;

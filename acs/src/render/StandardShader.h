@@ -11,7 +11,7 @@
 //                FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});
 //
 // マルチライト版:
-//   DirLight lights[2];
+//   FDirLight lights[2];
 //   lights[0].direction = FVec3{0.5f, -1, 0.3f}; lights[0].color = FVec3{1, 0.9f, 0.7f};
 //   lights[1].direction = FVec3{-0.4f, -0.6f, -0.8f}; lights[1].color = FVec3{0.3f, 0.4f, 0.6f};
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
@@ -50,7 +50,7 @@
 namespace acs {
 
 // 1 灯ぶんの有向光源
-struct DirLight {
+struct FDirLight {
     FVec3 direction = FVec3{0, -1, 0};   // ワールド空間の「光が向かう方向」（光源から見た方向の逆でも可、シェーダ側で normalize）
     FVec3 color     = FVec3{1, 1, 1};
 };
@@ -89,7 +89,7 @@ public:
     // マルチライト版（最大 4 灯）
     void SetLights(const FMat4& view_projection,
                    FVec3 camera_pos,
-                   const DirLight* lights, u32 count,
+                   const FDirLight* lights, u32 count,
                    FVec3 ambient_color) noexcept;
 
     // 点光源を最大 4 灯まで設定（SetLights / SetFrame と独立、追加で適用される）
@@ -155,7 +155,7 @@ private:
     FMat4       _vp;
     FVec3       _eye      = FVec3{0, 0, 0};
     FVec3       _ambient  = FVec3{0, 0, 0};
-    DirLight   _dir_lights[4];
+    FDirLight   _dir_lights[4];
     u32        _dir_count = 0;
     PointLight _point_lights[4];
     u32        _point_count = 0;

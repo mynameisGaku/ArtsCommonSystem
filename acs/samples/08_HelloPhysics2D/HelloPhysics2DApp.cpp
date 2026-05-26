@@ -49,7 +49,7 @@ void HelloPhysics2DApp::OnStart() noexcept {
 
     u8 pixels[kBallTexSize * kBallTexSize * 4];
     GenerateBallTexture(pixels);
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = kBallTexSize; td.height = kBallTexSize;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = pixels;

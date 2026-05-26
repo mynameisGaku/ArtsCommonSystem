@@ -62,7 +62,7 @@ TResult<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_s
     _max_sprites = max_sprites;
 
     // === シェーダ ===
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSpriteHLSL;
     vs_d.entry_point = "VSMain";
@@ -71,7 +71,7 @@ TResult<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_s
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSpriteHLSL;
     ps_d.entry_point = "PSMain";
@@ -82,7 +82,7 @@ TResult<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_s
 
     // === 動的頂点バッファ（4 頂点 / sprite）===
     const usize vb_size = sizeof(Vertex) * 4 * max_sprites;
-    BufferDesc vbd{};
+    FBufferDesc vbd{};
     vbd.size = vb_size;
     vbd.usage = EBufferUsage::Vertex;
     vbd.cpu_writable = true;       // 自動で frame-cycled になる
@@ -108,7 +108,7 @@ TResult<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_s
         idx_ptr[i*6 + 4] = base + 2;
         idx_ptr[i*6 + 5] = base + 3;
     }
-    BufferDesc ibd{};
+    FBufferDesc ibd{};
     ibd.size = sizeof(u16) * idx_count;
     ibd.usage = EBufferUsage::Index16;
     ibd.cpu_writable = true;
@@ -119,7 +119,7 @@ TResult<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_s
     _ib = Move(ib_r.Value());
 
     // === 定数バッファ（screen size）===
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = 256;
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -129,7 +129,7 @@ TResult<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_s
 
     // === 1×1 白テクスチャ（DrawRect 用、矩形には常にこれを bind）===
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width = 1; td.height = 1;
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = white_pixel;
@@ -139,7 +139,7 @@ TResult<void> SpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_s
     _white = Move(wt_r.Value());
 
     // === パイプライン（α ブレンド有効、深度無し、カリング無し）===
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -286,14 +286,14 @@ void SpriteBatch::SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept {
 void SpriteBatch::SetClipRect(i32 x, i32 y, i32 w, i32 h) noexcept {
     if (!_cl) return;
     Flush();   // クリップ変更前のバッチを確定
-    ScissorRect sr{ x, y, x + w, y + h };
+    FScissorRect sr{ x, y, x + w, y + h };
     _cl->SetScissor(sr);
 }
 
 void SpriteBatch::ClearClipRect() noexcept {
     if (!_cl) return;
     Flush();
-    ScissorRect sr{ 0, 0, static_cast<i32>(_screen_w), static_cast<i32>(_screen_h) };
+    FScissorRect sr{ 0, 0, static_cast<i32>(_screen_w), static_cast<i32>(_screen_h) };
     _cl->SetScissor(sr);
 }
 

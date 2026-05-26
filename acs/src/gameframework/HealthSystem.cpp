@@ -30,7 +30,7 @@ u32 HealthSystem::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-HealthSystem::Slot* HealthSystem::FindSlot(HealthId id) noexcept {
+HealthSystem::Slot* HealthSystem::FindSlot(FHealthId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0 || idx >= _slots.Size()) return nullptr;
@@ -40,7 +40,7 @@ HealthSystem::Slot* HealthSystem::FindSlot(HealthId id) noexcept {
     return &s;
 }
 
-const HealthSystem::Slot* HealthSystem::FindSlot(HealthId id) const noexcept {
+const HealthSystem::Slot* HealthSystem::FindSlot(FHealthId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0 || idx >= _slots.Size()) return nullptr;
@@ -54,7 +54,7 @@ const HealthSystem::Slot* HealthSystem::FindSlot(HealthId id) const noexcept {
 // entity 登録 / 解除
 // ----------------------------------------------------------------------------
 
-HealthId HealthSystem::Spawn(f32 max_hp) noexcept {
+FHealthId HealthSystem::Spawn(f32 max_hp) noexcept {
     if (max_hp <= 0.0f) max_hp = 1.0f;   // 0 以下は防御的に 1 HP
 
     const u32 idx = AcquireSlot();
@@ -72,10 +72,10 @@ HealthId HealthSystem::Spawn(f32 max_hp) noexcept {
     s.state.invuln_timer    = 0.0f;
 
     ++_entity_count;
-    return HealthId{idx, s.gen};
+    return FHealthId{idx, s.gen};
 }
 
-void HealthSystem::Despawn(HealthId id) noexcept {
+void HealthSystem::Despawn(FHealthId id) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     // generation はそのままで active=false に。次の Spawn で gen が +1 されて
@@ -92,7 +92,7 @@ void HealthSystem::Despawn(HealthId id) noexcept {
 // ダメージ / 回復 / 状態操作
 // ----------------------------------------------------------------------------
 
-bool HealthSystem::ApplyDamage(HealthId id, f32 amount, EDamageType type) noexcept {
+bool HealthSystem::ApplyDamage(FHealthId id, f32 amount, EDamageType type) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return false;
     if (!s->state.is_alive) return false;   // 既に死亡 → no-op
@@ -117,7 +117,7 @@ bool HealthSystem::ApplyDamage(HealthId id, f32 amount, EDamageType type) noexce
     return false;
 }
 
-void HealthSystem::Heal(HealthId id, f32 amount) noexcept {
+void HealthSystem::Heal(FHealthId id, f32 amount) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     if (amount <= 0.0f) return;
@@ -129,7 +129,7 @@ void HealthSystem::Heal(HealthId id, f32 amount) noexcept {
     // 死亡中の Heal も HP は加算するが、is_alive は変動しない (Revive 専用)。
 }
 
-void HealthSystem::SetInvulnerable(HealthId id, f32 duration_sec) noexcept {
+void HealthSystem::SetInvulnerable(FHealthId id, f32 duration_sec) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     if (duration_sec <= 0.0f) {
@@ -147,7 +147,7 @@ void HealthSystem::SetInvulnerable(HealthId id, f32 duration_sec) noexcept {
     s->state.invuln_timer = duration_sec;
 }
 
-void HealthSystem::Revive(HealthId id, f32 hp_fraction) noexcept {
+void HealthSystem::Revive(FHealthId id, f32 hp_fraction) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     if (s->state.is_alive) return;   // 生存中は no-op
@@ -163,7 +163,7 @@ void HealthSystem::Revive(HealthId id, f32 hp_fraction) noexcept {
     // 復活時は invuln フラグはそのまま (caller が SetInvulnerable で別途付与可能)。
 }
 
-void HealthSystem::SetMaxHp(HealthId id, f32 new_max, bool refill) noexcept {
+void HealthSystem::SetMaxHp(FHealthId id, f32 new_max, bool refill) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     if (new_max <= 0.0f) new_max = 1.0f;
@@ -186,32 +186,32 @@ void HealthSystem::SetMaxHp(HealthId id, f32 new_max, bool refill) noexcept {
 // 問い合わせ
 // ----------------------------------------------------------------------------
 
-const HealthState* HealthSystem::GetState(HealthId id) const noexcept {
+const HealthState* HealthSystem::GetState(FHealthId id) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return nullptr;
     return &s->state;
 }
 
-f32 HealthSystem::GetCurrentHp(HealthId id) const noexcept {
+f32 HealthSystem::GetCurrentHp(FHealthId id) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return 0.0f;
     return s->state.current_hp;
 }
 
-f32 HealthSystem::GetHpFraction(HealthId id) const noexcept {
+f32 HealthSystem::GetHpFraction(FHealthId id) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return 0.0f;
     if (s->state.max_hp <= 0.0f) return 0.0f;
     return s->state.current_hp / s->state.max_hp;
 }
 
-bool HealthSystem::IsAlive(HealthId id) const noexcept {
+bool HealthSystem::IsAlive(FHealthId id) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return false;
     return s->state.is_alive;
 }
 
-bool HealthSystem::IsInvulnerable(HealthId id) const noexcept {
+bool HealthSystem::IsInvulnerable(FHealthId id) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return false;
     return s->state.invulnerable;

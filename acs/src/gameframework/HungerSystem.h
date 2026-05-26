@@ -15,8 +15,8 @@
 //     セットしない場合は stat 部分だけで判定する。
 //
 // 設計選択 (Pillar R/I — HungerSystem):
-//   ・**SurvivorId は 24bit index + 8bit gen の packed handle**: HealthId /
-//     BuffOwnerId / NodeId と同規約。`_packed == 0` を invalid とし gen は
+//   ・**SurvivorId は 24bit index + 8bit gen の packed handle**: FHealthId /
+//     BuffOwnerId / FNodeId と同規約。`_packed == 0` を invalid とし gen は
 //     常に 1 以上で配る。AddSurvivor 後に RemoveSurvivor された slot を再利用
 //     しても古い handle は gen 不一致で確実に弾ける。
 //   ・**stat enum は固定 7 値 (Hunger / Thirst / Energy / Sanity / Warmth /
@@ -127,7 +127,7 @@ struct StatState {
 };
 
 // ---- SurvivorId: 24bit index + 8bit gen を packed した opaque handle -------
-// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。HealthId /
+// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。FHealthId /
 // BuffOwnerId と同一規約。
 struct SurvivorId {
     u32 _packed = 0u;

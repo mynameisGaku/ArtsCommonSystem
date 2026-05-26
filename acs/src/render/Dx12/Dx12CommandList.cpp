@@ -235,7 +235,7 @@ void Dx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
     }
 }
 
-void Dx12CommandList::SetViewport(const Viewport& vp) noexcept {
+void Dx12CommandList::SetViewport(const FViewport& vp) noexcept {
     D3D12_VIEWPORT v{};
     v.TopLeftX = vp.x;
     v.TopLeftY = vp.y;
@@ -246,7 +246,7 @@ void Dx12CommandList::SetViewport(const Viewport& vp) noexcept {
     _cmd_list->RSSetViewports(1, &v);
 }
 
-void Dx12CommandList::SetScissor(const ScissorRect& sr) noexcept {
+void Dx12CommandList::SetScissor(const FScissorRect& sr) noexcept {
     D3D12_RECT r{};
     r.left = sr.left; r.top = sr.top;
     r.right = sr.right; r.bottom = sr.bottom;

@@ -14,7 +14,7 @@ LinearAllocator::LinearAllocator(usize capacity, Allocator* backing) noexcept
     : _capacity(capacity)
     , _backing(backing ? backing : &DefaultAllocator())
     , _owns_backing(false) {
-    _base = static_cast<u8*>(_backing->Alloc(capacity, kDefaultAlignment, SourceLoc::Current()));
+    _base = static_cast<u8*>(_backing->Alloc(capacity, kDefaultAlignment, FSourceLoc::Current()));
 }
 
 LinearAllocator::~LinearAllocator() noexcept {
@@ -28,7 +28,7 @@ LinearAllocator::~LinearAllocator() noexcept {
 //   4. 容量超過なら nullptr
 //   5. CompareExchange で _used を cur → next に交換
 //   6. 競合した場合は 1 へ戻ってリトライ
-void* LinearAllocator::Alloc(usize size, usize alignment, SourceLoc /*loc*/) noexcept {
+void* LinearAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     if (size == 0 || !_base) return nullptr;
     if (alignment < 1) alignment = 1;
     while (true) {

@@ -3,7 +3,7 @@
 // ACS Memory — MemorySystem 実装
 // -----------------------------------------------------------------------------
 // 各セグメントごとに TlsfAllocator または LinearAllocator を保持し、
-// Mutex で保護する薄いファサード。
+// FMutex で保護する薄いファサード。
 // 「現在のセグメント」は TLS 変数で管理し、ScopedMemorySegment で push/pop。
 // =============================================================================
 #include "memory/MemorySystem.h"
@@ -28,7 +28,7 @@ struct SegmentSlot {
     ESegment         segment        = ESegment::Default;
     bool            use_linear     = false;
     bool            initialized    = false;
-    Mutex           lock;            // TLSF 単一スレッド前提を保護
+    FMutex           lock;            // TLSF 単一スレッド前提を保護
     TlsfAllocator   tlsf;            // use_linear=false で使う
     LinearAllocator* linear = nullptr; // use_linear=true で使う
     VmReservation   reservation;
@@ -43,9 +43,9 @@ public:
     SegmentAllocator() noexcept = default;
     void Bind(SegmentSlot* slot) noexcept { _slot = slot; }
 
-    void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept override {
+    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override {
         if (!_slot || !_slot->initialized) return nullptr;
-        ScopedLock lk(_slot->lock);
+        FScopedLock lk(_slot->lock);
         // 予算超過なら確保失敗
         u64 cur = _slot->use_linear
                   ? _slot->linear->BytesAllocated()
@@ -57,7 +57,7 @@ public:
 
     void Free(void* ptr) noexcept override {
         if (!_slot || !_slot->initialized || !ptr) return;
-        ScopedLock lk(_slot->lock);
+        FScopedLock lk(_slot->lock);
         if (_slot->use_linear) _slot->linear->Free(ptr);
         else                   _slot->tlsf.Free(ptr);
     }
@@ -178,7 +178,7 @@ void MemorySystem::ResetTemp() noexcept {
     if (!g_state.inited) return;
     SegmentSlot& slot = g_state.slots[(usize)ESegment::Temp];
     if (slot.initialized && slot.use_linear && slot.linear) {
-        ScopedLock lk(slot.lock);
+        FScopedLock lk(slot.lock);
         slot.linear->Reset();
     }
 }

@@ -21,7 +21,7 @@ public:
     DiligentBuffer(const DiligentBuffer&) = delete;
     DiligentBuffer& operator=(const DiligentBuffer&) = delete;
 
-    TResult<void> Init(DiligentDevice& device, const BufferDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const FBufferDesc& desc) noexcept;
 
     // ---- IRhiBuffer ----
     usize       Size()  const noexcept override { return _size; }

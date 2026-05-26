@@ -11,7 +11,7 @@
 //      DamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
 //      関数ポインタ + void* user で type-erase した callback 経由で行い、
 //      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (Scene / UI 層 /
-//      AudioDirector) の責任。これで GameFramework から Renderer / Camera /
+//      AudioDirector) の責任。これで GameFramework から Renderer / FCamera /
 //      Audio / Dialogue への直接依存を切る。
 //   ・**TimelineKeyframe は POD union**: STL の variant は使えないので、
 //      payload を C 風 union で持つ。各 track kind が必要なフィールドだけを

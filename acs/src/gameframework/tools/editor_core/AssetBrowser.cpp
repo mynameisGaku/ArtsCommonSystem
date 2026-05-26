@@ -93,7 +93,7 @@ const char* KindLabel(EAssetKind k) noexcept {
         case EAssetKind::Audio:        return "Audio";
         case EAssetKind::Material:     return "Material";
         case EAssetKind::Particle:     return "Particle";
-        case EAssetKind::Animation:    return "Animation";
+        case EAssetKind::FAnimation:    return "FAnimation";
         case EAssetKind::BehaviorTree: return "BehaviorTree";
         case EAssetKind::Tilemap:      return "Tilemap";
         case EAssetKind::Prefab:       return "Prefab";
@@ -113,7 +113,7 @@ const char* KindTag(EAssetKind k) noexcept {
         case EAssetKind::Audio:        return "AUD ";
         case EAssetKind::Material:     return "MAT ";
         case EAssetKind::Particle:     return "FX  ";
-        case EAssetKind::Animation:    return "ANIM";
+        case EAssetKind::FAnimation:    return "ANIM";
         case EAssetKind::BehaviorTree: return "BT  ";
         case EAssetKind::Tilemap:      return "TILE";
         case EAssetKind::Prefab:       return "PRE ";
@@ -397,8 +397,8 @@ EAssetKind AssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     // Particle
     if (EndsWithIgnoreCase(path, L".fx"))       return EAssetKind::Particle;
     if (EndsWithIgnoreCase(path, L".particle")) return EAssetKind::Particle;
-    // Animation
-    if (EndsWithIgnoreCase(path, L".anim"))     return EAssetKind::Animation;
+    // FAnimation
+    if (EndsWithIgnoreCase(path, L".anim"))     return EAssetKind::FAnimation;
     // BehaviorTree
     if (EndsWithIgnoreCase(path, L".bt"))       return EAssetKind::BehaviorTree;
     // Tilemap
@@ -553,7 +553,7 @@ void AssetBrowser::DrawUI() noexcept {
             EAssetKind::Unknown,  // = フィルタ解除
             EAssetKind::Texture, EAssetKind::Mesh, EAssetKind::Font,
             EAssetKind::Audio, EAssetKind::Material, EAssetKind::Particle,
-            EAssetKind::Animation, EAssetKind::BehaviorTree, EAssetKind::Tilemap,
+            EAssetKind::FAnimation, EAssetKind::BehaviorTree, EAssetKind::Tilemap,
             EAssetKind::Prefab, EAssetKind::Cinematic, EAssetKind::Scene,
             EAssetKind::Other,
         };

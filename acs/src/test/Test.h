@@ -40,8 +40,8 @@ void Register(TestCase* tc) noexcept;
 int  RunAll() noexcept;
 
 // テスト本体内から呼ぶ失敗報告 / 補助情報出力
-void RecordFailure(SourceLoc loc, const char* expr, const char* fmt, ...) noexcept;
-void RecordInfo   (SourceLoc loc, const char* fmt, ...) noexcept;
+void RecordFailure(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept;
+void RecordInfo   (FSourceLoc loc, const char* fmt, ...) noexcept;
 
 } // namespace acs::test
 

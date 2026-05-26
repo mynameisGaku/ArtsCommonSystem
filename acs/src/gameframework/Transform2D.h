@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — Transform2D (Phase 5)
+// GameFramework Pillar B — FTransform2D (Phase 5)
 //
 // 2D ノードの位置/回転/スケールを 20 byte の値型で表す。`FMat4` 直接保持より
 // 小さく合成が速い、かつ分解が非可逆でない (= 親 transform の rotation/scale を
@@ -22,23 +22,23 @@
 
 namespace acs::game {
 
-struct Transform2D {
+struct FTransform2D {
     FVec2 position{0.0f, 0.0f};
     f32  rotation = 0.0f;     // radians
     FVec2 scale{1.0f, 1.0f};
 
-    constexpr Transform2D() noexcept = default;
-    constexpr Transform2D(FVec2 pos, f32 rot, FVec2 sca) noexcept
+    constexpr FTransform2D() noexcept = default;
+    constexpr FTransform2D(FVec2 pos, f32 rot, FVec2 sca) noexcept
         : position(pos), rotation(rot), scale(sca) {}
 
     // 親の座標系に local を載せた world transform を返す (`world = parent.Compose(local)`)。
-    Transform2D Compose(const Transform2D& local) const noexcept {
+    FTransform2D Compose(const FTransform2D& local) const noexcept {
         // 親 scale で子 position をスケール → 親 rotation で回転 → 親 position を加算
         const f32 sx = scale.x * local.position.x;
         const f32 sy = scale.y * local.position.y;
         const f32 c  = Cos(rotation);
         const f32 s  = Sin(rotation);
-        Transform2D out;
+        FTransform2D out;
         out.position.x = position.x + (sx * c - sy * s);
         out.position.y = position.y + (sx * s + sy * c);
         out.rotation   = rotation + local.rotation;
@@ -60,7 +60,7 @@ struct Transform2D {
         return m;
     }
 
-    static constexpr Transform2D Identity() noexcept { return {}; }
+    static constexpr FTransform2D Identity() noexcept { return {}; }
 };
 
 } // namespace acs::game

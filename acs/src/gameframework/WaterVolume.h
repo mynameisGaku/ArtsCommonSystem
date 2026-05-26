@@ -28,7 +28,7 @@
 //   }
 //
 // 設計選択 (Pillar Q Phase 3):
-//   ・**WaterVolumeId は ShapeId / NodeId と同パターン**: 24bit index + 8bit
+//   ・**WaterVolumeId は FShapeId / FNodeId と同パターン**: 24bit index + 8bit
 //     generation。remove → re-add で slot 再利用しても旧 handle は無効化される。
 //   ・**broad phase は線形走査**: Phase 3 では全 volume を直接走査 (典型 N ≤ 数
 //     十)。SpatialGrid 化は Phase 4 で。
@@ -70,7 +70,7 @@ struct WaterVolumeInfo {
 };
 
 /// WaterVolume を識別する packed 32bit handle (generational)。
-/// レイアウトは ShapeId と同一 (low24=index, high8=generation)。
+/// レイアウトは FShapeId と同一 (low24=index, high8=generation)。
 struct WaterVolumeId {
     u32 _packed = 0;   // 0 = invalid
 

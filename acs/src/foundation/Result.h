@@ -32,13 +32,13 @@ namespace acs {
 
 namespace detail {
 // 構築時のオーバーロード解決を一意にするためのタグ型
-struct OkTag    {};
-struct ErrTag   {};
+struct FOkTag    {};
+struct FErrTag   {};
 struct EmptyTag {};
 } // namespace detail
 
-inline constexpr detail::OkTag    OkInit {};   // 成功側構築用タグ
-inline constexpr detail::ErrTag   ErrInit{};   // エラー側構築用タグ
+inline constexpr detail::FOkTag    OkInit {};   // 成功側構築用タグ
+inline constexpr detail::FErrTag   ErrInit{};   // エラー側構築用タグ
 
 // =============================================================================
 // TResult<T, E> — T 値を持つ成功または E エラーのいずれか
@@ -64,17 +64,17 @@ public:
     }
 
     // OkInit タグ + 値を渡して明示的に成功側を構築する（rvalue / lvalue 両対応）。
-    TResult(detail::OkTag, T&& v) noexcept
+    TResult(detail::FOkTag, T&& v) noexcept
         : _has_value(true) {
         ::new (static_cast<void*>(&_storage._value)) T(Move(v));
     }
-    TResult(detail::OkTag, const T& v) noexcept
+    TResult(detail::FOkTag, const T& v) noexcept
         : _has_value(true) {
         ::new (static_cast<void*>(&_storage._value)) T(v);
     }
 
     // ErrInit タグ + エラー値で明示的にエラー側を構築する。
-    TResult(detail::ErrTag, E&& e) noexcept
+    TResult(detail::FErrTag, E&& e) noexcept
         : _has_value(false) {
         ::new (static_cast<void*>(&_storage._error)) E(Move(e));
     }
@@ -172,8 +172,8 @@ public:
     using ErrorType = E;
 
     TResult() noexcept : _has_value(true) {}                                      // デフォルトは成功
-    TResult(detail::OkTag) noexcept : _has_value(true) {}                          // 明示的成功
-    TResult(detail::ErrTag, E&& e) noexcept : _has_value(false) {                  // 明示的エラー
+    TResult(detail::FOkTag) noexcept : _has_value(true) {}                          // 明示的成功
+    TResult(detail::FErrTag, E&& e) noexcept : _has_value(false) {                  // 明示的エラー
         ::new (static_cast<void*>(&_storage._error)) E(Move(e));
     }
     TResult(const E& e) noexcept : _has_value(false) {                             // E からの暗黙変換

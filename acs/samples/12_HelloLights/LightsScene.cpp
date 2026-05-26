@@ -28,7 +28,7 @@ void LightsScene::Build() noexcept {
 
 void LightsScene::Render(StandardShader&  shader,
                          IRhiCommandList& cl,
-                         const Camera&    camera,
+                         const FCamera&    camera,
                          const GpuMesh&   plane,
                          const GpuMesh&   cube,
                          const GpuMesh&   sphere,
@@ -36,7 +36,7 @@ void LightsScene::Render(StandardShader&  shader,
     // --- ライト設定 ---
     // dir ライトはほぼ無効化 (ambient と同程度) に落とし、点光源の色を
     // 主役にする。完全に 0 にしないのは陰側が真っ黒になって読みにくいため。
-    DirLight dir;
+    FDirLight dir;
     dir.direction = FVec3{0.3f, 1.0f, 0.4f};
     dir.color     = FVec3{0.05f, 0.05f, 0.07f};
     shader.SetLights(camera.ViewProjection(), camera.Eye(),

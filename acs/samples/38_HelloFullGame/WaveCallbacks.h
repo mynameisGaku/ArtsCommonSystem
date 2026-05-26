@@ -27,7 +27,7 @@ bool ProjectileOnHitTest(void* user, const acs::game::ProjectileInstance& p,
                          acs::u32& out_target, acs::f32& out_dmg) noexcept;
 
 // 弾が敵に当たった瞬間に呼ばれる。EnemyPool::ApplyHit に流す。
-void ProjectileOnHit(void* user, acs::game::ProjectileId id, const char* def_id,
+void ProjectileOnHit(void* user, acs::game::FProjectileId id, const char* def_id,
                      acs::u32 target_id, acs::f32 dmg) noexcept;
 
 } // namespace hellofg

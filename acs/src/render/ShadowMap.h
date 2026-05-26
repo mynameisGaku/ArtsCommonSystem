@@ -114,8 +114,8 @@ public:
 
     // atlas 内の cascade 領域に対する viewport / scissor。BeginShadowPass の
     // 後・各 caster 群描画の前に SetViewport / SetScissor へ渡す。
-    Viewport    CascadeViewport(u32 cascade) const noexcept;
-    ScissorRect CascadeScissor (u32 cascade) const noexcept;
+    FViewport    CascadeViewport(u32 cascade) const noexcept;
+    FScissorRect CascadeScissor (u32 cascade) const noexcept;
 
     u32 Size() const noexcept { return _size; }
 

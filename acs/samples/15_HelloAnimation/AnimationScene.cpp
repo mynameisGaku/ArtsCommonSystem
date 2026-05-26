@@ -20,7 +20,7 @@ TRc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
     // ===== ボーン =====
     B.Resize(kBoneCount);
     for (u32 i = 0; i < kBoneCount; ++i) {
-        Bone& b = B[i];
+        FBone& b = B[i];
         b.parent = (i == 0) ? -1 : static_cast<i32>(i - 1);
         // 各ボーンは親の +Y 方向に "セグメント長" 進んだ場所
         const f32 seg = kHeight / static_cast<f32>(kBoneCount);
@@ -50,7 +50,7 @@ TRc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
             const f32 cx = Cos(ang) * radius;
             const f32 cz = Sin(ang) * radius;
 
-            SkinnedVertex v{};
+            FSkinnedVertex v{};
             v.position = FVec3{cx, y, cz};
             v.normal   = FVec3{Cos(ang), 0, Sin(ang)};   // 簡易法線 (横方向)
             v.u        = static_cast<f32>(s) / static_cast<f32>(kSegmentCount);
@@ -83,21 +83,21 @@ TRc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
     }
 
     // ===== アニメーション =====
-    Animation anim;
+    FAnimation anim;
     anim.name     = FString("slither");
     anim.duration = kAnimDuration;
 
     // bone 0 はアニメ無し (ルート固定)。bone 1..3 を sin 波で振らせる。
     // 進行波になるよう各ボーンに位相オフセットを与える。
     for (u32 b = 1; b < kBoneCount; ++b) {
-        AnimationChannel ch;
+        FAnimationChannel ch;
         ch.bone_index = static_cast<i32>(b);
         ch.keys.Reserve(kAnimKeys);
         const f32 phase = static_cast<f32>(b) * 0.9f;
         for (u32 k = 0; k < kAnimKeys; ++k) {
             const f32 time = static_cast<f32>(k) / static_cast<f32>(kAnimKeys - 1) * kAnimDuration;
             const f32 angle = Sin(time * (kPi * 2.0f) / kAnimDuration + phase) * kAnimAngleMax;
-            AnimationKey key;
+            FAnimationKey key;
             key.time = time;
             key.translation = FVec3{0, kHeight / kBoneCount, 0};   // バインドと同じ
             key.rotation    = FQuat::AxisAngle(FVec3{0, 0, 1}, angle);
@@ -114,7 +114,7 @@ void AnimationScene::Render(Sky&                sky,
                             StandardShader&     std_shader,
                             SkinnedShader&      skin_shader,
                             IRhiCommandList&    cl,
-                            const Camera&       camera,
+                            const FCamera&       camera,
                             const GpuMesh&      plane,
                             const SkinnedGpuMesh& snake_gpu,
                             const FMat4*         palette,
@@ -123,7 +123,7 @@ void AnimationScene::Render(Sky&                sky,
     sky.Render(cl, camera);
 
     // 2. 地面 (StandardShader)
-    DirLight lights[2];
+    FDirLight lights[2];
     lights[0].direction = sky.SunDirection();
     lights[0].color     = sky.SunColor();
     lights[1].direction = FVec3{-sky.SunDirection().x,

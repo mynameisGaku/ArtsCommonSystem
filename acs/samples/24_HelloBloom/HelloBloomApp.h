@@ -33,7 +33,7 @@ private:
     acs::Font              _font;
     acs::GpuMesh           _gm_sphere;
     acs::GpuMesh           _gm_plane;
-    acs::Camera            _camera;
+    acs::FCamera            _camera;
     acs::PostProcessParams _params;
     acs::f32               _cam_yaw = 0.5f;
     acs::f32               _angle   = 0.0f;

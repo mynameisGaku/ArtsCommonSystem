@@ -196,9 +196,9 @@ class Tilemap* LevelEditorPanel::CurrentTilemap() const noexcept {
 }
 
 // =============================================================================
-// Camera アクセサ
+// FCamera アクセサ
 // =============================================================================
-acs::game::editor_core::EditorCamera& LevelEditorPanel::Camera() noexcept {
+acs::game::editor_core::EditorCamera& LevelEditorPanel::FCamera() noexcept {
     return _camera;
 }
 
@@ -277,7 +277,7 @@ void LevelEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& workspace
 //   │ │  ペイント                            │  │   y: ...             │ │
 //   │ │                                       │  │   layer: ...         │ │
 //   │ │                                       │  │   tile id: ...       │ │
-//   │ └────────────────────────────────────┘  │ Camera:              │ │
+//   │ └────────────────────────────────────┘  │ FCamera:              │ │
 //   │                                          │   pos: (..., ...)    │ │
 //   │                                          │   zoom: ...          │ │
 //   │                                          │ [Frame Map]          │ │
@@ -372,7 +372,7 @@ void LevelEditorPanel::DrawUI() noexcept {
     const f32 canvas_h = (content_h > 200.0f) ? content_h : 200.0f;
 
     // ------------------------------------------------------------------------
-    // Viewport canvas
+    // FViewport canvas
     // ------------------------------------------------------------------------
     ImGui::BeginChild("##leveledit_viewport",
                       ImVec2(canvas_w, canvas_h),
@@ -417,7 +417,7 @@ void LevelEditorPanel::DrawUI() noexcept {
                                    ? (canvas_size.x / ortho_w_world)
                                    : 1.0f;
 
-        // Camera への mouse input 流し込み (= 2D pan / zoom)。
+        // FCamera への mouse input 流し込み (= 2D pan / zoom)。
         // canvas hover 中だけ吸い上げる (= ImGui の他 widget を奪わない)。
         if (canvas_hovered) {
             // wheel: zoom
@@ -594,7 +594,7 @@ void LevelEditorPanel::DrawUI() noexcept {
         ImGui::Text("current tile id: %u", static_cast<u32>(_current_tile_id));
 
         ImGui::Spacing();
-        ImGui::TextUnformatted("Camera");
+        ImGui::TextUnformatted("FCamera");
         ImGui::Separator();
         const acs::game::editor_core::EditorCameraState& cs = _camera.State();
         ImGui::Text("pos: (%.1f, %.1f)",

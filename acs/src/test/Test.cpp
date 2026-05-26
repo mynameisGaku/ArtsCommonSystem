@@ -18,21 +18,21 @@ namespace acs::test {
 namespace {
 TestCase* g_head = nullptr;
 TestCase* g_tail = nullptr;
-Mutex     g_reg_lock;
+FMutex     g_reg_lock;
 // テスト本体内の失敗数カウンタ（テストごとに 0 にリセット）
 thread_local int g_current_failures = 0;
 }
 
 // ACS_TEST マクロから呼ばれる: テストケースを末尾に追加
 void Register(TestCase* tc) noexcept {
-    ScopedLock lk(g_reg_lock);
+    FScopedLock lk(g_reg_lock);
     if (!g_head) g_head = tc;
     else         g_tail->next = tc;
     g_tail = tc;
 }
 
 // EXPECT_* マクロから呼ばれる失敗報告
-void RecordFailure(SourceLoc loc, const char* expr, const char* fmt, ...) noexcept {
+void RecordFailure(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept {
     ++g_current_failures;
     char msg[512];
     va_list ap;
@@ -44,7 +44,7 @@ void RecordFailure(SourceLoc loc, const char* expr, const char* fmt, ...) noexce
 }
 
 // 補助情報の出力（合否判定には影響しない）
-void RecordInfo(SourceLoc loc, const char* fmt, ...) noexcept {
+void RecordInfo(FSourceLoc loc, const char* fmt, ...) noexcept {
     char msg[512];
     va_list ap;
     va_start(ap, fmt);

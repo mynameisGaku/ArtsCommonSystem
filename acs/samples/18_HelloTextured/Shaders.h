@@ -2,7 +2,7 @@
 // HelloTextured — HLSL シェーダソース。
 //
 // MVP 行列を b0 から取得し、t0 のテクスチャを s0 サンプラで読む。
-// PipelineDesc::static_samplers でサンプラを固定し、Pixel Shader 側は
+// FPipelineDesc::static_samplers でサンプラを固定し、Pixel Shader 側は
 // SamplerState を 1 つだけ宣言する。
 #pragma once
 

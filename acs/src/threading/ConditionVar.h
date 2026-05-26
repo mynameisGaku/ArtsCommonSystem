@@ -2,11 +2,11 @@
 // =============================================================================
 // ACS Threading — 条件変数（Win32 CONDITION_VARIABLE ベース）
 // -----------------------------------------------------------------------------
-// std::condition_variable 相当。Mutex と組み合わせて「条件が満たされるまで
+// std::condition_variable 相当。FMutex と組み合わせて「条件が満たされるまで
 // スレッドを停止し、別スレッドからの NotifyOne / NotifyAll で起こす」。
 //
 // 典型的な使用例（生産者・消費者）:
-//   ScopedLock lk(m);
+//   FScopedLock lk(m);
 //   while (queue.IsEmpty()) cv.Wait(m);
 //   auto item = queue.Pop();
 // =============================================================================
@@ -25,13 +25,13 @@ public:
     ConditionVar(const ConditionVar&) = delete;
     ConditionVar& operator=(const ConditionVar&) = delete;
 
-    // 待機。呼び出し前に Mutex を Lock しておくこと。
+    // 待機。呼び出し前に FMutex を Lock しておくこと。
     // ブロック中は内部で一時 Unlock し、起こされたら再 Lock してから返る。
-    void Wait(Mutex& m) noexcept;
+    void Wait(FMutex& m) noexcept;
 
     // タイムアウト付き待機。timeout_ms ミリ秒待っても起こされなければ false。
     // 起こされたら true。
-    bool WaitFor(Mutex& m, u32 timeout_ms) noexcept;
+    bool WaitFor(FMutex& m, u32 timeout_ms) noexcept;
 
     void NotifyOne() noexcept;       // 待機中の 1 スレッドを起こす
     void NotifyAll() noexcept;       // 待機中の全スレッドを起こす

@@ -3,7 +3,7 @@
 //
 // 役割:
 //   ・editor_core (Workspace / AssetBrowser / EditorTheme) と modelview 配下の
-//     4 panel (Viewer / Inspector / Material / Animation) を 1 個のオブジェクトに
+//     4 panel (Viewer / Inspector / Material / FAnimation) を 1 個のオブジェクトに
 //     束ねる。
 //   ・各 panel の登録順 / shutdown 順 / 1 フレーム描画順を Scene から隠す。
 //
@@ -39,7 +39,7 @@ public:
     acs::game::modelview::ModelViewerPanel&    Viewer()    noexcept { return _viewer_panel; }
 
     // OnUpdate で animation 時間を進めるため animation panel を露出。
-    acs::game::modelview::ModelAnimationPanel& Animation() noexcept { return _animation_panel; }
+    acs::game::modelview::ModelAnimationPanel& FAnimation() noexcept { return _animation_panel; }
 
     // OnRender が File メニュー描画のために theme / workspace を必要とする。
     acs::game::editor_core::EditorWorkspace&   Workspace() noexcept { return _workspace; }

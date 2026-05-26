@@ -123,7 +123,7 @@ src/gameframework/tools/
 │   └── FxeditSerializer.h/.cpp    - .fxedit テキスト I/O
 │
 ├── inspector/     - SceneInspector 4 panel (Phase 20)
-│   ├── SelectionService.h/.cpp    - 選択 NodeId 集中点 (callback hub)
+│   ├── SelectionService.h/.cpp    - 選択 FNodeId 集中点 (callback hub)
 │   ├── HierarchyPanel.h/.cpp      - Node2D ツリー表示 + reparent
 │   ├── InspectorPanel.h/.cpp      - InspectableField 編集
 │   └── EditorToolbar.h/.cpp       - Play/Pause/Step/Save/DebugOverlay
@@ -383,7 +383,7 @@ cam.FrameToBoundingSphere(node_center, node_radius);
 | Audio | .wav .ogg .mp3 .flac |
 | Material | .mat .material |
 | Particle | .fx .particle |
-| Animation | .anim |
+| FAnimation | .anim |
 | BehaviorTree | .bt |
 | Tilemap | .tilemap .tmx |
 | Prefab | .prefab |
@@ -565,7 +565,7 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
   - `HierarchyPanel` — Node2D ツリー、reparent (drag drop payload `"HIER_NODE_PTR"`)、Delete/Duplicate context menu
   - `InspectorPanel` — InspectorSeam 経由で InspectableField を編集 (EFieldKind 9 種 hardcode switch)
   - `EditorToolbar` — Play/Pause/Step/Save/DebugOverlay の 5 ボタン
-  - `SelectionService` — 選択 NodeId の集中点 (callback 複数登録、callback hub)
+  - `SelectionService` — 選択 FNodeId の集中点 (callback 複数登録、callback hub)
 - **特徴**: 本 panel 群も **EditorPanel 継承していない** (Phase 20 は Phase 21a 前)。将来 refactor 予定。
 - **連携**: HierarchyPanel ⇆ InspectorPanel は SelectionService 経由で疎結合
 - **Drag drop**: `"HIER_NODE_PTR"` payload で Node2D* 直渡し
@@ -575,9 +575,9 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 **path**: `samples/31_HelloModelViewer/main.cpp`
 
 - **4 panel 構成** (全て `EditorPanel` 継承):
-  - `ModelViewerPanel` — 3D viewport + Lighting (sun dir/color + IBL toggle + tonemap mode) + Background + Grid/Bone toggle
+  - `ModelViewerPanel` — 3D viewport + Lighting (sun dir/color + IBL toggle + tonemap mode) + Background + Grid/FBone toggle
   - `ModelInspectorPanel` — mesh 統計 (vertex/triangle/submesh/material/bone/animation count + bounding sphere) を read-only 表示
-  - `ModelMaterialPanel` — material slot 編集 (Base Color / Metallic / Roughness / Normal / AO / Emissive)
+  - `ModelMaterialPanel` — material slot 編集 (Base FColor / Metallic / Roughness / Normal / AO / Emissive)
   - `ModelAnimationPanel` — animation clip 切替 + Play/Pause/Stop + Time slider + Speed + Loop + BlendWeight
 - **特徴**: Phase 21a 共通基盤 (`EditorPanel` / `EditorCamera` / `EditorWorkspace` / `AssetBrowser`) の **最初の dogfood**
 - **連携**: AssetBrowser → `BroadcastAssetSelected("models/hero.mdl")` → `ModelViewerPanel::OnAssetSelected` で自動 LoadModelAsset
@@ -679,7 +679,7 @@ ImGui の drag-drop payload identifier は 32 文字以内が仕様上限。ACS 
 HierarchyPanel.SelectNode(node)
        |
        v
-SelectionService::SelectNode(NodeId id)
+SelectionService::SelectNode(FNodeId id)
        |
        +-- 全 callback を一斉発火 (from, to) ペア
        |
@@ -738,9 +738,9 @@ EditorWorkspace が全 registered panel の OnAssetSelected を順に呼ぶ
 5. 未知 key は無視 (前方互換: 将来 key を増やしても旧ローダで読める)
 6. version 不一致 / parse 失敗は ACS_LOG_WARN で握る (戻り値 silent or TResult<T,E>)
 
-### 5.5 callback 駆動 (`SetOn*Callback`)
+### 5.5 callback 駆動 (`SetOn*FCallback`)
 
-全 panel が `SetOn*Callback` 系の C-style 関数ポインタ + `void* user` を持つ。`std::function` 禁止 (ACS 規約)。
+全 panel が `SetOn*FCallback` 系の C-style 関数ポインタ + `void* user` を持つ。`std::function` 禁止 (ACS 規約)。
 
 **典型 signature**:
 ```cpp
@@ -753,10 +753,10 @@ panel.SetOnXxxCallback(&MyHandler, &my_editor);
 | panel | callback |
 |---|---|
 | ParticleEditorPanel | SaveCallback / LoadCallback |
-| InspectorPanel | FieldChangeCallback (NodeId target, const char* field_name, EFieldKind kind) |
+| InspectorPanel | FieldChangeCallback (FNodeId target, const char* field_name, EFieldKind kind) |
 | HierarchyPanel | NodeRightClickCallback (Node2D* node) |
 | EditorToolbar | SaveSceneCallback |
-| SelectionService | SelectionChangeCallback (NodeId from, NodeId to) |
+| SelectionService | SelectionChangeCallback (FNodeId from, FNodeId to) |
 | AssetBrowser | AssetSelectedCallback / AssetDoubleClickedCallback |
 | UndoStack | CommandExecutedCallback (const EditorCommand*, bool is_redo) |
 | EditorGizmo | ManipulateCallback (EGizmoMode, FVec3 delta) |
@@ -778,7 +778,7 @@ UndoStack 連携は同じ pattern で書ける: callback の中で `New<XxxComma
 | `void DrawUI(...) noexcept` | ImGui::Begin/End まで完結する 1 window 描画 |
 | 非コピー / 非ムーブ | 内部 TArray/callback 状態の所有を曖昧にしない |
 | `i32 SelectedIndex()` / `void Select(i32)` | -1 = 未選択 sentinel (`u32` ではなく `i32`) |
-| `void SetOn*Callback(cb, user) noexcept` | nullptr 渡しで解除 |
+| `void SetOn*FCallback(cb, user) noexcept` | nullptr 渡しで解除 |
 
 ---
 
@@ -792,7 +792,7 @@ ACS 全体規約 (詳細は `docs/StyleGuide.md`) を editor 文脈で再確認:
 - **`<string>` 禁止**: editor 内の文字列は `const char*` (リテラル想定) または `wchar_t[N]` 固定長バッファ (`kMaxPathChars = 512u` 等)。
 - **No exceptions**: `throw` / `try` / `catch` 禁止、全関数 `noexcept`。エラーは `TResult<T, FErrorCode>` または silent no-op + `ACS_LOG_WARN`。
 - **No RTTI**: `dynamic_cast` / `typeid` 禁止。型識別は `Kind()` で static アドレスを返す idiom (例: `EditorCommand::Kind()`, `BehaviorTreeEditor::EBtKind` enum)。
-- **canonical Callback**: `using Cb = void (*)(void* user, /* payload */) noexcept;`
+- **canonical FCallback**: `using Cb = void (*)(void* user, /* payload */) noexcept;`
 
 ### 6.2 ImGui include の局所化
 
@@ -932,7 +932,7 @@ Phase 22 で実装した editor 群 (BehaviorTree / AnimCurve) は「ツリー o
 | 予定 editor | 編集対象 | 想定 phase |
 |---|---|---|
 | BehaviorTree graph 編集 (= btedit v2) | Selector/Sequence の子追加 / 配置入替 | Phase 24+ |
-| Animation StateGraph editor | state node + transition arrow | Phase 24+ |
+| FAnimation StateGraph editor | state node + transition arrow | Phase 24+ |
 | MaterialGraph editor | shader node (UE Material Editor 風) | Phase 25+ |
 
 共通基盤として `editor_core/NodeGraphCanvas.h` (仮称) を Phase 24 で追加予定。
@@ -961,7 +961,7 @@ Phase 23 CinematicsEditor が完成すると、timeline 上のキーフレーム
   - 4 不変条件: (a) Pillar K seam 上に構築・重複実装しない (b) v1 はすべて in-engine UiKit (c) FMOD/Wwise seam (d) Cinematics editor は CinematicsDirector 上に被せる
   - Phase 56〜58 (著作ツール深度): Particle Editor → BT visual editor + Level editor → FMOD/Wwise seam + Cinematics editor
 - **`docs/StyleGuide.md`** — ACS Coding Style Guide v1
-  - §1 基本不変条件 (No STL / No exceptions / No RTTI / TResult<T,E> / canonical Callback)
+  - §1 基本不変条件 (No STL / No exceptions / No RTTI / TResult<T,E> / canonical FCallback)
   - §2 命名 (PascalCase / snake_case / E-prefix enum / I-prefix interface)
 - **`docs/ARCHITECTURE.md`** — ACS 全体アーキテクチャ
 - **`docs/QUICKSTART.md`** — beginner-UX 入門 (Phase 4 配布パッケージング含む)

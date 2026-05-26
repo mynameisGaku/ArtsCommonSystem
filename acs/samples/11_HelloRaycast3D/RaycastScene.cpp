@@ -45,12 +45,12 @@ void RaycastScene::Render(StandardShader& shader,
                           u32 screen_h) noexcept {
     // ---- 2 灯ライティング (暖色キー + 寒色フィル) ----
     // フィルの色を寒色にして、影側でも色が完全に潰れないように演出する。
-    DirLight lights[2];
+    FDirLight lights[2];
     lights[0].direction = FVec3{ 0.5f, 0.8f, 0.3f};
     lights[0].color     = FVec3{ 1.0f, 0.9f, 0.7f};
     lights[1].direction = FVec3{-0.4f, 0.5f,-0.7f};
     lights[1].color     = FVec3{ 0.3f, 0.4f, 0.6f};
-    const Camera& cam = _caster.Camera();
+    const FCamera& cam = _caster.Camera();
     shader.SetLights(cam.ViewProjection(), cam.Eye(), lights, 2, kAmbient);
 
     cl.SetPipeline(*shader.Pipeline());

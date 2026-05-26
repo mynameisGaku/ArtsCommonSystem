@@ -99,28 +99,28 @@ ACS_TEST(Mvvm, DerivedRatio) {
     EXPECT_EQ(ratio.Get(), 0.25f);
 }
 
-// ---- DefaultConverter: 数値 ↔ FString 変換 ---------------------------------
+// ---- TDefaultConverter: 数値 ↔ FString 変換 ---------------------------------
 ACS_TEST(Mvvm, DefaultConverterNumeric) {
-    EXPECT_EQ((mvvm::DefaultConverter<i32, f32>::Convert(5, nullptr)), 5.0f);
-    EXPECT_EQ((mvvm::DefaultConverter<f32, i32>::Convert(3.7f, nullptr)), 3);
-    EXPECT_EQ((mvvm::DefaultConverter<bool, i32>::Convert(true, nullptr)), 1);
-    EXPECT_EQ((mvvm::DefaultConverter<i32, bool>::Convert(0, nullptr)), false);
-    EXPECT_EQ((mvvm::DefaultConverter<i32, bool>::Convert(7, nullptr)), true);
+    EXPECT_EQ((mvvm::TDefaultConverter<i32, f32>::Convert(5, nullptr)), 5.0f);
+    EXPECT_EQ((mvvm::TDefaultConverter<f32, i32>::Convert(3.7f, nullptr)), 3);
+    EXPECT_EQ((mvvm::TDefaultConverter<bool, i32>::Convert(true, nullptr)), 1);
+    EXPECT_EQ((mvvm::TDefaultConverter<i32, bool>::Convert(0, nullptr)), false);
+    EXPECT_EQ((mvvm::TDefaultConverter<i32, bool>::Convert(7, nullptr)), true);
 }
 
 ACS_TEST(Mvvm, DefaultConverterStringRoundTrip) {
-    FString s = mvvm::DefaultConverter<i32, FString>::Convert(42, nullptr);
+    FString s = mvvm::TDefaultConverter<i32, FString>::Convert(42, nullptr);
     EXPECT_TRUE(s.Data() != nullptr);
     // 末尾チェックは厳密にやらず、値が "42" を含むかだけ確認
     EXPECT_TRUE(s.Data()[0] == '4' && s.Data()[1] == '2');
 
-    i32 v = mvvm::DefaultConverter<FString, i32>::Convert(FString{"123"}, nullptr);
+    i32 v = mvvm::TDefaultConverter<FString, i32>::Convert(FString{"123"}, nullptr);
     EXPECT_EQ(v, 123);
 
-    bool b = mvvm::DefaultConverter<FString, bool>::Convert(FString{"true"}, nullptr);
+    bool b = mvvm::TDefaultConverter<FString, bool>::Convert(FString{"true"}, nullptr);
     EXPECT_TRUE(b);
 
-    bool b2 = mvvm::DefaultConverter<FString, bool>::Convert(FString{"false"}, nullptr);
+    bool b2 = mvvm::TDefaultConverter<FString, bool>::Convert(FString{"false"}, nullptr);
     EXPECT_FALSE(b2);
 }
 

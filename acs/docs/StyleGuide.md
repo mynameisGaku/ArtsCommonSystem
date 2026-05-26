@@ -48,11 +48,11 @@ ACS は以下の **5 つの言語制約** の上に成り立つ。これらは�
 
 | 不変条件 / Invariant | 説明 / Description |
 |---|---|
-| **No STL** | `<vector>`, `<string>`, `<unordered_map>`, `<memory>`, `<functional>` 等の STL コンテナ・ユーティリティを使わない。代わりに `acs::TArray<T>`, `acs::FString`, `acs::THashMap<K,V>`, `acs::TUniquePtr<T>`, `acs::TRc<T>`, `acs::Callback` を使う。 |
+| **No STL** | `<vector>`, `<string>`, `<unordered_map>`, `<memory>`, `<functional>` 等の STL コンテナ・ユーティリティを使わない。代わりに `acs::TArray<T>`, `acs::FString`, `acs::THashMap<K,V>`, `acs::TUniquePtr<T>`, `acs::TRc<T>`, `acs::FCallback` を使う。 |
 | **No exceptions** | `throw` / `try` / `catch` を使わない。エラーは `TResult<T, E>` で返す。すべての関数に `noexcept` を付ける。 |
 | **No RTTI** | `dynamic_cast` / `typeid` を使わない。`-fno-rtti` (Clang/GCC) または `/GR-` (MSVC) でビルドする。型識別が必要なら手書きのタグ enum を使う。 |
 | **`TResult<T, E>`** | 失敗しうる関数は `TResult<T, FErrorCode>` を返す。`[[nodiscard]]` でクラス自身が修飾されており、戻り値を捨てるとビルド警告。 |
-| **canonical Callback** | コールバックは `using Cb = void (*)(/* payload */, void* user);` 形式 (関数ポインタ + `void*`)。`std::function` 不使用。 |
+| **canonical FCallback** | コールバックは `using Cb = void (*)(/* payload */, void* user);` 形式 (関数ポインタ + `void*`)。`std::function` 不使用。 |
 
 ---
 
@@ -178,7 +178,7 @@ enum class EFlowState   : u8  { Splash, MainTitle, MainMenu, /* ... */ };
 - 必ず **`enum class`** (素の `enum` は禁止)。
 
 **例外 / Exceptions**:
-- 既に `E` で始まる単語 (e.g., `ErrCategory`, `EmitterHandle`, `EventType`) は二重 E を避けて従来名のまま。
+- 既に `E` で始まる単語 (e.g., `ErrCategory`, `FEmitterHandle`, `EventType`) は二重 E を避けて従来名のまま。
 - HLSL format 値 (`R8`, `R8G8B8A8`, `R32G32B32_F` 等) は HLSL 慣習に従う (型名は `EPixelFormat` で E prefix 適用)。
 
 **Phase 19a の経緯**: ACS は元々 enum class に prefix なしだったが、UE5 経験者の親和性 + grep ヒット率向上 + interface の `I` prefix と整合させるため `E` prefix を必須化した。`scripts/rename_enums_to_e_prefix.py` で機械的に rename 済み (~80 enum / 254 file / 2551 replacement)。
@@ -369,7 +369,7 @@ public:
 ```cpp
 using EntityId = u32;                    // OK
 typedef u32 EntityId;                    // NG (古い C 流、不採用)
-using Callback = void (*)(void*, u32);   // OK (function ptr alias)
+using FCallback = void (*)(void*, u32);   // OK (function ptr alias)
 template<typename T>
 using Owned = TUniquePtr<T>;              // OK (template alias)
 ```
@@ -477,7 +477,7 @@ bool TryOpen(const char* path, File& out_file) noexcept;  // → TResult<File> �
 
 ### 4.5 1 ファイル 1 主要型
 
-`src/foundation/Result.h` には `TResult<T,E>` クラスが主役。同じファイル内に補助 struct (`OkTag`, `ErrTag` 等) は可。
+`src/foundation/Result.h` には `TResult<T,E>` クラスが主役。同じファイル内に補助 struct (`FOkTag`, `FErrTag` 等) は可。
 
 ### 4.6 namespace 末尾コメント — 必須
 
@@ -572,7 +572,7 @@ TResult<void> Process() noexcept {
 | `std::span<T>` | `acs::TSpan<T>` |
 | `std::unique_ptr<T>` | `acs::TUniquePtr<T>` |
 | `std::shared_ptr<T>` | `acs::TRc<T>` |
-| `std::function<...>` | `acs::Callback` (関数ポインタ + void*) |
+| `std::function<...>` | `acs::FCallback` (関数ポインタ + void*) |
 | `std::optional<T>` | `TResult<T>` または明示的 `T*` |
 
 ### 6.2 アロケータは明示的に渡す
@@ -600,7 +600,7 @@ TArray<u32> Build(Allocator& alloc) noexcept {
 
 ### 7.1 `std::thread` 等の STL 並行物禁止
 
-`<thread>`, `<mutex>`, `<atomic>`, `<future>` の STL 並行ヘッダ禁止。代わりに `acs::Thread`, `acs::Mutex`, `acs::Atomic<T>`, `acs::ScopedLock`, `acs::JobGraph` を使う。
+`<thread>`, `<mutex>`, `<atomic>`, `<future>` の STL 並行ヘッダ禁止。代わりに `acs::FThread`, `acs::FMutex`, `acs::TAtomic<T>`, `acs::FScopedLock`, `acs::FJobGraph` を使う。
 
 ### 7.2 スレッドエントリは `noexcept` 必須
 
@@ -610,15 +610,15 @@ void WorkerEntry(void* user) noexcept {  // noexcept 必須
 }
 ```
 
-### 7.3 Atomic は `acs::Atomic<T>`
+### 7.3 TAtomic は `acs::TAtomic<T>`
 
-`std::atomic<T>` は不可。`acs::Atomic<T>` を使う。memory order は `acs::EMemoryOrder` 経由。
+`std::atomic<T>` は不可。`acs::TAtomic<T>` を使う。memory order は `acs::EMemoryOrder` 経由。
 
-### 7.4 Mutex 取得は `ScopedLock`
+### 7.4 FMutex 取得は `FScopedLock`
 
 ```cpp
 {
-    ScopedLock lk(_mutex);
+    FScopedLock lk(_mutex);
     /* protected section */
 }  // automatic unlock
 ```
@@ -852,7 +852,7 @@ clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走
 | **R006** | no-stl-containers | error | acs-R006 | `<vector>`, `<map>`, `<unordered_map>`, `<set>`, `<list>`, `<deque>` 等 include 禁止 |
 | **R007** | no-stl-string | error | acs-R007 | `<string>`, `std::string`, `std::string_view` 禁止 |
 | **R008** | no-stl-memory | error | acs-R008 | `<memory>` の `std::unique_ptr`, `std::shared_ptr` 禁止 |
-| **R009** | no-stl-functional | error | acs-R009 | `<functional>` の `std::function` 禁止 (`acs::Callback` を使う) |
+| **R009** | no-stl-functional | error | acs-R009 | `<functional>` の `std::function` 禁止 (`acs::FCallback` を使う) |
 
 ### B. プラットフォーム移植性 (R010-R019)
 
@@ -906,8 +906,8 @@ clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走
 | ID | 名称 | 重大度 | チェック | 概要 |
 |---|---|---|---|---|
 | **R040** | callback-canonical | warning | acs-R040 | コールバックは `void(*)(/*payload*/, void* user)` 形式 |
-| **R041** | no-std-function | error | acs-R041 | `std::function` 禁止 (canonical Callback 使用) |
-| **R042** | typed-handle | info | acs-R042 | EntityId / AssetId 等は型付き wrapper (raw u32 禁止) |
+| **R041** | no-std-function | error | acs-R041 | `std::function` 禁止 (canonical FCallback 使用) |
+| **R042** | typed-handle | info | acs-R042 | EntityId / FAssetId 等は型付き wrapper (raw u32 禁止) |
 | **R043** | log-channel-known | warning | acs-R043 | `ACS_LOG_*` は登録済み channel のみ |
 | **R044** | locale-via-director | info | acs-R044 | UI 文字列は `Tr("...")` 経由 (raw 英文字列禁止) |
 | **R045** | comment-banner-style | info | acs-R045 | ファイルヘッダ・セクションは `// ====` バナー |

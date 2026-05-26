@@ -44,7 +44,7 @@
     #define ACS_ASSERT(expr)                                                    \
         do {                                                                    \
             if (ACS_UNLIKELY(!(expr))) {                                        \
-                ::acs::Panic(::acs::SourceLoc::Current(),                       \
+                ::acs::Panic(::acs::FSourceLoc::Current(),                       \
                              ACS_STRINGIFY(expr), "assertion failed");          \
             }                                                                   \
         } while (0)
@@ -55,7 +55,7 @@
     #define ACS_ASSERTF(expr, fmt, ...)                                         \
         do {                                                                    \
             if (ACS_UNLIKELY(!(expr))) {                                        \
-                ::acs::Panic(::acs::SourceLoc::Current(),                       \
+                ::acs::Panic(::acs::FSourceLoc::Current(),                       \
                              ACS_STRINGIFY(expr), fmt, ##__VA_ARGS__);          \
             }                                                                   \
         } while (0)
@@ -63,13 +63,13 @@
     // ---- ACS_UNREACHABLE() --------------------------------------------
     // 「ここには絶対に到達しない」と宣言する箇所に置く。デバッグでパニック。
     #define ACS_UNREACHABLE()                                                   \
-        ::acs::Panic(::acs::SourceLoc::Current(), "<unreachable>",              \
+        ::acs::Panic(::acs::FSourceLoc::Current(), "<unreachable>",              \
                      "unreachable code reached")
 
     // ---- ACS_NOT_IMPLEMENTED() ----------------------------------------
     // まだ実装していない関数や分岐に置く。
     #define ACS_NOT_IMPLEMENTED()                                               \
-        ::acs::Panic(::acs::SourceLoc::Current(), "<not implemented>",          \
+        ::acs::Panic(::acs::FSourceLoc::Current(), "<not implemented>",          \
                      "feature not implemented")
 
 #else // ACS_ASSERTS_ENABLED == 0 — リリース等でアサート除去
@@ -83,7 +83,7 @@
         #define ACS_UNREACHABLE() __builtin_unreachable()
     #endif
     // 未実装はリリースでもパニックする（致命的なバグなので隠さない）
-    #define ACS_NOT_IMPLEMENTED()           ::acs::Panic(::acs::SourceLoc::Current(), "<not implemented>", "feature not implemented")
+    #define ACS_NOT_IMPLEMENTED()           ::acs::Panic(::acs::FSourceLoc::Current(), "<not implemented>", "feature not implemented")
 
 #endif
 
@@ -111,7 +111,7 @@
 #define ACS_CHECK(expr)                                                         \
     do {                                                                        \
         if (ACS_UNLIKELY(!(expr))) {                                            \
-            ::acs::Panic(::acs::SourceLoc::Current(),                           \
+            ::acs::Panic(::acs::FSourceLoc::Current(),                           \
                          ACS_STRINGIFY(expr), "check failed");                  \
         }                                                                       \
     } while (0)
@@ -122,7 +122,7 @@
 #define ACS_CHECKF(expr, fmt, ...)                                              \
     do {                                                                        \
         if (ACS_UNLIKELY(!(expr))) {                                            \
-            ::acs::Panic(::acs::SourceLoc::Current(),                           \
+            ::acs::Panic(::acs::FSourceLoc::Current(),                           \
                          ACS_STRINGIFY(expr), fmt, ##__VA_ARGS__);              \
         }                                                                       \
     } while (0)
@@ -132,5 +132,5 @@
 // 「ここには来ないはずだが、もし来たら検知してログを残して安全に落とす」。
 // 最適化を効かせたい (本当に到達しないと証明済み) なら ACS_UNREACHABLE() を使う。
 #define ACS_NOTREACHED()                                                        \
-    ::acs::Panic(::acs::SourceLoc::Current(), "<not reached>",                  \
+    ::acs::Panic(::acs::FSourceLoc::Current(), "<not reached>",                  \
                  "supposedly unreachable code was reached")

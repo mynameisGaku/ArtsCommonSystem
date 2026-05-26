@@ -17,7 +17,7 @@ namespace acs {
 namespace {
 
 // 共通: MeshAsset を TRc<Asset> として返すヘルパ
-TRc<Asset> WrapMesh(AssetId id, TRc<MeshAsset>&& m) noexcept {
+TRc<Asset> WrapMesh(FAssetId id, TRc<MeshAsset>&& m) noexcept {
     m->SetId(id);
     m->SetState(EAssetState::Ready);
     return TRc<Asset>(Move(m));
@@ -110,7 +110,7 @@ TRc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 } // namespace
 
 // ---- glTF / GLB (cgltf) -------------------------------------------------
-TResult<TRc<Asset>> GltfAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> GltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     cgltf_data* data = nullptr;
     if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
@@ -126,7 +126,7 @@ TResult<TRc<Asset>> GltfAssetLoader::LoadFromBytes(AssetId id, const TArray<byte
     return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
-TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     opts.type = cgltf_file_type_glb;
     cgltf_data* data = nullptr;
@@ -143,7 +143,7 @@ TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>
 
 // ---- OBJ (自前パーサ、最小機能) -----------------------------------------
 // v / vn / vt / f だけサポート。マテリアルは無視。
-TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     auto mesh = MakeRc<MeshAsset>();
     TArray<FVec3> positions;
     TArray<FVec3> normals;
@@ -244,7 +244,7 @@ TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>
 }
 
 // ---- FBX (ufbx) ---------------------------------------------------------
-TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     ufbx_load_opts opts{};
     ufbx_error err{};
     ufbx_scene* scene = ::ufbx_load_memory(bytes.Data(), bytes.Size(), &opts, &err);

@@ -14,7 +14,7 @@ namespace acs {
 namespace {
 
 CpuFeatures   g_features {};
-Atomic<u32>   g_inited {0};   // 0=未初期化, 1=初期化中, 2=完了
+TAtomic<u32>   g_inited {0};   // 0=未初期化, 1=初期化中, 2=完了
 
 // CPUID から各機能フラグを抽出
 void DetectInternal() noexcept {

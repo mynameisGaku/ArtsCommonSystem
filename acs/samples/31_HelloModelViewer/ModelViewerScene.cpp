@@ -63,7 +63,7 @@ void ModelViewerScene::OnUpdate(f32 dt) noexcept {
     // 3D cube の自転 (sample 17 と同形)。
     _angle += dt * 0.8f;
 
-    // MVP 更新: ModelViewerPanel::Camera() の view/proj を使う。editor 上の
+    // MVP 更新: ModelViewerPanel::FCamera() の view/proj を使う。editor 上の
     // マウスドラッグで orbit / dolly した姿勢がそのまま 3D 像に反映される。
     // EditorCamera::Tick (smooth target) は OnRender 側の TickAllPanels →
     // OnFrameBegin から呼ばれる想定。

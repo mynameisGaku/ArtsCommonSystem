@@ -177,7 +177,7 @@ void ModelMaterialPanel::FireChangeCallback(u32 slot_index) noexcept {
 //   │ [Reset All]
 //   │ CollapsingHeader "Slot 0"
 //   │   [x] Override enabled
-//   │   Base Color   [ColorEdit4]
+//   │   Base FColor   [ColorEdit4]
 //   │   Metallic     [SliderFloat]
 //   │   ...
 //   │   [Reset]
@@ -251,11 +251,11 @@ void ModelMaterialPanel::DrawUI() noexcept {
                 changed = true;
             }
 
-            // ----- Base Color (RGBA) -----
+            // ----- Base FColor (RGBA) -----
             // ColorEdit4 は f32[4] を直接読み書きする。FVec4 は alignas(16)、
             // 内部 f32 x,y,z,w が連続レイアウト (alignas は配置のみ、要素間 pad なし)
             // なので &o.base_color.x を直接渡せる。
-            if (ImGui::ColorEdit4("Base Color", &o.base_color.x)) {
+            if (ImGui::ColorEdit4("Base FColor", &o.base_color.x)) {
                 o.is_overridden = true;
                 changed         = true;
             }

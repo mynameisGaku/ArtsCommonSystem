@@ -27,7 +27,7 @@ int Application::Run(const AppConfig& cfg) noexcept {
     _clear_color = ClearColor{ cfg.clear_r, cfg.clear_g, cfg.clear_b, cfg.clear_a };
 
     // ロガー初期化（最初に立ち上げて以降のエラーを記録できるように）
-    LogConfig lc{};
+    FLogConfig lc{};
     lc.console = true;
     lc.debug_output = true;
     lc.min_severity = cfg.log_severity;

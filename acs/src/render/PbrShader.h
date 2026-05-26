@@ -69,7 +69,7 @@ public:
 
     void SetLights(const FMat4& view_projection,
                    FVec3 camera_pos,
-                   const DirLight* lights, u32 count,
+                   const FDirLight* lights, u32 count,
                    FVec3 ambient_color) noexcept;
     void SetPointLights(const PointLight* lights, u32 count) noexcept;
 
@@ -266,7 +266,7 @@ private:
     FMat4       _vp;
     FVec3       _eye      = FVec3{0, 0, 0};
     FVec3       _ambient  = FVec3{0, 0, 0};
-    DirLight   _dir_lights[4];
+    FDirLight   _dir_lights[4];
     u32        _dir_count = 0;
     PointLight _point_lights[4];
     u32        _point_count = 0;

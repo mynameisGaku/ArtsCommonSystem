@@ -62,7 +62,7 @@
 //     が AnimationCurve を non-owning で受けるのと同方針)。本 panel は tilemap
 //     の寿命に関与せず、`_tilemap == nullptr` 時は "(No tilemap bound)" を表示。
 //   ・**EditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル (ModelViewerPanel と同形)。Camera() アクセサで参照を
+//     SceneView 風モデル (ModelViewerPanel と同形)。FCamera() アクセサで参照を
 //     返し、外部 (sample 34) は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
 //     viewport drawing でも `_camera.State().zoom_2d` と `_camera.State().position`
 //     を使って world → screen 変換する。
@@ -166,7 +166,7 @@ public:
 
     // 内部 EditorCamera (Mode2D) への参照。呼出側 (sample 34) が
     // `HandleMouseInput` / `Tick` を呼ぶ。寿命は本 panel と同一。
-    acs::game::editor_core::EditorCamera& Camera() noexcept;
+    acs::game::editor_core::EditorCamera& FCamera() noexcept;
 
     // ----- ブラシ / レイヤ / tile id 設定 ----------------------------------
 

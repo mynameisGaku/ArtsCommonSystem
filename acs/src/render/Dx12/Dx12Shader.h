@@ -17,7 +17,7 @@ public:
     Dx12Shader() noexcept = default;
     ~Dx12Shader() noexcept override;
 
-    HrResult Init(Dx12Device& device, const ShaderDesc& desc) noexcept;
+    HrResult Init(Dx12Device& device, const FShaderDesc& desc) noexcept;
 
     EShaderStage Stage() const noexcept override { return _stage; }
     const byte* Bytecode() const noexcept override {

@@ -40,7 +40,7 @@ public:
     const acs::game::EffectSystem& Fx() const noexcept { return _fx; }
 
 private:
-    acs::game::EmitterHandle  _hit_emitter {};
+    acs::game::FEmitterHandle  _hit_emitter {};
     acs::game::EffectSystem   _fx;
 };
 

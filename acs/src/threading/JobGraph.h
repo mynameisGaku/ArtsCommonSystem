@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// JobGraph — 依存関係付き並列タスクスケジューラ
+// FJobGraph — 依存関係付き並列タスクスケジューラ
 //
 // 使い方:
-//   JobGraph g;
+//   FJobGraph g;
 //   auto loadA  = g.Add(&LoadAssetA, &ctx);
 //   auto loadB  = g.Add(&LoadAssetB, &ctx);
 //   auto build  = g.Add(&BuildScene, &ctx);
@@ -30,11 +30,11 @@
 
 namespace acs {
 
-class JobGraph;
+class FJobGraph;
 
-// Job のハンドル — JobGraph::Add の戻り値 / DependOn のキー
+// Job のハンドル — FJobGraph::Add の戻り値 / DependOn のキー
 struct JobHandle {
-    JobGraph* graph = nullptr;
+    FJobGraph* graph = nullptr;
     u32       index = 0xFFFFFFFFu;
 
     bool IsValid() const noexcept { return graph != nullptr && index != 0xFFFFFFFFu; }
@@ -46,13 +46,13 @@ struct JobHandle {
 // Job 関数 (ThreadPool::TaskFn と同形式)
 using JobFn = void (*)(void* user, u32 worker_index);
 
-class JobGraph {
+class FJobGraph {
 public:
-    JobGraph() noexcept = default;
-    ~JobGraph() noexcept = default;
+    FJobGraph() noexcept = default;
+    ~FJobGraph() noexcept = default;
 
-    JobGraph(const JobGraph&) = delete;
-    JobGraph& operator=(const JobGraph&) = delete;
+    FJobGraph(const FJobGraph&) = delete;
+    FJobGraph& operator=(const FJobGraph&) = delete;
 
     // Job を追加 (Submit 前のみ呼べる)
     JobHandle Add(JobFn fn, void* user) noexcept;
@@ -81,10 +81,10 @@ private:
     struct Job {
         JobFn          fn               = nullptr;
         void*          user             = nullptr;
-        Atomic<u32>    deps_remaining   {0};
+        TAtomic<u32>    deps_remaining   {0};
         u32            initial_deps     = 0;     // Reset 用に保存
         TArray<u32>     dependents;               // この job が完了すると起動する job の index 群
-        JobGraph*      owner            = nullptr;
+        FJobGraph*      owner            = nullptr;
     };
 
     TArray<Job*>        _jobs;

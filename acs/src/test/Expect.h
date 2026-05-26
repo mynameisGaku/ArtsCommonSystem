@@ -10,7 +10,7 @@
 #define EXPECT_TRUE(expr)                                                     \
     do {                                                                      \
         if (!(expr)) {                                                        \
-            ::acs::test::RecordFailure(::acs::SourceLoc::Current(),           \
+            ::acs::test::RecordFailure(::acs::FSourceLoc::Current(),           \
                                        ACS_STRINGIFY(expr), "expected true"); \
         }                                                                     \
     } while (0)
@@ -19,7 +19,7 @@
 #define EXPECT_FALSE(expr)                                                    \
     do {                                                                      \
         if ((expr)) {                                                         \
-            ::acs::test::RecordFailure(::acs::SourceLoc::Current(),           \
+            ::acs::test::RecordFailure(::acs::FSourceLoc::Current(),           \
                                        ACS_STRINGIFY(expr), "expected false");\
         }                                                                     \
     } while (0)
@@ -30,7 +30,7 @@
         auto _av = (a);                                                       \
         auto _bv = (b);                                                       \
         if (!(_av == _bv)) {                                                  \
-            ::acs::test::RecordFailure(::acs::SourceLoc::Current(),           \
+            ::acs::test::RecordFailure(::acs::FSourceLoc::Current(),           \
                 ACS_STRINGIFY(a) " == " ACS_STRINGIFY(b),                     \
                 "values differ");                                             \
         }                                                                     \
@@ -42,7 +42,7 @@
         auto _av = (a);                                                       \
         auto _bv = (b);                                                       \
         if (_av == _bv) {                                                     \
-            ::acs::test::RecordFailure(::acs::SourceLoc::Current(),           \
+            ::acs::test::RecordFailure(::acs::FSourceLoc::Current(),           \
                 ACS_STRINGIFY(a) " != " ACS_STRINGIFY(b),                     \
                 "values equal");                                              \
         }                                                                     \
@@ -54,7 +54,7 @@
         f32 _diff = (f32)((a) - (b));                                         \
         if (_diff < 0) _diff = -_diff;                                        \
         if (_diff > (eps)) {                                                  \
-            ::acs::test::RecordFailure(::acs::SourceLoc::Current(),           \
+            ::acs::test::RecordFailure(::acs::FSourceLoc::Current(),           \
                 ACS_STRINGIFY(a) " ~= " ACS_STRINGIFY(b),                     \
                 "diff %.6f > %.6f", _diff, (f32)(eps));                       \
         }                                                                     \

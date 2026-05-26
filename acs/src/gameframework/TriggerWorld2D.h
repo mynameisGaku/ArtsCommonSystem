@@ -27,7 +27,7 @@
 // 設計 (Phase 3 = Pillar F Phase 3):
 //   ・**broad phase は O(N^2)**: Phase 3 では全 pair を直接比較。Phase 4 で
 //     CollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
-//   ・**TriggerId は ShapeId と同じ generational handle** (24bit index + 8bit gen)。
+//   ・**TriggerId は FShapeId と同じ generational handle** (24bit index + 8bit gen)。
 //     remove → re-add で slot 再利用しても旧 handle は無効化される。
 //   ・**overlap pair は array で保持**: 前フレの状態は `TArray<OverlapPair>` に
 //     `was_overlapping` 付きで保存。次フレで再計算し、(was, now) の組合せで
@@ -50,7 +50,7 @@
 namespace acs::game {
 
 /// Trigger を識別する packed 32bit handle (generational)。
-/// レイアウトは ShapeId / NodeId と同一 (low24=index, high8=generation)。
+/// レイアウトは FShapeId / FNodeId と同一 (low24=index, high8=generation)。
 struct TriggerId {
     u32 _packed = 0;   // 0 = invalid
 

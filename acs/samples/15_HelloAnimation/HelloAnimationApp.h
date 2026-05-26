@@ -42,7 +42,7 @@ private:
     acs::GpuMesh                   _gm_plane;
     acs::AnimationPlayer           _player;
 
-    acs::Camera                   _camera;
+    acs::FCamera                   _camera;
     acs::FVec3                     _cam_pos;
     acs::f32                      _cam_yaw = 0.6f;
 };

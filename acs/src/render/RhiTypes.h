@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// RHI 共通型（フォーマット、Viewport、ClearColor など、バックエンド非依存）
+// RHI 共通型（フォーマット、FViewport、ClearColor など、バックエンド非依存）
 #pragma once
 
 #include "foundation/Types.h"
@@ -25,7 +25,7 @@ enum class EFormat : u8 {
 };
 
 // ビューポート
-struct Viewport {
+struct FViewport {
     f32 x         = 0.0f;
     f32 y         = 0.0f;
     f32 width     = 0.0f;
@@ -35,7 +35,7 @@ struct Viewport {
 };
 
 // シザー矩形
-struct ScissorRect {
+struct FScissorRect {
     i32 left   = 0;
     i32 top    = 0;
     i32 right  = 0;

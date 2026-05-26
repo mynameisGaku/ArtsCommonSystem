@@ -18,7 +18,7 @@
 //   Esc    : 終了
 //
 // 学習ポイント:
-//   ・SkinnedMeshAsset / Bone / Animation の構築
+//   ・SkinnedMeshAsset / FBone / FAnimation の構築
 //   ・SkinnedShader によるスキニング描画
 //   ・AnimationPlayer で時刻 → ボーンパレット
 //   ・GPU スキニング: VS で 4 ボーンの加重平均

@@ -31,7 +31,7 @@ namespace acs {
 //   TEXCOORD  : R32G32_Float       @ 32
 //   BLENDINDICES : R8G8B8A8_UINT   @ 40
 //   BLENDWEIGHT  : R32G32B32A32_Float @ 44
-struct SkinnedVertex {
+struct FSkinnedVertex {
     FVec3 position;       // alignas 16 → 16 byte
     FVec3 normal;         // alignas 16 → 16 byte
     f32  u, v;           // 8 byte
@@ -41,7 +41,7 @@ struct SkinnedVertex {
 // sizeof = 60 + 4 padding = 64
 
 // ===== ボーン =====
-struct Bone {
+struct FBone {
     FString name;
     i32    parent = -1;                // -1 = ルート
     FVec3   bind_translation = FVec3{0, 0, 0};
@@ -55,7 +55,7 @@ struct Bone {
 
 // ===== アニメーションキー =====
 // 簡易版: 1 つのキーが TRS まとめて持つ（glTF と異なるが MVP として十分）
-struct AnimationKey {
+struct FAnimationKey {
     f32  time = 0.0f;
     FVec3 translation = FVec3{0, 0, 0};
     FQuat rotation    = FQuat{};
@@ -63,16 +63,16 @@ struct AnimationKey {
 };
 
 // ===== アニメーションチャネル =====
-struct AnimationChannel {
+struct FAnimationChannel {
     i32                 bone_index = -1;
-    TArray<AnimationKey> keys;             // 時刻昇順
+    TArray<FAnimationKey> keys;             // 時刻昇順
 };
 
 // ===== アニメーション =====
-struct Animation {
+struct FAnimation {
     FString                  name;
     f32                     duration = 0.0f;
-    TArray<AnimationChannel> channels;
+    TArray<FAnimationChannel> channels;
 };
 
 // ===== SkinnedMeshAsset =====
@@ -82,25 +82,25 @@ public:
 
     SkinnedMeshAsset() noexcept = default;
 
-    TArray<SkinnedVertex>& Vertices()     noexcept { return _vertices; }
+    TArray<FSkinnedVertex>& Vertices()     noexcept { return _vertices; }
     TArray<u32>&           Indices()      noexcept { return _indices; }
-    TArray<Bone>&          Bones()        noexcept { return _bones; }
-    TArray<Animation>&     Animations()   noexcept { return _animations; }
+    TArray<FBone>&          Bones()        noexcept { return _bones; }
+    TArray<FAnimation>&     Animations()   noexcept { return _animations; }
 
-    const TArray<SkinnedVertex>& Vertices()   const noexcept { return _vertices; }
+    const TArray<FSkinnedVertex>& Vertices()   const noexcept { return _vertices; }
     const TArray<u32>&           Indices()    const noexcept { return _indices; }
-    const TArray<Bone>&          Bones()      const noexcept { return _bones; }
-    const TArray<Animation>&     Animations() const noexcept { return _animations; }
+    const TArray<FBone>&          Bones()      const noexcept { return _bones; }
+    const TArray<FAnimation>&     Animations() const noexcept { return _animations; }
 
     // 全 bind_* が設定されてから 1 度呼ぶ。
-    // Bone::inverse_bind を計算する。
+    // FBone::inverse_bind を計算する。
     void ComputeInverseBindMatrices() noexcept;
 
 private:
-    TArray<SkinnedVertex> _vertices;
+    TArray<FSkinnedVertex> _vertices;
     TArray<u32>           _indices;
-    TArray<Bone>          _bones;
-    TArray<Animation>     _animations;
+    TArray<FBone>          _bones;
+    TArray<FAnimation>     _animations;
 };
 
 // =============================================================================

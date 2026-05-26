@@ -6,8 +6,8 @@
 // て発射 → 飛翔 → 命中 / 寿命切れ までを一元的に扱えるよう設計してある。
 //
 // 設計選択:
-//   ・**ProjectileId は 24bit idx + 8bit gen の packed u32**: HealthId / NodeId /
-//     EmitterHandle と同じ規約。slot 再利用後の stale 参照は IsValid + 内部 gen
+//   ・**FProjectileId は 24bit idx + 8bit gen の packed u32**: FHealthId / FNodeId /
+//     FEmitterHandle と同じ規約。slot 再利用後の stale 参照は IsValid + 内部 gen
 //     一致で検出する。_packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。
 //   ・**pool は固定容量**: Init(max_concurrent) で確保した後はリサイズしない。
 //     Spawn は inactive な slot を線形探索し、満杯なら invalid を返す。これに
@@ -60,7 +60,7 @@
 //   ps.RegisterDef(bullet);
 //
 //   // 発射:
-//   ProjectileId pid = ps.Spawn("bullet_9mm",
+//   FProjectileId pid = ps.Spawn("bullet_9mm",
 //                                /*pos=*/player_pos,
 //                                /*vel=*/FVec2{800.0f, 0.0f},
 //                                /*owner=*/player_node_id,
@@ -75,7 +75,7 @@
 //   }, &collision_world);
 //
 //   // hit / expire コールバック:
-//   ps.SetOnHitCallback([](void* user, ProjectileId id, const char* def_id,
+//   ps.SetOnHitCallback([](void* user, FProjectileId id, const char* def_id,
 //                          u32 target, f32 dmg) noexcept {
 //       // ApplyDamage / VFX / SE
 //   }, &my_game);
@@ -139,11 +139,11 @@ struct ProjectileDef {
 };
 
 // ---------------------------------------------------------------------------
-// ProjectileId — 24bit index + 8bit gen を packed した opaque handle
+// FProjectileId — 24bit index + 8bit gen を packed した opaque handle
 // ---------------------------------------------------------------------------
 // `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。slot 再利用後の
 // stale 参照は IsValid + 内部 gen 一致で検出する。
-struct ProjectileId {
+struct FProjectileId {
     u32 _packed = 0u;
 
     bool IsValid() const noexcept { return _packed != 0u; }
@@ -152,8 +152,8 @@ struct ProjectileId {
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
     static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215
 
-    static ProjectileId Pack(u32 index, u8 gen) noexcept {
-        ProjectileId h;
+    static FProjectileId Pack(u32 index, u8 gen) noexcept {
+        FProjectileId h;
         h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
@@ -179,7 +179,7 @@ struct ProjectileInstance {
 // HitTest コールバック型: alive な projectile 1 個に対して呼ばれる。
 //   user            : SetHitTestFn で渡した context (CollisionWorld2D 等)
 //   proj            : 判定対象の projectile (位置 / 速度 / damage 参照可)
-//   out_hit_target_id: hit したターゲットの識別子 (HealthId.Index 等を想定)
+//   out_hit_target_id: hit したターゲットの識別子 (FHealthId.Index 等を想定)
 //   out_damage_dealt: 実際に与えたダメージ (耐性計算後の最終値、HitCallback に渡る)
 //   戻り値           : true = 命中した、false = 命中なし
 // true 返却で hit_count++、hit_count >= 上限なら despawn + ExpireCallback も発火しない
@@ -192,12 +192,12 @@ using HitTestFn = bool(*)(void* user, const ProjectileInstance& proj,
 //   target_id       : HitTestFn の out_hit_target_id
 //   damage          : HitTestFn の out_damage_dealt
 // この中で HealthSystem.ApplyDamage / VFX 生成 / SE 再生 を行う想定。
-using HitCallback = void(*)(void* user, ProjectileId proj_id, const char* def_id,
+using HitCallback = void(*)(void* user, FProjectileId proj_id, const char* def_id,
                             u32 target_id, f32 damage) noexcept;
 
 // 寿命切れコールバック型: lifetime_sec を超えた projectile に対して発火。
 // 「命中で消えた弾」では発火しない (= HitCallback 経由のみ)。
-using ExpireCallback = void(*)(void* user, ProjectileId proj_id, const char* def_id) noexcept;
+using ExpireCallback = void(*)(void* user, FProjectileId proj_id, const char* def_id) noexcept;
 
 // ---------------------------------------------------------------------------
 // ProjectileSystem — 固定容量 pool + per-frame Tick
@@ -223,12 +223,12 @@ public:
     void RegisterDef(const ProjectileDef& def) noexcept;
 
     // 発射。pool 満杯なら invalid を返す。def_id が未登録なら invalid を返す。
-    ProjectileId Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
+    FProjectileId Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
                        u32 owner_id, f32 damage) noexcept;
 
     // 強制 despawn。stale handle は no-op。ExpireCallback は発火しない
     // (= 強制削除はサイレント、これは Destroy/Cancel 系の慣例に従う)。
-    void Despawn(ProjectileId id) noexcept;
+    void Despawn(FProjectileId id) noexcept;
 
     // 現在 alive な projectile 数。
     u32 AliveCount() const noexcept { return _alive_count; }
@@ -237,7 +237,7 @@ public:
     u32 MaxCount() const noexcept { return _capacity; }
 
     // 個別 instance の参照取得。stale handle は nullptr。
-    const ProjectileInstance* GetInstance(ProjectileId id) const noexcept;
+    const ProjectileInstance* GetInstance(FProjectileId id) const noexcept;
 
     // 全 pool の生ポインタ。out_count には pool 全体サイズが入る (active かどうかは
     // 内部判定で gate されているので、user 側は alive_count 個までだけアクセスする
@@ -267,7 +267,7 @@ public:
 
     // homing 弾の追従目標位置を設定。homing=false の def を持つ弾に呼んでも
     // no-op (= 内部で homing フラグを再確認)。stale handle も no-op。
-    void SetHomingTarget(ProjectileId id, FVec2 target_pos) noexcept;
+    void SetHomingTarget(FProjectileId id, FVec2 target_pos) noexcept;
 
     // 全 projectile を即座に破棄。callback / def 登録は維持。pool 容量も維持。
     // ExpireCallback は発火しない (= サイレント全消去)。
@@ -303,8 +303,8 @@ private:
     // def_id (const char*) で登録 def を引く。見つからなければ nullptr。
     const ProjectileDef* FindDef(const char* id) const noexcept;
     // 内部: スロット引き (stale/inactive で nullptr)。
-    Slot*       FindSlot(ProjectileId id) noexcept;
-    const Slot* FindSlot(ProjectileId id) const noexcept;
+    Slot*       FindSlot(FProjectileId id) noexcept;
+    const Slot* FindSlot(FProjectileId id) const noexcept;
     // 空き slot 取得。pool 満杯なら kInvalidIdx。
     u32 AcquireSlot() noexcept;
     // alive snapshot 再構築 (Tick 終端 / Spawn / Despawn 直後に呼ぶ)。

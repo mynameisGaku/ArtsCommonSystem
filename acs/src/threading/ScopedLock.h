@@ -6,7 +6,7 @@
 // 関数の早期 return / 例外なしパス / Panic 経路でも確実に解放される。
 //
 // 使い方:
-//   { ScopedLock lk(mutex); ... }                  // Mutex 排他
+//   { FScopedLock lk(mutex); ... }                  // FMutex 排他
 //   { ScopedSharedLock lk(rwlock); ... }            // RwLock 共有
 //   { ScopedExclusiveLock lk(rwlock); ... }         // RwLock 排他
 // =============================================================================
@@ -17,17 +17,17 @@
 
 namespace acs {
 
-// ---- Mutex 用 RAII ガード ------------------------------------------------
-class ScopedLock {
+// ---- FMutex 用 RAII ガード ------------------------------------------------
+class FScopedLock {
 public:
-    explicit ScopedLock(Mutex& m) noexcept : _m(m) { _m.Lock(); }
-    ~ScopedLock() noexcept { _m.Unlock(); }
+    explicit FScopedLock(FMutex& m) noexcept : _m(m) { _m.Lock(); }
+    ~FScopedLock() noexcept { _m.Unlock(); }
 
     // ガードはコピー / ムーブ不可
-    ScopedLock(const ScopedLock&) = delete;
-    ScopedLock& operator=(const ScopedLock&) = delete;
+    FScopedLock(const FScopedLock&) = delete;
+    FScopedLock& operator=(const FScopedLock&) = delete;
 private:
-    Mutex& _m;
+    FMutex& _m;
 };
 
 // ---- RwLock 共有（読み取り）用 RAII ガード -----------------------------

@@ -13,7 +13,7 @@ Dx12Buffer::~Dx12Buffer() noexcept {
     ACS_SAFE_RELEASE(_resource);
 }
 
-HrResult Dx12Buffer::Init(Dx12Device& device, const BufferDesc& desc) noexcept {
+HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept {
     HrResult r{};
     _device = &device;
     _size  = desc.size;
@@ -108,7 +108,7 @@ D3D12_GPU_VIRTUAL_ADDRESS Dx12Buffer::Gpu() const noexcept {
 
 // ファクトリ
 #if !WITH_RENDER_DILIGENT
-TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const BufferDesc& desc) noexcept {
+TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBufferDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 30, "CreateRhiBuffer: device is not DX12");

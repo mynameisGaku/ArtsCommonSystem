@@ -85,7 +85,7 @@ struct LapRecord {
     bool is_personal_best = false;
 };
 
-// レース参加者識別子。HealthId と同じく 24bit index + 8bit generation。
+// レース参加者識別子。FHealthId と同じく 24bit index + 8bit generation。
 // 0 は invalid 予約 (index 0 dummy)。
 struct RacerId {
     u32 _packed = 0;   // 0 = invalid。layout: low24=index, high8=generation

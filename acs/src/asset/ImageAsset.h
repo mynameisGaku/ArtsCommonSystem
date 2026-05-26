@@ -50,7 +50,7 @@ class ImageAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return ImageAsset::StaticType(); }
     const char* Extension() const noexcept override { return "png"; }
-    TResult<TRc<Asset>> LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

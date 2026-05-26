@@ -17,7 +17,7 @@ inline constexpr ComponentTypeId kMaxComponentTypes = 256;
 
 namespace ecs_detail {
 // 全 T 共通のカウンタ。型ごとに割り当てた最後の ID +1 を保持。
-inline Atomic<u32> g_next_component_type_id{0};
+inline TAtomic<u32> g_next_component_type_id{0};
 } // namespace ecs_detail
 
 // 型 T に固有な ComponentTypeId を返す（初回呼び出しで割り当て、以降キャッシュ）

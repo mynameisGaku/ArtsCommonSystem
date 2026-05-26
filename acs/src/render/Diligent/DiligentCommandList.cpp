@@ -84,11 +84,11 @@ void DiligentCommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) n
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     ctx->ClearDepthStencil(dsv, Diligent::CLEAR_DEPTH_FLAG, depth_clear, 0,
                            Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    Viewport vp;
+    FViewport vp;
     vp.width  = static_cast<f32>(d.Width());
     vp.height = static_cast<f32>(d.Height());
     SetViewport(vp);
-    ScissorRect sr;
+    FScissorRect sr;
     sr.right  = static_cast<i32>(d.Width());
     sr.bottom = static_cast<i32>(d.Height());
     SetScissor(sr);
@@ -109,11 +109,11 @@ void DiligentCommandList::EndShadowPass(IRhiTexture& /*depth*/) noexcept {
     Diligent::ITextureView* rtvs[1] = { rtv };
     ctx->SetRenderTargets(1, rtvs, dsv,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    Viewport vp;
+    FViewport vp;
     vp.width  = static_cast<f32>(_main_swapchain->Width());
     vp.height = static_cast<f32>(_main_swapchain->Height());
     SetViewport(vp);
-    ScissorRect sr;
+    FScissorRect sr;
     sr.right  = static_cast<i32>(_main_swapchain->Width());
     sr.bottom = static_cast<i32>(_main_swapchain->Height());
     SetScissor(sr);
@@ -138,11 +138,11 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
         ctx->ClearDepthStencil(dsv, Diligent::CLEAR_DEPTH_FLAG, depth_clear, 0,
                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
-    Viewport vp;
+    FViewport vp;
     vp.width  = static_cast<f32>(t.Width());
     vp.height = static_cast<f32>(t.Height());
     SetViewport(vp);
-    ScissorRect sr;
+    FScissorRect sr;
     sr.right  = static_cast<i32>(t.Width());
     sr.bottom = static_cast<i32>(t.Height());
     SetScissor(sr);
@@ -162,11 +162,11 @@ void DiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
     ctx->SetRenderTargets(1, rtvs, dsv,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     // clear は行わない (load semantics)。viewport / scissor は dst RT サイズに揃える。
-    Viewport vp;
+    FViewport vp;
     vp.width  = static_cast<f32>(t.Width());
     vp.height = static_cast<f32>(t.Height());
     SetViewport(vp);
-    ScissorRect sr;
+    FScissorRect sr;
     sr.right  = static_cast<i32>(t.Width());
     sr.bottom = static_cast<i32>(t.Height());
     SetScissor(sr);
@@ -214,13 +214,13 @@ void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 r
         ctx->ClearDepthStencil(dsv, Diligent::CLEAR_DEPTH_FLAG, depth_clear, 0,
                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
-    // Viewport は最初の RT のサイズに合わせる (全 RT が同サイズ前提)
+    // FViewport は最初の RT のサイズに合わせる (全 RT が同サイズ前提)
     auto* first = static_cast<DiligentTexture*>(rts[0]);
-    Viewport vp;
+    FViewport vp;
     vp.width  = static_cast<f32>(first->Width());
     vp.height = static_cast<f32>(first->Height());
     SetViewport(vp);
-    ScissorRect sr;
+    FScissorRect sr;
     sr.right  = static_cast<i32>(first->Width());
     sr.bottom = static_cast<i32>(first->Height());
     SetScissor(sr);
@@ -248,11 +248,11 @@ void DiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, 
         w = w > 1 ? w / 2 : 1;
         h = h > 1 ? h / 2 : 1;
     }
-    Viewport vp;
+    FViewport vp;
     vp.width  = static_cast<f32>(w);
     vp.height = static_cast<f32>(h);
     SetViewport(vp);
-    ScissorRect sr;
+    FScissorRect sr;
     sr.right  = static_cast<i32>(w);
     sr.bottom = static_cast<i32>(h);
     SetScissor(sr);
@@ -274,21 +274,21 @@ void DiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
     Diligent::ITextureView* rtvs[1] = { rtv };
     ctx->SetRenderTargets(1, rtvs, dsv,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    Viewport vp;
+    FViewport vp;
     vp.width  = static_cast<f32>(_main_swapchain->Width());
     vp.height = static_cast<f32>(_main_swapchain->Height());
     SetViewport(vp);
-    ScissorRect sr;
+    FScissorRect sr;
     sr.right  = static_cast<i32>(_main_swapchain->Width());
     sr.bottom = static_cast<i32>(_main_swapchain->Height());
     SetScissor(sr);
 }
 
-void DiligentCommandList::SetViewport(const Viewport& vp) noexcept {
+void DiligentCommandList::SetViewport(const FViewport& vp) noexcept {
     if (!_device) return;
     auto* ctx = _device->Context();
     if (!ctx) return;
-    Diligent::Viewport dvp;
+    Diligent::FViewport dvp;
     dvp.TopLeftX = vp.x;
     dvp.TopLeftY = vp.y;
     dvp.Width    = vp.width;
@@ -298,7 +298,7 @@ void DiligentCommandList::SetViewport(const Viewport& vp) noexcept {
     ctx->SetViewports(1, &dvp, 0, 0);
 }
 
-void DiligentCommandList::SetScissor(const ScissorRect& sr) noexcept {
+void DiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
     if (!_device) return;
     auto* ctx = _device->Context();
     if (!ctx) return;

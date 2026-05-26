@@ -53,7 +53,7 @@
 //   └─────────────────────────────────────────────────────────────┘
 //
 // 注意:
-//   ・`ParticleEffectSystem::CreateEmitter()` 等の真の `EmitterHandle` 管理
+//   ・`ParticleEffectSystem::CreateEmitter()` 等の真の `FEmitterHandle` 管理
 //     とは独立 (editor 内では index 管理)。これは
 //       「編集中に handle を持ち続けると、emitter 削除のたびに gen が変わって
 //        editor 側の参照が壊れる」

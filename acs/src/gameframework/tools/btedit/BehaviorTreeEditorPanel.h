@@ -31,7 +31,7 @@
 //     EditorWorkspace に登録するだけで自動 dispatch される。Title は
 //     "Behavior Tree Editor"。
 //   ・**メタミラー方式 (前述)**: BehaviorTree.h の API を改造しないために採用。
-//     panel 内に `TArray<NodeMeta>` を持ち、AddNode で順次積む。NodeId は 0 から
+//     panel 内に `TArray<NodeMeta>` を持ち、AddNode で順次積む。FNodeId は 0 から
 //     panel が払い出す (= 1 panel 内で unique、複数 BT を同 panel で扱う想定なし)。
 //     parent_id は同 TArray 内の id (== index、payload と一致)。kInvalidId
 //     (= 0xFFFFFFFFu) を root の parent_id として使う。
@@ -45,7 +45,7 @@
 //     書き込む位置 (circular)。Reset でクリア。ImGui::PlotLines に float buffer を
 //     一度展開して渡す。
 //   ・**SelectedNodeId は u32 (-1 = none)**: ParticleEditorPanel の `_selected:i32`
-//     と違って u32 を採用する理由は NodeId 自体が u32 ベース (= AddNode 払い出し
+//     と違って u32 を採用する理由は FNodeId 自体が u32 ベース (= AddNode 払い出し
 //     も u32)。none signal は `static_cast<u32>(-1) = 0xFFFFFFFF` で表現。
 //   ・**Autorun**: 毎フレーム OnFrameBegin で 1 tick 進める toggle。ImGui 上では
 //     "Continuous" ボタンと呼ぶ (ユーザに分かりやすい)。Step / Reset と排他では

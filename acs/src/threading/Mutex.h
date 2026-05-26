@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Threading — 排他 Mutex（Win32 SRWLOCK ベース）
+// ACS Threading — 排他 FMutex（Win32 SRWLOCK ベース）
 // -----------------------------------------------------------------------------
-// SRWLOCK の Exclusive モードを使用した最小限の Mutex。
+// SRWLOCK の Exclusive モードを使用した最小限の FMutex。
 // std::mutex 相当だが、より軽量（CRITICAL_SECTION 不使用、初期化フリー）。
 //
 // SRWLOCK のサイズは void* 1 個分なので、<windows.h> を露出させずに
@@ -15,14 +15,14 @@
 
 namespace acs {
 
-class Mutex {
+class FMutex {
 public:
-    Mutex() noexcept;                    // SRWLOCK を初期化
-    ~Mutex() noexcept = default;         // SRWLOCK は明示的解放不要
+    FMutex() noexcept;                    // SRWLOCK を初期化
+    ~FMutex() noexcept = default;         // SRWLOCK は明示的解放不要
 
-    // Mutex はコピー不可（std::mutex と同様）
-    Mutex(const Mutex&) = delete;
-    Mutex& operator=(const Mutex&) = delete;
+    // FMutex はコピー不可（std::mutex と同様）
+    FMutex(const FMutex&) = delete;
+    FMutex& operator=(const FMutex&) = delete;
 
     void Lock()    noexcept;             // 排他ロック取得（ブロッキング）
     bool TryLock() noexcept;             // 取得試行（取れたら true、取れなければ false で即時帰還）

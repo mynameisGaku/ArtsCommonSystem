@@ -43,7 +43,7 @@
 //     復元する想定。Phase 2 でフォーマット仕様を確定する。
 //
 // 範囲外 (Phase 2+):
-//   ・配列値 / FVec2 / FVec3 / Color 等の複合型 (現状は 4 プリミティブのみ)
+//   ・配列値 / FVec2 / FVec3 / FColor 等の複合型 (現状は 4 プリミティブのみ)
 //   ・change notification (オブザーバ pattern / callback)
 //   ・section / namespace ツリー
 //   ・暗号化 / 改竄検知 (Pillar S Storefront / AssetPack 側で扱う)

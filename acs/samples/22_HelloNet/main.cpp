@@ -3,7 +3,7 @@
 //
 // 構成:
 //   HelloNetApp.{h,cpp} - 一連のフロー (Init → サーバ起動 → 送受信 → Shutdown)
-//   EchoServer.{h,cpp}  - Thread::Spawn から呼ぶサーバ本体 (Listen → Accept → echo)
+//   EchoServer.{h,cpp}  - FThread::Spawn から呼ぶサーバ本体 (Listen → Accept → echo)
 //
 // 動作:
 //   ・スレッドで TCP echo サーバを起動 (port 8765, ループバック)

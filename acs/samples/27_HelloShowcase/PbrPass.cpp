@@ -42,25 +42,25 @@ FMat4 OrbTransform(u32 i, f32 phase) noexcept {
 
 void ExecutePbrPass(Assets& a, IRhiCommandList& cl,
                     IRhiTexture& hdr, IRhiTexture& depth,
-                    const Camera& camera,
+                    const FCamera& camera,
                     const FMat4& view_proj_jittered,
                     FVec3 cam_pos, f32 orb_phase,
                     bool ssr_warm, bool ssao_warm,
                     FMat4 (&orb_curr_out)[kOrbCount]) noexcept {
     cl.BeginRenderToTexture(hdr, ClearColor{0, 0, 0, 1}, &depth, 1.0f);
 
-    Viewport vp{};
+    FViewport vp{};
     vp.width  = static_cast<f32>(hdr.Width());
     vp.height = static_cast<f32>(hdr.Height());
     cl.SetViewport(vp);
-    ScissorRect svr{};
+    FScissorRect svr{};
     svr.right  = static_cast<i32>(hdr.Width());
     svr.bottom = static_cast<i32>(hdr.Height());
     cl.SetScissor(svr);
 
     a.sky.Render(cl, camera);
 
-    DirLight sun{};
+    FDirLight sun{};
     sun.direction = a.sky.SunDirection();
     sun.color     = a.sky.SunColor() * 1.2f;
     a.pbr.SetLights(view_proj_jittered, cam_pos, &sun, 1, FVec3{0, 0, 0});

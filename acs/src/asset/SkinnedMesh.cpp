@@ -14,7 +14,7 @@ FMat4 ComposeTRS(FVec3 t, FQuat r, FVec3 s) noexcept {
 }
 
 // アニメーションチャネルから時刻 t における TRS を補間サンプリング
-void SampleChannel(const AnimationChannel& ch, f32 t,
+void SampleChannel(const FAnimationChannel& ch, f32 t,
                    FVec3& out_t, FQuat& out_r, FVec3& out_s) noexcept {
     const usize n = ch.keys.Size();
     if (n == 0) {
@@ -24,20 +24,20 @@ void SampleChannel(const AnimationChannel& ch, f32 t,
         return;
     }
     if (n == 1 || t <= ch.keys[0].time) {
-        const AnimationKey& k = ch.keys[0];
+        const FAnimationKey& k = ch.keys[0];
         out_t = k.translation; out_r = k.rotation; out_s = k.scale;
         return;
     }
     if (t >= ch.keys[n - 1].time) {
-        const AnimationKey& k = ch.keys[n - 1];
+        const FAnimationKey& k = ch.keys[n - 1];
         out_t = k.translation; out_r = k.rotation; out_s = k.scale;
         return;
     }
     // 二分探索ではなく線形（チャネルあたりキー数は通常少ない）
     usize i = 0;
     while (i + 1 < n && ch.keys[i + 1].time < t) ++i;
-    const AnimationKey& a = ch.keys[i];
-    const AnimationKey& b = ch.keys[i + 1];
+    const FAnimationKey& a = ch.keys[i];
+    const FAnimationKey& b = ch.keys[i + 1];
     const f32 dt = b.time - a.time;
     const f32 alpha = dt > 1e-6f ? (t - a.time) / dt : 0.0f;
     out_t = FVec3{
@@ -64,12 +64,12 @@ void SkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     if (n == 0) return;
 
     // 1) 各ボーンのバインド世界行列を親から順に計算する。
-    //    TArray<Bone> は親が i より小さい番号で並んでいる前提（前向き列挙可）。
+    //    TArray<FBone> は親が i より小さい番号で並んでいる前提（前向き列挙可）。
     TArray<FMat4> world_at_bind;
     world_at_bind.Resize(n);
 
     for (u32 i = 0; i < n; ++i) {
-        const Bone& b = _bones[i];
+        const FBone& b = _bones[i];
         FMat4 local = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
         if (b.parent < 0) {
             world_at_bind[i] = local;
@@ -100,7 +100,7 @@ void AnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
 void AnimationPlayer::Update(f32 dt) noexcept {
     if (!_playing || !_mesh || _anim < 0) return;
     if (_anim >= static_cast<i32>(_mesh->Animations().Size())) return;
-    const Animation& a = _mesh->Animations()[_anim];
+    const FAnimation& a = _mesh->Animations()[_anim];
     _time += dt;
     if (a.duration > 0) {
         if (_loop) {
@@ -118,7 +118,7 @@ void AnimationPlayer::Update(f32 dt) noexcept {
 
 u32 AnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
     if (!_mesh || !out_palette) return 0;
-    const TArray<Bone>& bones = _mesh->Bones();
+    const TArray<FBone>& bones = _mesh->Bones();
     const u32 nb = static_cast<u32>(bones.Size());
     const u32 count = nb < max_count ? nb : max_count;
     if (count == 0) return 0;
@@ -136,15 +136,15 @@ u32 AnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexc
 
     // 初期値: バインドローカル
     for (u32 i = 0; i < effective; ++i) {
-        const Bone& b = bones[i];
+        const FBone& b = bones[i];
         local_pose[i] = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
     }
 
     // アニメーションチャネルで上書き
     if (_anim >= 0 && _anim < static_cast<i32>(_mesh->Animations().Size())) {
-        const Animation& a = _mesh->Animations()[_anim];
+        const FAnimation& a = _mesh->Animations()[_anim];
         for (usize ci = 0; ci < a.channels.Size(); ++ci) {
-            const AnimationChannel& ch = a.channels[ci];
+            const FAnimationChannel& ch = a.channels[ci];
             if (ch.bone_index < 0 || ch.bone_index >= static_cast<i32>(effective)) continue;
             FVec3 t, s; FQuat r;
             SampleChannel(ch, _time, t, r, s);

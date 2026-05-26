@@ -2,7 +2,7 @@
 // =============================================================================
 // ACS Threading — ConditionVar 実装
 // -----------------------------------------------------------------------------
-// Win32 CONDITION_VARIABLE は SRWLOCK ペアで動作する。Mutex も内部で
+// Win32 CONDITION_VARIABLE は SRWLOCK ペアで動作する。FMutex も内部で
 // SRWLOCK を持っているため、`SleepConditionVariableSRW` を直接利用可能。
 // =============================================================================
 #include "threading/ConditionVar.h"
@@ -18,14 +18,14 @@ ConditionVar::ConditionVar() noexcept {
     InitializeConditionVariable(reinterpret_cast<CONDITION_VARIABLE*>(&_cv[0]));
 }
 
-// 無限待機。Mutex は Wait 中に一時開放され、復帰時に再取得される。
-void ConditionVar::Wait(Mutex& m) noexcept {
+// 無限待機。FMutex は Wait 中に一時開放され、復帰時に再取得される。
+void ConditionVar::Wait(FMutex& m) noexcept {
     SleepConditionVariableSRW(reinterpret_cast<CONDITION_VARIABLE*>(&_cv[0]),
                               reinterpret_cast<SRWLOCK*>(&m), INFINITE, 0);
 }
 
 // タイムアウト付き待機。戻り値: true=起こされた, false=タイムアウト
-bool ConditionVar::WaitFor(Mutex& m, u32 timeout_ms) noexcept {
+bool ConditionVar::WaitFor(FMutex& m, u32 timeout_ms) noexcept {
     BOOL ok = SleepConditionVariableSRW(reinterpret_cast<CONDITION_VARIABLE*>(&_cv[0]),
                                         reinterpret_cast<SRWLOCK*>(&m),
                                         static_cast<DWORD>(timeout_ms), 0);

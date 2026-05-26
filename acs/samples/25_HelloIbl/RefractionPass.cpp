@@ -14,7 +14,7 @@ using namespace acs;
 namespace helloibl {
 
 void RenderRefractionPass(HelloIblApp& app, const FMat4& vp_for_render,
-                          const Viewport& vp, const ScissorRect& svr) noexcept {
+                          const FViewport& vp, const FScissorRect& svr) noexcept {
     if (!app._show_refraction) return;
 
     IRhiCommandList* cl  = app.GetRenderer().CommandList();

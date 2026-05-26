@@ -3,7 +3,7 @@
 //
 // 学習ポイント:
 //   - IRhiTexture 作成 → SetTexture でバインド
-//   - PipelineDesc::static_samplers で固定サンプラを指定 (PSO に焼き付け、bind 不要)
+//   - FPipelineDesc::static_samplers で固定サンプラを指定 (PSO に焼き付け、bind 不要)
 //   - PixelShader からテクスチャ・サンプラを読む HLSL 構文
 #pragma once
 
@@ -34,7 +34,7 @@ private:
     acs::TUniquePtr<acs::IRhiTexture>  _tex;
     acs::TUniquePtr<acs::IRhiPipeline> _pipeline;
 
-    acs::Camera _camera;
+    acs::FCamera _camera;
     acs::f32    _angle   = 0.0f;
     acs::f32    _cam_yaw = 0.0f;
 };

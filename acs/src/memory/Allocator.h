@@ -38,7 +38,7 @@ public:
     // ---- 確保 ----
     // size バイトを alignment 整列で確保する。失敗時は nullptr。
     // loc は診断用（リーク追跡やプロファイラに渡される）。
-    virtual void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept = 0;
+    virtual void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept = 0;
 
     // ---- 解放 ----
     // ptr を解放する。nullptr は no-op。
@@ -48,7 +48,7 @@ public:
     // 既存ポインタを new_size に拡張・縮小する。
     // デフォルト実装は Alloc + memcpy + Free（Memory.cpp で定義）。
     virtual void* Realloc(void* ptr, usize old_size, usize new_size,
-                          usize alignment, SourceLoc loc) noexcept;
+                          usize alignment, FSourceLoc loc) noexcept;
 
     // ---- 統計 (デフォルトは 0 を返す。実装側で上書き) ----
     virtual u64 BytesAllocated() const noexcept { return 0; }   // 現在の使用量
@@ -56,8 +56,8 @@ public:
     virtual const char* Name()   const noexcept { return "Allocator"; }  // 識別名
 
     // ---- 利便性オーバーロード ----
-    // alignment 既定値版。SourceLoc は呼び出し位置を自動キャプチャ。
-    ACS_FORCEINLINE void* Alloc(usize size, SourceLoc loc = SourceLoc::Current()) noexcept {
+    // alignment 既定値版。FSourceLoc は呼び出し位置を自動キャプチャ。
+    ACS_FORCEINLINE void* Alloc(usize size, FSourceLoc loc = FSourceLoc::Current()) noexcept {
         return Alloc(size, kDefaultAlignment, loc);
     }
 };

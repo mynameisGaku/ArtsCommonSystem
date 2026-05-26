@@ -106,7 +106,7 @@ enum class EDialogueScriptState : u8 {
     Finished       = 4,
 };
 
-// callback signature 群 (全 noexcept、void* user は SetOn*Callback で受け取った文脈)。
+// callback signature 群 (全 noexcept、void* user は SetOn*FCallback で受け取った文脈)。
 using SayCallback           = void(*)(void* user, const char* speaker, const char* text) noexcept;
 using ShowHideCallback      = void(*)(void* user, const char* character_id, const char* sprite_id) noexcept;
 using BgmSeCallback         = void(*)(void* user, const char* audio_id, f32 volume) noexcept;

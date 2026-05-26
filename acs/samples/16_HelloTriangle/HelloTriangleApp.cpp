@@ -13,7 +13,7 @@ namespace hellotri {
 
 void HelloTriangleApp::OnStart() noexcept {
     // === シェーダ === (同じ HLSL ソースから entry を変えて VS / PS を 2 回コンパイル)
-    ShaderDesc vs_desc{};
+    FShaderDesc vs_desc{};
     vs_desc.stage = EShaderStage::Vertex;
     vs_desc.hlsl_source = kHLSL;
     vs_desc.entry_point = "VSMain";
@@ -26,7 +26,7 @@ void HelloTriangleApp::OnStart() noexcept {
     }
     _vs = Move(vs_r.Value());
 
-    ShaderDesc ps_desc{};
+    FShaderDesc ps_desc{};
     ps_desc.stage = EShaderStage::Pixel;
     ps_desc.hlsl_source = kHLSL;
     ps_desc.entry_point = "PSMain";
@@ -40,7 +40,7 @@ void HelloTriangleApp::OnStart() noexcept {
     _ps = Move(ps_r.Value());
 
     // === 頂点バッファ ===
-    BufferDesc vb_desc{};
+    FBufferDesc vb_desc{};
     vb_desc.size = sizeof(kTriangleVertices);
     vb_desc.usage = EBufferUsage::Vertex;
     vb_desc.cpu_writable = true;
@@ -54,7 +54,7 @@ void HelloTriangleApp::OnStart() noexcept {
     _vb = Move(vb_r.Value());
 
     // === パイプライン ===
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
     pd.topology = EPrimitiveTopology::TriangleList;

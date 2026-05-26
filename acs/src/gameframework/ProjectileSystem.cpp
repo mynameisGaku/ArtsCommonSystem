@@ -122,7 +122,7 @@ u32 ProjectileSystem::AcquireSlot() noexcept {
 // id (packed handle) から内部 slot 参照を引く。invalid / 範囲外 / inactive /
 // gen 不一致は nullptr を返す。stale handle 検出はここで完結する。
 // =============================================================================
-ProjectileSystem::Slot* ProjectileSystem::FindSlot(ProjectileId id) noexcept {
+ProjectileSystem::Slot* ProjectileSystem::FindSlot(FProjectileId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= _slots.Size()) return nullptr;
@@ -132,7 +132,7 @@ ProjectileSystem::Slot* ProjectileSystem::FindSlot(ProjectileId id) noexcept {
     return &s;
 }
 
-const ProjectileSystem::Slot* ProjectileSystem::FindSlot(ProjectileId id) const noexcept {
+const ProjectileSystem::Slot* ProjectileSystem::FindSlot(FProjectileId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= _slots.Size()) return nullptr;
@@ -151,13 +151,13 @@ const ProjectileSystem::Slot* ProjectileSystem::FindSlot(ProjectileId id) const 
 // 4) instance を初期化。owner_id / damage は呼出側の値をそのまま使う。
 // 5) homing target は SetHomingTarget が後で設定する想定なのでここでは false。
 // =============================================================================
-ProjectileId ProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
+FProjectileId ProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
                                      u32 owner_id, f32 damage) noexcept {
     const ProjectileDef* def = FindDef(def_id);
-    if (def == nullptr) return ProjectileId{};
+    if (def == nullptr) return FProjectileId{};
 
     const u32 idx = AcquireSlot();
-    if (idx == kInvalidIdx) return ProjectileId{};
+    if (idx == kInvalidIdx) return FProjectileId{};
 
     Slot& s = _slots[static_cast<usize>(idx)];
 
@@ -180,7 +180,7 @@ ProjectileId ProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 veloci
     ++_alive_count;
     // snapshot は AllAlive 呼出時 / Tick 末尾で再構築。即時返却用に dirty 化のみ。
     _snapshot_dirty_size = 0u;
-    return ProjectileId::Pack(idx, new_gen);
+    return FProjectileId::Pack(idx, new_gen);
 }
 
 // =============================================================================
@@ -190,7 +190,7 @@ ProjectileId ProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 veloci
 // gen は維持し、次の AcquireSlot で +1 して払い出される (= 古い handle が無効化
 // される)。
 // =============================================================================
-void ProjectileSystem::Despawn(ProjectileId id) noexcept {
+void ProjectileSystem::Despawn(FProjectileId id) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     s->active            = false;
@@ -206,7 +206,7 @@ void ProjectileSystem::Despawn(ProjectileId id) noexcept {
 // 詰めて返す (= 連続配列なので描画ループが書きやすい)。snapshot は Spawn /
 // Despawn / Tick で dirty 化し、ここで lazy に再構築する。
 // =============================================================================
-const ProjectileInstance* ProjectileSystem::GetInstance(ProjectileId id) const noexcept {
+const ProjectileInstance* ProjectileSystem::GetInstance(FProjectileId id) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return nullptr;
     return &s->inst;
@@ -322,7 +322,7 @@ void ProjectileSystem::Tick(f32 dt) noexcept {
                 ++s.inst.hit_count;
                 // HitCallback 発火 (再入安全: state 更新後)
                 if (_on_hit != nullptr) {
-                    const ProjectileId pid = ProjectileId::Pack(
+                    const FProjectileId pid = FProjectileId::Pack(
                         static_cast<u32>(i), s.gen);
                     _on_hit(_on_hit_user, pid, s.inst.def_id, target_id, damage_done);
                 }
@@ -347,7 +347,7 @@ void ProjectileSystem::Tick(f32 dt) noexcept {
         if (lifetime > 0.0f && s.inst.elapsed_sec >= lifetime) {
             // ExpireCallback 発火 (state 更新前: callback 内で参照可能)
             if (_on_expire != nullptr) {
-                const ProjectileId pid = ProjectileId::Pack(
+                const FProjectileId pid = FProjectileId::Pack(
                     static_cast<u32>(i), s.gen);
                 _on_expire(_on_expire_user, pid, s.inst.def_id);
             }
@@ -392,7 +392,7 @@ void ProjectileSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexce
 // SetHomingTarget の後で別の Spawn が同 slot を再利用すると、has_homing_target は
 // Spawn で false に戻されるので、stale handle 経由のターゲット汚染は起きない。
 // =============================================================================
-void ProjectileSystem::SetHomingTarget(ProjectileId id, FVec2 target_pos) noexcept {
+void ProjectileSystem::SetHomingTarget(FProjectileId id, FVec2 target_pos) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     const ProjectileDef* def = FindDef(s->inst.def_id);

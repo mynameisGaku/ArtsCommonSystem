@@ -50,7 +50,7 @@ u32 ParticleEffectSystem::AcquireEmitterSlot() noexcept {
             return static_cast<u32>(i);
         }
     }
-    if (n >= static_cast<usize>(EmitterHandle::kMaxIndex)) {
+    if (n >= static_cast<usize>(FEmitterHandle::kMaxIndex)) {
         return kInvalidIdx;
     }
     _emitters.PushBack({});
@@ -65,7 +65,7 @@ u32 ParticleEffectSystem::AcquireEmitterSlot() noexcept {
 // 3) gen を 1 進める (0 にラップしたら 1 に戻す。0 は IsValid==false なので
 //    handle として配ってはいけない)。
 // =============================================================================
-EmitterHandle ParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept {
+FEmitterHandle ParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept {
     if (def.lifetime_sec <= 0.0f) return {};
 
     const u32 idx = AcquireEmitterSlot();
@@ -84,7 +84,7 @@ EmitterHandle ParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def,
     e.in_use     = true;
 
     ++_emitter_count;
-    return EmitterHandle::Pack(idx, new_gen);
+    return FEmitterHandle::Pack(idx, new_gen);
 }
 
 // =============================================================================
@@ -94,7 +94,7 @@ EmitterHandle ParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def,
 // gen 一致のチェックで「DestroyEmitter 後に同 slot が別 emitter に化けても
 // 古い handle で誤上書きしない」ことを保証する。
 // =============================================================================
-void ParticleEffectSystem::SetEmitterPosition(EmitterHandle h, FVec2 pos) noexcept {
+void ParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= _emitters.Size()) return;
@@ -103,7 +103,7 @@ void ParticleEffectSystem::SetEmitterPosition(EmitterHandle h, FVec2 pos) noexce
     e.pos = pos;
 }
 
-void ParticleEffectSystem::SetEmitterActive(EmitterHandle h, bool active) noexcept {
+void ParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= _emitters.Size()) return;
@@ -124,7 +124,7 @@ void ParticleEffectSystem::SetEmitterActive(EmitterHandle h, bool active) noexce
 // 自然にクランプ (EmitOne 側で満杯時は no-op)。emitter が in_use なら active
 // に関わらず発火 (= 「死亡時の最後の一吹き」を非 active 状態でも使えるように)。
 // =============================================================================
-void ParticleEffectSystem::Burst(EmitterHandle h) noexcept {
+void ParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= _emitters.Size()) return;
@@ -145,7 +145,7 @@ void ParticleEffectSystem::Burst(EmitterHandle h) noexcept {
 // emitter slot を空けるだけ。既存の particle はそのまま (寿命まで生きる)。
 // gen は維持する (次の AcquireEmitterSlot で +1 して払い出す)。
 // =============================================================================
-void ParticleEffectSystem::DestroyEmitter(EmitterHandle h) noexcept {
+void ParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= _emitters.Size()) return;

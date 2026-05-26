@@ -77,16 +77,16 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     // 1) HDR RT にシーンを描く
     cl->BeginRenderToTexture(*hdr, ClearColor{0,0,0,1}, depth, 1.0f);
 
-    Viewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
+    FViewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
                    vp.height = static_cast<f32>(hdr->Height());
     cl->SetViewport(vp);
-    ScissorRect svr{}; svr.right  = static_cast<i32>(hdr->Width());
+    FScissorRect svr{}; svr.right  = static_cast<i32>(hdr->Width());
                       svr.bottom = static_cast<i32>(hdr->Height());
     cl->SetScissor(svr);
 
     _sky.Render(*cl, _camera);
 
-    DirLight dl;
+    FDirLight dl;
     dl.direction = _sky.SunDirection();
     dl.color     = _sky.SunColor();
     FVec3 ambient{0.05f, 0.06f, 0.10f};

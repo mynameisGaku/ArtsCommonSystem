@@ -24,7 +24,7 @@ public:
     DiligentShader(const DiligentShader&) = delete;
     DiligentShader& operator=(const DiligentShader&) = delete;
 
-    TResult<void> Init(DiligentDevice& device, const ShaderDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const FShaderDesc& desc) noexcept;
 
     // ---- IRhiShader ----
     EShaderStage Stage()         const noexcept override { return _stage; }

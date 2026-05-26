@@ -10,7 +10,7 @@
 namespace acs::game {
 
 void NodePool::Init(u32 initial_capacity) noexcept {
-    // index 0 は予約 (NodeId{0,0} = invalid と衝突しない dummy slot)。
+    // index 0 は予約 (FNodeId{0,0} = invalid と衝突しない dummy slot)。
     // 既に Init 済 (= _slots.Size() > 0) の場合でも追加 reserve だけ行う。
     if (_slots.IsEmpty()) {
         _slots.PushBack(Slot{});   // index 0 = dummy
@@ -42,11 +42,11 @@ u32 NodePool::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-NodeId NodePool::RegisterExistingNode(Node2D* node) noexcept {
-    if (node == nullptr) return NodeId{};
+FNodeId NodePool::RegisterExistingNode(Node2D* node) noexcept {
+    if (node == nullptr) return FNodeId{};
 
     const u32 idx = AcquireSlot();
-    if (idx == 0u) return NodeId{};   // 16M 越え → 失敗 (node の Id は触らない)
+    if (idx == 0u) return FNodeId{};   // 16M 越え → 失敗 (node の Id は触らない)
 
     Slot& s = _slots[idx];
     // gen を進める。0 にラップしたら 1 にスキップ (gen=0 は invalid 表現と衝突)。
@@ -56,12 +56,12 @@ NodeId NodePool::RegisterExistingNode(Node2D* node) noexcept {
     s.active = true;
     ++_active_count;
 
-    const NodeId new_id{idx, s.gen};
+    const FNodeId new_id{idx, s.gen};
     node->_SetId(new_id);
     return new_id;
 }
 
-void NodePool::Unregister(NodeId id) noexcept {
+void NodePool::Unregister(FNodeId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= _slots.Size()) return;   // 0 / 範囲外は無視
@@ -71,7 +71,7 @@ void NodePool::Unregister(NodeId id) noexcept {
 
     // Node2D 側の Id を invalid にリセット (ぶら下がった stale handle を node 経由でも検出可能に)。
     if (s.ptr != nullptr) {
-        s.ptr->_SetId(NodeId{});
+        s.ptr->_SetId(FNodeId{});
     }
 
     s.active = false;
@@ -83,7 +83,7 @@ void NodePool::Unregister(NodeId id) noexcept {
     _free_indices.PushBack(idx);
 }
 
-bool NodePool::IsValid(NodeId id) const noexcept {
+bool NodePool::IsValid(FNodeId id) const noexcept {
     if (!id.IsValid()) return false;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= _slots.Size()) return false;
@@ -91,7 +91,7 @@ bool NodePool::IsValid(NodeId id) const noexcept {
     return s.active && s.gen == id.Generation();
 }
 
-Node2D* NodePool::Get(NodeId id) const noexcept {
+Node2D* NodePool::Get(FNodeId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= _slots.Size()) return nullptr;
@@ -100,16 +100,16 @@ Node2D* NodePool::Get(NodeId id) const noexcept {
     return s.ptr;
 }
 
-NodeId NodePool::IdOf(Node2D* node) const noexcept {
-    if (node == nullptr) return NodeId{};
+FNodeId NodePool::IdOf(Node2D* node) const noexcept {
+    if (node == nullptr) return FNodeId{};
     // index 0 は dummy なので 1 から走査。
     for (u32 i = 1; i < _slots.Size(); ++i) {
         const Slot& s = _slots[i];
         if (s.active && s.ptr == node) {
-            return NodeId{i, s.gen};
+            return FNodeId{i, s.gen};
         }
     }
-    return NodeId{};
+    return FNodeId{};
 }
 
 void NodePool::ClearAll() noexcept {
@@ -120,7 +120,7 @@ void NodePool::ClearAll() noexcept {
         Slot& s = _slots[i];
         if (s.active) {
             if (s.ptr != nullptr) {
-                s.ptr->_SetId(NodeId{});
+                s.ptr->_SetId(FNodeId{});
             }
             s.active = false;
             s.ptr    = nullptr;

@@ -22,7 +22,7 @@ public:
     DiligentPipeline(const DiligentPipeline&) = delete;
     DiligentPipeline& operator=(const DiligentPipeline&) = delete;
 
-    TResult<void> Init(DiligentDevice& device, const PipelineDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept;
 
     // 内部公開
     Diligent::IPipelineState*           Native() const noexcept { return _pso; }
@@ -32,7 +32,7 @@ public:
     u32 TextureSlots() const noexcept { return _tex_slots; }
 
     // 名前ルックアップ用（CommandList::SetConstantBuffer/SetTexture で使う）
-    // 戻り値は「cb0/t0」形式の固定バッファ or PipelineDesc で渡された名前
+    // 戻り値は「cb0/t0」形式の固定バッファ or FPipelineDesc で渡された名前
     const char* CbufferName(u32 slot) const noexcept;
     const char* TextureName(u32 slot) const noexcept;
 
@@ -43,7 +43,7 @@ private:
     u32                              _cb_slots  = 0;
     u32                              _tex_slots = 0;
 
-    // PipelineDesc から複製した HLSL リソース名。null なら fallback 名を返す。
+    // FPipelineDesc から複製した HLSL リソース名。null なら fallback 名を返す。
     // Phase 33f-prep: 8→16 へ拡張、PbrShader が 8/8 で上限到達したため。
     static constexpr u32 kMaxResourceSlots = 16;
     const char* _cb_names[kMaxResourceSlots]  = {};

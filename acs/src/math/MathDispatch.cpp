@@ -36,7 +36,7 @@ void TransformVectorsAvx2(const FVec3* in, FVec3* out, usize count, const FMat4&
 }
 
 MathDispatch  g_dispatch {};
-Atomic<u32>   g_inited {0};
+TAtomic<u32>   g_inited {0};
 
 // CPU 機能を見て関数ポインタを差し替える
 void Init() noexcept {

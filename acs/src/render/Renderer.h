@@ -13,7 +13,7 @@
 //       //   SkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
 //       //   Sky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
 //       //   SpriteBatch     — 2D スプライト + フォント
-//       //   Font            — TrueType -> アトラス -> SpriteBatch
+//       //   Font            — TTrueType -> アトラス -> SpriteBatch
 //       //   ParticleSystem  — 簡易 GPU パーティクル
 //       //   ShadowMap       — depth-only パス
 //       //   PostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)

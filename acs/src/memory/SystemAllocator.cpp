@@ -48,7 +48,7 @@ void AlignedFree(void* p, usize& freed_size) noexcept {
 
 } // namespace
 
-void* SystemAllocator::Alloc(usize size, usize alignment, SourceLoc /*loc*/) noexcept {
+void* SystemAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     if (size == 0) return nullptr;
     usize actual = 0;
     void* p = AlignedAlloc(size, alignment, actual);
@@ -70,7 +70,7 @@ void SystemAllocator::Free(void* ptr) noexcept {
 
 // HeapReAlloc はアラインヘッダ方式と相性が悪いので、デフォルト実装を使う
 void* SystemAllocator::Realloc(void* ptr, usize old_size, usize new_size,
-                               usize alignment, SourceLoc loc) noexcept {
+                               usize alignment, FSourceLoc loc) noexcept {
     return Allocator::Realloc(ptr, old_size, new_size, alignment, loc);
 }
 

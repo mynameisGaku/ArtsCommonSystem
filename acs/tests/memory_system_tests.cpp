@@ -46,9 +46,9 @@ ACS_TEST(MemSystem, TlsfBasic) {
     auto ir = t.Init(pool, kPoolSize);
     EXPECT_TRUE(ir.IsOk());
 
-    void* p1 = t.Alloc(128, 16, SourceLoc::Current());
-    void* p2 = t.Alloc(256, 16, SourceLoc::Current());
-    void* p3 = t.Alloc(512, 16, SourceLoc::Current());
+    void* p1 = t.Alloc(128, 16, FSourceLoc::Current());
+    void* p2 = t.Alloc(256, 16, FSourceLoc::Current());
+    void* p3 = t.Alloc(512, 16, FSourceLoc::Current());
     EXPECT_TRUE(p1 != nullptr);
     EXPECT_TRUE(p2 != nullptr);
     EXPECT_TRUE(p3 != nullptr);
@@ -70,7 +70,7 @@ ACS_TEST(MemSystem, SegmentInitGet) {
     Allocator* a = MemorySystem::Get(ESegment::Default);
     EXPECT_TRUE(a != nullptr);
 
-    void* p = a->Alloc(1024, 16, SourceLoc::Current());
+    void* p = a->Alloc(1024, 16, FSourceLoc::Current());
     EXPECT_TRUE(p != nullptr);
     a->Free(p);
 
@@ -89,7 +89,7 @@ ACS_TEST(MemSystem, ScopedSegmentSwitch) {
         Allocator* a = MemorySystem::CurrentAllocator();
         EXPECT_TRUE(a != nullptr);
         if (a) {
-            void* p = a->Alloc(64, 16, SourceLoc::Current());
+            void* p = a->Alloc(64, 16, FSourceLoc::Current());
             EXPECT_TRUE(p != nullptr);
         }
     }
@@ -107,7 +107,7 @@ ACS_TEST(MemSystem, SnapshotWrite) {
     // いくつか allocate して使用率を上げる
     Allocator* a = MemorySystem::Get(ESegment::Default);
     if (a) {
-        for (int i = 0; i < 10; ++i) (void)a->Alloc(1024 * 64, 16, SourceLoc::Current());
+        for (int i = 0; i < 10; ++i) (void)a->Alloc(1024 * 64, 16, FSourceLoc::Current());
     }
 
     // 書き出し（書けない環境では失敗するが致命でない）

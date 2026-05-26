@@ -2,7 +2,7 @@
 ##
 ## 構成:
 ##   main.cpp             - ACS_DEFINE_MAIN(HelloECSApp) のみ
-##   Types.{h,cpp}        - Position/Velocity/Color POD + SpawnEvent + helper
+##   Types.{h,cpp}        - Position/Velocity/FColor POD + SpawnEvent + helper
 ##   HelloECSApp.{h,cpp}  - Application 派生クラス
 add_executable(hello_ecs WIN32
     main.cpp

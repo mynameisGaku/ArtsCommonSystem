@@ -44,7 +44,7 @@ void ShadowsScene::Render(Sky&             sky,
                           StandardShader&  shader,
                           ShadowMap&       shadow,
                           IRhiCommandList& cl,
-                          const Camera&    camera,
+                          const FCamera&    camera,
                           const GpuMesh&   plane,
                           const GpuMesh&   cube,
                           const GpuMesh&   sphere,
@@ -71,7 +71,7 @@ void ShadowsScene::Render(Sky&             sky,
     // === 2. 主パス: スカイ → シーン ===
     sky.Render(cl, camera);
 
-    DirLight lights[1];
+    FDirLight lights[1];
     lights[0].direction = sun_dir;
     lights[0].color     = sky.SunColor();
     FVec3 ambient{0.20f, 0.22f, 0.28f};

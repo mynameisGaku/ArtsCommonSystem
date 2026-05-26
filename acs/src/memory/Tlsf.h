@@ -49,10 +49,10 @@ public:
     // 追加プール登録（既存プール枯渇時など）
     TResult<void> AddPool(void* pool_base, usize pool_size) noexcept;
 
-    void* Alloc(usize size, usize alignment, SourceLoc loc) noexcept override;
+    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free (void* ptr)                                  noexcept override;
     void* Realloc(void* ptr, usize old_size, usize new_size,
-                  usize alignment, SourceLoc loc)           noexcept override;
+                  usize alignment, FSourceLoc loc)           noexcept override;
 
     u64 BytesAllocated() const noexcept override { return _bytes_used; }
     u64 PeakBytes()      const noexcept override { return _bytes_peak; }

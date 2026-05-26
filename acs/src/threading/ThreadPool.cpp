@@ -31,8 +31,8 @@ constexpr u32 kSubmitNodePoolCount = 4096;
 
 // Chase-Lev SPMC deque（オーナーは Push/Pop、他スレッドは Steal）
 struct alignas(64) WorkerDeque {
-    Atomic<i64> top    {0};                 // Steal が奪う側
-    Atomic<i64> bottom {0};                 // オーナーが追加・取り出す側
+    TAtomic<i64> top    {0};                 // Steal が奪う側
+    TAtomic<i64> bottom {0};                 // オーナーが追加・取り出す側
     Task        buffer[kDequeCapacity] {};  // タスク本体（値コピー）
 
     // オーナー専用: 末尾に Push（buffer 書き込み後に release で公開）
@@ -79,14 +79,14 @@ struct alignas(64) WorkerDeque {
     }
 };
 
-// 外部投入キュー（プール外スレッドからの Submit が入る Mutex 保護のリスト）
+// 外部投入キュー（プール外スレッドからの Submit が入る FMutex 保護のリスト）
 struct SubmissionNode {
     SubmissionNode* next;
     Task            task;
 };
 
 struct SubmissionQueue {
-    Mutex            lock;
+    FMutex            lock;
     SubmissionNode*  head = nullptr;
     SubmissionNode*  tail = nullptr;
     u32              count = 0;
@@ -96,17 +96,17 @@ struct SubmissionQueue {
 struct alignas(64) Worker {
     WorkerDeque  deque;
     u32          index;
-    Atomic<u32>  rng_state;   // スティーリング先選択用 xorshift32
+    TAtomic<u32>  rng_state;   // スティーリング先選択用 xorshift32
 };
 
 // プール全体の状態
 struct PoolState {
     Worker*           workers      = nullptr;
     u32               worker_count = 0;
-    Thread            threads[kMaxWorkers];
-    Atomic<u32>       running      {0};                    // 1=動作中, 0=停止
+    FThread            threads[kMaxWorkers];
+    TAtomic<u32>       running      {0};                    // 1=動作中, 0=停止
     SubmissionQueue   submit;
-    Mutex             wake_lock;
+    FMutex             wake_lock;
     ConditionVar      wake_cv;
 
     // 外部投入ノードを HeapAlloc せず、固定プールから取る
@@ -119,7 +119,7 @@ PoolState* g_pool = nullptr;
 ACS_THREAD_LOCAL u32 tls_worker_index = ThreadPool::kNotAWorker;
 
 // xorshift32（スティーリング先選択用の小さな PRNG）
-ACS_FORCEINLINE u32 XorShift32(Atomic<u32>& s) noexcept {
+ACS_FORCEINLINE u32 XorShift32(TAtomic<u32>& s) noexcept {
     u32 x = s.Load(EMemoryOrder::Relaxed);
     if (x == 0) x = 0x9E3779B9u;
     x ^= x << 13;
@@ -132,7 +132,7 @@ ACS_FORCEINLINE u32 XorShift32(Atomic<u32>& s) noexcept {
 // SubmissionNode を取得（プール優先、枯渇時のみ HeapAlloc）
 SubmissionNode* AcquireSubmitNode() noexcept {
     if (g_pool->submit_node_pool) {
-        void* p = g_pool->submit_node_pool->Alloc(sizeof(SubmissionNode), alignof(SubmissionNode), SourceLoc::Current());
+        void* p = g_pool->submit_node_pool->Alloc(sizeof(SubmissionNode), alignof(SubmissionNode), FSourceLoc::Current());
         if (p) return static_cast<SubmissionNode*>(p);
     }
     // フォールバック: プール枯渇時は Heap から取る
@@ -204,7 +204,7 @@ void WorkerMain(void* arg) noexcept {
         if (TrySteal(w->index, t))      { Execute(t, w->index); continue; }
 
         // 全て空なら CV で短時間スリープ（NotifyOne で起きる）
-        ScopedLock lk(g_pool->wake_lock);
+        FScopedLock lk(g_pool->wake_lock);
         g_pool->wake_cv.WaitFor(g_pool->wake_lock, 2);
     }
     tls_worker_index = ThreadPool::kNotAWorker;
@@ -258,7 +258,7 @@ TResult<void> ThreadPool::Init(u32 worker_count) noexcept {
     for (u32 i = 0; i < worker_count; ++i) {
         ThreadConfig cfg {};
         cfg.name = L"acs::ThreadPool worker";
-        auto r = Thread::Spawn(&WorkerMain, &g_pool->workers[i], cfg);
+        auto r = FThread::Spawn(&WorkerMain, &g_pool->workers[i], cfg);
         if (r.IsErr()) {
             // 失敗時のロールバック
             g_pool->running.Store(0, EMemoryOrder::Release);
@@ -285,7 +285,7 @@ void ThreadPool::Shutdown() noexcept {
 
     // 残った投入ノードをすべて返却
     {
-        ScopedLock lk(g_pool->submit.lock);
+        FScopedLock lk(g_pool->submit.lock);
         SubmissionNode* n = g_pool->submit.head;
         while (n) {
             SubmissionNode* nx = n->next;
@@ -349,7 +349,7 @@ TResult<void> ThreadPool::Submit(const Task& t) noexcept {
     node->next = nullptr;
     node->task = t;
     {
-        ScopedLock lk(g_pool->submit.lock);
+        FScopedLock lk(g_pool->submit.lock);
         if (g_pool->submit.tail) g_pool->submit.tail->next = node;
         else                     g_pool->submit.head       = node;
         g_pool->submit.tail = node;

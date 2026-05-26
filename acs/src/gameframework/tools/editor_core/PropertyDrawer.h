@@ -48,7 +48,7 @@
 //   ・**field metadata 拡張**: per-property tooltip / validation rule / step /
 //     readonly / hide 属性などを `PropertyContext` に積み上げる (今は最低限)。
 //   ・**composite drawer (struct 再帰)**: drawer 内から `DrawProperty()` を再帰呼出して
-//     ネスト struct (例: `Transform2D` = FVec2 + f32 + FVec2) を 1 個の drawer として
+//     ネスト struct (例: `FTransform2D` = FVec2 + f32 + FVec2) を 1 個の drawer として
 //     扱う。本 registry はそのまま使える。
 //   ・**per-game カスタム drawer**: ゲーム固有型 (`class Health`, `class WeaponSlot`,
 //     `class StatBlock`) を inspector 上で美麗表示する目的。ゲーム側コードが

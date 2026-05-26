@@ -24,7 +24,7 @@ public:
     bool Finished() const noexcept { return Pending() == 0; }                // 全完了か
 
 private:
-    mutable Atomic<u32> _v {0};
+    mutable TAtomic<u32> _v {0};
 };
 
 // タスク本体の関数型（worker_index は実行ワーカーの ID 0..N-1）

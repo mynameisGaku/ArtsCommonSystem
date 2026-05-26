@@ -2,7 +2,7 @@
 // HelloGameFramework — Gameplay scene。本サンプルの中核。
 //
 // ここで Node2D ツリー (root → wheel → spoke + rotator) を構築し、
-// Tween / Camera follow + screen shake / CollisionWorld2D / PhysicsBody2D を
+// Tween / FCamera follow + screen shake / CollisionWorld2D / PhysicsBody2D を
 // SceneServices() 経由で扱う。各機能の詳細は実装側 (cpp) の節コメントを参照。
 #pragma once
 
@@ -45,10 +45,10 @@ private:
     // composition 版 (プレーン Node2D + RotateComponent attach)。
     acs::game::Node2D*       _rotator  = nullptr;
     // spoke[0/1] の world pos に毎フレーム追従させる CollisionWorld 上の円。
-    acs::game::ShapeId       _spoke_shape[2];
+    acs::game::FShapeId       _spoke_shape[2];
     // 重力で落下する ball (弱参照、ツリーの所有) と静的 ground。
     acs::game::Node2D*       _ball         = nullptr;
-    acs::game::ShapeId       _ground_shape;
+    acs::game::FShapeId       _ground_shape;
 
     static constexpr acs::FVec3 kColorDark  {0.05f, 0.20f, 0.10f};
     static constexpr acs::FVec3 kColorBright{0.10f, 0.32f, 0.18f};

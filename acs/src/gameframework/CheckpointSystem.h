@@ -64,8 +64,8 @@
 //   }
 //
 // 設計選択:
-//   ・**CheckpointId は 24bit idx + 8bit gen の packed u32**: HealthId / PickupId
-//     / ShapeId / NodeId と同パターン。Unregister 後の slot 再利用でも古い
+//   ・**CheckpointId は 24bit idx + 8bit gen の packed u32**: FHealthId / PickupId
+//     / FShapeId / FNodeId と同パターン。Unregister 後の slot 再利用でも古い
 //     handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0 dummy)。
 //   ・**string id を主キーに**: gameplay 設計者が触る Trigger アクタは「Activate
 //     先 checkpoint id」を文字列で指定するのが一般的 (Tilemap / Unity prefab の
@@ -83,7 +83,7 @@
 //     ClearAll で初期化される (Save/Load 連携は外部から照会可能)。
 //   ・**active checkpoint は 1 つだけ**: 「複数同時 active」は本クラスの責務外
 //     (= ジャンルキットを超える概念)。最新の Activate が常に勝つ。
-//   ・**Callback は関数ポインタ + user**: Progression / HealthSystem と同パターン。
+//   ・**FCallback は関数ポインタ + user**: Progression / HealthSystem と同パターン。
 //     Activate / Respawn の 2 系統を用意し、UI トースト演出と sound trigger を
 //     ゲーム側で素直に分離できるようにする。
 //   ・**LastSpawnLevelIndex**: TriggerRespawn の後でも level_index を取れる
@@ -109,7 +109,7 @@ namespace acs::game {
 
 // ---- CheckpointId: チェックポイントの handle --------------------------------
 // 32bit packed = 24bit index + 8bit generation。0 = invalid。
-// HealthId / PickupId / ShapeId / NodeId と同パターン。
+// FHealthId / PickupId / FShapeId / FNodeId と同パターン。
 struct CheckpointId {
     u32 _packed = 0;
 
@@ -233,7 +233,7 @@ public:
     // (内部の Slot 配列は穴あきだが、本 API は穴を詰めて返す)
     const CheckpointInfo* AllCheckpoints(u32& out_count) const noexcept;
 
-    // ---- Callback ------------------------------------------------------
+    // ---- FCallback ------------------------------------------------------
     // Activate 成功時 callback。cb == nullptr で解除。
     // 既に active な checkpoint を Activate しても再発火はしない (no-op 成功)。
     void SetOnActivateCallback(ActivateCallback cb, void* user) noexcept;

@@ -53,7 +53,7 @@ void FontEditorScene::OnEnter() noexcept {
     }
     {
         fontedit::FontFaceInfo emoji{};
-        emoji.file_path      = L"assets/fonts/EmojiOne-Color.otf";
+        emoji.file_path      = L"assets/fonts/EmojiOne-FColor.otf";
         emoji.family_name    = "fallback emoji";
         emoji.base_size_px   = 32.0f;
         emoji.char_range_min = 0x1F300u;

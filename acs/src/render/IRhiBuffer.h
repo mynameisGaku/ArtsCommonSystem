@@ -21,7 +21,7 @@ enum class EBufferUsage : u8 {
     Staging,   // CPU からのアップロード用
 };
 
-struct BufferDesc {
+struct FBufferDesc {
     usize       size         = 0;
     EBufferUsage usage        = EBufferUsage::Vertex;
     bool        cpu_writable = false;     // 動的更新したいなら true
@@ -39,6 +39,6 @@ public:
     virtual void Update(const void* data, usize size, usize offset = 0) noexcept = 0;
 };
 
-TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const BufferDesc& desc) noexcept;
+TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBufferDesc& desc) noexcept;
 
 } // namespace acs

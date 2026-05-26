@@ -3,7 +3,7 @@
 #include "foundation/Log.h"
 
 int main() {
-    acs::LogConfig cfg{};
+    acs::FLogConfig cfg{};
     cfg.console = true;
     cfg.debug_output = false;
     cfg.min_severity = acs::ELogSeverity::Info;

@@ -548,7 +548,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     _brdf_lut.Reset();
 
     // 1) RT 用テクスチャ
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width            = kBrdfLutSize;
     td.height           = kBrdfLutSize;
     td.format           = EFormat::R16G16_Float;
@@ -562,7 +562,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     TUniquePtr<IRhiShader>   ps;
     TUniquePtr<IRhiPipeline> pipeline;
 
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kBrdfLutHLSL;
     vs_d.entry_point = "VSMain";
@@ -571,7 +571,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
         return Err<void>(r.Error());
     else vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kBrdfLutHLSL;
     ps_d.entry_point = "PSMain";
@@ -580,7 +580,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
         return Err<void>(r.Error());
     else ps = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -629,7 +629,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     _env_cube.Reset();
 
     // 1) cubemap (6 face, R11G11B10_Float, per-slice RTV)
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width            = kEnvCubeSize;
     td.height           = kEnvCubeSize;
     td.format           = EFormat::R11G11B10_Float;
@@ -647,7 +647,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     TUniquePtr<IRhiPipeline> pipeline;
     TUniquePtr<IRhiBuffer>   cb;
 
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kEnvCaptureHLSL;
     vs_d.entry_point = "VSMain";
@@ -655,7 +655,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kEnvCaptureHLSL;
     ps_d.entry_point = "PSMain";
@@ -663,7 +663,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else ps = Move(r.Value());
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = sizeof(EnvCaptureCBLayout);
     // 256B align (DX12 CB 制約)
     cbd.size = (cbd.size + 255u) & ~static_cast<usize>(255u);
@@ -672,7 +672,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else cb = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -813,7 +813,7 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     // 1) equirect Texture2D (R32G32B32A32_Float、CPU 提供データを直接 upload)
     TUniquePtr<IRhiTexture> equirect;
     {
-        TextureDesc td{};
+        FTextureDesc td{};
         td.width  = width;
         td.height = height;
         td.format = EFormat::R32G32B32A32_Float;
@@ -826,7 +826,7 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
 
     // 2) 出力 env cubemap (Sky 由来と同サイズ、R11G11B10_Float、per-slice RTV)
     {
-        TextureDesc td{};
+        FTextureDesc td{};
         td.width            = kEnvCubeSize;
         td.height           = kEnvCubeSize;
         td.format           = EFormat::R11G11B10_Float;
@@ -845,7 +845,7 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     TUniquePtr<IRhiPipeline> pipeline;
     TUniquePtr<IRhiBuffer>   cb;
 
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kEquirectToCubeHLSL;
     vs_d.entry_point = "VSMain";
@@ -853,7 +853,7 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kEquirectToCubeHLSL;
     ps_d.entry_point = "PSMain";
@@ -861,14 +861,14 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else ps = Move(r.Value());
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = (sizeof(EquirectCBLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else cb = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -934,7 +934,7 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     _irradiance_cube.Reset();
 
     // 1) irradiance cubemap (6 face, 32x32, R11G11B10_Float, per-slice RTV)
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width            = kIrradianceSize;
     td.height           = kIrradianceSize;
     td.format           = EFormat::R11G11B10_Float;
@@ -952,7 +952,7 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     TUniquePtr<IRhiPipeline> pipeline;
     TUniquePtr<IRhiBuffer>   cb;
 
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kIrradianceHLSL;
     vs_d.entry_point = "VSMain";
@@ -960,7 +960,7 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kIrradianceHLSL;
     ps_d.entry_point = "PSMain";
@@ -968,14 +968,14 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else ps = Move(r.Value());
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = (sizeof(IrradianceCBLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else cb = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -1043,7 +1043,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     _prefilter_mips = 0;
 
     // 1) prefilter cubemap (6 face, 128x128, 5 mips, R11G11B10_Float, per-slice RTV)
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width            = kPrefilterSize;
     td.height           = kPrefilterSize;
     td.format           = EFormat::R11G11B10_Float;
@@ -1063,7 +1063,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     TUniquePtr<IRhiPipeline> pipeline;
     TUniquePtr<IRhiBuffer>   cb;
 
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kPrefilterHLSL;
     vs_d.entry_point = "VSMain";
@@ -1071,7 +1071,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kPrefilterHLSL;
     ps_d.entry_point = "PSMain";
@@ -1079,14 +1079,14 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else ps = Move(r.Value());
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = (sizeof(PrefilterCBLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else cb = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = vs.Get();
     pd.ps            = ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -1143,7 +1143,7 @@ TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     _sky_ps.Reset();
     _sky_vs.Reset();
 
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyboxHLSL;
     vs_d.entry_point = "VSMain";
@@ -1151,7 +1151,7 @@ TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _sky_vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyboxHLSL;
     ps_d.entry_point = "PSMain";
@@ -1159,14 +1159,14 @@ TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _sky_ps = Move(r.Value());
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = (sizeof(SkyboxCBLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
     else _sky_cb = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = _sky_vs.Get();
     pd.ps            = _sky_ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;

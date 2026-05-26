@@ -190,7 +190,7 @@ const CosmeticItem* CharacterCustomizer::AllCosmetics(u32& out_count) const noex
 }
 
 // =============================================================================
-// Callback
+// FCallback
 // =============================================================================
 
 void CharacterCustomizer::SetOnEquipCallback(EquipCallback cb, void* user) noexcept {

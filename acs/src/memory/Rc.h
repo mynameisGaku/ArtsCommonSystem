@@ -24,7 +24,7 @@ namespace rc_detail {
 
 // 全 TRc 共通の制御ブロック（参照カウント + アロケータ + デストラクタ）
 struct ControlBlock {
-    Atomic<u32> strong {1};                            // 強参照カウント
+    TAtomic<u32> strong {1};                            // 強参照カウント
     Allocator*  alloc  = nullptr;                      // 解放に使うアロケータ
     void (*destroy)(ControlBlock*) noexcept = nullptr; // T 破棄関数（型消去）
 };
@@ -136,7 +136,7 @@ ACS_FORCEINLINE TRc<T> MakeRc(Args&&... args) noexcept {
 template<typename T, typename... Args>
 ACS_FORCEINLINE TRc<T> MakeRcIn(Allocator& a, Args&&... args) noexcept {
     using Block = rc_detail::InlineBlock<T>;
-    void* mem = a.Alloc(sizeof(Block), alignof(Block), SourceLoc::Current());
+    void* mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TRc<T>();
     auto* blk = ::new (mem) Block();
     blk->alloc = &a;

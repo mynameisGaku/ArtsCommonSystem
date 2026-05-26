@@ -85,7 +85,7 @@ public:
     // 直後に Push されようとしている `next` を、自分にマージ可能か返す。
     // default は false (= マージしない、毎回別エントリとして undo stack に積む)。
     //
-    // マージは「同じ対象 (= same target pointer / same NodeId)」かつ
+    // マージは「同じ対象 (= same target pointer / same FNodeId)」かつ
     // 「同じ command kind (typeid 相当のフィールド比較)」のときに限定する。
     // 派生クラスが override する場合は dynamic_cast を使わず、自前の kind 比較
     // (例: const char* GetKind() を override) で行うこと (ACS は RTTI を避ける)。

@@ -33,7 +33,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 } // namespace
 
 TResult<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kBlitHLSL;
     vs_d.entry_point = "VSMain";
@@ -42,7 +42,7 @@ TResult<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kBlitHLSL;
     ps_d.entry_point = "PSMain";
@@ -51,7 +51,7 @@ TResult<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     _ps = Move(ps_r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;

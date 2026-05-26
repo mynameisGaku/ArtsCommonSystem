@@ -25,7 +25,7 @@ namespace {
 // は呼出し側では確認できないため、ここでは handle の IsValid のみで判断する。
 // system 側で stale 化していた場合、Set*/Burst/Destroy は no-op として動く設計
 // (ParticleEffectSystem の規約) なので安全。
-inline bool HasPreview(EmitterHandle h) noexcept {
+inline bool HasPreview(FEmitterHandle h) noexcept {
     return h.IsValid();
 }
 

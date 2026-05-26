@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloTriangle — HLSL シェーダソース。
 //
-// VS + PS を 1 文字列にまとめて持ち、ShaderDesc::hlsl_source に渡す。
+// VS + PS を 1 文字列にまとめて持ち、FShaderDesc::hlsl_source に渡す。
 // inline constexpr で複数 TU 安全 (C++17)。
 #pragma once
 

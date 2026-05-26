@@ -65,7 +65,7 @@ ACS は **日本インディー / 学習者向け軽量 C++ ゲームフレー�
 
 中期:
 - **archetype 検討** (10 万 entity ベンチで sparse set のボトルネック確認後)
-- **JobGraph cycle detection 強化** (Kahn 法導入済、エッジケース潰す)
+- **FJobGraph cycle detection 強化** (Kahn 法導入済、エッジケース潰す)
 - **MessagePipe ring buffer 化** (現状 TArray 前詰めで O(N) Pop)
 - **Vulkan 経路の動作検証** (現状 D3D12 のみテスト想定、Diligent 経由で Vulkan SKU が有効化された場合の確認)
 

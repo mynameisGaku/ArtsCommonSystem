@@ -74,7 +74,7 @@ enum class ECombatState : u8 {
 };
 
 // 1 敵分の認識情報。CombatStateMachine が内部 TArray で保持する。
-//   enemy_id        : ゲーム側で割り振る一意 ID (NodeId などをそのまま渡せる)
+//   enemy_id        : ゲーム側で割り振る一意 ID (FNodeId などをそのまま渡せる)
 //   awareness_level : [0, 1]。1.0 = 完全に検出、0.0 = 未検出。Notify*EnemyDetected
 //                     で 1.0 に上書き、Retreat / Victory で 0.0 に減衰させる。
 //   is_engaged      : NotifyCombatStarted で true、NotifyCombatEnded で false。

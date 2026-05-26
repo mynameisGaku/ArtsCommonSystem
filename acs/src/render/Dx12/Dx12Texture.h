@@ -14,7 +14,7 @@ public:
     Dx12Texture() noexcept = default;
     ~Dx12Texture() noexcept override;
 
-    HrResult Init(Dx12Device& device, const TextureDesc& desc) noexcept;
+    HrResult Init(Dx12Device& device, const FTextureDesc& desc) noexcept;
 
     u32    Width()       const noexcept override { return _width; }
     u32    Height()      const noexcept override { return _height; }

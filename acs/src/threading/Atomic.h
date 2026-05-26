@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Threading — Atomic<T>（std::atomic 代替）
+// ACS Threading — TAtomic<T>（std::atomic 代替）
 // -----------------------------------------------------------------------------
 // MSVC の _Interlocked* 組み込み関数をテンプレートでラップ。
 // サポート対象: 1 / 2 / 4 / 8 バイトの整数 / 列挙 / ポインタ。
@@ -34,7 +34,7 @@ namespace atomic_detail {
 template<typename T>
 ACS_FORCEINLINE T LoadAcquire(const volatile T* p) noexcept {
     static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
-                  "Atomic load: unsupported size");
+                  "TAtomic load: unsupported size");
 #if ACS_ARCH_X64
     T v = *p;
     CompilerBarrier();
@@ -139,19 +139,19 @@ ACS_FORCEINLINE T FetchAnd(volatile T* p, T v) noexcept {
 
 
 // =============================================================================
-// Atomic<T> — 値型用
+// TAtomic<T> — 値型用
 // =============================================================================
 template<typename T>
-class Atomic {
+class TAtomic {
     static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
-                  "Atomic<T>: T must be 1, 2, 4, or 8 bytes");
+                  "TAtomic<T>: T must be 1, 2, 4, or 8 bytes");
 public:
-    Atomic() noexcept = default;
-    constexpr explicit Atomic(T v) noexcept : _v(v) {}
+    TAtomic() noexcept = default;
+    constexpr explicit TAtomic(T v) noexcept : _v(v) {}
 
     // アトミック型はコピーできない（std::atomic と同様の制約）
-    Atomic(const Atomic&) = delete;
-    Atomic& operator=(const Atomic&) = delete;
+    TAtomic(const TAtomic&) = delete;
+    TAtomic& operator=(const TAtomic&) = delete;
 
     // ---- ロード ----
     ACS_FORCEINLINE T Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept {
@@ -185,16 +185,16 @@ private:
 };
 
 // =============================================================================
-// Atomic<T*> — ポインタ用特殊化（ポインタは x64 では常に 8 バイト）
+// TAtomic<T*> — ポインタ用特殊化（ポインタは x64 では常に 8 バイト）
 // =============================================================================
 template<typename T>
-class Atomic<T*> {
+class TAtomic<T*> {
 public:
-    Atomic() noexcept = default;
-    constexpr explicit Atomic(T* v) noexcept : _v(v) {}
+    TAtomic() noexcept = default;
+    constexpr explicit TAtomic(T* v) noexcept : _v(v) {}
 
-    Atomic(const Atomic&) = delete;
-    Atomic& operator=(const Atomic&) = delete;
+    TAtomic(const TAtomic&) = delete;
+    TAtomic& operator=(const TAtomic&) = delete;
 
     ACS_FORCEINLINE T* Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept {
         return reinterpret_cast<T*>(o == EMemoryOrder::Relaxed

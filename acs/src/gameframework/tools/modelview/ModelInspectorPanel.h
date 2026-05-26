@@ -182,7 +182,7 @@ public:
     }
 
     u32 BoneCount() const noexcept { return static_cast<u32>(_bones.Size()); }
-    const BoneInfo* Bone(u32 i) const noexcept {
+    const BoneInfo* FBone(u32 i) const noexcept {
         return (i < _bones.Size()) ? &_bones[i] : nullptr;
     }
 
@@ -205,7 +205,7 @@ public:
     //   - Summary           (常時表示、テキスト一覧)
     //   - Submeshes         (CollapsingHeader + Table)
     //   - Bones             (CollapsingHeader + TreeNode 再帰)
-    //   - Animation Clips   (CollapsingHeader + Table)
+    //   - FAnimation Clips   (CollapsingHeader + Table)
     // model 未 load (`!_has_model`) の場合は "(No model loaded)" を表示して
     // セクションは描画しない。
     void DrawUI() noexcept override;

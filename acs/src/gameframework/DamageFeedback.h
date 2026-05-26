@@ -16,7 +16,7 @@
 //                   / DirectionalIndicatorAlpha() を pull して描く。
 //      ・death cam → カメラ制御コードが IsDeathCamActive() / DeathCamTarget()
 //                    / DeathCamProgress() を見て自前で zoom + LookAt する。
-//      これにより GameFramework から Renderer / Camera への依存を切る。
+//      これにより GameFramework から Renderer / FCamera への依存を切る。
 //   ・**赤エッジは累積 → 指数 decay**: TakeDamage で `intensity += amount * 0.1`
 //      を加算 [0,1] clamp、Tick で `-= 2.0 * dt` の線形 decay (~0.5 秒で消える)。
 //      累積式にすることで「連続被弾で画面が真っ赤に染まる」自然な挙動が出る。

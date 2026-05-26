@@ -17,7 +17,7 @@ void Player::Init(GameplayScene& scene, Node2D& root, HealthSystem& health) noex
     auto player_up = MakeUnique<Node2D>();
     player_up->Local().position = FVec2{0.0f, 0.0f};
     _node = &root.AddChild(Move(player_up));
-    _node->_SetId(NodeId{1u, static_cast<u8>(1)});
+    _node->_SetId(FNodeId{1u, static_cast<u8>(1)});
 
     _health_id = health.Spawn(kPlayerHp);
     _shape     = scene.Services().Physics().AddCircle(
@@ -32,8 +32,8 @@ void Player::Shutdown() noexcept {
         _node->Destroy();
         _node = nullptr;
     }
-    _health_id = HealthId{};
-    _shape     = ShapeId{};
+    _health_id = FHealthId{};
+    _shape     = FShapeId{};
     _fire_cd   = 0.0f;
 }
 

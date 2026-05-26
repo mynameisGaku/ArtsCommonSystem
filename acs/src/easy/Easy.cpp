@@ -51,18 +51,18 @@ namespace acs::easy {
 // ============================================================================
 // 色定数
 // ============================================================================
-const Color Color::Red    { 0.92f, 0.26f, 0.26f, 1.0f };
-const Color Color::Green  { 0.30f, 0.78f, 0.36f, 1.0f };
-const Color Color::Blue   { 0.26f, 0.49f, 0.96f, 1.0f };
-const Color Color::Yellow { 0.98f, 0.83f, 0.25f, 1.0f };
-const Color Color::Cyan   { 0.25f, 0.83f, 0.93f, 1.0f };
-const Color Color::Magenta{ 0.93f, 0.33f, 0.78f, 1.0f };
-const Color Color::White  { 1.0f,  1.0f,  1.0f,  1.0f };
-const Color Color::Black  { 0.0f,  0.0f,  0.0f,  1.0f };
-const Color Color::Gray   { 0.52f, 0.54f, 0.60f, 1.0f };
-const Color Color::Orange { 1.0f,  0.55f, 0.15f, 1.0f };
-const Color Color::Sky    { 0.45f, 0.70f, 0.95f, 1.0f };
-const Color Color::Clear  { 0.0f,  0.0f,  0.0f,  0.0f };
+const FColor FColor::Red    { 0.92f, 0.26f, 0.26f, 1.0f };
+const FColor FColor::Green  { 0.30f, 0.78f, 0.36f, 1.0f };
+const FColor FColor::Blue   { 0.26f, 0.49f, 0.96f, 1.0f };
+const FColor FColor::Yellow { 0.98f, 0.83f, 0.25f, 1.0f };
+const FColor FColor::Cyan   { 0.25f, 0.83f, 0.93f, 1.0f };
+const FColor FColor::Magenta{ 0.93f, 0.33f, 0.78f, 1.0f };
+const FColor FColor::White  { 1.0f,  1.0f,  1.0f,  1.0f };
+const FColor FColor::Black  { 0.0f,  0.0f,  0.0f,  1.0f };
+const FColor FColor::Gray   { 0.52f, 0.54f, 0.60f, 1.0f };
+const FColor FColor::Orange { 1.0f,  0.55f, 0.15f, 1.0f };
+const FColor FColor::Sky    { 0.45f, 0.70f, 0.95f, 1.0f };
+const FColor FColor::Clear  { 0.0f,  0.0f,  0.0f,  0.0f };
 
 // ============================================================================
 // 内部状態（このファイル内のみ）
@@ -134,7 +134,7 @@ void ToWide(const char* utf8, wchar_t* out, int out_len) noexcept {
     out[out_len - 1] = 0;              // 念のため終端を保証
 }
 
-inline FVec4 ToVec4(Color c)   noexcept { return FVec4{ c.r, c.g, c.b, c.a }; }
+inline FVec4 ToVec4(FColor c)   noexcept { return FVec4{ c.r, c.g, c.b, c.a }; }
 inline f32  Clamp01(f32 v)    noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
 // player_index を 0..3 に収める
@@ -176,7 +176,7 @@ TUniquePtr<IRhiTexture> MakeCircleTexture(IRhiDevice& device) noexcept {
             p[i + 3] = static_cast<u8>(a * 255.0f);
         }
     }
-    TextureDesc desc{};
+    FTextureDesc desc{};
     desc.width             = N;
     desc.height            = N;
     desc.format            = EFormat::R8G8B8A8_UNorm;
@@ -362,13 +362,13 @@ void SetSaveValue(const char* key, const char* value) noexcept {
 // ============================================================================
 // 色ヘルパ
 // ============================================================================
-Color Rgb(u8 r, u8 g, u8 b) noexcept {
-    return Color{ r / 255.0f, g / 255.0f, b / 255.0f, 1.0f };
+FColor Rgb(u8 r, u8 g, u8 b) noexcept {
+    return FColor{ r / 255.0f, g / 255.0f, b / 255.0f, 1.0f };
 }
-Color Rgba(u8 r, u8 g, u8 b, u8 a) noexcept {
-    return Color{ r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f };
+FColor Rgba(u8 r, u8 g, u8 b, u8 a) noexcept {
+    return FColor{ r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f };
 }
-Color Fade(Color color, f32 alpha) noexcept {
+FColor Fade(FColor color, f32 alpha) noexcept {
     color.a = Clamp01(alpha);
     return color;
 }
@@ -383,7 +383,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     }
 
     // 1. ロガー
-    LogConfig lc{};
+    FLogConfig lc{};
     Logger::Init(lc);
 
     // 2. メモリシステム
@@ -530,11 +530,11 @@ bool NextFrame() noexcept {
         if (cl) {
             cl->Begin();
             cl->BeginRenderToTexture(*hdr, g_state.clear, nullptr, 1.0f);
-            Viewport vp{};
+            FViewport vp{};
             vp.width  = static_cast<f32>(hdr->Width());
             vp.height = static_cast<f32>(hdr->Height());
             cl->SetViewport(vp);
-            ScissorRect sr{};
+            FScissorRect sr{};
             sr.right  = static_cast<i32>(hdr->Width());
             sr.bottom = static_cast<i32>(hdr->Height());
             cl->SetScissor(sr);
@@ -566,7 +566,7 @@ void SetWindowTitle(const char* title) noexcept {
     g_state.window.SetTitle(g_state.title_buf);
 }
 
-void SetBackground(Color color) noexcept {
+void SetBackground(FColor color) noexcept {
     g_state.clear = ClearColor{ color.r, color.g, color.b, color.a };
 }
 
@@ -626,13 +626,13 @@ void SetAutoExposure(bool enabled) noexcept {
 // ============================================================================
 // 図形を描く
 // ============================================================================
-void DrawRect(f32 x, f32 y, f32 width, f32 height, Color color) noexcept {
+void DrawRect(f32 x, f32 y, f32 width, f32 height, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     g_state.batch.DrawRect(x, y, width, height, ToVec4(color));
 }
 
 void DrawRectOutline(f32 x, f32 y, f32 width, f32 height,
-                     Color color, f32 thickness) noexcept {
+                     FColor color, f32 thickness) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (thickness < 1.0f) thickness = 1.0f;
     const FVec4 c = ToVec4(color);
@@ -643,14 +643,14 @@ void DrawRectOutline(f32 x, f32 y, f32 width, f32 height,
 }
 
 void DrawRectRotated(f32 x, f32 y, f32 width, f32 height,
-                     f32 degrees, Color color) noexcept {
+                     f32 degrees, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     // 左上指定を中心へ変換して SpriteBatch に渡す
     g_state.batch.DrawRectRotated(x + width * 0.5f, y + height * 0.5f,
                                  width, height, degrees * kDeg2Rad, ToVec4(color));
 }
 
-void DrawCircle(f32 x, f32 y, f32 radius, Color color) noexcept {
+void DrawCircle(f32 x, f32 y, f32 radius, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (!g_state.circle_tex || radius <= 0.0f) return;
     g_state.batch.Draw(*g_state.circle_tex, x - radius, y - radius,
@@ -658,7 +658,7 @@ void DrawCircle(f32 x, f32 y, f32 radius, Color color) noexcept {
 }
 
 void DrawCircleOutline(f32 x, f32 y, f32 radius,
-                       Color color, f32 thickness) noexcept {
+                       FColor color, f32 thickness) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (!g_state.circle_tex || radius <= 0.0f) return;
     if (thickness < 1.0f) thickness = 1.0f;
@@ -678,7 +678,7 @@ void DrawCircleOutline(f32 x, f32 y, f32 radius,
     }
 }
 
-void DrawLine(f32 x1, f32 y1, f32 x2, f32 y2, Color color, f32 thickness) noexcept {
+void DrawLine(f32 x1, f32 y1, f32 x2, f32 y2, FColor color, f32 thickness) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (thickness < 1.0f) thickness = 1.0f;
     const f32 dx  = x2 - x1;
@@ -696,19 +696,19 @@ void DrawLine(f32 x1, f32 y1, f32 x2, f32 y2, Color color, f32 thickness) noexce
 }
 
 void DrawTriangle(f32 x1, f32 y1, f32 x2, f32 y2, f32 x3, f32 y3,
-                  Color color) noexcept {
+                  FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     g_state.batch.DrawTriangle(x1, y1, x2, y2, x3, y3, ToVec4(color));
 }
 
 void DrawTriangleOutline(f32 x1, f32 y1, f32 x2, f32 y2, f32 x3, f32 y3,
-                         Color color, f32 thickness) noexcept {
+                         FColor color, f32 thickness) noexcept {
     DrawLine(x1, y1, x2, y2, color, thickness);
     DrawLine(x2, y2, x3, y3, color, thickness);
     DrawLine(x3, y3, x1, y1, color, thickness);
 }
 
-void DrawPixel(f32 x, f32 y, Color color) noexcept {
+void DrawPixel(f32 x, f32 y, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     g_state.batch.DrawRect(x, y, 1.0f, 1.0f, ToVec4(color));
 }
@@ -733,7 +733,7 @@ void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
 }
 
 void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
-                       f32 scale, Color tint) noexcept {
+                       f32 scale, FColor tint) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
     SpriteSlot& s = g_state.sprites[sprite.id - 1];
@@ -745,7 +745,7 @@ void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
                              degrees * kDeg2Rad, 0, 0, 1, 1, ToVec4(tint));
 }
 
-void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, Color tint) noexcept {
+void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, FColor tint) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
     SpriteSlot& s = g_state.sprites[sprite.id - 1];
@@ -790,20 +790,20 @@ f32 SpriteHeight(Sprite sprite) noexcept {
 // ============================================================================
 // 文字を描く
 // ============================================================================
-void DrawString(f32 x, f32 y, const char* text, Color color) noexcept {
+void DrawString(f32 x, f32 y, const char* text, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (!g_state.font_ok || !text) return;
     DrawTextScaled(x, y, text, ToVec4(color), 1.0f);
 }
 
-void DrawString(f32 x, f32 y, const char* text, Color color, f32 size) noexcept {
+void DrawString(f32 x, f32 y, const char* text, FColor color, f32 size) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (!g_state.font_ok || !text || size <= 0.0f) return;
     const f32 base = g_state.font.PixelSize();
     DrawTextScaled(x, y, text, ToVec4(color), base > 0.0f ? size / base : 1.0f);
 }
 
-void DrawStringCentered(f32 center_x, f32 y, const char* text, Color color) noexcept {
+void DrawStringCentered(f32 center_x, f32 y, const char* text, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (!g_state.font_ok || !text) return;
     const f32 w = g_state.font.MeasureWidth(text);
@@ -811,7 +811,7 @@ void DrawStringCentered(f32 center_x, f32 y, const char* text, Color color) noex
 }
 
 void DrawStringCentered(f32 center_x, f32 y, const char* text,
-                        Color color, f32 size) noexcept {
+                        FColor color, f32 size) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (!g_state.font_ok || !text || size <= 0.0f) return;
     const f32 base  = g_state.font.PixelSize();

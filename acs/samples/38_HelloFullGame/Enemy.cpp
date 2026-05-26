@@ -42,8 +42,8 @@ void EnemyPool::Spawn(GameplayScene& scene, Node2D& root, HealthSystem& health,
     auto up = MakeUnique<Node2D>();
     up->Local().position = pos;
     Node2D& nref = root.AddChild(Move(up));
-    // NodeId は 100 オフセットで衝突回避 (player=1)。
-    nref._SetId(NodeId{slot + 100u, static_cast<u8>(1)});
+    // FNodeId は 100 オフセットで衝突回避 (player=1)。
+    nref._SetId(FNodeId{slot + 100u, static_cast<u8>(1)});
 
     EnemyInstance& e = _enemies[slot];
     e.alive = true;

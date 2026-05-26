@@ -18,7 +18,7 @@ struct Pair {
     V second;
 };
 
-template<typename K, typename V, typename H = Hasher<K>>
+template<typename K, typename V, typename H = THasher<K>>
 class THashMap {
 public:
     using EntryType = Pair<K, V>;
@@ -181,7 +181,7 @@ private:
         ACS_ASSERT((new_count & (new_count - 1)) == 0);
         Bucket* old_buckets = _buckets;
 
-        void* mem = _alloc->Alloc(sizeof(Bucket) * new_count, alignof(Bucket), SourceLoc::Current());
+        void* mem = _alloc->Alloc(sizeof(Bucket) * new_count, alignof(Bucket), FSourceLoc::Current());
         ACS_ASSERTF(mem, "THashMap::Rehash: alloc failed (cap=%zu)", new_count);
         _buckets = static_cast<Bucket*>(mem);
         _bucket_count = new_count;

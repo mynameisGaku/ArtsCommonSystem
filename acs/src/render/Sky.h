@@ -27,7 +27,7 @@
 
 namespace acs {
 
-class Camera;
+class FCamera;
 
 class Sky {
 public:
@@ -66,7 +66,7 @@ public:
     FVec3 GroundColor()  const noexcept { return _ground; }
 
     // 描画（先頭で呼ぶ。深度バッファは「背景に塗る」想定で書込み無し・テスト無し）
-    void Render(IRhiCommandList& cl, const Camera& camera) noexcept;
+    void Render(IRhiCommandList& cl, const FCamera& camera) noexcept;
 
 private:
     TUniquePtr<IRhiShader>   _vs;

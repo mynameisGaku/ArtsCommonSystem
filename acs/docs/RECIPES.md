@@ -21,7 +21,7 @@ class MyGame : public Application {
     TUniquePtr<IRhiShader>   _vs, _ps;
     TUniquePtr<IRhiBuffer>   _vb, _ib, _cb;
     TUniquePtr<IRhiPipeline> _pipe;
-    Camera _cam;
+    FCamera _cam;
     f32    _angle = 0;
 
     void OnStart() noexcept override {
@@ -54,7 +54,7 @@ class MyGame : public Application {
 
 ```cpp
 // 手書きピクセルから直接
-TextureDesc td{};
+FTextureDesc td{};
 td.width = 64; td.height = 64;
 td.format = EFormat::R8G8B8A8_UNorm;
 td.initial_data = pixels;            // 64*64*4 bytes RGBA
@@ -172,8 +172,8 @@ auto mesh = MakeRc<SkinnedMeshAsset>();
 mesh->Bones().Resize(4);
 // ボーン階層を組む（parent / bind_translation / bind_rotation / bind_scale）
 mesh->ComputeInverseBindMatrices();
-// 頂点は SkinnedVertex（ボーン indices + weights を持つ）
-// アニメーションキーを Animation::channels に追加
+// 頂点は FSkinnedVertex（ボーン indices + weights を持つ）
+// アニメーションキーを FAnimation::channels に追加
 
 // 2) GPU アップロード
 SkinnedGpuMesh gm;
@@ -311,7 +311,7 @@ sky.Render(*cl, camera);
 ```
 - グラデーション空（地平線→天頂）+ 太陽ディスク + ハロー
 - カスタマイズ: `SetSunDirection / SetZenithColor / SetHorizonColor / SetSunRadius`
-- StandardShader と整合させるには `sky.SunDirection() / sky.SunColor()` を `DirLight` に渡す
+- StandardShader と整合させるには `sky.SunDirection() / sky.SunColor()` を `FDirLight` に渡す
 
 ## シャドウマッピング
 
@@ -372,7 +372,7 @@ shd.SetPointLights(pts, 3);     // 最大 4 灯
 ## マルチライト + 鏡面反射
 
 ```cpp
-DirLight lights[2];
+FDirLight lights[2];
 lights[0].direction = FVec3{ 0.5f, 0.8f, 0.3f };
 lights[0].color     = FVec3{ 1.0f, 0.9f, 0.7f };   // 暖色キーライト
 lights[1].direction = FVec3{-0.4f, 0.5f,-0.7f };

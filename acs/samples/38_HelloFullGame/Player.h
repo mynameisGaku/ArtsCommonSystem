@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloFullGame — Player モジュール。
-// 自機 Node2D + HealthId + 円形コリジョン + 入力ハンドリング + 射撃クールダウン。
+// 自機 Node2D + FHealthId + 円形コリジョン + 入力ハンドリング + 射撃クールダウン。
 //
 // 設計メモ: Player は GameplayScene に所有させ、scene が tick / draw を呼ぶ。
 // 当たり判定形状は Services().Physics() に登録するため、GameplayScene の Services()
@@ -41,14 +41,14 @@ public:
     // ----- アクセサ -----
     acs::game::Node2D* Node()       noexcept { return _node; }
     acs::FVec2          Position() const noexcept;
-    acs::game::HealthId  HealthHandle() const noexcept { return _health_id; }
-    acs::game::ShapeId   Shape()        const noexcept { return _shape; }
+    acs::game::FHealthId  HealthHandle() const noexcept { return _health_id; }
+    acs::game::FShapeId   Shape()        const noexcept { return _shape; }
     bool                 IsInvulnerable(const acs::game::HealthSystem& h) const noexcept;
 
 private:
     acs::game::Node2D*    _node      = nullptr;
-    acs::game::HealthId   _health_id {};
-    acs::game::ShapeId    _shape     {};
+    acs::game::FHealthId   _health_id {};
+    acs::game::FShapeId    _shape     {};
     acs::f32              _fire_cd   = 0.0f;
 };
 

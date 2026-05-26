@@ -72,7 +72,7 @@ TResult<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) n
     // ===== 深度テクスチャ（SRV 可視）======================================
     // single mode (cascade_count=1): size × size
     // CSM mode    (cascade_count≥2): atlas = (size * cascade_count) × size
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width  = size * cascade_count;
     td.height = size;
     td.format = EFormat::D32_Float;
@@ -83,7 +83,7 @@ TResult<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) n
     _depth = Move(tr.Value());
 
     // ===== Caster VS =====
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kCasterHLSL;
     vs_d.entry_point = "VSMain";
@@ -93,7 +93,7 @@ TResult<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) n
     _vs = Move(vs_r.Value());
 
     // ===== 定数バッファ =====
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = 256;
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -106,7 +106,7 @@ TResult<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) n
     _object_cb = Move(ob_r.Value());
 
     // ===== 深度のみパイプライン =====
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = nullptr;          // depth-only
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -266,9 +266,9 @@ void ShadowMap::SetCaster(const FMat4& model) noexcept {
     if (_object_cb) _object_cb->Update(&model, sizeof(FMat4));
 }
 
-Viewport ShadowMap::CascadeViewport(u32 cascade) const noexcept {
+FViewport ShadowMap::CascadeViewport(u32 cascade) const noexcept {
     if (cascade >= _cascade_count) cascade = 0;
-    Viewport vp{};
+    FViewport vp{};
     vp.x         = static_cast<f32>(cascade * _size);
     vp.y         = 0.0f;
     vp.width     = static_cast<f32>(_size);
@@ -278,9 +278,9 @@ Viewport ShadowMap::CascadeViewport(u32 cascade) const noexcept {
     return vp;
 }
 
-ScissorRect ShadowMap::CascadeScissor(u32 cascade) const noexcept {
+FScissorRect ShadowMap::CascadeScissor(u32 cascade) const noexcept {
     if (cascade >= _cascade_count) cascade = 0;
-    ScissorRect r{};
+    FScissorRect r{};
     r.left   = static_cast<i32>(cascade * _size);
     r.top    = 0;
     r.right  = static_cast<i32>((cascade + 1) * _size);

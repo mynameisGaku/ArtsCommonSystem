@@ -64,7 +64,7 @@ public:
     FVec2 gravity      {0.0f, 0.0f};
 
     // 現在の collision handle (deregister 時に invalidated)
-    ShapeId Handle() const noexcept { return _handle; }
+    FShapeId Handle() const noexcept { return _handle; }
 
     // Component2D hooks
     void OnAttach(Node2D& owner) noexcept override;
@@ -82,7 +82,7 @@ private:
     ShapeKind         _kind   = ShapeKind::None;
     f32               _radius = 0.5f;
     FVec2              _half_size{0.5f, 0.5f};
-    ShapeId           _handle;
+    FShapeId           _handle;
     bool              _registered = false;
 };
 

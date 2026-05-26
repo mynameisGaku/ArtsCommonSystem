@@ -13,7 +13,7 @@
 
 namespace hellomv {
 
-// 1 頂点 = 位置 + 色 (Color は面ごとに使い分け)。
+// 1 頂点 = 位置 + 色 (FColor は面ごとに使い分け)。
 struct Vertex {
     acs::f32 pos[3];
     acs::f32 col[3];

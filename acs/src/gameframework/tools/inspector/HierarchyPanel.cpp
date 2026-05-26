@@ -6,7 +6,7 @@
 //   ・各ノードクリックで selection 切替 (SelectionService 経由 or 内部 fallback)
 //   ・右クリックで context menu (Delete / Duplicate / Reparent target 設定)
 //   ・Drag & Drop で reparent (BeginDragDropSource / BeginDragDropTarget)
-//   ・折りたたみ状態を NodeId キーで永続化
+//   ・折りたたみ状態を FNodeId キーで永続化
 // を実装する。すべて noexcept、STL 不使用、ImGui include は本 .cpp 限定。
 #include "gameframework/tools/inspector/HierarchyPanel.h"
 
@@ -20,13 +20,13 @@
 namespace acs::game::inspector {
 
 // ---- ローカルヘルパ ------------------------------------------------------
-// 描画ラベル "Node #idx (id=N:gen)" を整形する。NodeId が invalid なら
+// 描画ラベル "Node #idx (id=N:gen)" を整形する。FNodeId が invalid なら
 // "Node #idx (no-id)" の表記。これにより同名 (ラベル無し) のノードでも
 // hierarchy 上で区別できる (Unity の "GameObject (1)" 命名相当)。
 static void FormatNodeLabel(char* buf, usize buf_size,
                             const Node2D& node, u32 sibling_index) noexcept {
     if (buf == nullptr || buf_size == 0) return;
-    const NodeId id = node.Id();
+    const FNodeId id = node.Id();
     if (id.IsValid()) {
         std::snprintf(buf, buf_size, "Node #%u (id=%u:%u)",
                       static_cast<unsigned>(sibling_index),
@@ -43,7 +43,7 @@ static void FormatNodeLabel(char* buf, usize buf_size,
 // =============================================================================
 void HierarchyPanel::Init() noexcept {
     _collapsed_map.Clear();
-    _selected_id         = NodeId{};
+    _selected_id         = FNodeId{};
     _selected_node       = nullptr;
     _reparent_target     = nullptr;
     _collapse_all_pending = false;
@@ -53,7 +53,7 @@ void HierarchyPanel::Init() noexcept {
 
 void HierarchyPanel::Shutdown() noexcept {
     _collapsed_map.Clear();
-    _selected_id         = NodeId{};
+    _selected_id         = FNodeId{};
     _selected_node       = nullptr;
     _reparent_target     = nullptr;
     _collapse_all_pending = false;
@@ -69,7 +69,7 @@ void HierarchyPanel::SetSelectionService(SelectionService* svc) noexcept {
     _selection_service = svc;
     // SelectionService 注入直後、internal cache を seam 側の現選択に同期して
     // おく (= 既に何か選択されていた場合に表示を合わせる)。Node2D* は
-    // NodeId からは逆引きできないので nullptr に戻す (= 次の DrawUI 走査で
+    // FNodeId からは逆引きできないので nullptr に戻す (= 次の DrawUI 走査で
     // ヒットしたら再キャッシュする)。
     if (_selection_service != nullptr) {
         _selected_id   = _selection_service->CurrentSelection();
@@ -77,7 +77,7 @@ void HierarchyPanel::SetSelectionService(SelectionService* svc) noexcept {
     }
 }
 
-NodeId HierarchyPanel::SelectedNodeId() const noexcept {
+FNodeId HierarchyPanel::SelectedNodeId() const noexcept {
     if (_selection_service != nullptr) {
         return _selection_service->CurrentSelection();
     }
@@ -89,7 +89,7 @@ void HierarchyPanel::SelectNode(Node2D* node) noexcept {
     if (node != nullptr) {
         _selected_id = node->Id();
     } else {
-        _selected_id = NodeId{};
+        _selected_id = FNodeId{};
     }
     // SelectionService がいれば反映 (callback 発火は seam 側責務)。
     if (_selection_service != nullptr) {
@@ -105,7 +105,7 @@ void HierarchyPanel::SelectNode(Node2D* node) noexcept {
 // ExpandAll / CollapseAll
 // =============================================================================
 void HierarchyPanel::ExpandAll() noexcept {
-    // 折りたたみマップを空にする = 全 NodeId が "default expanded" 扱い。
+    // 折りたたみマップを空にする = 全 FNodeId が "default expanded" 扱い。
     _collapsed_map.Clear();
     _collapse_all_pending = false;
 }
@@ -126,9 +126,9 @@ void HierarchyPanel::DeleteSelected() noexcept {
     Node2D* target = _selected_node;
     if (target == nullptr) return;
     target->Destroy();  // フレーム境界で reap される
-    // selection は明示解除 (次フレーム描画前に古い NodeId を引きずらない)。
+    // selection は明示解除 (次フレーム描画前に古い FNodeId を引きずらない)。
     _selected_node = nullptr;
-    _selected_id   = NodeId{};
+    _selected_id   = FNodeId{};
     if (_selection_service != nullptr) {
         _selection_service->ClearSelection();
     }
@@ -148,16 +148,16 @@ void HierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
 }
 
 // =============================================================================
-// IsCollapsed / SetCollapsed (NodeId → bool linear search)
+// IsCollapsed / SetCollapsed (FNodeId → bool linear search)
 // =============================================================================
-bool HierarchyPanel::IsCollapsed(NodeId id) const noexcept {
+bool HierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
     for (u32 i = 0; i < _collapsed_map.Size(); ++i) {
         if (_collapsed_map[i].id == id) return _collapsed_map[i].collapsed;
     }
     return false;  // エントリ無し = default expanded
 }
 
-void HierarchyPanel::SetCollapsed(NodeId id, bool c) noexcept {
+void HierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
     for (u32 i = 0; i < _collapsed_map.Size(); ++i) {
         if (_collapsed_map[i].id == id) {
             _collapsed_map[i].collapsed = c;
@@ -201,7 +201,7 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
         return;
     }
 
-    const NodeId  id        = node.Id();
+    const FNodeId  id        = node.Id();
     const bool    has_child = node.ChildCount() > 0u;
     const bool    selected  = (id.IsValid() && id == SelectedNodeId());
 
@@ -210,7 +210,7 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
         _selected_node = &node;
     }
 
-    // CollapseAll の遅延適用: NodeId が valid なら collapsed=true を立てる。
+    // CollapseAll の遅延適用: FNodeId が valid なら collapsed=true を立てる。
     if (_collapse_all_pending && id.IsValid()) {
         SetCollapsed(id, true);
     }
@@ -227,12 +227,12 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
         const bool want_open = !IsCollapsed(id);
         ImGui::SetNextItemOpen(want_open, ImGuiCond_Always);
     } else {
-        // NodeId が無いノードは default 展開 (= 初期表示しっかり)。
+        // FNodeId が無いノードは default 展開 (= 初期表示しっかり)。
         ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
     }
 
-    // ImGui ID は NodeId._packed を使う (兄弟同名でも衝突しない)。
-    // NodeId 無効ノードは pointer をフォールバック ID にする。
+    // ImGui ID は FNodeId._packed を使う (兄弟同名でも衝突しない)。
+    // FNodeId 無効ノードは pointer をフォールバック ID にする。
     if (id.IsValid()) {
         ImGui::PushID(static_cast<int>(id._packed));
     } else {
@@ -416,7 +416,7 @@ void HierarchyPanel::DrawUI() noexcept {
     ImGui::Text("Reparent Target: ");
     ImGui::SameLine();
     if (_reparent_target != nullptr) {
-        const NodeId tid = _reparent_target->Id();
+        const FNodeId tid = _reparent_target->Id();
         if (tid.IsValid()) {
             ImGui::Text("id=%u:%u",
                         static_cast<unsigned>(tid.Index()),

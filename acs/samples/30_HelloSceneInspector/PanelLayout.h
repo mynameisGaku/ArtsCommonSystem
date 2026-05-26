@@ -32,7 +32,7 @@ public:
     void RegisterProvider(acs::game::IInspectableProvider* provider) noexcept;
 
     // 起動時に何を選択状態にしておくか。Inspector に最初から値が見える UX 用。
-    void SelectInitial(acs::game::NodeId id) noexcept;
+    void SelectInitial(acs::game::FNodeId id) noexcept;
 
     // 1 フレーム分の panel 描画。`game` は Toolbar が GetGame に渡す対象、
     // `root` は Hierarchy が辿るツリーのルート。

@@ -39,7 +39,7 @@
 //
 // 設計選択:
 //   ・**PickupId**: 32bit packed = 24bit index + 8bit generation。CollisionWorld2D の
-//     ShapeId / NodeId と同じパターン。slot 再利用しても古い handle は無効化される。
+//     FShapeId / FNodeId と同じパターン。slot 再利用しても古い handle は無効化される。
 //   ・**Slot TArray**: 内部 `TArray<Slot>` に固定。index 0 は予約 (= invalid)。
 //     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
 //     末尾に PushBack。Despawn は active=false、slot は再利用。
@@ -94,7 +94,7 @@ enum class EPickupKind : u8 {
 
 // ---- PickupId: 拾取アイテムの handle ---------------------------------------
 // 32bit packed = 24bit index + 8bit generation。0 = invalid。
-// CollisionWorld2D::ShapeId / Node2D の NodeId と同パターン。
+// CollisionWorld2D::FShapeId / Node2D の FNodeId と同パターン。
 struct PickupId {
     u32 _packed = 0;
 

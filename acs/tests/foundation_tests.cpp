@@ -30,7 +30,7 @@ ACS_TEST(Foundation, ResultVoid) {
 }
 
 ACS_TEST(Foundation, SourceLocCaptures) {
-    SourceLoc s = SourceLoc::Current();
+    FSourceLoc s = FSourceLoc::Current();
     EXPECT_TRUE(s.Line() > 0);
     EXPECT_TRUE(s.File() != nullptr);
 }

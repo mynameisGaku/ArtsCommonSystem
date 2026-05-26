@@ -22,7 +22,7 @@ void BindIbl(HelloIblApp& app) noexcept {
     app._pbr.SetSh9(app._use_sh9 ? app._sh9 : nullptr);
 }
 
-void BindSun(HelloIblApp& app, const FMat4& vp_for_render, const DirLight& sun) noexcept {
+void BindSun(HelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
     app._pbr.SetLights(vp_for_render, app._camera.Eye(), &sun, 1, FVec3{0, 0, 0});
     app._pbr.SetPointLights(nullptr, 0);
 }
@@ -118,7 +118,7 @@ void BindAreaLight(HelloIblApp& app) noexcept {
 
 } // anonymous namespace
 
-void BindPbrLighting(HelloIblApp& app, const FMat4& vp_for_render, const DirLight& sun) noexcept {
+void BindPbrLighting(HelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
     BindIbl(app);
     BindSun(app, vp_for_render, sun);
     BindSsao(app);

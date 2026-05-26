@@ -27,10 +27,10 @@ public:
     SystemAllocator() noexcept = default;
     ~SystemAllocator() noexcept override = default;
 
-    void* Alloc  (usize size, usize alignment, SourceLoc loc) noexcept override;
+    void* Alloc  (usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free   (void* ptr)                                  noexcept override;
     void* Realloc(void* ptr, usize old_size, usize new_size,
-                  usize alignment, SourceLoc loc)             noexcept override;
+                  usize alignment, FSourceLoc loc)             noexcept override;
 
     // 統計取得（アトミックで集計）
     u64 BytesAllocated() const noexcept override { return _bytes.Load(EMemoryOrder::Acquire); }
@@ -38,8 +38,8 @@ public:
     const char* Name()   const noexcept override { return "System"; }
 
 private:
-    mutable Atomic<u64> _bytes {0};   // 現在の総割当量
-    mutable Atomic<u64> _peak  {0};   // 過去ピーク
+    mutable TAtomic<u64> _bytes {0};   // 現在の総割当量
+    mutable TAtomic<u64> _peak  {0};   // 過去ピーク
 };
 
 } // namespace acs

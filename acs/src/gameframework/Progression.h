@@ -13,7 +13,7 @@
 //       純粋にゲーム内で完結する進行カウンタ。プラットフォーム SDK には依存しない。
 //   ・Unlock 連携:
 //     - 各 MilestoneDef に `unlock_content_id` を持たせる。Progression 自身は
-//       コンテンツ解放の実体を持たず、達成時に Callback でゲーム側へ通知する。
+//       コンテンツ解放の実体を持たず、達成時に FCallback でゲーム側へ通知する。
 //       受け取った側が EntitlementRegistry / ContentManager / AchievementManager
 //       に橋渡しする責務。
 //
@@ -64,7 +64,7 @@
 //   ・**線形検索**:
 //     - Milestone 件数は 1 タイトルで通常 10〜100 程度。TArray<T> の per-byte
 //       文字列比較 + 線形走査で十分。
-//   ・**Callback は関数ポインタ + user data**:
+//   ・**FCallback は関数ポインタ + user data**:
 //     - TriggerWorld2D / SceneTimer と同じ pattern。`std::function` は STL 禁止
 //       方針で使えないので、`void(*)(void*,...)` で固定。1 種類のみ (達成時)
 //       なので命名は `MilestoneCallback`。
@@ -96,7 +96,7 @@ namespace acs::game {
 //                AwardXp 時に内部で線形走査して判定する。
 // unlock_content_id:
 //                達成時に「何がアンロックされるか」を表す ID。Progression 自身は
-//                解放処理を行わず、Callback でゲーム側に通知するだけ。nullptr は
+//                解放処理を行わず、FCallback でゲーム側に通知するだけ。nullptr は
 //                許容 (= 純粋に演出だけのマイルストーン)。
 struct MilestoneDef {
     const char* id                = nullptr;
@@ -169,7 +169,7 @@ public:
     // 出荷ビルドでは UI から呼ばないこと (デバッグメニュー / NewGame+ 想定)。
     void ResetProgress() noexcept;
 
-    // ---- Callback -------------------------------------------------------
+    // ---- FCallback -------------------------------------------------------
     // 達成時 callback を登録 / 差し替え / 解除 (cb = nullptr で解除)。
     // 設定された callback は AwardXp 内で「未達成 → 達成」遷移を起こした
     // milestone ごとに 1 回呼ばれる。

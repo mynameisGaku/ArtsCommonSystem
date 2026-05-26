@@ -35,7 +35,7 @@ enum class EBlendMode : u8 {
     Additive,      // src + dst（加算）
 };
 
-struct PipelineDesc {
+struct FPipelineDesc {
     IRhiShader*       vs            = nullptr;
     IRhiShader*       ps            = nullptr;
     EPrimitiveTopology topology      = EPrimitiveTopology::TriangleList;
@@ -92,6 +92,6 @@ public:
 };
 
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
-                                                       const PipelineDesc& desc) noexcept;
+                                                       const FPipelineDesc& desc) noexcept;
 
 } // namespace acs

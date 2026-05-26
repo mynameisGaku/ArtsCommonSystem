@@ -8,12 +8,12 @@
 // 同様の継承形を参考にする想定。
 //
 // 役割:
-//   ・3D model viewport の host (ImGui::Begin "Model Viewport" 1 window)
+//   ・3D model viewport の host (ImGui::Begin "Model FViewport" 1 window)
 //   ・カレント asset path の保持 + 切替 (`LoadModelAsset` / `ClearModel`)
 //   ・EditorCamera (3D orbit) を内包し、panel 内で操作 / Reset / Frame
 //   ・Lighting (sun dir + sun color + IBL toggle + tonemap mode) パラメータの
 //     設定 ImGui controls
-//   ・Background color / Grid / Bone skeleton 表示の切替
+//   ・Background color / Grid / FBone skeleton 表示の切替
 //   ・AssetBrowser からのファイル選択通知 (`OnAssetSelected`) を受けて
 //     mesh / model 拡張子なら自動 LoadModelAsset
 //
@@ -51,11 +51,11 @@
 //   ・**3D viewport を「数値パラメータ + ImGui controls」だけにする**:
 //     実際の 3D 描画 (PbrShader / ShadowMap / IBL) は Sample 31 側の
 //     `ModelViewportRenderer` (将来クラス) が担当する。本 panel は
-//     「Camera state + light params + background + toggle 群」の保管 + UI のみ。
+//     「FCamera state + light params + background + toggle 群」の保管 + UI のみ。
 //     こうしておけば panel 単体テストや、別の renderer (= raymarched preview /
 //     OBJ thumbnail) への差し替えが容易。
 //   ・**EditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル。Camera() アクセサで参照を返し、Sample 側の renderer が
+//     SceneView 風モデル。FCamera() アクセサで参照を返し、Sample 側の renderer が
 //     ViewMatrix / ProjectionMatrix を取り出して使う。
 //   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: AssetBrowser
 //     と同じ規約。STL の std::wstring は使えないため、固定長で保持。
@@ -65,10 +65,10 @@
 //     `.obj` が Mesh asset とみなされる (AssetBrowser::ClassifyByExtension の
 //     Mesh 分類と一致)。それ以外の拡張子は無視 (= asset path は ASCII UTF-8 だが
 //     panel 内では wchar_t に正規化して持つ)。
-//   ・**ImGui controls の DrawUI 配置**: 単一 "Model Viewport" window 内に
+//   ・**ImGui controls の DrawUI 配置**: 単一 "Model FViewport" window 内に
 //       - viewport 領域 (大半の面積、将来 renderer が描画 / 現状は dummy)
 //       - 下部 control bar: Light dir / color / IBL / Tonemap / Background /
-//         Grid / Bone skeleton toggle
+//         Grid / FBone skeleton toggle
 //     を出す。各 widget の戻り値で「ユーザが変更したか」を判定し、外部に通知
 //     する手段は将来 callback で追加予定 (Phase 21b では本 panel が値を保持
 //     するだけ)。
@@ -166,7 +166,7 @@ public:
     // 内部 EditorCamera への参照。呼出側 (renderer / panel 内 UI) が
     // `HandleMouseInput` / `Tick` / `ViewMatrix` 等を呼ぶ。
     // 寿命は本 panel の寿命と同一。
-    acs::game::editor_core::EditorCamera& Camera() noexcept;
+    acs::game::editor_core::EditorCamera& FCamera() noexcept;
 
     // ----- Lighting --------------------------------------------------------
 
@@ -216,13 +216,13 @@ public:
     // ----- EditorPanel override -------------------------------------------
 
     // window タイトル (ImGui::Begin の引数兼 ID)。固定リテラル。
-    const char* Title() const noexcept override { return "Model Viewport"; }
+    const char* Title() const noexcept override { return "Model FViewport"; }
 
     // Workspace への登録時に呼ばれる。基底実装で Workspace ポインタ保存、
     // 本クラスでは追加初期化 (EditorCamera を 3D mode で Init し直す保険) を行う。
     void OnInit(acs::game::editor_core::EditorWorkspace& workspace) noexcept override;
 
-    // ImGui::Begin "Model Viewport" + viewport プレースホルダ + control bar 描画。
+    // ImGui::Begin "Model FViewport" + viewport プレースホルダ + control bar 描画。
     // `IsVisible()` が false なら早期 return (= close ボタンで隠せる)。
     // 実 3D 描画は外部 renderer の責務 (本 panel は dummy area + 控えめな
     // overlay text のみ描く)。

@@ -23,7 +23,7 @@ public:
     DiligentTexture(const DiligentTexture&) = delete;
     DiligentTexture& operator=(const DiligentTexture&) = delete;
 
-    TResult<void> Init(DiligentDevice& device, const TextureDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const FTextureDesc& desc) noexcept;
 
     // ---- IRhiTexture ----
     u32    Width()       const noexcept override { return _width; }

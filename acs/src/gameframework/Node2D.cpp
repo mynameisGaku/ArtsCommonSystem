@@ -6,7 +6,7 @@
 
 namespace acs::game {
 
-Transform2D Node2D::World() const noexcept {
+FTransform2D Node2D::World() const noexcept {
     if (_parent == nullptr) return _local;
     // 親をたどって合成 (Phase 1 はキャッシュなし、深いツリーで O(depth) コスト)
     return _parent->World().Compose(_local);

@@ -60,7 +60,7 @@ TResult<void> InitializeAssets(Assets& a, IRhiDevice& dev,
     HS_TRY(a.blit.Init(dev, a.post.HdrFormat()));
 
     // 屈折 pass の背景複製先。HDR と同じ format / 解像度。
-    TextureDesc bg_td{};
+    FTextureDesc bg_td{};
     bg_td.width  = sw;
     bg_td.height = sh;
     bg_td.format = a.post.HdrFormat();

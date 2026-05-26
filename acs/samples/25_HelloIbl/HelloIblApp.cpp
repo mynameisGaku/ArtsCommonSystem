@@ -70,7 +70,7 @@ void HelloIblApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(_refr.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
     ACS_SAMPLE_INIT(_blit.Init(*dev, _post.HdrFormat()));
     {
-        TextureDesc bg_td{};
+        FTextureDesc bg_td{};
         bg_td.width            = sw;
         bg_td.height           = sh;
         bg_td.format           = _post.HdrFormat();
@@ -120,7 +120,7 @@ void HelloIblApp::OnStart() noexcept {
     _post_params.auto_exposure_speed   = 1.5f;   // τ≈0.7s のシネマ的順応速度
     _post_params.exposure              = 1.0f;   // 露出は GPU 側が決める
 
-    // Color grading cinematic look: 軽い暖色 + 彩度ブースト + コントラスト
+    // FColor grading cinematic look: 軽い暖色 + 彩度ブースト + コントラスト
     _post_params.cg_saturation   = 1.10f;
     _post_params.cg_contrast     = 1.08f;
     _post_params.cg_temperature  = 0.08f;     // 暖色寄り
@@ -261,10 +261,10 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     // ===== 1) HDR RT にシーン描画 =====
     cl->BeginRenderToTexture(*hdr, ClearColor{0, 0, 0, 1}, depth, 1.0f);
 
-    Viewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
+    FViewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
                    vp.height = static_cast<f32>(hdr->Height());
     cl->SetViewport(vp);
-    ScissorRect svr{}; svr.right  = static_cast<i32>(hdr->Width());
+    FScissorRect svr{}; svr.right  = static_cast<i32>(hdr->Width());
                        svr.bottom = static_cast<i32>(hdr->Height());
     cl->SetScissor(svr);
 
@@ -299,7 +299,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
 
     // 太陽の direct light を 1 灯追加 (Studio HDR では中央パネルを sun に見立てる)。
     // これで clear-coat / anisotropic の direct specular が見える。
-    DirLight sun;
+    FDirLight sun;
     if (_current_preset == 3) {
         sun.direction = FVec3{0, 0.4f, 1.0f};
         sun.color     = FVec3{0.7f, 0.7f, 0.7f};

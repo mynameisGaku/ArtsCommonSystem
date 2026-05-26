@@ -18,7 +18,7 @@ void HelloTexturedApp::OnStart() noexcept {
     if (!dev) { Quit(); return; }
 
     // === シェーダ ===
-    ShaderDesc vs_desc{};
+    FShaderDesc vs_desc{};
     vs_desc.stage = EShaderStage::Vertex;
     vs_desc.hlsl_source = kHLSL;
     vs_desc.entry_point = "VSMain";
@@ -27,7 +27,7 @@ void HelloTexturedApp::OnStart() noexcept {
         ACS_LOG_ERROR("VS: %s", r.Error().message); Quit(); return;
     } else _vs = Move(r.Value());
 
-    ShaderDesc ps_desc{};
+    FShaderDesc ps_desc{};
     ps_desc.stage = EShaderStage::Pixel;
     ps_desc.hlsl_source = kHLSL;
     ps_desc.entry_point = "PSMain";
@@ -37,7 +37,7 @@ void HelloTexturedApp::OnStart() noexcept {
     } else _ps = Move(r.Value());
 
     // === バッファ ===
-    BufferDesc vb{};
+    FBufferDesc vb{};
     vb.size = sizeof(kCubeVertices);
     vb.usage = EBufferUsage::Vertex; vb.cpu_writable = true;
     vb.initial_data = kCubeVertices;
@@ -46,7 +46,7 @@ void HelloTexturedApp::OnStart() noexcept {
     }
     else _vb = Move(r.Value());
 
-    BufferDesc ib{};
+    FBufferDesc ib{};
     ib.size = sizeof(kCubeIndices);
     ib.usage = EBufferUsage::Index16; ib.cpu_writable = true;
     ib.initial_data = kCubeIndices;
@@ -55,7 +55,7 @@ void HelloTexturedApp::OnStart() noexcept {
     }
     else _ib = Move(r.Value());
 
-    BufferDesc cb_d{};
+    FBufferDesc cb_d{};
     cb_d.size = 256; cb_d.usage = EBufferUsage::Uniform; cb_d.cpu_writable = true;
     if (auto r = CreateRhiBuffer(*dev, cb_d); r.IsErr()) {
         ACS_LOG_ERROR("定数バッファ作成に失敗: %s", r.Error().message); Quit(); return;
@@ -67,7 +67,7 @@ void HelloTexturedApp::OnStart() noexcept {
     u8 pixels[kTexSize * kTexSize * 4];
     GenerateTexture(pixels);
 
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width  = kTexSize;
     td.height = kTexSize;
     td.format = EFormat::R8G8B8A8_UNorm;
@@ -78,7 +78,7 @@ void HelloTexturedApp::OnStart() noexcept {
     } else _tex = Move(r.Value());
 
     // === パイプライン (CB 1 + Texture 1 + Sampler 1) ===
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;

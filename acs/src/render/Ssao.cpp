@@ -277,7 +277,7 @@ TResult<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     if (auto r = CreateOutputRT(device, width, height); r.IsErr()) return r;
     if (auto r = CreatePipeline(device); r.IsErr()) return r;
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = CBSize<SsaoCBLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -290,7 +290,7 @@ TResult<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
 TResult<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     _blur_output.Reset();
-    TextureDesc td{};
+    FTextureDesc td{};
     td.width  = width;
     td.height = height;
     // RGBA8 だが .r のみ使用 (R8_UNorm を EFormat に追加するより既存型流用が小コスト)
@@ -308,7 +308,7 @@ TResult<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) no
 }
 
 TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsaoHLSL;
     vs_d.entry_point = "VSMain";
@@ -316,7 +316,7 @@ TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsaoHLSL;
     ps_d.entry_point = "PSMain";
@@ -324,7 +324,7 @@ TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs            = _vs.Get();
     pd.ps            = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -354,7 +354,7 @@ TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     // Phase 34j-4: blur pipeline (ssao_raw + scene_depth → blurred)。
     // VS は SSAO 本体と同じ fullscreen-triangle なので _vs を再利用する
     // (kSsaoHLSL と kSsaoBlurHLSL の VSMain は同一構造)。
-    ShaderDesc bps_d{};
+    FShaderDesc bps_d{};
     bps_d.stage = EShaderStage::Pixel;
     bps_d.hlsl_source = kSsaoBlurHLSL;
     bps_d.entry_point = "PSMain";
@@ -362,7 +362,7 @@ TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiShader(device, bps_d); r.IsErr()) return Err<void>(r.Error());
     else _blur_ps = Move(r.Value());
 
-    PipelineDesc bpd{};
+    FPipelineDesc bpd{};
     bpd.vs            = _vs.Get();
     bpd.ps            = _blur_ps.Get();
     bpd.topology      = EPrimitiveTopology::TriangleList;

@@ -4,7 +4,7 @@
 // パイプライン作成時に「静的サンプラ」として埋め込む方式と、
 // バインドポイントとして公開して Draw 時に切り替える方式があるが、
 // 本フレームワークでは初学者向けに前者（静的サンプラ）のみサポートする。
-// PipelineDesc::static_samplers にそのまま渡す。
+// FPipelineDesc::static_samplers にそのまま渡す。
 #pragma once
 
 #include "foundation/Types.h"

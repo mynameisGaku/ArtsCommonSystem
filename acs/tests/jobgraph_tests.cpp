@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Threading — JobGraph / MessagePipe テスト
+// ACS Threading — FJobGraph / MessagePipe テスト
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -14,7 +14,7 @@ using namespace acs;
 namespace {
 
 struct JobCtx {
-    Atomic<u32> counter{0};
+    TAtomic<u32> counter{0};
     u32 captured_at_run[8] = {};   // 各 job が実行された時点でのカウンタ
     u32 my_index           = 0;
 };
@@ -27,7 +27,7 @@ void RecordJob(void* user, u32 /*worker*/) noexcept {
 
 } // namespace
 
-ACS_TEST(JobGraph, LinearChainExecutesInOrder) {
+ACS_TEST(FJobGraph, LinearChainExecutesInOrder) {
     auto ir = ThreadPool::Init(4);
     EXPECT_TRUE(ir.IsOk());
 
@@ -35,7 +35,7 @@ ACS_TEST(JobGraph, LinearChainExecutesInOrder) {
     JobCtx ctx_b{}; ctx_b.my_index = 1;
     JobCtx ctx_c{}; ctx_c.my_index = 2;
 
-    JobGraph g;
+    FJobGraph g;
     auto a = g.Add(&RecordJob, &ctx_a);
     auto b = g.Add(&RecordJob, &ctx_b);
     auto c = g.Add(&RecordJob, &ctx_c);
@@ -46,8 +46,8 @@ ACS_TEST(JobGraph, LinearChainExecutesInOrder) {
     b.DependOn(a);
     c.DependOn(b);
 
-    // 共通カウンタを使うため、3 ctx が同じ Atomic を指すよう書き直す:
-    Atomic<u32> shared{0};
+    // 共通カウンタを使うため、3 ctx が同じ TAtomic を指すよう書き直す:
+    TAtomic<u32> shared{0};
     ctx_a.counter.Store(0);  // unused
     // 単純化: shared を ctx を経由して渡す代わりに、ctx ごとに store した値を
     // 親 thread 側で見て順序を判定する。少し雑だが OK。
@@ -63,13 +63,13 @@ ACS_TEST(JobGraph, LinearChainExecutesInOrder) {
 }
 
 // 並列実行可能 (依存無し) の job が同時に走ることだけ確認
-ACS_TEST(JobGraph, ParallelJobsAllRun) {
+ACS_TEST(FJobGraph, ParallelJobsAllRun) {
     auto ir = ThreadPool::Init(4);
     EXPECT_TRUE(ir.IsOk());
 
     constexpr u32 N = 16;
     JobCtx ctxs[N];
-    JobGraph g;
+    FJobGraph g;
     for (u32 i = 0; i < N; ++i) {
         ctxs[i].my_index = i;
         g.Add(&RecordJob, &ctxs[i]);

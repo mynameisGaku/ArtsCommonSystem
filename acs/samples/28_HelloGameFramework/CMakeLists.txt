@@ -8,7 +8,7 @@
 #   RotateComponent.{h,cpp}   - composition 版の回転 (Component2D)
 #   RotatingNode.{h,cpp}      - 継承版の回転 (Node2D サブクラス)
 #   TitleScene.{h,cpp}        - Title 画面 (FSM Idle/Blink)
-#   GameplayScene.{h,cpp}     - 本編 (Node2D ツリー + Camera + Physics)
+#   GameplayScene.{h,cpp}     - 本編 (Node2D ツリー + FCamera + Physics)
 #   PauseScene.{h,cpp}        - 一時停止 overlay (Sequence Loop)
 #   HelloGfApp.{h,cpp}        - Game 派生クラス
 add_executable(hello_game_framework WIN32

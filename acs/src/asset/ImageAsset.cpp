@@ -9,7 +9,7 @@
 
 namespace acs {
 
-TResult<TRc<Asset>> ImageAssetLoader::LoadFromBytes(AssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<Asset>> ImageAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     int w = 0, h = 0, channels = 0;
     // HDR ファイル（.hdr など）は float ピクセル、それ以外は 8-bit に統一
     bool is_hdr = ::stbi_is_hdr_from_memory(reinterpret_cast<const stbi_uc*>(bytes.Data()),

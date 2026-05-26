@@ -42,9 +42,9 @@ InputMap& SceneServices::Input() noexcept {
     return *_input;
 }
 
-acs::game::Camera2D& SceneServices::Camera() noexcept {
+acs::game::Camera2D& SceneServices::FCamera() noexcept {
     ACS_ASSERTF(_camera.Get() != nullptr,
-                "SceneServices::Camera() called but ESvc::Camera2D not requested in WantedServices()");
+                "SceneServices::FCamera() called but ESvc::Camera2D not requested in WantedServices()");
     return *_camera;
 }
 

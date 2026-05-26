@@ -100,7 +100,7 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
 void Sky::SetSunDirection(FVec3 dir) noexcept { _sun_dir = NormalizeSafe(dir); }
 
 TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
-    ShaderDesc vs_d{};
+    FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyHLSL;
     vs_d.entry_point = "VSMain";
@@ -109,7 +109,7 @@ TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_for
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
 
-    ShaderDesc ps_d{};
+    FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyHLSL;
     ps_d.entry_point = "PSMain";
@@ -118,7 +118,7 @@ TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_for
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     _ps = Move(ps_r.Value());
 
-    BufferDesc cbd{};
+    FBufferDesc cbd{};
     cbd.size = CBSize<SkyCB>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
@@ -126,7 +126,7 @@ TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_for
     if (cb_r.IsErr()) return Err<void>(cb_r.Error());
     _cb = Move(cb_r.Value());
 
-    PipelineDesc pd{};
+    FPipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -185,7 +185,7 @@ void Sky::PresetNight() noexcept {
     _ground      = FVec3{0.02f, 0.03f, 0.05f};
 }
 
-void Sky::Render(IRhiCommandList& cl, const Camera& camera) noexcept {
+void Sky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
     if (!_pipeline || !_cb) return;
     SkyCB cb{};
     cb.inv_view_proj = Inverse(camera.ViewProjection());
