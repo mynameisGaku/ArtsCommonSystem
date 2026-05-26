@@ -11,10 +11,10 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void Bullets::Init(ProjectileSystem& sys) noexcept {
+void Bullets::Init(FProjectileSystem& sys) noexcept {
     sys.Init(kMaxBullets);
 
-    ProjectileDef bdef{};
+    FProjectileDef bdef{};
     bdef.id              = kBulletDefId;
     bdef.kind            = EProjectileKind::Bullet;
     bdef.speed           = kBulletSpeed;
@@ -28,7 +28,7 @@ void Bullets::Init(ProjectileSystem& sys) noexcept {
     sys.RegisterDef(bdef);
 }
 
-void Bullets::Shutdown(ProjectileSystem& sys) noexcept {
+void Bullets::Shutdown(FProjectileSystem& sys) noexcept {
     sys.ClearAll();
 }
 
@@ -40,10 +40,10 @@ void Bullets::Fire(GameplayScene& scene, FVec2 from, FVec2 dir_unit) noexcept {
     static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_fire", 0.6f);
 }
 
-void Bullets::DrawAll(const ProjectileSystem& sys, SpriteBatch& sb,
+void Bullets::DrawAll(const FProjectileSystem& sys, FSpriteBatch& sb,
                       f32 last_dt) const noexcept {
     u32 n = 0;
-    const ProjectileInstance* bs = sys.AllAlive(n);
+    const FProjectileInstance* bs = sys.AllAlive(n);
     const f32 sz = kBulletRadius * 2.0f;
 
     // trail: 直前フレーム分の経路を kSteps 段の連続矩形で線化する。

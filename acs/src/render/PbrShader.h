@@ -4,11 +4,11 @@
 // 用途: メッシュアセット (位置 + 法線 + UV) を、複数の有向光源 + 環境光 +
 //       PBR 反射モデル + アルベドテクスチャで描画する。
 //
-// StandardShader (Blinn-Phong) と並走する形で導入。既存 StandardShader を
-// 使ってる sample はそのまま、新規 sample (HelloPbr 等) で PbrShader を選ぶ。
+// FStandardShader (Blinn-Phong) と並走する形で導入。既存 FStandardShader を
+// 使ってる sample はそのまま、新規 sample (HelloPbr 等) で FPbrShader を選ぶ。
 //
 // 使い方:
-//   PbrShader shd;
+//   FPbrShader shd;
 //   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
 //                 lights, 1, ambient_color);
@@ -54,13 +54,13 @@
 
 namespace acs {
 
-class PbrShader {
+class FPbrShader {
 public:
-    PbrShader() noexcept = default;
-    ~PbrShader() noexcept = default;
+    FPbrShader() noexcept = default;
+    ~FPbrShader() noexcept = default;
 
-    PbrShader(const PbrShader&)            = delete;
-    PbrShader& operator=(const PbrShader&) = delete;
+    FPbrShader(const FPbrShader&)            = delete;
+    FPbrShader& operator=(const FPbrShader&) = delete;
 
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
@@ -71,7 +71,7 @@ public:
                    FVec3 camera_pos,
                    const FDirLight* lights, u32 count,
                    FVec3 ambient_color) noexcept;
-    void SetPointLights(const PointLight* lights, u32 count) noexcept;
+    void SetPointLights(const FPointLight* lights, u32 count) noexcept;
 
     // 矩形 area light (Phase 33b)。
     //   center    : 矩形中心の world position
@@ -79,18 +79,18 @@ public:
     //   axis_y    : 矩形の +Y 方向 半高ベクトル (= 上方向 × half_height)
     //   color     : 放射輝度 (W/m²/sr スケールで HDR 値 OK)
     // 法線方向は cross(axis_x, axis_y) 正規化、その逆方向に光を放つ (片面 emit)。
-    struct AreaLight {
+    struct FAreaLight {
         FVec3 center;
         FVec3 axis_x;
         FVec3 axis_y;
         FVec3 color;
     };
-    void SetAreaLights(const AreaLight* lights, u32 count) noexcept;
+    void SetAreaLights(const FAreaLight* lights, u32 count) noexcept;
 
     // IBL textures をバインドする (任意)。
     // irradiance/prefilter/brdf_lut 3 つともに非 null かつ prefilter_mips > 0
     // のときに IBL ambient が有効化される。それ以外は flat ambient (= 既存挙動)。
-    // 通常は `ImageBasedLighting::IrradianceMap()` / `PrefilterMap()` /
+    // 通常は `FImageBasedLighting::IrradianceMap()` / `PrefilterMap()` /
     // `BrdfLut()` / `PrefilterMips()` をそのまま渡せばよい。
     void SetIbl(IRhiTexture* irradiance,
                 IRhiTexture* prefilter,
@@ -108,23 +108,23 @@ public:
     void SetNormalMap(IRhiTexture* tex) noexcept;
 
     // SSAO map (Phase 34j-2)。screen-space AO の visibility テクスチャ。
-    //   ssao_tex: Ssao::OutputTexture() (R8G8B8A8_UNorm、.r=visibility)。null で OFF。
+    //   ssao_tex: FSsao::OutputTexture() (R8G8B8A8_UNorm、.r=visibility)。null で OFF。
     //   intensity: 0=neutral (AO 無視)、1=通常、>1=AO 強調
     //   viewport_w/h: tonemap 前の HDR RT サイズ (pixel)。0/0 で SSAO を強制 OFF。
     void SetSsao(IRhiTexture* ssao_tex, f32 intensity,
                  u32 viewport_w, u32 viewport_h) noexcept;
 
     // SSGI color (Phase 33c)。1 bounce indirect light の screen-space 推定。
-    //   ssgi_tex: Ssgi::OutputTexture() (R11G11B10F)。null で OFF。
+    //   ssgi_tex: FSsgi::OutputTexture() (R11G11B10F)。null で OFF。
     //   intensity: 0=indirect 無視、1=通常、>1=強調 (経験的に 0.5..2.0)
     // viewport_inv_size は SSAO の値を再利用するので別途渡さない。
     void SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept;
 
     // SSR (Phase 34e-2fix): screen-space reflection を IBL specular に blend する。
-    //   ssr_tex: Ssr::OutputTexture() (HDR、.rgb=反射放射輝度、.a=hit mask)。null で OFF。
+    //   ssr_tex: FSsr::OutputTexture() (HDR、.rgb=反射放射輝度、.a=hit mask)。null で OFF。
     //   intensity: 0=OFF、1=通常。roughness が高い面ほど自動で寄与が下がる
     //              (rough 面は環境 prefilter、smooth 面は SSR を反射元に使う)。
-    // 物理的に正しい roughness 依存反射のため、tonemap 合成ではなく PbrShader 側で
+    // 物理的に正しい roughness 依存反射のため、tonemap 合成ではなく FPbrShader 側で
     // 合成する (SSAO/SSGI と同じ方式)。viewport は SSAO の値を再利用。
     void SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept;
 
@@ -136,21 +136,21 @@ public:
     void SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept;
 
     // SH 9 (Ramamoorthi) ambient mode を有効化する (Phase 32c)。
-    // `sh9` は ImageBasedLighting::ComputeSh9FromEquirect で得られた 9 RGB 係数。
+    // `sh9` は FImageBasedLighting::ComputeSh9FromEquirect で得られた 9 RGB 係数。
     // 有効化中は cubemap irradiance ではなく SH 9 から復元した diffuse irradiance を使う。
     // SetSh9(nullptr) で OFF に戻す。SetIbl が前段で呼ばれてないと意味がない。
     void SetSh9(const FVec4* sh9_or_null) noexcept;
 
     // 静的光プローブグリッド (Phase 33d)。各 probe = (位置 + SH9 9 係数)。
-    // count > 0 のとき、PbrShader は SH9 single mode より優先して probe grid を使う
+    // count > 0 のとき、FPbrShader は SH9 single mode より優先して probe grid を使う
     // (world position から IDW で blend)。
     //   probe_positions: 4 個まで、xyz=world、w=未使用
     //   probe_sh9      : probe ごとに連続した 9 個 (count * 9 個の FVec4)
-    struct LightProbe {
+    struct FLightProbe {
         FVec3 position;
         FVec4 sh9[9];     // xyz=RGB
     };
-    void SetProbeGrid(const LightProbe* probes, u32 count) noexcept;
+    void SetProbeGrid(const FLightProbe* probes, u32 count) noexcept;
 
     // Volumetric exponential height fog (Phase 33e)。
     //   color    : fog 色 (HDR scale も可)
@@ -161,7 +161,7 @@ public:
                 f32 height_falloff = 0.5f, f32 height_base = 0.0f) noexcept;
 
     // Shadow map (Phase 34b、第 0 番目 dir light のみ)。
-    // depth: ShadowMap::DepthTexture()、light_vp: ShadowMap::LightViewProjection()
+    // depth: FShadowMap::DepthTexture()、light_vp: FShadowMap::LightViewProjection()
     // null で OFF。bias は 0.001..0.01 程度 (acne 回避)。
     //   filter_radius (Phase 34b-2): PCSS 強度。0 = hard PCF、1 = 標準、>1 で柔らか
     //
@@ -177,7 +177,7 @@ public:
     //   cascade_splits[c]: 各 cascade の view-space z far (cascade 選択の閾値)
     //   cascade_count    : 使用する cascade 数 (1..4)
     //   bias / texel_size: PCSS パラメータ (single API と同じ意味)
-    // ShadowMap が atlas で確保した深度テクスチャを渡し、HLSL 側で view_z から
+    // FShadowMap が atlas で確保した深度テクスチャを渡し、HLSL 側で view_z から
     // cascade を選択 + atlas UV 変換でサンプルする。null depth で disable。
     void SetShadowMapCascades(IRhiTexture* depth,
                                const FMat4* light_vp,
@@ -238,7 +238,7 @@ public:
 
     // SetPipeline + CB + Tex + VB/IB + DrawIndexed をまとめた便利 API。
     void DrawMesh(IRhiCommandList& cmd,
-                  const GpuMesh& mesh,
+                  const FGpuMesh& mesh,
                   const FMat4& model,
                   FVec3 base_color = FVec3{1, 1, 1},
                   f32  metallic   = 0.0f,
@@ -268,9 +268,9 @@ private:
     FVec3       _ambient  = FVec3{0, 0, 0};
     FDirLight   _dir_lights[4];
     u32        _dir_count = 0;
-    PointLight _point_lights[4];
+    FPointLight _point_lights[4];
     u32        _point_count = 0;
-    AreaLight  _area_lights[2];
+    FAreaLight  _area_lights[2];
     u32        _area_count = 0;
 
     // SetIbl で渡された (非所有) ポインタ。3 つとも非 null かつ _ibl_mips > 0 なら有効。
@@ -319,7 +319,7 @@ private:
     TUniquePtr<IRhiTexture> _lightmap_fb;  // 1x1 RGBA8 黒 fallback
 
     // Shadow map (Phase 34b + CSM = Phase 34b part 3)。
-    // ShadowMap::kMaxCascades と一致 (現状 4)。Frame CB の shadow_view_proj[4] と対応。
+    // FShadowMap::kMaxCascades と一致 (現状 4)。Frame CB の shadow_view_proj[4] と対応。
     static constexpr u32 kMaxShadowCascades = 4;
     IRhiTexture* _shadow_depth          = nullptr;
     FMat4         _shadow_view_proj[kMaxShadowCascades] = {};   // 各 cascade の light VP

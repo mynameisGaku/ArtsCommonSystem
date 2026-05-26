@@ -2,7 +2,7 @@
 // GameFramework Pillar U Phase 2 — ContentModerator 実装 (Stub のみ)
 //
 // 本 .cpp では `IContentModerator` 自体は提供せず、外部 SDK 非依存で常に使える
-// `ContentModeratorStub` のみを実装する。Azure Content Safety / Google Perspective /
+// `FContentModeratorStub` のみを実装する。Azure Content Safety / Google Perspective /
 // OpenAI Moderation / Hive 等の実 SDK 実装は別モジュールで本 I/F を override する。
 //
 // Stub の判定ロジック (Phase 1):
@@ -92,8 +92,8 @@ constexpr u64 kBlockedWordCount =
 // ---- 内部判定: text モデレーション本体 ------------------------------------
 // kHardcodedBlockWords を先に評価することで、`SexualMinor` 関連 keyword に
 // 後段の Allow 降格を絶対に許さない契約を保証する。
-ModerationResult ClassifyText(const char* text) noexcept {
-    ModerationResult r{};
+FModerationResult ClassifyText(const char* text) noexcept {
+    FModerationResult r{};
     if (text == nullptr || text[0] == '\0') {
         // 空文字は Allow (= 上位層で長さチェックする責務)。
         r.verdict = EModerationVerdict::Allow;
@@ -132,39 +132,39 @@ ModerationResult ClassifyText(const char* text) noexcept {
 } // namespace
 
 // =============================================================================
-// ContentModeratorStub 実装
+// FContentModeratorStub 実装
 // =============================================================================
 
-TResult<ModerationResult> ContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
+TResult<FModerationResult> FContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
     (void)user_id;  // Stub では未使用 (実 SDK では通報履歴・レピュテーション参照に使う)
     return ClassifyText(text);
 }
 
-TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
+TResult<FModerationResult> FContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
     (void)user_id;
     if (image_data == nullptr || size == 0) {
-        return TResult<ModerationResult>(
+        return TResult<FModerationResult>(
             ACS_ERR(Generic, kSubContentModeratorBadArgument,
-                    "ContentModeratorStub::ModerateImage: image_data == nullptr or size == 0"));
+                    "FContentModeratorStub::ModerateImage: image_data == nullptr or size == 0"));
     }
     // TODO(phase2): 画像 NSFW 分類器 (= ローカル ONNX or リモート API) を導入。
     // 現状は全部 Allow で素通し。実装後は kHardcodedBlockWords と同等の二段判定
     // (= SexualMinor 検出時はハードコード Block) を画像側にも適用すること。
-    ModerationResult r{};
+    FModerationResult r{};
     r.verdict = EModerationVerdict::Allow;
     r.rating  = EContentRating::Safe;
     r.reason  = nullptr;
     return r;
 }
 
-TResult<ModerationResult> ContentModeratorStub::ModerateUserName(const char* name) noexcept {
+TResult<FModerationResult> FContentModeratorStub::ModerateUserName(const char* name) noexcept {
     // ユーザー名 NG チェックは text と同じ辞書を流用 (Stub なので簡略化)。
     // 実 SDK では「短い文字列内のなりすまし / leet speak / 同形異義字」検出を
     // 強化したサブ API を別途用意することが多い。
     return ClassifyText(name);
 }
 
-void ContentModeratorStub::Tick(f32 dt) noexcept {
+void FContentModeratorStub::Tick(f32 dt) noexcept {
     (void)dt;  // Stub は非同期キューを持たないので no-op。
 }
 
@@ -174,7 +174,7 @@ void ContentModeratorStub::Tick(f32 dt) noexcept {
 // C++11 以降、関数スコープ static の初期化は thread-safe。追加同期は不要。
 // =============================================================================
 IContentModerator& GetModeratorStub() noexcept {
-    static ContentModeratorStub _instance;
+    static FContentModeratorStub _instance;
     return _instance;
 }
 

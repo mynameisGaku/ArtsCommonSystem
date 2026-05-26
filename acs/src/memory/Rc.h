@@ -6,7 +6,7 @@
 // 破棄時に decr して 0 になったら対象を解放する。
 //
 // レイアウト:
-//   MakeRc 経由で構築すると、ControlBlock と T が単一アロケーションに
+//   MakeRc 経由で構築すると、FControlBlock と T が単一アロケーションに
 //   置かれる（make_shared 相当）。foreign ポインタ用の別途確保バリアントは
 //   現在未対応。
 // =============================================================================
@@ -23,25 +23,25 @@ namespace acs {
 namespace rc_detail {
 
 // 全 TRc 共通の制御ブロック（参照カウント + アロケータ + デストラクタ）
-struct ControlBlock {
+struct FControlBlock {
     TAtomic<u32> strong {1};                            // 強参照カウント
-    Allocator*  alloc  = nullptr;                      // 解放に使うアロケータ
-    void (*destroy)(ControlBlock*) noexcept = nullptr; // T 破棄関数（型消去）
+    FAllocator*  alloc  = nullptr;                      // 解放に使うアロケータ
+    void (*destroy)(FControlBlock*) noexcept = nullptr; // T 破棄関数（型消去）
 };
 
-// ControlBlock + T を 1 ブロックに置くインライン版
+// FControlBlock + T を 1 ブロックに置くインライン版
 template<typename T>
-struct InlineBlock : ControlBlock {
+struct FInlineBlock : FControlBlock {
     alignas(T) byte storage[sizeof(T)];   // T を埋め込む生バイト領域
 
     T* Get() noexcept { return reinterpret_cast<T*>(&storage[0]); }
 
-    // 破棄: T のデストラクタ → InlineBlock 自身のデストラクタ → Free
-    static void Destroy(ControlBlock* cb) noexcept {
-        auto* self = static_cast<InlineBlock*>(cb);
+    // 破棄: T のデストラクタ → FInlineBlock 自身のデストラクタ → Free
+    static void Destroy(FControlBlock* cb) noexcept {
+        auto* self = static_cast<FInlineBlock*>(cb);
         if constexpr (!IsTriviallyDestructibleV<T>) self->Get()->~T();
-        Allocator* a = self->alloc;
-        self->~InlineBlock();
+        FAllocator* a = self->alloc;
+        self->~FInlineBlock();
         a->Free(self);
     }
 };
@@ -105,10 +105,10 @@ public:
     u32 UseCount() const noexcept { return _cb ? _cb->strong.Load(EMemoryOrder::Acquire) : 0; }
 
     template<typename U, typename... Args> friend TRc<U> MakeRc(Args&&...) noexcept;
-    template<typename U, typename... Args> friend TRc<U> MakeRcIn(Allocator&, Args&&...) noexcept;
+    template<typename U, typename... Args> friend TRc<U> MakeRcIn(FAllocator&, Args&&...) noexcept;
 
 private:
-    TRc(T* p, rc_detail::ControlBlock* cb) noexcept : _ptr(p), _cb(cb) {}
+    TRc(T* p, rc_detail::FControlBlock* cb) noexcept : _ptr(p), _cb(cb) {}
 
     // 参照カウントを 1 減らし、0 なら対象を解放する
     void Release() noexcept {
@@ -121,7 +121,7 @@ private:
     }
 
     T*                       _ptr = nullptr;
-    rc_detail::ControlBlock* _cb  = nullptr;
+    rc_detail::FControlBlock* _cb  = nullptr;
 };
 
 // ---- ファクトリ -----------------------------------------------------------
@@ -134,8 +134,8 @@ ACS_FORCEINLINE TRc<T> MakeRc(Args&&... args) noexcept {
 
 // 指定アロケータで構築
 template<typename T, typename... Args>
-ACS_FORCEINLINE TRc<T> MakeRcIn(Allocator& a, Args&&... args) noexcept {
-    using Block = rc_detail::InlineBlock<T>;
+ACS_FORCEINLINE TRc<T> MakeRcIn(FAllocator& a, Args&&... args) noexcept {
+    using Block = rc_detail::FInlineBlock<T>;
     void* mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TRc<T>();
     auto* blk = ::new (mem) Block();

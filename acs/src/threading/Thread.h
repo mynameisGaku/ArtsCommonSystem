@@ -10,7 +10,7 @@
 //   FThread::Join      — スレッド終了を待機
 //   FThread::Detach    — スレッドハンドルを切り離す
 //   SleepMs / Yield   — 現在スレッドの停止・譲渡
-//   HardwareConcurrency — 論理 CPU 数（ThreadPool のデフォルト worker 数等で使用）
+//   HardwareConcurrency — 論理 CPU 数（FThreadPool のデフォルト worker 数等で使用）
 // =============================================================================
 #pragma once
 
@@ -24,7 +24,7 @@ namespace acs {
 using ThreadEntry = void (*)(void* user);
 
 // スレッド生成オプション
-struct ThreadConfig {
+struct FThreadConfig {
     const wchar_t* name        = nullptr;  // デバッガ表示用の名前
     u32            stack_bytes = 0;        // スタックサイズ (0 = OS デフォルト)
     i32            priority    = 0;        // 優先度 (-2..+2, THREAD_PRIORITY_*)
@@ -47,17 +47,17 @@ public:
 
     // スレッドを起動。失敗時は Err（Memory / OS カテゴリ）。
     static TResult<FThread> Spawn(ThreadEntry entry, void* user,
-                                const ThreadConfig& cfg = {}) noexcept;
+                                const FThreadConfig& cfg = {}) noexcept;
 
     bool Joinable() const noexcept { return _handle != nullptr; }
     void Join() noexcept;                  // 終了まで待機（その後ハンドル解放）
     void Detach() noexcept;                // ハンドルだけ閉じてスレッドは継続
 
-    ThreadId Id() const noexcept { return _id; }
+    FThreadId Id() const noexcept { return _id; }
 
 private:
     void*    _handle = nullptr;            // HANDLE (CloseHandle 対象)
-    ThreadId _id     = {};
+    FThreadId _id     = {};
 };
 
 // ---- フリー関数 ----------------------------------------------------------

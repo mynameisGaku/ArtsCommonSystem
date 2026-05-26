@@ -7,14 +7,14 @@
 
 namespace acs {
 
-Dx12Swapchain::~Dx12Swapchain() noexcept {
+FDx12Swapchain::~FDx12Swapchain() noexcept {
     ReleaseBuffers();
     ACS_SAFE_RELEASE(_rtv_heap);
     ACS_SAFE_RELEASE(_swapchain);
 }
 
-HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noexcept {
-    HrResult r{};
+FHrResult FDx12Swapchain::Init(FDx12Device& device, const FSwapchainConfig& cfg) noexcept {
+    FHrResult r{};
     _device = &device;
     _buffer_count = (cfg.buffer_count >= 2 && cfg.buffer_count <= kMaxBuffers) ? cfg.buffer_count : 2;
     _vsync = cfg.vsync;
@@ -62,13 +62,13 @@ HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noe
     return AcquireBuffers(device);
 }
 
-void Dx12Swapchain::ReleaseBuffers() noexcept {
+void FDx12Swapchain::ReleaseBuffers() noexcept {
     for (u32 i = 0; i < _buffer_count; ++i) ACS_SAFE_RELEASE(_back_buffers[i]);
 }
 
 // 各バックバッファ用に ID3D12Resource を取得し、RTV を作成する
-HrResult Dx12Swapchain::AcquireBuffers(Dx12Device& device) noexcept {
-    HrResult r{};
+FHrResult FDx12Swapchain::AcquireBuffers(FDx12Device& device) noexcept {
+    FHrResult r{};
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = _rtv_heap->GetCPUDescriptorHandleForHeapStart();
     for (u32 i = 0; i < _buffer_count; ++i) {
         r.hr = _swapchain->GetBuffer(i, IID_PPV_ARGS(&_back_buffers[i]));
@@ -79,23 +79,23 @@ HrResult Dx12Swapchain::AcquireBuffers(Dx12Device& device) noexcept {
     return r;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE Dx12Swapchain::BackBufferRTV(u32 i) const noexcept {
+D3D12_CPU_DESCRIPTOR_HANDLE FDx12Swapchain::BackBufferRTV(u32 i) const noexcept {
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = _rtv_heap->GetCPUDescriptorHandleForHeapStart();
     rtv.ptr += static_cast<SIZE_T>(_rtv_size) * i;
     return rtv;
 }
 
-u32 Dx12Swapchain::AcquireNextImage() noexcept {
+u32 FDx12Swapchain::AcquireNextImage() noexcept {
     return _swapchain->GetCurrentBackBufferIndex();
 }
 
-void Dx12Swapchain::Present() noexcept {
+void FDx12Swapchain::Present() noexcept {
     UINT sync_interval = _vsync ? 1 : 0;
     UINT flags = _vsync ? 0 : DXGI_PRESENT_ALLOW_TEARING;
     _swapchain->Present(sync_interval, flags);
 }
 
-void Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
+void FDx12Swapchain::Resize(u32 width, u32 height) noexcept {
     if (width == 0 || height == 0) return;
     if (width == _width && height == _height) return;
     if (!_device || !_swapchain) return;
@@ -117,16 +117,16 @@ void Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
 // ファクトリ関数: CreateRhiSwapchain の DX12 実装
 #if !WITH_RENDER_DILIGENT
 TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
-                                                    const SwapchainConfig& cfg) noexcept {
+                                                    const FSwapchainConfig& cfg) noexcept {
     // RTTI 無効のため dynamic_cast は使えない。バックエンド名で判定する
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 10, "CreateRhiSwapchain: device is not DX12");
-    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
-    auto sc = MakeUnique<Dx12Swapchain>();
-    HrResult r = sc->Init(*dxd, cfg);
+    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    auto sc = MakeUnique<FDx12Swapchain>();
+    FHrResult r = sc->Init(*dxd, cfg);
     if (r.IsErr()) {
-        return ACS_ERR_OS(Render, 11, "Dx12Swapchain::Init failed", static_cast<u32>(r.hr));
+        return ACS_ERR_OS(Render, 11, "FDx12Swapchain::Init failed", static_cast<u32>(r.hr));
     }
     TUniquePtr<IRhiSwapchain> base(sc.Release(), sc.GetAllocator());
     return TResult<TUniquePtr<IRhiSwapchain>>(OkInit, Move(base));

@@ -5,12 +5,12 @@
 # 構成:
 #   main.cpp                  - ACS_GAME_MAIN(HelloGfApp) のみ
 #   PlayerProfile.h           - AppState サンプル struct
-#   RotateComponent.{h,cpp}   - composition 版の回転 (Component2D)
-#   RotatingNode.{h,cpp}      - 継承版の回転 (Node2D サブクラス)
+#   RotateComponent.{h,cpp}   - composition 版の回転 (FComponent2D)
+#   RotatingNode.{h,cpp}      - 継承版の回転 (FNode2D サブクラス)
 #   TitleScene.{h,cpp}        - Title 画面 (FSM Idle/Blink)
-#   GameplayScene.{h,cpp}     - 本編 (Node2D ツリー + FCamera + Physics)
-#   PauseScene.{h,cpp}        - 一時停止 overlay (Sequence Loop)
-#   HelloGfApp.{h,cpp}        - Game 派生クラス
+#   GameplayScene.{h,cpp}     - 本編 (FNode2D ツリー + FCamera + Physics)
+#   PauseScene.{h,cpp}        - 一時停止 overlay (FSequence Loop)
+#   HelloGfApp.{h,cpp}        - FGame 派生クラス
 add_executable(hello_game_framework WIN32
     main.cpp
     HelloGfApp.cpp

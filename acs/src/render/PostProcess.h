@@ -2,12 +2,12 @@
 // HDR ポストプロセス (Bloom + Tonemap) パイプライン
 //
 // 想定ワークフロー:
-//   1) Renderer.BeginFrame() の直前で PostProcess.BeginScenePass()
+//   1) FRenderer.BeginFrame() の直前で FPostProcess.BeginScenePass()
 //      → HDR R16G16B16A16_Float RT に切替
-//   2) シーン (Sky, StandardShader, Particles 等) を HDR で描画
-//   3) PostProcess.Render(cmd, swapchain_buffer)
+//   2) シーン (FSky, FStandardShader, Particles 等) を HDR で描画
+//   3) FPostProcess.Render(cmd, swapchain_buffer)
 //      → Bloom (extract → downsample → upsample) → Tonemap → Backbuffer
-//   4) Renderer.EndFrame() で Present
+//   4) FRenderer.EndFrame() で Present
 //
 // 設計上の選択:
 //   - Bloom は 5 段の mip chain (1/2, 1/4, ... 1/32) で downsample → upsample
@@ -32,7 +32,7 @@ namespace acs {
 class IRhiTexture;
 
 // ポストプロセス効果のパラメータ
-struct PostProcessParams {
+struct FPostProcessParams {
     // Bloom
     bool  bloom_enabled    = true;
     f32   bloom_threshold  = 1.0f;     // この輝度を超えるピクセルを Bloom 元として抽出 (HDR scale)
@@ -52,19 +52,19 @@ struct PostProcessParams {
     f32   vignette_radius    = 0.5f;   // vignette が始まる半径 (0=中心、1=端)
     f32   chromatic_aberration = 0.002f; // RGB 半径方向の offset。0 で disable
     f32   grain_intensity    = 0.015f; // film grain 強度 0..0.1
-    f32   grain_time         = 0.0f;   // procedural noise シード (Application から dt 累積)
+    f32   grain_time         = 0.0f;   // procedural noise シード (FApplication から dt 累積)
 
-    // SSR composite (Phase 34e、Ssr.OutputTexture() を直接 tonemap 直前に additive 加算)
+    // SSR composite (Phase 34e、FSsr.OutputTexture() を直接 tonemap 直前に additive 加算)
     // null で SSR 無し。Bloom と並んで mix される。intensity は SSR shader 側で適用済 (二重なし)。
     IRhiTexture* ssr_texture = nullptr;
     f32          ssr_intensity = 1.0f; // tonemap 側で SSR の最終 mix 強度 (デフォルト 1.0)
 
-    // SSAO の composite は PbrShader 側に移動 (Phase 34j-2)。
+    // SSAO の composite は FPbrShader 側に移動 (Phase 34j-2)。
     // 理由: tonemap PSO の slot 3 に新規 SRV を追加すると Diligent の combined
     // sampler binding が期待通り動かず、sample が常に 0 を返す現象に当たった
     // (詳細は Phase 34j-fix の commit メッセージ参照)。
-    // PbrShader はすでに 6 slot で安定運用しており、slot 6 に SSAO を追加する
-    // 方が確実に動作する。HelloIbl から PbrShader::SetSsao() で渡す。
+    // FPbrShader はすでに 6 slot で安定運用しており、slot 6 に SSAO を追加する
+    // 方が確実に動作する。HelloIbl から FPbrShader::SetSsao() で渡す。
 
     // FColor grading (Phase 34h、ASC-CDL 風)。tonemap 後 / gamma 前に適用。
     f32  cg_saturation   = 1.0f;       // 0=モノクロ、1=neutral、>1=彩度ブースト
@@ -94,7 +94,7 @@ struct PostProcessParams {
     IRhiTexture* taa_depth_texture = nullptr;
     FMat4         taa_view_proj_no_jitter{};      // Halton 適用前の view_proj
     FMat4         taa_prev_view_proj_no_jitter{}; // 前フレームの view_proj (Halton 適用前)
-    // Phase 34f-3: 動的 mesh 対応の motion vector テクスチャ (MotionVector モジュール)。
+    // Phase 34f-3: 動的 mesh 対応の motion vector テクスチャ (FMotionVector モジュール)。
     // 非 null なら TAA は depth reprojection の代わりにこの texture で history を
     // 引く。motion vector は camera 動き + object 動きの両方を含むので、動く mesh の
     // ghost / trail が消える。null なら従来の depth reprojection にフォールバック。
@@ -115,13 +115,13 @@ struct PostProcessParams {
     f32  delta_time            = 0.0166f; // 露出順応の時間補間に使うフレーム時間
 };
 
-class PostProcess {
+class FPostProcess {
 public:
-    PostProcess() noexcept = default;
-    ~PostProcess() noexcept;
+    FPostProcess() noexcept = default;
+    ~FPostProcess() noexcept;
 
-    PostProcess(const PostProcess&) = delete;
-    PostProcess& operator=(const PostProcess&) = delete;
+    FPostProcess(const FPostProcess&) = delete;
+    FPostProcess& operator=(const FPostProcess&) = delete;
 
     // 初期化: HDR RT + Bloom mip chain + Tonemap pipeline を作成
     //   width / height: 出力解像度（通常はバックバッファサイズ）
@@ -134,7 +134,7 @@ public:
     // ウィンドウサイズ変更時に呼ぶ（HDR RT 等を再作成）
     TResult<void> Resize(u32 width, u32 height) noexcept;
 
-    // シーンが描かれる HDR RT を取得（Renderer がここに描画する）
+    // シーンが描かれる HDR RT を取得（FRenderer がここに描画する）
     IRhiTexture* HdrRenderTarget() const noexcept { return _hdr_rt.Get(); }
     EFormat       HdrFormat()       const noexcept { return _hdr_format; }
 
@@ -144,7 +144,7 @@ public:
     //   buffer_index: AcquireNextImage の戻り値
     //   params   : 効果のパラメータ
     void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
-                const PostProcessParams& params) noexcept;
+                const FPostProcessParams& params) noexcept;
 
 private:
     // mip chain 段数（1/2 から 1/32 までの 5 段）
@@ -156,20 +156,20 @@ private:
     TResult<void> CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
     TResult<void> CreatePipelines(IRhiDevice& device) noexcept;
 
-    void Pass_Extract  (IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
+    void Pass_Extract  (IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
     void Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept;
     void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius) noexcept;
-    void Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
+    void Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
     void Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                        const PostProcessParams& p) noexcept;
+                        const FPostProcessParams& p) noexcept;
 
     // Auto-exposure (Phase 34k-2)
     void Pass_LumaReduce  (IRhiCommandList& cmd) noexcept;
-    void Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
+    void Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
     void Pass_ExposureApply(IRhiCommandList& cmd) noexcept;
     // 下流パス (TAA / Bloom / Tonemap) が読むシーン texture。auto-exposure 有効なら
     // 露出適用後の _exposed_rt、そうでなければ raw _hdr_rt。
-    IRhiTexture* SceneInput(const PostProcessParams& p) const noexcept;
+    IRhiTexture* SceneInput(const FPostProcessParams& p) const noexcept;
 
     IRhiDevice* _device = nullptr;
     u32         _width  = 0;

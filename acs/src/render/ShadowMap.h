@@ -3,7 +3,7 @@
 //
 // 2 つのモード:
 //   1. Single cascade (既定、cascade_count=1): 1 つの 2D 深度テクスチャに
-//      シーン全体を 1 つの ortho 投影で描く。HelloShadows (StandardShader) や
+//      シーン全体を 1 つの ortho 投影で描く。HelloShadows (FStandardShader) や
 //      昔の HelloIbl が使う伝統的な方式。
 //   2. Cascaded Shadow Map (CSM、cascade_count >= 2): カメラ frustum を
 //      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
@@ -12,7 +12,7 @@
 //      保てる (UE5 等 large outdoor scene の標準解)。
 //
 // 使い方 (single cascade、後方互換):
-//   ShadowMap sm;
+//   FShadowMap sm;
 //   sm.Init(*dev, /*size=*/2048);                    // cascade_count=1 既定
 //   sm.SetDirectionalLight(light_dir, scene_center, 15.0f);
 //   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);
@@ -22,7 +22,7 @@
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
 // 使い方 (CSM、3 cascade):
-//   ShadowMap sm;
+//   FShadowMap sm;
 //   sm.Init(*dev, 2048, /*cascade_count=*/3);
 //   sm.SetDirectionalLightCascades(light_dir, view, proj, 0.1f, 100.0f);
 //   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);        // atlas 全体 clear
@@ -36,7 +36,7 @@
 //   }
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
-// 主パスでの使用 (PbrShader 統合):
+// 主パスでの使用 (FPbrShader 統合):
 //   single mode: pbr.SetShadowMap(*sm.DepthTexture(), sm.LightViewProjection(), ...);
 //   CSM mode   : FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
 //                f32  spl[3] = { sm.CascadeSplit(0), sm.CascadeSplit(1), sm.CascadeSplit(2) };
@@ -56,15 +56,15 @@
 
 namespace acs {
 
-class ShadowMap {
+class FShadowMap {
 public:
     static constexpr u32 kMaxCascades = 4;
 
-    ShadowMap() noexcept = default;
-    ~ShadowMap() noexcept = default;
+    FShadowMap() noexcept = default;
+    ~FShadowMap() noexcept = default;
 
-    ShadowMap(const ShadowMap&)            = delete;
-    ShadowMap& operator=(const ShadowMap&) = delete;
+    FShadowMap(const FShadowMap&)            = delete;
+    FShadowMap& operator=(const FShadowMap&) = delete;
 
     // cascade_count = 1 (既定): single 2D depth texture (size × size)
     // cascade_count >= 2     : CSM atlas (cascade_count*size × size)

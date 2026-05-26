@@ -18,13 +18,13 @@
 namespace acs {
 
 // 起動時に CPU 機能から選ばれる関数ポインタ群
-struct MathDispatch {
+struct FMathDispatch {
     void (*transform_points) (const FVec3* in, FVec3* out, usize count, const FMat4& m) = nullptr;
     void (*transform_vectors)(const FVec3* in, FVec3* out, usize count, const FMat4& m) = nullptr;
 };
 
 // 取得（初回呼び出しで初期化）
-const MathDispatch& GetMathDispatch() noexcept;
+const FMathDispatch& GetMathDispatch() noexcept;
 
 // 利便関数: ディスパッチ越しに呼ぶ
 void TransformPoints (const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept;

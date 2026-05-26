@@ -3,7 +3,7 @@
 //
 // 構成:
 //   main.cpp                 - ACS_DEFINE_MAIN(HelloWindowApp) のみ
-//   HelloWindowApp.{h,cpp}   - Application 派生クラス本体
+//   HelloWindowApp.{h,cpp}   - FApplication 派生クラス本体
 #include "HelloWindowApp.h"
 #include "app/EntryPoint.h"
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — DynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
+// GameFramework Pillar U — FDynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
 //
 // プレイヤーの実プレイスタッツ (死亡 / 撃破 / リトライ / クリア時間 / パワー
 // アップ取得) を追跡し、それを元に「Easy / Normal / Hard / VeryHard / Adaptive」
@@ -14,12 +14,12 @@
 //     非可換性を含むため、固定タイムステップでの再現性は保証しない。replay /
 //     netcode 同期に乗せるなら `Adaptive` 以外 (Easy/Normal/Hard/VeryHard) を
 //     使うか、難易度値そのものを replay に記録する運用を取ること。
-//   ・DamageFeedback / Progression と独立: DDA は「乗数を提供する純粋 state
+//   ・FDamageFeedback / FProgression と独立: DDA は「乗数を提供する純粋 state
 //     holder」で、ゲーム側の戦闘ロジックが乗数を pull して使う構造。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
-//       acs::game::DynamicDifficulty _dda;
+//   class GameplayScene : public FScene {
+//       acs::game::FDynamicDifficulty _dda;
 //       void OnEnter() noexcept override {
 //           _dda.Init(acs::game::EDifficultyLevel::Adaptive);
 //       }
@@ -49,7 +49,7 @@
 //      → skill が高いほど高難易度に寄せる。
 //      重み (w_k / w_c / w_r / w_d) は内部で固定 (Phase 2)。Phase 3 で
 //      `SetAdaptiveWeights(...)` API で外部化検討。
-//   ・**smooth lerp は Camera2D と同じ framerate-independent**:
+//   ・**smooth lerp は FCamera2D と同じ framerate-independent**:
 //      `t = 1 - exp(-rate * dt)` で dt 不変。rate = 0.5 で約 1.4 秒で 50% 詰める
 //      ゆっくり追従。プレイヤーが「急にゲームが楽になった/難しくなった」と
 //      感じない速度に意図的に抑える。
@@ -67,13 +67,13 @@
 //     は exponential moving average (EMA) で「直近のクリア時間」を反映。
 //     全レベル全平均ではなく直近に重み付け、で skill 変動に追従しやすく。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。インスタンス
-//     1 個前提 (Scene のメンバ持ち回り)。
+//     1 個前提 (FScene のメンバ持ち回り)。
 //   ・**STL 不使用 / `<string>` 不使用**: ACS 規約。
 //
 // 範囲外 (Phase 3+):
 //   ・skill 重みの外部設定 API
 //   ・per-encounter difficulty (戦闘単位での個別調整)
-//   ・persistence (SaveSlot 経由で stats を残す → Phase 3 で連携検討)
+//   ・persistence (FSaveSlot 経由で stats を残す → Phase 3 で連携検討)
 //   ・ML 推論ベースの skill 推定 (Phase U-3 で MlRuntime と連携検討)
 #pragma once
 
@@ -93,14 +93,14 @@ enum class EDifficultyLevel : u8 {
     Adaptive = 4,
 };
 
-// ---- PlayerSkillStats ------------------------------------------------------
+// ---- FPlayerSkillStats ------------------------------------------------------
 // プレイヤーの腕前判定に使う実プレイ統計。
 // ・deaths_last_session  : 現セッション中の死亡回数
 // ・kills_last_session   : 現セッション中の撃破回数
 // ・retries_current_level: 現レベルのリトライ回数 (RecordLevelComplete で 0 リセット)
 // ・average_completion_time : 直近クリア時間の指数移動平均 (s)。0 = 未計測
 // ・powerups_collected   : 現セッション中のパワーアップ取得数
-struct PlayerSkillStats {
+struct FPlayerSkillStats {
     u32 deaths_last_session   = 0;
     u32 kills_last_session    = 0;
     u32 retries_current_level = 0;
@@ -108,15 +108,15 @@ struct PlayerSkillStats {
     u32 powerups_collected    = 0;
 };
 
-class DynamicDifficulty {
+class FDynamicDifficulty {
 public:
-    DynamicDifficulty()  noexcept = default;
-    ~DynamicDifficulty() noexcept = default;
+    FDynamicDifficulty()  noexcept = default;
+    ~FDynamicDifficulty() noexcept = default;
 
-    DynamicDifficulty(const DynamicDifficulty&)            = delete;
-    DynamicDifficulty& operator=(const DynamicDifficulty&) = delete;
-    DynamicDifficulty(DynamicDifficulty&&)                 = delete;
-    DynamicDifficulty& operator=(DynamicDifficulty&&)      = delete;
+    FDynamicDifficulty(const FDynamicDifficulty&)            = delete;
+    FDynamicDifficulty& operator=(const FDynamicDifficulty&) = delete;
+    FDynamicDifficulty(FDynamicDifficulty&&)                 = delete;
+    FDynamicDifficulty& operator=(FDynamicDifficulty&&)      = delete;
 
     // ----- 初期化 / モード切替 -----
     // base_level: 初期モード。Adaptive 指定時は `_current_difficulty` を
@@ -155,7 +155,7 @@ public:
     f32 PlayerHealthMultiplier() const noexcept;
 
     // ----- 統計参照 / リセット -----
-    const PlayerSkillStats& Stats() const noexcept { return _stats; }
+    const FPlayerSkillStats& FStats() const noexcept { return _stats; }
     // 統計のみ初期化。モード / current_difficulty は維持。NewGame/シーン切替向け。
     void ResetStats() noexcept;
 
@@ -175,7 +175,7 @@ private:
 
     EDifficultyLevel _mode               = EDifficultyLevel::Normal;
     f32             _current_difficulty = 0.333333f;  // Normal start (= 1/3)
-    PlayerSkillStats _stats {};
+    FPlayerSkillStats _stats {};
 
     // Adaptive 用の累積セッション時間 (= 統計密度の分母として使う)。
     f32 _session_time = 0.0f;

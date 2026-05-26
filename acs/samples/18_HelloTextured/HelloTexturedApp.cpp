@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTextured — Application 実装。
+// HelloTextured — FApplication 実装。
 #include "HelloTexturedApp.h"
 #include "Shaders.h"
 #include "TextureGen.h"
@@ -19,7 +19,7 @@ void HelloTexturedApp::OnStart() noexcept {
 
     // === シェーダ ===
     FShaderDesc vs_desc{};
-    vs_desc.stage = EShaderStage::Vertex;
+    vs_desc.stage = EShaderStage::FVertex;
     vs_desc.hlsl_source = kHLSL;
     vs_desc.entry_point = "VSMain";
     vs_desc.debug_name  = "Tex.VS";
@@ -39,7 +39,7 @@ void HelloTexturedApp::OnStart() noexcept {
     // === バッファ ===
     FBufferDesc vb{};
     vb.size = sizeof(kCubeVertices);
-    vb.usage = EBufferUsage::Vertex; vb.cpu_writable = true;
+    vb.usage = EBufferUsage::FVertex; vb.cpu_writable = true;
     vb.initial_data = kCubeVertices;
     if (auto r = CreateRhiBuffer(*dev, vb); r.IsErr()) {
         ACS_LOG_ERROR("頂点バッファ作成に失敗: %s", r.Error().message); Quit(); return;
@@ -94,7 +94,7 @@ void HelloTexturedApp::OnStart() noexcept {
     pd.static_samplers[0].filter      = ESamplerFilter::Point;     // ピクセルアートっぽい外観にするため Point
     pd.static_samplers[0].address_u   = ESamplerAddress::Wrap;
     pd.static_samplers[0].address_v   = ESamplerAddress::Wrap;
-    pd.vertex_stride = sizeof(Vertex);
+    pd.vertex_stride = sizeof(FVertex);
     pd.layout[0] = { "POSITION",  0, EFormat::R32G32B32_Float, 0 };
     pd.layout[1] = { "TEXCOORD",  0, EFormat::R32G32_Float,    sizeof(f32) * 3 };
     pd.layout_count = 2;
@@ -111,11 +111,11 @@ void HelloTexturedApp::OnStart() noexcept {
 }
 
 void HelloTexturedApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
     _angle += dt * 0.6f;
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
+    if (FInput::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
+    if (FInput::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
 
     FVec3 eye{ Sin(_cam_yaw) * 5.0f, 1.5f, -Cos(_cam_yaw) * 5.0f };
     _camera.SetLookAt(eye, {0, 0, 0});
@@ -131,7 +131,7 @@ void HelloTexturedApp::OnRender() noexcept {
     cl->SetPipeline(*_pipeline);
     cl->SetConstantBuffer(0, *_cb);
     cl->SetTexture(0, *_tex);
-    cl->SetVertexBuffer(*_vb, sizeof(Vertex));
+    cl->SetVertexBuffer(*_vb, sizeof(FVertex));
     cl->SetIndexBuffer(*_ib);
     cl->DrawIndexed(36);
 }

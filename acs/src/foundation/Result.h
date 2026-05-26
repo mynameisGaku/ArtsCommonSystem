@@ -15,7 +15,7 @@
 // 典型的な使用例:
 //   TResult<File, FErrorCode> r = OpenFile("foo");
 //   if (!r) {
-//       Logger::Error("open failed: %s", r.Error().message);
+//       FLogger::Error("open failed: %s", r.Error().message);
 //       return;
 //   }
 //   File& f = r.Value();
@@ -34,7 +34,7 @@ namespace detail {
 // 構築時のオーバーロード解決を一意にするためのタグ型
 struct FOkTag    {};
 struct FErrTag   {};
-struct EmptyTag {};
+struct FEmptyTag {};
 } // namespace detail
 
 inline constexpr detail::FOkTag    OkInit {};   // 成功側構築用タグ
@@ -152,9 +152,9 @@ private:
 
     // ストレージは union で T と E を排他的に保持する（メモリ節約）。
     // どちらが有効かは _has_value で判別する。
-    union Storage {
-        Storage() noexcept {}
-        ~Storage() noexcept {}
+    union FStorage {
+        FStorage() noexcept {}
+        ~FStorage() noexcept {}
         T _value;
         E _error;
     } _storage;
@@ -214,9 +214,9 @@ private:
     void Destroy() noexcept {
         if (!_has_value) if constexpr (!IsTriviallyDestructibleV<E>) _storage._error.~E();
     }
-    union Storage {
-        Storage() noexcept {}
-        ~Storage() noexcept {}
+    union FStorage {
+        FStorage() noexcept {}
+        ~FStorage() noexcept {}
         u8 _pad;
         E  _error;
     } _storage;

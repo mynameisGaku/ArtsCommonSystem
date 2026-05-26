@@ -4,7 +4,7 @@
 // 開発時のアセット hot reload を行う「シーム (seam)」。Watcher にディレクトリ /
 // ファイルを登録 → 別 layer (Phase K-3 で実 FS API、Windows なら
 // `ReadDirectoryChangesW` を Async 起動) が変更を検出 → コールバック群へ
-// `HotReloadEvent` を配信、という構成。
+// `FHotReloadEvent` を配信、という構成。
 //
 // 本ヘッダ (Phase 2) では:
 //   ・watched パスのリスト
@@ -25,8 +25,8 @@
 //
 // 使い方:
 //   class AssetSystem {
-//       acs::game::HotReloadWatcher _watcher;
-//       static void OnReload(void* user, const HotReloadEvent& ev) noexcept {
+//       acs::game::FHotReloadWatcher _watcher;
+//       static void OnReload(void* user, const FHotReloadEvent& ev) noexcept {
 //           auto* self = static_cast<AssetSystem*>(user);
 //           if (ev.removed) self->Drop(ev.file_path);
 //           else            self->Reload(ev.file_path, ev.modified_timestamp);
@@ -34,13 +34,13 @@
 //       void Boot() noexcept {
 //           _watcher.Init();
 //           _watcher.WatchDirectory("Assets/Textures", /*recursive=*/true);
-//           _watcher.WatchFile("Assets/Config/Game.toml");
+//           _watcher.WatchFile("Assets/Config/FGame.toml");
 //           _watcher.RegisterCallback(&OnReload, this);
 //       }
 //       void Update(f32 dt) noexcept {
 //           _watcher.Tick(dt);  // Phase K-3 で内部 poll → callback dispatch
 //           // (Phase K-2 では Tick は何もしない — pending event の手動 drain は下の通り)
-//           HotReloadEvent ev;
+//           FHotReloadEvent ev;
 //           while (_watcher.ConsumeNextEvent(ev)) { OnReload(this, ev); }
 //       }
 //       void Shutdown() noexcept { _watcher.Shutdown(); }
@@ -51,13 +51,13 @@
 //   ・**path 文字列は caller 所有 (借用)**: `const char*` を TArray に保持するだけ。
 //     <string> 禁止。リテラル想定。動的文字列は呼び出し側が watcher 寿命中保持する。
 //   ・**コールバックは関数ポインタ + void* user**: `std::function` は heap / RTTI /
-//     例外を呼び込むため一切採用しない (DevConsole / SceneEventBus と同じ規約)。
+//     例外を呼び込むため一切採用しない (FDevConsole / FSceneEventBus と同じ規約)。
 //   ・**コールバックは重複登録不可**: (cb, user) ペアが完全一致なら no-op で弾く。
 //     UI 側のライフサイクル誤りで二重登録 → 二重 dispatch を防ぐ。
-//   ・**非コピー・非ムーブ**: 内部 TArray<const char*> / TArray<HotReloadEvent> の
-//     所有権を曖昧にしないため (DevConsole / InspectorSeam と同じ方針)。
+//   ・**非コピー・非ムーブ**: 内部 TArray<const char*> / TArray<FHotReloadEvent> の
+//     所有権を曖昧にしないため (FDevConsole / FInspectorSeam と同じ方針)。
 //   ・**全 noexcept**: ACS 規約。エラーは log のみ。
-//   ・**event は POD**: `HotReloadEvent` は trivially copyable (path は借用 const char*)。
+//   ・**event は POD**: `FHotReloadEvent` は trivially copyable (path は借用 const char*)。
 //     ConsumeNextEvent は TArray の先頭を out へコピー → 1 要素 shift-left。FIFO 順を
 //     保つため swap-remove ではなく shift。Phase K-3 までは event 数は <= 数十を想定。
 //   ・**ship build no-op**: `ACS_GAME_SHIPPING` 定義時はヘッダ側で本体 class を
@@ -67,7 +67,7 @@
 // 範囲外 (Phase K-3 以降で):
 //   ・実 FS watcher: Windows `ReadDirectoryChangesW`、POSIX `inotify` / `kqueue`、
 //     macOS `FSEvents`。共通 I/F は `IFileSystemWatcher` として `platform/` 配下に
-//     置き、`HotReloadWatcher` がこれを 1 枚被せる形になる予定。
+//     置き、`FHotReloadWatcher` がこれを 1 枚被せる形になる予定。
 //   ・debounce (連続 save / save → swap-rename のような 100ms 内のイベント集約)
 //   ・recursive 解除 (現状は WatchDirectory の recursive=true/false を「希望」として
 //     記録するのみ。実 watcher 接続時に意味付与)
@@ -87,7 +87,7 @@ namespace acs::game {
 // もしくは Phase K-3 の FS watcher が払い出す bufer に寄る。いずれにせよ
 // callback 呼び出しスコープ中のみ valid。callback が長く保持したい場合は
 // 内部でコピーする責務がある (本ヘッダ層は <string> 禁止のため複製しない)。
-struct HotReloadEvent {
+struct FHotReloadEvent {
     const char* file_path         = nullptr;  // null 終端 path (caller / watcher 所有)
     u64         modified_timestamp = 0;       // 変更検出時刻 (Phase K-3 で OS 由来値を入れる)
     bool        removed            = false;   // true: ファイル削除イベント、false: 更新
@@ -96,21 +96,21 @@ struct HotReloadEvent {
 // コールバック型。ACS 規約により全 noexcept、関数ポインタのみ採用。
 //   - user : Register 時に渡したコンテキストポインタ (this 想定)
 //   - ev   : このイベントの詳細。呼び出しスコープ中のみ valid。
-using HotReloadCallback = void(*)(void* user, const HotReloadEvent& ev) noexcept;
+using HotReloadCallback = void(*)(void* user, const FHotReloadEvent& ev) noexcept;
 
 // ---- Watcher ------------------------------------------------------------
 // 開発時のファイル変更を監視し、登録済みコールバック群に dispatch するためのハブ。
 // Phase 2 では「登録 / 列挙 / event FIFO」だけを実装し、実 FS poll は Phase K-3 へ。
-class HotReloadWatcher {
+class FHotReloadWatcher {
 public:
-    HotReloadWatcher() noexcept = default;
-    ~HotReloadWatcher() noexcept = default;
+    FHotReloadWatcher() noexcept = default;
+    ~FHotReloadWatcher() noexcept = default;
 
     // 非コピー・非ムーブ: 内部 TArray 3 本の所有を曖昧にしない。
-    HotReloadWatcher(const HotReloadWatcher&)            = delete;
-    HotReloadWatcher& operator=(const HotReloadWatcher&) = delete;
-    HotReloadWatcher(HotReloadWatcher&&)                 = delete;
-    HotReloadWatcher& operator=(HotReloadWatcher&&)      = delete;
+    FHotReloadWatcher(const FHotReloadWatcher&)            = delete;
+    FHotReloadWatcher& operator=(const FHotReloadWatcher&) = delete;
+    FHotReloadWatcher(FHotReloadWatcher&&)                 = delete;
+    FHotReloadWatcher& operator=(FHotReloadWatcher&&)      = delete;
 
     // ----- ライフサイクル -----
     // 初期化。現状は何もしない (将来 Phase K-3 で OS watcher ハンドルを開く予定の
@@ -157,7 +157,7 @@ public:
 
     // pending event を 1 件取り出す (FIFO)。out に書き込んで true、空なら false。
     // 取り出した event は内部 buffer から物理削除される。
-    bool ConsumeNextEvent(HotReloadEvent& out) noexcept;
+    bool ConsumeNextEvent(FHotReloadEvent& out) noexcept;
 
     // pending event を全クリア (callback dispatch 済みかは問わない)。
     void ClearEvents() noexcept;
@@ -165,14 +165,14 @@ public:
 private:
 #ifndef ACS_GAME_SHIPPING
     // コールバックエントリ。POD で trivially copyable。
-    struct CallbackEntry {
+    struct FCallbackEntry {
         HotReloadCallback cb   = nullptr;
         void*             user = nullptr;
     };
 
     TArray<const char*>      _watched_paths;    // caller 所有の path を借用保持
-    TArray<CallbackEntry>    _callbacks;        // (cb, user) ペア集合
-    TArray<HotReloadEvent>   _pending_events;   // FIFO バッファ、Tick で push、Consume で pop
+    TArray<FCallbackEntry>    _callbacks;        // (cb, user) ペア集合
+    TArray<FHotReloadEvent>   _pending_events;   // FIFO バッファ、Tick で push、Consume で pop
 #endif
 };
 

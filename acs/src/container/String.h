@@ -16,9 +16,9 @@ public:
     static constexpr usize kSsoCapacity = 22;  // インライン上限（NUL 含めず）
 
     FString() noexcept;
-    explicit FString(Allocator& a) noexcept;
-    FString(const char* cstr, Allocator& a = DefaultAllocator()) noexcept;
-    FString(FStringView v,    Allocator& a = DefaultAllocator()) noexcept;
+    explicit FString(FAllocator& a) noexcept;
+    FString(const char* cstr, FAllocator& a = DefaultAllocator()) noexcept;
+    FString(FStringView v,    FAllocator& a = DefaultAllocator()) noexcept;
 
     FString(const FString& o) noexcept;
     FString(FString&& o)      noexcept;
@@ -46,7 +46,7 @@ public:
     // printf 風フォーマット追記。最終サイズを返す（失敗時は 0）
     usize AppendFormat(const char* fmt, ...) noexcept;
 
-    Allocator* GetAllocator() const noexcept { return _alloc; }
+    FAllocator* GetAllocator() const noexcept { return _alloc; }
 
 private:
     // remaining バイトの MSB がヒープフラグ
@@ -69,7 +69,7 @@ private:
             // remaining フィールドは _sso.remaining と同じバイトに重なる
         } _heap;
     };
-    Allocator* _alloc = nullptr;
+    FAllocator* _alloc = nullptr;
 };
 
 inline bool operator==(const FString& a, FStringView b) noexcept { return a.View() == b; }

@@ -4,7 +4,7 @@
 #   main.cpp                  - ACS_DEFINE_MAIN(HelloShadowsApp) のみ
 #   Types.h                   - CasterInst POD + 共通定数
 #   ShadowsScene.{h,cpp}      - シーン描画ロジック (シャドウパス + 主パス)
-#   HelloShadowsApp.{h,cpp}   - Application 派生クラス
+#   HelloShadowsApp.{h,cpp}   - FApplication 派生クラス
 add_executable(hello_shadows WIN32
     main.cpp
     ShadowsScene.cpp

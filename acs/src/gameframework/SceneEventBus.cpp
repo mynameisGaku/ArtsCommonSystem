@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — SceneEventBus 実装 (Phase 1 polish)
+// GameFramework Pillar A — FSceneEventBus 実装 (Phase 1 polish)
 #include "gameframework/SceneEventBus.h"
 
 namespace acs::game {
 
-u32 SceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
+u32 FSceneEventBus::Subscribe(FEventId id, HandlerFn fn, void* user) noexcept {
     if (fn == nullptr) {
-        ACS_LOG_WARN("SceneEventBus::Subscribe: null handler for event id=%u ignored", id.value);
+        ACS_LOG_WARN("FSceneEventBus::Subscribe: null handler for event id=%u ignored", id.value);
         return 0u;
     }
 
-    // 既に inactive になっている Entry があれば再利用してメモリを節約。
-    // Publish 中の再エントランシ安全性のため、Entry の物理削除はしない設計。
+    // 既に inactive になっている FEntry があれば再利用してメモリを節約。
+    // Publish 中の再エントランシ安全性のため、FEntry の物理削除はしない設計。
     for (usize i = 0; i < _entries.Size(); ++i) {
-        Entry& e = _entries[i];
+        FEntry& e = _entries[i];
         if (!e.active) {
             // handle は新規発行 (古い handle で Unsubscribe されても誤爆しないように)
             const u32 h = _next_handle++;
@@ -30,7 +30,7 @@ u32 SceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
     // 空きが無ければ末尾に追加
     const u32 h = _next_handle++;
     if (_next_handle == 0u) _next_handle = 1u;
-    Entry e;
+    FEntry e;
     e.id     = id;
     e.fn     = fn;
     e.user   = user;
@@ -40,10 +40,10 @@ u32 SceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
     return h;
 }
 
-void SceneEventBus::Unsubscribe(u32 handle) noexcept {
+void FSceneEventBus::Unsubscribe(u32 handle) noexcept {
     if (handle == 0u) return;  // invalid handle は静かに無視 (RAII 解除パスで頻出)
     for (usize i = 0; i < _entries.Size(); ++i) {
-        Entry& e = _entries[i];
+        FEntry& e = _entries[i];
         if (e.handle == handle && e.active) {
             e.active = false;
             // fn / user は debug 観察用に残しておく (どうせ active=false で見ない)
@@ -53,12 +53,12 @@ void SceneEventBus::Unsubscribe(u32 handle) noexcept {
     // 既に Unsubscribe 済 / 未知 handle: no-op (Warn は出さない、二重解除は良くある)
 }
 
-void SceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) noexcept {
-    // 走査範囲を呼び出し時点で固定。Publish 中に Subscribe された Entry は
+void FSceneEventBus::Publish(FEventId id, const void* payload, u32 payload_size) noexcept {
+    // 走査範囲を呼び出し時点で固定。Publish 中に Subscribe された FEntry は
     // 次回以降の Publish で呼ばれる (循環 publish の防止にもなる)。
     const usize snapshot_size = _entries.Size();
     for (usize i = 0; i < snapshot_size; ++i) {
-        Entry& e = _entries[i];
+        FEntry& e = _entries[i];
         if (!e.active) continue;
         if (e.id != id) continue;
         // ハンドラ実行中に Unsubscribe / 別 event の Subscribe が走っても
@@ -73,16 +73,16 @@ void SceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) n
     }
 }
 
-u32 SceneEventBus::SubscriberCount(EventId id) const noexcept {
+u32 FSceneEventBus::SubscriberCount(FEventId id) const noexcept {
     u32 count = 0u;
     for (usize i = 0; i < _entries.Size(); ++i) {
-        const Entry& e = _entries[i];
+        const FEntry& e = _entries[i];
         if (e.active && e.id == id) ++count;
     }
     return count;
 }
 
-void SceneEventBus::ClearAll() noexcept {
+void FSceneEventBus::ClearAll() noexcept {
     _entries.Clear();
     // _next_handle はリセットしない: ClearAll 後も以前払い出した handle と
     // 衝突しないように単調増加を維持。

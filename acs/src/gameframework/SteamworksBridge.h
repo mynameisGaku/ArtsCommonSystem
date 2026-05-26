@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — SteamworksBridge (Achievements / Leaderboards / PlayerIdentity)
+// GameFramework Pillar S — SteamworksBridge (Achievements / Leaderboards / FPlayerIdentity)
 //
 // Steam / EOS / PS / Xbox / Switch といったプラットフォーム固有 SDK へ橋渡しする
 // 「シーム (seam)」インターフェース。ゲーム側コードは ISteamworksBridge 経由でのみ
@@ -7,12 +7,12 @@
 // SDK 等) との結合はビルド時の選択で差し替える。
 //
 // 使い方:
-//   class Game {
+//   class FGame {
 //       acs::game::ISteamworksBridge* _social = nullptr;
 //
 //       void OnStart() noexcept override {
 //           // 出荷ビルドでは GoldenSteamworksBridge を DI、開発ビルドでは Stub。
-//           _social = &acs::game::SteamworksBridgeStub::GetStub();
+//           _social = &acs::game::FSteamworksBridgeStub::GetStub();
 //           (void)_social->Init();
 //       }
 //       void OnTick(f32 dt) noexcept override {
@@ -41,13 +41,13 @@
 //     畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバックポンプの存在を
 //     意識しなくて良い。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `SteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
-//     `_social = &SteamworksBridgeStub::GetStub();` だけでコンパイル可能。
+//     `FSteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
+//     `_social = &FSteamworksBridgeStub::GetStub();` だけでコンパイル可能。
 //   ・**実 SDK 実装はここでは作らない**: GoldenSteamworksBridge 等は Steamworks SDK
 //     ヘッダ / ライブラリへの依存を伴うため、本ファイルでは I/F + Stub のみ。
 //
 // 範囲外 (Phase 2+ で):
-//   ・Stats / リッチプレゼンス / マルチプレイ招待 / クラウドセーブ / DLC owns / ワークショップ。
+//   ・FStats / リッチプレゼンス / マルチプレイ招待 / クラウドセーブ / DLC owns / ワークショップ。
 //   ・非同期 result の Future / コールバック登録。今は同期 API 前提 (Leaderboard
 //     get は SDK 側でキャッシュされた値を即返す形を想定)。
 #pragma once
@@ -64,11 +64,11 @@ namespace acs::game {
 inline constexpr u16 kSubSteamworksNotImplemented = 1001;  // Stub による未実装
 inline constexpr u16 kSubSteamworksNotInitialized = 1002;  // Init() 前の API 呼び出し
 
-// ---- PlayerIdentity (cross-platform 共通の最小情報) ------------------------
+// ---- FPlayerIdentity (cross-platform 共通の最小情報) ------------------------
 // Bridge は文字列を所有しない。`platform_id` / `display_name` は実 SDK 側 (または
 // Stub 内 static literal) のメモリを参照するだけで、呼び出し側でコピーしない。
 // 寿命は「次の Tick() を呼ぶまで」を保証する (実装によってはそれより長い)。
-struct PlayerIdentity {
+struct FPlayerIdentity {
     const char* platform_id   = nullptr;  // "76561198..." 等の SDK 固有 ID 文字列
     const char* display_name  = nullptr;  // ユーザー表示名 (UTF-8)
     u64         session_token = 0;        // SDK 発行のセッショントークン (0 = 無効)
@@ -97,8 +97,8 @@ public:
     // Init() 成功後かつ Shutdown() 前なら true。
     virtual bool IsInitialized() const noexcept = 0;
 
-    // ローカルプレイヤー情報。未初期化時は空 PlayerIdentity を返す (異常終了しない)。
-    virtual PlayerIdentity GetLocalPlayer() const noexcept = 0;
+    // ローカルプレイヤー情報。未初期化時は空 FPlayerIdentity を返す (異常終了しない)。
+    virtual FPlayerIdentity GetLocalPlayer() const noexcept = 0;
 
     // 実績解除。ach_id はプラットフォームの実績 ID 文字列 ("ACH_BOSS_01" 等)。
     // 既に解除済みの場合の振る舞いは SDK 依存 (大抵は no-op で成功)。
@@ -122,22 +122,22 @@ public:
 //   ・GetLocalPlayer() は固定ダミー ("stub_player" / "Player") を返す。
 //   ・Achievement / Leaderboard 系は ACS_ERR(Generic, kSubSteamworksNotImplemented)。
 //   ・Shutdown() / Tick() は副作用なし。
-class SteamworksBridgeStub final : public ISteamworksBridge {
+class FSteamworksBridgeStub final : public ISteamworksBridge {
 public:
-    SteamworksBridgeStub() noexcept = default;
-    ~SteamworksBridgeStub() noexcept override = default;
+    FSteamworksBridgeStub() noexcept = default;
+    ~FSteamworksBridgeStub() noexcept override = default;
 
     TResult<void>    Init() noexcept override;
     void            Shutdown() noexcept override;
     bool            IsInitialized() const noexcept override { return _initialized; }
-    PlayerIdentity  GetLocalPlayer() const noexcept override;
+    FPlayerIdentity  GetLocalPlayer() const noexcept override;
     TResult<void>    UnlockAchievement(const char* ach_id) noexcept override;
     TResult<void>    SetLeaderboardScore(const char* board_id, i64 score) noexcept override;
     TResult<i64>     GetLeaderboardScore(const char* board_id) noexcept override;
     void            Tick(f32 dt) noexcept override;
 
     // 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。
-    static SteamworksBridgeStub& GetStub() noexcept;
+    static FSteamworksBridgeStub& GetStub() noexcept;
 
 private:
     bool _initialized = false;

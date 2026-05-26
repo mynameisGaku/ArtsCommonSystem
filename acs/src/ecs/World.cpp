@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// ECS World 実装
+// ECS FWorld 実装
 #include "ecs/World.h"
 
 namespace acs {
 
-World::World() noexcept = default;
+FWorld::FWorld() noexcept = default;
 
-World::~World() noexcept {
-    // 全 SparseSet を解放（仮想デストラクタ経由で型ごとの破棄を実行）
+FWorld::~FWorld() noexcept {
+    // 全 FSparseSet を解放（仮想デストラクタ経由で型ごとの破棄を実行）
     for (usize i = 0; i < _sets.Size(); ++i) {
         if (_sets[i]) {
             ::delete _sets[i];
@@ -16,13 +16,13 @@ World::~World() noexcept {
     }
 }
 
-EntityId World::Create() noexcept {
-    EntityId e{};
+FEntityId FWorld::Create() noexcept {
+    FEntityId e{};
     if (!_free_indices.IsEmpty()) {
         // フリースロットを再利用（生成回数で世代がインクリメントされる）
         u32 idx = _free_indices.Back();
         _free_indices.PopBack();
-        Slot& s = _slots[idx];
+        FSlot& s = _slots[idx];
         s.alive = true;
         e.index = idx;
         e.generation = s.generation;
@@ -37,23 +37,23 @@ EntityId World::Create() noexcept {
     return e;
 }
 
-void World::Destroy(EntityId e) noexcept {
+void FWorld::Destroy(FEntityId e) noexcept {
     if (!IsAlive(e)) return;
-    // 全コンポーネントを取り除く（型消去 Remove で各 SparseSet に通知）
+    // 全コンポーネントを取り除く（型消去 Remove で各 FSparseSet に通知）
     for (usize i = 0; i < _sets.Size(); ++i) {
         if (_sets[i]) _sets[i]->RemoveErased(e.index);
     }
-    Slot& s = _slots[e.index];
+    FSlot& s = _slots[e.index];
     s.alive = false;
-    ++s.generation;  // 世代を進めて古い EntityId を無効化
+    ++s.generation;  // 世代を進めて古い FEntityId を無効化
     _free_indices.PushBack(e.index);
     --_alive_count;
 }
 
-bool World::IsAlive(EntityId e) const noexcept {
+bool FWorld::IsAlive(FEntityId e) const noexcept {
     if (!e.IsValid()) return false;
     if (e.index >= _slots.Size()) return false;
-    const Slot& s = _slots[e.index];
+    const FSlot& s = _slots[e.index];
     return s.alive && s.generation == e.generation;
 }
 

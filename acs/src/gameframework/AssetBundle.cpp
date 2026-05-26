@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — AssetBundle 実装 (bridge スケルトン)
+// GameFramework Pillar G — FAssetBundle 実装 (bridge スケルトン)
 //
 // 現フェーズ (G-1): bundle 表層 API + state machine だけを実装。
-// AssetRegistry::LoadAsync / AssetFuture / Unload の実 API 接続は TODO に集約し、
+// FAssetRegistry::LoadAsync / FAssetFuture / Unload の実 API 接続は TODO に集約し、
 // Phase G-2 でまとめて差し替える。スケルトンでも進捗 0→1 の遷移は確認可能 (Add 後に
 // BeginLoad を呼ぶと全 entry が即座に Loaded 扱いになる仮想完了モードで動作)。
 //
 // 設計メモ:
-//   ・「シーン破棄 → bundle 破棄 → TRc<Asset> drop → refcount 0 で実体解放」の流れは
-//     Phase G-2 で AssetFuture から取った TRc を Entry に保持して実現する。
+//   ・「シーン破棄 → bundle 破棄 → TRc<FAsset> drop → refcount 0 で実体解放」の流れは
+//     Phase G-2 で FAssetFuture から取った TRc を FEntry に保持して実現する。
 //     現スケルトンでは TRc を持たないため、Unload は status リセットのみで十分。
 //   ・進捗計算は entries が空の場合 1.0 を返す (=「読むものが無いので即完了」)。
 //     これは BeginLoad 前後で挙動が変わらない (Add 0 件で BeginLoad しても 1.0)。
@@ -16,32 +16,32 @@
 
 namespace acs::game {
 
-void AssetBundle::Add(const char* asset_path) noexcept {
+void FAssetBundle::Add(const char* asset_path) noexcept {
     if (asset_path == nullptr) {
-        ACS_LOG_WARN("AssetBundle::Add: null path ignored");
+        ACS_LOG_WARN("FAssetBundle::Add: null path ignored");
         return;
     }
     if (_begun) {
         // BeginLoad 済 bundle への追加はサポートしない (進捗計算の意味が破綻するため)。
-        ACS_LOG_WARN("AssetBundle::Add: bundle already began loading, ignored '%s'",
+        ACS_LOG_WARN("FAssetBundle::Add: bundle already began loading, ignored '%s'",
                      asset_path);
         return;
     }
-    Entry e{};
+    FEntry e{};
     e.path   = asset_path;
     e.status = LoadStatus::Pending;
     _entries.PushBack(e);
 }
 
-void AssetBundle::BeginLoad() noexcept {
+void FAssetBundle::BeginLoad() noexcept {
     if (_begun) {
-        ACS_LOG_WARN("AssetBundle::BeginLoad: already begun, ignored");
+        ACS_LOG_WARN("FAssetBundle::BeginLoad: already begun, ignored");
         return;
     }
     _begun = true;
 
     // TODO(Phase G-2): 各 entry について
-    //   AssetFuture fut = AssetRegistry::Instance().LoadAsync(WidenPath(entry.path));
+    //   FAssetFuture fut = FAssetRegistry::Instance().LoadAsync(WidenPath(entry.path));
     //   entry.future = Move(fut);
     //   entry.status = LoadStatus::Loading;
     // を発行する。完了 polling は Tick() を別途追加するか、Progress() 呼び出し時に
@@ -49,13 +49,13 @@ void AssetBundle::BeginLoad() noexcept {
     // wchar_t 化が必要なため、PathConv ユーティリティを foundation 側に追加予定。
     //
     // bridge スケルトン: 同期完了扱いで全 entry を Loaded に。これにより呼び出し側
-    // (Scene) は「BeginLoad 直後に IsLoaded() == true」と見えて先に進める。
+    // (FScene) は「BeginLoad 直後に IsLoaded() == true」と見えて先に進める。
     for (usize i = 0; i < _entries.Size(); ++i) {
         _entries[i].status = LoadStatus::Loaded;
     }
 }
 
-f32 AssetBundle::Progress() const noexcept {
+f32 FAssetBundle::Progress() const noexcept {
     const usize n = _entries.Size();
     if (n == 0) {
         // 空 bundle は「読むものが無い = 100%」とみなす (UI のプログレスバー実装を簡潔に)。
@@ -75,7 +75,7 @@ f32 AssetBundle::Progress() const noexcept {
     return static_cast<f32>(done) / static_cast<f32>(n);
 }
 
-bool AssetBundle::IsLoaded() const noexcept {
+bool FAssetBundle::IsLoaded() const noexcept {
     const usize n = _entries.Size();
     if (n == 0) return true;       // 空 bundle は即 loaded
     if (!_begun) return false;     // 未開始なら未完了
@@ -88,7 +88,7 @@ bool AssetBundle::IsLoaded() const noexcept {
     return true;
 }
 
-bool AssetBundle::HasFailed() const noexcept {
+bool FAssetBundle::HasFailed() const noexcept {
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
         if (_entries[i].status == LoadStatus::Failed) {
@@ -98,11 +98,11 @@ bool AssetBundle::HasFailed() const noexcept {
     return false;
 }
 
-u32 AssetBundle::AssetCount() const noexcept {
+u32 FAssetBundle::AssetCount() const noexcept {
     return static_cast<u32>(_entries.Size());
 }
 
-u32 AssetBundle::LoadedCount() const noexcept {
+u32 FAssetBundle::LoadedCount() const noexcept {
     u32 done = 0;
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -113,10 +113,10 @@ u32 AssetBundle::LoadedCount() const noexcept {
     return done;
 }
 
-void AssetBundle::Unload() noexcept {
-    // TODO(Phase G-2): 各 entry の TRc<Asset> を drop し、必要なら
-    //   AssetRegistry::Instance().Unload(AssetIdFromPath(entry.path));
-    // を呼んでキャッシュからも外す。他 Scene がまだ参照していれば refcount > 0 で
+void FAssetBundle::Unload() noexcept {
+    // TODO(Phase G-2): 各 entry の TRc<FAsset> を drop し、必要なら
+    //   FAssetRegistry::Instance().Unload(AssetIdFromPath(entry.path));
+    // を呼んでキャッシュからも外す。他 FScene がまだ参照していれば refcount > 0 で
     // 実体は残り、最後の参照消失時に自動解放される (TRc の決定的破棄)。
     //
     // bridge スケルトン: 内部 state を Pending に戻し、_begun フラグもクリアして

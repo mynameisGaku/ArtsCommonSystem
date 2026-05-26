@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L Phase 3 — Perception 実装
+// GameFramework Pillar L Phase 3 — FPerception 実装
 //
 // 視覚判定の数学的要点:
 //   ・距離フィルタ:   |target - eye| <= sight_range
@@ -25,7 +25,7 @@ namespace acs::game {
 
 // ---- SetConfig --------------------------------------------------------------
 
-void Perception::SetConfig(const SenseConfig& cfg) noexcept {
+void FPerception::SetConfig(const FSenseConfig& cfg) noexcept {
     _cfg = cfg;
     // 視野角の半分 (fov/2) の cos をキャッシュ。Tick の hot path に Cos を入れない。
     // fov が負や 2π を超えるような不正値は Cos の domain に渡しても問題ないので、
@@ -35,7 +35,7 @@ void Perception::SetConfig(const SenseConfig& cfg) noexcept {
 
 // ---- SetEyePos --------------------------------------------------------------
 
-void Perception::SetEyePos(FVec2 pos, FVec2 forward) noexcept {
+void FPerception::SetEyePos(FVec2 pos, FVec2 forward) noexcept {
     _eye_pos = pos;
     // 呼び出し側で正規化されている前提だが、長さ 0 のベクトルが渡されると
     // 視覚判定が全て fail する。フォールバックとして +X を入れて挙動を安定させる。
@@ -48,7 +48,7 @@ void Perception::SetEyePos(FVec2 pos, FVec2 forward) noexcept {
 
 // ---- FindIndexById ----------------------------------------------------------
 
-usize Perception::FindIndexById(u32 id) const noexcept {
+usize FPerception::FindIndexById(u32 id) const noexcept {
     // 線形検索。N が小さい想定 (1 NPC あたり数〜数十) なので妥当。
     const usize n = _targets.Size();
     for (usize i = 0; i < n; ++i) {
@@ -59,7 +59,7 @@ usize Perception::FindIndexById(u32 id) const noexcept {
 
 // ---- AddTarget --------------------------------------------------------------
 
-void Perception::AddTarget(u32 id, FVec2 pos) noexcept {
+void FPerception::AddTarget(u32 id, FVec2 pos) noexcept {
     // 同一 id が既存ならば「位置を更新するだけ」のセマンティクス。
     // これにより呼び出し側が "Add 前に Remove が必要か" を判断しなくて済む。
     const usize idx = FindIndexById(id);
@@ -67,7 +67,7 @@ void Perception::AddTarget(u32 id, FVec2 pos) noexcept {
         _targets[idx].pos = pos;
         return;
     }
-    PerceptionTarget t;
+    FPerceptionTarget t;
     t.pos        = pos;
     t.id         = id;
     t.is_visible = false;   // 初期状態は未検知 (次の Tick で再計算)
@@ -77,7 +77,7 @@ void Perception::AddTarget(u32 id, FVec2 pos) noexcept {
 
 // ---- RemoveTarget -----------------------------------------------------------
 
-void Perception::RemoveTarget(u32 id) noexcept {
+void FPerception::RemoveTarget(u32 id) noexcept {
     const usize idx = FindIndexById(id);
     if (idx >= _targets.Size()) return;   // 存在しない id は静かに no-op
     // 順序非保証の高速削除 (末尾を idx に swap してから縮める)。
@@ -86,7 +86,7 @@ void Perception::RemoveTarget(u32 id) noexcept {
 
 // ---- UpdateTarget -----------------------------------------------------------
 
-void Perception::UpdateTarget(u32 id, FVec2 pos) noexcept {
+void FPerception::UpdateTarget(u32 id, FVec2 pos) noexcept {
     const usize idx = FindIndexById(id);
     if (idx >= _targets.Size()) return;   // 削除済み target への Update は no-op
     _targets[idx].pos = pos;
@@ -94,13 +94,13 @@ void Perception::UpdateTarget(u32 id, FVec2 pos) noexcept {
 
 // ---- IsTargetVisible / IsTargetAudible --------------------------------------
 
-bool Perception::IsTargetVisible(u32 id) const noexcept {
+bool FPerception::IsTargetVisible(u32 id) const noexcept {
     const usize idx = FindIndexById(id);
     if (idx >= _targets.Size()) return false;
     return _targets[idx].is_visible;
 }
 
-bool Perception::IsTargetAudible(u32 id) const noexcept {
+bool FPerception::IsTargetAudible(u32 id) const noexcept {
     const usize idx = FindIndexById(id);
     if (idx >= _targets.Size()) return false;
     return _targets[idx].is_audible;
@@ -108,18 +108,18 @@ bool Perception::IsTargetAudible(u32 id) const noexcept {
 
 // ---- TargetCount / AllTargets ----------------------------------------------
 
-u32 Perception::TargetCount() const noexcept {
+u32 FPerception::TargetCount() const noexcept {
     return static_cast<u32>(_targets.Size());
 }
 
-const PerceptionTarget* Perception::AllTargets(u32& out_count) const noexcept {
+const FPerceptionTarget* FPerception::AllTargets(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_targets.Size());
     return _targets.Data();
 }
 
 // ---- Tick -------------------------------------------------------------------
 
-void Perception::Tick(f32 /*dt*/) noexcept {
+void FPerception::Tick(f32 /*dt*/) noexcept {
     // 範囲ガード: 範囲が 0 以下なら "感覚なし" として全 target を非検知にする。
     // (range == 0 を「届かない」と扱うため、< ではなく <= で比較する)。
     const bool sight_enabled   = (_cfg.sight_range   > 0.0f);
@@ -131,7 +131,7 @@ void Perception::Tick(f32 /*dt*/) noexcept {
 
     const usize n = _targets.Size();
     for (usize i = 0; i < n; ++i) {
-        PerceptionTarget& t = _targets[i];
+        FPerceptionTarget& t = _targets[i];
         const FVec2 delta    = t.pos - _eye_pos;
         const f32  dist_sq  = LengthSq(delta);
 
@@ -160,7 +160,7 @@ void Perception::Tick(f32 /*dt*/) noexcept {
 
 // ---- ClearAll ---------------------------------------------------------------
 
-void Perception::ClearAll() noexcept {
+void FPerception::ClearAll() noexcept {
     // target 配列のみクリア。config / eye 状態は維持 (再利用時の利便性)。
     _targets.Clear();
 }

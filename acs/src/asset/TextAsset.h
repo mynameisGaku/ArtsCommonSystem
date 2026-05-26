@@ -12,12 +12,12 @@
 
 namespace acs {
 
-class TextAsset : public Asset {
+class FTextAsset : public FAsset {
 public:
-    ACS_ASSET_TYPE("TextAsset")
+    ACS_ASSET_TYPE("FTextAsset")
 
-    TextAsset() noexcept = default;
-    explicit TextAsset(TArray<char>&& text) noexcept : _text(Move(text)) {}
+    FTextAsset() noexcept = default;
+    explicit FTextAsset(TArray<char>&& text) noexcept : _text(Move(text)) {}
 
     // NUL 終端された文字列ポインタ
     const char* CStr() const noexcept { return _text.IsEmpty() ? "" : _text.Data(); }
@@ -28,11 +28,11 @@ private:
     TArray<char> _text;  // 末尾に NUL を含む
 };
 
-class TextAssetLoader final : public IAssetLoader {
+class FTextAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return TextAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FTextAsset::StaticType(); }
     const char* Extension() const noexcept override { return "txt"; }   // 主要拡張子
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

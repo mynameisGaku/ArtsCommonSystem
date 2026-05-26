@@ -4,7 +4,7 @@
 // テキスト形式の詳細仕様は FxeditSerializer.h を参照。
 //
 // 実装の主な決定:
-//   ・I/O は `acs::FileSystem::WriteAllText` / `ReadAllText` に委譲。これにより
+//   ・I/O は `acs::FFileSystem::WriteAllText` / `ReadAllText` に委譲。これにより
 //     wchar_t パス + GetLastError 連携 + atomic な置き換え無しの単純上書き
 //     セマンティクスが他の ACS file 操作と一致する。
 //   ・出力 buffer は `acs::TArray<char>` で動的成長させる (emitter 数に依存)。
@@ -16,12 +16,12 @@
 //     非 thread-safe で warning が出るプラットフォームがある)。
 //
 // 注意:
-//   ・本 .cpp は ParticleEmitterDef の完全型を必要とするので、ヘッダ側の
+//   ・本 .cpp は FParticleEmitterDef の完全型を必要とするので、ヘッダ側の
 //     forward decl だけでなく `ParticleEffectSystem.h` を include する。
-//   ・実 ParticleEmitterDef の color は FVec3 (alpha 無し)、gravity は FVec2。
+//   ・実 FParticleEmitterDef の color は FVec3 (alpha 無し)、gravity は FVec2。
 //     テキスト形式は前方互換用に色 4 成分 / 重力 3 成分まで書く / 読むが、
 //     格納できない第 4 成分 (color) / 第 3 成分 (gravity) は破棄する。
-//   ・spread_radians は ParticleEmitterDef にフィールドが無いため、書き出し時は
+//   ・spread_radians は FParticleEmitterDef にフィールドが無いため、書き出し時は
 //     0 で固定、読み込み時はパースして捨てる (将来フィールド追加時に値結合)。
 
 #include "gameframework/tools/fxedit/FxeditSerializer.h"
@@ -109,10 +109,10 @@ bool AppendNameLine(TArray<char>& out,
     char line[96];
     const char* safe_name = name != nullptr ? name : "";
     // 簡素化のため、name 内の `"` は `'` に置き換える防御。
-    char sanitized[FxeditSerializer::kMaxEmitterName + 1];
+    char sanitized[FFxeditSerializer::kMaxEmitterName + 1];
     usize j = 0;
     for (usize i = 0;
-         safe_name[i] != '\0' && j < FxeditSerializer::kMaxEmitterName;
+         safe_name[i] != '\0' && j < FFxeditSerializer::kMaxEmitterName;
          ++i) {
         char c = safe_name[i];
         if (!IsAsciiPrintable(c) || c == '"') c = '_';
@@ -157,7 +157,7 @@ u32 ParseMagicLine(const char* line) noexcept {
     const char* p = line;
     // 先頭の空白スキップ。
     while (*p == ' ' || *p == '\t') ++p;
-    const char* magic = FxeditSerializer::kMagic;
+    const char* magic = FFxeditSerializer::kMagic;
     usize mlen = 0;
     while (magic[mlen] != '\0') ++mlen;
     if (std::strncmp(p, magic, mlen) != 0) return 0;
@@ -229,7 +229,7 @@ bool ExtractQuotedName(const char* line,
 // =============================================================================
 // SkipWhitespace
 // =============================================================================
-const char* FxeditSerializer::SkipWhitespace(const char* p) noexcept {
+const char* FFxeditSerializer::SkipWhitespace(const char* p) noexcept {
     if (p == nullptr) return nullptr;
     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') ++p;
     return p;
@@ -241,7 +241,7 @@ const char* FxeditSerializer::SkipWhitespace(const char* p) noexcept {
 // out_key は line 内の先頭文字を指すポインタ (NUL 終端ではない、長さは
 // 呼出側で再計算)。値が存在しないスロットには 0.0f を入れる。
 // =============================================================================
-bool FxeditSerializer::ParseLine(const char*  line,
+bool FFxeditSerializer::ParseLine(const char*  line,
                                  const char*& out_key,
                                  f32&         out_v0,
                                  f32&         out_v1,
@@ -278,7 +278,7 @@ bool FxeditSerializer::ParseLine(const char*  line,
 // =============================================================================
 // ParseHeaderVersion — 先頭非空行で magic + version を検査
 // =============================================================================
-u32 FxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexcept {
+u32 FFxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexcept {
     if (text == nullptr || text_len == 0u) return 0u;
     char line[kMaxLineLength + 1];
     usize pos = 0;
@@ -293,12 +293,12 @@ u32 FxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexcep
 // =============================================================================
 // Save — defs[count] と names[count] を .fxedit テキストへ書き出す
 // =============================================================================
-TResult<void, FErrorCode> FxeditSerializer::Save(const wchar_t*            file_path,
-                                               const ParticleEmitterDef* defs,
+TResult<void, FErrorCode> FFxeditSerializer::Save(const wchar_t*            file_path,
+                                               const FParticleEmitterDef* defs,
                                                const char* const*        names,
                                                u32                       count) noexcept {
     if (file_path == nullptr || (count > 0u && (defs == nullptr || names == nullptr))) {
-        return ACS_ERR(IO, kSub_NullArgs, "FxeditSerializer::Save: null argument");
+        return ACS_ERR(IO, kSub_NullArgs, "FFxeditSerializer::Save: null argument");
     }
 
     TArray<char> out;
@@ -311,13 +311,13 @@ TResult<void, FErrorCode> FxeditSerializer::Save(const wchar_t*            file_
         if (n < 0 || static_cast<usize>(n) >= sizeof(hdr) ||
             !AppendStr(out, hdr, static_cast<usize>(n))) {
             return ACS_ERR(IO, kSub_BufferOverflow,
-                           "FxeditSerializer::Save: header buffer overflow");
+                           "FFxeditSerializer::Save: header buffer overflow");
         }
         n = std::snprintf(hdr, sizeof(hdr), "EMITTER count %u\n", count);
         if (n < 0 || static_cast<usize>(n) >= sizeof(hdr) ||
             !AppendStr(out, hdr, static_cast<usize>(n))) {
             return ACS_ERR(IO, kSub_BufferOverflow,
-                           "FxeditSerializer::Save: header count overflow");
+                           "FFxeditSerializer::Save: header count overflow");
         }
     }
 
@@ -327,76 +327,76 @@ TResult<void, FErrorCode> FxeditSerializer::Save(const wchar_t*            file_
         int pn = std::snprintf(prefix, sizeof(prefix), "E%u", i);
         if (pn < 0 || static_cast<usize>(pn) >= sizeof(prefix)) {
             return ACS_ERR(IO, kSub_BufferOverflow,
-                           "FxeditSerializer::Save: prefix overflow");
+                           "FFxeditSerializer::Save: prefix overflow");
         }
 
-        const ParticleEmitterDef& d = defs[i];
+        const FParticleEmitterDef& d = defs[i];
         const char* nm = (names != nullptr) ? names[i] : nullptr;
 
         // name は引用符付きで書き出す。
         if (!AppendNameLine(out, prefix, nm)) {
             return ACS_ERR(IO, kSub_BufferOverflow,
-                           "FxeditSerializer::Save: name line overflow");
+                           "FFxeditSerializer::Save: name line overflow");
         }
 
         // スカラ key 群。
         f32 v;
         v = d.emit_rate_per_sec;
         if (!AppendKeyValueLine(out, prefix, "emit_rate", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: emit_rate");
+            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: emit_rate");
         v = d.lifetime_sec;
         if (!AppendKeyValueLine(out, prefix, "lifetime_sec", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: lifetime_sec");
+            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: lifetime_sec");
         v = d.burst_count;
         if (!AppendKeyValueLine(out, prefix, "burst_count", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: burst_count");
+            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: burst_count");
         v = d.speed_min;
         if (!AppendKeyValueLine(out, prefix, "speed_min", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: speed_min");
+            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: speed_min");
         v = d.speed_max;
         if (!AppendKeyValueLine(out, prefix, "speed_max", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: speed_max");
+            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: speed_max");
         v = d.scale_start;
         if (!AppendKeyValueLine(out, prefix, "scale_start", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: scale_start");
+            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: scale_start");
         v = d.scale_end;
         if (!AppendKeyValueLine(out, prefix, "scale_end", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: scale_end");
+            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: scale_end");
 
         // gravity (3 components, z=0 padding for forward compat)。
         {
             f32 g[3] = { d.gravity.x, d.gravity.y, 0.0f };
             if (!AppendKeyValueLine(out, prefix, "gravity", g, 3u))
-                return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: gravity");
+                return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: gravity");
         }
         // color_start / color_end (4 components, a=1 padding)。
         {
             f32 c[4] = { d.color_start.x, d.color_start.y, d.color_start.z, 1.0f };
             if (!AppendKeyValueLine(out, prefix, "color_start", c, 4u))
-                return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: color_start");
+                return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: color_start");
         }
         {
             f32 c[4] = { d.color_end.x, d.color_end.y, d.color_end.z, 1.0f };
             if (!AppendKeyValueLine(out, prefix, "color_end", c, 4u))
-                return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: color_end");
+                return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: color_end");
         }
         // spread_radians: 構造体に未配備のため 0 固定 (前方互換 placeholder)。
         {
             f32 z = 0.0f;
             if (!AppendKeyValueLine(out, prefix, "spread_radians", &z, 1u))
-                return ACS_ERR(IO, kSub_BufferOverflow, "FxeditSerializer::Save: spread_radians");
+                return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: spread_radians");
         }
     }
 
     // 終端 NUL を書かない (WriteAllText は与えたバイト列をそのまま書く)。
-    auto wr = FileSystem::WriteAllBytes(file_path,
+    auto wr = FFileSystem::WriteAllBytes(file_path,
                                         reinterpret_cast<const byte*>(out.Data()),
                                         out.Size());
     if (wr.IsErr()) {
-        // FileSystem 由来の OS error はそのまま subcode を載せ替えて再ラップ。
-        ACS_LOG_WARN("FxeditSerializer::Save WriteAllBytes failed: os=%u", wr.Error().os_error);
+        // FFileSystem 由来の OS error はそのまま subcode を載せ替えて再ラップ。
+        ACS_LOG_WARN("FFxeditSerializer::Save WriteAllBytes failed: os=%u", wr.Error().os_error);
         return ACS_ERR_OS(IO, kSub_IOFailure,
-                          "FxeditSerializer::Save: WriteAllBytes failed",
+                          "FFxeditSerializer::Save: WriteAllBytes failed",
                           wr.Error().os_error);
     }
     return Ok();
@@ -405,25 +405,25 @@ TResult<void, FErrorCode> FxeditSerializer::Save(const wchar_t*            file_
 // =============================================================================
 // Load — `.fxedit` テキストを out_defs / out_name_buffer に復元
 // =============================================================================
-TResult<u32, FErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
-                                              ParticleEmitterDef*  out_defs,
+TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
+                                              FParticleEmitterDef*  out_defs,
                                               char*                out_name_buffer,
                                               u32                  name_buffer_capacity,
                                               u32                  max_emitters) noexcept {
     if (file_path == nullptr || out_defs == nullptr ||
         out_name_buffer == nullptr || max_emitters == 0u ||
         name_buffer_capacity == 0u) {
-        return ACS_ERR(IO, kSub_NullArgs, "FxeditSerializer::Load: null argument");
+        return ACS_ERR(IO, kSub_NullArgs, "FFxeditSerializer::Load: null argument");
     }
-    if (!FileSystem::Exists(file_path)) {
+    if (!FFileSystem::Exists(file_path)) {
         return ACS_ERR(IO, kSub_FileNotFound,
-                       "FxeditSerializer::Load: file not found");
+                       "FFxeditSerializer::Load: file not found");
     }
 
-    auto rr = FileSystem::ReadAllText(file_path);
+    auto rr = FFileSystem::ReadAllText(file_path);
     if (rr.IsErr()) {
         return ACS_ERR_OS(IO, kSub_IOFailure,
-                          "FxeditSerializer::Load: ReadAllText failed",
+                          "FFxeditSerializer::Load: ReadAllText failed",
                           rr.Error().os_error);
     }
     const TArray<char>& text = rr.Value();
@@ -435,19 +435,19 @@ TResult<u32, FErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
                                        static_cast<u32>(text_len > 0xFFFFFFFFu ? 0xFFFFFFFFu : text_len));
     if (ver == 0u) {
         return ACS_ERR(IO, kSub_BadMagic,
-                       "FxeditSerializer::Load: missing or invalid ACS_FXEDIT magic");
+                       "FFxeditSerializer::Load: missing or invalid ACS_FXEDIT magic");
     }
     if (ver != kCurrentVersion) {
-        ACS_LOG_WARN("FxeditSerializer::Load: unsupported version %u (expected %u)",
+        ACS_LOG_WARN("FFxeditSerializer::Load: unsupported version %u (expected %u)",
                      ver, kCurrentVersion);
         return ACS_ERR(IO, kSub_BadVersion,
-                       "FxeditSerializer::Load: unsupported version");
+                       "FFxeditSerializer::Load: unsupported version");
     }
 
     // ---- 1 pass parse ---------------------------------------------------
     // 既定 def + 空 name で全 slot を初期化しておき、行ごとに上書きしていく。
     for (u32 i = 0; i < max_emitters; ++i) {
-        out_defs[i] = ParticleEmitterDef{};
+        out_defs[i] = FParticleEmitterDef{};
     }
     // 名前 buffer は全 NUL 化 (使われない領域は読み手が "" として扱える)。
     for (u32 i = 0; i < name_buffer_capacity; ++i) out_name_buffer[i] = '\0';
@@ -507,7 +507,7 @@ TResult<u32, FErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
         if (idx >= max_emitters) {
             // 受け入れ容量超過は subcode を返して中断。
             return ACS_ERR(IO, kSub_TooManyEmitters,
-                           "FxeditSerializer::Load: emitter index exceeds max_emitters");
+                           "FFxeditSerializer::Load: emitter index exceeds max_emitters");
         }
 
         // 次のトークンが key2 (e.g. "emit_rate" / "name" / "gravity" ...)。
@@ -516,7 +516,7 @@ TResult<u32, FErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
         const char* k2_end = k2_begin;
         while (*k2_end != '\0' && *k2_end != ' ' && *k2_end != '\t') ++k2_end;
 
-        ParticleEmitterDef& d = out_defs[idx];
+        FParticleEmitterDef& d = out_defs[idx];
 
         // ---- name 行 (引用符付き文字列) ---------------------------
         if (KeyEquals(k2_begin, k2_end, "name")) {
@@ -572,7 +572,7 @@ TResult<u32, FErrorCode> FxeditSerializer::Load(const wchar_t*       file_path,
     // それ以外は max_seen_index を返す。
     u32 result_count = saw_emitter_count ? declared_count : max_seen_index;
     if (result_count > max_emitters) {
-        ACS_LOG_WARN("FxeditSerializer::Load: declared count %u clamped to max %u",
+        ACS_LOG_WARN("FFxeditSerializer::Load: declared count %u clamped to max %u",
                      result_count, max_emitters);
         result_count = max_emitters;
     }

@@ -8,13 +8,13 @@
 
 namespace acs {
 
-Dx12Buffer::~Dx12Buffer() noexcept {
+FDx12Buffer::~FDx12Buffer() noexcept {
     if (_mapped && _resource) _resource->Unmap(0, nullptr);
     ACS_SAFE_RELEASE(_resource);
 }
 
-HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept {
-    HrResult r{};
+FHrResult FDx12Buffer::Init(FDx12Device& device, const FBufferDesc& desc) noexcept {
+    FHrResult r{};
     _device = &device;
     _size  = desc.size;
     _usage = desc.usage;
@@ -31,7 +31,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
         _slot_stride = (desc.size + 255u) & ~static_cast<usize>(255u);
     }
     const usize total_size = _frame_cycled
-        ? _slot_stride * Dx12Device::kFramesInFlight
+        ? _slot_stride * FDx12Device::kFramesInFlight
         : desc.size;
 
     // バッファリソース記述（行レイアウトのリニアバッファ）
@@ -75,7 +75,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
     // 初期データを全スロットに複製（フレームリング時は両スロットへ）
     if (desc.initial_data && desc.size > 0 && _mapped) {
         if (_frame_cycled) {
-            for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
+            for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
                 ::memcpy(static_cast<u8*>(_mapped) + i * _slot_stride,
                          desc.initial_data, desc.size);
             }
@@ -86,7 +86,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
     return r;
 }
 
-void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
+void FDx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
     if (!_mapped || !data) return;
     if (offset + size > _size) return;
     u8* base = static_cast<u8*>(_mapped);
@@ -97,7 +97,7 @@ void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
     ::memcpy(base + offset, data, size);
 }
 
-D3D12_GPU_VIRTUAL_ADDRESS Dx12Buffer::Gpu() const noexcept {
+D3D12_GPU_VIRTUAL_ADDRESS FDx12Buffer::Gpu() const noexcept {
     if (!_resource) return 0;
     D3D12_GPU_VIRTUAL_ADDRESS addr = _resource->GetGPUVirtualAddress();
     if (_frame_cycled && _device) {
@@ -112,11 +112,11 @@ TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBuffe
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 30, "CreateRhiBuffer: device is not DX12");
-    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
-    auto b = MakeUnique<Dx12Buffer>();
-    HrResult r = b->Init(*dxd, desc);
+    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    auto b = MakeUnique<FDx12Buffer>();
+    FHrResult r = b->Init(*dxd, desc);
     if (r.IsErr())
-        return ACS_ERR_OS(Render, 31, "Dx12Buffer::Init failed", static_cast<u32>(r.hr));
+        return ACS_ERR_OS(Render, 31, "FDx12Buffer::Init failed", static_cast<u32>(r.hr));
     TUniquePtr<IRhiBuffer> base(b.Release(), b.GetAllocator());
     return TResult<TUniquePtr<IRhiBuffer>>(OkInit, Move(base));
 }

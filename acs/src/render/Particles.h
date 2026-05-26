@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// 2D パーティクルシステム（CPU プール + SpriteBatch 描画）
+// 2D パーティクルシステム（CPU プール + FSpriteBatch 描画）
 //
 // 用途: 火花・煙・爆発・魔法効果など、ゲームの視覚エフェクト全般。
 //
 // 使い方:
-//   ParticleSystem ps;
+//   FParticleSystem ps;
 //   ps.Init(2048);                           // 最大パーティクル数
 //   ps.SetTexture(my_circle_tex);            // null なら 1×1 白
 //
-//   EmitterDesc d;
+//   FEmitterDesc d;
 //   d.position = FVec2{400, 300};
 //   d.velocity = FVec2{0, -120};
 //   d.velocity_variance = FVec2{60, 30};
@@ -27,9 +27,9 @@
 //   sb.End();
 //
 // プリセット:
-//   ps.SetEmitter(EmitterDesc::Fire(pos));
-//   ps.SetEmitter(EmitterDesc::Sparks(pos));
-//   ps.SetEmitter(EmitterDesc::Fountain(pos));
+//   ps.SetEmitter(FEmitterDesc::Fire(pos));
+//   ps.SetEmitter(FEmitterDesc::Sparks(pos));
+//   ps.SetEmitter(FEmitterDesc::Fountain(pos));
 #pragma once
 
 #include "foundation/Types.h"
@@ -39,10 +39,10 @@
 namespace acs {
 
 class IRhiTexture;
-class SpriteBatch;
+class FSpriteBatch;
 
 // エミッタのパラメータ（粒子の初期分布を決める）
-struct EmitterDesc {
+struct FEmitterDesc {
     FVec2  position           = FVec2{0, 0};
     FVec2  spawn_offset_min   = FVec2{0, 0};       // 出現範囲（min..max）
     FVec2  spawn_offset_max   = FVec2{0, 0};
@@ -60,31 +60,31 @@ struct EmitterDesc {
     bool  active             = true;             // false で生成停止
 
     // プリセット ----------------------------------------------------------
-    static EmitterDesc Fire(FVec2 pos)     noexcept;
-    static EmitterDesc Sparks(FVec2 pos)   noexcept;
-    static EmitterDesc Fountain(FVec2 pos) noexcept;
-    static EmitterDesc Smoke(FVec2 pos)    noexcept;
+    static FEmitterDesc Fire(FVec2 pos)     noexcept;
+    static FEmitterDesc Sparks(FVec2 pos)   noexcept;
+    static FEmitterDesc Fountain(FVec2 pos) noexcept;
+    static FEmitterDesc Smoke(FVec2 pos)    noexcept;
 };
 
-class ParticleSystem {
+class FParticleSystem {
 public:
-    ParticleSystem() noexcept = default;
-    ~ParticleSystem() noexcept;
+    FParticleSystem() noexcept = default;
+    ~FParticleSystem() noexcept;
 
-    ParticleSystem(const ParticleSystem&)            = delete;
-    ParticleSystem& operator=(const ParticleSystem&) = delete;
+    FParticleSystem(const FParticleSystem&)            = delete;
+    FParticleSystem& operator=(const FParticleSystem&) = delete;
 
     // max_particles ぶんのプールを確保。テクスチャは後で SetTexture で。
     TResult<void> Init(u32 max_particles = 4096) noexcept;
     void Shutdown() noexcept;
 
-    // null 渡しなら DrawRect 相当の白矩形（SpriteBatch の内部白テクスチャ）
+    // null 渡しなら DrawRect 相当の白矩形（FSpriteBatch の内部白テクスチャ）
     void SetTexture(IRhiTexture* tex) noexcept { _tex = tex; }
 
     // エミッタ設定。中の active=true で連続生成、false で停止のみ。
-    void SetEmitter(const EmitterDesc& d) noexcept { _emitter = d; }
-    EmitterDesc& Emitter() noexcept { return _emitter; }
-    const EmitterDesc& Emitter() const noexcept { return _emitter; }
+    void SetEmitter(const FEmitterDesc& d) noexcept { _emitter = d; }
+    FEmitterDesc& FEmitter() noexcept { return _emitter; }
+    const FEmitterDesc& FEmitter() const noexcept { return _emitter; }
 
     // 1 フレーム分シミュレーション
     void Update(f32 dt) noexcept;
@@ -95,14 +95,14 @@ public:
     // 全粒子を即座に消滅
     void Reset() noexcept { _active = 0; _spawn_accum = 0; }
 
-    // SpriteBatch に粒子を積む（事前に Begin 済みであること）
-    void Render(SpriteBatch& sb) noexcept;
+    // FSpriteBatch に粒子を積む（事前に Begin 済みであること）
+    void Render(FSpriteBatch& sb) noexcept;
 
     u32  ActiveCount() const noexcept { return _active; }
     u32  Capacity()    const noexcept { return _capacity; }
 
 private:
-    struct Particle {
+    struct FParticle {
         FVec2 pos;
         FVec2 vel;
         f32  age;
@@ -115,11 +115,11 @@ private:
     f32  RandF() noexcept;       // 0..1
     f32  RandRange(f32 a, f32 b) noexcept;
 
-    Particle*    _pool         = nullptr;
+    FParticle*    _pool         = nullptr;
     u32          _capacity     = 0;
     u32          _active       = 0;
     f32          _spawn_accum  = 0.0f;
-    EmitterDesc  _emitter;
+    FEmitterDesc  _emitter;
     IRhiTexture* _tex          = nullptr;
     u32          _seed         = 0xC0FFEEu;
 };

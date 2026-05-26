@@ -12,36 +12,36 @@ namespace helloscene {
 
 void SceneInspectorApp::OnStart() noexcept {
     if (auto r = _imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
-        ACS_LOG_ERROR("[SceneInspectorApp] ImGuiCtx.Init failed -> Quit");
+        ACS_LOG_ERROR("[SceneInspectorApp] FImGuiCtx.Init failed -> Quit");
         Quit();
         return;
     }
     // 基底の OnStart は InitialScene() を push する。
-    Game::OnStart();
+    FGame::OnStart();
 }
 
 void SceneInspectorApp::OnRender() noexcept {
-    // ImGui フレーム開始 → Scene::OnRender 内で ImGui::* が呼ばれる →
+    // ImGui フレーム開始 → FScene::OnRender 内で ImGui::* が呼ばれる →
     // ImGui の描画コマンドをコマンドリストに発行、の順。この順番でないと
-    // Scene 側が ImGui::* を呼べない。
+    // FScene 側が ImGui::* を呼べない。
     _imgui.NewFrame();
-    Game::OnRender();
+    FGame::OnRender();
     _imgui.Render();
 }
 
 void SceneInspectorApp::OnShutdown() noexcept {
-    // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
+    // FScene 側を先に止めてから ImGui を落とす (FScene が ImGui::* を握って
     // ないことを保証)。
-    Game::OnShutdown();
+    FGame::OnShutdown();
     _imgui.Shutdown();
 }
 
-void SceneInspectorApp::OnEvent(const Event& e) noexcept {
+void SceneInspectorApp::OnEvent(const FEvent& e) noexcept {
     _imgui.OnEvent(e);
-    Game::OnEvent(e);
+    FGame::OnEvent(e);
 }
 
-TUniquePtr<Scene> SceneInspectorApp::InitialScene() noexcept {
+TUniquePtr<FScene> SceneInspectorApp::InitialScene() noexcept {
     return MakeUnique<SceneInspectorScene>();
 }
 

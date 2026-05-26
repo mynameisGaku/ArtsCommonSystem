@@ -23,7 +23,7 @@ HANDLE OpenForWrite(const wchar_t* path) noexcept {
 } // namespace
 
 // ファイル全体をバイト列として読み込む
-TResult<TArray<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
+TResult<TArray<byte>> FFileSystem::ReadAllBytes(const wchar_t* path) noexcept {
     HANDLE h = OpenForRead(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 100, "CreateFileW (read) failed", ::GetLastError());
@@ -51,7 +51,7 @@ TResult<TArray<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
 }
 
 // ファイル全体を文字列として読み込む（末尾に NUL を付与する）
-TResult<TArray<char>> FileSystem::ReadAllText(const wchar_t* path) noexcept {
+TResult<TArray<char>> FFileSystem::ReadAllText(const wchar_t* path) noexcept {
     auto br = ReadAllBytes(path);
     if (br.IsErr()) return Err<TArray<char>>(br.Error());
     TArray<byte>& b = br.Value();
@@ -63,7 +63,7 @@ TResult<TArray<char>> FileSystem::ReadAllText(const wchar_t* path) noexcept {
 }
 
 // バイト列を書き出す（上書き）
-TResult<void> FileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
+TResult<void> FFileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
     HANDLE h = OpenForWrite(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 110, "CreateFileW (write) failed", ::GetLastError());
@@ -77,14 +77,14 @@ TResult<void> FileSystem::WriteAllBytes(const wchar_t* path, const byte* data, u
 }
 
 // 文字列を書き出す（NUL 終端は書かない）
-TResult<void> FileSystem::WriteAllText(const wchar_t* path, const char* text) noexcept {
+TResult<void> FFileSystem::WriteAllText(const wchar_t* path, const char* text) noexcept {
     usize len = 0;
     while (text && text[len]) ++len;
     return WriteAllBytes(path, reinterpret_cast<const byte*>(text), len);
 }
 
 // ファイルサイズ取得
-TResult<u64> FileSystem::FileSize(const wchar_t* path) noexcept {
+TResult<u64> FFileSystem::FileSize(const wchar_t* path) noexcept {
     WIN32_FILE_ATTRIBUTE_DATA d{};
     if (!::GetFileAttributesExW(path, GetFileExInfoStandard, &d))
         return ACS_ERR_OS(IO, 120, "GetFileAttributesExW failed", ::GetLastError());
@@ -95,19 +95,19 @@ TResult<u64> FileSystem::FileSize(const wchar_t* path) noexcept {
 }
 
 // ファイル存在確認
-bool FileSystem::Exists(const wchar_t* path) noexcept {
+bool FFileSystem::Exists(const wchar_t* path) noexcept {
     DWORD a = ::GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
 // ディレクトリ存在確認
-bool FileSystem::DirectoryExists(const wchar_t* path) noexcept {
+bool FFileSystem::DirectoryExists(const wchar_t* path) noexcept {
     DWORD a = ::GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
 // ディレクトリ作成（既に存在する場合は成功扱い、親も再帰作成）
-TResult<void> FileSystem::CreateDirectory(const wchar_t* path) noexcept {
+TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
     if (DirectoryExists(path)) return Ok();
     wchar_t buf[1024];
     usize n = 0;
@@ -130,7 +130,7 @@ TResult<void> FileSystem::CreateDirectory(const wchar_t* path) noexcept {
 }
 
 // ファイル削除
-TResult<void> FileSystem::Delete(const wchar_t* path) noexcept {
+TResult<void> FFileSystem::Delete(const wchar_t* path) noexcept {
     if (!::DeleteFileW(path))
         return ACS_ERR_OS(IO, 140, "DeleteFileW failed", ::GetLastError());
     return Ok();

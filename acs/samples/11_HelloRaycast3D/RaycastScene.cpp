@@ -28,19 +28,19 @@ bool RaycastScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
 }
 
 void RaycastScene::Shutdown() noexcept {
-    _gm_plane  = GpuMesh{};
-    _gm_cube   = GpuMesh{};
-    _gm_sphere = GpuMesh{};
+    _gm_plane  = FGpuMesh{};
+    _gm_cube   = FGpuMesh{};
+    _gm_sphere = FGpuMesh{};
 }
 
 void RaycastScene::Update(f32 dt) noexcept {
     _caster.Update(dt, _targets);
 }
 
-void RaycastScene::Render(StandardShader& shader,
+void RaycastScene::Render(FStandardShader& shader,
                           IRhiCommandList& cl,
-                          SpriteBatch& batch,
-                          Font& font,
+                          FSpriteBatch& batch,
+                          FFont& font,
                           u32 screen_w,
                           u32 screen_h) noexcept {
     // ---- 2 灯ライティング (暖色キー + 寒色フィル) ----
@@ -64,7 +64,7 @@ void RaycastScene::Render(StandardShader& shader,
     HudRenderer::Draw(batch, font, cl, screen_w, screen_h, _targets);
 }
 
-void RaycastScene::_render_targets(StandardShader& shader,
+void RaycastScene::_render_targets(FStandardShader& shader,
                                    IRhiCommandList& cl) noexcept {
     // 地面 (世界原点に置く)
     shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
@@ -88,7 +88,7 @@ void RaycastScene::_render_targets(StandardShader& shader,
                        FMat4::Translation(o.position);
         shader.SetObject(m, col, spec, shine);
 
-        const GpuMesh& mesh = (o.kind == ShapeKind::FSphere) ? _gm_sphere : _gm_cube;
+        const FGpuMesh& mesh = (o.kind == ShapeKind::FSphere) ? _gm_sphere : _gm_cube;
         cl.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
         cl.SetIndexBuffer(*mesh.index_buffer);
         cl.DrawIndexed(mesh.index_count);

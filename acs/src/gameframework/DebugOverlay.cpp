@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — DebugOverlay 実装
+// GameFramework Pillar H — FDebugOverlay 実装
 //
 // state holder のみ。実描画は呼出し側の責務。詳細は DebugOverlay.h 参照。
 #include "gameframework/DebugOverlay.h"
@@ -12,7 +12,7 @@ namespace acs::game {
 // ライフサイクル
 // ============================================================================
 
-void DebugOverlay::Init() noexcept {
+void FDebugOverlay::Init() noexcept {
     // 履歴 (60 frame) を事前確保しておく (毎 Tick の reallocation を回避)。
     // Reserve は capacity のみで size 不変なので、論理 size はそのまま 0 始まり。
     _fps_history.Clear();
@@ -22,7 +22,7 @@ void DebugOverlay::Init() noexcept {
     _current_fps  = 0.0f;
 }
 
-void DebugOverlay::Tick(f32 dt) noexcept {
+void FDebugOverlay::Tick(f32 dt) noexcept {
     // dt <= 0 (一時停止 / 負値) は履歴汚染を避けるため無視。
     if (dt <= 0.0f) return;
 
@@ -45,7 +45,7 @@ void DebugOverlay::Tick(f32 dt) noexcept {
     }
 }
 
-void DebugOverlay::Reset() noexcept {
+void FDebugOverlay::Reset() noexcept {
     _fps_history.Clear();
     _fps_index    = 0u;
     _fps_filled   = false;
@@ -59,7 +59,7 @@ void DebugOverlay::Reset() noexcept {
 // フレームレート集計
 // ============================================================================
 
-f32 DebugOverlay::AverageFps() const noexcept {
+f32 FDebugOverlay::AverageFps() const noexcept {
     const usize n = _fps_history.Size();
     if (n == 0u) return 0.0f;
     f32 sum = 0.0f;
@@ -67,7 +67,7 @@ f32 DebugOverlay::AverageFps() const noexcept {
     return sum / static_cast<f32>(n);
 }
 
-f32 DebugOverlay::MinFps() const noexcept {
+f32 FDebugOverlay::MinFps() const noexcept {
     const usize n = _fps_history.Size();
     if (n == 0u) return 0.0f;
     f32 m = _fps_history[0];
@@ -78,7 +78,7 @@ f32 DebugOverlay::MinFps() const noexcept {
     return m;
 }
 
-f32 DebugOverlay::MaxFps() const noexcept {
+f32 FDebugOverlay::MaxFps() const noexcept {
     const usize n = _fps_history.Size();
     if (n == 0u) return 0.0f;
     f32 m = _fps_history[0];
@@ -90,10 +90,10 @@ f32 DebugOverlay::MaxFps() const noexcept {
 }
 
 // ============================================================================
-// Watch 管理 (label / value とも caller 所有、本クラスは複製しない)
+// FWatch 管理 (label / value とも caller 所有、本クラスは複製しない)
 // ============================================================================
 
-void DebugOverlay::AddWatch(const char* label, const char* value) noexcept {
+void FDebugOverlay::AddWatch(const char* label, const char* value) noexcept {
     if (label == nullptr || value == nullptr) return;
     // 同名 label があれば value を差し替え (後勝ち)。
     for (usize i = 0; i < _watches.Size(); ++i) {
@@ -103,13 +103,13 @@ void DebugOverlay::AddWatch(const char* label, const char* value) noexcept {
             return;
         }
     }
-    Watch w;
+    FWatch w;
     w.label = label;
     w.value = value;
     _watches.PushBack(w);
 }
 
-void DebugOverlay::RemoveWatch(const char* label) noexcept {
+void FDebugOverlay::RemoveWatch(const char* label) noexcept {
     if (label == nullptr) return;
     for (usize i = 0; i < _watches.Size(); ++i) {
         const char* existing = _watches[i].label;
@@ -121,15 +121,15 @@ void DebugOverlay::RemoveWatch(const char* label) noexcept {
     }
 }
 
-void DebugOverlay::ClearWatches() noexcept {
+void FDebugOverlay::ClearWatches() noexcept {
     _watches.Clear();
 }
 
-u32 DebugOverlay::WatchCount() const noexcept {
+u32 FDebugOverlay::WatchCount() const noexcept {
     return static_cast<u32>(_watches.Size());
 }
 
-const DebugOverlay::Watch* DebugOverlay::AllWatches(u32& out_count) const noexcept {
+const FDebugOverlay::FWatch* FDebugOverlay::AllWatches(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_watches.Size());
     if (_watches.Size() == 0u) return nullptr;
     return _watches.Data();

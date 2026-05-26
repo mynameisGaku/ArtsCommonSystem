@@ -2,10 +2,10 @@
 // GameFramework Pillar — editor_core / PropertyDrawer 実装 (Phase 21a)
 //
 // 仕様の意図は PropertyDrawer.h を参照。本ファイルでは:
-//   ・per-byte StrEq による const char* 比較ループ (Settings / Entitlement と同形)
+//   ・per-byte StrEq による const char* 比較ループ (FSettings / Entitlement と同形)
 //   ・Init で bundled drawer 9 種 ("F32Slider" / "Vec2Drag" / "Vec3Drag" /
 //     "Vec4Drag" / "ColorRGB" / "ColorRGBA" / "AssetPath" / "EnumCombo" /
-//     "TextInput") を自動登録
+//     "FTextInput") を自動登録
 //   ・各 bundled drawer の ImGui 実装
 //   ・Register/Unregister/HasDrawer/DrawProperty/DrawerCount/DrawerName/ClearAll
 //     の単純実装
@@ -54,7 +54,7 @@ void DrawTooltip(const char* tooltip) noexcept {
 // =============================================================================
 // Bundled drawer 群
 // =============================================================================
-// すべて DrawerFn シグネチャ (= `void (const PropertyContext&) noexcept`) で
+// すべて DrawerFn シグネチャ (= `void (const FPropertyContext&) noexcept`) で
 // 統一。data_ptr の型は drawer 名で暗黙に決まる:
 //   "F32Slider"  → f32*
 //   "Vec2Drag"   → f32[2] (= acs::FVec2 連続 x/y を想定)
@@ -66,11 +66,11 @@ void DrawTooltip(const char* tooltip) noexcept {
 //   "ColorRGBA"  → f32[4] (RGBA 0..1)
 //   "AssetPath"  → char[]  (kTextInputBufferSize 長を想定、null 終端)
 //   "EnumCombo"  → i32* (= int*; 選択中 index)
-//   "TextInput"  → char[]  (kTextInputBufferSize 長を想定、null 終端)
+//   "FTextInput"  → char[]  (kTextInputBufferSize 長を想定、null 終端)
 // =============================================================================
 
 // F32Slider: ctx.min_value / ctx.max_value で SliderFloat。
-void Drawer_F32Slider(const PropertyContext& ctx) noexcept {
+void Drawer_F32Slider(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
     const bool changed = ImGui::SliderFloat(SafeLabel(ctx.label),
@@ -85,7 +85,7 @@ void Drawer_F32Slider(const PropertyContext& ctx) noexcept {
 }
 
 // Vec2Drag: DragFloat2 (speed=0.1)。
-void Drawer_Vec2Drag(const PropertyContext& ctx) noexcept {
+void Drawer_Vec2Drag(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
     const bool changed = ImGui::DragFloat2(SafeLabel(ctx.label), p, 0.1f);
@@ -96,7 +96,7 @@ void Drawer_Vec2Drag(const PropertyContext& ctx) noexcept {
 }
 
 // Vec3Drag: DragFloat3 (speed=0.1)。
-void Drawer_Vec3Drag(const PropertyContext& ctx) noexcept {
+void Drawer_Vec3Drag(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
     const bool changed = ImGui::DragFloat3(SafeLabel(ctx.label), p, 0.1f);
@@ -107,7 +107,7 @@ void Drawer_Vec3Drag(const PropertyContext& ctx) noexcept {
 }
 
 // Vec4Drag: DragFloat4 (speed=0.1)。
-void Drawer_Vec4Drag(const PropertyContext& ctx) noexcept {
+void Drawer_Vec4Drag(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
     const bool changed = ImGui::DragFloat4(SafeLabel(ctx.label), p, 0.1f);
@@ -118,7 +118,7 @@ void Drawer_Vec4Drag(const PropertyContext& ctx) noexcept {
 }
 
 // ColorRGB: ColorEdit3 (0..1)。
-void Drawer_ColorRGB(const PropertyContext& ctx) noexcept {
+void Drawer_ColorRGB(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
     const bool changed = ImGui::ColorEdit3(SafeLabel(ctx.label), p);
@@ -129,7 +129,7 @@ void Drawer_ColorRGB(const PropertyContext& ctx) noexcept {
 }
 
 // ColorRGBA: ColorEdit4 (0..1)。
-void Drawer_ColorRGBA(const PropertyContext& ctx) noexcept {
+void Drawer_ColorRGBA(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
     const bool changed = ImGui::ColorEdit4(SafeLabel(ctx.label), p);
@@ -142,31 +142,31 @@ void Drawer_ColorRGBA(const PropertyContext& ctx) noexcept {
 // AssetPath: char[] バッファに対する InputText + DragDrop 受け口。
 //   ・data_ptr は null 終端 char[]、容量は kTextInputBufferSize と想定。
 //   ・ImGui 側で path を直接編集可能 (= テキスト入力)。
-//   ・別 panel (AssetBrowser) から "ASSET_PATH" payload で drag-drop されると
+//   ・別 panel (FAssetBrowser) から "ASSET_PATH" payload で drag-drop されると
 //     バッファに strncpy で書き戻す。
-void Drawer_AssetPath(const PropertyContext& ctx) noexcept {
+void Drawer_AssetPath(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     char* buf = static_cast<char*>(ctx.data_ptr);
     // InputText は size 引数が必須。本 drawer は ctx.data_ptr が
-    // PropertyDrawerRegistry::kTextInputBufferSize 長を持つ前提で固定値を渡す。
+    // FPropertyDrawerRegistry::kTextInputBufferSize 長を持つ前提で固定値を渡す。
     const bool changed = ImGui::InputText(SafeLabel(ctx.label),
                                           buf,
-                                          PropertyDrawerRegistry::kTextInputBufferSize);
+                                          FPropertyDrawerRegistry::kTextInputBufferSize);
     DrawTooltip(ctx.tooltip);
 
-    // Drag-drop 受け口: AssetBrowser 側が "ASSET_PATH" payload (= 文字列バイト列)
+    // Drag-drop 受け口: FAssetBrowser 側が "ASSET_PATH" payload (= 文字列バイト列)
     // を SetDragDropPayload した場合、その文字列をバッファに書き戻す。
     // payload size は null 終端を含むかは sender 側次第。安全のため strncpy で
     // 末尾 null を保証する。
     bool dropped = false;
     if (ImGui::BeginDragDropTarget()) {
         const ImGuiPayload* payload =
-            ImGui::AcceptDragDropPayload(PropertyDrawerRegistry::kAssetPathPayloadId);
+            ImGui::AcceptDragDropPayload(FPropertyDrawerRegistry::kAssetPathPayloadId);
         if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
             const char* src = static_cast<const char*>(payload->Data);
             // strncpy で書き戻し + 末尾 null 確実化。
-            std::strncpy(buf, src, PropertyDrawerRegistry::kTextInputBufferSize - 1);
-            buf[PropertyDrawerRegistry::kTextInputBufferSize - 1] = '\0';
+            std::strncpy(buf, src, FPropertyDrawerRegistry::kTextInputBufferSize - 1);
+            buf[FPropertyDrawerRegistry::kTextInputBufferSize - 1] = '\0';
             dropped = true;
         }
         ImGui::EndDragDropTarget();
@@ -188,7 +188,7 @@ void Drawer_AssetPath(const PropertyContext& ctx) noexcept {
 // → 結論: items_separated_by_zeros の 3 引数 overload を使う (= enum_count 不要)
 //   が、互換性のため `popup_max_height_in_items=ctx.enum_count` を渡せるよう
 //   4 引数 overload を選ぶ。enum_count が 0 なら -1 (= ImGui 既定)。
-void Drawer_EnumCombo(const PropertyContext& ctx) noexcept {
+void Drawer_EnumCombo(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr || ctx.enum_values == nullptr) return;
     int* p = static_cast<int*>(ctx.data_ptr);
     // 4 引数 overload: 末尾 popup_max_height_in_items は項目数のヒント。0 → -1。
@@ -205,15 +205,15 @@ void Drawer_EnumCombo(const PropertyContext& ctx) noexcept {
     }
 }
 
-// TextInput: char[] バッファに対する read-write InputText。
+// FTextInput: char[] バッファに対する read-write InputText。
 //   ・data_ptr は null 終端 char[]、容量は kTextInputBufferSize と想定。
 //   ・ImGui 側で文字列を直接編集 (read-only にしたい場合は将来 ctx に flag 追加)。
-void Drawer_TextInput(const PropertyContext& ctx) noexcept {
+void Drawer_TextInput(const FPropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     char* buf = static_cast<char*>(ctx.data_ptr);
     const bool changed = ImGui::InputText(SafeLabel(ctx.label),
                                           buf,
-                                          PropertyDrawerRegistry::kTextInputBufferSize);
+                                          FPropertyDrawerRegistry::kTextInputBufferSize);
     DrawTooltip(ctx.tooltip);
     if (changed && ctx.out_changed != nullptr) {
         *ctx.out_changed = true;
@@ -226,7 +226,7 @@ void Drawer_TextInput(const PropertyContext& ctx) noexcept {
 // Init / Shutdown / ClearAll
 // =============================================================================
 
-void PropertyDrawerRegistry::Init() noexcept {
+void FPropertyDrawerRegistry::Init() noexcept {
     // 既存登録を全て破棄 (多重 Init を許容)。
     _entries.Clear();
 
@@ -242,16 +242,16 @@ void PropertyDrawerRegistry::Init() noexcept {
     RegisterDrawer("ColorRGBA",  &Drawer_ColorRGBA);
     RegisterDrawer("AssetPath",  &Drawer_AssetPath);
     RegisterDrawer("EnumCombo",  &Drawer_EnumCombo);
-    RegisterDrawer("TextInput",  &Drawer_TextInput);
+    RegisterDrawer("FTextInput",  &Drawer_TextInput);
 }
 
-void PropertyDrawerRegistry::Shutdown() noexcept {
+void FPropertyDrawerRegistry::Shutdown() noexcept {
     // 全 drawer 登録を破棄。Init での bundled 再注入は呼び出し側で `Init()` を
     // 呼び直す責務 (= Shutdown は state を空に倒すだけ)。
     _entries.Clear();
 }
 
-void PropertyDrawerRegistry::ClearAll() noexcept {
+void FPropertyDrawerRegistry::ClearAll() noexcept {
     // Shutdown と同義 (= ImGui 等のグローバル状態は触らないため等価)。
     // 別名 API として残しているのは Init/Shutdown/ClearAll の対称性を取るため。
     _entries.Clear();
@@ -261,7 +261,7 @@ void PropertyDrawerRegistry::ClearAll() noexcept {
 // FindIndex (内部線形探索)
 // =============================================================================
 
-isize PropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
+isize FPropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
     if (type_name == nullptr || type_name[0] == '\0') return -1;
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -276,7 +276,7 @@ isize PropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
 // Register / Unregister / Has / Draw
 // =============================================================================
 
-void PropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) noexcept {
+void FPropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) noexcept {
     // null / 空文字 / null fn は全部 no-op (= 呼び出し側ミスを silent に弾く)。
     if (type_name == nullptr || type_name[0] == '\0' || fn == nullptr) return;
 
@@ -291,13 +291,13 @@ void PropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) 
     }
 
     // 新規登録: 末尾に追加。
-    Entry e;
+    FEntry e;
     e.name = type_name;
     e.fn   = fn;
     _entries.PushBack(e);
 }
 
-void PropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
+void FPropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
     const isize idx = FindIndex(type_name);
     if (idx < 0) return;
     // 末尾 swap で O(1) 削除 (順序非保持)。RegisterDrawer で再登録すれば
@@ -305,12 +305,12 @@ void PropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
     _entries.RemoveAtSwap(static_cast<usize>(idx));
 }
 
-bool PropertyDrawerRegistry::HasDrawer(const char* type_name) const noexcept {
+bool FPropertyDrawerRegistry::HasDrawer(const char* type_name) const noexcept {
     return FindIndex(type_name) >= 0;
 }
 
-bool PropertyDrawerRegistry::DrawProperty(const char* type_name,
-                                          const PropertyContext& ctx) const noexcept {
+bool FPropertyDrawerRegistry::DrawProperty(const char* type_name,
+                                          const FPropertyContext& ctx) const noexcept {
     const isize idx = FindIndex(type_name);
     if (idx < 0) return false;
 
@@ -327,11 +327,11 @@ bool PropertyDrawerRegistry::DrawProperty(const char* type_name,
 // イントロスペクション (DrawerCount / DrawerName)
 // =============================================================================
 
-u32 PropertyDrawerRegistry::DrawerCount() const noexcept {
+u32 FPropertyDrawerRegistry::DrawerCount() const noexcept {
     return static_cast<u32>(_entries.Size());
 }
 
-const char* PropertyDrawerRegistry::DrawerName(u32 index) const noexcept {
+const char* FPropertyDrawerRegistry::DrawerName(u32 index) const noexcept {
     if (static_cast<usize>(index) >= _entries.Size()) return nullptr;
     return _entries[static_cast<usize>(index)].name;
 }

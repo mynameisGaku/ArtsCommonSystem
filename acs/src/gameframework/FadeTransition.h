@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FadeTransition (Phase A polish)
+// GameFramework Pillar A — FFadeTransition (Phase A polish)
 //
 // シーン切替時のフェード演出を司る **state holder**。描画自体は行わず、
 // 現在の overlay alpha / color と phase だけを提供する。ユーザー側で
-// SpriteBatch を使い fullscreen quad を「色 = OverlayColor()、alpha =
+// FSpriteBatch を使い fullscreen quad を「色 = OverlayColor()、alpha =
 // OverlayAlpha()」で描くだけで、典型的なフェードイン・アウト・ブラック
 // フラッシュ・クロスフェードが成立する。
 //
 // 使い方:
-//   class TitleScene : public Scene {
-//       acs::game::FadeTransition _fade;
+//   class TitleScene : public FScene {
+//       acs::game::FFadeTransition _fade;
 //       void OnEnter() noexcept override {
 //           // 画面が黒から徐々に明けるフェードイン
 //           _fade.StartFade(EFadeKind::FadeIn, /*out=*/0.0f, /*in=*/0.5f);
@@ -26,7 +26,7 @@
 //           if (_fade.IsActive()) {
 //               const acs::FVec3 c = _fade.OverlayColor();
 //               const f32       a = _fade.OverlayAlpha();
-//               SpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
+//               FSpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
 //           }
 //       }
 //   };
@@ -52,7 +52,7 @@
 //   ・非コピー・非ムーブ。state holder なので所有権移転を許す意味がない。
 //
 // 範囲外:
-//   ・実描画 (SpriteBatch 呼び出し)
+//   ・実描画 (FSpriteBatch 呼び出し)
 //   ・easing 曲線指定 (linear 固定。必要なら user 側で OverlayAlpha() を
 //      Easing::InOutSine 等に通す)
 //   ・複数 overlay の重ね合わせ
@@ -78,15 +78,15 @@ enum class EFadePhase : u32 {
     FadingIn   = 3,  // alpha 減少中
 };
 
-class FadeTransition {
+class FFadeTransition {
 public:
-    FadeTransition() noexcept = default;
-    ~FadeTransition() noexcept = default;
+    FFadeTransition() noexcept = default;
+    ~FFadeTransition() noexcept = default;
 
-    FadeTransition(const FadeTransition&)            = delete;
-    FadeTransition& operator=(const FadeTransition&) = delete;
-    FadeTransition(FadeTransition&&)                 = delete;
-    FadeTransition& operator=(FadeTransition&&)      = delete;
+    FFadeTransition(const FFadeTransition&)            = delete;
+    FFadeTransition& operator=(const FFadeTransition&) = delete;
+    FFadeTransition(FFadeTransition&&)                 = delete;
+    FFadeTransition& operator=(FFadeTransition&&)      = delete;
 
     // ----- 開始 -----
     // out_duration: FadingOut にかける秒数 (FadeIn の時は無視)

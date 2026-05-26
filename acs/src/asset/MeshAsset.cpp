@@ -16,16 +16,16 @@ namespace acs {
 
 namespace {
 
-// 共通: MeshAsset を TRc<Asset> として返すヘルパ
-TRc<Asset> WrapMesh(FAssetId id, TRc<MeshAsset>&& m) noexcept {
+// 共通: FMeshAsset を TRc<FAsset> として返すヘルパ
+TRc<FAsset> WrapMesh(FAssetId id, TRc<FMeshAsset>&& m) noexcept {
     m->SetId(id);
     m->SetState(EAssetState::Ready);
-    return TRc<Asset>(Move(m));
+    return TRc<FAsset>(Move(m));
 }
 
 // cgltf の attribute から FVec3 配列を読み出す
-void ReadAttributeVec3(const cgltf_accessor* a, MeshVertex* dst, usize n,
-                       usize stride, void (*setter)(MeshVertex&, FVec3)) noexcept {
+void ReadAttributeVec3(const cgltf_accessor* a, FMeshVertex* dst, usize n,
+                       usize stride, void (*setter)(FMeshVertex&, FVec3)) noexcept {
     if (!a) return;
     f32 buf[3];
     for (usize i = 0; i < n; ++i) {
@@ -37,7 +37,7 @@ void ReadAttributeVec3(const cgltf_accessor* a, MeshVertex* dst, usize n,
 }
 
 // cgltf の attribute から UV (FVec2) を読み出す
-void ReadAttributeUV(const cgltf_accessor* a, MeshVertex* dst, usize n) noexcept {
+void ReadAttributeUV(const cgltf_accessor* a, FMeshVertex* dst, usize n) noexcept {
     if (!a) return;
     f32 buf[2];
     for (usize i = 0; i < n; ++i) {
@@ -48,12 +48,12 @@ void ReadAttributeUV(const cgltf_accessor* a, MeshVertex* dst, usize n) noexcept
     }
 }
 
-// cgltf の data から MeshAsset へ詰める共通処理
-TRc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
-    auto mesh = MakeRc<MeshAsset>();
+// cgltf の data から FMeshAsset へ詰める共通処理
+TRc<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
+    auto mesh = MakeRc<FMeshAsset>();
     if (!data || data->meshes_count == 0) return mesh;
 
-    // 全プリミティブを 1 つの MeshAsset に flatten（v1）
+    // 全プリミティブを 1 つの FMeshAsset に flatten（v1）
     u32 vertex_offset = 0;
     for (cgltf_size mi = 0; mi < data->meshes_count; ++mi) {
         const cgltf_mesh& m = data->meshes[mi];
@@ -65,7 +65,7 @@ TRc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
             usize vcount = p.attributes[0].data->count;
             usize start = mesh->Vertices().Size();
             mesh->Vertices().Resize(start + vcount);
-            MeshVertex* dst = mesh->Vertices().Data() + start;
+            FMeshVertex* dst = mesh->Vertices().Data() + start;
 
             // POSITION / NORMAL / TEXCOORD_0 を取得
             const cgltf_accessor* pos = nullptr;
@@ -79,14 +79,14 @@ TRc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
             }
             if (pos)
                 ReadAttributeVec3(pos, dst, vcount, 0,
-                    [](MeshVertex& v, FVec3 x) { v.position = x; });
+                    [](FMeshVertex& v, FVec3 x) { v.position = x; });
             if (nrm)
                 ReadAttributeVec3(nrm, dst, vcount, 0,
-                    [](MeshVertex& v, FVec3 x) { v.normal = x; });
+                    [](FMeshVertex& v, FVec3 x) { v.normal = x; });
             if (uv0) ReadAttributeUV(uv0, dst, vcount);
 
             // インデックス取得（無ければトライアングルストリップ的に連番生成）
-            SubMesh sub{};
+            FSubMesh sub{};
             sub.first_index = static_cast<u32>(mesh->Indices().Size());
             if (p.indices) {
                 cgltf_accessor* idx = p.indices;
@@ -110,41 +110,41 @@ TRc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 } // namespace
 
 // ---- glTF / GLB (cgltf) -------------------------------------------------
-TResult<TRc<Asset>> GltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<FAsset>> FGltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     cgltf_data* data = nullptr;
     if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
-        return ACS_ERR(Asset, 300, "cgltf_parse failed (.gltf)");
+        return ACS_ERR(FAsset, 300, "cgltf_parse failed (.gltf)");
     // .gltf は別ファイルにバイナリを持つことがあるので、メモリ単体ロードは
     // 簡易対応として「埋め込みバッファのみ」サポート。
     if (::cgltf_load_buffers(&opts, data, nullptr) != cgltf_result_success) {
         ::cgltf_free(data);
-        return ACS_ERR(Asset, 301, "cgltf_load_buffers failed (external bin not supported in v1)");
+        return ACS_ERR(FAsset, 301, "cgltf_load_buffers failed (external bin not supported in v1)");
     }
-    TRc<MeshAsset> mesh = BuildFromCgltf(data);
+    TRc<FMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TRc<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
-TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<FAsset>> FGlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     opts.type = cgltf_file_type_glb;
     cgltf_data* data = nullptr;
     if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
-        return ACS_ERR(Asset, 310, "cgltf_parse failed (.glb)");
+        return ACS_ERR(FAsset, 310, "cgltf_parse failed (.glb)");
     if (::cgltf_load_buffers(&opts, data, nullptr) != cgltf_result_success) {
         ::cgltf_free(data);
-        return ACS_ERR(Asset, 311, "cgltf_load_buffers failed");
+        return ACS_ERR(FAsset, 311, "cgltf_load_buffers failed");
     }
-    TRc<MeshAsset> mesh = BuildFromCgltf(data);
+    TRc<FMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TRc<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 // ---- OBJ (自前パーサ、最小機能) -----------------------------------------
 // v / vn / vt / f だけサポート。マテリアルは無視。
-TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
-    auto mesh = MakeRc<MeshAsset>();
+TResult<TRc<FAsset>> FObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+    auto mesh = MakeRc<FMeshAsset>();
     TArray<FVec3> positions;
     TArray<FVec3> normals;
     struct UV { f32 u, v; };
@@ -215,7 +215,7 @@ TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
             }
             // 三角形化（クアッドは 0-1-2, 0-2-3）
             auto add_vertex = [&](int k) {
-                MeshVertex mv{};
+                FMeshVertex mv{};
                 if (vi[k] > 0 && static_cast<usize>(vi[k]) <= positions.Size())
                     mv.position = positions[vi[k] - 1];
                 if (ni[k] > 0 && static_cast<usize>(ni[k]) <= normals.Size())
@@ -236,21 +236,21 @@ TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
         next_line(p);
     }
 
-    SubMesh sub{};
+    FSubMesh sub{};
     sub.first_index = 0;
     sub.index_count = static_cast<u32>(mesh->Indices().Size());
     mesh->SubMeshes().PushBack(sub);
-    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TRc<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 // ---- FBX (ufbx) ---------------------------------------------------------
-TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TRc<FAsset>> FFbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     ufbx_load_opts opts{};
     ufbx_error err{};
     ufbx_scene* scene = ::ufbx_load_memory(bytes.Data(), bytes.Size(), &opts, &err);
-    if (!scene) return ACS_ERR(Asset, 400, "ufbx_load_memory failed");
+    if (!scene) return ACS_ERR(FAsset, 400, "ufbx_load_memory failed");
 
-    auto mesh = MakeRc<MeshAsset>();
+    auto mesh = MakeRc<FMeshAsset>();
     u32 vertex_offset = 0;
     for (size_t mi = 0; mi < scene->meshes.count; ++mi) {
         ufbx_mesh* fm = scene->meshes.data[mi];
@@ -269,14 +269,14 @@ TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
             }
         }
         // 頂点は ufbx_get_vertex_* で取得
-        SubMesh sub{};
+        FSubMesh sub{};
         sub.first_index = static_cast<u32>(mesh->Indices().Size());
         for (u32 i = 0; i < tri_indices.Size(); ++i) {
             uint32_t fi = tri_indices[i];
             ufbx_vec3 p = ::ufbx_get_vertex_vec3(&fm->vertex_position, fi);
             ufbx_vec3 n = fm->vertex_normal.exists ? ::ufbx_get_vertex_vec3(&fm->vertex_normal, fi) : ufbx_vec3{0,0,0};
             ufbx_vec2 t = fm->vertex_uv.exists ? ::ufbx_get_vertex_vec2(&fm->vertex_uv, fi) : ufbx_vec2{0,0};
-            MeshVertex v{};
+            FMeshVertex v{};
             v.position = FVec3(static_cast<f32>(p.x), static_cast<f32>(p.y), static_cast<f32>(p.z));
             v.normal   = FVec3(static_cast<f32>(n.x), static_cast<f32>(n.y), static_cast<f32>(n.z));
             v.u        = static_cast<f32>(t.x);
@@ -290,7 +290,7 @@ TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
         vertex_offset = static_cast<u32>(mesh->Vertices().Size());
     }
     ::ufbx_free_scene(scene);
-    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TRc<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 } // namespace acs

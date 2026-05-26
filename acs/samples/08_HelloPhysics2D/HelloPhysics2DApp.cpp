@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloPhysics2D — Application 実装。
+// HelloPhysics2D — FApplication 実装。
 #include "HelloPhysics2DApp.h"
 
 #include "app/Sample.h"
@@ -65,7 +65,7 @@ void HelloPhysics2DApp::OnStart() noexcept {
 }
 
 void HelloPhysics2DApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();

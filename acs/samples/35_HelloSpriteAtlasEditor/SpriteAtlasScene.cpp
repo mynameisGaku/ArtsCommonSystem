@@ -13,7 +13,7 @@ using namespace acs::game;
 namespace hellosa {
 
 // ----------------------------------------------------------------------------
-// OnEnter — workspace 初期化 + dummy SpritePack 構築 + editor panel 登録
+// OnEnter — workspace 初期化 + dummy FSpritePack 構築 + editor panel 登録
 // ----------------------------------------------------------------------------
 void SpriteAtlasScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー (背景は ImGui に隠れるが viewport の
@@ -24,15 +24,15 @@ void SpriteAtlasScene::OnEnter() noexcept {
 
     // 実 texture path は文字列リテラルとして渡すだけ (loader 未配線)。
     // panel の viewport は texture を描かず grid placeholder で代用する。
-    SpritePackInfo info{};
+    FSpritePackInfo info{};
     info.atlas_texture_path = "assets/dummy_atlas.png";
     info.atlas_width        = 256u;
     info.atlas_height       = 256u;
     _pack.Init(info);
 
     // 3 frame (Idle / Walk / Jump 各 32x32) を登録。
-    // name は文字列リテラル (SpritePack 規約: caller 所有 / リテラル前提)。
-    SpriteFrame f{};
+    // name は文字列リテラル (FSpritePack 規約: caller 所有 / リテラル前提)。
+    FSpriteFrame f{};
     f.w = 32u;
     f.h = 32u;
     f.pivot_x = 0.5f;
@@ -53,7 +53,7 @@ void SpriteAtlasScene::OnEnter() noexcept {
     f.y = 0u;
     _pack.AddFrame(f);
 
-    // EditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶため、
+    // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶため、
     // panel.OnInit を別途呼ぶ必要は無い。SetSpritePack は Init / OnInit の
     // どちらより後でも構わない (panel が pack の存在を毎フレーム確認するため)。
     _editor_panel.Init();
@@ -67,13 +67,13 @@ void SpriteAtlasScene::OnEnter() noexcept {
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
 void SpriteAtlasScene::OnExit() noexcept {
-    // EditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
+    // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear するため、個別 UnregisterPanel は不要。
     _workspace.Shutdown();
     // panel 本体の internal state を解放 (name pool / selection クリア)。
     _editor_panel.Shutdown();
 
-    // SpritePack は Dtor で frame 配列を解放する (TArray の所有を持つ)。
+    // FSpritePack は Dtor で frame 配列を解放する (TArray の所有を持つ)。
     // 明示 ClearAll しても良いが、scene 破棄と同時なので無くても問題なし。
     _pack.ClearAll();
 
@@ -87,7 +87,7 @@ void SpriteAtlasScene::OnExit() noexcept {
 // DrawUI) はすべて OnRender 側へ。ImGui::Begin 等は NewFrame() と Render() の
 // 間でしか呼べないため、ここで Workspace::TickAllPanels は呼ばない。
 void SpriteAtlasScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -97,9 +97,9 @@ void SpriteAtlasScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File menu (Save/Load stub) → Workspace 全描画
 // ----------------------------------------------------------------------------
-void SpriteAtlasScene::OnRender(RenderContext& /*rc*/) noexcept {
+void SpriteAtlasScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
-    // マージするので、本 sample 専用の File メニューを Workspace の Window/
+    // マージするので、本 sample 専用の File メニューを Workspace の FWindow/
     // Layout メニューと並べて表示できる。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {

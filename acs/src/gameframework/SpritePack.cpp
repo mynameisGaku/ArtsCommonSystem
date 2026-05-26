@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G / Q — SpritePack 実装
+// GameFramework Pillar G / Q — FSpritePack 実装
 //
 // data holder のみ。描画 / texture ロードは責務外。詳細は SpritePack.h 参照。
 #include "gameframework/SpritePack.h"
@@ -24,7 +24,7 @@ static bool NameEquals(const char* a, const char* b) noexcept {
 // 初期化 / セットアップ
 // ============================================================================
 
-void SpritePack::Init(const SpritePackInfo& info) noexcept {
+void FSpritePack::Init(const FSpritePackInfo& info) noexcept {
     // 値コピーで取り込む (atlas_texture_path は caller 所有のポインタを保持)。
     // frame 配列はそのまま保持。完全 reset には ClearAll を併用する。
     _info = info;
@@ -34,13 +34,13 @@ void SpritePack::Init(const SpritePackInfo& info) noexcept {
 // frame 追加 / 削除
 // ============================================================================
 
-void SpritePack::AddFrame(const SpriteFrame& frame) noexcept {
+void FSpritePack::AddFrame(const FSpriteFrame& frame) noexcept {
     // name == nullptr は検索不能 frame になるため弾く (debug でも crash させない)。
     if (frame.name == nullptr) return;
     _frames.PushBack(frame);
 }
 
-void SpritePack::RemoveFrame(const char* name) noexcept {
+void FSpritePack::RemoveFrame(const char* name) noexcept {
     if (name == nullptr) return;
     // 順序非保持の swap remove。複数一致しても全て削除するため、末尾から走査して
     // 末尾 swap 後に i を据え置きすることで安全にループする。
@@ -55,7 +55,7 @@ void SpritePack::RemoveFrame(const char* name) noexcept {
     }
 }
 
-void SpritePack::ClearAll() noexcept {
+void FSpritePack::ClearAll() noexcept {
     _frames.Clear();
 }
 
@@ -63,7 +63,7 @@ void SpritePack::ClearAll() noexcept {
 // frame 検索
 // ============================================================================
 
-const SpriteFrame* SpritePack::FindFrame(const char* name) const noexcept {
+const FSpriteFrame* FSpritePack::FindFrame(const char* name) const noexcept {
     if (name == nullptr) return nullptr;
     for (usize i = 0; i < _frames.Size(); ++i) {
         if (NameEquals(_frames[i].name, name)) {
@@ -73,7 +73,7 @@ const SpriteFrame* SpritePack::FindFrame(const char* name) const noexcept {
     return nullptr;
 }
 
-bool SpritePack::HasFrame(const char* name) const noexcept {
+bool FSpritePack::HasFrame(const char* name) const noexcept {
     return FindFrame(name) != nullptr;
 }
 
@@ -81,11 +81,11 @@ bool SpritePack::HasFrame(const char* name) const noexcept {
 // イテレーション
 // ============================================================================
 
-u32 SpritePack::FrameCount() const noexcept {
+u32 FSpritePack::FrameCount() const noexcept {
     return static_cast<u32>(_frames.Size());
 }
 
-const SpriteFrame* SpritePack::AllFrames(u32& out_count) const noexcept {
+const FSpriteFrame* FSpritePack::AllFrames(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_frames.Size());
     return _frames.Data();
 }
@@ -94,7 +94,7 @@ const SpriteFrame* SpritePack::AllFrames(u32& out_count) const noexcept {
 // UV 計算
 // ============================================================================
 
-acs::FVec4 SpritePack::ComputeUv(const SpriteFrame& frame) const noexcept {
+acs::FVec4 FSpritePack::ComputeUv(const FSpriteFrame& frame) const noexcept {
     // atlas size が未設定 (0) なら 0 除算回避で zero UV。
     if (_info.atlas_width == 0 || _info.atlas_height == 0) {
         return acs::FVec4(0.0f, 0.0f, 0.0f, 0.0f);

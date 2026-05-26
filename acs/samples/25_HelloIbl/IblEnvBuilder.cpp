@@ -11,7 +11,7 @@ using namespace acs;
 
 namespace helloibl {
 
-void BuildEquirectFromSky(const Sky& sky, TArray<f32>& buf) noexcept {
+void BuildEquirectFromSky(const FSky& sky, TArray<f32>& buf) noexcept {
     if (buf.Size() == 0) {
         buf.Resize(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
     }

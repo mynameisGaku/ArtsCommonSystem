@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloSceneInspector — Inspector 系 4 panel + Selection + Seam の束ね役。
 //
-// Scene 本体から panel の配線責任を切り出すための薄いコンテナ。
-// 1) Init で 4 panel + SelectionService + InspectorSeam を起動 + 配線
+// FScene 本体から panel の配線責任を切り出すための薄いコンテナ。
+// 1) Init で 4 panel + FSelectionService + FInspectorSeam を起動 + 配線
 // 2) Shutdown で逆順 teardown
 // 3) DrawUI で 1 フレーム分の描画 (root / game / seam は呼び出し側が供給)
 //
-// 4 panel 間の選択共有は SelectionService が source of truth。Hierarchy が
+// 4 panel 間の選択共有は FSelectionService が source of truth。Hierarchy が
 // 選択を更新し、Inspector が読む。
 #pragma once
 
@@ -16,7 +16,7 @@
 #include "gameframework/tools/inspector/EditorToolbar.h"
 #include "gameframework/tools/inspector/SelectionService.h"
 
-namespace acs::game { class Game; class Node2D; }
+namespace acs::game { class FGame; class FNode2D; }
 
 namespace helloscene {
 
@@ -36,14 +36,14 @@ public:
 
     // 1 フレーム分の panel 描画。`game` は Toolbar が GetGame に渡す対象、
     // `root` は Hierarchy が辿るツリーのルート。
-    void DrawUI(acs::game::Game& game, acs::game::Node2D& root) noexcept;
+    void DrawUI(acs::game::FGame& game, acs::game::FNode2D& root) noexcept;
 
 private:
-    acs::game::inspector::HierarchyPanel   _hierarchy_panel;
-    acs::game::inspector::InspectorPanel   _inspector_panel;
-    acs::game::inspector::EditorToolbar    _toolbar;
-    acs::game::inspector::SelectionService _selection;
-    acs::game::InspectorSeam               _seam;
+    acs::game::inspector::FHierarchyPanel   _hierarchy_panel;
+    acs::game::inspector::FInspectorPanel   _inspector_panel;
+    acs::game::inspector::FEditorToolbar    _toolbar;
+    acs::game::inspector::FSelectionService _selection;
+    acs::game::FInspectorSeam               _seam;
 };
 
 } // namespace helloscene

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS AssetPack — AcpakCrypto 実装 (Windows CNG / BCrypt)
+// ACS AssetPack — FAcpakCrypto 実装 (Windows CNG / BCrypt)
 // -----------------------------------------------------------------------------
 // Win32 BCrypt API ラッパ。各 API 呼び出しでアルゴリズムプロバイダを開いて
 // 閉じるシンプルな実装。Phase 2 ではキャッシュ無し (起動時 + ストリーミングが
@@ -70,9 +70,9 @@ NTSTATUS OpenAesGcmProvider(BCRYPT_ALG_HANDLE* hAlg) noexcept {
 
 // algorithm provider から AES-256 symmetric key ハンドルを作る。
 // 鍵バイトは内部で CNG にコピーされるため、戻り直後に呼び出し側で SecureZero
-// しても問題ない (本実装では呼び出し側が AcpakKey をスタック保持しているだけ)。
+// しても問題ない (本実装では呼び出し側が FAcpakKey をスタック保持しているだけ)。
 NTSTATUS CreateAesKey(BCRYPT_ALG_HANDLE  hAlg,
-                      const AcpakKey&    key,
+                      const FAcpakKey&    key,
                       BCRYPT_KEY_HANDLE* hKey) noexcept {
     *hKey = nullptr;
     return ::BCryptGenerateSymmetricKey(hAlg,
@@ -86,9 +86,9 @@ NTSTATUS CreateAesKey(BCRYPT_ALG_HANDLE  hAlg,
 } // namespace
 
 // ============================================================================
-// AcpakCrypto::DeriveKey — PBKDF2-HMAC-SHA256 で 32 バイト鍵を導出
+// FAcpakCrypto::DeriveKey — PBKDF2-HMAC-SHA256 で 32 バイト鍵を導出
 // ============================================================================
-TResult<AcpakKey> AcpakCrypto::DeriveKey(const u8* password,
+TResult<FAcpakKey> FAcpakCrypto::DeriveKey(const u8* password,
                                         u32       password_len,
                                         const u8* salt,
                                         u32       salt_len) noexcept {
@@ -96,7 +96,7 @@ TResult<AcpakKey> AcpakCrypto::DeriveKey(const u8* password,
     if (password == nullptr) password_len = 0;
     if (salt     == nullptr) salt_len     = 0;
 
-    AcpakKey out{};
+    FAcpakKey out{};
 
     // ---- SHA-256 algorithm provider を HMAC モードで開く ------------------
     BCRYPT_ALG_HANDLE hAlg = nullptr;
@@ -105,8 +105,8 @@ TResult<AcpakKey> AcpakCrypto::DeriveKey(const u8* password,
                                                nullptr,
                                                BCRYPT_ALG_HANDLE_HMAC_FLAG);
     if (s != STATUS_SUCCESS) {
-        return ACS_ERR_OS(Asset, kAcpakSubCryptoInit,
-                          "AcpakCrypto::DeriveKey: BCryptOpenAlgorithmProvider failed",
+        return ACS_ERR_OS(FAsset, kAcpakSubCryptoInit,
+                          "FAcpakCrypto::DeriveKey: BCryptOpenAlgorithmProvider failed",
                           static_cast<u32>(s));
     }
 
@@ -126,17 +126,17 @@ TResult<AcpakKey> AcpakCrypto::DeriveKey(const u8* password,
     if (s != STATUS_SUCCESS) {
         // 鍵領域は失敗時にゴミが残るので念のため 0 クリア (defensive)。
         MemSet(out.bytes, 0, sizeof(out.bytes));
-        return ACS_ERR_OS(Asset, kAcpakSubCryptoKdf,
-                          "AcpakCrypto::DeriveKey: BCryptDeriveKeyPBKDF2 failed",
+        return ACS_ERR_OS(FAsset, kAcpakSubCryptoKdf,
+                          "FAcpakCrypto::DeriveKey: BCryptDeriveKeyPBKDF2 failed",
                           static_cast<u32>(s));
     }
-    return TResult<AcpakKey>(OkInit, out);
+    return TResult<FAcpakKey>(OkInit, out);
 }
 
 // ============================================================================
-// AcpakCrypto::Encrypt — AES-256-GCM 暗号化 + tag 生成
+// FAcpakCrypto::Encrypt — AES-256-GCM 暗号化 + tag 生成
 // ============================================================================
-TResult<void> AcpakCrypto::Encrypt(const AcpakKey& key,
+TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
                                   const u8        nonce[kAcpakNonceSize],
                                   const u8*       plaintext,
                                   u64             size,
@@ -144,25 +144,25 @@ TResult<void> AcpakCrypto::Encrypt(const AcpakKey& key,
                                   u8              tag_out[kAcpakTagSize]) noexcept {
     // size == 0 は GMAC 専用パス (タグだけ計算)。plaintext は nullptr 可。
     if (size > 0 && (plaintext == nullptr || ciphertext == nullptr)) {
-        return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "AcpakCrypto::Encrypt: null buffer with non-zero size");
+        return ACS_ERR(FAsset, kAcpakSubCryptoOp,
+                       "FAcpakCrypto::Encrypt: null buffer with non-zero size");
     }
     if (nonce == nullptr || tag_out == nullptr) {
-        return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "AcpakCrypto::Encrypt: nonce/tag pointer is null");
+        return ACS_ERR(FAsset, kAcpakSubCryptoOp,
+                       "FAcpakCrypto::Encrypt: nonce/tag pointer is null");
     }
     // BCryptEncrypt の cbInput は ULONG (32bit)。Phase 2 では single-chunk と
     // し、>4GiB の単一エントリは未対応 (実用上 .acpak のエントリは数 MB 程度)。
     if (size > 0xFFFFFFFFu) {
-        return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "AcpakCrypto::Encrypt: size > 4GiB not supported");
+        return ACS_ERR(FAsset, kAcpakSubCryptoOp,
+                       "FAcpakCrypto::Encrypt: size > 4GiB not supported");
     }
 
     BCRYPT_ALG_HANDLE hAlg = nullptr;
     NTSTATUS s = OpenAesGcmProvider(&hAlg);
     if (s != STATUS_SUCCESS) {
-        return ACS_ERR_OS(Asset, kAcpakSubCryptoInit,
-                          "AcpakCrypto::Encrypt: provider init failed",
+        return ACS_ERR_OS(FAsset, kAcpakSubCryptoInit,
+                          "FAcpakCrypto::Encrypt: provider init failed",
                           static_cast<u32>(s));
     }
 
@@ -170,8 +170,8 @@ TResult<void> AcpakCrypto::Encrypt(const AcpakKey& key,
     s = CreateAesKey(hAlg, key, &hKey);
     if (s != STATUS_SUCCESS) {
         ::BCryptCloseAlgorithmProvider(hAlg, 0);
-        return ACS_ERR_OS(Asset, kAcpakSubCryptoKey,
-                          "AcpakCrypto::Encrypt: BCryptGenerateSymmetricKey failed",
+        return ACS_ERR_OS(FAsset, kAcpakSubCryptoKey,
+                          "FAcpakCrypto::Encrypt: BCryptGenerateSymmetricKey failed",
                           static_cast<u32>(s));
     }
 
@@ -206,46 +206,46 @@ TResult<void> AcpakCrypto::Encrypt(const AcpakKey& key,
     ::BCryptCloseAlgorithmProvider(hAlg, 0);
 
     if (s != STATUS_SUCCESS) {
-        return ACS_ERR_OS(Asset, kAcpakSubCryptoOp,
-                          "AcpakCrypto::Encrypt: BCryptEncrypt failed",
+        return ACS_ERR_OS(FAsset, kAcpakSubCryptoOp,
+                          "FAcpakCrypto::Encrypt: BCryptEncrypt failed",
                           static_cast<u32>(s));
     }
     if (written != static_cast<ULONG>(size)) {
         // GCM では入力 == 出力 サイズが原則。これが崩れているなら CNG が
         // 想定外モードで動いている (バグ)。
-        return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "AcpakCrypto::Encrypt: unexpected output size");
+        return ACS_ERR(FAsset, kAcpakSubCryptoOp,
+                       "FAcpakCrypto::Encrypt: unexpected output size");
     }
     return Ok();
 }
 
 // ============================================================================
-// AcpakCrypto::Decrypt — AES-256-GCM 復号 + tag 検証
+// FAcpakCrypto::Decrypt — AES-256-GCM 復号 + tag 検証
 // ============================================================================
-TResult<void> AcpakCrypto::Decrypt(const AcpakKey& key,
+TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
                                   const u8        nonce[kAcpakNonceSize],
                                   const u8        tag[kAcpakTagSize],
                                   const u8*       ciphertext,
                                   u64             size,
                                   u8*             plaintext) noexcept {
     if (size > 0 && (ciphertext == nullptr || plaintext == nullptr)) {
-        return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "AcpakCrypto::Decrypt: null buffer with non-zero size");
+        return ACS_ERR(FAsset, kAcpakSubCryptoOp,
+                       "FAcpakCrypto::Decrypt: null buffer with non-zero size");
     }
     if (nonce == nullptr || tag == nullptr) {
-        return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "AcpakCrypto::Decrypt: nonce/tag pointer is null");
+        return ACS_ERR(FAsset, kAcpakSubCryptoOp,
+                       "FAcpakCrypto::Decrypt: nonce/tag pointer is null");
     }
     if (size > 0xFFFFFFFFu) {
-        return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "AcpakCrypto::Decrypt: size > 4GiB not supported");
+        return ACS_ERR(FAsset, kAcpakSubCryptoOp,
+                       "FAcpakCrypto::Decrypt: size > 4GiB not supported");
     }
 
     BCRYPT_ALG_HANDLE hAlg = nullptr;
     NTSTATUS s = OpenAesGcmProvider(&hAlg);
     if (s != STATUS_SUCCESS) {
-        return ACS_ERR_OS(Asset, kAcpakSubCryptoInit,
-                          "AcpakCrypto::Decrypt: provider init failed",
+        return ACS_ERR_OS(FAsset, kAcpakSubCryptoInit,
+                          "FAcpakCrypto::Decrypt: provider init failed",
                           static_cast<u32>(s));
     }
 
@@ -253,8 +253,8 @@ TResult<void> AcpakCrypto::Decrypt(const AcpakKey& key,
     s = CreateAesKey(hAlg, key, &hKey);
     if (s != STATUS_SUCCESS) {
         ::BCryptCloseAlgorithmProvider(hAlg, 0);
-        return ACS_ERR_OS(Asset, kAcpakSubCryptoKey,
-                          "AcpakCrypto::Decrypt: BCryptGenerateSymmetricKey failed",
+        return ACS_ERR_OS(FAsset, kAcpakSubCryptoKey,
+                          "FAcpakCrypto::Decrypt: BCryptGenerateSymmetricKey failed",
                           static_cast<u32>(s));
     }
 
@@ -292,25 +292,25 @@ TResult<void> AcpakCrypto::Decrypt(const AcpakKey& key,
         if (size > 0 && plaintext != nullptr) {
             MemSet(plaintext, 0, static_cast<usize>(size));
         }
-        return ACS_ERR(Asset, kAcpakSubCryptoTag,
-                       "AcpakCrypto::Decrypt: GCM tag verification failed");
+        return ACS_ERR(FAsset, kAcpakSubCryptoTag,
+                       "FAcpakCrypto::Decrypt: GCM tag verification failed");
     }
     if (s != STATUS_SUCCESS) {
-        return ACS_ERR_OS(Asset, kAcpakSubCryptoOp,
-                          "AcpakCrypto::Decrypt: BCryptDecrypt failed",
+        return ACS_ERR_OS(FAsset, kAcpakSubCryptoOp,
+                          "FAcpakCrypto::Decrypt: BCryptDecrypt failed",
                           static_cast<u32>(s));
     }
     if (written != static_cast<ULONG>(size)) {
-        return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "AcpakCrypto::Decrypt: unexpected output size");
+        return ACS_ERR(FAsset, kAcpakSubCryptoOp,
+                       "FAcpakCrypto::Decrypt: unexpected output size");
     }
     return Ok();
 }
 
 // ============================================================================
-// AcpakCrypto::GenerateRandomNonce — CSPRNG 12 バイト
+// FAcpakCrypto::GenerateRandomNonce — CSPRNG 12 バイト
 // ============================================================================
-void AcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept {
+void FAcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept {
     if (nonce_out == nullptr) return;
 
     NTSTATUS s = ::BCryptGenRandom(nullptr,

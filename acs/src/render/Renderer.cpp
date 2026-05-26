@@ -1,29 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
-// 高レベル Renderer 実装
+// 高レベル FRenderer 実装
 #include "render/Renderer.h"
 #include "platform/Window.h"
 #include "foundation/Move.h"
 
 namespace acs {
 
-Renderer::~Renderer() noexcept {
+FRenderer::~FRenderer() noexcept {
     Shutdown();
 }
 
-TResult<void> Renderer::Init(Window& w, bool enable_debug, bool enable_depth) noexcept {
+TResult<void> FRenderer::Init(FWindow& w, bool enable_debug, bool enable_depth) noexcept {
     _enable_depth = enable_depth;
     _color_format = EFormat::B8G8R8A8_UNorm;
     _depth_format = EFormat::D32_Float;
 
     // デバイス作成
-    DeviceConfig dcfg{};
+    FDeviceConfig dcfg{};
     dcfg.enable_debug_layer = enable_debug;
     auto dr = CreateRhiDevice(dcfg);
     if (dr.IsErr()) return Err<void>(dr.Error());
     _device = Move(dr.Value());
 
     // スワップチェイン作成（ウィンドウに紐付け）
-    SwapchainConfig scfg{};
+    FSwapchainConfig scfg{};
     scfg.window = &w;
     scfg.format = _color_format;
     scfg.buffer_count = 2;
@@ -46,7 +46,7 @@ TResult<void> Renderer::Init(Window& w, bool enable_debug, bool enable_depth) no
     return Ok();
 }
 
-TResult<void> Renderer::RebuildDepth(u32 w, u32 h) noexcept {
+TResult<void> FRenderer::RebuildDepth(u32 w, u32 h) noexcept {
     _depth.Reset();
     if (w == 0 || h == 0) return Ok();
     FTextureDesc td{};
@@ -63,7 +63,7 @@ TResult<void> Renderer::RebuildDepth(u32 w, u32 h) noexcept {
     return Ok();
 }
 
-void Renderer::Shutdown() noexcept {
+void FRenderer::Shutdown() noexcept {
     if (_device) _device->WaitIdle();  // GPU 完了を待ってから解放
     _depth.Reset();
     _cmd.Reset();
@@ -72,7 +72,7 @@ void Renderer::Shutdown() noexcept {
 }
 
 // フレーム開始: バックバッファ取得 → コマンド記録開始 → クリア
-void Renderer::BeginFrame(const ClearColor& clear) noexcept {
+void FRenderer::BeginFrame(const FClearColor& clear) noexcept {
     if (!_swapchain || !_cmd) return;
     _current_buffer = _swapchain->AcquireNextImage();
     _cmd->Begin();
@@ -94,7 +94,7 @@ void Renderer::BeginFrame(const ClearColor& clear) noexcept {
 }
 
 // フレーム終了: バックバッファを Present 状態に戻して GPU 投入 → 画面に提示
-void Renderer::EndFrame() noexcept {
+void FRenderer::EndFrame() noexcept {
     if (!_frame_open) return;
     _cmd->EndRenderToSwapchain(*_swapchain, _current_buffer);
     _cmd->End();
@@ -103,7 +103,7 @@ void Renderer::EndFrame() noexcept {
     _frame_open = false;
 }
 
-void Renderer::OnResize(u32 width, u32 height) noexcept {
+void FRenderer::OnResize(u32 width, u32 height) noexcept {
     if (!_swapchain) return;
     if (_device) _device->WaitIdle();
     _swapchain->Resize(width, height);

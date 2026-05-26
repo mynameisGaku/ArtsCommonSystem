@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloModel — Application 実装。
+// HelloModel — FApplication 実装。
 #include "HelloModelApp.h"
 
 #include "app/Sample.h"
@@ -24,14 +24,14 @@ void HelloModelApp::OnStart() noexcept {
     if (!_scene.Init(*dev, aspect)) { Quit(); return; }
 
     // === オプションで非同期ロードを試みる（ファイルが無くても OK）===
-    // 標準ローダ群は Application が自動で登録済み。
+    // 標準ローダ群は FApplication が自動で登録済み。
     _async_mesh = GetAssets().LoadAsync(L"data/optional_mesh.glb");
 
     ACS_LOG_INFO("HelloModel initialized");
 }
 
 void HelloModelApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     _scene.Update(dt, _async_mesh, _async_loaded);
 }
 

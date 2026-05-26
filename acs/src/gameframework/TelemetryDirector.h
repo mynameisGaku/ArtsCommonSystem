@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — TelemetryDirector (game analytics event 集約)
+// GameFramework Pillar V — FTelemetryDirector (game analytics event 集約)
 //
 // 役割:
 //   ゲームロジック側から「level_completed」「player_died」「item_purchased」等の
@@ -7,18 +7,18 @@
 //   一定間隔 (既定 5 秒) または明示 Flush() のタイミングで IBackendClient::
 //   SendTelemetry() を経由してサーバへまとめて送出する高レベル director。
 //
-//   AchievementManager と同様に、低レイヤの IBackendClient は seam 注入で
+//   FAchievementManager と同様に、低レイヤの IBackendClient は seam 注入で
 //   差し替え可能 (実装は HTTP/gRPC/Steam 等プロジェクト個別)。Backend 未 attach
 //   なら local pending queue に積むだけのオフラインモードで動作する
 //   (デバッグ / Demo build / 単体テスト用)。
 //
-//   GDPR / CCPA 要件: PrivacyDirector の EConsentCategory::Telemetry が無ければ
+//   GDPR / CCPA 要件: FPrivacyDirector の EConsentCategory::Telemetry が無ければ
 //   TrackEvent() / Flush() はすべて no-op。consent 未取得状態で TrackEvent 経由
 //   の暗黙 opt-in を発生させない (consent dialogue 表示前の起動シーケンスでも
 //   安全に呼べる)。
 //
 // 使い方:
-//   TelemetryDirector td;
+//   FTelemetryDirector td;
 //   td.Init(&my_backend, &my_privacy);
 //   td.EnableCategory("ui", false);                  // UI 系イベントは送らない
 //
@@ -52,10 +52,10 @@
 //     static char[N] 等)。
 //   ・**category enable/disable**: "ui" や "debug" など、ビルドや A/B テストで
 //     送りたくないカテゴリを runtime で間引けるよう、許可リスト方式の bit に
-//     せず可変 TArray<CategoryFilter> で持つ。件数は通常 10〜30 程度なので
+//     せず可変 TArray<FCategoryFilter> で持つ。件数は通常 10〜30 程度なので
 //     線形検索で十分。default は「未登録 = enabled」とし、明示的に false を
 //     設定したカテゴリだけ落とす (= explicit deny list)。
-//   ・**PrivacyDirector attach optional**: nullptr 注入時は consent ガードを
+//   ・**FPrivacyDirector attach optional**: nullptr 注入時は consent ガードを
 //     スキップ (= 全イベント許可)。テスト / オフラインビルド用の逃げ道。
 //     production では必ず privacy を渡すこと。
 //   ・**非コピー・非ムーブ、全 noexcept**: 他 Director 系と統一。
@@ -79,7 +79,7 @@ namespace acs::game {
 // 芋づるで広がる。本ヘッダは公開 API のみ薄く保つ方針なので、interface /
 // class は forward declare に留めて、実体 include は .cpp 側で行う。
 class IBackendClient;
-class PrivacyDirector;
+class FPrivacyDirector;
 
 // =============================================================================
 // EventPriority — analytics event の重要度ヒント
@@ -98,40 +98,40 @@ enum class EventPriority : u8 {
 };
 
 // =============================================================================
-// TelemetryEvent — pending queue に積まれる 1 イベントの POD
+// FTelemetryEvent — pending queue に積まれる 1 イベントの POD
 // -----------------------------------------------------------------------------
 // 文字列はすべて呼出側保証の static lifetime ポインタ。Director 側ではコピー
-// しない。timestamp は Clock::MillisSinceStartup() の値 (起動からの ms)、
-// 0 は「Clock 未取得 / TrackEvent 直前にゼロクリア」を表す。
+// しない。timestamp は FClock::MillisSinceStartup() の値 (起動からの ms)、
+// 0 は「FClock 未取得 / TrackEvent 直前にゼロクリア」を表す。
 // =============================================================================
-struct TelemetryEvent {
+struct FTelemetryEvent {
     const char*   event_name   = nullptr;
     const char*   category     = nullptr;
     const char*   json_payload = nullptr;
     EventPriority priority     = EventPriority::Info;
-    u64           timestamp    = 0;  // Clock::MillisSinceStartup() at TrackEvent
+    u64           timestamp    = 0;  // FClock::MillisSinceStartup() at TrackEvent
 };
 
 // =============================================================================
-// TelemetryDirector — analytics event 集約・送信ハブ
+// FTelemetryDirector — analytics event 集約・送信ハブ
 // -----------------------------------------------------------------------------
 // アプリ全体で 1 個運用される想定。複数同時運用しないため非コピー・非ムーブ。
 // =============================================================================
-class TelemetryDirector {
+class FTelemetryDirector {
 public:
-    TelemetryDirector()  noexcept = default;
-    ~TelemetryDirector() noexcept = default;
+    FTelemetryDirector()  noexcept = default;
+    ~FTelemetryDirector() noexcept = default;
 
-    TelemetryDirector(const TelemetryDirector&)            = delete;
-    TelemetryDirector& operator=(const TelemetryDirector&) = delete;
-    TelemetryDirector(TelemetryDirector&&)                 = delete;
-    TelemetryDirector& operator=(TelemetryDirector&&)      = delete;
+    FTelemetryDirector(const FTelemetryDirector&)            = delete;
+    FTelemetryDirector& operator=(const FTelemetryDirector&) = delete;
+    FTelemetryDirector(FTelemetryDirector&&)                 = delete;
+    FTelemetryDirector& operator=(FTelemetryDirector&&)      = delete;
 
     // ----- 初期化 / 終了 --------------------------------------------------
     // backend: IBackendClient* (寿命は呼出側が保証、nullptr 不可 = 必ず stub 渡す)
-    // privacy: PrivacyDirector* (nullptr 可 = consent ガードをスキップ)
+    // privacy: FPrivacyDirector* (nullptr 可 = consent ガードをスキップ)
     // 2 重 Init は内部状態を上書き (= backend / privacy 差し替え)。
-    void Init(IBackendClient* backend, PrivacyDirector* privacy = nullptr) noexcept;
+    void Init(IBackendClient* backend, FPrivacyDirector* privacy = nullptr) noexcept;
 
     // pending queue を空にし、backend / privacy 参照を切る。
     // 終了時の Flush は呼出側責務 (本関数では送信を試みない、確実に no-op で抜ける)。
@@ -139,7 +139,7 @@ public:
 
     // ----- event 投入 -----------------------------------------------------
     // event_name == nullptr / json_payload == nullptr は no-op (defensive)。
-    // consent 未取得 (PrivacyDirector::HasConsent(Telemetry) == false) も no-op。
+    // consent 未取得 (FPrivacyDirector::HasConsent(Telemetry) == false) も no-op。
     // category が disabled 設定されていれば no-op。
     // queue 上限到達時は最古 1 件を drop して新規を末尾追加 (FIFO drop)。
     void TrackEvent(const char*   event_name,
@@ -189,7 +189,7 @@ private:
     void DropOldestIfFull() noexcept;
 
     // category 名と enabled flag の組。TArray<...> の要素型。
-    struct CategoryFilter {
+    struct FCategoryFilter {
         const char* category = nullptr;  // 非所有 (リテラル想定)
         bool        enabled  = true;
     };
@@ -198,11 +198,11 @@ private:
     // できる目安。AAA タイトルでも通常 1〜2 evt/sec なので 100 件は十分。
     static constexpr u32 kMaxPending = 100;
 
-    TArray<TelemetryEvent>  _pending;        // 送信待ち event queue
-    TArray<CategoryFilter>  _filters;        // category 別 enable/disable
+    TArray<FTelemetryEvent>  _pending;        // 送信待ち event queue
+    TArray<FCategoryFilter>  _filters;        // category 別 enable/disable
 
     IBackendClient*        _backend  = nullptr;  // 注入 (寿命は呼出側)
-    PrivacyDirector*       _privacy  = nullptr;  // optional 注入
+    FPrivacyDirector*       _privacy  = nullptr;  // optional 注入
 
     u32  _sent_count     = 0;
     u32  _failed_count   = 0;

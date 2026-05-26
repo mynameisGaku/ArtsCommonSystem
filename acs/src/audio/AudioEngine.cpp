@@ -23,7 +23,7 @@ struct VoiceSlot {
 
 } // namespace
 
-struct AudioEngine::Impl {
+struct FAudioEngine::FImpl {
     IXAudio2*               xaudio2          = nullptr;
     IXAudio2MasteringVoice* mastering        = nullptr;
     bool                    com_initialized  = false;
@@ -33,13 +33,13 @@ struct AudioEngine::Impl {
     u32                     active_count     = 0;
 };
 
-AudioEngine::~AudioEngine() noexcept {
+FAudioEngine::~FAudioEngine() noexcept {
     Shutdown();
 }
 
-TResult<void> AudioEngine::Init() noexcept {
-    if (_impl) return ACS_ERR(Generic, 1, "AudioEngine already initialized");
-    _impl = new Impl();
+TResult<void> FAudioEngine::Init() noexcept {
+    if (_impl) return ACS_ERR(Generic, 1, "FAudioEngine already initialized");
+    _impl = new FImpl();
 
     // COM 初期化（マルチスレッド形式、XAudio2 が要求）
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -59,11 +59,11 @@ TResult<void> AudioEngine::Init() noexcept {
         return ACS_ERR_OS(Generic, 3, "CreateMasteringVoice failed", static_cast<u32>(hr));
     }
 
-    ACS_LOG_INFO("AudioEngine initialized (XAudio2)");
+    ACS_LOG_INFO("FAudioEngine initialized (XAudio2)");
     return Ok();
 }
 
-void AudioEngine::Shutdown() noexcept {
+void FAudioEngine::Shutdown() noexcept {
     if (!_impl) return;
     StopAll();
     if (_impl->mastering) {
@@ -85,7 +85,7 @@ void AudioEngine::Shutdown() noexcept {
 namespace {
 void DestroySlot(VoiceSlot& slot) noexcept;   // 前方宣言（FindFreeSlot が回収に使う）
 
-u32 FindFreeSlot(AudioEngine::Impl& impl) noexcept {
+u32 FindFreeSlot(FAudioEngine::FImpl& impl) noexcept {
     // 自然に再生が終わった一発再生ボイスを回収する。これをしないと、
     // 一発再生を kMaxVoices 回呼んだ時点でスロットが尽き、以降の Play が
     // 無音になる。ループ再生は BuffersQueued が 0 にならず回収されない。
@@ -107,7 +107,7 @@ u32 FindFreeSlot(AudioEngine::Impl& impl) noexcept {
 }
 } // namespace
 
-SoundHandle AudioEngine::Play(const AudioAsset& asset, f32 volume, bool loop) noexcept {
+FSoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) noexcept {
     if (!_impl || !_impl->xaudio2) return kInvalidSound;
     if (asset.SampleByteCount() == 0) return kInvalidSound;
 
@@ -150,7 +150,7 @@ SoundHandle AudioEngine::Play(const AudioAsset& asset, f32 volume, bool loop) no
     slot.in_use = true;
     ++_impl->active_count;
 
-    SoundHandle h{ idx, slot.generation };
+    FSoundHandle h{ idx, slot.generation };
     return h;
 }
 
@@ -168,7 +168,7 @@ void DestroySlot(VoiceSlot& slot) noexcept {
 }
 } // namespace
 
-void AudioEngine::Stop(SoundHandle h) noexcept {
+void FAudioEngine::Stop(FSoundHandle h) noexcept {
     if (!_impl || !h.IsValid() || h.index >= kMaxVoices) return;
     FScopedLock lk(_impl->lock);
     VoiceSlot& slot = _impl->slots[h.index];
@@ -177,7 +177,7 @@ void AudioEngine::Stop(SoundHandle h) noexcept {
     if (_impl->active_count > 0) --_impl->active_count;
 }
 
-void AudioEngine::SetVolume(SoundHandle h, f32 volume) noexcept {
+void FAudioEngine::SetVolume(FSoundHandle h, f32 volume) noexcept {
     if (!_impl || !h.IsValid() || h.index >= kMaxVoices) return;
     FScopedLock lk(_impl->lock);
     VoiceSlot& slot = _impl->slots[h.index];
@@ -187,7 +187,7 @@ void AudioEngine::SetVolume(SoundHandle h, f32 volume) noexcept {
     if (slot.voice) slot.voice->SetVolume(volume);
 }
 
-void AudioEngine::StopAll() noexcept {
+void FAudioEngine::StopAll() noexcept {
     if (!_impl) return;
     FScopedLock lk(_impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
@@ -196,14 +196,14 @@ void AudioEngine::StopAll() noexcept {
     _impl->active_count = 0;
 }
 
-void AudioEngine::SetMasterVolume(f32 volume) noexcept {
+void FAudioEngine::SetMasterVolume(f32 volume) noexcept {
     if (!_impl || !_impl->mastering) return;
     if (volume < 0) volume = 0;
     if (volume > 1) volume = 1;
     _impl->mastering->SetVolume(volume);
 }
 
-void AudioEngine::PauseAll() noexcept {
+void FAudioEngine::PauseAll() noexcept {
     if (!_impl) return;
     FScopedLock lk(_impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
@@ -212,7 +212,7 @@ void AudioEngine::PauseAll() noexcept {
     }
 }
 
-void AudioEngine::ResumeAll() noexcept {
+void FAudioEngine::ResumeAll() noexcept {
     if (!_impl) return;
     FScopedLock lk(_impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
@@ -221,7 +221,7 @@ void AudioEngine::ResumeAll() noexcept {
     }
 }
 
-u32 AudioEngine::ActiveCount() const noexcept {
+u32 FAudioEngine::ActiveCount() const noexcept {
     return _impl ? _impl->active_count : 0;
 }
 

@@ -27,10 +27,10 @@ ACS_TEST(Threading, MutexExclusive) {
 }
 
 ACS_TEST(Threading, ThreadJoin) {
-    struct Ctx { TAtomic<u32> v{0}; };
-    Ctx ctx;
+    struct FCtx { TAtomic<u32> v{0}; };
+    FCtx ctx;
     auto r = FThread::Spawn([](void* p){
-        static_cast<Ctx*>(p)->v.Store(123);
+        static_cast<FCtx*>(p)->v.Store(123);
     }, &ctx);
     EXPECT_TRUE(r.IsOk());
     if (r.IsOk()) {
@@ -40,72 +40,72 @@ ACS_TEST(Threading, ThreadJoin) {
 }
 
 ACS_TEST(Threading, ThreadPoolSubmitMany) {
-    auto rinit = ThreadPool::Init(4);
+    auto rinit = FThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
 
     TAtomic<u32> counter{0};
-    CompletionCounter done;
+    FCompletionCounter done;
     constexpr u32 N = 1000;
     for (u32 i = 0; i < N; ++i) {
-        Task t {};
+        FTask t {};
         t.fn = [](void* p, u32){
             static_cast<TAtomic<u32>*>(p)->FetchAdd(1);
         };
         t.user = &counter;
         t.counter = &done;
-        (void)ThreadPool::Submit(t);
+        (void)FThreadPool::Submit(t);
     }
-    ThreadPool::Wait(done);
+    FThreadPool::Wait(done);
     EXPECT_EQ(counter.Load(), N);
 
-    ThreadPool::Shutdown();
+    FThreadPool::Shutdown();
 }
 
 ACS_TEST(Threading, ParallelForCovers) {
-    auto rinit = ThreadPool::Init(4);
+    auto rinit = FThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
     TAtomic<u32> seen{0};
-    (void)ThreadPool::ParallelFor(0, 10000, 64,
+    (void)FThreadPool::ParallelFor(0, 10000, 64,
         [](u32 /*i*/, u32 /*w*/, void* user){
             static_cast<TAtomic<u32>*>(user)->FetchAdd(1);
         }, &seen);
     EXPECT_EQ(seen.Load(), 10000u);
-    ThreadPool::Shutdown();
+    FThreadPool::Shutdown();
 }
 
 // ノードプール経由で大量タスクを処理（Heap フォールバックが起きても破綻しない）
 ACS_TEST(Threading, ThreadPoolHighLoad) {
-    auto rinit = ThreadPool::Init(4);
+    auto rinit = FThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
     TAtomic<u32> counter{0};
-    CompletionCounter done;
+    FCompletionCounter done;
     constexpr u32 N = 50000;
     for (u32 i = 0; i < N; ++i) {
-        Task t {};
+        FTask t {};
         t.fn = [](void* p, u32){
             static_cast<TAtomic<u32>*>(p)->FetchAdd(1);
         };
         t.user = &counter;
         t.counter = &done;
-        (void)ThreadPool::Submit(t);
+        (void)FThreadPool::Submit(t);
     }
-    ThreadPool::Wait(done);
+    FThreadPool::Wait(done);
     EXPECT_EQ(counter.Load(), N);
-    ThreadPool::Shutdown();
+    FThreadPool::Shutdown();
 }
 
 // 入れ子 ParallelFor がデッドロックしないこと（help-stealing が効く）
 ACS_TEST(Threading, NestedParallelFor) {
-    auto rinit = ThreadPool::Init(4);
+    auto rinit = FThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
     TAtomic<u32> total{0};
-    (void)ThreadPool::ParallelFor(0, 10, 1,
+    (void)FThreadPool::ParallelFor(0, 10, 1,
         [](u32 /*i*/, u32 /*w*/, void* user){
-            (void)ThreadPool::ParallelFor(0, 100, 16,
+            (void)FThreadPool::ParallelFor(0, 100, 16,
                 [](u32 /*j*/, u32 /*w*/, void* u2){
                     static_cast<TAtomic<u32>*>(u2)->FetchAdd(1);
                 }, user);
         }, &total);
     EXPECT_EQ(total.Load(), 1000u);
-    ThreadPool::Shutdown();
+    FThreadPool::Shutdown();
 }

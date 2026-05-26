@@ -4,7 +4,7 @@
 #   main.cpp               - ACS_DEFINE_MAIN(HelloSkyApp) のみ
 #   Types.h                - SkyPreset enum + 共通定数
 #   SkyScene.{h,cpp}       - シーン描画ロジック
-#   HelloSkyApp.{h,cpp}    - Application 派生クラス
+#   HelloSkyApp.{h,cpp}    - FApplication 派生クラス
 add_executable(hello_sky WIN32
     main.cpp
     SkyScene.cpp

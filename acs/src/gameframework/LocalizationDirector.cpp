@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — LocalizationDirector 実装
+// GameFramework 完成度システム v7 — FLocalizationDirector 実装
 //
 // key 比較は const char* 同士の per-byte 比較 (StrEq 相当を自前で書く)。
 // STL 禁止 + <cstring> も避ける方針で、ループを直接書いておく。
@@ -25,28 +25,28 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
-void LocalizationDirector::SetLocale(ELocale loc) noexcept {
+void FLocalizationDirector::SetLocale(ELocale loc) noexcept {
     _current = loc;
 }
 
-ELocale LocalizationDirector::CurrentLocale() const noexcept {
+ELocale FLocalizationDirector::CurrentLocale() const noexcept {
     return _current;
 }
 
-void LocalizationDirector::RegisterString(ELocale loc, const char* key, const char* value) noexcept {
+void FLocalizationDirector::RegisterString(ELocale loc, const char* key, const char* value) noexcept {
     // key == nullptr は意味を持たないので静かに弾く (PO/CSV からの取り込みで
     // null が混じっても registry を壊さない)。value == nullptr は許容
     // (「存在するが空翻訳」を表現する余地、Get では nullptr のままで返さず
     // 後続の処理で扱う前提)。
     if (key == nullptr) return;
-    LocaleEntry e;
+    FLocaleEntry e;
     e.locale = loc;
     e.key    = key;
     e.value  = value;
     _entries.PushBack(e);
 }
 
-const char* LocalizationDirector::Get(const char* key) const noexcept {
+const char* FLocalizationDirector::Get(const char* key) const noexcept {
     // key == nullptr は呼び出し側の UI コードで null チェックを省略するため
     // 空文字を返す (nullptr を返すと strlen 等で AV になる)。
     if (key == nullptr) return "";
@@ -78,7 +78,7 @@ const char* LocalizationDirector::Get(const char* key) const noexcept {
     return key;
 }
 
-const char* LocalizationDirector::GetForLocale(ELocale loc, const char* key) const noexcept {
+const char* FLocalizationDirector::GetForLocale(ELocale loc, const char* key) const noexcept {
     if (key == nullptr) return "";
     const isize idx = FindIndex(loc, key);
     if (idx >= 0) {
@@ -90,12 +90,12 @@ const char* LocalizationDirector::GetForLocale(ELocale loc, const char* key) con
     return key;
 }
 
-bool LocalizationDirector::Has(const char* key) const noexcept {
+bool FLocalizationDirector::Has(const char* key) const noexcept {
     if (key == nullptr) return false;
     return FindIndex(_current, key) >= 0;
 }
 
-u32 LocalizationDirector::KeyCount(ELocale loc) const noexcept {
+u32 FLocalizationDirector::KeyCount(ELocale loc) const noexcept {
     u32 n = 0;
     const usize total = _entries.Size();
     for (usize i = 0; i < total; ++i) {
@@ -104,11 +104,11 @@ u32 LocalizationDirector::KeyCount(ELocale loc) const noexcept {
     return n;
 }
 
-void LocalizationDirector::Clear() noexcept {
+void FLocalizationDirector::Clear() noexcept {
     _entries.Clear();
 }
 
-void LocalizationDirector::ClearLocale(ELocale loc) noexcept {
+void FLocalizationDirector::ClearLocale(ELocale loc) noexcept {
     // 指定 locale 以外を残して再構築。TArray に Erase が無いので、生存要素を
     // 前詰めしてから末尾を切る (RemoveAtSwap だと順序が壊れて Get の先頭一致
     // 挙動が不安定になるため使わない)。
@@ -122,18 +122,18 @@ void LocalizationDirector::ClearLocale(ELocale loc) noexcept {
             ++write;
         }
     }
-    // 末尾を縮める。Resize は LocaleEntry が trivially destructible なので
+    // 末尾を縮める。Resize は FLocaleEntry が trivially destructible なので
     // 単純にサイズだけ縮める動きになる (TArray<T>::Resize 実装参照)。
     if (write != total) {
         _entries.Resize(write);
     }
 }
 
-isize LocalizationDirector::FindIndex(ELocale loc, const char* key) const noexcept {
+isize FLocalizationDirector::FindIndex(ELocale loc, const char* key) const noexcept {
     if (key == nullptr) return -1;
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
-        const LocaleEntry& e = _entries[i];
+        const FLocaleEntry& e = _entries[i];
         if (e.locale == loc && StrEq(e.key, key)) {
             return static_cast<isize>(i);
         }

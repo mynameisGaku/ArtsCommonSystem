@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloNet — アプリケーションクラス。
-// Network::Init / Logger::Init → TCP echo サーバスレッド起動 → クライアント
+// FNetwork::Init / FLogger::Init → TCP echo サーバスレッド起動 → クライアント
 // 接続 → 送受信 → Join まで一連の流れを Run() で実行する。
 //
-// Application 派生ではなく自前 main から呼ぶ console アプリ (HelloNet には
+// FApplication 派生ではなく自前 main から呼ぶ console アプリ (HelloNet には
 // window / renderer が要らないため)。
 #pragma once
 
@@ -12,7 +12,7 @@
 
 namespace hellonet {
 
-// サーバスレッド本体 (TcpListener::Listen → Accept → Recv → Send) は
+// サーバスレッド本体 (FTcpListener::Listen → Accept → Recv → Send) は
 // EchoServer.h/.cpp に free function で分離している (FThread::Spawn の引数仕様に
 // 合わせるため、メンバ関数ではなく free function にしている)。
 class HelloNetApp {

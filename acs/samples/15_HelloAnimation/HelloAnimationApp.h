@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloAnimation — Application 派生クラス。
+// HelloAnimation — FApplication 派生クラス。
 // 4 ボーンの「ヘビ風」スキンメッシュを GPU スキニングで描画するデモ。
 //
 // リソース所有 (sky / shader / sprite / font / camera / mesh / player) と
-// 入力ハンドリングを担当し、毎フレームの「Sky → 地面 → スキンメッシュ」
+// 入力ハンドリングを担当し、毎フレームの「FSky → 地面 → スキンメッシュ」
 // 描画は AnimationScene に委譲する。
 #pragma once
 
@@ -22,7 +22,7 @@
 
 namespace helloanim {
 
-class HelloAnimationApp : public acs::Application {
+class HelloAnimationApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -31,16 +31,16 @@ public:
 
 private:
     AnimationScene                _scene;
-    acs::Sky                      _sky;
-    acs::SkinnedShader            _shader;       // スキンメッシュ用
-    acs::StandardShader           _std_shader;   // 地面用
-    acs::SpriteBatch              _batch;
-    acs::Font                     _font;
+    acs::FSky                      _sky;
+    acs::FSkinnedShader            _shader;       // スキンメッシュ用
+    acs::FStandardShader           _std_shader;   // 地面用
+    acs::FSpriteBatch              _batch;
+    acs::FFont                     _font;
 
-    acs::TRc<acs::SkinnedMeshAsset> _snake;
-    acs::SkinnedGpuMesh            _gm_snake;
-    acs::GpuMesh                   _gm_plane;
-    acs::AnimationPlayer           _player;
+    acs::TRc<acs::FSkinnedMeshAsset> _snake;
+    acs::FSkinnedGpuMesh            _gm_snake;
+    acs::FGpuMesh                   _gm_plane;
+    acs::FAnimationPlayer           _player;
 
     acs::FCamera                   _camera;
     acs::FVec3                     _cam_pos;

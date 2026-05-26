@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSave — Application 実装。
+// HelloSave — FApplication 実装。
 #include "HelloSaveApp.h"
 
 #include "app/Sample.h"
@@ -19,11 +19,11 @@ void HelloSaveApp::OnStart() noexcept {
     if (!dev) { Quit(); return; }
 
     // %APPDATA% 配下なら UAC でもユーザ書き込み可。Load 失敗は初回起動の正常系。
-    ACS_SAMPLE_INIT(Storage::GetAppDataPath(L"acs_demo", L"hello_save.ini",
+    ACS_SAMPLE_INIT(FStorage::GetAppDataPath(L"acs_demo", L"hello_save.ini",
                                              _save_path, 260));
     ACS_LOG_INFO("Save file: %ls", _save_path);
     if (auto r = _store.Load(_save_path); r.IsErr()) {
-        ACS_LOG_WARN("Storage::Load failed: %s (continuing with empty)", r.Error().message);
+        ACS_LOG_WARN("FStorage::Load failed: %s (continuing with empty)", r.Error().message);
     }
 
     i64 launches = _store.GetInt("launches", 0) + 1;
@@ -46,14 +46,14 @@ void HelloSaveApp::OnStart() noexcept {
 }
 
 void HelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (Input::IsKeyPressed(EKey::Space)) {
+    if (FInput::IsKeyPressed(EKey::Space)) {
         ++_clicks;
         if (_clicks > _high_score) _high_score = _clicks;
         _dirty = true;
     }
-    if (Input::IsKeyPressed(EKey::R)) {
+    if (FInput::IsKeyPressed(EKey::R)) {
         // Clear() は launches も消すので、本セッションを 1 回目として再播種する。
         _store.Clear();
         _clicks = 0;
@@ -62,7 +62,7 @@ void HelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
         _store.SetString("player_name", "プレイヤー");
         _dirty = true;
     }
-    if (Input::IsKeyPressed(EKey::S)) {
+    if (FInput::IsKeyPressed(EKey::S)) {
         FlushAndSave();
     }
 }

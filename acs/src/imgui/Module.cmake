@@ -59,7 +59,7 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        Container
+        FContainer
         Platform
         Render
     LINK_PUBLIC

@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — DebugDraw 実装
+// GameFramework Pillar H — FDebugDraw 実装
 //
 // ヘッダの「設計選択」を参照。ここではジオメトリ生成のみで I/O 副作用を持たない。
-// 各 Draw* は内部 TArray に Line を PushBack するだけ。
+// 各 Draw* は内部 TArray に FLine を PushBack するだけ。
 #include "gameframework/DebugDraw.h"
 
 #include "math/Math.h"
 
 namespace acs::game {
 
-void DebugDraw::DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept {
-    _lines.PushBack(Line{a, b, color});
+void FDebugDraw::DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept {
+    _lines.PushBack(FLine{a, b, color});
 }
 
-void DebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
+void FDebugDraw::DrawAabb(const FAabb2& a, FVec4 color) noexcept {
     // 4 隅 → 4 辺。
     //   tl --- tr
     //    |     |
@@ -24,13 +24,13 @@ void DebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
     const FVec2 tr{mx.x, mn.y};
     const FVec2 br{mx.x, mx.y};
     const FVec2 bl{mn.x, mx.y};
-    _lines.PushBack(Line{tl, tr, color});  // 上辺
-    _lines.PushBack(Line{tr, br, color});  // 右辺
-    _lines.PushBack(Line{br, bl, color});  // 下辺
-    _lines.PushBack(Line{bl, tl, color});  // 左辺
+    _lines.PushBack(FLine{tl, tr, color});  // 上辺
+    _lines.PushBack(FLine{tr, br, color});  // 右辺
+    _lines.PushBack(FLine{br, bl, color});  // 下辺
+    _lines.PushBack(FLine{bl, tl, color});  // 左辺
 }
 
-void DebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept {
+void FDebugDraw::DrawCircle(const FCircle& c, FVec4 color, u32 segments) noexcept {
     // 縮退ガード: 3 角形未満は形にならない。
     if (segments < 3u) segments = 3u;
 
@@ -43,17 +43,17 @@ void DebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept 
         const f32 theta = step * static_cast<f32>(i);
         const FVec2 curr{c.center.x + c.radius * Cos(theta),
                         c.center.y + c.radius * Sin(theta)};
-        _lines.PushBack(Line{prev, curr, color});
+        _lines.PushBack(FLine{prev, curr, color});
         prev = curr;
     }
     // i = segments のとき theta = 2π となり、開始点に戻るため自然に閉じる。
 }
 
-void DebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
+void FDebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
     // "+" 記号: 横線（左右）+ 縦線（上下）。size は片側長。
     const f32 h = size;
-    _lines.PushBack(Line{FVec2{pos.x - h, pos.y}, FVec2{pos.x + h, pos.y}, color});
-    _lines.PushBack(Line{FVec2{pos.x, pos.y - h}, FVec2{pos.x, pos.y + h}, color});
+    _lines.PushBack(FLine{FVec2{pos.x - h, pos.y}, FVec2{pos.x + h, pos.y}, color});
+    _lines.PushBack(FLine{FVec2{pos.x, pos.y - h}, FVec2{pos.x, pos.y + h}, color});
 }
 
 } // namespace acs::game

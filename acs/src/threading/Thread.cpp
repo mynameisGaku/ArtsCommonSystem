@@ -35,8 +35,8 @@ DWORD WINAPI Trampoline(LPVOID arg) noexcept {
 
 } // namespace
 
-ThreadId CurrentThreadId() noexcept {
-    return ThreadId{ static_cast<u32>(::GetCurrentThreadId()) };
+FThreadId CurrentThreadId() noexcept {
+    return FThreadId{ static_cast<u32>(::GetCurrentThreadId()) };
 }
 
 void SleepMs(u32 ms) noexcept { ::Sleep(static_cast<DWORD>(ms)); }
@@ -69,7 +69,7 @@ FThread& FThread::operator=(FThread&& other) noexcept {
 }
 
 // スレッドを生成して起動する。Trampoline 経由で entry を呼ぶ。
-TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& cfg) noexcept {
+TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const FThreadConfig& cfg) noexcept {
     if (!entry) return ACS_ERR(Threading, 1, "FThread::Spawn called with null entry");
 
     // ユーザー関数情報を保持する一時オブジェクトをヒープに確保
@@ -94,7 +94,7 @@ TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const ThreadConfi
 
     FThread t;
     t._handle = h;
-    t._id     = ThreadId{ static_cast<u32>(tid) };
+    t._id     = FThreadId{ static_cast<u32>(tid) };
     return TResult<FThread>(OkInit, Move(t));
 }
 

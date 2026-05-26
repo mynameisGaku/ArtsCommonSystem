@@ -11,7 +11,7 @@
 //     向け描画) を書くことを強制される (= HMD を持たない開発機 / CI でも
 //     ゲームは "VR off" で起動できる)。
 //   ・`HeadPose()` / `LeftController()` / `RightController()` は zero-initialized
-//     な struct を返す。`XrPose` / `XrControllerState` のデフォルトコンストラクタ
+//     な struct を返す。`FXrPose` / `FXrControllerState` のデフォルトコンストラクタ
 //     が原点 / ニュートラル値で初期化するため、stub 側で明示の値設定は不要。
 //   ・`SetPassthrough(true)` を呼ばれても passthrough は非サポートなので no-op。
 //
@@ -36,50 +36,50 @@
 namespace acs::game {
 
 // =============================================================================
-// OpenXrBridgeStub::Init — NotImplemented
+// FOpenXrBridgeStub::Init — NotImplemented
 // -----------------------------------------------------------------------------
 // `platform` は受け取るが stub では一切使わない (Phase X-2 で具象 backend が
 // 選ばれるまでは検出も接続もしないため)。`(void)platform` で未使用警告を抑止。
 // `_initialized` は false のまま据え置く (Init 失敗時に initialized=true にすると
 // 上位の IsInitialized 判定が壊れるため)。
 // =============================================================================
-TResult<void> OpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
+TResult<void> FOpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
     (void)platform;  // stub は platform 自動検出も特定指定も実装していない
     return ACS_ERR(Generic, xr_err::kSub_NotImplemented,
-                   "OpenXrBridgeStub::Init: XR backend not integrated (Phase X-1 stub)");
+                   "FOpenXrBridgeStub::Init: XR backend not integrated (Phase X-1 stub)");
 }
 
 // =============================================================================
-// OpenXrBridgeStub::Shutdown — no-op
+// FOpenXrBridgeStub::Shutdown — no-op
 // -----------------------------------------------------------------------------
 // Init が常に失敗する以上、解放対象は存在しない。`_initialized` を false に
 // 戻すだけにする (将来 Init 成功する具象 backend に置き換わったときの
 // 防御として副作用最小で残す)。
 // =============================================================================
-void OpenXrBridgeStub::Shutdown() noexcept {
+void FOpenXrBridgeStub::Shutdown() noexcept {
     _initialized = false;
 }
 
 // =============================================================================
-// OpenXrBridgeStub::Tick — no-op
+// FOpenXrBridgeStub::Tick — no-op
 // -----------------------------------------------------------------------------
 // stub は XR ランタイムイベントを持たないので、`dt` を受け取って捨てるだけ。
 // 上位コードが `Tick(dt)` を毎フレーム呼ぶ慣習を維持できるよう、引数シグネチャ
 // だけ提供する。
 // =============================================================================
-void OpenXrBridgeStub::Tick(f32 dt) noexcept {
+void FOpenXrBridgeStub::Tick(f32 dt) noexcept {
     (void)dt;
 }
 
 // =============================================================================
-// OpenXrBridgeStub::SetPassthrough — no-op
+// FOpenXrBridgeStub::SetPassthrough — no-op
 // -----------------------------------------------------------------------------
 // stub は `IsPassthroughSupported()` で false を返すので、`SetPassthrough(true)`
 // が呼ばれても安全に無視する。エラーは返さず、上位の MR モード切替コードが
 // "passthrough が黙って効かなかった" 状況で fallback 表示 (= passthrough なしの
 // 通常 VR / 通常 2D) を選べるようにする。
 // =============================================================================
-void OpenXrBridgeStub::SetPassthrough(bool on) noexcept {
+void FOpenXrBridgeStub::SetPassthrough(bool on) noexcept {
     (void)on;
 }
 
@@ -97,7 +97,7 @@ void OpenXrBridgeStub::SetPassthrough(bool on) noexcept {
 //    backend に差し替わったときの契約として明示しておく。)
 // =============================================================================
 IOpenXrBridge& GetXrStub() noexcept {
-    static OpenXrBridgeStub instance;
+    static FOpenXrBridgeStub instance;
     return instance;
 }
 

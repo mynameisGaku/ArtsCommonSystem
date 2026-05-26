@@ -45,24 +45,24 @@ struct page_t {
 static_assert(sizeof(page_t) == 8, "page_t must be 8 bytes");
 
 // =============================================================================
-// VmReservation — 仮想アドレス範囲の RAII ハンドル
+// FVmReservation — 仮想アドレス範囲の RAII ハンドル
 // -----------------------------------------------------------------------------
 // Reserve(N) で N バイトの予約を取り、デストラクタで Release する。
 // Commit(offset, size) で必要な部分だけ物理ページを割り当て、
 // Decommit はまず LRU キャッシュに入れて、エビクト時に実 VirtualFree する。
 // =============================================================================
-class VmReservation {
+class FVmReservation {
 public:
-    VmReservation() noexcept = default;
-    ~VmReservation() noexcept;
+    FVmReservation() noexcept = default;
+    ~FVmReservation() noexcept;
 
-    VmReservation(const VmReservation&) = delete;
-    VmReservation& operator=(const VmReservation&) = delete;
-    VmReservation(VmReservation&& o) noexcept;
-    VmReservation& operator=(VmReservation&& o) noexcept;
+    FVmReservation(const FVmReservation&) = delete;
+    FVmReservation& operator=(const FVmReservation&) = delete;
+    FVmReservation(FVmReservation&& o) noexcept;
+    FVmReservation& operator=(FVmReservation&& o) noexcept;
 
     // 仮想範囲予約（VirtualAlloc MEM_RESERVE）
-    static TResult<VmReservation> Reserve(usize capacity_bytes) noexcept;
+    static TResult<FVmReservation> Reserve(usize capacity_bytes) noexcept;
 
     void Release() noexcept;
 

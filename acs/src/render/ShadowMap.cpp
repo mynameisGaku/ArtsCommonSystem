@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ShadowMap 実装 (single + CSM atlas)
+// FShadowMap 実装 (single + CSM atlas)
 #include "render/ShadowMap.h"
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用
 #include "math/Math.h"
@@ -62,7 +62,7 @@ ACS_FORCEINLINE FVec4 MulRowVec4(const FVec4& v, const FMat4& m) noexcept {
 
 } // namespace
 
-TResult<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) noexcept {
+TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) noexcept {
     if (size == 0) size = 2048;
     if (cascade_count == 0) cascade_count = 1;
     if (cascade_count > kMaxCascades) cascade_count = kMaxCascades;
@@ -84,7 +84,7 @@ TResult<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) n
 
     // ===== Caster VS =====
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::Vertex;
+    vs_d.stage = EShaderStage::FVertex;
     vs_d.hlsl_source = kCasterHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "ShadowCaster.VS";
@@ -120,7 +120,7 @@ TResult<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) n
     pd.texture_slots = 0;
     pd.cbuffer_names[0] = "LightFrame";
     pd.cbuffer_names[1] = "CasterObject";
-    pd.vertex_stride = sizeof(MeshVertex);
+    pd.vertex_stride = sizeof(FMeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 };
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
@@ -135,7 +135,7 @@ TResult<void> ShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) n
     return Ok();
 }
 
-void ShadowMap::Shutdown() noexcept {
+void FShadowMap::Shutdown() noexcept {
     _pipeline.Reset();
     _object_cb.Reset();
     _light_cb.Reset();
@@ -145,7 +145,7 @@ void ShadowMap::Shutdown() noexcept {
     _cascade_count = 1;
 }
 
-void ShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) noexcept {
+void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) noexcept {
     FVec3 dir = NormalizeSafe(light_dir);
     FVec3 light_pos = FVec3{
         center.x + dir.x * radius * 2.5f,
@@ -168,7 +168,7 @@ void ShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) n
     if (_light_cb) _light_cb->Update(&_light_vp[0], sizeof(FMat4));
 }
 
-void ShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
+void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
                                              const FMat4& view, const FMat4& proj,
                                              f32 near_z, f32 far_z,
                                              f32 lambda) noexcept {
@@ -257,16 +257,16 @@ void ShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     if (_light_cb) _light_cb->Update(&_light_vp[0], sizeof(FMat4));
 }
 
-void ShadowMap::SetCurrentCascade(u32 cascade) noexcept {
+void FShadowMap::SetCurrentCascade(u32 cascade) noexcept {
     if (cascade >= _cascade_count) cascade = 0;
     if (_light_cb) _light_cb->Update(&_light_vp[cascade], sizeof(FMat4));
 }
 
-void ShadowMap::SetCaster(const FMat4& model) noexcept {
+void FShadowMap::SetCaster(const FMat4& model) noexcept {
     if (_object_cb) _object_cb->Update(&model, sizeof(FMat4));
 }
 
-FViewport ShadowMap::CascadeViewport(u32 cascade) const noexcept {
+FViewport FShadowMap::CascadeViewport(u32 cascade) const noexcept {
     if (cascade >= _cascade_count) cascade = 0;
     FViewport vp{};
     vp.x         = static_cast<f32>(cascade * _size);
@@ -278,7 +278,7 @@ FViewport ShadowMap::CascadeViewport(u32 cascade) const noexcept {
     return vp;
 }
 
-FScissorRect ShadowMap::CascadeScissor(u32 cascade) const noexcept {
+FScissorRect FShadowMap::CascadeScissor(u32 cascade) const noexcept {
     if (cascade >= _cascade_count) cascade = 0;
     FScissorRect r{};
     r.left   = static_cast<i32>(cascade * _size);

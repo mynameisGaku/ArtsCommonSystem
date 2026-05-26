@@ -1,4 +1,4 @@
-# Asset module — 各種フォーマットローダ（PNG/JPG/BMP/TGA/HDR/...,
+# FAsset module — 各種フォーマットローダ（PNG/JPG/BMP/TGA/HDR/...,
 # glTF/GLB/OBJ/FBX, WAV/MP3/FLAC/OGG, テキスト系）。
 # サードパーティはすべて FetchContent (cmake/ACSThirdParty.cmake) 経由。
 acs_third_party_stb()
@@ -34,7 +34,7 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        Container
+        FContainer
         Threading
         Math
         Platform

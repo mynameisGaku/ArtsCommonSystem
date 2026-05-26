@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentTexture 実装
+// FDiligentTexture 実装
 #include "render/Diligent/DiligentTexture.h"
 
 #if WITH_RENDER_DILIGENT
@@ -10,7 +10,7 @@
 
 namespace acs {
 
-DiligentTexture::~DiligentTexture() noexcept {
+FDiligentTexture::~FDiligentTexture() noexcept {
     // _srv/_rtv/_dsv は ITexture が所有するビューなので個別 Release は不要。
     // per_slice_rtv で CreateView した別個ビューだけ明示 Release。
     for (usize i = 0, n = _slice_rtvs.Size(); i < n; ++i) {
@@ -19,7 +19,7 @@ DiligentTexture::~DiligentTexture() noexcept {
     if (_texture) { _texture->Release(); _texture = nullptr; }
 }
 
-Diligent::ITextureView* DiligentTexture::RtvSlice(u32 slice, u32 mip) const noexcept {
+Diligent::ITextureView* FDiligentTexture::RtvSlice(u32 slice, u32 mip) const noexcept {
     if (_array_size == 0 || _mips == 0) return nullptr;
     if (slice >= _array_size || mip >= _mips) return nullptr;
     const usize idx = static_cast<usize>(slice) * _mips + mip;
@@ -27,7 +27,7 @@ Diligent::ITextureView* DiligentTexture::RtvSlice(u32 slice, u32 mip) const noex
     return _slice_rtvs[idx];
 }
 
-TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& desc) noexcept {
+TResult<void> FDiligentTexture::Init(FDiligentDevice& device, const FTextureDesc& desc) noexcept {
     _device  = &device;
     _width   = desc.width;
     _height  = desc.height;
@@ -42,13 +42,13 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
         // cubemap は array_size 6 のみ許可。0 (= デフォルト省略) は許容して 6 に正規化。
         if (desc.array_size != 0 && desc.array_size != 6) {
             return ACS_ERR(Render, 132,
-                "DiligentTexture: is_cubemap=true requires array_size=6 (or 0/default)");
+                "FDiligentTexture: is_cubemap=true requires array_size=6 (or 0/default)");
         }
         _array_size = 6;
     }
 
     auto* dev = device.RenderDev();
-    if (!dev) return ACS_ERR(Render, 130, "DiligentTexture: device not initialized");
+    if (!dev) return ACS_ERR(Render, 130, "FDiligentTexture: device not initialized");
 
     Diligent::FTextureDesc td;
     td.Name      = "ACS_Texture";
@@ -84,7 +84,7 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
         && (_array_size > 1 || _mips > 1) && !_is_depth && !_is_rt) {
         // cubemap / array / mip > 1 への initial_data は現状未サポート (Phase 31 では
         // GPU 上で焼く設計に倒している)。silent drop を防ぐため明示的に警告する。
-        ACS_LOG_WARN("DiligentTexture: initial_data ignored for array_size=%u mips=%u",
+        ACS_LOG_WARN("FDiligentTexture: initial_data ignored for array_size=%u mips=%u",
                      _array_size, _mips);
     }
     if (desc.initial_data && desc.initial_data_size > 0 && !_is_depth && !_is_rt

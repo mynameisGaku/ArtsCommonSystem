@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F Phase 2 — PhysicsBody2D 実装 (Phase 11)
+// GameFramework Pillar F Phase 2 — FPhysicsBody2D 実装 (Phase 11)
 #include "gameframework/PhysicsBody2D.h"
 
 namespace acs::game {
 
-void PhysicsBody2D::OnAttach(Node2D& owner) noexcept {
+void FPhysicsBody2D::OnAttach(FNode2D& owner) noexcept {
     if (_world == nullptr || _kind == ShapeKind::None) return;
     RegisterShapeAt(owner.Local().position);
 }
 
-void PhysicsBody2D::OnDetach() noexcept {
+void FPhysicsBody2D::OnDetach() noexcept {
     if (_world != nullptr && _registered) {
         _world->Remove(_handle);
     }
@@ -17,38 +17,38 @@ void PhysicsBody2D::OnDetach() noexcept {
     _registered = false;
 }
 
-void PhysicsBody2D::RegisterShapeAt(FVec2 pos) noexcept {
+void FPhysicsBody2D::RegisterShapeAt(FVec2 pos) noexcept {
     if (_world == nullptr || _registered) return;
-    if (_kind == ShapeKind::Circle) {
-        _handle = _world->AddCircle(Circle{pos, _radius});
+    if (_kind == ShapeKind::FCircle) {
+        _handle = _world->AddCircle(FCircle{pos, _radius});
     } else if (_kind == ShapeKind::FAabb) {
-        _handle = _world->AddAabb(Aabb2{pos, _half_size});
+        _handle = _world->AddAabb(FAabb2{pos, _half_size});
     }
     _registered = _handle.IsValid();
 }
 
-void PhysicsBody2D::SyncShapeIfRegistered() noexcept {
+void FPhysicsBody2D::SyncShapeIfRegistered() noexcept {
     if (_world == nullptr || !_registered || !HasOwner()) return;
     const FVec2 pos = Owner().Local().position;
-    if (_kind == ShapeKind::Circle) {
-        _world->UpdateCircle(_handle, Circle{pos, _radius});
+    if (_kind == ShapeKind::FCircle) {
+        _world->UpdateCircle(_handle, FCircle{pos, _radius});
     } else if (_kind == ShapeKind::FAabb) {
-        _world->UpdateAabb(_handle, Aabb2{pos, _half_size});
+        _world->UpdateAabb(_handle, FAabb2{pos, _half_size});
     }
 }
 
-bool PhysicsBody2D::WouldBlockAt(FVec2 pos) noexcept {
+bool FPhysicsBody2D::WouldBlockAt(FVec2 pos) noexcept {
     if (_world == nullptr) return false;
     TArray<FShapeId> hits;
-    if (_kind == ShapeKind::Circle) {
-        _world->OverlapCircle(Circle{pos, _radius}, hits, _handle);
+    if (_kind == ShapeKind::FCircle) {
+        _world->OverlapCircle(FCircle{pos, _radius}, hits, _handle);
     } else if (_kind == ShapeKind::FAabb) {
-        _world->OverlapAabb(Aabb2{pos, _half_size}, hits, _handle);
+        _world->OverlapAabb(FAabb2{pos, _half_size}, hits, _handle);
     }
     return hits.Size() > 0;
 }
 
-void PhysicsBody2D::OnUpdate(f32 dt) noexcept {
+void FPhysicsBody2D::OnUpdate(f32 dt) noexcept {
     if (_world == nullptr || _kind == ShapeKind::None || dt <= 0.0f) return;
     if (!_registered) RegisterShapeAt(Owner().Local().position);
 

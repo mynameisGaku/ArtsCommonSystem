@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — WeatherSystem (天候モード)
+// GameFramework Pillar Q — FWeatherSystem (天候モード)
 //
 // 役割:
-//   AmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
+//   FAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
 //   ターゲット天候への線形遷移と、各天候に対応する描画 / lighting 修飾係数
 //   (ambient 倍率 / 粒子密度 / sky tint / 風 / 霧密度) を提供する。
-//   レンダラ / EffectSystem / ParticleSystem 側は毎フレーム本クラスから係数を
+//   レンダラ / FEffectSystem / FParticleSystem 側は毎フレーム本クラスから係数を
 //   pull するだけで天候表情を反映できる。
 //
 // 使い方:
-//   class WorldScene : public Scene {
-//       acs::game::WeatherSystem _weather;
+//   class WorldScene : public FScene {
+//       acs::game::FWeatherSystem _weather;
 //
 //       void OnEnter() noexcept override {
 //           _weather.SetWeather(acs::game::EWeatherKind::Clear);
@@ -22,9 +22,9 @@
 //           if (player.EnteredRainZone()) _weather.SetWeather(
 //               acs::game::EWeatherKind::Rain, 8.0f);
 //
-//           Renderer().SetAmbientMultiplier(_weather.AmbientLightMultiplier());
-//           Renderer().SetSkyTint          (_weather.SkyTintMultiplier());
-//           Renderer().SetFogDensityScale  (_weather.FogDensityMultiplier());
+//           FRenderer().SetAmbientMultiplier(_weather.AmbientLightMultiplier());
+//           FRenderer().SetSkyTint          (_weather.SkyTintMultiplier());
+//           FRenderer().SetFogDensityScale  (_weather.FogDensityMultiplier());
 //           Particles().SetGlobalDensity   (_weather.ParticleDensity());
 //           Wind().SetVector(_weather.WindDirection() * _weather.WindStrength());
 //       }
@@ -33,7 +33,7 @@
 // 設計選択 (Pillar Q Phase 2):
 //   ・**8 種の固定 enum**: Clear / Cloudy / Rain / HeavyRain / Snow / Storm /
 //     Fog / Sandstorm。表現の幅を確保しつつ、各描画モディファイアを 1 テーブルで
-//     LUT 引きできる粒度 (`KindParams`)。AmbientDirector と同様、利用者は
+//     LUT 引きできる粒度 (`FKindParams`)。FAmbientDirector と同様、利用者は
 //     「現在 / 目標 / 遷移時間」だけ意識すれば良い。
 //   ・**線形遷移**: SetWeather(target, duration) → transition_t を 0→1 で線形に
 //     進める。current/target の全モディファイア値を t で Lerp。Hermite / 自然
@@ -44,7 +44,7 @@
 //   ・**WindDirection は天候とは独立**: 「南風が雨を運ぶ」「無風の雪」など
 //     表現が衝突するため、wind 方向はユーザーが任意に設定可能 (天候は強さのみ
 //     決める)。デフォルトは (1, 0) = 東向き。
-//   ・**ambient/sky 修飾は乗算**: AmbientDirector の出力に「天候による調整」を
+//   ・**ambient/sky 修飾は乗算**: FAmbientDirector の出力に「天候による調整」を
 //     掛けるだけで時刻 × 天候の合成が完了する設計。Storm/Sandstorm 時は
 //     ambient を 0.5 倍に暗くするなど。
 //
@@ -73,15 +73,15 @@ enum class EWeatherKind : u8 {
     Sandstorm = 7,  // 砂嵐 (強風 + 視界不良)
 };
 
-class WeatherSystem {
+class FWeatherSystem {
 public:
-    WeatherSystem() noexcept = default;
-    ~WeatherSystem() noexcept = default;
+    FWeatherSystem() noexcept = default;
+    ~FWeatherSystem() noexcept = default;
 
-    WeatherSystem(const WeatherSystem&)            = delete;
-    WeatherSystem& operator=(const WeatherSystem&) = delete;
-    WeatherSystem(WeatherSystem&&)                 = delete;
-    WeatherSystem& operator=(WeatherSystem&&)      = delete;
+    FWeatherSystem(const FWeatherSystem&)            = delete;
+    FWeatherSystem& operator=(const FWeatherSystem&) = delete;
+    FWeatherSystem(FWeatherSystem&&)                 = delete;
+    FWeatherSystem& operator=(FWeatherSystem&&)      = delete;
 
     // ----- 天候設定 -----
     // 同一天候への設定は遷移をスキップして即完了状態にする。
@@ -94,7 +94,7 @@ public:
     // [0, 1]。1 で遷移完了 (current == target に snap 済み)。
     f32 TransitionT() const noexcept { return _transition_t; }
 
-    // ----- 進行 (SceneServices などから毎フレーム呼ぶ。dt はリアル秒) -----
+    // ----- 進行 (FSceneServices などから毎フレーム呼ぶ。dt はリアル秒) -----
     void Tick(f32 dt) noexcept;
 
     // ----- 描画 / lighting 用 modifier (current → target を transition_t で Lerp) -----
@@ -119,7 +119,7 @@ public:
 public:
     // 天候ごとの修飾パラメータ。LUT として .cpp に持つ。
     // 値の意味は各 getter のコメントを参照。
-    struct KindParams {
+    struct FKindParams {
         f32  ambient_mult;
         f32  particle_density;
         FVec3 sky_tint;
@@ -128,7 +128,7 @@ public:
     };
 
 private:
-    static const KindParams& Params(EWeatherKind k) noexcept;
+    static const FKindParams& Params(EWeatherKind k) noexcept;
 
     EWeatherKind _current = EWeatherKind::Clear;
     EWeatherKind _target  = EWeatherKind::Clear;

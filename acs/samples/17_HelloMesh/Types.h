@@ -9,13 +9,13 @@
 
 namespace hellomesh {
 
-struct Vertex {
+struct FVertex {
     acs::f32 pos[3];
     acs::f32 col[3];
 };
 
 // 共有頂点 (8) だと面ごとに色を変えられないので 24 頂点 (6 面 x 4) で定義する。
-inline constexpr Vertex kCubeVertices[24] = {
+inline constexpr FVertex kCubeVertices[24] = {
     // 前面 (-Z) 赤
     {{-1, -1, -1}, {1, 0, 0}}, {{ 1, -1, -1}, {1, 0, 0}},
     {{ 1,  1, -1}, {1, 0, 0}}, {{-1,  1, -1}, {1, 0, 0}},

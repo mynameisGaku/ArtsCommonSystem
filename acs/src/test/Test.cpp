@@ -16,15 +16,15 @@
 namespace acs::test {
 
 namespace {
-TestCase* g_head = nullptr;
-TestCase* g_tail = nullptr;
+FTestCase* g_head = nullptr;
+FTestCase* g_tail = nullptr;
 FMutex     g_reg_lock;
 // テスト本体内の失敗数カウンタ（テストごとに 0 にリセット）
 thread_local int g_current_failures = 0;
 }
 
 // ACS_TEST マクロから呼ばれる: テストケースを末尾に追加
-void Register(TestCase* tc) noexcept {
+void Register(FTestCase* tc) noexcept {
     FScopedLock lk(g_reg_lock);
     if (!g_head) g_head = tc;
     else         g_tail->next = tc;
@@ -56,10 +56,10 @@ void RecordInfo(FSourceLoc loc, const char* fmt, ...) noexcept {
 // 全テスト実行、結果サマリ出力
 int RunAll() noexcept {
     u32 total = 0, passed = 0, failed = 0;
-    for (TestCase* tc = g_head; tc; tc = tc->next) ++total;
+    for (FTestCase* tc = g_head; tc; tc = tc->next) ++total;
 
     ::printf("[ACS Test] running %u tests\n", total);
-    for (TestCase* tc = g_head; tc; tc = tc->next) {
+    for (FTestCase* tc = g_head; tc; tc = tc->next) {
         ::printf("  %s.%s ... ", tc->suite, tc->name);
         ::fflush(stdout);
         g_current_failures = 0;

@@ -36,7 +36,7 @@ EBtStatus ActionMove(void* blackboard, f32 /*dt*/) noexcept {
     if (bb->panel) {
         bb->panel->SetNodeStatus(bb->id_move, s);
         // sequence "Pickup Branch" の status も同期: 最後の子の status を流す。
-        // ※ stateless BtSequence は最後に Success が出れば自分も Success、
+        // ※ stateless FBtSequence は最後に Success が出れば自分も Success、
         //   途中 Running なら自分も Running なので、最後の子の status を流すと
         //   ほぼ等価に見える (Failure になる Action は本 sample に居ない)。
         bb->panel->SetNodeStatus(bb->id_branch_a, s);
@@ -48,7 +48,7 @@ EBtStatus ActionMove(void* blackboard, f32 /*dt*/) noexcept {
 }
 
 // "Wait" — kWaitRunFrames frame Running した後 Failure に遷移。
-//   Failure を返すことで Sequence "Combat Branch" 全体が Failure になり、
+//   Failure を返すことで FSequence "Combat Branch" 全体が Failure になり、
 //   結果として root Selector も最後に Failure を伝播する (= 試したが全部
 //   駄目だった状態)。ただし本 sample は Pickup Branch が常に Success/Running
 //   なので、Wait に到達するのは Pickup Branch が Failure を返した場合のみ。
@@ -67,7 +67,7 @@ EBtStatus ActionWait(void* blackboard, f32 /*dt*/) noexcept {
 
     if (bb->panel) {
         bb->panel->SetNodeStatus(bb->id_wait, s);
-        bb->panel->SetNodeStatus(bb->id_branch_b, s); // Sequence の途中 status
+        bb->panel->SetNodeStatus(bb->id_branch_b, s); // FSequence の途中 status
     }
     return s;
 }
@@ -82,7 +82,7 @@ EBtStatus ActionAttack(void* blackboard, f32 /*dt*/) noexcept {
 
 // step callback — panel に登録され、autorun 中の各 tick で呼ばれる。
 // blackboard を渡して BT.Tick を 1 回回す責務だけを持つ薄いラッパ。
-void StepCallbackFn(void* user, BehaviorTree* tree, f32 dt) noexcept {
+void StepCallbackFn(void* user, FBehaviorTree* tree, f32 dt) noexcept {
     auto* bb = static_cast<BtEditorBb*>(user);
     if (!bb || !tree) return;
     tree->Tick(bb, dt);

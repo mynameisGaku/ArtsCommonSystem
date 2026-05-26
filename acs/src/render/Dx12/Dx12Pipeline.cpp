@@ -104,7 +104,7 @@ D3D12_TEXTURE_ADDRESS_MODE ToD3DAddress(ESamplerAddress a) noexcept {
     return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
 }
 
-D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexcept {
+D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const FSamplerDesc& s, u32 reg) noexcept {
     D3D12_STATIC_SAMPLER_DESC d{};
     d.Filter = ToD3DFilter(s.filter);
     d.AddressU = ToD3DAddress(s.address_u);
@@ -124,13 +124,13 @@ D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexc
 
 } // namespace
 
-Dx12Pipeline::~Dx12Pipeline() noexcept {
+FDx12Pipeline::~FDx12Pipeline() noexcept {
     ACS_SAFE_RELEASE(_pso);
     ACS_SAFE_RELEASE(_root_sig);
 }
 
-HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexcept {
-    HrResult r{};
+FHrResult FDx12Pipeline::Init(FDx12Device& device, const FPipelineDesc& desc) noexcept {
+    FHrResult r{};
     _topology = desc.topology;
     _cbuffer_slots = desc.cbuffer_slots;
     _texture_slots = desc.texture_slots;
@@ -253,11 +253,11 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 50, "CreateRhiPipeline: device is not DX12");
-    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
-    auto p = MakeUnique<Dx12Pipeline>();
-    HrResult r = p->Init(*dxd, desc);
+    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    auto p = MakeUnique<FDx12Pipeline>();
+    FHrResult r = p->Init(*dxd, desc);
     if (r.IsErr())
-        return ACS_ERR_OS(Render, 51, "Dx12Pipeline::Init failed", static_cast<u32>(r.hr));
+        return ACS_ERR_OS(Render, 51, "FDx12Pipeline::Init failed", static_cast<u32>(r.hr));
     TUniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());
     return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
 }

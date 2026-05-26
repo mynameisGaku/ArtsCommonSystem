@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — SceneInspector / SelectionService (Phase 20 editor 第二弾)
+// GameFramework Pillar — SceneInspector / FSelectionService (Phase 20 editor 第二弾)
 //
-// 現在「選択されている FNodeId」を全 editor panel (HierarchyPanel /
-// InspectorPanel / EditorToolbar / SceneView 等) で共有するための **ハブ**。
+// 現在「選択されている FNodeId」を全 editor panel (FHierarchyPanel /
+// FInspectorPanel / FEditorToolbar / SceneView 等) で共有するための **ハブ**。
 // 1 個のシングルなインスタンスを editor 起動コードが所有し、各 panel が
 // `RegisterCallback` で選択変更を購読する形を取る。
 //
 // 使い方:
-//   acs::game::inspector::SelectionService sel;
+//   acs::game::inspector::FSelectionService sel;
 //   sel.Init();
 //
 //   // panel A: コールバックで自分の描画状態を更新
 //   static void OnSelChanged(void* user, FNodeId from, FNodeId to) noexcept {
-//       auto* self = static_cast<HierarchyPanel*>(user);
+//       auto* self = static_cast<FHierarchyPanel*>(user);
 //       self->ScrollTo(to);
 //   }
 //   sel.RegisterCallback(&OnSelChanged, &hierarchy);
@@ -26,22 +26,22 @@
 //   ・**1 個の "選択" だけを持つ最小ハブ**: Unity Inspector のように
 //     multi-select も将来は欲しいが、Phase 20 では「currently selected single
 //     node」のみ。Multi-select は別 API (`SelectionSet`) で Phase 2+ に分離。
-//   ・**callback は複数登録 (HotReloadWatcher と同形)**: (cb, user) ペアで
+//   ・**callback は複数登録 (FHotReloadWatcher と同形)**: (cb, user) ペアで
 //     重複弾き、Unregister で 1 件除去。dispatch 順は登録順。
 //   ・**from / to を渡す**: 単純な「to」だけだと、購読側で前回値を覚えて
 //     diff を取る必要が出る。差分通知の典型形は (from, to) なのでハブ側で
 //     渡す。`ClearSelection()` は `to = FNodeId{}` (invalid) として通知される。
-//   ・**STL 不使用**: 登録 list は `acs::TArray<CallbackEntry>`。
+//   ・**STL 不使用**: 登録 list は `acs::TArray<FCallbackEntry>`。
 //   ・**全 noexcept**: ACS 規約。エラーは null/重複弾きで安全 no-op。
-//   ・**非コピー / 非ムーブ**: 内部 TArray<CallbackEntry> の所有を曖昧にしない。
-//   ・**Game / SceneManager への依存なし**: FNodeId だけを扱うため、選択対象が
-//     生きているか / どの Scene に属するかの検証は購読側責務。これで
+//   ・**非コピー / 非ムーブ**: 内部 TArray<FCallbackEntry> の所有を曖昧にしない。
+//   ・**FGame / FSceneManager への依存なし**: FNodeId だけを扱うため、選択対象が
+//     生きているか / どの FScene に属するかの検証は購読側責務。これで
 //     editor の "選択は残るが対象は破棄済み" のケースも素直に表現できる。
 //
 // 範囲外 (Phase 2+ で):
 //   ・Multi-select (Ctrl+クリックでの加算選択など)
 //   ・Selection History (Back/Forward ボタン)
-//   ・Asset / Component 選択 (現状は Node のみ)
+//   ・FAsset / Component 選択 (現状は FNode のみ)
 //   ・hover (= pre-selection) 通知
 #pragma once
 
@@ -58,17 +58,17 @@ namespace acs::game::inspector {
 // 同じ selection を再 SelectNode した場合は callback を呼ばない (no-op)。
 using SelectionChangeCallback = void (*)(void* user, FNodeId from, FNodeId to) noexcept;
 
-// ---- SelectionService — 選択 FNodeId の集中点 ----------------------------
-class SelectionService {
+// ---- FSelectionService — 選択 FNodeId の集中点 ----------------------------
+class FSelectionService {
 public:
-    SelectionService() noexcept = default;
-    ~SelectionService() noexcept = default;
+    FSelectionService() noexcept = default;
+    ~FSelectionService() noexcept = default;
 
     // 非コピー・非ムーブ (内部 callback 配列の所有権を曖昧にしない)
-    SelectionService(const SelectionService&)            = delete;
-    SelectionService& operator=(const SelectionService&) = delete;
-    SelectionService(SelectionService&&)                 = delete;
-    SelectionService& operator=(SelectionService&&)      = delete;
+    FSelectionService(const FSelectionService&)            = delete;
+    FSelectionService& operator=(const FSelectionService&) = delete;
+    FSelectionService(FSelectionService&&)                 = delete;
+    FSelectionService& operator=(FSelectionService&&)      = delete;
 
     // 初期化 (callback list / 現選択を空に戻す)。多重呼び出し可。
     void Init() noexcept;
@@ -103,7 +103,7 @@ public:
 
 private:
     // (cb, user) ペアを表す POD エントリ。重複弾き + 順序保持。
-    struct CallbackEntry {
+    struct FCallbackEntry {
         SelectionChangeCallback cb   = nullptr;
         void*                   user = nullptr;
     };
@@ -113,7 +113,7 @@ private:
     void FireChange(FNodeId from, FNodeId to) const noexcept;
 
     FNodeId               _current;        // 現選択 (default = invalid)
-    TArray<CallbackEntry> _callbacks;      // 登録 callback 群
+    TArray<FCallbackEntry> _callbacks;      // 登録 callback 群
 };
 
 } // namespace acs::game::inspector

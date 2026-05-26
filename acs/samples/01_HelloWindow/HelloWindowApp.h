@@ -2,8 +2,8 @@
 // HelloWindow — ウィンドウを開いて背景色で塗るだけの最小サンプル。
 //
 // 学習ポイント:
-//   ・acs::Application を継承して OnStart / OnUpdate / OnRender を上書き
-//   ・Input::IsKeyPressed / IsKeyDown でキー入力を取る
+//   ・acs::FApplication を継承して OnStart / OnUpdate / OnRender を上書き
+//   ・FInput::IsKeyPressed / IsKeyDown でキー入力を取る
 //   ・SetClearColor で背景色を切り替える
 //   ・GetWindow().SetTitle で実行時にタイトルバーを更新
 #pragma once
@@ -13,13 +13,13 @@
 
 namespace hellowin {
 
-class HelloWindowApp : public acs::Application {
+class HelloWindowApp : public acs::FApplication {
 public:
     void OnStart()           noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
     void OnRender()          noexcept override;
     void OnShutdown()        noexcept override;
-    void OnEvent(const acs::Event& e) noexcept override;
+    void OnEvent(const acs::FEvent& e) noexcept override;
 
 private:
     acs::f32 _r = 0.1f;

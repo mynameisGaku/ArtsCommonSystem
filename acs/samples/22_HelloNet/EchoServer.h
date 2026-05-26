@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloNet — サーバスレッド本体。FThread::Spawn(&ServerThread, ...) で呼ぶ。
-// TcpListener::Listen → Accept → Recv → そのまま Send back (echo)。
+// FTcpListener::Listen → Accept → Recv → そのまま Send back (echo)。
 #pragma once
 
 #include "foundation/Types.h"

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — Settings (型付きゲーム設定)
+// GameFramework Pillar G — FSettings (型付きゲーム設定)
 //
 // 音量・解像度・キーバインド等の「ゲームを跨いで永続化したい設定値」を
-// 型付き key-value で保持する小型ストア。InputMap (Pillar D) のキーコンフィグや
+// 型付き key-value で保持する小型ストア。FInputMap (Pillar D) のキーコンフィグや
 // AudioMixer の音量、Display の解像度・ウィンドウモード等の永続化先として使う。
 //
 // 使い方:
-//   Settings s;
+//   FSettings s;
 //   s.SetF32 ("audio.master",   0.8f);
 //   s.SetI32 ("display.width",  1920);
 //   s.SetBool("display.vsync",  true);
@@ -28,7 +28,7 @@
 //     長寿命バッファ前提)。短命バッファ渡しが dangling になる点は要注意。
 //   ・**同 key の SetX は上書き**: 同名 key が既に存在すれば値と kind を上書きする。
 //     ユーザーが UI で「音量」を動かす度に SetF32() が呼ばれる典型ケースに合わせる。
-//   ・**線形検索**: settings 件数は通常 10〜200 程度なので TArray<Entry> の線形走査で
+//   ・**線形検索**: settings 件数は通常 10〜200 程度なので TArray<FEntry> の線形走査で
 //     十分。ハッシュテーブル化は計測してから検討。
 //   ・**コピー / ムーブ禁止**: settings は通常 1 セッションに 1 オブジェクト
 //     (グローバル所有) で運用される。誤って値渡しされて分裂すると同期ずれを
@@ -37,7 +37,7 @@
 //
 // Save / Load (Phase 2 で実装):
 //   ・Phase 1 では INI 風 `key=value` テキストを想定するが、実体は TODO スタブ。
-//     Phase 2 で `acs::Storage` (Pillar J Serialize) または `FileSystem` 経由で
+//     Phase 2 で `acs::FStorage` (Pillar J Serialize) または `FFileSystem` 経由で
 //     atomic write + 読み取り (UTF-8 + LF) を実装する。
 //   ・型推定は **prefix tag** (`f:`, `i:`, `b:`, `s:`) でディスクに残し、Load 時に
 //     復元する想定。Phase 2 でフォーマット仕様を確定する。
@@ -66,15 +66,15 @@ enum class ESettingKind : u8 {
     FString,
 };
 
-class Settings {
+class FSettings {
 public:
-    Settings()  noexcept = default;
-    ~Settings() noexcept = default;
+    FSettings()  noexcept = default;
+    ~FSettings() noexcept = default;
 
-    Settings(const Settings&)            = delete;
-    Settings& operator=(const Settings&) = delete;
-    Settings(Settings&&)                 = delete;
-    Settings& operator=(Settings&&)      = delete;
+    FSettings(const FSettings&)            = delete;
+    FSettings& operator=(const FSettings&) = delete;
+    FSettings(FSettings&&)                 = delete;
+    FSettings& operator=(FSettings&&)      = delete;
 
     // ----- 書き込み (同名 key は上書き、key == nullptr は no-op) -----
     void SetF32   (const char* key, f32         v) noexcept;
@@ -107,7 +107,7 @@ public:
 private:
     // 1 件のエントリ。union で 4 種類の値を保持し、kind で実効型を区別する。
     // key / string 値は非所有 const char* (寿命は呼び出し側保証)。
-    struct Entry {
+    struct FEntry {
         const char* key  = nullptr;
         ESettingKind kind = ESettingKind::None;
         union Value {
@@ -123,9 +123,9 @@ private:
     isize FindIndex(const char* key) const noexcept;
 
     // FindIndex で見つかった entry を上書き or 新規 PushBack するヘルパ。
-    Entry& UpsertEntry(const char* key) noexcept;
+    FEntry& UpsertEntry(const char* key) noexcept;
 
-    TArray<Entry> _entries;
+    TArray<FEntry> _entries;
 };
 
 } // namespace acs::game

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloShadows — シーン描画ロジック。
-// Application 派生はリソース所有 (sky / shader / shadow / sprite / font /
+// FApplication 派生はリソース所有 (sky / shader / shadow / sprite / font /
 // camera) と入力ハンドリングを担当し、毎フレームの「シャドウパス → 主パス
-// (Sky → ライト計算 → 地面 → キャスタ)」は ShadowsScene に委譲する。
+// (FSky → ライト計算 → 地面 → キャスタ)」は ShadowsScene に委譲する。
 #pragma once
 
 #include "Types.h"
@@ -23,8 +23,8 @@ public:
     void Build() noexcept;
 
     // 1 フレームのシャドウパス + 主パス描画。
-    //   sky      : 描画する Sky (App 所有、SunColor 取得用)
-    //   shader   : 主パスの StandardShader
+    //   sky      : 描画する FSky (App 所有、SunColor 取得用)
+    //   shader   : 主パスの FStandardShader
     //   shadow   : シャドウマップ
     //   cl       : 現在の Render Pass の CommandList
     //   camera   : ViewProjection / Eye 取得用
@@ -32,14 +32,14 @@ public:
     //   cube     : box の GPU mesh (柱用)
     //   sphere   : 球の GPU mesh
     //   sun_dir  : 太陽方向 (方向 TO 光源、Y 上向き)
-    void Render(acs::Sky&             sky,
-                acs::StandardShader&  shader,
-                acs::ShadowMap&       shadow,
+    void Render(acs::FSky&             sky,
+                acs::FStandardShader&  shader,
+                acs::FShadowMap&       shadow,
                 acs::IRhiCommandList& cl,
                 const acs::FCamera&    camera,
-                const acs::GpuMesh&   plane,
-                const acs::GpuMesh&   cube,
-                const acs::GpuMesh&   sphere,
+                const acs::FGpuMesh&   plane,
+                const acs::FGpuMesh&   cube,
+                const acs::FGpuMesh&   sphere,
                 acs::FVec3             sun_dir) noexcept;
 
 private:

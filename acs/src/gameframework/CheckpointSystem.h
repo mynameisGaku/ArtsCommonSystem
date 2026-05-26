@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Genre Kit (Platformer) — CheckpointSystem
+// GameFramework Genre Kit (Platformer) — FCheckpointSystem
 //
 // プラットフォーマー (and 派生ジャンル) の心臓部である「チェックポイント =
 // 死亡時に戻る復活ポイント」を 1 クラスにまとめた小型マネージャ。
@@ -7,22 +7,22 @@
 // 1 つ保持して TriggerRespawn() で復活先座標 + level index を引き出す。
 //
 // 想定する位置付け:
-//   ・Pillar R/I (HealthSystem) との連携:
-//     - HealthSystem の DeathCallback で「死亡 → CheckpointSystem.TriggerRespawn」
-//       を叩くのが定型パターン。CheckpointSystem 自体は HP の状態は持たず、
+//   ・Pillar R/I (FHealthSystem) との連携:
+//     - FHealthSystem の DeathCallback で「死亡 → FCheckpointSystem.TriggerRespawn」
+//       を叩くのが定型パターン。FCheckpointSystem 自体は HP の状態は持たず、
 //       「どこに復活させるか」だけを管理する責務に絞っている。
-//   ・Pillar S (SaveSlot) との連携:
+//   ・Pillar S (FSaveSlot) との連携:
 //     - 「現在 active な checkpoint id + unlocked id 群」をセーブする想定。
 //       本クラス自体は I/O を持たず、外部から照会される。
-//   ・Progression / EconomyDirector との違い:
+//   ・FProgression / FEconomyDirector との違い:
 //     - 進行系の累計値 (XP / 通貨) ではなく、ステージ内の「リスポーン拠点」を
 //       1 つだけ active に保つ単純な座標マネージャ。
 //
 // 使い方:
-//   CheckpointSystem cps;
+//   FCheckpointSystem cps;
 //
 //   // レベルロード時に 1 度ずつ配置を登録。
-//   CheckpointInfo cp1{};
+//   FCheckpointInfo cp1{};
 //   cp1.id           = "cp.stage1.start";
 //   cp1.spawn_pos    = { 100.0f, 200.0f };
 //   cp1.level_index  = 0;
@@ -31,7 +31,7 @@
 //   cp1.requires_unlock = false;
 //   cps.Register(cp1);
 //
-//   CheckpointInfo cp2{};
+//   FCheckpointInfo cp2{};
 //   cp2.id           = "cp.stage1.mid";
 //   cp2.spawn_pos    = { 500.0f, 200.0f };
 //   cp2.level_index  = 0;
@@ -40,7 +40,7 @@
 //   cp2.requires_unlock = false;
 //   cps.Register(cp2);
 //
-//   CheckpointInfo cp_secret{};
+//   FCheckpointInfo cp_secret{};
 //   cp_secret.id     = "cp.stage1.secret";
 //   cp_secret.spawn_pos = { 900.0f, 100.0f };
 //   cp_secret.level_index = 0;
@@ -57,18 +57,18 @@
 //   cps.UnlockCheckpoint("cp.stage1.secret");
 //   cps.ActivateCheckpoint("cp.stage1.secret");
 //
-//   // 死亡時 (HealthSystem の DeathCallback 内)
+//   // 死亡時 (FHealthSystem の DeathCallback 内)
 //   acs::FVec2 pos; u32 lv;
 //   if (cps.TriggerRespawn(pos, lv)) {
 //       // pos に player を移動、lv のレベルをロードし直す
 //   }
 //
 // 設計選択:
-//   ・**CheckpointId は 24bit idx + 8bit gen の packed u32**: FHealthId / PickupId
+//   ・**FCheckpointId は 24bit idx + 8bit gen の packed u32**: FHealthId / FPickupId
 //     / FShapeId / FNodeId と同パターン。Unregister 後の slot 再利用でも古い
 //     handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0 dummy)。
 //   ・**string id を主キーに**: gameplay 設計者が触る Trigger アクタは「Activate
-//     先 checkpoint id」を文字列で指定するのが一般的 (Tilemap / Unity prefab の
+//     先 checkpoint id」を文字列で指定するのが一般的 (FTilemap / Unity prefab の
 //     文化と整合)。handle 経由の Activate も提供して両対応。
 //   ・**所有しない const char***: id は呼出側 (リソースバンドル or ステージ
 //     データ) が保証する static lifetime の文字列リテラルを想定。STL <string>
@@ -83,22 +83,22 @@
 //     ClearAll で初期化される (Save/Load 連携は外部から照会可能)。
 //   ・**active checkpoint は 1 つだけ**: 「複数同時 active」は本クラスの責務外
 //     (= ジャンルキットを超える概念)。最新の Activate が常に勝つ。
-//   ・**FCallback は関数ポインタ + user**: Progression / HealthSystem と同パターン。
+//   ・**FCallback は関数ポインタ + user**: FProgression / FHealthSystem と同パターン。
 //     Activate / Respawn の 2 系統を用意し、UI トースト演出と sound trigger を
 //     ゲーム側で素直に分離できるようにする。
 //   ・**LastSpawnLevelIndex**: TriggerRespawn の後でも level_index を取れる
 //     ように getter を分離。レベルロード中に out_param が消えるエッジで使う。
-//   ・**全 noexcept、非コピー・非ムーブ**: Game / Scene 単位で 1 個保持される
+//   ・**全 noexcept、非コピー・非ムーブ**: FGame / FScene 単位で 1 個保持される
 //     想定。Save/Load も id ベースで再現するので所有権移動は要らない。
 //   ・**STL 不使用、<string> 禁止**: ACS 全体方針。文字列は const char* 非所有のみ。
 //
 // 範囲外 (将来 Phase で):
-//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は GameFlow と組み合わせて
+//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は FGameFlow と組み合わせて
 //     ゲーム側で表現する。本クラスは座標 + level index のみ。
-//   ・SaveSlot 経由の永続化は外部 (SaveSlot<PlatformerSaveData>) で実装。
+//   ・FSaveSlot 経由の永続化は外部 (FSaveSlot<PlatformerSaveData>) で実装。
 //     本クラスからは CurrentCheckpoint() / IsUnlocked() で id を引き出すだけ。
 //   ・自動 checkpoint (移動量で勝手に発火) は Trigger 側の設計問題なので
-//     CinematicsDirector / TriggerWorld2D 側で組む。
+//     FCinematicsDirector / FTriggerWorld2D 側で組む。
 #pragma once
 
 #include "container/Array.h"
@@ -107,28 +107,28 @@
 
 namespace acs::game {
 
-// ---- CheckpointId: チェックポイントの handle --------------------------------
+// ---- FCheckpointId: チェックポイントの handle --------------------------------
 // 32bit packed = 24bit index + 8bit generation。0 = invalid。
-// FHealthId / PickupId / FShapeId / FNodeId と同パターン。
-struct CheckpointId {
+// FHealthId / FPickupId / FShapeId / FNodeId と同パターン。
+struct FCheckpointId {
     u32 _packed = 0;
 
-    constexpr CheckpointId() noexcept = default;
-    constexpr CheckpointId(u32 index, u8 gen) noexcept
+    constexpr FCheckpointId() noexcept = default;
+    constexpr FCheckpointId(u32 index, u8 gen) noexcept
         : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     constexpr u32  Index()      const noexcept { return _packed & 0x00FFFFFFu; }
     constexpr u8   Generation() const noexcept { return static_cast<u8>(_packed >> 24); }
     constexpr bool IsValid()    const noexcept { return _packed != 0; }
 
-    constexpr bool operator==(CheckpointId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(CheckpointId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FCheckpointId o) const noexcept { return _packed == o._packed; }
+    constexpr bool operator!=(FCheckpointId o) const noexcept { return _packed != o._packed; }
 };
 
-// ---- CheckpointInfo: 1 チェックポイントの定義 -------------------------------
+// ---- FCheckpointInfo: 1 チェックポイントの定義 -------------------------------
 // id              : 検索 / Save/Load / トリガ参照のキー。文字列リテラル想定 (非所有)。
 // spawn_pos       : 復活時のプレイヤー世界座標。
-// level_index     : 復活時にロードするレベル / シーンの index。SceneManager で
+// level_index     : 復活時にロードするレベル / シーンの index。FSceneManager で
 //                   切替えるための鍵 (caller 解釈)。同一レベル内なら全 checkpoint
 //                   が同じ値を持つ。
 // sort_order      : レベル内での順序 (one_way 判定で使う)。小さいほど序盤、
@@ -138,7 +138,7 @@ struct CheckpointId {
 //                   ボス前 / 強制ワープ後 / カットシーン後等の使用を想定。
 // requires_unlock : true = UnlockCheckpoint で明示 unlock するまで ActivateCheckpoint
 //                   が false を返して no-op。隠し / DLC / 解放鍵連動を表現。
-struct CheckpointInfo {
+struct FCheckpointInfo {
     const char* id              = nullptr;
     FVec2        spawn_pos       = FVec2::Zero();
     u32         level_index     = 0;
@@ -155,26 +155,26 @@ struct CheckpointInfo {
 using ActivateCallback = void(*)(void* user, const char* checkpoint_id, FVec2 spawn_pos) noexcept;
 using RespawnCallback  = void(*)(void* user, const char* checkpoint_id, FVec2 spawn_pos) noexcept;
 
-// ---- CheckpointSystem ------------------------------------------------------
-class CheckpointSystem {
+// ---- FCheckpointSystem ------------------------------------------------------
+class FCheckpointSystem {
 public:
-    CheckpointSystem()  noexcept = default;
-    ~CheckpointSystem() noexcept = default;
+    FCheckpointSystem()  noexcept = default;
+    ~FCheckpointSystem() noexcept = default;
 
-    CheckpointSystem(const CheckpointSystem&)            = delete;
-    CheckpointSystem& operator=(const CheckpointSystem&) = delete;
-    CheckpointSystem(CheckpointSystem&&)                 = delete;
-    CheckpointSystem& operator=(CheckpointSystem&&)      = delete;
+    FCheckpointSystem(const FCheckpointSystem&)            = delete;
+    FCheckpointSystem& operator=(const FCheckpointSystem&) = delete;
+    FCheckpointSystem(FCheckpointSystem&&)                 = delete;
+    FCheckpointSystem& operator=(FCheckpointSystem&&)      = delete;
 
     // ---- 配置登録 / 解除 ------------------------------------------------
     // 同 id の 2 重登録は invalid 返却 (黙って弾く)。info.id == nullptr も同様。
-    // 成功時は新しい CheckpointId を返す (24bit idx + 8bit gen)。
-    CheckpointId Register(const CheckpointInfo& info) noexcept;
+    // 成功時は新しい FCheckpointId を返す (24bit idx + 8bit gen)。
+    FCheckpointId Register(const FCheckpointInfo& info) noexcept;
 
     // checkpoint を解除。slot は再利用 (generation 進む)。invalid id は no-op。
     // 現 active checkpoint を解除した場合は active を invalid 化する
     // (TriggerRespawn は false を返すようになる)。
-    void Unregister(CheckpointId id) noexcept;
+    void Unregister(FCheckpointId id) noexcept;
 
     // ---- Activate (現在地点として記録) ----------------------------------
     // 指定 id を active 化。戻り値 true = 切替成功。
@@ -185,7 +185,7 @@ public:
     bool ActivateCheckpoint(const char* checkpoint_id) noexcept;
 
     // handle 経由の Activate。挙動は string 版と同じ。
-    bool ActivateCheckpoint(CheckpointId id) noexcept;
+    bool ActivateCheckpoint(FCheckpointId id) noexcept;
 
     // ---- Unlock (隠し / DLC ones) --------------------------------------
     // requires_unlock な checkpoint を unlock する。
@@ -200,8 +200,8 @@ public:
     bool IsUnlocked(const char* checkpoint_id) const noexcept;
 
     // ---- 現在 active な checkpoint の照会 -------------------------------
-    // 現 active CheckpointId。一度も Activate されていない / 解除された場合 invalid。
-    CheckpointId CurrentCheckpoint() const noexcept;
+    // 現 active FCheckpointId。一度も Activate されていない / 解除された場合 invalid。
+    FCheckpointId CurrentCheckpoint() const noexcept;
 
     // 死亡時の復活先座標。active 無しなら FVec2::Zero() を返す
     // (= caller は TriggerRespawn / CurrentCheckpoint.IsValid() で先に判定すべし)。
@@ -224,14 +224,14 @@ public:
     // ---- 単一情報照会 --------------------------------------------------
     // 見つからなければ nullptr。返却ポインタは Register / Unregister / ClearAll
     // で無効化される可能性がある。
-    const CheckpointInfo* FindCheckpoint(const char* checkpoint_id) const noexcept;
+    const FCheckpointInfo* FindCheckpoint(const char* checkpoint_id) const noexcept;
 
     // ---- 全 checkpoint の生バッファ ------------------------------------
     // out_count に「有効な checkpoint 数」 (= 連続して並ぶ要素数) を書き出して
     // 返す。返却バッファは内部 _scratch 配列を再利用するため、次の AllCheckpoints
     // / Register / Unregister / ClearAll で無効化される。
-    // (内部の Slot 配列は穴あきだが、本 API は穴を詰めて返す)
-    const CheckpointInfo* AllCheckpoints(u32& out_count) const noexcept;
+    // (内部の FSlot 配列は穴あきだが、本 API は穴を詰めて返す)
+    const FCheckpointInfo* AllCheckpoints(u32& out_count) const noexcept;
 
     // ---- FCallback ------------------------------------------------------
     // Activate 成功時 callback。cb == nullptr で解除。
@@ -246,8 +246,8 @@ public:
     void ClearAll() noexcept;
 
 private:
-    struct Slot {
-        CheckpointInfo info{};
+    struct FSlot {
+        FCheckpointInfo info{};
         bool           active = false;
         u8             gen    = 0;
     };
@@ -263,17 +263,17 @@ private:
     isize FindUnlockedIndex(const char* id) const noexcept;
 
     // 内部アクセサ: id が有効なら slot 参照を返し、無効なら nullptr。
-    Slot*       FindSlot(CheckpointId id) noexcept;
-    const Slot* FindSlot(CheckpointId id) const noexcept;
+    FSlot*       FindSlot(FCheckpointId id) noexcept;
+    const FSlot* FindSlot(FCheckpointId id) const noexcept;
 
     // Activate 共通ロジック (id / handle 版が両方ここを通る)。
     bool ActivateInternal(u32 slot_index) noexcept;
 
-    TArray<Slot>          _slots;
+    TArray<FSlot>          _slots;
     TArray<const char*>   _unlocked;       // unlock された checkpoint id (非所有)
 
     // 現在 active な checkpoint の handle。invalid = 一度も Activate されていない。
-    CheckpointId         _current;
+    FCheckpointId         _current;
 
     // 直近に active 化された level_index と spawn_pos。Unregister で active slot
     // が消えても直近値として残しておく (デバッグ表示用)。
@@ -284,7 +284,7 @@ private:
     u32                  _checkpoint_count = 0;
 
     // AllCheckpoints が穴を詰めて返すための一時バッファ (mutable で const 関数から触る)。
-    mutable TArray<CheckpointInfo> _scratch;
+    mutable TArray<FCheckpointInfo> _scratch;
 
     ActivateCallback     _on_activate      = nullptr;
     void*                _on_activate_user = nullptr;

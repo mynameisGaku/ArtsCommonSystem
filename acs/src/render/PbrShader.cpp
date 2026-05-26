@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// PbrShader 実装 — Cook-Torrance BRDF (GGX + Smith + Schlick)
+// FPbrShader 実装 — Cook-Torrance BRDF (GGX + Smith + Schlick)
 #include "render/PbrShader.h"
 #include "asset/MeshAsset.h"   // MeshVertex
 #include "foundation/Move.h"   // Move
@@ -14,7 +14,7 @@ namespace {
 #define ACS_MAX_DIR_LIGHTS   4
 #define ACS_MAX_POINT_LIGHTS 4
 
-// HLSL: PBR Cook-Torrance。StandardShader と同じ vertex 入力 (pos / nrm / uv)
+// HLSL: PBR Cook-Torrance。FStandardShader と同じ vertex 入力 (pos / nrm / uv)
 // + 同じ vs 出力 (world_p / world_n / uv)。
 const char* kPbrHLSL = R"(
 #pragma pack_matrix(row_major)
@@ -961,9 +961,9 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::Vertex;
+    vs_d.stage = EShaderStage::FVertex;
     vs_d.hlsl_source = kPbrHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Pbr.VS";
@@ -1150,8 +1150,8 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
     pd.static_samplers[9].filter    = ESamplerFilter::Linear;       // SSR も linear、画面外参照は clamp
     pd.static_samplers[9].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[9].address_v = ESamplerAddress::Clamp;
-    pd.vertex_stride = sizeof(MeshVertex);
-    // MeshVertex の FVec3 は alignas(16) で 16 バイト境界。
+    pd.vertex_stride = sizeof(FMeshVertex);
+    // FMeshVertex の FVec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
     // 12/24 にしてしまうと normal が position パディング + normal の途中を読んで
     // ジオメトリが破壊され、PBR が「黒っぽくべったり影」状態に見える。
@@ -1166,7 +1166,7 @@ TResult<void> PbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat dep
     return Ok();
 }
 
-void PbrShader::Shutdown() noexcept {
+void FPbrShader::Shutdown() noexcept {
     _pipeline.Reset();
     _object_cb.Reset();
     _frame_cb.Reset();
@@ -1195,7 +1195,7 @@ void PbrShader::Shutdown() noexcept {
     _ibl_enabled    = false;
 }
 
-void PbrShader::SetIbl(IRhiTexture* irradiance,
+void FPbrShader::SetIbl(IRhiTexture* irradiance,
                        IRhiTexture* prefilter,
                        IRhiTexture* brdf_lut,
                        u32 prefilter_mips) noexcept {
@@ -1208,13 +1208,13 @@ void PbrShader::SetIbl(IRhiTexture* irradiance,
     FlushFrameCB();
 }
 
-void PbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
+void FPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
     _fog_color_density = FVec4{color.x, color.y, color.z, density};
     _fog_height_params = FVec4{height_falloff, height_base, 0, 0};
     FlushFrameCB();
 }
 
-void PbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
+void FPbrShader::SetProbeGrid(const FLightProbe* probes, u32 count) noexcept {
     if (count > 4) count = 4;
     _probe_count = count;
     for (u32 i = 0; i < count; ++i) {
@@ -1230,7 +1230,7 @@ void PbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
     FlushFrameCB();
 }
 
-void PbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
+void FPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     if (sh9_or_null) {
         for (u32 i = 0; i < 9; ++i) _sh9[i] = sh9_or_null[i];
         _sh9_enabled = true;
@@ -1241,7 +1241,7 @@ void PbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     FlushFrameCB();
 }
 
-void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
+void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     if (_ibl_enabled) {
         cmd.SetTexture(1, *_ibl_irradiance);
         cmd.SetTexture(2, *_ibl_prefilter);
@@ -1289,11 +1289,11 @@ void PbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     }
 }
 
-void PbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
+void FPbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
     _normal_map = tex;
 }
 
-void PbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
+void FPbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
                         u32 viewport_w, u32 viewport_h) noexcept {
     _ssao_tex       = ssao_tex;
     _ssao_intensity = intensity < 0 ? 0.0f : intensity;
@@ -1302,25 +1302,25 @@ void PbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
     FlushFrameCB();
 }
 
-void PbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
+void FPbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
     _ssgi_tex       = ssgi_tex;
     _ssgi_intensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
-void PbrShader::SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept {
+void FPbrShader::SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept {
     _ssr_tex       = ssr_tex;
     _ssr_intensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
-void PbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
+void FPbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
     _lightmap_tex       = lightmap_tex;
     _lightmap_intensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
-void PbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
+void FPbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
                               f32 bias, f32 texel_size, f32 filter_radius) noexcept {
     _shadow_depth     = depth;
     // 後方互換: 全 cascade スロットに同じ VP を書き、splits を inf にして
@@ -1333,7 +1333,7 @@ void PbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
     FlushFrameCB();
 }
 
-void PbrShader::SetShadowMapCascades(IRhiTexture* depth,
+void FPbrShader::SetShadowMapCascades(IRhiTexture* depth,
                                       const FMat4* light_vp,
                                       const f32*  cascade_splits,
                                       u32 cascade_count,
@@ -1359,7 +1359,7 @@ void PbrShader::SetShadowMapCascades(IRhiTexture* depth,
     FlushFrameCB();
 }
 
-void PbrShader::SetLights(const FMat4& vp, FVec3 eye,
+void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
                           const FDirLight* lights, u32 count,
                           FVec3 ambient) noexcept {
     _vp = vp;
@@ -1371,21 +1371,21 @@ void PbrShader::SetLights(const FMat4& vp, FVec3 eye,
     FlushFrameCB();
 }
 
-void PbrShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
+void FPbrShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     _point_count = count;
     for (u32 i = 0; i < count; ++i) _point_lights[i] = lights[i];
     FlushFrameCB();
 }
 
-void PbrShader::SetAreaLights(const AreaLight* lights, u32 count) noexcept {
+void FPbrShader::SetAreaLights(const FAreaLight* lights, u32 count) noexcept {
     if (count > kMaxAreaLights) count = kMaxAreaLights;
     _area_count = count;
     for (u32 i = 0; i < count; ++i) _area_lights[i] = lights[i];
     FlushFrameCB();
 }
 
-void PbrShader::FlushFrameCB() noexcept {
+void FPbrShader::FlushFrameCB() noexcept {
     if (!_frame_cb) return;
     FrameCBLayout cb{};
     cb.view_proj  = _vp;
@@ -1405,7 +1405,7 @@ void PbrShader::FlushFrameCB() noexcept {
         cb.point_color[i]     = FVec4{c.x, c.y, c.z, 1};
     }
     for (u32 i = 0; i < _area_count; ++i) {
-        const AreaLight& a = _area_lights[i];
+        const FAreaLight& a = _area_lights[i];
         cb.area_center[i] = FVec4{a.center.x, a.center.y, a.center.z, 0};
         cb.area_axis_x[i] = FVec4{a.axis_x.x, a.axis_x.y, a.axis_x.z, 0};
         cb.area_axis_y[i] = FVec4{a.axis_y.x, a.axis_y.y, a.axis_y.z, 0};
@@ -1452,7 +1452,7 @@ void PbrShader::FlushFrameCB() noexcept {
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
-void PbrShader::SetObject(const FMat4& model, FVec3 base_color,
+void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
     if (!_object_cb) return;
     ObjectCBLayout cb{};
@@ -1469,7 +1469,7 @@ void PbrShader::SetObject(const FMat4& model, FVec3 base_color,
     _object_cb->Update(&cb, sizeof(cb));
 }
 
-void PbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
+void FPbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
                              f32 anisotropy, FVec3 tangent) noexcept {
     _ext_params    = FVec4{clearcoat, clearcoat_roughness, anisotropy, 0};
     _aniso_tangent = FVec4{tangent.x, tangent.y, tangent.z, 0};
@@ -1478,13 +1478,13 @@ void PbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
     // 描画前に SetObject() が再度呼ばれて反映される設計。
 }
 
-void PbrShader::SetEmissive(FVec3 color, f32 strength) noexcept {
+void FPbrShader::SetEmissive(FVec3 color, f32 strength) noexcept {
     const f32 s = strength < 0.0f ? 0.0f : strength;
     _emissive = FVec4{color.x * s, color.y * s, color.z * s, 0.0f};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
-void PbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept {
+void FPbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept {
     // weight は [0,1] の blend 係数、sheen_color は反射率なので各 ch を [0,1] に収める。
     // これでシェーダの energy 減衰係数 (1 - weight*maxC*0.5) が負へ振れない。
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
@@ -1495,7 +1495,7 @@ void PbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept 
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
-void PbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexcept {
+void FPbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexcept {
     // weight は [0,1] の blend 係数。thickness は非負、film_ior は物理的に >= 1。
     const f32 w = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
     const f32 t = thickness_nm < 0.0f ? 0.0f : thickness_nm;
@@ -1504,7 +1504,7 @@ void PbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexc
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
-void PbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
+void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // weight は [0,1] の blend 係数、sss_color は内部散乱の色 (各 ch [0,1])。
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
     _sss_params = FVec4{sat01(sss_color.x), sat01(sss_color.y), sat01(sss_color.z),
@@ -1512,7 +1512,7 @@ void PbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
-void PbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
+void FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
                         FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
                         IRhiTexture* albedo) noexcept {
     if (!_pipeline || !_frame_cb || !_object_cb) return;

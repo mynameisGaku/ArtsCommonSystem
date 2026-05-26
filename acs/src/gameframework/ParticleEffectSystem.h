@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I Phase 2 — ParticleEffectSystem (軽量 sprite particle)
+// GameFramework Pillar I Phase 2 — FParticleEffectSystem (軽量 sprite particle)
 //
-// 2D ゲーム向けの最小コスト sprite パーティクル。`EffectSystem` (Pillar I Phase 1)
+// 2D ゲーム向けの最小コスト sprite パーティクル。`FEffectSystem` (Pillar I Phase 1)
 // が「Flash / HitStop / Shake のような単発演出」を担うのに対し、本クラスは
 // 「emitter で粒子を放出し続ける」連続演出 (炎・煙・スパーク・吹き出しなど) を担う。
 //
 // 設計選択:
 //   ・**emitter は generational handle**: 24bit index + 8bit gen を packed した
-//      `FEmitterHandle`。`SceneTimer::TimerHandle` / `TriggerWorld2D::TriggerId` と
+//      `FEmitterHandle`。`FSceneTimer::FTimerHandle` / `FTriggerWorld2D::FTriggerId` と
 //      同じ規約。slot 再利用後の stale 参照は IsValid + gen 一致で検出可能。
 //   ・**particle pool は固定容量**: `Init(max_particles)` で確保した後はリサイズ
 //      しない。リアルタイムループのフレーム落ちを避けるため、最悪ケースを上限と
 //      する保守的なポリシー。空き探索は `next_free` カーソル + 線形走査の
 //      ハイブリッド (大半のフレームで O(1)、最悪 O(N))。
 //   ・**描画は user 側**: 本クラスは描画 API を一切呼ばず、`AllParticles()` で
-//      `const Particle*` を渡すのみ。SpriteBatch / DebugDraw / カスタム pipeline
+//      `const FParticle*` を渡すのみ。FSpriteBatch / FDebugDraw / カスタム pipeline
 //      など、ユーザー側の描画戦略に依存しない (= テスト容易・headless 動作可)。
-//   ・**Random は内部 LCG**: `acs::game::Random` (xoshiro128**) には依存せず、
-//      ParticleEffectSystem は単一の `u32` state を持つ簡素な Linear Congruential
+//   ・**FRandom は内部 LCG**: `acs::game::FRandom` (xoshiro128**) には依存せず、
+//      FParticleEffectSystem は単一の `u32` state を持つ簡素な Linear Congruential
 //      Generator で十分。理由は (1) particle 用途は統計的品質要求が弱い (見た目で
 //      バラけていれば十分), (2) 外部 PRNG 状態と独立にしておくと determinism を
 //      議論しやすい (replay 再現で外部 PRNG が動いても particle 配列は影響しない),
@@ -37,7 +37,7 @@
 //   ・**全 noexcept**: ACS 規約。失敗は invalid handle / no-op で表現。
 //
 // 使い方:
-//   ParticleEmitterDef def{};
+//   FParticleEmitterDef def{};
 //   def.color_start      = {1.0f, 0.6f, 0.1f};  // 橙
 //   def.color_end        = {0.5f, 0.0f, 0.0f};  // 暗赤
 //   def.lifetime_sec     = 0.8f;
@@ -49,7 +49,7 @@
 //   def.scale_end        = 0.0f;
 //   def.gravity          = {0.0f, 60.0f};       // y 下方向加速度
 //
-//   ParticleEffectSystem fx;
+//   FParticleEffectSystem fx;
 //   fx.Init(2048);
 //   auto h = fx.CreateEmitter(def, {200.0f, 300.0f});
 //
@@ -58,16 +58,16 @@
 //
 //   // 描画 (ユーザー側):
 //   u32 n = 0;
-//   const Particle* p = fx.AllParticles(n);
+//   const FParticle* p = fx.AllParticles(n);
 //   for (u32 i = 0; i < n; ++i) {
 //       if (!p[i].IsAlive()) continue;
-//       // SpriteBatch.Draw(p[i].position, current_scale, current_color);
+//       // FSpriteBatch.Draw(p[i].position, current_scale, current_color);
 //   }
 //
 //   // 爆発:
 //   fx.Burst(h);
 //
-//   // emitter 破棄 (Scene 退場時など):
+//   // emitter 破棄 (FScene 退場時など):
 //   fx.DestroyEmitter(h);
 //
 // 範囲外 (Phase 3+ で):
@@ -85,7 +85,7 @@
 namespace acs::game {
 
 // ---------------------------------------------------------------------------
-// ParticleEmitterDef — emitter の挙動パラメータ
+// FParticleEmitterDef — emitter の挙動パラメータ
 // ---------------------------------------------------------------------------
 // `lifetime_sec`        : 各 particle の寿命 (秒)。<= 0 は emit を行わない。
 // `emit_rate_per_sec`   : 毎秒の放出個数 (連続放出)。0 なら自動放出は無し。
@@ -94,7 +94,7 @@ namespace acs::game {
 // `scale_start/end`     : ピクセル単位の見た目サイズ (描画側が解釈)。
 // `gravity`             : particle ごとの定数加速度 (px/sec^2 想定)。
 // `color_start/end`     : 線形補間される RGB (0..1)。alpha は描画側で決める。
-struct ParticleEmitterDef {
+struct FParticleEmitterDef {
     FVec3 color_start         {1.0f, 1.0f, 1.0f};
     FVec3 color_end           {1.0f, 1.0f, 1.0f};
     f32  lifetime_sec        = 1.0f;
@@ -108,13 +108,13 @@ struct ParticleEmitterDef {
 };
 
 // ---------------------------------------------------------------------------
-// Particle — 個別粒子の生データ
+// FParticle — 個別粒子の生データ
 // ---------------------------------------------------------------------------
 // 描画側はこの構造体を直接読み取り、age/lifetime から補間係数を計算する。
 // `position` / `velocity` 以外は emitter から複製してきた瞬時パラメータ。
 // 「emitter の def が後から変わっても、放出済 particle は出生時の値で進む」
 // 設計 (= self-contained particle、TPool で扱いやすい)。
-struct Particle {
+struct FParticle {
     FVec2 position           {0.0f, 0.0f};
     FVec2 velocity           {0.0f, 0.0f};
     f32  age                = 0.0f;     // 経過秒、0 で出生
@@ -139,7 +139,7 @@ struct Particle {
 // ---------------------------------------------------------------------------
 // FEmitterHandle — 24bit index + 8bit gen を packed した opaque handle
 // ---------------------------------------------------------------------------
-// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`SceneTimer` 等と
+// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`FSceneTimer` 等と
 // 同一規約。slot 再利用後の stale 参照は IsValid + 内部の gen 一致で検出する。
 struct FEmitterHandle {
     u32 _packed = 0u;
@@ -160,19 +160,19 @@ struct FEmitterHandle {
 };
 
 // ---------------------------------------------------------------------------
-// ParticleEffectSystem — 複数 emitter + 共有 particle pool
+// FParticleEffectSystem — 複数 emitter + 共有 particle pool
 // ---------------------------------------------------------------------------
-class ParticleEffectSystem {
+class FParticleEffectSystem {
 public:
-    ParticleEffectSystem() noexcept = default;
-    ~ParticleEffectSystem() noexcept = default;
+    FParticleEffectSystem() noexcept = default;
+    ~FParticleEffectSystem() noexcept = default;
 
     // 非コピー・非ムーブ: AllParticles() が内部 buffer の生ポインタを返すため、
     // ムーブで実体アドレスが変わると外部参照が破綻する。
-    ParticleEffectSystem(const ParticleEffectSystem&)            = delete;
-    ParticleEffectSystem& operator=(const ParticleEffectSystem&) = delete;
-    ParticleEffectSystem(ParticleEffectSystem&&)                 = delete;
-    ParticleEffectSystem& operator=(ParticleEffectSystem&&)      = delete;
+    FParticleEffectSystem(const FParticleEffectSystem&)            = delete;
+    FParticleEffectSystem& operator=(const FParticleEffectSystem&) = delete;
+    FParticleEffectSystem(FParticleEffectSystem&&)                 = delete;
+    FParticleEffectSystem& operator=(FParticleEffectSystem&&)      = delete;
 
     // 初期化。max_particles で pool 上限を確定 (再 Init は no-op)。
     // 0 を渡した場合は default の 1024 を採用 (誤呼出し防御)。
@@ -181,7 +181,7 @@ public:
     // emitter を 1 個作成して handle を返す。pos は world 座標 (描画側解釈)。
     // emitter slot 上限 (24bit) に達した場合や lifetime_sec <= 0 の def は
     // invalid handle を返す。
-    FEmitterHandle CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept;
+    FEmitterHandle CreateEmitter(const FParticleEmitterDef& def, FVec2 pos) noexcept;
 
     // 既存 emitter の位置を変更。invalid / stale handle は no-op。
     void SetEmitterPosition(FEmitterHandle h, FVec2 pos) noexcept;
@@ -209,9 +209,9 @@ public:
     u32 EmitterCount() const noexcept { return _emitter_count; }
 
     // 描画用 raw buffer。out_count には pool 全体サイズが入る (active かどうかは
-    // `Particle::IsAlive()` で判定する)。返却ポインタは Init で確定し、Init or
+    // `FParticle::IsAlive()` で判定する)。返却ポインタは Init で確定し、Init or
     // クラス破棄まで安定。Init 前は nullptr / 0 を返す。
-    const Particle* AllParticles(u32& out_count) const noexcept;
+    const FParticle* AllParticles(u32& out_count) const noexcept;
 
     // 全 emitter + 全 particle を即座にクリア。pool 容量は維持。
     void ClearAll() noexcept;
@@ -219,8 +219,8 @@ public:
 private:
     // --- emitter slot ---
     // generational handle + 動作パラメータ + 連続放出のための累積器。
-    struct Emitter {
-        ParticleEmitterDef def        {};
+    struct FEmitter {
+        FParticleEmitterDef def        {};
         FVec2               pos        {0.0f, 0.0f};
         f32                emit_accum = 0.0f;     // 放出累積 (>=1 で 1 個出す)
         u8                 gen        = 0u;       // 0 = 未使用、配るときは 1 以上
@@ -230,7 +230,7 @@ private:
 
     // 1 個放出する。pool が満杯なら何もしない (= 空き上限超過で見た目が崩れる
     // のは許容する。代わりにフレームレートは保つ)。
-    void EmitOne(const Emitter& e) noexcept;
+    void EmitOne(const FEmitter& e) noexcept;
 
     // 空き particle slot を 1 個確保し index を返す。満杯なら kInvalidIdx を返す。
     // `_next_free` を起点に巡回探索 (= 大半のフレームで O(1))。
@@ -246,8 +246,8 @@ private:
     // [min, max] の f32 (min > max は swap)。
     f32 NextRandRange(f32 min, f32 max) noexcept;
 
-    TArray<Emitter>  _emitters       {};       // emitter slot 配列 (generational)
-    TArray<Particle> _particles      {};       // particle pool (固定容量)
+    TArray<FEmitter>  _emitters       {};       // emitter slot 配列 (generational)
+    TArray<FParticle> _particles      {};       // particle pool (固定容量)
     TArray<u8>       _particle_active{};       // _particle_active[i] = 1 で使用中
     u32             _capacity         = 0u;   // particle 上限 (Init で確定)
     u32             _active_particles = 0u;   // 現在使用中 particle 数

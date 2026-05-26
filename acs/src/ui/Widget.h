@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// Widget — ACS UI フレームワークの基底クラス
+// FWidget — ACS UI フレームワークの基底クラス
 //
 // 設計:
 //   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
-//   ・MVVM 駆動: 各 Widget は Observable<T> プロパティを公開し、ViewModel と Bind 可能
-//   ・SpriteBatch + Font で描画 (Diligent / Dx12 を意識しない)
-//   ・親 → 子の所有を TUniquePtr<Widget> で表現、Add で子を取り込む
+//   ・MVVM 駆動: 各 FWidget は FObservable<T> プロパティを公開し、FViewModel と Bind 可能
+//   ・FSpriteBatch + FFont で描画 (Diligent / Dx12 を意識しない)
+//   ・親 → 子の所有を TUniquePtr<FWidget> で表現、Add で子を取り込む
 //   ・Layout は親の Layout モードに応じて子に再帰的に配置
 //
 // 使い方:
-//   StackPanel root;
+//   FStackPanel root;
 //   root.SetPadding(8);
-//   auto* btn = root.Add<Button>("OK");
+//   auto* btn = root.Add<FButton>("OK");
 //   btn->on_clicked.Subscribe(...);
 //
 //   // 毎フレーム:
@@ -27,7 +27,7 @@
 namespace acs {
 
 // 矩形 (UI 座標、左上原点ピクセル単位)
-struct UiRect {
+struct FUiRect {
     f32 x = 0, y = 0, w = 0, h = 0;
     bool Contains(f32 px, f32 py) const noexcept {
         return px >= x && px < x + w && py >= y && py < y + h;
@@ -38,16 +38,16 @@ struct UiRect {
 enum class EStackDir : u8 { Vertical, Horizontal };
 
 // アンカー / 余白
-struct UiPadding { f32 l = 0, t = 0, r = 0, b = 0; };
+struct FUiPadding { f32 l = 0, t = 0, r = 0, b = 0; };
 
-// Widget の基底
-class Widget {
+// FWidget の基底
+class FWidget {
 public:
-    Widget() noexcept = default;
-    virtual ~Widget() noexcept = default;
+    FWidget() noexcept = default;
+    virtual ~FWidget() noexcept = default;
 
-    Widget(const Widget&) = delete;
-    Widget& operator=(const Widget&) = delete;
+    FWidget(const FWidget&) = delete;
+    FWidget& operator=(const FWidget&) = delete;
 
     // ---- 子ウィジェットの管理 -------------------------------------------
     template<typename W, typename... Args>
@@ -59,26 +59,26 @@ public:
         return raw;
     }
 
-    Widget* Parent() const noexcept { return _parent; }
+    FWidget* Parent() const noexcept { return _parent; }
     usize   ChildCount() const noexcept { return _children.Size(); }
-    Widget* Child(usize i) const noexcept { return i < _children.Size() ? _children[i].Get() : nullptr; }
+    FWidget* Child(usize i) const noexcept { return i < _children.Size() ? _children[i].Get() : nullptr; }
 
     // ---- 表示 ----
     bool   visible = true;
-    UiRect rect;                    // レイアウト後に確定する絶対座標
-    UiRect requested;               // 要望サイズ (0 = レイアウトに任せる)
+    FUiRect rect;                    // レイアウト後に確定する絶対座標
+    FUiRect requested;               // 要望サイズ (0 = レイアウトに任せる)
 
     // ---- フォーカス / hover ----
     bool hovered = false;
     bool focused = false;
-    bool pressed = false;           // 直近のフレームで押下されているか (Button 等で使う)
+    bool pressed = false;           // 直近のフレームで押下されているか (FButton 等で使う)
 
-    // ---- 仮想メソッド: Layout は親が呼ぶ。Render は UiRenderer が呼ぶ ----
+    // ---- 仮想メソッド: Layout は親が呼ぶ。Render は FUiRenderer が呼ぶ ----
     virtual void Layout(f32 x, f32 y, f32 w, f32 h) noexcept {
         rect = { x, y, w, h };
     }
 
-    virtual void Render(class UiRenderer& r) noexcept {
+    virtual void Render(class FUiRenderer& r) noexcept {
         // 既定は子だけ描画する (visible なものに絞り)
         for (usize i = 0; i < _children.Size(); ++i) {
             if (_children[i] && _children[i]->visible) _children[i]->Render(r);
@@ -98,33 +98,33 @@ public:
     virtual void OnKey        (i32 /*key*/, bool /*pressed*/) noexcept {}
 
     // 子を含めた hit test (subclass で再帰的にヒットテストする補助)
-    Widget* HitTestRecursive(f32 px, f32 py) noexcept {
+    FWidget* HitTestRecursive(f32 px, f32 py) noexcept {
         if (!visible) return nullptr;
         // 後ろの子 (上に描画されてる) から優先的にヒット
         for (usize i = _children.Size(); i > 0; --i) {
-            Widget* c = _children[i - 1].Get();
+            FWidget* c = _children[i - 1].Get();
             if (c) {
-                if (Widget* h = c->HitTestRecursive(px, py)) return h;
+                if (FWidget* h = c->HitTestRecursive(px, py)) return h;
             }
         }
         return HitTest(px, py) ? this : nullptr;
     }
 
 protected:
-    Widget*                       _parent   = nullptr;
-    TArray<TUniquePtr<Widget>>      _children;
+    FWidget*                       _parent   = nullptr;
+    TArray<TUniquePtr<FWidget>>      _children;
 };
 
 // ---------- レイアウト系 ----------
 
-// StackPanel: 縦 or 横にきれいに並べる
-class StackPanel : public Widget {
+// FStackPanel: 縦 or 横にきれいに並べる
+class FStackPanel : public FWidget {
 public:
-    StackPanel() noexcept = default;
+    FStackPanel() noexcept = default;
 
     EStackDir   dir      = EStackDir::Vertical;
     f32        spacing  = 4.0f;
-    UiPadding  padding{ 8, 8, 8, 8 };
+    FUiPadding  padding{ 8, 8, 8, 8 };
 
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
@@ -134,7 +134,7 @@ public:
         f32 ch = h - padding.t - padding.b;
 
         for (usize i = 0; i < _children.Size(); ++i) {
-            Widget* c = _children[i].Get();
+            FWidget* c = _children[i].Get();
             if (!c || !c->visible) continue;
 
             if (dir == EStackDir::Vertical) {
@@ -150,13 +150,13 @@ public:
     }
 };
 
-// Container: 自身は描画せず、レイアウトだけ親と同じ範囲を子に渡す (透過パネル)
-class Container : public Widget {
+// FContainer: 自身は描画せず、レイアウトだけ親と同じ範囲を子に渡す (透過パネル)
+class FContainer : public FWidget {
 public:
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
         for (usize i = 0; i < _children.Size(); ++i) {
-            Widget* c = _children[i].Get();
+            FWidget* c = _children[i].Get();
             if (c && c->visible) c->Layout(x, y, w, h);
         }
     }

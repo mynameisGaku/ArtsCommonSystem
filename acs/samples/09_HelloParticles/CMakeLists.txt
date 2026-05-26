@@ -3,8 +3,8 @@
 # 構成:
 #   main.cpp                  - ACS_DEFINE_MAIN(HelloParticlesApp) のみ
 #   Types.h                   - パーティクルテクスチャサイズ + preset 名一覧
-#   HelloParticlesApp.{h,cpp} - Application 派生クラス
-#   ParticleScene.{h,cpp}     - ParticleSystem の管理 + 描画
+#   HelloParticlesApp.{h,cpp} - FApplication 派生クラス
+#   ParticleScene.{h,cpp}     - FParticleSystem の管理 + 描画
 add_executable(hello_particles WIN32
     main.cpp
     HelloParticlesApp.cpp

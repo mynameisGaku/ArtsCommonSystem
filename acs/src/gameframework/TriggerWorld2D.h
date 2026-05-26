@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F Phase 3 — TriggerWorld2D (overlap tracking + events)
+// GameFramework Pillar F Phase 3 — FTriggerWorld2D (overlap tracking + events)
 //
-// CollisionWorld2D とは独立に「重なりだけを監視するトリガ専用ワールド」。
+// FCollisionWorld2D とは独立に「重なりだけを監視するトリガ専用ワールド」。
 // 物理応答や押し戻し (Resolve) は行わず、毎フレーム全 trigger pair の重なり
 // 状態を更新し、前フレと比較して以下の 3 種類のイベントを発火する:
 //
@@ -10,13 +10,13 @@
 //   ・OnExit  : 前フレ重なり   → 今フレ非重なり (離れた overlap pair)
 //
 // 使い方:
-//   TriggerWorld2D world;
+//   FTriggerWorld2D world;
 //   world.Init();
 //
-//   TriggerId player = world.AddCircle({ {0,0}, 16.0f }, /*layer=*/0);
-//   TriggerId pickup = world.AddAabb  ({ {100,0}, {8,8} }, /*layer=*/1);
+//   FTriggerId player = world.AddCircle({ {0,0}, 16.0f }, /*layer=*/0);
+//   FTriggerId pickup = world.AddAabb  ({ {100,0}, {8,8} }, /*layer=*/1);
 //
-//   world.SetOnEnter(+[](void* /*user*/, TriggerId self, TriggerId other) noexcept {
+//   world.SetOnEnter(+[](void* /*user*/, FTriggerId self, FTriggerId other) noexcept {
 //       // self と other が今フレ初めて重なった
 //   }, /*user=*/nullptr);
 //
@@ -26,10 +26,10 @@
 //
 // 設計 (Phase 3 = Pillar F Phase 3):
 //   ・**broad phase は O(N^2)**: Phase 3 では全 pair を直接比較。Phase 4 で
-//     CollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
-//   ・**TriggerId は FShapeId と同じ generational handle** (24bit index + 8bit gen)。
+//     FCollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
+//   ・**FTriggerId は FShapeId と同じ generational handle** (24bit index + 8bit gen)。
 //     remove → re-add で slot 再利用しても旧 handle は無効化される。
-//   ・**overlap pair は array で保持**: 前フレの状態は `TArray<OverlapPair>` に
+//   ・**overlap pair は array で保持**: 前フレの状態は `TArray<FOverlapPair>` に
 //     `was_overlapping` 付きで保存。次フレで再計算し、(was, now) の組合せで
 //     どのイベントを発火するか決める。
 //   ・**layer はメタデータとして格納のみ**: Phase 3 では event 側で参照する。
@@ -51,11 +51,11 @@ namespace acs::game {
 
 /// Trigger を識別する packed 32bit handle (generational)。
 /// レイアウトは FShapeId / FNodeId と同一 (low24=index, high8=generation)。
-struct TriggerId {
+struct FTriggerId {
     u32 _packed = 0;   // 0 = invalid
 
-    constexpr TriggerId() noexcept = default;
-    constexpr TriggerId(u32 index, u8 gen) noexcept
+    constexpr FTriggerId() noexcept = default;
+    constexpr FTriggerId(u32 index, u8 gen) noexcept
         : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     constexpr u32  Index() const noexcept { return _packed & 0x00FFFFFFu; }
@@ -65,38 +65,38 @@ struct TriggerId {
     /// invalid (packed == 0) でなければ true。
     bool IsValid() const noexcept { return _packed != 0; }
 
-    constexpr bool operator==(TriggerId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(TriggerId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FTriggerId o) const noexcept { return _packed == o._packed; }
+    constexpr bool operator!=(FTriggerId o) const noexcept { return _packed != o._packed; }
 };
 
 /// Trigger イベントコールバック: (user, self, other) の順で受け取る。
-/// self / other はいずれも生存中の TriggerId (発火直前に world 側で検証済み)。
-using TriggerEventCallback = void(*)(void* user, TriggerId self, TriggerId other) noexcept;
+/// self / other はいずれも生存中の FTriggerId (発火直前に world 側で検証済み)。
+using TriggerEventCallback = void(*)(void* user, FTriggerId self, FTriggerId other) noexcept;
 
-class TriggerWorld2D {
+class FTriggerWorld2D {
 public:
-    TriggerWorld2D() noexcept = default;
-    ~TriggerWorld2D() noexcept = default;
+    FTriggerWorld2D() noexcept = default;
+    ~FTriggerWorld2D() noexcept = default;
 
     // 非コピー・非ムーブ (handle 安定性のため)
-    TriggerWorld2D(const TriggerWorld2D&)            = delete;
-    TriggerWorld2D& operator=(const TriggerWorld2D&) = delete;
-    TriggerWorld2D(TriggerWorld2D&&)                 = delete;
-    TriggerWorld2D& operator=(TriggerWorld2D&&)      = delete;
+    FTriggerWorld2D(const FTriggerWorld2D&)            = delete;
+    FTriggerWorld2D& operator=(const FTriggerWorld2D&) = delete;
+    FTriggerWorld2D(FTriggerWorld2D&&)                 = delete;
+    FTriggerWorld2D& operator=(FTriggerWorld2D&&)      = delete;
 
     /// 初期化 (Phase 3 では特に状態を持たないが、将来の SpatialGrid 等のため API は予約)。
     void Init() noexcept;
 
     // ----- Trigger 登録 -----
-    TriggerId AddCircle(const Circle& c, u32 layer = 0) noexcept;
-    TriggerId AddAabb  (const Aabb2&  a, u32 layer = 0) noexcept;
+    FTriggerId AddCircle(const FCircle& c, u32 layer = 0) noexcept;
+    FTriggerId AddAabb  (const FAabb2&  a, u32 layer = 0) noexcept;
 
     /// 形状更新 (移動した時)。kind が一致しない / stale handle の場合は何もしない。
-    void UpdateCircle(TriggerId id, const Circle& c) noexcept;
-    void UpdateAabb  (TriggerId id, const Aabb2&  a) noexcept;
+    void UpdateCircle(FTriggerId id, const FCircle& c) noexcept;
+    void UpdateAabb  (FTriggerId id, const FAabb2&  a) noexcept;
 
     /// trigger 削除。slot は再利用、generation が進む。次の Tick で関連 pair も purge。
-    void Remove(TriggerId id) noexcept;
+    void Remove(FTriggerId id) noexcept;
 
     // ----- イベントコールバック (関数ポインタ + user data) -----
     void SetOnEnter(TriggerEventCallback cb, void* user) noexcept;
@@ -115,12 +115,12 @@ public:
     void ClearAll() noexcept;
 
 private:
-    enum class Kind : u8 { None = 0, FAabb, Circle };
+    enum class Kind : u8 { None = 0, FAabb, FCircle };
 
-    struct TriggerSlot {
+    struct FTriggerSlot {
         Kind   kind   = Kind::None;
-        Aabb2  aabb   {};
-        Circle circle {};
+        FAabb2  aabb   {};
+        FCircle circle {};
         u32    layer  = 0;
         bool   active = false;
         u8     gen    = 0;
@@ -128,18 +128,18 @@ private:
 
     /// 前フレと今フレで保持する pair。(a_idx, b_idx) は a_idx < b_idx で正規化済み。
     /// was_overlapping は前フレでの状態、今フレ計算後の新状態と組合せて event を決める。
-    struct OverlapPair {
+    struct FOverlapPair {
         u32  a_idx           = 0;
         u32  b_idx           = 0;
         bool was_overlapping = false;
     };
 
     u32  AcquireSlot() noexcept;
-    bool ShapesOverlap(const TriggerSlot& a, const TriggerSlot& b) const noexcept;
+    bool ShapesOverlap(const FTriggerSlot& a, const FTriggerSlot& b) const noexcept;
 
-    TArray<TriggerSlot> _slots;
-    TArray<OverlapPair> _pairs;         // a_idx < b_idx でソート済み
-    TArray<OverlapPair> _next_pairs;    // Tick 内の作業バッファ (再確保を抑える)
+    TArray<FTriggerSlot> _slots;
+    TArray<FOverlapPair> _pairs;         // a_idx < b_idx でソート済み
+    TArray<FOverlapPair> _next_pairs;    // Tick 内の作業バッファ (再確保を抑える)
     u32 _trigger_count = 0;
 
     TriggerEventCallback _on_enter      = nullptr;

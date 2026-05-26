@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework Pillar J — SaveArchive 実装 (Win32 I/O + CRC32)
+// GameFramework Pillar J — FSaveArchive 実装 (Win32 I/O + CRC32)
 // -----------------------------------------------------------------------------
 // SaveArchive.h で宣言した 4 メソッド (WriteToFile / ReadFromFile /
 // PeekVersion / PeekPayloadSize) の本体。Win32 ファイル API を直接叩いて
@@ -12,7 +12,7 @@
 //   ・CRC32 ルーチンは assetpack/AcpakReader.cpp / AcpakWriter.cpp と同じ実装
 //     (poly 0xEDB88320, init/xorout 0xFFFFFFFF, table 256 entry)。将来 Hash.cpp
 //     に共通化する余地は残しているが、Phase 1 では link 単位を独立させたい
-//     (assetpack を依存に持たないテストビルドでも SaveArchive を使えるように)
+//     (assetpack を依存に持たないテストビルドでも FSaveArchive を使えるように)
 //     ため、ここでも単独に持つ。
 //   ・little-endian 読み書きは MemCopy 経由で strict-aliasing 違反を避ける。
 //     ACS 対応プラットフォームは Win/x64 と ARM64 (LE) のみ前提。
@@ -30,7 +30,7 @@ namespace acs::game {
 // ============================================================================
 // magic バイト列の定義 (header に置く 8 バイト = ASCII "ACSSAVE\0")
 // ============================================================================
-const u8 SaveArchive::kMagicBytes[SaveArchive::kMagicSize] = {
+const u8 FSaveArchive::kMagicBytes[FSaveArchive::kMagicSize] = {
     'A', 'C', 'S', 'S', 'A', 'V', 'E', '\0'
 };
 
@@ -154,7 +154,7 @@ bool ParseHeader(const u8* header_buf,
                  u32&      out_version,
                  u64&      out_payload_size,
                  u32&      out_crc32) noexcept {
-    if (MemCmp(header_buf, SaveArchive::kMagicBytes, SaveArchive::kMagicSize) != 0) {
+    if (MemCmp(header_buf, FSaveArchive::kMagicBytes, FSaveArchive::kMagicSize) != 0) {
         return false;
     }
     out_version      = ReadU32LE(header_buf + 8);
@@ -169,7 +169,7 @@ bool ParseHeader(const u8* header_buf,
 TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "SaveArchive: file_path is null");
+                       "FSaveArchive: file_path is null");
     }
     HANDLE h = ::CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr,
                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -177,10 +177,10 @@ TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
         DWORD err = ::GetLastError();
         if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) {
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubFileNotFound),
-                              "SaveArchive: file not found", err);
+                              "FSaveArchive: file not found", err);
         }
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "SaveArchive: CreateFileW (read) failed", err);
+                          "FSaveArchive: CreateFileW (read) failed", err);
     }
     return TResult<HANDLE>(OkInit, h);
 }
@@ -188,23 +188,23 @@ TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
 } // namespace
 
 // ============================================================================
-// SaveArchive::WriteToFile
+// FSaveArchive::WriteToFile
 // ----------------------------------------------------------------------------
 // header (24B) → payload (payload_size B) の順で書く。書き込み途中の失敗時
 // (= electricity loss / disk full) はファイルが破損する可能性があるが、
-// atomic rename は呼び出し側の SaveSlot が ".tmp" 経由で担当する設計。
+// atomic rename は呼び出し側の FSaveSlot が ".tmp" 経由で担当する設計。
 // ============================================================================
-TResult<void> SaveArchive::WriteToFile(const wchar_t* file_path,
+TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
                                       u32            version,
                                       const void*    payload,
                                       u64            payload_size) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "SaveArchive::WriteToFile: file_path is null");
+                       "FSaveArchive::WriteToFile: file_path is null");
     }
     if (payload == nullptr && payload_size > 0) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "SaveArchive::WriteToFile: payload is null but size > 0");
+                       "FSaveArchive::WriteToFile: payload is null but size > 0");
     }
 
     // CreateFileW(CREATE_ALWAYS) は既存ファイルを truncate して開く。
@@ -218,7 +218,7 @@ TResult<void> SaveArchive::WriteToFile(const wchar_t* file_path,
     if (h == INVALID_HANDLE_VALUE) {
         DWORD err = ::GetLastError();
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "SaveArchive::WriteToFile: CreateFileW failed", err);
+                          "FSaveArchive::WriteToFile: CreateFileW failed", err);
     }
 
     // ---- header (24B) を build ------------------------------------------
@@ -234,7 +234,7 @@ TResult<void> SaveArchive::WriteToFile(const wchar_t* file_path,
     if (!WriteAll(h, header_buf, kHeaderSize, err)) {
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "SaveArchive::WriteToFile: WriteFile (header) failed", err);
+                          "FSaveArchive::WriteToFile: WriteFile (header) failed", err);
     }
 
     // ---- payload (size==0 でも noop で良い) -----------------------------
@@ -242,30 +242,30 @@ TResult<void> SaveArchive::WriteToFile(const wchar_t* file_path,
         if (!WriteAll(h, payload, payload_size, err)) {
             ::CloseHandle(h);
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                              "SaveArchive::WriteToFile: WriteFile (payload) failed",
+                              "FSaveArchive::WriteToFile: WriteFile (payload) failed",
                               err);
         }
     }
 
     // CloseHandle は flush も兼ねる (OS buffer cache に書き出すだけで、
     // 真の persistence は FlushFileBuffers が必要だが、Phase 1 では呼ばない —
-    // 上位 SaveSlot 層が rename を行う前に明示 flush することを期待)。
+    // 上位 FSaveSlot 層が rename を行う前に明示 flush することを期待)。
     if (!::CloseHandle(h)) {
         DWORD close_err = ::GetLastError();
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "SaveArchive::WriteToFile: CloseHandle failed", close_err);
+                          "FSaveArchive::WriteToFile: CloseHandle failed", close_err);
     }
     return Ok();
 }
 
 // ============================================================================
-// SaveArchive::ReadFromFile
+// FSaveArchive::ReadFromFile
 // ----------------------------------------------------------------------------
 // header (24B) を読んで magic + version + payload_size + crc を取り出し、
 // out_capacity 検査 → version 検査 → payload 読込 → CRC 計算 → 一致確認、
 // の順で fail-fast する。
 // ============================================================================
-TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
+TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                                       void*          out_payload,
                                       u64            out_capacity,
                                       u32            expected_version,
@@ -274,7 +274,7 @@ TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
 
     if (out_payload == nullptr && out_capacity > 0) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "SaveArchive::ReadFromFile: out_payload is null but capacity > 0");
+                       "FSaveArchive::ReadFromFile: out_payload is null but capacity > 0");
     }
 
     auto open_r = OpenForRead(file_path);
@@ -287,13 +287,13 @@ TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
         DWORD err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "SaveArchive::ReadFromFile: GetFileSizeEx failed", err);
+                          "FSaveArchive::ReadFromFile: GetFileSizeEx failed", err);
     }
     const u64 file_size = static_cast<u64>(fsize.QuadPart);
     if (file_size < kHeaderSize) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "SaveArchive::ReadFromFile: file smaller than header");
+                       "FSaveArchive::ReadFromFile: file smaller than header");
     }
 
     // ---- header (24B) を読む -------------------------------------------
@@ -302,7 +302,7 @@ TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
     if (!ReadAll(h, header_buf, kHeaderSize, err)) {
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "SaveArchive::ReadFromFile: ReadFile (header) failed", err);
+                          "FSaveArchive::ReadFromFile: ReadFile (header) failed", err);
     }
 
     u32 version       = 0;
@@ -310,15 +310,15 @@ TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
     u32 expected_crc  = 0;
     if (!ParseHeader(header_buf, version, payload_size, expected_crc)) {
         ::CloseHandle(h);
-        return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "SaveArchive::ReadFromFile: magic mismatch (not an .acssave)");
+        return ACS_ERR(FAsset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
+                       "FSaveArchive::ReadFromFile: magic mismatch (not an .acssave)");
     }
 
     // payload_size が file_size - kHeaderSize と一致するか
     if (payload_size > file_size - kHeaderSize) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "SaveArchive::ReadFromFile: payload_size > file_size - header");
+                       "FSaveArchive::ReadFromFile: payload_size > file_size - header");
     }
 
     out_payload_size = payload_size;
@@ -326,18 +326,18 @@ TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
     // ---- version 不一致は kSubMigrationNeeded で先に返す ---------------
     // 「buffer に書き込まない」のが migration ハンドラから見ると最も扱いやすい。
     if (version != expected_version) {
-        ACS_LOG_WARN("SaveArchive::ReadFromFile: version mismatch (file=%u, expected=%u)",
+        ACS_LOG_WARN("FSaveArchive::ReadFromFile: version mismatch (file=%u, expected=%u)",
                      version, expected_version);
         ::CloseHandle(h);
-        return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubMigrationNeeded),
-                       "SaveArchive::ReadFromFile: version mismatch (migration needed)");
+        return ACS_ERR(FAsset, SubU16(ESaveArchiveSubCode::kSubMigrationNeeded),
+                       "FSaveArchive::ReadFromFile: version mismatch (migration needed)");
     }
 
     // ---- buffer 容量 check --------------------------------------------
     if (out_capacity < payload_size) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubBufferTooSmall),
-                       "SaveArchive::ReadFromFile: out_capacity < payload_size");
+                       "FSaveArchive::ReadFromFile: out_capacity < payload_size");
     }
 
     // ---- payload を out_payload に読み込む -----------------------------
@@ -345,7 +345,7 @@ TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
         if (!ReadAll(h, out_payload, payload_size, err)) {
             ::CloseHandle(h);
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                              "SaveArchive::ReadFromFile: ReadFile (payload) failed", err);
+                              "FSaveArchive::ReadFromFile: ReadFile (payload) failed", err);
         }
     }
 
@@ -353,11 +353,11 @@ TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
     const u32 actual_crc = (payload_size > 0) ? ComputeCrc32(out_payload, payload_size)
                                               : (0xFFFFFFFFu ^ 0xFFFFFFFFu);
     if (actual_crc != expected_crc) {
-        ACS_LOG_WARN("SaveArchive::ReadFromFile: CRC mismatch (expected=0x%08x, actual=0x%08x)",
+        ACS_LOG_WARN("FSaveArchive::ReadFromFile: CRC mismatch (expected=0x%08x, actual=0x%08x)",
                      expected_crc, actual_crc);
         ::CloseHandle(h);
-        return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubChecksumFail),
-                       "SaveArchive::ReadFromFile: CRC32 mismatch (corrupt or tampered)");
+        return ACS_ERR(FAsset, SubU16(ESaveArchiveSubCode::kSubChecksumFail),
+                       "FSaveArchive::ReadFromFile: CRC32 mismatch (corrupt or tampered)");
     }
 
     ::CloseHandle(h);
@@ -365,9 +365,9 @@ TResult<u32> SaveArchive::ReadFromFile(const wchar_t* file_path,
 }
 
 // ============================================================================
-// SaveArchive::PeekVersion — header のみ読んで version を返す
+// FSaveArchive::PeekVersion — header のみ読んで version を返す
 // ============================================================================
-TResult<u32> SaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
+TResult<u32> FSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
     auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
@@ -377,23 +377,23 @@ TResult<u32> SaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
     if (!ReadAll(h, header_buf, kHeaderSize, err)) {
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "SaveArchive::PeekVersion: ReadFile (header) failed", err);
+                          "FSaveArchive::PeekVersion: ReadFile (header) failed", err);
     }
     ::CloseHandle(h);
 
     u32 version = 0, dummy_crc = 0;
     u64 dummy_size = 0;
     if (!ParseHeader(header_buf, version, dummy_size, dummy_crc)) {
-        return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "SaveArchive::PeekVersion: magic mismatch (not an .acssave)");
+        return ACS_ERR(FAsset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
+                       "FSaveArchive::PeekVersion: magic mismatch (not an .acssave)");
     }
     return TResult<u32>(OkInit, version);
 }
 
 // ============================================================================
-// SaveArchive::PeekPayloadSize — header のみ読んで payload_size を返す
+// FSaveArchive::PeekPayloadSize — header のみ読んで payload_size を返す
 // ============================================================================
-TResult<u64> SaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
+TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
@@ -403,15 +403,15 @@ TResult<u64> SaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     if (!ReadAll(h, header_buf, kHeaderSize, err)) {
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "SaveArchive::PeekPayloadSize: ReadFile (header) failed", err);
+                          "FSaveArchive::PeekPayloadSize: ReadFile (header) failed", err);
     }
     ::CloseHandle(h);
 
     u32 dummy_version = 0, dummy_crc = 0;
     u64 payload_size  = 0;
     if (!ParseHeader(header_buf, dummy_version, payload_size, dummy_crc)) {
-        return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
-                       "SaveArchive::PeekPayloadSize: magic mismatch (not an .acssave)");
+        return ACS_ERR(FAsset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
+                       "FSaveArchive::PeekPayloadSize: magic mismatch (not an .acssave)");
     }
     return TResult<u64>(OkInit, payload_size);
 }

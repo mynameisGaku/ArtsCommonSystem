@@ -50,17 +50,17 @@ void HelloShadowsApp::OnStart() noexcept {
 }
 
 void HelloShadowsApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     _time += dt;
 
-    if (Input::IsKeyDown(EKey::Space)) _sun_yaw += dt * 0.6f;
+    if (FInput::IsKeyDown(EKey::Space)) _sun_yaw += dt * 0.6f;
 
     // カメラ操作 (yaw/pitch + WASD で平行移動、pitch は ±81 度に clamp)
     const f32 mv = 5.0f * dt, tr = 1.5f * dt;
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += tr;
-    if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
+    if (FInput::IsKeyDown(EKey::Right)) _cam_yaw += tr;
+    if (FInput::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;
@@ -68,10 +68,10 @@ void HelloShadowsApp::OnUpdate(f32 dt) noexcept {
                  -Sin(_cam_pitch),
                   Cos(_cam_yaw) * Cos(_cam_pitch) };
     FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
-    if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
-    if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
-    if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
-    if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * mv;
+    if (FInput::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
+    if (FInput::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
+    if (FInput::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
+    if (FInput::IsKeyDown(EKey::A)) _cam_pos -= right   * mv;
     _camera.SetLookAt(_cam_pos, _cam_pos + forward);
 }
 
@@ -86,7 +86,7 @@ void HelloShadowsApp::OnRender() noexcept {
         Cos(_sun_yaw) * 0.6f,
     };
 
-    // シャドウパス + 主パス (Sky → 地面 → キャスタ) は scene に委譲。
+    // シャドウパス + 主パス (FSky → 地面 → キャスタ) は scene に委譲。
     _scene.Render(_sky, _shader, _shadow, *cl, _camera,
                   _gm_plane, _gm_cube, _gm_sphere, sun_dir);
 
@@ -110,9 +110,9 @@ void HelloShadowsApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     _font.Shutdown();
     _batch.Shutdown();
-    _gm_plane  = GpuMesh{};
-    _gm_sphere = GpuMesh{};
-    _gm_cube   = GpuMesh{};
+    _gm_plane  = FGpuMesh{};
+    _gm_sphere = FGpuMesh{};
+    _gm_cube   = FGpuMesh{};
     _shadow.Shutdown();
     _shader.Shutdown();
     _sky.Shutdown();

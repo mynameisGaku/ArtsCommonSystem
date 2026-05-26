@@ -1,25 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R / I — BuffSystem (状態異常 / バフ / デバフ管理)
+// GameFramework Pillar R / I — FBuffSystem (状態異常 / バフ / デバフ管理)
 //
 // RPG / アクション / ローグライク等で頻出する「複数 owner (= キャラ) に対して
 // 複数の時間制限付き効果 (バフ / デバフ) を載せて、tick で進行 + 期限切れ
-// 通知をする」マネージャ。`EffectSystem` (Pillar I Phase 1) が「画面の Flash /
+// 通知をする」マネージャ。`FEffectSystem` (Pillar I Phase 1) が「画面の Flash /
 // Shake のような視覚演出」だったのに対し、本クラスは「キャラに紐付くゲームロジ
 // ック上の状態」を担当する。実際のステータス計算 (= AttackUp バフが攻撃力に
 // 何倍を掛けるか) は呼出側 (= キャラクタコンポーネント) が `AllBuffsOfOwner()`
 // で列挙して自分で行う設計 — 本クラスは「いつ、どの owner に、どの buff が、
 // 何 stack あるか、残り何秒か」だけを真実として保持する。
 //
-// 設計選択 (Phase R/I — BuffSystem):
-//   ・**BuffOwnerId は 24bit index + 8bit gen の packed handle**:
-//     `FNodeId` / `FEmitterHandle` / `TimerHandle` と同一規約。`_packed == 0` を
+// 設計選択 (Phase R/I — FBuffSystem):
+//   ・**FBuffOwnerId は 24bit index + 8bit gen の packed handle**:
+//     `FNodeId` / `FEmitterHandle` / `FTimerHandle` と同一規約。`_packed == 0` を
 //     invalid とし、gen は常に 1 以上で配る (0 は「未使用 slot」を意味する)。
 //     これにより DestroyOwner 後の stale handle を gen 不一致で確実に弾ける。
-//   ・**owner ごとに sparse な buff 配列**: OwnerSlot 内に `TArray<BuffInstance>`
+//   ・**owner ごとに sparse な buff 配列**: FOwnerSlot 内に `TArray<FBuffInstance>`
 //     を持つ。owner 数は数百、各 owner の buff 数は通常 1〜10 程度を想定。
 //     線形検索で十分。SoA にして「全 owner 横断で同じ buff_id を集める」用途は
 //     現状無いので、AoS の単純さを優先。
-//   ・**registry は `TArray<BuffDef>`**: BuffDef はゲーム起動時に一括 Register
+//   ・**registry は `TArray<FBuffDef>`**: FBuffDef はゲーム起動時に一括 Register
 //     される静的データ想定。id は const char* で文字列リテラルを参照する想定
 //     (`<string>` 禁止、所有しない、長寿命を caller が保証)。
 //   ・**EBuffStackPolicy 3 種**:
@@ -49,13 +49,13 @@
 //     swap-and-pop で除去しつつ、その buff の id を一時バッファに記録 → 全
 //     除去完了後にコールバックを呼ぶ流れ。コールバック中に owner や buff が
 //     変化しても安全。
-//   ・**非コピー・非ムーブ**: 内部 TArray<OwnerSlot> がさらに TArray<BuffInstance>
+//   ・**非コピー・非ムーブ**: 内部 TArray<FOwnerSlot> がさらに TArray<FBuffInstance>
 //     を持つ二段ネスト構造で、ポインタ参照や AllBuffsOfOwner で生バッファを
 //     返す API があるため。ムーブで実体アドレスが変わると外部参照が破綻する。
 //   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
 //
 // 使い方:
-//   BuffSystem bs;
+//   FBuffSystem bs;
 //
 //   // 1) バフ定義を起動時に一括登録 (id は文字列リテラル想定)
 //   bs.RegisterBuff({
@@ -70,7 +70,7 @@
 //   });
 //
 //   // 2) owner を発行 (= キャラ初期化時)
-//   BuffOwnerId player = bs.CreateOwner();
+//   FBuffOwnerId player = bs.CreateOwner();
 //
 //   // 3) tick / expire コールバックで実ロジックを橋渡し
 //   bs.SetOnTickCallback(&MyOnBuffTick, &game_ctx);    // HP 増減等
@@ -84,7 +84,7 @@
 //
 //   // 6) AttackUp 等の「持続中の効果倍率」を毎フレ取得する想定:
 //   u32 n = 0;
-//   const BuffInstance* list = bs.AllBuffsOfOwner(player, n);
+//   const FBuffInstance* list = bs.AllBuffsOfOwner(player, n);
 //   for (u32 i = 0; i < n; ++i) { /* 計算 */ }
 //
 // 範囲外 (将来拡張):
@@ -128,7 +128,7 @@ enum class EBuffKind : u8 {
     Custom,
 };
 
-// ---- BuffDef: バフ 1 種類の定義 ---------------------------------------------
+// ---- FBuffDef: バフ 1 種類の定義 ---------------------------------------------
 // id                  : バフキー (ApplyBuff / RemoveBuff の検索キー)。文字列リテラル想定 (非所有)。
 // kind                : 大分類タグ。呼出側のロジック分岐用。
 // duration_sec        : 効果持続秒。Refresh / Stack 時に remaining_sec の初期値となる。
@@ -142,7 +142,7 @@ enum class EBuffKind : u8 {
 //                       defensive に 1 として扱う。Refresh / Ignore のときは無視される。
 // is_debuff           : UI 表示色 (赤 / 青) や「dispel 可能か」の判定で使う、開発者宣言フラグ。
 //                       Manager は強制せず、値を保存して照会できるようにするだけ。
-struct BuffDef {
+struct FBuffDef {
     const char*     id                = nullptr;
     EBuffKind        kind              = EBuffKind::Custom;
     f32             duration_sec      = 0.0f;
@@ -153,23 +153,23 @@ struct BuffDef {
     bool            is_debuff         = false;
 };
 
-// ---- BuffInstance: ある owner に現在掛かっている buff の実体 ---------------
-// id            : Definition への参照 (BuffDef::id と同 const char*)。
+// ---- FBuffInstance: ある owner に現在掛かっている buff の実体 ---------------
+// id            : Definition への参照 (FBuffDef::id と同 const char*)。
 // remaining_sec : 残り秒数。Tick で減算され、0 以下になると expire される。
 // tick_accum    : 直近 tick からの累積秒。tick_interval_sec >= 1 ごとに magnitude
 //                 を発火し、その分減算する。
 // stack         : 現在の重ねがけ数 (Stack policy のときのみ 2 以上になりうる)。
-struct BuffInstance {
+struct FBuffInstance {
     const char* id            = nullptr;
     f32         remaining_sec = 0.0f;
     f32         tick_accum    = 0.0f;
     u32         stack         = 0;
 };
 
-// ---- BuffOwnerId: 24bit index + 8bit gen を packed した opaque handle ------
+// ---- FBuffOwnerId: 24bit index + 8bit gen を packed した opaque handle ------
 // `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`FNodeId` /
-// `FEmitterHandle` / `TimerHandle` と同一規約。
-struct BuffOwnerId {
+// `FEmitterHandle` / `FTimerHandle` と同一規約。
+struct FBuffOwnerId {
     u32 _packed = 0u;
 
     static constexpr u32 kIndexBits = 24u;
@@ -178,8 +178,8 @@ struct BuffOwnerId {
 
     bool IsValid() const noexcept { return _packed != 0u; }
 
-    static BuffOwnerId Pack(u32 index, u8 gen) noexcept {
-        BuffOwnerId o;
+    static FBuffOwnerId Pack(u32 index, u8 gen) noexcept {
+        FBuffOwnerId o;
         o._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return o;
     }
@@ -187,92 +187,92 @@ struct BuffOwnerId {
     u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
 };
 
-// ---- BuffSystem ------------------------------------------------------------
-class BuffSystem {
+// ---- FBuffSystem ------------------------------------------------------------
+class FBuffSystem {
 public:
     // tick callback. tick_interval_sec ごとに発火 (Regen / Poison / Burn 用)。
     //   user      : SetOnTickCallback で渡したコンテキスト (Manager は所有しない)
     //   owner     : 対象 owner (= キャラ)
-    //   buff_id   : 発火した BuffDef::id (= 文字列リテラル等の生 const char*)
+    //   buff_id   : 発火した FBuffDef::id (= 文字列リテラル等の生 const char*)
     //   stack     : 発火時点の stack 数 (1 以上)
-    //   magnitude : BuffDef::magnitude (= 1 tick あたりの効果量)
-    using TickCallback = void(*)(void* user, BuffOwnerId owner, const char* buff_id,
+    //   magnitude : FBuffDef::magnitude (= 1 tick あたりの効果量)
+    using TickCallback = void(*)(void* user, FBuffOwnerId owner, const char* buff_id,
                                   u32 stack, f32 magnitude) noexcept;
 
     // 期限切れ callback. remaining_sec が 0 以下に達した時 (= 自然終了) と
     // RemoveBuff() で明示的に外された時の両方で発火する。
     //   user      : SetOnExpireCallback で渡したコンテキスト
     //   owner     : 対象 owner
-    //   buff_id   : 期限切れになった BuffDef::id
-    using ExpireCallback = void(*)(void* user, BuffOwnerId owner, const char* buff_id) noexcept;
+    //   buff_id   : 期限切れになった FBuffDef::id
+    using ExpireCallback = void(*)(void* user, FBuffOwnerId owner, const char* buff_id) noexcept;
 
-    BuffSystem()  noexcept = default;
-    ~BuffSystem() noexcept = default;
+    FBuffSystem()  noexcept = default;
+    ~FBuffSystem() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 TArray<OwnerSlot> + AllBuffsOfOwner が生バッファを
+    // 非コピー・非ムーブ: 内部 TArray<FOwnerSlot> + AllBuffsOfOwner が生バッファを
     // 返す API のため。ムーブで実体アドレスが変わると外部参照が破綻する。
-    BuffSystem(const BuffSystem&)            = delete;
-    BuffSystem& operator=(const BuffSystem&) = delete;
-    BuffSystem(BuffSystem&&)                 = delete;
-    BuffSystem& operator=(BuffSystem&&)      = delete;
+    FBuffSystem(const FBuffSystem&)            = delete;
+    FBuffSystem& operator=(const FBuffSystem&) = delete;
+    FBuffSystem(FBuffSystem&&)                 = delete;
+    FBuffSystem& operator=(FBuffSystem&&)      = delete;
 
     // ---- バフ定義 ---------------------------------------------------------
     // id ごとに registry に追加。同 id の 2 重登録は no-op (WARN)。
     // `def.id == nullptr` も no-op。`max_stack == 0` は defensive に 1 として記録する。
-    void RegisterBuff(const BuffDef& def) noexcept;
+    void RegisterBuff(const FBuffDef& def) noexcept;
 
     // ---- owner 管理 -------------------------------------------------------
     // 新規 owner を発行。slot が無ければ末尾追加、空き slot があれば再利用。
     // 24bit index 上限 (16,777,215) に達した場合は invalid handle を返す。
-    BuffOwnerId CreateOwner() noexcept;
+    FBuffOwnerId CreateOwner() noexcept;
 
     // owner を破棄 (= slot 解放 + gen 進める)。owner に掛かっていた全 buff は
     // 「強制クリア」扱いで除去するが、ExpireCallback は発火しない (= 「キャラが
     // 消えた」のと「効果が時間切れになった」を意味的に区別するため)。
     // invalid / stale / 範囲外 handle は no-op。
-    void DestroyOwner(BuffOwnerId owner) noexcept;
+    void DestroyOwner(FBuffOwnerId owner) noexcept;
 
     // ---- バフの適用 / 除去 ------------------------------------------------
     // owner に buff_id を適用する。
     //   ・owner が無効/stale  : false
     //   ・buff_id が未登録    : false
-    //   ・BuffDef::duration_sec <= 0  : false (= 即時消滅するので意味が無い)
+    //   ・FBuffDef::duration_sec <= 0  : false (= 即時消滅するので意味が無い)
     //   ・既存無し                    : 新規追加、true
     //   ・既存有り + Refresh          : remaining_sec を duration_sec で上書き、true
     //   ・既存有り + Stack            : stack++ (max_stack で clamp)、remaining_sec も reset、true
     //                                   (max_stack に達していて clamp で増えない場合も true)
     //   ・既存有り + Ignore           : 何もしない、false
-    bool ApplyBuff(BuffOwnerId owner, const char* buff_id) noexcept;
+    bool ApplyBuff(FBuffOwnerId owner, const char* buff_id) noexcept;
 
     // owner から buff_id を除去。stack 数に関係なく完全に消す (= 1 個でも残さない)。
     // 除去成功時は ExpireCallback を 1 回発火する。
     // owner 無効/stale / buff_id == nullptr / 該当 buff 無し は false。
-    bool RemoveBuff(BuffOwnerId owner, const char* buff_id) noexcept;
+    bool RemoveBuff(FBuffOwnerId owner, const char* buff_id) noexcept;
 
     // ---- 照会 -------------------------------------------------------------
-    // owner に掛かっている buff の総数 (= BuffInstance の数)。
+    // owner に掛かっている buff の総数 (= FBuffInstance の数)。
     // owner 無効/stale は 0。
-    u32 BuffCountOnOwner(BuffOwnerId owner) const noexcept;
+    u32 BuffCountOnOwner(FBuffOwnerId owner) const noexcept;
 
     // owner に buff_id が掛かっているか。owner 無効/stale / nullptr id は false。
-    bool HasBuff(BuffOwnerId owner, const char* buff_id) const noexcept;
+    bool HasBuff(FBuffOwnerId owner, const char* buff_id) const noexcept;
 
     // 指定 buff の現在 stack 数 (掛かっていなければ 0)。
-    u32 GetStack(BuffOwnerId owner, const char* buff_id) const noexcept;
+    u32 GetStack(FBuffOwnerId owner, const char* buff_id) const noexcept;
 
     // 指定 buff の残り秒 (掛かっていなければ 0.0f)。
-    f32 GetRemaining(BuffOwnerId owner, const char* buff_id) const noexcept;
+    f32 GetRemaining(FBuffOwnerId owner, const char* buff_id) const noexcept;
 
     // owner の全 buff の生バッファを返す。`out_count` に件数を書き出す。
     // 返却ポインタは ApplyBuff / RemoveBuff / Tick / DestroyOwner / ClearAll で
     // 無効化される可能性がある (= 同フレ内で読み切ること)。
     // owner 無効/stale は nullptr + out_count=0。
-    const BuffInstance* AllBuffsOfOwner(BuffOwnerId owner, u32& out_count) const noexcept;
+    const FBuffInstance* AllBuffsOfOwner(FBuffOwnerId owner, u32& out_count) const noexcept;
 
     // owner に掛かっている全 buff を消す。ExpireCallback は発火しない
     // (= DestroyOwner と同じ「強制クリア」セマンティクス)。
     // owner 無効/stale は no-op。
-    void ClearAllOnOwner(BuffOwnerId owner) noexcept;
+    void ClearAllOnOwner(FBuffOwnerId owner) noexcept;
 
     // ---- コールバック -----------------------------------------------------
     // nullptr で detach。user は所有しない (= 呼出側の責務)。
@@ -297,8 +297,8 @@ private:
     // ---- 内部 owner slot ------------------------------------------------
     // 各 owner に紐付く buff 配列。`in_use=false` の slot は再利用される。
     // gen は 1 以上で配り、0 は「未使用」を意味する (= packed == 0 と整合)。
-    struct OwnerSlot {
-        TArray<BuffInstance> buffs {};
+    struct FOwnerSlot {
+        TArray<FBuffInstance> buffs {};
         u8                  gen      = 0u;
         bool                in_use   = false;
     };
@@ -307,17 +307,17 @@ private:
     // buff_id → registry index。未検出は ~0u。
     u32 FindBuffDefSlot(const char* buff_id) const noexcept;
 
-    // owner handle → OwnerSlot* (gen 一致 + in_use + 範囲チェック)。
+    // owner handle → FOwnerSlot* (gen 一致 + in_use + 範囲チェック)。
     // 失敗時は nullptr。const / non-const 二口。
-    OwnerSlot*       ResolveOwner(BuffOwnerId owner) noexcept;
-    const OwnerSlot* ResolveOwner(BuffOwnerId owner) const noexcept;
+    FOwnerSlot*       ResolveOwner(FBuffOwnerId owner) noexcept;
+    const FOwnerSlot* ResolveOwner(FBuffOwnerId owner) const noexcept;
 
-    // OwnerSlot 内の buff_id → index。未検出は ~0u。
-    static u32 FindBuffInstance(const OwnerSlot& slot, const char* buff_id) noexcept;
+    // FOwnerSlot 内の buff_id → index。未検出は ~0u。
+    static u32 FindBuffInstance(const FOwnerSlot& slot, const char* buff_id) noexcept;
 
     // ---- 状態 ----------------------------------------------------------
-    TArray<BuffDef>   _registry  {};  // BuffDef テーブル (id ベースで find)
-    TArray<OwnerSlot> _owners    {};  // OwnerSlot 配列 (generational)
+    TArray<FBuffDef>   _registry  {};  // FBuffDef テーブル (id ベースで find)
+    TArray<FOwnerSlot> _owners    {};  // FOwnerSlot 配列 (generational)
 
     TickCallback     _on_tick        = nullptr;
     void*            _on_tick_user   = nullptr;

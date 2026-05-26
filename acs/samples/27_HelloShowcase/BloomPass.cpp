@@ -12,14 +12,14 @@ namespace helloshowcase {
 void ExecuteBloomPass(Assets& a, IRhiCommandList& cl,
                       IRhiSwapchain& sc, u32 buffer_index,
                       IRhiTexture& depth,
-                      PostProcessParams& post_params,
+                      FPostProcessParams& post_params,
                       const FMat4& vp_no_jitter,
                       const FMat4& prev_vp_no_jitter,
                       bool prev_vp_valid,
                       IRhiTexture* motion_or_null) noexcept {
     // TAA: motion vector + (前 VP が valid なら) depth を渡し、history を
     // 前フレームから reproject する。1 フレーム目は depth=null で OK
-    // (PostProcess 側で no-history のパスになる)。
+    // (FPostProcess 側で no-history のパスになる)。
     post_params.taa_enabled                   = true;
     post_params.taa_blend_factor              = 0.1f;
     post_params.taa_motion_texture            = motion_or_null;

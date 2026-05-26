@@ -26,8 +26,8 @@
 //     取得する (wmain は MinGW など環境差があるため使わない)
 //
 // Phase 1 制約:
-//   ・--encrypt / --compress / --key は parse はするが、AcpakWriter::Open が
-//     NotImplemented を返すため実機能は Phase 24 で AcpakCrypto/Lz4 が入った
+//   ・--encrypt / --compress / --key は parse はするが、FAcpakWriter::Open が
+//     NotImplemented を返すため実機能は Phase 24 で FAcpakCrypto/Lz4 が入った
 //     ときに有効化される。CLI 側ではフラグを EAcpakFlags にマップして渡すだけ。
 // =============================================================================
 
@@ -72,7 +72,7 @@ constexpr const char* kUsageMain =
 constexpr const char* kUsagePack =
     "acs_assetpack pack <input_dir> <output.acpak> [--encrypt] [--compress] [--key <hex>]\n"
     "  input_dir を再帰スキャンして全ファイルを .acpak v1 アーカイブにまとめる。\n"
-    "  --encrypt / --compress / --key は Phase 2 (AcpakCrypto/Lz4) で実機能化される予定。\n";
+    "  --encrypt / --compress / --key は Phase 2 (FAcpakCrypto/Lz4) で実機能化される予定。\n";
 
 constexpr const char* kUsageUnpack =
     "acs_assetpack unpack <input.acpak> <output_dir> [--key <hex>]\n"
@@ -228,7 +228,7 @@ bool BuildWideArgs(WideArgs& out) noexcept {
 
 // ----------------------------------------------------------------------------
 // バイトサイズを "1.23 MB" 風に整形する。out_size は char 数。
-// CRC32 検証は AcpakReader::ReadFile が内部で行う (poly 0xEDB88320)。
+// CRC32 検証は FAcpakReader::ReadFile が内部で行う (poly 0xEDB88320)。
 // ----------------------------------------------------------------------------
 void FormatBytes(u64 bytes, char* out, int out_size) noexcept {
     if (out_size <= 0) return;
@@ -321,7 +321,7 @@ TResult<void> ScanDirRecursive(const wchar_t*       cur_dir,
             }
         } else {
             // 通常ファイル — 読み込んで blob に積む
-            auto rb = FileSystem::ReadAllBytes(abs_path);
+            auto rb = FFileSystem::ReadAllBytes(abs_path);
             if (rb.IsErr()) {
                 ::FindClose(h);
                 return rb.Error();
@@ -387,11 +387,11 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
             std::fputs("pack: --key must be 64 hex chars (256-bit)\n", stderr);
             return 1;
         }
-        // Phase 24 で AcpakCrypto に渡す。現状は parse のみ。
+        // Phase 24 で FAcpakCrypto に渡す。現状は parse のみ。
     }
 
     // ---- 入力 dir 存在チェック -------------------------------------------
-    if (!FileSystem::DirectoryExists(input_dir)) {
+    if (!FFileSystem::DirectoryExists(input_dir)) {
         char u8buf[1024];
         Utf16ToUtf8(input_dir, u8buf, sizeof(u8buf));
         std::fprintf(stderr, "pack: input_dir does not exist: %s\n", u8buf);
@@ -420,11 +420,11 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     }
 
     // ---- Writer 起動 ------------------------------------------------------
-    AcpakWriter writer;
+    FAcpakWriter writer;
     {
         auto r = writer.Open(output_path, flags);
         if (r.IsErr()) {
-            PrintError(r.Error(), "pack: AcpakWriter::Open");
+            PrintError(r.Error(), "pack: FAcpakWriter::Open");
             return 2;
         }
     }
@@ -437,7 +437,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
                                 b.bytes.Data(),
                                 static_cast<u64>(b.bytes.Size()));
         if (r.IsErr()) {
-            PrintError(r.Error(), "pack: AcpakWriter::AddFile");
+            PrintError(r.Error(), "pack: FAcpakWriter::AddFile");
             return 2;
         }
     }
@@ -445,7 +445,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     {
         auto r = writer.Finalize();
         if (r.IsErr()) {
-            PrintError(r.Error(), "pack: AcpakWriter::Finalize");
+            PrintError(r.Error(), "pack: FAcpakWriter::Finalize");
             return 2;
         }
     }
@@ -454,7 +454,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     // ---- 出力ファイルサイズを取って報告 ------------------------------------
     u64 output_size = 0;
     {
-        auto sr = FileSystem::FileSize(output_path);
+        auto sr = FFileSystem::FileSize(output_path);
         if (sr.IsOk()) output_size = sr.Value();
     }
 
@@ -471,7 +471,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
         std::printf("  flags: %s%s%s\n",
                     opt_encrypt  ? "encrypted " : "",
                     opt_compress ? "compressed " : "",
-                    "(Phase 2 / AcpakCrypto+Lz4)");
+                    "(Phase 2 / FAcpakCrypto+Lz4)");
     }
     return 0;
 }
@@ -488,7 +488,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
     const wchar_t* input_path = argv[2];
     const wchar_t* output_dir = argv[3];
 
-    // --key parse (Phase 24 で AcpakReader に渡す)
+    // --key parse (Phase 24 で FAcpakReader に渡す)
     for (usize i = 4; i < argv.Size(); ++i) {
         const wchar_t* a = argv[i];
         if (EqualsW(a, L"--key")) {
@@ -510,18 +510,18 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
         }
     }
 
-    AcpakReader reader;
+    FAcpakReader reader;
     {
         auto r = reader.Open(input_path);
         if (r.IsErr()) {
-            PrintError(r.Error(), "unpack: AcpakReader::Open");
+            PrintError(r.Error(), "unpack: FAcpakReader::Open");
             return 2;
         }
     }
 
     // 出力 dir 作成
     {
-        auto r = FileSystem::CreateDirectory(output_dir);
+        auto r = FFileSystem::CreateDirectory(output_dir);
         if (r.IsErr()) {
             PrintError(r.Error(), "unpack: CreateDirectory");
             return 2;
@@ -532,7 +532,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
     u64       total_bytes = 0;
 
     for (u32 i = 0; i < count; ++i) {
-        const AcpakFileEntry* e = reader.GetEntry(i);
+        const FAcpakFileEntry* e = reader.GetEntry(i);
         if (e == nullptr) {
             std::fprintf(stderr, "unpack: GetEntry(%u) returned null\n", i);
             return 2;
@@ -565,7 +565,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
                 }
             }
             if (parent[0] != L'\0') {
-                auto r = FileSystem::CreateDirectory(parent);
+                auto r = FFileSystem::CreateDirectory(parent);
                 if (r.IsErr()) {
                     PrintError(r.Error(), "unpack: CreateDirectory (parent)");
                     return 2;
@@ -585,7 +585,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
         }
 
         // 書き出し
-        auto wr = FileSystem::WriteAllBytes(dst_path, buf.Data(), buf.Size());
+        auto wr = FFileSystem::WriteAllBytes(dst_path, buf.Data(), buf.Size());
         if (wr.IsErr()) {
             PrintError(wr.Error(), "unpack: WriteAllBytes");
             return 2;
@@ -612,11 +612,11 @@ int CmdList(const TArray<wchar_t*>& argv) noexcept {
     }
     const wchar_t* input_path = argv[2];
 
-    AcpakReader reader;
+    FAcpakReader reader;
     {
         auto r = reader.Open(input_path);
         if (r.IsErr()) {
-            PrintError(r.Error(), "list: AcpakReader::Open");
+            PrintError(r.Error(), "list: FAcpakReader::Open");
             return 2;
         }
     }
@@ -626,7 +626,7 @@ int CmdList(const TArray<wchar_t*>& argv) noexcept {
     std::printf("---------------------------------------------------------------\n");
 
     for (u32 i = 0; i < count; ++i) {
-        const AcpakFileEntry* e = reader.GetEntry(i);
+        const FAcpakFileEntry* e = reader.GetEntry(i);
         if (e == nullptr) continue;
 
         char path_u8[1024];
@@ -652,11 +652,11 @@ int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
     }
     const wchar_t* input_path = argv[2];
 
-    AcpakReader reader;
+    FAcpakReader reader;
     {
         auto r = reader.Open(input_path);
         if (r.IsErr()) {
-            PrintError(r.Error(), "verify: AcpakReader::Open");
+            PrintError(r.Error(), "verify: FAcpakReader::Open");
             return 2;
         }
     }
@@ -666,7 +666,7 @@ int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
     u32       fail_count = 0;
 
     for (u32 i = 0; i < count; ++i) {
-        const AcpakFileEntry* e = reader.GetEntry(i);
+        const FAcpakFileEntry* e = reader.GetEntry(i);
         if (e == nullptr) {
             ++fail_count;
             continue;
@@ -707,7 +707,7 @@ int CmdInfo(const TArray<wchar_t*>& argv) noexcept {
     // file_size はヘッダ parse の前に取れる
     u64 file_size = 0;
     {
-        auto sr = FileSystem::FileSize(input_path);
+        auto sr = FFileSystem::FileSize(input_path);
         if (sr.IsErr()) {
             PrintError(sr.Error(), "info: FileSize");
             return 2;
@@ -715,11 +715,11 @@ int CmdInfo(const TArray<wchar_t*>& argv) noexcept {
         file_size = sr.Value();
     }
 
-    AcpakReader reader;
+    FAcpakReader reader;
     {
         auto r = reader.Open(input_path);
         if (r.IsErr()) {
-            PrintError(r.Error(), "info: AcpakReader::Open");
+            PrintError(r.Error(), "info: FAcpakReader::Open");
             return 2;
         }
     }

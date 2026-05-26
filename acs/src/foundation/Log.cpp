@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// 非同期スレッドセーフ Logger 実装
+// 非同期スレッドセーフ FLogger 実装
 #include "foundation/Log.h"
 #include "foundation/Platform.h"
 
@@ -147,7 +147,7 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept {
         if (dropped > 0) {
             char warn[160];
             int n = ::snprintf(warn, sizeof(warn),
-                "[acs::Logger] WARNING: dropped %lld log records due to ring overflow\n",
+                "[acs::FLogger] WARNING: dropped %lld log records due to ring overflow\n",
                 static_cast<long long>(dropped));
             if (n > 0) {
                 if (g_state.use_console) WriteAll(g_state.out_console, warn, static_cast<usize>(n));
@@ -180,7 +180,7 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept {
 } // namespace
 
 // 初期化
-void Logger::Init(const FLogConfig& cfg) noexcept {
+void FLogger::Init(const FLogConfig& cfg) noexcept {
     if (::_InterlockedCompareExchange(&g_inited, 1, 0) != 0) return;
 
     // capacity を 2 のべき乗（最低 16）に補正
@@ -194,7 +194,7 @@ void Logger::Init(const FLogConfig& cfg) noexcept {
     void* mem = ::VirtualAlloc(nullptr, sizeof(Cell) * cap,
                                MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!mem) {
-        ::OutputDebugStringA("[acs::Logger] FATAL: ring allocation failed\n");
+        ::OutputDebugStringA("[acs::FLogger] FATAL: ring allocation failed\n");
         ::_InterlockedExchange(&g_inited, 0);
         return;
     }
@@ -228,11 +228,11 @@ void Logger::Init(const FLogConfig& cfg) noexcept {
 
     // ライタースレッド起動
     g_state.writer_thread = ::CreateThread(nullptr, 0, &WriterThreadProc, nullptr, 0, nullptr);
-    ::SetThreadDescription(g_state.writer_thread, L"acs::Logger writer");
+    ::SetThreadDescription(g_state.writer_thread, L"acs::FLogger writer");
 }
 
 // シャットダウン
-void Logger::Shutdown() noexcept {
+void FLogger::Shutdown() noexcept {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
 
     ::_InterlockedExchange(&g_state.running, 0);
@@ -254,7 +254,7 @@ void Logger::Shutdown() noexcept {
 }
 
 // 残レコードを書き出すまで待つ
-void Logger::Flush() noexcept {
+void FLogger::Flush() noexcept {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
     // 最大 1000 回リトライ（1ms x 1000 = 1秒）
     for (int i = 0; i < 1000; ++i) {
@@ -267,21 +267,21 @@ void Logger::Flush() noexcept {
     if (g_state.out_file != INVALID_HANDLE_VALUE) ::FlushFileBuffers(g_state.out_file);
 }
 
-void Logger::SetMinSeverity(ELogSeverity s) noexcept {
+void FLogger::SetMinSeverity(ELogSeverity s) noexcept {
     ::_InterlockedExchange(&g_state.min_severity, static_cast<LONG>(s));
 }
 
-bool Logger::Enabled(ELogSeverity s) noexcept {
+bool FLogger::Enabled(ELogSeverity s) noexcept {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return false;
     return static_cast<LONG>(s) >= ::_InterlockedExchangeAdd(&g_state.min_severity, 0);
 }
 
-u64 Logger::DroppedCount() noexcept {
+u64 FLogger::DroppedCount() noexcept {
     return static_cast<u64>(::_InterlockedExchangeAdd64(&g_state.dropped, 0));
 }
 
 // プロデューサ実体（Vyukov 風 CAS でセル予約 → 書き込み → release 公開）
-void Logger::Write(ELogSeverity sev, FSourceLoc loc, const char* fmt, ...) noexcept {
+void FLogger::Write(ELogSeverity sev, FSourceLoc loc, const char* fmt, ...) noexcept {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
     if (static_cast<LONG>(sev) < ::_InterlockedExchangeAdd(&g_state.min_severity, 0)) return;
 

@@ -7,14 +7,14 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
-class Dx12Buffer final : public IRhiBuffer {
+class FDx12Buffer final : public IRhiBuffer {
 public:
-    Dx12Buffer() noexcept = default;
-    ~Dx12Buffer() noexcept override;
+    FDx12Buffer() noexcept = default;
+    ~FDx12Buffer() noexcept override;
 
-    HrResult Init(Dx12Device& device, const FBufferDesc& desc) noexcept;
+    FHrResult Init(FDx12Device& device, const FBufferDesc& desc) noexcept;
 
     usize       Size()  const noexcept override { return _size; }
     EBufferUsage Usage() const noexcept override { return _usage; }
@@ -28,12 +28,12 @@ public:
     D3D12_GPU_VIRTUAL_ADDRESS Gpu()      const noexcept;
 
 private:
-    Dx12Device*     _device       = nullptr;     // フレームスロット問い合わせ用
+    FDx12Device*     _device       = nullptr;     // フレームスロット問い合わせ用
     ID3D12Resource* _resource     = nullptr;
     void*           _mapped       = nullptr;     // cpu_writable=true なら永続マップ
     usize           _size         = 0;            // 1 フレームスロットあたりサイズ
     usize           _slot_stride  = 0;            // ring 用ストライド（256 align、リング無効なら 0）
-    EBufferUsage     _usage        = EBufferUsage::Vertex;
+    EBufferUsage     _usage        = EBufferUsage::FVertex;
     bool            _cpu_writable = false;
     bool            _frame_cycled = false;       // Uniform + cpu_writable で自動 ON
 };

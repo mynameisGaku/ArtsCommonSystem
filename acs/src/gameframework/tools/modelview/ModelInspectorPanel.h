@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / ModelInspectorPanel (Phase 21b ModelViewer 第二弾)
+// GameFramework Pillar — modelview / FModelInspectorPanel (Phase 21b ModelViewer 第二弾)
 //
 // ModelViewer ワークスペース内に配置される **読み取り専用の mesh 情報 panel**。
-// AssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
-// ModelViewerPanel (別エージェント) が load した結果を、本 panel に
+// FAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
+// FModelViewerPanel (別エージェント) が load した結果を、本 panel に
 // `UpdateFromModel(...)` でプッシュしてもらい、内部にスナップショットとして
 // 保持して ImGui で表示する。Unity の Mesh Inspector / Godot の "Import"
 // 出力タブ / UE の Static Mesh Editor の "Mesh Details" 相当。
@@ -19,15 +19,15 @@
 //
 // 役割分担:
 //   ・本パネルは「描画 + 配列のスナップショット保持」だけを担当。実 model load /
-//     parse は ModelViewerPanel (別エージェント) と Mesh / Skeleton / AnimationClip
-//     モジュールの責任。caller (= ModelViewerPanel もしくは sample 31) が
+//     parse は FModelViewerPanel (別エージェント) と Mesh / Skeleton / AnimationClip
+//     モジュールの責任。caller (= FModelViewerPanel もしくは sample 31) が
 //     load 完了時に本 panel の `UpdateFromModel` を呼んで情報を流し込む。
 //   ・本 panel は callback / 編集 / GPU リソース確保を一切持たない (= 純粋な
 //     read-only viewer)。書き込みが必要になったら Phase 21c で別 panel を追加する。
 //
 // 設計選択 (Phase 21b modelview):
-//   ・**EditorPanel 継承**: Phase 21a で確立した editor_core 基底に乗せる。
-//     ModelViewerPanel / sample 31 が EditorWorkspace 経由で本 panel を
+//   ・**FEditorPanel 継承**: Phase 21a で確立した editor_core 基底に乗せる。
+//     FModelViewerPanel / sample 31 が FEditorWorkspace 経由で本 panel を
 //     register する。Title は "Model Info" (Unity / Godot の Inspector 表記寄り)。
 //   ・**スナップショット方式**: 元の Mesh / Skeleton / AnimationClip オブジェクト
 //     を ref で保持しない (= モデル再 load / 解放と本 panel の表示が race しない
@@ -37,7 +37,7 @@
 //     安全 (= ImGui draw までに開放されない)。
 //   ・**3 つの可変長配列 + 1 つの fixed struct**: submeshes / bones / clips は
 //     model ごとに件数が変わるため `acs::TArray<T>`。summary は単一 struct で
-//     値保持。AssetBrowser / HierarchyPanel と同形の "TArray<T> を内部に持つ
+//     値保持。FAssetBrowser / FHierarchyPanel と同形の "TArray<T> を内部に持つ
 //     panel" パターン。
 //   ・**has_model flag**: load 前 (= UpdateFromModel が一度も呼ばれていない) /
 //     Clear 直後の状態を識別するためのフラグ。DrawUI 冒頭で "(No model loaded)"
@@ -48,7 +48,7 @@
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。name は
 //     `const char*` リテラル / caller 所有領域を想定。
 //   ・**ImGui ヘッダは含めない**: 派生 .cpp で <imgui.h> を include する形
-//     (ParticleEditorPanel / InspectorPanel / HierarchyPanel と同形)。
+//     (FParticleEditorPanel / FInspectorPanel / FHierarchyPanel と同形)。
 //   ・**bone hierarchy は描画時にオンザフライ走査**: 子リストを事前構築せず、
 //     各 node 描画時に全 bone を線形走査して `parent_index == this_index` の
 //     子を見つけて再帰する。bone 数 100k 級でなければ十分速く、メモリ追加なし。
@@ -64,7 +64,7 @@
 // 範囲外 (Phase 21b 時点で持たない、将来追加候補):
 //   ・vertex buffer の hex dump 表示
 //   ・bone influence weight の matrix 表示
-//   ・animation clip の preview (= 別 panel ModelAnimationPanel で Phase 21c 予定)
+//   ・animation clip の preview (= 別 panel FModelAnimationPanel で Phase 21c 予定)
 //   ・material slot の thumbnail / shader 名表示 (= MaterialEditor 連携)
 //   ・LOD 階層情報
 //   ・mesh / submesh の visibility toggle (= 編集機能、別 panel で)
@@ -79,12 +79,12 @@
 namespace acs::game::modelview {
 
 // ---------------------------------------------------------------------------
-// MeshSummary — model 全体の集計情報 (単一インスタンス、値コピー保持)
+// FMeshSummary — model 全体の集計情報 (単一インスタンス、値コピー保持)
 // ---------------------------------------------------------------------------
-// caller (ModelViewerPanel 等) が model load 後に集計して本 panel に渡す。
+// caller (FModelViewerPanel 等) が model load 後に集計して本 panel に渡す。
 // 全フィールド値型のため、Mesh / Skeleton / AnimationClip 側のリソース解放と
 // 本 panel の表示は完全に decouple される。
-struct MeshSummary {
+struct FMeshSummary {
     u32        vertex_count          = 0;   // 全 vertex 数 (submesh 跨ぎ合算後)
     u32        triangle_count        = 0;   // 全 triangle 数 (index_count / 3 合算)
     u32        submesh_count         = 0;   // submesh セクション数
@@ -96,10 +96,10 @@ struct MeshSummary {
 };
 
 // ---------------------------------------------------------------------------
-// SubmeshInfo — 1 submesh セクションの情報 (name + index 範囲 + material slot)
+// FSubmeshInfo — 1 submesh セクションの情報 (name + index 範囲 + material slot)
 // ---------------------------------------------------------------------------
 // name は caller 所有のリテラル / permanent string を想定 (panel 寿命 ≦ name 寿命)。
-struct SubmeshInfo {
+struct FSubmeshInfo {
     const char* name                 = nullptr; // 例: "Body", "Hair", "Eyes"
     u32         index_start          = 0;       // 全 index buffer 内の開始 index
     u32         index_count          = 0;       // この submesh の index 数 (3 の倍数想定)
@@ -107,19 +107,19 @@ struct SubmeshInfo {
 };
 
 // ---------------------------------------------------------------------------
-// BoneInfo — 1 bone の情報 (name + 親 index)
+// FBoneInfo — 1 bone の情報 (name + 親 index)
 // ---------------------------------------------------------------------------
 // parent_index < 0 は root bone を意味する。本 panel は parent_index から子を
 // 線形走査で見つけて TreeNode 階層を再構築する (= 子リストは保持しない)。
-struct BoneInfo {
+struct FBoneInfo {
     const char* name         = nullptr; // 例: "Hips", "Spine_01"
     i32         parent_index = -1;      // 同 bones 配列内の親 index、root は -1
 };
 
 // ---------------------------------------------------------------------------
-// AnimationClipInfo — 1 animation clip の情報
+// FAnimationClipInfo — 1 animation clip の情報
 // ---------------------------------------------------------------------------
-struct AnimationClipInfo {
+struct FAnimationClipInfo {
     const char* name         = nullptr; // 例: "Idle", "Run", "Attack01"
     f32         duration_sec = 0.0f;    // クリップの長さ (秒)
     u32         sample_count = 0;       // サンプル数 (= keyframe 数の合計など)
@@ -127,19 +127,19 @@ struct AnimationClipInfo {
 };
 
 // ---------------------------------------------------------------------------
-// ModelInspectorPanel — read-only mesh / skeleton / anim 情報ビューア
+// FModelInspectorPanel — read-only mesh / skeleton / anim 情報ビューア
 // ---------------------------------------------------------------------------
-class ModelInspectorPanel : public editor_core::EditorPanel {
+class FModelInspectorPanel : public editor_core::FEditorPanel {
 public:
-    ModelInspectorPanel() noexcept = default;
-    ~ModelInspectorPanel() noexcept override = default;
+    FModelInspectorPanel() noexcept = default;
+    ~FModelInspectorPanel() noexcept override = default;
 
     // 非コピー / 非ムーブ: 内部 TArray<...> + has_model 状態の所有を曖昧にしない
-    // (EditorPanel 基底自体も非コピー / 非ムーブ宣言済 = 規約上の継承)。
-    ModelInspectorPanel(const ModelInspectorPanel&)            = delete;
-    ModelInspectorPanel& operator=(const ModelInspectorPanel&) = delete;
-    ModelInspectorPanel(ModelInspectorPanel&&)                 = delete;
-    ModelInspectorPanel& operator=(ModelInspectorPanel&&)      = delete;
+    // (FEditorPanel 基底自体も非コピー / 非ムーブ宣言済 = 規約上の継承)。
+    FModelInspectorPanel(const FModelInspectorPanel&)            = delete;
+    FModelInspectorPanel& operator=(const FModelInspectorPanel&) = delete;
+    FModelInspectorPanel(FModelInspectorPanel&&)                 = delete;
+    FModelInspectorPanel& operator=(FModelInspectorPanel&&)      = delete;
 
     // ----- ライフサイクル ---------------------------------------------------
 
@@ -149,22 +149,22 @@ public:
     // 後片付け: 全配列 + summary をクリア、has_model = false。多重 Shutdown 可。
     void Shutdown() noexcept;
 
-    // ----- データ流し込み (caller = ModelViewerPanel 等) -------------------
+    // ----- データ流し込み (caller = FModelViewerPanel 等) -------------------
 
     // 現在表示する model のスナップショットを更新する。本 panel は値コピーして
     // 内部に保持する (submeshes / bones / clips は配列要素を値コピー)。
     // 各ポインタは nullptr 可 (count == 0 と整合させること)。
     // ・summary: 単一 struct を値コピーで保存
-    // ・submeshes[0..submesh_count): SubmeshInfo を TArray に PushBack コピー
-    // ・bones[0..bone_count)        : BoneInfo を TArray に PushBack コピー
-    // ・clips[0..clip_count)        : AnimationClipInfo を TArray に PushBack コピー
+    // ・submeshes[0..submesh_count): FSubmeshInfo を TArray に PushBack コピー
+    // ・bones[0..bone_count)        : FBoneInfo を TArray に PushBack コピー
+    // ・clips[0..clip_count)        : FAnimationClipInfo を TArray に PushBack コピー
     // 呼び出し後、`has_model = true` になり DrawUI が情報を表示する。
-    void UpdateFromModel(const MeshSummary&        summary,
-                         const SubmeshInfo*        submeshes,
+    void UpdateFromModel(const FMeshSummary&        summary,
+                         const FSubmeshInfo*        submeshes,
                          u32                       submesh_count,
-                         const BoneInfo*           bones,
+                         const FBoneInfo*           bones,
                          u32                       bone_count,
-                         const AnimationClipInfo*  clips,
+                         const FAnimationClipInfo*  clips,
                          u32                       clip_count) noexcept;
 
     // 表示内容を空に戻す ("No model loaded" 表示に切り替わる)。
@@ -173,30 +173,30 @@ public:
 
     // ----- 読み出しアクセサ ------------------------------------------------
 
-    const MeshSummary& Summary() const noexcept { return _summary; }
+    const FMeshSummary& Summary() const noexcept { return _summary; }
 
     u32 SubmeshCount() const noexcept { return static_cast<u32>(_submeshes.Size()); }
     // i >= SubmeshCount() のとき nullptr を返す (= 防衛的アクセス、UB なし)。
-    const SubmeshInfo* Submesh(u32 i) const noexcept {
+    const FSubmeshInfo* Submesh(u32 i) const noexcept {
         return (i < _submeshes.Size()) ? &_submeshes[i] : nullptr;
     }
 
     u32 BoneCount() const noexcept { return static_cast<u32>(_bones.Size()); }
-    const BoneInfo* FBone(u32 i) const noexcept {
+    const FBoneInfo* FBone(u32 i) const noexcept {
         return (i < _bones.Size()) ? &_bones[i] : nullptr;
     }
 
     u32 AnimationClipCount() const noexcept {
         return static_cast<u32>(_clips.Size());
     }
-    const AnimationClipInfo* AnimationClip(u32 i) const noexcept {
+    const FAnimationClipInfo* AnimationClip(u32 i) const noexcept {
         return (i < _clips.Size()) ? &_clips[i] : nullptr;
     }
 
     // 何らかの model が UpdateFromModel 経由で push されたか。
     bool HasModel() const noexcept { return _has_model; }
 
-    // ----- EditorPanel override --------------------------------------------
+    // ----- FEditorPanel override --------------------------------------------
 
     // ImGui::Begin に渡すウインドウタイトル (リテラル文字列)。
     const char* Title() const noexcept override { return "Model Info"; }
@@ -212,10 +212,10 @@ public:
 
 private:
     // ----- 内部状態 ---------------------------------------------------------
-    MeshSummary                _summary{};                // 単一 summary
-    acs::TArray<SubmeshInfo>    _submeshes;                // submesh 配列
-    acs::TArray<BoneInfo>       _bones;                    // bone 配列
-    acs::TArray<AnimationClipInfo> _clips;                 // animation clip 配列
+    FMeshSummary                _summary{};                // 単一 summary
+    acs::TArray<FSubmeshInfo>    _submeshes;                // submesh 配列
+    acs::TArray<FBoneInfo>       _bones;                    // bone 配列
+    acs::TArray<FAnimationClipInfo> _clips;                 // animation clip 配列
     bool                       _has_model      = false;   // UpdateFromModel 済みフラグ
 
     // bone 階層描画用の内部ヘルパ (実装は .cpp 側)。

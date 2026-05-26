@@ -28,7 +28,7 @@ void EnemyPool::Shutdown() noexcept {
     }
 }
 
-void EnemyPool::Spawn(GameplayScene& scene, Node2D& root, HealthSystem& health,
+void EnemyPool::Spawn(GameplayScene& scene, FNode2D& root, FHealthSystem& health,
                      u32 current_wave, FVec2 pos) noexcept {
     u32 slot = kMaxEnemies;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
@@ -39,9 +39,9 @@ void EnemyPool::Spawn(GameplayScene& scene, Node2D& root, HealthSystem& health,
         return;
     }
 
-    auto up = MakeUnique<Node2D>();
+    auto up = MakeUnique<FNode2D>();
     up->Local().position = pos;
-    Node2D& nref = root.AddChild(Move(up));
+    FNode2D& nref = root.AddChild(Move(up));
     // FNodeId は 100 オフセットで衝突回避 (player=1)。
     nref._SetId(FNodeId{slot + 100u, static_cast<u8>(1)});
 
@@ -49,13 +49,13 @@ void EnemyPool::Spawn(GameplayScene& scene, Node2D& root, HealthSystem& health,
     e.alive = true;
     e.node  = &nref;
     e.hp    = health.Spawn(kEnemyHp);
-    e.shape = scene.Services().Physics().AddCircle(Circle{pos, kEnemyRadius});
+    e.shape = scene.Services().Physics().AddCircle(FCircle{pos, kEnemyRadius});
     e.wave_idx_at_spawn = current_wave;
 }
 
-bool EnemyPool::TickChaseAndContact(GameplayScene& scene, HealthSystem& health,
+bool EnemyPool::TickChaseAndContact(GameplayScene& scene, FHealthSystem& health,
                                     FVec2 player_pos, f32 dt) noexcept {
-    CollisionWorld2D& phy = scene.Services().Physics();
+    FCollisionWorld2D& phy = scene.Services().Physics();
     bool any_contact_lethal = false;
 
     for (u32 i = 0; i < kMaxEnemies; ++i) {
@@ -68,7 +68,7 @@ bool EnemyPool::TickChaseAndContact(GameplayScene& scene, HealthSystem& health,
         if (LengthSq(dir) > 0.0f) {
             ep = ep + dir * (kEnemySpeed * dt);
             e.node->Local().position = ep;
-            phy.UpdateCircle(e.shape, Circle{ep, kEnemyRadius});
+            phy.UpdateCircle(e.shape, FCircle{ep, kEnemyRadius});
         }
 
         // 円 vs 円の接触判定。
@@ -89,7 +89,7 @@ bool EnemyPool::TickChaseAndContact(GameplayScene& scene, HealthSystem& health,
     return any_contact_lethal;
 }
 
-void EnemyPool::ApplyHit(GameplayScene& scene, HealthSystem& health,
+void EnemyPool::ApplyHit(GameplayScene& scene, FHealthSystem& health,
                          u32 target_id, f32 dmg) noexcept {
     if (target_id >= kMaxEnemies) return;
     EnemyInstance& e = _enemies[target_id];
@@ -111,7 +111,7 @@ void EnemyPool::ApplyHit(GameplayScene& scene, HealthSystem& health,
     }
 }
 
-void EnemyPool::DrawAll(SpriteBatch& sb) const noexcept {
+void EnemyPool::DrawAll(FSpriteBatch& sb) const noexcept {
     const f32 sz = kEnemyRadius * 2.0f;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
         const EnemyInstance& e = _enemies[i];

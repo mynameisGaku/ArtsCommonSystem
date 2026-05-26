@@ -2,7 +2,7 @@
 #
 # 構成:
 #   main.cpp              - ACS_DEFINE_MAIN(HelloImGuiApp) のみ
-#   HelloImGuiApp.{h,cpp} - Application 派生クラス (ImGuiCtx + demo UI)
+#   HelloImGuiApp.{h,cpp} - FApplication 派生クラス (FImGuiCtx + demo UI)
 add_executable(hello_imgui WIN32
     main.cpp
     HelloImGuiApp.cpp

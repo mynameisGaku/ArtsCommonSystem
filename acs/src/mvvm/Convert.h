@@ -2,18 +2,18 @@
 // 組込み暗黙変換 — i32/u32/f32/f64/bool/FString の主要ペアを Bind 一発で
 //
 // 使い方:
-//   Observable<f32> hp{100.0f};
-//   Observable<FString> hp_text;
+//   FObservable<f32> hp{100.0f};
+//   FObservable<FString> hp_text;
 //
 //   auto bind = Bind(hp, hp_text);   // 自動で f32 → FString 変換 (例: "100.0")
 //
-//   Observable<i32> level{42};
-//   Observable<f32> level_f;
+//   FObservable<i32> level{42};
+//   FObservable<f32> level_f;
 //   auto bind2 = Bind(level, level_f);   // 自動で i32 → f32 (42.0)
 //
-//   // 同じ型なら OneWayBinder にフォールバック
-//   Observable<f32> a{1.0f}, b;
-//   auto bind3 = Bind(a, b);   // OneWayBinder<f32>
+//   // 同じ型なら FOneWayBinder にフォールバック
+//   FObservable<f32> a{1.0f}, b;
+//   auto bind3 = Bind(a, b);   // FOneWayBinder<f32>
 //
 // サポート対象の変換マトリクス:
 //   i32  ↔ u32 / f32 / f64 / bool / FString
@@ -26,7 +26,7 @@
 // 設計:
 //   ・TDefaultConverter<Src, Dst>::Convert(const Src&, void*) → Dst で実装
 //   ・特殊化が無いペアは static_assert で「Bind: 既定変換が無い」と教える
-//   ・FString 変換のみ .cpp に実装 (Container<FString> 依存)
+//   ・FString 変換のみ .cpp に実装 (FContainer<FString> 依存)
 #pragma once
 
 #include "foundation/Types.h"
@@ -39,7 +39,7 @@ namespace acs::mvvm {
 template<typename Src, typename Dst>
 struct TDefaultConverter {
     static_assert(sizeof(Src) == 0,
-        "Bind(src, dst): no built-in conversion. Use OneWayConvertBinder<Src, Dst> "
+        "Bind(src, dst): no built-in conversion. Use FOneWayConvertBinder<Src, Dst> "
         "with an explicit converter function.");
 };
 

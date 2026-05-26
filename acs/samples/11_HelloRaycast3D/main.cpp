@@ -3,7 +3,7 @@
 //
 // 構成:
 //   Types.h                   - Object POD + 配置 / カメラ定数
-//   HelloRaycast3DApp.{h,cpp} - Application 派生 (リソース所有)
+//   HelloRaycast3DApp.{h,cpp} - FApplication 派生 (リソース所有)
 //   RaycastScene.{h,cpp}      - オーケストレーション (メッシュ + 描画)
 //   RaycastTargets.{h,cpp}    - オブジェクト配列 + ヒット状態
 //   RayCaster.{h,cpp}         - カメラ入力 + レイ判定

@@ -18,13 +18,13 @@
 
 namespace acs {
 
-// 型消去 SparseSet 基底（型 T に依らない部分のみ）
-class SparseSetBase {
+// 型消去 FSparseSet 基底（型 T に依らない部分のみ）
+class FSparseSetBase {
 public:
     static constexpr u32 kInvalid = 0xFFFFFFFFu;  // 未登録を表す番兵値
 
-    // 仮想デストラクタ（World が型を知らずに delete できるよう必要）
-    virtual ~SparseSetBase() noexcept = default;
+    // 仮想デストラクタ（FWorld が型を知らずに delete できるよう必要）
+    virtual ~FSparseSetBase() noexcept = default;
 
     // 指定エンティティに対応する dense インデックスを取得（未登録なら kInvalid）
     u32 IndexOf(u32 entity_index) const noexcept {
@@ -40,7 +40,7 @@ public:
     // dense 列でエンティティ順に走査するための配列
     const u32* DenseEntities() const noexcept { return _dense.Data(); }
 
-    // 型を知らずに「このエンティティの値」を削除する（World::Destroy で使う）
+    // 型を知らずに「このエンティティの値」を削除する（FWorld::Destroy で使う）
     virtual void RemoveErased(u32 entity_index) noexcept = 0;
 
 protected:
@@ -57,12 +57,12 @@ protected:
     TArray<u32> _dense;    // dense_index -> entity_index
 };
 
-// 型付き SparseSet（コンポーネント T 専用）
+// 型付き FSparseSet（コンポーネント T 専用）
 template<typename T>
-class SparseSet : public SparseSetBase {
+class FSparseSet : public FSparseSetBase {
 public:
-    SparseSet() noexcept = default;
-    ~SparseSet() noexcept override = default;
+    FSparseSet() noexcept = default;
+    ~FSparseSet() noexcept override = default;
 
     // エンティティに値を追加（既に存在する場合は上書き）
     void Add(u32 entity_index, T value) noexcept {

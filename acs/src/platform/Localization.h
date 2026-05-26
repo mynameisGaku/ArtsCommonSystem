@@ -2,16 +2,16 @@
 // 多言語対応（i18n）
 //
 // 設計:
-//   - 各言語は INI 形式の Storage（key=value、UTF-8）
+//   - 各言語は INI 形式の FStorage（key=value、UTF-8）
 //   - active = 現在表示中の言語、fallback = キーが無い時の代替
-//   - Storage を直接利用するので、ファイル形式 / 内部構造を学び直す必要なし
+//   - FStorage を直接利用するので、ファイル形式 / 内部構造を学び直す必要なし
 //
 // 使い方:
-//   Localization L;
+//   FLocalization L;
 //   L.LoadActive(L"lang/ja.lang");
 //   L.LoadFallback(L"lang/en.lang");
 //
-//   Renderer 内:
+//   FRenderer 内:
 //     sb.DrawText(font, L.Tr("greeting"), 100, 100, color);
 //
 //   ja.lang 内容例:
@@ -21,8 +21,8 @@
 //     menu.exit=終了
 //
 //   en.lang 内容例:
-//     greeting=Hello, World!
-//     menu.start=Start Game
+//     greeting=Hello, FWorld!
+//     menu.start=Start FGame
 //     menu.exit=Quit
 //
 // 言語切替:
@@ -35,12 +35,12 @@
 
 namespace acs {
 
-class Localization {
+class FLocalization {
 public:
-    Localization() noexcept = default;
+    FLocalization() noexcept = default;
 
-    Localization(const Localization&)            = delete;
-    Localization& operator=(const Localization&) = delete;
+    FLocalization(const FLocalization&)            = delete;
+    FLocalization& operator=(const FLocalization&) = delete;
 
     // 現在表示中の言語をファイルから読み込む
     TResult<void> LoadActive  (const wchar_t* path) noexcept { return _active.Load(path); }
@@ -61,15 +61,15 @@ public:
     // 存在チェック
     bool Has(const char* key) const noexcept;
 
-    // 直接 Storage アクセス（独自加工したいとき用）
-    Storage&       Active()         noexcept { return _active; }
-    const Storage& Active()   const noexcept { return _active; }
-    Storage&       Fallback()       noexcept { return _fallback; }
-    const Storage& Fallback() const noexcept { return _fallback; }
+    // 直接 FStorage アクセス（独自加工したいとき用）
+    FStorage&       Active()         noexcept { return _active; }
+    const FStorage& Active()   const noexcept { return _active; }
+    FStorage&       Fallback()       noexcept { return _fallback; }
+    const FStorage& Fallback() const noexcept { return _fallback; }
 
 private:
-    Storage _active;
-    Storage _fallback;
+    FStorage _active;
+    FStorage _fallback;
 };
 
 } // namespace acs

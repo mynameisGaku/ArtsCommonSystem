@@ -2,9 +2,9 @@
 // TCP リスナー（接続を待ち受ける側）
 //
 // 使い方 (サーバ側):
-//   auto lr = TcpListener::Listen(IpAddress::Any(), 8080);
+//   auto lr = FTcpListener::Listen(FIpAddress::Any(), 8080);
 //   if (lr.IsErr()) { ... }
-//   TcpListener& l = lr.Value();
+//   FTcpListener& l = lr.Value();
 //   while (true) {
 //       auto cr = l.Accept();
 //       if (cr.IsOk()) HandleClient(Move(cr.Value()));
@@ -18,21 +18,21 @@
 
 namespace acs {
 
-class TcpListener {
+class FTcpListener {
 public:
-    TcpListener() noexcept = default;
-    ~TcpListener() noexcept;
+    FTcpListener() noexcept = default;
+    ~FTcpListener() noexcept;
 
-    TcpListener(const TcpListener&) = delete;
-    TcpListener& operator=(const TcpListener&) = delete;
-    TcpListener(TcpListener&& o) noexcept;
-    TcpListener& operator=(TcpListener&& o) noexcept;
+    FTcpListener(const FTcpListener&) = delete;
+    FTcpListener& operator=(const FTcpListener&) = delete;
+    FTcpListener(FTcpListener&& o) noexcept;
+    FTcpListener& operator=(FTcpListener&& o) noexcept;
 
     // 指定アドレス/ポートで Listen を開始（addr=Any() で全インターフェイス）
-    static TResult<TcpListener> Listen(IpAddress addr, u16 port, u32 backlog = 16) noexcept;
+    static TResult<FTcpListener> Listen(FIpAddress addr, u16 port, u32 backlog = 16) noexcept;
 
     // 1 接続を受け付ける（ブロック）
-    TResult<TcpConnection> Accept() noexcept;
+    TResult<FTcpConnection> Accept() noexcept;
 
     // ノンブロッキング切替
     TResult<void> SetNonBlocking(bool enable) noexcept;

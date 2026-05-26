@@ -22,12 +22,12 @@ public:
 
     // 1 フレームのライト計算 + 描画。リソースはすべて App から借りる。
     // time は光源の周回位相に使うため、外部時計のまま渡してもらう。
-    void Render(acs::StandardShader&    shader,
+    void Render(acs::FStandardShader&    shader,
                 acs::IRhiCommandList&   cl,
                 const acs::FCamera&      camera,
-                const acs::GpuMesh&     plane,
-                const acs::GpuMesh&     cube,
-                const acs::GpuMesh&     sphere,
+                const acs::FGpuMesh&     plane,
+                const acs::FGpuMesh&     cube,
+                const acs::FGpuMesh&     sphere,
                 acs::f32                time) noexcept;
 
 private:

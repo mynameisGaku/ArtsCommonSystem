@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — fontedit / FontEditorPanel (Phase 23)
+// GameFramework Pillar — fontedit / FFontEditorPanel (Phase 23)
 //
 // 複数 font face の **fallback chain** (= プライマリ + ラテン補助 + CJK 補助 +
 // emoji/symbol 補助 …) を ImGui ベースで対話的に編集 + プレビューする
-// **エディタパネル**。Phase 21a の `editor_core::EditorPanel` 基底に載せ、
-// `EditorWorkspace::RegisterPanel(&panel)` 1 行で workspace に統合できる形にする。
+// **エディタパネル**。Phase 21a の `editor_core::FEditorPanel` 基底に載せ、
+// `FEditorWorkspace::RegisterPanel(&panel)` 1 行で workspace に統合できる形にする。
 //
 // 役割:
 //   ・font face リスト (= fallback 優先順位付き) の add / remove / reorder
@@ -13,15 +13,15 @@
 //   ・任意テキスト (utf-8) を各 face で「擬似的に」 preview canvas に描画
 //     (= 実 atlas を持たない panel なので、ImGui のデフォルト font で代用して
 //      レイアウト感だけ確認できれば十分。実 face による描画統合は Phase 23+
-//      で別 panel / SpriteBatch ラッパに切り出す予定)
+//      で別 panel / FSpriteBatch ラッパに切り出す予定)
 //   ・full char range (0x20〜0xFF) を下部に一覧描画 (= ASCII + Latin-1 補助の
 //     全文字を確認するペイン)
 //
 // 役割分担:
 //   ・本 panel は「**font face リストの編集 UI + プレビュー**」だけを担当。
-//     実際の `Font` (= render/Font.h) ロードや MSDF atlas 生成は責務外。
-//     caller が `FontFaceInfo` (= path + family + size + range + flag) のリスト
-//     を本 panel に登録し、編集結果を取り戻して別途 Font::LoadFromFile 等を
+//     実際の `FFont` (= render/Font.h) ロードや MSDF atlas 生成は責務外。
+//     caller が `FFontFaceInfo` (= path + family + size + range + flag) のリスト
+//     を本 panel に登録し、編集結果を取り戻して別途 FFont::LoadFromFile 等を
 //     呼ぶ想定 (= panel は「設定エディタ」、loader は外部)。
 //   ・実 atlas 描画を panel viewport に出すのは Phase 23+ で
 //     ImGui::Image + DescriptorTable 統合が必要なため、本 panel では
@@ -29,11 +29,11 @@
 //      だけ確認できる" 簡易プレビューに留める。
 //
 // 使い方 (典型):
-//   FontEditorPanel panel;
+//   FFontEditorPanel panel;
 //   panel.Init();
-//   workspace.RegisterPanel(&panel);   // EditorPanel として登録
+//   workspace.RegisterPanel(&panel);   // FEditorPanel として登録
 //
-//   FontFaceInfo primary{};
+//   FFontFaceInfo primary{};
 //   primary.file_path      = L"assets/fonts/NotoSansJP-Regular.otf";
 //   primary.family_name    = "Noto Sans JP";
 //   primary.base_size_px   = 24.0f;
@@ -43,7 +43,7 @@
 //   primary.is_msdf        = true;
 //   panel.AddFontFace(primary);
 //
-//   panel.SetPreviewText("Hello, ACS Font! 日本語 αβγ");
+//   panel.SetPreviewText("Hello, ACS FFont! 日本語 αβγ");
 //   panel.SetPreviewFontSize(28.0f);
 //
 //   // 毎フレーム TickAllPanels(dt) の中で DrawUI が呼ばれる。
@@ -53,16 +53,16 @@
 //   panel.Shutdown();
 //
 // 設計選択 (Phase 23 FontEditor):
-//   ・**EditorPanel 継承**: Phase 21a 共通基盤を dogfood (Phase 21b ModelViewer
-//     以来のパターン、SpriteAtlasEditorPanel と同形)。Title = "Font Editor"、
+//   ・**FEditorPanel 継承**: Phase 21a 共通基盤を dogfood (Phase 21b ModelViewer
+//     以来のパターン、FSpriteAtlasEditorPanel と同形)。Title = "FFont Editor"、
 //     DrawUI / OnInit を override。OnInit では基底実装を必ず呼ぶ。
-//   ・**FontFaceInfo は POD**: `wchar_t* file_path` (Windows API 由来 path、
+//   ・**FFontFaceInfo は POD**: `wchar_t* file_path` (Windows API 由来 path、
 //     CreateFile / WIC 等で wide が必須) + `char* family_name` (UI 表示用、
 //     UTF-8 リテラル) + 数値メタ。文字列は caller 所有のリテラル前提
 //     (ACS 規約: STL/`<string>` 禁止)。本 panel は const char* / const wchar_t*
 //     を非所有で参照保持。
-//   ・**`acs::TArray<FontFaceInfo>` で順序保持**: 「fallback 優先順位」が UI 上
-//     の表示順 = chain 順なので、順序保持配列が自然 (= 重要、SpritePack の
+//   ・**`acs::TArray<FFontFaceInfo>` で順序保持**: 「fallback 優先順位」が UI 上
+//     の表示順 = chain 順なので、順序保持配列が自然 (= 重要、FSpritePack の
 //     swap remove では順序がブレるので不向き)。RemoveAt / MoveUp / MoveDown は
 //     順序保持の swap で実装する。
 //   ・**fallback_index は struct メンバとして冗長保持**: chain 順は TArray 内
@@ -70,7 +70,7 @@
 //     いう意図情報を別途持ちたいケース (= 永続化、UI 表示) があるので、struct
 //     に索引フィールドを残す。Add/Move のたびに本 panel が `fallback_index = i`
 //     を再書き込みする (= TArray index と同期)。
-//   ・**選択 face は単一 (i32)**、-1 = 未選択。SpriteAtlasEditorPanel と同形。
+//   ・**選択 face は単一 (i32)**、-1 = 未選択。FSpriteAtlasEditorPanel と同形。
 //   ・**Preview text は `char[256]`**: ImGui::InputText に渡す固定バッファ。
 //     256 byte ≒ 85 utf-8 漢字相当 (3 byte/char) で、preview 用途には十分。
 //     ヘッダ末尾の kPreviewTextCapacity で定義。
@@ -85,7 +85,7 @@
 //     十分)。kMaxFontFaces で定義。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: ParticleEditorPanel / SpriteAtlasEditorPanel
+//   ・**ImGui ヘッダは .cpp 限定**: FParticleEditorPanel / FSpriteAtlasEditorPanel
 //     と同形 (header から imgui.h を出さない)。
 //
 // 範囲外 (Phase 23 では持たない):
@@ -93,7 +93,7 @@
 //   ・font hinting / kerning preview (= 同上)
 //   ・Unicode range の visual editor (= 現状は SliderU32 で 2 端点入力)
 //   ・複数 face のマージ atlas preview (= Phase 24+ で AtlasPacker と統合)
-//   ・undo / redo (= Phase 21b UndoStack 統合は将来 OnUndo / OnRedo hook で)
+//   ・undo / redo (= Phase 21b FUndoStack 統合は将来 OnUndo / OnRedo hook で)
 //   ・font 設定の .acsfont serializer (= sample 36 側で stub callback)
 #pragma once
 
@@ -102,14 +102,14 @@
 #include "gameframework/tools/editor_core/EditorPanel.h"
 
 namespace acs::game::editor_core {
-// EditorWorkspace は EditorPanel.h から forward-decl 経由で受ける。
-class EditorWorkspace;
+// FEditorWorkspace は EditorPanel.h から forward-decl 経由で受ける。
+class FEditorWorkspace;
 } // namespace acs::game::editor_core
 
 namespace acs::game::fontedit {
 
 // ---------------------------------------------------------------------------
-// FontFaceInfo — 1 font face のメタ情報 (= fallback chain の 1 要素)
+// FFontFaceInfo — 1 font face のメタ情報 (= fallback chain の 1 要素)
 // ---------------------------------------------------------------------------
 // すべて POD (= trivially copyable)。文字列は caller 所有のリテラル前提で
 // 非所有保持 (ACS 規約: `<string>` 禁止、ヒープ所有はしない)。
@@ -128,7 +128,7 @@ namespace acs::game::fontedit {
 //   - is_msdf       : この face を MSDF アトラスで焼くか (= true) / 通常の
 //                     bitmap で焼くか (= false)。MSDF は拡大に強いが生成
 //                     コストが高いので body text のみ true 等の運用想定。
-struct FontFaceInfo {
+struct FFontFaceInfo {
     const wchar_t* file_path      = nullptr;
     const char*    family_name    = nullptr;
     f32            base_size_px   = 24.0f;
@@ -139,19 +139,19 @@ struct FontFaceInfo {
 };
 
 // ---------------------------------------------------------------------------
-// FontEditorPanel — 複数 font face の fallback chain を編集 + プレビュー
+// FFontEditorPanel — 複数 font face の fallback chain を編集 + プレビュー
 // ---------------------------------------------------------------------------
-class FontEditorPanel : public acs::game::editor_core::EditorPanel {
+class FFontEditorPanel : public acs::game::editor_core::FEditorPanel {
 public:
-    FontEditorPanel() noexcept = default;
-    ~FontEditorPanel() noexcept override = default;
+    FFontEditorPanel() noexcept = default;
+    ~FFontEditorPanel() noexcept override = default;
 
-    // 非コピー・非ムーブ: 内部 TArray<FontFaceInfo> + 静的 preview バッファの
+    // 非コピー・非ムーブ: 内部 TArray<FFontFaceInfo> + 静的 preview バッファの
     // 所有関係を曖昧にしない (ACS 規約 + 他 panel 群と同形)。
-    FontEditorPanel(const FontEditorPanel&)            = delete;
-    FontEditorPanel& operator=(const FontEditorPanel&) = delete;
-    FontEditorPanel(FontEditorPanel&&)                 = delete;
-    FontEditorPanel& operator=(FontEditorPanel&&)      = delete;
+    FFontEditorPanel(const FFontEditorPanel&)            = delete;
+    FFontEditorPanel& operator=(const FFontEditorPanel&) = delete;
+    FFontEditorPanel(FFontEditorPanel&&)                 = delete;
+    FFontEditorPanel& operator=(FFontEditorPanel&&)      = delete;
 
     // ----- 初期化 / 解放 ---------------------------------------------------
 
@@ -170,11 +170,11 @@ public:
     u32 FontFaceCount() const noexcept;
 
     // i 番目の face を返す。範囲外は nullptr。
-    const FontFaceInfo* GetFontFace(u32 i) const noexcept;
+    const FFontFaceInfo* GetFontFace(u32 i) const noexcept;
 
     // face を末尾に追加。`fallback_index` は内部で末尾 index で上書きされる
     // (= chain 内位置と同期)。上限 (kMaxFontFaces) 到達なら no-op。
-    void AddFontFace(const FontFaceInfo& info) noexcept;
+    void AddFontFace(const FFontFaceInfo& info) noexcept;
 
     // i 番目の face を削除 (順序保持)。範囲外は no-op。
     // 削除後、後続 face の `fallback_index` を詰めて再書き込みする。
@@ -211,16 +211,16 @@ public:
     f32 PreviewFontSize() const noexcept;
     void SetPreviewFontSize(f32 px) noexcept;
 
-    // ----- EditorPanel override -------------------------------------------
+    // ----- FEditorPanel override -------------------------------------------
 
     // window タイトル (ImGui::Begin の引数兼 ID)。固定リテラル。
-    const char* Title() const noexcept override { return "Font Editor"; }
+    const char* Title() const noexcept override { return "FFont Editor"; }
 
     // Workspace 登録時に呼ばれる。基底実装で Workspace ポインタ保存、
     // 本クラスでは追加初期化 (preview バッファの終端 0 確認) を行う。
-    void OnInit(acs::game::editor_core::EditorWorkspace& workspace) noexcept override;
+    void OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept override;
 
-    // ImGui::Begin "Font Editor" + 4 領域 (toolbar / left list / center
+    // ImGui::Begin "FFont Editor" + 4 領域 (toolbar / left list / center
     // preview / right inspector + bottom char-range strip) を描画。
     // IsVisible() が false なら早期 return。
     void DrawUI() noexcept override;
@@ -248,7 +248,7 @@ public:
 private:
     // ---- 編集対象 face 配列 (順序保持、index = fallback chain 順位) ----
     // PushBack / RemoveAt / 自前 swap で順序を維持する。
-    acs::TArray<FontFaceInfo> _faces;
+    acs::TArray<FFontFaceInfo> _faces;
 
     // ---- 選択中 face index (-1 = 未選択) ----
     i32 _selected = -1;

@@ -2,12 +2,12 @@
 // アセットレジストリ（パスからロードして共有保持する）
 //
 // 使い方:
-//   AssetRegistry reg;
-//   reg.RegisterLoader(MakeRc<BinaryAssetLoader>().Get());
+//   FAssetRegistry reg;
+//   reg.RegisterLoader(MakeRc<FBinaryAssetLoader>().Get());
 //
 //   auto r = reg.Load(L"data/save.bin");
 //   if (r.IsOk()) {
-//       TRc<Asset> a = r.Value();
+//       TRc<FAsset> a = r.Value();
 //       // a を保持し続ければレジストリ内部でもキャッシュされる
 //   }
 //
@@ -25,13 +25,13 @@
 
 namespace acs {
 
-class AssetRegistry {
+class FAssetRegistry {
 public:
-    AssetRegistry() noexcept = default;
-    ~AssetRegistry() noexcept = default;
+    FAssetRegistry() noexcept = default;
+    ~FAssetRegistry() noexcept = default;
 
-    AssetRegistry(const AssetRegistry&) = delete;
-    AssetRegistry& operator=(const AssetRegistry&) = delete;
+    FAssetRegistry(const FAssetRegistry&) = delete;
+    FAssetRegistry& operator=(const FAssetRegistry&) = delete;
 
     // ローダを登録（拡張子マッチで使われる、所有権はレジストリ側に渡らない）
     void RegisterLoader(IAssetLoader* loader) noexcept;
@@ -40,14 +40,14 @@ public:
     void RegisterDefaultLoaders() noexcept;
 
     // 同期ロード（ファイル読み込み + ローダ呼び出し、キャッシュ済みなら即返却）
-    TResult<TRc<Asset>> Load(const wchar_t* path) noexcept;
+    TResult<TRc<FAsset>> Load(const wchar_t* path) noexcept;
 
-    // 非同期ロード（ThreadPool ワーカーで実行、AssetFuture で完了確認）
+    // 非同期ロード（FThreadPool ワーカーで実行、FAssetFuture で完了確認）
     // キャッシュ済みなら即完了状態の future を返す
-    AssetFuture LoadAsync(const wchar_t* path) noexcept;
+    FAssetFuture LoadAsync(const wchar_t* path) noexcept;
 
     // キャッシュからのみ取得（ロードはしない、未キャッシュなら nullptr TRc）
-    TRc<Asset> Find(FAssetId id) noexcept;
+    TRc<FAsset> Find(FAssetId id) noexcept;
 
     // キャッシュから外す（ファイル変更時の再読み込み用）
     void Unload(FAssetId id) noexcept;
@@ -57,14 +57,14 @@ public:
 
     // ワーカースレッドから cache へロック付きで挿入する内部 API。
     // 命名規則: 公開 API には先頭 _ を使わず、内部用のコメントで意図を示す。
-    void AsyncCacheInsert(FAssetId id, TRc<Asset> a) noexcept;
+    void AsyncCacheInsert(FAssetId id, TRc<FAsset> a) noexcept;
 
 private:
     // 拡張子から適切なローダを選ぶ（マッチなしならフォールバック "*" を返す）
     IAssetLoader* FindLoader(const wchar_t* path) noexcept;
 
     FMutex                          _lock;
-    THashMap<FAssetId, TRc<Asset>>    _cache;
+    THashMap<FAssetId, TRc<FAsset>>    _cache;
     TArray<IAssetLoader*>           _loaders;
 };
 

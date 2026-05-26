@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L/R — WaveSpawner 実装
+// GameFramework Pillar L/R — FWaveSpawner 実装
 //
 // state machine + 複数 rule 並列 spawn + intermission timer の合成。
-// SpawnRule.spawn_interval_sec が小さい / dt が大きいケースでは 1 Tick 内で
+// FSpawnRule.spawn_interval_sec が小さい / dt が大きいケースでは 1 Tick 内で
 // 複数 spawn が連鎖発火する (= carry 方式)。state 遷移も連鎖し得るので、
 // Tick() は state ループとして書く。
 #include "gameframework/WaveSpawner.h"
@@ -15,11 +15,11 @@ namespace acs::game {
 // construction / lifecycle
 // ----------------------------------------------------------------------------
 
-WaveSpawner::WaveSpawner() noexcept {
+FWaveSpawner::FWaveSpawner() noexcept {
     _waves.Reserve(kWaveReserveHint);
 }
 
-void WaveSpawner::Init() noexcept {
+void FWaveSpawner::Init() noexcept {
     _state              = EWaveState::Idle;
     _current_wave       = 0u;
     _wave_timer         = 0.0f;
@@ -39,11 +39,11 @@ void WaveSpawner::Init() noexcept {
     // callback は保持 (Init は scene 再 enter 用)。
 }
 
-void WaveSpawner::Reset() noexcept {
+void FWaveSpawner::Reset() noexcept {
     Init();
 }
 
-void WaveSpawner::ClearAll() noexcept {
+void FWaveSpawner::ClearAll() noexcept {
     _state              = EWaveState::Idle;
     _current_wave       = 0u;
     _wave_timer         = 0.0f;
@@ -61,8 +61,8 @@ void WaveSpawner::ClearAll() noexcept {
 // wave 構築
 // ----------------------------------------------------------------------------
 
-void WaveSpawner::AddWave(const WaveDef& def) noexcept {
-    WaveEntry entry;
+void FWaveSpawner::AddWave(const FWaveDef& def) noexcept {
+    FWaveEntry entry;
     entry.def = def;
     // spawned_per_rule を rule_count 個の 0 で初期化。
     // TArray は trivially constructible な u32 については MemSet 0 で初期化される
@@ -76,7 +76,7 @@ void WaveSpawner::AddWave(const WaveDef& def) noexcept {
     _waves.PushBack(Move(entry));
 }
 
-u32 WaveSpawner::TotalWaves() const noexcept {
+u32 FWaveSpawner::TotalWaves() const noexcept {
     return static_cast<u32>(_waves.Size());
 }
 
@@ -84,7 +84,7 @@ u32 WaveSpawner::TotalWaves() const noexcept {
 // state transition
 // ----------------------------------------------------------------------------
 
-void WaveSpawner::TransitionTo(EWaveState next) noexcept {
+void FWaveSpawner::TransitionTo(EWaveState next) noexcept {
     if (next == _state) return;  // no-op
     const EWaveState prev = _state;
     _state = next;
@@ -114,10 +114,10 @@ void WaveSpawner::TransitionTo(EWaveState next) noexcept {
 // 駆動
 // ----------------------------------------------------------------------------
 
-void WaveSpawner::StartWaves() noexcept {
+void FWaveSpawner::StartWaves() noexcept {
     // 進行中の呼び出しは誤用なので警告 + no-op (= 意図しない state 巻き戻しを防ぐ)。
     if (_state == EWaveState::Spawning || _state == EWaveState::WaitingClear) {
-        ACS_LOG_WARN("WaveSpawner::StartWaves: already running (state=%u)",
+        ACS_LOG_WARN("FWaveSpawner::StartWaves: already running (state=%u)",
                      static_cast<u32>(_state));
         return;
     }
@@ -144,15 +144,15 @@ void WaveSpawner::StartWaves() noexcept {
     TransitionTo(EWaveState::Spawning);
 }
 
-void WaveSpawner::StopWaves() noexcept {
+void FWaveSpawner::StopWaves() noexcept {
     _paused = true;
 }
 
-void WaveSpawner::ResumeWaves() noexcept {
+void FWaveSpawner::ResumeWaves() noexcept {
     _paused = false;
 }
 
-void WaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
+void FWaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
     (void)enemy_id;  // 識別子マッチングは行わない (上位責務)、ログ目的のみ予約。
 
     // 進行中の wave がない / 既に全滅済みなら no-op (過剰 kill 防御)。
@@ -178,10 +178,10 @@ void WaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
 // internal: per-wave spawn driver
 // ----------------------------------------------------------------------------
 
-void WaveSpawner::TickSpawning(f32 dt) noexcept {
+void FWaveSpawner::TickSpawning(f32 dt) noexcept {
     if (_current_wave >= _waves.Size()) return;  // defense
-    WaveEntry&     entry = _waves[_current_wave];
-    const WaveDef& def   = entry.def;
+    FWaveEntry&     entry = _waves[_current_wave];
+    const FWaveDef& def   = entry.def;
 
     _wave_timer += dt;
 
@@ -195,7 +195,7 @@ void WaveSpawner::TickSpawning(f32 dt) noexcept {
     // 同 Tick 内で複数発火する場合は while ループで carry する。
     u32 total_completed_rules = 0u;
     for (u32 i = 0; i < def.rule_count; ++i) {
-        const SpawnRule& rule = def.rules[i];
+        const FSpawnRule& rule = def.rules[i];
         u32& spawned = entry.spawned_per_rule[static_cast<usize>(i)];
 
         // 既に rule の count を満たした → 完了 rule としてマークだけして次へ。
@@ -257,7 +257,7 @@ void WaveSpawner::TickSpawning(f32 dt) noexcept {
 // internal: advance to next wave (or AllComplete)
 // ----------------------------------------------------------------------------
 
-void WaveSpawner::AdvanceToNextWave() noexcept {
+void FWaveSpawner::AdvanceToNextWave() noexcept {
     const u32 next_index = _current_wave + 1u;
     if (next_index >= _waves.Size()) {
         // 最後の wave を終えた → AllComplete。_current_wave はそのまま (最後の
@@ -281,12 +281,12 @@ void WaveSpawner::AdvanceToNextWave() noexcept {
 // callback
 // ----------------------------------------------------------------------------
 
-void WaveSpawner::SetOnSpawnCallback(SpawnCallback cb, void* user) noexcept {
+void FWaveSpawner::SetOnSpawnCallback(SpawnCallback cb, void* user) noexcept {
     _spawn_cb      = cb;
     _spawn_cb_user = user;
 }
 
-void WaveSpawner::SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void* user) noexcept {
+void FWaveSpawner::SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void* user) noexcept {
     _state_cb      = cb;
     _state_cb_user = user;
 }
@@ -295,7 +295,7 @@ void WaveSpawner::SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void*
 // query helpers
 // ----------------------------------------------------------------------------
 
-u32 WaveSpawner::EnemiesSpawnedInWave() const noexcept {
+u32 FWaveSpawner::EnemiesSpawnedInWave() const noexcept {
     if (_state == EWaveState::Idle || _state == EWaveState::AllComplete) return 0u;
     if (_current_wave >= _waves.Size()) return 0u;
     const TArray<u32>& s = _waves[_current_wave].spawned_per_rule;
@@ -309,7 +309,7 @@ u32 WaveSpawner::EnemiesSpawnedInWave() const noexcept {
 // driver (top-level)
 // ----------------------------------------------------------------------------
 
-void WaveSpawner::Tick(f32 dt) noexcept {
+void FWaveSpawner::Tick(f32 dt) noexcept {
     if (_paused) return;
     if (dt < 0.0f) dt = 0.0f;
 

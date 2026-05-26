@@ -8,7 +8,7 @@
 //   - normal (RGBA16F): world-space normal (SSR / SSAO が読む)
 //
 // 戻り値: 前フレームに 1 度でも本 pass を走らせていれば motion 出力テクスチャ、
-//        そうでなければ nullptr (PostProcess の TAA に渡しても無視されるため)。
+//        そうでなければ nullptr (FPostProcess の TAA に渡しても無視されるため)。
 #pragma once
 
 #include "ShowcaseAssets.h"

@@ -7,19 +7,19 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
-class Dx12Swapchain final : public IRhiSwapchain {
+class FDx12Swapchain final : public IRhiSwapchain {
 public:
-    Dx12Swapchain() noexcept = default;
-    ~Dx12Swapchain() noexcept override;
+    FDx12Swapchain() noexcept = default;
+    ~FDx12Swapchain() noexcept override;
 
     // 内部使用: バックバッファのリソースおよび RTV ハンドルを取得
     ID3D12Resource*             BackBuffer(u32 i)        const noexcept { return _back_buffers[i]; }
     D3D12_CPU_DESCRIPTOR_HANDLE BackBufferRTV(u32 i)     const noexcept;
     ID3D12DescriptorHeap*       RtvHeap()                const noexcept { return _rtv_heap; }
 
-    HrResult Init(Dx12Device& device, const SwapchainConfig& cfg) noexcept;
+    FHrResult Init(FDx12Device& device, const FSwapchainConfig& cfg) noexcept;
 
     // IRhiSwapchain
     u32  AcquireNextImage() noexcept override;
@@ -31,9 +31,9 @@ public:
 
 private:
     void ReleaseBuffers() noexcept;
-    HrResult AcquireBuffers(Dx12Device& device) noexcept;
+    FHrResult AcquireBuffers(FDx12Device& device) noexcept;
 
-    Dx12Device*          _device       = nullptr;
+    FDx12Device*          _device       = nullptr;
     IDXGISwapChain3*     _swapchain    = nullptr;
     ID3D12DescriptorHeap* _rtv_heap    = nullptr;
     u32                  _rtv_size     = 0;

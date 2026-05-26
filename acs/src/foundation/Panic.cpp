@@ -42,7 +42,7 @@ void Emit(const char* buf, usize n) noexcept {
     if (g_hook) g_hook(g_hook_user, buf, n);
 }
 
-// StackTrace::Print 用のシンク関数
+// FStackTrace::Print 用のシンク関数
 void StackSink(void* /*user*/, const char* line, usize len) noexcept {
     Emit(line, len);
 }
@@ -84,7 +84,7 @@ ACS_NORETURN void Panic(FSourceLoc loc, const char* expr, const char* fmt, ...) 
     Emit("\n stack    :\n", 13);
 
     // スタックトレース取得＋出力（ここまで来た時点で 2 フレーム skip すれば呼び出し元が見える）
-    StackTrace st;
+    FStackTrace st;
     st.Capture(/*skip*/ 2);
     st.Resolve();
     st.Print(&StackSink, nullptr);

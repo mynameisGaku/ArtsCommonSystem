@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — ScriptHost / ScriptVmStub 実装
+// GameFramework Pillar N — FScriptHost / FScriptVmStub 実装
 //
 // Phase N-2 では具象 scripting backend (Lua 5.4 / Wren / Python3) はいずれも
 // 未統合のため、本ファイルは:
-//   1. `ScriptVmStub` … 全 method NotImplemented を返す defensive stub
-//   2. `ScriptHost`   … vm を保持して native registry を集約する高レベル wrapper
+//   1. `FScriptVmStub` … 全 method NotImplemented を返す defensive stub
+//   2. `FScriptHost`   … vm を保持して native registry を集約する高レベル wrapper
 // の 2 つだけを提供する。
 //
 // 上位層への効果:
-//   ・`ScriptVmStub` を叩いた瞬間に NotImplemented を返すので、scripting
+//   ・`FScriptVmStub` を叩いた瞬間に NotImplemented を返すので、scripting
 //     に依存したコードは day-0 で **必ず fallback パスを書く** ことを強制
 //     される (= 配布パッケージに Lua 同梱しないビルドでもゲームが起動できる)。
-//   ・`ScriptHost::LoadAndRun` は Win32 ファイル I/O を直接叩くが、読み込み
+//   ・`FScriptHost::LoadAndRun` は Win32 ファイル I/O を直接叩くが、読み込み
 //     成功後の処理は `IScriptVm::LoadScript` に丸投げするので、本ファイルは
 //     スクリプト構文に一切触らない (= backend 切り替えが純粋な差し替えになる)。
 //
 // 決定論ゾーン違反検出 (将来):
-//   Phase N-3 で、`Game::Tick()` の固定タイムステップ内で `CallFunction` が
+//   Phase N-3 で、`FGame::Tick()` の固定タイムステップ内で `CallFunction` が
 //   呼ばれたら debug build で assert する仕掛けを `Game.cpp` 側に入れる予定。
 //   本 stub では何も検出しないが、コメントとして契約を明示しておく。
 #include "gameframework/ScriptHost.h"
@@ -31,7 +31,7 @@ namespace acs::game {
 // =============================================================================
 // 内部 helper: 安全な C 文字列等価判定 (両者 nullptr 安全)
 // -----------------------------------------------------------------------------
-// ModRegistry::IdEquals と同じ流儀で、native registry の名前比較に使う。
+// FModRegistry::IdEquals と同じ流儀で、native registry の名前比較に使う。
 // <string.h> の strcmp を直接呼ばず、ヌルポインタ事故を抑止する薄いラッパ。
 // =============================================================================
 namespace {
@@ -54,14 +54,14 @@ inline constexpr u64 kMaxScriptFileBytes = 64ull * 1024ull * 1024ull;  // 64 MiB
 } // anonymous namespace
 
 // =============================================================================
-// ScriptVmStub — 全 method NotImplemented / 安全側を返す
+// FScriptVmStub — 全 method NotImplemented / 安全側を返す
 // -----------------------------------------------------------------------------
 // `ACS_ERR(Generic, script_err::kSub_NotImplemented, ...)` を返す。
 // MlRuntime / SteamworksBridge と同じく ErrCategory::Generic + 固定 subcode
 // で表現し、上位層は `err.subcode == script_err::kSub_NotImplemented` で
 // 分岐できる。
 // =============================================================================
-TResult<void> ScriptVmStub::Init() noexcept {
+TResult<void> FScriptVmStub::Init() noexcept {
     // Stub は副作用ゼロで成功させる (= 起動シーケンスを通すため)。
     // 実際のスクリプト動作は LoadScript / CallFunction の段階で
     // NotImplemented として落とす。
@@ -69,61 +69,61 @@ TResult<void> ScriptVmStub::Init() noexcept {
     return Ok();
 }
 
-void ScriptVmStub::Shutdown() noexcept {
+void FScriptVmStub::Shutdown() noexcept {
     // 何も保持していないので no-op。Init 前に呼ばれても安全。
     _initialized = false;
 }
 
-TResult<void> ScriptVmStub::LoadScript(const char* /*source*/,
+TResult<void> FScriptVmStub::LoadScript(const char* /*source*/,
                                       u32         /*source_len*/,
                                       const char* /*chunk_name*/) noexcept {
     if (!_initialized) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized,
-                       "ScriptVmStub::LoadScript called before Init()");
+                       "FScriptVmStub::LoadScript called before Init()");
     }
     return ACS_ERR(Generic, script_err::kSub_NotImplemented,
-                   "ScriptVmStub::LoadScript: scripting backend not integrated (Phase N-2 stub)");
+                   "FScriptVmStub::LoadScript: scripting backend not integrated (Phase N-2 stub)");
 }
 
-TResult<void> ScriptVmStub::CallFunction(const char* /*function_name*/,
-                                        const ScriptValue* /*args*/, u32 /*arg_count*/,
-                                        ScriptValue* /*ret_out*/) noexcept {
+TResult<void> FScriptVmStub::CallFunction(const char* /*function_name*/,
+                                        const FScriptValue* /*args*/, u32 /*arg_count*/,
+                                        FScriptValue* /*ret_out*/) noexcept {
     if (!_initialized) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized,
-                       "ScriptVmStub::CallFunction called before Init()");
+                       "FScriptVmStub::CallFunction called before Init()");
     }
     return ACS_ERR(Generic, script_err::kSub_NotImplemented,
-                   "ScriptVmStub::CallFunction: scripting backend not integrated (Phase N-2 stub)");
+                   "FScriptVmStub::CallFunction: scripting backend not integrated (Phase N-2 stub)");
 }
 
-TResult<void> ScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
+TResult<void> FScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
                                                   NativeFunction /*fn*/,
                                                   void* /*user*/) noexcept {
     if (!_initialized) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized,
-                       "ScriptVmStub::RegisterNativeFunction called before Init()");
+                       "FScriptVmStub::RegisterNativeFunction called before Init()");
     }
     return ACS_ERR(Generic, script_err::kSub_NotImplemented,
-                   "ScriptVmStub::RegisterNativeFunction: scripting backend not integrated (Phase N-2 stub)");
+                   "FScriptVmStub::RegisterNativeFunction: scripting backend not integrated (Phase N-2 stub)");
 }
 
-void ScriptVmStub::SetGlobalNumber(const char* /*name*/, f64 /*value*/) noexcept {
+void FScriptVmStub::SetGlobalNumber(const char* /*name*/, f64 /*value*/) noexcept {
     // 値を保存する場所が無いので no-op (= 後から GetGlobalNumber しても default
     // が返る)。上位コードは「stub では持続しない」前提で書く。
 }
 
-f64 ScriptVmStub::GetGlobalNumber(const char* /*name*/, f64 default_value) const noexcept {
+f64 FScriptVmStub::GetGlobalNumber(const char* /*name*/, f64 default_value) const noexcept {
     return default_value;
 }
 
-void ScriptVmStub::CollectGarbage() noexcept {
+void FScriptVmStub::CollectGarbage() noexcept {
     // GC の対象が存在しないので no-op。
 }
 
 // =============================================================================
 // global stub アクセサ — Meyer's singleton
 // -----------------------------------------------------------------------------
-// process 内で 1 個だけ存在する `ScriptVmStub` インスタンスへの参照を返す。
+// process 内で 1 個だけ存在する `FScriptVmStub` インスタンスへの参照を返す。
 // `GetVmStub()` を呼んだすべての箇所が同じ instance を共有する。
 //
 // スレッド安全性:
@@ -132,21 +132,21 @@ void ScriptVmStub::CollectGarbage() noexcept {
 //   同時アクセスする呼び出し側は外部同期を取る必要がある。
 // =============================================================================
 IScriptVm& GetVmStub() noexcept {
-    static ScriptVmStub instance;
+    static FScriptVmStub instance;
     return instance;
 }
 
 // =============================================================================
-// ScriptHost — IScriptVm を集約する高レベル wrapper
+// FScriptHost — IScriptVm を集約する高レベル wrapper
 // -----------------------------------------------------------------------------
 // 設計のポイント:
-//   ・vm を **所有しない** (raw ポインタ保持のみ)。差し込み側 (Game / Scene /
+//   ・vm を **所有しない** (raw ポインタ保持のみ)。差し込み側 (FGame / FScene /
 //     stub singleton) が破棄責任を持つ。
 //   ・`_natives` に登録履歴を保持しておくことで、将来 backend hot-swap が
 //     必要になった際にもう一度すべて register し直せる素地を作る。
 //   ・全 method noexcept、引数 nullptr はすべて防御的にチェック。
 // =============================================================================
-void ScriptHost::Init(IScriptVm* vm) noexcept {
+void FScriptHost::Init(IScriptVm* vm) noexcept {
     // nullptr 渡しは「明示的に切り離す」意味で許容する (= Shutdown 相当)。
     if (vm == nullptr) {
         Shutdown();
@@ -156,14 +156,14 @@ void ScriptHost::Init(IScriptVm* vm) noexcept {
     // (後勝ち)。本来は二度差しを避けるべきだが、テスト中の差し替え運用を
     // 楽にするため拒否ではなく警告に留める。
     if (_vm != nullptr && _vm != vm) {
-        ACS_LOG_WARN("ScriptHost::Init: overwriting existing vm (likely a re-init in tests)");
+        ACS_LOG_WARN("FScriptHost::Init: overwriting existing vm (likely a re-init in tests)");
         // 既存の native 登録は新 vm 向けではないのでクリアする。
         _natives.Clear();
     }
     _vm = vm;
 }
 
-void ScriptHost::Shutdown() noexcept {
+void FScriptHost::Shutdown() noexcept {
     // vm 自体は所有していないので破棄しない。参照だけ切る。
     _vm = nullptr;
     _natives.Clear();
@@ -172,19 +172,19 @@ void ScriptHost::Shutdown() noexcept {
     // を呼んでクリアすること。
 }
 
-IScriptVm* ScriptHost::Vm() const noexcept {
+IScriptVm* FScriptHost::Vm() const noexcept {
     return _vm;
 }
 
-TResult<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
+TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // ---- 事前チェック ---------------------------------------------------
     if (_vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
-                       "ScriptHost::LoadAndRun: vm not initialized (call Init(vm) first)");
+                       "FScriptHost::LoadAndRun: vm not initialized (call Init(vm) first)");
     }
     if (file_path == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "ScriptHost::LoadAndRun: file_path is null");
+                       "FScriptHost::LoadAndRun: file_path is null");
     }
 
     // ---- Win32 で読み込み ----------------------------------------------
@@ -199,7 +199,7 @@ TResult<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     if (h == INVALID_HANDLE_VALUE) {
         const DWORD err = ::GetLastError();
         return ACS_ERR_OS(IO, script_err::kSub_FileNotFound,
-                          "ScriptHost::LoadAndRun: CreateFileW failed", err);
+                          "FScriptHost::LoadAndRun: CreateFileW failed", err);
     }
 
     LARGE_INTEGER size_li{};
@@ -207,7 +207,7 @@ TResult<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
         const DWORD err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, script_err::kSub_FileNotFound,
-                          "ScriptHost::LoadAndRun: GetFileSizeEx failed", err);
+                          "FScriptHost::LoadAndRun: GetFileSizeEx failed", err);
     }
 
     const u64 size_u64 = static_cast<u64>(size_li.QuadPart);
@@ -219,24 +219,24 @@ TResult<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     if (size_u64 > kMaxScriptFileBytes) {
         ::CloseHandle(h);
         return ACS_ERR(Generic, script_err::kSub_FileTooLarge,
-                       "ScriptHost::LoadAndRun: script file exceeds 64 MiB sanity limit");
+                       "FScriptHost::LoadAndRun: script file exceeds 64 MiB sanity limit");
     }
 
     // バッファ確保。スクリプトの読み込みは frame 跨ぎではないので、Default
-    // Allocator を直接叩く (TArray<u8> + Resize でも良いが余分な fill cost を
+    // FAllocator を直接叩く (TArray<u8> + Resize でも良いが余分な fill cost を
     // 避けるため、生 Alloc → Free でラウンドトリップさせる)。
     const usize buf_size = static_cast<usize>(size_u64);
-    Allocator&  alloc    = DefaultAllocator();
+    FAllocator&  alloc    = DefaultAllocator();
     void*       raw      = alloc.Alloc(buf_size, alignof(u8), FSourceLoc::Current());
     if (raw == nullptr) {
         ::CloseHandle(h);
         return ACS_ERR(Memory, script_err::kSub_FileTooLarge,
-                       "ScriptHost::LoadAndRun: failed to allocate script buffer");
+                       "FScriptHost::LoadAndRun: failed to allocate script buffer");
     }
     u8* buf = static_cast<u8*>(raw);
 
     // chunk ループ (4 GiB 以上の script は実用上ありえないが、ReadFile が
-    // DWORD 単位なので一応分割で読む。SaveArchive と同じ流儀)。
+    // DWORD 単位なので一応分割で読む。FSaveArchive と同じ流儀)。
     u8*   p         = buf;
     u64   remaining = size_u64;
     DWORD io_err    = 0;
@@ -251,7 +251,7 @@ TResult<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
             alloc.Free(raw);
             ::CloseHandle(h);
             return ACS_ERR_OS(IO, script_err::kSub_FileNotFound,
-                              "ScriptHost::LoadAndRun: ReadFile failed", io_err);
+                              "FScriptHost::LoadAndRun: ReadFile failed", io_err);
         }
         p         += got;
         remaining -= got;
@@ -278,22 +278,22 @@ TResult<void> ScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     return r;
 }
 
-TResult<void> ScriptHost::CallGlobalFunction(const char*        function_name,
-                                            const ScriptValue* args,
+TResult<void> FScriptHost::CallGlobalFunction(const char*        function_name,
+                                            const FScriptValue* args,
                                             u32                arg_count,
-                                            ScriptValue*       ret_out) noexcept {
+                                            FScriptValue*       ret_out) noexcept {
     if (_vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
-                       "ScriptHost::CallGlobalFunction: vm not initialized (call Init(vm) first)");
+                       "FScriptHost::CallGlobalFunction: vm not initialized (call Init(vm) first)");
     }
     if (function_name == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "ScriptHost::CallGlobalFunction: function_name is null");
+                       "FScriptHost::CallGlobalFunction: function_name is null");
     }
     // arg_count > 0 のときは args が null だと壊れるので防御。
     if (arg_count > 0 && args == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "ScriptHost::CallGlobalFunction: arg_count > 0 but args is null");
+                       "FScriptHost::CallGlobalFunction: arg_count > 0 but args is null");
     }
     TResult<void> r = _vm->CallFunction(function_name, args, arg_count, ret_out);
     if (r.IsErr()) {
@@ -302,16 +302,16 @@ TResult<void> ScriptHost::CallGlobalFunction(const char*        function_name,
     return r;
 }
 
-TResult<void> ScriptHost::RegisterNative(const char*    function_name,
+TResult<void> FScriptHost::RegisterNative(const char*    function_name,
                                         NativeFunction fn,
                                         void*          user) noexcept {
     if (_vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
-                       "ScriptHost::RegisterNative: vm not initialized (call Init(vm) first)");
+                       "FScriptHost::RegisterNative: vm not initialized (call Init(vm) first)");
     }
     if (function_name == nullptr || fn == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "ScriptHost::RegisterNative: function_name or fn is null");
+                       "FScriptHost::RegisterNative: function_name or fn is null");
     }
 
     // 同名既登録なら entry を上書きする (= 内部 registry は名前ユニーク前提)。
@@ -333,10 +333,10 @@ TResult<void> ScriptHost::RegisterNative(const char*    function_name,
         // 行わない (上書き前に snapshot を取るコストが見合わない)。warn ログ
         // だけ残す。
         if (!replaced) {
-            ACS_LOG_WARN("ScriptHost::RegisterNative: backend rejected '%s' (not cached)",
+            ACS_LOG_WARN("FScriptHost::RegisterNative: backend rejected '%s' (not cached)",
                          function_name);
         } else {
-            ACS_LOG_WARN("ScriptHost::RegisterNative: backend rejected '%s' but local cache was overwritten",
+            ACS_LOG_WARN("FScriptHost::RegisterNative: backend rejected '%s' but local cache was overwritten",
                          function_name);
         }
         FireError("<register>", 0, r.Error().message);
@@ -345,7 +345,7 @@ TResult<void> ScriptHost::RegisterNative(const char*    function_name,
 
     // 新規 entry は末尾追加。
     if (!replaced) {
-        NativeEntry e{};
+        FNativeEntry e{};
         e.name = function_name;
         e.fn   = fn;
         e.user = user;
@@ -354,38 +354,38 @@ TResult<void> ScriptHost::RegisterNative(const char*    function_name,
     return Ok();
 }
 
-void ScriptHost::RegisterStandardBindings() noexcept {
+void FScriptHost::RegisterStandardBindings() noexcept {
     // Phase N-2 ではプレースホルダ。Phase N-3+ で以下のような binding 群を
     // 一括登録する設計:
     //   ・Log.Info / Log.Warn / Log.Error / Log.Debug
     //   ・Math.Sin / Math.Cos / Math.Sqrt / Math.Clamp / Math.Lerp
     //   ・Time.Now / Time.DeltaSeconds / Time.Frame
-    //   ・Input.IsKeyDown / Input.GetMouseX / Input.GetMouseY
+    //   ・FInput.IsKeyDown / FInput.GetMouseX / FInput.GetMouseY
     //   ・Audio.PlaySe / Audio.PlayBgm / Audio.StopBgm
-    //   ・Scene.SpawnEntity / Scene.GetEntityById / Scene.Destroy
+    //   ・FScene.SpawnEntity / FScene.GetEntityById / FScene.Destroy
     //
-    // 各 Pillar が backend 側で「自分の binding」を `ScriptHost::RegisterNative`
+    // 各 Pillar が backend 側で「自分の binding」を `FScriptHost::RegisterNative`
     // で登録するインターフェースを別途持ち、ここはその dispatch を呼ぶだけに
     // 留める想定 (= 本 module が全 Pillar に依存しないようにする)。
     if (_vm == nullptr) {
-        // Init 前の呼び出しは事故 (Game の startup 順序を疑え)。
-        ACS_LOG_WARN("ScriptHost::RegisterStandardBindings: vm not initialized; skipping");
+        // Init 前の呼び出しは事故 (FGame の startup 順序を疑え)。
+        ACS_LOG_WARN("FScriptHost::RegisterStandardBindings: vm not initialized; skipping");
         return;
     }
     // Phase N-2 では何も登録しない (= bindings 数 0)。binding 実装は
     // Phase N-3+ の Pillar 別タスクで埋める。
 }
 
-u32 ScriptHost::RegisteredNativeCount() const noexcept {
+u32 FScriptHost::RegisteredNativeCount() const noexcept {
     return static_cast<u32>(_natives.Size());
 }
 
-void ScriptHost::SetOnErrorCallback(ScriptErrorCallback cb, void* user) noexcept {
+void FScriptHost::SetOnErrorCallback(ScriptErrorCallback cb, void* user) noexcept {
     _on_error      = cb;
     _on_error_user = user;
 }
 
-void ScriptHost::FireError(const char* chunk_name, u32 line, const char* message) const noexcept {
+void FScriptHost::FireError(const char* chunk_name, u32 line, const char* message) const noexcept {
     if (_on_error == nullptr) return;
     // callback は noexcept 必須 (= 例外伝搬しない、scripting backend 由来の
     // C スタックを traverse しないため)。

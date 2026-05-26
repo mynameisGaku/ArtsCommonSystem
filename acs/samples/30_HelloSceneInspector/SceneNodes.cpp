@@ -21,8 +21,8 @@ u32 PlayerNode::ObjectCount() noexcept {
     return 1;
 }
 
-InspectableObject PlayerNode::GetObject(u32 /*index*/) noexcept {
-    // fields 配列は Provider (= 本インスタンス) が所有する。InspectorSeam は
+FInspectableObject PlayerNode::GetObject(u32 /*index*/) noexcept {
+    // fields 配列は Provider (= 本インスタンス) が所有する。FInspectorSeam は
     // ポインタだけ握る (= コピーしない) ので、書き戻し時に Inspector の値が
     // そのまま _speed/_hp/... に反映される。
     _fields[0] = { "speed",      EFieldKind::F32,  &_speed,      0, nullptr };
@@ -31,7 +31,7 @@ InspectableObject PlayerNode::GetObject(u32 /*index*/) noexcept {
     _fields[3] = { "color",      EFieldKind::FVec3, &_color,      0, nullptr };
     _fields[4] = { "position",   EFieldKind::FVec2, &_position,   0, nullptr };
 
-    InspectableObject obj{};
+    FInspectableObject obj{};
     obj.type_name     = "Player";
     obj.instance_name = "P1";
     obj.fields        = _fields;

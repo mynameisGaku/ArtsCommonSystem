@@ -2,7 +2,7 @@
 // HelloSprite — 100 個のスプライトが画面内をバウンドするサンプル。
 //
 // 学習ポイント:
-//   ・SpriteBatch::Begin/Draw/End の使い方
+//   ・FSpriteBatch::Begin/Draw/End の使い方
 //   ・ピクセル座標で 2D を描く（左上原点）
 //   ・α ブレンド (EBlendMode::AlphaBlend)
 //   ・テクスチャ無しの色矩形は DrawRect
@@ -17,7 +17,7 @@
 
 namespace hellosprite {
 
-class HelloSpriteApp : public acs::Application {
+class HelloSpriteApp : public acs::FApplication {
 public:
     void OnStart()            noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -27,9 +27,9 @@ public:
 private:
     void SpawnSprites(acs::u32 n) noexcept;
 
-    acs::SpriteBatch                 _batch;
+    acs::FSpriteBatch                 _batch;
     acs::TUniquePtr<acs::IRhiTexture> _tex;
-    Sprite                           _sprites[kMaxSprites] {};
+    FSprite                           _sprites[kMaxSprites] {};
     acs::u32                         _sprite_count = 0;
 };
 

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSceneInspector — Game 派生のアプリケーションクラス。
+// HelloSceneInspector — FGame 派生のアプリケーションクラス。
 //
-// ImGui lifecycle を Game に持たせる薄いラッパ。OnRender 内で
-// NewFrame と Render を Scene::OnRender の両側に挟むのが key
-// (= Scene 側が ImGui::* をそのまま呼べるようにする)。
+// ImGui lifecycle を FGame に持たせる薄いラッパ。OnRender 内で
+// NewFrame と Render を FScene::OnRender の両側に挟むのが key
+// (= FScene 側が ImGui::* をそのまま呼べるようにする)。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -11,18 +11,18 @@
 
 namespace helloscene {
 
-class SceneInspectorApp : public acs::game::Game {
+class SceneInspectorApp : public acs::game::FGame {
 public:
     void OnStart()    noexcept override;
     void OnRender()   noexcept override;
     void OnShutdown() noexcept override;
-    void OnEvent(const acs::Event& e) noexcept override;
+    void OnEvent(const acs::FEvent& e) noexcept override;
 
 protected:
-    acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override;
 
 private:
-    acs::ImGuiCtx _imgui;
+    acs::FImGuiCtx _imgui;
 };
 
 } // namespace helloscene

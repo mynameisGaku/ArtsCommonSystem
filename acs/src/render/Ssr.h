@@ -6,7 +6,7 @@
 //     reflection ray を screen space で march
 //   - 衝突したら scene_color を sample、ray 起点に reflection を加算
 //   - 結果は別 HDR RT (= ssr_rt) に書き出し → caller が composite で本 HDR へ加算
-//   - normal は MotionVector パスが出力する normal G-buffer (RGBA16F world normal)
+//   - normal は FMotionVector パスが出力する normal G-buffer (RGBA16F world normal)
 //     から sample する (Phase 34m)。旧 depth-derivative cross(ddx,ddy) は 2x2 quad
 //     単位で faceted になり、曲面の反射ベクトルが段差状になってガビガビだった
 //
@@ -20,7 +20,7 @@
 // silhouette ジャギーを均す。OutputTexture() は temporal 累積後を返す。
 //
 // glossy reflection (roughness 別 mip サンプル) は未対応 — roughness 依存の blend は
-// PbrShader 側 (Phase 34e-2fix) が担当。
+// FPbrShader 側 (Phase 34e-2fix) が担当。
 #pragma once
 
 #include "foundation/Result.h"
@@ -36,13 +36,13 @@
 
 namespace acs {
 
-class Ssr {
+class FSsr {
 public:
-    Ssr() noexcept = default;
-    ~Ssr() noexcept = default;
+    FSsr() noexcept = default;
+    ~FSsr() noexcept = default;
 
-    Ssr(const Ssr&) = delete;
-    Ssr& operator=(const Ssr&) = delete;
+    FSsr(const FSsr&) = delete;
+    FSsr& operator=(const FSsr&) = delete;
 
     // hdr_format: SSR 出力テクスチャのフォーマット (シーン HDR と同じ R16G16B16A16F 推奨)
     TResult<void> Init(IRhiDevice& device, EFormat hdr_format,
@@ -54,7 +54,7 @@ public:
     // SSR を計算する (raw march → temporal accumulation の 2 pass)。
     //   scene_color:    現フレームの HDR scene
     //   scene_depth:    現フレームの depth buffer (shader_visible_depth=true 必須)
-    //   normal_gbuffer: MotionVector パスの world-space normal G-buffer (RGBA16F)
+    //   normal_gbuffer: FMotionVector パスの world-space normal G-buffer (RGBA16F)
     //   view_proj / inv_view_proj: 現フレームのカメラ行列 (row-major)
     //   prev_view_proj: 前フレームの view_proj (Phase 34e-3 temporal reproject 用)。
     //                   identity を渡すと reprojection 無効 (静的 accumulate)。
@@ -62,9 +62,9 @@ public:
     //   intensity: SSR 強度 (0..2)
     //   motion_texture: Phase 34p。非 null なら temporal pass が動く mesh の反射を
     //                   motion vector で reproject (null なら camera-only depth
-    //                   reproject)。MotionVector::OutputTexture() を渡す。
+    //                   reproject)。FMotionVector::OutputTexture() を渡す。
     //   hiz_texture: Phase 36-3a。非 null なら 1/8 解像度 coarse min-depth として
-    //                ray march の skip-ahead に使う (HiZ::Texture())。null なら
+    //                ray march の skip-ahead に使う (FHiZ::Texture())。null なら
     //                旧 1 texel/step DDA (動作互換)。空中レイで 4-6 倍高速化。
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color, IRhiTexture& scene_depth,
@@ -75,7 +75,7 @@ public:
                 IRhiTexture* motion_texture = nullptr,
                 IRhiTexture* hiz_texture    = nullptr) noexcept;
 
-    // Phase 34e-3: temporal accumulation 後の history を返す (PbrShader / overlay 用)。
+    // Phase 34e-3: temporal accumulation 後の history を返す (FPbrShader / overlay 用)。
     IRhiTexture* OutputTexture() const noexcept {
         return _history[_temporal_frame == 0u ? 0u : ((_temporal_frame - 1u) & 1u)].Get();
     }

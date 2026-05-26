@@ -17,13 +17,13 @@
 
 namespace acs {
 
-class RwLock {
+class FRwLock {
 public:
-    RwLock() noexcept;
-    ~RwLock() noexcept = default;
+    FRwLock() noexcept;
+    ~FRwLock() noexcept = default;
 
-    RwLock(const RwLock&) = delete;
-    RwLock& operator=(const RwLock&) = delete;
+    FRwLock(const FRwLock&) = delete;
+    FRwLock& operator=(const FRwLock&) = delete;
 
     // ---- 共有ロック（読み取り）------------------------------------------
     void LockShared()    noexcept;       // 読み取りロック取得（ブロッキング）

@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — SceneCommandQueue (deferred command queue / editor 連携)
+// GameFramework Pillar A — FSceneCommandQueue (deferred command queue / editor 連携)
 //
 // 走査中 (OnUpdate / OnDraw) に発火された「シーン構造変更」等の要求をフレーム末
-// で順次実行するための遅延実行キュー。`SceneManager` の `_ApplyPending` と同じ
+// で順次実行するための遅延実行キュー。`FSceneManager` の `_ApplyPending` と同じ
 // 哲学 (= 走査中の構造変更を避け、安全なフレーム境界で適用する) を、より粒度の
 // 細かいコマンド単位に拡張したもの。editor から「ノード追加」「コンポーネント
 // 差し替え」等を OnUpdate のループ走査中に呼んでも、Flush 時に integrity を
 // 保ったまま適用される。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
-//       SceneCommandQueue _cmds;
+//   class GameplayScene : public FScene {
+//       FSceneCommandQueue _cmds;
 //
 //       void OnUpdate(f32 dt) noexcept override {
 //           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
-//           if (Input::IsKeyPressed(EKey::Delete)) {
+//           if (FInput::IsKeyPressed(EKey::Delete)) {
 //               _cmds.Enqueue("DeleteSelected", &GameplayScene::DeleteSelected, this);
 //           }
 //           // 同 label が既にキュー上に居れば denounce (連打抑制)
@@ -26,18 +26,18 @@
 //           // ImGui ボタン処理中などからも安全に enqueue できる
 //       }
 //
-//       // フレーム末に Game / Scene 側で 1 回 Flush する。
+//       // フレーム末に FGame / FScene 側で 1 回 Flush する。
 //       static void DeleteSelected(void* self) noexcept { /* ... */ }
 //       static void RefreshUi    (void* self) noexcept { /* ... */ }
 //   };
 //
 // 設計選択 (Pillar A polish):
 //   ・**deferred 実行**: 走査中の構造変更を避けるため、Flush までは実行しない。
-//     `SceneManager` の pending op (1 個) と違い、複数 command を保持・優先度
+//     `FSceneManager` の pending op (1 個) と違い、複数 command を保持・優先度
 //     付きで順序付け実行する。
 //   ・**function pointer + void* user**: ACS 規約 (std::function 不使用、heap
 //     allocation / RTTI / 例外を持ち込まない)。
-//   ・**const char* label**: 文字列リテラル前提、本クラスは複製しない (DebugOverlay
+//   ・**const char* label**: 文字列リテラル前提、本クラスは複製しない (FDebugOverlay
 //     の watch 列と同じ方針)。同一性比較は pointer 一致 → fallback で strcmp。
 //     `<string>` 禁止 (STL 不使用)。
 //   ・**priority 昇順実行**: 同 priority 内では Enqueue 順 (= 安定ソート)。
@@ -47,19 +47,19 @@
 //   ・**EnqueueIfAbsent (denounce)**: 同 label の既存 command があれば no-op。
 //     入力連打 / リサイズイベント連発で同じ作業が積み上がるのを防ぐ。
 //   ・**Cancel**: label 一致の全 command を削除 (one_shot/repeating 両方)。
-//   ・**Flush 中の Enqueue 安全性**: SceneEventBus と同じく、走査 size を最初に
+//   ・**Flush 中の Enqueue 安全性**: FSceneEventBus と同じく、走査 size を最初に
 //     スナップショットして固定範囲のみ実行する。Flush 中に追加された command は
 //     次回 Flush で初めて実行される。Flush 中に同 slot が PushBack で再 alloc を
 //     起こしても、fn / user / one_shot を local にコピーしてから呼ぶことで安全。
-//   ・**非コピー・非ムーブ**: Scene にメンバとして埋め込む前提、所有権の
+//   ・**非コピー・非ムーブ**: FScene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。
-//   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::TArray<CommandRecord>` で持つ。
+//   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::TArray<FCommandRecord>` で持つ。
 //
 // 範囲外 (将来フェーズで):
 //   ・スレッドセーフ (現状は同一スレッド前提、editor が別スレッドから enqueue する
 //     なら mutex を内蔵するか SPSC ring に置き換える必要あり)
 //   ・command 履歴 / undo (editor の undo stack は別レイヤで持つべき)
-//   ・cross-scene broadcast (SceneEventBus と同じく Scene を越えるのは将来課題)
+//   ・cross-scene broadcast (FSceneEventBus と同じく FScene を越えるのは将来課題)
 #pragma once
 
 #include "foundation/Types.h"
@@ -71,7 +71,7 @@ namespace acs::game {
 using SceneCommandFn = void(*)(void* user) noexcept;
 
 // キュー内の 1 エントリ。label / fn / user は呼出し側所有 (本クラスは複製しない)。
-struct CommandRecord {
+struct FCommandRecord {
     const char* label    = nullptr;
     SceneCommandFn   fn       = nullptr;
     void*       user     = nullptr;
@@ -79,16 +79,16 @@ struct CommandRecord {
     u32         priority = 100u;
 };
 
-class SceneCommandQueue {
+class FSceneCommandQueue {
 public:
-    SceneCommandQueue() noexcept = default;
-    ~SceneCommandQueue() noexcept = default;
+    FSceneCommandQueue() noexcept = default;
+    ~FSceneCommandQueue() noexcept = default;
 
     // 非コピー・非ムーブ (発火中の参照との競合を防ぐ)
-    SceneCommandQueue(const SceneCommandQueue&)            = delete;
-    SceneCommandQueue& operator=(const SceneCommandQueue&) = delete;
-    SceneCommandQueue(SceneCommandQueue&&)                 = delete;
-    SceneCommandQueue& operator=(SceneCommandQueue&&)      = delete;
+    FSceneCommandQueue(const FSceneCommandQueue&)            = delete;
+    FSceneCommandQueue& operator=(const FSceneCommandQueue&) = delete;
+    FSceneCommandQueue(FSceneCommandQueue&&)                 = delete;
+    FSceneCommandQueue& operator=(FSceneCommandQueue&&)      = delete;
 
     // ----- enqueue -----
 
@@ -117,14 +117,14 @@ public:
     // label に一致する command が 1 つ以上居るかどうか。label == nullptr は false。
     bool Contains(const char* label) const noexcept;
 
-    // 全 command を破棄 (callback は呼ばない)。Scene::OnExit 等で使う。
+    // 全 command を破棄 (callback は呼ばない)。FScene::OnExit 等で使う。
     void ClearAll() noexcept;
 
 private:
     // Flush の安定 priority 昇順ソート (insertion sort、N が小さい想定)。
     void StableSortByPriority() noexcept;
 
-    TArray<CommandRecord> _records;
+    TArray<FCommandRecord> _records;
 };
 
 } // namespace acs::game

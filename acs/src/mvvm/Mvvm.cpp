@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// MVVM モジュール本体は header-only (Observable / Binder / ViewModel)。
+// MVVM モジュール本体は header-only (FObservable / Binder / FViewModel)。
 // このファイルは静的ライブラリとしてリンクするためのプレースホルダ。
 // ImGui アダプタが有効な場合のみ ImguiBindings.cpp が追加される。
 #include "mvvm/Observable.h"
@@ -12,13 +12,13 @@
 
 namespace acs {
 // 翻訳単位を 1 つ作るための明示インスタンシエーション
-template class Observable<i32>;
-template class Observable<u32>;
-template class Observable<f32>;
-template class Observable<f64>;
-template class Observable<bool>;
-template class Observable<FVec2>;
-template class Observable<FVec3>;
-template class Observable<FVec4>;
-template class Observable<FString>;
+template class FObservable<i32>;
+template class FObservable<u32>;
+template class FObservable<f32>;
+template class FObservable<f64>;
+template class FObservable<bool>;
+template class FObservable<FVec2>;
+template class FObservable<FVec3>;
+template class FObservable<FVec4>;
+template class FObservable<FString>;
 } // namespace acs

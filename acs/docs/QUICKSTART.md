@@ -2,7 +2,7 @@
 
 ## 5 行でゲームを作る
 
-`Application` を継承して 4 つの関数を実装すれば、ウィンドウ + 入力 + 描画 + ECS が
+`FApplication` を継承して 4 つの関数を実装すれば、ウィンドウ + 入力 + 描画 + ECS が
 すぐ使えます。
 
 ```cpp
@@ -12,7 +12,7 @@
 
 using namespace acs;
 
-class MyGame : public Application {
+class MyGame : public FApplication {
 public:
     void OnStart() noexcept override {
         // 起動時に 1 度だけ呼ばれる（リソース読み込みなど）
@@ -20,7 +20,7 @@ public:
 
     void OnUpdate(f32 dt) noexcept override {
         // 毎フレーム呼ばれる（ゲームロジック）
-        if (Input::IsKeyPressed(EKey::Escape)) Quit();
+        if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     }
 
     void OnRender() noexcept override {
@@ -61,31 +61,31 @@ IDE を使う場合は `acs/` を開けばプリセットが自動認識され�
 
 | モジュール | 役割 | 主なクラス |
 |---|---|---|
-| Foundation | 基本型・エラー処理・ログ | `TResult<T,E>`, `Logger`, `ACS_ASSERT` |
-| Threading | 並列処理 | `TAtomic<T>`, `FMutex`, `ThreadPool` |
-| Memory | メモリ管理 | `Allocator`, `MemorySystem`, `TUniquePtr<T>`, `TRc<T>` |
-| Container | コンテナ | `TArray<T>`, `FString`, `THashMap<K,V>` |
+| Foundation | 基本型・エラー処理・ログ | `TResult<T,E>`, `FLogger`, `ACS_ASSERT` |
+| Threading | 並列処理 | `TAtomic<T>`, `FMutex`, `FThreadPool` |
+| Memory | メモリ管理 | `FAllocator`, `FMemorySystem`, `TUniquePtr<T>`, `TRc<T>` |
+| FContainer | コンテナ | `TArray<T>`, `FString`, `THashMap<K,V>` |
 | Math | 数学 | `FVec2/3/4`, `FMat4`, `FQuat` |
-| Platform | OS 層 | `Window`, `Input`, `Time`, `FileSystem` |
-| Ecs | エンティティ・コンポーネント | `World`, `EntityId`, `Query<...>` |
-| Asset | アセット管理 | `AssetRegistry`, 画像/メッシュ/音声ローダ, 非同期ロード |
-| Render | 描画 | `Renderer` (DX12) |
-| App | アプリ枠組み | `Application`, `AppConfig` |
+| Platform | OS 層 | `FWindow`, `FInput`, `Time`, `FFileSystem` |
+| Ecs | エンティティ・コンポーネント | `FWorld`, `FEntityId`, `Query<...>` |
+| FAsset | アセット管理 | `FAssetRegistry`, 画像/メッシュ/音声ローダ, 非同期ロード |
+| Render | 描画 | `FRenderer` (DX12) |
+| App | アプリ枠組み | `FApplication`, `FAppConfig` |
 
 ## よく使うコード例
 
 ### 1. キー入力
 ```cpp
-if (Input::IsKeyDown(EKey::W)) move_forward();   // 押されている間
-if (Input::IsKeyPressed(EKey::Space)) jump();    // 押した瞬間
-if (Input::IsKeyReleased(EKey::F)) release();    // 離した瞬間
+if (FInput::IsKeyDown(EKey::W)) move_forward();   // 押されている間
+if (FInput::IsKeyPressed(EKey::Space)) jump();    // 押した瞬間
+if (FInput::IsKeyReleased(EKey::F)) release();    // 離した瞬間
 ```
 
 ### 2. マウス
 ```cpp
-FVec2 mouse = Input::MousePos();
-FVec2 delta = Input::MouseDelta();
-if (Input::IsMouseButtonPressed(EMouseButton::Left)) shoot();
+FVec2 mouse = FInput::MousePos();
+FVec2 delta = FInput::MouseDelta();
+if (FInput::IsMouseButtonPressed(EMouseButton::Left)) shoot();
 ```
 
 ### 3. ECS
@@ -94,12 +94,12 @@ if (Input::IsMouseButtonPressed(EMouseButton::Left)) shoot();
 struct Position { FVec3 v; };
 struct Velocity { FVec3 v; };
 
-World& w = GetWorld();
-EntityId player = w.Create();
+FWorld& w = GetWorld();
+FEntityId player = w.Create();
 w.Add<Position>(player, { FVec3{0, 0, 0} });
 w.Add<Velocity>(player, { FVec3{1, 0, 0} });
 
-w.Query<Position, Velocity>().Each([dt](EntityId, Position& p, Velocity& v) {
+w.Query<Position, Velocity>().Each([dt](FEntityId, Position& p, Velocity& v) {
     p.v.x += v.v.x * dt;
     p.v.y += v.v.y * dt;
     p.v.z += v.v.z * dt;
@@ -108,7 +108,7 @@ w.Query<Position, Velocity>().Each([dt](EntityId, Position& p, Velocity& v) {
 
 ### 4. ファイル I/O
 ```cpp
-auto data = FileSystem::ReadAllBytes(L"data/save.bin");
+auto data = FFileSystem::ReadAllBytes(L"data/save.bin");
 if (data.IsErr()) {
     ACS_LOG_ERROR("save not found: %s", data.Error().message);
     return;
@@ -125,9 +125,9 @@ ACS_LOG_ERROR("セーブ失敗: %s", err_message);
 
 ### 6. メモリスナップショット出力
 ```cpp
-MemorySnapshot::WriteSvg(L"memdump.svg");  // ブラウザで開ける
-MemorySnapshot::WriteBmp(L"memdump.bmp");  // 画像ビューアで開ける
-MemorySnapshot::DumpToStdOut();             // コンソールへテキスト
+FMemorySnapshot::WriteSvg(L"memdump.svg");  // ブラウザで開ける
+FMemorySnapshot::WriteBmp(L"memdump.bmp");  // 画像ビューアで開ける
+FMemorySnapshot::DumpToStdOut();             // コンソールへテキスト
 ```
 
 ## エラー処理の流儀
@@ -138,19 +138,19 @@ ACS は例外を使いません。失敗する関数は `TResult<T, FErrorCode>`
 `IsErr()` を確認してから `Value()` を呼んでください。
 
 ```cpp
-auto wr = Window::Create(cfg);
+auto wr = FWindow::Create(cfg);
 if (wr.IsErr()) {
-    ACS_LOG_ERROR("Window 作成失敗: %s", wr.Error().message);
+    ACS_LOG_ERROR("FWindow 作成失敗: %s", wr.Error().message);
     return -1;
 }
-Window& w = wr.Value();
+FWindow& w = wr.Value();
 ```
 
 `ACS_TRY` マクロで早期 return も書けます：
 ```cpp
 TResult<void> Setup() noexcept {
-    ACS_TRY(MemorySystem::Init(MemorySystem::DefaultConfig()));
-    ACS_TRY(ThreadPool::Init());
+    ACS_TRY(FMemorySystem::Init(FMemorySystem::DefaultConfig()));
+    ACS_TRY(FThreadPool::Init());
     return Ok();
 }
 ```
@@ -169,7 +169,7 @@ TResult<void> Setup() noexcept {
 
 - `01_HelloWindow` — ウィンドウ + 入力（最初の 1 本、73 行）
 - `02_HelloSprite` 〜 `09_HelloParticles` — 2D 描画とゲームの基本（シェーダ記述不要）
-- `10_HelloModel` 〜 `15_HelloAnimation` — `StandardShader` での 3D（シェーダ記述不要）
+- `10_HelloModel` 〜 `15_HelloAnimation` — `FStandardShader` での 3D（シェーダ記述不要）
 - `16_HelloTriangle` 〜 `18_HelloTextured` — 低レベル RHI（HLSL を直接書く発展編）
 - `19_HelloUI` 〜 `22_HelloNet` — UI・MVVM・ImGui・ネットワーク
 - `23_HelloPbr` 〜 `26_HelloLightmap` — 上級グラフィックス（PBR / IBL など）
@@ -177,12 +177,12 @@ TResult<void> Setup() noexcept {
 `24`〜`26` は Diligent バックエンド（`diligent-*` プリセット）が必要です。
 各サンプルのビルド要件は `samples/README.md` を参照してください。
 
-コア API（`TArray` / `TResult` / `World` など描画以外）の使用例は
+コア API（`TArray` / `TResult` / `FWorld` など描画以外）の使用例は
 `acs/tests/*_tests.cpp` も参考になります。グラフィックス API の使い方は
 上記サンプルと [`RECIPES.md`](RECIPES.md) を参照してください。
 
 準備ができたら、`samples/01_HelloWindow` を真似て自分のゲーム用フォルダを作り、
-`Application` を継承して開発を始めましょう。CMake の書き方は
+`FApplication` を継承して開発を始めましょう。CMake の書き方は
 `samples/README.md` の「自分のゲームを作る」節を参照してください。
 
 ## ゲームを配布する（ZIP 化）

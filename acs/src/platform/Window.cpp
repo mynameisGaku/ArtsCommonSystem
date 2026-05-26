@@ -9,7 +9,7 @@
 
 namespace acs {
 
-void Window::DispatchEvent_Internal(const Event& e) noexcept {
+void FWindow::DispatchEvent_Internal(const FEvent& e) noexcept {
     if (_callback) _callback(_callback_user, e);
 }
 
@@ -84,21 +84,21 @@ EKey VkToKey(WPARAM vk, LPARAM lParam) noexcept {
     }
 }
 
-// HWND → Window* 紐付け用キー
+// HWND → FWindow* 紐付け用キー
 constexpr const wchar_t* kPropKey = L"ACS_WINDOW_PTR";
 
-Window* GetWindowFromHwnd(HWND hwnd) noexcept {
-    return static_cast<Window*>(::GetPropW(hwnd, kPropKey));
+FWindow* GetWindowFromHwnd(HWND hwnd) noexcept {
+    return static_cast<FWindow*>(::GetPropW(hwnd, kPropKey));
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept {
-    Window* w = GetWindowFromHwnd(hwnd);
+    FWindow* w = GetWindowFromHwnd(hwnd);
     if (!w) return ::DefWindowProcW(hwnd, msg, wp, lp);
 
     switch (msg) {
         case WM_CLOSE: {
             // × ボタン押下 → ShouldClose を立ててアプリに通知
-            Event e{}; e.type = EventType::WindowClose;
+            FEvent e{}; e.type = EventType::WindowClose;
             w->Close();
             w->DispatchEvent_Internal(e);
             return 0;
@@ -107,14 +107,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
             u32 width  = static_cast<u32>(LOWORD(lp));
             u32 height = static_cast<u32>(HIWORD(lp));
             w->UpdateSize_Internal(width, height);
-            Event e{}; e.type = EventType::WindowResize;
+            FEvent e{}; e.type = EventType::WindowResize;
             e.resize.width = width; e.resize.height = height;
             w->DispatchEvent_Internal(e);
             return 0;
         }
         case WM_SETFOCUS:
         case WM_KILLFOCUS: {
-            Event e{};
+            FEvent e{};
             e.type = (msg == WM_SETFOCUS) ? EventType::WindowFocus : EventType::WindowLostFocus;
             w->DispatchEvent_Internal(e);
             return 0;
@@ -122,7 +122,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
             bool repeat = (lp & (1 << 30)) != 0;
-            Event e{};
+            FEvent e{};
             e.type = repeat ? EventType::KeyRepeat : EventType::KeyPressed;
             e.key.key = VkToKey(wp, lp);
             e.key.repeat = repeat;
@@ -131,7 +131,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
-            Event e{}; e.type = EventType::KeyReleased;
+            FEvent e{}; e.type = EventType::KeyReleased;
             e.key.key = VkToKey(wp, lp);
             e.key.repeat = false;
             w->DispatchEvent_Internal(e);
@@ -143,23 +143,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
             EMouseButton b = EMouseButton::Left;
             if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) b = EMouseButton::Right;
             if (msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP) b = EMouseButton::Middle;
-            Event e{};
+            FEvent e{};
             e.type = down ? EventType::MouseButtonPressed : EventType::MouseButtonReleased;
             e.mouse_button.button = b;
             w->DispatchEvent_Internal(e);
             return 0;
         }
         case WM_MOUSEMOVE: {
-            Event e{}; e.type = EventType::MouseMoved;
+            FEvent e{}; e.type = EventType::MouseMoved;
             e.mouse_move.x = static_cast<f32>(GET_X_LPARAM(lp));
             e.mouse_move.y = static_cast<f32>(GET_Y_LPARAM(lp));
-            e.mouse_move.dx = 0;  // 差分は Input::Update 側で計算
+            e.mouse_move.dx = 0;  // 差分は FInput::Update 側で計算
             e.mouse_move.dy = 0;
             w->DispatchEvent_Internal(e);
             return 0;
         }
         case WM_MOUSEWHEEL: {
-            Event e{}; e.type = EventType::MouseScrolled;
+            FEvent e{}; e.type = EventType::MouseScrolled;
             e.mouse_scroll.x = 0;
             e.mouse_scroll.y = static_cast<f32>(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA;
             w->DispatchEvent_Internal(e);
@@ -168,7 +168,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         case WM_CHAR: {
             // 制御文字はスキップ
             if (wp >= 32) {
-                Event e{}; e.type = EventType::CharInput;
+                FEvent e{}; e.type = EventType::CharInput;
                 e.char_input.codepoint = static_cast<u32>(wp);
                 w->DispatchEvent_Internal(e);
             }
@@ -198,14 +198,14 @@ bool EnsureWindowClass() noexcept {
 
 } // namespace
 
-Window::~Window() noexcept {
+FWindow::~FWindow() noexcept {
     if (_hwnd) {
         ::RemovePropW(static_cast<HWND>(_hwnd), kPropKey);
         ::DestroyWindow(static_cast<HWND>(_hwnd));
     }
 }
 
-Window::Window(Window&& o) noexcept
+FWindow::FWindow(FWindow&& o) noexcept
     : _hwnd(o._hwnd), _width(o._width), _height(o._height),
       _should_close(o._should_close),
       _callback(o._callback), _callback_user(o._callback_user) {
@@ -221,7 +221,7 @@ Window::Window(Window&& o) noexcept
     o._callback_user = nullptr;
 }
 
-Window& Window::operator=(Window&& o) noexcept {
+FWindow& FWindow::operator=(FWindow&& o) noexcept {
     if (this == &o) return *this;
     if (_hwnd) {
         ::RemovePropW(static_cast<HWND>(_hwnd), kPropKey);
@@ -243,7 +243,7 @@ Window& Window::operator=(Window&& o) noexcept {
     return *this;
 }
 
-TResult<Window> Window::Create(const WindowConfig& cfg) noexcept {
+TResult<FWindow> FWindow::Create(const FWindowConfig& cfg) noexcept {
     if (!EnsureWindowClass()) {
         return ACS_ERR_OS(OS, 10, "RegisterClassExW failed", ::GetLastError());
     }
@@ -265,21 +265,21 @@ TResult<Window> Window::Create(const WindowConfig& cfg) noexcept {
         return ACS_ERR_OS(OS, 11, "CreateWindowExW failed", ::GetLastError());
     }
 
-    Window w;
+    FWindow w;
     w._hwnd = hwnd;
     w._width = cfg.width;
     w._height = cfg.height;
     w._should_close = false;
 
     // ムーブで返した後の安定アドレスに紐付けるため、いったん仮で登録 → ムーブ後に再登録
-    Window result = Move(w);
+    FWindow result = Move(w);
     ::SetPropW(hwnd, kPropKey, &result);
     ::ShowWindow(hwnd, SW_SHOW);
     ::UpdateWindow(hwnd);
-    return TResult<Window>(OkInit, Move(result));
+    return TResult<FWindow>(OkInit, Move(result));
 }
 
-void Window::PollEvents() noexcept {
+void FWindow::PollEvents() noexcept {
     MSG msg{};
     // PeekMessage でノンブロッキング処理（メインスレッドを止めない）
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -288,16 +288,16 @@ void Window::PollEvents() noexcept {
     }
 }
 
-void Window::SetEventCallback(EventCallback cb, void* user) noexcept {
+void FWindow::SetEventCallback(EventCallback cb, void* user) noexcept {
     _callback = cb;
     _callback_user = user;
 }
 
-void Window::SetTitle(const wchar_t* title) noexcept {
+void FWindow::SetTitle(const wchar_t* title) noexcept {
     if (_hwnd) ::SetWindowTextW(static_cast<HWND>(_hwnd), title);
 }
 
-void Window::SetFullscreen(bool on) noexcept {
+void FWindow::SetFullscreen(bool on) noexcept {
     if (!_hwnd || on == _fullscreen) return;
     HWND hwnd = static_cast<HWND>(_hwnd);
     if (on) {

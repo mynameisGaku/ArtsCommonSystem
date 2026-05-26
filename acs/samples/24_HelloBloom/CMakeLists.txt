@@ -3,9 +3,9 @@
 #
 # 構成:
 #   main.cpp              - ACS_DEFINE_MAIN(HelloBloomApp) のみ
-#   HelloBloomApp.{h,cpp} - Application 派生 (HDR シーン + Bloom + Tonemap)
+#   HelloBloomApp.{h,cpp} - FApplication 派生 (HDR シーン + Bloom + Tonemap)
 #
-# 注: PostProcess は Diligent backend 専用機能のため、
+# 注: FPostProcess は Diligent backend 専用機能のため、
 #     -DACS_RENDER_DILIGENT=ON で configure すること。
 add_executable(hello_bloom WIN32
     main.cpp

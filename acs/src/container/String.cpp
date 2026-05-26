@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Container — FString 実装
+// ACS FContainer — FString 実装
 // -----------------------------------------------------------------------------
 // SSO の遷移ロジックと vsnprintf によるフォーマット追記。
 // =============================================================================
@@ -19,20 +19,20 @@ FString::FString() noexcept : _alloc(&DefaultAllocator()) {
     SetInlineLen(0);
 }
 
-FString::FString(Allocator& a) noexcept : _alloc(&a) {
+FString::FString(FAllocator& a) noexcept : _alloc(&a) {
     _sso.data[0] = 0;
     SetInlineLen(0);
 }
 
 // C 文字列から構築
-FString::FString(const char* cstr, Allocator& a) noexcept : _alloc(&a) {
+FString::FString(const char* cstr, FAllocator& a) noexcept : _alloc(&a) {
     _sso.data[0] = 0;
     SetInlineLen(0);
     if (cstr) Append(FStringView(cstr));
 }
 
 // FStringView から構築
-FString::FString(FStringView v, Allocator& a) noexcept : _alloc(&a) {
+FString::FString(FStringView v, FAllocator& a) noexcept : _alloc(&a) {
     _sso.data[0] = 0;
     SetInlineLen(0);
     Append(v);

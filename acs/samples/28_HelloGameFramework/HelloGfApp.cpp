@@ -10,15 +10,15 @@ using namespace acs::game;
 namespace hellogf {
 
 void HelloGfApp::OnStart() noexcept {
-    // 全 scene から共有される AppState を 1 個だけ Game に持たせる。
+    // 全 scene から共有される AppState を 1 個だけ FGame に持たせる。
     EmplaceAppState<PlayerProfile>();
     // 固定 step は既定値と同じだが、API 露出を見せるため明示しておく。
     SetFixedTimestep(1.0f / 60.0f, /*max_steps_per_frame=*/8);
     // 基底の OnStart は InitialScene() を push する。
-    Game::OnStart();
+    FGame::OnStart();
 }
 
-TUniquePtr<Scene> HelloGfApp::InitialScene() noexcept {
+TUniquePtr<FScene> HelloGfApp::InitialScene() noexcept {
     return MakeUnique<TitleScene>();
 }
 

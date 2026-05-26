@@ -9,9 +9,9 @@ using namespace acs;
 
 namespace helloanim {
 
-TRc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
-    auto m = MakeRc<SkinnedMeshAsset>();
-    if (!m) return TRc<SkinnedMeshAsset>();
+TRc<FSkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
+    auto m = MakeRc<FSkinnedMeshAsset>();
+    if (!m) return TRc<FSkinnedMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     auto& B = m->Bones();
@@ -110,19 +110,19 @@ TRc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
     return m;
 }
 
-void AnimationScene::Render(Sky&                sky,
-                            StandardShader&     std_shader,
-                            SkinnedShader&      skin_shader,
+void AnimationScene::Render(FSky&                sky,
+                            FStandardShader&     std_shader,
+                            FSkinnedShader&      skin_shader,
                             IRhiCommandList&    cl,
                             const FCamera&       camera,
-                            const GpuMesh&      plane,
-                            const SkinnedGpuMesh& snake_gpu,
+                            const FGpuMesh&      plane,
+                            const FSkinnedGpuMesh& snake_gpu,
                             const FMat4*         palette,
                             u32                 palette_n) noexcept {
     // 1. 空
     sky.Render(cl, camera);
 
-    // 2. 地面 (StandardShader)
+    // 2. 地面 (FStandardShader)
     FDirLight lights[2];
     lights[0].direction = sky.SunDirection();
     lights[0].color     = sky.SunColor();
@@ -145,7 +145,7 @@ void AnimationScene::Render(Sky&                sky,
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
-    // 3. スキンメッシュ (SkinnedShader)
+    // 3. スキンメッシュ (FSkinnedShader)
     skin_shader.SetLights(camera.ViewProjection(), camera.Eye(),
                           lights, 2, ambient);
 

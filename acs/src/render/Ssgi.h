@@ -6,15 +6,15 @@
 // サンプリングを追加した発展版 (Aaltonen 2014 系の単純化版)。
 //
 // 入力: scene_color (HDR R16G16B16A16_Float)、scene_depth (shader-visible depth)
-// 出力: ssgi_color (RGB)、PbrShader が ambient/indirect 項に加算
+// 出力: ssgi_color (RGB)、FPbrShader が ambient/indirect 項に加算
 //
 // 制限:
-//   - 法線は MotionVector の normal G-buffer (world normal) から sample (Phase 34o、
+//   - 法線は FMotionVector の normal G-buffer (world normal) から sample (Phase 34o、
 //     旧 depth 微分 cross(ddx,ddy) は faceted で hemisphere ray がブロック状だった)
 //   - 8 step / 4 ray = 32 sample/pixel (画質と速度のバランス)
 //   - 反射的なシャープなパスは捨て、diffuse-ish な広い hemisphere に絞る
 //   - 1 bounce のみ (Lumen の voxel cone tracing 等は未対応)
-//   - blur 無し (PbrShader 側で linear sampling で smooth に補間する想定)
+//   - blur 無し (FPbrShader 側で linear sampling で smooth に補間する想定)
 #pragma once
 
 #include "foundation/Result.h"
@@ -30,13 +30,13 @@
 
 namespace acs {
 
-class Ssgi {
+class FSsgi {
 public:
-    Ssgi() noexcept = default;
-    ~Ssgi() noexcept = default;
+    FSsgi() noexcept = default;
+    ~FSsgi() noexcept = default;
 
-    Ssgi(const Ssgi&) = delete;
-    Ssgi& operator=(const Ssgi&) = delete;
+    FSsgi(const FSsgi&) = delete;
+    FSsgi& operator=(const FSsgi&) = delete;
 
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
     void Shutdown() noexcept;
@@ -45,14 +45,14 @@ public:
     // SSGI を計算して内部 RT に書く (raw → blur → temporal の 3 pass)。
     //   scene_color: 現在フレームの HDR scene RT
     //   scene_depth: shader-visible depth (SSR/SSAO と同じ)
-    //   normal_gbuffer: MotionVector の world-space normal G-buffer (RGBA16F)
+    //   normal_gbuffer: FMotionVector の world-space normal G-buffer (RGBA16F)
     //   prev_view_proj: 前フレームの view_proj (Phase 33c-3 temporal reproject 用)。
     //                   identity を渡すと reprojection 無効 (= 静的 accumulate)。
     //   intensity:   indirect light の倍率 (0=無効、1=neutral、>1=強調)
     //   max_distance: ray march の世界距離上限 (世界座標、典型 5.0)
     //   motion_texture: Phase 34f-3。非 null なら temporal pass が depth reprojection
     //                   ではなくこの motion vector で history を引く (動く mesh も
-    //                   ghost せず追従)。MotionVector::OutputTexture() を渡す。
+    //                   ghost せず追従)。FMotionVector::OutputTexture() を渡す。
     //                   null なら従来の camera-only depth reprojection。
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color,
@@ -67,7 +67,7 @@ public:
                 IRhiTexture* motion_texture = nullptr) noexcept;
 
     // Phase 33c-3: temporal accumulation 後の history RT を返す (= 直近の Render
-    // が書き込んだ index)。PbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
+    // が書き込んだ index)。FPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
     IRhiTexture* OutputTexture() const noexcept {
         return _history[_temporal_frame == 0u ? 0u : ((_temporal_frame - 1u) & 1u)].Get();
     }

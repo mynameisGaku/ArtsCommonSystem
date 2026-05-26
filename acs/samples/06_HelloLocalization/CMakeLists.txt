@@ -3,7 +3,7 @@
 ## 構成:
 ##   main.cpp                       - ACS_DEFINE_MAIN(HelloLocalizationApp) のみ
 ##   Types.{h,cpp}                  - 埋め込み言語データ (kLangJa/En/Fr)
-##   HelloLocalizationApp.{h,cpp}   - Application 派生クラス
+##   HelloLocalizationApp.{h,cpp}   - FApplication 派生クラス
 add_executable(hello_localization WIN32
     main.cpp
     HelloLocalizationApp.cpp

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — LevelEditorPanel 実装 (Phase 22)
+// GameFramework Pillar — FLevelEditorPanel 実装 (Phase 22)
 //
 // 仕様の意図は LevelEditorPanel.h を参照。本ファイルでは:
-//   ・EditorPanel 基底 hook (OnInit / DrawUI) の override
+//   ・FEditorPanel 基底 hook (OnInit / DrawUI) の override
 //   ・SetTilemap / brush / layer / tile id / show grid / snap-to-grid のアクセサ
 //   ・ImGui canvas (InvisibleButton + ImDrawList) ベースの tilemap 描画 +
 //     マウス → world → tile 座標変換 + 4 ブラシ (Paint/Erase/Fill/Pick) の処理
@@ -63,7 +63,7 @@ ImU32 TileIdToColor(u16 id) noexcept {
 }
 
 // world → screen (canvas 上の ImVec2)。
-// 2D EditorCamera は (position.x, position.y) を viewport 中央とみなす ortho
+// 2D FEditorCamera は (position.x, position.y) を viewport 中央とみなす ortho
 // 投影で、zoom_2d で拡大率を持つ。基本 ortho 幅 = base_ortho_size / zoom_2d、
 // 高さは aspect 比からの導出だが、本 panel では canvas pixel 比でスケールを
 // 単純化する: pixels_per_world = canvas_h / (base_ortho_size / zoom_2d / aspect)。
@@ -94,7 +94,7 @@ inline void ScreenToWorld(f32 sx, f32 sy,
 // flood-fill (4-neighbor)。`map` の layer `layer` で、開始点 (sx, sy) の tile id
 // と同じ連結成分を `new_id` で塗り替える。`new_id == start_id` なら no-op。
 // 上限 `max_cells` を超える場合は途中で打ち切り (= 巨大マップでも暴走しない)。
-void FloodFill(class Tilemap& map, u32 layer,
+void FloodFill(class FTilemap& map, u32 layer,
                u32 sx, u32 sy, u16 new_id, u32 max_cells) noexcept {
     const u32 w = map.Width();
     const u32 h = map.Height();
@@ -119,7 +119,7 @@ void FloodFill(class Tilemap& map, u32 layer,
         // 既に塗ってあるかチェック (= スタックに同 cell が複数積まれた case)
         if (map.GetTile(cx, cy, layer).value != start_id) continue;
 
-        map.SetTile(cx, cy, TileId{new_id}, layer);
+        map.SetTile(cx, cy, FTileId{new_id}, layer);
         ++processed;
 
         // 4-neighbor を push (範囲チェックは GetTile/SetTile 側でも弾かれるが、
@@ -140,8 +140,8 @@ void FloodFill(class Tilemap& map, u32 layer,
 // =============================================================================
 // Init / Shutdown
 // =============================================================================
-void LevelEditorPanel::Init() noexcept {
-    // EditorCamera を 2D mode で完全初期化 (= position=origin, zoom=1.0)。
+void FLevelEditorPanel::Init() noexcept {
+    // FEditorCamera を 2D mode で完全初期化 (= position=origin, zoom=1.0)。
     _camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
     // tilemap 1 セル = 16 world unit が典型 (Tilemap.h default) なので、
     // base ortho size を「32 セル分 = 512」相当にしておくと初期表示で 32x32
@@ -163,8 +163,8 @@ void LevelEditorPanel::Init() noexcept {
     _docked_target = true;
 }
 
-void LevelEditorPanel::Shutdown() noexcept {
-    // EditorCamera は POD だが明示 Reset で確定状態にする。
+void FLevelEditorPanel::Shutdown() noexcept {
+    // FEditorCamera は POD だが明示 Reset で確定状態にする。
     _camera.Reset();
     _tilemap     = nullptr;
     _selected_x  = kNoCoord;
@@ -174,7 +174,7 @@ void LevelEditorPanel::Shutdown() noexcept {
 // =============================================================================
 // SetTilemap / CurrentTilemap
 // =============================================================================
-void LevelEditorPanel::SetTilemap(class Tilemap* tm) noexcept {
+void FLevelEditorPanel::SetTilemap(class FTilemap* tm) noexcept {
     _tilemap = tm;
     // active_layer を LayerCount() でクランプ (= 別 tilemap に切替えたら
     // 前 tilemap の layer 番号は無意味)。
@@ -191,39 +191,39 @@ void LevelEditorPanel::SetTilemap(class Tilemap* tm) noexcept {
     _selected_y = kNoCoord;
 }
 
-class Tilemap* LevelEditorPanel::CurrentTilemap() const noexcept {
+class FTilemap* FLevelEditorPanel::CurrentTilemap() const noexcept {
     return _tilemap;
 }
 
 // =============================================================================
 // FCamera アクセサ
 // =============================================================================
-acs::game::editor_core::EditorCamera& LevelEditorPanel::FCamera() noexcept {
+acs::game::editor_core::FEditorCamera& FLevelEditorPanel::FCamera() noexcept {
     return _camera;
 }
 
 // =============================================================================
 // ブラシ / レイヤ / tile id / 表示 toggle のアクセサ
 // =============================================================================
-EBrushKind LevelEditorPanel::CurrentBrush() const noexcept {
+EBrushKind FLevelEditorPanel::CurrentBrush() const noexcept {
     return _brush;
 }
-void LevelEditorPanel::SetCurrentBrush(EBrushKind b) noexcept {
+void FLevelEditorPanel::SetCurrentBrush(EBrushKind b) noexcept {
     _brush = b;
 }
 
-u16 LevelEditorPanel::CurrentTileId() const noexcept {
+u16 FLevelEditorPanel::CurrentTileId() const noexcept {
     return _current_tile_id;
 }
-void LevelEditorPanel::SetCurrentTileId(u16 id) noexcept {
+void FLevelEditorPanel::SetCurrentTileId(u16 id) noexcept {
     if (id > kTileIdMax) id = kTileIdMax;
     _current_tile_id = id;
 }
 
-u32 LevelEditorPanel::ActiveLayer() const noexcept {
+u32 FLevelEditorPanel::ActiveLayer() const noexcept {
     return _active_layer;
 }
-void LevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
+void FLevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
     // tilemap がある場合は LayerCount でクランプ、無い場合はそのまま受け入れる
     // (後で SetTilemap でクランプされる)。
     if (_tilemap != nullptr) {
@@ -237,35 +237,35 @@ void LevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
     _active_layer = layer;
 }
 
-bool LevelEditorPanel::ShowGrid() const noexcept {
+bool FLevelEditorPanel::ShowGrid() const noexcept {
     return _show_grid;
 }
-void LevelEditorPanel::SetShowGrid(bool b) noexcept {
+void FLevelEditorPanel::SetShowGrid(bool b) noexcept {
     _show_grid = b;
 }
 
-bool LevelEditorPanel::SnapToGrid() const noexcept {
+bool FLevelEditorPanel::SnapToGrid() const noexcept {
     return _snap_to_grid;
 }
-void LevelEditorPanel::SetSnapToGrid(bool b) noexcept {
+void FLevelEditorPanel::SetSnapToGrid(bool b) noexcept {
     _snap_to_grid = b;
 }
 
 // =============================================================================
-// EditorPanel override: OnInit
+// FEditorPanel override: OnInit
 // =============================================================================
-// 基底実装 (Workspace ポインタ保存) を必ず呼んでから、追加で EditorCamera を
+// 基底実装 (Workspace ポインタ保存) を必ず呼んでから、追加で FEditorCamera を
 // 2D mode で再初期化する。Init() が呼ばれていなくても Workspace 登録だけで
 // パネルが動くようにする保険。
 // =============================================================================
-void LevelEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& workspace) noexcept {
-    EditorPanel::OnInit(workspace);
+void FLevelEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
+    FEditorPanel::OnInit(workspace);
     _camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
     _camera.SetBaseOrthoSize(512.0f);
 }
 
 // =============================================================================
-// EditorPanel override: DrawUI
+// FEditorPanel override: DrawUI
 // =============================================================================
 // ImGui::Begin("Level Editor") から始まる 1 window レイアウト:
 //   ┌────────────── "Level Editor" window ────────────────────────────┐
@@ -284,7 +284,7 @@ void LevelEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& workspace
 //   │                                          └──────────────────────┘ │
 //   └──────────────────────────────────────────────────────────────────┘
 // =============================================================================
-void LevelEditorPanel::DrawUI() noexcept {
+void FLevelEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &_visible)) {
@@ -298,7 +298,7 @@ void LevelEditorPanel::DrawUI() noexcept {
         return;
     }
 
-    Tilemap& map = *_tilemap;
+    FTilemap& map = *_tilemap;
     const u32 map_w = map.Width();
     const u32 map_h = map.Height();
     const f32 tile_size = map.TileSize();
@@ -355,9 +355,9 @@ void LevelEditorPanel::DrawUI() noexcept {
         if (tile_id_disabled) ImGui::EndDisabled();
 
         // Show grid / Snap to grid toggle
-        ImGui::Checkbox("Show Grid", &_show_grid);
+        ImGui::FCheckbox("Show Grid", &_show_grid);
         ImGui::SameLine();
-        ImGui::Checkbox("Snap to Grid", &_snap_to_grid);
+        ImGui::FCheckbox("Snap to Grid", &_snap_to_grid);
     }
 
     ImGui::Separator();
@@ -404,8 +404,8 @@ void LevelEditorPanel::DrawUI() noexcept {
         const ImGuiIO& io = ImGui::GetIO();
         const ImVec2 mouse = io.MousePos;
 
-        // EditorCamera 状態を取得 (2D position と zoom)。
-        const acs::game::editor_core::EditorCameraState& cs = _camera.State();
+        // FEditorCamera 状態を取得 (2D position と zoom)。
+        const acs::game::editor_core::FEditorCameraState& cs = _camera.State();
         const f32 cam_x = cs.position.x;
         const f32 cam_y = cs.position.y;
         const f32 zoom  = (cs.zoom_2d > 0.001f) ? cs.zoom_2d : 0.001f;
@@ -434,7 +434,7 @@ void LevelEditorPanel::DrawUI() noexcept {
         _camera.Tick(io.DeltaTime);
 
         // tile 矩形を 1 cell ずつ描画 (= ImDrawList::AddRectFilled の row-major
-        // スイープ)。world 座標は左下を原点 (Tilemap.TileToWorld 慣習)、
+        // スイープ)。world 座標は左下を原点 (FTilemap.TileToWorld 慣習)、
         // tile (x, y) の中心が ((x+0.5)*tile_size, (y+0.5)*tile_size)。
         // 矩形描画は「中心 ± tile_size/2」で行う。
         // 全 layer を描画 (layer 0 から layer_count-1 まで重ね描き = 後ろ手前優先)、
@@ -525,7 +525,7 @@ void LevelEditorPanel::DrawUI() noexcept {
                 case EBrushKind::Paint:
                     // drag 対応: lmb_down 中は毎フレーム SetTile (= 連続塗り)。
                     if (canvas_active && lmb_down) {
-                        map.SetTile(tx, ty, TileId{_current_tile_id}, _active_layer);
+                        map.SetTile(tx, ty, FTileId{_current_tile_id}, _active_layer);
                         _selected_x = tx;
                         _selected_y = ty;
                     }
@@ -534,7 +534,7 @@ void LevelEditorPanel::DrawUI() noexcept {
                 case EBrushKind::Erase:
                     // drag 対応: lmb_down 中は毎フレーム 0 を SetTile。
                     if (canvas_active && lmb_down) {
-                        map.SetTile(tx, ty, TileId{0u}, _active_layer);
+                        map.SetTile(tx, ty, FTileId{0u}, _active_layer);
                         _selected_x = tx;
                         _selected_y = ty;
                     }
@@ -596,19 +596,19 @@ void LevelEditorPanel::DrawUI() noexcept {
         ImGui::Spacing();
         ImGui::TextUnformatted("FCamera");
         ImGui::Separator();
-        const acs::game::editor_core::EditorCameraState& cs = _camera.State();
+        const acs::game::editor_core::FEditorCameraState& cs = _camera.State();
         ImGui::Text("pos: (%.1f, %.1f)",
                     static_cast<double>(cs.position.x),
                     static_cast<double>(cs.position.y));
         ImGui::Text("zoom: %.3f", static_cast<double>(cs.zoom_2d));
-        if (ImGui::Button("Frame Map")) {
-            // Tilemap 全体が画面に収まる camera 位置 / zoom に
+        if (ImGui::FButton("Frame Map")) {
+            // FTilemap 全体が画面に収まる camera 位置 / zoom に
             const f32 fw = static_cast<f32>(map_w) * tile_size;
             const f32 fh = static_cast<f32>(map_h) * tile_size;
             _camera.FrameToBoundingBox2D(FVec2{0.0f, 0.0f}, FVec2{fw, fh});
         }
         ImGui::SameLine();
-        if (ImGui::Button("Reset")) {
+        if (ImGui::FButton("Reset")) {
             _camera.Reset();
             _camera.SetBaseOrthoSize(512.0f);
         }

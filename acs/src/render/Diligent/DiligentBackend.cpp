@@ -32,9 +32,9 @@ bool IsDiligentDevice(IRhiDevice& device) noexcept {
 }
 } // namespace
 
-TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept {
-    auto d = MakeUnique<DiligentDevice>();
-    if (!d) return ACS_ERR(Memory, 200, "DiligentDevice alloc failed");
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& cfg) noexcept {
+    auto d = MakeUnique<FDiligentDevice>();
+    if (!d) return ACS_ERR(Memory, 200, "FDiligentDevice alloc failed");
     auto r = d->Init(cfg);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiDevice> base(d.Release(), d.GetAllocator());
@@ -42,11 +42,11 @@ TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcep
 }
 
 TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
-                                                    const SwapchainConfig& cfg) noexcept {
+                                                    const FSwapchainConfig& cfg) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 210, "CreateRhiSwapchain: device is not Diligent");
-    auto sc = MakeUnique<DiligentSwapchain>();
-    auto r = sc->Init(static_cast<DiligentDevice&>(device), cfg);
+    auto sc = MakeUnique<FDiligentSwapchain>();
+    auto r = sc->Init(static_cast<FDiligentDevice&>(device), cfg);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiSwapchain> base(sc.Release(), sc.GetAllocator());
     return TResult<TUniquePtr<IRhiSwapchain>>(OkInit, Move(base));
@@ -55,8 +55,8 @@ TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
 TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 220, "CreateRhiCommandList: device is not Diligent");
-    auto cl = MakeUnique<DiligentCommandList>();
-    auto r = cl->Init(static_cast<DiligentDevice&>(device));
+    auto cl = MakeUnique<FDiligentCommandList>();
+    auto r = cl->Init(static_cast<FDiligentDevice&>(device));
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiCommandList> base(cl.Release(), cl.GetAllocator());
     return TResult<TUniquePtr<IRhiCommandList>>(OkInit, Move(base));
@@ -65,8 +65,8 @@ TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) no
 TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBufferDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 230, "CreateRhiBuffer: device is not Diligent");
-    auto b = MakeUnique<DiligentBuffer>();
-    auto r = b->Init(static_cast<DiligentDevice&>(device), desc);
+    auto b = MakeUnique<FDiligentBuffer>();
+    auto r = b->Init(static_cast<FDiligentDevice&>(device), desc);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiBuffer> base(b.Release(), b.GetAllocator());
     return TResult<TUniquePtr<IRhiBuffer>>(OkInit, Move(base));
@@ -76,8 +76,8 @@ TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
                                                 const FTextureDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 240, "CreateRhiTexture: device is not Diligent");
-    auto t = MakeUnique<DiligentTexture>();
-    auto r = t->Init(static_cast<DiligentDevice&>(device), desc);
+    auto t = MakeUnique<FDiligentTexture>();
+    auto r = t->Init(static_cast<FDiligentDevice&>(device), desc);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiTexture> base(t.Release(), t.GetAllocator());
     return TResult<TUniquePtr<IRhiTexture>>(OkInit, Move(base));
@@ -87,8 +87,8 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
                                                   const FPipelineDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 250, "CreateRhiPipeline: device is not Diligent");
-    auto p = MakeUnique<DiligentPipeline>();
-    auto r = p->Init(static_cast<DiligentDevice&>(device), desc);
+    auto p = MakeUnique<FDiligentPipeline>();
+    auto r = p->Init(static_cast<FDiligentDevice&>(device), desc);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());
     return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
@@ -97,8 +97,8 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
 TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const FShaderDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 260, "CreateRhiShader: device is not Diligent");
-    auto s = MakeUnique<DiligentShader>();
-    auto r = s->Init(static_cast<DiligentDevice&>(device), desc);
+    auto s = MakeUnique<FDiligentShader>();
+    auto r = s->Init(static_cast<FDiligentDevice&>(device), desc);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiShader> base(s.Release(), s.GetAllocator());
     return TResult<TUniquePtr<IRhiShader>>(OkInit, Move(base));

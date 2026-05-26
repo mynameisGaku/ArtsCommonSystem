@@ -10,14 +10,14 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
-class Dx12Shader final : public IRhiShader {
+class FDx12Shader final : public IRhiShader {
 public:
-    Dx12Shader() noexcept = default;
-    ~Dx12Shader() noexcept override;
+    FDx12Shader() noexcept = default;
+    ~FDx12Shader() noexcept override;
 
-    HrResult Init(Dx12Device& device, const FShaderDesc& desc) noexcept;
+    FHrResult Init(FDx12Device& device, const FShaderDesc& desc) noexcept;
 
     EShaderStage Stage() const noexcept override { return _stage; }
     const byte* Bytecode() const noexcept override {
@@ -29,7 +29,7 @@ public:
 
 private:
     ID3DBlob*    _blob  = nullptr;
-    EShaderStage  _stage = EShaderStage::Vertex;
+    EShaderStage  _stage = EShaderStage::FVertex;
 };
 
 } // namespace acs

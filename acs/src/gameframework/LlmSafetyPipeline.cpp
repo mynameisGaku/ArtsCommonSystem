@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — LlmSafetyPipeline 実装 (stub)
+// GameFramework Pillar U Phase 2 — FLlmSafetyPipeline 実装 (stub)
 //
 // 本ファイルは Phase 2 の **スケルトン** 実装。実 ML 分類器 / regex は将来差し込み。
 // 現段階で機能するもの:
@@ -11,7 +11,7 @@
 //   ・RefusalEnforcement: TODO (Phase 2 で実装、現状は no-op で Pass)
 //
 // 文字列バッファ:
-//   `SafetyResult::filtered_text` が指すのは関数内 thread_local バッファ。
+//   `FSafetyResult::filtered_text` が指すのは関数内 thread_local バッファ。
 //   次回呼び出しまでに使い切る前提 (header コメント参照)。
 #include "gameframework/LlmSafetyPipeline.h"
 
@@ -82,7 +82,7 @@ constexpr u32 kJailbreakPatternCount =
 // バッファにコピーして返す。サイズは入力上限と同じ 8KB。
 //
 // thread_local にすることで、複数スレッド (例: gameplay スレッドと UI スレッド)
-// で別の LlmSafetyPipeline を回しても互いに上書きしない。
+// で別の FLlmSafetyPipeline を回しても互いに上書きしない。
 constexpr u32 kFilteredBufSize = 8192;
 
 const char* StoreFiltered(const char* src, u32 len) noexcept {
@@ -104,30 +104,30 @@ constexpr u32 kMaxOutputBytes = kFilteredBufSize - 1u;
 } // namespace
 
 // =============================================================================
-// LlmSafetyPipeline 実装
+// FLlmSafetyPipeline 実装
 // =============================================================================
-void LlmSafetyPipeline::Init(ESafetyRule rules) noexcept {
+void FLlmSafetyPipeline::Init(ESafetyRule rules) noexcept {
     _rules            = rules;
     _refused_count    = 0;
     _filtered_count   = 0;
     _initialized      = true;
-    ACS_LOG_DEBUG("LlmSafetyPipeline: Init (rules=0x%08X)", static_cast<u32>(rules));
+    ACS_LOG_DEBUG("FLlmSafetyPipeline: Init (rules=0x%08X)", static_cast<u32>(rules));
 }
 
-void LlmSafetyPipeline::SetTokenBudget(u32 max_input_tokens, u32 max_output_tokens) noexcept {
+void FLlmSafetyPipeline::SetTokenBudget(u32 max_input_tokens, u32 max_output_tokens) noexcept {
     _max_input_tokens  = max_input_tokens;
     _max_output_tokens = max_output_tokens;
 }
 
-void LlmSafetyPipeline::SetCharacterAnchor(const char* system_prompt) noexcept {
+void FLlmSafetyPipeline::SetCharacterAnchor(const char* system_prompt) noexcept {
     _character_anchor = system_prompt;  // 非所有 (寿命は呼び出し側)
 }
 
-bool LlmSafetyPipeline::IsRuleEnabled(ESafetyRule rule) const noexcept {
+bool FLlmSafetyPipeline::IsRuleEnabled(ESafetyRule rule) const noexcept {
     return SafetyHas(_rules, rule);
 }
 
-void LlmSafetyPipeline::EnableRule(ESafetyRule rule, bool enable) noexcept {
+void FLlmSafetyPipeline::EnableRule(ESafetyRule rule, bool enable) noexcept {
     if (enable) {
         _rules = _rules | rule;
     } else {
@@ -136,14 +136,14 @@ void LlmSafetyPipeline::EnableRule(ESafetyRule rule, bool enable) noexcept {
     }
 }
 
-void LlmSafetyPipeline::Reset() noexcept {
+void FLlmSafetyPipeline::Reset() noexcept {
     _refused_count    = 0;
     _filtered_count   = 0;
     _character_anchor = nullptr;
 }
 
-SafetyResult LlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
-    SafetyResult r{};
+FSafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
+    FSafetyResult r{};
     const u32 len = StrLen(user_text);
     r.input_tokens = EstimateTokens(len);
 
@@ -180,7 +180,7 @@ SafetyResult LlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
                 r.verdict        = ESafetyVerdict::Refused;
                 r.refusal_reason = "jailbreak attempt detected";
                 ++_refused_count;
-                ACS_LOG_WARN("LlmSafetyPipeline: jailbreak pattern matched ('%s')",
+                ACS_LOG_WARN("FLlmSafetyPipeline: jailbreak pattern matched ('%s')",
                              kJailbreakPatterns[i]);
                 return r;
             }
@@ -193,8 +193,8 @@ SafetyResult LlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
     return r;
 }
 
-SafetyResult LlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept {
-    SafetyResult r{};
+FSafetyResult FLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept {
+    FSafetyResult r{};
     const u32 len = StrLen(llm_response);
     r.output_tokens = EstimateTokens(len);
 

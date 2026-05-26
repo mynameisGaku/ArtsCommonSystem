@@ -31,10 +31,10 @@ acs_module_feature(MODULE Foundation NAME STACKTRACE
 
 acs_module_feature(MODULE Foundation NAME LOG_FILE_SINK
     DEFINE FOUNDATION_LOG_FILE
-    DESCRIPTION "Enable file output sink in Logger"
+    DESCRIPTION "Enable file output sink in FLogger"
     DEFAULT ON)
 
 acs_module_feature(MODULE Foundation NAME LOG_DEBUG_OUTPUT
     DEFINE FOUNDATION_LOG_DBGOUT
-    DESCRIPTION "Enable OutputDebugString sink in Logger"
+    DESCRIPTION "Enable OutputDebugString sink in FLogger"
     DEFAULT ON)

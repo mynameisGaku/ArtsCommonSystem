@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CharacterCustomizer 実装
+// GameFramework Pillar O — FCharacterCustomizer 実装
 //
 // 設計上のポイント:
 //   ・id 比較は const char* per-byte 比較。STL <string> / <cstring> 不使用。
-//     Entitlement / AchievementManager と同じ StrEq を anonymous namespace に再掲。
+//     Entitlement / FAchievementManager と同じ StrEq を anonymous namespace に再掲。
 //   ・cosmetic 件数は通常 200〜1000 のオーダー → 線形走査で十分。
 //   ・装着状態は slot indexed 固定長配列 (_equipped_in_slot[kCosmeticSlotCount])
 //     で持つため、EquippedInSlot / UnequipSlot は O(1)。
@@ -26,7 +26,7 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// 「id 未発見」を表す哨兵値 (AchievementManager と同じ慣習)。
+// 「id 未発見」を表す哨兵値 (FAchievementManager と同じ慣習)。
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 // ECosmeticSlot を _equipped_in_slot[] のインデックスに変換 (範囲外は kNotFound)。
@@ -42,9 +42,9 @@ u32 SlotIndex(ECosmeticSlot slot) noexcept {
 // 構築
 // =============================================================================
 
-CharacterCustomizer::CharacterCustomizer() noexcept {
+FCharacterCustomizer::FCharacterCustomizer() noexcept {
     // 固定長 const char*[] を nullptr で初期化 (= 全 slot 未装着)。
-    // TArray<bool> / TArray<CosmeticItem> はデフォルト構築で空。
+    // TArray<bool> / TArray<FCosmeticItem> はデフォルト構築で空。
     for (u32 i = 0; i < kCosmeticSlotCount; ++i) {
         _equipped_in_slot[i] = nullptr;
     }
@@ -54,7 +54,7 @@ CharacterCustomizer::CharacterCustomizer() noexcept {
 // 内部ユーティリティ
 // =============================================================================
 
-u32 CharacterCustomizer::FindIndex(const char* id) const noexcept {
+u32 FCharacterCustomizer::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return kNotFound;
     const usize n = _items.Size();
     for (usize i = 0; i < n; ++i) {
@@ -67,11 +67,11 @@ u32 CharacterCustomizer::FindIndex(const char* id) const noexcept {
 // 定義登録
 // =============================================================================
 
-void CharacterCustomizer::RegisterCosmetic(const CosmeticItem& item) noexcept {
+void FCharacterCustomizer::RegisterCosmetic(const FCosmeticItem& item) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (item.id == nullptr) return;
 
-    // 同 id の 2 重登録は no-op (アセット二重ロード保護、AchievementManager と揃える)。
+    // 同 id の 2 重登録は no-op (アセット二重ロード保護、FAchievementManager と揃える)。
     if (FindIndex(item.id) != kNotFound) return;
 
     _items.PushBack(item);
@@ -82,7 +82,7 @@ void CharacterCustomizer::RegisterCosmetic(const CosmeticItem& item) noexcept {
 // Unlock 管理
 // =============================================================================
 
-bool CharacterCustomizer::UnlockCosmetic(const char* id) noexcept {
+bool FCharacterCustomizer::UnlockCosmetic(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return false;     // 未登録は失敗
     if (_unlocked[idx])    return false;    // 既 unlock は新規でないので false (冪等)
@@ -91,7 +91,7 @@ bool CharacterCustomizer::UnlockCosmetic(const char* id) noexcept {
     return true;
 }
 
-bool CharacterCustomizer::IsUnlocked(const char* id) const noexcept {
+bool FCharacterCustomizer::IsUnlocked(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return false;
     return _unlocked[idx];
@@ -101,12 +101,12 @@ bool CharacterCustomizer::IsUnlocked(const char* id) const noexcept {
 // 装着 / 解除
 // =============================================================================
 
-bool CharacterCustomizer::EquipCosmetic(const char* id) noexcept {
+bool FCharacterCustomizer::EquipCosmetic(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound)  return false;     // 未登録は失敗
     if (!_unlocked[idx])   return false;     // 未 unlock は装着不可 (倫理: ストア未購入を装着しない)
 
-    const CosmeticItem& item = _items[idx];
+    const FCosmeticItem& item = _items[idx];
     const u32 slot_idx = SlotIndex(item.slot);
     if (slot_idx == kNotFound) return false;  // 不正 slot 値 (将来 enum 拡張時の保険)
 
@@ -119,7 +119,7 @@ bool CharacterCustomizer::EquipCosmetic(const char* id) noexcept {
     // 同 slot の既存装着があれば外す (callback で「解除」を通知)。
     // ※ _equipped_in_slot[] を更新する **前** に通知すると、callback 中の
     //   EquippedInSlot() 照会で「直前の値」が見えてしまうため、先に nullptr 化してから
-    //   通知する。SeasonPass / Progression の callback と同じ「現状確定 → 通知」順序。
+    //   通知する。FSeasonPass / FProgression の callback と同じ「現状確定 → 通知」順序。
     if (_equipped_in_slot[slot_idx] != nullptr) {
         _equipped_in_slot[slot_idx] = nullptr;
         if (_on_equip != nullptr) {
@@ -135,7 +135,7 @@ bool CharacterCustomizer::EquipCosmetic(const char* id) noexcept {
     return true;
 }
 
-void CharacterCustomizer::UnequipSlot(ECosmeticSlot slot) noexcept {
+void FCharacterCustomizer::UnequipSlot(ECosmeticSlot slot) noexcept {
     const u32 slot_idx = SlotIndex(slot);
     if (slot_idx == kNotFound) return;
     if (_equipped_in_slot[slot_idx] == nullptr) return;  // 既に空 (callback も呼ばない)
@@ -146,7 +146,7 @@ void CharacterCustomizer::UnequipSlot(ECosmeticSlot slot) noexcept {
     }
 }
 
-const char* CharacterCustomizer::EquippedInSlot(ECosmeticSlot slot) const noexcept {
+const char* FCharacterCustomizer::EquippedInSlot(ECosmeticSlot slot) const noexcept {
     const u32 slot_idx = SlotIndex(slot);
     if (slot_idx == kNotFound) return nullptr;
     return _equipped_in_slot[slot_idx];
@@ -156,11 +156,11 @@ const char* CharacterCustomizer::EquippedInSlot(ECosmeticSlot slot) const noexce
 // 照会
 // =============================================================================
 
-u32 CharacterCustomizer::CosmeticCount() const noexcept {
+u32 FCharacterCustomizer::CosmeticCount() const noexcept {
     return static_cast<u32>(_items.Size());
 }
 
-u32 CharacterCustomizer::UnlockedCount() const noexcept {
+u32 FCharacterCustomizer::UnlockedCount() const noexcept {
     u32 c = 0;
     const usize n = _unlocked.Size();
     for (usize i = 0; i < n; ++i) {
@@ -169,7 +169,7 @@ u32 CharacterCustomizer::UnlockedCount() const noexcept {
     return c;
 }
 
-u32 CharacterCustomizer::CountInSlot(ECosmeticSlot slot) const noexcept {
+u32 FCharacterCustomizer::CountInSlot(ECosmeticSlot slot) const noexcept {
     u32 c = 0;
     const usize n = _items.Size();
     for (usize i = 0; i < n; ++i) {
@@ -178,13 +178,13 @@ u32 CharacterCustomizer::CountInSlot(ECosmeticSlot slot) const noexcept {
     return c;
 }
 
-const CosmeticItem* CharacterCustomizer::FindCosmetic(const char* id) const noexcept {
+const FCosmeticItem* FCharacterCustomizer::FindCosmetic(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return nullptr;
     return &_items[idx];
 }
 
-const CosmeticItem* CharacterCustomizer::AllCosmetics(u32& out_count) const noexcept {
+const FCosmeticItem* FCharacterCustomizer::AllCosmetics(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_items.Size());
     return _items.Data();
 }
@@ -193,7 +193,7 @@ const CosmeticItem* CharacterCustomizer::AllCosmetics(u32& out_count) const noex
 // FCallback
 // =============================================================================
 
-void CharacterCustomizer::SetOnEquipCallback(EquipCallback cb, void* user) noexcept {
+void FCharacterCustomizer::SetOnEquipCallback(EquipCallback cb, void* user) noexcept {
     _on_equip      = cb;
     _on_equip_user = user;
 }
@@ -202,7 +202,7 @@ void CharacterCustomizer::SetOnEquipCallback(EquipCallback cb, void* user) noexc
 // リセット
 // =============================================================================
 
-void CharacterCustomizer::ClearAll() noexcept {
+void FCharacterCustomizer::ClearAll() noexcept {
     _items.Clear();
     _unlocked.Clear();
     // loop / ノイズ防止のため callback は呼ばない (装着解除を通知しない)。

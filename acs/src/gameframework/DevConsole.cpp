@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — DevConsole 実装 (Phase 1 skeleton)
+// GameFramework Pillar K — FDevConsole 実装 (Phase 1 skeleton)
 //
 // state コンテナのみ。UI / 入力ハンドラは別レイヤ。詳細は DevConsole.h 参照。
 #include "gameframework/DevConsole.h"
@@ -16,13 +16,13 @@ namespace acs::game {
 // 文字列ヘルパ
 // ============================================================================
 
-const char* DevConsole::DupString(const char* src) noexcept {
+const char* FDevConsole::DupString(const char* src) noexcept {
     if (src == nullptr) return nullptr;
     // strnlen 相当を手で書く (kMaxLineLen を超えたら truncate)。
     usize len = 0;
     while (len < kMaxLineLen && src[len] != '\0') ++len;
 
-    Allocator& a = DefaultAllocator();
+    FAllocator& a = DefaultAllocator();
     char* buf = static_cast<char*>(a.Alloc(len + 1, alignof(char), FSourceLoc::Current()));
     if (buf == nullptr) return nullptr;
     if (len > 0) MemCopy(buf, src, len);
@@ -30,7 +30,7 @@ const char* DevConsole::DupString(const char* src) noexcept {
     return buf;
 }
 
-void DevConsole::FreeString(const char* s) noexcept {
+void FDevConsole::FreeString(const char* s) noexcept {
     if (s == nullptr) return;
     // DupString が確保したものを Free する。const_cast は所有元が分かっているため安全。
     DefaultAllocator().Free(const_cast<void*>(static_cast<const void*>(s)));
@@ -40,7 +40,7 @@ void DevConsole::FreeString(const char* s) noexcept {
 // リング相当 push (TArray<const char*> + cap 100 + drop oldest)
 // ============================================================================
 
-void DevConsole::PushLine(TArray<const char*>& buf, const char* line) noexcept {
+void FDevConsole::PushLine(TArray<const char*>& buf, const char* line) noexcept {
     const char* copy = DupString(line);
     if (copy == nullptr) return;  // 確保失敗時は黙って捨てる (Log 内 Log のループ防止)
 
@@ -55,7 +55,7 @@ void DevConsole::PushLine(TArray<const char*>& buf, const char* line) noexcept {
     buf.PushBack(copy);
 }
 
-void DevConsole::ClearLines(TArray<const char*>& buf) noexcept {
+void FDevConsole::ClearLines(TArray<const char*>& buf) noexcept {
     for (usize i = 0; i < buf.Size(); ++i) {
         FreeString(buf[i]);
     }
@@ -66,7 +66,7 @@ void DevConsole::ClearLines(TArray<const char*>& buf) noexcept {
 // ライフサイクル
 // ============================================================================
 
-DevConsole::~DevConsole() noexcept {
+FDevConsole::~FDevConsole() noexcept {
     ClearLines(_history);
     ClearLines(_log);
     // _commands は POD ポインタのみで、name/help は caller 所有なので Free 不要。
@@ -76,19 +76,19 @@ DevConsole::~DevConsole() noexcept {
 // コマンド登録
 // ============================================================================
 
-void DevConsole::RegisterCommand(const char* name,
+void FDevConsole::RegisterCommand(const char* name,
                                  CommandFn   fn,
                                  void*       user,
                                  const char* help_text) noexcept {
     if (name == nullptr || name[0] == '\0' || fn == nullptr) {
-        ACS_LOG_WARN("DevConsole::RegisterCommand: invalid name or fn (ignored)");
+        ACS_LOG_WARN("FDevConsole::RegisterCommand: invalid name or fn (ignored)");
         return;
     }
 
     // 既存検索 (線形)。あれば後勝ち上書き。
     for (usize i = 0; i < _commands.Size(); ++i) {
         if (std::strcmp(_commands[i].name, name) == 0) {
-            ACS_LOG_WARN("DevConsole: command '%s' re-registered (overwriting)", name);
+            ACS_LOG_WARN("FDevConsole: command '%s' re-registered (overwriting)", name);
             _commands[i].fn   = fn;
             _commands[i].user = user;
             _commands[i].help = help_text;
@@ -96,7 +96,7 @@ void DevConsole::RegisterCommand(const char* name,
         }
     }
 
-    Command c;
+    FCommand c;
     c.name = name;
     c.fn   = fn;
     c.user = user;
@@ -108,7 +108,7 @@ void DevConsole::RegisterCommand(const char* name,
 // 実行 (tokenize + dispatch)
 // ============================================================================
 
-void DevConsole::Execute(const char* command_line) noexcept {
+void FDevConsole::Execute(const char* command_line) noexcept {
     if (command_line == nullptr) return;
 
     // 1) スタック上の作業バッファに line をコピー (truncate)。
@@ -136,7 +136,7 @@ void DevConsole::Execute(const char* command_line) noexcept {
         if (i >= n) break;
 
         if (token_count >= kMaxTokens) {
-            ACS_LOG_WARN("DevConsole::Execute: too many tokens (max %u, extra ignored)", kMaxTokens);
+            ACS_LOG_WARN("FDevConsole::Execute: too many tokens (max %u, extra ignored)", kMaxTokens);
             break;
         }
         tokens[token_count++] = &buf[i];
@@ -152,7 +152,7 @@ void DevConsole::Execute(const char* command_line) noexcept {
 
     // 3) コマンド名検索 (線形)。
     const char* cmd_name = tokens[0];
-    const Command* found = nullptr;
+    const FCommand* found = nullptr;
     for (usize ci = 0; ci < _commands.Size(); ++ci) {
         if (std::strcmp(_commands[ci].name, cmd_name) == 0) {
             found = &_commands[ci];
@@ -161,14 +161,14 @@ void DevConsole::Execute(const char* command_line) noexcept {
     }
 
     if (found == nullptr) {
-        ACS_LOG_WARN("DevConsole: unknown command '%s'", cmd_name);
+        ACS_LOG_WARN("FDevConsole: unknown command '%s'", cmd_name);
         // ログにも残してユーザが UI 上で確認できるようにする (cap 内で安全)
         Log("unknown command");
         return;
     }
 
-    // 4) dispatch。args は tokens[1..] (ConsoleArg にラップ)。
-    ConsoleArg args[kMaxArgs];
+    // 4) dispatch。args は tokens[1..] (FConsoleArg にラップ)。
+    FConsoleArg args[kMaxArgs];
     const u32 argc = (token_count > 1) ? (token_count - 1) : 0;
     for (u32 ai = 0; ai < argc; ++ai) {
         args[ai].str = tokens[ai + 1];
@@ -180,27 +180,27 @@ void DevConsole::Execute(const char* command_line) noexcept {
 // 履歴 / ログ
 // ============================================================================
 
-void DevConsole::PushHistory(const char* line) noexcept {
+void FDevConsole::PushHistory(const char* line) noexcept {
     if (line == nullptr || line[0] == '\0') return;
     PushLine(_history, line);
 }
 
-const char* DevConsole::History(u32 i) const noexcept {
+const char* FDevConsole::History(u32 i) const noexcept {
     if (i >= _history.Size()) return nullptr;
     return _history[i];
 }
 
-void DevConsole::Log(const char* msg) noexcept {
+void FDevConsole::Log(const char* msg) noexcept {
     if (msg == nullptr) return;
     PushLine(_log, msg);
 }
 
-const char* DevConsole::LogLine(u32 i) const noexcept {
+const char* FDevConsole::LogLine(u32 i) const noexcept {
     if (i >= _log.Size()) return nullptr;
     return _log[i];
 }
 
-void DevConsole::Clear() noexcept {
+void FDevConsole::Clear() noexcept {
     ClearLines(_history);
     ClearLines(_log);
 }

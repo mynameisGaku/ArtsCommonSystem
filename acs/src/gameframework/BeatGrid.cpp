@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework GenreKit — BeatGrid 実装
+// GameFramework GenreKit — FBeatGrid 実装
 //
 // 設計メモ:
 //  ・探索は線形 O(N) (FindNearestNote)。譜面 1 曲分の note 数は通常数百〜数千、
 //    Tap は 1 フレーム最大数回なので十分速い。将来 lane 別の sorted index を
 //    張れば O(log N) 可能だが本 Phase では単純化を優先。
 //  ・hold note は本 Phase で「先頭タップだけを通常 note と同じく判定する」
-//    扱い (release 判定 / 持続中スコアは未実装)。BeatNote::hold_duration_sec
+//    扱い (release 判定 / 持続中スコアは未実装)。FBeatNote::hold_duration_sec
 //    は情報として保持するのみ。
 //  ・EndCallback は「全 note が judged=true になった次 Tick」で 1 度だけ発火
 //    する。Tap 内で最後の 1 つを判定した瞬間に直接呼ぶと、callback 内で
@@ -24,26 +24,26 @@ namespace acs::game {
 // helpers
 // ----------------------------------------------------------------------------
 
-f32 BeatGrid::MsToSec(f32 ms) noexcept {
+f32 FBeatGrid::MsToSec(f32 ms) noexcept {
     if (ms < 0.0f) return 0.0f;
     return ms * 0.001f;
 }
 
-EJudgement BeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
+EJudgement FBeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
     if (abs_delta_sec <= _perfect_window_sec) return EJudgement::Perfect;
     if (abs_delta_sec <= _great_window_sec)   return EJudgement::Great;
     if (abs_delta_sec <= _good_window_sec)    return EJudgement::Good;
     return EJudgement::Miss;
 }
 
-usize BeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
+usize FBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
     const usize n = _notes.Size();
     usize best_idx = n;            // npos
     f32   best_abs = _good_window_sec; // good_window を超える note は対象外
 
     for (usize i = 0; i < n; ++i) {
         if (_judged[i]) continue;
-        const BeatNote& note = _notes[i];
+        const FBeatNote& note = _notes[i];
         if (note.lane != lane) continue;
         f32 delta = note.time_sec - _current_time;
         if (delta < 0.0f) delta = -delta;
@@ -55,7 +55,7 @@ usize BeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
     return best_idx;
 }
 
-void BeatGrid::ApplyJudgement(EBeatLane lane, EJudgement j) noexcept {
+void FBeatGrid::ApplyJudgement(EBeatLane lane, EJudgement j) noexcept {
     switch (j) {
         case EJudgement::Perfect: ++_perfect_count; ++_current_combo; break;
         case EJudgement::Great:   ++_great_count;   ++_current_combo; break;
@@ -73,7 +73,7 @@ void BeatGrid::ApplyJudgement(EBeatLane lane, EJudgement j) noexcept {
 // 初期化 / 読込
 // ----------------------------------------------------------------------------
 
-void BeatGrid::Init() noexcept {
+void FBeatGrid::Init() noexcept {
     // 譜面 / callback は保持し、再生状態 / 統計のみリセット。
     // (callback は呼出側が SetOn* で別途設定済みの想定なので維持する。
     //  譜面は LoadChart で都度上書きするため Init 単体ではクリアしない方が
@@ -94,7 +94,7 @@ void BeatGrid::Init() noexcept {
     for (usize i = 0; i < n; ++i) _judged[i] = false;
 }
 
-void BeatGrid::LoadChart(const BeatNote* notes, u32 count, f32 bpm) noexcept {
+void FBeatGrid::LoadChart(const FBeatNote* notes, u32 count, f32 bpm) noexcept {
     // 既存譜面を破棄
     _notes.Clear();
     _judged.Clear();
@@ -105,7 +105,7 @@ void BeatGrid::LoadChart(const BeatNote* notes, u32 count, f32 bpm) noexcept {
         _notes.Reserve(count);
         _judged.Reserve(count);
         for (u32 i = 0; i < count; ++i) {
-            BeatNote n = notes[i];
+            FBeatNote n = notes[i];
             if (n.hold_duration_sec < 0.0f) n.hold_duration_sec = 0.0f;
             _notes.PushBack(n);
             _judged.PushBack(false);
@@ -126,7 +126,7 @@ void BeatGrid::LoadChart(const BeatNote* notes, u32 count, f32 bpm) noexcept {
     _max_combo      = 0u;
 }
 
-void BeatGrid::SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms) noexcept {
+void FBeatGrid::SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms) noexcept {
     f32 p = MsToSec(perfect_ms);
     f32 g = MsToSec(great_ms);
     f32 d = MsToSec(good_ms);
@@ -142,7 +142,7 @@ void BeatGrid::SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms) noexc
 // 再生制御
 // ----------------------------------------------------------------------------
 
-void BeatGrid::Start() noexcept {
+void FBeatGrid::Start() noexcept {
     _current_time = 0.0f;
     _playing      = true;
     _paused       = false;
@@ -158,7 +158,7 @@ void BeatGrid::Start() noexcept {
     _max_combo     = 0u;
 }
 
-void BeatGrid::Stop() noexcept {
+void FBeatGrid::Stop() noexcept {
     _playing      = false;
     _paused       = false;
     _current_time = 0.0f;
@@ -166,11 +166,11 @@ void BeatGrid::Stop() noexcept {
     // ClearAll で完全クリア。
 }
 
-void BeatGrid::Pause() noexcept {
+void FBeatGrid::Pause() noexcept {
     if (_playing) _paused = true;
 }
 
-void BeatGrid::Resume() noexcept {
+void FBeatGrid::Resume() noexcept {
     if (_playing) _paused = false;
 }
 
@@ -178,7 +178,7 @@ void BeatGrid::Resume() noexcept {
 // 入力 / 駆動
 // ----------------------------------------------------------------------------
 
-EJudgement BeatGrid::Tap(EBeatLane lane) noexcept {
+EJudgement FBeatGrid::Tap(EBeatLane lane) noexcept {
     // 停止中は判定対象なし
     if (!_playing) return EJudgement::Miss;
 
@@ -189,7 +189,7 @@ EJudgement BeatGrid::Tap(EBeatLane lane) noexcept {
         return EJudgement::Miss;
     }
 
-    const BeatNote& note = _notes[idx];
+    const FBeatNote& note = _notes[idx];
     f32 delta = note.time_sec - _current_time;
     if (delta < 0.0f) delta = -delta;
     const EJudgement j = ClassifyDelta(delta);
@@ -203,7 +203,7 @@ EJudgement BeatGrid::Tap(EBeatLane lane) noexcept {
     return j;
 }
 
-void BeatGrid::Tick(f32 dt) noexcept {
+void FBeatGrid::Tick(f32 dt) noexcept {
     if (!_playing) return;
     if (_paused)   return;
     if (dt <= 0.0f) return;
@@ -242,7 +242,7 @@ void BeatGrid::Tick(f32 dt) noexcept {
 // 統計
 // ----------------------------------------------------------------------------
 
-f32 BeatGrid::Accuracy() const noexcept {
+f32 FBeatGrid::Accuracy() const noexcept {
     if (_total_notes == 0u) return 1.0f; // 空譜面 = 満点扱い (divide-by-zero 回避)
     const f32 weighted =
         static_cast<f32>(_perfect_count) * 1.0f +
@@ -255,7 +255,7 @@ f32 BeatGrid::Accuracy() const noexcept {
 // 全リセット
 // ----------------------------------------------------------------------------
 
-void BeatGrid::ClearAll() noexcept {
+void FBeatGrid::ClearAll() noexcept {
     _notes.Clear();
     _judged.Clear();
     _bpm                = 0.0f;

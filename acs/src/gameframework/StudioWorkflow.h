@@ -28,7 +28,7 @@
 //           (void)_locks->LockAsset(path, "designer_a");
 //       }
 //       void OnRequestNightlyBuild() noexcept {
-//           acs::game::IBuildFarmBackend::BuildRequest req{
+//           acs::game::IBuildFarmBackend::FBuildRequest req{
 //               "Shipping_Win64", "main", "1e6c12b"};
 //           (void)_farm->SubmitBuild(req);
 //       }
@@ -42,7 +42,7 @@
 //   ・**cross-backend で同じ I/F**: Perforce / Plastic / Helix / Git LFS のいずれを
 //     後ろで使ってもエディタ側コードを書き換えない。アセットパスは `const char*
 //     asset_path` の opaque な depot/relative path 文字列として渡す (例:
-//     "//depot/Game/Art/Characters/hero.fbx")。
+//     "//depot/FGame/Art/Characters/hero.fbx")。
 //   ・**所有しない const char*** : 文字列は呼び出し側 / 外部 SDK のライフタイムに
 //     従う。Backend はコピーしない (STL <string> 不使用方針)。利用側は
 //     `QueryLock()` の戻り値を「ティック内のみ有効」と扱うこと。
@@ -73,12 +73,12 @@ namespace acs::game {
 // =============================================================================
 // 共通: stub 用エラーサブコード
 // -----------------------------------------------------------------------------
-// BackendClient / SaveSlot 等と同じく「Phase 1 stub = NotImplemented」を
+// BackendClient / FSaveSlot 等と同じく「Phase 1 stub = NotImplemented」を
 // `subcode = kSub_NotImplemented (= 99)` で表現する。`ErrCategory` には Generic を
 // 使う (P4 / Jenkins は I/O だが、本 seam は API 抽象であって特定の通信路を
 // 仮定しないため Generic が妥当)。
 // =============================================================================
-struct StudioWorkflowError {
+struct FStudioWorkflowError {
     enum SubCode : u16 {
         kSub_NotConnected   = 1,  // バックエンドへ未接続のまま呼ばれた
         kSub_BadArgument    = 2,  // asset_path / user / req フィールドが nullptr
@@ -90,15 +90,15 @@ struct StudioWorkflowError {
 };
 
 // =============================================================================
-// AssetLockInfo — QueryLock の戻り値 (P4 の `p4 fstat` 相当の最小情報)
+// FAssetLockInfo — QueryLock の戻り値 (P4 の `p4 fstat` 相当の最小情報)
 // -----------------------------------------------------------------------------
 // Backend は文字列を所有しない。`asset_path` / `locker_user` は外部 SDK 側
 // (または Stub 内 static literal) のメモリを参照するだけで、呼び出し側で
 // コピーしない。寿命は「次の Tick / 次の Backend 呼び出しまで」を保証する
 // (実装によってはより長い)。
 // =============================================================================
-struct AssetLockInfo {
-    const char* asset_path  = nullptr;  // ロック対象パス (例: "//depot/Game/foo.fbx")
+struct FAssetLockInfo {
+    const char* asset_path  = nullptr;  // ロック対象パス (例: "//depot/FGame/foo.fbx")
     const char* locker_user = nullptr;  // ロック保持ユーザー (例: "designer_a")
     u64         lock_time   = 0;        // ロック取得時刻 (実装依存; UNIX epoch 推奨)
 };
@@ -130,7 +130,7 @@ public:
 
     // 指定アセットの現在のロック状態を取得。未ロックなら kSub_NotFound。
     // 戻り値の文字列メンバの寿命は次の Backend 呼び出しまで保証する。
-    virtual TResult<AssetLockInfo> QueryLock(const char* asset_path) noexcept = 0;
+    virtual TResult<FAssetLockInfo> QueryLock(const char* asset_path) noexcept = 0;
 
     // バックエンドへ現在接続できているか。Stub は常に false。
     virtual bool IsConnected() const noexcept = 0;
@@ -148,7 +148,7 @@ public:
     // `preset` は farm 側で予め登録されたビルド構成名 (例: "Shipping_Win64")、
     // `branch` は git/p4 のブランチ/ストリーム名、`commit_sha` はピンポイントの
     // リビジョン識別子 (git sha / p4 changelist 番号文字列 等)。
-    struct BuildRequest {
+    struct FBuildRequest {
         const char* preset     = nullptr;
         const char* branch     = nullptr;
         const char* commit_sha = nullptr;
@@ -157,7 +157,7 @@ public:
     // PollBuild の戻り値。`success == false` でもビルド ID は有効 (失敗を表す
     // 結果として返る)。`artifact_url` は成功時のみ非 nullptr を保証 (失敗時は
     // nullptr を返してよい)。寿命は次の Backend 呼び出しまで。
-    struct BuildResult {
+    struct FBuildResult {
         u64         build_id     = 0;
         bool        success      = false;
         const char* artifact_url = nullptr;
@@ -174,14 +174,14 @@ public:
     // ビルドを farm に投入。成功時は非ゼロの `build_id` を返す。
     // `req.preset` / `req.branch` / `req.commit_sha` のいずれかが nullptr なら
     // kSub_BadArgument を返す責務は具象実装側 (stub では NotImplemented を優先)。
-    virtual TResult<u64> SubmitBuild(const BuildRequest& req) noexcept = 0;
+    virtual TResult<u64> SubmitBuild(const FBuildRequest& req) noexcept = 0;
 
     // ビルド状態を取得。`build_id == 0` は kSub_BadArgument、未知の ID は kSub_NotFound。
-    // 進行中は IsOk な BuildResult を返してもよい (success=false / artifact_url=nullptr)
+    // 進行中は IsOk な FBuildResult を返してもよい (success=false / artifact_url=nullptr)
     // が、本 I/F では「完了したかどうか」を呼出側に明示するため、進行中は IsErr を
     // 返す実装も許容する (kSub_NotFound 以外の Generic エラーで返すなど。具象側の
     // ポリシー)。
-    virtual TResult<BuildResult> PollBuild(u64 build_id) noexcept = 0;
+    virtual TResult<FBuildResult> PollBuild(u64 build_id) noexcept = 0;
 
     // ビルドのキャンセル要求。完了済み / 未知 ID への要求は kSub_NotFound。
     virtual TResult<void> CancelBuild(u64 build_id) noexcept = 0;
@@ -198,24 +198,24 @@ public:
 //   ・各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
 //   ・コピー/ムーブは基底 I/F で delete 済みのため本クラスも自然に non-copy。
 // =============================================================================
-class AssetLockingStub final : public IAssetLockingBackend {
+class FAssetLockingStub final : public IAssetLockingBackend {
 public:
-    AssetLockingStub() noexcept = default;
-    ~AssetLockingStub() noexcept override = default;
+    FAssetLockingStub() noexcept = default;
+    ~FAssetLockingStub() noexcept override = default;
 
     TResult<void>           LockAsset(const char* asset_path, const char* user) noexcept override;
     TResult<void>           UnlockAsset(const char* asset_path) noexcept override;
-    TResult<AssetLockInfo>  QueryLock(const char* asset_path) noexcept override;
+    TResult<FAssetLockInfo>  QueryLock(const char* asset_path) noexcept override;
     bool                   IsConnected() const noexcept override { return false; }
 };
 
-class BuildFarmStub final : public IBuildFarmBackend {
+class FBuildFarmStub final : public IBuildFarmBackend {
 public:
-    BuildFarmStub() noexcept = default;
-    ~BuildFarmStub() noexcept override = default;
+    FBuildFarmStub() noexcept = default;
+    ~FBuildFarmStub() noexcept override = default;
 
-    TResult<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
-    TResult<BuildResult>  PollBuild(u64 build_id) noexcept override;
+    TResult<u64>          SubmitBuild(const FBuildRequest& req) noexcept override;
+    TResult<FBuildResult>  PollBuild(u64 build_id) noexcept override;
     TResult<void>         CancelBuild(u64 build_id) noexcept override;
     bool                 IsConnected() const noexcept override { return false; }
 };

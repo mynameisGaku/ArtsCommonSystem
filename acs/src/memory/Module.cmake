@@ -33,17 +33,17 @@ acs_module(
 
 acs_module_feature(MODULE Memory NAME LINEAR_ALLOCATOR
     DEFINE MEMORY_LINEAR_ALLOC
-    DESCRIPTION "Include LinearAllocator"
+    DESCRIPTION "Include FLinearAllocator"
     DEFAULT ON)
 
 acs_module_feature(MODULE Memory NAME POOL_ALLOCATOR
     DEFINE MEMORY_POOL_ALLOC
-    DESCRIPTION "Include PoolAllocator"
+    DESCRIPTION "Include FPoolAllocator"
     DEFAULT ON)
 
 acs_module_feature(MODULE Memory NAME ARENA_ALLOCATOR
     DEFINE MEMORY_ARENA_ALLOC
-    DESCRIPTION "Include ArenaAllocator"
+    DESCRIPTION "Include FArenaAllocator"
     DEFAULT ON)
 
 acs_module_feature(MODULE Memory NAME VIRTUAL_MEMORY
@@ -58,7 +58,7 @@ acs_module_feature(MODULE Memory NAME TLSF
 
 acs_module_feature(MODULE Memory NAME SEGMENT_SYSTEM
     DEFINE MEMORY_SEGMENT_SYS
-    DESCRIPTION "Segmented MemorySystem"
+    DESCRIPTION "Segmented FMemorySystem"
     DEFAULT ON)
 
 acs_module_feature(MODULE Memory NAME SNAPSHOT

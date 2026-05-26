@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — DevConsole (Phase 1 skeleton)
+// GameFramework Pillar K — FDevConsole (Phase 1 skeleton)
 //
 // `~` (チルダ) で開く開発用テキストコマンドコンソールの **state コンテナ**。
 // 描画 / 入力ハンドリング (ImGui ウィンドウ、IME、オートコンプリート UI 等) は
@@ -34,11 +34,11 @@
 //   ・cvar (Pillar K の Phase 3 で別クラス化予定)
 //
 // 使い方:
-//   DevConsole con;
+//   FDevConsole con;
 //   con.RegisterCommand("quit", &MyApp::QuitCmd, this, "exit the application");
 //   con.RegisterCommand("help", &MyApp::HelpCmd, this, "list commands");
 //   ...
-//   if (Input::IsKeyPressed(EKey::Tilde)) con.Toggle();
+//   if (FInput::IsKeyPressed(EKey::Tilde)) con.Toggle();
 //   if (con.IsOpen() && enter_pressed) {
 //       con.PushHistory(input_buf);
 //       con.Execute(input_buf);
@@ -54,24 +54,24 @@ namespace acs::game {
 
 // コマンド引数 1 つ。Phase 1 は raw string のみ。
 // (Phase 2 で kind / int_val / float_val / bool_val を足す予定)
-struct ConsoleArg {
+struct FConsoleArg {
     const char* str = nullptr;
 };
 
 // コマンド本体。argc は args の長さ、argv[0] はコマンド名ではなく最初の引数。
 // noexcept を強制してエラー伝搬を log で処理する規約。
-using CommandFn = void(*)(void* user, u32 argc, const ConsoleArg* args) noexcept;
+using CommandFn = void(*)(void* user, u32 argc, const FConsoleArg* args) noexcept;
 
-class DevConsole {
+class FDevConsole {
 public:
-    DevConsole() noexcept = default;
-    ~DevConsole() noexcept;
+    FDevConsole() noexcept = default;
+    ~FDevConsole() noexcept;
 
     // 非コピー・非ムーブ (履歴 / ログが所有するヒープバッファの所有権を曖昧にしない)
-    DevConsole(const DevConsole&)            = delete;
-    DevConsole& operator=(const DevConsole&) = delete;
-    DevConsole(DevConsole&&)                 = delete;
-    DevConsole& operator=(DevConsole&&)      = delete;
+    FDevConsole(const FDevConsole&)            = delete;
+    FDevConsole& operator=(const FDevConsole&) = delete;
+    FDevConsole(FDevConsole&&)                 = delete;
+    FDevConsole& operator=(FDevConsole&&)      = delete;
 
     // ----- コマンド登録 -----
     // name / help_text は caller 所有 (リテラル想定)。重複登録は警告ログを出して
@@ -118,7 +118,7 @@ private:
     static constexpr u32 kLineCap    = 100;  // 履歴 / ログ各々の固定キャップ
     static constexpr u32 kMaxLineLen = 512;  // 履歴 / ログ 1 行の最大バイト (truncate)
 
-    struct Command {
+    struct FCommand {
         const char* name = nullptr;  // caller 所有 (リテラル前提)
         CommandFn   fn   = nullptr;
         void*       user = nullptr;
@@ -136,7 +136,7 @@ private:
     // buf の全エントリを Free して Clear。
     static void ClearLines(TArray<const char*>& buf) noexcept;
 
-    TArray<Command>     _commands;
+    TArray<FCommand>     _commands;
     TArray<const char*> _history;
     TArray<const char*> _log;
     bool               _open = false;

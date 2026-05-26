@@ -4,7 +4,7 @@
 #   main.cpp                    - ACS_DEFINE_MAIN(HelloAnimationApp) のみ
 #   Types.h                     - 共通定数 (kBoneCount / kRingCount ...)
 #   AnimationScene.{h,cpp}      - シーン描画ロジック + BuildSnake (生成)
-#   HelloAnimationApp.{h,cpp}   - Application 派生クラス
+#   HelloAnimationApp.{h,cpp}   - FApplication 派生クラス
 add_executable(hello_animation WIN32
     main.cpp
     AnimationScene.cpp

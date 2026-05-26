@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Asset → GPU リソース変換ヘルパ実装
+// FAsset → GPU リソース変換ヘルパ実装
 #include "render/RenderAssets.h"
 #include "asset/ImageAsset.h"
 #include "asset/MeshAsset.h"
@@ -26,7 +26,7 @@ EFormat ToRhiFormat(EPixelFormat f) noexcept {
 
 } // namespace
 
-TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAsset& img) noexcept {
+TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageAsset& img) noexcept {
     if (img.Width() == 0 || img.Height() == 0)
         return ACS_ERR(Render, 80, "UploadTexture: empty image");
 
@@ -35,8 +35,8 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAs
         return ACS_ERR(Render, 81, "UploadTexture: unsupported pixel format");
 
     // R8G8B8 (3ch) は GPU では 4ch にパディングが必要
-    // 簡易対応: ImageAsset::Pixels() がそのまま 4ch でない場合はエラー
-    // （ImageAssetLoader 側で 4ch に拡張する責務とする）
+    // 簡易対応: FImageAsset::Pixels() がそのまま 4ch でない場合はエラー
+    // （FImageAssetLoader 側で 4ch に拡張する責務とする）
     FTextureDesc d{};
     d.width  = img.Width();
     d.height = img.Height();
@@ -48,21 +48,21 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAs
     return CreateRhiTexture(device, d);
 }
 
-TResult<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out) noexcept {
+TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 82, "UploadMesh: empty mesh");
 
     // 頂点バッファ
     FBufferDesc vb_desc{};
-    vb_desc.size  = mesh.Vertices().Size() * sizeof(MeshVertex);
-    vb_desc.usage = EBufferUsage::Vertex;
+    vb_desc.size  = mesh.Vertices().Size() * sizeof(FMeshVertex);
+    vb_desc.usage = EBufferUsage::FVertex;
     vb_desc.cpu_writable = false;         // 静的 mesh は USAGE_IMMUTABLE で扱う
     vb_desc.initial_data = mesh.Vertices().Data();
     auto vbr = CreateRhiBuffer(device, vb_desc);
     if (vbr.IsErr()) return Err<void>(vbr.Error());
     out.vertex_buffer = Move(vbr.Value());
     out.vertex_count  = static_cast<u32>(mesh.Vertices().Size());
-    out.vertex_stride = sizeof(MeshVertex);
+    out.vertex_stride = sizeof(FMeshVertex);
 
     // インデックスバッファ
     if (mesh.Indices().Size() > 0) {
@@ -79,14 +79,14 @@ TResult<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out
     return Ok();
 }
 
-TResult<void> UploadSkinnedMesh(IRhiDevice& device, const SkinnedMeshAsset& mesh,
-                               SkinnedGpuMesh& out) noexcept {
+TResult<void> UploadSkinnedMesh(IRhiDevice& device, const FSkinnedMeshAsset& mesh,
+                               FSkinnedGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 84, "UploadSkinnedMesh: empty mesh");
 
     FBufferDesc vb{};
     vb.size = mesh.Vertices().Size() * sizeof(FSkinnedVertex);
-    vb.usage = EBufferUsage::Vertex;
+    vb.usage = EBufferUsage::FVertex;
     vb.cpu_writable = false;          // 静的 mesh は USAGE_IMMUTABLE
     vb.initial_data = mesh.Vertices().Data();
     auto vbr = CreateRhiBuffer(device, vb);

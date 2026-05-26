@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — PartySystem (パーティ state machine + フレンドリスト seam)
+// GameFramework Pillar T — FPartySystem (パーティ state machine + フレンドリスト seam)
 //
 // 役割:
 //   1〜N 人のローカルプレイヤーをまとめた「パーティ」状態と、簡易フレンドリストを
 //   ゲームロジック側から扱う窓口。マッチング前のロビー、Co-op 入室前の集合場所、
 //   ストアでのフレンド表示などを単一の API で扱う。実プラットフォーム接続は
 //   Pillar S = Storefront 側 (`SteamworksBridge` / EOS / PSN / Xbox / NSO) が
-//   アダプタとなり、結果を本 system に流し込む。PartySystem 自体は **プラット
+//   アダプタとなり、結果を本 system に流し込む。FPartySystem 自体は **プラット
 //   フォーム非依存**。
 //
 // 設計上の倫理方針 (cross-platform party + 児童保護):
@@ -22,7 +22,7 @@
 //     ごとに年齢推定 API が異なるため一律ルール化が危険)。
 //
 // 使い方 (典型例):
-//   PartySystem ps;
+//   FPartySystem ps;
 //   ps.AddFriend({ "steam:76561198000000001", "alice",  true,  true  });
 //   ps.AddFriend({ "epic:abc123",              "bob",    false, false });
 //
@@ -71,7 +71,7 @@ namespace acs::game {
 // フレンド 1 件分。`platform_id` は SDK 固有のユーザー識別子 (例 "steam:..." /
 // "epic:..." / PSN account_id 等)、`display_name` は表示名。両方 const char*
 // 非所有 (寿命は呼び出し側保証、Pillar O Entitlement と同じポリシー)。
-struct Friend {
+struct FFriend {
     const char* platform_id        = nullptr;  // SDK 固有 ID (文字列リテラル / 永続バッファ)
     const char* display_name       = nullptr;  // 表示名 (寿命は呼び出し側保証)
     bool        online             = false;    // オンライン中か
@@ -81,7 +81,7 @@ struct Friend {
 // パーティメンバ 1 件分。`is_leader` は招待・キック権限を持つかの判定に使われる
 // 想定 (本 system 側は権限チェックを行わず、フラグ保持のみ)。`is_ready` は
 // ロビー UI の準備完了表示用 (マッチング開始判定は呼び出し側)。
-struct PartyMember {
+struct FPartyMember {
     const char* player_id     = nullptr;  // SDK 固有 ID (platform_id と同形式想定)
     const char* display_name  = nullptr;  // 表示名
     bool        is_leader     = false;    // リーダー権限フラグ
@@ -100,16 +100,16 @@ enum class EPartyState : u8 {
     Leaving  = 3,  // 離脱要求送信済 / 応答待ち
 };
 
-class PartySystem {
+class FPartySystem {
 public:
-    PartySystem()  noexcept = default;
-    ~PartySystem() noexcept = default;
+    FPartySystem()  noexcept = default;
+    ~FPartySystem() noexcept = default;
 
     // 通常は長寿命 1 個運用。誤コピーで state 分裂を避けるため非コピー・非ムーブ。
-    PartySystem(const PartySystem&)            = delete;
-    PartySystem& operator=(const PartySystem&) = delete;
-    PartySystem(PartySystem&&)                 = delete;
-    PartySystem& operator=(PartySystem&&)      = delete;
+    FPartySystem(const FPartySystem&)            = delete;
+    FPartySystem& operator=(const FPartySystem&) = delete;
+    FPartySystem(FPartySystem&&)                 = delete;
+    FPartySystem& operator=(FPartySystem&&)      = delete;
 
     // ----- party 操作 -----
     // 新規パーティ作成。Solo 状態のみ受理。party_name は const char* 非所有
@@ -131,14 +131,14 @@ public:
 
     // ----- state query -----
     bool       IsInParty()    const noexcept { return _state == EPartyState::InParty; }
-    EPartyState State()        const noexcept { return _state; }
+    EPartyState FState()        const noexcept { return _state; }
 
     // ----- メンバアクセス -----
     // パーティ内メンバ数 (自分含む)。Solo 状態は 0。
     u32                MemberCount() const noexcept;
 
     // メンバ生バッファ (MemberCount() 件)。Leave / Add 系で無効化される。
-    const PartyMember* Members()     const noexcept;
+    const FPartyMember* Members()     const noexcept;
 
     // ----- フレームごとの状態更新 -----
     // Joining / Leaving の timeout 監視 + 仮想 SDK 完了の状態遷移。
@@ -148,13 +148,13 @@ public:
     // ----- フレンドリスト -----
     // フレンド 1 件登録。SDK の friend list 取得結果を Pillar S 側で
     // 流し込む想定。platform_id == nullptr は no-op で防御。
-    void AddFriend(const Friend& f) noexcept;
+    void AddFriend(const FFriend& f) noexcept;
 
     // フレンド件数 (オンライン / オフライン両方含む)。
     u32           FriendCount() const noexcept;
 
     // フレンド生バッファ (FriendCount() 件)。AddFriend で無効化される。
-    const Friend* Friends()     const noexcept;
+    const FFriend* Friends()     const noexcept;
 
 private:
     // ---- 内部ヘルパ ----
@@ -168,8 +168,8 @@ private:
     const char*        _party_name     = nullptr;   // CreateParty 時に保持 (非所有)
     const char*        _party_id       = nullptr;   // JoinParty 時に保持 (非所有)
     f32                _pending_timer  = 0.0f;      // Joining / Leaving 経過秒
-    TArray<PartyMember> _members;
-    TArray<Friend>      _friends;
+    TArray<FPartyMember> _members;
+    TArray<FFriend>      _friends;
 };
 
 } // namespace acs::game

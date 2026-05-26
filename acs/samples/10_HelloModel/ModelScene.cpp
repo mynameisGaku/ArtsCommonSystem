@@ -30,22 +30,22 @@ bool ModelScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
 }
 
 void ModelScene::Shutdown() noexcept {
-    _gm_cube   = GpuMesh{};
-    _gm_plane  = GpuMesh{};
-    _gm_sphere = GpuMesh{};
+    _gm_cube   = FGpuMesh{};
+    _gm_plane  = FGpuMesh{};
+    _gm_sphere = FGpuMesh{};
 }
 
-void ModelScene::Update(f32 dt, AssetFuture& async_mesh, bool& async_loaded) noexcept {
+void ModelScene::Update(f32 dt, FAssetFuture& async_mesh, bool& async_loaded) noexcept {
     _angle += dt * kSphereSpinSpeed;
 
     // === カメラ操作 ===
     const f32 move_speed = kCamMoveSpeed * dt;
     const f32 turn_speed = kCamTurnSpeed * dt;
 
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= turn_speed;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += turn_speed;
-    if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= turn_speed * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  _cam_pitch += turn_speed * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  _cam_yaw -= turn_speed;
+    if (FInput::IsKeyDown(EKey::Right)) _cam_yaw += turn_speed;
+    if (FInput::IsKeyDown(EKey::Up))    _cam_pitch -= turn_speed * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  _cam_pitch += turn_speed * 0.8f;
     // 真上 / 真下を向くと forward の計算が破綻するため上下 81° 弱で頭打ち。
     const f32 limit = 0.45f * kPi;
     if (_cam_pitch >  limit) _cam_pitch =  limit;
@@ -56,10 +56,10 @@ void ModelScene::Update(f32 dt, AssetFuture& async_mesh, bool& async_loaded) noe
                   Cos(_cam_yaw) * Cos(_cam_pitch) };
     FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
 
-    if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * move_speed;
-    if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * move_speed;
-    if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * move_speed;
-    if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * move_speed;
+    if (FInput::IsKeyDown(EKey::W)) _cam_pos += forward * move_speed;
+    if (FInput::IsKeyDown(EKey::S)) _cam_pos -= forward * move_speed;
+    if (FInput::IsKeyDown(EKey::D)) _cam_pos += right   * move_speed;
+    if (FInput::IsKeyDown(EKey::A)) _cam_pos -= right   * move_speed;
 
     FVec3 target = _cam_pos + forward;
     _camera.SetLookAt(_cam_pos, target);
@@ -77,7 +77,7 @@ void ModelScene::Update(f32 dt, AssetFuture& async_mesh, bool& async_loaded) noe
     }
 }
 
-void ModelScene::Render(StandardShader& shader, IRhiCommandList& cl) noexcept {
+void ModelScene::Render(FStandardShader& shader, IRhiCommandList& cl) noexcept {
     // Frame 共通設定（カメラ + 1 灯方向光 + 環境光）
     shader.SetFrame(_camera.ViewProjection(),
                     _camera.Eye(),

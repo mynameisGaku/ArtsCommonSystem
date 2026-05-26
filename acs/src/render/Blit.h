@@ -10,7 +10,7 @@
 // (HDR scene color → 屈折オブジェクトが sample する複製テクスチャ)。
 //
 // 使い方:
-//   Blit blit;
+//   FBlit blit;
 //   blit.Init(*device, hdr_format);                    // 1 度だけ
 //   // フレーム中、コピーしたい時点で:
 //   blit.Copy(*cl, *src_hdr, *dst_bg);                 // dst の format == hdr_format
@@ -27,16 +27,16 @@
 
 namespace acs {
 
-class Blit {
+class FBlit {
 public:
-    Blit() noexcept = default;
-    ~Blit() noexcept = default;
+    FBlit() noexcept = default;
+    ~FBlit() noexcept = default;
 
-    Blit(const Blit&)            = delete;
-    Blit& operator=(const Blit&) = delete;
+    FBlit(const FBlit&)            = delete;
+    FBlit& operator=(const FBlit&) = delete;
 
     // 初期化。rt_format は Copy の出力 RT のフォーマット (PSO に焼き込む)。
-    // 出力 RT を別フォーマットに切り替えたい場合は別 Blit インスタンスを使うこと。
+    // 出力 RT を別フォーマットに切り替えたい場合は別 FBlit インスタンスを使うこと。
     TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
 
     void Shutdown() noexcept;

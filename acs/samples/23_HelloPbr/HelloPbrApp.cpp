@@ -41,14 +41,14 @@ void HelloPbrApp::OnStart() noexcept {
 }
 
 void HelloPbrApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     _time += dt;
 
     const f32 mv = 5.0f * dt, tr = 1.5f * dt;
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += tr;
-    if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
+    if (FInput::IsKeyDown(EKey::Right)) _cam_yaw += tr;
+    if (FInput::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;
@@ -56,10 +56,10 @@ void HelloPbrApp::OnUpdate(f32 dt) noexcept {
                  -Sin(_cam_pitch),
                   Cos(_cam_yaw) * Cos(_cam_pitch) };
     FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
-    if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
-    if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
-    if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
-    if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * mv;
+    if (FInput::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
+    if (FInput::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
+    if (FInput::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
+    if (FInput::IsKeyDown(EKey::A)) _cam_pos -= right   * mv;
     _camera.SetLookAt(_cam_pos, _cam_pos + forward);
 }
 
@@ -75,7 +75,7 @@ void HelloPbrApp::OnRender() noexcept {
     lights[0].color     = FVec3{1.4f, 1.33f, 1.26f};
 
     // 旋回する点光源で highlight をハッキリ見せる
-    PointLight pts[1];
+    FPointLight pts[1];
     pts[0].position = FVec3{Sin(_time * 0.6f) * 4.0f, 1.5f,
                           Cos(_time * 0.6f) * 4.0f - 2.0f};
     pts[0].color    = FVec3{0.7f, 0.6f, 1.0f};
@@ -140,8 +140,8 @@ void HelloPbrApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     _font.Shutdown();
     _batch.Shutdown();
-    _gm_plane  = GpuMesh{};
-    _gm_sphere = GpuMesh{};
+    _gm_plane  = FGpuMesh{};
+    _gm_sphere = FGpuMesh{};
     _shader.Shutdown();
 }
 

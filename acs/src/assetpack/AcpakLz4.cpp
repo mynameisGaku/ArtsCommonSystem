@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS AssetPack — AcpakLz4 実装 (自前 LZ4 block format)
+// ACS AssetPack — FAcpakLz4 実装 (自前 LZ4 block format)
 // -----------------------------------------------------------------------------
 // LZ4 block format の self-contained 実装。公式 reference (lz4.c) より単純な
 // hash table ベースの "fast" 1 パススキャナ。圧縮率は公式の 80-90% 程度だが、
@@ -83,25 +83,25 @@ inline u32 HashSequence(u32 seq) noexcept {
 // 1 + 終端余裕 16 を確保。
 } // namespace
 
-u32 AcpakLz4::MaxCompressedSize(u32 input_size) noexcept {
+u32 FAcpakLz4::MaxCompressedSize(u32 input_size) noexcept {
     return input_size + (input_size / 255u) + 16u;
 }
 
 // ============================================================================
 // Compress — 単純 hash-based 1 パス LZ4
 // ============================================================================
-TResult<u32> AcpakLz4::Compress(const u8* src,
+TResult<u32> FAcpakLz4::Compress(const u8* src,
                                u32       src_size,
                                u8*       dst,
                                u32       dst_capacity) noexcept {
     // ---- 引数チェック ----------------------------------------------------
     if (dst == nullptr || dst_capacity == 0) {
-        return ACS_ERR(Asset, kAcpakSubLz4BadInput,
-                       "AcpakLz4::Compress: dst is null / empty");
+        return ACS_ERR(FAsset, kAcpakSubLz4BadInput,
+                       "FAcpakLz4::Compress: dst is null / empty");
     }
     if (src == nullptr && src_size > 0) {
-        return ACS_ERR(Asset, kAcpakSubLz4BadInput,
-                       "AcpakLz4::Compress: src is null but size > 0");
+        return ACS_ERR(FAsset, kAcpakSubLz4BadInput,
+                       "FAcpakLz4::Compress: src is null but size > 0");
     }
     if (src_size == 0) {
         return TResult<u32>(OkInit, 0u);
@@ -128,8 +128,8 @@ TResult<u32> AcpakLz4::Compress(const u8* src,
         // 容量: 1 token + ceil(lit_len/255) ext + lit_len
         const u32 ext_bytes = (lit_len >= 15u) ? ((lit_len - 15u) / 255u + 1u) : 0u;
         if (!check_dst(1u + ext_bytes + lit_len)) {
-            return ACS_ERR(Asset, kAcpakSubLz4DstOverflow,
-                           "AcpakLz4::Compress: dst overflow (short input)");
+            return ACS_ERR(FAsset, kAcpakSubLz4DstOverflow,
+                           "FAcpakLz4::Compress: dst overflow (short input)");
         }
         // token: high 4-bit = literal_length (15 = "拡張あり")
         u8 token = (lit_len >= 15u) ? (15u << 4) : static_cast<u8>(lit_len << 4);
@@ -206,8 +206,8 @@ TResult<u32> AcpakLz4::Compress(const u8* src,
                                       ? ((mat_excess  - 15u) / 255u + 1u) : 0u;
         const usize need = 1u + lit_ext_bytes + literal_len + 2u + mat_ext_bytes;
         if (!check_dst(need)) {
-            return ACS_ERR(Asset, kAcpakSubLz4DstOverflow,
-                           "AcpakLz4::Compress: dst overflow (mid sequence)");
+            return ACS_ERR(FAsset, kAcpakSubLz4DstOverflow,
+                           "FAcpakLz4::Compress: dst overflow (mid sequence)");
         }
 
         // token byte
@@ -256,8 +256,8 @@ TResult<u32> AcpakLz4::Compress(const u8* src,
                                       ? ((trailing - 15u) / 255u + 1u) : 0u;
         const usize need = 1u + lit_ext_bytes + trailing;
         if (!check_dst(need)) {
-            return ACS_ERR(Asset, kAcpakSubLz4DstOverflow,
-                           "AcpakLz4::Compress: dst overflow (trailing literals)");
+            return ACS_ERR(FAsset, kAcpakSubLz4DstOverflow,
+                           "FAcpakLz4::Compress: dst overflow (trailing literals)");
         }
         const u8 lit_token = (trailing >= 15u) ? 15u : static_cast<u8>(trailing);
         *op++ = static_cast<u8>(lit_token << 4);
@@ -278,7 +278,7 @@ TResult<u32> AcpakLz4::Compress(const u8* src,
 // ============================================================================
 // Decompress — LZ4_decompress_safe 相当 (境界検査付き)
 // ============================================================================
-TResult<u32> AcpakLz4::Decompress(const u8* src,
+TResult<u32> FAcpakLz4::Decompress(const u8* src,
                                  u32       src_size,
                                  u8*       dst,
                                  u32       dst_capacity) noexcept {
@@ -286,12 +286,12 @@ TResult<u32> AcpakLz4::Decompress(const u8* src,
         return TResult<u32>(OkInit, 0u);
     }
     if (src == nullptr || dst == nullptr) {
-        return ACS_ERR(Asset, kAcpakSubLz4BadInput,
-                       "AcpakLz4::Decompress: src/dst is null");
+        return ACS_ERR(FAsset, kAcpakSubLz4BadInput,
+                       "FAcpakLz4::Decompress: src/dst is null");
     }
     if (dst_capacity == 0) {
-        return ACS_ERR(Asset, kAcpakSubLz4DstOverflow,
-                       "AcpakLz4::Decompress: dst_capacity == 0");
+        return ACS_ERR(FAsset, kAcpakSubLz4DstOverflow,
+                       "FAcpakLz4::Decompress: dst_capacity == 0");
     }
 
     const u8* const src_begin = src;
@@ -312,16 +312,16 @@ TResult<u32> AcpakLz4::Decompress(const u8* src,
         if (lit_len == 15u) {
             while (true) {
                 if (ip >= src_end) {
-                    return ACS_ERR(Asset, kAcpakSubLz4SrcOverflow,
-                                   "AcpakLz4::Decompress: truncated literal_length");
+                    return ACS_ERR(FAsset, kAcpakSubLz4SrcOverflow,
+                                   "FAcpakLz4::Decompress: truncated literal_length");
                 }
                 const u8 b = *ip++;
                 lit_len += b;
                 if (b != 0xFF) break;
                 // u32 overflow ガード (悪意のあるストリームに対する防御)
                 if (lit_len > 0x10000000u) {
-                    return ACS_ERR(Asset, kAcpakSubLz4SrcOverflow,
-                                   "AcpakLz4::Decompress: literal_length overflow");
+                    return ACS_ERR(FAsset, kAcpakSubLz4SrcOverflow,
+                                   "FAcpakLz4::Decompress: literal_length overflow");
                 }
             }
         }
@@ -330,12 +330,12 @@ TResult<u32> AcpakLz4::Decompress(const u8* src,
         if (lit_len > 0) {
             // 残り src バイトと残り dst バイトが十分か検査
             if (static_cast<usize>(src_end - ip) < lit_len) {
-                return ACS_ERR(Asset, kAcpakSubLz4SrcOverflow,
-                               "AcpakLz4::Decompress: src exhausted in literals");
+                return ACS_ERR(FAsset, kAcpakSubLz4SrcOverflow,
+                               "FAcpakLz4::Decompress: src exhausted in literals");
             }
             if (static_cast<usize>(dst_end - op) < lit_len) {
-                return ACS_ERR(Asset, kAcpakSubLz4DstOverflow,
-                               "AcpakLz4::Decompress: dst exhausted in literals");
+                return ACS_ERR(FAsset, kAcpakSubLz4DstOverflow,
+                               "FAcpakLz4::Decompress: dst exhausted in literals");
             }
             MemCopy(op, ip, lit_len);
             ip += lit_len;
@@ -351,19 +351,19 @@ TResult<u32> AcpakLz4::Decompress(const u8* src,
 
         // ---- offset (2B LE) ---------------------------------------------
         if (static_cast<usize>(src_end - ip) < 2u) {
-            return ACS_ERR(Asset, kAcpakSubLz4SrcOverflow,
-                           "AcpakLz4::Decompress: src exhausted before offset");
+            return ACS_ERR(FAsset, kAcpakSubLz4SrcOverflow,
+                           "FAcpakLz4::Decompress: src exhausted before offset");
         }
         const u16 offset = Read16LE(ip);
         ip += 2;
         if (offset == 0) {
-            return ACS_ERR(Asset, kAcpakSubLz4BadOffset,
-                           "AcpakLz4::Decompress: offset == 0");
+            return ACS_ERR(FAsset, kAcpakSubLz4BadOffset,
+                           "FAcpakLz4::Decompress: offset == 0");
         }
         // dst 内の参照位置 = op - offset。dst_begin より前を指してはならない。
         if (static_cast<u32>(op - dst_begin) < offset) {
-            return ACS_ERR(Asset, kAcpakSubLz4BadOffset,
-                           "AcpakLz4::Decompress: offset beyond dst start");
+            return ACS_ERR(FAsset, kAcpakSubLz4BadOffset,
+                           "FAcpakLz4::Decompress: offset beyond dst start");
         }
         const u8* match_p = op - offset;
 
@@ -371,15 +371,15 @@ TResult<u32> AcpakLz4::Decompress(const u8* src,
         if (mat_len == 15u) {
             while (true) {
                 if (ip >= src_end) {
-                    return ACS_ERR(Asset, kAcpakSubLz4SrcOverflow,
-                                   "AcpakLz4::Decompress: truncated match_length");
+                    return ACS_ERR(FAsset, kAcpakSubLz4SrcOverflow,
+                                   "FAcpakLz4::Decompress: truncated match_length");
                 }
                 const u8 b = *ip++;
                 mat_len += b;
                 if (b != 0xFF) break;
                 if (mat_len > 0x10000000u) {
-                    return ACS_ERR(Asset, kAcpakSubLz4SrcOverflow,
-                                   "AcpakLz4::Decompress: match_length overflow");
+                    return ACS_ERR(FAsset, kAcpakSubLz4SrcOverflow,
+                                   "FAcpakLz4::Decompress: match_length overflow");
                 }
             }
         }
@@ -388,8 +388,8 @@ TResult<u32> AcpakLz4::Decompress(const u8* src,
 
         // dst overflow check
         if (static_cast<usize>(dst_end - op) < full_match) {
-            return ACS_ERR(Asset, kAcpakSubLz4DstOverflow,
-                           "AcpakLz4::Decompress: dst exhausted in match");
+            return ACS_ERR(FAsset, kAcpakSubLz4DstOverflow,
+                           "FAcpakLz4::Decompress: dst exhausted in match");
         }
 
         // ---- match コピー (overlap 対応の byte-wise copy) ----------------

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — SpriteAnimator (Phase 3 完結)
+// GameFramework Pillar C — FSpriteAnimator (Phase 3 完結)
 //
 // 「現在フレーム index を時間から算出する」ロジックだけを担うコンポーネント。
 // 画像 asset / 描画 API には一切触れず、利用者が CurrentFrame() を取り出して
-// 自分の Sprite/Quad に適用する責務分離 = テスタブルかつ asset 層と独立にビルド可能。
+// 自分の FSprite/Quad に適用する責務分離 = テスタブルかつ asset 層と独立にビルド可能。
 //
 // 機能:
 //   ・EPlayMode = Loop / PingPong / Once
@@ -14,7 +14,7 @@
 //     (Loop の周回毎に再発火、std::function は使わない)
 //
 // 使い方:
-//   SpriteAnimator anim;
+//   FSpriteAnimator anim;
 //   anim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);
 //   anim.AddFrameEvent(4, [](void* ud) noexcept {
 //       static_cast<MyActor*>(ud)->OnFootstep();
@@ -22,11 +22,11 @@
 //   anim.Play();
 //   // 毎フレーム:
 //   anim.Tick(dt);
-//   u32 idx = anim.CurrentFrame(); // ← Sprite/Quad の UV 切替に使う
+//   u32 idx = anim.CurrentFrame(); // ← FSprite/Quad の UV 切替に使う
 //
 // 設計判断:
 //   ・asset 非依存にすることで Pillar C (フレーム時間管理) と Pillar Q (視覚世界,
-//     スプライトシート) の関心を分離。SpriteAnimator は時間→index 関数として
+//     スプライトシート) の関心を分離。FSpriteAnimator は時間→index 関数として
 //     ユニットテスト可能。
 //   ・std::function を避けるため frame event のコールバックは関数ポインタ + user 引数。
 //     Lambda は capture 無しに限る (= ACS の関数ポインタ規約と整合)。
@@ -47,18 +47,18 @@ enum class EPlayMode : u8 {
     Once     = 2,  // 0→N-1 で停止
 };
 
-class SpriteAnimator {
+class FSpriteAnimator {
 public:
     using FrameEventFn = void(*)(void* user) noexcept;
 
-    SpriteAnimator() noexcept = default;
-    ~SpriteAnimator() noexcept = default;
+    FSpriteAnimator() noexcept = default;
+    ~FSpriteAnimator() noexcept = default;
 
     // ACS 規約: アニメ状態を不意に複製しないよう非コピー・非ムーブ
-    SpriteAnimator(const SpriteAnimator&)            = delete;
-    SpriteAnimator& operator=(const SpriteAnimator&) = delete;
-    SpriteAnimator(SpriteAnimator&&)                 = delete;
-    SpriteAnimator& operator=(SpriteAnimator&&)      = delete;
+    FSpriteAnimator(const FSpriteAnimator&)            = delete;
+    FSpriteAnimator& operator=(const FSpriteAnimator&) = delete;
+    FSpriteAnimator(FSpriteAnimator&&)                 = delete;
+    FSpriteAnimator& operator=(FSpriteAnimator&&)      = delete;
 
     // 初期化。frame_count==0 や fps<=0 は安全な既定にフォールバック (frame=1, fps=1)。
     // 既存の frame event は維持される (= Reset 用途では再 Init せず Stop を使う)。
@@ -100,7 +100,7 @@ public:
     void AddFrameEvent(u32 frame, FrameEventFn cb, void* user) noexcept;
 
 private:
-    struct FrameEvent {
+    struct FFrameEvent {
         u32          frame = 0;
         FrameEventFn cb    = nullptr;
         void*        user  = nullptr;
@@ -122,7 +122,7 @@ private:
     bool      _playing       = false;
     bool      _finished      = false;
 
-    TArray<FrameEvent> _events;
+    TArray<FFrameEvent> _events;
 };
 
 } // namespace acs::game

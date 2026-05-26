@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — PhotoMode (Polish & GameFeel)
+// GameFramework Pillar R — FPhotoMode (Polish & GameFeel)
 //
 // プレイヤーが任意の瞬間で「ゲーム時間を停止して景色を撮影する」モード。
 // 近年の AAA タイトル (Horizon / God of War / Spider-Man など) で
@@ -14,22 +14,22 @@
 //
 // 設計選択:
 //   ・**caller が時間操作を行う**: Enter() / Exit() は本クラスの状態を
-//     変えるだけ。実際の `Game::SetTimeScale(0)` 呼び出しは外側の
+//     変えるだけ。実際の `FGame::SetTimeScale(0)` 呼び出しは外側の
 //     ゲームコードが SavedTimeScale() を見て行う。これにより
-//     GameFramework モジュールから Game への依存を切る (Pillar 規約)。
+//     GameFramework モジュールから FGame への依存を切る (Pillar 規約)。
 //   ・**capture flag は poll-and-consume**: 描画側が 1 フレームの末尾で
 //     `ConsumeCaptureRequest()` を呼んで rear (= 落とす)。連打しても
 //     1 フレームに 1 枚しか保存しない自然な仕様。
 //   ・**zoom clamp [0.1, 10.0]**: 1/10 〜 10 倍。これより外は被写界深度や
 //     LOD が破綻するので機械的に clamp。
 //   ・**rotation は累積 radians**: 元のゲームカメラ rotation に **加算** する
-//     用途。Camera2D::Rotation() と直接競合しない設計。
+//     用途。FCamera2D::Rotation() と直接競合しない設計。
 //   ・**filter は enum のみ持つ**: 実 LUT / シェーダパラメータの解決は
 //     ポストプロセスパスの責務。本クラスは「どのフィルタが選ばれているか」
 //     だけを保持する。
 //
 // 非コピー・非ムーブ:
-//   PhotoMode は Game / Scene のメンバとして 1 インスタンスだけ存在する
+//   FPhotoMode は FGame / FScene のメンバとして 1 インスタンスだけ存在する
 //   想定。複製可能にすると saved_time_scale 等の整合性管理が破綻する。
 //
 // 範囲外 (Phase 2+):
@@ -44,7 +44,7 @@
 
 namespace acs::game {
 
-class PhotoMode {
+class FPhotoMode {
 public:
     // フィルタ種別。実 LUT 解決はポストプロセスパスが担当。
     enum FilterKind {
@@ -55,18 +55,18 @@ public:
         Vignette  = 4,   // 周辺光量落とし
     };
 
-    PhotoMode() noexcept = default;
-    ~PhotoMode() noexcept = default;
+    FPhotoMode() noexcept = default;
+    ~FPhotoMode() noexcept = default;
 
     // 非コピー・非ムーブ (state holder の唯一性を担保)
-    PhotoMode(const PhotoMode&)            = delete;
-    PhotoMode& operator=(const PhotoMode&) = delete;
-    PhotoMode(PhotoMode&&)                 = delete;
-    PhotoMode& operator=(PhotoMode&&)      = delete;
+    FPhotoMode(const FPhotoMode&)            = delete;
+    FPhotoMode& operator=(const FPhotoMode&) = delete;
+    FPhotoMode(FPhotoMode&&)                 = delete;
+    FPhotoMode& operator=(FPhotoMode&&)      = delete;
 
     // ----- モード遷移 -----
     // 現在の time_scale を保存して active=true、カメラオフセットも初期化。
-    // 実際に `Game::SetTimeScale(0)` を呼ぶのは caller の責任。
+    // 実際に `FGame::SetTimeScale(0)` を呼ぶのは caller の責任。
     void Enter(f32 current_time_scale = 1.0f) noexcept;
 
     // active=false に戻す。caller が SavedTimeScale() を見て復元する。
@@ -103,7 +103,7 @@ public:
 
     // ----- time scale 連携 -----
     // Enter() 時に保存した値。caller が Exit() 後に
-    // `Game::SetTimeScale(photo.SavedTimeScale())` で復元する用。
+    // `FGame::SetTimeScale(photo.SavedTimeScale())` で復元する用。
     f32 SavedTimeScale() const noexcept { return _saved_time_scale; }
 
 private:

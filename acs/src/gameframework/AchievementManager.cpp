@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — AchievementManager 実装
+// GameFramework Pillar S — FAchievementManager 実装
 //
 // 設計上のポイント:
 //   ・id 比較は const char* per-byte 比較。STL <string> / <cstring> 不使用。
@@ -10,7 +10,7 @@
 //   ・Bridge へは Unlock() / 自動 unlock のタイミングで一度だけ送信。
 //     失敗 (= Bridge 未初期化 / 未実装) は WARN ログだけ残し、ローカル進捗
 //     を破棄しない (オフライン → オンライン復帰の再送は Phase 3+)。
-//   ・unlock_timestamp は Clock::MillisSinceStartup()。プラットフォーム時刻
+//   ・unlock_timestamp は FClock::MillisSinceStartup()。プラットフォーム時刻
 //     (wall clock) ではなく起動からの相対 ms で十分というのは設計判断 (Phase 2)。
 #include "gameframework/AchievementManager.h"
 
@@ -43,7 +43,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 // 内部ユーティリティ
 // =============================================================================
 
-u32 AchievementManager::FindIndex(const char* id) const noexcept {
+u32 FAchievementManager::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return kNotFound;
     const usize n = _defs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -52,18 +52,18 @@ u32 AchievementManager::FindIndex(const char* id) const noexcept {
     return kNotFound;
 }
 
-void AchievementManager::UnlockInternal(u32 index) noexcept {
+void FAchievementManager::UnlockInternal(u32 index) noexcept {
     // 呼出側で index 有効性は保証済 (FindIndex から流れてくる) だが、
     // 念のため範囲チェック (Reset 等経由のレースに備える保険)。
     if (static_cast<usize>(index) >= _progress.Size()) return;
 
-    AchievementProgress& p = _progress[index];
+    FAchievementProgress& p = _progress[index];
     if (p.unlocked) return;  // 多重 unlock は no-op (timestamp は最初の値を保持)
 
     p.current_progress = p.max_progress;
     p.unlocked         = true;
     // 起動からの ms。プラットフォーム時刻が必要になったら Phase 3 で拡張。
-    p.unlock_timestamp = Clock::MillisSinceStartup();
+    p.unlock_timestamp = FClock::MillisSinceStartup();
 
     // Bridge attach 中なら SDK へ送信。失敗時はローカル進捗には影響させない。
     if (_bridge != nullptr) {
@@ -71,7 +71,7 @@ void AchievementManager::UnlockInternal(u32 index) noexcept {
         if (r.IsErr()) {
             // Stub だと未実装で必ず Err になるため、Warn 1 行で抑える。
             // 実 SDK 統合後は Err = 通信失敗 / 未初期化 → 監視対象に格上げ可。
-            ACS_LOG_WARN("AchievementManager: bridge UnlockAchievement('%s') failed",
+            ACS_LOG_WARN("FAchievementManager: bridge UnlockAchievement('%s') failed",
                          p.id != nullptr ? p.id : "<null>");
         }
     }
@@ -81,21 +81,21 @@ void AchievementManager::UnlockInternal(u32 index) noexcept {
 // 定義登録
 // =============================================================================
 
-void AchievementManager::RegisterAchievement(const AchievementDef& def) noexcept {
+void FAchievementManager::RegisterAchievement(const FAchievementDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindIndex(def.id) != kNotFound) {
-        ACS_LOG_WARN("AchievementManager: duplicate registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("FAchievementManager: duplicate registration ignored ('%s')", def.id);
         return;
     }
 
     // max_progress = 0 は意味不明なので 1 に丸めて「単発フラグ」扱いに。
-    AchievementDef d = def;
+    FAchievementDef d = def;
     if (d.max_progress == 0) d.max_progress = 1;
 
-    AchievementProgress p{};
+    FAchievementProgress p{};
     p.id               = d.id;
     p.current_progress = 0;
     p.max_progress     = d.max_progress;
@@ -110,11 +110,11 @@ void AchievementManager::RegisterAchievement(const AchievementDef& def) noexcept
 // 進捗操作
 // =============================================================================
 
-void AchievementManager::SetProgress(const char* id, u32 progress) noexcept {
+void FAchievementManager::SetProgress(const char* id, u32 progress) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
 
-    AchievementProgress& p = _progress[idx];
+    FAchievementProgress& p = _progress[idx];
     if (p.unlocked) return;  // 既 unlock は変更しない (再 reset したい場合は Reset() 経由で)
 
     // max_progress クランプ。
@@ -126,11 +126,11 @@ void AchievementManager::SetProgress(const char* id, u32 progress) noexcept {
     }
 }
 
-void AchievementManager::IncrementProgress(const char* id, u32 delta) noexcept {
+void FAchievementManager::IncrementProgress(const char* id, u32 delta) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
 
-    AchievementProgress& p = _progress[idx];
+    FAchievementProgress& p = _progress[idx];
     if (p.unlocked) return;
 
     // u32 オーバーフロー時の安全側クランプ。
@@ -149,26 +149,26 @@ void AchievementManager::IncrementProgress(const char* id, u32 delta) noexcept {
     }
 }
 
-void AchievementManager::Unlock(const char* id) noexcept {
+void FAchievementManager::Unlock(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
     UnlockInternal(idx);
 }
 
-void AchievementManager::Reset(const char* id) noexcept {
+void FAchievementManager::Reset(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
-    AchievementProgress& p = _progress[idx];
+    FAchievementProgress& p = _progress[idx];
     p.current_progress = 0;
     p.unlocked         = false;
     p.unlock_timestamp = 0;
     // Bridge 側のリセットは呼ばない (SDK 仕様によっては不可能 / 危険)。
 }
 
-void AchievementManager::ResetAll() noexcept {
+void FAchievementManager::ResetAll() noexcept {
     const usize n = _progress.Size();
     for (usize i = 0; i < n; ++i) {
-        AchievementProgress& p = _progress[i];
+        FAchievementProgress& p = _progress[i];
         p.current_progress = 0;
         p.unlocked         = false;
         p.unlock_timestamp = 0;
@@ -179,23 +179,23 @@ void AchievementManager::ResetAll() noexcept {
 // 照会
 // =============================================================================
 
-bool AchievementManager::IsUnlocked(const char* id) const noexcept {
+bool FAchievementManager::IsUnlocked(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return false;
     return _progress[idx].unlocked;
 }
 
-u32 AchievementManager::GetProgress(const char* id) const noexcept {
+u32 FAchievementManager::GetProgress(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return 0;
     return _progress[idx].current_progress;
 }
 
-u32 AchievementManager::TotalCount() const noexcept {
+u32 FAchievementManager::TotalCount() const noexcept {
     return static_cast<u32>(_progress.Size());
 }
 
-u32 AchievementManager::UnlockedCount() const noexcept {
+u32 FAchievementManager::UnlockedCount() const noexcept {
     u32 c = 0;
     const usize n = _progress.Size();
     for (usize i = 0; i < n; ++i) {
@@ -204,13 +204,13 @@ u32 AchievementManager::UnlockedCount() const noexcept {
     return c;
 }
 
-const AchievementProgress* AchievementManager::GetState(const char* id) const noexcept {
+const FAchievementProgress* FAchievementManager::GetState(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return nullptr;
     return &_progress[idx];
 }
 
-const AchievementProgress* AchievementManager::AllStates(u32& out_count) const noexcept {
+const FAchievementProgress* FAchievementManager::AllStates(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_progress.Size());
     return _progress.Data();
 }
@@ -219,7 +219,7 @@ const AchievementProgress* AchievementManager::AllStates(u32& out_count) const n
 // SteamworksBridge 統合
 // =============================================================================
 
-void AchievementManager::AttachSteamworks(ISteamworksBridge* bridge) noexcept {
+void FAchievementManager::AttachSteamworks(ISteamworksBridge* bridge) noexcept {
     // nullptr で detach は明示的に許可 (オフラインモードへ戻す)。
     _bridge = bridge;
 }
@@ -228,7 +228,7 @@ void AchievementManager::AttachSteamworks(ISteamworksBridge* bridge) noexcept {
 // Tick
 // =============================================================================
 
-void AchievementManager::Tick(f32 dt) noexcept {
+void FAchievementManager::Tick(f32 dt) noexcept {
     // Phase 2 では完全 no-op。将来「累計時間系実績」を内蔵する場合の予約。
     (void)dt;
 }

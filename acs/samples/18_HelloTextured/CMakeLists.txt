@@ -5,7 +5,7 @@
 #   Types.h                  - 頂点フォーマット + キューブ 24 頂点 + UV + テクスチャサイズ
 #   Shaders.h                - HLSL ソース (VS + PS + texture sampling)
 #   TextureGen.{h,cpp}       - 手続き生成テクスチャ
-#   HelloTexturedApp.{h,cpp} - Application 派生クラス
+#   HelloTexturedApp.{h,cpp} - FApplication 派生クラス
 add_executable(hello_textured WIN32
     main.cpp
     HelloTexturedApp.cpp

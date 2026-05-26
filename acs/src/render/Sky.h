@@ -6,13 +6,13 @@
 //       地面の色を補間して描画する。
 //
 // 使い方:
-//   Sky sky;
+//   FSky sky;
 //   sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 //   sky.PresetDay();
 //
 //   // 描画フレーム中、シーンの最初に
 //   sky.Render(*cl, camera);
-//   // ... StandardShader でメッシュを描く ...
+//   // ... FStandardShader でメッシュを描く ...
 #pragma once
 
 #include "foundation/Result.h"
@@ -29,13 +29,13 @@ namespace acs {
 
 class FCamera;
 
-class Sky {
+class FSky {
 public:
-    Sky() noexcept = default;
-    ~Sky() noexcept = default;
+    FSky() noexcept = default;
+    ~FSky() noexcept = default;
 
-    Sky(const Sky&)            = delete;
-    Sky& operator=(const Sky&) = delete;
+    FSky(const FSky&)            = delete;
+    FSky& operator=(const FSky&) = delete;
 
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
@@ -56,7 +56,7 @@ public:
     void PresetSunset() noexcept;    // 茜色 + 暖色太陽
     void PresetNight()  noexcept;    // 紺青 + 弱い月光
 
-    // 現在の太陽パラメータ取得（StandardShader / IBL と整合させたいときに）
+    // 現在の太陽パラメータ取得（FStandardShader / IBL と整合させたいときに）
     FVec3 SunDirection() const noexcept { return _sun_dir; }
     FVec3 SunColor()     const noexcept { return _sun_color; }
     f32  SunRadius()    const noexcept { return _sun_radius; }

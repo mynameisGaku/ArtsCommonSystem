@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — MusicDirector 実装 (Phase 1: bridge スケルトン)
+// GameFramework Pillar H — FMusicDirector 実装 (Phase 1: bridge スケルトン)
 //
 // state machine + transition / stinger pending 管理を完全実装。
-// 実際の BGM / SFX 再生は AudioDirector 経由で Phase 2 に接続予定。
+// 実際の BGM / SFX 再生は FAudioDirector 経由で Phase 2 に接続予定。
 #include "gameframework/MusicDirector.h"
 #include "foundation/Log.h"
 
@@ -12,15 +12,15 @@ namespace acs::game {
 // helpers
 // ----------------------------------------------------------------------------
 
-f32 MusicDirector::Clamp01(f32 v) noexcept {
+f32 FMusicDirector::Clamp01(f32 v) noexcept {
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
 }
 
 // 同一 TODO メッセージを毎フレーム吐かないよう、ファイル static の `done` flag
-// で 1 度きりに絞る。AudioDirector::LogTodoOnce と同方針。
-void MusicDirector::LogTodoOnce(const char* what) noexcept {
+// で 1 度きりに絞る。FAudioDirector::LogTodoOnce と同方針。
+void FMusicDirector::LogTodoOnce(const char* what) noexcept {
     static bool s_logged_set_state = false;
     static bool s_logged_stinger   = false;
     static bool s_logged_stop      = false;
@@ -34,14 +34,14 @@ void MusicDirector::LogTodoOnce(const char* what) noexcept {
 
     if (slot != nullptr && *slot) return;
     if (slot != nullptr) *slot = true;
-    ACS_LOG_INFO("MusicDirector: %s — Phase 2 で AudioDirector と接続予定 (現在は state のみ)", what);
+    ACS_LOG_INFO("FMusicDirector: %s — Phase 2 で FAudioDirector と接続予定 (現在は state のみ)", what);
 }
 
 // ----------------------------------------------------------------------------
 // construction
 // ----------------------------------------------------------------------------
 
-MusicDirector::MusicDirector() noexcept {
+FMusicDirector::FMusicDirector() noexcept {
     // 想定登録数で track 配列を事前確保 (拡張時の reallocation を抑える)。
     _tracks.Reserve(kTrackReserveHint);
     for (u32 i = 0; i < kStateCount; ++i) {
@@ -54,23 +54,23 @@ MusicDirector::MusicDirector() noexcept {
 // track 登録
 // ----------------------------------------------------------------------------
 
-void MusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) noexcept {
+void FMusicDirector::RegisterTrack(EMusicState state, const FMusicTrack& track) noexcept {
     if (track.asset_path == nullptr) {
-        ACS_LOG_WARN("MusicDirector::RegisterTrack: asset_path=nullptr → ignored");
+        ACS_LOG_WARN("FMusicDirector::RegisterTrack: asset_path=nullptr → ignored");
         return;
     }
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) {
-        ACS_LOG_WARN("MusicDirector::RegisterTrack: invalid state=%u → ignored", state_idx);
+        ACS_LOG_WARN("FMusicDirector::RegisterTrack: invalid state=%u → ignored", state_idx);
         return;
     }
 
     // intensity range を [0, 1] にクランプし、min <= max を保証する。
-    MusicTrack normalized = track;
+    FMusicTrack normalized = track;
     normalized.intensity_min = Clamp01(track.intensity_min);
     normalized.intensity_max = Clamp01(track.intensity_max);
     if (normalized.intensity_min > normalized.intensity_max) {
-        ACS_LOG_WARN("MusicDirector::RegisterTrack: intensity_min(%.3f) > max(%.3f) → swapped",
+        ACS_LOG_WARN("FMusicDirector::RegisterTrack: intensity_min(%.3f) > max(%.3f) → swapped",
                      normalized.intensity_min, normalized.intensity_max);
         const f32 tmp = normalized.intensity_min;
         normalized.intensity_min = normalized.intensity_max;
@@ -80,7 +80,7 @@ void MusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) no
     // 該当 state の末尾位置に挿入するため、それより後ろの track を 1 つずつ後方シフト。
     // (state ごとに連続区間を維持する SoA 戦略)
     const u32 insert_at = _state_first[state_idx] + _state_count[state_idx];
-    _tracks.PushBack(MusicTrack{});  // 末尾に空き枠を確保
+    _tracks.PushBack(FMusicTrack{});  // 末尾に空き枠を確保
     for (usize i = _tracks.Size() - 1; i > insert_at; --i) {
         _tracks[i] = _tracks[i - 1];
     }
@@ -93,12 +93,12 @@ void MusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) no
     }
 }
 
-void MusicDirector::RebuildStateIndex() noexcept {
+void FMusicDirector::RebuildStateIndex() noexcept {
     // 現状は RegisterTrack 内で逐次更新しており、明示再構築は不要。
     // 将来 UnregisterTrack を導入する際の hook 用に空関数として残す。
 }
 
-usize MusicDirector::FindTrackForState(EMusicState state, f32 intensity) const noexcept {
+usize FMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) return _tracks.Size();
     const u32 first = _state_first[state_idx];
@@ -110,7 +110,7 @@ usize MusicDirector::FindTrackForState(EMusicState state, f32 intensity) const n
     f32   fallback_max = -1.0f;
     for (u32 i = 0; i < count; ++i) {
         const usize idx = static_cast<usize>(first + i);
-        const MusicTrack& t = _tracks[idx];
+        const FMusicTrack& t = _tracks[idx];
         if (intensity >= t.intensity_min && intensity <= t.intensity_max) {
             return idx;
         }
@@ -128,10 +128,10 @@ usize MusicDirector::FindTrackForState(EMusicState state, f32 intensity) const n
 // 状態遷移
 // ----------------------------------------------------------------------------
 
-void MusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
+void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) {
-        ACS_LOG_WARN("MusicDirector::SetState: invalid state=%u → ignored", state_idx);
+        ACS_LOG_WARN("FMusicDirector::SetState: invalid state=%u → ignored", state_idx);
         return;
     }
     LogTodoOnce("SetState");
@@ -160,7 +160,7 @@ void MusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     _transition_progress  = 0.0f;
 }
 
-bool MusicDirector::IsTransitioning() const noexcept {
+bool FMusicDirector::IsTransitioning() const noexcept {
     return _current_state != _target_state && _transition_progress < 1.0f;
 }
 
@@ -168,10 +168,10 @@ bool MusicDirector::IsTransitioning() const noexcept {
 // intensity
 // ----------------------------------------------------------------------------
 
-void MusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
+void FMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
     const f32 c = Clamp01(intensity_0_to_1);
     if (c != intensity_0_to_1) {
-        ACS_LOG_WARN("MusicDirector::SetIntensity: out-of-range %.3f → clamped to %.3f",
+        ACS_LOG_WARN("FMusicDirector::SetIntensity: out-of-range %.3f → clamped to %.3f",
                      intensity_0_to_1, c);
     }
     _intensity = c;
@@ -181,18 +181,18 @@ void MusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
 // Stinger
 // ----------------------------------------------------------------------------
 
-void MusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
+void FMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
     if (asset_path == nullptr) {
-        ACS_LOG_WARN("MusicDirector::PlayStinger: asset_path=nullptr → ignored");
+        ACS_LOG_WARN("FMusicDirector::PlayStinger: asset_path=nullptr → ignored");
         return;
     }
     if (volume <= 0.0f) {
-        ACS_LOG_WARN("MusicDirector::PlayStinger: volume=%.3f <= 0 → ignored", volume);
+        ACS_LOG_WARN("FMusicDirector::PlayStinger: volume=%.3f <= 0 → ignored", volume);
         return;
     }
     if (_stinger_pending) {
         // 既存 pending を上書き (最新採用ポリシー、スタックしない)。
-        ACS_LOG_WARN("MusicDirector::PlayStinger: pending stinger overwritten (%s → %s)",
+        ACS_LOG_WARN("FMusicDirector::PlayStinger: pending stinger overwritten (%s → %s)",
                      _stinger_path, asset_path);
     }
     LogTodoOnce("Stinger");
@@ -201,7 +201,7 @@ void MusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
     _stinger_pending = true;
 }
 
-const char* MusicDirector::ConsumeStinger(f32& out_volume) noexcept {
+const char* FMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
     if (!_stinger_pending) {
         out_volume = 0.0f;
         return nullptr;
@@ -218,7 +218,7 @@ const char* MusicDirector::ConsumeStinger(f32& out_volume) noexcept {
 // driver
 // ----------------------------------------------------------------------------
 
-void MusicDirector::Tick(f32 dt) noexcept {
+void FMusicDirector::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     LogTodoOnce("Tick");
 
@@ -248,7 +248,7 @@ void MusicDirector::Tick(f32 dt) noexcept {
 // Stop
 // ----------------------------------------------------------------------------
 
-void MusicDirector::Stop() noexcept {
+void FMusicDirector::Stop() noexcept {
     LogTodoOnce("Stop");
     _current_state        = EMusicState::Silent;
     _target_state         = EMusicState::Silent;
@@ -266,13 +266,13 @@ void MusicDirector::Stop() noexcept {
 // 派生情報
 // ----------------------------------------------------------------------------
 
-const MusicTrack* MusicDirector::CurrentTrack() const noexcept {
+const FMusicTrack* FMusicDirector::CurrentTrack() const noexcept {
     const usize idx = FindTrackForState(_current_state, _intensity);
     if (idx >= _tracks.Size()) return nullptr;
     return &_tracks[idx];
 }
 
-const MusicTrack* MusicDirector::TargetTrack() const noexcept {
+const FMusicTrack* FMusicDirector::TargetTrack() const noexcept {
     if (_current_state == _target_state) return nullptr;
     const usize idx = FindTrackForState(_target_state, _intensity);
     if (idx >= _tracks.Size()) return nullptr;

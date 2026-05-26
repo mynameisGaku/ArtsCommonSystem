@@ -12,30 +12,30 @@ namespace hellobt {
 
 void BtEditorApp::OnStart() noexcept {
     if (auto r = _imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
-        ACS_LOG_ERROR("[BtEditorApp] ImGuiCtx.Init failed -> Quit");
+        ACS_LOG_ERROR("[BtEditorApp] FImGuiCtx.Init failed -> Quit");
         Quit();
         return;
     }
-    Game::OnStart();
+    FGame::OnStart();
 }
 
 void BtEditorApp::OnRender() noexcept {
     _imgui.NewFrame();
-    Game::OnRender();
+    FGame::OnRender();
     _imgui.Render();
 }
 
 void BtEditorApp::OnShutdown() noexcept {
-    Game::OnShutdown();
+    FGame::OnShutdown();
     _imgui.Shutdown();
 }
 
-void BtEditorApp::OnEvent(const Event& e) noexcept {
+void BtEditorApp::OnEvent(const FEvent& e) noexcept {
     _imgui.OnEvent(e);
-    Game::OnEvent(e);
+    FGame::OnEvent(e);
 }
 
-TUniquePtr<Scene> BtEditorApp::InitialScene() noexcept {
+TUniquePtr<FScene> BtEditorApp::InitialScene() noexcept {
     return MakeUnique<BtEditorScene>();
 }
 

@@ -12,17 +12,17 @@ namespace Diligent {
 
 namespace acs {
 
-class DiligentDevice;
+class FDiligentDevice;
 
-class DiligentPipeline final : public IRhiPipeline {
+class FDiligentPipeline final : public IRhiPipeline {
 public:
-    DiligentPipeline() noexcept = default;
-    ~DiligentPipeline() noexcept override;
+    FDiligentPipeline() noexcept = default;
+    ~FDiligentPipeline() noexcept override;
 
-    DiligentPipeline(const DiligentPipeline&) = delete;
-    DiligentPipeline& operator=(const DiligentPipeline&) = delete;
+    FDiligentPipeline(const FDiligentPipeline&) = delete;
+    FDiligentPipeline& operator=(const FDiligentPipeline&) = delete;
 
-    TResult<void> Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept;
+    TResult<void> Init(FDiligentDevice& device, const FPipelineDesc& desc) noexcept;
 
     // 内部公開
     Diligent::IPipelineState*           Native() const noexcept { return _pso; }
@@ -37,14 +37,14 @@ public:
     const char* TextureName(u32 slot) const noexcept;
 
 private:
-    DiligentDevice*                  _device = nullptr;
+    FDiligentDevice*                  _device = nullptr;
     Diligent::IPipelineState*        _pso    = nullptr;
     Diligent::IShaderResourceBinding* _srb   = nullptr;
     u32                              _cb_slots  = 0;
     u32                              _tex_slots = 0;
 
     // FPipelineDesc から複製した HLSL リソース名。null なら fallback 名を返す。
-    // Phase 33f-prep: 8→16 へ拡張、PbrShader が 8/8 で上限到達したため。
+    // Phase 33f-prep: 8→16 へ拡張、FPbrShader が 8/8 で上限到達したため。
     static constexpr u32 kMaxResourceSlots = 16;
     const char* _cb_names[kMaxResourceSlots]  = {};
     const char* _tex_names[kMaxResourceSlots] = {};

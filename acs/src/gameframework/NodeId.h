@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B Phase 3 — FNodeId (シーングラフ用 generational handle)
 //
-// シーングラフ内の Node2D / Node を一意に識別する 32bit パック handle。
+// シーングラフ内の FNode2D / FNode を一意に識別する 32bit パック handle。
 // 1 個の `u32` に **24bit index + 8bit generation** を pack する設計で、
 // `FShapeId` (CollisionWorld2D.h) と完全に同じパターンを採用している。
 //
@@ -15,10 +15,10 @@
 //
 // 設計選択 (なぜこの形か):
 //   ・**RTTI / dynamic_cast 不使用**: ACS は STL / 例外 / RTTI 禁止。型情報は
-//     呼び出し側 (Scene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
+//     呼び出し側 (FScene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
 //     のどの世代か」だけを表現する POD handle。
 //   ・**24bit index = 約 16M slot で十分**: 2D ゲームのシーングラフで同時存在
-//     する Node 数は実用上 10K 〜 100K オーダー。16M (= 16,777,216) なら数桁
+//     する FNode 数は実用上 10K 〜 100K オーダー。16M (= 16,777,216) なら数桁
 //     余裕があり、将来 ECS-lite に拡張しても枯渇しない。
 //   ・**8bit generation = 256 世代**: slot を recycle してもラップアラウンドで
 //     stale handle と区別できる確率が 1/256 と十分高い。**generation == 0 は
@@ -33,7 +33,7 @@
 //
 // 注意:
 //   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
-//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (NodePool 等)
+//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (FNodePool 等)
 //     で assert / TResult<E> を入れて 16M 越えを検出する責務。
 #pragma once
 
@@ -41,7 +41,7 @@
 
 namespace acs::game {
 
-/// シーングラフ Node を識別する packed 32bit handle (generational)。
+/// シーングラフ FNode を識別する packed 32bit handle (generational)。
 struct FNodeId {
     /// 0 = invalid。layout: low24=index, high8=generation。
     u32 _packed = 0;

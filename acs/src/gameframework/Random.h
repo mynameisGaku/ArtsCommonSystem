@@ -14,16 +14,16 @@
 //   - 全 noexcept: 失敗パスを持たない (state は内部固定、外部 IO なし)。
 //
 // 使い方:
-//   acs::game::Random r(0x12345678ULL);
+//   acs::game::FRandom r(0x12345678ULL);
 //   f32 t = r.NextF32Unit();                 // [0,1)
 //   i32 d = r.RangeInt(1, 6);                // dice roll
 //   acs::FVec2 p = r.PointInCircle(50.0f);    // 円板内一様
-//   acs::game::Random::Global().NextBool();  // 簡易ユースケース
+//   acs::game::FRandom::Global().NextBool();  // 簡易ユースケース
 //
 // 注意:
 //   - Global() はプロセス内で 1 個の静的インスタンス。マルチスレッドからの
-//     呼び出しは未保護 (ACS 規約: 別スレッドは別 Random を持つこと)。
-//   - 時刻 seed は acs::Clock::Ticks() (`platform/Time.h`) を利用する。
+//     呼び出しは未保護 (ACS 規約: 別スレッドは別 FRandom を持つこと)。
+//   - 時刻 seed は acs::FClock::Ticks() (`platform/Time.h`) を利用する。
 #pragma once
 
 #include "container/Array.h"
@@ -32,17 +32,17 @@
 
 namespace acs::game {
 
-class Random {
+class FRandom {
 public:
     // 既定: 起動時刻ベースで seed する。決定論再現が必要なら u64 を明示。
-    Random() noexcept;
-    explicit Random(u64 seed) noexcept;
+    FRandom() noexcept;
+    explicit FRandom(u64 seed) noexcept;
 
     // 非コピー / 非ムーブ (state は 1 箇所にとどめる)
-    Random(const Random&)            = delete;
-    Random& operator=(const Random&) = delete;
-    Random(Random&&)                 = delete;
-    Random& operator=(Random&&)      = delete;
+    FRandom(const FRandom&)            = delete;
+    FRandom& operator=(const FRandom&) = delete;
+    FRandom(FRandom&&)                 = delete;
+    FRandom& operator=(FRandom&&)      = delete;
 
     // 任意の u64 で再 seed (SplitMix64 で 4 個の u32 に拡散)
     void Seed(u64 seed) noexcept;
@@ -80,7 +80,7 @@ public:
     u32 WeightedChoice(const f32* weights, u32 count) noexcept;
 
     // プロセス内シングルトン (lazy init、時刻 seed)。スレッド安全性は呼び出し側責務。
-    static Random& Global() noexcept;
+    static FRandom& Global() noexcept;
 
 private:
     // xoshiro128** state: 4 個の u32、全 0 は禁止 (SplitMix64 が回避)。
@@ -94,7 +94,7 @@ private:
 // template 実装: ヘッダで完結させる (TArray<T> のインスタンス化を許す)
 // ---------------------------------------------------------------------------
 template<typename T>
-void Random::Shuffle(TArray<T>& a) noexcept {
+void FRandom::Shuffle(TArray<T>& a) noexcept {
     const usize n = a.Size();
     if (n < 2) return;
     // i = n-1 ... 1 の各位置に対し、[0, i] の一様乱数 j を選び swap。

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — StateMachine<Owner> (Phase 4)
+// GameFramework Pillar C — FStateMachine<Owner> (Phase 4)
 //
 // 小さな汎用 FSM (有限状態機械)。AI / ゲームフロー / アニメーション制御等に。
 //   ・状態は u32 ID で識別 (連続値を想定、最大 kMaxStates=16)
@@ -12,7 +12,7 @@
 //   class Enemy {
 //   public:
 //       enum States { Idle = 0, Chase, Attack };
-//       acs::game::StateMachine<Enemy> sm;
+//       acs::game::FStateMachine<Enemy> sm;
 //
 //       Enemy() noexcept {
 //           sm.Configure(Idle,  { &Enemy::EnterIdle, &Enemy::UpdateIdle, nullptr });
@@ -40,13 +40,13 @@
 namespace acs::game {
 
 template<typename Owner>
-class StateMachine {
+class FStateMachine {
 public:
     using StateFn = void(*)(Owner& owner, f32 dt) noexcept;
     using EnterFn = void(*)(Owner& owner) noexcept;
     using ExitFn  = void(*)(Owner& owner) noexcept;
 
-    struct State {
+    struct FState {
         EnterFn on_enter  = nullptr;
         StateFn on_update = nullptr;
         ExitFn  on_exit   = nullptr;
@@ -55,13 +55,13 @@ public:
     static constexpr u32 kMaxStates    = 16;
     static constexpr u32 kInvalidState = 0xFFFFFFFFu;
 
-    StateMachine() noexcept = default;
+    FStateMachine() noexcept = default;
 
-    StateMachine(const StateMachine&)            = delete;
-    StateMachine& operator=(const StateMachine&) = delete;
+    FStateMachine(const FStateMachine&)            = delete;
+    FStateMachine& operator=(const FStateMachine&) = delete;
 
-    // 状態 ID に State を登録。範囲外は no-op。
-    void Configure(u32 state_id, State state) noexcept {
+    // 状態 ID に FState を登録。範囲外は no-op。
+    void Configure(u32 state_id, FState state) noexcept {
         if (state_id >= kMaxStates) return;
         _states[state_id] = state;
     }
@@ -96,7 +96,7 @@ public:
     bool IsIn(u32 state_id) const noexcept { return _current == state_id; }
 
 private:
-    State _states[kMaxStates] = {};
+    FState _states[kMaxStates] = {};
     u32   _current = kInvalidState;
 };
 

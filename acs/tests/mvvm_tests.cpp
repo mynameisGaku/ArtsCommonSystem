@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS MVVM — Observable / Derived / Binder / Convert / Command / ObservableArray
+// ACS MVVM — FObservable / FDerived / Binder / Convert / FCommand / FObservableArray
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -14,7 +14,7 @@
 
 using namespace acs;
 
-// ---- Observable: Subscribe / Set / 通知 ------------------------------------
+// ---- FObservable: Subscribe / Set / 通知 ------------------------------------
 namespace {
 struct Counter { int hits = 0; f32 last = 0; };
 void OnFloatChanged(const f32& v, void* user) {
@@ -25,7 +25,7 @@ void OnFloatChanged(const f32& v, void* user) {
 } // namespace
 
 ACS_TEST(Mvvm, ObservableSetTriggersListeners) {
-    Observable<f32> hp{ 100.0f };
+    FObservable<f32> hp{ 100.0f };
     Counter c;
     auto h = hp.Subscribe(&OnFloatChanged, &c);
     EXPECT_TRUE(h.IsValid());
@@ -47,12 +47,12 @@ ACS_TEST(Mvvm, ObservableSetTriggersListeners) {
     EXPECT_EQ(c.hits, 2);
 }
 
-// ---- TwoWayBinder: 双方向同期 ---------------------------------------------
+// ---- FTwoWayBinder: 双方向同期 ---------------------------------------------
 ACS_TEST(Mvvm, TwoWayBinderSync) {
-    Observable<f32> a{ 10.0f };
-    Observable<f32> b;
+    FObservable<f32> a{ 10.0f };
+    FObservable<f32> b;
     {
-        TwoWayBinder<f32> bind(a, b);
+        FTwoWayBinder<f32> bind(a, b);
         EXPECT_EQ(b.Get(), 10.0f);     // 初期同期で a → b
 
         a.Set(50.0f);
@@ -66,11 +66,11 @@ ACS_TEST(Mvvm, TwoWayBinderSync) {
     EXPECT_EQ(b.Get(), 25.0f);
 }
 
-// ---- OneWayBinder: src → dst のみ ------------------------------------------
-ACS_TEST(Mvvm, OneWayBinder) {
-    Observable<i32> src{ 7 };
-    Observable<i32> dst;
-    OneWayBinder<i32> bind(src, dst);
+// ---- FOneWayBinder: src → dst のみ ------------------------------------------
+ACS_TEST(Mvvm, FOneWayBinder) {
+    FObservable<i32> src{ 7 };
+    FObservable<i32> dst;
+    FOneWayBinder<i32> bind(src, dst);
     EXPECT_EQ(dst.Get(), 7);
 
     src.Set(42);
@@ -81,12 +81,12 @@ ACS_TEST(Mvvm, OneWayBinder) {
     EXPECT_EQ(src.Get(), 42);
 }
 
-// ---- Derived: 派生 Observable (lazy) --------------------------------------
+// ---- FDerived: 派生 FObservable (lazy) --------------------------------------
 ACS_TEST(Mvvm, DerivedRatio) {
-    Observable<f32> hp     { 100.0f };
-    Observable<f32> max_hp { 100.0f };
+    FObservable<f32> hp     { 100.0f };
+    FObservable<f32> max_hp { 100.0f };
 
-    Derived<f32, f32> ratio(
+    FDerived<f32, f32> ratio(
         [](const f32& h, const f32& m) { return m > 0 ? h / m : 0.0f; },
         hp, max_hp);
 
@@ -126,9 +126,9 @@ ACS_TEST(Mvvm, DefaultConverterStringRoundTrip) {
 
 // ---- Bind ファクトリ: 同型 OneWay -----------------------------------------
 ACS_TEST(Mvvm, BindFactorySameType) {
-    Observable<f32> src{ 5.0f };
-    Observable<f32> dst;
-    auto bind = Bind(src, dst);     // OneWayBinder<f32>
+    FObservable<f32> src{ 5.0f };
+    FObservable<f32> dst;
+    auto bind = Bind(src, dst);     // FOneWayBinder<f32>
     EXPECT_EQ(dst.Get(), 5.0f);
 
     src.Set(7.5f);
@@ -137,9 +137,9 @@ ACS_TEST(Mvvm, BindFactorySameType) {
 
 // ---- Bind ファクトリ: 型違いで暗黙変換 (f32 → FString) ----------------------
 ACS_TEST(Mvvm, BindFactoryConvert) {
-    Observable<i32>    src{ 100 };
-    Observable<FString> dst;
-    auto bind = Bind(src, dst);     // OneWayConvertBinder<i32, FString>
+    FObservable<i32>    src{ 100 };
+    FObservable<FString> dst;
+    auto bind = Bind(src, dst);     // FOneWayConvertBinder<i32, FString>
     EXPECT_TRUE(dst.Get().Data() != nullptr);
     EXPECT_TRUE(dst.Get().Data()[0] == '1');
 
@@ -147,7 +147,7 @@ ACS_TEST(Mvvm, BindFactoryConvert) {
     EXPECT_EQ(dst.Get().Data()[0], '5');
 }
 
-// ---- Command: 実行 + can_execute -----------------------------------------
+// ---- FCommand: 実行 + can_execute -----------------------------------------
 namespace {
 int g_fired = 0;
 void OnCmd(void*) { g_fired++; }
@@ -155,7 +155,7 @@ void OnCmd(void*) { g_fired++; }
 
 ACS_TEST(Mvvm, CommandExecuteAlways) {
     g_fired = 0;
-    Command cmd(&OnCmd, nullptr);
+    FCommand cmd(&OnCmd, nullptr);
     EXPECT_TRUE(cmd.CanExecute());
     cmd.Execute();
     EXPECT_EQ(g_fired, 1);
@@ -163,8 +163,8 @@ ACS_TEST(Mvvm, CommandExecuteAlways) {
 
 ACS_TEST(Mvvm, CommandConditional) {
     g_fired = 0;
-    Observable<bool> can{ false };
-    Command cmd(&OnCmd, nullptr, &can);
+    FObservable<bool> can{ false };
+    FCommand cmd(&OnCmd, nullptr, &can);
 
     EXPECT_FALSE(cmd.CanExecute());
     cmd.Execute();              // can=false なので発火しない
@@ -176,7 +176,7 @@ ACS_TEST(Mvvm, CommandConditional) {
     EXPECT_EQ(g_fired, 1);
 }
 
-// ---- ObservableArray: Inserted / Removed / Changed / Cleared -------------
+// ---- FObservableArray: Inserted / Removed / Changed / Cleared -------------
 namespace {
 struct ArrayCtx {
     int inserted = 0, removed = 0, changed = 0, cleared = 0;
@@ -197,7 +197,7 @@ void OnArr(EArrayChange k, usize idx, const i32* v, void* user) {
 } // namespace
 
 ACS_TEST(Mvvm, ObservableArrayLifecycle) {
-    ObservableArray<i32> arr;
+    FObservableArray<i32> arr;
     ArrayCtx ctx;
     arr.Subscribe(&OnArr, &ctx);
 
@@ -231,8 +231,8 @@ ACS_TEST(Mvvm, ObservableArrayLifecycle) {
 
 // ---- MakeBind / MakeBindConvert: TUniquePtr 版 ------------------------------
 ACS_TEST(Mvvm, MakeBindUniquePtr) {
-    Observable<f32> a{ 1.0f };
-    Observable<f32> b;
+    FObservable<f32> a{ 1.0f };
+    FObservable<f32> b;
     auto bind = MakeBind(a, b);
     EXPECT_TRUE(bind.Get() != nullptr);
     EXPECT_EQ(b.Get(), 1.0f);

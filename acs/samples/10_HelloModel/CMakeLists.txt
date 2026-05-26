@@ -3,7 +3,7 @@
 # 構成:
 #   main.cpp              - ACS_DEFINE_MAIN(HelloModelApp) のみ
 #   Types.h               - カメラ初期値 / ライト / マテリアル色 etc. 定数
-#   HelloModelApp.{h,cpp} - Application 派生クラス
+#   HelloModelApp.{h,cpp} - FApplication 派生クラス
 #   ModelScene.{h,cpp}    - プリミティブ + カメラ + 描画
 add_executable(hello_model WIN32
     main.cpp

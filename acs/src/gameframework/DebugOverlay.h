@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — DebugOverlay (state holder)
+// GameFramework Pillar H — FDebugOverlay (state holder)
 //
 // FPS / メモリ / シーン名 / カスタム watch をテキストで表示するための **状態保持
-// クラス**。実描画 (SpriteBatch / ImGui / `acs::easy::DrawString` 等) は呼出し側の
+// クラス**。実描画 (FSpriteBatch / ImGui / `acs::easy::DrawString` 等) は呼出し側の
 // 責務。本クラスは「何を出すべきか」を保持・更新するだけで、グラフィック層に依存
 // しない (テスト / Headless 環境でも動作)。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
-//       acs::game::DebugOverlay _overlay;
+//   class GameplayScene : public FScene {
+//       acs::game::FDebugOverlay _overlay;
 //       void OnEnter() noexcept override {
 //           _overlay.Init();
 //           _overlay.SetSceneName("Gameplay");
@@ -17,7 +17,7 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _overlay.Tick(dt);
-//           if (Input::IsKeyPressed(EKey::F3)) _overlay.Toggle();
+//           if (FInput::IsKeyPressed(EKey::F3)) _overlay.Toggle();
 //       }
 //       void OnDraw() noexcept override {
 //           if (!_overlay.IsVisible()) return;
@@ -43,13 +43,13 @@
 //   ・**RemoveWatch / WatchCount**: label を strcmp で検索して swap-remove。順序は
 //     保証しない (描画レイアウトは caller が安定化する責務)。
 //   ・**非コピー・非ムーブ**: 履歴バッファと watches 列の所有権を曖昧にしないため。
-//   ・**STL 不使用**: `acs::TArray<f32>` / `acs::TArray<Watch>` を使用、`<string>` 禁止。
+//   ・**STL 不使用**: `acs::TArray<f32>` / `acs::TArray<FWatch>` を使用、`<string>` 禁止。
 //     実装側で `<cstring>` (strcmp / strlen) のみ許可。
 //
 // 範囲外 (Phase 2+ で):
 //   ・グラフ表示 (frame time 棒グラフ / 履歴折れ線)
 //   ・メモリ使用量の自動取得 (現状は SceneName と並ぶ任意ラベルとして caller が watch
-//     に流し込む。Pillar A 完成後に `Allocator` から bytes 取得して自動化予定)
+//     に流し込む。Pillar A 完成後に `FAllocator` から bytes 取得して自動化予定)
 //   ・国際化 (現状は ASCII / UTF-8 の生 char*、フォントレンダラ側で対応)
 //   ・スレッドセーフ (Tick / Add 等は同一スレッド前提)
 #pragma once
@@ -59,24 +59,24 @@
 
 namespace acs::game {
 
-class DebugOverlay {
+class FDebugOverlay {
 public:
     // ----- 公開型 -----
     // 1 行の watch エントリ。label / value とも caller 所有 (本クラスは複製しない)。
     // value バッファは caller が毎フレーム更新可 (pointer は不変であること)。
-    struct Watch {
+    struct FWatch {
         const char* label = nullptr;
         const char* value = nullptr;
     };
 
-    DebugOverlay() noexcept = default;
-    ~DebugOverlay() noexcept = default;
+    FDebugOverlay() noexcept = default;
+    ~FDebugOverlay() noexcept = default;
 
     // 非コピー・非ムーブ (履歴 / watches の所有権を曖昧にしない)
-    DebugOverlay(const DebugOverlay&)            = delete;
-    DebugOverlay& operator=(const DebugOverlay&) = delete;
-    DebugOverlay(DebugOverlay&&)                 = delete;
-    DebugOverlay& operator=(DebugOverlay&&)      = delete;
+    FDebugOverlay(const FDebugOverlay&)            = delete;
+    FDebugOverlay& operator=(const FDebugOverlay&) = delete;
+    FDebugOverlay(FDebugOverlay&&)                 = delete;
+    FDebugOverlay& operator=(FDebugOverlay&&)      = delete;
 
     // ----- ライフサイクル -----
     // 内部バッファを事前確保 (60 frame 履歴)。再 Init は履歴をクリアする。
@@ -124,9 +124,9 @@ public:
     u32 WatchCount() const noexcept;
 
     // 全 watch を読み取り用に列挙。out_count に件数を書き込み、生ポインタを返す。
-    // 戻り値はクラス所有の内部バッファ (`TArray<Watch>` の data)、Add/Remove/Clear
+    // 戻り値はクラス所有の内部バッファ (`TArray<FWatch>` の data)、Add/Remove/Clear
     // 呼出しまで有効。空のときは nullptr を返し、out_count = 0。
-    const Watch* AllWatches(u32& out_count) const noexcept;
+    const FWatch* AllWatches(u32& out_count) const noexcept;
 
 private:
     // 履歴は固定容量の循環バッファ。サンプル数 = 60。
@@ -139,7 +139,7 @@ private:
     f32           _current_fps  = 0.0f;
     const char*   _scene_name   = nullptr;  // caller 所有
 
-    TArray<Watch>  _watches;
+    TArray<FWatch>  _watches;
     bool          _visible      = false;
 };
 

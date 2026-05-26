@@ -7,14 +7,14 @@
 
 namespace acs {
 
-class LinearAllocator final : public Allocator {
+class FLinearAllocator final : public FAllocator {
 public:
     // capacity バイトのバッファを backing から確保（null なら DefaultAllocator）
-    LinearAllocator(usize capacity, Allocator* backing = nullptr) noexcept;
-    ~LinearAllocator() noexcept override;
+    FLinearAllocator(usize capacity, FAllocator* backing = nullptr) noexcept;
+    ~FLinearAllocator() noexcept override;
 
-    LinearAllocator(const LinearAllocator&) = delete;
-    LinearAllocator& operator=(const LinearAllocator&) = delete;
+    FLinearAllocator(const FLinearAllocator&) = delete;
+    FLinearAllocator& operator=(const FLinearAllocator&) = delete;
 
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free (void* ptr) noexcept override;  // no-op（個別解放は不可）
@@ -30,7 +30,7 @@ public:
 private:
     u8*           _base     = nullptr;
     u64           _capacity = 0;
-    Allocator*    _backing  = nullptr;
+    FAllocator*    _backing  = nullptr;
     bool          _owns_backing = false;
     TAtomic<u64>   _used {0};                  // 現在のカーソル位置
     mutable TAtomic<u64> _peak {0};            // ピーク位置

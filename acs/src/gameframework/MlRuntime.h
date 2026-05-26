@@ -39,7 +39,7 @@
 //
 // Phase U-1 (本フェーズ) で提供するもの:
 //   ・`IMlRuntime` / `IUpscaler` の純粋仮想 interface 確定
-//   ・`MlRuntimeStub` / `UpscalerStub` の **失敗側を返すだけの stub 実装**
+//   ・`FMlRuntimeStub` / `FUpscalerStub` の **失敗側を返すだけの stub 実装**
 //   ・global stub アクセサ `GetMlRuntimeStub()` / `GetUpscalerStub()`
 //
 // Phase U-2+ で行うこと (本 header の範囲外):
@@ -60,7 +60,7 @@
 namespace acs::game {
 
 // =============================================================================
-// MlModelHandle — 不透明な ML モデルハンドル
+// FMlModelHandle — 不透明な ML モデルハンドル
 // -----------------------------------------------------------------------------
 // 具象 backend (ONNX / DirectML / NNAPI 等) が内部的に保持するモデル参照を、
 // ゲーム層に対して **不透明な u64** として公開する。これにより上位は
@@ -70,7 +70,7 @@ namespace acs::game {
 //   ・LoadModel が成功すると、backend は 0 以外の値を入れて返す。
 //   ・UnloadModel に渡した後は再利用禁止 (use-after-free 検出は backend 任意)。
 // =============================================================================
-struct MlModelHandle {
+struct FMlModelHandle {
     u64 _opaque = 0;  // backend 固有の値。0 は無効を表す予約値。
 
     // 有効なハンドルか (= LoadModel から正常に返されたか) を判定。
@@ -106,17 +106,17 @@ public:
     // モデルファイルを読み込んでハンドルを返す。
     // ・`model_path` は呼び出し側が寿命を保証する文字列リテラル / 長寿命バッファ。
     // ・`nullptr` 渡しは失敗とする (実装側で防御)。
-    virtual TResult<MlModelHandle> LoadModel(const char* model_path) noexcept = 0;
+    virtual TResult<FMlModelHandle> LoadModel(const char* model_path) noexcept = 0;
 
     // ハンドルを解放。無効ハンドル渡しは no-op 相当 (Ok を返してよい)。
-    virtual TResult<void> UnloadModel(MlModelHandle h) noexcept = 0;
+    virtual TResult<void> UnloadModel(FMlModelHandle h) noexcept = 0;
 
     // 推論を 1 回実行。
     // ・`inputs` / `outputs` は呼び出し側が確保する f32 配列。
     // ・`in_count` / `out_count` はモデル定義と一致する必要がある (mismatch は失敗)。
     // ・**この呼び出しはブロッキング**。GPU バックエンドでも同期完了まで戻らない。
     //   非同期推論は Phase U-2 で別 API として追加予定。
-    virtual TResult<void> RunInference(MlModelHandle h,
+    virtual TResult<void> RunInference(FMlModelHandle h,
                                       const f32* inputs,  u32 in_count,
                                       f32*       outputs, u32 out_count) noexcept = 0;
 
@@ -129,7 +129,7 @@ protected:
 };
 
 // =============================================================================
-// MlRuntimeStub — 全 method NotImplemented を返す stub
+// FMlRuntimeStub — 全 method NotImplemented を返す stub
 // -----------------------------------------------------------------------------
 // ONNX/DirectML/NNAPI と未統合の状況で、上位層が「ML 経路が常に失敗する」
 // 前提で正しくフォールバックを書けているかを検証するための実装。
@@ -137,16 +137,16 @@ protected:
 // Phase U-1 ではこれが唯一の `IMlRuntime` 実装。Phase U-2 で具象 backend が
 // 追加されると、起動時に backend が選ばれて差し替わる構造になる。
 // =============================================================================
-class MlRuntimeStub final : public IMlRuntime {
+class FMlRuntimeStub final : public IMlRuntime {
 public:
-    MlRuntimeStub() noexcept = default;
-    ~MlRuntimeStub() noexcept override = default;
+    FMlRuntimeStub() noexcept = default;
+    ~FMlRuntimeStub() noexcept override = default;
 
     TResult<void>            Init()                                       noexcept override;
     void                    Shutdown()                                   noexcept override;
-    TResult<MlModelHandle>   LoadModel(const char* model_path)            noexcept override;
-    TResult<void>            UnloadModel(MlModelHandle h)                 noexcept override;
-    TResult<void>            RunInference(MlModelHandle h,
+    TResult<FMlModelHandle>   LoadModel(const char* model_path)            noexcept override;
+    TResult<void>            UnloadModel(FMlModelHandle h)                 noexcept override;
+    TResult<void>            RunInference(FMlModelHandle h,
                                          const f32* inputs,  u32 in_count,
                                          f32*       outputs, u32 out_count) noexcept override;
 };
@@ -203,7 +203,7 @@ protected:
 };
 
 // =============================================================================
-// UpscalerStub — Off 状態のみを返す stub
+// FUpscalerStub — Off 状態のみを返す stub
 // -----------------------------------------------------------------------------
 // SDK 同梱前の状態でも上位層が「FSR/DLSS/XeSS が常に使えない」想定で
 // フォールバック (= ネイティブ描画) を書けるようにするための placeholder。
@@ -213,10 +213,10 @@ protected:
 //   ・`Init(非 Off)` は NotImplemented を返す。
 //   ・入出力サイズは常に 0 (使われない側として安全な値)。
 // =============================================================================
-class UpscalerStub final : public IUpscaler {
+class FUpscalerStub final : public IUpscaler {
 public:
-    UpscalerStub() noexcept = default;
-    ~UpscalerStub() noexcept override = default;
+    FUpscalerStub() noexcept = default;
+    ~FUpscalerStub() noexcept override = default;
 
     TResult<void> Init(EUpscalerKind k)     noexcept override;
     EUpscalerKind ActiveKind()       const noexcept override { return _kind; }
@@ -235,7 +235,7 @@ private:
 // global stub アクセサ
 // -----------------------------------------------------------------------------
 // process 内で 1 個だけ存在する静的 stub への参照を返す。Phase U-1 では
-// `Game` / `Scene` 側からの ML / Upscaler 問い合わせはすべてこの 2 つを通る。
+// `FGame` / `FScene` 側からの ML / Upscaler 問い合わせはすべてこの 2 つを通る。
 // Phase U-2 以降、具象 backend が選ばれるとアクセサは差し替えられる。
 //
 // ※ static 単一インスタンス = process lifetime。スレッド安全性は呼び出し側責務。

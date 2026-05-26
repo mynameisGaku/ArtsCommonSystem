@@ -4,9 +4,9 @@
 // 役割:
 //   ・GPU メッシュ (球 / 立方体 / 地面) の所有
 //   ・RaycastTargets + RayCaster + HudRenderer の協調
-//   ・StandardShader への描画コマンド発行
+//   ・FStandardShader への描画コマンド発行
 //
-// Application 派生はリソース所有 (StandardShader / SpriteBatch / Font) を担当し、
+// FApplication 派生はリソース所有 (FStandardShader / FSpriteBatch / FFont) を担当し、
 // 毎フレームの update / render を RaycastScene に委譲する。
 #pragma once
 
@@ -32,21 +32,21 @@ public:
     // カメラ入力 + レイキャスト判定。
     void Update(acs::f32 dt) noexcept;
 
-    // 3D + HUD を描画。HUD 用の screen_w / screen_h は SpriteBatch::Begin に必要。
-    void Render(acs::StandardShader& shader,
+    // 3D + HUD を描画。HUD 用の screen_w / screen_h は FSpriteBatch::Begin に必要。
+    void Render(acs::FStandardShader& shader,
                 acs::IRhiCommandList& cl,
-                acs::SpriteBatch& batch,
-                acs::Font& font,
+                acs::FSpriteBatch& batch,
+                acs::FFont& font,
                 acs::u32 screen_w,
                 acs::u32 screen_h) noexcept;
 
 private:
-    void _render_targets(acs::StandardShader& shader,
+    void _render_targets(acs::FStandardShader& shader,
                          acs::IRhiCommandList& cl) noexcept;
 
-    acs::GpuMesh    _gm_sphere{};
-    acs::GpuMesh    _gm_cube{};
-    acs::GpuMesh    _gm_plane{};
+    acs::FGpuMesh    _gm_sphere{};
+    acs::FGpuMesh    _gm_cube{};
+    acs::FGpuMesh    _gm_plane{};
     RaycastTargets  _targets;
     RayCaster       _caster;
 };

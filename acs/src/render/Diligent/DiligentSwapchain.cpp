@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentSwapchain 実装
+// FDiligentSwapchain 実装
 #include "render/Diligent/DiligentSwapchain.h"
 
 #if WITH_RENDER_DILIGENT
@@ -11,11 +11,11 @@
 
 namespace acs {
 
-DiligentSwapchain::~DiligentSwapchain() noexcept {
+FDiligentSwapchain::~FDiligentSwapchain() noexcept {
     if (_swap) { _swap->Release(); _swap = nullptr; }
 }
 
-TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept {
+TResult<void> FDiligentSwapchain::Init(FDiligentDevice& device, const FSwapchainConfig& cfg) noexcept {
     _device = &device;
     _buffer_count = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
     _vsync  = cfg.vsync;
@@ -24,7 +24,7 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     _height = cfg.window ? cfg.window->Height() : 0;
 
     if (!cfg.window || !cfg.window->NativeHandle()) {
-        return ACS_ERR(Render, 110, "DiligentSwapchain::Init requires a valid window");
+        return ACS_ERR(Render, 110, "FDiligentSwapchain::Init requires a valid window");
     }
 
     Diligent::SwapChainDesc sd;
@@ -44,7 +44,7 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     auto* dev     = device.RenderDev();
     auto* ctx     = device.Context();
     if (!dev || !ctx) {
-        return ACS_ERR(Render, 111, "DiligentSwapchain: device not initialized");
+        return ACS_ERR(Render, 111, "FDiligentSwapchain: device not initialized");
     }
 
     if (device.ActualBackend() == ERhiBackendKind::Vulkan) {
@@ -69,18 +69,18 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     return Ok();
 }
 
-u32 DiligentSwapchain::AcquireNextImage() noexcept {
+u32 FDiligentSwapchain::AcquireNextImage() noexcept {
     // Diligent はバックバッファインデックスを内部管理する。
     // BeginRenderToSwapchain では SetRenderTargets(_swap->GetCurrentBackBufferRTV()) を呼ぶ。
     return 0;
 }
 
-void DiligentSwapchain::Present() noexcept {
+void FDiligentSwapchain::Present() noexcept {
     if (!_swap) return;
     _swap->Present(_vsync ? 1 : 0);
 }
 
-void DiligentSwapchain::Resize(u32 width, u32 height) noexcept {
+void FDiligentSwapchain::Resize(u32 width, u32 height) noexcept {
     if (!_swap) return;
     if (width == 0 || height == 0) return;
     _width  = width;

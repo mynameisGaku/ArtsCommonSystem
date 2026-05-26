@@ -15,10 +15,10 @@ add_executable(acs_unit_tests
 
 acs_apply_compiler_options(acs_unit_tests)
 
-# UI tests は Widget tree のレイアウト計算 / 入力ハンドリング部分を検証する。
+# UI tests は FWidget tree のレイアウト計算 / 入力ハンドリング部分を検証する。
 # UiRenderer.cpp は Render に依存するため、Ui を link すると Render / Platform /
-# Asset も transitive で必要。Render 経由で GPU 系のコードが入るが、tests は
-# 描画は行わないので Renderer を実体化しなければ実行時影響無し。
+# FAsset も transitive で必要。Render 経由で GPU 系のコードが入るが、tests は
+# 描画は行わないので FRenderer を実体化しなければ実行時影響無し。
 target_link_libraries(acs_unit_tests PRIVATE
     ACS::Foundation
     ACS::Threading

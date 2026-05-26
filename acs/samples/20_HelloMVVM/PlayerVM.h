@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMVVM — ViewModel 定義。
-// Observable<T> / ObservableArray<T> / Command を組み合わせた最小 PlayerVM。
+// HelloMVVM — FViewModel 定義。
+// FObservable<T> / FObservableArray<T> / FCommand を組み合わせた最小 PlayerVM。
 // 全フィールドを public にして View 側から直接 bind できるようにしてある
-// (ViewModel は通常 public フィールドのままで View に晒すのが MVVM の流儀)。
+// (FViewModel は通常 public フィールドのままで View に晒すのが MVVM の流儀)。
 #pragma once
 
 #include "mvvm/ViewModel.h"
@@ -13,23 +13,23 @@
 
 namespace hellomvvm {
 
-class PlayerVM : public acs::ViewModel {
+class PlayerVM : public acs::FViewModel {
 public:
-    acs::Observable<acs::f32>     hp        { 100.0f };
-    acs::Observable<acs::f32>     max_hp    { 100.0f };
-    acs::Observable<acs::f32>     mana      { 50.0f };
-    acs::Observable<acs::i32>     level     { 1 };
-    acs::Observable<bool>         invincible{ false };
-    acs::Observable<acs::FString>  name      { acs::FString{"勇者"} };
-    acs::Observable<acs::FVec3>    color     { acs::FVec3{1.0f, 0.85f, 0.4f} };
-    acs::Observable<acs::i32>     class_idx { 0 };   // 0=戦士 / 1=魔法使い / 2=盗賊
+    acs::FObservable<acs::f32>     hp        { 100.0f };
+    acs::FObservable<acs::f32>     max_hp    { 100.0f };
+    acs::FObservable<acs::f32>     mana      { 50.0f };
+    acs::FObservable<acs::i32>     level     { 1 };
+    acs::FObservable<bool>         invincible{ false };
+    acs::FObservable<acs::FString>  name      { acs::FString{"勇者"} };
+    acs::FObservable<acs::FVec3>    color     { acs::FVec3{1.0f, 0.85f, 0.4f} };
+    acs::FObservable<acs::i32>     class_idx { 0 };   // 0=戦士 / 1=魔法使い / 2=盗賊
 
-    acs::ObservableArray<acs::i32> inventory;
+    acs::FObservableArray<acs::i32> inventory;
 
-    // Command の第 3 引数は can_execute (Observable<bool>*) で、null なら
+    // FCommand の第 3 引数は can_execute (FObservable<bool>*) で、null なら
     // 常時実行可能。ここでは View 側で BeginDisabled/EndDisabled で
     // gate しているため null を渡す。
-    acs::Command attack {
+    acs::FCommand attack {
         [](void* user) {
             auto* self = static_cast<PlayerVM*>(user);
             self->hp.Set(self->hp.Get() - 10.0f);

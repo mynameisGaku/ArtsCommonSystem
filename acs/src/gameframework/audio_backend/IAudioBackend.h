@@ -2,8 +2,8 @@
 // GameFramework Pillar H — IAudioBackend (Phase 2: 実音声再生 seam)
 //
 // 役割:
-//   `AudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
-//   Windows では `XAudio2Backend`、それ以外プラットフォーム (将来) では別実装
+//   `FAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
+//   Windows では `FXAudio2Backend`、それ以外プラットフォーム (将来) では別実装
 //   (CoreAudio / ALSA / OpenAL / WebAudio …) で差し替える。
 //
 // 設計選択:
@@ -16,7 +16,7 @@
 //     を回避)。
 //   ・**Tick(dt)**: 再生完了済 voice の slot 解放を backend 側に畳み込む。
 //     ゲーム側は dt を渡すだけで一発再生の自然回収を任せられる。
-//   ・**所有しない pcm_data**: clip データは AudioDirector / asset layer 側で
+//   ・**所有しない pcm_data**: clip データは FAudioDirector / asset layer 側で
 //     管理。backend は PlayOneShot 中に内部コピー (XAudio2 はバッファを保持
 //     しないと一発再生中に消えると爆ぜる)。
 //   ・**コピー / ムーブ禁止**: backend は 1 個の長寿命オブジェクト。誤コピー
@@ -24,7 +24,7 @@
 //   ・**STL 不使用 / 全 noexcept**: ACS 全体方針。
 //
 // 範囲外 (将来フェーズで):
-//   ・3D positional / spatial / HRTF (Pillar SpatialAudio 担当)
+//   ・3D positional / spatial / HRTF (Pillar FSpatialAudio 担当)
 //   ・submix bus / DSP chain / reverb
 //   ・wav/ogg/mp3 デコード (今回は Pcm16 raw bytes 入力前提、Wav 形式は
 //     Phase 3 で別 loader と組合せる)
@@ -66,7 +66,7 @@ enum class EAudioFormat : u8 {
 //   ・sample_rate  : 1 チャネルあたりサンプル/秒 (e.g. 44100 / 48000)
 //   ・channel_count: チャネル数 (1=mono / 2=stereo)
 //   ・format       : 上記 EAudioFormat
-struct AudioClipDesc {
+struct FAudioClipDesc {
     const void*  pcm_data      = nullptr;
     u64          pcm_size      = 0;
     u32          sample_rate   = 0;
@@ -78,11 +78,11 @@ struct AudioClipDesc {
 // 内部表現: 下位 24bit = voice index、上位 8bit = generation。
 // 再利用された slot を古いハンドルで参照する事故を generation で検出する。
 // 全 0 (= _packed == 0) は無効ハンドルを意味する。
-struct AudioVoiceHandle {
+struct FAudioVoiceHandle {
     u32 _packed = 0;
 
-    constexpr AudioVoiceHandle() noexcept = default;
-    constexpr AudioVoiceHandle(u32 index, u8 gen) noexcept
+    constexpr FAudioVoiceHandle() noexcept = default;
+    constexpr FAudioVoiceHandle(u32 index, u8 gen) noexcept
         : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     bool IsValid() const noexcept { return _packed != 0u; }
@@ -91,12 +91,12 @@ struct AudioVoiceHandle {
     u8  Generation() const noexcept { return static_cast<u8>(_packed >> 24); }
 };
 
-inline constexpr AudioVoiceHandle kInvalidAudioVoice {};
+inline constexpr FAudioVoiceHandle kInvalidAudioVoice {};
 
 // ---- 抽象 I/F -------------------------------------------------------------
-// XAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の
-// 差を吸収する純粋仮想 I/F。`AudioDirector::SetBackend(IAudioBackend*)` で
-// 差し込み、AudioDirector は backend nullptr のとき無音 (no-op) で動作する。
+// FXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の
+// 差を吸収する純粋仮想 I/F。`FAudioDirector::SetBackend(IAudioBackend*)` で
+// 差し込み、FAudioDirector は backend nullptr のとき無音 (no-op) で動作する。
 class IAudioBackend {
 public:
     IAudioBackend() noexcept = default;
@@ -121,20 +121,20 @@ public:
     //   volume: 0.0〜1.0 を想定 (実装は clamp 推奨)
     //   pitch : 1.0 = 等倍、0.5 = 1 オクターブ低い、2.0 = 1 オクターブ高い
     // 失敗時 (未 init / 空きスロットなし / fmt 不正) は kInvalidAudioVoice を返す。
-    virtual AudioVoiceHandle PlayOneShot(const AudioClipDesc& clip,
+    virtual FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& clip,
                                          f32 volume,
                                          f32 pitch) noexcept = 0;
 
     // ループ再生 (Stop までずっと鳴り続ける)。引数は PlayOneShot と同様。
-    virtual AudioVoiceHandle PlayLooped(const AudioClipDesc& clip,
+    virtual FAudioVoiceHandle PlayLooped(const FAudioClipDesc& clip,
                                         f32 volume,
                                         f32 pitch) noexcept = 0;
 
     // 指定 voice を停止し slot を解放。無効 / 既に解放済ハンドルは no-op。
-    virtual void StopVoice(AudioVoiceHandle voice) noexcept = 0;
+    virtual void StopVoice(FAudioVoiceHandle voice) noexcept = 0;
 
     // 指定 voice の音量を変更。無効 / 解放済は no-op。範囲外は clamp 推奨。
-    virtual void SetVoiceVolume(AudioVoiceHandle voice, f32 volume) noexcept = 0;
+    virtual void SetVoiceVolume(FAudioVoiceHandle voice, f32 volume) noexcept = 0;
 
     // 全 voice を停止して slot 解放。Init 前は no-op。
     virtual void StopAllVoices() noexcept = 0;

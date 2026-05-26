@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — UiLayer (acs::ui Widget tree を Scene に繋ぐ glue)
+// GameFramework Pillar H — FUiLayer (acs::ui FWidget tree を FScene に繋ぐ glue)
 //
 // 役割:
-//   既存の `acs::ui` Widget システム (Widget.h / Widgets.h / UiRenderer.h) は
-//   retained-mode UI として強力だが、ゲームコード側 (Scene) から直接触るには
-//   ボイラープレートが多い。UiLayer は **Scene のライフサイクル (Init / Tick /
-//   HandleInput / Shutdown) と Widget tree を結ぶ薄い層** で、典型的なゲーム UI
+//   既存の `acs::ui` FWidget システム (Widget.h / Widgets.h / UiRenderer.h) は
+//   retained-mode UI として強力だが、ゲームコード側 (FScene) から直接触るには
+//   ボイラープレートが多い。FUiLayer は **FScene のライフサイクル (Init / Tick /
+//   HandleInput / Shutdown) と FWidget tree を結ぶ薄い層** で、典型的なゲーム UI
 //   (ボタン / テキスト表示) を最小 API で扱えるようにする。
 //
-//   Pillar H 上のリッチな UI 構築 (StackPanel / Slider / TextInput etc.) は
+//   Pillar H 上のリッチな UI 構築 (FStackPanel / FSlider / FTextInput etc.) は
 //   引き続き `acs::ui` を直接使う想定で、本 layer は **「シーンに数個の UI
 //   要素を貼り付けるだけのゲーム」** の DX (タイトル画面、HUD、ポーズメニュー
 //   など) を改善する位置付け。
 //
 // 使い方 (典型例):
-//   class TitleScene : public Scene {
-//       UiLayer _ui;
+//   class TitleScene : public FScene {
+//       FUiLayer _ui;
 //       u32     _play_btn = 0;
 //       void OnEnter() noexcept override {
 //           _ui.Init();
@@ -28,33 +28,33 @@
 //               Scenes().ChangeScene(MakeUnique<GameScene>());
 //           }
 //       }
-//       void OnEvent(const Event& e) noexcept override { _ui.HandleInput(e); }
+//       void OnEvent(const FEvent& e) noexcept override { _ui.HandleInput(e); }
 //       void OnExit() noexcept override { _ui.Shutdown(); }
 //   };
 //
 // 設計選択 (Phase H-1 スケルトン):
-//   ・**state holder のみ実装**: 実 Widget 生成 / 描画 / ヒットテストは現フェーズ
+//   ・**state holder のみ実装**: 実 FWidget 生成 / 描画 / ヒットテストは現フェーズ
 //     では未接続 (Init / Tick / HandleInput 内に TODO コメントで明示)。代わりに
-//     ハンドル付きの WidgetEntry を TArray で保持し、追加・削除・可視性・押下
-//     クエリは完全動作する。これにより呼び出し側 (Scene) は本 layer を通常通り
-//     使い始めることができ、Phase H-2 で `acs::ui::StackPanel` 等の実 widget
+//     ハンドル付きの FWidgetEntry を TArray で保持し、追加・削除・可視性・押下
+//     クエリは完全動作する。これにより呼び出し側 (FScene) は本 layer を通常通り
+//     使い始めることができ、Phase H-2 で `acs::ui::FStackPanel` 等の実 widget
 //     接続に差し替えるだけで描画 / 入力が動く設計。
 //   ・**ハンドルは u32 単調増加**: 削除後の再利用は行わない (世代カウンタ不要、
 //     現実的に 1 シーンで数千 widget を超えることはまずないため uint32 で十分)。
 //     0 は invalid handle 予約。
 //   ・**const char* 非所有**: 規約通り <string> 不使用。label / text の寿命は
 //     呼び出し側 (文字列リテラル or 長寿命バッファ) が保証する。Pillar T
-//     PartySystem / Pillar O Entitlement と同方針。
+//     FPartySystem / Pillar O Entitlement と同方針。
 //   ・**コピー / ムーブ禁止**: UI 状態を持つ長寿命オブジェクト。誤コピーで state
 //     が分裂すると詰むため非コピー・非ムーブ。
 //   ・**全 noexcept**: ACS 全体方針。Init / Shutdown は冪等で再呼び出し安全。
 //
 // 範囲外 (Phase H-2 以降で接続):
-//   ・実 `acs::ui::Widget` ツリー構築 (StackPanel / Button / TextBlock の生成)
-//   ・`UiRenderer` による描画 (RenderContext から SpriteBatch / Font を受ける)
-//   ・`Event` → hit-test → Widget::OnPointerDown 等の配送
+//   ・実 `acs::ui::FWidget` ツリー構築 (FStackPanel / FButton / TextBlock の生成)
+//   ・`FUiRenderer` による描画 (FRenderContext から FSpriteBatch / FFont を受ける)
+//   ・`FEvent` → hit-test → FWidget::OnPointerDown 等の配送
 //   ・focus / keyboard navigation (Tab 移動 / Enter 確定)
-//   ・MVVM Observable<T> との bind (現状はポーリング型 IsButtonPressed)
+//   ・MVVM FObservable<T> との bind (現状はポーリング型 IsButtonPressed)
 //   ・slider / checkbox / text input / radio などの追加 widget kind
 //   ・layout 自動配置 (現状は呼び出し側が pos / size を絶対指定)
 #pragma once
@@ -66,29 +66,29 @@
 
 namespace acs {
 
-// Scene.h と同様、`Event` は `acs` 名前空間直下に forward declaration する
+// Scene.h と同様、`FEvent` は `acs` 名前空間直下に forward declaration する
 // (実体は `platform/Event.h`)。HandleInput の引数で参照を取るためだけに必要。
-struct Event;
+struct FEvent;
 
 namespace game {
 
-// UiLayer が扱う widget の種類。Phase H-1 はボタンとテキストのみ。Phase H-2 で
-// Slider / Checkbox / TextInput を追加する想定。
+// FUiLayer が扱う widget の種類。Phase H-1 はボタンとテキストのみ。Phase H-2 で
+// FSlider / FCheckbox / FTextInput を追加する想定。
 enum class EWidgetKind : u8 {
     None    = 0,
-    Button  = 1,  // クリックで押下イベントを発火する短形ボタン
+    FButton  = 1,  // クリックで押下イベントを発火する短形ボタン
     Text    = 2,  // 単純な静的テキスト (押下ヒットテストなし)
 };
 
 // 単一 widget の状態 1 件分。state holder の中核。
 //   ・handle       : AddButton / AddText が返す不透明 ID (0 は invalid)
-//   ・kind         : 種別 (Button / Text)。判別に必要 (描画 / 入力分岐)
+//   ・kind         : 種別 (FButton / Text)。判別に必要 (描画 / 入力分岐)
 //   ・pos, size    : 画面ピクセル単位の絶対座標 / サイズ。Text は size 未使用
 //   ・text         : ラベル / 表示テキスト (非所有、寿命は呼び出し側保証)
 //   ・visible      : 不可視時は描画もヒットテストもスキップ
 //   ・just_pressed : 直前フレームで押された (Tick 開始時に clear、次フレームで
 //                    呼び出し側が IsButtonPressed で読み取って消費する想定)
-struct WidgetEntry {
+struct FWidgetEntry {
     u32         handle       = 0;
     EWidgetKind  kind         = EWidgetKind::None;
     acs::FVec2   pos         {0.0f, 0.0f};
@@ -98,34 +98,34 @@ struct WidgetEntry {
     bool        just_pressed = false;
 };
 
-class UiLayer {
+class FUiLayer {
 public:
-    UiLayer()  noexcept = default;
-    ~UiLayer() noexcept = default;
+    FUiLayer()  noexcept = default;
+    ~FUiLayer() noexcept = default;
 
     // 非コピー・非ムーブ (state holder。誤コピーで widget 状態が分裂しないよう)。
-    UiLayer(const UiLayer&)            = delete;
-    UiLayer& operator=(const UiLayer&) = delete;
-    UiLayer(UiLayer&&)                 = delete;
-    UiLayer& operator=(UiLayer&&)      = delete;
+    FUiLayer(const FUiLayer&)            = delete;
+    FUiLayer& operator=(const FUiLayer&) = delete;
+    FUiLayer(FUiLayer&&)                 = delete;
+    FUiLayer& operator=(FUiLayer&&)      = delete;
 
     // ----- ライフサイクル -----
-    // Scene::OnEnter から呼ぶ。Widget tree の root を確保 (現フェーズは stub、
-    // Phase H-2 で `acs::ui::Container` を root として new する)。冪等で再呼出
+    // FScene::OnEnter から呼ぶ。FWidget tree の root を確保 (現フェーズは stub、
+    // Phase H-2 で `acs::ui::FContainer` を root として new する)。冪等で再呼出
     // 安全 (二度 Init してもメモリリークしない)。
     void Init() noexcept;
 
-    // Scene::OnExit から呼ぶ。全 widget をクリアし、root を解放。冪等。
+    // FScene::OnExit から呼ぶ。全 widget をクリアし、root を解放。冪等。
     void Shutdown() noexcept;
 
-    // Scene::OnUpdate から呼ぶ。Phase H-1 では `just_pressed` フラグの伝搬
-    // ハンドリングのみ。Phase H-2 で `acs::ui::Widget::Layout` 再計算と
+    // FScene::OnUpdate から呼ぶ。Phase H-1 では `just_pressed` フラグの伝搬
+    // ハンドリングのみ。Phase H-2 で `acs::ui::FWidget::Layout` 再計算と
     // tween / animation の更新を入れる。
     void Tick(f32 dt) noexcept;
 
-    // Scene::OnEvent から呼ぶ。マウス / キーイベントを widget に dispatch
+    // FScene::OnEvent から呼ぶ。マウス / キーイベントを widget に dispatch
     // する。Phase H-1 は TODO (HitTestRecursive 接続待ち)。
-    void HandleInput(const acs::Event& event) noexcept;
+    void HandleInput(const acs::FEvent& event) noexcept;
 
     // 現在登録されている widget 数 (visible / hidden 問わず)。テスト / デバッグ向け。
     u32 WidgetCount() const noexcept;
@@ -161,7 +161,7 @@ private:
     // なら -1 相当 (u32 の MAX = 0xFFFFFFFFu) を返す。
     u32 FindIndex(u32 handle) const noexcept;
 
-    TArray<WidgetEntry> _widgets;          // 全 widget の状態 (handle 順は保証しない)
+    TArray<FWidgetEntry> _widgets;          // 全 widget の状態 (handle 順は保証しない)
     u32                _next_handle = 1;  // 次に発行する handle (0 は invalid 予約)
     bool               _initialized = false;
 };

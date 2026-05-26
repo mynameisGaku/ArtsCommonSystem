@@ -45,7 +45,7 @@ public:
 
     TResult<void> Connect(const char* server_url) noexcept override {
         (void)server_url;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IBackendClient::Connect is not implemented "
                        "(stub: link a concrete backend implementation)");
     }
@@ -62,7 +62,7 @@ public:
                                const char* json_payload) noexcept override {
         (void)event_name;
         (void)json_payload;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IBackendClient::SendTelemetry is not implemented "
                        "(stub: link a concrete backend implementation)");
     }
@@ -83,31 +83,31 @@ public:
     MatchmakerStub() noexcept = default;
     ~MatchmakerStub() noexcept override = default;
 
-    TResult<MatchTicket> StartSearch(const char* mode,
+    TResult<FMatchTicket> StartSearch(const char* mode,
                                     u32 elo_hint) noexcept override {
         (void)mode;
         (void)elo_hint;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IMatchmaker::StartSearch is not implemented "
                        "(stub: link a concrete matchmaker implementation)");
     }
 
-    TResult<void> CancelSearch(MatchTicket t) noexcept override {
+    TResult<void> CancelSearch(FMatchTicket t) noexcept override {
         (void)t;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IMatchmaker::CancelSearch is not implemented "
                        "(stub: link a concrete matchmaker implementation)");
     }
 
-    EMatchStatus PollStatus(MatchTicket t) noexcept override {
+    EMatchStatus PollStatus(FMatchTicket t) noexcept override {
         (void)t;
         // stub は検索を一切走らせないので、どの ticket も Failed 扱い。
         return EMatchStatus::Failed;
     }
 
-    TResult<void> AcceptMatch(MatchTicket t) noexcept override {
+    TResult<void> AcceptMatch(FMatchTicket t) noexcept override {
         (void)t;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IMatchmaker::AcceptMatch is not implemented "
                        "(stub: link a concrete matchmaker implementation)");
     }

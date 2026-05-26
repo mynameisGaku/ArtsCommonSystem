@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — SceneInspector / HierarchyPanel 実装 (Phase 20 editor 第二弾)
+// GameFramework Tools — SceneInspector / FHierarchyPanel 実装 (Phase 20 editor 第二弾)
 //
 // 仕様の意図は HierarchyPanel.h を参照。本ファイルでは:
-//   ・root_node を起点に Node2D ツリーを再帰描画 (ImGui::TreeNodeEx)
-//   ・各ノードクリックで selection 切替 (SelectionService 経由 or 内部 fallback)
+//   ・root_node を起点に FNode2D ツリーを再帰描画 (ImGui::TreeNodeEx)
+//   ・各ノードクリックで selection 切替 (FSelectionService 経由 or 内部 fallback)
 //   ・右クリックで context menu (Delete / Duplicate / Reparent target 設定)
 //   ・Drag & Drop で reparent (BeginDragDropSource / BeginDragDropTarget)
 //   ・折りたたみ状態を FNodeId キーで永続化
@@ -20,20 +20,20 @@
 namespace acs::game::inspector {
 
 // ---- ローカルヘルパ ------------------------------------------------------
-// 描画ラベル "Node #idx (id=N:gen)" を整形する。FNodeId が invalid なら
-// "Node #idx (no-id)" の表記。これにより同名 (ラベル無し) のノードでも
+// 描画ラベル "FNode #idx (id=N:gen)" を整形する。FNodeId が invalid なら
+// "FNode #idx (no-id)" の表記。これにより同名 (ラベル無し) のノードでも
 // hierarchy 上で区別できる (Unity の "GameObject (1)" 命名相当)。
 static void FormatNodeLabel(char* buf, usize buf_size,
-                            const Node2D& node, u32 sibling_index) noexcept {
+                            const FNode2D& node, u32 sibling_index) noexcept {
     if (buf == nullptr || buf_size == 0) return;
     const FNodeId id = node.Id();
     if (id.IsValid()) {
-        std::snprintf(buf, buf_size, "Node #%u (id=%u:%u)",
+        std::snprintf(buf, buf_size, "FNode #%u (id=%u:%u)",
                       static_cast<unsigned>(sibling_index),
                       static_cast<unsigned>(id.Index()),
                       static_cast<unsigned>(id.Generation()));
     } else {
-        std::snprintf(buf, buf_size, "Node #%u (no-id)",
+        std::snprintf(buf, buf_size, "FNode #%u (no-id)",
                       static_cast<unsigned>(sibling_index));
     }
 }
@@ -41,17 +41,17 @@ static void FormatNodeLabel(char* buf, usize buf_size,
 // =============================================================================
 // Init / Shutdown
 // =============================================================================
-void HierarchyPanel::Init() noexcept {
+void FHierarchyPanel::Init() noexcept {
     _collapsed_map.Clear();
     _selected_id         = FNodeId{};
     _selected_node       = nullptr;
     _reparent_target     = nullptr;
     _collapse_all_pending = false;
-    // SelectionService は外部所有 (non-owning)、callback は外部 API なので
+    // FSelectionService は外部所有 (non-owning)、callback は外部 API なので
     // Init で触らない (= Set 状態を維持)。
 }
 
-void HierarchyPanel::Shutdown() noexcept {
+void FHierarchyPanel::Shutdown() noexcept {
     _collapsed_map.Clear();
     _selected_id         = FNodeId{};
     _selected_node       = nullptr;
@@ -65,10 +65,10 @@ void HierarchyPanel::Shutdown() noexcept {
 // =============================================================================
 // SetSelectionService / SelectedNodeId / SelectNode
 // =============================================================================
-void HierarchyPanel::SetSelectionService(SelectionService* svc) noexcept {
+void FHierarchyPanel::SetSelectionService(FSelectionService* svc) noexcept {
     _selection_service = svc;
-    // SelectionService 注入直後、internal cache を seam 側の現選択に同期して
-    // おく (= 既に何か選択されていた場合に表示を合わせる)。Node2D* は
+    // FSelectionService 注入直後、internal cache を seam 側の現選択に同期して
+    // おく (= 既に何か選択されていた場合に表示を合わせる)。FNode2D* は
     // FNodeId からは逆引きできないので nullptr に戻す (= 次の DrawUI 走査で
     // ヒットしたら再キャッシュする)。
     if (_selection_service != nullptr) {
@@ -77,21 +77,21 @@ void HierarchyPanel::SetSelectionService(SelectionService* svc) noexcept {
     }
 }
 
-FNodeId HierarchyPanel::SelectedNodeId() const noexcept {
+FNodeId FHierarchyPanel::SelectedNodeId() const noexcept {
     if (_selection_service != nullptr) {
         return _selection_service->CurrentSelection();
     }
     return _selected_id;
 }
 
-void HierarchyPanel::SelectNode(Node2D* node) noexcept {
+void FHierarchyPanel::SelectNode(FNode2D* node) noexcept {
     _selected_node = node;
     if (node != nullptr) {
         _selected_id = node->Id();
     } else {
         _selected_id = FNodeId{};
     }
-    // SelectionService がいれば反映 (callback 発火は seam 側責務)。
+    // FSelectionService がいれば反映 (callback 発火は seam 側責務)。
     if (_selection_service != nullptr) {
         if (node != nullptr) {
             _selection_service->SelectNode(node->Id());
@@ -104,13 +104,13 @@ void HierarchyPanel::SelectNode(Node2D* node) noexcept {
 // =============================================================================
 // ExpandAll / CollapseAll
 // =============================================================================
-void HierarchyPanel::ExpandAll() noexcept {
+void FHierarchyPanel::ExpandAll() noexcept {
     // 折りたたみマップを空にする = 全 FNodeId が "default expanded" 扱い。
     _collapsed_map.Clear();
     _collapse_all_pending = false;
 }
 
-void HierarchyPanel::CollapseAll() noexcept {
+void FHierarchyPanel::CollapseAll() noexcept {
     // DrawUI で各ノード走査時に既存エントリを true に立てる。ここでは
     // 単にフラグを立てるだけ (ノードを 1 つも DrawUI 内で見ていない時点での
     // CollapseAll は意味が無く、DrawUI 内で適用するのが安全)。
@@ -120,10 +120,10 @@ void HierarchyPanel::CollapseAll() noexcept {
 // =============================================================================
 // DeleteSelected
 // =============================================================================
-void HierarchyPanel::DeleteSelected() noexcept {
-    // selection の Node* は DrawUI 走査中にキャッシュされている前提
-    // (SelectionService 注入時も同様)。キャッシュが無ければ no-op。
-    Node2D* target = _selected_node;
+void FHierarchyPanel::DeleteSelected() noexcept {
+    // selection の FNode* は DrawUI 走査中にキャッシュされている前提
+    // (FSelectionService 注入時も同様)。キャッシュが無ければ no-op。
+    FNode2D* target = _selected_node;
     if (target == nullptr) return;
     target->Destroy();  // フレーム境界で reap される
     // selection は明示解除 (次フレーム描画前に古い FNodeId を引きずらない)。
@@ -141,7 +141,7 @@ void HierarchyPanel::DeleteSelected() noexcept {
 // =============================================================================
 // SetOnNodeRightClickCallback
 // =============================================================================
-void HierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
+void FHierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
                                                  void* user) noexcept {
     _right_click_cb   = cb;
     _right_click_user = user;
@@ -150,14 +150,14 @@ void HierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
 // =============================================================================
 // IsCollapsed / SetCollapsed (FNodeId → bool linear search)
 // =============================================================================
-bool HierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
+bool FHierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
     for (u32 i = 0; i < _collapsed_map.Size(); ++i) {
         if (_collapsed_map[i].id == id) return _collapsed_map[i].collapsed;
     }
     return false;  // エントリ無し = default expanded
 }
 
-void HierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
+void FHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
     for (u32 i = 0; i < _collapsed_map.Size(); ++i) {
         if (_collapsed_map[i].id == id) {
             _collapsed_map[i].collapsed = c;
@@ -167,7 +167,7 @@ void HierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
     // c == false (= expanded) かつ既存なし → no-op (default expanded を保つ)。
     // c == true (= collapsed) なら新規追加。
     if (c) {
-        CollapsedEntry e {};
+        FCollapsedEntry e {};
         e.id        = id;
         e.collapsed = true;
         _collapsed_map.PushBack(e);
@@ -192,10 +192,10 @@ void HierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
 //     Reparent (Set Target / Reparent Here) + 外部 callback。
 //   ・Drag source = この TreeNode、payload = &node。
 //   ・Drag target = この TreeNode 行、accept 時に source node を target に
-//     `Reparent` 要求する (cycle/self は Node2D 側で弾かれる)。
+//     `Reparent` 要求する (cycle/self は FNode2D 側で弾かれる)。
 // =============================================================================
-void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
-    // depth 上限ガード (ACS の Node2D は構造的に木構造で循環不能だが、防衛策)。
+void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
+    // depth 上限ガード (ACS の FNode2D は構造的に木構造で循環不能だが、防衛策)。
     if (depth >= 64u) {
         ImGui::TextDisabled("(depth limit reached)");
         return;
@@ -261,7 +261,7 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
     }
 
     // クリックで selection 切替。ItemClicked() は左クリック + 同フレーム検知。
-    // 既選択を再クリックは no-op (SelectionService 側で重複弾く)。
+    // 既選択を再クリックは no-op (FSelectionService 側で重複弾く)。
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)
         && !ImGui::IsItemToggledOpen()) {
         SelectNode(&node);
@@ -269,26 +269,26 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
 
     // ----- Drag source: 自分を payload に -----
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-        Node2D* self_ptr = &node;
+        FNode2D* self_ptr = &node;
         ImGui::SetDragDropPayload(kDragDropId, &self_ptr, sizeof(self_ptr));
         ImGui::TextUnformatted(label);
         ImGui::EndDragDropSource();
     }
 
-    // ----- Drop target: 受け取った Node2D* を自分の子に reparent -----
+    // ----- Drop target: 受け取った FNode2D* を自分の子に reparent -----
     if (ImGui::BeginDragDropTarget()) {
         const ImGuiPayload* payload =
             ImGui::AcceptDragDropPayload(kDragDropId);
         if (payload != nullptr
-            && payload->DataSize == static_cast<int>(sizeof(Node2D*))) {
-            Node2D* src = nullptr;
+            && payload->DataSize == static_cast<int>(sizeof(FNode2D*))) {
+            FNode2D* src = nullptr;
             // 安全のため memcpy (payload->Data は void*、align 保証なし)。
-            for (int b = 0; b < static_cast<int>(sizeof(Node2D*)); ++b) {
+            for (int b = 0; b < static_cast<int>(sizeof(FNode2D*)); ++b) {
                 reinterpret_cast<unsigned char*>(&src)[b] =
                     static_cast<const unsigned char*>(payload->Data)[b];
             }
             if (src != nullptr && src != &node) {
-                // Node2D::Reparent は cycle / self / pending_destroy を内部で弾く。
+                // FNode2D::Reparent は cycle / self / pending_destroy を内部で弾く。
                 src->Reparent(node);
             }
         }
@@ -309,7 +309,7 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
             return;
         }
 
-        // Duplicate: Node2D 側に組み込み Clone API が未だ無いため、ここでは
+        // Duplicate: FNode2D 側に組み込み Clone API が未だ無いため、ここでは
         // 「メニュー項目だけ提示し、実処理は外部 callback に委譲」する設計。
         // callback 未登録時は disabled 表示にしてユーザに気付かせる。
         const bool dup_enabled = (_right_click_cb != nullptr);
@@ -356,7 +356,7 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
     // ----- 子の再帰描画 -----
     if (open && has_child) {
         for (u32 i = 0; i < node.ChildCount(); ++i) {
-            Node2D* c = node.Child(i);
+            FNode2D* c = node.Child(i);
             if (c != nullptr) {
                 DrawNodeRecursive(*c, depth + 1u);
             }
@@ -370,8 +370,8 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
 // =============================================================================
 // DrawUI — メイン ImGui window
 // =============================================================================
-// Begin("Scene Hierarchy") 1 window で完結。レイアウト:
-//   ┌──────── "Scene Hierarchy" window ─────────┐
+// Begin("FScene Hierarchy") 1 window で完結。レイアウト:
+//   ┌──────── "FScene Hierarchy" window ─────────┐
 //   │ [Expand All] [Collapse All] [Delete Sel.] │
 //   │ Reparent Target: <name> [Clear]           │
 //   │ ─────────────────────────────────────── │
@@ -382,10 +382,10 @@ void HierarchyPanel::DrawNodeRecursive(Node2D& node, u32 depth) noexcept {
 //   │     ...                                    │
 //   └─────────────────────────────────────────────┘
 // =============================================================================
-void HierarchyPanel::DrawUI() noexcept {
-    // Phase 24: EditorPanel 継承で no-param 化。SetRootNode で事前 set された
+void FHierarchyPanel::DrawUI() noexcept {
+    // Phase 24: FEditorPanel 継承で no-param 化。SetRootNode で事前 set された
     // _root_node を root に描画。null なら "(no root set)" メッセージ表示。
-    if (!ImGui::Begin("Scene Hierarchy")) {
+    if (!ImGui::Begin("FScene Hierarchy")) {
         ImGui::End();
         return;
     }
@@ -394,20 +394,20 @@ void HierarchyPanel::DrawUI() noexcept {
         ImGui::End();
         return;
     }
-    Node2D& root_node = *_root_node;
+    FNode2D& root_node = *_root_node;
 
     // ----- Toolbar -----
-    if (ImGui::Button("Expand All")) {
+    if (ImGui::FButton("Expand All")) {
         ExpandAll();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Collapse All")) {
+    if (ImGui::FButton("Collapse All")) {
         CollapseAll();
     }
     ImGui::SameLine();
     const bool has_sel = (_selected_node != nullptr);
     if (!has_sel) ImGui::BeginDisabled();
-    if (ImGui::Button("Delete Selected")) {
+    if (ImGui::FButton("Delete Selected")) {
         DeleteSelected();
     }
     if (!has_sel) ImGui::EndDisabled();

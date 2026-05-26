@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentShader 実装
+// FDiligentShader 実装
 #include "render/Diligent/DiligentShader.h"
 
 #if WITH_RENDER_DILIGENT
@@ -27,7 +27,7 @@ void ParseShaderBindings(
     const char* src,
     const char* keyword,
     char        reg_letter,
-    char        out_names[][DiligentShader::kMaxNameLen],
+    char        out_names[][FDiligentShader::kMaxNameLen],
     u32         out_capacity) noexcept
 {
     if (!src || !keyword) return;
@@ -66,8 +66,8 @@ void ParseShaderBindings(
             }
             if (!got_digit) { p = q; continue; }
             if (slot < out_capacity) {
-                const usize copy = name_len < (DiligentShader::kMaxNameLen - 1)
-                                    ? name_len : DiligentShader::kMaxNameLen - 1;
+                const usize copy = name_len < (FDiligentShader::kMaxNameLen - 1)
+                                    ? name_len : FDiligentShader::kMaxNameLen - 1;
                 std::memcpy(out_names[slot], name_begin, copy);
                 out_names[slot][copy] = '\0';
             }
@@ -80,17 +80,17 @@ void ParseShaderBindings(
 
 } // namespace
 
-DiligentShader::~DiligentShader() noexcept {
+FDiligentShader::~FDiligentShader() noexcept {
     if (_shader) { _shader->Release(); _shader = nullptr; }
 }
 
-TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& desc) noexcept {
+TResult<void> FDiligentShader::Init(FDiligentDevice& device, const FShaderDesc& desc) noexcept {
     _device = &device;
     _stage  = desc.stage;
 
     auto* dev = device.RenderDev();
-    if (!dev) return ACS_ERR(Render, 140, "DiligentShader: device not initialized");
-    if (!desc.hlsl_source) return ACS_ERR(Render, 141, "DiligentShader: hlsl_source is null");
+    if (!dev) return ACS_ERR(Render, 140, "FDiligentShader: device not initialized");
+    if (!desc.hlsl_source) return ACS_ERR(Render, 141, "FDiligentShader: hlsl_source is null");
 
     Diligent::ShaderCreateInfo sci;
     sci.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;

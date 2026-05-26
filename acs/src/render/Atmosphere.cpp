@@ -133,8 +133,8 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
 
 } // namespace
 
-TArray<f32> Atmosphere::BakeEquirect(u32 width, u32 height,
-                                     const AtmosphereParams& params) noexcept {
+TArray<f32> FAtmosphere::BakeEquirect(u32 width, u32 height,
+                                     const FAtmosphereParams& params) noexcept {
     TArray<f32> out;
     out.Resize(static_cast<usize>(width) * height * 4u);
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework メタ層 — PrivacyDirector (GDPR / CCPA consent ハブ)
+// GameFramework メタ層 — FPrivacyDirector (GDPR / CCPA consent ハブ)
 //
 // 役割:
 //   ゲーム内で扱う個人情報・解析・広告・テレメトリといった
@@ -9,7 +9,7 @@
 //   on/off」「ポリシー版の追跡」「永続化」を共通基盤として提供する。
 //
 // 想定する典型フロー:
-//   PrivacyDirector privacy;
+//   FPrivacyDirector privacy;
 //   privacy.Init(/*current_policy_version=*/2);
 //   privacy.LoadConsent(L"user/consent.bin");                 // 既存設定があれば復元
 //
@@ -26,7 +26,7 @@
 //   }
 //
 // 設計選択:
-//   ・**bit flag 中心**: SceneServices と同じく EConsentCategory を bit OR で
+//   ・**bit flag 中心**: FSceneServices と同じく EConsentCategory を bit OR で
 //     合成する設計。「Analytics は ON だが Marketing は OFF」のような
 //     カテゴリ別 on/off が必須要件 (GDPR の granular consent) なので、
 //     enum class : u32 + operator|/& を提供する。
@@ -41,16 +41,16 @@
 //     再同意が必要になる (GDPR Article 7 規定)。Init() に渡した値を
 //     "current" として保持し、保存側 stored < current なら IsPolicyOutdated()
 //     が true を返して再同意を促す。
-//   ・**Save/Load は stub**: 永続化は AssetPack/SaveSlot 接続後に Phase 2 で
+//   ・**Save/Load は stub**: 永続化は AssetPack/FSaveSlot 接続後に Phase 2 で
 //     実装する。現段階では API 形状だけ確定し、ACS_ERR(IO, kSub_NotImplemented)
-//     を返す stub にしておく (SaveSlot 等と同じ規約)。
+//     を返す stub にしておく (FSaveSlot 等と同じ規約)。
 //   ・**非コピー・非ムーブ**: アプリ全体で 1 個運用される director なので、
 //     誤って値渡しされて consent 状態が分裂しないよう移動コンストラクタも禁止。
 //   ・**全 noexcept**: ACS 規約に従い例外なし。TResult<void, FErrorCode> で
 //     エラーを伝搬する。
 //
 // 範囲外 (Phase 2+ で):
-//   ・Save/Load の実 I/O 接続 (SaveSlot/AssetPack 経由でバイナリ永続化)
+//   ・Save/Load の実 I/O 接続 (FSaveSlot/AssetPack 経由でバイナリ永続化)
 //   ・consent 取得 UI そのもの (ゲーム側 / Editor 側で別途実装)
 //   ・地域判定 (GDPR 地域だけダイアログを強制する 等の policy)
 //   ・consent 変更時の subscribe コールバック (今は pull 型のみ)
@@ -89,33 +89,33 @@ constexpr EConsentCategory operator&(EConsentCategory a, EConsentCategory b) noe
 }
 
 // =============================================================================
-// ConsentStatus — 永続化単位の POD
+// FConsentStatus — 永続化単位の POD
 // -----------------------------------------------------------------------------
 // SaveConsent / LoadConsent で書き出される最小構造体。trivially-copyable な
 // POD として扱えるよう member は全て値型のみ。policy_version は再同意
 // 判定の主軸で、consent_timestamp は監査ログ向けに「いつ同意したか」を
 // epoch ms 等で保持する想定 (Phase 2 で TimeSource を確定したら代入)。
 // =============================================================================
-struct ConsentStatus {
+struct FConsentStatus {
     EConsentCategory granted_mask      = EConsentCategory::Required;  // bit OR された同意 mask
     u64             consent_timestamp = 0;                          // 最後に同意した時刻 (epoch ms 等)
     u32             policy_version    = 0;                          // 同意時のポリシー版
 };
 
 // =============================================================================
-// PrivacyDirector — consent 管理ハブ
+// FPrivacyDirector — consent 管理ハブ
 // -----------------------------------------------------------------------------
 // アプリ全体で 1 個運用される想定。複数同時運用しないため非コピー・非ムーブ。
 // =============================================================================
-class PrivacyDirector {
+class FPrivacyDirector {
 public:
-    PrivacyDirector()  noexcept = default;
-    ~PrivacyDirector() noexcept = default;
+    FPrivacyDirector()  noexcept = default;
+    ~FPrivacyDirector() noexcept = default;
 
-    PrivacyDirector(const PrivacyDirector&)            = delete;
-    PrivacyDirector& operator=(const PrivacyDirector&) = delete;
-    PrivacyDirector(PrivacyDirector&&)                 = delete;
-    PrivacyDirector& operator=(PrivacyDirector&&)      = delete;
+    FPrivacyDirector(const FPrivacyDirector&)            = delete;
+    FPrivacyDirector& operator=(const FPrivacyDirector&) = delete;
+    FPrivacyDirector(FPrivacyDirector&&)                 = delete;
+    FPrivacyDirector& operator=(FPrivacyDirector&&)      = delete;
 
     // ----- 初期化 -----
     // current_policy_version: 起動中に有効なプライバシーポリシーの版番号。
@@ -165,9 +165,9 @@ public:
     void Reset() noexcept;
 
     // ----- 永続化 (Phase 1: stub) -----
-    // SaveConsent: file_path に ConsentStatus をバイナリ保存する。
+    // SaveConsent: file_path に FConsentStatus をバイナリ保存する。
     //   Phase 1 では ACS_ERR(IO, kSub_NotImplemented) を返す stub。
-    // LoadConsent: file_path から ConsentStatus を読み出して内部状態を復元する。
+    // LoadConsent: file_path から FConsentStatus を読み出して内部状態を復元する。
     //   Phase 1 では ACS_ERR(IO, kSub_NotImplemented) を返す stub。
     TResult<void> SaveConsent(const wchar_t* file_path) noexcept;
     TResult<void> LoadConsent(const wchar_t* file_path) noexcept;
@@ -180,7 +180,7 @@ public:
     };
 
 private:
-    ConsentStatus _status{};                 // 現在の同意状態
+    FConsentStatus _status{};                 // 現在の同意状態
     u32           _current_policy_version = 0; // Init() に渡された版
     bool          _initialized            = false; // Init() 済みか
     bool          _initial_consent_shown  = false; // 初回ダイアログを提示したか

@@ -7,14 +7,14 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
-class Dx12Pipeline final : public IRhiPipeline {
+class FDx12Pipeline final : public IRhiPipeline {
 public:
-    Dx12Pipeline() noexcept = default;
-    ~Dx12Pipeline() noexcept override;
+    FDx12Pipeline() noexcept = default;
+    ~FDx12Pipeline() noexcept override;
 
-    HrResult Init(Dx12Device& device, const FPipelineDesc& desc) noexcept;
+    FHrResult Init(FDx12Device& device, const FPipelineDesc& desc) noexcept;
 
     ID3D12PipelineState*   Pso()           const noexcept { return _pso; }
     ID3D12RootSignature*   RootSignature() const noexcept { return _root_sig; }

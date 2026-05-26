@@ -9,16 +9,16 @@
 
 namespace acs {
 
-TcpConnection::~TcpConnection() noexcept {
+FTcpConnection::~FTcpConnection() noexcept {
     Close();
 }
 
-TcpConnection::TcpConnection(TcpConnection&& o) noexcept
+FTcpConnection::FTcpConnection(FTcpConnection&& o) noexcept
     : _socket(o._socket), _remote(o._remote) {
     o._socket = ~uptr{0};
 }
 
-TcpConnection& TcpConnection::operator=(TcpConnection&& o) noexcept {
+FTcpConnection& FTcpConnection::operator=(FTcpConnection&& o) noexcept {
     if (this == &o) return *this;
     Close();
     _socket = o._socket;
@@ -27,9 +27,9 @@ TcpConnection& TcpConnection::operator=(TcpConnection&& o) noexcept {
     return *this;
 }
 
-TResult<TcpConnection> TcpConnection::Connect(IpAddress addr, u16 port) noexcept {
-    if (!Network::IsInitialized())
-        return ACS_ERR(IO, 210, "Network::Init() not called");
+TResult<FTcpConnection> FTcpConnection::Connect(FIpAddress addr, u16 port) noexcept {
+    if (!FNetwork::IsInitialized())
+        return ACS_ERR(IO, 210, "FNetwork::Init() not called");
 
     SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET)
@@ -49,21 +49,21 @@ TResult<TcpConnection> TcpConnection::Connect(IpAddress addr, u16 port) noexcept
         return ACS_ERR_OS(IO, 212, "connect failed", err);
     }
 
-    TcpConnection c;
+    FTcpConnection c;
     c._socket = static_cast<uptr>(s);
     addr.port = port;
     c._remote = addr;
-    return TResult<TcpConnection>(OkInit, Move(c));
+    return TResult<FTcpConnection>(OkInit, Move(c));
 }
 
-TcpConnection TcpConnection::FromAccepted(uptr socket, IpAddress remote) noexcept {
-    TcpConnection c;
+FTcpConnection FTcpConnection::FromAccepted(uptr socket, FIpAddress remote) noexcept {
+    FTcpConnection c;
     c._socket = socket;
     c._remote = remote;
     return c;
 }
 
-void TcpConnection::Close() noexcept {
+void FTcpConnection::Close() noexcept {
     if (_socket != ~uptr{0}) {
         ::shutdown(static_cast<SOCKET>(_socket), SD_BOTH);
         ::closesocket(static_cast<SOCKET>(_socket));
@@ -71,7 +71,7 @@ void TcpConnection::Close() noexcept {
     }
 }
 
-isize TcpConnection::Send(const void* data, usize size) noexcept {
+isize FTcpConnection::Send(const void* data, usize size) noexcept {
     if (_socket == ~uptr{0}) return -1;
     int n = ::send(static_cast<SOCKET>(_socket), static_cast<const char*>(data),
                    static_cast<int>(size), 0);
@@ -79,7 +79,7 @@ isize TcpConnection::Send(const void* data, usize size) noexcept {
     return n;
 }
 
-isize TcpConnection::Recv(void* buf, usize size) noexcept {
+isize FTcpConnection::Recv(void* buf, usize size) noexcept {
     if (_socket == ~uptr{0}) return -1;
     int n = ::recv(static_cast<SOCKET>(_socket), static_cast<char*>(buf),
                    static_cast<int>(size), 0);
@@ -87,7 +87,7 @@ isize TcpConnection::Recv(void* buf, usize size) noexcept {
     return n;  // 0 は相手切断
 }
 
-TResult<void> TcpConnection::SetNonBlocking(bool enable) noexcept {
+TResult<void> FTcpConnection::SetNonBlocking(bool enable) noexcept {
     if (_socket == ~uptr{0}) return ACS_ERR(IO, 213, "socket not open");
     u_long mode = enable ? 1 : 0;
     if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)

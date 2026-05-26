@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — MemorySystem 実装
+// ACS Memory — FMemorySystem 実装
 // -----------------------------------------------------------------------------
-// 各セグメントごとに TlsfAllocator または LinearAllocator を保持し、
+// 各セグメントごとに FTlsfAllocator または FLinearAllocator を保持し、
 // FMutex で保護する薄いファサード。
-// 「現在のセグメント」は TLS 変数で管理し、ScopedMemorySegment で push/pop。
+// 「現在のセグメント」は TLS 変数で管理し、FScopedMemorySegment で push/pop。
 // =============================================================================
 #include "memory/MemorySystem.h"
 #include "memory/Tlsf.h"
@@ -18,7 +18,7 @@
 
 namespace acs {
 
-// 現在のスレッドが選択しているセグメント（ScopedMemorySegment で切替）
+// 現在のスレッドが選択しているセグメント（FScopedMemorySegment で切替）
 ACS_THREAD_LOCAL ESegment tls_current_segment = ESegment::Default;
 
 namespace {
@@ -29,16 +29,16 @@ struct SegmentSlot {
     bool            use_linear     = false;
     bool            initialized    = false;
     FMutex           lock;            // TLSF 単一スレッド前提を保護
-    TlsfAllocator   tlsf;            // use_linear=false で使う
-    LinearAllocator* linear = nullptr; // use_linear=true で使う
-    VmReservation   reservation;
+    FTlsfAllocator   tlsf;            // use_linear=false で使う
+    FLinearAllocator* linear = nullptr; // use_linear=true で使う
+    FVmReservation   reservation;
     u64             budget         = 0;
     u64             reserve_size   = 0;
     u64             committed_size = 0;
 };
 
-// SegmentSlot を Allocator IF として公開するアダプタ
-class SegmentAllocator final : public Allocator {
+// SegmentSlot を FAllocator IF として公開するアダプタ
+class SegmentAllocator final : public FAllocator {
 public:
     SegmentAllocator() noexcept = default;
     void Bind(SegmentSlot* slot) noexcept { _slot = slot; }
@@ -80,19 +80,19 @@ private:
 };
 
 // プロセスに 1 つだけのグローバル状態
-struct State {
+struct FState {
     SegmentSlot      slots[(usize)ESegment::_Count];
     SegmentAllocator allocators[(usize)ESegment::_Count];
     bool             inited = false;
 };
-State g_state;
+FState g_state;
 
 } // namespace
 
 // 既定設定（小規模テスト用、すぐ動かしたいとき向け）
-MemorySystemConfig MemorySystem::DefaultConfig() noexcept {
-    MemorySystemConfig c {};
-    auto setup = [](SegmentConfig& s, ESegment seg, u64 reserve, u64 commit, bool lin) {
+FMemorySystemConfig FMemorySystem::DefaultConfig() noexcept {
+    FMemorySystemConfig c {};
+    auto setup = [](FSegmentConfig& s, ESegment seg, u64 reserve, u64 commit, bool lin) {
         s.segment         = seg;
         s.reserve_bytes   = reserve;
         s.commit_initial  = commit;
@@ -108,11 +108,11 @@ MemorySystemConfig MemorySystem::DefaultConfig() noexcept {
 }
 
 // 全セグメントを設定で初期化
-TResult<void> MemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
-    if (g_state.inited) return ACS_ERR(Memory, 30, "MemorySystem already initialized");
+TResult<void> FMemorySystem::Init(const FMemorySystemConfig& cfg) noexcept {
+    if (g_state.inited) return ACS_ERR(Memory, 30, "FMemorySystem already initialized");
 
     for (usize i = 0; i < (usize)ESegment::_Count; ++i) {
-        const SegmentConfig& sc = cfg.segments[i];
+        const FSegmentConfig& sc = cfg.segments[i];
         SegmentSlot& slot = g_state.slots[i];
         slot.segment = sc.segment;
         slot.use_linear = sc.use_linear;
@@ -121,18 +121,18 @@ TResult<void> MemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
         slot.committed_size = sc.commit_initial;
 
         if (sc.use_linear) {
-            // Linear セグメントは VM 予約 + 全領域コミット + LinearAllocator 個別生成
-            auto rr = VmReservation::Reserve(sc.reserve_bytes);
+            // Linear セグメントは VM 予約 + 全領域コミット + FLinearAllocator 個別生成
+            auto rr = FVmReservation::Reserve(sc.reserve_bytes);
             if (rr.IsErr()) return Err<void>(rr.Error());
             slot.reservation = Move(rr.Value());
             auto cr = slot.reservation.Commit(0, sc.commit_initial);
             if (cr.IsErr()) return cr;
-            slot.linear = static_cast<LinearAllocator*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(LinearAllocator)));
+            slot.linear = static_cast<FLinearAllocator*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(FLinearAllocator)));
             if (!slot.linear) return ACS_ERR(Memory, 31, "Linear alloc failed");
-            ::new (slot.linear) LinearAllocator(sc.commit_initial);
+            ::new (slot.linear) FLinearAllocator(sc.commit_initial);
         } else {
             // TLSF セグメントは VM 予約 + 初期コミットして TLSF プール登録
-            auto rr = VmReservation::Reserve(sc.reserve_bytes);
+            auto rr = FVmReservation::Reserve(sc.reserve_bytes);
             if (rr.IsErr()) return Err<void>(rr.Error());
             auto ir = slot.tlsf.InitWithReservation(Move(rr.Value()), sc.commit_initial);
             if (ir.IsErr()) return ir;
@@ -144,13 +144,13 @@ TResult<void> MemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
     return Ok();
 }
 
-void MemorySystem::Shutdown() noexcept {
+void FMemorySystem::Shutdown() noexcept {
     if (!g_state.inited) return;
     for (usize i = 0; i < (usize)ESegment::_Count; ++i) {
         SegmentSlot& slot = g_state.slots[i];
         if (!slot.initialized) continue;
         if (slot.use_linear && slot.linear) {
-            slot.linear->~LinearAllocator();
+            slot.linear->~FLinearAllocator();
             ::HeapFree(::GetProcessHeap(), 0, slot.linear);
             slot.linear = nullptr;
         }
@@ -160,21 +160,21 @@ void MemorySystem::Shutdown() noexcept {
     g_state.inited = false;
 }
 
-Allocator* MemorySystem::Get(ESegment s) noexcept {
+FAllocator* FMemorySystem::Get(ESegment s) noexcept {
     if (!g_state.inited) return nullptr;
     return &g_state.allocators[(usize)s];
 }
 
-ESegment MemorySystem::Current() noexcept {
+ESegment FMemorySystem::Current() noexcept {
     return tls_current_segment;
 }
 
-Allocator* MemorySystem::CurrentAllocator() noexcept {
+FAllocator* FMemorySystem::CurrentAllocator() noexcept {
     return Get(tls_current_segment);
 }
 
 // Temp セグメントを巻き戻す（フレーム先頭で 1 回呼ぶ）
-void MemorySystem::ResetTemp() noexcept {
+void FMemorySystem::ResetTemp() noexcept {
     if (!g_state.inited) return;
     SegmentSlot& slot = g_state.slots[(usize)ESegment::Temp];
     if (slot.initialized && slot.use_linear && slot.linear) {
@@ -184,13 +184,13 @@ void MemorySystem::ResetTemp() noexcept {
 }
 
 // 全セグメントの統計を out に詰める
-u32 MemorySystem::GetStats(SegmentStats* out, u32 max_count) noexcept {
+u32 FMemorySystem::GetStats(FSegmentStats* out, u32 max_count) noexcept {
     if (!g_state.inited || !out || max_count == 0) return 0;
     u32 n = 0;
     for (usize i = 0; i < (usize)ESegment::_Count && n < max_count; ++i) {
         SegmentSlot& slot = g_state.slots[i];
         if (!slot.initialized) continue;
-        SegmentStats& s = out[n++];
+        FSegmentStats& s = out[n++];
         s.segment   = slot.segment;
         s.name      = ToString(slot.segment);
         s.reserve   = slot.reserve_size;
@@ -203,15 +203,15 @@ u32 MemorySystem::GetStats(SegmentStats* out, u32 max_count) noexcept {
 }
 
 // =============================================================================
-// ScopedMemorySegment — RAII セグメント切替
+// FScopedMemorySegment — RAII セグメント切替
 // =============================================================================
 // コンストラクタで TLS の現在セグメントを上書き、デストラクタで元に戻す
-ScopedMemorySegment::ScopedMemorySegment(ESegment s) noexcept
+FScopedMemorySegment::FScopedMemorySegment(ESegment s) noexcept
     : _previous(tls_current_segment) {
     tls_current_segment = s;
 }
 
-ScopedMemorySegment::~ScopedMemorySegment() noexcept {
+FScopedMemorySegment::~FScopedMemorySegment() noexcept {
     tls_current_segment = _previous;
 }
 

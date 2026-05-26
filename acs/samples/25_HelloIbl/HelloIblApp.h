@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — Application 派生クラス。
+// HelloIbl — FApplication 派生クラス。
 //
 // IBL + HDR / ACES tonemap のメインデモ。BRDF LUT / env cube / irradiance /
 // prefilter を初フレームで一括生成し、以降は preset 切替 / displaymode /
@@ -15,14 +15,14 @@
 //   RefractionPass.{h,cpp}        - screen-space 屈折ガラス
 //   DynamicOrbs.{h,cpp}           - 公転する発光オーブ
 //   SceneDraw.{h,cpp}             - 5x5 sphere grid + floor の PBR draw
-//   PbrLightingBindings.{h,cpp}   - PbrShader の各種テクスチャ/パラメータ bind
+//   PbrLightingBindings.{h,cpp}   - FPbrShader の各種テクスチャ/パラメータ bind
 //   IblPresetBuilder.{h,cpp}      - preset 切替時の env / irradiance / prefilter 再生成
 //   TaaJitter.{h,cpp}             - Halton(2,3) sub-pixel jitter
 //   ExposureControl.{h,cpp}       - auto / manual 露出補間
-//   HudOverlay.{h,cpp}            - SpriteBatch HUD + デバッグオーバーレイ
+//   HudOverlay.{h,cpp}            - FSpriteBatch HUD + デバッグオーバーレイ
 //
 // 操作 (主要なもの):
-//   1/2/3 Sky preset / 4 Studio HDR / 5 Atmosphere
+//   1/2/3 FSky preset / 4 Studio HDR / 5 FAtmosphere
 //   I display mode / S SH9 / C clear-coat / Z aniso / L area / G probe / F fog
 //   H shadow / R SSR / X refraction / O SSAO / T TAA / J SSGI / K lightmap / M motion
 //   B bloom / U auto-expo / Q-E expo / WASD 移動 / 矢印 視点 / Esc 終了
@@ -81,7 +81,7 @@ void RenderSsgiPass(HelloIblApp& app, const acs::FMat4& vp_for_render,
 void UpdateExposureControls(HelloIblApp& app, acs::f32 dt) noexcept;
 void DrawHud(HelloIblApp& app, acs::u32 sw, acs::u32 sh) noexcept;
 
-class HelloIblApp : public acs::Application {
+class HelloIblApp : public acs::FApplication {
 public:
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -116,16 +116,16 @@ private:
     friend void UpdateExposureControls(HelloIblApp&, acs::f32) noexcept;
     friend void DrawHud(HelloIblApp&, acs::u32, acs::u32) noexcept;
 
-    acs::PostProcess        _post;
-    acs::ImageBasedLighting _ibl;
-    acs::Sky                _sky;
-    acs::PbrShader          _pbr;
-    acs::GpuMesh            _gm_sphere;
-    acs::GpuMesh            _gm_plane;
-    acs::SpriteBatch        _batch;
-    acs::Font               _font;
+    acs::FPostProcess        _post;
+    acs::FImageBasedLighting _ibl;
+    acs::FSky                _sky;
+    acs::FPbrShader          _pbr;
+    acs::FGpuMesh            _gm_sphere;
+    acs::FGpuMesh            _gm_plane;
+    acs::FSpriteBatch        _batch;
+    acs::FFont               _font;
     acs::FCamera             _camera;
-    acs::PostProcessParams  _post_params;
+    acs::FPostProcessParams  _post_params;
     acs::TArray<acs::f32>    _equirect_rgba;          // 4 ch float
     acs::FVec4               _sh9[9]   = {};          // 計算済 SH 9 係数 (xyz=RGB)
     acs::FVec3               _cam_pos  = acs::FVec3{0, 1.0f, -5.0f};
@@ -145,7 +145,7 @@ private:
     bool                    _use_shadows      = false;
     bool                    _show_ssr         = false;
     bool                    _ssr_warm         = false; // _ssr.Render が 1 度以上走った？
-    bool                    _use_ssao         = true;  // PbrShader 側で composite (1-frame latency)
+    bool                    _use_ssao         = true;  // FPbrShader 側で composite (1-frame latency)
     bool                    _ssao_warm        = false; // _ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
     bool                    _use_taa          = true;
     acs::u32                _taa_frame_index  = 0;     // Halton(2,3) 用カウンタ
@@ -159,14 +159,14 @@ private:
     bool                    _ssgi_warm        = false; // _ssgi.Render が 1 度以上走った？
     bool                    _use_lightmap     = true;
     acs::TUniquePtr<acs::IRhiTexture> _lightmap;        // 床用 baked lightmap (256x256 RGBA8)
-    acs::ShadowMap          _shadow;
-    acs::Ssr                _ssr;
-    acs::Ssao               _ssao;
-    acs::Ssgi               _ssgi;
-    acs::MotionVector       _motion;
+    acs::FShadowMap          _shadow;
+    acs::FSsr                _ssr;
+    acs::FSsao               _ssao;
+    acs::FSsgi               _ssgi;
+    acs::FMotionVector       _motion;
     bool                    _use_motion_vec   = true;
-    acs::RefractionShader   _refr;                     // screen-space 屈折
-    acs::Blit               _blit;                     // HDR -> _bg_rt コピー
+    acs::FRefractionShader   _refr;                     // screen-space 屈折
+    acs::FBlit               _blit;                     // HDR -> _bg_rt コピー
     acs::TUniquePtr<acs::IRhiTexture> _bg_rt;           // 屈折用 background キャプチャ
     bool                    _show_refraction  = true;
     acs::FMat4               _dyn_curr[kDynCount] = {}; // 動的球の現フレーム transform

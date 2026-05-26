@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — Entitlement (DLC / SeasonPass / Cosmetic 権利チェック)
+// GameFramework Pillar O — Entitlement (DLC / FSeasonPass / Cosmetic 権利チェック)
 //
 // プレイヤーが「持っているかどうか」をゲームロジック側から問い合わせる窓口。
 // DLC、シーズンパス、バトルパス、コスメティックパック、グッズ同梱の引換コード等の
 // **権利情報** (entitlement) をローカルに保持し、ストアからの取得結果や
 // プラットフォーム SDK (Pillar S = Steamworks / EOS / 各家庭機 SDK) の問い合わせ結果を
-// Add() で流し込んでもらう想定。EntitlementRegistry 自体は **ストア非依存** であり、
+// Add() で流し込んでもらう想定。FEntitlementRegistry 自体は **ストア非依存** であり、
 // 配信プラットフォームに紐付かない (Pillar S 側がアダプタ層になる)。
 //
 // 設計上の倫理方針 (LiveOps と pay-to-win の境界):
@@ -17,12 +17,12 @@
 //     redeem フローは Pillar S 側で実装し、ここには結果だけが流れてくる。
 //
 // 使い方:
-//   EntitlementRegistry reg;
+//   FEntitlementRegistry reg;
 //   reg.Add({ "dlc.expansion_1",  EntitlementKind::Dlc,           true  });
 //   reg.Add({ "cosmetic.hat_red", EntitlementKind::CosmeticPack,  true  });
 //
 //   if (reg.IsActive("dlc.expansion_1")) UnlockExpansionMap();
-//   if (reg.HasAny(EntitlementKind::SeasonPass)) ShowSeasonPassBadge();
+//   if (reg.HasAny(EntitlementKind::FSeasonPass)) ShowSeasonPassBadge();
 //
 // 設計選択:
 //   ・id は **const char* 非所有**: ACS の STL 禁止方針 + 寿命管理単純化のため、
@@ -50,32 +50,32 @@ namespace acs::game {
 // レジストリは単に分類タグとして保持・検索キーに使う。
 enum class EntitlementKind : u8 {
     Dlc,                // 追加コンテンツ (マップ / シナリオ / キャラ等)
-    SeasonPass,         // 一定期間 / シーズン束ねの権利
+    FSeasonPass,         // 一定期間 / シーズン束ねの権利
     BattlePass,         // tier 進行型 (cosmetic 中心を推奨)
     CosmeticPack,       // 見た目だけのスキン・装飾
     GoodsRedeemCode,    // 物販同梱コード等から redeem された結果
 };
 
 // 1 つの権利情報。`id` は registry 側で所有しない (呼び出し側保証)。
-struct EntitlementInfo {
+struct FEntitlementInfo {
     const char*     id     = nullptr;
     EntitlementKind kind   = EntitlementKind::Dlc;
     bool            active = false;  // false で「持ってはいるが現在無効」を表現可
 };
 
-class EntitlementRegistry {
+class FEntitlementRegistry {
 public:
-    EntitlementRegistry()  noexcept = default;
-    ~EntitlementRegistry() noexcept = default;
+    FEntitlementRegistry()  noexcept = default;
+    ~FEntitlementRegistry() noexcept = default;
 
-    EntitlementRegistry(const EntitlementRegistry&)            = delete;
-    EntitlementRegistry& operator=(const EntitlementRegistry&) = delete;
-    EntitlementRegistry(EntitlementRegistry&&)                 = delete;
-    EntitlementRegistry& operator=(EntitlementRegistry&&)      = delete;
+    FEntitlementRegistry(const FEntitlementRegistry&)            = delete;
+    FEntitlementRegistry& operator=(const FEntitlementRegistry&) = delete;
+    FEntitlementRegistry(FEntitlementRegistry&&)                 = delete;
+    FEntitlementRegistry& operator=(FEntitlementRegistry&&)      = delete;
 
     // 新規 entitlement を登録。同一 id の重複は禁止せず、後追いで上書き挙動には
     // しない (Pillar S 側で dedup する想定)。`id == nullptr` は no-op で防御。
-    void Add(EntitlementInfo info) noexcept;
+    void Add(FEntitlementInfo info) noexcept;
 
     // id が登録済みか (active 不問)。`id == nullptr` は false。
     bool Has(const char* id) const noexcept;
@@ -95,10 +95,10 @@ public:
 
     // 生バッファ getter。デバッグ表示 / イテレーション用。
     // 戻り値は Count() 件の連続バッファ、Clear() / Add() で無効化される。
-    const EntitlementInfo* AllInfos() const noexcept;
+    const FEntitlementInfo* AllInfos() const noexcept;
 
 private:
-    TArray<EntitlementInfo> _infos;
+    TArray<FEntitlementInfo> _infos;
 };
 
 } // namespace acs::game

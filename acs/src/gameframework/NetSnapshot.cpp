@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M Phase 2 — NetSnapshot 実装
+// GameFramework Pillar M Phase 2 — FNetSnapshot 実装
 //
 // 構成:
-//   1) NetTransportStub: 常に NotImplemented を返す null-object transport。
-//   2) NetSnapshot:
+//   1) FNetTransportStub: 常に NotImplemented を返す null-object transport。
+//   2) FNetSnapshot:
 //      ・Init / Shutdown: ring buffer / pending list / 統計値の初期化と解放。
 //      ・AddEntitySnapshot / CommitSnapshot: server 側で 1 frame 分の state を
 //        積み、1 つの payload に concat して transport.Send。
@@ -17,7 +17,7 @@
 //        コンポーネントスキーマが入ってから本実装する。
 //
 // 設計メモ:
-//   ・wire format: SnapshotHeader (24B) + payload。payload の各 entity は
+//   ・wire format: FSnapshotHeader (24B) + payload。payload の各 entity は
 //     [entity_id u32][component_mask u32][data_size u32][data]。
 //   ・LE 固定。MemCopy 経由で strict-aliasing 安全。
 //   ・delta compression は v1 では未実装。Phase 3 で前 snapshot との差分を
@@ -47,10 +47,10 @@ inline void WriteU64LE(u8* dst, u64 v) noexcept { MemCopy(dst, &v, sizeof(u64));
 inline u32  ReadU32LE (const u8* src) noexcept { u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v; }
 inline u64  ReadU64LE (const u8* src) noexcept { u64 v = 0; MemCopy(&v, src, sizeof(u64)); return v; }
 
-// SnapshotHeader を 24 byte の LE wire format に書く / 読む。
+// FSnapshotHeader を 24 byte の LE wire format に書く / 読む。
 constexpr u32 kHeaderWireSize = 24;
 
-void WriteHeader(u8* dst, const SnapshotHeader& h) noexcept {
+void WriteHeader(u8* dst, const FSnapshotHeader& h) noexcept {
     WriteU32LE(dst + 0,  h.tick);
     WriteU32LE(dst + 4,  h.sequence);
     WriteU64LE(dst + 8,  h.server_timestamp_us);
@@ -58,7 +58,7 @@ void WriteHeader(u8* dst, const SnapshotHeader& h) noexcept {
     WriteU32LE(dst + 20, h.crc32);
 }
 
-void ReadHeader(const u8* src, SnapshotHeader& h) noexcept {
+void ReadHeader(const u8* src, FSnapshotHeader& h) noexcept {
     h.tick                = ReadU32LE(src + 0);
     h.sequence            = ReadU32LE(src + 4);
     h.server_timestamp_us = ReadU64LE(src + 8);
@@ -69,35 +69,35 @@ void ReadHeader(const u8* src, SnapshotHeader& h) noexcept {
 } // namespace
 
 // =============================================================================
-// NetTransportStub — defensive stub
+// FNetTransportStub — defensive stub
 // -----------------------------------------------------------------------------
 // 全 API が ACS_ERR(IO, kSub_NotImplemented) を返す。BackendClientStub と
 // 同じパターン: stub が本番に混入したケースを QA で検出可能にする。
 // =============================================================================
-TResult<void> NetTransportStub::Connect(const char* address, u16 port) noexcept {
+TResult<void> FNetTransportStub::Connect(const char* address, u16 port) noexcept {
     (void)address;
     (void)port;
-    return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
+    return ACS_ERR(IO, FNetSnapshotError::kSub_NotImplemented,
                    "INetTransport::Connect is not implemented "
                    "(stub: link a concrete transport implementation)");
 }
 
-void NetTransportStub::Disconnect() noexcept {
+void FNetTransportStub::Disconnect() noexcept {
     // stub は never-connected。no-op で安全に通す。
 }
 
-TResult<void> NetTransportStub::Send(const void* data, u32 size) noexcept {
+TResult<void> FNetTransportStub::Send(const void* data, u32 size) noexcept {
     (void)data;
     (void)size;
-    return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
+    return ACS_ERR(IO, FNetSnapshotError::kSub_NotImplemented,
                    "INetTransport::Send is not implemented "
                    "(stub: link a concrete transport implementation)");
 }
 
-TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept {
+TResult<u32> FNetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept {
     (void)out_buffer;
     (void)capacity;
-    return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
+    return ACS_ERR(IO, FNetSnapshotError::kSub_NotImplemented,
                    "INetTransport::Receive is not implemented "
                    "(stub: link a concrete transport implementation)");
 }
@@ -105,18 +105,18 @@ TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept 
 // プロセス共有の stub。function-local static (C++11 magic statics) で
 // thread-safe 初期化。
 INetTransport& GetTransportStub() noexcept {
-    static NetTransportStub s_instance;
+    static FNetTransportStub s_instance;
     return s_instance;
 }
 
 // =============================================================================
-// NetSnapshot::Init
+// FNetSnapshot::Init
 // -----------------------------------------------------------------------------
 // 設定をコピーし、ring buffer の容量を確保する。Standalone 以外で
 // transport が nullptr の場合は GetTransportStub() に差し替えて
 // リンク互換を保つ (defensive 設計)。
 // =============================================================================
-void NetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
+void FNetSnapshot::Init(const FNetSnapshotConfig& config, ENetRole role,
                        INetTransport* transport) noexcept {
     _config = config;
     _role   = role;
@@ -156,11 +156,11 @@ void NetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
 }
 
 // =============================================================================
-// NetSnapshot::Shutdown
+// FNetSnapshot::Shutdown
 // -----------------------------------------------------------------------------
 // transport は外部所有なので触らない。ring buffer / pending / scratch を解放。
 // =============================================================================
-void NetSnapshot::Shutdown() noexcept {
+void FNetSnapshot::Shutdown() noexcept {
     _ring_buffer.Clear();
     _pending_entities.Clear();
     _interp_scratch.Clear();
@@ -169,18 +169,18 @@ void NetSnapshot::Shutdown() noexcept {
     _transport  = nullptr;
 }
 
-u32 NetSnapshot::BufferedSnapshotCount() const noexcept {
+u32 FNetSnapshot::BufferedSnapshotCount() const noexcept {
     return _ring_count;
 }
 
 // =============================================================================
-// NetSnapshot::AddEntitySnapshot
+// FNetSnapshot::AddEntitySnapshot
 // -----------------------------------------------------------------------------
 // server 側で 1 entity 分の state を pending list に積む。data は内部に
 // バイトコピーするので、呼出側は AddEntitySnapshot 後すぐに data を破棄して
 // よい。Client / Standalone では no-op。
 // =============================================================================
-void NetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
+void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
                                     const void* data, u32 data_size) noexcept {
     // Client / Standalone は送信側ではないので no-op。
     if (_role == ENetRole::Client || _role == ENetRole::Standalone) {
@@ -191,7 +191,7 @@ void NetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
         return;
     }
 
-    PendingEntity pe;
+    FPendingEntity pe;
     pe.entity_id      = entity_id;
     pe.component_mask = component_mask;
     if (data_size > 0) {
@@ -202,9 +202,9 @@ void NetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
 }
 
 // =============================================================================
-// NetSnapshot::CommitSnapshot
+// FNetSnapshot::CommitSnapshot
 // -----------------------------------------------------------------------------
-// pending list を 1 つの payload に concat し、SnapshotHeader を付けて
+// pending list を 1 つの payload に concat し、FSnapshotHeader を付けて
 // transport.Send する。
 //
 // 失敗ケース (黙ってスキップ):
@@ -220,7 +220,7 @@ void NetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
 // payload を縮める。`_ring_buffer.Back().payload` を参照して entity 単位で
 // XOR を取り、変更ビットだけ送る形に書き換える。
 // =============================================================================
-void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
+void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // 役割チェック。Client / Standalone は no-op。
     if (_role == ENetRole::Client || _role == ENetRole::Standalone) {
         _pending_entities.Clear();
@@ -249,7 +249,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
     const usize total = static_cast<usize>(kHeaderWireSize) + payload_size;
 
     // header を構築。CRC32 は Phase 3 で計算 (現状 0)。
-    SnapshotHeader hdr;
+    FSnapshotHeader hdr;
     hdr.tick                = tick;
     hdr.sequence            = _next_sequence;
     hdr.server_timestamp_us = 0;  // タイムスタンプ source は Phase 3 で wire 化
@@ -270,7 +270,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // payload を per-entity layout で書き出す。
     usize off = 0;
     for (usize i = 0; i < n_ent; ++i) {
-        const PendingEntity& pe = _pending_entities[i];
+        const FPendingEntity& pe = _pending_entities[i];
         const u32 data_size = static_cast<u32>(pe.data.Size());
         WriteU32LE(payload_ptr + off + 0, pe.entity_id);
         WriteU32LE(payload_ptr + off + 4, pe.component_mask);
@@ -295,7 +295,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
         // commit した snapshot を ring buffer にも積む (loopback)。
         if (_role == ENetRole::ServerListener) {
             const u32 idx = _ring_head;
-            BufferedSnapshot& slot = _ring_buffer[static_cast<usize>(idx)];
+            FBufferedSnapshot& slot = _ring_buffer[static_cast<usize>(idx)];
             slot.header = hdr;
             slot.payload.Resize(static_cast<usize>(payload_size));
             if (payload_size > 0) {
@@ -315,7 +315,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
 }
 
 // =============================================================================
-// NetSnapshot::Tick
+// FNetSnapshot::Tick
 // -----------------------------------------------------------------------------
 // transport.Receive を非ブロッキングで pump し、受信した snapshot を ring
 // buffer に追加する。1 Tick で複数 snapshot を取り込めるよう、受信なしに
@@ -327,7 +327,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
 // 境界保持の契約)。Phase 3 で TCP framing を入れる場合は、ここで length
 // prefix を見て partial reassembly を実装する。
 // =============================================================================
-void NetSnapshot::Tick(f32 dt) noexcept {
+void FNetSnapshot::Tick(f32 dt) noexcept {
     (void)dt;
 
     // Server (listen 非搭載) は受信側を持たないので何もしない。
@@ -366,7 +366,7 @@ void NetSnapshot::Tick(f32 dt) noexcept {
             continue;
         }
 
-        SnapshotHeader hdr{};
+        FSnapshotHeader hdr{};
         ReadHeader(rx_buf.Data(), hdr);
 
         // payload size sanity check。max を超えるか、got と矛盾するなら破棄。
@@ -385,7 +385,7 @@ void NetSnapshot::Tick(f32 dt) noexcept {
 
         // ring buffer に挿入。FIFO で最古を上書きする。
         const u32 idx = _ring_head;
-        BufferedSnapshot& slot = _ring_buffer[static_cast<usize>(idx)];
+        FBufferedSnapshot& slot = _ring_buffer[static_cast<usize>(idx)];
         slot.header = hdr;
         slot.payload.Resize(static_cast<usize>(hdr.payload_size));
         if (hdr.payload_size > 0) {
@@ -404,7 +404,7 @@ void NetSnapshot::Tick(f32 dt) noexcept {
 }
 
 // =============================================================================
-// NetSnapshot::TryGetInterpolatedSnapshot
+// FNetSnapshot::TryGetInterpolatedSnapshot
 // -----------------------------------------------------------------------------
 // client_time_sec に対して「interpolation_delay_sec 前」の時刻を target に
 // 設定し、ring buffer の中から target を挟む 2 snapshot を探す。1 snapshot
@@ -427,8 +427,8 @@ void NetSnapshot::Tick(f32 dt) noexcept {
 //   ・out_snapshots[i].component_data は ring buffer 内 payload を直接指す
 //     非所有 view。次の Tick() / CommitSnapshot() 呼出まで有効。
 // =============================================================================
-bool NetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
-                                             EntitySnapshot* out_snapshots,
+bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
+                                             FEntitySnapshot* out_snapshots,
                                              u32 max_count,
                                              u32& out_actual_count) noexcept {
     out_actual_count = 0;
@@ -448,7 +448,7 @@ bool NetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
     // インクリメントするので、最新エントリは (_ring_head - 1) % capacity。
     const u32 cap = _config.buffer_capacity_snapshots;
     const u32 newest_idx = (_ring_head + cap - 1u) % cap;
-    const BufferedSnapshot& newest = _ring_buffer[static_cast<usize>(newest_idx)];
+    const FBufferedSnapshot& newest = _ring_buffer[static_cast<usize>(newest_idx)];
 
     // target_seq: client_time_sec を秒として持つが、Phase 2 では実時刻軸を
     // wire format に乗せていない (server_timestamp_us は 0 固定)。よって本
@@ -461,11 +461,11 @@ bool NetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
     // 現状 client_time_sec は受け取るだけで使わない (将来の API 後方互換のため)。
     (void)client_time_sec;
 
-    const SnapshotHeader& hdr = newest.header;
+    const FSnapshotHeader& hdr = newest.header;
     const u8* payload_ptr     = newest.payload.Data();
     const u32 payload_size    = static_cast<u32>(newest.payload.Size());
 
-    // payload を per-entity wire format で walk して EntitySnapshot に流す。
+    // payload を per-entity wire format で walk して FEntitySnapshot に流す。
     // out_snapshots の component_data は ring buffer の payload を直接指す
     // 非所有 view (寿命 = 次の Tick() まで)。
     u32 off       = 0;
@@ -480,7 +480,7 @@ bool NetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
             break;
         }
 
-        EntitySnapshot& dst = out_snapshots[emitted];
+        FEntitySnapshot& dst = out_snapshots[emitted];
         dst.entity_id           = entity_id;
         dst.component_mask      = component_mask;
         dst.component_data      = (data_size > 0)

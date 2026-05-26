@@ -19,7 +19,7 @@ UI までを含みます。**下記の 17 モジュールはすべて実装済�
    コンパイラは `/EHs-c- /GR- /D_HAS_EXCEPTIONS=0` で構成されます。
 3. **既定でスレッドセーフ。** すべての公開 API はスレッド安全性の契約を
    ドキュメント化し守ります。コンテナ自体は内部ロックを持ちませんが、
-   エンジンの RwLock / FMutex / TAtomic プリミティブの背後で安全に使えます。
+   エンジンの FRwLock / FMutex / TAtomic プリミティブの背後で安全に使えます。
 4. **必要な所に SIMD。** 数学型は SSE に適するよう 16 バイト境界にパディング
    し、DirectXMath を経由します（SSE2 をベースラインに、SSE4.1/AVX/AVX2 の
    高速パスを実行時 CPU 検出で選択）。
@@ -46,22 +46,22 @@ acs/
 │   └── ACSThirdParty.cmake
 ├── src/                        # 各 <mod>/ に Module.cmake がある
 │   ├── foundation/             # Types, FSourceLoc, TResult, Assert, Panic, Log
-│   ├── threading/              # TAtomic, FMutex, RwLock, FThread, ThreadPool, FJobGraph
-│   ├── memory/                 # Allocator, System/Linear/TPool/Arena, TUniquePtr, TRc
+│   ├── threading/              # TAtomic, FMutex, FRwLock, FThread, FThreadPool, FJobGraph
+│   ├── memory/                 # FAllocator, System/Linear/TPool/Arena, TUniquePtr, TRc
 │   ├── container/              # TArray, FString, THashMap, Hash, TSpan
 │   ├── math/                   # Vec, Mat, FQuat, FCamera, Collision2D/3D, dispatch
 │   ├── test/                   # 小さなテストフレームワーク + EXPECT_* マクロ
-│   ├── platform/               # Window, Input, Time, FileSystem
-│   ├── ecs/                    # World, EntityId, Query, System
-│   ├── event/                  # TimerManager, MessageBroker (pub/sub)
-│   ├── asset/                  # AssetRegistry, 画像/メッシュ/音声ローダ, 非同期ロード
-│   ├── render/                 # Renderer, RHI, StandardShader, PbrShader, SpriteBatch
-│   ├── app/                    # Application, AppConfig, EntryPoint
+│   ├── platform/               # FWindow, FInput, Time, FFileSystem
+│   ├── ecs/                    # FWorld, FEntityId, Query, System
+│   ├── event/                  # FTimerManager, FMessageBroker (pub/sub)
+│   ├── asset/                  # FAssetRegistry, 画像/メッシュ/音声ローダ, 非同期ロード
+│   ├── render/                 # FRenderer, RHI, FStandardShader, FPbrShader, FSpriteBatch
+│   ├── app/                    # FApplication, FAppConfig, EntryPoint
 │   ├── audio/                  # XAudio2 再生
 │   ├── network/                # TCP ソケット
 │   ├── imgui/                  # Dear ImGui 統合
 │   ├── mvvm/                   # MVVM データバインディング
-│   └── ui/                     # Widget ベースの UI フレームワーク
+│   └── ui/                     # FWidget ベースの UI フレームワーク
 ├── samples/                    # 26 個のサンプルプログラム (samples/README.md 参照)
 └── tests/                      # モジュール単体テスト
 ```
@@ -74,21 +74,21 @@ acs/
 おおまかには：
 
 - `Foundation` は何にも依存しない。
-- `Threading` / `Memory` / `Container` / `Math` / `Test` は `Foundation` の上に乗る。
-- `Platform` / `Ecs` / `Event` が OS・エンティティ・メッセージング層を足す。
-- `Asset` と `Render` がコンテンツ読み込みとグラフィックスを提供する。
-- `App` がウィンドウ + レンダラ + ECS を `Application` ループにまとめる。
-- `Audio` / `Network` / `Imgui` / `Mvvm` / `Ui` はより高レベルの opt-in。
+- `Threading` / `Memory` / `FContainer` / `Math` / `Test` は `Foundation` の上に乗る。
+- `Platform` / `Ecs` / `FEvent` が OS・エンティティ・メッセージング層を足す。
+- `FAsset` と `Render` がコンテンツ読み込みとグラフィックスを提供する。
+- `App` がウィンドウ + レンダラ + ECS を `FApplication` ループにまとめる。
+- `Audio` / `FNetwork` / `Imgui` / `Mvvm` / `Ui` はより高レベルの opt-in。
 
 ## 主要な設計判断
 
 | サブシステム | 採用したもの | 理由 |
 |---|---|---|
-| Logger | セルごとの Vyukov 有界 MPMC リング + writer スレッド | プロデューサのホットパスは CAS 1 回。writer がロックフリーに排出する。参考: 1024cores.net Vyukov MPMC, Quill async logger。 |
-| ThreadPool | worker ごとの Chase-Lev SPMC deque + グローバル FMutex 投入 | 所有者の Push/Pop は通常ケースでアトミック操作なし。外部投入は FMutex 保護のフォールバックを通る。Steal は `Wait()` に参加してデッドロックを回避。参考: Chase & Lev SPAA 2005, enkiTS, Naughty Dog GDC 2015。 |
+| FLogger | セルごとの Vyukov 有界 MPMC リング + writer スレッド | プロデューサのホットパスは CAS 1 回。writer がロックフリーに排出する。参考: 1024cores.net Vyukov MPMC, Quill async logger。 |
+| FThreadPool | worker ごとの Chase-Lev SPMC deque + グローバル FMutex 投入 | 所有者の Push/Pop は通常ケースでアトミック操作なし。外部投入は FMutex 保護のフォールバックを通る。Steal は `Wait()` に参加してデッドロックを回避。参考: Chase & Lev SPAA 2005, enkiTS, Naughty Dog GDC 2015。 |
 | TAtomic | Win32 `_Interlocked*` 組み込み | `std::atomic` 不使用。ARM64 では接尾辞付き（`_acq` / `_rel`）、x64 ではフルフェンスをベースラインに。 |
 | THashMap | Robin Hood + 値の密配置 + 8-bit フィンガープリント | ankerl::unordered_dense レイアウト — 失敗ルックアップが最速、tombstone なし、連続イテレーション可。SIMD プロービングは v2 に延期。 |
-| Allocator 群 | 仮想 `Allocator` 基底 + System / Linear / TPool / Arena | TPool はロックフリーな Treiber スタックを使い、ポインタ上位ビットに 17-bit の ABA タグを置く（x64 のユーザー空間 47-bit）。 |
+| FAllocator 群 | 仮想 `FAllocator` 基底 + System / Linear / TPool / Arena | TPool はロックフリーな Treiber スタックを使い、ポインタ上位ビットに 17-bit の ABA タグを置く（x64 のユーザー空間 47-bit）。 |
 | Math | DirectXMath を `FVec3 / FVec4 / FMat4 / FQuat` でラップ | Microsoft 保守、SSE2〜AVX2 パス同梱、Windows 上 NEON 対応も視野。人間に優しい POD 型を公開し、バッチ演算は関数ポインタテーブルでディスパッチ。 |
 | FString | 24 バイトの SSO（22 バイトをインライン）+ ヒープフォールバック | absl/folly 風のレイアウト。x64 のキャッシュライン 1/3 程度のサイズに合わせている。 |
 | Test | 独自 `ACS_TEST(Suite, Name)` マクロ + `EXPECT_*` | GoogleTest 依存を避ける。FMutex 保護のレジストリ、テストごとの失敗カウンタ。 |
@@ -102,9 +102,9 @@ acs/
         TYPE    Runtime
         SOURCES Foo.cpp Bar.cpp
         HEADERS Foo.h Bar.h
-        PUBLIC_DEPS Foundation Container
+        PUBLIC_DEPS Foundation FContainer
     )
-    acs_module_feature(MODULE MyMod NAME FANCY
+    acs_module_feature(MODULE MyMod NAME ANCY
         DEFINE MYMOD_FANCY DESCRIPTION "Enable fancy mode" DEFAULT OFF)
     ```
 2. ソース/ヘッダファイルを同じディレクトリに置く。
@@ -128,6 +128,6 @@ acs/
 
 `CreateRhiDevice()` がリンクされたバックエンドへディスパッチします。ECS は
 no-STL 不変条件を守るため `TArray<T>` 上の自前 sparse-set 設計を用います。
-アセット（画像・glTF/FBX メッシュ・音声）は `AssetRegistry` 経由で読み込まれ、
+アセット（画像・glTF/FBX メッシュ・音声）は `FAssetRegistry` 経由で読み込まれ、
 非同期ロードも選べます。ImGui 統合は現状 raw DX12 バックエンドのみを対象と
 しています。

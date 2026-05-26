@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
-// 高レベル Renderer（ウィンドウへの描画ループを統括する司令塔）
+// 高レベル FRenderer（ウィンドウへの描画ループを統括する司令塔）
 //
 // 使い方 (典型的):
-//   Renderer rdr;
+//   FRenderer rdr;
 //   rdr.Init(window);
 //   while (!window.ShouldClose()) {
 //       window.PollEvents();
 //       rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});
 //       // BeginFrame 後は GetCommandList() でコマンドを積める。
 //       // 高レベルヘルパ:
-//       //   StandardShader  — Lambert+Blinn-Phong + シャドウマップ
-//       //   SkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
-//       //   Sky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
-//       //   SpriteBatch     — 2D スプライト + フォント
-//       //   Font            — TTrueType -> アトラス -> SpriteBatch
-//       //   ParticleSystem  — 簡易 GPU パーティクル
-//       //   ShadowMap       — depth-only パス
-//       //   PostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
+//       //   FStandardShader  — Lambert+Blinn-Phong + シャドウマップ
+//       //   FSkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
+//       //   FSky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
+//       //   FSpriteBatch     — 2D スプライト + フォント
+//       //   FFont            — TTrueType -> アトラス -> FSpriteBatch
+//       //   FParticleSystem  — 簡易 GPU パーティクル
+//       //   FShadowMap       — depth-only パス
+//       //   FPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
 //       rdr.EndFrame();
 //   }
 //   rdr.Shutdown();
 //
-// HDR ポストプロセス経路を組むときは Application::OnCustomFrame() を override
-// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → PostProcess.Render() →
+// HDR ポストプロセス経路を組むときは FApplication::OnCustomFrame() を override
+// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → FPostProcess.Render() →
 // Present までを直接書く (HelloBloom 参照)。
 #pragma once
 
@@ -35,25 +35,25 @@
 
 namespace acs {
 
-class Window;
+class FWindow;
 
-class Renderer {
+class FRenderer {
 public:
-    Renderer() noexcept = default;
-    ~Renderer() noexcept;
+    FRenderer() noexcept = default;
+    ~FRenderer() noexcept;
 
-    Renderer(const Renderer&) = delete;
-    Renderer& operator=(const Renderer&) = delete;
+    FRenderer(const FRenderer&) = delete;
+    FRenderer& operator=(const FRenderer&) = delete;
 
     // ウィンドウに紐付けて初期化（DX12 Device + Swapchain + CommandList を作成）
     // enable_depth=true なら深度バッファ (D32_Float) を自動で作成する
-    TResult<void> Init(Window& w, bool enable_debug = false, bool enable_depth = true) noexcept;
+    TResult<void> Init(FWindow& w, bool enable_debug = false, bool enable_depth = true) noexcept;
 
     // 全リソースを解放
     void Shutdown() noexcept;
 
     // フレーム開始（クリア色で塗りつぶし、深度は 1.0 でクリア）
-    void BeginFrame(const ClearColor& clear) noexcept;
+    void BeginFrame(const FClearColor& clear) noexcept;
 
     // フレーム終了（GPU に投入 + Present）
     void EndFrame() noexcept;

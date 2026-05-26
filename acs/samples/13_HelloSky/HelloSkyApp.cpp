@@ -40,17 +40,17 @@ void HelloSkyApp::OnStart() noexcept {
 }
 
 void HelloSkyApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::Num1)) _scene.SetPreset(_sky, SkyPreset::Day);
-    if (Input::IsKeyPressed(EKey::Num2)) _scene.SetPreset(_sky, SkyPreset::Sunset);
-    if (Input::IsKeyPressed(EKey::Num3)) _scene.SetPreset(_sky, SkyPreset::Night);
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Num1)) _scene.SetPreset(_sky, SkyPreset::Day);
+    if (FInput::IsKeyPressed(EKey::Num2)) _scene.SetPreset(_sky, SkyPreset::Sunset);
+    if (FInput::IsKeyPressed(EKey::Num3)) _scene.SetPreset(_sky, SkyPreset::Night);
 
     _angle += dt * 0.5f;
 
     // ターゲット (原点上 1m) を中心にカメラを yaw 周回させる。
     // Sin/Cos で円軌道を作るのが一番素直で、初学者が読みやすい形。
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
+    if (FInput::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
+    if (FInput::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
     const f32 cam_dist = 6.0f;
     _cam_pos = FVec3{ Sin(_cam_yaw) * cam_dist, 2.5f, -Cos(_cam_yaw) * cam_dist };
     _camera.SetLookAt(_cam_pos, FVec3{0, 1, 0});
@@ -82,8 +82,8 @@ void HelloSkyApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     _font.Shutdown();
     _batch.Shutdown();
-    _gm_plane  = GpuMesh{};
-    _gm_sphere = GpuMesh{};
+    _gm_plane  = FGpuMesh{};
+    _gm_sphere = FGpuMesh{};
     _shader.Shutdown();
     _sky.Shutdown();
 }

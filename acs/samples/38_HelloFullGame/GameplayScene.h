@@ -2,18 +2,18 @@
 // HelloFullGame — Gameplay scene。本編のゲームロジック。
 //
 // 役割: シーン全体のオーケストレータ。世界 / camera / Health / Score / Wave /
-// Projectile / Particles / Effects / Perception / Tilemap を所有し、機能別
+// Projectile / Particles / Effects / FPerception / FTilemap を所有し、機能別
 // モジュール (Player / EnemyPool / Bullets / HitEffects / Hud) を tick / draw する。
 //
 // Pillar の使い分け:
-//   - B Node2D : player + enemy node。_root.UpdateTree で subtree 更新
-//   - D InputMap: WASD / Mouse / Fire
-//   - E Camera2D: smooth follow + trauma shake
-//   - F CollisionWorld2D: Circle vs Circle
-//   - I/R: HealthSystem / ScoreSystem / WaveSpawner / ProjectileSystem
-//          / ParticleEffectSystem / EffectSystem
-//   - L Perception (sight): demo 用
-//   - Q Tilemap : 床
+//   - B FNode2D : player + enemy node。_root.UpdateTree で subtree 更新
+//   - D FInputMap: WASD / Mouse / Fire
+//   - E FCamera2D: smooth follow + trauma shake
+//   - F FCollisionWorld2D: FCircle vs FCircle
+//   - I/R: FHealthSystem / FScoreSystem / FWaveSpawner / FProjectileSystem
+//          / FParticleEffectSystem / FEffectSystem
+//   - L FPerception (sight): demo 用
+//   - Q FTilemap : 床
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -27,11 +27,11 @@
 
 namespace hellofg {
 
-class GameplayScene : public acs::game::Scene {
+class GameplayScene : public acs::game::FScene {
 public:
     acs::game::ESvc WantedServices() const noexcept override {
         return acs::game::ESvc::Default2D
-             | acs::game::ESvc::Camera2D
+             | acs::game::ESvc::FCamera2D
              | acs::game::ESvc::Physics2D;
     }
 
@@ -39,7 +39,7 @@ public:
     void OnExit()                   noexcept override;
     void OnUpdate(acs::f32 dt)      noexcept override;
     void OnFixedUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
     // ----- 公開 (GameOverScene 遷移時に score / 勝敗を読むため) -----
     acs::u64 FinalScore() const noexcept { return _score.CurrentScore(); }
@@ -50,13 +50,13 @@ public:
     EnemyPool&                    GetEnemies()     noexcept { return _enemies; }
     Bullets&                      GetBullets()     noexcept { return _bullets_mod; }
     HitEffects&                   GetHitEffects()  noexcept { return _hit_effects; }
-    acs::game::Node2D&            GetRoot()        noexcept { return _root; }
-    acs::game::HealthSystem&      GetHealth()      noexcept { return _health; }
-    acs::game::ScoreSystem&       GetScore()       noexcept { return _score; }
-    acs::game::WaveSpawner&       GetWaves()       noexcept { return _waves; }
-    acs::game::ProjectileSystem&  GetProjectiles() noexcept { return _bullets; }
-    acs::game::ParticleEffectSystem& GetParticles() noexcept { return _particles; }
-    acs::game::Random&            GetRng()         noexcept { return _rng; }
+    acs::game::FNode2D&            GetRoot()        noexcept { return _root; }
+    acs::game::FHealthSystem&      GetHealth()      noexcept { return _health; }
+    acs::game::FScoreSystem&       GetScore()       noexcept { return _score; }
+    acs::game::FWaveSpawner&       GetWaves()       noexcept { return _waves; }
+    acs::game::FProjectileSystem&  GetProjectiles() noexcept { return _bullets; }
+    acs::game::FParticleEffectSystem& GetParticles() noexcept { return _particles; }
+    acs::game::FRandom&            GetRng()         noexcept { return _rng; }
 
     // ----- モジュール間コールバック (Player → HitEffects、Enemy → score / wave 通知) -----
     void OnPlayerHurt() noexcept;     // 接触ダメージ時のフィードバック発火
@@ -68,14 +68,14 @@ public:
 
 private:
     // ----- world state -----
-    acs::game::Node2D                _root;
-    acs::game::HealthSystem          _health;
-    acs::game::ScoreSystem           _score;
-    acs::game::WaveSpawner           _waves;
-    acs::game::ProjectileSystem      _bullets;     // ECS 側
-    acs::game::ParticleEffectSystem  _particles;
-    acs::game::Perception            _perception;
-    acs::game::Tilemap               _floor;
+    acs::game::FNode2D                _root;
+    acs::game::FHealthSystem          _health;
+    acs::game::FScoreSystem           _score;
+    acs::game::FWaveSpawner           _waves;
+    acs::game::FProjectileSystem      _bullets;     // ECS 側
+    acs::game::FParticleEffectSystem  _particles;
+    acs::game::FPerception            _perception;
+    acs::game::FTilemap               _floor;
 
     // ----- 機能別モジュール -----
     Player       _player;
@@ -84,12 +84,12 @@ private:
     HitEffects   _hit_effects;
     Hud          _hud;
 
-    // wave 用の SpawnRule 配列 (caller 所有、寿命 = scene 寿命)。
-    acs::game::SpawnRule _wave_rules[kTotalWaves] {};
-    acs::game::WaveDef   _wave_defs [kTotalWaves] {};
+    // wave 用の FSpawnRule 配列 (caller 所有、寿命 = scene 寿命)。
+    acs::game::FSpawnRule _wave_rules[kTotalWaves] {};
+    acs::game::FWaveDef   _wave_defs [kTotalWaves] {};
 
     // 決定論 PRNG (敵スポーン位置の seed をシーンごと固定にしてリプレイ性確保)。
-    acs::game::Random _rng{ 0x5A17C0DEu };
+    acs::game::FRandom _rng{ 0x5A17C0DEu };
 
     bool       _victory       = false;
     bool       _game_over_req = false;

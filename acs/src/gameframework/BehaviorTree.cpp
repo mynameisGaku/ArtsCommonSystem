@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — BehaviorTree 実装
+// GameFramework Pillar L — FBehaviorTree 実装
 //
-// Selector / Sequence のループはどちらも「子を順に Tick し、ある条件で
+// Selector / FSequence のループはどちらも「子を順に Tick し、ある条件で
 // 早期 return、最後まで通り抜けたら反対の結論を返す」という対称形をしている。
 // 表 (ヘッダ参照) のとおり、停止条件と最終 fallthrough が真逆なだけ。
 #include "gameframework/BehaviorTree.h"
@@ -9,15 +9,15 @@
 
 namespace acs::game {
 
-// ---- BtSelector --------------------------------------------------------------
+// ---- FBtSelector --------------------------------------------------------------
 
-void BtSelector::AddChild(TUniquePtr<BtNode> child) noexcept {
+void FBtSelector::AddChild(TUniquePtr<FBtNode> child) noexcept {
     // nullptr 子はそもそも tick できないので追加しない (静かに無視)。
     if (!child) return;
     _children.PushBack(Move(child));
 }
 
-EBtStatus BtSelector::Tick(void* blackboard, f32 dt) noexcept {
+EBtStatus FBtSelector::Tick(void* blackboard, f32 dt) noexcept {
     // OR セマンティクス: Running か Success を見つけたらその時点で抜ける。
     //   ・Running → 子がまだ進行中、Selector も Running を伝播
     //   ・Success → この子で目的達成、Selector も Success
@@ -25,7 +25,7 @@ EBtStatus BtSelector::Tick(void* blackboard, f32 dt) noexcept {
     // すべて Failure を返したら、Selector 全体としても Failure。
     const usize n = _children.Size();
     for (usize i = 0; i < n; ++i) {
-        BtNode* c = _children[i].Get();
+        FBtNode* c = _children[i].Get();
         if (c == nullptr) continue;            // 万一の null 安全 (本来 AddChild で弾く)
         const EBtStatus s = c->Tick(blackboard, dt);
         if (s == EBtStatus::Running) return EBtStatus::Running;
@@ -35,22 +35,22 @@ EBtStatus BtSelector::Tick(void* blackboard, f32 dt) noexcept {
     return EBtStatus::Failure;
 }
 
-// ---- BtSequence --------------------------------------------------------------
+// ---- FBtSequence --------------------------------------------------------------
 
-void BtSequence::AddChild(TUniquePtr<BtNode> child) noexcept {
+void FBtSequence::AddChild(TUniquePtr<FBtNode> child) noexcept {
     if (!child) return;
     _children.PushBack(Move(child));
 }
 
-EBtStatus BtSequence::Tick(void* blackboard, f32 dt) noexcept {
+EBtStatus FBtSequence::Tick(void* blackboard, f32 dt) noexcept {
     // AND セマンティクス: Running か Failure を見つけたらその時点で抜ける。
-    //   ・Running → 子がまだ進行中、Sequence も Running
-    //   ・Failure → この子で失敗、Sequence も Failure
+    //   ・Running → 子がまだ進行中、FSequence も Running
+    //   ・Failure → この子で失敗、FSequence も Failure
     //   ・Success → 次の子へ
-    // すべて Success を返したら、Sequence 全体としても Success。
+    // すべて Success を返したら、FSequence 全体としても Success。
     const usize n = _children.Size();
     for (usize i = 0; i < n; ++i) {
-        BtNode* c = _children[i].Get();
+        FBtNode* c = _children[i].Get();
         if (c == nullptr) continue;
         const EBtStatus s = c->Tick(blackboard, dt);
         if (s == EBtStatus::Running) return EBtStatus::Running;
@@ -60,22 +60,22 @@ EBtStatus BtSequence::Tick(void* blackboard, f32 dt) noexcept {
     return EBtStatus::Success;
 }
 
-// ---- BtAction ----------------------------------------------------------------
+// ---- FBtAction ----------------------------------------------------------------
 
-EBtStatus BtAction::Tick(void* blackboard, f32 dt) noexcept {
+EBtStatus FBtAction::Tick(void* blackboard, f32 dt) noexcept {
     // 関数ポインタ未設定はソフトフェイル: Failure を返して composite が前進する。
     if (_fn == nullptr) return EBtStatus::Failure;
     return _fn(blackboard, dt);
 }
 
-// ---- BehaviorTree ------------------------------------------------------------
+// ---- FBehaviorTree ------------------------------------------------------------
 
-void BehaviorTree::SetRoot(TUniquePtr<BtNode> root) noexcept {
+void FBehaviorTree::SetRoot(TUniquePtr<FBtNode> root) noexcept {
     // 旧 root はここで TUniquePtr デストラクタにより自動破棄される。
     _root = Move(root);
 }
 
-EBtStatus BehaviorTree::Tick(void* blackboard, f32 dt) noexcept {
+EBtStatus FBehaviorTree::Tick(void* blackboard, f32 dt) noexcept {
     // root 未設定の tree は「常に失敗」として扱う (composite と同じ規約)。
     if (!_root) return EBtStatus::Failure;
     return _root->Tick(blackboard, dt);

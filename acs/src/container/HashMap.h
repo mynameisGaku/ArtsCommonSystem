@@ -13,7 +13,7 @@ namespace acs {
 
 // キー / 値ペア
 template<typename K, typename V>
-struct Pair {
+struct FPair {
     K first;
     V second;
 };
@@ -21,10 +21,10 @@ struct Pair {
 template<typename K, typename V, typename H = THasher<K>>
 class THashMap {
 public:
-    using EntryType = Pair<K, V>;
+    using EntryType = FPair<K, V>;
 
     THashMap() noexcept : _values(DefaultAllocator()), _alloc(&DefaultAllocator()) {}
-    explicit THashMap(Allocator& a) noexcept : _values(a), _alloc(&a) {}
+    explicit THashMap(FAllocator& a) noexcept : _values(a), _alloc(&a) {}
 
     THashMap(const THashMap&) = delete;
     THashMap& operator=(const THashMap&) = delete;
@@ -70,7 +70,7 @@ public:
         u32 fp = static_cast<u32>((h >> 56) | 0x01);  // fingerprint（0 を避ける）
         u32 dist = 0;
         while (true) {
-            const Bucket& b = _buckets[ideal];
+            const FBucket& b = _buckets[ideal];
             if (b.dist_fp == 0) return nullptr;            // 空スロット → 未存在
             if (b.Distance() < dist) return nullptr;       // Robin Hood: 自分より距離小 → 未存在
             if (b.Fingerprint() == fp) {
@@ -96,7 +96,7 @@ public:
         u32 fp = static_cast<u32>((h >> 56) | 0x01);
         u32 dist = 0;
         while (true) {
-            Bucket& b = _buckets[ideal];
+            FBucket& b = _buckets[ideal];
             if (b.dist_fp == 0) return false;
             if (b.Distance() < dist) return false;
             if (b.Fingerprint() == fp && _values[b.value_idx].first == key) {
@@ -109,7 +109,7 @@ public:
                     u32 m_fp = static_cast<u32>((mh >> 56) | 0x01);
                     u32 m_dist = 0;
                     while (true) {
-                        Bucket& mb = _buckets[m_ideal];
+                        FBucket& mb = _buckets[m_ideal];
                         if (mb.dist_fp != 0 && mb.Fingerprint() == m_fp && mb.value_idx == _values.Size()) {
                             mb.value_idx = vidx;
                             break;
@@ -122,7 +122,7 @@ public:
                 // 後方シフト: 削除位置に後続を 1 つずつ詰める
                 u32 next_idx = (ideal + 1) & _bucket_mask;
                 while (true) {
-                    Bucket& nx = _buckets[next_idx];
+                    FBucket& nx = _buckets[next_idx];
                     if (nx.dist_fp == 0 || nx.Distance() == 0) {
                         _buckets[ideal].dist_fp = 0;
                         _buckets[ideal].value_idx = 0;
@@ -141,7 +141,7 @@ public:
 
     void Clear() noexcept {
         _values.Clear();
-        if (_buckets) MemSet(_buckets, 0, sizeof(Bucket) * _bucket_count);
+        if (_buckets) MemSet(_buckets, 0, sizeof(FBucket) * _bucket_count);
     }
 
     // 容量予約（事前に呼んでおくと挿入中の rehash を防げる）
@@ -162,7 +162,7 @@ private:
     static constexpr u32 kLoadFactorPct = 80;
 
     // バケット (8 バイト): dist_fp 上位 24bit=距離 / 下位 8bit=fingerprint, value_idx=値 idx
-    struct Bucket {
+    struct FBucket {
         u32 dist_fp;
         u32 value_idx;
 
@@ -179,14 +179,14 @@ private:
     // 全バケットを破棄して new_count 分を再構築（値配列は維持）
     void Rehash(usize new_count) noexcept {
         ACS_ASSERT((new_count & (new_count - 1)) == 0);
-        Bucket* old_buckets = _buckets;
+        FBucket* old_buckets = _buckets;
 
-        void* mem = _alloc->Alloc(sizeof(Bucket) * new_count, alignof(Bucket), FSourceLoc::Current());
+        void* mem = _alloc->Alloc(sizeof(FBucket) * new_count, alignof(FBucket), FSourceLoc::Current());
         ACS_ASSERTF(mem, "THashMap::Rehash: alloc failed (cap=%zu)", new_count);
-        _buckets = static_cast<Bucket*>(mem);
+        _buckets = static_cast<FBucket*>(mem);
         _bucket_count = new_count;
         _bucket_mask  = static_cast<u32>(new_count - 1);
-        MemSet(_buckets, 0, sizeof(Bucket) * new_count);
+        MemSet(_buckets, 0, sizeof(FBucket) * new_count);
 
         // 全 value を順に再挿入
         for (u32 vi = 0; vi < _values.Size(); ++vi) {
@@ -201,12 +201,12 @@ private:
         u64 h = H{}(_values[vidx].first);
         u32 ideal = static_cast<u32>(h) & _bucket_mask;
         u32 fp = static_cast<u32>((h >> 56) | 0x01);
-        Bucket nb;
+        FBucket nb;
         nb.Set(0, fp);
         nb.value_idx = vidx;
         u32 dist = 0;
         while (true) {
-            Bucket& slot = _buckets[ideal];
+            FBucket& slot = _buckets[ideal];
             if (slot.dist_fp == 0) {
                 slot = nb;
                 slot.SetDistance(dist);
@@ -214,7 +214,7 @@ private:
             }
             // 自分より距離が小さいスロットを見つけたら入れ替え
             if (slot.Distance() < dist) {
-                Bucket tmp = slot;
+                FBucket tmp = slot;
                 slot = nb;
                 slot.SetDistance(dist);
                 nb = tmp;
@@ -234,7 +234,7 @@ private:
         u32 probe = ideal;
         u32 dist = 0;
         while (true) {
-            const Bucket& b = _buckets[probe];
+            const FBucket& b = _buckets[probe];
             if (b.dist_fp == 0) break;
             if (b.Distance() < dist) break;
             if (b.Fingerprint() == fp && _values[b.value_idx].first == key) {
@@ -248,20 +248,20 @@ private:
         // 新規エントリ: 値配列末尾に追加 → Robin Hood 挿入
         u32 new_idx = static_cast<u32>(_values.Size());
         _values.PushBack(EntryType{ key, Move(value) });
-        Bucket nb;
+        FBucket nb;
         nb.Set(0, fp);
         nb.value_idx = new_idx;
         u32 d = 0;
         u32 i = ideal;
         while (true) {
-            Bucket& slot = _buckets[i];
+            FBucket& slot = _buckets[i];
             if (slot.dist_fp == 0) {
                 slot = nb;
                 slot.SetDistance(d);
                 return;
             }
             if (slot.Distance() < d) {
-                Bucket tmp = slot;
+                FBucket tmp = slot;
                 slot = nb;
                 slot.SetDistance(d);
                 nb = tmp;
@@ -273,10 +273,10 @@ private:
     }
 
     TArray<EntryType> _values;            // 密値配列（イテレーションが速い）
-    Bucket*          _buckets      = nullptr;
+    FBucket*          _buckets      = nullptr;
     usize            _bucket_count = 0;
     u32              _bucket_mask  = 0;  // bucket_count - 1
-    Allocator*       _alloc        = nullptr;
+    FAllocator*       _alloc        = nullptr;
 };
 
 } // namespace acs

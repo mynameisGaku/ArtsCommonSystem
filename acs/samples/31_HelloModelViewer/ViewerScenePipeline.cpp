@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace hellomv {
 
-bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
+bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     IRhiDevice* dev = renderer.Device();
     if (!dev) {
         ACS_LOG_ERROR("[ModelViewer] Device() == null");
@@ -19,7 +19,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
 
     // ---- VS / PS ----
     FShaderDesc vs_desc{};
-    vs_desc.stage       = EShaderStage::Vertex;
+    vs_desc.stage       = EShaderStage::FVertex;
     vs_desc.hlsl_source = kHLSL;
     vs_desc.entry_point = "VSMain";
     vs_desc.debug_name  = "ModelViewer.VS";
@@ -41,7 +41,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
     // ---- VB / IB ----
     FBufferDesc vb_desc{};
     vb_desc.size = sizeof(kCubeVertices);
-    vb_desc.usage = EBufferUsage::Vertex;
+    vb_desc.usage = EBufferUsage::FVertex;
     vb_desc.cpu_writable = true;
     vb_desc.initial_data = kCubeVertices;
     if (auto r = CreateRhiBuffer(*dev, vb_desc); r.IsErr()) {
@@ -81,7 +81,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
     pd.cull_mode        = ECullMode::Back;
     pd.cbuffer_slots    = 1;
     pd.cbuffer_names[0] = "Frame";
-    pd.vertex_stride    = sizeof(Vertex);
+    pd.vertex_stride    = sizeof(FVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
     pd.layout[1] = { "COLOR",    0, EFormat::R32G32B32_Float, sizeof(f32) * 3 };
     pd.layout_count = 2;
@@ -94,7 +94,7 @@ bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
 }
 
 void ViewerScenePipeline::Shutdown() noexcept {
-    // GPU 側参照が消えていることは caller (Scene の WaitIdle) 側で保証する。
+    // GPU 側参照が消えていることは caller (FScene の WaitIdle) 側で保証する。
     // ここでは順序だけ揃えて Release: pipeline → buffer → shader。
     _pipeline.Reset();
     _cb.Reset();
@@ -115,7 +115,7 @@ void ViewerScenePipeline::Render(IRhiCommandList& cl) noexcept {
     if (!_pipeline) return;
     cl.SetPipeline(*_pipeline);
     cl.SetConstantBuffer(0, *_cb);
-    cl.SetVertexBuffer(*_vb, sizeof(Vertex));
+    cl.SetVertexBuffer(*_vb, sizeof(FVertex));
     cl.SetIndexBuffer(*_ib);
     cl.DrawIndexed(36);
 }

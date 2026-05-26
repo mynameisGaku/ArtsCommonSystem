@@ -76,10 +76,10 @@ u32 DecodeUtf8(const char** p) noexcept {
     return c;
 }
 
-TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize ttf_size,
+TResult<void> FFont::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize ttf_size,
                                  f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
     if (!ttf_data || ttf_size == 0)
-        return ACS_ERR(Asset, 200, "Font: empty TTF data");
+        return ACS_ERR(FAsset, 200, "FFont: empty TTF data");
     if (atlas_size == 0) atlas_size = 1024;
     // CJK を含むなら 2048 未満は自動で 2048 へ
     if (include_cjk && atlas_size < 2048) atlas_size = 2048;
@@ -89,7 +89,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     // stb_truetype で font 情報を取得
     stbtt_fontinfo info{};
     if (!stbtt_InitFont(&info, ttf_data, stbtt_GetFontOffsetForIndex(ttf_data, 0))) {
-        return ACS_ERR(Asset, 201, "Font: stbtt_InitFont failed");
+        return ACS_ERR(FAsset, 201, "FFont: stbtt_InitFont failed");
     }
     const f32 scale = stbtt_ScaleForPixelHeight(&info, pixel_size);
     int ascent = 0, descent = 0, line_gap = 0;
@@ -101,7 +101,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     // ===== アトラス用ピクセル（R8 single-channel）=====
     const usize atlas_bytes = static_cast<usize>(atlas_size) * atlas_size;
     u8* atlas_r8 = static_cast<u8*>(DefaultAllocator().Alloc(atlas_bytes));
-    if (!atlas_r8) return ACS_ERR(Memory, 220, "Font: atlas alloc");
+    if (!atlas_r8) return ACS_ERR(Memory, 220, "FFont: atlas alloc");
     ::memset(atlas_r8, 0, atlas_bytes);
 
     // ===== stbtt_pack で複数コードポイント範囲を一気に焼く =====
@@ -110,7 +110,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
                           static_cast<int>(atlas_size), static_cast<int>(atlas_size),
                           0 /* stride = w */, 1 /* padding */, nullptr)) {
         DefaultAllocator().Free(atlas_r8);
-        return ACS_ERR(Asset, 202, "Font: stbtt_PackBegin failed");
+        return ACS_ERR(FAsset, 202, "FFont: stbtt_PackBegin failed");
     }
     stbtt_PackSetOversampling(&spc, 1, 1);
 
@@ -149,7 +149,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     u8* atlas_rgba = static_cast<u8*>(DefaultAllocator().Alloc(rgba_bytes));
     if (!atlas_rgba) {
         DefaultAllocator().Free(atlas_r8);
-        return ACS_ERR(Memory, 221, "Font: atlas RGBA alloc");
+        return ACS_ERR(Memory, 221, "FFont: atlas RGBA alloc");
     }
     for (usize i = 0; i < atlas_bytes; ++i) {
         atlas_rgba[i*4 + 0] = 255;
@@ -178,7 +178,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
             const stbtt_packedchar& pc = pcs[i];
             // 焼き込み失敗グリフ (xadvance=0 等) はスキップ
             if (pc.xadvance == 0 && pc.x0 == pc.x1) continue;
-            GlyphInfo g{};
+            FGlyphInfo g{};
             g.u0 = pc.x0 * inv_size;
             g.v0 = pc.y0 * inv_size;
             g.u1 = pc.x1 * inv_size;
@@ -196,30 +196,30 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     return Ok();
 }
 
-TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
+TResult<void> FFont::LoadFromFile(IRhiDevice& device, const wchar_t* path,
                                 f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
-    auto bytes_r = FileSystem::ReadAllBytes(path);
+    auto bytes_r = FFileSystem::ReadAllBytes(path);
     if (bytes_r.IsErr()) return Err<void>(bytes_r.Error());
     const TArray<byte>& bytes = bytes_r.Value();
     return LoadFromBytes(device, reinterpret_cast<const u8*>(bytes.Data()),
                          bytes.Size(), pixel_size, atlas_size, include_cjk);
 }
 
-void Font::Shutdown() noexcept {
+void FFont::Shutdown() noexcept {
     _atlas.Reset();
     _glyphs.Clear();
     _atlas_size = 0;
     _pixel_size = 0;
 }
 
-bool Font::GetGlyph(u32 codepoint, GlyphInfo& out) const noexcept {
-    const GlyphInfo* hit = _glyphs.Find(codepoint);
+bool FFont::GetGlyph(u32 codepoint, FGlyphInfo& out) const noexcept {
+    const FGlyphInfo* hit = _glyphs.Find(codepoint);
     if (!hit) return false;
     out = *hit;
     return true;
 }
 
-f32 Font::MeasureWidth(const char* utf8_text) const noexcept {
+f32 FFont::MeasureWidth(const char* utf8_text) const noexcept {
     if (!utf8_text) return 0.0f;
     f32 w = 0.0f;
     const char* p = utf8_text;
@@ -227,7 +227,7 @@ f32 Font::MeasureWidth(const char* utf8_text) const noexcept {
         u32 cp = DecodeUtf8(&p);
         if (cp == 0) break;
         if (cp == '\n') continue;
-        GlyphInfo g{};
+        FGlyphInfo g{};
         if (GetGlyph(cp, g)) w += g.x_advance;
     }
     return w;

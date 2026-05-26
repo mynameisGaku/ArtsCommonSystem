@@ -22,7 +22,7 @@ void FontEditorScene::OnEnter() noexcept {
 
     _workspace.Init();
 
-    // EditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
+    // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
     // よって panel.OnInit を別途呼ぶ必要は無い。
     // SetPreviewText / AddFontFace は OnInit より後でも構わない。
     _editor_panel.Init();
@@ -32,7 +32,7 @@ void FontEditorScene::OnEnter() noexcept {
     // file_path は stub (実 loader 統合は未着手)。path 文字列は静的リテラル
     // (.rdata) なので panel から非所有参照しても安全。
     {
-        fontedit::FontFaceInfo jp{};
+        fontedit::FFontFaceInfo jp{};
         jp.file_path      = L"assets/fonts/NotoSansJP-Regular.otf";
         jp.family_name    = "Noto Sans JP";
         jp.base_size_px   = 24.0f;
@@ -42,7 +42,7 @@ void FontEditorScene::OnEnter() noexcept {
         _editor_panel.AddFontFace(jp);
     }
     {
-        fontedit::FontFaceInfo mono{};
+        fontedit::FFontFaceInfo mono{};
         mono.file_path      = L"assets/fonts/NotoSansMono-Regular.ttf";
         mono.family_name    = "Noto Sans Mono";
         mono.base_size_px   = 20.0f;
@@ -52,7 +52,7 @@ void FontEditorScene::OnEnter() noexcept {
         _editor_panel.AddFontFace(mono);
     }
     {
-        fontedit::FontFaceInfo emoji{};
+        fontedit::FFontFaceInfo emoji{};
         emoji.file_path      = L"assets/fonts/EmojiOne-FColor.otf";
         emoji.family_name    = "fallback emoji";
         emoji.base_size_px   = 32.0f;
@@ -62,7 +62,7 @@ void FontEditorScene::OnEnter() noexcept {
         _editor_panel.AddFontFace(emoji);
     }
 
-    _editor_panel.SetPreviewText("ACS Font Editor サンプル 123 αβγ ★★★");
+    _editor_panel.SetPreviewText("ACS FFont Editor サンプル 123 αβγ ★★★");
     _editor_panel.SetPreviewFontSize(28.0f);
 
     // 最初の face を選択 (UX: 起動直後に inspector が表示される)。
@@ -75,7 +75,7 @@ void FontEditorScene::OnEnter() noexcept {
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
 void FontEditorScene::OnExit() noexcept {
-    // EditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
+    // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
     _workspace.Shutdown();
     // panel 本体の internal state を解放 (face 配列 / preview バッファクリア)。
@@ -91,7 +91,7 @@ void FontEditorScene::OnExit() noexcept {
 // DrawUI) はすべて OnRender 側へ。ImGui::Begin 等は NewFrame() と Render() の
 // 間でしか呼べないため、ここで Workspace::TickAllPanels は呼ばない。
 void FontEditorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -101,9 +101,9 @@ void FontEditorScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File menu (Save/Load stub) → Workspace 全描画
 // ----------------------------------------------------------------------------
-void FontEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
+void FontEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
-    // マージするので、本 sample 専用の File メニューを Workspace の Window/
+    // マージするので、本 sample 専用の File メニューを Workspace の FWindow/
     // Layout メニューと並べて表示できる。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {

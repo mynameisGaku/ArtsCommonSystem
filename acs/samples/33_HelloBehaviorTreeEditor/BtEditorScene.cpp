@@ -2,7 +2,7 @@
 // HelloBehaviorTreeEditor — BtEditorScene lifecycle 実装。
 //
 // 構築 (panel メタミラー + 実 BT) は TreeBuilder に、Action Fn 群と step
-// callback は TreeActions に分離。Scene 本体は OnEnter/OnExit/OnUpdate/OnRender
+// callback は TreeActions に分離。FScene 本体は OnEnter/OnExit/OnUpdate/OnRender
 // の流れに集中する。
 #include "BtEditorScene.h"
 #include "TreeActions.h"
@@ -56,7 +56,7 @@ void BtEditorScene::OnExit() noexcept {
 }
 
 void BtEditorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -70,7 +70,7 @@ void BtEditorScene::OnUpdate(f32 dt) noexcept {
     _panel.OnFrameBegin(dt);
 }
 
-void BtEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
+void BtEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // MainMenuBar: File > Reset Tree / Quit
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -91,7 +91,7 @@ void BtEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
         ImGui::EndMainMenuBar();
     }
 
-    // BehaviorTreeEditorPanel 本体。
+    // FBehaviorTreeEditorPanel 本体。
     // Workspace 未統合の最小構成なので、sample 側で直接 DrawUI を呼ぶ。
     _panel.DrawUI();
 }

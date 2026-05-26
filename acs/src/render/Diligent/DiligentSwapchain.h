@@ -11,17 +11,17 @@ namespace Diligent {
 
 namespace acs {
 
-class DiligentDevice;
+class FDiligentDevice;
 
-class DiligentSwapchain final : public IRhiSwapchain {
+class FDiligentSwapchain final : public IRhiSwapchain {
 public:
-    DiligentSwapchain() noexcept = default;
-    ~DiligentSwapchain() noexcept override;
+    FDiligentSwapchain() noexcept = default;
+    ~FDiligentSwapchain() noexcept override;
 
-    DiligentSwapchain(const DiligentSwapchain&) = delete;
-    DiligentSwapchain& operator=(const DiligentSwapchain&) = delete;
+    FDiligentSwapchain(const FDiligentSwapchain&) = delete;
+    FDiligentSwapchain& operator=(const FDiligentSwapchain&) = delete;
 
-    TResult<void> Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept;
+    TResult<void> Init(FDiligentDevice& device, const FSwapchainConfig& cfg) noexcept;
 
     // ---- IRhiSwapchain ----
     u32  AcquireNextImage() noexcept override;
@@ -36,7 +36,7 @@ public:
     EFormat                ColorFormat() const noexcept { return _format; }
 
 private:
-    DiligentDevice*       _device       = nullptr;
+    FDiligentDevice*       _device       = nullptr;
     Diligent::ISwapChain* _swap         = nullptr;
     EFormat                _format       = EFormat::B8G8R8A8_UNorm;
     u32                   _width        = 0;

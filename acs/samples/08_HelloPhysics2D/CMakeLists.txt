@@ -3,7 +3,7 @@
 # 構成:
 #   main.cpp                  - ACS_DEFINE_MAIN(HelloPhysics2DApp) のみ
 #   Types.h                   - Ball POD + 物理 / 描画パラメータ定数
-#   HelloPhysics2DApp.{h,cpp} - Application 派生クラス
+#   HelloPhysics2DApp.{h,cpp} - FApplication 派生クラス
 #   PhysicsScene.{h,cpp}      - 物理シミュレーション + 描画
 add_executable(hello_physics2d WIN32
     main.cpp

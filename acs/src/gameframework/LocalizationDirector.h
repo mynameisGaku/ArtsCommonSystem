@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — LocalizationDirector (i18n 文字列辞書)
+// GameFramework 完成度システム v7 — FLocalizationDirector (i18n 文字列辞書)
 //
 // 「ロケール + 文字列 ID」を「翻訳済みの const char*」に解決する小型ストア。
 // UI ラベル / セリフ / メニュー文言 / エラーメッセージ等を、ゲームロジックから
 // 言語非依存に引けるようにする。出荷タイトルの多言語対応で必要になる完成度
-// パーツの 1 つ (v7 = Accessibility / Localization 強化フェーズ)。
+// パーツの 1 つ (v7 = Accessibility / FLocalization 強化フェーズ)。
 //
 // 使い方:
-//   LocalizationDirector loc;
+//   FLocalizationDirector loc;
 //   loc.RegisterString(ELocale::En, "ui.title",      "Adventure of Claude");
 //   loc.RegisterString(ELocale::Ja, "ui.title",      "クロードの冒険");
 //   loc.RegisterString(ELocale::En, "ui.start",      "Start");
@@ -52,7 +52,7 @@
 namespace acs::game {
 
 // ロケール識別子。市場想定の主要 11 言語 + Default(=En)。
-// 値は将来の永続化 (Settings) との互換性のため u32 で連番固定。新規追加は末尾 append。
+// 値は将来の永続化 (FSettings) との互換性のため u32 で連番固定。新規追加は末尾 append。
 enum class ELocale : u32 {
     En      = 0,    // English
     Ja      = 1,    // 日本語
@@ -69,15 +69,15 @@ enum class ELocale : u32 {
     Default = En,   // 未翻訳時 / 起動時の既定ロケール
 };
 
-class LocalizationDirector {
+class FLocalizationDirector {
 public:
-    LocalizationDirector()  noexcept = default;
-    ~LocalizationDirector() noexcept = default;
+    FLocalizationDirector()  noexcept = default;
+    ~FLocalizationDirector() noexcept = default;
 
-    LocalizationDirector(const LocalizationDirector&)            = delete;
-    LocalizationDirector& operator=(const LocalizationDirector&) = delete;
-    LocalizationDirector(LocalizationDirector&&)                 = delete;
-    LocalizationDirector& operator=(LocalizationDirector&&)      = delete;
+    FLocalizationDirector(const FLocalizationDirector&)            = delete;
+    FLocalizationDirector& operator=(const FLocalizationDirector&) = delete;
+    FLocalizationDirector(FLocalizationDirector&&)                 = delete;
+    FLocalizationDirector& operator=(FLocalizationDirector&&)      = delete;
 
     // ----- ロケール設定 -----
     // 現在の取得対象ロケールを切り替える (UI 言語切替で呼ばれる)。
@@ -119,7 +119,7 @@ public:
 
 private:
     // 1 件のエントリ。locale + key + value を持つ。key/value は非所有 const char*。
-    struct LocaleEntry {
+    struct FLocaleEntry {
         ELocale      locale = ELocale::Default;
         const char* key    = nullptr;
         const char* value  = nullptr;
@@ -129,7 +129,7 @@ private:
     isize FindIndex(ELocale loc, const char* key) const noexcept;
 
     ELocale              _current = ELocale::Default;
-    TArray<LocaleEntry>  _entries;
+    TArray<FLocaleEntry>  _entries;
 };
 
 } // namespace acs::game

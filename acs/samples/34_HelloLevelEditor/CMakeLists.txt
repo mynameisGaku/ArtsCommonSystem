@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# HelloLevelEditor — Tilemap (Level) エディタ。
-# editor_core (EditorWorkspace + EditorTheme) と leveledit/LevelEditorPanel と
-# Tilemap (Pillar Q) を 1 個の ImGui Workspace に統合した level editor デモ。
+# HelloLevelEditor — FTilemap (Level) エディタ。
+# editor_core (FEditorWorkspace + FEditorTheme) と leveledit/FLevelEditorPanel と
+# FTilemap (Pillar Q) を 1 個の ImGui Workspace に統合した level editor デモ。
 #
 # 構成:
 #   main.cpp                - ACS_GAME_MAIN(LevelEditorApp) のみ
-#   LevelEditorApp.{h,cpp}  - Game 派生クラス (ImGui lifecycle ラッパ)
-#   LevelEditorScene.{h,cpp}- Workspace + LevelEditorPanel + Tilemap を持つ Scene
+#   LevelEditorApp.{h,cpp}  - FGame 派生クラス (ImGui lifecycle ラッパ)
+#   LevelEditorScene.{h,cpp}- Workspace + FLevelEditorPanel + FTilemap を持つ FScene
 #
 # 必須バックエンド: ImGui 統合は ACS_RENDER_DX12_RAW 専用 (acs_imgui module の
 # 制約)。samples/21_HelloImGui などと同じ。

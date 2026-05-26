@@ -5,7 +5,7 @@
 //       環境光 + 鏡面反射 + アルベドテクスチャで描画する。
 //
 // 使い方（単一ライトのお手軽版）:
-//   StandardShader shd;
+//   FStandardShader shd;
 //   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 //   shd.SetFrame(camera.ViewProjection(), camera.Eye(),
 //                FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});
@@ -56,19 +56,19 @@ struct FDirLight {
 };
 
 // 点光源（ワールド位置 + 到達距離）
-struct PointLight {
+struct FPointLight {
     FVec3 position = FVec3{0, 0, 0};
     f32  range    = 10.0f;             // この距離を超えると影響ゼロ
     FVec3 color    = FVec3{1, 1, 1};
 };
 
-class StandardShader {
+class FStandardShader {
 public:
-    StandardShader() noexcept = default;
-    ~StandardShader() noexcept = default;
+    FStandardShader() noexcept = default;
+    ~FStandardShader() noexcept = default;
 
-    StandardShader(const StandardShader&)            = delete;
-    StandardShader& operator=(const StandardShader&) = delete;
+    FStandardShader(const FStandardShader&)            = delete;
+    FStandardShader& operator=(const FStandardShader&) = delete;
 
     // 初期化（VS+PS コンパイル + パイプライン + 定数バッファ + デフォルト白テクスチャ）
     TResult<void> Init(IRhiDevice& device,
@@ -94,15 +94,15 @@ public:
 
     // 点光源を最大 4 灯まで設定（SetLights / SetFrame と独立、追加で適用される）
     // 呼ばないか count=0 なら点光源無し。
-    void SetPointLights(const PointLight* lights, u32 count) noexcept;
+    void SetPointLights(const FPointLight* lights, u32 count) noexcept;
 
-    // シャドウマップ設定。tex は ShadowMap::DepthTexture()、light_vp は同 LightViewProjection()。
+    // シャドウマップ設定。tex は FShadowMap::DepthTexture()、light_vp は同 LightViewProjection()。
     // tex に nullptr を渡すとシャドウ無効化（描画は影なしで進む）。
     // bias はシャドウアクネ回避用（一般に 0.0005..0.005）。
     //
     // Phase 36-2 PCSS: filter_radius は影の柔らかさスケール。
     //   0    = hard PCF (penumbra 計算しても min(=1 texel) で実質ハード影)
-    //   1.0  = 標準 PCSS (Fernando 2005 light_size=0.01 相当、PbrShader と一致)
+    //   1.0  = 標準 PCSS (Fernando 2005 light_size=0.01 相当、FPbrShader と一致)
     //   >1   = より柔らかい penumbra (面光源を大きく見せたいとき)
     void SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
                       f32 bias = 0.001f, f32 filter_radius = 1.0f) noexcept;
@@ -134,7 +134,7 @@ public:
     //
     //   albedo = nullptr で DefaultWhiteTexture が使われる。
     void DrawMesh(class IRhiCommandList& cmd,
-                  const struct GpuMesh& mesh,
+                  const struct FGpuMesh& mesh,
                   const FMat4& model,
                   FVec3 base_color        = FVec3{1, 1, 1},
                   f32  specular_strength = 0.0f,
@@ -157,7 +157,7 @@ private:
     FVec3       _ambient  = FVec3{0, 0, 0};
     FDirLight   _dir_lights[4];
     u32        _dir_count = 0;
-    PointLight _point_lights[4];
+    FPointLight _point_lights[4];
     u32        _point_count = 0;
     FMat4       _light_vp;
     f32        _shadow_bias = 0.001f;

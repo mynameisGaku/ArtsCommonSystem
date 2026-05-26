@@ -60,10 +60,10 @@ void ShowcaseApp::OnStart() noexcept {
 }
 
 void ShowcaseApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) { Quit(); return; }
-    if (Input::IsKeyPressed(EKey::P)) _paused = !_paused;
-    if (Input::IsKeyPressed(EKey::R)) _show_ssr = !_show_ssr;
-    if (Input::IsKeyPressed(EKey::X)) _show_refraction = !_show_refraction;
+    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+    if (FInput::IsKeyPressed(EKey::P)) _paused = !_paused;
+    if (FInput::IsKeyPressed(EKey::R)) _show_ssr = !_show_ssr;
+    if (FInput::IsKeyPressed(EKey::X)) _show_refraction = !_show_refraction;
 
     if (!_paused) {
         _orbit_angle += dt * 0.20f;     // 約 31 秒で 1 周
@@ -112,7 +112,7 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     if (!_assets.ibl.HasIrradianceMap()) (void)_assets.ibl.EnsureIrradiance(*dev, *cl);
     if (!_assets.ibl.HasPrefilterMap())  (void)_assets.ibl.EnsurePrefilter(*dev, *cl);
 
-    // ===== Opaque HDR pass (Sky + PBR + emissive orb) =====
+    // ===== Opaque HDR pass (FSky + PBR + emissive orb) =====
     FMat4 orb_curr[kOrbCount]{};
     ExecutePbrPass(_assets, *cl, *hdr, *depth, _camera,
                    view_proj_jittered, _cam_pos, _orb_phase,

@@ -17,7 +17,7 @@ inline constexpr acs::u32 kMaxSprites     = 4096;
 // out は kTexSize * kTexSize * 4 (RGBA8) のバッファを指す。
 void GenerateSpriteTexture(acs::u8* out) noexcept;
 
-struct Sprite {
+struct FSprite {
     acs::f32 x, y;
     acs::f32 vx, vy;
     acs::f32 size;

@@ -13,17 +13,17 @@ class IRhiDevice;
 
 // バッファの用途
 enum class EBufferUsage : u8 {
-    Vertex,    // 頂点バッファ
+    FVertex,    // 頂点バッファ
     Index16,   // 16-bit インデックスバッファ
     Index32,   // 32-bit インデックスバッファ
     Uniform,   // 定数バッファ (CB)
-    Storage,   // UAV / SSBO
+    FStorage,   // UAV / SSBO
     Staging,   // CPU からのアップロード用
 };
 
 struct FBufferDesc {
     usize       size         = 0;
-    EBufferUsage usage        = EBufferUsage::Vertex;
+    EBufferUsage usage        = EBufferUsage::FVertex;
     bool        cpu_writable = false;     // 動的更新したいなら true
     const void* initial_data = nullptr;   // 初期データ（任意）
 };

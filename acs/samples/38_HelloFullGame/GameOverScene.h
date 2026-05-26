@@ -6,7 +6,7 @@
 
 namespace hellofg {
 
-class GameOverScene : public acs::game::Scene {
+class GameOverScene : public acs::game::FScene {
 public:
     GameOverScene(acs::u64 final_score, bool did_win) noexcept
         : _final_score(final_score), _did_win(did_win) {}
@@ -18,7 +18,7 @@ public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     acs::u64 _final_score   = 0;

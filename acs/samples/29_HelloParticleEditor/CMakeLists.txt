@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # HelloParticleEditor — ParticleEditor デモ。
-# ParticleEffectSystem を `fxedit::ParticleEditorPanel` /
-# `fxedit::ParticleEditorPreview` で対話編集し、`.fxedit` 形式に Save/Load する
+# FParticleEffectSystem を `fxedit::FParticleEditorPanel` /
+# `fxedit::FParticleEditorPreview` で対話編集し、`.fxedit` 形式に Save/Load する
 # 単一ウィンドウのエディタサンプル。
 #
 # 必須バックエンド: ImGui 統合は ACS_RENDER_DX12_RAW 専用 (acs_imgui module の
@@ -9,8 +9,8 @@
 #
 # 構成:
 #   main.cpp                    - ACS_GAME_MAIN(ParticleEditorApp) のみ
-#   ParticleEditorScene.{h,cpp} - emitter + Panel + Preview を持つ Scene
-#   ParticleEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
+#   ParticleEditorScene.{h,cpp} - emitter + Panel + Preview を持つ FScene
+#   ParticleEditorApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
 add_executable(hello_particle_editor WIN32
     main.cpp
     ParticleEditorScene.cpp

@@ -16,20 +16,20 @@ namespace hellofg {
 void FullGameApp::OnStart() noexcept {
     // 1) BGM トラック登録 (state-only、backend 未接続なのでログのみ)
     _music.RegisterTrack(EMusicState::Calm,
-        MusicTrack{ /*asset=*/"bgm_title.ogg",    0.0f, 1.0f, true });
+        FMusicTrack{ /*asset=*/"bgm_title.ogg",    0.0f, 1.0f, true });
     _music.RegisterTrack(EMusicState::Combat,
-        MusicTrack{ /*asset=*/"bgm_gameplay.ogg", 0.0f, 1.0f, true });
+        FMusicTrack{ /*asset=*/"bgm_gameplay.ogg", 0.0f, 1.0f, true });
     _music.RegisterTrack(EMusicState::GameOver,
-        MusicTrack{ /*asset=*/"bgm_gameover.ogg", 0.0f, 1.0f, true });
+        FMusicTrack{ /*asset=*/"bgm_gameover.ogg", 0.0f, 1.0f, true });
     _music.RegisterTrack(EMusicState::Victory,
-        MusicTrack{ /*asset=*/"bgm_victory.ogg",  0.0f, 1.0f, false });
+        FMusicTrack{ /*asset=*/"bgm_victory.ogg",  0.0f, 1.0f, false });
 
-    // 2) AudioDirector volume バス初期化 (backend 未接続でも state はもつ)
+    // 2) FAudioDirector volume バス初期化 (backend 未接続でも state はもつ)
     _audio.SetMasterVolume(0.8f);
     _audio.SetBgmVolume(0.7f);
     _audio.SetSfxVolume(0.9f);
 
-    // 3) SaveSlot 初期化 + 既存 HighScore のロード
+    // 3) FSaveSlot 初期化 + 既存 HighScore のロード
     _highscore_slot.Init(kSaveFile);
     if (_highscore_slot.Exists()) {
         auto r = _highscore_slot.Load();
@@ -44,23 +44,23 @@ void FullGameApp::OnStart() noexcept {
         ACS_LOG_INFO("[FullGame] No HighScore file yet (first run)");
     }
 
-    // 4) GameFlow を Splash → MainTitle (1 step) で起動
+    // 4) FGameFlow を Splash → MainTitle (1 step) で起動
     _flow.Init(EFlowState::Splash);
     _flow.RequestTransition(EFlowState::MainTitle, 0.0f);
 
-    // 5) 固定 step を明示 (PhysicsBody2D の決定性のため)
+    // 5) 固定 step を明示 (FPhysicsBody2D の決定性のため)
     SetFixedTimestep(1.0f / 60.0f, /*max_steps_per_frame=*/8);
 
-    // 6) 基底に初期 Scene を push してもらう
-    Game::OnStart();
+    // 6) 基底に初期 FScene を push してもらう
+    FGame::OnStart();
 }
 
 void FullGameApp::OnUpdate(f32 dt) noexcept {
-    // Game ループに乗せる前に AudioDirector / MusicDirector / GameFlow を tick。
+    // FGame ループに乗せる前に FAudioDirector / FMusicDirector / FGameFlow を tick。
     _audio.Tick(dt);
     _music.Tick(dt);
     _flow.Tick(dt);
-    Game::OnUpdate(dt);
+    FGame::OnUpdate(dt);
 }
 
 void FullGameApp::OnShutdown() noexcept {
@@ -72,7 +72,7 @@ void FullGameApp::OnShutdown() noexcept {
         _font_title.Shutdown();
         _font_body.Shutdown();
     }
-    Game::OnShutdown();
+    FGame::OnShutdown();
 }
 
 void FullGameApp::EnsureSpritesInitialized() noexcept {
@@ -81,13 +81,13 @@ void FullGameApp::EnsureSpritesInitialized() noexcept {
     if (!dev) return;
     auto r = _sprites.Init(*dev, GetRenderer().ColorFormat(), /*max_sprites=*/4096);
     if (r.IsErr()) {
-        ACS_LOG_ERROR("[FullGame] SpriteBatch::Init failed: %s", r.Error().message);
+        ACS_LOG_ERROR("[FullGame] FSpriteBatch::Init failed: %s", r.Error().message);
         return;
     }
     _sprite_initialized = true;
-    ACS_LOG_INFO("[FullGame] SpriteBatch initialized");
+    ACS_LOG_INFO("[FullGame] FSpriteBatch initialized");
 
-    // Font も同じタイミングで遅延 init (Device 必須)。
+    // FFont も同じタイミングで遅延 init (Device 必須)。
     Sample::TryLoadDefaultUIFont(_font_title, *dev, 36.0f, 1024, false);
     Sample::TryLoadDefaultUIFont(_font_body,  *dev, 18.0f, 1024, false);
     _font_initialized = true;
@@ -106,7 +106,7 @@ void FullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept {
     }
 }
 
-TUniquePtr<Scene> FullGameApp::InitialScene() noexcept {
+TUniquePtr<FScene> FullGameApp::InitialScene() noexcept {
     return MakeUnique<TitleScene>();
 }
 

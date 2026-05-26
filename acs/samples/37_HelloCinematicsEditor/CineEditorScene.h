@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloCinematicsEditor — CineEditorScene。
-// editor_core の EditorWorkspace + EditorTheme と
-// cinetimeline::CinematicsTimelineEditorPanel を 1 個の Workspace に集約し、
-// CinematicsDirector を bind して 3 個の初期 keyframe を持つ Scene。
+// editor_core の FEditorWorkspace + FEditorTheme と
+// cinetimeline::FCinematicsTimelineEditorPanel を 1 個の Workspace に集約し、
+// FCinematicsDirector を bind して 3 個の初期 keyframe を持つ FScene。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -15,26 +15,26 @@
 
 namespace hellocine {
 
-class CineEditorScene : public acs::game::Scene {
+class CineEditorScene : public acs::game::FScene {
 public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     // ---- File menu stub (実 dialog / serializer は将来予定) ----
     static constexpr const char* kCinePath = "preset.acscinetimeline";
 
     // ---- editor_core ----
-    acs::game::editor_core::EditorWorkspace                  _workspace;
-    acs::game::editor_core::EditorTheme                      _theme;
+    acs::game::editor_core::FEditorWorkspace                  _workspace;
+    acs::game::editor_core::FEditorTheme                      _theme;
 
     // ---- cinetimeline ----
-    acs::game::cinetimeline::CinematicsTimelineEditorPanel   _cine_panel;
+    acs::game::cinetimeline::FCinematicsTimelineEditorPanel   _cine_panel;
 
-    // ---- 編集対象の CinematicsDirector (= Scene が所有、panel は raw 参照) ----
-    acs::game::CinematicsDirector                            _director;
+    // ---- 編集対象の FCinematicsDirector (= FScene が所有、panel は raw 参照) ----
+    acs::game::FCinematicsDirector                            _director;
 
     // ---- runtime callback (= keyframe 発火可視化用、ACS_LOG_INFO に出力) ----
     static void OnCamera(void* /*user*/, acs::FVec2 target, acs::f32 zoom, acs::f32 dur) noexcept;

@@ -21,7 +21,7 @@ void ParticleEditorScene::OnEnter() noexcept {
     // 既定値が「無発射 / 黒粒子」なので、起動直後に何も見えない事故を避ける
     // ため、最低限の見た目が出る連続放出パラメータで emitter 1 個を作る。
     // Panel が同じ slot のパラメータを編集する想定。
-    ParticleEmitterDef def{};
+    FParticleEmitterDef def{};
     def.lifetime_sec       = 1.5f;
     def.emit_rate_per_sec  = 30.0f;
     def.burst_count        = 16.0f;
@@ -48,12 +48,12 @@ void ParticleEditorScene::OnExit() noexcept {
 }
 
 void ParticleEditorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
 
-    // Application 側の大 dt スパイクで particle が飛び散らないよう clamp。
+    // FApplication 側の大 dt スパイクで particle が飛び散らないよう clamp。
     if (dt > 0.1f) dt = 0.1f;
 
     _particle_system.Tick(dt);
@@ -62,9 +62,9 @@ void ParticleEditorScene::OnUpdate(f32 dt) noexcept {
     _editor_preview.Tick(dt, _particle_system);
 }
 
-void ParticleEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
-    // ImGui の draw コマンドは Game::OnRender の NewFrame() と Render() の間で
-    // 発行される。Scene::OnRender はその内側なのでそのまま ImGui::* を呼べる。
+void ParticleEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
+    // ImGui の draw コマンドは FGame::OnRender の NewFrame() と Render() の間で
+    // 発行される。FScene::OnRender はその内側なのでそのまま ImGui::* を呼べる。
     _draw_file_menu();
 
     // emitter パラメータ編集 panel。
@@ -103,8 +103,8 @@ void ParticleEditorScene::_draw_file_menu() noexcept {
 
 void ParticleEditorScene::_save_preset() noexcept {
     const u32 idx = _editor_panel.SelectedIndex();
-    const ParticleEmitterDef& def = _editor_panel.GetEmitterDef(idx);
-    if (auto r = fxedit::FxeditSerializer::Save(kPresetPath, def); r.IsErr()) {
+    const FParticleEmitterDef& def = _editor_panel.GetEmitterDef(idx);
+    if (auto r = fxedit::FFxeditSerializer::Save(kPresetPath, def); r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Save '%s' failed", kPresetPath);
     } else {
         ACS_LOG_INFO("[ParticleEditor] saved -> %s", kPresetPath);
@@ -112,7 +112,7 @@ void ParticleEditorScene::_save_preset() noexcept {
 }
 
 void ParticleEditorScene::_load_preset() noexcept {
-    auto r = fxedit::FxeditSerializer::Load(kPresetPath);
+    auto r = fxedit::FFxeditSerializer::Load(kPresetPath);
     if (r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Load '%s' failed", kPresetPath);
         return;

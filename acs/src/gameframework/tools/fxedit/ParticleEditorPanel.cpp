@@ -17,12 +17,12 @@
 namespace acs::game::fxedit {
 
 // ---- ローカルヘルパ ------------------------------------------------------
-// emitter 1 件の表示ラベル "Emitter NN" を整形する。ImGui::Selectable の
+// emitter 1 件の表示ラベル "FEmitter NN" を整形する。ImGui::Selectable の
 // 識別子兼表示文字列として使う。先頭 "##" で ID 衝突避けはせず、
 // PushID(i) でユニーク化する戦略。
 static void FormatEmitterLabel(char* buf, usize buf_size, i32 index) noexcept {
     if (buf == nullptr || buf_size == 0) return;
-    std::snprintf(buf, buf_size, "Emitter %d", static_cast<int>(index));
+    std::snprintf(buf, buf_size, "FEmitter %d", static_cast<int>(index));
 }
 
 // emitter index の境界チェック。負値 / 範囲外を弾く。
@@ -34,7 +34,7 @@ static bool IsValidIndex(i32 index, u32 count) noexcept {
 // =============================================================================
 // Init / Shutdown
 // =============================================================================
-void ParticleEditorPanel::Init() noexcept {
+void FParticleEditorPanel::Init() noexcept {
     // 完全リセット: 既存登録があれば破棄して 0 件状態にする。
     // 多重 Init を許容するため、_emitters.Clear() で実体は解放せず
     // 容量だけ保持 (= 次回再構築のアロケーション節約)。
@@ -46,7 +46,7 @@ void ParticleEditorPanel::Init() noexcept {
     // クリアは別操作と扱う)。
 }
 
-void ParticleEditorPanel::Shutdown() noexcept {
+void FParticleEditorPanel::Shutdown() noexcept {
     // TArray はデストラクタで解放されるが、明示的に Clear することで
     // 多重 Shutdown / 再 Init の確定状態を作る。
     _emitters.Clear();
@@ -63,15 +63,15 @@ void ParticleEditorPanel::Shutdown() noexcept {
 // =============================================================================
 // AddEmitter
 // =============================================================================
-// default ParticleEmitterDef を 1 件追加し、新規 emitter を selection に。
+// default FParticleEmitterDef を 1 件追加し、新規 emitter を selection に。
 // 上限 kMaxEmitters に達していれば no-op。
 // =============================================================================
-void ParticleEditorPanel::AddEmitter() noexcept {
+void FParticleEditorPanel::AddEmitter() noexcept {
     if (_emitters.Size() >= static_cast<usize>(kMaxEmitters)) {
         // 上限到達は silent no-op (UI からは Add ボタンが見えていても安全)。
         return;
     }
-    ParticleEmitterDef def {};
+    FParticleEmitterDef def {};
     // default で全くパラメータが無いと放出されないため、初学者にも見やすい
     // 「火花っぽい」プリセットを入れる。手で調整する前提の出発点。
     def.lifetime_sec       = 0.8f;
@@ -97,7 +97,7 @@ void ParticleEditorPanel::AddEmitter() noexcept {
 // 選択中 emitter を順序保存しつつ削除 (PushBack/PopBack ではなく
 // 詰める方式)。emitter リストは「上から順に表示される」ので順序を保つ。
 // =============================================================================
-void ParticleEditorPanel::RemoveSelectedEmitter() noexcept {
+void FParticleEditorPanel::RemoveSelectedEmitter() noexcept {
     const u32 count = static_cast<u32>(_emitters.Size());
     if (!IsValidIndex(_selected, count)) return;
 
@@ -129,7 +129,7 @@ void ParticleEditorPanel::RemoveSelectedEmitter() noexcept {
 // 選択中 emitter を直後に挿入。selection は複製先に移る。
 // 上限到達 / 未選択 は no-op。
 // =============================================================================
-void ParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
+void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
     const u32 count = static_cast<u32>(_emitters.Size());
     if (!IsValidIndex(_selected, count)) return;
     if (_emitters.Size() >= static_cast<usize>(kMaxEmitters)) return;
@@ -137,7 +137,7 @@ void ParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
     const usize src = static_cast<usize>(_selected);
     // 末尾に PushBack してから 1 個ずつ後ろにシフトして挿入位置を空ける。
     // src+1 番目に挿入したい。
-    ParticleEmitterDef copy   = _emitters[src];                // 値コピー
+    FParticleEmitterDef copy   = _emitters[src];                // 値コピー
     f32                spread = _extra_spread_radians[src];
     _emitters.PushBack(copy);
     _extra_spread_radians.PushBack(spread);
@@ -166,7 +166,7 @@ void ParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
 // =============================================================================
 // SelectEmitter / EmitterCount / GetEmitterDef
 // =============================================================================
-void ParticleEditorPanel::SelectEmitter(i32 index) noexcept {
+void FParticleEditorPanel::SelectEmitter(i32 index) noexcept {
     const u32 count = static_cast<u32>(_emitters.Size());
     if (index < 0) {
         _selected = -1;
@@ -179,16 +179,16 @@ void ParticleEditorPanel::SelectEmitter(i32 index) noexcept {
     _selected = index;
 }
 
-u32 ParticleEditorPanel::EmitterCount() const noexcept {
+u32 FParticleEditorPanel::EmitterCount() const noexcept {
     return static_cast<u32>(_emitters.Size());
 }
 
-const ParticleEmitterDef* ParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
+const FParticleEmitterDef* FParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
     if (!IsValidIndex(index, static_cast<u32>(_emitters.Size()))) return nullptr;
     return &_emitters[static_cast<usize>(index)];
 }
 
-ParticleEmitterDef* ParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
+FParticleEmitterDef* FParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
     if (!IsValidIndex(index, static_cast<u32>(_emitters.Size()))) return nullptr;
     return &_emitters[static_cast<usize>(index)];
 }
@@ -196,12 +196,12 @@ ParticleEmitterDef* ParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcep
 // =============================================================================
 // SetSaveCallback / SetLoadCallback
 // =============================================================================
-void ParticleEditorPanel::SetSaveCallback(SaveCallback cb, void* user) noexcept {
+void FParticleEditorPanel::SetSaveCallback(SaveCallback cb, void* user) noexcept {
     _save_cb   = cb;
     _save_user = user;
 }
 
-void ParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept {
+void FParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept {
     _load_cb   = cb;
     _load_user = user;
 }
@@ -215,11 +215,11 @@ void ParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept 
 //
 // ImGui 関数の戻り値 (= true on change) を捕まえて _dirty を立てる。
 // =============================================================================
-void ParticleEditorPanel::DrawUI() noexcept {
-    // Phase 24: EditorPanel 継承で no-param DrawUI 化。target system は
+void FParticleEditorPanel::DrawUI() noexcept {
+    // Phase 24: FEditorPanel 継承で no-param DrawUI 化。target system は
     // SetTargetSystem() で事前に set 想定 (nullptr のときは live particle
     // 数を "(no system)" 表示)。
-    if (!ImGui::Begin("Particle Editor")) {
+    if (!ImGui::Begin("FParticle Editor")) {
         ImGui::End();
         return;
     }
@@ -263,15 +263,15 @@ void ParticleEditorPanel::DrawUI() noexcept {
         }
 
         ImGui::Separator();
-        if (ImGui::Button("+ Add")) {
+        if (ImGui::FButton("+ Add")) {
             AddEmitter();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Dup")) {
+        if (ImGui::FButton("Dup")) {
             DuplicateSelectedEmitter();
         }
         ImGui::SameLine();
-        if (ImGui::Button("- Remove")) {
+        if (ImGui::FButton("- Remove")) {
             RemoveSelectedEmitter();
         }
 
@@ -279,7 +279,7 @@ void ParticleEditorPanel::DrawUI() noexcept {
         // Save: callback 未登録時は disabled 風表示。
         const bool save_enabled = (_save_cb != nullptr);
         if (!save_enabled) ImGui::BeginDisabled();
-        if (ImGui::Button("Save")) {
+        if (ImGui::FButton("Save")) {
             if (_save_cb) {
                 _save_cb(_save_user,
                          _emitters.IsEmpty() ? nullptr : _emitters.Data(),
@@ -293,7 +293,7 @@ void ParticleEditorPanel::DrawUI() noexcept {
         ImGui::SameLine();
         const bool load_enabled = (_load_cb != nullptr);
         if (!load_enabled) ImGui::BeginDisabled();
-        if (ImGui::Button("Load")) {
+        if (ImGui::FButton("Load")) {
             if (_load_cb) {
                 // Load は in-out で個数を受け渡し。callback 側で kMaxEmitters
                 // 個まで埋めてもらう。内部 TArray を resize してから渡す。
@@ -324,7 +324,7 @@ void ParticleEditorPanel::DrawUI() noexcept {
         if (!IsValidIndex(_selected, count)) {
             ImGui::TextDisabled("(No emitter selected)");
         } else {
-            ParticleEmitterDef& def = _emitters[static_cast<usize>(_selected)];
+            FParticleEmitterDef& def = _emitters[static_cast<usize>(_selected)];
             ImGui::Text("Selected: idx=%d", static_cast<int>(_selected));
             ImGui::Separator();
 

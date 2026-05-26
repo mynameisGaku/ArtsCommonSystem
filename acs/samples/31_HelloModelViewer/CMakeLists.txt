@@ -4,7 +4,7 @@
 #
 # 構成 (機能別分割):
 #   main.cpp                      - ACS_GAME_MAIN(ModelViewerApp) のみ
-#   ModelViewerApp.{h,cpp}        - Game 派生クラス (ImGui lifecycle ラッパ)
+#   ModelViewerApp.{h,cpp}        - FGame 派生クラス (ImGui lifecycle ラッパ)
 #   ModelViewerScene.{h,cpp}      - 薄いオーケストレータ (3 サブモジュールを束ねる)
 #   ViewerScenePipeline.{h,cpp}   - 3D RHI リソース所有 / MVP 更新 / draw call 発行
 #   ViewerPanels.{h,cpp}          - workspace + asset browser + 4 panel + theme

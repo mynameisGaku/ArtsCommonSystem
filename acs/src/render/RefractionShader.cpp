@@ -174,11 +174,11 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
+TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
                                     EFormat depth_format) noexcept {
     // === シェーダコンパイル ===
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::Vertex;
+    vs_d.stage = EShaderStage::FVertex;
     vs_d.hlsl_source = kRefractionHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Refraction.VS";
@@ -241,7 +241,7 @@ TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     pd.static_samplers[2].filter    = ESamplerFilter::Point;
     pd.static_samplers[2].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
-    pd.vertex_stride = sizeof(MeshVertex);
+    pd.vertex_stride = sizeof(FMeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // FVec3 はアライン 16
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
@@ -268,7 +268,7 @@ TResult<void> RefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     return Ok();
 }
 
-void RefractionShader::Shutdown() noexcept {
+void FRefractionShader::Shutdown() noexcept {
     _back_depth_fb.Reset();
     _back_depth = nullptr;
     _pipeline.Reset();
@@ -278,7 +278,7 @@ void RefractionShader::Shutdown() noexcept {
     _vs.Reset();
 }
 
-void RefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos) noexcept {
+void FRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos) noexcept {
     if (!_frame_cb) return;
     _vp  = view_projection;
     _eye = camera_pos;
@@ -293,7 +293,7 @@ void RefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos) 
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
-void RefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 far_z,
+void FRefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 far_z,
                                      u32 screen_w, u32 screen_h) noexcept {
     _back_depth   = back_depth;
     _back_enabled = (back_depth != nullptr);
@@ -313,7 +313,7 @@ void RefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 far
     }
 }
 
-void RefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
+void FRefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
                                  FVec3 tint, f32 roughness, f32 dispersion) noexcept {
     if (!_object_cb) return;
     const f32 r = roughness < 0.0f ? 0.0f : (roughness > 1.0f ? 1.0f : roughness);
@@ -326,7 +326,7 @@ void RefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
     _object_cb->Update(&cb, sizeof(cb));
 }
 
-void RefractionShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh,
+void FRefractionShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh,
                                 const FMat4& model, IRhiTexture& background,
                                 IRhiTexture& env, f32 ior, f32 thickness,
                                 FVec3 tint, f32 roughness, f32 dispersion) noexcept {

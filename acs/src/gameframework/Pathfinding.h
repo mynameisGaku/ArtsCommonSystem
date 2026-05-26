@@ -5,12 +5,12 @@
 // クリック移動 RPG など、グリッドベースの AI 動作に汎用に使える。
 //
 // 使い方:
-//   NavGrid nav;
+//   FNavGrid nav;
 //   nav.Init(32, 24);
 //   nav.SetWalkable(5, 10, false);                // 壁を 1 マス置く
 //   nav.SetAllowDiagonal(true);                   // 8 方向許可 (既定は 4 方向)
 //
-//   TArray<NavGrid::PathPoint> path;
+//   TArray<FNavGrid::FPathPoint> path;
 //   if (nav.FindPath(/*start=*/0, 0, /*goal=*/20, 15, path)) {
 //       // path[0] = start, path[Size()-1] = goal の連続セル列
 //   }
@@ -35,22 +35,22 @@
 
 namespace acs::game {
 
-class NavGrid {
+class FNavGrid {
 public:
     // 経路の 1 セルを表す座標ペア。
-    struct PathPoint {
+    struct FPathPoint {
         u32 x = 0;
         u32 y = 0;
     };
 
-    NavGrid() noexcept = default;
-    ~NavGrid() noexcept = default;
+    FNavGrid() noexcept = default;
+    ~FNavGrid() noexcept = default;
 
-    // 非コピー・非ムーブ — Scene / AI モジュールのメンバとして固定の場所に置く想定。
-    NavGrid(const NavGrid&)            = delete;
-    NavGrid& operator=(const NavGrid&) = delete;
-    NavGrid(NavGrid&&)                 = delete;
-    NavGrid& operator=(NavGrid&&)      = delete;
+    // 非コピー・非ムーブ — FScene / AI モジュールのメンバとして固定の場所に置く想定。
+    FNavGrid(const FNavGrid&)            = delete;
+    FNavGrid& operator=(const FNavGrid&) = delete;
+    FNavGrid(FNavGrid&&)                 = delete;
+    FNavGrid& operator=(FNavGrid&&)      = delete;
 
     // width * height のグリッドを「全 cell walkable」で初期化。
     // width=0 or height=0 を渡した場合はサイズ 0 として扱い、以降のクエリは no-op。
@@ -76,7 +76,7 @@ public:
     //   ・start == goal は「長さ 1 の path」として成功扱い。
     bool FindPath(u32 start_x, u32 start_y,
                   u32 goal_x,  u32 goal_y,
-                  TArray<PathPoint>& out_path) noexcept;
+                  TArray<FPathPoint>& out_path) noexcept;
 
     // 全 cell を walkable に戻す (グリッドサイズは保持)。
     void ClearWalls() noexcept;
@@ -93,7 +93,7 @@ private:
     f32 Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept;
 
     // 経路を再構築 (goal から came_from を辿って start まで戻り、逆順に並べる)。
-    void Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_path) const noexcept;
+    void Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_path) const noexcept;
 
     // ---- 形状 ----
     u32       _width          = 0;

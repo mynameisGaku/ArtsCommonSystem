@@ -35,15 +35,15 @@ void SceneInspectorScene::_build_node_tree() noexcept {
     auto wheel_up = MakeUnique<WheelNode>(0.5f /*rad/s*/);
     wheel_up->Local().position = FVec2{ 4.0f, 0.0f };
     wheel_up->_SetId(FNodeId{ 2u, 1u });
-    Node2D& wheel_ref = _root_node.AddChild(Move(wheel_up));
+    FNode2D& wheel_ref = _root_node.AddChild(Move(wheel_up));
     _wheel = static_cast<WheelNode*>(&wheel_ref);
 
-    auto sp0_up = MakeUnique<Node2D>();
+    auto sp0_up = MakeUnique<FNode2D>();
     sp0_up->Local().position = FVec2{ 2.0f, 0.0f };
     sp0_up->_SetId(FNodeId{ 3u, 1u });
     _spoke[0] = &wheel_ref.AddChild(Move(sp0_up));
 
-    auto sp1_up = MakeUnique<Node2D>();
+    auto sp1_up = MakeUnique<FNode2D>();
     sp1_up->Local().position = FVec2{ 0.0f, 2.0f };
     sp1_up->_SetId(FNodeId{ 4u, 1u });
     _spoke[1] = &wheel_ref.AddChild(Move(sp1_up));
@@ -52,7 +52,7 @@ void SceneInspectorScene::_build_node_tree() noexcept {
     player_up->Local().position = FVec2{ -4.0f, 0.0f };
     // FNodeId{1, 1}: index=1 (root が将来 0 に振られる想定)、generation=1。
     player_up->_SetId(FNodeId{ 1u, 1u });
-    Node2D& player_ref = _root_node.AddChild(Move(player_up));
+    FNode2D& player_ref = _root_node.AddChild(Move(player_up));
     _player = static_cast<PlayerNode*>(&player_ref);
 
     // root 自体にも id を振る (Hierarchy が根クリックに反応できるように)。
@@ -72,7 +72,7 @@ void SceneInspectorScene::OnExit() noexcept {
 }
 
 void SceneInspectorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -84,19 +84,19 @@ void SceneInspectorScene::OnUpdate(f32 dt) noexcept {
     _root_node.ResolveStructuralChanges();
 }
 
-void SceneInspectorScene::OnRender(RenderContext& /*rc*/) noexcept {
-    // ImGui の draw コマンドは Game::OnRender の NewFrame() と Render() の
-    // 間で発行される。Scene::OnRender はその内側なのでそのまま ImGui::* を
+void SceneInspectorScene::OnRender(FRenderContext& /*rc*/) noexcept {
+    // ImGui の draw コマンドは FGame::OnRender の NewFrame() と Render() の
+    // 間で発行される。FScene::OnRender はその内側なのでそのまま ImGui::* を
     // 呼んで OK。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             // Save/Load は callback hook だけ走らせる stub。将来は
             // `SceneSerializer::Save(kScenePath, _root_node)` 等になる想定。
-            if (ImGui::MenuItem("Save Scene")) {
-                ACS_LOG_INFO("[SceneInspector] Save Scene -> '%s' (stub, no-op)", kScenePath);
+            if (ImGui::MenuItem("Save FScene")) {
+                ACS_LOG_INFO("[SceneInspector] Save FScene -> '%s' (stub, no-op)", kScenePath);
             }
-            if (ImGui::MenuItem("Load Scene")) {
-                ACS_LOG_INFO("[SceneInspector] Load Scene <- '%s' (stub, no-op)", kScenePath);
+            if (ImGui::MenuItem("Load FScene")) {
+                ACS_LOG_INFO("[SceneInspector] Load FScene <- '%s' (stub, no-op)", kScenePath);
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Esc")) {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
+// FDiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
 #include "render/Diligent/DiligentDevice.h"
 
 #if WITH_RENDER_DILIGENT
@@ -15,7 +15,7 @@
 
 namespace acs {
 
-DiligentDevice::~DiligentDevice() noexcept {
+FDiligentDevice::~FDiligentDevice() noexcept {
     if (_idle_fence) { _idle_fence->Release(); _idle_fence = nullptr; }
     if (_context)    { _context->Flush(); _context->Release(); _context = nullptr; }
     if (_device)     { _device->Release();  _device  = nullptr; }
@@ -26,7 +26,7 @@ DiligentDevice::~DiligentDevice() noexcept {
     _factory_generic = nullptr;
 }
 
-TResult<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
+TResult<void> FDiligentDevice::Init(const FDeviceConfig& cfg) noexcept {
     // バックエンドの選択
     ERhiBackendKind kind = cfg.backend;
     if (kind == ERhiBackendKind::Auto) kind = ERhiBackendKind::D3D12;
@@ -44,7 +44,7 @@ TResult<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
     return InitD3D12(cfg);
 }
 
-TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
+TResult<void> FDiligentDevice::InitD3D12(const FDeviceConfig& cfg) noexcept {
     // 静的リンク (Diligent-GraphicsEngineD3D12-static) では LoadGraphicsEngineD3D12
     // (DLL ロード経由) は宣言されない。GetEngineFactoryD3D12 を直接呼ぶ。
     _factory = Diligent::GetEngineFactoryD3D12();
@@ -68,15 +68,15 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     eci.EnableValidation = cfg.enable_debug_layer;
     eci.NumDeferredContexts = 0;
 
-    // TODO: カスタムアロケータ (DiligentMemoryAdapter→TLSF) を注入すると
+    // TODO: カスタムアロケータ (FDiligentMemoryAdapter→TLSF) を注入すると
     // 初期化中に TLSF 内部で access violation。Diligent の allocation pattern
     // (高頻度 alloc/free + 多サイズ) に TLSF 側の thread-safety か境界処理が
     // 追いついていない疑い。当面は Diligent の default allocator (malloc/free
-    // ベース) に任せる。性能計測したくなったら Allocator 側を直してから戻す。
+    // ベース) に任せる。性能計測したくなったら FAllocator 側を直してから戻す。
     // 旧コード:
-    // if (auto* mem_seg = MemorySystem::Get(ESegment::Resource)) {
+    // if (auto* mem_seg = FMemorySystem::Get(ESegment::Resource)) {
     //     eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
-    //         DiligentMemoryAdapter::Create(mem_seg));
+    //         FDiligentMemoryAdapter::Create(mem_seg));
     // }
 
     Diligent::Uint32 num_adapters = 0;
@@ -114,7 +114,7 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     return Ok();
 }
 
-TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
+TResult<void> FDiligentDevice::InitVulkan(const FDeviceConfig& cfg) noexcept {
 #if WITH_RENDER_DILIGENT_VULKAN
     _factory_vk = Diligent::GetEngineFactoryVk();
     if (!_factory_vk) {
@@ -132,9 +132,9 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
     }
     eci.NumDeferredContexts = 0;
 
-    if (auto* mem_seg = MemorySystem::Get(ESegment::Resource)) {
+    if (auto* mem_seg = FMemorySystem::Get(ESegment::Resource)) {
         eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
-            DiligentMemoryAdapter::Create(mem_seg));
+            FDiligentMemoryAdapter::Create(mem_seg));
     }
 
     Diligent::Uint32 num_adapters = 0;
@@ -176,7 +176,7 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
 #endif
 }
 
-void DiligentDevice::WaitIdle() noexcept {
+void FDiligentDevice::WaitIdle() noexcept {
     if (!_context) return;
     if (_idle_fence) {
         ++_idle_value;
@@ -189,14 +189,14 @@ void DiligentDevice::WaitIdle() noexcept {
     }
 }
 
-u64 DiligentDevice::SignalGraphicsQueue() noexcept {
+u64 FDiligentDevice::SignalGraphicsQueue() noexcept {
     if (!_context || !_idle_fence) return 0;
     ++_idle_value;
     _context->EnqueueSignal(_idle_fence, _idle_value);
     return _idle_value;
 }
 
-void DiligentDevice::WaitForFenceValue(u64 v) noexcept {
+void FDiligentDevice::WaitForFenceValue(u64 v) noexcept {
     if (!_idle_fence) return;
     if (_idle_fence->GetCompletedValue() >= v) return;
     _idle_fence->Wait(v);

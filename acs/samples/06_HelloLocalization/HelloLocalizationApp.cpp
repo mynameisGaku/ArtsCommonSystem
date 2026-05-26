@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLocalization — Application 実装。
+// HelloLocalization — FApplication 実装。
 #include "HelloLocalizationApp.h"
 #include "Types.h"
 
@@ -31,10 +31,10 @@ void HelloLocalizationApp::OnStart() noexcept {
 }
 
 void HelloLocalizationApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::F1)) SwitchTo(0);
-    if (Input::IsKeyPressed(EKey::F2)) SwitchTo(1);
-    if (Input::IsKeyPressed(EKey::F3)) SwitchTo(2);
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::F1)) SwitchTo(0);
+    if (FInput::IsKeyPressed(EKey::F2)) SwitchTo(1);
+    if (FInput::IsKeyPressed(EKey::F3)) SwitchTo(2);
 }
 
 void HelloLocalizationApp::OnRender() noexcept {

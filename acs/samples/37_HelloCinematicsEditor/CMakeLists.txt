@@ -1,5 +1,5 @@
 # HelloCinematicsEditor — Cinematics Timeline エディタサンプル。
-# editor_core + cinetimeline/CinematicsTimelineEditorPanel + CinematicsDirector
+# editor_core + cinetimeline/FCinematicsTimelineEditorPanel + FCinematicsDirector
 # を 1 つの ImGui Workspace に統合し、タイムラインキーフレーム編集 + 再生制御を
 # 対話的に行える。
 #
@@ -18,9 +18,9 @@
 #
 # 構成:
 #   main.cpp                - ACS_GAME_MAIN(CineEditorApp) のみ
-#   CineEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
-#   CineEditorScene.{h,cpp} - Workspace + CinematicsTimelineEditorPanel +
-#                             CinematicsDirector + 初期 keyframe 3 個
+#   CineEditorApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
+#   CineEditorScene.{h,cpp} - Workspace + FCinematicsTimelineEditorPanel +
+#                             FCinematicsDirector + 初期 keyframe 3 個
 add_executable(hello_cinematics_editor WIN32
     main.cpp
     CineEditorApp.cpp

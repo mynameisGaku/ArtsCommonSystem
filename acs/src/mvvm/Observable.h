@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// Observable<T> — 監視可能な値 (MVVM の中核)
+// FObservable<T> — 監視可能な値 (MVVM の中核)
 //
 // 使い方:
-//   Observable<f32> hp { 100.0f };
+//   FObservable<f32> hp { 100.0f };
 //
 //   // 監視
-//   struct Ctx { ... };
-//   Ctx c;
+//   struct FCtx { ... };
+//   FCtx c;
 //   auto h = hp.Subscribe([](const f32& v, void* user){
 //       // (関数ポインタ用法。lambda は捕獲なしのもの限定)
 //       ACS_LOG_INFO("HP changed: %.1f", v);
@@ -22,7 +22,7 @@
 //   ・コールバックは関数ポインタ + void* user (STL 不依存方針)
 //   ・Set 時のみ通知、同値設定では発火しない (T::operator==)
 //   ・Subscribe / Unsubscribe は通知中でも安全 (遅延キャンセル)
-//   ・スレッドセーフではない (UI スレッドのみ前提、他スレッドからは MessagePipe 経由)
+//   ・スレッドセーフではない (UI スレッドのみ前提、他スレッドからは FMessagePipe 経由)
 #pragma once
 
 #include "foundation/Types.h"
@@ -33,28 +33,28 @@
 namespace acs {
 
 // 購読ハンドル
-struct ObservableHandle {
-    u32 id         = 0;    // 1-based、Slot のインデックス 1..N
+struct FObservableHandle {
+    u32 id         = 0;    // 1-based、FSlot のインデックス 1..N
     u64 generation = 0;    // 64-bit にして wrap 起因の誤判定を実質ゼロに
 
     bool IsValid() const noexcept { return id != 0; }
-    bool operator==(const ObservableHandle& o) const noexcept {
+    bool operator==(const FObservableHandle& o) const noexcept {
         return id == o.id && generation == o.generation;
     }
 };
 
-inline constexpr ObservableHandle kInvalidObservable{};
+inline constexpr FObservableHandle kInvalidObservable{};
 
 template<typename T>
-class Observable {
+class FObservable {
 public:
     using Listener = void (*)(const T& new_value, void* user);
 
-    Observable() noexcept = default;
-    explicit Observable(T initial) noexcept : _value(Move(initial)) {}
+    FObservable() noexcept = default;
+    explicit FObservable(T initial) noexcept : _value(Move(initial)) {}
 
-    Observable(const Observable&) = delete;
-    Observable& operator=(const Observable&) = delete;
+    FObservable(const FObservable&) = delete;
+    FObservable& operator=(const FObservable&) = delete;
 
     // 値の取得 / 設定
     const T& Get() const noexcept { return _value; }
@@ -78,7 +78,7 @@ public:
     void ForceNotify() noexcept { Notify(); }
 
     // 監視を追加
-    ObservableHandle Subscribe(Listener cb, void* user) noexcept {
+    FObservableHandle Subscribe(Listener cb, void* user) noexcept {
         ACS_THREAD_AFFINITY_CHECK();
         if (!cb) return kInvalidObservable;
         u32 idx;
@@ -87,22 +87,22 @@ public:
             _free_indices.PopBack();
         } else {
             idx = static_cast<u32>(_slots.Size());
-            _slots.PushBack(Slot{});
+            _slots.PushBack(FSlot{});
         }
-        Slot& s = _slots[idx];
+        FSlot& s = _slots[idx];
         if (s.id == 0) s.id = _next_id++;
         s.generation++;
         s.active = true;
         s.cb     = cb;
         s.user   = user;
-        return ObservableHandle{ s.id, s.generation };
+        return FObservableHandle{ s.id, s.generation };
     }
 
     // 監視を解除
-    bool Unsubscribe(ObservableHandle h) noexcept {
+    bool Unsubscribe(FObservableHandle h) noexcept {
         if (!h.IsValid()) return false;
         for (usize i = 0; i < _slots.Size(); ++i) {
-            Slot& s = _slots[i];
+            FSlot& s = _slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
                 if (_notify_depth > 0) {
                     s.active = false;
@@ -130,7 +130,7 @@ private:
         ++_notify_depth;
         const usize n = _slots.Size();
         for (usize i = 0; i < n; ++i) {
-            Slot& s = _slots[i];
+            FSlot& s = _slots[i];
             if (!s.active || !s.cb) continue;
             s.cb(_value, s.user);
         }
@@ -139,7 +139,7 @@ private:
             for (usize i = 0; i < _pending_cancel.Size(); ++i) {
                 u32 idx = _pending_cancel[i];
                 if (idx < _slots.Size()) {
-                    Slot& s = _slots[idx];
+                    FSlot& s = _slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
                     _free_indices.PushBack(idx);
@@ -149,7 +149,7 @@ private:
         }
     }
 
-    struct Slot {
+    struct FSlot {
         u32      id          = 0;
         u64      generation  = 0;
         bool     active      = false;
@@ -158,7 +158,7 @@ private:
     };
 
     T            _value{};
-    TArray<Slot>  _slots;
+    TArray<FSlot>  _slots;
     TArray<u32>   _free_indices;
     TArray<u32>   _pending_cancel;
     u32          _next_id      = 1;

@@ -35,7 +35,7 @@ ACS の editor は **in-game UiKit ベース** (外部 IDE なし) という方�
 
 - **In-engine tooling**: editor は engine と同じプロセス内で動作する。Unity Editor のような「別アプリ」モデルではなく、Unreal Engine の editor mode に近い「engine の特殊な起動形態」。
 - **UiKit と疎結合**: editor の UI は ImGui (debug/dev build) を主要レイヤとして使い、ACS の独自 UI レイヤ (`acs::ui`) は **ship build 用** に保留 (= 「ゲーム本体の UI に editor を組み込む」のではなく、「dev build でのみ editor window を出す」モデル)。
-- **共通基盤の dogfooding**: 全 editor が `editor_core::EditorPanel` 基底を継承し、`EditorWorkspace` で統括することで、新規 editor を追加する際の boilerplate を最小化。
+- **共通基盤の dogfooding**: 全 editor が `editor_core::FEditorPanel` 基底を継承し、`FEditorWorkspace` で統括することで、新規 editor を追加する際の boilerplate を最小化。
 
 ### 1.2 ImGui を採用する理由
 
@@ -46,7 +46,7 @@ ACS の editor は **in-game UiKit ベース** (外部 IDE なし) という方�
 | **dependency** | Diligent Engine ベースの ACS RHI に既に統合済 (`samples/21_HelloImGui`)。再利用コストゼロ。 |
 | **ship 切り離し** | `#if ACS_EDITOR_HAS_IMGUI_DOCK` などのコンパイル時 guard で retail build から完全に消せる。 |
 
-ACS UI (`acs::ui::UiLayer`) は **ship 用** に保留している理由:
+ACS UI (`acs::ui::FUiLayer`) は **ship 用** に保留している理由:
 - editor を game build と分けたいため、editor だけ ImGui で書いて、ゲーム本体の UI (`acs::ui`) には触らせない方針。
 - ImGui は 100ms 規模の dev-only overhead を許容できる前提の library であり、game build のシビアな budget には合わない。
 
@@ -54,8 +54,8 @@ ACS UI (`acs::ui::UiLayer`) は **ship 用** に保留している理由:
 
 ```
 +----------------------------------------------------------------------+
-|                   EditorWorkspace (Phase 21a hub)                    |
-| - panels: TArray<EditorPanel*>                                        |
+|                   FEditorWorkspace (Phase 21a hub)                    |
+| - panels: TArray<FEditorPanel*>                                        |
 | - DockSpace + MenuBar 自動描画                                       |
 | - SaveLayout/LoadLayout (.acslayout)                                 |
 | - BroadcastSelectionChanged / BroadcastAssetSelected                 |
@@ -63,9 +63,9 @@ ACS UI (`acs::ui::UiLayer`) は **ship 用** に保留している理由:
    |              |              |              |              |
    v              v              v              v              v
 +---------+ +-----------+ +-----------+ +--------------+ +-----------+
-| Asset   | | Inspector | | Hierarchy | | ModelViewer  | | ...8 種   |
+| FAsset   | | Inspector | | Hierarchy | | ModelViewer  | | ...8 種   |
 | Browser | | Panel     | | Panel     | | Panel        | | editor    |
-| (drag   | | (field    | | (Node2D   | | (3D viewport | | panel     |
+| (drag   | | (field    | | (FNode2D   | | (3D viewport | | panel     |
 |  src)   | |  edit)    | |  tree)    | |  + Lighting) | | (継承)    |
 +---------+ +-----------+ +-----------+ +--------------+ +-----------+
                  |              |               |
@@ -73,13 +73,13 @@ ACS UI (`acs::ui::UiLayer`) は **ship 用** に保留している理由:
                                 |               |
                                 v               v
                        +------------------+ +----------------+
-                       | SelectionService | | EditorCommand  |
-                       | (Phase 20 hub)   | | + UndoStack    |
+                       | FSelectionService | | FEditorCommand  |
+                       | (Phase 20 hub)   | | + FUndoStack    |
                        +------------------+ +----------------+
                                                     |
                                                     v
                                           +-----------------+
-                                          | EditorGizmo     |
+                                          | FEditorGizmo     |
                                           | (Translate/     |
                                           |  Rotate/Scale)  |
                                           +-----------------+
@@ -124,9 +124,9 @@ src/gameframework/tools/
 │
 ├── inspector/     - SceneInspector 4 panel (Phase 20)
 │   ├── SelectionService.h/.cpp    - 選択 FNodeId 集中点 (callback hub)
-│   ├── HierarchyPanel.h/.cpp      - Node2D ツリー表示 + reparent
-│   ├── InspectorPanel.h/.cpp      - InspectableField 編集
-│   └── EditorToolbar.h/.cpp       - Play/Pause/Step/Save/DebugOverlay
+│   ├── HierarchyPanel.h/.cpp      - FNode2D ツリー表示 + reparent
+│   ├── InspectorPanel.h/.cpp      - FInspectableField 編集
+│   └── EditorToolbar.h/.cpp       - Play/Pause/Step/Save/FDebugOverlay
 │
 ├── modelview/     - ModelViewer 4 panel (Phase 21b)
 │   ├── ModelViewerPanel.h/.cpp    - 3D viewport + Lighting/Background
@@ -140,11 +140,11 @@ src/gameframework/tools/
 ├── btedit/        - BehaviorTreeEditor (Phase 22)
 │   └── BehaviorTreeEditorPanel.h/.cpp - BT 可視化 + step debug
 │
-├── leveledit/     - LevelEditor / Tilemap painter (Phase 22)
+├── leveledit/     - LevelEditor / FTilemap painter (Phase 22)
 │   └── LevelEditorPanel.h/.cpp    - tilemap painter (Paint/Erase/Fill/Pick)
 │
 ├── spriteatlas/   - SpriteAtlasEditor (Phase 22)
-│   └── SpriteAtlasEditorPanel.h/.cpp - SpritePack atlas + frame rect 編集
+│   └── SpriteAtlasEditorPanel.h/.cpp - FSpritePack atlas + frame rect 編集
 │
 ├── fontedit/      - FontEditor (Phase 23、並列作成中、未作成)
 └── cinetimeline/  - CinematicsTimelineEditor (Phase 23、並列作成中、未作成)
@@ -156,9 +156,9 @@ src/gameframework/tools/
 
 ## 3. editor_core 共通基盤 / Common Foundation
 
-Phase 21a で導入された **8 つの共通コンポーネント**。Phase 19b ParticleEditor と Phase 20 SceneInspector は本基盤より早く実装されたため、現状 `EditorPanel` 継承していない (将来 refactor 予定)。Phase 21b 以降の editor (ModelViewer / AnimCurveEditor / BehaviorTreeEditor / LevelEditor / SpriteAtlasEditor) は全て本基盤に統合済。
+Phase 21a で導入された **8 つの共通コンポーネント**。Phase 19b ParticleEditor と Phase 20 SceneInspector は本基盤より早く実装されたため、現状 `FEditorPanel` 継承していない (将来 refactor 予定)。Phase 21b 以降の editor (ModelViewer / AnimCurveEditor / BehaviorTreeEditor / LevelEditor / SpriteAtlasEditor) は全て本基盤に統合済。
 
-### 3.1 EditorPanel — 抽象基底クラス
+### 3.1 FEditorPanel — 抽象基底クラス
 
 `src/gameframework/tools/editor_core/EditorPanel.h`
 
@@ -170,21 +170,21 @@ Phase 21a で導入された **8 つの共通コンポーネント**。Phase 19b
 |---|---|---|
 | `const char* Title() const noexcept` | 純粋仮想 | ImGui::Begin に渡す window タイトル (リテラル) |
 | `void DrawUI() noexcept` | 純粋仮想 | メインの ImGui 描画 (Begin/End は派生側責務) |
-| `void OnInit(EditorWorkspace& ws) noexcept` | virtual | Workspace 登録時に 1 度呼ばれる |
+| `void OnInit(FEditorWorkspace& ws) noexcept` | virtual | Workspace 登録時に 1 度呼ばれる |
 | `void OnShutdown() noexcept` | virtual | 登録解除時 / editor shutdown 時 |
 | `void OnFrameBegin(f32 dt) noexcept` | virtual | UI 描画より前のフレーム頭で呼ばれる |
-| `void OnSelectionChanged(SelectionService& sel) noexcept` | virtual | Scene 内 Node 選択変更通知 |
-| `void OnAssetSelected(const char* asset_path) noexcept` | virtual | AssetBrowser からのファイル選択通知 |
-| `void OnSaveLayout(EditorLayoutSerializer& out) noexcept` | virtual | panel 独自の表示設定を書き出す (Phase 21c 本実装) |
-| `void OnLoadLayout(EditorLayoutSerializer& in) noexcept` | virtual | OnSaveLayout の逆操作 |
+| `void OnSelectionChanged(FSelectionService& sel) noexcept` | virtual | FScene 内 FNode 選択変更通知 |
+| `void OnAssetSelected(const char* asset_path) noexcept` | virtual | FAssetBrowser からのファイル選択通知 |
+| `void OnSaveLayout(FEditorLayoutSerializer& out) noexcept` | virtual | panel 独自の表示設定を書き出す (Phase 21c 本実装) |
+| `void OnLoadLayout(FEditorLayoutSerializer& in) noexcept` | virtual | OnSaveLayout の逆操作 |
 | `bool WantsFocus() const noexcept` | virtual | 起動時に Focus を奪うかのヒント (default false) |
 | `bool IsVisible() / SetVisible(bool)` | concrete | panel 表示 toggle (close ボタン連動) |
-| `EditorWorkspace* Workspace() const` | concrete | OnInit で保存された Workspace ポインタ |
+| `FEditorWorkspace* Workspace() const` | concrete | OnInit で保存された Workspace ポインタ |
 
 **使い方例**:
 
 ```cpp
-class ModelViewerPanel : public acs::game::editor_core::EditorPanel {
+class FModelViewerPanel : public acs::game::editor_core::FEditorPanel {
 public:
     const char* Title() const noexcept override { return "Model Viewer"; }
 
@@ -204,39 +204,39 @@ public:
 
 **設計選択**:
 - ImGui::Begin/End は派生側責務 (ImGuiWindowFlags / dock target / MenuBar の有無が panel ごとに違うため基底で wrap しない)
-- `OnSelectionChanged` (Node 系) と `OnAssetSelected` (file 系) を独立 hook にして、panel ごとに必要な方だけ override できるようにする
+- `OnSelectionChanged` (FNode 系) と `OnAssetSelected` (file 系) を独立 hook にして、panel ごとに必要な方だけ override できるようにする
 - 非コピー / 非ムーブ (panel は workspace と紐づく lifecycle)
 
-### 3.2 EditorWorkspace — 複数 panel の統括 hub
+### 3.2 FEditorWorkspace — 複数 panel の統括 hub
 
 `src/gameframework/tools/editor_core/EditorWorkspace.h`
 
-複数の EditorPanel を **1 つの editor アプリケーション** としてまとめて配線する中央 hub。
+複数の FEditorPanel を **1 つの editor アプリケーション** としてまとめて配線する中央 hub。
 
 **主要 API**:
 
 | メソッド | 用途 |
 |---|---|
-| `void Init() / Shutdown()` | panel list + SelectionService を初期化 / 破棄 |
-| `void RegisterPanel(EditorPanel*)` | 末尾追加 + OnInit 呼出 (二重登録は no-op) |
-| `void UnregisterPanel(EditorPanel*)` | 順序保存削除 + OnShutdown 呼出 |
+| `void Init() / Shutdown()` | panel list + FSelectionService を初期化 / 破棄 |
+| `void RegisterPanel(FEditorPanel*)` | 末尾追加 + OnInit 呼出 (二重登録は no-op) |
+| `void UnregisterPanel(FEditorPanel*)` | 順序保存削除 + OnShutdown 呼出 |
 | `u32 PanelCount() const` | 現在の登録 panel 数 |
-| `EditorPanel* GetPanelByIndex(u32)` | 登録順 (= dispatch 順) で取得 |
-| `EditorPanel* FindPanelByTitle(const char*)` | strcmp 完全一致検索 |
-| `void TogglePanelVisible(const char*)` | Window メニュー連動 |
+| `FEditorPanel* GetPanelByIndex(u32)` | 登録順 (= dispatch 順) で取得 |
+| `FEditorPanel* FindPanelByTitle(const char*)` | strcmp 完全一致検索 |
+| `void TogglePanelVisible(const char*)` | FWindow メニュー連動 |
 | `void TickAllPanels(f32 dt)` | OnFrameBegin → DockSpace → MenuBar → DrawUI |
 | `void DrawDockSpace()` | ImGui::DockSpaceOverViewport (`IMGUI_HAS_DOCK` 未定義時は no-op) |
-| `void DrawMenuBar()` | Window/Layout メニュー追加 |
+| `void DrawMenuBar()` | FWindow/Layout メニュー追加 |
 | `void SaveLayout(const wchar_t* path)` | `.acslayout` 形式テキスト保存 |
 | `void LoadLayout(const wchar_t* path)` | `.acslayout` 復元 |
-| `void SetSelectionService(SelectionService*)` | 注入 (non-owning) |
+| `void SetSelectionService(FSelectionService*)` | 注入 (non-owning) |
 | `void BroadcastSelectionChanged()` | 全 panel に OnSelectionChanged を fan-out |
 | `void BroadcastAssetSelected(const char* path)` | 全 panel に OnAssetSelected を fan-out |
 
 **使い方例**:
 
 ```cpp
-acs::game::editor_core::EditorWorkspace ws;
+acs::game::editor_core::FEditorWorkspace ws;
 ws.Init();
 ws.SetSelectionService(&selection);
 ws.RegisterPanel(&hierarchy_panel);
@@ -265,29 +265,29 @@ PANEL <title> <visible:0/1> <dock_target:0/1>
 ...
 ```
 
-### 3.3 UndoStack + EditorCommand — undo/redo 中央ハブ
+### 3.3 FUndoStack + FEditorCommand — undo/redo 中央ハブ
 
 `src/gameframework/tools/editor_core/UndoStack.h`, `EditorCommand.h`
 
-全 editor が共有する undo/redo の中央ハブ。Command パターン (GoF) ベース。
+全 editor が共有する undo/redo の中央ハブ。FCommand パターン (GoF) ベース。
 
-**EditorCommand API** (純粋抽象):
+**FEditorCommand API** (純粋抽象):
 
 | メソッド | 種別 | 用途 |
 |---|---|---|
 | `void Execute() noexcept` | 純粋仮想 | "Do" を実行 (Push と Redo の両方から呼ばれる) |
 | `void Undo() noexcept` | 純粋仮想 | Execute の逆操作 |
-| `const char* Description() const` | 純粋仮想 | UI 表示用短文 ("Move Node" 等) |
+| `const char* Description() const` | 純粋仮想 | UI 表示用短文 ("Move FNode" 等) |
 | `const void* Kind() const` | virtual | RTTI 抜き型識別 tag (default nullptr) |
-| `bool CanMerge(const EditorCommand& next) const` | virtual | 連続 drag 等を 1 件にまとめるか (default false) |
-| `void MergeWith(const EditorCommand& next)` | virtual | CanMerge true の後に呼ばれる (new 値を取り込み) |
+| `bool CanMerge(const FEditorCommand& next) const` | virtual | 連続 drag 等を 1 件にまとめるか (default false) |
+| `void MergeWith(const FEditorCommand& next)` | virtual | CanMerge true の後に呼ばれる (new 値を取り込み) |
 
-**UndoStack API**:
+**FUndoStack API**:
 
 | メソッド | 用途 |
 |---|---|
 | `void Init(u32 max_history = 64)` | 初期化 (history 上限再設定可) |
-| `void Push(EditorCommand* cmd)` | 所有権を奪う + Execute 呼出 + Merge 判定 + Redo クリア |
+| `void Push(FEditorCommand* cmd)` | 所有権を奪う + Execute 呼出 + Merge 判定 + Redo クリア |
 | `bool Undo() / bool Redo()` | 1 件巻き戻し / やり直し |
 | `bool CanUndo() / CanRedo()` | UI MenuItem の enable 判定用 |
 | `u32 UndoCount() / RedoCount()` | history 件数 |
@@ -297,10 +297,10 @@ PANEL <title> <visible:0/1> <dock_target:0/1>
 **使い方例**:
 
 ```cpp
-acs::game::editor_core::UndoStack stack;
+acs::game::editor_core::FUndoStack stack;
 stack.Init(64);
 
-auto* cmd = acs::New<MoveNodeCommand>(acs::DefaultAllocator(),
+auto* cmd = acs::New<FMoveNodeCommand>(acs::DefaultAllocator(),
                                        &node, old_pos, new_pos);
 stack.Push(cmd);
 
@@ -309,9 +309,9 @@ if (ImGui::MenuItem("Undo", "Ctrl+Z", false, stack.CanUndo())) {
 }
 ```
 
-**bundled 派生**: `MoveNodeCommand` を `EditorCommand.h` 末尾に教科書的サンプルとして同梱 (header-only)。同 target への連続 drag を 1 件に merge する CanMerge / MergeWith の実装例。
+**bundled 派生**: `FMoveNodeCommand` を `EditorCommand.h` 末尾に教科書的サンプルとして同梱 (header-only)。同 target への連続 drag を 1 件に merge する CanMerge / MergeWith の実装例。
 
-### 3.4 EditorCamera — 2D/3D 統合カメラ
+### 3.4 FEditorCamera — 2D/3D 統合カメラ
 
 `src/gameframework/tools/editor_core/EditorCamera.h`
 
@@ -331,7 +331,7 @@ ModelViewer (3D) / LevelEditor (2D top-down) / TilemapEditor などが共有す�
 | `void FrameToBoundingSphere(FVec3 center, f32 radius)` | 選択へ寄せる |
 | `void FrameToBoundingBox2D(FVec2 min, FVec2 max)` | 2D 専用 |
 | `FMat4 ViewMatrix() / ProjectionMatrix(...)` | LookAt + perspective/ortho |
-| `void Tick(f32 dt)` | smooth target follow (Camera2D と同じ指数補間) |
+| `void Tick(f32 dt)` | smooth target follow (FCamera2D と同じ指数補間) |
 
 **操作マッピング**:
 - 3D: LMB drag = orbit / MMB drag = pan / RMB drag = orbit (Maya 風代替) / wheel = dolly
@@ -340,7 +340,7 @@ ModelViewer (3D) / LevelEditor (2D top-down) / TilemapEditor などが共有す�
 **使い方例**:
 
 ```cpp
-acs::game::editor_core::EditorCamera cam;
+acs::game::editor_core::FEditorCamera cam;
 cam.Init(EEditorCameraMode::Mode3D);
 
 cam.HandleMouseInput(mouse_delta, lmb, rmb, mmb, wheel);
@@ -350,11 +350,11 @@ FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
 cam.FrameToBoundingSphere(node_center, node_radius);
 ```
 
-### 3.5 AssetBrowser — file tree + drag source
+### 3.5 FAssetBrowser — file tree + drag source
 
 `src/gameframework/tools/editor_core/AssetBrowser.h`
 
-プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各 panel へ drag-drop で path を供給する Unity Project Window 相当。
+プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各 panel へ drag-drop で path を供給する Unity Project FWindow 相当。
 
 **主要 API**:
 
@@ -363,7 +363,7 @@ cam.FrameToBoundingSphere(node_center, node_radius);
 | `void Init(const wchar_t* root)` | assets/ ルートを記録 + 初回 Refresh |
 | `void Shutdown()` | pool / callback 解放 |
 | `void Refresh()` | current_directory 配下の rescan |
-| `void DrawUI()` | "Asset Browser" 1 window (左 tree + 右 list) |
+| `void DrawUI()` | "FAsset Browser" 1 window (左 tree + 右 list) |
 | `u32 EntryCount() / GetEntry(u32)` | 列挙結果アクセサ |
 | `const wchar_t* CurrentDirectory()` | 現在表示中ディレクトリ |
 | `void SetCurrentDirectory(const wchar_t*)` | 切替 + 自動 Refresh |
@@ -379,16 +379,16 @@ cam.FrameToBoundingSphere(node_center, node_radius);
 |---|---|
 | Texture | .png .jpg .jpeg .tga .bmp .dds .ktx .hdr |
 | Mesh | .mdl .fbx .gltf .glb .obj |
-| Font | .ttf .otf |
+| FFont | .ttf .otf |
 | Audio | .wav .ogg .mp3 .flac |
 | Material | .mat .material |
-| Particle | .fx .particle |
+| FParticle | .fx .particle |
 | FAnimation | .anim |
-| BehaviorTree | .bt |
-| Tilemap | .tilemap .tmx |
+| FBehaviorTree | .bt |
+| FTilemap | .tilemap .tmx |
 | Prefab | .prefab |
 | Cinematic | .cine |
-| Scene | .scene |
+| FScene | .scene |
 
 **Drag payload**: identifier `"ASSET_PATH"` (32 文字以内) で wchar_t* 直渡し。受け側は `ImGui::AcceptDragDropPayload("ASSET_PATH")` で取り出す。
 
@@ -396,7 +396,7 @@ cam.FrameToBoundingSphere(node_center, node_radius);
 
 `src/gameframework/tools/editor_core/PropertyDrawer.h`
 
-カスタム field drawer の登録レジストリ。Phase 20 InspectorPanel が hardcode する EFieldKind 9 種を超えた拡張型 (Curve / Gradient / AssetPath / NodeIdSelector 等) を後付け可能にする。
+カスタム field drawer の登録レジストリ。Phase 20 FInspectorPanel が hardcode する EFieldKind 9 種を超えた拡張型 (Curve / Gradient / AssetPath / NodeIdSelector 等) を後付け可能にする。
 
 **主要 API**:
 
@@ -407,19 +407,19 @@ cam.FrameToBoundingSphere(node_center, node_radius);
 | `void RegisterDrawer(const char* type_name, DrawerFn fn)` | 後勝ち上書き |
 | `void UnregisterDrawer(const char* type_name)` | 解除 |
 | `bool HasDrawer(const char* type_name)` | 登録済みか |
-| `bool DrawProperty(const char* type_name, const PropertyContext& ctx)` | 該当 drawer 呼出 (失敗時 false でフォールバック) |
+| `bool DrawProperty(const char* type_name, const FPropertyContext& ctx)` | 該当 drawer 呼出 (失敗時 false でフォールバック) |
 | `u32 DrawerCount() / const char* DrawerName(u32)` | イントロスペクション |
 
 **bundled 9 種**:
 - `F32Slider` / `Vec2Drag` / `Vec3Drag` / `Vec4Drag`
 - `ColorRGB` / `ColorRGBA`
 - `AssetPath` (`"ASSET_PATH"` payload 受信対応)
-- `EnumCombo` / `TextInput`
+- `EnumCombo` / `FTextInput`
 
-**PropertyContext** (POD):
+**FPropertyContext** (POD):
 
 ```cpp
-struct PropertyContext {
+struct FPropertyContext {
     void*       data_ptr;     // 編集対象 (drawer がキャスト)
     const char* label;        // ImGui ラベル
     const char* tooltip;      // hover tooltip
@@ -434,27 +434,27 @@ struct PropertyContext {
 **使い方例**:
 
 ```cpp
-static void DrawHealth(const PropertyContext& ctx) noexcept {
+static void DrawHealth(const FPropertyContext& ctx) noexcept {
     auto* hp = static_cast<Health*>(ctx.data_ptr);
     ImGui::ProgressBar(hp->Ratio(), ImVec2(-1, 0));
     if (ctx.out_changed) *ctx.out_changed = false;
 }
 
-PropertyDrawerRegistry reg;
+FPropertyDrawerRegistry reg;
 reg.Init();
 reg.RegisterDrawer("Health", &DrawHealth);
 
-PropertyContext ctx { /* ... */ };
+FPropertyContext ctx { /* ... */ };
 if (!reg.DrawProperty("Health", ctx)) {
     // 未登録 → EFieldKind switch にフォールバック
 }
 ```
 
-### 3.7 EditorGizmo — Translate/Rotate/Scale handle
+### 3.7 FEditorGizmo — Translate/Rotate/Scale handle
 
 `src/gameframework/tools/editor_core/EditorGizmo.h`
 
-選択中 Node の Transform を viewport 上で直接ドラッグ操作するハンドル。Unity / Godot / UE のシーンビュー操作系の最小集合。
+選択中 FNode の Transform を viewport 上で直接ドラッグ操作するハンドル。Unity / Godot / UE のシーンビュー操作系の最小集合。
 
 **主要 API**:
 
@@ -462,25 +462,25 @@ if (!reg.DrawProperty("Health", ctx)) {
 |---|---|
 | `void Init() / Shutdown()` | state を default に |
 | `void SetMode(EGizmoMode)` | None / Translate / Rotate / Scale |
-| `void SetSpace(EGizmoSpace)` | World / Local |
+| `void SetSpace(EGizmoSpace)` | FWorld / Local |
 | `void SetSnapTranslate(f32 step)` | snap step (0 で無効) |
 | `void SetSnapRotate(f32 step_deg)` | 同上、度数 |
 | `void SetSnapScale(f32 step)` | 同上、倍率 |
 | `void ProcessInput(ray_origin, ray_dir, lmb_down, lmb_held, lmb_up)` | drag 開始/継続/終了の遷移管理 |
 | `bool Manipulate(FVec3& pos, FVec3& rot, FVec3& scl)` | drag 中なら inout を in-place 更新、true 戻り |
-| `void DrawGizmo(DebugDraw& dd, pos, rot, scl)` | DebugDraw 経由で軸 + ハンドル描画 |
+| `void DrawGizmo(FDebugDraw& dd, pos, rot, scl)` | FDebugDraw 経由で軸 + ハンドル描画 |
 | `bool IsDragging() / EGizmoAxis HotAxis()` | 状態問い合わせ |
-| `void SetOnManipulateCallback(cb, user)` | drag 終了時 1 度発火 (UndoStack push 用) |
+| `void SetOnManipulateCallback(cb, user)` | drag 終了時 1 度発火 (FUndoStack push 用) |
 
 **enum**:
 - `EGizmoMode`: None / Translate / Rotate / Scale
-- `EGizmoSpace`: World / Local
+- `EGizmoSpace`: FWorld / Local
 - `EGizmoAxis`: None_ / X / Y / Z / XY / XZ / YZ / ScreenAlign
 
 **使い方例**:
 
 ```cpp
-EditorGizmo gizmo;
+FEditorGizmo gizmo;
 gizmo.Init();
 gizmo.SetMode(EGizmoMode::Translate);
 gizmo.SetSnapTranslate(0.5f);
@@ -497,7 +497,7 @@ if (gizmo.Manipulate(pos, rot, scl)) {
 gizmo.DrawGizmo(debug_draw, pos, rot, scl);
 ```
 
-### 3.8 EditorTheme — Dark/Light/HighContrast 等 5 preset
+### 3.8 FEditorTheme — Dark/Light/HighContrast 等 5 preset
 
 `src/gameframework/tools/editor_core/EditorTheme.h`
 
@@ -509,12 +509,12 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 |---|---|
 | `void Init()` | default = Dark preset を ImGui::GetStyle() に流す |
 | `void ApplyPreset(EEditorThemePreset)` | preset 切替 + 即時 ImGui 反映 |
-| `void SetCustomColors(const EditorThemeColors&)` | 任意パレット (preset → Custom 自動切替) |
-| `const EditorThemeColors& Colors() const` | 現パレット |
+| `void SetCustomColors(const FEditorThemeColors&)` | 任意パレット (preset → Custom 自動切替) |
+| `const FEditorThemeColors& Colors() const` | 現パレット |
 | `void SetFontScale(f32)` | ImGuiIO::FontGlobalScale 書換 (clamp 4.0) |
-| `void SetRoundedCorners(f32)` | Frame/Window/Popup/Grab/Tab/Scrollbar 統一 radius |
+| `void SetRoundedCorners(f32)` | Frame/FWindow/Popup/Grab/Tab/Scrollbar 統一 radius |
 | `void SetSpacing(f32 item_spacing_y)` | ItemSpacing.y (x は 0.5x 連動) |
-| `void DrawThemeSettingsUI()` | "Theme Settings" 独立 window 描画 |
+| `void DrawThemeSettingsUI()` | "Theme FSettings" 独立 window 描画 |
 | `void SaveTheme(const wchar_t*) / LoadTheme(const wchar_t*)` | `.acstheme` |
 
 **5 preset**:
@@ -524,11 +524,11 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 | Dark | 標準 dark grey (ImGui StyleColorsDark 寄り、若干暖色) |
 | DarkBlue | VS Code Dark+ 風 (#1F232C / #007ACC 系) |
 | Light | 明るい背景 (屋外 / プロジェクタ向け) |
-| HighContrast | 黒 / 白 / 黄 (#FFD700) の三色設計 (AccessibilityProfile 連動予定) |
+| HighContrast | 黒 / 白 / 黄 (#FFD700) の三色設計 (FAccessibilityProfile 連動予定) |
 | Sepia | 焼け紙風暖色 (長時間作業の眼精疲労低減) |
 | Custom | SetCustomColors() で渡された任意パレット |
 
-**EditorThemeColors** (13 フィールド): `window_bg / title_bg / button_bg / button_hover / button_active / frame_bg / text / text_disabled / border / separator / accent / warning / error`
+**FEditorThemeColors** (13 フィールド): `window_bg / title_bg / button_bg / button_hover / button_active / frame_bg / text / text_disabled / border / separator / accent / warning / error`
 
 ---
 
@@ -536,25 +536,25 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 
 | Sample # | Editor 名 | 対象 data | Phase | 主要 panel ファイル |
 |---|---|---|---|---|
-| **29** | ParticleEditor | ParticleEmitterDef | 19b | `fxedit/ParticleEditorPanel.h` |
-| **30** | SceneInspector | Node2D + InspectorSeam | 20 | `inspector/HierarchyPanel.h` + `InspectorPanel.h` + `EditorToolbar.h` |
+| **29** | ParticleEditor | FParticleEmitterDef | 19b | `fxedit/ParticleEditorPanel.h` |
+| **30** | SceneInspector | FNode2D + FInspectorSeam | 20 | `inspector/HierarchyPanel.h` + `InspectorPanel.h` + `EditorToolbar.h` |
 | **31** | ModelViewer | mesh + material + anim | 21b | `modelview/ModelViewerPanel.h` + 3 つの sub panel |
-| **32** | AnimCurveEditor | AnimationCurve | 22 | `animcurve/AnimCurveEditorPanel.h` |
-| **33** | BehaviorTreeEditor | BehaviorTree | 22 | `btedit/BehaviorTreeEditorPanel.h` |
-| **34** | LevelEditor | Tilemap | 22 | `leveledit/LevelEditorPanel.h` |
-| **35** | SpriteAtlasEditor | SpritePack | 22 | `spriteatlas/SpriteAtlasEditorPanel.h` |
+| **32** | AnimCurveEditor | FAnimationCurve | 22 | `animcurve/AnimCurveEditorPanel.h` |
+| **33** | BehaviorTreeEditor | FBehaviorTree | 22 | `btedit/BehaviorTreeEditorPanel.h` |
+| **34** | LevelEditor | FTilemap | 22 | `leveledit/LevelEditorPanel.h` |
+| **35** | SpriteAtlasEditor | FSpritePack | 22 | `spriteatlas/SpriteAtlasEditorPanel.h` |
 | **36** | FontEditor (予定) | font face list | 23 | `fontedit/` (未作成) |
-| **37** | CinematicsEditor (予定) | TimelineKeyframe | 23 | `cinetimeline/` (未作成) |
+| **37** | CinematicsEditor (予定) | FTimelineKeyframe | 23 | `cinetimeline/` (未作成) |
 
 ### 4.1 Sample 29 — ParticleEditor (Phase 19b)
 
 **path**: `samples/29_HelloParticleEditor/main.cpp`
 
-- **編集対象**: `acs::game::ParticleEmitterDef` (gameframework/ParticleEffectSystem.h)
+- **編集対象**: `acs::game::FParticleEmitterDef` (gameframework/ParticleEffectSystem.h)
 - **UI レイアウト**: 左 emitter list + 右 property pane の 2 カラム
 - **編集パラメータ**: lifetime_sec / emit_rate_per_sec / burst_count / speed_min/max / scale_start/end / spread_radians / gravity / color_start/end
-- **永続化**: `FxeditSerializer` で `.fxedit` テキスト形式 (`ACS_FXEDIT 1`)
-- **特徴**: 本 panel は **EditorPanel 継承していない** (Phase 19b は Phase 21a 共通基盤の前に実装)。将来 refactor 予定。
+- **永続化**: `FFxeditSerializer` で `.fxedit` テキスト形式 (`ACS_FXEDIT 1`)
+- **特徴**: 本 panel は **FEditorPanel 継承していない** (Phase 19b は Phase 21a 共通基盤の前に実装)。将来 refactor 予定。
 - **callback**: `SaveCallback` / `LoadCallback` で外部に save/load 委譲
 
 ### 4.2 Sample 30 — SceneInspector (Phase 20)
@@ -562,32 +562,32 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 **path**: `samples/30_HelloSceneInspector/main.cpp`
 
 - **4 panel 構成** (3 つの panel + 1 service):
-  - `HierarchyPanel` — Node2D ツリー、reparent (drag drop payload `"HIER_NODE_PTR"`)、Delete/Duplicate context menu
-  - `InspectorPanel` — InspectorSeam 経由で InspectableField を編集 (EFieldKind 9 種 hardcode switch)
-  - `EditorToolbar` — Play/Pause/Step/Save/DebugOverlay の 5 ボタン
-  - `SelectionService` — 選択 FNodeId の集中点 (callback 複数登録、callback hub)
-- **特徴**: 本 panel 群も **EditorPanel 継承していない** (Phase 20 は Phase 21a 前)。将来 refactor 予定。
-- **連携**: HierarchyPanel ⇆ InspectorPanel は SelectionService 経由で疎結合
-- **Drag drop**: `"HIER_NODE_PTR"` payload で Node2D* 直渡し
+  - `FHierarchyPanel` — FNode2D ツリー、reparent (drag drop payload `"HIER_NODE_PTR"`)、Delete/Duplicate context menu
+  - `FInspectorPanel` — FInspectorSeam 経由で FInspectableField を編集 (EFieldKind 9 種 hardcode switch)
+  - `FEditorToolbar` — Play/Pause/Step/Save/FDebugOverlay の 5 ボタン
+  - `FSelectionService` — 選択 FNodeId の集中点 (callback 複数登録、callback hub)
+- **特徴**: 本 panel 群も **FEditorPanel 継承していない** (Phase 20 は Phase 21a 前)。将来 refactor 予定。
+- **連携**: FHierarchyPanel ⇆ FInspectorPanel は FSelectionService 経由で疎結合
+- **Drag drop**: `"HIER_NODE_PTR"` payload で FNode2D* 直渡し
 
 ### 4.3 Sample 31 — ModelViewer (Phase 21b)
 
 **path**: `samples/31_HelloModelViewer/main.cpp`
 
-- **4 panel 構成** (全て `EditorPanel` 継承):
-  - `ModelViewerPanel` — 3D viewport + Lighting (sun dir/color + IBL toggle + tonemap mode) + Background + Grid/FBone toggle
-  - `ModelInspectorPanel` — mesh 統計 (vertex/triangle/submesh/material/bone/animation count + bounding sphere) を read-only 表示
-  - `ModelMaterialPanel` — material slot 編集 (Base FColor / Metallic / Roughness / Normal / AO / Emissive)
-  - `ModelAnimationPanel` — animation clip 切替 + Play/Pause/Stop + Time slider + Speed + Loop + BlendWeight
-- **特徴**: Phase 21a 共通基盤 (`EditorPanel` / `EditorCamera` / `EditorWorkspace` / `AssetBrowser`) の **最初の dogfood**
-- **連携**: AssetBrowser → `BroadcastAssetSelected("models/hero.mdl")` → `ModelViewerPanel::OnAssetSelected` で自動 LoadModelAsset
-- **camera**: 各 panel が独自 `EditorCamera` (Mode3D orbit) を内包する Unity SceneView 風モデル
+- **4 panel 構成** (全て `FEditorPanel` 継承):
+  - `FModelViewerPanel` — 3D viewport + Lighting (sun dir/color + IBL toggle + tonemap mode) + Background + Grid/FBone toggle
+  - `FModelInspectorPanel` — mesh 統計 (vertex/triangle/submesh/material/bone/animation count + bounding sphere) を read-only 表示
+  - `FModelMaterialPanel` — material slot 編集 (Base FColor / Metallic / Roughness / Normal / AO / Emissive)
+  - `FModelAnimationPanel` — animation clip 切替 + Play/Pause/Stop + Time slider + Speed + Loop + BlendWeight
+- **特徴**: Phase 21a 共通基盤 (`FEditorPanel` / `FEditorCamera` / `FEditorWorkspace` / `FAssetBrowser`) の **最初の dogfood**
+- **連携**: FAssetBrowser → `BroadcastAssetSelected("models/hero.mdl")` → `FModelViewerPanel::OnAssetSelected` で自動 LoadModelAsset
+- **camera**: 各 panel が独自 `FEditorCamera` (Mode3D orbit) を内包する Unity SceneView 風モデル
 
 ### 4.4 Sample 32 — AnimCurveEditor (Phase 22)
 
 **path**: `samples/32_HelloAnimCurveEditor/main.cpp`
 
-- **編集対象**: `acs::game::AnimationCurve` (Hermite/Linear/Step + Pre/Post WrapMode)
+- **編集対象**: `acs::game::FAnimationCurve` (Hermite/Linear/Step + Pre/Post WrapMode)
 - **UI**: 単一 window 内に toolbar (Interpolation Combo / WrapMode Combo / Add Key / Clear / Eval preview slider) + canvas (1024-sample 線描画)
 - **操作**:
   - 各 key を丸 marker で描画 + drag で time/value 編集
@@ -600,14 +600,14 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 
 **path**: `samples/33_HelloBehaviorTreeEditor/main.cpp`
 
-- **編集対象**: `acs::game::BehaviorTree` (`BtSelector` / `BtSequence` / `BtAction`)
+- **編集対象**: `acs::game::FBehaviorTree` (`FBtSelector` / `FBtSequence` / `FBtAction`)
 - **v1 = visualize + step debug にスコープ集中** (グラフ編集 = v2 future)
-- **メタミラー方式**: BehaviorTree 本体の private member (`_children` 等) に panel から触れないため、user が `AddNode(kind, name, parent_id)` で「親 id・kind・表示名」を panel に push する別ミラー。`SetNodeStatus(node_id, EBtStatus)` で BtAction の Fn から status を push。
+- **メタミラー方式**: FBehaviorTree 本体の private member (`_children` 等) に panel から触れないため、user が `AddNode(kind, name, parent_id)` で「親 id・kind・表示名」を panel に push する別ミラー。`SetNodeStatus(node_id, EBtStatus)` で FBtAction の Fn から status を push。
 - **UI**:
   - toolbar: Reset / Step / Continuous (autorun) toggle / Active / Step counter
   - 上部: Tick history (60 frame ring graph、PlotLines)
   - 左: TreeNode (色分け Success=緑/Failure=赤/Running=黄)
-  - 右: Node Inspector (Name / Kind / Id / Parent / Children / Last Status)
+  - 右: FNode Inspector (Name / Kind / Id / Parent / Children / Last Status)
 - **公開定数**: `kHistorySize = 60u`, `kInvalidId = 0xFFFFFFFFu`
 - **callback**: `StepCallback` (登録時 panel は `tree->Tick` を直接呼ばず callback に委譲 = blackboard を渡す自由を user に与える)
 
@@ -615,14 +615,14 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 
 **path**: `samples/34_HelloLevelEditor/main.cpp`
 
-- **編集対象**: `acs::game::Tilemap` (multi-layer u16 TileId grid)
+- **編集対象**: `acs::game::FTilemap` (multi-layer u16 FTileId grid)
 - **4 ブラシ** (`EBrushKind`):
   - Paint (塗り、drag 対応)
-  - Erase (TileId{0} 強制、drag 対応)
+  - Erase (FTileId{0} 強制、drag 対応)
   - Fill (flood-fill、連結成分塗替、click 単発、`kFloodFillMaxCells = 4096` 打切)
   - Pick (スポイト、クリック位置の tile id を current にコピー)
 - **toolbar**: Brush kind / Active layer dropdown / Tile id picker (DragInt 0-1023) / Show grid toggle / Snap-to-grid toggle
-- **camera**: `EditorCamera` Mode2D (pan/zoom)
+- **camera**: `FEditorCamera` Mode2D (pan/zoom)
 - **viewport**: ImDrawList で色付き矩形 placeholder (本物 texture atlas は Phase 22+ で差替)
 - **公開定数**: `kTileIdMax = 1023`, `kFloodFillMaxCells = 4096`
 
@@ -630,7 +630,7 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 
 **path**: `samples/35_HelloSpriteAtlasEditor/main.cpp`
 
-- **編集対象**: `acs::game::SpritePack` (atlas メタ + 名前付き frame 矩形リスト)
+- **編集対象**: `acs::game::FSpritePack` (atlas メタ + 名前付き frame 矩形リスト)
 - **UI**: toolbar (New/Delete/Pivot プリセット) + 中央 viewport (atlas placeholder + 矩形 overlay) + 左 frame list + 右 inspector
 - **操作**:
   - frame rect の resize: 4 corner + 4 edge の 8 handle (mouse drag、`EFrameHandle`)
@@ -645,7 +645,7 @@ ImGui スタイル統一テーマ管理。`.acstheme` テキスト形式で保�
 - **FontEditor**: `samples/36_HelloFontEditor/`、`src/gameframework/tools/fontedit/`
   - 編集対象: font face list (font path + size + fallback chain)
 - **CinematicsEditor**: `samples/37_HelloCinematicsEditor/`、`src/gameframework/tools/cinetimeline/`
-  - 編集対象: `TimelineKeyframe` (cine 形式 `.acscine`)
+  - 編集対象: `FTimelineKeyframe` (cine 形式 `.acscine`)
 
 両者とも Phase 23 で並列作成中。本書 v1 時点 (2026-05-24) では未実装。
 
@@ -661,59 +661,59 @@ ImGui の drag-drop payload identifier は 32 文字以内が仕様上限。ACS 
 
 | identifier | payload data | 送信側 | 受信側 |
 |---|---|---|---|
-| `"ASSET_PATH"` | `const wchar_t*` (1 pointer = 8 bytes) | AssetBrowser | ModelViewerPanel.OnAssetSelected / PropertyDrawer "AssetPath" |
-| `"HIER_NODE_PTR"` | `class Node2D*` (1 pointer = 8 bytes) | HierarchyPanel (drag source) | HierarchyPanel (drop target、Reparent 用) |
+| `"ASSET_PATH"` | `const wchar_t*` (1 pointer = 8 bytes) | FAssetBrowser | FModelViewerPanel.OnAssetSelected / PropertyDrawer "AssetPath" |
+| `"HIER_NODE_PTR"` | `class FNode2D*` (1 pointer = 8 bytes) | FHierarchyPanel (drag source) | FHierarchyPanel (drop target、Reparent 用) |
 
-両者とも **pointer 直渡し** で、寿命は AssetBrowser/HierarchyPanel の Refresh まで保証される (= 次の Refresh 後は無効化)。
+両者とも **pointer 直渡し** で、寿命は FAssetBrowser/FHierarchyPanel の Refresh まで保証される (= 次の Refresh 後は無効化)。
 
 **公開定数の場所**:
-- `AssetBrowser::kDragDropPayloadId = "ASSET_PATH"`
-- `PropertyDrawerRegistry::kAssetPathPayloadId = "ASSET_PATH"` (同値で AssetPath drawer 側で受け取り)
-- `HierarchyPanel::kDragDropId = "HIER_NODE_PTR"`
+- `FAssetBrowser::kDragDropPayloadId = "ASSET_PATH"`
+- `FPropertyDrawerRegistry::kAssetPathPayloadId = "ASSET_PATH"` (同値で AssetPath drawer 側で受け取り)
+- `FHierarchyPanel::kDragDropId = "HIER_NODE_PTR"`
 
-### 5.2 SelectionService 駆動の panel 間同期
+### 5.2 FSelectionService 駆動の panel 間同期
 
-1 panel で選択 → 他 panel が `OnSelectionChanged` 通知で同期する `SelectionService` ハブパターン:
+1 panel で選択 → 他 panel が `OnSelectionChanged` 通知で同期する `FSelectionService` ハブパターン:
 
 ```
-HierarchyPanel.SelectNode(node)
+FHierarchyPanel.SelectNode(node)
        |
        v
-SelectionService::SelectNode(FNodeId id)
+FSelectionService::SelectNode(FNodeId id)
        |
        +-- 全 callback を一斉発火 (from, to) ペア
        |
        v
-InspectorPanel が購読していた callback → 自身の表示を更新
+FInspectorPanel が購読していた callback → 自身の表示を更新
 ```
 
 **特徴**:
-- `SelectionService::RegisterCallback(cb, user)` で複数 panel が購読可
+- `FSelectionService::RegisterCallback(cb, user)` で複数 panel が購読可
 - `from / to` ペアで渡されるため購読側で diff 取得が容易
-- panel 側は SelectionService と疎結合 (forward decl のみで OK)
+- panel 側は FSelectionService と疎結合 (forward decl のみで OK)
 
-**`EditorWorkspace::BroadcastSelectionChanged()`** は別の API で、これは workspace が登録 panel 全部の `OnSelectionChanged(SelectionService&)` メソッドを呼ぶ fan-out。SelectionService の callback hub と併用可能 (両方使う実装パターンも OK)。
+**`FEditorWorkspace::BroadcastSelectionChanged()`** は別の API で、これは workspace が登録 panel 全部の `OnSelectionChanged(FSelectionService&)` メソッドを呼ぶ fan-out。FSelectionService の callback hub と併用可能 (両方使う実装パターンも OK)。
 
-### 5.3 AssetBrowser → workspace.BroadcastAssetSelected → 各 panel の OnAssetSelected cascade
+### 5.3 FAssetBrowser → workspace.BroadcastAssetSelected → 各 panel の OnAssetSelected cascade
 
 ```
-AssetBrowser でユーザがファイル選択
+FAssetBrowser でユーザがファイル選択
        |
        v
-AssetBrowser の _on_selected_cb が呼ばれる (例: sample 31 main.cpp で登録)
+FAssetBrowser の _on_selected_cb が呼ばれる (例: sample 31 main.cpp で登録)
        |
        v
 sample 側 callback 内で workspace.BroadcastAssetSelected(asset_path)
        |
        v
-EditorWorkspace が全 registered panel の OnAssetSelected を順に呼ぶ
+FEditorWorkspace が全 registered panel の OnAssetSelected を順に呼ぶ
        |
-       +-- ModelViewerPanel.OnAssetSelected("models/hero.mdl")
+       +-- FModelViewerPanel.OnAssetSelected("models/hero.mdl")
        |     → 拡張子フィルタ → LoadModelAsset()
        +-- 他 panel は OnAssetSelected を override してなければ no-op
 ```
 
-**asset_path の寿命**: AssetBrowser 所有 (= AssetBrowser の次の Refresh まで)。panel 側でコピー保持したい場合は固定長 wchar_t バッファに自前で写すこと (ModelViewerPanel が `kMaxAssetPathChars = 512u` で実装)。
+**asset_path の寿命**: FAssetBrowser 所有 (= FAssetBrowser の次の Refresh まで)。panel 側でコピー保持したい場合は固定長 wchar_t バッファに自前で写すこと (FModelViewerPanel が `kMaxAssetPathChars = 512u` で実装)。
 
 ### 5.4 Save/Load フォーマット統一
 
@@ -726,9 +726,9 @@ EditorWorkspace が全 registered panel の OnAssetSelected を順に呼ぶ
 | BehaviorTreeEditor | `.acsbt` | (実装予定) | メタミラー dump |
 | LevelEditor | `.acstilemap` | (Phase 22+ で実装) | layer x cell grid |
 | SpriteAtlasEditor | `.acsatlas` | (Phase 22+ で実装) | atlas path + frame rect list |
-| CinematicsEditor | `.acscine` | (Phase 23 実装予定) | TimelineKeyframe list |
-| EditorTheme | `.acstheme` | `ACS_THEME 1` | preset + colors + font scale |
-| EditorWorkspace | `.acslayout` | `ACS_EDLAYOUT 1` | ImGui ini + panel visible/dock_target |
+| CinematicsEditor | `.acscine` | (Phase 23 実装予定) | FTimelineKeyframe list |
+| FEditorTheme | `.acstheme` | `ACS_THEME 1` | preset + colors + font scale |
+| FEditorWorkspace | `.acslayout` | `ACS_EDLAYOUT 1` | ImGui ini + panel visible/dock_target |
 
 **共通フォーマット規約**:
 1. 1 行目に magic + version (例: `ACS_FXEDIT 1`)
@@ -752,24 +752,24 @@ panel.SetOnXxxCallback(&MyHandler, &my_editor);
 
 | panel | callback |
 |---|---|
-| ParticleEditorPanel | SaveCallback / LoadCallback |
-| InspectorPanel | FieldChangeCallback (FNodeId target, const char* field_name, EFieldKind kind) |
-| HierarchyPanel | NodeRightClickCallback (Node2D* node) |
-| EditorToolbar | SaveSceneCallback |
-| SelectionService | SelectionChangeCallback (FNodeId from, FNodeId to) |
-| AssetBrowser | AssetSelectedCallback / AssetDoubleClickedCallback |
-| UndoStack | CommandExecutedCallback (const EditorCommand*, bool is_redo) |
-| EditorGizmo | ManipulateCallback (EGizmoMode, FVec3 delta) |
-| ModelAnimationPanel | AnimationFrameCallback (u32 clip_index, f32 time_sec) |
-| ModelMaterialPanel | MaterialChangeCallback (u32 slot, const MaterialOverride&) |
-| AnimCurveEditorPanel | CurveChangeCallback (AnimationCurve*) |
-| BehaviorTreeEditorPanel | StepCallback (BehaviorTree*, f32 dt) |
+| FParticleEditorPanel | SaveCallback / LoadCallback |
+| FInspectorPanel | FieldChangeCallback (FNodeId target, const char* field_name, EFieldKind kind) |
+| FHierarchyPanel | NodeRightClickCallback (FNode2D* node) |
+| FEditorToolbar | SaveSceneCallback |
+| FSelectionService | SelectionChangeCallback (FNodeId from, FNodeId to) |
+| FAssetBrowser | AssetSelectedCallback / AssetDoubleClickedCallback |
+| FUndoStack | CommandExecutedCallback (const FEditorCommand*, bool is_redo) |
+| FEditorGizmo | ManipulateCallback (EGizmoMode, FVec3 delta) |
+| FModelAnimationPanel | AnimationFrameCallback (u32 clip_index, f32 time_sec) |
+| FModelMaterialPanel | MaterialChangeCallback (u32 slot, const FMaterialOverride&) |
+| FAnimCurveEditorPanel | CurveChangeCallback (FAnimationCurve*) |
+| FBehaviorTreeEditorPanel | StepCallback (FBehaviorTree*, f32 dt) |
 
-UndoStack 連携は同じ pattern で書ける: callback の中で `New<XxxCommand>(...)` を生成して `undo_stack.Push(cmd)`。
+FUndoStack 連携は同じ pattern で書ける: callback の中で `New<XxxCommand>(...)` を生成して `undo_stack.Push(cmd)`。
 
 ### 5.6 panel API 統一規約
 
-全 panel が以下の共通形を採る (`EditorPanel` 継承の有無に関わらず):
+全 panel が以下の共通形を採る (`FEditorPanel` 継承の有無に関わらず):
 
 | API | 用途 |
 |---|---|
@@ -791,7 +791,7 @@ ACS 全体規約 (詳細は `docs/StyleGuide.md`) を editor 文脈で再確認:
 - **STL 不使用**: `<vector>` / `<string>` / `<unordered_map>` / `<memory>` / `<functional>` 全部禁止。代替: `acs::TArray<T>` / `acs::FString` (使う場合) / `acs::THashMap<K,V>` / `acs::TUniquePtr<T>` / 関数ポインタ + `void* user`。
 - **`<string>` 禁止**: editor 内の文字列は `const char*` (リテラル想定) または `wchar_t[N]` 固定長バッファ (`kMaxPathChars = 512u` 等)。
 - **No exceptions**: `throw` / `try` / `catch` 禁止、全関数 `noexcept`。エラーは `TResult<T, FErrorCode>` または silent no-op + `ACS_LOG_WARN`。
-- **No RTTI**: `dynamic_cast` / `typeid` 禁止。型識別は `Kind()` で static アドレスを返す idiom (例: `EditorCommand::Kind()`, `BehaviorTreeEditor::EBtKind` enum)。
+- **No RTTI**: `dynamic_cast` / `typeid` 禁止。型識別は `Kind()` で static アドレスを返す idiom (例: `FEditorCommand::Kind()`, `BehaviorTreeEditor::EBtKind` enum)。
 - **canonical FCallback**: `using Cb = void (*)(void* user, /* payload */) noexcept;`
 
 ### 6.2 ImGui include の局所化
@@ -806,12 +806,12 @@ ACS 全体規約 (詳細は `docs/StyleGuide.md`) を editor 文脈で再確認:
 #include "gameframework/ParticleEffectSystem.h"
 // ↑ ImGui ヘッダは include しない
 
-class ParticleEditorPanel {
+class FParticleEditorPanel {
     // ImVec2 / ImGuiCol_* も使わない (FVec2 / FVec4 で持つ)
 };
 ```
 
-理由: editor 上位レイヤから panel を include しても include order が壊れないようにする。EditorTheme が `acs::FVec4` ベースで `EditorThemeColors` を持つのも同じ理由。
+理由: editor 上位レイヤから panel を include しても include order が壊れないようにする。FEditorTheme が `acs::FVec4` ベースで `FEditorThemeColors` を持つのも同じ理由。
 
 ### 6.3 非コピー / 非ムーブ
 
@@ -844,7 +844,7 @@ public:
 | spriteatlas | `EPivotPreset`, `EFrameHandle` |
 | btedit | `EBtKind` |
 
-例外: BehaviorTree 本体の `EBtStatus` は既に E prefix。`EAssetKind::None` ではなく `Unknown` を使うのは「不明 / 未分類」のニュアンスを強調するため。
+例外: FBehaviorTree 本体の `EBtStatus` は既に E prefix。`EAssetKind::None` ではなく `Unknown` を使うのは「不明 / 未分類」のニュアンスを強調するため。
 
 ### 6.5 ACS_RENDER_DX12_RAW guard
 
@@ -874,64 +874,64 @@ int main() { return 0; }
 
 各セクションは現状の「実装済み」を超えた **将来の到達点**。優先度順に並べる。
 
-### 7.1 全 editor の UndoStack 統合
+### 7.1 全 editor の FUndoStack 統合
 
-現状: UndoStack は editor_core にあるが、各 panel が独自に「dirty フラグ」を持っており UndoStack を直接使っていない panel が多い (ParticleEditorPanel の `_dirty`、InspectorPanel の `_dirty` 等)。
+現状: FUndoStack は editor_core にあるが、各 panel が独自に「dirty フラグ」を持っており FUndoStack を直接使っていない panel が多い (FParticleEditorPanel の `_dirty`、FInspectorPanel の `_dirty` 等)。
 
-将来: `EditorWorkspace` が 1 個の `UndoStack` を保持し、全 panel の編集アクションが `Push(New<XxxCommand>(...))` で集約される形に refactor。各 panel に `OnUndo() / OnRedo() noexcept` virtual hook を追加 (`EditorPanel.h` の「将来拡張余地」コメントに既に予約)。
+将来: `FEditorWorkspace` が 1 個の `FUndoStack` を保持し、全 panel の編集アクションが `Push(New<XxxCommand>(...))` で集約される形に refactor。各 panel に `OnUndo() / OnRedo() noexcept` virtual hook を追加 (`EditorPanel.h` の「将来拡張余地」コメントに既に予約)。
 
-### 7.2 ParticleEditor / SceneInspector を EditorPanel 基底に refactor
+### 7.2 ParticleEditor / SceneInspector を FEditorPanel 基底に refactor
 
-Phase 19b ParticleEditor と Phase 20 SceneInspector は **Phase 21a 共通基盤の前** に実装されたため、`EditorPanel` を継承していない。今後の refactor で:
+Phase 19b ParticleEditor と Phase 20 SceneInspector は **Phase 21a 共通基盤の前** に実装されたため、`FEditorPanel` を継承していない。今後の refactor で:
 
-- `ParticleEditorPanel` → `editor_core::EditorPanel` 継承
-- `HierarchyPanel` / `InspectorPanel` / `EditorToolbar` → 同上
+- `FParticleEditorPanel` → `editor_core::FEditorPanel` 継承
+- `FHierarchyPanel` / `FInspectorPanel` / `FEditorToolbar` → 同上
 
-これにより `EditorWorkspace::RegisterPanel(&panel)` で統一的に dispatch できるようになり、ParticleEditor も `OnAssetSelected` で `.fxedit` ファイルを自動 load する道が開ける。
+これにより `FEditorWorkspace::RegisterPanel(&panel)` で統一的に dispatch できるようになり、ParticleEditor も `OnAssetSelected` で `.fxedit` ファイルを自動 load する道が開ける。
 
 ### 7.3 panel 間 dependency declaration
 
-現状: `EditorWorkspace` の panel 配列は登録順 = dispatch 順で、依存関係を明示する仕組みは無い。
+現状: `FEditorWorkspace` の panel 配列は登録順 = dispatch 順で、依存関係を明示する仕組みは無い。
 
 将来 (`EditorPanel.h` 末尾「将来拡張余地」より):
 ```cpp
 virtual u32 GetDependencyMask() const noexcept;
 ```
-panel ごとに「依存先 panel」を bit flag で宣言し、Workspace が dependency 順に OnFrameBegin / DrawUI を呼ぶ schedule を組む。例: ModelViewer は AssetBrowser に依存 → AssetBrowser を先に Tick。
+panel ごとに「依存先 panel」を bit flag で宣言し、Workspace が dependency 順に OnFrameBegin / DrawUI を呼ぶ schedule を組む。例: ModelViewer は FAssetBrowser に依存 → FAssetBrowser を先に Tick。
 
 ### 7.4 shortcut key dispatcher
 
 現状: 各 panel が独自に ImGui::IsKeyPressed をチェック (例: BehaviorTreeEditor の Step ボタンに割り当てるキーは無い)。
 
-将来: `EditorWorkspace` 内に shortcut key dispatcher を追加し、`Ctrl+S` → 全 panel の `OnSaveLayout`、`Ctrl+Z` → UndoStack.Undo() を統一処理。各 panel に `OnKeyShortcut(KeyCombo combo) noexcept` virtual hook を追加 (`KeyCombo` 型は Phase 21b で input/ 配下に予定)。
+将来: `FEditorWorkspace` 内に shortcut key dispatcher を追加し、`Ctrl+S` → 全 panel の `OnSaveLayout`、`Ctrl+Z` → FUndoStack.Undo() を統一処理。各 panel に `OnKeyShortcut(KeyCombo combo) noexcept` virtual hook を追加 (`KeyCombo` 型は Phase 21b で input/ 配下に予定)。
 
 ### 7.5 ImGui docking branch 統合
 
-現状: `EditorWorkspace::DrawDockSpace()` は `#ifdef IMGUI_HAS_DOCK` guard で囲まれており、ACS の現状 (master branch ImGui) では no-op になる。各 panel は通常の float window として並ぶ。
+現状: `FEditorWorkspace::DrawDockSpace()` は `#ifdef IMGUI_HAS_DOCK` guard で囲まれており、ACS の現状 (master branch ImGui) では no-op になる。各 panel は通常の float window として並ぶ。
 
 将来: Phase 21c 以降で ImGui docking branch (`docking` 公式 fork) に切替えると自動的に有効化される。`SetDockTarget(bool)` ヒントを DockSpace に強制反映する仕組みも Phase 21c で追加予定。
 
 ### 7.6 multi-window (sub-viewport)
 
 ImGui docking branch の `ImGuiConfigFlags_ViewportsEnable` を有効化すると、各 panel を OS ネイティブ window として外に飛ばせる。デュアルモニタ workflow の editor (Unity / Unreal の "Detach Panel") に対応するため、Phase 21c で:
-- `EditorWorkspace` が `_enable_viewports` フラグを持つ
+- `FEditorWorkspace` が `_enable_viewports` フラグを持つ
 - panel ごとに `WantsExternalViewport() const` virtual hook を追加
 
 ### 7.7 editor の AssetPack 統合 (Phase 23 並行)
 
-Phase 23 で AssetPack (`.acpak` 形式) が実装されると、AssetBrowser が「実 file system + AssetPack overlay」の 2 層を統合表示する必要がある。
+Phase 23 で AssetPack (`.acpak` 形式) が実装されると、FAssetBrowser が「実 file system + AssetPack overlay」の 2 層を統合表示する必要がある。
 
-- `AssetBrowser::Init(const wchar_t* root)` に加えて `MountAssetPack(const wchar_t* pak_path)` API 追加
-- `AssetEntry` に「source: filesystem / assetpack」フラグ追加
+- `FAssetBrowser::Init(const wchar_t* root)` に加えて `MountAssetPack(const wchar_t* pak_path)` API 追加
+- `FAssetEntry` に「source: filesystem / assetpack」フラグ追加
 - AssetPack 内 entry はアイコンを変えて視覚的に区別
 
 ### 7.8 残: NodeGraph 系 editor
 
-Phase 22 で実装した editor 群 (BehaviorTree / AnimCurve) は「ツリー or 1D curve」だが、ACS が UE5 級グラフィックを目指す上で **NodeGraph 系 editor** が複数必要:
+Phase 22 で実装した editor 群 (FBehaviorTree / AnimCurve) は「ツリー or 1D curve」だが、ACS が UE5 級グラフィックを目指す上で **NodeGraph 系 editor** が複数必要:
 
 | 予定 editor | 編集対象 | 想定 phase |
 |---|---|---|
-| BehaviorTree graph 編集 (= btedit v2) | Selector/Sequence の子追加 / 配置入替 | Phase 24+ |
+| FBehaviorTree graph 編集 (= btedit v2) | Selector/FSequence の子追加 / 配置入替 | Phase 24+ |
 | FAnimation StateGraph editor | state node + transition arrow | Phase 24+ |
 | MaterialGraph editor | shader node (UE Material Editor 風) | Phase 25+ |
 
@@ -947,7 +947,7 @@ Phase 23 CinematicsEditor が完成すると、timeline 上のキーフレーム
 - **SDF rendering** mode (font glyph 風) のメタデータ編集
 - **9-slice border** (UI で stretch する際の corner/edge 不変領域) の border 編集 (4 値: top/right/bottom/left)
 
-将来の `MaterialOverride` 型に texture path swap を追加するのと同じ pattern で `SpriteFrameMetadata` 構造体を拡張する。
+将来の `FMaterialOverride` 型に texture path swap を追加するのと同じ pattern で `SpriteFrameMetadata` 構造体を拡張する。
 
 ---
 
@@ -958,8 +958,8 @@ Phase 23 CinematicsEditor が完成すると、timeline 上のキーフレーム
 ### 8.1 ドキュメント
 
 - **`docs/GameFramework.md` §15.4** — 著作ツール深度 & 外部ミドルウェアシーム (Pillar K 拡張)
-  - 4 不変条件: (a) Pillar K seam 上に構築・重複実装しない (b) v1 はすべて in-engine UiKit (c) FMOD/Wwise seam (d) Cinematics editor は CinematicsDirector 上に被せる
-  - Phase 56〜58 (著作ツール深度): Particle Editor → BT visual editor + Level editor → FMOD/Wwise seam + Cinematics editor
+  - 4 不変条件: (a) Pillar K seam 上に構築・重複実装しない (b) v1 はすべて in-engine UiKit (c) FMOD/Wwise seam (d) Cinematics editor は FCinematicsDirector 上に被せる
+  - Phase 56〜58 (著作ツール深度): FParticle Editor → BT visual editor + Level editor → FMOD/Wwise seam + Cinematics editor
 - **`docs/StyleGuide.md`** — ACS Coding Style Guide v1
   - §1 基本不変条件 (No STL / No exceptions / No RTTI / TResult<T,E> / canonical FCallback)
   - §2 命名 (PascalCase / snake_case / E-prefix enum / I-prefix interface)
@@ -975,16 +975,16 @@ Phase 23 CinematicsEditor が完成すると、timeline 上のキーフレーム
 
 ### 8.3 関連ヘッダ (editor 群の隣接モジュール)
 
-- `src/gameframework/Node2D.h` — Scene グラフのノード (HierarchyPanel が表示対象)
-- `src/gameframework/InspectorSeam.h` — IInspectableProvider / InspectableField / EFieldKind (InspectorPanel が描画対象)
-- `src/gameframework/ParticleEffectSystem.h` — ParticleEmitterDef (ParticleEditorPanel の編集対象)
-- `src/gameframework/AnimationCurve.h` — Hermite/Linear/Step curve (AnimCurveEditorPanel の編集対象)
-- `src/gameframework/BehaviorTree.h` — BtSelector / BtSequence / BtAction (BehaviorTreeEditorPanel の観察対象)
-- `src/gameframework/Tilemap.h` — multi-layer u16 TileId grid (LevelEditorPanel の編集対象)
-- `src/gameframework/SpritePack.h` — atlas + frame rect (SpriteAtlasEditorPanel の編集対象)
-- `src/gameframework/DebugDraw.h` — 2D line buffer (EditorGizmo が出力先として使用)
-- `src/platform/FileSystem.h` — Win32 CreateFileW ベース I/O (FxeditSerializer / EditorTheme / EditorWorkspace の永続化)
-- `src/render/PostProcess.h` — ETonemapMode (ModelViewerPanel が u32 で受け流し、Sample 31 renderer で変換)
+- `src/gameframework/Node2D.h` — FScene グラフのノード (FHierarchyPanel が表示対象)
+- `src/gameframework/InspectorSeam.h` — IInspectableProvider / FInspectableField / EFieldKind (FInspectorPanel が描画対象)
+- `src/gameframework/ParticleEffectSystem.h` — FParticleEmitterDef (FParticleEditorPanel の編集対象)
+- `src/gameframework/AnimationCurve.h` — Hermite/Linear/Step curve (FAnimCurveEditorPanel の編集対象)
+- `src/gameframework/BehaviorTree.h` — FBtSelector / FBtSequence / FBtAction (FBehaviorTreeEditorPanel の観察対象)
+- `src/gameframework/Tilemap.h` — multi-layer u16 FTileId grid (FLevelEditorPanel の編集対象)
+- `src/gameframework/SpritePack.h` — atlas + frame rect (FSpriteAtlasEditorPanel の編集対象)
+- `src/gameframework/DebugDraw.h` — 2D line buffer (FEditorGizmo が出力先として使用)
+- `src/platform/FileSystem.h` — Win32 CreateFileW ベース I/O (FFxeditSerializer / FEditorTheme / FEditorWorkspace の永続化)
+- `src/render/PostProcess.h` — ETonemapMode (FModelViewerPanel が u32 で受け流し、Sample 31 renderer で変換)
 
 ---
 

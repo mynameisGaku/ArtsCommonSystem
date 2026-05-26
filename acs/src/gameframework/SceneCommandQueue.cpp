@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — SceneCommandQueue 実装 (deferred command queue)
+// GameFramework Pillar A — FSceneCommandQueue 実装 (deferred command queue)
 //
 // 設計メモ:
 //  ・label 比較は pointer 一致 → 不一致なら strcmp で fallback。文字列リテラル前提
 //    だが、複数 TU で同一リテラルが別アドレスに置かれるケース (= /GF 未指定など) を
-//    救済する。DebugOverlay の watch 列と同じ方針。
+//    救済する。FDebugOverlay の watch 列と同じ方針。
 //  ・Flush 中のコールバックが新規 Enqueue を呼んだ場合、_records の PushBack で
 //    reference invalidation が起きる可能性がある。ループは index で回し、走査 size
 //    は最初にスナップショット、各反復で fn / user / one_shot / label を local にコピー
 //    してから呼ぶ。新規追加された command は今回の Flush では実行しない。
 //  ・priority 昇順ソートは insertion sort で安定 (同 priority は Enqueue 順を保存)。
-//    SceneCommandQueue は editor / 連打抑制が想定 N、現実的に数〜数十の想定なので
+//    FSceneCommandQueue は editor / 連打抑制が想定 N、現実的に数〜数十の想定なので
 //    O(N^2) で十分。N が大きくなったら merge sort に差し替え可能。
 //  ・Flush 後の物理削除は「実行済 one_shot を後ろから順に PopBack または RemoveAtSwap」
 //    で行うと安定順序が崩れるため、新しい TArray に「残す要素」だけを書き戻す方式を
@@ -42,18 +42,18 @@ bool LabelEquals(const char* a, const char* b) noexcept {
 // enqueue
 // ============================================================================
 
-void SceneCommandQueue::Enqueue(const char* label, SceneCommandFn fn, void* user,
+void FSceneCommandQueue::Enqueue(const char* label, SceneCommandFn fn, void* user,
                                  u32 priority, bool one_shot) noexcept {
     if (label == nullptr) {
-        ACS_LOG_WARN("SceneCommandQueue::Enqueue: null label ignored");
+        ACS_LOG_WARN("FSceneCommandQueue::Enqueue: null label ignored");
         return;
     }
     if (fn == nullptr) {
-        ACS_LOG_WARN("SceneCommandQueue::Enqueue: null fn for label '%s' ignored", label);
+        ACS_LOG_WARN("FSceneCommandQueue::Enqueue: null fn for label '%s' ignored", label);
         return;
     }
 
-    CommandRecord r;
+    FCommandRecord r;
     r.label    = label;
     r.fn       = fn;
     r.user     = user;
@@ -62,14 +62,14 @@ void SceneCommandQueue::Enqueue(const char* label, SceneCommandFn fn, void* user
     _records.PushBack(r);
 }
 
-void SceneCommandQueue::EnqueueIfAbsent(const char* label, SceneCommandFn fn, void* user,
+void FSceneCommandQueue::EnqueueIfAbsent(const char* label, SceneCommandFn fn, void* user,
                                          u32 priority) noexcept {
     if (label == nullptr) {
-        ACS_LOG_WARN("SceneCommandQueue::EnqueueIfAbsent: null label ignored");
+        ACS_LOG_WARN("FSceneCommandQueue::EnqueueIfAbsent: null label ignored");
         return;
     }
     if (fn == nullptr) {
-        ACS_LOG_WARN("SceneCommandQueue::EnqueueIfAbsent: null fn for label '%s' ignored", label);
+        ACS_LOG_WARN("FSceneCommandQueue::EnqueueIfAbsent: null fn for label '%s' ignored", label);
         return;
     }
 
@@ -80,7 +80,7 @@ void SceneCommandQueue::EnqueueIfAbsent(const char* label, SceneCommandFn fn, vo
     }
 
     // 新規追加 (priority / one_shot は EnqueueIfAbsent では one_shot=true 固定 — 仕様)
-    CommandRecord r;
+    FCommandRecord r;
     r.label    = label;
     r.fn       = fn;
     r.user     = user;
@@ -93,7 +93,7 @@ void SceneCommandQueue::EnqueueIfAbsent(const char* label, SceneCommandFn fn, vo
 // cancel / inspect
 // ============================================================================
 
-void SceneCommandQueue::Cancel(const char* label) noexcept {
+void FSceneCommandQueue::Cancel(const char* label) noexcept {
     if (label == nullptr) return;
     // 安定削除: write index で前から詰める (順序保存)。
     // Flush 中に呼ばれても安全 (size 0 への縮小は走査側でガード済み)。
@@ -108,11 +108,11 @@ void SceneCommandQueue::Cancel(const char* label) noexcept {
     while (_records.Size() > w) _records.PopBack();
 }
 
-u32 SceneCommandQueue::PendingCount() const noexcept {
+u32 FSceneCommandQueue::PendingCount() const noexcept {
     return static_cast<u32>(_records.Size());
 }
 
-bool SceneCommandQueue::Contains(const char* label) const noexcept {
+bool FSceneCommandQueue::Contains(const char* label) const noexcept {
     if (label == nullptr) return false;
     const usize n = _records.Size();
     for (usize i = 0; i < n; ++i) {
@@ -121,7 +121,7 @@ bool SceneCommandQueue::Contains(const char* label) const noexcept {
     return false;
 }
 
-void SceneCommandQueue::ClearAll() noexcept {
+void FSceneCommandQueue::ClearAll() noexcept {
     _records.Clear();
 }
 
@@ -129,12 +129,12 @@ void SceneCommandQueue::ClearAll() noexcept {
 // Flush
 // ============================================================================
 
-void SceneCommandQueue::StableSortByPriority() noexcept {
+void FSceneCommandQueue::StableSortByPriority() noexcept {
     // insertion sort (stable)。N は小規模想定 (editor の保留要求や連打抑制で
     // 通常 < 数十)。同 priority は Enqueue 順 (= 元の index 順) を保存する。
     const usize n = _records.Size();
     for (usize i = 1; i < n; ++i) {
-        CommandRecord key = _records[i];
+        FCommandRecord key = _records[i];
         usize j = i;
         // j-1 の priority が key より厳密に大きい間だけ右へずらす (= 安定)。
         while (j > 0 && _records[j - 1].priority > key.priority) {
@@ -145,14 +145,14 @@ void SceneCommandQueue::StableSortByPriority() noexcept {
     }
 }
 
-void SceneCommandQueue::Flush() noexcept {
+void FSceneCommandQueue::Flush() noexcept {
     if (_records.IsEmpty()) return;
 
     // 1. priority 昇順に並べる (同 priority は安定 = Enqueue 順)
     StableSortByPriority();
 
     // 2. 走査範囲を Flush 開始時点の size で固定。Flush 中に Enqueue された
-    //    command は今回実行しない (次回 Flush で実行)。SceneEventBus と同じ
+    //    command は今回実行しない (次回 Flush で実行)。FSceneEventBus と同じ
     //    再エントランシ安全性パターン。
     const usize snapshot_size = _records.Size();
 
@@ -161,11 +161,11 @@ void SceneCommandQueue::Flush() noexcept {
     //    snapshot 範囲外 (Flush 中に追加) は実行せず全て残す。
     //    安定順序を維持するため、新 TArray で書き戻す方式を採用 (PopBack/Swap は
     //    順序破壊が起き得るため避ける)。
-    TArray<CommandRecord> retained;
+    TArray<FCommandRecord> retained;
 
     for (usize i = 0; i < snapshot_size; ++i) {
         // ループ内で _records が再 alloc される可能性に備え、各反復で値をコピー。
-        const CommandRecord rec = _records[i];
+        const FCommandRecord rec = _records[i];
 
         // 実行はコピーしたフィールドで行う (_records 側が動いても影響を受けない)。
         if (rec.fn != nullptr) {

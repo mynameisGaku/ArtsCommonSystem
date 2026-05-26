@@ -6,7 +6,7 @@
 //     一掃して、サンプルが「何を見せたいか」だけに集中できるようにする。
 //
 // 使用例 (HelloHelloMVVM 等):
-//   class MyApp : public Application {
+//   class MyApp : public FApplication {
 //       void OnStart() noexcept override {
 //           ACS_SAMPLE_INIT(_imgui.Init(GetWindow(), GetRenderer()));
 //           ACS_SAMPLE_INIT(_shader.Init(*GetRenderer().Device(),
@@ -33,8 +33,8 @@
 
 namespace acs {
 
-class Application;
-class Font;
+class FApplication;
+class FFont;
 class IRhiDevice;
 
 namespace Sample {
@@ -44,9 +44,9 @@ namespace Sample {
 const wchar_t* DefaultUIFontPath() noexcept;
 
 // 候補フォントを順に試して最初に成功したものをロードする。
-//   atlas_size  : Font のアトラスサイズ (LoadFromFile に渡す)
+//   atlas_size  : FFont のアトラスサイズ (LoadFromFile に渡す)
 //   include_cjk : 日本語等を含めるか (true で大きな atlas を使う)
-TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
+TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
                                    f32  size_px     = 18.0f,
                                    u32  atlas_size  = 1024,
                                    bool include_cjk = false) noexcept;
@@ -62,7 +62,7 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
 //   ACS_SAMPLE_INIT(_renderer_thing.Init(args));
 //
 // マクロ内では `auto _r = (expr); if (_r.IsErr()) { ログ + Quit + return; }` を展開。
-// Application のメンバ関数からのみ使える (Quit() メソッドへのアクセスが要るため)。
+// FApplication のメンバ関数からのみ使える (Quit() メソッドへのアクセスが要るため)。
 #define ACS_SAMPLE_INIT(expr)                                                      \
     do {                                                                           \
         auto _acs_sample_r = (expr);                                               \

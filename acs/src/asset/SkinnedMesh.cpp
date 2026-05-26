@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SkinnedMeshAsset + AnimationPlayer 実装
+// FSkinnedMeshAsset + FAnimationPlayer 実装
 #include "asset/SkinnedMesh.h"
 #include "math/Math.h"
 #include "foundation/Move.h"
@@ -56,10 +56,10 @@ void SampleChannel(const FAnimationChannel& ch, f32 t,
 } // namespace
 
 // =============================================================================
-// SkinnedMeshAsset
+// FSkinnedMeshAsset
 // =============================================================================
 
-void SkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
+void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     const u32 n = static_cast<u32>(_bones.Size());
     if (n == 0) return;
 
@@ -85,10 +85,10 @@ void SkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
 }
 
 // =============================================================================
-// AnimationPlayer
+// FAnimationPlayer
 // =============================================================================
 
-void AnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
+void FAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
     if (!_mesh) return;
     if (anim_index >= _mesh->Animations().Size()) return;
     _anim = static_cast<i32>(anim_index);
@@ -97,7 +97,7 @@ void AnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
     _playing = true;
 }
 
-void AnimationPlayer::Update(f32 dt) noexcept {
+void FAnimationPlayer::Update(f32 dt) noexcept {
     if (!_playing || !_mesh || _anim < 0) return;
     if (_anim >= static_cast<i32>(_mesh->Animations().Size())) return;
     const FAnimation& a = _mesh->Animations()[_anim];
@@ -116,7 +116,7 @@ void AnimationPlayer::Update(f32 dt) noexcept {
     }
 }
 
-u32 AnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
+u32 FAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
     if (!_mesh || !out_palette) return 0;
     const TArray<FBone>& bones = _mesh->Bones();
     const u32 nb = static_cast<u32>(bones.Size());

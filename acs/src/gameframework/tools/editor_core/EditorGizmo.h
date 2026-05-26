@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / EditorGizmo (Phase 21a)
+// GameFramework Pillar — editor_core / FEditorGizmo (Phase 21a)
 //
 // 役割:
-//   選択中の Node2D / Node3D の Transform を viewport 上で直接ドラッグ操作する
+//   選択中の FNode2D / Node3D の Transform を viewport 上で直接ドラッグ操作する
 //   「ハンドル」。translate (移動) / rotate (回転) / scale (拡縮) の 3 モードを
 //   持ち、各モードで X / Y / Z 軸ハンドル + 平面 (XY/XZ/YZ) ハンドル + 画面
 //   並列ハンドル (rotate のみ) を提供する。Unity / Godot / UE のシーンビュー上の
 //   操作系を最小集合で再実装したもの。
 //
 // 使い方 (典型):
-//   acs::game::editor_core::EditorGizmo gizmo;
+//   acs::game::editor_core::FEditorGizmo gizmo;
 //   gizmo.Init();
 //   gizmo.SetMode(EGizmoMode::Translate);
-//   gizmo.SetSpace(EGizmoSpace::World);
+//   gizmo.SetSpace(EGizmoSpace::FWorld);
 //   gizmo.SetSnapTranslate(0.5f);   // Shift キー押下中に 0.5 単位スナップ
 //
 //   // ---- 毎フレーム ----
@@ -21,7 +21,7 @@
 //   gizmo.ProcessInput(mouse_ray_origin, mouse_ray_direction,
 //                      input.LmbDown(), input.LmbHeld(), input.LmbUp());
 //
-//   // 2) Manipulate: 選択中の Node の transform を渡して、drag 中なら値を
+//   // 2) Manipulate: 選択中の FNode の transform を渡して、drag 中なら値を
 //   //    in-place で更新する。true 戻りなら何か変更があった (= UndoCommand 発火
 //   //    タイミング判定にも使える)。
 //   acs::FVec3 pos = node.WorldPosition();
@@ -33,11 +33,11 @@
 //       node.SetWorldScale(scl);
 //   }
 //
-//   // 3) DrawGizmo: DebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
-//   //    DebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
+//   // 3) DrawGizmo: FDebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
+//   //    FDebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
 //   gizmo.DrawGizmo(debug_draw, pos, rot, scl);
 //
-//   // 4) drag 終了時に UndoStack へ push したい場合:
+//   // 4) drag 終了時に FUndoStack へ push したい場合:
 //   gizmo.SetOnManipulateCallback(&MyEditor::OnGizmoDelta, &editor);
 //
 // 設計選択 (Phase 21a):
@@ -45,9 +45,9 @@
 //     enum、`u8` 基底で表のレイアウトに優しい。`None_` は EGizmoAxis 側で
 //     キーワード衝突回避のためアンダースコア付き (foundation/Limits.h 等で
 //     既に確立した方針)。
-//   ・**GizmoState を struct として公開**: テストや editor 上の inspector で
+//   ・**FGizmoState を struct として公開**: テストや editor 上の inspector で
 //     「今 drag 中か」「どの軸が hot か」を読み取れるよう公開する。書き換えは
-//     EditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
+//     FEditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
 //     外部から ImGui::Text で覗くのが楽 (= debug / replay 性が高い)。
 //   ・**ProcessInput → Manipulate → DrawGizmo の 3 段**: input 取得 / 値更新 /
 //     描画を完全に分離する。これにより:
@@ -56,7 +56,7 @@
 //         動画キャプチャ) が可能
 //   ・**raw 関数ポインタ callback**: ACS は std::function を使えないため、
 //     ManipulateCallback は C スタイル `void(*)(void*, ...) noexcept` で揃える
-//     (Input.h / InspectorPanel と同形)。
+//     (Input.h / FInspectorPanel と同形)。
 //   ・**snap は Shift モディファイア前提**: SetSnap*(step) で step > 0 を渡すと
 //     drag 中の Shift で snap が有効になる。step == 0 で snap 無効 (default)。
 //     Shift キー検出は ProcessInput の呼び出し側で行い、本クラスは「snap step が
@@ -79,18 +79,18 @@
 //   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
 //     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
 //     (= 各軸ごとの非一様 scale を意図的に強制、Unity と同じ)。
-//   ・**DrawGizmo は DebugDraw (FVec2 ベース) に出力**: 現状 DebugDraw は 2D
+//   ・**DrawGizmo は FDebugDraw (FVec2 ベース) に出力**: 現状 FDebugDraw は 2D
 //     ラインバッファ (Pillar H Phase 1)。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。
 //     完全 3D viewport 描画は将来 DebugDraw3D (= FVec3 ベース) を追加した上で
 //     overload を生やす予定 (Phase 21b 以降)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
-//     ACS 規約。state は POD GizmoState + パラメータ群のみ。
+//     ACS 規約。state は POD FGizmoState + パラメータ群のみ。
 //
 // 将来拡張余地 (Phase 21b 以降):
-//   ・**multi-select**: 複数 Node を同時に操作する。pivot 計算 (centroid / first
-//     selected / scene origin) と各 Node への delta 配布を追加。本クラスの
-//     API シグネチャは 1 Node 想定なので、上位に MultiGizmo wrapper を載せる
+//   ・**multi-select**: 複数 FNode を同時に操作する。pivot 計算 (centroid / first
+//     selected / scene origin) と各 FNode への delta 配布を追加。本クラスの
+//     API シグネチャは 1 FNode 想定なので、上位に MultiGizmo wrapper を載せる
 //     形が綺麗。
 //   ・**pivot mode (center / local origin / bounds center)**: 現状は「inout_*
 //     で渡された point を pivot とみなす」一択。pivot 計算は上位責務 (上位が
@@ -118,7 +118,7 @@
 #include "math/Vec.h"
 
 namespace acs::game {
-class DebugDraw;        // 前方宣言 — .cpp で gameframework/DebugDraw.h を include
+class FDebugDraw;        // 前方宣言 — .cpp で gameframework/DebugDraw.h を include
 }
 
 namespace acs::game::editor_core {
@@ -139,13 +139,13 @@ enum class EGizmoMode : u8 {
 // ============================================================================
 // EGizmoSpace — 操作座標系
 // ----------------------------------------------------------------------------
-// World: ワールド軸 (X/Y/Z 固定) を表示し、その軸方向に move/scale する。
-// Local: 対象 Node の rotation を考慮した「ローカル軸」を表示・操作する。
+// FWorld: ワールド軸 (X/Y/Z 固定) を表示し、その軸方向に move/scale する。
+// Local: 対象 FNode の rotation を考慮した「ローカル軸」を表示・操作する。
 // Phase 21a 範囲では Local space は inout_rotation_euler を quat に変換して
 // 軸を回転させる実装 (Manipulate / DrawGizmo の両方に効く)。
 // ============================================================================
 enum class EGizmoSpace : u8 {
-    World = 0,  // world axis (default)
+    FWorld = 0,  // world axis (default)
     Local = 1,  // node local axis (rotation を考慮)
 };
 
@@ -170,14 +170,14 @@ enum class EGizmoAxis : u8 {
 };
 
 // ============================================================================
-// GizmoState — 現フレームの操作状態 (POD、テストで覗ける)
+// FGizmoState — 現フレームの操作状態 (POD、テストで覗ける)
 // ----------------------------------------------------------------------------
-// 公開フィールドだが、書き換えは EditorGizmo 内部からのみ行うこと。
+// 公開フィールドだが、書き換えは FEditorGizmo 内部からのみ行うこと。
 // `drag_start_world` は drag 開始時のワールド空間ヒット点 (delta 計算の基点)。
 // ============================================================================
-struct GizmoState {
+struct FGizmoState {
     EGizmoMode mode             = EGizmoMode::Translate;  // 現在のモード
-    EGizmoSpace space           = EGizmoSpace::World;     // 現在の座標系
+    EGizmoSpace space           = EGizmoSpace::FWorld;     // 現在の座標系
     EGizmoAxis  hot_axis        = EGizmoAxis::None_;      // ホバー or drag 中の軸
     bool        dragging        = false;                  // LMB 押下中の drag 中フラグ
     acs::FVec3   drag_start_world{};                       // drag 開始時の world hit point
@@ -186,7 +186,7 @@ struct GizmoState {
 // ============================================================================
 // ManipulateCallback — drag 終了時 (or 各フレーム中) に外部へ delta を通知
 // ----------------------------------------------------------------------------
-// drag 完了時に 1 度だけ呼ばれる (= UndoStack に MoveNodeCommand 等を push する
+// drag 完了時に 1 度だけ呼ばれる (= FUndoStack に FMoveNodeCommand 等を push する
 // 適切なタイミング)。`delta` の意味はモード依存:
 //   Translate: world space の移動量 (FVec3)
 //   Rotate   : euler 角度の差分 (radians; FVec3)
@@ -196,22 +196,22 @@ struct GizmoState {
 using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::FVec3 delta) noexcept;
 
 // ============================================================================
-// EditorGizmo — 選択 Node の Transform を viewport 上で直接操作するハンドル
+// FEditorGizmo — 選択 FNode の Transform を viewport 上で直接操作するハンドル
 // ----------------------------------------------------------------------------
-// 1 個のインスタンスを editor が所有し、選択中 Node の transform を毎フレーム
-// 流し込む。ハンドル本体は POD 状態のみで、レンダリングは DebugDraw 経由
+// 1 個のインスタンスを editor が所有し、選択中 FNode の transform を毎フレーム
+// 流し込む。ハンドル本体は POD 状態のみで、レンダリングは FDebugDraw 経由
 // (= レンダラ非依存)。
 // ============================================================================
-class EditorGizmo {
+class FEditorGizmo {
 public:
-    EditorGizmo() noexcept  = default;
-    ~EditorGizmo() noexcept = default;
+    FEditorGizmo() noexcept  = default;
+    ~FEditorGizmo() noexcept = default;
 
     // 非コピー / 非ムーブ: editor 内で 1 個だけ生存させる前提 (ACS 規約)。
-    EditorGizmo(const EditorGizmo&)            = delete;
-    EditorGizmo& operator=(const EditorGizmo&) = delete;
-    EditorGizmo(EditorGizmo&&)                 = delete;
-    EditorGizmo& operator=(EditorGizmo&&)      = delete;
+    FEditorGizmo(const FEditorGizmo&)            = delete;
+    FEditorGizmo& operator=(const FEditorGizmo&) = delete;
+    FEditorGizmo(FEditorGizmo&&)                 = delete;
+    FEditorGizmo& operator=(FEditorGizmo&&)      = delete;
 
     // ----- ライフサイクル ---------------------------------------------------
 
@@ -274,18 +274,18 @@ public:
     //   Rotate   : inout_rotation_euler に angular delta を加算 (radians)
     //   Scale    : inout_scale に delta を加算 (1.0 を基準とした倍率)
     //
-    // pivot は inout_position をそのまま使用 (= Node のローカル原点が pivot)。
+    // pivot は inout_position をそのまま使用 (= FNode のローカル原点が pivot)。
     bool Manipulate(acs::FVec3& inout_position,
                     acs::FVec3& inout_rotation_euler,
                     acs::FVec3& inout_scale) noexcept;
 
     // ----- 描画 -------------------------------------------------------------
-    // DebugDraw 経由で軸 line + ハンドルを描く。実描画は dd の消費側責務。
-    // DebugDraw が 2D (FVec2) なので、Z 軸は XY 平面へ射影される (top-down view)。
+    // FDebugDraw 経由で軸 line + ハンドルを描く。実描画は dd の消費側責務。
+    // FDebugDraw が 2D (FVec2) なので、Z 軸は XY 平面へ射影される (top-down view)。
     // 将来 DebugDraw3D が来たら overload を生やす予定。
     //
     // 描画色: X=red / Y=green / Z=blue / 平面=半透明黄色 / 選択中 hot=白ハイライト。
-    void DrawGizmo(DebugDraw& dd,
+    void DrawGizmo(FDebugDraw& dd,
                    acs::FVec3 position,
                    acs::FVec3 rotation_euler,
                    acs::FVec3 scale) noexcept;
@@ -295,8 +295,8 @@ public:
     bool IsDragging() const noexcept    { return _state.dragging; }
     EGizmoAxis HotAxis() const noexcept { return _state.hot_axis; }
 
-    // テスト / inspector 表示用に GizmoState の現値をまるごと参照で公開。
-    const GizmoState& State() const noexcept { return _state; }
+    // テスト / inspector 表示用に FGizmoState の現値をまるごと参照で公開。
+    const FGizmoState& FState() const noexcept { return _state; }
 
     // ----- callback 登録 ----------------------------------------------------
     // drag 終了時 (= 内部で `dragging: true → false` 遷移したフレーム末) に 1 度
@@ -336,7 +336,7 @@ private:
 
     // ----- 状態 -------------------------------------------------------------
 
-    GizmoState _state{};
+    FGizmoState _state{};
 
     // drag 開始時に記録される「直近の Manipulate 入力 transform 値」。
     // 一連の drag で累積 delta を計算するために使う (drag_start_world とは別)。

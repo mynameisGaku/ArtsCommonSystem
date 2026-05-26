@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K (editor_core) — AssetBrowser 実装 (Phase 21a)
+// GameFramework Pillar K (editor_core) — FAssetBrowser 実装 (Phase 21a)
 //
 // 仕様の意図は AssetBrowser.h を参照。本ファイルでは:
 //   ・FindFirstFileW / FindNextFileW で assets/ 配下を列挙
@@ -12,7 +12,7 @@
 #include "foundation/Platform.h"
 
 // <windows.h> マクロ汚染対策: `SetCurrentDirectory` がデフォルトで
-// `SetCurrentDirectoryW` に macro 展開され、AssetBrowser::SetCurrentDirectory
+// `SetCurrentDirectoryW` に macro 展開され、FAssetBrowser::SetCurrentDirectory
 // メソッドの定義側と衝突する。本 .cpp ではメソッド名を維持するため undef。
 #ifdef SetCurrentDirectory
 #undef SetCurrentDirectory
@@ -89,16 +89,16 @@ const char* KindLabel(EAssetKind k) noexcept {
         case EAssetKind::Unknown:      return "Unknown";
         case EAssetKind::Texture:      return "Texture";
         case EAssetKind::Mesh:         return "Mesh";
-        case EAssetKind::Font:         return "Font";
+        case EAssetKind::FFont:         return "FFont";
         case EAssetKind::Audio:        return "Audio";
         case EAssetKind::Material:     return "Material";
-        case EAssetKind::Particle:     return "Particle";
+        case EAssetKind::FParticle:     return "FParticle";
         case EAssetKind::FAnimation:    return "FAnimation";
-        case EAssetKind::BehaviorTree: return "BehaviorTree";
-        case EAssetKind::Tilemap:      return "Tilemap";
+        case EAssetKind::FBehaviorTree: return "FBehaviorTree";
+        case EAssetKind::FTilemap:      return "FTilemap";
         case EAssetKind::Prefab:       return "Prefab";
         case EAssetKind::Cinematic:    return "Cinematic";
-        case EAssetKind::Scene:        return "Scene";
+        case EAssetKind::FScene:        return "FScene";
         case EAssetKind::Other:        return "Other";
     }
     return "Unknown";
@@ -109,16 +109,16 @@ const char* KindTag(EAssetKind k) noexcept {
     switch (k) {
         case EAssetKind::Texture:      return "TEX ";
         case EAssetKind::Mesh:         return "MESH";
-        case EAssetKind::Font:         return "FONT";
+        case EAssetKind::FFont:         return "FONT";
         case EAssetKind::Audio:        return "AUD ";
         case EAssetKind::Material:     return "MAT ";
-        case EAssetKind::Particle:     return "FX  ";
+        case EAssetKind::FParticle:     return "FX  ";
         case EAssetKind::FAnimation:    return "ANIM";
-        case EAssetKind::BehaviorTree: return "BT  ";
-        case EAssetKind::Tilemap:      return "TILE";
+        case EAssetKind::FBehaviorTree: return "BT  ";
+        case EAssetKind::FTilemap:      return "TILE";
         case EAssetKind::Prefab:       return "PRE ";
         case EAssetKind::Cinematic:    return "CINE";
-        case EAssetKind::Scene:        return "SCN ";
+        case EAssetKind::FScene:        return "SCN ";
         case EAssetKind::Other:        return "OTH ";
         case EAssetKind::Unknown:      return "??? ";
     }
@@ -130,7 +130,7 @@ const char* KindTag(EAssetKind k) noexcept {
 // ===========================================================================
 // Init / Shutdown
 // ===========================================================================
-void AssetBrowser::Init(const wchar_t* root_directory) noexcept {
+void FAssetBrowser::Init(const wchar_t* root_directory) noexcept {
     // _root_directory にコピー (空 / nullptr は既定 L"assets")。
     const wchar_t* src = (root_directory != nullptr && root_directory[0] != L'\0')
                             ? root_directory : L"assets";
@@ -157,7 +157,7 @@ void AssetBrowser::Init(const wchar_t* root_directory) noexcept {
     Refresh();
 }
 
-void AssetBrowser::Shutdown() noexcept {
+void FAssetBrowser::Shutdown() noexcept {
     _entries.Clear();
     _path_pool.Clear();
     _name_pool.Clear();
@@ -175,11 +175,11 @@ void AssetBrowser::Shutdown() noexcept {
 // ===========================================================================
 // Refresh / RebuildEntries
 // ===========================================================================
-void AssetBrowser::Refresh() noexcept {
+void FAssetBrowser::Refresh() noexcept {
     RebuildEntries();
 }
 
-void AssetBrowser::RebuildEntries() noexcept {
+void FAssetBrowser::RebuildEntries() noexcept {
     // 既存 entry / pool を全クリア (容量は維持)。pointer は全て無効化される。
     _entries.Clear();
     _path_pool.Clear();
@@ -216,7 +216,7 @@ void AssetBrowser::RebuildEntries() noexcept {
     // 過去 iteration で取った wchar_t* / char* が無効化される。これを
     // 避けるため、entry には offset を一時保管し、列挙完走後に
     // pool.Data() からの絶対ポインタへ変換する 2 段構えを取る。
-    struct PendingEntry {
+    struct FPendingEntry {
         usize       path_off  = 0;
         usize       name_off  = 0;
         EAssetKind  kind      = EAssetKind::Unknown;
@@ -224,7 +224,7 @@ void AssetBrowser::RebuildEntries() noexcept {
         u64         mtime     = 0;
         bool        is_dir    = false;
     };
-    TArray<PendingEntry> pending {};
+    TArray<FPendingEntry> pending {};
 
     do {
         // "." / ".." をスキップ。
@@ -251,7 +251,7 @@ void AssetBrowser::RebuildEntries() noexcept {
         rel_path[rl] = L'\0';
 
         // pool への append は offset を覚えて行う (pointer は後で resolve)。
-        PendingEntry pe {};
+        FPendingEntry pe {};
         pe.path_off = AppendPathOffset(rel_path);
         char utf8_name[kMaxPathChars] = {};
         WideToUtf8(fd.cFileName, utf8_name, static_cast<int>(kMaxPathChars));
@@ -277,8 +277,8 @@ void AssetBrowser::RebuildEntries() noexcept {
     const char*    name_base = _name_pool.IsEmpty() ? nullptr : &_name_pool[0];
     _entries.Reserve(pending.Size());
     for (usize i = 0; i < pending.Size(); ++i) {
-        const PendingEntry& pe = pending[i];
-        AssetEntry e {};
+        const FPendingEntry& pe = pending[i];
+        FAssetEntry e {};
         e.path            = (path_base != nullptr) ? (path_base + pe.path_off) : nullptr;
         e.short_name      = (name_base != nullptr) ? (name_base + pe.name_off) : nullptr;
         e.kind            = pe.kind;
@@ -292,20 +292,20 @@ void AssetBrowser::RebuildEntries() noexcept {
 // ===========================================================================
 // アクセサ
 // ===========================================================================
-u32 AssetBrowser::EntryCount() const noexcept {
+u32 FAssetBrowser::EntryCount() const noexcept {
     return static_cast<u32>(_entries.Size());
 }
 
-const AssetEntry* AssetBrowser::GetEntry(u32 index) const noexcept {
+const FAssetEntry* FAssetBrowser::GetEntry(u32 index) const noexcept {
     if (index >= _entries.Size()) return nullptr;
     return &_entries[static_cast<usize>(index)];
 }
 
-const wchar_t* AssetBrowser::CurrentDirectory() const noexcept {
+const wchar_t* FAssetBrowser::CurrentDirectory() const noexcept {
     return _current_directory;
 }
 
-void AssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
+void FAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
     // path == nullptr / 空文字 → ルート (current_directory を空文字に)
     if (path == nullptr || path[0] == L'\0') {
         _current_directory[0] = L'\0';
@@ -334,38 +334,38 @@ void AssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
     Refresh();
 }
 
-const wchar_t* AssetBrowser::SelectedAssetPath() const noexcept {
+const wchar_t* FAssetBrowser::SelectedAssetPath() const noexcept {
     if (_selected_index < 0) return nullptr;
     const u32 idx = static_cast<u32>(_selected_index);
     if (idx >= _entries.Size()) return nullptr;
     return _entries[idx].path;
 }
 
-EAssetKind AssetBrowser::SelectedAssetKind() const noexcept {
+EAssetKind FAssetBrowser::SelectedAssetKind() const noexcept {
     if (_selected_index < 0) return EAssetKind::Unknown;
     const u32 idx = static_cast<u32>(_selected_index);
     if (idx >= _entries.Size()) return EAssetKind::Unknown;
     return _entries[idx].kind;
 }
 
-void AssetBrowser::SetOnAssetSelectedCallback(AssetSelectedCallback cb, void* user) noexcept {
+void FAssetBrowser::SetOnAssetSelectedCallback(AssetSelectedCallback cb, void* user) noexcept {
     _on_selected_cb   = cb;
     _on_selected_user = user;
 }
 
-void AssetBrowser::SetOnAssetDoubleClickedCallback(AssetDoubleClickedCallback cb, void* user) noexcept {
+void FAssetBrowser::SetOnAssetDoubleClickedCallback(AssetDoubleClickedCallback cb, void* user) noexcept {
     _on_double_clicked_cb   = cb;
     _on_double_clicked_user = user;
 }
 
-void AssetBrowser::SetFilterByKind(EAssetKind kind) noexcept {
+void FAssetBrowser::SetFilterByKind(EAssetKind kind) noexcept {
     _filter_kind = kind;
 }
 
 // ===========================================================================
 // ClassifyByExtension — 拡張子から EAssetKind を推定
 // ===========================================================================
-EAssetKind AssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
+EAssetKind FAssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     if (path == nullptr || path[0] == L'\0') return EAssetKind::Unknown;
 
     // Texture
@@ -383,9 +383,9 @@ EAssetKind AssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     if (EndsWithIgnoreCase(path, L".gltf"))  return EAssetKind::Mesh;
     if (EndsWithIgnoreCase(path, L".glb"))   return EAssetKind::Mesh;
     if (EndsWithIgnoreCase(path, L".obj"))   return EAssetKind::Mesh;
-    // Font
-    if (EndsWithIgnoreCase(path, L".ttf"))   return EAssetKind::Font;
-    if (EndsWithIgnoreCase(path, L".otf"))   return EAssetKind::Font;
+    // FFont
+    if (EndsWithIgnoreCase(path, L".ttf"))   return EAssetKind::FFont;
+    if (EndsWithIgnoreCase(path, L".otf"))   return EAssetKind::FFont;
     // Audio
     if (EndsWithIgnoreCase(path, L".wav"))   return EAssetKind::Audio;
     if (EndsWithIgnoreCase(path, L".ogg"))   return EAssetKind::Audio;
@@ -394,22 +394,22 @@ EAssetKind AssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     // Material
     if (EndsWithIgnoreCase(path, L".mat"))      return EAssetKind::Material;
     if (EndsWithIgnoreCase(path, L".material")) return EAssetKind::Material;
-    // Particle
-    if (EndsWithIgnoreCase(path, L".fx"))       return EAssetKind::Particle;
-    if (EndsWithIgnoreCase(path, L".particle")) return EAssetKind::Particle;
+    // FParticle
+    if (EndsWithIgnoreCase(path, L".fx"))       return EAssetKind::FParticle;
+    if (EndsWithIgnoreCase(path, L".particle")) return EAssetKind::FParticle;
     // FAnimation
     if (EndsWithIgnoreCase(path, L".anim"))     return EAssetKind::FAnimation;
-    // BehaviorTree
-    if (EndsWithIgnoreCase(path, L".bt"))       return EAssetKind::BehaviorTree;
-    // Tilemap
-    if (EndsWithIgnoreCase(path, L".tilemap"))  return EAssetKind::Tilemap;
-    if (EndsWithIgnoreCase(path, L".tmx"))      return EAssetKind::Tilemap;
+    // FBehaviorTree
+    if (EndsWithIgnoreCase(path, L".bt"))       return EAssetKind::FBehaviorTree;
+    // FTilemap
+    if (EndsWithIgnoreCase(path, L".tilemap"))  return EAssetKind::FTilemap;
+    if (EndsWithIgnoreCase(path, L".tmx"))      return EAssetKind::FTilemap;
     // Prefab
     if (EndsWithIgnoreCase(path, L".prefab"))   return EAssetKind::Prefab;
     // Cinematic
     if (EndsWithIgnoreCase(path, L".cine"))     return EAssetKind::Cinematic;
-    // Scene
-    if (EndsWithIgnoreCase(path, L".scene"))    return EAssetKind::Scene;
+    // FScene
+    if (EndsWithIgnoreCase(path, L".scene"))    return EAssetKind::FScene;
 
     return EAssetKind::Unknown;
 }
@@ -417,7 +417,7 @@ EAssetKind AssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
 // ===========================================================================
 // 内部ヘルパ
 // ===========================================================================
-void AssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize cap) const noexcept {
+void FAssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize cap) const noexcept {
     if (out_buf == nullptr || cap == 0) return;
     out_buf[0] = L'\0';
 
@@ -442,7 +442,7 @@ void AssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize cap
     out_buf[w] = L'\0';
 }
 
-usize AssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
+usize FAssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = WLen(src) + 1u;  // 終端 0 含む
 
@@ -464,7 +464,7 @@ usize AssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
     return start;
 }
 
-usize AssetBrowser::AppendNameOffset(const char* src) noexcept {
+usize FAssetBrowser::AppendNameOffset(const char* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = std::strlen(src) + 1u;
 
@@ -487,7 +487,7 @@ usize AssetBrowser::AppendNameOffset(const char* src) noexcept {
 // DrawUI — ImGui window
 // ===========================================================================
 // レイアウト:
-//   ┌─ "Asset Browser" window ───────────────────────────────────────┐
+//   ┌─ "FAsset Browser" window ───────────────────────────────────────┐
 //   │ [Refresh] [Up]  Path: <current>     [Filter: <kind combo>]     │
 //   │ ─────────────────────────────────────────────────────────────  │
 //   │ ┌─ left (tree) ────┐ ┌─ right (list) ────────────────────────┐ │
@@ -497,21 +497,21 @@ usize AssetBrowser::AppendNameOffset(const char* src) noexcept {
 //   │ └───────────────────┘ └──────────────────────────────────────────┘ │
 //   └────────────────────────────────────────────────────────────────────┘
 // ===========================================================================
-void AssetBrowser::DrawUI() noexcept {
-    if (!ImGui::Begin("Asset Browser")) {
+void FAssetBrowser::DrawUI() noexcept {
+    if (!ImGui::Begin("FAsset Browser")) {
         ImGui::End();
         return;
     }
 
     // ----- Toolbar -----
-    if (ImGui::Button("Refresh")) {
+    if (ImGui::FButton("Refresh")) {
         Refresh();
     }
     ImGui::SameLine();
 
     const bool at_root = (_current_directory[0] == L'\0');
     if (at_root) ImGui::BeginDisabled();
-    if (ImGui::Button("Up")) {
+    if (ImGui::FButton("Up")) {
         // current_directory の最後の '\\' / '/' 以降を削る。
         usize len = WLen(_current_directory);
         if (len > 0) {
@@ -551,10 +551,10 @@ void AssetBrowser::DrawUI() noexcept {
     if (ImGui::BeginCombo("Filter", current_filter)) {
         static const EAssetKind kAll[] = {
             EAssetKind::Unknown,  // = フィルタ解除
-            EAssetKind::Texture, EAssetKind::Mesh, EAssetKind::Font,
-            EAssetKind::Audio, EAssetKind::Material, EAssetKind::Particle,
-            EAssetKind::FAnimation, EAssetKind::BehaviorTree, EAssetKind::Tilemap,
-            EAssetKind::Prefab, EAssetKind::Cinematic, EAssetKind::Scene,
+            EAssetKind::Texture, EAssetKind::Mesh, EAssetKind::FFont,
+            EAssetKind::Audio, EAssetKind::Material, EAssetKind::FParticle,
+            EAssetKind::FAnimation, EAssetKind::FBehaviorTree, EAssetKind::FTilemap,
+            EAssetKind::Prefab, EAssetKind::Cinematic, EAssetKind::FScene,
             EAssetKind::Other,
         };
         for (usize i = 0; i < sizeof(kAll) / sizeof(kAll[0]); ++i) {
@@ -603,7 +603,7 @@ void AssetBrowser::DrawUI() noexcept {
 // コストを抑える。実装は再帰関数を tree 構造でなく「展開時に都度
 // FindFirstFile する」形にする。
 // ===========================================================================
-void AssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcept {
+void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcept {
     if (depth >= 32u) {
         ImGui::TextDisabled("(depth limit)");
         return;
@@ -703,14 +703,14 @@ void AssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcept
 // ===========================================================================
 // DrawList — 右ペインの current directory のエントリ一覧
 // ===========================================================================
-void AssetBrowser::DrawList() noexcept {
+void FAssetBrowser::DrawList() noexcept {
     ImGui::Text("Entries: %u%s",
                 static_cast<unsigned>(_entries.Size()),
                 (_filter_kind == EAssetKind::Unknown) ? "" : " (filtered)");
     ImGui::Separator();
 
     for (u32 i = 0; i < _entries.Size(); ++i) {
-        const AssetEntry& e = _entries[static_cast<usize>(i)];
+        const FAssetEntry& e = _entries[static_cast<usize>(i)];
 
         // kind フィルタ (ディレクトリは常に表示)。
         if (_filter_kind != EAssetKind::Unknown
@@ -776,7 +776,7 @@ void AssetBrowser::DrawList() noexcept {
             }
         }
 
-        // ----- Drag source: AssetEntry::path を ASSET_PATH payload に -----
+        // ----- Drag source: FAssetEntry::path を ASSET_PATH payload に -----
         // ディレクトリも drag source として提供する (panel 側で folder drop を
         // 受け入れたい場合がある = batch import 等)。
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {

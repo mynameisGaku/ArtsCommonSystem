@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloShowcase — GPU resource 一式 (Assets) と初期化 / 解放ヘルパ。
 //
-// PostProcess / Sky / IBL / PBR / SSR / SSAO / HiZ / Motion / Refraction / Blit /
-// SpriteBatch / Font / 球 + 床メッシュ / 屈折 background RT を 1 つの struct に
+// FPostProcess / FSky / IBL / PBR / SSR / SSAO / FHiZ / Motion / Refraction / FBlit /
+// FSpriteBatch / FFont / 球 + 床メッシュ / 屈折 background RT を 1 つの struct に
 // まとめる。pass 系 helper (PbrPass / RefractionPass / SsrPass / ...) はこの
 // Assets を const & または & で受け取って動く free function 群。
 //
@@ -37,28 +37,28 @@ namespace helloshowcase {
 // 描画に必要な GPU resource をひとまとめにしたもの。
 // pass helper はこの参照を受け取って働き、内部状態は持たない。
 struct Assets {
-    acs::PostProcess        post;
-    acs::ImageBasedLighting ibl;
-    acs::Sky                sky;
-    acs::PbrShader          pbr;
-    acs::Ssr                ssr;
-    acs::Ssao               ssao;
-    acs::HiZ                hiz;            // SSR の skip-ahead 用 coarse min-depth
-    acs::MotionVector       motion;
-    acs::RefractionShader   refr;
-    acs::Blit               blit;
+    acs::FPostProcess        post;
+    acs::FImageBasedLighting ibl;
+    acs::FSky                sky;
+    acs::FPbrShader          pbr;
+    acs::FSsr                ssr;
+    acs::FSsao               ssao;
+    acs::FHiZ                hiz;            // SSR の skip-ahead 用 coarse min-depth
+    acs::FMotionVector       motion;
+    acs::FRefractionShader   refr;
+    acs::FBlit               blit;
     acs::TUniquePtr<acs::IRhiTexture> bg_rt;     // 屈折 pass が読む opaque シーンの複製先
-    acs::GpuMesh            gm_sphere;
-    acs::GpuMesh            gm_floor;
-    acs::SpriteBatch        batch;
-    acs::Font               font;
+    acs::FGpuMesh            gm_sphere;
+    acs::FGpuMesh            gm_floor;
+    acs::FSpriteBatch        batch;
+    acs::FFont               font;
 };
 
 // すべての resource を一括で初期化する。HDR RT + Bloom + ACES tonemap を有効化し、
-// Sky を Day preset に、sphere/plane メッシュを生成し、SSR/SSAO/HiZ/Motion/
-// Refraction/Blit/SpriteBatch を順次セットアップする。
+// FSky を Day preset に、sphere/plane メッシュを生成し、SSR/SSAO/FHiZ/Motion/
+// Refraction/FBlit/FSpriteBatch を順次セットアップする。
 //
-//   color_fmt / depth_fmt : swapchain の format (PostProcess / Sky / Refraction に渡す)
+//   color_fmt / depth_fmt : swapchain の format (FPostProcess / FSky / Refraction に渡す)
 //
 // 1 つでも失敗すると IsErr が返り、後段の resource は未初期化のまま残る
 // (Shutdown は安全に呼べる)。

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Event — TimerManager / MessageBroker テスト
+// ACS FEvent — FTimerManager / FMessageBroker テスト
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -9,7 +9,7 @@
 
 using namespace acs;
 
-// ---- TimerManager: SetTimeout が指定時間で発火 ------------------------------
+// ---- FTimerManager: SetTimeout が指定時間で発火 ------------------------------
 namespace {
 struct TimeoutCtx { int hits = 0; };
 void OnTimeout(void* user) {
@@ -17,8 +17,8 @@ void OnTimeout(void* user) {
 }
 } // namespace
 
-ACS_TEST(Event, TimerSetTimeoutFires) {
-    TimerManager t;
+ACS_TEST(FEvent, TimerSetTimeoutFires) {
+    FTimerManager t;
     TimeoutCtx ctx;
     auto h = t.SetTimeout(1.0f, &OnTimeout, &ctx);
     EXPECT_TRUE(h.IsValid());
@@ -37,9 +37,9 @@ ACS_TEST(Event, TimerSetTimeoutFires) {
     EXPECT_EQ(t.ActiveCount(), 0u);
 }
 
-// ---- TimerManager: SetInterval が周期で何回も発火 ---------------------------
-ACS_TEST(Event, TimerSetIntervalRepeats) {
-    TimerManager t;
+// ---- FTimerManager: SetInterval が周期で何回も発火 ---------------------------
+ACS_TEST(FEvent, TimerSetIntervalRepeats) {
+    FTimerManager t;
     TimeoutCtx ctx;
     t.SetInterval(0.5f, &OnTimeout, &ctx);
 
@@ -47,9 +47,9 @@ ACS_TEST(Event, TimerSetIntervalRepeats) {
     EXPECT_TRUE(ctx.hits >= 3);
 }
 
-// ---- TimerManager: Cancel で発火を止められる -------------------------------
-ACS_TEST(Event, TimerCancel) {
-    TimerManager t;
+// ---- FTimerManager: Cancel で発火を止められる -------------------------------
+ACS_TEST(FEvent, TimerCancel) {
+    FTimerManager t;
     TimeoutCtx ctx;
     auto h = t.SetTimeout(1.0f, &OnTimeout, &ctx);
     EXPECT_TRUE(t.Cancel(h));
@@ -59,7 +59,7 @@ ACS_TEST(Event, TimerCancel) {
     EXPECT_EQ(ctx.hits, 0);
 }
 
-// ---- MessageBroker: Subscribe + Publish + Unsubscribe ----------------------
+// ---- FMessageBroker: Subscribe + Publish + Unsubscribe ----------------------
 namespace {
 struct DamageEvent { int amount; };
 struct DamageCtx   { int total = 0; };
@@ -70,8 +70,8 @@ void OnDamage(const void* payload, void* user) {
 }
 } // namespace
 
-ACS_TEST(Event, BrokerSubscribePublish) {
-    MessageBroker bus;
+ACS_TEST(FEvent, BrokerSubscribePublish) {
+    FMessageBroker bus;
     DamageCtx ctx;
     auto h = bus.Subscribe<DamageEvent>(&OnDamage, &ctx);
     EXPECT_TRUE(h.IsValid());
@@ -85,9 +85,9 @@ ACS_TEST(Event, BrokerSubscribePublish) {
     EXPECT_EQ(ctx.total, 35);   // Unsubscribe 後は届かない
 }
 
-// ---- MessageBroker: 複数購読者 ---------------------------------------------
-ACS_TEST(Event, BrokerMultiSubscribers) {
-    MessageBroker bus;
+// ---- FMessageBroker: 複数購読者 ---------------------------------------------
+ACS_TEST(FEvent, BrokerMultiSubscribers) {
+    FMessageBroker bus;
     DamageCtx a, b, c;
     bus.Subscribe<DamageEvent>(&OnDamage, &a);
     bus.Subscribe<DamageEvent>(&OnDamage, &b);

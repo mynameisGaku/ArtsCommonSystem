@@ -1,13 +1,13 @@
 # HelloSpriteAtlasEditor — SpriteAtlas エディタのデモ。
-# editor_core ワークスペースに SpriteAtlasEditorPanel を載せ、
+# editor_core ワークスペースに FSpriteAtlasEditorPanel を載せ、
 # 256x256 dummy atlas + 3 frame (Idle / Walk / Jump) を ImGui 上で対話編集する。
 #
 # 必須バックエンド: ACS_RENDER_DX12_RAW (ImGui 統合は DX12 raw backend 専用)。
 #
 # 構成:
 #   main.cpp                 - ACS_GAME_MAIN(SpriteAtlasApp) のみ
-#   SpriteAtlasApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
-#   SpriteAtlasScene.{h,cpp} - Workspace + SpriteAtlasEditorPanel + dummy SpritePack
+#   SpriteAtlasApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
+#   SpriteAtlasScene.{h,cpp} - Workspace + FSpriteAtlasEditorPanel + dummy FSpritePack
 add_executable(hello_sprite_atlas_editor WIN32
     main.cpp
     SpriteAtlasApp.cpp

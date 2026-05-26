@@ -16,7 +16,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void Hud::Draw(GameplayScene& scene, SpriteBatch& sb, u32 sw, u32 sh,
+void Hud::Draw(GameplayScene& scene, FSpriteBatch& sb, u32 sw, u32 sh,
                f32 last_dt, f32 fps_ema) const noexcept {
     auto& app    = static_cast<FullGameApp&>(scene.GetGame());
     auto& player = scene.GetPlayer();
@@ -72,7 +72,7 @@ void Hud::Draw(GameplayScene& scene, SpriteBatch& sb, u32 sw, u32 sh,
 
     // ----- HUD テキストラベル (フォントが ready のときだけ) -----
     if (!app.FontReady()) return;
-    Font& body = app.FontBody();
+    FFont& body = app.FontBody();
     char buf[64];
 
     const f32 hp_cur = health.GetCurrentHp(player.HealthHandle());

@@ -15,7 +15,7 @@
 //     `ActiveKind()` を見て低解像度描画 → 拡大の path に切り替える。
 //
 // 決定論ゾーン違反検出 (将来):
-//   Phase U-2 で、`Game::Tick()` の固定タイムステップ内で `RunInference` が
+//   Phase U-2 で、`FGame::Tick()` の固定タイムステップ内で `RunInference` が
 //   呼ばれたら debug build で assert する仕掛けを `Game.cpp` 側に入れる予定。
 //   本 stub では何も検出しないが、コメントとして契約を明示しておく。
 #include "gameframework/MlRuntime.h"
@@ -23,53 +23,53 @@
 namespace acs::game {
 
 // =============================================================================
-// MlRuntimeStub — 全 method NotImplemented
+// FMlRuntimeStub — 全 method NotImplemented
 // -----------------------------------------------------------------------------
 // `ACS_ERR(Generic, kSub_NotImplemented, ...)` を返す。ErrCategory に
 // `NotImplemented` 専用カテゴリは無いため、SaveSlot.h と同じ「Generic +
 // subcode 99」の規約に揃える。message は静的文字列リテラル (ACS の方針通り)。
 // =============================================================================
-TResult<void> MlRuntimeStub::Init() noexcept {
+TResult<void> FMlRuntimeStub::Init() noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
-                   "MlRuntimeStub::Init: ML backend not integrated (Phase U-1 stub)");
+                   "FMlRuntimeStub::Init: ML backend not integrated (Phase U-1 stub)");
 }
 
-void MlRuntimeStub::Shutdown() noexcept {
+void FMlRuntimeStub::Shutdown() noexcept {
     // 何も保持していないので no-op。Init が常に失敗する以上、ここに来ても
     // 解放対象は存在しない。
 }
 
-TResult<MlModelHandle> MlRuntimeStub::LoadModel(const char* /*model_path*/) noexcept {
+TResult<FMlModelHandle> FMlRuntimeStub::LoadModel(const char* /*model_path*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
-                   "MlRuntimeStub::LoadModel: ML backend not integrated (Phase U-1 stub)");
+                   "FMlRuntimeStub::LoadModel: ML backend not integrated (Phase U-1 stub)");
 }
 
-TResult<void> MlRuntimeStub::UnloadModel(MlModelHandle /*h*/) noexcept {
+TResult<void> FMlRuntimeStub::UnloadModel(FMlModelHandle /*h*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
-                   "MlRuntimeStub::UnloadModel: ML backend not integrated (Phase U-1 stub)");
+                   "FMlRuntimeStub::UnloadModel: ML backend not integrated (Phase U-1 stub)");
 }
 
-TResult<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
+TResult<void> FMlRuntimeStub::RunInference(FMlModelHandle /*h*/,
                                          const f32* /*inputs*/,  u32 /*in_count*/,
                                          f32*       /*outputs*/, u32 /*out_count*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
-                   "MlRuntimeStub::RunInference: ML backend not integrated (Phase U-1 stub)");
+                   "FMlRuntimeStub::RunInference: ML backend not integrated (Phase U-1 stub)");
 }
 
 // =============================================================================
-// UpscalerStub — Off のみ受け付ける
+// FUpscalerStub — Off のみ受け付ける
 // -----------------------------------------------------------------------------
 // `EUpscalerKind::Off` への Init は「無効化を選んだ」状態として成功扱い。
 // それ以外 (FSR / DLSS / XeSS / Custom) は SDK 未統合なので NotImplemented。
 // =============================================================================
-TResult<void> UpscalerStub::Init(EUpscalerKind k) noexcept {
+TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
     if (k == EUpscalerKind::Off) {
         _kind = EUpscalerKind::Off;
         return Ok();
     }
     // SDK 同梱前提の kind が要求された → 上位は fallback パスを取るべき。
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
-                   "UpscalerStub::Init: requested upscaler backend not integrated (Phase U-1 stub)");
+                   "FUpscalerStub::Init: requested upscaler backend not integrated (Phase U-1 stub)");
 }
 
 // =============================================================================
@@ -81,16 +81,16 @@ TResult<void> UpscalerStub::Init(EUpscalerKind k) noexcept {
 //
 // スレッド安全性:
 //   C++11 以降、関数内 static の初期化は thread-safe (magic statics)。
-//   ただし stub 自身は状態を持つ (UpscalerStub::_kind) ため、複数スレッドから
+//   ただし stub 自身は状態を持つ (FUpscalerStub::_kind) ため、複数スレッドから
 //   同時アクセスする呼び出し側は外部同期を取る必要がある。
 // =============================================================================
 IMlRuntime& GetMlRuntimeStub() noexcept {
-    static MlRuntimeStub instance;
+    static FMlRuntimeStub instance;
     return instance;
 }
 
 IUpscaler& GetUpscalerStub() noexcept {
-    static UpscalerStub instance;
+    static FUpscalerStub instance;
     return instance;
 }
 

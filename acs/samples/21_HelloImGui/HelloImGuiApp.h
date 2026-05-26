@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloImGui — Application 派生クラス。
+// HelloImGui — FApplication 派生クラス。
 // ImGui を初期化して FPS / 背景色スライダー / ImGui demo window を表示する最小サンプル。
 // Imgui モジュールが ACS をどう wrap しているかの reference 実装。
 #pragma once
@@ -9,16 +9,16 @@
 
 namespace helloimgui {
 
-class HelloImGuiApp : public acs::Application {
+class HelloImGuiApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
     void OnRender()   noexcept override;
     void OnShutdown() noexcept override;
-    void OnEvent(const acs::Event& e) noexcept override;
+    void OnEvent(const acs::FEvent& e) noexcept override;
 
 private:
-    acs::ImGuiCtx _imgui;
+    acs::FImGuiCtx _imgui;
     bool          _show_demo = true;
     acs::f32      _r = 0.1f;
     acs::f32      _g = 0.12f;
