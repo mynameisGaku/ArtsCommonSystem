@@ -15,6 +15,6 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        FContainer
+        Container
         Threading
 )

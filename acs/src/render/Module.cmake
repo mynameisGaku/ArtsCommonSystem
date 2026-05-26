@@ -109,10 +109,10 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        FContainer
+        Container
         Math
         Platform
-        FAsset
+        Asset
     LINK_PRIVATE ${_acs_render_link_private}
 )
 

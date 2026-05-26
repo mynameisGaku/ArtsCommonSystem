@@ -12,12 +12,12 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        FContainer
+        Container
         Threading
         Math
         Platform
-        FAsset
+        Asset
         Ecs
-        FEvent
+        Event
         Render
 )

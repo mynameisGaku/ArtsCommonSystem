@@ -10,9 +10,9 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Memory
-        FContainer
+        Container
         Threading
-        FAsset
+        Asset
     LINK_PUBLIC
         xaudio2
         ole32
