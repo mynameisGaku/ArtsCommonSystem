@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// FApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
+// Application 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
 // 使い方:
-//   class MyGame : public FApplication {
+//   class MyGame : public Application {
 //   public:
 //       // フックは必ず noexcept override で宣言する
 //       // （基底のフックが noexcept のため。noexcept を省くとコンパイルエラー）
@@ -10,7 +10,7 @@
 //           ACS_LOG_INFO("ゲーム開始");
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+//           if (Input::IsKeyPressed(EKey::Escape)) Quit();
 //       }
 //       void OnRender() noexcept override {
 //           // 描画コマンド (BeginFrame / EndFrame は基底が呼ぶ)
@@ -32,33 +32,33 @@
 
 namespace acs {
 
-class FApplication {
+class Application {
 public:
-    FApplication() noexcept = default;
-    virtual ~FApplication() noexcept = default;
+    Application() noexcept = default;
+    virtual ~Application() noexcept = default;
 
-    FApplication(const FApplication&) = delete;
-    FApplication& operator=(const FApplication&) = delete;
+    Application(const Application&) = delete;
+    Application& operator=(const Application&) = delete;
 
     // メインループを実行（成功 = 0、失敗 = 非 0 を返す）
-    int Run(const FAppConfig& cfg) noexcept;
+    int Run(const AppConfig& cfg) noexcept;
 
     // 終了要求（ループを抜ける、OnShutdown が呼ばれる）
     void Quit() noexcept { _running = false; }
 
     // 背景クリア色を動的に変更する（次フレームの描画から反映される）。
-    // 既定値は FAppConfig の clear_r/g/b/a（起動時）。
+    // 既定値は AppConfig の clear_r/g/b/a（起動時）。
     void SetClearColor(f32 r, f32 g, f32 b, f32 a = 1.0f) noexcept {
-        _clear_color = FClearColor{ r, g, b, a };
+        _clear_color = ClearColor{ r, g, b, a };
     }
 
     // 初学者がアクセスしやすいようにエンジンサブシステムを公開
-    FWindow&         GetWindow()        noexcept { return _window; }
-    FRenderer&       GetRenderer()      noexcept { return _renderer; }
-    FWorld&          GetWorld()         noexcept { return _world; }
-    FAssetRegistry&  GetAssets()        noexcept { return _assets; }
-    FTimerManager&   GetTimers()        noexcept { return _timers; }
-    FMessageBroker&  GetEvents()        noexcept { return _events; }
+    Window&         GetWindow()        noexcept { return _window; }
+    Renderer&       GetRenderer()      noexcept { return _renderer; }
+    World&          GetWorld()         noexcept { return _world; }
+    AssetRegistry&  GetAssets()        noexcept { return _assets; }
+    TimerManager&   GetTimers()        noexcept { return _timers; }
+    MessageBroker&  GetEvents()        noexcept { return _events; }
     f32             DeltaTime()  const noexcept { return _dt; }
     u64             FrameCount() const noexcept { return _frame_timer.FrameCount(); }
     f32             FPS()        const noexcept { return _frame_timer.SmoothedFPS(); }
@@ -69,29 +69,29 @@ protected:
     virtual void OnUpdate(f32 /*dt*/) noexcept {}          // 毎フレーム更新
     virtual void OnRender() noexcept   {}                  // 毎フレーム描画
     virtual void OnShutdown() noexcept {}                  // 終了時 1 回
-    virtual void OnEvent(const FEvent& /*e*/) noexcept {}   // イベント受信時
+    virtual void OnEvent(const Event& /*e*/) noexcept {}   // イベント受信時
 
     // フレーム描画を完全に差し替えたい場合に true を返してフルカスタム実装する。
-    // 戻り値が true のときは FApplication 側は BeginFrame / OnRender / EndFrame を呼ばず、
+    // 戻り値が true のときは Application 側は BeginFrame / OnRender / EndFrame を呼ばず、
     // 派生クラスがコマンドリスト・スワップチェインを直接制御する責任を負う。
     // 用途: HDR + ポストプロセスのパイプラインを組む場合（HelloBloom 等）。
     virtual bool OnCustomFrame() noexcept { return false; }
 
 private:
-    // FWindow のイベントを FInput に流しつつ OnEvent も呼ぶブリッジ
-    static void EventBridge(void* user, const FEvent& e) noexcept;
+    // Window のイベントを Input に流しつつ OnEvent も呼ぶブリッジ
+    static void EventBridge(void* user, const Event& e) noexcept;
 
-    FWindow         _window;
-    FRenderer       _renderer;
-    FWorld          _world;
-    FAssetRegistry  _assets;
-    FTimerManager   _timers;
-    FMessageBroker  _events;
-    FFrameTimer     _frame_timer;
+    Window         _window;
+    Renderer       _renderer;
+    World          _world;
+    AssetRegistry  _assets;
+    TimerManager   _timers;
+    MessageBroker  _events;
+    FrameTimer     _frame_timer;
     f32            _dt       = 0.0f;
     bool           _running  = true;
-    FAppConfig      _cfg;
-    FClearColor     _clear_color{};   // BeginFrame に渡す現在のクリア色
+    AppConfig      _cfg;
+    ClearColor     _clear_color{};   // BeginFrame に渡す現在のクリア色
 };
 
 } // namespace acs

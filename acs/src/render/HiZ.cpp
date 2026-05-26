@@ -63,7 +63,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> FHiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept {
+TResult<void> HiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept {
     _device = &device;
     _src_w  = src_width;
     _src_h  = src_height;
@@ -81,7 +81,7 @@ TResult<void> FHiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noex
     return Ok();
 }
 
-TResult<void> FHiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
+TResult<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
     _hiz.Reset();
     _hiz_w = (src_w + kBlockSize - 1u) / kBlockSize;
     _hiz_h = (src_h + kBlockSize - 1u) / kBlockSize;
@@ -104,12 +104,12 @@ TResult<void> FHiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept 
     return Ok();
 }
 
-TResult<void> FHiZ::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::FVertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kHiZHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FHiZ.VS";
+    vs_d.debug_name  = "HiZ.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
@@ -117,7 +117,7 @@ TResult<void> FHiZ::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kHiZHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FHiZ.PS";
+    ps_d.debug_name  = "HiZ.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
@@ -147,7 +147,7 @@ TResult<void> FHiZ::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void FHiZ::Shutdown() noexcept {
+void HiZ::Shutdown() noexcept {
     _pipeline.Reset();
     _cb.Reset();
     _ps.Reset();
@@ -156,15 +156,15 @@ void FHiZ::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> FHiZ::Resize(u32 src_width, u32 src_height) noexcept {
-    if (!_device) return ACS_ERR(Render, 320, "FHiZ::Resize before Init");
+TResult<void> HiZ::Resize(u32 src_width, u32 src_height) noexcept {
+    if (!_device) return ACS_ERR(Render, 320, "HiZ::Resize before Init");
     if (src_width == _src_w && src_height == _src_h) return Ok();
     _src_w = src_width;
     _src_h = src_height;
     return CreateRT(*_device, src_width, src_height);
 }
 
-void FHiZ::Build(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void HiZ::Build(IRhiDevice& /*device*/, IRhiCommandList& cl,
                 IRhiTexture& scene_depth) noexcept {
     if (!_hiz || !_pipeline || !_cb) return;
 
@@ -173,7 +173,7 @@ void FHiZ::Build(IRhiDevice& /*device*/, IRhiCommandList& cl,
                         1.0f / static_cast<f32>(_src_h), 0, 0};
     _cb->Update(&data, sizeof(data));
 
-    cl.BeginRenderToTexture(*_hiz, FClearColor{1, 0, 0, 0}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*_hiz, ClearColor{1, 0, 0, 0}, nullptr, 1.0f);
     cl.SetPipeline(*_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, scene_depth);

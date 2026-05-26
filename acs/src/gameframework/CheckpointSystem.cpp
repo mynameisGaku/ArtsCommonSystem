@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Genre Kit (Platformer) — FCheckpointSystem 実装
+// GameFramework Genre Kit (Platformer) — CheckpointSystem 実装
 //
 // slot+gen pattern で配置済み checkpoint を管理し、現在 active な 1 つを
 // 保持する。one_way / requires_unlock のフラグを Activate 時に評価し、
@@ -7,7 +7,7 @@
 //
 // 設計補足:
 //   ・id 比較は STL <cstring> を避けて per-byte ループを自前で書く
-//     (Entitlement / FProgression / FSettings と同じ StrEq pattern)。
+//     (Entitlement / Progression / Settings と同じ StrEq pattern)。
 //   ・unlocked リストは const char* の TArray (非所有)。文字列比較で線形検索
 //     する想定で十分高速 (典型 N <= 数十)。
 //   ・AllCheckpoints は穴を詰めるため _scratch を再構築して返す。
@@ -37,12 +37,12 @@ bool StrEq(const char* a, const char* b) noexcept {
 // 内部 slot 取得
 // =============================================================================
 
-u32 FCheckpointSystem::AcquireSlot() noexcept {
+u32 CheckpointSystem::AcquireSlot() noexcept {
     // index 0 は invalid 予約 (dummy)。1 以上から空き slot を線形検索。
     for (u32 i = 1; i < _slots.Size(); ++i) {
         if (!_slots[i].active) return i;
     }
-    // 初回は dummy slot を 0 番に置く (FHealthSystem / FPickupSystem と同パターン)。
+    // 初回は dummy slot を 0 番に置く (HealthSystem / PickupSystem と同パターン)。
     if (_slots.IsEmpty()) {
         _slots.PushBack({});
     }
@@ -54,19 +54,19 @@ u32 FCheckpointSystem::AcquireSlot() noexcept {
 // 内部検索ヘルパ
 // =============================================================================
 
-isize FCheckpointSystem::FindIndexById(const char* id) const noexcept {
+isize CheckpointSystem::FindIndexById(const char* id) const noexcept {
     if (id == nullptr) return -1;
     const usize n = _slots.Size();
     // index 0 は dummy なので 1 から走査。
     for (usize i = 1; i < n; ++i) {
-        const FSlot& s = _slots[i];
+        const Slot& s = _slots[i];
         if (!s.active) continue;
         if (StrEq(s.info.id, id)) return static_cast<isize>(i);
     }
     return -1;
 }
 
-isize FCheckpointSystem::FindUnlockedIndex(const char* id) const noexcept {
+isize CheckpointSystem::FindUnlockedIndex(const char* id) const noexcept {
     if (id == nullptr) return -1;
     const usize n = _unlocked.Size();
     for (usize i = 0; i < n; ++i) {
@@ -75,21 +75,21 @@ isize FCheckpointSystem::FindUnlockedIndex(const char* id) const noexcept {
     return -1;
 }
 
-FCheckpointSystem::FSlot* FCheckpointSystem::FindSlot(FCheckpointId id) noexcept {
+CheckpointSystem::Slot* CheckpointSystem::FindSlot(CheckpointId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0 || idx >= _slots.Size()) return nullptr;
-    FSlot& s = _slots[idx];
+    Slot& s = _slots[idx];
     if (!s.active) return nullptr;
     if (s.gen != id.Generation()) return nullptr;
     return &s;
 }
 
-const FCheckpointSystem::FSlot* FCheckpointSystem::FindSlot(FCheckpointId id) const noexcept {
+const CheckpointSystem::Slot* CheckpointSystem::FindSlot(CheckpointId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0 || idx >= _slots.Size()) return nullptr;
-    const FSlot& s = _slots[idx];
+    const Slot& s = _slots[idx];
     if (!s.active) return nullptr;
     if (s.gen != id.Generation()) return nullptr;
     return &s;
@@ -99,14 +99,14 @@ const FCheckpointSystem::FSlot* FCheckpointSystem::FindSlot(FCheckpointId id) co
 // Register / Unregister
 // =============================================================================
 
-FCheckpointId FCheckpointSystem::Register(const FCheckpointInfo& info) noexcept {
+CheckpointId CheckpointSystem::Register(const CheckpointInfo& info) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (アセット欠損時の保険)。
-    if (info.id == nullptr) return FCheckpointId{};
-    // 同 id の 2 重登録は invalid 返却 (FProgression / FEntitlementRegistry と同様)。
-    if (FindIndexById(info.id) >= 0) return FCheckpointId{};
+    if (info.id == nullptr) return CheckpointId{};
+    // 同 id の 2 重登録は invalid 返却 (Progression / EntitlementRegistry と同様)。
+    if (FindIndexById(info.id) >= 0) return CheckpointId{};
 
     const u32 idx = AcquireSlot();
-    FSlot& s = _slots[idx];
+    Slot& s = _slots[idx];
 
     // generation を進める (0 は invalid 扱いなので回避)。
     s.gen = static_cast<u8>(s.gen + 1u);
@@ -116,20 +116,20 @@ FCheckpointId FCheckpointSystem::Register(const FCheckpointInfo& info) noexcept 
     s.info   = info;
 
     ++_checkpoint_count;
-    return FCheckpointId{idx, s.gen};
+    return CheckpointId{idx, s.gen};
 }
 
-void FCheckpointSystem::Unregister(FCheckpointId id) noexcept {
-    FSlot* s = FindSlot(id);
+void CheckpointSystem::Unregister(CheckpointId id) noexcept {
+    Slot* s = FindSlot(id);
     if (s == nullptr) return;
 
     // 現 active が解除対象なら active を invalid 化 (last_* は据置で履歴扱い)。
     if (_current == id) {
-        _current = FCheckpointId{};
+        _current = CheckpointId{};
     }
 
     s->active = false;
-    s->info   = FCheckpointInfo{};   // info を初期化 (id ポインタも nullptr に戻す)
+    s->info   = CheckpointInfo{};   // info を初期化 (id ポインタも nullptr に戻す)
     // generation はそのまま。次の Register で +1 して古い handle を弾く。
 
     if (_checkpoint_count > 0) --_checkpoint_count;
@@ -139,9 +139,9 @@ void FCheckpointSystem::Unregister(FCheckpointId id) noexcept {
 // Activate (現在地点として記録)
 // =============================================================================
 
-bool FCheckpointSystem::ActivateInternal(u32 slot_index) noexcept {
+bool CheckpointSystem::ActivateInternal(u32 slot_index) noexcept {
     // 前提: 呼出側で slot_index が active な範囲内であることを確認済み。
-    FSlot& s = _slots[slot_index];
+    Slot& s = _slots[slot_index];
 
     // requires_unlock な場合は unlocked リストを確認。未 unlock なら弾く。
     if (s.info.requires_unlock) {
@@ -152,13 +152,13 @@ bool FCheckpointSystem::ActivateInternal(u32 slot_index) noexcept {
     // 戻り方向 (= 対象 < 現 active) への遷移を弾く。
     // 同じ checkpoint への再 Activate は素通し (no-op 成功)。
     if (_current.IsValid()) {
-        const FSlot* cur = FindSlot(_current);
+        const Slot* cur = FindSlot(_current);
         if (cur != nullptr && cur->info.one_way) {
             if (s.info.sort_order < cur->info.sort_order) return false;
         }
     }
 
-    const FCheckpointId new_id{slot_index, s.gen};
+    const CheckpointId new_id{slot_index, s.gen};
 
     // 既に同 checkpoint が active な場合は no-op 成功 (callback 再発火しない)。
     if (_current == new_id) return true;
@@ -173,14 +173,14 @@ bool FCheckpointSystem::ActivateInternal(u32 slot_index) noexcept {
     return true;
 }
 
-bool FCheckpointSystem::ActivateCheckpoint(const char* checkpoint_id) noexcept {
+bool CheckpointSystem::ActivateCheckpoint(const char* checkpoint_id) noexcept {
     const isize idx = FindIndexById(checkpoint_id);
     if (idx < 0) return false;
     return ActivateInternal(static_cast<u32>(idx));
 }
 
-bool FCheckpointSystem::ActivateCheckpoint(FCheckpointId id) noexcept {
-    FSlot* s = FindSlot(id);
+bool CheckpointSystem::ActivateCheckpoint(CheckpointId id) noexcept {
+    Slot* s = FindSlot(id);
     if (s == nullptr) return false;
     return ActivateInternal(id.Index());
 }
@@ -189,7 +189,7 @@ bool FCheckpointSystem::ActivateCheckpoint(FCheckpointId id) noexcept {
 // Unlock (隠し / DLC ones)
 // =============================================================================
 
-void FCheckpointSystem::UnlockCheckpoint(const char* checkpoint_id) noexcept {
+void CheckpointSystem::UnlockCheckpoint(const char* checkpoint_id) noexcept {
     if (checkpoint_id == nullptr) return;
     // 既に unlocked なら no-op (Save 復元での重複呼出も無害)。
     if (FindUnlockedIndex(checkpoint_id) >= 0) return;
@@ -197,11 +197,11 @@ void FCheckpointSystem::UnlockCheckpoint(const char* checkpoint_id) noexcept {
     _unlocked.PushBack(checkpoint_id);
 }
 
-bool FCheckpointSystem::IsUnlocked(const char* checkpoint_id) const noexcept {
+bool CheckpointSystem::IsUnlocked(const char* checkpoint_id) const noexcept {
     if (checkpoint_id == nullptr) return false;
     const isize idx = FindIndexById(checkpoint_id);
     if (idx < 0) return false;
-    const FSlot& s = _slots[static_cast<usize>(idx)];
+    const Slot& s = _slots[static_cast<usize>(idx)];
     // requires_unlock=false な定義なら常に unlocked 扱い (= 常時 available)。
     if (!s.info.requires_unlock) return true;
     return FindUnlockedIndex(checkpoint_id) >= 0;
@@ -211,22 +211,22 @@ bool FCheckpointSystem::IsUnlocked(const char* checkpoint_id) const noexcept {
 // 現在状態の照会
 // =============================================================================
 
-FCheckpointId FCheckpointSystem::CurrentCheckpoint() const noexcept {
+CheckpointId CheckpointSystem::CurrentCheckpoint() const noexcept {
     return _current;
 }
 
-FVec2 FCheckpointSystem::CurrentSpawnPos() const noexcept {
-    const FSlot* s = FindSlot(_current);
+FVec2 CheckpointSystem::CurrentSpawnPos() const noexcept {
+    const Slot* s = FindSlot(_current);
     if (s == nullptr) return FVec2::Zero();
     return s->info.spawn_pos;
 }
 
-u32 FCheckpointSystem::LastSpawnLevelIndex() const noexcept {
+u32 CheckpointSystem::LastSpawnLevelIndex() const noexcept {
     return _last_level_index;
 }
 
-bool FCheckpointSystem::TriggerRespawn(FVec2& out_pos, u32& out_level_index) const noexcept {
-    const FSlot* s = FindSlot(_current);
+bool CheckpointSystem::TriggerRespawn(FVec2& out_pos, u32& out_level_index) const noexcept {
+    const Slot* s = FindSlot(_current);
     if (s == nullptr) return false;
 
     out_pos         = s->info.spawn_pos;
@@ -242,27 +242,27 @@ bool FCheckpointSystem::TriggerRespawn(FVec2& out_pos, u32& out_level_index) con
 // 件数照会
 // =============================================================================
 
-u32 FCheckpointSystem::CheckpointCount() const noexcept {
+u32 CheckpointSystem::CheckpointCount() const noexcept {
     return _checkpoint_count;
 }
 
-u32 FCheckpointSystem::UnlockedCount() const noexcept {
+u32 CheckpointSystem::UnlockedCount() const noexcept {
     return static_cast<u32>(_unlocked.Size());
 }
 
-const FCheckpointInfo* FCheckpointSystem::FindCheckpoint(const char* checkpoint_id) const noexcept {
+const CheckpointInfo* CheckpointSystem::FindCheckpoint(const char* checkpoint_id) const noexcept {
     const isize idx = FindIndexById(checkpoint_id);
     if (idx < 0) return nullptr;
     return &_slots[static_cast<usize>(idx)].info;
 }
 
-const FCheckpointInfo* FCheckpointSystem::AllCheckpoints(u32& out_count) const noexcept {
+const CheckpointInfo* CheckpointSystem::AllCheckpoints(u32& out_count) const noexcept {
     // _scratch を再構築して穴を詰める。
     _scratch.Clear();
     const usize n = _slots.Size();
     // index 0 は dummy なので 1 から走査。
     for (usize i = 1; i < n; ++i) {
-        const FSlot& s = _slots[i];
+        const Slot& s = _slots[i];
         if (!s.active) continue;
         _scratch.PushBack(s.info);
     }
@@ -274,12 +274,12 @@ const FCheckpointInfo* FCheckpointSystem::AllCheckpoints(u32& out_count) const n
 // FCallback
 // =============================================================================
 
-void FCheckpointSystem::SetOnActivateCallback(ActivateCallback cb, void* user) noexcept {
+void CheckpointSystem::SetOnActivateCallback(ActivateCallback cb, void* user) noexcept {
     _on_activate      = cb;
     _on_activate_user = user;
 }
 
-void FCheckpointSystem::SetOnRespawnCallback(RespawnCallback cb, void* user) noexcept {
+void CheckpointSystem::SetOnRespawnCallback(RespawnCallback cb, void* user) noexcept {
     _on_respawn      = cb;
     _on_respawn_user = user;
 }
@@ -288,15 +288,15 @@ void FCheckpointSystem::SetOnRespawnCallback(RespawnCallback cb, void* user) noe
 // 一括破棄
 // =============================================================================
 
-void FCheckpointSystem::ClearAll() noexcept {
+void CheckpointSystem::ClearAll() noexcept {
     _slots.Clear();
     _unlocked.Clear();
     _scratch.Clear();
-    _current          = FCheckpointId{};
+    _current          = CheckpointId{};
     _last_level_index = 0;
     _last_spawn_pos   = FVec2::Zero();
     _checkpoint_count = 0;
-    // callback 設定は保持 (FProgression::ResetProgress / FHealthSystem::ClearAll と同方針)。
+    // callback 設定は保持 (Progression::ResetProgress / HealthSystem::ClearAll と同方針)。
 }
 
 } // namespace acs::game

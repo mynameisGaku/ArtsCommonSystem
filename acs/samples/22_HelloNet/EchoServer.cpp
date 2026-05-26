@@ -11,7 +11,7 @@ using namespace acs;
 namespace hellonet {
 
 void ServerThread(void* /*user*/) noexcept {
-    auto lr = FTcpListener::Listen(FIpAddress::Any(), kEchoPort);
+    auto lr = TcpListener::Listen(IpAddress::Any(), kEchoPort);
     if (lr.IsErr()) {
         ACS_LOG_ERROR("Listener failed: %s", lr.Error().message);
         return;
@@ -23,7 +23,7 @@ void ServerThread(void* /*user*/) noexcept {
         ACS_LOG_ERROR("Accept failed: %s", cr.Error().message);
         return;
     }
-    FTcpConnection conn = Move(cr.Value());
+    TcpConnection conn = Move(cr.Value());
 
     char buf[256];
     isize n = conn.Recv(buf, sizeof(buf));

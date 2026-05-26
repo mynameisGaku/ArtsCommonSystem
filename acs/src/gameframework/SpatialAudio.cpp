@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSpatialAudio 実装 (Phase 3)
+// GameFramework Pillar H — SpatialAudio 実装 (Phase 3)
 //
 // 3D listener + source の集中管理、距離減衰 / pan 計算、HRTF stub。
-// 実 FAudioEngine voice バインドは Phase 2 で FAudioDirector と統合予定。
+// 実 AudioEngine voice バインドは Phase 2 で AudioDirector と統合予定。
 #include "gameframework/SpatialAudio.h"
 #include "math/Math.h"
 #include "foundation/Log.h"
@@ -10,30 +10,30 @@
 namespace acs::game {
 
 // =============================================================================
-// FHrtfRendererStub — 簡易 stereo panning だけ
+// HrtfRendererStub — 簡易 stereo panning だけ
 // =============================================================================
 
-TResult<void> FHrtfRendererStub::Init() noexcept {
+TResult<void> HrtfRendererStub::Init() noexcept {
     _initialized = true;
     // Phase 2 で KEMAR 256-tap IR を埋め込み配列から構築する。stub は何も
     // ロードしない (= ~140KB 削減)。一度きりログで「HRTF off」を明示。
     static bool s_logged = false;
     if (!s_logged) {
         s_logged = true;
-        ACS_LOG_INFO("FHrtfRendererStub::Init: HRTF disabled (Phase H-3 stub, panning only)");
+        ACS_LOG_INFO("HrtfRendererStub::Init: HRTF disabled (Phase H-3 stub, panning only)");
     }
     return Ok();
 }
 
-void FHrtfRendererStub::Shutdown() noexcept {
+void HrtfRendererStub::Shutdown() noexcept {
     _initialized = false;
 }
 
-void FHrtfRendererStub::SetListener(const FAudioListener& listener) noexcept {
+void HrtfRendererStub::SetListener(const AudioListener& listener) noexcept {
     _listener = listener;
 }
 
-void FHrtfRendererStub::ProcessSource(const FAudioSource3D& source,
+void HrtfRendererStub::ProcessSource(const AudioSource3D& source,
                                      const f32* mono_input,
                                      f32* stereo_output,
                                      u32 sample_count) noexcept {
@@ -48,7 +48,7 @@ void FHrtfRendererStub::ProcessSource(const FAudioSource3D& source,
         }
         return;
     }
-    // pan を listener 基準で計算 (FSpatialAudio::ComputePan と同じ式)。
+    // pan を listener 基準で計算 (SpatialAudio::ComputePan と同じ式)。
     // right = up × forward。標準姿勢 (forward=Z+, up=Y+) で右ベクトル X+ を
     // 返す式で、左手系 / 右手系どちらでも符号一貫 (Y+up を共通慣習にしている)。
     const FVec3 right = Cross(_listener.up, _listener.forward);
@@ -73,24 +73,24 @@ void FHrtfRendererStub::ProcessSource(const FAudioSource3D& source,
 }
 
 // =============================================================================
-// FSpatialAudio — 構築・listener
+// SpatialAudio — 構築・listener
 // =============================================================================
 
-FSpatialAudio::FSpatialAudio() noexcept {
+SpatialAudio::SpatialAudio() noexcept {
     _sources.Reserve(kInitialSourceCapacity);
 }
 
-void FSpatialAudio::SetListener(const FAudioListener& l) noexcept {
+void SpatialAudio::SetListener(const AudioListener& l) noexcept {
     _listener = l;
 }
 
 // =============================================================================
-// FSpatialAudio — source 管理
+// SpatialAudio — source 管理
 // =============================================================================
 
-u32 FSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
+u32 SpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
                                   EAttenuationCurve curve) noexcept {
-    FAudioSource3D s {};
+    AudioSource3D s {};
     s.source_id    = _next_source_id++;
     s.position     = pos;
     s.velocity     = FVec3::Zero();
@@ -103,30 +103,30 @@ u32 FSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
     return s.source_id;
 }
 
-void FSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
+void SpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= _sources.Size()) {
-        ACS_LOG_WARN("FSpatialAudio::UpdateSource: stale id=%u → ignored", id);
+        ACS_LOG_WARN("SpatialAudio::UpdateSource: stale id=%u → ignored", id);
         return;
     }
     _sources[idx].position = pos;
     _sources[idx].velocity = vel;
 }
 
-void FSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
+void SpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= _sources.Size()) {
-        ACS_LOG_WARN("FSpatialAudio::SetSourceVolume: stale id=%u → ignored", id);
+        ACS_LOG_WARN("SpatialAudio::SetSourceVolume: stale id=%u → ignored", id);
         return;
     }
     const f32 c = Saturate(v);
     if (c != v) {
-        ACS_LOG_WARN("FSpatialAudio::SetSourceVolume: out-of-range %.3f → clamped to %.3f", v, c);
+        ACS_LOG_WARN("SpatialAudio::SetSourceVolume: out-of-range %.3f → clamped to %.3f", v, c);
     }
     _sources[idx].volume = c;
 }
 
-void FSpatialAudio::RemoveSource(u32 id) noexcept {
+void SpatialAudio::RemoveSource(u32 id) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= _sources.Size()) {
         // 既に削除済みは静かに無視 (典型: クロスフェード後の cleanup)。
@@ -138,13 +138,13 @@ void FSpatialAudio::RemoveSource(u32 id) noexcept {
 }
 
 // =============================================================================
-// FSpatialAudio — 計算結果取得
+// SpatialAudio — 計算結果取得
 // =============================================================================
 
-f32 FSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
+f32 SpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
     const usize idx = FindIndex(id);
     if (idx >= _sources.Size()) return 0.0f;
-    const FAudioSource3D& s = _sources[idx];
+    const AudioSource3D& s = _sources[idx];
     if (!s.active) return 0.0f;
 
     const FVec3 to_src = s.position - _listener.position;
@@ -185,10 +185,10 @@ f32 FSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
     return s.volume * atten;
 }
 
-f32 FSpatialAudio::ComputePan(u32 id) const noexcept {
+f32 SpatialAudio::ComputePan(u32 id) const noexcept {
     const usize idx = FindIndex(id);
     if (idx >= _sources.Size()) return 0.0f;
-    const FAudioSource3D& s = _sources[idx];
+    const AudioSource3D& s = _sources[idx];
     if (!s.active) return 0.0f;
 
     const FVec3 to_src = s.position - _listener.position;
@@ -197,7 +197,7 @@ f32 FSpatialAudio::ComputePan(u32 id) const noexcept {
         // listener の真上に重なっている場合は中央 (= 0)。
         return 0.0f;
     }
-    // listener の右ベクトル = up × forward (FHrtfRendererStub と同じ式)。
+    // listener の右ベクトル = up × forward (HrtfRendererStub と同じ式)。
     const FVec3 right = Cross(_listener.up, _listener.forward);
     if (LengthSq(right) <= kEpsilon) {
         // forward と up が縮退している (= 不正な姿勢) → 中央扱い。
@@ -213,10 +213,10 @@ f32 FSpatialAudio::ComputePan(u32 id) const noexcept {
 }
 
 // =============================================================================
-// FSpatialAudio — 統計・driver
+// SpatialAudio — 統計・driver
 // =============================================================================
 
-u32 FSpatialAudio::SourceCount() const noexcept {
+u32 SpatialAudio::SourceCount() const noexcept {
     u32 n = 0;
     for (usize i = 0; i < _sources.Size(); ++i) {
         if (_sources[i].active) ++n;
@@ -224,16 +224,16 @@ u32 FSpatialAudio::SourceCount() const noexcept {
     return n;
 }
 
-void FSpatialAudio::Tick(f32 /*dt*/) noexcept {
+void SpatialAudio::Tick(f32 /*dt*/) noexcept {
     // Phase H-3 は state を進めない (listener / source は外から push)。
     // Phase 2 で:
     //   ・Doppler shift 計算 (velocity 比率 → pitch)
     //   ・古い inactive source の物理 GC
-    //   ・streaming FAudioEngine voice の更新
+    //   ・streaming AudioEngine voice の更新
     // を追加予定。
 }
 
-void FSpatialAudio::Clear() noexcept {
+void SpatialAudio::Clear() noexcept {
     _sources.Clear();
     // _next_source_id はリセットしない。Clear 直後に登録した source は新 ID
     // を受け取り、外部に握られた古い ID とは衝突しない (stale 検出が機能する)。
@@ -243,7 +243,7 @@ void FSpatialAudio::Clear() noexcept {
 // 内部 helper
 // =============================================================================
 
-usize FSpatialAudio::FindIndex(u32 id) const noexcept {
+usize SpatialAudio::FindIndex(u32 id) const noexcept {
     if (id == 0) return _sources.Size();  // 0 は無効予約
     for (usize i = 0; i < _sources.Size(); ++i) {
         if (_sources[i].source_id == id) return i;

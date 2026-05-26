@@ -28,7 +28,7 @@ void HelloRaycast3DApp::OnStart() noexcept {
 }
 
 void HelloRaycast3DApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
     _scene.Update(dt);
 }
 

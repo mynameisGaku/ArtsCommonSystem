@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — FPbrShader の lighting / 補助テクスチャ bind 集約。
+// HelloIbl — PbrShader の lighting / 補助テクスチャ bind 集約。
 //
 // HDR 描画パスで sphere grid / floor を描く前に呼ぶ。IBL / 太陽 / SSAO / SSGI /
 // SSR / Shadow / Fog / probe grid / area light を一括で bind する。
@@ -49,7 +49,7 @@ void BindSsgi(HelloIblApp& app) noexcept {
 }
 
 void BindSsr(HelloIblApp& app) noexcept {
-    // FPbrShader 側で roughness 依存合成 (rough 面ほど反射が弱まる)。
+    // PbrShader 側で roughness 依存合成 (rough 面ほど反射が弱まる)。
     if (app._show_ssr && app._ssr_warm) {
         app._pbr.SetSsr(app._ssr.OutputTexture(), /*intensity=*/1.0f);
     } else {
@@ -59,8 +59,8 @@ void BindSsr(HelloIblApp& app) noexcept {
 
 void BindShadow(HelloIblApp& app) noexcept {
     if (app._use_shadows) {
-        FMat4 vps   [FShadowMap::kMaxCascades] = {};
-        f32  splits[FShadowMap::kMaxCascades] = {};
+        FMat4 vps   [ShadowMap::kMaxCascades] = {};
+        f32  splits[ShadowMap::kMaxCascades] = {};
         for (u32 c = 0; c < app._shadow.CascadeCount(); ++c) {
             vps[c]    = app._shadow.LightViewProjection(c);
             splits[c] = app._shadow.CascadeSplit(c);
@@ -86,7 +86,7 @@ void BindFog(HelloIblApp& app) noexcept {
 void BindProbeGrid(HelloIblApp& app) noexcept {
     if (app._use_probe_grid) {
         // 計算済 _sh9 (現 env の SH9) をベースに、左右の probe を赤/青に着色
-        FPbrShader::FLightProbe p[2];
+        PbrShader::LightProbe p[2];
         p[0].position = FVec3{-4.0f, 1.5f, 3.0f};   // 左 probe (赤光)
         for (u32 k = 0; k < 9; ++k) p[0].sh9[k] = app._sh9[k];
         p[0].sh9[0] = p[0].sh9[0] + FVec4{2.5f, 0.4f, 0.4f, 0};   // l=0 (DC) に赤を強める
@@ -105,7 +105,7 @@ void BindProbeGrid(HelloIblApp& app) noexcept {
 void BindAreaLight(HelloIblApp& app) noexcept {
     // 球グリッドの前方上空に置いた 2x1 矩形パネル
     if (app._use_area_light) {
-        FPbrShader::FAreaLight rect;
+        PbrShader::AreaLight rect;
         rect.center = FVec3{0.0f, 4.0f, 1.0f};      // 上空、camera 側
         rect.axis_x = FVec3{1.0f, 0.0f, 0.0f};      // 横半幅 = 1
         rect.axis_y = FVec3{0.0f, 0.0f, 0.5f};      // 奥行半高 = 0.5

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSceneTimer 実装
+// GameFramework Pillar H — SceneTimer 実装
 //
 // 設計メモ:
-//  ・slot 再利用は線形走査 (Tween/FSequenceRunner と同じ方針)。FScene あたりの
+//  ・slot 再利用は線形走査 (Tween/SequenceRunner と同じ方針)。Scene あたりの
 //    timer 数は数十〜数百が想定なので O(N) で十分。
 //  ・generation は u8 (0 = 未使用, 1〜255 が有効)。255 で wrap して 1 に戻す
 //    (0 にすると IsValid が常に false になり stale 検知不能になるため)。
@@ -15,7 +15,7 @@
 
 namespace acs::game {
 
-u32 FSceneTimer::AcquireSlot() noexcept {
+u32 SceneTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (キャッシュ局所性 + index 上限 24bit 保護)
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -24,25 +24,25 @@ u32 FSceneTimer::AcquireSlot() noexcept {
         }
     }
     // 全 slot 使用中 → 末尾に追加。24bit index 上限を守る (= 16M timer/scene)。
-    if (n >= static_cast<usize>(FTimerHandle::kMaxIndex)) {
-        return FTimerHandle::kMaxIndex; // sentinel: caller 側で invalid 扱い
+    if (n >= static_cast<usize>(TimerHandle::kMaxIndex)) {
+        return TimerHandle::kMaxIndex; // sentinel: caller 側で invalid 扱い
     }
     _entries.PushBack({});
     return static_cast<u32>(_entries.Size()) - 1u;
 }
 
-FTimerHandle FSceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
-    return FTimerHandle::Pack(index, gen);
+TimerHandle SceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
+    return TimerHandle::Pack(index, gen);
 }
 
-FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
+TimerHandle SceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (delay_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
-    if (idx >= FTimerHandle::kMaxIndex) return {}; // 上限到達
+    if (idx >= TimerHandle::kMaxIndex) return {}; // 上限到達
 
-    FTimerEntry& e = _entries[idx];
+    TimerEntry& e = _entries[idx];
     // generation を 1 進める (0 は未使用扱いなので必ず 1 以上を保つ)
     u8 new_gen = static_cast<u8>(e.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
@@ -59,14 +59,14 @@ FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user
     return MakeHandle(idx, new_gen);
 }
 
-FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
+TimerHandle SceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (period_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
-    if (idx >= FTimerHandle::kMaxIndex) return {};
+    if (idx >= TimerHandle::kMaxIndex) return {};
 
-    FTimerEntry& e = _entries[idx];
+    TimerEntry& e = _entries[idx];
     u8 new_gen = static_cast<u8>(e.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
 
@@ -82,11 +82,11 @@ FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* us
     return MakeHandle(idx, new_gen);
 }
 
-bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
+bool SceneTimer::Cancel(TimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= _entries.Size()) return false;
-    FTimerEntry& e = _entries[idx];
+    TimerEntry& e = _entries[idx];
     if (!e.active || e.gen != h.Gen()) return false;
 
     e.active = false;
@@ -96,10 +96,10 @@ bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
     return true;
 }
 
-void FSceneTimer::CancelAll() noexcept {
+void SceneTimer::CancelAll() noexcept {
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
-        FTimerEntry& e = _entries[i];
+        TimerEntry& e = _entries[i];
         if (!e.active) continue;
         e.active = false;
         e.cb     = nullptr;
@@ -108,15 +108,15 @@ void FSceneTimer::CancelAll() noexcept {
     _active_count = 0u;
 }
 
-bool FSceneTimer::IsActive(FTimerHandle h) const noexcept {
+bool SceneTimer::IsActive(TimerHandle h) const noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= _entries.Size()) return false;
-    const FTimerEntry& e = _entries[idx];
+    const TimerEntry& e = _entries[idx];
     return e.active && e.gen == h.Gen();
 }
 
-void FSceneTimer::Tick(f32 dt) noexcept {
+void SceneTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (_active_count == 0u) return;
 
@@ -129,7 +129,7 @@ void FSceneTimer::Tick(f32 dt) noexcept {
     for (usize i = 0; i < snapshot_size; ++i) {
         // 起動時の世代を覚えておく (コールバック内で Cancel→再 Acquire により
         // 同 slot が別 timer に化ける可能性を検出する)。
-        FTimerEntry& e0 = _entries[i];
+        TimerEntry& e0 = _entries[i];
         if (!e0.active) continue;
         const u8 launched_gen = e0.gen;
 
@@ -154,7 +154,7 @@ void FSceneTimer::Tick(f32 dt) noexcept {
             // コールバック内で Cancel された場合に備え、毎反復で
             // active/gen を確認する (_entries[i] を取り直す)。
             while (true) {
-                FTimerEntry& e = _entries[i];
+                TimerEntry& e = _entries[i];
                 if (!e.active || e.gen != launched_gen) break;
                 if (e.elapsed < e.period) break;
                 if (e.period <= 0.0f) break; // defense-in-depth

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FUndoStack (Phase 21a)
+// GameFramework Tools — editor_core / UndoStack (Phase 21a)
 //
 // 役割:
-//   全エディタが共有する undo / redo の中央ハブ。FEditorCommand 派生インスタンス
+//   全エディタが共有する undo / redo の中央ハブ。EditorCommand 派生インスタンス
 //   を所有して、Push で 1 操作分を実行・登録し、Undo / Redo でユーザ操作を巻き
 //   戻し / やり直しする。連続 drag 等の merge も Push 時にこちらで判定する。
 //
 // 使い方:
-//   acs::game::editor_core::FUndoStack stack;
+//   acs::game::editor_core::UndoStack stack;
 //   stack.Init(64);
 //
 //   // 1 操作: Push に所有権を渡す
-//   auto* cmd = acs::New<FMoveNodeCommand>(acs::DefaultAllocator(),
+//   auto* cmd = acs::New<MoveNodeCommand>(acs::DefaultAllocator(),
 //                                          &node, old_pos, new_pos);
 //   stack.Push(cmd);
 //
@@ -20,18 +20,18 @@
 //   }
 //
 // 設計選択 (Phase 21a):
-//   ・**TUniquePtr<FEditorCommand> を 2 本の TArray に積む**: undo / redo の
+//   ・**TUniquePtr<EditorCommand> を 2 本の TArray に積む**: undo / redo の
 //     LIFO スタック。基底ポインタなので polymorphic dispatch (virtual Execute /
 //     Undo / Description) で派生型を意識せず巻き戻せる。
 //   ・**Push で所有権を奪う (raw pointer 引数 + delete 責任)**: 既存サンプル
-//     (FHierarchyPanel 等) と同じく ImGui 連携の単純な C-API 風シグネチャに
+//     (HierarchyPanel 等) と同じく ImGui 連携の単純な C-API 風シグネチャに
 //     揃える。caller は `cmd.Release()` で渡す or 自分で New してそのまま渡す。
 //     Push 内で TUniquePtr に詰め直してから _undo_stack に PushBack することで
 //     その後の代入 / pop で自動 delete される。
-//   ・**Push 内で Execute も実行**: GUI コードが「new FEditorCommand → Push」
+//   ・**Push 内で Execute も実行**: GUI コードが「new EditorCommand → Push」
 //     しか書かなくて済む (= Execute 忘れを構造的に防ぐ)。Redo 経路でも
-//     FEditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
-//     な実装にしておく必要がある (Undo を挟まずに連続 Execute は FUndoStack 側
+//     EditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
+//     な実装にしておく必要がある (Undo を挟まずに連続 Execute は UndoStack 側
 //     で排除済み)。
 //   ・**Push は redo stack をクリア**: Undo 後に new edit が来た時点で
 //     "redo の未来" は破棄される (Git の reset --hard 相当)。branched history
@@ -59,7 +59,7 @@
 //   ・branched history (git のような分岐 undo): Push で redo stack を破棄せず
 //     branch ツリーに移し替える。
 //   ・serialization (.acsundo): undo stack 内容をテキスト or バイナリで save。
-//     FEditorCommand 派生に virtual Serialize / Deserialize を追加することで
+//     EditorCommand 派生に virtual Serialize / Deserialize を追加することで
 //     対応する。
 //   ・"Undo to here" (history list で n 個まとめて undo): n 個 pop を 1 個ずつ
 //     回せば実現できるので公開 API 不要。
@@ -71,7 +71,7 @@
 
 namespace acs::game::editor_core {
 
-class FEditorCommand;
+class EditorCommand;
 
 // =============================================================================
 // CommandExecutedCallback — Push / Undo / Redo 後の副反応用
@@ -84,22 +84,22 @@ class FEditorCommand;
 //             undo / redo の方向は cb 側で必要なら別パラメータを足す。
 // =============================================================================
 using CommandExecutedCallback =
-    void (*)(void* user, const class FEditorCommand* cmd, bool is_redo) noexcept;
+    void (*)(void* user, const class EditorCommand* cmd, bool is_redo) noexcept;
 
 // =============================================================================
-// FUndoStack — Editor 共通の undo/redo ハブ
+// UndoStack — Editor 共通の undo/redo ハブ
 // -----------------------------------------------------------------------------
 // 非コピー / 非ムーブ、全 noexcept、STL 不使用 (`acs::TArray` + `acs::TUniquePtr`)。
 // =============================================================================
-class FUndoStack {
+class UndoStack {
 public:
-    FUndoStack() noexcept  = default;
-    ~FUndoStack() noexcept = default;
+    UndoStack() noexcept  = default;
+    ~UndoStack() noexcept = default;
 
-    FUndoStack(const FUndoStack&)            = delete;
-    FUndoStack& operator=(const FUndoStack&) = delete;
-    FUndoStack(FUndoStack&&)                 = delete;
-    FUndoStack& operator=(FUndoStack&&)      = delete;
+    UndoStack(const UndoStack&)            = delete;
+    UndoStack& operator=(const UndoStack&) = delete;
+    UndoStack(UndoStack&&)                 = delete;
+    UndoStack& operator=(UndoStack&&)      = delete;
 
     // 初期化。多重 Init 可 (履歴を空にする + 上限を再設定)。max_history は
     // undo + redo それぞれの上限ではなく「undo stack に積める件数の上限」。
@@ -116,7 +116,7 @@ public:
     //   5. _redo_stack を Clear (= new edit が来たので redo の未来は破棄)。
     //   6. _undo_stack.Size() > _max_history なら最古を 1 件捨てる。
     //   7. callback を (cb_user, スタック top の cmd, is_redo=false) で発火。
-    void Push(class FEditorCommand* cmd) noexcept;
+    void Push(class EditorCommand* cmd) noexcept;
 
     // undo を 1 件巻き戻す。動作順:
     //   1. _undo_stack.IsEmpty() なら false を返して no-op。
@@ -159,8 +159,8 @@ private:
     // PushBack 後にのみ呼ぶ前提なので、超過量は高々 1。
     void DropOldestIfOverflow() noexcept;
 
-    TArray<TUniquePtr<FEditorCommand>> _undo_stack {};
-    TArray<TUniquePtr<FEditorCommand>> _redo_stack {};
+    TArray<TUniquePtr<EditorCommand>> _undo_stack {};
+    TArray<TUniquePtr<EditorCommand>> _redo_stack {};
     u32                             _max_history = 64;
     CommandExecutedCallback         _cb          = nullptr;
     void*                           _cb_user     = nullptr;

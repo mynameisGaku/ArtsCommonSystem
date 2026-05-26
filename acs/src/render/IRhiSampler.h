@@ -26,7 +26,7 @@ enum class ESamplerAddress : u8 {
     Border,  // 境界色（黒）で塗る
 };
 
-struct FSamplerDesc {
+struct SamplerDesc {
     ESamplerFilter  filter      = ESamplerFilter::Linear;
     ESamplerAddress address_u   = ESamplerAddress::Wrap;
     ESamplerAddress address_v   = ESamplerAddress::Wrap;

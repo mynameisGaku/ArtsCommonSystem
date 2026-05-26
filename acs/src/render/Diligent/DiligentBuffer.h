@@ -11,17 +11,17 @@ namespace Diligent {
 
 namespace acs {
 
-class FDiligentDevice;
+class DiligentDevice;
 
-class FDiligentBuffer final : public IRhiBuffer {
+class DiligentBuffer final : public IRhiBuffer {
 public:
-    FDiligentBuffer() noexcept = default;
-    ~FDiligentBuffer() noexcept override;
+    DiligentBuffer() noexcept = default;
+    ~DiligentBuffer() noexcept override;
 
-    FDiligentBuffer(const FDiligentBuffer&) = delete;
-    FDiligentBuffer& operator=(const FDiligentBuffer&) = delete;
+    DiligentBuffer(const DiligentBuffer&) = delete;
+    DiligentBuffer& operator=(const DiligentBuffer&) = delete;
 
-    TResult<void> Init(FDiligentDevice& device, const FBufferDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const FBufferDesc& desc) noexcept;
 
     // ---- IRhiBuffer ----
     usize       Size()  const noexcept override { return _size; }
@@ -32,10 +32,10 @@ public:
     Diligent::IBuffer* Native() const noexcept { return _buffer; }
 
 private:
-    FDiligentDevice*    _device = nullptr;
+    DiligentDevice*    _device = nullptr;
     Diligent::IBuffer* _buffer = nullptr;
     usize              _size   = 0;
-    EBufferUsage        _usage  = EBufferUsage::FVertex;
+    EBufferUsage        _usage  = EBufferUsage::Vertex;
 };
 
 } // namespace acs

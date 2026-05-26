@@ -1,6 +1,6 @@
 # ACS GameFramework モジュール 設計書 v13（包括版）
 
-`acs::FApplication` の上に、ゲーム制作に必要な要素を**包括的に**載せるフレームワーク
+`acs::Application` の上に、ゲーム制作に必要な要素を**包括的に**載せるフレームワーク
 モジュール。本書は実装前の確定設計書。多エージェント技術ディスカッションを 2 巡
 （シーン基盤の精査 → 包括サブシステムの設計）行い統合した。
 
@@ -16,7 +16,7 @@
 ## 1. 目的と非目的
 
 ### 1.1 解決する課題
-`acs::FApplication` は `OnUpdate`/`OnRender` が単一で、(a) 画面/状態の切替、
+`acs::Application` は `OnUpdate`/`OnRender` が単一で、(a) 画面/状態の切替、
 (b) シーン内オブジェクトの表現、(c) ゲーム制作の定番部品（補間・カメラ・入力
 マップ・当たり判定・セーブ等）を何も持たない。GameFramework はこれらを
 **8 つのピラー**として体系的に提供する。
@@ -33,7 +33,7 @@
 | **v7** | **肉付け：エフェクト・ピラー(I) + 完成度システム 9 つを追加** | メニュー/会話/適応BGM/実績/アクセシビリティ等（§12） |
 | **v8** | **さらに肉付け：必須機能 6 領域（5 新ピラー J/K/L/M/N + 既存ピラー深度拡張）を追加** | シリアライズ/プレハブ・エディタ・AI 深度・ネット・Mod・音響/カメラ/入力/描画/procgen 深度（§13） |
 | **v9** | **さらに練り：3D / 物理深度 / アニメ深度 / 出荷パイプライン / スケール / Mod 本設計 / ジャンルキット 7 つ** | 3D・Box2D 級物理・骨格 IK ラグドール・出荷&Live Ops（**新 Pillar O**）・チャンク&メモリ&スレッド（**新 Pillar P**）・Lua 5.4 本設計・VN/Roguelike/Tactical/SHMUP/Rhythm/Cards/Idle キット（§14） |
-| **v10** | **広い視野で練り：ライティング & 雰囲気（新 Pillar Q）/ Polish & FGame Feel（新 Pillar R）/ メタ層 / 著作ツール深度 / 移植性 seam** | 2D 動的ライティング v1 昇格 + FAmbientDirector(時刻/天候) + decals/sprite destruction + water/sky + DoF/lens flare / cinematics + photo mode + tutorial + 世界反応 / TypedHandle 統一 + 決定論 profile + acs_test + Events.h + StyleGuide+lint + Privacy / FParticle/BT/Level editor + FMOD/Wwise seam / Linux/Mac/Switch 5 段階 seam（§15） |
+| **v10** | **広い視野で練り：ライティング & 雰囲気（新 Pillar Q）/ Polish & Game Feel（新 Pillar R）/ メタ層 / 著作ツール深度 / 移植性 seam** | 2D 動的ライティング v1 昇格 + AmbientDirector(時刻/天候) + decals/sprite destruction + water/sky + DoF/lens flare / cinematics + photo mode + tutorial + 世界反応 / TypedHandle 統一 + 決定論 profile + acs_test + Events.h + StyleGuide+lint + Privacy / Particle/BT/Level editor + FMOD/Wwise seam / Linux/Mac/Switch 5 段階 seam（§15） |
 | **v11** | **さらに広い視野：Steamworks など Platform Services / Live Ops 深度 / Community 社会層 / Accessibility&Multimedia 深度 / AI&ML 統合 / Backend&Team 開発** | 新 5 ピラー S(Storefront)/T(Community)/U(AI-ML)/V(Backend)/W(Studio) + Pillar O 拡張 + Pillar H/R 拡張（§16） |
 | **v12** | **残課題 11 領域全部練り：XR/物理高度化/音響高度化/AI 進化/入力&配信&モバイル/ニッチ&倫理** | 新 Pillar X(XR/AR/MR) + Pillar F3 物理（cloth/hair/destruction/fluid）+ Pillar H 音響深度（HRTF/convolution/FFT/granular）+ Pillar U AI 進化（vision-language/generative agents/AI companion）+ Pillar D/T/S/O 拡張（exotic input + streaming + mobile） + Education/AAC + ACS::Web3Bridge（honest 反対）+ 物販 SKU（§17）|
 | **v13** | **全 24 ピラー + メタ層 + 完成度システム 9 + ジャンルキット 7 内部深掘り（20 エージェント総出）** | 各 pillar の data structure / algorithm / edge case / integration / determinism / 性能予算を**実装着手レベル**まで仕様化（§18） |
@@ -41,7 +41,7 @@
 ### 1.3 非目的（v1 では扱わない、§9 に拡張余地を明記）
 本格 2D 剛体物理ソルバ / 3D 物理 / ビジュアルシーンエディタ / スクリプト言語
 組込み / ネットワーク同期 / アニメーショングラフ。HDR・ポストプロセスのフル
-フレーム制御も対象外（必要なら `FApplication` 直利用）。
+フレーム制御も対象外（必要なら `Application` 直利用）。
 
 ---
 
@@ -49,23 +49,23 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ ゲームコード   ユーザーの FScene / FNode サブクラス / Component    │
+│ ゲームコード   ユーザーの Scene / Node サブクラス / Component    │
 ├─────────────────────────────────────────────────────────────────┤
 │ acs::game — GameFramework                                       │
-│  A. App & FScene ─ FGame · FScene · FSceneManager · FRenderContext   │
-│                   AppState · FSceneServices(取り付けハブ)         │
+│  A. App & Scene ─ Game · Scene · SceneManager · RenderContext   │
+│                   AppState · SceneServices(取り付けハブ)         │
 │  ┌───────────┬───────────┬──────────┬──────────┬──────────────┐ │
 │  │ B.オブジェ│ C.時間・  │ D.入力   │ E.カメラ │ F.物理・衝突 │ │
 │  │  クトモデル│  アニメ   │          │          │              │ │
-│  │ FNode2D    │ FClock     │ FInputMap │ FCamera2D │ CollisionW.2D│ │
+│  │ Node2D    │ Clock     │ InputMap │ Camera2D │ CollisionW.2D│ │
 │  │ Transform │ Tween/Ease│          │          │ SpatialGrid  │ │
-│  │ Component │ FSequence  │          │          │ FPhysicsBody2D│ │
+│  │ Component │ Sequence  │          │          │ PhysicsBody2D│ │
 │  │ NodeTree  │ StateMach.│          │          │              │ │
 │  │           │ SpriteAnim│          │          │              │ │
 │  ├───────────┴───────────┼──────────┴──────────┴──────────────┤ │
 │  │ G.リソース・永続化     │ H.UI・オーディオ・ツール           │ │
-│  │ FAssetBundle/TypedHandle│ FUiLayer · FAudioDirector · FRandom   │ │
-│  │ FSaveArchive · FSettings │ TPool<T> · FDebugOverlay · FDebugDraw │ │
+│  │ AssetBundle/TypedHandle│ UiLayer · AudioDirector · Random   │ │
+│  │ SaveArchive · Settings │ TPool<T> · DebugOverlay · DebugDraw │ │
 │  └───────────────────────┴────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────┤
 │ 既存 ACS エンジン（ラップ対象。再実装しない）                    │
@@ -75,86 +75,86 @@
 
 **依存方向は一方向**: GameFramework → エンジン（逆は無し）。各ピラーはピラー A と
 エンジンに依存してよいが、兄弟ピラーのヘッダは原則 include しない（実行時連携は
-コンポーネント・`FSceneServices`・`FMessageBroker` 経由）。
+コンポーネント・`SceneServices`・`MessageBroker` 経由）。
 
 ---
 
-## 3. ピラー A — App & FScene（基盤。v3 で確定済み）
+## 3. ピラー A — App & Scene（基盤。v3 で確定済み）
 
-`FGame`/`FScene`/`FSceneManager`/`FRenderContext`/`AppState` と、GPU 安全なシーン破棄。
+`Game`/`Scene`/`SceneManager`/`RenderContext`/`AppState` と、GPU 安全なシーン破棄。
 v3 仕様の要点（詳細は本節末の確定事項）:
 
-- **`FScene`** — `OnEnter/OnUpdate/OnFixedUpdate/OnRender/OnExit/OnPause/OnResume/OnEvent`。
-- **`FSceneManager`** — `TUniquePtr<FScene>` のスタック。`ChangeScene`/`PushScene`/
+- **`Scene`** — `OnEnter/OnUpdate/OnFixedUpdate/OnRender/OnExit/OnPause/OnResume/OnEvent`。
+- **`SceneManager`** — `TUniquePtr<Scene>` のスタック。`ChangeScene`/`PushScene`/
   `PopScene`。遷移は遅延適用（1フレーム1遷移・後勝ち）。フェード遷移対応。
-- **`FGame : FApplication`** — フレームループから駆動。固定タイムステップ
+- **`Game : Application`** — フレームループから駆動。固定タイムステップ
   （アキュムレータ + 暴走防止クランプ）・タイムスケール。`ACS_GAME_MAIN` でエントリ生成。
 - **GPU 遅延削除キュー** — 退場シーンを「フレームインフライト数+1（=3）」フレーム
   保持してから破棄。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ。
-- **`AppState`** — ユーザー定義の永続状態。`FGame` が型消去 `void*` で保持、
-  `FScene::app<T>()` で参照。シーンをまたいで生存。
-- **`FRenderContext`** — 全シーン共有の `FSpriteBatch` + 既定 `FFont`。シーン切替で
+- **`AppState`** — ユーザー定義の永続状態。`Game` が型消去 `void*` で保持、
+  `Scene::app<T>()` で参照。シーンをまたいで生存。
+- **`RenderContext`** — 全シーン共有の `SpriteBatch` + 既定 `Font`。シーン切替で
   パイプライン再構築しない。
 
-### 3.1 `FSceneServices` — 取り付けハブ（v4 の中心的追加）
-ピラー B〜H の多くは「シーンが 1 つだけ持つ singleton」。これを `FSceneServices`
+### 3.1 `SceneServices` — 取り付けハブ（v4 の中心的追加）
+ピラー B〜H の多くは「シーンが 1 つだけ持つ singleton」。これを `SceneServices`
 に束ね、シーンが**使うものだけ宣言**して遅延生成する:
 
 ```cpp
 enum class ESvc : u32 {
-    None=0, Tweens=1<<0, FInput=1<<1, FCamera2D=1<<2, Physics2D=1<<3,
+    None=0, Tweens=1<<0, Input=1<<1, Camera2D=1<<2, Physics2D=1<<3,
     Ui=1<<4, Audio=1<<5, Events=1<<6, Debug=1<<7, Timers=1<<8,
-    Default2D = Tweens|FInput|FCamera2D|Physics2D|Audio|Events|Debug|Timers,
+    Default2D = Tweens|Input|Camera2D|Physics2D|Audio|Events|Debug|Timers,
 };
-class FSceneServices {
+class SceneServices {
 public:
-    FTweenManager&     Tweens()  noexcept;   FSequenceRunner& Sequences() noexcept;
-    FInputMap&         FInput()   noexcept;   FCamera2D&       Cam()       noexcept;
-    FCollisionWorld2D& Physics() noexcept;   FUiLayer&        Ui()        noexcept;
-    FAudioDirector&    Audio()   noexcept;   FMessageBroker&  Events()    noexcept;
-    FDebugDraw&        Debug()   noexcept;   FTimerManager&   Timers()    noexcept;
+    TweenManager&     Tweens()  noexcept;   SequenceRunner& Sequences() noexcept;
+    InputMap&         Input()   noexcept;   Camera2D&       Cam()       noexcept;
+    CollisionWorld2D& Physics() noexcept;   UiLayer&        Ui()        noexcept;
+    AudioDirector&    Audio()   noexcept;   MessageBroker&  Events()    noexcept;
+    DebugDraw&        Debug()   noexcept;   TimerManager&   Timers()    noexcept;
     // 要求していないサービスへのアクセスは debug assert
 };
 ```
 
-`FScene` は `virtual ESvc WantedServices() const noexcept` を 1 つ override するだけ。
+`Scene` は `virtual ESvc WantedServices() const noexcept` を 1 つ override するだけ。
 メニュー画面は `ESvc::Ui|ESvc::Audio` のみ宣言し ECS/物理のコストを払わない。
-`FGame` が v3 で定めたシーム地点で `FSceneServices` を生成・tick する。
+`Game` が v3 で定めたシーム地点で `SceneServices` を生成・tick する。
 
 ### 3.2 取り付け機構（全サブシステムはこの 2 つのどちらか）
-1. **`FSceneServices` メンバ** — シーン単位の singleton（Tween/FInput/FCamera/物理/
-   UI/Audio/Events/Debug/Timers）。`FGame` が自動で `dt` を供給。
-2. **`FGame` グローバルサービス** — シーンをまたいで生存（`FAssetRegistry`・
-   `FAudioEngine` デバイス・`FSaveArchive`・`FSettings`・`AppState`・`FDebugOverlay`）。
+1. **`SceneServices` メンバ** — シーン単位の singleton（Tween/Input/FCamera/物理/
+   UI/Audio/Events/Debug/Timers）。`Game` が自動で `dt` を供給。
+2. **`Game` グローバルサービス** — シーンをまたいで生存（`AssetRegistry`・
+   `AudioEngine` デバイス・`SaveArchive`・`Settings`・`AppState`・`DebugOverlay`）。
 
 シーン内オブジェクトの表現はピラー B（ノードツリー）。バルク処理が要るシーンは
-ECS `FWorld` をシーンのメンバとして持つ（§4.6）。
+ECS `World` をシーンのメンバとして持つ（§4.6）。
 
 ---
 
-## 4. ピラー B — オブジェクトモデル（`FNode2D`）
+## 4. ピラー B — オブジェクトモデル（`Node2D`）
 
 **「シーンの中身をどう表現するか」の中心設計。** 結論: **ノードツリーが主たる
-オブジェクトモデル**。ECS `FWorld` は群体（弾・パーティクル）用の別ツールで、
+オブジェクトモデル**。ECS `World` は群体（弾・パーティクル）用の別ツールで、
 必要なシーンだけが持つ。両者は一方向ブリッジで繋ぐ（ECS を再実装も強制もしない）。
 
-### 4.1 FNode か ECS か — 役割分担
-| ノードツリーを使う | ECS `FWorld` を使う |
+### 4.1 Node か ECS か — 役割分担
+| ノードツリーを使う | ECS `World` を使う |
 |---|---|
 | 手で配置する階層的・個別スクリプトのオブジェクト（プレイヤー・UI・ボス・扉）。数十〜数百 | systems で一括更新する同種大量オブジェクト（弾・パーティクル・タイル）。数千 |
 | 親子トランスフォーム（戦車の上の砲塔、頭上の HP バー） | 親子なしのフラットなもの |
 
-ノードツリーは常にある（最低でもルート）。`FWorld` は使うシーンだけが
-`FWorld _world;` をメンバに持つ（フレームワークは ECS を強制しない）。
+ノードツリーは常にある（最低でもルート）。`World` は使うシーンだけが
+`World _world;` をメンバに持つ（フレームワークは ECS を強制しない）。
 
-### 4.2 `FTransform2D`・`FNode2D`
+### 4.2 `FTransform2D`・`Node2D`
 - **`FTransform2D`** — `position`(FVec2) / `rotation`(f32 ラジアン) / `scale`(FVec2) の
   20 バイト値型。`FMat4` ではなく専用型（小さい・合成が速い・分解が非可逆でない）。
-  `operator*` で親子合成、`ToMat4()` は `FSpriteBatch::SetView` 等の必要時のみ。
-- **`FNode2D`** — 唯一のノードクラス（2D 専用ゆえ抽象 `FNode` 基底は作らない）。
-  非コピー・非ムーブ（`TUniquePtr` で所有、`FNodeId`/`FNode2D*` で参照）。
+  `operator*` で親子合成、`ToMat4()` は `SpriteBatch::SetView` 等の必要時のみ。
+- **`Node2D`** — 唯一のノードクラス（2D 専用ゆえ抽象 `Node` 基底は作らない）。
+  非コピー・非ムーブ（`TUniquePtr` で所有、`FNodeId`/`Node2D*` で参照）。
   ライフサイクルフック（override は `noexcept` 必須）:
-  `OnSpawn / OnUpdate(dt) / OnFixedUpdate / OnDraw(FRenderContext&) / OnDespawn /
+  `OnSpawn / OnUpdate(dt) / OnFixedUpdate / OnDraw(RenderContext&) / OnDespawn /
   OnEnabledChanged`。フックは全て「親が先」（spawn・update・draw・despawn とも
   親→子の順）。`_enabled=false` のノードは subtree ごと更新スキップ、
   `_visible=false` は subtree ごと描画スキップ。
@@ -169,14 +169,14 @@ ECS `FWorld` をシーンのメンバとして持つ（§4.6）。
 
 ### 4.4 階層変更の安全性（古典的クラッシュの排除）
 ツリー走査中（update/draw 中）の構造変更（spawn/destroy/reparent）は**フレーム
-境界まで遅延**。`FScene` が `_spawn_queue`/`_despawn_queue`/`_reparent_queue` と
+境界まで遅延**。`Scene` が `_spawn_queue`/`_despawn_queue`/`_reparent_queue` と
 `_in_traversal` フラグを持つ。`Destroy()` は `_pending_destroy` を立てるだけで
 即時解放しない → 自分自身を `OnUpdate` 中に `Destroy()` しても安全。破棄は
 フレーム先頭の reap パスで `OnDespawn`（親→子）→ メモリ解放（子→親）。
-`FNodeId`（index+generation、`FEntityId` と同形）で stale 参照を検出。
+`FNodeId`（index+generation、`EntityId` と同形）で stale 参照を検出。
 
 ### 4.5 コンポーネント（合成）
-ノードは `FComponent2D` を attach できる（sprite/animation/collider 等の再利用可能な
+ノードは `Component2D` を attach できる（sprite/animation/collider 等の再利用可能な
 振る舞い）。型取得は **RTTI 不使用** — `ComponentKindOf<T>()`（`ecs/ComponentId.h`
 と同じ「型ごとの一意 u32」カウンタ）+ virtual `Kind()` + `static_cast`。
 `node.GetComponent<SpriteComponent>()` は線形探索（ノードのコンポーネントは数個）。
@@ -184,12 +184,12 @@ ECS `FWorld` をシーンのメンバとして持つ（§4.6）。
 `ParticleComponent`、サブクラス `CameraNode2D` / `CanvasNode`(画面座標の UI 用)。
 
 ### 4.6 ECS ブリッジ（一方向・任意）
-ノードが群体（ECS）を併用したい場合のみ、ノードは 1 つの `FEntityId` に
-**bind** できる（`FNode2D::CreateEntityIn(FWorld&)`）。規則: ①一方向（ノードは
+ノードが群体（ECS）を併用したい場合のみ、ノードは 1 つの `EntityId` に
+**bind** できる（`Node2D::CreateEntityIn(World&)`）。規則: ①一方向（ノードは
 entity を知るが entity はノードを知らない）、②ノードが entity の寿命を所有、
-③データ二重化なし（同期は明示的 `SyncToEntity()` のみ）。`FScene` のメンバ順は
-`_root`（ノードツリー）→ ユーザーの `FWorld _world;` の順（破棄逆順で、ECS-bind
-ノードが破棄時に生きた `FWorld` を触れるように）。
+③データ二重化なし（同期は明示的 `SyncToEntity()` のみ）。`Scene` のメンバ順は
+`_root`（ノードツリー）→ ユーザーの `World _world;` の順（破棄逆順で、ECS-bind
+ノードが破棄時に生きた `World` を触れるように）。
 
 ---
 
@@ -197,56 +197,56 @@ entity を知るが entity はノードを知らない）、②ノードが enti
 
 ACS のコールバックは `std::function` 不使用。本ピラーは 3 段のコールバック方式:
 **(A) 値書き戻し**（最頻 — tween に変数ポインタを渡し毎 tick 書き込む。コールバック
-不要）、**(B) 関数ポインタ + `void*`**（`Timer`/`FMessageBroker` と同じ）、
-**(C) `FNode`/`Component` メソッド**（ノード対象の補間）。
+不要）、**(B) 関数ポインタ + `void*`**（`Timer`/`MessageBroker` と同じ）、
+**(C) `Node`/`Component` メソッド**（ノード対象の補間）。
 
 | サブシステム | 役割 |
 |---|---|
-| `FClock` | シーン単位の scaled/unscaled 時間・`dt`・`fixed_dt`・フレーム数・pause |
-| `Tween` + `FTweenManager` | 値（f32/FVec2/FVec3/色）を A→B へイージング補間。`FTweenManager` が所有・tick・完了処理 |
+| `Clock` | シーン単位の scaled/unscaled 時間・`dt`・`fixed_dt`・フレーム数・pause |
+| `Tween` + `TweenManager` | 値（f32/FVec2/FVec3/色）を A→B へイージング補間。`TweenManager` が所有・tick・完了処理 |
 | `Easing` | 約 30 種のイージング関数（linear/quad/cubic/sine/expo/circ/back/elastic/bounce の in/out/inout）。ヘッダオンリ |
-| `FSequence` + `FSequenceRunner` | 時間付きアクションの連鎖（wait/call/tween/parallel/loop）。固定容量のアクション配列、関数ポインタ方式。カットシーン・出現ウェーブ |
-| `FStateMachine<T>` | 小さな汎用 FSM（enter/update/exit）。AI・ゲームフロー。ヘッダオンリテンプレート |
-| `FSpriteAnimator` | スプライトシートのフレームアニメ（クリップ・fps・loop/pingpong/once・フレームイベント） |
+| `Sequence` + `SequenceRunner` | 時間付きアクションの連鎖（wait/call/tween/parallel/loop）。固定容量のアクション配列、関数ポインタ方式。カットシーン・出現ウェーブ |
+| `StateMachine<T>` | 小さな汎用 FSM（enter/update/exit）。AI・ゲームフロー。ヘッダオンリテンプレート |
+| `SpriteAnimator` | スプライトシートのフレームアニメ（クリップ・fps・loop/pingpong/once・フレームイベント） |
 
-`FTweenManager`/`FSequenceRunner` は `FSceneServices` 経由。`Tween` は `FTimerManager`
+`TweenManager`/`SequenceRunner` は `SceneServices` 経由。`Tween` は `TimerManager`
 の上ではなく独立（イージング曲線評価が要るため）。
 
 ---
 
-## 6. ピラー D — 入力（`FInputMap`）
+## 6. ピラー D — 入力（`InputMap`）
 
-グローバル `acs::FInput`（ポーリング）の上に**アクションマッピング**を載せる。
+グローバル `acs::Input`（ポーリング）の上に**アクションマッピング**を載せる。
 - 名前付きアクションを物理入力（キー/マウス/ゲームパッド）に束ねる。1 アクションに
   複数バインド可。プレイヤー番号対応。
 - デジタルアクション（`Pressed/Held/Released`）とアナログアクション/軸
   （例 "MoveX" を A/D キー or スティックから、`Vector2` 取得）。
 - バインドは宣言的に登録。ゲームロジックは物理キーから疎結合になり、キーコンフィグ
-  UI も書ける。バインドは `FSettings`（§8）に保存可能。
+  UI も書ける。バインドは `Settings`（§8）に保存可能。
 - `OnEvent` ルーティング: ウィンドウ/入力イベントは最上段シーンにのみ配送（v3 確定）。
 
 入力コンテキストスタック（gameplay/menu/dialogue でバインド集を push/pop）は v1.1
-（`FInputMap` が context id を最初から持つので後付け可能）。
+（`InputMap` が context id を最初から持つので後付け可能）。
 
 ---
 
 ## 7. ピラー E — カメラ + ピラー F — 物理・衝突
 
-### 7.1 `FCamera2D`
+### 7.1 `Camera2D`
 位置・ズーム・回転、ターゲット追従（スムージング・デッドゾーン）、画面シェイク
 （trauma 方式）、ワールド↔スクリーン座標変換、ワールド境界クランプ。
-`FSpriteBatch::SetView(cam, zoom)` に接続。3D 用 `CameraRig`（orbit/FPS/follow）は
+`SpriteBatch::SetView(cam, zoom)` に接続。3D 用 `CameraRig`（orbit/FPS/follow）は
 `math/FCamera` をラップ（v1 任意）。
 
 ### 7.2 物理・衝突
-- **衝突プリミティブは既存** — `math/Collision2D.h`（`FAabb2`/`FCircle`/`FRay2`、
+- **衝突プリミティブは既存** — `math/Collision2D.h`（`Aabb2`/`Circle`/`Ray2`、
   `Intersect`/`Resolve`/`Raycast*`）を**再エクスポート**。新規プリミティブは作らない。
 - **`SpatialGrid`** — 一様グリッドのブロードフェーズ（O(1) 挿入/近傍クエリ、毎フレーム
   clear & rebuild、ツリー再平衡なし）。O(N²) ペアテストを排除。
-- **`FCollisionWorld2D`** — `SpatialGrid` + 形状登録の薄いラッパ。
+- **`CollisionWorld2D`** — `SpatialGrid` + 形状登録の薄いラッパ。
   `OverlapCircle`/`OverlapAabb`/`Raycast`（ブロード+ナロー一括）。レイヤ/マスクで
   フィルタ。
-- **`FPhysicsBody2D`** — 速度/加速度/重力の運動学的積分 + collide-and-slide。
+- **`PhysicsBody2D`** — 速度/加速度/重力の運動学的積分 + collide-and-slide。
   剛体ソルバではない（プラットフォーマー/トップダウン向けの swept kinematic）。
   トリガーの `OnEnter/Stay/Exit`。
 
@@ -258,7 +258,7 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
 - **`AssetPack`（製品化向けアセット暗号化）** — 出荷時、バラのアセットを 1 つの
   暗号化アーカイブ `.acpak` にまとめ、利用者がインストールフォルダからアセットを
   取り出せないようにする。AES-256-GCM（Windows CNG）+ LZ4 圧縮 + 完全性検証
-  （`content_hash` + GCM タグ）。`FAssetRegistry` の下に VFS（仮想ファイルシステム）を
+  （`content_hash` + GCM タグ）。`AssetRegistry` の下に VFS（仮想ファイルシステム）を
   挟み、**開発はバラファイル・出荷は暗号化 pak** をマウント 1 行で切替（ゲーム
   コード差分ゼロ）。パッカー CLI `acs_assetpack`。クライアント側暗号化は本質的に
   「難読化」であり、カジュアル流出と汎用吸い出しツールを阻止する（本気の解析者は
@@ -266,46 +266,46 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
   `ACS::AssetPack`** — VFS はエンジン基盤であり、アプリ層の GameFramework には
   入れない（エンジンがアプリ層へ逆依存できないため）。Pillar G はこれを利用・統合
   する。**完全仕様は `docs/AssetPack.md`**。
-- **型付きハンドル** — `SpriteHandle`/`FSoundHandle`/`MeshHandle`（`TRc<FAsset>` の
+- **型付きハンドル** — `SpriteHandle`/`SoundHandle`/`MeshHandle`（`TRc<Asset>` の
   薄い型安全ラッパ。呼び出し側の `static_cast` を排除）。
-- **`FAssetBundle`** — 名前付き・シーンスコープのアセット集合を非同期一括ロード
-  （既存 `FAssetRegistry::LoadAsync`/`FAssetFuture` を使用）+ 集約進捗(0..1)。
+- **`AssetBundle`** — 名前付き・シーンスコープのアセット集合を非同期一括ロード
+  （既存 `AssetRegistry::LoadAsync`/`AssetFuture` を使用）+ 集約進捗(0..1)。
   ローディング画面シーンが進捗をポーリングできる。VFS 経由なのでバラでも暗号化
   pak でも透過に動く。
-- **`FSaveArchive`** — 構造化セーブ。**タグ付きバイナリ**（フィールドごとに
+- **`SaveArchive`** — 構造化セーブ。**タグ付きバイナリ**（フィールドごとに
   `u16 タグ + 型 + 長さ + 値`）。未知タグは長さでスキップ、欠落タグは既定値 →
   スキーマ進化耐性（旧セーブが新コードで読める）。エンベロープに magic + version
   + crc32、temp ファイルへ書いてアトミック rename。`TResult` でエラー。設定系の
-  単純な key-value は既存 `FStorage`（INI）をそのまま使う。**任意で HMAC-SHA256 の
+  単純な key-value は既存 `Storage`（INI）をそのまま使う。**任意で HMAC-SHA256 の
   改竄タグ**を付けられる（`AssetPack` の Crypto を再利用。リーダーボード等のチート
   対策。内容暗号化は既定オフ）。
-- **`FSettings`** — 型付きゲーム設定（音量・解像度・キーバインド）を `FStorage` 永続化。
+- **`Settings`** — 型付きゲーム設定（音量・解像度・キーバインド）を `Storage` 永続化。
 
 ### 8.3 製品化（productization）ワークフロー
 - **開発ビルド** — バラ `assets/` を VFS にマウント。変更ファイルは即ホットリロード。
-  `acs_assetpack` は不要。`FDebugOverlay`/`FDebugDraw` 有効。
+  `acs_assetpack` は不要。`DebugOverlay`/`DebugDraw` 有効。
 - **出荷ビルド** — Release 梱包ステップで `acs_assetpack pack` を実行（CI ゲートに
-  `acs_assetpack verify`）→ `game.acpak` を実行ファイルに同梱 → `FGame` 起動時に
-  マウント。`ACS_GAME_SHIPPING` フラグで分岐、`FDebugOverlay` 等は `ACS_GAME_DEBUG`
+  `acs_assetpack verify`）→ `game.acpak` を実行ファイルに同梱 → `Game` 起動時に
+  マウント。`ACS_GAME_SHIPPING` フラグで分岐、`DebugOverlay` 等は `ACS_GAME_DEBUG`
   により shipping ビルドから完全に消える（コスト 0）。
 - ゲームコードは dev/ship で完全に同一。違いは起動時のマウント 1 行とビルドフラグのみ。
 
 ### 8.2 UI・オーディオ・ツール
-- **`FUiLayer`** — 既存 `ui/` の `FWidget` ツリーを `FScene` のライフサイクル/入力に
-  接続するグルー（`ui/` はあるが `FScene` と繋ぐものが無い）。
-- **`FAudioDirector`** — `FAudioEngine` の上のシーン対応層。ボリュームバス
+- **`UiLayer`** — 既存 `ui/` の `Widget` ツリーを `Scene` のライフサイクル/入力に
+  接続するグルー（`ui/` はあるが `Scene` と繋ぐものが無い）。
+- **`AudioDirector`** — `AudioEngine` の上のシーン対応層。ボリュームバス
   （Master/Bgm/Sfx）、BGM のシーンまたぎ持続・クロスフェード、名前付き SFX
-  ワンショット、ダッキング。`FGame` が所有しシーンをまたいで生存。
-- **`FRandom`** — ゲーム用 PRNG クラス（`xoshiro128**` + SplitMix64 シード）。
+  ワンショット、ダッキング。`Game` が所有しシーンをまたいで生存。
+- **`Random`** — ゲーム用 PRNG クラス（`xoshiro128**` + SplitMix64 シード）。
   インスタンス化・シード可能・決定論的。int/float 範囲・bool・重み付き選択・
-  円内/円周上の点・`TArray` シャッフル・`RandomColor`。`FRandom::Global()` も提供。
+  円内/円周上の点・`TArray` シャッフル・`RandomColor`。`Random::Global()` も提供。
   `easy` の private xorshift を公開クラス化したもの。
 - **`TPool<T>`** — 弾/エフェクト用オブジェクトプール。世代付きハンドル
-  （`FEntityId` と同形）、固定/可変容量、live のみ反復、STL 非依存。
-- **`FDebugOverlay`** — FPS/フレーム時間グラフ/シーンスタック表示/ライブ調整値。
-  **`FSpriteBatch` で描画**（ImGui は DX12 専用なので不採用、Diligent でも動く・
+  （`EntityId` と同形）、固定/可変容量、live のみ反復、STL 非依存。
+- **`DebugOverlay`** — FPS/フレーム時間グラフ/シーンスタック表示/ライブ調整値。
+  **`SpriteBatch` で描画**（ImGui は DX12 専用なので不採用、Diligent でも動く・
   追加 GPU リソース 0）。`ACS_GAME_DEBUG` で shipping ビルドから完全に消える。
-- **`FDebugDraw`** — ワールド空間の即時モード線/矩形/円/テキスト（毎フレーム自動クリア）。
+- **`DebugDraw`** — ワールド空間の即時モード線/矩形/円/テキスト（毎フレーム自動クリア）。
 
 ---
 
@@ -314,7 +314,7 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
 ### 9.1 ファイル構成（`src/gameframework/`）
 ```
 Module.cmake   acs_module(NAME GameFramework TYPE Runtime
-                 PUBLIC_DEPS App Render Ecs FAsset Audio FEvent Threading
+                 PUBLIC_DEPS App Render Ecs Asset Audio Event Threading
                              Math Ui Platform)
 A: Game.h/.cpp  Scene.h  SceneManager.h/.cpp  RenderContext.h/.cpp
    SceneServices.h/.cpp  AppState.h  GameEntry.h
@@ -336,9 +336,9 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
 | Ph | 内容 | 成果物 |
 |---|---|---|
 | 1 | ピラー A（シーン基盤）+ モジュール骨格 | シーン遷移が動く。サンプル `27_HelloScenes` |
-| 2 | ピラー B（FNode2D・Transform・Component） | ノードツリーで物が描ける。`28_HelloNodes` |
-| 3 | ピラー C（FClock/Tween/Easing/FSequence/FStateMachine/FSpriteAnimator） | アニメ・演出 |
-| 4 | ピラー D+E（FInputMap・FCamera2D） | 操作とスクロール |
+| 2 | ピラー B（Node2D・Transform・Component） | ノードツリーで物が描ける。`28_HelloNodes` |
+| 3 | ピラー C（Clock/Tween/Easing/Sequence/StateMachine/SpriteAnimator） | アニメ・演出 |
+| 4 | ピラー D+E（InputMap・Camera2D） | 操作とスクロール |
 | 5 | ピラー F（衝突・物理） | `29_HelloPlatformer`（B〜F 統合） |
 | 6 | ピラー G+H（リソース/セーブ/UI/オーディオ/乱数/プール/デバッグ） | `30_HelloUiAudio` |
 | 7 | 仕上げ・統合サンプル `31_HelloShowcase` | 小さな完成ゲーム |
@@ -346,7 +346,7 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
 各フェーズは独立してビルド検証可能。フェーズ 1 が他の土台。
 
 ### 9.3 v1 範囲外（v2、v1 に拡張シーム有り）
-2D 剛体ソルバ（`FCollisionWorld2D` の隣に `DynamicsSolver` を追加可）/ 3D 物理 /
+2D 剛体ソルバ（`CollisionWorld2D` の隣に `DynamicsSolver` を追加可）/ 3D 物理 /
 シーンシリアライズ・エディタ（`Component` 登録は集約済み、`Serialize` を後付け可）/
 スクリプト言語（`Component` が C++ で代替）/ ネットワーク同期 / アニメーション
 グラフ / 入力コンテキストスタック / dev コンソール / タイルマップ / プロファイラ。
@@ -359,13 +359,13 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
 |---|---|---|
 | 1 | 既存エンジンをラップ、再実装しない | ECS/描画/音声/アセット等は既に高品質。重複は害 |
 | 2 | オブジェクトモデルは**ノードツリー主体**、ECS は群体用の併用ツール、ブリッジは一方向 | 手配置の階層オブジェクトにツリーが自然。ECS は既存を活かす。両者の所有権が衝突しない |
-| 3 | `FSceneServices` + `WantedServices()` で取り付け | 「メニューに ECS/物理を強制しない」を保ちつつ全機能に到達可能 |
-| 4 | サブシステム取り付けは `FSceneServices`/`FGame`グローバルの 2 機構のみ | どのサブシステムも例外なくこの 2 つに収まる＝設計が一貫している証拠 |
+| 3 | `SceneServices` + `WantedServices()` で取り付け | 「メニューに ECS/物理を強制しない」を保ちつつ全機能に到達可能 |
+| 4 | サブシステム取り付けは `SceneServices`/`Game`グローバルの 2 機構のみ | どのサブシステムも例外なくこの 2 つに収まる＝設計が一貫している証拠 |
 | 5 | GPU リソースは遅延削除キュー（3 フレーム）で破棄 | シーン破棄時の use-after-free を構造的に排除（v3 確定） |
 | 6 | 階層変更・シーン遷移は遅延適用 | 走査中の自己破棄クラッシュを排除 |
 | 7 | RTTI 不使用の型識別（`ComponentKindOf<T>` カウンタ + virtual `Kind()`） | ACS 既存 `ComponentId` と同方式。`dynamic_cast` 不要 |
-| 8 | コールバックは値書き戻し / 関数ポインタ+`void*` の 3 段方式 | `std::function` 不使用。既存 `Timer`/`FMessageBroker` と同イディオム |
-| 9 | デバッグ描画は `FSpriteBatch`（ImGui 不採用） | ImGui は DX12 専用。`FSpriteBatch` は全バックエンドで動き追加 GPU コスト 0 |
+| 8 | コールバックは値書き戻し / 関数ポインタ+`void*` の 3 段方式 | `std::function` 不使用。既存 `Timer`/`MessageBroker` と同イディオム |
+| 9 | デバッグ描画は `SpriteBatch`（ImGui 不採用） | ImGui は DX12 専用。`SpriteBatch` は全バックエンドで動き追加 GPU コスト 0 |
 | 10 | 段階的実装（7 フェーズ）。各フェーズでビルド検証 | 巨大モジュールを検証可能な単位に分割 |
 
 ---
@@ -376,18 +376,18 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
 レッドチーム精査した。v5 が「アーキテクチャ概要」止まりだった各ピラーを実装可能な
 詳細仕様へ深め、その過程で検出した v5 の**実バグ・未仕様点**を以下の通り修正した。
 
-### A. App & FScene
+### A. App & Scene
 - **GPU 遅延削除を観測可能なフェンス基準に**。v5 の「フレームインフライト数+1=3
   フレーム後に破棄」は固定値だが、エンジンはフレームインフライト数を公開して
   いない。固定値 3 は早期解放（GPU use-after-free クラッシュ）にも過剰 VRAM 保持
-  にもなり得る。`FRenderer` のフェンス完了/フレーム番号を観測して破棄判定する設計に
-  変更（必要なら `FRenderer` に最小の照会 API を 1 つ追加）。
+  にもなり得る。`Renderer` のフェンス完了/フレーム番号を観測して破棄判定する設計に
+  変更（必要なら `Renderer` に最小の照会 API を 1 つ追加）。
 - **シーン遷移を順序付きキュー方式に**。v5 の「1フレーム1遷移・後勝ち」は意図を
   黙って破棄する（同フレームで `PushScene` 後に `ChangeScene` を呼ぶと `Push` が
   消える）。順序付きキューで適用し、`PopScene`（スタック1枚時）・`ChangeScene`
   （空スタック時）・`OnEnter` からの遷移要求など全エッジケースの挙動を明示。
 
-### B. オブジェクトモデル（FNode2D）
+### B. オブジェクトモデル（Node2D）
 - トランスフォーム伝播（dirty フラグ下方伝播 + 早期脱出 + 1フレーム1解決パス）、
   階層変更の遅延適用（spawn/despawn/reparent キュー）、`FNodeId` の世代管理、
   RTTI 不使用のコンポーネント型識別を完全アルゴリズム仕様化。
@@ -397,21 +397,21 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
   v5 の「3 段方式」は分類にすぎず仕様ではない。tween/sequence はフレームをまたいで
   生存し、破棄され得るノードを対象にするため、ダングリング `void*` を構造的に
   扱える単一型へ確定。
-- **`FSpriteBatch::SetView` に回転パラメータが無い**（ビュー変換は画面軸固定）と
-  判明。v1 の `FCamera2D` は**位置・ズーム対応、回転は非対応**とする（2D の回転
-  カメラは用途が限定的。回転を入れるなら `FSpriteBatch` の VS 拡張が前提 → v2）。
+- **`SpriteBatch::SetView` に回転パラメータが無い**（ビュー変換は画面軸固定）と
+  判明。v1 の `Camera2D` は**位置・ズーム対応、回転は非対応**とする（2D の回転
+  カメラは用途が限定的。回転を入れるなら `SpriteBatch` の VS 拡張が前提 → v2）。
 - tween のキャンセル/完了、sequence のステップ実行、入力アクション解決、カメラ
   追従のスムージング数学を詳細仕様化。
 
 ### F. 物理・衝突
-- **トンネリングへの対処を明確化**。v5 は `FPhysicsBody2D` を「swept kinematic」と
+- **トンネリングへの対処を明確化**。v5 は `PhysicsBody2D` を「swept kinematic」と
   書くが、離散オーバーラップ + collide-and-slide は swept ではなく、高速な弾は壁を
   すり抜ける。v1 は **(a) 通常ボディは離散 collide-and-slide、(b) 高速移動体には
   スイープ判定（線分 vs コライダ）をオプトイン**の二段構成とする。`SpatialGrid`
   ブロードフェーズの dedup・レイヤ/マスクを詳細仕様化。
 
 ### H. UI・音・ツール
-- `FAudioDirector` のボイス寿命/ポリフォニー上限/バス音量合成、`FUiLayer` の既存
+- `AudioDirector` のボイス寿命/ポリフォニー上限/バス音量合成、`UiLayer` の既存
   `ui/` ツリーへの入力ルーティングとライフサイクル接続、`TPool<T>` のハンドル
   世代安全性を詳細仕様化。
 
@@ -425,7 +425,7 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
 
 「肉付けと品質向上」を目的に、エフェクト系と、フレームワークを「出荷可能な完成品」へ
 引き上げる 9 システムを多エージェントで設計し追加した。すべて v6 の不変条件
-（既存ピラー内に配置・取り付けは `FSceneServices`/`FGame` グローバルの 2 機構のみ・
+（既存ピラー内に配置・取り付けは `SceneServices`/`Game` グローバルの 2 機構のみ・
 STL/例外/RTTI 不使用）を維持する。
 
 ### 12.1 Pillar I — エフェクト / VFX / ゲームフィール（新規・9 番目のピラー）
@@ -434,15 +434,15 @@ v6 は `ParticleComponent` とカメラシェイクのみで、「ここで爆�
 無かった。エフェクトは本質的に横断的（爆発 = パーティクル + 画面フラッシュ +
 シェイク + ヒットストップ + 音、を 1 単位で発火）なので独立ピラーとする。
 **設計原則: エフェクトは「指揮者」であり自前のシミュレーションを持たない** —
-パーティクルは `render/Particles.h`、tween は Pillar C、シェイクは `FCamera2D`、音は
+パーティクルは `render/Particles.h`、tween は Pillar C、シェイクは `Camera2D`、音は
 オーディオ層から借り、Effects はそれらを構成（compose）するだけ。兄弟ピラーの
-ヘッダは include せず、連携は `FSceneServices` 経由。
+ヘッダは include せず、連携は `SceneServices` 経由。
 
 構成:
 - `EffectDef` / `EffectAsset` — データ駆動のエフェクト定義（「レシピ」）。
 - `EffectRegistry` — id → `EffectDef`。組み込みプリセット（爆発・炎・煙・きらめき・
   マズルフラッシュ・魔法バースト・砂塵 等）を所有。
-- `FEffectSystem` — スポナー。`PlayEffect(id, position)`、ワンショット自動消滅、
+- `EffectSystem` — スポナー。`PlayEffect(id, position)`、ワンショット自動消滅、
   ループ/ノードアタッチ、プーリング。`EffectHandle`（世代付き）で生存エフェクト参照。
 - `EffectComponent` — ノードにアタッチするエフェクト。
 - **画面エフェクト** — カラーフラッシュ、**ヒットストップ/時間凍結**（インパクトの
@@ -450,7 +450,7 @@ v6 は `ParticleComponent` とカメラシェイクのみで、「ここで爆�
 - **スプライトエフェクト** — ヒットフラッシュ（被弾時の白点滅）、モーショントレイル、
   スクワッシュ&ストレッチ、フローティングダメージ数値、ブロブシャドウ、ディゾルブ。
 - **エフェクト合成** — 爆発 1 つを「パーティクル+フラッシュ+シェイク+ヒットストップ
-  +音」として原子的に発火。Pillar C の Tween/FSequence と連携。
+  +音」として原子的に発火。Pillar C の Tween/Sequence と連携。
 
 ### 12.2 完成度を上げる 9 システム
 
@@ -460,19 +460,19 @@ v6 は「土台」（シーン・ノード・時間・入力・衝突・セー�
 
 | システム | 配置 | 内容 |
 |---|---|---|
-| `FLocalizationDirector` | H・FGame グローバル | i18n 統合。多書記体系フォントセット、実行時言語切替（UI/会話を再フロー）、ローカライズ素材、複数形・引数整形、疑似ローカライズ |
-| `UiKit`（`FUiLayer` 昇格） | H・`ESvc::Ui` | **フォーカスナビゲーション**（ゲームパッド/キーボードで UI 操作 — 出荷必須）、メニュープリセット（メイン/ポーズ/設定/確認ダイアログ）、HUD ヘルパ（バー/カウンタ/ゲージ/トースト）、UI アニメーション、UI 効果音 |
-| `Dialogue` | H・`ESvc::Dialogue`（新） | 分岐会話/テキストイベント/カットシーン。`.dlg` テキスト形式、タイプライタ表示、選択肢、条件/フラグ（`DialogueVars` をセーブ永続化）、`CutsceneTrack`（FSequence の上の演出層） |
-| `FMusicDirector`（`FAudioDirector` 吸収） | H・FGame グローバル | 適応的・レイヤ式 BGM。バスミキサ、ステム層 + intensity カーブ、スティンガー、拍同期の量子化遷移 |
-| `Progress` | G・FGame グローバル | 実績/統計/アンロック/マイルストーン。宣言的トリガー（統計閾値で自動アンロック）、セーブ永続化、Steam/コンソール連携 seam |
-| `Accessibility` | H・FGame グローバル | テキスト拡大、色覚モード、字幕、画面シェイク/フラッシュ低減（光過敏対策）、モーション低減、ホールド/タップ変換、ハイコントラスト UI |
+| `LocalizationDirector` | H・Game グローバル | i18n 統合。多書記体系フォントセット、実行時言語切替（UI/会話を再フロー）、ローカライズ素材、複数形・引数整形、疑似ローカライズ |
+| `UiKit`（`UiLayer` 昇格） | H・`ESvc::Ui` | **フォーカスナビゲーション**（ゲームパッド/キーボードで UI 操作 — 出荷必須）、メニュープリセット（メイン/ポーズ/設定/確認ダイアログ）、HUD ヘルパ（バー/カウンタ/ゲージ/トースト）、UI アニメーション、UI 効果音 |
+| `Dialogue` | H・`ESvc::Dialogue`（新） | 分岐会話/テキストイベント/カットシーン。`.dlg` テキスト形式、タイプライタ表示、選択肢、条件/フラグ（`DialogueVars` をセーブ永続化）、`CutsceneTrack`（Sequence の上の演出層） |
+| `MusicDirector`（`AudioDirector` 吸収） | H・Game グローバル | 適応的・レイヤ式 BGM。バスミキサ、ステム層 + intensity カーブ、スティンガー、拍同期の量子化遷移 |
+| `Progress` | G・Game グローバル | 実績/統計/アンロック/マイルストーン。宣言的トリガー（統計閾値で自動アンロック）、セーブ永続化、Steam/コンソール連携 seam |
+| `Accessibility` | H・Game グローバル | テキスト拡大、色覚モード、字幕、画面シェイク/フラッシュ低減（光過敏対策）、モーション低減、ホールド/タップ変換、ハイコントラスト UI |
 | `Starter2D` | B・コンテンツ | 製品品質の 2D キャラコントローラ（コヨーテタイム/ジャンプバッファ/可変ジャンプ/斜面）、トップダウン版、カメラプリセット、共通コンポーネント（Health/Hitbox/Patrol/Pickup 等）、テンプレートシーン |
-| `SaveSlots` | G・FGame グローバル | 複数スロットセーブ管理。ヘッダ（時刻/プレイ時間/サムネ/進捗）だけ高速読みするセーブ選択 UI、オートセーブ、破損安全 |
-| `FGameFlow` | A・コンテンツ | boot→スプラッシュ→タイトル→メニュー→ゲーム→クレジットの app フロー雛形。**1〜8 の組み合わせにすぎないため v1.1 送り** |
+| `SaveSlots` | G・Game グローバル | 複数スロットセーブ管理。ヘッダ（時刻/プレイ時間/サムネ/進捗）だけ高速読みするセーブ選択 UI、オートセーブ、破損安全 |
+| `GameFlow` | A・コンテンツ | boot→スプラッシュ→タイトル→メニュー→ゲーム→クレジットの app フロー雛形。**1〜8 の組み合わせにすぎないため v1.1 送り** |
 
 ### 12.3 実装フェーズの拡張
-v6 の 7 フェーズに続けて: **Ph8** `FLocalizationDirector` + `UiKit`（サンプル
-`32_HelloMenus`）→ **Ph9** Pillar I エフェクト + `FMusicDirector` + `Accessibility`
+v6 の 7 フェーズに続けて: **Ph8** `LocalizationDirector` + `UiKit`（サンプル
+`32_HelloMenus`）→ **Ph9** Pillar I エフェクト + `MusicDirector` + `Accessibility`
 （`33_HelloEffects`）→ **Ph10** `Dialogue` + `SaveSlots` + `Progress`
 （`34_HelloDialogue`）→ **Ph11** `Starter2D` テンプレート + 全部入り showcase
 （`35_HelloAdventure`）。Ph8 は Ph9〜11 の前提。
@@ -489,24 +489,24 @@ v6 の 7 フェーズに続けて: **Ph8** `FLocalizationDirector` + `UiKit`（�
 
 ### 13.1 Pillar J — シリアライズ / リフレクション / プレハブ（指摘事項）
 
-v6/v7 の `FSaveArchive` は**バイト列の envelope のみ**で、ノードツリー保存・プレハブ・
+v6/v7 の `SaveArchive` は**バイト列の envelope のみ**で、ノードツリー保存・プレハブ・
 リフレクションが皆無 — **エディタ・ホットリロード・ネットレプリケーション・セーブの
 4 つを同時に破綻させていた本質的穴**。これを構造的に解放する基盤として独立ピラー化。
 
 新エンジンモジュール **`acs::serialize`** + GameFramework 側高位 API:
-- **RTTI 不使用反射**: `FTypeInfo<T>` 特殊化 + `ACS_REFLECT(T, ...)` マクロ + 明示
+- **RTTI 不使用反射**: `TypeInfo<T>` 特殊化 + `ACS_REFLECT(T, ...)` マクロ + 明示
   `Register()`。リンカセクション autoreg は LTO/SAFESEH 地雷で不採用。型 ID は
   `HashBytes(FQN)` の 64bit ハッシュ。フィールドタグは手動宣言で並べ替え互換を保証。
 - **1 反射 + 2 フォーマット**:
   - **`.atxt`** — S 式風・行ベース・人間 diff 可能。設計データ・プレハブ・シーン用。
   - **`.abin`** — タグ付きバイナリ。**未知タグの安全スキップ + フィールド単位 version** で
-    スキーマ進化耐性。`FSaveArchive` の HMAC/CRC32/atomic rename をそのまま継承。
-- **`SceneSerializer`** — FScene → 中間表現 `SceneDocument` → `.scene` で永続化。`FNode2D`
+    スキーマ進化耐性。`SaveArchive` の HMAC/CRC32/atomic rename をそのまま継承。
+- **`SceneSerializer`** — Scene → 中間表現 `SceneDocument` → `.scene` で永続化。`Node2D`
   参照は **`SerialNodeId`**（depth-first preorder 採番）で安定化、2nd pass 解決。
-- **`FPrefabSystem`** — `.prefab` ロード/インスタンス化。**Unity 流のフィールド単位
+- **`PrefabSystem`** — `.prefab` ロード/インスタンス化。**Unity 流のフィールド単位
   override + nested prefab**。プレハブ更新で「override されていない値だけ追従」。
-- **`DataAsset<T>`** — 型付き設計データ（`.tdat`）、`FAssetRegistry` 経由でホットリロード。
-- **`FSaveSlot<T>`** — v7 `SaveSlots` をリフレクション駆動で 1 関数化。ヘッダ/ペイロード
+- **`DataAsset<T>`** — 型付き設計データ（`.tdat`）、`AssetRegistry` 経由でホットリロード。
+- **`SaveSlot<T>`** — v7 `SaveSlots` をリフレクション駆動で 1 関数化。ヘッダ/ペイロード
   分離でスロット選択 UI 瞬時表示。
 - **`MigrationRegistry`** — `Register(type_id, from_ver, fn)` で旧版を新スキーマへ自動変換。
   フィールド追加/削除は無コード、kind 変更は関数 1 個。
@@ -523,40 +523,40 @@ v6 が明示的に v1 範囲外とした「シーンエディタ・dev コンソ
 設計。**Pillar J の反射を前提**。`ACS_GAME_DEBUG` のみ実体化、shipping ではヘッダのみの
 スタブ（ゼロオーバーヘッド）。
 
-- **`Inspector`** — 反射駆動。`FNode2D` ツリー + 選択ノードのコンポーネント + 編集可能
+- **`Inspector`** — 反射駆動。`Node2D` ツリー + 選択ノードのコンポーネント + 編集可能
   フィールド（slider/dropdown/color picker/asset picker）。`FieldUiHint`（range/step/
   tooltip/category）を読む。ピックは Pillar F の raycast、複数選択、検索/フィルタ。
 - **`EditorSeam`** — ギズモ（move/rotate/scale、ワールド/スクリーン）、選択モデル、
   **反射スナップショット駆動 undo/redo**、in-game edit-mode トグル + 外部エディタ用 seam 共通。
-- **`FDevConsole`** — タブ補完付きコマンドライン、型付き引数の登録コマンド（`spawn`/
+- **`DevConsole`** — タブ補完付きコマンドライン、型付き引数の登録コマンド（`spawn`/
   `give`/`tp`/`setvar`）、**CVar**（型付きライブ変数 + cheat/dev/release フラグ）、履歴。
 - **`HotReload`** — Win32 `ReadDirectoryChangesW` でファイル監視 → アセット再 import →
-  `FMessageBroker::Publish(AssetReloaded)`。PNG/フォント/データアセット/スクリプトが
+  `MessageBroker::Publish(AssetReloaded)`。PNG/フォント/データアセット/スクリプトが
   再起動なしで反映。per-type policy（trivial/scene refresh）。
 - **`Profiler`** — スコープ計測（`ACS_GAME_PROFILE_SCOPE("Physics")`、shipping で空展開）+
   フレームタイム/メモリ/ドローカウント HUD、フレームグラフ。
 - **`Replay`** — 入力ストリーム + RNG state を記録、決定論的再生。Pillar M (lockstep) と
   Pillar N (modding) も同じ仕組みを共有。
-- **`FDebugDraw+`** — 永続/一時、ワールド/スクリーン空間、デプステスト切替、チャネル
+- **`DebugDraw+`** — 永続/一時、ワールド/スクリーン空間、デプステスト切替、チャネル
   トグル（物理/パス/トリガ/音域）。
 - **`LiveTune`** — ゲームプレイ定数を CVar にバインド → インスペクタのスライダで実時間
   調整 → dev settings に永続化。
 
 ### 13.3 Pillar L — AI / ゲームプレイ深度
 
-v7 までは `FStateMachine` と `FCollisionWorld2D` のみで、本格 BT・経路探索・タイルマップ・
+v7 までは `StateMachine` と `CollisionWorld2D` のみで、本格 BT・経路探索・タイルマップ・
 アニメグラフは皆無。これが「動くデモ」と「実ゲーム」を分ける層。
 
-- **`FBehaviorTree`** — FSequence/Selector/Parallel + デコレータ（Inverter/Repeater/
+- **`BehaviorTree`** — Sequence/Selector/Parallel + デコレータ（Inverter/Repeater/
   UntilSuccess/Cooldown）+ リーフ（Action/Condition、FCallback ボディ + 反射フィールド）。
   `.bt` テキスト形式 + コード DSL の両対応。`BehaviorTreeComponent` でアタッチ。BT と
-  `FStateMachine` は併存（BT = 階層化決定木、SM = 順次状態）。
+  `StateMachine` は併存（BT = 階層化決定木、SM = 順次状態）。
 - **`PathfindingSystem`** — A* on 2D nav grid。`ESvc::Pathfind`。重み付きタイル（沼=遅い）、
-  動的障害物、非同期パス要求（future-like）。`FTilemap` から自動 grid 構築。
-- **`FTilemap`** — `TilemapNode2D`。レイヤ（地面/壁/装飾/空）、per-tile property
+  動的障害物、非同期パス要求（future-like）。`Tilemap` から自動 grid 構築。
+- **`Tilemap`** — `TilemapNode2D`。レイヤ（地面/壁/装飾/空）、per-tile property
   (`THashMap<FString, Value>`)、Tiled `.tmx` 対応、レイヤ × チャンク単位の 1 ドロー。
   **コリジョン形状自動生成 + ナビグリッド自動ビュー**で Pillar F/L へ直結。
-- **`FAnimationGraph`** — クリップ間のステートマシン + パラメータ駆動遷移（`velocity > 50`
+- **`AnimationGraph`** — クリップ間のステートマシン + パラメータ駆動遷移（`velocity > 50`
   で idle→run）+ **ブレンドツリー**（8 方向歩行を aim 角でブレンド）+ **イベント
   トラック**（フレーム 5 で足音、フレーム 7 で砂塵パーティクル — **Pillar I エフェクトと
   連動**）。
@@ -573,7 +573,7 @@ v7 までは `FStateMachine` と `FCollisionWorld2D` のみで、本格 BT・経
 v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけは v1 で切らないと後付け
 不可能**な構造的問題のため再設計。**正直なスコープ判断**を含む。
 
-**v1 モデル: Deterministic FLockstep (≤4 人) + Async (リプレイ/ゴースト/リーダーボード)**:
+**v1 モデル: Deterministic Lockstep (≤4 人) + Async (リプレイ/ゴースト/リーダーボード)**:
 - ACS の固定 timestep + 名前付き PRNG チャネル（§13.6）が lockstep に最適。
 - Authoritative server + client prediction/reconciliation は **seam
   （`IReplicator`/`IAuthority`/`ScenePeerRole`/同一 delta シリアライザ）のみ v1 で確定、
@@ -587,7 +587,7 @@ v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけ
   差し替え seam。外部ライブラリ不採用。
 - **`LockstepRunner`** — 入力フォワード、入力遅延 4〜8 ticks、**60 tick 毎の state hash
   で desync 検知**、state dump 報告。
-- **`NetDeterminism.h`** — 決定論コントラクト明文化（`time()`/`FRandom::Global()`/
+- **`NetDeterminism.h`** — 決定論コントラクト明文化（`time()`/`Random::Global()`/
   `THashMap` 順序依存/FPU dispatch 禁止）。`ACS_NET_DETERMINISTIC` ビルドフラグで SSE2 固定。
 - **`Replication` 属性** — `[[acs::Replicated(channel, rate, interp, relevance=Distance(R))]]`、
   リフレクション駆動。`[[acs::Rpc(Reliable, ServerToClient)]]` で透過呼び出し（ローカル/
@@ -596,7 +596,7 @@ v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけ
   `GhostPlayback`、`AsyncTurnDirector`。
 - **`ILeaderboardClient`** 抽象 + **`acs_replay_verify`** CLI — サーバが受信リプレイを
   ヘッドレス再シミュレートしてスコア検証（**indie で最も低コスト・高効果のアンチチート**）。
-- **`FScene::PeerRole`**（`SinglePlayer`/`Host`/`Client`/`DedicatedServer`/`Replay`）—
+- **`Scene::PeerRole`**（`SinglePlayer`/`Host`/`Client`/`DedicatedServer`/`Replay`）—
   1 シーンクラスで全モード対応、`SpawnReplicated` + `NetEntityId` mapping、host migration。
 - **honest 限界明示** — NAT 越え未対応（LAN + dedicated host 公開 IP のみ）、暗号化
   トランスポート未実装、本格対戦アクションは v2 待ち、**クライアント側難読化は theatre と認める**。
@@ -611,12 +611,12 @@ v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけ
 - **スクリプト言語: Lua 5.4 推奨** — indie ゲーム実績・組込みやすさ（C API がフラット、
   ACS の no-STL/no-exception と整合可能）・コミュニティ規模・LuaJIT で性能必要なら拡張可。
   代案: Wren（小さく OO 純度高い）、AngelScript（C++ 風静的型）。
-- **統合** — スクリプトから `FNode2D`/`FComponent2D` 生成、`FMessageBroker` 購読、データ
-  アセット宣言、`FComponent2D::OnUpdate` 実装。**Pillar J 反射との連携**で「スクリプト書き
+- **統合** — スクリプトから `Node2D`/`Component2D` 生成、`MessageBroker` 購読、データ
+  アセット宣言、`Component2D::OnUpdate` 実装。**Pillar J 反射との連携**で「スクリプト書き
   フィールド」も Inspector に出る。
 - **サンドボックス** — 信頼レベル（信頼ローカル / 信頼配信署名済み / 未署名 mod）で
   file/net/process アクセス制限、メモリ/CPU 時間クオータ。
-- **FTier 別 mod**:
+- **Tier 別 mod**:
   - **A. アセット差し替えのみ** — 完全 sandbox、ノーリスク。
   - **B. データ mod** — スクリプト + データアセットで新コンテンツ。指針的主流。
   - **C. トータルコンバージョン** — スクリプトでゲームロジック変更。
@@ -632,8 +632,8 @@ v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけ
 
 新ピラー化せず、**既存ピラーの中で具体的に肉付け**。
 
-#### Pillar H 音響 — `FAudioDirector` → **`AudioSystem`** に拡張・改名
-- **2D positional audio** — `FCamera2D` をリスナーに、ソース毎の位置/min_distance/
+#### Pillar H 音響 — `AudioDirector` → **`AudioSystem`** に拡張・改名
+- **2D positional audio** — `Camera2D` をリスナーに、ソース毎の位置/min_distance/
   max_distance/Rolloff（Linear/Log/InverseSquare/Custom curve）、定電力パン。
 - **Voice prioritization & stealing** — `priority * 256 - audible_volume * 255 - age` で
   スコア化、最低を奪う。
@@ -642,36 +642,36 @@ v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけ
   Sewer/Chamber）+ 境界フェード + 優先度。
 - **Audio snapshots** — バス状態のスナップショット（`"underwater"`/`"menu"`/`"combat"`）+
   クロスフェード（dB 線形）。「水中に潜る」の典型がこれで 1 行。
-- **`FMusicDirector` は `AudioSystem` の内部モジュール**として残る（v7 設計の継承）。
+- **`MusicDirector` は `AudioSystem` の内部モジュール**として残る（v7 設計の継承）。
 - v1.1: occlusion（raycast 遮蔽 + ラウンドロビン予算）。
 
-#### Pillar E カメラ — `FCamera2D` → **`FCameraStack`** で複数カメラ統括
+#### Pillar E カメラ — `Camera2D` → **`CameraStack`** で複数カメラ統括
 - **複数カメラ** — gameplay + UI + minimap + inset、`priority` 順描画、`LayerMask` で
-  カリング、per-camera viewport/scissor、`FCamera2D::bypass_post`。
+  カリング、per-camera viewport/scissor、`Camera2D::bypass_post`。
 - **Split-screen** — `ConfigureSplit(HorizontalHalf/VerticalHalf/Quad, player_count)` 1 行で
   自動配置。マルチリスナー音響は v1 で「平均位置」（多チャネル分離は v2）。
-- **Render-to-texture** — `FCamera2D::SetRenderTarget(IRhiTexture*)`。minimap/mirror/
+- **Render-to-texture** — `Camera2D::SetRenderTarget(IRhiTexture*)`。minimap/mirror/
   security-cam/portal/in-world モニタ。GPU リソース寿命は既存 3-frame 遅延削除キュー経由。
 - **トランジション** — Cut/Fade/PushLeft/PushRight/WipeIris/WipeDiagonal（6 シェーダ
   ~200 行）+ Pillar I `CutsceneTrack` 連動。
-- **`ParallaxLayer`** — `factor` 宣言で `ResolveTransforms` が自動視差解決。`FSpriteBatch`
+- **`ParallaxLayer`** — `factor` 宣言で `ResolveTransforms` が自動視差解決。`SpriteBatch`
   無変更。
 - v1.1: per-camera post-process stack（`RenderPassRegistry` 成熟後）。
 
 #### Pillar D 入力
 - **デバイスホットプラグ + active-device tracking** — XInput 接続/切断イベント、
   `LastActiveDevice` で UI が glyph セット自動切替（KB&M ↔ Xbox ↔ PS）。
-- **`PlayerSlots`** — 最大 4 スロット、各スロットに `FInputMap` インスタンス、auto-join
+- **`PlayerSlots`** — 最大 4 スロット、各スロットに `InputMap` インスタンス、auto-join
   ("Press any button to join") — Split-screen の前提。
 - **バッファ入力窓** — `SetActionBuffer(action, seconds)` + `ConsumeBufferedPress` で
   Starter2D ジャンプバッファとインフラ共有（DRY）。
-- **`FInputRecorder`** — 入力ストリームキャプチャ（Pillar K Replay と統合、**Pillar M
+- **`InputRecorder`** — 入力ストリームキャプチャ（Pillar K Replay と統合、**Pillar M
   lockstep のリプレイも同じ `.acsr` 形式**）。
-- **`FInputMap::BeginRebind`** — 次の物理入力を捕獲してアクションへバインド（capture
+- **`InputMap::BeginRebind`** — 次の物理入力を捕獲してアクションへバインド（capture
   プリミティブ）。実 rebind UI は UiKit 待ちで v1.1、ジェスチャ認識も v1.1。
 
 #### Pillar A/H 描画拡張（キーストーン）
-- **`RenderPassRegistry`** — `FPostProcess` の 5 phase（`BeforeSceneOpaque` /
+- **`RenderPassRegistry`** — `PostProcess` の 5 phase（`BeforeSceneOpaque` /
   `AfterSceneOpaque` / `AfterScene` / `AfterBloom` / `AfterTonemap`）にユーザーが
   フルスクリーン PS を挿入可能。CRT/scanlines/posterize/LUT/heat-haze が**ゲーム側コード**
   で書ける（フレームワーク無変更）。ping-pong RT は遅延確保。
@@ -685,26 +685,26 @@ v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけ
 
 #### Pillar H procgen ツールキット
 - **`RandomChannels`**（基盤）— 名前付き PRNG ストリーム（`"world"`/`"visuals"`/`"audio"`/
-  `"ui"`）。**`FRandom::Global()` で gameplay と visuals が混ざる問題を構造的に解消** —
-  Pillar M lockstep と Pillar K replay の決定論基盤。`FSaveArchive` 経由で snapshot/restore。
+  `"ui"`）。**`Random::Global()` で gameplay と visuals が混ざる問題を構造的に解消** —
+  Pillar M lockstep と Pillar K replay の決定論基盤。`SaveArchive` 経由で snapshot/restore。
 - **`Noise`** — Perlin/Simplex/Value/Cellular + Fractal、stateless ~300 行。
 - **`Distributions`** — Poisson-disc / Weighted / Gaussian / LogNormal / `WeightTable`
   （O(log n) ピック）。
 - **`MarkovNames`** — マルコフ連鎖人名/地名生成、CJK code-point 対応、訓練済みモデル `.mdl`。
 - **`Dungeon`** — BSP partition / corridor / drunken walk / A* corridor / connectivity
   verify。5 関数 ~400 行、合成はゲーム側。
-- v1.1: Wave-Function-Collapse（~1000 行、`FTilemap` 出力に依存）、Time-of-Day/Weather
+- v1.1: Wave-Function-Collapse（~1000 行、`Tilemap` 出力に依存）、Time-of-Day/Weather
   （ジャンル特定）。
 
 ### 13.7 全体アーキテクチャ — v8 で 14 ピラー
 
 | 番号 | ピラー | 追加版 |
 |---|---|---|
-| A | App & FScene | v3〜 |
-| B | オブジェクトモデル（FNode2D + ECS） | v3〜 |
+| A | App & Scene | v3〜 |
+| B | オブジェクトモデル（Node2D + ECS） | v3〜 |
 | C | 時間・アニメ | v4〜 |
 | D | 入力（+ホットプラグ/PlayerSlots/buffer/recorder） | v4 + **v8** |
-| E | カメラ（`FCameraStack` 化、split/RTT/transition/parallax） | v4 + **v8** |
+| E | カメラ（`CameraStack` 化、split/RTT/transition/parallax） | v4 + **v8** |
 | F | 物理・衝突 | v4〜 |
 | G | リソース・永続化（**Pillar J で構造的解放**） | v4 + **v8** |
 | H | UI・音・ツール（`AudioSystem` 拡張・`RenderPassRegistry`・procgen） | v4 + **v8** |
@@ -715,8 +715,8 @@ v6/v7 では「ネット同期」を v2 送りにしていたが、**SEAM だけ
 | **M** | ネットワーク / マルチプレイヤー | **v8** |
 | **N** | Mod / スクリプト | **v8** |
 
-加えて v7 §12.2 の完成度システム 9 つ（UiKit/Dialogue/FMusicDirector/Progress/
-FLocalizationDirector/Accessibility/Starter2D/SaveSlots/FGameFlow）は維持。
+加えて v7 §12.2 の完成度システム 9 つ（UiKit/Dialogue/MusicDirector/Progress/
+LocalizationDirector/Accessibility/Starter2D/SaveSlots/GameFlow）は維持。
 
 ### 13.8 実装フェーズの再構成
 
@@ -726,19 +726,19 @@ v6/v7 の 11 フェーズに以下を挿入・追加:
 |---|---|---|
 | **7.5** | `RandomChannels` + Procgen ツールキット（replay/netcode の前提） | `36_HelloProcgen` |
 | **9.5** | `AudioSystem` 拡張（positional/DSP/zones/snapshots） | `33_HelloEffects` 拡張 |
-| **9.7** | `FCameraStack` + RTT + transitions + parallax + split-screen | `37_HelloMultiCam` |
-| **10.3** | `FInputRecorder` + `PlayerSlots` + buffered input + hot-plug | `34_HelloDialogue` 拡張 |
+| **9.7** | `CameraStack` + RTT + transitions + parallax + split-screen | `37_HelloMultiCam` |
+| **10.3** | `InputRecorder` + `PlayerSlots` + buffered input + hot-plug | `34_HelloDialogue` 拡張 |
 | **10.5** | `RenderPassRegistry` + `SpriteMaterial`（Outline/Dissolve/Flash） | `38_HelloShaders` |
-| **12** | Pillar J 反射基盤（`FTypeInfo`/`Register`/walker）+ ラウンドトリップテスト | (テストのみ) |
-| **13** | Pillar J `.atxt`/`.abin` + `FSaveArchive` 互換 + HMAC | `39_HelloSerialize` |
+| **12** | Pillar J 反射基盤（`TypeInfo`/`Register`/walker）+ ラウンドトリップテスト | (テストのみ) |
+| **13** | Pillar J `.atxt`/`.abin` + `SaveArchive` 互換 + HMAC | `39_HelloSerialize` |
 | **14** | Pillar J `SceneSerializer` + 参照解決 | (29 を `.scene` 起動に移植) |
 | **15** | Pillar J `Prefab` + override + nested | `40_HelloPrefab` |
 | **16** | Pillar J `DataAsset` + ホットリロード（再起動） | (39 拡張) |
-| **17** | Pillar J `FSaveSlot<T>` 統合 | `41_HelloSaveSlots` |
-| **18** | Pillar K Inspector + FDevConsole + Profiler | `42_HelloEditor` |
+| **17** | Pillar J `SaveSlot<T>` 統合 | `41_HelloSaveSlots` |
+| **18** | Pillar K Inspector + DevConsole + Profiler | `42_HelloEditor` |
 | **19** | Pillar K HotReload + Replay + LiveTune | (18 拡張) |
-| **20** | Pillar L FBehaviorTree + Pathfinding + FTilemap | `43_HelloAI` |
-| **21** | Pillar L FAnimationGraph + FPerception + SpatialQuery + Trigger + Steering | (20 拡張) |
+| **20** | Pillar L BehaviorTree + Pathfinding + Tilemap | `43_HelloAI` |
+| **21** | Pillar L AnimationGraph + Perception + SpatialQuery + Trigger + Steering | (20 拡張) |
 | **22** | Pillar M UDP transport + `LanLobby` + HMAC リプレイ | `44_HelloReplay` |
 | **23** | Pillar M `LockstepRunner` + 決定論コントラクト + state hash desync | `45_HelloLockstep` |
 | **24** | Pillar M Replication 属性 + RPC + `acs_replay_verify` CLI | `46_HelloGhostRace` |
@@ -765,21 +765,21 @@ Camera3D|Physics3D|Lighting3D` を `WantedServices` で課金式 opt-in、メニ
 3D コストを払わせない。
 
 - **Object model**: `Node3D`+`Transform3D{FVec3 pos, FQuat rot, FVec3 scale=44B}`+
-  `Component3D`。**`FNode2D`/`Node3D` は別ツリー・共通基底なし**（座標規約・dirty
-  伝播が別物、抽象は害）。`FScene` が `Root2D()`/`Root3D()` を持つ。
+  `Component3D`。**`Node2D`/`Node3D` は別ツリー・共通基底なし**（座標規約・dirty
+  伝播が別物、抽象は害）。`Scene` が `Root2D()`/`Root3D()` を持つ。
 - **Camera3D** — perspective/ortho、4 種 Rig (`Fps`/`Orbit`/`Follow`/`Cinematic`)、
-  `ScreenToRay` でピック。**`FCameraStack` が 2D/3D 統合の唯一の点** — `Layer{kind=
+  `ScreenToRay` でピック。**`CameraStack` が 2D/3D 統合の唯一の点** — `Layer{kind=
   World3D/World2D/Ui2D}` を priority 順に描画、3D+HUD/2.5D/billboard 全パターン対応。
 - **Collision3D** — `Loose Octree` broadphase + **SAT 直書き 15 ペア** narrowphase
   （FAabb/FSphere/Capsule/Obb/Mesh）。GJK/EPA は v2。`PhysicsBody3D` は swept kinematic
   + collide-and-slide（rigid body solver は v2）。
 - **Lighting** — `Directional/Point/Spot/Area/Probe` 5 種 Light Component + `LightManager`
-  がフレーム頭で集めて既存 `FPbrShader`/`FSkinnedShader` に push。IBL は `SkyboxComponent3D`
+  がフレーム頭で集めて既存 `PbrShader`/`SkinnedShader` に push。IBL は `SkyboxComponent3D`
   経由。Lightmap baker は v1.1。
-- **FAnimation 3D** — `SkinnedMeshComponent` + 既存 `FAnimationPlayer` をラップ。Pillar L
-  `FAnimationGraph` が **2D `FSpriteAnimator` も 3D skinned も共通基盤**で扱う。
+- **FAnimation 3D** — `SkinnedMeshComponent` + 既存 `AnimationPlayer` をラップ。Pillar L
+  `AnimationGraph` が **2D `SpriteAnimator` も 3D skinned も共通基盤**で扱う。
 - **2D/3D 共存**: `BillboardComponent`（Doom 風）、`WorldSpaceCanvas3D`（3D 空間の
-  2D UI — HUD/看板/フローティングダメージ数字）、Audio listener も `FCameraStack`
+  2D UI — HUD/看板/フローティングダメージ数字）、Audio listener も `CameraStack`
   最高 priority に自動追従。
 - **v1 = Ph28〜31, ~4300 LOC, サンプル `49_HelloNode3D`〜`52_HelloAnim3D`**。
   v1.1 で `NavMesh3D`/`AnimationGraph3D` blend tree/CSM/Gizmo3D。v2 で rigid body
@@ -796,20 +796,20 @@ Camera3D|Physics3D|Lighting3D` を `WantedServices` で課金式 opt-in、メニ
   iter（速度/位置）+ split-impulse 位置補正 + Baumgarte。サンプル時点 ~3500 行。
 - **Broadphase**: kinematic は既存 `SpatialGrid` 継続、dynamics 用に **Dynamic AABB Tree**
   追加（sleeping body はゼロコスト、可変サイズ shape に強い）。
-- **Shape**: FCircle/Box/Polygon(凸 8 頂点)/Capsule/Edge/Chain(ghost vertex 付き)/
+- **Shape**: Circle/Box/Polygon(凸 8 頂点)/Capsule/Edge/Chain(ghost vertex 付き)/
   Compound。凹は `DecomposeConvex`（Bayazit）で自動分解。
 - **Joints**（8 種）: Revolute/Prismatic/Distance/Weld/Rope/Wheel/Pulley/Gear。
   motors+limits+**break impulse threshold**（「ロープが切れる」）+ Soft（freq/damping）。
 - **CCD**: TOI + conservative advancement + GJK 距離。**Bullet flag** ＆ 自動
   （fast dynamic-vs-static）。Box2D 互換アルゴ。
 - **Queries**: `RaycastFirst/All/FCallback`, `ShapecastFirst`, `QueryAabb/Point/Fan`。
-  fan/cone は raycast で実装、Pillar L `FPerception` 視界コーンと統合。
+  fan/cone は raycast で実装、Pillar L `Perception` 視界コーンと統合。
 - **Sensors** + **OneWayPlatform** ヘルパ + **Contact callbacks** (Begin/Persist/End/
   Pre/PostSolve) で Pillar I Effects と接続。
 - **決定論コントラクト** — fixed iter 順 + body sort by BodyId + `/fp:precise` +
   ACS 決定論 sin/cos + per-step `StateHash`。Pillar M lockstep が直接利用。
 - **Soft body seam** — v1.1 で Verlet cloth/rope (~300 LOC)。SPH 流体は明示的に非採用。
-- **v1 = Ph17.5〜17.9 で 3 段階導入**。v8 既存 `FPhysicsBody2D`（kinematic）と**共存** —
+- **v1 = Ph17.5〜17.9 で 3 段階導入**。v8 既存 `PhysicsBody2D`（kinematic）と**共存** —
   Starter2D character controller は kinematic のまま、barrel/crate は dynamics で。
 
 ### 14.3 アニメーション深度（Pillar C/L 拡張）
@@ -817,14 +817,14 @@ Camera3D|Physics3D|Lighting3D` を `WantedServices` で課金式 opt-in、メニ
 **4 層パイプライン**で統一: `Sampler → Graph → ProceduralLayer → Output`。
 `Pose` を中心データ型に。
 
-- **`SkeletonAsset` を `FSkinnedMeshAsset` から分離** — 共有スケルトン/ retarget の前提。
+- **`SkeletonAsset` を `SkinnedMeshAsset` から分離** — 共有スケルトン/ retarget の前提。
   `HumanoidSlot` enum で「人型」を標準化。
 - **`ISamplerRuntime` 抽象** + 4 実装: `ClipSampler`（ACS 標準 `.skanim`）、
   **`SpineSampler` / `DragonBonesSampler`**（外部ライセンス回避のため独立モジュール
   `ACS::SpineBridge`/`ACS::DragonBonesBridge` で seam だけ提供、ランタイムは
-  ユーザーが import）、`FlipbookSampler`（既存 `FSpriteAnimator` ラッパ）。
-- **`FAnimationGraph` 詳細化**: `ClipNode/Blend1D/Blend2D/BlendAdditive/LayerMix/
-  FStateMachine/Reference`、ノードを flat 配列 + index 参照 → Pillar J で
+  ユーザーが import）、`FlipbookSampler`（既存 `SpriteAnimator` ラッパ）。
+- **`AnimationGraph` 詳細化**: `ClipNode/Blend1D/Blend2D/BlendAdditive/LayerMix/
+  StateMachine/Reference`、ノードを flat 配列 + index 参照 → Pillar J で
   シリアライズ容易・ホットリロード対応。**Inertialization** 遷移を v1 で
   （UE5 流、~200 行で品質激変）。
 - **ProceduralLayer**: 順序付き Pose 修正パイプ。`HeadLookComponent`（look-at）、
@@ -838,11 +838,11 @@ Camera3D|Physics3D|Lighting3D` を `WantedServices` で課金式 opt-in、メニ
 - **Morph Targets** — 顔表情/衣装。CPU 適用 v1（頂点 ~500 まで実用）、GPU SRV +
   `MorphSkinnedShader` v1.1。**2D pixel art は対象外**（明示）、Spine の mesh
   attachment で同等を達成済。
-- **Root Motion** — `bone_index=-1` 特殊 channel から TRS delta 抽出、`FPhysicsBody2D`
+- **Root Motion** — `bone_index=-1` 特殊 channel から TRS delta 抽出、`PhysicsBody2D`
   経由で collide-and-slide（直接 Transform 書きを禁止）。
-- **FAnimation FEvent** — clip 内 `(time, kind, hash_or_code, payload)` 配列。
-  `AnimationEventDispatcher` が Pillar I `FEffectSystem` / Pillar H `AudioSystem` /
-  `FMessageBroker` に振り分け。OncePerLoop dedup ポリシーで dup 発火を防ぐ。
+- **FAnimation Event** — clip 内 `(time, kind, hash_or_code, payload)` 配列。
+  `AnimationEventDispatcher` が Pillar I `EffectSystem` / Pillar H `AudioSystem` /
+  `MessageBroker` に振り分け。OncePerLoop dedup ポリシーで dup 発火を防ぐ。
 - **Motion Matching** — `IProceduralAnimNode` seam を v1 で予約、kd-tree 実装は v2。
 - **Retargeting** — `RetargetMap` 型のみ v1、HumanoidSlot 経由の bone 対応・骨長
   スケール補正は v1.1。
@@ -853,7 +853,7 @@ v8 までは dev-time 完備だが、**dev→ship→patch→live ops** のルー
 新エンジンモジュール **`ACS::Bake`** + GameFramework 側ピラー O + `tools/` CLI 群 +
 CI workflow を追加。
 
-- **FAsset bake パイプライン** — `acs_bake` CLI（`acs_assetpack` の sibling）。
+- **Asset bake パイプライン** — `acs_bake` CLI（`acs_assetpack` の sibling）。
   - texture: BC1/BC7/ASTC（mip 自動生成、normal map 専用エンコード）
   - audio: Ogg Vorbis/Opus（loop point 保持）
   - font: TTF→atlas baking、CJK 4096² 範囲指定
@@ -871,7 +871,7 @@ CI workflow を追加。
   - コンソール: SDK 個別 seam（NDA で名前は出さない）
 - **CI integration** — GitHub Actions matrix（MSVC + clang-cl × Debug/Ship × x64/ARM64）、
   unit test run（Pillar K Replay 駆動）、artifact upload、git SHA を binary に埋め込み。
-- **Telemetry** — `ITelemetryClient` 抽象、game が `FEvent("level_completed", {id, sec})`
+- **Telemetry** — `ITelemetryClient` 抽象、game が `Event("level_completed", {id, sec})`
   を発火、バッチ送信、opt-in / GDPR aware、no PII default。Steam/EOS/custom HTTP プラグイン。
 - **Crash reporting** — Win32 `SetUnhandledExceptionFilter` → `MiniDumpWriteDump` →
   symbol upload（自前 viewer or Sentry/Bugsplat seam）。Pillar J でゲーム state snapshot
@@ -880,7 +880,7 @@ CI workflow を追加。
   オフラインキャッシュ、A/B テスト seam。
 - **Live ops / patching** — **コンテンツパッチは exe 再 download なし**で AssetPack
   overlay として配信、DLC は別 `.acpak`。セーブ互換は Pillar J `MigrationRegistry`。
-- **FLocalization for shipping** — `FLocalizationDirector` の runtime 上に翻訳者
+- **Localization for shipping** — `LocalizationDirector` の runtime 上に翻訳者
   workflow（`.po`/`.csv`/Crowdin seam）、missing-key レポート、pseudoloc 強化。
 - **配信アーキタイプ** — 無料デモ+本編 / 無料+DLC / Early Access / 無料+IAP の
   4 つを 1 級サポート。
@@ -890,10 +890,10 @@ CI workflow を追加。
 
 v8 までは「**何ができるか**」、v9 Pillar P は「**大きくなっても倒れない**」ための層。
 
-- **FWorld / Chunk** — 2D グリッド上のチャンク（`FTilemap` をラップ）。`ChunkResidency`
+- **World / Chunk** — 2D グリッド上のチャンク（`Tilemap` をラップ）。`ChunkResidency`
   状態機（Unloaded→Loading→Resident→Unloading→Ghost）。**Ghost** = 遠方チャンクを
   低解像度プリベイク画像 1 枚で描く（「山頂から大陸全体が見える」を 50MB GPU で実現）。
-  チャンク persistence は Pillar J `FSaveArchive` 拡張、**save game = dirty chunks の
+  チャンク persistence は Pillar J `SaveArchive` 拡張、**save game = dirty chunks の
   flush**（Skyrim 化を防ぐ）。
 - **Async asset streaming** — 既存 `LoadAsync` の上に `AssetStreamer`（5 段優先度キュー
   + per-frame I/O budget + LRU eviction + pin/unpin）。**Mip streaming** v1.1
@@ -905,7 +905,7 @@ v8 までは「**何ができるか**」、v9 Pillar P は「**大きくなっ�
   collision の連鎖変更で v1 不可）。チャンク座標 (cx,cy)+ 局所 FVec2 のハイブリッド
   固定点が副産物。`WorldOriginRebased` event で subscriber が補正。
 - **Memory 深度**:
-  - **FScene arena** — `FScene` がアリーナ所有、退出時 1 op で reset。trivially destructible
+  - **Scene arena** — `Scene` がアリーナ所有、退出時 1 op で reset。trivially destructible
     component が opt-in。
   - **`TPool<T>`** — Pillar H 確定。Pillar I Effects/Pillar M ghosts/Pillar L A\* node
     で利用。
@@ -915,19 +915,19 @@ v8 までは「**何ができるか**」、v9 Pillar P は「**大きくなっ�
     leak 検出。
   - **`FrameAlloc<T>`** — `Temp` segment 簡易 API、フレーム頭で auto-reset。
 - **Threading 深度**:
-  - FThreadPool は既に Chase-Lev work-stealing。追加: **per-worker hi/lo deque**（30 行）、
+  - ThreadPool は既に Chase-Lev work-stealing。追加: **per-worker hi/lo deque**（30 行）、
     `ParallelForDynamic`、Pinned task、worker stats。
-  - **C++20 coroutines `FTask<>`** — カスタム allocator が FScene arena から取る。
-    `co_await WaitSeconds(0.5f) / WaitForEvent / FSequence / NextFrame / LoadAsset`。
+  - **C++20 coroutines `Task<>`** — カスタム allocator が Scene arena から取る。
+    `co_await WaitSeconds(0.5f) / WaitForEvent / Sequence / NextFrame / LoadAsset`。
     cutscene/dialogue を「読めるコード」として書ける。**Fiber は不採用**（help-stealing
     で代替可能、debugger/ASAN 互換性のコスト過大）。
-  - **`MpmcRing<T>` / `SpscRing<T>`** lock-free（80/40 行）。`FMessageBroker` は
+  - **`MpmcRing<T>` / `SpscRing<T>`** lock-free（80/40 行）。`MessageBroker` は
     single-threaded 維持、cross-thread は ring 経由で drain。
-  - **IO thread** 別建て（FAsset 読込/暗号化を long-blocking で workers から隔離）。
+  - **IO thread** 別建て（Asset 読込/暗号化を long-blocking で workers から隔離）。
   - **決定論コントラクト** — threaded subsystem は固定順 reduction、`ACS_NET_DETERMINISTIC`
     で serial 強制。
-- **FrameGovernor** — frame target 超過時、優先度低い順に degradation: FDebugDraw →
-  DistantBgm/Sfx → Particles → AiPerception → AiBehavior → FPostProcess → AssetStreaming
+- **FrameGovernor** — frame target 超過時、優先度低い順に degradation: DebugDraw →
+  DistantBgm/Sfx → Particles → AiPerception → AiBehavior → PostProcess → AssetStreaming
   → UiAnimation。**物理/入力/シーン遷移は絶対 throttle しない**。Pillar K Profiler HUD で
   tier 状態表示。
 - **スケール目標**: 9×9 active chunks (~330k tiles), 1000-2000 dyn entities, 50k batched
@@ -940,7 +940,7 @@ v8 までは「**何ができるか**」、v9 Pillar P は「**大きくなっ�
   **複数 Lua state**（mod ごと別 state でサンドボックス分離）、カスタム allocator は
   ACS arena。
 - **C++↔Lua バインディング自動化** — `AcsLuaBind<&Fn>::Bind(L,"name")` テンプレで
-  stub 生成、**Pillar J 反射経由で `FTypeInfo<T>` のフィールドが自動公開**。userdata は
+  stub 生成、**Pillar J 反射経由で `TypeInfo<T>` のフィールドが自動公開**。userdata は
   非所有参照、metatable で型分離。
 - **`LuaComponent2D`** — Lua 関数で `OnUpdate`/`OnEvent` 実装、per-instance Lua table
   に状態。ホットリロードで `self` table は保持、function ポインタだけ差し替え。
@@ -960,7 +960,7 @@ v8 までは「**何ができるか**」、v9 Pillar P は「**大きくなっ�
 - **`ModManagerScreen`** UiKit 構成 — list/detail/conflict/load-order/install 5 screen。
 - **`IModRepository`** 抽象 + default `LocalFolderRepository`、Steam Workshop/mod.io/
   itch.io は v1.1 で concrete impl。
-- **FTier 別**: A(asset-only) → B(data + script) → C(total-conv) → D(C++ DLL 非推奨)。
+- **Tier 別**: A(asset-only) → B(data + script) → C(total-conv) → D(C++ DLL 非推奨)。
 - **パフォーマンス規律** — script から C++ への呼び出しは**bulk** で行うイディオム
   （per-entity ループは C++ 側）、~100ns/call のオーバーヘッドを文書化。
 - **DAP debugger seam** — v1 で API stub、v1.1 で実装（VSCode/ZeroBrane 接続可能に）。
@@ -994,11 +994,11 @@ Sandbox-sim/Match-3/Fighting/Walking sim — ジャンル形状が bespoke す�
 
 | 番号 | ピラー | 追加版 |
 |---|---|---|
-| A | App & FScene | v3〜 |
-| B | オブジェクトモデル（FNode2D + ECS + **Node3D**） | v3 + **v9** |
+| A | App & Scene | v3〜 |
+| B | オブジェクトモデル（Node2D + ECS + **Node3D**） | v3 + **v9** |
 | C | 時間・アニメ（**4 層パイプ + IK + Ragdoll + Morph + Root Motion**） | v4 + **v9** |
 | D | 入力（hot-plug/PlayerSlots/buffer/recorder） | v4 + v8 |
-| E | カメラ（**`FCameraStack` 3D 統合 + 4 FCamera Rig**） | v4 + v8 + **v9** |
+| E | カメラ（**`CameraStack` 3D 統合 + 4 FCamera Rig**） | v4 + v8 + **v9** |
 | F | 物理・衝突（**F2: PGS dynamics + 8 joints + CCD**） | v4 + **v9** |
 | G | リソース・永続化（Pillar J で構造的解放、**Pillar P で streaming**） | v4 + v8 + v9 |
 | H | UI・音・ツール（AudioSystem + RenderPassRegistry + procgen + **5 light + Skybox**） | v4 + v8 + **v9** |
@@ -1021,15 +1021,15 @@ v8 までの ~27 フェーズに以下を挿入・追加（v9 で合計 ~50 フ�
 | 区分 | Ph | 内容 |
 |---|---|---|
 | F2 物理 | **17.5〜17.9** | Shape/Body/Material/Filter/AABB tree → Joints/motors → CCD/sensors/queries |
-| 3D | **28〜31** | Node3D/Transform3D → Camera3D/FCameraStack 3D/Light 5/MaterialInstance/MeshComponent → CollisionWorld3D/PhysicsBody3D → SkinnedMesh/Billboard/WorldSpaceCanvas3D |
+| 3D | **28〜31** | Node3D/Transform3D → Camera3D/CameraStack 3D/Light 5/MaterialInstance/MeshComponent → CollisionWorld3D/PhysicsBody3D → SkinnedMesh/Billboard/WorldSpaceCanvas3D |
 | Pillar O 出荷 | **35〜37** | acs_bake CLI + Build configs → Telemetry + Crash + Feature flags → Packaging + Live Ops patch |
-| Pillar P スケール | **38〜40** | FWorld/Chunk/Residency/Ghost → AssetStreamer/LoDController/GpuMemoryBudget → Coroutines/Lock-free/FrameGovernor |
+| Pillar P スケール | **38〜40** | World/Chunk/Residency/Ghost → AssetStreamer/LoDController/GpuMemoryBudget → Coroutines/Lock-free/FrameGovernor |
 | アニメ深度 | **41〜42** | Sampler/Pose/Graph 詳細化 + Inertialization → ProceduralLayers + Ragdoll + MorphTarget |
 | ジャンルキット | **43〜49** | VN → Roguelike → Tactical → Idle → Cards → SHMUP → Rhythm |
 | **v1.1 全部** | **50〜** | 2D lighting solver / WFC / NavMesh3D / Mip streaming / Spine bridge concrete / Motion Matching / Steam Workshop / 各種残 |
 
 **前提依存**: Pillar J (Ph12) → 全部の構造的前提。Pillar O Ph35 は Ship 配信の前提。
-Pillar P Ph38 は worlds 物の前提。Ph41 (Sampler 統合) は v8 Pillar L FAnimationGraph (Ph20)
+Pillar P Ph38 は worlds 物の前提。Ph41 (Sampler 統合) は v8 Pillar L AnimationGraph (Ph20)
 の前提。各ジャンルキットは独立、ただし Tactical と Cards は StatusEffectRegistry を共有。
 （v10 で Pillar Q/R + メタ層 + 著作ツール + 移植性 seam を追加 — §15）
 
@@ -1051,8 +1051,8 @@ solver を v1.1 → v1 に格上げ**:
   pass で N point/spot/area 光源合成）+ **光源 cookies/gobos**（窓ブラインドや葉影の
   texture マスク）+ **2D 影**（collision polygon から visibility polygon ~300 LOC）+
   **sprite normal map**（手描き or alpha からの自動高さマップ）。Defold/Unity 2D
-  FRenderer/Godot 2D 級。
-- **`FAmbientDirector`**（v8 v1.1 → v1 昇格） — 時刻 (1 in-game hour = N real sec)、
+  Renderer/Godot 2D 級。
+- **`AmbientDirector`**（v8 v1.1 → v1 昇格） — 時刻 (1 in-game hour = N real sec)、
   天気 (`Rain/Snow/Wind/Storm/Clear` × intensity)、季節 (視覚 + 音響バイアス)、
   雷タイミング。日の出/正午/日没/夜のキーで滑らかブレンド（光色 + 環境光 + 空色 +
   fog density）。
@@ -1072,26 +1072,26 @@ solver を v1.1 → v1 に格上げ**:
   push、局所速度フィールド)。
 - **Water rendering** — 2D water tile shader (refraction + waves + reflection +
   caustics) + 水中 tint + bubble + reverb zone 連動。
-- **FSky / cloud / volumetric** — parallax cloud layers + procedural cloud movement +
+- **Sky / cloud / volumetric** — parallax cloud layers + procedural cloud movement +
   day-color sky gradient + sun/moon/stars/aurora、**godrays** (screen-space radial blur
   from sun pos)。
 - **Lighting authoring** — Pillar K Inspector に **light gizmo + shadow viz + lit/unlit
   toggle**、static light bake (既存 `LightmapBaker` 流用)、**light probes** で sprite
   ambient sample。
-- **FParticle lighting** — particle が scene light を読んで自身を shading（Pillar I
+- **Particle lighting** — particle が scene light を読んで自身を shading（Pillar I
   Effects 統合、足元 dust が太陽光で照明される）。
 - **5 ステップ設計者 workflow**: ambient → sun → area moods → per-area lights →
   bake static。
 - **モジュール `src/gameframework/vis/`**、namespace `acs::game::vis`。
 
-### 15.2 Pillar R — Polish & FGame Feel（新規 18 番目）
+### 15.2 Pillar R — Polish & Game Feel（新規 18 番目）
 
 「プレイヤーが感じる完成度」の層。**Pillar Q と同じく conductor 役** — 既存 pillar を
 借りて作曲する。各サブシステムは `ESvc::*` opt-in（idle ゲームに photo mode コストを
 払わせない）。
 
-- **Slow-motion / time-control 深度** — `FNode2D::SetTimeScale(0.5f)`（per-node、
-  MAX Payne 風 bullet time）、time scale curves（FSequence で 0→1 ramp）、**UI/menu は
+- **Slow-motion / time-control 深度** — `Node2D::SetTimeScale(0.5f)`（per-node、
+  MAX Payne 風 bullet time）、time scale curves（Sequence で 0→1 ramp）、**UI/menu は
   unfrozen のまま世界 freeze**、Replay-aware (time_scale も記録)、multiple time domains
   (gameplay/UI/audio/particle 独立)。
 - **Cinematics 深度**（v7 `CutsceneTrack` を拡張） — composition helpers (rule-of-thirds
@@ -1103,16 +1103,16 @@ solver を v1.1 → v1 に格上げ**:
 - **Photo mode** — pause + free camera (3 axis pan + zoom + rotate)、filters (Pillar O
   color grading 経由)、HUD/entity hide、EXIF metadata 付き screenshot to user pictures、
   **`IPhotoShare` seam** (Steam/social 連携 plug)。
-- **Tutorial / onboarding** — `FTutorialFlow` data-driven、highlight target (dim + pulse
+- **Tutorial / onboarding** — `TutorialFlow` data-driven、highlight target (dim + pulse
   outline via Pillar I)、tooltip overlay、completion predicate (`when player_jumped →
   advance`)、contextual hint queue (throttled、dismissible)、re-engage on update。
-- **FWorld reactivity** — reactive NPC (`notice player`/`alarmed` anim via Pillar L
-  FPerception)、environmental (birds fly away/grass bends/water ripples)、**footstep
+- **World reactivity** — reactive NPC (`notice player`/`alarmed` anim via Pillar L
+  Perception)、environmental (birds fly away/grass bends/water ripples)、**footstep
   variation** (surface detect → SFX + particle/decal)、idle world animation。
-- **FSettings depth** — graphics presets (Low/Med/High/Ultra/Custom)、GPU auto-detect で
+- **Settings depth** — graphics presets (Low/Med/High/Ultra/Custom)、GPU auto-detect で
   初回 boot 時 preset 推奨、performance tier auto-detect (first-frame timing 測定)、
   per-feature toggle、brightness/gamma calibration screen、audio bus deep settings、
-  mute on focus lost、OS-standard 保存先 (Pillar G `FStorage`)。
+  mute on focus lost、OS-standard 保存先 (Pillar G `Storage`)。
 - **Difficulty / accessibility-as-gameplay** — Story/Normal/Hard/Hardest preset + 
   Celeste 流 Assist Mode の granular slider、permadeath toggle (gameplay 層)、
   mid-run adjust、achievement 取得時 difficulty 記録。
@@ -1135,13 +1135,13 @@ solver を v1.1 → v1 に格上げ**:
 しないと遡及修正コストが指数的に増える。
 
 - **`TypedHandle<Tag>` + `HandleRegistry<T,Tag>`** — v9 全体で散在する 9 種の
-  `{u32 idx, u32 gen}` ハンドルを 1 つに統一。`FEntityId`/`FNodeId`/`BodyId` 等は型
+  `{u32 idx, u32 gen}` ハンドルを 1 つに統一。`EntityId`/`FNodeId`/`BodyId` 等は型
   タグで混入時にコンパイル時 fail。`ACS_OPAQUE_ID(Name, Underlying)` で不透明 ID を
   1 行宣言。
 - **決定論プロファイル** — `SubsystemTrait<Tag>::profile = Required/BestEffort/
   Unsupported` を全 pillar が宣言、`ACS_DET_REQUIRE`/`ACS_DET_FORBID_CALL` で
   コンパイル時に違反検出。`ACS_NET_DETERMINISTIC` ビルドで `Required` 内の
-  `time()`/`FRandom::Global()`/`THashMap` 反復順依存を runtime assert で禁止。
+  `time()`/`Random::Global()`/`THashMap` 反復順依存を runtime assert で禁止。
   **CI ガード**: `acs_det_test record/replay/verify` CLI が `.acsr` を再生し state hash
   完全一致を強制。「決定論で使えない機能」を `docs/Determinism.md` に列挙。
 - **テストフレームワーク `acs_test`** — STL/exception/RTTI 不使用 ACS-native。
@@ -1150,9 +1150,9 @@ solver を v1.1 → v1 に格上げ**:
   determinism / visual regression**（SSIM golden compare）**/ benchmark**
   （baseline.json で regression detect、CI fail）。JUnit XML 出力で CI 統合。
 - **デバッグ体験** — 既存 `Assert`/`Log`/`Panic`/`FSourceLoc` を活かし: `PanicAction`
-  段階化 (LogOnly/Breakpoint/Dialog/Terminate)、`FLogger` channel filter + runtime CVar
-  切替 (`FDevConsole` で `log_channel physics off`)、標準 channel 名
-  `docs/LogChannels.md` 集中管理。**crash dump に Pillar J FScene snapshot 同梱**
+  段階化 (LogOnly/Breakpoint/Dialog/Terminate)、`Logger` channel filter + runtime CVar
+  切替 (`DevConsole` で `log_channel physics off`)、標準 channel 名
+  `docs/LogChannels.md` 集中管理。**crash dump に Pillar J Scene snapshot 同梱**
   （クラッシュ時点のシーンを Inspector でロード可能）。
 - **Performance reproducibility** — `ACS_PROFILE_SCOPE` を `foundation/diag/Profile.h`
   に下ろし weak hook で Pillar K Profiler が install (循環依存回避)、`PerfBudgetGuard`
@@ -1162,7 +1162,7 @@ solver を v1.1 → v1 に格上げ**:
   順）、`docs/recipes/` 20 個 (platformer/dialogue/new-component/shipping)、
   `docs/Diagrams/` 手書き Mermaid、`docs/migrations/_template.md`。
 - **Cross-pillar イベント taxonomy** — `gameframework/meta/Events.h` で v9 全 ~30
-  イベントを 1 ヘッダで型 + チャンネル名宣言。`EventSink` RAII で FScene 退出時自動
+  イベントを 1 ヘッダで型 + チャンネル名宣言。`EventSink` RAII で Scene 退出時自動
   unsubscribe。
 - **SemVer & deprecation** — `foundation/Version.h` constexpr 版、`ACS_DEPRECATED_SINCE`
   macro、`foundation/compat/v0_X/` で旧名 alias、`acs_migrate` CLI（v1.1）。
@@ -1172,10 +1172,10 @@ solver を v1.1 → v1 に格上げ**:
 - **移植性 seam audit** — `<Windows.h>` 直叩きを `platform/` 外で禁止 (`acs_lint`
   R015)。`PlatDir/PlatProcess/PlatCrash/PlatTime` 新 seam を foundation 公開。
 - **License compliance** — `docs/Licenses/THIRD_PARTY.md` + `acs_licenses` ジェネレータ
-  + `FGame --licenses` + UiKit `LicenseScreen`。
-- **FLocalization 完備監査** — debug ビルドで `FLabel::SetText` の生 string literal を
+  + `Game --licenses` + UiKit `LicenseScreen`。
+- **Localization 完備監査** — debug ビルドで `Label::SetText` の生 string literal を
   検出、`acs_locale extract/check` CLI で未翻訳キー CI fail。
-- **Privacy / GDPR** — `FPrivacyDirector` (telemetry/crash 詳細/cloud sync は opt-in)、
+- **Privacy / GDPR** — `PrivacyDirector` (telemetry/crash 詳細/cloud sync は opt-in)、
   `docs/Privacy.md` 収集内容明示、初回 consent ダイアログ、`ExportUserData` /
   `DeleteUserData`（GDPR 取得権/削除権）。
 - **メタ層フェーズ M1〜M7** を v9 phase 表に挿入（Pillar A〜H と並行）。
@@ -1189,16 +1189,16 @@ solver を v1.1 → v1 に格上げ**:
 
 | ツール | 配置 | v1 LOC |
 |---|---|---|
-| **FParticle Editor** — モジュール構成 + curve editor + preview + preset library | `gameframework/tools/fxedit/` (in-game) | ~1800 |
+| **Particle Editor** — モジュール構成 + curve editor + preview + preset library | `gameframework/tools/fxedit/` (in-game) | ~1800 |
 | **FAnimation Curve Editor** (Tween/AnimGraph blend curves) | `tools/curveedit/` | ~1200 |
 | **BT Visual Editor** — drag-drop graph + **live debugger (current active node highlight + blackboard viz)** | `tools/btedit/` | ~2000 |
-| **Level Editor** — in-game edit mode + FTilemap painter (palette/paint/fill/layer) + Prefab brush | `tools/leveledit/` | ~2500 |
-| **FSprite Atlas / SDF / 9-slice / Outline auto-gen** | `tools/acs_atlas/` CLI + in-game | |
-| **FFont tools** — codepoint subset (locale-driven) / MSDF / fallback chain (CJK + Latin 共存) | FFont 拡張 | |
-| **Audio middleware seam** — `IAudioBackend` 抽象 (XAudio2 default)、**FMOD / Wwise** は `ACS::FmodBridge`/`ACS::WwiseBridge` 独立モジュール (free indie tier 内可)、event-driven API (`PlayEvent("explosion_large")`) + bank loading + parameter exposure (RTPC ↔ `FMusicDirector` intensity) | `audio/IAudioBackend.h` + Bridge | |
+| **Level Editor** — in-game edit mode + Tilemap painter (palette/paint/fill/layer) + Prefab brush | `tools/leveledit/` | ~2500 |
+| **Sprite Atlas / SDF / 9-slice / Outline auto-gen** | `tools/acs_atlas/` CLI + in-game | |
+| **Font tools** — codepoint subset (locale-driven) / MSDF / fallback chain (CJK + Latin 共存) | Font 拡張 | |
+| **Audio middleware seam** — `IAudioBackend` 抽象 (XAudio2 default)、**FMOD / Wwise** は `ACS::FmodBridge`/`ACS::WwiseBridge` 独立モジュール (free indie tier 内可)、event-driven API (`PlayEvent("explosion_large")`) + bank loading + parameter exposure (RTPC ↔ `MusicDirector` intensity) | `audio/IAudioBackend.h` + Bridge | |
 | **Visual scripting** — v1.1+ 送り。当面 Pillar L BT visual editor + Pillar N Lua で代替 | — | — |
 | **Docs viewer in-engine** — `DocsViewerScreen` で `docs/*.md` を in-game 閲覧 | UiKit | |
-| **FAsset diff/inspect CLI** — `acs_diff` (Pillar J reflection 経由 semantic diff)、`acs_assetinspect` (texture/audio/scene contents dump) | `tools/` | |
+| **Asset diff/inspect CLI** — `acs_diff` (Pillar J reflection 経由 semantic diff)、`acs_assetinspect` (texture/audio/scene contents dump) | `tools/` | |
 | **Cinematics editor** — timeline editor (multi-track / ripple edit / time scrubber / preview)、`.cutscene` 保存 | `tools/cineedit/` | ~1500 |
 | **ELocale workflow** — `acs_loc_extract/diff/validate` | `tools/` | |
 
@@ -1206,12 +1206,12 @@ solver を v1.1 → v1 に格上げ**:
 
 **honest 評価**:
 
-| FTier | プラットフォーム | 価値 | コスト | 採否 |
+| Tier | プラットフォーム | 価値 | コスト | 採否 |
 |---|---|---|---|---|
-| **FTier 1** | **Linux**（特に Steam Deck Verified）、Mac (Metal backend) | **Steam Deck は indie 売上で巨大** | 数週間〜数ヶ月 (audio/window/threading port) | **v2 推奨** |
-| FTier 2 | Switch / PS5 / Xbox | プラットフォーム手数料・proprietary SDK NDA | 数ヶ月〜半年 | v3+ |
-| FTier 3 | iOS / Android | touch-first UI 再設計 + app lifecycle + store 統合 | 大きい | v3+ |
-| FTier 4 | Web (WebAssembly via Emscripten) | exception-mode WASM が厳しい | 大きい | v4+ |
+| **Tier 1** | **Linux**（特に Steam Deck Verified）、Mac (Metal backend) | **Steam Deck は indie 売上で巨大** | 数週間〜数ヶ月 (audio/window/threading port) | **v2 推奨** |
+| Tier 2 | Switch / PS5 / Xbox | プラットフォーム手数料・proprietary SDK NDA | 数ヶ月〜半年 | v3+ |
+| Tier 3 | iOS / Android | touch-first UI 再設計 + app lifecycle + store 統合 | 大きい | v3+ |
+| Tier 4 | Web (WebAssembly via Emscripten) | exception-mode WASM が厳しい | 大きい | v4+ |
 
 **v1 で seam だけ確定**:
 - 既存 `platform/` を「OS 直叩きを置く唯一の場所」と憲法化。
@@ -1222,7 +1222,7 @@ solver を v1.1 → v1 に格上げ**:
 - **`IStorefront`** 抽象 (Steamworks/EOS/Xbox Live/Switch/iOS GC/Google Play)、Pillar
   Progress (v7) が consumer。
 - **`IAudioBackend`** 抽象（FMOD/Wwise も同 seam — §15.4 と統合）。
-- **App lifecycle** — `FGame::OnSuspend()`/`OnResume()`/`OnLowMemory()` を v1 で hook
+- **App lifecycle** — `Game::OnSuspend()`/`OnResume()`/`OnLowMemory()` を v1 で hook
   (Windows では no-op、mobile/console で意味を持つ)。
 - **Touch-first UI** — `UiInputMode::TouchFirst` enum を v1 で予約、実 touch UI 設計は
   v2+ 送り。
@@ -1231,11 +1231,11 @@ solver を v1.1 → v1 に格上げ**:
 
 | 番号 | ピラー | 追加版 |
 |---|---|---|
-| A | App & FScene | v3〜 |
-| B | オブジェクトモデル（FNode2D + ECS + Node3D） | v3 + v9 |
+| A | App & Scene | v3〜 |
+| B | オブジェクトモデル（Node2D + ECS + Node3D） | v3 + v9 |
 | C | 時間・アニメ | v4 + v9 |
 | D | 入力 | v4 + v8 |
-| E | カメラ（**FCameraStack + Cinemachine 級 blend graph**） | v4 + v8 + v9 + **v10** |
+| E | カメラ（**CameraStack + Cinemachine 級 blend graph**） | v4 + v8 + v9 + **v10** |
 | F | 物理・衝突（F2: PGS dynamics） | v4 + v9 |
 | G | リソース・永続化 | v4 + v8 + v9 |
 | H | UI・音・ツール（**IAudioBackend seam**） | v4 + v8 + v9 + **v10** |
@@ -1248,7 +1248,7 @@ solver を v1.1 → v1 に格上げ**:
 | O | 出荷/Live Ops | v9 |
 | P | スケール/ストリーミング | v9 |
 | **Q** | **視覚世界 / ライティング / 雰囲気** | **v10** |
-| **R** | **Polish & FGame Feel** | **v10** |
+| **R** | **Polish & Game Feel** | **v10** |
 | — | **メタ層** (TypedHandle / 決定論 profile / acs_test / Events.h / StyleGuide+lint / 移植性 seam / Privacy 等) | **v10** |
 
 加えて完成度システム 9 + ジャンルキット 7。
@@ -1260,9 +1260,9 @@ v9 までの ~50 + 以下挿入:
 | Ph | 内容 |
 |---|---|
 | **M1〜M7** | メタ層（HandleRegistry / Log channel / 決定論 profile / acs_test / Events.h / StyleGuide+lint / Recipes 等）— Pillar A〜H と並行 |
-| **51〜53** | Pillar Q 視覚世界（2D lighting solver → FAmbientDirector + 天候 → Screen effects + decals + water + sky） |
+| **51〜53** | Pillar Q 視覚世界（2D lighting solver → AmbientDirector + 天候 → Screen effects + decals + water + sky） |
 | **54〜55** | Pillar R Polish（cinematics + photo mode + tutorial → settings deep + difficulty + speedrun + boot） |
-| **56〜58** | 著作ツール深度（FParticle Editor → BT visual editor + Level editor → FMOD/Wwise seam + Cinematics editor） |
+| **56〜58** | 著作ツール深度（Particle Editor → BT visual editor + Level editor → FMOD/Wwise seam + Cinematics editor） |
 | **59 (v2)** | 移植性 concrete（Linux first、Steam Deck Verified 目標） |
 | **60+** | v2 各種（3D physics solver / Web build / mobile / touch UI / 2-way 物理-soft body coupling 等） |
 （v11 で 5 新ピラー S/T/U/V/W + 既存ピラー拡張 — §16）
@@ -1282,12 +1282,12 @@ v9 までの ~50 + 以下挿入:
 v9/v10 seam を **concrete bridge module** として実装する仕組み:
 
 - **`ACS::SteamworksBridge`** （opt-in CMake、独立モジュール — AssetPack 流儀）:
-  - **Achievements** (Pillar Progress sink) / **FStats & Leaderboards** (Pillar M `ILeaderboardClient` concrete、replay HMAC 添付)
+  - **Achievements** (Pillar Progress sink) / **Stats & Leaderboards** (Pillar M `ILeaderboardClient` concrete、replay HMAC 添付)
   - **Steam Lobbies** (Pillar M `ILobby` concrete) / **Steam Datagram Relay (SDR)** = **Pillar M `INetTransport` 代替実装** (NAT punch + IPv4/6 + 輻輳制御、自前 UDP より優秀)
   - **Steam Workshop** (Pillar N `IModRepository` concrete) / **Steam Cloud** (saves 自動 sync)
-  - **Steam FInput** (Pillar D `FInputMap` アダプタ — 全コントローラ Switch Pro/PS5/exotic 含めサポート)
+  - **Steam Input** (Pillar D `InputMap` アダプタ — 全コントローラ Switch Pro/PS5/exotic 含めサポート)
   - **Steam Rich Presence** / **Big Picture / Steam Deck Verified** / **Steam DLC** / **Family Sharing** / **VAC seam** (real-time 多人数の場合のみ)
-  - **Steamworks callback / CallResults を `SteamFuture<T>` で吸収** + `FGame::Tick` 内で `SteamAPI_RunCallbacks` 1 回
+  - **Steamworks callback / CallResults を `SteamFuture<T>` で吸収** + `Game::Tick` 内で `SteamAPI_RunCallbacks` 1 回
 - **`ACS::EosBridge`** — Epic Online Services (free, cross-platform、特に voice 標準装備が強い)
 - **`ACS::XboxBridge` / `ACS::PsnBridge` / `ACS::SwitchBridge`** — NDA SDK、bridge module だけ確保（partner 別 PR で配線）
 - **`ACS::GameCenterBridge` / `ACS::PlayGamesBridge`** — iOS / Android
@@ -1295,7 +1295,7 @@ v9/v10 seam を **concrete bridge module** として実装する仕組み:
 - **`ACS::ModIoBridge`** — 非 Steam の Workshop 代替
 - **`ACS::GogBridge`** — GOG Galaxy (free SDK)
 - **`ACS::DiscordBridge`** — Rich Presence + voice + activities
-- **`FPlayerIdentity` 統一モデル** — Steam ID + Epic ID + Xbox ID + game-account ID の cross-platform 集約、cross-progress (Steam → Epic で同セーブ続行)
+- **`PlayerIdentity` 統一モデル** — Steam ID + Epic ID + Xbox ID + game-account ID の cross-platform 集約、cross-progress (Steam → Epic で同セーブ続行)
 - **Storefront 検出 runtime** — game が Steam/Epic/GOG/itch/raw のどれで起動したか build flag + runtime check で判定、feature set を自動調整
 - **DRM** — Steam built-in のみ opt-in、他 DRM は honest に推奨せず
 
@@ -1318,7 +1318,7 @@ v9/v10 seam を **concrete bridge module** として実装する仕組み:
   - gacha は **explicit opt-in + 強制 odds 公開** (日中欧加州など)
   - daily login は **escalating-loss 無効**（manipulation patterns 回避）
   - premium currency は **real-money equivalent 表示が既定 ON**
-- **subscription support** — Xbox FGame Pass / PS Plus / Apple Arcade / Netflix Games 検出
+- **subscription support** — Xbox Game Pass / PS Plus / Apple Arcade / Netflix Games 検出
 - **DLC pipeline 深度** — variants（story/cosmetic/season pass/character pack）、regional
   pricing、demo distinction（time/content-limited）
 - **EOL モード v1 で seam** — EU/UK 消費者保護「killed by publisher」議論を見越し、
@@ -1332,9 +1332,9 @@ v9/v10 seam を **concrete bridge module** として実装する仕組み:
 「ゲームプレイの上の社会層」。**default-off で solo game は LOC ゼロ**。すべて
 `ESvc::Social*` opt-in。
 
-- **`IFriendsService`** — Steam / Epic / Xbox / PSN / Switch friends + `FPlayerIdentity`
+- **`IFriendsService`** — Steam / Epic / Xbox / PSN / Switch friends + `PlayerIdentity`
   で cross-platform mapping。online/offline/in-game/away/busy/invisible
-- **`FPartySystem`** — host invites + party-as-a-unit lobby/match join + party voice 自動
+- **`PartySystem`** — host invites + party-as-a-unit lobby/match join + party voice 自動
   ルーティング + party leader 制御 + cross-scene 永続
 - **`IVoiceChat` seam**:
   - **Steam Voice** (free under Steam) / **EOS Voice** (free, cross-platform) / **Vivox**
@@ -1386,7 +1386,7 @@ v7 Accessibility baseline を大きく超える深度 + multimedia 統合（TTS/
 - **Photosensitive depth** — per-effect-type toggle + first-time prompt
 - **FColor contrast checker** — Pillar K Editor designer tool (WCAG AA/AAA)
 - **Motor accessibility depth** — configurable QTE/dodge/parry window timing
-- **規制対応** — CVAA / EAA 2025 / FGame Accessibility Guidelines 採用
+- **規制対応** — CVAA / EAA 2025 / Game Accessibility Guidelines 採用
 
 #### Multimedia / Content I/O
 - **`VideoComponent`** + `VideoComponent3D` — VP9/AV1 (license-free) + H.264/265 hardware
@@ -1407,14 +1407,14 @@ v7 Accessibility baseline を大きく超える深度 + multimedia 統合（TTS/
 **設計判断**: AI を**新ピラーに隔離**、コア 18 pillar は AI を知らない。`ACS_GAME_AI_ENABLED=OFF`
 で完全に消える。**4 大不変条件**: (a) 全 AI 機能 `ESvc::Ai*` opt-in / (b) 全機能 offline
 fallback 必須 / (c) **決定論ゾーンへ AI 混入禁止**（コンパイル時 check） / (d) クラウド
-送信データは明示同意・破棄可能（`FPrivacyDirector` 配下）。
+送信データは明示同意・破棄可能（`PrivacyDirector` 配下）。
 
 - **v1 = seam 5 個 + AiCostTracker + AiBudget + AiPrivacyHooks**:
   - **`IMlRuntime`** — ONNX Runtime / DirectML / CoreML / NNAPI / Win11 NPU、`MlModel`
     AssetPack 経由 `TRc<MlModel>`、quant tier (fp32/16/int8/4) 自動選択、`Pillar P
     GpuMemoryBudget` 統合
   - **`ILlmBackend`** — OpenAI/Anthropic/Gemini (Remote) + llama.cpp local + **`HybridLlmRouter`**
-    (cloud→local→scripted fallback 3 段)、**`FLlmSafetyPipeline` v1.1** 必須通過
+    (cloud→local→scripted fallback 3 段)、**`LlmSafetyPipeline` v1.1** 必須通過
     (character anchor + jailbreak detect + PII leak + refusal + content rating + token/cost
     budget) — `acs_lint` R042 で直接呼出禁止
   - **`ITtsBackend`** — Platform SAPI/VoiceOver/TalkBack (free) + ElevenLabs/Polly (cloud) +
@@ -1425,8 +1425,8 @@ fallback 必須 / (c) **決定論ゾーンへ AI 混入禁止**（コンパイ�
     `RenderPassRegistry` 経由
 - **v1.1 = 具体実装**:
   - LLM NPC dialogue + `LlmAugmentedNpc` Pillar H Dialogue 統合 + prefetch
-  - `IDdaController` — transparent DDA (隠し rubber-banding は推奨せず)、Pillar R FSettings に
-    toggle、`FDebugOverlay` で現値表示 opt
+  - `IDdaController` — transparent DDA (隠し rubber-banding は推奨せず)、Pillar R Settings に
+    toggle、`DebugOverlay` で現値表示 opt
   - `IHintProvider` — scripted hint pool + LLM rephrasing
   - `acs_ai_asset` CLI — dev-time texture/voice 生成 + **provenance tracking** (model/prompt/
     seed/timestamp/license/edit summary を `.aiprov` で記録) + 人手編集 → bake → ship、
@@ -1448,8 +1448,8 @@ fallback 必須 / (c) **決定論ゾーンへ AI 混入禁止**（コンパイ�
 
 #### Pillar V — Backend Services（**game-developer 自分のバックエンド側**を扱う層）
 - **Dedicated server tooling** — `acs_module(TYPE Server)` で no-render no-audio build、
-  `FScene::PeerRole::DedicatedServer` (v9)、サーバ config、persistence、**Docker image +
-  Kubernetes template** + AWS GameLift/Azure PlayFab/Google Cloud FGame Servers seam、
+  `Scene::PeerRole::DedicatedServer` (v9)、サーバ config、persistence、**Docker image +
+  Kubernetes template** + AWS GameLift/Azure PlayFab/Google Cloud Game Servers seam、
   auto-scaling、graceful shutdown (drain players)
 - **`IMatchmaker` seam** — Steam Lobbies / EOS / 自前。**`RatingService`** (Glicko-2 or
   TrueSkill) + region-based MM + queue UX + fairness (rating widening) + anti-smurf
@@ -1468,7 +1468,7 @@ fallback 必須 / (c) **決定論ゾーンへ AI 混入禁止**（コンパイ�
   test results
 
 #### Pillar W — Studio / Team Workflow（**多人数 dev チーム**支援）
-- **FAsset locking** (git-LFS pattern) — `AssetLockService` explicit lock、Pillar K Inspector
+- **Asset locking** (git-LFS pattern) — `AssetLockService` explicit lock、Pillar K Inspector
   に lock status indicator、`acs_assetlock` CLI、pre-commit hook
 - **Review workflow** — `acs_review` CLI で **Pillar J 経由 semantic asset diff** +
   Slack/Discord/GitHub PR webhook auto-rendered visual diff
@@ -1503,7 +1503,7 @@ fallback 必須 / (c) **決定論ゾーンへ AI 混入禁止**（コンパイ�
 | A〜H | 基礎 8（H 拡張: AudioSystem + IAudioBackend seam + **a11y/media 子モジュール**） | v3 + v10 + **v11** |
 | I-P | エフェクト/シリアライズ/エディタ/AI 深度/ネット/Mod/出荷/スケール | v7-v9 |
 | O 拡張 | **Live Ops/GaaS** (Entitlement model + MonetizationDirector + EventDirector + EolMode + 倫理デフォルト) | **v11** |
-| Q-R | 視覚世界/Polish & FGame Feel | v10 |
+| Q-R | 視覚世界/Polish & Game Feel | v10 |
 | — | メタ層 | v10 |
 | **S** | **Storefront / Platform Services** (Steamworks 等 bridge module 群) | **v11** |
 | **T** | **Community / Social / Communication** | **v11** |
@@ -1519,13 +1519,13 @@ v10 までの ~60 + 以下挿入:
 
 | Ph | 内容 |
 |---|---|
-| **62〜64** | Pillar S Storefront — `ACS::SteamworksBridge` 完全実装 (achievements/lobbies/SDR/Workshop/Cloud/FInput/Rich Presence/DLC) + `FPlayerIdentity` 統一 → EOS/itch/GOG/Discord bridge → Xbox/PSN/Switch seam |
+| **62〜64** | Pillar S Storefront — `ACS::SteamworksBridge` 完全実装 (achievements/lobbies/SDR/Workshop/Cloud/Input/Rich Presence/DLC) + `PlayerIdentity` 統一 → EOS/itch/GOG/Discord bridge → Xbox/PSN/Switch seam |
 | **65〜66** | Pillar O Live Ops 拡張 — Entitlement model + MonetizationDirector + EventDirector + Season/Battle Pass + EolMode |
 | **67〜69** | Pillar T Community — Friends/Party/Voice chat (Steam Voice + EOS Voice) → Text chat + Presence + Activity feed → Sharing + Spectator + Moderation |
 | **70〜71** | Pillar H/R Accessibility 深度 — ScreenReader/TTS + Switch device + subtitle customization + closed captions for SFX → 規制対応 + FColor contrast tool + 残り (eye tracking/sign language v1.1) |
 | **72** | Multimedia — VideoComponent + AudioRecorder + Image I/O + Webcam/Mic seam |
-| **S1〜S4** | Pillar U AI/ML v1 seams — IMlRuntime / ILlmBackend / ITtsBackend / IContentModerator / IUpscaler + AiCostTracker + FPrivacyDirector AI 拡張 |
-| **S5〜S11 (v1.1)** | OnnxRuntime + DirectML + FLlmSafetyPipeline + Remote/Local LLM + Hybrid Router + Pillar H Dialogue 統合 + Platform/Remote TTS + Content moderation + DDA + Hint + FSR/DLSS + acs_ai_asset + acs_ai_verify CLI |
+| **S1〜S4** | Pillar U AI/ML v1 seams — IMlRuntime / ILlmBackend / ITtsBackend / IContentModerator / IUpscaler + AiCostTracker + PrivacyDirector AI 拡張 |
+| **S5〜S11 (v1.1)** | OnnxRuntime + DirectML + LlmSafetyPipeline + Remote/Local LLM + Hybrid Router + Pillar H Dialogue 統合 + Platform/Remote TTS + Content moderation + DDA + Hint + FSR/DLSS + acs_ai_asset + acs_ai_verify CLI |
 | **73〜75** | Pillar V Backend — dedicated server build + IMatchmaker (Glicko-2) + IBackendClient + Anti-cheat + Telemetry backend |
 | **76〜78** | Pillar W Studio — asset locking + Pillar J semantic diff CLI + build farm + IDE 拡張 (VSCode LSP) + in-engine docs search + bug repro flow + `acs_new` CLI |
 | **79 (v1.1)** | C++ hot-reload (Live++/RCC++ seam) + multi-user editor (CRDT) |
@@ -1577,17 +1577,17 @@ Pillar X は **conductor**、実装の 70% は既存 pillar の "XR モード" �
   trackpads、handheld vs docked perf preset
 - **AR ARKit/ARCore seam** — world tracking + anchor + plane detection + image tracking + AR
   Cloud (Apple AR Anchors / Google Cloud Anchors) + lighting estimation (Pillar Q
-  FAmbientDirector 入力) + people occlusion (Pillar Q rendering 統合) + AR Quick Look
+  AmbientDirector 入力) + people occlusion (Pillar Q rendering 統合) + AR Quick Look
 - **既存ピラーとの統合**:
   - **Pillar B/E** — `XrCamera : Camera3D` が runtime から late-latch pose
-  - **Pillar D** — `XrInputProfile` (action manifest in OpenXR style) が `FInputMap` 上層
+  - **Pillar D** — `XrInputProfile` (action manifest in OpenXR style) が `InputMap` 上層
   - **Pillar H** — **spatial audio mandatory** (Steam Audio bridge、§17.3)、Ambisonics 必須
   - **Pillar I** — screen-space effects (DoF/lens flare) は stereo で破綻、抑制
   - **Pillar P** — strict 90/120Hz、never drop physics
   - **Pillar R** — photo mode = spectator camera (player camera 奪取禁止)
   - **Pillar T** — avatar (Meta Avatars / Vision Pro Personas)、proximity spatial voice
 - **Privacy** — eye tracking + body tracking + spatial scanning + Persona すべて biometric、
-  `FPrivacyDirector` strict opt-in
+  `PrivacyDirector` strict opt-in
 - **規制** — PEGI / ESRB / CERO の VR rating、Health & Safety startup screen、photosensitive
   enhanced risk
 - **honest スコープ**: v1 = seam のみ、v1.1 = OpenXR concrete + Quest standalone full、
@@ -1603,7 +1603,7 @@ F2 と F3 の接合は **`ICouplingBridge`** 1 本のみ。**外部 dep ゼロ**
   jelly を constraint set 切替で扱う。pin (rigid body anchor)、tear (break threshold)、
   one-way coupling v1、two-way v1.1、self-collision v1.1
 - **`Cloth2D` / `Cloth3D`** — character clothing + 旗 + 幕、wind force (Pillar Q
-  `FAmbientDirector` 入力)、ボーン pin (Pillar C 統合)
+  `AmbientDirector` 入力)、ボーン pin (Pillar C 統合)
 - **`Hair3D`** — Kelager 風 strand simulation (XPBD with length + bending)、capsule
   collider (head/shoulder)、wind interaction、character LOD、v1.1+
 - **Destruction** — **Voronoi shatter** (`acs_fracture` CLI で dev-time pre-fracture)、
@@ -1616,20 +1616,20 @@ F2 と F3 の接合は **`ICouplingBridge`** 1 本のみ。**外部 dep ゼロ**
   particle が利用。Pillar I 既存 particle が GPU 化可能
 - **`VehicleComponent`** — F2 wheel joint 拡張 + suspension + Ackermann steering + slip
   friction + differential。2D top-down は bicycle model、3D は 4-wheel slip dynamics
-- **`FWaterVolume`** + buoyancy + drag + 浮沈 (density)、splash event → Pillar I + Pillar H、
+- **`WaterVolume`** + buoyancy + drag + 浮沈 (density)、splash event → Pillar I + Pillar H、
   two-way coupling v1.1
 - **決定論コントラクト** — soft body/destruction は `Required`、GPU 流体は `Unsupported`
   (lockstep 不可、CPU fallback あり)
-- **honest スコープ**: v1 = XPBD SoftBody + FWaterVolume + Destructible (pre-baked shards)、
+- **honest スコープ**: v1 = XPBD SoftBody + WaterVolume + Destructible (pre-baked shards)、
   v1.1 = 2D SPH + Hair + GPU cloth + self-collision、v2+ = 3D FLIP / 完全 articulated /
   vehicle dynamics 深度 / two-way water surface
 
 ### 17.3 Pillar H 音響高度化
 
-**`acs::dsp` 共通プリミティブ**新設 (FFT/IIR/Delay/Osc/Envelope/Resampler/FWindow) + 上に
+**`acs::dsp` 共通プリミティブ**新設 (FFT/IIR/Delay/Osc/Envelope/Resampler/Window) + 上に
 6 領域:
 
-- **HRTF binaural** (§spec 1) — `IHrtfRenderer` seam + **`FHrtfRendererStub`** (KEMAR 256-tap、
+- **HRTF binaural** (§spec 1) — `IHrtfRenderer` seam + **`HrtfRendererStub`** (KEMAR 256-tap、
   140KB 同梱、no external dep)、**`ACS::SteamAudioBridge`** v1.1 (Apache-2 free)、
   `SoundSource::use_hrtf` opt-in、VR 必須
 - **Convolution reverb** (§spec 2) — UPOLS (uniformly-partitioned overlap-save) CPU、block 128、
@@ -1649,7 +1649,7 @@ F2 と F3 の接合は **`ICouplingBridge`** 1 本のみ。**外部 dep ゼロ**
 - **Doppler + air absorption + wind muffling + underwater** (§spec 7-8) — air absorption は
   one biquad per source で **outdoor 距離感劇的向上**、v1。wind muffle / sound speed は v2
 - **Occlusion 深度** (§spec 9) — v9 で v1.1 → v1 に昇格。Centerline / Volumetric / **Diffraction
-  via FNavGrid** (Pillar L pathfinding 経由 shortest detour path → LPF cutoff)、
+  via NavGrid** (Pillar L pathfinding 経由 shortest detour path → LPF cutoff)、
   **`PhysicsMaterial::audio_attenuation_db` / `audio_lpf_hz`** で素材ごと (wood -6/2000、
   concrete -18/400、glass -3/4000)、AI hearing と共有
 - **Per-source DSP chain** (§spec 10) — max 4 nodes/source、~16 instances total、
@@ -1657,7 +1657,7 @@ F2 と F3 の接合は **`ICouplingBridge`** 1 本のみ。**外部 dep ゼロ**
 - **Voice processing** (§spec 12) — pitch corrector (auto-tune) / PSOLA time-stretch /
   noise gate (`sidechain_voice_chat=true`) / compressor / limiter / parametric EQ、Pillar T
   voice chat 自動配線、v1.1
-- **FMusicDirector Stinger** (§spec 13) — beat-quantized stinger 発火 + sidechain duck、v1
+- **MusicDirector Stinger** (§spec 13) — beat-quantized stinger 発火 + sidechain duck、v1
 - **`IAudioBackend` 拡張** — `IHrtfRenderer` / `IConvolutionReverb` / `IAmbisonicsDecoder` /
   `IOcclusionBackend` を seam 分離、`ACS::SteamAudioBridge` は全 4 を 1 ライブラリで提供
 
@@ -1705,11 +1705,11 @@ v11 §16.5 Pillar U に **2026-2028 frontier** を上乗せ。`src/game/ai_front
   (a11y)** / **foot pedal (a11y switch)** / **MIDI keyboard input** / **brain-computer
   interface seam** (Emotiv/Muse/OpenBCI — honest: 2024 BCI 研究段階、a11y motor-disabled
   用途のみ) / **haptic suit** (bHaptics seam) / **gyro/accelerometer** (JoyCon/Deck/mobile/
-  DualSense) / **Steam Deck back paddles** (Steam FInput 経由) / **gaming chair haptics**
+  DualSense) / **Steam Deck back paddles** (Steam Input 経由) / **gaming chair haptics**
   (D-Box / Buttkicker、audio side-channel) / **RGB lighting** (Razer Chroma/Logitech G/
   Corsair iCUE/NZXT CAM)
 - **`ExoticDeviceId` opaque ID** + `DeviceCaps` flag (Digital/Analog/Axis2D/3D/Force/Pressure/
-  Gyro/Accel/FFB/Haptic/Calibration/**NonDetermin** — lockstep 不可と機械的明示) + `FInputMap`
+  Gyro/Accel/FFB/Haptic/Calibration/**NonDetermin** — lockstep 不可と機械的明示) + `InputMap`
   入力 source 同列扱い
 
 #### Part B — ライブ配信統合 (Pillar T 拡張)
@@ -1720,7 +1720,7 @@ v11 §16.5 Pillar U に **2026-2028 frontier** を上乗せ。`src/game/ai_front
 - **YouTube Live chat** (YouTube Live Streaming API)
 - **Stream overlay templates** (HTML/CSS for OBS browser source、game-bundled)
 - **Donation hooks** (Bits/Super Chat/tip → in-game event、donor 名 filter)
-- **Spectator camera output** (Pillar E FCameraStack 別 cam for streamer)
+- **Spectator camera output** (Pillar E CameraStack 別 cam for streamer)
 - **Beam/Trovo/Kick/DLive** seam — `IStreamingPlatform` 抽象
 - **`IsBeingStreamed()` detection** → Pillar R streamer mode 自動有効化
 - **Stream-replay sharing** (`.acsr` → Twitch Clip / YouTube Short)
@@ -1735,7 +1735,7 @@ v11 §16.5 Pillar U に **2026-2028 frontier** を上乗せ。`src/game/ai_front
 - **Push notifications** — `IPushNotification` (APNs / FCM)、daily login reminder + event
   start + social、quiet hours、token は PII 扱い
 - **iOS family sharing for game ownership**
-- **Apple FGame Center / Google Play Games sign-in** (`IGameCenterAuth` / `IPlayGamesAuth`)
+- **Apple Game Center / Google Play Games sign-in** (`IGameCenterAuth` / `IPlayGamesAuth`)
 - **Mobile lifecycle 深度** — `OnBackgrounded` / `OnForegrounded` / `OnMemoryWarning` (iOS
   低メモリ通知 → Pillar P eviction) / `OnInterrupt` (電話 → auto-pause)
 - **App Clip / Instant App** (~10MB demo launched from QR/NFC、Pillar O 小型 bake target)
@@ -1744,7 +1744,7 @@ v11 §16.5 Pillar U に **2026-2028 frontier** を上乗せ。`src/game/ai_front
 - **Mobile rendering tier detection** (Adreno / Mali / Apple A-series → graphics preset)
 - **Battery-saver mode** + **thermal throttling response** (iOS/Android thermal state →
   Pillar P FrameGovernor 拡張)
-- **App size optimization** — iOS On-Demand Resources / Google Play FAsset Delivery →
+- **App size optimization** — iOS On-Demand Resources / Google Play Asset Delivery →
   Pillar P streaming 統合
 - **Touch UI** — UiKit `TouchFirst` mode (v10 reserved)、tap zone ≥44pt (iOS HIG)、
   gestures (swipe/pinch/tap-hold/long-press)、virtual joystick overlay
@@ -1770,14 +1770,14 @@ v11 §16.5 Pillar U に **2026-2028 frontier** を上乗せ。`src/game/ai_front
   TouchChat / LAMP / Tobii Dynavox / CoughDrop)、**ARASAAC** open license symbol library
   同梱、**communication board overlay** (UI で picture board)、**switch-control scanning**
   (Pillar v11 §16.4 拡張、scan speed configurable)、game が **AAC 入力 source + AAC 出力
-  format** 両方サポート — **Pillar D `FInputMap` "language source" として `framework 全体
+  format** 両方サポート — **Pillar D `InputMap` "language source" として `framework 全体
   が知る**
 - **Educational metadata** — age range / 学習概念 / curriculum alignment (Common Core
   等) + **`IParentDashboard`** seam (heavy children's data privacy COPPA/GDPR — `MinorProfile`
   必須 opt-in、コンパイル時 trait check)
 - **Dyscalculia / Dysgraphia / Aphasia** — math 緩和 + 計算機 / 音声入力 + 大 touch / アイコン
   ベース communication
-- **FGame-as-therapy seam** — EndeavorRx 風 FDA-approved therapeutic、session tracking +
+- **Game-as-therapy seam** — EndeavorRx 風 FDA-approved therapeutic、session tracking +
   clinician reporting (HIPAA seam)、niche real
 - v1 = profile presets + AAC switch scanning + ARASAAC、v1.1 = `IAacBridge` concrete +
   parent dashboard + educational metadata、v2+ = clinical/therapeutic tooling
@@ -1834,9 +1834,9 @@ v11 までの ~80 + 以下挿入:
 | Ph | 内容 |
 |---|---|
 | **9.6〜9.13** | Pillar H 音響高度化 v1 — `acs::dsp` プリミティブ + HRTF stub + 占有 (`OcclusionResolver` Centerline+Volumetric) + AudioAnalyzer (LUFS+onset+tempo) + Doppler + air absorption + Stinger + `33_HelloAudio3D` |
-| **9.14〜9.19 (v1.1)** | `ACS::SteamAudioBridge` + Convolution reverb + Granular + Vocoder + Voice processing + Diffraction via FNavGrid |
+| **9.14〜9.19 (v1.1)** | `ACS::SteamAudioBridge` + Convolution reverb + Granular + Vocoder + Voice processing + Diffraction via NavGrid |
 | **17.5〜17.9** | (既存 v9) F2 物理 |
-| **(新) F3.1〜F3.7** | XPBD SoftBody → Cloth → Hair (v1.1) → Voronoi destruction → FWaterVolume buoyancy → IGpuCompute seam → VehicleComponent |
+| **(新) F3.1〜F3.7** | XPBD SoftBody → Cloth → Hair (v1.1) → Voronoi destruction → WaterVolume buoyancy → IGpuCompute seam → VehicleComponent |
 | **X1〜X4 (v1)** | Pillar X XR seam (`IXrRuntime` + `XrCamera` + comfort settings + XR action manifest) |
 | **X5〜X8 (v1.1)** | `ACS::OpenXrBridge` concrete + Quest standalone full + Pillar X comfort/locomotion presets |
 | **X9〜X12 (v2)** | Vision Pro / PSVR2 / ARKit/ARCore bridges |
@@ -1859,22 +1859,22 @@ v11 までの ~80 + 以下挿入:
 data structure / algorithm / edge case / integration / determinism / performance budget を
 網羅。完全詳細はエージェント成果物 (~1.5MB) に保持し、本節は確定事項の索引。
 
-### 18.1 Pillar A（App & FScene）内部
-- **`FGame::Run` フレーム順序確定**（`OnStart` → `OnUpdate` の中で: scene 遷移 → input poll →
-  FScene::OnUpdate → Resolve transforms → fixed-step accumulator drain → FScene::OnDraw →
+### 18.1 Pillar A（App & Scene）内部
+- **`Game::Run` フレーム順序確定**（`OnStart` → `OnUpdate` の中で: scene 遷移 → input poll →
+  Scene::OnUpdate → Resolve transforms → fixed-step accumulator drain → Scene::OnDraw →
   GPU defer-delete pump → present → OnEvent / OnCustomFrame）
-- **`FSceneServices`**: `ESvc::* enum class : u64`（拡張余地）+ 固定配列 24 サービススロット
-- **FScene 状態機**: Constructed/Spawning/Active/Paused/Suspending/Exiting/Destroyed
-- **`FSceneManager`**: push/pop/replace/swap、mid-frame 要求は fence point まで deferred
+- **`SceneServices`**: `ESvc::* enum class : u64`（拡張余地）+ 固定配列 24 サービススロット
+- **Scene 状態機**: Constructed/Spawning/Active/Paused/Suspending/Exiting/Destroyed
+- **`SceneManager`**: push/pop/replace/swap、mid-frame 要求は fence point まで deferred
 - **GPU 3-frame deferred deletion**: 仕様 v6 §11A 既知 — `IRhiDevice` に
   `CompletedFrameValue()` 追加が必要（v1 で確定）
 - **`HeadlessGame`**: no-window swap-chain stub + null audio + null input、unit/integration test 用
-- **エラー復旧**: `FScene::OnEnter` 失敗時は前 FScene へ rollback、unhandled panic 時は safe scene 復帰
+- **エラー復旧**: `Scene::OnEnter` 失敗時は前 Scene へ rollback、unhandled panic 時は safe scene 復帰
 - 関連: `[email protected]_01WBBvnab8nt9dajpEzaLLTg.json`
 
-### 18.2 Pillar B（Object Model: FNode2D + Node3D + ECS）内部
-- **`FNode2D` メモリ 184B / 3 cache line**（hot/cold 分離）、`Node3D` 224B / 4 cache line
-- **`FComponent2D` ストレージ**: per-node `TArray<TUniquePtr<FComponent2D>>`（small-vector 不採用）+
+### 18.2 Pillar B（Object Model: Node2D + Node3D + ECS）内部
+- **`Node2D` メモリ 184B / 3 cache line**（hot/cold 分離）、`Node3D` 224B / 4 cache line
+- **`Component2D` ストレージ**: per-node `TArray<TUniquePtr<Component2D>>`（small-vector 不採用）+
   線形クエリ（≤16 component で THashMap より速い）
 - **`FNodeId` packed 4B**（24bit idx + 8bit gen、wrap で slot retire）
 - **Dirty propagation**: `MarkWorldDirty` 下方再帰 + early-exit、`ResolveTransforms` 1 フレーム 1 回
@@ -1883,40 +1883,40 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **Lifecycle precondition matrix**: OnAttach（self 構築のみ）/ OnOwnerSpawned（全 attach 完了、
   他コンポ参照 OK）/ OnDetach（dangling 寸前、self rollback のみ）
 - **HotSwapComponent**: 同 kind 同士のみ、`OnHotSwap(old)` で状態移植
-- **Multi-tree composition**: FScene member 宣言順は **`_world_ecs` → `_root_3d` → `_root_2d`**
-  で破棄逆順 → FNode の dtor が ECS world を safely 触れる
+- **Multi-tree composition**: Scene member 宣言順は **`_world_ecs` → `_root_3d` → `_root_2d`**
+  で破棄逆順 → Node の dtor が ECS world を safely 触れる
 
 ### 18.3 Pillar C（時間・アニメ）内部
-- **`FClock`**: wall_dt + game_dt + per-domain scale（Gameplay/Ui/Audio/FParticle/Cinematic/Photo/Tween）
+- **`Clock`**: wall_dt + game_dt + per-domain scale（Gameplay/Ui/Audio/Particle/Cinematic/Photo/Tween）
 - **`Tween<T>`**: 型消去 union-based（FVec2/FVec3/FVec4/FQuat/FColor/f32 の 7 種、heap-free）
 - **Easing**: 30+ 標準カーブ LUT、Bezier custom（Pillar K curve editor 連動）
-- **`FSequence` ノード型**: Seq/Parallel/Wait/Call/WaitForEvent/If/Loop、pause/resume mid-sequence
-- **`FStateMachine`**: HFSM（hierarchical）対応、push-down sub-state
-- **`FAnimationGraph`**: flat array IR、Pose Arena per frame、Inertialization（200 LOC 品質激変）
+- **`Sequence` ノード型**: Seq/Parallel/Wait/Call/WaitForEvent/If/Loop、pause/resume mid-sequence
+- **`StateMachine`**: HFSM（hierarchical）対応、push-down sub-state
+- **`AnimationGraph`**: flat array IR、Pose Arena per frame、Inertialization（200 LOC 品質激変）
 - **Retarget**: HumanoidSlot 22 種、骨長スケール + axis flip
 - **決定論**: `SubsystemTrait<TweenTag>::profile = Required`、id-order 反復
 
-### 18.4 Pillar D（FInput）内部
-- **`FInputMap` は polling しない** — frame 頭に raw snapshot を受ける
+### 18.4 Pillar D（Input）内部
+- **`InputMap` は polling しない** — frame 頭に raw snapshot を受ける
 - **`.acsr` 録音は raw を録る**（action ではない）→ binding 変更で recording が壊れない
-- **`FBinding` 16B tagged union**、`SmallVec<FBinding, 4>` で 90% stack
-- **集約規則**: FButton OR / Axis1D abs-max / Axis2D length-max
+- **`Binding` 16B tagged union**、`SmallVec<Binding, 4>` で 90% stack
+- **集約規則**: Button OR / Axis1D abs-max / Axis2D length-max
 - **Context 切替時の sticky 押下対策**: 次の Release まで suppress flag
 - **Hot-plug**: XInput polling（接続後 60Hz / 未接続 1Hz）+ WM_DEVICECHANGE
-- **`PlayerSlots`** は `FGame` グローバル、`FInputMap` は slot から借用
+- **`PlayerSlots`** は `Game` グローバル、`InputMap` は slot から借用
 - **`IExoticInput::NonDetermin` フラグ**: 立つと lockstep ビルドで `Bind()` が失敗（コンパイル時）
-- **FWindow lost focus** で全 Action 強制 Release（sticky 防止）
+- **Window lost focus** で全 Action 強制 Release（sticky 防止）
 - **AZERTY 等ロケール対応**: scan code（位置）/ virtual key（意味）を別管理
 
 ### 18.5 Pillar E（FCamera）内部
-- **`FCamera2D`**: position（中心）+ zoom + rotation_rad、回転は FSpriteBatch::SetView では消費せず
-  FCamera2D::View() が直接 view matrix を計算（v6 既知問題対応）
+- **`Camera2D`**: position（中心）+ zoom + rotation_rad、回転は SpriteBatch::SetView では消費せず
+  Camera2D::View() が直接 view matrix を計算（v6 既知問題対応）
 - **4 Rig** (`Fps`/`Orbit`/`Follow`/`Cinematic`): `ICameraRig3D::Update(dt)` 経由切替（instant/blend）
-- **`FCameraStack`**: priority 順、Layer kind (`World3D`/`World2D`/`Ui2D`)、per-camera viewport+RT+post bypass
+- **`CameraStack`**: priority 順、Layer kind (`World3D`/`World2D`/`Ui2D`)、per-camera viewport+RT+post bypass
 - **Split-screen**: `ConfigureSplit(HorizontalHalf/VerticalHalf/Quad, n)` 自動配置
 - **RTT 寿命**: GPU 遅延削除キュー経由
 - **Transitions 6 種**: Cut/Fade/PushL/PushR/WipeIris/WipeDiagonal、~200 LOC shader + scratch RT
-- **`ParallaxLayer`**: factor 宣言 → `ResolveTransforms` が自動視差解決、FSpriteBatch 無変更
+- **`ParallaxLayer`**: factor 宣言 → `ResolveTransforms` が自動視差解決、SpriteBatch 無変更
 - **Cinemachine blend graph**: priority + blend curves、pos lerp + rot slerp + FOV lerp
 - **Shake trauma**: t² 重み、frequency+amplitude、Pillar I effect 経由発火
 
@@ -1936,36 +1936,36 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **決定論**: SSE2 固定、body sort by BodyId、AABB tree refit 同順序
 
 ### 18.7 Pillar G + J（Resources + Serialize/Reflect/Prefab）統合内部
-- **`FAssetRegistry`**: `THashMap<FAssetId, TRc<FAsset>>`、loader per-extension registry
-- **`FAssetFuture<T>`**: `TRc<FAsyncLoadState>{FCompletionCounter, result, error}`
-- **`FTypeInfo<T>`**: `ACS_REFLECT(T, ...)` macro generates specialization、TypeId = HashBytes(FQN) 64bit
-- **`FFieldInfo`**: 手動 tag 宣言（u16）+ version_added/version_removed + offset + kind + attr flags
+- **`AssetRegistry`**: `THashMap<FAssetId, TRc<Asset>>`、loader per-extension registry
+- **`AssetFuture<T>`**: `TRc<AsyncLoadState>{CompletionCounter, result, error}`
+- **`TypeInfo<T>`**: `ACS_REFLECT(T, ...)` macro generates specialization、TypeId = HashBytes(FQN) 64bit
+- **`FieldInfo`**: 手動 tag 宣言（u16）+ version_added/version_removed + offset + kind + attr flags
 - **`.atxt`**: S-expression line-based、git-diff-friendly、custom parser < 500 LOC
 - **`.abin`**: TLV (`tag:u16, kind:u8, size:u32, payload`)、未知タグスキップ
-- **`SceneDocument`**: `FScene ↔ SceneDocument ↔ .scene file` 2 段、`SerialNodeId` (depth-first preorder)
-- **`FPrefabSystem`**: Unity 流 override（per-field delta map）+ nested + cycle 検出
-- **`DataAsset<T>`**: 型付き、`FAssetRegistry::RegisterLoader<DataAssetLoader<T>>()`
+- **`SceneDocument`**: `Scene ↔ SceneDocument ↔ .scene file` 2 段、`SerialNodeId` (depth-first preorder)
+- **`PrefabSystem`**: Unity 流 override（per-field delta map）+ nested + cycle 検出
+- **`DataAsset<T>`**: 型付き、`AssetRegistry::RegisterLoader<DataAssetLoader<T>>()`
 - **`MigrationRegistry`**: chained migrations (v1→v2→v3)
 - **参照**: `NodeRefT`/`AssetRefT`/`RcRefT`/`WeakRefT` 区別、cycle 解決パス
 
 ### 18.8 Pillar H（UI/Audio/Tools）内部
-- **`UiKit FWidget` tree**: 既存 ui/FWidget 拡張、UiAnchor 9-point、margin/padding、min/max/preferred、focusable
+- **`UiKit Widget` tree**: 既存 ui/Widget 拡張、UiAnchor 9-point、margin/padding、min/max/preferred、focusable
 - **`FocusManager`**: spatial nav（angular deviation + nearest center）、Tab cycle
 - **`Screen` push/pop**: stack、OnPushed/OnPopped、modal 入力 capture
-- **HUD widgets**: `BarWidget`/`CounterWidget`/`GaugeWidget`/`ToastWidget`/`MinimapWidget` + `FObservable<T>` MVVM
-- **`FRandom` (xoshiro128**)**: 既存 easy/Easy.cpp の xorshift32 を昇格、`RandomChannels` 命名規約
-- **`TPool<T, N>`**: 固定 cap、generational handle、`FSparseSet<T*>` live 反復
-- **`FDebugDraw`**: 即時モード、per-channel toggle（Physics.Shapes / Contacts / Joints / AABB / CCD / Pathfind / Trigger / SoundZones）
+- **HUD widgets**: `BarWidget`/`CounterWidget`/`GaugeWidget`/`ToastWidget`/`MinimapWidget` + `Observable<T>` MVVM
+- **`Random` (xoshiro128**)**: 既存 easy/Easy.cpp の xorshift32 を昇格、`RandomChannels` 命名規約
+- **`TPool<T, N>`**: 固定 cap、generational handle、`SparseSet<T*>` live 反復
+- **`DebugDraw`**: 即時モード、per-channel toggle（Physics.Shapes / Contacts / Joints / AABB / CCD / Pathfind / Trigger / SoundZones）
 - **`RenderPassRegistry`**: 5 phase ping-pong RT lazy alloc
 - **`SpriteMaterial`**: 3 built-in (Outline/Dissolve/Flash)、material 切替で batch flush
 
 ### 18.9 Pillar I（Effects）内部
 - **`EffectDef`**: `.effect.tdat` data asset、reflection-registered、actions = (delay, action) tuples
 - **`EffectAction` POD union**: emit_particle/screen_flash/camera_shake/sprite_flash/spawn_sub/play_sound/spawn_decal/trigger_hit_stop
-- **`FEffectSystem`**: `TPool<EffectInstance, 256>`、`EffectHandle{idx, gen}`、auto-despawn
-- **`EffectComponent`**: FNode attach、auto-clean on owner destroy
+- **`EffectSystem`**: `TPool<EffectInstance, 256>`、`EffectHandle{idx, gen}`、auto-despawn
+- **`EffectComponent`**: Node attach、auto-clean on owner destroy
 - **Composition**: 爆発 = particles + flash + shake + hit-stop + sound、atomic 発火
-- **Determinism**: visuals = `FRandom::FChannel("visuals")`、gameplay-affecting = `FChannel("world")`
+- **Determinism**: visuals = `Random::Channel("visuals")`、gameplay-affecting = `Channel("world")`
 - **TPool 枯渇**: drop new or steal lowest-priority
 
 ### 18.10 Pillar K（Editor / Dev Tools）内部
@@ -1974,30 +1974,30 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **Picking**: viewport → Pillar F raycast → topmost node
 - **Gizmo**: handle mesh + screen-space ray test pick + snap-to-grid
 - **Undo/Redo**: reflection 駆動スナップショット、in-memory binary writer
-- **`FDevConsole`**: command registry + tab 補完 + history + CVar
+- **`DevConsole`**: command registry + tab 補完 + history + CVar
 - **`HotReload`**: `ReadDirectoryChangesW` async + debounce 50ms + per-type policy
 - **`Profiler`**: per-thread scope ring + frame graph + GPU timestamp query
 - **`Replay`**: input + RNG state + 5s state checkpoint → `.acsr`
 - **`LiveTune`**: `LIVE(name, default)` macro → CVar + Inspector slider + dev settings 永続
 
 ### 18.11 Pillar L（AI / Gameplay Depth）内部
-- **`FBehaviorTree`**: flat node array、`FBtNode{kind, flags, first_child, next_sibling}`、DFS tick
-- **BT 構成**: FSequence/Selector/Parallel + Inverter/Repeater/UntilSuccess/Cooldown decorator + Action/Condition leaf
+- **`BehaviorTree`**: flat node array、`BtNode{kind, flags, first_child, next_sibling}`、DFS tick
+- **BT 構成**: Sequence/Selector/Parallel + Inverter/Repeater/UntilSuccess/Cooldown decorator + Action/Condition leaf
 - **`Blackboard`**: per-BT instance `THashMap<FString, Variant{i32/f32/FVec2/FVec3/NodeRef/AssetRef}>`
 - **`Pathfinding A*`**: heap open list (min-heap by f) + closed bitarray + parent chain、heuristic (Manhattan/Euclidean/Octile)
 - **Async path request**: `AsyncPathRequest{start, goal, params, on_complete}` worker pool
-- **FTilemap**: chunked (chunk_w × chunk_h)、per-tile property、Tiled `.tmx` 経由、auto collision + nav grid
+- **Tilemap**: chunked (chunk_w × chunk_h)、per-tile property、Tiled `.tmx` 経由、auto collision + nav grid
 - **`PerceptionComponent`**: cone (range + half-FOV + raycast occlusion)、`SenseGraph` 共有
 - **`SpatialQuery`**: SpatialGrid radius/cone/box/ray batch、layer mask filter + distance sort
 - **`Steering`**: Reynolds (seek/flee/arrival/pursuit/wander/flock/path-follow)、sum-of-weighted-forces
 - **Behavior LOD**: Full/Half/Quarter/Tenth/Frozen tier（距離基準）
 
-### 18.12 Pillar M（FNetwork）内部
+### 18.12 Pillar M（Network）内部
 - **`UdpReliableTransport`**: 3-way handshake (CONNECT → CHALLENGE(nonce) → RESPONSE(hmac))、
   MTU 1200B、reliable 16bit seq + 32bit ACK bitmap + RTO 200ms→4s、8 channel multiplex、
   AIMD per-peer congestion control
 - **`LockstepRunner`**: input forward、input delay 4-8 ticks、wait for all peers、60-tick state hash
-- **FState hash desync**: 各 peer の `[[Replicated]]` フィールド hash → mismatch → state dump
+- **State hash desync**: 各 peer の `[[Replicated]]` フィールド hash → mismatch → state dump
 - **`NetDeterminism.h`**: `ACS_DET_REQUIRE`/`ACS_DET_FORBID_CALL`、SSE2 固定 (`/fp:precise`)
 - **Deterministic sin/cos**: `acs::math::DetSinCos` polynomial approximation（MSVC/Clang 共通）
 - **`[[Replicated]]` 属性**: codegen → `ComponentReplicationLayout` table、per-field (channel/rate/interp/relevance/epsilon)
@@ -2005,7 +2005,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 
 ### 18.13 Pillar N（Mod / Lua）内部
 - **Lua 5.4 per-mod `lua_State*`**: sandbox isolation、allocator → ACS arena、panic → `TResult` via `lua_pcall`
-- **FBinding generation**: template `AcsLuaBind<&Fn>` stub、Pillar J `FTypeInfo<T>` 経由で field auto-expose
+- **Binding generation**: template `AcsLuaBind<&Fn>` stub、Pillar J `TypeInfo<T>` 経由で field auto-expose
 - **Userdata**: non-owning ref + generational handle check
 - **`LuaComponent2D`**: per-instance Lua table、`OnUpdate`/`OnEvent` = Lua function
 - **Hot-reload**: file change → reload chunk → reattach function、self table 保持
@@ -2025,7 +2025,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **Build configs**: Debug/Dev/Profile/Ship、strip matrix per config（Pillar K dev tools等）
 - **Git SHA stamp**: `acs_version_stamp.cpp` build-time generated
 - **`ITelemetryClient`**: batched send (30s or 50 events)、GDPR opt-in、schema via Pillar J reflection
-- **Crash dump**: `SetUnhandledExceptionFilter` → `MiniDumpWriteDump` + Pillar J FScene snapshot 同梱
+- **Crash dump**: `SetUnhandledExceptionFilter` → `MiniDumpWriteDump` + Pillar J Scene snapshot 同梱
 - **`IFeatureFlagClient`**: server-pushed toggles、cached offline、A/B testing
 - **`Entitlement` unified**: DLC/sub/beta access/gacha all share same table
 - **`MonetizationDirector`**: IAP/premium currency/gacha 1 ハブ、receipt validation server-side
@@ -2033,7 +2033,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`EolMode` seam**: servers shutdown → offline 継続（EU 消費者保護対応）
 
 ### 18.15 Pillar P（Scale / Streaming / Memory / Threading）内部
-- **`FWorld` chunk grid**: `THashMap<ChunkCoord, ChunkSlot>`、residency state machine
+- **`World` chunk grid**: `THashMap<ChunkCoord, ChunkSlot>`、residency state machine
 - **Async chunk load FJobGraph**: Read → Deserialize → Register collisions → GPU upload (DeferredUpload)
 - **Hysteresis**: 0.25-chunk band around boundary
 - **Ghost proxy**: pre-baked 64x64 low-res "skyline" texture for distant chunks
@@ -2042,38 +2042,38 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **Mip streaming** v1.1: partial-residency [N..N-2] always、footprint → desired mip
 - **`LoDController`**: sprite mip 自動選択 + sprite swap (near/far)、behavior LOD (BT tick stride)、anim LOD
 - **物理は LOD しない**（tunneling 防止）
-- **Origin rebasing**: > 4096 units で walk all FTransform2D、`FMessageBroker::Publish(WorldOriginRebased)`
+- **Origin rebasing**: > 4096 units で walk all FTransform2D、`MessageBroker::Publish(WorldOriginRebased)`
 - **`TPool<T, N>`**: fixed-cap、generational handle、sparse-set live iteration
-- **`FTask<>` C++20 coroutines**: custom allocator (FScene arena)、awaitables (WaitSeconds/FEvent/FSequence/LoadAsset)
+- **`Task<>` C++20 coroutines**: custom allocator (Scene arena)、awaitables (WaitSeconds/Event/Sequence/LoadAsset)
 - **`MpmcRing<T>` / `SpscRing<T>`**: Vyukov MPMC bounded、SPSC head/tail、lock-free
 - **IO thread**: 別、long-blocking IO 隔離、SpscRing for completion
-- **`FrameGovernor`**: target ms、tier (Full/Reduced/Min/Off)、degradation order: FDebugDraw → DistantBgm
-  → Particles → AiPerception → AiBehavior → FPostProcess → AssetStreaming → UiAnimation。**物理/入力/FScene
+- **`FrameGovernor`**: target ms、tier (Full/Reduced/Min/Off)、degradation order: DebugDraw → DistantBgm
+  → Particles → AiPerception → AiBehavior → PostProcess → AssetStreaming → UiAnimation。**物理/入力/Scene
   transition は絶対 throttle しない**
 
-### 18.16 Pillar Q（Visual FWorld / Lighting）内部
+### 18.16 Pillar Q（Visual World / Lighting）内部
 - **Deferred 2D G-buffer**: albedo (RGBA8) + normal (RGB10A2 with .a=depth_layer u8) + emissive (R11G11B10F) + light (R11G11B10F HDR)
 - **Light pass**: per-light fullscreen quad with blend、normal sample → Phong/Lambert
 - **Light cookies/gobos**: 投影テクスチャ
 - **2D 影**: visibility polygon (collision polygon ray cast)、~300 LOC
-- **FSprite normal**: 手描き or alpha→height auto-generate
-- **`FAmbientDirector`**: ToD (1 hour = N sec) + 天気 + 季節 + 雷、key cubic interpolation
+- **Sprite normal**: 手描き or alpha→height auto-generate
+- **`AmbientDirector`**: ToD (1 hour = N sec) + 天気 + 季節 + 雷、key cubic interpolation
 - **Mood snapshots**: 領域ごと完全ルック（light + audio + LUT + particle ambient）
 - **Decals**: pool + fade-out timer、per-region decal RT
-- **FSprite destruction**: per-sprite RT、Pillar F2 contact callback で paint
+- **Sprite destruction**: per-sprite RT、Pillar F2 contact callback で paint
 - **Foliage 反応**: trample velocity field rasterize → foliage shader sample
 - **Water**: refraction + waves + reflection + caustics tile shader
 - **Tile-based light culling**: 16x16 px tiles、per-tile light list
 
-### 18.17 Pillar R（Polish & FGame Feel）内部
-- **Per-FNode time scale**: lazy resolve (parent_effective × local)、dirty_seq cache、`TimeDomain` enum
-  (Gameplay/Ui/Audio/FParticle/Cinematic/Photo/Tween)
+### 18.17 Pillar R（Polish & Game Feel）内部
+- **Per-Node time scale**: lazy resolve (parent_effective × local)、dirty_seq cache、`TimeDomain` enum
+  (Gameplay/Ui/Audio/Particle/Cinematic/Photo/Tween)
 - **Tween handle scope**: `target_node_handle + domain`、ノード破棄で世代不一致 auto fail-safe
 - **Cinematic blend graph**: priority + pos lerp + rot slerp + FOV lerp
 - **Photo mode**: pause + free cam (3-axis pan + zoom + rotate) + filter via Pillar O color grading + EXIF
-- **`FTutorialFlow`**: declarative `(step_id, prompt, predicate)` data asset
+- **`TutorialFlow`**: declarative `(step_id, prompt, predicate)` data asset
 - **Highlight target**: Pillar I effect dim + pulse outline
-- **FSettings depth**: GPU detection → preset 推奨、first-frame perf measure (60 frames) → preset 自動調整
+- **Settings depth**: GPU detection → preset 推奨、first-frame perf measure (60 frames) → preset 自動調整
 - **Difficulty preset**: Story/Normal/Hard/Hardest、CVar adjustment
 - **Assist Mode**: granular slider (invincibility / infinite stamina / dash count / speed_mult)
 - **Speedrun timer**: in-game UI + splits + golden splits
@@ -2081,14 +2081,14 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **Death cam**: slow-mo Tween (1.0 → 0.2 over 1s) + camera zoom + focus killer
 
 ### 18.18 Pillar S + V（Storefront + Backend）統合内部
-- **`FPlayerIdentity`**: Steam/Epic/Xbox/PSN/Switch/GameCenter/Google/itch/GOG/Discord/GameAccount 統一
+- **`PlayerIdentity`**: Steam/Epic/Xbox/PSN/Switch/GameCenter/Google/itch/GOG/Discord/GameAccount 統一
   + cross-progress + expiring `session_token`
 - **`ACS::SteamworksBridge`**: 独立 CMake module、`SteamAPI_RunCallbacks` per frame、
-  `SteamFuture<T>` で CCallResult を TResult-style 化、achievements/lobbies/SDR/Workshop/Cloud/FInput/
+  `SteamFuture<T>` で CCallResult を TResult-style 化、achievements/lobbies/SDR/Workshop/Cloud/Input/
   Rich Presence/Big Picture/Deck/DLC/Family Sharing/VAC/crash upload 完全実装
-- **`FGame::Tick` hook**: `SteamAPI_RunCallbacks()` 1 回/frame
-- **Dedicated server build**: `acs_module(TYPE Server)` no-render no-audio、`FScene::PeerRole::DedicatedServer`
-- **Docker / Kubernetes seam**: AWS GameLift / Azure PlayFab / Google Cloud FGame Servers
+- **`Game::Tick` hook**: `SteamAPI_RunCallbacks()` 1 回/frame
+- **Dedicated server build**: `acs_module(TYPE Server)` no-render no-audio、`Scene::PeerRole::DedicatedServer`
+- **Docker / Kubernetes seam**: AWS GameLift / Azure PlayFab / Google Cloud Game Servers
 - **`IMatchmaker`**: Glicko-2 (rating + RD + vol) or TrueSkill、region-based RTT、queue UX、anti-smurf
 - **`IBackendClient`**: REST/gRPC + JWT、`MockBackendClient` for local dev、多 backend 並列
 - **`IAntiCheat`**: VAC/EAC/BattlEye/nProtect/Vanguard/custom、**honest**: client-side は theatre、
@@ -2096,8 +2096,8 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **Telemetry backend**: `ITelemetryBackend` (PostHog/Amplitude/Mixpanel/GameAnalytics)、funnels/segments/heatmaps
 
 ### 18.19 Pillar T + W（Community + Studio Workflow）統合内部
-- **`IFriendsService`**: Steam/Epic/Xbox/PSN/Switch friends + `FPlayerIdentity` mapping
-- **`FPartySystem`**: PartyId、leader 制御、auto voice route、cross-scene 永続
+- **`IFriendsService`**: Steam/Epic/Xbox/PSN/Switch friends + `PlayerIdentity` mapping
+- **`PartySystem`**: PartyId、leader 制御、auto voice route、cross-scene 永続
 - **`IVoiceChat`**: Steam Voice (free) / EOS Voice (free, cross-platform) / Vivox / Discord SDK /
   自前 Opus + INetTransport、**spatial 3D voice** (AudioSystem listener 統合)
 - **Text chat**: channel (Global/Team/Party/Whisper) + profanity filter + slow-mode + 翻訳 seam
@@ -2115,23 +2115,23 @@ data structure / algorithm / edge case / integration / determinism / performance
   pImpl で absorb、quant tier auto-selection (Best: hardware capability で fp32/16/int8/4 切替)
 - **GPU memory integration**: `MlModel::MemoryBytes()` → Pillar P `GpuMemoryBudget`
 - **`ILlmBackend`**: streaming token callback、`HybridLlmRouter` (cloud→local→scripted fallback 3 段)
-- **`FLlmSafetyPipeline`** 必須通過: input validation → system prompt + character card → budget check
+- **`LlmSafetyPipeline`** 必須通過: input validation → system prompt + character card → budget check
   → LLM call → output validation (refusal/PII/jailbreak/content rating) → scripted fallback
 - **`AiContentBadge`** UiKit widget: EU AI Act 対応
 - **`AiCostTracker`**: per-session/day/month budget、feature priority (critical > NPC > hint)
 - **`IXrRuntime`**: OpenXR session states、`xrWaitFrame`/`xrBeginFrame`/`xrEndFrame`、late-latch HMD pose
 - **`ACS::OpenXrBridge`**: openxr_loader.dll、action manifest (interaction profile)
-- **`XrInputProfile`**: layer above Pillar D `FInputMap`
+- **`XrInputProfile`**: layer above Pillar D `InputMap`
 - **Spatial UI**: `SpatialUiCanvas`/`WristMenuCanvas`、curved canvas、laser pointer/direct touch/gaze+pinch
 - **Comfort**: locomotion modes (Teleport/Smooth/Dash/Blink) + snap turn + vignette + 90Hz min/120Hz target
 - **Apple Vision Pro 固有**: passthrough + Persona + eye+pinch primary input + SwiftUI bridge
   (`IXrShellBridge`)
-- **Biometric privacy**: eye/body tracking + Persona + spatial scanning は `FPrivacyDirector` strict opt-in
+- **Biometric privacy**: eye/body tracking + Persona + spatial scanning は `PrivacyDirector` strict opt-in
 
 ### 18.21 メタ層（横断接合）内部
 - **`TypedHandle<Tag>`**: 2 flavor — Category A `GenHandle{u32 idx, u32 gen}` 8B for generational
-  (Entity/FNode/Body/Joint/Timer/Tween/FSequence/Effect/SoundVoice)、Category B opaque enum class via
-  `ACS_OPAQUE_ID(Name, u32)` 4B (FAsset/CVar/Material/EventChannel)
+  (Entity/Node/Body/Joint/Timer/Tween/Sequence/Effect/SoundVoice)、Category B opaque enum class via
+  `ACS_OPAQUE_ID(Name, u32)` 4B (Asset/CVar/Material/EventChannel)
 - **`HandleRegistry<T, Tag>`**: pool + gen counter + free list + retired index list
 - **`SubsystemTrait<Tag>::profile`**: Required/BestEffort/Unsupported、compile-time `static_assert`
 - **`acs::math::DetSinCos`**: polynomial approximation、MSVC/Clang/Linux fixed
@@ -2140,20 +2140,20 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`Events.h` central**: ~30 cross-pillar events + `EventSink` RAII
 - **SemVer**: `foundation/Version.h` constexpr + git SHA embed + `ACS_DEPRECATED_SINCE`
 - **`acs_lint` rules**: R001-R048 clang-tidy custom AST visitor
-- **`FPrivacyDirector`**: opt-in flags、GDPR `ExportUserData`/`DeleteUserData`
-- **`FLogger`**: channel filter + runtime CVar toggle + crash dump に FScene snapshot 同梱
+- **`PrivacyDirector`**: opt-in flags、GDPR `ExportUserData`/`DeleteUserData`
+- **`Logger`**: channel filter + runtime CVar toggle + crash dump に Scene snapshot 同梱
 
 ### 18.22 完成度システム 9 内部
-- **`FLocalizationDirector`**: `LanguageDef{id, name, strings_path, fonts, layout}` + `Tr/EFormat/Plural` +
+- **`LocalizationDirector`**: `LanguageDef{id, name, strings_path, fonts, layout}` + `Tr/EFormat/Plural` +
   argument substitution + pseudoloc + locale-specific plural rules
 - **`UiKit`**: 既存 widget tree 拡張 + 9-point anchor + min/max/preferred + FocusManager spatial nav +
-  Screen push/pop + HUD widgets + FObservable<T> MVVM
-- **`Dialogue`**: `.dlg` graph (FLine/Choice/Jump/Set/Call/Wait/End) + typewriter (per-char timing) +
-  CutsceneTrack (FSequence with game-aware steps)
-- **`DialogueVars`**: flag map + named ints、FSaveArchive 永続化
-- **`FMusicDirector`**: buses + ducking + layered stems (intensity curve) + stingers (next beat/bar) +
+  Screen push/pop + HUD widgets + Observable<T> MVVM
+- **`Dialogue`**: `.dlg` graph (Line/Choice/Jump/Set/Call/Wait/End) + typewriter (per-char timing) +
+  CutsceneTrack (Sequence with game-aware steps)
+- **`DialogueVars`**: flag map + named ints、SaveArchive 永続化
+- **`MusicDirector`**: buses + ducking + layered stems (intensity curve) + stingers (next beat/bar) +
   beat clock (sample-accurate)
-- **`Progress`**: FStats (Add/Max/Set/Get) + FAchievementDef (Manual/StatThreshold/MilestoneSet trigger) +
+- **`Progress`**: Stats (Add/Max/Set/Get) + AchievementDef (Manual/StatThreshold/MilestoneSet trigger) +
   Fraction (progressive) + IAchievementSink seam
 - **`Accessibility`**: state struct (text_scale/colorblind/captions/shake/flash/motion/hold/ui_anim/contrast)
   + AccessibilityChangedEvent + profile presets
@@ -2173,13 +2173,13 @@ data structure / algorithm / edge case / integration / determinism / performance
   with terrain cost)、AOEPreview (run skill AreaShape over cursor)、AICoach scoring (move-attack pair
   enumeration + threat scoring)、StatusEffectRegistry (Cards 共有)
 - **SHMUP kit**: BulletWorld ECS 50k cap、Pattern DSL (Single/Concentric/Spiral/Wave/Aimed/RandomSpread/
-  Formation/Burst/Delay/Parallel/FSequence composable)、player hitbox tiny (4x4) + graze ring (~16px)、
-  BossDef phased multi-stage、ReplayBinding (FInputRecorder + RandomChannels::Snapshot)
-- **Rhythm kit**: AudioBeatClock from `FMusicDirector` sample position、Judger window (Perfect 20ms / Great
+  Formation/Burst/Delay/Parallel/Sequence composable)、player hitbox tiny (4x4) + graze ring (~16px)、
+  BossDef phased multi-stage、ReplayBinding (InputRecorder + RandomChannels::Snapshot)
+- **Rhythm kit**: AudioBeatClock from `MusicDirector` sample position、Judger window (Perfect 20ms / Great
   50ms / Good 100ms / Miss)、Calibration (metronome tap → median error → audio_offset_user)、
   Lane configs (4/5/7/DJ/Taiko)
 - **Cards kit**: EffectStack LIFO (Push pops resolves recursively)、Effect tree (Damage/Block/ApplyStatus/
-  Draw/Discard/Heal/FSequence/If/ForEachTarget/FCallback)、seeded shuffle (FRandom::FChannel("deck"))、
+  Draw/Discard/Heal/Sequence/If/ForEachTarget/FCallback)、seeded shuffle (Random::Channel("deck"))、
   enemy intent BT
 - **Idle kit**: BigNumber 128-bit fixed or (f64 mantissa, i64 exponent) + 1e308 超で arbitrary precision、
   BigNumberFormatter (Scientific/SuffixShort/SuffixLong/NamedTier/Engineering)、OfflineProgress analytic
@@ -2241,7 +2241,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`acs_lint`** rules R001-R048: clang-tidy custom AST visitor、JUnit XML、`// acs-lint:
   disable R042` per-file disable
 - **`acs_licenses`**: `docs/Licenses/THIRD_PARTY.md` 構造化 frontmatter → `Licenses.cpp`
-  embed、`FGame --licenses` CLI + UiKit `LicenseScreen`
+  embed、`Game --licenses` CLI + UiKit `LicenseScreen`
 - **`acs_loc_extract/diff/validate`**: libclang AST で `Tr("...")` call extract → `.pot`、
   3-way merge for translator handoff、CI fail on missing keys
 - **`acs_diff`** semantic asset diff: Pillar J 反射経由で `.scene/.prefab/.tdat` を normalized
@@ -2249,7 +2249,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`acs_assetinspect`**: asset 別 dump (texture/audio/mesh/scene/font/lightmap/acpak)、
   human-readable summary
 - **`acs_repro`**: zip extract → 検証 → `--repro-mode` 起動 + `--replay` + `--state` + debugger 接続
-- **In-game UiKit 著作ツール**: FParticle Editor (module composition + curve subcomponent +
+- **In-game UiKit 著作ツール**: Particle Editor (module composition + curve subcomponent +
   live preview)、FAnimation Curve Editor (Bezier handle modes mirrored/broken/aligned + preset
   library)、**BT Visual Editor with live debugger** (attach to running entity、現在実行 node
   yellow/success green/fail red、blackboard live table、Step button)、Level Editor (tile painter

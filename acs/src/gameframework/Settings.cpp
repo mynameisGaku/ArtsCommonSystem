@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FSettings 実装
+// GameFramework Pillar G — Settings 実装
 //
 // 線形検索 + 同 key 上書き。STL 禁止方針に従い、<cstring> も避けて
 // per-byte 比較ループを自前で書く (Entitlement.cpp と同じ StrEq pattern)。
 //
-// Save / Load は Phase 1 では TODO スタブ。Phase 2 で `acs::FStorage` か
-// FFileSystem 経由で INI 風 (key=value\n + 型 prefix) を実装する。Phase 1 で
+// Save / Load は Phase 1 では TODO スタブ。Phase 2 で `acs::Storage` か
+// FileSystem 経由で INI 風 (key=value\n + 型 prefix) を実装する。Phase 1 で
 // 形だけ TResult<void> を返しておくと、呼び出し側 (ゲームの起動/終了処理)
 // の構造を先に組めるので、空実装でも Ok() を返す方針にしている。
 #include "gameframework/Settings.h"
@@ -27,7 +27,7 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
-isize FSettings::FindIndex(const char* key) const noexcept {
+isize Settings::FindIndex(const char* key) const noexcept {
     if (key == nullptr) return -1;
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -36,14 +36,14 @@ isize FSettings::FindIndex(const char* key) const noexcept {
     return -1;
 }
 
-FSettings::FEntry& FSettings::UpsertEntry(const char* key) noexcept {
+Settings::Entry& Settings::UpsertEntry(const char* key) noexcept {
     // key == nullptr は呼び出し側でガードされている前提だが、二重防御で
     // 末尾を返す代わりに sentinel を立てる必要はない (Set* 側で弾く)。
     const isize idx = FindIndex(key);
     if (idx >= 0) {
         return _entries[static_cast<usize>(idx)];
     }
-    FEntry e;
+    Entry e;
     e.key  = key;
     e.kind = ESettingKind::None;
     _entries.PushBack(e);
@@ -53,30 +53,30 @@ FSettings::FEntry& FSettings::UpsertEntry(const char* key) noexcept {
 // ============================================================================
 // 書き込み
 // ============================================================================
-void FSettings::SetF32(const char* key, f32 v) noexcept {
+void Settings::SetF32(const char* key, f32 v) noexcept {
     if (key == nullptr) return;
-    FEntry& e   = UpsertEntry(key);
+    Entry& e   = UpsertEntry(key);
     e.kind     = ESettingKind::F32;
     e.value.f  = v;
 }
 
-void FSettings::SetI32(const char* key, i32 v) noexcept {
+void Settings::SetI32(const char* key, i32 v) noexcept {
     if (key == nullptr) return;
-    FEntry& e   = UpsertEntry(key);
+    Entry& e   = UpsertEntry(key);
     e.kind     = ESettingKind::I32;
     e.value.i  = v;
 }
 
-void FSettings::SetBool(const char* key, bool v) noexcept {
+void Settings::SetBool(const char* key, bool v) noexcept {
     if (key == nullptr) return;
-    FEntry& e   = UpsertEntry(key);
+    Entry& e   = UpsertEntry(key);
     e.kind     = ESettingKind::Bool;
     e.value.b  = v;
 }
 
-void FSettings::SetString(const char* key, const char* v) noexcept {
+void Settings::SetString(const char* key, const char* v) noexcept {
     if (key == nullptr) return;
-    FEntry& e   = UpsertEntry(key);
+    Entry& e   = UpsertEntry(key);
     e.kind     = ESettingKind::FString;
     e.value.s  = v;  // 非所有: 呼び出し側が寿命を保証する
 }
@@ -84,34 +84,34 @@ void FSettings::SetString(const char* key, const char* v) noexcept {
 // ============================================================================
 // 読み出し (型不一致 / 未検出は default_value)
 // ============================================================================
-f32 FSettings::GetF32(const char* key, f32 default_value) const noexcept {
+f32 Settings::GetF32(const char* key, f32 default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
-    const FEntry& e = _entries[static_cast<usize>(idx)];
+    const Entry& e = _entries[static_cast<usize>(idx)];
     if (e.kind != ESettingKind::F32) return default_value;
     return e.value.f;
 }
 
-i32 FSettings::GetI32(const char* key, i32 default_value) const noexcept {
+i32 Settings::GetI32(const char* key, i32 default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
-    const FEntry& e = _entries[static_cast<usize>(idx)];
+    const Entry& e = _entries[static_cast<usize>(idx)];
     if (e.kind != ESettingKind::I32) return default_value;
     return e.value.i;
 }
 
-bool FSettings::GetBool(const char* key, bool default_value) const noexcept {
+bool Settings::GetBool(const char* key, bool default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
-    const FEntry& e = _entries[static_cast<usize>(idx)];
+    const Entry& e = _entries[static_cast<usize>(idx)];
     if (e.kind != ESettingKind::Bool) return default_value;
     return e.value.b;
 }
 
-const char* FSettings::GetString(const char* key, const char* default_value) const noexcept {
+const char* Settings::GetString(const char* key, const char* default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
-    const FEntry& e = _entries[static_cast<usize>(idx)];
+    const Entry& e = _entries[static_cast<usize>(idx)];
     if (e.kind != ESettingKind::FString) return default_value;
     return e.value.s;
 }
@@ -119,22 +119,22 @@ const char* FSettings::GetString(const char* key, const char* default_value) con
 // ============================================================================
 // メタ操作
 // ============================================================================
-bool FSettings::Has(const char* key) const noexcept {
+bool Settings::Has(const char* key) const noexcept {
     return FindIndex(key) >= 0;
 }
 
-void FSettings::Remove(const char* key) noexcept {
+void Settings::Remove(const char* key) noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return;
     // 順序は保持しなくてよい (key 検索は全件走査するため、index は不変条件にない)。
     _entries.RemoveAtSwap(static_cast<usize>(idx));
 }
 
-void FSettings::Clear() noexcept {
+void Settings::Clear() noexcept {
     _entries.Clear();
 }
 
-u32 FSettings::Count() const noexcept {
+u32 Settings::Count() const noexcept {
     // 件数は通常 u32 範囲を超えない (UI 設定で数百個が現実的上限)。
     return static_cast<u32>(_entries.Size());
 }
@@ -143,9 +143,9 @@ u32 FSettings::Count() const noexcept {
 // 永続化 (Phase 2 で実装)
 // ============================================================================
 // Phase 1 はスタブ。形だけ TResult<void> を返して呼び出し側の構造を
-// 先に組めるようにする。Phase 2 で `acs::FStorage` か FFileSystem 経由の
+// 先に組めるようにする。Phase 2 で `acs::Storage` か FileSystem 経由の
 // atomic write + 読み取り (UTF-8 / LF, `f:key=value` のような型 prefix) を実装。
-TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
+TResult<void> Settings::Save(const wchar_t* file_path) noexcept {
     (void)file_path;
     // TODO(Phase 2): INI 風 key=value テキストを atomic write で書き出す。
     //   ・型 prefix: `f:audio.master=0.8`, `i:display.width=1920`,
@@ -155,7 +155,7 @@ TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
     return Ok();
 }
 
-TResult<void> FSettings::Load(const wchar_t* file_path) noexcept {
+TResult<void> Settings::Load(const wchar_t* file_path) noexcept {
     (void)file_path;
     // TODO(Phase 2): Save と対称な reader を実装。型 prefix を見て
     //   Set{F32,I32,Bool,FString} にディスパッチ。未知の prefix は警告して skip。

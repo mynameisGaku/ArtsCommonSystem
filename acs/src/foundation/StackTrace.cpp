@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Foundation — FStackTrace 実装
+// ACS Foundation — StackTrace 実装
 // -----------------------------------------------------------------------------
 // CaptureStackBackTrace で生のフレームアドレスを取得し、SymFromAddr 等で
 // シンボル解決する。Sym* 系は非スレッドセーフのため SRWLOCK で直列化する。
@@ -42,7 +42,7 @@ void EnsureSymbols() noexcept {
 
 // 現在のスタックフレームを取得する。
 // CaptureStackBackTrace は WinAPI で、非常に高速かつスレッドセーフ。
-void FStackTrace::Capture(u32 skip) noexcept {
+void StackTrace::Capture(u32 skip) noexcept {
     USHORT n = ::CaptureStackBackTrace(static_cast<DWORD>(skip), kStackTraceMaxFrames, _addrs, nullptr);
     _count    = static_cast<u32>(n);
     _resolved = false;
@@ -50,7 +50,7 @@ void FStackTrace::Capture(u32 skip) noexcept {
 
 // 取得済みアドレスをシンボル名 / ファイル名 / 行番号に変換する。
 // SYMBOL_INFO は末尾可変長の構造体なので適切なサイズで確保する。
-void FStackTrace::Resolve() noexcept {
+void StackTrace::Resolve() noexcept {
     if (_resolved || _count == 0) return;
     EnsureSymbols();
 
@@ -67,7 +67,7 @@ void FStackTrace::Resolve() noexcept {
     line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
 
     for (u32 i = 0; i < _count; ++i) {
-        FStackFrame& f = _frames[i];
+        StackFrame& f = _frames[i];
         f.address  = _addrs[i];
         f.symbol[0] = 0;
         f.file[0]   = 0;
@@ -94,10 +94,10 @@ void FStackTrace::Resolve() noexcept {
 
 // 解決済みフレームを 1 行ずつ整形して sink に渡す。
 // 出力先（stderr / ロガー / ファイル）は呼び出し元が決める。
-void FStackTrace::Print(Sink sink, void* user) const noexcept {
+void StackTrace::Print(Sink sink, void* user) const noexcept {
     char buf[640];
     for (u32 i = 0; i < _count; ++i) {
-        const FStackFrame& f = _frames[i];
+        const StackFrame& f = _frames[i];
         int n;
         if (f.file[0])
             n = ::snprintf(buf, sizeof(buf), "  #%u %s\n      at %s:%llu\n",

@@ -19,13 +19,13 @@ namespace hellofg {
 
 void GameplayScene::OnEnter() noexcept {
     // ----- input -----
-    FInputMap& im = Services().Input();
+    InputMap& im = Services().Input();
     im.ClearAll();
-    im.BindAxisKeys(FActionId("MoveX"), EKey::A, EKey::D);
-    im.BindAxisKeys(FActionId("MoveY"), EKey::S, EKey::W);  // 上向き = +Y
-    im.BindMouseButton(FActionId("Fire"), EMouseButton::Left);
-    im.BindKey(FActionId("Pause"), EKey::P);
-    im.BindKey(FActionId("Quit"),  EKey::Escape);
+    im.BindAxisKeys(ActionId("MoveX"), EKey::A, EKey::D);
+    im.BindAxisKeys(ActionId("MoveY"), EKey::S, EKey::W);  // 上向き = +Y
+    im.BindMouseButton(ActionId("Fire"), EMouseButton::Left);
+    im.BindKey(ActionId("Pause"), EKey::P);
+    im.BindKey(ActionId("Quit"),  EKey::Escape);
 
     // ----- subsystem 初期化 -----
     _health.ClearAll();
@@ -42,11 +42,11 @@ void GameplayScene::OnEnter() noexcept {
     _waves.SetOnWaveStateChangeCallback(&WaveOnState, this);
 
     // ----- collision world -----
-    FCollisionWorld2D& phy = Services().Physics();
+    CollisionWorld2D& phy = Services().Physics();
     phy.Init(2.0f);
 
     // ----- camera -----
-    FCamera2D& cam = Services().Camera();
+    Camera2D& cam = Services().Camera();
     cam.SetPosition(FVec2{0.0f, 0.0f});
     cam.SetZoom(kWorldUnit);
     cam.SetShakeAmplitude(0.4f);
@@ -62,7 +62,7 @@ void GameplayScene::OnEnter() noexcept {
     for (u32 y = 0; y < th; ++y) {
         for (u32 x = 0; x < tw; ++x) {
             const u16 t = static_cast<u16>(((x + y) & 1) + 1);
-            _floor.SetTile(x, y, FTileId{t}, 0);
+            _floor.SetTile(x, y, TileId{t}, 0);
         }
     }
 
@@ -72,7 +72,7 @@ void GameplayScene::OnEnter() noexcept {
     _hit_effects.Init(_particles);
 
     // ----- perception -----
-    FSenseConfig sc;
+    SenseConfig sc;
     sc.sight_range   = 10.0f;
     sc.sight_fov_rad = kPi;
     sc.hearing_range = 8.0f;
@@ -104,7 +104,7 @@ void GameplayScene::OnEnter() noexcept {
 }
 
 void GameplayScene::OnExit() noexcept {
-    // 敵 → player の順で root の FNode を Destroy。ResolveStructuralChanges でまとめ反映。
+    // 敵 → player の順で root の Node を Destroy。ResolveStructuralChanges でまとめ反映。
     _enemies.Shutdown();
     _player.Shutdown();
     _root.ResolveStructuralChanges();
@@ -127,8 +127,8 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
         _fps_ema = _fps_ema * 0.9f + inst_fps * 0.1f;
     }
 
-    const FInputMap& im = Services().Input();
-    if (im.IsPressed(FActionId("Quit"))) {
+    const InputMap& im = Services().Input();
+    if (im.IsPressed(ActionId("Quit"))) {
         GetGame().Quit();
         return;
     }
@@ -158,17 +158,17 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
 }
 
 void GameplayScene::OnFixedUpdate(f32 /*dt*/) noexcept {
-    // 固定 step は FPhysicsBody2D の決定性のため FGame 側で 1/60 に固定済み。
+    // 固定 step は PhysicsBody2D の決定性のため Game 側で 1/60 に固定済み。
     _root.FixedUpdateTree(1.0f / 60.0f);
     _root.ResolveStructuralChanges();
 }
 
-void GameplayScene::OnRender(FRenderContext& rc) noexcept {
+void GameplayScene::OnRender(RenderContext& rc) noexcept {
     auto& app = static_cast<FullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
-    FSpriteBatch& sb = app.Sprites();
+    SpriteBatch& sb = app.Sprites();
     const u32 sw = rc.Width();
     const u32 sh = rc.Height();
     sb.Begin(rc.Cmd(), sw, sh);
@@ -183,11 +183,11 @@ void GameplayScene::OnRender(FRenderContext& rc) noexcept {
     const u32 th   = _floor.Height();
     const f32 ox   = -kWorldHalfW;
     const f32 oy   = -kWorldHalfH;
-    const FTileId* layer0 = _floor.LayerData(0);
+    const TileId* layer0 = _floor.LayerData(0);
     if (layer0) {
         for (u32 y = 0; y < th; ++y) {
             for (u32 x = 0; x < tw; ++x) {
-                const FTileId t = layer0[y * tw + x];
+                const TileId t = layer0[y * tw + x];
                 if (t.IsEmpty()) continue;
                 const FVec4 col = (t.value == 1) ? kColorTileLight : kColorTileDark;
                 sb.DrawRect(ox + static_cast<f32>(x) * ts,
@@ -242,7 +242,7 @@ void GameplayScene::RequestGameOver(bool victory) noexcept {
 }
 
 FVec2 GameplayScene::MouseWorld() const noexcept {
-    const FVec2 m = FInput::MousePos();
+    const FVec2 m = Input::MousePos();
     auto& app = static_cast<FullGameApp&>(GetGame());
     IRhiSwapchain* sc = app.GetRenderer().Swapchain();
     if (!sc) {

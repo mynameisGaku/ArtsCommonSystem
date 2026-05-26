@@ -26,9 +26,9 @@
 
 namespace acs::detail {
 
-class FThreadAffinityGuard {
+class ThreadAffinityGuard {
 public:
-    FThreadAffinityGuard() noexcept = default;
+    ThreadAffinityGuard() noexcept = default;
 
     void Check() noexcept {
         const u64 cur = static_cast<u64>(acs::CurrentThreadId().raw);
@@ -53,7 +53,7 @@ private:
 } // namespace acs::detail
 
 #define ACS_THREAD_AFFINITY_FIELD() \
-    mutable ::acs::detail::FThreadAffinityGuard _acs_affinity_guard
+    mutable ::acs::detail::ThreadAffinityGuard _acs_affinity_guard
 
 #define ACS_THREAD_AFFINITY_CHECK() \
     _acs_affinity_guard.Check()

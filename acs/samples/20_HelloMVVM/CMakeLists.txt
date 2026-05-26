@@ -1,4 +1,4 @@
-# Hello MVVM: FObservable / Binder / FDerived / FCommand を ImGui で紹介するサンプル。
+# Hello MVVM: Observable / Binder / Derived / Command を ImGui で紹介するサンプル。
 add_executable(hello_mvvm WIN32
     main.cpp
     HelloMVVMApp.cpp

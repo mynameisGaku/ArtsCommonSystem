@@ -41,7 +41,7 @@
 //
 //   下位互換: header.flags & AcpakFlagEncrypted == 0 のときは cipher_nonce /
 //   cipher_tag を file table に書かない (= v1 raw レイアウトと完全一致)。
-//   FAcpakReader::Open は flags を見て分岐するので、v1 で作成した .acpak は
+//   AcpakReader::Open は flags を見て分岐するので、v1 で作成した .acpak は
 //   v2 ライブラリでもそのまま読める。
 //
 // 全数値は little-endian、host 側もすべて little-endian 前提 (ACS 対応プラット
@@ -100,7 +100,7 @@ enum EAcpakFlags : u32 {
 //     (一部 ARM プロセッサは unaligned u64 read で fault を起こすため)
 //   ・reinterpret_cast による直接読込は禁止 — Reader/Writer は明示的に
 //     バイト列を memcpy で読み出す (Hash.cpp と同じ流儀)
-struct FAcpakHeader {
+struct AcpakHeader {
     u8  magic[8];             // = kAcpakMagic
     u32 version;              // = kAcpakVersion
     u32 flags;                // EAcpakFlags bitfield
@@ -116,7 +116,7 @@ struct FAcpakHeader {
 //   = 32 + reserved(4) = 36
 //   = align(8) で末尾に 4B 詰めて 40 にはせず、reserved を 4B のままにする。
 //
-// ディスク上は 36 バイトを書く (sizeof(FAcpakHeader) は処理系の構造体パディング
+// ディスク上は 36 バイトを書く (sizeof(AcpakHeader) は処理系の構造体パディング
 // で 40 になり得るため、I/O は kAcpakHeaderDiskSize で明示的に行う)。
 inline constexpr usize kAcpakHeaderDiskSize = 36;
 
@@ -128,8 +128,8 @@ inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u;
 
 static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8,
               "Fixed-width integer types broken");
-static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8,
-              "FAcpakHeader::magic must be 8 bytes");
+static_assert(sizeof(((AcpakHeader*)0)->magic) == 8,
+              "AcpakHeader::magic must be 8 bytes");
 
 // ---- ファイルエントリ (Reader が file table から構築する in-memory 表現) -
 // アーカイブ上のレイアウトとは形が異なる (path はディスク上では path_len +
@@ -144,7 +144,7 @@ static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8,
 //   ・cipher_nonce / cipher_tag は AcpakFlagEncrypted が立った pak でのみ
 //     ディスクから読み込まれる。flags=0 (v1) の pak ではゼロクリアされる。
 //   ・AES-256-GCM の規格上、nonce は 96bit (12B)、tag は 128bit (16B) 固定。
-struct FAcpakFileEntry {
+struct AcpakFileEntry {
     const wchar_t* path;              // Reader 内文字列 pool への参照
     u64            offset;            // アーカイブ先頭からの絶対オフセット
     u64            size_uncompressed; // 復号 + 解凍後のバイト数
@@ -154,8 +154,8 @@ struct FAcpakFileEntry {
     u8             cipher_tag[16];    // AES-256-GCM 認証タグ (encrypted pak のみ)
 };
 
-// ---- エラーコード subcode (ErrCategory::IO / ErrCategory::FAsset 配下) ----
-// FSaveSlot (1-99) / SteamworksBridge (1001-1099) / WorkshopBridge (1101-1199)
+// ---- エラーコード subcode (ErrCategory::IO / ErrCategory::Asset 配下) ----
+// SaveSlot (1-99) / SteamworksBridge (1001-1099) / WorkshopBridge (1101-1199)
 // / AssetPack stub (1200 番台) と subcode 空間が重ならないよう、AssetPack 実装
 // は 1300 番台を使う。
 inline constexpr u16 kAcpakSubBadMagic         = 1301; // 先頭 8 バイトが ACPAK でない

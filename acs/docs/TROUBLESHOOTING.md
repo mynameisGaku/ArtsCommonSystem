@@ -11,7 +11,7 @@ ACS のビルドには次が必要です（リポジトリ直下の `README.md` 
 
 - **Visual Studio 2022** ＋ ワークロード **「C++ によるデスクトップ開発」**
   — これで MSVC コンパイラ・Windows SDK・**Ninja**・CMake が一括で入ります。
-- 以下のコマンドは **「x64 Native Tools FCommand Prompt for VS 2022」** または
+- 以下のコマンドは **「x64 Native Tools Command Prompt for VS 2022」** または
   Rider などの IDE から実行すると、環境変数が整っていて確実です。
 
 ---
@@ -30,7 +30,7 @@ cmake --preset dx12-debug
 ### `CMAKE_MAKE_PROGRAM is not set` / `Ninja` が見つからない
 ビルドツール **Ninja** が PATH にありません。Visual Studio 2022 の
 「C++ によるデスクトップ開発」ワークロードを入れると Ninja も同梱されます。
-「x64 Native Tools FCommand Prompt for VS 2022」から実行すれば PATH が通ります。
+「x64 Native Tools Command Prompt for VS 2022」から実行すれば PATH が通ります。
 
 ### `Failed to clone` / 依存ライブラリの取得で構成が止まる
 ACS は初回 configure 時に stb・cgltf・ufbx・dr_libs・Dear ImGui を GitHub から
@@ -59,7 +59,7 @@ STL ヘッダを include すると STL 内部の `throw` が原因で大量の�
 ください。
 
 ### `looser exception specification` / フックのオーバーライドが通らない
-`FApplication` のフック（`OnStart` / `OnUpdate` / `OnRender` / `OnShutdown` /
+`Application` のフック（`OnStart` / `OnUpdate` / `OnRender` / `OnShutdown` /
 `OnEvent`）はすべて `noexcept` です。オーバーライド側も **`noexcept override`**
 と書いてください。`noexcept` を付け忘れると基底と署名が合わず、
 `looser exception specification` 等のコンパイルエラーになります。
@@ -106,7 +106,7 @@ ACS は Ninja の**単一構成ビルド**を使うため、`Release/` `Debug/` 
   その `.exe` のあるフォルダに設定する。
 - または絶対パスを使う。
 
-`TResult` のエラー（`FAsset` カテゴリ）のメッセージに探索したパスが出るので、
+`TResult` のエラー（`Asset` カテゴリ）のメッセージに探索したパスが出るので、
 まずそれを確認してください。
 
 ### `diligent-*` プリセットの初回 configure が固まったように見える
@@ -148,9 +148,9 @@ auto asset = r.Value();   // ここに来た時点で成功が保証される
 ```
 
 ### `ACS_LOG_*` を呼んだのに何も出力されない
-`FLogger` が初期化されていない可能性があります。`FApplication` を継承した
-ゲームでは起動時に自動で初期化されるため通常は問題ありません。`FApplication`
-の外（テスト用の小さなコードなど）でログを使う場合は、先に `FLogger` の初期化が
+`Logger` が初期化されていない可能性があります。`Application` を継承した
+ゲームでは起動時に自動で初期化されるため通常は問題ありません。`Application`
+の外（テスト用の小さなコードなど）でログを使う場合は、先に `Logger` の初期化が
 必要です。
 
 ---

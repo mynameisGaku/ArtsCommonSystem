@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLevelEditor — FScene。Workspace + FLevelEditorPanel + FTilemap (32x32, 2 layer)。
+// HelloLevelEditor — Scene。Workspace + LevelEditorPanel + Tilemap (32x32, 2 layer)。
 //
 // 初期 tilemap パターン:
 //   - layer 0 (床) : 全面 tile id=1 で埋める (= 緑系の床色)
@@ -13,20 +13,20 @@
 #include "gameframework/tools/editor_core/EditorWorkspace.h"
 #include "gameframework/tools/editor_core/EditorTheme.h"
 
-// leveledit: FTilemap 編集用の ImGui Panel。
+// leveledit: Tilemap 編集用の ImGui Panel。
 #include "gameframework/tools/leveledit/LevelEditorPanel.h"
 
-// FTilemap: 2D グリッド状の tile データコンテナ (Pillar Q)。
+// Tilemap: 2D グリッド状の tile データコンテナ (Pillar Q)。
 #include "gameframework/Tilemap.h"
 
 namespace hellole {
 
-class LevelEditorScene : public acs::game::FScene {
+class LevelEditorScene : public acs::game::Scene {
 public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::FRenderContext& rc) noexcept override;
+    void OnRender(acs::game::RenderContext& rc) noexcept override;
 
 private:
     // OnEnter から呼ばれる、tilemap の初期パターン書き込み (床 + 壁)。
@@ -42,14 +42,14 @@ private:
     static constexpr const char* kSavePath = "tilemap.acstilemap";
 
     // ImGui ベースのエディタ基盤 (Workspace + Theme)。
-    acs::game::editor_core::FEditorWorkspace _workspace;
-    acs::game::editor_core::FEditorTheme     _theme;
+    acs::game::editor_core::EditorWorkspace _workspace;
+    acs::game::editor_core::EditorTheme     _theme;
 
-    // FTilemap を編集するための ImGui Panel。
-    acs::game::leveledit::FLevelEditorPanel  _level_panel;
+    // Tilemap を編集するための ImGui Panel。
+    acs::game::leveledit::LevelEditorPanel  _level_panel;
 
-    // 編集対象 FTilemap。FLevelEditorPanel に raw 参照で渡す (所有は本 FScene 側)。
-    acs::game::FTilemap                      _tilemap;
+    // 編集対象 Tilemap。LevelEditorPanel に raw 参照で渡す (所有は本 Scene 側)。
+    acs::game::Tilemap                      _tilemap;
 };
 
 } // namespace hellole

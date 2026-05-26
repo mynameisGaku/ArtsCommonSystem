@@ -28,7 +28,7 @@ public:
     // バックバッファをレンダーターゲットとしてバインドし、クリアする
     // depth は省略可能（指定すると深度バッファもバインド + クリア）
     virtual void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
-                                        const FClearColor& clear,
+                                        const ClearColor& clear,
                                         class IRhiTexture* depth = nullptr,
                                         f32 depth_clear = 1.0f) noexcept = 0;
 
@@ -44,7 +44,7 @@ public:
     // オフスクリーンレンダーターゲットへの描画開始（HDR RT / ポストプロセス用）
     // depth は省略可。is_render_target=true の IRhiTexture を渡すこと。
     virtual void BeginRenderToTexture(class IRhiTexture& rt,
-                                       const FClearColor& clear,
+                                       const ClearColor& clear,
                                        class IRhiTexture* depth = nullptr,
                                        f32 depth_clear = 1.0f) noexcept = 0;
 
@@ -70,14 +70,14 @@ public:
     // 復帰は EndRenderToTexture と同じ挙動 (main pass RT を再 bind)。
     virtual void BeginRenderToTextureSlice(class IRhiTexture& rt,
                                             u32 slice, u32 mip,
-                                            const FClearColor& clear) noexcept = 0;
+                                            const ClearColor& clear) noexcept = 0;
 
     // MRT 描画開始 (Phase 34d-2)。最大 8 個の color RT を同時 bind、depth は optional。
     // クリア色は単一値で全 RT に適用 (個別クリアが要れば別 API か手動で SetTexture 前 clear)。
     // 終了は EndRenderToTexture(rts[0]) で main pass に復帰可。
     // Diligent backend で実装、Dx12 raw は stub (no-op)。
     virtual void BeginRenderToTextureMrt(class IRhiTexture* const* rts, u32 rt_count,
-                                          const FClearColor& clear,
+                                          const ClearColor& clear,
                                           class IRhiTexture* depth = nullptr,
                                           f32 depth_clear = 1.0f) noexcept = 0;
 

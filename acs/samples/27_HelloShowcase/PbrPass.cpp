@@ -16,7 +16,7 @@ namespace {
 // material lobe 系のパラメータを 1 mesh 描く前にデフォルト値へ戻す。
 // 前回の sphere の sheen / iridescence / subsurface / emissive が引き継がれて
 // 意図しない見た目になるのを防ぐ。
-void ResetMaterialLobes(FPbrShader& pbr) noexcept {
+void ResetMaterialLobes(PbrShader& pbr) noexcept {
     pbr.SetExtParams(0.0f, 0.5f, 0.0f, FVec3{1, 0, 0});
     pbr.SetSheen(FVec3{0, 0, 0}, 0.0f, 0.0f);
     pbr.SetIridescence(0.0f, 400.0f, 1.35f);
@@ -47,7 +47,7 @@ void ExecutePbrPass(Assets& a, IRhiCommandList& cl,
                     FVec3 cam_pos, f32 orb_phase,
                     bool ssr_warm, bool ssao_warm,
                     FMat4 (&orb_curr_out)[kOrbCount]) noexcept {
-    cl.BeginRenderToTexture(hdr, FClearColor{0, 0, 0, 1}, &depth, 1.0f);
+    cl.BeginRenderToTexture(hdr, ClearColor{0, 0, 0, 1}, &depth, 1.0f);
 
     FViewport vp{};
     vp.width  = static_cast<f32>(hdr.Width());

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FGame 実装 (Phase 1 着手)
+// GameFramework Pillar A — Game 実装 (Phase 1 着手)
 #include "gameframework/Game.h"
 #include "gameframework/Scene.h"
 
@@ -11,10 +11,10 @@
 
 namespace acs::game {
 
-void FGame::OnStart() noexcept {
-    TUniquePtr<FScene> first = InitialScene();
+void Game::OnStart() noexcept {
+    TUniquePtr<Scene> first = InitialScene();
     if (!first) {
-        ACS_LOG_ERROR("FGame::InitialScene() returned null — Quit");
+        ACS_LOG_ERROR("Game::InitialScene() returned null — Quit");
         Quit();
         return;
     }
@@ -22,12 +22,12 @@ void FGame::OnStart() noexcept {
     _scenes._ApplyPending(*this);     // 起動時の最初の遷移は即時適用
 }
 
-void FGame::OnUpdate(f32 dt) noexcept {
+void Game::OnUpdate(f32 dt) noexcept {
     const f32 scaled_dt = dt * _time_scale;
     _scenes._ApplyPending(*this);
 
     // Phase 2 固定タイムステップ accumulator (Phase 1 で宣言だけだった
-    // FScene::OnFixedUpdate が実際に呼ばれるようになる)。
+    // Scene::OnFixedUpdate が実際に呼ばれるようになる)。
     //   accumulator += dt → fixed_dt 単位で消費しつつ OnFixedUpdate を呼ぶ。
     //   max_fixed_steps を超える遅延は捨てる (= spiral of death 防止)。
     //   fixed_dt <= 0 なら固定 update は無効 (旧挙動)。
@@ -49,7 +49,7 @@ void FGame::OnUpdate(f32 dt) noexcept {
     _scenes._Update(scaled_dt);
 }
 
-void FGame::OnRender() noexcept {
+void Game::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
@@ -58,11 +58,11 @@ void FGame::OnRender() noexcept {
     _render_ctx._EndFrame();
 }
 
-void FGame::OnShutdown() noexcept {
+void Game::OnShutdown() noexcept {
     _scenes._ShutdownAll();
 }
 
-void FGame::OnEvent(const FEvent& e) noexcept {
+void Game::OnEvent(const Event& e) noexcept {
     _scenes._DispatchEvent(e);
 }
 

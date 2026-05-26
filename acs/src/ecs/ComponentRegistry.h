@@ -11,7 +11,7 @@
 namespace acs {
 
 // 型ごとの操作（型消去で実行時に呼び出せるようにする関数ポインタ群）
-struct FComponentOps {
+struct ComponentOps {
     usize size      = 0;
     usize alignment = 0;
     void  (*destroy)(void* p) noexcept     = nullptr;  // ~T()
@@ -19,13 +19,13 @@ struct FComponentOps {
     const char* name = "Unknown";
 };
 
-class FComponentRegistry {
+class ComponentRegistry {
 public:
     // 型 T を登録（初回のみ実体登録、以降は同じ Ops を返す）
     template<typename T>
-    static const FComponentOps& Register() noexcept {
+    static const ComponentOps& Register() noexcept {
         ComponentTypeId id = GetComponentTypeId<T>();
-        FComponentOps& slot = Slots()[id];
+        ComponentOps& slot = Slots()[id];
         if (slot.size == 0) {
             // T を破棄する関数ポインタ
             slot.destroy = [](void* p) noexcept {
@@ -42,12 +42,12 @@ public:
         return slot;
     }
 
-    static const FComponentOps& Get(ComponentTypeId id) noexcept {
+    static const ComponentOps& Get(ComponentTypeId id) noexcept {
         return Slots()[id];
     }
 
 private:
-    static FComponentOps* Slots() noexcept;
+    static ComponentOps* Slots() noexcept;
 };
 
 } // namespace acs

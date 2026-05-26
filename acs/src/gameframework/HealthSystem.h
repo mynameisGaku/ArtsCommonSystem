@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FHealthSystem (HP / damage / death / respawn 管理)
+// GameFramework Pillar R/I — HealthSystem (HP / damage / death / respawn 管理)
 //
 // 複数 entity (敵 / プレイヤー / 破壊可能オブジェクト) の HP を一元管理する
 // 高レベル API。slot+generation パターンの `FHealthId` で entity を識別し、
 // ApplyDamage / Heal / Revive / SetInvulnerable などの操作を提供する。
 //
 // 使い方:
-//   FHealthSystem hp;
+//   HealthSystem hp;
 //   FHealthId player = hp.Spawn(/*max_hp=*/100.0f);
 //   FHealthId enemy  = hp.Spawn(50.0f);
 //
@@ -25,8 +25,8 @@
 //   hp.Revive(player, 0.5f);
 //
 // 設計選択 (Pillar R/I):
-//   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: FCollisionWorld2D の
-//     FShapeId / FNode2D の FNodeId と同パターン。removed slot を再利用しても古い
+//   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: CollisionWorld2D の
+//     FShapeId / Node2D の FNodeId と同パターン。removed slot を再利用しても古い
 //     handle は無効化される。0 は invalid 予約 (index 0 dummy)。
 //   ・**slot 配列 + active フラグ**: AcquireSlot で空きを線形検索、無ければ末尾
 //     拡張。Despawn では generation を進めて handle 無効化。
@@ -43,7 +43,7 @@
 //   ・**EDamageType は enum**: 属性 (Fire / Ice 等) は将来の耐性計算 / VFX 振り分け
 //     用。本クラスでは値をそのまま受け取り callback に伝えるだけで、ダメージ倍率は
 //     掛けない (caller が Resistance を考慮した最終量を渡す方針)。
-//   ・**非コピー・非ムーブ**: FGame / FScene 単位で 1 個保持される想定で、所有権
+//   ・**非コピー・非ムーブ**: Game / Scene 単位で 1 個保持される想定で、所有権
 //     移動は不要。
 //
 // 範囲外 (将来 Phase で):
@@ -84,7 +84,7 @@ struct FHealthId {
 //   is_alive       : true = 生存、false = 死亡 (Revive で復帰可能)。
 //   invulnerable   : true = 無敵中 (ApplyDamage が no-op で false 返却)。
 //   invuln_timer   : 残り無敵時間 (秒)。Tick で減算、0 到達で invulnerable=false。
-struct FHealthState {
+struct HealthState {
     f32  current_hp    = 0.0f;
     f32  max_hp        = 0.0f;
     bool is_alive      = false;
@@ -110,15 +110,15 @@ enum class EDamageType : u8 {
 //   lethal_type  : 致死を与えた EDamageType
 using DeathCallback = void(*)(void* user, FHealthId id, EDamageType lethal_type) noexcept;
 
-class FHealthSystem {
+class HealthSystem {
 public:
-    FHealthSystem() noexcept = default;
-    ~FHealthSystem() noexcept = default;
+    HealthSystem() noexcept = default;
+    ~HealthSystem() noexcept = default;
 
-    FHealthSystem(const FHealthSystem&)            = delete;
-    FHealthSystem& operator=(const FHealthSystem&) = delete;
-    FHealthSystem(FHealthSystem&&)                 = delete;
-    FHealthSystem& operator=(FHealthSystem&&)      = delete;
+    HealthSystem(const HealthSystem&)            = delete;
+    HealthSystem& operator=(const HealthSystem&) = delete;
+    HealthSystem(HealthSystem&&)                 = delete;
+    HealthSystem& operator=(HealthSystem&&)      = delete;
 
     // ----- entity 登録 / 解除 -----
     // 新規 entity を full HP で登録。max_hp <= 0 の場合は 1.0 にクランプして登録。
@@ -156,7 +156,7 @@ public:
 
     // ----- 問い合わせ -----
     // 無効 id / Despawn 済 / generation 不一致なら nullptr。
-    const FHealthState* GetState(FHealthId id) const noexcept;
+    const HealthState* GetState(FHealthId id) const noexcept;
 
     // 無効なら 0.0 を返す。
     f32 GetCurrentHp(FHealthId id) const noexcept;
@@ -189,8 +189,8 @@ public:
     void ClearAll() noexcept;
 
 private:
-    struct FSlot {
-        FHealthState state;
+    struct Slot {
+        HealthState state;
         bool        active = false;
         u8          gen    = 0;
     };
@@ -199,12 +199,12 @@ private:
     u32 AcquireSlot() noexcept;
 
     // 内部アクセサ: id が有効なら slot 参照を返し、無効なら nullptr。
-    FSlot*       FindSlot(FHealthId id) noexcept;
-    const FSlot* FindSlot(FHealthId id) const noexcept;
+    Slot*       FindSlot(FHealthId id) noexcept;
+    const Slot* FindSlot(FHealthId id) const noexcept;
 
     static f32 Clamp(f32 v, f32 lo, f32 hi) noexcept;
 
-    TArray<FSlot>    _slots;
+    TArray<Slot>    _slots;
     u32            _entity_count = 0;
 
     DeathCallback  _on_death       = nullptr;

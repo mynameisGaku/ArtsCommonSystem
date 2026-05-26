@@ -2,7 +2,7 @@
 #
 # 構成:
 #   main.cpp                - ACS_DEFINE_MAIN(HelloTextApp) のみ
-#   HelloTextApp.{h,cpp}    - FApplication 派生クラス本体
+#   HelloTextApp.{h,cpp}    - Application 派生クラス本体
 add_executable(hello_text WIN32
     main.cpp
     HelloTextApp.cpp

@@ -13,13 +13,13 @@ class IRhiDevice;
 
 // シェーダステージ
 enum class EShaderStage : u8 {
-    FVertex,
+    Vertex,
     Pixel,
     Compute,
 };
 
 struct FShaderDesc {
-    EShaderStage stage     = EShaderStage::FVertex;
+    EShaderStage stage     = EShaderStage::Vertex;
     const char* hlsl_source = nullptr;     // HLSL ソース文字列
     const char* entry_point = "main";
     const char* target      = nullptr;     // 例: "vs_5_1" / "ps_5_1"。null なら stage から自動

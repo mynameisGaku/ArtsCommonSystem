@@ -33,7 +33,7 @@ int HelloEasyApp::Run() noexcept {
         if (IsKeyDown(EKey::Up)    || IsKeyDown(EKey::W)) y -= step;
 
         DrawLine(0, 380, ScreenWidth(), 380, FColor::Gray, 2.0f);
-        DrawRect(x - 40, y - 40, 80, 80, FColor::FSky);
+        DrawRect(x - 40, y - 40, 80, 80, FColor::Sky);
         DrawCircle(MouseX(), MouseY(), 28, FColor::Orange);
 
         DrawString(24, 20, "矢印キー / WASD で四角を動かす", FColor::White);

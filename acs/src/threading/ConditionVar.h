@@ -17,13 +17,13 @@
 
 namespace acs {
 
-class FConditionVar {
+class ConditionVar {
 public:
-    FConditionVar() noexcept;
-    ~FConditionVar() noexcept = default;
+    ConditionVar() noexcept;
+    ~ConditionVar() noexcept = default;
 
-    FConditionVar(const FConditionVar&) = delete;
-    FConditionVar& operator=(const FConditionVar&) = delete;
+    ConditionVar(const ConditionVar&) = delete;
+    ConditionVar& operator=(const ConditionVar&) = delete;
 
     // 待機。呼び出し前に FMutex を Lock しておくこと。
     // ブロック中は内部で一時 Unlock し、起こされたら再 Lock してから返る。

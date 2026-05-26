@@ -24,12 +24,12 @@ enum class EPixelFormat : u8 {
 };
 
 // 画像 1 枚分のデータ（CPU 側のピクセル列）
-class FImageAsset : public FAsset {
+class ImageAsset : public Asset {
 public:
-    ACS_ASSET_TYPE("FImageAsset")
+    ACS_ASSET_TYPE("ImageAsset")
 
-    FImageAsset() noexcept = default;
-    FImageAsset(u32 w, u32 h, EPixelFormat fmt, TArray<byte>&& pixels) noexcept
+    ImageAsset() noexcept = default;
+    ImageAsset(u32 w, u32 h, EPixelFormat fmt, TArray<byte>&& pixels) noexcept
         : _width(w), _height(h), _format(fmt), _pixels(Move(pixels)) {}
 
     u32         Width()  const noexcept { return _width; }
@@ -46,11 +46,11 @@ private:
 };
 
 // 画像ローダ (stb_image)
-class FImageAssetLoader final : public IAssetLoader {
+class ImageAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return FImageAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return ImageAsset::StaticType(); }
     const char* Extension() const noexcept override { return "png"; }
-    TResult<TRc<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

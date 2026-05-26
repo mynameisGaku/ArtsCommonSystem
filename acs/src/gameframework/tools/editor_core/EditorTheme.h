@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorTheme (Phase 21a)
+// GameFramework Tools — editor_core / EditorTheme (Phase 21a)
 //
 // 役割:
-//   ACS の全エディタ panel (FHierarchyPanel / FInspectorPanel / FEditorToolbar /
-//   FParticleEditorPanel / Phase 21b+ ModelViewer / LevelEditor / AnimCurveEditor /
+//   ACS の全エディタ panel (HierarchyPanel / InspectorPanel / EditorToolbar /
+//   ParticleEditorPanel / Phase 21b+ ModelViewer / LevelEditor / AnimCurveEditor /
 //   BehaviorTreeEditor 等) が共通で参照する **ImGui スタイル統一テーマ**。
 //   色パレット / spacing / font scale / corner radius を 1 ヶ所で管理し、
 //   起動時に `Init()` を呼ぶだけで全エディタが統一見た目になる。
 //
 // 使い方 (editor 起動コード):
-//   FEditorTheme theme;
+//   EditorTheme theme;
 //   theme.Init();                              // default = Dark を ImGui に流す
 //   theme.ApplyPreset(EEditorThemePreset::DarkBlue);
 //   theme.SetFontScale(1.25f);                 // 高 DPI 対応
 //   theme.SetRoundedCorners(4.0f);
 //   // ... 毎フレーム panel.DrawUI() ...
-//   theme.DrawThemeSettingsUI();               // Theme FSettings window を出す
+//   theme.DrawThemeSettingsUI();               // Theme Settings window を出す
 //   // 終了時:
 //   theme.SaveTheme(L"data/editor/theme.acstheme");
 //
 // 設計選択 (Pillar editor_core Phase 21a):
-//   ・**ACS::Vec4 ベース、ImVec4 は .cpp 内変換のみ**: ヘッダから <imgui.h> を
+//   ・**ACS::FVec4 ベース、ImVec4 は .cpp 内変換のみ**: ヘッダから <imgui.h> を
 //     漏らさないことで、本ヘッダを include しても include order が壊れない
-//     (FInspectorPanel / FParticleEditorPanel と同パターン)。
+//     (InspectorPanel / ParticleEditorPanel と同パターン)。
 //   ・**preset = 「色パレット定数 + spacing + corner」のスナップショット**:
 //     ApplyPreset は内部 `_colors` を上書きしたあと、`ApplyToImGui()` で
 //     ImGui::GetStyle() に流す。Custom はユーザが SetCustomColors した状態を
@@ -30,19 +30,19 @@
 //   ・**font scale は ImGuiIO::FontGlobalScale に流す**: フォント atlas 自体は
 //     再構築せず、グローバルスケール変更で済ませる (高 DPI で軽い)。本格的な
 //     atlas 再構築 (= 異なる px サイズの bake) は Phase 21c で検討。
-//   ・**SetRoundedCorners は Frame/FWindow/Popup/Grab/Tab/Scrollbar すべてに
+//   ・**SetRoundedCorners は Frame/Window/Popup/Grab/Tab/Scrollbar すべてに
 //     同 radius を流す**: 統一感のため。違う値を当てたい派生 panel は ImGui の
 //     `ImGui::PushStyleVar` で局所上書きすればよい。
 //   ・**SetSpacing は ItemSpacing.y のみを操作する**: 縦詰めは「情報密度」を
 //     決める主軸。横 spacing は ItemSpacing.y * 0.5 比例で連動 (見た目バランス
 //     のための経験則、後述の ApplyToImGui で計算)。
-//   ・**SaveTheme/LoadTheme は人間可読テキスト (`.acstheme`)**: `FFxeditSerializer`
+//   ・**SaveTheme/LoadTheme は人間可読テキスト (`.acstheme`)**: `FxeditSerializer`
 //     と同設計 (1 行 1 key=value、git diff 可能、magic + version)。バイナリで
 //     ない理由は「アーティストが直接編集してチームに共有」できることを優先。
 //     エラーは ACS_LOG_WARN で握る (戻り値 void = 「ベストエフォート」)。
 //   ・**DrawThemeSettingsUI は ImGui::Begin/End を自前で包む**: editor 設定 UI
-//     なので独立 window として出す。FEditorPanel 継承はせず、調整 UI 限定の
-//     シンプル window として動く (= FEditorPanel として workspace 登録するなら
+//     なので独立 window として出す。EditorPanel 継承はせず、調整 UI 限定の
+//     シンプル window として動く (= EditorPanel として workspace 登録するなら
 //     派生ラッパを Phase 21b で別途用意する)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約 + 他
 //     editor_core 系コンポーネントと統一。`<string>` 禁止のためファイルパスは
@@ -51,28 +51,28 @@
 // preset カラー設計指針:
 //   Dark         : 標準 dark grey (ImGui 既定の StyleColorsDark に近い + 若干
 //                  暖色寄りの中間グレーで目疲れ低減)。
-//   DarkBlue     : VS Code "Dark+" 風。FWindow/Frame に青みのある #1F232C 系。
+//   DarkBlue     : VS Code "Dark+" 風。Window/Frame に青みのある #1F232C 系。
 //                  accent は Visual Studio の青 #007ACC 系。
 //   Light        : 明るい背景 (ImGui StyleColorsLight 相当)。長時間屋外作業や
 //                  プロジェクタ表示向け。
 //   HighContrast : 黒 / 白 / 黄 (#FFD700) の三色設計。AccessibilityProfile.h の
 //                  `high_contrast_ui` フラグと連動する想定 (Phase 21b で
-//                  FAccessibilityProfile→FEditorTheme bridge を予定)。
+//                  AccessibilityProfile→EditorTheme bridge を予定)。
 //   Sepia        : 焼け紙のような暖色基調 (#3A2E22 系背景、#F4E8D8 系 text)。
 //                  長時間作業時の眼精疲労低減 (e-reader 系から着想)。
 //   Custom       : SetCustomColors() で渡された値をそのまま使う。
 //
 // 将来拡張余地 (Phase 21b+ で):
 //   ・per-panel custom theme: ParticleEditor は赤系、ModelViewer は青系等、
-//     panel ごとに別色を適用する (panel_name → FEditorThemeColors map を持ち、
+//     panel ごとに別色を適用する (panel_name → EditorThemeColors map を持ち、
 //     panel.DrawUI() の前後で Push/PopStyleColor する仕組み)。
 //   ・automatic dark/light mode 切替: OS のテーマ設定 (Windows 10+ の
 //     `AppsUseLightTheme` レジストリ) を参照して起動時 / 切替時に自動追従。
-//   ・FAccessibilityProfile 連動: Colorblind モード時に HighContrast を強制、
+//   ・AccessibilityProfile 連動: Colorblind モード時に HighContrast を強制、
 //     ColorMode::Protanopia 時に accent を青系に切り替える等の自動マッピング。
-//   ・syntax highlighting palette: FBehaviorTree editor の AST node 種別、
-//     FDialogueScript の語彙ハイライト、FCombatStateMachine の遷移条件等を
-//     色分けするための拡張カラーパレット (FEditorThemeColors を継承する派生
+//   ・syntax highlighting palette: BehaviorTree editor の AST node 種別、
+//     DialogueScript の語彙ハイライト、CombatStateMachine の遷移条件等を
+//     色分けするための拡張カラーパレット (EditorThemeColors を継承する派生
 //     SyntaxColors 構造体)。
 //   ・color picker のリアルタイムプレビュー: 現状は SetCustomColors 経由で
 //     パレット差し替え時のみ反映。DrawThemeSettingsUI 内で個別 ColorEdit4 を
@@ -113,7 +113,7 @@ enum class EEditorThemePreset : u8 {
 };
 
 // =============================================================================
-// FEditorThemeColors — preset 1 個分のカラーパレット
+// EditorThemeColors — preset 1 個分のカラーパレット
 // -----------------------------------------------------------------------------
 // 各メンバは RGBA `[0, 1]` 範囲の `acs::FVec4`。ImGui の ImVec4 と同じ意味論
 // (= sRGB 線形値、α は 0 = 完全透明 / 1 = 不透明)。
@@ -137,7 +137,7 @@ enum class EEditorThemePreset : u8 {
 //                    `Text("[!]")` 等に手動適用する用途)
 //   error          : エラーメッセージ用 (同上)
 // =============================================================================
-struct FEditorThemeColors {
+struct EditorThemeColors {
     FVec4 window_bg{};
     FVec4 title_bg{};
     FVec4 button_bg{};
@@ -154,20 +154,20 @@ struct FEditorThemeColors {
 };
 
 // =============================================================================
-// FEditorTheme — ImGui スタイル統一テーマ管理
+// EditorTheme — ImGui スタイル統一テーマ管理
 // =============================================================================
-class FEditorTheme {
+class EditorTheme {
 public:
-    FEditorTheme() noexcept = default;
-    ~FEditorTheme() noexcept = default;
+    EditorTheme() noexcept = default;
+    ~EditorTheme() noexcept = default;
 
     // 非コピー・非ムーブ: ImGui::GetStyle() への適用は global 副作用なので、
     // インスタンスを複製すると「どれが真の theme か」が曖昧になる。Editor
     // workspace に 1 インスタンスのみ存在する設計。
-    FEditorTheme(const FEditorTheme&)            = delete;
-    FEditorTheme& operator=(const FEditorTheme&) = delete;
-    FEditorTheme(FEditorTheme&&)                 = delete;
-    FEditorTheme& operator=(FEditorTheme&&)      = delete;
+    EditorTheme(const EditorTheme&)            = delete;
+    EditorTheme& operator=(const EditorTheme&) = delete;
+    EditorTheme(EditorTheme&&)                 = delete;
+    EditorTheme& operator=(EditorTheme&&)      = delete;
 
     // 初期化: default = Dark preset を ImGui::GetStyle() に流す。多重呼び出し可
     // (各回で全 ImGui スタイルが上書きされる)。`ImGui::CreateContext` 後に
@@ -190,10 +190,10 @@ public:
     // 任意パレットを設定し、preset を Custom に切り替えて即時 ImGui に流す。
     // 各カラーは RGBA `[0, 1]` 範囲想定 (clamp しない: ImGui 側で扱える HDR を
     // 妨げないため、1.0 超の値も技術的には許可)。
-    void SetCustomColors(const FEditorThemeColors& colors) noexcept;
+    void SetCustomColors(const EditorThemeColors& colors) noexcept;
 
     // 現在のカラーパレット (preset 既定 or Custom) を const 参照で取得。
-    const FEditorThemeColors& Colors() const noexcept { return _colors; }
+    const EditorThemeColors& Colors() const noexcept { return _colors; }
 
     // ----- font / spacing / corner -----------------------------------------
 
@@ -205,7 +205,7 @@ public:
     // 現在の font scale を返す。
     f32 FontScale() const noexcept { return _font_scale; }
 
-    // 全 corner radius (FWindow / Frame / Popup / Grab / Tab / Scrollbar) を
+    // 全 corner radius (Window / Frame / Popup / Grab / Tab / Scrollbar) を
     // `radius` に統一する。負値は 0 に clamp。
     void SetRoundedCorners(f32 radius) noexcept;
 
@@ -220,9 +220,9 @@ public:
     // 現在の ItemSpacing.y を返す。
     f32 Spacing() const noexcept { return _item_spacing_y; }
 
-    // ----- Theme FSettings UI 描画 -------------------------------------------
+    // ----- Theme Settings UI 描画 -------------------------------------------
 
-    // "Theme FSettings" という独立 ImGui window を描画する。
+    // "Theme Settings" という独立 ImGui window を描画する。
     // 内容: preset combo + 全カラー ColorEdit4 + font_scale / corner / spacing
     // の SliderFloat + Save/Load ボタン (ファイルパスは固定で
     // `data/editor/theme.acstheme` を使う、Phase 21b でファイルダイアログ化)。
@@ -254,10 +254,10 @@ private:
     // preset 種別ごとの既定パレットを `out` に書き込む。Custom が渡された
     // 場合は `_colors` を上書きしない (= 既存 Custom 値を保持)。
     static void FillPresetColors(EEditorThemePreset preset,
-                                 FEditorThemeColors& out) noexcept;
+                                 EditorThemeColors& out) noexcept;
 
     EEditorThemePreset _preset          = EEditorThemePreset::Dark;
-    FEditorThemeColors  _colors          {};
+    EditorThemeColors  _colors          {};
     f32                _font_scale      = 1.0f;
     f32                _corner_radius   = 3.0f;
     f32                _item_spacing_y  = 4.0f;

@@ -5,7 +5,7 @@
 //       2D ゲームの絵描き用。同じテクスチャの連続スプライトは自動でバッチされる。
 //
 // 使い方:
-//   FSpriteBatch sb;
+//   SpriteBatch sb;
 //   sb.Init(*renderer.Device(), renderer.ColorFormat(), max_sprites=4096);
 //
 //   // 描画フレーム中
@@ -31,13 +31,13 @@
 
 namespace acs {
 
-class FSpriteBatch {
+class SpriteBatch {
 public:
-    FSpriteBatch() noexcept = default;
-    ~FSpriteBatch() noexcept = default;
+    SpriteBatch() noexcept = default;
+    ~SpriteBatch() noexcept = default;
 
-    FSpriteBatch(const FSpriteBatch&)            = delete;
-    FSpriteBatch& operator=(const FSpriteBatch&) = delete;
+    SpriteBatch(const SpriteBatch&)            = delete;
+    SpriteBatch& operator=(const SpriteBatch&) = delete;
 
     // 初期化（VS+PS、パイプライン、頂点/インデックスバッファを作成）
     // max_sprites: 1 フレームで描けるスプライト総数の上限
@@ -64,9 +64,9 @@ public:
     // 単色矩形（テクスチャ無し）
     void DrawRect(f32 x, f32 y, f32 w, f32 h, FVec4 color) noexcept;
 
-    // テキスト描画（UTF-8、FFont はあらかじめ Init 済みのもの、(x,y) は行の左上）
+    // テキスト描画（UTF-8、Font はあらかじめ Init 済みのもの、(x,y) は行の左上）
     // \n で改行、未収録グリフはスキップ。
-    void DrawString(const class FFont& font, const char* utf8_text,
+    void DrawString(const class Font& font, const char* utf8_text,
                   f32 x, f32 y, FVec4 color = FVec4{1,1,1,1}) noexcept;
 
     // 回転付き描画。(cx,cy) を中心に radians だけ回転してテクスチャ(の一部)を描く。
@@ -98,7 +98,7 @@ public:
 
 private:
     // 1 頂点 = pos2D + uv + color
-    struct FVertex {
+    struct Vertex {
         f32 x, y;
         f32 u, v;
         f32 r, g, b, a;
@@ -116,7 +116,7 @@ private:
     TUniquePtr<IRhiBuffer>   _cb;       // screen size (1/w, 1/h)
     TUniquePtr<IRhiTexture>  _white;    // DrawRect 用 1×1 白テクスチャ
 
-    FVertex*          _vertex_cpu    = nullptr;   // CPU 側の VB ステージ
+    Vertex*          _vertex_cpu    = nullptr;   // CPU 側の VB ステージ
     u32              _max_sprites   = 0;
     u32              _sprite_count  = 0;        // フレーム内累計
     u32              _flushed_count = 0;        // 既に GPU に投入済みのスプライト数

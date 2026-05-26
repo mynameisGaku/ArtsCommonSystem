@@ -13,7 +13,7 @@ EC2 (Windows Server 2025) 上で Claude Code を新規起動した時の context
   - Visual Studio 2022 Community + 「C++ によるデスクトップ開発」ワークロード
   - Git for Windows
   - CMake (VS 同梱 + standalone 両方) + Ninja
-  - FNode.js v24 + Claude Code CLI (`claude`)
+  - Node.js v24 + Claude Code CLI (`claude`)
 - **NVIDIA ドライバ**: g4dn 切替後にインストール (S3://nvidia-gaming/windows/latest/、要 IAM Role `acs-ec2-s3-read` のアタッチ)
 
 ---
@@ -25,7 +25,7 @@ ACS は **日本インディー / 学習者向け軽量 C++ ゲームフレー�
 - リポジトリ: https://github.com/mynameisGaku/ArtsCommonSystem
 - 作業ブランチ: `claude/phase-18-20`
 - 言語規約: STL 不使用、独自 `TArray / THashMap / FString / TUniquePtr / TRc`、`TResult<T, FErrorCode>` エラーハンドリング (例外なし)
-- 16 モジュール: Foundation / Threading / Memory / FContainer / Math / Test / Platform / Ecs / FAsset / Render / App / Audio / FNetwork / Imgui / FEvent / Mvvm / Ui
+- 16 モジュール: Foundation / Threading / Memory / Container / Math / Test / Platform / Ecs / Asset / Render / App / Audio / Network / Imgui / Event / Mvvm / Ui
 
 ## 2. 設計判断 (勝手に動かさない)
 
@@ -33,7 +33,7 @@ ACS は **日本インディー / 学習者向け軽量 C++ ゲームフレー�
 |---|---|---|
 | **GC** | 採用しない | data-oriented (ECS / SoA) と相性悪い、TRc + Move + Entity ID で完結 |
 | **Linux 対応** | しない | Windows / DX12 集中、過去に Linux 移植試行 → revert 済 |
-| **MVVM 位置付け** | 一般 UI architecture pattern として | UE5 限定じゃない、`src/ui/` が純正 FWidget framework |
+| **MVVM 位置付け** | 一般 UI architecture pattern として | UE5 限定じゃない、`src/ui/` が純正 Widget framework |
 | **RHI バックエンド** | Diligent Engine + 既存 DX12 raw 二刀流 | Vulkan / Metal 切替の前提 |
 | **STL** | 使わない | アロケータ統制、ゲーム業界慣習、例外コスト回避 |
 
@@ -53,7 +53,7 @@ ACS は **日本インディー / 学習者向け軽量 C++ ゲームフレー�
   - **`tests/mvvm_tests.cpp`** の `bind != nullptr` (TUniquePtr に `operator!=` 無し) → `bind.Get() != nullptr`
 
 **検証**: 全 24 ターゲット (lib + tests + samples) ビルド成功、71/72 tests pass。
-1 件 fail = `FEvent.TimerSetIntervalRepeats` (timing flake、私の変更無関係、要別途調査)。
+1 件 fail = `Event.TimerSetIntervalRepeats` (timing flake、私の変更無関係、要別途調査)。
 
 ---
 
@@ -61,12 +61,12 @@ ACS は **日本インディー / 学習者向け軽量 C++ ゲームフレー�
 
 優先度高め:
 - **Phase 24/25** の続き (4 エージェント監査 synthesis の残項目)
-- **`FEvent.TimerSetIntervalRepeats` flake 調査** (`acs/tests/event_tests.cpp:46`、Tick(1.6f) で `hits >= 3` が成立しない、FTimerManager の境界判定にバグ疑い)
+- **`Event.TimerSetIntervalRepeats` flake 調査** (`acs/tests/event_tests.cpp:46`、Tick(1.6f) で `hits >= 3` が成立しない、TimerManager の境界判定にバグ疑い)
 
 中期:
 - **archetype 検討** (10 万 entity ベンチで sparse set のボトルネック確認後)
 - **FJobGraph cycle detection 強化** (Kahn 法導入済、エッジケース潰す)
-- **FMessagePipe ring buffer 化** (現状 TArray 前詰めで O(N) Pop)
+- **MessagePipe ring buffer 化** (現状 TArray 前詰めで O(N) Pop)
 - **Vulkan 経路の動作検証** (現状 D3D12 のみテスト想定、Diligent 経由で Vulkan SKU が有効化された場合の確認)
 
 ---
@@ -119,7 +119,7 @@ cmake -B cmake-build-debug -S . -DACS_RENDER_DILIGENT=ON
 
 - **OneDrive 上のリポジトリ問題**: 元々のローカル home (`C:\Users\g0190\OneDrive\Desktop\acs_github`) は OneDrive sync 経由なので git operations が時々遅い / 一時 lock。EC2 上では `$env:USERPROFILE\source\repos` 直下 (OneDrive 外) に clone する想定
 - **AWS msstore 証明書エラー**: winget で msstore source 使うと cert エラー、`--source winget` で回避
-- **PATH 反映**: FNode.js / VS / CMake インストール後は **PowerShell ウィンドウを開き直す**、または:
+- **PATH 反映**: Node.js / VS / CMake インストール後は **PowerShell ウィンドウを開き直す**、または:
   ```powershell
   $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
   ```

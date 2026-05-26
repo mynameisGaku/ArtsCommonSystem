@@ -23,12 +23,12 @@ void HelloWindowApp::OnStart() noexcept {
 }
 
 void HelloWindowApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (FInput::IsKeyDown(EKey::W)) _r += dt;
-    if (FInput::IsKeyDown(EKey::S)) _r -= dt;
-    if (FInput::IsKeyDown(EKey::A)) _g += dt;
-    if (FInput::IsKeyDown(EKey::D)) _g -= dt;
+    if (Input::IsKeyDown(EKey::W)) _r += dt;
+    if (Input::IsKeyDown(EKey::S)) _r -= dt;
+    if (Input::IsKeyDown(EKey::A)) _g += dt;
+    if (Input::IsKeyDown(EKey::D)) _g -= dt;
     // 0..1 にクランプ (SetClearColor は範囲外の値を受け取ると見た目が破綻する)
     if (_r < 0) _r = 0; if (_r > 1) _r = 1;
     if (_g < 0) _g = 0; if (_g > 1) _g = 1;
@@ -52,9 +52,9 @@ void HelloWindowApp::OnShutdown() noexcept {
     ACS_LOG_INFO("HelloWindow shutting down");
 }
 
-void HelloWindowApp::OnEvent(const FEvent& e) noexcept {
+void HelloWindowApp::OnEvent(const Event& e) noexcept {
     if (e.type == EventType::WindowResize) {
-        ACS_LOG_INFO("FWindow resized to %ux%u", e.resize.width, e.resize.height);
+        ACS_LOG_INFO("Window resized to %ux%u", e.resize.width, e.resize.height);
     }
 }
 

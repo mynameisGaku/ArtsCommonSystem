@@ -7,7 +7,7 @@
 //   実モデレーション API (Azure Content Safety / Google Perspective / OpenAI Moderation
 //   / Hive 等) は別モジュールで差し込む前提で、本ファイルは I/F + Stub のみ。
 //
-//   入力 → FModerationResult{ verdict, rating, reason } の 1 段判定。
+//   入力 → ModerationResult{ verdict, rating, reason } の 1 段判定。
 //   verdict と rating の 2 軸を持つ「二段 moderation seam」:
 //     - verdict (3 値): UI フロー制御 (Allow=即公開 / Warn=確認後公開 / Block=拒否)
 //     - rating  (5 値): レーティング表示・年齢ゲート (Safe〜Explicit + ハードコード Block)
@@ -20,7 +20,7 @@
 //     ガードレールとして、どんな実装でも (= 実 SDK / Stub / モック いずれでも) この
 //     レーティングに分類された入力は **必ず** Block を返す契約とする。実装側で
 //     "Allow に降格する" 余地を残さない。詳細は EContentRating コメント参照。
-//   ・**所有しない const char***: `<string>` 不使用 (ACS 規約)。`FModerationResult::reason`
+//   ・**所有しない const char***: `<string>` 不使用 (ACS 規約)。`ModerationResult::reason`
 //     は static literal or 実装内部の static thread_local バッファを指す。寿命は
 //     「次の Moderate*() 呼び出しまで」を保証する。
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は同期で常に
@@ -41,7 +41,7 @@
 //   ・非コピー・非ムーブ (state を 1 箇所にとどめる)
 //
 // 参考:
-//   ・FLlmSafetyPipeline (text validation pattern)
+//   ・LlmSafetyPipeline (text validation pattern)
 //   ・SteamworksBridge   (seam + Stub singleton pattern)
 #pragma once
 
@@ -91,12 +91,12 @@ enum class EContentRating : u8 {
 };
 
 // =============================================================================
-// FModerationResult — 1 回の Moderate*() 呼び出しの結果
+// ModerationResult — 1 回の Moderate*() 呼び出しの結果
 // -----------------------------------------------------------------------------
 // `reason` は文字列を所有しない (= 静的リテラル or 内部 static バッファを指す)。
 // 寿命は「次の Moderate*() 呼び出しまで」。呼び出し側はその前に消費すること。
 // =============================================================================
-struct FModerationResult {
+struct ModerationResult {
     EModerationVerdict verdict = EModerationVerdict::Allow;
     EContentRating     rating  = EContentRating::Safe;
     const char*       reason  = nullptr;   // Warn/Block で有効、Allow では nullptr 可
@@ -110,7 +110,7 @@ struct FModerationResult {
 // `Tick(dt)` で非同期処理 (REST ポーリング等) を回す。
 //
 // 典型使用:
-//   class FGame {
+//   class Game {
 //       acs::game::IContentModerator* _mod = nullptr;
 //       void OnStart() noexcept override {
 //           _mod = &acs::game::GetModeratorStub();
@@ -142,17 +142,17 @@ public:
     // テキストモデレーション (チャット / プロフィール bio / レビュー文 等)。
     // `user_id` は通報履歴・レピュテーション参照用 (Stub では未使用、nullptr 可)。
     // `text` が nullptr / 空文字の場合の扱いは実装依存 (Stub は Allow)。
-    virtual TResult<FModerationResult> ModerateText(const char* user_id, const char* text) noexcept = 0;
+    virtual TResult<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept = 0;
 
     // 画像モデレーション (アバター / スクリーンショット投稿 / カスタムバナー 等)。
     // `image_data` は呼び出し側が所有する生バイト列 (PNG / JPEG / WebP 等の任意フォーマット)。
     // size==0 / nullptr は BadArgument エラーで返す (Stub も同様)。
-    virtual TResult<FModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept = 0;
+    virtual TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept = 0;
 
     // ユーザー名モデレーション (アカウント作成 / 改名時)。
     // 通常 text モデレーションより厳しい (= 短い文字列内の侮辱・なりすまし検出を強化)。
     // Stub では text と同じ NG ワード辞書を流用する。
-    virtual TResult<FModerationResult> ModerateUserName(const char* name) noexcept = 0;
+    virtual TResult<ModerationResult> ModerateUserName(const char* name) noexcept = 0;
 
     // 非同期処理ポンプ (REST 結果ポーリング / 内部キュー dispatch)。
     // ゲームループから毎フレーム呼ぶこと。Stub は no-op。
@@ -164,7 +164,7 @@ public:
 };
 
 // =============================================================================
-// FContentModeratorStub — 依存ゼロのデフォルト実装 (Phase 1)
+// ContentModeratorStub — 依存ゼロのデフォルト実装 (Phase 1)
 // -----------------------------------------------------------------------------
 // ・text: 内部の小さな NG 単語リスト (kBlockedWords[]) で contain チェック。
 //   ヒット時は verdict=Block / rating=Mature が基本。但し `SexualMinor` 関連
@@ -174,14 +174,14 @@ public:
 // ・username: text と同じ辞書を使用。
 // ・Tick(dt) / IsAvailable() は no-op (常に true)。
 // =============================================================================
-class FContentModeratorStub final : public IContentModerator {
+class ContentModeratorStub final : public IContentModerator {
 public:
-    FContentModeratorStub() noexcept = default;
-    ~FContentModeratorStub() noexcept override = default;
+    ContentModeratorStub() noexcept = default;
+    ~ContentModeratorStub() noexcept override = default;
 
-    TResult<FModerationResult> ModerateText(const char* user_id, const char* text) noexcept override;
-    TResult<FModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept override;
-    TResult<FModerationResult> ModerateUserName(const char* name) noexcept override;
+    TResult<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept override;
+    TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept override;
+    TResult<ModerationResult> ModerateUserName(const char* name) noexcept override;
     void                     Tick(f32 dt) noexcept override;
     bool                     IsAvailable() const noexcept override { return true; }
 };

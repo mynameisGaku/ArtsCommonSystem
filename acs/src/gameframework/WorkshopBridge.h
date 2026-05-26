@@ -38,7 +38,7 @@
 //     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
 //     非同期 callback 登録は Phase 3+ で検討。
 //   ・**Stub は static singleton で取得**: SteamworksBridge と同じく
-//     `GetWorkshopStub()` を提供。`FWorkshopBridgeStub::IsAvailable()` は
+//     `GetWorkshopStub()` を提供。`WorkshopBridgeStub::IsAvailable()` は
 //     常に false を返し、UI 側で「Workshop 機能無効」表示の判定に使える。
 //   ・**実 SDK 実装はここでは作らない**: GoldenWorkshopBridge 等は Steamworks UGC
 //     API への依存を伴うため、本ファイルでは I/F + Stub のみ。
@@ -61,11 +61,11 @@ inline constexpr u16 kSubWorkshopNotImplemented = 1101;  // Stub による未実
 inline constexpr u16 kSubWorkshopNotInitialized = 1102;  // Init() 前の API 呼び出し
 inline constexpr u16 kSubWorkshopUnavailable    = 1103;  // SDK が無効 (Stub 等)
 
-// ---- FWorkshopItem (cross-platform 共通の UGC メタ情報) -------------------
+// ---- WorkshopItem (cross-platform 共通の UGC メタ情報) -------------------
 // Bridge は文字列を所有しない。`title` / `description` / `author` は実 SDK 側
 // (または Stub 内 static literal) のメモリを参照する。寿命は「次の Tick() を
 // 呼ぶまで」を保証する (実装によってはそれより長い)。
-struct FWorkshopItem {
+struct WorkshopItem {
     u64         item_id     = 0;        // SDK 固有の opaque ID (Steam PublishedFileId_t 等)
     const char* title       = nullptr;  // ユーザー表示タイトル (UTF-8)
     const char* description = nullptr;  // 説明文 (UTF-8、長文可)
@@ -109,7 +109,7 @@ public:
                                     const char* change_note) noexcept = 0;
 
     // アイテムメタ情報のクエリ。戻り値の文字列は次の Tick() まで有効。
-    virtual TResult<FWorkshopItem> QueryItem(u64 item_id) noexcept = 0;
+    virtual TResult<WorkshopItem> QueryItem(u64 item_id) noexcept = 0;
 
     // ローカルプレイヤーが subscribe 中のアイテム数。
     virtual TResult<u32> QuerySubscribedCount() noexcept = 0;
@@ -141,17 +141,17 @@ public:
 //     kSubWorkshopNotImplemented) を返す。
 //   ・GetDownloadProgress() は常に -1 を返す。
 //   ・Shutdown() / Tick() は副作用なし。
-class FWorkshopBridgeStub final : public IWorkshopBridge {
+class WorkshopBridgeStub final : public IWorkshopBridge {
 public:
-    FWorkshopBridgeStub() noexcept = default;
-    ~FWorkshopBridgeStub() noexcept override = default;
+    WorkshopBridgeStub() noexcept = default;
+    ~WorkshopBridgeStub() noexcept override = default;
 
     TResult<void>         Init() noexcept override;
     void                 Shutdown() noexcept override;
     bool                 IsAvailable() const noexcept override { return false; }
     TResult<u64>          CreateItem(const char* title, const char* content_path) noexcept override;
     TResult<void>         UpdateItem(u64 item_id, const char* content_path, const char* change_note) noexcept override;
-    TResult<FWorkshopItem> QueryItem(u64 item_id) noexcept override;
+    TResult<WorkshopItem> QueryItem(u64 item_id) noexcept override;
     TResult<u32>          QuerySubscribedCount() noexcept override;
     TResult<void>         SubscribeItem(u64 item_id) noexcept override;
     TResult<void>         UnsubscribeItem(u64 item_id) noexcept override;
@@ -164,7 +164,7 @@ private:
 };
 
 // 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。
-// SteamworksBridge では `FSteamworksBridgeStub::GetStub()` という静的メンバ
+// SteamworksBridge では `SteamworksBridgeStub::GetStub()` という静的メンバ
 // 関数を使っているが、Workshop 側は仕様に合わせて自由関数で公開する
 // (どちらも Meyer's singleton で thread-safe)。
 IWorkshopBridge& GetWorkshopStub() noexcept;

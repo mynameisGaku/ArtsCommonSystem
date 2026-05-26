@@ -127,7 +127,7 @@ if(ACS_BUILD_SAMPLES)
     acs_add_sample(08_HelloPhysics2D)
     acs_add_sample(09_HelloParticles)
 
-    # --- (2) 3D 入門: FStandardShader（HLSL を書かない）---
+    # --- (2) 3D 入門: StandardShader（HLSL を書かない）---
     acs_add_sample(10_HelloModel)
     acs_add_sample(11_HelloRaycast3D)
     acs_add_sample(12_HelloLights)
@@ -160,14 +160,14 @@ if(ACS_BUILD_SAMPLES)
         acs_add_sample(25_HelloIbl)
         acs_add_sample(26_HelloLightmap)
         # 27 (Phase 35-3d 直後の cinematic demo) も Diligent 専用
-        # (HDR + per-slice RT + FRefractionShader が Diligent 要)
+        # (HDR + per-slice RT + RefractionShader が Diligent 要)
         acs_add_sample(27_HelloShowcase)
     endif()
 
-    # --- (6) GameFramework (Phase 1 Pillar A: FScene 切替の最小デモ) ---
+    # --- (6) GameFramework (Phase 1 Pillar A: Scene 切替の最小デモ) ---
     acs_add_sample(28_HelloGameFramework)
 
-    # --- (7) GameFramework Phase 19b: 対話的 FParticle エディタ ---
+    # --- (7) GameFramework Phase 19b: 対話的 Particle エディタ ---
     # ImGui を使うため ACS_RENDER_DX12_RAW のみ (acs_imgui module の制約)。
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(29_HelloParticleEditor)

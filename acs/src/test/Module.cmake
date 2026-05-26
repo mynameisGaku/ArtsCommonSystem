@@ -9,5 +9,5 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Threading
-        FContainer
+        Container
 )

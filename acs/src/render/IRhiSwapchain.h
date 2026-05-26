@@ -10,11 +10,11 @@
 namespace acs {
 
 class IRhiDevice;
-class FWindow;
+class Window;
 
 // スワップチェイン作成オプション
-struct FSwapchainConfig {
-    FWindow* window      = nullptr;
+struct SwapchainConfig {
+    Window* window      = nullptr;
     EFormat  format      = EFormat::B8G8R8A8_UNorm;
     u32     buffer_count = 2;          // 2 = ダブルバッファ、3 = トリプルバッファ
     bool    vsync       = true;
@@ -42,6 +42,6 @@ public:
 
 // スワップチェインを作成
 TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
-                                                          const FSwapchainConfig& cfg) noexcept;
+                                                          const SwapchainConfig& cfg) noexcept;
 
 } // namespace acs

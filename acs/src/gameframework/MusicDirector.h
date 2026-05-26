@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FMusicDirector (適応 BGM + Stinger)
+// GameFramework Pillar H — MusicDirector (適応 BGM + Stinger)
 //
-// FAudioDirector が「低レイヤの mixer / クロスフェード」を担うのに対し、
-// 本 FMusicDirector は「ゲームプレイ状態 (戦闘 / 平穏 / 勝利 ...) を BGM へ
-// マッピングする上位レイヤ」である。両者はシーン跨ぎ生存で、FGame (or app)
+// AudioDirector が「低レイヤの mixer / クロスフェード」を担うのに対し、
+// 本 MusicDirector は「ゲームプレイ状態 (戦闘 / 平穏 / 勝利 ...) を BGM へ
+// マッピングする上位レイヤ」である。両者はシーン跨ぎ生存で、Game (or app)
 // 側が同列に保持する想定 (BGM 状態はシーン切替で途切れない方が自然)。
 //
 // 機能:
@@ -13,13 +13,13 @@
 //   ・SetIntensity(0..1) で「同じ状態内での激しさ」を表現
 //     (Combat 内で 0.2 = 探索的、0.9 = 高激戦、など intensity range で track 分岐)
 //   ・PlayStinger() で「BGM を停めずに重ねる一発もの SFX」(ボス出現 / 達成等)
-//     実演奏は FAudioDirector::PlaySfx に流す想定 (本クラスは pending 情報のみ管理)
+//     実演奏は AudioDirector::PlaySfx に流す想定 (本クラスは pending 情報のみ管理)
 //   ・Tick(dt) で transition / stinger timer を進行
 //
 // 設計選択 (Phase 1: bridge スケルトン):
-//   ・**FAudioEngine 直叩きしない**: 実際の再生は FAudioDirector / FAudioEngine に
+//   ・**AudioEngine 直叩きしない**: 実際の再生は AudioDirector / AudioEngine に
 //     委ねる前提で、本クラスは「どの track を、どのゲインで鳴らすべきか」を
-//     決める state machine に徹する。Phase 2 で FAudioDirector と結線。
+//     決める state machine に徹する。Phase 2 で AudioDirector と結線。
 //   ・**state -> track 配列は SoA で分離**: `_tracks` は全 track をフラットに
 //     保持し、`_state_first[state]` + `_state_count[state]` で各 state の
 //     区間を表現。挿入順は state ごとにグループ化される。RegisterTrack で
@@ -35,11 +35,11 @@
 //   ・**Stinger は単一バッファ**: 1 個分だけ「次に演奏すべき stinger」を保持し、
 //     ConsumeStinger() で取り出すまでは pending=true。複数同時投入は警告 +
 //     最新を採用 (BGM 上に重ねる前提なので、多重スタックは認知的にノイズ)。
-//   ・**name / asset_path は所有しない**: FAudioDirector と同様に文字列リテラル前提。
-//     Phase 2 で FStringView / FAsset Handle に置き換える。
+//   ・**name / asset_path は所有しない**: AudioDirector と同様に文字列リテラル前提。
+//     Phase 2 で FStringView / Asset Handle に置き換える。
 //
 // 範囲外 (Phase 2+ で):
-//   ・FAudioDirector との実結線 (実 BGM 再生)
+//   ・AudioDirector との実結線 (実 BGM 再生)
 //   ・intensity 変化に追従する中間 track 切替 (state を変えずに track 切替)
 //   ・ビート同期 stinger / 拍頭スナップ
 //   ・横展開: vertical re-mixing (stem 分離 mix), pre-emption 優先度
@@ -65,33 +65,33 @@ enum class EMusicState : u8 {
 //   intensity_min / intensity_max: [0, 1]。現在 intensity がこの範囲に含まれる
 //     ときに本 track が候補となる。range を [0, 1] にすれば常時候補。
 //   loop: true でループ再生 (Calm / Combat 等)、false で one-shot (Victory 等)。
-struct FMusicTrack {
+struct MusicTrack {
     const char* asset_path    = nullptr;  // 所有しない (literal 前提)
     f32         intensity_min = 0.0f;
     f32         intensity_max = 1.0f;
     bool        loop          = true;
 };
 
-class FMusicDirector {
+class MusicDirector {
 public:
     // EMusicState の総数。enum 末尾追加時はここを増やす。
     static constexpr u32 kStateCount = 6;
     // 全 state 合計の track 登録上限 (リザーブ目安、超えても自動拡張する)。
     static constexpr u32 kTrackReserveHint = 16;
 
-    FMusicDirector() noexcept;
-    ~FMusicDirector() noexcept = default;
+    MusicDirector() noexcept;
+    ~MusicDirector() noexcept = default;
 
-    FMusicDirector(const FMusicDirector&)            = delete;
-    FMusicDirector& operator=(const FMusicDirector&) = delete;
-    FMusicDirector(FMusicDirector&&)                 = delete;
-    FMusicDirector& operator=(FMusicDirector&&)      = delete;
+    MusicDirector(const MusicDirector&)            = delete;
+    MusicDirector& operator=(const MusicDirector&) = delete;
+    MusicDirector(MusicDirector&&)                 = delete;
+    MusicDirector& operator=(MusicDirector&&)      = delete;
 
     // ----- track 登録 -----
     // 同一 state に複数 track 登録可。intensity range が重なる場合は登録順で
     // 最初に該当した track が選択される (Phase 2 で優先度 API を追加予定)。
     // asset_path == nullptr は警告 + 無視。
-    void RegisterTrack(EMusicState state, const FMusicTrack& track) noexcept;
+    void RegisterTrack(EMusicState state, const MusicTrack& track) noexcept;
 
     // ----- 状態遷移 -----
     // current state → state にクロスフェード開始。
@@ -126,18 +126,18 @@ public:
     const char* ConsumeStinger(f32& out_volume) noexcept;
 
     // ----- driver -----
-    // FSceneServices / FGame から毎フレーム呼ぶ。dt はリアル秒。
+    // SceneServices / Game から毎フレーム呼ぶ。dt はリアル秒。
     void Tick(f32 dt) noexcept;
 
     // ----- 全停止 -----
     // 状態を Silent に即時切替、stinger pending を破棄、intensity は保持。
     void Stop() noexcept;
 
-    // ----- 派生情報 (debug / Phase 2 で FAudioDirector に流す予定) -----
+    // ----- 派生情報 (debug / Phase 2 で AudioDirector に流す予定) -----
     // 現在 state で intensity に合致する track を返す。該当なし or 未登録なら nullptr。
-    const FMusicTrack* CurrentTrack() const noexcept;
+    const MusicTrack* CurrentTrack() const noexcept;
     // 遷移中 (slot[1]) の target state 側 track。遷移していない場合は nullptr。
-    const FMusicTrack* TargetTrack() const noexcept;
+    const MusicTrack* TargetTrack() const noexcept;
 
 private:
     // 内部 helper: state インデックスの整合性を取り直す。Register 後に呼ぶ。
@@ -149,7 +149,7 @@ private:
     static void LogTodoOnce(const char* what) noexcept;
 
     // ----- track 倉庫 (フラット配列) -----
-    TArray<FMusicTrack> _tracks;
+    TArray<MusicTrack> _tracks;
     // 各 state の _tracks 上の開始 index と個数 (SoA で state→range mapping)。
     u32 _state_first[kStateCount] {};
     u32 _state_count[kStateCount] {};

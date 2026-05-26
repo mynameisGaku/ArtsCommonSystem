@@ -18,10 +18,10 @@ using namespace acs::game;
 namespace hellofg {
 
 void GameOverScene::OnEnter() noexcept {
-    FInputMap& im = Services().Input();
+    InputMap& im = Services().Input();
     im.ClearAll();
-    im.BindKey(FActionId("Reset"), EKey::R);
-    im.BindKey(FActionId("Quit"),  EKey::Escape);
+    im.BindKey(ActionId("Reset"), EKey::R);
+    im.BindKey(ActionId("Quit"),  EKey::Escape);
 
     auto& app = static_cast<FullGameApp&>(GetGame());
     _saved_best    = app.GetHighScore().best_score;
@@ -41,24 +41,24 @@ void GameOverScene::OnExit() noexcept {
 }
 
 void GameOverScene::OnUpdate(f32 dt) noexcept {
-    const FInputMap& im = Services().Input();
-    if (im.IsPressed(FActionId("Quit"))) {
+    const InputMap& im = Services().Input();
+    if (im.IsPressed(ActionId("Quit"))) {
         GetGame().Quit();
         return;
     }
-    if (im.IsPressed(FActionId("Reset"))) {
+    if (im.IsPressed(ActionId("Reset"))) {
         Scenes().ChangeScene(MakeUnique<TitleScene>());
         return;
     }
     _state_sec += dt;
 }
 
-void GameOverScene::OnRender(FRenderContext& rc) noexcept {
+void GameOverScene::OnRender(RenderContext& rc) noexcept {
     auto& app = static_cast<FullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
-    FSpriteBatch& sb = app.Sprites();
+    SpriteBatch& sb = app.Sprites();
     const u32 sw = rc.Width();
     const u32 sh = rc.Height();
     sb.Begin(rc.Cmd(), sw, sh);
@@ -100,8 +100,8 @@ void GameOverScene::OnRender(FRenderContext& rc) noexcept {
 
     // ----- テキストラベル -----
     if (app.FontReady()) {
-        FFont& title_font = app.FontTitle();
-        FFont& body       = app.FontBody();
+        Font& title_font = app.FontTitle();
+        Font& body       = app.FontBody();
 
         const char* result_text = _did_win ? "VICTORY!" : "GAME OVER";
         const f32 rw = title_font.MeasureWidth(result_text);

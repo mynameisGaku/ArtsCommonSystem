@@ -17,8 +17,8 @@ template<typename T>
 class TArray {
 public:
     TArray() noexcept : _alloc(&DefaultAllocator()) {}
-    explicit TArray(FAllocator& a) noexcept : _alloc(&a) {}
-    TArray(usize initial_capacity, FAllocator& a = DefaultAllocator()) noexcept : _alloc(&a) {
+    explicit TArray(Allocator& a) noexcept : _alloc(&a) {}
+    TArray(usize initial_capacity, Allocator& a = DefaultAllocator()) noexcept : _alloc(&a) {
         Reserve(initial_capacity);
     }
 
@@ -141,7 +141,7 @@ public:
         return c;
     }
 
-    FAllocator* GetAllocator() const noexcept { return _alloc; }
+    Allocator* GetAllocator() const noexcept { return _alloc; }
 
 private:
     // 容量増加戦略（約 1.5 倍ずつ）
@@ -178,7 +178,7 @@ private:
     T*         _data     = nullptr;
     usize      _size     = 0;
     usize      _capacity = 0;
-    FAllocator* _alloc    = nullptr;
+    Allocator* _alloc    = nullptr;
 };
 
 } // namespace acs

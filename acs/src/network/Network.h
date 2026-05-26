@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // ネットワークサブシステム初期化（WSAStartup ラッパ）
 //
-// 使い方: アプリ起動時に一度 FNetwork::Init() を呼ぶ。FApplication が
-//         Audio/FNetwork 系を自動初期化することは無いので、明示的に呼ぶこと。
+// 使い方: アプリ起動時に一度 Network::Init() を呼ぶ。Application が
+//         Audio/Network 系を自動初期化することは無いので、明示的に呼ぶこと。
 #pragma once
 
 #include "foundation/Types.h"
@@ -10,7 +10,7 @@
 
 namespace acs {
 
-class FNetwork {
+class Network {
 public:
     // WinSock を初期化（多重 Init は OK、内部で参照カウント）
     static TResult<void> Init() noexcept;

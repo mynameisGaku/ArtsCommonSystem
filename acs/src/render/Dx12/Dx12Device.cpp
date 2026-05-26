@@ -5,7 +5,7 @@
 
 namespace acs {
 
-FDx12Device::~FDx12Device() noexcept {
+Dx12Device::~Dx12Device() noexcept {
     WaitIdle();  // Pending コマンドの完了を待ってから破棄
     if (_idle_event) ::CloseHandle(_idle_event);
     ACS_SAFE_RELEASE(_idle_fence);
@@ -17,8 +17,8 @@ FDx12Device::~FDx12Device() noexcept {
     ACS_SAFE_RELEASE(_factory);
 }
 
-FHrResult FDx12Device::InitDescriptorHeaps() noexcept {
-    FHrResult r{};
+HrResult Dx12Device::InitDescriptorHeaps() noexcept {
+    HrResult r{};
     // SRV/CBV/UAV 用シェーダ可視ヒープ
     D3D12_DESCRIPTOR_HEAP_DESC hd{};
     hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -47,7 +47,7 @@ FHrResult FDx12Device::InitDescriptorHeaps() noexcept {
     return r;
 }
 
-i32 FDx12Device::AllocateSrvSlot() noexcept {
+i32 Dx12Device::AllocateSrvSlot() noexcept {
     if (_srv_free_count > 0) {
         return _srv_free_list[--_srv_free_count];
     }
@@ -55,44 +55,44 @@ i32 FDx12Device::AllocateSrvSlot() noexcept {
     return static_cast<i32>(_srv_high_water++);
 }
 
-void FDx12Device::FreeSrvSlot(i32 index) noexcept {
+void Dx12Device::FreeSrvSlot(i32 index) noexcept {
     if (index < 0) return;
     if (_srv_free_count < kSrvCapacity) {
         _srv_free_list[_srv_free_count++] = index;
     }
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::SrvCpuHandle(i32 index) const noexcept {
+D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::SrvCpuHandle(i32 index) const noexcept {
     D3D12_CPU_DESCRIPTOR_HANDLE h = _srv_heap->GetCPUDescriptorHandleForHeapStart();
     h.ptr += static_cast<SIZE_T>(_srv_handle_size) * static_cast<SIZE_T>(index);
     return h;
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE FDx12Device::SrvGpuHandle(i32 index) const noexcept {
+D3D12_GPU_DESCRIPTOR_HANDLE Dx12Device::SrvGpuHandle(i32 index) const noexcept {
     D3D12_GPU_DESCRIPTOR_HANDLE h = _srv_heap->GetGPUDescriptorHandleForHeapStart();
     h.ptr += static_cast<UINT64>(_srv_handle_size) * static_cast<UINT64>(index);
     return h;
 }
 
-i32 FDx12Device::AllocateDsvSlot() noexcept {
+i32 Dx12Device::AllocateDsvSlot() noexcept {
     if (_dsv_free_count > 0) return _dsv_free_list[--_dsv_free_count];
     if (_dsv_high_water >= kDsvCapacity) return -1;
     return static_cast<i32>(_dsv_high_water++);
 }
 
-void FDx12Device::FreeDsvSlot(i32 index) noexcept {
+void Dx12Device::FreeDsvSlot(i32 index) noexcept {
     if (index < 0) return;
     if (_dsv_free_count < kDsvCapacity) _dsv_free_list[_dsv_free_count++] = index;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::DsvCpuHandle(i32 index) const noexcept {
+D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::DsvCpuHandle(i32 index) const noexcept {
     D3D12_CPU_DESCRIPTOR_HANDLE h = _dsv_heap->GetCPUDescriptorHandleForHeapStart();
     h.ptr += static_cast<SIZE_T>(_dsv_handle_size) * static_cast<SIZE_T>(index);
     return h;
 }
 
-FHrResult FDx12Device::Init(const FDeviceConfig& cfg) noexcept {
-    FHrResult r{};
+HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
+    HrResult r{};
 
     // デバッグレイヤー有効化（ID3D12Debug を取得して EnableDebugLayer）
     if (cfg.enable_debug_layer) {
@@ -160,7 +160,7 @@ FHrResult FDx12Device::Init(const FDeviceConfig& cfg) noexcept {
 }
 
 // GPU が現在のキューに積まれた全コマンドを完了するまで待つ
-void FDx12Device::WaitIdle() noexcept {
+void Dx12Device::WaitIdle() noexcept {
     if (!_gfx_queue || !_idle_fence) return;
     ++_idle_value;
     _gfx_queue->Signal(_idle_fence, _idle_value);
@@ -171,14 +171,14 @@ void FDx12Device::WaitIdle() noexcept {
 }
 
 // フレーム単位で利用する Signal/Wait（WaitIdle と同じ fence を共有）
-u64 FDx12Device::SignalGraphicsQueue() noexcept {
+u64 Dx12Device::SignalGraphicsQueue() noexcept {
     if (!_gfx_queue || !_idle_fence) return 0;
     ++_idle_value;
     _gfx_queue->Signal(_idle_fence, _idle_value);
     return _idle_value;
 }
 
-void FDx12Device::WaitForFenceValue(u64 value) noexcept {
+void Dx12Device::WaitForFenceValue(u64 value) noexcept {
     if (!_idle_fence || value == 0) return;
     if (_idle_fence->GetCompletedValue() >= value) return;
     _idle_fence->SetEventOnCompletion(value, _idle_event);
@@ -188,12 +188,12 @@ void FDx12Device::WaitForFenceValue(u64 value) noexcept {
 // ファクトリ関数: CreateRhiDevice の DX12 実装
 // Diligent バックエンドが有効化されている場合は RhiBackend.cpp が実装を提供する。
 #if !WITH_RENDER_DILIGENT
-TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& cfg) noexcept {
-    auto d = MakeUnique<FDx12Device>();
-    if (!d) return ACS_ERR(Memory, 200, "FDx12Device alloc failed");
-    FHrResult r = d->Init(cfg);
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept {
+    auto d = MakeUnique<Dx12Device>();
+    if (!d) return ACS_ERR(Memory, 200, "Dx12Device alloc failed");
+    HrResult r = d->Init(cfg);
     if (r.IsErr()) {
-        return ACS_ERR_OS(Render, 1, "FDx12Device::Init failed", static_cast<u32>(r.hr));
+        return ACS_ERR_OS(Render, 1, "Dx12Device::Init failed", static_cast<u32>(r.hr));
     }
     TUniquePtr<IRhiDevice> base(d.Release(), d.GetAllocator());
     return TResult<TUniquePtr<IRhiDevice>>(OkInit, Move(base));

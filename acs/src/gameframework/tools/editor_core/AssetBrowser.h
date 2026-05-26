@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K (editor_core) — FAssetBrowser (Phase 21a editor 共通基盤)
+// GameFramework Pillar K (editor_core) — AssetBrowser (Phase 21a editor 共通基盤)
 //
 // プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各種 panel
 // (ModelViewer / TilemapEditor / ParticleEditor 等) に Drag & Drop 経由で
-// 「アセットパス」を供給する Unity の Project FWindow / Godot の FFileSystem
+// 「アセットパス」を供給する Unity の Project Window / Godot の FileSystem
 // Dock 相当の基盤パネル。
 //
 // 役割:
@@ -16,7 +16,7 @@
 //     表示の足がかりにする。
 //
 // 使い方:
-//   FAssetBrowser browser;
+//   AssetBrowser browser;
 //   browser.Init(L"assets");
 //   // 毎フレーム
 //   browser.DrawUI();
@@ -32,33 +32,33 @@
 //   //   }
 //
 // 設計選択 (Phase 21a editor_core):
-//   ・**非コピー / 非ムーブ**: 内部 TArray<FAssetEntry> + 文字列バッファ pool の
-//     所有を曖昧にしない (FHierarchyPanel / FInspectorPanel と同じ規約)。
+//   ・**非コピー / 非ムーブ**: 内部 TArray<AssetEntry> + 文字列バッファ pool の
+//     所有を曖昧にしない (HierarchyPanel / InspectorPanel と同じ規約)。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / 列挙失敗を
 //     no-op (= 空ツリー) で表現する。
-//   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<FAssetEntry>`、文字列は
+//   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<AssetEntry>`、文字列は
 //     TArray<wchar_t> + TArray<char> の linear pool に積む方式 (= path / short_name
-//     の生存期間を TPool の clear/再生成で揃え、FAssetEntry はオフセットではなく
+//     の生存期間を TPool の clear/再生成で揃え、AssetEntry はオフセットではなく
 //     stabilize された pointer をそのまま持つ。再 Refresh で全部使い直す)。
 //   ・**ImGui ヘッダは .cpp 側のみ**: ヘッダから imgui 依存を漏らさない方針
-//     (FParticleEditorPanel / FHierarchyPanel と同じ)。
-//   ・**FFileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
+//     (ParticleEditorPanel / HierarchyPanel と同じ)。
+//   ・**FileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
 //     `platform/FileSystem.h` にはディレクトリ列挙 API が無い (ReadAllBytes /
-//     FileSize / Exists のみ)。将来 FFileSystem に `EnumerateDirectory` が
+//     FileSize / Exists のみ)。将来 FileSystem に `EnumerateDirectory` が
 //     追加されたらここを差し替える。
 //   ・**Drag payload は wchar_t* 直渡し**: payload identifier は
 //     `"ASSET_PATH"` (ImGui 仕様: 32 文字以内)。payload data は wchar_t*
 //     1 個 (= `sizeof(wchar_t*)` 8 bytes)。受け側は memcpy で取り出すこと
-//     推奨 (Hierarchy の FNode2D* 受け渡しと同じパターン)。pointer 寿命は
+//     推奨 (Hierarchy の Node2D* 受け渡しと同じパターン)。pointer 寿命は
 //     「次の Refresh まで」(= 文字列 pool が再生成されない間) を保証する。
 //   ・**callback は raw 関数ポインタ + void* user**: ACS は std::function を
-//     使えないため、FParticleEditorPanel / FInspectorPanel と同形の C スタイル
+//     使えないため、ParticleEditorPanel / InspectorPanel と同形の C スタイル
 //     callback を提供。
 //   ・**EAssetKind は拡張子 lookup の 1 階層**: `.png/.jpg/.tga` → Texture、
-//     `.mdl/.fbx/.gltf/.glb` → Mesh、`.ttf/.otf` → FFont、`.wav/.ogg/.mp3` →
-//     Audio、`.mat`/`.material` → Material、`.fx`/`.particle` → FParticle、
-//     `.anim` → FAnimation、`.bt` → FBehaviorTree、`.tilemap`/`.tmx` → FTilemap、
-//     `.prefab` → Prefab、`.cine` → Cinematic、`.scene` → FScene、未知は Other。
+//     `.mdl/.fbx/.gltf/.glb` → Mesh、`.ttf/.otf` → Font、`.wav/.ogg/.mp3` →
+//     Audio、`.mat`/`.material` → Material、`.fx`/`.particle` → Particle、
+//     `.anim` → FAnimation、`.bt` → BehaviorTree、`.tilemap`/`.tmx` → Tilemap、
+//     `.prefab` → Prefab、`.cine` → Cinematic、`.scene` → Scene、未知は Other。
 //     大文字小文字無視。
 //
 // 範囲外 (将来):
@@ -83,25 +83,25 @@ enum class EAssetKind : u8 {
     Unknown      = 0,
     Texture      = 1,   // .png .jpg .jpeg .tga .bmp .dds .ktx .hdr
     Mesh         = 2,   // .mdl .fbx .gltf .glb .obj
-    FFont         = 3,   // .ttf .otf
+    Font         = 3,   // .ttf .otf
     Audio        = 4,   // .wav .ogg .mp3 .flac
     Material     = 5,   // .mat .material
-    FParticle     = 6,   // .fx .particle
+    Particle     = 6,   // .fx .particle
     FAnimation    = 7,   // .anim
-    FBehaviorTree = 8,   // .bt
-    FTilemap      = 9,   // .tilemap .tmx
+    BehaviorTree = 8,   // .bt
+    Tilemap      = 9,   // .tilemap .tmx
     Prefab       = 10,  // .prefab
     Cinematic    = 11,  // .cine
-    FScene        = 12,  // .scene
+    Scene        = 12,  // .scene
     Other        = 13,  // 既知だがどれにも該当しない (現状未使用 / 利用側拡張用)
 };
 
-// ---- FAssetEntry — 列挙された 1 件のディレクトリ / ファイル ------------
-// `path` / `short_name` は FAssetBrowser の内部 pool 内のメモリを参照する。
+// ---- AssetEntry — 列挙された 1 件のディレクトリ / ファイル ------------
+// `path` / `short_name` は AssetBrowser の内部 pool 内のメモリを参照する。
 // 寿命は「次の Refresh() を呼ぶまで」のみ有効 (= 次回再列挙時に pool が
 // クリアされ pointer は無効化される)。コピーして保存する必要があれば
 // 利用側でバッファに退避すること。
-struct FAssetEntry {
+struct AssetEntry {
     const wchar_t* path             = nullptr;  // assets/ ルートからの相対パス (区切りは `\\`)
     const char*    short_name       = nullptr;  // path の末尾セグメント (UTF-8)
     EAssetKind     kind             = EAssetKind::Unknown;
@@ -111,13 +111,13 @@ struct FAssetEntry {
 };
 
 // ---------------------------------------------------------------------------
-// FAssetBrowser — assets/ ディレクトリツリー + ImGui 描画 + Drag Source
+// AssetBrowser — assets/ ディレクトリツリー + ImGui 描画 + Drag Source
 // ---------------------------------------------------------------------------
-class FAssetBrowser {
+class AssetBrowser {
 public:
     // 選択 / ダブルクリック通知 callback。`user` は SetOn*FCallback の第二引数
     // で渡したポインタがそのまま戻る (closure 代替)。`path` の寿命は
-    // 「次の Refresh() まで」(= FAssetEntry::path と同じルール)。
+    // 「次の Refresh() まで」(= AssetEntry::path と同じルール)。
     using AssetSelectedCallback      = void (*)(void* user,
                                                  const wchar_t* path,
                                                  EAssetKind kind) noexcept;
@@ -125,15 +125,15 @@ public:
                                                  const wchar_t* path,
                                                  EAssetKind kind) noexcept;
 
-    FAssetBrowser() noexcept = default;
-    ~FAssetBrowser() noexcept = default;
+    AssetBrowser() noexcept = default;
+    ~AssetBrowser() noexcept = default;
 
     // 非コピー・非ムーブ: 内部 TArray / TPool / callback 状態の所有を曖昧に
     // しない (ACS 規約)。
-    FAssetBrowser(const FAssetBrowser&)            = delete;
-    FAssetBrowser& operator=(const FAssetBrowser&) = delete;
-    FAssetBrowser(FAssetBrowser&&)                 = delete;
-    FAssetBrowser& operator=(FAssetBrowser&&)      = delete;
+    AssetBrowser(const AssetBrowser&)            = delete;
+    AssetBrowser& operator=(const AssetBrowser&) = delete;
+    AssetBrowser(AssetBrowser&&)                 = delete;
+    AssetBrowser& operator=(AssetBrowser&&)      = delete;
 
     // 初期化: `root_directory` (UTF-16 wchar_t) を assets/ ルートとして記録し、
     // 初回 Refresh() を実行する。多重 Init 可能 (= 別 root への切替に使える)。
@@ -144,13 +144,13 @@ public:
     void Shutdown() noexcept;
 
     // current_directory 配下を rescan する。pool は丸ごと再構築されるため
-    // 既存 FAssetEntry::path / short_name は無効化される。呼び出し側は
+    // 既存 AssetEntry::path / short_name は無効化される。呼び出し側は
     // Refresh() 越しに pointer を保持しないこと。
     void Refresh() noexcept;
 
-    // メイン ImGui window 描画。`Begin("FAsset Browser")` 1 window で完結。
+    // メイン ImGui window 描画。`Begin("Asset Browser")` 1 window で完結。
     // レイアウト:
-    //   ┌─ "FAsset Browser" window ────────────────────────────────────┐
+    //   ┌─ "Asset Browser" window ────────────────────────────────────┐
     //   │ [Refresh] [Up]  Path: <current>     [Filter: <kind combo>]   │
     //   │ ┌─ left (tree) ─┐ ┌─ right (list) ──────────────────────┐    │
     //   │ │ ▼ assets       │ │ [DIR ] Folder0                       │    │
@@ -166,7 +166,7 @@ public:
     u32 EntryCount() const noexcept;
 
     // index 番目の entry。範囲外は nullptr。pointer 寿命は次回 Refresh まで。
-    const FAssetEntry* GetEntry(u32 index) const noexcept;
+    const AssetEntry* GetEntry(u32 index) const noexcept;
 
     // 現在表示中のディレクトリ (assets/ ルートからの相対パス、wchar_t)。
     // root 直下では L"" を返す (= 空文字)。
@@ -178,11 +178,11 @@ public:
     // current_directory のまま)。
     void SetCurrentDirectory(const wchar_t* path) noexcept;
 
-    // 現在選択中の FAssetEntry::path。未選択は nullptr。
+    // 現在選択中の AssetEntry::path。未選択は nullptr。
     // 寿命は次回 Refresh まで。
     const wchar_t* SelectedAssetPath() const noexcept;
 
-    // 現在選択中の FAssetEntry::kind。未選択は EAssetKind::Unknown。
+    // 現在選択中の AssetEntry::kind。未選択は EAssetKind::Unknown。
     EAssetKind SelectedAssetKind() const noexcept;
 
     // 選択変更通知 callback を登録 / 解除 (nullptr で解除)。
@@ -221,9 +221,9 @@ private:
     // current_directory 文字列 (root からの相対、`\\` 区切り)。root 直下では空文字。
     wchar_t                _current_directory[kMaxPathChars] = {};
 
-    // current_directory 配下を rescan した結果の FAssetEntry 群。
+    // current_directory 配下を rescan した結果の AssetEntry 群。
     // entry の path / short_name pointer は下の pool 内を指している。
-    TArray<FAssetEntry>      _entries {};
+    TArray<AssetEntry>      _entries {};
 
     // 文字列 pool (wchar_t 用 = path、char 用 = short_name)。Refresh で
     // Clear & 再構築。Reserve しておけば address 安定性が確保される
@@ -232,7 +232,7 @@ private:
     TArray<char>            _name_pool {};
 
     // 選択中 entry の index (= _entries 内の位置)。-1 で未選択。
-    // i32 を採用するのは FParticleEditorPanel と同じ規約 (-1 = 「なし」)。
+    // i32 を採用するのは ParticleEditorPanel と同じ規約 (-1 = 「なし」)。
     i32                    _selected_index    = -1;
 
     // kind フィルタ。EAssetKind::Unknown は「フィルタなし」を意味する。

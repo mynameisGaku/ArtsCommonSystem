@@ -11,13 +11,13 @@
 namespace hellotri {
 
 // 1 頂点 = 位置 (FVec3) + 色 (FVec3)
-struct FVertex {
+struct Vertex {
     acs::f32 pos[3];
     acs::f32 col[3];
 };
 
 // 3 頂点 = 1 三角形。RGB を各頂点に割り当てて補間色を見せる。
-inline constexpr FVertex kTriangleVertices[3] = {
+inline constexpr Vertex kTriangleVertices[3] = {
     {{ 0.0f,  0.7f, 0.0f}, {1.0f, 0.0f, 0.0f}},  // 上   (赤)
     {{ 0.7f, -0.7f, 0.0f}, {0.0f, 1.0f, 0.0f}},  // 右下 (緑)
     {{-0.7f, -0.7f, 0.0f}, {0.0f, 0.0f, 1.0f}},  // 左下 (青)

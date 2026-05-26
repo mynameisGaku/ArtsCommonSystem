@@ -1,6 +1,6 @@
-# GameFramework — `acs::FApplication` の上に FScene 切替・固定タイムステップ等を載せる
+# GameFramework — `acs::Application` の上に Scene 切替・固定タイムステップ等を載せる
 # ゲーム制作フレームワーク。v3 確定の 8 ピラー (v13 で 24 ピラー) のうち、
-# Phase 1 では Pillar A (App & FScene) のみを実装する。
+# Phase 1 では Pillar A (App & Scene) のみを実装する。
 #
 # 利用者の include パス:
 #   #include "gameframework/GameFramework.h"   // まとめ
@@ -155,15 +155,15 @@ acs_module(
         tools/btedit/BehaviorTreeEditorPanel.cpp
         tools/leveledit/LevelEditorPanel.cpp
         tools/spriteatlas/SpriteAtlasEditorPanel.cpp
-        # ----- Phase 23: FFont + Cinematics editor (v10 著作ツール深度 完結) -----
+        # ----- Phase 23: Font + Cinematics editor (v10 著作ツール深度 完結) -----
         tools/fontedit/FontEditorPanel.cpp
         tools/cinetimeline/CinematicsTimelineEditorPanel.cpp
-        # ----- Phase 2: FAudioDirector の concrete backend (Windows / XAudio2) -----
-        # IAudioBackend は header-only seam、FXAudio2Backend は Windows 専用実装。
+        # ----- Phase 2: AudioDirector の concrete backend (Windows / XAudio2) -----
+        # IAudioBackend は header-only seam、XAudio2Backend は Windows 専用実装。
         # ACS は現状 Windows/DX12 専用なので無条件にビルドして OK (将来クロス
         # プラットフォーム化する場合は `if(WIN32) … endif()` で囲む)。
         audio_backend/XAudio2Backend.cpp
-        # ----- Phase 25: Pillar L/M/N 補完 (AnimGraph/FNetSnapshot/FScriptHost) -----
+        # ----- Phase 25: Pillar L/M/N 補完 (AnimGraph/NetSnapshot/ScriptHost) -----
         AnimationGraph.cpp
         NetSnapshot.cpp
         ScriptHost.cpp
@@ -319,21 +319,21 @@ acs_module(
         tools/btedit/BehaviorTreeEditorPanel.h
         tools/leveledit/LevelEditorPanel.h
         tools/spriteatlas/SpriteAtlasEditorPanel.h
-        # ----- Phase 23: FFont + Cinematics editor (v10 著作ツール深度 完結) -----
+        # ----- Phase 23: Font + Cinematics editor (v10 著作ツール深度 完結) -----
         tools/fontedit/FontEditorPanel.h
         tools/cinetimeline/CinematicsTimelineEditorPanel.h
         EntryPoint.h
-        # ----- Phase 2: FAudioDirector の concrete backend (Windows / XAudio2) -----
+        # ----- Phase 2: AudioDirector の concrete backend (Windows / XAudio2) -----
         audio_backend/IAudioBackend.h
         audio_backend/XAudio2Backend.h
-        # ----- Phase 25: Pillar L/M/N 補完 (AnimGraph/FNetSnapshot/FScriptHost) -----
+        # ----- Phase 25: Pillar L/M/N 補完 (AnimGraph/NetSnapshot/ScriptHost) -----
         AnimationGraph.h
         NetSnapshot.h
         ScriptHost.h
     PUBLIC_DEPS
         Foundation
         Memory
-        FContainer
+        Container
         Math
         Platform
         Render

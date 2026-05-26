@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — FInputRecorder (raw 入力の録画 / 再生) スケルトン
+// GameFramework Pillar D — InputRecorder (raw 入力の録画 / 再生) スケルトン
 //
 // 役割:
 //   1) **raw 入力レイヤの録画**: キーボード状態変化 (8 key まで) + マウス座標 +
-//      マウスボタン bitmask を 1 tick = 1 `FInputSample` として時系列に蓄え、
-//      後でそのまま replay 再生する。FLockstep が「ゲーム的に解釈済みの
+//      マウスボタン bitmask を 1 tick = 1 `InputSample` として時系列に蓄え、
+//      後でそのまま replay 再生する。Lockstep が「ゲーム的に解釈済みの
 //      ボタン bitmask + アナログスティック」を扱うのに対し、こちらは
 //      **OS 寄りの raw 信号** (key code + key state + mouse pos) を扱う。
 //   2) **TAS / 自動テスト / バグ再現用 `.acsr` 形式の入力ファイル**: Phase D-2 で
 //      magic + version + tick_rate + count + samples + CRC32 の bit-precise
 //      layout を確定し、SaveToBuffer / LoadFromBuffer で永続化する (Phase D-1
-//      では stub)。FLockstep `.acsl` と並列の独立フォーマット。
-//   3) **FInputMap の後段に置く想定**: アプリ側で `Capture(sample)` を呼ぶのは
-//      Win32 raw input / SDL event を `FInputSample` に詰めた直後。再生側は
+//      では stub)。Lockstep `.acsl` と並列の独立フォーマット。
+//   3) **InputMap の後段に置く想定**: アプリ側で `Capture(sample)` を呼ぶのは
+//      Win32 raw input / SDL event を `InputSample` に詰めた直後。再生側は
 //      `ConsumeSample(tick, out)` で取り出し、ゲームループは録画時と
 //      ピクセル単位で同じ入力列を見ることになる。
 //
 // 使い方 (想定):
-//   FInputRecorder rec;
+//   InputRecorder rec;
 //   rec.StartRecording(/*tick_rate_hz=*/60);
 //
 //   // ゲームループ (録画中):
-//   FInputSample s;
+//   InputSample s;
 //   s.tick                = _tick;
 //   s.key_codes_changed[] = ...; // 今 tick に押下/解放された key (最大 8 個)
 //   s.key_states[]        = ...; // 同 index の press(1)/release(0) 状態
@@ -33,7 +33,7 @@
 //   // 後で Replay:
 //   rec.StartReplay();
 //   while (running) {
-//       FInputSample s;
+//       InputSample s;
 //       if (rec.ConsumeSample(_tick, s)) {
 //           // s を OS 入力レイヤの代わりに使う (差し替え)
 //       }
@@ -41,26 +41,26 @@
 //   }
 //
 // 設計選択 (Phase D-1 スケルトン):
-//   ・**FInputSample は trivially-copyable POD**: `u32 tick + u8[8] codes +
+//   ・**InputSample は trivially-copyable POD**: `u32 tick + u8[8] codes +
 //     u8[8] states + FVec2 mouse_pos + u8 mouse_buttons + padding`。TArray に
 //     詰めて bulk memcpy で I/O できるよう sizeof は 28 B 程度に収まる想定。
 //     key 変化を 8 個までに絞ったのは fighting game / ARPG / RTS で同 tick に
 //     9 個以上の key 変化が起きる頻度が事実上ゼロのため (10 finger 同時入力でも
 //     状態変化点に限定すれば 8 で足りる)。9 個以上の場合は呼び出し側で 2 tick に
 //     分割するか、Phase D-2 で variable-length encoding を導入する。
-//   ・**ERecorderMode の 3 状態**: FLockstep の ENetMode (Local/FLockstep/Replay) と
+//   ・**ERecorderMode の 3 状態**: Lockstep の ENetMode (Local/Lockstep/Replay) と
 //     異なり、こちらは「録画もしない・録画する・再生する」の 3 状態のみ。
-//     ネットコードは FLockstep 側に分離してあるため、FInputRecorder は録画/再生に
+//     ネットコードは Lockstep 側に分離してあるため、InputRecorder は録画/再生に
 //     特化する。
-//   ・**TArray<FInputSample> による線形ストレージ**: 60 Hz × 30 min = 108,000 件 ×
+//   ・**TArray<InputSample> による線形ストレージ**: 60 Hz × 30 min = 108,000 件 ×
 //     ~28 B = ~3 MB 程度。`.acsr` ファイルでもこのオーダー。長時間 TAS で
 //     1 時間分でも ~6 MB なので Phase D-2 までは無圧縮で OK。
 //   ・**ConsumeSample は線形検索 + cursor 前進**: 記録順 = tick 昇順を仮定し、
-//     FLockstep と同じ amortised O(1) パターンを採用。
-//   ・**SaveToBuffer / LoadFromBuffer は stub**: FLockstep と同じく Phase D-1 では
+//     Lockstep と同じ amortised O(1) パターンを採用。
+//   ・**SaveToBuffer / LoadFromBuffer は stub**: Lockstep と同じく Phase D-1 では
 //     bit-precise file layout 仕様だけ確定し、本体は ACS_ERR(IO,
 //     kSub_NotImplemented) を返す。
-//   ・**コピー / ムーブ禁止**: FLockstep / FSettings / FPartySystem と同方針。
+//   ・**コピー / ムーブ禁止**: Lockstep / Settings / PartySystem と同方針。
 //     録画中の state が分裂すると再生時にズレるため、誤って値渡しされる経路を
 //     最初から塞ぐ。
 //   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
@@ -71,8 +71,8 @@
 //   0x00    4     magic          'ACSR' = 0x52534341 (little-endian)
 //   0x04    4     version        u32。Phase D-2 開始時 = 1。
 //   0x08    4     tick_rate_hz   u32。再生側との sample rate 整合検証用。
-//   0x0C    4     sample_count   u32。続く FInputSample の個数。
-//   0x10    N     samples        FInputSample[sample_count] (各 ~28 B)。
+//   0x0C    4     sample_count   u32。続く InputSample の個数。
+//   0x10    N     samples        InputSample[sample_count] (各 ~28 B)。
 //   0x10+N  4     crc32_footer   u32。samples 部の CRC-32 (改竄/破損検知用)。
 //
 // 範囲外 (Phase D-2 以降):
@@ -91,7 +91,7 @@
 namespace acs::game {
 
 // =============================================================================
-// FInputSample — 1 tick 分の raw 入力サンプル
+// InputSample — 1 tick 分の raw 入力サンプル
 // -----------------------------------------------------------------------------
 // trivially-copyable な POD。TArray に詰めて bulk memcpy で I/O できる。
 // `key_codes_changed[i]` は今 tick に状態変化があった key code (Win32 VK_* 風 /
@@ -101,7 +101,7 @@ namespace acs::game {
 // できないが、同一 tick 内で 9 個以上の状態変化が同時に起きるケースは事実上
 // 発生しないので Phase D-1 では十分。
 // =============================================================================
-struct FInputSample {
+struct InputSample {
     u32  tick                 = 0;     // フレーム番号 (0 起点、tick_rate_hz で時刻に変換)
     u8   key_codes_changed[8] = {};    // 状態変化した key code (未使用 slot = 0)
     u8   key_states[8]        = {};    // 同 index の press(1) / release(0)
@@ -110,9 +110,9 @@ struct FInputSample {
 };
 
 // =============================================================================
-// ERecorderMode — FInputRecorder の動作モード
+// ERecorderMode — InputRecorder の動作モード
 // -----------------------------------------------------------------------------
-// FLockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
+// Lockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
 // 再生する」の 3 状態のみで完結する。モード切替時は state を Clear せず、
 // cursor だけリセットする (録画した内容をそのまま StartReplay で再生する想定)。
 // =============================================================================
@@ -123,21 +123,21 @@ enum class ERecorderMode : u8 {
 };
 
 // =============================================================================
-// FInputRecorder — raw 入力の録画 / 再生
+// InputRecorder — raw 入力の録画 / 再生
 // -----------------------------------------------------------------------------
 // 1 セッション 1 オブジェクトの想定。コピー / ムーブ禁止で誤分裂を防ぐ。
 // =============================================================================
-class FInputRecorder {
+class InputRecorder {
 public:
-    FInputRecorder()  noexcept = default;
-    ~FInputRecorder() noexcept = default;
+    InputRecorder()  noexcept = default;
+    ~InputRecorder() noexcept = default;
 
-    FInputRecorder(const FInputRecorder&)            = delete;
-    FInputRecorder& operator=(const FInputRecorder&) = delete;
-    FInputRecorder(FInputRecorder&&)                 = delete;
-    FInputRecorder& operator=(FInputRecorder&&)      = delete;
+    InputRecorder(const InputRecorder&)            = delete;
+    InputRecorder& operator=(const InputRecorder&) = delete;
+    InputRecorder(InputRecorder&&)                 = delete;
+    InputRecorder& operator=(InputRecorder&&)      = delete;
 
-    // 共通エラー subcode (FSaveSlot / FLockstep / BackendClient と同じ pattern)。
+    // 共通エラー subcode (SaveSlot / Lockstep / BackendClient と同じ pattern)。
     // 上位層が switch で分岐できるよう enum 風に固定値を割り当てる。
     enum SubCode : u16 {
         kSub_NullBuffer     = 1,  // SaveToBuffer / LoadFromBuffer の buffer == nullptr
@@ -169,12 +169,12 @@ public:
     // ----- Capture / Consume -----
     // 1 sample を記録する。Recording モード以外では no-op (誤呼び出しを許容)。
     // 内部 _current_tick は sample.tick + 1 に進める (連続 tick 想定)。
-    void Capture(const FInputSample& s) noexcept;
+    void Capture(const InputSample& s) noexcept;
 
     // 指定 tick の sample を取り出す。Replaying モード以外では false を返す。
     // 該当 sample が見つかれば out に書き込んで true、なければ out を変更せず false。
     // _cursor を前進させ、線形検索を amortised O(1) にする。
-    bool ConsumeSample(u32 tick, FInputSample& out) noexcept;
+    bool ConsumeSample(u32 tick, InputSample& out) noexcept;
 
     // ----- 状態 query -----
     ERecorderMode CurrentMode() const noexcept { return _mode; }
@@ -201,7 +201,7 @@ private:
     u32                _tick_rate_hz  = 60;  // sample rate (Hz)
     u32                _current_tick  = 0;   // 次に書き込む / 消費する tick
     u32                _cursor        = 0;   // ConsumeSample の線形検索開始 index
-    TArray<FInputSample> _samples;
+    TArray<InputSample> _samples;
 };
 
 } // namespace acs::game

@@ -1,5 +1,5 @@
 # HelloFontEditor — フォントの fallback chain を対話編集するエディタサンプル。
-# editor_core ワークスペースに FFontEditorPanel を統合し、3 face
+# editor_core ワークスペースに FontEditorPanel を統合し、3 face
 # (Noto Sans JP / Noto Sans Mono / fallback emoji) を初期登録した状態で起動する。
 #
 # 必須バックエンド: ACS_RENDER_DX12_RAW (acs_imgui module の制約で、ImGui 統合は
@@ -7,8 +7,8 @@
 #
 # 構成:
 #   main.cpp                - ACS_GAME_MAIN(FontEditorApp) のみ
-#   FontEditorApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
-#   FontEditorScene.{h,cpp} - Workspace + FFontEditorPanel + 初期 3 face 登録
+#   FontEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
+#   FontEditorScene.{h,cpp} - Workspace + FontEditorPanel + 初期 3 face 登録
 add_executable(hello_font_editor WIN32
     main.cpp
     FontEditorApp.cpp

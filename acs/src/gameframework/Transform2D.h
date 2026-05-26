@@ -11,7 +11,7 @@
 //   ・world.rotation = parent.rotation + local.rotation
 //   ・world.position = parent.position + Rotate(parent.scale * local.position, parent.rotation)
 //
-// ToMat4() は FSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
+// ToMat4() は SpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
 // 使わない、誤差/コストを避けるため)。
 #pragma once
 
@@ -47,7 +47,7 @@ struct FTransform2D {
         return out;
     }
 
-    // FSpriteBatch 等で 4x4 が必要なときの変換 (Z=0、scale on XY)。
+    // SpriteBatch 等で 4x4 が必要なときの変換 (Z=0、scale on XY)。
     FMat4 ToMat4() const noexcept {
         const f32 c = Cos(rotation);
         const f32 s = Sin(rotation);

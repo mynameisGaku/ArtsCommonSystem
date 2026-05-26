@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F Phase 1 — FCollisionWorld2D + SpatialGrid (Phase 10)
+// GameFramework Pillar F Phase 1 — CollisionWorld2D + SpatialGrid (Phase 10)
 //
-// 2D 衝突判定の高レベル API。形状 (FAabb2 / FCircle) を `FShapeId` で管理し、
+// 2D 衝突判定の高レベル API。形状 (Aabb2 / Circle) を `FShapeId` で管理し、
 // 内部の SpatialGrid (一様グリッド broad-phase) で O(N + K) クエリ
 // (K = 結果数) を提供する。narrow phase は `math/Collision2D.h` の
 // 既存関数 (Intersect / Resolve / RaycastAabb / RaycastCircle) を再利用。
 //
 // 使い方:
-//   FCollisionWorld2D world;
+//   CollisionWorld2D world;
 //   world.Init(/*cell_size=*/64.0f);
 //
 //   FShapeId player = world.AddCircle({ {0,0}, 16.0f });
@@ -20,7 +20,7 @@
 //   TArray<FShapeId> hits;
 //   world.OverlapCircle({ player_pos, 32.0f }, hits);  // 32 範囲のもの全部
 //
-//   FRayHit2 rh;
+//   RayHit2 rh;
 //   FShapeId hit_id;
 //   if (world.Raycast({ origin, dir }, /*max_t=*/100.0f, rh, hit_id)) {
 //       // rh.point/normal/t、hit_id でどの形状か分かる
@@ -35,7 +35,7 @@
 //   ・**dirty flag + lazy rebuild**: Add/Update/Remove で `_dirty = true`、
 //     query 直前にグリッド再構築。Phase 1 は per-frame full rebuild。
 //   ・**Layer / mask は Phase 2 で**。今は全 shape が交差候補。
-//   ・**FPhysicsBody2D (kinematic body + collide-and-slide) は Phase 2 で**。
+//   ・**PhysicsBody2D (kinematic body + collide-and-slide) は Phase 2 で**。
 //     Phase 1 は「形状登録 + クエリ」のみ。
 #pragma once
 
@@ -63,13 +63,13 @@ struct FShapeId {
     constexpr bool operator!=(FShapeId o) const noexcept { return _packed != o._packed; }
 };
 
-class FCollisionWorld2D {
+class CollisionWorld2D {
 public:
-    FCollisionWorld2D() noexcept = default;
-    ~FCollisionWorld2D() noexcept = default;
+    CollisionWorld2D() noexcept = default;
+    ~CollisionWorld2D() noexcept = default;
 
-    FCollisionWorld2D(const FCollisionWorld2D&)            = delete;
-    FCollisionWorld2D& operator=(const FCollisionWorld2D&) = delete;
+    CollisionWorld2D(const CollisionWorld2D&)            = delete;
+    CollisionWorld2D& operator=(const CollisionWorld2D&) = delete;
 
     // cell_size: SpatialGrid のセルサイズ (world unit)。典型的に形状の最大
     // サイズの 2-3 倍。0 以下 / 未呼出時は 64.0f が既定。
@@ -78,12 +78,12 @@ public:
     }
 
     // ----- Shape 登録 -----
-    FShapeId AddAabb  (const FAabb2& a) noexcept;
-    FShapeId AddCircle(const FCircle& c) noexcept;
+    FShapeId AddAabb  (const Aabb2& a) noexcept;
+    FShapeId AddCircle(const Circle& c) noexcept;
 
     // 形状更新 (移動した時)。dirty にして次のクエリで再構築。
-    void UpdateAabb  (FShapeId id, const FAabb2& a) noexcept;
-    void UpdateCircle(FShapeId id, const FCircle& c) noexcept;
+    void UpdateAabb  (FShapeId id, const Aabb2& a) noexcept;
+    void UpdateCircle(FShapeId id, const Circle& c) noexcept;
 
     // shape 削除 (slot は再利用、generation 進む)
     void Remove(FShapeId id) noexcept;
@@ -95,24 +95,24 @@ public:
 
     // ----- クエリ (broad-phase grid → narrow-phase math/Collision2D) -----
     // exclude: 自身を除外したい時 (PhysicsBody が自己 overlap を無視するため)。invalid なら除外無し。
-    void OverlapAabb  (const FAabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
-    void OverlapCircle(const FCircle& c,  TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
+    void OverlapAabb  (const Aabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
+    void OverlapCircle(const Circle& c,  TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
     // Raycast: 最も近い shape を 1 つ返す (out_hit / out_id 設定、無ければ false)
-    bool Raycast(const FRay2& ray, f32 max_t, FRayHit2& out_hit, FShapeId& out_id) noexcept;
+    bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id) noexcept;
 
 private:
-    enum class Kind : u8 { None = 0, FAabb, FCircle };
+    enum class Kind : u8 { None = 0, FAabb, Circle };
 
-    struct FSlot {
+    struct Slot {
         Kind   kind   = Kind::None;
         bool   active = false;
         u8     gen    = 0;
-        FAabb2  aabb   {};
-        FCircle circle {};
+        Aabb2  aabb   {};
+        Circle circle {};
     };
 
     // SpatialGrid: cell key (hash of 2D cell coords) → list of slot indices
-    struct FGridCell {
+    struct GridCell {
         i32 cx = 0;
         i32 cy = 0;
         TArray<u32> shapes;
@@ -123,22 +123,22 @@ private:
     void RebuildGridIfDirty() noexcept;
 
     // AABB が overlapping するセル範囲 (cx_min, cy_min, cx_max, cy_max) を返す
-    void CellRange(const FAabb2& a, i32& cx_min, i32& cy_min,
+    void CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
                                     i32& cx_max, i32& cy_max) const noexcept;
-    void CellRange(const FCircle& c, i32& cx_min, i32& cy_min,
+    void CellRange(const Circle& c, i32& cx_min, i32& cy_min,
                                     i32& cx_max, i32& cy_max) const noexcept;
 
-    FGridCell& GetOrCreateCell(i32 cx, i32 cy) noexcept;
-    FGridCell* FindCell(i32 cx, i32 cy) noexcept;
+    GridCell& GetOrCreateCell(i32 cx, i32 cy) noexcept;
+    GridCell* FindCell(i32 cx, i32 cy) noexcept;
     void InsertSlotIntoCells(u32 slot_idx) noexcept;
 
     // Narrow phase: slot[idx] が形状 X と交差するか
-    bool NarrowIntersectAabb  (u32 slot_idx, const FAabb2& a) const noexcept;
-    bool NarrowIntersectCircle(u32 slot_idx, const FCircle& c) const noexcept;
+    bool NarrowIntersectAabb  (u32 slot_idx, const Aabb2& a) const noexcept;
+    bool NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept;
 
-    TArray<FSlot>     _slots;
+    TArray<Slot>     _slots;
     u32             _shape_count = 0;
-    TArray<FGridCell> _cells;          // 直接 TArray、cx/cy で線形検索 (Phase 1 簡略化)
+    TArray<GridCell> _cells;          // 直接 TArray、cx/cy で線形検索 (Phase 1 簡略化)
     f32             _cell_size   = 64.0f;
     bool            _dirty       = false;
     // クエリ中の重複除去用 (Phase 1: shape_count 長 bool array、簡素)

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// FMessagePipe<T> — スレッド間 MPMC キュー (mutex + condvar 実装)
+// MessagePipe<T> — スレッド間 MPMC キュー (mutex + condvar 実装)
 //
 // 使い方:
-//   FMessagePipe<DamageEvent> pipe;
+//   MessagePipe<DamageEvent> pipe;
 //
 //   // producer thread:
 //   pipe.Push(DamageEvent{enemy, 25.0f});
@@ -19,7 +19,7 @@
 // 設計:
 //   ・mutex + condvar の素直な実装。性能要件が出てきたら lock-free MPSC に
 //     差し替える可能性あり。
-//   ・FMessageBroker (同期 pub/sub) と対照: あちらは publisher が直接 handler を
+//   ・MessageBroker (同期 pub/sub) と対照: あちらは publisher が直接 handler を
 //     呼び、こちらは値をキューに積んで別スレッドが取りに来る。
 //   ・破棄時に block 待ちが居たら Close() してから抜ける必要がある。
 #pragma once
@@ -34,13 +34,13 @@
 namespace acs {
 
 template<typename T>
-class FMessagePipe {
+class MessagePipe {
 public:
-    FMessagePipe() noexcept = default;
-    ~FMessagePipe() noexcept { Close(); }
+    MessagePipe() noexcept = default;
+    ~MessagePipe() noexcept { Close(); }
 
-    FMessagePipe(const FMessagePipe&) = delete;
-    FMessagePipe& operator=(const FMessagePipe&) = delete;
+    MessagePipe(const MessagePipe&) = delete;
+    MessagePipe& operator=(const MessagePipe&) = delete;
 
     // 値を末尾に積む。Close() 済みなら false、追加成功なら true。
     bool Push(T value) noexcept {
@@ -103,7 +103,7 @@ public:
 
 private:
     mutable FMutex   _mtx;
-    FConditionVar    _cv;
+    ConditionVar    _cv;
     TArray<T>        _q;
     bool            _closed = false;
 };

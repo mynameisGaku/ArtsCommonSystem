@@ -14,7 +14,7 @@
 //
 // 性能注意:
 //   1 回ずつの演算では Load/Store のラウンドトリップが発生する。
-//   タイトループでは FMathDispatch::TransformPoints などの
+//   タイトループでは MathDispatch::TransformPoints などの
 //   バッチ API を使うこと。
 // =============================================================================
 #pragma once

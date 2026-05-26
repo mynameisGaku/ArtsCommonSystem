@@ -1,30 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FTutorialFlow (Phase 2)
+// GameFramework Pillar R — TutorialFlow (Phase 2)
 //
 // 役割:
 //   連続する「チュートリアルステップ」を順序付きで表示・完了判定し、ユーザー操作
 //   または明示的な前進指示に応じて次ステップへ進めるシンプルな state machine。
 //   描画は行わず、現在ステップへの const ポインタを公開するだけ。表示は呼び出し側
-//   (UI レイヤ / FScene) が CurrentStep() を見て自前で描く。
+//   (UI レイヤ / Scene) が CurrentStep() を見て自前で描く。
 //
 // 設計上の方針:
-//   ・**FSequence との棲み分け**: FSequence は時間ベースの自動進行 (cutscene 等)。
-//     FTutorialFlow は「ユーザーが action を達成したら進む」という能動的進行で、
+//   ・**Sequence との棲み分け**: Sequence は時間ベースの自動進行 (cutscene 等)。
+//     TutorialFlow は「ユーザーが action を達成したら進む」という能動的進行で、
 //     timer ベースではない (require_user_action=true の間は dt をいくら積んでも
 //     自動 advance しない)。require_user_action=false なら表示後に AdvanceStep
 //     を呼ぶだけで素直に次へ進む (ガイダンス表示 → OK ボタンなど)。
 //   ・**所有しない const char***: ACS 規約通り <string> 禁止。id / message /
 //     highlight_target は文字列リテラル or 長寿命バッファを想定し、寿命は呼び
 //     出し側が保証する。
-//   ・**非コピー・非ムーブ**: チュートリアルは通常 FScene につき 1 個の長寿命
+//   ・**非コピー・非ムーブ**: チュートリアルは通常 Scene につき 1 個の長寿命
 //     オブジェクトで、誤コピーで state 分裂すると詰むため最初から禁止。
 //   ・**Skip は不可逆**: Skip() を呼ぶと _completed=true / _active=false に
 //     遷移し、Reset() しない限りどの query も終了扱い。誤って 2 度目を呼ばれ
 //     ても no-op になるよう冪等。
 //
 // 使い方:
-//   class TutorialScene : public FScene {
-//       FTutorialFlow _tut;
+//   class TutorialScene : public Scene {
+//       TutorialFlow _tut;
 //       void OnEnter() noexcept override {
 //           _tut.AddStep({"move",  "WASD で移動してみよう", "player", true});
 //           _tut.AddStep({"jump",  "SPACE でジャンプ",       "player", true});
@@ -54,29 +54,29 @@ namespace acs::game {
 //                          来るか、AdvanceStep が明示的に呼ばれるまで自動進行
 //                          しない。false の場合は AdvanceStep 呼び出しのみで進む
 //                          (timer 等は Tick で扱わない、Phase 2 は明示前進のみ)。
-struct FTutorialStep {
+struct TutorialStep {
     const char* id                  = nullptr;
     const char* message             = nullptr;
     const char* highlight_target    = nullptr;
     bool        require_user_action = false;
 };
 
-class FTutorialFlow {
+class TutorialFlow {
 public:
-    FTutorialFlow()  noexcept = default;
-    ~FTutorialFlow() noexcept = default;
+    TutorialFlow()  noexcept = default;
+    ~TutorialFlow() noexcept = default;
 
-    // 通常は FScene につき 1 個の長寿命オブジェクト。state 分裂を避けるため
+    // 通常は Scene につき 1 個の長寿命オブジェクト。state 分裂を避けるため
     // 非コピー・非ムーブ。
-    FTutorialFlow(const FTutorialFlow&)            = delete;
-    FTutorialFlow& operator=(const FTutorialFlow&) = delete;
-    FTutorialFlow(FTutorialFlow&&)                 = delete;
-    FTutorialFlow& operator=(FTutorialFlow&&)      = delete;
+    TutorialFlow(const TutorialFlow&)            = delete;
+    TutorialFlow& operator=(const TutorialFlow&) = delete;
+    TutorialFlow(TutorialFlow&&)                 = delete;
+    TutorialFlow& operator=(TutorialFlow&&)      = delete;
 
     // ----- ステップ定義 -----
     // ステップを末尾に追加。Start 前のみ呼ぶ想定だが、走行中に追加されても
     // 末尾に積まれるだけで現在進行には影響しない (Pillar R 簡易方針)。
-    void AddStep(const FTutorialStep& step) noexcept;
+    void AddStep(const TutorialStep& step) noexcept;
 
     // ----- 制御 -----
     // ステップ 0 から表示開始。ステップが 1 件も無い場合は _completed=true に
@@ -112,7 +112,7 @@ public:
     u32 CurrentStepIndex() const noexcept { return _current_step; }
 
     // 描画 / 表示用の現在ステップポインタ。Start 前・Skip 後・完了後は nullptr。
-    const FTutorialStep* CurrentStep() const noexcept;
+    const TutorialStep* CurrentStep() const noexcept;
 
     // 登録済みステップ数。
     u32 StepCount() const noexcept;
@@ -122,7 +122,7 @@ public:
     void Tick(f32 dt) noexcept;
 
 private:
-    TArray<FTutorialStep> _steps;
+    TArray<TutorialStep> _steps;
     u32                 _current_step = 0;
     bool                _active       = false;
     bool                _completed    = false;

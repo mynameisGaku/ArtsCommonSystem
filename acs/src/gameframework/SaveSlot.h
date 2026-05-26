@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — FSaveSlot<T> (`.acssave` 経由の単一 POD 永続化)
+// GameFramework Pillar J — SaveSlot<T> (`.acssave` 経由の単一 POD 永続化)
 //
 // 役割:
 //   ユーザー定義の trivially-copyable な POD/struct T を 1 個のファイルに保存し、
@@ -14,7 +14,7 @@
 //   };
 //   static_assert(__is_trivially_copyable(PlayerProfile));
 //
-//   acs::game::FSaveSlot<PlayerProfile> slot;
+//   acs::game::SaveSlot<PlayerProfile> slot;
 //   slot.Init(L"user/profile.acssave");
 //   if (slot.Exists()) {
 //       auto r = slot.Load();
@@ -23,14 +23,14 @@
 //   slot.Save(profile);
 //
 // 設計方針:
-//   ・**バイナリ format**: FSaveArchive (`.acssave`、24B header + payload + crc) に
+//   ・**バイナリ format**: SaveArchive (`.acssave`、24B header + payload + crc) に
 //     委譲する。詳細は gameframework/SaveArchive.h を参照。
 //   ・**スキーマ進化耐性**: T を直接 memcpy で書く current design は schema 固定
-//     な T 専用。FSaveArchive の version パラメータを使って schema 変更を検知できる
+//     な T 専用。SaveArchive の version パラメータを使って schema 変更を検知できる
 //     (デフォルト version=1)。version 不一致時は FErrorCode.subcode に
 //     ESaveArchiveSubCode::kSubMigrationNeeded が入る。
 //   ・**例外なし**: 全 noexcept、エラーは TResult<T, FErrorCode> で伝搬する。
-//   ・**STL 不使用**: container 依存も無し。ファイル I/O は FSaveArchive 経由
+//   ・**STL 不使用**: container 依存も無し。ファイル I/O は SaveArchive 経由
 //     (Win32 直叩き) に委譲。
 #pragma once
 
@@ -43,19 +43,19 @@
 namespace acs::game {
 
 // =============================================================================
-// FSaveSlot<T> — 単一 POD T 用のセーブスロット
+// SaveSlot<T> — 単一 POD T 用のセーブスロット
 // -----------------------------------------------------------------------------
 // T は trivially_copyable な struct を想定する (現状 static_assert は付けて
 // いない; Phase 2 で acs::IsTriviallyCopyableV を導入して有効化する予定)。
 // =============================================================================
 template<typename T>
-class FSaveSlot {
+class SaveSlot {
 public:
-    FSaveSlot() noexcept = default;
-    ~FSaveSlot() noexcept = default;
+    SaveSlot() noexcept = default;
+    ~SaveSlot() noexcept = default;
 
-    FSaveSlot(const FSaveSlot&)            = delete;
-    FSaveSlot& operator=(const FSaveSlot&) = delete;
+    SaveSlot(const SaveSlot&)            = delete;
+    SaveSlot& operator=(const SaveSlot&) = delete;
 
     // Init: 1 slot に対応するファイルパスを設定する。
     //  ・file_path は呼び出し側が寿命を保証する static / member な wchar_t 列。
@@ -65,7 +65,7 @@ public:
         _file_path = file_path;
     }
 
-    // Save: data を `.acssave` 形式で保存する (FSaveArchive::WriteToFile 経由)。
+    // Save: data を `.acssave` 形式で保存する (SaveArchive::WriteToFile 経由)。
     //  ・version は呼び出し側が schema 進化を判定するためのタグ (default = 1)。
     //    schema を変えたら version を増やすと、旧データ読み込み時に
     //    ESaveArchiveSubCode::kSubMigrationNeeded が返って migrate しやすい。
@@ -73,10 +73,10 @@ public:
     //    必要な場合は tmp file + Rename を呼出側で組むこと (Phase 2 候補)。
     TResult<void> Save(const T& data, u32 version = 1u) noexcept;
 
-    // Load: ファイルから読み出して T を返す (FSaveArchive::ReadFromFile 経由)。
+    // Load: ファイルから読み出して T を返す (SaveArchive::ReadFromFile 経由)。
     //  ・expected_version != header.version の場合は
-    //    Err(FAsset, ESaveArchiveSubCode::kSubMigrationNeeded) を返す。
-    //    呼び出し側は FSaveArchive::PeekVersion で旧 version を取り直して
+    //    Err(Asset, ESaveArchiveSubCode::kSubMigrationNeeded) を返す。
+    //    呼び出し側は SaveArchive::PeekVersion で旧 version を取り直して
     //    migrate するパスに分岐できる。
     TResult<T> Load(u32 expected_version = 1u) noexcept;
 
@@ -106,9 +106,9 @@ private:
 namespace detail {
 
 // SaveSlot.cpp 側に置く非テンプレートヘルパの宣言。
-// テンプレート化された FSaveSlot<T> がここを呼ぶ形にして、
+// テンプレート化された SaveSlot<T> がここを呼ぶ形にして、
 // T ごとにオブジェクトコードが膨らまないようにする。
-// 中身は FSaveArchive::WriteToFile / ReadFromFile への薄いラッパ。
+// 中身は SaveArchive::WriteToFile / ReadFromFile への薄いラッパ。
 TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
                                 u32            version,
                                 const void*    payload,
@@ -125,7 +125,7 @@ TResult<void> SaveSlot_Delete(const wchar_t* file_path) noexcept;
 } // namespace detail
 
 template<typename T>
-TResult<void> FSaveSlot<T>::Save(const T& data, u32 version) noexcept {
+TResult<void> SaveSlot<T>::Save(const T& data, u32 version) noexcept {
     return detail::SaveSlot_SaveBytes(_file_path,
                                       version,
                                       static_cast<const void*>(&data),
@@ -133,7 +133,7 @@ TResult<void> FSaveSlot<T>::Save(const T& data, u32 version) noexcept {
 }
 
 template<typename T>
-TResult<T> FSaveSlot<T>::Load(u32 expected_version) noexcept {
+TResult<T> SaveSlot<T>::Load(u32 expected_version) noexcept {
     T out{};
     auto r = detail::SaveSlot_LoadBytes(_file_path,
                                         expected_version,
@@ -144,12 +144,12 @@ TResult<T> FSaveSlot<T>::Load(u32 expected_version) noexcept {
 }
 
 template<typename T>
-bool FSaveSlot<T>::Exists() const noexcept {
+bool SaveSlot<T>::Exists() const noexcept {
     return detail::SaveSlot_Exists(_file_path);
 }
 
 template<typename T>
-TResult<void> FSaveSlot<T>::Delete() noexcept {
+TResult<void> SaveSlot<T>::Delete() noexcept {
     return detail::SaveSlot_Delete(_file_path);
 }
 

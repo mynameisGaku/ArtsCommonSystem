@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / FBehaviorTreeEditorPanel 実装 (Phase 22)
+// GameFramework Pillar — btedit / BehaviorTreeEditorPanel 実装 (Phase 22)
 //
 // 仕様の意図は BehaviorTreeEditorPanel.h を参照。本ファイルでは:
 //   ・Init / Shutdown / Reset / autorun & step 制御
@@ -24,11 +24,11 @@ namespace acs::game::btedit {
 // 実 BT で 32 階層を超えることはまず無いが、64 まで余裕を取る。
 static constexpr u32 kTreeRecursionLimit = 64u;
 
-// EBtKind → 表示用リテラル ("Selector" / "FSequence" / "Action")。
+// EBtKind → 表示用リテラル ("Selector" / "Sequence" / "Action")。
 static const char* KindLabel(EBtKind k) noexcept {
     switch (k) {
         case EBtKind::Selector: return "Selector";
-        case EBtKind::FSequence: return "FSequence";
+        case EBtKind::Sequence: return "Sequence";
         case EBtKind::Action:   return "Action";
     }
     return "Unknown"; // 到達不能 (enum を u8 で広げない限り)
@@ -62,7 +62,7 @@ static const char* SafeName(const char* name) noexcept {
 
 // id が _nodes の有効範囲内かをチェック。
 static bool IsValidId(u32 id, usize node_count) noexcept {
-    if (id == FBehaviorTreeEditorPanel::kInvalidId) return false;
+    if (id == BehaviorTreeEditorPanel::kInvalidId) return false;
     return static_cast<usize>(id) < node_count;
 }
 
@@ -72,7 +72,7 @@ static bool IsValidId(u32 id, usize node_count) noexcept {
 // Success = 緑 (0.2, 1.0, 0.3)、Failure = 赤 (1.0, 0.3, 0.3)、
 // Running = 黄 (1.0, 1.0, 0.3) に固定。完全飽和ではなく落ち着いた色味にする
 // (ダーク背景でも明るすぎず、ライト背景でも沈まないトーン)。
-void FBehaviorTreeEditorPanel::StatusColor(EBtStatus s, f32 out_rgba[4]) noexcept {
+void BehaviorTreeEditorPanel::StatusColor(EBtStatus s, f32 out_rgba[4]) noexcept {
     if (out_rgba == nullptr) return;
     switch (s) {
         case EBtStatus::Success:
@@ -88,7 +88,7 @@ void FBehaviorTreeEditorPanel::StatusColor(EBtStatus s, f32 out_rgba[4]) noexcep
 // ============================================================================
 // Init / Shutdown
 // ============================================================================
-void FBehaviorTreeEditorPanel::Init() noexcept {
+void BehaviorTreeEditorPanel::Init() noexcept {
     // メタミラー / 履歴 / selection / step counter を全 reset。
     _nodes.Clear();
     _history.Clear();
@@ -105,7 +105,7 @@ void FBehaviorTreeEditorPanel::Init() noexcept {
     // callback はリセットしない (Init は state の reset、callback は別操作)。
 }
 
-void FBehaviorTreeEditorPanel::Shutdown() noexcept {
+void BehaviorTreeEditorPanel::Shutdown() noexcept {
     // 多重 Shutdown 可。TArray は Clear() で要素破棄 + 容量保持。
     _nodes.Clear();
     _history.Clear();
@@ -124,7 +124,7 @@ void FBehaviorTreeEditorPanel::Shutdown() noexcept {
 // ============================================================================
 // SetTree / Reset
 // ============================================================================
-void FBehaviorTreeEditorPanel::SetTree(FBehaviorTree* tree) noexcept {
+void BehaviorTreeEditorPanel::SetTree(BehaviorTree* tree) noexcept {
     _tree = tree;
     // 観察対象が変わったので step counter / 履歴 / 全 status を初期化する。
     // メタミラー (_nodes) は触らない (= 同構造で別インスタンスを観察する用途に
@@ -132,7 +132,7 @@ void FBehaviorTreeEditorPanel::SetTree(FBehaviorTree* tree) noexcept {
     Reset();
 }
 
-void FBehaviorTreeEditorPanel::Reset() noexcept {
+void BehaviorTreeEditorPanel::Reset() noexcept {
     _step_count   = 0;
     _history_head = 0;
     for (usize i = 0; i < _history.Size(); ++i) {
@@ -147,13 +147,13 @@ void FBehaviorTreeEditorPanel::Reset() noexcept {
 // ============================================================================
 // StepOnce / TickInternal / OnFrameBegin
 // ============================================================================
-void FBehaviorTreeEditorPanel::StepOnce() noexcept {
+void BehaviorTreeEditorPanel::StepOnce() noexcept {
     // 0.016 sec (= 60 fps の 1 frame) を仕様で固定。Step は常に同じ dt で進めることで
     // ユーザが "今のステップ数 * 1/60 秒進んだ" と即座に解釈できるようにする。
     TickInternal(kStepDt);
 }
 
-void FBehaviorTreeEditorPanel::TickInternal(f32 dt) noexcept {
+void BehaviorTreeEditorPanel::TickInternal(f32 dt) noexcept {
     if (_tree == nullptr) return;
 
     // ----- (1) 実 BT を 1 tick 進める -----
@@ -188,7 +188,7 @@ void FBehaviorTreeEditorPanel::TickInternal(f32 dt) noexcept {
     ++_step_count;
 }
 
-void FBehaviorTreeEditorPanel::OnFrameBegin(f32 dt) noexcept {
+void BehaviorTreeEditorPanel::OnFrameBegin(f32 dt) noexcept {
     // autorun ON のときだけ毎フレーム 1 tick 進める。実 dt を渡すことで
     // ゲームの fps に追従させる (Step は 0.016 固定だが autorun は別)。
     if (!_autorun) return;
@@ -200,7 +200,7 @@ void FBehaviorTreeEditorPanel::OnFrameBegin(f32 dt) noexcept {
 // ============================================================================
 // selection
 // ============================================================================
-void FBehaviorTreeEditorPanel::SelectNode(u32 node_id) noexcept {
+void BehaviorTreeEditorPanel::SelectNode(u32 node_id) noexcept {
     if (!IsValidId(node_id, _nodes.Size())) {
         _selected = kInvalidId;
         return;
@@ -211,7 +211,7 @@ void FBehaviorTreeEditorPanel::SelectNode(u32 node_id) noexcept {
 // ============================================================================
 // AddNode / SetNodeStatus / ClearNodes / NodeStatus
 // ============================================================================
-u32 FBehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent_id) noexcept {
+u32 BehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent_id) noexcept {
     if (_nodes.Size() >= static_cast<usize>(kMaxNodes)) {
         // 上限到達は silent fail (= kInvalidId 返却で通知)。
         return kInvalidId;
@@ -223,7 +223,7 @@ u32 FBehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent
         parent_id = kInvalidId;
     }
 
-    FNodeMeta n;
+    NodeMeta n;
     n.id          = static_cast<u32>(_nodes.Size()); // 払い出し = 現在の末尾 index
     n.parent_id   = parent_id;
     n.kind        = kind;
@@ -235,18 +235,18 @@ u32 FBehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent
     return new_id;
 }
 
-void FBehaviorTreeEditorPanel::SetNodeStatus(u32 node_id, EBtStatus status) noexcept {
+void BehaviorTreeEditorPanel::SetNodeStatus(u32 node_id, EBtStatus status) noexcept {
     if (!IsValidId(node_id, _nodes.Size())) return;
     _nodes[static_cast<usize>(node_id)].last_status = status;
 }
 
-void FBehaviorTreeEditorPanel::ClearNodes() noexcept {
+void BehaviorTreeEditorPanel::ClearNodes() noexcept {
     _nodes.Clear();
     _selected = kInvalidId;
     // history / step counter / autorun は触らない (= ユーザの明示操作で変える物)。
 }
 
-EBtStatus FBehaviorTreeEditorPanel::NodeStatus(u32 node_id) const noexcept {
+EBtStatus BehaviorTreeEditorPanel::NodeStatus(u32 node_id) const noexcept {
     if (!IsValidId(node_id, _nodes.Size())) return EBtStatus::Failure;
     return _nodes[static_cast<usize>(node_id)].last_status;
 }
@@ -254,7 +254,7 @@ EBtStatus FBehaviorTreeEditorPanel::NodeStatus(u32 node_id) const noexcept {
 // ============================================================================
 // SetOnStepCallback
 // ============================================================================
-void FBehaviorTreeEditorPanel::SetOnStepCallback(StepCallback cb, void* user) noexcept {
+void BehaviorTreeEditorPanel::SetOnStepCallback(StepCallback cb, void* user) noexcept {
     _step_cb   = cb;
     _step_user = user;
 }
@@ -266,19 +266,19 @@ void FBehaviorTreeEditorPanel::SetOnStepCallback(StepCallback cb, void* user) no
 // Action (= leaf) は ImGuiTreeNodeFlags_Leaf を付ける。Selectable と TreeNode を
 // 兼ねるため `ImGuiTreeNodeFlags_OpenOnArrow` で「矢印クリックで展開、ラベル
 // クリックで選択」にする (Unity Hierarchy と同形)。
-void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcept {
+void BehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcept {
     if (depth >= kTreeRecursionLimit) {
         ImGui::TextDisabled("  (tree depth limit reached)");
         return;
     }
     if (!IsValidId(node_id, _nodes.Size())) return;
 
-    const FNodeMeta& node = _nodes[static_cast<usize>(node_id)];
+    const NodeMeta& node = _nodes[static_cast<usize>(node_id)];
 
     // 子検索 (= 線形走査で parent_id == node_id の要素があるか)。
     bool has_child = false;
     if (node.kind != EBtKind::Action) {
-        // Action は仕様上 leaf。Selector / FSequence のみ子を持ち得る。
+        // Action は仕様上 leaf。Selector / Sequence のみ子を持ち得る。
         for (usize i = 0; i < _nodes.Size(); ++i) {
             if (_nodes[i].parent_id == node_id) {
                 has_child = true;
@@ -344,7 +344,7 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
 // ============================================================================
 // DrawUI — toolbar + history graph + tree view + node inspector
 // ============================================================================
-void FBehaviorTreeEditorPanel::DrawUI() noexcept {
+void BehaviorTreeEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &_visible)) {
@@ -355,14 +355,14 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
     // ------------------------------------------------------------------------
     // (1) Toolbar 行: Reset / Step / Continuous(autorun) | Active / Step counter
     // ------------------------------------------------------------------------
-    if (ImGui::FButton("Reset")) {
+    if (ImGui::Button("Reset")) {
         Reset();
     }
     ImGui::SameLine();
     // Step は tree 未設定なら disable (押しても no-op だが UX 改善)。
     const bool step_enabled = (_tree != nullptr);
     if (!step_enabled) ImGui::BeginDisabled();
-    if (ImGui::FButton("Step")) {
+    if (ImGui::Button("Step")) {
         StepOnce();
     }
     if (!step_enabled) ImGui::EndDisabled();
@@ -371,7 +371,7 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
     // Continuous: autorun toggle。ON/OFF をラベルで明示。
     {
         bool autorun = _autorun;
-        if (ImGui::FCheckbox("Continuous", &autorun)) {
+        if (ImGui::Checkbox("Continuous", &autorun)) {
             _autorun = autorun;
         }
     }
@@ -417,7 +417,7 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
     ImGui::Separator();
 
     // ------------------------------------------------------------------------
-    // (3) 2 カラム: 左 Tree View / 右 FNode Inspector
+    // (3) 2 カラム: 左 Tree View / 右 Node Inspector
     // ------------------------------------------------------------------------
     const float content_w = ImGui::GetContentRegionAvail().x;
     const float left_w    = (content_w > 540.0f) ? content_w * 0.55f : content_w * 0.50f;
@@ -450,17 +450,17 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
 
     ImGui::SameLine();
 
-    // ===== 右カラム: FNode Inspector =====
+    // ===== 右カラム: Node Inspector =====
     ImGui::BeginChild("##bt_inspector_right", ImVec2(0, 0), true);
     {
-        ImGui::TextUnformatted("FNode Inspector");
+        ImGui::TextUnformatted("Node Inspector");
         ImGui::Separator();
 
         if (!IsValidId(_selected, _nodes.Size())) {
             ImGui::TextDisabled("(No node selected)");
             ImGui::TextDisabled("Click a node in the tree view.");
         } else {
-            const FNodeMeta& n = _nodes[static_cast<usize>(_selected)];
+            const NodeMeta& n = _nodes[static_cast<usize>(_selected)];
 
             // child count を線形走査でカウント (Action なら 0)。
             u32 child_count = 0;

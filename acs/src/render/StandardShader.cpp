@@ -119,7 +119,7 @@ float ComputeShadow(float3 world_p) {
 
     // ---- 2) Penumbra width ----
     // light_size_uv = 0.01 をハードコード、kFilt で全体スケーリング。
-    // FPbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
+    // PbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
     float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
     float filter_r = max(penumbra * 0.01 * kFilt, ts);
 
@@ -217,10 +217,10 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> StandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     // === シェーダコンパイル ===
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::FVertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kStandardHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Standard.VS";
@@ -288,7 +288,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     pd.static_samplers[1].filter    = ESamplerFilter::Linear;
     pd.static_samplers[1].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
-    pd.vertex_stride = sizeof(FMeshVertex);
+    pd.vertex_stride = sizeof(MeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // FVec3 はアライン 16
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
@@ -300,7 +300,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     return Ok();
 }
 
-void FStandardShader::Shutdown() noexcept {
+void StandardShader::Shutdown() noexcept {
     _pipeline.Reset();
     _white.Reset();
     _object_cb.Reset();
@@ -309,7 +309,7 @@ void FStandardShader::Shutdown() noexcept {
     _vs.Reset();
 }
 
-void FStandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
+void StandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
                               FVec3 light_color, FVec3 ambient) noexcept {
     FDirLight one;
     one.direction = light_dir;
@@ -317,7 +317,7 @@ void FStandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
     SetLights(vp, cam, &one, 1, ambient);
 }
 
-void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
+void StandardShader::SetLights(const FMat4& vp, FVec3 cam,
                                const FDirLight* lights, u32 count,
                                FVec3 ambient) noexcept {
     if (count > kMaxDirLights) count = kMaxDirLights;
@@ -329,14 +329,14 @@ void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
     FlushFrameCB();
 }
 
-void FStandardShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
+void StandardShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     _point_count = count;
     for (u32 i = 0; i < count; ++i) _point_lights[i] = lights[i];
     FlushFrameCB();
 }
 
-void FStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
+void StandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
                                    f32 bias, f32 filter_radius) noexcept {
     _shadow_tex    = tex;
     _light_vp      = light_vp;
@@ -345,7 +345,7 @@ void FStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
     FlushFrameCB();
 }
 
-void FStandardShader::FlushFrameCB() noexcept {
+void StandardShader::FlushFrameCB() noexcept {
     if (!_frame_cb) return;
     FrameCBLayout cb{};
     cb.view_proj  = _vp;
@@ -366,10 +366,10 @@ void FStandardShader::FlushFrameCB() noexcept {
     }
     cb.light_view_proj = _light_vp;
     // shadow_params: x=bias, y=enabled (0/1), z=texel_size (UV)、w=filter_radius
-    // texel_size は FShadowMap 固定 2048 想定 (FPbrShader と同じ近似)。PCSS は
+    // texel_size は ShadowMap 固定 2048 想定 (PbrShader と同じ近似)。PCSS は
     // 1 texel offset でも blocker search が正しく機能するため、Vogel 時代の
     // 2-texel bilinear 補正は不要 (penumbra 計算で自動的にエッジが広がる)。
-    // w=0 で hard、w=1 で FPbrShader と同じ標準 PCSS。
+    // w=0 で hard、w=1 で PbrShader と同じ標準 PCSS。
     cb.shadow_params = FVec4{
         _shadow_bias,
         _shadow_tex ? 1.0f : 0.0f,
@@ -379,7 +379,7 @@ void FStandardShader::FlushFrameCB() noexcept {
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
-void FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
+void StandardShader::SetObject(const FMat4& model, FVec3 base_color,
                                f32 specular_strength, f32 shininess) noexcept {
     if (!_object_cb) return;
     ObjectCBLayout cb{};
@@ -389,8 +389,8 @@ void FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
     _object_cb->Update(&cb, sizeof(cb));
 }
 
-void FStandardShader::DrawMesh(IRhiCommandList& cmd,
-                              const FGpuMesh& mesh,
+void StandardShader::DrawMesh(IRhiCommandList& cmd,
+                              const GpuMesh& mesh,
                               const FMat4& model,
                               FVec3 base_color,
                               f32  specular_strength,

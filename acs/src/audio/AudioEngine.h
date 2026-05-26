@@ -2,15 +2,15 @@
 // XAudio2 ベースの音声エンジン
 //
 // 使い方:
-//   FAudioEngine engine;
+//   AudioEngine engine;
 //   engine.Init();
 //
-//   // FAudioAsset (wav/mp3/flac/ogg) を FAsset モジュールから取得
-//   TRc<FAsset> asset = registry.Load(L"sound/bgm.ogg").Value();
-//   auto* audio = static_cast<FAudioAsset*>(asset.Get());
+//   // AudioAsset (wav/mp3/flac/ogg) を Asset モジュールから取得
+//   TRc<Asset> asset = registry.Load(L"sound/bgm.ogg").Value();
+//   auto* audio = static_cast<AudioAsset*>(asset.Get());
 //
 //   // 再生 (volume 0..1, loop は繰り返し)
-//   FSoundHandle h = engine.Play(*audio, 1.0f, /*loop=*/true);
+//   SoundHandle h = engine.Play(*audio, 1.0f, /*loop=*/true);
 //
 //   // 停止 / 音量変更
 //   engine.SetVolume(h, 0.5f);
@@ -29,13 +29,13 @@
 
 namespace acs {
 
-class FAudioEngine {
+class AudioEngine {
 public:
-    FAudioEngine() noexcept = default;
-    ~FAudioEngine() noexcept;
+    AudioEngine() noexcept = default;
+    ~AudioEngine() noexcept;
 
-    FAudioEngine(const FAudioEngine&) = delete;
-    FAudioEngine& operator=(const FAudioEngine&) = delete;
+    AudioEngine(const AudioEngine&) = delete;
+    AudioEngine& operator=(const AudioEngine&) = delete;
 
     // XAudio2 を初期化
     TResult<void> Init() noexcept;
@@ -45,13 +45,13 @@ public:
     // 音声を再生開始
     //   volume: 0.0..1.0
     //   loop  : true なら無限ループ
-    FSoundHandle Play(const FAudioAsset& asset, f32 volume = 1.0f, bool loop = false) noexcept;
+    SoundHandle Play(const AudioAsset& asset, f32 volume = 1.0f, bool loop = false) noexcept;
 
     // 停止 (内部スロットも解放)
-    void Stop(FSoundHandle h) noexcept;
+    void Stop(SoundHandle h) noexcept;
 
     // 音量変更 (0.0..1.0、超過は内部でクランプ)
-    void SetVolume(FSoundHandle h, f32 volume) noexcept;
+    void SetVolume(SoundHandle h, f32 volume) noexcept;
 
     // 全音停止
     void StopAll() noexcept;
@@ -67,10 +67,10 @@ public:
     u32 ActiveCount() const noexcept;
 
     // pimpl: XAudio2 ヘッダを公開しないための private 実装。型名のみ前方宣言。
-    struct FImpl;
+    struct Impl;
 
 private:
-    FImpl* _impl = nullptr;
+    Impl* _impl = nullptr;
 };
 
 } // namespace acs

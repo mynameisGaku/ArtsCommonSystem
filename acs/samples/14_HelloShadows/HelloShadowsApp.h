@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloShadows — FApplication 派生クラス。
+// HelloShadows — Application 派生クラス。
 // 太陽光 + シャドウマッピング (PCSS) で 8 個のキャスタを地面に影として落とす。
 //
 // リソース所有 (sky / shader / shadow / sprite / font / camera) と入力
@@ -20,7 +20,7 @@
 
 namespace helloshadows {
 
-class HelloShadowsApp : public acs::FApplication {
+class HelloShadowsApp : public acs::Application {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -29,14 +29,14 @@ public:
 
 private:
     ShadowsScene             _scene;
-    acs::FSky                 _sky;
-    acs::FStandardShader      _shader;
-    acs::FShadowMap           _shadow;
-    acs::FGpuMesh             _gm_cube;
-    acs::FGpuMesh             _gm_sphere;
-    acs::FGpuMesh             _gm_plane;
-    acs::FSpriteBatch         _batch;
-    acs::FFont                _font;
+    acs::Sky                 _sky;
+    acs::StandardShader      _shader;
+    acs::ShadowMap           _shadow;
+    acs::GpuMesh             _gm_cube;
+    acs::GpuMesh             _gm_sphere;
+    acs::GpuMesh             _gm_plane;
+    acs::SpriteBatch         _batch;
+    acs::Font                _font;
     acs::FCamera              _camera;
     acs::FVec3                _cam_pos    {0, 4, -10};
     acs::f32                 _cam_yaw    = 0.0f;

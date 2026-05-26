@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTriangle — FApplication 実装。
+// HelloTriangle — Application 実装。
 #include "HelloTriangleApp.h"
 #include "Shaders.h"
 #include "Types.h"
@@ -14,7 +14,7 @@ namespace hellotri {
 void HelloTriangleApp::OnStart() noexcept {
     // === シェーダ === (同じ HLSL ソースから entry を変えて VS / PS を 2 回コンパイル)
     FShaderDesc vs_desc{};
-    vs_desc.stage = EShaderStage::FVertex;
+    vs_desc.stage = EShaderStage::Vertex;
     vs_desc.hlsl_source = kHLSL;
     vs_desc.entry_point = "VSMain";
     vs_desc.debug_name  = "Triangle.VS";
@@ -42,12 +42,12 @@ void HelloTriangleApp::OnStart() noexcept {
     // === 頂点バッファ ===
     FBufferDesc vb_desc{};
     vb_desc.size = sizeof(kTriangleVertices);
-    vb_desc.usage = EBufferUsage::FVertex;
+    vb_desc.usage = EBufferUsage::Vertex;
     vb_desc.cpu_writable = true;
     vb_desc.initial_data = kTriangleVertices;
     auto vb_r = CreateRhiBuffer(*GetRenderer().Device(), vb_desc);
     if (vb_r.IsErr()) {
-        ACS_LOG_ERROR("FVertex buffer create failed");
+        ACS_LOG_ERROR("Vertex buffer create failed");
         Quit();
         return;
     }
@@ -60,7 +60,7 @@ void HelloTriangleApp::OnStart() noexcept {
     pd.topology = EPrimitiveTopology::TriangleList;
     pd.rt_format = EFormat::B8G8R8A8_UNorm;
     pd.depth_format = EFormat::Unknown;
-    pd.vertex_stride = sizeof(FVertex);
+    pd.vertex_stride = sizeof(Vertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
     pd.layout[1] = { "COLOR",    0, EFormat::R32G32B32_Float, sizeof(f32) * 3 };
     pd.layout_count = 2;
@@ -76,7 +76,7 @@ void HelloTriangleApp::OnStart() noexcept {
 }
 
 void HelloTriangleApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
 }
 
 void HelloTriangleApp::OnRender() noexcept {
@@ -85,7 +85,7 @@ void HelloTriangleApp::OnRender() noexcept {
     if (!cl || !_pipeline || !_vb) return;
 
     cl->SetPipeline(*_pipeline);
-    cl->SetVertexBuffer(*_vb, sizeof(FVertex));
+    cl->SetVertexBuffer(*_vb, sizeof(Vertex));
     cl->Draw(3);
 }
 

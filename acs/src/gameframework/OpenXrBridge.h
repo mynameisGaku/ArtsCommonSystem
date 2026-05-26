@@ -36,7 +36,7 @@
 //      置換でき、HMD を持たない CI で上位層のロジック試験を回せる。
 //
 // 設計選択 (Phase X-1):
-//   ・**FXrPose は euler 角で簡素化**: quaternion を表現する型を本 header で
+//   ・**XrPose は euler 角で簡素化**: quaternion を表現する型を本 header で
 //     新規導入すると math モジュールへの依存が増える。XR の生 API は quaternion
 //     を返すが、ゲーム層がポーズを扱う最小用途 (カメラ向き / コントローラ
 //     向き) は euler で十分。具象 backend が quat → euler を変換する。
@@ -87,19 +87,19 @@ enum class EXrPlatform : u8 {
 };
 
 // =============================================================================
-// FXrPose — HMD / コントローラの位置 + 向き
+// XrPose — HMD / コントローラの位置 + 向き
 // -----------------------------------------------------------------------------
 // `orientation_euler` は (pitch, yaw, roll) の順で **ラジアン** で格納する。
 // quaternion 表現を本 header では避ける (math 依存の最小化、簡素化)。
 // 上位が精密な向き計算をしたい場合は、自分で euler → quat / matrix へ変換する。
 // =============================================================================
-struct FXrPose {
+struct XrPose {
     acs::FVec3 position           = acs::FVec3::Zero();  // world-space 位置 (m)
     acs::FVec3 orientation_euler  = acs::FVec3::Zero();  // (pitch, yaw, roll) [rad]
 };
 
 // =============================================================================
-// FXrControllerState — 左右コントローラの 1 フレーム分の入力 snapshot
+// XrControllerState — 左右コントローラの 1 フレーム分の入力 snapshot
 // -----------------------------------------------------------------------------
 // プラットフォーム差を吸収する最小公倍数:
 //   ・pose       : 6DoF 位置 + 向き
@@ -111,8 +111,8 @@ struct FXrPose {
 // より細かい input (ハンドトラッキング / 触覚 / フェイストラッキング) は
 // Phase X-2 で別の構造体として追加する。
 // =============================================================================
-struct FXrControllerState {
-    FXrPose    pose;                           // 6DoF コントローラポーズ
+struct XrControllerState {
+    XrPose    pose;                           // 6DoF コントローラポーズ
     f32       trigger    = 0.0f;              // [0, 1] 人差し指トリガ
     f32       grip       = 0.0f;              // [0, 1] グリップボタン
     bool      button_a   = false;             // 主要ボタン A (or X)
@@ -156,11 +156,11 @@ public:
     virtual EXrPlatform ActivePlatform() const noexcept = 0;
 
     // 直近 Tick 時点の HMD ポーズ。Init 前 / stub は原点 (zero pose) を返す。
-    virtual FXrPose HeadPose() const noexcept = 0;
+    virtual XrPose HeadPose() const noexcept = 0;
 
     // 直近 Tick 時点の左 / 右コントローラ state。未接続側はゼロ state を返す。
-    virtual FXrControllerState LeftController()  const noexcept = 0;
-    virtual FXrControllerState RightController() const noexcept = 0;
+    virtual XrControllerState LeftController()  const noexcept = 0;
+    virtual XrControllerState RightController() const noexcept = 0;
 
     // ポーズ / 入力の取り込みを進める。XR ランタイムのイベントポンプ相当。
     // ゲームループから毎フレーム呼ぶこと。dt は実時間秒 (実装によっては使わない)。
@@ -181,7 +181,7 @@ protected:
 };
 
 // =============================================================================
-// FOpenXrBridgeStub — 「常に未初期化 / 原点 pose」を返す stub
+// OpenXrBridgeStub — 「常に未初期化 / 原点 pose」を返す stub
 // -----------------------------------------------------------------------------
 // SDK 同梱前の状態でも上位層が「HMD は刺さっていない」想定で fallback
 // (= 通常の 2D ディスプレイ向け描画) を書けるようにするための placeholder。
@@ -194,18 +194,18 @@ protected:
 //   ・`IsPassthroughSupported()` は常に false。`SetPassthrough()` は no-op。
 //   ・`Tick()` / `Shutdown()` は副作用なし。
 // =============================================================================
-class FOpenXrBridgeStub final : public IOpenXrBridge {
+class OpenXrBridgeStub final : public IOpenXrBridge {
 public:
-    FOpenXrBridgeStub() noexcept = default;
-    ~FOpenXrBridgeStub() noexcept override = default;
+    OpenXrBridgeStub() noexcept = default;
+    ~OpenXrBridgeStub() noexcept override = default;
 
     TResult<void>      Init(EXrPlatform platform = EXrPlatform::Unknown) noexcept override;
     void              Shutdown()                                      noexcept override;
     bool              IsInitialized()                           const noexcept override { return _initialized; }
     EXrPlatform        ActivePlatform()                          const noexcept override { return EXrPlatform::Unknown; }
-    FXrPose            HeadPose()                                const noexcept override { return FXrPose{}; }
-    FXrControllerState LeftController()                          const noexcept override { return FXrControllerState{}; }
-    FXrControllerState RightController()                         const noexcept override { return FXrControllerState{}; }
+    XrPose            HeadPose()                                const noexcept override { return XrPose{}; }
+    XrControllerState LeftController()                          const noexcept override { return XrControllerState{}; }
+    XrControllerState RightController()                         const noexcept override { return XrControllerState{}; }
     void              Tick(f32 dt)                                    noexcept override;
     bool              IsPassthroughSupported()                  const noexcept override { return false; }
     void              SetPassthrough(bool on)                         noexcept override;
@@ -218,7 +218,7 @@ private:
 // global stub アクセサ
 // -----------------------------------------------------------------------------
 // process 内で 1 個だけ存在する静的 stub への参照を返す。Phase X-1 では
-// `FGame` / `FScene` 側からの XR 問い合わせはすべてこの 1 つを通る。
+// `Game` / `Scene` 側からの XR 問い合わせはすべてこの 1 つを通る。
 // Phase X-2 以降、具象 backend が選ばれるとアクセサは差し替えられる。
 //
 // ※ static 単一インスタンス = process lifetime。スレッド安全性は呼び出し側責務。

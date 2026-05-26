@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FAudioDirector (Phase 2: 実 backend 接続)
+// GameFramework Pillar H — AudioDirector (Phase 2: 実 backend 接続)
 //
-// シーン跨ぎで生存する「音声指揮層」。FSceneServices ではなく FGame (or app)
+// シーン跨ぎで生存する「音声指揮層」。SceneServices ではなく Game (or app)
 // に持たせる前提 (BGM はシーン切替で途切れないため、シーン局所では困る)。
 //
 // 機能:
@@ -12,11 +12,11 @@
 //   ・Pause / Resume / StopAll
 //   ・Tick(dt) で内部 timer (クロスフェード / ダッキング) を進行
 //   ・**IAudioBackend 接続 (Phase 2 で追加)**: `SetBackend(IAudioBackend*)` で
-//     `FXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
+//     `XAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
 //     pause / stop / Tick を backend に delegate する。backend == nullptr のとき
 //     は従来通り state-only 動作 (= 無音、ログ警告も出さない)。
-//   ・**clip 直接再生 API (Phase 2 で追加)**: `PlayBgmClip(const FAudioClipDesc&,
-//     fade, loop)` / `PlaySfxClip(const FAudioClipDesc&, vol, pitch)` で raw PCM
+//   ・**clip 直接再生 API (Phase 2 で追加)**: `PlayBgmClip(const AudioClipDesc&,
+//     fade, loop)` / `PlaySfxClip(const AudioClipDesc&, vol, pitch)` で raw PCM
 //     データから直接再生できる。名前ベース API (PlayBgm / PlaySfx) は state 管理
 //     のみ (将来 name→clip resolver を導入予定)。
 //
@@ -30,9 +30,9 @@
 //   ・**SFX は ring 風に固定容量**: 容量 32 (典型的同時発音数を踏まえた目安)。
 //     満杯なら最古を上書き (シューティング的に許容)。
 //   ・**name は所有しない**: `const char*` を保持 = ROM の文字列リテラル前提。
-//     Phase 3 で FStringView / FAsset Handle に置き換える。
+//     Phase 3 で FStringView / Asset Handle に置き換える。
 //   ・**backend は所有しない**: `IAudioBackend*` は raw ptr。呼び出し側が
-//     `FXAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
+//     `XAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
 //     backend の Shutdown を呼ぶ責任を負う (二重解放回避)。
 //   ・**Pause/Resume/StopAll/SetMasterVolume は backend に forward**: backend
 //     が存在すれば実音にも反映される。volume バス変更 (SetBgmVolume 等) は
@@ -40,7 +40,7 @@
 //     を毎フレ算出して backend へ流す)。
 //
 // 範囲外 (Phase 3+ で):
-//   ・name → FAudioClipDesc resolver (FAssetRegistry 統合)
+//   ・name → AudioClipDesc resolver (AssetRegistry 統合)
 //   ・3D positional / spatial / submix bus / DSP chain
 //   ・スナップショット (mixer state を hot-swap)
 //   ・wav/ogg/mp3 decode (本層は raw PCM 前提)
@@ -52,18 +52,18 @@
 
 namespace acs::game {
 
-class FAudioDirector {
+class AudioDirector {
 public:
     // SFX one-shot 最大同時発音数。超過時は最古を上書き。
     static constexpr u32 kMaxSfxVoices = 32;
     // ダッキング fade-out / fade-in の固定窓 (秒)。
     static constexpr f32 kDuckFadeWindow = 0.1f;
 
-    FAudioDirector() noexcept;
-    ~FAudioDirector() noexcept = default;
+    AudioDirector() noexcept;
+    ~AudioDirector() noexcept = default;
 
-    FAudioDirector(const FAudioDirector&)            = delete;
-    FAudioDirector& operator=(const FAudioDirector&) = delete;
+    AudioDirector(const AudioDirector&)            = delete;
+    AudioDirector& operator=(const AudioDirector&) = delete;
 
     // ----- ボリュームバス -----
     // [0, 1] にクランプ。範囲外は警告 + clamp して受理。
@@ -104,7 +104,7 @@ public:
     void StopAll() noexcept;
     bool IsPaused() const noexcept { return _paused; }
 
-    // ----- driver (FGame / FSceneManager から毎フレーム呼ぶ) -----
+    // ----- driver (Game / SceneManager から毎フレーム呼ぶ) -----
     // Pause 中は dt を消費しない (state 凍結)。
     void Tick(f32 dt) noexcept;
 
@@ -116,7 +116,7 @@ public:
     f32 EffectiveSfxVolume() const noexcept;
 
     // ----- backend 接続 (Phase 2 で追加) -----
-    // concrete backend (FXAudio2Backend 等) を差し込む。nullptr で切断。
+    // concrete backend (XAudio2Backend 等) を差し込む。nullptr で切断。
     // 切断時に既存 BGM/SFX voice は backend->StopAllVoices で停止する責任は
     // 呼び出し側に委ねる (本層は raw ptr 入替のみ)。
     void           SetBackend(IAudioBackend* backend) noexcept { _backend = backend; }
@@ -130,18 +130,18 @@ public:
     //                fade in (本層 state machine が EffectiveBgmVolume を毎フレ
     //                backend->SetVoiceVolume に反映するので、初期 volume=0)。
     // loop=false の使用は稀 (BGM は基本 loop)、stinger 演出用に許可。
-    FAudioVoiceHandle PlayBgmClip(const FAudioClipDesc& clip,
+    AudioVoiceHandle PlayBgmClip(const AudioClipDesc& clip,
                                  f32 fade_in_sec = 1.0f,
                                  bool loop = true) noexcept;
     // SFX one-shot 再生: backend に PlayOneShot を投げる。volume は
     // EffectiveSfxVolume * volume_scale で合成済。pitch=1.0 が等倍。
-    FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc& clip,
+    AudioVoiceHandle PlaySfxClip(const AudioClipDesc& clip,
                                  f32 volume_scale = 1.0f,
                                  f32 pitch = 1.0f) noexcept;
 
 private:
     // BGM スロット 1 本の state。`_bgm[0]` = current、`_bgm[1]` = 遷移中の new。
-    struct FBgmSlot {
+    struct BgmSlot {
         const char*      name         = nullptr;   // 所有しない (literal 前提)
         f32              gain         = 0.0f;      // 現在の slot ゲイン [0, 1]
         f32              target       = 0.0f;      // 目標ゲイン (= 0 で fade out 中)
@@ -150,11 +150,11 @@ private:
         bool             active       = false;
         // Phase 2 追加: backend voice handle。clip 直接再生時のみ valid。
         // 名前ベース PlayBgm のみで遷移したスロットは kInvalidAudioVoice のまま。
-        FAudioVoiceHandle voice        = {};
+        AudioVoiceHandle voice        = {};
     };
 
     // SFX one-shot ring エントリ。
-    struct FSfxEntry {
+    struct SfxEntry {
         const char* name         = nullptr;
         f32         volume_scale = 1.0f;
         bool        active       = false;  // false なら slot 空き
@@ -172,10 +172,10 @@ private:
     f32 _sfx_volume    = 1.0f;
 
     // ----- BGM クロスフェード state -----
-    FBgmSlot _bgm[2] {};
+    BgmSlot _bgm[2] {};
 
     // ----- SFX ring (固定容量) -----
-    TArray<FSfxEntry> _sfx;   // 容量 kMaxSfxVoices で reserve、サイズも同じく予約
+    TArray<SfxEntry> _sfx;   // 容量 kMaxSfxVoices で reserve、サイズも同じく予約
     u32             _sfx_head = 0;  // 上書き時の次書込先 (FIFO)
 
     // ----- Duck state -----
@@ -188,7 +188,7 @@ private:
     bool _paused = false;
 
     // ----- backend (Phase 2 で追加、非所有 raw ptr) -----
-    // nullptr 時は state-only 動作 (無音)。`FXAudio2Backend` 等を呼び出し側で
+    // nullptr 時は state-only 動作 (無音)。`XAudio2Backend` 等を呼び出し側で
     // 所有し、SetBackend で差し込む。Pause/Resume/StopAll/Tick/SetMasterVolume
     // を本層から forward する。
     IAudioBackend* _backend = nullptr;

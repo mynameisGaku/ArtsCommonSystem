@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FApplication 実装
+// Application 実装
 #include "app/Application.h"
 #include "foundation/Log.h"
 #include "foundation/Move.h"
@@ -9,22 +9,22 @@
 
 namespace acs {
 
-// FWindow から FEvent を受け取るブリッジ
-// 1) FInput サブシステムに流して状態を更新
+// Window から Event を受け取るブリッジ
+// 1) Input サブシステムに流して状態を更新
 // 2) アプリ派生クラスの OnEvent も呼ぶ
-// 3) リサイズ時は FRenderer にも通知
-void FApplication::EventBridge(void* user, const FEvent& e) noexcept {
-    FApplication* app = static_cast<FApplication*>(user);
-    FInput::OnEvent(e);
+// 3) リサイズ時は Renderer にも通知
+void Application::EventBridge(void* user, const Event& e) noexcept {
+    Application* app = static_cast<Application*>(user);
+    Input::OnEvent(e);
     if (e.type == EventType::WindowResize) {
         app->_renderer.OnResize(e.resize.width, e.resize.height);
     }
     app->OnEvent(e);
 }
 
-int FApplication::Run(const FAppConfig& cfg) noexcept {
+int Application::Run(const AppConfig& cfg) noexcept {
     _cfg = cfg;
-    _clear_color = FClearColor{ cfg.clear_r, cfg.clear_g, cfg.clear_b, cfg.clear_a };
+    _clear_color = ClearColor{ cfg.clear_r, cfg.clear_g, cfg.clear_b, cfg.clear_a };
 
     // ロガー初期化（最初に立ち上げて以降のエラーを記録できるように）
     FLogConfig lc{};
@@ -32,40 +32,40 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
     lc.debug_output = true;
     lc.min_severity = cfg.log_severity;
     lc.file_path = cfg.log_file;
-    FLogger::Init(lc);
+    Logger::Init(lc);
 
-    ACS_LOG_INFO("ACS FApplication starting up...");
+    ACS_LOG_INFO("ACS Application starting up...");
 
     // メモリシステム初期化
-    auto mr = FMemorySystem::Init(cfg.memory ? *cfg.memory : FMemorySystem::DefaultConfig());
+    auto mr = MemorySystem::Init(cfg.memory ? *cfg.memory : MemorySystem::DefaultConfig());
     if (mr.IsErr()) {
-        ACS_LOG_ERROR("FMemorySystem::Init failed: %s", mr.Error().message);
-        FLogger::Shutdown();
+        ACS_LOG_ERROR("MemorySystem::Init failed: %s", mr.Error().message);
+        Logger::Shutdown();
         return 1;
     }
 
-    // FThreadPool 起動
-    auto tr = FThreadPool::Init(cfg.worker_count);
+    // ThreadPool 起動
+    auto tr = ThreadPool::Init(cfg.worker_count);
     if (tr.IsErr()) {
-        ACS_LOG_ERROR("FThreadPool::Init failed: %s", tr.Error().message);
-        FMemorySystem::Shutdown();
-        FLogger::Shutdown();
+        ACS_LOG_ERROR("ThreadPool::Init failed: %s", tr.Error().message);
+        MemorySystem::Shutdown();
+        Logger::Shutdown();
         return 2;
     }
 
     // ウィンドウ作成
-    FWindowConfig wc{};
+    WindowConfig wc{};
     wc.title = cfg.title;
     wc.width = cfg.width;
     wc.height = cfg.height;
     wc.resizable = cfg.resizable;
     wc.vsync_hint = cfg.vsync;
-    auto wr = FWindow::Create(wc);
+    auto wr = Window::Create(wc);
     if (wr.IsErr()) {
-        ACS_LOG_ERROR("FWindow::Create failed: %s", wr.Error().message);
-        FThreadPool::Shutdown();
-        FMemorySystem::Shutdown();
-        FLogger::Shutdown();
+        ACS_LOG_ERROR("Window::Create failed: %s", wr.Error().message);
+        ThreadPool::Shutdown();
+        MemorySystem::Shutdown();
+        Logger::Shutdown();
         return 3;
     }
     _window = Move(wr.Value());
@@ -74,10 +74,10 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
     // レンダラ初期化
     auto rr = _renderer.Init(_window, cfg.enable_gpu_debug);
     if (rr.IsErr()) {
-        ACS_LOG_ERROR("FRenderer::Init failed: %s", rr.Error().message);
-        FThreadPool::Shutdown();
-        FMemorySystem::Shutdown();
-        FLogger::Shutdown();
+        ACS_LOG_ERROR("Renderer::Init failed: %s", rr.Error().message);
+        ThreadPool::Shutdown();
+        MemorySystem::Shutdown();
+        Logger::Shutdown();
         return 4;
     }
 
@@ -94,9 +94,9 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
     // メインループ
     while (_running && !_window.ShouldClose()) {
         // フレーム先頭処理
-        FInput::Update();         // 押下状態を 1 フレーム進める
+        Input::Update();         // 押下状態を 1 フレーム進める
         _window.PollEvents();    // OS メッセージ処理
-        FMemorySystem::ResetTemp();  // Temp セグメントを毎フレーム巻き戻し
+        MemorySystem::ResetTemp();  // Temp セグメントを毎フレーム巻き戻し
         _dt = _frame_timer.Tick();
 
         // タイマーをまず進める (派生クラスの OnUpdate より前に発火させて、
@@ -108,7 +108,7 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
 
         // フレーム描画 — OnCustomFrame() が true を返すなら派生クラスに完全委譲
         if (!OnCustomFrame()) {
-            // _clear_color は既定で FAppConfig 由来。SetClearColor() で毎フレーム変更可能。
+            // _clear_color は既定で AppConfig 由来。SetClearColor() で毎フレーム変更可能。
             _renderer.BeginFrame(_clear_color);
             OnRender();
             _renderer.EndFrame();
@@ -124,12 +124,12 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
 
     // サブシステムの破棄（逆順）
     _renderer.Shutdown();
-    FThreadPool::Shutdown();
-    FMemorySystem::Shutdown();
+    ThreadPool::Shutdown();
+    MemorySystem::Shutdown();
 
-    ACS_LOG_INFO("ACS FApplication shut down cleanly.");
-    FLogger::Flush();
-    FLogger::Shutdown();
+    ACS_LOG_INFO("ACS Application shut down cleanly.");
+    Logger::Flush();
+    Logger::Shutdown();
     return 0;
 }
 

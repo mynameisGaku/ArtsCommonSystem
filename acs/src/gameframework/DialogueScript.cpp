@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (visual novel) — FDialogueScript 実装
+// GameFramework ジャンルキット (visual novel) — DialogueScript 実装
 //
 // 状態遷移:
 //   Idle -> (LoadScript) -> Idle
@@ -40,14 +40,14 @@ constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
 // ===== public =====
 
-void FDialogueScript::Init() noexcept {
+void DialogueScript::Init() noexcept {
     _current_choices.Clear();
     _current_op_index = 0u;
     _wait_remaining   = 0.0f;
     _state            = EDialogueScriptState::Idle;
 }
 
-void FDialogueScript::LoadScript(const FScriptOp* ops, u32 op_count, const char* script_id) noexcept {
+void DialogueScript::LoadScript(const ScriptOp* ops, u32 op_count, const char* script_id) noexcept {
     _ops.Clear();
     _labels.Clear();
     _current_choices.Clear();
@@ -64,7 +64,7 @@ void FDialogueScript::LoadScript(const FScriptOp* ops, u32 op_count, const char*
     }
 }
 
-void FDialogueScript::AddLabel(const char* label, u32 op_index) noexcept {
+void DialogueScript::AddLabel(const char* label, u32 op_index) noexcept {
     if (label == nullptr) return;
     if (op_index >= static_cast<u32>(_ops.Size())) return;
 
@@ -73,13 +73,13 @@ void FDialogueScript::AddLabel(const char* label, u32 op_index) noexcept {
         if (StrEq(_labels[i].label, label)) return;
     }
 
-    FLabelEntry e;
+    LabelEntry e;
     e.label    = label;
     e.op_index = op_index;
     _labels.PushBack(e);
 }
 
-void FDialogueScript::Start(const char* start_label) noexcept {
+void DialogueScript::Start(const char* start_label) noexcept {
     if (_ops.Size() == 0) {
         // 空スクリプト: 即 Finished にして End callback を発火
         _state = EDialogueScriptState::Playing;
@@ -106,14 +106,14 @@ void FDialogueScript::Start(const char* start_label) noexcept {
     RunUntilBlocked();
 }
 
-void FDialogueScript::Stop() noexcept {
+void DialogueScript::Stop() noexcept {
     _state            = EDialogueScriptState::Idle;
     _current_op_index = 0u;
     _wait_remaining   = 0.0f;
     _current_choices.Clear();
 }
 
-void FDialogueScript::ClearAll() noexcept {
+void DialogueScript::ClearAll() noexcept {
     _ops.Clear();
     _labels.Clear();
     _current_choices.Clear();
@@ -133,13 +133,13 @@ void FDialogueScript::ClearAll() noexcept {
     _end_cb      = nullptr; _end_user      = nullptr;
 }
 
-bool FDialogueScript::IsPlaying() const noexcept {
+bool DialogueScript::IsPlaying() const noexcept {
     return _state == EDialogueScriptState::Playing
         || _state == EDialogueScriptState::AwaitingInput
         || _state == EDialogueScriptState::AwaitingChoice;
 }
 
-void FDialogueScript::Advance() noexcept {
+void DialogueScript::Advance() noexcept {
     if (_state != EDialogueScriptState::AwaitingInput) return;
     // Say op を消費して次へ
     _current_op_index += 1u;
@@ -147,11 +147,11 @@ void FDialogueScript::Advance() noexcept {
     RunUntilBlocked();
 }
 
-void FDialogueScript::SelectChoice(u32 choice_index) noexcept {
+void DialogueScript::SelectChoice(u32 choice_index) noexcept {
     if (_state != EDialogueScriptState::AwaitingChoice) return;
     if (choice_index >= static_cast<u32>(_current_choices.Size())) return;
 
-    const FScriptChoice& c = _current_choices[choice_index];
+    const ScriptChoice& c = _current_choices[choice_index];
     const u32 target = (c.jump_label != nullptr) ? ResolveLabel(c.jump_label) : kInvalidIndex;
 
     _current_choices.Clear();
@@ -168,23 +168,23 @@ void FDialogueScript::SelectChoice(u32 choice_index) noexcept {
     RunUntilBlocked();
 }
 
-const FScriptOp* FDialogueScript::CurrentOp() const noexcept {
+const ScriptOp* DialogueScript::CurrentOp() const noexcept {
     if (_current_op_index >= static_cast<u32>(_ops.Size())) return nullptr;
     return &_ops[_current_op_index];
 }
 
-u32 FDialogueScript::CurrentChoiceCount() const noexcept {
+u32 DialogueScript::CurrentChoiceCount() const noexcept {
     if (_state != EDialogueScriptState::AwaitingChoice) return 0;
     return static_cast<u32>(_current_choices.Size());
 }
 
-const FScriptChoice* FDialogueScript::CurrentChoice(u32 index) const noexcept {
+const ScriptChoice* DialogueScript::CurrentChoice(u32 index) const noexcept {
     if (_state != EDialogueScriptState::AwaitingChoice) return nullptr;
     if (index >= static_cast<u32>(_current_choices.Size())) return nullptr;
     return &_current_choices[index];
 }
 
-void FDialogueScript::Tick(f32 dt) noexcept {
+void DialogueScript::Tick(f32 dt) noexcept {
     // Wait タイマは Playing 状態でのみ進める。
     // AwaitingInput / AwaitingChoice / Idle / Finished は no-op。
     if (_state != EDialogueScriptState::Playing) return;
@@ -202,37 +202,37 @@ void FDialogueScript::Tick(f32 dt) noexcept {
 
 // ----- callback 登録 -----
 
-void FDialogueScript::SetOnSayCallback(SayCallback cb, void* user) noexcept {
+void DialogueScript::SetOnSayCallback(SayCallback cb, void* user) noexcept {
     _say_cb = cb; _say_user = user;
 }
-void FDialogueScript::SetOnShowCallback(ShowHideCallback cb, void* user) noexcept {
+void DialogueScript::SetOnShowCallback(ShowHideCallback cb, void* user) noexcept {
     _show_cb = cb; _show_user = user;
 }
-void FDialogueScript::SetOnHideCallback(ShowHideCallback cb, void* user) noexcept {
+void DialogueScript::SetOnHideCallback(ShowHideCallback cb, void* user) noexcept {
     _hide_cb = cb; _hide_user = user;
 }
-void FDialogueScript::SetOnBackgroundCallback(BackgroundCallback cb, void* user) noexcept {
+void DialogueScript::SetOnBackgroundCallback(BackgroundCallback cb, void* user) noexcept {
     _bg_cb = cb; _bg_user = user;
 }
-void FDialogueScript::SetOnPlayBgmCallback(BgmSeCallback cb, void* user) noexcept {
+void DialogueScript::SetOnPlayBgmCallback(BgmSeCallback cb, void* user) noexcept {
     _play_bgm_cb = cb; _play_bgm_user = user;
 }
-void FDialogueScript::SetOnStopBgmCallback(BgmSeCallback cb, void* user) noexcept {
+void DialogueScript::SetOnStopBgmCallback(BgmSeCallback cb, void* user) noexcept {
     _stop_bgm_cb = cb; _stop_bgm_user = user;
 }
-void FDialogueScript::SetOnPlaySeCallback(BgmSeCallback cb, void* user) noexcept {
+void DialogueScript::SetOnPlaySeCallback(BgmSeCallback cb, void* user) noexcept {
     _play_se_cb = cb; _play_se_user = user;
 }
-void FDialogueScript::SetOnChoicePresentCallback(ChoicePresentCallback cb, void* user) noexcept {
+void DialogueScript::SetOnChoicePresentCallback(ChoicePresentCallback cb, void* user) noexcept {
     _choice_cb = cb; _choice_user = user;
 }
-void FDialogueScript::SetOnEndCallback(EndCallback cb, void* user) noexcept {
+void DialogueScript::SetOnEndCallback(EndCallback cb, void* user) noexcept {
     _end_cb = cb; _end_user = user;
 }
 
 // ===== private =====
 
-u32 FDialogueScript::ResolveLabel(const char* label) const noexcept {
+u32 DialogueScript::ResolveLabel(const char* label) const noexcept {
     if (label == nullptr) return kInvalidIndex;
     for (usize i = 0; i < _labels.Size(); ++i) {
         if (StrEq(_labels[i].label, label)) {
@@ -242,7 +242,7 @@ u32 FDialogueScript::ResolveLabel(const char* label) const noexcept {
     return kInvalidIndex;
 }
 
-void FDialogueScript::RunUntilBlocked() noexcept {
+void DialogueScript::RunUntilBlocked() noexcept {
     // 即進行系を一気に消化し、停止ポイント (Say / Choice / Wait / EndScene / 末尾) で抜ける。
     const u32 n = static_cast<u32>(_ops.Size());
 
@@ -252,7 +252,7 @@ void FDialogueScript::RunUntilBlocked() noexcept {
             return;
         }
 
-        const FScriptOp& op = _ops[_current_op_index];
+        const ScriptOp& op = _ops[_current_op_index];
         switch (op.kind) {
         case EScriptOpKind::Say:
             // Say は停止ポイント
@@ -295,14 +295,14 @@ void FDialogueScript::RunUntilBlocked() noexcept {
     }
 }
 
-void FDialogueScript::EnterChoiceGroup() noexcept {
+void DialogueScript::EnterChoiceGroup() noexcept {
     _current_choices.Clear();
     const u32 n = static_cast<u32>(_ops.Size());
 
     // _current_op_index 起点から連続する Choice op を全て選択肢に展開
     u32 i = _current_op_index;
     while (i < n && _ops[i].kind == EScriptOpKind::Choice) {
-        FScriptChoice c;
+        ScriptChoice c;
         c.label      = _ops[i].arg1;
         c.jump_label = _ops[i].arg2;
         _current_choices.PushBack(c);
@@ -321,12 +321,12 @@ void FDialogueScript::EnterChoiceGroup() noexcept {
     _state = EDialogueScriptState::AwaitingChoice;
 
     if (_choice_cb != nullptr) {
-        const FScriptChoice* base = (_current_choices.Size() > 0) ? &_current_choices[0] : nullptr;
+        const ScriptChoice* base = (_current_choices.Size() > 0) ? &_current_choices[0] : nullptr;
         _choice_cb(_choice_user, base, static_cast<u32>(_current_choices.Size()));
     }
 }
 
-void FDialogueScript::ExecuteImmediateOp(const FScriptOp& op) noexcept {
+void DialogueScript::ExecuteImmediateOp(const ScriptOp& op) noexcept {
     switch (op.kind) {
     case EScriptOpKind::Show:
         if (_show_cb != nullptr) _show_cb(_show_user, op.arg1, op.arg2);
@@ -376,7 +376,7 @@ void FDialogueScript::ExecuteImmediateOp(const FScriptOp& op) noexcept {
     }
 }
 
-void FDialogueScript::EnterFinished() noexcept {
+void DialogueScript::EnterFinished() noexcept {
     if (_state == EDialogueScriptState::Finished) return;
     _state          = EDialogueScriptState::Finished;
     _wait_remaining = 0.0f;

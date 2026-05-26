@@ -1,8 +1,8 @@
-## HelloSave — FStorage で設定 / セーブデータの永続化。
+## HelloSave — Storage で設定 / セーブデータの永続化。
 ##
 ## 構成:
 ##   main.cpp              - ACS_DEFINE_MAIN(HelloSaveApp) のみ
-##   HelloSaveApp.{h,cpp}  - FApplication 派生クラス
+##   HelloSaveApp.{h,cpp}  - Application 派生クラス
 add_executable(hello_save WIN32
     main.cpp
     HelloSaveApp.cpp

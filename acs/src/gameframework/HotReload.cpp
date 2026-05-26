@@ -28,7 +28,7 @@ namespace acs::game {
 // ライフサイクル
 // ============================================================================
 
-void FHotReloadWatcher::Init() noexcept {
+void HotReloadWatcher::Init() noexcept {
     // Phase 2 では何もしない (予約点)。
     //
     // TODO(Phase K-3):
@@ -43,7 +43,7 @@ void FHotReloadWatcher::Init() noexcept {
     // 多重呼び出し可: 何度呼んでも副作用なし。
 }
 
-void FHotReloadWatcher::Shutdown() noexcept {
+void HotReloadWatcher::Shutdown() noexcept {
     // watched paths / callbacks / pending events を全クリア。
     // path 文字列自体は caller 所有 (借用) なので Free しない。
     // callbacks / events は POD なので個別後始末不要。
@@ -59,9 +59,9 @@ void FHotReloadWatcher::Shutdown() noexcept {
 // 監視対象登録
 // ============================================================================
 
-void FHotReloadWatcher::WatchDirectory(const char* dir_path, bool recursive) noexcept {
+void HotReloadWatcher::WatchDirectory(const char* dir_path, bool recursive) noexcept {
     if (dir_path == nullptr || dir_path[0] == '\0') {
-        ACS_LOG_WARN("FHotReloadWatcher::WatchDirectory: null/empty path (ignored)");
+        ACS_LOG_WARN("HotReloadWatcher::WatchDirectory: null/empty path (ignored)");
         return;
     }
 
@@ -79,9 +79,9 @@ void FHotReloadWatcher::WatchDirectory(const char* dir_path, bool recursive) noe
     (void)recursive;
 }
 
-void FHotReloadWatcher::WatchFile(const char* file_path) noexcept {
+void HotReloadWatcher::WatchFile(const char* file_path) noexcept {
     if (file_path == nullptr || file_path[0] == '\0') {
-        ACS_LOG_WARN("FHotReloadWatcher::WatchFile: null/empty path (ignored)");
+        ACS_LOG_WARN("HotReloadWatcher::WatchFile: null/empty path (ignored)");
         return;
     }
 
@@ -94,7 +94,7 @@ void FHotReloadWatcher::WatchFile(const char* file_path) noexcept {
     _watched_paths.PushBack(file_path);
 }
 
-void FHotReloadWatcher::Unwatch(const char* path) noexcept {
+void HotReloadWatcher::Unwatch(const char* path) noexcept {
     if (path == nullptr || path[0] == '\0') {
         return;  // null/empty は no-op (境界条件吸収)
     }
@@ -115,9 +115,9 @@ void FHotReloadWatcher::Unwatch(const char* path) noexcept {
 // コールバック登録
 // ============================================================================
 
-void FHotReloadWatcher::RegisterCallback(HotReloadCallback cb, void* user) noexcept {
+void HotReloadWatcher::RegisterCallback(HotReloadCallback cb, void* user) noexcept {
     if (cb == nullptr) {
-        ACS_LOG_WARN("FHotReloadWatcher::RegisterCallback: null cb (ignored)");
+        ACS_LOG_WARN("HotReloadWatcher::RegisterCallback: null cb (ignored)");
         return;
     }
 
@@ -127,7 +127,7 @@ void FHotReloadWatcher::RegisterCallback(HotReloadCallback cb, void* user) noexc
             return;
         }
     }
-    FCallbackEntry e{};
+    CallbackEntry e{};
     e.cb   = cb;
     e.user = user;
     _callbacks.PushBack(e);
@@ -137,7 +137,7 @@ void FHotReloadWatcher::RegisterCallback(HotReloadCallback cb, void* user) noexc
 // 駆動
 // ============================================================================
 
-void FHotReloadWatcher::Tick(f32 dt) noexcept {
+void HotReloadWatcher::Tick(f32 dt) noexcept {
     (void)dt;
 
     // Phase 2 スタブ: 何もしない。
@@ -145,10 +145,10 @@ void FHotReloadWatcher::Tick(f32 dt) noexcept {
     // TODO(Phase K-3):
     //   ・Windows: GetQueuedCompletionStatus で ReadDirectoryChangesW の
     //     完了通知を取り、FILE_NOTIFY_INFORMATION から filename と Action を抽出、
-    //     FHotReloadEvent を構成して _pending_events に push、続けて再度
+    //     HotReloadEvent を構成して _pending_events に push、続けて再度
     //     ReadDirectoryChangesW を発行 (one-shot を継続化)。
     //   ・POSIX: read(inotify_fd, ...) で inotify_event を取り、IN_MODIFY /
-    //     IN_DELETE を FHotReloadEvent.removed にマップ。
+    //     IN_DELETE を HotReloadEvent.removed にマップ。
     //   ・event 構成後は登録済み callback に dispatch (ループ内で
     //     ConsumeNextEvent するか、内部で _callbacks を直接回す。Phase K-3 で
     //     決定)。
@@ -164,15 +164,15 @@ void FHotReloadWatcher::Tick(f32 dt) noexcept {
 // 状態取得
 // ============================================================================
 
-u32 FHotReloadWatcher::WatchedCount() const noexcept {
+u32 HotReloadWatcher::WatchedCount() const noexcept {
     return static_cast<u32>(_watched_paths.Size());
 }
 
-u32 FHotReloadWatcher::PendingEventCount() const noexcept {
+u32 HotReloadWatcher::PendingEventCount() const noexcept {
     return static_cast<u32>(_pending_events.Size());
 }
 
-bool FHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent& out) noexcept {
+bool HotReloadWatcher::ConsumeNextEvent(HotReloadEvent& out) noexcept {
     if (_pending_events.Size() == 0) {
         return false;  // 空なら out は触らず false
     }
@@ -189,7 +189,7 @@ bool FHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent& out) noexcept {
     return true;
 }
 
-void FHotReloadWatcher::ClearEvents() noexcept {
+void HotReloadWatcher::ClearEvents() noexcept {
     // pending events は POD (path は借用 const char*) なので個別後始末不要。
     _pending_events.Clear();
 }
@@ -202,17 +202,17 @@ void FHotReloadWatcher::ClearEvents() noexcept {
 // 全 method を no-op に。シンボル定義は残し、呼び出し側コードが #ifdef だらけに
 // ならないようにする。戻り値は安全な既定値 (0 / false)。
 
-void FHotReloadWatcher::Init() noexcept {}
-void FHotReloadWatcher::Shutdown() noexcept {}
-void FHotReloadWatcher::WatchDirectory(const char* /*dir_path*/, bool /*recursive*/) noexcept {}
-void FHotReloadWatcher::WatchFile(const char* /*file_path*/) noexcept {}
-void FHotReloadWatcher::Unwatch(const char* /*path*/) noexcept {}
-void FHotReloadWatcher::RegisterCallback(HotReloadCallback /*cb*/, void* /*user*/) noexcept {}
-void FHotReloadWatcher::Tick(f32 /*dt*/) noexcept {}
-u32  FHotReloadWatcher::WatchedCount() const noexcept { return 0; }
-u32  FHotReloadWatcher::PendingEventCount() const noexcept { return 0; }
-bool FHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent& /*out*/) noexcept { return false; }
-void FHotReloadWatcher::ClearEvents() noexcept {}
+void HotReloadWatcher::Init() noexcept {}
+void HotReloadWatcher::Shutdown() noexcept {}
+void HotReloadWatcher::WatchDirectory(const char* /*dir_path*/, bool /*recursive*/) noexcept {}
+void HotReloadWatcher::WatchFile(const char* /*file_path*/) noexcept {}
+void HotReloadWatcher::Unwatch(const char* /*path*/) noexcept {}
+void HotReloadWatcher::RegisterCallback(HotReloadCallback /*cb*/, void* /*user*/) noexcept {}
+void HotReloadWatcher::Tick(f32 /*dt*/) noexcept {}
+u32  HotReloadWatcher::WatchedCount() const noexcept { return 0; }
+u32  HotReloadWatcher::PendingEventCount() const noexcept { return 0; }
+bool HotReloadWatcher::ConsumeNextEvent(HotReloadEvent& /*out*/) noexcept { return false; }
+void HotReloadWatcher::ClearEvents() noexcept {}
 
 #endif // ACS_GAME_SHIPPING
 

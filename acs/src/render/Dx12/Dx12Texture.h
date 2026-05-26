@@ -7,14 +7,14 @@
 
 namespace acs {
 
-class FDx12Device;
+class Dx12Device;
 
-class FDx12Texture final : public IRhiTexture {
+class Dx12Texture final : public IRhiTexture {
 public:
-    FDx12Texture() noexcept = default;
-    ~FDx12Texture() noexcept override;
+    Dx12Texture() noexcept = default;
+    ~Dx12Texture() noexcept override;
 
-    FHrResult Init(FDx12Device& device, const FTextureDesc& desc) noexcept;
+    HrResult Init(Dx12Device& device, const FTextureDesc& desc) noexcept;
 
     u32    Width()       const noexcept override { return _width; }
     u32    Height()      const noexcept override { return _height; }
@@ -34,7 +34,7 @@ public:
     void SetCurrentState(D3D12_RESOURCE_STATES s) noexcept { _current_state = s; }
 
 private:
-    FDx12Device*           _device   = nullptr;
+    Dx12Device*           _device   = nullptr;
     ID3D12Resource*       _resource = nullptr;
     u32                   _width    = 0;
     u32                   _height   = 0;

@@ -8,11 +8,11 @@
 
 namespace acs {
 
-// 現在のデフォルトアロケータを返す（起動時は FSystemAllocator）
-FAllocator& DefaultAllocator() noexcept;
+// 現在のデフォルトアロケータを返す（起動時は SystemAllocator）
+Allocator& DefaultAllocator() noexcept;
 
-// デフォルトを差し替える（nullptr で FSystemAllocator に戻す、起動初期に呼ぶこと）
-void SetDefaultAllocator(FAllocator* a) noexcept;
+// デフォルトを差し替える（nullptr で SystemAllocator に戻す、起動初期に呼ぶこと）
+void SetDefaultAllocator(Allocator* a) noexcept;
 
 // 領域非重複コピー
 void MemCopy(void* dst, const void* src, usize n) noexcept;

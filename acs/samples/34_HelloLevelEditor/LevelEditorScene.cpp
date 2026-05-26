@@ -27,12 +27,12 @@ void LevelEditorScene::OnEnter() noexcept {
     // ---- Workspace 本体 ----
     _workspace.Init();
 
-    // ---- FTilemap: 32x32 / 2 layer / tile_size=16 ----
+    // ---- Tilemap: 32x32 / 2 layer / tile_size=16 ----
     _tilemap.Init(/*width=*/32u, /*height=*/32u,
                   /*layer_count=*/2u, /*tile_size=*/16.0f);
     _seed_initial_tilemap_pattern();
 
-    // ---- FLevelEditorPanel に tilemap を渡して Workspace に登録 ----
+    // ---- LevelEditorPanel に tilemap を渡して Workspace に登録 ----
     _level_panel.Init();
     _level_panel.SetTilemap(&_tilemap);
     // editor 開始時は壁 (tile id=10) をスポイトしやすいよう Paint + active layer=1
@@ -40,7 +40,7 @@ void LevelEditorScene::OnEnter() noexcept {
     _level_panel.SetActiveLayer(1u);
     _level_panel.SetCurrentBrush(leveledit::EBrushKind::Paint);
     _level_panel.SetCurrentTileId(10u);
-    // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
+    // EditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
     // よって panel.OnInit を別途呼ぶ必要は無い。
     _workspace.RegisterPanel(&_level_panel);
 
@@ -58,33 +58,33 @@ void LevelEditorScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 void LevelEditorScene::_seed_initial_tilemap_pattern() noexcept {
     // layer 0 = 床 (全面 tile id=1)
-    _tilemap.Fill(FTileId{1u}, /*layer=*/0u);
+    _tilemap.Fill(TileId{1u}, /*layer=*/0u);
 
     // layer 1 = 壁。FillRect は (x0,y0,x1,y1) の矩形を tile で埋める
     // (x0/y0 == x1/y1 で線分扱い)。
 
     // 外周 (4 辺) を tile id=10 で囲む
-    _tilemap.FillRect(0u,  0u,  31u, 0u,  FTileId{10u}, /*layer=*/1u);    // 下
-    _tilemap.FillRect(0u,  31u, 31u, 31u, FTileId{10u}, /*layer=*/1u);    // 上
-    _tilemap.FillRect(0u,  0u,  0u,  31u, FTileId{10u}, /*layer=*/1u);    // 左
-    _tilemap.FillRect(31u, 0u,  31u, 31u, FTileId{10u}, /*layer=*/1u);    // 右
+    _tilemap.FillRect(0u,  0u,  31u, 0u,  TileId{10u}, /*layer=*/1u);    // 下
+    _tilemap.FillRect(0u,  31u, 31u, 31u, TileId{10u}, /*layer=*/1u);    // 上
+    _tilemap.FillRect(0u,  0u,  0u,  31u, TileId{10u}, /*layer=*/1u);    // 左
+    _tilemap.FillRect(31u, 0u,  31u, 31u, TileId{10u}, /*layer=*/1u);    // 右
 
     // 中央部屋 (8..23, 8..23) の枠を tile id=20 で囲む
-    _tilemap.FillRect(8u,  8u,  23u, 8u,  FTileId{20u}, /*layer=*/1u);    // 下辺
-    _tilemap.FillRect(8u,  23u, 23u, 23u, FTileId{20u}, /*layer=*/1u);    // 上辺
-    _tilemap.FillRect(8u,  8u,  8u,  23u, FTileId{20u}, /*layer=*/1u);    // 左辺
-    _tilemap.FillRect(23u, 8u,  23u, 23u, FTileId{20u}, /*layer=*/1u);    // 右辺
+    _tilemap.FillRect(8u,  8u,  23u, 8u,  TileId{20u}, /*layer=*/1u);    // 下辺
+    _tilemap.FillRect(8u,  23u, 23u, 23u, TileId{20u}, /*layer=*/1u);    // 上辺
+    _tilemap.FillRect(8u,  8u,  8u,  23u, TileId{20u}, /*layer=*/1u);    // 左辺
+    _tilemap.FillRect(23u, 8u,  23u, 23u, TileId{20u}, /*layer=*/1u);    // 右辺
 }
 
 // ----------------------------------------------------------------------------
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
 void LevelEditorScene::OnExit() noexcept {
-    // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
+    // EditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
     _workspace.Shutdown();
     _level_panel.Shutdown();
-    // FEditorTheme::Shutdown は存在しない API なので明示解放は不要 (Dtor で十分)。
+    // EditorTheme::Shutdown は存在しない API なので明示解放は不要 (Dtor で十分)。
     ACS_LOG_INFO("[LevelEditor] exited");
 }
 
@@ -96,7 +96,7 @@ void LevelEditorScene::OnExit() noexcept {
 // の間でしか呼べないため、ここでは Workspace::TickAllPanels は呼ばない。
 void LevelEditorScene::OnUpdate(f32 dt) noexcept {
     (void)dt;
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+    if (Input::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -105,13 +105,13 @@ void LevelEditorScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File/Brush メニュー → Workspace 全描画
 // ----------------------------------------------------------------------------
-void LevelEditorScene::OnRender(FRenderContext& rc) noexcept {
+void LevelEditorScene::OnRender(RenderContext& rc) noexcept {
     (void)rc;
 
     // ---- (1) MainMenuBar に本 sample 専用メニューを push ----
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
     // マージするので、ここで File / Brush を出しておけば Workspace 側が出す
-    // FWindow / Layout メニューと並ぶ。
+    // Window / Layout メニューと並ぶ。
     if (ImGui::BeginMainMenuBar()) {
         _draw_file_menu();
         _draw_brush_menu();
@@ -130,14 +130,14 @@ void LevelEditorScene::_draw_file_menu() noexcept {
     if (!ImGui::BeginMenu("File")) {
         return;
     }
-    if (ImGui::MenuItem("Save FTilemap")) {
+    if (ImGui::MenuItem("Save Tilemap")) {
         // 実 serializer は未配線。callback hook だけ走らせる stub。
-        ACS_LOG_INFO("[LevelEditor] Save FTilemap -> '%s' (stub, no-op: %ux%u, %u layer)",
+        ACS_LOG_INFO("[LevelEditor] Save Tilemap -> '%s' (stub, no-op: %ux%u, %u layer)",
                      kSavePath, _tilemap.Width(), _tilemap.Height(),
                      _tilemap.LayerCount());
     }
-    if (ImGui::MenuItem("Load FTilemap")) {
-        ACS_LOG_INFO("[LevelEditor] Load FTilemap <- '%s' (stub, no-op)", kSavePath);
+    if (ImGui::MenuItem("Load Tilemap")) {
+        ACS_LOG_INFO("[LevelEditor] Load Tilemap <- '%s' (stub, no-op)", kSavePath);
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Quit", "Esc")) {

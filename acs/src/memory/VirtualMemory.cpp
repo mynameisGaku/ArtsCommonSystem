@@ -27,13 +27,13 @@ bool VmIsAligned(uptr addr, usize alignment) noexcept {
     return (addr & (alignment - 1)) == 0;
 }
 
-// ---- FVmReservation ------------------------------------------------------
+// ---- VmReservation ------------------------------------------------------
 
-FVmReservation::~FVmReservation() noexcept {
+VmReservation::~VmReservation() noexcept {
     Release();
 }
 
-FVmReservation::FVmReservation(FVmReservation&& o) noexcept
+VmReservation::VmReservation(VmReservation&& o) noexcept
     : _base(o._base), _capacity(o._capacity), _committed(o._committed),
       _lru_count(o._lru_count), _lru_hits(o._lru_hits), _lru_misses(o._lru_misses) {
     for (u32 i = 0; i < o._lru_count; ++i) _lru[i] = o._lru[i];
@@ -43,7 +43,7 @@ FVmReservation::FVmReservation(FVmReservation&& o) noexcept
     o._lru_count = 0;
 }
 
-FVmReservation& FVmReservation::operator=(FVmReservation&& o) noexcept {
+VmReservation& VmReservation::operator=(VmReservation&& o) noexcept {
     if (this == &o) return *this;
     Release();
     _base = o._base;
@@ -61,8 +61,8 @@ FVmReservation& FVmReservation::operator=(FVmReservation&& o) noexcept {
 }
 
 // 仮想範囲を予約する（物理ページは未割当）
-TResult<FVmReservation> FVmReservation::Reserve(usize capacity_bytes) noexcept {
-    if (capacity_bytes == 0) return ACS_ERR(Memory, 10, "FVmReservation::Reserve: capacity 0");
+TResult<VmReservation> VmReservation::Reserve(usize capacity_bytes) noexcept {
+    if (capacity_bytes == 0) return ACS_ERR(Memory, 10, "VmReservation::Reserve: capacity 0");
     usize gran = VmAllocGranularity();
     capacity_bytes = (capacity_bytes + gran - 1) & ~(gran - 1);
 
@@ -71,14 +71,14 @@ TResult<FVmReservation> FVmReservation::Reserve(usize capacity_bytes) noexcept {
         DWORD err = ::GetLastError();
         return ACS_ERR_OS(Memory, 11, "VirtualAlloc MEM_RESERVE failed", err);
     }
-    FVmReservation r;
+    VmReservation r;
     r._base = base;
     r._capacity = capacity_bytes;
     r._committed = 0;
-    return TResult<FVmReservation>(OkInit, Move(r));
+    return TResult<VmReservation>(OkInit, Move(r));
 }
 
-void FVmReservation::Release() noexcept {
+void VmReservation::Release() noexcept {
     if (!_base) return;
     LruEvictAll();
     ::VirtualFree(_base, 0, MEM_RELEASE);
@@ -89,7 +89,7 @@ void FVmReservation::Release() noexcept {
 }
 
 // LRU 末尾エントリを実 VirtualFree して新エントリを先頭挿入
-void FVmReservation::LruInsert(u64 offset, u32 page_count) noexcept {
+void VmReservation::LruInsert(u64 offset, u32 page_count) noexcept {
     if (_lru_count == kLruEntries) {
         const mapped_t& victim = _lru[kLruEntries - 1];
         void* addr = static_cast<u8*>(_base) + (victim.packed_virtual_addr << 16);
@@ -107,7 +107,7 @@ void FVmReservation::LruInsert(u64 offset, u32 page_count) noexcept {
 }
 
 // 一致エントリを取り除いて true を返す（再利用可能）
-bool FVmReservation::LruTake(u64 offset, u32 page_count) noexcept {
+bool VmReservation::LruTake(u64 offset, u32 page_count) noexcept {
     u64 packed = (offset >> 16) & ((1ull << 44) - 1);
     for (u32 i = 0; i < _lru_count; ++i) {
         if (_lru[i].packed_virtual_addr == packed && _lru[i].page_count == page_count) {
@@ -122,7 +122,7 @@ bool FVmReservation::LruTake(u64 offset, u32 page_count) noexcept {
 }
 
 // LRU 内のすべてを実 VirtualFree
-void FVmReservation::LruEvictAll() noexcept {
+void VmReservation::LruEvictAll() noexcept {
     for (u32 i = 0; i < _lru_count; ++i) {
         const mapped_t& v = _lru[i];
         void* addr = static_cast<u8*>(_base) + (v.packed_virtual_addr << 16);
@@ -133,7 +133,7 @@ void FVmReservation::LruEvictAll() noexcept {
 }
 
 // 物理ページ確保（LRU ヒットなら VirtualAlloc 省略）
-TResult<void> FVmReservation::Commit(usize offset, usize size) noexcept {
+TResult<void> VmReservation::Commit(usize offset, usize size) noexcept {
     if (!_base) return ACS_ERR(Memory, 12, "Commit: reservation released");
     if (offset + size > _capacity) return ACS_ERR(Memory, 13, "Commit: out of reservation");
     usize page_size = VmPageSize();
@@ -155,7 +155,7 @@ TResult<void> FVmReservation::Commit(usize offset, usize size) noexcept {
 }
 
 // 物理ページ返却（実 VirtualFree は LRU エビクト時）
-TResult<void> FVmReservation::Decommit(usize offset, usize size) noexcept {
+TResult<void> VmReservation::Decommit(usize offset, usize size) noexcept {
     if (!_base) return ACS_ERR(Memory, 15, "Decommit: reservation released");
     if (offset + size > _capacity) return ACS_ERR(Memory, 16, "Decommit: out of reservation");
     usize page_size = VmPageSize();

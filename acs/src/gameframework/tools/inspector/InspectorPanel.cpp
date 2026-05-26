@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorPanel 実装 (Phase 20 editor 第二弾)
+// GameFramework Pillar K — InspectorPanel 実装 (Phase 20 editor 第二弾)
 //
 // 仕様の意図は InspectorPanel.h を参照。本ファイルでは:
-//   ・FSelectionService からの FNodeId 取得 (forward-decl 経由)
-//   ・`FInspectorSeam::GetProvider(FNodeId)` を介した Provider 取得
-//   ・`FInspectableObject::fields` の 1 件ずつを EFieldKind に応じた
+//   ・SelectionService からの FNodeId 取得 (forward-decl 経由)
+//   ・`InspectorSeam::GetProvider(FNodeId)` を介した Provider 取得
+//   ・`InspectableObject::fields` の 1 件ずつを EFieldKind に応じた
 //     ImGui widget に変換 (Bool / I32 / U32 / F32 / FVec2 / FVec3 / FVec4 /
 //     FColor / FString / Enum)
 //   ・編集発生時に dirty flag を立て + FieldChangeCallback を発火
@@ -22,30 +22,30 @@
 
 namespace acs::game::inspector {
 
-// FSelectionService は同名前空間にあり、ヘッダで forward-decl 済み。
+// SelectionService は同名前空間にあり、ヘッダで forward-decl 済み。
 // 実 API (`CurrentSelection()` 等) はこの .cpp から直接呼ぶ。
 
 // =============================================================================
 // ローカルヘルパ
 // =============================================================================
 
-// `FInspectorSeam::GetProvider(FNodeId)` を呼ぶラッパ。
+// `InspectorSeam::GetProvider(FNodeId)` を呼ぶラッパ。
 //
 // 実 seam 側に `GetProvider(FNodeId)` が無い場合のフォールバックは持たない
 // (= リンクエラーで気付かせる方針)。これは「seam の API が FNodeId 受けで
 // 必ず存在する」前提を panel 側に明示するため。
-static IInspectableProvider* ResolveProvider(FInspectorSeam& seam, FNodeId id) noexcept {
+static IInspectableProvider* ResolveProvider(InspectorSeam& seam, FNodeId id) noexcept {
     if (!id.IsValid()) {
         return nullptr;
     }
-    // FInspectorSeam::GetProvider は u32 index (provider list 上の位置) を取る。
+    // InspectorSeam::GetProvider は u32 index (provider list 上の位置) を取る。
     // FNodeId をそのまま渡せないので index を取り出す (24bit 部分)。
     // 本来は seam が FNodeId → provider のマッピングを持つ方が自然だが、
     // 現状の seam は index ベースなので Phase 24+ で改修予定。
     return seam.GetProvider(id.Index());
 }
 
-// 1 FInspectableField を ImGui 上に描画 / 編集する。値が書き換わったら
+// 1 InspectableField を ImGui 上に描画 / 編集する。値が書き換わったら
 // `true` を返す。`changed_field_name` には書き換わったフィールドの name を
 // 出力 (callback 呼び出し用)。
 //
@@ -57,7 +57,7 @@ static IInspectableProvider* ResolveProvider(FInspectorSeam& seam, FNodeId id) n
 //
 // kind 分岐は switch にまとめてレジスタ局所化を狙う。各 case は ImGui の
 // 該当 widget を呼び、戻り値が true なら _dirty を立てる。
-static bool DrawField(FInspectableField& field) noexcept {
+static bool DrawField(InspectableField& field) noexcept {
     if (field.name == nullptr || field.data == nullptr) {
         // データ未設定の field は描画しない (no-op + change=false)。
         ImGui::TextDisabled("(invalid field)");
@@ -72,7 +72,7 @@ static bool DrawField(FInspectableField& field) noexcept {
     switch (field.kind) {
     case EFieldKind::Bool: {
         bool* p = static_cast<bool*>(field.data);
-        changed = ImGui::FCheckbox(field.name, p);
+        changed = ImGui::Checkbox(field.name, p);
         break;
     }
 
@@ -93,13 +93,13 @@ static bool DrawField(FInspectableField& field) noexcept {
 
     case EFieldKind::F32: {
         f32* p = static_cast<f32*>(field.data);
-        // 現状の FInspectableField には min/max metadata が無いため、暫定値
+        // 現状の InspectableField には min/max metadata が無いため、暫定値
         // [kDefaultSliderMin, kDefaultSliderMax] を使う。
         // metadata 拡張後はここで field の min/max を参照する。
         changed = ImGui::SliderFloat(field.name,
                                       p,
-                                      FInspectorPanel::kDefaultSliderMin,
-                                      FInspectorPanel::kDefaultSliderMax,
+                                      InspectorPanel::kDefaultSliderMin,
+                                      InspectorPanel::kDefaultSliderMax,
                                       "%.3f");
         break;
     }
@@ -145,11 +145,11 @@ static bool DrawField(FInspectableField& field) noexcept {
         // (= panel 内のローカル編集のみ、永続化は callback 経由で外部担当)。
         const char* src = static_cast<const char*>(field.data);
         if (src == nullptr) src = "";
-        char buf[FInspectorPanel::kStringBufferSize] = {};
+        char buf[InspectorPanel::kStringBufferSize] = {};
         // strncpy_s 系は Windows 限定なので std::strncpy + 末尾 NUL 確実化で。
-        std::strncpy(buf, src, FInspectorPanel::kStringBufferSize - 1);
-        buf[FInspectorPanel::kStringBufferSize - 1] = '\0';
-        if (ImGui::InputText(field.name, buf, FInspectorPanel::kStringBufferSize)) {
+        std::strncpy(buf, src, InspectorPanel::kStringBufferSize - 1);
+        buf[InspectorPanel::kStringBufferSize - 1] = '\0';
+        if (ImGui::InputText(field.name, buf, InspectorPanel::kStringBufferSize)) {
             // 書き戻しは現状しない (read-only)。callback 経由で外部が処理する。
             changed = true;
         }
@@ -199,7 +199,7 @@ static bool DrawField(FInspectableField& field) noexcept {
 // Init / Shutdown
 // =============================================================================
 
-void FInspectorPanel::Init() noexcept {
+void InspectorPanel::Init() noexcept {
     // 完全リセット。多重 Init を許容するため、ここでは selection / dirty を
     // クリアするだけで callback は触らない (Init は state リセット、callback
     // のクリアは Shutdown / Set*() の責務)。
@@ -208,8 +208,8 @@ void FInspectorPanel::Init() noexcept {
     // _selection_service / callback は維持 (= 再 Init で外部設定を壊さない)。
 }
 
-void FInspectorPanel::Shutdown() noexcept {
-    // 全状態を初期に戻す。外部所有の FSelectionService / callback ターゲットを
+void InspectorPanel::Shutdown() noexcept {
+    // 全状態を初期に戻す。外部所有の SelectionService / callback ターゲットを
     // 破棄するわけではないが、本パネルからの参照は外す。
     _current_selection  = FNodeId {};
     _selection_service  = nullptr;
@@ -222,12 +222,12 @@ void FInspectorPanel::Shutdown() noexcept {
 // SetSelectionService / SetOnFieldChangeCallback
 // =============================================================================
 
-void FInspectorPanel::SetSelectionService(FSelectionService* svc) noexcept {
+void InspectorPanel::SetSelectionService(SelectionService* svc) noexcept {
     // non-owning 保存。nullptr で解除可能。
     _selection_service = svc;
 }
 
-void FInspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept {
+void InspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept {
     _on_change_cb   = cb;
     _on_change_user = user;
 }
@@ -235,25 +235,25 @@ void FInspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* use
 // =============================================================================
 // DrawUI — メイン ImGui window
 // =============================================================================
-// ・FSelectionService が居れば Current() を優先採用、なければ引数 selected_id。
+// ・SelectionService が居れば Current() を優先採用、なければ引数 selected_id。
 // ・Provider が無効なら "(No provider)" を表示して return。
 // ・Provider の各オブジェクトを type/instance ヘッダ + field 配列で描画。
 // ・field が変わったら _dirty を立て + callback を発火。
 // =============================================================================
-void FInspectorPanel::DrawUI() noexcept {
-    // Phase 24: FEditorPanel 継承で no-param 化。
-    // - FInspectorSeam は SetInspectorSeam で事前 set
-    // - FNodeId は FSelectionService::CurrentSelection() で取得 (なければ invalid)
+void InspectorPanel::DrawUI() noexcept {
+    // Phase 24: EditorPanel 継承で no-param 化。
+    // - InspectorSeam は SetInspectorSeam で事前 set
+    // - FNodeId は SelectionService::CurrentSelection() で取得 (なければ invalid)
     if (!ImGui::Begin("Inspector")) {
         ImGui::End();
         return;
     }
     if (_inspector_seam == nullptr) {
-        ImGui::TextUnformatted("(no FInspectorSeam attached; call SetInspectorSeam)");
+        ImGui::TextUnformatted("(no InspectorSeam attached; call SetInspectorSeam)");
         ImGui::End();
         return;
     }
-    FInspectorSeam& seam = *_inspector_seam;
+    InspectorSeam& seam = *_inspector_seam;
 
     // ----- 選択 FNodeId の解決 -----
     FNodeId effective {};
@@ -293,7 +293,7 @@ void FInspectorPanel::DrawUI() noexcept {
     }
 
     for (u32 obj_index = 0; obj_index < obj_count; ++obj_index) {
-        FInspectableObject obj = prov->GetObject(obj_index);
+        InspectableObject obj = prov->GetObject(obj_index);
 
         // オブジェクトヘッダ "[TypeName] InstanceName" を CollapsingHeader で。
         // PushID で obj_index 単位の ID 名前空間を作る (= 同 type が複数並んでも
@@ -312,7 +312,7 @@ void FInspectorPanel::DrawUI() noexcept {
                 ImGui::TextDisabled("  (no fields)");
             } else {
                 for (u32 f = 0; f < obj.field_count; ++f) {
-                    FInspectableField& field = obj.fields[f];
+                    InspectableField& field = obj.fields[f];
                     if (DrawField(field)) {
                         // field 編集発生: dirty 立て、Provider 通知、callback 発火。
                         _dirty = true;

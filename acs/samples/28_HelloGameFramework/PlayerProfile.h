@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloGameFramework — PlayerProfile (AppState 例)。
 //
-// シーン跨ぎで保持したい状態は FGame::EmplaceAppState<T>() で 1 個だけ登録し、
-// 各 FScene から GetGame().AppState<T>() で参照する。サンプルでは「ハイスコア」
+// シーン跨ぎで保持したい状態は Game::EmplaceAppState<T>() で 1 個だけ登録し、
+// 各 Scene から GetGame().AppState<T>() で参照する。サンプルでは「ハイスコア」
 // と「セッション数」のみ。
 #pragma once
 

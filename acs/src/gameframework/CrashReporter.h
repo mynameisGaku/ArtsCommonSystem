@@ -6,9 +6,9 @@
 //   Crashpad / Backtrace.io / BugSnag 等) へ最低限の context を吐き出すための
 //   **抽象 seam**。ACS 本体は具象な HTTP/IPC スタックを抱え込まず、
 //   `ICrashReporterBackend` インターフェイスと NotImplemented を返すだけの
-//   `FCrashReporterStub` のみを提供する。
+//   `CrashReporterStub` のみを提供する。
 //
-//   ・タイトル側 (acs::FApplication) は ICrashReporterBackend* を持ち、
+//   ・タイトル側 (acs::Application) は ICrashReporterBackend* を持ち、
 //   ・実装 (CrashReporterSentry, CrashReporterCrashpad 等) はプロジェクト個別に
 //     差し込む。
 //   これにより、(a) ACS Foundation/GameFramework の依存最小化、(b) ネットワーク
@@ -30,7 +30,7 @@
 // 設計選択:
 //   ・**stub interface のみ**: 本ヘッダ + .cpp は ICrashReporterBackend を
 //     **抽象 interface として宣言** し、合わせて **常に NotImplemented を返す
-//     FCrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
+//     CrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
 //     居る」を保証するための fallback。
 //   ・**TResult<T, FErrorCode>**: 例外不使用方針。送信失敗・未初期化・引数不正は
 //     すべて FErrorCode で伝搬。上位層は `if (r.IsErr()) { /* swallow */ }` で
@@ -58,11 +58,11 @@ namespace acs::game {
 // =============================================================================
 // 共通: stub 用エラーサブコード
 // -----------------------------------------------------------------------------
-// FSaveSlot / BackendClient と同じく、本ピラーでも「Phase 1 stub = NotImplemented」
+// SaveSlot / BackendClient と同じく、本ピラーでも「Phase 1 stub = NotImplemented」
 // を `subcode = kSub_NotImplemented` で表現する。`ErrCategory` には Generic を
 // 使う (クラッシュ報告は I/O とは限らず Generic seam の性格が強い)。
 // =============================================================================
-struct FCrashReporterError {
+struct CrashReporterError {
     enum SubCode : u16 {
         kSub_NotInitialized = 1,  // Init() 前の API 呼び出し
         kSub_AlreadyInited  = 2,  // 2 重 Init (実装側で許容するかは任意)
@@ -74,13 +74,13 @@ struct FCrashReporterError {
 };
 
 // =============================================================================
-// FCrashContext — クラッシュ 1 件分の context
+// CrashContext — クラッシュ 1 件分の context
 // -----------------------------------------------------------------------------
 // 全フィールドは Backend が「ReportCrash 呼び出し中のみ」参照する想定。
 // 文字列ポインタは呼出側 (= クラッシュハンドラ) が寿命を保証する。stack_trace は
 // 改行区切りの 1 本文字列 (Sentry/BugSnag が要求する正規化は backend 側で行う)。
 // =============================================================================
-struct FCrashContext {
+struct CrashContext {
     const char* exception_type = nullptr;  // "SEH_ACCESS_VIOLATION" / "std::bad_alloc" 等
     const char* message        = nullptr;  // 人間可読の説明 ("null deref in Foo::Bar" 等)
     const char* stack_trace    = nullptr;  // 改行区切りスタック (空でも可)
@@ -94,7 +94,7 @@ struct FCrashContext {
 // ICrashReporterBackend — クラッシュ報告 backend の抽象 seam
 // -----------------------------------------------------------------------------
 // 1 タイトルにつき通常 1 インスタンス (Singleton 的運用)。
-// 寿命はタイトル側 (acs::FApplication 等) が握る。
+// 寿命はタイトル側 (acs::Application 等) が握る。
 // =============================================================================
 class ICrashReporterBackend {
 public:
@@ -121,7 +121,7 @@ public:
     // クラッシュ 1 件を送信する。プロセスがまだ生きている前提 (uncatchable な
     // SEH/POSIX signal は具象実装の signal handler 側で別経路にする想定)。
     // `ctx` のフィールドは関数戻りまで生存していれば良い。
-    virtual TResult<void> ReportCrash(const FCrashContext& ctx) noexcept = 0;
+    virtual TResult<void> ReportCrash(const CrashContext& ctx) noexcept = 0;
 
     // 非致命的エラーを送信する。`category` は集計用のキー ("net" / "save" /
     // "shader" 等)、`message` は人間可読のメッセージ。
@@ -143,22 +143,22 @@ public:
 };
 
 // =============================================================================
-// FCrashReporterStub — ICrashReporterBackend の null-object 実装
+// CrashReporterStub — ICrashReporterBackend の null-object 実装
 // -----------------------------------------------------------------------------
 // 全 API が NotImplemented を返す defensive stub。Init() ですら成功扱いに
 // しないことで、本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。
-// (これは BackendClientStub と同じ方針。FSteamworksBridgeStub は Init() のみ
+// (これは BackendClientStub と同じ方針。SteamworksBridgeStub は Init() のみ
 // 成功扱いだったが、CrashReporter はより厳格にしておく。)
 // =============================================================================
-class FCrashReporterStub final : public ICrashReporterBackend {
+class CrashReporterStub final : public ICrashReporterBackend {
 public:
-    FCrashReporterStub() noexcept = default;
-    ~FCrashReporterStub() noexcept override = default;
+    CrashReporterStub() noexcept = default;
+    ~CrashReporterStub() noexcept override = default;
 
     TResult<void> Init(const char* product_id, const char* version) noexcept override;
     void         Shutdown() noexcept override;
     bool         IsAvailable() const noexcept override { return false; }
-    TResult<void> ReportCrash(const FCrashContext& ctx) noexcept override;
+    TResult<void> ReportCrash(const CrashContext& ctx) noexcept override;
     TResult<void> ReportError(const char* category, const char* message) noexcept override;
     TResult<void> AddBreadcrumb(const char* category, const char* message) noexcept override;
     void         SetUserId(const char* anonymous_id) noexcept override;
@@ -171,26 +171,26 @@ public:
 ICrashReporterBackend& GetCrashStub() noexcept;
 
 // =============================================================================
-// FCrashHandler — 高レベル wrapper
+// CrashHandler — 高レベル wrapper
 // -----------------------------------------------------------------------------
 // ICrashReporterBackend を 1 つ抱えて、タイトル側のホットパスで使いやすい
 // API を提供する thin wrapper。
 //   ・Install(backend) で参照を保持し、Uninstall() で外す。
-//   ・NotifyCrash() は FCrashContext を最小フィールドだけ埋めて ReportCrash を
+//   ・NotifyCrash() は CrashContext を最小フィールドだけ埋めて ReportCrash を
 //     呼ぶ簡略パス。
 //   ・AddBreadcrumb() は backend に素通し。
 // backend == nullptr の状態 (Install 前 / Uninstall 後) では全 API が no-op
 // になる (= 二次クラッシュ防止)。
 // =============================================================================
-class FCrashHandler {
+class CrashHandler {
 public:
-    FCrashHandler() noexcept = default;
-    ~FCrashHandler() noexcept = default;
+    CrashHandler() noexcept = default;
+    ~CrashHandler() noexcept = default;
 
-    FCrashHandler(const FCrashHandler&)            = delete;
-    FCrashHandler& operator=(const FCrashHandler&) = delete;
-    FCrashHandler(FCrashHandler&&)                 = delete;
-    FCrashHandler& operator=(FCrashHandler&&)      = delete;
+    CrashHandler(const CrashHandler&)            = delete;
+    CrashHandler& operator=(const CrashHandler&) = delete;
+    CrashHandler(CrashHandler&&)                 = delete;
+    CrashHandler& operator=(CrashHandler&&)      = delete;
 
     // backend は呼出側が所有 (Install は寿命を借りるだけ)。
     // nullptr を渡すと Uninstall と同義。

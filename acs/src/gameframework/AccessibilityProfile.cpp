@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FAccessibilityProfile 実装
+// GameFramework 完成度システム v7 — AccessibilityProfile 実装
 //
 // 本ファイルは状態保持と preset 適用ロジックのみを持つ。「実際に色覚補正を
 // LUT で適用する」「実際に字幕を表示する」「実際にスクリーンリーダに発話
-// させる」のは caller (FRenderer / UI / TTS バックエンド) の責務。
+// させる」のは caller (Renderer / UI / TTS バックエンド) の責務。
 #include "gameframework/AccessibilityProfile.h"
 
 namespace acs::game {
@@ -13,16 +13,16 @@ namespace acs::game {
 //   POD コピーで完結。aliasing 問題はない (同じ Profile への自己代入も安全:
 //   `Set(profile.Get())` は値コピーで一時を介して書き戻すのと等価)。
 // =============================================================================
-void FAccessibilityProfile::Set(const FAccessibilitySettings& s) noexcept {
+void AccessibilityProfile::Set(const AccessibilitySettings& s) noexcept {
     _settings = s;
 }
 
 // =============================================================================
 // Reset — デフォルトコンストラクトの値に戻す
-//   FAccessibilitySettings の inline 初期化子と一致させるため `= {}` で再構築。
+//   AccessibilitySettings の inline 初期化子と一致させるため `= {}` で再構築。
 // =============================================================================
-void FAccessibilityProfile::Reset() noexcept {
-    _settings = FAccessibilitySettings{};
+void AccessibilityProfile::Reset() noexcept {
+    _settings = AccessibilitySettings{};
 }
 
 // =============================================================================
@@ -60,9 +60,9 @@ void FAccessibilityProfile::Reset() noexcept {
 //   OneHanded : 片手操作
 //               - one_handed_mode ON (UI 配置・入力マッピング再構成)
 // =============================================================================
-void FAccessibilityProfile::ApplyPreset(EPreset p) noexcept {
+void AccessibilityProfile::ApplyPreset(EPreset p) noexcept {
     // まずデフォルトに戻して、preset 固有の差分のみ上書きする方針。
-    _settings = FAccessibilitySettings{};
+    _settings = AccessibilitySettings{};
 
     switch (p) {
         case EPreset::Default:

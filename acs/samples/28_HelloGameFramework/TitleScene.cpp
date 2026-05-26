@@ -28,8 +28,8 @@ void TitleScene::OnEnter() noexcept {
 void TitleScene::OnExit() noexcept { ACS_LOG_INFO("[Title] exit"); }
 
 void TitleScene::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) GetGame().Quit();
-    if (FInput::IsKeyPressed(EKey::Space)) {
+    if (Input::IsKeyPressed(EKey::Escape)) GetGame().Quit();
+    if (Input::IsKeyPressed(EKey::Space)) {
         Scenes().ChangeScene(MakeUnique<GameplayScene>());
         return;
     }

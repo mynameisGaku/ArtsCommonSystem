@@ -14,17 +14,17 @@ namespace Diligent {
 
 namespace acs {
 
-class FDiligentDevice;
+class DiligentDevice;
 
-class FDiligentShader final : public IRhiShader {
+class DiligentShader final : public IRhiShader {
 public:
-    FDiligentShader() noexcept = default;
-    ~FDiligentShader() noexcept override;
+    DiligentShader() noexcept = default;
+    ~DiligentShader() noexcept override;
 
-    FDiligentShader(const FDiligentShader&) = delete;
-    FDiligentShader& operator=(const FDiligentShader&) = delete;
+    DiligentShader(const DiligentShader&) = delete;
+    DiligentShader& operator=(const DiligentShader&) = delete;
 
-    TResult<void> Init(FDiligentDevice& device, const FShaderDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const FShaderDesc& desc) noexcept;
 
     // ---- IRhiShader ----
     EShaderStage Stage()         const noexcept override { return _stage; }
@@ -47,9 +47,9 @@ public:
     }
 
 private:
-    FDiligentDevice*    _device = nullptr;
+    DiligentDevice*    _device = nullptr;
     Diligent::IShader* _shader = nullptr;
-    EShaderStage        _stage  = EShaderStage::FVertex;
+    EShaderStage        _stage  = EShaderStage::Vertex;
     // HLSL source 内の `cbuffer X : register(bN)` / `Texture2D Y : register(tN)`
     // から取得した N → 名前のマッピング (Diligent::ShaderResourceDesc に
     // BindPoint が無いため source parse で代用)。

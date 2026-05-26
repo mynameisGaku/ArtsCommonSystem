@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FDialogueSystem
+// GameFramework 完成度システム v7 — DialogueSystem
 //
 // シナリオ / NPC 会話 / イベントシーンで使うダイアログ駆動 state holder。
 // 1 行ずつテキストを送り出し、タイプライタ演出と分岐選択肢を扱う。
@@ -15,10 +15,10 @@
 //   ・分岐選択 (ChooseOption: choices[i].next_line_index にジャンプ)
 //
 // 設計選択:
-//   ・**文字列を所有しない**: FDialogueLine::text は const char* で参照のみ持つ。
+//   ・**文字列を所有しない**: DialogueLine::text は const char* で参照のみ持つ。
 //     scenario データは literal / バンドル等で別に管理する想定 (STL <string> 禁止)。
 //   ・**type_speed_cps <= 0 は瞬時表示**: 計算分岐を 1 ヶ所に集約。
-//   ・**choices は別 TArray**: FChoicesAt は (line_index, choice_start, choice_count)
+//   ・**choices は別 TArray**: ChoicesAt は (line_index, choice_start, choice_count)
 //     のみ持ち、実選択肢は `_all_choices` から slice する。挿入順に並ぶ前提で
 //     線形検索 (典型シナリオで N < 数百なので問題なし)。
 //   ・**auto-advance は per-line ではなく system 共通の delay**: 仕様簡素化。
@@ -26,7 +26,7 @@
 //   ・**非コピー・非ムーブ**: state holder の唯一性 (現在行 / タイプ進行) を
 //     担保するため。
 //
-// 参考: FSpriteAnimator (frame-based progression), FSequence (action 連鎖)
+// 参考: SpriteAnimator (frame-based progression), Sequence (action 連鎖)
 #pragma once
 
 #include "foundation/Types.h"
@@ -35,38 +35,38 @@
 namespace acs::game {
 
 // 1 行のダイアログ。文字列は所有しない (literal / 外部バンドル参照)。
-struct FDialogueLine {
+struct DialogueLine {
     const char* speaker        = nullptr;  // 発話者名 (nullptr 可)
     const char* text           = nullptr;  // 本文 (nullptr は空行扱い)
     f32         type_speed_cps = 30.0f;    // タイプ速度 (chars per second)、<=0 で瞬時
 };
 
 // 選択肢 1 つ。next_line_index が範囲外 (= line 数以上) ならダイアログ終了。
-struct FDialogueChoice {
+struct DialogueChoice {
     const char* text            = nullptr;
     u32         next_line_index = 0xFFFFFFFFu;  // 範囲外で「終了」を表現
 };
 
-class FDialogueSystem {
+class DialogueSystem {
 public:
-    FDialogueSystem() noexcept = default;
-    ~FDialogueSystem() noexcept = default;
+    DialogueSystem() noexcept = default;
+    ~DialogueSystem() noexcept = default;
 
     // 進行状態の唯一性を担保するため非コピー・非ムーブ
-    FDialogueSystem(const FDialogueSystem&)            = delete;
-    FDialogueSystem& operator=(const FDialogueSystem&) = delete;
-    FDialogueSystem(FDialogueSystem&&)                 = delete;
-    FDialogueSystem& operator=(FDialogueSystem&&)      = delete;
+    DialogueSystem(const DialogueSystem&)            = delete;
+    DialogueSystem& operator=(const DialogueSystem&) = delete;
+    DialogueSystem(DialogueSystem&&)                 = delete;
+    DialogueSystem& operator=(DialogueSystem&&)      = delete;
 
     // ----- セットアップ -----
     // 行を末尾に追加。挿入順に再生される。
-    void AddLine(const FDialogueLine& line) noexcept;
+    void AddLine(const DialogueLine& line) noexcept;
 
     // at_line_index 番の行が表示完了したあとに提示する選択肢群を登録。
     // 同じ line に複数回 AddChoices すると 2 回目以降は無視 (= 上書き禁止)。
     // count == 0 / choices == nullptr / at_line_index 範囲外 は no-op。
     void AddChoices(u32 at_line_index,
-                    const FDialogueChoice* choices, u32 count) noexcept;
+                    const DialogueChoice* choices, u32 count) noexcept;
 
     // ----- 再生制御 -----
     // 先頭行から再生開始。lines が空なら no-op (= IsActive() は false のまま)。
@@ -96,14 +96,14 @@ public:
 
     // ----- 現在状態のアクセサ -----
     // 非アクティブ時は nullptr。
-    const FDialogueLine* CurrentLine() const noexcept;
+    const DialogueLine* CurrentLine() const noexcept;
 
     // タイプライタで現在見えている文字数 (text の先頭から)。
     u32 VisibleCharCount() const noexcept { return _visible_chars; }
 
     // pending な選択肢の本数 / 配列ポインタ。pending でなければ 0 / nullptr。
     u32                   ChoiceCount() const noexcept;
-    const FDialogueChoice* Choices()     const noexcept;
+    const DialogueChoice* Choices()     const noexcept;
 
     // ----- フレーム更新 -----
     // dt 秒進める。タイプライタ進行 / auto-advance を行う。
@@ -117,14 +117,14 @@ public:
 
 private:
     // 「line_index 直後に提示する選択肢」の範囲記録
-    struct FChoicesAt {
+    struct ChoicesAt {
         u32 line_index   = 0;
         u32 choice_start = 0;
         u32 choice_count = 0;
     };
 
-    // _current_line_index に対応する FChoicesAt を返す (なければ nullptr)。
-    const FChoicesAt* FindChoicesForCurrent() const noexcept;
+    // _current_line_index に対応する ChoicesAt を返す (なければ nullptr)。
+    const ChoicesAt* FindChoicesForCurrent() const noexcept;
 
     // 現在行の全文字数 (text == nullptr のときは 0)。
     u32 CurrentLineLength() const noexcept;
@@ -133,9 +133,9 @@ private:
     // 末尾を超えていれば _completed=true、_active=false にする。
     void EnterLine(u32 new_index) noexcept;
 
-    TArray<FDialogueLine>   _lines;
-    TArray<FChoicesAt>      _choices_at;     // line_index 昇順想定 (線形検索)
-    TArray<FDialogueChoice> _all_choices;    // 全 choice をフラットに保持
+    TArray<DialogueLine>   _lines;
+    TArray<ChoicesAt>      _choices_at;     // line_index 昇順想定 (線形検索)
+    TArray<DialogueChoice> _all_choices;    // 全 choice をフラットに保持
 
     u32  _current_line_index = 0;
     u32  _visible_chars      = 0;

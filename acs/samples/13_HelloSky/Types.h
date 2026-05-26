@@ -11,14 +11,14 @@
 
 namespace hellosky {
 
-// 1/2/3 キーで切り替える FSky の preset 種別。
+// 1/2/3 キーで切り替える Sky の preset 種別。
 enum class SkyPreset : acs::u8 {
     Day    = 0,
     Sunset = 1,
     Night  = 2,
 };
 
-// preset 別の ambient 色。FSky の zenith をそのまま使うと明るすぎるので
+// preset 別の ambient 色。Sky の zenith をそのまま使うと明るすぎるので
 // 各時間帯の雰囲気に合わせて減衰させた値を採用。
 inline constexpr acs::FVec3 kAmbientDay   {0.20f, 0.22f, 0.30f};
 inline constexpr acs::FVec3 kAmbientSunset{0.20f, 0.10f, 0.10f};

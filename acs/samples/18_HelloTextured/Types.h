@@ -11,13 +11,13 @@
 namespace hellotextured {
 
 // 1 頂点 = 位置 + UV
-struct FVertex {
+struct Vertex {
     acs::f32 pos[3];
     acs::f32 uv[2];
 };
 
 // キューブ 24 頂点 (各面 4 頂点、UV は (0,0)..(1,1))
-inline constexpr FVertex kCubeVertices[24] = {
+inline constexpr Vertex kCubeVertices[24] = {
     // -Z 面
     {{-1, -1, -1}, {0, 1}}, {{ 1, -1, -1}, {1, 1}},
     {{ 1,  1, -1}, {1, 0}}, {{-1,  1, -1}, {0, 0}},

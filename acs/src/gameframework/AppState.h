@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — AppState (Phase 2)
 //
-// シーン跨ぎで生存する型消去の永続状態スロット。FGame が 1 つ保持し、
+// シーン跨ぎで生存する型消去の永続状態スロット。Game が 1 つ保持し、
 // 任意のシーンから `GetGame().AppState<T>()` で取り出せる。
 //
 // 使い方:
@@ -17,8 +17,8 @@
 // 設計:
 //   ・RTTI 不使用。型 ID は `template static const int` のアドレスを使う
 //     (各 T インスタンス化で別アドレス = 一意 ID)。
-//   ・FAllocator はデフォルト固定。ACS の New/Delete を使う。
-//   ・1 FGame あたり 1 個。複数の独立した状態が欲しい場合は struct にまとめる。
+//   ・Allocator はデフォルト固定。ACS の New/Delete を使う。
+//   ・1 Game あたり 1 個。複数の独立した状態が欲しい場合は struct にまとめる。
 //   ・wrong-type Get は nullptr を返す (例外なし、ACS 流)。
 #pragma once
 
@@ -29,24 +29,24 @@
 
 namespace acs::game {
 
-class FAppStateSlot {
+class AppStateSlot {
 public:
-    FAppStateSlot() noexcept = default;
-    ~FAppStateSlot() noexcept { Reset(); }
+    AppStateSlot() noexcept = default;
+    ~AppStateSlot() noexcept { Reset(); }
 
-    FAppStateSlot(const FAppStateSlot&)            = delete;
-    FAppStateSlot& operator=(const FAppStateSlot&) = delete;
+    AppStateSlot(const AppStateSlot&)            = delete;
+    AppStateSlot& operator=(const AppStateSlot&) = delete;
 
     // 既存スロットを破棄して T を in-place 構築。戻り値は参照。
     template<typename T, typename... Args>
     T& Emplace(Args&&... args) noexcept {
         Reset();
-        FAllocator& a = DefaultAllocator();
+        Allocator& a = DefaultAllocator();
         T* p = New<T>(a, Forward<Args>(args)...);
         _data    = p;
         _alloc   = &a;
         _type_id = TypeId<T>();
-        _destroy = +[](void* ptr, FAllocator& al) noexcept {
+        _destroy = +[](void* ptr, Allocator& al) noexcept {
             T* tp = static_cast<T*>(ptr);
             Delete(al, tp);
         };
@@ -82,9 +82,9 @@ private:
     }
 
     void*       _data    = nullptr;
-    FAllocator*  _alloc   = nullptr;
+    Allocator*  _alloc   = nullptr;
     const void* _type_id = nullptr;
-    void(*_destroy)(void*, FAllocator&) noexcept = nullptr;
+    void(*_destroy)(void*, Allocator&) noexcept = nullptr;
 };
 
 } // namespace acs::game

@@ -3,7 +3,7 @@
 //
 // 本 .cpp では `IVoiceChatBackend` の I/F 自体は提供せず、Steam Voice / EOS Voice
 // / Vivox / Discord / OpusSelf 各 SDK 未統合ビルドでも常に使える
-// `FVoiceChatBackendStub` のみを実装する。実 SDK を使う backend は SDK ヘッダ /
+// `VoiceChatBackendStub` のみを実装する。実 SDK を使う backend は SDK ヘッダ /
 // ライブラリ依存を含むため、別モジュール (将来の `acs_voice_vivox` 等) で独立に
 // 実装し、本ファイルには持ち込まない。
 //
@@ -26,7 +26,7 @@ namespace acs::game {
 
 // ---- Stub: Init / Shutdown ------------------------------------------------
 
-TResult<void> FVoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
+TResult<void> VoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
     // provider 選択は記録するが、Stub は SDK 接続を行わないので IsAvailable は
     // false のまま。多重 Init は明示的に許容 (テスト容易性のため)。
     _provider = p;
@@ -34,7 +34,7 @@ TResult<void> FVoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
     return Ok();
 }
 
-void FVoiceChatBackendStub::Shutdown() noexcept {
+void VoiceChatBackendStub::Shutdown() noexcept {
     // Init() 前に呼ばれても安全。状態は完全に初期値に戻す。
     _provider = EVoiceProvider::None;
     _initialized = false;
@@ -42,86 +42,86 @@ void FVoiceChatBackendStub::Shutdown() noexcept {
 
 // ---- Stub: チャンネル参加 / 離脱 -----------------------------------------
 
-TResult<void> FVoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
+TResult<void> VoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
     (void)ch;
     (void)channel_id;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::JoinChannel called before Init()");
+                       "VoiceChatBackendStub::JoinChannel called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: JoinChannel is not implemented (link real voice SDK)");
+                   "VoiceChatBackendStub: JoinChannel is not implemented (link real voice SDK)");
 }
 
-TResult<void> FVoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
+TResult<void> VoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
     (void)ch;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::LeaveChannel called before Init()");
+                       "VoiceChatBackendStub::LeaveChannel called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: LeaveChannel is not implemented (link real voice SDK)");
+                   "VoiceChatBackendStub: LeaveChannel is not implemented (link real voice SDK)");
 }
 
 // ---- Stub: ミュート / 音量 -----------------------------------------------
 
-TResult<void> FVoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
+TResult<void> VoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
     (void)muted;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::SetLocalMute called before Init()");
+                       "VoiceChatBackendStub::SetLocalMute called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: SetLocalMute is not implemented (link real voice SDK)");
+                   "VoiceChatBackendStub: SetLocalMute is not implemented (link real voice SDK)");
 }
 
-TResult<void> FVoiceChatBackendStub::SetParticipantMute(const char* user_id, bool muted) noexcept {
+TResult<void> VoiceChatBackendStub::SetParticipantMute(const char* user_id, bool muted) noexcept {
     (void)user_id;
     (void)muted;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::SetParticipantMute called before Init()");
+                       "VoiceChatBackendStub::SetParticipantMute called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: SetParticipantMute is not implemented (link real voice SDK)");
+                   "VoiceChatBackendStub: SetParticipantMute is not implemented (link real voice SDK)");
 }
 
-TResult<void> FVoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
+TResult<void> VoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
     (void)user_id;
     (void)volume;
     if (!_initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
-                       "FVoiceChatBackendStub::SetParticipantVolume called before Init()");
+                       "VoiceChatBackendStub::SetParticipantVolume called before Init()");
     }
     return ACS_ERR(Generic, kSubVoiceNotImplemented,
-                   "FVoiceChatBackendStub: SetParticipantVolume is not implemented (link real voice SDK)");
+                   "VoiceChatBackendStub: SetParticipantVolume is not implemented (link real voice SDK)");
 }
 
 // ---- Stub: 参加者取得 ----------------------------------------------------
 
-u32 FVoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
+u32 VoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
     (void)ch;
     // Stub は誰も join していない扱い。UI 側は 0 をそのまま「参加者なし」表示に
     // 反映できる。TResult を返さない設計なので未初期化との区別は意図的に省略。
     return 0;
 }
 
-TResult<FVoiceParticipant> FVoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
+TResult<VoiceParticipant> VoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
     (void)ch;
     (void)index;
     if (!_initialized) {
-        return TResult<FVoiceParticipant>(
+        return TResult<VoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotInitialized,
-                    "FVoiceChatBackendStub::GetParticipant called before Init()"));
+                    "VoiceChatBackendStub::GetParticipant called before Init()"));
     }
-    return TResult<FVoiceParticipant>(
+    return TResult<VoiceParticipant>(
         ACS_ERR(Generic, kSubVoiceNotImplemented,
-                "FVoiceChatBackendStub: GetParticipant is not implemented (link real voice SDK)"));
+                "VoiceChatBackendStub: GetParticipant is not implemented (link real voice SDK)"));
 }
 
 // ---- Stub: Tick ----------------------------------------------------------
 
-void FVoiceChatBackendStub::Tick(f32 dt) noexcept {
+void VoiceChatBackendStub::Tick(f32 dt) noexcept {
     (void)dt;  // Stub は event pump を持たないので何もしない
 }
 
@@ -129,7 +129,7 @@ void FVoiceChatBackendStub::Tick(f32 dt) noexcept {
 
 IVoiceChatBackend& GetVoiceStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static FVoiceChatBackendStub _instance;
+    static VoiceChatBackendStub _instance;
     return _instance;
 }
 

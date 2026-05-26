@@ -2,7 +2,7 @@
 // 時間計測（高精度タイマ + フレーム時間管理）
 //
 // 使い方:
-//   FFrameTimer ft;
+//   FrameTimer ft;
 //   while (running) {
 //       f32 dt = ft.Tick();   // 経過秒（前フレームから今フレームまで）
 //       Update(dt);
@@ -15,7 +15,7 @@
 namespace acs {
 
 // 時刻ユーティリティ
-class FClock {
+class Clock {
 public:
     // 起動からの経過秒（高精度）
     static f64 SecondsSinceStartup() noexcept;
@@ -28,9 +28,9 @@ public:
 };
 
 // フレーム時間計測（毎フレーム Tick を呼ぶ）
-class FFrameTimer {
+class FrameTimer {
 public:
-    FFrameTimer() noexcept;
+    FrameTimer() noexcept;
 
     // 経過秒を返し、内部時刻を更新する。最大 dt は 0.25 秒に制限（停止後の暴走防止）
     f32 Tick() noexcept;

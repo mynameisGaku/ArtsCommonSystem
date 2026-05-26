@@ -157,7 +157,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // dir light 0 へ向かう短距離 screen-space ray march。surface と光源の間に
     // geometry があれば直接光が遮られている (= 接地影)。shadow map が拾えない
     // 細かい接触遮蔽 (球と床の接地際など) を補う。結果は .g に焼き、blur で軟化、
-    // FPbrShader が direct light に乗算する。
+    // PbrShader が direct light に乗算する。
     float contact = 1.0;
     float3 Pw = ReconstructWorldPos(v.uv, depth);
     float3 L  = normalize(light_dir.xyz);             // 光源へ向かう方向 (surface→light)
@@ -269,7 +269,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     _device = &device;
     _width = width;
     _height = height;
@@ -287,7 +287,7 @@ TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     return Ok();
 }
 
-TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     _blur_output.Reset();
     FTextureDesc td{};
@@ -307,12 +307,12 @@ TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) n
     return Ok();
 }
 
-TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::FVertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsaoHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FSsao.VS";
+    vs_d.debug_name  = "Ssao.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
@@ -320,7 +320,7 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsaoHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FSsao.PS";
+    ps_d.debug_name  = "Ssao.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
@@ -391,7 +391,7 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void FSsao::Shutdown() noexcept {
+void Ssao::Shutdown() noexcept {
     _blur_pipeline.Reset();
     _pipeline.Reset();
     _cb.Reset();
@@ -403,15 +403,15 @@ void FSsao::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> FSsao::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 330, "FSsao::Resize before Init");
+TResult<void> Ssao::Resize(u32 width, u32 height) noexcept {
+    if (!_device) return ACS_ERR(Render, 330, "Ssao::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width = width;
     _height = height;
     return CreateOutputRT(*_device, width, height);
 }
 
-void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
                   const FMat4& view_proj, const FMat4& inv_view_proj,
@@ -431,7 +431,7 @@ void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: SSAO raw → _output
-    cl.BeginRenderToTexture(*_output, FClearColor{1, 1, 1, 1}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*_output, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
     cl.SetPipeline(*_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, scene_depth);
@@ -440,7 +440,7 @@ void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.EndRenderToTexture(*_output);
 
     // Pass 2 (Phase 34j-4): depth-aware bilateral blur → _blur_output
-    cl.BeginRenderToTexture(*_blur_output, FClearColor{1, 1, 1, 1}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*_blur_output, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
     cl.SetPipeline(*_blur_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, *_output);       // SSAO raw

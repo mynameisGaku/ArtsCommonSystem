@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FSystemAllocator 実装
+// ACS Memory — SystemAllocator 実装
 // -----------------------------------------------------------------------------
 // HeapAlloc は最大で MEMORY_ALLOCATION_ALIGNMENT (16B on x64) しか保証しない。
 // 任意アライメントを得るため、要求サイズ + アライメント余裕 + ヘッダ分を
@@ -48,7 +48,7 @@ void AlignedFree(void* p, usize& freed_size) noexcept {
 
 } // namespace
 
-void* FSystemAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
+void* SystemAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     if (size == 0) return nullptr;
     usize actual = 0;
     void* p = AlignedAlloc(size, alignment, actual);
@@ -61,7 +61,7 @@ void* FSystemAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) n
     return p;
 }
 
-void FSystemAllocator::Free(void* ptr) noexcept {
+void SystemAllocator::Free(void* ptr) noexcept {
     if (!ptr) return;
     usize freed = 0;
     AlignedFree(ptr, freed);
@@ -69,9 +69,9 @@ void FSystemAllocator::Free(void* ptr) noexcept {
 }
 
 // HeapReAlloc はアラインヘッダ方式と相性が悪いので、デフォルト実装を使う
-void* FSystemAllocator::Realloc(void* ptr, usize old_size, usize new_size,
+void* SystemAllocator::Realloc(void* ptr, usize old_size, usize new_size,
                                usize alignment, FSourceLoc loc) noexcept {
-    return FAllocator::Realloc(ptr, old_size, new_size, alignment, loc);
+    return Allocator::Realloc(ptr, old_size, new_size, alignment, loc);
 }
 
 } // namespace acs

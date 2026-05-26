@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FBehaviorTree (selector / sequence / action)
+// GameFramework Pillar L — BehaviorTree (selector / sequence / action)
 //
 // AI / 敵挙動 / cutscene 分岐 などのために最小構成の Behavior Tree を提供する。
-// root が 1 つの FBtNode を持ち、毎フレーム Tick(blackboard, dt) で評価する。
+// root が 1 つの BtNode を持ち、毎フレーム Tick(blackboard, dt) で評価する。
 //
 // 戻り値セマンティクス:
 //
@@ -16,7 +16,7 @@
 //   │             │                          │   全て Failure           │
 //   │             │                          │   → Failure              │
 //   ├─────────────┼──────────────────────────┼──────────────────────────┤
-//   │ FSequence    │ Failure が出るまで進む   │ いずれかが Failure       │
+//   │ Sequence    │ Failure が出るまで進む   │ いずれかが Failure       │
 //   │  (AND)      │   どれか Running         │   → Failure              │
 //   │             │   全て Success           │   Running が出た時点で   │
 //   │             │                          │   → Running              │
@@ -24,7 +24,7 @@
 //   │             │                          │   → Success              │
 //   └─────────────┴──────────────────────────┴──────────────────────────┘
 //
-//   ※ Selector / FSequence は **stateless tick** (毎呼び出しで先頭から再評価)。
+//   ※ Selector / Sequence は **stateless tick** (毎呼び出しで先頭から再評価)。
 //     "1 フレームに 1 ステップだけ進める" 等の中断保持が必要になった段階で
 //     PartialTick 派生を追加する想定だが、本最小実装ではスコープ外。
 //
@@ -34,11 +34,11 @@
 //     必要なキャプチャは blackboard 経由か `bb` を `Self*` にキャストして取り回す。
 //   ・blackboard は `void*` (user 定義の任意構造体)。BT 側で型を持たないことで
 //     どのモジュール (Pillar L AI / cutscene / UI 等) からも汎用に使える。
-//   ・子ノードは `acs::TUniquePtr<FBtNode>` で所有 (= move-only)。
+//   ・子ノードは `acs::TUniquePtr<BtNode>` で所有 (= move-only)。
 //     子の所有権は composite が握り、tree の寿命と一体化する。
-//   ・FBehaviorTree / 各 FNode は **非コピー・非ムーブ**。tree は普通フィールドとして
+//   ・BehaviorTree / 各 Node は **非コピー・非ムーブ**。tree は普通フィールドとして
 //     抱えられて Tick されるだけなので、所有権を動かす運用は想定しない。
-//     構築は `FBtSelector` を `MakeUnique` で作って `AddChild` で組み立てる。
+//     構築は `BtSelector` を `MakeUnique` で作って `AddChild` で組み立てる。
 //
 // 使い方:
 //   struct EnemyBb { FVec3 pos; bool sees_player; };
@@ -51,17 +51,17 @@
 //   static EBtStatus Patrol(void* bb, f32 dt) noexcept { ... }
 //
 //   class Enemy {
-//       acs::game::FBehaviorTree _bt;
+//       acs::game::BehaviorTree _bt;
 //       EnemyBb                 _bb;
 //
 //       Enemy() noexcept {
 //           // Selector: 「敵が見えたら追跡、見えなければパトロール」
-//           auto root  = acs::MakeUnique<acs::game::FBtSelector>();
-//           auto chase = acs::MakeUnique<acs::game::FBtSequence>();
-//           chase->AddChild(acs::MakeUnique<acs::game::FBtAction>(&SeesPlayer));
-//           chase->AddChild(acs::MakeUnique<acs::game::FBtAction>(&MoveToPlayer));
+//           auto root  = acs::MakeUnique<acs::game::BtSelector>();
+//           auto chase = acs::MakeUnique<acs::game::BtSequence>();
+//           chase->AddChild(acs::MakeUnique<acs::game::BtAction>(&SeesPlayer));
+//           chase->AddChild(acs::MakeUnique<acs::game::BtAction>(&MoveToPlayer));
 //           root->AddChild(acs::Move(chase));
-//           root->AddChild(acs::MakeUnique<acs::game::FBtAction>(&Patrol));
+//           root->AddChild(acs::MakeUnique<acs::game::BtAction>(&Patrol));
 //           _bt.SetRoot(acs::Move(root));
 //       }
 //       void Tick(f32 dt) noexcept { _bt.Tick(&_bb, dt); }
@@ -86,15 +86,15 @@ enum class EBtStatus : u8 {
 };
 
 // 全 BT ノードの抽象基底。tick は noexcept、blackboard は void* で型を持たない。
-class FBtNode {
+class BtNode {
 public:
-    FBtNode() noexcept = default;
-    virtual ~FBtNode() noexcept = default;
+    BtNode() noexcept = default;
+    virtual ~BtNode() noexcept = default;
 
-    FBtNode(const FBtNode&)            = delete;
-    FBtNode& operator=(const FBtNode&) = delete;
-    FBtNode(FBtNode&&)                 = delete;
-    FBtNode& operator=(FBtNode&&)      = delete;
+    BtNode(const BtNode&)            = delete;
+    BtNode& operator=(const BtNode&) = delete;
+    BtNode(BtNode&&)                 = delete;
+    BtNode& operator=(BtNode&&)      = delete;
 
     // 1 フレーム分の評価。blackboard は user 定義 (typically `Self*` にキャスト)。
     virtual EBtStatus Tick(void* blackboard, f32 dt) noexcept = 0;
@@ -103,50 +103,50 @@ public:
 // Selector ("OR" 合成): 子を順に Tick し、最初に Running か Success を返した子で停止。
 //   ・どれかが Success/Running → そのまま返す
 //   ・全て Failure              → Failure を返す
-class FBtSelector : public FBtNode {
+class BtSelector : public BtNode {
 public:
-    FBtSelector() noexcept = default;
-    ~FBtSelector() noexcept override = default;
+    BtSelector() noexcept = default;
+    ~BtSelector() noexcept override = default;
 
     // 子の所有権を奪う。nullptr 渡しは no-op (ソフトフェイル)。
-    void AddChild(TUniquePtr<FBtNode> child) noexcept;
+    void AddChild(TUniquePtr<BtNode> child) noexcept;
 
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
     usize ChildCount() const noexcept { return _children.Size(); }
 
 private:
-    TArray<TUniquePtr<FBtNode>> _children;
+    TArray<TUniquePtr<BtNode>> _children;
 };
 
-// FSequence ("AND" 合成): 子を順に Tick し、最初に Running か Failure を返した子で停止。
+// Sequence ("AND" 合成): 子を順に Tick し、最初に Running か Failure を返した子で停止。
 //   ・どれかが Failure/Running → そのまま返す
 //   ・全て Success              → Success を返す
-class FBtSequence : public FBtNode {
+class BtSequence : public BtNode {
 public:
-    FBtSequence() noexcept = default;
-    ~FBtSequence() noexcept override = default;
+    BtSequence() noexcept = default;
+    ~BtSequence() noexcept override = default;
 
     // 子の所有権を奪う。nullptr 渡しは no-op (ソフトフェイル)。
-    void AddChild(TUniquePtr<FBtNode> child) noexcept;
+    void AddChild(TUniquePtr<BtNode> child) noexcept;
 
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
     usize ChildCount() const noexcept { return _children.Size(); }
 
 private:
-    TArray<TUniquePtr<FBtNode>> _children;
+    TArray<TUniquePtr<BtNode>> _children;
 };
 
 // Action: 関数ポインタを呼ぶだけの末端 leaf。
 //   ・`std::function` 不使用 (ACS 規約)。状態を持ちたい場合は blackboard に置く。
 //   ・fn が nullptr の場合は常に Failure を返す (ソフトフェイル)。
-class FBtAction : public FBtNode {
+class BtAction : public BtNode {
 public:
     using Fn = EBtStatus(*)(void* blackboard, f32 dt) noexcept;
 
-    explicit FBtAction(Fn fn) noexcept : _fn(fn) {}
-    ~FBtAction() noexcept override = default;
+    explicit BtAction(Fn fn) noexcept : _fn(fn) {}
+    ~BtAction() noexcept override = default;
 
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
@@ -154,21 +154,21 @@ private:
     Fn _fn = nullptr;
 };
 
-// FBehaviorTree: root を抱えて Tick を駆動するだけのハーネス。
-// 非コピー・非ムーブ — FScene / Actor のメンバとして固定の場所に置く想定。
-class FBehaviorTree {
+// BehaviorTree: root を抱えて Tick を駆動するだけのハーネス。
+// 非コピー・非ムーブ — Scene / Actor のメンバとして固定の場所に置く想定。
+class BehaviorTree {
 public:
-    FBehaviorTree() noexcept = default;
-    ~FBehaviorTree() noexcept = default;
+    BehaviorTree() noexcept = default;
+    ~BehaviorTree() noexcept = default;
 
-    FBehaviorTree(const FBehaviorTree&)            = delete;
-    FBehaviorTree& operator=(const FBehaviorTree&) = delete;
-    FBehaviorTree(FBehaviorTree&&)                 = delete;
-    FBehaviorTree& operator=(FBehaviorTree&&)      = delete;
+    BehaviorTree(const BehaviorTree&)            = delete;
+    BehaviorTree& operator=(const BehaviorTree&) = delete;
+    BehaviorTree(BehaviorTree&&)                 = delete;
+    BehaviorTree& operator=(BehaviorTree&&)      = delete;
 
     // root を差し替える。古い root はここで破棄される (TUniquePtr デストラクタ)。
     // nullptr 渡しで tree を空にできる (以降の Tick は Failure を返す)。
-    void SetRoot(TUniquePtr<FBtNode> root) noexcept;
+    void SetRoot(TUniquePtr<BtNode> root) noexcept;
 
     // 1 フレーム分の評価。root 未設定なら Failure を返す。
     EBtStatus Tick(void* blackboard, f32 dt) noexcept;
@@ -176,7 +176,7 @@ public:
     bool HasRoot() const noexcept { return static_cast<bool>(_root); }
 
 private:
-    TUniquePtr<FBtNode> _root;
+    TUniquePtr<BtNode> _root;
 };
 
 } // namespace acs::game

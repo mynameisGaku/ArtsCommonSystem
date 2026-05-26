@@ -18,7 +18,7 @@ void AnimCurveScene::OnEnter() noexcept {
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
     // Theme は ImGui context が存在してから Init する (= AnimCurveApp::OnStart で
-    // FImGuiCtx::Init が走った後にこの OnEnter が呼ばれる前提)。
+    // ImGuiCtx::Init が走った後にこの OnEnter が呼ばれる前提)。
     _theme.Init();
     _theme.ApplyPreset(editor_core::EEditorThemePreset::Dark);
 
@@ -33,7 +33,7 @@ void AnimCurveScene::OnEnter() noexcept {
     _example_curve.AddKeyHermite(0.5f, 1.0f, 0.0f,  0.0f);
     _example_curve.AddKeyHermite(1.0f, 0.0f, -2.0f, 0.0f);
 
-    // panel は curve の raw 参照のみ保持する (所有権は FScene 側)。
+    // panel は curve の raw 参照のみ保持する (所有権は Scene 側)。
     _curve_panel.SetCurve(&_example_curve);
 
     // RegisterPanel は内部で panel->OnInit(*this) を呼ぶので、ここで明示的に
@@ -49,25 +49,25 @@ void AnimCurveScene::OnExit() noexcept {
     _workspace.Shutdown();
     _curve_panel.Shutdown();
 
-    // _example_curve は FScene のメンバなので自動破棄される。
-    // FEditorTheme::Shutdown は存在しない (Dtor で十分)。
+    // _example_curve は Scene のメンバなので自動破棄される。
+    // EditorTheme::Shutdown は存在しない (Dtor で十分)。
     ACS_LOG_INFO("[AnimCurveEditor] exited");
 }
 
 void AnimCurveScene::OnUpdate(f32 dt) noexcept {
     (void)dt;
-    if (FInput::IsKeyPressed(EKey::Escape)) {
+    if (Input::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
 }
 
-void AnimCurveScene::OnRender(FRenderContext& /*rc*/) noexcept {
+void AnimCurveScene::OnRender(RenderContext& /*rc*/) noexcept {
     _draw_file_menu();
 
     // TickAllPanels は OnFrameBegin → DockSpace → MenuBar → 各 panel の DrawUI
     // を順に発火する。ImGui::* を含むので NewFrame() と Render() の間 (=
-    // OnRender) で呼ぶ必要がある。dt は FRenderContext から取れないため FGame の
+    // OnRender) で呼ぶ必要がある。dt は RenderContext から取れないため Game の
     // DeltaTime() を使う。
     _workspace.TickAllPanels(GetGame().DeltaTime());
 }

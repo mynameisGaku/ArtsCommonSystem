@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloShowcase — HUD overlay (タイトル + 状態 + キーガイド)。
-// FPostProcess::Render が bind した swapchain RT の上にそのまま描く。
+// PostProcess::Render が bind した swapchain RT の上にそのまま描く。
 #pragma once
 
 #include "ShowcaseAssets.h"

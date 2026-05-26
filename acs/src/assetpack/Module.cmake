@@ -11,9 +11,9 @@
 #
 # Phase 2 (実装済):
 #   ・AES-256-GCM (Windows CNG / bcrypt) による per-entry 暗号化 + 認証タグ検証
-#   ・PBKDF2-HMAC-SHA256, 10000 iterations による鍵導出 (FAcpakCrypto::DeriveKey)
+#   ・PBKDF2-HMAC-SHA256, 10000 iterations による鍵導出 (AcpakCrypto::DeriveKey)
 #   ・LZ4 block format 自前実装による per-entry 圧縮 (compress-then-encrypt)
-#   ・FAcpakFileEntry に cipher_nonce[12] + cipher_tag[16] 追加 (下位互換あり)
+#   ・AcpakFileEntry に cipher_nonce[12] + cipher_tag[16] 追加 (下位互換あり)
 #   ・v1 で書いた flags=0 の .acpak はそのまま読める
 #
 # Phase 3+ (TODO):
@@ -46,7 +46,7 @@ acs_module(
         AcpakLz4.h
     PUBLIC_DEPS
         Foundation
-        FContainer
+        Container
         Memory
         Platform
     # Bcrypt.lib は AcpakCrypto.cpp が AES-256-GCM / PBKDF2 / CSPRNG に使う。

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FDiligentBuffer 実装
+// DiligentBuffer 実装
 #include "render/Diligent/DiligentBuffer.h"
 
 #if WITH_RENDER_DILIGENT
@@ -12,21 +12,21 @@
 
 namespace acs {
 
-FDiligentBuffer::~FDiligentBuffer() noexcept {
+DiligentBuffer::~DiligentBuffer() noexcept {
     if (_buffer) { _buffer->Release(); _buffer = nullptr; }
 }
 
 namespace {
 Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
     switch (u) {
-        case EBufferUsage::FVertex:   return Diligent::BIND_VERTEX_BUFFER;
+        case EBufferUsage::Vertex:   return Diligent::BIND_VERTEX_BUFFER;
         case EBufferUsage::Index16:  return Diligent::BIND_INDEX_BUFFER;
         case EBufferUsage::Index32:  return Diligent::BIND_INDEX_BUFFER;
         case EBufferUsage::Uniform:  return Diligent::BIND_UNIFORM_BUFFER;
         // structured buffer: compute / pixel shader で SRV としても UAV と
         // しても使えるように両 bind flag を立てる。Diligent の state tracker
         // が SRV ↔ UAV 遷移を自動で扱ってくれる。
-        case EBufferUsage::FStorage:  return static_cast<Diligent::BIND_FLAGS>(
+        case EBufferUsage::Storage:  return static_cast<Diligent::BIND_FLAGS>(
                                        Diligent::BIND_UNORDERED_ACCESS |
                                        Diligent::BIND_SHADER_RESOURCE);
         case EBufferUsage::Staging:  return Diligent::BIND_NONE;
@@ -35,13 +35,13 @@ Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
 }
 } // namespace
 
-TResult<void> FDiligentBuffer::Init(FDiligentDevice& device, const FBufferDesc& desc) noexcept {
+TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& desc) noexcept {
     _device  = &device;
     _size    = desc.size;
     _usage   = desc.usage;
 
     auto* dev = device.RenderDev();
-    if (!dev) return ACS_ERR(Render, 120, "FDiligentBuffer: device not initialized");
+    if (!dev) return ACS_ERR(Render, 120, "DiligentBuffer: device not initialized");
 
     Diligent::FBufferDesc bd;
     bd.Name      = "ACS_Buffer";
@@ -88,7 +88,7 @@ TResult<void> FDiligentBuffer::Init(FDiligentDevice& device, const FBufferDesc& 
     return Ok();
 }
 
-void FDiligentBuffer::Update(const void* data, usize size, usize offset) noexcept {
+void DiligentBuffer::Update(const void* data, usize size, usize offset) noexcept {
     if (!_buffer || !_device || !data || size == 0) return;
     auto* ctx = _device->Context();
     if (!ctx) return;

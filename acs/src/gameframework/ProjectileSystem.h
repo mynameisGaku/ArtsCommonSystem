@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — FProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
+// GameFramework Pillar I — ProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
 //
 // 弾丸 / ロケット / 矢 / 魔法弾 / 手榴弾 などの「飛んでいって何かに当たる」系
-// オブジェクトを固定容量プールで管理する。FWeaponSystem.FireCallback と組み合わせ
+// オブジェクトを固定容量プールで管理する。WeaponSystem.FireCallback と組み合わせ
 // て発射 → 飛翔 → 命中 / 寿命切れ までを一元的に扱えるよう設計してある。
 //
 // 設計選択:
@@ -13,16 +13,16 @@
 //     Spawn は inactive な slot を線形探索し、満杯なら invalid を返す。これに
 //     より realtime ループでのフレーム落ちを防ぐ (= 最悪ケース上限を制限する
 //     保守的ポリシー)。一般的に max_concurrent は 256〜512 で十分。
-//   ・**def は名前で登録 → Spawn で参照**: FParticleEmitterDef のように個別に値
-//     をコピーするのではなく、FProjectileDef を「弾種」として事前 RegisterDef、
+//   ・**def は名前で登録 → Spawn で参照**: ParticleEmitterDef のように個別に値
+//     をコピーするのではなく、ProjectileDef を「弾種」として事前 RegisterDef、
 //     Spawn 時に def_id (const char*) で名前引きする。これにより
 //       - 多数の弾を発射しても per-instance memory が小さい (def はポインタで参照)
 //       - 同種の弾の挙動を一括変更できる (テスト / バランス調整時に有利)
-//       - FWeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
+//       - WeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
 //     名前比較は ConstStringPointerEquals (アドレス一致優先) を使うが、同一文字
 //     リテラルなら基本同アドレスにマージされるためコストは O(1) 期待。
-//   ・**HitTest は callback で外部委譲**: FProjectileSystem 自身は FCollisionWorld2D /
-//     FTriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
+//   ・**HitTest は callback で外部委譲**: ProjectileSystem 自身は CollisionWorld2D /
+//     TriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
 //     Tick 内で各 alive projectile に対して呼び出す。true 返却で「命中した」と判
 //     定し、hit_count を進める。これにより:
 //       - テスト時は dummy fn で常に false を返せる (= headless 動作可)
@@ -36,7 +36,7 @@
 //     は将来の Phase で別レイヤに分離する。
 //   ・**owner_id / damage は instance に持つ**: def には共通パラメータのみを置き、
 //     誰が撃ったか / どれだけのダメージか は spawn 毎に変化する値として instance
-//     側に保持する。HitCallback でこれらを取り出し FHealthSystem.ApplyDamage に
+//     側に保持する。HitCallback でこれらを取り出し HealthSystem.ApplyDamage に
 //     繋ぐ想定。
 //   ・**非コピー・非ムーブ**: 固定 pool の生ポインタを AllAlive で外部に返すため、
 //     ムーブで実体アドレスが変わると外部参照が破綻する。明示的に削除。
@@ -44,10 +44,10 @@
 //     no-op で表現。文字列は const char* + アドレス一致比較で扱う。
 //
 // 使い方:
-//   FProjectileSystem ps;
+//   ProjectileSystem ps;
 //   ps.Init(256);
 //
-//   FProjectileDef bullet{};
+//   ProjectileDef bullet{};
 //   bullet.id            = "bullet_9mm";
 //   bullet.kind          = EProjectileKind::Bullet;
 //   bullet.speed         = 800.0f;
@@ -66,10 +66,10 @@
 //                                /*owner=*/player_node_id,
 //                                /*damage=*/15.0f);
 //
-//   // hit test を登録 (FCollisionWorld2D 経由など):
-//   ps.SetHitTestFn([](void* user, const FProjectileInstance& p,
+//   // hit test を登録 (CollisionWorld2D 経由など):
+//   ps.SetHitTestFn([](void* user, const ProjectileInstance& p,
 //                      u32& out_target, f32& out_dmg) noexcept -> bool {
-//       auto* cw = static_cast<FCollisionWorld2D*>(user);
+//       auto* cw = static_cast<CollisionWorld2D*>(user);
 //       // ... overlap check ... out_target = enemy_node_id; out_dmg = p.damage;
 //       return hit_found;
 //   }, &collision_world);
@@ -84,7 +84,7 @@
 //   ps.Tick(dt);
 //
 // 範囲外 (Phase 2+ で):
-//   ・チャージ shot / spread (n-way) - FWeaponSystem 側が複数 Spawn する形で対応
+//   ・チャージ shot / spread (n-way) - WeaponSystem 側が複数 Spawn する形で対応
 //   ・3D 弾道 (現状 FVec2 のみ)
 //   ・反射 / 跳弾 (壁衝突で velocity 反転) - HitCallback 内で manual に再 Spawn
 //   ・複雑な誘導 (proportional navigation など)
@@ -113,7 +113,7 @@ enum class EProjectileKind : u8 {
 };
 
 // ---------------------------------------------------------------------------
-// FProjectileDef — 弾種毎の挙動パラメータ (RegisterDef で登録)
+// ProjectileDef — 弾種毎の挙動パラメータ (RegisterDef で登録)
 // ---------------------------------------------------------------------------
 // `id`             : 弾種の識別子 (string literal 推奨、Spawn 時の名前引きキー)。
 // `kind`           : VFX / SE 振り分け用ヒント (挙動には影響しない)。
@@ -125,7 +125,7 @@ enum class EProjectileKind : u8 {
 // `max_pierces`    : pierces=true 時の追加貫通回数。max_pierces=2 → 3 体目で消滅。
 // `homing`         : true = HitTestFn 後に SetHomingTarget で指定した位置に向き補正。
 // `homing_strength`: 向き補正の強さ [0,1] (毎フレーム単位ベクトル LERP の係数)。
-struct FProjectileDef {
+struct ProjectileDef {
     const char*    id              = nullptr;
     EProjectileKind kind            = EProjectileKind::Bullet;
     f32            speed           = 0.0f;
@@ -162,36 +162,36 @@ struct FProjectileId {
 };
 
 // ---------------------------------------------------------------------------
-// FProjectileInstance — 個別弾の生データ (AllAlive で外部に渡される)
+// ProjectileInstance — 個別弾の生データ (AllAlive で外部に渡される)
 // ---------------------------------------------------------------------------
 // `def_id` は RegisterDef で登録した string literal をそのまま指す (= 描画側で
 // 弾種別アセットを引くキー)。owner_id / damage は spawn 毎に変化する値。
-struct FProjectileInstance {
+struct ProjectileInstance {
     const char* def_id      = nullptr;
     FVec2        position    {0.0f, 0.0f};
     FVec2        velocity    {0.0f, 0.0f};
     f32         elapsed_sec = 0.0f;   // 出生からの経過時間 (lifetime チェック用)
     u32         hit_count   = 0u;     // 当てた回数 (max_pierces+1 で despawn)
-    u32         owner_id    = 0u;     // 撃った主体の識別子 (FNode2D::Id 等)
+    u32         owner_id    = 0u;     // 撃った主体の識別子 (Node2D::Id 等)
     f32         damage      = 0.0f;   // 1 hit 当たりのダメージ量
 };
 
 // HitTest コールバック型: alive な projectile 1 個に対して呼ばれる。
-//   user            : SetHitTestFn で渡した context (FCollisionWorld2D 等)
+//   user            : SetHitTestFn で渡した context (CollisionWorld2D 等)
 //   proj            : 判定対象の projectile (位置 / 速度 / damage 参照可)
 //   out_hit_target_id: hit したターゲットの識別子 (FHealthId.Index 等を想定)
 //   out_damage_dealt: 実際に与えたダメージ (耐性計算後の最終値、HitCallback に渡る)
 //   戻り値           : true = 命中した、false = 命中なし
 // true 返却で hit_count++、hit_count >= 上限なら despawn + ExpireCallback も発火しない
 // (= HitCallback のみで終わる)。
-using HitTestFn = bool(*)(void* user, const FProjectileInstance& proj,
+using HitTestFn = bool(*)(void* user, const ProjectileInstance& proj,
                           u32& out_hit_target_id, f32& out_damage_dealt) noexcept;
 
 // 命中コールバック型: HitTestFn が true を返した直後に発火。
 //   def_id          : 弾種識別子 (描画 / SE 振り分け用)
 //   target_id       : HitTestFn の out_hit_target_id
 //   damage          : HitTestFn の out_damage_dealt
-// この中で FHealthSystem.ApplyDamage / VFX 生成 / SE 再生 を行う想定。
+// この中で HealthSystem.ApplyDamage / VFX 生成 / SE 再生 を行う想定。
 using HitCallback = void(*)(void* user, FProjectileId proj_id, const char* def_id,
                             u32 target_id, f32 damage) noexcept;
 
@@ -200,19 +200,19 @@ using HitCallback = void(*)(void* user, FProjectileId proj_id, const char* def_i
 using ExpireCallback = void(*)(void* user, FProjectileId proj_id, const char* def_id) noexcept;
 
 // ---------------------------------------------------------------------------
-// FProjectileSystem — 固定容量 pool + per-frame Tick
+// ProjectileSystem — 固定容量 pool + per-frame Tick
 // ---------------------------------------------------------------------------
-class FProjectileSystem {
+class ProjectileSystem {
 public:
-    FProjectileSystem() noexcept = default;
-    ~FProjectileSystem() noexcept = default;
+    ProjectileSystem() noexcept = default;
+    ~ProjectileSystem() noexcept = default;
 
     // 非コピー・非ムーブ: AllAlive() / GetInstance() が内部 buffer の生ポインタを
     // 返すため、ムーブで実体アドレスが変わると外部参照が破綻する。
-    FProjectileSystem(const FProjectileSystem&)            = delete;
-    FProjectileSystem& operator=(const FProjectileSystem&) = delete;
-    FProjectileSystem(FProjectileSystem&&)                 = delete;
-    FProjectileSystem& operator=(FProjectileSystem&&)      = delete;
+    ProjectileSystem(const ProjectileSystem&)            = delete;
+    ProjectileSystem& operator=(const ProjectileSystem&) = delete;
+    ProjectileSystem(ProjectileSystem&&)                 = delete;
+    ProjectileSystem& operator=(ProjectileSystem&&)      = delete;
 
     // 初期化。max_concurrent で pool 上限を確定 (再 Init は no-op)。
     // 0 を渡した場合は default の 256 を採用 (誤呼出し防御)。
@@ -220,7 +220,7 @@ public:
 
     // 弾種を登録。def.id == nullptr / lifetime_sec <= 0 は無視。
     // 既に同じ id (アドレス一致 or 文字列一致) が登録済みなら上書き更新。
-    void RegisterDef(const FProjectileDef& def) noexcept;
+    void RegisterDef(const ProjectileDef& def) noexcept;
 
     // 発射。pool 満杯なら invalid を返す。def_id が未登録なら invalid を返す。
     FProjectileId Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
@@ -237,14 +237,14 @@ public:
     u32 MaxCount() const noexcept { return _capacity; }
 
     // 個別 instance の参照取得。stale handle は nullptr。
-    const FProjectileInstance* GetInstance(FProjectileId id) const noexcept;
+    const ProjectileInstance* GetInstance(FProjectileId id) const noexcept;
 
     // 全 pool の生ポインタ。out_count には pool 全体サイズが入る (active かどうかは
     // 内部判定で gate されているので、user 側は alive_count 個までだけアクセスする
     // か、別 API を使うのが安全)。本 API では「描画用に AliveCount 個を取り出す」
     // ことが想定されており、AllAlive は AllAlive 専用 buffer を介して連続的に
     // alive 個だけを返す。
-    const FProjectileInstance* AllAlive(u32& out_count) const noexcept;
+    const ProjectileInstance* AllAlive(u32& out_count) const noexcept;
 
     // dt 秒進める。各 projectile に対して:
     //   1) velocity に gravity を加算 (semi-implicit Euler)
@@ -275,8 +275,8 @@ public:
 
 private:
     // pool の 1 slot。active=false で空き扱い。gen は generational handle 用。
-    struct FSlot {
-        FProjectileInstance inst         {};
+    struct Slot {
+        ProjectileInstance inst         {};
         FVec2               homing_tgt   {0.0f, 0.0f};
         bool               has_homing_target = false;
         bool               active       = false;
@@ -284,10 +284,10 @@ private:
     };
 
     // 登録済 def の保持 (固定容量ではなく可変、id ポインタで識別)。
-    TArray<FProjectileDef> _defs;
+    TArray<ProjectileDef> _defs;
     // pool 本体 + alive 番号バッファ (AllAlive 用、Tick 終端で再構築)。
-    TArray<FSlot>                _slots;
-    TArray<FProjectileInstance>  _alive_snapshot;  // AllAlive 専用 (連続配列で返す)
+    TArray<Slot>                _slots;
+    TArray<ProjectileInstance>  _alive_snapshot;  // AllAlive 専用 (連続配列で返す)
 
     u32 _capacity     = 0u;
     u32 _alive_count  = 0u;
@@ -301,10 +301,10 @@ private:
     void*          _on_expire_user    = nullptr;
 
     // def_id (const char*) で登録 def を引く。見つからなければ nullptr。
-    const FProjectileDef* FindDef(const char* id) const noexcept;
+    const ProjectileDef* FindDef(const char* id) const noexcept;
     // 内部: スロット引き (stale/inactive で nullptr)。
-    FSlot*       FindSlot(FProjectileId id) noexcept;
-    const FSlot* FindSlot(FProjectileId id) const noexcept;
+    Slot*       FindSlot(FProjectileId id) noexcept;
+    const Slot* FindSlot(FProjectileId id) const noexcept;
     // 空き slot 取得。pool 満杯なら kInvalidIdx。
     u32 AcquireSlot() noexcept;
     // alive snapshot 再構築 (Tick 終端 / Spawn / Despawn 直後に呼ぶ)。

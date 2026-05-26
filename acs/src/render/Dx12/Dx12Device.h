@@ -7,10 +7,10 @@
 
 namespace acs {
 
-class FDx12Device final : public IRhiDevice {
+class Dx12Device final : public IRhiDevice {
 public:
-    FDx12Device() noexcept = default;
-    ~FDx12Device() noexcept override;
+    Dx12Device() noexcept = default;
+    ~Dx12Device() noexcept override;
 
     // 内部使用: DXGI ファクトリ・D3D12 デバイス・コマンドキューを取得
     IDXGIFactory6*    DxgiFactory()     const noexcept { return _factory; }
@@ -59,10 +59,10 @@ public:
     void AdvanceFrameSlot() noexcept { _frame_slot = (_frame_slot + 1) % kFramesInFlight; }
 
     // 初期化（CreateRhiDevice から呼ばれる）
-    FHrResult Init(const FDeviceConfig& cfg) noexcept;
+    HrResult Init(const DeviceConfig& cfg) noexcept;
 
 private:
-    FHrResult InitDescriptorHeaps() noexcept;
+    HrResult InitDescriptorHeaps() noexcept;
 
     IDXGIFactory6*       _factory   = nullptr;
     IDXGIAdapter1*       _adapter   = nullptr;

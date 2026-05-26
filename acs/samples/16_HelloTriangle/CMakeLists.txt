@@ -4,7 +4,7 @@
 #   main.cpp                 - ACS_DEFINE_MAIN(HelloTriangleApp) のみ
 #   Types.h                  - 頂点フォーマット + 三角形 3 頂点
 #   Shaders.h                - HLSL ソース (VS + PS)
-#   HelloTriangleApp.{h,cpp} - FApplication 派生クラス
+#   HelloTriangleApp.{h,cpp} - Application 派生クラス
 add_executable(hello_triangle WIN32
     main.cpp
     HelloTriangleApp.cpp

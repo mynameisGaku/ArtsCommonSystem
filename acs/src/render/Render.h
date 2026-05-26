@@ -9,7 +9,7 @@
 //
 // 含まれるもの:
 //   - 低レベル RHI インターフェイス (IRhiDevice / IRhiBuffer / IRhiShader / ...)
-//   - 高レベルヘルパ (FRenderer / FStandardShader / FSpriteBatch / FFont /
+//   - 高レベルヘルパ (Renderer / StandardShader / SpriteBatch / Font /
 //     メッシュ・テクスチャのアップロード)
 //
 // PBR・スカイ・シャドウ・IBL・スキンメッシュなど特定機能のヘッダ

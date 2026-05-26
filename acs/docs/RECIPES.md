@@ -5,10 +5,10 @@
 テクスチャ・アニメーション・シャドウ・パーティクル・多言語対応・セーブデータ
 など、ACS の主要 API のコピペ可能なコード例を集めています。
 
-> 以下のコード例の `dev` / `registry` / `renderer` は、`FApplication` を継承した
+> 以下のコード例の `dev` / `registry` / `renderer` は、`Application` を継承した
 > クラスの中で次のように取得した変数です：
 > `IRhiDevice* dev = GetRenderer().Device();` ／
-> `FAssetRegistry& registry = GetAssets();` ／ `FRenderer& renderer = GetRenderer();`
+> `AssetRegistry& registry = GetAssets();` ／ `Renderer& renderer = GetRenderer();`
 
 関連サンプル: `17_HelloMesh` / `18_HelloTextured`（低レベル RHI）。
 
@@ -17,7 +17,7 @@
 ## キューブを画面に出す最小コード
 
 ```cpp
-class MyGame : public FApplication {
+class MyGame : public Application {
     TUniquePtr<IRhiShader>   _vs, _ps;
     TUniquePtr<IRhiBuffer>   _vb, _ib, _cb;
     TUniquePtr<IRhiPipeline> _pipe;
@@ -43,7 +43,7 @@ class MyGame : public FApplication {
         auto* cl = GetRenderer().CommandList();
         cl->SetPipeline(*_pipe);
         cl->SetConstantBuffer(0, *_cb);
-        cl->SetVertexBuffer(*_vb, sizeof(FVertex));
+        cl->SetVertexBuffer(*_vb, sizeof(Vertex));
         cl->SetIndexBuffer(*_ib);
         cl->DrawIndexed(36);
     }
@@ -67,7 +67,7 @@ auto tex = Move(tex_r.Value());
 // またはアセットから（PNG/JPG/BMP/TGA/HDR/...）
 auto img_r = registry.Load(L"hero.png");
 if (img_r.IsErr()) { ACS_LOG_ERROR("hero.png を読み込めません"); return; }
-auto tex2_r = UploadTexture(*dev, *img_r.Value().As<FImageAsset>());
+auto tex2_r = UploadTexture(*dev, *img_r.Value().As<ImageAsset>());
 if (tex2_r.IsErr()) { ACS_LOG_ERROR("テクスチャ転送に失敗"); return; }
 auto tex2 = Move(tex2_r.Value());
 
@@ -80,19 +80,19 @@ auto tex2 = Move(tex2_r.Value());
 ```cpp
 auto m_r = registry.Load(L"scene.glb");
 if (m_r.IsErr()) { ACS_LOG_ERROR("scene.glb を読み込めません"); return; }
-FGpuMesh gm;
-UploadMesh(*dev, *m_r.Value().As<FMeshAsset>(), gm);
+GpuMesh gm;
+UploadMesh(*dev, *m_r.Value().As<MeshAsset>(), gm);
 // gm.vertex_buffer / gm.index_buffer / gm.index_count を Draw に渡す
 ```
 
 ## 非同期ロード（バックグラウンドスレッドで）
 
 ```cpp
-FAssetFuture fut = registry.LoadAsync(L"big_terrain.glb");
+AssetFuture fut = registry.LoadAsync(L"big_terrain.glb");
 // ...別フレームで...
 if (fut.IsReady()) {
     auto r = fut.Get();
-    if (r.IsOk()) TRc<FAsset> a = r.Value();
+    if (r.IsOk()) TRc<Asset> a = r.Value();
 }
 // または、ブロッキングで完了を待ちつつワーカー支援に参加:
 auto r = fut.Wait();
@@ -105,15 +105,15 @@ auto cube_mesh   = Primitive::MakeCube(1.0f);
 auto sphere_mesh = Primitive::MakeSphere(0.5f, 32, 16);
 auto plane_mesh  = Primitive::MakePlane(10.0f, 10.0f);
 
-FGpuMesh gm; UploadMesh(*dev, *cube_mesh, gm);
+GpuMesh gm; UploadMesh(*dev, *cube_mesh, gm);
 ```
 
-## 2D スプライト描画（FSpriteBatch）
+## 2D スプライト描画（SpriteBatch）
 
 ピクセル座標で 2D を描く。複数スプライトを 1 ドローコールにまとめる：
 
 ```cpp
-FSpriteBatch sb;
+SpriteBatch sb;
 sb.Init(*renderer.Device(), renderer.ColorFormat());
 
 // 描画フレーム中
@@ -130,7 +130,7 @@ sb.End();
 ## テキスト描画（TTF + UTF-8 + 漢字）
 
 ```cpp
-FFont font;
+Font font;
 // 漢字も使うなら include_cjk=true (アトラスは自動で 2048 へ拡張)
 font.LoadFromFile(*renderer.Device(),
                   L"C:\\Windows\\Fonts\\meiryo.ttc",
@@ -150,17 +150,17 @@ sb.End();
 ## 3D 衝突判定 (`math/Collision3D.h`)
 
 ```cpp
-FAabb3 box = FAabb3::FromCenterExtents({0, 0, 0}, {1, 1, 1});
+Aabb3 box = Aabb3::FromCenterExtents({0, 0, 0}, {1, 1, 1});
 FSphere s{ {3, 0, 0}, 0.5f };
 
 if (Intersect(box, s)) { /* 重なってる */ }
 
-FRay3 ray{ camera.Eye(), forward };
-FRayHit3 h = RaycastAabb(ray, box);
+Ray3 ray{ camera.Eye(), forward };
+RayHit3 h = RaycastAabb(ray, box);
 if (h.hit) { /* h.point, h.normal, h.t */ }
 
 FPlane ground = FPlane::FromPointNormal({0,0,0}, {0,1,0});
-FRayHit3 g = RaycastPlane(ray, ground);
+RayHit3 g = RaycastPlane(ray, ground);
 ```
 
 ## スキンメッシュアニメーション
@@ -168,7 +168,7 @@ FRayHit3 g = RaycastPlane(ray, ground);
 GPU スキニング（4 ボーン加重）+ ボーンパレット CB:
 ```cpp
 // 1) スキンメッシュアセットを構築（手続きまたは独自パーサ）
-auto mesh = MakeRc<FSkinnedMeshAsset>();
+auto mesh = MakeRc<SkinnedMeshAsset>();
 mesh->Bones().Resize(4);
 // ボーン階層を組む（parent / bind_translation / bind_rotation / bind_scale）
 mesh->ComputeInverseBindMatrices();
@@ -176,14 +176,14 @@ mesh->ComputeInverseBindMatrices();
 // アニメーションキーを FAnimation::channels に追加
 
 // 2) GPU アップロード
-FSkinnedGpuMesh gm;
+SkinnedGpuMesh gm;
 UploadSkinnedMesh(*device, *mesh, gm);
 
 // 3) シェーダ + プレイヤー
-FSkinnedShader shd;
+SkinnedShader shd;
 shd.Init(*device, color_fmt, depth_fmt);
 
-FAnimationPlayer player;
+AnimationPlayer player;
 player.SetMesh(mesh.Get());
 player.Play(0, /*loop=*/true);
 
@@ -207,24 +207,24 @@ cl->DrawIndexed(gm.index_count);
 ```
 - 最大 64 ボーン、4 ボーン/頂点まで影響
 - TRS キーフレームを Slerp/Lerp で時刻補間
-- FAnimationPlayer がループ再生・一時停止・任意時刻指定
+- AnimationPlayer がループ再生・一時停止・任意時刻指定
 - 15_HelloAnimation サンプルが手続き 4 ボーン円柱でうねうねデモ
 
 ## 2D パーティクル
 
 ```cpp
-FParticleSystem ps;
+ParticleSystem ps;
 ps.Init(8192);
 ps.SetTexture(my_glow_tex);            // null なら白矩形
 
 // プリセット 4 種
-ps.SetEmitter(FEmitterDesc::Fire(FVec2{x, y}));
-ps.SetEmitter(FEmitterDesc::Sparks(FVec2{x, y}));
-ps.SetEmitter(FEmitterDesc::Fountain(FVec2{x, y}));
-ps.SetEmitter(FEmitterDesc::Smoke(FVec2{x, y}));
+ps.SetEmitter(EmitterDesc::Fire(FVec2{x, y}));
+ps.SetEmitter(EmitterDesc::Sparks(FVec2{x, y}));
+ps.SetEmitter(EmitterDesc::Fountain(FVec2{x, y}));
+ps.SetEmitter(EmitterDesc::Smoke(FVec2{x, y}));
 
 // またはカスタム
-FEmitterDesc d;
+EmitterDesc d;
 d.position = pos;
 d.velocity = FVec2{0, -200};
 d.velocity_variance = FVec2{40, 30};
@@ -246,12 +246,12 @@ ps.EmitBurst(120);
 ```
 - size / color を寿命 0..1 で線形補間
 - gravity 適用、寿命を超えた粒は swap-pop で除去
-- 8192 個まで CPU でシミュレーション、GPU 描画は FSpriteBatch 経由
+- 8192 個まで CPU でシミュレーション、GPU 描画は SpriteBatch 経由
 
 ## 多言語対応 (i18n)
 
 ```cpp
-FLocalization L;
+Localization L;
 L.LoadFallback(L"lang/en.lang");    // 英語をフォールバック固定
 L.LoadActive  (L"lang/ja.lang");    // 起動時の表示言語
 
@@ -264,7 +264,7 @@ L.LoadActive(L"lang/de.lang");
 // 埋め込み版（Bytes）
 L.LoadActiveBytes(reinterpret_cast<const u8*>(jp_text), strlen(jp_text));
 ```
-ファイル形式は `FStorage` と同じ INI 風 `key=value`：
+ファイル形式は `Storage` と同じ INI 風 `key=value`：
 ```ini
 greeting=ようこそ、ACS へ
 menu.start=ゲーム開始
@@ -272,16 +272,16 @@ menu.exit=終了
 ```
 - `Tr(key)` は active → fallback → key 自体 の順で検索
 - 部分翻訳 OK（未訳キーは fallback 言語で表示）
-- `FLocalization::Swap()` で active と fallback を入替
+- `Localization::Swap()` で active と fallback を入替
 
 ## セーブデータ / 設定ファイル
 
 INI 形式の key-value 永続化、AppData 自動解決：
 ```cpp
-FStorage cfg;
+Storage cfg;
 wchar_t path[260];
 // パス取得は失敗しうる（TResult<void>）。エラーなら中断する。
-if (FStorage::GetAppDataPath(L"MyGame", L"settings.ini", path, 260).IsErr()) return;
+if (Storage::GetAppDataPath(L"MyGame", L"settings.ini", path, 260).IsErr()) return;
 
 cfg.Load(path);                        // 無ければ空のままで成功
 cfg.SetInt("high_score", 12345);
@@ -301,23 +301,23 @@ cfg.Save(path);    // %APPDATA%\MyGame\settings.ini に書き込み
 ## 手続き生成スカイ
 
 ```cpp
-FSky sky;
+Sky sky;
 sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 sky.PresetDay();        // または PresetSunset() / PresetNight()
 
 // シーンの最初に描く
 sky.Render(*cl, camera);
-// ... FStandardShader でメッシュ ...
+// ... StandardShader でメッシュ ...
 ```
 - グラデーション空（地平線→天頂）+ 太陽ディスク + ハロー
 - カスタマイズ: `SetSunDirection / SetZenithColor / SetHorizonColor / SetSunRadius`
-- FStandardShader と整合させるには `sky.SunDirection() / sky.SunColor()` を `FDirLight` に渡す
+- StandardShader と整合させるには `sky.SunDirection() / sky.SunColor()` を `FDirLight` に渡す
 
 ## シャドウマッピング
 
 有向光源の影。depth-only パスを 1 回追加するだけで主シェーダが自動でシャドウサンプル：
 ```cpp
-FShadowMap sm;
+ShadowMap sm;
 sm.Init(*device, /*size=*/2048);
 
 // シェーダにシャドウ機能を有効化（最初に 1 度）
@@ -339,7 +339,7 @@ for (each caster) {
 }
 cl->EndShadowPass(*sm.DepthTexture());
 
-// 2) 主パス（FStandardShader が SetShadowMap で受け取った VP を使う）
+// 2) 主パス（StandardShader が SetShadowMap で受け取った VP を使う）
 shd.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection(), 0.001f);  // 毎フレーム VP 更新
 shd.SetLights(...);
 cl->SetTexture(0, *albedo);
@@ -351,11 +351,11 @@ cl->SetTexture(1, *shd.ShadowTextureOrDefault());
 - ライトが真上のときは UP ベクトル自動切替
 - バイアスでシャドウアクネを抑制
 
-## 点光源 (FPointLight)
+## 点光源 (PointLight)
 
 `SetLights` の有向光源と独立に追加できる。減衰は `range` ベースの 2 乗フォールオフ：
 ```cpp
-FPointLight pts[3];
+PointLight pts[3];
 pts[0].position = FVec3{ 2, 1.5f, 0};   pts[0].color = FVec3{1.0f, 0.3f, 0.3f}; pts[0].range = 6.0f;
 pts[1].position = FVec3{-2, 1.5f, 0};   pts[1].color = FVec3{0.3f, 1.0f, 0.4f}; pts[1].range = 6.0f;
 pts[2].position = FVec3{ 0, 1.5f, 3};   pts[2].color = FVec3{0.3f, 0.5f, 1.0f}; pts[2].range = 6.0f;
@@ -364,7 +364,7 @@ shd.SetLights(camera.ViewProjection(), camera.Eye(),
               dir_lights, dir_count, ambient);
 shd.SetPointLights(pts, 3);     // 最大 4 灯
 ```
-- FStandardShader / FSkinnedShader 両対応
+- StandardShader / SkinnedShader 両対応
 - range を超えた位置では影響ゼロ（カットオフ）
 - range 内は (1 - dist/range)² で滑らかに減衰
 - 暗い部屋を 4 色で照らすデモは `samples/12_HelloLights`
@@ -393,13 +393,13 @@ shd.SetObject(model_mat,
 ## 2D 衝突判定 (`math/Collision2D.h`)
 
 ```cpp
-FAabb2 player = FAabb2::FromTopLeftSize({x, y}, {32, 32});
-FAabb2 wall   = FAabb2::FromTopLeftSize({0, 100}, {800, 16});
+Aabb2 player = Aabb2::FromTopLeftSize({x, y}, {32, 32});
+Aabb2 wall   = Aabb2::FromTopLeftSize({0, 100}, {800, 16});
 if (Intersect(player, wall)) { /* 重なってる */ }
 
 FVec2 push;
-FCircle a{ {ax, ay}, 16 };
-FCircle b{ {bx, by}, 12 };
+Circle a{ {ax, ay}, 16 };
+Circle b{ {bx, by}, 12 };
 if (Resolve(a, b, push)) {
     // a を push 方向へ動かせば衝突解消
     a.center.x += push.x;
@@ -407,18 +407,18 @@ if (Resolve(a, b, push)) {
 }
 
 // レイキャスト
-FRay2 ray{ {ox, oy}, {dx, dy} };
-FRayHit2 h = RaycastAabb(ray, wall);
+Ray2 ray{ {ox, oy}, {dx, dy} };
+RayHit2 h = RaycastAabb(ray, wall);
 if (h.hit) { /* h.point, h.normal, h.t */ }
 ```
 
 ## 標準ライティングシェーダで描画
 
-`FStandardShader` は Lambert + 環境光 + ベース色 + アルベドテクスチャを自前 HLSL で
+`StandardShader` は Lambert + 環境光 + ベース色 + アルベドテクスチャを自前 HLSL で
 セットアップ済み。手書きシェーダ無しに「光が当たった 3D オブジェクト」を出せる。
 
 ```cpp
-FStandardShader shd;
+StandardShader shd;
 shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 
 // 毎フレーム

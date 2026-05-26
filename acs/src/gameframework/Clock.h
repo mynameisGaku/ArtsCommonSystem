@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSceneClock (Phase 3)
+// GameFramework Pillar C — SceneClock (Phase 3)
 //
-// FScene 単位の時間トラッカ。scaled / unscaled 時間、frame count、pause/resume、
-// per-clock time_scale を持つ軽量値型 (40 byte 程度)。Tween/FSequence/カスタム
+// Scene 単位の時間トラッカ。scaled / unscaled 時間、frame count、pause/resume、
+// per-clock time_scale を持つ軽量値型 (40 byte 程度)。Tween/Sequence/カスタム
 // タイマー等が共通の時間軸として参照する。
 //
-// 命名: `acs::FClock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
-// `FSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
+// 命名: `acs::Clock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
+// `SceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
 //
 // 使い方:
-//   class GameplayScene : public FScene {
+//   class GameplayScene : public Scene {
 //   public:
 //       void OnUpdate(f32 dt) noexcept override {
 //           _clock.Tick(dt);
@@ -18,20 +18,20 @@
 //       void OnPause()  noexcept override { _clock.Pause();  }
 //       void OnResume() noexcept override { _clock.Resume(); }
 //   private:
-//       acs::game::FSceneClock _clock;
+//       acs::game::SceneClock _clock;
 //   };
 //
-// FGame の FApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
-// (slow-mo・pause・スピードランナーの倍速モード等) は FSceneClock を経由する。
+// Game の Application::DeltaTime() は常にリアル時間。シーンの感じる「時間」
+// (slow-mo・pause・スピードランナーの倍速モード等) は SceneClock を経由する。
 #pragma once
 
 #include "foundation/Types.h"
 
 namespace acs::game {
 
-class FSceneClock {
+class SceneClock {
 public:
-    FSceneClock() noexcept = default;
+    SceneClock() noexcept = default;
 
     // dt を流す。pause 中は scaled 系が進まず、unscaled 系のみ進む。
     void Tick(f32 dt) noexcept {

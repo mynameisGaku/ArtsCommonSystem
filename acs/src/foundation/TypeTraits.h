@@ -86,7 +86,7 @@ template<typename T> inline constexpr bool IsTriviallyConstructibleV= __is_trivi
 template<typename T> inline constexpr bool IsEmptyV                 = __is_empty(T);
 template<typename T> inline constexpr bool IsAbstractV              = __is_abstract(T);
 template<typename T> inline constexpr bool IsEnumV                  = __is_enum(T);
-template<typename Base, typename FDerived> inline constexpr bool IsBaseOfV = __is_base_of(Base, FDerived);
+template<typename Base, typename Derived> inline constexpr bool IsBaseOfV = __is_base_of(Base, Derived);
 
 // SFINAE 用: cond が true のときのみ T を露出させる
 template<bool C, typename T = void> struct TEnableIf {};

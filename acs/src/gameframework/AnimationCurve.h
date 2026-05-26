@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FAnimationCurve (Phase 3)
+// GameFramework Pillar C — AnimationCurve (Phase 3)
 //
-// 編集可能な「時間→値」補間曲線。Unity FAnimationCurve / Unreal FRichCurve に相当。
-// FSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
+// 編集可能な「時間→値」補間曲線。Unity AnimationCurve / Unreal FRichCurve に相当。
+// SpriteAnimator が「frame index 計算」だけを担うのと違い、AnimationCurve は
 // 任意の f32 を時間で滑らかに変化させる汎用パスを提供する。
 //
 // 用途:
 //   ・カメラ FOV / 露出のキー打ち
 //   ・カスタム easing (Easing 関数群で表現できない自由曲線)
-//   ・体力バー演出やフェード等のスクリプト連動 (FSequence に渡す値生成器として)
+//   ・体力バー演出やフェード等のスクリプト連動 (Sequence に渡す値生成器として)
 //
 // 使い方:
-//   FAnimationCurve fade;
+//   AnimationCurve fade;
 //   fade.AddKey(0.0f, 0.0f, ECurveInterpolation::Linear);
 //   fade.AddKey(0.5f, 0.8f, ECurveInterpolation::Linear);
 //   fade.AddKey(1.0f, 1.0f, ECurveInterpolation::Hermite); // 出口を滑らか
-//   fade.SetPostWrap(FAnimationCurve::WrapMode::Clamp);
+//   fade.SetPostWrap(AnimationCurve::WrapMode::Clamp);
 //   // 毎フレーム:
 //   f32 alpha = fade.Evaluate(t);
 //
@@ -24,7 +24,7 @@
 //     差し込みたい局面 (ボス演出曲線, カスタム UI スライドカーブ) に対応するため
 //     キー打ち式の曲線を別途用意する。
 //   ・key は time 昇順で内部 TArray に保持。AddKey は二分探索で適切位置に挿入する
-//     ことで Evaluate を O(log N) に保つ (FSequence の sorted insert と同方針)。
+//     ことで Evaluate を O(log N) に保つ (Sequence の sorted insert と同方針)。
 //   ・各 key は in_interp / out_interp を持ち、segment [k_i, k_{i+1}] の補間方式は
 //     k_i.out_interp で決定。Step → 左 value 保持。Linear → 線形。Hermite →
 //     k_i.out_tangent と k_{i+1}.in_tangent を使う 3 次 Hermite。
@@ -32,10 +32,10 @@
 //     時に segment 長 dt で乗算してスケールするので、key 間隔を変えても曲線形が
 //     直感的に保てる (Unity の Tangent と同セマンティクス)。
 //   ・WrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
-//     FSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
+//     SpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
 //     失わないよう time → 内部正規化 time の段階で fold する。
-//   ・FSpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
-//     非ムーブ」。曲線を共有したい場合は FAnimationCurve を 1 つ作って参照渡しする。
+//   ・SpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
+//     非ムーブ」。曲線を共有したい場合は AnimationCurve を 1 つ作って参照渡しする。
 #pragma once
 
 #include "foundation/Types.h"
@@ -52,7 +52,7 @@ enum class ECurveInterpolation : u8 {
     Hermite = 2,  // 3 次 Hermite (in_tangent / out_tangent を使う)
 };
 
-struct FCurveKey {
+struct CurveKey {
     f32                time        = 0.0f;
     f32                value       = 0.0f;
     f32                in_tangent  = 0.0f;  // この key に「入ってくる側」の傾き
@@ -61,7 +61,7 @@ struct FCurveKey {
     ECurveInterpolation out_interp  = ECurveInterpolation::Linear;
 };
 
-class FAnimationCurve {
+class AnimationCurve {
 public:
     // 時間が定義域外に出たときの折り返し方式 (前後別指定可能)。
     enum class WrapMode : u8 {
@@ -70,14 +70,14 @@ public:
         PingPong = 2,  // 端で折り返し
     };
 
-    FAnimationCurve() noexcept = default;
-    ~FAnimationCurve() noexcept = default;
+    AnimationCurve() noexcept = default;
+    ~AnimationCurve() noexcept = default;
 
-    // ランタイム状態を不意に複製しないため非コピー・非ムーブ (FSpriteAnimator と同方針)
-    FAnimationCurve(const FAnimationCurve&)            = delete;
-    FAnimationCurve& operator=(const FAnimationCurve&) = delete;
-    FAnimationCurve(FAnimationCurve&&)                 = delete;
-    FAnimationCurve& operator=(FAnimationCurve&&)      = delete;
+    // ランタイム状態を不意に複製しないため非コピー・非ムーブ (SpriteAnimator と同方針)
+    AnimationCurve(const AnimationCurve&)            = delete;
+    AnimationCurve& operator=(const AnimationCurve&) = delete;
+    AnimationCurve(AnimationCurve&&)                 = delete;
+    AnimationCurve& operator=(AnimationCurve&&)      = delete;
 
     // 既存に同 time の key があれば value / out_interp を上書き (= 重複挿入を回避)。
     // それ以外は time 昇順を保つよう binary search で位置を決めて挿入する。
@@ -90,13 +90,13 @@ public:
     void AddKeyHermite(f32 time, f32 value,
                        f32 in_tangent, f32 out_tangent) noexcept;
 
-    // index 範囲外は no-op (debug ビルドでも crash させない方針 = FSpriteAnimator 同様)
+    // index 範囲外は no-op (debug ビルドでも crash させない方針 = SpriteAnimator 同様)
     void RemoveKey(u32 index) noexcept;
 
     void ClearKeys() noexcept;
 
     u32             KeyCount() const noexcept { return static_cast<u32>(_keys.Size()); }
-    const FCurveKey* EKey(u32 index) const noexcept {
+    const CurveKey* EKey(u32 index) const noexcept {
         return index < _keys.Size() ? &_keys[index] : nullptr;
     }
 
@@ -106,7 +106,7 @@ public:
 
     // 末尾 key の time (絶対値)。key 0 個では 0。
     // 注: 「曲線の長さ」ではなく「最後のキーの time」を返す仕様 (Unity の
-    // FAnimationCurve.keys[last].time に相当)。最初の key の time が 0 でない
+    // AnimationCurve.keys[last].time に相当)。最初の key の time が 0 でない
     // 場合は「Duration() - 第 1 key の time」が真の長さとなる。
     f32 Duration() const noexcept;
 
@@ -131,10 +131,10 @@ private:
 
     // segment [k0, k1] を out_interp で補間。t は [0,1] の正規化進度、
     // dt は segment 長 (秒)。Hermite ではタンジェントを dt で乗算してスケール。
-    static f32 InterpolateSegment(const FCurveKey& k0, const FCurveKey& k1,
+    static f32 InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
                                   f32 t, f32 dt) noexcept;
 
-    TArray<FCurveKey> _keys;
+    TArray<CurveKey> _keys;
     WrapMode        _pre_wrap  = WrapMode::Clamp;
     WrapMode        _post_wrap = WrapMode::Clamp;
 };

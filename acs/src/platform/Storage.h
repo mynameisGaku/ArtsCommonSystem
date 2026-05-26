@@ -5,9 +5,9 @@
 //       人間可読な永続化。
 //
 // 使い方:
-//   FStorage cfg;
+//   Storage cfg;
 //   wchar_t path[260];
-//   FStorage::GetAppDataPath(L"MyGame", L"settings.ini", path, 260);
+//   Storage::GetAppDataPath(L"MyGame", L"settings.ini", path, 260);
 //
 //   cfg.Load(path);                       // 既存があれば読み込む（無ければ空）
 //   if (!cfg.Has("master_volume")) {
@@ -35,17 +35,17 @@
 
 namespace acs {
 
-class FStorage {
+class Storage {
 public:
-    FStorage() noexcept = default;
-    ~FStorage() noexcept = default;
+    Storage() noexcept = default;
+    ~Storage() noexcept = default;
 
-    FStorage(const FStorage&)            = delete;
-    FStorage& operator=(const FStorage&) = delete;
+    Storage(const Storage&)            = delete;
+    Storage& operator=(const Storage&) = delete;
 
-    // ムーブは可（FLocalization::Swap 等で使う）
-    FStorage(FStorage&& o) noexcept : _entries(Move(o._entries)) {}
-    FStorage& operator=(FStorage&& o) noexcept {
+    // ムーブは可（Localization::Swap 等で使う）
+    Storage(Storage&& o) noexcept : _entries(Move(o._entries)) {}
+    Storage& operator=(Storage&& o) noexcept {
         if (this != &o) _entries = Move(o._entries);
         return *this;
     }
@@ -97,14 +97,14 @@ public:
                                        char* out_utf8, usize cap) noexcept;
 
 private:
-    struct FEntry {
+    struct Entry {
         FString key;
         FString value;
     };
-    FEntry*       FindEntry(const char* key) noexcept;
-    const FEntry* FindEntry(const char* key) const noexcept;
+    Entry*       FindEntry(const char* key) noexcept;
+    const Entry* FindEntry(const char* key) const noexcept;
 
-    TArray<FEntry> _entries;
+    TArray<Entry> _entries;
 };
 
 } // namespace acs

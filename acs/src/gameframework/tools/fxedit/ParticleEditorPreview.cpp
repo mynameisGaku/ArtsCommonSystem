@@ -24,7 +24,7 @@ namespace {
 // emitter 有効性チェック: handle を保持しているか + system 側で正しく生きているか
 // は呼出し側では確認できないため、ここでは handle の IsValid のみで判断する。
 // system 側で stale 化していた場合、Set*/Burst/Destroy は no-op として動く設計
-// (FParticleEffectSystem の規約) なので安全。
+// (ParticleEffectSystem の規約) なので安全。
 inline bool HasPreview(FEmitterHandle h) noexcept {
     return h.IsValid();
 }
@@ -35,7 +35,7 @@ inline bool HasPreview(FEmitterHandle h) noexcept {
 // ライフサイクル
 // ============================================================================
 
-void FParticleEditorPreview::Init() noexcept {
+void ParticleEditorPreview::Init() noexcept {
     // 60 frame 履歴を事前確保 (毎 Tick の reallocation 回避)。
     _fps_history.Clear();
     _fps_history.Reserve(kFpsHistoryCap);
@@ -49,7 +49,7 @@ void FParticleEditorPreview::Init() noexcept {
     // _spawn_pos / _auto_emit は呼び出し間で保持しても害がない (UX 連続性)。
 }
 
-void FParticleEditorPreview::Shutdown() noexcept {
+void ParticleEditorPreview::Shutdown() noexcept {
     // system を持っていないため preview emitter の Destroy は行わない。
     // 明示的に止めたい呼出し側は Shutdown 前に StopAll(system) を呼ぶこと。
     _preview_handle    = {};
@@ -64,12 +64,12 @@ void FParticleEditorPreview::Shutdown() noexcept {
 // ============================================================================
 // Tick — stats + frame budget の更新
 // ============================================================================
-//   ・dt <= 0 の場合は履歴汚染を避けるため push しない (FDebugOverlay と同規約)。
-//   ・FParticleEffectSystem::Tick は呼ばない (= 呼出し側の責務)。
+//   ・dt <= 0 の場合は履歴汚染を避けるため push しない (DebugOverlay と同規約)。
+//   ・ParticleEffectSystem::Tick は呼ばない (= 呼出し側の責務)。
 //   ・active particle count は system の getter から、capacity は AllParticles の
 //     out_count 経由で取得する (現状の public API ではこちらが唯一の経路)。
 // ============================================================================
-void FParticleEditorPreview::Tick(f32 dt, FParticleEffectSystem& system) noexcept {
+void ParticleEditorPreview::Tick(f32 dt, ParticleEffectSystem& system) noexcept {
     // stats 更新 (capacity / active 数)。
     u32 cap = 0u;
     (void)system.AllParticles(cap);
@@ -96,14 +96,14 @@ void FParticleEditorPreview::Tick(f32 dt, FParticleEffectSystem& system) noexcep
 // ============================================================================
 // DrawUI — ImGui sub-window
 // ============================================================================
-//   ・"FParticle Preview" タイトルで Begin/End wrap。
+//   ・"Particle Preview" タイトルで Begin/End wrap。
 //   ・def == nullptr のときは「未選択」メッセージのみ出す (defensive)。
 //   ・Burst ボタン押下時は TriggerBurst (handle invalid なら no-op)。
 //   ・spawn pos / auto-emit の変更は即座に system に反映する。
 // ============================================================================
-void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
-                                   const FParticleEmitterDef* def) noexcept {
-    if (!ImGui::Begin("FParticle Preview")) {
+void ParticleEditorPreview::DrawUI(ParticleEffectSystem& system,
+                                   const ParticleEmitterDef* def) noexcept {
+    if (!ImGui::Begin("Particle Preview")) {
         ImGui::End();
         return;
     }
@@ -115,7 +115,7 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
         return;
     }
 
-    // ---- FStats ----
+    // ---- Stats ----
     // active / capacity のフォーマット。snprintf は描画用 transient buffer。
     ImGui::Text("Particles: %u / %u",
                 static_cast<unsigned>(_last_active_count),
@@ -150,7 +150,7 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
     // ---- Auto-emit toggle ----
     {
         bool autoe = _auto_emit;
-        if (ImGui::FCheckbox("Auto Emit (use emit_rate)", &autoe)) {
+        if (ImGui::Checkbox("Auto Emit (use emit_rate)", &autoe)) {
             // SetAutoEmit を介して system 側にも反映 (active flag を切り替える)。
             SetAutoEmit(autoe);
             if (HasPreview(_preview_handle)) {
@@ -162,16 +162,16 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
     ImGui::Separator();
 
     // ---- Action buttons ----
-    if (ImGui::FButton("Burst")) {
+    if (ImGui::Button("Burst")) {
         TriggerBurst(system);
     }
     ImGui::SameLine();
-    if (ImGui::FButton("Recreate")) {
+    if (ImGui::Button("Recreate")) {
         // 編集中 def で preview emitter を作り直す (UI 値の即時反映用)。
         RecreatePreviewEmitter(system, def);
     }
     ImGui::SameLine();
-    if (ImGui::FButton("Stop All")) {
+    if (ImGui::Button("Stop All")) {
         StopAll(system);
     }
 
@@ -195,12 +195,12 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
 // RecreatePreviewEmitter — 編集中 def を即時反映
 // ============================================================================
 //   ・既存 handle が valid なら一旦 Destroy (= 自動放出を止める)。
-//     既に出ている particle は寿命まで生かす (= FParticleEffectSystem の規約)。
+//     既に出ている particle は寿命まで生かす (= ParticleEffectSystem の規約)。
 //   ・def を内部 snapshot にコピーし、新しい emitter を spawn_pos で生成。
 //   ・auto_emit が false ならその場で active を off にする。
 // ============================================================================
-void FParticleEditorPreview::RecreatePreviewEmitter(FParticleEffectSystem& system,
-                                                   const FParticleEmitterDef* def) noexcept {
+void ParticleEditorPreview::RecreatePreviewEmitter(ParticleEffectSystem& system,
+                                                   const ParticleEmitterDef* def) noexcept {
     if (def == nullptr) return;
 
     if (HasPreview(_preview_handle)) {
@@ -223,9 +223,9 @@ void FParticleEditorPreview::RecreatePreviewEmitter(FParticleEffectSystem& syste
 // TriggerBurst — Burst ボタン本体
 // ============================================================================
 //   ・handle が invalid のときは no-op (= まだ Recreate していないケース)。
-//   ・FParticleEffectSystem::Burst は handle 検証 + burst_count に従い floor 切り捨て。
+//   ・ParticleEffectSystem::Burst は handle 検証 + burst_count に従い floor 切り捨て。
 // ============================================================================
-void FParticleEditorPreview::TriggerBurst(FParticleEffectSystem& system) noexcept {
+void ParticleEditorPreview::TriggerBurst(ParticleEffectSystem& system) noexcept {
     if (!HasPreview(_preview_handle)) return;
     system.Burst(_preview_handle);
 }
@@ -236,7 +236,7 @@ void FParticleEditorPreview::TriggerBurst(FParticleEffectSystem& system) noexcep
 //   ・編集セッションを綺麗な状態に戻すボタン。pool 容量はそのまま維持される。
 //   ・handle は invalid 化 (= 次回 Recreate で再生成必要)。
 // ============================================================================
-void FParticleEditorPreview::StopAll(FParticleEffectSystem& system) noexcept {
+void ParticleEditorPreview::StopAll(ParticleEffectSystem& system) noexcept {
     if (HasPreview(_preview_handle)) {
         system.DestroyEmitter(_preview_handle);
         _preview_handle = {};
@@ -252,13 +252,13 @@ void FParticleEditorPreview::StopAll(FParticleEffectSystem& system) noexcept {
 // system 側にも即時反映する (UI からの呼出しと API 呼出しで挙動を揃える)。
 // (UI 経由の更新は DrawUI 内で同じことを行うが、二重反映でも no-op で安全。)
 // ============================================================================
-void FParticleEditorPreview::SetSpawnPos(FVec2 pos) noexcept {
+void ParticleEditorPreview::SetSpawnPos(FVec2 pos) noexcept {
     _spawn_pos = pos;
     // system reference は受け取らない API なので、内部値だけ更新。次の Tick /
     // Recreate 時に反映される。
 }
 
-void FParticleEditorPreview::SetAutoEmit(bool b) noexcept {
+void ParticleEditorPreview::SetAutoEmit(bool b) noexcept {
     _auto_emit = b;
     // system reference は受け取らない API。Recreate 時か DrawUI 経由で反映される。
 }
@@ -266,9 +266,9 @@ void FParticleEditorPreview::SetAutoEmit(bool b) noexcept {
 // ============================================================================
 // GraphFps — 60 frame moving average
 // ============================================================================
-//   ・履歴空のとき 0。少数フレームでも有効分だけで平均する (FDebugOverlay と同規約)。
+//   ・履歴空のとき 0。少数フレームでも有効分だけで平均する (DebugOverlay と同規約)。
 // ============================================================================
-f32 FParticleEditorPreview::GraphFps() const noexcept {
+f32 ParticleEditorPreview::GraphFps() const noexcept {
     const usize n = _fps_history.Size();
     if (n == 0u) return 0.0f;
     f32 sum = 0.0f;

@@ -3,7 +3,7 @@
 //
 // 構成:
 //   Types.h                   - Ball POD + 物理 / 描画パラメータ定数
-//   HelloPhysics2DApp.{h,cpp} - FApplication 派生 (FSpriteBatch / FFont / Texture 所有)
+//   HelloPhysics2DApp.{h,cpp} - Application 派生 (SpriteBatch / Font / Texture 所有)
 //   PhysicsScene.{h,cpp}      - 物理シミュレーション + 描画
 //
 // 動作:

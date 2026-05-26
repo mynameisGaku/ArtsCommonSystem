@@ -26,12 +26,12 @@ void LightsScene::Build() noexcept {
     }
 }
 
-void LightsScene::Render(FStandardShader&  shader,
+void LightsScene::Render(StandardShader&  shader,
                          IRhiCommandList& cl,
                          const FCamera&    camera,
-                         const FGpuMesh&   plane,
-                         const FGpuMesh&   cube,
-                         const FGpuMesh&   sphere,
+                         const GpuMesh&   plane,
+                         const GpuMesh&   cube,
+                         const GpuMesh&   sphere,
                          f32              time) noexcept {
     // --- ライト設定 ---
     // dir ライトはほぼ無効化 (ambient と同程度) に落とし、点光源の色を
@@ -42,7 +42,7 @@ void LightsScene::Render(FStandardShader&  shader,
     shader.SetLights(camera.ViewProjection(), camera.Eye(),
                      &dir, 1, FVec3{0.04f, 0.04f, 0.06f});
 
-    FPointLight pts[kPointCount];
+    PointLight pts[kPointCount];
     const FVec3 colors[kPointCount] = {
         {1.0f, 0.3f, 0.3f},
         {0.3f, 1.0f, 0.4f},
@@ -80,7 +80,7 @@ void LightsScene::Render(FStandardShader&  shader,
 
     for (const ObjectInst& obj : _objects) {
         shader.SetObject(obj.model, obj.color, 0.5f, 32.0f);
-        const FGpuMesh& m = obj.is_sphere ? sphere : cube;
+        const GpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);
         cl.SetIndexBuffer(*m.index_buffer);
         cl.DrawIndexed(m.index_count);

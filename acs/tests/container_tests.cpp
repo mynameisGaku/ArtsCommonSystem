@@ -9,7 +9,7 @@
 
 using namespace acs;
 
-ACS_TEST(FContainer, ArrayPushAndIndex) {
+ACS_TEST(Container, ArrayPushAndIndex) {
     TArray<int> a;
     for (int i = 0; i < 100; ++i) a.PushBack(i);
     EXPECT_EQ(a.Size(), (usize)100);
@@ -18,7 +18,7 @@ ACS_TEST(FContainer, ArrayPushAndIndex) {
     EXPECT_EQ(a.Back(), 99);
 }
 
-ACS_TEST(FContainer, ArrayResize) {
+ACS_TEST(Container, ArrayResize) {
     TArray<int> a;
     a.Resize(50);
     EXPECT_EQ(a.Size(), (usize)50);
@@ -26,7 +26,7 @@ ACS_TEST(FContainer, ArrayResize) {
     EXPECT_EQ(a.Size(), (usize)10);
 }
 
-ACS_TEST(FContainer, StringInlineAndHeap) {
+ACS_TEST(Container, StringInlineAndHeap) {
     FString s("hello");
     EXPECT_EQ(s.Size(), (usize)5);
     EXPECT_TRUE(s.View() == FStringView("hello"));
@@ -36,13 +36,13 @@ ACS_TEST(FContainer, StringInlineAndHeap) {
     EXPECT_EQ(big.Size(), (usize)100);
 }
 
-ACS_TEST(FContainer, StringFormat) {
+ACS_TEST(Container, StringFormat) {
     FString s;
     s.AppendFormat("%d-%s", 42, "abc");
     EXPECT_TRUE(s.View() == FStringView("42-abc"));
 }
 
-ACS_TEST(FContainer, HashMapInsertFindRemove) {
+ACS_TEST(Container, HashMapInsertFindRemove) {
     THashMap<u32, u32> m;
     for (u32 i = 0; i < 1000; ++i) m.Insert(i, i * 2);
     EXPECT_EQ(m.Size(), (usize)1000);
@@ -56,7 +56,7 @@ ACS_TEST(FContainer, HashMapInsertFindRemove) {
     EXPECT_EQ(m.Size(), (usize)999);
 }
 
-ACS_TEST(FContainer, HashBytesDeterministic) {
+ACS_TEST(Container, HashBytesDeterministic) {
     const char* a = "the quick brown fox";
     u64 h1 = HashBytes(a, 19);
     u64 h2 = HashBytes(a, 19);

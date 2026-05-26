@@ -284,7 +284,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> FSsgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     _device = &device;
     _width  = width;
     _height = height;
@@ -302,7 +302,7 @@ TResult<void> FSsgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     return Ok();
 }
 
-TResult<void> FSsgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     _blur_output.Reset();
     FTextureDesc td{};
@@ -330,12 +330,12 @@ TResult<void> FSsgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) n
     return Ok();
 }
 
-TResult<void> FSsgi::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::FVertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsgiHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FSsgi.VS";
+    vs_d.debug_name  = "Ssgi.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
@@ -343,7 +343,7 @@ TResult<void> FSsgi::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsgiHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FSsgi.PS";
+    ps_d.debug_name  = "Ssgi.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
@@ -456,7 +456,7 @@ TResult<void> FSsgi::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void FSsgi::Shutdown() noexcept {
+void Ssgi::Shutdown() noexcept {
     _temporal_pipeline.Reset();
     _blur_pipeline.Reset();
     _pipeline.Reset();
@@ -472,8 +472,8 @@ void FSsgi::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> FSsgi::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 340, "FSsgi::Resize before Init");
+TResult<void> Ssgi::Resize(u32 width, u32 height) noexcept {
+    if (!_device) return ACS_ERR(Render, 340, "Ssgi::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width  = width;
     _height = height;
@@ -481,7 +481,7 @@ TResult<void> FSsgi::Resize(u32 width, u32 height) noexcept {
     return CreateOutputRT(*_device, width, height);
 }
 
-void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
@@ -504,7 +504,7 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: SSGI raw → _output
-    cl.BeginRenderToTexture(*_output, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*_output, ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
     cl.SetPipeline(*_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, scene_color);
@@ -514,7 +514,7 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.EndRenderToTexture(*_output);
 
     // Pass 2 (Phase 33c-2): depth-aware bilateral blur → _blur_output
-    cl.BeginRenderToTexture(*_blur_output, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*_blur_output, ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
     cl.SetPipeline(*_blur_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, *_output);       // SSGI raw
@@ -530,7 +530,7 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     // 実 history を使う。
     IRhiTexture* hist_in = (_temporal_frame == 0u) ? _blur_output.Get()
                                                    : _history[prev].Get();
-    cl.BeginRenderToTexture(*_history[cur], FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*_history[cur], ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
     cl.SetPipeline(*_temporal_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, *_blur_output);   // current (blur 済み)

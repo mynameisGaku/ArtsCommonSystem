@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar (Genre Kit: Roguelike) — BSP ベース ランダムダンジョン生成
 //
-// 2D グリッド上に部屋 (FRoom) と廊下 (Corridor) を配置する古典的な
+// 2D グリッド上に部屋 (Room) と廊下 (Corridor) を配置する古典的な
 // **BSP (Binary Space Partitioning) ダンジョン生成** の実装。
 // 全体領域を再帰的に 2 分割してリーフごとに 1 部屋を置き、兄弟リーフ間を
 // L 字廊下で接続する。Roguelike の「毎フロア違うレイアウト」をシード再現可能に。
 //
 // 使い方:
-//   FDungeonGenConfig cfg{};
+//   DungeonGenConfig cfg{};
 //   cfg.width             = 80;
 //   cfg.height            = 50;
 //   cfg.min_room_size     = 4;
@@ -16,7 +16,7 @@
 //   cfg.seed              = 0xDEADBEEFu;
 //   cfg.max_depth         = 5;
 //
-//   FDungeonGenerator gen;
+//   DungeonGenerator gen;
 //   gen.Generate(cfg);
 //
 //   // 描画ループ
@@ -38,8 +38,8 @@
 //
 // 設計選択:
 //   ・**ETileKind = u8**: 5 種類しか無いので u8 で十分。row-major 1D の
-//     acs::TArray<ETileKind> に格納 (FTilemap と異なる layered 構造は不要)。
-//   ・**FRoom = 矩形 + id**: id は生成順 0..N-1。重複しない部屋を保証。
+//     acs::TArray<ETileKind> に格納 (Tilemap と異なる layered 構造は不要)。
+//   ・**Room = 矩形 + id**: id は生成順 0..N-1。重複しない部屋を保証。
 //   ・**BSP partition tree は temp**: 生成中だけ必要なので TArray<BspNode>
 //     を ローカル変数 として持ち、Generate 終了で破棄する。永続データは
 //     grid + rooms のみ。
@@ -70,9 +70,9 @@ enum class ETileKind : u8 {
     Stairs   = 4, // 次フロアへの階段
 };
 
-// ---- FRoom ------------------------------------------------------------------
+// ---- Room ------------------------------------------------------------------
 // 部屋を表す軸並行矩形。(x,y) は左上、(w,h) は幅・高さ。
-struct FRoom {
+struct Room {
     u32 x  = 0;
     u32 y  = 0;
     u32 w  = 0;
@@ -82,7 +82,7 @@ struct FRoom {
 
 // ---- 生成パラメータ --------------------------------------------------------
 // Generate() に渡す設定値。0 や不整合な値は内部で安全な既定にフォールバック。
-struct FDungeonGenConfig {
+struct DungeonGenConfig {
     u32 width              = 64;     // ダンジョン全体の幅 (tile)
     u32 height             = 48;     // ダンジョン全体の高さ (tile)
     u32 min_room_size      = 4;      // 部屋の最小辺 (内側、壁含まず)
@@ -93,21 +93,21 @@ struct FDungeonGenConfig {
 };
 
 // ---- 生成器 ----------------------------------------------------------------
-class FDungeonGenerator {
+class DungeonGenerator {
 public:
-    FDungeonGenerator() noexcept  = default;
-    ~FDungeonGenerator() noexcept = default;
+    DungeonGenerator() noexcept  = default;
+    ~DungeonGenerator() noexcept = default;
 
-    // 非コピー・非ムーブ (FScene 所有想定、サイズが大きいので明示複製を強制)
-    FDungeonGenerator(const FDungeonGenerator&)            = delete;
-    FDungeonGenerator& operator=(const FDungeonGenerator&) = delete;
-    FDungeonGenerator(FDungeonGenerator&&)                 = delete;
-    FDungeonGenerator& operator=(FDungeonGenerator&&)      = delete;
+    // 非コピー・非ムーブ (Scene 所有想定、サイズが大きいので明示複製を強制)
+    DungeonGenerator(const DungeonGenerator&)            = delete;
+    DungeonGenerator& operator=(const DungeonGenerator&) = delete;
+    DungeonGenerator(DungeonGenerator&&)                 = delete;
+    DungeonGenerator& operator=(DungeonGenerator&&)      = delete;
 
     // ---- 生成 ----------------------------------------------------------------
     // config に従って全体を再生成 (既存状態は完全破棄)。
     // 不正値はサイレントに既定にフォールバックして必ず有効なグリッドを生成。
-    void Generate(const FDungeonGenConfig& config) noexcept;
+    void Generate(const DungeonGenConfig& config) noexcept;
 
     // grid / rooms / size を全部リセット。
     void Clear() noexcept;
@@ -126,10 +126,10 @@ public:
     u32 RoomCount() const noexcept { return static_cast<u32>(_rooms.Size()); }
 
     // 範囲外 index は nullptr。
-    const FRoom* GetRoom(u32 index) const noexcept;
+    const Room* GetRoom(u32 index) const noexcept;
 
     // 全部屋配列の生ポインタを返す (out_count に件数を書き込む)。空なら nullptr。
-    const FRoom* AllRooms(u32& out_count) const noexcept;
+    const Room* AllRooms(u32& out_count) const noexcept;
 
     // 範囲外 index は (0,0) を書き込む (defensive)。
     void GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) const noexcept;
@@ -148,7 +148,7 @@ private:
     u32              _width  = 0;
     u32              _height = 0;
     TArray<ETileKind>  _grid;   // row-major (width * height)
-    TArray<FRoom>      _rooms;  // 生成順
+    TArray<Room>      _rooms;  // 生成順
     u32              _seed   = 0; // 直近 Generate の seed (FindRandomFloor 等で再利用)
 };
 

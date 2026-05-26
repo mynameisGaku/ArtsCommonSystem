@@ -7,8 +7,8 @@
 namespace hellogf {
 
 void RotatingNode::OnSpawn() noexcept {
-    const auto w = FWorld();
-    ACS_LOG_INFO("[FNode] %s spawned at world (%.2f, %.2f)",
+    const auto w = World();
+    ACS_LOG_INFO("[Node] %s spawned at world (%.2f, %.2f)",
                  _label,
                  static_cast<double>(w.position.x),
                  static_cast<double>(w.position.y));
@@ -19,7 +19,7 @@ void RotatingNode::OnUpdate(acs::f32 dt) noexcept {
 }
 
 void RotatingNode::OnDespawn() noexcept {
-    ACS_LOG_INFO("[FNode] %s despawn", _label);
+    ACS_LOG_INFO("[Node] %s despawn", _label);
 }
 
 } // namespace hellogf

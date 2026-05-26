@@ -13,17 +13,17 @@ namespace Diligent {
 
 namespace acs {
 
-class FDiligentDevice;
+class DiligentDevice;
 
-class FDiligentTexture final : public IRhiTexture {
+class DiligentTexture final : public IRhiTexture {
 public:
-    FDiligentTexture() noexcept = default;
-    ~FDiligentTexture() noexcept override;
+    DiligentTexture() noexcept = default;
+    ~DiligentTexture() noexcept override;
 
-    FDiligentTexture(const FDiligentTexture&) = delete;
-    FDiligentTexture& operator=(const FDiligentTexture&) = delete;
+    DiligentTexture(const DiligentTexture&) = delete;
+    DiligentTexture& operator=(const DiligentTexture&) = delete;
 
-    TResult<void> Init(FDiligentDevice& device, const FTextureDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const FTextureDesc& desc) noexcept;
 
     // ---- IRhiTexture ----
     u32    Width()       const noexcept override { return _width; }
@@ -47,7 +47,7 @@ public:
     bool ShaderVisibleDepth() const noexcept { return _depth_srv; }
 
 private:
-    FDiligentDevice*         _device  = nullptr;
+    DiligentDevice*         _device  = nullptr;
     Diligent::ITexture*     _texture = nullptr;
     Diligent::ITextureView* _srv     = nullptr;  // not addref'd; owned by _texture
     Diligent::ITextureView* _rtv     = nullptr;

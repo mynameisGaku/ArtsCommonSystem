@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// 標準ウィジェット — FLabel / FButton / FSlider / FCheckbox / FTextInput
+// 標準ウィジェット — Label / Button / Slider / Checkbox / TextInput
 //
-// すべての widget は FObservable<T> プロパティで状態を公開しているので、
-// MVVM の Bind* で FViewModel と直結できる:
+// すべての widget は Observable<T> プロパティで状態を公開しているので、
+// MVVM の Bind* で ViewModel と直結できる:
 //
-//   class PlayerVM : public FViewModel { FObservable<f32> hp{100}; };
+//   class PlayerVM : public ViewModel { Observable<f32> hp{100}; };
 //   PlayerVM vm;
-//   FStackPanel root;
-//   auto* sl = root.Add<FSlider>(0.0f, 100.0f);
+//   StackPanel root;
+//   auto* sl = root.Add<Slider>(0.0f, 100.0f);
 //   auto bind = MakeTwoWayBind(vm.hp, sl->value);   // 双方向同期
 #pragma once
 
@@ -18,10 +18,10 @@
 
 namespace acs {
 
-class FFont;
+class Font;
 
 // ---- 共通 colorset (簡易テーマ) -------------------------------------------
-struct FUiColors {
+struct UiColors {
     FVec4 panel_bg     = { 0.16f, 0.18f, 0.24f, 0.95f };
     FVec4 panel_border = { 0.40f, 0.45f, 0.55f, 0.80f };
     FVec4 button_bg    = { 0.25f, 0.40f, 0.65f, 1.0f };
@@ -39,41 +39,41 @@ struct FUiColors {
     FVec4 input_focus  = { 0.20f, 0.30f, 0.50f, 1.0f };
 };
 
-inline FUiColors& DefaultUiColors() noexcept {
-    static FUiColors s;
+inline UiColors& DefaultUiColors() noexcept {
+    static UiColors s;
     return s;
 }
 
 // ============================================================================
-// FLabel — 静的テキスト
+// Label — 静的テキスト
 // ============================================================================
-class FLabel : public FWidget {
+class Label : public Widget {
 public:
-    explicit FLabel(const char* initial = "") noexcept : text(FString{initial}) {
+    explicit Label(const char* initial = "") noexcept : text(FString{initial}) {
         requested.h = 22.0f;
     }
 
-    FObservable<FString> text;
+    Observable<FString> text;
 
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(UiRenderer& r) noexcept override;
 };
 
 // ============================================================================
-// FButton — 押せる
+// Button — 押せる
 // ============================================================================
-class FButton : public FWidget {
+class Button : public Widget {
 public:
-    explicit FButton(const char* label = "FButton") noexcept : text(FString{label}) {
+    explicit Button(const char* label = "Button") noexcept : text(FString{label}) {
         requested.h = 32.0f;
     }
 
-    FObservable<FString> text;
+    Observable<FString> text;
 
-    // クリック完了時 (Down + Up が widget 内で完結) にこの FObservable が発火
+    // クリック完了時 (Down + Up が widget 内で完結) にこの Observable が発火
     // Set(true) → Subscribe している箇所が呼ばれる → 自動で false に戻す
-    FObservable<bool> clicked{ false };
+    Observable<bool> clicked{ false };
 
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(UiRenderer& r) noexcept override;
     void OnPointerDown(f32 /*px*/, f32 /*py*/) noexcept override { pressed = true; }
     void OnPointerUp  (f32 px, f32 py) noexcept override {
         if (pressed && rect.Contains(px, py)) {
@@ -85,19 +85,19 @@ public:
 };
 
 // ============================================================================
-// FSlider — 範囲付きの値編集
+// Slider — 範囲付きの値編集
 // ============================================================================
-class FSlider : public FWidget {
+class Slider : public Widget {
 public:
-    FSlider(f32 min_v = 0, f32 max_v = 1) noexcept : min_value(min_v), max_value(max_v) {
+    Slider(f32 min_v = 0, f32 max_v = 1) noexcept : min_value(min_v), max_value(max_v) {
         requested.h = 24.0f;
     }
 
-    FObservable<f32> value{ 0.0f };
+    Observable<f32> value{ 0.0f };
     f32 min_value = 0.0f;
     f32 max_value = 1.0f;
 
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(UiRenderer& r) noexcept override;
     void OnPointerDown(f32 px, f32 /*py*/) noexcept override { pressed = true; UpdateFromMouse(px); }
     void OnPointerMove(f32 px, f32 /*py*/) noexcept override { if (pressed) UpdateFromMouse(px); }
     void OnPointerUp  (f32 /*px*/, f32 /*py*/) noexcept override { pressed = false; }
@@ -113,35 +113,35 @@ private:
 };
 
 // ============================================================================
-// FCheckbox — bool トグル
+// Checkbox — bool トグル
 // ============================================================================
-class FCheckbox : public FWidget {
+class Checkbox : public Widget {
 public:
-    explicit FCheckbox(const char* label = "") noexcept : text(FString{label}) {
+    explicit Checkbox(const char* label = "") noexcept : text(FString{label}) {
         requested.h = 24.0f;
     }
 
-    FObservable<bool>   checked{ false };
-    FObservable<FString> text;
+    Observable<bool>   checked{ false };
+    Observable<FString> text;
 
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(UiRenderer& r) noexcept override;
     void OnPointerUp(f32 px, f32 py) noexcept override {
         if (rect.Contains(px, py)) checked.Set(!checked.Get());
     }
 };
 
 // ============================================================================
-// FTextInput — 1 行文字入力 (UTF-8、ASCII 範囲のみ対応)
+// TextInput — 1 行文字入力 (UTF-8、ASCII 範囲のみ対応)
 // ============================================================================
-class FTextInput : public FWidget {
+class TextInput : public Widget {
 public:
-    FTextInput() noexcept {
+    TextInput() noexcept {
         requested.h = 28.0f;
     }
 
-    FObservable<FString> text{ FString{} };
+    Observable<FString> text{ FString{} };
 
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(UiRenderer& r) noexcept override;
     void OnPointerDown(f32 /*px*/, f32 /*py*/) noexcept override { focused = true; }
     void OnTextInput(u32 codepoint) noexcept override {
         if (!focused) return;
@@ -155,7 +155,7 @@ public:
         (void)len;
         // 仮実装: 単純連結
         // ACS FString は AppendFormat 等あるが、ここでは新規 FString を作って差し替える
-        // FContainer/String.h の API に応じて要調整
+        // Container/String.h の API に応じて要調整
         char tmp[256];
         const char* src = cur.Data() ? cur.Data() : "";
         usize i = 0;

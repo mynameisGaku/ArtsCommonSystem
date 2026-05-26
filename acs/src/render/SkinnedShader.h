@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // スキンメッシュ用ライティングシェーダ（GPU スキニング）
 //
-// FStandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
+// StandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
 // 加えて Bones (b2) を持ち、最大 64 ボーンのパレット行列をシェーダに送る。
 //
 // 使い方:
-//   FSkinnedShader shd;
+//   SkinnedShader shd;
 //   shd.Init(*dev, color_fmt, depth_fmt);
 //
-//   // フレーム共通（FStandardShader と同じ呼び方）
+//   // フレーム共通（StandardShader と同じ呼び方）
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
 //                 lights, count, ambient);
 //
@@ -44,22 +44,22 @@
 
 namespace acs {
 
-class FSkinnedShader {
+class SkinnedShader {
 public:
     static constexpr u32 kMaxBones = 64;
 
-    FSkinnedShader() noexcept = default;
-    ~FSkinnedShader() noexcept = default;
+    SkinnedShader() noexcept = default;
+    ~SkinnedShader() noexcept = default;
 
-    FSkinnedShader(const FSkinnedShader&)            = delete;
-    FSkinnedShader& operator=(const FSkinnedShader&) = delete;
+    SkinnedShader(const SkinnedShader&)            = delete;
+    SkinnedShader& operator=(const SkinnedShader&) = delete;
 
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
                       EFormat depth_format = EFormat::D32_Float) noexcept;
     void Shutdown() noexcept;
 
-    // FStandardShader と同形式の API（互換）
+    // StandardShader と同形式の API（互換）
     void SetFrame(const FMat4& view_projection,
                   FVec3 camera_pos,
                   FVec3 light_dir, FVec3 light_color,
@@ -68,7 +68,7 @@ public:
                    FVec3 camera_pos,
                    const FDirLight* lights, u32 count,
                    FVec3 ambient_color) noexcept;
-    void SetPointLights(const FPointLight* lights, u32 count) noexcept;
+    void SetPointLights(const PointLight* lights, u32 count) noexcept;
     void SetObject(const FMat4& model,
                    FVec3 base_color = FVec3{1, 1, 1},
                    f32  specular_strength = 0.0f,
@@ -94,13 +94,13 @@ private:
     TUniquePtr<IRhiBuffer>   _bones_cb;
     TUniquePtr<IRhiTexture>  _white;
 
-    // Frame の状態キャッシュ（FStandardShader と同パターン）
+    // Frame の状態キャッシュ（StandardShader と同パターン）
     FMat4       _vp;
     FVec3       _eye = FVec3{0, 0, 0};
     FVec3       _ambient = FVec3{0, 0, 0};
     FDirLight   _dir_lights[4];
     u32        _dir_count = 0;
-    FPointLight _point_lights[4];
+    PointLight _point_lights[4];
     u32        _point_count = 0;
 };
 

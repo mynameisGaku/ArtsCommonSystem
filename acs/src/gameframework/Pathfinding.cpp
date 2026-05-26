@@ -30,7 +30,7 @@ static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
 // ---- Init / Setter / Getter ----------------------------------------------------
 
-void FNavGrid::Init(u32 width, u32 height) noexcept {
+void NavGrid::Init(u32 width, u32 height) noexcept {
     _width  = width;
     _height = height;
     const u32 count = width * height;
@@ -51,24 +51,24 @@ void FNavGrid::Init(u32 width, u32 height) noexcept {
     _came_from.Resize(count);
 }
 
-void FNavGrid::SetWalkable(u32 x, u32 y, bool walkable) noexcept {
+void NavGrid::SetWalkable(u32 x, u32 y, bool walkable) noexcept {
     if (x >= _width || y >= _height) return;          // 範囲外は no-op
     _walkable[IndexOf(x, y)] = walkable ? 1 : 0;
 }
 
-bool FNavGrid::IsWalkable(u32 x, u32 y) const noexcept {
+bool NavGrid::IsWalkable(u32 x, u32 y) const noexcept {
     if (x >= _width || y >= _height) return false;   // 範囲外は通行不可扱い
     return _walkable[IndexOf(x, y)] != 0;
 }
 
-void FNavGrid::ClearWalls() noexcept {
+void NavGrid::ClearWalls() noexcept {
     const u32 count = _width * _height;
     for (u32 i = 0; i < count; ++i) _walkable[i] = 1;
 }
 
 // ---- Heuristic -----------------------------------------------------------------
 
-f32 FNavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
+f32 NavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
     // 符号付き距離を取るため一度 i64 経由で減算してから絶対値。
     const f32 dx = Abs(static_cast<f32>(static_cast<i64>(x) - static_cast<i64>(goal_x)));
     const f32 dy = Abs(static_cast<f32>(static_cast<i64>(y) - static_cast<i64>(goal_y)));
@@ -86,7 +86,7 @@ f32 FNavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
 
 // ---- Open set 操作 -------------------------------------------------------------
 
-usize FNavGrid::PopLowestF() noexcept {
+usize NavGrid::PopLowestF() noexcept {
     // 線形最小値走査 (Phase 2 簡素実装)。binary heap への置換は Phase 3+。
     const usize n = _open.Size();
     if (n == 0) return 0;
@@ -104,7 +104,7 @@ usize FNavGrid::PopLowestF() noexcept {
 
 // ---- Reconstruct ---------------------------------------------------------------
 
-void FNavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_path) const noexcept {
+void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_path) const noexcept {
     // goal から came_from を辿って start まで遡り、out_path に逆順で push。
     // 最後に reverse して start → goal の順にする。
     out_path.Clear();
@@ -113,7 +113,7 @@ void FNavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_
     const u32 max_steps = _width * _height + 1u;
     u32 steps = 0;
     while (cur != kInvalidIndex && steps <= max_steps) {
-        FPathPoint p;
+        PathPoint p;
         p.x = cur % _width;
         p.y = cur / _width;
         out_path.PushBack(p);
@@ -124,7 +124,7 @@ void FNavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_
     // 逆順反転 (start → goal にする)。
     const usize n = out_path.Size();
     for (usize i = 0; i < n / 2; ++i) {
-        FPathPoint tmp        = out_path[i];
+        PathPoint tmp        = out_path[i];
         out_path[i]          = out_path[n - 1 - i];
         out_path[n - 1 - i]  = tmp;
     }
@@ -132,9 +132,9 @@ void FNavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_
 
 // ---- A* 本体 -------------------------------------------------------------------
 
-bool FNavGrid::FindPath(u32 start_x, u32 start_y,
+bool NavGrid::FindPath(u32 start_x, u32 start_y,
                        u32 goal_x,  u32 goal_y,
-                       TArray<FPathPoint>& out_path) noexcept {
+                       TArray<PathPoint>& out_path) noexcept {
     out_path.Clear();
 
     // ----- 早期失敗ガード -----
@@ -149,7 +149,7 @@ bool FNavGrid::FindPath(u32 start_x, u32 start_y,
 
     // start == goal の特殊ケース: 長さ 1 の path として成功。
     if (start_idx == goal_idx) {
-        FPathPoint p;
+        PathPoint p;
         p.x = start_x;
         p.y = start_y;
         out_path.PushBack(p);

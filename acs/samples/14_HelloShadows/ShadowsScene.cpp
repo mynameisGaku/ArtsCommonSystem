@@ -40,14 +40,14 @@ void ShadowsScene::Build() noexcept {
     }
 }
 
-void ShadowsScene::Render(FSky&             sky,
-                          FStandardShader&  shader,
-                          FShadowMap&       shadow,
+void ShadowsScene::Render(Sky&             sky,
+                          StandardShader&  shader,
+                          ShadowMap&       shadow,
                           IRhiCommandList& cl,
                           const FCamera&    camera,
-                          const FGpuMesh&   plane,
-                          const FGpuMesh&   cube,
-                          const FGpuMesh&   sphere,
+                          const GpuMesh&   plane,
+                          const GpuMesh&   cube,
+                          const GpuMesh&   sphere,
                           FVec3             sun_dir) noexcept {
     sky.SetSunDirection(sun_dir);
 
@@ -61,7 +61,7 @@ void ShadowsScene::Render(FSky&             sky,
     // 地面はシャドウキャスタにしないので、影を落とす物体だけ
     for (const CasterInst& obj : _casters) {
         shadow.SetCaster(obj.model);
-        const FGpuMesh& m = obj.is_sphere ? sphere : cube;
+        const GpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);
         cl.SetIndexBuffer(*m.index_buffer);
         cl.DrawIndexed(m.index_count);
@@ -95,7 +95,7 @@ void ShadowsScene::Render(FSky&             sky,
 
     for (const CasterInst& obj : _casters) {
         shader.SetObject(obj.model, obj.base_color, 0.4f, 32.0f);
-        const FGpuMesh& m = obj.is_sphere ? sphere : cube;
+        const GpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);
         cl.SetIndexBuffer(*m.index_buffer);
         cl.DrawIndexed(m.index_count);

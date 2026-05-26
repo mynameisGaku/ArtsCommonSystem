@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — SceneInspector / FSelectionService 実装 (Phase 20)
+// GameFramework Pillar — SceneInspector / SelectionService 実装 (Phase 20)
 //
 // 設計のポイント (詳細はヘッダ参照):
 //   ・現選択 FNodeId (1 個) + (cb, user) 登録 list の最小ハブ。
 //   ・selection 値が変化した場合のみ callback を順番に dispatch する。
-//   ・登録 / 解除は FHotReloadWatcher と同じ規約: 重複弾き / 未登録 no-op。
+//   ・登録 / 解除は HotReloadWatcher と同じ規約: 重複弾き / 未登録 no-op。
 
 #include "gameframework/tools/inspector/SelectionService.h"
 
@@ -13,7 +13,7 @@ namespace acs::game::inspector {
 // ============================================================================
 // Init
 // ============================================================================
-void FSelectionService::Init() noexcept {
+void SelectionService::Init() noexcept {
     // 完全初期化: 現選択を invalid に、callback list を空に。
     // 容量は保持 (Reserve 状態を保つ ≒ 再 Init 後のアロケーション節約)。
     _current = FNodeId{};
@@ -23,7 +23,7 @@ void FSelectionService::Init() noexcept {
 // ============================================================================
 // SelectNode / ClearSelection
 // ============================================================================
-void FSelectionService::SelectNode(FNodeId id) noexcept {
+void SelectionService::SelectNode(FNodeId id) noexcept {
     // 同一選択への再 Select は no-op (callback 発火しない)。FNodeId 比較は
     // packed u32 の == なので O(1)。
     if (_current == id) {
@@ -36,7 +36,7 @@ void FSelectionService::SelectNode(FNodeId id) noexcept {
     FireChange(from, _current);
 }
 
-void FSelectionService::ClearSelection() noexcept {
+void SelectionService::ClearSelection() noexcept {
     // 既に未選択なら no-op (callback 発火しない)。
     if (!_current.IsValid()) {
         return;
@@ -49,11 +49,11 @@ void FSelectionService::ClearSelection() noexcept {
 // ============================================================================
 // 問い合わせ
 // ============================================================================
-FNodeId FSelectionService::CurrentSelection() const noexcept {
+FNodeId SelectionService::CurrentSelection() const noexcept {
     return _current;
 }
 
-bool FSelectionService::IsSelected(FNodeId id) const noexcept {
+bool SelectionService::IsSelected(FNodeId id) const noexcept {
     // FNodeId::operator== は packed u32 の完全一致。
     // invalid 同士の比較も true になる (両方 packed == 0)。
     return _current == id;
@@ -62,9 +62,9 @@ bool FSelectionService::IsSelected(FNodeId id) const noexcept {
 // ============================================================================
 // コールバック登録 / 解除
 // ============================================================================
-void FSelectionService::RegisterCallback(SelectionChangeCallback cb, void* user) noexcept {
+void SelectionService::RegisterCallback(SelectionChangeCallback cb, void* user) noexcept {
     if (cb == nullptr) {
-        // null コールバックは silent no-op (FHotReloadWatcher と同じ規約だが
+        // null コールバックは silent no-op (HotReloadWatcher と同じ規約だが
         // ここでは log を出さない: editor 用途で頻発しても煩いだけ)。
         return;
     }
@@ -75,13 +75,13 @@ void FSelectionService::RegisterCallback(SelectionChangeCallback cb, void* user)
             return;
         }
     }
-    FCallbackEntry e{};
+    CallbackEntry e{};
     e.cb   = cb;
     e.user = user;
     _callbacks.PushBack(e);
 }
 
-void FSelectionService::UnregisterCallback(SelectionChangeCallback cb, void* user) noexcept {
+void SelectionService::UnregisterCallback(SelectionChangeCallback cb, void* user) noexcept {
     // null は no-op (Register と対称)。
     if (cb == nullptr) {
         return;
@@ -98,11 +98,11 @@ void FSelectionService::UnregisterCallback(SelectionChangeCallback cb, void* use
     // 未登録ペアの Unregister は no-op (panel の Shutdown 順序揺らぎを致命化しない)。
 }
 
-u32 FSelectionService::CallbackCount() const noexcept {
+u32 SelectionService::CallbackCount() const noexcept {
     return static_cast<u32>(_callbacks.Size());
 }
 
-void FSelectionService::ClearAll() noexcept {
+void SelectionService::ClearAll() noexcept {
     // shutdown 想定の一括破棄。callback 発火 (ClearSelection 相当) は **行わない**
     // — 購読側はもはや listening しない前提で呼ぶ API なので、ここで dispatch
     // すると逆に dangling user pointer に飛ぶリスクがある。
@@ -113,7 +113,7 @@ void FSelectionService::ClearAll() noexcept {
 // ============================================================================
 // 内部ヘルパ: 登録順に dispatch
 // ============================================================================
-void FSelectionService::FireChange(FNodeId from, FNodeId to) const noexcept {
+void SelectionService::FireChange(FNodeId from, FNodeId to) const noexcept {
     // callback 内で別の panel が UnregisterCallback / RegisterCallback を
     // 呼ぶ可能性があるが、Phase 20 では「dispatch 中の自己改変は未定義」と
     // 規定する (登録 list を index で走査するので、swap-remove や PushBack が
@@ -121,7 +121,7 @@ void FSelectionService::FireChange(FNodeId from, FNodeId to) const noexcept {
     // editor の panel 構成は起動時に確定するため問題ない。
     const usize n = _callbacks.Size();
     for (usize i = 0; i < n; ++i) {
-        const FCallbackEntry& e = _callbacks[i];
+        const CallbackEntry& e = _callbacks[i];
         // cb は nullptr で登録されない (RegisterCallback で弾く) ため、
         // ここで再チェックはしない。
         e.cb(e.user, from, to);

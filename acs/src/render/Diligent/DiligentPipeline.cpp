@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FDiligentPipeline 実装
+// DiligentPipeline 実装
 #include "render/Diligent/DiligentPipeline.h"
 
 #if WITH_RENDER_DILIGENT
@@ -26,28 +26,28 @@ const char* const kTexFallback[16] = {
 };
 } // namespace
 
-const char* FDiligentPipeline::FallbackCbName(u32 slot) noexcept {
+const char* DiligentPipeline::FallbackCbName(u32 slot) noexcept {
     return slot < 16 ? kCbFallback[slot] : "cb_invalid";
 }
-const char* FDiligentPipeline::FallbackTexName(u32 slot) noexcept {
+const char* DiligentPipeline::FallbackTexName(u32 slot) noexcept {
     return slot < 16 ? kTexFallback[slot] : "t_invalid";
 }
 
-const char* FDiligentPipeline::CbufferName(u32 slot) const noexcept {
+const char* DiligentPipeline::CbufferName(u32 slot) const noexcept {
     if (slot >= kMaxResourceSlots) return FallbackCbName(slot);
     return _cb_names[slot] ? _cb_names[slot] : FallbackCbName(slot);
 }
-const char* FDiligentPipeline::TextureName(u32 slot) const noexcept {
+const char* DiligentPipeline::TextureName(u32 slot) const noexcept {
     if (slot >= kMaxResourceSlots) return FallbackTexName(slot);
     return _tex_names[slot] ? _tex_names[slot] : FallbackTexName(slot);
 }
 
-FDiligentPipeline::~FDiligentPipeline() noexcept {
+DiligentPipeline::~DiligentPipeline() noexcept {
     if (_srb) { _srb->Release(); _srb = nullptr; }
     if (_pso) { _pso->Release(); _pso = nullptr; }
 }
 
-TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDesc& desc) noexcept {
+TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept {
     _device = &device;
     _cb_slots  = desc.cbuffer_slots;
     _tex_slots = desc.texture_slots;
@@ -59,12 +59,12 @@ TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDe
     }
 
     auto* dev = device.RenderDev();
-    if (!dev) return ACS_ERR(Render, 150, "FDiligentPipeline: device not initialized");
+    if (!dev) return ACS_ERR(Render, 150, "DiligentPipeline: device not initialized");
 
-    auto* vs = static_cast<FDiligentShader*>(desc.vs);
-    auto* ps = static_cast<FDiligentShader*>(desc.ps);
+    auto* vs = static_cast<DiligentShader*>(desc.vs);
+    auto* ps = static_cast<DiligentShader*>(desc.ps);
     if (!vs || !vs->Native()) {
-        return ACS_ERR(Render, 151, "FDiligentPipeline: VS missing");
+        return ACS_ERR(Render, 151, "DiligentPipeline: VS missing");
     }
 
     // FPipelineDesc.cbuffer_names / texture_names が未指定の slot を、shader
@@ -72,7 +72,7 @@ TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDe
     // 補完する。VS と PS で同 slot に異なる名前がある場合は VS を優先 (ACS
     // 慣行: VS / PS で同じ cbuffer を共有)。Diligent::ShaderResourceDesc に
     // BindPoint が無い問題を回避し、HLSL declaration 順依存を消す。
-    for (u32 i = 0; i < kMaxResourceSlots && i < FDiligentShader::kMaxSlots; ++i) {
+    for (u32 i = 0; i < kMaxResourceSlots && i < DiligentShader::kMaxSlots; ++i) {
         if (!_cb_names[i]) {
             const char* n = vs->CbufferNameAt(i);
             if (!n && ps) n = ps->CbufferNameAt(i);
@@ -84,7 +84,7 @@ TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDe
             if (n) _tex_names[i] = n;
         }
     }
-    // PS は depth-only pass (FShadowMap 等) で null OK。NumRenderTargets=0、
+    // PS は depth-only pass (ShadowMap 等) で null OK。NumRenderTargets=0、
     // RTVFormats[0]=UNKNOWN にして PSO 作成する。
 
     Diligent::GraphicsPipelineStateCreateInfo psoCI;
@@ -101,13 +101,13 @@ TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDe
             // strict validation: 過大値を silent 切り詰めると caller の想定と乖離するので reject
             if (desc.rt_count > 8) {
                 return ACS_ERR(Render, 154,
-                    "FDiligentPipeline: rt_count must be <= 8 (got too large)");
+                    "DiligentPipeline: rt_count must be <= 8 (got too large)");
             }
             // 各 slot が valid format か検証 (Unknown は MRT で意味なし)
             for (u32 i = 0; i < desc.rt_count; ++i) {
                 if (desc.rt_formats[i] == EFormat::Unknown) {
                     return ACS_ERR(Render, 155,
-                        "FDiligentPipeline: rt_formats[i] must be set for all i < rt_count");
+                        "DiligentPipeline: rt_formats[i] must be set for all i < rt_count");
                 }
             }
             gp.NumRenderTargets = static_cast<u8>(desc.rt_count);
@@ -129,7 +129,7 @@ TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDe
     gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
     // 経験的に: 色 pass (PS あり) で `true`、depth-only (PS なし) で `false`
-    // にすると ACS sample 群 (HelloLights / Bloom / Shadows / FSky / Mesh ...)
+    // にすると ACS sample 群 (HelloLights / Bloom / Shadows / Sky / Mesh ...)
     // で正しい winding になる。Diligent の D3D12 backend が swap chain / RT
     // 種別で内部的に何か変換してると推測。
     // 注: HelloBloom の off-screen HDR RT (PS あり、has_ps=true) も `true`
@@ -162,7 +162,7 @@ TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDe
         layout[i].RelativeOffset  = e.offset;
         // Stride = 1 頂点全体のサイズ。各 LayoutElement で同じ buffer slot (=0)
         // を共有する場合、すべて同じ値を入れる。0 のままだと Diligent は要素
-        // の sum で auto 計算するが、FMeshVertex に tangent/color 等の余分が
+        // の sum で auto 計算するが、MeshVertex に tangent/color 等の余分が
         // ある場合に実 stride と食い違い、後続頂点が誤 offset で読まれて
         // ジオメトリが破壊される。
         layout[i].Stride          = desc.vertex_stride;

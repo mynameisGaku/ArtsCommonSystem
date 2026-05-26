@@ -1,5 +1,5 @@
 # 「Hello IBL」サンプル: Image-Based Lighting + HDR / ACES tonemap
-# フル機能 IBL demo (FSky preset / Studio HDR / FAtmosphere / SH9 / clear-coat /
+# フル機能 IBL demo (Sky preset / Studio HDR / Atmosphere / SH9 / clear-coat /
 # anisotropic / area light / probe grid / fog / shadow CSM / SSR / SSAO / SSGI /
 # TAA / motion vector / lightmap / refraction)。
 #

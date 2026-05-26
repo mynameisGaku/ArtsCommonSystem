@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FPhotoMode 実装
+// GameFramework Pillar R — PhotoMode 実装
 //
 // 本ファイルは状態遷移ロジックのみを持つ。「実際に time scale を 0 にする」
 // 「実際にカメラを動かす」「実際にフィルタを LUT で適用する」のは
-// caller (FGame / FScene / ポストプロセスパス) の責務。
+// caller (Game / Scene / ポストプロセスパス) の責務。
 #include "gameframework/PhotoMode.h"
 
 namespace acs::game {
@@ -18,7 +18,7 @@ namespace acs::game {
 //      と思うのが普通なので、最後に選んだフィルタを覚えておく
 //   5. capture_pending もリセットして「Enter 直後に誤撮影」を防ぐ
 // =============================================================================
-void FPhotoMode::Enter(f32 current_time_scale) noexcept {
+void PhotoMode::Enter(f32 current_time_scale) noexcept {
     if (_active) {
         return;  // 二重 Enter ガード (_saved_time_scale を上書きしない)
     }
@@ -34,11 +34,11 @@ void FPhotoMode::Enter(f32 current_time_scale) noexcept {
 // =============================================================================
 // Exit — 撮影モードを抜ける
 //   active=false にするだけ。time_scale 復元は caller が
-//   `FGame::SetTimeScale(photo.SavedTimeScale())` で行う。
+//   `Game::SetTimeScale(photo.SavedTimeScale())` で行う。
 //   カメラ offset / zoom / rot もそのまま保持する。次回 Enter() 時に
 //   リセットされるので、Exit→Enter 間に値を見たい用途を阻害しない。
 // =============================================================================
-void FPhotoMode::Exit() noexcept {
+void PhotoMode::Exit() noexcept {
     _active          = false;
     _capture_pending = false;
 }
@@ -47,7 +47,7 @@ void FPhotoMode::Exit() noexcept {
 // MoveCamera — パン入力を累積
 //   active 中のみ反映 (撮影モード外で誤って積まないようにガード)。
 // =============================================================================
-void FPhotoMode::MoveCamera(FVec2 delta) noexcept {
+void PhotoMode::MoveCamera(FVec2 delta) noexcept {
     if (!_active) return;
     _offset.x += delta.x;
     _offset.y += delta.y;
@@ -62,7 +62,7 @@ void FPhotoMode::MoveCamera(FVec2 delta) noexcept {
 //       - 10.0 超は被写界深度ボケが極端で実用性なし
 //   active 外でも操作許可 (Enter() で 1.0 にリセットされるため副作用なし)。
 // =============================================================================
-void FPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
+void PhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
     if (!_active) return;
     _zoom_mult += zoom_delta;
     if (_zoom_mult < 0.1f)  _zoom_mult = 0.1f;
@@ -74,7 +74,7 @@ void FPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
 //   wrap (-π..π) はしない。caller がフレーム合成時に Sin/Cos に渡すだけ
 //   なので overflow しても挙動は変わらない。
 // =============================================================================
-void FPhotoMode::RotateCamera(f32 rad_delta) noexcept {
+void PhotoMode::RotateCamera(f32 rad_delta) noexcept {
     if (!_active) return;
     _rot += rad_delta;
 }
@@ -85,7 +85,7 @@ void FPhotoMode::RotateCamera(f32 rad_delta) noexcept {
 //   ・成功時は _capture_pending を false に rear:
 //     描画ループが同一フレームで複数回呼んでも 1 枚しか撮影されない
 // =============================================================================
-bool FPhotoMode::ConsumeCaptureRequest() noexcept {
+bool PhotoMode::ConsumeCaptureRequest() noexcept {
     if (!_active) return false;
     if (!_capture_pending) return false;
     _capture_pending = false;

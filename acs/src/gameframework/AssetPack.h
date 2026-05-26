@@ -66,11 +66,11 @@ namespace acs::game {
 inline constexpr u16 kSubAssetPackNotImplemented = 1201;  // Stub による未実装
 inline constexpr u16 kSubAssetPackNotMounted     = 1202;  // Mount() 前の API 呼び出し
 
-// ---- FAssetPackInfo (現在マウント中の pak の最小情報) ---------------------
+// ---- AssetPackInfo (現在マウント中の pak の最小情報) ---------------------
 // Bridge は文字列を所有しない。`file_path` は呼び出し側 (or 実装内 static literal) の
 // メモリを参照するだけで、利用側でコピーしないこと。寿命は「次の Unmount/Mount を
 // 呼ぶまで」を保証する。
-struct FAssetPackInfo {
+struct AssetPackInfo {
     const char* file_path    = nullptr;  // Mount した pak ファイルの絶対 / 相対パス
     u64         content_hash = 0;        // pak 全体の content hash (改竄検知用)
     bool        encrypted    = false;    // AES-256-GCM 暗号化されているか
@@ -148,10 +148,10 @@ public:
 //   ・Mount() / FileCount() / FileName() / FileSize() / ReadFile() は全て
 //     ACS_ERR(Generic, kSubAssetPackNotImplemented) を返す。
 //   ・Unmount() は副作用なし。IsMounted() は常に false。
-class FAssetPackReaderStub final : public IAssetPackReader {
+class AssetPackReaderStub final : public IAssetPackReader {
 public:
-    FAssetPackReaderStub() noexcept = default;
-    ~FAssetPackReaderStub() noexcept override = default;
+    AssetPackReaderStub() noexcept = default;
+    ~AssetPackReaderStub() noexcept override = default;
 
     TResult<void>         Mount(const char* pack_path) noexcept override;
     void                 Unmount() noexcept override;
@@ -164,10 +164,10 @@ public:
 
 // ---- Stub 実装: Writer ----------------------------------------------------
 // 同上の Writer 側 no-op 実装。全 API が NotImplemented を返す。
-class FAssetPackWriterStub final : public IAssetPackWriter {
+class AssetPackWriterStub final : public IAssetPackWriter {
 public:
-    FAssetPackWriterStub() noexcept = default;
-    ~FAssetPackWriterStub() noexcept override = default;
+    AssetPackWriterStub() noexcept = default;
+    ~AssetPackWriterStub() noexcept override = default;
 
     TResult<void>  BeginPack(const char* output_path) noexcept override;
     TResult<void>  AddFile(const char* virtual_name, const u8* data, u64 size) noexcept override;

@@ -134,13 +134,13 @@ inline TEXTURE_ADDRESS_MODE ToDiligentAddress(ESamplerAddress a) noexcept {
     return TEXTURE_ADDRESS_WRAP;
 }
 
-// 注意: FSamplerDesc は ACS 名前空間にも同名がある。Diligent::FSamplerDesc を使うときは
-// 必ず完全修飾 (Diligent::FSamplerDesc) で呼ぶ。
+// 注意: SamplerDesc は ACS 名前空間にも同名がある。Diligent::SamplerDesc を使うときは
+// 必ず完全修飾 (Diligent::SamplerDesc) で呼ぶ。
 
 // Shader stage
 inline SHADER_TYPE ToDiligent(EShaderStage s) noexcept {
     switch (s) {
-        case EShaderStage::FVertex:  return SHADER_TYPE_VERTEX;
+        case EShaderStage::Vertex:  return SHADER_TYPE_VERTEX;
         case EShaderStage::Pixel:   return SHADER_TYPE_PIXEL;
         case EShaderStage::Compute: return SHADER_TYPE_COMPUTE;
     }

@@ -6,7 +6,7 @@
 `docs/GameFramework.md`）の Pillar G から利用する。
 
 - モジュール: `src/assetpack/` ／ ターゲット `ACS::AssetPack`
-- 依存: `Foundation Memory FContainer Threading Platform` + `bcrypt`（Windows CNG）+ `lz4`
+- 依存: `Foundation Memory Container Threading Platform` + `bcrypt`（Windows CNG）+ `lz4`
 - 規約: STL 不使用 / 例外不使用 / `noexcept` / `TResult<T,E>` / Windows 専用
 
 ---
@@ -120,11 +120,11 @@ TOC を暗号化すると、`.acpak` をバイナリエディタで見ても 64 
 - 256bit の鍵素材を直接 AES 鍵にせず、`AES_key = SHA-256(鍵素材 ‖ salt)`（CNG の
   KDF。salt 16 バイトはヘッダ予約域に平文格納）。バイナリ中のバイト列がそのまま
   AES 鍵にはならない。
-- **既定（FTier 1）**: 鍵素材 32 バイトを 1 本の配列にせず、**4 断片に分割**して別々の
+- **既定（Tier 1）**: 鍵素材 32 バイトを 1 本の配列にせず、**4 断片に分割**して別々の
   翻訳単位に散らし、各断片をコンパイル時定数で XOR マスク。起動時に目立たない名前の
   関数で再構成 → KDF → `BCRYPT_KEY_HANDLE` 作成直後に組み立てバッファを
   `SecureZeroMemory`。これは「正直な難読化」— 破られないふりはしない。
-- **FTier 2（任意）**: 鍵をバイナリに置かず、別ファイル / レジストリ / 初回起動時の
+- **Tier 2（任意）**: 鍵をバイナリに置かず、別ファイル / レジストリ / 初回起動時の
   サーバ取得にする。`IArchiveKeyProvider` インターフェースで差し替え可能。
 - パッカーとランタイムは同じ鍵で合意する。パッカーはビルド時に鍵をファイル/環境
   変数から読む（CLI 引数で生鍵は渡さない — シェル履歴/CI ログに残るため）。
@@ -187,7 +187,7 @@ public:
   （`BCryptGenRandom`）、エントリ毎に compress-then-encrypt、ブロブを `.tmp` へ
   ストリーム書き出し、TOC（`path_hash` ソート・任意で暗号化）+ ヘッダを書き、
   最後に `.tmp` → 本ファイルへアトミックリネーム。エントリ毎処理は独立なので
-  `FThreadPool` で並列化。
+  `ThreadPool` で並列化。
   ```cpp
   struct PackOptions { bool encrypt=true; bool encrypt_toc=true; bool keep_paths=false;
                        bool compress=true; u32 align=16; };
@@ -210,8 +210,8 @@ public:
   acs_assetpack verify  --in <file.acpak> [--key-file <path>]   # CI ゲートに最適
   acs_assetpack extract --in <file.acpak> --out <dir> [--key-file <path>]
   ```
-- `FFileSystem` にディレクトリ列挙 API が無いため、パッカーは Win32
-  `FindFirstFileW`/`FindNextFileW` の再帰ウォーカを追加（`FFileSystem::EnumerateDirectory`
+- `FileSystem` にディレクトリ列挙 API が無いため、パッカーは Win32
+  `FindFirstFileW`/`FindNextFileW` の再帰ウォーカを追加（`FileSystem::EnumerateDirectory`
   としてエンジンに足すのが望ましい）。
 - **論理パスの正規化**: アセットのルート相対パスを「前方スラッシュ・小文字・生 UTF-8」に
   正規化したものを `HashBytes` して `path_hash` にする。**パッカーとランタイムが同一の
@@ -223,8 +223,8 @@ public:
 
 ## 8. VFS / マウント層
 
-### 8.1 中核 — `FAssetRegistry` の 2 つの読み出し地点に介入
-`FAssetRegistry::Load` は全ディスク読みを `FFileSystem::ReadAllBytes(path)` の
+### 8.1 中核 — `AssetRegistry` の 2 つの読み出し地点に介入
+`AssetRegistry::Load` は全ディスク読みを `FileSystem::ReadAllBytes(path)` の
 **わずか 2 箇所**（同期 `Load` と非同期ワーカ）に集約している。この 2 箇所を
 `VirtualFileSystem::ReadAsset(path)` に差し替えるだけで、`.acpak` 透過対応が
 **ローダ変更ゼロ・ゲームコード変更ゼロ**で実現する。ローダの契約
@@ -248,7 +248,7 @@ public:
     bool         Exists(const wchar_t* logical_path) const noexcept;
 };
 ```
-- `LooseDirectorySource` — 基準ディレクトリをラップ。`Read` = `FFileSystem::ReadAllBytes`。
+- `LooseDirectorySource` — 基準ディレクトリをラップ。`Read` = `FileSystem::ReadAllBytes`。
   開発経路、現状と完全に同一挙動。
 - `ArchiveSource` — `.acpak` をメモリマップ（`CreateFileMapping`/`MapViewOfFile`）して
   `ArchiveReader` でラップ。`Read` = TOC を `path_hash` で二分探索 → ブロブをスライス
@@ -287,9 +287,9 @@ public:
 モジュール `ACS::AssetPack` とする。**
 - `asset` 拡張にしない: `asset` は `stb`/`cgltf`/`ufbx`/`drlibs` をリンクする重い
   デコーダ群。crypto/圧縮/VFS/別実行ファイルを混ぜると肥大化し、層構造が崩れる
-  （VFS は概念的に `FAssetRegistry` の**下**＝バイト供給源）。
+  （VFS は概念的に `AssetRegistry` の**下**＝バイト供給源）。
 - `GameFramework` に入れない: `GameFramework`（`acs::game`）はアプリ層で「エンジンへ
-  一方向依存」が鉄則。`FAssetRegistry`（エンジン）が呼ぶ VFS をアプリ層に置くと
+  一方向依存」が鉄則。`AssetRegistry`（エンジン）が呼ぶ VFS をアプリ層に置くと
   エンジンがアプリ層へ逆依存し、その鉄則を破る。format/crypto/VFS は純粋にエンジン。
 - 新モジュール: format + crypto + 圧縮 + VFS + パッカーの自己完結サブシステム。
   独自外部依存（`bcrypt`/`lz4`）は他のどのモジュールも要らない。
@@ -297,7 +297,7 @@ public:
 ```
 src/assetpack/
   Module.cmake   acs_module(NAME AssetPack TYPE Runtime
-                   PUBLIC_DEPS Foundation Memory FContainer Threading Platform
+                   PUBLIC_DEPS Foundation Memory Container Threading Platform
                    LINK_PRIVATE bcrypt  ...lz4)
   ArchiveFormat.h         オンディスク構造・マジック・フラグ・バージョン定数
   NormalizeLogicalPath.h/.cpp  パッカー/ランタイム共有のパス正規化（最重要）
@@ -314,41 +314,41 @@ tools/assetpack/
 `acs_third_party_lz4()` を追加。`asset` モジュールの `Module.cmake` の `PUBLIC_DEPS` に
 `AssetPack` を追加（既存コードへの唯一の変更）。
 
-`FAssetRegistry` は任意の `VirtualFileSystem*` を 1 つ持つ（既定 null）。null なら現状
-通り `FFileSystem::ReadAllBytes`（既存コード・サンプルは無改変）。設定されていれば
+`AssetRegistry` は任意の `VirtualFileSystem*` を 1 つ持つ（既定 null）。null なら現状
+通り `FileSystem::ReadAllBytes`（既存コード・サンプルは無改変）。設定されていれば
 2 つの読み出し地点が `vfs->ReadAsset` を呼ぶ。
 
 ---
 
 ## 10. GameFramework との統合（製品化ワークフロー）
 
-`GameFramework` の Pillar G（リソース・永続化）は `FAssetBundle`・型付きハンドル・
-`FSaveArchive`・`FSettings` を `FAssetRegistry` の上に持つ。VFS はそれら全ての**下**に入る:
-- `FGame`（Pillar A）が `FAssetRegistry` をグローバルサービスとして所有。加えて
+`GameFramework` の Pillar G（リソース・永続化）は `AssetBundle`・型付きハンドル・
+`SaveArchive`・`Settings` を `AssetRegistry` の上に持つ。VFS はそれら全ての**下**に入る:
+- `Game`（Pillar A）が `AssetRegistry` をグローバルサービスとして所有。加えて
   `VirtualFileSystem` もグローバルサービスとして所有し、**起動時に 1 回**マウント →
   `registry.SetVfs(&vfs)`。
-- `FGame` に `virtual OnConfigureAssets(VirtualFileSystem&)` フック、または
+- `Game` に `virtual OnConfigureAssets(VirtualFileSystem&)` フック、または
   ビルドフラグ `ACS_GAME_SHIPPING`（既存 `ACS_GAME_DEBUG` と対）で dev/ship を分岐。
   既定挙動: 実行ファイル隣に `game.acpak` があればマウント、無ければバラ `assets/`。
   → 開発者が何もしなくても「dev はバラ・ship はパック」が成立。
-- `FAssetBundle` の非同期一括ロード（`LoadAsync`/`FAssetFuture` 経由）も自動で VFS を
+- `AssetBundle` の非同期一括ロード（`LoadAsync`/`AssetFuture` 経由）も自動で VFS を
   通る — Pillar G のコード変更不要。ローディング画面シーンの進捗ポーリングは
   バラでも暗号化 pak でも同一に動く。
 - **開発フロー**: バラで実行、変更ファイルは即リロード、`acs_assetpack` は不要。
   **出荷フロー**: Release 梱包ステップで `acs_assetpack pack`（CI で `verify`）、
-  バイナリは `game.acpak` 同梱、`FGame` がマウント。ゲームコード差分ゼロ。
+  バイナリは `game.acpak` 同梱、`Game` がマウント。ゲームコード差分ゼロ。
 
 ---
 
 ## 11. セーブファイルの改竄対策
 
-`GameFramework` の `FSaveArchive` は magic+version+CRC32+アトミックリネームを予定済。
+`GameFramework` の `SaveArchive` は magic+version+CRC32+アトミックリネームを予定済。
 セーブはプレイヤー自身のマシンで書かれるので「所有者から隠す」目的は無意味
 （自分のセーブを編集するのは本人の自由とも言える）。意味があるのは (a) 偶発破損
 （CRC32 で対処済）と (b) **チート目的の改竄**（リーダーボード・実績がある場合）。
 後者には暗号化でなく **HMAC-SHA256（CNG）による鍵付き認証タグ**が正しい — セーブ
 ペイロードに、`AssetPack` の `IArchiveKeyProvider` から得た難読化埋め込み鍵で HMAC を
-付ける。手編集セーブを検知して拒否/フラグできる。`FSaveArchive` に**任意の HMAC タグ**を
+付ける。手編集セーブを検知して拒否/フラグできる。`SaveArchive` に**任意の HMAC タグ**を
 追加（`AssetPack` の `Crypto` を再利用）。セーブ内容の暗号化はスキーマ進化設計の
 デバッグ性を損ねるので既定オフ、希望者向けのオプトインのみ。
 
@@ -365,6 +365,6 @@ tools/assetpack/
 | 圧縮 | LZ4、compress-then-encrypt。既圧縮形式は生格納。「97% 切らねば生格納」安全規則 |
 | 完全性 | エントリ毎 `content_hash`（破損検知）+ GCM タグ（改竄検知）+ `header_hash` |
 | パッカー | `ArchiveWriter` ライブラリ + 薄い CLI `acs_assetpack`（pack/list/verify/extract）。並列パック |
-| VFS | `FAssetRegistry` の 2 読み出し地点に介入。マウントスタックでバラ/アーカイブ透過。優先度でパッチ/MOD/ホットリロード。dev/ship はマウント 1 行差 |
+| VFS | `AssetRegistry` の 2 読み出し地点に介入。マウントスタックでバラ/アーカイブ透過。優先度でパッチ/MOD/ホットリロード。dev/ship はマウント 1 行差 |
 | 配置 | 新エンジンモジュール `src/assetpack/`（`ACS::AssetPack`）。`GameFramework` でも `asset` 拡張でもない（VFS はエンジンがアプリ層へ逆依存できないため） |
 | セーブ | CRC32 維持 + 任意の HMAC-SHA256 改竄タグ（`AssetPack` の Crypto 再利用）。内容暗号化は既定オフ |

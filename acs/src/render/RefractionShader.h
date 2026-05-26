@@ -9,10 +9,10 @@
 //   1. opaque ジオメトリを HDR RT へ描画する
 //   2. HDR RT を background テクスチャへ複製する (屈折オブジェクトが読むため。
 //      同一 RT の read+write は不可なので複製が要る)
-//   3. FRefractionShader で屈折オブジェクトを HDR RT へ描画する (background を sample)
+//   3. RefractionShader で屈折オブジェクトを HDR RT へ描画する (background を sample)
 //
 // 使い方:
-//   FRefractionShader refr;
+//   RefractionShader refr;
 //   refr.Init(*device, hdr_format, depth_format);
 //   refr.SetFrame(camera.ViewProjection(), camera.Eye());
 //   refr.DrawMesh(*cl, glass_mesh, model, background_tex, env_cubemap,
@@ -38,13 +38,13 @@
 
 namespace acs {
 
-class FRefractionShader {
+class RefractionShader {
 public:
-    FRefractionShader() noexcept = default;
-    ~FRefractionShader() noexcept = default;
+    RefractionShader() noexcept = default;
+    ~RefractionShader() noexcept = default;
 
-    FRefractionShader(const FRefractionShader&)            = delete;
-    FRefractionShader& operator=(const FRefractionShader&) = delete;
+    RefractionShader(const RefractionShader&)            = delete;
+    RefractionShader& operator=(const RefractionShader&) = delete;
 
     // 初期化 (VS+PS コンパイル + パイプライン + 定数バッファ)。
     //   rt_format    : 描画先 RT のフォーマット (通常 HDR = R16G16B16A16_Float)
@@ -91,7 +91,7 @@ public:
     //   env        : Fresnel 反射に使う環境キューブマップ
     //   roughness  : 表面荒さ (Phase 35-3d、0=clear、>0 で多タップでブラー = frosted)
     //   dispersion : 色収差/分散 (Phase 35-3e、0=なし、>0 でプリズム/ダイヤ風の色分離)
-    void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
+    void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
                   IRhiTexture& background, IRhiTexture& env,
                   f32 ior = 1.5f, f32 thickness = 0.5f,
                   FVec3 tint = FVec3{1, 1, 1},

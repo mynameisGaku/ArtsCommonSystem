@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — FScriptHost (Lua / Wren / Python scripting seam)
+// GameFramework Pillar N — ScriptHost (Lua / Wren / Python scripting seam)
 //
 // 役割:
 //   Pillar N (Modding / Scripting) のうち、ゲームロジックを動的に拡張するための
 //   スクリプトランタイム (Lua 5.4 / Wren / Python3 / 自前 VM 等) を **interface
-//   seam** として隔離する。`FModRegistry` が「Mod の有効化と並び順」を管理する
-//   メタデータレイヤであるのに対し、`FScriptHost` は「実際にスクリプトを load /
+//   seam** として隔離する。`ModRegistry` が「Mod の有効化と並び順」を管理する
+//   メタデータレイヤであるのに対し、`ScriptHost` は「実際にスクリプトを load /
 //   call し、native 関数を bind する」実行レイヤを担当する。
 //
 //   GameFramework 設計書 v13 では Lua 5.4 が推奨 backend だが、本 module
@@ -21,26 +21,26 @@
 //   2. **テスト容易性**:
 //      `IScriptVm` の純粋仮想ポインタを差し替えるだけで mock backend に置換
 //      でき、CI で Lua ライブラリを持たないマシンでも上位層 (native 関数登録 /
-//      FScriptHost ワークフロー) の試験を回せる。
+//      ScriptHost ワークフロー) の試験を回せる。
 //   3. **決定論ゾーンの隔離**:
 //      Pillar B/C/F (sim / collision / physics) は固定タイムステップで
 //      決定論を保証する。スクリプト実行 (= GC / JIT / native callback) は
-//      決定論を保証できないので、`FScriptHost` を呼ぶのは「決定論を捨ててよい所」
+//      決定論を保証できないので、`ScriptHost` を呼ぶのは「決定論を捨ててよい所」
 //      (UI / イベントトリガー / カットシーン / Mod hook) に限定する規約を
 //      API レベルで強制する (= 本 header の呼び出し位置で発見できる)。
 //   4. **defensive な未統合フォールバック**:
-//      実 Lua backend が同梱されないビルドでも、`FScriptVmStub` が
+//      実 Lua backend が同梱されないビルドでも、`ScriptVmStub` が
 //      `kSub_NotImplemented` を返すことで、Mod / scripting に依存する path が
 //      「常にスクリプト無し」状態でも安全に動く前提を強制できる。
 //
 // Phase N-2 (本フェーズ) で提供するもの:
 //   ・`IScriptVm` の純粋仮想 interface 確定 (Init / Shutdown / LoadScript /
 //     CallFunction / RegisterNativeFunction / GetGlobal / SetGlobal / GC)
-//   ・タグ付き union 風 POD `FScriptValue` + `FScriptCallFrame` + `NativeFunction`
+//   ・タグ付き union 風 POD `ScriptValue` + `ScriptCallFrame` + `NativeFunction`
 //     による backend 中立な値受け渡し
-//   ・`FScriptVmStub` (全 method NotImplemented を返す defensive 実装)
+//   ・`ScriptVmStub` (全 method NotImplemented を返す defensive 実装)
 //   ・global stub アクセサ `GetVmStub()`
-//   ・`FScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
+//   ・`ScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
 //     + 標準 binding 一括登録)
 //
 // Phase N-3+ で行うこと (本 header の範囲外):
@@ -56,7 +56,7 @@
 //   ・STL 不使用 / `<string>` 不使用 (文字列は `const char*` のみ)
 //   ・例外不使用、エラーは `TResult<T, FErrorCode>` で伝搬
 //   ・全 noexcept
-//   ・`FScriptHost` / `FScriptVmStub` は シングルトン / 単一所有運用前提で
+//   ・`ScriptHost` / `ScriptVmStub` は シングルトン / 単一所有運用前提で
 //     コピー / ムーブ禁止
 #pragma once
 
@@ -70,7 +70,7 @@ namespace acs::game {
 // EScriptLanguage — backend 識別タグ
 // -----------------------------------------------------------------------------
 // `IScriptVm::Language()` が返す。複数 backend を同時運用する場合 (例えば
-// UI ロジックは Lua、ML 推論 hook だけ Python) に、FScriptHost 側で 1 個の
+// UI ロジックは Lua、ML 推論 hook だけ Python) に、ScriptHost 側で 1 個の
 // vm を選択するための判定に使う。Phase N-2 では Lua54 推奨。
 // =============================================================================
 enum class EScriptLanguage : u8 {
@@ -81,7 +81,7 @@ enum class EScriptLanguage : u8 {
 };
 
 // =============================================================================
-// EScriptValueKind / FScriptValue — タグ付き union 風 POD
+// EScriptValueKind / ScriptValue — タグ付き union 風 POD
 // -----------------------------------------------------------------------------
 // backend 中立な値受け渡し用。Lua/Wren/Python いずれも、native 関数呼び出しの
 // 引数 / 戻り値は「動的型付け値の配列」として表現される。本構造はその最大公約数
@@ -108,7 +108,7 @@ enum class EScriptValueKind : u8 {
     Handle = 4,
 };
 
-struct FScriptValue {
+struct ScriptValue {
     EScriptValueKind kind = EScriptValueKind::Nil;
     union {
         bool        b;
@@ -119,7 +119,7 @@ struct FScriptValue {
 };
 
 // =============================================================================
-// FScriptCallFrame — native function 呼び出し時の引数 / 戻り値ホルダ
+// ScriptCallFrame — native function 呼び出し時の引数 / 戻り値ホルダ
 // -----------------------------------------------------------------------------
 // 「native 関数を script 側から call した瞬間」に、backend が組み立てて
 // NativeFunction に渡すペイロード。POD ポインタ + 件数だけを保持し、
@@ -130,10 +130,10 @@ struct FScriptValue {
 //   ・`ret`       : 戻り値書き込み先 (nullptr 可 = 戻り値捨て)
 //                   native function は ret->kind / ret->v を上書きしてよい
 // =============================================================================
-struct FScriptCallFrame {
-    const FScriptValue* args      = nullptr;
+struct ScriptCallFrame {
+    const ScriptValue* args      = nullptr;
     u32                arg_count = 0;
-    FScriptValue*       ret       = nullptr;
+    ScriptValue*       ret       = nullptr;
 };
 
 // =============================================================================
@@ -145,7 +145,7 @@ struct FScriptCallFrame {
 // stack unwind 安全性を持たないことが多い)。
 // =============================================================================
 class IScriptVm;
-using NativeFunction = void(*)(IScriptVm& vm, FScriptCallFrame& frame, void* user) noexcept;
+using NativeFunction = void(*)(IScriptVm& vm, ScriptCallFrame& frame, void* user) noexcept;
 
 // =============================================================================
 // 安定 subcode 規約 (本 module 内で固定)
@@ -162,7 +162,7 @@ namespace script_err {
     inline constexpr u16 kSub_CallFailed     = 11;   // CallFunction 失敗 (runtime error 等)
     inline constexpr u16 kSub_FileNotFound   = 20;   // LoadAndRun の file 読み込み失敗
     inline constexpr u16 kSub_FileTooLarge   = 21;   // ファイルが内部上限を超える
-    inline constexpr u16 kSub_NoVm           = 30;   // FScriptHost::Init 未呼出
+    inline constexpr u16 kSub_NoVm           = 30;   // ScriptHost::Init 未呼出
 } // namespace script_err
 
 // =============================================================================
@@ -209,9 +209,9 @@ public:
     // ・`ret_out`            : 戻り値書き込み先 (nullptr で「捨てる」)
     // ・未登録関数 / 実行時エラーは `script_err::kSub_CallFailed` で返す。
     virtual TResult<void> CallFunction(const char*        function_name,
-                                      const FScriptValue* args,
+                                      const ScriptValue* args,
                                       u32                arg_count,
-                                      FScriptValue*       ret_out) noexcept = 0;
+                                      ScriptValue*       ret_out) noexcept = 0;
 
     // C++ 関数を script グローバル空間に bind する。
     // ・`user` は `NativeFunction` の第 3 引数にそのまま渡される (this 束縛用)。
@@ -242,7 +242,7 @@ protected:
 };
 
 // =============================================================================
-// FScriptVmStub — 全 method NotImplemented / 安全側を返す defensive stub
+// ScriptVmStub — 全 method NotImplemented / 安全側を返す defensive stub
 // -----------------------------------------------------------------------------
 // 実 Lua / Wren / Python backend と未統合の状態で、上位層が
 // 「スクリプト経路が常に失敗する」前提で正しく fallback を書けているかを
@@ -254,10 +254,10 @@ protected:
 //   ・`SetGlobalNumber` / `GetGlobalNumber` / `CollectGarbage` は no-op。
 //   ・`MemoryUsageBytes` は常に 0。
 // =============================================================================
-class FScriptVmStub final : public IScriptVm {
+class ScriptVmStub final : public IScriptVm {
 public:
-    FScriptVmStub() noexcept = default;
-    ~FScriptVmStub() noexcept override = default;
+    ScriptVmStub() noexcept = default;
+    ~ScriptVmStub() noexcept override = default;
 
     TResult<void>    Init()                                                          noexcept override;
     void            Shutdown()                                                      noexcept override;
@@ -265,8 +265,8 @@ public:
     TResult<void>    LoadScript(const char* source, u32 source_len,
                                const char* chunk_name)                              noexcept override;
     TResult<void>    CallFunction(const char* function_name,
-                                 const FScriptValue* args, u32 arg_count,
-                                 FScriptValue* ret_out)                              noexcept override;
+                                 const ScriptValue* args, u32 arg_count,
+                                 ScriptValue* ret_out)                              noexcept override;
     TResult<void>    RegisterNativeFunction(const char* function_name,
                                            NativeFunction fn, void* user)           noexcept override;
     void            SetGlobalNumber(const char* name, f64 value)                    noexcept override;
@@ -279,11 +279,11 @@ private:
 };
 
 // process 内で 1 個だけ存在する静的 stub への参照を返す (Meyers singleton)。
-// Phase N-2 では `FGame` / `FScene` 側からのスクリプト問い合わせはこれを通る。
+// Phase N-2 では `Game` / `Scene` 側からのスクリプト問い合わせはこれを通る。
 IScriptVm& GetVmStub() noexcept;
 
 // =============================================================================
-// FScriptHost — IScriptVm を集約する高レベルラッパ
+// ScriptHost — IScriptVm を集約する高レベルラッパ
 // -----------------------------------------------------------------------------
 // 役割:
 //   ・`IScriptVm*` を 1 個保持し、ゲームコード側に「スクリプト呼び出しの単一窓口」
@@ -291,19 +291,19 @@ IScriptVm& GetVmStub() noexcept;
 //   ・登録済み native function を本ホスト側でも一覧として持ち、`Vm` 差し替え時
 //     (= hot-swap of backend) に再登録できる素地にする。
 //   ・`LoadAndRun(file_path)` で Win32 ファイル読み込み → LoadScript 一括ヘルパ。
-//   ・標準 binding (Log / Math / Time / FInput / Audio 等) を `RegisterStandardBindings`
+//   ・標準 binding (Log / Math / Time / Input / Audio 等) を `RegisterStandardBindings`
 //     で一括登録する API を提供する (Phase N-3+ で中身が埋まる予定)。
 //   ・script 実行中エラーを上位 UI / ログに通知する `ScriptErrorCallback` を保持。
 //
 // 所有関係:
-//   ・vm の生成 / 破棄は **呼び出し側 (= FGame / FScene)** が責任を持つ。
-//     FScriptHost は raw ポインタを保持するだけで、Shutdown でも delete しない。
+//   ・vm の生成 / 破棄は **呼び出し側 (= Game / Scene)** が責任を持つ。
+//     ScriptHost は raw ポインタを保持するだけで、Shutdown でも delete しない。
 //     これにより stub singleton をそのまま差し込んでも安全。
 //
 // 非コピー・非ムーブ:
 //   ・「現在 active なスクリプト窓口は 1 つ」という規約を担保する。
 // =============================================================================
-class FScriptHost {
+class ScriptHost {
 public:
     // script 実行中の error / load error を上位に通知する callback。
     // ・`chunk_name` : LoadScript / LoadAndRun に渡した名前 (nullptr 可)
@@ -314,13 +314,13 @@ public:
                                         u32         line,
                                         const char* message) noexcept;
 
-    FScriptHost() noexcept = default;
-    ~FScriptHost() noexcept = default;
+    ScriptHost() noexcept = default;
+    ~ScriptHost() noexcept = default;
 
-    FScriptHost(const FScriptHost&)            = delete;
-    FScriptHost& operator=(const FScriptHost&) = delete;
-    FScriptHost(FScriptHost&&)                 = delete;
-    FScriptHost& operator=(FScriptHost&&)      = delete;
+    ScriptHost(const ScriptHost&)            = delete;
+    ScriptHost& operator=(const ScriptHost&) = delete;
+    ScriptHost(ScriptHost&&)                 = delete;
+    ScriptHost& operator=(ScriptHost&&)      = delete;
 
     // 使用する VM を差し込む。nullptr 渡しは Shutdown 相当 (vm を切り離し)。
     // 多重呼び出し可、後勝ち。本クラスは vm を所有 / 破棄しない。
@@ -340,9 +340,9 @@ public:
 
     // グローバル関数を呼び出す薄いラッパ (vm への単純 delegate)。
     TResult<void> CallGlobalFunction(const char*        function_name,
-                                    const FScriptValue* args,
+                                    const ScriptValue* args,
                                     u32                arg_count,
-                                    FScriptValue*       ret_out) noexcept;
+                                    ScriptValue*       ret_out) noexcept;
 
     // C++ 関数を vm に登録すると同時に、本ホストの内部 registry にも記録する。
     // 失敗時 (vm 未設定 / 引数不正 / backend 拒否) は registry にも追加しない。
@@ -350,7 +350,7 @@ public:
                                 NativeFunction fn,
                                 void*          user) noexcept;
 
-    // Log / Math / Time / FInput / Audio 等の標準 native function 群を
+    // Log / Math / Time / Input / Audio 等の標準 native function 群を
     // 一括登録する。Phase N-2 ではプレースホルダ (= bindings 数 0) として
     // 提供し、Phase N-3+ の各 Pillar 側 binding 実装で中身を埋める設計。
     void RegisterStandardBindings() noexcept;
@@ -366,7 +366,7 @@ private:
     // backend (= vm) を差し替えても再登録できるように、name / fn / user を
     // 保持する (vm 自身が再登録を提供しないことが多いため)。
     // 名前は所有しない (literal / バンドル参照前提)。
-    struct FNativeEntry {
+    struct NativeEntry {
         const char*    name = nullptr;
         NativeFunction fn   = nullptr;
         void*          user = nullptr;
@@ -376,7 +376,7 @@ private:
     void FireError(const char* chunk_name, u32 line, const char* message) const noexcept;
 
     IScriptVm*           _vm           = nullptr;
-    TArray<FNativeEntry>   _natives;
+    TArray<NativeEntry>   _natives;
     ScriptErrorCallback  _on_error     = nullptr;
     void*                _on_error_user = nullptr;
 };

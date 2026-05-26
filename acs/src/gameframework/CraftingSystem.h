@@ -1,29 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — FCraftingSystem (レシピ + 素材消費 + 成果物生成)
+// GameFramework ジャンルキット — CraftingSystem (レシピ + 素材消費 + 成果物生成)
 //
 // サバイバル / クラフト系ジャンル (Minecraft, Valheim, Subnautica, Terraria 等) の中核を
 // なす「素材を消費して時間経過後に成果物を得る」クラフト挙動を、レシピ登録 + 進行タイマ +
 // インベントリ adapter callback だけで扱う小型マネージャ。
 //
 // 想定する位置付け:
-//   ・Pillar O FInventorySystem との違い:
-//     - FInventorySystem は「持っているアイテムの slot 在庫」を保持する。
-//     - FCraftingSystem は「レシピ定義 + 現在クラフト中の進行状態」を保持し、
-//       素材の消費 / 成果物の付与は FInventorySystem 等への callback 経由で行う
+//   ・Pillar O InventorySystem との違い:
+//     - InventorySystem は「持っているアイテムの slot 在庫」を保持する。
+//     - CraftingSystem は「レシピ定義 + 現在クラフト中の進行状態」を保持し、
+//       素材の消費 / 成果物の付与は InventorySystem 等への callback 経由で行う
 //       (= 在庫表現に非依存。テストでは fake adapter を差し込める)。
-//   ・Pillar O FEconomyDirector との違い:
-//     - FEconomyDirector は「通貨で即座に商品を購入」する取引マネージャ。
-//     - FCraftingSystem は「素材で時間をかけて成果物を生成」する production マネージャ。
+//   ・Pillar O EconomyDirector との違い:
+//     - EconomyDirector は「通貨で即座に商品を購入」する取引マネージャ。
+//     - CraftingSystem は「素材で時間をかけて成果物を生成」する production マネージャ。
 //       時間 (craft_duration_sec) と前提条件 (workbench / level) を持つ点が決定的に違う。
-//   ・Pillar G FHealthSystem / FBuffSystem との関係:
-//     - 直接の依存はないが、料理レシピが FBuffSystem の食事バフを与える等の連携は、
+//   ・Pillar G HealthSystem / BuffSystem との関係:
+//     - 直接の依存はないが、料理レシピが BuffSystem の食事バフを与える等の連携は、
 //       CompleteCallback 経由で呼出側が組む想定 (本クラスは何も知らない)。
 //
 // 使い方:
-//   FCraftingSystem cs;
+//   CraftingSystem cs;
 //
 //   // レシピ定義 (素材配列は呼出側が長寿命を保証する static / global 想定)。
-//   static const FIngredient kIronAxeIngredients[] = {
+//   static const Ingredient kIronAxeIngredients[] = {
 //       { "wood",     3 },
 //       { "iron_ore", 2 },
 //   };
@@ -53,16 +53,16 @@
 //   cs.Tick(dt);
 //
 // 設計選択 (ジャンルキット survival / crafting):
-//   ・**レシピは単一 TArray<FCraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
-//     線形検索で十分。FEconomyDirector / FInventorySystem と同じ判断。
-//   ・**FIngredient 配列は非所有**: FCraftRecipe::ingredients は呼出側が長寿命を保証する
+//   ・**レシピは単一 TArray<CraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
+//     線形検索で十分。EconomyDirector / InventorySystem と同じ判断。
+//   ・**Ingredient 配列は非所有**: CraftRecipe::ingredients は呼出側が長寿命を保証する
 //     生バッファ (static / global 配列、リソースバンドル) を指す。文字列 id も同様
 //     (Manager は何もコピーしない。STL <string> 禁止 / <vector> 禁止)。
 //   ・**Inventory adapter は C 関数ポインタ + user**: STL <functional> 禁止のため。
-//     在庫表現に依存しない設計 (FInventorySystem を直接保持しないので、テストで
+//     在庫表現に依存しない設計 (InventorySystem を直接保持しないので、テストで
 //     fake adapter を差し込める / 別 inventory システムにも繋げる)。
 //   ・**同時クラフトは 1 件のみ**: 「ワークベンチに 1 つ載せて待つ」スタイルに統一。
-//     並列クラフトキューが必要なゲームは、FCraftingSystem を複数インスタンス保持する
+//     並列クラフトキューが必要なゲームは、CraftingSystem を複数インスタンス保持する
 //     (= ベンチ毎 / プレイヤー毎)。Manager が queue を内蔵すると複雑化するため意図的に省く。
 //   ・**ingredient 消費はクラフト「開始」時**: 中断時の返却を容易にするため、StartCraft
 //     時点で全 ingredient を一括消費し、CancelCraft で同じ量を grant し戻す
@@ -78,14 +78,14 @@
 //     スキップする (= 同 Manager をプロトタイピング段階で使いやすくする)。
 //     StartCraft の consume は adapter があるときだけ呼ぶ。
 //   ・**required_workbench は nullptr / "" で「不要」**: 素手で作れる recipe を表現可能。
-//   ・**重複登録は黙って弾く + WARN**: FEconomyDirector / FInventorySystem と同パターン。
+//   ・**重複登録は黙って弾く + WARN**: EconomyDirector / InventorySystem と同パターン。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有 + acs::TArray のみ。
 //
 // 範囲外 (ジャンルキット Phase 2+ で):
 //   ・並列クラフトキュー — 必要ならインスタンスを複数持つ。
 //   ・確率成果物 / クラフト品質ロール — 本クラスは決定的に固定数を grant する。
-//   ・レシピ習得アンロック (実績 / 進行) — FProgression / FAchievementManager と組み合わせて
+//   ・レシピ習得アンロック (実績 / 進行) — Progression / AchievementManager と組み合わせて
 //     unlock_level を更新する形で呼出側が表現する。
 //   ・永続化 — Pillar J Serialize と統合 (本クラスはセッション内のみ)。
 //   ・craft 中の中断状態 (再開可能 in-progress) — 仕様上 Cancel = 素材返却 + Idle へ統一。
@@ -96,19 +96,19 @@
 
 namespace acs::game {
 
-// ---- FIngredient: レシピ 1 つの素材エントリ ----------------------------------
-// item_id : 素材アイテム id (FInventorySystem 側の item_id と一致する想定)。
+// ---- Ingredient: レシピ 1 つの素材エントリ ----------------------------------
+// item_id : 素材アイテム id (InventorySystem 側の item_id と一致する想定)。
 //           文字列リテラル想定 (非所有)。
 // count   : 必要個数 (1 以上)。0 を渡された場合は「実質常に満たす」素材として扱う。
-struct FIngredient {
+struct Ingredient {
     const char* item_id = nullptr;
     u32         count   = 0;
 };
 
-// ---- FCraftRecipe: 1 件のレシピ定義 (immutable) -----------------------------
+// ---- CraftRecipe: 1 件のレシピ定義 (immutable) -----------------------------
 // recipe_id          : 一意キー (FindRecipe / StartCraft のキー)。文字列リテラル想定。
 // display_name       : UI 表示名 (非所有)。
-// result_item_id     : 成果物の item_id (FInventorySystem の item_id 想定)。
+// result_item_id     : 成果物の item_id (InventorySystem の item_id 想定)。
 // result_count       : 1 回のクラフトで得られる成果物の個数 (1 以上)。
 // ingredient_count   : ingredients 配列の要素数。
 // ingredients        : 素材配列 (呼出側が長寿命を保証する非所有バッファ)。
@@ -118,13 +118,13 @@ struct FIngredient {
 //                      一致しないと失敗)。nullptr / "" で「ワークベンチ不要」。
 // unlock_level       : この recipe を解放するプレイヤー必要レベル (StartCraft の
 //                      player_level >= unlock_level で許可)。0 で常に解放。
-struct FCraftRecipe {
+struct CraftRecipe {
     const char*       recipe_id          = nullptr;
     const char*       display_name       = nullptr;
     const char*       result_item_id     = nullptr;
     u32               result_count       = 1;
     u32               ingredient_count   = 0;
-    const FIngredient* ingredients        = nullptr;
+    const Ingredient* ingredients        = nullptr;
     f32               craft_duration_sec = 0.0f;
     const char*       required_workbench = nullptr;
     u32               unlock_level       = 0;
@@ -143,8 +143,8 @@ enum class ECraftStatus : u8 {
     Cancelled = 3,
 };
 
-// ---- FCraftingSystem ---------------------------------------------------------
-class FCraftingSystem {
+// ---- CraftingSystem ---------------------------------------------------------
+class CraftingSystem {
 public:
     // インベントリ adapter (C 関数ポインタ + user)。STL <functional> 禁止のため。
     //   user    : SetInventoryAdapter で渡したコンテキスト (Manager は所有しない)
@@ -168,24 +168,24 @@ public:
     using CompleteCallback = void (*)(void* user, const char* recipe_id,
                                       const char* result_item_id, u32 result_count) noexcept;
 
-    FCraftingSystem()  noexcept = default;
-    ~FCraftingSystem() noexcept = default;
+    CraftingSystem()  noexcept = default;
+    ~CraftingSystem() noexcept = default;
 
-    FCraftingSystem(const FCraftingSystem&)            = delete;
-    FCraftingSystem& operator=(const FCraftingSystem&) = delete;
-    FCraftingSystem(FCraftingSystem&&)                 = delete;
-    FCraftingSystem& operator=(FCraftingSystem&&)      = delete;
+    CraftingSystem(const CraftingSystem&)            = delete;
+    CraftingSystem& operator=(const CraftingSystem&) = delete;
+    CraftingSystem(CraftingSystem&&)                 = delete;
+    CraftingSystem& operator=(CraftingSystem&&)      = delete;
 
     // ---- レシピ定義 (起動時に 1 度ずつ) ----------------------------------
     // 同 recipe_id の 2 重登録は no-op (WARN)。`recipe.recipe_id == nullptr` も no-op。
     // `recipe.result_count == 0` は 1 にクランプ (defensive)。
     // ingredient_count > 0 で ingredients == nullptr の場合は ingredient_count を 0 に
     // 補正して受理 (起動順序エラーで配列指定漏れを救済)。
-    void RegisterRecipe(const FCraftRecipe& recipe) noexcept;
+    void RegisterRecipe(const CraftRecipe& recipe) noexcept;
 
-    // 単一 FCraftRecipe 取得。未登録 / nullptr は nullptr。
+    // 単一 CraftRecipe 取得。未登録 / nullptr は nullptr。
     // 返却ポインタは次の RegisterRecipe() / ClearAll() で無効化される可能性がある。
-    const FCraftRecipe* FindRecipe(const char* recipe_id) const noexcept;
+    const CraftRecipe* FindRecipe(const char* recipe_id) const noexcept;
 
     // 登録 recipe 件数。
     u32 RecipeCount() const noexcept;
@@ -193,7 +193,7 @@ public:
     // 全 recipe の生バッファ。`out_count` に件数を書き出す。
     // 返却ポインタは RecipeCount() 件の連続バッファ。RegisterRecipe() / ClearAll() で
     // 無効化される。
-    const FCraftRecipe* AllRecipes(u32& out_count) const noexcept;
+    const CraftRecipe* AllRecipes(u32& out_count) const noexcept;
 
     // ---- インベントリ adapter ---------------------------------------------
     // すべて nullptr でも動作する (= 在庫無制限デバッグモード)。
@@ -263,7 +263,7 @@ private:
     u32 FindRecipeSlot(const char* recipe_id) const noexcept;
 
     // レシピ定義 (起動時 immutable)。
-    TArray<FCraftRecipe> _recipes;
+    TArray<CraftRecipe> _recipes;
 
     // インベントリ adapter (C 関数ポインタ + user)。
     InventoryQueryFn   _query   = nullptr;
@@ -279,7 +279,7 @@ private:
     ECraftStatus _status               = ECraftStatus::Idle;
     // 現在のクラフト対象 recipe (= _recipes の要素を指す or nullptr)。
     // Crafting / Completed / Cancelled の間は有効、Idle / ClearAll で nullptr。
-    const FCraftRecipe* _current_recipe = nullptr;
+    const CraftRecipe* _current_recipe = nullptr;
     // craft_duration_sec — 進行率計算用に保持 (recipe を差し替えても安定)。
     f32 _current_duration_sec          = 0.0f;
     // 残り秒数 (Tick で減算)。完了で 0、Cancel でも 0 にリセット。

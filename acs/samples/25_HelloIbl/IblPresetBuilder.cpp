@@ -19,7 +19,7 @@ void ApplyPresetRebuilds(HelloIblApp& app) noexcept {
     IRhiCommandList* cl  = app.GetRenderer().CommandList();
     if (!dev || !cl) return;
 
-    // FSky preset が変わった場合、env / irradiance / prefilter を作り直す
+    // Sky preset が変わった場合、env / irradiance / prefilter を作り直す
     if (app._need_recapture) {
         dev->WaitIdle();
         app._ibl.ResetEnvCubemap();
@@ -40,18 +40,18 @@ void ApplyPresetRebuilds(HelloIblApp& app) noexcept {
     // Hillaire 風物理大気を CPU で焼く
     if (app._need_atmosphere) {
         dev->WaitIdle();
-        FAtmosphereParams ap;
+        AtmosphereParams ap;
         ap.sun_dir       = FVec3{0.3f, 0.5f, 0.5f};
         ap.sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
         ap.ray_steps     = 32;
         ap.sun_steps     = 8;
-        auto baked = FAtmosphere::BakeEquirect(kEquirectWidth, kEquirectHeight, ap);
+        auto baked = Atmosphere::BakeEquirect(kEquirectWidth, kEquirectHeight, ap);
         app._equirect_rgba = Move(baked);
         auto r = app._ibl.LoadEquirectHdrFromMemory(
             *dev, *cl,
             app._equirect_rgba.Data(),
             kEquirectWidth, kEquirectHeight);
-        if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: FAtmosphere bake failed");
+        if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: Atmosphere bake failed");
         app._need_atmosphere = false;
     }
 

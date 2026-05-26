@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FEntitlementRegistry 実装
+// GameFramework Pillar O — EntitlementRegistry 実装
 //
 // id 比較は const char* 同士の per-byte 比較 (StrEqual 相当を自前で書く)。
 // STL 禁止 + <cstring> も避ける方針で、ループを直接書いておく。
@@ -25,14 +25,14 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
-void FEntitlementRegistry::Add(FEntitlementInfo info) noexcept {
+void EntitlementRegistry::Add(EntitlementInfo info) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (DLC 一覧取得が失敗した
     // 時のフォールバック流入で nullptr が来ても registry を壊さない)。
     if (info.id == nullptr) return;
     _infos.PushBack(info);
 }
 
-bool FEntitlementRegistry::Has(const char* id) const noexcept {
+bool EntitlementRegistry::Has(const char* id) const noexcept {
     if (id == nullptr) return false;
     const usize n = _infos.Size();
     for (usize i = 0; i < n; ++i) {
@@ -41,36 +41,36 @@ bool FEntitlementRegistry::Has(const char* id) const noexcept {
     return false;
 }
 
-bool FEntitlementRegistry::IsActive(const char* id) const noexcept {
+bool EntitlementRegistry::IsActive(const char* id) const noexcept {
     if (id == nullptr) return false;
     const usize n = _infos.Size();
     for (usize i = 0; i < n; ++i) {
-        const FEntitlementInfo& e = _infos[i];
+        const EntitlementInfo& e = _infos[i];
         if (StrEq(e.id, id)) return e.active;
     }
     return false;
 }
 
-bool FEntitlementRegistry::HasAny(EntitlementKind k) const noexcept {
+bool EntitlementRegistry::HasAny(EntitlementKind k) const noexcept {
     const usize n = _infos.Size();
     for (usize i = 0; i < n; ++i) {
-        const FEntitlementInfo& e = _infos[i];
+        const EntitlementInfo& e = _infos[i];
         if (e.kind == k && e.active) return true;
     }
     return false;
 }
 
-void FEntitlementRegistry::Clear() noexcept {
+void EntitlementRegistry::Clear() noexcept {
     _infos.Clear();
 }
 
-u32 FEntitlementRegistry::Count() const noexcept {
+u32 EntitlementRegistry::Count() const noexcept {
     // TArray<T>::Size() は usize (= size_t) を返す。Pillar O の entitlement 件数は
     // 現実的に u32 範囲を超えないので、上位ビットを切り捨てる cast で十分。
     return static_cast<u32>(_infos.Size());
 }
 
-const FEntitlementInfo* FEntitlementRegistry::AllInfos() const noexcept {
+const EntitlementInfo* EntitlementRegistry::AllInfos() const noexcept {
     return _infos.Data();
 }
 

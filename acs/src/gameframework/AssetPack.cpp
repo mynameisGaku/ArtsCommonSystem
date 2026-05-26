@@ -2,8 +2,8 @@
 // GameFramework Pillar G — AssetPack 実装 (Stub のみ)
 //
 // 本 .cpp では `IAssetPackReader` / `IAssetPackWriter` の I/F 自体は提供せず、
-// AssetPack モジュール未統合ビルドでも常に使える `FAssetPackReaderStub` /
-// `FAssetPackWriterStub` のみを実装する。実 AES-256-GCM (Windows CNG / bcrypt) +
+// AssetPack モジュール未統合ビルドでも常に使える `AssetPackReaderStub` /
+// `AssetPackWriterStub` のみを実装する。実 AES-256-GCM (Windows CNG / bcrypt) +
 // LZ4 圧縮を伴う `GoldenAssetPackReader` / `GoldenAssetPackWriter` は重い暗号 /
 // 圧縮依存を含むため、別モジュール (将来の `ACS::AssetPack` = `src/assetpack/`)
 // で独立に実装し、本ファイルには持ち込まない。
@@ -24,73 +24,73 @@ namespace acs::game {
 
 // ---- Stub: Reader -------------------------------------------------------
 
-TResult<void> FAssetPackReaderStub::Mount(const char* pack_path) noexcept {
+TResult<void> AssetPackReaderStub::Mount(const char* pack_path) noexcept {
     (void)pack_path;  // 未使用引数 (Stub なので no-op)
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackReaderStub: Mount is not implemented (link real AssetPack module)");
+                   "AssetPackReaderStub: Mount is not implemented (link real AssetPack module)");
 }
 
-void FAssetPackReaderStub::Unmount() noexcept {
+void AssetPackReaderStub::Unmount() noexcept {
     // Mount に成功し得ない Stub では何もすることがない。
     // Mount() 前に呼ばれても安全 (no-op)。
 }
 
-TResult<u32> FAssetPackReaderStub::FileCount() noexcept {
+TResult<u32> AssetPackReaderStub::FileCount() noexcept {
     return TResult<u32>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                               "FAssetPackReaderStub: FileCount is not implemented (link real AssetPack module)"));
+                               "AssetPackReaderStub: FileCount is not implemented (link real AssetPack module)"));
 }
 
-TResult<const char*> FAssetPackReaderStub::FileName(u32 index) noexcept {
+TResult<const char*> AssetPackReaderStub::FileName(u32 index) noexcept {
     (void)index;
     return TResult<const char*>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                                       "FAssetPackReaderStub: FileName is not implemented (link real AssetPack module)"));
+                                       "AssetPackReaderStub: FileName is not implemented (link real AssetPack module)"));
 }
 
-TResult<u64> FAssetPackReaderStub::FileSize(const char* name) noexcept {
+TResult<u64> AssetPackReaderStub::FileSize(const char* name) noexcept {
     (void)name;
     return TResult<u64>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                               "FAssetPackReaderStub: FileSize is not implemented (link real AssetPack module)"));
+                               "AssetPackReaderStub: FileSize is not implemented (link real AssetPack module)"));
 }
 
-TResult<void> FAssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept {
+TResult<void> AssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept {
     (void)name;
     (void)out_buffer;
     (void)buffer_size;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackReaderStub: ReadFile is not implemented (link real AssetPack module)");
+                   "AssetPackReaderStub: ReadFile is not implemented (link real AssetPack module)");
 }
 
 // ---- Stub: Writer -------------------------------------------------------
 
-TResult<void> FAssetPackWriterStub::BeginPack(const char* output_path) noexcept {
+TResult<void> AssetPackWriterStub::BeginPack(const char* output_path) noexcept {
     (void)output_path;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackWriterStub: BeginPack is not implemented (link real AssetPack module)");
+                   "AssetPackWriterStub: BeginPack is not implemented (link real AssetPack module)");
 }
 
-TResult<void> FAssetPackWriterStub::AddFile(const char* virtual_name, const u8* data, u64 size) noexcept {
+TResult<void> AssetPackWriterStub::AddFile(const char* virtual_name, const u8* data, u64 size) noexcept {
     (void)virtual_name;
     (void)data;
     (void)size;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackWriterStub: AddFile is not implemented (link real AssetPack module)");
+                   "AssetPackWriterStub: AddFile is not implemented (link real AssetPack module)");
 }
 
-TResult<void> FAssetPackWriterStub::FinishPack() noexcept {
+TResult<void> AssetPackWriterStub::FinishPack() noexcept {
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
-                   "FAssetPackWriterStub: FinishPack is not implemented (link real AssetPack module)");
+                   "AssetPackWriterStub: FinishPack is not implemented (link real AssetPack module)");
 }
 
 // ---- static singleton accessors -----------------------------------------
 
 IAssetPackReader& GetReaderStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static FAssetPackReaderStub _instance;
+    static AssetPackReaderStub _instance;
     return _instance;
 }
 
 IAssetPackWriter& GetWriterStub() noexcept {
-    static FAssetPackWriterStub _instance;
+    static AssetPackWriterStub _instance;
     return _instance;
 }
 

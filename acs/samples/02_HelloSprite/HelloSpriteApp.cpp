@@ -40,7 +40,7 @@ void HelloSpriteApp::OnStart() noexcept {
 
     if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat(), kMaxSprites);
         r.IsErr()) {
-        ACS_LOG_ERROR("FSpriteBatch::Init failed: %s", r.Error().message);
+        ACS_LOG_ERROR("SpriteBatch::Init failed: %s", r.Error().message);
         Quit();
         return;
     }
@@ -62,16 +62,16 @@ void HelloSpriteApp::OnStart() noexcept {
 }
 
 void HelloSpriteApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (FInput::IsKeyPressed(EKey::Space))     SpawnSprites(_sprite_count + 10);
-    if (FInput::IsKeyPressed(EKey::Backspace)) SpawnSprites(_sprite_count >= 10 ? _sprite_count - 10 : 0);
+    if (Input::IsKeyPressed(EKey::Space))     SpawnSprites(_sprite_count + 10);
+    if (Input::IsKeyPressed(EKey::Backspace)) SpawnSprites(_sprite_count >= 10 ? _sprite_count - 10 : 0);
 
     // 壁にぶつかったら反射 (s.x/s.y を境界内にクランプしてから速度反転)。
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
     for (u32 i = 0; i < _sprite_count; ++i) {
-        FSprite& s = _sprites[i];
+        Sprite& s = _sprites[i];
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         if (s.x < 0)              { s.x = 0;              s.vx = -s.vx; }
@@ -92,7 +92,7 @@ void HelloSpriteApp::OnRender() noexcept {
     _batch.DrawRect(0, 0, static_cast<f32>(sw), 32.0f, FVec4{0, 0, 0, 0.6f});
 
     for (u32 i = 0; i < _sprite_count; ++i) {
-        const FSprite& s = _sprites[i];
+        const Sprite& s = _sprites[i];
         _batch.Draw(*_tex, s.x, s.y, s.size, s.size, FVec4{s.r, s.g, s.b, s.a});
     }
 
@@ -124,7 +124,7 @@ void HelloSpriteApp::SpawnSprites(u32 n) noexcept {
     const u32 old = _sprite_count;
     _sprite_count = n;
     for (u32 i = old; i < n; ++i) {
-        FSprite& s = _sprites[i];
+        Sprite& s = _sprites[i];
         s.size = 16.0f + rand_f() * 48.0f;
         s.x = rand_f() * (sw - s.size);
         s.y = 32.0f + rand_f() * (sh - 64.0f - s.size);

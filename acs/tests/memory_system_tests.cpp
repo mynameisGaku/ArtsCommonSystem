@@ -2,7 +2,7 @@
 // =============================================================================
 // ACS Memory — メモリシステム単体テスト
 // -----------------------------------------------------------------------------
-// VirtualMemory / TLSF / FMemorySystem / FScopedMemorySegment / FMemorySnapshot
+// VirtualMemory / TLSF / MemorySystem / ScopedMemorySegment / MemorySnapshot
 // を統合的にテストする。
 // =============================================================================
 #include "test/Test.h"
@@ -17,7 +17,7 @@ using namespace acs;
 
 // VirtualMemory: 予約 → コミット → デコミット
 ACS_TEST(MemSystem, VmReserveCommitDecommit) {
-    auto r = FVmReservation::Reserve(64 * 1024 * 1024);  // 64 MB 仮想予約
+    auto r = VmReservation::Reserve(64 * 1024 * 1024);  // 64 MB 仮想予約
     EXPECT_TRUE(r.IsOk());
     if (!r.IsOk()) return;
     auto& res = r.Value();
@@ -42,7 +42,7 @@ ACS_TEST(MemSystem, TlsfBasic) {
     EXPECT_TRUE(pool != nullptr);
     if (!pool) return;
 
-    FTlsfAllocator t;
+    TlsfAllocator t;
     auto ir = t.Init(pool, kPoolSize);
     EXPECT_TRUE(ir.IsOk());
 
@@ -61,63 +61,63 @@ ACS_TEST(MemSystem, TlsfBasic) {
     ::HeapFree(::GetProcessHeap(), 0, pool);
 }
 
-// FMemorySystem: 全セグメント初期化 → 取得 → 解放
+// MemorySystem: 全セグメント初期化 → 取得 → 解放
 ACS_TEST(MemSystem, SegmentInitGet) {
-    FMemorySystemConfig cfg = FMemorySystem::DefaultConfig();
-    auto r = FMemorySystem::Init(cfg);
+    MemorySystemConfig cfg = MemorySystem::DefaultConfig();
+    auto r = MemorySystem::Init(cfg);
     EXPECT_TRUE(r.IsOk());
 
-    FAllocator* a = FMemorySystem::Get(ESegment::Default);
+    Allocator* a = MemorySystem::Get(ESegment::Default);
     EXPECT_TRUE(a != nullptr);
 
     void* p = a->Alloc(1024, 16, FSourceLoc::Current());
     EXPECT_TRUE(p != nullptr);
     a->Free(p);
 
-    FMemorySystem::Shutdown();
+    MemorySystem::Shutdown();
 }
 
-// FScopedMemorySegment: スコープで TLS の現在セグメントが切り替わる
+// ScopedMemorySegment: スコープで TLS の現在セグメントが切り替わる
 ACS_TEST(MemSystem, ScopedSegmentSwitch) {
-    auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    auto r = MemorySystem::Init(MemorySystem::DefaultConfig());
     EXPECT_TRUE(r.IsOk());
 
-    EXPECT_EQ(FMemorySystem::Current(), ESegment::Default);
+    EXPECT_EQ(MemorySystem::Current(), ESegment::Default);
     {
-        FScopedMemorySegment s(ESegment::Temp);
-        EXPECT_EQ(FMemorySystem::Current(), ESegment::Temp);
-        FAllocator* a = FMemorySystem::CurrentAllocator();
+        ScopedMemorySegment s(ESegment::Temp);
+        EXPECT_EQ(MemorySystem::Current(), ESegment::Temp);
+        Allocator* a = MemorySystem::CurrentAllocator();
         EXPECT_TRUE(a != nullptr);
         if (a) {
             void* p = a->Alloc(64, 16, FSourceLoc::Current());
             EXPECT_TRUE(p != nullptr);
         }
     }
-    EXPECT_EQ(FMemorySystem::Current(), ESegment::Default);
+    EXPECT_EQ(MemorySystem::Current(), ESegment::Default);
 
-    FMemorySystem::ResetTemp();
-    FMemorySystem::Shutdown();
+    MemorySystem::ResetTemp();
+    MemorySystem::Shutdown();
 }
 
 // Snapshot: SVG / BMP 出力（ファイルへ書き込みできることだけ確認）
 ACS_TEST(MemSystem, SnapshotWrite) {
-    auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+    auto r = MemorySystem::Init(MemorySystem::DefaultConfig());
     EXPECT_TRUE(r.IsOk());
 
     // いくつか allocate して使用率を上げる
-    FAllocator* a = FMemorySystem::Get(ESegment::Default);
+    Allocator* a = MemorySystem::Get(ESegment::Default);
     if (a) {
         for (int i = 0; i < 10; ++i) (void)a->Alloc(1024 * 64, 16, FSourceLoc::Current());
     }
 
     // 書き出し（書けない環境では失敗するが致命でない）
-    auto svg = FMemorySnapshot::WriteSvg(L"acs_memdump.svg");
-    auto bmp = FMemorySnapshot::WriteBmp(L"acs_memdump.bmp");
+    auto svg = MemorySnapshot::WriteSvg(L"acs_memdump.svg");
+    auto bmp = MemorySnapshot::WriteBmp(L"acs_memdump.bmp");
     (void)svg; (void)bmp;
     EXPECT_TRUE(true);
 
-    FMemorySnapshot::DumpToStdOut();
-    FMemorySystem::Shutdown();
+    MemorySnapshot::DumpToStdOut();
+    MemorySystem::Shutdown();
 }
 
 // VmZeroFastNT: 大きい領域を NT-write でゼロクリア

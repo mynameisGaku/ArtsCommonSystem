@@ -3,7 +3,7 @@
 // ACS Memory — TUniquePtr<T>（std::unique_ptr 代替）
 // -----------------------------------------------------------------------------
 // 単独所有のスマートポインタ。ムーブのみ可、コピー不可。
-// 破棄時に FAllocator::Free を呼んで自動解放する。
+// 破棄時に Allocator::Free を呼んで自動解放する。
 //
 // 例:
 //   auto p = MakeUnique<Mesh>(args...);
@@ -24,7 +24,7 @@ public:
     TUniquePtr() noexcept = default;
 
     // 既存ポインタからの構築（所有権を奪う）
-    explicit TUniquePtr(T* p, FAllocator* a = nullptr) noexcept
+    explicit TUniquePtr(T* p, Allocator* a = nullptr) noexcept
         : _ptr(p), _alloc(a ? a : &DefaultAllocator()) {}
 
     // コピー禁止
@@ -72,11 +72,11 @@ public:
         _ptr = p;
     }
 
-    FAllocator* GetAllocator() const noexcept { return _alloc; }
+    Allocator* GetAllocator() const noexcept { return _alloc; }
 
 private:
     T*         _ptr   = nullptr;
-    FAllocator* _alloc = nullptr;
+    Allocator* _alloc = nullptr;
 };
 
 // ---- ファクトリ -----------------------------------------------------------
@@ -84,14 +84,14 @@ private:
 // デフォルトアロケータで構築
 template<typename T, typename... Args>
 ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... args) noexcept {
-    FAllocator& a = DefaultAllocator();
+    Allocator& a = DefaultAllocator();
     T* p = New<T>(a, Forward<Args>(args)...);
     return TUniquePtr<T>(p, &a);
 }
 
 // 指定アロケータで構築
 template<typename T, typename... Args>
-ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(Allocator& a, Args&&... args) noexcept {
     T* p = New<T>(a, Forward<Args>(args)...);
     return TUniquePtr<T>(p, &a);
 }

@@ -5,10 +5,10 @@
 // 1 つの `.acpak` ファイルを開き、含まれる仮想ファイルを名前 (wchar_t*) で
 // 取り出すための実装クラス。GameFramework Pillar G の `IAssetPackReader` とは
 // 独立して動作する (将来 `IAssetPackReader` の concrete 実装 = adapter として
-// この FAcpakReader を内部委譲する形を取る予定)。
+// この AcpakReader を内部委譲する形を取る予定)。
 //
 // 使い方の典型例:
-//   acs::assetpack::FAcpakReader reader;
+//   acs::assetpack::AcpakReader reader;
 //   auto r = reader.Open(L"game.acpak");
 //   if (r.IsErr()) { /* マウント失敗 */ }
 //
@@ -41,15 +41,15 @@
 
 namespace acs::assetpack {
 
-class FAcpakReader {
+class AcpakReader {
 public:
-    FAcpakReader() noexcept = default;
-    ~FAcpakReader() noexcept;
+    AcpakReader() noexcept = default;
+    ~AcpakReader() noexcept;
 
-    FAcpakReader(const FAcpakReader&)            = delete;
-    FAcpakReader& operator=(const FAcpakReader&) = delete;
-    FAcpakReader(FAcpakReader&&)                 = delete;
-    FAcpakReader& operator=(FAcpakReader&&)      = delete;
+    AcpakReader(const AcpakReader&)            = delete;
+    AcpakReader& operator=(const AcpakReader&) = delete;
+    AcpakReader(AcpakReader&&)                 = delete;
+    AcpakReader& operator=(AcpakReader&&)      = delete;
 
     // ---- ライフサイクル -----------------------------------------------------
 
@@ -59,21 +59,21 @@ public:
     //   ・失敗時は内部状態は Close() 後と同じになる (IsOpen() == false)。
     //   ・**暗号化 pak** (AcpakFlagEncrypted) を Open する前に SetKey() で
     //     鍵を与えておく必要がある。鍵なしで encrypted pak を開いて ReadFile
-    //     を呼ぶと ACS_ERR(FAsset, kAcpakSubCryptoKey) を返す。Open 自体は
+    //     を呼ぶと ACS_ERR(Asset, kAcpakSubCryptoKey) を返す。Open 自体は
     //     header と file table (= nonce/tag を含む) だけを読むので鍵不要。
     //
     // 主なエラー:
     //   ・ACS_ERR(IO, kAcpakSubIOFailure)     — CreateFileW / ReadFile 失敗
     //   ・ACS_ERR(IO, kAcpakSubBadSize)       — ヘッダより小さい
-    //   ・ACS_ERR(FAsset, kAcpakSubBadMagic)   — magic mismatch
-    //   ・ACS_ERR(FAsset, kAcpakSubBadVersion) — version mismatch
-    //   ・ACS_ERR(FAsset, kAcpakSubBadFlags)   — 未知 flags bit が立っている
+    //   ・ACS_ERR(Asset, kAcpakSubBadMagic)   — magic mismatch
+    //   ・ACS_ERR(Asset, kAcpakSubBadVersion) — version mismatch
+    //   ・ACS_ERR(Asset, kAcpakSubBadFlags)   — 未知 flags bit が立っている
     TResult<void> Open(const wchar_t* file_path) noexcept;
 
     // 暗号化 pak の復号鍵を設定する。Open の前後どちらでも呼べる。
     // ReadFile 内で AES-256-GCM 復号に使われる。flags=0 の pak では無視される。
     // Close すると内部の鍵情報も 0 クリアされる。
-    void SetKey(const FAcpakKey& key) noexcept;
+    void SetKey(const AcpakKey& key) noexcept;
 
     // ハンドルを閉じ、文字列 pool + entry 配列を解放する。
     // Open 前 / 既に Close 済でも安全 (no-op)。
@@ -89,12 +89,12 @@ public:
 
     // index 番目の entry を返す。範囲外 / 未 Open なら nullptr。
     // 返り値の寿命は「次の Close まで」。
-    const FAcpakFileEntry* GetEntry(u32 index) const noexcept;
+    const AcpakFileEntry* GetEntry(u32 index) const noexcept;
 
     // 仮想パスから entry を探す。線形探索 (Phase 1 = 数百〜数千 entry 想定で
     // 十分高速)。見つからない / 未 Open なら nullptr。
     // path 比較は wcscmp 相当の完全一致。
-    const FAcpakFileEntry* FindEntry(const wchar_t* path) const noexcept;
+    const AcpakFileEntry* FindEntry(const wchar_t* path) const noexcept;
 
     // ---- データ読み出し -----------------------------------------------------
 
@@ -103,7 +103,7 @@ public:
     //     ACS_ERR(IO, kAcpakSubBufferTooSmall)。
     //   ・Phase 1 では size_stored == size_uncompressed の生バイトを直接読む。
     //   ・読み出し後、CRC32 を計算し entry.crc32 と照合 → 不一致は
-    //     ACS_ERR(FAsset, kAcpakSubBadCrc) を返す (buf の中身は破棄せず残るが
+    //     ACS_ERR(Asset, kAcpakSubBadCrc) を返す (buf の中身は破棄せず残るが
     //     呼び出し側はエラー時の中身を使わないこと)。
     //   ・成功時の戻り値は実際に書き込んだバイト数 (= size_uncompressed)。
     TResult<u64> ReadFile(const wchar_t* path,
@@ -137,12 +137,12 @@ private:
     u64                   _file_size   = 0;         // CreateFileW 直後の GetFileSizeEx
     u32                   _flags       = 0;         // header.flags
     u64                   _table_offset = 0;        // header.file_table_offset
-    TArray<FAcpakFileEntry> _entries;                 // file table の in-memory 表現
+    TArray<AcpakFileEntry> _entries;                 // file table の in-memory 表現
     TArray<wchar_t>        _string_pool;             // path 文字列の連結 (NUL 区切り)
 
     // Phase 2: 暗号化 pak の復号鍵。flags=0 のときは未使用。
     // Close で _has_key=false にリセットされ、_key も 0 クリアされる。
-    FAcpakKey              _key{};
+    AcpakKey              _key{};
     bool                  _has_key     = false;
 };
 

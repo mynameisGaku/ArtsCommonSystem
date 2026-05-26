@@ -3,12 +3,12 @@
 //
 // 使い方:
 //   while (!w.ShouldClose()) {
-//       FInput::Update();           // フレーム先頭で呼ぶ
+//       Input::Update();           // フレーム先頭で呼ぶ
 //       w.PollEvents();
 //
-//       if (FInput::IsKeyDown(EKey::Space)) Jump();
-//       if (FInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
-//       FVec2 m = FInput::MousePos();
+//       if (Input::IsKeyDown(EKey::Space)) Jump();
+//       if (Input::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
+//       FVec2 m = Input::MousePos();
 //   }
 //
 // ・「Down」 = 現在押されている
@@ -23,14 +23,14 @@
 
 namespace acs {
 
-class FInput {
+class Input {
 public:
     // フレーム先頭で 1 回呼ぶ（前フレーム状態を更新する）
     static void Update() noexcept;
 
-    // FWindow から受け取ったイベントを FInput に流し込む
-    // FWindow::SetEventCallback で OnEvent 関数をブリッジする
-    static void OnEvent(const FEvent& e) noexcept;
+    // Window から受け取ったイベントを Input に流し込む
+    // Window::SetEventCallback で OnEvent 関数をブリッジする
+    static void OnEvent(const Event& e) noexcept;
 
     // キーボード
     static bool IsKeyDown(EKey k) noexcept;       // 押されているか
@@ -46,7 +46,7 @@ public:
     static f32  MouseWheel() noexcept;            // このフレームのホイール回転（正:奥, 負:手前）
 
     // テキスト入力（このフレームに入力された文字列、UTF-8、IME 確定後。無ければ ""）
-    static const char* FTextInput() noexcept;
+    static const char* TextInput() noexcept;
 
     // ゲームパッド (XInput、player_index = 0..3)
     static bool IsGamepadConnected(u32 player_index) noexcept;

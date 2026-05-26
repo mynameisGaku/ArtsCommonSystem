@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FCharacterCustomizer (cosmetic 装備管理)
+// GameFramework Pillar O — CharacterCustomizer (cosmetic 装備管理)
 //
 // プレイヤーキャラの「見た目」を装備する高レベルマネージャ。帽子・服・靴・武器の
 // 見た目 (=  cosmetic) 等を slot 単位で 1 つずつ装着する。実装的には id ベースの
@@ -13,7 +13,7 @@
 //     マネージャ) を用意し、本クラスとは独立に動かす。
 //
 // 使い方:
-//   FCharacterCustomizer cc;
+//   CharacterCustomizer cc;
 //
 //   // 起動時にゲーム or アセットバンドル側で全 cosmetic を登録。
 //   cc.RegisterCosmetic({ "hat.red_cap",   "Red Cap",   ECosmeticSlot::Head,
@@ -23,7 +23,7 @@
 //   // ...
 //
 //   // ストア / クエスト報酬経由で unlock。実 entitlement 検証は呼出側 (Pillar O
-//   // FEntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
+//   // EntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
 //   cc.UnlockCosmetic("hat.red_cap");
 //
 //   // 装着 callback を購読 (レンダラ側で見た目差し替えを反映する用)。
@@ -40,9 +40,9 @@
 //   ・**slot は固定 enum**: ECosmeticSlot は 11 種類で固定。slot ごとに最大 1 つの
 //     cosmetic が装着可能 (装着すると同 slot の既存装着は自動で外れる)。
 //     ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
-//   ・**Def + Unlocked 状態を並行 TArray で持つ**: FAchievementManager と同じ Def/FState
-//     分離。FCosmeticItem は immutable な定義、unlocked は実行時 bool。1:1 対応で
-//     同 index を共有 (TArray<FCosmeticItem> + TArray<bool>)。
+//   ・**Def + Unlocked 状態を並行 TArray で持つ**: AchievementManager と同じ Def/State
+//     分離。CosmeticItem は immutable な定義、unlocked は実行時 bool。1:1 対応で
+//     同 index を共有 (TArray<CosmeticItem> + TArray<bool>)。
 //   ・**装着状態は slot indexed const char* 配列**: 線形検索を避けるため、slot を
 //     index にした固定長 const char*[kSlotCount] を持つ。各エントリは「現在装着
 //     されている cosmetic の id」(未装着なら nullptr)。 EquipCosmetic / UnequipSlot
@@ -56,7 +56,7 @@
 //   ・**Equip は unlock 必須**: IsUnlocked(id) == false の cosmetic は装着拒否。
 //     UI 側で「グレーアウト + locked 表示」を実装する前提。
 //   ・**線形検索**: cosmetic 件数は AAA タイトルでも通常 200〜1000 のオーダー。
-//     per-byte 文字列比較で十分 (Entitlement / FAchievementManager と同じ判断)。
+//     per-byte 文字列比較で十分 (Entitlement / AchievementManager と同じ判断)。
 //   ・**ClearAll は登録も装着も両方リセット**: Save/Load 復元前のクリーンスタート用。
 //     callback は呼ばない (loop / ノイズ防止)。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -97,7 +97,7 @@ enum class ECosmeticSlot : u8 {
 // 新規 slot 追加時はここも更新する (static_assert はないので手で守る)。
 inline constexpr u32 kCosmeticSlotCount = 11;
 
-// ---- FCosmeticItem: 1 つの cosmetic 定義 (immutable) ------------------------
+// ---- CosmeticItem: 1 つの cosmetic 定義 (immutable) ------------------------
 // id          : 一意キー (ストア / 永続化 / 検索)。文字列リテラル想定 (非所有)。
 // display_name: UI 表示名 (非所有)。
 // slot        : 装着可能 slot (1 つの cosmetic は 1 slot のみに装着可)。
@@ -105,7 +105,7 @@ inline constexpr u32 kCosmeticSlotCount = 11;
 // is_premium  : 課金 / プレミアム由来かどうか (UI バッジ表示用)。
 // rarity      : "common" / "rare" / "epic" / "legendary" 等のレアリティラベル。
 //               非所有文字列。UI 側で色分けに使う想定 (Manager は中身を解釈しない)。
-struct FCosmeticItem {
+struct CosmeticItem {
     const char*  id           = nullptr;
     const char*  display_name = nullptr;
     ECosmeticSlot slot         = ECosmeticSlot::Head;
@@ -122,22 +122,22 @@ struct FCosmeticItem {
 // レンダラ側でこの callback を購読し、対応する mesh / material を差し替える。
 using EquipCallback = void(*)(void* user, ECosmeticSlot slot, const char* item_id) noexcept;
 
-// ---- FCharacterCustomizer ---------------------------------------------------
-class FCharacterCustomizer {
+// ---- CharacterCustomizer ---------------------------------------------------
+class CharacterCustomizer {
 public:
-    FCharacterCustomizer()  noexcept;
-    ~FCharacterCustomizer() noexcept = default;
+    CharacterCustomizer()  noexcept;
+    ~CharacterCustomizer() noexcept = default;
 
-    FCharacterCustomizer(const FCharacterCustomizer&)            = delete;
-    FCharacterCustomizer& operator=(const FCharacterCustomizer&) = delete;
-    FCharacterCustomizer(FCharacterCustomizer&&)                 = delete;
-    FCharacterCustomizer& operator=(FCharacterCustomizer&&)      = delete;
+    CharacterCustomizer(const CharacterCustomizer&)            = delete;
+    CharacterCustomizer& operator=(const CharacterCustomizer&) = delete;
+    CharacterCustomizer(CharacterCustomizer&&)                 = delete;
+    CharacterCustomizer& operator=(CharacterCustomizer&&)      = delete;
 
     // ---- 定義登録 (起動時に 1 度ずつ) ------------------------------------
     // 同 id の 2 重登録は no-op、`id == nullptr` も no-op (defensive)。
     // 未知の slot enum 値も拒否しないが、kCosmeticSlotCount 内のものだけ
     // 装着できる (内部 cast 時にクランプ)。
-    void RegisterCosmetic(const FCosmeticItem& item) noexcept;
+    void RegisterCosmetic(const CosmeticItem& item) noexcept;
 
     // ---- Unlock 管理 -----------------------------------------------------
     // 指定 id を unlocked 状態に遷移させる。
@@ -174,12 +174,12 @@ public:
 
     // 単一 cosmetic 取得。見つからなければ nullptr。返却ポインタは次の
     // RegisterCosmetic() / ClearAll() で無効化される可能性がある。
-    const FCosmeticItem* FindCosmetic(const char* id) const noexcept;
+    const CosmeticItem* FindCosmetic(const char* id) const noexcept;
 
     // 全 cosmetic の生バッファ。`out_count` に件数を書き出して返す。
     // 返却ポインタは CosmeticCount() 件の連続バッファ、RegisterCosmetic() /
     // ClearAll() で無効化される。
-    const FCosmeticItem* AllCosmetics(u32& out_count) const noexcept;
+    const CosmeticItem* AllCosmetics(u32& out_count) const noexcept;
 
     // ---- FCallback --------------------------------------------------------
     // 装着 / 解除 callback を設定 (単一購読)。cb = nullptr で解除。
@@ -194,7 +194,7 @@ private:
     u32 FindIndex(const char* id) const noexcept;
 
     // 登録済 cosmetic 定義 (immutable)。
-    TArray<FCosmeticItem> _items;
+    TArray<CosmeticItem> _items;
 
     // unlock 状態 (_items と並行配列、1:1 対応)。
     TArray<bool> _unlocked;

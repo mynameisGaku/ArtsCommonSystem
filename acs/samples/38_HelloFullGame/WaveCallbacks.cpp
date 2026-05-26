@@ -54,7 +54,7 @@ void WaveOnState(void* user, u32 wave_index,
     }
 }
 
-bool ProjectileOnHitTest(void* user, const FProjectileInstance& p,
+bool ProjectileOnHitTest(void* user, const ProjectileInstance& p,
                          u32& out_target, f32& out_dmg) noexcept {
     auto* scene = static_cast<GameplayScene*>(user);
     const EnemyInstance* enemies = scene->GetEnemies().Data();

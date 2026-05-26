@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// FTimerManager — フレーム単位の遅延 / 周期タイマー
+// TimerManager — フレーム単位の遅延 / 周期タイマー
 //
 // 使い方:
-//   struct MyState { FWorld* w; FEntityId e; };
+//   struct MyState { World* w; EntityId e; };
 //   static void OnFire(void* user) {
 //       auto* s = static_cast<MyState*>(user);
 //       // ...
 //   }
 //
-//   FTimerManager timers;
+//   TimerManager timers;
 //   MyState st { &world, enemy };
-//   FTimerHandle h = timers.SetTimeout(2.5f, &OnFire, &st);
+//   TimerHandle h = timers.SetTimeout(2.5f, &OnFire, &st);
 //
 //   // フレームループで:
 //   timers.Tick(dt);
@@ -31,37 +31,37 @@
 namespace acs {
 
 // Timer のハンドル (id=0 なら無効)
-struct FTimerHandle {
+struct TimerHandle {
     u32 id         = 0;   // 1-based、0 は無効
     u32 generation = 0;   // 同 id の再利用を見分ける
 
     bool IsValid() const noexcept { return id != 0; }
-    bool operator==(const FTimerHandle& o) const noexcept {
+    bool operator==(const TimerHandle& o) const noexcept {
         return id == o.id && generation == o.generation;
     }
 };
 
-inline constexpr FTimerHandle kInvalidTimer{};
+inline constexpr TimerHandle kInvalidTimer{};
 
-// コールバック型 (FThreadPool::TaskFn と同じパターン)
+// コールバック型 (ThreadPool::TaskFn と同じパターン)
 using TimerCallback = void (*)(void* user);
 
-class FTimerManager {
+class TimerManager {
 public:
-    FTimerManager() noexcept = default;
-    ~FTimerManager() noexcept = default;
+    TimerManager() noexcept = default;
+    ~TimerManager() noexcept = default;
 
-    FTimerManager(const FTimerManager&) = delete;
-    FTimerManager& operator=(const FTimerManager&) = delete;
+    TimerManager(const TimerManager&) = delete;
+    TimerManager& operator=(const TimerManager&) = delete;
 
     // delay_seconds 後に 1 回だけ呼ぶ
-    FTimerHandle SetTimeout(f32 delay_seconds, TimerCallback cb, void* user) noexcept;
+    TimerHandle SetTimeout(f32 delay_seconds, TimerCallback cb, void* user) noexcept;
 
     // period_seconds 経つたびに繰り返し呼ぶ
-    FTimerHandle SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept;
+    TimerHandle SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept;
 
     // 指定タイマをキャンセル (既に発火 / 解放済みなら false)
-    bool Cancel(FTimerHandle h) noexcept;
+    bool Cancel(TimerHandle h) noexcept;
 
     // 毎フレーム呼ぶ。dt 経過させ、発火条件を満たしたタイマを呼び出す。
     // コールバック中に新規タイマを追加 / Cancel するのは安全。
@@ -71,7 +71,7 @@ public:
     u32 ActiveCount() const noexcept;
 
 private:
-    struct FSlot {
+    struct Slot {
         u32             id          = 0;       // 1-based
         u32             generation  = 0;
         bool            active      = false;
@@ -82,7 +82,7 @@ private:
         void*           user        = nullptr;
     };
 
-    TArray<FSlot> _slots;
+    TArray<Slot> _slots;
     TArray<u32>  _free_indices;  // 1-based id を再利用するための空きスロット
     u32         _next_id = 1;
 };

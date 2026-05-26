@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — FModRegistry 実装 (Phase 1 skeleton)
+// GameFramework Pillar N — ModRegistry 実装 (Phase 1 skeleton)
 //
 // 現フェーズは「メタデータの登録・列挙・並び替え」だけを担う。実際の
 // `.acpak` mount / hook 適用は Pillar G (AssetPack 統合 Phase 2) と
@@ -10,16 +10,16 @@
 
 namespace acs::game {
 
-bool FModRegistry::IdEquals(const char* a, const char* b) noexcept {
+bool ModRegistry::IdEquals(const char* a, const char* b) noexcept {
     if (a == b)                 return true;       // 同一ポインタ (or 両 nullptr)
     if (a == nullptr || b == nullptr) return false;
     return std::strcmp(a, b) == 0;
 }
 
-void FModRegistry::Register(const FModInfo& info) noexcept {
+void ModRegistry::Register(const ModInfo& info) noexcept {
     if (info.id == nullptr) {
         // id 無しは管理不能 (Find/Enable で参照できない) ので拒否。
-        ACS_LOG_WARN("FModRegistry::Register: skipped entry with null id (name=%s)",
+        ACS_LOG_WARN("ModRegistry::Register: skipped entry with null id (name=%s)",
                      info.name ? info.name : "(null)");
         return;
     }
@@ -28,7 +28,7 @@ void FModRegistry::Register(const FModInfo& info) noexcept {
     // 検出するのが本来だが、二重防御として警告ログだけ出す。
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, info.id)) {
-            ACS_LOG_WARN("FModRegistry::Register: duplicate id '%s' ignored", info.id);
+            ACS_LOG_WARN("ModRegistry::Register: duplicate id '%s' ignored", info.id);
             return;
         }
     }
@@ -40,7 +40,7 @@ void FModRegistry::Register(const FModInfo& info) noexcept {
     // 現状は path を持つだけ。
 }
 
-bool FModRegistry::Enable(const char* mod_id) noexcept {
+bool ModRegistry::Enable(const char* mod_id) noexcept {
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, mod_id)) {
             _mods[i].enabled = true;
@@ -52,7 +52,7 @@ bool FModRegistry::Enable(const char* mod_id) noexcept {
     return false;
 }
 
-bool FModRegistry::Disable(const char* mod_id) noexcept {
+bool ModRegistry::Disable(const char* mod_id) noexcept {
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, mod_id)) {
             _mods[i].enabled = false;
@@ -63,7 +63,7 @@ bool FModRegistry::Disable(const char* mod_id) noexcept {
     return false;
 }
 
-void FModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
+void ModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, mod_id)) {
             _mods[i].load_order = order;
@@ -73,27 +73,27 @@ void FModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
     // 未登録 id は noop (UI 同期ループの都合上、警告は出さない)。
 }
 
-u32 FModRegistry::Count() const noexcept {
+u32 ModRegistry::Count() const noexcept {
     return static_cast<u32>(_mods.Size());
 }
 
-const FModInfo* FModRegistry::Find(const char* mod_id) const noexcept {
+const ModInfo* ModRegistry::Find(const char* mod_id) const noexcept {
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, mod_id)) return &_mods[i];
     }
     return nullptr;
 }
 
-const FModInfo* FModRegistry::All() const noexcept {
+const ModInfo* ModRegistry::All() const noexcept {
     return _mods.Data();
 }
 
-void FModRegistry::SortByLoadOrder() noexcept {
+void ModRegistry::SortByLoadOrder() noexcept {
     // Insertion sort: N (= mod 数) は実用上 < 64 と想定。安定 sort なので
     // 同 load_order は登録順を保ち、UI の見え方に予測可能性が出る。
     const u32 n = static_cast<u32>(_mods.Size());
     for (u32 i = 1; i < n; ++i) {
-        FModInfo key = _mods[i];
+        ModInfo key = _mods[i];
         u32 j = i;
         while (j > 0 && _mods[j - 1].load_order > key.load_order) {
             _mods[j] = _mods[j - 1];
@@ -103,7 +103,7 @@ void FModRegistry::SortByLoadOrder() noexcept {
     }
 }
 
-void FModRegistry::Clear() noexcept {
+void ModRegistry::Clear() noexcept {
     // TODO(Pillar N): enabled な Mod に対しては Disable と同等の hook 解除を
     // 内部で走らせる必要がある。現状は単純クリア。
     _mods.Clear();

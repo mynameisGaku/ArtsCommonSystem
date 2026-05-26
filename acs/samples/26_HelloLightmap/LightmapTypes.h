@@ -48,7 +48,7 @@ inline const acs::FVec3 kLightRadiance{4.5f, 4.2f, 3.8f};
 //                                 texel uv → ローカル座標 → model → world と
 //                                 変換するのに使う (回転を model に委ねる)。
 struct Quad {
-    acs::FGpuMesh                mesh;
+    acs::GpuMesh                mesh;
     acs::FMat4                   model;
     acs::FVec3                   albedo;
     acs::FVec3                   normal;        // world-space 法線 (model から導出)
@@ -109,7 +109,7 @@ inline void MakeTBN(acs::FVec3 N, acs::FVec3& T, acs::FVec3& B) noexcept {
 
 // cosine-weighted hemisphere sampling。pdf = cosθ/π なので、この方向で
 // 入射放射輝度を平均すると cosine 重みと pdf の π が相殺し、「入射 irradiance の
-// 平均」がそのまま得られる (FPbrShader が描画時に albedo を掛ける)。
+// 平均」がそのまま得られる (PbrShader が描画時に albedo を掛ける)。
 inline acs::FVec3 CosineSampleHemisphere(acs::FVec3 N, acs::FVec3 T, acs::FVec3 B, Rng& rng) noexcept {
     const acs::f32 u1  = rng.NextF();
     const acs::f32 u2  = rng.NextF();

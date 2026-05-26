@@ -6,7 +6,7 @@
 //   問い合わせるための **抽象 seam**。
 //   ACS 本体は具象な net stack (gRPC / HTTPS / WebSocket / Steam ISteamNetworking
 //   等) を抱え込まず、interface だけを提供する。
-//   ・タイトル側 (acs::FApplication) は IBackendClient* / IMatchmaker* を持ち、
+//   ・タイトル側 (acs::Application) は IBackendClient* / IMatchmaker* を持ち、
 //   ・実装 (BackendClientHttp, BackendClientSteam, MatchmakerGlicko2 等) は
 //     プロジェクト個別に差し込む。
 //   これにより、(a) ACS Foundation/GameFramework の依存最小化、(b) サーバ無し
@@ -39,7 +39,7 @@
 //     エラー等はすべて FErrorCode で伝搬し、上位層が `if (r.IsErr())` で握る。
 //   ・**const char* 非所有**: URL / event_name / mode 等はすべて呼び出し側が
 //     寿命を保証する static / member バッファ。STL <string> 禁止方針。
-//   ・**FMatchTicket は不透明 u64**: マッチ検索の進行中状態を表す ID。実装側で
+//   ・**MatchTicket は不透明 u64**: マッチ検索の進行中状態を表す ID。実装側で
 //     具体的な意味 (hash, pointer-as-u64 等) を持ってよいが、呼出側は触らない。
 //   ・**全 noexcept**: 例外境界を関数単位で固定し、ABI として整える。
 //   ・**Tick(f32 dt)**: 非同期 RPC の応答 pump。実装はメインスレッドで callback
@@ -54,11 +54,11 @@ namespace acs::game {
 // =============================================================================
 // 共通: stub 用エラーサブコード
 // -----------------------------------------------------------------------------
-// FSaveSlot 等と同じく、本ピラーでも「Phase 1 stub = NotImplemented」を
+// SaveSlot 等と同じく、本ピラーでも「Phase 1 stub = NotImplemented」を
 // `subcode = kSub_NotImplemented` で表現する。`ErrCategory` には IO を使う
 // (ネットワーク = I/O の一形態)。
 // =============================================================================
-struct FBackendError {
+struct BackendError {
     enum SubCode : u16 {
         kSub_NotConnected   = 1,  // Connect 前に Send/Tick された
         kSub_AlreadyConnected = 2,// 2 重 Connect (実装側で許容するかは任意)
@@ -74,7 +74,7 @@ struct FBackendError {
 // IBackendClient — テレメトリ / 設定取得等の汎用バックエンド窓口
 // -----------------------------------------------------------------------------
 // 1 タイトルにつき通常 1 インスタンス (Singleton 的運用)。
-// 寿命はタイトル側 (acs::FApplication 等) が握る。
+// 寿命はタイトル側 (acs::Application 等) が握る。
 // =============================================================================
 class IBackendClient {
 public:
@@ -113,7 +113,7 @@ public:
 // =============================================================================
 // IMatchmaker — マッチング検索 (Glicko-2 / TrueSkill 等の rating ベース想定)
 // -----------------------------------------------------------------------------
-// `FMatchTicket` は検索 1 件分の不透明 handle。StartSearch で発行され、
+// `MatchTicket` は検索 1 件分の不透明 handle。StartSearch で発行され、
 // PollStatus で状態を引き、AcceptMatch / CancelSearch で完了させる流れ。
 // =============================================================================
 
@@ -127,7 +127,7 @@ enum class EMatchStatus : u8 {
 
 // 検索 handle。`_opaque == 0` は無効値 (NULL ticket) を意味する。
 // 値は実装側が自由に解釈してよい (連番 ID / pointer / hash 等)。
-struct FMatchTicket {
+struct MatchTicket {
     u64 _opaque = 0;
 
     // 有効な ticket か (StartSearch 成功 = 非ゼロ)。
@@ -147,20 +147,20 @@ public:
     // マッチ検索開始。`mode` は "ranked_1v1" / "casual_4v4" 等の文字列キー、
     // `elo_hint` は呼出側が知っている rating 推定値 (新規プレイヤーは 1500
     // 等の中央値で渡す)。実装は Glicko-2 / TrueSkill で近い rating を引く。
-    virtual TResult<FMatchTicket> StartSearch(const char* mode,
+    virtual TResult<MatchTicket> StartSearch(const char* mode,
                                             u32 elo_hint) noexcept = 0;
 
     // 検索キャンセル。`t.IsValid() == false` は no-op で許容 (べき等)。
-    virtual TResult<void> CancelSearch(FMatchTicket t) noexcept = 0;
+    virtual TResult<void> CancelSearch(MatchTicket t) noexcept = 0;
 
     // 現在の検索状態を返す。`t.IsValid() == false` は Failed を返す。
     // 副作用なし (内部 pump は IBackendClient::Tick 等に委譲する想定)。
-    virtual EMatchStatus PollStatus(FMatchTicket t) noexcept = 0;
+    virtual EMatchStatus PollStatus(MatchTicket t) noexcept = 0;
 
     // Matched 状態の ticket を確定。失敗時は kSub_Timeout / kSub_ServerError 等。
     // 他プレイヤーが Decline / Timeout した場合は再度 Searching 状態に戻る
     // 設計を実装側で選んでよい (本 interface では結果のみ返す)。
-    virtual TResult<void> AcceptMatch(FMatchTicket t) noexcept = 0;
+    virtual TResult<void> AcceptMatch(MatchTicket t) noexcept = 0;
 };
 
 // =============================================================================

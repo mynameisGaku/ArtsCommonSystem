@@ -5,7 +5,7 @@
 //   LightmapTypes.h           - Quad / Rng / 数学ヘルパ / constexpr 定数 (inline)
 //   LightmapBaker.{h,cpp}     - PathTrace + BakeLightmaps (CPU 焼き)
 //   CornellBox.{h,cpp}        - Cornell box シーンの構築
-//   HelloLightmapApp.{h,cpp}  - FApplication 派生 (OnStart/OnCustomFrame ほか)
+//   HelloLightmapApp.{h,cpp}  - Application 派生 (OnStart/OnCustomFrame ほか)
 //
 // 動作:
 //   ・古典的な Cornell box (床 / 天井 / 奥壁 / 左壁(赤) / 右壁(緑)) を構築
@@ -14,7 +14,7 @@
 //     平面交差 + 最大 5 バウンス)。固定係数の擬似 1-bounce ではなく、壁どうしの
 //     多重反射 color bleeding が物理的に焼き込まれる
 //   ・MC ノイズは 3x3 box blur で均し、HDR テクスチャ (R32G32B32A32F) 化して
-//     FPbrShader の lightmap slot 経由で表示する
+//     PbrShader の lightmap slot 経由で表示する
 //   ・シーンは HDR RT に描画 → Bloom + ACES tonemap で LDR 出力。lightmap が
 //     HDR なので天井 (光源) が飽和せず、tonemap で自然にロールオフし bloom で光る
 //   ・WASD でカメラ移動、矢印で視点回転、L で lightmap on/off、Esc 終了

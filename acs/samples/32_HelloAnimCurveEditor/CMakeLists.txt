@@ -1,12 +1,12 @@
-# HelloAnimCurveEditor — FAnimationCurve エディタ。
-# editor_core (FEditorWorkspace + FEditorTheme) と animcurve/FAnimCurveEditorPanel
-# を 1 つの ImGui Workspace に統合し、FAnimationCurve のキー打ち + tangent 編集
+# HelloAnimCurveEditor — AnimationCurve エディタ。
+# editor_core (EditorWorkspace + EditorTheme) と animcurve/AnimCurveEditorPanel
+# を 1 つの ImGui Workspace に統合し、AnimationCurve のキー打ち + tangent 編集
 # を対話的に行えるサンプル。
 #
 # 構成:
 #   main.cpp               - ACS_GAME_MAIN(AnimCurveApp) のみ
-#   AnimCurveApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
-#   AnimCurveScene.{h,cpp} - Workspace + Panel + Curve を持つ FScene
+#   AnimCurveApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
+#   AnimCurveScene.{h,cpp} - Workspace + Panel + Curve を持つ Scene
 #
 # 必須バックエンド: ImGui 統合は ACS_RENDER_DX12_RAW 専用 (acs_imgui module の
 # 制約)。samples/21_HelloImGui / 29_HelloParticleEditor / 30_HelloSceneInspector

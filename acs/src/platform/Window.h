@@ -2,13 +2,13 @@
 // Win32 ウィンドウ（イベント駆動、初学者向け簡易 API）
 //
 // 使い方:
-//   FWindowConfig cfg;
+//   WindowConfig cfg;
 //   cfg.title  = L"MyGame";
 //   cfg.width  = 1280;
 //   cfg.height = 720;
-//   auto wr = FWindow::Create(cfg);
+//   auto wr = Window::Create(cfg);
 //   if (wr.IsErr()) return -1;
-//   FWindow& w = wr.Value();
+//   Window& w = wr.Value();
 //
 //   while (!w.ShouldClose()) {
 //       w.PollEvents();
@@ -23,8 +23,8 @@
 namespace acs {
 
 // ウィンドウ作成オプション
-struct FWindowConfig {
-    const wchar_t* title       = L"ACS FWindow";
+struct WindowConfig {
+    const wchar_t* title       = L"ACS Window";
     u32            width       = 1280;
     u32            height      = 720;
     bool           resizable   = true;
@@ -33,20 +33,20 @@ struct FWindowConfig {
 };
 
 // イベントコールバック関数型（PollEvents 中に複数回呼ばれる）
-using EventCallback = void (*)(void* user, const FEvent& e);
+using EventCallback = void (*)(void* user, const Event& e);
 
-class FWindow {
+class Window {
 public:
-    FWindow() noexcept = default;
-    ~FWindow() noexcept;
+    Window() noexcept = default;
+    ~Window() noexcept;
 
-    FWindow(const FWindow&) = delete;
-    FWindow& operator=(const FWindow&) = delete;
-    FWindow(FWindow&& o) noexcept;
-    FWindow& operator=(FWindow&& o) noexcept;
+    Window(const Window&) = delete;
+    Window& operator=(const Window&) = delete;
+    Window(Window&& o) noexcept;
+    Window& operator=(Window&& o) noexcept;
 
     // ウィンドウ生成（失敗時は Err）
-    static TResult<FWindow> Create(const FWindowConfig& cfg) noexcept;
+    static TResult<Window> Create(const WindowConfig& cfg) noexcept;
 
     // メッセージキューを処理（メインループで毎フレーム呼ぶ）
     void PollEvents() noexcept;
@@ -75,7 +75,7 @@ public:
     bool IsFullscreen() const noexcept { return _fullscreen; }
 
     // 内部用: WindowProc から呼ばれるイベント発行
-    void DispatchEvent_Internal(const FEvent& e) noexcept;
+    void DispatchEvent_Internal(const Event& e) noexcept;
     // 内部用: WindowProc から呼ばれるサイズ更新
     void UpdateSize_Internal(u32 w, u32 h) noexcept { _width = w; _height = h; }
 

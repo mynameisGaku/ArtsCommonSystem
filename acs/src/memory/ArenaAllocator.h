@@ -8,15 +8,15 @@
 
 namespace acs {
 
-class FArenaAllocator final : public FAllocator {
+class ArenaAllocator final : public Allocator {
 public:
     // 1 ページあたりのサイズを指定（既定 64KB）
-    FArenaAllocator(usize page_size = 64 * 1024,
-                   FAllocator* backing = nullptr) noexcept;
-    ~FArenaAllocator() noexcept override;
+    ArenaAllocator(usize page_size = 64 * 1024,
+                   Allocator* backing = nullptr) noexcept;
+    ~ArenaAllocator() noexcept override;
 
-    FArenaAllocator(const FArenaAllocator&) = delete;
-    FArenaAllocator& operator=(const FArenaAllocator&) = delete;
+    ArenaAllocator(const ArenaAllocator&) = delete;
+    ArenaAllocator& operator=(const ArenaAllocator&) = delete;
 
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free (void* ptr) noexcept override;  // no-op
@@ -30,19 +30,19 @@ public:
 
 private:
     // 1 ページの管理ヘッダ
-    struct FPage {
-        FPage*       next;     // 単方向リンク
+    struct Page {
+        Page*       next;     // 単方向リンク
         u8*         base;     // データ領域先頭
         u64         size;     // データ領域サイズ
         TAtomic<u64> used;     // 現在のカーソル位置
     };
 
-    FPage* AllocPage(usize size) noexcept;
+    Page* AllocPage(usize size) noexcept;
 
-    FAllocator*    _backing  = nullptr;
+    Allocator*    _backing  = nullptr;
     usize         _page_size = 0;
-    TAtomic<FPage*> _current  {nullptr};   // 現在書き込み中のページ
-    FPage*         _pages    = nullptr;   // 全ページのリスト
+    TAtomic<Page*> _current  {nullptr};   // 現在書き込み中のページ
+    Page*         _pages    = nullptr;   // 全ページのリスト
     FMutex         _grow_lock;            // 新ページ確保用
     TAtomic<u64>   _bytes {0};
     mutable TAtomic<u64> _peak  {0};

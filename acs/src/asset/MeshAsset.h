@@ -17,7 +17,7 @@
 namespace acs {
 
 // 標準頂点フォーマット (32 bytes)
-struct FMeshVertex {
+struct MeshVertex {
     FVec3 position;
     FVec3 normal;
     f32  u;
@@ -25,59 +25,59 @@ struct FMeshVertex {
 };
 
 // サブメッシュ（複数マテリアル対応用、開始 index と数だけ持つ）
-struct FSubMesh {
+struct SubMesh {
     u32 first_index = 0;
     u32 index_count = 0;
 };
 
-class FMeshAsset : public FAsset {
+class MeshAsset : public Asset {
 public:
-    ACS_ASSET_TYPE("FMeshAsset")
+    ACS_ASSET_TYPE("MeshAsset")
 
-    FMeshAsset() noexcept = default;
+    MeshAsset() noexcept = default;
 
-    const TArray<FMeshVertex>& Vertices()  const noexcept { return _vertices; }
-    TArray<FMeshVertex>&       Vertices()        noexcept { return _vertices; }
+    const TArray<MeshVertex>& Vertices()  const noexcept { return _vertices; }
+    TArray<MeshVertex>&       Vertices()        noexcept { return _vertices; }
     const TArray<u32>&        Indices()   const noexcept { return _indices; }
     TArray<u32>&              Indices()         noexcept { return _indices; }
-    const TArray<FSubMesh>&    SubMeshes() const noexcept { return _submeshes; }
-    TArray<FSubMesh>&          SubMeshes()       noexcept { return _submeshes; }
+    const TArray<SubMesh>&    SubMeshes() const noexcept { return _submeshes; }
+    TArray<SubMesh>&          SubMeshes()       noexcept { return _submeshes; }
 
 private:
-    TArray<FMeshVertex> _vertices;
+    TArray<MeshVertex> _vertices;
     TArray<u32>        _indices;
-    TArray<FSubMesh>    _submeshes;
+    TArray<SubMesh>    _submeshes;
 };
 
 // glTF / GLB ローダ (cgltf)
-class FGltfAssetLoader final : public IAssetLoader {
+class GltfAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return MeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "gltf"; }
-    TResult<TRc<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
-class FGlbAssetLoader final : public IAssetLoader {
+class GlbAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return MeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "glb"; }
-    TResult<TRc<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 // Wavefront OBJ ローダ（自前パーサ）
-class FObjAssetLoader final : public IAssetLoader {
+class ObjAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return MeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "obj"; }
-    TResult<TRc<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 // FBX ローダ (ufbx)
-class FFbxAssetLoader final : public IAssetLoader {
+class FbxAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return MeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "fbx"; }
-    TResult<TRc<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

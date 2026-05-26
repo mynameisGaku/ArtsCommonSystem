@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Math — FMathDispatch 実装
+// ACS Math — MathDispatch 実装
 // -----------------------------------------------------------------------------
 // CPU 機能を見て関数ポインタテーブルを構築。
 // 現状は SSE2 ベースライン経路のみ実装。AVX2 専用ビルド (/arch:AVX2 で
@@ -35,7 +35,7 @@ void TransformVectorsAvx2(const FVec3* in, FVec3* out, usize count, const FMat4&
     TransformVectorsScalar(in, out, count, m);
 }
 
-FMathDispatch  g_dispatch {};
+MathDispatch  g_dispatch {};
 TAtomic<u32>   g_inited {0};
 
 // CPU 機能を見て関数ポインタを差し替える
@@ -51,7 +51,7 @@ void Init() noexcept {
 
 } // namespace
 
-const FMathDispatch& GetMathDispatch() noexcept {
+const MathDispatch& GetMathDispatch() noexcept {
     if (g_inited.Load(EMemoryOrder::Acquire) == 0) {
         u32 expected = 0;
         if (g_inited.CompareExchange(expected, 1)) {

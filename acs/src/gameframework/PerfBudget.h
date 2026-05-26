@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework meta — FPerfBudget (CPU/メモリ予算追跡)
+// GameFramework meta — PerfBudget (CPU/メモリ予算追跡)
 //
 // フレーム時間 (ms) とメモリ確保量 (bytes) の **予算超過追跡**を行う state holder。
 // カテゴリ単位で予算を定義し、毎フレーム実測値を記録 → 集計し、各カテゴリ・フレーム
-// 全体の超過状態を問い合わせ可能にする。実 UI 描画 (FDebugOverlay / ImGui /
+// 全体の超過状態を問い合わせ可能にする。実 UI 描画 (DebugOverlay / ImGui /
 // `acs::easy::DrawString` 等) は呼出し側責務。
 //
 // 使い方:
-//   acs::game::FPerfBudget _budget;
+//   acs::game::PerfBudget _budget;
 //   void OnInit() noexcept {
 //       _budget.SetFrameBudget(16.67f);                // 60fps
 //       _budget.DefineCategory("Render", 8.0f, 64u*1024u*1024u);
@@ -24,13 +24,13 @@
 //   }
 //
 // 設計選択 (GameFramework meta Phase 1):
-//   ・**state holder のみ**: 計測 (QueryPerformanceCounter / FAllocator hook 等) は
+//   ・**state holder のみ**: 計測 (QueryPerformanceCounter / Allocator hook 等) は
 //     呼出し側責務。本クラスは値の保持・集計・予算判定だけを行う。
 //   ・**category は line-key 検索**: `const char*` を pointer 同一 → strcmp の順で
-//     線形走査。FDebugOverlay watches と同じ規約。category 数は通常 10〜50 程度を想定
+//     線形走査。DebugOverlay watches と同じ規約。category 数は通常 10〜50 程度を想定
 //     し、O(N) 走査で十分高速。
 //   ・**frame 履歴**: 直近 60 frame の合計 ms 値を循環バッファで保持。AverageFrameMs
-//     は履歴の算術平均、LastFrameMs は最新値。FDebugOverlay と同じパターン。
+//     は履歴の算術平均、LastFrameMs は最新値。DebugOverlay と同じパターン。
 //   ・**spent_ms は BeginFrame でリセット、spent_bytes は累積**:
 //     - spent_ms は per-frame 時間なので 1 frame 単位で 0 リセット。
 //     - spent_bytes は (alloc / free) の差分累積 (現在保持中の合計)。EndFrame でも
@@ -42,13 +42,13 @@
 //   ・**Reset**: 全 category を削除し、frame 履歴もクリア。SetFrameBudget で設定
 //     した frame_budget_ms はリセットされない (頻繁に再定義する想定がない)。
 //   ・**非コピー・非ムーブ**: 履歴 / category 配列の所有権を曖昧にしないため。
-//   ・**STL 不使用**: `acs::TArray<FBudgetEntry>` / `acs::TArray<f32>` を使用。
+//   ・**STL 不使用**: `acs::TArray<BudgetEntry>` / `acs::TArray<f32>` を使用。
 //     `<string>` 禁止。実装側で `<cstring>` (strcmp) のみ許可。
 //
 // 範囲外 (将来 phase で):
 //   ・スレッドセーフ (Record 系は 1 thread 前提。MT 計測は外側で集計してから注入)
 //   ・スコープガード `BudgetScope` (RAII で auto record)
-//   ・自動メモリトラッキング (Pillar A `FAllocator` hook 経由で alloc/free を自動記録)
+//   ・自動メモリトラッキング (Pillar A `Allocator` hook 経由で alloc/free を自動記録)
 //   ・カテゴリ階層 ("Render/Shadow" "Render/Post" 等)
 #pragma once
 
@@ -59,7 +59,7 @@ namespace acs::game {
 
 // 1 カテゴリ分の予算 + 実測。
 // category は caller 所有 (本クラスは複製しない、リテラル想定)。
-struct FBudgetEntry {
+struct BudgetEntry {
     const char* category    = nullptr;
     f32         spent_ms    = 0.0f;   // 現フレームの累積時間 (BeginFrame でリセット)
     f32         budget_ms   = 0.0f;   // 上限 (超過判定用)
@@ -67,16 +67,16 @@ struct FBudgetEntry {
     u32         budget_bytes = 0u;    // 上限 (超過判定用)
 };
 
-class FPerfBudget {
+class PerfBudget {
 public:
-    FPerfBudget() noexcept = default;
-    ~FPerfBudget() noexcept = default;
+    PerfBudget() noexcept = default;
+    ~PerfBudget() noexcept = default;
 
     // 非コピー・非ムーブ (履歴 / category の所有権を曖昧にしないため)
-    FPerfBudget(const FPerfBudget&)            = delete;
-    FPerfBudget& operator=(const FPerfBudget&) = delete;
-    FPerfBudget(FPerfBudget&&)                 = delete;
-    FPerfBudget& operator=(FPerfBudget&&)      = delete;
+    PerfBudget(const PerfBudget&)            = delete;
+    PerfBudget& operator=(const PerfBudget&) = delete;
+    PerfBudget(PerfBudget&&)                 = delete;
+    PerfBudget& operator=(PerfBudget&&)      = delete;
 
     // ----- セットアップ -----
 
@@ -134,22 +134,22 @@ public:
     u32 CategoryCount() const noexcept;
 
     // 全 category を読み取り用に列挙。out_count に件数を書き込み、生ポインタを返す。
-    // 戻り値はクラス所有の内部バッファ (`TArray<FBudgetEntry>::Data`)。DefineCategory /
+    // 戻り値はクラス所有の内部バッファ (`TArray<BudgetEntry>::Data`)。DefineCategory /
     // Reset 呼出しまで有効。空のときは nullptr を返し out_count = 0。
-    const FBudgetEntry* AllCategories(u32& out_count) const noexcept;
+    const BudgetEntry* AllCategories(u32& out_count) const noexcept;
 
     // 全 category を削除し、frame 履歴もクリア。frame_budget_ms は保持。
     void Reset() noexcept;
 
 private:
-    // 履歴は固定容量の循環バッファ。サンプル数 = 60 (FDebugOverlay と整合)。
+    // 履歴は固定容量の循環バッファ。サンプル数 = 60 (DebugOverlay と整合)。
     static constexpr u32 kFrameHistoryCap = 60u;
 
     // category 配列内で一致する entry の index を返す。見つからなければ
     // _categories.Size() を返す (= 範囲外)。pointer 同一 → strcmp の順。
     usize FindCategoryIndex(const char* category) const noexcept;
 
-    TArray<FBudgetEntry> _categories;
+    TArray<BudgetEntry> _categories;
 
     f32  _frame_budget_ms     = 0.0f;   // 0 のとき = フレーム超過判定無効
 

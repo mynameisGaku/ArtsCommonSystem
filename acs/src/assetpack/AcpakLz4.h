@@ -51,16 +51,16 @@
 
 namespace acs::assetpack {
 
-// ---- FErrorCode subcode (FAcpakCrypto と隣接、1320 番台) -------------------
+// ---- FErrorCode subcode (AcpakCrypto と隣接、1320 番台) -------------------
 inline constexpr u16 kAcpakSubLz4SrcOverflow = 1320; // src cursor が範囲外
 inline constexpr u16 kAcpakSubLz4DstOverflow = 1321; // dst capacity 超過
 inline constexpr u16 kAcpakSubLz4BadOffset   = 1322; // offset 0 / dst 範囲外参照
 inline constexpr u16 kAcpakSubLz4BadInput    = 1323; // 入力 nullptr / size_t 異常
 
-// ---- FAcpakLz4 (static 関数群、インスタンス化しない) ----------------------
-class FAcpakLz4 {
+// ---- AcpakLz4 (static 関数群、インスタンス化しない) ----------------------
+class AcpakLz4 {
 public:
-    FAcpakLz4() = delete;
+    AcpakLz4() = delete;
 
     // 入力サイズから最悪ケースの圧縮出力サイズを算出する (LZ4 公式式)。
     // = input_size + ceil(input_size / 255) + 16
@@ -73,8 +73,8 @@ public:
     //   ・src_size が 13 バイト未満の場合は素通し (全 literal) で書く。
     //   ・成功時の戻り値は実際の圧縮後バイト数 (dst の先頭からそのバイト数)。
     // 主なエラー:
-    //   ・ACS_ERR(FAsset, kAcpakSubLz4BadInput,    ...) — src/dst nullptr 等
-    //   ・ACS_ERR(FAsset, kAcpakSubLz4DstOverflow, ...) — dst_capacity 不足
+    //   ・ACS_ERR(Asset, kAcpakSubLz4BadInput,    ...) — src/dst nullptr 等
+    //   ・ACS_ERR(Asset, kAcpakSubLz4DstOverflow, ...) — dst_capacity 不足
     static TResult<u32> Compress(const u8* src,
                                 u32       src_size,
                                 u8*       dst,
@@ -83,13 +83,13 @@ public:
     // src (src_size バイト) を dst (dst_capacity バイト) に解凍する。
     //   ・src_size == 0 のときは Ok(0) (空ブロック)。
     //   ・dst_capacity は元データサイズ以上必要。実際の解凍後サイズが
-    //     返り値となる (呼び出し側は FAcpakFileEntry::size_uncompressed と
+    //     返り値となる (呼び出し側は AcpakFileEntry::size_uncompressed と
     //     一致するか検証する)。
     //   ・全ループで境界検査を行い、不正入力で OOB を起こさない。
     // 主なエラー:
-    //   ・ACS_ERR(FAsset, kAcpakSubLz4SrcOverflow, ...) — 入力が途中で尽きた
-    //   ・ACS_ERR(FAsset, kAcpakSubLz4DstOverflow, ...) — 出力が dst を超えた
-    //   ・ACS_ERR(FAsset, kAcpakSubLz4BadOffset,   ...) — match offset が不正
+    //   ・ACS_ERR(Asset, kAcpakSubLz4SrcOverflow, ...) — 入力が途中で尽きた
+    //   ・ACS_ERR(Asset, kAcpakSubLz4DstOverflow, ...) — 出力が dst を超えた
+    //   ・ACS_ERR(Asset, kAcpakSubLz4BadOffset,   ...) — match offset が不正
     static TResult<u32> Decompress(const u8* src,
                                   u32       src_size,
                                   u8*       dst,

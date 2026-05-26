@@ -26,11 +26,11 @@ enum class ErrCategory : u16 {
     Memory      = 2,    // メモリ割り当て失敗 / OOM / アライメント違反
     OS          = 3,    // OS / Win32 システムコールの失敗
     IO          = 4,    // ファイル / ネットワーク I/O 失敗
-    FContainer   = 5,    // 範囲外参照 / 容量超過 / キー未検出
+    Container   = 5,    // 範囲外参照 / 容量超過 / キー未検出
     Threading   = 6,    // 排他制御失敗 / デッドロック検出 / スレッド生成失敗
     Math        = 7,    // 数学領域エラー（NaN / 0 除算 等）
     Render      = 8,    // グラフィックスバックエンドの失敗 (DX12 等)
-    FAsset       = 9,    // アセット読み込み / デコード失敗
+    Asset       = 9,    // アセット読み込み / デコード失敗
     UserCancel  = 10,   // ユーザーによるキャンセル
 };
 
@@ -69,11 +69,11 @@ constexpr const char* ToString(ErrCategory c) noexcept {
         case ErrCategory::Memory:     return "Memory";
         case ErrCategory::OS:         return "OS";
         case ErrCategory::IO:         return "IO";
-        case ErrCategory::FContainer:  return "FContainer";
+        case ErrCategory::Container:  return "Container";
         case ErrCategory::Threading:  return "Threading";
         case ErrCategory::Math:       return "Math";
         case ErrCategory::Render:     return "Render";
-        case ErrCategory::FAsset:      return "FAsset";
+        case ErrCategory::Asset:      return "Asset";
         case ErrCategory::UserCancel: return "UserCancel";
     }
     return "Unknown";

@@ -2,12 +2,12 @@
 // ACS Easy — 実装
 //
 // 設計:
-//   ・acs::FApplication は使わず、独立した入口として自前でエンジンを起動する。
+//   ・acs::Application は使わず、独立した入口として自前でエンジンを起動する。
 //   ・状態は単一のグローバル EasyState（このファイル内のみ）。単一スレッド前提。
 //   ・OpenWindow で起動、NextFrame で 1 フレーム駆動（前フレーム提示 → 入力 →
 //     クリア → 描画開始）、ウィンドウが閉じたら NextFrame 内で後始末する。
-//   ・図形・スプライト・文字は FSpriteBatch に集約。回転は FSpriteBatch::DrawRotated、
-//     カメラは FSpriteBatch::SetView（VS でワールド→スクリーン変換）。
+//   ・図形・スプライト・文字は SpriteBatch に集約。回転は SpriteBatch::DrawRotated、
+//     カメラは SpriteBatch::SetView（VS でワールド→スクリーン変換）。
 //   ・公開 API の位置 (x,y) はすべて図形・画像の左上に統一（円のみ中心）。
 #include "easy/Easy.h"
 
@@ -61,7 +61,7 @@ const FColor FColor::White  { 1.0f,  1.0f,  1.0f,  1.0f };
 const FColor FColor::Black  { 0.0f,  0.0f,  0.0f,  1.0f };
 const FColor FColor::Gray   { 0.52f, 0.54f, 0.60f, 1.0f };
 const FColor FColor::Orange { 1.0f,  0.55f, 0.15f, 1.0f };
-const FColor FColor::FSky    { 0.45f, 0.70f, 0.95f, 1.0f };
+const FColor FColor::Sky    { 0.45f, 0.70f, 0.95f, 1.0f };
 const FColor FColor::Clear  { 0.0f,  0.0f,  0.0f,  0.0f };
 
 // ============================================================================
@@ -77,9 +77,9 @@ struct SpriteSlot {
 };
 
 struct SoundSlot {
-    TRc<FAsset>   asset;     // FAudioAsset を再生中ずっと生かしておくため保持
+    TRc<Asset>   asset;     // AudioAsset を再生中ずっと生かしておくため保持
     FString      path;
-    FSoundHandle loop{};    // PlayLoop 中のハンドル（StopSound 用、無効値で初期化）
+    SoundHandle loop{};    // PlayLoop 中のハンドル（StopSound 用、無効値で初期化）
 };
 
 struct EasyState {
@@ -87,37 +87,37 @@ struct EasyState {
     bool booted      = false;  // OpenWindow に成功した
     bool boot_failed = false;  // OpenWindow に失敗した
     bool finished    = false;  // NextFrame が false を返し、後始末も済んだ
-    bool frame_open  = false;  // FSpriteBatch::Begin 済み（この間だけ描画可能）
+    bool frame_open  = false;  // SpriteBatch::Begin 済み（この間だけ描画可能）
     bool quit_req    = false;  // Quit() が呼ばれた
     bool warned_draw = false;  // 「枠の外で描画した」警告を 1 度だけ出す用
     i32  fs_request  = -1;     // 保留中の全画面切替（-1:無し 0:窓 1:全画面）
 
     // エンジンオブジェクト（宣言順 = 構築順。破棄は逆順）
-    FWindow        window;
-    FRenderer      renderer;
-    FAssetRegistry assets;
-    FAudioEngine   audio;
+    Window        window;
+    Renderer      renderer;
+    AssetRegistry assets;
+    AudioEngine   audio;
     bool          audio_ok = false;
-    FSpriteBatch   batch;
-    FFont          font;
+    SpriteBatch   batch;
+    Font          font;
     bool          font_ok  = false;
     TUniquePtr<IRhiTexture> circle_tex;
 
     TArray<SpriteSlot> sprites;
     TArray<SoundSlot>  sounds;
 
-    FFrameTimer  timer;
+    FrameTimer  timer;
     f32         dt    = 0.0f;
-    FClearColor  clear { 0.10f, 0.12f, 0.16f, 1.0f };
+    ClearColor  clear { 0.10f, 0.12f, 0.16f, 1.0f };
 
     // カメラ（毎フレーム恒等にリセットされる）
     f32 cam_x = 0.0f, cam_y = 0.0f, cam_zoom = 1.0f;
 
     // ポストプロセス（HDR 経路。Diligent backend でのみ有効）
-    FPostProcess       post;
+    PostProcess       post;
     bool              post_available = false;
     u32               post_buf_idx   = 0;
-    FPostProcessParams pp_params;
+    PostProcessParams pp_params;
 
     wchar_t title_buf[256] = L"ACS Easy";
 };
@@ -209,7 +209,7 @@ bool LoadDefaultFont(IRhiDevice& device) noexcept {
     return false;
 }
 
-// ---- サイズ可変テキスト描画（FFont のグリフを並べ、scale 倍で拡縮）----------
+// ---- サイズ可変テキスト描画（Font のグリフを並べ、scale 倍で拡縮）----------
 void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noexcept {
     IRhiTexture* atlas = g_state.font.AtlasTexture();
     if (!atlas || !text) return;
@@ -224,7 +224,7 @@ void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noex
             baseline += g_state.font.LineHeight() * scale;
             continue;
         }
-        FGlyphInfo g{};
+        GlyphInfo g{};
         if (!g_state.font.GetGlyph(cp, g)) continue;
         const f32 qx = pen_x     + g.x_offset * scale;
         const f32 qy = baseline + g.y_offset * scale;
@@ -234,9 +234,9 @@ void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noex
     }
 }
 
-// ---- ウィンドウイベントを FInput / FRenderer へ橋渡し ------------------------
-void EasyEventBridge(void* /*user*/, const FEvent& e) noexcept {
-    FInput::OnEvent(e);
+// ---- ウィンドウイベントを Input / Renderer へ橋渡し ------------------------
+void EasyEventBridge(void* /*user*/, const Event& e) noexcept {
+    Input::OnEvent(e);
     if (e.type == EventType::WindowResize) {
         g_state.renderer.OnResize(e.resize.width, e.resize.height);
         if (g_state.post_available)
@@ -257,11 +257,11 @@ void ShutdownEasy() noexcept {
     g_state.assets.Clear();
     if (g_state.post_available) g_state.post.Shutdown();
     g_state.renderer.Shutdown();             // ここで GPU デバイスを破棄する
-    FThreadPool::Shutdown();
-    FMemorySystem::Shutdown();
+    ThreadPool::Shutdown();
+    MemorySystem::Shutdown();
     ACS_LOG_INFO("easy: 終了しました");
-    FLogger::Flush();
-    FLogger::Shutdown();
+    Logger::Flush();
+    Logger::Shutdown();
 }
 
 void RunShutdownOnce() {
@@ -327,7 +327,7 @@ SaveEntry* FindSave(const char* key) noexcept {
 void WriteSaveFile() noexcept {
     FILE* f = nullptr;
     if (fopen_s(&f, "save.dat", "wb") != 0 || !f) {
-        // FLogger 稼働中のみ警告（OpenWindow 前/終了後の Save でも安全に）
+        // Logger 稼働中のみ警告（OpenWindow 前/終了後の Save でも安全に）
         if (g_state.booted && !g_state.finished)
             ACS_LOG_WARN("easy: セーブファイルに書き込めません");
         return;
@@ -384,27 +384,27 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
 
     // 1. ロガー
     FLogConfig lc{};
-    FLogger::Init(lc);
+    Logger::Init(lc);
 
     // 2. メモリシステム
-    if (auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig()); r.IsErr()) {
+    if (auto r = MemorySystem::Init(MemorySystem::DefaultConfig()); r.IsErr()) {
         ACS_LOG_ERROR("easy: メモリシステムの初期化に失敗: %s", r.Error().message);
         g_state.boot_failed = true;
         return;
     }
     // 3. スレッドプール
-    if (auto r = FThreadPool::Init(); r.IsErr()) {
+    if (auto r = ThreadPool::Init(); r.IsErr()) {
         ACS_LOG_ERROR("easy: スレッドプールの初期化に失敗: %s", r.Error().message);
         g_state.boot_failed = true;
         return;
     }
     // 4. ウィンドウ
-    ToWide(title ? title : "ACS FGame", g_state.title_buf, 256);
-    FWindowConfig wc{};
+    ToWide(title ? title : "ACS Game", g_state.title_buf, 256);
+    WindowConfig wc{};
     wc.title  = g_state.title_buf;
     wc.width  = (width  > 0) ? static_cast<u32>(width)  : 1280;
     wc.height = (height > 0) ? static_cast<u32>(height) : 720;
-    auto wr = FWindow::Create(wc);
+    auto wr = Window::Create(wc);
     if (wr.IsErr()) {
         ACS_LOG_ERROR("easy: ウィンドウの作成に失敗: %s", wr.Error().message);
         g_state.boot_failed = true;
@@ -441,7 +441,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
         }
     }
 
-    // 7. アセット・描画ヘルパ（ポスト有効時は FSpriteBatch を HDR RT 向けに作る）
+    // 7. アセット・描画ヘルパ（ポスト有効時は SpriteBatch を HDR RT 向けに作る）
     g_state.assets.RegisterDefaultLoaders();
     const EFormat batch_fmt = g_state.post_available
         ? g_state.post.HdrFormat() : g_state.renderer.ColorFormat();
@@ -458,8 +458,8 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     if (!g_state.audio_ok)
         ACS_LOG_WARN("easy: 音声を初期化できませんでした（音は鳴りません）");
 
-    g_state.timer  = FFrameTimer{};
-    g_rng          = static_cast<u32>(FClock::Ticks());   // 乱数の種を起動時刻で
+    g_state.timer  = FrameTimer{};
+    g_rng          = static_cast<u32>(Clock::Ticks());   // 乱数の種を起動時刻で
     if (g_rng == 0) g_rng = 0x9E3779B9u;
     g_state.booted = true;
     std::atexit(&RunShutdownOnce);
@@ -496,7 +496,7 @@ bool NextFrame() noexcept {
     }
 
     // フレーム先頭処理
-    FInput::Update();
+    Input::Update();
     g_state.window.PollEvents();
 
     // 保留中の全画面切替を、フレームの外側（リサイズが安全なこの位置）で適用
@@ -505,7 +505,7 @@ bool NextFrame() noexcept {
         g_state.fs_request = -1;
     }
 
-    FMemorySystem::ResetTemp();
+    MemorySystem::ResetTemp();
     g_state.dt = g_state.timer.Tick();
 
     // 終了判定（× ボタン or Quit()）
@@ -550,7 +550,7 @@ bool NextFrame() noexcept {
         return false;
     }
     g_state.batch.Begin(*cl, g_state.window.Width(), g_state.window.Height());
-    // カメラを恒等（カメラ無し）にリセット。FSpriteBatch::Begin の既定と一致させる。
+    // カメラを恒等（カメラ無し）にリセット。SpriteBatch::Begin の既定と一致させる。
     g_state.cam_x    = static_cast<f32>(g_state.window.Width())  * 0.5f;
     g_state.cam_y    = static_cast<f32>(g_state.window.Height()) * 0.5f;
     g_state.cam_zoom = 1.0f;
@@ -567,7 +567,7 @@ void SetWindowTitle(const char* title) noexcept {
 }
 
 void SetBackground(FColor color) noexcept {
-    g_state.clear = FClearColor{ color.r, color.g, color.b, color.a };
+    g_state.clear = ClearColor{ color.r, color.g, color.b, color.a };
 }
 
 void SetFullscreen(bool on) noexcept {
@@ -645,7 +645,7 @@ void DrawRectOutline(f32 x, f32 y, f32 width, f32 height,
 void DrawRectRotated(f32 x, f32 y, f32 width, f32 height,
                      f32 degrees, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    // 左上指定を中心へ変換して FSpriteBatch に渡す
+    // 左上指定を中心へ変換して SpriteBatch に渡す
     g_state.batch.DrawRectRotated(x + width * 0.5f, y + height * 0.5f,
                                  width, height, degrees * kDeg2Rad, ToVec4(color));
 }
@@ -716,7 +716,7 @@ void DrawPixel(f32 x, f32 y, FColor color) noexcept {
 // ============================================================================
 // 画像（スプライト）を描く
 // ============================================================================
-void DrawSprite(FSprite sprite, f32 x, f32 y) noexcept {
+void DrawSprite(Sprite sprite, f32 x, f32 y) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
     SpriteSlot& s = g_state.sprites[sprite.id - 1];
@@ -724,7 +724,7 @@ void DrawSprite(FSprite sprite, f32 x, f32 y) noexcept {
         g_state.batch.Draw(*s.tex, x, y, s.w, s.h, FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
-void DrawSprite(FSprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
+void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
     SpriteSlot& s = g_state.sprites[sprite.id - 1];
@@ -732,7 +732,7 @@ void DrawSprite(FSprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
         g_state.batch.Draw(*s.tex, x, y, width, height, FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
-void DrawSpriteRotated(FSprite sprite, f32 x, f32 y, f32 degrees,
+void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
                        f32 scale, FColor tint) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
@@ -745,7 +745,7 @@ void DrawSpriteRotated(FSprite sprite, f32 x, f32 y, f32 degrees,
                              degrees * kDeg2Rad, 0, 0, 1, 1, ToVec4(tint));
 }
 
-void DrawSpriteTinted(FSprite sprite, f32 x, f32 y, FColor tint) noexcept {
+void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, FColor tint) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
     SpriteSlot& s = g_state.sprites[sprite.id - 1];
@@ -753,7 +753,7 @@ void DrawSpriteTinted(FSprite sprite, f32 x, f32 y, FColor tint) noexcept {
         g_state.batch.Draw(*s.tex, x, y, s.w, s.h, ToVec4(tint));
 }
 
-void DrawSpriteFlipped(FSprite sprite, f32 x, f32 y,
+void DrawSpriteFlipped(Sprite sprite, f32 x, f32 y,
                        bool flip_x, bool flip_y) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
@@ -765,7 +765,7 @@ void DrawSpriteFlipped(FSprite sprite, f32 x, f32 y,
                          FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
-void DrawSpritePart(FSprite sprite, f32 x, f32 y, f32 width, f32 height,
+void DrawSpritePart(Sprite sprite, f32 x, f32 y, f32 width, f32 height,
                     f32 src_x, f32 src_y, f32 src_width, f32 src_height) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
@@ -777,12 +777,12 @@ void DrawSpritePart(FSprite sprite, f32 x, f32 y, f32 width, f32 height,
                          FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
-f32 SpriteWidth(FSprite sprite) noexcept {
+f32 SpriteWidth(Sprite sprite) noexcept {
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return 0.0f;
     return g_state.sprites[sprite.id - 1].w;
 }
 
-f32 SpriteHeight(FSprite sprite) noexcept {
+f32 SpriteHeight(Sprite sprite) noexcept {
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return 0.0f;
     return g_state.sprites[sprite.id - 1].h;
 }
@@ -889,35 +889,35 @@ void ClearClipRect() noexcept {
 // ============================================================================
 // 素材
 // ============================================================================
-FSprite LoadSprite(const char* path) noexcept {
+Sprite LoadSprite(const char* path) noexcept {
     if (!g_state.booted) {
         ACS_LOG_WARN("easy: LoadSprite() は OpenWindow() の後で呼んでください");
-        return FSprite{ 0 };
+        return Sprite{ 0 };
     }
-    if (!path) return FSprite{ 0 };
+    if (!path) return Sprite{ 0 };
     for (usize i = 0; i < g_state.sprites.Size(); ++i) {
         const char* p = g_state.sprites[i].path.Data();
         if (p && strcmp(p, path) == 0)
-            return FSprite{ static_cast<u32>(i + 1) };
+            return Sprite{ static_cast<u32>(i + 1) };
     }
     wchar_t wpath[512];
     ToWide(path, wpath, 512);
     auto r = g_state.assets.Load(wpath);
     if (r.IsErr()) {
         ACS_LOG_ERROR("easy: 画像を読み込めません '%s': %s", path, r.Error().message);
-        return FSprite{ 0 };
+        return Sprite{ 0 };
     }
-    TRc<FAsset> asset = r.Value();
-    FAsset* base = asset.Get();
-    if (!base || base->Type() != FImageAsset::StaticType()) {
+    TRc<Asset> asset = r.Value();
+    Asset* base = asset.Get();
+    if (!base || base->Type() != ImageAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は画像ファイルではありません", path);
-        return FSprite{ 0 };
+        return Sprite{ 0 };
     }
-    FImageAsset* img = static_cast<FImageAsset*>(base);
+    ImageAsset* img = static_cast<ImageAsset*>(base);
     auto tx = UploadTexture(*g_state.renderer.Device(), *img);
     if (tx.IsErr()) {
         ACS_LOG_ERROR("easy: 画像を GPU に転送できません '%s': %s", path, tx.Error().message);
-        return FSprite{ 0 };
+        return Sprite{ 0 };
     }
     SpriteSlot slot;
     slot.tex  = Move(tx.Value());
@@ -925,73 +925,73 @@ FSprite LoadSprite(const char* path) noexcept {
     slot.w    = static_cast<f32>(img->Width());
     slot.h    = static_cast<f32>(img->Height());
     g_state.sprites.PushBack(Move(slot));
-    return FSprite{ static_cast<u32>(g_state.sprites.Size()) };
+    return Sprite{ static_cast<u32>(g_state.sprites.Size()) };
 }
 
-FSound LoadSound(const char* path) noexcept {
+Sound LoadSound(const char* path) noexcept {
     if (!g_state.booted) {
         ACS_LOG_WARN("easy: LoadSound() は OpenWindow() の後で呼んでください");
-        return FSound{ 0 };
+        return Sound{ 0 };
     }
-    if (!path) return FSound{ 0 };
+    if (!path) return Sound{ 0 };
     for (usize i = 0; i < g_state.sounds.Size(); ++i) {
         const char* p = g_state.sounds[i].path.Data();
         if (p && strcmp(p, path) == 0)
-            return FSound{ static_cast<u32>(i + 1) };
+            return Sound{ static_cast<u32>(i + 1) };
     }
     wchar_t wpath[512];
     ToWide(path, wpath, 512);
     auto r = g_state.assets.Load(wpath);
     if (r.IsErr()) {
         ACS_LOG_ERROR("easy: 音声を読み込めません '%s': %s", path, r.Error().message);
-        return FSound{ 0 };
+        return Sound{ 0 };
     }
-    TRc<FAsset> asset = r.Value();
-    FAsset* base = asset.Get();
-    if (!base || base->Type() != FAudioAsset::StaticType()) {
+    TRc<Asset> asset = r.Value();
+    Asset* base = asset.Get();
+    if (!base || base->Type() != AudioAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は音声ファイルではありません", path);
-        return FSound{ 0 };
+        return Sound{ 0 };
     }
     SoundSlot slot;
     slot.asset = asset;            // TRc をコピー保持 -> 再生中ずっと生かす
     slot.path  = FString{ path };
     g_state.sounds.PushBack(Move(slot));
-    return FSound{ static_cast<u32>(g_state.sounds.Size()) };
+    return Sound{ static_cast<u32>(g_state.sounds.Size()) };
 }
 
 // ============================================================================
 // 音
 // ============================================================================
-void Play(FSound sound) noexcept { Play(sound, 1.0f); }
+void Play(Sound sound) noexcept { Play(sound, 1.0f); }
 
-void Play(FSound sound, f32 volume) noexcept {
+void Play(Sound sound, f32 volume) noexcept {
     if (!g_state.audio_ok) return;
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
-    FAsset* base = g_state.sounds[sound.id - 1].asset.Get();
+    Asset* base = g_state.sounds[sound.id - 1].asset.Get();
     if (base)
-        g_state.audio.Play(*static_cast<FAudioAsset*>(base), Clamp01(volume), false);
+        g_state.audio.Play(*static_cast<AudioAsset*>(base), Clamp01(volume), false);
 }
 
-void PlayLoop(FSound sound) noexcept { PlayLoop(sound, 1.0f); }
+void PlayLoop(Sound sound) noexcept { PlayLoop(sound, 1.0f); }
 
-void PlayLoop(FSound sound, f32 volume) noexcept {
+void PlayLoop(Sound sound, f32 volume) noexcept {
     if (!g_state.audio_ok) return;
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
     SoundSlot& slot = g_state.sounds[sound.id - 1];
-    FAsset* base = slot.asset.Get();
+    Asset* base = slot.asset.Get();
     if (!base) return;
     if (slot.loop.IsValid()) g_state.audio.Stop(slot.loop);   // 二重ループを防ぐ
-    slot.loop = g_state.audio.Play(*static_cast<FAudioAsset*>(base),
+    slot.loop = g_state.audio.Play(*static_cast<AudioAsset*>(base),
                                   Clamp01(volume), true);
 }
 
-void StopSound(FSound sound) noexcept {
+void StopSound(Sound sound) noexcept {
     if (!g_state.audio_ok) return;
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
     SoundSlot& slot = g_state.sounds[sound.id - 1];
     if (slot.loop.IsValid()) {
         g_state.audio.Stop(slot.loop);
-        slot.loop = FSoundHandle{};
+        slot.loop = SoundHandle{};
     }
 }
 
@@ -999,7 +999,7 @@ void StopAllSounds() noexcept {
     if (!g_state.audio_ok) return;
     g_state.audio.StopAll();
     for (usize i = 0; i < g_state.sounds.Size(); ++i)
-        g_state.sounds[i].loop = FSoundHandle{};
+        g_state.sounds[i].loop = SoundHandle{};
 }
 
 void SetMasterVolume(f32 volume) noexcept {
@@ -1017,50 +1017,50 @@ void ResumeAllSounds() noexcept {
 // ============================================================================
 // 入力 — キーボード
 // ============================================================================
-bool IsKeyDown    (EKey key) noexcept { return FInput::IsKeyDown(key); }
-bool IsKeyPressed (EKey key) noexcept { return FInput::IsKeyPressed(key); }
-bool IsKeyReleased(EKey key) noexcept { return FInput::IsKeyReleased(key); }
-const char* FTextInput() noexcept { return FInput::FTextInput(); }
+bool IsKeyDown    (EKey key) noexcept { return Input::IsKeyDown(key); }
+bool IsKeyPressed (EKey key) noexcept { return Input::IsKeyPressed(key); }
+bool IsKeyReleased(EKey key) noexcept { return Input::IsKeyReleased(key); }
+const char* TextInput() noexcept { return Input::TextInput(); }
 
 // ============================================================================
 // 入力 — マウス
 // ============================================================================
-f32  MouseX() noexcept { return FInput::MousePos().x; }
-f32  MouseY() noexcept { return FInput::MousePos().y; }
-bool IsMouseDown    (EMouseButton button) noexcept { return FInput::IsMouseButtonDown(button); }
-bool IsMousePressed (EMouseButton button) noexcept { return FInput::IsMouseButtonPressed(button); }
-bool IsMouseReleased(EMouseButton button) noexcept { return FInput::IsMouseButtonReleased(button); }
-f32  MouseWheel() noexcept { return FInput::MouseWheel(); }
+f32  MouseX() noexcept { return Input::MousePos().x; }
+f32  MouseY() noexcept { return Input::MousePos().y; }
+bool IsMouseDown    (EMouseButton button) noexcept { return Input::IsMouseButtonDown(button); }
+bool IsMousePressed (EMouseButton button) noexcept { return Input::IsMouseButtonPressed(button); }
+bool IsMouseReleased(EMouseButton button) noexcept { return Input::IsMouseButtonReleased(button); }
+f32  MouseWheel() noexcept { return Input::MouseWheel(); }
 
 // ============================================================================
 // 入力 — ゲームパッド
 // ============================================================================
 bool IsGamepadConnected(i32 player) noexcept {
-    return FInput::IsGamepadConnected(GpIdx(player));
+    return Input::IsGamepadConnected(GpIdx(player));
 }
 bool IsGamepadDown(EGamepadButton button, i32 player) noexcept {
-    return FInput::IsGamepadButtonDown(GpIdx(player), button);
+    return Input::IsGamepadButtonDown(GpIdx(player), button);
 }
 bool IsGamepadPressed(EGamepadButton button, i32 player) noexcept {
-    return FInput::IsGamepadButtonPressed(GpIdx(player), button);
+    return Input::IsGamepadButtonPressed(GpIdx(player), button);
 }
 f32 GamepadLeftX(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftX);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftX);
 }
 f32 GamepadLeftY(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftY);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftY);
 }
 f32 GamepadRightX(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightX);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightX);
 }
 f32 GamepadRightY(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightY);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightY);
 }
 f32 GamepadLeftTrigger(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftTrigger);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftTrigger);
 }
 f32 GamepadRightTrigger(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightTrigger);
+    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightTrigger);
 }
 
 // ============================================================================

@@ -4,7 +4,7 @@
 #   main.cpp             - ACS_DEFINE_MAIN(HelloMeshApp) のみ
 #   Types.h              - 頂点フォーマット + キューブ 24 頂点 / 36 indices
 #   Shaders.h            - HLSL ソース (VS + PS + MVP cbuffer)
-#   HelloMeshApp.{h,cpp} - FApplication 派生クラス
+#   HelloMeshApp.{h,cpp} - Application 派生クラス
 add_executable(hello_mesh WIN32
     main.cpp
     HelloMeshApp.cpp

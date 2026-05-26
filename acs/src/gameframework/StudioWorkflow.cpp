@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar W — StudioWorkflow stub 実装 (FAssetLockingStub / FBuildFarmStub)
+// GameFramework Pillar W — StudioWorkflow stub 実装 (AssetLockingStub / BuildFarmStub)
 //
 // 本ファイルは StudioWorkflow.h で宣言した 2 つの interface に対し、
 // 「常に NotImplemented を返すだけ」の defensive stub を提供する。
@@ -39,61 +39,61 @@
 namespace acs::game {
 
 // -----------------------------------------------------------------------------
-// FAssetLockingStub: IAssetLockingBackend の null-object 実装
+// AssetLockingStub: IAssetLockingBackend の null-object 実装
 // -----------------------------------------------------------------------------
 // IsConnected() は常に false (header で inline 定義済み)。
 // 各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
 // -----------------------------------------------------------------------------
 
-TResult<void> FAssetLockingStub::LockAsset(const char* asset_path, const char* user) noexcept {
+TResult<void> AssetLockingStub::LockAsset(const char* asset_path, const char* user) noexcept {
     (void)asset_path;
     (void)user;
-    return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
+    return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                    "IAssetLockingBackend::LockAsset is not implemented "
                    "(stub: link a concrete asset locking backend such as Perforce/Plastic)");
 }
 
-TResult<void> FAssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
+TResult<void> AssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
     (void)asset_path;
-    return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
+    return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                    "IAssetLockingBackend::UnlockAsset is not implemented "
                    "(stub: link a concrete asset locking backend such as Perforce/Plastic)");
 }
 
-TResult<FAssetLockInfo> FAssetLockingStub::QueryLock(const char* asset_path) noexcept {
+TResult<AssetLockInfo> AssetLockingStub::QueryLock(const char* asset_path) noexcept {
     (void)asset_path;
-    return TResult<FAssetLockInfo>(
-        ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
+    return TResult<AssetLockInfo>(
+        ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                 "IAssetLockingBackend::QueryLock is not implemented "
                 "(stub: link a concrete asset locking backend such as Perforce/Plastic)"));
 }
 
 // -----------------------------------------------------------------------------
-// FBuildFarmStub: IBuildFarmBackend の null-object 実装
+// BuildFarmStub: IBuildFarmBackend の null-object 実装
 // -----------------------------------------------------------------------------
 // IsConnected() は常に false (header で inline 定義済み)。
 // 各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
 // -----------------------------------------------------------------------------
 
-TResult<u64> FBuildFarmStub::SubmitBuild(const FBuildRequest& req) noexcept {
+TResult<u64> BuildFarmStub::SubmitBuild(const BuildRequest& req) noexcept {
     (void)req;
     return TResult<u64>(
-        ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
+        ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                 "IBuildFarmBackend::SubmitBuild is not implemented "
                 "(stub: link a concrete build farm backend such as Jenkins/TeamCity)"));
 }
 
-TResult<IBuildFarmBackend::FBuildResult> FBuildFarmStub::PollBuild(u64 build_id) noexcept {
+TResult<IBuildFarmBackend::BuildResult> BuildFarmStub::PollBuild(u64 build_id) noexcept {
     (void)build_id;
-    return TResult<IBuildFarmBackend::FBuildResult>(
-        ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
+    return TResult<IBuildFarmBackend::BuildResult>(
+        ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                 "IBuildFarmBackend::PollBuild is not implemented "
                 "(stub: link a concrete build farm backend such as Jenkins/TeamCity)"));
 }
 
-TResult<void> FBuildFarmStub::CancelBuild(u64 build_id) noexcept {
+TResult<void> BuildFarmStub::CancelBuild(u64 build_id) noexcept {
     (void)build_id;
-    return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
+    return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
                    "IBuildFarmBackend::CancelBuild is not implemented "
                    "(stub: link a concrete build farm backend such as Jenkins/TeamCity)");
 }
@@ -106,12 +106,12 @@ TResult<void> FBuildFarmStub::CancelBuild(u64 build_id) noexcept {
 // -----------------------------------------------------------------------------
 
 IAssetLockingBackend& GetAssetLockingStub() noexcept {
-    static FAssetLockingStub s_instance;
+    static AssetLockingStub s_instance;
     return s_instance;
 }
 
 IBuildFarmBackend& GetBuildFarmStub() noexcept {
-    static FBuildFarmStub s_instance;
+    static BuildFarmStub s_instance;
     return s_instance;
 }
 

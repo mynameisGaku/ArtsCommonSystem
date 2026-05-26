@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFontEditor — FGame 派生のアプリケーションクラス。
-// ImGui lifecycle を FGame に持たせる薄いラッパ。
+// HelloFontEditor — Game 派生のアプリケーションクラス。
+// ImGui lifecycle を Game に持たせる薄いラッパ。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -8,18 +8,18 @@
 
 namespace hellofont {
 
-class FontEditorApp : public acs::game::FGame {
+class FontEditorApp : public acs::game::Game {
 public:
     void OnStart()    noexcept override;
     void OnRender()   noexcept override;
     void OnShutdown() noexcept override;
-    void OnEvent(const acs::FEvent& e) noexcept override;
+    void OnEvent(const acs::Event& e) noexcept override;
 
 protected:
-    acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override;
 
 private:
-    acs::FImGuiCtx _imgui;
+    acs::ImGuiCtx _imgui;
 };
 
 } // namespace hellofont

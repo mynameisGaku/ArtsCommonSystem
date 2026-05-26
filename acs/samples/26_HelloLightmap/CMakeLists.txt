@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # 「Hello Lightmap」サンプル — multi-bounce path-traced lightmap。
-# Cornell box シーンを CPU で multi-bounce ベイクし、FPbrShader の lightmap slot
+# Cornell box シーンを CPU で multi-bounce ベイクし、PbrShader の lightmap slot
 # 経由で表示する。
 #
 # 構成:
@@ -8,7 +8,7 @@
 #   LightmapTypes.h           - Quad / Rng / 数学ヘルパ / constexpr 定数
 #   LightmapBaker.{h,cpp}     - CPU multi-bounce path tracing
 #   CornellBox.{h,cpp}        - Cornell box シーンの構築
-#   HelloLightmapApp.{h,cpp}  - FApplication 派生 (OnStart/OnCustomFrame ほか)
+#   HelloLightmapApp.{h,cpp}  - Application 派生 (OnStart/OnCustomFrame ほか)
 add_executable(hello_lightmap WIN32
     main.cpp
     LightmapBaker.cpp

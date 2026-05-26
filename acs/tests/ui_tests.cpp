@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS UI — FWidget レイアウト + 入力ハンドリング
-// (FRenderer 不要、Layout 計算 + FObservable 値伝搬の純 logic テスト)
+// ACS UI — Widget レイアウト + 入力ハンドリング
+// (Renderer 不要、Layout 計算 + Observable 値伝搬の純 logic テスト)
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -10,16 +10,16 @@
 
 using namespace acs;
 
-// ---- FStackPanel: 縦並び ----------------------------------------------------
+// ---- StackPanel: 縦並び ----------------------------------------------------
 ACS_TEST(Ui, StackPanelVertical) {
-    FStackPanel root;
+    StackPanel root;
     root.dir = EStackDir::Vertical;
-    root.padding = FUiPadding{ 8, 8, 8, 8 };
+    root.padding = UiPadding{ 8, 8, 8, 8 };
     root.spacing = 4.0f;
 
-    auto* a = root.Add<FLabel>("A");
-    auto* b = root.Add<FLabel>("B");
-    auto* c = root.Add<FLabel>("C");
+    auto* a = root.Add<Label>("A");
+    auto* b = root.Add<Label>("B");
+    auto* c = root.Add<Label>("C");
     a->requested.h = 20;
     b->requested.h = 30;
     c->requested.h = 25;
@@ -38,15 +38,15 @@ ACS_TEST(Ui, StackPanelVertical) {
     EXPECT_EQ(c->rect.h, 25.0f);
 }
 
-// ---- FStackPanel: 横並び ----------------------------------------------------
+// ---- StackPanel: 横並び ----------------------------------------------------
 ACS_TEST(Ui, StackPanelHorizontal) {
-    FStackPanel root;
+    StackPanel root;
     root.dir = EStackDir::Horizontal;
-    root.padding = FUiPadding{ 0, 0, 0, 0 };
+    root.padding = UiPadding{ 0, 0, 0, 0 };
     root.spacing = 10.0f;
 
-    auto* a = root.Add<FLabel>("A");
-    auto* b = root.Add<FLabel>("B");
+    auto* a = root.Add<Label>("A");
+    auto* b = root.Add<Label>("B");
     a->requested.w = 50;
     b->requested.w = 80;
 
@@ -60,31 +60,31 @@ ACS_TEST(Ui, StackPanelHorizontal) {
 
 // ---- HitTest 再帰: 子の方が優先される -------------------------------------
 ACS_TEST(Ui, HitTestRecursive) {
-    FStackPanel root;
-    root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* btn = root.Add<FButton>("Click");
+    StackPanel root;
+    root.padding = UiPadding{ 0, 0, 0, 0 };
+    auto* btn = root.Add<Button>("Click");
     btn->requested.h = 30.0f;
 
     root.Layout(0, 0, 200, 100);
     EXPECT_EQ(btn->rect.x, 0.0f);
     EXPECT_EQ(btn->rect.y, 0.0f);
 
-    FWidget* hit = root.HitTestRecursive(50, 15);
+    Widget* hit = root.HitTestRecursive(50, 15);
     EXPECT_TRUE(hit == btn);
 
-    FWidget* miss = root.HitTestRecursive(50, 99);
+    Widget* miss = root.HitTestRecursive(50, 99);
     // ボタンの外、root のヒットエリアには入る
     EXPECT_TRUE(miss == &root);
 
-    FWidget* outside = root.HitTestRecursive(500, 500);
+    Widget* outside = root.HitTestRecursive(500, 500);
     EXPECT_TRUE(outside == nullptr);
 }
 
-// ---- FButton: pointer down/up でクリック検出 -------------------------------
+// ---- Button: pointer down/up でクリック検出 -------------------------------
 ACS_TEST(Ui, ButtonClick) {
-    FStackPanel root;
-    root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* btn = root.Add<FButton>("OK");
+    StackPanel root;
+    root.padding = UiPadding{ 0, 0, 0, 0 };
+    auto* btn = root.Add<Button>("OK");
     btn->requested.h = 30.0f;
     root.Layout(0, 0, 100, 50);
 
@@ -103,11 +103,11 @@ ACS_TEST(Ui, ButtonClick) {
     EXPECT_EQ(clicks, 1);
 }
 
-// ---- FButton: pointer up が rect 外なら click 発生せず ---------------------
+// ---- Button: pointer up が rect 外なら click 発生せず ---------------------
 ACS_TEST(Ui, ButtonReleaseOutsideNoClick) {
-    FStackPanel root;
-    root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* btn = root.Add<FButton>("OK");
+    StackPanel root;
+    root.padding = UiPadding{ 0, 0, 0, 0 };
+    auto* btn = root.Add<Button>("OK");
     btn->requested.h = 30.0f;
     root.Layout(0, 0, 100, 50);
 
@@ -123,11 +123,11 @@ ACS_TEST(Ui, ButtonReleaseOutsideNoClick) {
     EXPECT_EQ(clicks, 0);
 }
 
-// ---- FSlider: ドラッグで value 更新 ----------------------------------------
+// ---- Slider: ドラッグで value 更新 ----------------------------------------
 ACS_TEST(Ui, SliderValueUpdate) {
-    FStackPanel root;
-    root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* sl = root.Add<FSlider>(0.0f, 100.0f);
+    StackPanel root;
+    root.padding = UiPadding{ 0, 0, 0, 0 };
+    auto* sl = root.Add<Slider>(0.0f, 100.0f);
     sl->requested.h = 24.0f;
     root.Layout(0, 0, 200, 50);
 
@@ -149,11 +149,11 @@ ACS_TEST(Ui, SliderValueUpdate) {
     EXPECT_EQ(sl->value.Get(), 100.0f);
 }
 
-// ---- FCheckbox: 値トグル --------------------------------------------------
+// ---- Checkbox: 値トグル --------------------------------------------------
 ACS_TEST(Ui, CheckboxToggle) {
-    FStackPanel root;
-    root.padding = FUiPadding{ 0, 0, 0, 0 };
-    auto* cb = root.Add<FCheckbox>("Test");
+    StackPanel root;
+    root.padding = UiPadding{ 0, 0, 0, 0 };
+    auto* cb = root.Add<Checkbox>("Test");
     cb->requested.h = 24.0f;
     root.Layout(0, 0, 100, 30);
 

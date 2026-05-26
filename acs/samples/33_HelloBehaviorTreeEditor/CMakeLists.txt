@@ -1,14 +1,14 @@
-# HelloBehaviorTreeEditor — FBehaviorTree Editor デモ
+# HelloBehaviorTreeEditor — BehaviorTree Editor デモ
 #
 # `gameframework/BehaviorTree.h` (Pillar L) で組んだ小さな BT を、
-# `btedit::FBehaviorTreeEditorPanel` で **可視化 + step debug** する単一
+# `btedit::BehaviorTreeEditorPanel` で **可視化 + step debug** する単一
 # ウィンドウのエディタサンプル。Action ノードが panel 側の SetNodeStatus を
 # 呼んで status を push する典型用途を見せる。
 #
 # 構成:
 #   main.cpp              - ACS_GAME_MAIN(BtEditorApp) のみ
-#   BtEditorApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
-#   BtEditorScene.{h,cpp} - FScene lifecycle (OnEnter/OnExit/OnUpdate/OnRender)
+#   BtEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
+#   BtEditorScene.{h,cpp} - Scene lifecycle (OnEnter/OnExit/OnUpdate/OnRender)
 #   TreeActions.{h,cpp}   - Action Fn 群 + step callback
 #   TreeBuilder.{h,cpp}   - panel メタミラー組立 + 実 BT 構築 helper
 #

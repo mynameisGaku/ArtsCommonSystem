@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// FObservableArray<T> — 要素の追加・削除・変更を通知する配列
+// ObservableArray<T> — 要素の追加・削除・変更を通知する配列
 //
 // 使い方:
-//   FObservableArray<int> inv;
+//   ObservableArray<int> inv;
 //
 //   inv.Subscribe([](EArrayChange kind, usize idx, const int* v, void*){
 //       switch (kind) {
@@ -39,29 +39,29 @@ enum class EArrayChange : u8 {
     Cleared,    // 全削除 (index=0, value=nullptr)
 };
 
-// 通知ハンドルは FObservable<T> と同じ仕様
-struct FArrayObserverHandle {
+// 通知ハンドルは Observable<T> と同じ仕様
+struct ArrayObserverHandle {
     u32 id         = 0;
     u32 generation = 0;
 
     bool IsValid() const noexcept { return id != 0; }
-    bool operator==(const FArrayObserverHandle& o) const noexcept {
+    bool operator==(const ArrayObserverHandle& o) const noexcept {
         return id == o.id && generation == o.generation;
     }
 };
 
-inline constexpr FArrayObserverHandle kInvalidArrayObserver{};
+inline constexpr ArrayObserverHandle kInvalidArrayObserver{};
 
 template<typename T>
-class FObservableArray {
+class ObservableArray {
 public:
     using Listener = void (*)(EArrayChange kind, usize index, const T* value, void* user);
 
-    FObservableArray() noexcept = default;
-    ~FObservableArray() noexcept = default;
+    ObservableArray() noexcept = default;
+    ~ObservableArray() noexcept = default;
 
-    FObservableArray(const FObservableArray&)            = delete;
-    FObservableArray& operator=(const FObservableArray&) = delete;
+    ObservableArray(const ObservableArray&)            = delete;
+    ObservableArray& operator=(const ObservableArray&) = delete;
 
     // ---- 要素操作 ----
     void PushBack(T v) noexcept {
@@ -120,7 +120,7 @@ public:
     T*       Data()       noexcept { return _items.Data(); }
 
     // ---- 購読 ----
-    FArrayObserverHandle Subscribe(Listener cb, void* user) noexcept {
+    ArrayObserverHandle Subscribe(Listener cb, void* user) noexcept {
         if (!cb) return kInvalidArrayObserver;
         u32 idx;
         if (_free_indices.Size() > 0) {
@@ -128,21 +128,21 @@ public:
             _free_indices.PopBack();
         } else {
             idx = static_cast<u32>(_slots.Size());
-            _slots.PushBack(FSlot{});
+            _slots.PushBack(Slot{});
         }
-        FSlot& s = _slots[idx];
+        Slot& s = _slots[idx];
         if (s.id == 0) s.id = _next_id++;
         s.generation++;
         s.active = true;
         s.cb     = cb;
         s.user   = user;
-        return FArrayObserverHandle{ s.id, s.generation };
+        return ArrayObserverHandle{ s.id, s.generation };
     }
 
-    bool Unsubscribe(FArrayObserverHandle h) noexcept {
+    bool Unsubscribe(ArrayObserverHandle h) noexcept {
         if (!h.IsValid()) return false;
         for (usize i = 0; i < _slots.Size(); ++i) {
-            FSlot& s = _slots[i];
+            Slot& s = _slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
                 if (_notify_depth > 0) {
                     s.active = false;
@@ -171,7 +171,7 @@ private:
         // 同じ listener ループに dangling pointer が渡される危険がある。
         // Debug ビルドで検出 (Release はコスト 0)。
         ACS_ASSERTF(_notify_depth == 0,
-                    "FObservableArray: mutation during Notify is not allowed (depth=%d)",
+                    "ObservableArray: mutation during Notify is not allowed (depth=%d)",
                     _notify_depth);
     }
 
@@ -179,7 +179,7 @@ private:
         ++_notify_depth;
         const usize n = _slots.Size();
         for (usize i = 0; i < n; ++i) {
-            FSlot& s = _slots[i];
+            Slot& s = _slots[i];
             if (!s.active || !s.cb) continue;
             s.cb(kind, index, value, s.user);
         }
@@ -188,7 +188,7 @@ private:
             for (usize i = 0; i < _pending_cancel.Size(); ++i) {
                 u32 idx = _pending_cancel[i];
                 if (idx < _slots.Size()) {
-                    FSlot& s = _slots[idx];
+                    Slot& s = _slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
                     _free_indices.PushBack(idx);
@@ -198,7 +198,7 @@ private:
         }
     }
 
-    struct FSlot {
+    struct Slot {
         u32      id          = 0;
         u32      generation  = 0;
         bool     active      = false;
@@ -207,7 +207,7 @@ private:
     };
 
     TArray<T>     _items;
-    TArray<FSlot>  _slots;
+    TArray<Slot>  _slots;
     TArray<u32>   _free_indices;
     TArray<u32>   _pending_cancel;
     u32          _next_id      = 1;

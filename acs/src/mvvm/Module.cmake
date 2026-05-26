@@ -9,7 +9,7 @@ set(_acs_mvvm_headers
     Convert.h
     ViewModel.h
 )
-set(_acs_mvvm_public_deps Foundation Memory FContainer Math Threading)
+set(_acs_mvvm_public_deps Foundation Memory Container Math Threading)
 
 # ImGui アダプタは ACS_MVVM_IMGUI_BINDINGS が ON かつ Imgui module が build
 # 可能 (= ACS_RENDER_DX12_RAW=ON) のときだけ追加。Diligent 単独 build では

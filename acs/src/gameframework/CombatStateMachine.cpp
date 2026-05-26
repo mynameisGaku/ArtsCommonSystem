@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCombatStateMachine 実装
+// GameFramework Pillar R — CombatStateMachine 実装
 //
 // state machine + threat level smoothing + enemy awareness tracking を完全実装。
 // 外部ディレクタ (Music / Ambient / UI) との結線は OnStateChange callback で
-// caller が定義する想定。本クラスは FAudioEngine 等の下位リソースを直接知らない。
+// caller が定義する想定。本クラスは AudioEngine 等の下位リソースを直接知らない。
 #include "gameframework/CombatStateMachine.h"
 #include "foundation/Log.h"
 
@@ -13,7 +13,7 @@ namespace acs::game {
 // helpers
 // ----------------------------------------------------------------------------
 
-f32 FCombatStateMachine::Clamp01(f32 v) noexcept {
+f32 CombatStateMachine::Clamp01(f32 v) noexcept {
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
@@ -27,7 +27,7 @@ f32 FCombatStateMachine::Clamp01(f32 v) noexcept {
 //   BossFight = 1.00 — ボス戦 (BGM Combat 最大 / 振動最大)
 //   Victory   = 0.40 — 勝利直後 (Engaged からの自然な減衰、Calm へは Reset で)
 //   Retreat   = 0.20 — 撤退 (緊張感は残るが Combat ではない)
-f32 FCombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
+f32 CombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
     switch (state) {
         case ECombatState::Peaceful:  return 0.0f;
         case ECombatState::Alert:     return 0.3f;
@@ -43,11 +43,11 @@ f32 FCombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
 // construction / lifecycle
 // ----------------------------------------------------------------------------
 
-FCombatStateMachine::FCombatStateMachine() noexcept {
+CombatStateMachine::CombatStateMachine() noexcept {
     _enemies.Reserve(kEnemyReserveHint);
 }
 
-void FCombatStateMachine::Init() noexcept {
+void CombatStateMachine::Init() noexcept {
     _state             = ECombatState::Peaceful;
     _threat_target     = DefaultThreatTarget(ECombatState::Peaceful);
     _threat_current    = 0.0f;
@@ -57,7 +57,7 @@ void FCombatStateMachine::Init() noexcept {
     // _callback / _callback_user は保持 (Init は scene 再 enter 用と位置付け)。
 }
 
-void FCombatStateMachine::Reset() noexcept {
+void CombatStateMachine::Reset() noexcept {
     Init();
     _callback      = nullptr;
     _callback_user = nullptr;
@@ -67,7 +67,7 @@ void FCombatStateMachine::Reset() noexcept {
 // enemy 検索 / 取得
 // ----------------------------------------------------------------------------
 
-usize FCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
+usize CombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
     const usize n = _enemies.Size();
     for (usize i = 0; i < n; ++i) {
         if (_enemies[i].enemy_id == enemy_id) return i;
@@ -75,7 +75,7 @@ usize FCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
     return n;
 }
 
-u32 FCombatStateMachine::EngagedEnemyCount() const noexcept {
+u32 CombatStateMachine::EngagedEnemyCount() const noexcept {
     u32 count = 0;
     const usize n = _enemies.Size();
     for (usize i = 0; i < n; ++i) {
@@ -84,7 +84,7 @@ u32 FCombatStateMachine::EngagedEnemyCount() const noexcept {
     return count;
 }
 
-bool FCombatStateMachine::IsInCombat() const noexcept {
+bool CombatStateMachine::IsInCombat() const noexcept {
     return _state == ECombatState::Engaged || _state == ECombatState::BossFight;
 }
 
@@ -92,7 +92,7 @@ bool FCombatStateMachine::IsInCombat() const noexcept {
 // state 遷移コア
 // ----------------------------------------------------------------------------
 
-void FCombatStateMachine::TransitionTo(ECombatState next) noexcept {
+void CombatStateMachine::TransitionTo(ECombatState next) noexcept {
     if (next == _state) return;  // no-op (callback 不発火)
     const ECombatState prev = _state;
     _state = next;
@@ -117,12 +117,12 @@ void FCombatStateMachine::TransitionTo(ECombatState next) noexcept {
 // 戦闘通知
 // ----------------------------------------------------------------------------
 
-void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
+void CombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     // awareness レコードを upsert (新規 or 1.0 へ上書き)。is_engaged は据置 —
     // 既に交戦中の敵を再検出しても engaged 状態を解除しない。
     const usize idx = FindEnemy(enemy_id);
     if (idx >= _enemies.Size()) {
-        FEnemyAwareness aw;
+        EnemyAwareness aw;
         aw.enemy_id        = enemy_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = false;
@@ -139,11 +139,11 @@ void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     }
 }
 
-void FCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
+void CombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     // 該当敵を is_engaged=true に。未登録なら新規追加 (awareness=1.0)。
     const usize idx = FindEnemy(enemy_id);
     if (idx >= _enemies.Size()) {
-        FEnemyAwareness aw;
+        EnemyAwareness aw;
         aw.enemy_id        = enemy_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = true;
@@ -160,7 +160,7 @@ void FCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     }
 }
 
-void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept {
+void CombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept {
     // 該当敵を engaged から外す。awareness は 0 に落として「忘れた」扱いに。
     // (= 次フレーム以降の NotifyEnemyDetected で再 alert 可能)
     const usize idx = FindEnemy(enemy_id);
@@ -169,7 +169,7 @@ void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
         _enemies[idx].awareness_level = 0.0f;
     } else {
         // 未登録 enemy_id で end が来た: 警告のみで no-op。
-        ACS_LOG_WARN("FCombatStateMachine::NotifyCombatEnded: unknown enemy_id=%u", enemy_id);
+        ACS_LOG_WARN("CombatStateMachine::NotifyCombatEnded: unknown enemy_id=%u", enemy_id);
     }
 
     // BossFight 中は boss 撃破が別 API なので、ここでは state を動かさない。
@@ -181,11 +181,11 @@ void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
     }
 }
 
-void FCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
+void CombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
     // ボスを engaged 一覧に upsert (awareness=1, is_engaged=true)。
     const usize idx = FindEnemy(boss_id);
     if (idx >= _enemies.Size()) {
-        FEnemyAwareness aw;
+        EnemyAwareness aw;
         aw.enemy_id        = boss_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = true;
@@ -206,10 +206,10 @@ void FCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
     }
 }
 
-void FCombatStateMachine::NotifyBossDefeated() noexcept {
+void CombatStateMachine::NotifyBossDefeated() noexcept {
     // BossFight 以外で呼ばれたら警告 + no-op (誤用検出)。
     if (_state != ECombatState::BossFight) {
-        ACS_LOG_WARN("FCombatStateMachine::NotifyBossDefeated: not in BossFight (state=%u)",
+        ACS_LOG_WARN("CombatStateMachine::NotifyBossDefeated: not in BossFight (state=%u)",
                      static_cast<u32>(_state));
         return;
     }
@@ -239,7 +239,7 @@ void FCombatStateMachine::NotifyBossDefeated() noexcept {
 // driver
 // ----------------------------------------------------------------------------
 
-void FCombatStateMachine::Tick(f32 dt) noexcept {
+void CombatStateMachine::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // Engaged 中はドリフトを target に加算: 戦闘が長引くほど脅威感が上がる。
@@ -269,7 +269,7 @@ void FCombatStateMachine::Tick(f32 dt) noexcept {
 // callback
 // ----------------------------------------------------------------------------
 
-void FCombatStateMachine::SetOnStateChangeCallback(StateChangeCallback cb, void* user) noexcept {
+void CombatStateMachine::SetOnStateChangeCallback(StateChangeCallback cb, void* user) noexcept {
     _callback      = cb;
     _callback_user = user;
 }

@@ -2,7 +2,7 @@
 // フォント（TTF を GPU テクスチャアトラスに焼いて、文字描画に使う）
 //
 // 使い方:
-//   FFont font;
+//   Font font;
 //   font.LoadFromFile(*renderer.Device(), L"C:/Windows/Fonts/meiryo.ttc", 32.0f);
 //
 //   // 描画フレーム中
@@ -31,20 +31,20 @@
 namespace acs {
 
 // 1 グリフ分の情報（アトラス UV + 描画オフセット）
-struct FGlyphInfo {
+struct GlyphInfo {
     f32 u0 = 0, v0 = 0, u1 = 0, v1 = 0;       // アトラス内 UV (0..1)
     f32 width  = 0, height = 0;                // 描画矩形のサイズ（ピクセル）
     f32 x_offset = 0, y_offset = 0;            // ペン位置からの矩形左上オフセット
     f32 x_advance = 0;                          // 描画後にペンを進める量
 };
 
-class FFont {
+class Font {
 public:
-    FFont() noexcept = default;
-    ~FFont() noexcept = default;
+    Font() noexcept = default;
+    ~Font() noexcept = default;
 
-    FFont(const FFont&)            = delete;
-    FFont& operator=(const FFont&) = delete;
+    Font(const Font&)            = delete;
+    Font& operator=(const Font&) = delete;
 
     // TTF/OTF/TTC バイト列からアトラスを構築
     // include_cjk=true で漢字 (CJK 統合 U+4E00..U+9FAF) も含めて焼く。
@@ -56,7 +56,7 @@ public:
                                u32 atlas_size = 1024,
                                bool include_cjk = false) noexcept;
 
-    // ファイルから直接ロード（FFileSystem::ReadAllBytes 経由）
+    // ファイルから直接ロード（FileSystem::ReadAllBytes 経由）
     TResult<void> LoadFromFile(IRhiDevice& device,
                               const wchar_t* path,
                               f32 pixel_size,
@@ -76,14 +76,14 @@ public:
     f32 LineHeight() const noexcept { return _ascent - _descent + _line_gap; }
 
     // コードポイントのグリフ情報を取得（アトラス未収録なら false）
-    bool GetGlyph(u32 codepoint, FGlyphInfo& out) const noexcept;
+    bool GetGlyph(u32 codepoint, GlyphInfo& out) const noexcept;
 
     // 文字列の幅をピクセルで測る（改行は無視）
     f32 MeasureWidth(const char* utf8_text) const noexcept;
 
 private:
     TUniquePtr<IRhiTexture>    _atlas;
-    THashMap<u32, FGlyphInfo>   _glyphs;
+    THashMap<u32, GlyphInfo>   _glyphs;
     u32                       _atlas_size = 0;
     f32                       _pixel_size = 0;
     f32                       _ascent     = 0;

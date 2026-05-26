@@ -14,7 +14,7 @@
 
 namespace helloibl {
 
-// CPU で焼く equirect HDR の解像度。SH9 計算 / Studio HDR / FAtmosphere preset で
+// CPU で焼く equirect HDR の解像度。SH9 計算 / Studio HDR / Atmosphere preset で
 // 共有。SH9 は低周波なので小さめで十分。
 inline constexpr acs::u32 kEquirectWidth  = 256;
 inline constexpr acs::u32 kEquirectHeight = 128;

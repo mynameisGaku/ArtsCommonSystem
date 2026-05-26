@@ -7,11 +7,11 @@ int main() {
     cfg.console = true;
     cfg.debug_output = false;
     cfg.min_severity = acs::ELogSeverity::Info;
-    acs::FLogger::Init(cfg);
+    acs::Logger::Init(cfg);
 
     int rc = acs::test::RunAll();
 
-    acs::FLogger::Flush();
-    acs::FLogger::Shutdown();
+    acs::Logger::Flush();
+    acs::Logger::Shutdown();
     return rc;
 }

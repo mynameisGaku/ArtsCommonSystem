@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FPauseDirector (統合 pause 管理)
+// GameFramework Pillar A — PauseDirector (統合 pause 管理)
 //
 // 役割:
 //   ゲーム全体の "pause" 状態を一元管理する director。
@@ -8,16 +8,16 @@
 //     ・OS / システムメニュー表示 (SystemMenu)
 //     ・ウィンドウフォーカス喪失   (FocusLost)
 //     ・カットシーン再生中         (Cinematic)
-//     ・FPhotoMode 中               (FPhotoMode)
+//     ・PhotoMode 中               (PhotoMode)
 //     ・ネットワーク同期待ち       (NetworkSync)
 //   これらを単純な on/off bool で管理すると、片方が解除されたら resume
 //   してしまい「メニュー閉じたらフォーカス喪失中なのに動き出した」等の
-//   バグを生む。FPauseDirector は **bit OR された EPauseReason mask** を
+//   バグを生む。PauseDirector は **bit OR された EPauseReason mask** を
 //   持ち、「mask が完全に 0 になるまでは pause」という stack 的挙動で
 //   この問題を回避する。
 //
 // 想定する典型フロー:
-//   FPauseDirector pause;
+//   PauseDirector pause;
 //   pause.SetNormalTimeScale(1.0f);
 //
 //   // ユーザがメニューを開いた
@@ -37,7 +37,7 @@
 //   game.SetTimeScale(pause.EffectiveTimeScale());  // 1.0f に復帰
 //
 // 設計選択:
-//   ・**bit flag 中心**: FPrivacyDirector / FSceneServices と同じく
+//   ・**bit flag 中心**: PrivacyDirector / SceneServices と同じく
 //     enum class : u32 + operator|/& で複合 reason を表現する。
 //     None (= 0) は「pause 中ではない」を表す特異値で、Pause(None) /
 //     Resume(None) は no-op (OR/AND-NOT で数学的に変化なし)。
@@ -45,9 +45,9 @@
 //     "落ちた瞬間" にだけ発火する。同じ reason の重複 Pause/Resume では
 //     呼ばれない。caller はパッシブ UI 更新やオーディオ ducking 等に
 //     使える。
-//   ・**caller が時間操作を行う**: FPhotoMode と同じく EffectiveTimeScale()
-//     は値を返すだけ。実際の `FGame::SetTimeScale(...)` は外側のゲーム
-//     コードが呼ぶ。GameFramework モジュールから FGame への依存を切る
+//   ・**caller が時間操作を行う**: PhotoMode と同じく EffectiveTimeScale()
+//     は値を返すだけ。実際の `Game::SetTimeScale(...)` は外側のゲーム
+//     コードが呼ぶ。GameFramework モジュールから Game への依存を切る
 //     (Pillar 規約)。
 //   ・**NormalTimeScale 分離**: slow-motion 演出 (= 通常時 0.5x など) と
 //     pause を直交管理するため、「pause 解除時に戻る scale」を別保持。
@@ -55,7 +55,7 @@
 //   ・**非コピー・非ムーブ**: アプリ全体で 1 個運用される director なので、
 //     値渡しでスタック状態が分裂しないよう移動コンストラクタも禁止。
 //   ・**全 noexcept**: ACS 規約 (TResult<T,E> + 例外なし) に従う。
-//     ただし FPauseDirector は失敗し得る I/O を持たないので TResult は使わず
+//     ただし PauseDirector は失敗し得る I/O を持たないので TResult は使わず
 //     全 API を noexcept void / 値返しで構成する。
 //
 // 範囲外 (Phase 2+ で):
@@ -63,7 +63,7 @@
 //     現状は全体一律の time_scale = 0 想定。
 //   ・スローモーション補間 (1.0 → 0.0 の遷移カーブ)。Tween モジュール側で
 //     扱う想定。
-//   ・pause 中の入力 routing (Pillar A FInputMap 側の責務)。
+//   ・pause 中の入力 routing (Pillar A InputMap 側の責務)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -84,7 +84,7 @@ enum class EPauseReason : u32 {
     SystemMenu  = 1u << 1,   // OS / システムメニュー表示中
     FocusLost   = 1u << 2,   // ウィンドウフォーカス喪失
     Cinematic   = 1u << 3,   // カットシーン再生中
-    FPhotoMode   = 1u << 4,   // FPhotoMode 中
+    PhotoMode   = 1u << 4,   // PhotoMode 中
     NetworkSync = 1u << 5,   // ネットワーク同期待ち
     Custom1     = 1u << 6,   // ゲーム固有の予備枠 1
     Custom2     = 1u << 7,   // ゲーム固有の予備枠 2
@@ -109,20 +109,20 @@ constexpr EPauseReason operator&(EPauseReason a, EPauseReason b) noexcept {
 using PauseEventCallback = void(*)(void* user, EPauseReason reason, bool paused) noexcept;
 
 // =============================================================================
-// FPauseDirector — pause stack 管理
+// PauseDirector — pause stack 管理
 // -----------------------------------------------------------------------------
 // アプリ全体で 1 個運用される想定。複数同時運用しないため非コピー・非ムーブ。
 // =============================================================================
-class FPauseDirector {
+class PauseDirector {
 public:
-    FPauseDirector()  noexcept = default;
-    ~FPauseDirector() noexcept = default;
+    PauseDirector()  noexcept = default;
+    ~PauseDirector() noexcept = default;
 
     // 非コピー・非ムーブ (state holder の唯一性を担保)
-    FPauseDirector(const FPauseDirector&)            = delete;
-    FPauseDirector& operator=(const FPauseDirector&) = delete;
-    FPauseDirector(FPauseDirector&&)                 = delete;
-    FPauseDirector& operator=(FPauseDirector&&)      = delete;
+    PauseDirector(const PauseDirector&)            = delete;
+    PauseDirector& operator=(const PauseDirector&) = delete;
+    PauseDirector(PauseDirector&&)                 = delete;
+    PauseDirector& operator=(PauseDirector&&)      = delete;
 
     // ----- pause 操作 (bit 単位) -----
     // Pause:  指定 reason の bit を立てる (OR)。複合 (UserMenu | SystemMenu) 可。
@@ -149,7 +149,7 @@ public:
     void Clear() noexcept;
 
     // ----- time scale 連携 -----
-    // EffectiveTimeScale: caller が `FGame::SetTimeScale(...)` に渡す値。
+    // EffectiveTimeScale: caller が `Game::SetTimeScale(...)` に渡す値。
     //   pause 中 (= IsPaused()) → 0.0f
     //   非 pause              → _normal_time_scale
     f32 EffectiveTimeScale() const noexcept;

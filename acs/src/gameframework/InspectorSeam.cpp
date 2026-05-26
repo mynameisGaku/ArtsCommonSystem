@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorSeam 実装 (Phase 2)
+// GameFramework Pillar K — InspectorSeam 実装 (Phase 2)
 //
 // 設計のポイント:
 //   ・Provider レジストリは線形 `TArray<Provider*>`。Phase 2 想定の登録数は
@@ -14,7 +14,7 @@ namespace acs::game {
 
 // ---- Init ---------------------------------------------------------------
 
-void FInspectorSeam::Init() noexcept {
+void InspectorSeam::Init() noexcept {
     // Phase 2 では何もしない (予約点)。
     //
     // TODO(Phase K-3):
@@ -26,7 +26,7 @@ void FInspectorSeam::Init() noexcept {
 
 // ---- RegisterProvider ---------------------------------------------------
 
-void FInspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
+void InspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
     if (provider == nullptr) {
         // nullptr は無視 (呼び出し側の境界条件を吸収する)。
         return;
@@ -43,7 +43,7 @@ void FInspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
 
 // ---- UnregisterProvider -------------------------------------------------
 
-void FInspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept {
+void InspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept {
     if (provider == nullptr) {
         // nullptr は no-op (Register と対称)。
         return;
@@ -69,11 +69,11 @@ void FInspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept
 
 // ---- ProviderCount / GetProvider ----------------------------------------
 
-u32 FInspectorSeam::ProviderCount() const noexcept {
+u32 InspectorSeam::ProviderCount() const noexcept {
     return static_cast<u32>(_providers.Size());
 }
 
-IInspectableProvider* FInspectorSeam::GetProvider(u32 index) const noexcept {
+IInspectableProvider* InspectorSeam::GetProvider(u32 index) const noexcept {
     if (index >= _providers.Size()) {
         // 範囲外は nullptr を返す (TArray::operator[] の ASSERT を避ける防御)。
         return nullptr;
@@ -83,7 +83,7 @@ IInspectableProvider* FInspectorSeam::GetProvider(u32 index) const noexcept {
 
 // ---- NotifyFieldChanged -------------------------------------------------
 
-void FInspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept {
+void InspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept {
     if (provider_index >= _providers.Size()) {
         // 範囲外は no-op。UI 側のリストと本体側の登録が一瞬ずれることがあるため
         // 防御的にチェックする。
@@ -101,7 +101,7 @@ void FInspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 f
 
 // ---- ClearAll -----------------------------------------------------------
 
-void FInspectorSeam::ClearAll() noexcept {
+void InspectorSeam::ClearAll() noexcept {
     // Provider は non-owning なので破棄せず、配列だけ空にする。
     // 容量は保持 (Reserve 状態を保つ ≒ 次回再登録時のアロケーション節約)。
     _providers.Clear();

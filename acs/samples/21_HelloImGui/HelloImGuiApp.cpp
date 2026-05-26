@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloImGui — FApplication 派生クラス実装。
+// HelloImGui — Application 派生クラス実装。
 #include "HelloImGuiApp.h"
 
 #include "platform/Input.h"
@@ -19,7 +19,7 @@ void HelloImGuiApp::OnStart() noexcept {
 }
 
 void HelloImGuiApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
 }
 
 void HelloImGuiApp::OnRender() noexcept {
@@ -32,11 +32,11 @@ void HelloImGuiApp::OnRender() noexcept {
     ImGui::Begin("ACS Sample");
     ImGui::Text("FPS: %.1f", FPS());
     ImGui::Text("Frames: %llu", static_cast<unsigned long long>(FrameCount()));
-    ImGui::FCheckbox("Show ImGui demo", &_show_demo);
+    ImGui::Checkbox("Show ImGui demo", &_show_demo);
     ImGui::SliderFloat("R", &_r, 0.0f, 1.0f);
     ImGui::SliderFloat("G", &_g, 0.0f, 1.0f);
     ImGui::SliderFloat("B", &_b, 0.0f, 1.0f);
-    if (ImGui::FButton("Quit")) Quit();
+    if (ImGui::Button("Quit")) Quit();
     ImGui::End();
 
     // Render は ImGui の draw list をコマンドリストに発行する (BeginFrame との対)。
@@ -47,7 +47,7 @@ void HelloImGuiApp::OnShutdown() noexcept {
     _imgui.Shutdown();
 }
 
-void HelloImGuiApp::OnEvent(const FEvent& e) noexcept {
+void HelloImGuiApp::OnEvent(const Event& e) noexcept {
     _imgui.OnEvent(e);
 }
 

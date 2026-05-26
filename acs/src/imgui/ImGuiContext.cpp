@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ImGui を ACS FWindow + FRenderer に統合する薄いラッパ実装
+// ImGui を ACS Window + Renderer に統合する薄いラッパ実装
 #include "imgui/ImGuiContext.h"
 #include "platform/Window.h"
 #include "render/Renderer.h"
@@ -18,11 +18,11 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
 
 namespace acs {
 
-FImGuiCtx::~FImGuiCtx() noexcept {
+ImGuiCtx::~ImGuiCtx() noexcept {
     Shutdown();
 }
 
-TResult<void> FImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
+TResult<void> ImGuiCtx::Init(Window& window, Renderer& renderer) noexcept {
     _window = &window;
     _renderer = &renderer;
 
@@ -40,12 +40,12 @@ TResult<void> FImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
     }
 
     // DX12 backend に必要な SRV ヒープを作成（フォントテクスチャ等を置く場所）
-    FDx12Device* dev = static_cast<FDx12Device*>(renderer.Device());
-    FDx12Swapchain* sc = static_cast<FDx12Swapchain*>(renderer.Swapchain());
+    Dx12Device* dev = static_cast<Dx12Device*>(renderer.Device());
+    Dx12Swapchain* sc = static_cast<Dx12Swapchain*>(renderer.Swapchain());
     if (!dev || !sc) {
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
-        return ACS_ERR(Render, 101, "FImGuiCtx::Init: FRenderer not initialized");
+        return ACS_ERR(Render, 101, "ImGuiCtx::Init: Renderer not initialized");
     }
 
     D3D12_DESCRIPTOR_HEAP_DESC hd{};
@@ -80,7 +80,7 @@ TResult<void> FImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
     return Ok();
 }
 
-void FImGuiCtx::Shutdown() noexcept {
+void ImGuiCtx::Shutdown() noexcept {
     if (!_initialized) return;
     ImGui_ImplDX12_Shutdown();
     ImGui_ImplWin32_Shutdown();
@@ -92,14 +92,14 @@ void FImGuiCtx::Shutdown() noexcept {
     _initialized = false;
 }
 
-void FImGuiCtx::NewFrame() noexcept {
+void ImGuiCtx::NewFrame() noexcept {
     if (!_initialized) return;
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 }
 
-void FImGuiCtx::Render() noexcept {
+void ImGuiCtx::Render() noexcept {
     if (!_initialized || !_renderer) return;
     ImGui::Render();
 
@@ -114,8 +114,8 @@ void FImGuiCtx::Render() noexcept {
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd_list);
 }
 
-// FWindow のイベントを ImGui に転送（FApplication::OnEvent から呼ぶ）
-void FImGuiCtx::OnEvent(const FEvent& e) noexcept {
+// Window のイベントを ImGui に転送（Application::OnEvent から呼ぶ）
+void ImGuiCtx::OnEvent(const Event& e) noexcept {
     if (!_initialized || !_window) return;
     // ImGui の Win32 backend は WndProc 経由でメッセージを受け取る設計。
     // ACS は独自イベントを使っているため、ここで Win32 メッセージに復元するか、

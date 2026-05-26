@@ -20,7 +20,7 @@
         #undef Yield                // FThread::Yield と衝突
     #endif
     #ifdef CreateDirectory
-        #undef CreateDirectory      // FFileSystem::CreateDirectory と衝突
+        #undef CreateDirectory      // FileSystem::CreateDirectory と衝突
     #endif
     #ifdef CreateFile
         #undef CreateFile
@@ -35,7 +35,7 @@
         #undef GetMessage
     #endif
     #ifdef DrawText
-        #undef DrawText                 // FSpriteBatch::DrawText と衝突
+        #undef DrawText                 // SpriteBatch::DrawText と衝突
     #endif
     #ifdef GetObject
         #undef GetObject

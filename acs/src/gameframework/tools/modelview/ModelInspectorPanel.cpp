@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / FModelInspectorPanel 実装 (Phase 21b)
+// GameFramework Pillar — modelview / ModelInspectorPanel 実装 (Phase 21b)
 //
 // 仕様の意図は ModelInspectorPanel.h を参照。本ファイルでは:
 //   ・UpdateFromModel: summary + 3 配列の値コピーと has_model フラグ更新
@@ -8,7 +8,7 @@
 //       - Summary           : Text 一覧 (vertex / triangle / submesh / material /
 //                               bone / clip 数 + bounding sphere)
 //       - Submeshes         : CollapsingHeader + Table (Name / Start / Count /
-//                               Material FSlot)
+//                               Material Slot)
 //       - Bones             : CollapsingHeader + TreeNode (parent_index < 0 を
 //                               root として再帰展開)
 //       - FAnimation Clips   : CollapsingHeader + Table (Name / Duration / Samples
@@ -38,20 +38,20 @@ static const char* SafeName(const char* name) noexcept {
 // =============================================================================
 // Init / Shutdown
 // =============================================================================
-void FModelInspectorPanel::Init() noexcept {
+void ModelInspectorPanel::Init() noexcept {
     // _summary は値型 = ゼロ初期化に戻す。
-    _summary    = FMeshSummary{};
+    _summary    = MeshSummary{};
     _submeshes.Clear();
     _bones.Clear();
     _clips.Clear();
     _has_model  = false;
 }
 
-void FModelInspectorPanel::Shutdown() noexcept {
+void ModelInspectorPanel::Shutdown() noexcept {
     // TArray の容量も解放したいので Clear() に追加して何もしない (TArray は
     // Clear で要素数 0、Destruct で容量解放)。ここでは要素破棄のみで十分
     // (panel 自身の destructor が容量を解放する)。
-    _summary    = FMeshSummary{};
+    _summary    = MeshSummary{};
     _submeshes.Clear();
     _bones.Clear();
     _clips.Clear();
@@ -59,7 +59,7 @@ void FModelInspectorPanel::Shutdown() noexcept {
 }
 
 // =============================================================================
-// UpdateFromModel — caller (= FModelViewerPanel 等) からのデータプッシュ
+// UpdateFromModel — caller (= ModelViewerPanel 等) からのデータプッシュ
 // =============================================================================
 // summary は値コピー、3 つの配列は要素を 1 つずつ PushBack でコピーする。
 // 既存内容は完全に破棄してから新内容を積む (= 部分更新ではなく全置換)。
@@ -67,12 +67,12 @@ void FModelInspectorPanel::Shutdown() noexcept {
 // 配列ポインタが nullptr の場合は対応 count を 0 として扱う (= 防衛的に
 // nullptr アクセスを避ける)。caller の使い勝手として、bones や clips が
 // "存在しない" model (= static mesh) を素直に表現できるようにする意図。
-void FModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
-                                          const FSubmeshInfo*        submeshes,
+void ModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
+                                          const SubmeshInfo*        submeshes,
                                           u32                       submesh_count,
-                                          const FBoneInfo*           bones,
+                                          const BoneInfo*           bones,
                                           u32                       bone_count,
-                                          const FAnimationClipInfo*  clips,
+                                          const AnimationClipInfo*  clips,
                                           u32                       clip_count) noexcept {
     _summary = summary;
 
@@ -81,7 +81,7 @@ void FModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
     if (submeshes != nullptr && submesh_count > 0) {
         _submeshes.Reserve(submesh_count);
         for (u32 i = 0; i < submesh_count; ++i) {
-            // FSubmeshInfo は POD (const char* + u32 三つ) なので値コピーで OK。
+            // SubmeshInfo は POD (const char* + u32 三つ) なので値コピーで OK。
             // TArray::PushBack は perfect forward され T(...) で構築する。
             _submeshes.PushBack(submeshes[i]);
         }
@@ -111,8 +111,8 @@ void FModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
 // =============================================================================
 // Clear — "No model loaded" 状態に戻す
 // =============================================================================
-void FModelInspectorPanel::Clear() noexcept {
-    _summary    = FMeshSummary{};
+void ModelInspectorPanel::Clear() noexcept {
+    _summary    = MeshSummary{};
     _submeshes.Clear();
     _bones.Clear();
     _clips.Clear();
@@ -132,7 +132,7 @@ void FModelInspectorPanel::Clear() noexcept {
 //
 // 子が無い (= leaf bone) なら ImGuiTreeNodeFlags_Leaf を付けて矢印を隠す。
 // =============================================================================
-void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept {
+void ModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept {
     if (depth >= kBoneRecursionLimit) {
         ImGui::TextDisabled("  (bone depth limit reached)");
         return;
@@ -142,7 +142,7 @@ void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
         return;
     }
 
-    const FBoneInfo& bone = _bones[static_cast<u32>(bone_index)];
+    const BoneInfo& bone = _bones[static_cast<u32>(bone_index)];
 
     // この bone を親とする子 bone があるかを線形走査で先に確認。
     // (TreeNode の Leaf flag を正確に立てるため = 矢印表示の精度が上がる)。
@@ -188,7 +188,7 @@ void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
 // =============================================================================
 // DrawUI — ImGui::Begin("Model Info") + 4 セクション
 // =============================================================================
-void FModelInspectorPanel::DrawUI() noexcept {
+void ModelInspectorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &_visible)) {
@@ -199,7 +199,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
 
     if (!_has_model) {
         ImGui::TextDisabled("(No model loaded)");
-        ImGui::TextDisabled("Drop a model from the FAsset Browser into the Model Viewer.");
+        ImGui::TextDisabled("Drop a model from the Asset Browser into the Model Viewer.");
         ImGui::End();
         return;
     }
@@ -250,11 +250,11 @@ void FModelInspectorPanel::DrawUI() noexcept {
                 ImGui::TableSetupColumn("Name",          ImGuiTableColumnFlags_WidthStretch, 2.0f);
                 ImGui::TableSetupColumn("Index Start",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
                 ImGui::TableSetupColumn("Index Count",   ImGuiTableColumnFlags_WidthStretch, 1.0f);
-                ImGui::TableSetupColumn("Material FSlot", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Material Slot", ImGuiTableColumnFlags_WidthStretch, 1.0f);
                 ImGui::TableHeadersRow();
 
                 for (u32 i = 0; i < _submeshes.Size(); ++i) {
-                    const FSubmeshInfo& sm = _submeshes[i];
+                    const SubmeshInfo& sm = _submeshes[i];
                     ImGui::TableNextRow();
 
                     ImGui::TableSetColumnIndex(0);
@@ -333,7 +333,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
                 ImGui::TableHeadersRow();
 
                 for (u32 i = 0; i < _clips.Size(); ++i) {
-                    const FAnimationClipInfo& clip = _clips[i];
+                    const AnimationClipInfo& clip = _clips[i];
                     ImGui::TableNextRow();
 
                     ImGui::TableSetColumnIndex(0);

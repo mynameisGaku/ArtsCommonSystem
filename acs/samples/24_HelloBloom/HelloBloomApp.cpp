@@ -49,33 +49,33 @@ void HelloBloomApp::OnStart() noexcept {
 }
 
 void HelloBloomApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
-    if (FInput::IsKeyPressed(EKey::Num1)) _params.bloom_intensity = 0.0f;
-    if (FInput::IsKeyPressed(EKey::Num2)) _params.bloom_intensity = 0.6f;
-    if (FInput::IsKeyPressed(EKey::Num3)) _params.bloom_intensity = 1.5f;
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Num1)) _params.bloom_intensity = 0.0f;
+    if (Input::IsKeyPressed(EKey::Num2)) _params.bloom_intensity = 0.6f;
+    if (Input::IsKeyPressed(EKey::Num3)) _params.bloom_intensity = 1.5f;
 
     _angle += dt * 0.5f;
     const f32 cam_dist = 7.0f;
-    _cam_yaw += (FInput::IsKeyDown(EKey::Right) ? 1.0f : 0.0f) * dt;
-    _cam_yaw -= (FInput::IsKeyDown(EKey::Left)  ? 1.0f : 0.0f) * dt;
+    _cam_yaw += (Input::IsKeyDown(EKey::Right) ? 1.0f : 0.0f) * dt;
+    _cam_yaw -= (Input::IsKeyDown(EKey::Left)  ? 1.0f : 0.0f) * dt;
     FVec3 cam{ Sin(_cam_yaw) * cam_dist, 2.0f, -Cos(_cam_yaw) * cam_dist };
     _camera.SetLookAt(cam, FVec3{0, 1, 0});
 }
 
-// true を返して FApplication の既定フレームフローを置き換える (HDR RT を挟むため)。
+// true を返して Application の既定フレームフローを置き換える (HDR RT を挟むため)。
 bool HelloBloomApp::OnCustomFrame() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     IRhiTexture*     hdr = _post.HdrRenderTarget();
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
-    // false を返すと FApplication が既定フローでフレームを完走してくれる (失敗時の保険)。
+    // false を返すと Application が既定フローでフレームを完走してくれる (失敗時の保険)。
     if (!cl || !sc || !hdr) return false;
 
     const u32 buf_idx = sc->AcquireNextImage();
     cl->Begin();
 
     // 1) HDR RT にシーンを描く
-    cl->BeginRenderToTexture(*hdr, FClearColor{0,0,0,1}, depth, 1.0f);
+    cl->BeginRenderToTexture(*hdr, ClearColor{0,0,0,1}, depth, 1.0f);
 
     FViewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
                    vp.height = static_cast<f32>(hdr->Height());
@@ -129,7 +129,7 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     _post.Render(*cl, *sc, buf_idx, _params);
 
     // 3) HUD は Tonemap 後の LDR backbuffer に書く (HDR 値が HUD 色を吹き飛ばさないため)。
-    //    FPostProcess::Render が既に swapchain を RT としてバインドしてくれている。
+    //    PostProcess::Render が既に swapchain を RT としてバインドしてくれている。
     if (_font.AtlasTexture()) {
         const u32 sw = sc->Width();
         const u32 sh = sc->Height();
@@ -156,8 +156,8 @@ void HelloBloomApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     _font.Shutdown();
     _batch.Shutdown();
-    _gm_plane  = FGpuMesh{};
-    _gm_sphere = FGpuMesh{};
+    _gm_plane  = GpuMesh{};
+    _gm_sphere = GpuMesh{};
     _shader.Shutdown();
     _sky.Shutdown();
     _post.Shutdown();

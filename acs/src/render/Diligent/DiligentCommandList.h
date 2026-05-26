@@ -9,20 +9,20 @@
 
 namespace acs {
 
-class FDiligentDevice;
-class FDiligentPipeline;
-class FDiligentSwapchain;
-class FDiligentTexture;
+class DiligentDevice;
+class DiligentPipeline;
+class DiligentSwapchain;
+class DiligentTexture;
 
-class FDiligentCommandList final : public IRhiCommandList {
+class DiligentCommandList final : public IRhiCommandList {
 public:
-    FDiligentCommandList() noexcept = default;
-    ~FDiligentCommandList() noexcept override;
+    DiligentCommandList() noexcept = default;
+    ~DiligentCommandList() noexcept override;
 
-    FDiligentCommandList(const FDiligentCommandList&) = delete;
-    FDiligentCommandList& operator=(const FDiligentCommandList&) = delete;
+    DiligentCommandList(const DiligentCommandList&) = delete;
+    DiligentCommandList& operator=(const DiligentCommandList&) = delete;
 
-    TResult<void> Init(FDiligentDevice& device) noexcept;
+    TResult<void> Init(DiligentDevice& device) noexcept;
 
     // ---- IRhiCommandList ----
     void Begin() noexcept override;
@@ -30,7 +30,7 @@ public:
     void Submit() noexcept override;
 
     void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
-                                const FClearColor& clear,
+                                const ClearColor& clear,
                                 IRhiTexture* depth = nullptr,
                                 f32 depth_clear = 1.0f) noexcept override;
     void EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept override;
@@ -38,16 +38,16 @@ public:
     void BeginShadowPass(IRhiTexture& depth, f32 depth_clear = 1.0f) noexcept override;
     void EndShadowPass(IRhiTexture& depth) noexcept override;
 
-    void BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
+    void BeginRenderToTexture(IRhiTexture& rt, const ClearColor& clear,
                               IRhiTexture* depth = nullptr,
                               f32 depth_clear = 1.0f) noexcept override;
     void EndRenderToTexture(IRhiTexture& rt) noexcept override;
     void BeginRenderToTextureLoad(IRhiTexture& rt,
                                    IRhiTexture* depth = nullptr) noexcept override;
     void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
-                                    const FClearColor& clear) noexcept override;
+                                    const ClearColor& clear) noexcept override;
     void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
-                                  const FClearColor& clear,
+                                  const ClearColor& clear,
                                   IRhiTexture* depth = nullptr,
                                   f32 depth_clear = 1.0f) noexcept override;
 
@@ -66,13 +66,13 @@ public:
     void* NativeHandle() noexcept override;
 
 private:
-    FDiligentDevice*    _device   = nullptr;
-    FDiligentPipeline*  _pipeline = nullptr;
+    DiligentDevice*    _device   = nullptr;
+    DiligentPipeline*  _pipeline = nullptr;
     bool               _is_index32 = false;
     // フレーム内 main pass の RT を記憶する: shadow / off-screen pass を
     // 途中で挟んでも EndShadowPass / EndRenderToTexture で復帰させるため。
-    FDiligentSwapchain* _main_swapchain     = nullptr;
-    FDiligentTexture*   _main_depth         = nullptr;
+    DiligentSwapchain* _main_swapchain     = nullptr;
+    DiligentTexture*   _main_depth         = nullptr;
 };
 
 } // namespace acs

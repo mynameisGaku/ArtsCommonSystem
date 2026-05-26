@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FWeatherSystem 実装
+// GameFramework Pillar Q — WeatherSystem 実装
 //
-// 8 種の天候を 1 つの LUT (FKindParams テーブル) で表現し、current/target を
+// 8 種の天候を 1 つの LUT (KindParams テーブル) で表現し、current/target を
 // 線形補間する。Tick で transition_t を進行し、1.0 到達時に current = target に
 // snap する。
 #include "gameframework/WeatherSystem.h"
@@ -20,7 +20,7 @@ namespace acs::game {
 //   fog_density      : 霧密度倍率 (Fog で大、Sandstorm でも視界不良)
 //
 // 並びは EWeatherKind の数値順 (Clear=0 .. Sandstorm=7) と一致させる。
-static const FWeatherSystem::FKindParams kParamsTable[8] = {
+static const WeatherSystem::KindParams kParamsTable[8] = {
     // Clear      晴天: 何も足さず、何も引かない基準値
     { 1.00f, 0.00f, FVec3{1.00f, 1.00f, 1.00f}, 0.10f, 1.00f },
     // Cloudy     曇り: 全体的に少しトーン落ち、わずかに灰青寄りに
@@ -39,7 +39,7 @@ static const FWeatherSystem::FKindParams kParamsTable[8] = {
     { 0.50f, 1.50f, FVec3{1.10f, 0.85f, 0.55f}, 1.00f, 3.00f },
 };
 
-const FWeatherSystem::FKindParams& FWeatherSystem::Params(EWeatherKind k) noexcept {
+const WeatherSystem::KindParams& WeatherSystem::Params(EWeatherKind k) noexcept {
     // 範囲外は Clear にフォールバック (將来の enum 拡張で size > 8 となる場合の
     // 安全網)。現状の enum 定義では決して走らない。
     const u32 idx = static_cast<u32>(k);
@@ -49,7 +49,7 @@ const FWeatherSystem::FKindParams& FWeatherSystem::Params(EWeatherKind k) noexce
 
 // ----- 状態制御 -------------------------------------------------------------
 
-void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noexcept {
+void WeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noexcept {
     // 同一天候: 既にその天候なので即完了状態に揃える。
     if (kind == _current && _transition_t >= 1.0f) {
         _target              = kind;
@@ -60,7 +60,7 @@ void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noex
     }
 
     // 遷移中に SetWeather を再呼出: 現在の混合値を「次の current」として固定
-    // するのが理想だが、FKindParams は離散なので簡略化 — 単純に current を
+    // するのが理想だが、KindParams は離散なので簡略化 — 単純に current を
     // 「今までの target」に置き換え、新しい target に向け再スタートする。
     // (混合途中の急な切替は視覚的に気にならない範囲、Phase 3 で要検討。)
     if (_transition_t < 1.0f) {
@@ -82,7 +82,7 @@ void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noex
     }
 }
 
-void FWeatherSystem::Tick(f32 dt) noexcept {
+void WeatherSystem::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // 既に完了状態なら何もしない (浮動小数の累積ドリフトを避ける)。
@@ -105,7 +105,7 @@ void FWeatherSystem::Tick(f32 dt) noexcept {
     }
 }
 
-void FWeatherSystem::Reset() noexcept {
+void WeatherSystem::Reset() noexcept {
     _current             = EWeatherKind::Clear;
     _target              = EWeatherKind::Clear;
     _transition_duration = 0.0f;
@@ -116,33 +116,33 @@ void FWeatherSystem::Reset() noexcept {
 
 // ----- 描画 / lighting 用 modifier (current → target を線形補間) ------------
 
-f32 FWeatherSystem::AmbientLightMultiplier() const noexcept {
-    const FKindParams& a = Params(_current);
-    const FKindParams& b = Params(_target);
+f32 WeatherSystem::AmbientLightMultiplier() const noexcept {
+    const KindParams& a = Params(_current);
+    const KindParams& b = Params(_target);
     return Lerp(a.ambient_mult, b.ambient_mult, _transition_t);
 }
 
-f32 FWeatherSystem::ParticleDensity() const noexcept {
-    const FKindParams& a = Params(_current);
-    const FKindParams& b = Params(_target);
+f32 WeatherSystem::ParticleDensity() const noexcept {
+    const KindParams& a = Params(_current);
+    const KindParams& b = Params(_target);
     return Lerp(a.particle_density, b.particle_density, _transition_t);
 }
 
-FVec3 FWeatherSystem::SkyTintMultiplier() const noexcept {
-    const FKindParams& a = Params(_current);
-    const FKindParams& b = Params(_target);
+FVec3 WeatherSystem::SkyTintMultiplier() const noexcept {
+    const KindParams& a = Params(_current);
+    const KindParams& b = Params(_target);
     return Lerp(a.sky_tint, b.sky_tint, _transition_t);
 }
 
-f32 FWeatherSystem::WindStrength() const noexcept {
-    const FKindParams& a = Params(_current);
-    const FKindParams& b = Params(_target);
+f32 WeatherSystem::WindStrength() const noexcept {
+    const KindParams& a = Params(_current);
+    const KindParams& b = Params(_target);
     return Lerp(a.wind_strength, b.wind_strength, _transition_t);
 }
 
-f32 FWeatherSystem::FogDensityMultiplier() const noexcept {
-    const FKindParams& a = Params(_current);
-    const FKindParams& b = Params(_target);
+f32 WeatherSystem::FogDensityMultiplier() const noexcept {
+    const KindParams& a = Params(_current);
+    const KindParams& b = Params(_target);
     return Lerp(a.fog_density, b.fog_density, _transition_t);
 }
 

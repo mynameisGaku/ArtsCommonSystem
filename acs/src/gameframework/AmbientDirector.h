@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FAmbientDirector (Time-of-Day)
+// GameFramework Pillar Q — AmbientDirector (Time-of-Day)
 //
 // 1 日の時刻 (0..24h) に応じて sky color / ambient color / sun direction を
-// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (FPbrShader /
+// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (PbrShader /
 // SkyShader / 環境光ステージ) は本クラスの 3 つの色 / 方向ベクトルを毎フレーム
 // pull するだけで一日の表情が出る。
 //
 // 使い方:
-//   class WorldScene : public FScene {
-//       acs::game::FAmbientDirector _ambient;
+//   class WorldScene : public Scene {
+//       acs::game::AmbientDirector _ambient;
 //
 //       void OnEnter() noexcept override {
 //           _ambient.SetTimeOfDay(6.5f);     // 朝焼け開始
@@ -17,9 +17,9 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _ambient.Tick(dt);
-//           FRenderer().SetSkyColor    (_ambient.SkyColor());
-//           FRenderer().SetAmbientColor(_ambient.AmbientColor());
-//           FRenderer().SetSunDir      (_ambient.SunDirection());
+//           Renderer().SetSkyColor    (_ambient.SkyColor());
+//           Renderer().SetAmbientColor(_ambient.AmbientColor());
+//           Renderer().SetSunDir      (_ambient.SunDirection());
 //       }
 //   };
 //
@@ -41,7 +41,7 @@
 //     でゲーム 1 時間。
 //
 // 範囲外 (Phase 2+ で):
-//   ・カスタム FTimeStop の動的追加 (= 季節 / 天候モードによる切替)
+//   ・カスタム TimeStop の動的追加 (= 季節 / 天候モードによる切替)
 //   ・Hermite / spline 補間で滑らかな黄昏遷移
 //   ・SH9 / ambient cube による方向性 ambient
 //   ・月の方向 / 月相
@@ -53,15 +53,15 @@
 
 namespace acs::game {
 
-class FAmbientDirector {
+class AmbientDirector {
 public:
-    FAmbientDirector() noexcept = default;
-    ~FAmbientDirector() noexcept = default;
+    AmbientDirector() noexcept = default;
+    ~AmbientDirector() noexcept = default;
 
-    FAmbientDirector(const FAmbientDirector&)            = delete;
-    FAmbientDirector& operator=(const FAmbientDirector&) = delete;
-    FAmbientDirector(FAmbientDirector&&)                 = delete;
-    FAmbientDirector& operator=(FAmbientDirector&&)      = delete;
+    AmbientDirector(const AmbientDirector&)            = delete;
+    AmbientDirector& operator=(const AmbientDirector&) = delete;
+    AmbientDirector(AmbientDirector&&)                 = delete;
+    AmbientDirector& operator=(AmbientDirector&&)      = delete;
 
     // ----- 時刻設定 -----
     // hours は [0, 24)。24 以上 / 負値は 24 で剰余を取って正規化。
@@ -89,7 +89,7 @@ public:
     }
     f32 TimeScale() const noexcept { return _time_scale; }
 
-    // FSceneServices などから毎フレーム呼ぶ。dt はリアル秒。
+    // SceneServices などから毎フレーム呼ぶ。dt はリアル秒。
     void Tick(f32 dt) noexcept {
         if (dt < 0.0f) dt = 0.0f;
         AdvanceTime(dt * _time_scale);
@@ -98,7 +98,7 @@ public:
 public:
     // 補間用 stop。`hour` は [0, 24]。内部 helper だが .cpp の自由関数からも
     // アクセスする必要があるので public 配置 (テストや拡張カスタムにも便利)。
-    struct FTimeStop {
+    struct TimeStop {
         f32  hour;
         FVec3 sky;
         FVec3 ambient;
@@ -106,7 +106,7 @@ public:
 
 private:
     // 6 個の固定 stop。0:00 と 24:00 は夜色で揃えてラップを連続化。
-    static const FTimeStop _stops[6];
+    static const TimeStop _stops[6];
 
     // 現在時刻 [0, 24)。
     f32 _hours      = 12.0f;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMesh — FApplication 派生クラス。
+// HelloMesh — Application 派生クラス。
 //
 // 学習ポイント:
 //   - 定数バッファ (b0) で MVP 行列を毎フレーム更新する流れ
@@ -16,7 +16,7 @@
 
 namespace hellomesh {
 
-class HelloMeshApp : public acs::FApplication {
+class HelloMeshApp : public acs::Application {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

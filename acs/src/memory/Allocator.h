@@ -2,7 +2,7 @@
 // =============================================================================
 // ACS Memory — アロケータ抽象インターフェイス
 // -----------------------------------------------------------------------------
-// すべてのコンテナ・スマートポインタ・サブシステムは FAllocator* を介して
+// すべてのコンテナ・スマートポインタ・サブシステムは Allocator* を介して
 // メモリ確保を行う。これによりプール / アリーナ / サンドボックスアロケータ
 // を呼び出し側を再テンプレート化することなく差し替えられる。
 //
@@ -14,7 +14,7 @@
 // 性能注意:
 //   virtual 呼び出しのコスト（vtable 1 段間接 + 仮想関数 prediction miss）が
 //   ホットパス（毎フレーム数千回）で問題になる場合は、テンプレート化された
-//   薄いアダプタ越しに呼ぶか、ヒューリスティック inline 候補（FPoolAllocator
+//   薄いアダプタ越しに呼ぶか、ヒューリスティック inline 候補（PoolAllocator
 //   の固定サイズ確保等）を別 API で公開すること。
 // =============================================================================
 #pragma once
@@ -29,11 +29,11 @@ namespace acs {
 inline constexpr usize kDefaultAlignment = alignof(void*) > 8 ? alignof(void*) : 16;
 
 // =============================================================================
-// FAllocator — 純粋仮想インターフェイス
+// Allocator — 純粋仮想インターフェイス
 // =============================================================================
-class FAllocator {
+class Allocator {
 public:
-    virtual ~FAllocator() noexcept = default;
+    virtual ~Allocator() noexcept = default;
 
     // ---- 確保 ----
     // size バイトを alignment 整列で確保する。失敗時は nullptr。
@@ -53,7 +53,7 @@ public:
     // ---- 統計 (デフォルトは 0 を返す。実装側で上書き) ----
     virtual u64 BytesAllocated() const noexcept { return 0; }   // 現在の使用量
     virtual u64 PeakBytes()      const noexcept { return 0; }   // ピーク使用量
-    virtual const char* Name()   const noexcept { return "FAllocator"; }  // 識別名
+    virtual const char* Name()   const noexcept { return "Allocator"; }  // 識別名
 
     // ---- 利便性オーバーロード ----
     // alignment 既定値版。FSourceLoc は呼び出し位置を自動キャプチャ。

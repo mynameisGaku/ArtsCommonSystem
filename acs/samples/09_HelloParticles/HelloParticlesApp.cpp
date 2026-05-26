@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloParticles — FApplication 実装。
+// HelloParticles — Application 実装。
 #include "HelloParticlesApp.h"
 
 #include "app/Sample.h"
@@ -38,7 +38,7 @@ void HelloParticlesApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    // FSpriteBatch (2D 描画) と Glow テクスチャ (粒の見た目) を準備
+    // SpriteBatch (2D 描画) と Glow テクスチャ (粒の見た目) を準備
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
     // パーティクルの粒テクスチャを CPU 側で 1 枚だけ生成し GPU へ転送
@@ -62,7 +62,7 @@ void HelloParticlesApp::OnStart() noexcept {
 }
 
 void HelloParticlesApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
     _scene.Update(dt);
 }
 

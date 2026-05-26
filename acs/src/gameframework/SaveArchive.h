@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework Pillar J — FSaveArchive (低レベル `.acssave` バイナリ I/O)
+// GameFramework Pillar J — SaveArchive (低レベル `.acssave` バイナリ I/O)
 // -----------------------------------------------------------------------------
 // 役割:
 //   ユーザー定義 POD を 1 つのファイル (`.acssave`) に「タグ付きバイナリ」で
-//   読み書きする low-level クラス。`FSaveSlot<T>` の実装基盤として使う一方、
+//   読み書きする low-level クラス。`SaveSlot<T>` の実装基盤として使う一方、
 //   テンプレートに依存したくない呼び出し側 (CRT を呼ばないツール、可変長
 //   payload を扱いたい未来の SaveSlotV2 など) からも直接利用できる。
 //
@@ -30,20 +30,20 @@
 //   ・**static のみ・非インスタンス**: 状態を持たない無名関数の集合体として
 //     振る舞う。コピー / ムーブともに明示的に削除する。
 //   ・**Win32 直叩き**: `CreateFileW / ReadFile / WriteFile / SetFilePointerEx /
-//     GetFileSizeEx / CloseHandle` を .cpp 内で直接呼ぶ (FFileSystem を経由
+//     GetFileSizeEx / CloseHandle` を .cpp 内で直接呼ぶ (FileSystem を経由
 //     しない — このレイヤは整合性検証 + I/O を 1 つの atomic 単位に閉じたい
 //     ため、薄い直接呼び出しが目的に合う)。
 //
 // 使い方:
 //   // 書き込み
 //   PlayerProfile p = MakeProfile();
-//   auto wr = FSaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
+//   auto wr = SaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
 //   if (wr.IsErr()) { /* 報告 */ }
 //
 //   // 読み込み
 //   PlayerProfile p{};
 //   u64 actual_size = 0;
-//   auto rd = FSaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
+//   auto rd = SaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
 //                                       actual_size);
 //   if (rd.IsErr()) {
 //       if (rd.Error().subcode ==
@@ -64,7 +64,7 @@
 namespace acs::game {
 
 // -----------------------------------------------------------------------------
-// FSaveArchive エラー subcode (FErrorCode.subcode に格納)
+// SaveArchive エラー subcode (FErrorCode.subcode に格納)
 // -----------------------------------------------------------------------------
 // 上位層が switch 分岐できるよう、固定 u32 値を割り当てる。
 // 値域は 1..7 (Phase 1)。後段で増やす場合も既存値の再利用は禁止する。
@@ -79,9 +79,9 @@ enum class ESaveArchiveSubCode : u32 {
 };
 
 // -----------------------------------------------------------------------------
-// FSaveArchive — `.acssave` バイナリ I/O 一括クラス
+// SaveArchive — `.acssave` バイナリ I/O 一括クラス
 // -----------------------------------------------------------------------------
-class FSaveArchive {
+class SaveArchive {
 public:
     // ---- フォーマット定数 ------------------------------------------------
     // magic は ASCII "ACSSAVE\0" の 8 バイト。kMagicBytes はそのバイト列を
@@ -94,12 +94,12 @@ public:
     static const u8 kMagicBytes[kMagicSize];
 
     // ---- 非インスタンス: コピー / ムーブ禁止 ------------------------------
-    FSaveArchive()                              = delete;
-    ~FSaveArchive()                             = delete;
-    FSaveArchive(const FSaveArchive&)            = delete;
-    FSaveArchive(FSaveArchive&&)                 = delete;
-    FSaveArchive& operator=(const FSaveArchive&) = delete;
-    FSaveArchive& operator=(FSaveArchive&&)      = delete;
+    SaveArchive()                              = delete;
+    ~SaveArchive()                             = delete;
+    SaveArchive(const SaveArchive&)            = delete;
+    SaveArchive(SaveArchive&&)                 = delete;
+    SaveArchive& operator=(const SaveArchive&) = delete;
+    SaveArchive& operator=(SaveArchive&&)      = delete;
 
     // ---- 書き込み: payload を `.acssave` 1 ファイルに保存 ------------------
     // file_path   : 出力先 (絶対 / 相対どちらでも可、wchar_t 終端)
@@ -117,7 +117,7 @@ public:
     //   既存ファイルは CreateFileW(CREATE_ALWAYS) で truncate 後に書くため、
     //   途中失敗するとファイルは中途半端な状態で残る可能性がある。
     //   atomic rename が必要なら呼び出し側で tmp file → rename を組むこと
-    //   (FSaveSlot 上位層で実装する)。
+    //   (SaveSlot 上位層で実装する)。
     static TResult<void> WriteToFile(const wchar_t* file_path,
                                     u32            version,
                                     const void*    payload,
@@ -141,8 +141,8 @@ public:
     //
     // 戻り値:
     //   Ok(actual_version)             — 全検証 + コピー成功。返値は header.version。
-    //   Err(IO/FAsset, ...)             — magic / crc / io 失敗
-    //   Err(FAsset, kSubMigrationNeeded) — version 不一致 (out_payload にはコピー
+    //   Err(IO/Asset, ...)             — magic / crc / io 失敗
+    //   Err(Asset, kSubMigrationNeeded) — version 不一致 (out_payload にはコピー
     //                                     しない、out_payload_size のみ設定)
     static TResult<u32> ReadFromFile(const wchar_t* file_path,
                                     void*          out_payload,

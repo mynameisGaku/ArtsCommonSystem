@@ -10,14 +10,14 @@
 
 namespace acs {
 
-FTcpListener::~FTcpListener() noexcept {
+TcpListener::~TcpListener() noexcept {
     Close();
 }
 
-FTcpListener::FTcpListener(FTcpListener&& o) noexcept : _socket(o._socket) {
+TcpListener::TcpListener(TcpListener&& o) noexcept : _socket(o._socket) {
     o._socket = ~uptr{0};
 }
-FTcpListener& FTcpListener::operator=(FTcpListener&& o) noexcept {
+TcpListener& TcpListener::operator=(TcpListener&& o) noexcept {
     if (this == &o) return *this;
     Close();
     _socket = o._socket;
@@ -25,9 +25,9 @@ FTcpListener& FTcpListener::operator=(FTcpListener&& o) noexcept {
     return *this;
 }
 
-TResult<FTcpListener> FTcpListener::Listen(FIpAddress addr, u16 port, u32 backlog) noexcept {
-    if (!FNetwork::IsInitialized())
-        return ACS_ERR(IO, 220, "FNetwork::Init() not called");
+TResult<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) noexcept {
+    if (!Network::IsInitialized())
+        return ACS_ERR(IO, 220, "Network::Init() not called");
 
     SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET)
@@ -56,12 +56,12 @@ TResult<FTcpListener> FTcpListener::Listen(FIpAddress addr, u16 port, u32 backlo
         return ACS_ERR_OS(IO, 223, "listen failed", err);
     }
 
-    FTcpListener l;
+    TcpListener l;
     l._socket = static_cast<uptr>(s);
-    return TResult<FTcpListener>(OkInit, Move(l));
+    return TResult<TcpListener>(OkInit, Move(l));
 }
 
-TResult<FTcpConnection> FTcpListener::Accept() noexcept {
+TResult<TcpConnection> TcpListener::Accept() noexcept {
     if (_socket == ~uptr{0}) return ACS_ERR(IO, 224, "listener not open");
     sockaddr_in sa{};
     int len = sizeof(sa);
@@ -69,17 +69,17 @@ TResult<FTcpConnection> FTcpListener::Accept() noexcept {
                           reinterpret_cast<sockaddr*>(&sa), &len);
     if (cs == INVALID_SOCKET)
         return ACS_ERR_OS(IO, 225, "accept failed", static_cast<u32>(::WSAGetLastError()));
-    FIpAddress remote{};
+    IpAddress remote{};
     remote.octets[0] = sa.sin_addr.S_un.S_un_b.s_b1;
     remote.octets[1] = sa.sin_addr.S_un.S_un_b.s_b2;
     remote.octets[2] = sa.sin_addr.S_un.S_un_b.s_b3;
     remote.octets[3] = sa.sin_addr.S_un.S_un_b.s_b4;
     remote.port      = ::ntohs(sa.sin_port);
-    return TResult<FTcpConnection>(OkInit,
-        FTcpConnection::FromAccepted(static_cast<uptr>(cs), remote));
+    return TResult<TcpConnection>(OkInit,
+        TcpConnection::FromAccepted(static_cast<uptr>(cs), remote));
 }
 
-TResult<void> FTcpListener::SetNonBlocking(bool enable) noexcept {
+TResult<void> TcpListener::SetNonBlocking(bool enable) noexcept {
     if (_socket == ~uptr{0}) return ACS_ERR(IO, 226, "listener not open");
     u_long mode = enable ? 1 : 0;
     if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)
@@ -88,7 +88,7 @@ TResult<void> FTcpListener::SetNonBlocking(bool enable) noexcept {
     return Ok();
 }
 
-void FTcpListener::Close() noexcept {
+void TcpListener::Close() noexcept {
     if (_socket != ~uptr{0}) {
         ::closesocket(static_cast<SOCKET>(_socket));
         _socket = ~uptr{0};

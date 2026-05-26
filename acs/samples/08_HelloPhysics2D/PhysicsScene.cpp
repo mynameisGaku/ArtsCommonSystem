@@ -17,10 +17,10 @@ void PhysicsScene::Init(u32 screen_w, u32 screen_h, u32 initial_balls) noexcept 
 }
 
 void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
-    if (FInput::IsKeyPressed(EKey::Space)) _ball_count = 0;
+    if (Input::IsKeyPressed(EKey::Space)) _ball_count = 0;
 
-    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) {
-        FVec2 mp = FInput::MousePos();
+    if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
+        FVec2 mp = Input::MousePos();
         SpawnBallAt(mp.x, mp.y);
     }
 
@@ -49,8 +49,8 @@ void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
         for (u32 j = i + 1; j < _ball_count; ++j) {
             Ball& a = _balls[i];
             Ball& bb = _balls[j];
-            FCircle ca{ a.pos, a.radius };
-            FCircle cb{ bb.pos, bb.radius };
+            Circle ca{ a.pos, a.radius };
+            Circle cb{ bb.pos, bb.radius };
             FVec2 push;
             if (Resolve(ca, cb, push)) {
                 // 等質量と仮定して半分ずつ押し出す
@@ -73,8 +73,8 @@ void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
     }
 }
 
-void PhysicsScene::Render(FSpriteBatch& batch,
-                          FFont& font,
+void PhysicsScene::Render(SpriteBatch& batch,
+                          Font& font,
                           IRhiTexture& ball_tex,
                           f32 fps) noexcept {
     for (u32 i = 0; i < _ball_count; ++i) {

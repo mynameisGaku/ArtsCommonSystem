@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M Phase 2 — FNetSnapshot
+// GameFramework Pillar M Phase 2 — NetSnapshot
 //   server-authoritative snapshot ベースのネットコード seam
 //
 // 役割:
 //   1) **Server 側 snapshot 書出**: 毎 tick のゲーム状態 (entity ごとの位置 /
-//      速度 / 姿勢 / health 等) を 1 つの FSnapshotHeader + payload に固めて
+//      速度 / 姿勢 / health 等) を 1 つの SnapshotHeader + payload に固めて
 //      INetTransport.Send で配信する。1 snapshot = 「ある tick の世界全体の
 //      authoritative state」を意味する。
 //   2) **Client 側 snapshot 補間**: server から到着した複数 snapshot を ring
@@ -13,24 +13,24 @@
 //      Source / Halo / Valorant 等で採用されている定石)。
 //   3) **transport の差し替え**: 実 socket / Steam Datagram Relay / loopback
 //      テスト fake のいずれを使うかは INetTransport seam で抽象化し、本クラスは
-//      send/recv バイト列だけを扱う。Pillar M Phase 1 (FLockstep = deterministic
+//      send/recv バイト列だけを扱う。Pillar M Phase 1 (Lockstep = deterministic
 //      input replay) と並ぶもう一つの netcode 流儀を提供する。
 //
-// FLockstep との対比:
-//   ・**FLockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
+// Lockstep との対比:
+//   ・**Lockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
 //     simulation を回す (=「結果」ではなく「入力」を配信する)。
 //     格闘ゲーム / RTS / GGPO 系で標準。
-//   ・**FNetSnapshot**: server が 1 体の authoritative simulation を回し、
+//   ・**NetSnapshot**: server が 1 体の authoritative simulation を回し、
 //     client は受け取った snapshot を補間表示するだけ (=「結果」だけを配信)。
 //     FPS / TPS / MMORPG 系で標準。
 //   どちらを採用するかはジャンル次第。両方を seam として提供し、タイトル
 //   側が用途に応じて選べるようにする。
 //
 // 使い方 (server 側):
-//   FNetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
+//   NetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
 //                          /*interpolation_delay_sec=*/0.1f,
 //                          /*max_payload_bytes=*/8192 };
-//   FNetSnapshot snap;
+//   NetSnapshot snap;
 //   snap.Init(cfg, ENetRole::Server, &transport);
 //
 //   // 毎 simulation tick:
@@ -40,12 +40,12 @@
 //   snap.CommitSnapshot(world.CurrentTick());  // ← Send まで実行
 //
 // 使い方 (client 側):
-//   FNetSnapshot snap;
+//   NetSnapshot snap;
 //   snap.Init(cfg, ENetRole::Client, &transport);
 //
 //   // 毎フレーム:
 //   snap.Tick(dt);  // ← Receive + ring buffer 維持
-//   FEntitySnapshot view_buf[256];
+//   EntitySnapshot view_buf[256];
 //   u32 view_n = 0;
 //   if (snap.TryGetInterpolatedSnapshot(client_time, view_buf, 256, view_n)) {
 //       // view_buf[0..view_n] を描画用 state に流し込む (補間後の世界状態)
@@ -61,11 +61,11 @@
 //     は内部的に Server + Client を同居させる役割で、host プレイヤーが自機の
 //     simulation を server として回しつつ自分の画面用に snapshot 補間も使う
 //     ケースに使う (HelloMultiplayer サンプル等)。
-//   ・**FSnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
+//   ・**SnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
 //     payload_size(4) + crc32(4) = 24 byte。LE 固定。CRC32 は payload に対する
 //     Zlib / PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) を採用予定で、
 //     wire format の改竄 / 破損検知に使う (Phase 3 で送受信時に計算)。
-//   ・**FEntitySnapshot は非所有 view**: `const void*` + size の pair。Server 側
+//   ・**EntitySnapshot は非所有 view**: `const void*` + size の pair。Server 側
 //     は AddEntitySnapshot で _pending_entities にコピーを積み、CommitSnapshot
 //     で payload に bulk concat する。Client 側は TryGetInterpolatedSnapshot
 //     で ring buffer の中の payload を指す view として返す (寿命は次の Tick
@@ -79,14 +79,14 @@
 //     index を持つかは検討。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
-//     との結合関係を分裂させないため FLockstep / BackendClient と同じ方針)。
+//     との結合関係を分裂させないため Lockstep / BackendClient と同じ方針)。
 //
 // 範囲外 (Phase 3+):
 //   ・delta compression (前 snapshot との差分のみ送る XOR + RLE)
 //   ・client-side prediction (input を server に投げる + 自分の predicted
 //     state を server snapshot で reconcile)
 //   ・lag compensation (server が過去 tick で hit detection をやり直す)
-//   ・snapshot encryption (AssetPack 同居の FAcpakCrypto / AES-256-GCM 流用)
+//   ・snapshot encryption (AssetPack 同居の AcpakCrypto / AES-256-GCM 流用)
 //   ・partial / interest-management (client ごとに見える entity を絞り込む)
 //   ・reliable / unreliable channel 分離 (現在は INetTransport が抽象化)
 #pragma once
@@ -98,7 +98,7 @@
 namespace acs::game {
 
 // =============================================================================
-// ENetRole — FNetSnapshot の動作役割
+// ENetRole — NetSnapshot の動作役割
 // -----------------------------------------------------------------------------
 // Client : 受信のみ。AddEntitySnapshot / CommitSnapshot は no-op。
 // Server : 送信のみ。TryGetInterpolatedSnapshot は false を返す。
@@ -115,13 +115,13 @@ enum class ENetRole : u8 {
 };
 
 // =============================================================================
-// FSnapshotHeader — wire format の 1 snapshot 先頭 24 byte
+// SnapshotHeader — wire format の 1 snapshot 先頭 24 byte
 // -----------------------------------------------------------------------------
 // LE 固定。client は受信時に magic 相当のフィルタとして payload_size 上限と
 // crc32 を検証する (Phase 3 で実装)。Phase 2 では構造体定義のみ確定し、
 // CRC は 0 充填 (= 検証スキップ) で送受信する。
 // =============================================================================
-struct FSnapshotHeader {
+struct SnapshotHeader {
     u32 tick               = 0;  // server tick (1 simulation step = 1 tick)
     u32 sequence           = 0;  // 送信側でモノトニック増加 (loss / 重複検知用)
     u64 server_timestamp_us = 0; // server 計測時の Unix microseconds
@@ -130,13 +130,13 @@ struct FSnapshotHeader {
 };
 
 // =============================================================================
-// FEntitySnapshot — 1 entity 分の component 状態 view
+// EntitySnapshot — 1 entity 分の component 状態 view
 // -----------------------------------------------------------------------------
 // 非所有 view。component_data は呼出側 (server: world / client: snapshot
 // payload 内) のメモリを指す。寿命は server 側で「CommitSnapshot まで」、
 // client 側で「次の Tick() 呼出まで」を保証する。
 // =============================================================================
-struct FEntitySnapshot {
+struct EntitySnapshot {
     u32         entity_id           = 0;       // ゲーム内 entity ID (0 = invalid)
     u32         component_mask      = 0;       // bitmask: どの component が含まれるか
     const void* component_data      = nullptr; // 非所有 view
@@ -144,14 +144,14 @@ struct FEntitySnapshot {
 };
 
 // =============================================================================
-// FNetSnapshotConfig — ランタイム設定
+// NetSnapshotConfig — ランタイム設定
 // -----------------------------------------------------------------------------
 // snapshot_rate_hz は server 側の Commit 頻度の目安 (本クラスは自動で
 // throttle はしない。Caller が dt に応じて Commit を呼ぶ責任を持つ)。
 // buffer_capacity_snapshots は ring buffer サイズ。30Hz × 0.5s = 15 が
 // 補間 + 多少の loss 吸収には十分。
 // =============================================================================
-struct FNetSnapshotConfig {
+struct NetSnapshotConfig {
     u32 snapshot_rate_hz          = 30;    // server 側の目標 commit Hz (注: 自動 throttle はしない)
     u32 buffer_capacity_snapshots = 64;    // client 側 ring buffer 件数 (>= 2 が必要)
     f32 interpolation_delay_sec   = 0.1f;  // client 補間の遅延 (= jitter buffer の深さ)
@@ -169,7 +169,7 @@ struct FNetSnapshotConfig {
 //   ・Send/Receive は **非ブロッキング**。Send は buffer 不足なら kSub_BufferFull
 //     を返してよい。Receive は受信データなしなら out_size = 0 で成功 TResult。
 //   ・Send は **メッセージ境界を保持する** 想定 (datagram / framed stream)。
-//     1 回の Receive が 1 snapshot の FSnapshotHeader + payload に対応する。
+//     1 回の Receive が 1 snapshot の SnapshotHeader + payload に対応する。
 //     TCP のような stream-based transport を採用する場合は派生実装側で
 //     length-prefixed framing を実装すること。
 // =============================================================================
@@ -207,9 +207,9 @@ public:
 };
 
 // =============================================================================
-// 共通エラー subcode (FNetSnapshot + FNetTransportStub 共通)
+// 共通エラー subcode (NetSnapshot + NetTransportStub 共通)
 // =============================================================================
-struct FNetSnapshotError {
+struct NetSnapshotError {
     enum SubCode : u16 {
         kSub_NotConnected   = 1,  // Send 前に Connect されていない
         kSub_BadArgument    = 2,  // size == 0 / address == nullptr 等
@@ -220,16 +220,16 @@ struct FNetSnapshotError {
 };
 
 // =============================================================================
-// FNetTransportStub — INetTransport の null-object 実装
+// NetTransportStub — INetTransport の null-object 実装
 // -----------------------------------------------------------------------------
 // 「常に NotImplemented を返す」defensive stub。サンプル / テスト / linker
 // 互換用。本番ビルドに混入したケースを QA で必ず検出できるよう、Connect /
 // Send / Receive は必ず Err を返す (Pillar V BackendClientStub と同じ pattern)。
 // =============================================================================
-class FNetTransportStub final : public INetTransport {
+class NetTransportStub final : public INetTransport {
 public:
-    FNetTransportStub() noexcept = default;
-    ~FNetTransportStub() noexcept override = default;
+    NetTransportStub() noexcept = default;
+    ~NetTransportStub() noexcept override = default;
 
     TResult<void> Connect(const char* address, u16 port) noexcept override;
     void Disconnect() noexcept override;
@@ -244,25 +244,25 @@ public:
 INetTransport& GetTransportStub() noexcept;
 
 // =============================================================================
-// FNetSnapshot — server-side 書出 / client-side 補間
+// NetSnapshot — server-side 書出 / client-side 補間
 // -----------------------------------------------------------------------------
 // 1 セッション 1 オブジェクト。コピー / ムーブ禁止。
 // =============================================================================
-class FNetSnapshot {
+class NetSnapshot {
 public:
-    FNetSnapshot() noexcept = default;
-    ~FNetSnapshot() noexcept = default;
+    NetSnapshot() noexcept = default;
+    ~NetSnapshot() noexcept = default;
 
-    FNetSnapshot(const FNetSnapshot&)            = delete;
-    FNetSnapshot& operator=(const FNetSnapshot&) = delete;
-    FNetSnapshot(FNetSnapshot&&)                 = delete;
-    FNetSnapshot& operator=(FNetSnapshot&&)      = delete;
+    NetSnapshot(const NetSnapshot&)            = delete;
+    NetSnapshot& operator=(const NetSnapshot&) = delete;
+    NetSnapshot(NetSnapshot&&)                 = delete;
+    NetSnapshot& operator=(NetSnapshot&&)      = delete;
 
     // ----- 初期化 / 終了 -----
     // role = Standalone の場合、transport は nullptr を許容する。
     // Client / Server / ServerListener では transport は non-null 必須
     // (nullptr の場合は内部的に GetTransportStub() に差し替えてリンク互換を保つ)。
-    void Init(const FNetSnapshotConfig& config, ENetRole role,
+    void Init(const NetSnapshotConfig& config, ENetRole role,
               INetTransport* transport) noexcept;
 
     // ring buffer / pending entities / 統計値をリセット。transport は触らない。
@@ -280,7 +280,7 @@ public:
     void AddEntitySnapshot(u32 entity_id, u32 component_mask,
                            const void* data, u32 data_size) noexcept;
 
-    // pending list を 1 つの payload に concat し、FSnapshotHeader を付けて
+    // pending list を 1 つの payload に concat し、SnapshotHeader を付けて
     // transport.Send する。pending list はクリアされる。
     // Client / Standalone では no-op。
     void CommitSnapshot(u32 tick) noexcept;
@@ -296,7 +296,7 @@ public:
     // 注: out_snapshots の component_data は ring buffer 内 payload を指す
     // 非所有 view。次の Tick() 呼出まで有効。
     bool TryGetInterpolatedSnapshot(f32 client_time_sec,
-                                    FEntitySnapshot* out_snapshots,
+                                    EntitySnapshot* out_snapshots,
                                     u32 max_count,
                                     u32& out_actual_count) noexcept;
 
@@ -312,16 +312,16 @@ public:
     u32 BytesReceived()   const noexcept { return _bytes_received;   }
 
 private:
-    // 1 ring buffer エントリ = FSnapshotHeader + payload バイト列。
+    // 1 ring buffer エントリ = SnapshotHeader + payload バイト列。
     // payload は AddEntitySnapshot で積んだ全 entity の concat。
-    struct FBufferedSnapshot {
-        FSnapshotHeader header {};
+    struct BufferedSnapshot {
+        SnapshotHeader header {};
         TArray<u8>      payload;
     };
 
     // server 側: AddEntitySnapshot で 1 件ずつコピーして積む。CommitSnapshot で
     // payload に concat する。
-    struct FPendingEntity {
+    struct PendingEntity {
         u32       entity_id      = 0;
         u32       component_mask = 0;
         TArray<u8> data;  // コピー保持
@@ -337,14 +337,14 @@ private:
     static constexpr u32 kEntityHeaderSize = 12;
 
     // 補間結果を保持するための temporary 領域 (TryGetInterpolatedSnapshot が
-    // 返す FEntitySnapshot::component_data が指す先)。client 側のみで使う。
+    // 返す EntitySnapshot::component_data が指す先)。client 側のみで使う。
     TArray<u8> _interp_scratch;
 
-    FNetSnapshotConfig          _config         {};
+    NetSnapshotConfig          _config         {};
     ENetRole                   _role           = ENetRole::Standalone;
     INetTransport*             _transport      = nullptr;
-    TArray<FPendingEntity>       _pending_entities;
-    TArray<FBufferedSnapshot>    _ring_buffer;   // capacity = config.buffer_capacity_snapshots
+    TArray<PendingEntity>       _pending_entities;
+    TArray<BufferedSnapshot>    _ring_buffer;   // capacity = config.buffer_capacity_snapshots
     u32                        _ring_head      = 0;  // 次の挿入位置 (FIFO)
     u32                        _ring_count     = 0;  // 現在の有効件数 (<= capacity)
     u32                        _next_sequence  = 1;  // server 送信時の sequence 番号 (0 は無効)

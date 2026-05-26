@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — FLlmSafetyPipeline (LLM 入出力安全パイプ)
+// GameFramework Pillar U Phase 2 — LlmSafetyPipeline (LLM 入出力安全パイプ)
 //
 // 役割:
 //   LLM NPC のセリフ生成経路 (= 決定論ゾーンの外側) に対して、入力検証 /
@@ -7,24 +7,24 @@
 //   refusal 強制 を 1 つの bit flag 駆動パイプラインとして提供する。
 //
 //   入力経路 (ユーザー → LLM):
-//     ValidateInput(user_text) → FSafetyResult{Pass | Refused | BudgetExceeded}
+//     ValidateInput(user_text) → SafetyResult{Pass | Refused | BudgetExceeded}
 //
 //   出力経路 (LLM → 画面 / NPC セリフ):
-//     FilterOutput(llm_response) → FSafetyResult{Pass | Filtered | Refused | BudgetExceeded}
+//     FilterOutput(llm_response) → SafetyResult{Pass | Filtered | Refused | BudgetExceeded}
 //
 // 設計判断:
 //   ・**bit flag で個別 on/off**: シーン (チュートリアル / 児童向け / 大人向け) ごとに
-//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/FSceneServices と
+//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/SceneServices と
 //     同じ「mask で機能宣言」スタイルに揃える。
 //   ・**stub 実装**: Phase 1 (本フェーズ) は単純な文字列長 / keyword チェックのみ。
 //     実 jailbreak 検出器・PII regex・コンテンツ分類器は Phase 2 以降で差し込み。
 //     現段階でも「常に refusal を返す閾値」を持っているので、上位層は day-0 から
 //     "Refused" 経路の表示 (例: NPC が黙る / 別セリフを話す) を必ず書ける。
-//   ・**所有しない文字列**: `<string>` 不使用 (ACS 規約)。`FSafetyResult::filtered_text`
+//   ・**所有しない文字列**: `<string>` 不使用 (ACS 規約)。`SafetyResult::filtered_text`
 //     は呼び出しごとに内部の static thread_local バッファを指す。次回呼び出しで
 //     上書きされるため、呼び出し側は **使い終わるまでに必ずコピー or 消費** すること。
 //   ・**決定論ゾーン外宣言**: LLM 推論自体が非決定論なので、本パイプラインも
-//     `FGame::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
+//     `Game::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
 //     コールバックから呼ぶ前提)。MlRuntime と同じ契約。
 //
 // 範囲外 (Phase 2):
@@ -87,13 +87,13 @@ enum class ESafetyVerdict : u32 {
 };
 
 // =============================================================================
-// FSafetyResult — 1 回の Validate / Filter 呼び出しの結果
+// SafetyResult — 1 回の Validate / Filter 呼び出しの結果
 // -----------------------------------------------------------------------------
 // 文字列は所有しない (= 内部 static バッファへのポインタ)。寿命は **次回の
 // ValidateInput / FilterOutput 呼び出しまで**。呼び出し側はその前にコピー or
 // 消費すること。
 // =============================================================================
-struct FSafetyResult {
+struct SafetyResult {
     ESafetyVerdict verdict        = ESafetyVerdict::Pass;
     const char*   filtered_text  = nullptr;  // Pass / Filtered で有効、それ以外 nullptr
     const char*   refusal_reason = nullptr;  // Refused で有効、それ以外 nullptr
@@ -102,13 +102,13 @@ struct FSafetyResult {
 };
 
 // =============================================================================
-// FLlmSafetyPipeline — 入出力安全パイプライン本体
+// LlmSafetyPipeline — 入出力安全パイプライン本体
 // -----------------------------------------------------------------------------
 // 1 インスタンス = 1 つの NPC キャラクタ前提 (CharacterAnchor を 1 個保持する)。
-// 複数 NPC を同時運用する場合は FLlmSafetyPipeline を NPC ごとに持つ。
+// 複数 NPC を同時運用する場合は LlmSafetyPipeline を NPC ごとに持つ。
 //
 // 典型使用:
-//   FLlmSafetyPipeline pipe;
+//   LlmSafetyPipeline pipe;
 //   pipe.Init();
 //   pipe.SetTokenBudget(1024, 512);
 //   pipe.SetCharacterAnchor("You are a friendly shopkeeper in a fantasy RPG.");
@@ -121,16 +121,16 @@ struct FSafetyResult {
 //   if (out_res.verdict == ESafetyVerdict::Refused) { NpcBecomesSilent(); return; }
 //   DisplayNpcLine(out_res.filtered_text);
 // =============================================================================
-class FLlmSafetyPipeline {
+class LlmSafetyPipeline {
 public:
-    FLlmSafetyPipeline() noexcept = default;
-    ~FLlmSafetyPipeline() noexcept = default;
+    LlmSafetyPipeline() noexcept = default;
+    ~LlmSafetyPipeline() noexcept = default;
 
     // 非コピー・非ムーブ (state を 1 箇所にとどめる)
-    FLlmSafetyPipeline(const FLlmSafetyPipeline&)            = delete;
-    FLlmSafetyPipeline& operator=(const FLlmSafetyPipeline&) = delete;
-    FLlmSafetyPipeline(FLlmSafetyPipeline&&)                 = delete;
-    FLlmSafetyPipeline& operator=(FLlmSafetyPipeline&&)      = delete;
+    LlmSafetyPipeline(const LlmSafetyPipeline&)            = delete;
+    LlmSafetyPipeline& operator=(const LlmSafetyPipeline&) = delete;
+    LlmSafetyPipeline(LlmSafetyPipeline&&)                 = delete;
+    LlmSafetyPipeline& operator=(LlmSafetyPipeline&&)      = delete;
 
     // 初期化。bit flag で機能を選択。多重 Init は最新 rules で上書き。
     void Init(ESafetyRule rules = ESafetyRule::Default) noexcept;
@@ -148,14 +148,14 @@ public:
     // - InputValidation: 空 / 長すぎ → Refused
     // - JailbreakDetection: "ignore previous instructions" 等の典型句 → Refused
     // - TokenBudget: input_tokens > max_input_tokens → BudgetExceeded
-    FSafetyResult ValidateInput(const char* user_text) noexcept;
+    SafetyResult ValidateInput(const char* user_text) noexcept;
 
     // LLM 応答を検証 / フィルタ (UI 表示前)。
     // - PiiRedaction: 個人情報を `[REDACTED]` に置換 → Filtered (Phase 2: stub)
     // - EContentRating: 危険スコア超過 → Refused (Phase 2: stub)
     // - RefusalEnforcement: キャラ逸脱 → Refused (Phase 2: stub)
     // - TokenBudget: output_tokens > max_output_tokens → BudgetExceeded
-    FSafetyResult FilterOutput(const char* llm_response) noexcept;
+    SafetyResult FilterOutput(const char* llm_response) noexcept;
 
     // rules マスク操作
     bool       IsRuleEnabled(ESafetyRule rule) const noexcept;

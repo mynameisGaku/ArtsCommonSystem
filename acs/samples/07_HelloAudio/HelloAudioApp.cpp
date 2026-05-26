@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloAudio — FApplication 実装。
+// HelloAudio — Application 実装。
 #include "HelloAudioApp.h"
 
 #include "app/Sample.h"
@@ -24,19 +24,19 @@ void HelloAudioApp::OnStart() noexcept {
 }
 
 void HelloAudioApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (FInput::IsKeyPressed(EKey::Space)) {
+    if (Input::IsKeyPressed(EKey::Space)) {
         if (_handle.IsValid()) {
             _engine.Stop(_handle);
             _handle = kInvalidSound;
         } else if (_audio) {
-            auto* a = static_cast<FAudioAsset*>(_audio.Get());
+            auto* a = static_cast<AudioAsset*>(_audio.Get());
             _handle = _engine.Play(*a, _volume, /*loop*/ false);
         }
     }
-    if (FInput::IsKeyPressed(EKey::Up))   { _volume += 0.1f; if (_volume > 1) _volume = 1; _engine.SetVolume(_handle, _volume); }
-    if (FInput::IsKeyPressed(EKey::Down)) { _volume -= 0.1f; if (_volume < 0) _volume = 0; _engine.SetVolume(_handle, _volume); }
+    if (Input::IsKeyPressed(EKey::Up))   { _volume += 0.1f; if (_volume > 1) _volume = 1; _engine.SetVolume(_handle, _volume); }
+    if (Input::IsKeyPressed(EKey::Down)) { _volume -= 0.1f; if (_volume < 0) _volume = 0; _engine.SetVolume(_handle, _volume); }
 }
 
 void HelloAudioApp::OnShutdown() noexcept {

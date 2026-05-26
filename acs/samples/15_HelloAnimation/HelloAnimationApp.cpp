@@ -52,13 +52,13 @@ void HelloAnimationApp::OnStart() noexcept {
 }
 
 void HelloAnimationApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
-    if (FInput::IsKeyPressed(EKey::Space)) {
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Space)) {
         if (_player.IsPlaying()) _player.Pause(); else _player.Resume();
     }
 
-    if (FInput::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
-    if (FInput::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
+    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
+    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
     const f32 cam_dist = 8.0f;
     _cam_pos = FVec3{ Sin(_cam_yaw) * cam_dist, 3.0f, -Cos(_cam_yaw) * cam_dist };
     _camera.SetLookAt(_cam_pos, FVec3{0, 2, 0});
@@ -71,10 +71,10 @@ void HelloAnimationApp::OnRender() noexcept {
     if (!cl) return;
 
     // ボーンパレットを書き出してから scene に委譲。
-    FMat4 palette[FSkinnedShader::kMaxBones];
-    const u32 nb = _player.WritePalette(palette, FSkinnedShader::kMaxBones);
+    FMat4 palette[SkinnedShader::kMaxBones];
+    const u32 nb = _player.WritePalette(palette, SkinnedShader::kMaxBones);
 
-    // FSky → 地面 → スキンメッシュ描画は scene に委譲。
+    // Sky → 地面 → スキンメッシュ描画は scene に委譲。
     _scene.Render(_sky, _std_shader, _shader, *cl, _camera,
                   _gm_plane, _gm_snake, palette, nb);
 
@@ -99,9 +99,9 @@ void HelloAnimationApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     _font.Shutdown();
     _batch.Shutdown();
-    _gm_snake = FSkinnedGpuMesh{};
-    _gm_plane = FGpuMesh{};
-    _snake    = TRc<FSkinnedMeshAsset>();
+    _gm_snake = SkinnedGpuMesh{};
+    _gm_plane = GpuMesh{};
+    _snake    = TRc<SkinnedMeshAsset>();
     _std_shader.Shutdown();
     _shader.Shutdown();
     _sky.Shutdown();

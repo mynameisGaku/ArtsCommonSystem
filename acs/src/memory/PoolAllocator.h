@@ -22,17 +22,17 @@
 
 namespace acs {
 
-class FPoolAllocator final : public FAllocator {
+class PoolAllocator final : public Allocator {
 public:
-    // 1 ブロックのサイズ（最低 sizeof(FNode)=8B にラウンドアップ）
+    // 1 ブロックのサイズ（最低 sizeof(Node)=8B にラウンドアップ）
     // ブロック総数を block_count、整列を alignment で指定。
-    FPoolAllocator(usize block_size, usize block_count,
+    PoolAllocator(usize block_size, usize block_count,
                   usize alignment = kDefaultAlignment,
-                  FAllocator* backing = nullptr) noexcept;
-    ~FPoolAllocator() noexcept override;
+                  Allocator* backing = nullptr) noexcept;
+    ~PoolAllocator() noexcept override;
 
-    FPoolAllocator(const FPoolAllocator&) = delete;
-    FPoolAllocator& operator=(const FPoolAllocator&) = delete;
+    PoolAllocator(const PoolAllocator&) = delete;
+    PoolAllocator& operator=(const PoolAllocator&) = delete;
 
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free (void* ptr)                                  noexcept override;
@@ -57,13 +57,13 @@ public:
 
 private:
     // フリーリストノード（フリーブロックの先頭にオーバーレイ配置）
-    struct FNode {
-        FNode* next;
+    struct Node {
+        Node* next;
     };
 
     // ABA タグ付きポインタ（16B、未使用だが将来 DCAS への切替時用）
     struct alignas(16) TaggedPtr {
-        FNode* ptr;
+        Node* ptr;
         u64   tag;
     };
 
@@ -71,7 +71,7 @@ private:
     u64               _block_size = 0;
     u64               _block_count= 0;
     u64               _alignment  = 0;
-    FAllocator*        _backing    = nullptr;     // _storage の確保元
+    Allocator*        _backing    = nullptr;     // _storage の確保元
     TAtomic<u64>       _live {0};                 // 現在使用中のブロック数
     // フリーリストの head + ABA タグ を 1 つの 64bit にパック
     TAtomic<u64>       _head_packed {0};

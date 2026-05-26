@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ウィンドウ・入力イベント定義（FWindow がアプリにイベント通知するときに使う）
+// ウィンドウ・入力イベント定義（Window がアプリにイベント通知するときに使う）
 #pragma once
 
 #include "foundation/Types.h"
@@ -25,7 +25,7 @@ enum class EventType : u8 {
 };
 
 // イベント本体（種別ごとに有効なフィールドが異なる union 風レイアウト）
-struct FEvent {
+struct Event {
     EventType type = EventType::None;
     union {
         struct { u32 width, height; }                    resize;        // WindowResize

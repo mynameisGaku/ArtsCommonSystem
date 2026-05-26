@@ -1,9 +1,9 @@
-# 「Hello PBR」サンプル: FPbrShader (Cook-Torrance BRDF) で material ball
+# 「Hello PBR」サンプル: PbrShader (Cook-Torrance BRDF) で material ball
 # グリッドを描画する例
 #
 # 構成:
 #   main.cpp            - ACS_DEFINE_MAIN(HelloPbrApp) のみ
-#   HelloPbrApp.{h,cpp} - FApplication 派生クラス (FPbrShader + sphere grid + 床)
+#   HelloPbrApp.{h,cpp} - Application 派生クラス (PbrShader + sphere grid + 床)
 add_executable(hello_pbr WIN32
     main.cpp
     HelloPbrApp.cpp

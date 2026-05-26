@@ -4,12 +4,12 @@
 // PBR の ambient 項を「環境マップから事前積分した光」で置き換える。
 // 構成要素:
 //   ・BRDF LUT       — 2D 256x256 RG16F。GGX split-sum approximation の scale+bias
-//   ・環境 cubemap   — シーンの背景 (FSky 等から captured)。256x256x6、R11G11B10_Float
+//   ・環境 cubemap   — シーンの背景 (Sky 等から captured)。256x256x6、R11G11B10_Float
 //   ・拡散 irradiance cubemap — 32x32x6、半球積分された diffuse 反射
 //   ・specular prefilter cubemap — 128x128x6 (5 mip)、roughness 段階別 GGX 反射
 //
 // 使い方 (HelloIbl):
-//   FImageBasedLighting ibl;
+//   ImageBasedLighting ibl;
 //   ibl.EnsureBrdfLut(*dev, *cl);              // 初回のみ LUT 生成 (256x256)
 //   ibl.EnsureEnvCubemap(*dev, *cl, sky);       // 初回のみ env cubemap キャプチャ
 //   // (Phase 31 Step 4 以降で:)
@@ -35,27 +35,27 @@
 
 namespace acs {
 
-class FSky;
+class Sky;
 
-class FImageBasedLighting {
+class ImageBasedLighting {
 public:
-    FImageBasedLighting() noexcept = default;
-    ~FImageBasedLighting() noexcept = default;
+    ImageBasedLighting() noexcept = default;
+    ~ImageBasedLighting() noexcept = default;
 
-    FImageBasedLighting(const FImageBasedLighting&)            = delete;
-    FImageBasedLighting& operator=(const FImageBasedLighting&) = delete;
+    ImageBasedLighting(const ImageBasedLighting&)            = delete;
+    ImageBasedLighting& operator=(const ImageBasedLighting&) = delete;
 
     // 初回呼び出しで BRDF LUT を 1 回だけ生成する。以降の呼び出しは no-op。
     // cl は frame 内 (BeginFrame と EndFrame の間) で記録中である必要あり。
     TResult<void> EnsureBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
-    // 初回呼び出しで env cubemap (256x256x6, R11G11B10_Float) を FSky 手続き式から
+    // 初回呼び出しで env cubemap (256x256x6, R11G11B10_Float) を Sky 手続き式から
     // キャプチャする。各 face を 6 回の per-slice draw で塗る。
     // sky の現在のパラメータ (sun_dir / colors / 等) がスナップショットされる。
     // 再キャプチャしたいときは Shutdown() で全 reset するか、別途 Recapture API
     // を追加する (Step 4+ で必要なら)。
     TResult<void> EnsureEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
-                                  const FSky& sky) noexcept;
+                                  const Sky& sky) noexcept;
 
     // 既存 env cubemap を破棄して equirectangular HDR 画像 (e.g. .hdr ファイル) から
     // 新しい env cubemap を生成する。`rgba_float` は width × height × 4 個の float、
@@ -68,7 +68,7 @@ public:
     // SH 9 light probe (Phase 32c)。equirect 画像から Ramamoorthi-Hanrahan の
     // L_l,m 球面調和係数 9 個を CPU 側で計算し、`out_sh_rgb[9]` に書き出す。
     //   `out_sh_rgb[i].xyz` = RGB 係数、`.w` 不使用 (CB layout の便宜上 FVec4)
-    // 後段 FPbrShader 側で SH 9 ambient mode に切替できる (irradiance cubemap の
+    // 後段 PbrShader 側で SH 9 ambient mode に切替できる (irradiance cubemap の
     // 圧縮版とみなせる、メモリ 144B のみで diffuse irradiance を近似)。
     //
     // 規約: equirect の v=0 が +Y、v=1 が -Y、u=0 が phi=-π。
@@ -109,7 +109,7 @@ public:
                        EFormat rt_format, EFormat depth_format) noexcept;
 
     // 環境 cubemap (+ それに依存する irradiance / 将来の prefilter) だけを reset。
-    // FSky preset 切替などで env を作り直したいとき、BRDF LUT (sky 非依存) は
+    // Sky preset 切替などで env を作り直したいとき、BRDF LUT (sky 非依存) は
     // 残せる。**呼び出し前にデバイスの `WaitIdle()` を呼ぶこと**: 前フレームの
     // GPU 描画がまだこのテクスチャを参照中だと UB になる。
     void ResetEnvCubemap() noexcept;
@@ -136,7 +136,7 @@ public:
 private:
     TResult<void> BuildBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
     TResult<void> BuildEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
-                                 const FSky& sky) noexcept;
+                                 const Sky& sky) noexcept;
     TResult<void> BuildIrradiance(IRhiDevice& device, IRhiCommandList& cl) noexcept;
     TResult<void> BuildPrefilter(IRhiDevice& device, IRhiCommandList& cl) noexcept;
     TResult<void> EnsureSkyboxPipeline(IRhiDevice& device,

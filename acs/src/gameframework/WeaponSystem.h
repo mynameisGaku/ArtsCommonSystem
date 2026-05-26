@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I/R — FWeaponSystem (武器切替 + 弾薬 + 連射制御)
+// GameFramework Pillar I/R — WeaponSystem (武器切替 + 弾薬 + 連射制御)
 //
 // 1 entity (= 1 player or 1 NPC) ぶんの武器ロードアウト / 弾薬 / 発射制御を
 // まとめた小型マネージャ。`Tick(dt)` で内部時計を進め、`fire_rate_per_sec` /
@@ -8,16 +8,16 @@
 //
 // 想定する位置付け:
 //   ・Pillar I (Combat) と Pillar R (Skills/Cooldowns) の橋渡し。武器毎の
-//     fire rate は FCooldownTimer と同等の役目だが、武器切替 / マガジン /
-//     reserve ammo / スプレッド / ペレット数 を一体で持つため、FCooldownTimer
+//     fire rate は CooldownTimer と同等の役目だが、武器切替 / マガジン /
+//     reserve ammo / スプレッド / ペレット数 を一体で持つため、CooldownTimer
 //     とは別 API として独立させる。
 //   ・FireCallback で「弾を出せ」のイベントだけを通知し、実際の projectile
-//     spawn / damage 適用は呼出側 (= Pillar I FCombatStateMachine や独自
-//     Projectile manager) で行う設計。FWeaponSystem は時系列と弾薬数の管理に
+//     spawn / damage 適用は呼出側 (= Pillar I CombatStateMachine や独自
+//     Projectile manager) で行う設計。WeaponSystem は時系列と弾薬数の管理に
 //     責務を限定する。
 //
 // 使い方:
-//   acs::game::FWeaponSystem ws;
+//   acs::game::WeaponSystem ws;
 //
 //   // 武器定義 (文字列リテラルは caller 側で長寿命を保証)。
 //   ws.RegisterWeapon({ "pistol", "9mm Pistol",
@@ -46,8 +46,8 @@
 //   }
 //
 // 設計選択:
-//   ・**Registry は TArray<FWeaponDef>**: 武器数は per-entity でせいぜい 5〜10、
-//     線形検索で十分。const char* per-byte 比較 (Entitlement / FEconomyDirector
+//   ・**Registry は TArray<WeaponDef>**: 武器数は per-entity でせいぜい 5〜10、
+//     線形検索で十分。const char* per-byte 比較 (Entitlement / EconomyDirector
 //     と同設計)。重複登録は WARN + 黙って no-op。
 //   ・**reserve は別 TArray で per-weapon 管理**: 弾薬は武器毎に independent な
 //     ため、weapon_id をキーに `{ weapon_id, reserve_ammo }` を保持する。
@@ -68,17 +68,17 @@
 //     通知) と ReloadCallback (= reload 完了通知) の 2 種類。STL <functional>
 //     禁止のため C 関数ポインタ + void* user。複数 listener が必要なら呼出側
 //     で fan-out。
-//   ・**spread / pellets**: FWeaponDef で固定値を持ち、TryFire 時に
+//   ・**spread / pellets**: WeaponDef で固定値を持ち、TryFire 時に
 //     FireCallback へそのまま渡す (= 武器側の仕様)。実際の乱数 spread 適用は
-//     呼出側で `FRandom::UniformInRange(-spread, +spread)` 等を行う設計。
+//     呼出側で `Random::UniformInRange(-spread, +spread)` 等を行う設計。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
 //
 // 範囲外 (Phase 2+ で):
 //   ・武器熱量 (overheat) / charge weapon (タメ攻撃) — 別 manager で拡張。
 //   ・武器アタッチメント (スコープ / マズル) — Pillar I のオプション拡張で。
-//   ・武器スワップアニメーション同期 — Pillar G FAnimationCurve と統合。
-//   ・近接武器のヒットボックス / リーチ — Pillar P FCollisionWorld2D 側で。
+//   ・武器スワップアニメーション同期 — Pillar G AnimationCurve と統合。
+//   ・近接武器のヒットボックス / リーチ — Pillar P CollisionWorld2D 側で。
 //   ・残弾の永続化 (Save/Load) — Pillar J Serialize と統合。
 #pragma once
 
@@ -89,7 +89,7 @@ namespace acs::game {
 
 // ---- EWeaponKind: 武器のジャンル ------------------------------------------
 // UI 表示 / アニメーション分岐 / damage type 判定等のためのメタ情報。
-// 機械的な fire 挙動は FWeaponDef の各パラメタで完全に決まり、`kind` は参考値。
+// 機械的な fire 挙動は WeaponDef の各パラメタで完全に決まり、`kind` は参考値。
 enum class EWeaponKind : u8 {
     Pistol,         // 単発ハンドガン
     Rifle,          // フルオート / セミオート長銃
@@ -101,7 +101,7 @@ enum class EWeaponKind : u8 {
     Custom,         // それ以外 (= 独自実装で kind 値を流用したい場合)
 };
 
-// ---- FWeaponDef: 武器 1 種類の不変定義 ------------------------------------
+// ---- WeaponDef: 武器 1 種類の不変定義 ------------------------------------
 // id                 : 武器キー (Register / Equip / AddReserveAmmo のキー)。文字列リテラル想定。
 // display_name       : UI 表示名 (非所有)。
 // kind               : 武器ジャンル (メタ情報、機械挙動には不使用)。
@@ -113,7 +113,7 @@ enum class EWeaponKind : u8 {
 // spread_deg         : 拡散角度 (deg、片側)。FireCallback へ伝達のみ。
 // pellets_per_shot   : 1 発で発射されるペレット数 (Shotgun 用)。0 は 1 として扱う。
 // projectile_id      : 発射する弾種の id (非所有)。FireCallback へ伝達して呼出側が spawn 判定。
-struct FWeaponDef {
+struct WeaponDef {
     const char* id                = nullptr;
     const char* display_name      = nullptr;
     EWeaponKind  kind              = EWeaponKind::Custom;
@@ -127,9 +127,9 @@ struct FWeaponDef {
     const char* projectile_id     = nullptr;
 };
 
-// ---- FWeaponState: 現在装備中武器のランタイム状態 -------------------------
-// 主に UI 表示 / デバッグ用の snapshot。内部更新は FWeaponSystem が行う。
-struct FWeaponState {
+// ---- WeaponState: 現在装備中武器のランタイム状態 -------------------------
+// 主に UI 表示 / デバッグ用の snapshot。内部更新は WeaponSystem が行う。
+struct WeaponState {
     const char* current_def_id      = nullptr; // 装備中武器の id (= 内部 _current_def->id と同値)
     u32         ammo_in_mag         = 0u;      // マガジン内の残弾
     u32         reserve_ammo        = 0u;      // 予備弾薬残量
@@ -141,10 +141,10 @@ struct FWeaponState {
 // 発射時に呼ばれる callback。1 回の TryFire で 1 回だけ発火する
 // (pellets_per_shot は引数で伝達するだけで、複数回呼ばない設計)。
 //   user          : SetOnFireCallback で渡したコンテキスト (Manager は所有しない)
-//   projectile_id : FWeaponDef::projectile_id (非所有)
-//   damage        : FWeaponDef::base_damage (1 ペレットあたり)
-//   spread_deg    : FWeaponDef::spread_deg (呼出側で乱数適用)
-//   pellets       : FWeaponDef::pellets_per_shot (1 以上)
+//   projectile_id : WeaponDef::projectile_id (非所有)
+//   damage        : WeaponDef::base_damage (1 ペレットあたり)
+//   spread_deg    : WeaponDef::spread_deg (呼出側で乱数適用)
+//   pellets       : WeaponDef::pellets_per_shot (1 以上)
 using FireCallback = void(*)(void* user, const char* projectile_id, f32 damage,
                              f32 spread_deg, u32 pellets) noexcept;
 
@@ -153,22 +153,22 @@ using FireCallback = void(*)(void* user, const char* projectile_id, f32 damage,
 //   weapon_id : reload が完了した武器の id (非所有)
 using ReloadCallback = void(*)(void* user, const char* weapon_id) noexcept;
 
-// ---- FWeaponSystem ---------------------------------------------------------
-class FWeaponSystem {
+// ---- WeaponSystem ---------------------------------------------------------
+class WeaponSystem {
 public:
-    FWeaponSystem()  noexcept = default;
-    ~FWeaponSystem() noexcept = default;
+    WeaponSystem()  noexcept = default;
+    ~WeaponSystem() noexcept = default;
 
     // 非コピー・非ムーブ (callback の self ポインタとの競合を防ぐ)
-    FWeaponSystem(const FWeaponSystem&)            = delete;
-    FWeaponSystem& operator=(const FWeaponSystem&) = delete;
-    FWeaponSystem(FWeaponSystem&&)                 = delete;
-    FWeaponSystem& operator=(FWeaponSystem&&)      = delete;
+    WeaponSystem(const WeaponSystem&)            = delete;
+    WeaponSystem& operator=(const WeaponSystem&) = delete;
+    WeaponSystem(WeaponSystem&&)                 = delete;
+    WeaponSystem& operator=(WeaponSystem&&)      = delete;
 
     // ---- 武器定義 ---------------------------------------------------------
     // 同 id の 2 重登録は no-op (WARN)。`def.id == nullptr` も no-op。
     // 同時に reserve スロットも 0 で初期化する。
-    void RegisterWeapon(const FWeaponDef& def) noexcept;
+    void RegisterWeapon(const WeaponDef& def) noexcept;
 
     // ---- 武器切替 ---------------------------------------------------------
     // 未登録 id / nullptr は false。reload 中でも遮らずに切替可能 (元武器の
@@ -201,8 +201,8 @@ public:
     u32 GetReserveAmmo() const noexcept { return _state.reserve_ammo; }
 
     // 装備中武器の定義 (`EquipWeapon` 成功後でないと nullptr)。
-    const FWeaponDef* CurrentDef() const noexcept { return _current_def; }
-    const FWeaponState& FState() const noexcept { return _state; }
+    const WeaponDef* CurrentDef() const noexcept { return _current_def; }
+    const WeaponState& State() const noexcept { return _state; }
 
     bool IsReloading() const noexcept { return _state.reloading; }
 
@@ -234,7 +234,7 @@ public:
 private:
     // 並行 TArray で per-weapon の reserve_ammo を保持する。
     // (= 武器定義 _defs[i] に対して _reserves[i] が対応)
-    struct FReserveSlot {
+    struct ReserveSlot {
         const char* weapon_id    = nullptr; // _defs[i].id へのコピー (非所有、寿命は呼出側)
         u32         reserve_ammo = 0u;
         u32         ammo_in_mag  = 0u;      // 装備外時の mag 保存 (装備切替時の継続のため)
@@ -249,12 +249,12 @@ private:
     // 装備中武器の per-weapon 状態を _reserves[] へ書き戻す (装備切替前)。
     void SaveCurrentToSlot() noexcept;
 
-    TArray<FWeaponDef>   _defs;       // 武器定義 (id 線形検索)
-    TArray<FReserveSlot> _reserves;   // _defs[i] と並行
+    TArray<WeaponDef>   _defs;       // 武器定義 (id 線形検索)
+    TArray<ReserveSlot> _reserves;   // _defs[i] と並行
 
-    const FWeaponDef* _current_def  = nullptr; // 装備中武器の定義 (Equip 前は nullptr)
+    const WeaponDef* _current_def  = nullptr; // 装備中武器の定義 (Equip 前は nullptr)
     u32              _current_slot = ~0u;     // _defs / _reserves の index (Equip 前は ~0u)
-    FWeaponState      _state{};                // 装備中のランタイム状態
+    WeaponState      _state{};                // 装備中のランタイム状態
 
     f32 _elapsed_time = 0.0f; // Tick で累積する内部時計 (next_fire_time との比較に使用)
 

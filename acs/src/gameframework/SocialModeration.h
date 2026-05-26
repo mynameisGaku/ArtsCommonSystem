@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FSocialModeration (blocking / reporting / 通報管理)
+// GameFramework Pillar T — SocialModeration (blocking / reporting / 通報管理)
 //
 // 役割:
 //   ローカルブロックリストと通報 (報告) キューを管理する。実プラットフォームの
@@ -10,7 +10,7 @@
 //   PartySystem.h で「moderation / blocking は別モジュール」と明記した通り、
 //   本 system が「上位レイヤから呼ばれる単一窓口」を担う。InviteFriend で
 //   ブロック相手かどうかを判定したい場合は、呼び出し側で IsBlocked() を
-//   先に問い合わせる責任分離 (FPartySystem 自身は moderation を意識しない)。
+//   先に問い合わせる責任分離 (PartySystem 自身は moderation を意識しない)。
 //
 // 設計上の倫理方針 (通報 / ブロック + 児童保護):
 //   ・**ブロックはローカル即時反映**: BlockUser はネットワーク往復を伴わず、
@@ -30,17 +30,17 @@
 //     判断する責任分離)。
 //   ・**自分自身のブロックは防御的に弾かない**: 文字列比較で「自分の
 //     user_id」を知らないため、上位レイヤで弾く責任。本 system は受け取った
-//     文字列をそのままリストに入れる (FPartySystem と同じ哲学)。
+//     文字列をそのままリストに入れる (PartySystem と同じ哲学)。
 //
 // 使い方 (典型例):
-//   FSocialModeration mod;
+//   SocialModeration mod;
 //   mod.Init();
 //
 //   // toxic プレイヤーを即時ブロック
 //   mod.BlockUser("steam:76561198000000999");
 //
 //   // 通報送信
-//   FReportRecord rep{};
+//   ReportRecord rep{};
 //   rep.reported_user_id = "steam:76561198000000999";
 //   rep.reporter_user_id = "steam:76561198000000001";  // local player
 //   rep.category         = EReportCategory::Harassment;
@@ -95,9 +95,9 @@ enum class EReportCategory : u8 {
 };
 
 // 通報 1 件分。`reported_user_id` / `reporter_user_id` / `note` はすべて
-// const char* 非所有 (FPartySystem と同じポリシー)。timestamp は Unix 秒など
+// const char* 非所有 (PartySystem と同じポリシー)。timestamp は Unix 秒など
 // 呼び出し側が決めた単調増加値 (本 system は比較せず保存のみ)。
-struct FReportRecord {
+struct ReportRecord {
     const char*    reported_user_id = nullptr;  // 通報対象 (SDK 固有 ID)
     const char*    reporter_user_id = nullptr;  // 通報者 (通常 local player)
     EReportCategory category         = EReportCategory::OtherToxicity;
@@ -107,23 +107,23 @@ struct FReportRecord {
 
 // ブロックリスト 1 件分。`blocked_user_id` は const char* 非所有。
 // timestamp は監査ログ用 (「いつブロックしたか」UI 表示) で本 system は比較しない。
-struct FBlockEntry {
+struct BlockEntry {
     const char* blocked_user_id = nullptr;  // ブロック対象 (SDK 固有 ID)
     u64         timestamp       = 0;        // ブロック時刻 (呼び出し側基準)
 };
 
 // ローカルブロックリスト管理 + 通報キュー。
-class FSocialModeration {
+class SocialModeration {
 public:
-    FSocialModeration()  noexcept = default;
-    ~FSocialModeration() noexcept = default;
+    SocialModeration()  noexcept = default;
+    ~SocialModeration() noexcept = default;
 
     // 通常は長寿命 1 個運用。誤コピーで block list が分裂して安全性が
     // 損なわれるのを避けるため非コピー・非ムーブ。
-    FSocialModeration(const FSocialModeration&)            = delete;
-    FSocialModeration& operator=(const FSocialModeration&) = delete;
-    FSocialModeration(FSocialModeration&&)                 = delete;
-    FSocialModeration& operator=(FSocialModeration&&)      = delete;
+    SocialModeration(const SocialModeration&)            = delete;
+    SocialModeration& operator=(const SocialModeration&) = delete;
+    SocialModeration(SocialModeration&&)                 = delete;
+    SocialModeration& operator=(SocialModeration&&)      = delete;
 
     // ----- 初期化 -----
     // 内部 state を初期化 (現フェーズでは no-op、将来 SDK ハンドルや永続化
@@ -132,7 +132,7 @@ public:
 
     // ----- block list 操作 -----
     // user_id をローカルブロックリストに追加。既に登録済みなら no-op。
-    // user_id == nullptr も no-op (FPartySystem.AddFriend と同じ防御)。
+    // user_id == nullptr も no-op (PartySystem.AddFriend と同じ防御)。
     // SDK 同期は TODO (Phase T-3 で SteamworksBridge.SetCommunicationRestriction)。
     void BlockUser(const char* user_id) noexcept;
 
@@ -141,7 +141,7 @@ public:
     void UnblockUser(const char* user_id) noexcept;
 
     // user_id がブロック済みか。nullptr は常に false。
-    // FPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
+    // PartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
     bool IsBlocked(const char* user_id) const noexcept;
 
     // ブロック件数。
@@ -149,13 +149,13 @@ public:
 
     // ブロックリスト生バッファ (BlockedCount() 件)。BlockUser / UnblockUser /
     // ClearLocalState で無効化される。out_count に件数も返す (利便性)。
-    const FBlockEntry* AllBlocked(u32& out_count) const noexcept;
+    const BlockEntry* AllBlocked(u32& out_count) const noexcept;
 
     // ----- 通報 -----
     // 通報を送信する。現フェーズでは SDK 未接続のため常に pending queue に
     // 追加して Ok() を返す (将来 backend 接続後は同期送信を試みて、失敗時
     // のみ queue に残す挙動になる)。reported_user_id == nullptr は弾く。
-    TResult<void> SubmitReport(const FReportRecord& rep) noexcept;
+    TResult<void> SubmitReport(const ReportRecord& rep) noexcept;
 
     // 未送信通報の件数 (queue サイズ)。
     u32 PendingReportCount() const noexcept;
@@ -175,8 +175,8 @@ private:
     // 見つかったら true、なければ false。nullptr は false。
     bool FindBlocked(const char* user_id) const noexcept;
 
-    TArray<FBlockEntry>   _blocked;        // ローカルブロックリスト
-    TArray<FReportRecord> _pending_reports; // 未送信通報キュー
+    TArray<BlockEntry>   _blocked;        // ローカルブロックリスト
+    TArray<ReportRecord> _pending_reports; // 未送信通報キュー
 };
 
 } // namespace acs::game

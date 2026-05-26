@@ -13,7 +13,7 @@ public:
 
     constexpr const char* File()     const noexcept { return _file; }
     constexpr const char* Function() const noexcept { return _func; }
-    constexpr u32         FLine()     const noexcept { return _line; }
+    constexpr u32         Line()     const noexcept { return _line; }
     constexpr u32         Column()   const noexcept { return _col;  }
 
     // デフォルト引数として渡すと呼び出し位置をキャプチャする

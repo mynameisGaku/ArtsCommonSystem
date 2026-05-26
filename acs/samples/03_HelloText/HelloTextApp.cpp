@@ -36,7 +36,7 @@ void HelloTextApp::OnStart() noexcept {
 }
 
 void HelloTextApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
     _time += dt;
 }
 
@@ -77,7 +77,7 @@ void HelloTextApp::OnRender() noexcept {
         "漢字対応のテキスト描画\n"
         "・stb_truetype で 漢字 (CJK 統合 U+4E00..U+9FAF) を焼き込み\n"
         "・2048×2048 のアトラスに 約 2 万字を収録\n"
-        "・FSpriteBatch::DrawString でそのまま描画\n"
+        "・SpriteBatch::DrawString でそのまま描画\n"
         "・吾輩は猫である。名前はまだ無い。\n"
         "・春はあけぼの。やうやう白くなりゆく山際、すこし明かりて";
     _batch.DrawString(_body_font, body, 100, 240,

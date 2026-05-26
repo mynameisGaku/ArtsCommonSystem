@@ -10,16 +10,16 @@ namespace acs {
 inline constexpr u32 kStackTraceMaxFrames = 64;
 
 // 1 フレームの情報
-struct FStackFrame {
+struct StackFrame {
     void*       address;       // 命令ポインタ
     u64         line;          // ソース行番号（取得失敗時は 0）
     char        symbol[256];   // 関数名（取得失敗時は "??? @ 0xADDR"）
     char        file[256];     // ソースファイルパス
 };
 
-class FStackTrace {
+class StackTrace {
 public:
-    FStackTrace() noexcept = default;
+    StackTrace() noexcept = default;
 
     // 現在のスタックを取得（skip フレーム分は除外）
     void Capture(u32 skip = 1) noexcept;
@@ -28,7 +28,7 @@ public:
     void Resolve() noexcept;
 
     u32              FrameCount() const noexcept { return _count; }
-    const FStackFrame& Frame(u32 i) const noexcept { return _frames[i]; }
+    const StackFrame& Frame(u32 i) const noexcept { return _frames[i]; }
 
     // 1 行ずつテキストを sink に渡す
     using Sink = void (*)(void* user, const char* line, usize len);
@@ -38,7 +38,7 @@ private:
     u32        _count = 0;                         // 取得したフレーム数
     bool       _resolved = false;                  // Resolve 済みか
     void*      _addrs[kStackTraceMaxFrames] = {};  // 生のフレームアドレス
-    FStackFrame _frames[kStackTraceMaxFrames] = {}; // 解決後の情報
+    StackFrame _frames[kStackTraceMaxFrames] = {}; // 解決後の情報
 };
 
 } // namespace acs

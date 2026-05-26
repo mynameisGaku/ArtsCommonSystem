@@ -1,9 +1,9 @@
-# 「HelloUI」サンプル: ACS 純正 UI + MVVM (FTwoWayBinder)
+# 「HelloUI」サンプル: ACS 純正 UI + MVVM (TwoWayBinder)
 #
 # 構成:
 #   main.cpp             - ACS_DEFINE_MAIN(HelloUIApp) のみ
-#   PlayerVM.h           - Player FViewModel
-#   HelloUIApp.{h,cpp}   - FApplication 派生クラス + FWidget tree 構築
+#   PlayerVM.h           - Player ViewModel
+#   HelloUIApp.{h,cpp}   - Application 派生クラス + Widget tree 構築
 add_executable(hello_ui WIN32
     main.cpp
     HelloUIApp.cpp

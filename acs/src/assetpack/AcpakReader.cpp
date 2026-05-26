@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS AssetPack — FAcpakReader 実装 (Win32 I/O + CRC32 検証)
+// ACS AssetPack — AcpakReader 実装 (Win32 I/O + CRC32 検証)
 // -----------------------------------------------------------------------------
 // Phase 1 実装範囲:
 //   ・magic / version / flags 検証
-//   ・file table をエントリ毎に逐次読み出して `TArray<FAcpakFileEntry>` を構築
+//   ・file table をエントリ毎に逐次読み出して `TArray<AcpakFileEntry>` を構築
 //   ・各 path は `_string_pool` に NUL 終端付きで連結保存し、entry.path はその
 //     先頭へのポインタを保持する
 //   ・CRC32 (poly 0xEDB88320, init 0xFFFFFFFF, xorout 0xFFFFFFFF) 検証
@@ -121,14 +121,14 @@ int CompareW(const wchar_t* a, const wchar_t* b) noexcept {
 } // namespace
 
 // ============================================================================
-// FAcpakReader 実装
+// AcpakReader 実装
 // ============================================================================
 
-FAcpakReader::~FAcpakReader() noexcept {
+AcpakReader::~AcpakReader() noexcept {
     Close();
 }
 
-void FAcpakReader::Close() noexcept {
+void AcpakReader::Close() noexcept {
     if (_file_handle != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(_file_handle));
         _file_handle = nullptr;
@@ -144,25 +144,25 @@ void FAcpakReader::Close() noexcept {
     _has_key = false;
 }
 
-void FAcpakReader::SetKey(const FAcpakKey& key) noexcept {
+void AcpakReader::SetKey(const AcpakKey& key) noexcept {
     MemCopy(_key.bytes, key.bytes, sizeof(_key.bytes));
     _has_key = true;
 }
 
-TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
+TResult<void> AcpakReader::Open(const wchar_t* file_path) noexcept {
     // 二度目以降の Open は前回を黙って閉じる (gameframework の Mount 流儀)。
     if (IsOpen()) Close();
 
     if (file_path == nullptr) {
         return ACS_ERR(IO, kAcpakSubIOFailure,
-                       "FAcpakReader::Open: file_path is null");
+                       "AcpakReader::Open: file_path is null");
     }
 
     HANDLE h = ::CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr,
                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakReader::Open: CreateFileW failed",
+                          "AcpakReader::Open: CreateFileW failed",
                           ::GetLastError());
     }
 
@@ -171,7 +171,7 @@ TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
         DWORD err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakReader::Open: GetFileSizeEx failed", err);
+                          "AcpakReader::Open: GetFileSizeEx failed", err);
     }
 
     _file_handle = h;
@@ -197,12 +197,12 @@ TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
 //
 // このやり方なら _string_pool は Pass 2 で 1 度だけ Resize するので、
 // PushBack 中の re-grow による dangling pointer が起きない。
-TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
+TResult<void> AcpakReader::LoadHeaderAndTable() noexcept {
     HANDLE h = static_cast<HANDLE>(_file_handle);
 
     if (_file_size < kAcpakHeaderDiskSize) {
         return ACS_ERR(IO, kAcpakSubBadSize,
-                       "FAcpakReader::Open: file smaller than header");
+                       "AcpakReader::Open: file smaller than header");
     }
 
     // ---- ヘッダを 36 バイト読む ------------------------------------------
@@ -210,14 +210,14 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
     DWORD err = 0;
     if (!ReadAt(h, 0, header_buf, kAcpakHeaderDiskSize, err)) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakReader::Open: ReadFile (header) failed", err);
+                          "AcpakReader::Open: ReadFile (header) failed", err);
     }
 
     // magic 比較 (バイト列、strict-aliasing 安全)
     for (u32 i = 0; i < 8; ++i) {
         if (header_buf[i] != kAcpakMagic[i]) {
-            return ACS_ERR(FAsset, kAcpakSubBadMagic,
-                           "FAcpakReader::Open: magic mismatch (not an .acpak)");
+            return ACS_ERR(Asset, kAcpakSubBadMagic,
+                           "AcpakReader::Open: magic mismatch (not an .acpak)");
         }
     }
 
@@ -229,23 +229,23 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
     // reserved (offset 32) は 0 で予約
 
     if (version != kAcpakVersion) {
-        ACS_LOG_WARN("FAcpakReader::Open: version mismatch (file=%u, expected=%u)",
+        ACS_LOG_WARN("AcpakReader::Open: version mismatch (file=%u, expected=%u)",
                      version, kAcpakVersion);
-        return ACS_ERR(FAsset, kAcpakSubBadVersion,
-                       "FAcpakReader::Open: unsupported .acpak version");
+        return ACS_ERR(Asset, kAcpakSubBadVersion,
+                       "AcpakReader::Open: unsupported .acpak version");
     }
 
     // Phase 2: Encrypted / Compressed bit は実装済。未知 bit のみ拒否する。
     const u32 known_flags = static_cast<u32>(AcpakFlagEncrypted) |
                             static_cast<u32>(AcpakFlagCompressed);
     if ((flags & ~known_flags) != 0) {
-        return ACS_ERR(FAsset, kAcpakSubBadFlags,
-                       "FAcpakReader::Open: unknown flag bits in header");
+        return ACS_ERR(Asset, kAcpakSubBadFlags,
+                       "AcpakReader::Open: unknown flag bits in header");
     }
 
     if (file_count > 0 && file_table_offset >= _file_size) {
         return ACS_ERR(IO, kAcpakSubBadSize,
-                       "FAcpakReader::Open: file_table_offset out of range");
+                       "AcpakReader::Open: file_table_offset out of range");
     }
 
     _flags        = flags;
@@ -287,12 +287,12 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         // path_len (u32)
         if (cursor + 4u > _file_size) {
             return ACS_ERR(IO, kAcpakSubBadSize,
-                           "FAcpakReader::Open: file table truncated (path_len)");
+                           "AcpakReader::Open: file table truncated (path_len)");
         }
         u8 pl_buf[4];
         if (!ReadAt(h, cursor, pl_buf, 4, err)) {
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                              "FAcpakReader::Open: ReadFile (path_len) failed", err);
+                              "AcpakReader::Open: ReadFile (path_len) failed", err);
         }
         const u32 path_len = ReadU32LE(pl_buf);
         cursor += 4;
@@ -301,7 +301,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         // Win32 long path 対応のため 4096 wchar_t = 8KB まで許容する。
         if (path_len > 4096u) {
             return ACS_ERR(IO, kAcpakSubBadSize,
-                           "FAcpakReader::Open: path_len too large (>4096)");
+                           "AcpakReader::Open: path_len too large (>4096)");
         }
 
         const u64 path_bytes = static_cast<u64>(path_len) * sizeof(wchar_t);
@@ -313,7 +313,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
                                    : 28u;
         if (cursor + path_bytes + tail_bytes > _file_size) {
             return ACS_ERR(IO, kAcpakSubBadSize,
-                           "FAcpakReader::Open: file table truncated (entry)");
+                           "AcpakReader::Open: file table truncated (entry)");
         }
 
         // path を paths_temp に書き込む (NUL 込みで連結)。
@@ -327,7 +327,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
             paths_temp.Resize(prev_size + static_cast<usize>(path_len));
             if (!ReadAt(h, cursor, paths_temp.Data() + prev_size, path_bytes, err)) {
                 return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                                  "FAcpakReader::Open: ReadFile (path) failed", err);
+                                  "AcpakReader::Open: ReadFile (path) failed", err);
             }
         }
         paths_temp.PushBack(L'\0');
@@ -339,7 +339,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         const u32 tail_read = static_cast<u32>(tail_bytes);
         if (!ReadAt(h, cursor, tail, tail_read, err)) {
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                              "FAcpakReader::Open: ReadFile (entry tail) failed", err);
+                              "AcpakReader::Open: ReadFile (entry tail) failed", err);
         }
         cursor += tail_read;
 
@@ -359,13 +359,13 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         // sanity: entry が指す data 領域が file_size に収まっているか
         if (r.offset + r.size_stored > _file_size) {
             return ACS_ERR(IO, kAcpakSubBadSize,
-                           "FAcpakReader::Open: entry data range out of file");
+                           "AcpakReader::Open: entry data range out of file");
         }
         // Phase 2: stored != uncompressed は AcpakFlagCompressed のときだけ許容。
         // Compressed 立ってないのに stored != uncompressed なら破損アーカイブ。
         if (!is_compressed && r.size_stored != r.size_uncompressed) {
-            return ACS_ERR(FAsset, kAcpakSubBadSize,
-                           "FAcpakReader::Open: stored != uncompressed but flag clear");
+            return ACS_ERR(Asset, kAcpakSubBadSize,
+                           "AcpakReader::Open: stored != uncompressed but flag clear");
         }
 
         raws.PushBack(r);
@@ -386,7 +386,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
     const wchar_t* pool_base = _string_pool.Data();
     for (usize i = 0; i < raws.Size(); ++i) {
         const RawEntry& r = raws[i];
-        FAcpakFileEntry e{};
+        AcpakFileEntry e{};
         e.path              = pool_base + r.path_pool_offset;
         e.offset            = r.offset;
         e.size_uncompressed = r.size_uncompressed;
@@ -406,7 +406,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
 // 仕様上は header に宣言があるので空実装を残す (将来 incremental add で
 // 使う余地があるため delete はしない)。
 // ----------------------------------------------------------------------------
-const wchar_t* FAcpakReader::InternPath(const wchar_t* src, u32 len) noexcept {
+const wchar_t* AcpakReader::InternPath(const wchar_t* src, u32 len) noexcept {
     const usize prev = _string_pool.Size();
     for (u32 i = 0; i < len; ++i) {
         _string_pool.PushBack(src[i]);
@@ -419,13 +419,13 @@ const wchar_t* FAcpakReader::InternPath(const wchar_t* src, u32 len) noexcept {
 // GetEntry / FindEntry
 // ----------------------------------------------------------------------------
 
-const FAcpakFileEntry* FAcpakReader::GetEntry(u32 index) const noexcept {
+const AcpakFileEntry* AcpakReader::GetEntry(u32 index) const noexcept {
     if (!IsOpen()) return nullptr;
     if (static_cast<usize>(index) >= _entries.Size()) return nullptr;
     return &_entries[static_cast<usize>(index)];
 }
 
-const FAcpakFileEntry* FAcpakReader::FindEntry(const wchar_t* path) const noexcept {
+const AcpakFileEntry* AcpakReader::FindEntry(const wchar_t* path) const noexcept {
     if (!IsOpen() || path == nullptr) return nullptr;
     for (usize i = 0; i < _entries.Size(); ++i) {
         if (CompareW(_entries[i].path, path) == 0) {
@@ -439,38 +439,38 @@ const FAcpakFileEntry* FAcpakReader::FindEntry(const wchar_t* path) const noexce
 // GetUncompressedSize / ReadFile
 // ----------------------------------------------------------------------------
 
-TResult<u64> FAcpakReader::GetUncompressedSize(const wchar_t* path) const noexcept {
+TResult<u64> AcpakReader::GetUncompressedSize(const wchar_t* path) const noexcept {
     if (!IsOpen()) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "FAcpakReader::GetUncompressedSize: pak not open");
+                       "AcpakReader::GetUncompressedSize: pak not open");
     }
-    const FAcpakFileEntry* e = FindEntry(path);
+    const AcpakFileEntry* e = FindEntry(path);
     if (e == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotFound,
-                       "FAcpakReader::GetUncompressedSize: path not found");
+                       "AcpakReader::GetUncompressedSize: path not found");
     }
     return TResult<u64>(OkInit, e->size_uncompressed);
 }
 
-TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
+TResult<u64> AcpakReader::ReadFile(const wchar_t* path,
                                   void*          out_buffer,
                                   u64            buffer_size) noexcept {
     if (!IsOpen()) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "FAcpakReader::ReadFile: pak not open");
+                       "AcpakReader::ReadFile: pak not open");
     }
     if (out_buffer == nullptr) {
         return ACS_ERR(IO, kAcpakSubIOFailure,
-                       "FAcpakReader::ReadFile: out_buffer is null");
+                       "AcpakReader::ReadFile: out_buffer is null");
     }
-    const FAcpakFileEntry* e = FindEntry(path);
+    const AcpakFileEntry* e = FindEntry(path);
     if (e == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotFound,
-                       "FAcpakReader::ReadFile: path not found");
+                       "AcpakReader::ReadFile: path not found");
     }
     if (buffer_size < e->size_uncompressed) {
         return ACS_ERR(IO, kAcpakSubBufferTooSmall,
-                       "FAcpakReader::ReadFile: buffer too small");
+                       "AcpakReader::ReadFile: buffer too small");
     }
 
     const bool is_encrypted  = (_flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
@@ -482,8 +482,8 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
     // 暗号化 pak で鍵未設定なら早期に弾く (Decrypt がいずれにせよ失敗するが、
     // 専用 subcode で返した方がトラブルシュートに親切)。
     if (is_encrypted && !_has_key) {
-        return ACS_ERR(FAsset, kAcpakSubCryptoKey,
-                       "FAcpakReader::ReadFile: encrypted pak but no key set");
+        return ACS_ERR(Asset, kAcpakSubCryptoKey,
+                       "AcpakReader::ReadFile: encrypted pak but no key set");
     }
 
     // ---- pipeline 設計 (decrypt-then-decompress) -------------------------
@@ -512,8 +512,8 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
     if (is_compressed) {
         // 中間バッファ確保
         if (e->size_stored > 0xFFFFFFFFu) {
-            return ACS_ERR(FAsset, kAcpakSubBadSize,
-                           "FAcpakReader::ReadFile: stored size > 4GiB (LZ4 limit)");
+            return ACS_ERR(Asset, kAcpakSubBadSize,
+                           "AcpakReader::ReadFile: stored size > 4GiB (LZ4 limit)");
         }
         tmp.Resize(static_cast<usize>(e->size_stored));
         stored_dst = tmp.IsEmpty() ? nullptr : tmp.Data();
@@ -526,7 +526,7 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
     if (e->size_stored > 0) {
         if (!ReadAt(h, e->offset, stored_dst, e->size_stored, err)) {
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                              "FAcpakReader::ReadFile: ReadFile (data) failed", err);
+                              "AcpakReader::ReadFile: ReadFile (data) failed", err);
         }
     }
 
@@ -535,7 +535,7 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
     // ここを skip すると空ファイルの cipher_tag が攻撃者に書き換え自由になる。
     if (is_encrypted) {
         u8* p = static_cast<u8*>(stored_dst);
-        auto dr = FAcpakCrypto::Decrypt(_key,
+        auto dr = AcpakCrypto::Decrypt(_key,
                                        e->cipher_nonce,
                                        e->cipher_tag,
                                        p, e->size_stored,
@@ -550,10 +550,10 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
     // ---- LZ4 解凍 ---------------------------------------------------------
     if (is_compressed && e->size_uncompressed > 0) {
         if (e->size_uncompressed > 0xFFFFFFFFu) {
-            return ACS_ERR(FAsset, kAcpakSubBadSize,
-                           "FAcpakReader::ReadFile: uncompressed size > 4GiB (LZ4 limit)");
+            return ACS_ERR(Asset, kAcpakSubBadSize,
+                           "AcpakReader::ReadFile: uncompressed size > 4GiB (LZ4 limit)");
         }
-        auto dr = FAcpakLz4::Decompress(tmp.Data(),
+        auto dr = AcpakLz4::Decompress(tmp.Data(),
                                        static_cast<u32>(e->size_stored),
                                        static_cast<u8*>(out_buffer),
                                        static_cast<u32>(buffer_size));
@@ -562,18 +562,18 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
         }
         if (static_cast<u64>(dr.Value()) != e->size_uncompressed) {
             // 解凍結果サイズが TOC と一致しない = 破損 or バグ
-            return ACS_ERR(FAsset, kAcpakSubBadSize,
-                           "FAcpakReader::ReadFile: LZ4 decompressed size mismatch");
+            return ACS_ERR(Asset, kAcpakSubBadSize,
+                           "AcpakReader::ReadFile: LZ4 decompressed size mismatch");
         }
     }
 
     // ---- CRC32 検証 (元の生バイトに対して) --------------------------------
     const u32 actual = ComputeCrc32(out_buffer, e->size_uncompressed);
     if (actual != e->crc32) {
-        ACS_LOG_WARN("FAcpakReader::ReadFile: CRC mismatch (expected=0x%08x, actual=0x%08x)",
+        ACS_LOG_WARN("AcpakReader::ReadFile: CRC mismatch (expected=0x%08x, actual=0x%08x)",
                      e->crc32, actual);
-        return ACS_ERR(FAsset, kAcpakSubBadCrc,
-                       "FAcpakReader::ReadFile: CRC32 mismatch");
+        return ACS_ERR(Asset, kAcpakSubBadCrc,
+                       "AcpakReader::ReadFile: CRC32 mismatch");
     }
 
     return TResult<u64>(OkInit, e->size_uncompressed);

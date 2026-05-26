@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — FEditorCamera 実装 (Phase 21a editor_core 共通基盤)
+// GameFramework Pillar — EditorCamera 実装 (Phase 21a editor_core 共通基盤)
 //
 // 仕様の意図は EditorCamera.h を参照。本ファイルでは:
 //   ・2D / 3D の Pan / Orbit / Dolly の数式実装
 //   ・spherical 座標 (yaw, pitch, distance) から eye 算出
 //   ・Reset / FrameToBoundingSphere / FrameToBoundingBox2D の自動配置
-//   ・Tick での FCamera2D 互換 smoothing 補間
+//   ・Tick での Camera2D 互換 smoothing 補間
 // を実装する。すべて noexcept、STL 不使用、内部 state は POD のみ。
 
 #include "gameframework/tools/editor_core/EditorCamera.h"
@@ -44,14 +44,14 @@ constexpr f32 kDollyWheelStep   = 0.1f;     // wheel 1 notch あたりの倍率�
 // =============================================================================
 // Init / SetMode
 // =============================================================================
-void FEditorCamera::Init(EEditorCameraMode mode) noexcept {
+void EditorCamera::Init(EEditorCameraMode mode) noexcept {
     _mode      = mode;
     _smoothing = 5.0f;
     _base_ortho_size = 20.0f;
     Reset();   // mode に応じた初期 state へ
 }
 
-void FEditorCamera::SetMode(EEditorCameraMode mode) noexcept {
+void EditorCamera::SetMode(EEditorCameraMode mode) noexcept {
     if (_mode == mode) {
         return;
     }
@@ -64,7 +64,7 @@ void FEditorCamera::SetMode(EEditorCameraMode mode) noexcept {
 // =============================================================================
 // 入力ハンドラ
 // =============================================================================
-void FEditorCamera::HandleMouseInput(FVec2 mouse_delta,
+void EditorCamera::HandleMouseInput(FVec2 mouse_delta,
                                     bool lmb, bool rmb, bool mmb,
                                     f32 wheel_delta) noexcept {
     // 規約 (ヘッダ参照):
@@ -95,7 +95,7 @@ void FEditorCamera::HandleMouseInput(FVec2 mouse_delta,
 // =============================================================================
 // Pan / Orbit / Dolly
 // =============================================================================
-void FEditorCamera::Pan(FVec2 screen_delta) noexcept {
+void EditorCamera::Pan(FVec2 screen_delta) noexcept {
     if (_mode == EEditorCameraMode::Mode3D) {
         // 3D pan: orbit target を camera right / up 方向に平行移動。
         // delta は distance * sensitivity でスケール (距離に応じて pan 速度が
@@ -126,7 +126,7 @@ void FEditorCamera::Pan(FVec2 screen_delta) noexcept {
     }
 }
 
-void FEditorCamera::Orbit(f32 yaw_delta, f32 pitch_delta) noexcept {
+void EditorCamera::Orbit(f32 yaw_delta, f32 pitch_delta) noexcept {
     if (_mode != EEditorCameraMode::Mode3D) {
         return;   // 2D は orbit を持たない
     }
@@ -137,7 +137,7 @@ void FEditorCamera::Orbit(f32 yaw_delta, f32 pitch_delta) noexcept {
                                        -kPitchLimit, kPitchLimit);
 }
 
-void FEditorCamera::Dolly(f32 delta) noexcept {
+void EditorCamera::Dolly(f32 delta) noexcept {
     if (_mode == EEditorCameraMode::Mode3D) {
         // 3D: distance を倍率変化 (寄り = distance 縮)
         // wheel 1 notch (delta = 1.0) で約 10% 寄る/離れる。
@@ -159,8 +159,8 @@ void FEditorCamera::Dolly(f32 delta) noexcept {
 // =============================================================================
 // Reset / Frame
 // =============================================================================
-void FEditorCamera::Reset() noexcept {
-    FEditorCameraState s{};
+void EditorCamera::Reset() noexcept {
+    EditorCameraState s{};
     if (_mode == EEditorCameraMode::Mode3D) {
         // 3D の標準: target=origin、distance=10、pitch=-30° で見下ろし、yaw=0。
         s.target    = FVec3{0.0f, 0.0f, 0.0f};
@@ -186,7 +186,7 @@ void FEditorCamera::Reset() noexcept {
     _smooth_target = s;
 }
 
-void FEditorCamera::FrameToBoundingSphere(FVec3 center, f32 radius) noexcept {
+void EditorCamera::FrameToBoundingSphere(FVec3 center, f32 radius) noexcept {
     if (radius < kEpsilon) radius = kEpsilon;
     if (_mode == EEditorCameraMode::Mode3D) {
         // distance = radius / sin(fov/2) で sphere がちょうど縦に収まる。
@@ -208,7 +208,7 @@ void FEditorCamera::FrameToBoundingSphere(FVec3 center, f32 radius) noexcept {
     }
 }
 
-void FEditorCamera::FrameToBoundingBox2D(FVec2 min_xy, FVec2 max_xy) noexcept {
+void EditorCamera::FrameToBoundingBox2D(FVec2 min_xy, FVec2 max_xy) noexcept {
     // 中心 / 半幅・半高
     const FVec2 c{(min_xy.x + max_xy.x) * 0.5f,
                  (min_xy.y + max_xy.y) * 0.5f};
@@ -232,7 +232,7 @@ void FEditorCamera::FrameToBoundingBox2D(FVec2 min_xy, FVec2 max_xy) noexcept {
 // =============================================================================
 // 行列
 // =============================================================================
-FVec3 FEditorCamera::OrbitDirection() const noexcept {
+FVec3 EditorCamera::OrbitDirection() const noexcept {
     // yaw=0, pitch=0 で +Z 方向 (LH 既定の forward 反対)。pitch 上昇で +Y へ。
     // ここで返すのは (eye - target) の正規化方向 (= "back" 方向)。
     const f32 cy = Cos(_state.pitch_rad);
@@ -241,11 +241,11 @@ FVec3 FEditorCamera::OrbitDirection() const noexcept {
                 Cos(_state.yaw_rad) * cy};
 }
 
-FVec3 FEditorCamera::ComputeEye() const noexcept {
+FVec3 EditorCamera::ComputeEye() const noexcept {
     return _state.target + OrbitDirection() * _state.distance;
 }
 
-FMat4 FEditorCamera::ViewMatrix() const noexcept {
+FMat4 EditorCamera::ViewMatrix() const noexcept {
     if (_mode == EEditorCameraMode::Mode3D) {
         const FVec3 eye = ComputeEye();
         return FMat4::LookAtLH(eye, _state.target, _state.up);
@@ -258,7 +258,7 @@ FMat4 FEditorCamera::ViewMatrix() const noexcept {
     }
 }
 
-FMat4 FEditorCamera::ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane) const noexcept {
+FMat4 EditorCamera::ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane) const noexcept {
     if (aspect < kEpsilon) aspect = 1.0f;
     if (_mode == EEditorCameraMode::Mode3D) {
         const f32 fov_rad = _state.fov_deg * kDeg2Rad;
@@ -275,7 +275,7 @@ FMat4 FEditorCamera::ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane)
 // =============================================================================
 // アクセサ (smooth target も同期させて即追従)
 // =============================================================================
-void FEditorCamera::SetFovDeg(f32 deg) noexcept {
+void EditorCamera::SetFovDeg(f32 deg) noexcept {
     // FoV を [10, 170] にクランプ (極端値は描画破綻)
     if (deg < 10.0f)  deg = 10.0f;
     if (deg > 170.0f) deg = 170.0f;
@@ -283,7 +283,7 @@ void FEditorCamera::SetFovDeg(f32 deg) noexcept {
     _smooth_target.fov_deg = deg;
 }
 
-void FEditorCamera::SetTarget(FVec3 target) noexcept {
+void EditorCamera::SetTarget(FVec3 target) noexcept {
     _state.target         = target;
     _smooth_target.target = target;
     if (_mode == EEditorCameraMode::Mode2D) {
@@ -295,7 +295,7 @@ void FEditorCamera::SetTarget(FVec3 target) noexcept {
     }
 }
 
-void FEditorCamera::SetPosition(FVec3 position) noexcept {
+void EditorCamera::SetPosition(FVec3 position) noexcept {
     if (_mode == EEditorCameraMode::Mode3D) {
         // 3D: position = eye として扱い、(target からの spherical) を逆算。
         // direction = position - target, distance = length, yaw/pitch = polar.
@@ -324,9 +324,9 @@ void FEditorCamera::SetPosition(FVec3 position) noexcept {
 }
 
 // =============================================================================
-// Tick — FCamera2D 互換 smoothing
+// Tick — Camera2D 互換 smoothing
 // =============================================================================
-void FEditorCamera::Tick(f32 dt) noexcept {
+void EditorCamera::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     // smoothing <= 0 で即座にスナップ
     if (_smoothing <= 0.0f) {
@@ -355,12 +355,12 @@ void FEditorCamera::Tick(f32 dt) noexcept {
     }
 }
 
-void FEditorCamera::SetSmoothing(f32 rate) noexcept {
+void EditorCamera::SetSmoothing(f32 rate) noexcept {
     if (rate < 0.0f) rate = 0.0f;
     _smoothing = rate;
 }
 
-void FEditorCamera::SetBaseOrthoSize(f32 world_width) noexcept {
+void EditorCamera::SetBaseOrthoSize(f32 world_width) noexcept {
     if (world_width < 0.01f) world_width = 0.01f;
     _base_ortho_size = world_width;
 }

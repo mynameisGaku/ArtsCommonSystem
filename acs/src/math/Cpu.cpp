@@ -13,7 +13,7 @@ namespace acs {
 
 namespace {
 
-FCpuFeatures   g_features {};
+CpuFeatures   g_features {};
 TAtomic<u32>   g_inited {0};   // 0=未初期化, 1=初期化中, 2=完了
 
 // CPUID から各機能フラグを抽出
@@ -63,7 +63,7 @@ void DetectInternal() noexcept {
 
 // 1 度だけ DetectInternal を呼ぶ。CAS で「初期化中」状態に遷移できた
 // スレッドだけが実行し、他は完了まで spin で待つ。
-const FCpuFeatures& Cpu() noexcept {
+const CpuFeatures& Cpu() noexcept {
     if (g_inited.Load(EMemoryOrder::Acquire) == 0) {
         u32 expected = 0;
         if (g_inited.CompareExchange(expected, 1)) {

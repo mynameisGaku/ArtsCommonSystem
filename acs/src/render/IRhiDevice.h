@@ -11,7 +11,7 @@ namespace acs {
 
 class IRhiSwapchain;
 class IRhiCommandList;
-class FWindow;
+class Window;
 
 // グラフィックスデバイスの抽象インターフェイス
 class IRhiDevice {
@@ -36,13 +36,13 @@ enum class ERhiBackendKind : u8 {
 };
 
 // デバイス作成オプション
-struct FDeviceConfig {
+struct DeviceConfig {
     bool           enable_debug_layer = false;            // Debug ビルドのみ ON 推奨
     bool           prefer_high_perf   = true;             // 統合 GPU よりディスクリート GPU を優先
     ERhiBackendKind backend            = ERhiBackendKind::Auto;
 };
 
 // デバイスを作成する（バックエンドはビルド設定で決まる）
-TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& cfg) noexcept;
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept;
 
 } // namespace acs

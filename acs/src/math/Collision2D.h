@@ -2,18 +2,18 @@
 // 2D 衝突判定プリミティブ（AABB / 円 / 線分 / 点）
 //
 // ヘッダオンリー、ゲーム実装に直結する最小集合：
-//   - 形状定義: FAabb2, FCircle
+//   - 形状定義: Aabb2, Circle
 //   - 重なり判定: Intersect(A, B)
 //   - 押し出しベクトル: Resolve(A, B)
 //   - レイキャスト: RaycastAabb / RaycastCircle
 //
 // 使い方:
-//   FAabb2 player{ {x, y}, {w, h} };
-//   FAabb2 wall  { {0, 0}, {100, 8} };
+//   Aabb2 player{ {x, y}, {w, h} };
+//   Aabb2 wall  { {0, 0}, {100, 8} };
 //   if (Intersect(player, wall)) { /* 衝突 */ }
 //
-//   FCircle a{{px, py}, 16};
-//   FCircle b{{ex, ey}, 12};
+//   Circle a{{px, py}, 16};
+//   Circle b{{ex, ey}, 12};
 //   FVec2 push;
 //   if (Resolve(a, b, push)) { player.center += push; }
 #pragma once
@@ -25,21 +25,21 @@
 namespace acs {
 
 // 軸並行境界ボックス（中心 + 半サイズ）
-struct FAabb2 {
+struct Aabb2 {
     FVec2 center;
     FVec2 half_size;     // (w/2, h/2)
 
-    constexpr FAabb2() noexcept = default;
-    constexpr FAabb2(FVec2 c, FVec2 hs) noexcept : center(c), half_size(hs) {}
+    constexpr Aabb2() noexcept = default;
+    constexpr Aabb2(FVec2 c, FVec2 hs) noexcept : center(c), half_size(hs) {}
 
     // 左上 (min_x, min_y) と右下 (max_x, max_y) からの構築
-    static constexpr FAabb2 FromMinMax(FVec2 min, FVec2 max) noexcept {
+    static constexpr Aabb2 FromMinMax(FVec2 min, FVec2 max) noexcept {
         FVec2 c{ (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f };
         FVec2 hs{ (max.x - min.x) * 0.5f, (max.y - min.y) * 0.5f };
         return { c, hs };
     }
     // 左上 + サイズからの構築（スプライト系で便利）
-    static constexpr FAabb2 FromTopLeftSize(FVec2 tl, FVec2 size) noexcept {
+    static constexpr Aabb2 FromTopLeftSize(FVec2 tl, FVec2 size) noexcept {
         FVec2 c{ tl.x + size.x * 0.5f, tl.y + size.y * 0.5f };
         FVec2 hs{ size.x * 0.5f, size.y * 0.5f };
         return { c, hs };
@@ -50,19 +50,19 @@ struct FAabb2 {
 };
 
 // 円
-struct FCircle {
+struct Circle {
     FVec2 center;
     f32  radius = 0.0f;
 };
 
 // レイ（始点 + 方向、必ずしも正規化されてなくて良いが、t 解釈は方向長さ依存）
-struct FRay2 {
+struct Ray2 {
     FVec2 origin;
     FVec2 direction;
 };
 
 // レイキャスト結果
-struct FRayHit2 {
+struct RayHit2 {
     bool hit  = false;
     f32  t    = 0.0f;       // origin + direction * t が衝突点
     FVec2 point;
@@ -70,28 +70,28 @@ struct FRayHit2 {
 };
 
 // ===== 点 vs 形状 =====
-ACS_FORCEINLINE bool Contains(const FAabb2& a, FVec2 p) noexcept {
+ACS_FORCEINLINE bool Contains(const Aabb2& a, FVec2 p) noexcept {
     return Abs(p.x - a.center.x) <= a.half_size.x &&
            Abs(p.y - a.center.y) <= a.half_size.y;
 }
-ACS_FORCEINLINE bool Contains(const FCircle& c, FVec2 p) noexcept {
+ACS_FORCEINLINE bool Contains(const Circle& c, FVec2 p) noexcept {
     const f32 dx = p.x - c.center.x;
     const f32 dy = p.y - c.center.y;
     return dx*dx + dy*dy <= c.radius * c.radius;
 }
 
 // ===== 重なり判定 =====
-ACS_FORCEINLINE bool Intersect(const FAabb2& a, const FAabb2& b) noexcept {
+ACS_FORCEINLINE bool Intersect(const Aabb2& a, const Aabb2& b) noexcept {
     return Abs(a.center.x - b.center.x) <= (a.half_size.x + b.half_size.x) &&
            Abs(a.center.y - b.center.y) <= (a.half_size.y + b.half_size.y);
 }
-ACS_FORCEINLINE bool Intersect(const FCircle& a, const FCircle& b) noexcept {
+ACS_FORCEINLINE bool Intersect(const Circle& a, const Circle& b) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 r  = a.radius + b.radius;
     return dx*dx + dy*dy <= r * r;
 }
-ACS_FORCEINLINE bool Intersect(const FAabb2& a, const FCircle& c) noexcept {
+ACS_FORCEINLINE bool Intersect(const Aabb2& a, const Circle& c) noexcept {
     // AABB 上の最近傍点が円の中に入っているか
     const f32 cx = c.center.x < a.Min().x ? a.Min().x : (c.center.x > a.Max().x ? a.Max().x : c.center.x);
     const f32 cy = c.center.y < a.Min().y ? a.Min().y : (c.center.y > a.Max().y ? a.Max().y : c.center.y);
@@ -99,11 +99,11 @@ ACS_FORCEINLINE bool Intersect(const FAabb2& a, const FCircle& c) noexcept {
     const f32 dy = c.center.y - cy;
     return dx*dx + dy*dy <= c.radius * c.radius;
 }
-ACS_FORCEINLINE bool Intersect(const FCircle& c, const FAabb2& a) noexcept { return Intersect(a, c); }
+ACS_FORCEINLINE bool Intersect(const Circle& c, const Aabb2& a) noexcept { return Intersect(a, c); }
 
 // ===== 押し出しベクトル（A を B から離す最小ベクトル）=====
 // 戻り値: 衝突していたら true、push に A を動かすべき方向 × 距離が入る。
-ACS_FORCEINLINE bool Resolve(const FCircle& a, const FCircle& b, FVec2& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const Circle& a, const Circle& b, FVec2& push) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 d2 = dx*dx + dy*dy;
@@ -120,7 +120,7 @@ ACS_FORCEINLINE bool Resolve(const FCircle& a, const FCircle& b, FVec2& push) no
     return true;
 }
 
-ACS_FORCEINLINE bool Resolve(const FAabb2& a, const FAabb2& b, FVec2& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const Aabb2& a, const Aabb2& b, FVec2& push) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 px = (a.half_size.x + b.half_size.x) - Abs(dx);
@@ -134,9 +134,9 @@ ACS_FORCEINLINE bool Resolve(const FAabb2& a, const FAabb2& b, FVec2& push) noex
 
 // ===== レイキャスト（slab method）=====
 // AABB と無限長レイの交差。t は方向に対する係数。t が範囲内なら hit。
-ACS_FORCEINLINE FRayHit2 RaycastAabb(const FRay2& ray, const FAabb2& a,
+ACS_FORCEINLINE RayHit2 RaycastAabb(const Ray2& ray, const Aabb2& a,
                                     f32 t_max = 3.4028235e38f) noexcept {
-    FRayHit2 r{};
+    RayHit2 r{};
     const FVec2 mn = a.Min();
     const FVec2 mx = a.Max();
     const f32 inv_dx = ray.direction.x != 0.0f ? 1.0f / ray.direction.x : 1e30f;
@@ -166,9 +166,9 @@ ACS_FORCEINLINE FRayHit2 RaycastAabb(const FRay2& ray, const FAabb2& a,
     return r;
 }
 
-ACS_FORCEINLINE FRayHit2 RaycastCircle(const FRay2& ray, const FCircle& c,
+ACS_FORCEINLINE RayHit2 RaycastCircle(const Ray2& ray, const Circle& c,
                                       f32 t_max = 3.4028235e38f) noexcept {
-    FRayHit2 r{};
+    RayHit2 r{};
     const f32 ox = ray.origin.x - c.center.x;
     const f32 oy = ray.origin.y - c.center.y;
     const f32 dx = ray.direction.x;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FLinearAllocator 実装
+// ACS Memory — LinearAllocator 実装
 // -----------------------------------------------------------------------------
 // アトミック CAS でカーソル位置を進めるだけ。多スレッド競合下でも
 // O(1)（CAS リトライ次第で実測 1-3 倍）。Free は何もしない。
@@ -10,14 +10,14 @@
 
 namespace acs {
 
-FLinearAllocator::FLinearAllocator(usize capacity, FAllocator* backing) noexcept
+LinearAllocator::LinearAllocator(usize capacity, Allocator* backing) noexcept
     : _capacity(capacity)
     , _backing(backing ? backing : &DefaultAllocator())
     , _owns_backing(false) {
     _base = static_cast<u8*>(_backing->Alloc(capacity, kDefaultAlignment, FSourceLoc::Current()));
 }
 
-FLinearAllocator::~FLinearAllocator() noexcept {
+LinearAllocator::~LinearAllocator() noexcept {
     if (_base) _backing->Free(_base);
 }
 
@@ -28,7 +28,7 @@ FLinearAllocator::~FLinearAllocator() noexcept {
 //   4. 容量超過なら nullptr
 //   5. CompareExchange で _used を cur → next に交換
 //   6. 競合した場合は 1 へ戻ってリトライ
-void* FLinearAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
+void* LinearAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     if (size == 0 || !_base) return nullptr;
     if (alignment < 1) alignment = 1;
     while (true) {
@@ -48,12 +48,12 @@ void* FLinearAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) n
     }
 }
 
-void FLinearAllocator::Free(void* /*ptr*/) noexcept {
+void LinearAllocator::Free(void* /*ptr*/) noexcept {
     // リニアアロケータは個別解放をサポートしない（仕様）。
     // 全体の解放は Reset() で行う。
 }
 
-void FLinearAllocator::Reset() noexcept {
+void LinearAllocator::Reset() noexcept {
     _used.Store(0, EMemoryOrder::Release);
 }
 

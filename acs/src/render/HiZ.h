@@ -16,14 +16,14 @@
 //     skip が大きく走るのは安全 (空には反射先が無い)
 //
 // 使い方 (SSR 統合):
-//   FHiZ hiz;
+//   HiZ hiz;
 //   hiz.Init(*dev, w, h);
 //   // 毎フレーム main pass の depth が完成したあと、SSR 前に:
 //   hiz.Build(*dev, *cl, scene_depth);
 //   ssr.Render(..., hiz.Texture());     // SSR shader が hiz_min を読む
 //
 // 上位の SSR shader 側で skip-ahead する具体実装 (Ssr.cpp) と一体で機能する。
-// Hi-Z を渡さない場合 (= 旧挙動) も FSsr で OK (nullptr fallback)。
+// Hi-Z を渡さない場合 (= 旧挙動) も Ssr で OK (nullptr fallback)。
 #pragma once
 
 #include "foundation/Result.h"
@@ -38,13 +38,13 @@
 
 namespace acs {
 
-class FHiZ {
+class HiZ {
 public:
-    FHiZ() noexcept = default;
-    ~FHiZ() noexcept = default;
+    HiZ() noexcept = default;
+    ~HiZ() noexcept = default;
 
-    FHiZ(const FHiZ&) = delete;
-    FHiZ& operator=(const FHiZ&) = delete;
+    HiZ(const HiZ&) = delete;
+    HiZ& operator=(const HiZ&) = delete;
 
     // src_width / src_height は scene_depth の解像度。Hi-Z は内部で
     // ceil(src_w / 8) x ceil(src_h / 8) サイズで確保される。

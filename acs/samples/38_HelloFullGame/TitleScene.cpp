@@ -26,10 +26,10 @@ void TitleScene::OnEnter() noexcept {
     _to_bright = true;
 
     // 入力バインド
-    FInputMap& im = Services().Input();
+    InputMap& im = Services().Input();
     im.ClearAll();
-    im.BindKey(FActionId("Start"), EKey::Space);
-    im.BindKey(FActionId("Quit"),  EKey::Escape);
+    im.BindKey(ActionId("Start"), EKey::Space);
+    im.BindKey(ActionId("Quit"),  EKey::Escape);
 
     // BGM 切替 (state-only、ログのみ出る)
     auto& app = static_cast<FullGameApp&>(GetGame());
@@ -45,12 +45,12 @@ void TitleScene::OnExit() noexcept {
 }
 
 void TitleScene::OnUpdate(f32 dt) noexcept {
-    const FInputMap& im = Services().Input();
-    if (im.IsPressed(FActionId("Quit"))) {
+    const InputMap& im = Services().Input();
+    if (im.IsPressed(ActionId("Quit"))) {
         GetGame().Quit();
         return;
     }
-    if (im.IsPressed(FActionId("Start"))) {
+    if (im.IsPressed(ActionId("Start"))) {
         Scenes().ChangeScene(MakeUnique<GameplayScene>());
         return;
     }
@@ -67,12 +67,12 @@ void TitleScene::OnUpdate(f32 dt) noexcept {
     _pulse_sec += dt;
 }
 
-void TitleScene::OnRender(FRenderContext& rc) noexcept {
+void TitleScene::OnRender(RenderContext& rc) noexcept {
     auto& app = static_cast<FullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
-    FSpriteBatch& sb = app.Sprites();
+    SpriteBatch& sb = app.Sprites();
     const u32 sw = rc.Width();
     const u32 sh = rc.Height();
     sb.Begin(rc.Cmd(), sw, sh);
@@ -101,9 +101,9 @@ void TitleScene::OnRender(FRenderContext& rc) noexcept {
 
     // ----- テキストラベル -----
     if (app.FontReady()) {
-        FFont& title_font = app.FontTitle();
-        FFont& body_font  = app.FontBody();
-        const char* kTitle = "ACS Hello Full FGame";
+        Font& title_font = app.FontTitle();
+        Font& body_font  = app.FontBody();
+        const char* kTitle = "ACS Hello Full Game";
         const f32 tw = title_font.MeasureWidth(kTitle);
         sb.DrawString(title_font, kTitle, cx - tw * 0.5f, cy - 18.0f,
                       FVec4{1.0f, 1.0f, 1.0f, 1.0f});

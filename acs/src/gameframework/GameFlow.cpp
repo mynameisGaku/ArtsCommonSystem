@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FGameFlow 実装
+// GameFramework 完成度システム v7 — GameFlow 実装
 //
 // 設計メモ:
 //   ・遷移許可テーブルは「典型的なゲームフロー」を許可する保守的な集合。
@@ -7,13 +7,13 @@
 //     普通あり得ないので不許可。許可方針:
 //       Splash      → MainTitle, ExitingGame
 //       MainTitle   → MainMenu, Credits, ExitingGame
-//       MainMenu    → MainTitle, FSettings, Credits, Loading, ExitingGame
-//       FSettings    → MainMenu, PauseMenu (どちらから入ったか保存しないので
+//       MainMenu    → MainTitle, Settings, Credits, Loading, ExitingGame
+//       Settings    → MainMenu, PauseMenu (どちらから入ったか保存しないので
 //                     両方許可。呼び出し側責任)
 //       Credits     → MainTitle, MainMenu, ExitingGame
 //       Loading     → Gameplay, MainMenu (ロードエラー時)
 //       Gameplay    → PauseMenu, GameOver, Loading, ExitingGame
-//       PauseMenu   → Gameplay, FSettings, MainMenu (ゲーム放棄), ExitingGame
+//       PauseMenu   → Gameplay, Settings, MainMenu (ゲーム放棄), ExitingGame
 //       GameOver    → Gameplay (Continue), MainTitle, MainMenu, ExitingGame
 //       ExitingGame → (どこにも遷移しない、終端)
 //   ・fade_sec=0 は即時遷移。Tick 1 回で _current 切替まで完了し、その Tick
@@ -41,7 +41,7 @@ inline f32 SafeProgress(f32 elapsed, f32 duration) noexcept {
 
 } // namespace
 
-void FGameFlow::BuildTransitionTable() noexcept {
+void GameFlow::BuildTransitionTable() noexcept {
     // 全 false で初期化 (default-init で既に 0 だが明示)。
     for (u32 i = 0; i < kFlowStateCount; ++i) {
         for (u32 j = 0; j < kFlowStateCount; ++j) {
@@ -62,16 +62,16 @@ void FGameFlow::BuildTransitionTable() noexcept {
     allow(EFlowState::MainTitle,   EFlowState::Credits);
     allow(EFlowState::MainTitle,   EFlowState::ExitingGame);
 
-    // MainMenu → MainTitle, FSettings, Credits, Loading, ExitingGame
+    // MainMenu → MainTitle, Settings, Credits, Loading, ExitingGame
     allow(EFlowState::MainMenu,    EFlowState::MainTitle);
-    allow(EFlowState::MainMenu,    EFlowState::FSettings);
+    allow(EFlowState::MainMenu,    EFlowState::Settings);
     allow(EFlowState::MainMenu,    EFlowState::Credits);
     allow(EFlowState::MainMenu,    EFlowState::Loading);
     allow(EFlowState::MainMenu,    EFlowState::ExitingGame);
 
-    // FSettings → MainMenu, PauseMenu (呼び出し側がどちらから入ったか管理)
-    allow(EFlowState::FSettings,    EFlowState::MainMenu);
-    allow(EFlowState::FSettings,    EFlowState::PauseMenu);
+    // Settings → MainMenu, PauseMenu (呼び出し側がどちらから入ったか管理)
+    allow(EFlowState::Settings,    EFlowState::MainMenu);
+    allow(EFlowState::Settings,    EFlowState::PauseMenu);
 
     // Credits → MainTitle, MainMenu, ExitingGame
     allow(EFlowState::Credits,     EFlowState::MainTitle);
@@ -88,9 +88,9 @@ void FGameFlow::BuildTransitionTable() noexcept {
     allow(EFlowState::Gameplay,    EFlowState::Loading);
     allow(EFlowState::Gameplay,    EFlowState::ExitingGame);
 
-    // PauseMenu → Gameplay, FSettings, MainMenu, ExitingGame
+    // PauseMenu → Gameplay, Settings, MainMenu, ExitingGame
     allow(EFlowState::PauseMenu,   EFlowState::Gameplay);
-    allow(EFlowState::PauseMenu,   EFlowState::FSettings);
+    allow(EFlowState::PauseMenu,   EFlowState::Settings);
     allow(EFlowState::PauseMenu,   EFlowState::MainMenu);
     allow(EFlowState::PauseMenu,   EFlowState::ExitingGame);
 
@@ -103,11 +103,11 @@ void FGameFlow::BuildTransitionTable() noexcept {
     // ExitingGame からはどこにも行けない (終端)。
 }
 
-void FGameFlow::Init(EFlowState initial_state) noexcept {
+void GameFlow::Init(EFlowState initial_state) noexcept {
     // 既存スロットを破棄して再構築 (複数回 Init 対応)。
     _states.Clear();
     for (u32 i = 0; i < kFlowStateCount; ++i) {
-        _states.PushBack(FStateSlot{});
+        _states.PushBack(StateSlot{});
     }
 
     BuildTransitionTable();
@@ -125,14 +125,14 @@ void FGameFlow::Init(EFlowState initial_state) noexcept {
     // initial_state の OnEnter を即発火 (画面起動時 = Splash 入場相当)。
     const u32 idx = IndexOf(initial_state);
     if (idx < kFlowStateCount) {
-        const FStateSlot& slot = _states[idx];
+        const StateSlot& slot = _states[idx];
         if (slot.enter != nullptr) {
             slot.enter(slot.enter_user, initial_state);
         }
     }
 }
 
-bool FGameFlow::CanTransitionTo(EFlowState to) const noexcept {
+bool GameFlow::CanTransitionTo(EFlowState to) const noexcept {
     if (!_initialized) return false;
     const u32 from_idx = IndexOf(_current);
     const u32 to_idx   = IndexOf(to);
@@ -141,7 +141,7 @@ bool FGameFlow::CanTransitionTo(EFlowState to) const noexcept {
     return _allowed[from_idx][to_idx];
 }
 
-void FGameFlow::RequestTransition(EFlowState to, f32 fade_sec) noexcept {
+void GameFlow::RequestTransition(EFlowState to, f32 fade_sec) noexcept {
     if (!_initialized) return;
     if (_is_transitioning) return;            // 進行中の追加要求は無視
     if (!CanTransitionTo(to)) return;          // 不正遷移は無視
@@ -167,25 +167,25 @@ void FGameFlow::RequestTransition(EFlowState to, f32 fade_sec) noexcept {
     _fade_progress = 0.0f;
 }
 
-void FGameFlow::SetOnEnterCallback(EFlowState state, StateCallback cb, void* user) noexcept {
+void GameFlow::SetOnEnterCallback(EFlowState state, StateCallback cb, void* user) noexcept {
     if (!_initialized) return;
     const u32 idx = IndexOf(state);
     if (idx >= kFlowStateCount) return;
-    FStateSlot& slot = _states[idx];
+    StateSlot& slot = _states[idx];
     slot.enter      = cb;
     slot.enter_user = user;
 }
 
-void FGameFlow::SetOnExitCallback(EFlowState state, StateCallback cb, void* user) noexcept {
+void GameFlow::SetOnExitCallback(EFlowState state, StateCallback cb, void* user) noexcept {
     if (!_initialized) return;
     const u32 idx = IndexOf(state);
     if (idx >= kFlowStateCount) return;
-    FStateSlot& slot = _states[idx];
+    StateSlot& slot = _states[idx];
     slot.exit       = cb;
     slot.exit_user  = user;
 }
 
-void FGameFlow::Tick(f32 dt) noexcept {
+void GameFlow::Tick(f32 dt) noexcept {
     if (!_initialized) return;
     if (!_is_transitioning) return;
     if (dt < 0.0f) dt = 0.0f;
@@ -200,7 +200,7 @@ void FGameFlow::Tick(f32 dt) noexcept {
                 // 旧 state の OnExit を発火。
                 const u32 old_idx = IndexOf(_current);
                 if (old_idx < kFlowStateCount) {
-                    const FStateSlot& old_slot = _states[old_idx];
+                    const StateSlot& old_slot = _states[old_idx];
                     if (old_slot.exit != nullptr) {
                         old_slot.exit(old_slot.exit_user, _current);
                     }
@@ -212,7 +212,7 @@ void FGameFlow::Tick(f32 dt) noexcept {
                 // 新 state の OnEnter を発火。
                 const u32 new_idx = IndexOf(_current);
                 if (new_idx < kFlowStateCount) {
-                    const FStateSlot& new_slot = _states[new_idx];
+                    const StateSlot& new_slot = _states[new_idx];
                     if (new_slot.enter != nullptr) {
                         new_slot.enter(new_slot.enter_user, _current);
                     }

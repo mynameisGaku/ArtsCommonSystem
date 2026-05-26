@@ -5,10 +5,10 @@
 // march して horizon angle を求め、ambient occlusion を出す。
 //
 // 出力は R8G8B8A8_UNorm の RT。.r = AO visibility、.g = contact shadow (Phase 34q、
-// ともに 1=照明 / 0=遮蔽)。FPbrShader が .r を ambient、.g を direct light に乗算する。
+// ともに 1=照明 / 0=遮蔽)。PbrShader が .r を ambient、.g を direct light に乗算する。
 //
 // 制限:
-//   - 法線は FMotionVector の normal G-buffer (world normal) を view 空間へ変換して
+//   - 法線は MotionVector の normal G-buffer (world normal) を view 空間へ変換して
 //     使う (Phase 34o、旧 depth 微分 cross(ddx,ddy) は faceted で AO がブロック状だった)
 //   - 単純な uniform random direction、Halton 等の low-discrepancy 未使用
 //   - 6 direction × 6 step = 36 sample / pixel (Phase 34j-3)
@@ -29,13 +29,13 @@
 
 namespace acs {
 
-class FSsao {
+class Ssao {
 public:
-    FSsao() noexcept = default;
-    ~FSsao() noexcept = default;
+    Ssao() noexcept = default;
+    ~Ssao() noexcept = default;
 
-    FSsao(const FSsao&) = delete;
-    FSsao& operator=(const FSsao&) = delete;
+    Ssao(const Ssao&) = delete;
+    Ssao& operator=(const Ssao&) = delete;
 
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
     void Shutdown() noexcept;
@@ -43,7 +43,7 @@ public:
 
     // SSAO (Phase 34j-6 から GTAO) を計算して内部 RT に書く。
     //   scene_depth: shader_visible_depth=true な depth buffer
-    //   normal_gbuffer: FMotionVector の world-space normal G-buffer (RGBA16F)
+    //   normal_gbuffer: MotionVector の world-space normal G-buffer (RGBA16F)
     //   inv_view_proj: 現フレーム VP の逆 (depth+uv → world)
     //   view: world → view 変換 (GTAO の slice 計算は view 空間で行う)
     //   eye: カメラ world pos
@@ -60,7 +60,7 @@ public:
                 f32 intensity = 1.0f,
                 f32 radius    = 0.5f) noexcept;
 
-    // Phase 34j-4: blur 後の RT を返す (FPbrShader / overlay はこちらを読む)。
+    // Phase 34j-4: blur 後の RT を返す (PbrShader / overlay はこちらを読む)。
     IRhiTexture* OutputTexture() const noexcept { return _blur_output.Get(); }
     // raw (blur 前) が必要なデバッグ用途向け。
     IRhiTexture* RawTexture() const noexcept { return _output.Get(); }

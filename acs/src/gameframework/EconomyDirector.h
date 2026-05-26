@@ -1,46 +1,46 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FEconomyDirector (in-game 通貨 + shop 管理)
+// GameFramework Pillar O — EconomyDirector (in-game 通貨 + shop 管理)
 //
 // 通貨残高 (soft / premium) + 固定価格 shop アイテム + 取引履歴 (callback) を
-// まとめた小型マネージャ。Entitlement / FSeasonPass と一緒に Pillar O の
+// まとめた小型マネージャ。Entitlement / SeasonPass と一緒に Pillar O の
 // 「ストア / LiveOps 系」三兄弟を構成する。Entitlement は「持っているか」、
-// FSeasonPass は「期間内に xp で進行」、FEconomyDirector は「通貨でアイテムを
+// SeasonPass は「期間内に xp で進行」、EconomyDirector は「通貨でアイテムを
 // 直接購入する」を担当する。
 //
 // 倫理方針 (重要):
 //   ・本クラスは **cosmetic only** を強く推奨する。装備性能 / ダメージ倍率 /
 //     獲得経験値ブースター等、コア体験に影響するアイテムを通貨で売る設計は
 //     pay-to-win に直結するため、ACS としては明示的に反対する立場
-//     (Entitlement / FSeasonPass の方針を継承)。FShopItem::cosmetic_only は
+//     (Entitlement / SeasonPass の方針を継承)。ShopItem::cosmetic_only は
 //     「この商品が cosmetic に閉じている」ことを開発者が宣言するフラグであり、
 //     強制機構ではない (Manager は値を保存して照会できるようにするだけ)。
 //   ・**loot box (中身がランダムで対価が確率に依存する仕組み) は明示的に拒絶**:
 //     本 API には乱数要素を一切持たせず、すべて「払うと必ず指定の cosmetic が
 //     得られる、固定価格方式」に限定する。在庫 (stock_remaining) は限定販売の
 //     在庫管理であり、確率ガチャではない。
-//   ・**premium 通貨でゲームプレイ加速を売らない**: FCurrencyDef::is_premium は
+//   ・**premium 通貨でゲームプレイ加速を売らない**: CurrencyDef::is_premium は
 //     「リアル課金で得られる通貨か」のメタ情報 (UI で 「¥」 アイコン表示等の
 //     判定に使う) であり、premium 通貨で買えるアイテムも cosmetic_only に
 //     閉じることを推奨する。
 //
 // 想定する位置付け:
 //   ・Pillar O (Entitlement) との違い:
-//     - Entitlement は「DLC / FSeasonPass / 引換コード」等の永続権利フラグ。
-//     - FEconomyDirector は「ゲーム内通貨で売買される消費財 / cosmetic」を扱う。
+//     - Entitlement は「DLC / SeasonPass / 引換コード」等の永続権利フラグ。
+//     - EconomyDirector は「ゲーム内通貨で売買される消費財 / cosmetic」を扱う。
 //       購入結果として cosmetic を解放する場合は、PurchaseCallback で
 //       Entitlement::Add() を呼ぶ橋渡しを呼出側で実装する想定。
-//   ・Pillar O (FSeasonPass) との違い:
-//     - FSeasonPass は xp ベースの tier 進行 (時間と遊びで貯まる)。
-//     - FEconomyDirector は通貨ベースの即時購入 (払えば即時取得)。
+//   ・Pillar O (SeasonPass) との違い:
+//     - SeasonPass は xp ベースの tier 進行 (時間と遊びで貯まる)。
+//     - EconomyDirector は通貨ベースの即時購入 (払えば即時取得)。
 //   ・Pillar S (Storefront) との違い:
 //     - Storefront はリアル課金プラットフォーム (Steam / EOS / 家庭機 SDK) の
 //       購入トランザクション。
-//     - FEconomyDirector はゲーム内通貨での売買のみを扱う。premium 通貨を
+//     - EconomyDirector はゲーム内通貨での売買のみを扱う。premium 通貨を
 //       リアル課金で得るフローは Pillar S 側で実装し、AddToBalance() で
 //       残高を増やしてもらう想定 (本クラスはストア非依存)。
 //
 // 使い方:
-//   FEconomyDirector ed;
+//   EconomyDirector ed;
 //
 //   // 通貨定義。
 //   ed.RegisterCurrency({ "gold",    "Gold",    false });  // soft (ゲーム内獲得)
@@ -60,15 +60,15 @@
 //   ed.SetOnPurchaseCallback(&OnPurchase, user_data);
 //
 // 設計選択 (Pillar O Phase 3):
-//   ・**通貨と残高は並行 TArray**: FCurrencyDef を TArray<FCurrencyDef> に、残高を
+//   ・**通貨と残高は並行 TArray**: CurrencyDef を TArray<CurrencyDef> に、残高を
 //     TArray<u32> に同 index で 1:1 で持つ。Entitlement の id 比較と同じく
 //     const char* per-byte 線形検索。通貨種別はゲーム 1 セッションで通常 2〜5、
 //     多くても 10 を超えない想定なので線形で十分。
-//   ・**FShopItem は単一 TArray**: 商品数は AAA でも 100〜500 程度のオーダー、
+//   ・**ShopItem は単一 TArray**: 商品数は AAA でも 100〜500 程度のオーダー、
 //     線形走査で十分。検索はすべて item_id 文字列。
 //   ・**所有しない const char***: id / display_name / currency_id すべて呼出側
 //     (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
-//     FEconomyDirector はコピーしない (STL <string> 禁止)。
+//     EconomyDirector はコピーしない (STL <string> 禁止)。
 //   ・**price は u32**: 通貨残高も u32。AAA 級でも通常範囲を超えない。
 //     不足チェックは u32 同士の単純比較。
 //   ・**stock_remaining は u32**: ~0u (= 0xFFFFFFFF) を「無制限」の哨兵値として
@@ -82,8 +82,8 @@
 //     成功・失敗両方 (bool success) で通知し、UI の「購入失敗トースト」も
 //     コールバック側で出せるようにする。
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterCurrency /
-//     RegisterItem は no-op (アセット二重ロード保護)。Entitlement / FSeasonPass /
-//     FAchievementManager と同じパターン。
+//     RegisterItem は no-op (アセット二重ロード保護)。Entitlement / SeasonPass /
+//     AchievementManager と同じパターン。
 //   ・**取引履歴は callback 経由のみ**: 履歴 TArray を内蔵してメモリを増やすより、
 //     呼出側 (= Analytics / Pillar T Community) でログ収集する設計。
 //     コア API は「現在の残高と在庫」だけを真実とし、過去ログは外部責務。
@@ -104,18 +104,18 @@
 
 namespace acs::game {
 
-// ---- FCurrencyDef: 通貨 1 種類の定義 ----------------------------------------
-// id            : 通貨キー (FShopItem::currency_id から参照される)。文字列リテラル想定。
+// ---- CurrencyDef: 通貨 1 種類の定義 ----------------------------------------
+// id            : 通貨キー (ShopItem::currency_id から参照される)。文字列リテラル想定。
 // display_name  : UI 表示名 (非所有)。
 // is_premium    : リアル課金で得られる通貨か (true) / ゲーム内で稼ぐ soft 通貨か (false)。
 //                 UI で 「¥」 アイコンを出すか等の判定用メタ情報。
-struct FCurrencyDef {
+struct CurrencyDef {
     const char* id           = nullptr;
     const char* display_name = nullptr;
     bool        is_premium   = false;
 };
 
-// ---- FShopItem: shop に並ぶ商品 1 件 ----------------------------------------
+// ---- ShopItem: shop に並ぶ商品 1 件 ----------------------------------------
 // item_id          : 商品キー (購入 / 検索のキー)。文字列リテラル想定。
 // display_name     : UI 表示名 (非所有)。
 // currency_id      : 支払い通貨 (RegisterCurrency 済みの id を指す)。
@@ -124,7 +124,7 @@ struct FCurrencyDef {
 // cosmetic_only    : 「この商品が cosmetic に閉じている」開発者宣言フラグ。
 //                    Manager は強制しないが、UI / Analytics でこのフラグを見て
 //                    pay-to-win 検査を実装できるようにしておく。
-struct FShopItem {
+struct ShopItem {
     const char* item_id         = nullptr;
     const char* display_name    = nullptr;
     const char* currency_id     = nullptr;
@@ -133,8 +133,8 @@ struct FShopItem {
     bool        cosmetic_only   = true;
 };
 
-// ---- FEconomyDirector ------------------------------------------------------
-class FEconomyDirector {
+// ---- EconomyDirector ------------------------------------------------------
+class EconomyDirector {
 public:
     // 購入結果コールバック。STL <functional> 禁止のため C 関数ポインタ + user。
     //   user      : SetOnPurchaseCallback で渡したコンテキスト (Manager は所有しない)
@@ -142,18 +142,18 @@ public:
     //   success   : 購入成功 (true) / 失敗 (false)
     using PurchaseCallback = void(*)(void* user, const char* item_id, bool success) noexcept;
 
-    FEconomyDirector()  noexcept = default;
-    ~FEconomyDirector() noexcept = default;
+    EconomyDirector()  noexcept = default;
+    ~EconomyDirector() noexcept = default;
 
-    FEconomyDirector(const FEconomyDirector&)            = delete;
-    FEconomyDirector& operator=(const FEconomyDirector&) = delete;
-    FEconomyDirector(FEconomyDirector&&)                 = delete;
-    FEconomyDirector& operator=(FEconomyDirector&&)      = delete;
+    EconomyDirector(const EconomyDirector&)            = delete;
+    EconomyDirector& operator=(const EconomyDirector&) = delete;
+    EconomyDirector(EconomyDirector&&)                 = delete;
+    EconomyDirector& operator=(EconomyDirector&&)      = delete;
 
     // ---- 通貨定義 / 残高 -------------------------------------------------
     // 同 id 重複は no-op (WARN)。`def.id == nullptr` も no-op。
     // 残高は 0 で初期化される。
-    void RegisterCurrency(const FCurrencyDef& def) noexcept;
+    void RegisterCurrency(const CurrencyDef& def) noexcept;
 
     // 指定通貨の残高を絶対値で設定。未登録通貨 / nullptr id は no-op。
     void SetBalance(const char* currency_id, u32 amount) noexcept;
@@ -173,7 +173,7 @@ public:
     // 同 item_id 重複は no-op (WARN)。`item.item_id == nullptr` も no-op。
     // currency_id 未登録でも登録自体は受理する (購入時に判定して失敗を返す方が、
     // 起動順序依存 — 通貨と商品の登録順 — の縛りを緩められて呼出側に優しい)。
-    void RegisterItem(const FShopItem& item) noexcept;
+    void RegisterItem(const ShopItem& item) noexcept;
 
     // ---- 購入 -------------------------------------------------------------
     // 残高 + 在庫 + 通貨登録チェック → 成功時 deduct + stock-- + callback(true)。
@@ -189,7 +189,7 @@ public:
     // ---- 商品照会 ---------------------------------------------------------
     // item_id で 1 件取得。未登録 / nullptr は nullptr。返却ポインタは次の
     // RegisterItem() / ClearAll() で無効化される可能性がある。
-    const FShopItem* FindItem(const char* item_id) const noexcept;
+    const ShopItem* FindItem(const char* item_id) const noexcept;
 
     // 商品件数。
     u32 ItemCount() const noexcept;
@@ -197,7 +197,7 @@ public:
     // 全商品の生バッファ。`out_count` に件数を書き出す。
     // 返却ポインタは ItemCount() 件の連続バッファ、RegisterItem() / ClearAll()
     // で無効化される。
-    const FShopItem* AllItems(u32& out_count) const noexcept;
+    const ShopItem* AllItems(u32& out_count) const noexcept;
 
     // ---- コールバック -----------------------------------------------------
     // cb = nullptr で detach。user は所有しない (= 呼出側の責務)。
@@ -215,11 +215,11 @@ private:
     u32 FindItemSlot(const char* item_id) const noexcept;
 
     // 通貨定義 + 残高 (同 index で 1:1 対応の並行 TArray)。
-    TArray<FCurrencyDef> _currencies;
+    TArray<CurrencyDef> _currencies;
     TArray<u32>         _balances;
 
     // 商品定義。
-    TArray<FShopItem> _items;
+    TArray<ShopItem> _items;
 
     // 購入コールバック (C 関数ポインタ + user)。Manager は user を所有しない。
     PurchaseCallback _on_purchase      = nullptr;

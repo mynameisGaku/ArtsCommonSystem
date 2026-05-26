@@ -2,7 +2,7 @@
 ##
 ## 構成:
 ##   main.cpp               - ACS_DEFINE_MAIN(HelloAudioApp) のみ
-##   HelloAudioApp.{h,cpp}  - FApplication 派生クラス
+##   HelloAudioApp.{h,cpp}  - Application 派生クラス
 add_executable(hello_audio WIN32
     main.cpp
     HelloAudioApp.cpp

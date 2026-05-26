@@ -6,7 +6,7 @@
 
 namespace acs::game {
 
-u32 FCollisionWorld2D::AcquireSlot() noexcept {
+u32 CollisionWorld2D::AcquireSlot() noexcept {
     for (u32 i = 1; i < _slots.Size(); ++i) {   // index 0 を予約 (= invalid)
         if (!_slots[i].active) return i;
     }
@@ -17,9 +17,9 @@ u32 FCollisionWorld2D::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-FShapeId FCollisionWorld2D::AddAabb(const FAabb2& a) noexcept {
+FShapeId CollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
     const u32 idx = AcquireSlot();
-    FSlot& s = _slots[idx];
+    Slot& s = _slots[idx];
     s.kind   = Kind::FAabb;
     s.aabb   = a;
     s.gen    = static_cast<u8>(s.gen + 1u);
@@ -30,10 +30,10 @@ FShapeId FCollisionWorld2D::AddAabb(const FAabb2& a) noexcept {
     return FShapeId{idx, s.gen};
 }
 
-FShapeId FCollisionWorld2D::AddCircle(const FCircle& c) noexcept {
+FShapeId CollisionWorld2D::AddCircle(const Circle& c) noexcept {
     const u32 idx = AcquireSlot();
-    FSlot& s = _slots[idx];
-    s.kind   = Kind::FCircle;
+    Slot& s = _slots[idx];
+    s.kind   = Kind::Circle;
     s.circle = c;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;
@@ -43,25 +43,25 @@ FShapeId FCollisionWorld2D::AddCircle(const FCircle& c) noexcept {
     return FShapeId{idx, s.gen};
 }
 
-void FCollisionWorld2D::UpdateAabb(FShapeId id, const FAabb2& a) noexcept {
+void CollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
-    FSlot& s = _slots[id.Index()];
+    Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != Kind::FAabb) return;
     s.aabb = a;
     MarkDirty();
 }
 
-void FCollisionWorld2D::UpdateCircle(FShapeId id, const FCircle& c) noexcept {
+void CollisionWorld2D::UpdateCircle(FShapeId id, const Circle& c) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
-    FSlot& s = _slots[id.Index()];
-    if (!s.active || s.gen != id.Generation() || s.kind != Kind::FCircle) return;
+    Slot& s = _slots[id.Index()];
+    if (!s.active || s.gen != id.Generation() || s.kind != Kind::Circle) return;
     s.circle = c;
     MarkDirty();
 }
 
-void FCollisionWorld2D::Remove(FShapeId id) noexcept {
+void CollisionWorld2D::Remove(FShapeId id) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
-    FSlot& s = _slots[id.Index()];
+    Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
     s.kind   = Kind::None;
@@ -69,7 +69,7 @@ void FCollisionWorld2D::Remove(FShapeId id) noexcept {
     MarkDirty();
 }
 
-void FCollisionWorld2D::ClearAll() noexcept {
+void CollisionWorld2D::ClearAll() noexcept {
     _slots.Clear();
     _cells.Clear();
     _shape_count = 0;
@@ -77,7 +77,7 @@ void FCollisionWorld2D::ClearAll() noexcept {
 }
 
 // AABB 中心 + half_size から overlapping cell 範囲
-void FCollisionWorld2D::CellRange(const FAabb2& a, i32& cx_min, i32& cy_min,
+void CollisionWorld2D::CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
     const f32 inv = 1.0f / _cell_size;
     const FVec2 mn = a.Min();
@@ -88,37 +88,37 @@ void FCollisionWorld2D::CellRange(const FAabb2& a, i32& cx_min, i32& cy_min,
     cy_max = static_cast<i32>(Floor(mx.y * inv));
 }
 
-void FCollisionWorld2D::CellRange(const FCircle& c, i32& cx_min, i32& cy_min,
+void CollisionWorld2D::CellRange(const Circle& c, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
-    FAabb2 a;
+    Aabb2 a;
     a.center    = c.center;
     a.half_size = FVec2{c.radius, c.radius};
     CellRange(a, cx_min, cy_min, cx_max, cy_max);
 }
 
-FCollisionWorld2D::FGridCell* FCollisionWorld2D::FindCell(i32 cx, i32 cy) noexcept {
+CollisionWorld2D::GridCell* CollisionWorld2D::FindCell(i32 cx, i32 cy) noexcept {
     for (u32 i = 0; i < _cells.Size(); ++i) {
         if (_cells[i].cx == cx && _cells[i].cy == cy) return &_cells[i];
     }
     return nullptr;
 }
 
-FCollisionWorld2D::FGridCell& FCollisionWorld2D::GetOrCreateCell(i32 cx, i32 cy) noexcept {
-    if (FGridCell* found = FindCell(cx, cy)) return *found;
-    FGridCell nc;
+CollisionWorld2D::GridCell& CollisionWorld2D::GetOrCreateCell(i32 cx, i32 cy) noexcept {
+    if (GridCell* found = FindCell(cx, cy)) return *found;
+    GridCell nc;
     nc.cx = cx;
     nc.cy = cy;
     _cells.PushBack(Move(nc));
     return _cells.Back();
 }
 
-void FCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
-    const FSlot& s = _slots[slot_idx];
+void CollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
+    const Slot& s = _slots[slot_idx];
     if (!s.active) return;
     i32 cx_min = 0, cy_min = 0, cx_max = 0, cy_max = 0;
     switch (s.kind) {
     case Kind::FAabb:   CellRange(s.aabb,   cx_min, cy_min, cx_max, cy_max); break;
-    case Kind::FCircle: CellRange(s.circle, cx_min, cy_min, cx_max, cy_max); break;
+    case Kind::Circle: CellRange(s.circle, cx_min, cy_min, cx_max, cy_max); break;
     default: return;
     }
     for (i32 cy = cy_min; cy <= cy_max; ++cy) {
@@ -128,7 +128,7 @@ void FCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     }
 }
 
-void FCollisionWorld2D::RebuildGridIfDirty() noexcept {
+void CollisionWorld2D::RebuildGridIfDirty() noexcept {
     if (!_dirty) return;
     _cells.Clear();
     for (u32 i = 1; i < _slots.Size(); ++i) {   // 0 は invalid
@@ -138,26 +138,26 @@ void FCollisionWorld2D::RebuildGridIfDirty() noexcept {
 }
 
 // ===== Narrow phase helpers =====
-bool FCollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const FAabb2& a) const noexcept {
-    const FSlot& s = _slots[slot_idx];
+bool CollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const noexcept {
+    const Slot& s = _slots[slot_idx];
     switch (s.kind) {
     case Kind::FAabb:   return Intersect(s.aabb,   a);
-    case Kind::FCircle: return Intersect(s.circle, a);
+    case Kind::Circle: return Intersect(s.circle, a);
     default: return false;
     }
 }
 
-bool FCollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const FCircle& c) const noexcept {
-    const FSlot& s = _slots[slot_idx];
+bool CollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept {
+    const Slot& s = _slots[slot_idx];
     switch (s.kind) {
     case Kind::FAabb:   return Intersect(s.aabb,   c);
-    case Kind::FCircle: return Intersect(s.circle, c);
+    case Kind::Circle: return Intersect(s.circle, c);
     default: return false;
     }
 }
 
 // ===== クエリ =====
-void FCollisionWorld2D::OverlapAabb(const FAabb2& a, TArray<FShapeId>& out, FShapeId exclude) noexcept {
+void CollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShapeId exclude) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     _query_marks.Resize(_slots.Size());
@@ -167,7 +167,7 @@ void FCollisionWorld2D::OverlapAabb(const FAabb2& a, TArray<FShapeId>& out, FSha
     CellRange(a, cx_min, cy_min, cx_max, cy_max);
     for (i32 cy = cy_min; cy <= cy_max; ++cy) {
         for (i32 cx = cx_min; cx <= cx_max; ++cx) {
-            FGridCell* cell = FindCell(cx, cy);
+            GridCell* cell = FindCell(cx, cy);
             if (!cell) continue;
             for (u32 i = 0; i < cell->shapes.Size(); ++i) {
                 const u32 idx = cell->shapes[i];
@@ -182,7 +182,7 @@ void FCollisionWorld2D::OverlapAabb(const FAabb2& a, TArray<FShapeId>& out, FSha
     }
 }
 
-void FCollisionWorld2D::OverlapCircle(const FCircle& c, TArray<FShapeId>& out, FShapeId exclude) noexcept {
+void CollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FShapeId exclude) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     _query_marks.Resize(_slots.Size());
@@ -192,7 +192,7 @@ void FCollisionWorld2D::OverlapCircle(const FCircle& c, TArray<FShapeId>& out, F
     CellRange(c, cx_min, cy_min, cx_max, cy_max);
     for (i32 cy = cy_min; cy <= cy_max; ++cy) {
         for (i32 cx = cx_min; cx <= cx_max; ++cx) {
-            FGridCell* cell = FindCell(cx, cy);
+            GridCell* cell = FindCell(cx, cy);
             if (!cell) continue;
             for (u32 i = 0; i < cell->shapes.Size(); ++i) {
                 const u32 idx = cell->shapes[i];
@@ -207,8 +207,8 @@ void FCollisionWorld2D::OverlapCircle(const FCircle& c, TArray<FShapeId>& out, F
     }
 }
 
-bool FCollisionWorld2D::Raycast(const FRay2& ray, f32 max_t,
-                                FRayHit2& out_hit, FShapeId& out_id) noexcept {
+bool CollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
+                                RayHit2& out_hit, FShapeId& out_id) noexcept {
     out_hit = {};
     out_id  = {};
     RebuildGridIfDirty();
@@ -222,7 +222,7 @@ bool FCollisionWorld2D::Raycast(const FRay2& ray, f32 max_t,
         ray.origin.x + (ray.direction.x > 0 ? ray.direction.x * max_t : 0.0f),
         ray.origin.y + (ray.direction.y > 0 ? ray.direction.y * max_t : 0.0f),
     };
-    const FAabb2 broad = FAabb2::FromMinMax(ray_min, ray_max);
+    const Aabb2 broad = Aabb2::FromMinMax(ray_min, ray_max);
 
     _query_marks.Resize(_slots.Size());
     for (u32 i = 0; i < _query_marks.Size(); ++i) _query_marks[i] = 0;
@@ -235,17 +235,17 @@ bool FCollisionWorld2D::Raycast(const FRay2& ray, f32 max_t,
 
     for (i32 cy = cy_min; cy <= cy_max; ++cy) {
         for (i32 cx = cx_min; cx <= cx_max; ++cx) {
-            FGridCell* cell = FindCell(cx, cy);
+            GridCell* cell = FindCell(cx, cy);
             if (!cell) continue;
             for (u32 i = 0; i < cell->shapes.Size(); ++i) {
                 const u32 idx = cell->shapes[i];
                 if (_query_marks[idx]) continue;
                 _query_marks[idx] = 1;
-                const FSlot& s = _slots[idx];
-                FRayHit2 rh{};
+                const Slot& s = _slots[idx];
+                RayHit2 rh{};
                 switch (s.kind) {
                 case Kind::FAabb:   rh = RaycastAabb(ray,   s.aabb,   max_t); break;
-                case Kind::FCircle: rh = RaycastCircle(ray, s.circle, max_t); break;
+                case Kind::Circle: rh = RaycastCircle(ray, s.circle, max_t); break;
                 default: break;
                 }
                 if (rh.hit && rh.t < best_t) {

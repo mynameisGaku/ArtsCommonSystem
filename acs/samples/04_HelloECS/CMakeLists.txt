@@ -1,9 +1,9 @@
-## HelloECS — ECS / FEvent / Timer / 並列イテレーション デモ。
+## HelloECS — ECS / Event / Timer / 並列イテレーション デモ。
 ##
 ## 構成:
 ##   main.cpp             - ACS_DEFINE_MAIN(HelloECSApp) のみ
 ##   Types.{h,cpp}        - Position/Velocity/FColor POD + SpawnEvent + helper
-##   HelloECSApp.{h,cpp}  - FApplication 派生クラス
+##   HelloECSApp.{h,cpp}  - Application 派生クラス
 add_executable(hello_ecs WIN32
     main.cpp
     HelloECSApp.cpp
@@ -18,7 +18,7 @@ acs_apply_compiler_options(hello_ecs)
 target_include_directories(hello_ecs PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(hello_ecs PRIVATE
     ACS::Game
-    ACS::Event   # FTimerManager / FMessageBroker（標準セットに含まれない追加モジュール）
+    ACS::Event   # TimerManager / MessageBroker（標準セットに含まれない追加モジュール）
 )
 # Solution Explorer 内で .cpp と .h を Source Files / Header Files にグループ化。
 source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")

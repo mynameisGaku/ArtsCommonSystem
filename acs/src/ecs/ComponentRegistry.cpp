@@ -4,9 +4,9 @@
 
 namespace acs {
 
-FComponentOps* FComponentRegistry::Slots() noexcept {
+ComponentOps* ComponentRegistry::Slots() noexcept {
     // 全コンポーネント型ぶんの Ops を保持する固定配列
-    static FComponentOps slots[kMaxComponentTypes] {};
+    static ComponentOps slots[kMaxComponentTypes] {};
     return slots;
 }
 

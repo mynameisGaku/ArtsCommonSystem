@@ -30,7 +30,7 @@ u32 BytesPerPixel(EFormat f) noexcept {
 
 } // namespace
 
-FDx12Texture::~FDx12Texture() noexcept {
+Dx12Texture::~Dx12Texture() noexcept {
     if (_device) {
         if (_srv_slot >= 0) _device->FreeSrvSlot(_srv_slot);
         if (_dsv_slot >= 0) _device->FreeDsvSlot(_dsv_slot);
@@ -40,8 +40,8 @@ FDx12Texture::~FDx12Texture() noexcept {
     ACS_SAFE_RELEASE(_resource);
 }
 
-FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noexcept {
-    FHrResult r{};
+HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcept {
+    HrResult r{};
     _device = &device;
     _width  = desc.width;
     _height = desc.height;
@@ -240,11 +240,11 @@ FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noex
     return r;
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE FDx12Texture::SrvGpuHandle() const noexcept {
+D3D12_GPU_DESCRIPTOR_HANDLE Dx12Texture::SrvGpuHandle() const noexcept {
     return _device ? _device->SrvGpuHandle(_srv_slot) : D3D12_GPU_DESCRIPTOR_HANDLE{0};
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE FDx12Texture::DsvCpuHandle() const noexcept {
+D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::DsvCpuHandle() const noexcept {
     return _device ? _device->DsvCpuHandle(_dsv_slot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
 }
 
@@ -255,11 +255,11 @@ TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 70, "CreateRhiTexture: device is not DX12");
-    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
-    auto t = MakeUnique<FDx12Texture>();
-    FHrResult r = t->Init(*dxd, desc);
+    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
+    auto t = MakeUnique<Dx12Texture>();
+    HrResult r = t->Init(*dxd, desc);
     if (r.IsErr())
-        return ACS_ERR_OS(Render, 71, "FDx12Texture::Init failed", static_cast<u32>(r.hr));
+        return ACS_ERR_OS(Render, 71, "Dx12Texture::Init failed", static_cast<u32>(r.hr));
     TUniquePtr<IRhiTexture> base(t.Release(), t.GetAllocator());
     return TResult<TUniquePtr<IRhiTexture>>(OkInit, Move(base));
 }

@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSpatialAudio (Phase 3: 3D positional + HRTF binaural seam)
+// GameFramework Pillar H — SpatialAudio (Phase 3: 3D positional + HRTF binaural seam)
 //
-// 3D 位置情報を持つ FAudioSource3D と単一の FAudioListener (= プレイヤ耳位置) から
+// 3D 位置情報を持つ AudioSource3D と単一の AudioListener (= プレイヤ耳位置) から
 // 距離減衰 (attenuation) / 左右パン (stereo pan) を算出する音声空間化レイヤ。
 // HRTF (Head-Related Transfer Function) によるバイノーラル化は `IHrtfRenderer`
 // interface seam として隔離し、Phase H-3 では stereo panning だけの stub
-// (`FHrtfRendererStub`) を提供する。実際の KEMAR 256-tap convolution は Phase 2 で
+// (`HrtfRendererStub`) を提供する。実際の KEMAR 256-tap convolution は Phase 2 で
 // 別モジュール (~140KB の埋め込み impulse response) として差し込む予定。
 //
-// FAudioDirector との関係:
-//   FAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
-//   「2D 混音層」。本 FSpatialAudio は FAudioDirector の上に乗る「3D 空間化前段」で、
+// AudioDirector との関係:
+//   AudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
+//   「2D 混音層」。本 SpatialAudio は AudioDirector の上に乗る「3D 空間化前段」で、
 //   listener / source を保持し、毎フレーム attenuation と pan を算出する。
-//   Phase 2 で FAudioEngine と接続したとき、各 source を FAudioEngine voice に
-//   バインドして、FSpatialAudio が計算した volume * pan を per-voice に書き込む。
+//   Phase 2 で AudioEngine と接続したとき、各 source を AudioEngine voice に
+//   バインドして、SpatialAudio が計算した volume * pan を per-voice に書き込む。
 //
 // 使い方:
-//   class WorldScene : public FScene {
-//       acs::game::FSpatialAudio _spatial;
+//   class WorldScene : public Scene {
+//       acs::game::SpatialAudio _spatial;
 //
 //       void OnEnter() noexcept override {
 //           // プレイヤ耳位置を listener として登録
@@ -30,7 +30,7 @@
 //       void OnUpdate(f32 dt) noexcept override {
 //           _spatial.UpdateSource(_src_enemy, enemy.WorldPos(), enemy.Velocity());
 //           _spatial.Tick(dt);
-//           // Phase 2: FAudioEngine voice に volume/pan を書き込む。
+//           // Phase 2: AudioEngine voice に volume/pan を書き込む。
 //           // f32 vol = _spatial.ComputeAttenuatedVolume(_src_enemy);
 //           // f32 pan = _spatial.ComputePan(_src_enemy);
 //       }
@@ -39,7 +39,7 @@
 // 設計選択 (Phase H-3):
 //   ・**listener は 1 個** (プレイヤ耳位置 = カメラに同期するのが典型)。
 //     スプリットスクリーンで複数 listener が必要になったら Phase 2 で配列化。
-//   ・**source は AoS (TArray of Structures)**: SoA は FAudioEngine voice
+//   ・**source は AoS (TArray of Structures)**: SoA は AudioEngine voice
 //     バインドより後段の Phase 2 で検討。現状は ~32 source 規模の想定。
 //   ・**source_id は単調増加 u32** (1..): 0 = 無効 ID。再利用しない (re-use しない)
 //     ので update/remove に対する stale ID 検出が単純化する。
@@ -63,7 +63,7 @@
 //   ・Occlusion / obstruction (壁越し減衰、レイキャスト)
 //   ・複数 listener (split-screen)
 //   ・3D reverb (リバーブゾーン)
-//   ・FAudioEngine voice バインド (Phase 2 で FAudioDirector と統合)
+//   ・AudioEngine voice バインド (Phase 2 で AudioDirector と統合)
 #pragma once
 
 #include "foundation/Types.h"
@@ -74,23 +74,23 @@
 namespace acs::game {
 
 // =============================================================================
-// FAudioListener — プレイヤの耳位置と向き
+// AudioListener — プレイヤの耳位置と向き
 // -----------------------------------------------------------------------------
 // position: 世界座標。pan / attenuation の基準点。
 // forward:  正規化済み前方ベクトル。pan 右ベクトル算出に使う。
 // up:       正規化済み上方ベクトル。forward × up = right。
 // 既定値は原点 + 標準 Z+ forward / Y+ up (DirectXMath 慣習)。
 // =============================================================================
-struct FAudioListener {
+struct AudioListener {
     FVec3 position = FVec3::Zero();
     FVec3 forward  = FVec3::Forward();
     FVec3 up       = FVec3::Up();
 };
 
 // =============================================================================
-// FAudioSource3D — 1 個の 3D 音源
+// AudioSource3D — 1 個の 3D 音源
 // -----------------------------------------------------------------------------
-// source_id:    FSpatialAudio が払い出す一意 ID (0 = 無効、1.. = 有効)。
+// source_id:    SpatialAudio が払い出す一意 ID (0 = 無効、1.. = 有効)。
 // position:     世界座標。
 // velocity:     Doppler 用 (Phase H-3 では未使用、保持のみ)。
 // volume:       基準ゲイン [0, 1]。距離減衰前の素の音量。
@@ -98,7 +98,7 @@ struct FAudioListener {
 // active:       false なら attenuation / pan 計算をスキップ。
 // curve:        attenuation curve 種別。
 // =============================================================================
-struct FAudioSource3D {
+struct AudioSource3D {
     u32                source_id    = 0;
     FVec3               position     = FVec3::Zero();
     FVec3               velocity     = FVec3::Zero();
@@ -135,7 +135,7 @@ enum class EAttenuationCurve : u8 {
 //
 // スレッド契約:
 //   ・1 instance はオーディオ専用スレッドからのみ叩く想定 (典型: WASAPI render
-//     thread)。FSpatialAudio は game thread 側で source 状態を更新し、その
+//     thread)。SpatialAudio は game thread 側で source 状態を更新し、その
 //     スナップショットを HRTF 側に渡す形を Phase 2 で確立する。
 // =============================================================================
 class IHrtfRenderer {
@@ -151,13 +151,13 @@ public:
 
     // listener 状態を HRTF レイヤに伝える (Phase 2 で head orientation 角度を
     // KEMAR IR インデックスに変換する材料となる)。
-    virtual void SetListener(const FAudioListener& listener) noexcept = 0;
+    virtual void SetListener(const AudioListener& listener) noexcept = 0;
 
     // mono 入力 sample_count サンプルを、interleaved stereo (LRLR...) に変換。
     // stereo_output は sample_count * 2 要素分書き込む。
     // ・source.active == false の場合の動作は実装定義 (stub は 0 埋め)。
     // ・volume / pan の事前計算は本層で済ませてもよいし、実装内で計算してもよい。
-    virtual void ProcessSource(const FAudioSource3D& source,
+    virtual void ProcessSource(const AudioSource3D& source,
                                const f32* mono_input,
                                f32* stereo_output,
                                u32 sample_count) noexcept = 0;
@@ -171,53 +171,53 @@ protected:
 };
 
 // =============================================================================
-// FHrtfRendererStub — 簡易 stereo panning のみ (HRTF なし)
+// HrtfRendererStub — 簡易 stereo panning のみ (HRTF なし)
 // -----------------------------------------------------------------------------
 // L = mono * (1 - pan) * 0.5,  R = mono * (1 + pan) * 0.5,
-// pan は FSpatialAudio::ComputePan と同じ右ベクトル投影で計算。
+// pan は SpatialAudio::ComputePan と同じ右ベクトル投影で計算。
 // Phase H-3 ではこれが唯一の `IHrtfRenderer` 実装。
 // =============================================================================
-class FHrtfRendererStub final : public IHrtfRenderer {
+class HrtfRendererStub final : public IHrtfRenderer {
 public:
-    FHrtfRendererStub() noexcept = default;
-    ~FHrtfRendererStub() noexcept override = default;
+    HrtfRendererStub() noexcept = default;
+    ~HrtfRendererStub() noexcept override = default;
 
     TResult<void> Init() noexcept override;
     void         Shutdown() noexcept override;
     bool         IsHrtfEnabled() const noexcept override { return false; }
-    void         SetListener(const FAudioListener& listener) noexcept override;
-    void         ProcessSource(const FAudioSource3D& source,
+    void         SetListener(const AudioListener& listener) noexcept override;
+    void         ProcessSource(const AudioSource3D& source,
                                const f32* mono_input,
                                f32* stereo_output,
                                u32 sample_count) noexcept override;
 
 private:
-    FAudioListener _listener {};
+    AudioListener _listener {};
     bool          _initialized = false;
 };
 
 // =============================================================================
-// FSpatialAudio — 3D listener + source の集中管理
+// SpatialAudio — 3D listener + source の集中管理
 // -----------------------------------------------------------------------------
-// FScene 局所 instance としての所有を想定。1 listener + N source を保持し、
+// Scene 局所 instance としての所有を想定。1 listener + N source を保持し、
 // 毎フレーム attenuation と pan を pull で取得できる API を提供する。
 // =============================================================================
-class FSpatialAudio {
+class SpatialAudio {
 public:
     // ----- 初期容量 (Reserve のヒント) -----
     static constexpr u32 kInitialSourceCapacity = 16;
 
-    FSpatialAudio() noexcept;
-    ~FSpatialAudio() noexcept = default;
+    SpatialAudio() noexcept;
+    ~SpatialAudio() noexcept = default;
 
-    FSpatialAudio(const FSpatialAudio&)            = delete;
-    FSpatialAudio& operator=(const FSpatialAudio&) = delete;
-    FSpatialAudio(FSpatialAudio&&)                 = delete;
-    FSpatialAudio& operator=(FSpatialAudio&&)      = delete;
+    SpatialAudio(const SpatialAudio&)            = delete;
+    SpatialAudio& operator=(const SpatialAudio&) = delete;
+    SpatialAudio(SpatialAudio&&)                 = delete;
+    SpatialAudio& operator=(SpatialAudio&&)      = delete;
 
     // ----- listener -----
-    void                 SetListener(const FAudioListener& l) noexcept;
-    const FAudioListener& GetListener() const noexcept { return _listener; }
+    void                 SetListener(const AudioListener& l) noexcept;
+    const AudioListener& GetListener() const noexcept { return _listener; }
 
     // ----- source 管理 -----
     // 新規 source を登録、source_id を返す (1.. の単調増加)。
@@ -248,8 +248,8 @@ private:
     // id → index の線形検索 helper。stale ID で _sources.Size() を返す。
     usize FindIndex(u32 id) const noexcept;
 
-    FAudioListener     _listener {};
-    TArray<FAudioSource3D> _sources;
+    AudioListener     _listener {};
+    TArray<AudioSource3D> _sources;
     u32               _next_source_id = 1;  // 0 = 無効予約
 };
 

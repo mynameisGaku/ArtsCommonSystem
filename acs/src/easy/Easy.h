@@ -17,7 +17,7 @@
 //       while (NextFrame()) {                 // ウィンドウを閉じると false
 //           if (IsKeyDown(EKey::Right)) x += 5;
 //           if (IsKeyDown(EKey::Left))  x -= 5;
-//           DrawRect(x, 320, 80, 80, FColor::FSky);
+//           DrawRect(x, 320, 80, 80, FColor::Sky);
 //       }
 //   }
 //
@@ -39,7 +39,7 @@
 //   ・実行するとゲーム画面とは別に黒いコンソール窓が出る。これはログ表示用で
 //     正常。ゲーム画面を閉じれば一緒に終了する。
 //
-// もっと本格的に作りたくなったら、acs::FApplication を直接使う方法へ進める
+// もっと本格的に作りたくなったら、acs::Application を直接使う方法へ進める
 // （docs/QUICKSTART.md 参照）。easy はその入口に過ぎない。
 // ============================================================================
 #pragma once
@@ -63,7 +63,7 @@ struct FColor {
     f32 a = 1.0f;   // 不透明度（0=透明, 1=不透明）
 
     static const FColor Red, Green, Blue, Yellow, Cyan, Magenta;
-    static const FColor White, Black, Gray, Orange, FSky, Clear;
+    static const FColor White, Black, Gray, Orange, Sky, Clear;
 };
 
 // 0〜255 の整数で色を作る（Rgb(255,128,0) など）
@@ -74,8 +74,8 @@ FColor Fade(FColor color, f32 alpha) noexcept;
 
 // ---- 素材ハンドル ----------------------------------------------------------
 // LoadSprite / LoadSound が返す、コピー可能な軽い値型（id==0 は無効）。
-struct FSprite { u32 id = 0; };
-struct FSound  { u32 id = 0; };
+struct Sprite { u32 id = 0; };
+struct Sound  { u32 id = 0; };
 
 // ===========================================================================
 // ゲームループ・ウィンドウ
@@ -85,7 +85,7 @@ struct FSound  { u32 id = 0; };
 // 初期化に失敗した場合はコンソールにエラーを出し、最初の NextFrame() が
 // false を返す（ゲームは画面を出さずに静かに終了する）。
 void OpenWindow(i32 width = 1280, i32 height = 720,
-                const char* title = "ACS FGame") noexcept;
+                const char* title = "ACS Game") noexcept;
 
 // 1 フレーム進める。while の条件に使う。直前のフレームを画面に出し、次の
 // フレームの準備をして true を返す。閉じられたら（後始末をして）false。
@@ -130,19 +130,19 @@ void DrawPixel(f32 x, f32 y, FColor color) noexcept;
 // 画像（スプライト）を描く
 // ===========================================================================
 
-void DrawSprite(FSprite sprite, f32 x, f32 y) noexcept;                       // 元サイズ
-void DrawSprite(FSprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept; // 伸縮
+void DrawSprite(Sprite sprite, f32 x, f32 y) noexcept;                       // 元サイズ
+void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept; // 伸縮
 // 回転（+拡縮）。(x,y) は回転前の左上、回転は画像の中心まわり。tint で色掛け。
-void DrawSpriteRotated(FSprite sprite, f32 x, f32 y, f32 degrees,
+void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
                        f32 scale = 1.0f, FColor tint = FColor{1,1,1,1}) noexcept;
-void DrawSpriteTinted(FSprite sprite, f32 x, f32 y, FColor tint) noexcept;
-void DrawSpriteFlipped(FSprite sprite, f32 x, f32 y,
+void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, FColor tint) noexcept;
+void DrawSpriteFlipped(Sprite sprite, f32 x, f32 y,
                        bool flip_x, bool flip_y) noexcept;
 // 画像の一部分を切り出して描く（スプライトシート用）。
-void DrawSpritePart(FSprite sprite, f32 x, f32 y, f32 width, f32 height,
+void DrawSpritePart(Sprite sprite, f32 x, f32 y, f32 width, f32 height,
                     f32 src_x, f32 src_y, f32 src_width, f32 src_height) noexcept;
-f32 SpriteWidth (FSprite sprite) noexcept;
-f32 SpriteHeight(FSprite sprite) noexcept;
+f32 SpriteWidth (Sprite sprite) noexcept;
+f32 SpriteHeight(Sprite sprite) noexcept;
 
 // ===========================================================================
 // 文字を描く（UTF-8、日本語可。\n で改行）
@@ -211,17 +211,17 @@ void SetAutoExposure(bool enabled) noexcept;      // 自動露出（明るさ自
 // 落ちない（無効ハンドルを返し、描画/再生は無視）。パスは実行時のカレント
 // ディレクトリからの相対。見つからないときは絶対パスを使うか実行ファイルの
 // 隣に素材を置くこと。
-FSprite LoadSprite(const char* path) noexcept;
-FSound  LoadSound (const char* path) noexcept;
+Sprite LoadSprite(const char* path) noexcept;
+Sound  LoadSound (const char* path) noexcept;
 
 // ===========================================================================
 // 音
 // ===========================================================================
-void Play(FSound sound) noexcept;                      // 効果音を 1 回
-void Play(FSound sound, f32 volume) noexcept;          // 音量 0.0〜1.0
-void PlayLoop(FSound sound) noexcept;                  // ループ再生（BGM）
-void PlayLoop(FSound sound, f32 volume) noexcept;
-void StopSound(FSound sound) noexcept;                 // その音のループを止める
+void Play(Sound sound) noexcept;                      // 効果音を 1 回
+void Play(Sound sound, f32 volume) noexcept;          // 音量 0.0〜1.0
+void PlayLoop(Sound sound) noexcept;                  // ループ再生（BGM）
+void PlayLoop(Sound sound, f32 volume) noexcept;
+void StopSound(Sound sound) noexcept;                 // その音のループを止める
 void StopAllSounds() noexcept;                        // 鳴っている音を全部止める
 void SetMasterVolume(f32 volume) noexcept;            // 全体音量（音量スライダー用）
 void PauseAllSounds() noexcept;                       // 一時停止（位置は保たれる）
@@ -235,7 +235,7 @@ bool IsKeyPressed (EKey key) noexcept;   // 押した瞬間のフレームだけ
 bool IsKeyReleased(EKey key) noexcept;   // 離した瞬間のフレームだけ true
 // このフレームに入力された文字（UTF-8、IME 確定後。無ければ ""）。名前入力に。
 // バックスペースや Enter は IsKeyPressed(EKey::Backspace / EKey::Enter) で取る。
-const char* FTextInput() noexcept;
+const char* TextInput() noexcept;
 
 // ===========================================================================
 // 入力 — マウス

@@ -2,7 +2,7 @@
 // HelloIbl — TAA sub-pixel jitter helper の実装。
 //
 // Halton(2,3) low-discrepancy sequence で 8 フレーム周期の sub-pixel ぶん xy を
-// ずらした projection を作る。rendering 全体 (skybox, FPbrShader, SSR, SSAO) に
+// ずらした projection を作る。rendering 全体 (skybox, PbrShader, SSR, SSAO) に
 // 同じ jitter を適用し、複数フレームの累積でエッジが滑らかになる。
 //
 // 注意: shadow pass はライト視点なので jitter しない (caster と影 map が同じ

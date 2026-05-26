@@ -12,12 +12,12 @@
 
 namespace acs {
 
-class FBinaryAsset : public FAsset {
+class BinaryAsset : public Asset {
 public:
-    ACS_ASSET_TYPE("FBinaryAsset")
+    ACS_ASSET_TYPE("BinaryAsset")
 
-    FBinaryAsset() noexcept = default;
-    explicit FBinaryAsset(TArray<byte>&& bytes) noexcept : _bytes(Move(bytes)) {}
+    BinaryAsset() noexcept = default;
+    explicit BinaryAsset(TArray<byte>&& bytes) noexcept : _bytes(Move(bytes)) {}
 
     const TArray<byte>& Bytes() const noexcept { return _bytes; }
     TArray<byte>&       Bytes()       noexcept { return _bytes; }
@@ -27,12 +27,12 @@ private:
 };
 
 // 拡張子フォールバックローダ（任意の拡張子を担当する）
-class FBinaryAssetLoader final : public IAssetLoader {
+class BinaryAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return FBinaryAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return BinaryAsset::StaticType(); }
     const char* Extension() const noexcept override { return "*"; }  // 全拡張子のフォールバック
 
-    TResult<TRc<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

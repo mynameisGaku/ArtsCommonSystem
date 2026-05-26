@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloAnimation — シーン描画ロジック + スキンメッシュ手続き生成。
-// FApplication からリソース参照を受け取り「FSky → 地面 → スキンメッシュ」を 1
+// Application からリソース参照を受け取り「Sky → 地面 → スキンメッシュ」を 1
 // フレーム分まとめて描く。状態は持たず純粋な描画ユーティリティに近い。
 #pragma once
 
@@ -22,25 +22,25 @@ class AnimationScene {
 public:
     // 4 ボーンの「ヘビ風」円柱メッシュを手続き生成 (アニメ含む)。
     // 失敗時は空の TRc を返す (呼び出し元で null チェック)。
-    static acs::TRc<acs::FSkinnedMeshAsset> BuildSnake() noexcept;
+    static acs::TRc<acs::SkinnedMeshAsset> BuildSnake() noexcept;
 
-    // 1 フレームの描画 (FSky → 地面 → スキンメッシュ)。
-    //   sky        : 描画する FSky (App 所有、SunDirection / SunColor 取得用)
-    //   std_shader : 地面用 FStandardShader
-    //   skin_shader: スキンメッシュ用 FSkinnedShader (palette を流す)
+    // 1 フレームの描画 (Sky → 地面 → スキンメッシュ)。
+    //   sky        : 描画する Sky (App 所有、SunDirection / SunColor 取得用)
+    //   std_shader : 地面用 StandardShader
+    //   skin_shader: スキンメッシュ用 SkinnedShader (palette を流す)
     //   cl         : 現在の Render Pass の CommandList
     //   camera     : ViewProjection / Eye 取得用
     //   plane      : 床 (PrimitivePlane の GPU mesh)
     //   snake_gpu  : スキンメッシュ GPU 表現
     //   palette    : 現在のボーンパレット (bones の世界変換)
     //   palette_n  : palette の有効ボーン数
-    void Render(acs::FSky&                sky,
-                acs::FStandardShader&     std_shader,
-                acs::FSkinnedShader&      skin_shader,
+    void Render(acs::Sky&                sky,
+                acs::StandardShader&     std_shader,
+                acs::SkinnedShader&      skin_shader,
                 acs::IRhiCommandList&    cl,
                 const acs::FCamera&       camera,
-                const acs::FGpuMesh&      plane,
-                const acs::FSkinnedGpuMesh& snake_gpu,
+                const acs::GpuMesh&      plane,
+                const acs::SkinnedGpuMesh& snake_gpu,
                 const acs::FMat4*         palette,
                 acs::u32                 palette_n) noexcept;
 };

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (Card FGame) — FDeckSystem 実装
+// GameFramework ジャンルキット (Card Game) — DeckSystem 実装
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
 //   ・card_id は const char* per-byte 線形検索 (Inventory / Economy / Entitlement と同設計)。
@@ -20,7 +20,7 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較。Inventory / Economy / FCharacterCustomizer と同設計。
+// const char* の per-byte 安全比較。Inventory / Economy / CharacterCustomizer と同設計。
 // どちらかが nullptr なら false。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
@@ -41,7 +41,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 // 内部ユーティリティ
 // =============================================================================
 
-u32 FDeckSystem::FindCardSlot(const char* card_id) const noexcept {
+u32 DeckSystem::FindCardSlot(const char* card_id) const noexcept {
     if (card_id == nullptr) return kNotFound;
     const usize n = _cards.Size();
     for (usize i = 0; i < n; ++i) {
@@ -54,20 +54,20 @@ u32 FDeckSystem::FindCardSlot(const char* card_id) const noexcept {
 // カード定義
 // =============================================================================
 
-void FDeckSystem::RegisterCard(const FCardDef& def) noexcept {
+void DeckSystem::RegisterCard(const CardDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindCardSlot(def.id) != kNotFound) {
-        ACS_LOG_WARN("FDeckSystem: duplicate card registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("DeckSystem: duplicate card registration ignored ('%s')", def.id);
         return;
     }
 
     _cards.PushBack(def);
 }
 
-const FCardDef* FDeckSystem::FindCardDef(const char* card_id) const noexcept {
+const CardDef* DeckSystem::FindCardDef(const char* card_id) const noexcept {
     const u32 slot = FindCardSlot(card_id);
     if (slot == kNotFound) return nullptr;
     return &_cards[slot];
@@ -77,24 +77,24 @@ const FCardDef* FDeckSystem::FindCardDef(const char* card_id) const noexcept {
 // デッキ構築
 // =============================================================================
 
-void FDeckSystem::AddToDeck(const char* card_id, u32 count) noexcept {
+void DeckSystem::AddToDeck(const char* card_id, u32 count) noexcept {
     if (card_id == nullptr || count == 0) return;
 
     const u32 def_idx = FindCardSlot(card_id);
     if (def_idx == kNotFound) {
         // 未登録カードはデッキに入れない (アセットエラーを早期に拾う)。
-        ACS_LOG_WARN("FDeckSystem: AddToDeck for unregistered card ('%s') ignored", card_id);
+        ACS_LOG_WARN("DeckSystem: AddToDeck for unregistered card ('%s') ignored", card_id);
         return;
     }
 
-    // FItemDef::id を直接参照 (= リテラル参照、非所有)。Inventory と同じパターン。
+    // ItemDef::id を直接参照 (= リテラル参照、非所有)。Inventory と同じパターン。
     const char* canon_id = _cards[def_idx].id;
     for (u32 i = 0; i < count; ++i) {
         _deck.PushBack(canon_id);
     }
 }
 
-void FDeckSystem::ClearDeck() noexcept {
+void DeckSystem::ClearDeck() noexcept {
     _deck.Clear();
 }
 
@@ -102,25 +102,25 @@ void FDeckSystem::ClearDeck() noexcept {
 // ゾーンサイズ照会
 // =============================================================================
 
-u32 FDeckSystem::DeckSize()    const noexcept { return static_cast<u32>(_deck.Size());    }
-u32 FDeckSystem::HandSize()    const noexcept { return static_cast<u32>(_hand.Size());    }
-u32 FDeckSystem::DiscardSize() const noexcept { return static_cast<u32>(_discard.Size()); }
-u32 FDeckSystem::ExileSize()   const noexcept { return static_cast<u32>(_exile.Size());   }
+u32 DeckSystem::DeckSize()    const noexcept { return static_cast<u32>(_deck.Size());    }
+u32 DeckSystem::HandSize()    const noexcept { return static_cast<u32>(_hand.Size());    }
+u32 DeckSystem::DiscardSize() const noexcept { return static_cast<u32>(_discard.Size()); }
+u32 DeckSystem::ExileSize()   const noexcept { return static_cast<u32>(_exile.Size());   }
 
 // =============================================================================
 // シャッフル
 // =============================================================================
 
-void FDeckSystem::Shuffle(u32 seed) noexcept {
-    // FRandom::Shuffle は Fisher-Yates (O(n))。0/1 枚のときは即帰る。
+void DeckSystem::Shuffle(u32 seed) noexcept {
+    // Random::Shuffle は Fisher-Yates (O(n))。0/1 枚のときは即帰る。
     if (_deck.Size() < 2) return;
 
     if (seed == 0u) {
         // 真にランダム = プロセス共有 Global を使う (時刻ベース seed)。
-        FRandom::Global().Shuffle(_deck);
+        Random::Global().Shuffle(_deck);
     } else {
         // 決定論再現 = ローカル instance を作って使う (Global を汚さない)。
-        FRandom r(static_cast<u64>(seed));
+        Random r(static_cast<u64>(seed));
         r.Shuffle(_deck);
     }
 }
@@ -129,7 +129,7 @@ void FDeckSystem::Shuffle(u32 seed) noexcept {
 // ドロー
 // =============================================================================
 
-bool FDeckSystem::Draw() noexcept {
+bool DeckSystem::Draw() noexcept {
     // デッキ空時は discard を shuffle して reuse。
     if (_deck.IsEmpty()) {
         if (_discard.IsEmpty()) return false;  // 両方とも空 → 引けない
@@ -144,7 +144,7 @@ bool FDeckSystem::Draw() noexcept {
 
         // reshuffle。seed=0 = Global (時刻ベース)。
         if (_deck.Size() >= 2) {
-            FRandom::Global().Shuffle(_deck);
+            Random::Global().Shuffle(_deck);
         }
     }
 
@@ -156,7 +156,7 @@ bool FDeckSystem::Draw() noexcept {
     return true;
 }
 
-bool FDeckSystem::DrawN(u32 n) noexcept {
+bool DeckSystem::DrawN(u32 n) noexcept {
     if (n == 0u) return true;
     // 「引けただけ引く」設計: 途中で false になっても戻り値だけ false にして抜ける。
     for (u32 i = 0; i < n; ++i) {
@@ -169,7 +169,7 @@ bool FDeckSystem::DrawN(u32 n) noexcept {
 // ゾーン操作
 // =============================================================================
 
-bool FDeckSystem::DiscardFromHand(u32 hand_index) noexcept {
+bool DeckSystem::DiscardFromHand(u32 hand_index) noexcept {
     if (hand_index >= static_cast<u32>(_hand.Size())) return false;
     const char* card = _hand[hand_index];
 
@@ -185,7 +185,7 @@ bool FDeckSystem::DiscardFromHand(u32 hand_index) noexcept {
     return true;
 }
 
-bool FDeckSystem::ExileFromHand(u32 hand_index) noexcept {
+bool DeckSystem::ExileFromHand(u32 hand_index) noexcept {
     if (hand_index >= static_cast<u32>(_hand.Size())) return false;
     const char* card = _hand[hand_index];
 
@@ -199,7 +199,7 @@ bool FDeckSystem::ExileFromHand(u32 hand_index) noexcept {
     return true;
 }
 
-bool FDeckSystem::DiscardAllHand() noexcept {
+bool DeckSystem::DiscardAllHand() noexcept {
     // 手札空でも true (= no-op として成功扱い、ターン終了処理を統一して書きやすくする)。
     const usize n = _hand.Size();
     if (n == 0u) return true;
@@ -212,7 +212,7 @@ bool FDeckSystem::DiscardAllHand() noexcept {
     return true;
 }
 
-bool FDeckSystem::PlayCard(u32 hand_index) noexcept {
+bool DeckSystem::PlayCard(u32 hand_index) noexcept {
     if (hand_index >= static_cast<u32>(_hand.Size())) return false;
 
     // callback 発火 (登録されていれば)。hand_index は callback 呼び出し時点の値を渡す
@@ -223,7 +223,7 @@ bool FDeckSystem::PlayCard(u32 hand_index) noexcept {
     }
 
     // callback 後に hand → discard へ移動。
-    // 注意: callback 内で FDeckSystem を再帰的に触られた場合の防御は持たない
+    // 注意: callback 内で DeckSystem を再帰的に触られた場合の防御は持たない
     // (= 呼出側の責務)。Inventory の ChangeCallback と同じ。
     const usize n = _hand.Size();
     // callback 内で hand が変動している可能性があるので、再度範囲チェック。
@@ -243,7 +243,7 @@ bool FDeckSystem::PlayCard(u32 hand_index) noexcept {
 // 手札照会
 // =============================================================================
 
-const char* FDeckSystem::HandCardAt(u32 index) const noexcept {
+const char* DeckSystem::HandCardAt(u32 index) const noexcept {
     if (index >= static_cast<u32>(_hand.Size())) return nullptr;
     return _hand[index];
 }
@@ -252,7 +252,7 @@ const char* FDeckSystem::HandCardAt(u32 index) const noexcept {
 // コールバック
 // =============================================================================
 
-void FDeckSystem::SetOnPlayCallback(PlayCallback cb, void* user) noexcept {
+void DeckSystem::SetOnPlayCallback(PlayCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
     _on_play      = cb;
     _on_play_user = user;
@@ -262,7 +262,7 @@ void FDeckSystem::SetOnPlayCallback(PlayCallback cb, void* user) noexcept {
 // 全リセット
 // =============================================================================
 
-void FDeckSystem::ClearAll() noexcept {
+void DeckSystem::ClearAll() noexcept {
     _cards.Clear();
     _deck.Clear();
     _hand.Clear();

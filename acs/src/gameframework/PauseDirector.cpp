@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FPauseDirector 実装
+// GameFramework Pillar A — PauseDirector 実装
 //
 // pause 状態は bit flag (EPauseReason) を 1 個の u32 にまとめて持つ。
 // Pause/Resume は単純な OR / AND-NOT で、複合 reason (UserMenu | SystemMenu)
@@ -27,7 +27,7 @@ static constexpr u32 AndNotBits(u32 a, u32 b) noexcept {
 
 // ----- pause 操作 -----------------------------------------------------------
 
-void FPauseDirector::Pause(EPauseReason reason) noexcept {
+void PauseDirector::Pause(EPauseReason reason) noexcept {
     // OR で bit を立てる。複合 (UserMenu | SystemMenu) もそのまま受理。
     // None (= 0) を渡されても OR で変化なしなので分岐不要。
     const u32 add        = static_cast<u32>(reason);
@@ -37,7 +37,7 @@ void FPauseDirector::Pause(EPauseReason reason) noexcept {
     FireTransitions(newly_set, /*paused=*/true);
 }
 
-void FPauseDirector::Resume(EPauseReason reason) noexcept {
+void PauseDirector::Resume(EPauseReason reason) noexcept {
     // & ~reason で bit を落とす。None (= 0) は ~0 で全 bit になるが
     // _mask & 全 bit = _mask なので変化なし (no-op)。明示判定は不要。
     const u32 remove     = static_cast<u32>(reason);
@@ -50,7 +50,7 @@ void FPauseDirector::Resume(EPauseReason reason) noexcept {
 
 // ----- 問い合わせ -----------------------------------------------------------
 
-bool FPauseDirector::IsPausedFor(EPauseReason reason) const noexcept {
+bool PauseDirector::IsPausedFor(EPauseReason reason) const noexcept {
     // 複合 reason 判定: reason の **全ての** bit が立っているかを確認する。
     // 部分一致を許すと「UserMenu | SystemMenu の片方だけで true」のような
     // 紛らわしい挙動になる。
@@ -59,19 +59,19 @@ bool FPauseDirector::IsPausedFor(EPauseReason reason) const noexcept {
     return (_mask & want) == want;
 }
 
-bool FPauseDirector::IsPaused() const noexcept {
+bool PauseDirector::IsPaused() const noexcept {
     // 1 つでも reason が立っていれば pause 中。
     // None (= 0) を保持しているだけの状態は _mask == 0 で false。
     return _mask != 0u;
 }
 
-EPauseReason FPauseDirector::ActiveReasons() const noexcept {
+EPauseReason PauseDirector::ActiveReasons() const noexcept {
     return static_cast<EPauseReason>(_mask);
 }
 
 // ----- 一括解除 -------------------------------------------------------------
 
-void FPauseDirector::Clear() noexcept {
+void PauseDirector::Clear() noexcept {
     // 立っていた全 bit について callback を発火してから mask を 0 に。
     // callback 中に Pause が再帰呼び出しされた場合は新 mask が再度立つが、
     // それは caller の意図と見なす (= 競合は caller 側で解決)。
@@ -82,25 +82,25 @@ void FPauseDirector::Clear() noexcept {
 
 // ----- time scale 連携 ------------------------------------------------------
 
-f32 FPauseDirector::EffectiveTimeScale() const noexcept {
+f32 PauseDirector::EffectiveTimeScale() const noexcept {
     // pause 中は 0、非 pause は _normal_time_scale を返す。
     // slow-motion (= 通常時 0.5x) は SetNormalTimeScale(0.5f) で表現。
     return IsPaused() ? 0.0f : _normal_time_scale;
 }
 
-void FPauseDirector::SetNormalTimeScale(f32 s) noexcept {
+void PauseDirector::SetNormalTimeScale(f32 s) noexcept {
     // 負値は 0 に clamp。負の時間進行 (= 逆再生) は別概念なので
     // この API では扱わない (Cinematics / リプレイ側の責務)。
     _normal_time_scale = (s < 0.0f) ? 0.0f : s;
 }
 
-f32 FPauseDirector::NormalTimeScale() const noexcept {
+f32 PauseDirector::NormalTimeScale() const noexcept {
     return _normal_time_scale;
 }
 
 // ----- 遷移通知 -------------------------------------------------------------
 
-void FPauseDirector::SetCallback(PauseEventCallback cb, void* user) noexcept {
+void PauseDirector::SetCallback(PauseEventCallback cb, void* user) noexcept {
     // 重複登録は不可 (上書き)。cb == nullptr で実質登録解除。
     // user は cb と一緒に保持しないと nullptr 化されて呼び出し時に死ぬ。
     _callback      = cb;
@@ -112,7 +112,7 @@ void FPauseDirector::SetCallback(PauseEventCallback cb, void* user) noexcept {
 // 立っていた各 bit について個別に callback を 1 回ずつ呼ぶ。
 // 例えば changed_bits = UserMenu | SystemMenu なら 2 回呼ばれる。
 // callback が未登録なら何もしない。
-void FPauseDirector::FireTransitions(u32 changed_bits, bool paused) const noexcept {
+void PauseDirector::FireTransitions(u32 changed_bits, bool paused) const noexcept {
     if (_callback == nullptr) return;
     if (changed_bits == 0u)   return;
 

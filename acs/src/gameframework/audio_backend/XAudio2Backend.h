@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FXAudio2Backend (Windows 用 IAudioBackend 実装)
+// GameFramework Pillar H — XAudio2Backend (Windows 用 IAudioBackend 実装)
 //
 // 役割:
 //   `IAudioBackend` の concrete 実装 = Win32 XAudio2 (Windows SDK 同梱) を
-//   叩いて実音声を出す。`FAudioDirector::SetBackend(&xaudio2)` で差し込んで
+//   叩いて実音声を出す。`AudioDirector::SetBackend(&xaudio2)` で差し込んで
 //   使う。
 //
 // 使い方 (典型例):
-//   class FGame {
-//       acs::game::FXAudio2Backend _audio;
-//       acs::game::FAudioDirector  _director;
+//   class Game {
+//       acs::game::XAudio2Backend _audio;
+//       acs::game::AudioDirector  _director;
 //
 //       TResult<void> OnStart() noexcept override {
 //           ACS_TRY(_audio.Init(64));      // 同時発音 64 voice
@@ -25,7 +25,7 @@
 // 設計選択:
 //   ・**pimpl で XAudio2 ヘッダ隠蔽**: `<xaudio2.h>` は <windows.h> + COM を
 //     引っ張る重いヘッダなので .cpp に閉じ込め、.h ではポインタ前方宣言だけ
-//     公開する (ACS の `acs::FAudioEngine` と同じパターン)。
+//     公開する (ACS の `acs::AudioEngine` と同じパターン)。
 //   ・**固定容量 voice pool**: `Init(max_voices)` 時に確保。再 init 不可。
 //     PlayOneShot / PlayLooped で空きを線形探索 (max_voices は通常 ≦ 128 で、
 //     ホットパス影響は無視できる)。
@@ -41,7 +41,7 @@
 //     自然回収する。回収しないと kMaxVoices 回再生でスロット枯渇する。
 //
 // 範囲外:
-//   ・3D positional / spatial (Pillar FSpatialAudio 担当、別 backend)
+//   ・3D positional / spatial (Pillar SpatialAudio 担当、別 backend)
 //   ・stream 再生 / 動的バッファ供給
 //   ・wav/ogg/mp3 デコード (raw PCM を渡す前提)
 #pragma once
@@ -53,30 +53,30 @@
 
 namespace acs::game {
 
-class FXAudio2Backend final : public IAudioBackend {
+class XAudio2Backend final : public IAudioBackend {
 public:
-    FXAudio2Backend() noexcept;
-    ~FXAudio2Backend() noexcept override;
+    XAudio2Backend() noexcept;
+    ~XAudio2Backend() noexcept override;
 
-    FXAudio2Backend(const FXAudio2Backend&)            = delete;
-    FXAudio2Backend& operator=(const FXAudio2Backend&) = delete;
-    FXAudio2Backend(FXAudio2Backend&&)                 = delete;
-    FXAudio2Backend& operator=(FXAudio2Backend&&)      = delete;
+    XAudio2Backend(const XAudio2Backend&)            = delete;
+    XAudio2Backend& operator=(const XAudio2Backend&) = delete;
+    XAudio2Backend(XAudio2Backend&&)                 = delete;
+    XAudio2Backend& operator=(XAudio2Backend&&)      = delete;
 
     // ----- IAudioBackend 実装 -----
     TResult<void> Init(u32 max_voices = 64) noexcept override;
     void         Shutdown() noexcept override;
     bool         IsInitialized() const noexcept override;
 
-    FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& clip,
+    AudioVoiceHandle PlayOneShot(const AudioClipDesc& clip,
                                  f32 volume,
                                  f32 pitch) noexcept override;
-    FAudioVoiceHandle PlayLooped(const FAudioClipDesc& clip,
+    AudioVoiceHandle PlayLooped(const AudioClipDesc& clip,
                                 f32 volume,
                                 f32 pitch) noexcept override;
 
-    void StopVoice(FAudioVoiceHandle voice) noexcept override;
-    void SetVoiceVolume(FAudioVoiceHandle voice, f32 volume) noexcept override;
+    void StopVoice(AudioVoiceHandle voice) noexcept override;
+    void SetVoiceVolume(AudioVoiceHandle voice, f32 volume) noexcept override;
     void StopAllVoices() noexcept override;
     u32  ActiveVoiceCount() const noexcept override;
     void Tick(f32 dt) noexcept override;
@@ -87,12 +87,12 @@ public:
     void SetMasterVolume(f32 volume) noexcept;
 
     // pimpl: XAudio2 / COM の重ヘッダを .cpp に閉じ込める。
-    // public に置く理由 = .cpp 内の自由関数 (PlayInternal 等) から FImpl の
-    // メンバを直接触りたいため (acs::FAudioEngine と同じパターン)。
-    struct FImpl;
+    // public に置く理由 = .cpp 内の自由関数 (PlayInternal 等) から Impl の
+    // メンバを直接触りたいため (acs::AudioEngine と同じパターン)。
+    struct Impl;
 
 private:
-    FImpl* _impl = nullptr;
+    Impl* _impl = nullptr;
 };
 
 } // namespace acs::game

@@ -12,34 +12,34 @@ namespace helloac {
 
 void AnimCurveApp::OnStart() noexcept {
     if (auto r = _imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
-        // ImGui 初期化失敗時は FScene を回しても何も描けないので早期 Quit。
-        ACS_LOG_ERROR("[AnimCurveApp] FImGuiCtx.Init failed -> Quit");
+        // ImGui 初期化失敗時は Scene を回しても何も描けないので早期 Quit。
+        ACS_LOG_ERROR("[AnimCurveApp] ImGuiCtx.Init failed -> Quit");
         Quit();
         return;
     }
     // 基底の OnStart が InitialScene() を push する。
-    FGame::OnStart();
+    Game::OnStart();
 }
 
 void AnimCurveApp::OnRender() noexcept {
-    // FScene::OnRender 内の ImGui::* を NewFrame と Render の間に挟む。
+    // Scene::OnRender 内の ImGui::* を NewFrame と Render の間に挟む。
     _imgui.NewFrame();
-    FGame::OnRender();
+    Game::OnRender();
     _imgui.Render();
 }
 
 void AnimCurveApp::OnShutdown() noexcept {
-    // FScene が ImGui::* を握っていない状態にしてから ImGui を落とす。
-    FGame::OnShutdown();
+    // Scene が ImGui::* を握っていない状態にしてから ImGui を落とす。
+    Game::OnShutdown();
     _imgui.Shutdown();
 }
 
-void AnimCurveApp::OnEvent(const FEvent& e) noexcept {
+void AnimCurveApp::OnEvent(const Event& e) noexcept {
     _imgui.OnEvent(e);
-    FGame::OnEvent(e);
+    Game::OnEvent(e);
 }
 
-TUniquePtr<FScene> AnimCurveApp::InitialScene() noexcept {
+TUniquePtr<Scene> AnimCurveApp::InitialScene() noexcept {
     return MakeUnique<AnimCurveScene>();
 }
 

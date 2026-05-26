@@ -7,20 +7,20 @@
 
 namespace hellofg {
 
-class TitleScene : public acs::game::FScene {
+class TitleScene : public acs::game::Scene {
 public:
     acs::game::ESvc WantedServices() const noexcept override {
-        return acs::game::ESvc::Default2D;   // FClock | Tweens | Sequences | FInput
+        return acs::game::ESvc::Default2D;   // Clock | Tweens | Sequences | Input
     }
 
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::FRenderContext& rc) noexcept override;
+    void OnRender(acs::game::RenderContext& rc) noexcept override;
 
 private:
     acs::FVec3                  _bg_color  {0.06f, 0.08f, 0.16f};
-    acs::game::FTweenHandle     _bg_tween  {};
+    acs::game::TweenHandle     _bg_tween  {};
     bool                       _to_bright = true;
     acs::f32                   _pulse_sec = 0.0f;   // "Press Space" の点滅位相
 

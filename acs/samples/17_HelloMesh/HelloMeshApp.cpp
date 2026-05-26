@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMesh — FApplication 実装。
+// HelloMesh — Application 実装。
 #include "HelloMeshApp.h"
 #include "Shaders.h"
 #include "Types.h"
@@ -18,7 +18,7 @@ void HelloMeshApp::OnStart() noexcept {
 
     // === シェーダ ===
     FShaderDesc vs_desc{};
-    vs_desc.stage = EShaderStage::FVertex;
+    vs_desc.stage = EShaderStage::Vertex;
     vs_desc.hlsl_source = kHLSL;
     vs_desc.entry_point = "VSMain";
     vs_desc.debug_name  = "Mesh.VS";
@@ -38,7 +38,7 @@ void HelloMeshApp::OnStart() noexcept {
     // === 頂点 / インデックスバッファ ===
     FBufferDesc vb_desc{};
     vb_desc.size = sizeof(kCubeVertices);
-    vb_desc.usage = EBufferUsage::FVertex;
+    vb_desc.usage = EBufferUsage::Vertex;
     vb_desc.cpu_writable = true;
     vb_desc.initial_data = kCubeVertices;
     if (auto r = CreateRhiBuffer(*dev, vb_desc); r.IsErr()) {
@@ -75,7 +75,7 @@ void HelloMeshApp::OnStart() noexcept {
     pd.cull_mode     = ECullMode::Back;
     pd.cbuffer_slots = 1;       // b0 = MVP
     pd.cbuffer_names[0] = "Frame";  // Diligent では cbuffer 名で resolve するため必須
-    pd.vertex_stride = sizeof(FVertex);
+    pd.vertex_stride = sizeof(Vertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
     pd.layout[1] = { "COLOR",    0, EFormat::R32G32B32_Float, sizeof(f32) * 3 };
     pd.layout_count = 2;
@@ -92,13 +92,13 @@ void HelloMeshApp::OnStart() noexcept {
 }
 
 void HelloMeshApp::OnUpdate(f32 dt) noexcept {
-    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
     _angle += dt * 0.8f;
 
     // 矢印キーでカメラを左右回転 (キューブを公転する視点)
-    if (FInput::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
-    if (FInput::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
+    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
+    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
 
     const f32 cam_dist = 5.0f;
     FVec3 eye{ Sin(_cam_yaw) * cam_dist, 2.0f, -Cos(_cam_yaw) * cam_dist };
@@ -115,7 +115,7 @@ void HelloMeshApp::OnRender() noexcept {
 
     cl->SetPipeline(*_pipeline);
     cl->SetConstantBuffer(0, *_cb);
-    cl->SetVertexBuffer(*_vb, sizeof(FVertex));
+    cl->SetVertexBuffer(*_vb, sizeof(Vertex));
     cl->SetIndexBuffer(*_ib);
     cl->DrawIndexed(36);
 }

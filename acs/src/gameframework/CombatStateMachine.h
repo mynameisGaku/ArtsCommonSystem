@@ -1,26 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCombatStateMachine (戦闘フェーズ + 脅威レベル)
+// GameFramework Pillar R — CombatStateMachine (戦闘フェーズ + 脅威レベル)
 //
 // シーン全体の "combat phase" を 6 状態の有限オートマトンで追跡し、敵検出 /
 // 戦闘開始 / 終了 / ボス出現 / ボス撃破 / リトリート / 勝利の主要遷移を一元化
-// する。FMusicDirector / FAmbientDirector / FDamageFeedback と同列の上位ディレクタ
-// で、FGame または FSceneServices が 1 個保持して毎フレーム Tick する想定。
+// する。MusicDirector / AmbientDirector / DamageFeedback と同列の上位ディレクタ
+// で、Game または SceneServices が 1 個保持して毎フレーム Tick する想定。
 //
-// FMusicDirector との関係:
-//   ・FMusicDirector は「BGM 状態 (Silent/Calm/Tension/Combat/Victory/GameOver)」
-//     を保持する。FCombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
+// MusicDirector との関係:
+//   ・MusicDirector は「BGM 状態 (Silent/Calm/Tension/Combat/Victory/GameOver)」
+//     を保持する。CombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
 //     視点 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) で
 //     抽象化されている。
-//   ・上位 (FGame / FScene) が「ECombatState → EMusicState」マッピングを定義し、
-//     OnStateChange callback の中で FMusicDirector::SetState を呼ぶ運用を想定。
-//     本クラスは FAudioEngine 等の下位リソースを直接知らない。
+//   ・上位 (Game / Scene) が「ECombatState → EMusicState」マッピングを定義し、
+//     OnStateChange callback の中で MusicDirector::SetState を呼ぶ運用を想定。
+//     本クラスは AudioEngine 等の下位リソースを直接知らない。
 //
 // 機能:
 //   ・ECombatState (6 種): Peaceful / Alert / Engaged / BossFight / Victory / Retreat
 //   ・敵検出 / 戦闘開始 / 戦闘終了 / ボス遭遇 / ボス撃破 を notify API として提供
 //   ・ThreatLevel() [0,1] — engaged 中は時間と共に上昇、平和になると低下する
 //     連続値。BGM intensity や ambient color へ供給するのに使える。
-//   ・FEnemyAwareness を TArray で管理し、複数敵 (= maybe sneak / multi engage) を
+//   ・EnemyAwareness を TArray で管理し、複数敵 (= maybe sneak / multi engage) を
 //     並列に追跡。EngagedEnemyCount() で「実際に交戦中の敵数」を返す。
 //   ・OnStateChange callback で外部ディレクタ (Music / Ambient / UI) と疎結合連動。
 //
@@ -37,7 +37,7 @@
 //     / BossFight=1.0 / Victory=Engaged の値を保持 / Retreat=0.2 へ徐減衰)。
 //     さらに Engaged 中は時間で +0..0.3 のドリフトを加算し「長引く戦闘ほど
 //     脅威感が増す」サブ表現を入れる (UE5 系の流れに合わせた音響設計と整合)。
-//   ・**FEnemyAwareness は SoA でなく AoS**: 並列敵数は通常 1..8 程度で、
+//   ・**EnemyAwareness は SoA でなく AoS**: 並列敵数は通常 1..8 程度で、
 //     awareness_level の write が支配的なので AoS の方がキャッシュ的に有利。
 //     線形探索でも O(N) は問題にならない。
 //   ・**重複検出は no-op**: NotifyEnemyDetected を同 enemy_id で複数回呼んでも
@@ -45,7 +45,7 @@
 //     is_engaged の上書きで idempotent。
 //   ・**Retreat への自動遷移は持たない**: Engaged → Retreat は明示的に
 //     NotifyCombatEnded(victory=false) でのみ起きる。タイマーや距離ベースの
-//     自動撤退判定は Pillar L (AI) や FScene 側のロジックに委譲。
+//     自動撤退判定は Pillar L (AI) や Scene 側のロジックに委譲。
 //   ・**callback は呼び出し中の Notify は受け付ける**: 再入安全 (state 更新を
 //     先に行ってから callback を呼ぶ実装)。callback 内で別 Notify* を呼ぶと
 //     state が連鎖更新される — これは仕様上許容 (デバウンスは caller 側で)。
@@ -73,12 +73,12 @@ enum class ECombatState : u8 {
     Retreat   = 5,  // 戦闘から撤退 / 敗北
 };
 
-// 1 敵分の認識情報。FCombatStateMachine が内部 TArray で保持する。
+// 1 敵分の認識情報。CombatStateMachine が内部 TArray で保持する。
 //   enemy_id        : ゲーム側で割り振る一意 ID (FNodeId などをそのまま渡せる)
 //   awareness_level : [0, 1]。1.0 = 完全に検出、0.0 = 未検出。Notify*EnemyDetected
 //                     で 1.0 に上書き、Retreat / Victory で 0.0 に減衰させる。
 //   is_engaged      : NotifyCombatStarted で true、NotifyCombatEnded で false。
-struct FEnemyAwareness {
+struct EnemyAwareness {
     u32 enemy_id        = 0;
     f32 awareness_level = 0.0f;
     bool is_engaged     = false;
@@ -89,24 +89,24 @@ struct FEnemyAwareness {
 //   from / to は実際に遷移した state (同一値で呼ばれることはない、no-op 抑止)。
 using StateChangeCallback = void(*)(void* user, ECombatState from, ECombatState to) noexcept;
 
-class FCombatStateMachine {
+class CombatStateMachine {
 public:
     // ECombatState 総数 (debug / table sizing 用に公開)。
     static constexpr u32 kStateCount = 6;
     // 想定並列敵数 (= reserve hint)。多めに見ても 16 で十分、それ超えは自動拡張。
     static constexpr u32 kEnemyReserveHint = 16;
 
-    FCombatStateMachine() noexcept;
-    ~FCombatStateMachine() noexcept = default;
+    CombatStateMachine() noexcept;
+    ~CombatStateMachine() noexcept = default;
 
-    FCombatStateMachine(const FCombatStateMachine&)            = delete;
-    FCombatStateMachine& operator=(const FCombatStateMachine&) = delete;
-    FCombatStateMachine(FCombatStateMachine&&)                 = delete;
-    FCombatStateMachine& operator=(FCombatStateMachine&&)      = delete;
+    CombatStateMachine(const CombatStateMachine&)            = delete;
+    CombatStateMachine& operator=(const CombatStateMachine&) = delete;
+    CombatStateMachine(CombatStateMachine&&)                 = delete;
+    CombatStateMachine& operator=(CombatStateMachine&&)      = delete;
 
     // ----- 初期化 / リセット -----
     // Init: state を Peaceful に、awareness を全クリア。コンストラクタ後の
-    //   再初期化用 (FScene 再 enter 時など)。callback は保持する。
+    //   再初期化用 (Scene 再 enter 時など)。callback は保持する。
     void Init() noexcept;
 
     // Reset: Init と同等だが追加で「callback も含めて再初期化したい」場合用。
@@ -127,7 +127,7 @@ public:
     // false なら撤退扱い (残敵 0 → Retreat)。残敵がいる場合は state 据置。
     void NotifyCombatEnded(u32 enemy_id, bool victory) noexcept;
 
-    // どの state からでも BossFight に遷移 (= 割り込み)。boss_id は FEnemyAwareness
+    // どの state からでも BossFight に遷移 (= 割り込み)。boss_id は EnemyAwareness
     // として追加 (既存なら is_engaged=true に上書き)。
     void NotifyBossEncountered(u32 boss_id) noexcept;
 
@@ -142,14 +142,14 @@ public:
     // 内部の smooth interpolation 結果なので、state 遷移直後でも急変しない。
     f32 ThreatLevel() const noexcept { return _threat_current; }
 
-    // is_engaged=true な FEnemyAwareness の数 (= 実際に交戦中の敵数)。
+    // is_engaged=true な EnemyAwareness の数 (= 実際に交戦中の敵数)。
     u32 EngagedEnemyCount() const noexcept;
 
-    // 単純判定: Engaged or BossFight。UI / FSaveSlot 抑制 / fast-travel 禁止判定等。
+    // 単純判定: Engaged or BossFight。UI / SaveSlot 抑制 / fast-travel 禁止判定等。
     bool IsInCombat() const noexcept;
 
     // ----- driver -----
-    // FSceneServices / FGame から毎フレーム呼ぶ。dt はリアル秒。
+    // SceneServices / Game から毎フレーム呼ぶ。dt はリアル秒。
     // 内部で ThreatLevel を _threat_target に向けて指数減衰で追従させる。
     // また Engaged 中は時間ドリフト (最大 +0.3) を _threat_target に加算する。
     void Tick(f32 dt) noexcept;
@@ -164,7 +164,7 @@ private:
     // 必要に応じて _threat_target を新 state 既定値に再設定する。
     void TransitionTo(ECombatState next) noexcept;
 
-    // FEnemyAwareness を id で線形探索。見つからなければ npos 相当 (= _enemies.Size())。
+    // EnemyAwareness を id で線形探索。見つからなければ npos 相当 (= _enemies.Size())。
     usize FindEnemy(u32 enemy_id) const noexcept;
 
     // _state に紐づく既定 threat target を返す ([0, 1])。
@@ -185,7 +185,7 @@ private:
     f32 _engaged_elapsed = 0.0f;
 
     // ----- enemy 追跡 -----
-    TArray<FEnemyAwareness> _enemies;
+    TArray<EnemyAwareness> _enemies;
 
     // BossFight に入る前の state を覚えておき、NotifyBossDefeated 後に
     // engaged 敵が残っていれば Engaged、いなければ Victory に戻す。

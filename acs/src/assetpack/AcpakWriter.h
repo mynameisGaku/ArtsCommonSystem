@@ -4,10 +4,10 @@
 // -----------------------------------------------------------------------------
 // 複数のバラのファイル (= バイト列) を 1 つの `.acpak` にまとめる Writer。
 // ツールビルド (= パッキングコマンド) から使うことを想定し、ランタイムは
-// FAcpakReader だけで足りる。
+// AcpakReader だけで足りる。
 //
 // 使い方の典型例:
-//   acs::assetpack::FAcpakWriter w;
+//   acs::assetpack::AcpakWriter w;
 //   auto r = w.Open(L"out/game.acpak", acs::assetpack::AcpakFlagNone);
 //   if (r.IsErr()) { /* 開けない */ }
 //
@@ -27,7 +27,7 @@
 //     ミスを早期検知するため、Finalize 完了後 Close するまで data は触れない
 //     とドキュメント上明記する。
 //   ・Phase 1 では flags = 0 のみ実装。Encrypted / Compressed bit を立てて
-//     Open すると ACS_ERR(FAsset, kAcpakSubNotImplemented) を返す。
+//     Open すると ACS_ERR(Asset, kAcpakSubNotImplemented) を返す。
 //
 // 非コピー・非ムーブ。
 // =============================================================================
@@ -42,15 +42,15 @@
 
 namespace acs::assetpack {
 
-class FAcpakWriter {
+class AcpakWriter {
 public:
-    FAcpakWriter() noexcept = default;
-    ~FAcpakWriter() noexcept;
+    AcpakWriter() noexcept = default;
+    ~AcpakWriter() noexcept;
 
-    FAcpakWriter(const FAcpakWriter&)            = delete;
-    FAcpakWriter& operator=(const FAcpakWriter&) = delete;
-    FAcpakWriter(FAcpakWriter&&)                 = delete;
-    FAcpakWriter& operator=(FAcpakWriter&&)      = delete;
+    AcpakWriter(const AcpakWriter&)            = delete;
+    AcpakWriter& operator=(const AcpakWriter&) = delete;
+    AcpakWriter(AcpakWriter&&)                 = delete;
+    AcpakWriter& operator=(AcpakWriter&&)      = delete;
 
     // ---- ライフサイクル -----------------------------------------------------
 
@@ -59,14 +59,14 @@ public:
     //     任意組み合わせ (Phase 2 で全 bit 実装済)。
     //   ・Encrypted を立てる場合は **Open より前に** SetKey() を呼んで鍵を
     //     設定すること。鍵未設定で Encrypted Open すると Finalize 時に
-    //     ACS_ERR(FAsset, kAcpakSubCryptoKey) を返す (Open 自体は成功する)。
+    //     ACS_ERR(Asset, kAcpakSubCryptoKey) を返す (Open 自体は成功する)。
     //   ・既に Open 状態なら ACS_ERR(IO, kAcpakSubAlreadyOpen)。
     //   ・成功すると以降 AddFile / Finalize が呼べる。
     TResult<void> Open(const wchar_t* output_path, EAcpakFlags flags) noexcept;
 
     // 暗号化用の鍵を設定する。Open 前後どちらでも呼べる。
     // flags に AcpakFlagEncrypted が含まれているときに Finalize で使われる。
-    void SetKey(const FAcpakKey& key) noexcept;
+    void SetKey(const AcpakKey& key) noexcept;
 
     // ハンドルを閉じる。Finalize 前に呼ぶと書きかけアーカイブが残るため、
     // ベストエフォートでファイルを削除する (実装は単純に CloseHandle だけ呼ぶ
@@ -96,7 +96,7 @@ public:
 private:
     // pending entry の生表現。AddFile が積み、Finalize が消費する。
     // ポインタはすべて呼び出し側所有 — Writer はコピーを取らない。
-    struct FPendingEntry {
+    struct PendingEntry {
         const wchar_t* path;   // 仮想パス (UTF-16、wcscmp 比較)
         const void*    data;   // 生バイト
         u64            size;   // バイト数
@@ -108,10 +108,10 @@ private:
     void*               _file_handle = nullptr;   // Win32 HANDLE 相当
     u32                 _flags       = 0;         // header.flags
     bool                _finalized   = false;     // Finalize 済か
-    TArray<FPendingEntry> _pending;                 // AddFile が積んだ entry 群
+    TArray<PendingEntry> _pending;                 // AddFile が積んだ entry 群
 
     // Phase 2: 暗号化鍵 (AcpakFlagEncrypted のときに Finalize で使う)。
-    FAcpakKey            _key{};
+    AcpakKey            _key{};
     bool                _has_key     = false;
 };
 

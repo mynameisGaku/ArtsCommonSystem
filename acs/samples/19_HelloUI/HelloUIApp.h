@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloUI — FApplication 派生クラス。
+// HelloUI — Application 派生クラス。
 //
 // ACS 純正 UI フレームワーク (src/ui/) を retained mode で使い、
-// PlayerVM の FObservable を FSlider/FCheckbox/FTextInput に MakeTwoWayBind で接続する。
+// PlayerVM の Observable を Slider/Checkbox/TextInput に MakeTwoWayBind で接続する。
 //
 // 学習ポイント:
-//   - FWidget tree (FStackPanel + 子) で UI を組み立て
-//   - FObservable<T> プロパティ経由で VM ↔ UI を接続
+//   - Widget tree (StackPanel + 子) で UI を組み立て
+//   - Observable<T> プロパティ経由で VM ↔ UI を接続
 //   - MakeTwoWayBind で双方向自動同期
 //   - MakeBindConvert で f32 → FString 変換 (HP 値 → ラベル文字)
 //
@@ -26,7 +26,7 @@
 
 namespace helloui {
 
-class HelloUIApp : public acs::FApplication {
+class HelloUIApp : public acs::Application {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -36,19 +36,19 @@ public:
 private:
     void BuildUI() noexcept;
 
-    acs::FFont                                                _font;
-    acs::FUiRenderer                                          _ui;
-    acs::FUiInput                                             _input;
+    acs::Font                                                _font;
+    acs::UiRenderer                                          _ui;
+    acs::UiInput                                             _input;
     PlayerVM                                                 _vm;
-    acs::TUniquePtr<acs::FStackPanel>                          _root;
-    acs::FLabel*                                              _lbl_hp = nullptr;
+    acs::TUniquePtr<acs::StackPanel>                          _root;
+    acs::Label*                                              _lbl_hp = nullptr;
     // Binder 群は _root より後に宣言 → dtor で先に死ぬ。OnShutdown コメント参照。
-    acs::TUniquePtr<acs::FTwoWayBinder<acs::f32>>              _hp_slider_binder;
-    acs::TUniquePtr<acs::FTwoWayBinder<acs::f32>>              _mp_slider_binder;
-    acs::TUniquePtr<acs::FTwoWayBinder<bool>>                  _invincible_binder;
-    acs::TUniquePtr<acs::FTwoWayBinder<acs::FString>>           _name_binder;
-    acs::TUniquePtr<acs::FOneWayConvertBinder<acs::f32, acs::FString>> _hp_text_binder;
-    acs::TUniquePtr<acs::FOneWayBinder<acs::FString>>           _hp_label_binder;
+    acs::TUniquePtr<acs::TwoWayBinder<acs::f32>>              _hp_slider_binder;
+    acs::TUniquePtr<acs::TwoWayBinder<acs::f32>>              _mp_slider_binder;
+    acs::TUniquePtr<acs::TwoWayBinder<bool>>                  _invincible_binder;
+    acs::TUniquePtr<acs::TwoWayBinder<acs::FString>>           _name_binder;
+    acs::TUniquePtr<acs::OneWayConvertBinder<acs::f32, acs::FString>> _hp_text_binder;
+    acs::TUniquePtr<acs::OneWayBinder<acs::FString>>           _hp_label_binder;
 };
 
 } // namespace helloui

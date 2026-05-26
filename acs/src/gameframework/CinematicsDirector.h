@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R Phase 2 — FCinematicsDirector (timeline-based cutscene)
+// GameFramework Pillar R Phase 2 — CinematicsDirector (timeline-based cutscene)
 //
 // タイムライン上に並べた keyframe を時間順に発火していく cutscene driver。
 // ストーリーシーン / オープニング / ボス導入演出 / イベントムービー等で
@@ -7,13 +7,13 @@
 // 1 つのタイムラインとして宣言的に組み立てるための薄い state holder。
 //
 // 設計選択 (Pillar R Phase 2):
-//   ・**FCinematicsDirector 自身は描画 / カメラ / 音 を直接いじらない**:
-//      FDamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
+//   ・**CinematicsDirector 自身は描画 / カメラ / 音 を直接いじらない**:
+//      DamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
 //      関数ポインタ + void* user で type-erase した callback 経由で行い、
-//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (FScene / UI 層 /
-//      FAudioDirector) の責任。これで GameFramework から FRenderer / FCamera /
+//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (Scene / UI 層 /
+//      AudioDirector) の責任。これで GameFramework から Renderer / FCamera /
 //      Audio / Dialogue への直接依存を切る。
-//   ・**FTimelineKeyframe は POD union**: STL の variant は使えないので、
+//   ・**TimelineKeyframe は POD union**: STL の variant は使えないので、
 //      payload を C 風 union で持つ。各 track kind が必要なフィールドだけを
 //      触る。Wait は payload を触らない (時間進行のみ)。
 //   ・**time 順に内部で sort**: AddKeyframe は時系列で挿入順を強制しない —
@@ -38,13 +38,13 @@
 //   ・**Skip 中の callback 発火**: Skip は「残り全 keyframe を即座に発火」を
 //      意味するので、Skip 内で callback を呼ぶ。発火順は time 昇順を維持。
 //   ・**非コピー・非ムーブ**: state の唯一性 (現在 _time / _last_fired_index)
-//      を担保するため機械的に禁止。FScene にメンバとして 1 個埋め込む想定。
+//      を担保するため機械的に禁止。Scene にメンバとして 1 個埋め込む想定。
 //
 // 使い方:
-//   class OpeningScene : public FScene {
-//       FCinematicsDirector _cine;
+//   class OpeningScene : public Scene {
+//       CinematicsDirector _cine;
 //       void OnEnter() noexcept override {
-//           FTimelineKeyframe kf;
+//           TimelineKeyframe kf;
 //           kf.time_sec = 0.0f;
 //           kf.kind     = ETimelineTrackKind::PlayMusic;
 //           kf.payload.music = {"opening_theme", 1.5f};
@@ -72,7 +72,7 @@
 //   ・並列タイムライン (現状は単一タイムラインのみ、複数を別 Director で運用)
 //   ・keyframe の補間 / カーブ (現状は単発発火、補間は callback 側で Tween に任せる)
 //   ・タイムラインの巻き戻し / scrub (オーサリング用、ランタイムには不要)
-//   ・条件分岐タイムライン (FDialogueSystem の choices で代用)
+//   ・条件分岐タイムライン (DialogueSystem の choices で代用)
 #pragma once
 
 #include "foundation/Types.h"
@@ -97,7 +97,7 @@ enum class ETimelineTrackKind : u8 {
 
 // 1 つの keyframe。発火時刻 + kind + kind 別 payload (C union)。
 // payload は active な kind に対応するフィールドのみが意味を持つ。
-struct FTimelineKeyframe {
+struct TimelineKeyframe {
     f32               time_sec = 0.0f;                  // タイムライン上の発火時刻 [秒]
     ETimelineTrackKind kind     = ETimelineTrackKind::Wait;
 
@@ -112,7 +112,7 @@ struct FTimelineKeyframe {
         } dialogue;
         struct {
             const char* music_id; // BGM トラック ID (literal / バンドル参照、所有しない)
-            f32         fade;     // フェード秒数 (caller が FAudioDirector に渡す)
+            f32         fade;     // フェード秒数 (caller が AudioDirector に渡す)
         } music;
         struct {
             u32 event_id;        // 汎用イベント ID (caller 側で hash や enum cast 想定)
@@ -121,7 +121,7 @@ struct FTimelineKeyframe {
         Payload() noexcept : event{0} {}  // デフォルトは event を 0 で初期化
     } payload;
 
-    FTimelineKeyframe() noexcept = default;
+    TimelineKeyframe() noexcept = default;
 };
 
 // 各 track 種別の発火 callback signature。
@@ -131,23 +131,23 @@ using DialogueCallbackFn = void(*)(void* user, const char* line_id) noexcept;
 using MusicCallbackFn    = void(*)(void* user, const char* music_id, f32 fade) noexcept;
 using EventCallbackFn    = void(*)(void* user, u32 event_id) noexcept;
 
-class FCinematicsDirector {
+class CinematicsDirector {
 public:
-    FCinematicsDirector() noexcept = default;
-    ~FCinematicsDirector() noexcept = default;
+    CinematicsDirector() noexcept = default;
+    ~CinematicsDirector() noexcept = default;
 
     // 非コピー・非ムーブ (state の唯一性を機械的に担保)
-    FCinematicsDirector(const FCinematicsDirector&)            = delete;
-    FCinematicsDirector& operator=(const FCinematicsDirector&) = delete;
-    FCinematicsDirector(FCinematicsDirector&&)                 = delete;
-    FCinematicsDirector& operator=(FCinematicsDirector&&)      = delete;
+    CinematicsDirector(const CinematicsDirector&)            = delete;
+    CinematicsDirector& operator=(const CinematicsDirector&) = delete;
+    CinematicsDirector(CinematicsDirector&&)                 = delete;
+    CinematicsDirector& operator=(CinematicsDirector&&)      = delete;
 
     // ----- セットアップ -----
     // keyframe を追加。内部で time_sec 昇順 (安定) を維持するよう挿入位置を決める。
     // time_sec < 0 は 0 に clamp して受け入れる。
-    void AddKeyframe(const FTimelineKeyframe& kf) noexcept;
+    void AddKeyframe(const TimelineKeyframe& kf) noexcept;
 
-    // 全 keyframe / 状態を破棄。FScene::OnExit 等で使う。
+    // 全 keyframe / 状態を破棄。Scene::OnExit 等で使う。
     void Clear() noexcept;
 
     // ----- 再生制御 -----
@@ -193,10 +193,10 @@ private:
     void FireUpTo(f32 up_to_time) noexcept;
 
     // kf を kind に応じた callback で発火 (Wait は no-op)。
-    void FireOne(const FTimelineKeyframe& kf) noexcept;
+    void FireOne(const TimelineKeyframe& kf) noexcept;
 
     // 全 keyframe (time_sec 昇順、stable sort 維持)
-    TArray<FTimelineKeyframe> _keyframes;
+    TArray<TimelineKeyframe> _keyframes;
 
     // 現在のタイムライン時刻 [秒]、Play 開始時に 0 (Resume 時は維持)
     f32 _time = 0.0f;

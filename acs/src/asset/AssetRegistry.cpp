@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FAssetRegistry 実装
+// AssetRegistry 実装
 #include "asset/AssetRegistry.h"
 #include "asset/BinaryAsset.h"
 #include "asset/TextAsset.h"
@@ -51,13 +51,13 @@ FAssetId MakeIdFromPath(const wchar_t* path) noexcept {
 
 } // namespace
 
-void FAssetRegistry::RegisterLoader(IAssetLoader* loader) noexcept {
+void AssetRegistry::RegisterLoader(IAssetLoader* loader) noexcept {
     if (!loader) return;
     FScopedLock lk(_lock);
     _loaders.PushBack(loader);
 }
 
-IAssetLoader* FAssetRegistry::FindLoader(const wchar_t* path) noexcept {
+IAssetLoader* AssetRegistry::FindLoader(const wchar_t* path) noexcept {
     char ext[32]{};
     ExtractExtensionAscii(path, ext, sizeof(ext));
     IAssetLoader* fallback = nullptr;
@@ -69,16 +69,16 @@ IAssetLoader* FAssetRegistry::FindLoader(const wchar_t* path) noexcept {
     return fallback;  // 拡張子マッチなければ "*" のフォールバックを返す
 }
 
-TResult<TRc<FAsset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
-    if (!path) return ACS_ERR(FAsset, 1, "FAssetRegistry::Load: null path");
+TResult<TRc<Asset>> AssetRegistry::Load(const wchar_t* path) noexcept {
+    if (!path) return ACS_ERR(Asset, 1, "AssetRegistry::Load: null path");
 
     FAssetId id = MakeIdFromPath(path);
 
     // キャッシュにあればそのまま返す
     {
         FScopedLock lk(_lock);
-        TRc<FAsset>* hit = _cache.Find(id);
-        if (hit && hit->Get()) return TResult<TRc<FAsset>>(OkInit, *hit);
+        TRc<Asset>* hit = _cache.Find(id);
+        if (hit && hit->Get()) return TResult<TRc<Asset>>(OkInit, *hit);
     }
 
     // 拡張子から適切なローダを選ぶ
@@ -87,17 +87,17 @@ TResult<TRc<FAsset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
         FScopedLock lk(_lock);
         loader = FindLoader(path);
     }
-    if (!loader) return ACS_ERR(FAsset, 2, "no loader for this asset path");
+    if (!loader) return ACS_ERR(Asset, 2, "no loader for this asset path");
 
     // ファイルを読み込む
-    auto bytes_r = FFileSystem::ReadAllBytes(path);
-    if (bytes_r.IsErr()) return Err<TRc<FAsset>>(bytes_r.Error());
+    auto bytes_r = FileSystem::ReadAllBytes(path);
+    if (bytes_r.IsErr()) return Err<TRc<Asset>>(bytes_r.Error());
 
     // ローダ呼び出し
     auto asset_r = loader->LoadFromBytes(id, bytes_r.Value());
-    if (asset_r.IsErr()) return Err<TRc<FAsset>>(asset_r.Error());
+    if (asset_r.IsErr()) return Err<TRc<Asset>>(asset_r.Error());
 
-    TRc<FAsset> a = Move(asset_r.Value());
+    TRc<Asset> a = Move(asset_r.Value());
     a->SetId(id);
     a->SetState(EAssetState::Ready);
 
@@ -106,14 +106,14 @@ TResult<TRc<FAsset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
         FScopedLock lk(_lock);
         _cache.Insert(id, a);
     }
-    return TResult<TRc<FAsset>>(OkInit, Move(a));
+    return TResult<TRc<Asset>>(OkInit, Move(a));
 }
 
 // 非同期ロード用のワーカー引数
 namespace {
 struct AsyncLoadJob {
-    FAssetRegistry*           registry  = nullptr;
-    TRc<FAsyncLoadState>       state;       // 結果書き込み先（worker と future で共有）
+    AssetRegistry*           registry  = nullptr;
+    TRc<AsyncLoadState>       state;       // 結果書き込み先（worker と future で共有）
     IAssetLoader*            loader    = nullptr;
     FAssetId                  id        = FAssetId{};
     wchar_t                  path[260] = {};
@@ -122,7 +122,7 @@ struct AsyncLoadJob {
 void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     TUniquePtr<AsyncLoadJob> job(static_cast<AsyncLoadJob*>(user));
 
-    auto bytes_r = FFileSystem::ReadAllBytes(job->path);
+    auto bytes_r = FileSystem::ReadAllBytes(job->path);
     if (bytes_r.IsErr()) {
         job->state->error = bytes_r.Error();
         job->state->has_error = true;
@@ -138,7 +138,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
         return;
     }
 
-    TRc<FAsset> a = Move(asset_r.Value());
+    TRc<Asset> a = Move(asset_r.Value());
     a->SetId(job->id);
     a->SetState(EAssetState::Ready);
 
@@ -151,21 +151,21 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
 }
 } // namespace
 
-void FAssetRegistry::AsyncCacheInsert(FAssetId id, TRc<FAsset> a) noexcept {
+void AssetRegistry::AsyncCacheInsert(FAssetId id, TRc<Asset> a) noexcept {
     FScopedLock lk(_lock);
     _cache.Insert(id, Move(a));
 }
 
-FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
+AssetFuture AssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     // 共有状態を作る
-    auto state = MakeRc<FAsyncLoadState>();
-    if (!state.Get()) return FAssetFuture{};
+    auto state = MakeRc<AsyncLoadState>();
+    if (!state.Get()) return AssetFuture{};
 
     if (!path) {
-        state->error = ACS_ERR(FAsset, 11, "LoadAsync: null path");
+        state->error = ACS_ERR(Asset, 11, "LoadAsync: null path");
         state->has_error = true;
         state->counter.Done();
-        return FAssetFuture(Move(state));
+        return AssetFuture(Move(state));
     }
 
     FAssetId id = MakeIdFromPath(path);
@@ -173,11 +173,11 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     // キャッシュにあれば即完了状態で返す
     {
         FScopedLock lk(_lock);
-        TRc<FAsset>* hit = _cache.Find(id);
+        TRc<Asset>* hit = _cache.Find(id);
         if (hit && hit->Get()) {
             state->result = *hit;
             state->counter.Done();
-            return FAssetFuture(Move(state));
+            return AssetFuture(Move(state));
         }
     }
 
@@ -188,19 +188,19 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
         loader = FindLoader(path);
     }
     if (!loader) {
-        state->error = ACS_ERR(FAsset, 12, "LoadAsync: no loader");
+        state->error = ACS_ERR(Asset, 12, "LoadAsync: no loader");
         state->has_error = true;
         state->counter.Done();
-        return FAssetFuture(Move(state));
+        return AssetFuture(Move(state));
     }
 
-    // ジョブを heap 確保し FThreadPool に投入
+    // ジョブを heap 確保し ThreadPool に投入
     auto job = MakeUnique<AsyncLoadJob>();
     if (!job) {
         state->error = ACS_ERR(Memory, 200, "LoadAsync: alloc");
         state->has_error = true;
         state->counter.Done();
-        return FAssetFuture(Move(state));
+        return AssetFuture(Move(state));
     }
     job->registry = this;
     job->state    = state;
@@ -211,49 +211,49 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     while (path[i] && i < 259) { job->path[i] = path[i]; ++i; }
     job->path[i] = 0;
 
-    FTask t{};
+    Task t{};
     t.fn      = &AsyncLoadWorker;
     t.user    = job.Get();
     t.counter = nullptr;     // 完了通知は state->counter 側で行う
-    auto sub = FThreadPool::Submit(t);
+    auto sub = ThreadPool::Submit(t);
     if (sub.IsErr()) {
         // 投入失敗時は同期的に実行
         AsyncLoadWorker(job.Release(), 0);
-        return FAssetFuture(Move(state));
+        return AssetFuture(Move(state));
     }
     job.Release();   // 所有権を worker に渡した
-    return FAssetFuture(Move(state));
+    return AssetFuture(Move(state));
 }
 
-TRc<FAsset> FAssetRegistry::Find(FAssetId id) noexcept {
+TRc<Asset> AssetRegistry::Find(FAssetId id) noexcept {
     FScopedLock lk(_lock);
-    TRc<FAsset>* hit = _cache.Find(id);
-    return (hit && hit->Get()) ? *hit : TRc<FAsset>();
+    TRc<Asset>* hit = _cache.Find(id);
+    return (hit && hit->Get()) ? *hit : TRc<Asset>();
 }
 
-void FAssetRegistry::Unload(FAssetId id) noexcept {
+void AssetRegistry::Unload(FAssetId id) noexcept {
     FScopedLock lk(_lock);
     _cache.Remove(id);
 }
 
-void FAssetRegistry::Clear() noexcept {
+void AssetRegistry::Clear() noexcept {
     FScopedLock lk(_lock);
     _cache.Clear();
 }
 
 namespace {
 // 標準ローダ実体（プロセス寿命）
-FImageAssetLoader  g_image_loader;
-FWavAssetLoader    g_wav_loader;
-FMp3AssetLoader    g_mp3_loader;
-FFlacAssetLoader   g_flac_loader;
-FOggAssetLoader    g_ogg_loader;
-FGltfAssetLoader   g_gltf_loader;
-FGlbAssetLoader    g_glb_loader;
-FObjAssetLoader    g_obj_loader;
-FFbxAssetLoader    g_fbx_loader;
-FTextAssetLoader   g_text_loader;
-FBinaryAssetLoader g_binary_loader;
+ImageAssetLoader  g_image_loader;
+WavAssetLoader    g_wav_loader;
+Mp3AssetLoader    g_mp3_loader;
+FlacAssetLoader   g_flac_loader;
+OggAssetLoader    g_ogg_loader;
+GltfAssetLoader   g_gltf_loader;
+GlbAssetLoader    g_glb_loader;
+ObjAssetLoader    g_obj_loader;
+FbxAssetLoader    g_fbx_loader;
+TextAssetLoader   g_text_loader;
+BinaryAssetLoader g_binary_loader;
 
 // 拡張子別名のラッパ（同じ実体を別の拡張子で登録できるようにする）
 class AliasLoader final : public IAssetLoader {
@@ -261,7 +261,7 @@ public:
     AliasLoader(IAssetLoader* base, const char* ext) noexcept : _base(base), _ext(ext) {}
     AssetType   TypeId()    const noexcept override { return _base->TypeId(); }
     const char* Extension() const noexcept override { return _ext; }
-    TResult<TRc<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override {
+    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override {
         return _base->LoadFromBytes(id, bytes);
     }
 private:
@@ -304,7 +304,7 @@ AliasLoader g_text_py   { &g_text_loader, "py"   };
 } // namespace
 
 // 標準ローダを 1 度に登録する
-void FAssetRegistry::RegisterDefaultLoaders() noexcept {
+void AssetRegistry::RegisterDefaultLoaders() noexcept {
     // 画像
     RegisterLoader(&g_image_loader);
     RegisterLoader(&g_image_jpg);  RegisterLoader(&g_image_jpeg);

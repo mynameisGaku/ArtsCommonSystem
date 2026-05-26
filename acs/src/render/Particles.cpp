@@ -12,8 +12,8 @@ namespace acs {
 
 // ===== プリセット ===========================================================
 
-FEmitterDesc FEmitterDesc::Fire(FVec2 pos) noexcept {
-    FEmitterDesc d{};
+EmitterDesc EmitterDesc::Fire(FVec2 pos) noexcept {
+    EmitterDesc d{};
     d.position           = pos;
     d.spawn_offset_min   = FVec2{-6, 0};
     d.spawn_offset_max   = FVec2{ 6, 0};
@@ -30,8 +30,8 @@ FEmitterDesc FEmitterDesc::Fire(FVec2 pos) noexcept {
     return d;
 }
 
-FEmitterDesc FEmitterDesc::Sparks(FVec2 pos) noexcept {
-    FEmitterDesc d{};
+EmitterDesc EmitterDesc::Sparks(FVec2 pos) noexcept {
+    EmitterDesc d{};
     d.position           = pos;
     d.spawn_offset_min   = FVec2{0, 0};
     d.spawn_offset_max   = FVec2{0, 0};
@@ -48,8 +48,8 @@ FEmitterDesc FEmitterDesc::Sparks(FVec2 pos) noexcept {
     return d;
 }
 
-FEmitterDesc FEmitterDesc::Fountain(FVec2 pos) noexcept {
-    FEmitterDesc d{};
+EmitterDesc EmitterDesc::Fountain(FVec2 pos) noexcept {
+    EmitterDesc d{};
     d.position           = pos;
     d.spawn_offset_min   = FVec2{-2, 0};
     d.spawn_offset_max   = FVec2{ 2, 0};
@@ -66,8 +66,8 @@ FEmitterDesc FEmitterDesc::Fountain(FVec2 pos) noexcept {
     return d;
 }
 
-FEmitterDesc FEmitterDesc::Smoke(FVec2 pos) noexcept {
-    FEmitterDesc d{};
+EmitterDesc EmitterDesc::Smoke(FVec2 pos) noexcept {
+    EmitterDesc d{};
     d.position           = pos;
     d.spawn_offset_min   = FVec2{-8, -2};
     d.spawn_offset_max   = FVec2{ 8,  2};
@@ -84,25 +84,25 @@ FEmitterDesc FEmitterDesc::Smoke(FVec2 pos) noexcept {
     return d;
 }
 
-// ===== FParticleSystem =======================================================
+// ===== ParticleSystem =======================================================
 
-FParticleSystem::~FParticleSystem() noexcept {
+ParticleSystem::~ParticleSystem() noexcept {
     Shutdown();
 }
 
-TResult<void> FParticleSystem::Init(u32 max_particles) noexcept {
+TResult<void> ParticleSystem::Init(u32 max_particles) noexcept {
     if (max_particles == 0) max_particles = 1024;
     Shutdown();
     _capacity = max_particles;
     _active = 0;
     _spawn_accum = 0;
-    _pool = static_cast<FParticle*>(
-        DefaultAllocator().Alloc(sizeof(FParticle) * max_particles));
-    if (!_pool) return ACS_ERR(Memory, 300, "FParticleSystem: pool alloc failed");
+    _pool = static_cast<Particle*>(
+        DefaultAllocator().Alloc(sizeof(Particle) * max_particles));
+    if (!_pool) return ACS_ERR(Memory, 300, "ParticleSystem: pool alloc failed");
     return Ok();
 }
 
-void FParticleSystem::Shutdown() noexcept {
+void ParticleSystem::Shutdown() noexcept {
     if (_pool) {
         DefaultAllocator().Free(_pool);
         _pool = nullptr;
@@ -111,18 +111,18 @@ void FParticleSystem::Shutdown() noexcept {
     _active = 0;
 }
 
-f32 FParticleSystem::RandF() noexcept {
+f32 ParticleSystem::RandF() noexcept {
     _seed ^= _seed << 13; _seed ^= _seed >> 17; _seed ^= _seed << 5;
     return static_cast<f32>(_seed & 0xFFFFFFu) / 16777216.0f;
 }
 
-f32 FParticleSystem::RandRange(f32 a, f32 b) noexcept {
+f32 ParticleSystem::RandRange(f32 a, f32 b) noexcept {
     return a + (b - a) * RandF();
 }
 
-void FParticleSystem::SpawnOne() noexcept {
+void ParticleSystem::SpawnOne() noexcept {
     if (_active >= _capacity) return;
-    FParticle& p = _pool[_active++];
+    Particle& p = _pool[_active++];
     p.age = 0;
     // 寿命: ±life_variance の範囲でランダム
     p.life = _emitter.life_seconds + (RandF() * 2.0f - 1.0f) * _emitter.life_variance;
@@ -141,12 +141,12 @@ void FParticleSystem::SpawnOne() noexcept {
     p.color_end   = _emitter.color_end;
 }
 
-void FParticleSystem::EmitBurst(u32 count) noexcept {
+void ParticleSystem::EmitBurst(u32 count) noexcept {
     if (!_pool) return;
     for (u32 i = 0; i < count; ++i) SpawnOne();
 }
 
-void FParticleSystem::Update(f32 dt) noexcept {
+void ParticleSystem::Update(f32 dt) noexcept {
     if (!_pool) return;
 
     // 1) 連続生成
@@ -159,7 +159,7 @@ void FParticleSystem::Update(f32 dt) noexcept {
 
     // 2) 物理積分 + 寿命管理（swap-pop で死亡粒子を除去）
     for (u32 i = 0; i < _active; ) {
-        FParticle& p = _pool[i];
+        Particle& p = _pool[i];
         p.vel.x += _emitter.gravity.x * dt;
         p.vel.y += _emitter.gravity.y * dt;
         p.pos.x += p.vel.x * dt;
@@ -174,13 +174,13 @@ void FParticleSystem::Update(f32 dt) noexcept {
     }
 }
 
-void FParticleSystem::Render(FSpriteBatch& sb) noexcept {
+void ParticleSystem::Render(SpriteBatch& sb) noexcept {
     if (!_pool || _active == 0) return;
 
-    // テクスチャ未設定なら FSpriteBatch の DrawRect 相当（白矩形）
+    // テクスチャ未設定なら SpriteBatch の DrawRect 相当（白矩形）
     // 設定済みなら DrawSub 経由
     for (u32 i = 0; i < _active; ++i) {
-        const FParticle& p = _pool[i];
+        const Particle& p = _pool[i];
         const f32 t = p.age / p.life;        // 0 (誕生) .. 1 (死亡)
         // size と color を線形補間
         const f32 s = p.size_start + (p.size_end - p.size_start) * t;

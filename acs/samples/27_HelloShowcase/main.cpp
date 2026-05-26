@@ -4,13 +4,13 @@
 // 構成:
 //   ShowcaseTypes.h           - sphere/orb 配置定数 + Halton helper
 //   ShowcaseAssets.{h,cpp}    - GPU resource bundle + 初期化 / 解放
-//   PbrPass.{h,cpp}           - FSky + 床 + opaque sphere + emissive orb
+//   PbrPass.{h,cpp}           - Sky + 床 + opaque sphere + emissive orb
 //   RefractionPass.{h,cpp}    - ガラス球 (clear / frosted)
 //   MotionPass.{h,cpp}        - motion + normal G-buffer
 //   SsrPass.{h,cpp}           - Hi-Z + SSR + SSAO
-//   BloomPass.{h,cpp}         - FPostProcess (Bloom + ACES + TAA)
+//   BloomPass.{h,cpp}         - PostProcess (Bloom + ACES + TAA)
 //   HudPass.{h,cpp}           - HUD overlay
-//   ShowcaseApp.{h,cpp}       - FApplication 派生 (上記 pass を順に駆動)
+//   ShowcaseApp.{h,cpp}       - Application 派生 (上記 pass を順に駆動)
 //
 // キー:
 //   P  : auto-orbit を pause / resume

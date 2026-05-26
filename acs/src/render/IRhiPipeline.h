@@ -14,7 +14,7 @@ namespace acs {
 class IRhiDevice;
 
 // 頂点入力 1 要素（POSITION / COLOR / TEXCOORD など）
-struct FInputElement {
+struct InputElement {
     const char* semantic_name  = "POSITION";  // HLSL のセマンティック名
     u32         semantic_index = 0;
     EFormat      format         = EFormat::R32G32B32_Float;
@@ -44,13 +44,13 @@ struct FPipelineDesc {
     // MRT (Phase 34d-2): rt_count > 0 のとき rt_formats[0..rt_count-1] を使い、
     // rt_format は無視される。最大 8 RT。
     // **rt_count 未満の各 slot は valid (≠ Unknown) format が必須**。Unknown が
-    // 残っていると FDiligentPipeline::Init が ACS_ERR(Render, 155) を返す。
+    // 残っていると DiligentPipeline::Init が ACS_ERR(Render, 155) を返す。
     // Diligent backend のみ実装、Dx12 raw は stub (warning ログ 1 回)。
     EFormat            rt_formats[8] = {};
     u32               rt_count      = 0;
     EFormat            depth_format  = EFormat::Unknown;          // Unknown なら深度なし
     u32               vertex_stride = 0;                        // 1 頂点のバイト数
-    FInputElement      layout[8]     = {};                       // 入力レイアウト
+    InputElement      layout[8]     = {};                       // 入力レイアウト
     u32               layout_count  = 0;
 
     // === シェーダ binding 設定 ===
@@ -60,7 +60,7 @@ struct FPipelineDesc {
     u32               texture_slots = 0;
     // サンプラ s0..s{static_sampler_count-1}（パイプラインに焼き込み）
     // 容量 16 (Phase 33f / Lightmap 以降の slot 追加に備えて 8→16 へ拡張)。
-    FSamplerDesc       static_samplers[16]     = {};
+    SamplerDesc       static_samplers[16]     = {};
     u32               static_sampler_count    = 0;
 
     // --- HLSL リソース名（Diligent backend が名前ベースで SRB lookup するために必要） ---
@@ -68,7 +68,7 @@ struct FPipelineDesc {
     // null のままなら "cb{slot}" / "t{slot}" がフォールバックとして使われる。
     // DX12 raw backend は register slot で直接バインドするためここは無視される。
     //
-    // 例: FStandardShader の場合
+    // 例: StandardShader の場合
     //   cbuffer_names[0] = "Frame";   // cbuffer Frame : register(b0)
     //   cbuffer_names[1] = "Object";  // cbuffer Object : register(b1)
     //   texture_names[0] = "albedo";    // Texture2D albedo : register(t0)

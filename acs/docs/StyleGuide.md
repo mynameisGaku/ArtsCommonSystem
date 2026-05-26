@@ -167,7 +167,7 @@ ACS の公開マクロは必ず `ACS_` プレフィックス。内部ヘルパ�
 ### 2.7 `enum class` — `E` プレフィックス + `PascalCase` (Phase 19a〜)
 
 ```cpp
-enum class ErrCategory  : u16 { None, Generic, Memory, OS, IO, FContainer, /* ... */ };  // 既に E 始まり、二重 E 不要
+enum class ErrCategory  : u16 { None, Generic, Memory, OS, IO, Container, /* ... */ };  // 既に E 始まり、二重 E 不要
 enum class ELogSeverity : u8  { Trace, Debug, Info, Warn, Error, Fatal, Off };
 enum class EFlowState   : u8  { Splash, MainTitle, MainMenu, /* ... */ };
 ```
@@ -349,10 +349,10 @@ private:
     T*         _data     = nullptr;   // in-class default (preferred)
     usize      _size     = 0;
     usize      _capacity = 0;
-    FAllocator* _alloc    = nullptr;
+    Allocator* _alloc    = nullptr;
 
 public:
-    TArray(FAllocator& a) noexcept : _alloc(&a) {}   // init list for arg binding
+    TArray(Allocator& a) noexcept : _alloc(&a) {}   // init list for arg binding
 };
 ```
 
@@ -367,8 +367,8 @@ public:
 ### 3.11 `using` vs `typedef` — `using` のみ
 
 ```cpp
-using FEntityId = u32;                    // OK
-typedef u32 FEntityId;                    // NG (古い C 流、不採用)
+using EntityId = u32;                    // OK
+typedef u32 EntityId;                    // NG (古い C 流、不採用)
 using FCallback = void (*)(void*, u32);   // OK (function ptr alias)
 template<typename T>
 using Owned = TUniquePtr<T>;              // OK (template alias)
@@ -516,7 +516,7 @@ File& f = r.Value();
 auto _ = OptionalEffect();             // 名前付きで破棄
 
 // テストの場合
-auto r = FThreadPool::Init(4);
+auto r = ThreadPool::Init(4);
 EXPECT_TRUE(r.IsOk());
 ```
 
@@ -578,8 +578,8 @@ TResult<void> Process() noexcept {
 ### 6.2 アロケータは明示的に渡す
 
 ```cpp
-// OK — FAllocator& を引数として渡す (Bitsquid 流)
-TArray<u32> Build(FAllocator& alloc) noexcept {
+// OK — Allocator& を引数として渡す (Bitsquid 流)
+TArray<u32> Build(Allocator& alloc) noexcept {
     TArray<u32> a(alloc);
     a.Reserve(100);
     return a;
@@ -588,7 +588,7 @@ TArray<u32> Build(FAllocator& alloc) noexcept {
 
 ### 6.3 `new` / `delete` 直書き禁止
 
-`MakeUnique<T>()` / `MakeRc<T>()` / `FAllocator` 経由。raw `new` / `delete` は禁止 (R018)。`malloc` / `free` も同様に禁止 (R017、FAllocator 経由必須)。
+`MakeUnique<T>()` / `MakeRc<T>()` / `Allocator` 経由。raw `new` / `delete` は禁止 (R018)。`malloc` / `free` も同様に禁止 (R017、Allocator 経由必須)。
 
 ### 6.4 RAII 徹底
 
@@ -672,7 +672,7 @@ void Insert(T value);
 ### 9.1 `override` / `final` 必須
 
 ```cpp
-class FDx12Device final : public IRhiDevice {     // class final
+class Dx12Device final : public IRhiDevice {     // class final
 public:
     void WaitIdle() noexcept override;            // override 必須
 };
@@ -788,8 +788,8 @@ Doxygen `///` / `/** */` は採用しない (R045-c)。
 
 下記の 13 関心事のみ platform/ 以下に集約 (詳細は `docs/GameFramework.md` §15.5):
 
-1. FWindow 2. FInput 3. FFileSystem 4. FStorage 5. Time
-6. VirtualMemory 7. FLocalization 8. FNetwork 9. Audio (mix-thread)
+1. Window 2. Input 3. FileSystem 4. Storage 5. Time
+6. VirtualMemory 7. Localization 8. Network 9. Audio (mix-thread)
 10. Threading primitive 11. Crash reporting 12. Platform IO
 13. Power / sleep
 
@@ -865,7 +865,7 @@ clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走
 | **R014** | platform-winsock-only-network | error | acs-R014 | `<winsock2.h>` は `src/network/` 以下のみ |
 | **R015** | platform-foundation-platform-only | error | acs-R015 | `foundation/Platform.h` 経由で OS ヘッダ吸収 (直 include 禁止) |
 | **R016** | win32-types-only-cpp | error | acs-R016 | HWND/HANDLE/DWORD/SOCKET の `.h` 露出禁止 (opaque で wrap) |
-| **R017** | no-system-mem-direct | error | acs-R017 | `malloc`/`free` 直接呼び禁止 (`FAllocator&` 経由) |
+| **R017** | no-system-mem-direct | error | acs-R017 | `malloc`/`free` 直接呼び禁止 (`Allocator&` 経由) |
 | **R018** | no-raw-new-delete | error | acs-R018 | raw `new`/`delete` 禁止 (`MakeUnique`/`MakeRc` 経由) |
 | **R019** | no-cstdio-printf-fmt | warning | acs-R019 | `printf` 直接呼びは avoid (`ACS_LOG_*` 経由) |
 
@@ -907,7 +907,7 @@ clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走
 |---|---|---|---|---|
 | **R040** | callback-canonical | warning | acs-R040 | コールバックは `void(*)(/*payload*/, void* user)` 形式 |
 | **R041** | no-std-function | error | acs-R041 | `std::function` 禁止 (canonical FCallback 使用) |
-| **R042** | typed-handle | info | acs-R042 | FEntityId / FAssetId 等は型付き wrapper (raw u32 禁止) |
+| **R042** | typed-handle | info | acs-R042 | EntityId / FAssetId 等は型付き wrapper (raw u32 禁止) |
 | **R043** | log-channel-known | warning | acs-R043 | `ACS_LOG_*` は登録済み channel のみ |
 | **R044** | locale-via-director | info | acs-R044 | UI 文字列は `Tr("...")` 経由 (raw 英文字列禁止) |
 | **R045** | comment-banner-style | info | acs-R045 | ファイルヘッダ・セクションは `// ====` バナー |
@@ -933,7 +933,7 @@ clang-tidy を `.clang-tidy` 設定で `src/`, `samples/`, `tests/` 全体に走
 ### 14.2 行単位の rule 無効化
 
 ```cpp
-auto _r = FThreadPool::Submit(t);  // acs-lint: NOLINT(R033)
+auto _r = ThreadPool::Submit(t);  // acs-lint: NOLINT(R033)
 ```
 
 行末コメント `// acs-lint: NOLINT(<RuleID>)` で当該行のみ無効化。

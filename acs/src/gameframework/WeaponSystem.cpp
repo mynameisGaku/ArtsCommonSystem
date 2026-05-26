@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I/R — FWeaponSystem 実装
+// GameFramework Pillar I/R — WeaponSystem 実装
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
-//   ・武器定義は const char* 線形検索 (FEconomyDirector / Entitlement と同設計)。
+//   ・武器定義は const char* 線形検索 (EconomyDirector / Entitlement と同設計)。
 //     per-entity の武器数は通常 5〜10 オーダーで、線形で十分。
 //   ・装備中武器の per-weapon 状態 (ammo_in_mag) は装備切替前に
 //     _reserves[_current_slot] に書き戻し、新武器切替時に新 slot から
@@ -47,7 +47,7 @@ u32 SaturatingAdd(u32 a, u32 b) noexcept {
 // 内部検索
 // =============================================================================
 
-u32 FWeaponSystem::FindWeaponSlot(const char* weapon_id) const noexcept {
+u32 WeaponSystem::FindWeaponSlot(const char* weapon_id) const noexcept {
     if (weapon_id == nullptr) return kNotFound;
     const usize n = _defs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -60,13 +60,13 @@ u32 FWeaponSystem::FindWeaponSlot(const char* weapon_id) const noexcept {
 // 武器定義
 // =============================================================================
 
-void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
+void WeaponSystem::RegisterWeapon(const WeaponDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindWeaponSlot(def.id) != kNotFound) {
-        ACS_LOG_WARN("FWeaponSystem: duplicate weapon registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("WeaponSystem: duplicate weapon registration ignored ('%s')", def.id);
         return;
     }
 
@@ -74,7 +74,7 @@ void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
     // 並行 TArray — reserve は 0、mag も 0 で初期化。EquipWeapon 時に新規装備の
     // mag が 0 のままだと使い物にならないので、Equip 時に「初装備なら mag_size
     // まで充填する」フォールバックを入れる (詳細は EquipWeapon 参照)。
-    FReserveSlot slot;
+    ReserveSlot slot;
     slot.weapon_id    = def.id;
     slot.reserve_ammo = 0u;
     slot.ammo_in_mag  = 0u;
@@ -85,12 +85,12 @@ void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
 // 装備中状態の保存 / 復元
 // =============================================================================
 
-void FWeaponSystem::SaveCurrentToSlot() noexcept {
+void WeaponSystem::SaveCurrentToSlot() noexcept {
     if (_current_def == nullptr) return;
     if (_current_slot == kNotFound) return;
     if (_current_slot >= static_cast<u32>(_reserves.Size())) return;
 
-    FReserveSlot& slot = _reserves[_current_slot];
+    ReserveSlot& slot = _reserves[_current_slot];
     slot.reserve_ammo = _state.reserve_ammo;
     slot.ammo_in_mag  = _state.ammo_in_mag;
 }
@@ -99,7 +99,7 @@ void FWeaponSystem::SaveCurrentToSlot() noexcept {
 // 武器切替
 // =============================================================================
 
-bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
+bool WeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
     const u32 slot = FindWeaponSlot(weapon_id);
     if (slot == kNotFound) return false;
 
@@ -115,8 +115,8 @@ bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
     }
 
     // 新武器の slot から状態を復元する。
-    const FReserveSlot& src = _reserves[slot];
-    const FWeaponDef&   def = _defs[slot];
+    const ReserveSlot& src = _reserves[slot];
+    const WeaponDef&   def = _defs[slot];
 
     _current_def  = &_defs[slot];
     _current_slot = slot;
@@ -150,7 +150,7 @@ bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
 // 発射
 // =============================================================================
 
-bool FWeaponSystem::TryFire() noexcept {
+bool WeaponSystem::TryFire() noexcept {
     // 装備なし / reload 中は失敗。
     if (_current_def == nullptr) return false;
     if (_state.reloading) return false;
@@ -158,7 +158,7 @@ bool FWeaponSystem::TryFire() noexcept {
     // 連射間隔未到。
     if (_elapsed_time < _state.next_fire_time_sec) return false;
 
-    const FWeaponDef& def = *_current_def;
+    const WeaponDef& def = *_current_def;
 
     // mag_size == 0 (= マガジン非搭載) は reserve から直接 1 発消費する。
     // それ以外は ammo_in_mag をチェック。
@@ -189,12 +189,12 @@ bool FWeaponSystem::TryFire() noexcept {
 // リロード
 // =============================================================================
 
-void FWeaponSystem::StartReload() noexcept {
+void WeaponSystem::StartReload() noexcept {
     // 装備なし / reload 中は no-op。
     if (_current_def == nullptr) return;
     if (_state.reloading) return;
 
-    const FWeaponDef& def = *_current_def;
+    const WeaponDef& def = *_current_def;
 
     // mag_size == 0 (= マガジン非搭載) は reload 概念なし、no-op。
     if (def.mag_size == 0u) return;
@@ -217,7 +217,7 @@ void FWeaponSystem::StartReload() noexcept {
     _state.reload_remaining_sec = def.reload_sec;
 }
 
-void FWeaponSystem::CancelReload() noexcept {
+void WeaponSystem::CancelReload() noexcept {
     // reload 中でなければ no-op。ammo_in_mag は変えない (reload はそもそも
     // mag 完了時に補充するので、途中 cancel での部分補充は仕様外)。
     if (!_state.reloading) return;
@@ -225,7 +225,7 @@ void FWeaponSystem::CancelReload() noexcept {
     _state.reload_remaining_sec = 0.0f;
 }
 
-void FWeaponSystem::CompleteReload() noexcept {
+void WeaponSystem::CompleteReload() noexcept {
     // 装備なしは defensive: ここに来る前に StartReload で弾いている前提。
     if (_current_def == nullptr) {
         _state.reloading            = false;
@@ -233,7 +233,7 @@ void FWeaponSystem::CompleteReload() noexcept {
         return;
     }
 
-    const FWeaponDef& def = *_current_def;
+    const WeaponDef& def = *_current_def;
     if (def.mag_size > 0u) {
         const u32 need = def.mag_size - _state.ammo_in_mag;
         const u32 take = (need < _state.reserve_ammo) ? need : _state.reserve_ammo;
@@ -249,7 +249,7 @@ void FWeaponSystem::CompleteReload() noexcept {
     }
 }
 
-f32 FWeaponSystem::ReloadProgress() const noexcept {
+f32 WeaponSystem::ReloadProgress() const noexcept {
     if (!_state.reloading) return 0.0f;
     if (_current_def == nullptr) return 0.0f;
     const f32 total = _current_def->reload_sec;
@@ -264,13 +264,13 @@ f32 FWeaponSystem::ReloadProgress() const noexcept {
 // 弾薬補給
 // =============================================================================
 
-void FWeaponSystem::AddReserveAmmo(const char* weapon_id, u32 amount) noexcept {
+void WeaponSystem::AddReserveAmmo(const char* weapon_id, u32 amount) noexcept {
     if (amount == 0u) return;
     const u32 slot = FindWeaponSlot(weapon_id);
     if (slot == kNotFound) return;
 
-    const FWeaponDef&   def    = _defs[slot];
-    FReserveSlot&       res    = _reserves[slot];
+    const WeaponDef&   def    = _defs[slot];
+    ReserveSlot&       res    = _reserves[slot];
     const u32          maxRes = (def.max_reserve == 0u) ? ~static_cast<u32>(0) : def.max_reserve;
 
     // 装備中武器なら _state 側にも反映する (= 二重管理を避けるため
@@ -290,7 +290,7 @@ void FWeaponSystem::AddReserveAmmo(const char* weapon_id, u32 amount) noexcept {
 // フレーム更新
 // =============================================================================
 
-void FWeaponSystem::Tick(f32 dt) noexcept {
+void WeaponSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     _elapsed_time += dt;
 
@@ -307,12 +307,12 @@ void FWeaponSystem::Tick(f32 dt) noexcept {
 // 全リセット
 // =============================================================================
 
-void FWeaponSystem::ClearAll() noexcept {
+void WeaponSystem::ClearAll() noexcept {
     _defs.Clear();
     _reserves.Clear();
     _current_def  = nullptr;
     _current_slot = kNotFound;
-    _state        = FWeaponState{};
+    _state        = WeaponState{};
     _elapsed_time = 0.0f;
     _on_fire        = nullptr;
     _on_fire_user   = nullptr;

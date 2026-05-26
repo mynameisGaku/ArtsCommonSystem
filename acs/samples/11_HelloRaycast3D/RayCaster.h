@@ -27,7 +27,7 @@ public:
     // 入力でカメラを動かしてから、targets に対するレイテストを行い結果を書き戻す。
     void Update(acs::f32 dt, RaycastTargets& targets) noexcept;
 
-    // 描画側 (FStandardShader::SetLights) が ViewProjection と Eye を要求する。
+    // 描画側 (StandardShader::SetLights) が ViewProjection と Eye を要求する。
     const acs::FCamera& FCamera()  const noexcept { return _camera; }
     acs::FVec3          Eye()     const noexcept { return _cam_pos; }
     acs::FVec3          Forward() const noexcept { return _cam_forward; }

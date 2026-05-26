@@ -7,12 +7,12 @@
 
 namespace acs {
 
-FDx12Shader::~FDx12Shader() noexcept {
+Dx12Shader::~Dx12Shader() noexcept {
     ACS_SAFE_RELEASE(_blob);
 }
 
-FHrResult FDx12Shader::Init(FDx12Device& /*device*/, const FShaderDesc& desc) noexcept {
-    FHrResult r{};
+HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexcept {
+    HrResult r{};
     _stage = desc.stage;
 
     if (!desc.hlsl_source) { r.hr = E_INVALIDARG; return r; }
@@ -21,7 +21,7 @@ FHrResult FDx12Shader::Init(FDx12Device& /*device*/, const FShaderDesc& desc) no
     const char* target = desc.target;
     if (!target) {
         switch (desc.stage) {
-            case EShaderStage::FVertex:  target = "vs_5_1"; break;
+            case EShaderStage::Vertex:  target = "vs_5_1"; break;
             case EShaderStage::Pixel:   target = "ps_5_1"; break;
             case EShaderStage::Compute: target = "cs_5_1"; break;
         }
@@ -60,11 +60,11 @@ TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const FShade
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 40, "CreateRhiShader: device is not DX12");
-    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
-    auto s = MakeUnique<FDx12Shader>();
-    FHrResult r = s->Init(*dxd, desc);
+    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
+    auto s = MakeUnique<Dx12Shader>();
+    HrResult r = s->Init(*dxd, desc);
     if (r.IsErr())
-        return ACS_ERR_OS(Render, 41, "FDx12Shader::Init failed (compile)", static_cast<u32>(r.hr));
+        return ACS_ERR_OS(Render, 41, "Dx12Shader::Init failed (compile)", static_cast<u32>(r.hr));
     TUniquePtr<IRhiShader> base(s.Release(), s.GetAllocator());
     return TResult<TUniquePtr<IRhiShader>>(OkInit, Move(base));
 }

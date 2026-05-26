@@ -4,7 +4,7 @@
 `00_` 〜 `27_` の番号付きで並んでいます。**番号順に読み進める**のが基本です。
 
 いちばん簡単なのは `00_HelloEasy`（`acs::easy` レイヤ）です。クラスも継承も
-使わず、関数を呼ぶだけで 2D ゲームが書けます。`01_` 以降は「`FApplication` を
+使わず、関数を呼ぶだけで 2D ゲームが書けます。`01_` 以降は「`Application` を
 継承して 4 つの関数を書く」本格的な書き方になります。まずは
 [`../docs/QUICKSTART.md`](../docs/QUICKSTART.md) でその骨組みを確認してから
 `01_HelloWindow` を起動してみてください。
@@ -26,28 +26,28 @@
 | 00 | `00_HelloEasy` | `acs::easy` で図形・文字・入力。`OpenWindow` と `while(NextFrame())` だけの最小構成 |
 
 ### (1) 入門 — 2D とゲームの基礎　`01`〜`09`
-シェーダ（HLSL）を一切書きません。`FSpriteBatch` などの高レベル API だけで
+シェーダ（HLSL）を一切書きません。`SpriteBatch` などの高レベル API だけで
 2D ゲームに必要な要素を学びます。
 
 | # | サンプル | 学べること |
 |---|---|---|
-| 01 | `01_HelloWindow` | ウィンドウ・入力・`FApplication` のライフサイクル（最初の 1 本、73 行） |
-| 02 | `02_HelloSprite` | 2D スプライト・矩形・α ブレンド（`FSpriteBatch`） |
+| 01 | `01_HelloWindow` | ウィンドウ・入力・`Application` のライフサイクル（最初の 1 本、73 行） |
+| 02 | `02_HelloSprite` | 2D スプライト・矩形・α ブレンド（`SpriteBatch`） |
 | 03 | `03_HelloText` | TTF フォント・UTF-8・漢字テキスト描画 |
-| 04 | `04_HelloECS` | ECS（`FWorld` / `Query`）・並列イテレーション・`FMessageBroker`・`FTimerManager` |
-| 05 | `05_HelloSave` | `FStorage` で設定・セーブデータを INI 形式で永続化 |
+| 04 | `04_HelloECS` | ECS（`World` / `Query`）・並列イテレーション・`MessageBroker`・`TimerManager` |
+| 05 | `05_HelloSave` | `Storage` で設定・セーブデータを INI 形式で永続化 |
 | 06 | `06_HelloLocalization` | 多言語対応（i18n）・ja / en / fr 切替 |
 | 07 | `07_HelloAudio` | XAudio2 で WAV / MP3 を再生 |
 | 08 | `08_HelloPhysics2D` | 2D 円衝突・重力・マウスでボール発射 |
 | 09 | `09_HelloParticles` | 2D パーティクル（火 / 火花 / 噴水 / 煙） |
 
-### (2) 3D 入門 — FStandardShader　`10`〜`15`
-ここも HLSL を書きません。`FStandardShader` が「光が当たった 3D」を
+### (2) 3D 入門 — StandardShader　`10`〜`15`
+ここも HLSL を書きません。`StandardShader` が「光が当たった 3D」を
 シェーダ記述なしで描いてくれます。
 
 | # | サンプル | 学べること |
 |---|---|---|
-| 10 | `10_HelloModel` | `FStandardShader` で 3D ライティング描画・手続きプリミティブ・非同期ロード（最初の 3D） |
+| 10 | `10_HelloModel` | `StandardShader` で 3D ライティング描画・手続きプリミティブ・非同期ロード（最初の 3D） |
 | 11 | `11_HelloRaycast3D` | 3D レイキャスト・マルチライト・Blinn-Phong |
 | 12 | `12_HelloLights` | 暗い部屋を 4 色の点光源で動的ライティング |
 | 13 | `13_HelloSky` | 手続き生成スカイ（昼 / 夕焼け / 夜プリセット） |
@@ -55,7 +55,7 @@
 | 15 | `15_HelloAnimation` | スキンメッシュ・GPU ボーンスキニング |
 
 ### (3) 低レベル RHI — HLSL を直接書く　`16`〜`18`
-**ここからは発展編**です。`FStandardShader` を使わず、シェーダ（HLSL）と
+**ここからは発展編**です。`StandardShader` を使わず、シェーダ（HLSL）と
 GPU リソースを自分で組み立てます。グラフィックスが初めてなら、(1)(2) に
 十分慣れてから進んでください。
 
@@ -69,10 +69,10 @@ GPU リソースを自分で組み立てます。グラフィックスが初め�
 
 | # | サンプル | 学べること |
 |---|---|---|
-| 19 | `19_HelloUI` | ACS 純正 UI フレームワーク（FWidget + FObservable バインディング） |
-| 20 | `20_HelloMVVM` | MVVM データバインディング（FObservable / Binder / FCommand） |
+| 19 | `19_HelloUI` | ACS 純正 UI フレームワーク（Widget + Observable バインディング） |
+| 20 | `20_HelloMVVM` | MVVM データバインディング（Observable / Binder / Command） |
 | 21 | `21_HelloImGui` | Dear ImGui 統合（デバッグ UI） |
-| 22 | `22_HelloNet` | TCP echo（`FApplication` を使わない素の例） |
+| 22 | `22_HelloNet` | TCP echo（`Application` を使わない素の例） |
 
 ### (5) 上級グラフィックス　`23`〜`26`
 
@@ -84,7 +84,7 @@ GPU リソースを自分で組み立てます。グラフィックスが初め�
 | 26 | `26_HelloLightmap` | Cornell box・CPU パストレースのライトマップベイク |
 | 27 | `27_HelloShowcase` | Cinematic showcase（PBR + IBL + ガラス屈折 + 全 post-process、auto-orbit カメラ） |
 
-> `24`〜`27` は `FApplication::OnCustomFrame()` を override し、フレーム描画を
+> `24`〜`27` は `Application::OnCustomFrame()` を override し、フレーム描画を
 > 自前で制御します（HDR レンダーターゲット + ポストプロセスを組むため）。
 > 通常の `OnRender` モデルとは別の、上級者向けの経路です。
 
@@ -124,10 +124,10 @@ GPU リソースを自分で組み立てます。グラフィックスが初め�
    #   target_link_libraries(my_game PRIVATE ACS::Game ACS::Audio)
    ```
 
-3. `main.cpp` で `FApplication` を継承し、`OnStart` / `OnUpdate` / `OnRender` /
+3. `main.cpp` で `Application` を継承し、`OnStart` / `OnUpdate` / `OnRender` /
    `OnShutdown` を実装する（[`../docs/QUICKSTART.md`](../docs/QUICKSTART.md) 参照）。
 4. 描画系のヘッダは、個別に並べる代わりに **`#include "render/Render.h"`** 一行で
-   RHI と高レベルヘルパ（`FStandardShader` / `FSpriteBatch` / `FFont` など）を
+   RHI と高レベルヘルパ（`StandardShader` / `SpriteBatch` / `Font` など）を
    まとめて取り込めます（各サンプルは何を使っているか分かるよう個別に
    include しています。自作ゲームでは集約ヘッダが手軽です）。
 

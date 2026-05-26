@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FFadeTransition 実装 (Phase A polish)
+// GameFramework Pillar A — FadeTransition 実装 (Phase A polish)
 #include "gameframework/FadeTransition.h"
 
 namespace acs::game {
@@ -18,7 +18,7 @@ inline f32 SafeProgress(f32 elapsed, f32 duration) noexcept {
 
 } // namespace
 
-void FFadeTransition::StartFade(EFadeKind kind,
+void FadeTransition::StartFade(EFadeKind kind,
                                 f32 out_duration,
                                 f32 in_duration,
                                 f32 mid_pause) noexcept {
@@ -58,7 +58,7 @@ void FFadeTransition::StartFade(EFadeKind kind,
     }
 }
 
-void FFadeTransition::Cancel() noexcept {
+void FadeTransition::Cancel() noexcept {
     _phase              = EFadePhase::Idle;
     _kind               = EFadeKind::None;
     _alpha              = 0.0f;
@@ -66,7 +66,7 @@ void FFadeTransition::Cancel() noexcept {
     _mid_pause_consumed = false;
 }
 
-void FFadeTransition::Tick(f32 dt) noexcept {
+void FadeTransition::Tick(f32 dt) noexcept {
     if (_phase == EFadePhase::Idle) return;
     if (dt < 0.0f) dt = 0.0f;
 

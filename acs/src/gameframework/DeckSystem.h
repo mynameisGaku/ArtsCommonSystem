@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (Card FGame) — FDeckSystem (デッキ / 手札 / 捨札 / 除外 / シャッフル)
+// GameFramework ジャンルキット (Card Game) — DeckSystem (デッキ / 手札 / 捨札 / 除外 / シャッフル)
 //
 // 1 プレイヤーぶんのカードゲーム状態を「デッキ + 手札 + 捨札 + 除外 (exile)」の 4 ゾーン
 // モデルで保持する小型マネージャ。Magic: the Gathering / Hearthstone / Slay the Spire 等
@@ -7,22 +7,22 @@
 //
 // 想定する位置付け:
 //   ・**1 プレイヤー = 1 instance**: 対戦相手や複数 AI プレイヤーが居る場合は
-//     `FDeckSystem` を人数分作って並べる (本クラス自体は 1 人分のローカル状態のみ)。
-//   ・**カード定義 (FCardDef) と場の identity (FCardId) を分離**:
-//     - `FCardDef` = 「Lightning Bolt とはどんなカードか」(コスト / レアリティ / 説明文)。
+//     `DeckSystem` を人数分作って並べる (本クラス自体は 1 人分のローカル状態のみ)。
+//   ・**カード定義 (CardDef) と場の identity (CardId) を分離**:
+//     - `CardDef` = 「Lightning Bolt とはどんなカードか」(コスト / レアリティ / 説明文)。
 //        起動時に RegisterCard() で 1 回だけ登録、以後 immutable。
-//     - `FCardId`  = 「場に存在する各カードの 1 枚 1 枚」を識別する 24bit idx + 8bit gen の
-//        packed handle。FCardDef* を直接持たず、ID 経由で参照するパターン。
+//     - `CardId`  = 「場に存在する各カードの 1 枚 1 枚」を識別する 24bit idx + 8bit gen の
+//        packed handle。CardDef* を直接持たず、ID 経由で参照するパターン。
 //        将来的に「同名カードでも各個に付与効果を持つ」(MtG の +1/+1 カウンタ等) 拡張への
-//        ベースになる。Phase 1 (本ファイル) では gen は常に 0、idx は FCardDef の登録 index
+//        ベースになる。Phase 1 (本ファイル) では gen は常に 0、idx は CardDef の登録 index
 //        を入れる単純な実装としつつ、struct のレイアウトは確定させておく。
 //   ・**ゾーン間遷移はメソッドで明示**: Draw / Discard / Exile / Play / DiscardAllHand 等、
 //     カードがどのゾーンを通るかを API レベルで明示する (= ステートマシン的に追跡可能)。
 //   ・**Shuffle は決定論再現**: `gameframework/Random.h` (xoshiro128**) を使い、seed 指定で
-//     リプレイ / テストを再現可能にする。seed=0 のときは FRandom::Global() で時刻ベース seed。
+//     リプレイ / テストを再現可能にする。seed=0 のときは Random::Global() で時刻ベース seed。
 //
 // 使い方:
-//   FDeckSystem deck;
+//   DeckSystem deck;
 //
 //   // 起動時にカード定義を登録。
 //   deck.RegisterCard({ "card.bolt",  "Lightning Bolt", /*cost*/1, /*rarity*/2,
@@ -48,8 +48,8 @@
 //   deck.Draw();                  // 1 枚ドロー (デッキが空なら discard を shuffle して reuse)
 //
 // 設計選択 (Phase 1 = card game kit ベース):
-//   ・**FCardDef 登録は単一 TArray<FCardDef>**: カード種別は AAA でも 500〜2000 枚オーダー、
-//     線形走査で十分 (Inventory / FEconomyDirector と同じ判断)。重複登録は WARN で no-op。
+//   ・**CardDef 登録は単一 TArray<CardDef>**: カード種別は AAA でも 500〜2000 枚オーダー、
+//     線形走査で十分 (Inventory / EconomyDirector と同じ判断)。重複登録は WARN で no-op。
 //   ・**所有しない const char***: id / display_name / description / art_path / card_type すべて
 //     呼出側 (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
 //     deck / hand / discard / exile の `const char*` 要素は `_cards[].id` を直接指す (= リテラル参照、非所有)。
@@ -69,18 +69,18 @@
 //     discard へ送る。callback は同期実行 (= callback 内で「コストを払う」「effect を起動する」
 //     等を完了させてから戻る前提)。失敗 (= 「コスト不足でプレイ不可」) は callback 側で
 //     状態を巻き戻す責務とする (Manager 側は「とにかく hand → discard」)。
-//   ・**Shuffle は Fisher-Yates (FRandom::Shuffle)**: `gameframework/Random.h` の汎用 template に
-//     委譲する。seed=0 のときは `FRandom::Global()` を使うので、決定論再現が不要な場合は何も
-//     渡さなくて OK。seed != 0 のときはローカル FRandom instance を作って使う (Global を汚さない)。
+//   ・**Shuffle は Fisher-Yates (Random::Shuffle)**: `gameframework/Random.h` の汎用 template に
+//     委譲する。seed=0 のときは `Random::Global()` を使うので、決定論再現が不要な場合は何も
+//     渡さなくて OK。seed != 0 のときはローカル Random instance を作って使う (Global を汚さない)。
 //   ・**PlayCallback は単一購読**: STL <functional> 禁止のため C 関数ポインタ + void* user。
 //     複数 listener が必要なら呼出側で fan-out。Inventory / Economy と同じパターン。
 //   ・**非コピー・非ムーブ + 全 noexcept**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
 //
 // 範囲外 (Phase 2+ で):
-//   ・「同じカードが場で個別効果を持つ」(MtG カウンタ等) — FCardId の gen を使う拡張で対応予定。
+//   ・「同じカードが場で個別効果を持つ」(MtG カウンタ等) — CardId の gen を使う拡張で対応予定。
 //   ・サーチ / scry / look-at-top-N 等の peek 系操作 — 別 API として追加可能。
-//   ・複数プレイヤーをまたぐ効果 — FGameFlow / 対戦 Manager の責務。
+//   ・複数プレイヤーをまたぐ効果 — GameFlow / 対戦 Manager の責務。
 //   ・MtG 形式の「ライブラリ枚数を見せる UI」以外の高度 API — 必要に応じて拡張。
 //   ・永続化 (Save/Load) — Pillar J Serialize と統合。
 #pragma once
@@ -90,7 +90,7 @@
 
 namespace acs::game {
 
-// ---- FCardDef: カード 1 種類の定義 (immutable) -----------------------------
+// ---- CardDef: カード 1 種類の定義 (immutable) -----------------------------
 // id           : 一意キー (deck/hand/discard/exile 内の const char* から参照される)。
 //                文字列リテラル想定 (非所有)。
 // display_name : UI 表示名 (非所有)。
@@ -99,7 +99,7 @@ namespace acs::game {
 // card_type    : "creature" / "spell" / "skill" 等のタイプ識別子 (非所有、UI フィルタ用)。
 // description  : カード説明文 (非所有、UI 表示用)。
 // art_path     : カードアートのパス (非所有、レンダラ / UI が解釈)。
-struct FCardDef {
+struct CardDef {
     const char* id           = nullptr;
     const char* display_name = nullptr;
     u32         cost         = 0;
@@ -109,30 +109,30 @@ struct FCardDef {
     const char* art_path     = nullptr;
 };
 
-// ---- FCardId: 場に存在する 1 枚の identity (24bit idx + 8bit gen) -----------
+// ---- CardId: 場に存在する 1 枚の identity (24bit idx + 8bit gen) -----------
 // `_packed == 0` を invalid (default) として扱う。`FNodeId` / `FShapeId` と同パターンで、
 // 将来的に「同名カードでも個別の付与効果 (カウンタ / 修正値) を持たせたい」拡張で
-// idx を FCardDef 登録 index、gen を世代カウンタとして使う土台にする。
+// idx を CardDef 登録 index、gen を世代カウンタとして使う土台にする。
 //
-// Phase 1 (本ファイル) では `FDeckSystem` 内部での生成は予約のみで、現状は const char*
+// Phase 1 (本ファイル) では `DeckSystem` 内部での生成は予約のみで、現状は const char*
 // ベースの API のみ公開している (PlayCallback も card_id 文字列を渡す)。
-struct FCardId {
+struct CardId {
     u32 _packed = 0;
 
-    constexpr FCardId() noexcept = default;
-    constexpr FCardId(u32 index, u8 gen) noexcept
+    constexpr CardId() noexcept = default;
+    constexpr CardId(u32 index, u8 gen) noexcept
         : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     constexpr u32  Index()      const noexcept { return _packed & 0x00FFFFFFu; }
     constexpr u8   Generation() const noexcept { return static_cast<u8>(_packed >> 24); }
     bool IsValid() const noexcept { return _packed != 0; }
 
-    constexpr bool operator==(FCardId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(FCardId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(CardId o) const noexcept { return _packed == o._packed; }
+    constexpr bool operator!=(CardId o) const noexcept { return _packed != o._packed; }
 };
 
-// ---- FDeckSystem ------------------------------------------------------------
-class FDeckSystem {
+// ---- DeckSystem ------------------------------------------------------------
+class DeckSystem {
 public:
     // プレイ時 callback。
     //   user       : SetOnPlayCallback で渡したコンテキスト (Manager は所有しない)
@@ -140,21 +140,21 @@ public:
     //   hand_index : 元の手札 index (PlayCard 呼び出し時点での値)
     using PlayCallback = void(*)(void* user, const char* card_id, u32 hand_index) noexcept;
 
-    FDeckSystem()  noexcept = default;
-    ~FDeckSystem() noexcept = default;
+    DeckSystem()  noexcept = default;
+    ~DeckSystem() noexcept = default;
 
-    FDeckSystem(const FDeckSystem&)            = delete;
-    FDeckSystem& operator=(const FDeckSystem&) = delete;
-    FDeckSystem(FDeckSystem&&)                 = delete;
-    FDeckSystem& operator=(FDeckSystem&&)      = delete;
+    DeckSystem(const DeckSystem&)            = delete;
+    DeckSystem& operator=(const DeckSystem&) = delete;
+    DeckSystem(DeckSystem&&)                 = delete;
+    DeckSystem& operator=(DeckSystem&&)      = delete;
 
     // ---- カード定義 (起動時に 1 度ずつ) -----------------------------------
     // 同 id の 2 重登録は no-op (WARN)。`def.id == nullptr` も no-op。
-    void RegisterCard(const FCardDef& def) noexcept;
+    void RegisterCard(const CardDef& def) noexcept;
 
-    // 単一 FCardDef 取得。未登録 / nullptr は nullptr。
+    // 単一 CardDef 取得。未登録 / nullptr は nullptr。
     // 返却ポインタは次の RegisterCard() / ClearAll() で無効化される可能性がある。
-    const FCardDef* FindCardDef(const char* card_id) const noexcept;
+    const CardDef* FindCardDef(const char* card_id) const noexcept;
 
     // ---- デッキ構築 ------------------------------------------------------
     // 指定 card_id をデッキに count 枚追加 (= 山札末尾に push)。
@@ -172,8 +172,8 @@ public:
 
     // ---- シャッフル ------------------------------------------------------
     // デッキを Fisher-Yates でシャッフル。
-    //   seed == 0: `FRandom::Global()` を使う (= 真にランダム、時刻ベース)
-    //   seed != 0: ローカルに FRandom instance を作って使う (= 決定論再現、Global は汚さない)
+    //   seed == 0: `Random::Global()` を使う (= 真にランダム、時刻ベース)
+    //   seed != 0: ローカルに Random instance を作って使う (= 決定論再現、Global は汚さない)
     void Shuffle(u32 seed = 0) noexcept;
 
     // ---- ドロー ----------------------------------------------------------
@@ -222,7 +222,7 @@ private:
     u32 FindCardSlot(const char* card_id) const noexcept;
 
     // カード定義 (起動時 immutable)。
-    TArray<FCardDef> _cards;
+    TArray<CardDef> _cards;
 
     // 4 ゾーン。各要素は `_cards[].id` を直接指すリテラル参照ポインタ (非所有)。
     // deck は末尾がトップ、PushBack / PopBack で O(1) ドロー。

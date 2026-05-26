@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSkinnedShader 実装
+// SkinnedShader 実装
 #include "render/SkinnedShader.h"
 #include "asset/SkinnedMesh.h"        // SkinnedVertex を使う
 #include "foundation/Move.h"
@@ -137,7 +137,7 @@ struct ObjectCBLayout {
 };
 
 struct BonesCBLayout {
-    FMat4 palette[FSkinnedShader::kMaxBones];
+    FMat4 palette[SkinnedShader::kMaxBones];
 };
 
 template<typename T>
@@ -147,10 +147,10 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> SkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     // === シェーダ ===
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::FVertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkinnedHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Skinned.VS";
@@ -242,7 +242,7 @@ TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EForma
     return Ok();
 }
 
-void FSkinnedShader::Shutdown() noexcept {
+void SkinnedShader::Shutdown() noexcept {
     _pipeline.Reset();
     _white.Reset();
     _bones_cb.Reset();
@@ -252,7 +252,7 @@ void FSkinnedShader::Shutdown() noexcept {
     _vs.Reset();
 }
 
-void FSkinnedShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
+void SkinnedShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
                              FVec3 light_color, FVec3 ambient) noexcept {
     FDirLight one;
     one.direction = light_dir;
@@ -260,7 +260,7 @@ void FSkinnedShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
     SetLights(vp, cam, &one, 1, ambient);
 }
 
-void FSkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
+void SkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
                               const FDirLight* lights, u32 count,
                               FVec3 ambient) noexcept {
     if (count > kMaxDirLights) count = kMaxDirLights;
@@ -272,14 +272,14 @@ void FSkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
     FlushFrameCB();
 }
 
-void FSkinnedShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
+void SkinnedShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     _point_count = count;
     for (u32 i = 0; i < count; ++i) _point_lights[i] = lights[i];
     FlushFrameCB();
 }
 
-void FSkinnedShader::FlushFrameCB() noexcept {
+void SkinnedShader::FlushFrameCB() noexcept {
     if (!_frame_cb) return;
     FrameCBLayout cb{};
     cb.view_proj  = _vp;
@@ -301,7 +301,7 @@ void FSkinnedShader::FlushFrameCB() noexcept {
     _frame_cb->Update(&cb, sizeof(cb));
 }
 
-void FSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
+void SkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
                               f32 specular_strength, f32 shininess) noexcept {
     if (!_object_cb) return;
     ObjectCBLayout cb{};
@@ -311,7 +311,7 @@ void FSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
     _object_cb->Update(&cb, sizeof(cb));
 }
 
-void FSkinnedShader::SetBonePalette(const FMat4* palette, u32 count) noexcept {
+void SkinnedShader::SetBonePalette(const FMat4* palette, u32 count) noexcept {
     if (!_bones_cb) return;
     if (count > kMaxBones) count = kMaxBones;
     BonesCBLayout cb{};

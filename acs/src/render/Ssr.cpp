@@ -285,7 +285,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> FSsr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
+TResult<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
     _device = &device;
     _hdr_format = hdr_format;
     _width = width;
@@ -304,7 +304,7 @@ TResult<void> FSsr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 
     return Ok();
 }
 
-TResult<void> FSsr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     FTextureDesc td{};
     td.width  = width;
@@ -325,12 +325,12 @@ TResult<void> FSsr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) no
     return Ok();
 }
 
-TResult<void> FSsr::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::FVertex;
+    vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsrHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FSsr.VS";
+    vs_d.debug_name  = "Ssr.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
@@ -338,7 +338,7 @@ TResult<void> FSsr::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsrHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FSsr.PS";
+    ps_d.debug_name  = "Ssr.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
@@ -421,7 +421,7 @@ TResult<void> FSsr::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void FSsr::Shutdown() noexcept {
+void Ssr::Shutdown() noexcept {
     _temporal_pipeline.Reset();
     _pipeline.Reset();
     _cb.Reset();
@@ -434,8 +434,8 @@ void FSsr::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> FSsr::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 320, "FSsr::Resize before Init");
+TResult<void> Ssr::Resize(u32 width, u32 height) noexcept {
+    if (!_device) return ACS_ERR(Render, 320, "Ssr::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width = width;
     _height = height;
@@ -443,7 +443,7 @@ TResult<void> FSsr::Resize(u32 width, u32 height) noexcept {
     return CreateOutputRT(*_device, width, height);
 }
 
-void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color, IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
                   const FMat4& view_proj, const FMat4& inv_view_proj,
@@ -484,7 +484,7 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     _cb->Update(&data, sizeof(data));
 
     // Pass 1: raw SSR (jitter 付き march) → _output
-    cl.BeginRenderToTexture(*_output, FClearColor{0, 0, 0, 0}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*_output, ClearColor{0, 0, 0, 0}, nullptr, 1.0f);
     cl.SetPipeline(*_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, scene_color);
@@ -501,7 +501,7 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     // Cold-start (frame 0): history 未初期化なので raw (_output) を history slot に
     // bind する。reproject はほぼ identity、clamp 後 lerp(raw, raw, a)=raw で garbage 排除。
     IRhiTexture* hist_in = (_temporal_frame == 0u) ? _output.Get() : _history[prev].Get();
-    cl.BeginRenderToTexture(*_history[cur], FClearColor{0, 0, 0, 0}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*_history[cur], ClearColor{0, 0, 0, 0}, nullptr, 1.0f);
     cl.SetPipeline(*_temporal_pipeline);
     cl.SetConstantBuffer(0, *_cb);
     cl.SetTexture(0, *_output);        // current (jitter 付き raw)

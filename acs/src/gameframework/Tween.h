@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — Tween / FTweenManager (Phase 3)
+// GameFramework Pillar C — Tween / TweenManager (Phase 3)
 //
 // 値書き戻し型 Tween: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
-// FTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
+// TweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
 // std::function 非使用方針と整合)。Easing は関数ポインタで指定。
 //
 // 使い方:
-//   class GameplayScene : public FScene {
-//       acs::game::FTweenManager _tweens;
+//   class GameplayScene : public Scene {
+//       acs::game::TweenManager _tweens;
 //       acs::FVec3 _color{0, 0, 0};
 //
 //       void OnEnter() noexcept override {
@@ -38,50 +38,50 @@
 
 namespace acs::game {
 
-struct FTweenHandle {
+struct TweenHandle {
     u32  index      = 0xFFFFFFFFu;
     u32  generation = 0;
     bool IsValid() const noexcept { return generation != 0; }
 };
 
-class FTweenManager {
+class TweenManager {
 public:
-    FTweenManager() noexcept = default;
-    ~FTweenManager() noexcept = default;
+    TweenManager() noexcept = default;
+    ~TweenManager() noexcept = default;
 
-    FTweenManager(const FTweenManager&)            = delete;
-    FTweenManager& operator=(const FTweenManager&) = delete;
+    TweenManager(const TweenManager&)            = delete;
+    TweenManager& operator=(const TweenManager&) = delete;
 
     // 各 Tween は target に毎 Tick `from→to` の補間値を書き込む。
     // duration <= 0 は即時 `*target = to` + invalid handle 返却。
     // target が null は no-op + invalid。ease は null なら Linear 扱い。
-    FTweenHandle Tween(f32* target,  f32  from, f32  to, f32 duration,
+    TweenHandle Tween(f32* target,  f32  from, f32  to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
-    FTweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+    TweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
-    FTweenHandle Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+    TweenHandle Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
 
     // 進行中の Tween を中止 (target は最後に書いた値で止まる)。stale handle は無視。
-    void Cancel(FTweenHandle h) noexcept;
+    void Cancel(TweenHandle h) noexcept;
 
     // 全 Tween を即座に終了させる (target は完了値 to が書かれる)。
-    // FScene::OnExit 等で確実に状態を確定させたいときに。
+    // Scene::OnExit 等で確実に状態を確定させたいときに。
     void CompleteAll() noexcept;
 
     // 全 Tween を即座に破棄 (target に最終書き込みなし)。
     void CancelAll() noexcept;
 
-    bool IsActive(FTweenHandle h) const noexcept;
+    bool IsActive(TweenHandle h) const noexcept;
     u32  ActiveCount() const noexcept;
 
-    // 毎フレーム呼ぶ。dt はゲーム時間 (FClock::Dt() か FScene::OnUpdate の dt)。
+    // 毎フレーム呼ぶ。dt はゲーム時間 (Clock::Dt() か Scene::OnUpdate の dt)。
     void Tick(f32 dt) noexcept;
 
 private:
     enum class Kind : u8 { None = 0, F32, FVec2, FVec3 };
 
-    struct FSlot {
+    struct Slot {
         Kind kind        = Kind::None;
         bool active      = false;
         u32  generation  = 0;
@@ -99,10 +99,10 @@ private:
     };
 
     u32  AcquireSlot() noexcept;
-    void FillCommon(FSlot& s, void* target, f32 duration,
+    void FillCommon(Slot& s, void* target, f32 duration,
                     Easing::EasingFn ease) noexcept;
 
-    TArray<FSlot> _slots;
+    TArray<Slot> _slots;
     u32         _active_count = 0;
 };
 

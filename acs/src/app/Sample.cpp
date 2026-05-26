@@ -9,7 +9,7 @@ const wchar_t* DefaultUIFontPath() noexcept {
     return L"C:\\Windows\\Fonts\\meiryo.ttc";
 }
 
-TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device, f32 size_px,
+TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px,
                                    u32 atlas_size, bool include_cjk) noexcept {
     // Windows 標準フォント候補。最初に LoadFromFile が成功したら採用。
     static const wchar_t* const kCandidates[] = {
@@ -25,7 +25,7 @@ TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device, f32 size_px,
         auto r = font.LoadFromFile(device, *p, size_px, atlas_size, include_cjk);
         if (r.IsOk()) return Ok();
     }
-    return ACS_ERR(FAsset, 5, "no default UI font found on this platform");
+    return ACS_ERR(Asset, 5, "no default UI font found on this platform");
 }
 
 } // namespace acs::Sample

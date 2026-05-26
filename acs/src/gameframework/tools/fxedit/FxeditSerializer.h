@@ -4,25 +4,25 @@
 // 役割:
 //   ParticleEditor (in-engine particle authoring tool) が編集中の emitter 群を
 //   人間可読 / git diff 可能なテキスト形式で保存・復元するためのシリアライザ。
-//   バイナリ形式の `FSaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
+//   バイナリ形式の `SaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
 //   そのまま乗せられる** ことを最優先する (= UE5 の `.uasset` ではなく Unity の
 //   `.meta` 風のフィロソフィー)。
 //
 // 使い方:
-//   acs::game::FParticleEmitterDef defs[8] = {};
+//   acs::game::ParticleEmitterDef defs[8] = {};
 //   defs[0].lifetime_sec      = 2.0f;
 //   defs[0].emit_rate_per_sec = 50.0f;
 //   defs[0].color_start       = {1.0f, 0.8f, 0.2f};
 //   defs[0].color_end         = {1.0f, 0.2f, 0.0f};
 //   const char* names[]       = {"fire", "smoke"};
 //
-//   acs::game::fxedit::FFxeditSerializer::Save(L"data/effects/fireball.fxedit",
+//   acs::game::fxedit::FxeditSerializer::Save(L"data/effects/fireball.fxedit",
 //                                              defs, names, 2);
 //
 //   // ロード側:
-//   acs::game::FParticleEmitterDef loaded[16] = {};
+//   acs::game::ParticleEmitterDef loaded[16] = {};
 //   char                          name_buf[16 * 32] = {};
-//   auto r = acs::game::fxedit::FFxeditSerializer::Load(
+//   auto r = acs::game::fxedit::FxeditSerializer::Load(
 //       L"data/effects/fireball.fxedit", loaded, name_buf, sizeof(name_buf), 16);
 //   if (r.IsOk()) { u32 n = r.Value(); /* n 個ロード成功 */ }
 //
@@ -50,7 +50,7 @@
 //   ・`#` 始まりはコメント (parse 時にスキップ)。
 //   ・空行スキップ。
 //   ・未知 key は無視 (前方互換: 将来 key を増やしても旧ローダで読める)。
-//   ・実 `FParticleEmitterDef` 構造体は color が FVec3、gravity が FVec2 であり、
+//   ・実 `ParticleEmitterDef` 構造体は color が FVec3、gravity が FVec2 であり、
 //     テキスト形式の 4 番目 (alpha) / 3 番目 (z) 成分はシリアライズ側で 1.0/0.0
 //     を埋め、デシリアライズ側で破棄する。`spread_radians` は emitter def の
 //     正式メンバではないため将来拡張用の予約 key として読み込みのみサポート
@@ -64,8 +64,8 @@
 //     変わったら version をインクリメントし、後方互換ローダが分岐する。
 //   ・**非コピー・非ムーブ static class**: state を持たないため。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 規約。
-//   ・**file I/O は acs::FFileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
-//     直接呼ばず、Win32 CreateFileW ベースの platform/FFileSystem を使うことで
+//   ・**file I/O は acs::FileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
+//     直接呼ばず、Win32 CreateFileW ベースの platform/FileSystem を使うことで
 //     wchar_t パスや GetLastError 由来エラーが一貫して扱える。
 //   ・**name buffer は呼び出し側持ち**: 内部に `TArray<char>` を持つ設計も
 //     可能だが、ロード結果を ParticleEditor 側に流し込む際にコピーが必要に
@@ -80,8 +80,8 @@
 //   ・エスケープシーケンス (現状 `"` を含む name は不正)。
 //
 // 注意:
-//   ・本クラスは FParticleEmitterDef の型を不完全宣言 (forward decl) のみで
-//     参照する (.h では `struct FParticleEmitterDef;`)。実体は .cpp 側で
+//   ・本クラスは ParticleEmitterDef の型を不完全宣言 (forward decl) のみで
+//     参照する (.h では `struct ParticleEmitterDef;`)。実体は .cpp 側で
 //     `ParticleEffectSystem.h` を include する。これにより本ヘッダのインクルードコストを
 //     最小に保つ。
 #pragma once
@@ -93,24 +93,24 @@ namespace acs::game {
 
 // 前方宣言: 実体は `gameframework/ParticleEffectSystem.h`。
 // .cpp 側で完全型を include する。
-struct FParticleEmitterDef;
+struct ParticleEmitterDef;
 
 namespace fxedit {
 
 // =============================================================================
-// FFxeditSerializer — `.fxedit` テキストファイルの save/load
+// FxeditSerializer — `.fxedit` テキストファイルの save/load
 // -----------------------------------------------------------------------------
 // すべてのメンバは static。state を持たない utility class なので、コンストラクタ
 // / コピー / ムーブを禁止しておく (誤って実体化されるのを防ぐ)。
 // =============================================================================
-class FFxeditSerializer {
+class FxeditSerializer {
 public:
-    FFxeditSerializer()                                   = delete;
-    ~FFxeditSerializer()                                  = delete;
-    FFxeditSerializer(const FFxeditSerializer&)            = delete;
-    FFxeditSerializer& operator=(const FFxeditSerializer&) = delete;
-    FFxeditSerializer(FFxeditSerializer&&)                 = delete;
-    FFxeditSerializer& operator=(FFxeditSerializer&&)      = delete;
+    FxeditSerializer()                                   = delete;
+    ~FxeditSerializer()                                  = delete;
+    FxeditSerializer(const FxeditSerializer&)            = delete;
+    FxeditSerializer& operator=(const FxeditSerializer&) = delete;
+    FxeditSerializer(FxeditSerializer&&)                 = delete;
+    FxeditSerializer& operator=(FxeditSerializer&&)      = delete;
 
     // ---- file format 定数 -----------------------------------------------
     // 先頭行に必ず付ける magic 文字列 + 現在のフォーマットバージョン。
@@ -130,7 +130,7 @@ public:
     static constexpr usize       kMaxEmitterName     = 31;
 
     // ---- FErrorCode subcode 定義 (ErrCategory::IO) -----------------------
-    // FSaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
+    // SaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
     enum SubCode : u16 {
         kSub_OK                = 0,
         kSub_NullArgs          = 700,  // file_path / defs / names が nullptr
@@ -140,19 +140,19 @@ public:
         kSub_BadVersion        = 704,  // version が未対応
         kSub_BadFormat         = 705,  // 行の構文不正
         kSub_FileNotFound      = 706,  // 読み込み対象が存在しない
-        kSub_IOFailure         = 707,  // 下位 FFileSystem からのエラー
+        kSub_IOFailure         = 707,  // 下位 FileSystem からのエラー
     };
 
     // -----------------------------------------------------------------------
     // Save — emitter 群を `.fxedit` テキストへ書き出す
     // -----------------------------------------------------------------------
     // file_path: 保存先 (Win32 wide path)。既存ファイルは上書き。
-    // defs:      FParticleEmitterDef 配列 (count 個)。nullptr 不可。
+    // defs:      ParticleEmitterDef 配列 (count 個)。nullptr 不可。
     // names:     emitter 名 (C 文字列) の配列。nullptr 個別要素は "" 扱い。
     //            ただし names ポインタ自体が nullptr の場合は kSub_NullArgs。
     // count:     emitter 個数 (0 も valid: ヘッダだけ書き出す)。
     static TResult<void, FErrorCode> Save(const wchar_t*             file_path,
-                                        const FParticleEmitterDef*  defs,
+                                        const ParticleEmitterDef*  defs,
                                         const char* const*         names,
                                         u32                        count) noexcept;
 
@@ -160,14 +160,14 @@ public:
     // Load — `.fxedit` テキストから emitter 群を読み出す
     // -----------------------------------------------------------------------
     // file_path:             読み込み元 (Win32 wide path)。
-    // out_defs:              復元する FParticleEmitterDef 配列 (max_emitters 個分の領域)。
+    // out_defs:              復元する ParticleEmitterDef 配列 (max_emitters 個分の領域)。
     // out_name_buffer:       名前バッファ (各 emitter の C string を連結配置)。
     //                        `name0\0name1\0...\0name<n-1>\0` 形式で書き込む。
     // name_buffer_capacity:  out_name_buffer のバイト数。
     // max_emitters:          out_defs の要素数 (= 受け入れ可能な最大 emitter 数)。
     // 戻り値: 成功時は実際にロードした emitter 数 (<= max_emitters)。
     static TResult<u32, FErrorCode> Load(const wchar_t*       file_path,
-                                       FParticleEmitterDef*  out_defs,
+                                       ParticleEmitterDef*  out_defs,
                                        char*                out_name_buffer,
                                        u32                  name_buffer_capacity,
                                        u32                  max_emitters) noexcept;
