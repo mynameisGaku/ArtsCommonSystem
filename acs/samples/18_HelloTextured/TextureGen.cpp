@@ -8,10 +8,10 @@ using namespace acs;
 namespace hellotextured {
 
 void GenerateTexture(u8* dst) noexcept {
+    // 8 ピクセル区切りのチェッカー (青 / 白) に、中央 1/4 半径の山吹色の円 (月) を上塗りする。
     for (u32 y = 0; y < kTexSize; ++y) {
         for (u32 x = 0; x < kTexSize; ++x) {
             const bool checker = ((x / 8) + (y / 8)) & 1;
-            // 円判定
             const f32 cx = static_cast<f32>(x) - kTexSize * 0.5f;
             const f32 cy = static_cast<f32>(y) - kTexSize * 0.5f;
             const f32 r2 = cx * cx + cy * cy;

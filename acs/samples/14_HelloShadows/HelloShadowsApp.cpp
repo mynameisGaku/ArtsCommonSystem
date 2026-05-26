@@ -26,7 +26,6 @@ void HelloShadowsApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(_shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
     ACS_SAMPLE_INIT(_shadow.Init(*dev, /*size=*/kShadowMapSize));
 
-    // メッシュ
     auto cube   = Primitive::MakeCube(1.0f);
     auto sphere = Primitive::MakeSphere(0.5f, 32, 16);
     auto plane  = Primitive::MakePlane(40.0f, 40.0f);
@@ -44,7 +43,7 @@ void HelloShadowsApp::OnStart() noexcept {
     _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
     _cam_pos = Vec3{0, 4, -10.0f};
 
-    // シャドウ機能を ON
+    // シャドウマップを主パスのシェーダに渡しておく (主パスでサンプリング)。
     _shader.SetShadowMap(_shadow.DepthTexture(), _shadow.LightViewProjection(), 0.001f);
 
     ACS_LOG_INFO("HelloShadows initialized");
@@ -56,7 +55,7 @@ void HelloShadowsApp::OnUpdate(f32 dt) noexcept {
 
     if (Input::IsKeyDown(EKey::Space)) _sun_yaw += dt * 0.6f;
 
-    // カメラ
+    // カメラ操作 (yaw/pitch + WASD で平行移動、pitch は ±81 度に clamp)
     const f32 mv = 5.0f * dt, tr = 1.5f * dt;
     if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
     if (Input::IsKeyDown(EKey::Right)) _cam_yaw += tr;

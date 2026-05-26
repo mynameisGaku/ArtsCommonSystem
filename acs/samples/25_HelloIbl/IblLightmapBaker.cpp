@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — 床用 lightmap CPU baker の実装 (Phase 33f)。
+// HelloIbl — 床用 lightmap CPU baker の実装。
 #include "IblLightmapBaker.h"
 
 #include "render/RenderAssets.h"

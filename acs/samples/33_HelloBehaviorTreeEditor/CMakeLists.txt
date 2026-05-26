@@ -1,17 +1,18 @@
-# HelloBehaviorTreeEditor — GameFramework Phase 22: BehaviorTree Editor デモ
+# HelloBehaviorTreeEditor — BehaviorTree Editor デモ
 #
 # `gameframework/BehaviorTree.h` (Pillar L) で組んだ小さな BT を、
-# `btedit::BehaviorTreeEditorPanel` (= Phase 22 editor 第三弾) で **可視化 +
-# step debug** する単一ウィンドウのエディタサンプル。Action ノードが panel
-# 側の SetNodeStatus を呼んで status を push する典型用途を見せる。
+# `btedit::BehaviorTreeEditorPanel` で **可視化 + step debug** する単一
+# ウィンドウのエディタサンプル。Action ノードが panel 側の SetNodeStatus を
+# 呼んで status を push する典型用途を見せる。
 #
 # 構成:
 #   main.cpp              - ACS_GAME_MAIN(BtEditorApp) のみ
 #   BtEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
-#   BtEditorScene.{h,cpp} - BT 構築 + Panel + Action Fn 群 + step callback
+#   BtEditorScene.{h,cpp} - Scene lifecycle (OnEnter/OnExit/OnUpdate/OnRender)
+#   TreeActions.{h,cpp}   - Action Fn 群 + step callback
+#   TreeBuilder.{h,cpp}   - panel メタミラー組立 + 実 BT 構築 helper
 #
-# btedit/ panel の .cpp はサンプル側でビルド (Module.cmake には未追加。
-# Phase 23 で Workspace 統合と一緒に Module.cmake へ昇格させる予定)。
+# btedit/ panel の .cpp はサンプル側でビルド (Module.cmake には未追加)。
 # include path は `ACS::GameFramework` が PUBLIC で ${ACS_SOURCE_ROOT} を
 # 公開しているため `#include "gameframework/tools/btedit/..."` がそのまま通る。
 #
@@ -22,11 +23,15 @@ add_executable(hello_behavior_tree_editor WIN32
     main.cpp
     BtEditorApp.cpp
     BtEditorScene.cpp
-    # btedit panel 本体 (Phase 22 では sample 側にビルドさせる、Module.cmake 不変)。
+    TreeActions.cpp
+    TreeBuilder.cpp
+    # btedit panel 本体 (sample 側でビルドさせる、Module.cmake 不変)。
     ${CMAKE_SOURCE_DIR}/src/gameframework/tools/btedit/BehaviorTreeEditorPanel.cpp
     # Header 群 (VS Solution Explorer で表示するため)
     BtEditorApp.h
     BtEditorScene.h
+    TreeActions.h
+    TreeBuilder.h
 )
 acs_apply_compiler_options(hello_behavior_tree_editor)
 # sample 自身の dir を include path に追加 (同一サンプル内の .h を "BtEditorApp.h"

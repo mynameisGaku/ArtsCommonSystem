@@ -3,8 +3,8 @@
 // シーン中で繰り返し参照する数値 (球の自転速度 / カメラ初期位置 /
 // キューブ色配列など) を集約。
 //
-// `inline constexpr` で header に置くので、複数 TU に include しても 1 つの
-// ストレージに resolve される (C++17)。
+// `inline constexpr` を使うのは、複数 TU に include しても ODR 違反にならず
+// 単一のストレージに resolve されるため。
 #pragma once
 
 #include "foundation/Types.h"

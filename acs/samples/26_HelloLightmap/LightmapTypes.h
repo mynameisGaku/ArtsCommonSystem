@@ -33,7 +33,7 @@ inline constexpr acs::f32 kBoxMinZ = -1.0f;
 inline constexpr acs::f32 kBoxMaxZ =  2.0f;
 
 inline constexpr acs::u32 kLmSize      = 64;   // lightmap 解像度 (1 面あたり)
-inline constexpr acs::u32 kBakeRays    = 64;   // texel あたりの path 数 (Phase 33f-3: 24→64)
+inline constexpr acs::u32 kBakeRays    = 64;   // texel あたりの path 数
 inline constexpr acs::u32 kBounceDepth = 5;    // 1 path の最大バウンス数 (multi-bounce GI)
 inline constexpr acs::u32 kQuadCount   = 5;    // Cornell box の面数 (床/天井/奥/左/右)
 

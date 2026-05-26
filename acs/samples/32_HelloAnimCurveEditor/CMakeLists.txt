@@ -1,7 +1,7 @@
-# HelloAnimCurveEditor — GameFramework Phase 22: AnimationCurve エディタ
-# editor_core (Phase 21a) + animcurve/AnimCurveEditorPanel (Phase 22) を
-# 1 つの ImGui Workspace に統合した、AnimationCurve のキー打ち + tangent
-# 編集を対話的に行えるサンプル。
+# HelloAnimCurveEditor — AnimationCurve エディタ。
+# editor_core (EditorWorkspace + EditorTheme) と animcurve/AnimCurveEditorPanel
+# を 1 つの ImGui Workspace に統合し、AnimationCurve のキー打ち + tangent 編集
+# を対話的に行えるサンプル。
 #
 # 構成:
 #   main.cpp               - ACS_GAME_MAIN(AnimCurveApp) のみ

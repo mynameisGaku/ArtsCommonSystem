@@ -1,9 +1,4 @@
-# 「Hello MVVM」サンプル: Observable / Binder / Derived / Command を ImGui で紹介
-#
-# 構成:
-#   main.cpp             - ACS_DEFINE_MAIN(HelloMVVMApp) のみ
-#   PlayerVM.h           - ViewModel 定義 (Observable / ObservableArray / Command)
-#   HelloMVVMApp.{h,cpp} - Application 派生クラス (ImGui で MVVM 各機能を順紹介)
+# Hello MVVM: Observable / Binder / Derived / Command を ImGui で紹介するサンプル。
 add_executable(hello_mvvm WIN32
     main.cpp
     HelloMVVMApp.cpp
@@ -11,8 +6,8 @@ add_executable(hello_mvvm WIN32
     PlayerVM.h
 )
 acs_apply_compiler_options(hello_mvvm)
-# sample 自身の dir を include path に追加 (同一サンプル内の .h を "HelloMVVMApp.h"
-# のように local include で書けるようにする)
+# サンプル自身の dir を include path に追加し、同一サンプル内の .h を
+# "HelloMVVMApp.h" のように相対 include で書けるようにする。
 target_include_directories(hello_mvvm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(hello_mvvm PRIVATE
     ACS::Game

@@ -72,7 +72,6 @@ void HelloPbrApp::OnRender() noexcept {
     // HelloLights / HelloRaycast3D の慣習に合わせて y を正にする。
     lights[0].direction = Vec3{0.4f, 0.8f, -0.5f};
     // LDR backbuffer (B8G8R8A8_UNorm) なので強度 1.x 程度に抑えて clip 回避。
-    // HDR + ACES tonemap は Phase 31+ で。
     lights[0].color     = Vec3{1.4f, 1.33f, 1.26f};
 
     // 旋回する点光源で highlight をハッキリ見せる
@@ -121,7 +120,6 @@ void HelloPbrApp::OnRender() noexcept {
         }
     }
 
-    // HUD
     if (_font.AtlasTexture()) {
         const u32 sw = GetRenderer().Swapchain()->Width();
         const u32 sh = GetRenderer().Swapchain()->Height();

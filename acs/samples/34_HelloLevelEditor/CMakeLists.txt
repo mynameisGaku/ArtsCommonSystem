@@ -1,6 +1,7 @@
-# HelloLevelEditor — GameFramework Phase 22: Tilemap (Level) Editor
-# editor_core (Phase 21a) + leveledit/ (Phase 22) + Tilemap (Pillar Q) を
-# 1 個の ImGui Workspace に統合した level editor デモ。
+# SPDX-License-Identifier: Apache-2.0
+# HelloLevelEditor — Tilemap (Level) エディタ。
+# editor_core (EditorWorkspace + EditorTheme) と leveledit/LevelEditorPanel と
+# Tilemap (Pillar Q) を 1 個の ImGui Workspace に統合した level editor デモ。
 #
 # 構成:
 #   main.cpp                - ACS_GAME_MAIN(LevelEditorApp) のみ
@@ -8,8 +9,7 @@
 #   LevelEditorScene.{h,cpp}- Workspace + LevelEditorPanel + Tilemap を持つ Scene
 #
 # 必須バックエンド: ImGui 統合は ACS_RENDER_DX12_RAW 専用 (acs_imgui module の
-# 制約)。samples/21_HelloImGui / 29_HelloParticleEditor / 30_HelloSceneInspector
-# / 31_HelloModelViewer / 32_HelloAnimCurveEditor と同じ。
+# 制約)。samples/21_HelloImGui などと同じ。
 add_executable(hello_level_editor WIN32
     main.cpp
     LevelEditorApp.cpp

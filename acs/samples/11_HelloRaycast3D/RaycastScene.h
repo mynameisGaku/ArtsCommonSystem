@@ -1,22 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloRaycast3D — シーン本体。
-// 8 個のオブジェクト (球 / 立方体) を保持し、カメラ操作 + 前方レイ判定 +
-// マルチライト Blinn-Phong 描画 + HUD を担当する。
+// HelloRaycast3D — シーンのオーケストレーション。
 //
-// Application 派生はリソース所有 (StandardShader / SpriteBatch / Font) を
-// 担当し、毎フレームの update / render を RaycastScene に委譲する。
+// 役割:
+//   ・GPU メッシュ (球 / 立方体 / 地面) の所有
+//   ・RaycastTargets + RayCaster + HudRenderer の協調
+//   ・StandardShader への描画コマンド発行
+//
+// Application 派生はリソース所有 (StandardShader / SpriteBatch / Font) を担当し、
+// 毎フレームの update / render を RaycastScene に委譲する。
 #pragma once
 
 #include "Types.h"
+#include "RaycastTargets.h"
+#include "RayCaster.h"
 
 #include "render/StandardShader.h"
 #include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
 #include "render/Font.h"
 #include "render/IRhiCommandList.h"
-
-#include "math/Camera.h"
-#include "math/Vec.h"
 
 namespace helloraycast3d {
 
@@ -39,20 +41,14 @@ public:
                 acs::u32 screen_h) noexcept;
 
 private:
-    // HSV→RGB（0..1 範囲）
-    static acs::Vec3 HsvToRgb(acs::f32 h, acs::f32 s, acs::f32 v) noexcept;
+    void _render_targets(acs::StandardShader& shader,
+                         acs::IRhiCommandList& cl) noexcept;
 
-    acs::GpuMesh _gm_sphere, _gm_cube, _gm_plane;
-
-    Object _objects[kNumObjects] {};
-    acs::Camera _camera;
-    acs::Vec3   _cam_pos     {0, 2, -8};
-    acs::Vec3   _cam_forward {0, 0, 1};
-    acs::f32    _cam_yaw   = 0.0f;
-    acs::f32    _cam_pitch = 0.0f;
-    acs::f32    _time      = 0.0f;
-    acs::i32    _hit_index = -1;
-    acs::Vec3   _hit_point;
+    acs::GpuMesh    _gm_sphere{};
+    acs::GpuMesh    _gm_cube{};
+    acs::GpuMesh    _gm_plane{};
+    RaycastTargets  _targets;
+    RayCaster       _caster;
 };
 
 } // namespace helloraycast3d

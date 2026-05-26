@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloGameFramework — TitleScene 実装。
 #include "TitleScene.h"
-#include "GameTypes.h"
+#include "PlayerProfile.h"
 #include "GameplayScene.h"
 
 #include "platform/Input.h"
@@ -37,7 +37,7 @@ void TitleScene::OnUpdate(f32 dt) noexcept {
     _fsm.Update(*this, _clock.Dt());
 }
 
-// FSM 状態 (= Phase 4 デモ): 2 秒間 Idle (dark blue) → 0.3 秒 Blink (明るい青) を繰返
+// 2 秒間 Idle (dark blue) → 0.3 秒 Blink (明るい青) を交互に繰返す FSM デモ。
 void TitleScene::EnterIdle(TitleScene& s) noexcept {
     s.GetGame().SetClearColor(0.10f, 0.12f, 0.25f);
     s._state_secs = 0.0f;

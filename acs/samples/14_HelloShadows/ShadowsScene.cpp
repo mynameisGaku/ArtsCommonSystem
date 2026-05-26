@@ -77,7 +77,7 @@ void ShadowsScene::Render(Sky&             sky,
     Vec3 ambient{0.20f, 0.22f, 0.28f};
     shader.SetLights(camera.ViewProjection(), camera.Eye(),
                      lights, 1, ambient);
-    // シャドウ VP を最新化
+    // 太陽方向が毎フレーム変わるので、ライト VP も主パスへ再送して同期する。
     shader.SetShadowMap(shadow.DepthTexture(), shadow.LightViewProjection(), 0.001f);
 
     cl.SetPipeline(*shader.Pipeline());
@@ -93,7 +93,6 @@ void ShadowsScene::Render(Sky&             sky,
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
-    // 物体
     for (const CasterInst& obj : _casters) {
         shader.SetObject(obj.model, obj.base_color, 0.4f, 32.0f);
         const GpuMesh& m = obj.is_sphere ? sphere : cube;

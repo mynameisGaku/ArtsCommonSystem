@@ -18,7 +18,7 @@ void HelloSaveApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    // セーブパス解決 + ロード
+    // %APPDATA% 配下なら UAC でもユーザ書き込み可。Load 失敗は初回起動の正常系。
     ACS_SAMPLE_INIT(Storage::GetAppDataPath(L"acs_demo", L"hello_save.ini",
                                              _save_path, 260));
     ACS_LOG_INFO("Save file: %ls", _save_path);
@@ -26,11 +26,9 @@ void HelloSaveApp::OnStart() noexcept {
         ACS_LOG_WARN("Storage::Load failed: %s (continuing with empty)", r.Error().message);
     }
 
-    // 起動回数インクリメント
     i64 launches = _store.GetInt("launches", 0) + 1;
     _store.SetInt("launches", launches);
 
-    // 既存値の取得
     _clicks    = _store.GetInt("clicks", 0);
     _high_score = _store.GetInt("high_score", 0);
     const char* name = _store.GetString("player_name", "");
@@ -38,7 +36,6 @@ void HelloSaveApp::OnStart() noexcept {
         _store.SetString("player_name", "プレイヤー");
     }
 
-    // 描画資源
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
     (void)Sample::TryLoadDefaultUIFont(_font_big,   *dev, 32.0f, 1024, true);
     (void)Sample::TryLoadDefaultUIFont(_font_small, *dev, 18.0f, 1024, true);
@@ -57,7 +54,7 @@ void HelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
         _dirty = true;
     }
     if (Input::IsKeyPressed(EKey::R)) {
-        // 全リセット（起動回数も初期化）
+        // Clear() は launches も消すので、本セッションを 1 回目として再播種する。
         _store.Clear();
         _clicks = 0;
         _high_score = 0;
@@ -102,7 +99,7 @@ void HelloSaveApp::OnRender() noexcept {
                       static_cast<long long>(_high_score));
         _batch.DrawString(_font_small, buf, 80, 210,
                         (_clicks == _high_score && _clicks > 0)
-                        ? Vec4{1, 0.85f, 0.4f, 1}    // 達成中はハイライト
+                        ? Vec4{1, 0.85f, 0.4f, 1}    // ハイスコア更新中は黄色で強調
                         : Vec4{0.9f, 0.95f, 1, 1});
 
         _batch.DrawString(_font_small,
@@ -124,7 +121,7 @@ void HelloSaveApp::OnRender() noexcept {
 }
 
 void HelloSaveApp::OnShutdown() noexcept {
-    // 終了時に確実に保存
+    // GPU リソース破棄前に保存しておけば、保存中クラッシュでもプレイデータは無事。
     FlushAndSave();
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     _font_small.Shutdown();

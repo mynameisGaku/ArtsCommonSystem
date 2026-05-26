@@ -4,15 +4,9 @@
 #pragma once
 
 #include "gameframework/GameFramework.h"
-
-// ----- AnimationCurve (編集対象) -----
 #include "gameframework/AnimationCurve.h"
-
-// ----- editor_core (Phase 21a) -----
 #include "gameframework/tools/editor_core/EditorWorkspace.h"
 #include "gameframework/tools/editor_core/EditorTheme.h"
-
-// ----- animcurve (Phase 22) -----
 #include "gameframework/tools/animcurve/AnimCurveEditorPanel.h"
 
 namespace helloac {
@@ -25,17 +19,20 @@ public:
     void OnRender(acs::game::RenderContext& rc) noexcept override;
 
 private:
-    // ---- File menu stub (実 dialog / serializer は将来 Phase) ----
+    // File menu の Save/Load 用ファイルパス (実シリアライザは未実装、stub)。
     static constexpr const char* kCurvePath = "preset.acscurve";
 
-    // ---- editor_core (Phase 21a) ----
+    // MainMenuBar の File メニューを描画する。OnRender 内で Workspace の
+    // DrawMenuBar より前に push する必要がある (= ImGui は同一フレーム内で
+    // BeginMainMenuBar を複数回呼ぶと 1 個の bar にマージするため、本 sample
+    // 固有の File メニューと Workspace の Window/Layout メニューを並べられる)。
+    void _draw_file_menu() noexcept;
+
     acs::game::editor_core::EditorWorkspace _workspace;
     acs::game::editor_core::EditorTheme     _theme;
-
-    // ---- animcurve (Phase 22) ----
     acs::game::animcurve::AnimCurveEditorPanel _curve_panel;
 
-    // ---- 編集対象の AnimationCurve (= Scene が所有、panel は raw 参照) ----
+    // 編集対象の AnimationCurve。Scene が所有し、panel は raw 参照を保持する。
     acs::game::AnimationCurve _example_curve;
 };
 

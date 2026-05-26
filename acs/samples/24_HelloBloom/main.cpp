@@ -5,18 +5,17 @@
 //   HelloBloomApp.{h,cpp} - Application 派生 (HDR シーン + Bloom + Tonemap)
 //
 // 動作:
-//   ・暗いシーンに非常に明るい (HDR) 球をいくつか配置
-//   ・PostProcess (Bloom + ACES Tonemap) を通して LDR バックバッファに出す
-//   ・1 / 2 / 3 で Bloom 強度切替、Esc 終了
+//   ・暗いシーンに非常に明るい (HDR) 球を 4 つ配置
+//   ・PostProcess (Bloom + ACES Tonemap) を通して LDR backbuffer に合成
+//   ・1 / 2 / 3 で Bloom 強度切替、左右で camera yaw、Esc 終了
 //
 // 学習ポイント:
-//   ・OnCustomFrame() を override して HDR RT 経由のレンダリングを構築
-//   ・PostProcess::Render が swapchain への合成まで担当
+//   ・OnCustomFrame() を override して HDR RT 経由のレンダリングを組む
+//   ・PostProcess::Render が Bloom + Tonemap + swapchain 合成を担当する
+//   ・HUD は Tonemap 後の LDR backbuffer に直接書く (色が吹き飛ばないため)
 //
-// 注: -DACS_RENDER_DILIGENT=ON 必須（Dx12 raw backend は HDR/Bloom 未対応）
-//
-// ACS_DEFINE_MAIN は HelloBloomApp を main エントリに登録 (Win32 subsystem では
-// WinMain / wWinMain も生成し、Console subsystem では main を出力)。
+// 注: PostProcess は Diligent backend 専用機能。Dx12 raw backend では未対応のため
+//     -DACS_RENDER_DILIGENT=ON で configure する必要がある。
 #include "HelloBloomApp.h"
 #include "app/EntryPoint.h"
 

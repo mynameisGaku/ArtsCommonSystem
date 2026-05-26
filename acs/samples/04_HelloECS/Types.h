@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloECS — 共通型と定数。
-//   Position / Velocity / Color  : World に登録する POD コンポーネント
-//   SpawnEvent                   : MessageBroker で publish する型
-//   kBallTexSize / GenerateBallTexture : 円型 particle テクスチャ生成
-//   OnSpawnEvent                 : MessageBroker の購読コールバック
+// HelloECS — 共通の POD コンポーネント / イベント / 補助関数。
 #pragma once
 
 #include "foundation/Types.h"
@@ -11,19 +7,22 @@
 
 namespace hello04 {
 
-// ---- コンポーネント定義 (POD ベース) ----------------------------------------
+// World に登録する POD コンポーネント。SparseSet ストレージに直接コピーされる
+// ため自明な値型のままにしておく (継承や仮想関数を付けない)。
 struct Position { acs::Vec2 v; };
 struct Velocity { acs::Vec2 v; };
 struct Color    { acs::f32 r, g, b; };
 
-// ---- イベント (MessageBroker で publish) ------------------------------------
+// MessageBroker で publish するイベント型。POD ならどんな型でも publish できる。
 struct SpawnEvent { acs::u32 total; };
 
-// ---- Particle テクスチャ生成 (中央白、外周透明の円) ------------------------
+// 中央が白く外周が透明な円型 RGBA8 テクスチャを生成 (粒子描画用)。
+// out は kBallTexSize * kBallTexSize * 4 バイトを指すこと。
 inline constexpr acs::u32 kBallTexSize = 32;
 void GenerateBallTexture(acs::u8* out) noexcept;
 
-// MessageBroker の購読コールバック (非捕捉関数)。SpawnEvent が来たらログに出す。
-void OnSpawnEvent(const void* payload, void* user);
+// MessageBroker の購読コールバック。signature は MessageBroker.h の
+// MessageCallback typedef に合わせる必要があるため引数を素の void* で受け取る。
+void OnSpawnEvent(const void* payload, void* user) noexcept;
 
 } // namespace hello04

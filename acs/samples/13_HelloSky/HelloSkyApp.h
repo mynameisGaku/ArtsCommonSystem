@@ -2,8 +2,9 @@
 // HelloSky — Application 派生クラス。
 // 手続き生成スカイ (昼/夕焼け/夜のプリセット切替可) で 1 つの回転球を照らす。
 //
-// リソース所有 (sky / shader / sprite / font / camera) と入力ハンドリングを
-// 担当し、毎フレームの「Sky → シーン描画」は SkyScene に委譲する。
+// このクラスはリソース所有 (sky / shader / sprite / font / camera) と入力
+// ハンドリングのみを担当し、毎フレームの描画ロジックは SkyScene に委譲する
+// (役割分離 — 描画だけ単体テストしたいときも置き換えやすい)。
 #pragma once
 
 #include "SkyScene.h"

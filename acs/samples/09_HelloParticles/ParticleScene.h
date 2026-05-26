@@ -25,10 +25,11 @@ public:
     // ユーザー入力 + 1 フレームのシミュレーション。
     void Update(acs::f32 dt) noexcept;
 
-    // ParticleSystem の draw + HUD。
+    // ParticleSystem の draw + HUD。screen_h はヘルプ行を画面下端に
+    // 配置するために必要。
     void Render(acs::SpriteBatch& batch,
                 acs::Font& font,
-                acs::u32 screen_w, acs::u32 screen_h,
+                acs::u32 screen_h,
                 acs::f32 fps) noexcept;
 
 private:

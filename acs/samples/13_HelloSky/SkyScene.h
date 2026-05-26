@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloSky — シーン描画ロジック。
-// Application 派生はリソース所有 (sky / shader / sprite / font / camera) と
-// 入力ハンドリングを担当し、毎フレームの「Sky → ライト計算 → 地面 + 球の
-// 描画」は SkyScene に委譲する。
+// 「リソース所有 / 入力」と「フレーム描画」を分離するため、App 側に持たせず
+// 別クラスにしている。テストで描画だけ差し替えやすくする狙いもある。
 #pragma once
 
 #include "Types.h"
@@ -17,18 +16,12 @@ namespace hellosky {
 
 class SkyScene {
 public:
-    // Sky の preset を切り替える。
     void SetPreset(acs::Sky& sky, SkyPreset p) noexcept;
     SkyPreset CurrentPreset() const noexcept { return _preset; }
 
     // 1 フレームの描画 (Sky → 地面 → 球)。
-    //   sky     : 描画する Sky (App 所有、SunDirection / SunColor を使う)
-    //   shader  : 描画に使う StandardShader (App 所有)
-    //   cl      : 現在の Render Pass の CommandList
-    //   camera  : ViewProjection / Eye / Sky 描画用
-    //   plane   : 床 (PrimitivePlane の GPU mesh)
-    //   sphere  : 球の GPU mesh
-    //   angle   : 球の回転角 (経過秒 * 0.5)
+    // sky / shader / camera / mesh は App が所有、引数で借りる形にして
+    // SkyScene 側を状態の少ない関数オブジェクトに保つ。
     void Render(acs::Sky&             sky,
                 acs::StandardShader&  shader,
                 acs::IRhiCommandList& cl,

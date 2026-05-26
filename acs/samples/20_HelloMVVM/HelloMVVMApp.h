@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloMVVM — Application 派生クラス。
-// PlayerVM を保持して 4 つの ImGui CollapsingHeader (5 分入門 / Binder / Derived /
-// Array + Command) で MVVM の主要機能を順番に紹介する。
+// PlayerVM を保持し、ImGui で MVVM の主要機能 (Observable / Binder / Derived /
+// ObservableArray / Command) を 4 セクションに分けて紹介する。
 #pragma once
 
 #include "app/Application.h"

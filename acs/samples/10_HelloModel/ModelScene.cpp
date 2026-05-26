@@ -36,7 +36,6 @@ void ModelScene::Shutdown() noexcept {
 }
 
 void ModelScene::Update(f32 dt, AssetFuture& async_mesh, bool& async_loaded) noexcept {
-    // 球の自転
     _angle += dt * kSphereSpinSpeed;
 
     // === カメラ操作 ===
@@ -47,7 +46,7 @@ void ModelScene::Update(f32 dt, AssetFuture& async_mesh, bool& async_loaded) noe
     if (Input::IsKeyDown(EKey::Right)) _cam_yaw += turn_speed;
     if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= turn_speed * 0.8f;
     if (Input::IsKeyDown(EKey::Down))  _cam_pitch += turn_speed * 0.8f;
-    // ピッチ制限
+    // 真上 / 真下を向くと forward の計算が破綻するため上下 81° 弱で頭打ち。
     const f32 limit = 0.45f * kPi;
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;

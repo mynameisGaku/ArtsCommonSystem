@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloModelViewer — 3D viewport が描画する "default cube" の静的データ。
 //
-// サンプル 17_HelloMesh の cube を最小流用したもので、viewer の PBR pipeline は
-// Phase 21c 以降で StandardShader / PbrShader に差替予定。本 sample の主眼は
-// editor UI 統合 (workspace / theme / asset browser / panel orchestration) のため、
-// 頂点+色 cube で十分。
+// サンプル 17_HelloMesh の cube を最小流用したもの。本 sample の主眼は editor
+// UI 統合 (workspace / theme / asset browser / panel orchestration) のため、
+// 頂点+色 cube で十分 (StandardShader / PbrShader への差替は将来の宿題)。
 //
 // 24 頂点 (6 面 × 4 頂点) + 36 indices (6 面 × 2 三角形 × 3 頂点) を constexpr
 // で持つ。HLSL は b0 に MVP を行優先で渡す最小シェーダ (VS+PS 兼用)。

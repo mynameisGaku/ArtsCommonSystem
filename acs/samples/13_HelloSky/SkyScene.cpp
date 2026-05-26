@@ -24,14 +24,17 @@ void SkyScene::Render(Sky&             sky,
                       const GpuMesh&   plane,
                       const GpuMesh&   sphere,
                       f32              angle) noexcept {
-    // 1) 空を最初に描く
+    // Sky を先に描く。深度書込みも深度テストも無効なので、後続のメッシュは
+    // 自動で空を覆い隠す形になる (背景塗り)。
     sky.Render(cl, camera);
 
-    // 2) シーン描画 — メイン光源を Sky の太陽方向 + 色と合わせる
+    // メイン光源は Sky の太陽方向 / 色と合わせる。ここがずれると
+    // 「空は朝なのに地面は昼」のような不整合な絵になる。
     DirLight lights[2];
     lights[0].direction = sky.SunDirection();
     lights[0].color     = sky.SunColor();
-    // 環境光相当のフィル (Sky の zenith を弱めて)
+    // 2 灯目は環境光フィル。太陽の真逆から弱い青を当てて影側のクラッシュ
+    // (真っ黒つぶれ) を防ぐ。Sky の zenith に近い寒色を採用。
     lights[1].direction = Vec3{-sky.SunDirection().x,
                                 sky.SunDirection().y * 0.5f,
                                -sky.SunDirection().z};
@@ -53,14 +56,14 @@ void SkyScene::Render(Sky&             sky,
     cl.SetTexture(0, *shader.DefaultWhiteTexture());
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
-    // 地面
+    // ---- 地面 (拡散主体、わずかな specular) ----
     shader.SetObject(Mat4::Translation(Vec3{0, 0, 0}),
                      Vec3{0.4f, 0.45f, 0.5f}, 0.1f, 8.0f);
     cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
-    // 球
+    // ---- 球 (回転 + 強い specular で太陽が反射する見せ場) ----
     Mat4 ms = Mat4::RotationY(angle) *
               Mat4::Translation(Vec3{0, 1.5f, 0});
     shader.SetObject(ms, Vec3{1.0f, 0.85f, 0.4f}, 0.7f, 64.0f);

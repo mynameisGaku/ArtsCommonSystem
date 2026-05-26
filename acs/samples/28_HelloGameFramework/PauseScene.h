@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloGameFramework — Pause scene。Gameplay の上に push される overlay。
 //
-// Phase 4: Sequence + SequenceRunner で Wait → Call → Wait → Call Loop(0)
-// (= 無限) を仕込み、Pause を抜けるまで「still paused...」をログに出し続ける。
+// Sequence + SequenceRunner で Wait → Call → Wait → Call の Loop(0)=無限 を組み、
+// Pause を抜けるまで「still paused...」を周期的にログ出力するデモ。
 #pragma once
 
 #include "gameframework/GameFramework.h"

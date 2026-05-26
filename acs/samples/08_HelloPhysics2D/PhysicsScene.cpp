@@ -77,7 +77,6 @@ void PhysicsScene::Render(SpriteBatch& batch,
                           Font& font,
                           IRhiTexture& ball_tex,
                           f32 fps) noexcept {
-    // ボール
     for (u32 i = 0; i < _ball_count; ++i) {
         const Ball& b = _balls[i];
         const f32 d = b.radius * 2.0f;
@@ -85,7 +84,7 @@ void PhysicsScene::Render(SpriteBatch& batch,
                    Vec4{b.r, b.g, b.b, 0.95f});
     }
 
-    // ヘルプ + ボール数
+    // フォント未ロード時は HUD を skip (Sample::TryLoadDefaultUIFont が失敗するケース)。
     if (font.AtlasTexture()) {
         char buf[128];
         std::snprintf(buf, sizeof(buf),

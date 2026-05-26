@@ -3,6 +3,11 @@
 // PBR / IBL / SSR / SSAO / Refraction / Bloom / ACES + TAA を 1 つのフレームで
 // 連携させる cinematic demo。auto-orbit カメラで scene を 1 周。
 //
+// 実装は pass 系 helper (PbrPass / RefractionPass / MotionPass / SsrPass /
+// BloomPass / HudPass) と GPU resource bundle (Assets) に分割している。
+// ShowcaseApp 自身は state (camera, orbit, toggle) と OnStart / OnUpdate /
+// OnCustomFrame の orchestration だけを持つ。
+//
 // キー:
 //   P  : auto-orbit を pause / resume
 //   R  : SSR (env reflection mix) の toggle
@@ -10,26 +15,13 @@
 //   Esc: 終了
 #pragma once
 
+#include "ShowcaseAssets.h"
+
 #include "app/Application.h"
-
-#include "asset/MeshAsset.h"
-
-#include "render/Ibl.h"
-#include "render/Sky.h"
-#include "render/PbrShader.h"
-#include "render/RefractionShader.h"
-#include "render/Blit.h"
-#include "render/Ssr.h"
-#include "render/Ssao.h"
-#include "render/HiZ.h"
-#include "render/MotionVector.h"
-#include "render/PostProcess.h"
-#include "render/RenderAssets.h"
-#include "render/SpriteBatch.h"
-#include "render/Font.h"
-
 #include "math/Camera.h"
 #include "math/Mat.h"
+#include "math/Vec.h"
+#include "render/PostProcess.h"
 
 namespace helloshowcase {
 
@@ -44,21 +36,7 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::PostProcess        _post;
-    acs::ImageBasedLighting _ibl;
-    acs::Sky                _sky;
-    acs::PbrShader          _pbr;
-    acs::Ssr                _ssr;
-    acs::Ssao               _ssao;
-    acs::HiZ                _hiz;            // Phase 36-3a: SSR の skip-ahead 用 coarse min-depth
-    acs::MotionVector       _motion;
-    acs::RefractionShader   _refr;
-    acs::Blit               _blit;
-    acs::UniquePtr<acs::IRhiTexture> _bg_rt;
-    acs::GpuMesh            _gm_sphere;
-    acs::GpuMesh            _gm_floor;
-    acs::SpriteBatch        _batch;
-    acs::Font               _font;
+    Assets                  _assets;
     acs::Camera             _camera;
     acs::PostProcessParams  _post_params;
     acs::Vec3               _cam_pos        = acs::Vec3{0, 1.4f, -5.5f};

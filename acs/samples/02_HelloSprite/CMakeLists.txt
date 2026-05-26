@@ -1,9 +1,4 @@
 # 「HelloSprite」サンプル: 2D スプライト + 矩形 + α ブレンド
-#
-# 構成:
-#   main.cpp                 - ACS_DEFINE_MAIN(HelloSpriteApp) のみ
-#   Types.h                  - 共通定数 + Sprite struct + テクスチャ生成
-#   HelloSpriteApp.{h,cpp}   - Application 派生クラス本体
 add_executable(hello_sprite WIN32
     main.cpp
     HelloSpriteApp.cpp

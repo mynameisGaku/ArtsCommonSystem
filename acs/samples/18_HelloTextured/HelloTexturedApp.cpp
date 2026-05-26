@@ -63,6 +63,7 @@ void HelloTexturedApp::OnStart() noexcept {
     else _cb = Move(r.Value());
 
     // === テクスチャ (手続き生成) ===
+    // CPU 側で kTexSize x kTexSize の RGBA8 を組み立て、initial_data で 1 度に GPU へ転送する。
     u8 pixels[kTexSize * kTexSize * 4];
     GenerateTexture(pixels);
 
@@ -88,8 +89,9 @@ void HelloTexturedApp::OnStart() noexcept {
     pd.cull_mode     = ECullMode::Back;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 1;
+    // 固定サンプラ: PSO に焼き付けるので、描画ごとに SetSampler する必要が無い。
     pd.static_sampler_count = 1;
-    pd.static_samplers[0].filter      = ESamplerFilter::Point;     // ピクセルアートっぽい外観
+    pd.static_samplers[0].filter      = ESamplerFilter::Point;     // ピクセルアートっぽい外観にするため Point
     pd.static_samplers[0].address_u   = ESamplerAddress::Wrap;
     pd.static_samplers[0].address_v   = ESamplerAddress::Wrap;
     pd.vertex_stride = sizeof(Vertex);

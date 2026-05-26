@@ -4,7 +4,9 @@
 // 構成:
 //   main.cpp              - ACS_GAME_MAIN(BtEditorApp) のみ
 //   BtEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
-//   BtEditorScene.{h,cpp} - BT 構築 + Panel + Action Fn 群 + step callback
+//   BtEditorScene.{h,cpp} - Scene lifecycle (OnEnter/OnExit/OnUpdate/OnRender)
+//   TreeActions.{h,cpp}   - Action Fn 群 + step callback
+//   TreeBuilder.{h,cpp}   - panel メタミラー組立 + 実 BT 構築 helper
 //
 // 動作:
 //   ・小さな Behavior Tree を構築:

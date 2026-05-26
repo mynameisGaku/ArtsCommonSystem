@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# HelloParticleEditor — GameFramework Phase 19b: ParticleEditor デモ。
-# ParticleEffectSystem (Phase 14) を `fxedit::ParticleEditorPanel` /
+# HelloParticleEditor — ParticleEditor デモ。
+# ParticleEffectSystem を `fxedit::ParticleEditorPanel` /
 # `fxedit::ParticleEditorPreview` で対話編集し、`.fxedit` 形式に Save/Load する
 # 単一ウィンドウのエディタサンプル。
 #

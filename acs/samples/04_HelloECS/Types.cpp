@@ -23,7 +23,7 @@ void GenerateBallTexture(u8* out) noexcept {
     }
 }
 
-void OnSpawnEvent(const void* payload, void* /*user*/) {
+void OnSpawnEvent(const void* payload, void* /*user*/) noexcept {
     const auto* e = static_cast<const SpawnEvent*>(payload);
     ACS_LOG_INFO("[SpawnEvent] entities now %u", e->total);
 }

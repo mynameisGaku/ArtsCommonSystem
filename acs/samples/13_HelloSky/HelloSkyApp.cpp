@@ -47,7 +47,8 @@ void HelloSkyApp::OnUpdate(f32 dt) noexcept {
 
     _angle += dt * 0.5f;
 
-    // カメラ周回
+    // ターゲット (原点上 1m) を中心にカメラを yaw 周回させる。
+    // Sin/Cos で円軌道を作るのが一番素直で、初学者が読みやすい形。
     if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.0f;
     if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.0f;
     const f32 cam_dist = 6.0f;
@@ -59,10 +60,10 @@ void HelloSkyApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
-    // Sky 描画 + シーン描画 (地面 + 球) は scene に委譲。
     _scene.Render(_sky, _shader, *cl, _camera, _gm_plane, _gm_sphere, _angle);
 
-    // HUD
+    // HUD は AtlasTexture が用意できているときだけ。フォントロード失敗
+    // (アセット不在) でもサンプル自体は動くようにフェイルセーフ。
     if (_font.AtlasTexture()) {
         const u32 sw = GetRenderer().Swapchain()->Width();
         const u32 sh = GetRenderer().Swapchain()->Height();

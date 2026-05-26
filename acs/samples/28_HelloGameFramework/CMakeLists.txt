@@ -1,22 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 # HelloGameFramework — GameFramework Pillar A〜F の dogfood サンプル。
-# Title / Gameplay / Pause の 3 シーンで Phase 2-11 機能を網羅。
+# Title / Gameplay / Pause の 3 シーンで主要機能を網羅。
 #
 # 構成:
-#   main.cpp              - ACS_GAME_MAIN(HelloGfApp) のみ
-#   GameTypes.h           - PlayerProfile + RotateComponent + RotatingNode
-#   TitleScene.{h,cpp}    - Title 画面 (FSM Idle/Blink)
-#   GameplayScene.{h,cpp} - 本編 (Node2D ツリー + Camera + Physics)
-#   PauseScene.{h,cpp}    - 一時停止 overlay (Sequence Loop)
-#   HelloGfApp.{h,cpp}    - Game 派生クラス
+#   main.cpp                  - ACS_GAME_MAIN(HelloGfApp) のみ
+#   PlayerProfile.h           - AppState サンプル struct
+#   RotateComponent.{h,cpp}   - composition 版の回転 (Component2D)
+#   RotatingNode.{h,cpp}      - 継承版の回転 (Node2D サブクラス)
+#   TitleScene.{h,cpp}        - Title 画面 (FSM Idle/Blink)
+#   GameplayScene.{h,cpp}     - 本編 (Node2D ツリー + Camera + Physics)
+#   PauseScene.{h,cpp}        - 一時停止 overlay (Sequence Loop)
+#   HelloGfApp.{h,cpp}        - Game 派生クラス
 add_executable(hello_game_framework WIN32
     main.cpp
     HelloGfApp.cpp
+    RotateComponent.cpp
+    RotatingNode.cpp
     TitleScene.cpp
     GameplayScene.cpp
     PauseScene.cpp
     # Header 群 (VS Solution Explorer で表示するため)
-    GameTypes.h
+    PlayerProfile.h
+    RotateComponent.h
+    RotatingNode.h
     HelloGfApp.h
     TitleScene.h
     GameplayScene.h

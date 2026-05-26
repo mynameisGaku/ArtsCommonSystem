@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloImGui — HelloImGuiApp 実装。
+// HelloImGui — Application 派生クラス実装。
 #include "HelloImGuiApp.h"
 
 #include "platform/Input.h"
@@ -11,7 +11,6 @@ using namespace acs;
 namespace helloimgui {
 
 void HelloImGuiApp::OnStart() noexcept {
-    // ImGui を初期化 (Window と Renderer に紐付け)
     auto r = _imgui.Init(GetWindow(), GetRenderer());
     if (r.IsErr()) {
         Quit();
@@ -24,13 +23,12 @@ void HelloImGuiApp::OnUpdate(f32 /*dt*/) noexcept {
 }
 
 void HelloImGuiApp::OnRender() noexcept {
-    // ImGui の新フレーム開始 (OnRender は BeginFrame の後に呼ばれる)
+    // NewFrame は OnRender 内 (BeginFrame の後) で呼ぶのが ACS の作法。
     _imgui.NewFrame();
 
-    // デモウィンドウ (ImGui の機能網羅サンプル)
+    // ShowDemoWindow は ImGui 機能網羅のリファレンス。
     if (_show_demo) ImGui::ShowDemoWindow(&_show_demo);
 
-    // 自前のコントロールウィンドウ
     ImGui::Begin("ACS Sample");
     ImGui::Text("FPS: %.1f", FPS());
     ImGui::Text("Frames: %llu", static_cast<unsigned long long>(FrameCount()));
@@ -41,7 +39,7 @@ void HelloImGuiApp::OnRender() noexcept {
     if (ImGui::Button("Quit")) Quit();
     ImGui::End();
 
-    // ImGui の描画コマンドをコマンドリストに発行
+    // Render は ImGui の draw list をコマンドリストに発行する (BeginFrame との対)。
     _imgui.Render();
 }
 

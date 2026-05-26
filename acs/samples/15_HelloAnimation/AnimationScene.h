@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloAnimation — シーン描画ロジック + メッシュ生成。
-// Application 派生はリソース所有 (sky / shader / sprite / font / camera /
-// player) と入力ハンドリングを担当し、毎フレームの「Sky → 地面 → スキン
-// メッシュ」描画は AnimationScene に委譲する。
+// HelloAnimation — シーン描画ロジック + スキンメッシュ手続き生成。
+// Application からリソース参照を受け取り「Sky → 地面 → スキンメッシュ」を 1
+// フレーム分まとめて描く。状態は持たず純粋な描画ユーティリティに近い。
 #pragma once
 
 #include "Types.h"

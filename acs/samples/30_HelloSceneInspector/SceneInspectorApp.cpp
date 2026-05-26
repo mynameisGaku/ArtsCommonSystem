@@ -11,7 +11,6 @@ using namespace acs::game;
 namespace helloscene {
 
 void SceneInspectorApp::OnStart() noexcept {
-    // ImGui を Window + Renderer に紐付け。失敗時は早期 Quit。
     if (auto r = _imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
         ACS_LOG_ERROR("[SceneInspectorApp] ImGuiCtx.Init failed -> Quit");
         Quit();
@@ -22,8 +21,9 @@ void SceneInspectorApp::OnStart() noexcept {
 }
 
 void SceneInspectorApp::OnRender() noexcept {
-    // ImGui フレーム開始 → Scene::OnRender で ImGui::* が呼ばれる →
-    // ImGui の描画コマンドをコマンドリストに発行、の順。
+    // ImGui フレーム開始 → Scene::OnRender 内で ImGui::* が呼ばれる →
+    // ImGui の描画コマンドをコマンドリストに発行、の順。この順番でないと
+    // Scene 側が ImGui::* を呼べない。
     _imgui.NewFrame();
     Game::OnRender();
     _imgui.Render();

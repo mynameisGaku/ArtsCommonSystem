@@ -3,9 +3,8 @@
 //
 // 学習ポイント:
 //   - IRhiTexture 作成 → SetTexture でバインド
-//   - PipelineDesc::static_samplers で固定サンプラを指定
+//   - PipelineDesc::static_samplers で固定サンプラを指定 (PSO に焼き付け、bind 不要)
 //   - PixelShader からテクスチャ・サンプラを読む HLSL 構文
-//   - 複数の constant buffer (MVP + 時間)
 #pragma once
 
 #include "app/Application.h"

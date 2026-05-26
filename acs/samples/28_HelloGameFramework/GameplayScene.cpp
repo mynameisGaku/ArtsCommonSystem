@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloGameFramework — GameplayScene 実装。
 #include "GameplayScene.h"
-#include "GameTypes.h"
+#include "PlayerProfile.h"
+#include "RotateComponent.h"
+#include "RotatingNode.h"
 #include "TitleScene.h"
 #include "PauseScene.h"
 
@@ -13,17 +15,16 @@ using namespace acs::game;
 
 namespace hellogf {
 
-// --- Gameplay (Phase 8: Services() 経由) ---
 void GameplayScene::OnEnter() noexcept {
     _color = kColorDark;
-    // Phase 8: Tween 開始 (Services() のフレームワーク自動 tick で進行)
+    // Tween を起動 (Services 側で PostUpdate に自動 tick される)。
     _color_tween = Services().Tweens().Tween(
         &_color, kColorDark, kColorBright,
         /*duration=*/2.0f, Easing::InOutSine);
     _to_bright = true;
     GetGame().SetClearColor(_color.x, _color.y, _color.z);
 
-    // Phase 5: Node2D ツリー組立 (root → wheel → spoke 2 個)
+    // Node2D ツリー: root → wheel → spoke 2 個。
     auto wheel_up = MakeUnique<RotatingNode>(/*speed=*/1.0f /*rad/s*/, "wheel");
     wheel_up->Local().position = Vec2{10.0f, 0.0f};
     Node2D& wheel = _root.AddChild(Move(wheel_up));
@@ -37,24 +38,24 @@ void GameplayScene::OnEnter() noexcept {
     sp1_up->Local().position = Vec2{0.0f, 2.0f};
     _spoke[1] = static_cast<RotatingNode*>(&wheel.AddChild(Move(sp1_up)));
 
-    // Phase 7: composition 版 (プレーン Node2D + RotateComponent)
+    // composition 版: プレーン Node2D に RotateComponent を attach (継承版との対比)。
     auto rotator_up = MakeUnique<Node2D>();
     rotator_up->Local().position = Vec2{-10.0f, 0.0f};
     Node2D& rotator = _root.AddChild(Move(rotator_up));
     rotator.AddComponent<RotateComponent>(/*speed_rps=*/2.0f);
     _rotator = &rotator;
 
-    // Phase 10: CollisionWorld2D に spoke を Circle として登録 (初期位置)
+    // spoke を Circle として CollisionWorld に登録 (世界位置は OnUpdate で追従)。
     CollisionWorld2D& phy = Services().Physics();
     for (u32 i = 0; i < 2; ++i) {
         const Vec2 sp = _spoke[i] ? _spoke[i]->World().position : Vec2{};
         _spoke_shape[i] = phy.AddCircle(Circle{sp, /*radius=*/0.5f});
     }
 
-    // Phase 11: 静的 ground (y=-2 を中心とする幅広 AABB)
+    // y=-2 中心の幅広 AABB を静的 ground として登録。
     _ground_shape = phy.AddAabb(Aabb2{Vec2{0.0f, -2.0f}, Vec2{20.0f, 0.5f}});
 
-    // Phase 11: 落下 ball (Node2D + PhysicsBody2D)
+    // 落下 ball: Node2D + PhysicsBody2D。Component が phy を握って自前更新する。
     auto ball_up = MakeUnique<Node2D>();
     ball_up->Local().position = Vec2{0.0f, 8.0f};
     Node2D& ball_ref = _root.AddChild(Move(ball_up));
@@ -63,7 +64,6 @@ void GameplayScene::OnEnter() noexcept {
     body.gravity = Vec2{0.0f, -10.0f};
     _ball = &ball_ref;
 
-    // Phase 8: InputMap も Services 経由
     InputMap& im = Services().Input();
     im.ClearAll();
     im.BindKey(ActionId("Pause"),   EKey::P);
@@ -82,7 +82,8 @@ void GameplayScene::OnEnter() noexcept {
 }
 
 void GameplayScene::OnExit() noexcept {
-    // Services 経由なので CancelAll が必要 (Services は scene 死後も完全に破棄される)
+    // Services は scene 破棄時に完全破棄される。Tween に残った dangling pointer
+    // 経由でクラッシュしないよう、先に CancelAll しておく。
     if (HasServices()) Services().Tweens().CancelAll();
     for (u32 i = 0; i < _root.ChildCount(); ++i) {
         if (auto* c = _root.Child(i)) c->Destroy();
@@ -92,8 +93,8 @@ void GameplayScene::OnExit() noexcept {
 }
 
 void GameplayScene::OnPause() noexcept {
-    // Phase 8: Push/Pop で services が tick されないので Clock も自然停止する
-    // (= 明示的 Pause 呼出は不要。意味付けのためログだけ出す)
+    // Push/Pop の間は services が tick されない (= Clock も自然に止まる) ので
+    // 明示的 Pause 呼出は不要。意味付けのためログだけ出しておく。
     ACS_LOG_INFO("[Gameplay] paused (services auto-frozen via stack pause)");
 }
 
@@ -102,8 +103,8 @@ void GameplayScene::OnResume() noexcept {
 }
 
 void GameplayScene::OnUpdate(f32 dt) noexcept {
-    // Phase 8: dt はフレームワークが既に Clock.Dt() (scaled) を渡している。
-    // services の Tweens/Sequences は OnUpdate **の後** に PostUpdate で tick される。
+    // dt はフレームワーク側で Clock.Dt() (scaled) が渡される。
+    // services の Tweens/Sequences は本関数の後、PostUpdate で自動 tick される。
     const InputMap& im = Services().Input();
     if (im.IsPressed(ActionId("Quit"))) GetGame().Quit();
     if (im.IsPressed(ActionId("ToTitle"))) {
@@ -119,16 +120,16 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
             ++prof->hi_score;
             ACS_LOG_INFO("[Gameplay] score+1 → hi_score=%u", prof->hi_score);
         }
-        // Phase 9: スコア取得で screen shake (trauma 累積、自然減衰する)
+        // スコア取得イベントで trauma を蓄積 → camera が自然減衰する shake を出す。
         Services().Camera().AddShake(0.5f);
     }
 
-    // Phase 9: spoke[0] が回転する世界位置をカメラに毎フレーム渡す → 追従
+    // spoke[0] の world 位置をカメラに毎フレーム渡してターゲット追従させる。
     if (_spoke[0] != nullptr) {
         Services().Camera().SetTargetPos(_spoke[0]->World().position);
     }
 
-    // Phase 10: spoke の world 位置で CollisionWorld の Circle を更新
+    // spoke 円の CollisionWorld 上の表現を world 位置で同期する。
     {
         CollisionWorld2D& phy = Services().Physics();
         for (u32 i = 0; i < 2; ++i) {
@@ -139,7 +140,7 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
         }
     }
 
-    // Tween 完了で逆向き ping-pong を再開 (Tweens.Tick は PostUpdate で自動実行)
+    // Tween 完了で ping-pong を逆方向に張り直す (Tweens.Tick は PostUpdate で自動)。
     if (!Services().Tweens().IsActive(_color_tween)) {
         _to_bright = !_to_bright;
         const Vec3 from = _color;
@@ -149,17 +150,15 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
     }
     GetGame().SetClearColor(_color.x, _color.y, _color.z);
 
-    // Node2D tree update (Tween/Sequences とは別系統、こちらは手動 tick)
+    // Node2D tree は手動 tick (Tweens/Sequences とは別系統)。
     _root.UpdateTree(dt);
     _root.ResolveStructuralChanges();
 }
 
 void GameplayScene::OnFixedUpdate(f32 dt) noexcept {
-    // dt は固定 (= Game::SetFixedTimestep の値、既定 1/60)。
+    // dt は固定 (Game::SetFixedTimestep、既定 1/60)。60 step 毎 = 約 1 秒毎に
+    // 状態をログ出力して OnFixedUpdate の呼出と transform 伝播を観察する。
     _fixed_secs += dt;
-    // 60 step に 1 回 ログ (= 1 秒に 1 回) で OnFixedUpdate が呼ばれていることを確認可能。
-    // 合わせて Phase 5 Node2D の transform 伝播も観察できるよう spoke[0] の
-    // world 位置を出力 (親 wheel が回転しているので X/Y がぐるぐる変化する)。
     if (++_fixed_step_log_counter >= 60) {
         _fixed_step_log_counter = 0;
         const f32 move_x  = HasServices() ? Services().Input().Axis(ActionId("MoveX")) : 0.0f;
@@ -167,14 +166,13 @@ void GameplayScene::OnFixedUpdate(f32 dt) noexcept {
         const f32 rt_rot  = _rotator     ? _rotator->World().rotation     : 0.0f;
         const Vec2 cam_p  = HasServices() ? Services().Camera().Position()      : Vec2{};
         const f32  trauma = HasServices() ? Services().Camera().TraumaLevel()  : 0.0f;
-        // Phase 10: 原点周りの 4x4 Aabb と overlap、原点向きの Raycast で最近 hit を取得
+        // 原点付近 4x4 の Aabb と overlap、+X 向き Ray で最近 hit までの t を取得。
         u32 overlap_count = 0;
         f32 ray_t = -1.0f;
         if (HasServices()) {
             Array<ShapeId> hits;
             Services().Physics().OverlapAabb(Aabb2{Vec2{0,0}, Vec2{2.0f,2.0f}}, hits);
             overlap_count = static_cast<u32>(hits.Size());
-            // 原点から +X 向きの Ray (最大 20)
             Ray2 r{Vec2{0,0}, Vec2{1,0}};
             RayHit2 rh{};
             ShapeId rid{};

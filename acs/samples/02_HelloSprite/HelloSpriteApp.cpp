@@ -38,7 +38,6 @@ void HelloSpriteApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    // === SpriteBatch 初期化 ===
     if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat(), kMaxSprites);
         r.IsErr()) {
         ACS_LOG_ERROR("SpriteBatch::Init failed: %s", r.Error().message);
@@ -46,7 +45,6 @@ void HelloSpriteApp::OnStart() noexcept {
         return;
     }
 
-    // === スプライトテクスチャ生成 ===
     u8 pixels[kTexSize * kTexSize * 4];
     GenerateSpriteTexture(pixels);
     TextureDesc td{};
@@ -58,7 +56,6 @@ void HelloSpriteApp::OnStart() noexcept {
         ACS_LOG_ERROR("Texture create"); Quit(); return;
     } else _tex = Move(r.Value());
 
-    // === スプライト初期配置 ===
     SpawnSprites(kInitialSprites);
 
     ACS_LOG_INFO("HelloSprite initialized");
@@ -67,11 +64,10 @@ void HelloSpriteApp::OnStart() noexcept {
 void HelloSpriteApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    // スペースキーで増加、Backspace で削減
     if (Input::IsKeyPressed(EKey::Space))     SpawnSprites(_sprite_count + 10);
     if (Input::IsKeyPressed(EKey::Backspace)) SpawnSprites(_sprite_count >= 10 ? _sprite_count - 10 : 0);
 
-    // スプライト物理更新（壁で反射）
+    // 壁にぶつかったら反射 (s.x/s.y を境界内にクランプしてから速度反転)。
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
     for (u32 i = 0; i < _sprite_count; ++i) {
@@ -93,16 +89,13 @@ void HelloSpriteApp::OnRender() noexcept {
 
     _batch.Begin(*cl, sw, sh);
 
-    // 上端に半透明黒バー
     _batch.DrawRect(0, 0, static_cast<f32>(sw), 32.0f, Vec4{0, 0, 0, 0.6f});
 
-    // スプライト
     for (u32 i = 0; i < _sprite_count; ++i) {
         const Sprite& s = _sprites[i];
         _batch.Draw(*_tex, s.x, s.y, s.size, s.size, Vec4{s.r, s.g, s.b, s.a});
     }
 
-    // 下端にカラフルなバー
     _batch.DrawRect(0, static_cast<f32>(sh - 16), static_cast<f32>(sw), 16.0f,
                     Vec4{0.2f, 0.5f, 0.8f, 0.5f});
 

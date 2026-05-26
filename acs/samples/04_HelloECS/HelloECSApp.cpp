@@ -14,8 +14,6 @@
 #include "app/Sample.h"
 #include "platform/Input.h"
 
-#include "render/Font.h"
-
 #include "ecs/World.h"
 #include "ecs/Query.h"
 #include "event/MessageBroker.h"
@@ -36,7 +34,6 @@ void HelloECSApp::OnStart() noexcept {
 
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
-    // 円型テクスチャ
     u8 pixels[kBallTexSize * kBallTexSize * 4];
     GenerateBallTexture(pixels);
     TextureDesc td{};
@@ -51,15 +48,11 @@ void HelloECSApp::OnStart() noexcept {
         _tex = Move(r.Value());
     }
 
-    // 初期 Entity 200 個
     SpawnRandomEntities(200);
-
-    // SpawnEvent を購読 (Entity が追加されたらログに出す)
     GetEvents().Subscribe<SpawnEvent>(&OnSpawnEvent, nullptr);
 
-    // 5 秒おきに 30 個追加 (Timer の周期実行デモ)。
-    // Timer コールバックはメインスレッドで呼ばれるので、ここから
-    // MessageBroker に publish しても安全。
+    // Timer コールバックは OnUpdate と同じメインスレッドで呼ばれるので、
+    // ここから MessageBroker::Publish (シングルスレッド契約) を呼んで安全。
     GetTimers().SetInterval(5.0f, [](void* user){
         auto* self = static_cast<HelloECSApp*>(user);
         self->SpawnRandomEntities(30);
@@ -74,18 +67,18 @@ void HelloECSApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
     if (Input::IsKeyPressed(EKey::Space)) {
         SpawnRandomEntities(50);
-        // publish はメインスレッドの OnUpdate から。並列ループの外なので安全。
+        // Publish はメインスレッド (= 並列ループの外) から呼ぶ契約。
         GetEvents().Publish<SpawnEvent>(SpawnEvent{ GetWorld().EntityCount() });
     }
 
     const f32 sw = static_cast<f32>(GetRenderer().Swapchain()->Width());
     const f32 sh = static_cast<f32>(GetRenderer().Swapchain()->Height());
 
-    // 並列移動 + 壁反射。EachParallel は Entity ごとに fn を別スレッドで呼ぶ。
-    // 各 Entity の Position / Velocity は他と独立なので並列化して安全
-    // (共有資源には触らない — イベント発行はここでは行わない)。
-    // grain を小さめにして実際に複数スレッドへ分散させる
-    // (エンティティ数が少ないデモのため。実プロジェクトでは 1024 程度が目安)。
+    // ラムダ内は別スレッドから呼ばれるので、外部の共有資源 (MessageBroker /
+    // SpriteBatch など) に触らないこと。Position / Velocity は Entity 毎に
+    // 独立しているので並列化して安全。
+    // grain=64 は demo の Entity 数が少ないため意図的に小さい (実プロジェクト
+    // では 1024 程度を目安に — タスク生成オーバーヘッドを減らす)。
     GetWorld().Query<Position, Velocity>().EachParallel(
         [dt, sw, sh](EntityId, Position& p, Velocity& v){
             p.v.x += v.v.x * dt;
@@ -106,8 +99,8 @@ void HelloECSApp::OnRender() noexcept {
     _batch.Begin(*cl, sw, sh);
     _batch.DrawRect(0, 0, (f32)sw, (f32)sh, Vec4{0.05f, 0.06f, 0.1f, 1});
 
-    // 描画は単一スレッドの SpriteBatch を使うのでここは逐次 Each()。
-    // EachParallel は描画には使えない（コマンド記録はスレッド非安全）。
+    // 描画は SpriteBatch のコマンド記録がスレッド非安全なので必ず逐次 Each()。
+    // EachParallel をここで使うと未定義動作になる。
     const f32 r = 8.0f;
     GetWorld().Query<Position, Color>().Each(
         [this, r](EntityId, Position& p, Color& c){

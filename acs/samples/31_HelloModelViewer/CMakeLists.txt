@@ -1,12 +1,15 @@
-# HelloModelViewer — GameFramework Phase 21b: 3D Model Viewer エディタ
-# editor_core (Phase 21a) + modelview/ (Phase 21b) + sample 17 同等の PBR
-# 3D pipeline を 1 つの ImGui Workspace に統合した model viewer デモ。
+# HelloModelViewer — 3D Model Viewer エディタ
+# editor_core + modelview/ + sample 17 同等の PBR 3D pipeline を 1 つの ImGui
+# Workspace に統合した model viewer デモ。
 #
-# 構成:
-#   main.cpp                - ACS_GAME_MAIN(ModelViewerApp) のみ
-#   ModelViewerApp.{h,cpp}  - Game 派生クラス (ImGui lifecycle ラッパ)
-#   ModelViewerScene.{h,cpp}- Workspace + 4 panel + AssetBrowser + Theme + 3D cube
-#   ViewerCubeAssets.h      - cube 頂点 / インデックス / HLSL (constexpr 定数)
+# 構成 (機能別分割):
+#   main.cpp                      - ACS_GAME_MAIN(ModelViewerApp) のみ
+#   ModelViewerApp.{h,cpp}        - Game 派生クラス (ImGui lifecycle ラッパ)
+#   ModelViewerScene.{h,cpp}      - 薄いオーケストレータ (3 サブモジュールを束ねる)
+#   ViewerScenePipeline.{h,cpp}   - 3D RHI リソース所有 / MVP 更新 / draw call 発行
+#   ViewerPanels.{h,cpp}          - workspace + asset browser + 4 panel + theme
+#   ViewerMenuBar.{h,cpp}         - File メニュー + Theme クイックアクション窓
+#   ViewerCubeAssets.h            - cube 頂点 / インデックス / HLSL (constexpr 定数)
 #
 # 必須バックエンド: ImGui 統合は ACS_RENDER_DX12_RAW 専用 (acs_imgui module の
 # 制約)。samples/21_HelloImGui / 29_HelloParticleEditor / 30_HelloSceneInspector
@@ -15,9 +18,15 @@ add_executable(hello_model_viewer WIN32
     main.cpp
     ModelViewerApp.cpp
     ModelViewerScene.cpp
+    ViewerScenePipeline.cpp
+    ViewerPanels.cpp
+    ViewerMenuBar.cpp
     # Header 群 (VS Solution Explorer で表示するため)
     ModelViewerApp.h
     ModelViewerScene.h
+    ViewerScenePipeline.h
+    ViewerPanels.h
+    ViewerMenuBar.h
     ViewerCubeAssets.h
 )
 acs_apply_compiler_options(hello_model_viewer)

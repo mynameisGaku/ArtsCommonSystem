@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloSpriteAtlasEditor — SpriteAtlasScene。
-// editor_core (Phase 21a) の EditorWorkspace に Phase 22 で並列実装した
-// spriteatlas::SpriteAtlasEditorPanel を register し、256x256 dummy atlas
+// EditorWorkspace に SpriteAtlasEditorPanel を register し、256x256 dummy atlas
 // + 3 frame (Idle / Walk / Jump) を初期登録する Scene。
 #pragma once
 
@@ -23,13 +22,10 @@ private:
     // File menu stub の保存先 (現状 callback だけ走らせるため未使用)。
     static constexpr const char* kAtlasFilePath = "preset.acsatlas";
 
-    // ---- editor_core ----
     acs::game::editor_core::EditorWorkspace           _workspace;
-
-    // ---- spriteatlas (Phase 22) ----
     acs::game::spriteatlas::SpriteAtlasEditorPanel    _editor_panel;
 
-    // ---- 編集対象 SpritePack (256x256 dummy atlas + 3 frame) ----
+    // 編集対象 SpritePack (256x256 dummy atlas + 3 frame)。
     // SpritePack は非コピー / 非ムーブなのでメンバ直保持。`_editor_panel` に
     // SetSpritePack(&_pack) で raw 注入する。
     acs::game::SpritePack                             _pack;

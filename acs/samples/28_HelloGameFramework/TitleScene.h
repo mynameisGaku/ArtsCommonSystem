@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloGameFramework — Title scene。FSM (Idle/Blink) で 2s 毎に明滅。
+// HelloGameFramework — Title scene。
 //
-// Phase 4: `StateMachine<TitleScene>` で 2 状態 FSM。Owner& 経由で self
-// 参照する static 関数として状態関数を実装。
+// `StateMachine<TitleScene>` の 2 状態 (Idle / Blink) FSM で 2s 毎に色を切り替える。
+// 状態関数は static で書き、Owner& 経由で self に touch する流儀。
 #pragma once
 
 #include "gameframework/GameFramework.h"

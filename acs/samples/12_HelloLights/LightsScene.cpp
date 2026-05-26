@@ -10,8 +10,8 @@ namespace hellolights {
 
 void LightsScene::Build() noexcept {
     _objects.Clear();
-    // 6 個の物体を散らす (cube と sphere を交互に)
     for (u32 i = 0; i < kCubeCount; ++i) {
+        // 開始位相 0.4f はカメラ初期位置と物体が重ならないようにずらすため。
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kCubeCount + 0.4f;
         const f32 r = 2.5f;
         ObjectInst o;
@@ -19,7 +19,9 @@ void LightsScene::Build() noexcept {
         const f32 h     = 0.5f;
         const Vec3 pos  { Sin(a) * r, h, Cos(a) * r };
         o.model = Mat4::Translation(pos);
-        o.color = Vec3{0.85f, 0.85f, 0.85f};   // ライトの色を反映するので白が映える
+        // 物体側は白に近い灰色に統一: 点光源の色がそのまま乗って見えるので
+        // ライトのデモとして読みやすい。
+        o.color = Vec3{0.85f, 0.85f, 0.85f};
         _objects.PushBack(o);
     }
 }
@@ -31,48 +33,51 @@ void LightsScene::Render(StandardShader&  shader,
                          const GpuMesh&   cube,
                          const GpuMesh&   sphere,
                          f32              time) noexcept {
-    // === ライト設定 ===
-    // 弱い dir ライトで全体を最低限照らす
+    // --- ライト設定 ---
+    // dir ライトはほぼ無効化 (ambient と同程度) に落とし、点光源の色を
+    // 主役にする。完全に 0 にしないのは陰側が真っ黒になって読みにくいため。
     DirLight dir;
     dir.direction = Vec3{0.3f, 1.0f, 0.4f};
     dir.color     = Vec3{0.05f, 0.05f, 0.07f};
     shader.SetLights(camera.ViewProjection(), camera.Eye(),
                      &dir, 1, Vec3{0.04f, 0.04f, 0.06f});
 
-    // 4 灯の点光源を円周状にゆっくり回す
     PointLight pts[kPointCount];
     const Vec3 colors[kPointCount] = {
-        {1.0f, 0.3f, 0.3f},   // 赤
-        {0.3f, 1.0f, 0.4f},   // 緑
-        {0.3f, 0.4f, 1.0f},   // 青
-        {1.0f, 0.9f, 0.3f},   // 黄
+        {1.0f, 0.3f, 0.3f},
+        {0.3f, 1.0f, 0.4f},
+        {0.3f, 0.4f, 1.0f},
+        {1.0f, 0.9f, 0.3f},
     };
     for (u32 i = 0; i < kPointCount; ++i) {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kPointCount + time * 0.4f;
         const f32 r = 4.5f;
         pts[i].position = Vec3{ Sin(a) * r,
+                                // 上下に揺らして床面に色を流すと、減衰が
+                                // 視覚的にわかりやすくなる。
                                 1.5f + Sin(time * 1.5f + static_cast<f32>(i)) * 0.6f,
                                 Cos(a) * r };
-        pts[i].color    = colors[i] * 4.0f;        // 暗い部屋なので強めに
+        // 暗いシーンで色がしっかり出るよう ×4 倍。range と組み合わせて
+        // 床上の色の落ち方が綺麗に見える値。
+        pts[i].color    = colors[i] * 4.0f;
         pts[i].range    = 7.0f;
     }
     shader.SetPointLights(pts, kPointCount);
 
-    // === 描画 ===
+    // --- 描画 ---
     cl.SetPipeline(*shader.Pipeline());
     cl.SetConstantBuffer(0, *shader.PerFrameCB());
     cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetTexture(0, *shader.DefaultWhiteTexture());
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
-    // 地面
+    // 床: 暗めの灰色 + roughness 0.2 で点光源のハイライトが乗りやすい。
     shader.SetObject(Mat4::Translation(Vec3{0, 0, 0}),
                      Vec3{0.55f, 0.55f, 0.6f}, 0.2f, 32.0f);
     cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
-    // オブジェクト
     for (const ObjectInst& obj : _objects) {
         shader.SetObject(obj.model, obj.color, 0.5f, 32.0f);
         const GpuMesh& m = obj.is_sphere ? sphere : cube;
@@ -81,13 +86,13 @@ void LightsScene::Render(StandardShader&  shader,
         cl.DrawIndexed(m.index_count);
     }
 
-    // 光源を可視化 (小さな球を点光源位置に置いて自己発光風)
-    // ベース色を非常に高く + 環境光に依存する形で「光ってる」風にする
+    // 点光源を「自己発光風」に可視化。実 emissive ではなく、点光源色を
+    // base_color に流し込み・roughness=0 にして強反射させる近似。点光源の
+    // 居場所を把握するのが目的の演出なので、安価なこの方法で十分。
     for (u32 i = 0; i < kPointCount; ++i) {
         const Vec3 col = pts[i].color * 0.3f;
         const Mat4 m = Mat4::Scale(Vec3{0.2f, 0.2f, 0.2f}) *
                         Mat4::Translation(pts[i].position);
-        // 自己発光風: ambient を強く感じる色 (材質側で base_color を高く)
         shader.SetObject(m, col, 0.0f, 1.0f);
         cl.SetVertexBuffer(*sphere.vertex_buffer, sphere.vertex_stride);
         cl.SetIndexBuffer(*sphere.index_buffer);

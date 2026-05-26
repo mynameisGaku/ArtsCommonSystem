@@ -2,11 +2,12 @@
 // HelloText — TTF フォント + UTF-8 テキスト描画サンプル。
 //
 // 学習ポイント:
-//   ・Font::LoadFromFile で TTF を読み込みアトラス焼き
+//   ・Sample::TryLoadDefaultUIFont で OS 標準フォントを読み込みアトラス焼き
 //   ・SpriteBatch::DrawString で UTF-8 文字列を描画
 //   ・Font::MeasureWidth でテキスト幅を取って中央寄せ
 //
-// 注: Windows 標準フォント (meiryo.ttc) を使うので、別 OS では別パス指定が必要
+// 注: OS 標準フォント (Windows: meiryo.ttc, Mac: ヒラギノ等) に依存。
+//     見つからない環境では Sample::TryLoadDefaultUIFont が Err を返す。
 #pragma once
 
 #include "app/Application.h"
@@ -24,7 +25,9 @@ public:
 
 private:
     acs::SpriteBatch _batch;
-    acs::Font        _title_font, _body_font, _small_font;
+    acs::Font        _title_font;
+    acs::Font        _body_font;
+    acs::Font        _small_font;
     acs::f32         _time = 0.0f;
 };
 

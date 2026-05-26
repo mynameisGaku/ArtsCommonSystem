@@ -25,14 +25,13 @@ int HelloEasyApp::Run() noexcept {
     while (NextFrame()) {                   // ウィンドウを閉じると終了
         if (IsKeyPressed(EKey::Escape)) Quit();
 
-        // 入力で四角を動かす（DeltaTime を掛けてフレームレート非依存に）
+        // DeltaTime を掛けてフレームレート非依存にする
         const float step = speed * DeltaTime();
         if (IsKeyDown(EKey::Right) || IsKeyDown(EKey::D)) x += step;
         if (IsKeyDown(EKey::Left)  || IsKeyDown(EKey::A)) x -= step;
         if (IsKeyDown(EKey::Down)  || IsKeyDown(EKey::S)) y += step;
         if (IsKeyDown(EKey::Up)    || IsKeyDown(EKey::W)) y -= step;
 
-        // 描画
         DrawLine(0, 380, ScreenWidth(), 380, Color::Gray, 2.0f);
         DrawRect(x - 40, y - 40, 80, 80, Color::Sky);
         DrawCircle(MouseX(), MouseY(), 28, Color::Orange);

@@ -8,23 +8,25 @@
 //   Esc でいつでも終了
 //
 // 構成:
-//   GameTypes.h         - PlayerProfile (AppState) + RotateComponent + RotatingNode
-//   TitleScene.{h,cpp}  - Title 画面 (StateMachine Idle/Blink で 2s 毎に明滅)
-//   GameplayScene.{h,cpp} - 本編 (Node2D ツリー + Tween + Camera + Physics)
-//   PauseScene.{h,cpp}  - 一時停止 overlay (Sequence Loop でログを定期出力)
-//   HelloGfApp.{h,cpp}  - Game 派生クラス (AppState 構築、InitialScene 提供)
+//   PlayerProfile.h         - AppState (シーン跨ぎ永続状態) のサンプル struct
+//   RotateComponent.{h,cpp} - composition 版: プレーン Node2D に attach する回転
+//   RotatingNode.{h,cpp}    - 継承版: Node2D サブクラスで毎フレーム回転
+//   TitleScene.{h,cpp}      - Title 画面 (StateMachine Idle/Blink で 2s 毎に明滅)
+//   GameplayScene.{h,cpp}   - 本編 (Node2D ツリー + Tween + Camera + Physics)
+//   PauseScene.{h,cpp}      - 一時停止 overlay (Sequence Loop でログを定期出力)
+//   HelloGfApp.{h,cpp}      - Game 派生クラス (AppState 構築、InitialScene 提供)
 //
-// Phase 2-11 で示す機能 (詳細は HelloGfApp / Scene 群のコメント参照):
-//   Phase 2 : AppState (PlayerProfile) + 固定 step + ChangeScene/PushScene/PopScene
-//   Phase 3 : SceneClock + TweenManager + Easing
-//   Phase 4 : StateMachine<Owner> + Sequence + SequenceRunner
-//   Phase 5 : Transform2D + Node2D ツリー (root → wheel → spoke)
-//   Phase 6 : InputMap (キー binding + 1D axis)
-//   Phase 7 : Component2D (RotateComponent attach、継承パターンとの対比)
-//   Phase 8 : SceneServices ハブ (Default2D を WantedServices で宣言)
-//   Phase 9 : Camera2D follow + screen shake (trauma)
-//   Phase 10: CollisionWorld2D + SpatialGrid (AddCircle / OverlapAabb / Raycast)
-//   Phase 11: PhysicsBody2D (重力で落下する ball + 静的 ground)
+// このサンプルが網羅する GameFramework の主要機能:
+//   AppState + 固定 step + ChangeScene/PushScene/PopScene
+//   SceneClock + TweenManager + Easing
+//   StateMachine<Owner> + Sequence + SequenceRunner
+//   Transform2D + Node2D ツリー (root → wheel → spoke)
+//   InputMap (キー binding + 1D axis)
+//   Component2D (RotateComponent attach、継承パターンとの対比)
+//   SceneServices ハブ (Default2D を WantedServices で宣言)
+//   Camera2D follow + screen shake (trauma)
+//   CollisionWorld2D + SpatialGrid (AddCircle / OverlapAabb / Raycast)
+//   PhysicsBody2D (重力で落下する ball + 静的 ground)
 #include "HelloGfApp.h"
 
 ACS_GAME_MAIN(hellogf::HelloGfApp)

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloSpriteAtlasEditor — Game 派生のアプリケーションクラス。
-// ImGui lifecycle を Game に持たせる薄いラッパ (sample 29/30/31 と完全に同形)。
+// ImGui lifecycle を Game に持たせる薄いラッパ。
 #pragma once
 
 #include "gameframework/GameFramework.h"

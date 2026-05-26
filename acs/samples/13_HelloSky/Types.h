@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloSky — 共通型 + 定数。
-// 空のプリセット種別 (Day/Sunset/Night) と、それぞれの ambient 色を
-// 1 ヘッダに集約。
+// 空のプリセット種別 (Day/Sunset/Night) と、対応する ambient 色を集約。
 //
-// `inline constexpr` で header 内に置くため、複数 TU に include しても 1 つの
-// ストレージに resolve される (C++17)。
+// 定数を `inline constexpr` で header 内に置く理由: 複数 TU から include しても
+// ODR 違反にならず 1 つのストレージに resolve される (C++17 以降)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -12,14 +11,15 @@
 
 namespace hellosky {
 
-// Sky の preset 種別 (1/2/3 キーで切り替える)
+// 1/2/3 キーで切り替える Sky の preset 種別。
 enum class SkyPreset : acs::u8 {
     Day    = 0,
     Sunset = 1,
     Night  = 2,
 };
 
-// 各 preset に対応する ambient 色 (Sky の zenith を弱めた相当)
+// preset 別の ambient 色。Sky の zenith をそのまま使うと明るすぎるので
+// 各時間帯の雰囲気に合わせて減衰させた値を採用。
 inline constexpr acs::Vec3 kAmbientDay   {0.20f, 0.22f, 0.30f};
 inline constexpr acs::Vec3 kAmbientSunset{0.20f, 0.10f, 0.10f};
 inline constexpr acs::Vec3 kAmbientNight {0.04f, 0.05f, 0.10f};

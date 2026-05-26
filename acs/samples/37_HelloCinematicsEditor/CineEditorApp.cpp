@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloCinematicsEditor — CineEditorApp 実装。
-// ImGui lifecycle を Game に持たせる薄いラッパ (sample 29/30/31/32 と完全に同形)。
+// ImGui lifecycle を Game に持たせる薄いラッパ。
 #include "CineEditorApp.h"
 #include "CineEditorScene.h"
 

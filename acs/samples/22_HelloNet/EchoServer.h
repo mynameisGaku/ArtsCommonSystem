@@ -7,7 +7,7 @@
 
 namespace hellonet {
 
-// echo サーバが listen する loopback port。
+// echo サーバとクライアントが合意する port (ローカルテスト用に固定値)。
 inline constexpr acs::u16 kEchoPort = 8765;
 
 // Thread::Spawn から呼ばれるサーバ本体。user は使わない (nullptr で OK)。

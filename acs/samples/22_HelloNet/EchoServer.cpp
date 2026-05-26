@@ -28,7 +28,6 @@ void ServerThread(void* /*user*/) noexcept {
     char buf[256];
     isize n = conn.Recv(buf, sizeof(buf));
     if (n > 0) {
-        // 受信内容をそのまま echo back
         conn.Send(buf, static_cast<usize>(n));
     }
 }

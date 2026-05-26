@@ -19,10 +19,10 @@ namespace helloibl {
 inline constexpr acs::u32 kEquirectWidth  = 256;
 inline constexpr acs::u32 kEquirectHeight = 128;
 
-// Phase 34f-3: 動的球 (公転発光オーブ) の数。color pass + motion pass の両方が参照。
+// 動的球 (公転発光オーブ) の数。color pass + motion pass の両方が参照。
 inline constexpr acs::u32 kDynCount = 3;
 
-// Phase 35-3b/3c + 35-3d: ガラス球のワールド配置。clear (左) / frosted (右)。
+// ガラス球のワールド配置。clear (左) / frosted (右)。
 inline constexpr acs::Vec3 kGlassPos       {-1.4f, 1.5f, 0.0f};
 inline constexpr acs::Vec3 kFrostedGlassPos{ 1.4f, 1.5f, 0.0f};
 

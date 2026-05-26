@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloImGui — Application 派生クラス。
-// ImGui を初期化して FPS / 背景色スライダー / ImGui demo window を表示するだけの
-// 最小サンプル。Imgui モジュールが ACS をどう wrap しているかの reference 実装。
+// ImGui を初期化して FPS / 背景色スライダー / ImGui demo window を表示する最小サンプル。
+// Imgui モジュールが ACS をどう wrap しているかの reference 実装。
 #pragma once
 
 #include "app/Application.h"

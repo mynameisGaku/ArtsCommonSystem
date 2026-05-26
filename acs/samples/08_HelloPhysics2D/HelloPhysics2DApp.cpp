@@ -13,7 +13,9 @@ namespace hellophysics2d {
 
 namespace {
 
-// 中心が白、外周が透けてる円型テクスチャを生成
+// 中心が不透明白、外周にいくほどアルファが線形に落ちる円型テクスチャ。
+// RGB を Ball::r/g/b で乗算するため、テクスチャ側は白固定にしておく。
+// max_r を半径から 2px 引いて、エッジに 1〜2px の柔らかい透明帯を作る (aliasing 軽減)。
 void GenerateBallTexture(u8* out) noexcept {
     for (u32 y = 0; y < kBallTexSize; ++y) {
         for (u32 x = 0; x < kBallTexSize; ++x) {
@@ -39,13 +41,12 @@ void HelloPhysics2DApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    // SpriteBatch
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
-    // フォント (OS 別の標準フォント候補を Sample helper で解決)
+    // フォントは OS 別の標準 UI フォント候補を Sample helper で解決。
+    // 失敗時 (フォントが見つからない / ロード失敗) は HUD なしで続行する。
     (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
-    // ボールテクスチャ生成
     u8 pixels[kBallTexSize * kBallTexSize * 4];
     GenerateBallTexture(pixels);
     TextureDesc td{};
@@ -56,7 +57,6 @@ void HelloPhysics2DApp::OnStart() noexcept {
     if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) { Quit(); return; }
     else _tex = Move(r.Value());
 
-    // 初期ボール 30 個
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
     _scene.Init(sw, sh, 30);
@@ -79,7 +79,6 @@ void HelloPhysics2DApp::OnRender() noexcept {
     const u32 sh = GetRenderer().Swapchain()->Height();
 
     _batch.Begin(*cl, sw, sh);
-    // 背景
     _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
                     Vec4{0.05f, 0.07f, 0.10f, 1});
 

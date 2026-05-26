@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloAnimCurveEditor — Game 派生のアプリケーションクラス。
-// ImGui lifecycle を Game に持たせる薄いラッパ (sample 29/30/31 と同形)。
+// ImGui の lifecycle (Init/NewFrame/Render/Shutdown/OnEvent) を Game の各 hook に
+// 配線する薄いラッパ。Scene 側は ImGui::* を呼ぶだけでよい。
 #pragma once
 
 #include "gameframework/GameFramework.h"

@@ -17,22 +17,20 @@ namespace hellofont {
 // ----------------------------------------------------------------------------
 void FontEditorScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー (背景は ImGui に隠れるが viewport の
-    // 外側のクリア色を編集向けに揃える、sample 35 と同調)。
+    // 外側のクリア色を編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
-    // ---- workspace 本体 ----
     _workspace.Init();
 
-    // ---- editor panel を workspace に register ----
-    // EditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ
-    // (Phase 21a 規約)。よって panel.OnInit を別途呼ぶ必要は無い。
+    // EditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
+    // よって panel.OnInit を別途呼ぶ必要は無い。
     // SetPreviewText / AddFontFace は OnInit より後でも構わない。
     _editor_panel.Init();
     _workspace.RegisterPanel(&_editor_panel);
 
     // ---- 初期 3 face を fallback chain に登録 ----
-    // 注意: file_path は stub (実際の loader 統合は Phase 23+)。path 文字列は
-    // 静的リテラル (.rdata) なので panel から非所有参照しても安全。
+    // file_path は stub (実 loader 統合は未着手)。path 文字列は静的リテラル
+    // (.rdata) なので panel から非所有参照しても安全。
     {
         fontedit::FontFaceInfo jp{};
         jp.file_path      = L"assets/fonts/NotoSansJP-Regular.otf";
@@ -64,7 +62,6 @@ void FontEditorScene::OnEnter() noexcept {
         _editor_panel.AddFontFace(emoji);
     }
 
-    // ---- preview text ----
     _editor_panel.SetPreviewText("ACS Font Editor サンプル 123 αβγ ★★★");
     _editor_panel.SetPreviewFontSize(28.0f);
 
@@ -79,8 +76,7 @@ void FontEditorScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 void FontEditorScene::OnExit() noexcept {
     // EditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
-    // 呼んでから list を Clear する (Phase 21a 規約)。よって個別
-    // UnregisterPanel を呼ぶ必要は無い。
+    // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
     _workspace.Shutdown();
     // panel 本体の internal state を解放 (face 配列 / preview バッファクリア)。
     _editor_panel.Shutdown();
@@ -106,16 +102,14 @@ void FontEditorScene::OnUpdate(f32 dt) noexcept {
 // OnRender — File menu (Save/Load stub) → Workspace 全描画
 // ----------------------------------------------------------------------------
 void FontEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
-    // ---- File メニュー (Workspace::DrawMenuBar の前に push) ----
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
     // マージするので、本 sample 専用の File メニューを Workspace の Window/
     // Layout メニューと並べて表示できる。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Save .acsfont")) {
-                // Phase 23 範囲外: serializer 本体は未配線。callback hook だけ
-                // 走らせる stub。将来は FontSerializer::Save(kFontFilePath,
-                //                                            _editor_panel) を呼ぶ。
+                // serializer 本体は未配線。callback hook だけ走らせる stub。
+                // 将来は FontSerializer::Save(kFontFilePath, _editor_panel) を呼ぶ。
                 ACS_LOG_INFO("[FontEditor] Save .acsfont -> '%s' (stub, no-op, %u faces)",
                              kFontFilePath,
                              static_cast<unsigned>(_editor_panel.FontFaceCount()));
@@ -132,8 +126,8 @@ void FontEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
         ImGui::EndMainMenuBar();
     }
 
-    // ---- Workspace 全描画 (1 行で OnFrameBegin → DockSpace → MenuBar →
-    //      各 panel DrawUI を順に発火) ----
+    // Workspace 全描画 (1 行で OnFrameBegin → DockSpace → MenuBar → 各 panel
+    // DrawUI を順に発火)。
     _workspace.TickAllPanels(GetGame().DeltaTime());
 }
 

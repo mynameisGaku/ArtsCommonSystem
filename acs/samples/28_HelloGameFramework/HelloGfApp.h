@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloGameFramework — Game 派生のアプリケーションクラス。
 //
-// Phase 2: AppState (PlayerProfile) を Game に持たせ、SetFixedTimestep で
-// 固定 step を明示。`InitialScene()` で TitleScene を返す。
+// AppState (PlayerProfile) の構築と固定 step の明示を行い、InitialScene() で
+// TitleScene を返す。Game の最小限カスタマイズ例。
 #pragma once
 
 #include "gameframework/GameFramework.h"

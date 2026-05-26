@@ -12,8 +12,7 @@ namespace hellogf {
 
 void PauseScene::OnEnter() noexcept {
     GetGame().SetClearColor(0.18f, 0.18f, 0.20f);   // grey
-    // Phase 4 Sequence デモ: Wait → Call → Wait → Call を Loop(0)=無限。
-    // Pause を抜けるまでコンソールに「still paused...」が周期的に出力される。
+    // Wait → Call → Wait → Call を Loop(0)=無限。Pause を抜けるまで定期出力する。
     Sequence s;
     s.Wait(0.5f)
      .Call(&PauseScene::LogStillPaused1, this)

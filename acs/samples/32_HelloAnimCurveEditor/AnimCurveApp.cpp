@@ -11,27 +11,25 @@ using namespace acs::game;
 namespace helloac {
 
 void AnimCurveApp::OnStart() noexcept {
-    // ImGui を Window + Renderer に紐付け。失敗時は早期 Quit。
     if (auto r = _imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
+        // ImGui 初期化失敗時は Scene を回しても何も描けないので早期 Quit。
         ACS_LOG_ERROR("[AnimCurveApp] ImGuiCtx.Init failed -> Quit");
         Quit();
         return;
     }
-    // 基底の OnStart は InitialScene() を push する。
+    // 基底の OnStart が InitialScene() を push する。
     Game::OnStart();
 }
 
 void AnimCurveApp::OnRender() noexcept {
-    // ImGui フレーム開始 → Scene::OnRender で ImGui::* が呼ばれる →
-    // ImGui の描画コマンドをコマンドリストに発行、の順。
+    // Scene::OnRender 内の ImGui::* を NewFrame と Render の間に挟む。
     _imgui.NewFrame();
     Game::OnRender();
     _imgui.Render();
 }
 
 void AnimCurveApp::OnShutdown() noexcept {
-    // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
-    // ないことを保証)。
+    // Scene が ImGui::* を握っていない状態にしてから ImGui を落とす。
     Game::OnShutdown();
     _imgui.Shutdown();
 }

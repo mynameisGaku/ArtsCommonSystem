@@ -9,14 +9,14 @@
 
 #include "gameframework/GameFramework.h"
 
-// ----- editor_core (Phase 21a) -----
+// editor_core: ImGui ベースのエディタ基盤 (Workspace + Theme)。
 #include "gameframework/tools/editor_core/EditorWorkspace.h"
 #include "gameframework/tools/editor_core/EditorTheme.h"
 
-// ----- leveledit (Phase 22) -----
+// leveledit: Tilemap 編集用の ImGui Panel。
 #include "gameframework/tools/leveledit/LevelEditorPanel.h"
 
-// ----- Tilemap (Pillar Q) -----
+// Tilemap: 2D グリッド状の tile データコンテナ (Pillar Q)。
 #include "gameframework/Tilemap.h"
 
 namespace hellole {
@@ -29,17 +29,26 @@ public:
     void OnRender(acs::game::RenderContext& rc) noexcept override;
 
 private:
-    // File menu stub (実 serializer は Phase 23+ で配線)
+    // OnEnter から呼ばれる、tilemap の初期パターン書き込み (床 + 壁)。
+    // 「データ生成」と「panel/workspace 配線」を分けるための private helper。
+    void _seed_initial_tilemap_pattern() noexcept;
+
+    // OnRender 内で main menu bar に "File" / "Brush" メニューを push する
+    // private helper。各メニューを 1 関数に分けて OnRender 本体を短く保つ。
+    void _draw_file_menu() noexcept;
+    void _draw_brush_menu() noexcept;
+
+    // File メニューの Save/Load stub が示すパス (実シリアライザは未配線)。
     static constexpr const char* kSavePath = "tilemap.acstilemap";
 
-    // ---- editor_core (Phase 21a) ----
+    // ImGui ベースのエディタ基盤 (Workspace + Theme)。
     acs::game::editor_core::EditorWorkspace _workspace;
     acs::game::editor_core::EditorTheme     _theme;
 
-    // ---- leveledit (Phase 22) ----
+    // Tilemap を編集するための ImGui Panel。
     acs::game::leveledit::LevelEditorPanel  _level_panel;
 
-    // ---- 編集対象 Tilemap ----
+    // 編集対象 Tilemap。LevelEditorPanel に raw 参照で渡す (所有は本 Scene 側)。
     acs::game::Tilemap                      _tilemap;
 };
 

@@ -12,8 +12,6 @@
 
 namespace hellophysics2d {
 
-class HelloPhysics2DApp;   // 前方宣言
-
 class PhysicsScene {
 public:
     // 初期ボール (n 個) をランダム配置。Swapchain サイズで初期位置を決めるので
@@ -29,19 +27,15 @@ public:
                 acs::IRhiTexture& ball_tex,
                 acs::f32 fps) noexcept;
 
-    // 全消去
     void Clear() noexcept { _ball_count = 0; }
-
-    // 指定位置にボールをスポーン
     void SpawnBallAt(acs::f32 x, acs::f32 y) noexcept;
 
-    // 現在のボール数
     acs::u32 BallCount() const noexcept { return _ball_count; }
 
 private:
     void SpawnRandomBalls(acs::u32 n, acs::u32 screen_w, acs::u32 screen_h) noexcept;
 
-    // xorshift32 簡易乱数
+    // xorshift32: 軽量・状態 4 byte のみで決定論的、サンプル用途に十分。
     acs::f32 RandF() noexcept;
 
     Ball     _balls[kMaxBalls] {};

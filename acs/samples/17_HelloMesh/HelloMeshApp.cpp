@@ -94,10 +94,9 @@ void HelloMeshApp::OnStart() noexcept {
 void HelloMeshApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    // 自転
     _angle += dt * 0.8f;
 
-    // カメラを矢印キーで左右回転
+    // 矢印キーでカメラを左右回転 (キューブを公転する視点)
     if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
     if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
 
@@ -105,7 +104,6 @@ void HelloMeshApp::OnUpdate(f32 dt) noexcept {
     Vec3 eye{ Sin(_cam_yaw) * cam_dist, 2.0f, -Cos(_cam_yaw) * cam_dist };
     _camera.SetLookAt(eye, {0, 0, 0});
 
-    // モデル行列 = 回転 (Y 軸)
     Mat4 model = Mat4::RotationY(_angle);
     Mat4 mvp   = model * _camera.View() * _camera.Projection();
     _cb->Update(&mvp, sizeof(Mat4));

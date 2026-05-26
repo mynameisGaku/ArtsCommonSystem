@@ -1,31 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloShowcase — ShowcaseApp 実装。OnStart / OnUpdate / OnCustomFrame /
-// OnShutdown でフレームをまわす。
+// OnShutdown でフレームをまわす orchestration 層。実際の draw は pass 系
+// helper (PbrPass / RefractionPass / MotionPass / SsrPass / BloomPass /
+// HudPass) と GPU resource は Assets (ShowcaseAssets.{h,cpp}) に分割している。
 #include "ShowcaseApp.h"
+
+#include "BloomPass.h"
+#include "HudPass.h"
+#include "MotionPass.h"
+#include "PbrPass.h"
+#include "RefractionPass.h"
 #include "ShowcaseTypes.h"
+#include "SsrPass.h"
 
 #include "app/Sample.h"
-#include "platform/Input.h"
-
-#include "asset/MeshPrimitive.h"
-
-#include "render/IRhiDevice.h"
-#include "render/IRhiCommandList.h"
-#include "render/IRhiTexture.h"
-#include "render/RhiTypes.h"
-
 #include "math/Math.h"
-
-#include "foundation/Log.h"
-
-#include <cstdio>
+#include "platform/Input.h"
+#include "render/IRhiCommandList.h"
+#include "render/IRhiDevice.h"
+#include "render/IRhiTexture.h"
 
 using namespace acs;
 
 namespace helloshowcase {
 
-// ctor/dtor は明示的に cpp 側に定義する。UniquePtr<IRhiTexture> を抱えるため、
-// ヘッダ側に dtor を書くと include 側が IRhiTexture の完全型を要求してしまう。
+// ctor/dtor は明示的に cpp 側に定義する。Assets が UniquePtr<IRhiTexture> を
+// 抱えるため、ヘッダ側に dtor を書くと include 側が完全型を要求してしまう。
 ShowcaseApp::ShowcaseApp() noexcept = default;
 ShowcaseApp::~ShowcaseApp() noexcept = default;
 
@@ -37,53 +37,14 @@ void ShowcaseApp::OnStart() noexcept {
 
     const u32 sw = sc->Width();
     const u32 sh = sc->Height();
-
-    // HDR + Bloom + ACES tonemap
-    ACS_SAMPLE_INIT(_post.Init(*dev, sw, sh, GetRenderer().ColorFormat()));
-
-    // Sky / PBR / mesh は全部 HDR format で初期化
-    ACS_SAMPLE_INIT(_sky.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
-    _sky.PresetDay();
-    ACS_SAMPLE_INIT(_pbr.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
-
-    auto sphere = Primitive::MakeSphere(kSphereRadius, 48, 24);
-    ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
-    auto plane = Primitive::MakePlane(kFloorSize, kFloorSize);
-    ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, _gm_floor));
-
-    // SSR (env reflection composite via PbrShader、Phase 34e-2fix)
-    ACS_SAMPLE_INIT(_ssr.Init(*dev, _post.HdrFormat(), sw, sh));
-    // Hi-Z coarse min-depth (Phase 36-3a) — SSR の skip-ahead 用 1/8 解像度
-    ACS_SAMPLE_INIT(_hiz.Init(*dev, sw, sh));
-    // GTAO (Phase 34j-6) — indirect/ambient AO
-    ACS_SAMPLE_INIT(_ssao.Init(*dev, sw, sh));
-    // Motion vector — TAA / SSR temporal の object motion 用
-    ACS_SAMPLE_INIT(_motion.Init(*dev, sw, sh));
-    // Refraction (Phase 35-3b/3c/3d) — 屈折ガラス球
-    ACS_SAMPLE_INIT(_refr.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
-    ACS_SAMPLE_INIT(_blit.Init(*dev, _post.HdrFormat()));
-    {
-        TextureDesc bg_td{};
-        bg_td.width  = sw;
-        bg_td.height = sh;
-        bg_td.format = _post.HdrFormat();
-        bg_td.is_render_target = true;
-        auto bg_r = CreateRhiTexture(*dev, bg_td);
-        if (bg_r.IsErr()) {
-            ACS_LOG_ERROR("HelloShowcase: background RT 作成失敗: %s", bg_r.Error().message);
-            Quit(); return;
-        }
-        _bg_rt = Move(bg_r.Value());
-    }
-
-    // SpriteBatch (LDR tonemap 後のオーバーレイ用)
-    ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    ACS_SAMPLE_INIT(InitializeAssets(_assets, *dev, sw, sh,
+                                      GetRenderer().ColorFormat(),
+                                      GetRenderer().DepthFormat()));
 
     const f32 aspect = static_cast<f32>(sw) / static_cast<f32>(sh);
     _camera.SetPerspective(45.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
 
-    // post params: 控えめな bloom + ACES + mild vignette
+    // post params: 控えめな bloom + ACES + mild vignette。
     // sun.color が 1.2x (HelloIbl 0.9x 互換) なので threshold もそれ相応に下げて
     // emissive orb (strength=4.0) の bloom がちゃんと光るようにする。
     _post_params.bloom_threshold      = 1.0f;
@@ -128,12 +89,12 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
-    IRhiTexture*     hdr   = _post.HdrRenderTarget();
+    IRhiTexture*     hdr   = _assets.post.HdrRenderTarget();
     if (!dev || !cl || !sc || !hdr || !depth) return false;
 
     cl->Begin();
 
-    // ============ TAA jitter (Halton 2,3) ============
+    // ===== TAA jitter (Halton 2,3) =====
     // Halton(0, b) = 0 を避けるため +1 オフセット (HelloIbl と同様)
     const f32 jx = Halton((_taa_frame_index & 31) + 1, 2) - 0.5f;
     const f32 jy = Halton((_taa_frame_index & 31) + 1, 3) - 0.5f;
@@ -143,255 +104,65 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     const Mat4 view_proj_jittered = _camera.ViewProjection() *
                                     Mat4::Translation(Vec3{jx_ndc, jy_ndc, 0.0f});
     const Mat4 vp_no_jitter = _camera.ViewProjection();
-    const Mat4 vp_for_render = view_proj_jittered;
-    const Mat4 inv_vp        = Inverse(vp_for_render);
+    const Mat4 inv_vp        = Inverse(view_proj_jittered);
 
-    // ============ IBL init (1 度だけ走る) ============
-    if (!_ibl.HasBrdfLut())       (void)_ibl.EnsureBrdfLut(*dev, *cl);
-    if (!_ibl.HasEnvCubemap())    (void)_ibl.EnsureEnvCubemap(*dev, *cl, _sky);
-    if (!_ibl.HasIrradianceMap()) (void)_ibl.EnsureIrradiance(*dev, *cl);
-    if (!_ibl.HasPrefilterMap())  (void)_ibl.EnsurePrefilter(*dev, *cl);
+    // ===== IBL warmup (1 度だけ走る) =====
+    if (!_assets.ibl.HasBrdfLut())       (void)_assets.ibl.EnsureBrdfLut(*dev, *cl);
+    if (!_assets.ibl.HasEnvCubemap())    (void)_assets.ibl.EnsureEnvCubemap(*dev, *cl, _assets.sky);
+    if (!_assets.ibl.HasIrradianceMap()) (void)_assets.ibl.EnsureIrradiance(*dev, *cl);
+    if (!_assets.ibl.HasPrefilterMap())  (void)_assets.ibl.EnsurePrefilter(*dev, *cl);
 
-    // ============ Opaque HDR pass ============
-    cl->BeginRenderToTexture(*hdr, ClearColor{0, 0, 0, 1}, depth, 1.0f);
-
-    Viewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
-                   vp.height = static_cast<f32>(hdr->Height());
-    cl->SetViewport(vp);
-    ScissorRect svr{}; svr.right  = static_cast<i32>(hdr->Width());
-                       svr.bottom = static_cast<i32>(hdr->Height());
-    cl->SetScissor(svr);
-
-    // Sky (background skybox)
-    _sky.Render(*cl, _camera);
-
-    // PBR scene — light + IBL + 1-frame-latency 合成 (SSR / SSAO)
-    DirLight sun{};
-    sun.direction = _sky.SunDirection();
-    sun.color     = _sky.SunColor() * 1.2f;
-    _pbr.SetLights(vp_for_render, _cam_pos, &sun, 1, Vec3{0, 0, 0});
-    _pbr.SetIbl(_ibl.IrradianceMap(), _ibl.PrefilterMap(),
-                _ibl.BrdfLut(), _ibl.PrefilterMips());
-    // SSR は前フレーム結果を合成 (1-frame latency)。warm flag が立つまで null。
-    if (_show_ssr && _ssr_warm && _ssr.OutputTexture()) {
-        _pbr.SetSsr(_ssr.OutputTexture(), /*intensity=*/1.0f);
-    } else {
-        _pbr.SetSsr(nullptr, 0.0f);
-    }
-    // SSAO も 1-frame latency。warm flag でフレーム 0 のゴミ防止。
-    if (_ssao_warm) {
-        _pbr.SetSsao(_ssao.OutputTexture(), /*intensity=*/0.8f,
-                     hdr->Width(), hdr->Height());
-    } else {
-        _pbr.SetSsao(nullptr, 0.0f, hdr->Width(), hdr->Height());
-    }
-
-    // Floor
-    const Mat4 floor_model = Mat4::Translation(Vec3{0, kFloorY, 0});
-    _pbr.SetExtParams(0.0f, 0.5f, 0.0f, Vec3{1, 0, 0});
-    _pbr.SetSheen(Vec3{0, 0, 0}, 0.0f, 0.0f);
-    _pbr.SetIridescence(0.0f, 400.0f, 1.35f);
-    _pbr.SetSubsurface(Vec3{0, 0, 0}, 0.0f);
-    _pbr.DrawMesh(*cl, _gm_floor, floor_model,
-                  Vec3{0.18f, 0.19f, 0.21f}, /*metallic=*/0.0f,
-                  /*roughness=*/0.45f, /*ao=*/1.0f);
-
-    // 4 spheres
-    for (u32 i = 0; i < kSphereCount; ++i) {
-        const MaterialKind k = kSphereKind[i];
-        if (k == MaterialKind::ClearGlass || k == MaterialKind::FrostedGlass) {
-            // glass は refraction pass で描く (この opaque pass では skip)
-            continue;
-        }
-        const Mat4 m = Mat4::Scale(Vec3{kSphereScale, kSphereScale, kSphereScale}) *
-                       Mat4::Translation(Vec3{kSphereX[i], kSphereY, kSphereZ});
-        // material 再 reset (前の sphere の値が残らないように)
-        _pbr.SetExtParams(0.0f, 0.5f, 0.0f, Vec3{1, 0, 0});
-        _pbr.SetSheen(Vec3{0, 0, 0}, 0.0f, 0.0f);
-        _pbr.SetIridescence(0.0f, 400.0f, 1.35f);
-        _pbr.SetSubsurface(Vec3{0, 0, 0}, 0.0f);
-        _pbr.SetEmissive(Vec3{0, 0, 0}, 0.0f);
-
-        if (k == MaterialKind::Gold) {
-            // 金: metallic 1.0、low roughness、base color は典型的な金
-            _pbr.DrawMesh(*cl, _gm_sphere, m,
-                          Vec3{1.00f, 0.78f, 0.34f}, 1.0f, 0.15f, 1.0f);
-        } else /* Ceramic */ {
-            // セラミック: 高 roughness、白ベース
-            _pbr.DrawMesh(*cl, _gm_sphere, m,
-                          Vec3{0.92f, 0.92f, 0.92f}, 0.0f, 0.75f, 1.0f);
-        }
-    }
-
-    // Emissive orbs (公転 + 鼓動的なスケール pulse)
+    // ===== Opaque HDR pass (Sky + PBR + emissive orb) =====
     Mat4 orb_curr[kOrbCount]{};
-    for (u32 i = 0; i < kOrbCount; ++i) {
-        const f32 ang = _orb_phase + static_cast<f32>(i) * kPi;
-        const Vec3 pos{
-            kOrbOrbitRadius * Sin(ang),
-            kOrbY,
-            kOrbOrbitRadius * Cos(ang),
-        };
-        // 0.85x ~ 1.15x の鼓動的 pulse (orb ごとに位相をずらす)
-        const f32 pulse = kOrbScale *
-                          (1.0f + 0.15f * Sin(_orb_phase * 2.7f
-                                               + static_cast<f32>(i) * (kPi * 0.5f)));
-        orb_curr[i] = Mat4::Scale(Vec3{pulse, pulse, pulse}) *
-                      Mat4::Translation(pos);
-        _pbr.SetExtParams(0.0f, 0.5f, 0.0f, Vec3{1, 0, 0});
-        _pbr.SetSheen(Vec3{0, 0, 0}, 0.0f, 0.0f);
-        _pbr.SetIridescence(0.0f, 400.0f, 1.35f);
-        _pbr.SetSubsurface(Vec3{0, 0, 0}, 0.0f);
-        _pbr.SetEmissive(kOrbColors[i], kOrbEmissiveStrength);
-        _pbr.DrawMesh(*cl, _gm_sphere, orb_curr[i],
-                      kOrbColors[i], 0.0f, 0.4f, 1.0f);
-    }
-    _pbr.SetEmissive(Vec3{0, 0, 0}, 0.0f);
+    ExecutePbrPass(_assets, *cl, *hdr, *depth, _camera,
+                   view_proj_jittered, _cam_pos, _orb_phase,
+                   _ssr_warm, _ssao_warm, orb_curr);
 
-    cl->EndRenderToTexture(*hdr);
-
-    // ============ Refraction pass (Phase 35-3b/3c/3d) ============
+    // ===== Refraction pass (clear / frosted glass) =====
     if (_show_refraction) {
-        _blit.Copy(*cl, *hdr, *_bg_rt);
-        cl->BeginRenderToTextureLoad(*hdr, depth);
-        cl->SetViewport(vp);
-        cl->SetScissor(svr);
-        _refr.SetFrame(vp_for_render, _cam_pos);
-        IRhiTexture* env = _ibl.HasPrefilterMap() ? _ibl.PrefilterMap()
-                                                   : _ibl.EnvCubemap();
-        if (env) {
-            for (u32 i = 0; i < kSphereCount; ++i) {
-                const MaterialKind k = kSphereKind[i];
-                if (k != MaterialKind::ClearGlass && k != MaterialKind::FrostedGlass)
-                    continue;
-                const Mat4 m = Mat4::Scale(Vec3{kSphereScale, kSphereScale, kSphereScale}) *
-                               Mat4::Translation(Vec3{kSphereX[i], kSphereY, kSphereZ});
-                const f32 roughness = (k == MaterialKind::FrostedGlass) ? 0.5f : 0.0f;
-                const Vec3 tint = (k == MaterialKind::FrostedGlass)
-                                      ? Vec3{0.95f, 0.97f, 1.0f}    // 弱く青
-                                      : Vec3{1.0f,  1.0f,  1.0f};   // クリア
-                // clear glass は dispersion を入れて diamond/prism 風の色分離を見せる
-                const f32 dispersion = (k == MaterialKind::ClearGlass) ? 0.5f : 0.0f;
-                _refr.DrawMesh(*cl, _gm_sphere, m, *_bg_rt, *env,
-                               /*ior=*/1.5f, /*thickness=*/0.45f, tint,
-                               roughness, dispersion);
-            }
-        }
-        cl->EndRenderToTexture(*hdr);
+        ExecuteRefractionPass(_assets, *cl, *hdr, *depth,
+                              view_proj_jittered, _cam_pos);
     }
 
-    // ============ Geometry G-buffer pass (motion + normal) ============
-    // SSR / TAA が使う。床 + opaque sphere + glass + orb を含める。
-    {
-        const Mat4 motion_prev_vp = _prev_vp_valid ? _prev_vp_no_jitter
-                                                   : vp_no_jitter;
-        _motion.Begin(*cl, vp_no_jitter, motion_prev_vp);
-        _motion.DrawMesh(*cl, _gm_floor, floor_model, floor_model);
-        for (u32 i = 0; i < kSphereCount; ++i) {
-            const Mat4 m = Mat4::Scale(Vec3{kSphereScale, kSphereScale, kSphereScale}) *
-                           Mat4::Translation(Vec3{kSphereX[i], kSphereY, kSphereZ});
-            _motion.DrawMesh(*cl, _gm_sphere, m, m);
-        }
-        for (u32 i = 0; i < kOrbCount; ++i) {
-            // orb は dynamic — prev pos も計算
-            const f32 ang_prev = _prev_orb_phase + static_cast<f32>(i) * kPi;
-            const Vec3 pos_prev{
-                kOrbOrbitRadius * Sin(ang_prev),
-                kOrbY,
-                kOrbOrbitRadius * Cos(ang_prev),
-            };
-            const Mat4 prev = Mat4::Scale(Vec3{kOrbScale, kOrbScale, kOrbScale}) *
-                              Mat4::Translation(pos_prev);
-            _motion.DrawMesh(*cl, _gm_sphere, orb_curr[i],
-                             _prev_vp_valid ? prev : orb_curr[i]);
-        }
-        _motion.End(*cl);
-    }
-    IRhiTexture* motion_tex = _prev_vp_valid ? _motion.OutputTexture() : nullptr;
-    _post_params.taa_motion_texture = motion_tex;
+    // ===== Motion + normal G-buffer pass (TAA / SSR / SSAO 用) =====
+    IRhiTexture* motion_tex = ExecuteMotionPass(_assets, *cl, vp_no_jitter,
+                                                 _prev_vp_no_jitter, _prev_vp_valid,
+                                                 _prev_orb_phase, orb_curr);
 
-    // ============ SSR pass ('R' で toggle) ============
-    if (_show_ssr) {
-        // Hi-Z (Phase 36-3a): SSR の skip-ahead 用 coarse min-depth を depth から焼く
-        _hiz.Build(*dev, *cl, *depth);
-        const Mat4& ssr_prev_vp = _prev_vp_valid ? _prev_vp_no_jitter : vp_no_jitter;
-        _ssr.Render(*dev, *cl, *hdr, *depth,
-                    *_motion.OutputNormalTexture(),
-                    vp_for_render, inv_vp, ssr_prev_vp,
-                    _cam_pos, /*intensity=*/0.7f, motion_tex,
-                    _hiz.Texture());
-        _ssr_warm = true;
-    }
+    // ===== SSR / SSAO (1-frame latency で次フレームの PBR が合成) =====
+    const Mat4& ssr_prev_vp = _prev_vp_valid ? _prev_vp_no_jitter : vp_no_jitter;
+    ExecuteSsrPass(_assets, *dev, *cl, *hdr, *depth,
+                   view_proj_jittered, inv_vp, ssr_prev_vp,
+                   _cam_pos, motion_tex, _show_ssr);
+    if (_show_ssr) _ssr_warm = true;
+    ExecuteSsaoPass(_assets, *dev, *cl, *depth,
+                    view_proj_jittered, inv_vp, _camera.View(), _cam_pos);
+    _ssao_warm = true;
 
-    // ============ SSAO (GTAO) pass ============
-    _ssao.Render(*dev, *cl, *depth,
-                 *_motion.OutputNormalTexture(),
-                 vp_for_render, inv_vp, _camera.View(),
-                 _cam_pos, _sky.SunDirection(),
-                 /*intensity=*/0.7f, /*radius=*/0.5f);
-    _ssao_warm = true;   // 次フレームから PbrShader が読める
-
-    // ============ PostProcess: HDR → LDR (Bloom + ACES + Auto-exposure)
-    _post_params.taa_enabled = true;
-    _post_params.taa_blend_factor = 0.1f;
-    _post_params.taa_depth_texture = (_prev_vp_valid) ? depth : nullptr;
-    _post_params.taa_view_proj_no_jitter      = vp_no_jitter;
-    _post_params.taa_prev_view_proj_no_jitter = _prev_vp_no_jitter;
-    _post_params.auto_exposure_enabled = true;
-    _post_params.auto_exposure_key = 0.5f;
-    _post_params.exposure          = 1.0f;   // auto 時は GPU 側適用
-
+    // ===== Post-process (HDR -> LDR backbuffer) =====
     const u32 buf_idx = sc->AcquireNextImage();
-    // PostProcess::Render が内部で BeginRenderToSwapchain を発行する。
-    _post.Render(*cl, *sc, buf_idx, _post_params);
+    ExecuteBloomPass(_assets, *cl, *sc, buf_idx, *depth,
+                     _post_params, vp_no_jitter, _prev_vp_no_jitter,
+                     _prev_vp_valid, motion_tex);
 
-    // ============ HUD overlay (post-process が bind した swapchain に描く) ============
-    _batch.Begin(*cl, sc->Width(), sc->Height());
-    if (_font.AtlasTexture()) {
-        _batch.DrawString(_font, "ACS Showcase — PBR / IBL / Refraction / Bloom / ACES",
-                          20, 20, Vec4{1, 1, 1, 1});
-        char buf[128];
-        std::snprintf(buf, sizeof(buf),
-                      "Pause=%s  SSR=%s  Refract=%s",
-                      _paused ? "ON" : "OFF",
-                      _show_ssr ? "ON" : "OFF",
-                      _show_refraction ? "ON" : "OFF");
-        _batch.DrawString(_font, buf, 20, 44, Vec4{0.85f, 0.85f, 0.85f, 1});
-        _batch.DrawString(_font, "P: pause  R: SSR  X: refract  Esc: 終了",
-                          20, 68, Vec4{0.7f, 0.85f, 1.0f, 1});
-    }
-    _batch.End();
+    // ===== HUD overlay =====
+    ExecuteHudPass(_assets, *cl, *sc, _paused, _show_ssr, _show_refraction);
 
     cl->EndRenderToSwapchain(*sc, buf_idx);
     cl->End();
     cl->Submit();
     sc->Present();
 
-    // ===== 次フレーム用の前 VP / orb phase を保存 (TAA reprojection / motion) =====
+    // 次フレーム用の前 VP / orb phase (TAA reprojection / motion 用)
     _prev_vp_no_jitter = vp_no_jitter;
     _prev_orb_phase    = _orb_phase;
     _prev_vp_valid     = true;
-
     return true;
 }
 
 void ShowcaseApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _font.Shutdown();
-    _batch.Shutdown();
-    _bg_rt.Reset();
-    _blit.Shutdown();
-    _refr.Shutdown();
-    _motion.Shutdown();
-    _ssao.Shutdown();
-    _ssr.Shutdown();
-    _gm_floor  = GpuMesh{};
-    _gm_sphere = GpuMesh{};
-    _hiz.Shutdown();
-    _pbr.Shutdown();
-    _ibl.Shutdown();
-    _sky.Shutdown();
-    _post.Shutdown();
+    ShutdownAssets(_assets);
 }
 
 } // namespace helloshowcase

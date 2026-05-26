@@ -27,7 +27,6 @@ void HelloAudioApp::OnUpdate(f32 /*dt*/) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
     if (Input::IsKeyPressed(EKey::Space)) {
-        // 再生中なら止める、止まっていれば再生
         if (_handle.IsValid()) {
             _engine.Stop(_handle);
             _handle = kInvalidSound;

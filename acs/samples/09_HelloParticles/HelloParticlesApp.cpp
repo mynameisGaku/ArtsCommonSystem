@@ -38,8 +38,10 @@ void HelloParticlesApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
+    // SpriteBatch (2D 描画) と Glow テクスチャ (粒の見た目) を準備
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
+    // パーティクルの粒テクスチャを CPU 側で 1 枚だけ生成し GPU へ転送
     u8 px[kTexSize * kTexSize * 4];
     GenerateGlow(px);
     TextureDesc td{};
@@ -49,9 +51,11 @@ void HelloParticlesApp::OnStart() noexcept {
     if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) { Quit(); return; }
     else _glow = Move(r.Value());
 
-    // フォント
+    // フォント (OS 別の標準フォント候補を Sample helper で解決。
+    // 解像度 18px、atlas 1024px、CJK 対応 true。失敗しても HUD が消えるだけ)
     (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
+    // 画面中央付近を初期エミッタ位置に
     if (!_scene.Init(_glow.Get(), Vec2{400, 400})) { Quit(); return; }
 
     ACS_LOG_INFO("HelloParticles initialized");
@@ -73,7 +77,7 @@ void HelloParticlesApp::OnRender() noexcept {
     _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
                     Vec4{0.05f, 0.06f, 0.10f, 1});
 
-    _scene.Render(_batch, _font, sw, sh, FPS());
+    _scene.Render(_batch, _font, sh, FPS());
 
     _batch.End();
 }

@@ -12,7 +12,7 @@ using namespace acs;
 namespace hellotri {
 
 void HelloTriangleApp::OnStart() noexcept {
-    // 1. シェーダコンパイル (VS + PS、同じ HLSL ソースから entry を変えて 2 回)
+    // === シェーダ === (同じ HLSL ソースから entry を変えて VS / PS を 2 回コンパイル)
     ShaderDesc vs_desc{};
     vs_desc.stage = EShaderStage::Vertex;
     vs_desc.hlsl_source = kHLSL;
@@ -39,7 +39,7 @@ void HelloTriangleApp::OnStart() noexcept {
     }
     _ps = Move(ps_r.Value());
 
-    // 2. 頂点バッファ作成 (3 頂点ぶん)
+    // === 頂点バッファ ===
     BufferDesc vb_desc{};
     vb_desc.size = sizeof(kTriangleVertices);
     vb_desc.usage = EBufferUsage::Vertex;
@@ -53,7 +53,7 @@ void HelloTriangleApp::OnStart() noexcept {
     }
     _vb = Move(vb_r.Value());
 
-    // 3. パイプライン作成 (VS + PS + 入力レイアウト)
+    // === パイプライン ===
     PipelineDesc pd{};
     pd.vs = _vs.Get();
     pd.ps = _ps.Get();

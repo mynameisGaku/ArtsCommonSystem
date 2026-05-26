@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — 床用 lightmap CPU baker (Phase 33f)。
+// HelloIbl — 床用 lightmap CPU baker。
 //
 // 球グリッドの直下にある床用に静的 AO を CPU 焼き。
 // 球 5x5 を Sphere-Ray analytical hit で覆い、各 plane texel で

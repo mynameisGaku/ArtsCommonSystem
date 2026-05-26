@@ -1,13 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloBloom — HelloBloomApp の実装。HDR シーンを Bloom + ACES Tonemap で出す。
-//
-// フロー (OnCustomFrame):
-//   1) HDR RT にシーン (空 + 地面 + HDR 球 4 個) を描画
-//   2) PostProcess::Render が Bloom + Tonemap を swapchain に合成
-//   3) Tonemap 後の LDR backbuffer に HUD (SpriteBatch + Font) を載せる
-//   4) Submit + Present
-//
-// 操作: 1/2/3 で Bloom intensity 切替、←→ で camera yaw、Esc で終了。
+// HelloBloom — HelloBloomApp 実装。HDR シーンを Bloom + ACES Tonemap で出す。
 #include "HelloBloomApp.h"
 
 #include "app/Sample.h"
@@ -33,10 +25,9 @@ void HelloBloomApp::OnStart() noexcept {
     const u32 sw = sc->Width();
     const u32 sh = sc->Height();
 
-    // PostProcess (HDR RT + Bloom mip chain + Tonemap pipeline)
     ACS_SAMPLE_INIT(_post.Init(*dev, sw, sh, GetRenderer().ColorFormat()));
 
-    // StandardShader はシーン描画用。RT format は HDR (R16G16B16A16_Float)
+    // シーン描画は HDR RT へ流すので shader / sky の RT format も HDR に合わせる。
     ACS_SAMPLE_INIT(_shader.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
     ACS_SAMPLE_INIT(_sky.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
     _sky.PresetNight();
@@ -46,7 +37,7 @@ void HelloBloomApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
     ACS_SAMPLE_INIT(UploadMesh(*dev, *plane,  _gm_plane));
 
-    // HUD 用 (LDR バックバッファに直接描く)
+    // HUD は Tonemap 後の LDR backbuffer に書くので backbuffer format で初期化する。
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
     (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
@@ -71,21 +62,21 @@ void HelloBloomApp::OnUpdate(f32 dt) noexcept {
     _camera.SetLookAt(cam, Vec3{0, 1, 0});
 }
 
-// OnCustomFrame() に true を返して、Application のデフォルトフローを置き換える
+// true を返して Application の既定フレームフローを置き換える (HDR RT を挟むため)。
 bool HelloBloomApp::OnCustomFrame() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     IRhiTexture*     hdr = _post.HdrRenderTarget();
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
-    if (!cl || !sc || !hdr) return false;   // failsafe → 既定フローに任せる
+    // false を返すと Application が既定フローでフレームを完走してくれる (失敗時の保険)。
+    if (!cl || !sc || !hdr) return false;
 
     const u32 buf_idx = sc->AcquireNextImage();
     cl->Begin();
 
-    // 1) HDR RT にシーンを描画
+    // 1) HDR RT にシーンを描く
     cl->BeginRenderToTexture(*hdr, ClearColor{0,0,0,1}, depth, 1.0f);
 
-    // 全画面ビューポート
     Viewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
                    vp.height = static_cast<f32>(hdr->Height());
     cl->SetViewport(vp);
@@ -93,10 +84,8 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
                       svr.bottom = static_cast<i32>(hdr->Height());
     cl->SetScissor(svr);
 
-    // 空 → シーン本体
     _sky.Render(*cl, _camera);
 
-    // ライト
     DirLight dl;
     dl.direction = _sky.SunDirection();
     dl.color     = _sky.SunColor();
@@ -109,19 +98,20 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     cl->SetTexture(0, *_shader.DefaultWhiteTexture());
     cl->SetTexture(1, *_shader.ShadowTextureOrDefault());
 
-    // 地面 (暗め)
+    // 地面: 暗めの色にして Bloom 対象 (球) のコントラストを稼ぐ。
     _shader.SetObject(Mat4::Translation(Vec3{0, 0, 0}),
                       Vec3{0.10f, 0.12f, 0.15f}, 0.05f, 8.0f);
     cl->SetVertexBuffer(*_gm_plane.vertex_buffer, _gm_plane.vertex_stride);
     cl->SetIndexBuffer(*_gm_plane.index_buffer);
     cl->DrawIndexed(_gm_plane.index_count);
 
-    // 強烈に明るい HDR 球を 4 個 (色も派手に)
+    // HDR > 1.0 の色を 4 個並べる: bloom_threshold (既定 1.0) を超える成分にだけ
+    // Bloom が乗る、ということを目視で示すためのデモオブジェクト。
     const Vec3 colors[4] = {
-        {6.0f, 1.0f, 0.5f},   // 赤橙 (HDR > 1.0 で Bloom が乗る)
-        {0.5f, 6.0f, 1.5f},   // 緑
-        {1.0f, 1.5f, 8.0f},   // 青
-        {5.0f, 5.0f, 1.0f},   // 黄
+        {6.0f, 1.0f, 0.5f},
+        {0.5f, 6.0f, 1.5f},
+        {1.0f, 1.5f, 8.0f},
+        {5.0f, 5.0f, 1.0f},
     };
     for (u32 i = 0; i < 4; ++i) {
         const f32 a = _angle + i * (kPi * 0.5f);
@@ -135,11 +125,11 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
 
     cl->EndRenderToTexture(*hdr);
 
-    // 2) Bloom + Tonemap → backbuffer
+    // 2) Bloom + Tonemap を一気にかけて swapchain に合成。
     _post.Render(*cl, *sc, buf_idx, _params);
 
-    // 3) HUD (LDR backbuffer にスプライトで描き込み)
-    // backbuffer は Tonemap パスで既に RT としてバインドされてる状態 → 続けて使える
+    // 3) HUD は Tonemap 後の LDR backbuffer に書く (HDR 値が HUD 色を吹き飛ばさないため)。
+    //    PostProcess::Render が既に swapchain を RT としてバインドしてくれている。
     if (_font.AtlasTexture()) {
         const u32 sw = sc->Width();
         const u32 sh = sc->Height();

@@ -44,12 +44,13 @@ void HelloLightsApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
     _time += dt;
 
-    // カメラ
     const f32 mv = 5.0f * dt, tr = 1.5f * dt;
     if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
     if (Input::IsKeyDown(EKey::Right)) _cam_yaw += tr;
     if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
     if (Input::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
+    // 上下を 0.45π でクランプ: 真上/真下に向くと forward が縮退して
+    // LookAt が破綻するため、π/2 のわずか内側で止める。
     const f32 limit = 0.45f * kPi;
     if (_cam_pitch >  limit) _cam_pitch =  limit;
     if (_cam_pitch < -limit) _cam_pitch = -limit;
@@ -68,10 +69,10 @@ void HelloLightsApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
-    // シーン描画 (ライト計算 + 物体 + 光源可視化) は scene に委譲。
     _scene.Render(_shader, *cl, _camera, _gm_plane, _gm_cube, _gm_sphere, _time);
 
-    // === HUD ===
+    // HUD: フォントが読めなかった場合 (初回起動時の font asset 欠落など)
+    // でも 3D シーンは出すように、ここだけ条件分岐する。
     if (_font.AtlasTexture()) {
         const u32 sw = GetRenderer().Swapchain()->Width();
         const u32 sh = GetRenderer().Swapchain()->Height();

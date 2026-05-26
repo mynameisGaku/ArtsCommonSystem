@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloFontEditor — FontEditorScene。
-// editor_core (Phase 21a) の EditorWorkspace に Phase 23 で並列実装した
-// fontedit::FontEditorPanel を register し、3 face (Noto Sans JP /
-// Noto Sans Mono / fallback emoji) を fallback chain に初期登録する Scene。
+// editor_core の EditorWorkspace に fontedit::FontEditorPanel を register し、
+// 3 face (Noto Sans JP / Noto Sans Mono / fallback emoji) を fallback chain に
+// 初期登録する Scene。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -22,10 +22,7 @@ private:
     // File menu stub の保存先 (現状 callback だけ走らせるため未使用)。
     static constexpr const char* kFontFilePath = "preset.acsfont";
 
-    // ---- editor_core ----
     acs::game::editor_core::EditorWorkspace  _workspace;
-
-    // ---- fontedit (Phase 23) ----
     acs::game::fontedit::FontEditorPanel     _editor_panel;
 };
 

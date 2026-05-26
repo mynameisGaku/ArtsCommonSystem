@@ -110,7 +110,7 @@ void CineEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Save Cinematics")) {
-                // 実シリアライザは未実装 (Phase 23 では UI のみ)。
+                // 実シリアライザは未実装 (本サンプルは UI のみ)。
                 ACS_LOG_INFO("[CineEditor] Save Cinematics -> '%s' (stub, no-op)", kCinePath);
             }
             if (ImGui::MenuItem("Load Cinematics")) {

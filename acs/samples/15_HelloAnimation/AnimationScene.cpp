@@ -33,11 +33,11 @@ Rc<SkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
     // ===== 頂点 (ring × segment) =====
     V.Reserve(kRingCount * kSegmentCount);
     for (u32 r = 0; r < kRingCount; ++r) {
-        const f32 t_y = static_cast<f32>(r) / static_cast<f32>(kRingCount - 1);    // 0..1
-        const f32 y   = t_y * kHeight;                                              // 0..4
-        const f32 radius = kRadiusBase + (kRadiusTip - kRadiusBase) * t_y;          // 細くなる
-        // 頂点の所属ボーンを y から決める
-        const f32 bone_pos    = t_y * static_cast<f32>(kBoneCount - 1);             // 0..(N-1)
+        const f32 t_y = static_cast<f32>(r) / static_cast<f32>(kRingCount - 1);
+        const f32 y   = t_y * kHeight;
+        const f32 radius = kRadiusBase + (kRadiusTip - kRadiusBase) * t_y;   // 先端に向け細くなる
+        // 頂点の所属ボーンを y 位置から決める (隣接 2 本にブレンド)
+        const f32 bone_pos    = t_y * static_cast<f32>(kBoneCount - 1);
         i32 bone_lo = static_cast<i32>(bone_pos);
         if (bone_lo > static_cast<i32>(kBoneCount - 1)) bone_lo = static_cast<i32>(kBoneCount - 1);
         i32 bone_hi = bone_lo + 1;

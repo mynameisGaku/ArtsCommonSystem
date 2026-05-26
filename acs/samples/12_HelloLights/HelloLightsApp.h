@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloLights — Application 派生クラス。
-// 暗い部屋で 4 灯の点光源 + 微弱 dir ライトを動かして照らすデモ。
 //
-// リソース所有 (shader / mesh / sprite / font / camera) と入力ハンドリングを
-// 担当し、毎フレームの「ライト計算 + シーン描画」は LightsScene に委譲する。
+// 役割分担: このクラスは GPU リソースとカメラ入力の所有者。毎フレームの
+// ライト計算と物体描画は LightsScene に委譲し、App は薄く保つ。
 #pragma once
 
 #include "LightsScene.h"

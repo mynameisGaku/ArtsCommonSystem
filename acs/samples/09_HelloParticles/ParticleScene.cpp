@@ -52,7 +52,7 @@ void ParticleScene::Update(f32 dt) noexcept {
 
 void ParticleScene::Render(SpriteBatch& batch,
                            Font& font,
-                           u32 screen_w, u32 screen_h,
+                           u32 screen_h,
                            f32 fps) noexcept {
     _ps.Render(batch);
 
@@ -70,7 +70,6 @@ void ParticleScene::Render(SpriteBatch& batch,
                         20, static_cast<f32>(screen_h - 32),
                         Vec4{0.7f, 0.8f, 0.95f, 1});
     }
-    (void)screen_w;
 }
 
 void ParticleScene::ApplyPreset(u32 idx, Vec2 pos) noexcept {

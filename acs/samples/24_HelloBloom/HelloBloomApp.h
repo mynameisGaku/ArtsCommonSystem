@@ -1,19 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloBloom — Application 派生クラス。
+// HelloBloom — HDR シーン + Bloom + ACES Tonemap のミニデモ。
 //
-// HDR シーン + Bloom + ACES Tonemap のミニデモ。OnCustomFrame() を override
-// して HDR RT 経由のレンダリングを構築する。Bloom 強度を 3 段切替できる。
-//
-// メンバ:
-//   PostProcess    : HDR RT + Bloom mip chain + Tonemap pipeline を内包する。
-//                    Render() が swapchain への合成まで担当する。
-//   Sky            : Night preset の手続き的空。HDR RT format に合わせて Init。
-//   StandardShader : シーン本体 (地面 + HDR 球) の描画。RT format = HDR。
-//   SpriteBatch    : HUD を Tonemap 後の LDR backbuffer に直書きする。
-//   Font           : 18px UI フォント。AtlasTexture が null のときは HUD 描画を skip。
-//   GpuMesh        : 球と平面の VB/IB を保持。
-//   Camera         : 60° FOV、半径 7 の周回視点。
-//   PostProcessParams : Bloom intensity を 3 段で切替 (0 / 0.6 / 1.5)。
+// OnCustomFrame() を override して HDR レンダーターゲット経由の描画パイプラインを
+// 組む。HUD は Tonemap 後の LDR backbuffer に直接書く (HDR 値が HUD に乗らないように)。
+// Bloom 強度は 1/2/3 キーで 3 段切替できる (Bloom の効きを目視確認しやすくするため)。
 #pragma once
 
 #include "app/Application.h"

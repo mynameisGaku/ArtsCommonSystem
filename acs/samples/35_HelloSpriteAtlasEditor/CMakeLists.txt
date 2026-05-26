@@ -1,13 +1,10 @@
-# HelloSpriteAtlasEditor — GameFramework Phase 22: SpriteAtlasEditor デモ
-# editor_core (Phase 21a) + spriteatlas/ (Phase 22) を 1 つの ImGui Workspace に
-# 統合し、SpritePack (256x256 dummy atlas + 3 frame) を対話編集する単一
-# ウィンドウのエディタサンプル。
+# HelloSpriteAtlasEditor — SpriteAtlas エディタのデモ。
+# editor_core ワークスペースに SpriteAtlasEditorPanel を載せ、
+# 256x256 dummy atlas + 3 frame (Idle / Walk / Jump) を ImGui 上で対話編集する。
 #
-# 必須バックエンド: ImGui 統合は ACS_RENDER_DX12_RAW 専用 (acs_imgui module の
-# 制約)。samples/21_HelloImGui / 29_HelloParticleEditor / 30_HelloSceneInspector
-# / 31_HelloModelViewer と同じ。
+# 必須バックエンド: ACS_RENDER_DX12_RAW (ImGui 統合は DX12 raw backend 専用)。
 #
-# 構成 (sample 38 と同パターンに分割):
+# 構成:
 #   main.cpp                 - ACS_GAME_MAIN(SpriteAtlasApp) のみ
 #   SpriteAtlasApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
 #   SpriteAtlasScene.{h,cpp} - Workspace + SpriteAtlasEditorPanel + dummy SpritePack

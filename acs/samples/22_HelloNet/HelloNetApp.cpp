@@ -25,7 +25,6 @@ int HelloNetApp::Run() noexcept {
         return 1;
     }
 
-    // サーバスレッド起動
     auto sr = Thread::Spawn(&ServerThread, nullptr);
     if (sr.IsErr()) {
         ACS_LOG_ERROR("Server thread spawn failed");

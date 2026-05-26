@@ -2,7 +2,7 @@
 // HelloLightmap — Application 派生クラス。
 //
 // Cornell box シーンを構築し、起動時に CPU で multi-bounce path tracing を行って
-// HDR lightmap を焼く。以降のフレームは PbrShader の lightmap slot (t8) 経由で
+// HDR lightmap を焼く。以降のフレームは PbrShader の lightmap slot 経由で
 // 焼いた irradiance を mesh の uv で引いて表示する。動的ライトは使わず、ごく弱い
 // ambient のみ。赤/緑の壁の照り返しが床に色づく color bleeding が見える。
 //
@@ -36,18 +36,6 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    // 1 面を初期化 (mesh upload + 平面パラメータ設定)。
-    // world 法線は手書きせず、ローカル +Y を model で変換して導出する。
-    void InitQuad(acs::IRhiDevice& dev, Quad& q, acs::f32 w, acs::f32 h,
-                  const acs::Mat4& model, acs::Vec3 albedo,
-                  acs::i32 axis, acs::f32 axis_value,
-                  acs::f32 u_min, acs::f32 u_max,
-                  acs::f32 v_min, acs::f32 v_max,
-                  bool emissive) noexcept;
-
-    // Cornell box 5 面 (床/天井/奥/左/右) を _quads に組み立てる。
-    void BuildCornellBox(acs::IRhiDevice& dev) noexcept;
-
     acs::PbrShader         _pbr;
     acs::PostProcess       _post;
     acs::PostProcessParams _post_params;

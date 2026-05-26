@@ -1,18 +1,22 @@
-# 「Hello Lightmap」サンプル: Phase 33f-3 — multi-bounce path-traced lightmap
+# SPDX-License-Identifier: Apache-2.0
+# 「Hello Lightmap」サンプル — multi-bounce path-traced lightmap。
 # Cornell box シーンを CPU で multi-bounce ベイクし、PbrShader の lightmap slot
-# (Phase 33f で追加した t8) 経由で表示する。
+# 経由で表示する。
 #
 # 構成:
-#   main.cpp                 - ACS_DEFINE_MAIN(HelloLightmapApp) のみ
-#   LightmapTypes.h          - Quad / Rng / 数学ヘルパ / constexpr 定数
-#   LightmapBaker.{h,cpp}    - CPU multi-bounce path tracing
-#   HelloLightmapApp.{h,cpp} - Application 派生 (Cornell box 構築 + OnCustomFrame)
+#   main.cpp                  - ACS_DEFINE_MAIN(HelloLightmapApp) のみ
+#   LightmapTypes.h           - Quad / Rng / 数学ヘルパ / constexpr 定数
+#   LightmapBaker.{h,cpp}     - CPU multi-bounce path tracing
+#   CornellBox.{h,cpp}        - Cornell box シーンの構築
+#   HelloLightmapApp.{h,cpp}  - Application 派生 (OnStart/OnCustomFrame ほか)
 add_executable(hello_lightmap WIN32
     main.cpp
     LightmapBaker.cpp
+    CornellBox.cpp
     HelloLightmapApp.cpp
     LightmapTypes.h
     LightmapBaker.h
+    CornellBox.h
     HelloLightmapApp.h
 )
 acs_apply_compiler_options(hello_lightmap)

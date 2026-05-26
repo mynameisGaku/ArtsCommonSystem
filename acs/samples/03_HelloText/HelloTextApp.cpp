@@ -24,12 +24,10 @@ void HelloTextApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    // === SpriteBatch ===
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
-    // === フォント (3 サイズ) ===
-    // Sample::TryLoadDefaultUIFont が OS 別の標準フォント候補を順に試す。
-    // タイトル/本文は漢字込み (include_cjk=true、atlas 2048)、小さい方は速度優先で外す。
+    // タイトル/本文は 2048×2048 の CJK アトラス (≒ 2 万字)、小さい方は速度優先で
+    // 漢字を外す。Sample::TryLoadDefaultUIFont が OS 別の標準フォント候補を順に試す。
     ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_title_font, *dev, 64.0f, 2048, true));
     ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_body_font,  *dev, 24.0f, 2048, true));
     ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_small_font, *dev, 16.0f, 1024, false));
@@ -50,33 +48,33 @@ void HelloTextApp::OnRender() noexcept {
 
     _batch.Begin(*cl, sw, sh);
 
-    // === 背景の半透明パネル ===
+    // 背景の二段パネル (外枠 + 内枠)
     _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
                     Vec4{0.08f, 0.10f, 0.14f, 1.0f});
     _batch.DrawRect(40, 40, static_cast<f32>(sw - 80), static_cast<f32>(sh - 80),
                     Vec4{0.14f, 0.18f, 0.24f, 1.0f});
 
-    // === タイトル（揺れる）===
+    // タイトル: sin で左右に揺らしながら中央寄せ。影は本体より +3px オフセット。
     const char* title = "Hello, ACS! 〜 始まりの一歩 〜";
     const f32 sway = Sin(_time * 1.5f) * 30.0f;
     const f32 title_w = _title_font.MeasureWidth(title);
     const f32 title_x = (static_cast<f32>(sw) - title_w) * 0.5f + sway;
     const f32 title_y = 80.0f;
     _batch.DrawString(_title_font, title, title_x + 3, title_y + 3,
-                    Vec4{0, 0, 0, 0.5f});  // 影
+                    Vec4{0, 0, 0, 0.5f});
     _batch.DrawString(_title_font, title, title_x, title_y,
                     Vec4{1.0f, 0.85f, 0.4f, 1.0f});
 
-    // === サブタイトル（日本語混じり）===
+    // サブタイトル (中央寄せ)
     const char* subtitle = "ようこそ、ACS（軽量・C++ ゲーム基盤）へ";
     const f32 sub_w = _body_font.MeasureWidth(subtitle);
     _batch.DrawString(_body_font, subtitle,
                     (static_cast<f32>(sw) - sub_w) * 0.5f, 180.0f,
                     Vec4{0.85f, 0.9f, 1.0f, 1.0f});
 
-    // === 説明テキスト（複数行、漢字混じり）===
+    // 説明テキスト (複数行、漢字混じり)
     const char* body =
-        "Phase 9: 漢字対応のテキスト描画\n"
+        "漢字対応のテキスト描画\n"
         "・stb_truetype で 漢字 (CJK 統合 U+4E00..U+9FAF) を焼き込み\n"
         "・2048×2048 のアトラスに 約 2 万字を収録\n"
         "・SpriteBatch::DrawString でそのまま描画\n"
@@ -85,7 +83,7 @@ void HelloTextApp::OnRender() noexcept {
     _batch.DrawString(_body_font, body, 100, 240,
                     Vec4{0.95f, 0.95f, 0.95f, 1.0f});
 
-    // === 右下に FPS 表示 ===
+    // 右下: FPS / フレーム数
     char fps_buf[64];
     std::snprintf(fps_buf, sizeof(fps_buf), "FPS: %.1f  Frame: %llu",
                   static_cast<double>(FPS()),
@@ -96,7 +94,7 @@ void HelloTextApp::OnRender() noexcept {
                     static_cast<f32>(sh) - 60.0f,
                     Vec4{0.6f, 0.7f, 0.8f, 1.0f});
 
-    // === 操作ヒント ===
+    // 左下: 操作ヒント
     _batch.DrawString(_small_font, "Esc で終了", 60.0f,
                     static_cast<f32>(sh) - 60.0f,
                     Vec4{0.5f, 0.5f, 0.55f, 1.0f});

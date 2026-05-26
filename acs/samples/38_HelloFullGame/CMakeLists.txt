@@ -7,20 +7,40 @@
 #   GameTypes.h        - HighScore POD + 共通定数
 #   FullGameApp.{h,cpp}- Game 派生クラス
 #   TitleScene.{h,cpp} - Title 画面
-#   GameplayScene.{h,cpp} - 本編
+#   GameplayScene.{h,cpp} - 本編 (シーン skeleton + module orchestration)
 #   GameOverScene.{h,cpp} - 結果画面
+#
+# Gameplay scene は機能別 module に分割されている (各 <200 LOC):
+#   Player.{h,cpp}        - player node / 入力 / 移動 / 発射クールダウン
+#   Enemy.{h,cpp}         - 敵 pool / spawn / AI 追跡 / 接触判定 / 描画
+#   Bullets.{h,cpp}       - ProjectileSystem ラッパ / 発射 / 軌跡描画
+#   HitEffects.{h,cpp}    - ParticleEffect + EffectSystem (shake / flash)
+#   Hud.{h,cpp}           - HP / score / wave / FPS HUD 描画
+#   WaveCallbacks.{h,cpp} - WaveSpawner / ProjectileSystem の C 関数ブリッジ
 add_executable(hello_full_game WIN32
     main.cpp
     FullGameApp.cpp
     TitleScene.cpp
     GameplayScene.cpp
     GameOverScene.cpp
+    Player.cpp
+    Enemy.cpp
+    Bullets.cpp
+    HitEffects.cpp
+    Hud.cpp
+    WaveCallbacks.cpp
     # Header 群 (VS Solution Explorer で表示するため)
     GameTypes.h
     FullGameApp.h
     TitleScene.h
     GameplayScene.h
     GameOverScene.h
+    Player.h
+    Enemy.h
+    Bullets.h
+    HitEffects.h
+    Hud.h
+    WaveCallbacks.h
 )
 acs_apply_compiler_options(hello_full_game)
 # sample 自身の dir を include path に追加 (同一サンプル内の .h を "FullGameApp.h"

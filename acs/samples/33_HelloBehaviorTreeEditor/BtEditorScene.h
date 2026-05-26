@@ -5,8 +5,8 @@
 //   - BehaviorTree 本体を所有 (Selector{Seq{Pickup,Move},Seq{Wait,Attack}})。
 //   - BehaviorTreeEditorPanel を所有 + メタミラー node 構造を AddNode で組む。
 //   - BtEditorBb (= panel + per-action 進捗カウンタ) を所有し、Action Fn から
-//     `static_cast<BtEditorBb*>(blackboard)` で参照される。Action Fn は .cpp
-//     ファイル内で static として定義。
+//     `static_cast<BtEditorBb*>(blackboard)` で参照される。Action Fn と
+//     構築 helper は TreeActions.{h,cpp} / TreeBuilder.{h,cpp} に分離。
 #pragma once
 
 #include "gameframework/GameFramework.h"

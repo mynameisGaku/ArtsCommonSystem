@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloSceneInspector — Game 派生のアプリケーションクラス。
 //
-// ImGui lifecycle を Game に持たせる薄いラッパ。構造は sample 29_HelloParticleEditor
-// と完全に同形。OnRender で NewFrame と Render を Scene::OnRender の両側に挟むのが
-// key (= Scene 側が ImGui::* をそのまま呼べるようにする)。
+// ImGui lifecycle を Game に持たせる薄いラッパ。OnRender 内で
+// NewFrame と Render を Scene::OnRender の両側に挟むのが key
+// (= Scene 側が ImGui::* をそのまま呼べるようにする)。
 #pragma once
 
 #include "gameframework/GameFramework.h"

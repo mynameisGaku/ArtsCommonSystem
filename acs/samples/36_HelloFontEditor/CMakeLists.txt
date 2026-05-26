@@ -1,13 +1,11 @@
-# HelloFontEditor — GameFramework Phase 23: FontEditor デモ
-# editor_core (Phase 21a) + fontedit/ (Phase 23) を 1 つの ImGui Workspace に
-# 統合し、3 face (Noto Sans JP / Noto Sans Mono / fallback emoji) を初期登録
-# した fallback chain を対話編集する単一ウィンドウのエディタサンプル。
+# HelloFontEditor — フォントの fallback chain を対話編集するエディタサンプル。
+# editor_core ワークスペースに FontEditorPanel を統合し、3 face
+# (Noto Sans JP / Noto Sans Mono / fallback emoji) を初期登録した状態で起動する。
 #
-# 必須バックエンド: ImGui 統合は ACS_RENDER_DX12_RAW 専用 (acs_imgui module の
-# 制約)。samples/21_HelloImGui / 29_HelloParticleEditor / 30_HelloSceneInspector
-# / 31_HelloModelViewer / 35_HelloSpriteAtlasEditor と同じ。
+# 必須バックエンド: ACS_RENDER_DX12_RAW (acs_imgui module の制約で、ImGui 統合は
+# DX12 raw backend 専用)。
 #
-# 構成 (sample 38 と同パターンに分割):
+# 構成:
 #   main.cpp                - ACS_GAME_MAIN(FontEditorApp) のみ
 #   FontEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
 #   FontEditorScene.{h,cpp} - Workspace + FontEditorPanel + 初期 3 face 登録
