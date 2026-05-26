@@ -11,6 +11,13 @@
 
 #include "foundation/Platform.h"
 
+// <windows.h> マクロ汚染対策: `SetCurrentDirectory` がデフォルトで
+// `SetCurrentDirectoryW` に macro 展開され、AssetBrowser::SetCurrentDirectory
+// メソッドの定義側と衝突する。本 .cpp ではメソッド名を維持するため undef。
+#ifdef SetCurrentDirectory
+#undef SetCurrentDirectory
+#endif
+
 #include <imgui.h>
 
 #include <cstdio>   // snprintf (ラベル整形)

@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: Apache-2.0
+// HelloPhysics2D — PhysicsScene 実装。
+#include "PhysicsScene.h"
+
+#include "platform/Input.h"
+#include "math/Collision2D.h"
+#include "math/Math.h"
+
+#include <cstdio>
+
+using namespace acs;
+
+namespace hellophysics2d {
+
+void PhysicsScene::Init(u32 screen_w, u32 screen_h, u32 initial_balls) noexcept {
+    SpawnRandomBalls(initial_balls, screen_w, screen_h);
+}
+
+void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
+    if (Input::IsKeyPressed(EKey::Space)) _ball_count = 0;
+
+    if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
+        Vec2 mp = Input::MousePos();
+        SpawnBallAt(mp.x, mp.y);
+    }
+
+    // dt が大きすぎるとシミュが破綻するので clamp
+    if (dt > 0.05f) dt = 0.05f;
+
+    // 1. 速度・位置の更新（重力 + 減衰）
+    const f32 sw = static_cast<f32>(screen_w);
+    const f32 sh = static_cast<f32>(screen_h);
+    for (u32 i = 0; i < _ball_count; ++i) {
+        Ball& b = _balls[i];
+        b.vel.y += kGravity * dt;
+        b.vel.x *= kDamping;
+        b.vel.y *= kDamping;
+        b.pos += b.vel * dt;
+
+        // 壁との衝突（反射）
+        if (b.pos.x - b.radius < 0)  { b.pos.x = b.radius;       b.vel.x = -b.vel.x * kRestitution; }
+        if (b.pos.x + b.radius > sw) { b.pos.x = sw - b.radius;  b.vel.x = -b.vel.x * kRestitution; }
+        if (b.pos.y - b.radius < 0)  { b.pos.y = b.radius;       b.vel.y = -b.vel.y * kRestitution; }
+        if (b.pos.y + b.radius > sh) { b.pos.y = sh - b.radius;  b.vel.y = -b.vel.y * kRestitution; }
+    }
+
+    // 2. ボール間の衝突を解消（ペネトレーション + 反射）
+    for (u32 i = 0; i < _ball_count; ++i) {
+        for (u32 j = i + 1; j < _ball_count; ++j) {
+            Ball& a = _balls[i];
+            Ball& bb = _balls[j];
+            Circle ca{ a.pos, a.radius };
+            Circle cb{ bb.pos, bb.radius };
+            Vec2 push;
+            if (Resolve(ca, cb, push)) {
+                // 等質量と仮定して半分ずつ押し出す
+                a.pos.x  += push.x * 0.5f; a.pos.y  += push.y * 0.5f;
+                bb.pos.x -= push.x * 0.5f; bb.pos.y -= push.y * 0.5f;
+                // 法線方向への速度を交換（弾性衝突簡易版）
+                const f32 plen2 = push.x * push.x + push.y * push.y;
+                if (plen2 > 1e-6f) {
+                    const f32 inv_len = 1.0f / Sqrt(plen2);
+                    const f32 nx = push.x * inv_len;
+                    const f32 ny = push.y * inv_len;
+                    const f32 va = a.vel.x  * nx + a.vel.y  * ny;
+                    const f32 vb = bb.vel.x * nx + bb.vel.y * ny;
+                    const f32 dv = (va - vb) * kRestitution;
+                    a.vel.x  -= dv * nx; a.vel.y  -= dv * ny;
+                    bb.vel.x += dv * nx; bb.vel.y += dv * ny;
+                }
+            }
+        }
+    }
+}
+
+void PhysicsScene::Render(SpriteBatch& batch,
+                          Font& font,
+                          IRhiTexture& ball_tex,
+                          f32 fps) noexcept {
+    // ボール
+    for (u32 i = 0; i < _ball_count; ++i) {
+        const Ball& b = _balls[i];
+        const f32 d = b.radius * 2.0f;
+        batch.Draw(ball_tex, b.pos.x - b.radius, b.pos.y - b.radius, d, d,
+                   Vec4{b.r, b.g, b.b, 0.95f});
+    }
+
+    // ヘルプ + ボール数
+    if (font.AtlasTexture()) {
+        char buf[128];
+        std::snprintf(buf, sizeof(buf),
+                      "balls: %u / %u   FPS: %.1f", _ball_count, kMaxBalls, fps);
+        batch.DrawString(font, buf, 20, 20, Vec4{1,1,1,1});
+        batch.DrawString(font,
+                        "左クリック: ボール追加  Space: 全消去  Esc: 終了",
+                        20, 44, Vec4{0.7f, 0.8f, 0.9f, 1});
+    }
+}
+
+void PhysicsScene::SpawnRandomBalls(u32 n, u32 screen_w, u32 screen_h) noexcept {
+    const f32 sw = static_cast<f32>(screen_w);
+    const f32 sh = static_cast<f32>(screen_h);
+    for (u32 i = 0; i < n; ++i) {
+        SpawnBallAt(RandF() * sw, RandF() * (sh * 0.5f));
+    }
+}
+
+void PhysicsScene::SpawnBallAt(f32 x, f32 y) noexcept {
+    if (_ball_count >= kMaxBalls) return;
+    Ball& b = _balls[_ball_count++];
+    b.pos = { x, y };
+    b.vel = { (RandF() - 0.5f) * 600.0f, (RandF() - 0.5f) * 400.0f };
+    b.radius = 12.0f + RandF() * 24.0f;
+    b.r = 0.4f + RandF() * 0.6f;
+    b.g = 0.4f + RandF() * 0.6f;
+    b.b = 0.4f + RandF() * 0.6f;
+}
+
+f32 PhysicsScene::RandF() noexcept {
+    _seed ^= _seed << 13; _seed ^= _seed >> 17; _seed ^= _seed << 5;
+    return static_cast<f32>(_seed & 0xFFFFFFu) / 16777216.0f;
+}
+
+} // namespace hellophysics2d

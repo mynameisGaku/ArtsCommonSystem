@@ -16,12 +16,24 @@
 #     include path は ACS_SOURCE_ROOT (= src/) を target_include_directories で
 #     渡す (= ACS::GameFramework が既に同 path を PUBLIC に持つので link でも
 #     伝播するが、念のため明示)。
+#
+# 構成 (sample 38 と同パターンに分割):
+#   main.cpp                - ACS_GAME_MAIN(CineEditorApp) のみ
+#   CineEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
+#   CineEditorScene.{h,cpp} - Workspace + CinematicsTimelineEditorPanel +
+#                             CinematicsDirector + 初期 keyframe 3 個
 add_executable(hello_cinematics_editor WIN32
     main.cpp
+    CineEditorApp.cpp
+    CineEditorScene.cpp
     ${CMAKE_SOURCE_DIR}/src/gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.cpp
+    # Header 群 (VS Solution Explorer で表示するため)
+    CineEditorApp.h
+    CineEditorScene.h
 )
 acs_apply_compiler_options(hello_cinematics_editor)
 target_include_directories(hello_cinematics_editor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src
 )
 target_link_libraries(hello_cinematics_editor PRIVATE
@@ -32,3 +44,6 @@ target_link_libraries(hello_cinematics_editor PRIVATE
     ACS::Imgui      # Dear ImGui 統合 (標準セットに含まれない追加モジュール)
     ACS::Math
 )
+# Solution Explorer 内で .cpp と .h を Source Files / Header Files にグループ化。
+source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
+source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

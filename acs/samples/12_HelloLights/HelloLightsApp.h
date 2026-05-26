@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: Apache-2.0
+// HelloLights — Application 派生クラス。
+// 暗い部屋で 4 灯の点光源 + 微弱 dir ライトを動かして照らすデモ。
+//
+// リソース所有 (shader / mesh / sprite / font / camera) と入力ハンドリングを
+// 担当し、毎フレームの「ライト計算 + シーン描画」は LightsScene に委譲する。
+#pragma once
+
+#include "LightsScene.h"
+
+#include "app/Application.h"
+#include "math/Camera.h"
+#include "render/Font.h"
+#include "render/RenderAssets.h"
+#include "render/SpriteBatch.h"
+#include "render/StandardShader.h"
+
+namespace hellolights {
+
+class HelloLightsApp : public acs::Application {
+public:
+    void OnStart()    noexcept override;
+    void OnUpdate(acs::f32 dt) noexcept override;
+    void OnRender()   noexcept override;
+    void OnShutdown() noexcept override;
+
+private:
+    LightsScene             _scene;
+    acs::StandardShader     _shader;
+    acs::GpuMesh            _gm_cube;
+    acs::GpuMesh            _gm_sphere;
+    acs::GpuMesh            _gm_plane;
+    acs::SpriteBatch        _batch;
+    acs::Font               _font;
+    acs::Camera             _camera;
+    acs::Vec3               _cam_pos    {0, 3, -8};
+    acs::f32                _cam_yaw    = 0.0f;
+    acs::f32                _cam_pitch  = 0.0f;
+    acs::f32                _time       = 0.0f;
+};
+
+} // namespace hellolights

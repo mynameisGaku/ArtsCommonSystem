@@ -38,7 +38,11 @@ static IInspectableProvider* ResolveProvider(InspectorSeam& seam, NodeId id) noe
     if (!id.IsValid()) {
         return nullptr;
     }
-    return seam.GetProvider(id);
+    // InspectorSeam::GetProvider は u32 index (provider list 上の位置) を取る。
+    // NodeId をそのまま渡せないので index を取り出す (24bit 部分)。
+    // 本来は seam が NodeId → provider のマッピングを持つ方が自然だが、
+    // 現状の seam は index ベースなので Phase 24+ で改修予定。
+    return seam.GetProvider(id.Index());
 }
 
 // 1 InspectableField を ImGui 上に描画 / 編集する。値が書き換わったら

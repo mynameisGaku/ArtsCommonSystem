@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: Apache-2.0
+// HelloParticles — ParticleScene 実装。
+#include "ParticleScene.h"
+
+#include "platform/Input.h"
+
+#include <cstdio>
+
+using namespace acs;
+
+namespace helloparticles {
+
+bool ParticleScene::Init(IRhiTexture* glow_tex, Vec2 initial_pos) noexcept {
+    if (auto r = _ps.Init(kParticleCapacity); r.IsErr()) return false;
+    _ps.SetTexture(glow_tex);
+    ApplyPreset(0, initial_pos);
+    return true;
+}
+
+void ParticleScene::Shutdown() noexcept {
+    _ps.Shutdown();
+}
+
+void ParticleScene::Update(f32 dt) noexcept {
+    if (Input::IsKeyPressed(EKey::Space)) {
+        _ps.Emitter().active = !_ps.Emitter().active;
+    }
+
+    Vec2 mp = Input::MousePos();
+    if (Input::IsKeyPressed(EKey::Num1)) ApplyPreset(0, mp);
+    if (Input::IsKeyPressed(EKey::Num2)) ApplyPreset(1, mp);
+    if (Input::IsKeyPressed(EKey::Num3)) ApplyPreset(2, mp);
+    if (Input::IsKeyPressed(EKey::Num4)) ApplyPreset(3, mp);
+
+    // エミッタを毎フレームマウス位置に追従
+    _ps.Emitter().position = mp;
+
+    // 左クリックで爆発
+    if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
+        EmitterDesc burst = EmitterDesc::Sparks(mp);
+        burst.rate_per_sec = 0;            // バーストのみ
+        burst.life_seconds = 0.8f;
+        EmitterDesc save = _ps.Emitter();
+        _ps.SetEmitter(burst);
+        _ps.EmitBurst(120);
+        _ps.SetEmitter(save);
+    }
+
+    if (dt > 0.05f) dt = 0.05f;            // 安全 clamp
+    _ps.Update(dt);
+}
+
+void ParticleScene::Render(SpriteBatch& batch,
+                           Font& font,
+                           u32 screen_w, u32 screen_h,
+                           f32 fps) noexcept {
+    _ps.Render(batch);
+
+    if (font.AtlasTexture()) {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf),
+                      "粒子: %u / %u   FPS: %.1f   %s",
+                      _ps.ActiveCount(), _ps.Capacity(),
+                      static_cast<double>(fps),
+                      _ps.Emitter().active ? "ON" : "OFF");
+        batch.DrawString(font, buf, 20, 20, Vec4{1,1,1,1});
+        batch.DrawString(font, kPresetNames[_preset], 20, 44, Vec4{1, 0.85f, 0.4f, 1});
+        batch.DrawString(font,
+                        "1/2/3/4: 種類  Space: 連続 ON/OFF  左クリック: 爆発  Esc: 終了",
+                        20, static_cast<f32>(screen_h - 32),
+                        Vec4{0.7f, 0.8f, 0.95f, 1});
+    }
+    (void)screen_w;
+}
+
+void ParticleScene::ApplyPreset(u32 idx, Vec2 pos) noexcept {
+    _preset = idx;
+    EmitterDesc d;
+    switch (idx) {
+        case 0: d = EmitterDesc::Fire(pos);     break;
+        case 1: d = EmitterDesc::Sparks(pos);   break;
+        case 2: d = EmitterDesc::Fountain(pos); break;
+        case 3: d = EmitterDesc::Smoke(pos);    break;
+        default:d = EmitterDesc::Fire(pos);     break;
+    }
+    _ps.SetEmitter(d);
+}
+
+} // namespace helloparticles
