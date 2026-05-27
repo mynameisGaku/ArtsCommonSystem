@@ -129,12 +129,12 @@ void FPerfBudget::EndFrame() noexcept {
     if (m_FrameHistory.Capacity() < kFrameHistoryCap) {
         m_FrameHistory.Reserve(kFrameHistoryCap);
     }
-    if (!m_FrameFilled) {
+    if (!m_bFrameFilled) {
         m_FrameHistory.PushBack(total);
         ++m_FrameIndex;
         if (m_FrameIndex >= kFrameHistoryCap) {
             m_FrameIndex  = 0u;
-            m_FrameFilled = true;
+            m_bFrameFilled = true;
         }
     } else {
         m_FrameHistory[m_FrameIndex] = total;
@@ -184,7 +184,7 @@ void FPerfBudget::Reset() noexcept {
     m_Categories.Clear();
     m_FrameHistory.Clear();
     m_FrameIndex        = 0u;
-    m_FrameFilled       = false;
+    m_bFrameFilled       = false;
     m_LastFrameMs      = 0.0f;
     m_FrameOverBudget  = false;
     // m_FrameBudgetMs は意図的に保持 (頻繁に再設定する想定がない)。

@@ -90,17 +90,17 @@ void FRenderer::BeginFrame(const ClearColor& clear) noexcept {
     sr.bottom = static_cast<i32>(m_Swapchain->Height());
     m_Cmd->SetScissor(sr);
 
-    m_FrameOpen = true;
+    m_bFrameOpen = true;
 }
 
 // フレーム終了: バックバッファを Present 状態に戻して GPU 投入 → 画面に提示
 void FRenderer::EndFrame() noexcept {
-    if (!m_FrameOpen) return;
+    if (!m_bFrameOpen) return;
     m_Cmd->EndRenderToSwapchain(*m_Swapchain, m_CurrentBuffer);
     m_Cmd->End();
     m_Cmd->Submit();
     m_Swapchain->Present();
-    m_FrameOpen = false;
+    m_bFrameOpen = false;
 }
 
 void FRenderer::OnResize(u32 width, u32 height) noexcept {

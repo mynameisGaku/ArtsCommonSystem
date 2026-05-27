@@ -81,7 +81,7 @@ void FBeatGrid::Init() noexcept {
     m_CurrentTime   = 0.0f;
     m_Playing        = false;
     m_Paused         = false;
-    m_EndedFired    = false;
+    m_bEndedFired    = false;
     m_PerfectCount  = 0u;
     m_GreatCount    = 0u;
     m_GoodCount     = 0u;
@@ -117,7 +117,7 @@ void FBeatGrid::LoadChart(const FBeatNote* notes, u32 count, f32 bpm) noexcept {
     m_CurrentTime   = 0.0f;
     m_Playing        = false;
     m_Paused         = false;
-    m_EndedFired    = false;
+    m_bEndedFired    = false;
     m_PerfectCount  = 0u;
     m_GreatCount    = 0u;
     m_GoodCount     = 0u;
@@ -146,7 +146,7 @@ void FBeatGrid::Start() noexcept {
     m_CurrentTime = 0.0f;
     m_Playing      = true;
     m_Paused       = false;
-    m_EndedFired  = false;
+    m_bEndedFired  = false;
     // judged flag を再判定可能状態に戻す + 統計クリア (= 再挑戦)
     const usize n = m_Judged.Size();
     for (usize i = 0; i < n; ++i) m_Judged[i] = false;
@@ -224,13 +224,13 @@ void FBeatGrid::Tick(f32 dt) noexcept {
     }
 
     // 全 note 判定完了 → 一度だけ EndCallback。
-    if (!m_EndedFired) {
+    if (!m_bEndedFired) {
         u32 judged_count = 0u;
         for (usize i = 0; i < n; ++i) {
             if (m_Judged[i]) ++judged_count;
         }
         if (judged_count == m_TotalNotes) {
-            m_EndedFired = true;
+            m_bEndedFired = true;
             if (m_EndCb != nullptr) {
                 m_EndCb(m_EndUser, HitNotes(), m_MissCount, Accuracy());
             }
@@ -265,7 +265,7 @@ void FBeatGrid::ClearAll() noexcept {
     m_CurrentTime       = 0.0f;
     m_Playing            = false;
     m_Paused             = false;
-    m_EndedFired        = false;
+    m_bEndedFired        = false;
     m_TotalNotes        = 0u;
     m_PerfectCount      = 0u;
     m_GreatCount        = 0u;

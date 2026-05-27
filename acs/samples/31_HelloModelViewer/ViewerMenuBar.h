@@ -39,7 +39,7 @@ public:
 
 private:
     // File > Theme... の toggle 状態。連打で開閉する設計のため永続化する。
-    bool m_ShowThemeSettings = false;
+    bool m_bShowThemeSettings = false;
 };
 
 } // namespace hellomv

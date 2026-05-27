@@ -44,24 +44,24 @@ public:
 private:
     static void OnAChanged(const T& v, void* user) noexcept {
         auto* self = static_cast<FTwoWayBinder*>(user);
-        if (self->m_Updating) return;
-        self->m_Updating = true;
+        if (self->m_bUpdating) return;
+        self->m_bUpdating = true;
         self->m_B->Set(v);
-        self->m_Updating = false;
+        self->m_bUpdating = false;
     }
     static void OnBChanged(const T& v, void* user) noexcept {
         auto* self = static_cast<FTwoWayBinder*>(user);
-        if (self->m_Updating) return;
-        self->m_Updating = true;
+        if (self->m_bUpdating) return;
+        self->m_bUpdating = true;
         self->m_A->Set(v);
-        self->m_Updating = false;
+        self->m_bUpdating = false;
     }
 
     Observable<T>*    m_A = nullptr;
     Observable<T>*    m_B = nullptr;
     ObservableHandle  m_HA;
     ObservableHandle  m_HB;
-    bool              m_Updating = false;
+    bool              m_bUpdating = false;
 };
 
 // 片方向 (src → dst のみ)

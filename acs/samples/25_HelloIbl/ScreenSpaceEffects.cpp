@@ -29,7 +29,7 @@ void RenderSsrPass(HelloIblApp& app, const FMat4& vp_for_render,
     // frame 0 は未確定なので現 VP を渡し reprojection を無効化。
     const FMat4& ssr_prev_vp = app.m_TaaPrevVpValid ? app.m_PrevVpNoJitter
                                                      : vp_no_jitter;
-    IRhiTexture* motion_tex = (app.m_UseMotionVec && app.m_TaaPrevVpValid)
+    IRhiTexture* motion_tex = (app.m_bUseMotionVec && app.m_TaaPrevVpValid)
                                   ? app.m_Motion.OutputTexture() : nullptr;
     app.m_Ssr.Render(*dev, *cl, *hdr, *depth,
                     *app.m_Motion.OutputNormalTexture(),
@@ -42,7 +42,7 @@ void RenderSsrPass(HelloIblApp& app, const FMat4& vp_for_render,
 
 void RenderSsaoPass(HelloIblApp& app, const FMat4& vp_for_render,
                     const FMat4& inv_vp, const FVec3& sun_dir) noexcept {
-    if (!app.m_UseSsao) return;
+    if (!app.m_bUseSsao) return;
 
     IRhiDevice*      dev   = app.GetRenderer().Device();
     IRhiCommandList* cl    = app.GetRenderer().CommandList();
@@ -57,12 +57,12 @@ void RenderSsaoPass(HelloIblApp& app, const FMat4& vp_for_render,
                      app.m_Camera.Eye(), sun_dir,
                      /*intensity=*/1.0f,
                      /*radius=*/0.5f);
-    app.m_SsaoWarm = true;     // 次フレームから FPbrShader が SSAO texture を読める
+    app.m_bSsaoWarm = true;     // 次フレームから FPbrShader が SSAO texture を読める
 }
 
 void RenderSsgiPass(HelloIblApp& app, const FMat4& vp_for_render,
                     const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
-    if (!app.m_UseSsgi) return;
+    if (!app.m_bUseSsgi) return;
 
     IRhiDevice*      dev   = app.GetRenderer().Device();
     IRhiCommandList* cl    = app.GetRenderer().CommandList();
@@ -77,7 +77,7 @@ void RenderSsgiPass(HelloIblApp& app, const FMat4& vp_for_render,
     // (null なら従来の depth reprojection にフォールバック)。
     const FMat4& ssgi_prev_vp = app.m_TaaPrevVpValid ? app.m_PrevVpNoJitter
                                                       : vp_no_jitter;
-    IRhiTexture* motion_tex = (app.m_UseMotionVec && app.m_TaaPrevVpValid)
+    IRhiTexture* motion_tex = (app.m_bUseMotionVec && app.m_TaaPrevVpValid)
                                   ? app.m_Motion.OutputTexture() : nullptr;
     app.m_Ssgi.Render(*dev, *cl, *hdr, *depth,
                      *app.m_Motion.OutputNormalTexture(),
@@ -86,7 +86,7 @@ void RenderSsgiPass(HelloIblApp& app, const FMat4& vp_for_render,
                      /*intensity=*/1.0f,
                      /*max_distance=*/5.0f,
                      motion_tex);
-    app.m_SsgiWarm = true;
+    app.m_bSsgiWarm = true;
 }
 
 } // namespace helloibl

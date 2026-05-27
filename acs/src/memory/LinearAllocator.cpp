@@ -13,7 +13,7 @@ namespace acs {
 FLinearAllocator::FLinearAllocator(usize capacity, FAllocator* backing) noexcept
     : m_Capacity(capacity)
     , m_Backing(backing ? backing : &DefaultAllocator())
-    , m_OwnsBacking(false) {
+    , m_bOwnsBacking(false) {
     m_Base = static_cast<u8*>(m_Backing->Alloc(capacity, kDefaultAlignment, FSourceLoc::Current()));
 }
 

@@ -10,14 +10,14 @@
 //   class Player : public acs::game::IInspectableProvider {
 //       f32  m_Speed = 5.0f;
 //       i32  m_Hp    = 100;
-//       bool m_Invincible = false;
+//       bool m_bInvincible = false;
 //
 //       u32 ObjectCount() noexcept override { return 1; }
 //       InspectableObject GetObject(u32) noexcept override {
 //           static InspectableField fields[] = {
 //               { "speed",      EFieldKind::F32,  &m_Speed,      0, nullptr },
 //               { "hp",         EFieldKind::I32,  &m_Hp,         0, nullptr },
-//               { "invincible", EFieldKind::Bool, &m_Invincible, 0, nullptr },
+//               { "invincible", EFieldKind::Bool, &m_bInvincible, 0, nullptr },
 //           };
 //           return { "Player", "P1", fields, 3 };
 //       }

@@ -148,7 +148,7 @@ private:
     bool m_Completed          = false;
     bool m_Typing             = false;
     // 選択肢が pending なときに choice_consumed=false。ChooseOption で true 化。
-    bool m_ChoicesConsumed   = true;
+    bool m_bChoicesConsumed   = true;
 };
 
 } // namespace acs::game

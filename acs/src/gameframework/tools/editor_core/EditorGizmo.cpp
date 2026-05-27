@@ -169,7 +169,7 @@ void FEditorGizmo::Init() noexcept {
     m_DragOriginPos      = acs::FVec3{};
     m_DragOriginRot      = acs::FVec3{};
     m_DragOriginScl      = acs::FVec3{};
-    m_DragOriginSet      = false;
+    m_bDragOriginSet      = false;
     m_LastRayOrigin      = acs::FVec3{};
     m_LastRayDirection   = acs::FVec3{0.0f, 0.0f, 1.0f};
 }
@@ -180,7 +180,7 @@ void FEditorGizmo::Shutdown() noexcept {
     m_DragOriginPos      = acs::FVec3{};
     m_DragOriginRot      = acs::FVec3{};
     m_DragOriginScl      = acs::FVec3{};
-    m_DragOriginSet      = false;
+    m_bDragOriginSet      = false;
     m_LastRayOrigin      = acs::FVec3{};
     m_LastRayDirection   = acs::FVec3{0.0f, 0.0f, 1.0f};
     m_SnapTranslate       = 0.0f;
@@ -318,8 +318,8 @@ void FEditorGizmo::ProcessInput(acs::FVec3 mouse_ray_origin,
                 _state.drag_start_world = hit;
                 // m_DragOriginPos/rot/scl は Manipulate 初回で transform 値を
                 // 受け取った瞬間にセットする (= 本関数は値を知らない)。
-                // m_DragOriginSet フラグで「初回セット待ち」を識別。
-                m_DragOriginSet = false;
+                // m_bDragOriginSet フラグで「初回セット待ち」を識別。
+                m_bDragOriginSet = false;
             }
         }
     }
@@ -353,15 +353,15 @@ bool FEditorGizmo::Manipulate(acs::FVec3& inout_position,
     }
 
     // drag 開始直後 (= 初回 Manipulate 呼び出し) なら m_DragOrigin* を確定。
-    // ProcessInput で drag 開始時に `m_DragOriginSet = false` にしているので、
+    // ProcessInput で drag 開始時に `m_bDragOriginSet = false` にしているので、
     // ここで「未セット ⇒ 今フレームの inout_* をコピーして以後の delta 計算の
     // 基準にする」分岐を行う。bool フラグなので legitimate な (0,0,0) 値でも
     // 正しく動作する (= 値ベース判定の罠を回避)。
-    if (!m_DragOriginSet) {
+    if (!m_bDragOriginSet) {
         m_DragOriginPos = inout_position;
         m_DragOriginRot = inout_rotation_euler;
         m_DragOriginScl = inout_scale;
-        m_DragOriginSet = true;
+        m_bDragOriginSet = true;
     }
 
     // 現フレームの hot 軸 / 平面と現マウス ray の交点を取得。

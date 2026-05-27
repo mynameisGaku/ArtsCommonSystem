@@ -285,7 +285,7 @@ void FRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos)
     FrameCBLayout cb{};
     cb.view_proj  = m_Vp;
     cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
-    cb.back_params = FVec4{m_BackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
+    cb.back_params = FVec4{m_bBackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
     cb.screen_params = FVec4{
         m_ScreenW > 0 ? 1.0f / static_cast<f32>(m_ScreenW) : 0.0f,
         m_ScreenH > 0 ? 1.0f / static_cast<f32>(m_ScreenH) : 0.0f,
@@ -296,7 +296,7 @@ void FRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos)
 void FRefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 far_z,
                                      u32 screen_w, u32 screen_h) noexcept {
     m_BackDepth   = back_depth;
-    m_BackEnabled = (back_depth != nullptr);
+    m_bBackEnabled = (back_depth != nullptr);
     m_BackNear    = near_z > 0.0f ? near_z : 0.1f;
     m_BackFar     = far_z  > m_BackNear ? far_z : (m_BackNear + 1.0f);
     m_ScreenW     = screen_w > 0 ? screen_w : 1;
@@ -306,7 +306,7 @@ void FRefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 fa
         FrameCBLayout cb{};
         cb.view_proj  = m_Vp;
         cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
-        cb.back_params = FVec4{m_BackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
+        cb.back_params = FVec4{m_bBackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
         cb.screen_params = FVec4{1.0f / static_cast<f32>(m_ScreenW),
                                 1.0f / static_cast<f32>(m_ScreenH), 0, 0};
         m_FrameCb->Update(&cb, sizeof(cb));

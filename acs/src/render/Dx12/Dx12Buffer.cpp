@@ -18,19 +18,19 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
     m_Device = &device;
     m_Size  = desc.size;
     m_Usage = desc.usage;
-    m_CpuWritable = desc.cpu_writable;
+    m_bCpuWritable = desc.cpu_writable;
 
     // すべての cpu_writable バッファは自動でフレームリング化する。
     // GPU/CPU の並列実行 (kFramesInFlight=2) 中に CPU 側 Update が
     // 実行中の GPU 読み出しと衝突するのを防ぐため。Static (cpu_writable=false)
     // のバッファは 1 度しか書かれないのでリング不要。
-    m_FrameCycled = desc.cpu_writable;
+    m_bFrameCycled = desc.cpu_writable;
 
     // 1 スロットあたりのストライド（最大の Uniform 要件 256B にアライン）
-    if (m_FrameCycled) {
+    if (m_bFrameCycled) {
         m_SlotStride = (desc.size + 255u) & ~static_cast<usize>(255u);
     }
-    const usize total_size = m_FrameCycled
+    const usize total_size = m_bFrameCycled
         ? m_SlotStride * Dx12Device::kFramesInFlight
         : desc.size;
 
@@ -74,7 +74,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
 
     // 初期データを全スロットに複製（フレームリング時は両スロットへ）
     if (desc.initial_data && desc.size > 0 && m_Mapped) {
-        if (m_FrameCycled) {
+        if (m_bFrameCycled) {
             for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
                 ::memcpy(static_cast<u8*>(m_Mapped) + i * m_SlotStride,
                          desc.initial_data, desc.size);
@@ -90,7 +90,7 @@ void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
     if (!m_Mapped || !data) return;
     if (offset + size > m_Size) return;
     u8* base = static_cast<u8*>(m_Mapped);
-    if (m_FrameCycled) {
+    if (m_bFrameCycled) {
         const u32 slot = m_Device ? m_Device->CurrentFrameSlot() : 0;
         base += slot * m_SlotStride;
     }
@@ -100,7 +100,7 @@ void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
 D3D12_GPU_VIRTUAL_ADDRESS Dx12Buffer::Gpu() const noexcept {
     if (!m_Resource) return 0;
     D3D12_GPU_VIRTUAL_ADDRESS addr = m_Resource->GetGPUVirtualAddress();
-    if (m_FrameCycled && m_Device) {
+    if (m_bFrameCycled && m_Device) {
         addr += m_Device->CurrentFrameSlot() * m_SlotStride;
     }
     return addr;

@@ -39,7 +39,7 @@ void ViewerMenuBar::Draw(FGame& game,
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Theme...")) {
-                m_ShowThemeSettings = !m_ShowThemeSettings;
+                m_bShowThemeSettings = !m_bShowThemeSettings;
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Esc")) {
@@ -51,7 +51,7 @@ void ViewerMenuBar::Draw(FGame& game,
     }
 
     // ---- Theme FSettings 窓 (File > Theme... で toggle) ----
-    if (m_ShowThemeSettings) {
+    if (m_bShowThemeSettings) {
         theme.DrawThemeSettingsUI();
         // DrawThemeSettingsUI 内にも Save/Load ボタンはあるが、固定パスで明示
         // 保存できるショートカットを別 window で出す (本 sample 専用のクイック

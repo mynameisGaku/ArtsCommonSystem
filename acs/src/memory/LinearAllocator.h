@@ -31,7 +31,7 @@ private:
     u8*           m_Base     = nullptr;
     u64           m_Capacity = 0;
     FAllocator*    m_Backing  = nullptr;
-    bool          m_OwnsBacking = false;
+    bool          m_bOwnsBacking = false;
     TAtomic<u64>   m_Used {0};                  // 現在のカーソル位置
     mutable TAtomic<u64> m_Peak {0};            // ピーク位置
 };

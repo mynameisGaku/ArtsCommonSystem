@@ -299,7 +299,7 @@ private:
     bool m_Playing = false;
 
     // marker ドラッグ中フラグ + 対象 index。Step / 他処理に影響しない UI 専用 state。
-    bool m_DraggingMarker = false;
+    bool m_bDraggingMarker = false;
     i32  m_DragIdx        = -1;
 
     // 追加 combo のために現在選択している kind (Add ボタン押下時にこの kind で

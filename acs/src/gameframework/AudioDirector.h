@@ -179,7 +179,7 @@ private:
     u32             m_SfxHead = 0;  // 上書き時の次書込先 (FIFO)
 
     // ----- Duck state -----
-    bool m_DuckActive        = false;
+    bool m_bDuckActive        = false;
     f32  m_DuckDepth         = 1.0f;  // 谷底ゲイン [0, 1]
     f32  m_DuckRemaining     = 0.0f;  // 全体残り (fade in + hold + fade out)
     f32  m_DuckTotal         = 0.0f;  // 全体長 (= duration + 2 * kDuckFadeWindow)

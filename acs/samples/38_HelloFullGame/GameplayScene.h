@@ -92,7 +92,7 @@ private:
     acs::game::FRandom m_Rng{ 0x5A17C0DEu };
 
     bool       m_Victory       = false;
-    bool       m_GameOverReq = false;
+    bool       m_bGameOverReq = false;
     acs::f32   m_LastDt       = 1.0f / 60.0f;
     acs::f32   m_FpsEma       = 60.0f;
 };

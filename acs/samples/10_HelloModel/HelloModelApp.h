@@ -23,7 +23,7 @@ public:
 private:
     acs::FStandardShader m_Shader;
     acs::FAssetFuture    m_AsyncMesh;
-    bool                m_AsyncLoaded = false;
+    bool                m_bAsyncLoaded = false;
     ModelScene          m_Scene;
 };
 

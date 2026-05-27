@@ -19,7 +19,7 @@ namespace {
 void BindIbl(HelloIblApp& app) noexcept {
     app.m_Pbr.SetIbl(app.m_Ibl.IrradianceMap(), app.m_Ibl.PrefilterMap(), app.m_Ibl.BrdfLut(),
                     app.m_Ibl.PrefilterMips());
-    app.m_Pbr.SetSh9(app.m_UseSh9 ? app.m_Sh9 : nullptr);
+    app.m_Pbr.SetSh9(app.m_bUseSh9 ? app.m_Sh9 : nullptr);
 }
 
 void BindSun(HelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
@@ -32,7 +32,7 @@ void BindSsao(HelloIblApp& app) noexcept {
     if (!hdr) return;
     // 注: SSAO 無効時も viewport サイズは渡す。SSGI / SSR が screen UV を
     // ssao_params.zw から得るため、ここを 0 にすると参照が壊れる。
-    if (app.m_UseSsao && app.m_SsaoWarm) {
+    if (app.m_bUseSsao && app.m_bSsaoWarm) {
         app.m_Pbr.SetSsao(app.m_Ssao.OutputTexture(), /*intensity=*/1.0f,
                          hdr->Width(), hdr->Height());
     } else {
@@ -41,7 +41,7 @@ void BindSsao(HelloIblApp& app) noexcept {
 }
 
 void BindSsgi(HelloIblApp& app) noexcept {
-    if (app.m_UseSsgi && app.m_SsgiWarm) {
+    if (app.m_bUseSsgi && app.m_bSsgiWarm) {
         app.m_Pbr.SetSsgi(app.m_Ssgi.OutputTexture(), /*intensity=*/0.6f);
     } else {
         app.m_Pbr.SetSsgi(nullptr, 0.0f);
@@ -58,7 +58,7 @@ void BindSsr(HelloIblApp& app) noexcept {
 }
 
 void BindShadow(HelloIblApp& app) noexcept {
-    if (app.m_UseShadows) {
+    if (app.m_bUseShadows) {
         FMat4 vps   [FShadowMap::kMaxCascades] = {};
         f32  splits[FShadowMap::kMaxCascades] = {};
         for (u32 c = 0; c < app.m_Shadow.CascadeCount(); ++c) {
@@ -76,7 +76,7 @@ void BindShadow(HelloIblApp& app) noexcept {
 
 void BindFog(HelloIblApp& app) noexcept {
     // 灰色 fog、密度 0.12 / 高さ減衰 0.2
-    if (app.m_UseFog) {
+    if (app.m_bUseFog) {
         app.m_Pbr.SetFog(FVec3{0.65f, 0.7f, 0.8f}, 0.12f, 0.2f, 0.0f);
     } else {
         app.m_Pbr.SetFog(FVec3{0, 0, 0}, 0.0f);
@@ -84,7 +84,7 @@ void BindFog(HelloIblApp& app) noexcept {
 }
 
 void BindProbeGrid(HelloIblApp& app) noexcept {
-    if (app.m_UseProbeGrid) {
+    if (app.m_bUseProbeGrid) {
         // 計算済 m_Sh9 (現 env の SH9) をベースに、左右の probe を赤/青に着色
         FPbrShader::LightProbe p[2];
         p[0].position = FVec3{-4.0f, 1.5f, 3.0f};   // 左 probe (赤光)
@@ -96,7 +96,7 @@ void BindProbeGrid(HelloIblApp& app) noexcept {
         p[1].sh9[0] = p[1].sh9[0] + FVec4{0.4f, 0.4f, 2.5f, 0};
 
         app.m_Pbr.SetProbeGrid(p, 2);
-        app.m_NeedSh9Rebuild = true;       // SH9 base が古ければ次フレームで再計算
+        app.m_bNeedSh9Rebuild = true;       // SH9 base が古ければ次フレームで再計算
     } else {
         app.m_Pbr.SetProbeGrid(nullptr, 0);
     }
@@ -104,7 +104,7 @@ void BindProbeGrid(HelloIblApp& app) noexcept {
 
 void BindAreaLight(HelloIblApp& app) noexcept {
     // 球グリッドの前方上空に置いた 2x1 矩形パネル
-    if (app.m_UseAreaLight) {
+    if (app.m_bUseAreaLight) {
         FPbrShader::AreaLight rect;
         rect.center = FVec3{0.0f, 4.0f, 1.0f};      // 上空、camera 側
         rect.axis_x = FVec3{1.0f, 0.0f, 0.0f};      // 横半幅 = 1

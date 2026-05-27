@@ -44,7 +44,7 @@ public:
     int Run(const FAppConfig& cfg) noexcept;
 
     // 終了要求（ループを抜ける、OnShutdown が呼ばれる）
-    void Quit() noexcept { m_Running = false; }
+    void Quit() noexcept { m_bRunning = false; }
 
     // 背景クリア色を動的に変更する（次フレームの描画から反映される）。
     // 既定値は FAppConfig の clear_r/g/b/a（起動時）。
@@ -89,7 +89,7 @@ private:
     MessageBroker  m_Events;
     FrameTimer     m_FrameTimer;
     f32            m_Dt       = 0.0f;
-    bool           m_Running  = true;
+    bool           m_bRunning  = true;
     FAppConfig      m_Cfg;
     ClearColor     m_ClearColor{};   // BeginFrame に渡す現在のクリア色
 };

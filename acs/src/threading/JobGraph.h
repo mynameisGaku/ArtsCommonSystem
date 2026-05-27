@@ -89,7 +89,7 @@ private:
 
     TArray<Job*>        m_Jobs;
     CompletionCounter  m_Counter;
-    bool               m_Submitted       = false;
+    bool               m_bSubmitted       = false;
 };
 
 } // namespace acs

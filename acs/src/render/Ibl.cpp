@@ -528,10 +528,10 @@ struct EquirectCBLayout {
 
 TResult<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
                                                 IRhiCommandList& cl) noexcept {
-    if (m_BrdfBuilt) return Ok();
+    if (m_bBrdfBuilt) return Ok();
     auto r = BuildBrdfLut(device, cl);
     if (r.IsErr()) return r;
-    m_BrdfBuilt = true;
+    m_bBrdfBuilt = true;
     return Ok();
 }
 
@@ -612,10 +612,10 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
 TResult<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
                                                   const FSky& sky) noexcept {
-    if (m_EnvBuilt) return Ok();
+    if (m_bEnvBuilt) return Ok();
     auto r = BuildEnvCubemap(device, cl, sky);
     if (r.IsErr()) return r;
-    m_EnvBuilt = true;
+    m_bEnvBuilt = true;
     return Ok();
 }
 
@@ -906,13 +906,13 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     }
     cl.EndRenderToTexture(*m_EnvCube);
 
-    m_EnvBuilt = true;
+    m_bEnvBuilt = true;
     return Ok();
 }
 
 TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
                                                    IRhiCommandList& cl) noexcept {
-    if (m_IrradianceBuilt) return Ok();
+    if (m_bIrradianceBuilt) return Ok();
     // Diligent でなければ silent no-op (EnsureBrdfLut/EnsureEnvCubemap と一貫した挙動)
     if (!IsDiligentBackend(device)) return Ok();
     if (!m_EnvCube) {
@@ -921,7 +921,7 @@ TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
     }
     auto r = BuildIrradiance(device, cl);
     if (r.IsErr()) return r;
-    m_IrradianceBuilt = true;
+    m_bIrradianceBuilt = true;
     return Ok();
 }
 
@@ -1021,7 +1021,7 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
 
 TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
-    if (m_PrefilterBuilt) return Ok();
+    if (m_bPrefilterBuilt) return Ok();
     if (!IsDiligentBackend(device)) return Ok();
     if (!m_EnvCube) {
         return ACS_ERR(Render, 161,
@@ -1029,7 +1029,7 @@ TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
     }
     auto r = BuildPrefilter(device, cl);
     if (r.IsErr()) return r;
-    m_PrefilterBuilt = true;
+    m_bPrefilterBuilt = true;
     return Ok();
 }
 
@@ -1226,11 +1226,11 @@ void ImageBasedLighting::ResetEnvCubemap() noexcept {
     // env が無効になれば irradiance / prefilter も無効。
     m_PrefilterCube.Reset();
     m_PrefilterMips   = 0;
-    m_PrefilterBuilt  = false;
+    m_bPrefilterBuilt  = false;
     m_IrradianceCube.Reset();
-    m_IrradianceBuilt = false;
+    m_bIrradianceBuilt = false;
     m_EnvCube.Reset();
-    m_EnvBuilt        = false;
+    m_bEnvBuilt        = false;
 }
 
 void ImageBasedLighting::Shutdown() noexcept {
@@ -1245,10 +1245,10 @@ void ImageBasedLighting::Shutdown() noexcept {
     m_IrradianceCube.Reset();
     m_EnvCube.Reset();
     m_BrdfLut.Reset();
-    m_PrefilterBuilt  = false;
-    m_IrradianceBuilt = false;
-    m_EnvBuilt        = false;
-    m_BrdfBuilt       = false;
+    m_bPrefilterBuilt  = false;
+    m_bIrradianceBuilt = false;
+    m_bEnvBuilt        = false;
+    m_bBrdfBuilt       = false;
 }
 
 } // namespace acs

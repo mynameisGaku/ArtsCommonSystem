@@ -19,8 +19,8 @@ FNode2D& FNode2D::AddChild(TUniquePtr<FNode2D> child) noexcept {
     child->m_Parent = this;
     m_Children.PushBack(Move(child));
     FNode2D& ref = *m_Children.Back();
-    if (!ref.m_Spawned) {
-        ref.m_Spawned = true;
+    if (!ref.m_bSpawned) {
+        ref.m_bSpawned = true;
         ref.OnSpawn();
     }
     return ref;

@@ -116,7 +116,7 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     FMat4 orb_curr[kOrbCount]{};
     ExecutePbrPass(m_Assets, *cl, *hdr, *depth, m_Camera,
                    view_proj_jittered, m_CamPos, m_OrbPhase,
-                   m_SsrWarm, m_SsaoWarm, orb_curr);
+                   m_SsrWarm, m_bSsaoWarm, orb_curr);
 
     // ===== Refraction pass (clear / frosted glass) =====
     if (m_ShowRefraction) {
@@ -126,24 +126,24 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
 
     // ===== Motion + normal G-buffer pass (TAA / SSR / SSAO 用) =====
     IRhiTexture* motion_tex = ExecuteMotionPass(m_Assets, *cl, vp_no_jitter,
-                                                 m_PrevVpNoJitter, m_PrevVpValid,
+                                                 m_PrevVpNoJitter, m_bPrevVpValid,
                                                  m_PrevOrbPhase, orb_curr);
 
     // ===== SSR / SSAO (1-frame latency で次フレームの PBR が合成) =====
-    const FMat4& ssr_prev_vp = m_PrevVpValid ? m_PrevVpNoJitter : vp_no_jitter;
+    const FMat4& ssr_prev_vp = m_bPrevVpValid ? m_PrevVpNoJitter : vp_no_jitter;
     ExecuteSsrPass(m_Assets, *dev, *cl, *hdr, *depth,
                    view_proj_jittered, inv_vp, ssr_prev_vp,
                    m_CamPos, motion_tex, m_ShowSsr);
     if (m_ShowSsr) m_SsrWarm = true;
     ExecuteSsaoPass(m_Assets, *dev, *cl, *depth,
                     view_proj_jittered, inv_vp, m_Camera.View(), m_CamPos);
-    m_SsaoWarm = true;
+    m_bSsaoWarm = true;
 
     // ===== Post-process (HDR -> LDR backbuffer) =====
     const u32 buf_idx = sc->AcquireNextImage();
     ExecuteBloomPass(m_Assets, *cl, *sc, buf_idx, *depth,
                      m_PostParams, vp_no_jitter, m_PrevVpNoJitter,
-                     m_PrevVpValid, motion_tex);
+                     m_bPrevVpValid, motion_tex);
 
     // ===== HUD overlay =====
     ExecuteHudPass(m_Assets, *cl, *sc, m_Paused, m_ShowSsr, m_ShowRefraction);
@@ -156,7 +156,7 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     // 次フレーム用の前 VP / orb phase (TAA reprojection / motion 用)
     m_PrevVpNoJitter = vp_no_jitter;
     m_PrevOrbPhase    = m_OrbPhase;
-    m_PrevVpValid     = true;
+    m_bPrevVpValid     = true;
     return true;
 }
 

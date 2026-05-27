@@ -159,7 +159,7 @@ TResult<void> FTlsfAllocator::InitWithReservation(VmReservation&& reservation,
     auto r = Init(base, commit_initial);
     if (r.IsErr()) return r;
     m_Reservation = Move(reservation);
-    m_OwnsReservation = true;
+    m_bOwnsReservation = true;
     return Ok();
 }
 

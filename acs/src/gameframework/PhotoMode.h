@@ -96,7 +96,7 @@ public:
 
     // ----- 撮影リクエスト (poll-and-consume) -----
     // ユーザがシャッターボタンを押した時に呼ぶ。flag が立つだけ。
-    void RequestCapture() noexcept { m_CapturePending = true; }
+    void RequestCapture() noexcept { m_bCapturePending = true; }
 
     // 描画側が 1 フレーム末尾で呼ぶ。立っていれば true を返して同時に rear。
     bool ConsumeCaptureRequest() noexcept;
@@ -112,7 +112,7 @@ private:
     f32        m_ZoomMult         = 1.0f;
     f32        m_Rot               = 0.0f;
     FilterKind m_Filter            = None;
-    bool       m_CapturePending   = false;
+    bool       m_bCapturePending   = false;
     f32        m_SavedTimeScale  = 1.0f;
 };
 

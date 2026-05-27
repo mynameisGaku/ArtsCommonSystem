@@ -178,7 +178,7 @@ private:
     FNode2D*     m_PendingReparentTarget = nullptr;  // 非 null なら次の resolve で移動
     bool        m_Enabled         = true;
     bool        m_Visible         = true;
-    bool        m_Spawned         = false;
+    bool        m_bSpawned         = false;
     bool        m_PendingDestroy = false;
 };
 

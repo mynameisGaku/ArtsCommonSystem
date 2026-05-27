@@ -342,7 +342,7 @@ private:
     bool                 m_HasCurrent      = false;// state node が 1 つでも入って Reset 済か
     bool                 m_ClipEndedFired = false;// 同 Once clip で多重発火を防ぐ
     EAnimationGraphState m_PendingTrigger  = EAnimationGraphState::Idle;
-    bool                 m_TriggerPending  = false;
+    bool                 m_bTriggerPending  = false;
 
     // ---- callback ----
     StateEnterCallback _state_enter_cb   = nullptr;

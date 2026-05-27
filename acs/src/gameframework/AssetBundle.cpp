@@ -21,7 +21,7 @@ void FAssetBundle::Add(const char* asset_path) noexcept {
         ACS_LOG_WARN("FAssetBundle::Add: null path ignored");
         return;
     }
-    if (m_Begun) {
+    if (m_bBegun) {
         // BeginLoad 済 bundle への追加はサポートしない (進捗計算の意味が破綻するため)。
         ACS_LOG_WARN("FAssetBundle::Add: bundle already began loading, ignored '%s'",
                      asset_path);
@@ -34,11 +34,11 @@ void FAssetBundle::Add(const char* asset_path) noexcept {
 }
 
 void FAssetBundle::BeginLoad() noexcept {
-    if (m_Begun) {
+    if (m_bBegun) {
         ACS_LOG_WARN("FAssetBundle::BeginLoad: already begun, ignored");
         return;
     }
-    m_Begun = true;
+    m_bBegun = true;
 
     // TODO(Phase G-2): 各 entry について
     //   FAssetFuture fut = FAssetRegistry::Instance().LoadAsync(WidenPath(entry.path));
@@ -61,7 +61,7 @@ f32 FAssetBundle::Progress() const noexcept {
         // 空 bundle は「読むものが無い = 100%」とみなす (UI のプログレスバー実装を簡潔に)。
         return 1.0f;
     }
-    if (!m_Begun) {
+    if (!m_bBegun) {
         // 未開始: Add しただけの段階は 0%。
         return 0.0f;
     }
@@ -78,7 +78,7 @@ f32 FAssetBundle::Progress() const noexcept {
 bool FAssetBundle::IsLoaded() const noexcept {
     const usize n = m_Entries.Size();
     if (n == 0) return true;       // 空 bundle は即 loaded
-    if (!m_Begun) return false;     // 未開始なら未完了
+    if (!m_bBegun) return false;     // 未開始なら未完了
     for (usize i = 0; i < n; ++i) {
         const LoadStatus s = m_Entries[i].status;
         if (s != LoadStatus::Loaded && s != LoadStatus::Failed) {
@@ -119,14 +119,14 @@ void FAssetBundle::Unload() noexcept {
     // を呼んでキャッシュからも外す。他 Scene がまだ参照していれば refcount > 0 で
     // 実体は残り、最後の参照消失時に自動解放される (TRc の決定的破棄)。
     //
-    // bridge スケルトン: 内部 state を Pending に戻し、m_Begun フラグもクリアして
+    // bridge スケルトン: 内部 state を Pending に戻し、m_bBegun フラグもクリアして
     // 再利用可能な状態にする (同一 bundle インスタンスの再 Add + 再 BeginLoad を許す)。
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
         m_Entries[i].status = LoadStatus::Pending;
     }
     m_Entries.Clear();
-    m_Begun = false;
+    m_bBegun = false;
 }
 
 } // namespace acs::game

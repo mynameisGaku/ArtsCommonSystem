@@ -46,11 +46,11 @@ private:
     acs::f32                m_ExposureTarget  = 0.7f;
     acs::f32                m_AdaptedExposure = 0.7f;
     acs::FMat4               m_PrevVpNoJitter{};
-    bool                    m_PrevVpValid   = false;
+    bool                    m_bPrevVpValid   = false;
     acs::u32                m_TaaFrameIndex = 0;
     bool                    m_ShowSsr        = true;
     bool                    m_SsrWarm        = false;
-    bool                    m_SsaoWarm       = false;
+    bool                    m_bSsaoWarm       = false;
     bool                    m_ShowRefraction = true;
     bool                    m_Paused          = false;
 };

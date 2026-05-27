@@ -155,7 +155,7 @@ private:
 
     TArray<f32> m_FrameHistory;          // size <= kFrameHistoryCap、要素は合計 ms
     u32        m_FrameIndex   = 0u;     // 次に書き込むスロット (mod kFrameHistoryCap)
-    bool       m_FrameFilled  = false;  // 履歴が一周したか (size == cap の意味)
+    bool       m_bFrameFilled  = false;  // 履歴が一周したか (size == cap の意味)
 
     f32  m_LastFrameMs       = 0.0f;
     bool m_FrameOverBudget   = false;

@@ -104,7 +104,7 @@ private:
     };
 
     // bundle が BeginLoad を 1 度でも実行したか (Add の閉鎖判定用)。
-    bool          m_Begun = false;
+    bool          m_bBegun = false;
     TArray<Entry>  m_Entries;
 };
 

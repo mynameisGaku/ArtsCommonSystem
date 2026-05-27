@@ -45,13 +45,13 @@ void EnsureSymbols() noexcept {
 void StackTrace::Capture(u32 skip) noexcept {
     USHORT n = ::CaptureStackBackTrace(static_cast<DWORD>(skip), kStackTraceMaxFrames, m_Addrs, nullptr);
     m_Count    = static_cast<u32>(n);
-    m_Resolved = false;
+    m_bResolved = false;
 }
 
 // 取得済みアドレスをシンボル名 / ファイル名 / 行番号に変換する。
 // SYMBOL_INFO は末尾可変長の構造体なので適切なサイズで確保する。
 void StackTrace::Resolve() noexcept {
-    if (m_Resolved || m_Count == 0) return;
+    if (m_bResolved || m_Count == 0) return;
     EnsureSymbols();
 
     AcquireSRWLockExclusive(&g_sym_lock);
@@ -89,7 +89,7 @@ void StackTrace::Resolve() noexcept {
         }
     }
     ReleaseSRWLockExclusive(&g_sym_lock);
-    m_Resolved = true;
+    m_bResolved = true;
 }
 
 // 解決済みフレームを 1 行ずつ整形して sink に渡す。

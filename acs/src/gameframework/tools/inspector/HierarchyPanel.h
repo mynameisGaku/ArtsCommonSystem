@@ -127,7 +127,7 @@ public:
 
     // 全 TreeNode を折りたたむ。次回 DrawUI で各ノード描画時に
     // 既存 FNodeId エントリを true に立てる必要があるため、ここでは
-    // `m_CollapseAllPending` フラグだけ立てて DrawUI で適用する。
+    // `m_bCollapseAllPending` フラグだけ立てて DrawUI で適用する。
     void CollapseAll() noexcept;
 
     // 選択中ノードに `FNode2D::Destroy()` を呼ぶ。pending_destroy がマークされ、
@@ -175,7 +175,7 @@ private:
     // "Reparent here" でこれを使って `Reparent` を呼ぶ。
     class FNode2D*             m_ReparentTarget    = nullptr;
     // CollapseAll の遅延適用フラグ。
-    bool                      m_CollapseAllPending = false;
+    bool                      m_bCollapseAllPending = false;
     NodeRightClickCallback    m_RightClickCb     = nullptr;
     void*                     m_RightClickUser   = nullptr;
 };

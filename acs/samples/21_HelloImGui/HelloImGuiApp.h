@@ -19,7 +19,7 @@ public:
 
 private:
     acs::ImGuiCtx m_Imgui;
-    bool          m_ShowDemo = true;
+    bool          m_bShowDemo = true;
     acs::f32      m_R = 0.1f;
     acs::f32      m_G = 0.12f;
     acs::f32      m_B = 0.16f;

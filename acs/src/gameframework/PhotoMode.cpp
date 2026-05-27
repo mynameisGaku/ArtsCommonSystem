@@ -27,7 +27,7 @@ void FPhotoMode::Enter(f32 current_time_scale) noexcept {
     m_Offset           = FVec2{0.0f, 0.0f};
     m_ZoomMult        = 1.0f;
     m_Rot              = 0.0f;
-    m_CapturePending  = false;
+    m_bCapturePending  = false;
     // m_Filter は意図的に保持
 }
 
@@ -40,7 +40,7 @@ void FPhotoMode::Enter(f32 current_time_scale) noexcept {
 // =============================================================================
 void FPhotoMode::Exit() noexcept {
     m_Active          = false;
-    m_CapturePending = false;
+    m_bCapturePending = false;
 }
 
 // =============================================================================
@@ -82,13 +82,13 @@ void FPhotoMode::RotateCamera(f32 rad_delta) noexcept {
 // =============================================================================
 // ConsumeCaptureRequest — 撮影 flag を読んで同時に落とす
 //   ・active 外では常に false を返す (Exit 後の取り残し flag 防止)
-//   ・成功時は m_CapturePending を false に rear:
+//   ・成功時は m_bCapturePending を false に rear:
 //     描画ループが同一フレームで複数回呼んでも 1 枚しか撮影されない
 // =============================================================================
 bool FPhotoMode::ConsumeCaptureRequest() noexcept {
     if (!m_Active) return false;
-    if (!m_CapturePending) return false;
-    m_CapturePending = false;
+    if (!m_bCapturePending) return false;
+    m_bCapturePending = false;
     return true;
 }
 

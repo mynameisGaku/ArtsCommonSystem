@@ -1233,10 +1233,10 @@ void FPbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
 void FPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     if (sh9_or_null) {
         for (u32 i = 0; i < 9; ++i) m_Sh9[i] = sh9_or_null[i];
-        m_Sh9Enabled = true;
+        m_bSh9Enabled = true;
     } else {
         for (u32 i = 0; i < 9; ++i) m_Sh9[i] = FVec4{0, 0, 0, 0};
-        m_Sh9Enabled = false;
+        m_bSh9Enabled = false;
     }
     FlushFrameCB();
 }
@@ -1424,7 +1424,7 @@ void FPbrShader::FlushFrameCB() noexcept {
     cb.ibl_params = FVec4{
         m_IblEnabled ? 1.0f : 0.0f,
         static_cast<f32>(m_IblMips),
-        m_Sh9Enabled ? 1.0f : 0.0f,
+        m_bSh9Enabled ? 1.0f : 0.0f,
         0
     };
     cb.ssao_params = FVec4{

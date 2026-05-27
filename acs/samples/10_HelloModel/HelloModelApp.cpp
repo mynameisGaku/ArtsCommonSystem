@@ -32,7 +32,7 @@ void HelloModelApp::OnStart() noexcept {
 
 void HelloModelApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    m_Scene.Update(dt, m_AsyncMesh, m_AsyncLoaded);
+    m_Scene.Update(dt, m_AsyncMesh, m_bAsyncLoaded);
 }
 
 void HelloModelApp::OnRender() noexcept {
@@ -44,7 +44,7 @@ void HelloModelApp::OnRender() noexcept {
 void HelloModelApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     // 非同期ロード進行中なら待ってから解放
-    if (m_AsyncMesh.Valid() && !m_AsyncLoaded) (void)m_AsyncMesh.Wait();
+    if (m_AsyncMesh.Valid() && !m_bAsyncLoaded) (void)m_AsyncMesh.Wait();
     m_Scene.Shutdown();
     m_Shader.Shutdown();
 }

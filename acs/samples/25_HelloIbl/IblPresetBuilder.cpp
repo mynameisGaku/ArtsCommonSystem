@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloIbl — IBL リソース構築 (preset 切替対応) の実装。
 //
-// preset が切り替わったらフラグ (m_NeedRecapture / m_NeedStudioHdr / m_NeedAtmosphere)
+// preset が切り替わったらフラグ (m_bNeedRecapture / m_bNeedStudioHdr / m_bNeedAtmosphere)
 // が立つ。本ヘルパはそれを見て env cubemap を作り直し、必要なら SH9 も再計算する。
 // 初回フレームでは BRDF LUT / env / irradiance / prefilter を一括生成する。
 #include "HelloIblApp.h"
@@ -20,14 +20,14 @@ void ApplyPresetRebuilds(HelloIblApp& app) noexcept {
     if (!dev || !cl) return;
 
     // FSky preset が変わった場合、env / irradiance / prefilter を作り直す
-    if (app.m_NeedRecapture) {
+    if (app.m_bNeedRecapture) {
         dev->WaitIdle();
         app.m_Ibl.ResetEnvCubemap();
-        app.m_NeedRecapture = false;
+        app.m_bNeedRecapture = false;
     }
     // Studio HDR preset: equirect float texture を CPU で合成 → LoadEquirectHdr で
     // env cubemap として焼く。
-    if (app.m_NeedStudioHdr) {
+    if (app.m_bNeedStudioHdr) {
         dev->WaitIdle();
         BuildStudioHdrEquirect(app.m_EquirectRgba);
         auto r = app.m_Ibl.LoadEquirectHdrFromMemory(
@@ -35,10 +35,10 @@ void ApplyPresetRebuilds(HelloIblApp& app) noexcept {
             app.m_EquirectRgba.Data(),
             kEquirectWidth, kEquirectHeight);
         if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: LoadEquirectHdr failed");
-        app.m_NeedStudioHdr = false;
+        app.m_bNeedStudioHdr = false;
     }
     // Hillaire 風物理大気を CPU で焼く
-    if (app.m_NeedAtmosphere) {
+    if (app.m_bNeedAtmosphere) {
         dev->WaitIdle();
         AtmosphereParams ap;
         ap.sun_dir       = FVec3{0.3f, 0.5f, 0.5f};
@@ -52,7 +52,7 @@ void ApplyPresetRebuilds(HelloIblApp& app) noexcept {
             app.m_EquirectRgba.Data(),
             kEquirectWidth, kEquirectHeight);
         if (r.IsErr()) ACS_LOG_ERROR("HelloIbl: FAtmosphere bake failed");
-        app.m_NeedAtmosphere = false;
+        app.m_bNeedAtmosphere = false;
     }
 
     // ===== IBL build (まだ作ってないものだけ。一度作れば cache される) =====

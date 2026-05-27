@@ -36,7 +36,7 @@ public:
 
 private:
     u32        m_Count = 0;                         // 取得したフレーム数
-    bool       m_Resolved = false;                  // Resolve 済みか
+    bool       m_bResolved = false;                  // Resolve 済みか
     void*      m_Addrs[kStackTraceMaxFrames] = {};  // 生のフレームアドレス
     StackFrame m_Frames[kStackTraceMaxFrames] = {}; // 解決後の情報
 };

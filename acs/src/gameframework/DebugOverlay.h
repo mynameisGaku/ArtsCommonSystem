@@ -134,7 +134,7 @@ private:
 
     TArray<f32>    m_FpsHistory;          // size <= kFpsHistoryCap、要素は fps 値
     u32           m_FpsIndex    = 0u;    // 次に書き込むスロット (mod kFpsHistoryCap)
-    bool          m_FpsFilled   = false; // 履歴が一周したか (size == cap の意味)
+    bool          m_bFpsFilled   = false; // 履歴が一周したか (size == cap の意味)
 
     f32           m_CurrentFps  = 0.0f;
     const char*   m_SceneName   = nullptr;  // caller 所有

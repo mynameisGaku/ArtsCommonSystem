@@ -92,7 +92,7 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
     OnStart();
 
     // メインループ
-    while (m_Running && !m_Window.ShouldClose()) {
+    while (m_bRunning && !m_Window.ShouldClose()) {
         // フレーム先頭処理
         Input::Update();         // 押下状態を 1 フレーム進める
         m_Window.PollEvents();    // OS メッセージ処理

@@ -345,7 +345,7 @@ private:
     acs::FVec3 m_DragOriginRot{};
     acs::FVec3 m_DragOriginScl{};
     // 初回 Manipulate で m_DragOrigin* をセット済みかフラグ (= 0 判定の罠回避)。
-    bool      m_DragOriginSet = false;
+    bool      m_bDragOriginSet = false;
 
     // 直近マウス ray (ProcessInput で更新、Manipulate で参照)
     acs::FVec3 m_LastRayOrigin{};

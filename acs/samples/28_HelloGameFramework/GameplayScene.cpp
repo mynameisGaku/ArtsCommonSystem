@@ -21,7 +21,7 @@ void GameplayScene::OnEnter() noexcept {
     m_ColorTween = Services().Tweens().Tween(
         &m_Color, kColorDark, kColorBright,
         /*duration=*/2.0f, Easing::InOutSine);
-    m_ToBright = true;
+    m_bToBright = true;
     GetGame().SetClearColor(m_Color.x, m_Color.y, m_Color.z);
 
     // FNode2D ツリー: root → wheel → spoke 2 個。
@@ -142,9 +142,9 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
 
     // FTween 完了で ping-pong を逆方向に張り直す (Tweens.Tick は PostUpdate で自動)。
     if (!Services().Tweens().IsActive(m_ColorTween)) {
-        m_ToBright = !m_ToBright;
+        m_bToBright = !m_bToBright;
         const FVec3 from = m_Color;
-        const FVec3 to   = m_ToBright ? kColorBright : kColorDark;
+        const FVec3 to   = m_bToBright ? kColorBright : kColorDark;
         m_ColorTween = Services().Tweens().Tween(&m_Color, from, to,
                                                   /*duration=*/2.0f, Easing::InOutSine);
     }

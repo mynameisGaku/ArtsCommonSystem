@@ -27,7 +27,7 @@ InspectableObject PlayerNode::GetObject(u32 /*index*/) noexcept {
     // そのまま m_Speed/m_Hp/... に反映される。
     m_Fields[0] = { "speed",      EFieldKind::F32,  &m_Speed,      0, nullptr };
     m_Fields[1] = { "hp",         EFieldKind::I32,  &m_Hp,         0, nullptr };
-    m_Fields[2] = { "invincible", EFieldKind::Bool, &m_Invincible, 0, nullptr };
+    m_Fields[2] = { "invincible", EFieldKind::Bool, &m_bInvincible, 0, nullptr };
     m_Fields[3] = { "color",      EFieldKind::FVec3, &m_Color,      0, nullptr };
     m_Fields[4] = { "position",   EFieldKind::FVec2, &m_Position,   0, nullptr };
 

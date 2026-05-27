@@ -14,9 +14,9 @@ using namespace acs;
 namespace helloibl {
 
 void UpdateExposureControls(HelloIblApp& app, f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::U)) app.m_UseAutoExposure = !app.m_UseAutoExposure;
+    if (Input::IsKeyPressed(EKey::U)) app.m_bUseAutoExposure = !app.m_bUseAutoExposure;
 
-    if (app.m_UseAutoExposure) {
+    if (app.m_bUseAutoExposure) {
         // 露出は GPU が実測輝度から算出。Q/E は目標平均輝度 (key) を動かして
         // 全体の明暗を補正する (EV compensation 相当)。
         if (Input::IsKeyDown(EKey::E)) app.m_AutoKey += dt * 0.3f;

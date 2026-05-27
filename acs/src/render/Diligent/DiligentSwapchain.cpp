@@ -18,7 +18,7 @@ DiligentSwapchain::~DiligentSwapchain() noexcept {
 TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept {
     m_Device = &device;
     m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
-    m_Vsync  = cfg.vsync;
+    m_bVsync  = cfg.vsync;
     m_Format = cfg.format;
     m_Width  = cfg.window ? cfg.window->Width()  : 0;
     m_Height = cfg.window ? cfg.window->Height() : 0;
@@ -77,7 +77,7 @@ u32 DiligentSwapchain::AcquireNextImage() noexcept {
 
 void DiligentSwapchain::Present() noexcept {
     if (!m_Swap) return;
-    m_Swap->Present(m_Vsync ? 1 : 0);
+    m_Swap->Present(m_bVsync ? 1 : 0);
 }
 
 void DiligentSwapchain::Resize(u32 width, u32 height) noexcept {

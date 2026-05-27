@@ -25,13 +25,13 @@ void GameOverScene::OnEnter() noexcept {
 
     auto& app = static_cast<FullGameApp&>(GetGame());
     m_SavedBest    = app.GetHighScore().best_score;
-    m_IsNewRecord = m_FinalScore >= m_SavedBest && m_FinalScore > 0;
+    m_bIsNewRecord = m_FinalScore >= m_SavedBest && m_FinalScore > 0;
 
-    GetGame().SetClearColor(m_DidWin ? 0.06f : 0.18f,
-                            m_DidWin ? 0.16f : 0.04f,
-                            m_DidWin ? 0.06f : 0.04f);
+    GetGame().SetClearColor(m_bDidWin ? 0.06f : 0.18f,
+                            m_bDidWin ? 0.16f : 0.04f,
+                            m_bDidWin ? 0.06f : 0.04f);
     ACS_LOG_INFO("[GameOver] enter - %s, score=%llu, best=%llu",
-                 m_DidWin ? "VICTORY" : "DEFEAT",
+                 m_bDidWin ? "VICTORY" : "DEFEAT",
                  static_cast<unsigned long long>(m_FinalScore),
                  static_cast<unsigned long long>(m_SavedBest));
 }
@@ -67,7 +67,7 @@ void GameOverScene::OnRender(RenderContext& rc) noexcept {
     const f32 cy = static_cast<f32>(sh) * 0.35f;
 
     // 結果表示の大バー
-    const FVec4 result_col = m_DidWin ? FVec4{0.20f, 0.85f, 0.40f, 0.95f}
+    const FVec4 result_col = m_bDidWin ? FVec4{0.20f, 0.85f, 0.40f, 0.95f}
                                      : FVec4{0.85f, 0.20f, 0.20f, 0.95f};
     sb.DrawRect(cx - 400.0f, cy - 50.0f, 800.0f, 100.0f,
                 FVec4{0.05f, 0.05f, 0.05f, 0.85f});
@@ -84,7 +84,7 @@ void GameOverScene::OnRender(RenderContext& rc) noexcept {
     const f32 best_y = score_y + 60.0f;
     sb.DrawRect(cx - 240.0f, best_y, 480.0f, 30.0f, FVec4{0.05f, 0.05f, 0.05f, 0.8f});
     f32 best_alpha = 1.0f;
-    if (m_IsNewRecord) {
+    if (m_bIsNewRecord) {
         best_alpha = 0.5f + 0.5f * Sin(_state_sec * 6.0f);
     }
     const u64 best = m_SavedBest;
@@ -103,7 +103,7 @@ void GameOverScene::OnRender(RenderContext& rc) noexcept {
         Font& title_font = app.FontTitle();
         Font& body       = app.FontBody();
 
-        const char* result_text = m_DidWin ? "VICTORY!" : "GAME OVER";
+        const char* result_text = m_bDidWin ? "VICTORY!" : "GAME OVER";
         const f32 rw = title_font.MeasureWidth(result_text);
         sb.DrawString(title_font, result_text, cx - rw * 0.5f, cy - 18.0f,
                       FVec4{1, 1, 1, 1});
@@ -116,7 +116,7 @@ void GameOverScene::OnRender(RenderContext& rc) noexcept {
                       FVec4{0.1f, 0.1f, 0.1f, 1});
 
         std::snprintf(buf, sizeof(buf), "%sBest: %llu",
-                      m_IsNewRecord ? "[NEW!] " : "",
+                      m_bIsNewRecord ? "[NEW!] " : "",
                       static_cast<unsigned long long>(m_SavedBest));
         const f32 bw = body.MeasureWidth(buf);
         sb.DrawString(body, buf, cx - bw * 0.5f, best_y + 7.0f,

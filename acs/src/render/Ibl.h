@@ -156,10 +156,10 @@ private:
     EFormat                  m_SkyRtFormat    = EFormat::Unknown;
     EFormat                  m_SkyDepthFormat = EFormat::Unknown;
 
-    bool m_BrdfBuilt       = false;
-    bool m_EnvBuilt        = false;
-    bool m_IrradianceBuilt = false;
-    bool m_PrefilterBuilt  = false;
+    bool m_bBrdfBuilt       = false;
+    bool m_bEnvBuilt        = false;
+    bool m_bIrradianceBuilt = false;
+    bool m_bPrefilterBuilt  = false;
 };
 
 } // namespace acs

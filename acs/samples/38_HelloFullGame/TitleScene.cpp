@@ -23,7 +23,7 @@ void TitleScene::OnEnter() noexcept {
     // 背景色を 2 秒 ping-pong する FTween (Services 経由で自動 tick される)
     m_BgTween = Services().Tweens().Tween(
         &m_BgColor, kBgDark, kBgBright, /*duration=*/2.0f, Easing::InOutSine);
-    m_ToBright = true;
+    m_bToBright = true;
 
     // 入力バインド
     FInputMap& im = Services().Input();
@@ -57,8 +57,8 @@ void TitleScene::OnUpdate(f32 dt) noexcept {
 
     // ping-pong 完了で逆向き再開
     if (!Services().Tweens().IsActive(m_BgTween)) {
-        m_ToBright = !m_ToBright;
-        const FVec3 to = m_ToBright ? kBgBright : kBgDark;
+        m_bToBright = !m_bToBright;
+        const FVec3 to = m_bToBright ? kBgBright : kBgDark;
         m_BgTween = Services().Tweens().Tween(
             &m_BgColor, m_BgColor, to, /*duration=*/2.0f, Easing::InOutSine);
     }

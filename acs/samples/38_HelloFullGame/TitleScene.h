@@ -21,7 +21,7 @@ public:
 private:
     acs::FVec3                  m_BgColor  {0.06f, 0.08f, 0.16f};
     acs::game::FTweenHandle     m_BgTween  {};
-    bool                       m_ToBright = true;
+    bool                       m_bToBright = true;
     acs::f32                   m_PulseSec = 0.0f;   // "Press Space" の点滅位相
 
     static constexpr acs::FVec3 kBgDark   {0.06f, 0.08f, 0.16f};

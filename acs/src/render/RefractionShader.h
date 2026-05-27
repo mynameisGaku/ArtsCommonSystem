@@ -112,7 +112,7 @@ private:
     f32                    m_BackFar     = 100.0f;
     u32                    m_ScreenW     = 1;
     u32                    m_ScreenH     = 1;
-    bool                   m_BackEnabled = false;
+    bool                   m_bBackEnabled = false;
     // SetFrame で view_proj / camera_pos を覚えておく (SetBackDepth が screen
     // params だけ更新する際に同じ Frame CB を再書き込みする必要がある)。
     FMat4                   m_Vp           = {};

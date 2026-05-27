@@ -24,18 +24,18 @@ void FUiRenderer::Shutdown() noexcept {
 void FUiRenderer::Render(Widget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept {
     root.Layout(0.0f, 0.0f, static_cast<f32>(screen_w), static_cast<f32>(screen_h));
     m_Batch.Begin(cmd, screen_w, screen_h);
-    m_FrameOpen = true;
+    m_bFrameOpen = true;
     root.Render(*this);
     m_Batch.End();
-    m_FrameOpen = false;
+    m_bFrameOpen = false;
 }
 
 void FUiRenderer::DrawRect(f32 x, f32 y, f32 w, f32 h, const FVec4& color) noexcept {
-    if (m_FrameOpen) m_Batch.DrawRect(x, y, w, h, color);
+    if (m_bFrameOpen) m_Batch.DrawRect(x, y, w, h, color);
 }
 
 void FUiRenderer::DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const FVec4& color, f32 t) noexcept {
-    if (!m_FrameOpen) return;
+    if (!m_bFrameOpen) return;
     m_Batch.DrawRect(x,             y,                 w, t, color);            // top
     m_Batch.DrawRect(x,             y + h - t,         w, t, color);            // bottom
     m_Batch.DrawRect(x,             y,                 t, h, color);            // left
@@ -43,7 +43,7 @@ void FUiRenderer::DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const FVec4& color
 }
 
 void FUiRenderer::DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) noexcept {
-    if (!m_FrameOpen || !m_Font || !utf8) return;
+    if (!m_bFrameOpen || !m_Font || !utf8) return;
     if (!m_Font->AtlasTexture()) return;
     m_Batch.DrawString(*m_Font, utf8, x, y, color);
 }

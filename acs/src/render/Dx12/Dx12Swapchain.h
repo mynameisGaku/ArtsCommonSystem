@@ -42,7 +42,7 @@ private:
     u32                  m_BufferCount = 0;
     u32                  m_Width        = 0;
     u32                  m_Height       = 0;
-    bool                 m_Vsync        = true;
+    bool                 m_bVsync        = true;
 };
 
 } // namespace acs

@@ -229,8 +229,8 @@ void GameplayScene::OnEnemyKilled() noexcept {
 }
 
 void GameplayScene::RequestGameOver(bool victory) noexcept {
-    if (m_GameOverReq) return;       // 多重遷移ガード
-    m_GameOverReq = true;
+    if (m_bGameOverReq) return;       // 多重遷移ガード
+    m_bGameOverReq = true;
     m_Victory = victory;
 
     auto& app = static_cast<FullGameApp&>(GetGame());

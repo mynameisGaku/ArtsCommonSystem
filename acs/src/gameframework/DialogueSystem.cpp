@@ -81,7 +81,7 @@ void FDialogueSystem::ChooseOption(u32 choice_index) noexcept {
     if (choice_index >= rec->choice_count) return;
 
     const DialogueChoice& c = m_AllChoices[rec->choice_start + choice_index];
-    m_ChoicesConsumed = true;              // 同 line で再提示しないように消費フラグ
+    m_bChoicesConsumed = true;              // 同 line で再提示しないように消費フラグ
 
     // next_line_index が範囲外なら終了扱い
     EnterLine(c.next_line_index);
@@ -98,13 +98,13 @@ void FDialogueSystem::Reset() noexcept {
     m_Active             = false;
     m_Completed          = false;
     m_Typing             = false;
-    m_ChoicesConsumed   = true;
+    m_bChoicesConsumed   = true;
 }
 
 bool FDialogueSystem::HasChoicesPending() const noexcept {
     if (!m_Active)         return false;
     if (m_Typing)          return false;    // タイプ完了するまで提示しない
-    if (m_ChoicesConsumed) return false;
+    if (m_bChoicesConsumed) return false;
     return FindChoicesForCurrent() != nullptr;
 }
 
@@ -198,7 +198,7 @@ void FDialogueSystem::EnterLine(u32 new_index) noexcept {
         m_VisibleChars      = 0;
         m_CharAccum         = 0.0f;
         m_PostTypeElapsed  = 0.0f;
-        m_ChoicesConsumed   = true;
+        m_bChoicesConsumed   = true;
         return;
     }
 
@@ -206,7 +206,7 @@ void FDialogueSystem::EnterLine(u32 new_index) noexcept {
     m_VisibleChars      = 0;
     m_CharAccum         = 0.0f;
     m_PostTypeElapsed  = 0.0f;
-    m_ChoicesConsumed   = false;          // この line に紐づく choices は未消費
+    m_bChoicesConsumed   = false;          // この line に紐づく choices は未消費
 
     // cps <= 0 は瞬時表示
     const DialogueLine& line = m_Lines[new_index];

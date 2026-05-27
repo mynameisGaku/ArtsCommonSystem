@@ -18,7 +18,7 @@ void FDebugOverlay::Init() noexcept {
     m_FpsHistory.Clear();
     m_FpsHistory.Reserve(kFpsHistoryCap);
     m_FpsIndex    = 0u;
-    m_FpsFilled   = false;
+    m_bFpsFilled   = false;
     m_CurrentFps  = 0.0f;
 }
 
@@ -31,12 +31,12 @@ void FDebugOverlay::Tick(f32 dt) noexcept {
 
     // 循環バッファ書き込み。
     // まだ 60 個揃っていない間は PushBack で末尾追加、揃った後は index 位置に上書き。
-    if (!m_FpsFilled) {
+    if (!m_bFpsFilled) {
         m_FpsHistory.PushBack(fps);
         ++m_FpsIndex;
         if (m_FpsIndex >= kFpsHistoryCap) {
             m_FpsIndex  = 0u;
-            m_FpsFilled = true;
+            m_bFpsFilled = true;
         }
     } else {
         m_FpsHistory[m_FpsIndex] = fps;
@@ -48,7 +48,7 @@ void FDebugOverlay::Tick(f32 dt) noexcept {
 void FDebugOverlay::Reset() noexcept {
     m_FpsHistory.Clear();
     m_FpsIndex    = 0u;
-    m_FpsFilled   = false;
+    m_bFpsFilled   = false;
     m_CurrentFps  = 0.0f;
     m_SceneName   = nullptr;
     m_Watches.Clear();

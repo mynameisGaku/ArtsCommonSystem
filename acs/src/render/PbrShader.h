@@ -282,7 +282,7 @@ private:
 
     // SH 9 light probe (optional Phase 32c)
     FVec4         m_Sh9[9]         = {};
-    bool         m_Sh9Enabled    = false;
+    bool         m_bSh9Enabled    = false;
 
     // 静的光プローブグリッド (Phase 33d)、最大 4 個
     FVec4         m_ProbePos[4]      = {};

@@ -54,7 +54,7 @@ void HelloLightmapApp::OnStart() noexcept {
 
 void HelloLightmapApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::L)) m_ShowLightmap = !m_ShowLightmap;
+    if (Input::IsKeyPressed(EKey::L)) m_bShowLightmap = !m_bShowLightmap;
 
     const f32 mv = 2.0f * dt, tr = 1.4f * dt;
     if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
@@ -110,7 +110,7 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
     for (u32 i = 0; i < kQuadCount; ++i) {
         Quad& q = m_Quads[i];
         // L キーで OFF にすると flat ambient のみになり、間接光の寄与が消える。
-        if (m_ShowLightmap && q.lightmap) {
+        if (m_bShowLightmap && q.lightmap) {
             m_Pbr.SetLightmap(q.lightmap.Get(), 1.0f);
         } else {
             m_Pbr.SetLightmap(nullptr, 0.0f);
@@ -138,7 +138,7 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
                       kBakeRays, kBounceDepth, static_cast<double>(FPS()));
         m_Batch.DrawString(m_Font, buf, 20, 20, FVec4{1, 1, 1, 1});
         std::snprintf(buf, sizeof(buf), "Lightmap: %s   (L で切替)",
-                      m_ShowLightmap ? "ON" : "OFF");
+                      m_bShowLightmap ? "ON" : "OFF");
         m_Batch.DrawString(m_Font, buf, 20, 44, FVec4{1.0f, 0.95f, 0.7f, 1});
         m_Batch.DrawString(m_Font, "WASD: 移動   矢印: 視点   Esc: 終了",
                           20, 68, FVec4{0.7f, 0.85f, 1.0f, 1});

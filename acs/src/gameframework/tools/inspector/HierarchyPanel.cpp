@@ -46,7 +46,7 @@ void FHierarchyPanel::Init() noexcept {
     m_SelectedId         = FNodeId{};
     m_SelectedNode       = nullptr;
     m_ReparentTarget     = nullptr;
-    m_CollapseAllPending = false;
+    m_bCollapseAllPending = false;
     // FSelectionService は外部所有 (non-owning)、callback は外部 API なので
     // Init で触らない (= Set 状態を維持)。
 }
@@ -56,7 +56,7 @@ void FHierarchyPanel::Shutdown() noexcept {
     m_SelectedId         = FNodeId{};
     m_SelectedNode       = nullptr;
     m_ReparentTarget     = nullptr;
-    m_CollapseAllPending = false;
+    m_bCollapseAllPending = false;
     m_SelectionService   = nullptr;
     m_RightClickCb      = nullptr;
     m_RightClickUser    = nullptr;
@@ -107,14 +107,14 @@ void FHierarchyPanel::SelectNode(FNode2D* node) noexcept {
 void FHierarchyPanel::ExpandAll() noexcept {
     // 折りたたみマップを空にする = 全 FNodeId が "default expanded" 扱い。
     m_CollapsedMap.Clear();
-    m_CollapseAllPending = false;
+    m_bCollapseAllPending = false;
 }
 
 void FHierarchyPanel::CollapseAll() noexcept {
     // DrawUI で各ノード走査時に既存エントリを true に立てる。ここでは
     // 単にフラグを立てるだけ (ノードを 1 つも DrawUI 内で見ていない時点での
     // CollapseAll は意味が無く、DrawUI 内で適用するのが安全)。
-    m_CollapseAllPending = true;
+    m_bCollapseAllPending = true;
 }
 
 // =============================================================================
@@ -183,7 +183,7 @@ void FHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
 //   ・ユーザがクリックして変えた場合は `ImGui::IsItemToggledOpen()` を見て
 //     map に書き戻す。
 //   ・CollapseAll の遅延適用: フレーム最初のノード描画前にこの関数が呼ばれ、
-//     `m_CollapseAllPending` が立っていれば「現ノード以下を強制 close」する。
+//     `m_bCollapseAllPending` が立っていれば「現ノード以下を強制 close」する。
 //
 // 選択 / 右クリック / Drag & Drop:
 //   ・Selectable behavior は TreeNode の `ImGuiTreeNodeFlags_Selected` で実現。
@@ -211,7 +211,7 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
     }
 
     // CollapseAll の遅延適用: FNodeId が valid なら collapsed=true を立てる。
-    if (m_CollapseAllPending && id.IsValid()) {
+    if (m_bCollapseAllPending && id.IsValid()) {
         SetCollapsed(id, true);
     }
 
@@ -443,7 +443,7 @@ void FHierarchyPanel::DrawUI() noexcept {
 
     // CollapseAll の遅延適用は今フレームの再帰描画で全ノードに反映されたので、
     // フラグを下ろす。
-    m_CollapseAllPending = false;
+    m_bCollapseAllPending = false;
 
     ImGui::End();
 }

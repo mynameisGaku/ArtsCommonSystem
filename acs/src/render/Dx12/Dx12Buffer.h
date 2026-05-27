@@ -34,8 +34,8 @@ private:
     usize           m_Size         = 0;            // 1 フレームスロットあたりサイズ
     usize           m_SlotStride  = 0;            // ring 用ストライド（256 align、リング無効なら 0）
     EBufferUsage     m_Usage        = EBufferUsage::Vertex;
-    bool            m_CpuWritable = false;
-    bool            m_FrameCycled = false;       // Uniform + cpu_writable で自動 ON
+    bool            m_bCpuWritable = false;
+    bool            m_bFrameCycled = false;       // Uniform + cpu_writable で自動 ON
 };
 
 } // namespace acs

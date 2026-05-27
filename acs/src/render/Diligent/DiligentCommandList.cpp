@@ -338,7 +338,7 @@ void DiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     if (!ctx) return;
     auto& b = static_cast<DiligentBuffer&>(ib);
     if (!b.Native()) return;
-    m_IsIndex32 = (b.Usage() == EBufferUsage::Index32);
+    m_bIsIndex32 = (b.Usage() == EBufferUsage::Index32);
     ctx->SetIndexBuffer(b.Native(), 0,
                         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }
@@ -399,7 +399,7 @@ void DiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base
     }
     Diligent::DrawIndexedAttribs dia;
     dia.NumIndices   = index_count;
-    dia.IndexType    = m_IsIndex32 ? Diligent::VT_UINT32 : Diligent::VT_UINT16;
+    dia.IndexType    = m_bIsIndex32 ? Diligent::VT_UINT32 : Diligent::VT_UINT16;
     dia.FirstIndexLocation = first_index;
     dia.BaseVertex   = base_vertex;
     dia.Flags = Diligent::DRAW_FLAG_NONE;

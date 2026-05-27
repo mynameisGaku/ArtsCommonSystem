@@ -56,7 +56,7 @@ private:
     FSpriteBatch m_Batch;
     Font*       m_Font = nullptr;     // 所有しない
     FUiColors    m_Colors;
-    bool        m_FrameOpen = false;
+    bool        m_bFrameOpen = false;
 };
 
 // ============================================================================

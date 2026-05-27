@@ -68,7 +68,7 @@ public:
 private:
     DiligentDevice*    m_Device   = nullptr;
     DiligentPipeline*  m_Pipeline = nullptr;
-    bool               m_IsIndex32 = false;
+    bool               m_bIsIndex32 = false;
     // フレーム内 main pass の RT を記憶する: shadow / off-screen pass を
     // 途中で挟んでも EndShadowPass / EndRenderToTexture で復帰させるため。
     DiligentSwapchain* m_MainSwapchain     = nullptr;

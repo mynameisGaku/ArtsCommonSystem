@@ -128,7 +128,7 @@ private:
     // ヘッダ依存を最小化するためフル struct を持つが、ParticleEmitterDef は
     // POD 同等 (FVec2/FVec3/f32 のみ) なのでサイズ的にも問題なし。
     ParticleEmitterDef m_LastDef {};
-    bool               m_HasDefSnapshot = false;
+    bool               m_bHasDefSnapshot = false;
 
     FVec2  m_SpawnPos = {320.0f, 240.0f};   // preview canvas のデフォルト中央
     bool  m_AutoEmit = true;               // 連続放出 ON
@@ -138,7 +138,7 @@ private:
     // 60 frame ring (FDebugOverlay と同パターン)
     TArray<f32> m_FpsHistory;
     u32        m_FpsIndex  = 0u;
-    bool       m_FpsFilled = false;
+    bool       m_bFpsFilled = false;
 };
 
 } // namespace acs::game::fxedit

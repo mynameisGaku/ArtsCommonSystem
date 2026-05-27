@@ -206,18 +206,18 @@ void FAudioDirector::Duck(f32 duration_sec, f32 depth) noexcept {
     const f32 clamped_depth = Clamp01(depth);
     // depth=1.0 = 抑制なし (no-op の表明)。
     if (clamped_depth >= 0.999f) {
-        m_DuckActive = false;
+        m_bDuckActive = false;
         return;
     }
     // 既存 Duck を上書き (スタックしない設計)。
-    m_DuckActive     = true;
+    m_bDuckActive     = true;
     m_DuckDepth      = clamped_depth;
     m_DuckTotal      = duration_sec + 2.0f * kDuckFadeWindow;
     m_DuckRemaining  = m_DuckTotal;
 }
 
 f32 FAudioDirector::ComputeDuckEnvelope() const noexcept {
-    if (!m_DuckActive) return 1.0f;
+    if (!m_bDuckActive) return 1.0f;
     // m_DuckRemaining は m_DuckTotal から減っていく。
     //   [total .. total - fade_window]                = fade in  (1.0 → depth)
     //   [total - fade_window .. fade_window]          = hold     (depth)
@@ -266,7 +266,7 @@ void FAudioDirector::StopAll() noexcept {
         m_Sfx[i] = SfxEntry{};
     }
     m_SfxHead        = 0;
-    m_DuckActive     = false;
+    m_bDuckActive     = false;
     m_DuckRemaining  = 0.0f;
     m_DuckTotal      = 0.0f;
 }
@@ -316,10 +316,10 @@ void FAudioDirector::Tick(f32 dt) noexcept {
     }
 
     // 3) ダッキング timer
-    if (m_DuckActive) {
+    if (m_bDuckActive) {
         m_DuckRemaining -= dt;
         if (m_DuckRemaining <= 0.0f) {
-            m_DuckActive    = false;
+            m_bDuckActive    = false;
             m_DuckRemaining = 0.0f;
         }
     }

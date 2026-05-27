@@ -17,7 +17,7 @@ namespace helloibl {
 
 FMat4 BuildJitteredViewProjection(HelloIblApp& app, const FMat4& vp_no_jitter,
                                  u32 hdr_width, u32 hdr_height) noexcept {
-    if (!app.m_UseTaa) return vp_no_jitter;
+    if (!app.m_bUseTaa) return vp_no_jitter;
 
     const u32 idx    = (app.m_TaaFrameIndex % 8) + 1;   // +1 で Halton(0)=0 を避ける
     const f32 jx     = Halton(idx, 2) - 0.5f;            // [-0.5, 0.5) sub-pixel

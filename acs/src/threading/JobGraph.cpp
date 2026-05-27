@@ -11,7 +11,7 @@ void JobHandle::DependOn(JobHandle upstream) noexcept {
 }
 
 JobHandle FJobGraph::Add(JobFn fn, void* user) noexcept {
-    if (m_Submitted || !fn) return JobHandle{};
+    if (m_bSubmitted || !fn) return JobHandle{};
     auto* j = new Job();
     j->fn    = fn;
     j->user  = user;
@@ -22,7 +22,7 @@ JobHandle FJobGraph::Add(JobFn fn, void* user) noexcept {
 }
 
 void FJobGraph::AddDependency(JobHandle upstream, JobHandle downstream) noexcept {
-    if (m_Submitted) return;
+    if (m_bSubmitted) return;
     if (!upstream.IsValid() || !downstream.IsValid()) return;
     if (upstream.graph != this || downstream.graph != this) return;
     if (upstream.index == downstream.index) return;  // self-dep は無視
@@ -62,9 +62,9 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
 }
 
 TResult<void> FJobGraph::Submit() noexcept {
-    if (m_Submitted) return ACS_ERR(Threading, 1, "FJobGraph already submitted");
+    if (m_bSubmitted) return ACS_ERR(Threading, 1, "FJobGraph already submitted");
     if (m_Jobs.Size() == 0) {
-        m_Submitted = true;
+        m_bSubmitted = true;
         return Ok();
     }
 
@@ -98,7 +98,7 @@ TResult<void> FJobGraph::Submit() noexcept {
         }
     }
 
-    m_Submitted = true;
+    m_bSubmitted = true;
 
     // 全 job 数を counter に積む (Submit 失敗時は後で巻き戻す)
     m_Counter.Add(static_cast<u32>(m_Jobs.Size()));
@@ -136,7 +136,7 @@ TResult<void> FJobGraph::Submit() noexcept {
 }
 
 void FJobGraph::Wait() noexcept {
-    if (!m_Submitted) return;
+    if (!m_bSubmitted) return;
     // Submit 時に Add(N) したカウンタを、Job 完了で Done() する仕組みが要る。
     // JobThunk 内で counter.Done() を呼ぶよう改修する必要があるが、
     // FThreadPool::Submit に counter を渡せば自動 Add+Done してくれる。
@@ -149,7 +149,7 @@ void FJobGraph::Reset() noexcept {
     for (usize i = 0; i < m_Jobs.Size(); ++i) {
         m_Jobs[i]->deps_remaining.Store(m_Jobs[i]->initial_deps);
     }
-    m_Submitted = false;
+    m_bSubmitted = false;
 }
 
 } // namespace acs

@@ -17,7 +17,7 @@ HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noe
     HrResult r{};
     m_Device = &device;
     m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= kMaxBuffers) ? cfg.buffer_count : 2;
-    m_Vsync = cfg.vsync;
+    m_bVsync = cfg.vsync;
     m_Width  = cfg.window ? cfg.window->Width()  : 0;
     m_Height = cfg.window ? cfg.window->Height() : 0;
 
@@ -90,8 +90,8 @@ u32 Dx12Swapchain::AcquireNextImage() noexcept {
 }
 
 void Dx12Swapchain::Present() noexcept {
-    UINT sync_interval = m_Vsync ? 1 : 0;
-    UINT flags = m_Vsync ? 0 : DXGI_PRESENT_ALLOW_TEARING;
+    UINT sync_interval = m_bVsync ? 1 : 0;
+    UINT flags = m_bVsync ? 0 : DXGI_PRESENT_ALLOW_TEARING;
     m_Swapchain->Present(sync_interval, flags);
 }
 

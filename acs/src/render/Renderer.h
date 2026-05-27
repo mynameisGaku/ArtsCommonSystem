@@ -81,7 +81,7 @@ private:
     EFormat                      m_DepthFormat  = EFormat::D32_Float;
     u32                         m_CurrentBuffer = 0;
     bool                        m_EnableDepth   = true;
-    bool                        m_FrameOpen     = false;
+    bool                        m_bFrameOpen     = false;
 };
 
 } // namespace acs

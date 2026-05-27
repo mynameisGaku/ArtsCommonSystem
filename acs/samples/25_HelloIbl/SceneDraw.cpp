@@ -32,7 +32,7 @@ void DrawFloor(HelloIblApp& app) noexcept {
     app.m_Pbr.SetEmissive(FVec3{0, 0, 0}, 0.0f);
 
     // 床のみ lightmap を bind (球には焼いていないので OFF)
-    if (app.m_UseLightmap && app.m_Lightmap) {
+    if (app.m_bUseLightmap && app.m_Lightmap) {
         app.m_Pbr.SetLightmap(app.m_Lightmap.Get(), /*intensity=*/0.8f);
     } else {
         app.m_Pbr.SetLightmap(nullptr, 0.0f);
@@ -50,9 +50,9 @@ void DrawSphereGrid(HelloIblApp& app) noexcept {
 
     const FVec3 base_color{0.95f, 0.4f, 0.3f};
     // material 拡張 (clear-coat / anisotropic) を有効化
-    const f32  cc    = app.m_UseClearcoat  ? 1.0f : 0.0f;
+    const f32  cc    = app.m_bUseClearcoat  ? 1.0f : 0.0f;
     const f32  ccr   = 0.08f;                      // 鏡面に近い clear-coat
-    const f32  aniso = app.m_UseAnisotropy ? 0.8f : 0.0f;
+    const f32  aniso = app.m_bUseAnisotropy ? 0.8f : 0.0f;
     const FVec3 tan_dir{1, 0, 0};                   // 横方向の brushed pattern
     app.m_Pbr.SetExtParams(cc, ccr, aniso, tan_dir);
 

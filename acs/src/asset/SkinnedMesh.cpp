@@ -92,7 +92,7 @@ void FAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
     if (!m_Mesh) return;
     if (anim_index >= m_Mesh->Animations().Size()) return;
     m_Anim = static_cast<i32>(anim_index);
-    m_Loop = loop;
+    m_bLoop = loop;
     m_Time = 0;
     m_Playing = true;
 }
@@ -103,7 +103,7 @@ void FAnimationPlayer::Update(f32 dt) noexcept {
     const FAnimation& a = m_Mesh->Animations()[m_Anim];
     m_Time += dt;
     if (a.duration > 0) {
-        if (m_Loop) {
+        if (m_bLoop) {
             // fmod 風（負値ガード付き）
             while (m_Time >= a.duration) m_Time -= a.duration;
             while (m_Time < 0)            m_Time += a.duration;

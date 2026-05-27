@@ -140,7 +140,7 @@ private:
     const FSkinnedMeshAsset* m_Mesh    = nullptr;
     i32                     m_Anim    = -1;       // -1 = T-pose（バインド姿勢のまま）
     f32                     m_Time    = 0.0f;
-    bool                    m_Loop    = true;
+    bool                    m_bLoop    = true;
     bool                    m_Playing = false;
 };
 

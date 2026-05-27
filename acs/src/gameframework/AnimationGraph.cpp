@@ -68,7 +68,7 @@ void FAnimationGraph::Init() noexcept {
     m_BlendDuration   = 0.0f;
     m_HasCurrent      = false;
     m_ClipEndedFired = false;
-    m_TriggerPending  = false;
+    m_bTriggerPending  = false;
     m_PendingTrigger  = EAnimationGraphState::Idle;
 
     _state_enter_cb   = nullptr;
@@ -84,7 +84,7 @@ void FAnimationGraph::Shutdown() noexcept {
     m_Params.Clear();
 
     m_HasCurrent      = false;
-    m_TriggerPending  = false;
+    m_bTriggerPending  = false;
     m_BlendTimer      = 0.0f;
     m_BlendDuration   = 0.0f;
     m_LocalTime       = 0.0f;
@@ -202,7 +202,7 @@ void FAnimationGraph::TriggerTransition(EAnimationGraphState target_state) noexc
     // 防ぐ; どうしても再 enter したい場合は一旦別 state を経由する設計に)
     if (m_HasCurrent && target_state == m_CurrentState) return;
     m_PendingTrigger = target_state;
-    m_TriggerPending = true;
+    m_bTriggerPending = true;
 }
 
 // =============================================================================
@@ -327,8 +327,8 @@ void FAnimationGraph::Tick(f32 dt) noexcept {
     if (!m_HasCurrent)         return;
 
     // 1. pending trigger を最優先で処理 (input event 駆動の即時遷移を保証)
-    if (m_TriggerPending) {
-        m_TriggerPending = false;
+    if (m_bTriggerPending) {
+        m_bTriggerPending = false;
         DoTransition(m_PendingTrigger);
         // 遷移後 1 Tick の clip 進行は次フレームから (= enter 直後の安定化)
         // ただし blend timer は本 Tick で進めておく必要が無いので return
@@ -362,7 +362,7 @@ void FAnimationGraph::Reset() noexcept {
         m_BlendTimer      = 0.0f;
         m_BlendDuration   = 0.0f;
         m_ClipEndedFired = false;
-        m_TriggerPending  = false;
+        m_bTriggerPending  = false;
         return;
     }
 
@@ -375,7 +375,7 @@ void FAnimationGraph::Reset() noexcept {
     m_BlendTimer      = 0.0f;
     m_BlendDuration   = 0.0f;
     m_ClipEndedFired = false;
-    m_TriggerPending  = false;
+    m_bTriggerPending  = false;
     m_HasCurrent      = true;
 }
 

@@ -132,39 +132,39 @@ private:
     acs::f32                m_CamYaw   = 0.0f;
     acs::f32                m_CamPitch = 0.0f;
     acs::i32                m_CurrentPreset = 0;
-    bool                    m_NeedRecapture   = false;
-    bool                    m_NeedStudioHdr  = false;
-    bool                    m_UseSh9          = false;
-    bool                    m_NeedSh9Rebuild = false;
-    bool                    m_UseClearcoat    = false;
-    bool                    m_UseAnisotropy   = false;
-    bool                    m_UseAreaLight   = false;
-    bool                    m_UseProbeGrid   = false;
-    bool                    m_UseFog          = false;
-    bool                    m_NeedAtmosphere  = false;
-    bool                    m_UseShadows      = false;
+    bool                    m_bNeedRecapture   = false;
+    bool                    m_bNeedStudioHdr  = false;
+    bool                    m_bUseSh9          = false;
+    bool                    m_bNeedSh9Rebuild = false;
+    bool                    m_bUseClearcoat    = false;
+    bool                    m_bUseAnisotropy   = false;
+    bool                    m_bUseAreaLight   = false;
+    bool                    m_bUseProbeGrid   = false;
+    bool                    m_bUseFog          = false;
+    bool                    m_bNeedAtmosphere  = false;
+    bool                    m_bUseShadows      = false;
     bool                    m_ShowSsr         = false;
     bool                    m_SsrWarm         = false; // m_Ssr.Render が 1 度以上走った？
-    bool                    m_UseSsao         = true;  // FPbrShader 側で composite (1-frame latency)
-    bool                    m_SsaoWarm        = false; // m_Ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
-    bool                    m_UseTaa          = true;
+    bool                    m_bUseSsao         = true;  // FPbrShader 側で composite (1-frame latency)
+    bool                    m_bSsaoWarm        = false; // m_Ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
+    bool                    m_bUseTaa          = true;
     acs::u32                m_TaaFrameIndex  = 0;     // Halton(2,3) 用カウンタ
     acs::FMat4               m_PrevVpNoJitter{};      // 前フレームの jitter なし VP
     bool                    m_TaaPrevVpValid = false;// 上が本物の VP (default identity 以外) か
     acs::f32                m_ExposureTarget  = 0.7f;  // 露出目標 (preset / Q-E で動く)
     acs::f32                m_AdaptedExposure = 0.7f;  // 実露出 (target へ dt 補間)
-    bool                    m_UseAutoExposure = true; // GPU auto-exposure ('U' で手動切替)
+    bool                    m_bUseAutoExposure = true; // GPU auto-exposure ('U' で手動切替)
     acs::f32                m_AutoKey          = 0.5f; // 自動露出の目標平均輝度 (Q/E で調整)
-    bool                    m_UseSsgi         = true;
-    bool                    m_SsgiWarm        = false; // m_Ssgi.Render が 1 度以上走った？
-    bool                    m_UseLightmap     = true;
+    bool                    m_bUseSsgi         = true;
+    bool                    m_bSsgiWarm        = false; // m_Ssgi.Render が 1 度以上走った？
+    bool                    m_bUseLightmap     = true;
     acs::TUniquePtr<acs::IRhiTexture> m_Lightmap;        // 床用 baked lightmap (256x256 RGBA8)
     acs::FShadowMap          m_Shadow;
     acs::FSsr                m_Ssr;
     acs::FSsao               m_Ssao;
     acs::FSsgi               m_Ssgi;
     acs::FMotionVector       m_Motion;
-    bool                    m_UseMotionVec   = true;
+    bool                    m_bUseMotionVec   = true;
     acs::FRefractionShader   m_Refr;                     // screen-space 屈折
     acs::FBlit               m_Blit;                     // HDR -> m_BgRt コピー
     acs::TUniquePtr<acs::IRhiTexture> m_BgRt;           // 屈折用 background キャプチャ

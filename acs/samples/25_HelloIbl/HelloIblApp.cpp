@@ -114,7 +114,7 @@ void HelloIblApp::OnStart() noexcept {
     // 既定で GPU auto-exposure を有効化。シーン輝度を GPU で実測して露出を
     // 自動算出 → preset 切替 (Day↔Night) でも自動で再露出され、eye adaptation
     // が演出として効く。'U' で手動モードへ切替可。
-    m_UseAutoExposure = true;
+    m_bUseAutoExposure = true;
     m_PostParams.auto_exposure_enabled = true;
     m_PostParams.auto_exposure_key     = m_AutoKey;
     m_PostParams.auto_exposure_speed   = 1.5f;   // τ≈0.7s のシネマ的順応速度
@@ -156,49 +156,49 @@ void HelloIblApp::OnUpdate(f32 dt) noexcept {
     // eye adaptation (目が明暗に慣れる) 演出になる。
     if (Input::IsKeyPressed(EKey::Num1)) {
         m_Sky.PresetDay();    m_CurrentPreset = 0;
-        m_NeedRecapture = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_bNeedRecapture = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 0.7f;     // Day: 明るいので露出を絞る
     }
     if (Input::IsKeyPressed(EKey::Num2)) {
         m_Sky.PresetSunset(); m_CurrentPreset = 1;
-        m_NeedRecapture = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_bNeedRecapture = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 1.0f;
     }
     if (Input::IsKeyPressed(EKey::Num3)) {
         m_Sky.PresetNight();  m_CurrentPreset = 2;
-        m_NeedRecapture = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_bNeedRecapture = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 1.8f;     // Night: 暗いので露出を上げる
     }
     if (Input::IsKeyPressed(EKey::Num4)) {
         m_CurrentPreset = 3;
-        m_NeedStudioHdr = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_bNeedStudioHdr = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 1.0f;
     }
     if (Input::IsKeyPressed(EKey::Num5)) {
         m_CurrentPreset = 4;
-        m_NeedAtmosphere = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_bNeedAtmosphere = true; m_bNeedSh9Rebuild = m_bUseSh9;
         m_ExposureTarget = 0.85f;
     }
 
     if (Input::IsKeyPressed(EKey::I)) m_DisplayMode = (m_DisplayMode + 1) % 7;
     // SH9 toggle: 現在の irradiance cubemap から計算した SH 9 で diffuse を再構築
     if (Input::IsKeyPressed(EKey::S)) {
-        m_UseSh9 = !m_UseSh9;
-        m_NeedSh9Rebuild = m_UseSh9;     // 必要なときに再計算
+        m_bUseSh9 = !m_bUseSh9;
+        m_bNeedSh9Rebuild = m_bUseSh9;     // 必要なときに再計算
     }
-    if (Input::IsKeyPressed(EKey::C)) m_UseClearcoat = !m_UseClearcoat;
-    if (Input::IsKeyPressed(EKey::Z)) m_UseAnisotropy = !m_UseAnisotropy;
-    if (Input::IsKeyPressed(EKey::L)) m_UseAreaLight = !m_UseAreaLight;
-    if (Input::IsKeyPressed(EKey::G)) m_UseProbeGrid = !m_UseProbeGrid;
-    if (Input::IsKeyPressed(EKey::F)) m_UseFog = !m_UseFog;
-    if (Input::IsKeyPressed(EKey::H)) m_UseShadows = !m_UseShadows;
+    if (Input::IsKeyPressed(EKey::C)) m_bUseClearcoat = !m_bUseClearcoat;
+    if (Input::IsKeyPressed(EKey::Z)) m_bUseAnisotropy = !m_bUseAnisotropy;
+    if (Input::IsKeyPressed(EKey::L)) m_bUseAreaLight = !m_bUseAreaLight;
+    if (Input::IsKeyPressed(EKey::G)) m_bUseProbeGrid = !m_bUseProbeGrid;
+    if (Input::IsKeyPressed(EKey::F)) m_bUseFog = !m_bUseFog;
+    if (Input::IsKeyPressed(EKey::H)) m_bUseShadows = !m_bUseShadows;
     if (Input::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
     if (Input::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
-    if (Input::IsKeyPressed(EKey::O)) m_UseSsao = !m_UseSsao;
-    if (Input::IsKeyPressed(EKey::T)) m_UseTaa  = !m_UseTaa;
-    if (Input::IsKeyPressed(EKey::J)) m_UseSsgi = !m_UseSsgi;
-    if (Input::IsKeyPressed(EKey::K)) m_UseLightmap = !m_UseLightmap;
-    if (Input::IsKeyPressed(EKey::M)) m_UseMotionVec = !m_UseMotionVec;
+    if (Input::IsKeyPressed(EKey::O)) m_bUseSsao = !m_bUseSsao;
+    if (Input::IsKeyPressed(EKey::T)) m_bUseTaa  = !m_bUseTaa;
+    if (Input::IsKeyPressed(EKey::J)) m_bUseSsgi = !m_bUseSsgi;
+    if (Input::IsKeyPressed(EKey::K)) m_bUseLightmap = !m_bUseLightmap;
+    if (Input::IsKeyPressed(EKey::M)) m_bUseMotionVec = !m_bUseMotionVec;
     if (Input::IsKeyPressed(EKey::B)) m_PostParams.bloom_enabled = !m_PostParams.bloom_enabled;
 
     // film grain アニメ用に時間累積 + 動的球の公転時刻
@@ -287,14 +287,14 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     }
 
     // SH9 mode: 現在の env cubemap (sky or studio HDR) から SH 9 を計算
-    if (m_NeedSh9Rebuild) {
+    if (m_bNeedSh9Rebuild) {
         // Studio HDR は別 builder で既に焼かれている。それ以外は FSky 評価から焼く。
         if (m_CurrentPreset != 3) {
             BuildEquirectFromSky(m_Sky, m_EquirectRgba);
         }
         ImageBasedLighting::ComputeSh9FromEquirect(
             m_EquirectRgba.Data(), kEquirectWidth, kEquirectHeight, m_Sh9);
-        m_NeedSh9Rebuild = false;
+        m_bNeedSh9Rebuild = false;
     }
 
     // 太陽の direct light を 1 灯追加 (Studio HDR では中央パネルを sun に見立てる)。
@@ -324,7 +324,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     // motion texture を TAA / SSGI へ渡す。frame 0 は prev VP 未確定なので渡さず、
     // depth reprojection 側の cold-start ガードに委ねる。
     IRhiTexture* motion_tex =
-        (m_UseMotionVec && m_TaaPrevVpValid) ? m_Motion.OutputTexture() : nullptr;
+        (m_bUseMotionVec && m_TaaPrevVpValid) ? m_Motion.OutputTexture() : nullptr;
     m_PostParams.taa_motion_texture = motion_tex;
 
     // ===== Screen-space effects (1-frame latency) =====
@@ -338,9 +338,9 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     // reproject すると world 座標を clip 座標と誤解して prev_ndc が破綻する。
     // m_TaaPrevVpValid フラグで「前フレーム VP を本物で書いた」状態を保証してから
     // depth_texture を渡す。最初の 1 フレームは depth=null で reproject 無効化。
-    m_PostParams.taa_enabled                  = m_UseTaa;
+    m_PostParams.taa_enabled                  = m_bUseTaa;
     m_PostParams.taa_blend_factor             = 0.1f;     // current 10% + history 90%
-    m_PostParams.taa_depth_texture            = (m_UseTaa && m_TaaPrevVpValid) ? depth : nullptr;
+    m_PostParams.taa_depth_texture            = (m_bUseTaa && m_TaaPrevVpValid) ? depth : nullptr;
     m_PostParams.taa_view_proj_no_jitter      = vp_no_jitter;
     m_PostParams.taa_prev_view_proj_no_jitter = m_PrevVpNoJitter;
 

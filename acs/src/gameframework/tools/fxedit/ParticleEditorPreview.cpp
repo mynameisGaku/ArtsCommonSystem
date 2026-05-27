@@ -40,10 +40,10 @@ void FParticleEditorPreview::Init() noexcept {
     m_FpsHistory.Clear();
     m_FpsHistory.Reserve(kFpsHistoryCap);
     m_FpsIndex  = 0u;
-    m_FpsFilled = false;
+    m_bFpsFilled = false;
 
     m_PreviewHandle    = {};
-    m_HasDefSnapshot  = false;
+    m_bHasDefSnapshot  = false;
     m_LastActiveCount = 0u;
     m_LastCapacity     = 0u;
     // m_SpawnPos / m_AutoEmit は呼び出し間で保持しても害がない (UX 連続性)。
@@ -53,10 +53,10 @@ void FParticleEditorPreview::Shutdown() noexcept {
     // system を持っていないため preview emitter の Destroy は行わない。
     // 明示的に止めたい呼出し側は Shutdown 前に StopAll(system) を呼ぶこと。
     m_PreviewHandle    = {};
-    m_HasDefSnapshot  = false;
+    m_bHasDefSnapshot  = false;
     m_FpsHistory.Clear();
     m_FpsIndex         = 0u;
-    m_FpsFilled        = false;
+    m_bFpsFilled        = false;
     m_LastActiveCount = 0u;
     m_LastCapacity     = 0u;
 }
@@ -79,12 +79,12 @@ void FParticleEditorPreview::Tick(f32 dt, FParticleEffectSystem& system) noexcep
     // frame budget ring: dt <= 0 は無視 (一時停止 / 負値ガード)。
     if (dt <= 0.0f) return;
     const f32 fps = 1.0f / dt;
-    if (!m_FpsFilled) {
+    if (!m_bFpsFilled) {
         m_FpsHistory.PushBack(fps);
         ++m_FpsIndex;
         if (m_FpsIndex >= kFpsHistoryCap) {
             m_FpsIndex  = 0u;
-            m_FpsFilled = true;
+            m_bFpsFilled = true;
         }
     } else {
         m_FpsHistory[m_FpsIndex] = fps;
@@ -210,7 +210,7 @@ void FParticleEditorPreview::RecreatePreviewEmitter(FParticleEffectSystem& syste
 
     // def の copy を snapshot として保持 (caller 側 def が消えても再 Tick できる)。
     m_LastDef         = *def;
-    m_HasDefSnapshot = true;
+    m_bHasDefSnapshot = true;
 
     m_PreviewHandle = system.CreateEmitter(m_LastDef, m_SpawnPos);
     if (HasPreview(m_PreviewHandle)) {

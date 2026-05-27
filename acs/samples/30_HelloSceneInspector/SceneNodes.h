@@ -31,7 +31,7 @@ private:
     // Inspector で編集される player の state (`InspectableField::data` が指す)。
     acs::f32  m_Speed      = 5.0f;
     acs::i32  m_Hp         = 100;
-    bool      m_Invincible = false;
+    bool      m_bInvincible = false;
     acs::FVec3 m_Color      { 0.2f, 0.8f, 0.3f };
     acs::FVec2 m_Position   { 0.0f, 0.0f };
 

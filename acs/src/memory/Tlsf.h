@@ -74,7 +74,7 @@ private:
     tlsf::FBlockHeader  m_NullBlock {};
 
     VmReservation    m_Reservation;
-    bool             m_OwnsReservation = false;
+    bool             m_bOwnsReservation = false;
 
     u64              m_BytesUsed = 0;
     u64              m_BytesPeak = 0;

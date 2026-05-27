@@ -17,7 +17,7 @@ FVec3 ResolveSunDirection(const HelloIblApp& app) noexcept {
 }
 
 void RenderShadowPass(HelloIblApp& app, const FVec3& sun_dir) noexcept {
-    if (!app.m_UseShadows) return;
+    if (!app.m_bUseShadows) return;
 
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;

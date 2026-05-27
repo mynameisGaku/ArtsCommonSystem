@@ -105,7 +105,7 @@ void FCinematicsTimelineEditorPanel::Init() noexcept {
     m_CurrentTime    = 0.0f;
     m_Duration        = kDefaultDurationSec;
     m_Playing         = false;
-    m_DraggingMarker = false;
+    m_bDraggingMarker = false;
     m_DragIdx        = -1;
     m_AddKind        = ETimelineKeyKind::CameraCut;
 }
@@ -116,7 +116,7 @@ void FCinematicsTimelineEditorPanel::Shutdown() noexcept {
     m_SelectedIdx    = kNoKeySelected;
     m_CurrentTime    = 0.0f;
     m_Playing         = false;
-    m_DraggingMarker = false;
+    m_bDraggingMarker = false;
     m_DragIdx        = -1;
 }
 
@@ -499,7 +499,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         const ImVec2  mouse = io.MousePos;
 
         // mouse down: marker の AABB hit-test で m_DragIdx を決定。
-        if (canvas_hovered && !m_DraggingMarker
+        if (canvas_hovered && !m_bDraggingMarker
             && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             i32 hit = -1;
             const f32 half_w = kMarkerWidthPx * 0.5f + kMarkerHitSlackPx;
@@ -520,7 +520,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             }
             if (hit >= 0) {
                 m_SelectedIdx    = hit;
-                m_DraggingMarker = true;
+                m_bDraggingMarker = true;
                 m_DragIdx        = hit;
             } else {
                 // ルーラー領域クリックなら time scrub
@@ -537,7 +537,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         // drag 継続中: マウス x → time へ逆変換して keyframe.time_sec を更新。
         // 並び順を維持するため、変更後に sorted insert で並び直す簡易方式
         // (= 抜いて入れ直す)。
-        if (m_DraggingMarker && m_DragIdx >= 0
+        if (m_bDraggingMarker && m_DragIdx >= 0
             && static_cast<usize>(m_DragIdx) < m_Keyframes.Size()) {
             const f32 new_t = CanvasXToTime(mouse.x, m_Duration,
                                             canvas_origin.x, canvas_w);
@@ -561,9 +561,9 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         // drag 中は AnimCurveEditor と同様に毎フレーム再 sort はするが、
         // BakeToDirector は drag end で 1 度だけ (= drag 中の毎フレーム bake は
         // O(N) なので panel→director copy の overhead を最小化)。
-        if (m_DraggingMarker
+        if (m_bDraggingMarker
             && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-            m_DraggingMarker = false;
+            m_bDraggingMarker = false;
             m_DragIdx        = -1;
             BakeToDirector();
         }

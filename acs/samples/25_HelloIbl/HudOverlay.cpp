@@ -36,7 +36,7 @@ void DrawSsrDebugOverlay(HelloIblApp& app, u32 sh) noexcept {
 }
 
 void DrawSsaoDebugOverlay(HelloIblApp& app, u32 sw, u32 sh) noexcept {
-    if (!app.m_UseSsao || !app.m_Ssao.OutputTexture()) return;
+    if (!app.m_bUseSsao || !app.m_Ssao.OutputTexture()) return;
     const f32 ax = static_cast<f32>(sw) - 440;
     const f32 ay = static_cast<f32>(sh) - 280;
     app.m_Batch.DrawRect(ax, ay, 420, 260, FVec4{0, 0, 0, 0.6f});
@@ -81,7 +81,7 @@ void DrawStatusText(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
     app.m_Batch.DrawString(app.m_Font, buf, 20, 68, FVec4{1.0f, 0.95f, 0.7f, 1});
 
     char exp_label[48];
-    if (app.m_UseAutoExposure) {
+    if (app.m_bUseAutoExposure) {
         std::snprintf(exp_label, sizeof(exp_label), "AUTO (key %.2f)",
                       static_cast<double>(app.m_AutoKey));
     } else {
@@ -92,22 +92,22 @@ void DrawStatusText(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
                   "Exposure: %s   Bloom: %s   Diffuse: %s   (U auto, Q/E exp, B bloom)",
                   exp_label,
                   app.m_PostParams.bloom_enabled ? "ON" : "OFF",
-                  app.m_UseSh9 ? "SH9 (light probe)" : "Irradiance cube");
+                  app.m_bUseSh9 ? "SH9 (light probe)" : "Irradiance cube");
     app.m_Batch.DrawString(app.m_Font, buf, 20, 92, FVec4{0.9f, 0.9f, 0.9f, 1});
 
     std::snprintf(buf, sizeof(buf),
                   "CC=%s Aniso=%s Area=%s ProbeG=%s Fog=%s Shadow=%s SSAO=%s TAA=%s SSGI=%s LM=%s MV=%s Refract=%s",
-                  app.m_UseClearcoat ? "ON" : "OFF",
-                  app.m_UseAnisotropy ? "ON" : "OFF",
-                  app.m_UseAreaLight ? "ON" : "OFF",
-                  app.m_UseProbeGrid ? "ON" : "OFF",
-                  app.m_UseFog ? "ON" : "OFF",
-                  app.m_UseShadows ? "ON" : "OFF",
-                  app.m_UseSsao ? "ON" : "OFF",
-                  app.m_UseTaa ? "ON" : "OFF",
-                  app.m_UseSsgi ? "ON" : "OFF",
-                  app.m_UseLightmap ? "ON" : "OFF",
-                  app.m_UseMotionVec ? "ON" : "OFF",
+                  app.m_bUseClearcoat ? "ON" : "OFF",
+                  app.m_bUseAnisotropy ? "ON" : "OFF",
+                  app.m_bUseAreaLight ? "ON" : "OFF",
+                  app.m_bUseProbeGrid ? "ON" : "OFF",
+                  app.m_bUseFog ? "ON" : "OFF",
+                  app.m_bUseShadows ? "ON" : "OFF",
+                  app.m_bUseSsao ? "ON" : "OFF",
+                  app.m_bUseTaa ? "ON" : "OFF",
+                  app.m_bUseSsgi ? "ON" : "OFF",
+                  app.m_bUseLightmap ? "ON" : "OFF",
+                  app.m_bUseMotionVec ? "ON" : "OFF",
                   app.m_ShowRefraction ? "ON" : "OFF");
     app.m_Batch.DrawString(app.m_Font, buf, 20, 116, FVec4{0.9f, 0.9f, 0.9f, 1});
     app.m_Batch.DrawString(app.m_Font, "WASD: 移動  矢印: 視点  X: 屈折demo  Esc: 終了",

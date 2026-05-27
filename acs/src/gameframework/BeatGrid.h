@@ -211,7 +211,7 @@ private:
     f32  m_CurrentTime = 0.0f;
     bool m_Playing      = false;
     bool m_Paused       = false;
-    bool m_EndedFired  = false; // EndCallback の二重発火防止
+    bool m_bEndedFired  = false; // EndCallback の二重発火防止
 
     // ----- 統計 -----
     u32 m_TotalNotes    = 0u;

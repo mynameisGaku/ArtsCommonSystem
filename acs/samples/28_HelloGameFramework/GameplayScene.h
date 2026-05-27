@@ -34,7 +34,7 @@ private:
     // FTween / Clock / Sequences / Input は Services() 経由で取得するので member は不要。
     acs::FVec3                m_Color {0.05f, 0.20f, 0.10f};
     acs::game::FTweenHandle   m_ColorTween;
-    bool                     m_ToBright = true;
+    bool                     m_bToBright = true;
     acs::f32                 m_FixedSecs = 0.0f;
     acs::u32                 m_FixedStepLogCounter = 0;
 

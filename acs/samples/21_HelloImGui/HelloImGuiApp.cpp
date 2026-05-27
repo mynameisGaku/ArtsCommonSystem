@@ -27,12 +27,12 @@ void HelloImGuiApp::OnRender() noexcept {
     m_Imgui.NewFrame();
 
     // ShowDemoWindow は ImGui 機能網羅のリファレンス。
-    if (m_ShowDemo) ImGui::ShowDemoWindow(&m_ShowDemo);
+    if (m_bShowDemo) ImGui::ShowDemoWindow(&m_bShowDemo);
 
     ImGui::Begin("ACS FSample");
     ImGui::Text("FPS: %.1f", FPS());
     ImGui::Text("Frames: %llu", static_cast<unsigned long long>(FrameCount()));
-    ImGui::Checkbox("Show ImGui demo", &m_ShowDemo);
+    ImGui::Checkbox("Show ImGui demo", &m_bShowDemo);
     ImGui::SliderFloat("R", &m_R, 0.0f, 1.0f);
     ImGui::SliderFloat("G", &m_G, 0.0f, 1.0f);
     ImGui::SliderFloat("B", &m_B, 0.0f, 1.0f);
