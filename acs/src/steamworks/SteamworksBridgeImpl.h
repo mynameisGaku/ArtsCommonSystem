@@ -69,6 +69,30 @@ public:
     acs::TResult<acs::i64>            GetLeaderboardScore(const char* board_id)           noexcept override;
     void                              Tick(acs::f32 dt)               noexcept override;
 
+    // Phase 2 (Stats / DLC / RichPresence / Friends)
+    acs::TResult<void>                SetStat(const char* stat_name, acs::i64 value)      noexcept override;
+    acs::TResult<acs::i64>            GetStat(const char* stat_name)                      noexcept override;
+    acs::TResult<void>                SetFloatStat(const char* stat_name, acs::f32 value) noexcept override;
+    acs::TResult<acs::f32>            GetFloatStat(const char* stat_name)                 noexcept override;
+    bool                              IsDlcOwned(acs::u32 app_id)                   const noexcept override;
+    acs::TResult<void>                SetRichPresence(const char* key, const char* value) noexcept override;
+    acs::u32                          GetFriendCount()                              const noexcept override;
+    acs::game::PlayerIdentity         GetFriendByIndex(acs::u32 index)              const noexcept override;
+
+    // Phase 3 (Cloud / Workshop / Voice / Input)
+    acs::TResult<void>                CloudWriteFile(const char* path, const void* data, acs::u32 size) noexcept override;
+    acs::TResult<acs::u32>            CloudReadFile(const char* path, void* out_buf, acs::u32 buf_size) noexcept override;
+    bool                              CloudFileExists(const char* path)             const noexcept override;
+    acs::TResult<void>                CloudDeleteFile(const char* path)             noexcept override;
+    void                              CloudGetQuota(acs::u64& out_available_bytes, acs::u64& out_total_bytes) const noexcept override;
+    acs::u32                          WorkshopGetSubscribedCount()                  const noexcept override;
+    void                              WorkshopGetSubscribedItem(acs::u32 index, acs::u64& out_item_id, const char*& out_install_path) const noexcept override;
+    acs::TResult<void>                VoiceStartRecording()                         noexcept override;
+    acs::TResult<void>                VoiceStopRecording()                          noexcept override;
+    acs::TResult<acs::u32>            VoiceGetCompressed(void* out_buf, acs::u32 buf_size) noexcept override;
+    acs::TResult<void>                InputInit()                                   noexcept override;
+    acs::u32                          InputGetControllerCount()                     const noexcept override;
+
 private:
     // Pimpl: SDK ヘッダ (steam_api.h) を public ヘッダから漏らさないため。
     // 実体は SteamworksBridgeImpl.cpp の anonymous namespace で定義。
