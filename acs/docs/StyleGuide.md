@@ -5,16 +5,16 @@
 
 **対象 / Scope**: `src/**`, `samples/**`, `tests/**` 配下の C++ コード。`cmake-build-*/_deps/` 配下のサードパーティ、`docs/`, `cmake/` は対象外。
 
-**バージョン / Version**: v2 (2026-05-26)
+**バージョン / Version**: v2 (2026-05-28 改訂)
 
 > **基本方針 / Core philosophy** — ACS v2 は UE5 風命名規則を採用する。識別子の見た目は UE5 に寄せるが、UE5 の `U` (UObject = GC) / `A` (AActor = world-placeable) のような **重い semantic baggage を持つ prefix は使わない**。ACS は GC 無し / reflection 無し / Actor-Component 階層なしのシンプル構造なので、UE5 の **`F` (non-UObject struct/class)** と意味が完全に一致する単一 prefix を全 struct/class に適用する。
 >
 > **v1 → v2 の変更点** (詳細は §15 Revision history):
-> - 全 struct / class に **`F` prefix**
-> - template に **`T` prefix**
-> - メンバ変数 `_snake_case` → **`PascalCase` (prefix 無し、UE5 純正)**
-> - bool 変数 `is_xxx` → **`bIsXxx`** (member / local 共通)
-> - ローカル変数 / 引数 `snake_case` → **`PascalCase`**
+> - 全 struct / class に **`F` prefix** (Tier 1+2+3v2 で適用済)
+> - template に **`T` prefix** (Tier 1+2 で適用済)
+> - **メンバ変数 `_snake_case` → `m_PascalCase`** (2026-05-28 確定、UE5 純正は accessor method 衝突のため `m_` 前置のハイブリッド方式に変更)
+> - bool 変数 `is_xxx` → **`bIsXxx`** (member は `m_bIsXxx`、local は `bIsXxx`) **— 未実装、AST 必要**
+> - ローカル変数 / 引数 `snake_case` → **`PascalCase`** **— deferred (clang-tidy AST 必須)**
 > - 定数 `kPascalCase` 維持
 > - 関数 / メソッド `PascalCase` 維持
 > - enum `E` prefix 維持 (v1 で確定済)
@@ -118,27 +118,35 @@ void Foo(u32 FrameIndex, const FMat4& ViewProj) noexcept {
 
 **bool 変数は `b` 前置** (詳細は §2.11)。
 
-### 2.4 クラス・メンバ変数 / Class Members — `PascalCase` (prefix 無し)
+### 2.4 クラス・メンバ変数 / Class Members — `m_PascalCase` (ハイブリッド)
 
 | 種別 / Kind | 規則 / Rule | 例 / Example |
 |---|---|---|
-| **private / protected member** | `PascalCase` (prefix 無し) | `Data`, `Capacity`, `Position` |
-| **private / protected bool member** | `bPascalCase` (b 前置) | `bIsActive`, `bHasPendingDestroy` |
+| **private / protected member** | `m_PascalCase` (m_ 前置) | `m_Data`, `m_Capacity`, `m_Position` |
+| **private / protected bool member** | `m_bPascalCase` (m_b 前置) | `m_bIsActive`, `m_bHasPendingDestroy` |
 | **public POD struct field** | `PascalCase` (prefix 無し) | `FErrorCode::Message`, `FLogConfig::FilePath` |
 | **public POD bool field** | `bPascalCase` | `FConfig::bEnabled` |
 | **`static` class member** | `PascalCase`、bool は `bPascalCase` | `kFooDefault` (constexpr の場合は §2.5 の k prefix) |
 
-**理由 / Rationale**: UE5 純正。`m_` prefix は採用しない (UE5 でも使われない)。bool だけ `b` 前置することで「条件式に書ける変数」が見た目で識別できる。
+**理由 / Rationale**: UE5 純正 (prefix 無し) は accessor method 名と衝突する (`T Member() const { return m_Member; }` の `Member()` と member `Member` が同名)。`m_` 前置で member と accessor を区別 (Microsoft/Naughty Dog 流ハイブリッド)。POD struct field は accessor を持たないので prefix 無し。
 
 ```cpp
 class FFoo {
 public:
     void Bar() noexcept;
-    i32  Count = 0;          // member, no prefix
-    bool bIsReady = false;   // bool member, b prefix
+    i32  Count() const noexcept { return m_Count; }
+    bool IsReady() const noexcept { return m_bIsReady; }
 private:
-    FArray<i32>* Data = nullptr;   // private, no prefix
-    bool         bDirty = false;   // private bool
+    i32           m_Count    = 0;        // member, m_ prefix
+    bool          m_bIsReady = false;    // bool member, m_b prefix
+    FArray<i32>*  m_Data     = nullptr;
+};
+
+// POD struct (accessor 無し、prefix も無し)
+struct FErrorCode {
+    EErrCategory Category    = EErrCategory::None;
+    u32          Code        = 0;
+    const char*  Message     = "";
 };
 ```
 
@@ -949,7 +957,8 @@ auto _r = ThreadPool::Submit(t);  // acs-lint: NOLINT(R033)
 | 日付 | バージョン | 変更点 |
 |---|---|---|
 | 2026-05-21 | v1.0 | 初版。Option A+ (現状 codify + 4 改善) で確定。Phase 0 で `.clang-format` 等 5 ファイル投入、Phase 1+ で `[[nodiscard]]` / 29 rename / SPDX / 11 discard fix を実施。Phase 2 で本書 + assertion triad (`ACS_CHECK` / `ACS_NOTREACHED`) を導入。R001-R048 は Phase 3 で `acs_lint` プラグインで機械化予定。 |
-| 2026-05-26 | v2.0 | **UE5 風命名規則に移行**。F prefix (struct/class) / T prefix (template) / b 前置 (bool) を追加、ローカル変数 + メンバ変数 + 引数を PascalCase 化、`_snake_case` メンバ prefix を廃止。U/A prefix は ACS の GC 無し / Actor 無し設計と合わないので採用しない (UE5 風だが ACS-fit な scheme)。R020 を R020a/R020b に分割、R022b (bool b 前置) と R023 (PascalCase member) を新設。`scripts/rename_types_to_ue5_style.py` で機械的に rename。 |
+| 2026-05-26 | v2.0 | **UE5 風命名規則に移行**。F prefix (struct/class) / T prefix (template) / b 前置 (bool) を追加、ローカル変数 + メンバ変数 + 引数を PascalCase 化、`_snake_case` メンバ prefix を廃止。U/A prefix は ACS の GC 無し / Actor 無し設計と合わないので採用しない (UE5 風だが ACS-fit な scheme)。R020 を R020a/R020b に分割、R022b (bool b 前置) と R023 (PascalCase member) を新設。`scripts/rename_to_ue5_style_tier{1,2,3_v2}.py` で機械的に rename (Tier 1=23 型 / Tier 2=59 型 / Tier 3 v2=200+ 型)。 |
+| 2026-05-28 | v2.1 | **メンバ変数を `m_PascalCase` ハイブリッドに改訂**。UE5 純正 (prefix 無し) は ACS の既存コード (`T Member() const { return _member; }` 型 accessor pattern) と衝突するため、`m_` 前置で member / accessor を区別する Microsoft/Naughty Dog 流に切替え。`scripts/rename_member_vars_to_pascal.py` で 15328 件 / 587 ファイル rename。ローカル変数 PascalCase 化は AST 必須なので deferred (clang-tidy plugin で後続実装)。bool 前置 `b` も同様に deferred。 |
 
 ---
 
