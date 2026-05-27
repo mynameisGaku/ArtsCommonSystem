@@ -16,7 +16,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void Hud::Draw(GameplayScene& scene, SpriteBatch& sb, u32 sw, u32 sh,
+void Hud::Draw(GameplayScene& scene, FSpriteBatch& sb, u32 sw, u32 sh,
                f32 last_dt, f32 fps_ema) const noexcept {
     auto& app    = static_cast<FullGameApp&>(scene.GetGame());
     auto& player = scene.GetPlayer();

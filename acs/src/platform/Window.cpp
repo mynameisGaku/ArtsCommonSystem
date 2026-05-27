@@ -9,7 +9,7 @@
 
 namespace acs {
 
-void Window::DispatchEvent_Internal(const Event& e) noexcept {
+void FWindow::DispatchEvent_Internal(const Event& e) noexcept {
     if (_callback) _callback(_callback_user, e);
 }
 
@@ -84,15 +84,15 @@ EKey VkToKey(WPARAM vk, LPARAM lParam) noexcept {
     }
 }
 
-// HWND → Window* 紐付け用キー
+// HWND → FWindow* 紐付け用キー
 constexpr const wchar_t* kPropKey = L"ACS_WINDOW_PTR";
 
-Window* GetWindowFromHwnd(HWND hwnd) noexcept {
-    return static_cast<Window*>(::GetPropW(hwnd, kPropKey));
+FWindow* GetWindowFromHwnd(HWND hwnd) noexcept {
+    return static_cast<FWindow*>(::GetPropW(hwnd, kPropKey));
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept {
-    Window* w = GetWindowFromHwnd(hwnd);
+    FWindow* w = GetWindowFromHwnd(hwnd);
     if (!w) return ::DefWindowProcW(hwnd, msg, wp, lp);
 
     switch (msg) {
@@ -198,14 +198,14 @@ bool EnsureWindowClass() noexcept {
 
 } // namespace
 
-Window::~Window() noexcept {
+FWindow::~FWindow() noexcept {
     if (_hwnd) {
         ::RemovePropW(static_cast<HWND>(_hwnd), kPropKey);
         ::DestroyWindow(static_cast<HWND>(_hwnd));
     }
 }
 
-Window::Window(Window&& o) noexcept
+FWindow::FWindow(FWindow&& o) noexcept
     : _hwnd(o._hwnd), _width(o._width), _height(o._height),
       _should_close(o._should_close),
       _callback(o._callback), _callback_user(o._callback_user) {
@@ -221,7 +221,7 @@ Window::Window(Window&& o) noexcept
     o._callback_user = nullptr;
 }
 
-Window& Window::operator=(Window&& o) noexcept {
+FWindow& FWindow::operator=(FWindow&& o) noexcept {
     if (this == &o) return *this;
     if (_hwnd) {
         ::RemovePropW(static_cast<HWND>(_hwnd), kPropKey);
@@ -243,7 +243,7 @@ Window& Window::operator=(Window&& o) noexcept {
     return *this;
 }
 
-TResult<Window> Window::Create(const WindowConfig& cfg) noexcept {
+TResult<FWindow> FWindow::Create(const FWindowConfig& cfg) noexcept {
     if (!EnsureWindowClass()) {
         return ACS_ERR_OS(OS, 10, "RegisterClassExW failed", ::GetLastError());
     }
@@ -265,21 +265,21 @@ TResult<Window> Window::Create(const WindowConfig& cfg) noexcept {
         return ACS_ERR_OS(OS, 11, "CreateWindowExW failed", ::GetLastError());
     }
 
-    Window w;
+    FWindow w;
     w._hwnd = hwnd;
     w._width = cfg.width;
     w._height = cfg.height;
     w._should_close = false;
 
     // ムーブで返した後の安定アドレスに紐付けるため、いったん仮で登録 → ムーブ後に再登録
-    Window result = Move(w);
+    FWindow result = Move(w);
     ::SetPropW(hwnd, kPropKey, &result);
     ::ShowWindow(hwnd, SW_SHOW);
     ::UpdateWindow(hwnd);
-    return TResult<Window>(OkInit, Move(result));
+    return TResult<FWindow>(OkInit, Move(result));
 }
 
-void Window::PollEvents() noexcept {
+void FWindow::PollEvents() noexcept {
     MSG msg{};
     // PeekMessage でノンブロッキング処理（メインスレッドを止めない）
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -288,16 +288,16 @@ void Window::PollEvents() noexcept {
     }
 }
 
-void Window::SetEventCallback(EventCallback cb, void* user) noexcept {
+void FWindow::SetEventCallback(EventCallback cb, void* user) noexcept {
     _callback = cb;
     _callback_user = user;
 }
 
-void Window::SetTitle(const wchar_t* title) noexcept {
+void FWindow::SetTitle(const wchar_t* title) noexcept {
     if (_hwnd) ::SetWindowTextW(static_cast<HWND>(_hwnd), title);
 }
 
-void Window::SetFullscreen(bool on) noexcept {
+void FWindow::SetFullscreen(bool on) noexcept {
     if (!_hwnd || on == _fullscreen) return;
     HWND hwnd = static_cast<HWND>(_hwnd);
     if (on) {

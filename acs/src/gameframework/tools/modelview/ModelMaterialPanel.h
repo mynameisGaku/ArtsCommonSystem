@@ -1,41 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / ModelMaterialPanel (Phase 21b)
+// GameFramework Pillar — modelview / FModelMaterialPanel (Phase 21b)
 //
 // ModelViewer の中で、現在 load された model の各 submesh / material slot に
 // 対して PBR マテリアル (base color / metallic / roughness / normal strength /
 // AO strength / emissive 等) を **live 編集** するための ImGui ベースパネル。
 // 編集された値は `MaterialOverride` 構造体に保持され、コールバック経由で
-// `PbrShader` / `StandardShader` の constant buffer に流し込まれる想定。
+// `FPbrShader` / `FStandardShader` の constant buffer に流し込まれる想定。
 //
 // 役割分担:
 //   ・本パネルは **編集 UI + override 値の保持** のみを担当する。
 //     実 shader への反映 (= constant buffer write) は呼び出し側 (ModelViewer
 //     本体 or render integrator) が `MaterialChangeCallback` 経由で受け取った
 //     `MaterialOverride` を見て行う。これにより:
-//       (1) shader / pipeline の選択 (PbrShader / StandardShader / SkinnedShader
-//           / RefractionShader 等) は ModelViewer 本体が責任を持てる
-//       (2) UndoStack へ「override 1 件分」を atomic に push できる粒度を提供
+//       (1) shader / pipeline の選択 (FPbrShader / FStandardShader / FSkinnedShader
+//           / FRefractionShader 等) は ModelViewer 本体が責任を持てる
+//       (2) FUndoStack へ「override 1 件分」を atomic に push できる粒度を提供
 //     できる。
 //   ・slot 数の管理 (= model load 時に呼ばれる `SetMaterialSlotCount`) も
 //     ModelViewer 本体が責任を持つ。本パネルは「slot N 個」という事実だけを
 //     知って override TArray を resize する。
 //
 // 設計選択 (Pillar 21b — ModelViewer 第二弾):
-//   ・**EditorPanel 基底を継承**: Phase 21a で確立された `editor_core::EditorPanel`
+//   ・**FEditorPanel 基底を継承**: Phase 21a で確立された `editor_core::FEditorPanel`
 //     のライフサイクル (OnInit / OnShutdown / OnFrameBegin / DrawUI / WantsFocus
 //     等) を全て継承する。Workspace への登録 → 自動 dispatch が可能。
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<MaterialOverride>` + callback 状態の
-//     所有を曖昧にしない (= EditorPanel の規約と同形、ACS 規約)。
+//     所有を曖昧にしない (= FEditorPanel の規約と同形、ACS 規約)。
 //   ・**全 noexcept**: ACS 規約。範囲外 index は no-op、nullptr 取得は nullptr
 //     return。例外は投げない。
 //   ・**STL 不使用 / `<string>` 禁止**: override list は `acs::TArray<MaterialOverride>`。
 //     文字列は ImGui に渡すリテラル / スタック char[] のみ。
 //   ・**ImGui ヘッダは .cpp に閉じ込め**: header からは imgui 依存を漏らさず、
-//     InspectorPanel / ParticleEditorPanel と同パターン。
+//     FInspectorPanel / FParticleEditorPanel と同パターン。
 //   ・**MaterialChangeCallback は raw 関数ポインタ + void***: ACS は STL の
 //     std::function を使えないため、C スタイル callback 規約に揃える
-//     (InspectorPanel / ParticleEditorPanel と同形)。`override` 全体を 1 つの
-//     コピーとして渡すことで、外部 (UndoStack / 永続化) が
+//     (FInspectorPanel / FParticleEditorPanel と同形)。`override` 全体を 1 つの
+//     コピーとして渡すことで、外部 (FUndoStack / 永続化) が
 //     「変更前 → 変更後」の 1 件分を atomic に扱える。
 //   ・**`is_overridden` フラグ**: 「ユーザーが触ったかどうか」を slot 単位で
 //     保持する。false の slot は ModelViewer 側で「元の material そのまま」と
@@ -71,11 +71,11 @@
 //
 // 将来拡張余地 (Phase 21c 以降):
 //   ・texture override (BaseColorMap / NormalMap / ORM / Emissive 等の path swap、
-//     AssetBrowser からの drag-drop 連動)。`MaterialOverride` に
+//     FAssetBrowser からの drag-drop 連動)。`MaterialOverride` に
 //     `const char* base_color_path` 等を追加し、外部 callback で texture 差替を行う。
 //   ・material preset library (= `.acs_matpreset` 1 ファイルに 1 set を保存し、
 //     load / save / apply するボタン群)
-//   ・shader variant 切替 (PbrShader / SkinnedShader / RefractionShader 等を
+//   ・shader variant 切替 (FPbrShader / FSkinnedShader / FRefractionShader 等を
 //     drop-down で選び、対応する constant buffer に切替える)
 //   ・per-slot min/max metadata 受け取り API (= 物理的に意味のある range で
 //     SliderFloat を出す。アセットメタデータが充実したら活かす)
@@ -85,7 +85,7 @@
 // 範囲外 (本パネルでは持たない):
 //   ・実 shader への constant buffer write (= 外部 callback 受け側)
 //   ・texture リソースの load / 解放 (= AssetManager 責務)
-//   ・UndoStack 統合 (= 外部 callback 経由で push してもらう)
+//   ・FUndoStack 統合 (= 外部 callback 経由で push してもらう)
 //   ・material asset の永続化フォーマット (= Phase 21c 以降の MaterialPreset 等)
 #pragma once
 
@@ -145,27 +145,27 @@ struct MaterialOverride {
 };
 
 // ---------------------------------------------------------------------------
-// ModelMaterialPanel — PBR material live tune UI (EditorPanel 派生)
+// FModelMaterialPanel — PBR material live tune UI (FEditorPanel 派生)
 // ---------------------------------------------------------------------------
-class ModelMaterialPanel : public editor_core::EditorPanel {
+class FModelMaterialPanel : public editor_core::FEditorPanel {
 public:
     // override 1 件分の変更通知。`user` は SetOnMaterialChangeCallback の第二
     // 引数で渡したポインタがそのまま戻る (closure 代替)。
     // 渡される `override` は本パネルが保持している最新コピー (= callback 受け側で
-    // const& として参照後すぐ消費するか、または値コピーして UndoStack に積む)。
+    // const& として参照後すぐ消費するか、または値コピーして FUndoStack に積む)。
     using MaterialChangeCallback = void (*)(void* user,
                                             u32 slot_index,
                                             const MaterialOverride& override) noexcept;
 
-    ModelMaterialPanel() noexcept = default;
-    ~ModelMaterialPanel() noexcept override = default;
+    FModelMaterialPanel() noexcept = default;
+    ~FModelMaterialPanel() noexcept override = default;
 
     // 非コピー・非ムーブ: 内部 TArray + callback 状態の所有を曖昧にしない
-    // (EditorPanel 基底と同規約、ACS 規約)。
-    ModelMaterialPanel(const ModelMaterialPanel&)            = delete;
-    ModelMaterialPanel& operator=(const ModelMaterialPanel&) = delete;
-    ModelMaterialPanel(ModelMaterialPanel&&)                 = delete;
-    ModelMaterialPanel& operator=(ModelMaterialPanel&&)      = delete;
+    // (FEditorPanel 基底と同規約、ACS 規約)。
+    FModelMaterialPanel(const FModelMaterialPanel&)            = delete;
+    FModelMaterialPanel& operator=(const FModelMaterialPanel&) = delete;
+    FModelMaterialPanel(FModelMaterialPanel&&)                 = delete;
+    FModelMaterialPanel& operator=(FModelMaterialPanel&&)      = delete;
 
     // ----- ライフサイクル ---------------------------------------------------
 
@@ -212,9 +212,9 @@ public:
     // ResetAll 時。1 度の draw frame で複数 slot が変わると複数回呼ばれる。
     void SetOnMaterialChangeCallback(MaterialChangeCallback cb, void* user) noexcept;
 
-    // ----- EditorPanel override --------------------------------------------
+    // ----- FEditorPanel override --------------------------------------------
 
-    // window タイトル (= ImGui ID + Window メニュー表記)。
+    // window タイトル (= ImGui ID + FWindow メニュー表記)。
     const char* Title() const noexcept override { return "Material Override"; }
 
     // メイン ImGui window 描画。`ImGui::Begin("Material Override", &_visible)` で

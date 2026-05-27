@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS AssetPack — `.acpak` v1 アーカイブ読み出し器
+// ACS FAssetPack — `.acpak` v1 アーカイブ読み出し器
 // -----------------------------------------------------------------------------
 // 1 つの `.acpak` ファイルを開き、含まれる仮想ファイルを名前 (wchar_t*) で
 // 取り出すための実装クラス。GameFramework Pillar G の `IAssetPackReader` とは
 // 独立して動作する (将来 `IAssetPackReader` の concrete 実装 = adapter として
-// この AcpakReader を内部委譲する形を取る予定)。
+// この FAcpakReader を内部委譲する形を取る予定)。
 //
 // 使い方の典型例:
-//   acs::assetpack::AcpakReader reader;
+//   acs::assetpack::FAcpakReader reader;
 //   auto r = reader.Open(L"game.acpak");
 //   if (r.IsErr()) { /* マウント失敗 */ }
 //
@@ -41,15 +41,15 @@
 
 namespace acs::assetpack {
 
-class AcpakReader {
+class FAcpakReader {
 public:
-    AcpakReader() noexcept = default;
-    ~AcpakReader() noexcept;
+    FAcpakReader() noexcept = default;
+    ~FAcpakReader() noexcept;
 
-    AcpakReader(const AcpakReader&)            = delete;
-    AcpakReader& operator=(const AcpakReader&) = delete;
-    AcpakReader(AcpakReader&&)                 = delete;
-    AcpakReader& operator=(AcpakReader&&)      = delete;
+    FAcpakReader(const FAcpakReader&)            = delete;
+    FAcpakReader& operator=(const FAcpakReader&) = delete;
+    FAcpakReader(FAcpakReader&&)                 = delete;
+    FAcpakReader& operator=(FAcpakReader&&)      = delete;
 
     // ---- ライフサイクル -----------------------------------------------------
 
@@ -73,7 +73,7 @@ public:
     // 暗号化 pak の復号鍵を設定する。Open の前後どちらでも呼べる。
     // ReadFile 内で AES-256-GCM 復号に使われる。flags=0 の pak では無視される。
     // Close すると内部の鍵情報も 0 クリアされる。
-    void SetKey(const AcpakKey& key) noexcept;
+    void SetKey(const FAcpakKey& key) noexcept;
 
     // ハンドルを閉じ、文字列 pool + entry 配列を解放する。
     // Open 前 / 既に Close 済でも安全 (no-op)。
@@ -89,12 +89,12 @@ public:
 
     // index 番目の entry を返す。範囲外 / 未 Open なら nullptr。
     // 返り値の寿命は「次の Close まで」。
-    const AcpakFileEntry* GetEntry(u32 index) const noexcept;
+    const FAcpakFileEntry* GetEntry(u32 index) const noexcept;
 
     // 仮想パスから entry を探す。線形探索 (Phase 1 = 数百〜数千 entry 想定で
     // 十分高速)。見つからない / 未 Open なら nullptr。
     // path 比較は wcscmp 相当の完全一致。
-    const AcpakFileEntry* FindEntry(const wchar_t* path) const noexcept;
+    const FAcpakFileEntry* FindEntry(const wchar_t* path) const noexcept;
 
     // ---- データ読み出し -----------------------------------------------------
 
@@ -137,12 +137,12 @@ private:
     u64                   _file_size   = 0;         // CreateFileW 直後の GetFileSizeEx
     u32                   _flags       = 0;         // header.flags
     u64                   _table_offset = 0;        // header.file_table_offset
-    TArray<AcpakFileEntry> _entries;                 // file table の in-memory 表現
+    TArray<FAcpakFileEntry> _entries;                 // file table の in-memory 表現
     TArray<wchar_t>        _string_pool;             // path 文字列の連結 (NUL 区切り)
 
     // Phase 2: 暗号化 pak の復号鍵。flags=0 のときは未使用。
     // Close で _has_key=false にリセットされ、_key も 0 クリアされる。
-    AcpakKey              _key{};
+    FAcpakKey              _key{};
     bool                  _has_key     = false;
 };
 

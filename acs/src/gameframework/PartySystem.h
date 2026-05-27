@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — PartySystem (パーティ state machine + フレンドリスト seam)
+// GameFramework Pillar T — FPartySystem (パーティ state machine + フレンドリスト seam)
 //
 // 役割:
 //   1〜N 人のローカルプレイヤーをまとめた「パーティ」状態と、簡易フレンドリストを
 //   ゲームロジック側から扱う窓口。マッチング前のロビー、Co-op 入室前の集合場所、
 //   ストアでのフレンド表示などを単一の API で扱う。実プラットフォーム接続は
-//   Pillar S = Storefront 側 (`SteamworksBridge` / EOS / PSN / Xbox / NSO) が
-//   アダプタとなり、結果を本 system に流し込む。PartySystem 自体は **プラット
+//   Pillar S = Storefront 側 (`FSteamworksBridge` / EOS / PSN / Xbox / NSO) が
+//   アダプタとなり、結果を本 system に流し込む。FPartySystem 自体は **プラット
 //   フォーム非依存**。
 //
 // 設計上の倫理方針 (cross-platform party + 児童保護):
@@ -22,7 +22,7 @@
 //     ごとに年齢推定 API が異なるため一律ルール化が危険)。
 //
 // 使い方 (典型例):
-//   PartySystem ps;
+//   FPartySystem ps;
 //   ps.AddFriend({ "steam:76561198000000001", "alice",  true,  true  });
 //   ps.AddFriend({ "epic:abc123",              "bob",    false, false });
 //
@@ -38,7 +38,7 @@
 // 設計選択 (Phase T-1 スケルトン):
 //   ・**ローカル state は完全実装**: Solo / InParty / Joining / Leaving の遷移、
 //     メンバ追加・削除、リーダー / ready flag、フレンドリスト管理はすべて動く。
-//   ・**プラットフォーム接続は TODO**: SteamworksBridge 等を介した実 invite 送信、
+//   ・**プラットフォーム接続は TODO**: FSteamworksBridge 等を介した実 invite 送信、
 //     PSN cross-gen party、Xbox party、Nintendo Switch friend code の解決は
 //     Phase T-2 以降で接続。本 system は seam として const char* (platform id) を
 //     受けるだけで、解釈は bridge 側が行う。
@@ -54,7 +54,7 @@
 //   ・**全 noexcept**: ACS 全体方針 (TResult<T, FErrorCode> + bool 戻り値)。
 //
 // 範囲外 (Phase T-2 以降):
-//   ・実 SDK 接続 (SteamworksBridge / EOS / PSN / Xbox / NSO の invite/accept 送受信)
+//   ・実 SDK 接続 (FSteamworksBridge / EOS / PSN / Xbox / NSO の invite/accept 送受信)
 //   ・voice chat / text chat (Pillar H Audio + 別チャットモジュール)
 //   ・moderation / blocking / report (別モジュール)
 //   ・matchmaking (Pillar V Backend Services 側)
@@ -70,7 +70,7 @@ namespace acs::game {
 
 // フレンド 1 件分。`platform_id` は SDK 固有のユーザー識別子 (例 "steam:..." /
 // "epic:..." / PSN account_id 等)、`display_name` は表示名。両方 const char*
-// 非所有 (寿命は呼び出し側保証、Pillar O Entitlement と同じポリシー)。
+// 非所有 (寿命は呼び出し側保証、Pillar O FEntitlement と同じポリシー)。
 struct Friend {
     const char* platform_id        = nullptr;  // SDK 固有 ID (文字列リテラル / 永続バッファ)
     const char* display_name       = nullptr;  // 表示名 (寿命は呼び出し側保証)
@@ -100,16 +100,16 @@ enum class EPartyState : u8 {
     Leaving  = 3,  // 離脱要求送信済 / 応答待ち
 };
 
-class PartySystem {
+class FPartySystem {
 public:
-    PartySystem()  noexcept = default;
-    ~PartySystem() noexcept = default;
+    FPartySystem()  noexcept = default;
+    ~FPartySystem() noexcept = default;
 
     // 通常は長寿命 1 個運用。誤コピーで state 分裂を避けるため非コピー・非ムーブ。
-    PartySystem(const PartySystem&)            = delete;
-    PartySystem& operator=(const PartySystem&) = delete;
-    PartySystem(PartySystem&&)                 = delete;
-    PartySystem& operator=(PartySystem&&)      = delete;
+    FPartySystem(const FPartySystem&)            = delete;
+    FPartySystem& operator=(const FPartySystem&) = delete;
+    FPartySystem(FPartySystem&&)                 = delete;
+    FPartySystem& operator=(FPartySystem&&)      = delete;
 
     // ----- party 操作 -----
     // 新規パーティ作成。Solo 状態のみ受理。party_name は const char* 非所有
@@ -126,7 +126,7 @@ public:
 
     // フレンドにパーティ招待を送る。InParty 状態のみ受理、リーダー権限は
     // 呼び出し側で判定する責任 (本 system はフラグ参照のみ)。実 invite 送信は
-    // Pillar S = Storefront 側 (SteamworksBridge 等) が担当。
+    // Pillar S = Storefront 側 (FSteamworksBridge 等) が担当。
     TResult<void> InviteFriend(const char* friend_id) noexcept;
 
     // ----- state query -----

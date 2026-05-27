@@ -22,17 +22,17 @@
 
 namespace acs {
 
-class PoolAllocator final : public Allocator {
+class FPoolAllocator final : public FAllocator {
 public:
     // 1 ブロックのサイズ（最低 sizeof(Node)=8B にラウンドアップ）
     // ブロック総数を block_count、整列を alignment で指定。
-    PoolAllocator(usize block_size, usize block_count,
+    FPoolAllocator(usize block_size, usize block_count,
                   usize alignment = kDefaultAlignment,
-                  Allocator* backing = nullptr) noexcept;
-    ~PoolAllocator() noexcept override;
+                  FAllocator* backing = nullptr) noexcept;
+    ~FPoolAllocator() noexcept override;
 
-    PoolAllocator(const PoolAllocator&) = delete;
-    PoolAllocator& operator=(const PoolAllocator&) = delete;
+    FPoolAllocator(const FPoolAllocator&) = delete;
+    FPoolAllocator& operator=(const FPoolAllocator&) = delete;
 
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free (void* ptr)                                  noexcept override;
@@ -71,7 +71,7 @@ private:
     u64               _block_size = 0;
     u64               _block_count= 0;
     u64               _alignment  = 0;
-    Allocator*        _backing    = nullptr;     // _storage の確保元
+    FAllocator*        _backing    = nullptr;     // _storage の確保元
     TAtomic<u64>       _live {0};                 // 現在使用中のブロック数
     // フリーリストの head + ABA タグ を 1 つの 64bit にパック
     TAtomic<u64>       _head_packed {0};

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// MotionVector 実装 (Phase 34f-3)
+// FMotionVector 実装 (Phase 34f-3)
 #include "render/MotionVector.h"
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用
 #include "foundation/Move.h"
@@ -77,7 +77,7 @@ struct MotionCB {
 
 } // namespace
 
-TResult<void> MotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     _device = &device;
     _width  = width  > 0 ? width  : 1;
     _height = height > 0 ? height : 1;
@@ -96,7 +96,7 @@ TResult<void> MotionVector::Init(IRhiDevice& device, u32 width, u32 height) noex
     return Ok();
 }
 
-void MotionVector::Shutdown() noexcept {
+void FMotionVector::Shutdown() noexcept {
     _cb.Reset();
     _pipeline.Reset();
     _ps.Reset();
@@ -109,8 +109,8 @@ void MotionVector::Shutdown() noexcept {
     _height = 0;
 }
 
-TResult<void> MotionVector::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 360, "MotionVector::Resize before Init");
+TResult<void> FMotionVector::Resize(u32 width, u32 height) noexcept {
+    if (!_device) return ACS_ERR(Render, 360, "FMotionVector::Resize before Init");
     if (width == 0 || height == 0) return Ok();
     if (width == _width && height == _height) return Ok();
     _motion.Reset();
@@ -121,7 +121,7 @@ TResult<void> MotionVector::Resize(u32 width, u32 height) noexcept {
     return CreateTargets(*_device, width, height);
 }
 
-TResult<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
+TResult<void> FMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // motion RT: RG16F。.rg に screen-space motion (prev_uv - curr_uv)。
     FTextureDesc md{};
     md.width  = w;
@@ -155,12 +155,12 @@ TResult<void> MotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noex
     return Ok();
 }
 
-TResult<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage       = EShaderStage::Vertex;
     vs_d.hlsl_source = kMotionHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "MotionVector.VS";
+    vs_d.debug_name  = "FMotionVector.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
@@ -169,7 +169,7 @@ TResult<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage       = EShaderStage::Pixel;
     ps_d.hlsl_source = kMotionHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "MotionVector.PS";
+    ps_d.debug_name  = "FMotionVector.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     _ps = Move(ps_r.Value());
@@ -203,7 +203,7 @@ TResult<void> MotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void MotionVector::Begin(IRhiCommandList& cl,
+void FMotionVector::Begin(IRhiCommandList& cl,
                          const FMat4& view_proj, const FMat4& prev_view_proj) noexcept {
     if (!_motion || !_normal || !_depth || !_pipeline) return;
     _vp      = view_proj;
@@ -216,7 +216,7 @@ void MotionVector::Begin(IRhiCommandList& cl,
     cl.SetPipeline(*_pipeline);
 }
 
-void MotionVector::DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
+void FMotionVector::DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
                             const FMat4& model, const FMat4& prev_model) noexcept {
     if (!_cb || !mesh.vertex_buffer || !mesh.index_buffer) return;
     MotionCB cb{};
@@ -231,7 +231,7 @@ void MotionVector::DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
     cl.DrawIndexed(mesh.index_count);
 }
 
-void MotionVector::End(IRhiCommandList& cl) noexcept {
+void FMotionVector::End(IRhiCommandList& cl) noexcept {
     if (!_motion) return;
     cl.EndRenderToTexture(*_motion);
 }

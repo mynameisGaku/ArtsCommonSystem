@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloPhysics2D — Application 実装。
+// HelloPhysics2D — FApplication 実装。
 #include "HelloPhysics2DApp.h"
 
 #include "app/Sample.h"
@@ -43,9 +43,9 @@ void HelloPhysics2DApp::OnStart() noexcept {
 
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
-    // フォントは OS 別の標準 UI フォント候補を Sample helper で解決。
+    // フォントは OS 別の標準 UI フォント候補を FSample helper で解決。
     // 失敗時 (フォントが見つからない / ロード失敗) は HUD なしで続行する。
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
     u8 pixels[kBallTexSize * kBallTexSize * 4];
     GenerateBallTexture(pixels);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloImGui — Application 派生クラス実装。
+// HelloImGui — FApplication 派生クラス実装。
 #include "HelloImGuiApp.h"
 
 #include "platform/Input.h"
@@ -29,7 +29,7 @@ void HelloImGuiApp::OnRender() noexcept {
     // ShowDemoWindow は ImGui 機能網羅のリファレンス。
     if (_show_demo) ImGui::ShowDemoWindow(&_show_demo);
 
-    ImGui::Begin("ACS Sample");
+    ImGui::Begin("ACS FSample");
     ImGui::Text("FPS: %.1f", FPS());
     ImGui::Text("Frames: %llu", static_cast<unsigned long long>(FrameCount()));
     ImGui::Checkbox("Show ImGui demo", &_show_demo);

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — ProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
+// GameFramework Pillar I — FProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
 //
 // 弾丸 / ロケット / 矢 / 魔法弾 / 手榴弾 などの「飛んでいって何かに当たる」系
-// オブジェクトを固定容量プールで管理する。WeaponSystem.FireCallback と組み合わせ
+// オブジェクトを固定容量プールで管理する。FWeaponSystem.FireCallback と組み合わせ
 // て発射 → 飛翔 → 命中 / 寿命切れ までを一元的に扱えるよう設計してある。
 //
 // 設計選択:
@@ -18,11 +18,11 @@
 //     Spawn 時に def_id (const char*) で名前引きする。これにより
 //       - 多数の弾を発射しても per-instance memory が小さい (def はポインタで参照)
 //       - 同種の弾の挙動を一括変更できる (テスト / バランス調整時に有利)
-//       - WeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
+//       - FWeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
 //     名前比較は ConstStringPointerEquals (アドレス一致優先) を使うが、同一文字
 //     リテラルなら基本同アドレスにマージされるためコストは O(1) 期待。
-//   ・**HitTest は callback で外部委譲**: ProjectileSystem 自身は CollisionWorld2D /
-//     TriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
+//   ・**HitTest は callback で外部委譲**: FProjectileSystem 自身は FCollisionWorld2D /
+//     FTriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
 //     Tick 内で各 alive projectile に対して呼び出す。true 返却で「命中した」と判
 //     定し、hit_count を進める。これにより:
 //       - テスト時は dummy fn で常に false を返せる (= headless 動作可)
@@ -36,7 +36,7 @@
 //     は将来の Phase で別レイヤに分離する。
 //   ・**owner_id / damage は instance に持つ**: def には共通パラメータのみを置き、
 //     誰が撃ったか / どれだけのダメージか は spawn 毎に変化する値として instance
-//     側に保持する。HitCallback でこれらを取り出し HealthSystem.ApplyDamage に
+//     側に保持する。HitCallback でこれらを取り出し FHealthSystem.ApplyDamage に
 //     繋ぐ想定。
 //   ・**非コピー・非ムーブ**: 固定 pool の生ポインタを AllAlive で外部に返すため、
 //     ムーブで実体アドレスが変わると外部参照が破綻する。明示的に削除。
@@ -44,7 +44,7 @@
 //     no-op で表現。文字列は const char* + アドレス一致比較で扱う。
 //
 // 使い方:
-//   ProjectileSystem ps;
+//   FProjectileSystem ps;
 //   ps.Init(256);
 //
 //   ProjectileDef bullet{};
@@ -66,10 +66,10 @@
 //                                /*owner=*/player_node_id,
 //                                /*damage=*/15.0f);
 //
-//   // hit test を登録 (CollisionWorld2D 経由など):
+//   // hit test を登録 (FCollisionWorld2D 経由など):
 //   ps.SetHitTestFn([](void* user, const ProjectileInstance& p,
 //                      u32& out_target, f32& out_dmg) noexcept -> bool {
-//       auto* cw = static_cast<CollisionWorld2D*>(user);
+//       auto* cw = static_cast<FCollisionWorld2D*>(user);
 //       // ... overlap check ... out_target = enemy_node_id; out_dmg = p.damage;
 //       return hit_found;
 //   }, &collision_world);
@@ -84,7 +84,7 @@
 //   ps.Tick(dt);
 //
 // 範囲外 (Phase 2+ で):
-//   ・チャージ shot / spread (n-way) - WeaponSystem 側が複数 Spawn する形で対応
+//   ・チャージ shot / spread (n-way) - FWeaponSystem 側が複数 Spawn する形で対応
 //   ・3D 弾道 (現状 FVec2 のみ)
 //   ・反射 / 跳弾 (壁衝突で velocity 反転) - HitCallback 内で manual に再 Spawn
 //   ・複雑な誘導 (proportional navigation など)
@@ -172,12 +172,12 @@ struct ProjectileInstance {
     FVec2        velocity    {0.0f, 0.0f};
     f32         elapsed_sec = 0.0f;   // 出生からの経過時間 (lifetime チェック用)
     u32         hit_count   = 0u;     // 当てた回数 (max_pierces+1 で despawn)
-    u32         owner_id    = 0u;     // 撃った主体の識別子 (Node2D::Id 等)
+    u32         owner_id    = 0u;     // 撃った主体の識別子 (FNode2D::Id 等)
     f32         damage      = 0.0f;   // 1 hit 当たりのダメージ量
 };
 
 // HitTest コールバック型: alive な projectile 1 個に対して呼ばれる。
-//   user            : SetHitTestFn で渡した context (CollisionWorld2D 等)
+//   user            : SetHitTestFn で渡した context (FCollisionWorld2D 等)
 //   proj            : 判定対象の projectile (位置 / 速度 / damage 参照可)
 //   out_hit_target_id: hit したターゲットの識別子 (FHealthId.Index 等を想定)
 //   out_damage_dealt: 実際に与えたダメージ (耐性計算後の最終値、HitCallback に渡る)
@@ -191,7 +191,7 @@ using HitTestFn = bool(*)(void* user, const ProjectileInstance& proj,
 //   def_id          : 弾種識別子 (描画 / SE 振り分け用)
 //   target_id       : HitTestFn の out_hit_target_id
 //   damage          : HitTestFn の out_damage_dealt
-// この中で HealthSystem.ApplyDamage / VFX 生成 / SE 再生 を行う想定。
+// この中で FHealthSystem.ApplyDamage / VFX 生成 / SE 再生 を行う想定。
 using HitCallback = void(*)(void* user, FProjectileId proj_id, const char* def_id,
                             u32 target_id, f32 damage) noexcept;
 
@@ -200,19 +200,19 @@ using HitCallback = void(*)(void* user, FProjectileId proj_id, const char* def_i
 using ExpireCallback = void(*)(void* user, FProjectileId proj_id, const char* def_id) noexcept;
 
 // ---------------------------------------------------------------------------
-// ProjectileSystem — 固定容量 pool + per-frame Tick
+// FProjectileSystem — 固定容量 pool + per-frame Tick
 // ---------------------------------------------------------------------------
-class ProjectileSystem {
+class FProjectileSystem {
 public:
-    ProjectileSystem() noexcept = default;
-    ~ProjectileSystem() noexcept = default;
+    FProjectileSystem() noexcept = default;
+    ~FProjectileSystem() noexcept = default;
 
     // 非コピー・非ムーブ: AllAlive() / GetInstance() が内部 buffer の生ポインタを
     // 返すため、ムーブで実体アドレスが変わると外部参照が破綻する。
-    ProjectileSystem(const ProjectileSystem&)            = delete;
-    ProjectileSystem& operator=(const ProjectileSystem&) = delete;
-    ProjectileSystem(ProjectileSystem&&)                 = delete;
-    ProjectileSystem& operator=(ProjectileSystem&&)      = delete;
+    FProjectileSystem(const FProjectileSystem&)            = delete;
+    FProjectileSystem& operator=(const FProjectileSystem&) = delete;
+    FProjectileSystem(FProjectileSystem&&)                 = delete;
+    FProjectileSystem& operator=(FProjectileSystem&&)      = delete;
 
     // 初期化。max_concurrent で pool 上限を確定 (再 Init は no-op)。
     // 0 を渡した場合は default の 256 を採用 (誤呼出し防御)。

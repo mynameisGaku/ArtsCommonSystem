@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloBehaviorTreeEditor — Tree 構築 helper の実装。
+// HelloBehaviorTreeEditor  ETree 構篁Ehelper の実裁E��E
 #include "TreeBuilder.h"
 #include "TreeActions.h"
 
@@ -8,11 +8,11 @@ using namespace acs::game;
 
 namespace hellobt {
 
-void BuildPanelMirror(btedit::BehaviorTreeEditorPanel& panel, BtEditorBb& bb) noexcept {
-    // 注意: AddNode の払い出す id を bb に保存することで、Action Fn から
-    // panel.SetNodeStatus を呼べるようにする。BT 本体の構造とこちらの構造を
-    // 1:1 対応で組み立てる責務は sample 側 (= panel は実体 BT を覗けない)。
-    bb.id_root     = panel.AddNode(btedit::EBtKind::Selector, "Root Selector", btedit::BehaviorTreeEditorPanel::kInvalidId);
+void BuildPanelMirror(btedit::FBehaviorTreeEditorPanel& panel, BtEditorBb& bb) noexcept {
+    // 注愁E AddNode の払い出ぁEid めEbb に保存することで、Action Fn から
+    // panel.SetNodeStatus を呼べるよぁE��する、ET 本体�E構造とこちら�E構造めE
+    // 1:1 対応で絁E��立てる責務�E sample 側 (= panel は実佁EBT を覗けなぁE、E
+    bb.id_root     = panel.AddNode(btedit::EBtKind::Selector, "Root Selector", btedit::FBehaviorTreeEditorPanel::kInvalidId);
     bb.id_branch_a = panel.AddNode(btedit::EBtKind::Sequence, "Pickup Branch", bb.id_root);
     bb.id_pickup   = panel.AddNode(btedit::EBtKind::Action,   "Pickup",        bb.id_branch_a);
     bb.id_move     = panel.AddNode(btedit::EBtKind::Action,   "Move",          bb.id_branch_a);
@@ -21,19 +21,19 @@ void BuildPanelMirror(btedit::BehaviorTreeEditorPanel& panel, BtEditorBb& bb) no
     bb.id_attack   = panel.AddNode(btedit::EBtKind::Action,   "Attack",        bb.id_branch_b);
 }
 
-void BuildBehaviorTree(BehaviorTree& bt) noexcept {
-    // 実 BT は BuildPanelMirror で組んだメタミラーと同形に組む
-    // (= Action Fn から panel に push する node id と node の位置が一致する)。
-    auto root  = MakeUnique<BtSelector>();
+void BuildBehaviorTree(FBehaviorTree& bt) noexcept {
+    // 宁EBT は BuildPanelMirror で絁E��だメタミラーと同形に絁E�E
+    // (= Action Fn から panel に push する node id と node の位置が一致する)、E
+    auto root  = MakeUnique<FBtSelector>();
 
-    auto seq_a = MakeUnique<BtSequence>();
-    seq_a->AddChild(MakeUnique<BtAction>(&ActionPickup));
-    seq_a->AddChild(MakeUnique<BtAction>(&ActionMove));
+    auto seq_a = MakeUnique<FBtSequence>();
+    seq_a->AddChild(MakeUnique<FBtAction>(&ActionPickup));
+    seq_a->AddChild(MakeUnique<FBtAction>(&ActionMove));
     root->AddChild(Move(seq_a));
 
-    auto seq_b = MakeUnique<BtSequence>();
-    seq_b->AddChild(MakeUnique<BtAction>(&ActionWait));
-    seq_b->AddChild(MakeUnique<BtAction>(&ActionAttack));
+    auto seq_b = MakeUnique<FBtSequence>();
+    seq_b->AddChild(MakeUnique<FBtAction>(&ActionWait));
+    seq_b->AddChild(MakeUnique<FBtAction>(&ActionAttack));
     root->AddChild(Move(seq_b));
 
     bt.SetRoot(Move(root));

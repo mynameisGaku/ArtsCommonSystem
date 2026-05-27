@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M Phase 2 — NetSnapshot 実装
+// GameFramework Pillar M Phase 2 — FNetSnapshot 実装
 //
 // 構成:
 //   1) NetTransportStub: 常に NotImplemented を返す null-object transport。
-//   2) NetSnapshot:
+//   2) FNetSnapshot:
 //      ・Init / Shutdown: ring buffer / pending list / 統計値の初期化と解放。
 //      ・AddEntitySnapshot / CommitSnapshot: server 側で 1 frame 分の state を
 //        積み、1 つの payload に concat して transport.Send。
@@ -40,7 +40,7 @@ namespace {
 // little-endian 読み書き helper (strict-aliasing 安全)
 // -----------------------------------------------------------------------------
 // ホスト側 (Win x64 / ARM64 LE) 前提なので memcpy された生バイトがそのまま
-// 整数になる。SaveArchive.cpp / Lockstep.cpp と同じ流儀。
+// 整数になる。FSaveArchive.cpp / FLockstep.cpp と同じ流儀。
 // -----------------------------------------------------------------------------
 inline void WriteU32LE(u8* dst, u32 v) noexcept { MemCopy(dst, &v, sizeof(u32)); }
 inline void WriteU64LE(u8* dst, u64 v) noexcept { MemCopy(dst, &v, sizeof(u64)); }
@@ -110,13 +110,13 @@ INetTransport& GetTransportStub() noexcept {
 }
 
 // =============================================================================
-// NetSnapshot::Init
+// FNetSnapshot::Init
 // -----------------------------------------------------------------------------
 // 設定をコピーし、ring buffer の容量を確保する。Standalone 以外で
 // transport が nullptr の場合は GetTransportStub() に差し替えて
 // リンク互換を保つ (defensive 設計)。
 // =============================================================================
-void NetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
+void FNetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
                        INetTransport* transport) noexcept {
     _config = config;
     _role   = role;
@@ -156,11 +156,11 @@ void NetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
 }
 
 // =============================================================================
-// NetSnapshot::Shutdown
+// FNetSnapshot::Shutdown
 // -----------------------------------------------------------------------------
 // transport は外部所有なので触らない。ring buffer / pending / scratch を解放。
 // =============================================================================
-void NetSnapshot::Shutdown() noexcept {
+void FNetSnapshot::Shutdown() noexcept {
     _ring_buffer.Clear();
     _pending_entities.Clear();
     _interp_scratch.Clear();
@@ -169,18 +169,18 @@ void NetSnapshot::Shutdown() noexcept {
     _transport  = nullptr;
 }
 
-u32 NetSnapshot::BufferedSnapshotCount() const noexcept {
+u32 FNetSnapshot::BufferedSnapshotCount() const noexcept {
     return _ring_count;
 }
 
 // =============================================================================
-// NetSnapshot::AddEntitySnapshot
+// FNetSnapshot::AddEntitySnapshot
 // -----------------------------------------------------------------------------
 // server 側で 1 entity 分の state を pending list に積む。data は内部に
 // バイトコピーするので、呼出側は AddEntitySnapshot 後すぐに data を破棄して
 // よい。Client / Standalone では no-op。
 // =============================================================================
-void NetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
+void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
                                     const void* data, u32 data_size) noexcept {
     // Client / Standalone は送信側ではないので no-op。
     if (_role == ENetRole::Client || _role == ENetRole::Standalone) {
@@ -202,7 +202,7 @@ void NetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
 }
 
 // =============================================================================
-// NetSnapshot::CommitSnapshot
+// FNetSnapshot::CommitSnapshot
 // -----------------------------------------------------------------------------
 // pending list を 1 つの payload に concat し、SnapshotHeader を付けて
 // transport.Send する。
@@ -220,7 +220,7 @@ void NetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
 // payload を縮める。`_ring_buffer.Back().payload` を参照して entity 単位で
 // XOR を取り、変更ビットだけ送る形に書き換える。
 // =============================================================================
-void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
+void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // 役割チェック。Client / Standalone は no-op。
     if (_role == ENetRole::Client || _role == ENetRole::Standalone) {
         _pending_entities.Clear();
@@ -315,7 +315,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
 }
 
 // =============================================================================
-// NetSnapshot::Tick
+// FNetSnapshot::Tick
 // -----------------------------------------------------------------------------
 // transport.Receive を非ブロッキングで pump し、受信した snapshot を ring
 // buffer に追加する。1 Tick で複数 snapshot を取り込めるよう、受信なしに
@@ -327,7 +327,7 @@ void NetSnapshot::CommitSnapshot(u32 tick) noexcept {
 // 境界保持の契約)。Phase 3 で TCP framing を入れる場合は、ここで length
 // prefix を見て partial reassembly を実装する。
 // =============================================================================
-void NetSnapshot::Tick(f32 dt) noexcept {
+void FNetSnapshot::Tick(f32 dt) noexcept {
     (void)dt;
 
     // Server (listen 非搭載) は受信側を持たないので何もしない。
@@ -404,7 +404,7 @@ void NetSnapshot::Tick(f32 dt) noexcept {
 }
 
 // =============================================================================
-// NetSnapshot::TryGetInterpolatedSnapshot
+// FNetSnapshot::TryGetInterpolatedSnapshot
 // -----------------------------------------------------------------------------
 // client_time_sec に対して「interpolation_delay_sec 前」の時刻を target に
 // 設定し、ring buffer の中から target を挟む 2 snapshot を探す。1 snapshot
@@ -427,7 +427,7 @@ void NetSnapshot::Tick(f32 dt) noexcept {
 //   ・out_snapshots[i].component_data は ring buffer 内 payload を直接指す
 //     非所有 view。次の Tick() / CommitSnapshot() 呼出まで有効。
 // =============================================================================
-bool NetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
+bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
                                              EntitySnapshot* out_snapshots,
                                              u32 max_count,
                                              u32& out_actual_count) noexcept {

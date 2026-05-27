@@ -15,7 +15,7 @@ namespace {
 const char* kSkyHLSL = R"(
 #pragma pack_matrix(row_major)
 
-cbuffer Sky : register(b0) {
+cbuffer FSky : register(b0) {
     float4x4 inv_view_proj;       // 画面 NDC → ワールドへの逆変換
     float4   camera_pos;          // xyz=eye
     float4   sun_dir;             // xyz=方向 (camera→sun)
@@ -97,14 +97,14 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
 
 } // namespace
 
-void Sky::SetSunDirection(FVec3 dir) noexcept { _sun_dir = NormalizeSafe(dir); }
+void FSky::SetSunDirection(FVec3 dir) noexcept { _sun_dir = NormalizeSafe(dir); }
 
-TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "Sky.VS";
+    vs_d.debug_name  = "FSky.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
@@ -113,7 +113,7 @@ TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_for
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "Sky.PS";
+    ps_d.debug_name  = "FSky.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     _ps = Move(ps_r.Value());
@@ -138,7 +138,7 @@ TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_for
     pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 0;
-    pd.cbuffer_names[0] = "Sky";
+    pd.cbuffer_names[0] = "FSky";
     pd.layout_count  = 0;
     pd.vertex_stride = 0;
     auto pl_r = CreateRhiPipeline(device, pd);
@@ -148,14 +148,14 @@ TResult<void> Sky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_for
     return Ok();
 }
 
-void Sky::Shutdown() noexcept {
+void FSky::Shutdown() noexcept {
     _pipeline.Reset();
     _cb.Reset();
     _ps.Reset();
     _vs.Reset();
 }
 
-void Sky::PresetDay() noexcept {
+void FSky::PresetDay() noexcept {
     _sun_dir     = NormalizeSafe(FVec3{0.4f, 0.7f, 0.4f});
     _sun_color   = FVec3{1.0f, 0.95f, 0.85f};
     _sun_radius  = 0.0006f;
@@ -165,7 +165,7 @@ void Sky::PresetDay() noexcept {
     _ground      = FVec3{0.18f, 0.20f, 0.20f};
 }
 
-void Sky::PresetSunset() noexcept {
+void FSky::PresetSunset() noexcept {
     _sun_dir     = NormalizeSafe(FVec3{0.7f, 0.05f, 0.5f});
     _sun_color   = FVec3{1.0f, 0.55f, 0.25f};
     _sun_radius  = 0.001f;
@@ -175,7 +175,7 @@ void Sky::PresetSunset() noexcept {
     _ground      = FVec3{0.10f, 0.06f, 0.08f};
 }
 
-void Sky::PresetNight() noexcept {
+void FSky::PresetNight() noexcept {
     _sun_dir     = NormalizeSafe(FVec3{0.3f, 0.6f, 0.2f});
     _sun_color   = FVec3{0.85f, 0.85f, 0.95f};
     _sun_radius  = 0.0008f;
@@ -185,7 +185,7 @@ void Sky::PresetNight() noexcept {
     _ground      = FVec3{0.02f, 0.03f, 0.05f};
 }
 
-void Sky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
+void FSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
     if (!_pipeline || !_cb) return;
     SkyCB cb{};
     cb.inv_view_proj = Inverse(camera.ViewProjection());

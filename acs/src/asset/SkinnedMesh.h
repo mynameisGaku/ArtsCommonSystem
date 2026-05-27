@@ -2,13 +2,13 @@
 // スキンメッシュ（ボーン + アニメーション）
 //
 // 構成:
-//   SkinnedMeshAsset = 頂点（位置+法線+UV+ボーン indices/weights）
+//   FSkinnedMeshAsset = 頂点（位置+法線+UV+ボーン indices/weights）
 //                    + インデックス
 //                    + ボーン階層
 //                    + アニメーション群
 //
 // ランタイム:
-//   AnimationPlayer がアニメーションをスキャンして
+//   FAnimationPlayer がアニメーションをスキャンして
 //   GPU 用ボーンパレット (FMat4×N) を毎フレーム計算する。
 //
 // MVP では glTF パースは省略し、ランタイムでプログラム的に
@@ -75,12 +75,12 @@ struct FAnimation {
     TArray<FAnimationChannel> channels;
 };
 
-// ===== SkinnedMeshAsset =====
-class SkinnedMeshAsset : public Asset {
+// ===== FSkinnedMeshAsset =====
+class FSkinnedMeshAsset : public Asset {
 public:
-    ACS_ASSET_TYPE("SkinnedMeshAsset")
+    ACS_ASSET_TYPE("FSkinnedMeshAsset")
 
-    SkinnedMeshAsset() noexcept = default;
+    FSkinnedMeshAsset() noexcept = default;
 
     TArray<FSkinnedVertex>& Vertices()     noexcept { return _vertices; }
     TArray<u32>&           Indices()      noexcept { return _indices; }
@@ -104,11 +104,11 @@ private:
 };
 
 // =============================================================================
-// AnimationPlayer — アニメ再生 + ボーンパレット計算
+// FAnimationPlayer — アニメ再生 + ボーンパレット計算
 // =============================================================================
 //
 // 使い方:
-//   AnimationPlayer ap;
+//   FAnimationPlayer ap;
 //   ap.SetMesh(&mesh);
 //   ap.Play(0, /*loop=*/true);
 //   ...
@@ -116,11 +116,11 @@ private:
 //   FMat4 palette[64];
 //   u32  count = ap.WritePalette(palette, 64);
 //   shader.SetBonePalette(palette, count);
-class AnimationPlayer {
+class FAnimationPlayer {
 public:
-    AnimationPlayer() noexcept = default;
+    FAnimationPlayer() noexcept = default;
 
-    void SetMesh(const SkinnedMeshAsset* mesh) noexcept { _mesh = mesh; _anim = -1; _time = 0; }
+    void SetMesh(const FSkinnedMeshAsset* mesh) noexcept { _mesh = mesh; _anim = -1; _time = 0; }
     void Play(u32 anim_index, bool loop = true) noexcept;
     void Pause() noexcept { _playing = false; }
     void Resume() noexcept { _playing = true; }
@@ -137,7 +137,7 @@ public:
     u32 WritePalette(FMat4* out_palette, u32 max_count) const noexcept;
 
 private:
-    const SkinnedMeshAsset* _mesh    = nullptr;
+    const FSkinnedMeshAsset* _mesh    = nullptr;
     i32                     _anim    = -1;       // -1 = T-pose（バインド姿勢のまま）
     f32                     _time    = 0.0f;
     bool                    _loop    = true;

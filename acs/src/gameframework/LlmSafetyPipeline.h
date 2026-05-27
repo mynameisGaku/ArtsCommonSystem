@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — LlmSafetyPipeline (LLM 入出力安全パイプ)
+// GameFramework Pillar U Phase 2 — FLlmSafetyPipeline (LLM 入出力安全パイプ)
 //
 // 役割:
 //   LLM NPC のセリフ生成経路 (= 決定論ゾーンの外側) に対して、入力検証 /
@@ -14,7 +14,7 @@
 //
 // 設計判断:
 //   ・**bit flag で個別 on/off**: シーン (チュートリアル / 児童向け / 大人向け) ごとに
-//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/SceneServices と
+//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/FSceneServices と
 //     同じ「mask で機能宣言」スタイルに揃える。
 //   ・**stub 実装**: Phase 1 (本フェーズ) は単純な文字列長 / keyword チェックのみ。
 //     実 jailbreak 検出器・PII regex・コンテンツ分類器は Phase 2 以降で差し込み。
@@ -24,14 +24,14 @@
 //     は呼び出しごとに内部の static thread_local バッファを指す。次回呼び出しで
 //     上書きされるため、呼び出し側は **使い終わるまでに必ずコピー or 消費** すること。
 //   ・**決定論ゾーン外宣言**: LLM 推論自体が非決定論なので、本パイプラインも
-//     `Game::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
-//     コールバックから呼ぶ前提)。MlRuntime と同じ契約。
+//     `FGame::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
+//     コールバックから呼ぶ前提)。FMlRuntime と同じ契約。
 //
 // 範囲外 (Phase 2):
 //   ・実 jailbreak 検出 (BERT 系分類器、prompt injection corpus 照合)
 //   ・PII regex (電話 / メール / 住所 / クレカ番号の各国フォーマット)
 //   ・コンテンツレーティングモデル (暴力 / 性的 / 自傷 / ヘイト の 4 軸スコア)
-//   ・rate limit / per-user quota (BackendClient と連携で別レイヤ)
+//   ・rate limit / per-user quota (FBackendClient と連携で別レイヤ)
 //
 // ACS 規約:
 //   ・STL 不使用 / `<string>` 不使用 / 例外不使用 / 全 noexcept
@@ -102,13 +102,13 @@ struct SafetyResult {
 };
 
 // =============================================================================
-// LlmSafetyPipeline — 入出力安全パイプライン本体
+// FLlmSafetyPipeline — 入出力安全パイプライン本体
 // -----------------------------------------------------------------------------
 // 1 インスタンス = 1 つの NPC キャラクタ前提 (CharacterAnchor を 1 個保持する)。
-// 複数 NPC を同時運用する場合は LlmSafetyPipeline を NPC ごとに持つ。
+// 複数 NPC を同時運用する場合は FLlmSafetyPipeline を NPC ごとに持つ。
 //
 // 典型使用:
-//   LlmSafetyPipeline pipe;
+//   FLlmSafetyPipeline pipe;
 //   pipe.Init();
 //   pipe.SetTokenBudget(1024, 512);
 //   pipe.SetCharacterAnchor("You are a friendly shopkeeper in a fantasy RPG.");
@@ -121,16 +121,16 @@ struct SafetyResult {
 //   if (out_res.verdict == ESafetyVerdict::Refused) { NpcBecomesSilent(); return; }
 //   DisplayNpcLine(out_res.filtered_text);
 // =============================================================================
-class LlmSafetyPipeline {
+class FLlmSafetyPipeline {
 public:
-    LlmSafetyPipeline() noexcept = default;
-    ~LlmSafetyPipeline() noexcept = default;
+    FLlmSafetyPipeline() noexcept = default;
+    ~FLlmSafetyPipeline() noexcept = default;
 
     // 非コピー・非ムーブ (state を 1 箇所にとどめる)
-    LlmSafetyPipeline(const LlmSafetyPipeline&)            = delete;
-    LlmSafetyPipeline& operator=(const LlmSafetyPipeline&) = delete;
-    LlmSafetyPipeline(LlmSafetyPipeline&&)                 = delete;
-    LlmSafetyPipeline& operator=(LlmSafetyPipeline&&)      = delete;
+    FLlmSafetyPipeline(const FLlmSafetyPipeline&)            = delete;
+    FLlmSafetyPipeline& operator=(const FLlmSafetyPipeline&) = delete;
+    FLlmSafetyPipeline(FLlmSafetyPipeline&&)                 = delete;
+    FLlmSafetyPipeline& operator=(FLlmSafetyPipeline&&)      = delete;
 
     // 初期化。bit flag で機能を選択。多重 Init は最新 rules で上書き。
     void Init(ESafetyRule rules = ESafetyRule::Default) noexcept;

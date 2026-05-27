@@ -11,7 +11,7 @@ using namespace acs;
 namespace helloibl {
 
 FVec3 ResolveSunDirection(const HelloIblApp& app) noexcept {
-    // Studio HDR preset (3) は前方上向きの固定方向、それ以外は Sky の太陽。
+    // Studio HDR preset (3) は前方上向きの固定方向、それ以外は FSky の太陽。
     if (app._current_preset == 3) return FVec3{0.3f, 0.6f, -0.5f};
     return app._sky.SunDirection();
 }

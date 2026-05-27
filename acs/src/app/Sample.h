@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// acs::Sample — サンプル用の高レベル便利機能まとめ
+// acs::FSample — サンプル用の高レベル便利機能まとめ
 //
 // 目的:
 //   ・ サンプルの定型コード (Init チェーンの IsErr+Quit 5 連や Win 限定フォントパス) を
 //     一掃して、サンプルが「何を見せたいか」だけに集中できるようにする。
 //
 // 使用例 (HelloHelloMVVM 等):
-//   class MyApp : public Application {
+//   class MyApp : public FApplication {
 //       void OnStart() noexcept override {
 //           ACS_SAMPLE_INIT(_imgui.Init(GetWindow(), GetRenderer()));
 //           ACS_SAMPLE_INIT(_shader.Init(*GetRenderer().Device(),
@@ -18,11 +18,11 @@
 //   };
 //
 // 標準フォント解決:
-//   const wchar_t* fp = acs::Sample::DefaultUIFontPath();   // OS 別の優先パス
+//   const wchar_t* fp = acs::FSample::DefaultUIFontPath();   // OS 別の優先パス
 //   _font.LoadFromFile(*dev, fp, 18.0f);
 //
 // 文字列ベースで複数候補を試すヘルパ:
-//   if (acs::Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f).IsErr()) {
+//   if (acs::FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f).IsErr()) {
 //       // どれも見つからなかった
 //   }
 #pragma once
@@ -33,11 +33,11 @@
 
 namespace acs {
 
-class Application;
+class FApplication;
 class Font;
 class IRhiDevice;
 
-namespace Sample {
+namespace FSample {
 
 // プラットフォーム別のデフォルト UI フォントを 1 つ返す
 // (見つからなければ最初の候補を返す。後段の LoadFromFile が IsErr を返す)
@@ -51,7 +51,7 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
                                    u32  atlas_size  = 1024,
                                    bool include_cjk = false) noexcept;
 
-} // namespace Sample
+} // namespace FSample
 } // namespace acs
 
 // ----------------------------------------------------------------------------
@@ -62,12 +62,12 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
 //   ACS_SAMPLE_INIT(_renderer_thing.Init(args));
 //
 // マクロ内では `auto _r = (expr); if (_r.IsErr()) { ログ + Quit + return; }` を展開。
-// Application のメンバ関数からのみ使える (Quit() メソッドへのアクセスが要るため)。
+// FApplication のメンバ関数からのみ使える (Quit() メソッドへのアクセスが要るため)。
 #define ACS_SAMPLE_INIT(expr)                                                      \
     do {                                                                           \
         auto _acs_sample_r = (expr);                                               \
         if (_acs_sample_r.IsErr()) {                                               \
-            ACS_LOG_ERROR("Sample init failed at " #expr ": %s",                  \
+            ACS_LOG_ERROR("FSample init failed at " #expr ": %s",                  \
                           _acs_sample_r.Error().message);                          \
             Quit();                                                                \
             return;                                                                \
@@ -81,7 +81,7 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
 #define ACS_SAMPLE_TAKE(name, expr)                                                \
     auto ACS_CONCAT(_acs_take_r_, __LINE__) = (expr);                              \
     if (ACS_CONCAT(_acs_take_r_, __LINE__).IsErr()) {                              \
-        ACS_LOG_ERROR("Sample take failed at " #expr ": %s",                      \
+        ACS_LOG_ERROR("FSample take failed at " #expr ": %s",                      \
                       ACS_CONCAT(_acs_take_r_, __LINE__).Error().message);         \
         Quit();                                                                    \
         return;                                                                    \

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (puzzle / match-3) — MatchGrid
+// GameFramework ジャンルキット (puzzle / match-3) — FMatchGrid
 //
 // `Bejeweled` / `Candy Crush` 系 match-3 パズルのコアロジックを担う 2D グリッド。
 // セルは「色 (1..color_count)」「special 種別 (Normal / Bomb / Lightning /
@@ -13,7 +13,7 @@
 //      返却値は除去総数。chain level も内部カウンタで保持し連鎖判定に使える。
 //
 // 使い方:
-//   MatchGrid g;
+//   FMatchGrid g;
 //   g.Init(8, 8, /*color_count=*/5);
 //   g.FillRandom(0xC0FFEEULL);            // 初期マッチが残らない決定論埋め
 //   g.SetOnClearCallback(&MyClearFx, &fx); // VFX / SFX hook
@@ -86,20 +86,20 @@ enum class ESpecialKind : u8 {
     Rainbow   = 3,
 };
 
-class MatchGrid {
+class FMatchGrid {
 public:
     // 消去 1 個ごとの callback (VFX / SFX / score hook 想定)。
     // user は SetOnClearCallback で与えた opaque ポインタ。
     using ClearCallback = void(*)(void* user, u32 x, u32 y, u8 color, ESpecialKind special) noexcept;
 
-    MatchGrid() noexcept = default;
-    ~MatchGrid() noexcept = default;
+    FMatchGrid() noexcept = default;
+    ~FMatchGrid() noexcept = default;
 
     // 非コピー・非ムーブ
-    MatchGrid(const MatchGrid&)            = delete;
-    MatchGrid& operator=(const MatchGrid&) = delete;
-    MatchGrid(MatchGrid&&)                 = delete;
-    MatchGrid& operator=(MatchGrid&&)      = delete;
+    FMatchGrid(const FMatchGrid&)            = delete;
+    FMatchGrid& operator=(const FMatchGrid&) = delete;
+    FMatchGrid(FMatchGrid&&)                 = delete;
+    FMatchGrid& operator=(FMatchGrid&&)      = delete;
 
     // グリッドを (width x height) で初期化。`color_count` は 1..255 の範囲で
     // 利用する色数 (色 ID は 1..color_count)。不正値 (0) は安全な既定にフォールバック
@@ -119,7 +119,7 @@ public:
     // 全 cell を 1..color_count のランダム色で埋める。
     // 初期 3-連続が発生しないよう、各 cell の左 2 個 / 上 2 個が同色のときは
     // 色を 1 個ずらす。color_count >= 2 を前提とする (1 のときは invariant を諦め）。
-    // seed=0 のときは Random::Global() を使用、それ以外は新規 Random(seed) で決定論。
+    // seed=0 のときは FRandom::Global() を使用、それ以外は新規 FRandom(seed) で決定論。
     void FillRandom(u32 seed = 0) noexcept;
 
     // 隣接 cell の swap を試みる。
@@ -174,7 +174,7 @@ private:
     void ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp, TArray<u8>& visited) noexcept;
 
     // FillRandom 内部用: (x, y) に色を置くとき左 2 個 / 上 2 個と被らない色を選ぶ。
-    u8 PickColorAvoidingMatch(u32 x, u32 y, Random& rng) const noexcept;
+    u8 PickColorAvoidingMatch(u32 x, u32 y, FRandom& rng) const noexcept;
 
     TArray<GridCell> _cells {};        // row-major (`y * width + x`)
     u32             _width        = 0;

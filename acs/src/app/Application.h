@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Application 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
+// FApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
 // 使い方:
-//   class MyGame : public Application {
+//   class MyGame : public FApplication {
 //   public:
 //       // フックは必ず noexcept override で宣言する
 //       // （基底のフックが noexcept のため。noexcept を省くとコンパイルエラー）
@@ -32,32 +32,32 @@
 
 namespace acs {
 
-class Application {
+class FApplication {
 public:
-    Application() noexcept = default;
-    virtual ~Application() noexcept = default;
+    FApplication() noexcept = default;
+    virtual ~FApplication() noexcept = default;
 
-    Application(const Application&) = delete;
-    Application& operator=(const Application&) = delete;
+    FApplication(const FApplication&) = delete;
+    FApplication& operator=(const FApplication&) = delete;
 
     // メインループを実行（成功 = 0、失敗 = 非 0 を返す）
-    int Run(const AppConfig& cfg) noexcept;
+    int Run(const FAppConfig& cfg) noexcept;
 
     // 終了要求（ループを抜ける、OnShutdown が呼ばれる）
     void Quit() noexcept { _running = false; }
 
     // 背景クリア色を動的に変更する（次フレームの描画から反映される）。
-    // 既定値は AppConfig の clear_r/g/b/a（起動時）。
+    // 既定値は FAppConfig の clear_r/g/b/a（起動時）。
     void SetClearColor(f32 r, f32 g, f32 b, f32 a = 1.0f) noexcept {
         _clear_color = ClearColor{ r, g, b, a };
     }
 
     // 初学者がアクセスしやすいようにエンジンサブシステムを公開
-    Window&         GetWindow()        noexcept { return _window; }
-    Renderer&       GetRenderer()      noexcept { return _renderer; }
+    FWindow&         GetWindow()        noexcept { return _window; }
+    FRenderer&       GetRenderer()      noexcept { return _renderer; }
     World&          GetWorld()         noexcept { return _world; }
-    AssetRegistry&  GetAssets()        noexcept { return _assets; }
-    TimerManager&   GetTimers()        noexcept { return _timers; }
+    FAssetRegistry&  GetAssets()        noexcept { return _assets; }
+    FTimerManager&   GetTimers()        noexcept { return _timers; }
     MessageBroker&  GetEvents()        noexcept { return _events; }
     f32             DeltaTime()  const noexcept { return _dt; }
     u64             FrameCount() const noexcept { return _frame_timer.FrameCount(); }
@@ -72,25 +72,25 @@ protected:
     virtual void OnEvent(const Event& /*e*/) noexcept {}   // イベント受信時
 
     // フレーム描画を完全に差し替えたい場合に true を返してフルカスタム実装する。
-    // 戻り値が true のときは Application 側は BeginFrame / OnRender / EndFrame を呼ばず、
+    // 戻り値が true のときは FApplication 側は BeginFrame / OnRender / EndFrame を呼ばず、
     // 派生クラスがコマンドリスト・スワップチェインを直接制御する責任を負う。
     // 用途: HDR + ポストプロセスのパイプラインを組む場合（HelloBloom 等）。
     virtual bool OnCustomFrame() noexcept { return false; }
 
 private:
-    // Window のイベントを Input に流しつつ OnEvent も呼ぶブリッジ
+    // FWindow のイベントを Input に流しつつ OnEvent も呼ぶブリッジ
     static void EventBridge(void* user, const Event& e) noexcept;
 
-    Window         _window;
-    Renderer       _renderer;
+    FWindow         _window;
+    FRenderer       _renderer;
     World          _world;
-    AssetRegistry  _assets;
-    TimerManager   _timers;
+    FAssetRegistry  _assets;
+    FTimerManager   _timers;
     MessageBroker  _events;
     FrameTimer     _frame_timer;
     f32            _dt       = 0.0f;
     bool           _running  = true;
-    AppConfig      _cfg;
+    FAppConfig      _cfg;
     ClearColor     _clear_color{};   // BeginFrame に渡す現在のクリア色
 };
 

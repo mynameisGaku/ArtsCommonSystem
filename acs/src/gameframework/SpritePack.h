@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G / Q — SpritePack (sprite atlas data + 名前付き frame lookup)
+// GameFramework Pillar G / Q — FSpritePack (sprite atlas data + 名前付き frame lookup)
 //
 // 「1 枚の atlas テクスチャ + その中に並ぶ複数 frame の矩形」を持つだけのデータ層。
 // 描画 API・asset loader には触れない。利用者は AtlasTexturePath() で texture を
 // 自前ロードし、FindFrame("Idle_03") で矩形と pivot を取り出し、ComputeUv で
-// [0, 1] UV を得る。SpriteAnimator (時間→index) と組み合わせて animation を再生する。
+// [0, 1] UV を得る。FSpriteAnimator (時間→index) と組み合わせて animation を再生する。
 //
 // 使い方:
-//   SpritePack pack;
+//   FSpritePack pack;
 //   SpritePackInfo info;
 //   info.atlas_texture_path = "assets/hero_atlas.png";
 //   info.atlas_width        = 1024;
@@ -28,15 +28,15 @@
 //
 // 設計判断:
 //   ・Pillar G (asset/IO の data layout) と Pillar Q (視覚世界, atlas) の交差点に
-//     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の AssetBundle
-//     / AssetPack 側) で、SpritePack は「矩形と名前の辞書」に徹する。
+//     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の FAssetBundle
+//     / FAssetPack 側) で、FSpritePack は「矩形と名前の辞書」に徹する。
 //   ・name は `const char*` 借用 (caller 所有 = 文字列リテラルまたは別所有の
 //     永続バッファ前提)。`<string>` 禁止に従い ACS 規約と整合。比較は pointer
 //     同一 → strcmp の順で評価し、リテラル運用なら pointer 一致の高速 path を抜ける。
 //   ・非コピー・非ムーブ: frame 配列を不意に複製しないため。所有権を明示したい
 //     場合は Init/AddFrame を再呼出しすることで上書き or 別 instance を作る。
 //   ・ComputeUv は atlas_width/atlas_height が 0 の場合に 0 除算を避け {0,0,0,0}
-//     を返す。SpriteAnimator と同様、不正状態でも crash しないことを優先。
+//     を返す。FSpriteAnimator と同様、不正状態でも crash しないことを優先。
 //   ・RemoveFrame は順序非保持の swap remove (= 内部 TArray::RemoveAtSwap 相当)。
 //     animation はインデックスではなく名前で参照する前提なので順序破壊は許容。
 #pragma once
@@ -60,23 +60,23 @@ struct SpriteFrame {
     f32         pivot_y = 0.5f;     // frame ローカル [0,1]、既定は中心
 };
 
-// atlas 全体のメタ情報。texture そのものは別モジュール (AssetBundle 等) が所有。
+// atlas 全体のメタ情報。texture そのものは別モジュール (FAssetBundle 等) が所有。
 struct SpritePackInfo {
     const char* atlas_texture_path = nullptr;  // caller 所有
     u32         atlas_width        = 0;        // pixel (0 = 未設定)
     u32         atlas_height       = 0;        // pixel (0 = 未設定)
 };
 
-class SpritePack {
+class FSpritePack {
 public:
-    SpritePack() noexcept = default;
-    ~SpritePack() noexcept = default;
+    FSpritePack() noexcept = default;
+    ~FSpritePack() noexcept = default;
 
     // ACS 規約: atlas データを不意に複製しないよう非コピー・非ムーブ
-    SpritePack(const SpritePack&)            = delete;
-    SpritePack& operator=(const SpritePack&) = delete;
-    SpritePack(SpritePack&&)                 = delete;
-    SpritePack& operator=(SpritePack&&)      = delete;
+    FSpritePack(const FSpritePack&)            = delete;
+    FSpritePack& operator=(const FSpritePack&) = delete;
+    FSpritePack(FSpritePack&&)                 = delete;
+    FSpritePack& operator=(FSpritePack&&)      = delete;
 
     // atlas メタ情報を設定。既存の frame 配列はそのまま保持される
     // (= 同じ atlas で再 Init するユースケース)。frame もまとめてクリアしたい場合は

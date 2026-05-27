@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSceneInspector — Scene 上に置く Node2D サブクラス。
+// HelloSceneInspector — Scene 上に置く FNode2D サブクラス。
 //
-// PlayerNode: Inspector に field を公開する典型実装 (Node2D + IInspectableProvider
-//             多重継承)。fields 配列は Provider が所有し、InspectorSeam にはコピー
-//             せずポインタだけ渡す契約 (InspectorSeam.h 設計選択)。
-// WheelNode:  回転する Node2D サブクラス。Hierarchy で複数階層の見え方を
+// PlayerNode: Inspector に field を公開する典型実装 (FNode2D + IInspectableProvider
+//             多重継承)。fields 配列は Provider が所有し、FInspectorSeam にはコピー
+//             せずポインタだけ渡す契約 (FInspectorSeam.h 設計選択)。
+// WheelNode:  回転する FNode2D サブクラス。Hierarchy で複数階層の見え方を
 //             デモするために用意。
 #pragma once
 
@@ -13,7 +13,7 @@
 
 namespace helloscene {
 
-class PlayerNode : public acs::game::Node2D, public acs::game::IInspectableProvider {
+class PlayerNode : public acs::game::FNode2D, public acs::game::IInspectableProvider {
 public:
     PlayerNode() noexcept = default;
 
@@ -39,8 +39,8 @@ private:
     acs::game::InspectableField _fields[kFieldCount]{};
 };
 
-// 自転する Node2D。Hierarchy 表示で親子関係 (wheel ← spoke) を見せる役。
-class WheelNode : public acs::game::Node2D {
+// 自転する FNode2D。Hierarchy 表示で親子関係 (wheel ← spoke) を見せる役。
+class WheelNode : public acs::game::FNode2D {
 public:
     explicit WheelNode(acs::f32 speed_rps) noexcept : _speed_rps(speed_rps) {}
 

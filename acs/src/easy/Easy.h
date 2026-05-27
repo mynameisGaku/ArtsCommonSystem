@@ -39,7 +39,7 @@
 //   ・実行するとゲーム画面とは別に黒いコンソール窓が出る。これはログ表示用で
 //     正常。ゲーム画面を閉じれば一緒に終了する。
 //
-// もっと本格的に作りたくなったら、acs::Application を直接使う方法へ進める
+// もっと本格的に作りたくなったら、acs::FApplication を直接使う方法へ進める
 // （docs/QUICKSTART.md 参照）。easy はその入口に過ぎない。
 // ============================================================================
 #pragma once
@@ -85,7 +85,7 @@ struct Sound  { u32 id = 0; };
 // 初期化に失敗した場合はコンソールにエラーを出し、最初の NextFrame() が
 // false を返す（ゲームは画面を出さずに静かに終了する）。
 void OpenWindow(i32 width = 1280, i32 height = 720,
-                const char* title = "ACS Game") noexcept;
+                const char* title = "ACS FGame") noexcept;
 
 // 1 フレーム進める。while の条件に使う。直前のフレームを画面に出し、次の
 // フレームの準備をして true を返す。閉じられたら（後始末をして）false。

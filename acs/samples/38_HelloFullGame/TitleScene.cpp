@@ -20,13 +20,13 @@ namespace hellofg {
 void TitleScene::OnEnter() noexcept {
     GetGame().SetClearColor(_bg_color.x, _bg_color.y, _bg_color.z);
 
-    // 背景色を 2 秒 ping-pong する Tween (Services 経由で自動 tick される)
+    // 背景色を 2 秒 ping-pong する FTween (Services 経由で自動 tick される)
     _bg_tween = Services().Tweens().Tween(
         &_bg_color, kBgDark, kBgBright, /*duration=*/2.0f, Easing::InOutSine);
     _to_bright = true;
 
     // 入力バインド
-    InputMap& im = Services().Input();
+    FInputMap& im = Services().Input();
     im.ClearAll();
     im.BindKey(ActionId("Start"), EKey::Space);
     im.BindKey(ActionId("Quit"),  EKey::Escape);
@@ -45,7 +45,7 @@ void TitleScene::OnExit() noexcept {
 }
 
 void TitleScene::OnUpdate(f32 dt) noexcept {
-    const InputMap& im = Services().Input();
+    const FInputMap& im = Services().Input();
     if (im.IsPressed(ActionId("Quit"))) {
         GetGame().Quit();
         return;
@@ -72,7 +72,7 @@ void TitleScene::OnRender(RenderContext& rc) noexcept {
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
-    SpriteBatch& sb = app.Sprites();
+    FSpriteBatch& sb = app.Sprites();
     const u32 sw = rc.Width();
     const u32 sh = rc.Height();
     sb.Begin(rc.Cmd(), sw, sh);
@@ -103,7 +103,7 @@ void TitleScene::OnRender(RenderContext& rc) noexcept {
     if (app.FontReady()) {
         Font& title_font = app.FontTitle();
         Font& body_font  = app.FontBody();
-        const char* kTitle = "ACS Hello Full Game";
+        const char* kTitle = "ACS Hello Full FGame";
         const f32 tw = title_font.MeasureWidth(kTitle);
         sb.DrawString(title_font, kTitle, cx - tw * 0.5f, cy - 18.0f,
                       FVec4{1.0f, 1.0f, 1.0f, 1.0f});

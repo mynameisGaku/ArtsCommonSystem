@@ -2,7 +2,7 @@
 // HelloSave — エントリポイント。
 //
 // 構成:
-//   HelloSaveApp.{h,cpp} - Application 派生クラス (Storage で設定 / セーブの永続化)
+//   HelloSaveApp.{h,cpp} - FApplication 派生クラス (Storage で設定 / セーブの永続化)
 //
 // 操作:
 //   Space : クリック数 +1

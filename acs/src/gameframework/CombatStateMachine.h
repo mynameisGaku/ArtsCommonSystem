@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CombatStateMachine (戦闘フェーズ + 脅威レベル)
+// GameFramework Pillar R — FCombatStateMachine (戦闘フェーズ + 脅威レベル)
 //
 // シーン全体の "combat phase" を 6 状態の有限オートマトンで追跡し、敵検出 /
 // 戦闘開始 / 終了 / ボス出現 / ボス撃破 / リトリート / 勝利の主要遷移を一元化
-// する。MusicDirector / AmbientDirector / DamageFeedback と同列の上位ディレクタ
-// で、Game または SceneServices が 1 個保持して毎フレーム Tick する想定。
+// する。FMusicDirector / FAmbientDirector / FDamageFeedback と同列の上位ディレクタ
+// で、FGame または FSceneServices が 1 個保持して毎フレーム Tick する想定。
 //
-// MusicDirector との関係:
-//   ・MusicDirector は「BGM 状態 (Silent/Calm/Tension/Combat/Victory/GameOver)」
-//     を保持する。CombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
+// FMusicDirector との関係:
+//   ・FMusicDirector は「BGM 状態 (Silent/Calm/Tension/Combat/Victory/GameOver)」
+//     を保持する。FCombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
 //     視点 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) で
 //     抽象化されている。
-//   ・上位 (Game / Scene) が「ECombatState → EMusicState」マッピングを定義し、
-//     OnStateChange callback の中で MusicDirector::SetState を呼ぶ運用を想定。
-//     本クラスは AudioEngine 等の下位リソースを直接知らない。
+//   ・上位 (FGame / Scene) が「ECombatState → EMusicState」マッピングを定義し、
+//     OnStateChange callback の中で FMusicDirector::SetState を呼ぶ運用を想定。
+//     本クラスは FAudioEngine 等の下位リソースを直接知らない。
 //
 // 機能:
 //   ・ECombatState (6 種): Peaceful / Alert / Engaged / BossFight / Victory / Retreat
@@ -73,7 +73,7 @@ enum class ECombatState : u8 {
     Retreat   = 5,  // 戦闘から撤退 / 敗北
 };
 
-// 1 敵分の認識情報。CombatStateMachine が内部 TArray で保持する。
+// 1 敵分の認識情報。FCombatStateMachine が内部 TArray で保持する。
 //   enemy_id        : ゲーム側で割り振る一意 ID (FNodeId などをそのまま渡せる)
 //   awareness_level : [0, 1]。1.0 = 完全に検出、0.0 = 未検出。Notify*EnemyDetected
 //                     で 1.0 に上書き、Retreat / Victory で 0.0 に減衰させる。
@@ -89,20 +89,20 @@ struct EnemyAwareness {
 //   from / to は実際に遷移した state (同一値で呼ばれることはない、no-op 抑止)。
 using StateChangeCallback = void(*)(void* user, ECombatState from, ECombatState to) noexcept;
 
-class CombatStateMachine {
+class FCombatStateMachine {
 public:
     // ECombatState 総数 (debug / table sizing 用に公開)。
     static constexpr u32 kStateCount = 6;
     // 想定並列敵数 (= reserve hint)。多めに見ても 16 で十分、それ超えは自動拡張。
     static constexpr u32 kEnemyReserveHint = 16;
 
-    CombatStateMachine() noexcept;
-    ~CombatStateMachine() noexcept = default;
+    FCombatStateMachine() noexcept;
+    ~FCombatStateMachine() noexcept = default;
 
-    CombatStateMachine(const CombatStateMachine&)            = delete;
-    CombatStateMachine& operator=(const CombatStateMachine&) = delete;
-    CombatStateMachine(CombatStateMachine&&)                 = delete;
-    CombatStateMachine& operator=(CombatStateMachine&&)      = delete;
+    FCombatStateMachine(const FCombatStateMachine&)            = delete;
+    FCombatStateMachine& operator=(const FCombatStateMachine&) = delete;
+    FCombatStateMachine(FCombatStateMachine&&)                 = delete;
+    FCombatStateMachine& operator=(FCombatStateMachine&&)      = delete;
 
     // ----- 初期化 / リセット -----
     // Init: state を Peaceful に、awareness を全クリア。コンストラクタ後の
@@ -145,11 +145,11 @@ public:
     // is_engaged=true な EnemyAwareness の数 (= 実際に交戦中の敵数)。
     u32 EngagedEnemyCount() const noexcept;
 
-    // 単純判定: Engaged or BossFight。UI / SaveSlot 抑制 / fast-travel 禁止判定等。
+    // 単純判定: Engaged or BossFight。UI / FSaveSlot 抑制 / fast-travel 禁止判定等。
     bool IsInCombat() const noexcept;
 
     // ----- driver -----
-    // SceneServices / Game から毎フレーム呼ぶ。dt はリアル秒。
+    // FSceneServices / FGame から毎フレーム呼ぶ。dt はリアル秒。
     // 内部で ThreatLevel を _threat_target に向けて指数減衰で追従させる。
     // また Engaged 中は時間ドリフト (最大 +0.3) を _threat_target に加算する。
     void Tick(f32 dt) noexcept;

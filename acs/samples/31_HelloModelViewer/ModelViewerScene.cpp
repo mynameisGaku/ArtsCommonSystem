@@ -32,7 +32,7 @@ void ModelViewerScene::OnEnter() noexcept {
 }
 
 void ModelViewerScene::OnExit() noexcept {
-    // GPU リソースは Application::Quit() → WaitIdle が走った後、Scene デストラクタ
+    // GPU リソースは FApplication::Quit() → WaitIdle が走った後、Scene デストラクタ
     // 前のここで明示解放。CmdList が次フレームを参照し続けないよう、まず WaitIdle
     // で in-flight を落としきってから pipeline / buffer / shader を Release。
     if (GetGame().GetRenderer().Device()) {
@@ -53,7 +53,7 @@ void ModelViewerScene::OnUpdate(f32 dt) noexcept {
         return;
     }
 
-    // dt スパイク防御 (Application 側の大 dt で animation/回転が暴れない)。
+    // dt スパイク防御 (FApplication 側の大 dt で animation/回転が暴れない)。
     if (dt > 0.1f) dt = 0.1f;
 
     // animation 時間を進める (Tick は ImGui を触らない契約のため OnUpdate で OK)。
@@ -63,11 +63,11 @@ void ModelViewerScene::OnUpdate(f32 dt) noexcept {
     // 3D cube の自転 (sample 17 と同形)。
     _angle += dt * 0.8f;
 
-    // MVP 更新: ModelViewerPanel::FCamera() の view/proj を使う。editor 上の
+    // MVP 更新: FModelViewerPanel::FCamera() の view/proj を使う。editor 上の
     // マウスドラッグで orbit / dolly した姿勢がそのまま 3D 像に反映される。
-    // EditorCamera::Tick (smooth target) は OnRender 側の TickAllPanels →
+    // FEditorCamera::Tick (smooth target) は OnRender 側の TickAllPanels →
     // OnFrameBegin から呼ばれる想定。
-    editor_core::EditorCamera& cam = _panels.Viewer().Camera();
+    editor_core::FEditorCamera& cam = _panels.Viewer().Camera();
     const FMat4 view = cam.ViewMatrix();
     const f32  aspect = static_cast<f32>(GetGame().GetRenderer().Swapchain()->Width()) /
                         static_cast<f32>(GetGame().GetRenderer().Swapchain()->Height());
@@ -86,7 +86,7 @@ void ModelViewerScene::OnRender(RenderContext& rc) noexcept {
                    kDefaultModelPath, kLayoutPath, kThemePath);
 
     // (3) workspace 全描画 + asset browser。dt は RenderContext からは取れない
-    //     ので Game の DeltaTime() を使う。
+    //     ので FGame の DeltaTime() を使う。
     _panels.Draw(GetGame().DeltaTime());
 }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — SceneManager (Phase 1 着手)
+// GameFramework Pillar A — FSceneManager (Phase 1 着手)
 //
 // TUniquePtr<Scene> のスタック。top のシーンを毎フレーム update/render する。
 // 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延 → 走査中 (Update/Render
@@ -12,9 +12,9 @@
 //   ・退場 Scene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
 //     buffer。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ
 //   ・Push 時に旧 top の OnPause、Pop 時に新 top の OnResume を呼ぶ
-//   ・OnFixedUpdate を Game の accumulator から呼び込めるよう _FixedUpdate 追加
+//   ・OnFixedUpdate を FGame の accumulator から呼び込めるよう _FixedUpdate 追加
 // Phase 3+ で:
-//   ・フェード遷移 / SceneServices 配線
+//   ・フェード遷移 / FSceneServices 配線
 #pragma once
 
 #include "container/Array.h"
@@ -23,16 +23,16 @@
 
 namespace acs::game {
 
-class Game;
+class FGame;
 class RenderContext;
 
-class SceneManager {
+class FSceneManager {
 public:
-    SceneManager() noexcept = default;
-    ~SceneManager() noexcept = default;
+    FSceneManager() noexcept = default;
+    ~FSceneManager() noexcept = default;
 
-    SceneManager(const SceneManager&)            = delete;
-    SceneManager& operator=(const SceneManager&) = delete;
+    FSceneManager(const FSceneManager&)            = delete;
+    FSceneManager& operator=(const FSceneManager&) = delete;
 
     // ----- 遷移要求 (即時適用しない、次フレーム頭で _ApplyPending) -----
 
@@ -51,17 +51,17 @@ public:
     u32     Depth() const noexcept;
     bool    IsEmpty() const noexcept { return _stack.IsEmpty(); }
 
-    // ----- Game から呼ぶ駆動 API -----
+    // ----- FGame から呼ぶ駆動 API -----
 
     // フレーム頭で pending 遷移を適用する。退場 Scene は GPU が直前フレームで
     // 参照中のリソースを破棄しないよう ring buffer で 3 フレーム保持される
     // (= フレームインフライト 2 + 1)。
-    void _ApplyPending(Game& game) noexcept;
+    void _ApplyPending(FGame& game) noexcept;
 
     // top のシーンに variable-rate dt を流す。
     void _Update(f32 dt) noexcept;
 
-    // top のシーンに fixed_dt を流す (Game の accumulator から複数回 / フレーム
+    // top のシーンに fixed_dt を流す (FGame の accumulator から複数回 / フレーム
     // 呼ばれる可能性あり)。
     void _FixedUpdate(f32 fixed_dt) noexcept;
 
@@ -81,7 +81,7 @@ private:
     enum class Op : u8 { None, Change, Push, Pop };
 
     // pause_current: Push 時に旧 top に OnPause を呼ぶか (Change は false、Push は true)。
-    void DoPushInternal(Game& game, TUniquePtr<Scene> next, bool pause_current) noexcept;
+    void DoPushInternal(FGame& game, TUniquePtr<Scene> next, bool pause_current) noexcept;
     // resume_new: Pop 後に新 top に OnResume を呼ぶか (Change は false、Pop は true)。
     void DoPopInternal(bool resume_new) noexcept;
 

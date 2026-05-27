@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar X — OpenXrBridge (XR / AR / MR seam)
+// GameFramework Pillar X — FOpenXrBridge (XR / AR / MR seam)
 //
 // 役割:
 //   Pillar X (XR / AR / MR + 新興プラットフォーム) のうち、OpenXR ランタイム及び
@@ -49,7 +49,7 @@
 //     を返し、上位はその時点で fallback パスへ。
 //   ・**非コピー / 非ムーブ**: singleton 運用前提の seam。具象 backend も
 //     instance を 1 つだけ持つことを想定。
-//   ・**ml_err::kSub_NotImplemented と subcode 番号を揃える**: MlRuntime.h と
+//   ・**ml_err::kSub_NotImplemented と subcode 番号を揃える**: FMlRuntime.h と
 //     同じく `Generic + subcode 99` を NotImplemented の規約として共有し、
 //     上位は category 横断で「未実装エラー」を一律で扱える。
 //
@@ -218,15 +218,15 @@ private:
 // global stub アクセサ
 // -----------------------------------------------------------------------------
 // process 内で 1 個だけ存在する静的 stub への参照を返す。Phase X-1 では
-// `Game` / `Scene` 側からの XR 問い合わせはすべてこの 1 つを通る。
+// `FGame` / `Scene` 側からの XR 問い合わせはすべてこの 1 つを通る。
 // Phase X-2 以降、具象 backend が選ばれるとアクセサは差し替えられる。
 //
 // ※ static 単一インスタンス = process lifetime。スレッド安全性は呼び出し側責務。
 // =============================================================================
 IOpenXrBridge& GetXrStub() noexcept;
 
-// MlRuntime.h と subcode 番号を揃え、上位は category 横断で「未実装」を
-// 一律で扱えるようにする (SaveSlot.h と同じく `Generic + subcode 99` 規約)。
+// FMlRuntime.h と subcode 番号を揃え、上位は category 横断で「未実装」を
+// 一律で扱えるようにする (FSaveSlot.h と同じく `Generic + subcode 99` 規約)。
 namespace xr_err {
     // 「未実装」: stub だから / Phase X-2 まで backend 未統合だから返される。
     inline constexpr u16 kSub_NotImplemented = 99;

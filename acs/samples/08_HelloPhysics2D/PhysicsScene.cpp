@@ -73,7 +73,7 @@ void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
     }
 }
 
-void PhysicsScene::Render(SpriteBatch& batch,
+void PhysicsScene::Render(FSpriteBatch& batch,
                           Font& font,
                           IRhiTexture& ball_tex,
                           f32 fps) noexcept {
@@ -84,7 +84,7 @@ void PhysicsScene::Render(SpriteBatch& batch,
                    FVec4{b.r, b.g, b.b, 0.95f});
     }
 
-    // フォント未ロード時は HUD を skip (Sample::TryLoadDefaultUIFont が失敗するケース)。
+    // フォント未ロード時は HUD を skip (FSample::TryLoadDefaultUIFont が失敗するケース)。
     if (font.AtlasTexture()) {
         char buf[128];
         std::snprintf(buf, sizeof(buf),

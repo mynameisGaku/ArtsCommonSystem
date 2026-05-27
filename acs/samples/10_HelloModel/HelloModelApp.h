@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloModel — Application 派生クラス。
-// StandardShader / 非同期 mesh ロードを所有し、ModelScene に毎フレームの
+// HelloModel — FApplication 派生クラス。
+// FStandardShader / 非同期 mesh ロードを所有し、ModelScene に毎フレームの
 // update / render を委譲する。
 #pragma once
 
@@ -13,7 +13,7 @@
 
 namespace hellomodel {
 
-class HelloModelApp : public acs::Application {
+class HelloModelApp : public acs::FApplication {
 public:
     void OnStart()                noexcept override;
     void OnUpdate(acs::f32 dt)    noexcept override;
@@ -21,8 +21,8 @@ public:
     void OnShutdown()             noexcept override;
 
 private:
-    acs::StandardShader _shader;
-    acs::AssetFuture    _async_mesh;
+    acs::FStandardShader _shader;
+    acs::FAssetFuture    _async_mesh;
     bool                _async_loaded = false;
     ModelScene          _scene;
 };

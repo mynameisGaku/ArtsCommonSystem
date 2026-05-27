@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — Scene 基底 (Phase 1 着手)
 //
-// 1 つの画面/状態を 1 つの Scene サブクラスで書く。Game がスタック上で
+// 1 つの画面/状態を 1 つの Scene サブクラスで書く。FGame がスタック上で
 // 切り替え・更新・描画する。Scene の override は全て `noexcept`。
 //
 // 使い方:
@@ -17,7 +17,7 @@
 // **次フレーム頭**で適用される (走査中の構造変更を避ける、1 フレーム 1 遷移)。
 //
 // v3 設計書: docs/GameFramework.md §3「Pillar A」。本ヘッダは Phase 1 の
-// 最小骨格 = lifecycle hook + Game/SceneManager 参照のみ。SceneServices /
+// 最小骨格 = lifecycle hook + FGame/FSceneManager 参照のみ。FSceneServices /
 // AppState / GPU 遅延削除 / フェード遷移は次フェーズで肉付け。
 #pragma once
 
@@ -33,8 +33,8 @@ struct Event;
 
 namespace game {
 
-class Game;
-class SceneManager;
+class FGame;
+class FSceneManager;
 class RenderContext;
 
 class Scene {
@@ -47,7 +47,7 @@ public:
 
     // ----- Lifecycle hooks (override what you need。全て noexcept 必須) -----
 
-    // シーンがスタックの top に来た直後に 1 度だけ呼ばれる (Game が新規 push
+    // シーンがスタックの top に来た直後に 1 度だけ呼ばれる (FGame が新規 push
     // または既存 pop で復帰したときの両方)。アセット読み込みなどはここで。
     virtual void OnEnter() noexcept {}
 
@@ -62,15 +62,15 @@ public:
     // 上のシーンが Pop されて自分が top に戻った直後に呼ばれる。Phase 1 未実装。
     virtual void OnResume() noexcept {}
 
-    // 毎フレーム 1 回呼ばれる。dt はスケール後 (Game::SetTimeScale が
+    // 毎フレーム 1 回呼ばれる。dt はスケール後 (FGame::SetTimeScale が
     // 反映済)、単位は秒。Phase 1 では fixed update / accumulator 無し。
     virtual void OnUpdate(f32 /*dt*/) noexcept {}
 
-    // 固定タイムステップ更新。Phase 1 では未呼び出し (Game がアキュムレータを
+    // 固定タイムステップ更新。Phase 1 では未呼び出し (FGame がアキュムレータを
     // 持つ Phase 2 から)。物理など固定刻みの更新を入れたい場合のフック。
     virtual void OnFixedUpdate(f32 /*fixed_dt*/) noexcept {}
 
-    // 描画。RenderContext は Scene 全体で共有される SpriteBatch / Font /
+    // 描画。RenderContext は Scene 全体で共有される FSpriteBatch / Font /
     // 現フレームの IRhiCommandList* を持つ。
     virtual void OnRender(RenderContext& /*rc*/) noexcept {}
 
@@ -82,33 +82,33 @@ public:
     // (= サービス無し、scenes が直接メンバーで service 持つ古いパターン互換)。
     virtual ESvc WantedServices() const noexcept { return ESvc::None; }
 
-    // SceneManager が attach 済の SceneServices。WantedServices が None で
+    // FSceneManager が attach 済の FSceneServices。WantedServices が None で
     // attach されていない場合は ACS_ASSERT で停止 (= 使う気がないなら呼ばない)。
-    SceneServices& Services() const noexcept {
+    FSceneServices& Services() const noexcept {
         ACS_ASSERTF(_services.Get() != nullptr,
                     "Scene::Services() called but WantedServices() returned None (or attach failed)");
         return *_services;
     }
     bool HasServices() const noexcept { return _services.Get() != nullptr; }
 
-    // ----- Context accessors (Game が _SetContext で配線) -----
-    Game&         GetGame() const noexcept { return *_game; }
-    SceneManager& Scenes()  const noexcept { return *_scenes; }
+    // ----- Context accessors (FGame が _SetContext で配線) -----
+    FGame&         GetGame() const noexcept { return *_game; }
+    FSceneManager& Scenes()  const noexcept { return *_scenes; }
 
-    // Game/SceneManager が attach する際に呼ぶ。利用者は触らない。
-    void _SetContext(Game* g, SceneManager* sm) noexcept {
+    // FGame/FSceneManager が attach する際に呼ぶ。利用者は触らない。
+    void _SetContext(FGame* g, FSceneManager* sm) noexcept {
         _game   = g;
         _scenes = sm;
     }
-    void _AttachServices(TUniquePtr<SceneServices> svc) noexcept {
+    void _AttachServices(TUniquePtr<FSceneServices> svc) noexcept {
         _services = Move(svc);
     }
-    SceneServices* _ServicesOrNull() const noexcept { return _services.Get(); }
+    FSceneServices* _ServicesOrNull() const noexcept { return _services.Get(); }
 
 private:
-    Game*                    _game     = nullptr;
-    SceneManager*            _scenes   = nullptr;
-    TUniquePtr<SceneServices> _services;
+    FGame*                    _game     = nullptr;
+    FSceneManager*            _scenes   = nullptr;
+    TUniquePtr<FSceneServices> _services;
 };
 
 } // namespace game

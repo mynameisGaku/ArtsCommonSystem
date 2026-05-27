@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLevelEditor — Game 派生のアプリケーションクラス。
-// ImGui lifecycle を Game に持たせる薄いラッパ。
+// HelloLevelEditor — FGame 派生のアプリケーションクラス。
+// ImGui lifecycle を FGame に持たせる薄いラッパ。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -8,7 +8,7 @@
 
 namespace hellole {
 
-class LevelEditorApp : public acs::game::Game {
+class LevelEditorApp : public acs::game::FGame {
 public:
     void OnStart() noexcept override;
     void OnRender() noexcept override;

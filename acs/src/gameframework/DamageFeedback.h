@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — DamageFeedback (Polish & GameFeel)
+// GameFramework Pillar R — FDamageFeedback (Polish & GameFeel)
 //
 // プレイヤーがダメージを受けたときの視覚フィードバックを集中管理する
 // state holder。FPS / アクション系で必須の 3 要素を一箇所で扱う:
@@ -8,15 +8,15 @@
 //   3) death cam (致命傷 → killer をズームアウトで映す演出)
 //
 // 設計選択 (Phase 2 = Pillar R Phase 2):
-//   ・**DamageFeedback 自身は描画しない / カメラを動かさない**:
-//      EffectSystem と同じ「副作用ゼロ / 純粋 state machine」方針。
+//   ・**FDamageFeedback 自身は描画しない / カメラを動かさない**:
+//      FEffectSystem と同じ「副作用ゼロ / 純粋 state machine」方針。
 //      ・赤エッジ → 描画パイプ末尾の overlay が ScreenEdgeRedIntensity() を
 //                  vignette mask に掛けて加算 blend。
 //      ・方向矢印 → UI 層が HasDirectionalIndicator() / DirectionalIndicator()
 //                   / DirectionalIndicatorAlpha() を pull して描く。
 //      ・death cam → カメラ制御コードが IsDeathCamActive() / DeathCamTarget()
 //                    / DeathCamProgress() を見て自前で zoom + LookAt する。
-//      これにより GameFramework から Renderer / FCamera への依存を切る。
+//      これにより GameFramework から FRenderer / FCamera への依存を切る。
 //   ・**赤エッジは累積 → 指数 decay**: TakeDamage で `intensity += amount * 0.1`
 //      を加算 [0,1] clamp、Tick で `-= 2.0 * dt` の線形 decay (~0.5 秒で消える)。
 //      累積式にすることで「連続被弾で画面が真っ赤に染まる」自然な挙動が出る。
@@ -35,12 +35,12 @@
 //      赤フェード残骸 / 矢印 / death cam を一括クリア。
 //
 // 非コピー・非ムーブ:
-//   Game / Scene のメンバとして 1 インスタンスだけ存在する想定。state が
+//   FGame / Scene のメンバとして 1 インスタンスだけ存在する想定。state が
 //   重複すると death cam の trigger 整合性が壊れるので機械的に禁止。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       DamageFeedback _dmg;
+//       FDamageFeedback _dmg;
 //       void OnPlayerHit(f32 amount, FVec2 attacker_pos) noexcept {
 //           const FVec2 to_player = player.Position() - attacker_pos;
 //           _dmg.TakeDamage(amount, to_player);
@@ -55,7 +55,7 @@
 //
 // 範囲外 (Phase 3+):
 //   ・血しぶき・画面割れ等の SFX 連携
-//   ・low HP 時の心拍音 / 視野狭窄 (AudioDirector / 別 overlay と連携)
+//   ・low HP 時の心拍音 / 視野狭窄 (FAudioDirector / 別 overlay と連携)
 //   ・death cam の cinematic curve (今は線形)
 #pragma once
 
@@ -65,15 +65,15 @@
 
 namespace acs::game {
 
-class DamageFeedback {
+class FDamageFeedback {
 public:
-    DamageFeedback() noexcept = default;
-    ~DamageFeedback() noexcept = default;
+    FDamageFeedback() noexcept = default;
+    ~FDamageFeedback() noexcept = default;
 
-    DamageFeedback(const DamageFeedback&)            = delete;
-    DamageFeedback& operator=(const DamageFeedback&) = delete;
-    DamageFeedback(DamageFeedback&&)                 = delete;
-    DamageFeedback& operator=(DamageFeedback&&)      = delete;
+    FDamageFeedback(const FDamageFeedback&)            = delete;
+    FDamageFeedback& operator=(const FDamageFeedback&) = delete;
+    FDamageFeedback(FDamageFeedback&&)                 = delete;
+    FDamageFeedback& operator=(FDamageFeedback&&)      = delete;
 
     // ----- ダメージ受領 -----
     // amount           : 受けたダメージ量 (任意スケール、0.1 倍で赤エッジに加算)
@@ -137,7 +137,7 @@ private:
     FVec3 _killer_pos       = FVec3{0.0f, 0.0f, 0.0f};
 
     // ---- デバッグ用 / 将来拡張 (low HP 演出フック等) ----
-    // 累積ダメージ総量。Reset で 0 に戻る。AmbientDirector などが
+    // 累積ダメージ総量。Reset で 0 に戻る。FAmbientDirector などが
     // 「最近のダメージ密度」を読みたい時のフック。
     f32 _recent_damage_total = 0.0f;
 };

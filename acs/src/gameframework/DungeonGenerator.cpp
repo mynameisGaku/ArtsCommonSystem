@@ -51,7 +51,7 @@ inline u32 PartitionH(const BspNode& n) noexcept { return n.y1 - n.y0 + 1u; }
 // 公開 API
 // ---------------------------------------------------------------------------
 
-void DungeonGenerator::Clear() noexcept {
+void FDungeonGenerator::Clear() noexcept {
     _grid.Clear();
     _rooms.Clear();
     _width  = 0;
@@ -59,46 +59,46 @@ void DungeonGenerator::Clear() noexcept {
     _seed   = 0;
 }
 
-ETileKind DungeonGenerator::At(u32 x, u32 y) const noexcept {
+ETileKind FDungeonGenerator::At(u32 x, u32 y) const noexcept {
     if (x >= _width || y >= _height) return ETileKind::Wall;
     return _grid[static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x)];
 }
 
-void DungeonGenerator::SetTile(u32 x, u32 y, ETileKind kind) noexcept {
+void FDungeonGenerator::SetTile(u32 x, u32 y, ETileKind kind) noexcept {
     if (x >= _width || y >= _height) return;
     _grid[static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x)] = kind;
 }
 
-const Room* DungeonGenerator::GetRoom(u32 index) const noexcept {
+const Room* FDungeonGenerator::GetRoom(u32 index) const noexcept {
     if (index >= _rooms.Size()) return nullptr;
     return &_rooms[index];
 }
 
-const Room* DungeonGenerator::AllRooms(u32& out_count) const noexcept {
+const Room* FDungeonGenerator::AllRooms(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_rooms.Size());
     if (out_count == 0u) return nullptr;
     return _rooms.Data();
 }
 
-void DungeonGenerator::GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) const noexcept {
+void FDungeonGenerator::GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) const noexcept {
     if (room_index >= _rooms.Size()) { out_x = 0; out_y = 0; return; }
     const Room& r = _rooms[room_index];
     out_x = r.x + r.w / 2u;
     out_y = r.y + r.h / 2u;
 }
 
-bool DungeonGenerator::IsWalkable(u32 x, u32 y) const noexcept {
+bool FDungeonGenerator::IsWalkable(u32 x, u32 y) const noexcept {
     const ETileKind k = At(x, y);
     return k == ETileKind::Floor || k == ETileKind::Door
         || k == ETileKind::Corridor || k == ETileKind::Stairs;
 }
 
-u32 DungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
+u32 FDungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
     out_x = 0; out_y = 0;
     if (_width == 0u || _height == 0u) return 0u;
-    // 仕様: 試行回数 100。const メソッドなので一時 Random をローカルに作る
+    // 仕様: 試行回数 100。const メソッドなので一時 FRandom をローカルに作る
     // (seed は最後の Generate と FindRandomFloor 呼び出し回数で軽く撹拌)。
-    Random r(static_cast<u64>(_seed) ^ 0xA5A5A5A5A5A5A5A5ULL);
+    FRandom r(static_cast<u64>(_seed) ^ 0xA5A5A5A5A5A5A5A5ULL);
     for (u32 attempt = 1; attempt <= 100u; ++attempt) {
         const u32 x = r.NextU32() % _width;
         const u32 y = r.NextU32() % _height;
@@ -113,7 +113,7 @@ u32 DungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
 // ---------------------------------------------------------------------------
 // 生成本体
 // ---------------------------------------------------------------------------
-void DungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
+void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     // ---- 1. 設定 sanitize ------------------------------------------------------
     // 仕様: 不正値はサイレントに安全な既定にフォールバック。
     u32 width  = config.width  != 0u ? config.width  : 64u;
@@ -145,7 +145,7 @@ void DungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     _rooms.Clear();
     _seed = config.seed;
 
-    Random rng(static_cast<u64>(config.seed));
+    FRandom rng(static_cast<u64>(config.seed));
 
     // ---- 3. BSP 分割 -----------------------------------------------------------
     // 全 partition を TArray に積み、index で親子関係を保持する。

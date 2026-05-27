@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — Node2D (Phase 5)
+// GameFramework Pillar B — FNode2D (Phase 5)
 //
 // シーンの中身を表す唯一のノードクラス (2D 専用、抽象 Node 基底は作らない)。
 // 親子ツリーで階層的な transform を持ち、各ノードが OnSpawn/OnUpdate/OnDraw/
 // OnDespawn を override してロジック・描画を書く。
 //
 // 設計選択 (Phase 5 = Pillar B Phase 1):
-//   ・**non-copy / non-move**: `TUniquePtr<Node2D>` で所有、`Node2D*` で参照。
+//   ・**non-copy / non-move**: `TUniquePtr<FNode2D>` で所有、`FNode2D*` で参照。
 //     `AddChild(MakeUnique<MyNode>(args))` が標準パターン。
 //   ・**lifecycle**: `AddChild` 即時 `OnSpawn` (Phase 1 簡略化)、`Destroy()` で
 //     `_pending_destroy` をマーク、フレーム境界の `ResolveStructuralChanges()`
@@ -18,7 +18,7 @@
 //     Destroy は遅延 reap なので走査中の即時除去はしない。
 //
 // 範囲外 (Phase 5+ で):
-//   ・Component2D (Sprite/FAnimation/Collider など)
+//   ・FComponent2D (Sprite/FAnimation/Collider など)
 //   ・dirty propagation + cached world transform (パフォーマンス最適化)
 //   ・Reparent (構造変更の 3 種目)
 //   ・FNodeId (stale 参照検出)
@@ -37,21 +37,21 @@ namespace acs::game {
 
 class RenderContext;
 
-class Node2D {
+class FNode2D {
 public:
-    Node2D() noexcept = default;
-    virtual ~Node2D() noexcept = default;
+    FNode2D() noexcept = default;
+    virtual ~FNode2D() noexcept = default;
 
-    Node2D(const Node2D&)            = delete;
-    Node2D& operator=(const Node2D&) = delete;
-    Node2D(Node2D&&)                 = delete;
-    Node2D& operator=(Node2D&&)      = delete;
+    FNode2D(const FNode2D&)            = delete;
+    FNode2D& operator=(const FNode2D&) = delete;
+    FNode2D(FNode2D&&)                 = delete;
+    FNode2D& operator=(FNode2D&&)      = delete;
 
     // ----- Lifecycle hooks (override only what you need、全 noexcept 必須) -----
     virtual void OnSpawn()                noexcept {}
     virtual void OnUpdate(f32 /*dt*/)     noexcept {}
     // 固定刻み update (物理・決定論ロジック)。同フレームで 0..max_fixed_steps 回
-    // 呼ばれる。Game::SetFixedTimeStep が 0 のとき (= 固定 update 無効) は呼ばれない。
+    // 呼ばれる。FGame::SetFixedTimeStep が 0 のとき (= 固定 update 無効) は呼ばれない。
     virtual void OnFixedUpdate(f32 /*fixed_dt*/) noexcept {}
     virtual void OnDraw(RenderContext& /*rc*/) noexcept {}
     virtual void OnDespawn()              noexcept {}
@@ -70,15 +70,15 @@ public:
     bool IsVisible() const noexcept { return _visible; }
 
     // ----- Tree -----
-    Node2D* Parent() const noexcept { return _parent; }
+    FNode2D* Parent() const noexcept { return _parent; }
     u32     ChildCount() const noexcept { return static_cast<u32>(_children.Size()); }
-    Node2D* Child(u32 i) const noexcept {
+    FNode2D* Child(u32 i) const noexcept {
         return i < _children.Size() ? _children[i].Get() : nullptr;
     }
 
     // 子を追加 (所有権を奪う)。Spawn を即時に呼ぶ (Phase 1 簡略化)。
     // 戻り値は追加した子への参照 (チェイン記述用)。
-    Node2D& AddChild(TUniquePtr<Node2D> child) noexcept;
+    FNode2D& AddChild(TUniquePtr<FNode2D> child) noexcept;
 
     // 自身を「破棄予定」にマーク。実際の破棄は次の ResolveStructuralChanges で
     // 起こる (OnDespawn 呼出 → TArray から除去 → デストラクタで memory release)。
@@ -90,7 +90,7 @@ public:
     // 場合も不正 (cycle 検出、警告 + 無視)。ResolveStructuralChanges 内で
     // _children TArray 間を Move し、parent ポインタを書き換える。
     // OnSpawn/OnDespawn は呼ばれない (= 既に生きているノードの移動)。
-    void Reparent(Node2D& new_parent) noexcept;
+    void Reparent(FNode2D& new_parent) noexcept;
     bool IsPendingReparent() const noexcept { return _pending_reparent_target != nullptr; }
 
     // ----- FNodeId (Phase 3 = Pillar B Phase 3) -----
@@ -100,13 +100,13 @@ public:
     void   _SetId(FNodeId id) noexcept { _id = id; }
 
     // ----- Components (Phase 7、Pillar B Phase 2) -----
-    // T の Component2D を構築・attach し、参照を返す。OnAttach は即時呼出。
+    // T の FComponent2D を構築・attach し、参照を返す。OnAttach は即時呼出。
     template<typename T, typename... Args>
     T& AddComponent(Args&&... args) noexcept {
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
         ref->_SetOwner(this);
-        _components.PushBack(TUniquePtr<Component2D>(comp.Release(), comp.GetAllocator()));
+        _components.PushBack(TUniquePtr<FComponent2D>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
         return *ref;
     }
@@ -168,14 +168,14 @@ public:
 
 private:
     // Reparent 操作で cycle が生じないか (= target が自分の子孫でないか) を確認。
-    bool IsAncestorOf(const Node2D* candidate) const noexcept;
+    bool IsAncestorOf(const FNode2D* candidate) const noexcept;
 
     FTransform2D _local{};
-    Node2D*     _parent          = nullptr;
-    TArray<TUniquePtr<Node2D>>      _children;
-    TArray<TUniquePtr<Component2D>> _components;
+    FNode2D*     _parent          = nullptr;
+    TArray<TUniquePtr<FNode2D>>      _children;
+    TArray<TUniquePtr<FComponent2D>> _components;
     FNodeId      _id{};                        // Phase 3: generational handle (default = invalid)
-    Node2D*     _pending_reparent_target = nullptr;  // 非 null なら次の resolve で移動
+    FNode2D*     _pending_reparent_target = nullptr;  // 非 null なら次の resolve で移動
     bool        _enabled         = true;
     bool        _visible         = true;
     bool        _spawned         = false;

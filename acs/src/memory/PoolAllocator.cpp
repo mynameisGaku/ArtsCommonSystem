@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — PoolAllocator 実装
+// ACS Memory — FPoolAllocator 実装
 // -----------------------------------------------------------------------------
 // 64-bit パック値: 上位 17 bit に ABA タグ、下位 47 bit にポインタ。
 // x64 ユーザ空間ポインタが 47 bit であることを利用して、64bit CAS 1 回で
@@ -19,7 +19,7 @@ constexpr u64 kTagMask = ~kPtrMask;
 constexpr u32 kTagShift = 47;
 
 // (ptr, tag) を 1 ワードに詰める
-ACS_FORCEINLINE u64 Pack(PoolAllocator* /*self*/, void* p, u64 tag) noexcept {
+ACS_FORCEINLINE u64 Pack(FPoolAllocator* /*self*/, void* p, u64 tag) noexcept {
     return (reinterpret_cast<u64>(p) & kPtrMask) | ((tag & ((1ull << 17) - 1)) << kTagShift);
 }
 ACS_FORCEINLINE void* UnpackPtr(u64 v) noexcept {
@@ -30,8 +30,8 @@ ACS_FORCEINLINE u64 UnpackTag(u64 v) noexcept {
 }
 } // namespace
 
-PoolAllocator::PoolAllocator(usize block_size, usize block_count,
-                             usize alignment, Allocator* backing) noexcept
+FPoolAllocator::FPoolAllocator(usize block_size, usize block_count,
+                             usize alignment, FAllocator* backing) noexcept
     : _block_size(static_cast<u64>(block_size))
     , _block_count(static_cast<u64>(block_count))
     , _alignment(static_cast<u64>(alignment))
@@ -61,12 +61,12 @@ PoolAllocator::PoolAllocator(usize block_size, usize block_count,
     _head_packed.Store(packed, EMemoryOrder::Release);
 }
 
-PoolAllocator::~PoolAllocator() noexcept {
+FPoolAllocator::~FPoolAllocator() noexcept {
     if (_storage) _backing->Free(_storage);
 }
 
 // 確保（Treiber スタックの pop）
-void* PoolAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
+void* FPoolAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     if (size == 0) return nullptr;
     if (size > _block_size) return nullptr;
     if (alignment > _alignment) return nullptr;
@@ -89,7 +89,7 @@ void* PoolAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noex
 }
 
 // 解放（Treiber スタックの push）
-void PoolAllocator::Free(void* ptr) noexcept {
+void FPoolAllocator::Free(void* ptr) noexcept {
     if (!ptr) return;
     Node* n = static_cast<Node*>(ptr);
     while (true) {

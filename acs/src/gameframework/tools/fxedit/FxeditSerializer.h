@@ -4,7 +4,7 @@
 // 役割:
 //   ParticleEditor (in-engine particle authoring tool) が編集中の emitter 群を
 //   人間可読 / git diff 可能なテキスト形式で保存・復元するためのシリアライザ。
-//   バイナリ形式の `SaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
+//   バイナリ形式の `FSaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
 //   そのまま乗せられる** ことを最優先する (= UE5 の `.uasset` ではなく Unity の
 //   `.meta` 風のフィロソフィー)。
 //
@@ -16,13 +16,13 @@
 //   defs[0].color_end         = {1.0f, 0.2f, 0.0f};
 //   const char* names[]       = {"fire", "smoke"};
 //
-//   acs::game::fxedit::FxeditSerializer::Save(L"data/effects/fireball.fxedit",
+//   acs::game::fxedit::FFxeditSerializer::Save(L"data/effects/fireball.fxedit",
 //                                              defs, names, 2);
 //
 //   // ロード側:
 //   acs::game::ParticleEmitterDef loaded[16] = {};
 //   char                          name_buf[16 * 32] = {};
-//   auto r = acs::game::fxedit::FxeditSerializer::Load(
+//   auto r = acs::game::fxedit::FFxeditSerializer::Load(
 //       L"data/effects/fireball.fxedit", loaded, name_buf, sizeof(name_buf), 16);
 //   if (r.IsOk()) { u32 n = r.Value(); /* n 個ロード成功 */ }
 //
@@ -82,7 +82,7 @@
 // 注意:
 //   ・本クラスは ParticleEmitterDef の型を不完全宣言 (forward decl) のみで
 //     参照する (.h では `struct ParticleEmitterDef;`)。実体は .cpp 側で
-//     `ParticleEffectSystem.h` を include する。これにより本ヘッダのインクルードコストを
+//     `FParticleEffectSystem.h` を include する。これにより本ヘッダのインクルードコストを
 //     最小に保つ。
 #pragma once
 
@@ -91,26 +91,26 @@
 
 namespace acs::game {
 
-// 前方宣言: 実体は `gameframework/ParticleEffectSystem.h`。
+// 前方宣言: 実体は `gameframework/FParticleEffectSystem.h`。
 // .cpp 側で完全型を include する。
 struct ParticleEmitterDef;
 
 namespace fxedit {
 
 // =============================================================================
-// FxeditSerializer — `.fxedit` テキストファイルの save/load
+// FFxeditSerializer — `.fxedit` テキストファイルの save/load
 // -----------------------------------------------------------------------------
 // すべてのメンバは static。state を持たない utility class なので、コンストラクタ
 // / コピー / ムーブを禁止しておく (誤って実体化されるのを防ぐ)。
 // =============================================================================
-class FxeditSerializer {
+class FFxeditSerializer {
 public:
-    FxeditSerializer()                                   = delete;
-    ~FxeditSerializer()                                  = delete;
-    FxeditSerializer(const FxeditSerializer&)            = delete;
-    FxeditSerializer& operator=(const FxeditSerializer&) = delete;
-    FxeditSerializer(FxeditSerializer&&)                 = delete;
-    FxeditSerializer& operator=(FxeditSerializer&&)      = delete;
+    FFxeditSerializer()                                   = delete;
+    ~FFxeditSerializer()                                  = delete;
+    FFxeditSerializer(const FFxeditSerializer&)            = delete;
+    FFxeditSerializer& operator=(const FFxeditSerializer&) = delete;
+    FFxeditSerializer(FFxeditSerializer&&)                 = delete;
+    FFxeditSerializer& operator=(FFxeditSerializer&&)      = delete;
 
     // ---- file format 定数 -----------------------------------------------
     // 先頭行に必ず付ける magic 文字列 + 現在のフォーマットバージョン。
@@ -130,7 +130,7 @@ public:
     static constexpr usize       kMaxEmitterName     = 31;
 
     // ---- FErrorCode subcode 定義 (ErrCategory::IO) -----------------------
-    // SaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
+    // FSaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
     enum SubCode : u16 {
         kSub_OK                = 0,
         kSub_NullArgs          = 700,  // file_path / defs / names が nullptr

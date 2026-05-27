@@ -9,7 +9,7 @@ namespace {
 
 // シンプルな fullscreen blit シェーダ。SV_VertexID で 3 頂点の fullscreen 三角形を
 // 生成し、source texture を素 sample して出力する。頂点バッファ無しで Draw(3) で
-// 描画できる (SSR / SSGI / PostProcess と同じパターン)。
+// 描画できる (SSR / SSGI / FPostProcess と同じパターン)。
 const char* kBlitHLSL = R"(
 Texture2D    src : register(t0);
 SamplerState src_sampler : register(s0);
@@ -32,12 +32,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
-TResult<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
+TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kBlitHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "Blit.VS";
+    vs_d.debug_name  = "FBlit.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     _vs = Move(vs_r.Value());
@@ -46,7 +46,7 @@ TResult<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kBlitHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "Blit.PS";
+    ps_d.debug_name  = "FBlit.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     _ps = Move(ps_r.Value());
@@ -76,13 +76,13 @@ TResult<void> Blit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     return Ok();
 }
 
-void Blit::Shutdown() noexcept {
+void FBlit::Shutdown() noexcept {
     _pipeline.Reset();
     _ps.Reset();
     _vs.Reset();
 }
 
-void Blit::Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept {
+void FBlit::Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept {
     if (!_pipeline) return;
     // 全 pixel が src で上書きされるので clear 不要 → load 版で開始する。
     // (本コミットで追加した BeginRenderToTextureLoad の自然な利用例)。

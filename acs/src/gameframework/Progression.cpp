@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — Progression 実装
+// GameFramework 完成度システム v7 — FProgression 実装
 //
-// AchievementManager / Entitlement と同じ「Def + State の並行 TArray」pattern。
-// id 比較は STL <cstring> も避けて per-byte ループを自前で書く (Entitlement
-// / Settings と同じ StrEq pattern)。
+// FAchievementManager / FEntitlement と同じ「Def + State の並行 TArray」pattern。
+// id 比較は STL <cstring> も避けて per-byte ループを自前で書く (FEntitlement
+// / FSettings と同じ StrEq pattern)。
 //
 // レベル計算 (floor(log2(xp + 1))) は浮動小数 log2 を使わずに、上位ビット位置
 // を整数ループで走査する形で実装する。プラットフォーム固有の intrinsic
@@ -18,7 +18,7 @@ namespace acs::game {
 namespace {
 
 // const char* の per-byte 比較。nullptr 安全。
-// Entitlement.cpp / Settings.cpp と同じ実装 (STL <cstring> 禁止のため)。
+// FEntitlement.cpp / FSettings.cpp と同じ実装 (STL <cstring> 禁止のため)。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -46,7 +46,7 @@ u32 Floor_Log2_NonZero(u32 v) noexcept {
 // ============================================================================
 // 内部検索ヘルパ
 // ============================================================================
-isize Progression::FindIndex(const char* id) const noexcept {
+isize FProgression::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return -1;
     const usize n = _defs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -58,10 +58,10 @@ isize Progression::FindIndex(const char* id) const noexcept {
 // ============================================================================
 // 定義登録
 // ============================================================================
-void Progression::RegisterMilestone(const MilestoneDef& def) noexcept {
+void FProgression::RegisterMilestone(const MilestoneDef& def) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (アセット欠損時等の保険)。
     if (def.id == nullptr) return;
-    // 同 id の 2 重登録は no-op (AchievementManager / ModRegistry と同じ防御)。
+    // 同 id の 2 重登録は no-op (FAchievementManager / FModRegistry と同じ防御)。
     if (FindIndex(def.id) >= 0) return;
 
     _defs.PushBack(def);
@@ -78,7 +78,7 @@ void Progression::RegisterMilestone(const MilestoneDef& def) noexcept {
 // ============================================================================
 // XP 操作 + Milestone 達成判定
 // ============================================================================
-void Progression::AwardXp(u32 amount) noexcept {
+void FProgression::AwardXp(u32 amount) noexcept {
     if (amount == 0) return;
 
     // u32 オーバーフロー防御: amount を加算しても u32 範囲を超えそうなら
@@ -121,11 +121,11 @@ void Progression::AwardXp(u32 amount) noexcept {
 // ============================================================================
 // 照会
 // ============================================================================
-u32 Progression::CurrentXp() const noexcept {
+u32 FProgression::CurrentXp() const noexcept {
     return _xp;
 }
 
-u32 Progression::CurrentLevel() const noexcept {
+u32 FProgression::CurrentLevel() const noexcept {
     // floor(log2(xp + 1))。
     //   xp = 0   → log2(1)  = 0
     //   xp = 1   → log2(2)  = 1
@@ -142,18 +142,18 @@ u32 Progression::CurrentLevel() const noexcept {
     return Floor_Log2_NonZero(v);
 }
 
-bool Progression::IsMilestoneAchieved(const char* id) const noexcept {
+bool FProgression::IsMilestoneAchieved(const char* id) const noexcept {
     const isize idx = FindIndex(id);
     if (idx < 0) return false;
     return _states[static_cast<usize>(idx)].achieved;
 }
 
-u32 Progression::MilestoneCount() const noexcept {
+u32 FProgression::MilestoneCount() const noexcept {
     // 件数は通常 u32 範囲を超えない (タイトル 1 つで通常 10〜100)。
     return static_cast<u32>(_defs.Size());
 }
 
-u32 Progression::AchievedCount() const noexcept {
+u32 FProgression::AchievedCount() const noexcept {
     u32 count = 0;
     const usize n = _states.Size();
     for (usize i = 0; i < n; ++i) {
@@ -162,13 +162,13 @@ u32 Progression::AchievedCount() const noexcept {
     return count;
 }
 
-const MilestoneState* Progression::GetState(const char* id) const noexcept {
+const MilestoneState* FProgression::GetState(const char* id) const noexcept {
     const isize idx = FindIndex(id);
     if (idx < 0) return nullptr;
     return &_states[static_cast<usize>(idx)];
 }
 
-const MilestoneState* Progression::AllStates(u32& out_count) const noexcept {
+const MilestoneState* FProgression::AllStates(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_states.Size());
     return _states.Data();
 }
@@ -176,7 +176,7 @@ const MilestoneState* Progression::AllStates(u32& out_count) const noexcept {
 // ============================================================================
 // リセット
 // ============================================================================
-void Progression::ResetProgress() noexcept {
+void FProgression::ResetProgress() noexcept {
     _xp = 0;
     // 定義配列 (_defs) は保持。State 側だけ未達成に戻す。
     const usize n = _states.Size();
@@ -189,7 +189,7 @@ void Progression::ResetProgress() noexcept {
 // ============================================================================
 // FCallback
 // ============================================================================
-void Progression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept {
+void FProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept {
     _on_achieved      = cb;
     _on_achieved_user = user;
 }
@@ -198,17 +198,17 @@ void Progression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexce
 // 永続化 (Phase 2 で実装)
 // ============================================================================
 // Phase 1 は TODO スタブ。形だけ TResult<void> を返して呼出側の構造を
-// 先に組めるようにする。Phase 2 で SaveSlot<ProgressionSaveData> 経由の
+// 先に組めるようにする。Phase 2 で FSaveSlot<ProgressionSaveData> 経由の
 // atomic write + 読み取りに接続する。
 //
 // 永続化対象 (Phase 2 設計案):
 //   ・累計 XP (u32)
 //   ・各 milestone の達成フラグと timestamp を id でキーにしたペア配列
 //     → スキーマ進化を考えると単純な memcpy では足りないため、
-//        SaveArchive 経由の field-by-field writer を導入してから実装する。
-TResult<void> Progression::Save(const wchar_t* file_path) noexcept {
+//        FSaveArchive 経由の field-by-field writer を導入してから実装する。
+TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
     (void)file_path;
-    // TODO(Phase 2): SaveSlot<ProgressionSaveData> 経由で atomic write。
+    // TODO(Phase 2): FSaveSlot<ProgressionSaveData> 経由で atomic write。
     //   ・xp (u32)
     //   ・achieved_count (u32)
     //   ・[ {id_hash, achieved_flag, achieved_timestamp_ms}, ... ]
@@ -217,7 +217,7 @@ TResult<void> Progression::Save(const wchar_t* file_path) noexcept {
     return Ok();
 }
 
-TResult<void> Progression::Load(const wchar_t* file_path) noexcept {
+TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
     (void)file_path;
     // TODO(Phase 2): Save と対称な reader を実装。読み込んだ id_hash を
     //   現在登録済みの milestone 群と突き合わせ、一致した分だけ achieved /

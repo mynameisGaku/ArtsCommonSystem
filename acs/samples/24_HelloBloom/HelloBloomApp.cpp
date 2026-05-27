@@ -39,7 +39,7 @@ void HelloBloomApp::OnStart() noexcept {
 
     // HUD は Tonemap 後の LDR backbuffer に書くので backbuffer format で初期化する。
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
     const f32 aspect = static_cast<f32>(sw) / static_cast<f32>(sh);
     _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
@@ -62,13 +62,13 @@ void HelloBloomApp::OnUpdate(f32 dt) noexcept {
     _camera.SetLookAt(cam, FVec3{0, 1, 0});
 }
 
-// true を返して Application の既定フレームフローを置き換える (HDR RT を挟むため)。
+// true を返して FApplication の既定フレームフローを置き換える (HDR RT を挟むため)。
 bool HelloBloomApp::OnCustomFrame() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     IRhiTexture*     hdr = _post.HdrRenderTarget();
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
-    // false を返すと Application が既定フローでフレームを完走してくれる (失敗時の保険)。
+    // false を返すと FApplication が既定フローでフレームを完走してくれる (失敗時の保険)。
     if (!cl || !sc || !hdr) return false;
 
     const u32 buf_idx = sc->AcquireNextImage();
@@ -129,7 +129,7 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     _post.Render(*cl, *sc, buf_idx, _params);
 
     // 3) HUD は Tonemap 後の LDR backbuffer に書く (HDR 値が HUD 色を吹き飛ばさないため)。
-    //    PostProcess::Render が既に swapchain を RT としてバインドしてくれている。
+    //    FPostProcess::Render が既に swapchain を RT としてバインドしてくれている。
     if (_font.AtlasTexture()) {
         const u32 sw = sc->Width();
         const u32 sh = sc->Height();

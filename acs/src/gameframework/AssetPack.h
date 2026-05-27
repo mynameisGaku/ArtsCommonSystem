@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — AssetPack (`.acpak` 暗号化アーカイブ I/F stub)
+// GameFramework Pillar G — FAssetPack (`.acpak` 暗号化アーカイブ I/F stub)
 //
 // 製品化に向けた「アセットのパッケージング + 暗号化」を担うエンジンモジュールの
 // シーム (seam) インターフェース。開発中はバラのファイル、出荷時は 1 つの
 // 不透明な `.acpak` にまとめ、ゲームコードを変えずに切り替えられる。
 //
-// 注: **本来は独立モジュール `ACS::AssetPack` (`src/assetpack/`) を作る** が、
+// 注: **本来は独立モジュール `ACS::FAssetPack` (`src/assetpack/`) を作る** が、
 // Phase 1 (= GameFramework Pillar G スケルトン) では GameFramework 内に
 // interface stub のみを置く。AES-256-GCM 暗号 + LZ4 圧縮 + 認証タグ検証 等の
 // 実体実装は Phase 2 で独立モジュールへ切り出して行う。
-// 詳細仕様は `acs/docs/AssetPack.md` を参照。
+// 詳細仕様は `acs/docs/FAssetPack.md` を参照。
 //
 // 使い方:
 //   class AssetLoader {
@@ -32,7 +32,7 @@
 // 設計選択 (Pillar G Phase 1):
 //   ・**シーム (= 純粋仮想 I/F) として抽象化**: AES-GCM / LZ4 / bcrypt (Windows CNG)
 //     依存は重く、それらをリンクしないテストビルドでも本 I/F だけは常に提供する。
-//     実装は別モジュール (将来の `ACS::AssetPack`) で `IAssetPackReader` /
+//     実装は別モジュール (将来の `ACS::FAssetPack`) で `IAssetPackReader` /
 //     `IAssetPackWriter` を override する形を取る。
 //   ・**Reader / Writer を別 I/F に分離**: ランタイムは Reader しか要らず、Writer は
 //     ツール (パッキングコマンド) 側のみ使う。実装も別バイナリに分けやすくする。
@@ -42,9 +42,9 @@
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API を
 //     `ACS_ERR(Generic, kSubAssetPackNotImplemented, ...)` で返す。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `GetReaderStub()` / `GetWriterStub()` を提供。実 AssetPack 未統合の
+//     `GetReaderStub()` / `GetWriterStub()` を提供。実 FAssetPack 未統合の
 //     ビルドでもポインタ DI だけでコンパイル可能。
-//   ・**実 AssetPack 実装はここでは作らない**: GoldenAssetPackReader 等は AES-GCM
+//   ・**実 FAssetPack 実装はここでは作らない**: GoldenAssetPackReader 等は AES-GCM
 //     CNG / LZ4 への依存を伴うため、本ファイルでは I/F + Stub のみ。
 //
 // 範囲外 (Phase 2+ で):
@@ -61,16 +61,16 @@
 namespace acs::game {
 
 // ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
-// SteamworksBridge (1001-1099) / WorkshopBridge (1101-1199) と subcode 空間が
-// 重ならないよう、AssetPack は 1200 番台を使う。
+// FSteamworksBridge (1001-1099) / FWorkshopBridge (1101-1199) と subcode 空間が
+// 重ならないよう、FAssetPack は 1200 番台を使う。
 inline constexpr u16 kSubAssetPackNotImplemented = 1201;  // Stub による未実装
 inline constexpr u16 kSubAssetPackNotMounted     = 1202;  // Mount() 前の API 呼び出し
 
-// ---- AssetPackInfo (現在マウント中の pak の最小情報) ---------------------
+// ---- FAssetPackInfo (現在マウント中の pak の最小情報) ---------------------
 // Bridge は文字列を所有しない。`file_path` は呼び出し側 (or 実装内 static literal) の
 // メモリを参照するだけで、利用側でコピーしないこと。寿命は「次の Unmount/Mount を
 // 呼ぶまで」を保証する。
-struct AssetPackInfo {
+struct FAssetPackInfo {
     const char* file_path    = nullptr;  // Mount した pak ファイルの絶対 / 相対パス
     u64         content_hash = 0;        // pak 全体の content hash (改竄検知用)
     bool        encrypted    = false;    // AES-256-GCM 暗号化されているか
@@ -135,7 +135,7 @@ public:
 
     // 1 ファイルを pak に追加する。virtual_name は pak 内仮想パス、data はオリジナル
     // (非圧縮 / 非暗号) バイト列、size はそのサイズ。BeginPack 前に呼ぶとエラー。
-    // 実装は compress-then-encrypt 順 (AssetPack.md §5) で TOC / ブロブを構築する。
+    // 実装は compress-then-encrypt 順 (FAssetPack.md §5) で TOC / ブロブを構築する。
     virtual TResult<void> AddFile(const char* virtual_name, const u8* data, u64 size) noexcept = 0;
 
     // pak を確定して書き込みを終える。TOC を暗号化し、ヘッダの content_hash を
@@ -144,14 +144,14 @@ public:
 };
 
 // ---- Stub 実装: Reader ----------------------------------------------------
-// AssetPack 未統合ビルド / ユニットテスト用の no-op 実装。
+// FAssetPack 未統合ビルド / ユニットテスト用の no-op 実装。
 //   ・Mount() / FileCount() / FileName() / FileSize() / ReadFile() は全て
 //     ACS_ERR(Generic, kSubAssetPackNotImplemented) を返す。
 //   ・Unmount() は副作用なし。IsMounted() は常に false。
-class AssetPackReaderStub final : public IAssetPackReader {
+class FAssetPackReaderStub final : public IAssetPackReader {
 public:
-    AssetPackReaderStub() noexcept = default;
-    ~AssetPackReaderStub() noexcept override = default;
+    FAssetPackReaderStub() noexcept = default;
+    ~FAssetPackReaderStub() noexcept override = default;
 
     TResult<void>         Mount(const char* pack_path) noexcept override;
     void                 Unmount() noexcept override;
@@ -164,10 +164,10 @@ public:
 
 // ---- Stub 実装: Writer ----------------------------------------------------
 // 同上の Writer 側 no-op 実装。全 API が NotImplemented を返す。
-class AssetPackWriterStub final : public IAssetPackWriter {
+class FAssetPackWriterStub final : public IAssetPackWriter {
 public:
-    AssetPackWriterStub() noexcept = default;
-    ~AssetPackWriterStub() noexcept override = default;
+    FAssetPackWriterStub() noexcept = default;
+    ~FAssetPackWriterStub() noexcept override = default;
 
     TResult<void>  BeginPack(const char* output_path) noexcept override;
     TResult<void>  AddFile(const char* virtual_name, const u8* data, u64 size) noexcept override;
@@ -175,7 +175,7 @@ public:
 };
 
 // ---- static singleton accessors -----------------------------------------
-// 実 AssetPack 実装が DI される前のデフォルト stub。Meyer's singleton。
+// 実 FAssetPack 実装が DI される前のデフォルト stub。Meyer's singleton。
 IAssetPackReader& GetReaderStub() noexcept;
 IAssetPackWriter& GetWriterStub() noexcept;
 

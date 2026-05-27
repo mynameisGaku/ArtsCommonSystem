@@ -27,10 +27,10 @@ void HelloTextApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
     // タイトル/本文は 2048×2048 の CJK アトラス (≒ 2 万字)、小さい方は速度優先で
-    // 漢字を外す。Sample::TryLoadDefaultUIFont が OS 別の標準フォント候補を順に試す。
-    ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_title_font, *dev, 64.0f, 2048, true));
-    ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_body_font,  *dev, 24.0f, 2048, true));
-    ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_small_font, *dev, 16.0f, 1024, false));
+    // 漢字を外す。FSample::TryLoadDefaultUIFont が OS 別の標準フォント候補を順に試す。
+    ACS_SAMPLE_INIT(FSample::TryLoadDefaultUIFont(_title_font, *dev, 64.0f, 2048, true));
+    ACS_SAMPLE_INIT(FSample::TryLoadDefaultUIFont(_body_font,  *dev, 24.0f, 2048, true));
+    ACS_SAMPLE_INIT(FSample::TryLoadDefaultUIFont(_small_font, *dev, 16.0f, 1024, false));
 
     ACS_LOG_INFO("HelloText initialized");
 }
@@ -77,7 +77,7 @@ void HelloTextApp::OnRender() noexcept {
         "漢字対応のテキスト描画\n"
         "・stb_truetype で 漢字 (CJK 統合 U+4E00..U+9FAF) を焼き込み\n"
         "・2048×2048 のアトラスに 約 2 万字を収録\n"
-        "・SpriteBatch::DrawString でそのまま描画\n"
+        "・FSpriteBatch::DrawString でそのまま描画\n"
         "・吾輩は猫である。名前はまだ無い。\n"
         "・春はあけぼの。やうやう白くなりゆく山際、すこし明かりて";
     _batch.DrawString(_body_font, body, 100, 240,

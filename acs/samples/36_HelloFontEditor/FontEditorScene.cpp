@@ -22,7 +22,7 @@ void FontEditorScene::OnEnter() noexcept {
 
     _workspace.Init();
 
-    // EditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
+    // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
     // よって panel.OnInit を別途呼ぶ必要は無い。
     // SetPreviewText / AddFontFace は OnInit より後でも構わない。
     _editor_panel.Init();
@@ -75,7 +75,7 @@ void FontEditorScene::OnEnter() noexcept {
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
 void FontEditorScene::OnExit() noexcept {
-    // EditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
+    // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
     _workspace.Shutdown();
     // panel 本体の internal state を解放 (face 配列 / preview バッファクリア)。
@@ -103,7 +103,7 @@ void FontEditorScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 void FontEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
-    // マージするので、本 sample 専用の File メニューを Workspace の Window/
+    // マージするので、本 sample 専用の File メニューを Workspace の FWindow/
     // Layout メニューと並べて表示できる。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {

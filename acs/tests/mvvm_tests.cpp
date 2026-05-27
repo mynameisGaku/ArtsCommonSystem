@@ -47,12 +47,12 @@ ACS_TEST(Mvvm, ObservableSetTriggersListeners) {
     EXPECT_EQ(c.hits, 2);
 }
 
-// ---- TwoWayBinder: 双方向同期 ---------------------------------------------
+// ---- FTwoWayBinder: 双方向同期 ---------------------------------------------
 ACS_TEST(Mvvm, TwoWayBinderSync) {
     Observable<f32> a{ 10.0f };
     Observable<f32> b;
     {
-        TwoWayBinder<f32> bind(a, b);
+        FTwoWayBinder<f32> bind(a, b);
         EXPECT_EQ(b.Get(), 10.0f);     // 初期同期で a → b
 
         a.Set(50.0f);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/O — ScoreSystem (スコア累積 + コンボ + マルチプライヤ)
+// GameFramework Pillar R/O — FScoreSystem (スコア累積 + コンボ + マルチプライヤ)
 //
 // アーケード / 高速アクション系で必要になる「スコア + コンボ計算 + マイル
 // ストン通知」を 1 か所にまとめた高レベルマネージャ。ヒット連鎖 (NotifyHit)
@@ -8,8 +8,8 @@
 // 次のヒットが無ければコンボはリセットされる。
 //
 // 設計位置付け:
-//   ・Pillar R/O のスコア / 進行系。AchievementManager (実績) や
-//     EconomyDirector (通貨) と並列のレイヤで、これら 3 つは
+//   ・Pillar R/O のスコア / 進行系。FAchievementManager (実績) や
+//     FEconomyDirector (通貨) と並列のレイヤで、これら 3 つは
 //     「ゲームプレイの数値報酬」を担当する。
 //   ・スコア値 (u64) は AAA でも 4e18 を超えない想定で十分。
 //     score * multiplier_x100 の中間計算で wrap しないよう、加算時に
@@ -19,7 +19,7 @@
 //     にクランプした関数を採用 (アーケード系で広く使われる線形上昇)。
 //
 // 使い方:
-//   ScoreSystem ss;
+//   FScoreSystem ss;
 //   ss.Init();
 //   ss.SetComboDuration(2.5f);                        // 任意
 //   ss.RegisterMilestone(10000);                      // スコア 10k 通過で通知
@@ -46,13 +46,13 @@
 //   ・**multiplier は ×100 整数で entry に記録**: ScoreEntry.multiplier_x100 は
 //     例えば 250 = 2.5x。倍率を f32 で持つと bit 完全一致が取れず、Replay /
 //     Telemetry での比較で偽差分が出るため整数化する。
-//   ・**所有しない const char* category**: AchievementManager と同設計で
+//   ・**所有しない const char* category**: FAchievementManager と同設計で
 //     呼出側 (= ゲームコード or リソースバンドル) が long lifetime を保証する
 //     文字列リテラルを想定。Manager 側はコピーしない (STL <string> 禁止)。
-//   ・**entry log は capped append (max 100)**: ScoreSystem は履歴を内蔵保持
+//   ・**entry log は capped append (max 100)**: FScoreSystem は履歴を内蔵保持
 //     するが、メモリを線形に増やさないため上限 100。100 件超は最古を捨てる
 //     (= 末尾ベースの簡易リング)。詳細な分析が必要なら呼出側で Analytics に
-//     流す責務 (= EconomyDirector の callback 設計と思想を合わせる)。
+//     流す責務 (= FEconomyDirector の callback 設計と思想を合わせる)。
 //   ・**HighScore は Reset() で保持 / ClearAll() で破棄**: ゲームセッション
 //     終了時に Reset で「累積スコアと combo は消すが best record は残す」と
 //     いう典型挙動を表現。ClearAll はテスト / セーブデータリセット用。
@@ -62,7 +62,7 @@
 //     件数は通常 5〜20 なので線形で十分。
 //   ・**MultiplierFn は C 関数ポインタ + noexcept**: STL <functional> 禁止。
 //     nullptr 指定で内部デフォルトに戻す。combo を入力に f32 倍率を返す。
-//   ・**MilestoneCallback は単一登録 + user pointer**: EconomyDirector の
+//   ・**MilestoneCallback は単一登録 + user pointer**: FEconomyDirector の
 //     PurchaseCallback と同じ規約。複数 listener は呼出側で fan-out。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
@@ -70,7 +70,7 @@
 // 範囲外 (Phase 2+ で):
 //   ・永続化 (HighScore Save/Load) — Pillar J Serialize と統合予定。
 //     現状は SetHighScore() で外部から注入する手動 wiring。
-//   ・難易度補正 / グレード判定 — DynamicDifficulty / GameFlow と連携想定。
+//   ・難易度補正 / グレード判定 — FDynamicDifficulty / FGameFlow と連携想定。
 //   ・コンボ chain 種別 (perfect / good 等の品質スケール) — 必要になったら
 //     NotifyHit(quality) 引数を追加して倍率ファンクションに渡す形に拡張。
 #pragma once
@@ -92,8 +92,8 @@ struct ScoreEntry {
     u32         multiplier_x100 = 100;  // 100 = 1.0x
 };
 
-// ---- ScoreSystem ----------------------------------------------------------
-class ScoreSystem {
+// ---- FScoreSystem ----------------------------------------------------------
+class FScoreSystem {
 public:
     // コンボ→倍率の差し替え関数型。nullptr 指定で内部デフォルトに戻す。
     // 戻り値 multiplier は呼出側で f32 として使われるが、内部では ×100 して
@@ -107,13 +107,13 @@ public:
     //   current_score   : 通過時点での CurrentScore() 値
     using MilestoneCallback = void(*)(void* user, u64 milestone, u64 current_score) noexcept;
 
-    ScoreSystem()  noexcept = default;
-    ~ScoreSystem() noexcept = default;
+    FScoreSystem()  noexcept = default;
+    ~FScoreSystem() noexcept = default;
 
-    ScoreSystem(const ScoreSystem&)            = delete;
-    ScoreSystem& operator=(const ScoreSystem&) = delete;
-    ScoreSystem(ScoreSystem&&)                 = delete;
-    ScoreSystem& operator=(ScoreSystem&&)      = delete;
+    FScoreSystem(const FScoreSystem&)            = delete;
+    FScoreSystem& operator=(const FScoreSystem&) = delete;
+    FScoreSystem(FScoreSystem&&)                 = delete;
+    FScoreSystem& operator=(FScoreSystem&&)      = delete;
 
     // ---- 初期化 -----------------------------------------------------------
     // combo_duration をデフォルト (3 秒)、multiplier 関数をデフォルトに戻し、

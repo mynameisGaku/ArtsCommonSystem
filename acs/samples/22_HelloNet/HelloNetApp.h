@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloNet — アプリケーションクラス。
-// Network::Init / Logger::Init → TCP echo サーバスレッド起動 → クライアント
+// Network::Init / FLogger::Init → TCP echo サーバスレッド起動 → クライアント
 // 接続 → 送受信 → Join まで一連の流れを Run() で実行する。
 //
-// Application 派生ではなく自前 main から呼ぶ console アプリ (HelloNet には
+// FApplication 派生ではなく自前 main から呼ぶ console アプリ (HelloNet には
 // window / renderer が要らないため)。
 #pragma once
 

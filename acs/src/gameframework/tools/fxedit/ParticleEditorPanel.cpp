@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — in-game ParticleEditor 実装 (Phase 19b)
 //
-// 仕様の意図は ParticleEditorPanel.h を参照。本ファイルでは:
+// 仕様の意図は FParticleEditorPanel.h を参照。本ファイルでは:
 //   ・emitter list の Add / Remove / Duplicate (= editor 側 index 管理)
 //   ・ImGui を使った 2 カラムレイアウトの描画
 //   ・Save / Load callback の forward
@@ -34,7 +34,7 @@ static bool IsValidIndex(i32 index, u32 count) noexcept {
 // =============================================================================
 // Init / Shutdown
 // =============================================================================
-void ParticleEditorPanel::Init() noexcept {
+void FParticleEditorPanel::Init() noexcept {
     // 完全リセット: 既存登録があれば破棄して 0 件状態にする。
     // 多重 Init を許容するため、_emitters.Clear() で実体は解放せず
     // 容量だけ保持 (= 次回再構築のアロケーション節約)。
@@ -46,7 +46,7 @@ void ParticleEditorPanel::Init() noexcept {
     // クリアは別操作と扱う)。
 }
 
-void ParticleEditorPanel::Shutdown() noexcept {
+void FParticleEditorPanel::Shutdown() noexcept {
     // TArray はデストラクタで解放されるが、明示的に Clear することで
     // 多重 Shutdown / 再 Init の確定状態を作る。
     _emitters.Clear();
@@ -66,7 +66,7 @@ void ParticleEditorPanel::Shutdown() noexcept {
 // default ParticleEmitterDef を 1 件追加し、新規 emitter を selection に。
 // 上限 kMaxEmitters に達していれば no-op。
 // =============================================================================
-void ParticleEditorPanel::AddEmitter() noexcept {
+void FParticleEditorPanel::AddEmitter() noexcept {
     if (_emitters.Size() >= static_cast<usize>(kMaxEmitters)) {
         // 上限到達は silent no-op (UI からは Add ボタンが見えていても安全)。
         return;
@@ -97,7 +97,7 @@ void ParticleEditorPanel::AddEmitter() noexcept {
 // 選択中 emitter を順序保存しつつ削除 (PushBack/PopBack ではなく
 // 詰める方式)。emitter リストは「上から順に表示される」ので順序を保つ。
 // =============================================================================
-void ParticleEditorPanel::RemoveSelectedEmitter() noexcept {
+void FParticleEditorPanel::RemoveSelectedEmitter() noexcept {
     const u32 count = static_cast<u32>(_emitters.Size());
     if (!IsValidIndex(_selected, count)) return;
 
@@ -129,7 +129,7 @@ void ParticleEditorPanel::RemoveSelectedEmitter() noexcept {
 // 選択中 emitter を直後に挿入。selection は複製先に移る。
 // 上限到達 / 未選択 は no-op。
 // =============================================================================
-void ParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
+void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
     const u32 count = static_cast<u32>(_emitters.Size());
     if (!IsValidIndex(_selected, count)) return;
     if (_emitters.Size() >= static_cast<usize>(kMaxEmitters)) return;
@@ -166,7 +166,7 @@ void ParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
 // =============================================================================
 // SelectEmitter / EmitterCount / GetEmitterDef
 // =============================================================================
-void ParticleEditorPanel::SelectEmitter(i32 index) noexcept {
+void FParticleEditorPanel::SelectEmitter(i32 index) noexcept {
     const u32 count = static_cast<u32>(_emitters.Size());
     if (index < 0) {
         _selected = -1;
@@ -179,16 +179,16 @@ void ParticleEditorPanel::SelectEmitter(i32 index) noexcept {
     _selected = index;
 }
 
-u32 ParticleEditorPanel::EmitterCount() const noexcept {
+u32 FParticleEditorPanel::EmitterCount() const noexcept {
     return static_cast<u32>(_emitters.Size());
 }
 
-const ParticleEmitterDef* ParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
+const ParticleEmitterDef* FParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
     if (!IsValidIndex(index, static_cast<u32>(_emitters.Size()))) return nullptr;
     return &_emitters[static_cast<usize>(index)];
 }
 
-ParticleEmitterDef* ParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
+ParticleEmitterDef* FParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
     if (!IsValidIndex(index, static_cast<u32>(_emitters.Size()))) return nullptr;
     return &_emitters[static_cast<usize>(index)];
 }
@@ -196,12 +196,12 @@ ParticleEmitterDef* ParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcep
 // =============================================================================
 // SetSaveCallback / SetLoadCallback
 // =============================================================================
-void ParticleEditorPanel::SetSaveCallback(SaveCallback cb, void* user) noexcept {
+void FParticleEditorPanel::SetSaveCallback(SaveCallback cb, void* user) noexcept {
     _save_cb   = cb;
     _save_user = user;
 }
 
-void ParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept {
+void FParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept {
     _load_cb   = cb;
     _load_user = user;
 }
@@ -215,8 +215,8 @@ void ParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept 
 //
 // ImGui 関数の戻り値 (= true on change) を捕まえて _dirty を立てる。
 // =============================================================================
-void ParticleEditorPanel::DrawUI() noexcept {
-    // Phase 24: EditorPanel 継承で no-param DrawUI 化。target system は
+void FParticleEditorPanel::DrawUI() noexcept {
+    // Phase 24: FEditorPanel 継承で no-param DrawUI 化。target system は
     // SetTargetSystem() で事前に set 想定 (nullptr のときは live particle
     // 数を "(no system)" 表示)。
     if (!ImGui::Begin("Particle Editor")) {
@@ -228,12 +228,12 @@ void ParticleEditorPanel::DrawUI() noexcept {
     // editor 内の emitter 数と system 側の真の emitter 数は別物だが、
     // particle 数は system が真値なので分けて表示する。
     if (_target_system != nullptr) {
-        ImGui::Text("Editor Emitters: %u / %u    Live Particles: %u",
+        ImGui::Text("Editor Emitters: %u / %u    Live FParticles: %u",
                     static_cast<unsigned>(_emitters.Size()),
                     static_cast<unsigned>(kMaxEmitters),
                     static_cast<unsigned>(_target_system->ActiveParticleCount()));
     } else {
-        ImGui::Text("Editor Emitters: %u / %u    Live Particles: (no system attached)",
+        ImGui::Text("Editor Emitters: %u / %u    Live FParticles: (no system attached)",
                     static_cast<unsigned>(_emitters.Size()),
                     static_cast<unsigned>(kMaxEmitters));
     }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloIbl — SSR / SSAO / SSGI の dispatch (1-frame latency 設計)。
 //
-// いずれも color pass の後、PostProcess の前に走る。出力は次フレームの
-// PbrShader が読む (1-frame latency)。60 FPS なら 16ms 遅延でカメラ追従が
+// いずれも color pass の後、FPostProcess の前に走る。出力は次フレームの
+// FPbrShader が読む (1-frame latency)。60 FPS なら 16ms 遅延でカメラ追従が
 // 微かに遅れる程度、視覚的に許容。frame 0 は未書込みで garbage を読みうるため
-// _xxx_warm フラグが立つまで PbrShader 側は null bind (フォールバック値) に戻す。
+// _xxx_warm フラグが立つまで FPbrShader 側は null bind (フォールバック値) に戻す。
 #include "HelloIblApp.h"
 
 using namespace acs;
@@ -21,9 +21,9 @@ void RenderSsrPass(HelloIblApp& app, const FMat4& vp_for_render,
     IRhiTexture*     depth = app.GetRenderer().DepthBuffer();
     if (!dev || !cl || !hdr || !depth) return;
 
-    // SSR を計算して _ssr.OutputTexture() に書く。最終合成は PbrShader 側で
+    // SSR を計算して _ssr.OutputTexture() に書く。最終合成は FPbrShader 側で
     // roughness 依存に env prefilter と blend する。intensity は 1.0 固定 —
-    // 反射強度は PbrShader::SetSsr 側で一元管理する。
+    // 反射強度は FPbrShader::SetSsr 側で一元管理する。
 
     // temporal SSR の reproject 用に前フレームの jitter なし VP を渡す。
     // frame 0 は未確定なので現 VP を渡し reprojection を無効化。
@@ -37,7 +37,7 @@ void RenderSsrPass(HelloIblApp& app, const FMat4& vp_for_render,
                     app._camera.Eye(),
                     /*intensity=*/1.0f,
                     motion_tex);
-    app._ssr_warm = true;     // 次フレームから PbrShader が SSR texture を読める
+    app._ssr_warm = true;     // 次フレームから FPbrShader が SSR texture を読める
 }
 
 void RenderSsaoPass(HelloIblApp& app, const FMat4& vp_for_render,
@@ -57,7 +57,7 @@ void RenderSsaoPass(HelloIblApp& app, const FMat4& vp_for_render,
                      app._camera.Eye(), sun_dir,
                      /*intensity=*/1.0f,
                      /*radius=*/0.5f);
-    app._ssao_warm = true;     // 次フレームから PbrShader が SSAO texture を読める
+    app._ssao_warm = true;     // 次フレームから FPbrShader が SSAO texture を読める
 }
 
 void RenderSsgiPass(HelloIblApp& app, const FMat4& vp_for_render,

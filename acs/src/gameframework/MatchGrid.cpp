@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (puzzle / match-3) — MatchGrid 実装
+// GameFramework ジャンルキット (puzzle / match-3) — FMatchGrid 実装
 #include "gameframework/MatchGrid.h"
 
 namespace acs::game {
@@ -22,7 +22,7 @@ inline bool IsAdjacent(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
 // ---------------------------------------------------------------------------
 // 初期化 / 基本アクセス
 // ---------------------------------------------------------------------------
-void MatchGrid::Init(u32 width, u32 height, u32 color_count) noexcept {
+void FMatchGrid::Init(u32 width, u32 height, u32 color_count) noexcept {
     if (width  == 0) width  = 1;
     if (height == 0) height = 1;
     if (color_count == 0) color_count = 1;
@@ -42,12 +42,12 @@ void MatchGrid::Init(u32 width, u32 height, u32 color_count) noexcept {
     }
 }
 
-const GridCell& MatchGrid::Get(u32 x, u32 y) const noexcept {
+const GridCell& FMatchGrid::Get(u32 x, u32 y) const noexcept {
     if (x >= _width || y >= _height) return kEmptyCell;
     return _cells[Idx(x, y)];
 }
 
-void MatchGrid::Set(u32 x, u32 y, u8 color, ESpecialKind special) noexcept {
+void FMatchGrid::Set(u32 x, u32 y, u8 color, ESpecialKind special) noexcept {
     if (x >= _width || y >= _height) return;
     GridCell& c = _cells[Idx(x, y)];
     if (color == 0u) {
@@ -61,17 +61,17 @@ void MatchGrid::Set(u32 x, u32 y, u8 color, ESpecialKind special) noexcept {
     }
 }
 
-void MatchGrid::ClearAll() noexcept {
+void FMatchGrid::ClearAll() noexcept {
     const usize n = _cells.Size();
     for (usize i = 0; i < n; ++i) _cells[i] = GridCell{};
 }
 
-void MatchGrid::ResetChain() noexcept {
+void FMatchGrid::ResetChain() noexcept {
     _chain_level   = 0;
     _total_cleared = 0;
 }
 
-void MatchGrid::SetOnClearCallback(ClearCallback cb, void* user) noexcept {
+void FMatchGrid::SetOnClearCallback(ClearCallback cb, void* user) noexcept {
     _on_clear      = cb;
     _on_clear_user = user;
 }
@@ -79,7 +79,7 @@ void MatchGrid::SetOnClearCallback(ClearCallback cb, void* user) noexcept {
 // ---------------------------------------------------------------------------
 // FillRandom (no-match invariant)
 // ---------------------------------------------------------------------------
-u8 MatchGrid::PickColorAvoidingMatch(u32 x, u32 y, Random& rng) const noexcept {
+u8 FMatchGrid::PickColorAvoidingMatch(u32 x, u32 y, FRandom& rng) const noexcept {
     // 候補色 1..color_count から、左 2 個 / 上 2 個が同色になる色を弾く。
     // color_count == 1 の場合は invariant を諦める (常に同色になる)。
     const u8 left1 = (x >= 1u) ? _cells[Idx(x - 1u, y)].color : 0u;
@@ -106,11 +106,11 @@ u8 MatchGrid::PickColorAvoidingMatch(u32 x, u32 y, Random& rng) const noexcept {
     return c;
 }
 
-void MatchGrid::FillRandom(u32 seed) noexcept {
-    // seed==0 ならグローバル、それ以外は新規ローカル Random。
-    // (ヘッダ API 上 seed は u32 だが、内部 Random は u64 seed なので拡張して渡す)。
-    Random local(static_cast<u64>(seed));
-    Random& rng = (seed == 0u) ? Random::Global() : local;
+void FMatchGrid::FillRandom(u32 seed) noexcept {
+    // seed==0 ならグローバル、それ以外は新規ローカル FRandom。
+    // (ヘッダ API 上 seed は u32 だが、内部 FRandom は u64 seed なので拡張して渡す)。
+    FRandom local(static_cast<u64>(seed));
+    FRandom& rng = (seed == 0u) ? FRandom::Global() : local;
 
     for (u32 y = 0; y < _height; ++y) {
         for (u32 x = 0; x < _width; ++x) {
@@ -126,7 +126,7 @@ void MatchGrid::FillRandom(u32 seed) noexcept {
 // ---------------------------------------------------------------------------
 // マッチ検出 (3+ 連続を水平 / 垂直 2 パス走査)
 // ---------------------------------------------------------------------------
-u32 MatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noexcept {
+u32 FMatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noexcept {
     u32 count = 0;
 
     // 水平 (各行で left→right に同色 run を畳む)
@@ -196,7 +196,7 @@ u32 MatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noex
 // ---------------------------------------------------------------------------
 // swap 試行 (マッチ非発生時は戻す)
 // ---------------------------------------------------------------------------
-bool MatchGrid::TrySwap(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
+bool FMatchGrid::TrySwap(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
     if (x1 >= _width || y1 >= _height) return false;
     if (x2 >= _width || y2 >= _height) return false;
     if (!IsAdjacent(x1, y1, x2, y2))   return false;
@@ -229,7 +229,7 @@ bool MatchGrid::TrySwap(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
 // ---------------------------------------------------------------------------
 // 個別消去 + special 効果 (visited で再入防止)
 // ---------------------------------------------------------------------------
-void MatchGrid::ClearOne(u32 x, u32 y, TArray<u8>& visited) noexcept {
+void FMatchGrid::ClearOne(u32 x, u32 y, TArray<u8>& visited) noexcept {
     if (x >= _width || y >= _height) return;
     const usize i = Idx(x, y);
     if (visited[i]) return;
@@ -257,7 +257,7 @@ void MatchGrid::ClearOne(u32 x, u32 y, TArray<u8>& visited) noexcept {
     }
 }
 
-void MatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp,
+void FMatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp,
                                    TArray<u8>& visited) noexcept {
     switch (sp) {
     case ESpecialKind::Bomb: {
@@ -302,7 +302,7 @@ void MatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp,
 // ---------------------------------------------------------------------------
 // 重力 / 補充
 // ---------------------------------------------------------------------------
-u32 MatchGrid::ApplyGravity() noexcept {
+u32 FMatchGrid::ApplyGravity() noexcept {
     u32 moved = 0;
     // 列ごとに下から走査。空 cell より上の最初の非空を見つけて下に落とす。
     for (u32 x = 0; x < _width; ++x) {
@@ -327,13 +327,13 @@ u32 MatchGrid::ApplyGravity() noexcept {
     return moved;
 }
 
-u32 MatchGrid::RefillFromTop() noexcept {
+u32 FMatchGrid::RefillFromTop() noexcept {
     u32 filled = 0;
     if (_color_count == 0u) return 0;
     // 上端の空 cell をランダム色で埋める (1 step)。
     // 落下 + refill のサイクルを ResolveAllMatches で回す前提なので、
     // ここでは「最上段が空なら埋める」だけで十分 (gravity が次サイクルで下に流す)。
-    Random& rng = Random::Global();
+    FRandom& rng = FRandom::Global();
     for (u32 x = 0; x < _width; ++x) {
         GridCell& c = _cells[Idx(x, 0u)];
         if (c.empty) {
@@ -349,7 +349,7 @@ u32 MatchGrid::RefillFromTop() noexcept {
 // ---------------------------------------------------------------------------
 // resolve サイクル (detect → clear → gravity → refill を stable まで反復)
 // ---------------------------------------------------------------------------
-u32 MatchGrid::ResolveAllMatches() noexcept {
+u32 FMatchGrid::ResolveAllMatches() noexcept {
     const u32 cleared_before = _total_cleared;
     const usize n = _cells.Size();
 

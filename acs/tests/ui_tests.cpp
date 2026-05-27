@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS UI — Widget レイアウト + 入力ハンドリング
-// (Renderer 不要、Layout 計算 + Observable 値伝搬の純 logic テスト)
+// (FRenderer 不要、Layout 計算 + Observable 値伝搬の純 logic テスト)
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -14,7 +14,7 @@ using namespace acs;
 ACS_TEST(Ui, StackPanelVertical) {
     StackPanel root;
     root.dir = EStackDir::Vertical;
-    root.padding = UiPadding{ 8, 8, 8, 8 };
+    root.padding = FUiPadding{ 8, 8, 8, 8 };
     root.spacing = 4.0f;
 
     auto* a = root.Add<Label>("A");
@@ -42,7 +42,7 @@ ACS_TEST(Ui, StackPanelVertical) {
 ACS_TEST(Ui, StackPanelHorizontal) {
     StackPanel root;
     root.dir = EStackDir::Horizontal;
-    root.padding = UiPadding{ 0, 0, 0, 0 };
+    root.padding = FUiPadding{ 0, 0, 0, 0 };
     root.spacing = 10.0f;
 
     auto* a = root.Add<Label>("A");
@@ -61,7 +61,7 @@ ACS_TEST(Ui, StackPanelHorizontal) {
 // ---- HitTest 再帰: 子の方が優先される -------------------------------------
 ACS_TEST(Ui, HitTestRecursive) {
     StackPanel root;
-    root.padding = UiPadding{ 0, 0, 0, 0 };
+    root.padding = FUiPadding{ 0, 0, 0, 0 };
     auto* btn = root.Add<Button>("Click");
     btn->requested.h = 30.0f;
 
@@ -83,7 +83,7 @@ ACS_TEST(Ui, HitTestRecursive) {
 // ---- Button: pointer down/up でクリック検出 -------------------------------
 ACS_TEST(Ui, ButtonClick) {
     StackPanel root;
-    root.padding = UiPadding{ 0, 0, 0, 0 };
+    root.padding = FUiPadding{ 0, 0, 0, 0 };
     auto* btn = root.Add<Button>("OK");
     btn->requested.h = 30.0f;
     root.Layout(0, 0, 100, 50);
@@ -106,7 +106,7 @@ ACS_TEST(Ui, ButtonClick) {
 // ---- Button: pointer up が rect 外なら click 発生せず ---------------------
 ACS_TEST(Ui, ButtonReleaseOutsideNoClick) {
     StackPanel root;
-    root.padding = UiPadding{ 0, 0, 0, 0 };
+    root.padding = FUiPadding{ 0, 0, 0, 0 };
     auto* btn = root.Add<Button>("OK");
     btn->requested.h = 30.0f;
     root.Layout(0, 0, 100, 50);
@@ -126,7 +126,7 @@ ACS_TEST(Ui, ButtonReleaseOutsideNoClick) {
 // ---- Slider: ドラッグで value 更新 ----------------------------------------
 ACS_TEST(Ui, SliderValueUpdate) {
     StackPanel root;
-    root.padding = UiPadding{ 0, 0, 0, 0 };
+    root.padding = FUiPadding{ 0, 0, 0, 0 };
     auto* sl = root.Add<Slider>(0.0f, 100.0f);
     sl->requested.h = 24.0f;
     root.Layout(0, 0, 200, 50);
@@ -152,7 +152,7 @@ ACS_TEST(Ui, SliderValueUpdate) {
 // ---- Checkbox: 値トグル --------------------------------------------------
 ACS_TEST(Ui, CheckboxToggle) {
     StackPanel root;
-    root.padding = UiPadding{ 0, 0, 0, 0 };
+    root.padding = FUiPadding{ 0, 0, 0, 0 };
     auto* cb = root.Add<Checkbox>("Test");
     cb->requested.h = 24.0f;
     root.Layout(0, 0, 100, 30);

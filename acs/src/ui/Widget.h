@@ -3,8 +3,8 @@
 //
 // 設計:
 //   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
-//   ・MVVM 駆動: 各 Widget は Observable<T> プロパティを公開し、ViewModel と Bind 可能
-//   ・SpriteBatch + Font で描画 (Diligent / Dx12 を意識しない)
+//   ・MVVM 駆動: 各 Widget は Observable<T> プロパティを公開し、FViewModel と Bind 可能
+//   ・FSpriteBatch + Font で描画 (Diligent / Dx12 を意識しない)
 //   ・親 → 子の所有を TUniquePtr<Widget> で表現、Add で子を取り込む
 //   ・Layout は親の Layout モードに応じて子に再帰的に配置
 //
@@ -27,7 +27,7 @@
 namespace acs {
 
 // 矩形 (UI 座標、左上原点ピクセル単位)
-struct UiRect {
+struct FUiRect {
     f32 x = 0, y = 0, w = 0, h = 0;
     bool Contains(f32 px, f32 py) const noexcept {
         return px >= x && px < x + w && py >= y && py < y + h;
@@ -38,7 +38,7 @@ struct UiRect {
 enum class EStackDir : u8 { Vertical, Horizontal };
 
 // アンカー / 余白
-struct UiPadding { f32 l = 0, t = 0, r = 0, b = 0; };
+struct FUiPadding { f32 l = 0, t = 0, r = 0, b = 0; };
 
 // Widget の基底
 class Widget {
@@ -65,20 +65,20 @@ public:
 
     // ---- 表示 ----
     bool   visible = true;
-    UiRect rect;                    // レイアウト後に確定する絶対座標
-    UiRect requested;               // 要望サイズ (0 = レイアウトに任せる)
+    FUiRect rect;                    // レイアウト後に確定する絶対座標
+    FUiRect requested;               // 要望サイズ (0 = レイアウトに任せる)
 
     // ---- フォーカス / hover ----
     bool hovered = false;
     bool focused = false;
     bool pressed = false;           // 直近のフレームで押下されているか (Button 等で使う)
 
-    // ---- 仮想メソッド: Layout は親が呼ぶ。Render は UiRenderer が呼ぶ ----
+    // ---- 仮想メソッド: Layout は親が呼ぶ。Render は FUiRenderer が呼ぶ ----
     virtual void Layout(f32 x, f32 y, f32 w, f32 h) noexcept {
         rect = { x, y, w, h };
     }
 
-    virtual void Render(class UiRenderer& r) noexcept {
+    virtual void Render(class FUiRenderer& r) noexcept {
         // 既定は子だけ描画する (visible なものに絞り)
         for (usize i = 0; i < _children.Size(); ++i) {
             if (_children[i] && _children[i]->visible) _children[i]->Render(r);
@@ -124,7 +124,7 @@ public:
 
     EStackDir   dir      = EStackDir::Vertical;
     f32        spacing  = 4.0f;
-    UiPadding  padding{ 8, 8, 8, 8 };
+    FUiPadding  padding{ 8, 8, 8, 8 };
 
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };

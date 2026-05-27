@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Foundation — Panic 実装
+// ACS Foundation — FPanic 実装
 // -----------------------------------------------------------------------------
 // パニック発生時に行うこと:
 //   1. SRWLOCK で他のパニックと排他（出力混在を防ぐ）
@@ -58,7 +58,7 @@ void SetPanicHook(PanicHook hook, void* user) noexcept {
 }
 
 // パニック本体。可変長引数なので vsnprintf でメッセージを整形する。
-ACS_NORETURN void Panic(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept {
+ACS_NORETURN void FPanic(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept {
     AcquireSRWLockExclusive(&g_panic_lock);
 
     // ヘッダ部（場所、失敗式、メッセージ前置き）

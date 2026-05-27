@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — Lockstep 実装 (Phase M-1 スケルトン)
+// GameFramework Pillar M — FLockstep 実装 (Phase M-1 スケルトン)
 //
 // 現フェーズ:
 //   ・Init / RecordInput / StartReplay / ConsumeInput / CurrentTick /
 //     InputCount / ComputeChecksum / Clear はすべて本実装。
 //   ・SaveToBuffer / LoadFromBuffer は ACS_ERR(IO, kSub_NotImplemented) を返す
-//     stub (SaveSlot Phase 1 と同じ pattern)。Phase M-2 で実 I/O 接続予定。
+//     stub (FSaveSlot Phase 1 と同じ pattern)。Phase M-2 で実 I/O 接続予定。
 //
 // 設計メモ:
 //   ・ConsumeInput は _replay_cursor から線形走査する。記録順 = tick 昇順を
@@ -61,7 +61,7 @@ inline u32 BitsOf(f32 v) noexcept {
 
 } // namespace
 
-void Lockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
+void FLockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
     _mode          = mode;
     // tick_rate_hz == 0 は意味を成さないので最低 1 に丸める。0 除算防止。
     _tick_rate_hz  = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
@@ -71,7 +71,7 @@ void Lockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
     // 完全リセットしたい場合は呼び出し側で Clear() を併用する。
 }
 
-void Lockstep::RecordInput(const InputFrame& frame) noexcept {
+void FLockstep::RecordInput(const InputFrame& frame) noexcept {
     // Replay モード中は記録しない (上書きを防ぐ)。
     if (_mode == ENetMode::Replay) {
         return;
@@ -83,14 +83,14 @@ void Lockstep::RecordInput(const InputFrame& frame) noexcept {
     _current_tick = frame.tick + 1u;
 }
 
-void Lockstep::StartReplay() noexcept {
+void FLockstep::StartReplay() noexcept {
     _mode          = ENetMode::Replay;
     _replay_cursor = 0;
     _current_tick  = 0;
     // _frames はそのまま。Local で記録した内容を頭から再生する。
 }
 
-bool Lockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept {
+bool FLockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept {
     // Replay モード以外では取り出しを禁止する (誤用検知)。
     if (_mode != ENetMode::Replay) {
         return false;
@@ -116,11 +116,11 @@ bool Lockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept {
     return false;
 }
 
-u32 Lockstep::InputCount() const noexcept {
+u32 FLockstep::InputCount() const noexcept {
     return static_cast<u32>(_frames.Size());
 }
 
-u64 Lockstep::ComputeChecksum() const noexcept {
+u64 FLockstep::ComputeChecksum() const noexcept {
     u64 h = kFnvOffsetBasis;
     const usize n = _frames.Size();
     for (usize i = 0; i < n; ++i) {
@@ -136,7 +136,7 @@ u64 Lockstep::ComputeChecksum() const noexcept {
     return h;
 }
 
-void Lockstep::Clear() noexcept {
+void FLockstep::Clear() noexcept {
     _frames.Clear();
     _current_tick  = 0;
     _replay_cursor = 0;
@@ -153,17 +153,17 @@ void Lockstep::Clear() noexcept {
 //   4. write frames (bulk memcpy)
 //   5. write crc32(frames) footer
 //   6. out_written = required
-TResult<void> Lockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
+TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
     out_written = 0;
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
-                       "Lockstep::SaveToBuffer: buffer is null");
+                       "FLockstep::SaveToBuffer: buffer is null");
     }
     (void)size;
     // Phase 1: 実 I/O は未接続。"動くが必ず失敗する" stub にしておき、
     // 呼び出し側 (replay 保存 UI / テスト) が TResult を握りつぶさない設計を強制する。
     return ACS_ERR(IO, kSub_NotImplemented,
-                   "Lockstep::SaveToBuffer is not yet implemented (Phase M-1 stub)");
+                   "FLockstep::SaveToBuffer is not yet implemented (Phase M-1 stub)");
 }
 
 // -----------------------------------------------------------------------------
@@ -177,14 +177,14 @@ TResult<void> Lockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noe
 //   5. crc32 計算 → footer と不一致なら kSub_BadCrc
 //   6. _frames.Clear(); _frames.Reserve(frame_count); 順次 PushBack
 //   7. _tick_rate_hz / _current_tick を 0 にリセット (StartReplay 待ち状態)
-TResult<void> Lockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
+TResult<void> FLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
-                       "Lockstep::LoadFromBuffer: buffer is null");
+                       "FLockstep::LoadFromBuffer: buffer is null");
     }
     (void)size;
     return ACS_ERR(IO, kSub_NotImplemented,
-                   "Lockstep::LoadFromBuffer is not yet implemented (Phase M-1 stub)");
+                   "FLockstep::LoadFromBuffer is not yet implemented (Phase M-1 stub)");
 }
 
 } // namespace acs::game

@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — Sequence / SequenceRunner (Phase 4)
+// GameFramework Pillar C — FSequence / FSequenceRunner (Phase 4)
 //
 // 時間付きアクションの連鎖 (cutscene / 出現ウェーブ / scripted UI 等)。
 //   `seq.Wait(0.5f).Call(my_fn, user).Tween(&x, 0, 100, 1.0f).Loop(0)`
-// のようなビルダーで定義し、SequenceRunner::Start(Move(seq)) で実行開始。
+// のようなビルダーで定義し、FSequenceRunner::Start(Move(seq)) で実行開始。
 //
 // 設計選択 (v3 仕様の単純化版):
-//   ・パラレル合成 (`Parallel(sub)`) は v1.1 送り。複数 Sequence を Runner に
+//   ・パラレル合成 (`Parallel(sub)`) は v1.1 送り。複数 FSequence を Runner に
 //     並列で Start すれば事実上のパラレルになるため、Phase 1 では未実装。
 //   ・コールバックは `void(*)(void*)` 関数ポインタ。ACS 規約 (std::function 不使用)。
-//   ・Tween は Sequence 内蔵 (TweenManager に委譲しない) — sequence の進行
+//   ・FTween は FSequence 内蔵 (FTweenManager に委譲しない) — sequence の進行
 //     時間と一体化させたいため。完了時は最終値を正確に書く。
 //
 // 使い方:
 //   class TitleScene : public Scene {
-//       SequenceRunner _seqs;
+//       FSequenceRunner _seqs;
 //       FVec3 _logo_color;
 //       void OnEnter() noexcept override {
-//           Sequence s;
+//           FSequence s;
 //           s.Wait(0.3f)
 //            .Tween(&_logo_color, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
 //            .Wait(1.0f)
@@ -39,18 +39,18 @@
 
 namespace acs::game {
 
-// アクション 1 つを表す POD。Sequence 内で TArray に詰めて持つ。
+// アクション 1 つを表す POD。FSequence 内で TArray に詰めて持つ。
 struct SeqAction {
     enum class Kind : u8 { Wait, Call, TweenF, TweenV2, TweenV3 };
 
     Kind kind     = Kind::Wait;
-    f32  duration = 0.0f;          // Wait/Tween 用 (Call は 0)
+    f32  duration = 0.0f;          // Wait/FTween 用 (Call は 0)
 
     // Call
     void(*call_fn)(void* user) noexcept = nullptr;
     void* call_user                     = nullptr;
 
-    // Tween (型ごとに別フィールド、active な kind のみ意味を持つ)
+    // FTween (型ごとに別フィールド、active な kind のみ意味を持つ)
     f32*  tween_f_target  = nullptr;
     f32   tween_f_from    = 0.0f;
     f32   tween_f_to      = 0.0f;
@@ -64,29 +64,29 @@ struct SeqAction {
     Easing::EasingFn ease = Easing::Linear;
 };
 
-// アクションの連鎖を builder パターンで構築。SequenceRunner::Start に Move する。
-class Sequence {
+// アクションの連鎖を builder パターンで構築。FSequenceRunner::Start に Move する。
+class FSequence {
 public:
-    Sequence() noexcept = default;
-    ~Sequence() noexcept = default;
+    FSequence() noexcept = default;
+    ~FSequence() noexcept = default;
 
-    Sequence(const Sequence&)            = delete;
-    Sequence& operator=(const Sequence&) = delete;
-    Sequence(Sequence&&) noexcept            = default;
-    Sequence& operator=(Sequence&&) noexcept = default;
+    FSequence(const FSequence&)            = delete;
+    FSequence& operator=(const FSequence&) = delete;
+    FSequence(FSequence&&) noexcept            = default;
+    FSequence& operator=(FSequence&&) noexcept = default;
 
     // 各 builder: action を 1 つ追加して self 参照を返す (連鎖記述用)。
-    Sequence& Wait(f32 seconds) noexcept;
-    Sequence& Call(void(*fn)(void* user) noexcept, void* user = nullptr) noexcept;
-    Sequence& Tween(f32* target,  f32  from, f32  to, f32 duration,
+    FSequence& Wait(f32 seconds) noexcept;
+    FSequence& Call(void(*fn)(void* user) noexcept, void* user = nullptr) noexcept;
+    FSequence& FTween(f32* target,  f32  from, f32  to, f32 duration,
                      Easing::EasingFn ease = Easing::Linear) noexcept;
-    Sequence& Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+    FSequence& FTween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                      Easing::EasingFn ease = Easing::Linear) noexcept;
-    Sequence& Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+    FSequence& FTween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                      Easing::EasingFn ease = Easing::Linear) noexcept;
 
     // ループ回数。0 = 無限。既定 1 (1 回再生で終了)。
-    Sequence& Loop(u32 count) noexcept {
+    FSequence& Loop(u32 count) noexcept {
         _loop_count = count;
         return *this;
     }
@@ -105,27 +105,27 @@ struct SeqHandle {
     bool IsValid() const noexcept { return generation != 0; }
 };
 
-class SequenceRunner {
+class FSequenceRunner {
 public:
-    SequenceRunner() noexcept = default;
-    ~SequenceRunner() noexcept = default;
+    FSequenceRunner() noexcept = default;
+    ~FSequenceRunner() noexcept = default;
 
-    SequenceRunner(const SequenceRunner&)            = delete;
-    SequenceRunner& operator=(const SequenceRunner&) = delete;
+    FSequenceRunner(const FSequenceRunner&)            = delete;
+    FSequenceRunner& operator=(const FSequenceRunner&) = delete;
 
-    // Sequence の所有権を奪って実行開始。空 Sequence は invalid handle を返す。
-    SeqHandle Start(Sequence seq) noexcept;
+    // FSequence の所有権を奪って実行開始。空 FSequence は invalid handle を返す。
+    SeqHandle Start(FSequence seq) noexcept;
 
-    // 進行中の Sequence を中止 (現在の Tween は最後に書いた値で停止)。
+    // 進行中の FSequence を中止 (現在の FTween は最後に書いた値で停止)。
     void Cancel(SeqHandle h) noexcept;
 
-    // 全 Sequence を破棄。Scene::OnExit などで使う。
+    // 全 FSequence を破棄。Scene::OnExit などで使う。
     void CancelAll() noexcept;
 
     bool IsActive(SeqHandle h) const noexcept;
     u32  ActiveCount() const noexcept { return _active_count; }
 
-    // 毎フレーム呼ぶ (Scene::OnUpdate から SceneClock::Dt() を渡す想定)。
+    // 毎フレーム呼ぶ (Scene::OnUpdate から FSceneClock::Dt() を渡す想定)。
     void Tick(f32 dt) noexcept;
 
 private:
@@ -133,7 +133,7 @@ private:
         bool active         = false;
         bool call_fired     = false;
         u32  generation     = 0;
-        Sequence seq;                // owned
+        FSequence seq;                // owned
         u32  action_idx     = 0;
         f32  action_elapsed = 0.0f;
         u32  loops_done     = 0;

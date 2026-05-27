@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — DamageFeedback 実装
+// GameFramework Pillar R — FDamageFeedback 実装
 //
-// 仕様の意図は DamageFeedback.h を参照。本ファイルは純粋 state machine としての
+// 仕様の意図は FDamageFeedback.h を参照。本ファイルは純粋 state machine としての
 // 加算 / clamp / decay / death cam timer の実装に徹する。
 #include "gameframework/DamageFeedback.h"
 
@@ -34,7 +34,7 @@ constexpr f32 kDeathCamRate     = 0.5f;     // /s (= 2 秒で 0→1)
 //   非零なら正規化して _dir_vec に格納、_dir_intensity = 1.0 リセット。
 //   Normalize(零) は FVec2::Zero() を返すので、LengthSq による判定で除外。
 // =============================================================================
-void DamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
+void FDamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
     if (amount <= 0.0f) {
         // 0 / 負ダメージは fail-safe で何もしない (回復扱いは別 API の責務)
         return;
@@ -66,7 +66,7 @@ void DamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
 //      ExitDeathCam が呼ばれるまで _death_cam_active は true のまま。
 // dt が負 (clock 巻き戻し等) のときは 0 扱いで state を破壊しない。
 // =============================================================================
-void DamageFeedback::Tick(f32 dt) noexcept {
+void FDamageFeedback::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // 赤エッジ decay
@@ -96,7 +96,7 @@ void DamageFeedback::Tick(f32 dt) noexcept {
 // progress リセットは「初回 trigger 時のみ」に限定して、矢印 / 赤エッジは
 // 別系統として残す (=「赤エッジが残ったまま death cam に入る」自然な遷移)。
 // =============================================================================
-void DamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
+void FDamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
     _killer_pos = killer_pos;
     if (!_death_cam_active) {
         _death_cam_active = true;
@@ -110,7 +110,7 @@ void DamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
 // リスポーン UI / シーン遷移開始時に caller が呼ぶ。state を全て初期に戻す
 // (progress も 0)。_killer_pos は次の trigger で上書きされるので保持で問題なし。
 // =============================================================================
-void DamageFeedback::ExitDeathCam() noexcept {
+void FDamageFeedback::ExitDeathCam() noexcept {
     _death_cam_active = false;
     _death_cam_t      = 0.0f;
 }
@@ -120,7 +120,7 @@ void DamageFeedback::ExitDeathCam() noexcept {
 // -----------------------------------------------------------------------------
 // シーン切替 / respawn 用の一括クリア。全 state を初期値に戻す。
 // =============================================================================
-void DamageFeedback::Reset() noexcept {
+void FDamageFeedback::Reset() noexcept {
     _red_intensity        = 0.0f;
     _dir_intensity        = 0.0f;
     _dir_vec              = FVec2{0.0f, 0.0f};

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — MlRuntime / Upscaler (AI/ML & Super-Resolution seams)
+// GameFramework Pillar U — FMlRuntime / Upscaler (AI/ML & Super-Resolution seams)
 //
 // 役割:
 //   Pillar U (AI & ML 統合) のうち、外部 ML ランタイム (ONNX Runtime / DirectML /
@@ -39,7 +39,7 @@
 //
 // Phase U-1 (本フェーズ) で提供するもの:
 //   ・`IMlRuntime` / `IUpscaler` の純粋仮想 interface 確定
-//   ・`MlRuntimeStub` / `UpscalerStub` の **失敗側を返すだけの stub 実装**
+//   ・`MlRuntimeStub` / `FUpscalerStub` の **失敗側を返すだけの stub 実装**
 //   ・global stub アクセサ `GetMlRuntimeStub()` / `GetUpscalerStub()`
 //
 // Phase U-2+ で行うこと (本 header の範囲外):
@@ -203,7 +203,7 @@ protected:
 };
 
 // =============================================================================
-// UpscalerStub — Off 状態のみを返す stub
+// FUpscalerStub — Off 状態のみを返す stub
 // -----------------------------------------------------------------------------
 // SDK 同梱前の状態でも上位層が「FSR/DLSS/XeSS が常に使えない」想定で
 // フォールバック (= ネイティブ描画) を書けるようにするための placeholder。
@@ -213,10 +213,10 @@ protected:
 //   ・`Init(非 Off)` は NotImplemented を返す。
 //   ・入出力サイズは常に 0 (使われない側として安全な値)。
 // =============================================================================
-class UpscalerStub final : public IUpscaler {
+class FUpscalerStub final : public IUpscaler {
 public:
-    UpscalerStub() noexcept = default;
-    ~UpscalerStub() noexcept override = default;
+    FUpscalerStub() noexcept = default;
+    ~FUpscalerStub() noexcept override = default;
 
     TResult<void> Init(EUpscalerKind k)     noexcept override;
     EUpscalerKind ActiveKind()       const noexcept override { return _kind; }
@@ -235,7 +235,7 @@ private:
 // global stub アクセサ
 // -----------------------------------------------------------------------------
 // process 内で 1 個だけ存在する静的 stub への参照を返す。Phase U-1 では
-// `Game` / `Scene` 側からの ML / Upscaler 問い合わせはすべてこの 2 つを通る。
+// `FGame` / `Scene` 側からの ML / Upscaler 問い合わせはすべてこの 2 つを通る。
 // Phase U-2 以降、具象 backend が選ばれるとアクセサは差し替えられる。
 //
 // ※ static 単一インスタンス = process lifetime。スレッド安全性は呼び出し側責務。
@@ -244,7 +244,7 @@ IMlRuntime& GetMlRuntimeStub() noexcept;
 IUpscaler&  GetUpscalerStub()  noexcept;
 
 // NotImplemented 等の subcode を上位層が switch 分岐できるよう、
-// SaveSlot.h と同じ「subcode = u16 で番号固定」の規約を踏襲する。
+// FSaveSlot.h と同じ「subcode = u16 で番号固定」の規約を踏襲する。
 namespace ml_err {
     // 「未実装」: stub だから / Phase U-2 まで backend 未統合だから返される。
     inline constexpr u16 kSub_NotImplemented = 99;

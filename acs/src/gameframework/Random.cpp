@@ -35,16 +35,16 @@ inline u32 Rotl32(u32 x, int k) noexcept {
 // ---------------------------------------------------------------------------
 // 構築 / 種まき
 // ---------------------------------------------------------------------------
-Random::Random() noexcept {
+FRandom::FRandom() noexcept {
     // 時刻 (QPC tick) を seed に使う。FrameTimer 起動順に依存せず単独で使える。
     Seed(Clock::Ticks());
 }
 
-Random::Random(u64 seed) noexcept {
+FRandom::FRandom(u64 seed) noexcept {
     Seed(seed);
 }
 
-void Random::Seed(u64 seed) noexcept {
+void FRandom::Seed(u64 seed) noexcept {
     // SplitMix64 で 2 個の u64 を取り、4 個の u32 に分解。
     // seed=0 のときも SplitMix の constant 加算で z≠0 が保証され、
     // xoshiro の "全 0 state 禁止" 制約も自動的に満たされる。
@@ -67,7 +67,7 @@ void Random::Seed(u64 seed) noexcept {
 // ---------------------------------------------------------------------------
 // raw 出力 (xoshiro128**)
 // ---------------------------------------------------------------------------
-u32 Random::NextU32() noexcept {
+u32 FRandom::NextU32() noexcept {
     // xoshiro128** の "**" バリアント: state の線形進行に
     // 非線形スクランブラを乗せて高品質 32bit を出力。
     const u32 result = Rotl32(_s1 * 5u, 7) * 9u;
@@ -86,14 +86,14 @@ u32 Random::NextU32() noexcept {
 // ---------------------------------------------------------------------------
 // 一般ユース
 // ---------------------------------------------------------------------------
-f32 Random::NextF32Unit() noexcept {
+f32 FRandom::NextF32Unit() noexcept {
     // 上位 24bit を仮数に: f32 の mantissa は 23bit + implicit 1 で 24bit 精度。
     // (x >> 8) で 0..(2^24 - 1)、× 2^-24 で [0, 1)。1.0 を絶対に返さない。
     const u32 bits = NextU32() >> 8;
     return static_cast<f32>(bits) * (1.0f / 16777216.0f); // 1/2^24
 }
 
-i32 Random::RangeInt(i32 min, i32 max) noexcept {
+i32 FRandom::RangeInt(i32 min, i32 max) noexcept {
     // max < min は swap して扱う (defensive、API の使い心地優先)。
     if (max < min) {
         const i32 t = min; min = max; max = t;
@@ -112,13 +112,13 @@ i32 Random::RangeInt(i32 min, i32 max) noexcept {
     return min + static_cast<i32>(r);
 }
 
-f32 Random::RangeF32(f32 min, f32 max) noexcept {
+f32 FRandom::RangeF32(f32 min, f32 max) noexcept {
     // [min, max): max==min なら min 固定、min>max は呼び出し側の bug 扱いだが
     // 線形補間で動作はする ([max, min) を返すことになる)。
     return min + (max - min) * NextF32Unit();
 }
 
-bool Random::NextBool(f32 true_probability) noexcept {
+bool FRandom::NextBool(f32 true_probability) noexcept {
     // 範囲外はクランプ。0 → 常に false、1 → 常に true (浮動小数の境界に注意:
     // NextF32Unit() < 1.0f が保証されているので 1.0f との比較で常に true)。
     if (true_probability <= 0.0f) return false;
@@ -126,7 +126,7 @@ bool Random::NextBool(f32 true_probability) noexcept {
     return NextF32Unit() < true_probability;
 }
 
-FVec2 Random::PointInCircle(f32 radius) noexcept {
+FVec2 FRandom::PointInCircle(f32 radius) noexcept {
     // Rejection sampling: [-1,1]^2 box でサンプル、単位円内に入るまで再試行。
     // 一様性は厳密。平均試行回数は 4/π ≒ 1.273 回 (期待値)、最大は確率的に小。
     // ループ脱出保証: bool 評価が常に確定する有限プロセス (ハード上限を持たない
@@ -141,13 +141,13 @@ FVec2 Random::PointInCircle(f32 radius) noexcept {
     }
 }
 
-FVec2 Random::PointOnCircle(f32 radius) noexcept {
+FVec2 FRandom::PointOnCircle(f32 radius) noexcept {
     // 角度を [0, 2π) で一様にサンプル、(cos, sin) で円周上の点へ。
     const f32 theta = NextF32Unit() * kTwoPi;
     return FVec2{ Cos(theta) * radius, Sin(theta) * radius };
 }
 
-u32 Random::WeightedChoice(const f32* weights, u32 count) noexcept {
+u32 FRandom::WeightedChoice(const f32* weights, u32 count) noexcept {
     if (count == 0u || weights == nullptr) return 0u;
     // 累積和を取り、[0, total) の一様乱数で線形探索。
     f32 total = 0.0f;
@@ -168,10 +168,10 @@ u32 Random::WeightedChoice(const f32* weights, u32 count) noexcept {
     return count - 1u;
 }
 
-Random& Random::Global() noexcept {
+FRandom& FRandom::Global() noexcept {
     // C++11 magic statics でスレッド安全な lazy init。
     // 用途上、複数スレッドからの並行呼び出しは未保護 (上記コメント参照)。
-    static Random s_global{};
+    static FRandom s_global{};
     return s_global;
 }
 

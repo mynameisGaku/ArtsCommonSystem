@@ -2,8 +2,8 @@
 // GameFramework Pillar H — IAudioBackend (Phase 2: 実音声再生 seam)
 //
 // 役割:
-//   `AudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
-//   Windows では `XAudio2Backend`、それ以外プラットフォーム (将来) では別実装
+//   `FAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
+//   Windows では `FXAudio2Backend`、それ以外プラットフォーム (将来) では別実装
 //   (CoreAudio / ALSA / OpenAL / WebAudio …) で差し替える。
 //
 // 設計選択:
@@ -16,7 +16,7 @@
 //     を回避)。
 //   ・**Tick(dt)**: 再生完了済 voice の slot 解放を backend 側に畳み込む。
 //     ゲーム側は dt を渡すだけで一発再生の自然回収を任せられる。
-//   ・**所有しない pcm_data**: clip データは AudioDirector / asset layer 側で
+//   ・**所有しない pcm_data**: clip データは FAudioDirector / asset layer 側で
 //     管理。backend は PlayOneShot 中に内部コピー (XAudio2 はバッファを保持
 //     しないと一発再生中に消えると爆ぜる)。
 //   ・**コピー / ムーブ禁止**: backend は 1 個の長寿命オブジェクト。誤コピー
@@ -24,7 +24,7 @@
 //   ・**STL 不使用 / 全 noexcept**: ACS 全体方針。
 //
 // 範囲外 (将来フェーズで):
-//   ・3D positional / spatial / HRTF (Pillar SpatialAudio 担当)
+//   ・3D positional / spatial / HRTF (Pillar FSpatialAudio 担当)
 //   ・submix bus / DSP chain / reverb
 //   ・wav/ogg/mp3 デコード (今回は Pcm16 raw bytes 入力前提、Wav 形式は
 //     Phase 3 で別 loader と組合せる)
@@ -37,7 +37,7 @@
 namespace acs::game {
 
 // ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
-// SteamworksBridge / VoiceChat と同様、Generic + 安定 subcode で表現。
+// FSteamworksBridge / FVoiceChat と同様、Generic + 安定 subcode で表現。
 // 呼び出し側は `err.subcode == kSubAudioComInitFailed` 等でフィルタ可能。
 inline constexpr u16 kSubAudioAlreadyInitialized = 1200;  // Init を 2 回呼んだ
 inline constexpr u16 kSubAudioNotInitialized     = 1201;  // Init() 前の API 呼び出し
@@ -94,9 +94,9 @@ struct AudioVoiceHandle {
 inline constexpr AudioVoiceHandle kInvalidAudioVoice {};
 
 // ---- 抽象 I/F -------------------------------------------------------------
-// XAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の
-// 差を吸収する純粋仮想 I/F。`AudioDirector::SetBackend(IAudioBackend*)` で
-// 差し込み、AudioDirector は backend nullptr のとき無音 (no-op) で動作する。
+// FXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の
+// 差を吸収する純粋仮想 I/F。`FAudioDirector::SetBackend(IAudioBackend*)` で
+// 差し込み、FAudioDirector は backend nullptr のとき無音 (no-op) で動作する。
 class IAudioBackend {
 public:
     IAudioBackend() noexcept = default;

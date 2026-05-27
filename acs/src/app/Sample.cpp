@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// acs::Sample 実装 — デフォルトフォント解決
+// acs::FSample 実装 — デフォルトフォント解決
 #include "app/Sample.h"
 #include "render/Font.h"
 
-namespace acs::Sample {
+namespace acs::FSample {
 
 const wchar_t* DefaultUIFontPath() noexcept {
     return L"C:\\Windows\\Fonts\\meiryo.ttc";
@@ -28,4 +28,4 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px,
     return ACS_ERR(Asset, 5, "no default UI font found on this platform");
 }
 
-} // namespace acs::Sample
+} // namespace acs::FSample

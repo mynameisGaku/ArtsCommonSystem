@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// 2D パーティクルシステム（CPU プール + SpriteBatch 描画）
+// 2D パーティクルシステム（CPU プール + FSpriteBatch 描画）
 //
 // 用途: 火花・煙・爆発・魔法効果など、ゲームの視覚エフェクト全般。
 //
@@ -39,7 +39,7 @@
 namespace acs {
 
 class IRhiTexture;
-class SpriteBatch;
+class FSpriteBatch;
 
 // エミッタのパラメータ（粒子の初期分布を決める）
 struct EmitterDesc {
@@ -78,7 +78,7 @@ public:
     TResult<void> Init(u32 max_particles = 4096) noexcept;
     void Shutdown() noexcept;
 
-    // null 渡しなら DrawRect 相当の白矩形（SpriteBatch の内部白テクスチャ）
+    // null 渡しなら DrawRect 相当の白矩形（FSpriteBatch の内部白テクスチャ）
     void SetTexture(IRhiTexture* tex) noexcept { _tex = tex; }
 
     // エミッタ設定。中の active=true で連続生成、false で停止のみ。
@@ -95,8 +95,8 @@ public:
     // 全粒子を即座に消滅
     void Reset() noexcept { _active = 0; _spawn_accum = 0; }
 
-    // SpriteBatch に粒子を積む（事前に Begin 済みであること）
-    void Render(SpriteBatch& sb) noexcept;
+    // FSpriteBatch に粒子を積む（事前に Begin 済みであること）
+    void Render(FSpriteBatch& sb) noexcept;
 
     u32  ActiveCount() const noexcept { return _active; }
     u32  Capacity()    const noexcept { return _capacity; }

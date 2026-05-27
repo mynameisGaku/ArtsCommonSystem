@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / PropertyDrawer 実装 (Phase 21a)
+// GameFramework Pillar — editor_core / FPropertyDrawer 実装 (Phase 21a)
 //
-// 仕様の意図は PropertyDrawer.h を参照。本ファイルでは:
-//   ・per-byte StrEq による const char* 比較ループ (Settings / Entitlement と同形)
+// 仕様の意図は FPropertyDrawer.h を参照。本ファイルでは:
+//   ・per-byte StrEq による const char* 比較ループ (FSettings / FEntitlement と同形)
 //   ・Init で bundled drawer 9 種 ("F32Slider" / "Vec2Drag" / "Vec3Drag" /
 //     "Vec4Drag" / "ColorRGB" / "ColorRGBA" / "AssetPath" / "EnumCombo" /
 //     "TextInput") を自動登録
@@ -24,7 +24,7 @@ namespace acs::game::editor_core {
 namespace {
 
 // const char* の per-byte 比較。nullptr 安全。
-// Settings.cpp / Entitlement.cpp と同形 (= ACS 内 StrEq pattern)。
+// FSettings.cpp / FEntitlement.cpp と同形 (= ACS 内 StrEq pattern)。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -142,7 +142,7 @@ void Drawer_ColorRGBA(const PropertyContext& ctx) noexcept {
 // AssetPath: char[] バッファに対する InputText + DragDrop 受け口。
 //   ・data_ptr は null 終端 char[]、容量は kTextInputBufferSize と想定。
 //   ・ImGui 側で path を直接編集可能 (= テキスト入力)。
-//   ・別 panel (AssetBrowser) から "ASSET_PATH" payload で drag-drop されると
+//   ・別 panel (FAssetBrowser) から "ASSET_PATH" payload で drag-drop されると
 //     バッファに strncpy で書き戻す。
 void Drawer_AssetPath(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
@@ -154,7 +154,7 @@ void Drawer_AssetPath(const PropertyContext& ctx) noexcept {
                                           PropertyDrawerRegistry::kTextInputBufferSize);
     DrawTooltip(ctx.tooltip);
 
-    // Drag-drop 受け口: AssetBrowser 側が "ASSET_PATH" payload (= 文字列バイト列)
+    // Drag-drop 受け口: FAssetBrowser 側が "ASSET_PATH" payload (= 文字列バイト列)
     // を SetDragDropPayload した場合、その文字列をバッファに書き戻す。
     // payload size は null 終端を含むかは sender 側次第。安全のため strncpy で
     // 末尾 null を保証する。

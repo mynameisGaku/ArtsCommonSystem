@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — DebugDraw 実装
+// GameFramework Pillar H — FDebugDraw 実装
 //
 // ヘッダの「設計選択」を参照。ここではジオメトリ生成のみで I/O 副作用を持たない。
 // 各 Draw* は内部 TArray に Line を PushBack するだけ。
@@ -9,11 +9,11 @@
 
 namespace acs::game {
 
-void DebugDraw::DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept {
+void FDebugDraw::DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept {
     _lines.PushBack(Line{a, b, color});
 }
 
-void DebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
+void FDebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
     // 4 隅 → 4 辺。
     //   tl --- tr
     //    |     |
@@ -30,7 +30,7 @@ void DebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
     _lines.PushBack(Line{bl, tl, color});  // 左辺
 }
 
-void DebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept {
+void FDebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept {
     // 縮退ガード: 3 角形未満は形にならない。
     if (segments < 3u) segments = 3u;
 
@@ -49,7 +49,7 @@ void DebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept 
     // i = segments のとき theta = 2π となり、開始点に戻るため自然に閉じる。
 }
 
-void DebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
+void FDebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
     // "+" 記号: 横線（左右）+ 縦線（上下）。size は片側長。
     const f32 h = size;
     _lines.PushBack(Line{FVec2{pos.x - h, pos.y}, FVec2{pos.x + h, pos.y}, color});

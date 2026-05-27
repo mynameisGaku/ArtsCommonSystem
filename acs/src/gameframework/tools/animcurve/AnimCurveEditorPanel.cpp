@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — animcurve / AnimCurveEditorPanel 実装 (Phase 22)
+// GameFramework Pillar — animcurve / FAnimCurveEditorPanel 実装 (Phase 22)
 //
-// 仕様の意図は AnimCurveEditorPanel.h を参照。本ファイルでは:
+// 仕様の意図は FAnimCurveEditorPanel.h を参照。本ファイルでは:
 //   ・Init / Shutdown / SetCurve / dirty / callback: 状態管理
 //   ・DrawUI: ImGui で
 //       - Toolbar (Interp Combo / WrapMode Combo / Add Key / Clear /
@@ -32,7 +32,7 @@ static f32 ClampF(f32 v, f32 lo, f32 hi) noexcept {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// AnimationCurve から bbox (= curve 全体の [time_min, time_max] /
+// FAnimationCurve から bbox (= curve 全体の [time_min, time_max] /
 // [value_min, value_max]) を取得する。空 curve なら適当な default を返す
 // (canvas を描画可能な状態にするため)。
 //   ・time:  [0, 1] を最低範囲として、key が外に出ていれば拡張
@@ -45,7 +45,7 @@ struct CurveBounds {
     f32 value_min;
     f32 value_max;
 };
-static CurveBounds ComputeBounds(const AnimationCurve* curve) noexcept {
+static CurveBounds ComputeBounds(const FAnimationCurve* curve) noexcept {
     CurveBounds b { 0.0f, 1.0f, -1.0f, 1.0f };
     if (curve == nullptr) return b;
     const u32 n = curve->KeyCount();
@@ -105,24 +105,24 @@ static const char* InterpName(ECurveInterpolation interp) noexcept {
     }
     return "?";
 }
-static const char* WrapName(AnimationCurve::WrapMode m) noexcept {
+static const char* WrapName(FAnimationCurve::WrapMode m) noexcept {
     switch (m) {
-    case AnimationCurve::WrapMode::Clamp:    return "Clamp";
-    case AnimationCurve::WrapMode::Loop:     return "Loop";
-    case AnimationCurve::WrapMode::PingPong: return "PingPong";
+    case FAnimationCurve::WrapMode::Clamp:    return "Clamp";
+    case FAnimationCurve::WrapMode::Loop:     return "Loop";
+    case FAnimationCurve::WrapMode::PingPong: return "PingPong";
     }
     return "?";
 }
 
 // 既存 key の time, value, in_tangent, out_tangent, in_interp, out_interp を
-// 編集する低レベルヘルパ。AnimationCurve は AddKey で同 time の上書きが
+// 編集する低レベルヘルパ。FAnimationCurve は AddKey で同 time の上書きが
 // 「value + out_interp」だけ、AddKeyHermite で「value + in/out_tangent +
 // in/out_interp」を更新する仕様なので、time を変えるには「古 key を Remove
 // → 新 time で AddKeyHermite で再生成」する形にする。
 //
 // new_time: 新しい time (clamp 済みで渡すこと)
 // 戻り値: 編集後の key の新 index (= sort 後の位置)。
-static i32 ReplaceKeyAtNewTime(AnimationCurve& curve, u32 old_idx,
+static i32 ReplaceKeyAtNewTime(FAnimationCurve& curve, u32 old_idx,
                                f32 new_time, f32 new_value,
                                f32 new_in_tan, f32 new_out_tan,
                                ECurveInterpolation new_interp) noexcept {
@@ -153,7 +153,7 @@ static i32 ReplaceKeyAtNewTime(AnimationCurve& curve, u32 old_idx,
 // =============================================================================
 // Init / Shutdown / SetCurve / IsDirty / ClearDirty / SetOnChangeCallback
 // =============================================================================
-void AnimCurveEditorPanel::Init() noexcept {
+void FAnimCurveEditorPanel::Init() noexcept {
     _curve            = nullptr;
     _selected_key_idx = kNoKeySelected;
     _dirty            = false;
@@ -163,7 +163,7 @@ void AnimCurveEditorPanel::Init() noexcept {
     _on_change_user   = nullptr;
 }
 
-void AnimCurveEditorPanel::Shutdown() noexcept {
+void FAnimCurveEditorPanel::Shutdown() noexcept {
     _curve            = nullptr;
     _selected_key_idx = kNoKeySelected;
     _dirty            = false;
@@ -173,7 +173,7 @@ void AnimCurveEditorPanel::Shutdown() noexcept {
     _on_change_user   = nullptr;
 }
 
-void AnimCurveEditorPanel::SetCurve(AnimationCurve* curve) noexcept {
+void FAnimCurveEditorPanel::SetCurve(FAnimationCurve* curve) noexcept {
     _curve            = curve;
     _selected_key_idx = kNoKeySelected;
     _dirty            = false;
@@ -181,25 +181,25 @@ void AnimCurveEditorPanel::SetCurve(AnimationCurve* curve) noexcept {
     _drag_key_idx     = -1;
 }
 
-AnimationCurve* AnimCurveEditorPanel::CurrentCurve() const noexcept {
+FAnimationCurve* FAnimCurveEditorPanel::CurrentCurve() const noexcept {
     return _curve;
 }
 
-bool AnimCurveEditorPanel::IsDirty() const noexcept {
+bool FAnimCurveEditorPanel::IsDirty() const noexcept {
     return _dirty;
 }
 
-void AnimCurveEditorPanel::ClearDirty() noexcept {
+void FAnimCurveEditorPanel::ClearDirty() noexcept {
     _dirty = false;
 }
 
-void AnimCurveEditorPanel::SetOnChangeCallback(CurveChangeCallback cb,
+void FAnimCurveEditorPanel::SetOnChangeCallback(CurveChangeCallback cb,
                                                void* user) noexcept {
     _on_change_cb   = cb;
     _on_change_user = user;
 }
 
-void AnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
+void FAnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
     _dirty = true;
     if (immediate && _on_change_cb != nullptr) {
         _on_change_cb(_on_change_user, _curve);
@@ -209,7 +209,7 @@ void AnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
 // =============================================================================
 // DrawUI — ImGui で toolbar + canvas を描画
 // =============================================================================
-void AnimCurveEditorPanel::DrawUI() noexcept {
+void FAnimCurveEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &_visible)) {
@@ -224,7 +224,7 @@ void AnimCurveEditorPanel::DrawUI() noexcept {
         return;
     }
 
-    AnimationCurve& curve = *_curve;
+    FAnimationCurve& curve = *_curve;
 
     // ------------------------------------------------------------------------
     // Toolbar 1: Interpolation Combo (= 選択中 key の out_interp を切替)
@@ -276,12 +276,12 @@ void AnimCurveEditorPanel::DrawUI() noexcept {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(95.0f);
     {
-        const AnimationCurve::WrapMode cur = curve.PreWrap();
+        const FAnimationCurve::WrapMode cur = curve.PreWrap();
         if (ImGui::BeginCombo("##pre_wrap", WrapName(cur))) {
-            const AnimationCurve::WrapMode kAll[3] = {
-                AnimationCurve::WrapMode::Clamp,
-                AnimationCurve::WrapMode::Loop,
-                AnimationCurve::WrapMode::PingPong,
+            const FAnimationCurve::WrapMode kAll[3] = {
+                FAnimationCurve::WrapMode::Clamp,
+                FAnimationCurve::WrapMode::Loop,
+                FAnimationCurve::WrapMode::PingPong,
             };
             for (u32 i = 0; i < 3u; ++i) {
                 const bool selected = (cur == kAll[i]);
@@ -299,12 +299,12 @@ void AnimCurveEditorPanel::DrawUI() noexcept {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(95.0f);
     {
-        const AnimationCurve::WrapMode cur = curve.PostWrap();
+        const FAnimationCurve::WrapMode cur = curve.PostWrap();
         if (ImGui::BeginCombo("##post_wrap", WrapName(cur))) {
-            const AnimationCurve::WrapMode kAll[3] = {
-                AnimationCurve::WrapMode::Clamp,
-                AnimationCurve::WrapMode::Loop,
-                AnimationCurve::WrapMode::PingPong,
+            const FAnimationCurve::WrapMode kAll[3] = {
+                FAnimationCurve::WrapMode::Clamp,
+                FAnimationCurve::WrapMode::Loop,
+                FAnimationCurve::WrapMode::PingPong,
             };
             for (u32 i = 0; i < 3u; ++i) {
                 const bool selected = (cur == kAll[i]);

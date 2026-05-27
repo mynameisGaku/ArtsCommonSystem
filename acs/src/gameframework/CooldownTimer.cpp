@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CooldownTimer 実装
+// GameFramework Pillar R — FCooldownTimer 実装
 //
 // 設計メモ:
-//  ・slot 再利用は線形走査 (SceneTimer / CollisionWorld2D と同方針)。アクター 1
+//  ・slot 再利用は線形走査 (FSceneTimer / FCollisionWorld2D と同方針)。アクター 1
 //    体あたりの cooldown 数はせいぜい数〜数十、システム全体でも数百以下が想定
 //    なので O(N) で十分。
 //  ・generation は u8 (0=未使用、1〜255 が有効)。255 で wrap して 1 に戻す
@@ -19,7 +19,7 @@
 
 namespace acs::game {
 
-u32 CooldownTimer::AcquireSlot() noexcept {
+u32 FCooldownTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用
     const usize n = _slots.Size();
     for (usize i = 0; i < n; ++i) {
@@ -35,11 +35,11 @@ u32 CooldownTimer::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-CooldownId CooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
+CooldownId FCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
     return CooldownId::Pack(index, gen);
 }
 
-CooldownTimer::Slot* CooldownTimer::Resolve(CooldownId id) noexcept {
+FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= _slots.Size()) return nullptr;
@@ -48,7 +48,7 @@ CooldownTimer::Slot* CooldownTimer::Resolve(CooldownId id) noexcept {
     return &s;
 }
 
-const CooldownTimer::Slot* CooldownTimer::Resolve(CooldownId id) const noexcept {
+const FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= _slots.Size()) return nullptr;
@@ -57,7 +57,7 @@ const CooldownTimer::Slot* CooldownTimer::Resolve(CooldownId id) const noexcept 
     return &s;
 }
 
-CooldownId CooldownTimer::Register(const char* label, f32 duration_sec) noexcept {
+CooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcept {
     if (duration_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
@@ -79,7 +79,7 @@ CooldownId CooldownTimer::Register(const char* label, f32 duration_sec) noexcept
     return MakeId(idx, new_gen);
 }
 
-void CooldownTimer::Unregister(CooldownId id) noexcept {
+void FCooldownTimer::Unregister(CooldownId id) noexcept {
     Slot* s = Resolve(id);
     if (s == nullptr) return;
 
@@ -92,7 +92,7 @@ void CooldownTimer::Unregister(CooldownId id) noexcept {
     if (_active_count > 0u) --_active_count;
 }
 
-bool CooldownTimer::TryUse(CooldownId id) noexcept {
+bool FCooldownTimer::TryUse(CooldownId id) noexcept {
     Slot* s = Resolve(id);
     if (s == nullptr) return false;
     if (!s->charged) return false;
@@ -103,19 +103,19 @@ bool CooldownTimer::TryUse(CooldownId id) noexcept {
     return true;
 }
 
-bool CooldownTimer::IsCharged(CooldownId id) const noexcept {
+bool FCooldownTimer::IsCharged(CooldownId id) const noexcept {
     const Slot* s = Resolve(id);
     return s != nullptr && s->charged;
 }
 
-f32 CooldownTimer::Remaining(CooldownId id) const noexcept {
+f32 FCooldownTimer::Remaining(CooldownId id) const noexcept {
     const Slot* s = Resolve(id);
     if (s == nullptr) return 0.0f;
     if (s->charged) return 0.0f;
     return s->remaining > 0.0f ? s->remaining : 0.0f;
 }
 
-f32 CooldownTimer::Progress(CooldownId id) const noexcept {
+f32 FCooldownTimer::Progress(CooldownId id) const noexcept {
     const Slot* s = Resolve(id);
     if (s == nullptr) return 0.0f;
     if (s->charged) return 1.0f;
@@ -127,7 +127,7 @@ f32 CooldownTimer::Progress(CooldownId id) const noexcept {
     return p;
 }
 
-void CooldownTimer::ForceReady(CooldownId id) noexcept {
+void FCooldownTimer::ForceReady(CooldownId id) noexcept {
     Slot* s = Resolve(id);
     if (s == nullptr) return;
     const bool was_charged = s->charged;
@@ -139,14 +139,14 @@ void CooldownTimer::ForceReady(CooldownId id) noexcept {
     }
 }
 
-void CooldownTimer::Reset(CooldownId id) noexcept {
+void FCooldownTimer::Reset(CooldownId id) noexcept {
     Slot* s = Resolve(id);
     if (s == nullptr) return;
     s->remaining = s->duration;
     s->charged   = false;
 }
 
-void CooldownTimer::SetDuration(CooldownId id, f32 new_duration_sec) noexcept {
+void FCooldownTimer::SetDuration(CooldownId id, f32 new_duration_sec) noexcept {
     if (new_duration_sec <= 0.0f) return;
     Slot* s = Resolve(id);
     if (s == nullptr) return;
@@ -159,7 +159,7 @@ void CooldownTimer::SetDuration(CooldownId id, f32 new_duration_sec) noexcept {
     }
 }
 
-void CooldownTimer::ClearAll() noexcept {
+void FCooldownTimer::ClearAll() noexcept {
     const usize n = _slots.Size();
     for (usize i = 0; i < n; ++i) {
         Slot& s = _slots[i];
@@ -173,7 +173,7 @@ void CooldownTimer::ClearAll() noexcept {
     _active_count = 0u;
 }
 
-void CooldownTimer::Tick(f32 dt) noexcept {
+void FCooldownTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (_active_count == 0u) return;
 

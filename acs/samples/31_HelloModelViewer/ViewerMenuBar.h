@@ -3,8 +3,8 @@
 //
 // 役割:
 //   ・MainMenuBar に File > Open Model.../Save Layout/Load Layout/Theme.../Quit
-//     を 1 列追加する (Workspace の Window/Layout メニューと同じバーへマージ)。
-//   ・File > Theme... のトグル状態を保持し、ON の間だけ Theme Settings 窓と
+//     を 1 列追加する (Workspace の FWindow/Layout メニューと同じバーへマージ)。
+//   ・File > Theme... のトグル状態を保持し、ON の間だけ Theme FSettings 窓と
 //     Theme Quick Actions 窓を描画する。
 //
 // なぜ独立クラスにしたか:
@@ -16,10 +16,10 @@
 #include "foundation/Types.h"
 
 namespace acs::game {
-class Game;
+class FGame;
 namespace editor_core {
-class EditorWorkspace;
-class EditorTheme;
+class FEditorWorkspace;
+class FEditorTheme;
 }
 }
 
@@ -27,12 +27,12 @@ namespace hellomv {
 
 class ViewerMenuBar {
 public:
-    // 1 フレーム分の MainMenuBar 描画と Theme Settings 窓の描画をまとめて呼ぶ。
-    // Quit や Layout 保存/復元など Scene 横断の副作用は Game/Workspace/Theme に
-    // 直接書き込む。EditorWorkspace と EditorTheme は caller 所有。
-    void Draw(acs::game::Game& game,
-              acs::game::editor_core::EditorWorkspace& workspace,
-              acs::game::editor_core::EditorTheme& theme,
+    // 1 フレーム分の MainMenuBar 描画と Theme FSettings 窓の描画をまとめて呼ぶ。
+    // Quit や Layout 保存/復元など Scene 横断の副作用は FGame/Workspace/Theme に
+    // 直接書き込む。FEditorWorkspace と FEditorTheme は caller 所有。
+    void Draw(acs::game::FGame& game,
+              acs::game::editor_core::FEditorWorkspace& workspace,
+              acs::game::editor_core::FEditorTheme& theme,
               const char* default_model_path,
               const wchar_t* layout_path,
               const wchar_t* theme_path) noexcept;

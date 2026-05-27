@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — Tween / TweenManager (Phase 3)
+// GameFramework Pillar C — FTween / FTweenManager (Phase 3)
 //
-// 値書き戻し型 Tween: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
-// TweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
+// 値書き戻し型 FTween: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
+// FTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
 // std::function 非使用方針と整合)。Easing は関数ポインタで指定。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::TweenManager _tweens;
+//       acs::game::FTweenManager _tweens;
 //       acs::FVec3 _color{0, 0, 0};
 //
 //       void OnEnter() noexcept override {
@@ -25,10 +25,10 @@
 //
 // 安全性:
 //   ・Handle は (index, generation) で stale 参照を検出。Cancel(h) は
-//     完了済 or 別 Tween に再利用された slot を弄らない。
+//     完了済 or 別 FTween に再利用された slot を弄らない。
 //   ・duration <= 0 を渡すと「即時設定」(target に to を書いて Handle=invalid 返す)。
 //   ・target が null なら no-op + invalid handle 返却。
-//   ・Tween 完了時は target に正確に `to` を書く (浮動小数誤差を 1 frame 残さない)。
+//   ・FTween 完了時は target に正確に `to` を書く (浮動小数誤差を 1 frame 残さない)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -38,41 +38,41 @@
 
 namespace acs::game {
 
-struct TweenHandle {
+struct FTweenHandle {
     u32  index      = 0xFFFFFFFFu;
     u32  generation = 0;
     bool IsValid() const noexcept { return generation != 0; }
 };
 
-class TweenManager {
+class FTweenManager {
 public:
-    TweenManager() noexcept = default;
-    ~TweenManager() noexcept = default;
+    FTweenManager() noexcept = default;
+    ~FTweenManager() noexcept = default;
 
-    TweenManager(const TweenManager&)            = delete;
-    TweenManager& operator=(const TweenManager&) = delete;
+    FTweenManager(const FTweenManager&)            = delete;
+    FTweenManager& operator=(const FTweenManager&) = delete;
 
-    // 各 Tween は target に毎 Tick `from→to` の補間値を書き込む。
+    // 各 FTween は target に毎 Tick `from→to` の補間値を書き込む。
     // duration <= 0 は即時 `*target = to` + invalid handle 返却。
     // target が null は no-op + invalid。ease は null なら Linear 扱い。
-    TweenHandle Tween(f32* target,  f32  from, f32  to, f32 duration,
+    FTweenHandle Tween(f32* target,  f32  from, f32  to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
-    TweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+    FTweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
-    TweenHandle Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+    FTweenHandle Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
 
-    // 進行中の Tween を中止 (target は最後に書いた値で止まる)。stale handle は無視。
-    void Cancel(TweenHandle h) noexcept;
+    // 進行中の FTween を中止 (target は最後に書いた値で止まる)。stale handle は無視。
+    void Cancel(FTweenHandle h) noexcept;
 
-    // 全 Tween を即座に終了させる (target は完了値 to が書かれる)。
+    // 全 FTween を即座に終了させる (target は完了値 to が書かれる)。
     // Scene::OnExit 等で確実に状態を確定させたいときに。
     void CompleteAll() noexcept;
 
-    // 全 Tween を即座に破棄 (target に最終書き込みなし)。
+    // 全 FTween を即座に破棄 (target に最終書き込みなし)。
     void CancelAll() noexcept;
 
-    bool IsActive(TweenHandle h) const noexcept;
+    bool IsActive(FTweenHandle h) const noexcept;
     u32  ActiveCount() const noexcept;
 
     // 毎フレーム呼ぶ。dt はゲーム時間 (Clock::Dt() か Scene::OnUpdate の dt)。

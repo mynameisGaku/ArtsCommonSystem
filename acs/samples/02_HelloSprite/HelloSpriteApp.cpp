@@ -40,7 +40,7 @@ void HelloSpriteApp::OnStart() noexcept {
 
     if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat(), kMaxSprites);
         r.IsErr()) {
-        ACS_LOG_ERROR("SpriteBatch::Init failed: %s", r.Error().message);
+        ACS_LOG_ERROR("FSpriteBatch::Init failed: %s", r.Error().message);
         Quit();
         return;
     }

@@ -39,7 +39,7 @@ void HelloAnimationApp::OnStart() noexcept {
 
     // 2D HUD
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
     const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                        static_cast<f32>(GetRenderer().Swapchain()->Height());
@@ -71,10 +71,10 @@ void HelloAnimationApp::OnRender() noexcept {
     if (!cl) return;
 
     // ボーンパレットを書き出してから scene に委譲。
-    FMat4 palette[SkinnedShader::kMaxBones];
-    const u32 nb = _player.WritePalette(palette, SkinnedShader::kMaxBones);
+    FMat4 palette[FSkinnedShader::kMaxBones];
+    const u32 nb = _player.WritePalette(palette, FSkinnedShader::kMaxBones);
 
-    // Sky → 地面 → スキンメッシュ描画は scene に委譲。
+    // FSky → 地面 → スキンメッシュ描画は scene に委譲。
     _scene.Render(_sky, _std_shader, _shader, *cl, _camera,
                   _gm_plane, _gm_snake, palette, nb);
 
@@ -101,7 +101,7 @@ void HelloAnimationApp::OnShutdown() noexcept {
     _batch.Shutdown();
     _gm_snake = SkinnedGpuMesh{};
     _gm_plane = GpuMesh{};
-    _snake    = TRc<SkinnedMeshAsset>();
+    _snake    = TRc<FSkinnedMeshAsset>();
     _std_shader.Shutdown();
     _shader.Shutdown();
     _sky.Shutdown();

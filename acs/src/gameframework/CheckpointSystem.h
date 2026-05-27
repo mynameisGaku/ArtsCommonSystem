@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Genre Kit (Platformer) — CheckpointSystem
+// GameFramework Genre Kit (Platformer) — FCheckpointSystem
 //
 // プラットフォーマー (and 派生ジャンル) の心臓部である「チェックポイント =
 // 死亡時に戻る復活ポイント」を 1 クラスにまとめた小型マネージャ。
@@ -7,19 +7,19 @@
 // 1 つ保持して TriggerRespawn() で復活先座標 + level index を引き出す。
 //
 // 想定する位置付け:
-//   ・Pillar R/I (HealthSystem) との連携:
-//     - HealthSystem の DeathCallback で「死亡 → CheckpointSystem.TriggerRespawn」
-//       を叩くのが定型パターン。CheckpointSystem 自体は HP の状態は持たず、
+//   ・Pillar R/I (FHealthSystem) との連携:
+//     - FHealthSystem の DeathCallback で「死亡 → FCheckpointSystem.TriggerRespawn」
+//       を叩くのが定型パターン。FCheckpointSystem 自体は HP の状態は持たず、
 //       「どこに復活させるか」だけを管理する責務に絞っている。
-//   ・Pillar S (SaveSlot) との連携:
+//   ・Pillar S (FSaveSlot) との連携:
 //     - 「現在 active な checkpoint id + unlocked id 群」をセーブする想定。
 //       本クラス自体は I/O を持たず、外部から照会される。
-//   ・Progression / EconomyDirector との違い:
+//   ・FProgression / FEconomyDirector との違い:
 //     - 進行系の累計値 (XP / 通貨) ではなく、ステージ内の「リスポーン拠点」を
 //       1 つだけ active に保つ単純な座標マネージャ。
 //
 // 使い方:
-//   CheckpointSystem cps;
+//   FCheckpointSystem cps;
 //
 //   // レベルロード時に 1 度ずつ配置を登録。
 //   CheckpointInfo cp1{};
@@ -57,7 +57,7 @@
 //   cps.UnlockCheckpoint("cp.stage1.secret");
 //   cps.ActivateCheckpoint("cp.stage1.secret");
 //
-//   // 死亡時 (HealthSystem の DeathCallback 内)
+//   // 死亡時 (FHealthSystem の DeathCallback 内)
 //   acs::FVec2 pos; u32 lv;
 //   if (cps.TriggerRespawn(pos, lv)) {
 //       // pos に player を移動、lv のレベルをロードし直す
@@ -68,7 +68,7 @@
 //     / FShapeId / FNodeId と同パターン。Unregister 後の slot 再利用でも古い
 //     handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0 dummy)。
 //   ・**string id を主キーに**: gameplay 設計者が触る Trigger アクタは「Activate
-//     先 checkpoint id」を文字列で指定するのが一般的 (Tilemap / Unity prefab の
+//     先 checkpoint id」を文字列で指定するのが一般的 (FTilemap / Unity prefab の
 //     文化と整合)。handle 経由の Activate も提供して両対応。
 //   ・**所有しない const char***: id は呼出側 (リソースバンドル or ステージ
 //     データ) が保証する static lifetime の文字列リテラルを想定。STL <string>
@@ -83,22 +83,22 @@
 //     ClearAll で初期化される (Save/Load 連携は外部から照会可能)。
 //   ・**active checkpoint は 1 つだけ**: 「複数同時 active」は本クラスの責務外
 //     (= ジャンルキットを超える概念)。最新の Activate が常に勝つ。
-//   ・**FCallback は関数ポインタ + user**: Progression / HealthSystem と同パターン。
+//   ・**FCallback は関数ポインタ + user**: FProgression / FHealthSystem と同パターン。
 //     Activate / Respawn の 2 系統を用意し、UI トースト演出と sound trigger を
 //     ゲーム側で素直に分離できるようにする。
 //   ・**LastSpawnLevelIndex**: TriggerRespawn の後でも level_index を取れる
 //     ように getter を分離。レベルロード中に out_param が消えるエッジで使う。
-//   ・**全 noexcept、非コピー・非ムーブ**: Game / Scene 単位で 1 個保持される
+//   ・**全 noexcept、非コピー・非ムーブ**: FGame / Scene 単位で 1 個保持される
 //     想定。Save/Load も id ベースで再現するので所有権移動は要らない。
 //   ・**STL 不使用、<string> 禁止**: ACS 全体方針。文字列は const char* 非所有のみ。
 //
 // 範囲外 (将来 Phase で):
-//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は GameFlow と組み合わせて
+//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は FGameFlow と組み合わせて
 //     ゲーム側で表現する。本クラスは座標 + level index のみ。
-//   ・SaveSlot 経由の永続化は外部 (SaveSlot<PlatformerSaveData>) で実装。
+//   ・FSaveSlot 経由の永続化は外部 (FSaveSlot<PlatformerSaveData>) で実装。
 //     本クラスからは CurrentCheckpoint() / IsUnlocked() で id を引き出すだけ。
 //   ・自動 checkpoint (移動量で勝手に発火) は Trigger 側の設計問題なので
-//     CinematicsDirector / TriggerWorld2D 側で組む。
+//     FCinematicsDirector / FTriggerWorld2D 側で組む。
 #pragma once
 
 #include "container/Array.h"
@@ -128,7 +128,7 @@ struct CheckpointId {
 // ---- CheckpointInfo: 1 チェックポイントの定義 -------------------------------
 // id              : 検索 / Save/Load / トリガ参照のキー。文字列リテラル想定 (非所有)。
 // spawn_pos       : 復活時のプレイヤー世界座標。
-// level_index     : 復活時にロードするレベル / シーンの index。SceneManager で
+// level_index     : 復活時にロードするレベル / シーンの index。FSceneManager で
 //                   切替えるための鍵 (caller 解釈)。同一レベル内なら全 checkpoint
 //                   が同じ値を持つ。
 // sort_order      : レベル内での順序 (one_way 判定で使う)。小さいほど序盤、
@@ -155,16 +155,16 @@ struct CheckpointInfo {
 using ActivateCallback = void(*)(void* user, const char* checkpoint_id, FVec2 spawn_pos) noexcept;
 using RespawnCallback  = void(*)(void* user, const char* checkpoint_id, FVec2 spawn_pos) noexcept;
 
-// ---- CheckpointSystem ------------------------------------------------------
-class CheckpointSystem {
+// ---- FCheckpointSystem ------------------------------------------------------
+class FCheckpointSystem {
 public:
-    CheckpointSystem()  noexcept = default;
-    ~CheckpointSystem() noexcept = default;
+    FCheckpointSystem()  noexcept = default;
+    ~FCheckpointSystem() noexcept = default;
 
-    CheckpointSystem(const CheckpointSystem&)            = delete;
-    CheckpointSystem& operator=(const CheckpointSystem&) = delete;
-    CheckpointSystem(CheckpointSystem&&)                 = delete;
-    CheckpointSystem& operator=(CheckpointSystem&&)      = delete;
+    FCheckpointSystem(const FCheckpointSystem&)            = delete;
+    FCheckpointSystem& operator=(const FCheckpointSystem&) = delete;
+    FCheckpointSystem(FCheckpointSystem&&)                 = delete;
+    FCheckpointSystem& operator=(FCheckpointSystem&&)      = delete;
 
     // ---- 配置登録 / 解除 ------------------------------------------------
     // 同 id の 2 重登録は invalid 返却 (黙って弾く)。info.id == nullptr も同様。

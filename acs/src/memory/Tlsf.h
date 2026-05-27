@@ -22,22 +22,22 @@ constexpr int ALIGN_SIZE       = 16;
 constexpr int MIN_BLOCK_SIZE   = 32;
 
 // ブロックヘッダ。フリー時はリストポインタが payload とオーバーレイする
-struct BlockHeader {
-    BlockHeader* prev_phys_block;   // 物理的に前のブロック
+struct FBlockHeader {
+    FBlockHeader* prev_phys_block;   // 物理的に前のブロック
     usize        size_and_flags;    // 上位ビット=サイズ、ビット 0=this_free、ビット 1=prev_free
-    BlockHeader* next_free;         // フリー時のみ有効
-    BlockHeader* prev_free;         // フリー時のみ有効
+    FBlockHeader* next_free;         // フリー時のみ有効
+    FBlockHeader* prev_free;         // フリー時のみ有効
 };
 
 } // namespace tlsf
 
-class TlsfAllocator final : public Allocator {
+class FTlsfAllocator final : public FAllocator {
 public:
-    TlsfAllocator() noexcept = default;
-    ~TlsfAllocator() noexcept override;
+    FTlsfAllocator() noexcept = default;
+    ~FTlsfAllocator() noexcept override;
 
-    TlsfAllocator(const TlsfAllocator&) = delete;
-    TlsfAllocator& operator=(const TlsfAllocator&) = delete;
+    FTlsfAllocator(const FTlsfAllocator&) = delete;
+    FTlsfAllocator& operator=(const FTlsfAllocator&) = delete;
 
     // 単一プールで初期化（pool_base は 16 バイト整列、pool_size >= 1KB 推奨）
     TResult<void> Init(void* pool_base, usize pool_size) noexcept;
@@ -70,8 +70,8 @@ public:
 private:
     u32              _fl_bitmap = 0;
     u32              _sl_bitmap[tlsf::FL_INDEX_COUNT] = {};
-    tlsf::BlockHeader* _blocks[tlsf::FL_INDEX_COUNT][tlsf::SL_INDEX_COUNT] = {};
-    tlsf::BlockHeader  _null_block {};
+    tlsf::FBlockHeader* _blocks[tlsf::FL_INDEX_COUNT][tlsf::SL_INDEX_COUNT] = {};
+    tlsf::FBlockHeader  _null_block {};
 
     VmReservation    _reservation;
     bool             _owns_reservation = false;
@@ -79,12 +79,12 @@ private:
     u64              _bytes_used = 0;
     u64              _bytes_peak = 0;
 
-    void InsertFreeBlock(tlsf::BlockHeader* block) noexcept;
-    void RemoveFreeBlock(tlsf::BlockHeader* block) noexcept;
-    tlsf::BlockHeader* SearchSuitableBlock(int& fl, int& sl) noexcept;
-    void TrimFreeBlock(tlsf::BlockHeader* block, usize size) noexcept;
-    tlsf::BlockHeader* MergePrev(tlsf::BlockHeader* block) noexcept;
-    tlsf::BlockHeader* MergeNext(tlsf::BlockHeader* block) noexcept;
+    void InsertFreeBlock(tlsf::FBlockHeader* block) noexcept;
+    void RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept;
+    tlsf::FBlockHeader* SearchSuitableBlock(int& fl, int& sl) noexcept;
+    void TrimFreeBlock(tlsf::FBlockHeader* block, usize size) noexcept;
+    tlsf::FBlockHeader* MergePrev(tlsf::FBlockHeader* block) noexcept;
+    tlsf::FBlockHeader* MergeNext(tlsf::FBlockHeader* block) noexcept;
 };
 
 } // namespace acs

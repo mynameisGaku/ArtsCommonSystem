@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloGameFramework — Game 派生のアプリケーションクラス。
+// HelloGameFramework — FGame 派生のアプリケーションクラス。
 //
 // AppState (PlayerProfile) の構築と固定 step の明示を行い、InitialScene() で
-// TitleScene を返す。Game の最小限カスタマイズ例。
+// TitleScene を返す。FGame の最小限カスタマイズ例。
 #pragma once
 
 #include "gameframework/GameFramework.h"
 
 namespace hellogf {
 
-class HelloGfApp : public acs::game::Game {
+class HelloGfApp : public acs::game::FGame {
 public:
     void OnStart() noexcept override;
 

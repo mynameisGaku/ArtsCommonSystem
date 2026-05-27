@@ -13,8 +13,8 @@
 //   ・HDR RT: skybox → IBL sphere grid → 動的オーブ → ガラス球 (refraction)
 //   ・geometry G-buffer pass: motion vector + world normal を MRT に焼く
 //   ・SSR / SSAO / SSGI を計算 (次フレーム用に 1-frame latency)
-//   ・PostProcess: Bloom + ACES tonemap + CAS sharpen + auto-expo + grading
-//   ・SpriteBatch HUD (LDR backbuffer に sub-window + テキスト)
+//   ・FPostProcess: Bloom + ACES tonemap + CAS sharpen + auto-expo + grading
+//   ・FSpriteBatch HUD (LDR backbuffer に sub-window + テキスト)
 #include "HelloIblApp.h"
 #include "IblEnvBuilder.h"
 #include "IblLightmapBaker.h"
@@ -40,7 +40,7 @@ void HelloIblApp::OnStart() noexcept {
     const u32 sw = sc->Width();
     const u32 sh = sc->Height();
 
-    // HDR PostProcess (Bloom + ACES Tonemap) — HDR RT は R16G16B16A16_Float
+    // HDR FPostProcess (Bloom + ACES Tonemap) — HDR RT は R16G16B16A16_Float
     ACS_SAMPLE_INIT(_post.Init(*dev, sw, sh, GetRenderer().ColorFormat()));
 
     // シーン側は HDR RT format に揃える
@@ -53,7 +53,7 @@ void HelloIblApp::OnStart() noexcept {
     auto plane  = Primitive::MakePlane(40.0f, 40.0f);
     ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, _gm_plane));
 
-    // ShadowMap: 2048 px × 3 cascade atlas (CSM)
+    // FShadowMap: 2048 px × 3 cascade atlas (CSM)
     ACS_SAMPLE_INIT(_shadow.Init(*dev, 2048, /*cascade_count=*/3));
     // SSR: HDR と同フォーマット / 同サイズで scratch を確保
     ACS_SAMPLE_INIT(_ssr.Init(*dev, _post.HdrFormat(), sw, sh));
@@ -97,9 +97,9 @@ void HelloIblApp::OnStart() noexcept {
         _lightmap = Move(lm_r.Value());
     }
 
-    // SpriteBatch は LDR backbuffer (tonemap 後)
+    // FSpriteBatch は LDR backbuffer (tonemap 後)
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
     const f32 aspect = static_cast<f32>(sw) / static_cast<f32>(sh);
     _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
@@ -130,7 +130,7 @@ void HelloIblApp::OnStart() noexcept {
 
     // CAS sharpening: subtle clarity boost、UE5 デフォルト相当 0.4
     _post_params.cas_strength    = 0.4f;
-    // SSR は PbrShader 側で合成するので tonemap 側の SSR は無効化。intensity 0 に
+    // SSR は FPbrShader 側で合成するので tonemap 側の SSR は無効化。intensity 0 に
     // しないと fallback bloom mip が誤加算される。
     _post_params.ssr_intensity   = 0.0f;
 
@@ -231,8 +231,8 @@ void HelloIblApp::OnUpdate(f32 dt) noexcept {
 // OnCustomFrame() で HDR 経路に切替えてデフォルトフローを置き換える。
 // 1) IBL build (必要なら、RT を一時的に切替)
 // 2) HDR RT にシーン (skybox + sphere grid) を描画
-// 3) PostProcess.Render で Bloom + Tonemap → LDR backbuffer
-// 4) SpriteBatch HUD を LDR backbuffer に
+// 3) FPostProcess.Render で Bloom + Tonemap → LDR backbuffer
+// 4) FSpriteBatch HUD を LDR backbuffer に
 bool HelloIblApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();
     IRhiCommandList* cl    = GetRenderer().CommandList();
@@ -243,7 +243,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
 
     UpdateDynamicOrbs(*this);
 
-    // TAA Halton(2,3) sub-pixel jitter を skybox / PbrShader / SSR / SSAO の
+    // TAA Halton(2,3) sub-pixel jitter を skybox / FPbrShader / SSR / SSAO の
     // VP に適用する。複数フレームの累積でエッジが滑らかになる。
     const FMat4 vp_no_jitter = _camera.ViewProjection();
     const FMat4 vp_for_render = BuildJitteredViewProjection(*this, vp_no_jitter,
@@ -288,7 +288,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
 
     // SH9 mode: 現在の env cubemap (sky or studio HDR) から SH 9 を計算
     if (_need_sh9_rebuild) {
-        // Studio HDR は別 builder で既に焼かれている。それ以外は Sky 評価から焼く。
+        // Studio HDR は別 builder で既に焼かれている。それ以外は FSky 評価から焼く。
         if (_current_preset != 3) {
             BuildEquirectFromSky(_sky, _equirect_rgba);
         }
@@ -351,7 +351,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     _prev_vp_no_jitter = vp_no_jitter;
     _taa_prev_vp_valid = true;
 
-    // ===== 3) SpriteBatch HUD (LDR backbuffer) =====
+    // ===== 3) FSpriteBatch HUD (LDR backbuffer) =====
     DrawHud(*this, sc->Width(), sc->Height());
 
     cl->EndRenderToSwapchain(*sc, buf_idx);

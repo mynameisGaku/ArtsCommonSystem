@@ -28,7 +28,7 @@ namespace acs { class FString; }
 
 namespace acs::mvvm::imgui {
 
-// === 編集可能 (View → ViewModel に書き戻す) ===
+// === 編集可能 (View → FViewModel に書き戻す) ===
 void Bind(const char* label, Observable<f32>& v, f32 v_min, f32 v_max) noexcept;
 void Bind(const char* label, Observable<f64>& v, f64 v_min, f64 v_max) noexcept;
 void Bind(const char* label, Observable<i32>& v, i32 v_min, i32 v_max) noexcept;

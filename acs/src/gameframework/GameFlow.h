@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — GameFlow (高レベルゲームフロー state machine)
+// GameFramework 完成度システム v7 — FGameFlow (高レベルゲームフロー state machine)
 //
 // 役割:
 //   タイトル / メインメニュー / ゲームプレイ / ポーズ / 設定 / GameOver 等、ゲーム
-//   全体のフロー状態を保持する 1 シングルトン的 state machine。SceneManager より
+//   全体のフロー状態を保持する 1 シングルトン的 state machine。FSceneManager より
 //   1 段上のレイヤで、「いまユーザーがゲームのどの段階に居るか」を識別する。
 //
-// SceneManager との棲み分け:
-//   ・SceneManager は描画用 Scene のスタックを管理する低レベル機構
+// FSceneManager との棲み分け:
+//   ・FSceneManager は描画用 Scene のスタックを管理する低レベル機構
 //     (push / pop / change + 退場 ring buffer + fixed_dt)。
-//   ・GameFlow は「ゲームとしての論理状態」を管理する高レベル state machine。
+//   ・FGameFlow は「ゲームとしての論理状態」を管理する高レベル state machine。
 //     状態ごとの enter / exit コールバックでサウンド切替や Save 書き出し等の
-//     副作用を発火し、実描画はコールバックの中で SceneManager を呼び分ける。
-//   ・両者は独立。GameFlow は SceneManager に依存しない (テスト容易性のため)。
+//     副作用を発火し、実描画はコールバックの中で FSceneManager を呼び分ける。
+//   ・両者は独立。FGameFlow は FSceneManager に依存しない (テスト容易性のため)。
 //
 // 設計選択:
 //   ・**enum EFlowState (10 状態固定)**: ゲームの抽象状態を列挙。動的追加なし。
@@ -24,22 +24,22 @@
 //   ・**遷移テーブル**: 不正遷移 (例: Gameplay → Splash) を防ぐため、from →
 //     to の可否を 10x10 の bool テーブルで持つ。Init() 時に組み立てる。
 //   ・**コールバックは関数ポインタ + void* user**: ACS 規約に従い std::function
-//     不使用。Pillar Q CinematicsDirector / HotReload と同形。1 state につき
+//     不使用。Pillar Q FCinematicsDirector / FHotReload と同形。1 state につき
 //     最大 enter / exit 1 個ずつ。
 //   ・**fade 量は state holder のみ**: FadeProgress() を [0, 1] で返す。描画は
-//     呼び出し側が SpriteBatch で fullscreen overlay を被せる責任。
-//     FadeTransition と独立 (シーン内 fade と画面間 fade を別レイヤで扱える)。
-//   ・**非コピー・非ムーブ**: Game に 1 個持つ長寿命オブジェクト。state 分裂
+//     呼び出し側が FSpriteBatch で fullscreen overlay を被せる責任。
+//     FFadeTransition と独立 (シーン内 fade と画面間 fade を別レイヤで扱える)。
+//   ・**非コピー・非ムーブ**: FGame に 1 個持つ長寿命オブジェクト。state 分裂
 //     を避けるため最初から禁止。
 //
 // 範囲外 (将来拡張):
 //   ・state ごとの transient state (例: Loading の進捗値) — 必要なら呼び出し側
 //     が AppState で別途持つ
 //   ・遷移履歴の back stack — Pop 系 API は持たず、要求は常に「to 指定」
-//   ・並列 fade (画面内 fade) — Scene 単位の FadeTransition が独立して動く
+//   ・並列 fade (画面内 fade) — Scene 単位の FFadeTransition が独立して動く
 //
 // 使い方:
-//   acs::game::GameFlow flow;
+//   acs::game::FGameFlow flow;
 //   flow.SetOnEnterCallback(EFlowState::Gameplay, &MyApp::OnGameplayEnter, this);
 //   flow.Init(EFlowState::Splash);
 //   // ... 毎フレーム:
@@ -62,8 +62,8 @@ namespace acs::game {
 enum class EFlowState : u8 {
     Splash       = 0,   // ロゴ表示 (Studio / Publisher / Engine)
     MainTitle    = 1,   // タイトル画面 (PRESS START 待機)
-    MainMenu     = 2,   // メインメニュー (NewGame / Load / Settings / Exit)
-    Settings     = 3,   // 設定画面 (MainMenu / PauseMenu のどちらからも入れる)
+    MainMenu     = 2,   // メインメニュー (NewGame / Load / FSettings / Exit)
+    FSettings     = 3,   // 設定画面 (MainMenu / PauseMenu のどちらからも入れる)
     Credits      = 4,   // クレジット表示
     Loading      = 5,   // セーブ読込 or ステージロード
     Gameplay     = 6,   // ゲーム本編 (実際のプレイ)
@@ -84,20 +84,20 @@ struct FlowTransition {
     f32       fade_out_sec = 0.0f;   // 旧 state 退場時の fade-out 秒数
 };
 
-class GameFlow {
+class FGameFlow {
 public:
     // 関数ポインタ型コールバック。第 1 引数 user は SetOn...Callback で渡した値
     // (任意のオブジェクト this 等)、第 2 引数 entered_state は遷移先 (Enter) or
     // 遷移元 (Exit) の state ID。
     using StateCallback = void(*)(void* user, EFlowState entered_state) noexcept;
 
-    GameFlow()  noexcept = default;
-    ~GameFlow() noexcept = default;
+    FGameFlow()  noexcept = default;
+    ~FGameFlow() noexcept = default;
 
-    GameFlow(const GameFlow&)            = delete;
-    GameFlow& operator=(const GameFlow&) = delete;
-    GameFlow(GameFlow&&)                 = delete;
-    GameFlow& operator=(GameFlow&&)      = delete;
+    FGameFlow(const FGameFlow&)            = delete;
+    FGameFlow& operator=(const FGameFlow&) = delete;
+    FGameFlow(FGameFlow&&)                 = delete;
+    FGameFlow& operator=(FGameFlow&&)      = delete;
 
     // ----- 初期化 -----
     // 内部の state スロット (10 個) と遷移許可テーブルを構築し、initial_state

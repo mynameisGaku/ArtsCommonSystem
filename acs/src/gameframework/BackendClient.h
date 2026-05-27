@@ -6,7 +6,7 @@
 //   問い合わせるための **抽象 seam**。
 //   ACS 本体は具象な net stack (gRPC / HTTPS / WebSocket / Steam ISteamNetworking
 //   等) を抱え込まず、interface だけを提供する。
-//   ・タイトル側 (acs::Application) は IBackendClient* / IMatchmaker* を持ち、
+//   ・タイトル側 (acs::FApplication) は IBackendClient* / IMatchmaker* を持ち、
 //   ・実装 (BackendClientHttp, BackendClientSteam, MatchmakerGlicko2 等) は
 //     プロジェクト個別に差し込む。
 //   これにより、(a) ACS Foundation/GameFramework の依存最小化、(b) サーバ無し
@@ -54,11 +54,11 @@ namespace acs::game {
 // =============================================================================
 // 共通: stub 用エラーサブコード
 // -----------------------------------------------------------------------------
-// SaveSlot 等と同じく、本ピラーでも「Phase 1 stub = NotImplemented」を
+// FSaveSlot 等と同じく、本ピラーでも「Phase 1 stub = NotImplemented」を
 // `subcode = kSub_NotImplemented` で表現する。`ErrCategory` には IO を使う
 // (ネットワーク = I/O の一形態)。
 // =============================================================================
-struct BackendError {
+struct FBackendError {
     enum SubCode : u16 {
         kSub_NotConnected   = 1,  // Connect 前に Send/Tick された
         kSub_AlreadyConnected = 2,// 2 重 Connect (実装側で許容するかは任意)
@@ -74,7 +74,7 @@ struct BackendError {
 // IBackendClient — テレメトリ / 設定取得等の汎用バックエンド窓口
 // -----------------------------------------------------------------------------
 // 1 タイトルにつき通常 1 インスタンス (Singleton 的運用)。
-// 寿命はタイトル側 (acs::Application 等) が握る。
+// 寿命はタイトル側 (acs::FApplication 等) が握る。
 // =============================================================================
 class IBackendClient {
 public:

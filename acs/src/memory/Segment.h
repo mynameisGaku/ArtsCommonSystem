@@ -41,7 +41,7 @@ constexpr const char* ToString(ESegment s) noexcept {
 enum class EAllocKind : u8 {
     Generic   = 0,
     Engine    = 1,
-    Game      = 2,
+    FGame      = 2,
     Render    = 3,
     Audio     = 4,
     Asset     = 5,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R Phase 2 — CinematicsDirector 実装
+// GameFramework Pillar R Phase 2 — FCinematicsDirector 実装
 //
 // 状態遷移:
 //   Stopped (_playing=false, _time=0)
@@ -17,9 +17,9 @@
 
 namespace acs::game {
 
-void CinematicsDirector::AddKeyframe(const TimelineKeyframe& kf) noexcept {
+void FCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
     // 負の time_sec は 0 に clamp して受け入れる (= タイムライン頭打ち発火)。
-    TimelineKeyframe entry = kf;
+    FTimelineKeyframe entry = kf;
     if (entry.time_sec < 0.0f) entry.time_sec = 0.0f;
 
     // time_sec 昇順 / 同時刻は登録順 (stable) を維持する挿入位置を線形探索。
@@ -52,28 +52,28 @@ void CinematicsDirector::AddKeyframe(const TimelineKeyframe& kf) noexcept {
     // なので _last_fired_index の補正はしない (Play() 前なら _last_fired=0)。
 }
 
-void CinematicsDirector::Clear() noexcept {
+void FCinematicsDirector::Clear() noexcept {
     _keyframes.Clear();
     _time             = 0.0f;
     _last_fired_index = 0u;
     _playing          = false;
 }
 
-void CinematicsDirector::Play() noexcept {
+void FCinematicsDirector::Play() noexcept {
     _playing = true;
 }
 
-void CinematicsDirector::Pause() noexcept {
+void FCinematicsDirector::Pause() noexcept {
     _playing = false;
 }
 
-void CinematicsDirector::Stop() noexcept {
+void FCinematicsDirector::Stop() noexcept {
     _playing          = false;
     _time             = 0.0f;
     _last_fired_index = 0u;
 }
 
-void CinematicsDirector::Skip() noexcept {
+void FCinematicsDirector::Skip() noexcept {
     // 残り全 keyframe を時刻昇順に発火。_time は TotalDuration() に進める。
     // Skip は Play 中でなくても呼べる (= 即座に "終わった状態" に飛ばす操作)。
     const f32 total = TotalDuration();
@@ -84,11 +84,11 @@ void CinematicsDirector::Skip() noexcept {
     // IsFinished() が true になるので、Tick が呼ばれ続けても無害。
 }
 
-bool CinematicsDirector::IsFinished() const noexcept {
+bool FCinematicsDirector::IsFinished() const noexcept {
     return _last_fired_index >= static_cast<u32>(_keyframes.Size());
 }
 
-void CinematicsDirector::Tick(f32 dt) noexcept {
+void FCinematicsDirector::Tick(f32 dt) noexcept {
     if (!_playing) return;
     if (dt <= 0.0f) return;
 
@@ -96,45 +96,45 @@ void CinematicsDirector::Tick(f32 dt) noexcept {
     FireUpTo(_time);
 }
 
-f32 CinematicsDirector::TotalDuration() const noexcept {
+f32 FCinematicsDirector::TotalDuration() const noexcept {
     // 昇順を維持しているので末尾 (Back) の time_sec が最大。
     if (_keyframes.Size() == 0) return 0.0f;
     return _keyframes[_keyframes.Size() - 1].time_sec;
 }
 
-void CinematicsDirector::SetCameraCallback(CameraCallbackFn cb, void* user) noexcept {
+void FCinematicsDirector::SetCameraCallback(CameraCallbackFn cb, void* user) noexcept {
     _camera_cb   = cb;
     _camera_user = user;
 }
 
-void CinematicsDirector::SetDialogueCallback(DialogueCallbackFn cb, void* user) noexcept {
+void FCinematicsDirector::SetDialogueCallback(DialogueCallbackFn cb, void* user) noexcept {
     _dialogue_cb   = cb;
     _dialogue_user = user;
 }
 
-void CinematicsDirector::SetMusicCallback(MusicCallbackFn cb, void* user) noexcept {
+void FCinematicsDirector::SetMusicCallback(MusicCallbackFn cb, void* user) noexcept {
     _music_cb   = cb;
     _music_user = user;
 }
 
-void CinematicsDirector::SetEventCallback(EventCallbackFn cb, void* user) noexcept {
+void FCinematicsDirector::SetEventCallback(EventCallbackFn cb, void* user) noexcept {
     _event_cb   = cb;
     _event_user = user;
 }
 
 // ===== private =====
 
-void CinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
+void FCinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
     const u32 n = static_cast<u32>(_keyframes.Size());
     while (_last_fired_index < n) {
-        const TimelineKeyframe& kf = _keyframes[_last_fired_index];
+        const FTimelineKeyframe& kf = _keyframes[_last_fired_index];
         if (kf.time_sec > up_to_time) break;   // 未来の keyframe はまだ発火しない
         FireOne(kf);
         ++_last_fired_index;
     }
 }
 
-void CinematicsDirector::FireOne(const TimelineKeyframe& kf) noexcept {
+void FCinematicsDirector::FireOne(const FTimelineKeyframe& kf) noexcept {
     switch (kf.kind) {
     case ETimelineTrackKind::Wait:
         // 何もしない (時間進行マーカー)。

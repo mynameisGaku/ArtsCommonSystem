@@ -19,7 +19,7 @@ struct ComponentOps {
     const char* name = "Unknown";
 };
 
-class ComponentRegistry {
+class FComponentRegistry {
 public:
     // 型 T を登録（初回のみ実体登録、以降は同じ Ops を返す）
     template<typename T>

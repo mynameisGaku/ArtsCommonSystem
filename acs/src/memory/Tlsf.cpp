@@ -51,40 +51,40 @@ constexpr usize kBlockSizeMask    = ~(kBlockFreeBit | kPrevFreeBit);
 
 // payload 起点までのオフセット
 constexpr usize kBlockHeaderOverhead = sizeof(usize);
-constexpr usize kBlockStartOffset = sizeof(BlockHeader*) + sizeof(usize);
+constexpr usize kBlockStartOffset = sizeof(FBlockHeader*) + sizeof(usize);
 
 // サイズ部分だけ取り出す
-ACS_FORCEINLINE usize BlockSize(const BlockHeader* b) noexcept {
+ACS_FORCEINLINE usize BlockSize(const FBlockHeader* b) noexcept {
     return b->size_and_flags & kBlockSizeMask;
 }
 // フラグを保ちつつサイズだけ書き換える
-ACS_FORCEINLINE void  SetBlockSize(BlockHeader* b, usize size) noexcept {
+ACS_FORCEINLINE void  SetBlockSize(FBlockHeader* b, usize size) noexcept {
     usize old_flags = b->size_and_flags & ~kBlockSizeMask;
     b->size_and_flags = size | old_flags;
 }
-ACS_FORCEINLINE bool  IsFree(const BlockHeader* b) noexcept {
+ACS_FORCEINLINE bool  IsFree(const FBlockHeader* b) noexcept {
     return (b->size_and_flags & kBlockFreeBit) != 0;
 }
-ACS_FORCEINLINE bool  IsPrevFree(const BlockHeader* b) noexcept {
+ACS_FORCEINLINE bool  IsPrevFree(const FBlockHeader* b) noexcept {
     return (b->size_and_flags & kPrevFreeBit) != 0;
 }
-ACS_FORCEINLINE void  MarkFree(BlockHeader* b) noexcept    { b->size_and_flags |= kBlockFreeBit; }
-ACS_FORCEINLINE void  MarkUsed(BlockHeader* b) noexcept    { b->size_and_flags &= ~kBlockFreeBit; }
-ACS_FORCEINLINE void  MarkPrevFree(BlockHeader* b) noexcept{ b->size_and_flags |= kPrevFreeBit; }
-ACS_FORCEINLINE void  MarkPrevUsed(BlockHeader* b) noexcept{ b->size_and_flags &= ~kPrevFreeBit; }
+ACS_FORCEINLINE void  MarkFree(FBlockHeader* b) noexcept    { b->size_and_flags |= kBlockFreeBit; }
+ACS_FORCEINLINE void  MarkUsed(FBlockHeader* b) noexcept    { b->size_and_flags &= ~kBlockFreeBit; }
+ACS_FORCEINLINE void  MarkPrevFree(FBlockHeader* b) noexcept{ b->size_and_flags |= kPrevFreeBit; }
+ACS_FORCEINLINE void  MarkPrevUsed(FBlockHeader* b) noexcept{ b->size_and_flags &= ~kPrevFreeBit; }
 
 // ヘッダから payload ポインタへ
-ACS_FORCEINLINE void* BlockToPtr(const BlockHeader* b) noexcept {
-    return reinterpret_cast<u8*>(const_cast<BlockHeader*>(b)) + kBlockStartOffset;
+ACS_FORCEINLINE void* BlockToPtr(const FBlockHeader* b) noexcept {
+    return reinterpret_cast<u8*>(const_cast<FBlockHeader*>(b)) + kBlockStartOffset;
 }
 // payload からヘッダへ戻る
-ACS_FORCEINLINE BlockHeader* PtrToBlock(const void* p) noexcept {
-    return reinterpret_cast<BlockHeader*>(reinterpret_cast<u8*>(const_cast<void*>(p)) - kBlockStartOffset);
+ACS_FORCEINLINE FBlockHeader* PtrToBlock(const void* p) noexcept {
+    return reinterpret_cast<FBlockHeader*>(reinterpret_cast<u8*>(const_cast<void*>(p)) - kBlockStartOffset);
 }
 
 // 物理的に次のブロックを得る（解放時の隣接統合に使う）
-ACS_FORCEINLINE BlockHeader* NextBlock(const BlockHeader* b) noexcept {
-    return reinterpret_cast<BlockHeader*>(
+ACS_FORCEINLINE FBlockHeader* NextBlock(const FBlockHeader* b) noexcept {
+    return reinterpret_cast<FBlockHeader*>(
         reinterpret_cast<u8*>(BlockToPtr(b)) + BlockSize(b) - kBlockHeaderOverhead);
 }
 
@@ -122,13 +122,13 @@ ACS_FORCEINLINE usize AdjustRequestSize(usize size, usize align) noexcept {
 } // namespace tlsf
 
 // =============================================================================
-// TlsfAllocator 実装
+// FTlsfAllocator 実装
 // =============================================================================
 
-TlsfAllocator::~TlsfAllocator() noexcept {}
+FTlsfAllocator::~FTlsfAllocator() noexcept {}
 
 // 単一プール初期化
-TResult<void> TlsfAllocator::Init(void* pool_base, usize pool_size) noexcept {
+TResult<void> FTlsfAllocator::Init(void* pool_base, usize pool_size) noexcept {
     if (!pool_base || pool_size < 1024) return ACS_ERR(Memory, 20, "TLSF::Init invalid pool");
     if ((reinterpret_cast<uptr>(pool_base) & (tlsf::ALIGN_SIZE - 1)) != 0)
         return ACS_ERR(Memory, 21, "TLSF::Init pool not 16B aligned");
@@ -151,7 +151,7 @@ TResult<void> TlsfAllocator::Init(void* pool_base, usize pool_size) noexcept {
 }
 
 // VmReservation も保持する初期化
-TResult<void> TlsfAllocator::InitWithReservation(VmReservation&& reservation,
+TResult<void> FTlsfAllocator::InitWithReservation(VmReservation&& reservation,
                                                 usize commit_initial) noexcept {
     auto cr = reservation.Commit(0, commit_initial);
     if (cr.IsErr()) return cr;
@@ -164,7 +164,7 @@ TResult<void> TlsfAllocator::InitWithReservation(VmReservation&& reservation,
 }
 
 // プールを TLSF に登録（先頭にフリーブロック 1 個 + 末尾に終端番兵）
-TResult<void> TlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept {
+TResult<void> FTlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept {
     using namespace tlsf;
 
     // pool_size を 16B 境界に切り下げ
@@ -173,7 +173,7 @@ TResult<void> TlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept 
         return ACS_ERR(Memory, 22, "AddPool too small");
 
     // プール全体を覆う巨大フリーブロックを生成
-    BlockHeader* block = reinterpret_cast<BlockHeader*>(
+    FBlockHeader* block = reinterpret_cast<FBlockHeader*>(
         static_cast<u8*>(pool_base) - kBlockStartOffset + kBlockStartOffset);
     block->prev_phys_block = nullptr;
     usize block_size = pool_size - kBlockStartOffset - kBlockHeaderOverhead;
@@ -183,7 +183,7 @@ TResult<void> TlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept 
     InsertFreeBlock(block);
 
     // 末尾に「サイズ 0、used」の終端番兵を置く（隣接統合のループ終端）
-    BlockHeader* sentinel = NextBlock(block);
+    FBlockHeader* sentinel = NextBlock(block);
     sentinel->prev_phys_block = block;
     sentinel->size_and_flags = 0;
     MarkPrevFree(sentinel);
@@ -191,13 +191,13 @@ TResult<void> TlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept 
 }
 
 // 指定ブロックを (FL, SL) バケットの先頭に挿入
-void TlsfAllocator::InsertFreeBlock(tlsf::BlockHeader* block) noexcept {
+void FTlsfAllocator::InsertFreeBlock(tlsf::FBlockHeader* block) noexcept {
     using namespace tlsf;
     int fl, sl;
     MappingInsert(BlockSize(block), fl, sl);
 
     // 双方向リンクで先頭挿入
-    BlockHeader* current = _blocks[fl][sl];
+    FBlockHeader* current = _blocks[fl][sl];
     block->next_free = current;
     block->prev_free = &_null_block;
     current->prev_free = block;
@@ -209,10 +209,10 @@ void TlsfAllocator::InsertFreeBlock(tlsf::BlockHeader* block) noexcept {
 }
 
 // フリーリストから取り除く（バケットが空なら対応ビットも下ろす）
-void TlsfAllocator::RemoveFreeBlock(tlsf::BlockHeader* block) noexcept {
+void FTlsfAllocator::RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept {
     using namespace tlsf;
-    BlockHeader* prev = block->prev_free;
-    BlockHeader* next = block->next_free;
+    FBlockHeader* prev = block->prev_free;
+    FBlockHeader* next = block->next_free;
     next->prev_free = prev;
     prev->next_free = next;
 
@@ -231,7 +231,7 @@ void TlsfAllocator::RemoveFreeBlock(tlsf::BlockHeader* block) noexcept {
 }
 
 // 要求サイズ以上のフリーブロックが入ったバケットを O(1) で見つける
-tlsf::BlockHeader* TlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexcept {
+tlsf::FBlockHeader* FTlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexcept {
     using namespace tlsf;
     // 同じ FL 内で sl 以上のビットを探す
     u32 sl_map = _sl_bitmap[fl] & (~0u << sl);
@@ -247,14 +247,14 @@ tlsf::BlockHeader* TlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexcept
 }
 
 // 余剰サイズを切り出して新しいフリーブロックとして再登録
-void TlsfAllocator::TrimFreeBlock(tlsf::BlockHeader* block, usize size) noexcept {
+void FTlsfAllocator::TrimFreeBlock(tlsf::FBlockHeader* block, usize size) noexcept {
     using namespace tlsf;
     usize remaining = BlockSize(block) - size - kBlockHeaderOverhead;
     if (remaining < MIN_BLOCK_SIZE) return;  // 切り出す余裕がないなら何もしない
 
     SetBlockSize(block, size);
     // 残りを新ブロックとして構築 → フリーリストへ
-    BlockHeader* rem = NextBlock(block);
+    FBlockHeader* rem = NextBlock(block);
     rem->prev_phys_block = block;
     rem->size_and_flags = remaining | kBlockFreeBit;
     rem->next_free = nullptr;
@@ -262,35 +262,35 @@ void TlsfAllocator::TrimFreeBlock(tlsf::BlockHeader* block, usize size) noexcept
     InsertFreeBlock(rem);
 
     // 残ブロックの次に「prev はフリー」を伝達
-    BlockHeader* after = NextBlock(rem);
+    FBlockHeader* after = NextBlock(rem);
     after->prev_phys_block = rem;
     MarkPrevFree(after);
 }
 
 // 物理的に前のフリーブロックと統合
-tlsf::BlockHeader* TlsfAllocator::MergePrev(tlsf::BlockHeader* block) noexcept {
+tlsf::FBlockHeader* FTlsfAllocator::MergePrev(tlsf::FBlockHeader* block) noexcept {
     using namespace tlsf;
-    BlockHeader* prev = block->prev_phys_block;
+    FBlockHeader* prev = block->prev_phys_block;
     RemoveFreeBlock(prev);  // 一旦リストから外す
     SetBlockSize(prev, BlockSize(prev) + BlockSize(block) + kBlockHeaderOverhead);
-    BlockHeader* after = NextBlock(prev);
+    FBlockHeader* after = NextBlock(prev);
     after->prev_phys_block = prev;
     return prev;
 }
 
 // 物理的に次のフリーブロックと統合
-tlsf::BlockHeader* TlsfAllocator::MergeNext(tlsf::BlockHeader* block) noexcept {
+tlsf::FBlockHeader* FTlsfAllocator::MergeNext(tlsf::FBlockHeader* block) noexcept {
     using namespace tlsf;
-    BlockHeader* next = NextBlock(block);
+    FBlockHeader* next = NextBlock(block);
     RemoveFreeBlock(next);
     SetBlockSize(block, BlockSize(block) + BlockSize(next) + kBlockHeaderOverhead);
-    BlockHeader* after = NextBlock(block);
+    FBlockHeader* after = NextBlock(block);
     after->prev_phys_block = block;
     return block;
 }
 
 // 確保
-void* TlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
+void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     using namespace tlsf;
     if (size == 0) return nullptr;
     if (alignment < ALIGN_SIZE) alignment = ALIGN_SIZE;
@@ -299,14 +299,14 @@ void* TlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noex
     usize adjust = AdjustRequestSize(size, alignment);
     int fl, sl;
     MappingSearch(adjust, fl, sl);
-    BlockHeader* block = SearchSuitableBlock(fl, sl);
+    FBlockHeader* block = SearchSuitableBlock(fl, sl);
     if (!block || block == &_null_block) return nullptr;  // OOM
 
     // 取り出して必要分に分割
     RemoveFreeBlock(block);
     TrimFreeBlock(block, adjust);
     MarkUsed(block);
-    BlockHeader* after = NextBlock(block);
+    FBlockHeader* after = NextBlock(block);
     MarkPrevUsed(after);  // 次ブロックに「前は使用中」を伝達
 
     // 統計更新
@@ -316,10 +316,10 @@ void* TlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noex
 }
 
 // 解放
-void TlsfAllocator::Free(void* ptr) noexcept {
+void FTlsfAllocator::Free(void* ptr) noexcept {
     using namespace tlsf;
     if (!ptr) return;
-    BlockHeader* block = PtrToBlock(ptr);
+    FBlockHeader* block = PtrToBlock(ptr);
     _bytes_used -= BlockSize(block);
 
     MarkFree(block);
@@ -329,16 +329,16 @@ void TlsfAllocator::Free(void* ptr) noexcept {
     InsertFreeBlock(block);
 
     // 次ブロックに「前はフリー」を伝達
-    BlockHeader* after = NextBlock(block);
+    FBlockHeader* after = NextBlock(block);
     MarkPrevFree(after);
 }
 
-void* TlsfAllocator::Realloc(void* ptr, usize old_size, usize new_size,
+void* FTlsfAllocator::Realloc(void* ptr, usize old_size, usize new_size,
                              usize alignment, FSourceLoc loc) noexcept {
-    return Allocator::Realloc(ptr, old_size, new_size, alignment, loc);
+    return FAllocator::Realloc(ptr, old_size, new_size, alignment, loc);
 }
 
-TlsfAllocator::Stats TlsfAllocator::GetStats() const noexcept {
+FTlsfAllocator::Stats FTlsfAllocator::GetStats() const noexcept {
     Stats s {};
     s.bytes_used = _bytes_used;
     s.bytes_peak = _bytes_peak;

@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O/G — InventorySystem (アイテムスロット + stack 管理)
+// GameFramework Pillar O/G — FInventorySystem (アイテムスロット + stack 管理)
 //
 // プレイヤーのアイテムインベントリを「固定 slot 数 × stack 可能アイテム」モデルで
 // 表現する小型マネージャ。RPG / サバイバル / クラフト系で広く使われる「N 個の
 // スロットがあって、消費アイテムは max_stack まで重ねられる」スタイルを直接
-// サポートする。EconomyDirector が「通貨で買って消える」即時取引を担うのに対し、
-// InventorySystem は「拾った / 報酬で得たアイテムを、プレイヤーが持ち歩く」状態を
+// サポートする。FEconomyDirector が「通貨で買って消える」即時取引を担うのに対し、
+// FInventorySystem は「拾った / 報酬で得たアイテムを、プレイヤーが持ち歩く」状態を
 // 保持する責務を持つ。
 //
 // 想定する位置付け:
-//   ・Pillar O EconomyDirector との違い:
-//     - EconomyDirector は「ゲーム内通貨 ↔ shop 商品」の即時購入トランザクション。
-//     - InventorySystem は「プレイヤーが保持するアイテム」の slot ベース在庫。
+//   ・Pillar O FEconomyDirector との違い:
+//     - FEconomyDirector は「ゲーム内通貨 ↔ shop 商品」の即時購入トランザクション。
+//     - FInventorySystem は「プレイヤーが保持するアイテム」の slot ベース在庫。
 //       購入完了後に AddItem() を呼んでもらう橋渡し設計 (本クラスはストア非依存)。
-//   ・Pillar O CharacterCustomizer との違い:
-//     - CharacterCustomizer は cosmetic (見た目装着) — slot 単位で最大 1 つ、stack なし。
-//     - InventorySystem は使用アイテム / 素材 / クエスト系 — stack あり、slot 数固定。
-//   ・Pillar O Entitlement との違い:
-//     - Entitlement は「DLC / SeasonPass 等の永続権利フラグ」(持っているかの真偽)。
-//     - InventorySystem は「個数を持つ消費可能アイテム」(stack 数を持つ)。
+//   ・Pillar O FCharacterCustomizer との違い:
+//     - FCharacterCustomizer は cosmetic (見た目装着) — slot 単位で最大 1 つ、stack なし。
+//     - FInventorySystem は使用アイテム / 素材 / クエスト系 — stack あり、slot 数固定。
+//   ・Pillar O FEntitlement との違い:
+//     - FEntitlement は「DLC / FSeasonPass 等の永続権利フラグ」(持っているかの真偽)。
+//     - FInventorySystem は「個数を持つ消費可能アイテム」(stack 数を持つ)。
 //
 // 使い方:
-//   InventorySystem inv;
+//   FInventorySystem inv;
 //   inv.Init(/*slot_count=*/ 30);
 //
 //   // 起動時にアイテム定義を一度ずつ登録。
@@ -43,7 +43,7 @@
 //
 // 設計選択 (Pillar O/G Phase 4):
 //   ・**Item 定義は単一 TArray<ItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
-//     線形走査で十分 (Entitlement / EconomyDirector と同じ判断)。
+//     線形走査で十分 (FEntitlement / FEconomyDirector と同じ判断)。
 //   ・**Slot data は固定長 TArray<InventorySlot>**: Init(slot_count) で Resize し、
 //     以降は伸縮しない (= UI が想定する slot grid と一致)。slot 内 item_id == nullptr
 //     を「空 slot」として表す。
@@ -63,7 +63,7 @@
 //     user. 複数 listener が必要なら呼出側で fan-out。slot 内容が変わるたびに呼ぶ
 //     (Add / Remove / Move / Drop / ClearAll すべて。ClearAll は loop 防止のため呼ばない)。
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterItem は no-op
-//     (アセット二重ロード保護)。EconomyDirector / Entitlement と同じパターン。
+//     (アセット二重ロード保護)。FEconomyDirector / FEntitlement と同じパターン。
 //   ・**Init は冪等に再構築**: 既に Init 済みでも slot_count を変更して呼べる
 //     (slot 数が違う場合は内容クリアして resize)。同じ slot_count なら no-op。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -73,7 +73,7 @@
 //   ・永続化 (Save/Load) — Pillar J Serialize と統合。slot 内容は起動毎にリセット。
 //   ・装備品の性能 / バフ — 本クラスは「持ってる個数」だけを真実とし、性能は別 Manager。
 //   ・アイテムカテゴリでのフィルタリング — UI 側で実装 (本クラスは AllSlots を提供)。
-//   ・craft / 合成 / 消費レシピ — 別 Manager (CraftingSystem 等)。
+//   ・craft / 合成 / 消費レシピ — 別 Manager (FCraftingSystem 等)。
 //   ・サーバ側の在庫検証 — Pillar V Backend Services に委譲。
 //   ・重量制限 / encumbrance — 本クラスは slot 数固定のみ。重量制は別 Manager。
 //   ・並べ替え / 自動ソート — UI 側で MoveSlot を連打して実装可能。
@@ -89,7 +89,7 @@ namespace acs::game {
 // Manager は中身を解釈しない (= 値を保存して照会できるようにするだけ)。
 enum class EItemCategory : u8 {
     Consumable = 0,  // ポーション / 食料 / 弾薬等の消費アイテム
-    Equipment  = 1,  // 装備品 (見た目 cosmetic は CharacterCustomizer 側)
+    Equipment  = 1,  // 装備品 (見た目 cosmetic は FCharacterCustomizer 側)
     Material   = 2,  // クラフト素材 / 鉱石 / ハーブ等
     Quest      = 3,  // クエスト関連アイテム (通常 can_drop = false)
     Keys       = 4,  // 鍵 / IC カード等 (通常 can_drop = false)
@@ -121,8 +121,8 @@ struct InventorySlot {
     u32         count   = 0;
 };
 
-// ---- InventorySystem -------------------------------------------------------
-class InventorySystem {
+// ---- FInventorySystem -------------------------------------------------------
+class FInventorySystem {
 public:
     // 変更通知コールバック。STL <functional> 禁止のため C 関数ポインタ + user。
     //   user       : SetOnChangeCallback で渡したコンテキスト (Manager は所有しない)
@@ -131,13 +131,13 @@ public:
     //   count      : 変化後の stack 数 (空 slot のときは 0)
     using ChangeCallback = void(*)(void* user, u32 slot_index, const char* item_id, u32 count) noexcept;
 
-    InventorySystem()  noexcept = default;
-    ~InventorySystem() noexcept = default;
+    FInventorySystem()  noexcept = default;
+    ~FInventorySystem() noexcept = default;
 
-    InventorySystem(const InventorySystem&)            = delete;
-    InventorySystem& operator=(const InventorySystem&) = delete;
-    InventorySystem(InventorySystem&&)                 = delete;
-    InventorySystem& operator=(InventorySystem&&)      = delete;
+    FInventorySystem(const FInventorySystem&)            = delete;
+    FInventorySystem& operator=(const FInventorySystem&) = delete;
+    FInventorySystem(FInventorySystem&&)                 = delete;
+    FInventorySystem& operator=(FInventorySystem&&)      = delete;
 
     // ---- 初期化 ----------------------------------------------------------
     // slot 数を設定 (再呼び出しで slot_count が変わる場合は内容クリアして resize、

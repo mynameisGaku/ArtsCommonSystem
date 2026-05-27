@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K (editor_core) — AssetBrowser (Phase 21a editor 共通基盤)
+// GameFramework Pillar K (editor_core) — FAssetBrowser (Phase 21a editor 共通基盤)
 //
 // プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各種 panel
 // (ModelViewer / TilemapEditor / ParticleEditor 等) に Drag & Drop 経由で
-// 「アセットパス」を供給する Unity の Project Window / Godot の FileSystem
+// 「アセットパス」を供給する Unity の Project FWindow / Godot の FileSystem
 // Dock 相当の基盤パネル。
 //
 // 役割:
@@ -16,7 +16,7 @@
 //     表示の足がかりにする。
 //
 // 使い方:
-//   AssetBrowser browser;
+//   FAssetBrowser browser;
 //   browser.Init(L"assets");
 //   // 毎フレーム
 //   browser.DrawUI();
@@ -33,7 +33,7 @@
 //
 // 設計選択 (Phase 21a editor_core):
 //   ・**非コピー / 非ムーブ**: 内部 TArray<AssetEntry> + 文字列バッファ pool の
-//     所有を曖昧にしない (HierarchyPanel / InspectorPanel と同じ規約)。
+//     所有を曖昧にしない (FHierarchyPanel / FInspectorPanel と同じ規約)。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / 列挙失敗を
 //     no-op (= 空ツリー) で表現する。
 //   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<AssetEntry>`、文字列は
@@ -41,7 +41,7 @@
 //     の生存期間を TPool の clear/再生成で揃え、AssetEntry はオフセットではなく
 //     stabilize された pointer をそのまま持つ。再 Refresh で全部使い直す)。
 //   ・**ImGui ヘッダは .cpp 側のみ**: ヘッダから imgui 依存を漏らさない方針
-//     (ParticleEditorPanel / HierarchyPanel と同じ)。
+//     (FParticleEditorPanel / FHierarchyPanel と同じ)。
 //   ・**FileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
 //     `platform/FileSystem.h` にはディレクトリ列挙 API が無い (ReadAllBytes /
 //     FileSize / Exists のみ)。将来 FileSystem に `EnumerateDirectory` が
@@ -49,15 +49,15 @@
 //   ・**Drag payload は wchar_t* 直渡し**: payload identifier は
 //     `"ASSET_PATH"` (ImGui 仕様: 32 文字以内)。payload data は wchar_t*
 //     1 個 (= `sizeof(wchar_t*)` 8 bytes)。受け側は memcpy で取り出すこと
-//     推奨 (Hierarchy の Node2D* 受け渡しと同じパターン)。pointer 寿命は
+//     推奨 (Hierarchy の FNode2D* 受け渡しと同じパターン)。pointer 寿命は
 //     「次の Refresh まで」(= 文字列 pool が再生成されない間) を保証する。
 //   ・**callback は raw 関数ポインタ + void* user**: ACS は std::function を
-//     使えないため、ParticleEditorPanel / InspectorPanel と同形の C スタイル
+//     使えないため、FParticleEditorPanel / FInspectorPanel と同形の C スタイル
 //     callback を提供。
 //   ・**EAssetKind は拡張子 lookup の 1 階層**: `.png/.jpg/.tga` → Texture、
 //     `.mdl/.fbx/.gltf/.glb` → Mesh、`.ttf/.otf` → Font、`.wav/.ogg/.mp3` →
 //     Audio、`.mat`/`.material` → Material、`.fx`/`.particle` → Particle、
-//     `.anim` → FAnimation、`.bt` → BehaviorTree、`.tilemap`/`.tmx` → Tilemap、
+//     `.anim` → FAnimation、`.bt` → FBehaviorTree、`.tilemap`/`.tmx` → FTilemap、
 //     `.prefab` → Prefab、`.cine` → Cinematic、`.scene` → Scene、未知は Other。
 //     大文字小文字無視。
 //
@@ -66,7 +66,7 @@
 //   ・Favorites / pin
 //   ・Search box (substring match)
 //   ・New folder / rename / delete (in-place editing)
-//   ・AssetPack (.acpak) overlay 表示 (Pillar G AssetPack 統合時)
+//   ・FAssetPack (.acpak) overlay 表示 (Pillar G FAssetPack 統合時)
 #pragma once
 
 #include "foundation/Types.h"
@@ -87,9 +87,9 @@ enum class EAssetKind : u8 {
     Audio        = 4,   // .wav .ogg .mp3 .flac
     Material     = 5,   // .mat .material
     Particle     = 6,   // .fx .particle
-    FAnimation    = 7,   // .anim
-    BehaviorTree = 8,   // .bt
-    Tilemap      = 9,   // .tilemap .tmx
+    Animation     = 7,   // .anim
+    BehaviorTree  = 8,   // .bt
+    Tilemap       = 9,   // .tilemap .tmx
     Prefab       = 10,  // .prefab
     Cinematic    = 11,  // .cine
     Scene        = 12,  // .scene
@@ -97,7 +97,7 @@ enum class EAssetKind : u8 {
 };
 
 // ---- AssetEntry — 列挙された 1 件のディレクトリ / ファイル ------------
-// `path` / `short_name` は AssetBrowser の内部 pool 内のメモリを参照する。
+// `path` / `short_name` は FAssetBrowser の内部 pool 内のメモリを参照する。
 // 寿命は「次の Refresh() を呼ぶまで」のみ有効 (= 次回再列挙時に pool が
 // クリアされ pointer は無効化される)。コピーして保存する必要があれば
 // 利用側でバッファに退避すること。
@@ -111,9 +111,9 @@ struct AssetEntry {
 };
 
 // ---------------------------------------------------------------------------
-// AssetBrowser — assets/ ディレクトリツリー + ImGui 描画 + Drag Source
+// FAssetBrowser — assets/ ディレクトリツリー + ImGui 描画 + Drag Source
 // ---------------------------------------------------------------------------
-class AssetBrowser {
+class FAssetBrowser {
 public:
     // 選択 / ダブルクリック通知 callback。`user` は SetOn*FCallback の第二引数
     // で渡したポインタがそのまま戻る (closure 代替)。`path` の寿命は
@@ -125,15 +125,15 @@ public:
                                                  const wchar_t* path,
                                                  EAssetKind kind) noexcept;
 
-    AssetBrowser() noexcept = default;
-    ~AssetBrowser() noexcept = default;
+    FAssetBrowser() noexcept = default;
+    ~FAssetBrowser() noexcept = default;
 
     // 非コピー・非ムーブ: 内部 TArray / TPool / callback 状態の所有を曖昧に
     // しない (ACS 規約)。
-    AssetBrowser(const AssetBrowser&)            = delete;
-    AssetBrowser& operator=(const AssetBrowser&) = delete;
-    AssetBrowser(AssetBrowser&&)                 = delete;
-    AssetBrowser& operator=(AssetBrowser&&)      = delete;
+    FAssetBrowser(const FAssetBrowser&)            = delete;
+    FAssetBrowser& operator=(const FAssetBrowser&) = delete;
+    FAssetBrowser(FAssetBrowser&&)                 = delete;
+    FAssetBrowser& operator=(FAssetBrowser&&)      = delete;
 
     // 初期化: `root_directory` (UTF-16 wchar_t) を assets/ ルートとして記録し、
     // 初回 Refresh() を実行する。多重 Init 可能 (= 別 root への切替に使える)。
@@ -232,7 +232,7 @@ private:
     TArray<char>            _name_pool {};
 
     // 選択中 entry の index (= _entries 内の位置)。-1 で未選択。
-    // i32 を採用するのは ParticleEditorPanel と同じ規約 (-1 = 「なし」)。
+    // i32 を採用するのは FParticleEditorPanel と同じ規約 (-1 = 「なし」)。
     i32                    _selected_index    = -1;
 
     // kind フィルタ。EAssetKind::Unknown は「フィルタなし」を意味する。

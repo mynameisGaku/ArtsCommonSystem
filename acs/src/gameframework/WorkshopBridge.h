@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — WorkshopBridge (Steam Workshop / UGC seam)
+// GameFramework Pillar S — FWorkshopBridge (Steam Workshop / UGC seam)
 //
 // Steam Workshop / EOS UGC / mod.io といったプラットフォーム固有 UGC SDK へ橋渡し
 // するシーム (seam) インターフェース。ゲーム側コードは IWorkshopBridge 経由でのみ
@@ -24,12 +24,12 @@
 //   };
 //
 // 設計選択 (Pillar S Phase 2):
-//   ・**SteamworksBridge とは別 I/F**: Workshop は publish ワークフロー (CreateItem /
+//   ・**FSteamworksBridge とは別 I/F**: Workshop は publish ワークフロー (CreateItem /
 //     UpdateItem) を持ち、API 面が Achievement / Leaderboard とは別領域。一緒くたに
 //     すると Bridge が肥大化するため、別ファイルで隔離する。
 //   ・**`u64 item_id` を opaque key として扱う**: Steamworks では PublishedFileId_t
 //     (= u64)、mod.io では mod ID (= u32 だが u64 上位ビット 0 で表現可) を共通化。
-//   ・**所有しない const char***: 文字列は SteamworksBridge と同じく呼び出し側 /
+//   ・**所有しない const char***: 文字列は FSteamworksBridge と同じく呼び出し側 /
 //     プラットフォーム SDK のライフタイムに従い、Bridge はコピーしない。
 //     QueryItem() の戻り値は「次の Tick() を呼ぶまで有効」と扱うこと。
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
@@ -37,7 +37,7 @@
 //   ・**ダウンロード進捗は同期 poll**: GetDownloadProgress(item_id) を毎フレーム
 //     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
 //     非同期 callback 登録は Phase 3+ で検討。
-//   ・**Stub は static singleton で取得**: SteamworksBridge と同じく
+//   ・**Stub は static singleton で取得**: FSteamworksBridge と同じく
 //     `GetWorkshopStub()` を提供。`WorkshopBridgeStub::IsAvailable()` は
 //     常に false を返し、UI 側で「Workshop 機能無効」表示の判定に使える。
 //   ・**実 SDK 実装はここでは作らない**: GoldenWorkshopBridge 等は Steamworks UGC
@@ -56,7 +56,7 @@
 namespace acs::game {
 
 // ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
-// SteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
+// FSteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
 inline constexpr u16 kSubWorkshopNotImplemented = 1101;  // Stub による未実装
 inline constexpr u16 kSubWorkshopNotInitialized = 1102;  // Init() 前の API 呼び出し
 inline constexpr u16 kSubWorkshopUnavailable    = 1103;  // SDK が無効 (Stub 等)
@@ -164,7 +164,7 @@ private:
 };
 
 // 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。
-// SteamworksBridge では `SteamworksBridgeStub::GetStub()` という静的メンバ
+// FSteamworksBridge では `SteamworksBridgeStub::GetStub()` という静的メンバ
 // 関数を使っているが、Workshop 側は仕様に合わせて自由関数で公開する
 // (どちらも Meyer's singleton で thread-safe)。
 IWorkshopBridge& GetWorkshopStub() noexcept;

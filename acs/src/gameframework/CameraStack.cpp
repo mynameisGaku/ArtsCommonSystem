@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — CameraStack 実装 (Phase 2)
+// GameFramework Pillar E — FCameraStack 実装 (Phase 2)
 #include "gameframework/CameraStack.h"
 
 #include "foundation/Log.h"
@@ -9,19 +9,19 @@ namespace acs::game {
 
 // ====== ヘルパ ======================================================
 
-FVec2 CameraStack::LerpVec2(FVec2 a, FVec2 b, f32 t) noexcept {
+FVec2 FCameraStack::LerpVec2(FVec2 a, FVec2 b, f32 t) noexcept {
     return FVec2{Lerp(a.x, b.x, t), Lerp(a.y, b.y, t)};
 }
 
-f32 CameraStack::LerpZoom(f32 a, f32 b, f32 t) noexcept {
-    // 光学的に自然な中点 → 対数空間で線形補間。zoom <= 0 ガード (Camera2D 側で
+f32 FCameraStack::LerpZoom(f32 a, f32 b, f32 t) noexcept {
+    // 光学的に自然な中点 → 対数空間で線形補間。zoom <= 0 ガード (FCamera2D 側で
     // 0.001 にクランプされているはずだが、防御的に Abs を取ってから扱う)。
     const f32 sa = a > 0.001f ? a : 0.001f;
     const f32 sb = b > 0.001f ? b : 0.001f;
     return Exp(Lerp(Log(sa), Log(sb), t));
 }
 
-f32 CameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
+f32 FCameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
     // 差分を [-π, π] に正規化してから lerp (= 最短角経路)。
     f32 d = b - a;
     while (d >  kPi) d -= kTwoPi;
@@ -31,9 +31,9 @@ f32 CameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
 
 // ====== 遷移 =========================================================
 
-void CameraStack::PushCamera(Camera2D& cam, f32 blend_duration) noexcept {
+void FCameraStack::PushCamera(FCamera2D& cam, f32 blend_duration) noexcept {
     if (_entries.Size() >= kMaxLayers) {
-        ACS_LOG_WARN("CameraStack::PushCamera: layer cap reached (%u) — ignored",
+        ACS_LOG_WARN("FCameraStack::PushCamera: layer cap reached (%u) — ignored",
                      kMaxLayers);
         return;
     }
@@ -46,9 +46,9 @@ void CameraStack::PushCamera(Camera2D& cam, f32 blend_duration) noexcept {
     _entries.PushBack(e);
 }
 
-void CameraStack::PopCamera(f32 blend_duration) noexcept {
+void FCameraStack::PopCamera(f32 blend_duration) noexcept {
     if (_entries.Size() <= 1) {
-        ACS_LOG_WARN("CameraStack::PopCamera on stack of size %u (need >=2) — ignored",
+        ACS_LOG_WARN("FCameraStack::PopCamera on stack of size %u (need >=2) — ignored",
                      static_cast<u32>(_entries.Size()));
         return;
     }
@@ -62,12 +62,12 @@ void CameraStack::PopCamera(f32 blend_duration) noexcept {
 
 // ====== 状態取得 =====================================================
 
-Camera2D* CameraStack::Active() const noexcept {
+FCamera2D* FCameraStack::Active() const noexcept {
     if (_entries.IsEmpty()) return nullptr;
     return _entries.Back().cam;
 }
 
-bool CameraStack::IsBlending() const noexcept {
+bool FCameraStack::IsBlending() const noexcept {
     if (_entries.IsEmpty()) return false;
     const CameraEntry& top = _entries.Back();
     // 「blend 中」= top が補間途中。下層が無いと (= 1 枚だけだと) blending
@@ -77,19 +77,19 @@ bool CameraStack::IsBlending() const noexcept {
         && _entries.Size() >= 2u;
 }
 
-f32 CameraStack::BlendProgress() const noexcept {
+f32 FCameraStack::BlendProgress() const noexcept {
     if (_entries.IsEmpty()) return 1.0f;
     const f32 t = _entries.Back().blend_t;
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
 
-void CameraStack::Clear() noexcept {
+void FCameraStack::Clear() noexcept {
     _entries.Clear();
 }
 
 // ====== Effective* (描画側が読む) ====================================
 
-FVec2 CameraStack::EffectivePosition() const noexcept {
+FVec2 FCameraStack::EffectivePosition() const noexcept {
     if (_entries.IsEmpty()) return FVec2{0.0f, 0.0f};
     const CameraEntry& top = _entries.Back();
     const FVec2 top_pos = top.cam->EffectiveViewCenter();
@@ -105,7 +105,7 @@ FVec2 CameraStack::EffectivePosition() const noexcept {
                      : LerpVec2(top_pos, under_pos, top.blend_t);
 }
 
-f32 CameraStack::EffectiveZoom() const noexcept {
+f32 FCameraStack::EffectiveZoom() const noexcept {
     if (_entries.IsEmpty()) return 1.0f;
     const CameraEntry& top = _entries.Back();
     const f32 top_z = top.cam->Zoom();
@@ -118,7 +118,7 @@ f32 CameraStack::EffectiveZoom() const noexcept {
                      : LerpZoom(top_z, under_z, top.blend_t);
 }
 
-f32 CameraStack::EffectiveRotation() const noexcept {
+f32 FCameraStack::EffectiveRotation() const noexcept {
     if (_entries.IsEmpty()) return 0.0f;
     const CameraEntry& top = _entries.Back();
     const f32 top_r = top.cam->Rotation();
@@ -133,11 +133,11 @@ f32 CameraStack::EffectiveRotation() const noexcept {
 
 // ====== driver =======================================================
 
-void CameraStack::Tick(f32 dt) noexcept {
+void FCameraStack::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     if (_entries.IsEmpty()) return;
 
-    // 1) active な 2 層 (top と、blend 中なら下層) だけ Camera2D::Tick を呼ぶ。
+    // 1) active な 2 層 (top と、blend 中なら下層) だけ FCamera2D::Tick を呼ぶ。
     //    blend 中でなければ top のみ。下層を独自に動かしたい場合は user 側で
     //    個別 Tick できるので、ここでは「描画に絡む層」のみ tick で十分。
     CameraEntry& top = _entries[_entries.Size() - 1u];

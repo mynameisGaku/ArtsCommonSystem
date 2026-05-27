@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloIbl — LDR backbuffer 上の HUD 描画 (SpriteBatch)。
+// HelloIbl — LDR backbuffer 上の HUD 描画 (FSpriteBatch)。
 //
-// PostProcess.Render で tonemap → LDR backbuffer に書き出した後の SpriteBatch pass。
+// FPostProcess.Render で tonemap → LDR backbuffer に書き出した後の FSpriteBatch pass。
 // 右上に BRDF LUT サムネ、左下と右下に SSR / SSAO デバッグ overlay (有効時のみ)、
 // 左上に状態テキスト群 (preset / display mode / toggle 一覧 / 操作ヒント)。
 #include "HelloIblApp.h"
@@ -60,9 +60,9 @@ void DrawStatusText(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
         (app._current_preset == 0) ? "Day" :
         (app._current_preset == 1) ? "Sunset" :
         (app._current_preset == 2) ? "Night" :
-        (app._current_preset == 3) ? "Studio HDR" : "Hillaire Atmosphere";
+        (app._current_preset == 3) ? "Studio HDR" : "Hillaire FAtmosphere";
     std::snprintf(buf, sizeof(buf),
-                  "Env preset: [%s]   (1/2/3 sky / 4 Studio HDR / 5 Atmosphere)", preset);
+                  "Env preset: [%s]   (1/2/3 sky / 4 Studio HDR / 5 FAtmosphere)", preset);
     app._batch.DrawString(app._font, buf, 20, 44, FVec4{0.85f, 0.95f, 1.0f, 1});
 
     const char* view_label = nullptr;

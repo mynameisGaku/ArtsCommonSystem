@@ -25,26 +25,26 @@ void HelloLightmapApp::OnStart() noexcept {
     IRhiSwapchain* sc = GetRenderer().Swapchain();
     if (!sc) { Quit(); return; }
 
-    // HDR PostProcess (Bloom + ACES tonemap)。シーンは HDR RT に描く。
+    // HDR FPostProcess (Bloom + ACES tonemap)。シーンは HDR RT に描く。
     ACS_SAMPLE_INIT(_post.Init(*dev, sc->Width(), sc->Height(),
                                GetRenderer().ColorFormat()));
-    // PbrShader は HDR RT フォーマットに合わせて init する。
+    // FPbrShader は HDR RT フォーマットに合わせて init する。
     ACS_SAMPLE_INIT(_pbr.Init(*dev, _post.HdrFormat(),
                               GetRenderer().DepthFormat()));
 
     BuildCornellBox(*dev, _quads);
     BakeLightmaps(*dev, _quads);
 
-    // SpriteBatch は tonemap 後の LDR backbuffer に描く。
+    // FSpriteBatch は tonemap 後の LDR backbuffer に描く。
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
     const f32 aspect = static_cast<f32>(sc->Width()) /
                        static_cast<f32>(sc->Height());
     _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.05f, 100.0f);
     _cam_pos = FVec3{0.0f, 1.0f, -0.9f};
 
-    // PostProcess パラメータ (絵作りで調整可)。
+    // FPostProcess パラメータ (絵作りで調整可)。
     _post_params.bloom_threshold    = 2.5f;   // 天井 (光源) だけが bloom する閾値
     _post_params.bloom_intensity    = 0.5f;
     _post_params.grain_intensity    = 0.0f;   // GI デモなので film grain は切る
@@ -75,7 +75,7 @@ void HelloLightmapApp::OnUpdate(f32 dt) noexcept {
     _camera.SetLookAt(_cam_pos, _cam_pos + forward);
 }
 
-// OnCustomFrame: HDR RT にシーンを描き、PostProcess (Bloom + ACES tonemap)
+// OnCustomFrame: HDR RT にシーンを描き、FPostProcess (Bloom + ACES tonemap)
 // で LDR backbuffer へ。HDR lightmap の高輝度が tonemap で自然にロールオフする。
 bool HelloLightmapApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();

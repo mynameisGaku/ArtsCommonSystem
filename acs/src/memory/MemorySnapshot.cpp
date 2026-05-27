@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — MemorySnapshot 実装
+// ACS Memory — FMemorySnapshot 実装
 // -----------------------------------------------------------------------------
 // メモリ使用状況をスナップショットとして可視化する。
 // 出力形式: SVG (ブラウザで開ける、ラベル付き) / BMP (24bpp 無圧縮) / stdout
@@ -45,10 +45,10 @@ int FormatBytes(char* buf, usize cap, u64 b) noexcept {
 } // namespace
 
 // SVG 出力: 各セグメントを 1 行のバーとして描画
-TResult<void> MemorySnapshot::WriteSvg(const wchar_t* path, u32 width, u32 row_height) noexcept {
+TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* path, u32 width, u32 row_height) noexcept {
     SegmentStats stats[(usize)ESegment::_Count];
-    u32 n = MemorySystem::GetStats(stats, (u32)ESegment::_Count);
-    if (n == 0) return ACS_ERR(Memory, 40, "MemorySystem has no segments");
+    u32 n = FMemorySystem::GetStats(stats, (u32)ESegment::_Count);
+    if (n == 0) return ACS_ERR(Memory, 40, "FMemorySystem has no segments");
 
     // ファイルを上書き作成
     HANDLE h = ::CreateFileW(path, GENERIC_WRITE, 0, nullptr,
@@ -163,10 +163,10 @@ ACS_FORCEINLINE void PutPixel(u8* row, u32 x, RgbColor c) noexcept {
 
 } // namespace
 
-TResult<void> MemorySnapshot::WriteBmp(const wchar_t* path, u32 width, u32 row_height) noexcept {
+TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* path, u32 width, u32 row_height) noexcept {
     SegmentStats stats[(usize)ESegment::_Count];
-    u32 n = MemorySystem::GetStats(stats, (u32)ESegment::_Count);
-    if (n == 0) return ACS_ERR(Memory, 41, "MemorySystem has no segments");
+    u32 n = FMemorySystem::GetStats(stats, (u32)ESegment::_Count);
+    if (n == 0) return ACS_ERR(Memory, 41, "FMemorySystem has no segments");
 
     u32 height = n * row_height;
     // BMP は 1 行を 4 バイト境界にアラインする
@@ -231,9 +231,9 @@ TResult<void> MemorySnapshot::WriteBmp(const wchar_t* path, u32 width, u32 row_h
 }
 
 // stdout への簡易テキスト表（CI ログ・コンソール確認用）
-void MemorySnapshot::DumpToStdOut() noexcept {
+void FMemorySnapshot::DumpToStdOut() noexcept {
     SegmentStats stats[(usize)ESegment::_Count];
-    u32 n = MemorySystem::GetStats(stats, (u32)ESegment::_Count);
+    u32 n = FMemorySystem::GetStats(stats, (u32)ESegment::_Count);
     ::printf("[ACS Memory Snapshot]\n");
     ::printf("  %-12s | %-12s | %-12s | %-12s | %-12s\n",
              "ESegment", "Reserve", "Committed", "Used", "Peak");

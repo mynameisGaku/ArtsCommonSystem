@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — Progression (XP / Level / Milestones / Unlocks)
+// GameFramework 完成度システム v7 — FProgression (XP / Level / Milestones / Unlocks)
 //
 // 「累計 XP を加算するとレベルが上がり、所定の XP 閾値を越えると Milestone を
 // 達成 → コンテンツが Unlock される」というジャンルを問わず広く使われる進行
 // システムを 1 クラスにまとめた小型マネージャ。
 //
 // 想定する位置付け:
-//   ・Pillar S (AchievementManager) との違い:
+//   ・Pillar S (FAchievementManager) との違い:
 //     - Achievement は「最終的に解除/未解除の 2 値フラグ」を管理する SDK 連動装置。
 //       Storefront 配信プラットフォームへ片方向送信する責務まで含む。
-//     - Progression は「累積 XP に対してレベルとマイルストーンが線形に増える」
+//     - FProgression は「累積 XP に対してレベルとマイルストーンが線形に増える」
 //       純粋にゲーム内で完結する進行カウンタ。プラットフォーム SDK には依存しない。
 //   ・Unlock 連携:
-//     - 各 MilestoneDef に `unlock_content_id` を持たせる。Progression 自身は
+//     - 各 MilestoneDef に `unlock_content_id` を持たせる。FProgression 自身は
 //       コンテンツ解放の実体を持たず、達成時に FCallback でゲーム側へ通知する。
-//       受け取った側が EntitlementRegistry / ContentManager / AchievementManager
+//       受け取った側が EntitlementRegistry / ContentManager / FAchievementManager
 //       に橋渡しする責務。
 //
 // 使い方:
-//   Progression p;
+//   FProgression p;
 //
 //   // 起動時にゲーム側でマイルストーンを 1 度ずつ登録。
 //   p.RegisterMilestone({ "ms.level_5",  "Lv.5 到達",   31,   "content.weapon_b" });
@@ -51,26 +51,26 @@
 //     - XP <= 0 → Level 0、XP=1 → Level 1、XP=3 → 2、XP=7 → 3、XP=15 → 4、…
 //     - 必要なら将来 `SetLevelCurve(callback)` で差し替え可能だが、今は YAGNI。
 //   ・**MilestoneDef / MilestoneState を別配列で持つ**:
-//     - AchievementManager と同じ pattern。Def は immutable な定義 (id /
+//     - FAchievementManager と同じ pattern。Def は immutable な定義 (id /
 //       display_name / required_xp / unlock_content_id)、State は実行時の
 //       達成状態 (id / achieved / achieved_timestamp)。1:1 対応で同 index を共有。
 //   ・**所有しない const char***:
 //     - id / display_name / unlock_content_id は呼出側 (ゲームコード or リソース
 //       バンドル) が保証する static lifetime の文字列リテラルを想定。
-//       Progression 側ではコピーしない (STL <string> 禁止方針)。
+//       FProgression 側ではコピーしない (STL <string> 禁止方針)。
 //   ・**重複登録は黙って弾く**:
 //     - 同 id を 2 度 RegisterMilestone しても 2 回目は no-op。
-//       他 Manager 系 (Entitlement / Achievement) と同じ防御方針。
+//       他 Manager 系 (FEntitlement / Achievement) と同じ防御方針。
 //   ・**線形検索**:
 //     - Milestone 件数は 1 タイトルで通常 10〜100 程度。TArray<T> の per-byte
 //       文字列比較 + 線形走査で十分。
 //   ・**FCallback は関数ポインタ + user data**:
-//     - TriggerWorld2D / SceneTimer と同じ pattern。`std::function` は STL 禁止
+//     - FTriggerWorld2D / FSceneTimer と同じ pattern。`std::function` は STL 禁止
 //       方針で使えないので、`void(*)(void*,...)` で固定。1 種類のみ (達成時)
 //       なので命名は `MilestoneCallback`。
 //   ・**Save / Load は Phase 1 では TODO スタブ**:
-//     - SaveSlot / Settings と同じく、形だけ TResult<void> を返す。実 I/O は
-//       Phase 2 で FileSystem / SaveSlot 経由で実装する。
+//     - FSaveSlot / FSettings と同じく、形だけ TResult<void> を返す。実 I/O は
+//       Phase 2 で FileSystem / FSaveSlot 経由で実装する。
 //   ・**全 noexcept、非コピー・非ムーブ**:
 //     - 他 Manager 系と統一。誤って値渡しされて進捗が分裂すると検知し辛い。
 //   ・**STL 不使用、`<string>` 禁止**:
@@ -78,8 +78,8 @@
 //
 // 範囲外 (Phase 2+ で):
 //   ・XP 倍率・経験値テーブル差し替え (今はハードコード log2 ベース)
-//   ・SDK 統合 (Steamworks 等は AchievementManager 側で扱う)
-//   ・永続化の実装 (Phase 2 で SaveSlot 経由に接続)
+//   ・SDK 統合 (Steamworks 等は FAchievementManager 側で扱う)
+//   ・永続化の実装 (Phase 2 で FSaveSlot 経由に接続)
 //   ・seasonal reset / prestige system (Phase 3+ で別 API として追加検討)
 #pragma once
 
@@ -95,7 +95,7 @@ namespace acs::game {
 // required_xp  : 累計 XP がこの値以上になった瞬間に達成扱い。
 //                AwardXp 時に内部で線形走査して判定する。
 // unlock_content_id:
-//                達成時に「何がアンロックされるか」を表す ID。Progression 自身は
+//                達成時に「何がアンロックされるか」を表す ID。FProgression 自身は
 //                解放処理を行わず、FCallback でゲーム側に通知するだけ。nullptr は
 //                許容 (= 純粋に演出だけのマイルストーン)。
 struct MilestoneDef {
@@ -122,16 +122,16 @@ struct MilestoneState {
 // milestone_id は登録時の id (リテラル) がそのまま渡る。
 using MilestoneCallback = void(*)(void* user, const char* milestone_id) noexcept;
 
-// ---- Progression ---------------------------------------------------------
-class Progression {
+// ---- FProgression ---------------------------------------------------------
+class FProgression {
 public:
-    Progression()  noexcept = default;
-    ~Progression() noexcept = default;
+    FProgression()  noexcept = default;
+    ~FProgression() noexcept = default;
 
-    Progression(const Progression&)            = delete;
-    Progression& operator=(const Progression&) = delete;
-    Progression(Progression&&)                 = delete;
-    Progression& operator=(Progression&&)      = delete;
+    FProgression(const FProgression&)            = delete;
+    FProgression& operator=(const FProgression&) = delete;
+    FProgression(FProgression&&)                 = delete;
+    FProgression& operator=(FProgression&&)      = delete;
 
     // ---- 定義登録 (起動時に 1 度ずつ) -----------------------------------
     // 同 id の 2 重登録は no-op、`def.id == nullptr` も no-op (defensive)。
@@ -177,7 +177,7 @@ public:
 
     // ---- 永続化 (Phase 2 で実装) ----------------------------------------
     // Phase 1 は TODO スタブ。形だけ TResult<void> を返して呼出側の構造を
-    // 先に組めるようにする。Phase 2 で SaveSlot 経由の atomic write に接続。
+    // 先に組めるようにする。Phase 2 で FSaveSlot 経由の atomic write に接続。
     TResult<void> Save(const wchar_t* file_path) noexcept;
     TResult<void> Load(const wchar_t* file_path) noexcept;
 

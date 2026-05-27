@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / EditorPanel (Phase 21a)
+// GameFramework Pillar — editor_core / FEditorPanel (Phase 21a)
 //
 // 全エディタパネルの共通基底クラス。Phase 20 で実装された各 panel
-// (HierarchyPanel / InspectorPanel / EditorToolbar 等) は独立クラスとして
+// (FHierarchyPanel / FInspectorPanel / FEditorToolbar 等) は独立クラスとして
 // 作られていたが、Phase 21 以降で追加される複数の editor 群
 // (ModelViewer / AnimCurveEditor / BehaviorTreeEditor / LevelEditor /
 //  SpriteAtlasEditor / FontEditor / CinematicsTimelineEditor) を統一的に
 // 配線するため、ライフサイクル + 選択通知 + レイアウト永続化を共通化する。
 //
 // 使い方 (派生側の典型):
-//   class ModelViewerPanel : public acs::game::editor_core::EditorPanel {
+//   class FModelViewerPanel : public acs::game::editor_core::FEditorPanel {
 //   public:
 //       const char* Title() const noexcept override { return "Model Viewer"; }
 //       void DrawUI() noexcept override {
@@ -24,8 +24,8 @@
 //       }
 //   };
 //
-//   // ホスト側 (EditorWorkspace) からの呼び出し:
-//   ModelViewerPanel viewer;
+//   // ホスト側 (FEditorWorkspace) からの呼び出し:
+//   FModelViewerPanel viewer;
 //   viewer.OnInit(workspace);
 //   // 毎フレーム:
 //   viewer.OnFrameBegin(dt);
@@ -43,14 +43,14 @@
 //     強制 wrap せず派生側で完全制御させる方針 (Unity Editor の `EditorWindow`
 //     と同じ責任分担)。`_visible` は派生側で `ImGui::Begin(Title(), &_visible)`
 //     の close ボタンに直接渡せる public-ish state。
-//   ・**EditorWorkspace は forward-decl のみ**: ヘッダ依存を最小化。具体的な
-//     workspace 型 (SelectionService / AssetBrowser / DockSpace 等の集約 hub) は
+//   ・**FEditorWorkspace は forward-decl のみ**: ヘッダ依存を最小化。具体的な
+//     workspace 型 (FSelectionService / FAssetBrowser / DockSpace 等の集約 hub) は
 //     Phase 21a 完了後に同 editor_core 配下に実装される予定で、本基底は型を
 //     知らなくても OnInit で参照を保存できればよい。Workspace ポインタは
 //     non-owning (workspace の生存期間 ≧ panel の生存期間)。
 //   ・**OnSelectionChanged / OnAssetSelected の二系統**:
-//       - OnSelectionChanged: Scene 内の Node 選択 (SelectionService 経由)
-//       - OnAssetSelected   : AssetBrowser からのファイル選択 (asset path string)
+//       - OnSelectionChanged: Scene 内の Node 選択 (FSelectionService 経由)
+//       - OnAssetSelected   : FAssetBrowser からのファイル選択 (asset path string)
 //     2 つを独立 hook にしておくことで、ModelViewer のように "asset 系のみ反応"
 //     する panel と、Inspector のように "node 系のみ反応" する panel が綺麗に
 //     書き分けられる。
@@ -63,10 +63,10 @@
 //   ・**非コピー / 非ムーブ**: panel は workspace と紐づく lifecycle を持つため
 //     所有を曖昧にしない (ACS 規約)。
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。文字列は
-//     `const char*` リテラル想定 (Title は静的文字列、asset_path は AssetBrowser
+//     `const char*` リテラル想定 (Title は静的文字列、asset_path は FAssetBrowser
 //     所有バッファ)。
 //   ・**ImGui ヘッダは含めない**: 派生クラスの .cpp で <imgui.h> を include する
-//     パターン (ParticleEditorPanel / InspectorPanel と同形)。
+//     パターン (FParticleEditorPanel / FInspectorPanel と同形)。
 //
 // 将来拡張余地 (Phase 21b 以降):
 //   ・`OnKeyShortcut(KeyCombo combo) noexcept` — panel ごとのキーバインド
@@ -76,7 +76,7 @@
 //     (Inspector の field 編集、CurveEditor のキー操作、LevelEditor の配置等を
 //      Workspace 共通 undo stack に流す)。
 //   ・`virtual u32 GetDependencyMask() const noexcept` — panel 間の依存を bit flag
-//     で宣言 (例: ModelViewer は AssetBrowser に依存)。Workspace が dependency 順に
+//     で宣言 (例: ModelViewer は FAssetBrowser に依存)。Workspace が dependency 順に
 //     OnFrameBegin / DrawUI を呼ぶ schedule を組むため。
 //   ・`OnDockStateChanged()` — ImGui dock の attach/detach 通知。
 //
@@ -94,40 +94,40 @@ namespace acs::game::editor_core {
 // 別 panel / 同 editor_core 配下で実装される hub クラス群の forward-decl。
 // 本ヘッダから実体ヘッダを include しないことで「panel の派生クラスを書く側」が
 // editor_core の他コンポーネントを意識せず override だけに集中できる。
-class EditorWorkspace;
+class FEditorWorkspace;
 class EditorLayoutSerializer;
 
 } // namespace acs::game::editor_core
 
 namespace acs::game::inspector {
-// Phase 20 で実装された SelectionService。OnSelectionChanged の引数型として
-// forward-decl のみで受ける。本基底は SelectionService の API を直接呼ばない
+// Phase 20 で実装された FSelectionService。OnSelectionChanged の引数型として
+// forward-decl のみで受ける。本基底は FSelectionService の API を直接呼ばない
 // (派生側が selection.CurrentSelection() 等を呼ぶ)。
-class SelectionService;
+class FSelectionService;
 } // namespace acs::game::inspector
 
 namespace acs::game::editor_core {
 
 // ---------------------------------------------------------------------------
-// EditorPanel — 全エディタパネルの抽象基底
+// FEditorPanel — 全エディタパネルの抽象基底
 // ---------------------------------------------------------------------------
-class EditorPanel {
+class FEditorPanel {
 public:
-    EditorPanel() noexcept = default;
-    virtual ~EditorPanel() noexcept = default;
+    FEditorPanel() noexcept = default;
+    virtual ~FEditorPanel() noexcept = default;
 
     // 非コピー・非ムーブ: panel は workspace と固有の lifecycle を持ち、
     // 同一インスタンスが Workspace に登録される (= unique 存在) ため
     // 所有関係を曖昧にしない (ACS 規約 + 他 panel と同形)。
-    EditorPanel(const EditorPanel&)            = delete;
-    EditorPanel& operator=(const EditorPanel&) = delete;
-    EditorPanel(EditorPanel&&)                 = delete;
-    EditorPanel& operator=(EditorPanel&&)      = delete;
+    FEditorPanel(const FEditorPanel&)            = delete;
+    FEditorPanel& operator=(const FEditorPanel&) = delete;
+    FEditorPanel(FEditorPanel&&)                 = delete;
+    FEditorPanel& operator=(FEditorPanel&&)      = delete;
 
     // ----- 必須 override (純粋仮想) -----------------------------------------
 
     // ImGui::Begin に渡す window タイトル。リテラル / 静的領域文字列を返すこと
-    // (本基底はコピー所有しない)。同じ EditorWorkspace 内で重複しない一意な名前
+    // (本基底はコピー所有しない)。同じ FEditorWorkspace 内で重複しない一意な名前
     // が望ましい (ImGui の window id 衝突回避のため)。
     virtual const char* Title() const noexcept = 0;
 
@@ -141,11 +141,11 @@ public:
     // Workspace への登録時に 1 度呼ばれる。`workspace` への参照を内部に保存し、
     // 以降の hook 内から `Workspace()` 経由で取り出せるようにする (基底実装)。
     // 派生クラスで追加初期化が必要なら override + 基底呼び出しの順で書く:
-    //   void OnInit(EditorWorkspace& ws) noexcept override {
-    //       EditorPanel::OnInit(ws);
+    //   void OnInit(FEditorWorkspace& ws) noexcept override {
+    //       FEditorPanel::OnInit(ws);
     //       // ... 追加初期化 ...
     //   }
-    virtual void OnInit(EditorWorkspace& workspace) noexcept;
+    virtual void OnInit(FEditorWorkspace& workspace) noexcept;
 
     // Workspace からの登録解除時 / editor shutdown 時に 1 度呼ばれる。
     // 派生クラスは GPU リソース解放やコールバック解除をここで行う。
@@ -157,13 +157,13 @@ public:
     // `dt` はスケール後 dt (秒)。
     virtual void OnFrameBegin(f32 /*dt*/) noexcept {}
 
-    // Scene 内 Node の選択が変わったときに呼ばれる (Phase 20 SelectionService
+    // Scene 内 Node の選択が変わったときに呼ばれる (Phase 20 FSelectionService
     // との統合)。selection から `CurrentSelection()` 等を取り出して反映する。
-    // SelectionService の lifecycle 管理は Workspace 側責務。
-    virtual void OnSelectionChanged(inspector::SelectionService& /*selection*/) noexcept {}
+    // FSelectionService の lifecycle 管理は Workspace 側責務。
+    virtual void OnSelectionChanged(inspector::FSelectionService& /*selection*/) noexcept {}
 
-    // AssetBrowser からファイルが選択された時の通知 (Phase 21 別 panel で実装予定)。
-    // `asset_path` は AssetBrowser が所有する文字列 (本 panel ではコピー禁止 = STL
+    // FAssetBrowser からファイルが選択された時の通知 (Phase 21 別 panel で実装予定)。
+    // `asset_path` は FAssetBrowser が所有する文字列 (本 panel ではコピー禁止 = STL
     // 不使用 + `<string>` 禁止のため、保持したい場合は ACS 内の固定長 char バッファ
     // または FilePath 型を派生クラスで持つこと)。nullptr が来た場合は "選択解除"
     // と解釈する。
@@ -200,7 +200,7 @@ public:
 
     // OnInit で保存された Workspace ポインタ。OnInit 前 / OnShutdown 後は
     // nullptr。non-owning (workspace の生存期間は呼び出し側責務)。
-    EditorWorkspace* Workspace() const noexcept { return _workspace; }
+    FEditorWorkspace* Workspace() const noexcept { return _workspace; }
 
 protected:
     // panel 表示 toggle。派生クラスから `ImGui::Begin(Title(), &_visible)` の
@@ -215,7 +215,7 @@ private:
     // OnInit で保存される Workspace 参照 (non-owning)。
     // OnShutdown で nullptr に戻すかは基底責務 (= OnShutdown は no-op default の
     // ため、派生側で必要なら明示的に解除すること)。
-    EditorWorkspace* _workspace = nullptr;
+    FEditorWorkspace* _workspace = nullptr;
 };
 
 } // namespace acs::game::editor_core

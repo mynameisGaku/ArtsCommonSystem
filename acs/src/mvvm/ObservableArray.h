@@ -40,17 +40,17 @@ enum class EArrayChange : u8 {
 };
 
 // 通知ハンドルは Observable<T> と同じ仕様
-struct ArrayObserverHandle {
+struct FArrayObserverHandle {
     u32 id         = 0;
     u32 generation = 0;
 
     bool IsValid() const noexcept { return id != 0; }
-    bool operator==(const ArrayObserverHandle& o) const noexcept {
+    bool operator==(const FArrayObserverHandle& o) const noexcept {
         return id == o.id && generation == o.generation;
     }
 };
 
-inline constexpr ArrayObserverHandle kInvalidArrayObserver{};
+inline constexpr FArrayObserverHandle kInvalidArrayObserver{};
 
 template<typename T>
 class ObservableArray {
@@ -120,7 +120,7 @@ public:
     T*       Data()       noexcept { return _items.Data(); }
 
     // ---- 購読 ----
-    ArrayObserverHandle Subscribe(Listener cb, void* user) noexcept {
+    FArrayObserverHandle Subscribe(Listener cb, void* user) noexcept {
         if (!cb) return kInvalidArrayObserver;
         u32 idx;
         if (_free_indices.Size() > 0) {
@@ -136,10 +136,10 @@ public:
         s.active = true;
         s.cb     = cb;
         s.user   = user;
-        return ArrayObserverHandle{ s.id, s.generation };
+        return FArrayObserverHandle{ s.id, s.generation };
     }
 
-    bool Unsubscribe(ArrayObserverHandle h) noexcept {
+    bool Unsubscribe(FArrayObserverHandle h) noexcept {
         if (!h.IsValid()) return false;
         for (usize i = 0; i < _slots.Size(); ++i) {
             Slot& s = _slots[i];

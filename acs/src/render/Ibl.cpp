@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Image-Based Lighting 実装 (Phase 31)
 //
-// 現段階の機能: BRDF LUT 生成、Sky → env cubemap キャプチャ、skybox preview 描画。
+// 現段階の機能: BRDF LUT 生成、FSky → env cubemap キャプチャ、skybox preview 描画。
 // irradiance / prefilter は後続ステップで追加する。
 #include "render/Ibl.h"
 #include "render/Sky.h"
@@ -30,12 +30,12 @@ namespace {
 // 出力 RG16F: r=scale (F0 にかける係数), g=bias (F0 と無関係なオフセット)
 // 実行時 PBR 反射: F0 * lut.r + lut.g を Fresnel-modulated specular IBL の係数として使う。
 //
-// **テクスチャ座標規約 (PbrShader IBL 統合時に必ず一致させること)**:
+// **テクスチャ座標規約 (FPbrShader IBL 統合時に必ず一致させること)**:
 //   ・row 0  (texture top, v=0) = roughness 0  (鏡面)
 //   ・row 255 (texture bottom, v=1) = roughness 1 (粗い表面)
 //   ・col 0  (texture left,  u=0) = NdotV 0  (grazing 角)
 //   ・col 255 (texture right, u=1) = NdotV 1  (正対)
-// → PbrShader 側で `brdf_lut.Sample(s, float2(NdotV, roughness))` で sampling 可能。
+// → FPbrShader 側で `brdf_lut.Sample(s, float2(NdotV, roughness))` で sampling 可能。
 const char* kBrdfLutHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -132,9 +132,9 @@ constexpr u32 kIrradianceSize = 32;
 constexpr u32 kPrefilterSize  = 128;
 constexpr u32 kPrefilterMips  = 5;     // 128/64/32/16/8 → roughness 0/0.25/0.5/0.75/1.0
 
-// ---- 環境 cubemap キャプチャ (Sky procedural を 6 face に焼く) ----
+// ---- 環境 cubemap キャプチャ (FSky procedural を 6 face に焼く) ----
 //
-// Sky.cpp の手続き式 (高さ角でグラデ + 太陽 disc) と同じ式を per-face で評価する。
+// FSky.cpp の手続き式 (高さ角でグラデ + 太陽 disc) と同じ式を per-face で評価する。
 // face_index で 6 面それぞれの (uv → world dir) 変換を選ぶ。
 const char* kEnvCaptureHLSL = R"(
 #pragma pack_matrix(row_major)
@@ -235,7 +235,7 @@ VSOut VSMain(uint id : SV_VertexID) {
     float2 uv = float2((id << 1) & 2, id & 2);
     VSOut o;
     o.ndc = uv * 2.0 - 1.0;
-    // 遠平面 (z=1) で描画。Sky.cpp と同じく pos.y は -ndc.y で D3D の上下を統一
+    // 遠平面 (z=1) で描画。FSky.cpp と同じく pos.y は -ndc.y で D3D の上下を統一
     o.pos = float4(o.ndc.x, -o.ndc.y, 1.0, 1.0);
     return o;
 }
@@ -264,7 +264,7 @@ struct SkyboxCBLayout {
 //
 // Lambert diffuse の ambient 反射光 (radiance):
 //   L_diffuse = (albedo/π) E(N)
-// → ここでは (E(N)/π) を cubemap に焼き、PbrShader 側で `albedo * irradiance.Sample(N)`
+// → ここでは (E(N)/π) を cubemap に焼き、FPbrShader 側で `albedo * irradiance.Sample(N)`
 //   と素直に乗算できる形にする。
 //
 // kNumPhi × kNumTheta = 64 × 16 = 1024 サンプル / texel。32x32x6 = 6144 texel × 1024 ≈ 6.3M
@@ -538,7 +538,7 @@ TResult<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
 TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
                                                IRhiCommandList& cl) noexcept {
     // Dx12 raw backend では何もしない (BeginRenderToTexture が空、Pipeline cast 不能)。
-    // Ibl.h で「Diligent 専用」と謳っているが運用上の事故防止のため early-return。
+    // FIbl.h で「Diligent 専用」と謳っているが運用上の事故防止のため early-return。
     if (!IsDiligentBackend(device)) {
         ACS_LOG_WARN("ImageBasedLighting: BRDF LUT skipped (backend != Diligent)");
         return Ok();
@@ -611,7 +611,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
 
 TResult<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
-                                                  const Sky& sky) noexcept {
+                                                  const FSky& sky) noexcept {
     if (_env_built) return Ok();
     auto r = BuildEnvCubemap(device, cl, sky);
     if (r.IsErr()) return r;
@@ -621,7 +621,7 @@ TResult<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
 
 TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
-                                                  const Sky& sky) noexcept {
+                                                  const FSky& sky) noexcept {
     if (!IsDiligentBackend(device)) {
         ACS_LOG_WARN("ImageBasedLighting: env cubemap skipped (backend != Diligent)");
         return Ok();
@@ -824,7 +824,7 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
         equirect = Move(r.Value());
     }
 
-    // 2) 出力 env cubemap (Sky 由来と同サイズ、R11G11B10_Float、per-slice RTV)
+    // 2) 出力 env cubemap (FSky 由来と同サイズ、R11G11B10_Float、per-slice RTV)
     {
         FTextureDesc td{};
         td.width            = kEnvCubeSize;

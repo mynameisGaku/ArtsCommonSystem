@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ワークスチール ThreadPool（Chase-Lev SPMC deque + help-stealing wait）
+// ワークスチール FThreadPool（Chase-Lev SPMC deque + help-stealing wait）
 #pragma once
 
 #include "foundation/Types.h"
@@ -37,7 +37,7 @@ struct Task {
     CompletionCounter*  counter  = nullptr;  // 完了通知先（任意、null 可）
 };
 
-class ThreadPool {
+class FThreadPool {
 public:
     // 初期化（worker_count=0 で論理 CPU 数を採用、二重 Init はエラー）
     static TResult<void> Init(u32 worker_count = 0) noexcept;

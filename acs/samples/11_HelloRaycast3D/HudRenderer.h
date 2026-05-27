@@ -9,7 +9,7 @@
 
 namespace acs {
     class IRhiCommandList;
-    class SpriteBatch;
+    class FSpriteBatch;
     class Font;
 }
 
@@ -20,7 +20,7 @@ class RaycastTargets;
 class HudRenderer {
 public:
     // font が未ロード (AtlasTexture が無い) の場合は何もしない。
-    static void Draw(acs::SpriteBatch& batch,
+    static void Draw(acs::FSpriteBatch& batch,
                      acs::Font& font,
                      acs::IRhiCommandList& cl,
                      acs::u32 screen_w,

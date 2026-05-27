@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — Lockstep (deterministic input replay) スケルトン
+// GameFramework Pillar M — FLockstep (deterministic input replay) スケルトン
 //
 // 役割:
-//   1) **Lockstep ネットコード** の入力レイヤ: 1 tick = 1 フレーム分の入力を
+//   1) **FLockstep ネットコード** の入力レイヤ: 1 tick = 1 フレーム分の入力を
 //      `InputFrame` として記録 / 配信し、全クライアントが同一順序で入力を消費
 //      することで決定論的なシミュレーションを実現する土台。
 //   2) **入力リプレイ**: Local 中に記録した入力列をそのまま Replay モードで
@@ -12,7 +12,7 @@
 //      bit 単位で検出する。
 //
 // 使い方 (想定):
-//   Lockstep ls;
+//   FLockstep ls;
 //   ls.Init(ENetMode::Local, /*tick_rate_hz=*/60);
 //
 //   // ゲームループ (Local 中):
@@ -49,11 +49,11 @@
 //     としては十分。CRC-64 / xxHash3 は Phase M-2 で検討。
 //   ・**SaveToBuffer / LoadFromBuffer は stub**: Phase 1 では magic + version +
 //     count + frames の bit-precise layout 仕様だけ確定し、本体は ACS_ERR(IO,
-//     kSub_NotImplemented) で返す (SaveSlot Phase 1 と同じ pattern)。Phase M-2 で
+//     kSub_NotImplemented) で返す (FSaveSlot Phase 1 と同じ pattern)。Phase M-2 で
 //     `acs::FileSystem::WriteAllBytes` + CRC-32 footer を入れる。
-//   ・**コピー / ムーブ禁止**: Lockstep は通常 1 セッションに 1 個 (グローバル所有)
+//   ・**コピー / ムーブ禁止**: FLockstep は通常 1 セッションに 1 個 (グローバル所有)
 //     の長寿命オブジェクト。誤って値渡しされて state が分裂すると replay の
-//     同期ずれが起きるため、Settings / PartySystem と同じく最初から非コピー・
+//     同期ずれが起きるため、FSettings / FPartySystem と同じく最初から非コピー・
 //     非ムーブで固定する。
 //   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //
@@ -101,32 +101,32 @@ struct InputFrame {
 // =============================================================================
 // ENetMode — 入力レイヤの動作モード
 // -----------------------------------------------------------------------------
-// Lockstep は同一クラスで「単独プレイ」「ネット対戦」「リプレイ再生」の 3 モード
+// FLockstep は同一クラスで「単独プレイ」「ネット対戦」「リプレイ再生」の 3 モード
 // を扱う。モード切替時は state を Clear せず、cursor だけリセットする (Local 中
 // に記録した frames を StartReplay で再生する用途を想定)。
 // =============================================================================
 enum class ENetMode : u8 {
     Local    = 0,  // 単独プレイ / 入力を記録するが配信はしない
-    Lockstep = 1,  // ネット対戦 / 入力を記録 + リモートから受信した frame を取り込む
+    FLockstep = 1,  // ネット対戦 / 入力を記録 + リモートから受信した frame を取り込む
     Replay   = 2,  // 過去の入力列を再生 / RecordInput は受け付けない
 };
 
 // =============================================================================
-// Lockstep — 決定論的入力レイヤ
+// FLockstep — 決定論的入力レイヤ
 // -----------------------------------------------------------------------------
 // 1 セッション 1 オブジェクトの想定。コピー / ムーブ禁止で誤分裂を防ぐ。
 // =============================================================================
-class Lockstep {
+class FLockstep {
 public:
-    Lockstep()  noexcept = default;
-    ~Lockstep() noexcept = default;
+    FLockstep()  noexcept = default;
+    ~FLockstep() noexcept = default;
 
-    Lockstep(const Lockstep&)            = delete;
-    Lockstep& operator=(const Lockstep&) = delete;
-    Lockstep(Lockstep&&)                 = delete;
-    Lockstep& operator=(Lockstep&&)      = delete;
+    FLockstep(const FLockstep&)            = delete;
+    FLockstep& operator=(const FLockstep&) = delete;
+    FLockstep(FLockstep&&)                 = delete;
+    FLockstep& operator=(FLockstep&&)      = delete;
 
-    // 共通エラー subcode (SaveSlot / BackendClient と同じ pattern)。
+    // 共通エラー subcode (FSaveSlot / FBackendClient と同じ pattern)。
     // 上位層が switch で分岐できるよう enum 風に固定値を割り当てる。
     enum SubCode : u16 {
         kSub_NullBuffer     = 1,  // SaveToBuffer / LoadFromBuffer の buffer == nullptr

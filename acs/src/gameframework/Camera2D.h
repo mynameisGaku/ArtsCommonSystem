@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — Camera2D (Phase 9)
+// GameFramework Pillar E — FCamera2D (Phase 9)
 //
 // 2D カメラ: position / zoom / rotation、target 追従 (指数 smoothing)、
 // screen shake (trauma 方式)、world↔screen 座標変換、world boundary clamping。
-// SceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
+// FSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
@@ -45,13 +45,13 @@
 
 namespace acs::game {
 
-class Camera2D {
+class FCamera2D {
 public:
-    Camera2D() noexcept = default;
-    ~Camera2D() noexcept = default;
+    FCamera2D() noexcept = default;
+    ~FCamera2D() noexcept = default;
 
-    Camera2D(const Camera2D&)            = delete;
-    Camera2D& operator=(const Camera2D&) = delete;
+    FCamera2D(const FCamera2D&)            = delete;
+    FCamera2D& operator=(const FCamera2D&) = delete;
 
     // ----- 基本 transform -----
     FVec2 Position() const noexcept { return _position; }

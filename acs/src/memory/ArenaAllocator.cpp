@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — ArenaAllocator 実装
+// ACS Memory — FArenaAllocator 実装
 // -----------------------------------------------------------------------------
 // 通常確保はアトミック CAS 1 回で完了する。ページが満杯になった時だけ
 // FMutex で排他して新ページを確保する。
@@ -11,16 +11,16 @@
 
 namespace acs {
 
-ArenaAllocator::ArenaAllocator(usize page_size, Allocator* backing) noexcept
+FArenaAllocator::FArenaAllocator(usize page_size, FAllocator* backing) noexcept
     : _backing(backing ? backing : &DefaultAllocator())
     , _page_size(page_size) {}
 
-ArenaAllocator::~ArenaAllocator() noexcept {
+FArenaAllocator::~FArenaAllocator() noexcept {
     Reset(/*release*/ true);
 }
 
 // 新ページ確保（ヘッダ + データ + 64B 整列の余裕を 1 回で取る）
-ArenaAllocator::Page* ArenaAllocator::AllocPage(usize size) noexcept {
+FArenaAllocator::Page* FArenaAllocator::AllocPage(usize size) noexcept {
     usize total = sizeof(Page) + size + 64;
     void* raw = _backing->Alloc(total, alignof(Page), FSourceLoc::Current());
     if (!raw) return nullptr;
@@ -34,7 +34,7 @@ ArenaAllocator::Page* ArenaAllocator::AllocPage(usize size) noexcept {
 }
 
 // 確保
-void* ArenaAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
+void* FArenaAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     if (size == 0) return nullptr;
     if (alignment < 1) alignment = 1;
 
@@ -76,12 +76,12 @@ void* ArenaAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
     }
 }
 
-void ArenaAllocator::Free(void* /*ptr*/) noexcept {
+void FArenaAllocator::Free(void* /*ptr*/) noexcept {
     // 個別解放はサポートしない（Reset で全体破棄）
 }
 
 // 巻き戻し or 全解放
-void ArenaAllocator::Reset(bool release_pages) noexcept {
+void FArenaAllocator::Reset(bool release_pages) noexcept {
     FScopedLock lk(_grow_lock);
     if (release_pages) {
         // 全ページを backing に返却

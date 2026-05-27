@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — SteamworksBridge (Achievements / Leaderboards / PlayerIdentity)
+// GameFramework Pillar S — FSteamworksBridge (Achievements / Leaderboards / PlayerIdentity)
 //
 // Steam / EOS / PS / Xbox / Switch といったプラットフォーム固有 SDK へ橋渡しする
 // 「シーム (seam)」インターフェース。ゲーム側コードは ISteamworksBridge 経由でのみ
@@ -7,7 +7,7 @@
 // SDK 等) との結合はビルド時の選択で差し替える。
 //
 // 使い方:
-//   class Game {
+//   class FGame {
 //       acs::game::ISteamworksBridge* _social = nullptr;
 //
 //       void OnStart() noexcept override {

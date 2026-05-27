@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — ReplayDirector (高レベル replay 再生システム)
+// GameFramework Pillar R — FReplayDirector (高レベル replay 再生システム)
 //
 // 役割:
-//   1) **ハイレベル replay コントローラ**: 低レベルの `InputRecorder` (raw 入力)
-//      と `Lockstep` (deterministic input frame) を統合し、「録画開始 / 停止 /
-//      再生 / 一時停止 / 早送り / 巻き戻し」という Game UI レベルの粒度で
+//   1) **ハイレベル replay コントローラ**: 低レベルの `FInputRecorder` (raw 入力)
+//      と `FLockstep` (deterministic input frame) を統合し、「録画開始 / 停止 /
+//      再生 / 一時停止 / 早送り / 巻き戻し」という FGame UI レベルの粒度で
 //      replay を扱う。アプリ側は本 director だけを通じて record/playback の
 //      ライフサイクルを管理し、低レベル詳細 (sample / frame の bit-precise
 //      layout や cursor 管理) に立ち入らない。
@@ -21,7 +21,7 @@
 //      cursor は Phase 2 (実統合時) に同期させる。
 //
 // 使い方 (想定):
-//   ReplayDirector dir;
+//   FReplayDirector dir;
 //   dir.Init();
 //
 //   // 録画開始
@@ -38,7 +38,7 @@
 //
 //   // ゲームループ (録画中):
 //   dir.Tick(dt);  // 内部で _current_tick を進めるだけ。
-//                  // 入力 capture は InputRecorder/Lockstep 側で別途行う想定。
+//                  // 入力 capture は FInputRecorder/FLockstep 側で別途行う想定。
 //
 //   // 録画停止
 //   dir.StopRecording();
@@ -51,23 +51,23 @@
 //   while (running) {
 //       dir.Tick(dt);
 //       float progress = dir.ProgressNormalized();  // [0, 1]
-//       // ... シミュレーションは Lockstep::ConsumeInput 経由で進める ...
+//       // ... シミュレーションは FLockstep::ConsumeInput 経由で進める ...
 //   }
 //
 // 設計選択 (Phase R-3 スケルトン):
-//   ・**InputRecorder / Lockstep は forward decl**: Phase R-3 は 「ハイレベル
+//   ・**FInputRecorder / FLockstep は forward decl**: Phase R-3 は 「ハイレベル
 //      API シェイプ + state machine + tick 進行」のみを確定する。実際の
 //      sample/frame 連動 (Capture/ConsumeSample の自動呼び出し) は Phase R-4
-//      (Pillar M Phase 2) で「ReplayDirector が両者を所有」or「seam 経由で
+//      (Pillar M Phase 2) で「FReplayDirector が両者を所有」or「seam 経由で
 //      参照する」かを決めた上で接続する。本 header では .cpp 内で完結する
 //      forward decl のみ。
 //   ・**EReplayMode の 4 状態**: Idle / Recording / Playback / Paused。
-//      InputRecorder の ERecorderMode と Lockstep の ENetMode と異なり、UI が
+//      FInputRecorder の ERecorderMode と FLockstep の ENetMode と異なり、UI が
 //      Pause/Resume を必要とするので Paused を専用状態として持つ。Paused
 //      からの遷移は Resume (→ Playback) と Stop (→ Idle) のみ。
 //   ・**ReplayMetadata は trivially-copyable POD**: `const char*` 文字列は
 //      呼び出し側が寿命を保証する static / 長寿命 buffer を渡す規約
-//      (Settings / AccessibilityProfile と同じ STL 不使用方針)。Phase R-4 で
+//      (FSettings / FAccessibilityProfile と同じ STL 不使用方針)。Phase R-4 で
 //      acs::FString への置換は検討するが、現状は raw pointer。
 //   ・**SetPlaybackSpeed は範囲 clamp**: 0 < speed <= 16 の範囲外は最寄りの
 //      有効値に丸める。負値や 0 は Paused を別 API で扱うため認めない。
@@ -76,16 +76,16 @@
 //   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 director の長寿命オブジェクト。
 //      録画中の state が分裂すると replay のメタデータ整合が崩れるため、
-//      Lockstep / InputRecorder / Settings と同じ方針で最初から非コピー・
+//      FLockstep / FInputRecorder / FSettings と同じ方針で最初から非コピー・
 //      非ムーブで固定する。
 //
 // 範囲外 (Phase R-4 以降):
-//   ・実 InputRecorder / Lockstep の自動連動 (現状は state machine のみ)
+//   ・実 FInputRecorder / FLockstep の自動連動 (現状は state machine のみ)
 //   ・SaveReplay / LoadReplay の実 I/O (現状は stub。.acsr + sidecar
 //      metadata .json or .meta file の bit-precise layout は R-4 で確定)
 //   ・複数 replay の同時ロード / 並列再生
 //   ・スクラブバー UI コンポーネント (本クラスは progress 値を返すのみ)
-//   ・録画中のサムネイル自動撮影 (PhotoMode 経由で別途)
+//   ・録画中のサムネイル自動撮影 (FPhotoMode 経由で別途)
 //   ・ネットワーク replay 共有 (StorefrontBridge 経由で別途)
 #pragma once
 
@@ -95,16 +95,16 @@
 namespace acs::game {
 
 // ----- forward decl (Phase R-4 で本実装に接続) -----
-// ReplayDirector は両者を直接所有せず、参照経由で連動させる想定。
+// FReplayDirector は両者を直接所有せず、参照経由で連動させる想定。
 // 現フェーズではメンバとしては未保持のため declaration だけで十分。
-class InputRecorder;
-class Lockstep;
+class FInputRecorder;
+class FLockstep;
 
 // =============================================================================
-// EReplayMode — ReplayDirector の動作モード
+// EReplayMode — FReplayDirector の動作モード
 // -----------------------------------------------------------------------------
-// InputRecorder の ERecorderMode (Idle/Recording/Replaying) と Lockstep の
-// ENetMode (Local/Lockstep/Replay) を統合し、UI が要求する Pause/Resume を
+// FInputRecorder の ERecorderMode (Idle/Recording/Replaying) と FLockstep の
+// ENetMode (Local/FLockstep/Replay) を統合し、UI が要求する Pause/Resume を
 // 加えた 4 状態。状態遷移図:
 //
 //   Idle ── StartRecording ──> Recording ── StopRecording ──> Idle
@@ -126,9 +126,9 @@ enum class EReplayMode : u8 {
 // ReplayMetadata — 1 録画分のメタデータ
 // -----------------------------------------------------------------------------
 // trivially-copyable な POD。`const char*` 文字列は呼び出し側が寿命を保証する
-// static / 長寿命 buffer を渡す規約 (Settings / AccessibilityProfile と同方針)。
+// static / 長寿命 buffer を渡す規約 (FSettings / FAccessibilityProfile と同方針)。
 // timestamp は Unix 秒、duration_ticks は録画停止時に確定する。
-// checksum_hex は Lockstep::ComputeChecksum を 16 文字 hex 化したもの (将来
+// checksum_hex は FLockstep::ComputeChecksum を 16 文字 hex 化したもの (将来
 // Phase R-4 で自動生成)。
 // =============================================================================
 struct ReplayMetadata {
@@ -138,25 +138,25 @@ struct ReplayMetadata {
     u64         timestamp      = 0;        // 録画開始時刻 (Unix 秒)
     u32         duration_ticks = 0;        // 録画終了時に確定する総 tick 数
     const char* player_name    = nullptr;  // プレイヤー名 (任意。null 可)
-    const char* checksum_hex   = nullptr;  // Lockstep checksum の hex 文字列 (16 文字)
+    const char* checksum_hex   = nullptr;  // FLockstep checksum の hex 文字列 (16 文字)
 };
 
 // =============================================================================
-// ReplayDirector — ハイレベル replay コントローラ
+// FReplayDirector — ハイレベル replay コントローラ
 // -----------------------------------------------------------------------------
 // 1 セッション 1 オブジェクトの想定。コピー / ムーブ禁止で誤分裂を防ぐ。
 // =============================================================================
-class ReplayDirector {
+class FReplayDirector {
 public:
-    ReplayDirector()  noexcept = default;
-    ~ReplayDirector() noexcept = default;
+    FReplayDirector()  noexcept = default;
+    ~FReplayDirector() noexcept = default;
 
-    ReplayDirector(const ReplayDirector&)            = delete;
-    ReplayDirector& operator=(const ReplayDirector&) = delete;
-    ReplayDirector(ReplayDirector&&)                 = delete;
-    ReplayDirector& operator=(ReplayDirector&&)      = delete;
+    FReplayDirector(const FReplayDirector&)            = delete;
+    FReplayDirector& operator=(const FReplayDirector&) = delete;
+    FReplayDirector(FReplayDirector&&)                 = delete;
+    FReplayDirector& operator=(FReplayDirector&&)      = delete;
 
-    // 共通エラー subcode (SaveSlot / Lockstep / InputRecorder と同 pattern)。
+    // 共通エラー subcode (FSaveSlot / FLockstep / FInputRecorder と同 pattern)。
     enum SubCode : u16 {
         kSub_NullPath         = 1,  // SaveReplay / LoadReplay の file_path == nullptr
         kSub_BadMode          = 2,  // Start/Stop が現在 mode と不整合
@@ -212,7 +212,7 @@ public:
 
     // ----- 毎フレーム呼び出し -----
     // Recording 中: _current_tick を 1 tick / Tick(dt) 進める単純実装。
-    //   tick 単位の精密制御は呼び出し側 (Lockstep) の責務。
+    //   tick 単位の精密制御は呼び出し側 (FLockstep) の責務。
     // Playback 中: dt * speed をアキュムレートし、tick_rate_hz 換算で必要 tick 数を
     //   _current_tick に加算する。duration_ticks を超えたら自動的に Idle へ。
     // Paused / Idle: no-op。

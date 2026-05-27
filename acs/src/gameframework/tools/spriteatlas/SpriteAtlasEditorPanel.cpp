@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — spriteatlas / SpriteAtlasEditorPanel 実装 (Phase 22 第一弾)
+// GameFramework Pillar — spriteatlas / FSpriteAtlasEditorPanel 実装 (Phase 22 第一弾)
 //
-// 仕様の意図は SpriteAtlasEditorPanel.h を参照。本ファイルでは:
-//   ・EditorPanel 基底 hook (OnInit / DrawUI) の override
+// 仕様の意図は FSpriteAtlasEditorPanel.h を参照。本ファイルでは:
+//   ・FEditorPanel 基底 hook (OnInit / DrawUI) の override
 //   ・SetSpritePack / CurrentPack / SelectFrame / AddFrame / DeleteSelectedFrame
 //     の小粒な mutator/accessor
 //   ・toolbar / left frame list / center atlas viewport (placeholder + 矩形
@@ -83,7 +83,7 @@ inline ImVec2 AtlasToScreen(ImVec2 origin, f32 zoom, i32 x, i32 y) noexcept {
 // ============================================================================
 // Init / Shutdown
 // ============================================================================
-void SpriteAtlasEditorPanel::Init() noexcept {
+void FSpriteAtlasEditorPanel::Init() noexcept {
     _pack          = nullptr;
     _selected      = -1;
     _zoom          = 1.0f;
@@ -96,13 +96,13 @@ void SpriteAtlasEditorPanel::Init() noexcept {
     }
     _owned_name_count = 0;
 
-    // viewport 系 panel は dock 中央に置きたいことが多い (ModelViewerPanel と
+    // viewport 系 panel は dock 中央に置きたいことが多い (FModelViewerPanel と
     // 同方針)。
     _visible       = true;
     _docked_target = true;
 }
 
-void SpriteAtlasEditorPanel::Shutdown() noexcept {
+void FSpriteAtlasEditorPanel::Shutdown() noexcept {
     _pack          = nullptr;
     _selected      = -1;
     _zoom          = 1.0f;
@@ -116,7 +116,7 @@ void SpriteAtlasEditorPanel::Shutdown() noexcept {
 // ============================================================================
 // SetSpritePack / CurrentPack
 // ============================================================================
-void SpriteAtlasEditorPanel::SetSpritePack(acs::game::SpritePack* pack) noexcept {
+void FSpriteAtlasEditorPanel::SetSpritePack(acs::game::FSpritePack* pack) noexcept {
     _pack = pack;
     // 新しい pack を渡されたら selection を 0 (= 最初の frame) にリセット
     // するのが UX 上自然 (Unity Sprite Editor も同様)。frame が無ければ -1。
@@ -127,18 +127,18 @@ void SpriteAtlasEditorPanel::SetSpritePack(acs::game::SpritePack* pack) noexcept
     }
 }
 
-acs::game::SpritePack* SpriteAtlasEditorPanel::CurrentPack() const noexcept {
+acs::game::FSpritePack* FSpriteAtlasEditorPanel::CurrentPack() const noexcept {
     return _pack;
 }
 
 // ============================================================================
 // SelectedFrameIndex / SelectFrame
 // ============================================================================
-i32 SpriteAtlasEditorPanel::SelectedFrameIndex() const noexcept {
+i32 FSpriteAtlasEditorPanel::SelectedFrameIndex() const noexcept {
     return _selected;
 }
 
-void SpriteAtlasEditorPanel::SelectFrame(i32 idx) noexcept {
+void FSpriteAtlasEditorPanel::SelectFrame(i32 idx) noexcept {
     if (_pack == nullptr) {
         _selected = -1;
         return;
@@ -152,9 +152,9 @@ void SpriteAtlasEditorPanel::SelectFrame(i32 idx) noexcept {
 }
 
 // ============================================================================
-// AddFrame — default 64x64 で新規 frame、Frame_NN 名で SpritePack に登録
+// AddFrame — default 64x64 で新規 frame、Frame_NN 名で FSpritePack に登録
 // ============================================================================
-void SpriteAtlasEditorPanel::AddFrame() noexcept {
+void FSpriteAtlasEditorPanel::AddFrame() noexcept {
     if (_pack == nullptr) return;
     if (_owned_name_count >= kMaxOwnedFrames) return;  // name pool 上限
 
@@ -174,7 +174,7 @@ void SpriteAtlasEditorPanel::AddFrame() noexcept {
 
     // default 64x64 (atlas 左上 0,0 起点)、pivot は preset。
     SpriteFrame f{};
-    f.name    = name_buf;          // 静的バッファ寿命 = panel 寿命 ≧ SpritePack
+    f.name    = name_buf;          // 静的バッファ寿命 = panel 寿命 ≧ FSpritePack
     f.x       = 0u;
     f.y       = 0u;
     f.w       = kDefaultFrameW;
@@ -185,20 +185,20 @@ void SpriteAtlasEditorPanel::AddFrame() noexcept {
 
     ++_owned_name_count;
 
-    // 追加した frame を選択 (SpritePack は順序保存追加 = 末尾)。
+    // 追加した frame を選択 (FSpritePack は順序保存追加 = 末尾)。
     _selected = static_cast<i32>(_pack->FrameCount()) - 1;
 }
 
 // ============================================================================
 // DeleteSelectedFrame
 // ============================================================================
-// SpritePack::RemoveFrame は name ベース (= 同名 frame は全削除) なので、
+// FSpritePack::RemoveFrame は name ベース (= 同名 frame は全削除) なので、
 // 一意性のある _default_frame_name_pool 由来の name しか正しく扱えない。
 // 「panel 外で AddFrame されたが、同名 frame」を保護するため、削除対象 name が
 // pool 内アドレスか先頭ポインタ一致で確認してから削除する。一致しない場合は
 // no-op (= 「panel が知らない frame は触らない」契約)。
 // ============================================================================
-void SpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
+void FSpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
     if (_pack == nullptr) return;
     const i32 count = static_cast<i32>(_pack->FrameCount());
     if (_selected < 0 || _selected >= count) return;
@@ -235,7 +235,7 @@ void SpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
     } else if (_selected >= new_count) {
         _selected = new_count - 1;
     }
-    // SpritePack は swap remove なので index 整合は完全には保証できないが、
+    // FSpritePack は swap remove なので index 整合は完全には保証できないが、
     // panel 側からは「単一 selection が valid index に正規化される」だけ
     // 担保すれば UX 上問題ない。
 }
@@ -243,15 +243,15 @@ void SpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
 // ============================================================================
 // Zoom / PivotPreset
 // ============================================================================
-f32 SpriteAtlasEditorPanel::ZoomLevel() const noexcept {
+f32 FSpriteAtlasEditorPanel::ZoomLevel() const noexcept {
     return _zoom;
 }
 
-void SpriteAtlasEditorPanel::SetZoomLevel(f32 z) noexcept {
+void FSpriteAtlasEditorPanel::SetZoomLevel(f32 z) noexcept {
     _zoom = ClampF32(z, kMinZoom, kMaxZoom);
 }
 
-void SpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
+void FSpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
     _pivot_preset = p;
     // Custom 以外を選んだら selected frame に pivot を即適用する (toolbar 上で
     // toggle した瞬間に「揃う」UX)。Custom は inspector の slider が手動で
@@ -265,10 +265,10 @@ void SpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
     const SpriteFrame* frames = _pack->AllFrames(frame_count);
     if (frames == nullptr || _selected >= static_cast<i32>(frame_count)) return;
 
-    // SpritePack の AllFrames は const ポインタを返すので、mutable 編集には
-    // 本来 SpritePack に SetFrame API を足したいところだが、現状は無いため
-    // const_cast で書き換える (= 同一 SpritePack 内のデータ書換、所有関係は
-    // 維持される。SpritePack の AllFrames コメント上「内部配列の先頭」と
+    // FSpritePack の AllFrames は const ポインタを返すので、mutable 編集には
+    // 本来 FSpritePack に SetFrame API を足したいところだが、現状は無いため
+    // const_cast で書き換える (= 同一 FSpritePack 内のデータ書換、所有関係は
+    // 維持される。FSpritePack の AllFrames コメント上「内部配列の先頭」と
     // 明記されており、frame の不変条件は名前以外 (= x/y/w/h/pivot) には無い)。
     SpriteFrame* mut_frames = const_cast<SpriteFrame*>(frames);
     const PivotPair piv = PivotForPreset(p);
@@ -277,10 +277,10 @@ void SpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
 }
 
 // ============================================================================
-// EditorPanel override: OnInit
+// FEditorPanel override: OnInit
 // ============================================================================
-void SpriteAtlasEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& workspace) noexcept {
-    EditorPanel::OnInit(workspace);
+void FSpriteAtlasEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
+    FEditorPanel::OnInit(workspace);
     // name pool の終端 0 を全行で再確認 (= 多重 OnInit でも安全)。
     for (u32 i = 0; i < kMaxOwnedFrames; ++i) {
         _default_frame_name_pool[i][kFrameNameMaxChars - 1] = '\0';
@@ -288,7 +288,7 @@ void SpriteAtlasEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& wor
 }
 
 // ============================================================================
-// EditorPanel override: DrawUI
+// FEditorPanel override: DrawUI
 // ============================================================================
 // レイアウト (1 window "Sprite Atlas Editor"):
 //   ┌──────────────────────────────────────────────────────────────────┐
@@ -305,7 +305,7 @@ void SpriteAtlasEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& wor
 //   │ └─────────┘ └────────────────────────┘ └──────────────────────┘  │
 //   └──────────────────────────────────────────────────────────────────┘
 // ============================================================================
-void SpriteAtlasEditorPanel::DrawUI() noexcept {
+void FSpriteAtlasEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &_visible)) {
@@ -360,7 +360,7 @@ void SpriteAtlasEditorPanel::DrawUI() noexcept {
         if (!pack_ok) {
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f),
-                               "  (No SpritePack attached)");
+                               "  (No FSpritePack attached)");
         }
     }
 
@@ -530,8 +530,8 @@ void SpriteAtlasEditorPanel::DrawUI() noexcept {
                             // delta は zoom 換算で atlas-pixel に戻す。
                             const f32 inv_zoom = (_zoom > 0.0f) ? (1.0f / _zoom) : 1.0f;
 
-                            // SpritePack は AllFrames が const なので、編集には
-                            // const_cast を使う (SpritePack::AllFrames コメントで
+                            // FSpritePack は AllFrames が const なので、編集には
+                            // const_cast を使う (FSpritePack::AllFrames コメントで
                             // 「内部配列の先頭」と明記、x/y/w/h は不変条件外)。
                             SpriteFrame* mut_frames =
                                 const_cast<SpriteFrame*>(frames);
@@ -539,7 +539,7 @@ void SpriteAtlasEditorPanel::DrawUI() noexcept {
 
                             // 1 フレーム分の mouse delta を atlas px に丸めて
                             // 適用 (= cumulative delta をその場で反映、drag end で
-                            // SpritePack の現在値が確定)。
+                            // FSpritePack の現在値が確定)。
                             // 厳密な undo 一貫性 (drag 開始時 baseline → 累積 delta)
                             // が必要なら Phase 22+ で「drag 開始時 snapshot」を
                             // パネル内に持つ拡張で対応する。

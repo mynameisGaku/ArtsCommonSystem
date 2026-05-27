@@ -72,9 +72,9 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     // 初期化中に TLSF 内部で access violation。Diligent の allocation pattern
     // (高頻度 alloc/free + 多サイズ) に TLSF 側の thread-safety か境界処理が
     // 追いついていない疑い。当面は Diligent の default allocator (malloc/free
-    // ベース) に任せる。性能計測したくなったら Allocator 側を直してから戻す。
+    // ベース) に任せる。性能計測したくなったら FAllocator 側を直してから戻す。
     // 旧コード:
-    // if (auto* mem_seg = MemorySystem::Get(ESegment::Resource)) {
+    // if (auto* mem_seg = FMemorySystem::Get(ESegment::Resource)) {
     //     eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
     //         DiligentMemoryAdapter::Create(mem_seg));
     // }
@@ -132,7 +132,7 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
     }
     eci.NumDeferredContexts = 0;
 
-    if (auto* mem_seg = MemorySystem::Get(ESegment::Resource)) {
+    if (auto* mem_seg = FMemorySystem::Get(ESegment::Resource)) {
         eci.pRawMemAllocator = static_cast<Diligent::IMemoryAllocator*>(
             DiligentMemoryAdapter::Create(mem_seg));
     }

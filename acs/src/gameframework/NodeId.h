@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B Phase 3 — FNodeId (シーングラフ用 generational handle)
 //
-// シーングラフ内の Node2D / Node を一意に識別する 32bit パック handle。
+// シーングラフ内の FNode2D / Node を一意に識別する 32bit パック handle。
 // 1 個の `u32` に **24bit index + 8bit generation** を pack する設計で、
-// `FShapeId` (CollisionWorld2D.h) と完全に同じパターンを採用している。
+// `FShapeId` (FCollisionWorld2D.h) と完全に同じパターンを採用している。
 //
 // 使い方:
 //   FNodeId id = scene.CreateNode();          // 何らかのファクトリ経由で取得
@@ -33,7 +33,7 @@
 //
 // 注意:
 //   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
-//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (NodePool 等)
+//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (FNodePool 等)
 //     で assert / TResult<E> を入れて 16M 越えを検出する責務。
 #pragma once
 

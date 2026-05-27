@@ -157,7 +157,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // dir light 0 へ向かう短距離 screen-space ray march。surface と光源の間に
     // geometry があれば直接光が遮られている (= 接地影)。shadow map が拾えない
     // 細かい接触遮蔽 (球と床の接地際など) を補う。結果は .g に焼き、blur で軟化、
-    // PbrShader が direct light に乗算する。
+    // FPbrShader が direct light に乗算する。
     float contact = 1.0;
     float3 Pw = ReconstructWorldPos(v.uv, depth);
     float3 L  = normalize(light_dir.xyz);             // 光源へ向かう方向 (surface→light)
@@ -269,7 +269,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     _device = &device;
     _width = width;
     _height = height;
@@ -287,7 +287,7 @@ TResult<void> Ssao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     return Ok();
 }
 
-TResult<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     _blur_output.Reset();
     FTextureDesc td{};
@@ -307,12 +307,12 @@ TResult<void> Ssao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) no
     return Ok();
 }
 
-TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsaoHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "Ssao.VS";
+    vs_d.debug_name  = "FSsao.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
@@ -320,7 +320,7 @@ TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsaoHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "Ssao.PS";
+    ps_d.debug_name  = "FSsao.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
@@ -391,7 +391,7 @@ TResult<void> Ssao::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void Ssao::Shutdown() noexcept {
+void FSsao::Shutdown() noexcept {
     _blur_pipeline.Reset();
     _pipeline.Reset();
     _cb.Reset();
@@ -403,15 +403,15 @@ void Ssao::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> Ssao::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 330, "Ssao::Resize before Init");
+TResult<void> FSsao::Resize(u32 width, u32 height) noexcept {
+    if (!_device) return ACS_ERR(Render, 330, "FSsao::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width = width;
     _height = height;
     return CreateOutputRT(*_device, width, height);
 }
 
-void Ssao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
                   const FMat4& view_proj, const FMat4& inv_view_proj,

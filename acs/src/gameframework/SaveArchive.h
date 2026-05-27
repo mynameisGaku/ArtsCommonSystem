@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework Pillar J — SaveArchive (低レベル `.acssave` バイナリ I/O)
+// GameFramework Pillar J — FSaveArchive (低レベル `.acssave` バイナリ I/O)
 // -----------------------------------------------------------------------------
 // 役割:
 //   ユーザー定義 POD を 1 つのファイル (`.acssave`) に「タグ付きバイナリ」で
-//   読み書きする low-level クラス。`SaveSlot<T>` の実装基盤として使う一方、
+//   読み書きする low-level クラス。`FSaveSlot<T>` の実装基盤として使う一方、
 //   テンプレートに依存したくない呼び出し側 (CRT を呼ばないツール、可変長
 //   payload を扱いたい未来の SaveSlotV2 など) からも直接利用できる。
 //
@@ -37,13 +37,13 @@
 // 使い方:
 //   // 書き込み
 //   PlayerProfile p = MakeProfile();
-//   auto wr = SaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
+//   auto wr = FSaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
 //   if (wr.IsErr()) { /* 報告 */ }
 //
 //   // 読み込み
 //   PlayerProfile p{};
 //   u64 actual_size = 0;
-//   auto rd = SaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
+//   auto rd = FSaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
 //                                       actual_size);
 //   if (rd.IsErr()) {
 //       if (rd.Error().subcode ==
@@ -64,7 +64,7 @@
 namespace acs::game {
 
 // -----------------------------------------------------------------------------
-// SaveArchive エラー subcode (FErrorCode.subcode に格納)
+// FSaveArchive エラー subcode (FErrorCode.subcode に格納)
 // -----------------------------------------------------------------------------
 // 上位層が switch 分岐できるよう、固定 u32 値を割り当てる。
 // 値域は 1..7 (Phase 1)。後段で増やす場合も既存値の再利用は禁止する。
@@ -79,9 +79,9 @@ enum class ESaveArchiveSubCode : u32 {
 };
 
 // -----------------------------------------------------------------------------
-// SaveArchive — `.acssave` バイナリ I/O 一括クラス
+// FSaveArchive — `.acssave` バイナリ I/O 一括クラス
 // -----------------------------------------------------------------------------
-class SaveArchive {
+class FSaveArchive {
 public:
     // ---- フォーマット定数 ------------------------------------------------
     // magic は ASCII "ACSSAVE\0" の 8 バイト。kMagicBytes はそのバイト列を
@@ -94,12 +94,12 @@ public:
     static const u8 kMagicBytes[kMagicSize];
 
     // ---- 非インスタンス: コピー / ムーブ禁止 ------------------------------
-    SaveArchive()                              = delete;
-    ~SaveArchive()                             = delete;
-    SaveArchive(const SaveArchive&)            = delete;
-    SaveArchive(SaveArchive&&)                 = delete;
-    SaveArchive& operator=(const SaveArchive&) = delete;
-    SaveArchive& operator=(SaveArchive&&)      = delete;
+    FSaveArchive()                              = delete;
+    ~FSaveArchive()                             = delete;
+    FSaveArchive(const FSaveArchive&)            = delete;
+    FSaveArchive(FSaveArchive&&)                 = delete;
+    FSaveArchive& operator=(const FSaveArchive&) = delete;
+    FSaveArchive& operator=(FSaveArchive&&)      = delete;
 
     // ---- 書き込み: payload を `.acssave` 1 ファイルに保存 ------------------
     // file_path   : 出力先 (絶対 / 相対どちらでも可、wchar_t 終端)
@@ -117,7 +117,7 @@ public:
     //   既存ファイルは CreateFileW(CREATE_ALWAYS) で truncate 後に書くため、
     //   途中失敗するとファイルは中途半端な状態で残る可能性がある。
     //   atomic rename が必要なら呼び出し側で tmp file → rename を組むこと
-    //   (SaveSlot 上位層で実装する)。
+    //   (FSaveSlot 上位層で実装する)。
     static TResult<void> WriteToFile(const wchar_t* file_path,
                                     u32            version,
                                     const void*    payload,

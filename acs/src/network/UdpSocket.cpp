@@ -10,14 +10,14 @@
 
 namespace acs {
 
-UdpSocket::~UdpSocket() noexcept {
+FUdpSocket::~FUdpSocket() noexcept {
     Close();
 }
 
-UdpSocket::UdpSocket(UdpSocket&& o) noexcept : _socket(o._socket) {
+FUdpSocket::FUdpSocket(FUdpSocket&& o) noexcept : _socket(o._socket) {
     o._socket = ~uptr{0};
 }
-UdpSocket& UdpSocket::operator=(UdpSocket&& o) noexcept {
+FUdpSocket& FUdpSocket::operator=(FUdpSocket&& o) noexcept {
     if (this == &o) return *this;
     Close();
     _socket = o._socket;
@@ -25,7 +25,7 @@ UdpSocket& UdpSocket::operator=(UdpSocket&& o) noexcept {
     return *this;
 }
 
-TResult<UdpSocket> UdpSocket::Bind(IpAddress addr, u16 port) noexcept {
+TResult<FUdpSocket> FUdpSocket::Bind(IpAddress addr, u16 port) noexcept {
     if (!Network::IsInitialized())
         return ACS_ERR(IO, 230, "Network::Init() not called");
 
@@ -47,12 +47,12 @@ TResult<UdpSocket> UdpSocket::Bind(IpAddress addr, u16 port) noexcept {
         return ACS_ERR_OS(IO, 232, "bind failed", err);
     }
 
-    UdpSocket u;
+    FUdpSocket u;
     u._socket = static_cast<uptr>(s);
-    return TResult<UdpSocket>(OkInit, Move(u));
+    return TResult<FUdpSocket>(OkInit, Move(u));
 }
 
-isize UdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
+isize FUdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
                         const void* data, usize size) noexcept {
     if (_socket == ~uptr{0}) return -1;
     sockaddr_in sa{};
@@ -68,7 +68,7 @@ isize UdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
     return (n == SOCKET_ERROR) ? -1 : n;
 }
 
-isize UdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
+isize FUdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
     if (_socket == ~uptr{0}) return -1;
     sockaddr_in sa{};
     int len = sizeof(sa);
@@ -84,7 +84,7 @@ isize UdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
     return n;
 }
 
-TResult<void> UdpSocket::SetNonBlocking(bool enable) noexcept {
+TResult<void> FUdpSocket::SetNonBlocking(bool enable) noexcept {
     if (_socket == ~uptr{0}) return ACS_ERR(IO, 233, "socket not open");
     u_long mode = enable ? 1 : 0;
     if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)
@@ -93,7 +93,7 @@ TResult<void> UdpSocket::SetNonBlocking(bool enable) noexcept {
     return Ok();
 }
 
-void UdpSocket::Close() noexcept {
+void FUdpSocket::Close() noexcept {
     if (_socket != ~uptr{0}) {
         ::closesocket(static_cast<SOCKET>(_socket));
         _socket = ~uptr{0};

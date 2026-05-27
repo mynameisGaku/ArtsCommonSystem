@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — SceneEventBus (Phase 1 polish)
+// GameFramework Pillar A — FSceneEventBus (Phase 1 polish)
 //
 // シーン内 component / system 間の type-erased pub/sub。同一 Scene に居る
 // オブジェクト同士が「相手の存在」を知らずに通知をやり取りするための薄い
@@ -29,9 +29,9 @@
 //
 // 設計選択 (Phase 1 polish):
 //   ・**compile-time hash**: EventId は `constexpr` FNV-1a で生成、`EventId("name")`
-//     は配置で完結 (実行時 string compare なし)。InputMap::ActionHash と同一の
+//     は配置で完結 (実行時 string compare なし)。FInputMap::ActionHash と同一の
 //     FNV-1a を採用し、行儀よく u32 衝突は実用上無視。
-//   ・**function pointer + void* user**: Sequence::Call と同じ ACS 規約。
+//   ・**function pointer + void* user**: FSequence::Call と同じ ACS 規約。
 //     `std::function` を持ち込むと heap allocation / RTTI / 例外の連鎖が起きる
 //     ためフレームワーク層では一切採用しない。
 //   ・**handle ベースの Unsubscribe**: Subscribe 毎にユニークな u32 handle を
@@ -58,7 +58,7 @@
 
 namespace acs::game {
 
-// Compile-time FNV-1a hash (32bit). InputMap::ActionHash と同一。
+// Compile-time FNV-1a hash (32bit). FInputMap::ActionHash と同一。
 constexpr u32 EventHash(const char* s) noexcept {
     u32 h = 2166136261u;
     while (*s != '\0') {
@@ -87,16 +87,16 @@ struct EventId {
 //   - payload_size: payload のバイト長 (0 可)
 using HandlerFn = void(*)(void* user, const void* payload, u32 payload_size) noexcept;
 
-class SceneEventBus {
+class FSceneEventBus {
 public:
-    SceneEventBus() noexcept = default;
-    ~SceneEventBus() noexcept = default;
+    FSceneEventBus() noexcept = default;
+    ~FSceneEventBus() noexcept = default;
 
     // 非コピー・非ムーブ (Scene にメンバとして埋め込む前提)
-    SceneEventBus(const SceneEventBus&)            = delete;
-    SceneEventBus& operator=(const SceneEventBus&) = delete;
-    SceneEventBus(SceneEventBus&&)                 = delete;
-    SceneEventBus& operator=(SceneEventBus&&)      = delete;
+    FSceneEventBus(const FSceneEventBus&)            = delete;
+    FSceneEventBus& operator=(const FSceneEventBus&) = delete;
+    FSceneEventBus(FSceneEventBus&&)                 = delete;
+    FSceneEventBus& operator=(FSceneEventBus&&)      = delete;
 
     // ハンドラを登録。戻り値は Unsubscribe 用 handle (0 = invalid)。
     // fn が nullptr の場合は登録せず 0 を返す (Warn ログ)。

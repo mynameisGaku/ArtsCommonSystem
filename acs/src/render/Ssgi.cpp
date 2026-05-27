@@ -284,7 +284,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> FSsgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     _device = &device;
     _width  = width;
     _height = height;
@@ -302,7 +302,7 @@ TResult<void> Ssgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     return Ok();
 }
 
-TResult<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> FSsgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     _blur_output.Reset();
     FTextureDesc td{};
@@ -330,12 +330,12 @@ TResult<void> Ssgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) no
     return Ok();
 }
 
-TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> FSsgi::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsgiHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "Ssgi.VS";
+    vs_d.debug_name  = "FSsgi.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
@@ -343,7 +343,7 @@ TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsgiHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "Ssgi.PS";
+    ps_d.debug_name  = "FSsgi.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
@@ -456,7 +456,7 @@ TResult<void> Ssgi::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void Ssgi::Shutdown() noexcept {
+void FSsgi::Shutdown() noexcept {
     _temporal_pipeline.Reset();
     _blur_pipeline.Reset();
     _pipeline.Reset();
@@ -472,8 +472,8 @@ void Ssgi::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> Ssgi::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 340, "Ssgi::Resize before Init");
+TResult<void> FSsgi::Resize(u32 width, u32 height) noexcept {
+    if (!_device) return ACS_ERR(Render, 340, "FSsgi::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width  = width;
     _height = height;
@@ -481,7 +481,7 @@ TResult<void> Ssgi::Resize(u32 width, u32 height) noexcept {
     return CreateOutputRT(*_device, width, height);
 }
 
-void Ssgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,

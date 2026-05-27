@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — ContentModerator 実装 (Stub のみ)
+// GameFramework Pillar U Phase 2 — FContentModerator 実装 (Stub のみ)
 //
 // 本 .cpp では `IContentModerator` 自体は提供せず、外部 SDK 非依存で常に使える
 // `ContentModeratorStub` のみを実装する。Azure Content Safety / Google Perspective /

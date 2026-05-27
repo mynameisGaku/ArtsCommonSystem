@@ -174,10 +174,10 @@ void ParticleSystem::Update(f32 dt) noexcept {
     }
 }
 
-void ParticleSystem::Render(SpriteBatch& sb) noexcept {
+void ParticleSystem::Render(FSpriteBatch& sb) noexcept {
     if (!_pool || _active == 0) return;
 
-    // テクスチャ未設定なら SpriteBatch の DrawRect 相当（白矩形）
+    // テクスチャ未設定なら FSpriteBatch の DrawRect 相当（白矩形）
     // 設定済みなら DrawSub 経由
     for (u32 i = 0; i < _active; ++i) {
         const Particle& p = _pool[i];

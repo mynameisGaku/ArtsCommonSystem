@@ -44,7 +44,7 @@ private:
     u32                              _tex_slots = 0;
 
     // FPipelineDesc から複製した HLSL リソース名。null なら fallback 名を返す。
-    // Phase 33f-prep: 8→16 へ拡張、PbrShader が 8/8 で上限到達したため。
+    // Phase 33f-prep: 8→16 へ拡張、FPbrShader が 8/8 で上限到達したため。
     static constexpr u32 kMaxResourceSlots = 16;
     const char* _cb_names[kMaxResourceSlots]  = {};
     const char* _tex_names[kMaxResourceSlots] = {};

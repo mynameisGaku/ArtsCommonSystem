@@ -18,7 +18,7 @@ namespace hellonet {
 int HelloNetApp::Run() noexcept {
     FLogConfig lc{};
     lc.console = true;
-    Logger::Init(lc);
+    FLogger::Init(lc);
 
     if (auto r = Network::Init(); r.IsErr()) {
         ACS_LOG_ERROR("Network::Init failed: %s", r.Error().message);
@@ -56,7 +56,7 @@ int HelloNetApp::Run() noexcept {
 
     server.Join();
     Network::Shutdown();
-    Logger::Shutdown();
+    FLogger::Shutdown();
     return 0;
 }
 

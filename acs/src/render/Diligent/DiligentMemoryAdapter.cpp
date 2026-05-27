@@ -26,7 +26,7 @@ namespace {
 
 class AcsMemoryAllocator final : public Diligent::IMemoryAllocator {
 public:
-    explicit AcsMemoryAllocator(Allocator* backing) noexcept : _backing(backing) {}
+    explicit AcsMemoryAllocator(FAllocator* backing) noexcept : _backing(backing) {}
 
     void* Allocate(size_t Size, const Diligent::Char* /*dbgInfo*/,
                    const Diligent::Char* /*dbgFile*/,
@@ -40,7 +40,7 @@ public:
     }
 
 private:
-    Allocator* _backing = nullptr;
+    FAllocator* _backing = nullptr;
 };
 
 // プロセス寿命のシングルトン（Diligent はアロケータを所有しないので、誰かが持つ必要がある）
@@ -48,7 +48,7 @@ AcsMemoryAllocator* g_adapter = nullptr;
 
 } // namespace
 
-void* DiligentMemoryAdapter::Create(Allocator* backing) noexcept {
+void* DiligentMemoryAdapter::Create(FAllocator* backing) noexcept {
     if (!backing) return nullptr;
     if (!g_adapter) {
         // 自身も backing から確保（自己参照だが Diligent に渡る前なら安全）

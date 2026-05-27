@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F Phase 1 — CollisionWorld2D + SpatialGrid (Phase 10)
+// GameFramework Pillar F Phase 1 — FCollisionWorld2D + SpatialGrid (Phase 10)
 //
 // 2D 衝突判定の高レベル API。形状 (Aabb2 / Circle) を `FShapeId` で管理し、
 // 内部の SpatialGrid (一様グリッド broad-phase) で O(N + K) クエリ
@@ -7,7 +7,7 @@
 // 既存関数 (Intersect / Resolve / RaycastAabb / RaycastCircle) を再利用。
 //
 // 使い方:
-//   CollisionWorld2D world;
+//   FCollisionWorld2D world;
 //   world.Init(/*cell_size=*/64.0f);
 //
 //   FShapeId player = world.AddCircle({ {0,0}, 16.0f });
@@ -35,7 +35,7 @@
 //   ・**dirty flag + lazy rebuild**: Add/Update/Remove で `_dirty = true`、
 //     query 直前にグリッド再構築。Phase 1 は per-frame full rebuild。
 //   ・**Layer / mask は Phase 2 で**。今は全 shape が交差候補。
-//   ・**PhysicsBody2D (kinematic body + collide-and-slide) は Phase 2 で**。
+//   ・**FPhysicsBody2D (kinematic body + collide-and-slide) は Phase 2 で**。
 //     Phase 1 は「形状登録 + クエリ」のみ。
 #pragma once
 
@@ -63,13 +63,13 @@ struct FShapeId {
     constexpr bool operator!=(FShapeId o) const noexcept { return _packed != o._packed; }
 };
 
-class CollisionWorld2D {
+class FCollisionWorld2D {
 public:
-    CollisionWorld2D() noexcept = default;
-    ~CollisionWorld2D() noexcept = default;
+    FCollisionWorld2D() noexcept = default;
+    ~FCollisionWorld2D() noexcept = default;
 
-    CollisionWorld2D(const CollisionWorld2D&)            = delete;
-    CollisionWorld2D& operator=(const CollisionWorld2D&) = delete;
+    FCollisionWorld2D(const FCollisionWorld2D&)            = delete;
+    FCollisionWorld2D& operator=(const FCollisionWorld2D&) = delete;
 
     // cell_size: SpatialGrid のセルサイズ (world unit)。典型的に形状の最大
     // サイズの 2-3 倍。0 以下 / 未呼出時は 64.0f が既定。

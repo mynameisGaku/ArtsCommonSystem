@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ネットワークサブシステム初期化（WSAStartup ラッパ）
 //
-// 使い方: アプリ起動時に一度 Network::Init() を呼ぶ。Application が
+// 使い方: アプリ起動時に一度 Network::Init() を呼ぶ。FApplication が
 //         Audio/Network 系を自動初期化することは無いので、明示的に呼ぶこと。
 #pragma once
 

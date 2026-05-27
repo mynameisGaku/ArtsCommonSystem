@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / EditorTheme 実装 (Phase 21a)
+// GameFramework Tools — editor_core / FEditorTheme 実装 (Phase 21a)
 //
-// 仕様詳細は EditorTheme.h を参照。本ファイルでは:
+// 仕様詳細は FEditorTheme.h を参照。本ファイルでは:
 //   ・preset 種別ごとの色テーブル定義 (Dark / DarkBlue / Light / HighContrast /
 //     Sepia / Custom)
 //   ・ACS::FVec4 → ImVec4 の橋渡し + ImGui::GetStyle() への適用
 //   ・ImGui font_scale / corner_radius / spacing の流し込み
 //   ・DrawThemeSettingsUI: preset combo + ColorEdit4 群 + Save/Load ボタン
-//   ・SaveTheme / LoadTheme: `.acstheme` テキスト I/O (FxeditSerializer と
+//   ・SaveTheme / LoadTheme: `.acstheme` テキスト I/O (FFxeditSerializer と
 //     同設計、1 行 1 key=value、magic + version、git diff フレンドリー)
 // を実装する。全 noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/editor_core/EditorTheme.h"
@@ -93,7 +93,7 @@ bool HasImGuiContext() noexcept {
 //   Sepia        : 茶背景 (#3A2E22) + クリーム文字 (#F4E8D8) + 焦茶 accent
 //                  (#A07050)。e-reader 風。
 // =============================================================================
-void EditorTheme::FillPresetColors(EEditorThemePreset       preset,
+void FEditorTheme::FillPresetColors(EEditorThemePreset       preset,
                                    EditorThemeColors&       out) noexcept {
     switch (preset) {
         case EEditorThemePreset::Dark: {
@@ -187,7 +187,7 @@ void EditorTheme::FillPresetColors(EEditorThemePreset       preset,
 // =============================================================================
 // Init — default = Dark を ImGui に流す
 // =============================================================================
-void EditorTheme::Init() noexcept {
+void FEditorTheme::Init() noexcept {
     _preset         = EEditorThemePreset::Dark;
     _font_scale     = 1.0f;
     _corner_radius  = 3.0f;
@@ -199,7 +199,7 @@ void EditorTheme::Init() noexcept {
 // =============================================================================
 // ApplyPreset — preset 既定値を `_colors` に書き、ImGui に流す
 // =============================================================================
-void EditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
+void FEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
     _preset = preset;
     // Custom 以外なら _colors を上書き。Custom は SetCustomColors 経由で
     // 設定された値を保持したまま現値を再適用する (= preset 切替で Custom に
@@ -213,7 +213,7 @@ void EditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
 // =============================================================================
 // SetCustomColors — 任意パレットを設定 + Custom に切り替え
 // =============================================================================
-void EditorTheme::SetCustomColors(const EditorThemeColors& colors) noexcept {
+void FEditorTheme::SetCustomColors(const EditorThemeColors& colors) noexcept {
     _colors = colors;
     _preset = EEditorThemePreset::Custom;
     ApplyToImGui();
@@ -222,12 +222,12 @@ void EditorTheme::SetCustomColors(const EditorThemeColors& colors) noexcept {
 // =============================================================================
 // SetFontScale — global font scale (高 DPI / HighContrast 視認性)
 // =============================================================================
-void EditorTheme::SetFontScale(f32 scale) noexcept {
+void FEditorTheme::SetFontScale(f32 scale) noexcept {
     // <= 0 は無視 (= no-op)。0 倍は ImGui を壊す。
     if (scale <= 0.0f) return;
     // 上限 4.0 で safety clamp (典型用途は 1.0 〜 2.0)。
     if (scale > 4.0f) {
-        ACS_LOG_WARN("EditorTheme::SetFontScale: clamp %.2f -> 4.0",
+        ACS_LOG_WARN("FEditorTheme::SetFontScale: clamp %.2f -> 4.0",
                      static_cast<double>(scale));
         scale = 4.0f;
     }
@@ -240,7 +240,7 @@ void EditorTheme::SetFontScale(f32 scale) noexcept {
 // =============================================================================
 // SetRoundedCorners — 全 corner radius を統一
 // =============================================================================
-void EditorTheme::SetRoundedCorners(f32 radius) noexcept {
+void FEditorTheme::SetRoundedCorners(f32 radius) noexcept {
     if (radius < 0.0f) radius = 0.0f;
     _corner_radius = radius;
     if (HasImGuiContext()) {
@@ -258,7 +258,7 @@ void EditorTheme::SetRoundedCorners(f32 radius) noexcept {
 // =============================================================================
 // SetSpacing — ItemSpacing.y (情報密度の主軸)
 // =============================================================================
-void EditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
+void FEditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
     if (item_spacing_y < 0.0f) item_spacing_y = 0.0f;
     _item_spacing_y = item_spacing_y;
     if (HasImGuiContext()) {
@@ -271,7 +271,7 @@ void EditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
 // =============================================================================
 // ApplyToImGui — `_colors` / 各 metric を ImGui::GetStyle() / IO に流し込む
 // =============================================================================
-void EditorTheme::ApplyToImGui() noexcept {
+void FEditorTheme::ApplyToImGui() noexcept {
     if (!HasImGuiContext()) return;
 
     ImGuiStyle& s    = ImGui::GetStyle();
@@ -349,10 +349,10 @@ void EditorTheme::ApplyToImGui() noexcept {
 // =============================================================================
 // DrawThemeSettingsUI — preset combo + ColorEdit4 + Save/Load
 // =============================================================================
-void EditorTheme::DrawThemeSettingsUI() noexcept {
+void FEditorTheme::DrawThemeSettingsUI() noexcept {
     if (!HasImGuiContext()) return;
 
-    if (!ImGui::Begin("Theme Settings")) {
+    if (!ImGui::Begin("Theme FSettings")) {
         ImGui::End();
         return;
     }
@@ -379,7 +379,7 @@ void EditorTheme::DrawThemeSettingsUI() noexcept {
         }
     };
 
-    edit("Window BG",     _colors.window_bg);
+    edit("FWindow BG",     _colors.window_bg);
     edit("Title BG",      _colors.title_bg);
     edit("Button BG",     _colors.button_bg);
     edit("Button Hover",  _colors.button_hover);
@@ -418,7 +418,7 @@ void EditorTheme::DrawThemeSettingsUI() noexcept {
 
     // ---- Save / Load ----------------------------------------------------
     // Phase 21a 時点ではファイルダイアログが無いので固定パスを使う。
-    // Phase 21b で AssetBrowser 連動のファイルピッカーに置き換え予定。
+    // Phase 21b で FAssetBrowser 連動のファイルピッカーに置き換え予定。
     if (ImGui::Button("Save Theme")) {
         SaveTheme(L"data/editor/theme.acstheme");
     }
@@ -434,7 +434,7 @@ void EditorTheme::DrawThemeSettingsUI() noexcept {
 // =============================================================================
 // SaveTheme — `.acstheme` テキスト書き出し
 // -----------------------------------------------------------------------------
-// フォーマット (FxeditSerializer と同設計、1 行 1 key=value):
+// フォーマット (FFxeditSerializer と同設計、1 行 1 key=value):
 //   ACS_THEME 1
 //   preset Dark
 //   font_scale 1.00
@@ -446,7 +446,7 @@ void EditorTheme::DrawThemeSettingsUI() noexcept {
 //
 // 失敗時は ACS_LOG_WARN で記録 (戻り値 void = ベストエフォート)。
 // =============================================================================
-void EditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
+void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
 
     // 1 カラー = 約 50B (`key %.3f %.3f %.3f %.3f\n` = 5 + 6*4 + 1)。
@@ -481,7 +481,7 @@ void EditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
         !write_line("font_scale %.3f\n",      static_cast<double>(_font_scale)) ||
         !write_line("corner_radius %.3f\n",   static_cast<double>(_corner_radius)) ||
         !write_line("item_spacing_y %.3f\n",  static_cast<double>(_item_spacing_y))) {
-        ACS_LOG_WARN("EditorTheme::SaveTheme: header buffer overflow");
+        ACS_LOG_WARN("FEditorTheme::SaveTheme: header buffer overflow");
         return;
     }
 
@@ -499,7 +499,7 @@ void EditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
         !write_color("accent",        _colors.accent)        ||
         !write_color("warning",       _colors.warning)       ||
         !write_color("error",         _colors.error)) {
-        ACS_LOG_WARN("EditorTheme::SaveTheme: color buffer overflow");
+        ACS_LOG_WARN("FEditorTheme::SaveTheme: color buffer overflow");
         return;
     }
 
@@ -508,7 +508,7 @@ void EditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
                                        reinterpret_cast<const byte*>(buf),
                                        static_cast<usize>(pos));
     if (r.IsErr()) {
-        ACS_LOG_WARN("EditorTheme::SaveTheme: WriteAllBytes failed: os=%u",
+        ACS_LOG_WARN("FEditorTheme::SaveTheme: WriteAllBytes failed: os=%u",
                      r.Error().os_error);
     }
 }
@@ -520,22 +520,22 @@ void EditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
 // 維持 (= 旧 theme を保持)。部分成功 (= 一部のキーだけ読めた) は許容し、未知
 // キー / 解析失敗キーは単に黙ってスキップ (前方互換)。
 // =============================================================================
-void EditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
+void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
     if (!FileSystem::Exists(file_path)) {
-        ACS_LOG_WARN("EditorTheme::LoadTheme: file not found");
+        ACS_LOG_WARN("FEditorTheme::LoadTheme: file not found");
         return;
     }
 
     auto rr = FileSystem::ReadAllText(file_path);
     if (rr.IsErr()) {
-        ACS_LOG_WARN("EditorTheme::LoadTheme: ReadAllText failed: os=%u",
+        ACS_LOG_WARN("FEditorTheme::LoadTheme: ReadAllText failed: os=%u",
                      rr.Error().os_error);
         return;
     }
     const TArray<char>& text = rr.Value();
     if (text.Size() == 0) {
-        ACS_LOG_WARN("EditorTheme::LoadTheme: empty file");
+        ACS_LOG_WARN("FEditorTheme::LoadTheme: empty file");
         return;
     }
 
@@ -589,7 +589,7 @@ void EditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
             if (std::strcmp(key, kMagic) == 0) {
                 const u32 v = static_cast<u32>(std::strtoul(q, nullptr, 10));
                 if (v != kCurrentVersion) {
-                    ACS_LOG_WARN("EditorTheme::LoadTheme: unsupported version %u",
+                    ACS_LOG_WARN("FEditorTheme::LoadTheme: unsupported version %u",
                                  v);
                     return;
                 }
@@ -597,7 +597,7 @@ void EditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
                 continue;
             }
             // magic 行が来る前に他の key が来たらフォーマット不正で abort。
-            ACS_LOG_WARN("EditorTheme::LoadTheme: missing %s header", kMagic);
+            ACS_LOG_WARN("FEditorTheme::LoadTheme: missing %s header", kMagic);
             return;
         }
 
@@ -656,7 +656,7 @@ void EditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     }
 
     if (!magic_ok) {
-        ACS_LOG_WARN("EditorTheme::LoadTheme: no %s header found", kMagic);
+        ACS_LOG_WARN("FEditorTheme::LoadTheme: no %s header found", kMagic);
         return;
     }
 

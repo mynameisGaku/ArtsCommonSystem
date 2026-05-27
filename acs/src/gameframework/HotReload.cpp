@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — HotReload 実装 (Phase 2 seam)
+// GameFramework Pillar K — FHotReload 実装 (Phase 2 seam)
 //
 // 設計のポイント (詳細はヘッダ参照):
 //   ・watched paths / callbacks / pending events の 3 つの TArray を持つレジストリ。

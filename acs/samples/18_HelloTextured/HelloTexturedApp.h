@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTextured — Application 派生クラス。
+// HelloTextured — FApplication 派生クラス。
 //
 // 学習ポイント:
 //   - IRhiTexture 作成 → SetTexture でバインド
@@ -18,7 +18,7 @@
 
 namespace hellotextured {
 
-class HelloTexturedApp : public acs::Application {
+class HelloTexturedApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — ModRegistry 実装 (Phase 1 skeleton)
+// GameFramework Pillar N — FModRegistry 実装 (Phase 1 skeleton)
 //
 // 現フェーズは「メタデータの登録・列挙・並び替え」だけを担う。実際の
-// `.acpak` mount / hook 適用は Pillar G (AssetPack 統合 Phase 2) と
+// `.acpak` mount / hook 適用は Pillar G (FAssetPack 統合 Phase 2) と
 // Lua 5.4 統合フェーズで埋めるため TODO に留めている。
 #include "gameframework/ModRegistry.h"
 
@@ -10,16 +10,16 @@
 
 namespace acs::game {
 
-bool ModRegistry::IdEquals(const char* a, const char* b) noexcept {
+bool FModRegistry::IdEquals(const char* a, const char* b) noexcept {
     if (a == b)                 return true;       // 同一ポインタ (or 両 nullptr)
     if (a == nullptr || b == nullptr) return false;
     return std::strcmp(a, b) == 0;
 }
 
-void ModRegistry::Register(const ModInfo& info) noexcept {
+void FModRegistry::Register(const ModInfo& info) noexcept {
     if (info.id == nullptr) {
         // id 無しは管理不能 (Find/Enable で参照できない) ので拒否。
-        ACS_LOG_WARN("ModRegistry::Register: skipped entry with null id (name=%s)",
+        ACS_LOG_WARN("FModRegistry::Register: skipped entry with null id (name=%s)",
                      info.name ? info.name : "(null)");
         return;
     }
@@ -28,19 +28,19 @@ void ModRegistry::Register(const ModInfo& info) noexcept {
     // 検出するのが本来だが、二重防御として警告ログだけ出す。
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, info.id)) {
-            ACS_LOG_WARN("ModRegistry::Register: duplicate id '%s' ignored", info.id);
+            ACS_LOG_WARN("FModRegistry::Register: duplicate id '%s' ignored", info.id);
             return;
         }
     }
 
     _mods.PushBack(info);
 
-    // TODO(Pillar G AssetPack Phase 2): info.pack_path が非 nullptr なら
+    // TODO(Pillar G FAssetPack Phase 2): info.pack_path が非 nullptr なら
     // VirtualFileSystem に mount 予約 (まだ enable=true のときだけ実 mount する)。
     // 現状は path を持つだけ。
 }
 
-bool ModRegistry::Enable(const char* mod_id) noexcept {
+bool FModRegistry::Enable(const char* mod_id) noexcept {
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, mod_id)) {
             _mods[i].enabled = true;
@@ -52,7 +52,7 @@ bool ModRegistry::Enable(const char* mod_id) noexcept {
     return false;
 }
 
-bool ModRegistry::Disable(const char* mod_id) noexcept {
+bool FModRegistry::Disable(const char* mod_id) noexcept {
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, mod_id)) {
             _mods[i].enabled = false;
@@ -63,7 +63,7 @@ bool ModRegistry::Disable(const char* mod_id) noexcept {
     return false;
 }
 
-void ModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
+void FModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, mod_id)) {
             _mods[i].load_order = order;
@@ -73,22 +73,22 @@ void ModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
     // 未登録 id は noop (UI 同期ループの都合上、警告は出さない)。
 }
 
-u32 ModRegistry::Count() const noexcept {
+u32 FModRegistry::Count() const noexcept {
     return static_cast<u32>(_mods.Size());
 }
 
-const ModInfo* ModRegistry::Find(const char* mod_id) const noexcept {
+const ModInfo* FModRegistry::Find(const char* mod_id) const noexcept {
     for (u32 i = 0; i < _mods.Size(); ++i) {
         if (IdEquals(_mods[i].id, mod_id)) return &_mods[i];
     }
     return nullptr;
 }
 
-const ModInfo* ModRegistry::All() const noexcept {
+const ModInfo* FModRegistry::All() const noexcept {
     return _mods.Data();
 }
 
-void ModRegistry::SortByLoadOrder() noexcept {
+void FModRegistry::SortByLoadOrder() noexcept {
     // Insertion sort: N (= mod 数) は実用上 < 64 と想定。安定 sort なので
     // 同 load_order は登録順を保ち、UI の見え方に予測可能性が出る。
     const u32 n = static_cast<u32>(_mods.Size());
@@ -103,7 +103,7 @@ void ModRegistry::SortByLoadOrder() noexcept {
     }
 }
 
-void ModRegistry::Clear() noexcept {
+void FModRegistry::Clear() noexcept {
     // TODO(Pillar N): enabled な Mod に対しては Disable と同等の hook 解除を
     // 内部で走らせる必要がある。現状は単純クリア。
     _mods.Clear();

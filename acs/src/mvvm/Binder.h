@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// TwoWayBinder<T> — 2 つの Observable<T> を双方向同期させる
+// FTwoWayBinder<T> — 2 つの Observable<T> を双方向同期させる
 //
 // 使い方:
 //   Observable<f32> view_hp;
 //   Observable<f32> model_hp { 100.0f };
 //
-//   TwoWayBinder<f32> bind(view_hp, model_hp);  // 両方が同期
+//   FTwoWayBinder<f32> bind(view_hp, model_hp);  // 両方が同期
 //   model_hp.Set(50.0f);   // → view_hp も 50 になる
 //   view_hp.Set(0.0f);     // → model_hp も 0 になる
 //
@@ -23,34 +23,34 @@
 namespace acs {
 
 template<typename T>
-class TwoWayBinder {
+class FTwoWayBinder {
 public:
-    TwoWayBinder(Observable<T>& a, Observable<T>& b) noexcept
+    FTwoWayBinder(Observable<T>& a, Observable<T>& b) noexcept
         : _a(&a), _b(&b) {
-        // 初期同期: a の値を b に反映 (ViewModel → View 想定)
+        // 初期同期: a の値を b に反映 (FViewModel → View 想定)
         b.Set(a.Get());
         _h_a = a.Subscribe(&OnAChanged, this);
         _h_b = b.Subscribe(&OnBChanged, this);
     }
 
-    ~TwoWayBinder() noexcept {
+    ~FTwoWayBinder() noexcept {
         if (_a) _a->Unsubscribe(_h_a);
         if (_b) _b->Unsubscribe(_h_b);
     }
 
-    TwoWayBinder(const TwoWayBinder&) = delete;
-    TwoWayBinder& operator=(const TwoWayBinder&) = delete;
+    FTwoWayBinder(const FTwoWayBinder&) = delete;
+    FTwoWayBinder& operator=(const FTwoWayBinder&) = delete;
 
 private:
     static void OnAChanged(const T& v, void* user) noexcept {
-        auto* self = static_cast<TwoWayBinder*>(user);
+        auto* self = static_cast<FTwoWayBinder*>(user);
         if (self->_updating) return;
         self->_updating = true;
         self->_b->Set(v);
         self->_updating = false;
     }
     static void OnBChanged(const T& v, void* user) noexcept {
-        auto* self = static_cast<TwoWayBinder*>(user);
+        auto* self = static_cast<FTwoWayBinder*>(user);
         if (self->_updating) return;
         self->_updating = true;
         self->_a->Set(v);
@@ -89,7 +89,7 @@ private:
     ObservableHandle _h;
 };
 
-// View → ViewModel 方向は OneWayBinder(view, vm) と書く (alias は提供しない、混乱の元)。
+// View → FViewModel 方向は OneWayBinder(view, vm) と書く (alias は提供しない、混乱の元)。
 
 // 変換関数つき OneWay Binder (Src → Dst、別の型に変換)
 //
@@ -165,8 +165,8 @@ inline OneWayConvertBinder<Src, Dst> Bind(Observable<Src>& src, Observable<Dst>&
 
 // 双方向版
 template<typename T>
-inline TwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
-    return TwoWayBinder<T>(a, b);
+inline FTwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
+    return FTwoWayBinder<T>(a, b);
 }
 
 // ============================================================================
@@ -190,8 +190,8 @@ inline TUniquePtr<OneWayBinder<T>> MakeBind(Observable<T>& src, Observable<T>& d
 }
 
 template<typename T>
-inline TUniquePtr<TwoWayBinder<T>> MakeTwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
-    return MakeUnique<TwoWayBinder<T>>(a, b);
+inline TUniquePtr<FTwoWayBinder<T>> MakeTwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
+    return MakeUnique<FTwoWayBinder<T>>(a, b);
 }
 
 template<typename Src, typename Dst>

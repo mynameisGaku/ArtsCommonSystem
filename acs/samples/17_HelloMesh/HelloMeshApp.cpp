@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMesh — Application 実装。
+// HelloMesh — FApplication 実装。
 #include "HelloMeshApp.h"
 #include "Shaders.h"
 #include "Types.h"

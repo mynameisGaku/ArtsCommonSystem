@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / ModelInspectorPanel 実装 (Phase 21b)
+// GameFramework Pillar — modelview / FModelInspectorPanel 実装 (Phase 21b)
 //
-// 仕様の意図は ModelInspectorPanel.h を参照。本ファイルでは:
+// 仕様の意図は FModelInspectorPanel.h を参照。本ファイルでは:
 //   ・UpdateFromModel: summary + 3 配列の値コピーと has_model フラグ更新
 //   ・Clear / Init / Shutdown: 内部状態の初期化
 //   ・DrawUI: ImGui で 4 セクションを描画
@@ -38,7 +38,7 @@ static const char* SafeName(const char* name) noexcept {
 // =============================================================================
 // Init / Shutdown
 // =============================================================================
-void ModelInspectorPanel::Init() noexcept {
+void FModelInspectorPanel::Init() noexcept {
     // _summary は値型 = ゼロ初期化に戻す。
     _summary    = MeshSummary{};
     _submeshes.Clear();
@@ -47,7 +47,7 @@ void ModelInspectorPanel::Init() noexcept {
     _has_model  = false;
 }
 
-void ModelInspectorPanel::Shutdown() noexcept {
+void FModelInspectorPanel::Shutdown() noexcept {
     // TArray の容量も解放したいので Clear() に追加して何もしない (TArray は
     // Clear で要素数 0、Destruct で容量解放)。ここでは要素破棄のみで十分
     // (panel 自身の destructor が容量を解放する)。
@@ -59,7 +59,7 @@ void ModelInspectorPanel::Shutdown() noexcept {
 }
 
 // =============================================================================
-// UpdateFromModel — caller (= ModelViewerPanel 等) からのデータプッシュ
+// UpdateFromModel — caller (= FModelViewerPanel 等) からのデータプッシュ
 // =============================================================================
 // summary は値コピー、3 つの配列は要素を 1 つずつ PushBack でコピーする。
 // 既存内容は完全に破棄してから新内容を積む (= 部分更新ではなく全置換)。
@@ -67,12 +67,12 @@ void ModelInspectorPanel::Shutdown() noexcept {
 // 配列ポインタが nullptr の場合は対応 count を 0 として扱う (= 防衛的に
 // nullptr アクセスを避ける)。caller の使い勝手として、bones や clips が
 // "存在しない" model (= static mesh) を素直に表現できるようにする意図。
-void ModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
+void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
                                           const SubmeshInfo*        submeshes,
                                           u32                       submesh_count,
                                           const BoneInfo*           bones,
                                           u32                       bone_count,
-                                          const AnimationClipInfo*  clips,
+                                          const FAnimationClipInfo*  clips,
                                           u32                       clip_count) noexcept {
     _summary = summary;
 
@@ -111,7 +111,7 @@ void ModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
 // =============================================================================
 // Clear — "No model loaded" 状態に戻す
 // =============================================================================
-void ModelInspectorPanel::Clear() noexcept {
+void FModelInspectorPanel::Clear() noexcept {
     _summary    = MeshSummary{};
     _submeshes.Clear();
     _bones.Clear();
@@ -132,7 +132,7 @@ void ModelInspectorPanel::Clear() noexcept {
 //
 // 子が無い (= leaf bone) なら ImGuiTreeNodeFlags_Leaf を付けて矢印を隠す。
 // =============================================================================
-void ModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept {
+void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept {
     if (depth >= kBoneRecursionLimit) {
         ImGui::TextDisabled("  (bone depth limit reached)");
         return;
@@ -188,7 +188,7 @@ void ModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept 
 // =============================================================================
 // DrawUI — ImGui::Begin("Model Info") + 4 セクション
 // =============================================================================
-void ModelInspectorPanel::DrawUI() noexcept {
+void FModelInspectorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &_visible)) {
@@ -333,7 +333,7 @@ void ModelInspectorPanel::DrawUI() noexcept {
                 ImGui::TableHeadersRow();
 
                 for (u32 i = 0; i < _clips.Size(); ++i) {
-                    const AnimationClipInfo& clip = _clips[i];
+                    const FAnimationClipInfo& clip = _clips[i];
                     ImGui::TableNextRow();
 
                     ImGui::TableSetColumnIndex(0);

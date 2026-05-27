@@ -2,9 +2,9 @@
 // UDP ソケット（コネクションレス）
 //
 // 使い方:
-//   auto sr = UdpSocket::Bind(IpAddress::Any(), 8080);
+//   auto sr = FUdpSocket::Bind(IpAddress::Any(), 8080);
 //   if (sr.IsErr()) { ... }
-//   UdpSocket& s = sr.Value();
+//   FUdpSocket& s = sr.Value();
 //
 //   IpAddress from{};
 //   isize n = s.RecvFrom(buf, sizeof(buf), from);
@@ -18,19 +18,19 @@
 
 namespace acs {
 
-class UdpSocket {
+class FUdpSocket {
 public:
-    UdpSocket() noexcept = default;
-    ~UdpSocket() noexcept;
+    FUdpSocket() noexcept = default;
+    ~FUdpSocket() noexcept;
 
-    UdpSocket(const UdpSocket&) = delete;
-    UdpSocket& operator=(const UdpSocket&) = delete;
-    UdpSocket(UdpSocket&& o) noexcept;
-    UdpSocket& operator=(UdpSocket&& o) noexcept;
+    FUdpSocket(const FUdpSocket&) = delete;
+    FUdpSocket& operator=(const FUdpSocket&) = delete;
+    FUdpSocket(FUdpSocket&& o) noexcept;
+    FUdpSocket& operator=(FUdpSocket&& o) noexcept;
 
     // 指定アドレス/ポートにバインド（addr=Any() で全インターフェイス）
     // 受信専用なら port を指定、送信専用なら port=0 で OS 任せ
-    static TResult<UdpSocket> Bind(IpAddress addr, u16 port) noexcept;
+    static TResult<FUdpSocket> Bind(IpAddress addr, u16 port) noexcept;
 
     // 指定先に送信（送信バイト数、失敗時 -1）
     isize SendTo(IpAddress dst_addr, u16 dst_port, const void* data, usize size) noexcept;

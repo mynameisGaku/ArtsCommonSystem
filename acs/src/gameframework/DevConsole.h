@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — DevConsole (Phase 1 skeleton)
+// GameFramework Pillar K — FDevConsole (Phase 1 skeleton)
 //
 // `~` (チルダ) で開く開発用テキストコマンドコンソールの **state コンテナ**。
 // 描画 / 入力ハンドリング (ImGui ウィンドウ、IME、オートコンプリート UI 等) は
@@ -34,7 +34,7 @@
 //   ・cvar (Pillar K の Phase 3 で別クラス化予定)
 //
 // 使い方:
-//   DevConsole con;
+//   FDevConsole con;
 //   con.RegisterCommand("quit", &MyApp::QuitCmd, this, "exit the application");
 //   con.RegisterCommand("help", &MyApp::HelpCmd, this, "list commands");
 //   ...
@@ -62,16 +62,16 @@ struct ConsoleArg {
 // noexcept を強制してエラー伝搬を log で処理する規約。
 using CommandFn = void(*)(void* user, u32 argc, const ConsoleArg* args) noexcept;
 
-class DevConsole {
+class FDevConsole {
 public:
-    DevConsole() noexcept = default;
-    ~DevConsole() noexcept;
+    FDevConsole() noexcept = default;
+    ~FDevConsole() noexcept;
 
     // 非コピー・非ムーブ (履歴 / ログが所有するヒープバッファの所有権を曖昧にしない)
-    DevConsole(const DevConsole&)            = delete;
-    DevConsole& operator=(const DevConsole&) = delete;
-    DevConsole(DevConsole&&)                 = delete;
-    DevConsole& operator=(DevConsole&&)      = delete;
+    FDevConsole(const FDevConsole&)            = delete;
+    FDevConsole& operator=(const FDevConsole&) = delete;
+    FDevConsole(FDevConsole&&)                 = delete;
+    FDevConsole& operator=(FDevConsole&&)      = delete;
 
     // ----- コマンド登録 -----
     // name / help_text は caller 所有 (リテラル想定)。重複登録は警告ログを出して

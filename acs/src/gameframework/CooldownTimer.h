@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — CooldownTimer (スキル/アビリティ cooldown 管理)
+// GameFramework Pillar R — FCooldownTimer (スキル/アビリティ cooldown 管理)
 //
 // 複数の cooldown (スキル / アビリティ / 弾薬リロード等) を同時追跡する軽量
 // マネージャ。各 cooldown は `label` (デバッグ / UI 表示用) と `duration_sec`
@@ -7,8 +7,8 @@
 // charged のときだけ true を返して即時 reload を開始する (= remaining=duration)。
 //
 // 使い方:
-//   class Player : public Node2D {
-//       acs::game::CooldownTimer _cd;
+//   class Player : public FNode2D {
+//       acs::game::FCooldownTimer _cd;
 //       acs::game::CooldownId    _fireball;
 //       acs::game::CooldownId    _dash;
 //
@@ -31,7 +31,7 @@
 //   };
 //
 // 設計:
-//   ・**CooldownId**: 24bit index + 8bit generation (SceneTimer / CollisionWorld2D
+//   ・**CooldownId**: 24bit index + 8bit generation (FSceneTimer / FCollisionWorld2D
 //     と同じパターン)。Unregister 後の slot 再利用で stale 検出可能。
 //   ・**charged 状態**: `remaining <= 0` かつ `charged == true`。Tick 内で
 //     `remaining` が 0 を跨いだ瞬間に `charged` が false→true に遷移し、
@@ -88,16 +88,16 @@ struct CooldownState {
 // label: Register に渡したラベル (デバッグ / HUD 用)。
 using ReadyCallback = void(*)(void* user, CooldownId id, const char* label) noexcept;
 
-class CooldownTimer {
+class FCooldownTimer {
 public:
-    CooldownTimer() noexcept = default;
-    ~CooldownTimer() noexcept = default;
+    FCooldownTimer() noexcept = default;
+    ~FCooldownTimer() noexcept = default;
 
     // 非コピー・非ムーブ (callback の self ポインタとの競合を防ぐ)
-    CooldownTimer(const CooldownTimer&)            = delete;
-    CooldownTimer& operator=(const CooldownTimer&) = delete;
-    CooldownTimer(CooldownTimer&&)                 = delete;
-    CooldownTimer& operator=(CooldownTimer&&)      = delete;
+    FCooldownTimer(const FCooldownTimer&)            = delete;
+    FCooldownTimer& operator=(const FCooldownTimer&) = delete;
+    FCooldownTimer(FCooldownTimer&&)                 = delete;
+    FCooldownTimer& operator=(FCooldownTimer&&)      = delete;
 
     // ----- 登録 / 解除 -----
     // duration_sec <= 0 は invalid id を返す。label は caller 側で寿命管理。

@@ -17,7 +17,7 @@ void SceneInspectorApp::OnStart() noexcept {
         return;
     }
     // 基底の OnStart は InitialScene() を push する。
-    Game::OnStart();
+    FGame::OnStart();
 }
 
 void SceneInspectorApp::OnRender() noexcept {
@@ -25,20 +25,20 @@ void SceneInspectorApp::OnRender() noexcept {
     // ImGui の描画コマンドをコマンドリストに発行、の順。この順番でないと
     // Scene 側が ImGui::* を呼べない。
     _imgui.NewFrame();
-    Game::OnRender();
+    FGame::OnRender();
     _imgui.Render();
 }
 
 void SceneInspectorApp::OnShutdown() noexcept {
     // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
     // ないことを保証)。
-    Game::OnShutdown();
+    FGame::OnShutdown();
     _imgui.Shutdown();
 }
 
 void SceneInspectorApp::OnEvent(const Event& e) noexcept {
     _imgui.OnEvent(e);
-    Game::OnEvent(e);
+    FGame::OnEvent(e);
 }
 
 TUniquePtr<Scene> SceneInspectorApp::InitialScene() noexcept {

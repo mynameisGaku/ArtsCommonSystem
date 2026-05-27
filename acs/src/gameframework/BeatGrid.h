@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework GenreKit — BeatGrid (rhythm game タイミング判定 + チャート再生)
+// GameFramework GenreKit — FBeatGrid (rhythm game タイミング判定 + チャート再生)
 //
 // 1 譜面分の note 配列を保持し、再生時刻 (current_time) を進行させながら
 // プレイヤー入力 (Tap) を最近 note と突き合わせて Perfect / Great / Good / Miss
-// の 4 段階で判定する。MusicDirector / AudioDirector とは独立に動く軽量
+// の 4 段階で判定する。FMusicDirector / FAudioDirector とは独立に動く軽量
 // state machine で、譜面と入力の対応関係だけを管理する。
 //
 // 使い方:
 //   class RhythmScene : public Scene {
-//       acs::game::BeatGrid _grid;
+//       acs::game::FBeatGrid _grid;
 //
 //       void OnEnter() noexcept override {
 //           _grid.Init();
@@ -16,7 +16,7 @@
 //           _grid.SetOnJudgeCallback(&RhythmScene::OnJudge, this);
 //           _grid.SetOnEndCallback (&RhythmScene::OnEnd,   this);
 //
-//           acs::game::BeatNote notes[] = {
+//           acs::game::FBeatNote notes[] = {
 //               { 1.000f, acs::game::EBeatLane::Left,  false, 0.0f },
 //               { 1.500f, acs::game::EBeatLane::Down,  false, 0.0f },
 //               { 2.000f, acs::game::EBeatLane::Up,    true,  0.5f },
@@ -55,8 +55,8 @@
 //   ・**Accuracy**: Perfect*1.0 + Great*0.8 + Good*0.5 の和を total_notes で
 //     除算。LoadChart 直後は 0、再生開始前でも判定済 note があれば値を持つ。
 //     total_notes==0 のときは 1.0f (満点扱い、divide-by-zero 回避)。
-//   ・**チャート所有**: LoadChart で渡された BeatNote 配列はコピーして内部
-//     `_notes` (acs::TArray<BeatNote>) に格納する。caller 側の寿命に依存しない。
+//   ・**チャート所有**: LoadChart で渡された FBeatNote 配列はコピーして内部
+//     `_notes` (acs::TArray<FBeatNote>) に格納する。caller 側の寿命に依存しない。
 //   ・**callback**: 関数ポインタ (std::function 不使用)。各 1 スロット。
 //     JudgeCallback は Tap 起因 / Tick 起因 (Miss) どちらでも発火。
 //     EndCallback は最後の note が判定された次の Tick で 1 度だけ発火。
@@ -90,7 +90,7 @@ enum class EJudgement : u8 {
 };
 
 // 譜面上の 1 note。time_sec は楽曲頭からの絶対秒。
-struct BeatNote {
+struct FBeatNote {
     f32      time_sec          = 0.0f;
     EBeatLane lane              = EBeatLane::Left;
     bool     is_hold           = false;
@@ -109,20 +109,20 @@ using JudgeCallback = void(*)(void* user, EBeatLane lane, EJudgement j, u32 comb
 // hits    : Perfect+Great+Good の合計。
 // misses  : Miss の合計。
 // accuracy: Accuracy() と同値 ([0, 1])。
-// 注意: 同 namespace acs::game に DialogueScript::EndCallback が居るため
-// BeatGrid 側は `BeatEndCallback` という固有名にしている (rename Phase 19a-fix part 2)。
+// 注意: 同 namespace acs::game に FDialogueScript::EndCallback が居るため
+// FBeatGrid 側は `BeatEndCallback` という固有名にしている (rename Phase 19a-fix part 2)。
 using BeatEndCallback = void(*)(void* user, u32 hits, u32 misses, f32 accuracy) noexcept;
 
-class BeatGrid {
+class FBeatGrid {
 public:
-    BeatGrid() noexcept = default;
-    ~BeatGrid() noexcept = default;
+    FBeatGrid() noexcept = default;
+    ~FBeatGrid() noexcept = default;
 
     // 非コピー・非ムーブ (callback の self ポインタとの競合を防ぐ)
-    BeatGrid(const BeatGrid&)            = delete;
-    BeatGrid& operator=(const BeatGrid&) = delete;
-    BeatGrid(BeatGrid&&)                 = delete;
-    BeatGrid& operator=(BeatGrid&&)      = delete;
+    FBeatGrid(const FBeatGrid&)            = delete;
+    FBeatGrid& operator=(const FBeatGrid&) = delete;
+    FBeatGrid(FBeatGrid&&)                 = delete;
+    FBeatGrid& operator=(FBeatGrid&&)      = delete;
 
     // ----- 初期化 -----
     // 統計 / 状態を初期化する。複数回呼出可能 (idempotent)。
@@ -134,7 +134,7 @@ public:
     // count: notes 要素数。0 / nullptr は空チャートとして受理 (即 end)。
     // bpm  : 表示 / 参考用 BPM。負値は 0 に切り上げ。
     // 既存譜面と state は全破棄して上書き。Start() は別途呼ぶ必要あり。
-    void LoadChart(const BeatNote* notes, u32 count, f32 bpm) noexcept;
+    void LoadChart(const FBeatNote* notes, u32 count, f32 bpm) noexcept;
 
     // ----- 判定窓設定 -----
     // 単位 ms (ミリ秒)。perfect <= great <= good を期待。
@@ -198,7 +198,7 @@ private:
     void ApplyJudgement(EBeatLane lane, EJudgement j) noexcept;
 
     // ----- 譜面 -----
-    TArray<BeatNote> _notes;
+    TArray<FBeatNote> _notes;
     TArray<bool>    _judged;  // _notes と同 size、true = 判定済 (Hit or Miss)
     f32             _bpm = 0.0f;
 

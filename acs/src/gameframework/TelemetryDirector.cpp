@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — TelemetryDirector 実装
+// GameFramework Pillar V — FTelemetryDirector 実装
 //
 // 設計上のポイント:
 //   ・category 比較は const char* per-byte 比較。STL <string> / <cstring> 不使用。
-//     AchievementManager / Entitlement と同じ StrEq を anonymous namespace に
+//     FAchievementManager / FEntitlement と同じ StrEq を anonymous namespace に
 //     再掲する (cross-file の inline helper を増やすよりピラー単位で独立して
 //     いるほうが読みやすい)。
 //   ・pending queue 上限 100。到達したら RemoveAtSwap(0) で最古 (= index 0) を
@@ -12,7 +12,7 @@
 //   ・Flush は backend->SendTelemetry() に 1 件ずつ流し、Err なら pending に
 //     残す = 次回 Flush で再送される。Phase 2 の stub backend は必ず Err を
 //     返すため、実機テストでは _failed_count が増える挙動が観察される。
-//   ・consent ガード: PrivacyDirector が attach されていれば
+//   ・consent ガード: FPrivacyDirector が attach されていれば
 //     HasConsent(EConsentCategory::Telemetry) を毎 TrackEvent / Flush で確認。
 //     nullptr 注入時はガードスキップ (テスト用)。
 //   ・timestamp は Clock::MillisSinceStartup()。Pillar S の Achievement と同じ
@@ -28,7 +28,7 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較。AchievementManager.cpp / Entitlement.cpp と同設計。
+// const char* の per-byte 安全比較。FAchievementManager.cpp / FEntitlement.cpp と同設計。
 // どちらかが nullptr なら false を返す (StrEq("a", nullptr) は false)。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
@@ -46,7 +46,7 @@ bool StrEq(const char* a, const char* b) noexcept {
 // 内部ユーティリティ
 // =============================================================================
 
-bool TelemetryDirector::IsCategoryEnabledInternal(const char* category) const noexcept {
+bool FTelemetryDirector::IsCategoryEnabledInternal(const char* category) const noexcept {
     // category == nullptr は許可扱い (defensive。TrackEvent 側で更に弾く)。
     if (category == nullptr) return true;
 
@@ -61,14 +61,14 @@ bool TelemetryDirector::IsCategoryEnabledInternal(const char* category) const no
     return true;
 }
 
-void TelemetryDirector::DropOldestIfFull() noexcept {
+void FTelemetryDirector::DropOldestIfFull() noexcept {
     // 上限未満なら何もしない。
     if (_pending.Size() < static_cast<usize>(kMaxPending)) return;
 
     // 上限に達している = 最古 1 件 (index 0) を捨てて 1 枠空ける。
     // RemoveAtSwap は末尾要素を index 0 にムーブするため FIFO 順序は壊れる
     // が、event 側 timestamp で利用側ソート可能。
-    ACS_LOG_WARN("TelemetryDirector: pending queue full (%u), dropping oldest event",
+    ACS_LOG_WARN("FTelemetryDirector: pending queue full (%u), dropping oldest event",
                  kMaxPending);
     _pending.RemoveAtSwap(0);
 }
@@ -77,7 +77,7 @@ void TelemetryDirector::DropOldestIfFull() noexcept {
 // 初期化 / 終了
 // =============================================================================
 
-void TelemetryDirector::Init(IBackendClient* backend, PrivacyDirector* privacy) noexcept {
+void FTelemetryDirector::Init(IBackendClient* backend, FPrivacyDirector* privacy) noexcept {
     _backend            = backend;
     _privacy            = privacy;
     _initialized        = true;
@@ -86,7 +86,7 @@ void TelemetryDirector::Init(IBackendClient* backend, PrivacyDirector* privacy) 
     // 既に投入された event を保持したまま backend を差し替える運用を許す。
 }
 
-void TelemetryDirector::Shutdown() noexcept {
+void FTelemetryDirector::Shutdown() noexcept {
     // pending queue を空にし、参照を切る。送信は試みない (呼出側が事前に Flush)。
     _pending.Clear();
     _filters.Clear();
@@ -101,7 +101,7 @@ void TelemetryDirector::Shutdown() noexcept {
 // event 投入
 // =============================================================================
 
-void TelemetryDirector::TrackEvent(const char*   event_name,
+void FTelemetryDirector::TrackEvent(const char*   event_name,
                                    const char*   json_payload,
                                    EventPriority priority,
                                    const char*   category) noexcept {
@@ -140,7 +140,7 @@ void TelemetryDirector::TrackEvent(const char*   event_name,
 // Flush
 // =============================================================================
 
-void TelemetryDirector::Flush() noexcept {
+void FTelemetryDirector::Flush() noexcept {
     // Init() 前 / backend 無し は no-op (pending はそのまま温存)。
     if (!_initialized || _backend == nullptr) {
         // タイマーだけはリセット (次回試行までに再度待たせる)。
@@ -167,7 +167,7 @@ void TelemetryDirector::Flush() noexcept {
             // stub backend では常にこの分岐 (NotImplemented) を踏む。
             ++_failed_count;
             // ログは多発するので Warn ではなく Debug に抑える。
-            ACS_LOG_DEBUG("TelemetryDirector: SendTelemetry('%s') failed (will retry)",
+            ACS_LOG_DEBUG("FTelemetryDirector: SendTelemetry('%s') failed (will retry)",
                           e.event_name != nullptr ? e.event_name : "<null>");
         } else {
             // 送信成功。pending から除去。RemoveAtSwap は末尾を i 位置に
@@ -185,15 +185,15 @@ void TelemetryDirector::Flush() noexcept {
 // 統計
 // =============================================================================
 
-u32 TelemetryDirector::PendingCount() const noexcept {
+u32 FTelemetryDirector::PendingCount() const noexcept {
     return static_cast<u32>(_pending.Size());
 }
 
-u32 TelemetryDirector::SentCount() const noexcept {
+u32 FTelemetryDirector::SentCount() const noexcept {
     return _sent_count;
 }
 
-u32 TelemetryDirector::FailedCount() const noexcept {
+u32 FTelemetryDirector::FailedCount() const noexcept {
     return _failed_count;
 }
 
@@ -201,7 +201,7 @@ u32 TelemetryDirector::FailedCount() const noexcept {
 // Tick / 設定
 // =============================================================================
 
-void TelemetryDirector::Tick(f32 dt) noexcept {
+void FTelemetryDirector::Tick(f32 dt) noexcept {
     if (!_initialized) return;
     // 異常値 (NaN / 負値) ガード。負の dt は 0 扱いに丸める。
     if (dt > 0.0f) {
@@ -213,7 +213,7 @@ void TelemetryDirector::Tick(f32 dt) noexcept {
     }
 }
 
-void TelemetryDirector::SetFlushInterval(f32 sec) noexcept {
+void FTelemetryDirector::SetFlushInterval(f32 sec) noexcept {
     // 0 以下は 5 秒既定に丸める (= 暴走防止)。
     _flush_interval = sec > 0.0f ? sec : 5.0f;
 }
@@ -222,7 +222,7 @@ void TelemetryDirector::SetFlushInterval(f32 sec) noexcept {
 // category フィルタ
 // =============================================================================
 
-void TelemetryDirector::EnableCategory(const char* category, bool enabled) noexcept {
+void FTelemetryDirector::EnableCategory(const char* category, bool enabled) noexcept {
     if (category == nullptr) return;
 
     // 既存登録があれば in-place 更新。
@@ -237,7 +237,7 @@ void TelemetryDirector::EnableCategory(const char* category, bool enabled) noexc
     // 未登録。enabled = true (= 既定) なら登録不要 (TArray サイズを増やさない)。
     // enabled = false (= deny) のみ新規登録する。
     if (!enabled) {
-        CategoryFilter f;
+        FCategoryFilter f;
         f.category = category;
         f.enabled  = false;
         _filters.PushBack(f);
@@ -248,7 +248,7 @@ void TelemetryDirector::EnableCategory(const char* category, bool enabled) noexc
 // デバッグ
 // =============================================================================
 
-void TelemetryDirector::Clear() noexcept {
+void FTelemetryDirector::Clear() noexcept {
     _pending.Clear();
     _filters.Clear();
     _sent_count          = 0;

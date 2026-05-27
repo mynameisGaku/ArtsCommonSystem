@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar W — StudioWorkflow seam (IAssetLockingBackend / IBuildFarmBackend)
+// GameFramework Pillar W — FStudioWorkflow seam (IAssetLockingBackend / IBuildFarmBackend)
 //
 // 役割:
 //   スタジオ運用 (チーム開発 / CI/CD) のために必要な 2 つの外部システムへ橋渡しする
@@ -42,13 +42,13 @@
 //   ・**cross-backend で同じ I/F**: Perforce / Plastic / Helix / Git LFS のいずれを
 //     後ろで使ってもエディタ側コードを書き換えない。アセットパスは `const char*
 //     asset_path` の opaque な depot/relative path 文字列として渡す (例:
-//     "//depot/Game/Art/Characters/hero.fbx")。
+//     "//depot/FGame/Art/Characters/hero.fbx")。
 //   ・**所有しない const char*** : 文字列は呼び出し側 / 外部 SDK のライフタイムに
 //     従う。Backend はコピーしない (STL <string> 不使用方針)。利用側は
 //     `QueryLock()` の戻り値を「ティック内のみ有効」と扱うこと。
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は IsConnected
 //     が常に false で、各操作は `ACS_ERR(Generic, kSub_NotImplemented, "...")` を
-//     返す (BackendClient / SteamworksBridge と同じ defensive pattern)。
+//     返す (FBackendClient / FSteamworksBridge と同じ defensive pattern)。
 //   ・**Build ID は不透明 u64**: SubmitBuild の戻り値 / PollBuild の入力。実装側で
 //     ジョブ番号 (連番) / hash / pointer-as-u64 等の意味を持たせてよいが、呼出側は
 //     opaque ID として扱う。`0` は「無効な ID」予約 (StartSearch ticket と同じ約束)。
@@ -73,7 +73,7 @@ namespace acs::game {
 // =============================================================================
 // 共通: stub 用エラーサブコード
 // -----------------------------------------------------------------------------
-// BackendClient / SaveSlot 等と同じく「Phase 1 stub = NotImplemented」を
+// FBackendClient / FSaveSlot 等と同じく「Phase 1 stub = NotImplemented」を
 // `subcode = kSub_NotImplemented (= 99)` で表現する。`ErrCategory` には Generic を
 // 使う (P4 / Jenkins は I/O だが、本 seam は API 抽象であって特定の通信路を
 // 仮定しないため Generic が妥当)。
@@ -90,15 +90,15 @@ struct StudioWorkflowError {
 };
 
 // =============================================================================
-// AssetLockInfo — QueryLock の戻り値 (P4 の `p4 fstat` 相当の最小情報)
+// FAssetLockInfo — QueryLock の戻り値 (P4 の `p4 fstat` 相当の最小情報)
 // -----------------------------------------------------------------------------
 // Backend は文字列を所有しない。`asset_path` / `locker_user` は外部 SDK 側
 // (または Stub 内 static literal) のメモリを参照するだけで、呼び出し側で
 // コピーしない。寿命は「次の Tick / 次の Backend 呼び出しまで」を保証する
 // (実装によってはより長い)。
 // =============================================================================
-struct AssetLockInfo {
-    const char* asset_path  = nullptr;  // ロック対象パス (例: "//depot/Game/foo.fbx")
+struct FAssetLockInfo {
+    const char* asset_path  = nullptr;  // ロック対象パス (例: "//depot/FGame/foo.fbx")
     const char* locker_user = nullptr;  // ロック保持ユーザー (例: "designer_a")
     u64         lock_time   = 0;        // ロック取得時刻 (実装依存; UNIX epoch 推奨)
 };
@@ -130,7 +130,7 @@ public:
 
     // 指定アセットの現在のロック状態を取得。未ロックなら kSub_NotFound。
     // 戻り値の文字列メンバの寿命は次の Backend 呼び出しまで保証する。
-    virtual TResult<AssetLockInfo> QueryLock(const char* asset_path) noexcept = 0;
+    virtual TResult<FAssetLockInfo> QueryLock(const char* asset_path) noexcept = 0;
 
     // バックエンドへ現在接続できているか。Stub は常に false。
     virtual bool IsConnected() const noexcept = 0;
@@ -198,21 +198,21 @@ public:
 //   ・各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
 //   ・コピー/ムーブは基底 I/F で delete 済みのため本クラスも自然に non-copy。
 // =============================================================================
-class AssetLockingStub final : public IAssetLockingBackend {
+class FAssetLockingStub final : public IAssetLockingBackend {
 public:
-    AssetLockingStub() noexcept = default;
-    ~AssetLockingStub() noexcept override = default;
+    FAssetLockingStub() noexcept = default;
+    ~FAssetLockingStub() noexcept override = default;
 
     TResult<void>           LockAsset(const char* asset_path, const char* user) noexcept override;
     TResult<void>           UnlockAsset(const char* asset_path) noexcept override;
-    TResult<AssetLockInfo>  QueryLock(const char* asset_path) noexcept override;
+    TResult<FAssetLockInfo>  QueryLock(const char* asset_path) noexcept override;
     bool                   IsConnected() const noexcept override { return false; }
 };
 
-class BuildFarmStub final : public IBuildFarmBackend {
+class FBuildFarmStub final : public IBuildFarmBackend {
 public:
-    BuildFarmStub() noexcept = default;
-    ~BuildFarmStub() noexcept override = default;
+    FBuildFarmStub() noexcept = default;
+    ~FBuildFarmStub() noexcept override = default;
 
     TResult<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
     TResult<BuildResult>  PollBuild(u64 build_id) noexcept override;

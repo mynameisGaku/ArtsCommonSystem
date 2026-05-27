@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — AmbientDirector (Time-of-Day)
+// GameFramework Pillar Q — FAmbientDirector (Time-of-Day)
 //
 // 1 日の時刻 (0..24h) に応じて sky color / ambient color / sun direction を
-// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (PbrShader /
+// キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (FPbrShader /
 // SkyShader / 環境光ステージ) は本クラスの 3 つの色 / 方向ベクトルを毎フレーム
 // pull するだけで一日の表情が出る。
 //
 // 使い方:
 //   class WorldScene : public Scene {
-//       acs::game::AmbientDirector _ambient;
+//       acs::game::FAmbientDirector _ambient;
 //
 //       void OnEnter() noexcept override {
 //           _ambient.SetTimeOfDay(6.5f);     // 朝焼け開始
@@ -17,9 +17,9 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           _ambient.Tick(dt);
-//           Renderer().SetSkyColor    (_ambient.SkyColor());
-//           Renderer().SetAmbientColor(_ambient.AmbientColor());
-//           Renderer().SetSunDir      (_ambient.SunDirection());
+//           FRenderer().SetSkyColor    (_ambient.SkyColor());
+//           FRenderer().SetAmbientColor(_ambient.AmbientColor());
+//           FRenderer().SetSunDir      (_ambient.SunDirection());
 //       }
 //   };
 //
@@ -53,15 +53,15 @@
 
 namespace acs::game {
 
-class AmbientDirector {
+class FAmbientDirector {
 public:
-    AmbientDirector() noexcept = default;
-    ~AmbientDirector() noexcept = default;
+    FAmbientDirector() noexcept = default;
+    ~FAmbientDirector() noexcept = default;
 
-    AmbientDirector(const AmbientDirector&)            = delete;
-    AmbientDirector& operator=(const AmbientDirector&) = delete;
-    AmbientDirector(AmbientDirector&&)                 = delete;
-    AmbientDirector& operator=(AmbientDirector&&)      = delete;
+    FAmbientDirector(const FAmbientDirector&)            = delete;
+    FAmbientDirector& operator=(const FAmbientDirector&) = delete;
+    FAmbientDirector(FAmbientDirector&&)                 = delete;
+    FAmbientDirector& operator=(FAmbientDirector&&)      = delete;
 
     // ----- 時刻設定 -----
     // hours は [0, 24)。24 以上 / 負値は 24 で剰余を取って正規化。
@@ -89,7 +89,7 @@ public:
     }
     f32 TimeScale() const noexcept { return _time_scale; }
 
-    // SceneServices などから毎フレーム呼ぶ。dt はリアル秒。
+    // FSceneServices などから毎フレーム呼ぶ。dt はリアル秒。
     void Tick(f32 dt) noexcept {
         if (dt < 0.0f) dt = 0.0f;
         AdvanceTime(dt * _time_scale);

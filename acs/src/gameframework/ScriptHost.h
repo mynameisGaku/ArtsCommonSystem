@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — ScriptHost (Lua / Wren / Python scripting seam)
+// GameFramework Pillar N — FScriptHost (Lua / Wren / Python scripting seam)
 //
 // 役割:
 //   Pillar N (Modding / Scripting) のうち、ゲームロジックを動的に拡張するための
 //   スクリプトランタイム (Lua 5.4 / Wren / Python3 / 自前 VM 等) を **interface
-//   seam** として隔離する。`ModRegistry` が「Mod の有効化と並び順」を管理する
-//   メタデータレイヤであるのに対し、`ScriptHost` は「実際にスクリプトを load /
+//   seam** として隔離する。`FModRegistry` が「Mod の有効化と並び順」を管理する
+//   メタデータレイヤであるのに対し、`FScriptHost` は「実際にスクリプトを load /
 //   call し、native 関数を bind する」実行レイヤを担当する。
 //
 //   GameFramework 設計書 v13 では Lua 5.4 が推奨 backend だが、本 module
@@ -21,11 +21,11 @@
 //   2. **テスト容易性**:
 //      `IScriptVm` の純粋仮想ポインタを差し替えるだけで mock backend に置換
 //      でき、CI で Lua ライブラリを持たないマシンでも上位層 (native 関数登録 /
-//      ScriptHost ワークフロー) の試験を回せる。
+//      FScriptHost ワークフロー) の試験を回せる。
 //   3. **決定論ゾーンの隔離**:
 //      Pillar B/C/F (sim / collision / physics) は固定タイムステップで
 //      決定論を保証する。スクリプト実行 (= GC / JIT / native callback) は
-//      決定論を保証できないので、`ScriptHost` を呼ぶのは「決定論を捨ててよい所」
+//      決定論を保証できないので、`FScriptHost` を呼ぶのは「決定論を捨ててよい所」
 //      (UI / イベントトリガー / カットシーン / Mod hook) に限定する規約を
 //      API レベルで強制する (= 本 header の呼び出し位置で発見できる)。
 //   4. **defensive な未統合フォールバック**:
@@ -40,7 +40,7 @@
 //     による backend 中立な値受け渡し
 //   ・`ScriptVmStub` (全 method NotImplemented を返す defensive 実装)
 //   ・global stub アクセサ `GetVmStub()`
-//   ・`ScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
+//   ・`FScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
 //     + 標準 binding 一括登録)
 //
 // Phase N-3+ で行うこと (本 header の範囲外):
@@ -56,7 +56,7 @@
 //   ・STL 不使用 / `<string>` 不使用 (文字列は `const char*` のみ)
 //   ・例外不使用、エラーは `TResult<T, FErrorCode>` で伝搬
 //   ・全 noexcept
-//   ・`ScriptHost` / `ScriptVmStub` は シングルトン / 単一所有運用前提で
+//   ・`FScriptHost` / `ScriptVmStub` は シングルトン / 単一所有運用前提で
 //     コピー / ムーブ禁止
 #pragma once
 
@@ -70,7 +70,7 @@ namespace acs::game {
 // EScriptLanguage — backend 識別タグ
 // -----------------------------------------------------------------------------
 // `IScriptVm::Language()` が返す。複数 backend を同時運用する場合 (例えば
-// UI ロジックは Lua、ML 推論 hook だけ Python) に、ScriptHost 側で 1 個の
+// UI ロジックは Lua、ML 推論 hook だけ Python) に、FScriptHost 側で 1 個の
 // vm を選択するための判定に使う。Phase N-2 では Lua54 推奨。
 // =============================================================================
 enum class EScriptLanguage : u8 {
@@ -151,8 +151,8 @@ using NativeFunction = void(*)(IScriptVm& vm, ScriptCallFrame& frame, void* user
 // 安定 subcode 規約 (本 module 内で固定)
 // -----------------------------------------------------------------------------
 // `ErrCategory::Generic` 配下で subcode を固定し、上位層が `err.subcode ==
-// script_err::kSub_NotImplemented` で分岐できるようにする。SaveSlot.h /
-// MlRuntime.h と同じ流儀。
+// script_err::kSub_NotImplemented` で分岐できるようにする。FSaveSlot.h /
+// FMlRuntime.h と同じ流儀。
 // =============================================================================
 namespace script_err {
     inline constexpr u16 kSub_NotImplemented = 99;   // stub / backend 未統合
@@ -162,7 +162,7 @@ namespace script_err {
     inline constexpr u16 kSub_CallFailed     = 11;   // CallFunction 失敗 (runtime error 等)
     inline constexpr u16 kSub_FileNotFound   = 20;   // LoadAndRun の file 読み込み失敗
     inline constexpr u16 kSub_FileTooLarge   = 21;   // ファイルが内部上限を超える
-    inline constexpr u16 kSub_NoVm           = 30;   // ScriptHost::Init 未呼出
+    inline constexpr u16 kSub_NoVm           = 30;   // FScriptHost::Init 未呼出
 } // namespace script_err
 
 // =============================================================================
@@ -279,11 +279,11 @@ private:
 };
 
 // process 内で 1 個だけ存在する静的 stub への参照を返す (Meyers singleton)。
-// Phase N-2 では `Game` / `Scene` 側からのスクリプト問い合わせはこれを通る。
+// Phase N-2 では `FGame` / `Scene` 側からのスクリプト問い合わせはこれを通る。
 IScriptVm& GetVmStub() noexcept;
 
 // =============================================================================
-// ScriptHost — IScriptVm を集約する高レベルラッパ
+// FScriptHost — IScriptVm を集約する高レベルラッパ
 // -----------------------------------------------------------------------------
 // 役割:
 //   ・`IScriptVm*` を 1 個保持し、ゲームコード側に「スクリプト呼び出しの単一窓口」
@@ -296,14 +296,14 @@ IScriptVm& GetVmStub() noexcept;
 //   ・script 実行中エラーを上位 UI / ログに通知する `ScriptErrorCallback` を保持。
 //
 // 所有関係:
-//   ・vm の生成 / 破棄は **呼び出し側 (= Game / Scene)** が責任を持つ。
-//     ScriptHost は raw ポインタを保持するだけで、Shutdown でも delete しない。
+//   ・vm の生成 / 破棄は **呼び出し側 (= FGame / Scene)** が責任を持つ。
+//     FScriptHost は raw ポインタを保持するだけで、Shutdown でも delete しない。
 //     これにより stub singleton をそのまま差し込んでも安全。
 //
 // 非コピー・非ムーブ:
 //   ・「現在 active なスクリプト窓口は 1 つ」という規約を担保する。
 // =============================================================================
-class ScriptHost {
+class FScriptHost {
 public:
     // script 実行中の error / load error を上位に通知する callback。
     // ・`chunk_name` : LoadScript / LoadAndRun に渡した名前 (nullptr 可)
@@ -314,13 +314,13 @@ public:
                                         u32         line,
                                         const char* message) noexcept;
 
-    ScriptHost() noexcept = default;
-    ~ScriptHost() noexcept = default;
+    FScriptHost() noexcept = default;
+    ~FScriptHost() noexcept = default;
 
-    ScriptHost(const ScriptHost&)            = delete;
-    ScriptHost& operator=(const ScriptHost&) = delete;
-    ScriptHost(ScriptHost&&)                 = delete;
-    ScriptHost& operator=(ScriptHost&&)      = delete;
+    FScriptHost(const FScriptHost&)            = delete;
+    FScriptHost& operator=(const FScriptHost&) = delete;
+    FScriptHost(FScriptHost&&)                 = delete;
+    FScriptHost& operator=(FScriptHost&&)      = delete;
 
     // 使用する VM を差し込む。nullptr 渡しは Shutdown 相当 (vm を切り離し)。
     // 多重呼び出し可、後勝ち。本クラスは vm を所有 / 破棄しない。

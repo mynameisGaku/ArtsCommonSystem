@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CrashReporter stub 実装
+// GameFramework Pillar O — FCrashReporter stub 実装
 //
-// 本ファイルは CrashReporter.h で宣言した ICrashReporterBackend に対し、
+// 本ファイルは FCrashReporter.h で宣言した ICrashReporterBackend に対し、
 // 「常に NotImplemented を返すだけ」の defensive stub (`CrashReporterStub`) と、
 // 高レベル wrapper (`CrashHandler`) を提供する。
 //

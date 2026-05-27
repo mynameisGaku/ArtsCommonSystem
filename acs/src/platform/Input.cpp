@@ -122,7 +122,7 @@ void Input::Update() noexcept {
     }
 }
 
-// Window からの Event を Input 状態に反映
+// FWindow からの Event を Input 状態に反映
 void Input::OnEvent(const Event& e) noexcept {
     switch (e.type) {
         case EventType::KeyPressed:

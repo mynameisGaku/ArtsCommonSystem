@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLocalization — Application 派生クラス。
+// HelloLocalization — FApplication 派生クラス。
 //
 // 動作:
 //   ・実行ファイルに埋め込んだ ja.lang / en.lang / fr.lang から翻訳を取得
@@ -20,7 +20,7 @@
 
 namespace helloloc {
 
-class HelloLocalizationApp : public acs::Application {
+class HelloLocalizationApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -31,7 +31,7 @@ private:
     void SwitchTo(acs::u32 idx) noexcept;
 
     acs::Localization _loc;
-    acs::SpriteBatch  _batch;
+    acs::FSpriteBatch  _batch;
     acs::Font         _font_big, _font_small;
     acs::u32          _lang = 0;
 };

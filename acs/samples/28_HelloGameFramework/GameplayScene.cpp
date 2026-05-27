@@ -17,17 +17,17 @@ namespace hellogf {
 
 void GameplayScene::OnEnter() noexcept {
     _color = kColorDark;
-    // Tween を起動 (Services 側で PostUpdate に自動 tick される)。
+    // FTween を起動 (Services 側で PostUpdate に自動 tick される)。
     _color_tween = Services().Tweens().Tween(
         &_color, kColorDark, kColorBright,
         /*duration=*/2.0f, Easing::InOutSine);
     _to_bright = true;
     GetGame().SetClearColor(_color.x, _color.y, _color.z);
 
-    // Node2D ツリー: root → wheel → spoke 2 個。
+    // FNode2D ツリー: root → wheel → spoke 2 個。
     auto wheel_up = MakeUnique<RotatingNode>(/*speed=*/1.0f /*rad/s*/, "wheel");
     wheel_up->Local().position = FVec2{10.0f, 0.0f};
-    Node2D& wheel = _root.AddChild(Move(wheel_up));
+    FNode2D& wheel = _root.AddChild(Move(wheel_up));
     _wheel = static_cast<RotatingNode*>(&wheel);
 
     auto sp0_up = MakeUnique<RotatingNode>(/*speed=*/0.0f, "spoke[0]");
@@ -38,15 +38,15 @@ void GameplayScene::OnEnter() noexcept {
     sp1_up->Local().position = FVec2{0.0f, 2.0f};
     _spoke[1] = static_cast<RotatingNode*>(&wheel.AddChild(Move(sp1_up)));
 
-    // composition 版: プレーン Node2D に RotateComponent を attach (継承版との対比)。
-    auto rotator_up = MakeUnique<Node2D>();
+    // composition 版: プレーン FNode2D に RotateComponent を attach (継承版との対比)。
+    auto rotator_up = MakeUnique<FNode2D>();
     rotator_up->Local().position = FVec2{-10.0f, 0.0f};
-    Node2D& rotator = _root.AddChild(Move(rotator_up));
+    FNode2D& rotator = _root.AddChild(Move(rotator_up));
     rotator.AddComponent<RotateComponent>(/*speed_rps=*/2.0f);
     _rotator = &rotator;
 
     // spoke を Circle として CollisionWorld に登録 (世界位置は OnUpdate で追従)。
-    CollisionWorld2D& phy = Services().Physics();
+    FCollisionWorld2D& phy = Services().Physics();
     for (u32 i = 0; i < 2; ++i) {
         const FVec2 sp = _spoke[i] ? _spoke[i]->World().position : FVec2{};
         _spoke_shape[i] = phy.AddCircle(Circle{sp, /*radius=*/0.5f});
@@ -55,16 +55,16 @@ void GameplayScene::OnEnter() noexcept {
     // y=-2 中心の幅広 AABB を静的 ground として登録。
     _ground_shape = phy.AddAabb(Aabb2{FVec2{0.0f, -2.0f}, FVec2{20.0f, 0.5f}});
 
-    // 落下 ball: Node2D + PhysicsBody2D。Component が phy を握って自前更新する。
-    auto ball_up = MakeUnique<Node2D>();
+    // 落下 ball: FNode2D + FPhysicsBody2D。Component が phy を握って自前更新する。
+    auto ball_up = MakeUnique<FNode2D>();
     ball_up->Local().position = FVec2{0.0f, 8.0f};
-    Node2D& ball_ref = _root.AddChild(Move(ball_up));
-    PhysicsBody2D& body = ball_ref.AddComponent<PhysicsBody2D>(phy);
+    FNode2D& ball_ref = _root.AddChild(Move(ball_up));
+    FPhysicsBody2D& body = ball_ref.AddComponent<FPhysicsBody2D>(phy);
     body.SetCircle(0.5f);
     body.gravity = FVec2{0.0f, -10.0f};
     _ball = &ball_ref;
 
-    InputMap& im = Services().Input();
+    FInputMap& im = Services().Input();
     im.ClearAll();
     im.BindKey(ActionId("Pause"),   EKey::P);
     im.BindKey(ActionId("Pause"),   EKey::Enter);
@@ -82,7 +82,7 @@ void GameplayScene::OnEnter() noexcept {
 }
 
 void GameplayScene::OnExit() noexcept {
-    // Services は scene 破棄時に完全破棄される。Tween に残った dangling pointer
+    // Services は scene 破棄時に完全破棄される。FTween に残った dangling pointer
     // 経由でクラッシュしないよう、先に CancelAll しておく。
     if (HasServices()) Services().Tweens().CancelAll();
     for (u32 i = 0; i < _root.ChildCount(); ++i) {
@@ -105,7 +105,7 @@ void GameplayScene::OnResume() noexcept {
 void GameplayScene::OnUpdate(f32 dt) noexcept {
     // dt はフレームワーク側で Clock.Dt() (scaled) が渡される。
     // services の Tweens/Sequences は本関数の後、PostUpdate で自動 tick される。
-    const InputMap& im = Services().Input();
+    const FInputMap& im = Services().Input();
     if (im.IsPressed(ActionId("Quit"))) GetGame().Quit();
     if (im.IsPressed(ActionId("ToTitle"))) {
         Scenes().ChangeScene(MakeUnique<TitleScene>());
@@ -131,7 +131,7 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
 
     // spoke 円の CollisionWorld 上の表現を world 位置で同期する。
     {
-        CollisionWorld2D& phy = Services().Physics();
+        FCollisionWorld2D& phy = Services().Physics();
         for (u32 i = 0; i < 2; ++i) {
             if (_spoke[i] != nullptr && _spoke_shape[i].IsValid()) {
                 const FVec2 p = _spoke[i]->World().position;
@@ -140,7 +140,7 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
         }
     }
 
-    // Tween 完了で ping-pong を逆方向に張り直す (Tweens.Tick は PostUpdate で自動)。
+    // FTween 完了で ping-pong を逆方向に張り直す (Tweens.Tick は PostUpdate で自動)。
     if (!Services().Tweens().IsActive(_color_tween)) {
         _to_bright = !_to_bright;
         const FVec3 from = _color;
@@ -150,13 +150,13 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
     }
     GetGame().SetClearColor(_color.x, _color.y, _color.z);
 
-    // Node2D tree は手動 tick (Tweens/Sequences とは別系統)。
+    // FNode2D tree は手動 tick (Tweens/Sequences とは別系統)。
     _root.UpdateTree(dt);
     _root.ResolveStructuralChanges();
 }
 
 void GameplayScene::OnFixedUpdate(f32 dt) noexcept {
-    // dt は固定 (Game::SetFixedTimestep、既定 1/60)。60 step 毎 = 約 1 秒毎に
+    // dt は固定 (FGame::SetFixedTimestep、既定 1/60)。60 step 毎 = 約 1 秒毎に
     // 状態をログ出力して OnFixedUpdate の呼出と transform 伝播を観察する。
     _fixed_secs += dt;
     if (++_fixed_step_log_counter >= 60) {
@@ -181,7 +181,7 @@ void GameplayScene::OnFixedUpdate(f32 dt) noexcept {
             }
         }
         const f32 ball_y  = _ball ? _ball->Local().position.y : 0.0f;
-        const PhysicsBody2D* body = _ball ? _ball->GetComponent<PhysicsBody2D>() : nullptr;
+        const FPhysicsBody2D* body = _ball ? _ball->GetComponent<FPhysicsBody2D>() : nullptr;
         const f32 ball_vy = body ? body->velocity.y : 0.0f;
         ACS_LOG_INFO("[Gameplay] %.2fs  cam=(%.2f,%.2f) trauma=%.2f  overlap=%u rayT=%.2f  ball y=%.2f vy=%.2f",
                      static_cast<double>(_fixed_secs),

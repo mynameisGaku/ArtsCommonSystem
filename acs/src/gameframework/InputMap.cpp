@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — InputMap 実装 (Phase 6)
+// GameFramework Pillar D — FInputMap 実装 (Phase 6)
 #include "gameframework/InputMap.h"
 #include "platform/Input.h"
 
 namespace acs::game {
 
-void InputMap::BindKey(ActionId action, EKey key) noexcept {
+void FInputMap::BindKey(ActionId action, EKey key) noexcept {
     Binding b;
     b.action = action;
     b.kind   = BindKind::EKey;
@@ -13,7 +13,7 @@ void InputMap::BindKey(ActionId action, EKey key) noexcept {
     _bindings.PushBack(b);
 }
 
-void InputMap::BindMouseButton(ActionId action, EMouseButton mb) noexcept {
+void FInputMap::BindMouseButton(ActionId action, EMouseButton mb) noexcept {
     Binding b;
     b.action = action;
     b.kind   = BindKind::EMouseButton;
@@ -21,7 +21,7 @@ void InputMap::BindMouseButton(ActionId action, EMouseButton mb) noexcept {
     _bindings.PushBack(b);
 }
 
-void InputMap::BindGamepad(ActionId action, EGamepadButton gb, u32 player_index) noexcept {
+void FInputMap::BindGamepad(ActionId action, EGamepadButton gb, u32 player_index) noexcept {
     Binding b;
     b.action = action;
     b.kind   = BindKind::EGamepadButton;
@@ -30,7 +30,7 @@ void InputMap::BindGamepad(ActionId action, EGamepadButton gb, u32 player_index)
     _bindings.PushBack(b);
 }
 
-void InputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
+void FInputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
     Binding b;
     b.action   = action;
     b.kind     = BindKind::Axis1D;
@@ -39,7 +39,7 @@ void InputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
     _bindings.PushBack(b);
 }
 
-void InputMap::Unbind(ActionId action) noexcept {
+void FInputMap::Unbind(ActionId action) noexcept {
     u32 w = 0;
     for (u32 r = 0; r < _bindings.Size(); ++r) {
         if (_bindings[r].action != action) {
@@ -50,11 +50,11 @@ void InputMap::Unbind(ActionId action) noexcept {
     while (_bindings.Size() > w) _bindings.PopBack();
 }
 
-void InputMap::ClearAll() noexcept {
+void FInputMap::ClearAll() noexcept {
     _bindings.Clear();
 }
 
-bool InputMap::IsPressed(ActionId action) const noexcept {
+bool FInputMap::IsPressed(ActionId action) const noexcept {
     for (u32 i = 0; i < _bindings.Size(); ++i) {
         const Binding& b = _bindings[i];
         if (b.action != action) continue;
@@ -76,7 +76,7 @@ bool InputMap::IsPressed(ActionId action) const noexcept {
     return false;
 }
 
-bool InputMap::IsHeld(ActionId action) const noexcept {
+bool FInputMap::IsHeld(ActionId action) const noexcept {
     for (u32 i = 0; i < _bindings.Size(); ++i) {
         const Binding& b = _bindings[i];
         if (b.action != action) continue;
@@ -100,7 +100,7 @@ bool InputMap::IsHeld(ActionId action) const noexcept {
     return false;
 }
 
-bool InputMap::IsReleased(ActionId action) const noexcept {
+bool FInputMap::IsReleased(ActionId action) const noexcept {
     for (u32 i = 0; i < _bindings.Size(); ++i) {
         const Binding& b = _bindings[i];
         if (b.action != action) continue;
@@ -121,7 +121,7 @@ bool InputMap::IsReleased(ActionId action) const noexcept {
     return false;
 }
 
-f32 InputMap::Axis(ActionId action) const noexcept {
+f32 FInputMap::Axis(ActionId action) const noexcept {
     f32 acc = 0.0f;
     for (u32 i = 0; i < _bindings.Size(); ++i) {
         const Binding& b = _bindings[i];

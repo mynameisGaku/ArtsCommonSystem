@@ -11,7 +11,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void HitEffects::Init(ParticleEffectSystem& particles) noexcept {
+void HitEffects::Init(FParticleEffectSystem& particles) noexcept {
     ParticleEmitterDef pdef{};
     pdef.color_start       = kParticleStart;
     pdef.color_end         = kParticleEnd;
@@ -28,13 +28,13 @@ void HitEffects::Init(ParticleEffectSystem& particles) noexcept {
     particles.SetEmitterActive(_hit_emitter, false);
 }
 
-void HitEffects::Shutdown(ParticleEffectSystem& particles) noexcept {
+void HitEffects::Shutdown(FParticleEffectSystem& particles) noexcept {
     particles.ClearAll();
 }
 
 void HitEffects::Tick(GameplayScene& scene, f32 dt) noexcept {
     _fx.Tick(dt);
-    // EffectSystem 内に溜まったトラウマを camera に流して消費する。
+    // FEffectSystem 内に溜まったトラウマを camera に流して消費する。
     if (_fx.PendingShakeTrauma() > 0.0f) {
         scene.Services().Camera().AddShake(_fx.PendingShakeTrauma());
         _fx.ConsumeShake();
@@ -56,8 +56,8 @@ void HitEffects::TriggerEnemyHit(GameplayScene& scene, FVec2 pos) noexcept {
     static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_enemy_hit", 0.8f);
 }
 
-void HitEffects::DrawParticles(const ParticleEffectSystem& particles,
-                                SpriteBatch& sb) const noexcept {
+void HitEffects::DrawParticles(const FParticleEffectSystem& particles,
+                                FSpriteBatch& sb) const noexcept {
     u32 n = 0;
     const Particle* ps = particles.AllParticles(n);
     for (u32 i = 0; i < n; ++i) {

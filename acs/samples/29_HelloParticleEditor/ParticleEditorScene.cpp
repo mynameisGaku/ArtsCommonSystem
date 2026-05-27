@@ -53,7 +53,7 @@ void ParticleEditorScene::OnUpdate(f32 dt) noexcept {
         return;
     }
 
-    // Application 側の大 dt スパイクで particle が飛び散らないよう clamp。
+    // FApplication 側の大 dt スパイクで particle が飛び散らないよう clamp。
     if (dt > 0.1f) dt = 0.1f;
 
     _particle_system.Tick(dt);
@@ -63,7 +63,7 @@ void ParticleEditorScene::OnUpdate(f32 dt) noexcept {
 }
 
 void ParticleEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
-    // ImGui の draw コマンドは Game::OnRender の NewFrame() と Render() の間で
+    // ImGui の draw コマンドは FGame::OnRender の NewFrame() と Render() の間で
     // 発行される。Scene::OnRender はその内側なのでそのまま ImGui::* を呼べる。
     _draw_file_menu();
 
@@ -104,7 +104,7 @@ void ParticleEditorScene::_draw_file_menu() noexcept {
 void ParticleEditorScene::_save_preset() noexcept {
     const u32 idx = _editor_panel.SelectedIndex();
     const ParticleEmitterDef& def = _editor_panel.GetEmitterDef(idx);
-    if (auto r = fxedit::FxeditSerializer::Save(kPresetPath, def); r.IsErr()) {
+    if (auto r = fxedit::FFxeditSerializer::Save(kPresetPath, def); r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Save '%s' failed", kPresetPath);
     } else {
         ACS_LOG_INFO("[ParticleEditor] saved -> %s", kPresetPath);
@@ -112,7 +112,7 @@ void ParticleEditorScene::_save_preset() noexcept {
 }
 
 void ParticleEditorScene::_load_preset() noexcept {
-    auto r = fxedit::FxeditSerializer::Load(kPresetPath);
+    auto r = fxedit::FFxeditSerializer::Load(kPresetPath);
     if (r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Load '%s' failed", kPresetPath);
         return;

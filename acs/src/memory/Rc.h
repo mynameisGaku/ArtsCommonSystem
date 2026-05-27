@@ -25,7 +25,7 @@ namespace rc_detail {
 // 全 TRc 共通の制御ブロック（参照カウント + アロケータ + デストラクタ）
 struct ControlBlock {
     TAtomic<u32> strong {1};                            // 強参照カウント
-    Allocator*  alloc  = nullptr;                      // 解放に使うアロケータ
+    FAllocator*  alloc  = nullptr;                      // 解放に使うアロケータ
     void (*destroy)(ControlBlock*) noexcept = nullptr; // T 破棄関数（型消去）
 };
 
@@ -40,7 +40,7 @@ struct InlineBlock : ControlBlock {
     static void Destroy(ControlBlock* cb) noexcept {
         auto* self = static_cast<InlineBlock*>(cb);
         if constexpr (!IsTriviallyDestructibleV<T>) self->Get()->~T();
-        Allocator* a = self->alloc;
+        FAllocator* a = self->alloc;
         self->~InlineBlock();
         a->Free(self);
     }
@@ -105,7 +105,7 @@ public:
     u32 UseCount() const noexcept { return _cb ? _cb->strong.Load(EMemoryOrder::Acquire) : 0; }
 
     template<typename U, typename... Args> friend TRc<U> MakeRc(Args&&...) noexcept;
-    template<typename U, typename... Args> friend TRc<U> MakeRcIn(Allocator&, Args&&...) noexcept;
+    template<typename U, typename... Args> friend TRc<U> MakeRcIn(FAllocator&, Args&&...) noexcept;
 
 private:
     TRc(T* p, rc_detail::ControlBlock* cb) noexcept : _ptr(p), _cb(cb) {}
@@ -134,7 +134,7 @@ ACS_FORCEINLINE TRc<T> MakeRc(Args&&... args) noexcept {
 
 // 指定アロケータで構築
 template<typename T, typename... Args>
-ACS_FORCEINLINE TRc<T> MakeRcIn(Allocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TRc<T> MakeRcIn(FAllocator& a, Args&&... args) noexcept {
     using Block = rc_detail::InlineBlock<T>;
     void* mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TRc<T>();

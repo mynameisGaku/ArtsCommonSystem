@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — TurnManager (ターン進行 + アクションポイント)
+// GameFramework ジャンルキット — FTurnManager (ターン進行 + アクションポイント)
 //
 // SRPG / ローグライク / 戦略系に必須の「ターン制」基盤。複数 side (player /
 // enemy / 環境) を initiative 順に並べ、各 side が固有の AP (action point)
@@ -15,8 +15,8 @@
 //   ・GetSideState          — UI / AI 表示用 read-only snapshot
 //
 // 設計選択:
-//   ・**TurnSideId** は 24bit index + 8bit gen の packed handle (CooldownId /
-//     SceneTimer / CollisionWorld2D と同じパターン)。RemoveSide → 再 AddSide
+//   ・**FTurnSideId** は 24bit index + 8bit gen の packed handle (CooldownId /
+//     FSceneTimer / FCollisionWorld2D と同じパターン)。RemoveSide → 再 AddSide
 //     で slot が再利用されても、古い ID が stale として検出できる。
 //   ・**Side ストレージは AoS TArray**: side 数は通常 2〜8 程度、多くて十数
 //     なので AoS で十分。AP 更新が支配的なので cache 局所性も悪くない。
@@ -63,7 +63,7 @@ enum class ETurnPhase : u8 {
 // ----- side handle --------------------------------------------------------
 // 24bit index + 8bit generation。_packed == 0 を invalid と定義
 // (gen は常に 1 以上に保たれる)。
-struct TurnSideId {
+struct FTurnSideId {
     u32 _packed = 0u;
 
     bool IsValid() const noexcept { return _packed != 0u; }
@@ -72,22 +72,22 @@ struct TurnSideId {
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
     static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215 個
 
-    static TurnSideId Pack(u32 index, u8 gen) noexcept {
-        TurnSideId h;
+    static FTurnSideId Pack(u32 index, u8 gen) noexcept {
+        FTurnSideId h;
         h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
     u32 Index() const noexcept { return _packed & kIndexMask; }
     u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
 
-    constexpr bool operator==(TurnSideId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(TurnSideId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FTurnSideId o) const noexcept { return _packed == o._packed; }
+    constexpr bool operator!=(FTurnSideId o) const noexcept { return _packed != o._packed; }
 };
 
 // ----- side 状態 (公開 snapshot) ------------------------------------------
 // GetSideState で返す。Slot から AP / has_acted を read-only にコピーした
 // 表示用 view (UI / AI / save 用)。
-struct TurnSideState {
+struct FTurnSideState {
     const char* display_name         = nullptr; // AddSide 時のラベル (caller 寿命管理)
     u32         max_action_points    = 0u;      // StartRound での refill 量
     u32         current_action_points = 0u;     // 現残量 (TryConsumeAP で減る)
@@ -100,23 +100,23 @@ struct TurnSideState {
 // ターン開始時。current side が切り替わった直後に呼ばれる。
 //   side  : 新しい current side の ID
 //   round : 現在のラウンド番号 (StartRound 内なら新ラウンド番号)
-using TurnStartCallback = void(*)(void* user, TurnSideId side, u32 round) noexcept;
+using TurnStartCallback = void(*)(void* user, FTurnSideId side, u32 round) noexcept;
 
 // ラウンド終了時 (EndOfRound 遷移時)。次ラウンドの StartRound に進む直前
 // に発火する。caller はここで報酬計算 / DoT 処理 / weather tick 等を行う。
 //   round : 終了したラウンド番号 (= 終了したラウンドの旧番号)
 using RoundEndCallback = void(*)(void* user, u32 round) noexcept;
 
-class TurnManager {
+class FTurnManager {
 public:
-    TurnManager() noexcept = default;
-    ~TurnManager() noexcept = default;
+    FTurnManager() noexcept = default;
+    ~FTurnManager() noexcept = default;
 
     // 非コピー・非ムーブ (callback の self ポインタとの競合を防ぐ)
-    TurnManager(const TurnManager&)            = delete;
-    TurnManager& operator=(const TurnManager&) = delete;
-    TurnManager(TurnManager&&)                 = delete;
-    TurnManager& operator=(TurnManager&&)      = delete;
+    FTurnManager(const FTurnManager&)            = delete;
+    FTurnManager& operator=(const FTurnManager&) = delete;
+    FTurnManager(FTurnManager&&)                 = delete;
+    FTurnManager& operator=(FTurnManager&&)      = delete;
 
     // ----- 初期化 / リセット -----
     // Init: 全 side / order を捨て、phase=Setup, round=0 に。callback は保持。
@@ -130,12 +130,12 @@ public:
     // 登録は Setup phase でも進行中でも可能。進行中に追加した side は次ラウンド
     // から turn order に組み込まれる (今ラウンドには参加しない、has_acted=true
     // 扱いで除外)。
-    TurnSideId AddSide(const char* display_name, u32 max_ap, u32 initiative,
+    FTurnSideId AddSide(const char* display_name, u32 max_ap, u32 initiative,
                        bool is_player_controlled) noexcept;
 
     // slot を invalidate (gen 進む)。turn order からも除去。
     // 現在 turn 中の side を除去した場合は EndCurrentTurn 相当の挙動で次へ進む。
-    void RemoveSide(TurnSideId id) noexcept;
+    void RemoveSide(FTurnSideId id) noexcept;
 
     // ----- ラウンド進行 -----
     // 全 side の AP を max_action_points に refill + has_acted=false + initiative
@@ -156,7 +156,7 @@ public:
 
     // ----- 問い合わせ -----
     // 現ターン側 ID。Setup / EndOfRound 中は invalid id を返す。
-    TurnSideId CurrentTurnSide() const noexcept;
+    FTurnSideId CurrentTurnSide() const noexcept;
 
     ETurnPhase CurrentPhase() const noexcept { return _phase; }
     u32       CurrentRound() const noexcept { return _round; }
@@ -164,7 +164,7 @@ public:
     // stale handle / 未登録 ID は nullptr。返却された pointer は次の
     // AddSide / RemoveSide / ClearAll / Init までしか有効ではない (TArray 再確保で
     // 無効化される可能性あり)。
-    const TurnSideState* GetSideState(TurnSideId id) const noexcept;
+    const FTurnSideState* GetSideState(FTurnSideId id) const noexcept;
 
     // 登録 side 数 (RemoveSide で除去した分は含まない)。
     u32 SideCount() const noexcept { return _active_count; }
@@ -187,18 +187,18 @@ public:
 
 private:
     // 1 side 分の内部 slot。display_name の寿命は caller 管理。
-    // 公開 view (TurnSideState) を内部にそのまま埋め込み、GetSideState では
+    // 公開 view (FTurnSideState) を内部にそのまま埋め込み、GetSideState では
     // そのアドレスを返す。これにより layout 依存の reinterpret_cast を避ける。
     struct SideSlot {
-        TurnSideState view;             // 公開 snapshot (このアドレスを GetSideState が返す)
+        FTurnSideState view;             // 公開 snapshot (このアドレスを GetSideState が返す)
         bool          active = false;   // slot 使用中か
         u8            gen    = 0u;      // 0 = 未使用
     };
 
     // ----- 内部 helper -----
     u32         AcquireSlot() noexcept;
-    SideSlot*       Resolve(TurnSideId id) noexcept;
-    const SideSlot* Resolve(TurnSideId id) const noexcept;
+    SideSlot*       Resolve(FTurnSideId id) noexcept;
+    const SideSlot* Resolve(FTurnSideId id) const noexcept;
 
     // initiative 降順 (安定ソート) で _turn_order を再構築。
     void RebuildTurnOrder() noexcept;

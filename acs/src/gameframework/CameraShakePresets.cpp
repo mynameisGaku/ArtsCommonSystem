@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E Phase 3 — CameraShakePresets 実装
+// GameFramework Pillar E Phase 3 — FCameraShakePresets 実装
 //
 // 設計上のポイント:
 //   ・組み込み preset の数値は「small/large + duration」感が一聴で伝わる
@@ -7,11 +7,11 @@
 //     decay_rate は 1.0 〜 2.5 (= 約 0.3 〜 1.0 秒で減衰しきる)。
 //     duration_hint は trauma / decay_rate の概算秒数を入れている (caller
 //     の UI / SFX 尺合わせ用)。
-//   ・name 比較は const char* per-byte (AchievementManager と同設計)。
+//   ・name 比較は const char* per-byte (FAchievementManager と同設計)。
 //     STL <string> / <cstring> 不使用。
-//   ・Custom 登録は同 name で「上書き」。AchievementManager は重複を黙って
+//   ・Custom 登録は同 name で「上書き」。FAchievementManager は重複を黙って
 //     弾くが、preset は「最新値が勝つ」方が DCC ツール再ロード時のフローに
-//     合うため上書き挙動を選ぶ (DamageFeedback / Tween の感覚と同じ)。
+//     合うため上書き挙動を選ぶ (FDamageFeedback / FTween の感覚と同じ)。
 #include "gameframework/CameraShakePresets.h"
 
 namespace acs::game {
@@ -19,7 +19,7 @@ namespace acs::game {
 namespace {
 
 // const char* per-byte 安全比較。どちらかが nullptr なら false。
-// AchievementManager / Entitlement と同設計の helper を anonymous namespace に
+// FAchievementManager / FEntitlement と同設計の helper を anonymous namespace に
 // 再掲する (ピラー単位で独立しているほうが読みやすい)。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
@@ -34,8 +34,8 @@ bool StrEq(const char* a, const char* b) noexcept {
 // 「未発見」哨兵値。
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
-// 組み込み preset の実値。amplitude / decay の単位は Camera2D.h の trauma 方式
-// を参照。frequency は Camera2D 実装が将来 SetShakeFrequency を持ったときに
+// 組み込み preset の実値。amplitude / decay の単位は FCamera2D.h の trauma 方式
+// を参照。frequency は FCamera2D 実装が将来 SetShakeFrequency を持ったときに
 // 流す前提の「希望値」。duration_hint は trauma / decay_rate の概算秒数。
 //
 // 数値設計:
@@ -79,11 +79,11 @@ ShakeParams BuiltinParams(EShakePreset p) noexcept {
 // 組み込み preset
 // =============================================================================
 
-ShakeParams CameraShakePresets::GetPreset(EShakePreset preset) noexcept {
+ShakeParams FCameraShakePresets::GetPreset(EShakePreset preset) noexcept {
     return BuiltinParams(preset);
 }
 
-void CameraShakePresets::ApplyPreset(IShakeTarget& target,
+void FCameraShakePresets::ApplyPreset(IShakeTarget& target,
                                      EShakePreset   preset) noexcept {
     // Custom は名前経由 (ApplyCustomByName) 専用 — 即値経由では no-op。
     if (preset == EShakePreset::Custom) return;
@@ -100,7 +100,7 @@ void CameraShakePresets::ApplyPreset(IShakeTarget& target,
 // カスタム preset
 // =============================================================================
 
-u32 CameraShakePresets::FindCustomIndex(const char* name) const noexcept {
+u32 FCameraShakePresets::FindCustomIndex(const char* name) const noexcept {
     if (name == nullptr) return kNotFound;
     const usize n = _customs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -109,7 +109,7 @@ u32 CameraShakePresets::FindCustomIndex(const char* name) const noexcept {
     return kNotFound;
 }
 
-void CameraShakePresets::RegisterCustomPreset(const char*        name,
+void FCameraShakePresets::RegisterCustomPreset(const char*        name,
                                               const ShakeParams& params) noexcept {
     if (name == nullptr) return;
 
@@ -126,7 +126,7 @@ void CameraShakePresets::RegisterCustomPreset(const char*        name,
     _customs.PushBack(e);
 }
 
-bool CameraShakePresets::ApplyCustomByName(IShakeTarget& target,
+bool FCameraShakePresets::ApplyCustomByName(IShakeTarget& target,
                                            const char*   name) noexcept {
     const u32 idx = FindCustomIndex(name);
     if (idx == kNotFound) return false;
@@ -139,7 +139,7 @@ bool CameraShakePresets::ApplyCustomByName(IShakeTarget& target,
     return true;
 }
 
-u32 CameraShakePresets::CustomCount() const noexcept {
+u32 FCameraShakePresets::CustomCount() const noexcept {
     return static_cast<u32>(_customs.Size());
 }
 

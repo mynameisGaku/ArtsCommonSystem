@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// 非同期スレッドセーフ Logger（Vyukov MPMC ring + writer thread）
+// 非同期スレッドセーフ FLogger（Vyukov MPMC ring + writer thread）
 #pragma once
 
 #include "foundation/Types.h"
@@ -33,7 +33,7 @@ constexpr const char* ToString(ELogSeverity s) noexcept {
     return "?";
 }
 
-// Logger 設定
+// FLogger 設定
 struct FLogConfig {
     const wchar_t* file_path     = nullptr;            // nullptr ならファイル無効
     ELogSeverity    min_severity  = ELogSeverity::Info;  // 出力最小レベル
@@ -42,7 +42,7 @@ struct FLogConfig {
     bool           debug_output  = true;               // OutputDebugStringA 出力する
 };
 
-class Logger {
+class FLogger {
 public:
     // 初期化（多重呼び出しは無視）
     static void Init(const FLogConfig& cfg) noexcept;
@@ -74,8 +74,8 @@ public:
 // 内部マクロ: 指定レベルが有効ならログを出力
 #define ACS_LOG(sev, fmt, ...)                                                 \
     do {                                                                       \
-        if (::acs::Logger::Enabled(sev))                                       \
-            ::acs::Logger::Write(sev, ::acs::FSourceLoc::Current(),             \
+        if (::acs::FLogger::Enabled(sev))                                       \
+            ::acs::FLogger::Write(sev, ::acs::FSourceLoc::Current(),             \
                                  fmt, ##__VA_ARGS__);                          \
     } while (0)
 

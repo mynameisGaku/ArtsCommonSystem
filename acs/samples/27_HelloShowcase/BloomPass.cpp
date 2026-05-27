@@ -19,7 +19,7 @@ void ExecuteBloomPass(Assets& a, IRhiCommandList& cl,
                       IRhiTexture* motion_or_null) noexcept {
     // TAA: motion vector + (前 VP が valid なら) depth を渡し、history を
     // 前フレームから reproject する。1 フレーム目は depth=null で OK
-    // (PostProcess 側で no-history のパスになる)。
+    // (FPostProcess 側で no-history のパスになる)。
     post_params.taa_enabled                   = true;
     post_params.taa_blend_factor              = 0.1f;
     post_params.taa_motion_texture            = motion_or_null;

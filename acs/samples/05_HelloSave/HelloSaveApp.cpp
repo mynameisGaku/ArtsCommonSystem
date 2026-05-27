@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSave — Application 実装。
+// HelloSave — FApplication 実装。
 #include "HelloSaveApp.h"
 
 #include "app/Sample.h"
@@ -37,8 +37,8 @@ void HelloSaveApp::OnStart() noexcept {
     }
 
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font_big,   *dev, 32.0f, 1024, true);
-    (void)Sample::TryLoadDefaultUIFont(_font_small, *dev, 18.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font_big,   *dev, 32.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font_small, *dev, 18.0f, 1024, true);
 
     ACS_LOG_INFO("HelloSave: launches=%lld, clicks=%lld, high_score=%lld",
                  launches, static_cast<long long>(_clicks),

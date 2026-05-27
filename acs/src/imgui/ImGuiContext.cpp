@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ImGui を ACS Window + Renderer に統合する薄いラッパ実装
+// ImGui を ACS FWindow + FRenderer に統合する薄いラッパ実装
 #include "imgui/ImGuiContext.h"
 #include "platform/Window.h"
 #include "render/Renderer.h"
@@ -22,7 +22,7 @@ ImGuiCtx::~ImGuiCtx() noexcept {
     Shutdown();
 }
 
-TResult<void> ImGuiCtx::Init(Window& window, Renderer& renderer) noexcept {
+TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
     _window = &window;
     _renderer = &renderer;
 
@@ -45,7 +45,7 @@ TResult<void> ImGuiCtx::Init(Window& window, Renderer& renderer) noexcept {
     if (!dev || !sc) {
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
-        return ACS_ERR(Render, 101, "ImGuiCtx::Init: Renderer not initialized");
+        return ACS_ERR(Render, 101, "ImGuiCtx::Init: FRenderer not initialized");
     }
 
     D3D12_DESCRIPTOR_HEAP_DESC hd{};
@@ -114,7 +114,7 @@ void ImGuiCtx::Render() noexcept {
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd_list);
 }
 
-// Window のイベントを ImGui に転送（Application::OnEvent から呼ぶ）
+// FWindow のイベントを ImGui に転送（FApplication::OnEvent から呼ぶ）
 void ImGuiCtx::OnEvent(const Event& e) noexcept {
     if (!_initialized || !_window) return;
     // ImGui の Win32 backend は WndProc 経由でメッセージを受け取る設計。

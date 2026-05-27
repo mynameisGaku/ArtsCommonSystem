@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — DebugDraw (immediate-mode デバッグ図形バッファ)
+// GameFramework Pillar H — FDebugDraw (immediate-mode デバッグ図形バッファ)
 //
 // 1 フレーム分の線分プリミティブを蓄積するだけのバッファ。実描画は行わない。
 //
 // 設計選択:
-//   ・**描画と分離**: DebugDraw 自体はジオメトリ蓄積のみ。レンダラ非依存。
-//     描画システムが Lines() / LineCount() を読み取って SpriteBatch 等で
-//     1 フレーム末にまとめて描画する想定。Pillar H の他の描画系（SpriteBatch /
-//     Particles / 自前 DX12）どれでも消費できる。
+//   ・**描画と分離**: FDebugDraw 自体はジオメトリ蓄積のみ。レンダラ非依存。
+//     描画システムが Lines() / LineCount() を読み取って FSpriteBatch 等で
+//     1 フレーム末にまとめて描画する想定。Pillar H の他の描画系（FSpriteBatch /
+//     FParticles / 自前 DX12）どれでも消費できる。
 //   ・**immediate-mode API**: DrawLine / DrawAabb / DrawCircle / DrawCross を
 //     ゲームロジックの任意の場所から呼べる。フレーム頭で Clear() を呼ぶだけ。
 //     state を持たず、衝突判定や物理デバッグから手軽に書ける。
@@ -22,7 +22,7 @@
 //     ゲーム全体で 1 インスタンス（Services 経由か static）を想定。
 //
 // 使い方:
-//   acs::game::DebugDraw dd;
+//   acs::game::FDebugDraw dd;
 //   void Frame() {
 //       dd.Clear();
 //       dd.DrawAabb(player_aabb, FVec4{1,0,0,1});
@@ -42,7 +42,7 @@
 
 namespace acs::game {
 
-class DebugDraw {
+class FDebugDraw {
 public:
     // 描画システムが読み込む生バッファ要素。
     // ライン 1 本 = 2 端点 + 色。
@@ -52,14 +52,14 @@ public:
         FVec4 color;
     };
 
-    DebugDraw() noexcept = default;
-    ~DebugDraw() noexcept = default;
+    FDebugDraw() noexcept = default;
+    ~FDebugDraw() noexcept = default;
 
     // 非コピー・非ムーブ（内部 TArray の誤コピー / 所有移譲事故を防ぐ）
-    DebugDraw(const DebugDraw&)            = delete;
-    DebugDraw& operator=(const DebugDraw&) = delete;
-    DebugDraw(DebugDraw&&)                 = delete;
-    DebugDraw& operator=(DebugDraw&&)      = delete;
+    FDebugDraw(const FDebugDraw&)            = delete;
+    FDebugDraw& operator=(const FDebugDraw&) = delete;
+    FDebugDraw(FDebugDraw&&)                 = delete;
+    FDebugDraw& operator=(FDebugDraw&&)      = delete;
 
     // ---- 図形コマンド -------------------------------------------------------
     // 任意 2 点間の線分。

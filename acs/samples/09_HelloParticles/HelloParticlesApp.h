@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloParticles — Application 派生クラス。
-// SpriteBatch / Font / Glow テクスチャを所有し、ParticleScene に毎フレーム
+// HelloParticles — FApplication 派生クラス。
+// FSpriteBatch / Font / Glow テクスチャを所有し、ParticleScene に毎フレーム
 // の update / render を委譲する。
 #pragma once
 
@@ -16,7 +16,7 @@
 
 namespace helloparticles {
 
-class HelloParticlesApp : public acs::Application {
+class HelloParticlesApp : public acs::FApplication {
 public:
     void OnStart()                noexcept override;
     void OnUpdate(acs::f32 dt)    noexcept override;
@@ -24,7 +24,7 @@ public:
     void OnShutdown()             noexcept override;
 
 private:
-    acs::SpriteBatch                 _batch;
+    acs::FSpriteBatch                 _batch;
     acs::Font                        _font;
     acs::TUniquePtr<acs::IRhiTexture> _glow;
     ParticleScene                    _scene;

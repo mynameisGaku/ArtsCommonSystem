@@ -22,12 +22,12 @@ enum class ESampleFormat : u8 {
     PCM_F32,   // 32-bit 浮動小数
 };
 
-class AudioAsset : public Asset {
+class FAudioAsset : public Asset {
 public:
-    ACS_ASSET_TYPE("AudioAsset")
+    ACS_ASSET_TYPE("FAudioAsset")
 
-    AudioAsset() noexcept = default;
-    AudioAsset(u32 sample_rate, u8 channels, ESampleFormat fmt,
+    FAudioAsset() noexcept = default;
+    FAudioAsset(u32 sample_rate, u8 channels, ESampleFormat fmt,
                u64 frame_count, TArray<byte>&& samples) noexcept
         : _sample_rate(sample_rate), _channels(channels), _format(fmt),
           _frame_count(frame_count), _samples(Move(samples)) {}
@@ -55,28 +55,28 @@ private:
 // 各フォーマット別のローダ（拡張子で振り分け）
 class WavAssetLoader  final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return AudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "wav"; }
     TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class Mp3AssetLoader  final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return AudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "mp3"; }
     TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class FlacAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return AudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "flac"; }
     TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class OggAssetLoader  final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return AudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "ogg"; }
     TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };

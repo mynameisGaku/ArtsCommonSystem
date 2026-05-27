@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — WorkshopBridge 実装 (Stub のみ)
+// GameFramework Pillar S — FWorkshopBridge 実装 (Stub のみ)
 //
 // 本 .cpp では `IWorkshopBridge` の実 SDK 結合は提供せず、Steamworks UGC 未統合
 // ビルドでも常に使える `WorkshopBridgeStub` のみを実装する。実 SDK を使う
@@ -11,7 +11,7 @@
 //     `IsAvailable()` は header inline で常に false を返す (UI 側で Workshop
 //     ボタンを非表示にする判定用)。
 //   ・全 publish / subscribe / download / query 系は ACS_ERR(Generic,
-//     kSubWorkshopNotImplemented, ...) を返す。SteamworksBridge と subcode 空間が
+//     kSubWorkshopNotImplemented, ...) を返す。FSteamworksBridge と subcode 空間が
 //     重ならないよう 1100 番台を使う。
 //   ・`GetDownloadProgress()` は常に -1.0f を返す (「ダウンロード中ではない /
 //     不明」の意味)。

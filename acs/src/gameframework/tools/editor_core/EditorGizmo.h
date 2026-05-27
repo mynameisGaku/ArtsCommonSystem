@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / EditorGizmo (Phase 21a)
+// GameFramework Pillar — editor_core / FEditorGizmo (Phase 21a)
 //
 // 役割:
-//   選択中の Node2D / Node3D の Transform を viewport 上で直接ドラッグ操作する
+//   選択中の FNode2D / Node3D の Transform を viewport 上で直接ドラッグ操作する
 //   「ハンドル」。translate (移動) / rotate (回転) / scale (拡縮) の 3 モードを
 //   持ち、各モードで X / Y / Z 軸ハンドル + 平面 (XY/XZ/YZ) ハンドル + 画面
 //   並列ハンドル (rotate のみ) を提供する。Unity / Godot / UE のシーンビュー上の
 //   操作系を最小集合で再実装したもの。
 //
 // 使い方 (典型):
-//   acs::game::editor_core::EditorGizmo gizmo;
+//   acs::game::editor_core::FEditorGizmo gizmo;
 //   gizmo.Init();
 //   gizmo.SetMode(EGizmoMode::Translate);
 //   gizmo.SetSpace(EGizmoSpace::World);
@@ -33,11 +33,11 @@
 //       node.SetWorldScale(scl);
 //   }
 //
-//   // 3) DrawGizmo: DebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
-//   //    DebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
+//   // 3) DrawGizmo: FDebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
+//   //    FDebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
 //   gizmo.DrawGizmo(debug_draw, pos, rot, scl);
 //
-//   // 4) drag 終了時に UndoStack へ push したい場合:
+//   // 4) drag 終了時に FUndoStack へ push したい場合:
 //   gizmo.SetOnManipulateCallback(&MyEditor::OnGizmoDelta, &editor);
 //
 // 設計選択 (Phase 21a):
@@ -47,7 +47,7 @@
 //     既に確立した方針)。
 //   ・**GizmoState を struct として公開**: テストや editor 上の inspector で
 //     「今 drag 中か」「どの軸が hot か」を読み取れるよう公開する。書き換えは
-//     EditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
+//     FEditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
 //     外部から ImGui::Text で覗くのが楽 (= debug / replay 性が高い)。
 //   ・**ProcessInput → Manipulate → DrawGizmo の 3 段**: input 取得 / 値更新 /
 //     描画を完全に分離する。これにより:
@@ -56,7 +56,7 @@
 //         動画キャプチャ) が可能
 //   ・**raw 関数ポインタ callback**: ACS は std::function を使えないため、
 //     ManipulateCallback は C スタイル `void(*)(void*, ...) noexcept` で揃える
-//     (Input.h / InspectorPanel と同形)。
+//     (Input.h / FInspectorPanel と同形)。
 //   ・**snap は Shift モディファイア前提**: SetSnap*(step) で step > 0 を渡すと
 //     drag 中の Shift で snap が有効になる。step == 0 で snap 無効 (default)。
 //     Shift キー検出は ProcessInput の呼び出し側で行い、本クラスは「snap step が
@@ -79,7 +79,7 @@
 //   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
 //     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
 //     (= 各軸ごとの非一様 scale を意図的に強制、Unity と同じ)。
-//   ・**DrawGizmo は DebugDraw (FVec2 ベース) に出力**: 現状 DebugDraw は 2D
+//   ・**DrawGizmo は FDebugDraw (FVec2 ベース) に出力**: 現状 FDebugDraw は 2D
 //     ラインバッファ (Pillar H Phase 1)。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。
 //     完全 3D viewport 描画は将来 DebugDraw3D (= FVec3 ベース) を追加した上で
@@ -118,7 +118,7 @@
 #include "math/Vec.h"
 
 namespace acs::game {
-class DebugDraw;        // 前方宣言 — .cpp で gameframework/DebugDraw.h を include
+class FDebugDraw;        // 前方宣言 — .cpp で gameframework/FDebugDraw.h を include
 }
 
 namespace acs::game::editor_core {
@@ -172,7 +172,7 @@ enum class EGizmoAxis : u8 {
 // ============================================================================
 // GizmoState — 現フレームの操作状態 (POD、テストで覗ける)
 // ----------------------------------------------------------------------------
-// 公開フィールドだが、書き換えは EditorGizmo 内部からのみ行うこと。
+// 公開フィールドだが、書き換えは FEditorGizmo 内部からのみ行うこと。
 // `drag_start_world` は drag 開始時のワールド空間ヒット点 (delta 計算の基点)。
 // ============================================================================
 struct GizmoState {
@@ -186,7 +186,7 @@ struct GizmoState {
 // ============================================================================
 // ManipulateCallback — drag 終了時 (or 各フレーム中) に外部へ delta を通知
 // ----------------------------------------------------------------------------
-// drag 完了時に 1 度だけ呼ばれる (= UndoStack に MoveNodeCommand 等を push する
+// drag 完了時に 1 度だけ呼ばれる (= FUndoStack に MoveNodeCommand 等を push する
 // 適切なタイミング)。`delta` の意味はモード依存:
 //   Translate: world space の移動量 (FVec3)
 //   Rotate   : euler 角度の差分 (radians; FVec3)
@@ -196,22 +196,22 @@ struct GizmoState {
 using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::FVec3 delta) noexcept;
 
 // ============================================================================
-// EditorGizmo — 選択 Node の Transform を viewport 上で直接操作するハンドル
+// FEditorGizmo — 選択 Node の Transform を viewport 上で直接操作するハンドル
 // ----------------------------------------------------------------------------
 // 1 個のインスタンスを editor が所有し、選択中 Node の transform を毎フレーム
-// 流し込む。ハンドル本体は POD 状態のみで、レンダリングは DebugDraw 経由
+// 流し込む。ハンドル本体は POD 状態のみで、レンダリングは FDebugDraw 経由
 // (= レンダラ非依存)。
 // ============================================================================
-class EditorGizmo {
+class FEditorGizmo {
 public:
-    EditorGizmo() noexcept  = default;
-    ~EditorGizmo() noexcept = default;
+    FEditorGizmo() noexcept  = default;
+    ~FEditorGizmo() noexcept = default;
 
     // 非コピー / 非ムーブ: editor 内で 1 個だけ生存させる前提 (ACS 規約)。
-    EditorGizmo(const EditorGizmo&)            = delete;
-    EditorGizmo& operator=(const EditorGizmo&) = delete;
-    EditorGizmo(EditorGizmo&&)                 = delete;
-    EditorGizmo& operator=(EditorGizmo&&)      = delete;
+    FEditorGizmo(const FEditorGizmo&)            = delete;
+    FEditorGizmo& operator=(const FEditorGizmo&) = delete;
+    FEditorGizmo(FEditorGizmo&&)                 = delete;
+    FEditorGizmo& operator=(FEditorGizmo&&)      = delete;
 
     // ----- ライフサイクル ---------------------------------------------------
 
@@ -280,12 +280,12 @@ public:
                     acs::FVec3& inout_scale) noexcept;
 
     // ----- 描画 -------------------------------------------------------------
-    // DebugDraw 経由で軸 line + ハンドルを描く。実描画は dd の消費側責務。
-    // DebugDraw が 2D (FVec2) なので、Z 軸は XY 平面へ射影される (top-down view)。
+    // FDebugDraw 経由で軸 line + ハンドルを描く。実描画は dd の消費側責務。
+    // FDebugDraw が 2D (FVec2) なので、Z 軸は XY 平面へ射影される (top-down view)。
     // 将来 DebugDraw3D が来たら overload を生やす予定。
     //
     // 描画色: X=red / Y=green / Z=blue / 平面=半透明黄色 / 選択中 hot=白ハイライト。
-    void DrawGizmo(DebugDraw& dd,
+    void DrawGizmo(FDebugDraw& dd,
                    acs::FVec3 position,
                    acs::FVec3 rotation_euler,
                    acs::FVec3 scale) noexcept;

@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — AnimationGraph (Phase 4)
+// GameFramework Pillar L — FAnimationGraph (Phase 4)
 //
 // 3D skeleton-anim 向けの state machine ベース blend graph。
-// SpriteAnimator (= sprite frame index 計算) と AnimationCurve (= 任意 f32 補間)
+// FSpriteAnimator (= sprite frame index 計算) と FAnimationCurve (= 任意 f32 補間)
 // を補完する、「現在再生中の clip + 遷移ブレンド」を担う高次抽象。
 //
 // 役割分担:
-//   ・SpriteAnimator  : sprite シートの frame index (2D 用)
-//   ・AnimationCurve  : 任意 f32 を時間で滑らかに動かす汎用パス
-//   ・StateMachine<T> : 汎用 FSM (関数ポインタ駆動)
-//   ・AnimationGraph  : 本ファイル — 3D skeleton clip の選択 + 状態間 blend
+//   ・FSpriteAnimator  : sprite シートの frame index (2D 用)
+//   ・FAnimationCurve  : 任意 f32 を時間で滑らかに動かす汎用パス
+//   ・FStateMachine<T> : 汎用 FSM (関数ポインタ駆動)
+//   ・FAnimationGraph  : 本ファイル — 3D skeleton clip の選択 + 状態間 blend
 //
 // 役割の境界:
 //   ・本クラスは「どの clip を / いつから / どの blend alpha で再生するか」
 //     という meta 制御のみ。bone palette 計算 / GPU upload / final pose 算出は
-//     呼出側 renderer + AnimationPlayer (gameframework_anim 等の別レイヤ) に
+//     呼出側 renderer + FAnimationPlayer (gameframework_anim 等の別レイヤ) に
 //     委譲する。本クラスは clip_index と blend_alpha を提供するだけ。
 //   ・clip データ (key 列 / bone curve) は外部 (model loader) が所有。本クラスは
-//     `AnimationClipBinding` (name / duration / looping / default speed) という
+//     `FAnimationClipBinding` (name / duration / looping / default speed) という
 //     メタ情報配列を値コピーで保持する。
 //
 // 使い方 (典型):
-//   AnimationGraph g;
+//   FAnimationGraph g;
 //   g.Init();
 //   const u32 idle_clip = g.AddClip({ "Idle", 2.0f, true,  1.0f });
 //   const u32 walk_clip = g.AddClip({ "Walk", 1.2f, true,  1.0f });
@@ -80,8 +80,8 @@
 //   ・遷移条件の表現力拡張 (==, <=, 複合)
 //   ・root motion 抽出
 //
-// 参考: SpriteAnimator (frame anim), AnimationCurve (curve), StateMachine<T> (FSM 基盤),
-//      ModelAnimationPanel (UI 連動可能)
+// 参考: FSpriteAnimator (frame anim), FAnimationCurve (curve), FStateMachine<T> (FSM 基盤),
+//      FModelAnimationPanel (UI 連動可能)
 #pragma once
 
 #include "foundation/Types.h"
@@ -108,17 +108,17 @@ enum class EAnimationGraphState : u8 {
 };
 
 // ---------------------------------------------------------------------------
-// AnimationClipBinding — clip メタ情報 (state からは clip_index で参照)
+// FAnimationClipBinding — clip メタ情報 (state からは clip_index で参照)
 // ---------------------------------------------------------------------------
-// 注: tools/modelview/ModelAnimationPanel.h にある同名構造は
+// 注: tools/modelview/FModelAnimationPanel.h にある同名構造は
 //     `acs::game::modelview` 名前空間で別物。本構造は `acs::game` 直下に置く。
-//   clip_name     : デバッグ表示 / 外部 AnimationPlayer 解決用名 (literal 寿命は
+//   clip_name     : デバッグ表示 / 外部 FAnimationPlayer 解決用名 (literal 寿命は
 //                   caller 管理)。
 //   duration_sec  : clip の長さ (秒)。0 以下は内部で 0 にクランプ (= 進行しない)。
 //   is_looping    : true なら local time が duration を超えたら wrap、false なら
 //                   末尾に固定して ClipEndCallback を発火。
 //   default_speed : Tick で local_time に乗る既定再生速度。1.0 = 等速。
-struct AnimationClipBinding {
+struct FAnimationClipBinding {
     const char* clip_name     = nullptr;
     f32         duration_sec  = 0.0f;
     bool        is_looping    = false;
@@ -126,18 +126,18 @@ struct AnimationClipBinding {
 };
 
 // ---------------------------------------------------------------------------
-// AnimationStateNode — graph 上の 1 ノード (= 1 つの状態)
+// FAnimationStateNode — graph 上の 1 ノード (= 1 つの状態)
 // ---------------------------------------------------------------------------
 //   name             : デバッグ表示用 (UI / log)。literal 寿命は caller 管理。
 //   id               : この state の論理 ID。AddStateNode で重複登録は後勝ち。
-//   clip_index       : 再生する AnimationClipBinding の index (AddClip 戻り値)。
+//   clip_index       : 再生する FAnimationClipBinding の index (AddClip 戻り値)。
 //                      範囲外なら Tick 内で 0 にクランプ (= 安全側)。
 //   enter_blend_sec  : この state に **入る** ときに使う blend 長 (秒)。
 //                      ≦ 0 なら即時切替 (alpha=1.0 で開始)。
 //   exit_blend_sec   : この state から **抜ける** とき呼出側が参考にする値。
 //                      Phase 4 では enter 側を優先採用するため、本フィールドは
 //                      情報提供のみ (= 将来 cross-fade で両方使う想定)。
-struct AnimationStateNode {
+struct FAnimationStateNode {
     const char*         name             = nullptr;
     EAnimationGraphState id              = EAnimationGraphState::Idle;
     u32                 clip_index       = 0u;
@@ -146,7 +146,7 @@ struct AnimationStateNode {
 };
 
 // ---------------------------------------------------------------------------
-// AnimationTransition — from → to の遷移ルール
+// FAnimationTransition — from → to の遷移ルール
 // ---------------------------------------------------------------------------
 //   from                       : 元状態 (current_state とこれが一致時のみ評価)
 //   to                         : 遷移先
@@ -156,7 +156,7 @@ struct AnimationStateNode {
 //   exit_immediately           : true なら param 条件成立で即発火。
 //                                false なら「現 clip が終端まで再生してから」発火
 //                                (= looping clip では効果なし、Once clip 用)。
-struct AnimationTransition {
+struct FAnimationTransition {
     EAnimationGraphState from                      = EAnimationGraphState::Idle;
     EAnimationGraphState to                        = EAnimationGraphState::Idle;
     f32                  condition_param_threshold = 0.0f;
@@ -167,8 +167,8 @@ struct AnimationTransition {
 // ---------------------------------------------------------------------------
 // GraphHandle — 将来の multi-graph 管理用 handle (Phase 4 では未使用)
 // ---------------------------------------------------------------------------
-// 24bit index + 8bit gen を packed (Cooldown/SceneTimer と同方針)。
-// 本 Phase では AnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身
+// 24bit index + 8bit gen を packed (Cooldown/FSceneTimer と同方針)。
+// 本 Phase では FAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身
 // 別レイヤ) を将来導入する際に再利用するため API として公開しておく。
 struct GraphHandle {
     u32 _packed = 0u;
@@ -192,9 +192,9 @@ struct GraphHandle {
 };
 
 // ---------------------------------------------------------------------------
-// AnimationGraph — state machine ベースの blend graph
+// FAnimationGraph — state machine ベースの blend graph
 // ---------------------------------------------------------------------------
-class AnimationGraph {
+class FAnimationGraph {
 public:
     // state 遷移直後 (新 state の OnEnter 相当) に発火。
     // user : SetOnStateEnterCallback で渡した不透明ポインタ。
@@ -212,14 +212,14 @@ public:
                                     EAnimationGraphState state,
                                     u32 clip_index) noexcept;
 
-    AnimationGraph() noexcept = default;
-    ~AnimationGraph() noexcept = default;
+    FAnimationGraph() noexcept = default;
+    ~FAnimationGraph() noexcept = default;
 
     // 非コピー・非ムーブ (callback の self ポインタとの競合を防ぐ; ACS 規約)
-    AnimationGraph(const AnimationGraph&)            = delete;
-    AnimationGraph& operator=(const AnimationGraph&) = delete;
-    AnimationGraph(AnimationGraph&&)                 = delete;
-    AnimationGraph& operator=(AnimationGraph&&)      = delete;
+    FAnimationGraph(const FAnimationGraph&)            = delete;
+    FAnimationGraph& operator=(const FAnimationGraph&) = delete;
+    FAnimationGraph(FAnimationGraph&&)                 = delete;
+    FAnimationGraph& operator=(FAnimationGraph&&)      = delete;
 
     // ----- 初期化 / 解放 ---------------------------------------------------
 
@@ -234,24 +234,24 @@ public:
     // ----- clip 管理 -------------------------------------------------------
 
     // clip を登録し、内部 index を返す。失敗は無いが超過時は最終 index を返す。
-    u32                         AddClip(const AnimationClipBinding& clip) noexcept;
+    u32                         AddClip(const FAnimationClipBinding& clip) noexcept;
     u32                         ClipCount() const noexcept;
-    const AnimationClipBinding* GetClip(u32 i) const noexcept;
+    const FAnimationClipBinding* GetClip(u32 i) const noexcept;
 
     // ----- state node 管理 -------------------------------------------------
 
     // 既存 ID と同じ node を追加すると "後勝ち" で上書き (= 同 ID 重複を許容しない)。
-    void                       AddStateNode(const AnimationStateNode& node) noexcept;
+    void                       AddStateNode(const FAnimationStateNode& node) noexcept;
     u32                        StateNodeCount() const noexcept;
-    const AnimationStateNode*  GetStateNode(u32 i) const noexcept;
+    const FAnimationStateNode*  GetStateNode(u32 i) const noexcept;
 
     // ----- transition 管理 -------------------------------------------------
 
     // transition を追加。重複チェックなし (= 同 from→to を複数登録すれば最初の
     // ものが優先される; AddTransition 順がそのまま評価順)。
-    void                        AddTransition(const AnimationTransition& trans) noexcept;
+    void                        AddTransition(const FAnimationTransition& trans) noexcept;
     u32                         TransitionCount() const noexcept;
-    const AnimationTransition*  GetTransition(u32 i) const noexcept;
+    const FAnimationTransition*  GetTransition(u32 i) const noexcept;
 
     // ----- パラメータ -------------------------------------------------------
 
@@ -290,7 +290,7 @@ public:
     // ・blend timer を進める (alpha 計算は CurrentBlendAlpha() の lazy 計算)
     // ・pending trigger があれば優先処理 (= 即遷移)
     // ・各 transition (from==current) を評価し、条件成立で遷移
-    // dt <= 0 は no-op (= 巻き戻し非対応; SpriteAnimator と同方針)。
+    // dt <= 0 は no-op (= 巻き戻し非対応; FSpriteAnimator と同方針)。
     void Tick(f32 dt) noexcept;
 
     // 全状態を初期化 (current = first state、local_time = 0、blend = 完了)。
@@ -328,9 +328,9 @@ private:
     bool AdvanceLocalTime(f32 dt) noexcept;
 
     // ---- データ ----
-    TArray<AnimationClipBinding> _clips;
-    TArray<AnimationStateNode>   _state_nodes;
-    TArray<AnimationTransition>  _transitions;
+    TArray<FAnimationClipBinding> _clips;
+    TArray<FAnimationStateNode>   _state_nodes;
+    TArray<FAnimationTransition>  _transitions;
     TArray<Param>                _params;
 
     // ---- 実行時状態 ----

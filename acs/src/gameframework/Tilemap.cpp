@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — Tilemap 実装
+// GameFramework Pillar Q — FTilemap 実装
 #include "gameframework/Tilemap.h"
 #include "math/Math.h"
 
 namespace acs::game {
 
-void Tilemap::Init(u32 width, u32 height, u32 layer_count, f32 tile_size) noexcept {
+void FTilemap::Init(u32 width, u32 height, u32 layer_count, f32 tile_size) noexcept {
     // 不正値はサイレントに安全な既定にフォールバック (Init を呼んだのに
     // ゼロサイズで沈黙、より、最小サイズで動かしておきデバッグ可能にする)。
     if (width  == 0) width  = 1;
@@ -23,30 +23,30 @@ void Tilemap::Init(u32 width, u32 height, u32 layer_count, f32 tile_size) noexce
 
     const usize cells = static_cast<usize>(width) * static_cast<usize>(height);
     for (u32 L = 0; L < layer_count; ++L) {
-        _layers[L].Resize(cells);                 // TileId は trivially-constructible → 0 埋め
+        _layers[L].Resize(cells);                 // FTileId は trivially-constructible → 0 埋め
     }
 }
 
-void Tilemap::SetTile(u32 x, u32 y, TileId tile, u32 layer) noexcept {
+void FTilemap::SetTile(u32 x, u32 y, FTileId tile, u32 layer) noexcept {
     if (x >= _width || y >= _height) return;
     if (layer >= _layers.Size()) return;
     _layers[layer][static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x)] = tile;
 }
 
-TileId Tilemap::GetTile(u32 x, u32 y, u32 layer) const noexcept {
-    if (x >= _width || y >= _height) return TileId{};
-    if (layer >= _layers.Size()) return TileId{};
+FTileId FTilemap::GetTile(u32 x, u32 y, u32 layer) const noexcept {
+    if (x >= _width || y >= _height) return FTileId{};
+    if (layer >= _layers.Size()) return FTileId{};
     return _layers[layer][static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x)];
 }
 
-void Tilemap::Fill(TileId tile, u32 layer) noexcept {
+void FTilemap::Fill(FTileId tile, u32 layer) noexcept {
     if (layer >= _layers.Size()) return;
-    TArray<TileId>& buf = _layers[layer];
+    TArray<FTileId>& buf = _layers[layer];
     const usize n = buf.Size();
     for (usize i = 0; i < n; ++i) buf[i] = tile;
 }
 
-void Tilemap::FillRect(u32 x0, u32 y0, u32 x1, u32 y1, TileId tile, u32 layer) noexcept {
+void FTilemap::FillRect(u32 x0, u32 y0, u32 x1, u32 y1, FTileId tile, u32 layer) noexcept {
     if (layer >= _layers.Size()) return;
     if (_width == 0 || _height == 0) return;
 
@@ -62,7 +62,7 @@ void Tilemap::FillRect(u32 x0, u32 y0, u32 x1, u32 y1, TileId tile, u32 layer) n
     if (x1 > max_x) x1 = max_x;
     if (y1 > max_y) y1 = max_y;
 
-    TArray<TileId>& buf = _layers[layer];
+    TArray<FTileId>& buf = _layers[layer];
     for (u32 y = y0; y <= y1; ++y) {
         const usize row = static_cast<usize>(y) * static_cast<usize>(_width);
         for (u32 x = x0; x <= x1; ++x) {
@@ -71,16 +71,16 @@ void Tilemap::FillRect(u32 x0, u32 y0, u32 x1, u32 y1, TileId tile, u32 layer) n
     }
 }
 
-void Tilemap::Clear() noexcept {
+void FTilemap::Clear() noexcept {
     const u32 layer_count = static_cast<u32>(_layers.Size());
     for (u32 L = 0; L < layer_count; ++L) {
-        TArray<TileId>& buf = _layers[L];
+        TArray<FTileId>& buf = _layers[L];
         const usize n = buf.Size();
-        for (usize i = 0; i < n; ++i) buf[i] = TileId{};
+        for (usize i = 0; i < n; ++i) buf[i] = FTileId{};
     }
 }
 
-FVec2 Tilemap::TileToWorld(u32 x, u32 y) const noexcept {
+FVec2 FTilemap::TileToWorld(u32 x, u32 y) const noexcept {
     // tile の **中心** world 位置。原点を tile(0,0) の中心に置く慣習。
     // +0.5 オフセットで grid line ではなく cell centroid を返す。
     const f32 fx = (static_cast<f32>(x) + 0.5f) * _tile_size;
@@ -88,7 +88,7 @@ FVec2 Tilemap::TileToWorld(u32 x, u32 y) const noexcept {
     return FVec2{fx, fy};
 }
 
-bool Tilemap::WorldToTile(FVec2 world, u32& out_x, u32& out_y) const noexcept {
+bool FTilemap::WorldToTile(FVec2 world, u32& out_x, u32& out_y) const noexcept {
     if (!(_tile_size > 0.0f)) return false;
     // 早期 reject: 負値や原点未満 (TileToWorld は半セルオフセットなので
     // world.x < 0 は確実にグリッド外、x = 0 〜 width*tile_size を有効範囲とする)。
@@ -106,7 +106,7 @@ bool Tilemap::WorldToTile(FVec2 world, u32& out_x, u32& out_y) const noexcept {
     return true;
 }
 
-const TileId* Tilemap::LayerData(u32 layer) const noexcept {
+const FTileId* FTilemap::LayerData(u32 layer) const noexcept {
     if (layer >= _layers.Size()) return nullptr;
     return _layers[layer].Data();
 }

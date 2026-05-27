@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — SceneManager 実装 (Phase 1 着手)
+// GameFramework Pillar A — FSceneManager 実装 (Phase 1 着手)
 #include "gameframework/SceneManager.h"
 #include "gameframework/Scene.h"
 #include "gameframework/Game.h"
@@ -10,39 +10,39 @@
 
 namespace acs::game {
 
-void SceneManager::ChangeScene(TUniquePtr<Scene> next) noexcept {
+void FSceneManager::ChangeScene(TUniquePtr<Scene> next) noexcept {
     if (!next) {
-        ACS_LOG_WARN("SceneManager::ChangeScene(nullptr) ignored");
+        ACS_LOG_WARN("FSceneManager::ChangeScene(nullptr) ignored");
         return;
     }
     _pending_op  = Op::Change;
     _pending_arg = Move(next);
 }
 
-void SceneManager::PushScene(TUniquePtr<Scene> next) noexcept {
+void FSceneManager::PushScene(TUniquePtr<Scene> next) noexcept {
     if (!next) {
-        ACS_LOG_WARN("SceneManager::PushScene(nullptr) ignored");
+        ACS_LOG_WARN("FSceneManager::PushScene(nullptr) ignored");
         return;
     }
     _pending_op  = Op::Push;
     _pending_arg = Move(next);
 }
 
-void SceneManager::PopScene() noexcept {
+void FSceneManager::PopScene() noexcept {
     _pending_op = Op::Pop;
     _pending_arg.Reset();
 }
 
-Scene* SceneManager::Top() const noexcept {
+Scene* FSceneManager::Top() const noexcept {
     if (_stack.IsEmpty()) return nullptr;
     return _stack.Back().Get();
 }
 
-u32 SceneManager::Depth() const noexcept {
+u32 FSceneManager::Depth() const noexcept {
     return static_cast<u32>(_stack.Size());
 }
 
-void SceneManager::DoPushInternal(Game& game, TUniquePtr<Scene> next,
+void FSceneManager::DoPushInternal(FGame& game, TUniquePtr<Scene> next,
                                    bool pause_current) noexcept {
     if (!next) return;
     // 旧 top を OnPause (Push 時のみ。Change は新 top 直入れなので skip)
@@ -50,17 +50,17 @@ void SceneManager::DoPushInternal(Game& game, TUniquePtr<Scene> next,
         _stack.Back()->OnPause();
     }
     next->_SetContext(&game, this);
-    // Phase 8: WantedServices に基づいて SceneServices を構築・attach。
-    // None なら空の SceneServices だが、Services() を呼ばない限りコスト 0。
+    // Phase 8: WantedServices に基づいて FSceneServices を構築・attach。
+    // None なら空の FSceneServices だが、Services() を呼ばない限りコスト 0。
     const ESvc wanted = next->WantedServices();
     if (wanted != ESvc::None) {
-        next->_AttachServices(MakeUnique<SceneServices>(wanted));
+        next->_AttachServices(MakeUnique<FSceneServices>(wanted));
     }
     _stack.PushBack(Move(next));
     _stack.Back()->OnEnter();
 }
 
-void SceneManager::DoPopInternal(bool resume_new) noexcept {
+void FSceneManager::DoPopInternal(bool resume_new) noexcept {
     if (_stack.IsEmpty()) return;
     _stack.Back()->OnExit();
     // 退場 Scene を ring buffer の現在ヘッドに格納 (3 フレーム保持)。
@@ -73,7 +73,7 @@ void SceneManager::DoPopInternal(bool resume_new) noexcept {
     }
 }
 
-void SceneManager::_ApplyPending(Game& game) noexcept {
+void FSceneManager::_ApplyPending(FGame& game) noexcept {
     // GPU N+1 frame 遅延削除: ring を 1 つ前進し、新ヘッド位置のスロットを
     // 解放する (= 3 フレーム前に退場した Scene を今ここで破棄)。フレーム
     // インフライト 2 + 1 で「直前 2 フレームを GPU が参照中でも安全」を保つ。
@@ -99,7 +99,7 @@ void SceneManager::_ApplyPending(Game& game) noexcept {
         break;
     case Op::Pop:
         if (_stack.Size() <= 1) {
-            ACS_LOG_WARN("SceneManager::PopScene on a stack of size %u (need >=2) — ignored",
+            ACS_LOG_WARN("FSceneManager::PopScene on a stack of size %u (need >=2) — ignored",
                          static_cast<u32>(_stack.Size()));
             return;
         }
@@ -109,12 +109,12 @@ void SceneManager::_ApplyPending(Game& game) noexcept {
     }
 }
 
-void SceneManager::_Update(f32 dt) noexcept {
+void FSceneManager::_Update(f32 dt) noexcept {
     Scene* top = Top();
     if (!top) return;
     // Phase 8: services 2 phase tick — PreUpdate (Clock 進行) → scene OnUpdate
     // → PostUpdate (Tweens/Sequences tick)。Clock 未要求なら raw dt をそのまま OnUpdate へ。
-    SceneServices* svc = top->_ServicesOrNull();
+    FSceneServices* svc = top->_ServicesOrNull();
     if (svc != nullptr) {
         svc->_PreUpdate(dt);
         const f32 scaled = svc->_ScaledDt(dt);
@@ -125,25 +125,25 @@ void SceneManager::_Update(f32 dt) noexcept {
     }
 }
 
-void SceneManager::_FixedUpdate(f32 fixed_dt) noexcept {
+void FSceneManager::_FixedUpdate(f32 fixed_dt) noexcept {
     Scene* top = Top();
     if (!top) return;
     top->OnFixedUpdate(fixed_dt);
 }
 
-void SceneManager::_Render(RenderContext& rc) noexcept {
+void FSceneManager::_Render(RenderContext& rc) noexcept {
     Scene* top = Top();
     if (!top) return;
     top->OnRender(rc);
 }
 
-void SceneManager::_DispatchEvent(const Event& e) noexcept {
+void FSceneManager::_DispatchEvent(const Event& e) noexcept {
     Scene* top = Top();
     if (!top) return;
     top->OnEvent(e);
 }
 
-void SceneManager::_ShutdownAll() noexcept {
+void FSceneManager::_ShutdownAll() noexcept {
     // top から順に OnExit を呼んでから破棄。
     while (!_stack.IsEmpty()) {
         _stack.Back()->OnExit();

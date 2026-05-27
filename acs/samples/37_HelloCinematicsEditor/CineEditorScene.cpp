@@ -38,11 +38,11 @@ void CineEditorScene::OnEnter() noexcept {
     // ---- Workspace 本体 ----
     _workspace.Init();
 
-    // ---- CinematicsDirector に runtime callback を登録 (発火可視化用) ----
+    // ---- FCinematicsDirector に runtime callback を登録 (発火可視化用) ----
     _director.SetCameraCallback(&CineEditorScene::OnCamera, this);
     _director.SetEventCallback (&CineEditorScene::OnEvent,  this);
 
-    // ---- CinematicsTimelineEditorPanel: Init + director bind + 初期 KF 3 個 ----
+    // ---- FCinematicsTimelineEditorPanel: Init + director bind + 初期 KF 3 個 ----
     _cine_panel.Init();
     _cine_panel.SetCinematicsDirector(&_director);
 
@@ -55,8 +55,8 @@ void CineEditorScene::OnEnter() noexcept {
     _cine_panel.AddKeyframe(cinetimeline::ETimelineKeyKind::FadeColor,       2.0f);
     _cine_panel.AddKeyframe(cinetimeline::ETimelineKeyKind::TriggerCallback, 5.0f);
 
-    // EditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ
-    // (EditorWorkspace.cpp §119)。したがって _cine_panel.OnInit を別途呼ぶ
+    // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ
+    // (FEditorWorkspace.cpp §119)。したがって _cine_panel.OnInit を別途呼ぶ
     // 必要は無い (= 二重 OnInit を誘発する)。以降の MainLoop 内で
     // TickAllPanels が OnFrameBegin → DrawUI を順に回す。
     _workspace.RegisterPanel(&_cine_panel);
@@ -68,8 +68,8 @@ void CineEditorScene::OnEnter() noexcept {
 // OnExit — 逆順 shutdown (workspace → panel → theme は no-op)
 // ----------------------------------------------------------------------------
 void CineEditorScene::OnExit() noexcept {
-    // EditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
-    // 呼んでから list を Clear する (EditorWorkspace.cpp §76)。よって個別
+    // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
+    // 呼んでから list を Clear する (FEditorWorkspace.cpp §76)。よって個別
     // UnregisterPanel は不要 (= 二重 OnShutdown を避けるため)。
     _workspace.Shutdown();
 
@@ -77,7 +77,7 @@ void CineEditorScene::OnExit() noexcept {
     _cine_panel.Shutdown();
 
     // _director は Scene のメンバなので自動破棄。
-    // EditorTheme::Shutdown は存在しない API なので明示解放は不要 (Dtor で十分)。
+    // FEditorTheme::Shutdown は存在しない API なので明示解放は不要 (Dtor で十分)。
 
     ACS_LOG_INFO("[CineEditor] exited");
 }
@@ -91,7 +91,7 @@ void CineEditorScene::OnUpdate(f32 dt) noexcept {
         return;
     }
 
-    // dt スパイク防御 (Application 側の大 dt で再生が暴れない)。
+    // dt スパイク防御 (FApplication 側の大 dt で再生が暴れない)。
     if (dt > 0.1f) dt = 0.1f;
 
     // Play 中なら time を進める。panel.Step は内部で director.Tick を呼んで
@@ -105,7 +105,7 @@ void CineEditorScene::OnUpdate(f32 dt) noexcept {
 void CineEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
     // ---- File メニュー (Workspace::DrawMenuBar の前に push する) ----
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
-    // マージするので、本 sample 専用の File メニューを Workspace の Window/
+    // マージするので、本 sample 専用の File メニューを Workspace の FWindow/
     // Layout メニューと並べて表示できる。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -127,8 +127,8 @@ void CineEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
 
     // ---- Workspace 全描画 (1 行で OnFrameBegin → DockSpace → MenuBar →
     //      各 panel DrawUI を順に発火) ----
-    // EditorWorkspace::TickAllPanels は ImGui 系の Draw 呼出を含むため OnRender
-    // の中で呼ぶ。dt は RenderContext からは取れないので Game の DeltaTime() を使う。
+    // FEditorWorkspace::TickAllPanels は ImGui 系の Draw 呼出を含むため OnRender
+    // の中で呼ぶ。dt は RenderContext からは取れないので FGame の DeltaTime() を使う。
     _workspace.TickAllPanels(GetGame().DeltaTime());
 }
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMVVM — ViewModel 定義。
+// HelloMVVM — FViewModel 定義。
 // Observable<T> / ObservableArray<T> / Command を組み合わせた最小 PlayerVM。
 // 全フィールドを public にして View 側から直接 bind できるようにしてある
-// (ViewModel は通常 public フィールドのままで View に晒すのが MVVM の流儀)。
+// (FViewModel は通常 public フィールドのままで View に晒すのが MVVM の流儀)。
 #pragma once
 
 #include "mvvm/ViewModel.h"
@@ -13,7 +13,7 @@
 
 namespace hellomvvm {
 
-class PlayerVM : public acs::ViewModel {
+class PlayerVM : public acs::FViewModel {
 public:
     acs::Observable<acs::f32>     hp        { 100.0f };
     acs::Observable<acs::f32>     max_hp    { 100.0f };

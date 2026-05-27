@@ -18,25 +18,25 @@ void AnimCurveApp::OnStart() noexcept {
         return;
     }
     // 基底の OnStart が InitialScene() を push する。
-    Game::OnStart();
+    FGame::OnStart();
 }
 
 void AnimCurveApp::OnRender() noexcept {
     // Scene::OnRender 内の ImGui::* を NewFrame と Render の間に挟む。
     _imgui.NewFrame();
-    Game::OnRender();
+    FGame::OnRender();
     _imgui.Render();
 }
 
 void AnimCurveApp::OnShutdown() noexcept {
     // Scene が ImGui::* を握っていない状態にしてから ImGui を落とす。
-    Game::OnShutdown();
+    FGame::OnShutdown();
     _imgui.Shutdown();
 }
 
 void AnimCurveApp::OnEvent(const Event& e) noexcept {
     _imgui.OnEvent(e);
-    Game::OnEvent(e);
+    FGame::OnEvent(e);
 }
 
 TUniquePtr<Scene> AnimCurveApp::InitialScene() noexcept {

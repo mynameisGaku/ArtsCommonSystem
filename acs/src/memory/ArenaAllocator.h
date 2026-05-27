@@ -8,15 +8,15 @@
 
 namespace acs {
 
-class ArenaAllocator final : public Allocator {
+class FArenaAllocator final : public FAllocator {
 public:
     // 1 ページあたりのサイズを指定（既定 64KB）
-    ArenaAllocator(usize page_size = 64 * 1024,
-                   Allocator* backing = nullptr) noexcept;
-    ~ArenaAllocator() noexcept override;
+    FArenaAllocator(usize page_size = 64 * 1024,
+                   FAllocator* backing = nullptr) noexcept;
+    ~FArenaAllocator() noexcept override;
 
-    ArenaAllocator(const ArenaAllocator&) = delete;
-    ArenaAllocator& operator=(const ArenaAllocator&) = delete;
+    FArenaAllocator(const FArenaAllocator&) = delete;
+    FArenaAllocator& operator=(const FArenaAllocator&) = delete;
 
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free (void* ptr) noexcept override;  // no-op
@@ -39,7 +39,7 @@ private:
 
     Page* AllocPage(usize size) noexcept;
 
-    Allocator*    _backing  = nullptr;
+    FAllocator*    _backing  = nullptr;
     usize         _page_size = 0;
     TAtomic<Page*> _current  {nullptr};   // 現在書き込み中のページ
     Page*         _pages    = nullptr;   // 全ページのリスト

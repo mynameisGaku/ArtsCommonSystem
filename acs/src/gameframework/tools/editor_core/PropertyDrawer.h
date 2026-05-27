@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / PropertyDrawer (Phase 21a)
+// GameFramework Pillar — editor_core / FPropertyDrawer (Phase 21a)
 //
 // **カスタム field drawer の登録レジストリ**。Phase 20 で実装された
-// InspectorPanel は EFieldKind 9 種を hardcode の `switch` で扱っているが、
+// FInspectorPanel は EFieldKind 9 種を hardcode の `switch` で扱っているが、
 // それを超える「ゲーム固有 / エディタ拡張型」の field 表示 (`Curve`,
 // `Gradient`, `AssetPath`, `NodeIdSelector`, `KeyCombo`, ...) を後付けで
 // 追加できるようにするための拡張点。
@@ -18,7 +18,7 @@
 //   reg.Init();                                   // bundled drawer も含めて初期化
 //   reg.RegisterDrawer("Health", &DrawHealth);
 //
-//   // InspectorPanel (Phase 22+ refactor 後) や任意の editor panel から:
+//   // FInspectorPanel (Phase 22+ refactor 後) や任意の editor panel から:
 //   PropertyContext ctx { /* data_ptr / label / tooltip / min/max / ... */ };
 //   if (!reg.DrawProperty(field_type_name, ctx)) {
 //       // 未登録 type → 既存 EFieldKind switch のフォールバックへ
@@ -27,18 +27,18 @@
 // 設計選択 (Phase 21a):
 //   ・**type_name は const char* literal 前提**: drawer name は登録元が永続所有する
 //     リテラル文字列を想定。本 registry はコピー所有しない (= STL `std::string` 不使用)。
-//     比較は per-byte ループ (Settings / Entitlement と同じ StrEq pattern)。
+//     比較は per-byte ループ (FSettings / FEntitlement と同じ StrEq pattern)。
 //   ・**`DrawerFn` は raw 関数ポインタ + `PropertyContext`**: ACS は std::function 禁止。
 //     `PropertyContext` は POD 構造体で、必要な情報 (data ポインタ / 表示名 / tooltip /
 //     min/max / enum labels / out_changed) を 1 つにまとめて渡す。引数増減で
 //     `DrawerFn` シグネチャが変わらないように構造体束ねを採用。
 //   ・**bundled drawer 群を `Init()` で自動登録**: "F32Slider" / "Vec2Drag" /
 //     "Vec3Drag" / "Vec4Drag" / "ColorRGB" / "ColorRGBA" / "AssetPath" /
-//     "EnumCombo" / "TextInput" の 9 種。InspectorPanel の hardcode switch と
+//     "EnumCombo" / "TextInput" の 9 種。FInspectorPanel の hardcode switch と
 //     重複するが、こちらは registry 経由で書き換え / 拡張可能。Phase 22+ で
-//     InspectorPanel が registry 経由で draw するように refactor 想定。
+//     FInspectorPanel が registry 経由で draw するように refactor 想定。
 //   ・**`AssetPath` の drag-drop payload id は "ASSET_PATH"** (リテラル定数)。
-//     将来 AssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
+//     将来 FAssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
 //     することで、textbox に drop すると path が書き戻される。
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<Entry>` の所有を曖昧にしない (ACS 規約)。
 //   ・**全 noexcept / STL 不使用 / ImGui include 可**: ACS 規約に準拠。
@@ -53,14 +53,14 @@
 //   ・**per-game カスタム drawer**: ゲーム固有型 (`class Health`, `class WeaponSlot`,
 //     `class StatBlock`) を inspector 上で美麗表示する目的。ゲーム側コードが
 //     `RegisterDrawer("Health", ...)` を起動時に呼ぶだけで反映される。
-//   ・**`NodeIdSelector`**: HierarchyPanel と連動して "現在の選択を取得" or
-//     "Selectable な node 一覧から Combo で選択" する drawer。SelectionService
+//   ・**`NodeIdSelector`**: FHierarchyPanel と連動して "現在の選択を取得" or
+//     "Selectable な node 一覧から Combo で選択" する drawer。FSelectionService
 //     を参照するため drawer 側 closure (= `PropertyContext` に user_data を
 //     拡張) が必要になる予定。
 //
 // 範囲外 (本 Phase 21a では持たない):
-//   ・InspectorPanel との実統合 (= EFieldKind hardcode switch の置き換え)。
-//     Phase 22+ で InspectorPanel が registry を引くように refactor。
+//   ・FInspectorPanel との実統合 (= EFieldKind hardcode switch の置き換え)。
+//     Phase 22+ で FInspectorPanel が registry を引くように refactor。
 //   ・drawer の優先度 / 上書きルール (現状は **後勝ち**: 同 name を Register
 //     したら旧 fn を置き換える)。
 //   ・drawer 描画失敗時の例外伝播 (ACS は no-exception、drawer 内で完結)。
@@ -148,7 +148,7 @@ public:
 
     // ---- 公開定数 -------------------------------------------------------
     // AssetPath drawer が `AcceptDragDropPayload` で受け取る payload id。
-    // AssetBrowser 側 (将来実装) が同 id でファイル path を `SetDragDropPayload`
+    // FAssetBrowser 側 (将来実装) が同 id でファイル path を `SetDragDropPayload`
     // するとテキストボックスにドロップ書き戻しが起きる契約。
     static constexpr const char* kAssetPathPayloadId = "ASSET_PATH";
 

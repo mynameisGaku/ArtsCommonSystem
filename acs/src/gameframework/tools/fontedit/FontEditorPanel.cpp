@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — fontedit / FontEditorPanel 実装 (Phase 23)
+// GameFramework Pillar — fontedit / FFontEditorPanel 実装 (Phase 23)
 //
-// 仕様の意図は FontEditorPanel.h を参照。本ファイルでは:
-//   ・EditorPanel 基底 hook (OnInit / DrawUI) の override
+// 仕様の意図は FFontEditorPanel.h を参照。本ファイルでは:
+//   ・FEditorPanel 基底 hook (OnInit / DrawUI) の override
 //   ・AddFontFace / RemoveFontFace / Move{Up,Down} / SelectFace 等の小粒な
 //     mutator / accessor
 //   ・toolbar (Add / Remove / Reorder) + left face list + center preview
@@ -26,7 +26,7 @@ namespace acs::game::fontedit {
 namespace {
 
 // f32 を [lo, hi] にクランプ (acs::math の Clamp に依存しない最小実装、
-// SpriteAtlasEditorPanel.cpp と同じ pattern)。
+// FSpriteAtlasEditorPanel.cpp と同じ pattern)。
 inline f32 ClampF32(f32 v, f32 lo, f32 hi) noexcept {
     if (v < lo) return lo;
     if (v > hi) return hi;
@@ -124,7 +124,7 @@ inline void FormatCodepointLabel(u32 cp, c8* out, usize out_cap) noexcept {
 // ============================================================================
 // Init / Shutdown
 // ============================================================================
-void FontEditorPanel::Init() noexcept {
+void FFontEditorPanel::Init() noexcept {
     // _faces (acs::TArray) は Clear で size を 0 に (capacity は保持)。
     _faces.Clear();
     _selected     = -1;
@@ -139,13 +139,13 @@ void FontEditorPanel::Init() noexcept {
         _preview_text[i] = def[i];
     }
 
-    // viewport 系 panel は dock 中央に置きたいことが多い (SpriteAtlasEditorPanel
+    // viewport 系 panel は dock 中央に置きたいことが多い (FSpriteAtlasEditorPanel
     // と同方針)。
     _visible       = true;
     _docked_target = true;
 }
 
-void FontEditorPanel::Shutdown() noexcept {
+void FFontEditorPanel::Shutdown() noexcept {
     _faces.Clear();
     _selected     = -1;
     _preview_size = 24.0f;
@@ -155,16 +155,16 @@ void FontEditorPanel::Shutdown() noexcept {
 // ============================================================================
 // face リスト操作
 // ============================================================================
-u32 FontEditorPanel::FontFaceCount() const noexcept {
+u32 FFontEditorPanel::FontFaceCount() const noexcept {
     return static_cast<u32>(_faces.Size());
 }
 
-const FontFaceInfo* FontEditorPanel::GetFontFace(u32 i) const noexcept {
+const FontFaceInfo* FFontEditorPanel::GetFontFace(u32 i) const noexcept {
     if (i >= static_cast<u32>(_faces.Size())) return nullptr;
     return &_faces[static_cast<usize>(i)];
 }
 
-void FontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
+void FFontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
     if (static_cast<u32>(_faces.Size()) >= kMaxFontFaces) return;
     // 末尾追加 + fallback_index を TArray index と同期。
     _faces.PushBack(info);
@@ -174,7 +174,7 @@ void FontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
     if (_selected < 0) _selected = static_cast<i32>(new_idx);
 }
 
-void FontEditorPanel::RemoveFontFace(u32 i) noexcept {
+void FFontEditorPanel::RemoveFontFace(u32 i) noexcept {
     const u32 count = static_cast<u32>(_faces.Size());
     if (i >= count) return;
     // 順序保持削除: i 以降を 1 つ前にシフトしてから PopBack。TArray に
@@ -202,7 +202,7 @@ void FontEditorPanel::RemoveFontFace(u32 i) noexcept {
     if (new_count == 0u) _selected = -1;
 }
 
-void FontEditorPanel::MoveFaceUp(u32 i) noexcept {
+void FFontEditorPanel::MoveFaceUp(u32 i) noexcept {
     const u32 count = static_cast<u32>(_faces.Size());
     if (i == 0u || i >= count) return;
     SwapFaces(_faces[static_cast<usize>(i - 1u)], _faces[static_cast<usize>(i)]);
@@ -213,7 +213,7 @@ void FontEditorPanel::MoveFaceUp(u32 i) noexcept {
     else if (_selected == static_cast<i32>(i - 1u)) _selected = static_cast<i32>(i);
 }
 
-void FontEditorPanel::MoveFaceDown(u32 i) noexcept {
+void FFontEditorPanel::MoveFaceDown(u32 i) noexcept {
     const u32 count = static_cast<u32>(_faces.Size());
     if (count == 0u || i + 1u >= count) return;
     SwapFaces(_faces[static_cast<usize>(i)], _faces[static_cast<usize>(i + 1u)]);
@@ -226,11 +226,11 @@ void FontEditorPanel::MoveFaceDown(u32 i) noexcept {
 // ============================================================================
 // 選択
 // ============================================================================
-i32 FontEditorPanel::SelectedIndex() const noexcept {
+i32 FFontEditorPanel::SelectedIndex() const noexcept {
     return _selected;
 }
 
-void FontEditorPanel::SelectFace(i32 i) noexcept {
+void FFontEditorPanel::SelectFace(i32 i) noexcept {
     const i32 count = static_cast<i32>(_faces.Size());
     if (i < 0 || i >= count) { _selected = -1; return; }
     _selected = i;
@@ -239,7 +239,7 @@ void FontEditorPanel::SelectFace(i32 i) noexcept {
 // ============================================================================
 // Preview text / size
 // ============================================================================
-void FontEditorPanel::SetPreviewText(const char* utf8) noexcept {
+void FFontEditorPanel::SetPreviewText(const char* utf8) noexcept {
     for (u32 i = 0; i < kPreviewTextCapacity; ++i) _preview_text[i] = '\0';
     if (utf8 == nullptr) return;
     for (u32 i = 0; utf8[i] != '\0' && i + 1u < kPreviewTextCapacity; ++i) {
@@ -249,29 +249,29 @@ void FontEditorPanel::SetPreviewText(const char* utf8) noexcept {
     _preview_text[kPreviewTextCapacity - 1u] = '\0';
 }
 
-const char* FontEditorPanel::PreviewText() const noexcept {
+const char* FFontEditorPanel::PreviewText() const noexcept {
     return _preview_text;
 }
 
-f32 FontEditorPanel::PreviewFontSize() const noexcept {
+f32 FFontEditorPanel::PreviewFontSize() const noexcept {
     return _preview_size;
 }
 
-void FontEditorPanel::SetPreviewFontSize(f32 px) noexcept {
+void FFontEditorPanel::SetPreviewFontSize(f32 px) noexcept {
     _preview_size = ClampF32(px, kMinPreviewFontSize, kMaxPreviewFontSize);
 }
 
 // ============================================================================
-// EditorPanel override: OnInit
+// FEditorPanel override: OnInit
 // ============================================================================
-void FontEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& workspace) noexcept {
-    EditorPanel::OnInit(workspace);
+void FFontEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
+    FEditorPanel::OnInit(workspace);
     // preview バッファ終端 0 を念のため確定 (多重 OnInit でも安全)。
     _preview_text[kPreviewTextCapacity - 1u] = '\0';
 }
 
 // ============================================================================
-// EditorPanel override: DrawUI
+// FEditorPanel override: DrawUI
 // ============================================================================
 // レイアウト (1 window "Font Editor"):
 //   ┌──────────────────────────────────────────────────────────────────┐
@@ -288,7 +288,7 @@ void FontEditorPanel::OnInit(acs::game::editor_core::EditorWorkspace& workspace)
 //   │ Char range (0x20-0xFF): [grid of 16x14 glyph cells]              │
 //   └──────────────────────────────────────────────────────────────────┘
 // ============================================================================
-void FontEditorPanel::DrawUI() noexcept {
+void FFontEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &_visible)) {

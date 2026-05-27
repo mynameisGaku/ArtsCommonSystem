@@ -35,7 +35,7 @@ void ModelScene::Shutdown() noexcept {
     _gm_sphere = GpuMesh{};
 }
 
-void ModelScene::Update(f32 dt, AssetFuture& async_mesh, bool& async_loaded) noexcept {
+void ModelScene::Update(f32 dt, FAssetFuture& async_mesh, bool& async_loaded) noexcept {
     _angle += dt * kSphereSpinSpeed;
 
     // === カメラ操作 ===
@@ -77,7 +77,7 @@ void ModelScene::Update(f32 dt, AssetFuture& async_mesh, bool& async_loaded) noe
     }
 }
 
-void ModelScene::Render(StandardShader& shader, IRhiCommandList& cl) noexcept {
+void ModelScene::Render(FStandardShader& shader, IRhiCommandList& cl) noexcept {
     // Frame 共通設定（カメラ + 1 灯方向光 + 環境光）
     shader.SetFrame(_camera.ViewProjection(),
                     _camera.Eye(),

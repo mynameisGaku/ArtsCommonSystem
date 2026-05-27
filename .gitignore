@@ -6,6 +6,7 @@
 # ---- ACS / CMake / Rider build artifacts -----------------------------------
 cmake-build-*/
 build/
+b38/
 out/
 sln/
 CMakeCache.txt

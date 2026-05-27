@@ -2,8 +2,8 @@
 // アセットレジストリ（パスからロードして共有保持する）
 //
 // 使い方:
-//   AssetRegistry reg;
-//   reg.RegisterLoader(MakeRc<BinaryAssetLoader>().Get());
+//   FAssetRegistry reg;
+//   reg.RegisterLoader(MakeRc<FBinaryAssetLoader>().Get());
 //
 //   auto r = reg.Load(L"data/save.bin");
 //   if (r.IsOk()) {
@@ -25,13 +25,13 @@
 
 namespace acs {
 
-class AssetRegistry {
+class FAssetRegistry {
 public:
-    AssetRegistry() noexcept = default;
-    ~AssetRegistry() noexcept = default;
+    FAssetRegistry() noexcept = default;
+    ~FAssetRegistry() noexcept = default;
 
-    AssetRegistry(const AssetRegistry&) = delete;
-    AssetRegistry& operator=(const AssetRegistry&) = delete;
+    FAssetRegistry(const FAssetRegistry&) = delete;
+    FAssetRegistry& operator=(const FAssetRegistry&) = delete;
 
     // ローダを登録（拡張子マッチで使われる、所有権はレジストリ側に渡らない）
     void RegisterLoader(IAssetLoader* loader) noexcept;
@@ -42,9 +42,9 @@ public:
     // 同期ロード（ファイル読み込み + ローダ呼び出し、キャッシュ済みなら即返却）
     TResult<TRc<Asset>> Load(const wchar_t* path) noexcept;
 
-    // 非同期ロード（ThreadPool ワーカーで実行、AssetFuture で完了確認）
+    // 非同期ロード（FThreadPool ワーカーで実行、FAssetFuture で完了確認）
     // キャッシュ済みなら即完了状態の future を返す
-    AssetFuture LoadAsync(const wchar_t* path) noexcept;
+    FAssetFuture LoadAsync(const wchar_t* path) noexcept;
 
     // キャッシュからのみ取得（ロードはしない、未キャッシュなら nullptr TRc）
     TRc<Asset> Find(FAssetId id) noexcept;

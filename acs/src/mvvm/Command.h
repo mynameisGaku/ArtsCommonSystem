@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Command — VM のアクション (ボタン等) を ViewModel 側に置くためのヘルパ
+// Command — VM のアクション (ボタン等) を FViewModel 側に置くためのヘルパ
 //
 // 使い方:
-//   class PlayerVM : public ViewModel {
+//   class PlayerVM : public FViewModel {
 //   public:
 //       Observable<f32> hp { 100.0f };
 //

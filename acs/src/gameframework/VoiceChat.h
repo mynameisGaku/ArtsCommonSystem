@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — VoiceChat (Steam Voice / EOS Voice / Vivox / Discord / Opus seam)
+// GameFramework Pillar T — FVoiceChat (Steam Voice / EOS Voice / Vivox / Discord / Opus seam)
 //
 // 役割:
 //   パーティ / チーム / 全体チャンネルに対するボイスチャットの「シーム」インター
 //   フェース。実プロバイダは Steam Voice / EOS Voice / Unity Vivox / Discord
-//   Game SDK / Opus self-host のいずれでも良く、ゲーム側コードは `IVoiceChatBackend`
+//   FGame SDK / Opus self-host のいずれでも良く、ゲーム側コードは `IVoiceChatBackend`
 //   経由でのみ参加者管理 / ミュート / 音量を扱う。SDK 統合はビルド時の選択で
 //   差し替える。
 //
 // 使い方 (典型例):
-//   class Game {
+//   class FGame {
 //       acs::game::IVoiceChatBackend* _voice = nullptr;
 //
 //       void OnStart() noexcept override {
@@ -51,7 +51,7 @@
 //
 // 倫理 / 安全方針:
 //   ・**moderation は別モジュール**: 文字起こしによる NG ワード判定 / 通報導線は
-//     `SocialModeration` (別 Pillar) が担当。本 system は技術的な mute/volume 管理のみ。
+//     `FSocialModeration` (別 Pillar) が担当。本 system は技術的な mute/volume 管理のみ。
 //   ・**under-18 のデフォルト**: 未成年アカウントが既知の場合、呼び出し側で
 //     `SetLocalMute(true)` をかぶせる想定。本 system はフラグを持たず強制機構なし
 //     (プラットフォームごとに年齢推定 API が異なるため一律ルール化が危険)。
@@ -70,7 +70,7 @@
 namespace acs::game {
 
 // ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
-// SteamworksBridge と同様、Foundation の ErrCategory enum を増やさず Generic +
+// FSteamworksBridge と同様、Foundation の ErrCategory enum を増やさず Generic +
 // 安定 subcode で表現する。呼び出し側は `err.subcode == kSubVoiceNotImplemented`
 // でフィルタ可能。
 inline constexpr u16 kSubVoiceNotImplemented = 99;    // Stub による未実装 (仕様準拠)
@@ -84,7 +84,7 @@ enum class EVoiceProvider : u8 {
     SteamVoice  = 1,  // Steamworks Voice API
     EosVoice    = 2,  // Epic Online Services Voice
     Vivox       = 3,  // Unity Vivox (cross-platform 汎用)
-    Discord     = 4,  // Discord Game SDK (Lobby Voice)
+    Discord     = 4,  // Discord FGame SDK (Lobby Voice)
     OpusSelf    = 5,  // 自前 Opus codec + 専用サーバ
 };
 
@@ -92,7 +92,7 @@ enum class EVoiceProvider : u8 {
 // `JoinChannel(EVoiceChannel ch, const char* channel_id)` で参加するチャンネルの
 // 意味論を区別する。同時に複数チャンネルへ join 可能 (Party + Global 同居 等)。
 enum class EVoiceChannel : u8 {
-    Party    = 0,  // パーティ内チャット (PartySystem と紐づく)
+    Party    = 0,  // パーティ内チャット (FPartySystem と紐づく)
     Team     = 1,  // チーム / 隊伍内チャット (試合中の同チーム)
     Global   = 2,  // 全体 / ロビーチャット (試合外の広域)
     Custom   = 3,  // タイトル固有の追加チャンネル (raid / region 等)
@@ -107,7 +107,7 @@ enum class EVoiceChannel : u8 {
 //   ・is_muted_local   : ローカル側ミュート (自分から見て聞こえないか)
 //   ・audio_level      : 現在の音声レベル (0.0〜1.0、UI のメーター表示用)
 struct VoiceParticipant {
-    const char* user_id        = nullptr;  // SDK 固有 ID 文字列 (PartySystem の player_id と同形式想定)
+    const char* user_id        = nullptr;  // SDK 固有 ID 文字列 (FPartySystem の player_id と同形式想定)
     const char* display_name   = nullptr;  // 表示名 (UTF-8、寿命は SDK 側保証)
     bool        is_speaking    = false;    // 現在発言中フラグ
     bool        is_muted_local = false;    // ローカル側ミュート
@@ -141,7 +141,7 @@ public:
     virtual EVoiceProvider ActiveProvider() const noexcept = 0;
 
     // 指定チャンネルに参加。`channel_id` は SDK 固有のチャンネル ID 文字列
-    // (PartySystem の party_id / マッチ ID 等を渡す想定、非所有)。
+    // (FPartySystem の party_id / マッチ ID 等を渡す想定、非所有)。
     virtual TResult<void> JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept = 0;
 
     // 指定チャンネルから離脱。join 前に呼んでも安全な実装が望ましい。
@@ -175,14 +175,14 @@ public:
 // ---- Stub 実装 ------------------------------------------------------------
 // SDK 未統合ビルド / ユニットテスト用の no-op 実装。
 //   ・Init() は受け取った provider を記録するが TResult は ACS_ERR を返す
-//     (SteamworksBridge と違い、こちらは「未実装」を強調するため)。
+//     (FSteamworksBridge と違い、こちらは「未実装」を強調するため)。
 //   ・IsAvailable() は常に false。
 //   ・全 API が ACS_ERR(Generic, kSubVoiceNotImplemented, ...) を返す。
 //   ・Shutdown() / Tick() は副作用なし。
-class VoiceChatBackendStub final : public IVoiceChatBackend {
+class FVoiceChatBackendStub final : public IVoiceChatBackend {
 public:
-    VoiceChatBackendStub() noexcept = default;
-    ~VoiceChatBackendStub() noexcept override = default;
+    FVoiceChatBackendStub() noexcept = default;
+    ~FVoiceChatBackendStub() noexcept override = default;
 
     TResult<void>             Init(EVoiceProvider p) noexcept override;
     void                     Shutdown() noexcept override;
@@ -203,7 +203,7 @@ private:
 };
 
 // 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。
-// SteamworksBridge::GetStub() と同じ Meyer's singleton パターン。
+// FSteamworksBridge::GetStub() と同じ Meyer's singleton パターン。
 IVoiceChatBackend& GetVoiceStub() noexcept;
 
 } // namespace acs::game

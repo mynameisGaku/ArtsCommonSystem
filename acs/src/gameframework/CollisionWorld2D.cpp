@@ -6,7 +6,7 @@
 
 namespace acs::game {
 
-u32 CollisionWorld2D::AcquireSlot() noexcept {
+u32 FCollisionWorld2D::AcquireSlot() noexcept {
     for (u32 i = 1; i < _slots.Size(); ++i) {   // index 0 を予約 (= invalid)
         if (!_slots[i].active) return i;
     }
@@ -17,7 +17,7 @@ u32 CollisionWorld2D::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-FShapeId CollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
+FShapeId FCollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
     s.kind   = Kind::FAabb;
@@ -30,7 +30,7 @@ FShapeId CollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
     return FShapeId{idx, s.gen};
 }
 
-FShapeId CollisionWorld2D::AddCircle(const Circle& c) noexcept {
+FShapeId FCollisionWorld2D::AddCircle(const Circle& c) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
     s.kind   = Kind::Circle;
@@ -43,7 +43,7 @@ FShapeId CollisionWorld2D::AddCircle(const Circle& c) noexcept {
     return FShapeId{idx, s.gen};
 }
 
-void CollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
+void FCollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != Kind::FAabb) return;
@@ -51,7 +51,7 @@ void CollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
     MarkDirty();
 }
 
-void CollisionWorld2D::UpdateCircle(FShapeId id, const Circle& c) noexcept {
+void FCollisionWorld2D::UpdateCircle(FShapeId id, const Circle& c) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != Kind::Circle) return;
@@ -59,7 +59,7 @@ void CollisionWorld2D::UpdateCircle(FShapeId id, const Circle& c) noexcept {
     MarkDirty();
 }
 
-void CollisionWorld2D::Remove(FShapeId id) noexcept {
+void FCollisionWorld2D::Remove(FShapeId id) noexcept {
     if (!id.IsValid() || id.Index() >= _slots.Size()) return;
     Slot& s = _slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
@@ -69,7 +69,7 @@ void CollisionWorld2D::Remove(FShapeId id) noexcept {
     MarkDirty();
 }
 
-void CollisionWorld2D::ClearAll() noexcept {
+void FCollisionWorld2D::ClearAll() noexcept {
     _slots.Clear();
     _cells.Clear();
     _shape_count = 0;
@@ -77,7 +77,7 @@ void CollisionWorld2D::ClearAll() noexcept {
 }
 
 // AABB 中心 + half_size から overlapping cell 範囲
-void CollisionWorld2D::CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
+void FCollisionWorld2D::CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
     const f32 inv = 1.0f / _cell_size;
     const FVec2 mn = a.Min();
@@ -88,7 +88,7 @@ void CollisionWorld2D::CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
     cy_max = static_cast<i32>(Floor(mx.y * inv));
 }
 
-void CollisionWorld2D::CellRange(const Circle& c, i32& cx_min, i32& cy_min,
+void FCollisionWorld2D::CellRange(const Circle& c, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
     Aabb2 a;
     a.center    = c.center;
@@ -96,14 +96,14 @@ void CollisionWorld2D::CellRange(const Circle& c, i32& cx_min, i32& cy_min,
     CellRange(a, cx_min, cy_min, cx_max, cy_max);
 }
 
-CollisionWorld2D::GridCell* CollisionWorld2D::FindCell(i32 cx, i32 cy) noexcept {
+FCollisionWorld2D::GridCell* FCollisionWorld2D::FindCell(i32 cx, i32 cy) noexcept {
     for (u32 i = 0; i < _cells.Size(); ++i) {
         if (_cells[i].cx == cx && _cells[i].cy == cy) return &_cells[i];
     }
     return nullptr;
 }
 
-CollisionWorld2D::GridCell& CollisionWorld2D::GetOrCreateCell(i32 cx, i32 cy) noexcept {
+FCollisionWorld2D::GridCell& FCollisionWorld2D::GetOrCreateCell(i32 cx, i32 cy) noexcept {
     if (GridCell* found = FindCell(cx, cy)) return *found;
     GridCell nc;
     nc.cx = cx;
@@ -112,7 +112,7 @@ CollisionWorld2D::GridCell& CollisionWorld2D::GetOrCreateCell(i32 cx, i32 cy) no
     return _cells.Back();
 }
 
-void CollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
+void FCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     const Slot& s = _slots[slot_idx];
     if (!s.active) return;
     i32 cx_min = 0, cy_min = 0, cx_max = 0, cy_max = 0;
@@ -128,7 +128,7 @@ void CollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     }
 }
 
-void CollisionWorld2D::RebuildGridIfDirty() noexcept {
+void FCollisionWorld2D::RebuildGridIfDirty() noexcept {
     if (!_dirty) return;
     _cells.Clear();
     for (u32 i = 1; i < _slots.Size(); ++i) {   // 0 は invalid
@@ -138,7 +138,7 @@ void CollisionWorld2D::RebuildGridIfDirty() noexcept {
 }
 
 // ===== Narrow phase helpers =====
-bool CollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const noexcept {
+bool FCollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const noexcept {
     const Slot& s = _slots[slot_idx];
     switch (s.kind) {
     case Kind::FAabb:   return Intersect(s.aabb,   a);
@@ -147,7 +147,7 @@ bool CollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const n
     }
 }
 
-bool CollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept {
+bool FCollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept {
     const Slot& s = _slots[slot_idx];
     switch (s.kind) {
     case Kind::FAabb:   return Intersect(s.aabb,   c);
@@ -157,7 +157,7 @@ bool CollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) cons
 }
 
 // ===== クエリ =====
-void CollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShapeId exclude) noexcept {
+void FCollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShapeId exclude) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     _query_marks.Resize(_slots.Size());
@@ -182,7 +182,7 @@ void CollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShape
     }
 }
 
-void CollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FShapeId exclude) noexcept {
+void FCollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FShapeId exclude) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     _query_marks.Resize(_slots.Size());
@@ -207,7 +207,7 @@ void CollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FSh
     }
 }
 
-bool CollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
+bool FCollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                                 RayHit2& out_hit, FShapeId& out_id) noexcept {
     out_hit = {};
     out_id  = {};

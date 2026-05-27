@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — Entitlement (DLC / SeasonPass / Cosmetic 権利チェック)
+// GameFramework Pillar O — FEntitlement (DLC / FSeasonPass / Cosmetic 権利チェック)
 //
 // プレイヤーが「持っているかどうか」をゲームロジック側から問い合わせる窓口。
 // DLC、シーズンパス、バトルパス、コスメティックパック、グッズ同梱の引換コード等の
@@ -22,7 +22,7 @@
 //   reg.Add({ "cosmetic.hat_red", EntitlementKind::CosmeticPack,  true  });
 //
 //   if (reg.IsActive("dlc.expansion_1")) UnlockExpansionMap();
-//   if (reg.HasAny(EntitlementKind::SeasonPass)) ShowSeasonPassBadge();
+//   if (reg.HasAny(EntitlementKind::FSeasonPass)) ShowSeasonPassBadge();
 //
 // 設計選択:
 //   ・id は **const char* 非所有**: ACS の STL 禁止方針 + 寿命管理単純化のため、
@@ -50,7 +50,7 @@ namespace acs::game {
 // レジストリは単に分類タグとして保持・検索キーに使う。
 enum class EntitlementKind : u8 {
     Dlc,                // 追加コンテンツ (マップ / シナリオ / キャラ等)
-    SeasonPass,         // 一定期間 / シーズン束ねの権利
+    FSeasonPass,         // 一定期間 / シーズン束ねの権利
     BattlePass,         // tier 進行型 (cosmetic 中心を推奨)
     CosmeticPack,       // 見た目だけのスキン・装飾
     GoodsRedeemCode,    // 物販同梱コード等から redeem された結果

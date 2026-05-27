@@ -26,7 +26,7 @@ EFormat ToRhiFormat(EPixelFormat f) noexcept {
 
 } // namespace
 
-TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAsset& img) noexcept {
+TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageAsset& img) noexcept {
     if (img.Width() == 0 || img.Height() == 0)
         return ACS_ERR(Render, 80, "UploadTexture: empty image");
 
@@ -35,7 +35,7 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAs
         return ACS_ERR(Render, 81, "UploadTexture: unsupported pixel format");
 
     // R8G8B8 (3ch) は GPU では 4ch にパディングが必要
-    // 簡易対応: ImageAsset::Pixels() がそのまま 4ch でない場合はエラー
+    // 簡易対応: FImageAsset::Pixels() がそのまま 4ch でない場合はエラー
     // （ImageAssetLoader 側で 4ch に拡張する責務とする）
     FTextureDesc d{};
     d.width  = img.Width();
@@ -48,7 +48,7 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const ImageAs
     return CreateRhiTexture(device, d);
 }
 
-TResult<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out) noexcept {
+TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, GpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 82, "UploadMesh: empty mesh");
 
@@ -79,7 +79,7 @@ TResult<void> UploadMesh(IRhiDevice& device, const MeshAsset& mesh, GpuMesh& out
     return Ok();
 }
 
-TResult<void> UploadSkinnedMesh(IRhiDevice& device, const SkinnedMeshAsset& mesh,
+TResult<void> UploadSkinnedMesh(IRhiDevice& device, const FSkinnedMeshAsset& mesh,
                                SkinnedGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 84, "UploadSkinnedMesh: empty mesh");

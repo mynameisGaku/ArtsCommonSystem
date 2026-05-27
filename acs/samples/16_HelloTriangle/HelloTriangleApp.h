@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTriangle — Application 派生クラス。
+// HelloTriangle — FApplication 派生クラス。
 //
 // 低レベル RHI トラックの 1 本目。FShaderDesc → CreateRhiShader、
 // FBufferDesc → CreateRhiBuffer、FPipelineDesc → CreateRhiPipeline と
@@ -12,7 +12,7 @@
 
 namespace hellotri {
 
-class HelloTriangleApp : public acs::Application {
+class HelloTriangleApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

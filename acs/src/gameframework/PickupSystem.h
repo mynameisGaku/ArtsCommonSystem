@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — PickupSystem (ドロップアイテム = Health/Coin/Powerup 等)
+// GameFramework Pillar R/I — FPickupSystem (ドロップアイテム = Health/Coin/Powerup 等)
 //
 // 世界に配置された「拾える物」を管理する小型マネージャ。HP オーブ / 通貨 / ジェム /
 // 弾薬箱 / パワーアップ / 鍵などを統一的に扱い、プレイヤー位置との距離による
@@ -11,14 +11,14 @@
 //     - 「持ち物」(Inventory) は別 Manager。本クラスは「世界に転がっている拾取」を
 //       Pickup として表現し、拾うと PickupCallback で呼出側へ通知する。
 //     - 呼出側はコールバックを受けて Inventory に AddItem する / HP を回復する /
-//       通貨残高 (EconomyDirector::AddToBalance) を増やす等を行う。
+//       通貨残高 (FEconomyDirector::AddToBalance) を増やす等を行う。
 //   ・Pillar F (Collision) との違い:
-//     - CollisionWorld2D は汎用 broad-phase shape クエリ。
-//     - PickupSystem は「Circle 形状の pickup を専用に高速処理する」軽量サブセット。
+//     - FCollisionWorld2D は汎用 broad-phase shape クエリ。
+//     - FPickupSystem は「Circle 形状の pickup を専用に高速処理する」軽量サブセット。
 //       broad-phase は持たず O(N) で player との距離判定 (典型 N=10〜100)。
 //
 // 使い方:
-//   PickupSystem ps;
+//   FPickupSystem ps;
 //   ps.Init();
 //
 //   PickupInfo info{};
@@ -38,7 +38,7 @@
 //   ps.Tick(dt, player_pos, /*magnet_strength=*/200.0f);
 //
 // 設計選択:
-//   ・**PickupId**: 32bit packed = 24bit index + 8bit generation。CollisionWorld2D の
+//   ・**PickupId**: 32bit packed = 24bit index + 8bit generation。FCollisionWorld2D の
 //     FShapeId / FNodeId と同じパターン。slot 再利用しても古い handle は無効化される。
 //   ・**Slot TArray**: 内部 `TArray<Slot>` に固定。index 0 は予約 (= invalid)。
 //     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
@@ -55,7 +55,7 @@
 //   ・**コールバックは 1 個固定 + user pointer**: STL <functional> 禁止のため。
 //     PickupCallback / ExpireCallback はそれぞれ独立に設定可能 (片方だけ使う
 //     ユースケースが多い)。
-//   ・**SpawnRandomAt**: 円内ランダムスポーン。`Random::Global()` を使って
+//   ・**SpawnRandomAt**: 円内ランダムスポーン。`FRandom::Global()` を使って
 //     `center + PointInCircle(spread_radius)` で位置を決定。デフォルト radius /
 //     magnet_radius / lifetime_sec / value は kind 別に内部で設定する (適当な
 //     既定値を割り当てる)。具体的な数値は cpp で定義。
@@ -65,7 +65,7 @@
 //
 // 範囲外:
 //   ・broad-phase / 空間分割: pickup 数は小規模想定 (10〜100)。万を超える場合は
-//     CollisionWorld2D 側に shape を登録して overlap クエリする設計を検討。
+//     FCollisionWorld2D 側に shape を登録して overlap クエリする設計を検討。
 //   ・物理ベース吸引 (加速度 / 速度減衰): 必要なら呼出側で magnet_strength を
 //     pickup 毎に変えるラッパを作る。
 //   ・kind の拡張: enum に新しい値を追加する場合、SpawnRandomAt の既定値テーブルも
@@ -94,7 +94,7 @@ enum class EPickupKind : u8 {
 
 // ---- PickupId: 拾取アイテムの handle ---------------------------------------
 // 32bit packed = 24bit index + 8bit generation。0 = invalid。
-// CollisionWorld2D::FShapeId / Node2D の FNodeId と同パターン。
+// FCollisionWorld2D::FShapeId / FNode2D の FNodeId と同パターン。
 struct PickupId {
     u32 _packed = 0;
 
@@ -130,8 +130,8 @@ struct PickupInfo {
     u32         value         = 0;
 };
 
-// ---- PickupSystem ----------------------------------------------------------
-class PickupSystem {
+// ---- FPickupSystem ----------------------------------------------------------
+class FPickupSystem {
 public:
     // 拾取コールバック。STL <functional> 禁止のため C 関数ポインタ + user。
     //   user    : SetOnPickupCallback で渡したコンテキスト (Manager は所有しない)
@@ -147,13 +147,13 @@ public:
     //   id   : 消滅した PickupId (この時点で Despawn 済み)
     using ExpireCallback = void(*)(void* user, PickupId id) noexcept;
 
-    PickupSystem()  noexcept = default;
-    ~PickupSystem() noexcept = default;
+    FPickupSystem()  noexcept = default;
+    ~FPickupSystem() noexcept = default;
 
-    PickupSystem(const PickupSystem&)            = delete;
-    PickupSystem& operator=(const PickupSystem&) = delete;
-    PickupSystem(PickupSystem&&)                 = delete;
-    PickupSystem& operator=(PickupSystem&&)      = delete;
+    FPickupSystem(const FPickupSystem&)            = delete;
+    FPickupSystem& operator=(const FPickupSystem&) = delete;
+    FPickupSystem(FPickupSystem&&)                 = delete;
+    FPickupSystem& operator=(FPickupSystem&&)      = delete;
 
     // 初期化。複数回呼び出し可 (再 Init は ClearAll と等価)。
     void Init() noexcept;
@@ -191,7 +191,7 @@ public:
     void SetOnExpireCallback(ExpireCallback cb, void* user) noexcept;
 
     // 円内ランダムスポーン。center を中心に半径 spread_radius の円板内一様サンプル
-    // (Random::Global().PointInCircle) で位置を決め、kind 別の既定値で Spawn する。
+    // (FRandom::Global().PointInCircle) で位置を決め、kind 別の既定値で Spawn する。
     // 既定値テーブルは .cpp 内で定義。
     void SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_radius) noexcept;
 

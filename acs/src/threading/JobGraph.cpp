@@ -42,7 +42,7 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
     // 本体実行
     j->fn(j->user, worker_index);
 
-    // 依存先の deps_remaining を減らし、0 になったものを ThreadPool に投入
+    // 依存先の deps_remaining を減らし、0 になったものを FThreadPool に投入
     for (usize i = 0; i < j->dependents.Size(); ++i) {
         u32 dep_idx = j->dependents[i];
         Job* down = graph->_jobs[dep_idx];
@@ -53,7 +53,7 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
             t.fn      = &FJobGraph::JobThunk;
             t.user    = down;
             t.counter = nullptr;  // counter は graph 全体で 1 度だけ Add し、ここで Done する
-            (void)ThreadPool::Submit(t);
+            (void)FThreadPool::Submit(t);
         }
     }
 
@@ -103,7 +103,7 @@ TResult<void> FJobGraph::Submit() noexcept {
     // 全 job 数を counter に積む (Submit 失敗時は後で巻き戻す)
     _counter.Add(static_cast<u32>(_jobs.Size()));
 
-    // 依存 0 の job を ThreadPool に投入
+    // 依存 0 の job を FThreadPool に投入
     bool any_started = false;
     u32 submitted_count = 0;
     for (usize i = 0; i < _jobs.Size(); ++i) {
@@ -113,9 +113,9 @@ TResult<void> FJobGraph::Submit() noexcept {
             t.fn      = &FJobGraph::JobThunk;
             t.user    = j;
             t.counter = nullptr;
-            auto r = ThreadPool::Submit(t);
+            auto r = FThreadPool::Submit(t);
             if (r.IsErr()) {
-                ACS_LOG_ERROR("FJobGraph::Submit: ThreadPool::Submit failed: %s",
+                ACS_LOG_ERROR("FJobGraph::Submit: FThreadPool::Submit failed: %s",
                               r.Error().message);
                 // 既に Add 済みのカウンタを巻き戻す (デッドロック回避)
                 u32 unstarted = static_cast<u32>(_jobs.Size()) - submitted_count;
@@ -139,10 +139,10 @@ void FJobGraph::Wait() noexcept {
     if (!_submitted) return;
     // Submit 時に Add(N) したカウンタを、Job 完了で Done() する仕組みが要る。
     // JobThunk 内で counter.Done() を呼ぶよう改修する必要があるが、
-    // ThreadPool::Submit に counter を渡せば自動 Add+Done してくれる。
+    // FThreadPool::Submit に counter を渡せば自動 Add+Done してくれる。
     // 上の実装では Submit 時に自前で Add してしまったので調整 -- このシンプル版では
-    // ThreadPool::Submit に counter を渡して任せる方がきれい。実装は素直にする:
-    ThreadPool::Wait(_counter);
+    // FThreadPool::Submit に counter を渡して任せる方がきれい。実装は素直にする:
+    FThreadPool::Wait(_counter);
 }
 
 void FJobGraph::Reset() noexcept {

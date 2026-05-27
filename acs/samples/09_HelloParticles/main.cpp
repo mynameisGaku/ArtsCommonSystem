@@ -3,7 +3,7 @@
 //
 // 構成:
 //   Types.h                   - パーティクルテクスチャサイズ + preset 名一覧
-//   HelloParticlesApp.{h,cpp} - Application 派生 (SpriteBatch / Font / Glow 所有)
+//   HelloParticlesApp.{h,cpp} - FApplication 派生 (FSpriteBatch / Font / Glow 所有)
 //   ParticleScene.{h,cpp}     - ParticleSystem の管理 + 描画
 //
 // 操作はゲーム画面下のヘルプ行に表示される (Esc / 1-4 / Space / 左クリック)。

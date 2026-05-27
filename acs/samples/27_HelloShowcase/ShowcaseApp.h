@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloShowcase — Application 派生のメインクラス。
+// HelloShowcase — FApplication 派生のメインクラス。
 // PBR / IBL / SSR / SSAO / Refraction / Bloom / ACES + TAA を 1 つのフレームで
 // 連携させる cinematic demo。auto-orbit カメラで scene を 1 周。
 //
@@ -25,7 +25,7 @@
 
 namespace helloshowcase {
 
-class ShowcaseApp : public acs::Application {
+class ShowcaseApp : public acs::FApplication {
 public:
     ShowcaseApp() noexcept;
     ~ShowcaseApp() noexcept override;

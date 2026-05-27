@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — ModRegistry (Mod 読み込み順管理)
+// GameFramework Pillar N — FModRegistry (Mod 読み込み順管理)
 //
 // ユーザー Mod (= 追加コンテンツパック) の登録・有効化・並び順管理を行う薄い
-// レジストリ。各 Mod は `.acpak` (Pillar G AssetPack 形式) を 1 つ伴うことが
+// レジストリ。各 Mod は `.acpak` (Pillar G FAssetPack 形式) を 1 つ伴うことが
 // 期待され、ロード順に従って top-level の VirtualFileSystem に重ねていく
 // (後勝ち = load_order 大きい方が前段の同名アセットを上書き) 想定。
 //
 // 使い方:
-//   ModRegistry mr;
+//   FModRegistry mr;
 //   ModInfo a{};
 //   a.id         = "core";
 //   a.name       = "Core Pack";
@@ -30,7 +30,7 @@
 //   mr.SortByLoadOrder();
 //   for (u32 i = 0; i < mr.Count(); ++i) {
 //       const ModInfo& m = mr.All()[i];
-//       if (m.enabled) MountPack(m.pack_path);  // TODO: AssetPack Phase 2
+//       if (m.enabled) MountPack(m.pack_path);  // TODO: FAssetPack Phase 2
 //   }
 //
 // 設計選択 (Pillar N Phase 1 = skeleton):
@@ -49,10 +49,10 @@
 //     in-place の insertion sort で十分。安定 sort なので同 load_order の
 //     先着優先も保たれる。
 //   ・**非コピー・非ムーブ**: Mod 管理はゲーム寿命に 1 インスタンスのみ。複製を
-//     許すと "どの Registry が active か" が曖昧になるので禁止 (InputMap と同じ)。
+//     許すと "どの Registry が active か" が曖昧になるので禁止 (FInputMap と同じ)。
 //
 // 範囲外 (Phase 2+ で):
-//   ・実際の `.acpak` mount (Pillar G AssetPack 統合) — Mount API 自体が
+//   ・実際の `.acpak` mount (Pillar G FAssetPack 統合) — Mount API 自体が
 //     未確定のため、Registry は path を保持するだけ。
 //   ・Mod 間依存解決 (dependency graph、循環検出、欠落警告)。
 //   ・Mod manifest (.toml / .json) のパース — 外部 loader が ModInfo を組み立てる。
@@ -88,15 +88,15 @@ struct ModInfo {
     const char* pack_path  = nullptr;
 };
 
-class ModRegistry {
+class FModRegistry {
 public:
-    ModRegistry() noexcept = default;
-    ~ModRegistry() noexcept = default;
+    FModRegistry() noexcept = default;
+    ~FModRegistry() noexcept = default;
 
-    ModRegistry(const ModRegistry&)            = delete;
-    ModRegistry& operator=(const ModRegistry&) = delete;
-    ModRegistry(ModRegistry&&)                 = delete;
-    ModRegistry& operator=(ModRegistry&&)      = delete;
+    FModRegistry(const FModRegistry&)            = delete;
+    FModRegistry& operator=(const FModRegistry&) = delete;
+    FModRegistry(FModRegistry&&)                 = delete;
+    FModRegistry& operator=(FModRegistry&&)      = delete;
 
     // ----- 登録 -----
     // info を内部 TArray にコピーで追加する (ModInfo は POD なので浅いコピーで OK、

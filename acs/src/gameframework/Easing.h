@@ -9,7 +9,7 @@
 //   using namespace acs::game;
 //   f32 e = Easing::OutCubic(0.5f);          // 直接呼び出し
 //
-//   // Tween に渡す:
+//   // FTween に渡す:
 //   tweens.Tween(&player.x, 0.0f, 100.0f, 0.5f, Easing::InOutQuad);
 //
 // 命名規約: `<Pace>Curve` で 30 関数。
@@ -165,7 +165,7 @@ inline f32 InOutBounce(f32 t) noexcept {
             : (1.0f + OutBounce(2.0f * t - 1.0f)) * 0.5f;
 }
 
-// 関数ポインタ型 alias (Tween API で使う)
+// 関数ポインタ型 alias (FTween API で使う)
 using EasingFn = f32 (*)(f32) noexcept;
 
 } // namespace acs::game::Easing

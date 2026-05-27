@@ -3,7 +3,7 @@
 //
 // 構成:
 //   main.cpp              - ACS_GAME_MAIN(BtEditorApp) のみ
-//   BtEditorApp.{h,cpp}   - Game 派生クラス (ImGui lifecycle ラッパ)
+//   BtEditorApp.{h,cpp}   - FGame 派生クラス (ImGui lifecycle ラッパ)
 //   BtEditorScene.{h,cpp} - Scene lifecycle (OnEnter/OnExit/OnUpdate/OnRender)
 //   TreeActions.{h,cpp}   - Action Fn 群 + step callback
 //   TreeBuilder.{h,cpp}   - panel メタミラー組立 + 実 BT 構築 helper
@@ -11,14 +11,14 @@
 // 動作:
 //   ・小さな Behavior Tree を構築:
 //        Selector (root)
-//        ├── Sequence "Pickup Branch"
+//        ├── FSequence "Pickup Branch"
 //        │    ├── Action "Pickup"
 //        │    └── Action "Move"
-//        └── Sequence "Combat Branch"
+//        └── FSequence "Combat Branch"
 //             ├── Action "Wait"
 //             └── Action "Attack"
-//   ・BT そのものは `acs::game::BehaviorTree` で実行。各 BtAction の Fn は
-//     blackboard 経由で `BehaviorTreeEditorPanel` の SetNodeStatus を呼び、
+//   ・BT そのものは `acs::game::FBehaviorTree` で実行。各 FBtAction の Fn は
+//     blackboard 経由で `FBehaviorTreeEditorPanel` の SetNodeStatus を呼び、
 //     panel に「この frame でこの node が何を返したか」を push する。
 //     これで panel 側のメタミラーがリアルタイムに着色される。
 //   ・MainMenuBar: File > Reset Tree / Quit。

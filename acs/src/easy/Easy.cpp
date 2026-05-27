@@ -2,12 +2,12 @@
 // ACS Easy — 実装
 //
 // 設計:
-//   ・acs::Application は使わず、独立した入口として自前でエンジンを起動する。
+//   ・acs::FApplication は使わず、独立した入口として自前でエンジンを起動する。
 //   ・状態は単一のグローバル EasyState（このファイル内のみ）。単一スレッド前提。
 //   ・OpenWindow で起動、NextFrame で 1 フレーム駆動（前フレーム提示 → 入力 →
 //     クリア → 描画開始）、ウィンドウが閉じたら NextFrame 内で後始末する。
-//   ・図形・スプライト・文字は SpriteBatch に集約。回転は SpriteBatch::DrawRotated、
-//     カメラは SpriteBatch::SetView（VS でワールド→スクリーン変換）。
+//   ・図形・スプライト・文字は FSpriteBatch に集約。回転は FSpriteBatch::DrawRotated、
+//     カメラは FSpriteBatch::SetView（VS でワールド→スクリーン変換）。
 //   ・公開 API の位置 (x,y) はすべて図形・画像の左上に統一（円のみ中心）。
 #include "easy/Easy.h"
 
@@ -77,7 +77,7 @@ struct SpriteSlot {
 };
 
 struct SoundSlot {
-    TRc<Asset>   asset;     // AudioAsset を再生中ずっと生かしておくため保持
+    TRc<Asset>   asset;     // FAudioAsset を再生中ずっと生かしておくため保持
     FString      path;
     SoundHandle loop{};    // PlayLoop 中のハンドル（StopSound 用、無効値で初期化）
 };
@@ -87,18 +87,18 @@ struct EasyState {
     bool booted      = false;  // OpenWindow に成功した
     bool boot_failed = false;  // OpenWindow に失敗した
     bool finished    = false;  // NextFrame が false を返し、後始末も済んだ
-    bool frame_open  = false;  // SpriteBatch::Begin 済み（この間だけ描画可能）
+    bool frame_open  = false;  // FSpriteBatch::Begin 済み（この間だけ描画可能）
     bool quit_req    = false;  // Quit() が呼ばれた
     bool warned_draw = false;  // 「枠の外で描画した」警告を 1 度だけ出す用
     i32  fs_request  = -1;     // 保留中の全画面切替（-1:無し 0:窓 1:全画面）
 
     // エンジンオブジェクト（宣言順 = 構築順。破棄は逆順）
-    Window        window;
-    Renderer      renderer;
-    AssetRegistry assets;
-    AudioEngine   audio;
+    FWindow        window;
+    FRenderer      renderer;
+    FAssetRegistry assets;
+    FAudioEngine   audio;
     bool          audio_ok = false;
-    SpriteBatch   batch;
+    FSpriteBatch   batch;
     Font          font;
     bool          font_ok  = false;
     TUniquePtr<IRhiTexture> circle_tex;
@@ -114,7 +114,7 @@ struct EasyState {
     f32 cam_x = 0.0f, cam_y = 0.0f, cam_zoom = 1.0f;
 
     // ポストプロセス（HDR 経路。Diligent backend でのみ有効）
-    PostProcess       post;
+    FPostProcess       post;
     bool              post_available = false;
     u32               post_buf_idx   = 0;
     PostProcessParams pp_params;
@@ -234,7 +234,7 @@ void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noex
     }
 }
 
-// ---- ウィンドウイベントを Input / Renderer へ橋渡し ------------------------
+// ---- ウィンドウイベントを Input / FRenderer へ橋渡し ------------------------
 void EasyEventBridge(void* /*user*/, const Event& e) noexcept {
     Input::OnEvent(e);
     if (e.type == EventType::WindowResize) {
@@ -257,11 +257,11 @@ void ShutdownEasy() noexcept {
     g_state.assets.Clear();
     if (g_state.post_available) g_state.post.Shutdown();
     g_state.renderer.Shutdown();             // ここで GPU デバイスを破棄する
-    ThreadPool::Shutdown();
-    MemorySystem::Shutdown();
+    FThreadPool::Shutdown();
+    FMemorySystem::Shutdown();
     ACS_LOG_INFO("easy: 終了しました");
-    Logger::Flush();
-    Logger::Shutdown();
+    FLogger::Flush();
+    FLogger::Shutdown();
 }
 
 void RunShutdownOnce() {
@@ -327,7 +327,7 @@ SaveEntry* FindSave(const char* key) noexcept {
 void WriteSaveFile() noexcept {
     FILE* f = nullptr;
     if (fopen_s(&f, "save.dat", "wb") != 0 || !f) {
-        // Logger 稼働中のみ警告（OpenWindow 前/終了後の Save でも安全に）
+        // FLogger 稼働中のみ警告（OpenWindow 前/終了後の Save でも安全に）
         if (g_state.booted && !g_state.finished)
             ACS_LOG_WARN("easy: セーブファイルに書き込めません");
         return;
@@ -384,27 +384,27 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
 
     // 1. ロガー
     FLogConfig lc{};
-    Logger::Init(lc);
+    FLogger::Init(lc);
 
     // 2. メモリシステム
-    if (auto r = MemorySystem::Init(MemorySystem::DefaultConfig()); r.IsErr()) {
+    if (auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig()); r.IsErr()) {
         ACS_LOG_ERROR("easy: メモリシステムの初期化に失敗: %s", r.Error().message);
         g_state.boot_failed = true;
         return;
     }
     // 3. スレッドプール
-    if (auto r = ThreadPool::Init(); r.IsErr()) {
+    if (auto r = FThreadPool::Init(); r.IsErr()) {
         ACS_LOG_ERROR("easy: スレッドプールの初期化に失敗: %s", r.Error().message);
         g_state.boot_failed = true;
         return;
     }
     // 4. ウィンドウ
-    ToWide(title ? title : "ACS Game", g_state.title_buf, 256);
-    WindowConfig wc{};
+    ToWide(title ? title : "ACS FGame", g_state.title_buf, 256);
+    FWindowConfig wc{};
     wc.title  = g_state.title_buf;
     wc.width  = (width  > 0) ? static_cast<u32>(width)  : 1280;
     wc.height = (height > 0) ? static_cast<u32>(height) : 720;
-    auto wr = Window::Create(wc);
+    auto wr = FWindow::Create(wc);
     if (wr.IsErr()) {
         ACS_LOG_ERROR("easy: ウィンドウの作成に失敗: %s", wr.Error().message);
         g_state.boot_failed = true;
@@ -441,7 +441,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
         }
     }
 
-    // 7. アセット・描画ヘルパ（ポスト有効時は SpriteBatch を HDR RT 向けに作る）
+    // 7. アセット・描画ヘルパ（ポスト有効時は FSpriteBatch を HDR RT 向けに作る）
     g_state.assets.RegisterDefaultLoaders();
     const EFormat batch_fmt = g_state.post_available
         ? g_state.post.HdrFormat() : g_state.renderer.ColorFormat();
@@ -505,7 +505,7 @@ bool NextFrame() noexcept {
         g_state.fs_request = -1;
     }
 
-    MemorySystem::ResetTemp();
+    FMemorySystem::ResetTemp();
     g_state.dt = g_state.timer.Tick();
 
     // 終了判定（× ボタン or Quit()）
@@ -550,7 +550,7 @@ bool NextFrame() noexcept {
         return false;
     }
     g_state.batch.Begin(*cl, g_state.window.Width(), g_state.window.Height());
-    // カメラを恒等（カメラ無し）にリセット。SpriteBatch::Begin の既定と一致させる。
+    // カメラを恒等（カメラ無し）にリセット。FSpriteBatch::Begin の既定と一致させる。
     g_state.cam_x    = static_cast<f32>(g_state.window.Width())  * 0.5f;
     g_state.cam_y    = static_cast<f32>(g_state.window.Height()) * 0.5f;
     g_state.cam_zoom = 1.0f;
@@ -645,7 +645,7 @@ void DrawRectOutline(f32 x, f32 y, f32 width, f32 height,
 void DrawRectRotated(f32 x, f32 y, f32 width, f32 height,
                      f32 degrees, FColor color) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
-    // 左上指定を中心へ変換して SpriteBatch に渡す
+    // 左上指定を中心へ変換して FSpriteBatch に渡す
     g_state.batch.DrawRectRotated(x + width * 0.5f, y + height * 0.5f,
                                  width, height, degrees * kDeg2Rad, ToVec4(color));
 }
@@ -909,11 +909,11 @@ Sprite LoadSprite(const char* path) noexcept {
     }
     TRc<Asset> asset = r.Value();
     Asset* base = asset.Get();
-    if (!base || base->Type() != ImageAsset::StaticType()) {
+    if (!base || base->Type() != FImageAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は画像ファイルではありません", path);
         return Sprite{ 0 };
     }
-    ImageAsset* img = static_cast<ImageAsset*>(base);
+    FImageAsset* img = static_cast<FImageAsset*>(base);
     auto tx = UploadTexture(*g_state.renderer.Device(), *img);
     if (tx.IsErr()) {
         ACS_LOG_ERROR("easy: 画像を GPU に転送できません '%s': %s", path, tx.Error().message);
@@ -948,7 +948,7 @@ Sound LoadSound(const char* path) noexcept {
     }
     TRc<Asset> asset = r.Value();
     Asset* base = asset.Get();
-    if (!base || base->Type() != AudioAsset::StaticType()) {
+    if (!base || base->Type() != FAudioAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は音声ファイルではありません", path);
         return Sound{ 0 };
     }
@@ -969,7 +969,7 @@ void Play(Sound sound, f32 volume) noexcept {
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
     Asset* base = g_state.sounds[sound.id - 1].asset.Get();
     if (base)
-        g_state.audio.Play(*static_cast<AudioAsset*>(base), Clamp01(volume), false);
+        g_state.audio.Play(*static_cast<FAudioAsset*>(base), Clamp01(volume), false);
 }
 
 void PlayLoop(Sound sound) noexcept { PlayLoop(sound, 1.0f); }
@@ -981,7 +981,7 @@ void PlayLoop(Sound sound, f32 volume) noexcept {
     Asset* base = slot.asset.Get();
     if (!base) return;
     if (slot.loop.IsValid()) g_state.audio.Stop(slot.loop);   // 二重ループを防ぐ
-    slot.loop = g_state.audio.Play(*static_cast<AudioAsset*>(base),
+    slot.loop = g_state.audio.Play(*static_cast<FAudioAsset*>(base),
                                   Clamp01(volume), true);
 }
 

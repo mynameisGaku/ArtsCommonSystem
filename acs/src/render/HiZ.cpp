@@ -63,7 +63,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> HiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept {
+TResult<void> FHiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept {
     _device = &device;
     _src_w  = src_width;
     _src_h  = src_height;
@@ -81,7 +81,7 @@ TResult<void> HiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexc
     return Ok();
 }
 
-TResult<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
+TResult<void> FHiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
     _hiz.Reset();
     _hiz_w = (src_w + kBlockSize - 1u) / kBlockSize;
     _hiz_h = (src_h + kBlockSize - 1u) / kBlockSize;
@@ -104,12 +104,12 @@ TResult<void> HiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
     return Ok();
 }
 
-TResult<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> FHiZ::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kHiZHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "HiZ.VS";
+    vs_d.debug_name  = "FHiZ.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
@@ -117,7 +117,7 @@ TResult<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kHiZHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "HiZ.PS";
+    ps_d.debug_name  = "FHiZ.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
@@ -147,7 +147,7 @@ TResult<void> HiZ::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void HiZ::Shutdown() noexcept {
+void FHiZ::Shutdown() noexcept {
     _pipeline.Reset();
     _cb.Reset();
     _ps.Reset();
@@ -156,15 +156,15 @@ void HiZ::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> HiZ::Resize(u32 src_width, u32 src_height) noexcept {
-    if (!_device) return ACS_ERR(Render, 320, "HiZ::Resize before Init");
+TResult<void> FHiZ::Resize(u32 src_width, u32 src_height) noexcept {
+    if (!_device) return ACS_ERR(Render, 320, "FHiZ::Resize before Init");
     if (src_width == _src_w && src_height == _src_h) return Ok();
     _src_w = src_width;
     _src_h = src_height;
     return CreateRT(*_device, src_width, src_height);
 }
 
-void HiZ::Build(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void FHiZ::Build(IRhiDevice& /*device*/, IRhiCommandList& cl,
                 IRhiTexture& scene_depth) noexcept {
     if (!_hiz || !_pipeline || !_cb) return;
 

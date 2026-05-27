@@ -5,7 +5,7 @@
 //       2D ゲームの絵描き用。同じテクスチャの連続スプライトは自動でバッチされる。
 //
 // 使い方:
-//   SpriteBatch sb;
+//   FSpriteBatch sb;
 //   sb.Init(*renderer.Device(), renderer.ColorFormat(), max_sprites=4096);
 //
 //   // 描画フレーム中
@@ -31,13 +31,13 @@
 
 namespace acs {
 
-class SpriteBatch {
+class FSpriteBatch {
 public:
-    SpriteBatch() noexcept = default;
-    ~SpriteBatch() noexcept = default;
+    FSpriteBatch() noexcept = default;
+    ~FSpriteBatch() noexcept = default;
 
-    SpriteBatch(const SpriteBatch&)            = delete;
-    SpriteBatch& operator=(const SpriteBatch&) = delete;
+    FSpriteBatch(const FSpriteBatch&)            = delete;
+    FSpriteBatch& operator=(const FSpriteBatch&) = delete;
 
     // 初期化（VS+PS、パイプライン、頂点/インデックスバッファを作成）
     // max_sprites: 1 フレームで描けるスプライト総数の上限

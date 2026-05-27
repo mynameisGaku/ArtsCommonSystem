@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — DialogueSystem
+// GameFramework 完成度システム v7 — FDialogueSystem
 //
 // シナリオ / NPC 会話 / イベントシーンで使うダイアログ駆動 state holder。
 // 1 行ずつテキストを送り出し、タイプライタ演出と分岐選択肢を扱う。
@@ -26,7 +26,7 @@
 //   ・**非コピー・非ムーブ**: state holder の唯一性 (現在行 / タイプ進行) を
 //     担保するため。
 //
-// 参考: SpriteAnimator (frame-based progression), Sequence (action 連鎖)
+// 参考: FSpriteAnimator (frame-based progression), FSequence (action 連鎖)
 #pragma once
 
 #include "foundation/Types.h"
@@ -47,16 +47,16 @@ struct DialogueChoice {
     u32         next_line_index = 0xFFFFFFFFu;  // 範囲外で「終了」を表現
 };
 
-class DialogueSystem {
+class FDialogueSystem {
 public:
-    DialogueSystem() noexcept = default;
-    ~DialogueSystem() noexcept = default;
+    FDialogueSystem() noexcept = default;
+    ~FDialogueSystem() noexcept = default;
 
     // 進行状態の唯一性を担保するため非コピー・非ムーブ
-    DialogueSystem(const DialogueSystem&)            = delete;
-    DialogueSystem& operator=(const DialogueSystem&) = delete;
-    DialogueSystem(DialogueSystem&&)                 = delete;
-    DialogueSystem& operator=(DialogueSystem&&)      = delete;
+    FDialogueSystem(const FDialogueSystem&)            = delete;
+    FDialogueSystem& operator=(const FDialogueSystem&) = delete;
+    FDialogueSystem(FDialogueSystem&&)                 = delete;
+    FDialogueSystem& operator=(FDialogueSystem&&)      = delete;
 
     // ----- セットアップ -----
     // 行を末尾に追加。挿入順に再生される。

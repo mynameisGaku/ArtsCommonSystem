@@ -91,7 +91,7 @@ void BtEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
         ImGui::EndMainMenuBar();
     }
 
-    // BehaviorTreeEditorPanel 本体。
+    // FBehaviorTreeEditorPanel 本体。
     // Workspace 未統合の最小構成なので、sample 側で直接 DrawUI を呼ぶ。
     _panel.DrawUI();
 }

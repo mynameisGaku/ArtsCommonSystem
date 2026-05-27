@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloUI — Application 派生クラス。
+// HelloUI — FApplication 派生クラス。
 //
 // ACS 純正 UI フレームワーク (src/ui/) を retained mode で使い、
 // PlayerVM の Observable を Slider/Checkbox/TextInput に MakeTwoWayBind で接続する。
@@ -26,7 +26,7 @@
 
 namespace helloui {
 
-class HelloUIApp : public acs::Application {
+class HelloUIApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -37,16 +37,16 @@ private:
     void BuildUI() noexcept;
 
     acs::Font                                                _font;
-    acs::UiRenderer                                          _ui;
-    acs::UiInput                                             _input;
+    acs::FUiRenderer                                          _ui;
+    acs::FUiInput                                             _input;
     PlayerVM                                                 _vm;
     acs::TUniquePtr<acs::StackPanel>                          _root;
     acs::Label*                                              _lbl_hp = nullptr;
     // Binder 群は _root より後に宣言 → dtor で先に死ぬ。OnShutdown コメント参照。
-    acs::TUniquePtr<acs::TwoWayBinder<acs::f32>>              _hp_slider_binder;
-    acs::TUniquePtr<acs::TwoWayBinder<acs::f32>>              _mp_slider_binder;
-    acs::TUniquePtr<acs::TwoWayBinder<bool>>                  _invincible_binder;
-    acs::TUniquePtr<acs::TwoWayBinder<acs::FString>>           _name_binder;
+    acs::TUniquePtr<acs::FTwoWayBinder<acs::f32>>              _hp_slider_binder;
+    acs::TUniquePtr<acs::FTwoWayBinder<acs::f32>>              _mp_slider_binder;
+    acs::TUniquePtr<acs::FTwoWayBinder<bool>>                  _invincible_binder;
+    acs::TUniquePtr<acs::FTwoWayBinder<acs::FString>>           _name_binder;
     acs::TUniquePtr<acs::OneWayConvertBinder<acs::f32, acs::FString>> _hp_text_binder;
     acs::TUniquePtr<acs::OneWayBinder<acs::FString>>           _hp_label_binder;
 };

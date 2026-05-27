@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS AssetPack — `.acpak` v1 アーカイブ書き出し器
+// ACS FAssetPack — `.acpak` v1 アーカイブ書き出し器
 // -----------------------------------------------------------------------------
 // 複数のバラのファイル (= バイト列) を 1 つの `.acpak` にまとめる Writer。
 // ツールビルド (= パッキングコマンド) から使うことを想定し、ランタイムは
-// AcpakReader だけで足りる。
+// FAcpakReader だけで足りる。
 //
 // 使い方の典型例:
-//   acs::assetpack::AcpakWriter w;
+//   acs::assetpack::FAcpakWriter w;
 //   auto r = w.Open(L"out/game.acpak", acs::assetpack::AcpakFlagNone);
 //   if (r.IsErr()) { /* 開けない */ }
 //
@@ -42,15 +42,15 @@
 
 namespace acs::assetpack {
 
-class AcpakWriter {
+class FAcpakWriter {
 public:
-    AcpakWriter() noexcept = default;
-    ~AcpakWriter() noexcept;
+    FAcpakWriter() noexcept = default;
+    ~FAcpakWriter() noexcept;
 
-    AcpakWriter(const AcpakWriter&)            = delete;
-    AcpakWriter& operator=(const AcpakWriter&) = delete;
-    AcpakWriter(AcpakWriter&&)                 = delete;
-    AcpakWriter& operator=(AcpakWriter&&)      = delete;
+    FAcpakWriter(const FAcpakWriter&)            = delete;
+    FAcpakWriter& operator=(const FAcpakWriter&) = delete;
+    FAcpakWriter(FAcpakWriter&&)                 = delete;
+    FAcpakWriter& operator=(FAcpakWriter&&)      = delete;
 
     // ---- ライフサイクル -----------------------------------------------------
 
@@ -66,7 +66,7 @@ public:
 
     // 暗号化用の鍵を設定する。Open 前後どちらでも呼べる。
     // flags に AcpakFlagEncrypted が含まれているときに Finalize で使われる。
-    void SetKey(const AcpakKey& key) noexcept;
+    void SetKey(const FAcpakKey& key) noexcept;
 
     // ハンドルを閉じる。Finalize 前に呼ぶと書きかけアーカイブが残るため、
     // ベストエフォートでファイルを削除する (実装は単純に CloseHandle だけ呼ぶ
@@ -111,7 +111,7 @@ private:
     TArray<PendingEntry> _pending;                 // AddFile が積んだ entry 群
 
     // Phase 2: 暗号化鍵 (AcpakFlagEncrypted のときに Finalize で使う)。
-    AcpakKey            _key{};
+    FAcpakKey            _key{};
     bool                _has_key     = false;
 };
 

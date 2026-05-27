@@ -2,7 +2,7 @@
 // アセットローダのインターフェイス
 //
 // 各アセット型 (Texture, Mesh, Audio など) ごとにローダを実装し、
-// AssetRegistry に登録する。レジストリは拡張子から適切なローダを呼び出す。
+// FAssetRegistry に登録する。レジストリは拡張子から適切なローダを呼び出す。
 #pragma once
 
 #include "foundation/Types.h"
@@ -25,7 +25,7 @@ public:
     virtual const char* Extension() const noexcept = 0;
 
     // バイト列からアセットを生成（同期）
-    // 非同期化は AssetRegistry 側が ThreadPool で本関数を呼ぶ形で実現する
+    // 非同期化は FAssetRegistry 側が FThreadPool で本関数を呼ぶ形で実現する
     virtual TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept = 0;
 };
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — DialogueSystem 実装
+// GameFramework 完成度システム v7 — FDialogueSystem 実装
 //
 // 状態遷移:
 //   NotStarted -> (Start) -> Typing -> (タイプ完了) -> Idle
@@ -18,11 +18,11 @@
 
 namespace acs::game {
 
-void DialogueSystem::AddLine(const DialogueLine& line) noexcept {
+void FDialogueSystem::AddLine(const DialogueLine& line) noexcept {
     _lines.PushBack(line);
 }
 
-void DialogueSystem::AddChoices(u32 at_line_index,
+void FDialogueSystem::AddChoices(u32 at_line_index,
                                 const DialogueChoice* choices, u32 count) noexcept {
     if (choices == nullptr || count == 0u) return;
     if (at_line_index >= static_cast<u32>(_lines.Size())) return;
@@ -42,7 +42,7 @@ void DialogueSystem::AddChoices(u32 at_line_index,
     _choices_at.PushBack(rec);
 }
 
-void DialogueSystem::Start() noexcept {
+void FDialogueSystem::Start() noexcept {
     if (_lines.Size() == 0) {
         // 行が無い場合は何もしない (caller は IsActive()==false を見て検知)
         _active    = false;
@@ -54,7 +54,7 @@ void DialogueSystem::Start() noexcept {
     EnterLine(0);
 }
 
-void DialogueSystem::AdvanceLine() noexcept {
+void FDialogueSystem::AdvanceLine() noexcept {
     if (!_active) return;
     if (_typing)  return;                 // タイプ未完では進めない
     if (HasChoicesPending()) return;      // 選択肢提示中は進めない (要 ChooseOption)
@@ -63,7 +63,7 @@ void DialogueSystem::AdvanceLine() noexcept {
     EnterLine(next);
 }
 
-void DialogueSystem::SkipTypewriter() noexcept {
+void FDialogueSystem::SkipTypewriter() noexcept {
     if (!_active) return;
     if (!_typing) return;
     _visible_chars = CurrentLineLength();
@@ -72,7 +72,7 @@ void DialogueSystem::SkipTypewriter() noexcept {
     _post_type_elapsed = 0.0f;            // auto-advance タイマ起点をリセット
 }
 
-void DialogueSystem::ChooseOption(u32 choice_index) noexcept {
+void FDialogueSystem::ChooseOption(u32 choice_index) noexcept {
     if (!_active) return;
     if (!HasChoicesPending()) return;
 
@@ -87,7 +87,7 @@ void DialogueSystem::ChooseOption(u32 choice_index) noexcept {
     EnterLine(c.next_line_index);
 }
 
-void DialogueSystem::Reset() noexcept {
+void FDialogueSystem::Reset() noexcept {
     _lines.Clear();
     _choices_at.Clear();
     _all_choices.Clear();
@@ -101,26 +101,26 @@ void DialogueSystem::Reset() noexcept {
     _choices_consumed   = true;
 }
 
-bool DialogueSystem::HasChoicesPending() const noexcept {
+bool FDialogueSystem::HasChoicesPending() const noexcept {
     if (!_active)         return false;
     if (_typing)          return false;    // タイプ完了するまで提示しない
     if (_choices_consumed) return false;
     return FindChoicesForCurrent() != nullptr;
 }
 
-const DialogueLine* DialogueSystem::CurrentLine() const noexcept {
+const DialogueLine* FDialogueSystem::CurrentLine() const noexcept {
     if (!_active) return nullptr;
     if (_current_line_index >= static_cast<u32>(_lines.Size())) return nullptr;
     return &_lines[_current_line_index];
 }
 
-u32 DialogueSystem::ChoiceCount() const noexcept {
+u32 FDialogueSystem::ChoiceCount() const noexcept {
     if (!HasChoicesPending()) return 0;
     const ChoicesAt* rec = FindChoicesForCurrent();
     return rec ? rec->choice_count : 0;
 }
 
-const DialogueChoice* DialogueSystem::Choices() const noexcept {
+const DialogueChoice* FDialogueSystem::Choices() const noexcept {
     if (!HasChoicesPending()) return nullptr;
     const ChoicesAt* rec = FindChoicesForCurrent();
     if (rec == nullptr) return nullptr;
@@ -128,7 +128,7 @@ const DialogueChoice* DialogueSystem::Choices() const noexcept {
     return &_all_choices[rec->choice_start];
 }
 
-void DialogueSystem::Tick(f32 dt) noexcept {
+void FDialogueSystem::Tick(f32 dt) noexcept {
     if (!_active) return;
     if (dt <= 0.0f) return;
 
@@ -168,13 +168,13 @@ void DialogueSystem::Tick(f32 dt) noexcept {
     }
 }
 
-void DialogueSystem::SetAutoAdvanceDelay(f32 delay_sec) noexcept {
+void FDialogueSystem::SetAutoAdvanceDelay(f32 delay_sec) noexcept {
     _auto_advance_delay = delay_sec > 0.0f ? delay_sec : 0.0f;
 }
 
 // ===== private =====
 
-const DialogueSystem::ChoicesAt* DialogueSystem::FindChoicesForCurrent() const noexcept {
+const FDialogueSystem::ChoicesAt* FDialogueSystem::FindChoicesForCurrent() const noexcept {
     for (usize i = 0; i < _choices_at.Size(); ++i) {
         if (_choices_at[i].line_index == _current_line_index) {
             return &_choices_at[i];
@@ -183,13 +183,13 @@ const DialogueSystem::ChoicesAt* DialogueSystem::FindChoicesForCurrent() const n
     return nullptr;
 }
 
-u32 DialogueSystem::CurrentLineLength() const noexcept {
+u32 FDialogueSystem::CurrentLineLength() const noexcept {
     const DialogueLine* line = CurrentLine();
     if (line == nullptr || line->text == nullptr) return 0;
     return static_cast<u32>(::strlen(line->text));
 }
 
-void DialogueSystem::EnterLine(u32 new_index) noexcept {
+void FDialogueSystem::EnterLine(u32 new_index) noexcept {
     // 範囲外 (= 末尾の先 or ChooseOption が UINT32_MAX を返した) なら終了
     if (new_index >= static_cast<u32>(_lines.Size())) {
         _active             = false;

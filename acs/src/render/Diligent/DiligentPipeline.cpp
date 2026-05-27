@@ -84,7 +84,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
             if (n) _tex_names[i] = n;
         }
     }
-    // PS は depth-only pass (ShadowMap 等) で null OK。NumRenderTargets=0、
+    // PS は depth-only pass (FShadowMap 等) で null OK。NumRenderTargets=0、
     // RTVFormats[0]=UNKNOWN にして PSO 作成する。
 
     Diligent::GraphicsPipelineStateCreateInfo psoCI;
@@ -129,7 +129,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
     // 経験的に: 色 pass (PS あり) で `true`、depth-only (PS なし) で `false`
-    // にすると ACS sample 群 (HelloLights / Bloom / Shadows / Sky / Mesh ...)
+    // にすると ACS sample 群 (HelloLights / Bloom / Shadows / FSky / Mesh ...)
     // で正しい winding になる。Diligent の D3D12 backend が swap chain / RT
     // 種別で内部的に何か変換してると推測。
     // 注: HelloBloom の off-screen HDR RT (PS あり、has_ps=true) も `true`

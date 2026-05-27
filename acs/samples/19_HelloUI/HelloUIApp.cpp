@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloUI — Application 実装。
+// HelloUI — FApplication 実装。
 #include "HelloUIApp.h"
 
 #include "app/Sample.h"
@@ -14,7 +14,7 @@ void HelloUIApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    ACS_SAMPLE_INIT(Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f));
+    ACS_SAMPLE_INIT(FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f));
     ACS_SAMPLE_INIT(_ui.Init(*dev, GetRenderer().ColorFormat(), &_font));
 
     BuildUI();
@@ -56,7 +56,7 @@ void HelloUIApp::BuildUI() noexcept {
     // widget は Label の content size か StackPanel の内側幅にフィットする。
     _root = MakeUnique<StackPanel>();
     _root->dir = EStackDir::Vertical;
-    _root->padding = UiPadding{ 24, 24, 24, 24 };
+    _root->padding = FUiPadding{ 24, 24, 24, 24 };
     _root->spacing = 8.0f;
 
     auto* title = _root->Add<Label>("=== ACS UI Demo ===");
@@ -64,7 +64,7 @@ void HelloUIApp::BuildUI() noexcept {
 
     _lbl_hp = _root->Add<Label>("HP: 100");
 
-    // Slider/Checkbox/TextInput は TwoWayBinder で VM と双方向同期する。
+    // Slider/Checkbox/TextInput は FTwoWayBinder で VM と双方向同期する。
     // どちらの側を書き換えても他方が追従する。
     auto* sl_hp = _root->Add<Slider>(0.0f, 100.0f);
     sl_hp->requested.w = 360.0f;

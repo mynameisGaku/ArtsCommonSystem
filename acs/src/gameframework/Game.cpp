@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — Game 実装 (Phase 1 着手)
+// GameFramework Pillar A — FGame 実装 (Phase 1 着手)
 #include "gameframework/Game.h"
 #include "gameframework/Scene.h"
 
@@ -11,10 +11,10 @@
 
 namespace acs::game {
 
-void Game::OnStart() noexcept {
+void FGame::OnStart() noexcept {
     TUniquePtr<Scene> first = InitialScene();
     if (!first) {
-        ACS_LOG_ERROR("Game::InitialScene() returned null — Quit");
+        ACS_LOG_ERROR("FGame::InitialScene() returned null — Quit");
         Quit();
         return;
     }
@@ -22,7 +22,7 @@ void Game::OnStart() noexcept {
     _scenes._ApplyPending(*this);     // 起動時の最初の遷移は即時適用
 }
 
-void Game::OnUpdate(f32 dt) noexcept {
+void FGame::OnUpdate(f32 dt) noexcept {
     const f32 scaled_dt = dt * _time_scale;
     _scenes._ApplyPending(*this);
 
@@ -49,7 +49,7 @@ void Game::OnUpdate(f32 dt) noexcept {
     _scenes._Update(scaled_dt);
 }
 
-void Game::OnRender() noexcept {
+void FGame::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
@@ -58,11 +58,11 @@ void Game::OnRender() noexcept {
     _render_ctx._EndFrame();
 }
 
-void Game::OnShutdown() noexcept {
+void FGame::OnShutdown() noexcept {
     _scenes._ShutdownAll();
 }
 
-void Game::OnEvent(const Event& e) noexcept {
+void FGame::OnEvent(const Event& e) noexcept {
     _scenes._DispatchEvent(e);
 }
 

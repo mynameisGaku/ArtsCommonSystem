@@ -11,16 +11,16 @@
 
 namespace hellofg {
 
-// 永続データ (SaveSlot で .acssave に保存される POD)
+// 永続データ (FSaveSlot で .acssave に保存される POD)
 struct HighScore {
     acs::u64 best_score = 0;   // これまでで最高のスコア
     acs::u64 timestamp  = 0;   // 達成時刻 (Clock::Ticks())、参考表示用
 };
 static_assert(__is_trivially_copyable(HighScore),
-              "HighScore must be trivially copyable for SaveSlot");
+              "HighScore must be trivially copyable for FSaveSlot");
 
 // world / camera
-inline constexpr acs::f32 kWorldUnit  = 32.0f;   // 1 world unit = 32 px (Camera2D zoom)
+inline constexpr acs::f32 kWorldUnit  = 32.0f;   // 1 world unit = 32 px (FCamera2D zoom)
 inline constexpr acs::f32 kWorldHalfW = 16.0f;   // [-16, +16]
 inline constexpr acs::f32 kWorldHalfH = 9.0f;    // [-9,  +9]
 
@@ -53,7 +53,7 @@ inline constexpr acs::f32 kSpawnIntervalSec = 0.6f;
 // 弾種 ID (文字列リテラルなので strcmp / アドレス比較で安全)
 inline constexpr const char* kBulletDefId = "player_bullet";
 
-// SaveSlot のファイル名 (相対パス wide string)。
+// FSaveSlot のファイル名 (相対パス wide string)。
 inline constexpr const wchar_t kSaveFile[] = L"hello_full_game_highscore.acssave";
 
 // HSL を rgb に変換せず、ベタの色定数だけ使う。

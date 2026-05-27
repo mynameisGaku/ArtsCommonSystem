@@ -35,7 +35,7 @@
         #undef GetMessage
     #endif
     #ifdef DrawText
-        #undef DrawText                 // SpriteBatch::DrawText と衝突
+        #undef DrawText                 // FSpriteBatch::DrawText と衝突
     #endif
     #ifdef GetObject
         #undef GetObject

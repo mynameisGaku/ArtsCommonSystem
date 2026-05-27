@@ -13,7 +13,7 @@ void PanelLayout::Init() noexcept {
     _hierarchy_panel.SetSelectionService(&_selection);
     _inspector_panel.Init();
     _inspector_panel.SetSelectionService(&_selection);
-    // EditorToolbar の最小契約: Init() で内部状態を default に戻す
+    // FEditorToolbar の最小契約: Init() で内部状態を default に戻す
     // (Play/Pause/Step トグルは内部で持つ)。
     _toolbar.Init();
 }
@@ -36,15 +36,15 @@ void PanelLayout::SelectInitial(acs::game::FNodeId id) noexcept {
     _selection.SelectNode(id);
 }
 
-void PanelLayout::DrawUI(acs::game::Game& game, acs::game::Node2D& root) noexcept {
-    // EditorPanel 基底に乗っているため、フレーム毎に依存を bind してから no-arg DrawUI。
+void PanelLayout::DrawUI(acs::game::FGame& game, acs::game::FNode2D& root) noexcept {
+    // FEditorPanel 基底に乗っているため、フレーム毎に依存を bind してから no-arg DrawUI。
     _toolbar.SetGame(&game);
     _toolbar.DrawUI();
 
     _hierarchy_panel.SetRootNode(&root);
     _hierarchy_panel.DrawUI();
 
-    // selection は Hierarchy 側が SelectionService に書き、Inspector が読む。
+    // selection は Hierarchy 側が FSelectionService に書き、Inspector が読む。
     _inspector_panel.SetInspectorSeam(&_seam);
     _inspector_panel.DrawUI();
 }

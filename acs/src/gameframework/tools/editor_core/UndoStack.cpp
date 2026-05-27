@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / UndoStack 実装 (Phase 21a)
+// GameFramework Tools — editor_core / FUndoStack 実装 (Phase 21a)
 //
 // 設計のポイント (詳細はヘッダ参照):
-//   ・undo / redo は LIFO の `TArray<TUniquePtr<EditorCommand>>` で表現する。
+//   ・undo / redo は LIFO の `TArray<TUniquePtr<FEditorCommand>>` で表現する。
 //   ・Push は所有権を奪い、Execute を実行、merge 判定し、redo stack を破棄する。
 //   ・上限超は最古 1 件を捨てる (PushBack 後にしか発生しないので超過量 = 1)。
 //   ・全 noexcept / STL 不使用 / 非コピー・非ムーブ。
@@ -17,7 +17,7 @@ namespace acs::game::editor_core {
 // ============================================================================
 // Init
 // ============================================================================
-void UndoStack::Init(u32 max_history) noexcept {
+void FUndoStack::Init(u32 max_history) noexcept {
     // 履歴を全破棄して上限を再設定する。多重 Init 安全。
     // 0 を渡された場合は default (64) にフォールバック (誤渡し対策)。
     _undo_stack.Clear();
@@ -31,7 +31,7 @@ void UndoStack::Init(u32 max_history) noexcept {
 // ============================================================================
 // Push
 // ============================================================================
-void UndoStack::Push(EditorCommand* cmd) noexcept {
+void FUndoStack::Push(FEditorCommand* cmd) noexcept {
     // 1. nullptr ガード: 誤呼び対策。cmd は呼び出し側が責任持って渡すべきだが、
     //    null だった場合に Execute を呼んで AV することのほうが危険なので
     //    silent no-op で握り潰す (Log は出さない: editor の UI から頻発し
@@ -45,7 +45,7 @@ void UndoStack::Push(EditorCommand* cmd) noexcept {
     // で作るのが標準パターン)。別 allocator の場合、TUniquePtr が delete する際に
     // alloc 引数 (= 第二引数) を渡す必要があるが、それは caller 側で個別に
     // TUniquePtr を作って Release してから渡す Phase 21+ 拡張で対応する。
-    TUniquePtr<EditorCommand> owned(cmd, &DefaultAllocator());
+    TUniquePtr<FEditorCommand> owned(cmd, &DefaultAllocator());
 
     // 2. Execute を呼ぶ (= "Do action")。
     owned->Execute();
@@ -56,7 +56,7 @@ void UndoStack::Push(EditorCommand* cmd) noexcept {
     //    "最新状態" を取りに来たときに整合する)。
     bool merged = false;
     if (!_undo_stack.IsEmpty()) {
-        EditorCommand* prev = _undo_stack.Back().Get();
+        FEditorCommand* prev = _undo_stack.Back().Get();
         if (prev != nullptr && prev->CanMerge(*owned)) {
             prev->MergeWith(*owned);
             merged = true;
@@ -88,7 +88,7 @@ void UndoStack::Push(EditorCommand* cmd) noexcept {
 // ============================================================================
 // Undo
 // ============================================================================
-bool UndoStack::Undo() noexcept {
+bool FUndoStack::Undo() noexcept {
     // 何も積まれていなければ no-op で false を返す (= UI 側で MenuItem の
     // enabled チェックがあっても、race 等で空のときに silent に弾ける)。
     if (_undo_stack.IsEmpty()) {
@@ -98,7 +98,7 @@ bool UndoStack::Undo() noexcept {
     // top を取り出す。PopBack は破棄してしまうので、先に Move で別 TUniquePtr に
     // 移してから PopBack する。Move 後の Back() は moved-from 状態 (= 内部
     // pointer が nullptr) なので、PopBack の dtor は何もしない。
-    TUniquePtr<EditorCommand> cmd = Move(_undo_stack.Back());
+    TUniquePtr<FEditorCommand> cmd = Move(_undo_stack.Back());
     _undo_stack.PopBack();
 
     // Undo を実行。基底経由なので派生の override に dispatch される。
@@ -108,7 +108,7 @@ bool UndoStack::Undo() noexcept {
 
     // redo stack に押し込む (= 次の Redo で再実行可能になる)。
     // callback には Move 前の生ポインタを渡したいので raw を取ってから Move。
-    EditorCommand* raw = cmd.Get();
+    FEditorCommand* raw = cmd.Get();
     _redo_stack.PushBack(Move(cmd));
 
     // callback 発火。Undo は Redo 由来ではないので is_redo = false。
@@ -121,23 +121,23 @@ bool UndoStack::Undo() noexcept {
 // ============================================================================
 // Redo
 // ============================================================================
-bool UndoStack::Redo() noexcept {
+bool FUndoStack::Redo() noexcept {
     if (_redo_stack.IsEmpty()) {
         return false;
     }
 
     // Undo と対称的に redo stack の top を取り出す。
-    TUniquePtr<EditorCommand> cmd = Move(_redo_stack.Back());
+    TUniquePtr<FEditorCommand> cmd = Move(_redo_stack.Back());
     _redo_stack.PopBack();
 
-    // Execute を再実行。EditorCommand::Execute は idempotent な実装が前提
-    // (Undo を挟まずに連続 Execute は UndoStack 側で発生しない)。
+    // Execute を再実行。FEditorCommand::Execute は idempotent な実装が前提
+    // (Undo を挟まずに連続 Execute は FUndoStack 側で発生しない)。
     if (cmd) {
         cmd->Execute();
     }
 
     // undo stack に戻す (= 再度 Undo で巻き戻せる)。
-    EditorCommand* raw = cmd.Get();
+    FEditorCommand* raw = cmd.Get();
     _undo_stack.PushBack(Move(cmd));
 
     // callback 発火。Redo 経由なので is_redo = true。
@@ -150,28 +150,28 @@ bool UndoStack::Redo() noexcept {
 // ============================================================================
 // 問い合わせ
 // ============================================================================
-bool UndoStack::CanUndo() const noexcept {
+bool FUndoStack::CanUndo() const noexcept {
     return !_undo_stack.IsEmpty();
 }
 
-bool UndoStack::CanRedo() const noexcept {
+bool FUndoStack::CanRedo() const noexcept {
     return !_redo_stack.IsEmpty();
 }
 
-u32 UndoStack::UndoCount() const noexcept {
+u32 FUndoStack::UndoCount() const noexcept {
     return static_cast<u32>(_undo_stack.Size());
 }
 
-u32 UndoStack::RedoCount() const noexcept {
+u32 FUndoStack::RedoCount() const noexcept {
     return static_cast<u32>(_redo_stack.Size());
 }
 
-const char* UndoStack::UndoDescription() const noexcept {
+const char* FUndoStack::UndoDescription() const noexcept {
     // 空のときは空文字列 (nullptr ではない → strlen / strcmp が安全)。
     if (_undo_stack.IsEmpty()) {
         return "";
     }
-    const EditorCommand* top = _undo_stack.Back().Get();
+    const FEditorCommand* top = _undo_stack.Back().Get();
     if (top == nullptr) {
         return "";
     }
@@ -179,11 +179,11 @@ const char* UndoStack::UndoDescription() const noexcept {
     return (desc != nullptr) ? desc : "";
 }
 
-const char* UndoStack::RedoDescription() const noexcept {
+const char* FUndoStack::RedoDescription() const noexcept {
     if (_redo_stack.IsEmpty()) {
         return "";
     }
-    const EditorCommand* top = _redo_stack.Back().Get();
+    const FEditorCommand* top = _redo_stack.Back().Get();
     if (top == nullptr) {
         return "";
     }
@@ -194,7 +194,7 @@ const char* UndoStack::RedoDescription() const noexcept {
 // ============================================================================
 // Clear / FCallback
 // ============================================================================
-void UndoStack::Clear() noexcept {
+void FUndoStack::Clear() noexcept {
     // TUniquePtr の dtor で全 cmd が自動 delete される。TArray::Clear は size を
     // 0 に戻すだけで capacity は維持されるため、その後の Push で再アロケーション
     // 不要 (=「シーン切替時に Clear」のような典型用途で GC 負荷が出ない)。
@@ -202,7 +202,7 @@ void UndoStack::Clear() noexcept {
     _redo_stack.Clear();
 }
 
-void UndoStack::SetOnExecutedCallback(CommandExecutedCallback cb, void* user) noexcept {
+void FUndoStack::SetOnExecutedCallback(CommandExecutedCallback cb, void* user) noexcept {
     // cb / user ともそのまま保存。nullptr 解除 OK (= cb は呼ばれなくなる)。
     _cb      = cb;
     _cb_user = user;
@@ -211,14 +211,14 @@ void UndoStack::SetOnExecutedCallback(CommandExecutedCallback cb, void* user) no
 // ============================================================================
 // 内部ヘルパ
 // ============================================================================
-void UndoStack::DropOldestIfOverflow() noexcept {
+void FUndoStack::DropOldestIfOverflow() noexcept {
     // _undo_stack のみが上限管理対象 (redo は Push 時に Clear されるため自然に
     // 上限以下になる)。
     // 超過件数は最大でも 1 (= 直前の PushBack 1 件分のみ) を想定する。
     while (static_cast<u32>(_undo_stack.Size()) > _max_history) {
         // 最古 = index 0 を捨てる。TArray は RemoveAt(0) を持たないので、
         // 自前で 1 つずつ前にずらしてから PopBack する。
-        // ・要素は TUniquePtr<EditorCommand> なのでムーブ可能。
+        // ・要素は TUniquePtr<FEditorCommand> なのでムーブ可能。
         // ・PopBack 前に index 0 が末尾要素まで移送されていれば、PopBack の
         //   破棄で最古 cmd が dtor 経由で delete される。
         const usize n = _undo_stack.Size();

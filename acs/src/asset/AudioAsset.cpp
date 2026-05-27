@@ -21,13 +21,13 @@
 namespace acs {
 
 namespace {
-// dr_libs / stb_vorbis から取得したサンプル列を AudioAsset に詰める共通処理
+// dr_libs / stb_vorbis から取得したサンプル列を FAudioAsset に詰める共通処理
 TRc<Asset> MakeAudio(FAssetId id, u32 sr, u8 ch, ESampleFormat fmt, u64 frames,
                     const void* src, usize src_bytes) noexcept {
     TArray<byte> samples;
     samples.Resize(src_bytes);
     MemCopy(samples.Data(), src, src_bytes);
-    TRc<AudioAsset> a = MakeRc<AudioAsset>(sr, ch, fmt, frames, Move(samples));
+    TRc<FAudioAsset> a = MakeRc<FAudioAsset>(sr, ch, fmt, frames, Move(samples));
     a->SetId(id);
     a->SetState(EAssetState::Ready);
     return TRc<Asset>(Move(a));

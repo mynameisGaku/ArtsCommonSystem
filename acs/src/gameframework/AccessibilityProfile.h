@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — AccessibilityProfile
+// GameFramework 完成度システム v7 — FAccessibilityProfile
 //
 // プレイヤーの身体的・認知的特性に合わせたゲーム体験のカスタマイズを保持する
 // 「アクセシビリティ設定 holder」。色覚補正・モーション低減・字幕・スクリーン
@@ -16,25 +16,25 @@
 // 設計選択:
 //   ・**caller が機能を適用する**: 本クラスは設定値を保持するだけ。実際に
 //     「色覚 LUT を差し替える」「字幕を表示する」「スクリーンリーダに発話させる」
-//     のは Renderer / UI / TTS バックエンドの責務。GameFramework モジュールから
+//     のは FRenderer / UI / TTS バックエンドの責務。GameFramework モジュールから
 //     具体的サブシステムへの依存を切る (Pillar 規約)。
 //   ・**プリセットは「上書き」**: ApplyPreset() は現設定を破棄して preset の
 //     値で全フィールドを再設定する。「Dyslexia の上に colorblind=Protanopia」
 //     のような追加変更はプリセット適用後に個別 setter で行う想定。
-//   ・**POD struct + class wrapper**: AccessibilitySettings は値オブジェクト
+//   ・**POD struct + class wrapper**: FAccessibilitySettings は値オブジェクト
 //     としてコピー可能 (UI から渡されたスナップショットを Set() で受け取れる)。
-//     AccessibilityProfile は非コピー・非ムーブ (Game / Scene のメンバとして
+//     FAccessibilityProfile は非コピー・非ムーブ (FGame / Scene のメンバとして
 //     1 インスタンスのみ存在する設計)。
 //   ・**screen_shake_scale / flash_intensity_scale は [0, 1] 推奨だが clamp しない**:
 //     1.0 = フル、0.0 = 完全カット。1.0 を超える値も技術的には許可するが、
 //     UI 側で 0..1 に制限する想定。
 //
 // 非コピー・非ムーブ:
-//   AccessibilityProfile は Game のメンバとして 1 インスタンスのみ存在する
+//   FAccessibilityProfile は FGame のメンバとして 1 インスタンスのみ存在する
 //   想定。複製可能にすると「どの Profile が真か」の同期ずれが発生する。
 //
 // 範囲外 (Phase 2+):
-//   ・永続化 (Settings 経由で Save / Load する想定、本クラスは値保持のみ)
+//   ・永続化 (FSettings 経由で Save / Load する想定、本クラスは値保持のみ)
 //   ・change notification (オブザーバ pattern)
 //   ・地域別法令準拠 (EAA / Section 508 / 韓国 KWCAG) の自動検証
 //   ・カスタムプリセット (ユーザー定義 preset の名前付き保存)
@@ -93,7 +93,7 @@ enum class ETextSize : u8 {
 //   全フィールド public、デフォルトコンストラクト可能。
 //   UI から渡されたスナップショットを Set() で一括反映する用途。
 // =============================================================================
-struct AccessibilitySettings {
+struct FAccessibilitySettings {
     EColorblindMode  colorblind             = EColorblindMode::None;
     EMotionReduction motion                 = EMotionReduction::Full;
     ETextSize        text_size              = ETextSize::Medium;
@@ -128,23 +128,23 @@ enum class EPreset : u8 {
     OneHanded = 6,
 };
 
-class AccessibilityProfile {
+class FAccessibilityProfile {
 public:
-    AccessibilityProfile()  noexcept = default;
-    ~AccessibilityProfile() noexcept = default;
+    FAccessibilityProfile()  noexcept = default;
+    ~FAccessibilityProfile() noexcept = default;
 
     // 非コピー・非ムーブ (state holder の唯一性を担保)
-    AccessibilityProfile(const AccessibilityProfile&)            = delete;
-    AccessibilityProfile& operator=(const AccessibilityProfile&) = delete;
-    AccessibilityProfile(AccessibilityProfile&&)                 = delete;
-    AccessibilityProfile& operator=(AccessibilityProfile&&)      = delete;
+    FAccessibilityProfile(const FAccessibilityProfile&)            = delete;
+    FAccessibilityProfile& operator=(const FAccessibilityProfile&) = delete;
+    FAccessibilityProfile(FAccessibilityProfile&&)                 = delete;
+    FAccessibilityProfile& operator=(FAccessibilityProfile&&)      = delete;
 
     // ----- 一括設定 -----
     // UI から受け取ったスナップショットで全フィールド上書き。
-    void Set(const AccessibilitySettings& s) noexcept;
+    void Set(const FAccessibilitySettings& s) noexcept;
 
     // 現在の設定値を const 参照で取得。
-    const AccessibilitySettings& Get() const noexcept { return _settings; }
+    const FAccessibilitySettings& Get() const noexcept { return _settings; }
 
     // ----- プリセット -----
     // プリセット適用 (現値を破棄して preset 既定で上書き)。
@@ -183,7 +183,7 @@ public:
     f32  FlashIntensityScale    () const noexcept { return _settings.flash_intensity_scale; }
 
 private:
-    AccessibilitySettings _settings{};
+    FAccessibilitySettings _settings{};
 };
 
 } // namespace acs::game

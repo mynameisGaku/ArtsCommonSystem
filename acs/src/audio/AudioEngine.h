@@ -2,12 +2,12 @@
 // XAudio2 ベースの音声エンジン
 //
 // 使い方:
-//   AudioEngine engine;
+//   FAudioEngine engine;
 //   engine.Init();
 //
-//   // AudioAsset (wav/mp3/flac/ogg) を Asset モジュールから取得
+//   // FAudioAsset (wav/mp3/flac/ogg) を Asset モジュールから取得
 //   TRc<Asset> asset = registry.Load(L"sound/bgm.ogg").Value();
-//   auto* audio = static_cast<AudioAsset*>(asset.Get());
+//   auto* audio = static_cast<FAudioAsset*>(asset.Get());
 //
 //   // 再生 (volume 0..1, loop は繰り返し)
 //   SoundHandle h = engine.Play(*audio, 1.0f, /*loop=*/true);
@@ -29,13 +29,13 @@
 
 namespace acs {
 
-class AudioEngine {
+class FAudioEngine {
 public:
-    AudioEngine() noexcept = default;
-    ~AudioEngine() noexcept;
+    FAudioEngine() noexcept = default;
+    ~FAudioEngine() noexcept;
 
-    AudioEngine(const AudioEngine&) = delete;
-    AudioEngine& operator=(const AudioEngine&) = delete;
+    FAudioEngine(const FAudioEngine&) = delete;
+    FAudioEngine& operator=(const FAudioEngine&) = delete;
 
     // XAudio2 を初期化
     TResult<void> Init() noexcept;
@@ -45,7 +45,7 @@ public:
     // 音声を再生開始
     //   volume: 0.0..1.0
     //   loop  : true なら無限ループ
-    SoundHandle Play(const AudioAsset& asset, f32 volume = 1.0f, bool loop = false) noexcept;
+    SoundHandle Play(const FAudioAsset& asset, f32 volume = 1.0f, bool loop = false) noexcept;
 
     // 停止 (内部スロットも解放)
     void Stop(SoundHandle h) noexcept;

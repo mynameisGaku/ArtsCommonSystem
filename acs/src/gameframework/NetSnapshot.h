@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M Phase 2 — NetSnapshot
+// GameFramework Pillar M Phase 2 — FNetSnapshot
 //   server-authoritative snapshot ベースのネットコード seam
 //
 // 役割:
@@ -13,14 +13,14 @@
 //      Source / Halo / Valorant 等で採用されている定石)。
 //   3) **transport の差し替え**: 実 socket / Steam Datagram Relay / loopback
 //      テスト fake のいずれを使うかは INetTransport seam で抽象化し、本クラスは
-//      send/recv バイト列だけを扱う。Pillar M Phase 1 (Lockstep = deterministic
+//      send/recv バイト列だけを扱う。Pillar M Phase 1 (FLockstep = deterministic
 //      input replay) と並ぶもう一つの netcode 流儀を提供する。
 //
-// Lockstep との対比:
-//   ・**Lockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
+// FLockstep との対比:
+//   ・**FLockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
 //     simulation を回す (=「結果」ではなく「入力」を配信する)。
 //     格闘ゲーム / RTS / GGPO 系で標準。
-//   ・**NetSnapshot**: server が 1 体の authoritative simulation を回し、
+//   ・**FNetSnapshot**: server が 1 体の authoritative simulation を回し、
 //     client は受け取った snapshot を補間表示するだけ (=「結果」だけを配信)。
 //     FPS / TPS / MMORPG 系で標準。
 //   どちらを採用するかはジャンル次第。両方を seam として提供し、タイトル
@@ -30,7 +30,7 @@
 //   NetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
 //                          /*interpolation_delay_sec=*/0.1f,
 //                          /*max_payload_bytes=*/8192 };
-//   NetSnapshot snap;
+//   FNetSnapshot snap;
 //   snap.Init(cfg, ENetRole::Server, &transport);
 //
 //   // 毎 simulation tick:
@@ -40,7 +40,7 @@
 //   snap.CommitSnapshot(world.CurrentTick());  // ← Send まで実行
 //
 // 使い方 (client 側):
-//   NetSnapshot snap;
+//   FNetSnapshot snap;
 //   snap.Init(cfg, ENetRole::Client, &transport);
 //
 //   // 毎フレーム:
@@ -79,14 +79,14 @@
 //     index を持つかは検討。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
-//     との結合関係を分裂させないため Lockstep / BackendClient と同じ方針)。
+//     との結合関係を分裂させないため FLockstep / FBackendClient と同じ方針)。
 //
 // 範囲外 (Phase 3+):
 //   ・delta compression (前 snapshot との差分のみ送る XOR + RLE)
 //   ・client-side prediction (input を server に投げる + 自分の predicted
 //     state を server snapshot で reconcile)
 //   ・lag compensation (server が過去 tick で hit detection をやり直す)
-//   ・snapshot encryption (AssetPack 同居の AcpakCrypto / AES-256-GCM 流用)
+//   ・snapshot encryption (FAssetPack 同居の FAcpakCrypto / AES-256-GCM 流用)
 //   ・partial / interest-management (client ごとに見える entity を絞り込む)
 //   ・reliable / unreliable channel 分離 (現在は INetTransport が抽象化)
 #pragma once
@@ -98,7 +98,7 @@
 namespace acs::game {
 
 // =============================================================================
-// ENetRole — NetSnapshot の動作役割
+// ENetRole — FNetSnapshot の動作役割
 // -----------------------------------------------------------------------------
 // Client : 受信のみ。AddEntitySnapshot / CommitSnapshot は no-op。
 // Server : 送信のみ。TryGetInterpolatedSnapshot は false を返す。
@@ -207,7 +207,7 @@ public:
 };
 
 // =============================================================================
-// 共通エラー subcode (NetSnapshot + NetTransportStub 共通)
+// 共通エラー subcode (FNetSnapshot + NetTransportStub 共通)
 // =============================================================================
 struct NetSnapshotError {
     enum SubCode : u16 {
@@ -244,19 +244,19 @@ public:
 INetTransport& GetTransportStub() noexcept;
 
 // =============================================================================
-// NetSnapshot — server-side 書出 / client-side 補間
+// FNetSnapshot — server-side 書出 / client-side 補間
 // -----------------------------------------------------------------------------
 // 1 セッション 1 オブジェクト。コピー / ムーブ禁止。
 // =============================================================================
-class NetSnapshot {
+class FNetSnapshot {
 public:
-    NetSnapshot() noexcept = default;
-    ~NetSnapshot() noexcept = default;
+    FNetSnapshot() noexcept = default;
+    ~FNetSnapshot() noexcept = default;
 
-    NetSnapshot(const NetSnapshot&)            = delete;
-    NetSnapshot& operator=(const NetSnapshot&) = delete;
-    NetSnapshot(NetSnapshot&&)                 = delete;
-    NetSnapshot& operator=(NetSnapshot&&)      = delete;
+    FNetSnapshot(const FNetSnapshot&)            = delete;
+    FNetSnapshot& operator=(const FNetSnapshot&) = delete;
+    FNetSnapshot(FNetSnapshot&&)                 = delete;
+    FNetSnapshot& operator=(FNetSnapshot&&)      = delete;
 
     // ----- 初期化 / 終了 -----
     // role = Standalone の場合、transport は nullptr を許容する。

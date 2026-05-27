@@ -2,9 +2,9 @@
 // 標準ウィジェット — Label / Button / Slider / Checkbox / TextInput
 //
 // すべての widget は Observable<T> プロパティで状態を公開しているので、
-// MVVM の Bind* で ViewModel と直結できる:
+// MVVM の Bind* で FViewModel と直結できる:
 //
-//   class PlayerVM : public ViewModel { Observable<f32> hp{100}; };
+//   class PlayerVM : public FViewModel { Observable<f32> hp{100}; };
 //   PlayerVM vm;
 //   StackPanel root;
 //   auto* sl = root.Add<Slider>(0.0f, 100.0f);
@@ -21,7 +21,7 @@ namespace acs {
 class Font;
 
 // ---- 共通 colorset (簡易テーマ) -------------------------------------------
-struct UiColors {
+struct FUiColors {
     FVec4 panel_bg     = { 0.16f, 0.18f, 0.24f, 0.95f };
     FVec4 panel_border = { 0.40f, 0.45f, 0.55f, 0.80f };
     FVec4 button_bg    = { 0.25f, 0.40f, 0.65f, 1.0f };
@@ -39,8 +39,8 @@ struct UiColors {
     FVec4 input_focus  = { 0.20f, 0.30f, 0.50f, 1.0f };
 };
 
-inline UiColors& DefaultUiColors() noexcept {
-    static UiColors s;
+inline FUiColors& DefaultUiColors() noexcept {
+    static FUiColors s;
     return s;
 }
 
@@ -55,7 +55,7 @@ public:
 
     Observable<FString> text;
 
-    void Render(UiRenderer& r) noexcept override;
+    void Render(FUiRenderer& r) noexcept override;
 };
 
 // ============================================================================
@@ -73,7 +73,7 @@ public:
     // Set(true) → Subscribe している箇所が呼ばれる → 自動で false に戻す
     Observable<bool> clicked{ false };
 
-    void Render(UiRenderer& r) noexcept override;
+    void Render(FUiRenderer& r) noexcept override;
     void OnPointerDown(f32 /*px*/, f32 /*py*/) noexcept override { pressed = true; }
     void OnPointerUp  (f32 px, f32 py) noexcept override {
         if (pressed && rect.Contains(px, py)) {
@@ -97,7 +97,7 @@ public:
     f32 min_value = 0.0f;
     f32 max_value = 1.0f;
 
-    void Render(UiRenderer& r) noexcept override;
+    void Render(FUiRenderer& r) noexcept override;
     void OnPointerDown(f32 px, f32 /*py*/) noexcept override { pressed = true; UpdateFromMouse(px); }
     void OnPointerMove(f32 px, f32 /*py*/) noexcept override { if (pressed) UpdateFromMouse(px); }
     void OnPointerUp  (f32 /*px*/, f32 /*py*/) noexcept override { pressed = false; }
@@ -124,7 +124,7 @@ public:
     Observable<bool>   checked{ false };
     Observable<FString> text;
 
-    void Render(UiRenderer& r) noexcept override;
+    void Render(FUiRenderer& r) noexcept override;
     void OnPointerUp(f32 px, f32 py) noexcept override {
         if (rect.Contains(px, py)) checked.Set(!checked.Get());
     }
@@ -141,7 +141,7 @@ public:
 
     Observable<FString> text{ FString{} };
 
-    void Render(UiRenderer& r) noexcept override;
+    void Render(FUiRenderer& r) noexcept override;
     void OnPointerDown(f32 /*px*/, f32 /*py*/) noexcept override { focused = true; }
     void OnTextInput(u32 codepoint) noexcept override {
         if (!focused) return;

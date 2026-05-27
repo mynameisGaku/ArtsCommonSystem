@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — InputMap (Phase 6)
+// GameFramework Pillar D — FInputMap (Phase 6)
 //
 // 物理入力 (EKey/EMouseButton/EGamepadButton) を「名前付きアクション」に束ねる
 // マッピング層。ゲームロジックが物理キーから疎結合になり、キーコンフィグ UI も
 // 後付けで書けるようになる。
 //
 // 使い方:
-//   InputMap im;
+//   FInputMap im;
 //   im.BindKey         (ActionId("Jump"),  EKey::Space);
 //   im.BindGamepad     (ActionId("Jump"),  EGamepadButton::A);
 //   im.BindAxisKeys    (ActionId("MoveX"), EKey::A, EKey::D);
@@ -26,7 +26,7 @@
 // 範囲外 (Phase 2+ で):
 //   ・analog axis (gamepad stick の生 f32 値、現状はキー → -1/+1 のみ)
 //   ・player_index 完全対応 (Phase 1 は gamepad bind 時のみ受ける、digital は 0 固定)
-//   ・Settings (`Storage`) への永続化
+//   ・FSettings (`Storage`) への永続化
 //   ・input context スタック (gameplay/menu/dialogue でバインド集を push/pop)
 //   ・event 配送 (現状は OnUpdate からの polling 前提)
 #pragma once
@@ -61,13 +61,13 @@ struct ActionId {
     constexpr bool operator!=(ActionId o) const noexcept { return value != o.value; }
 };
 
-class InputMap {
+class FInputMap {
 public:
-    InputMap() noexcept = default;
-    ~InputMap() noexcept = default;
+    FInputMap() noexcept = default;
+    ~FInputMap() noexcept = default;
 
-    InputMap(const InputMap&)            = delete;
-    InputMap& operator=(const InputMap&) = delete;
+    FInputMap(const FInputMap&)            = delete;
+    FInputMap& operator=(const FInputMap&) = delete;
 
     // ----- bind -----
     void BindKey         (ActionId action, EKey key) noexcept;

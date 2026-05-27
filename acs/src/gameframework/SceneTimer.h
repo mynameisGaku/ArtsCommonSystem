@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — SceneTimer (scene-scoped 遅延コールバック)
+// GameFramework Pillar H — FSceneTimer (scene-scoped 遅延コールバック)
 //
 // シーンスコープの SetTimeout / SetInterval。Scene 死亡で自動破棄される点が
-// 既存 `acs::TimerManager` (event/Timer.h、グローバル寿命) との違い。各 Scene が
-// 自分の SceneTimer をメンバ保持し OnUpdate から Tick(dt) を呼ぶ想定。
+// 既存 `acs::FTimerManager` (event/Timer.h、グローバル寿命) との違い。各 Scene が
+// 自分の FSceneTimer をメンバ保持し OnUpdate から Tick(dt) を呼ぶ想定。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::SceneTimer _timers;
-//       acs::game::TimerHandle _spawn_timer;
+//       acs::game::FSceneTimer _timers;
+//       acs::game::FTimerHandle _spawn_timer;
 //
 //       void OnEnter() noexcept override {
 //           _spawn_timer = _timers.SetInterval(2.0f, &GameplayScene::SpawnEnemy, this);
@@ -38,7 +38,7 @@ namespace acs::game {
 
 // 24bit index + 8bit generation を packed した handle。
 // _packed == 0 を invalid と定義 (gen は常に 1 以上)。
-struct TimerHandle {
+struct FTimerHandle {
     u32 _packed = 0u;
 
     bool IsValid() const noexcept { return _packed != 0u; }
@@ -48,8 +48,8 @@ struct TimerHandle {
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
     static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215 個
 
-    static TimerHandle Pack(u32 index, u8 gen) noexcept {
-        TimerHandle h;
+    static FTimerHandle Pack(u32 index, u8 gen) noexcept {
+        FTimerHandle h;
         h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
@@ -59,32 +59,32 @@ struct TimerHandle {
 
 using TimerCallback = void(*)(void* user) noexcept;
 
-class SceneTimer {
+class FSceneTimer {
 public:
-    SceneTimer() noexcept = default;
-    ~SceneTimer() noexcept = default;
+    FSceneTimer() noexcept = default;
+    ~FSceneTimer() noexcept = default;
 
     // 非コピー・非ムーブ (発火中の self 参照との競合を防ぐ)
-    SceneTimer(const SceneTimer&)            = delete;
-    SceneTimer& operator=(const SceneTimer&) = delete;
-    SceneTimer(SceneTimer&&)                 = delete;
-    SceneTimer& operator=(SceneTimer&&)      = delete;
+    FSceneTimer(const FSceneTimer&)            = delete;
+    FSceneTimer& operator=(const FSceneTimer&) = delete;
+    FSceneTimer(FSceneTimer&&)                 = delete;
+    FSceneTimer& operator=(FSceneTimer&&)      = delete;
 
     // delay_sec 後に cb(user) を 1 回だけ実行。
     // delay_sec <= 0 or cb == nullptr は invalid handle を返す (即時実行はしない)。
-    TimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept;
+    FTimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept;
 
     // period_sec ごとに cb(user) を繰り返し実行 (Cancel まで永続)。
     // period_sec <= 0 or cb == nullptr は invalid handle を返す。
-    TimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept;
+    FTimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept;
 
     // h が active なら停止して true を返す。stale or 既に完了は false。
-    bool Cancel(TimerHandle h) noexcept;
+    bool Cancel(FTimerHandle h) noexcept;
 
     // 全 active timer を停止 (callback は呼ばない)。
     void CancelAll() noexcept;
 
-    bool IsActive(TimerHandle h) const noexcept;
+    bool IsActive(FTimerHandle h) const noexcept;
     u32  ActiveCount() const noexcept { return _active_count; }
 
     // 毎フレーム呼ぶ。dt < 0 は無視 (= 0 は何もしない)。
@@ -103,7 +103,7 @@ private:
     };
 
     u32         AcquireSlot() noexcept;
-    TimerHandle MakeHandle(u32 index, u8 gen) const noexcept;
+    FTimerHandle MakeHandle(u32 index, u8 gen) const noexcept;
 
     TArray<TimerEntry> _entries;
     u32               _active_count = 0u;

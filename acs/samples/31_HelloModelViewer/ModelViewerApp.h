@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloModelViewer — Game 派生のアプリケーションクラス。
-// ImGui lifecycle を Game に持たせる薄いラッパ (sample 29/30 と同形)。
+// HelloModelViewer — FGame 派生のアプリケーションクラス。
+// ImGui lifecycle を FGame に持たせる薄いラッパ (sample 29/30 と同形)。
 #pragma once
 
 #include "gameframework/GameFramework.h"
@@ -8,7 +8,7 @@
 
 namespace hellomv {
 
-class ModelViewerApp : public acs::game::Game {
+class ModelViewerApp : public acs::game::FGame {
 public:
     void OnStart() noexcept override;
     void OnRender() noexcept override;

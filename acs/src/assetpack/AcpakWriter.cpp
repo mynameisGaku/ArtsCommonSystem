@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS AssetPack — AcpakWriter 実装 (Win32 I/O + CRC32 計算)
+// ACS FAssetPack — FAcpakWriter 実装 (Win32 I/O + CRC32 計算)
 // -----------------------------------------------------------------------------
 // 書き出しレイアウト:
 //   1. ヘッダ (36 バイト固定、AcpakFormat.h の kAcpakHeaderDiskSize 参照)
@@ -36,7 +36,7 @@ namespace acs::assetpack {
 // ============================================================================
 namespace {
 
-// AcpakReader.cpp と同じ実装。link 単位を分けているので重複する。
+// FAcpakReader.cpp と同じ実装。link 単位を分けているので重複する。
 // (Hash.cpp に共通 CRC32 を出す案は Phase 2 でやる)
 const u32* GetCrc32Table() noexcept {
     static u32 _table[256] = {};
@@ -128,14 +128,14 @@ u32 LenW(const wchar_t* s) noexcept {
 } // namespace
 
 // ============================================================================
-// AcpakWriter 実装
+// FAcpakWriter 実装
 // ============================================================================
 
-AcpakWriter::~AcpakWriter() noexcept {
+FAcpakWriter::~FAcpakWriter() noexcept {
     Close();
 }
 
-void AcpakWriter::Close() noexcept {
+void FAcpakWriter::Close() noexcept {
     if (_file_handle != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(_file_handle));
         _file_handle = nullptr;
@@ -143,7 +143,7 @@ void AcpakWriter::Close() noexcept {
     ResetState();
 }
 
-void AcpakWriter::ResetState() noexcept {
+void FAcpakWriter::ResetState() noexcept {
     _flags     = 0;
     _finalized = false;
     _pending.Clear();
@@ -153,19 +153,19 @@ void AcpakWriter::ResetState() noexcept {
     _has_key = false;
 }
 
-void AcpakWriter::SetKey(const AcpakKey& key) noexcept {
+void FAcpakWriter::SetKey(const FAcpakKey& key) noexcept {
     MemCopy(_key.bytes, key.bytes, sizeof(_key.bytes));
     _has_key = true;
 }
 
-TResult<void> AcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) noexcept {
+TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) noexcept {
     if (_file_handle != nullptr) {
         return ACS_ERR(IO, kAcpakSubAlreadyOpen,
-                       "AcpakWriter::Open: writer already open");
+                       "FAcpakWriter::Open: writer already open");
     }
     if (output_path == nullptr) {
         return ACS_ERR(IO, kAcpakSubIOFailure,
-                       "AcpakWriter::Open: output_path is null");
+                       "FAcpakWriter::Open: output_path is null");
     }
 
     // Phase 2: encrypted / compressed は実装済。未知 flag bit のみ拒否。
@@ -173,14 +173,14 @@ TResult<void> AcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) n
                             static_cast<u32>(AcpakFlagCompressed);
     if ((static_cast<u32>(flags) & ~known_flags) != 0) {
         return ACS_ERR(Asset, kAcpakSubBadFlags,
-                       "AcpakWriter::Open: unknown flag bits");
+                       "FAcpakWriter::Open: unknown flag bits");
     }
 
     HANDLE h = ::CreateFileW(output_path, GENERIC_WRITE, 0, nullptr,
                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "AcpakWriter::Open: CreateFileW failed",
+                          "FAcpakWriter::Open: CreateFileW failed",
                           ::GetLastError());
     }
 
@@ -205,30 +205,30 @@ TResult<void> AcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) n
         _file_handle = nullptr;
         ResetState();
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "AcpakWriter::Open: WriteFile (header) failed", err);
+                          "FAcpakWriter::Open: WriteFile (header) failed", err);
     }
 
     return Ok();
 }
 
-TResult<void> AcpakWriter::AddFile(const wchar_t* virtual_path,
+TResult<void> FAcpakWriter::AddFile(const wchar_t* virtual_path,
                                   const void*    data,
                                   u64            size) noexcept {
     if (_file_handle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "AcpakWriter::AddFile: writer not open");
+                       "FAcpakWriter::AddFile: writer not open");
     }
     if (_finalized) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "AcpakWriter::AddFile: writer already finalized");
+                       "FAcpakWriter::AddFile: writer already finalized");
     }
     if (virtual_path == nullptr) {
         return ACS_ERR(IO, kAcpakSubIOFailure,
-                       "AcpakWriter::AddFile: virtual_path is null");
+                       "FAcpakWriter::AddFile: virtual_path is null");
     }
     if (data == nullptr && size > 0) {
         return ACS_ERR(IO, kAcpakSubIOFailure,
-                       "AcpakWriter::AddFile: data is null but size > 0");
+                       "FAcpakWriter::AddFile: data is null but size > 0");
     }
 
     PendingEntry e{};
@@ -245,9 +245,9 @@ TResult<void> AcpakWriter::AddFile(const wchar_t* virtual_path,
 // Phase 2 では各 entry に対し **compress-then-encrypt** パイプラインを通す。
 //   1. (元データ ptr, size) → CRC32 計算 (元バイト基準)
 //   2. compressed 立ち & 圧縮効果あり (< original * 0.97) → LZ4 圧縮
-//      圧縮効果が薄ければ生格納フォールバック (AcpakFileEntry::size_stored ==
+//      圧縮効果が薄ければ生格納フォールバック (FAcpakFileEntry::size_stored ==
 //      size_uncompressed のまま)。この判断は per-entry に独立。
-//      ※ AssetPack.md §5 の "97%" 安全規則。アーカイブがバラより大きくなる
+//      ※ FAssetPack.md §5 の "97%" 安全規則。アーカイブがバラより大きくなる
 //          ことを防ぐ。
 //   3. encrypted 立ち → CSPRNG nonce 生成 → AES-256-GCM 暗号化 (tag 出力)
 //   4. ディスクに stored bytes を書く
@@ -261,7 +261,7 @@ TResult<void> AcpakWriter::AddFile(const wchar_t* virtual_path,
 //   ・LZ4 で生格納に倒れた entry でも、暗号化は通常通り行う (size_stored ==
 //     size_uncompressed のままで AES-GCM)。
 //   ・Reader は size_stored == size_uncompressed のとき LZ4 をスキップする
-//     pipeline になっている (= AcpakReader::ReadFile の is_compressed
+//     pipeline になっている (= FAcpakReader::ReadFile の is_compressed
 //     ブロックで full_match 0 のときも単に noop)。
 //   ・ただし現実装の Reader はファイル単位の per-entry "compressed?" 判定を
 //     持たない (header flags のみ参照)。そこで Reader は「compressed flag が
@@ -270,14 +270,14 @@ TResult<void> AcpakWriter::AddFile(const wchar_t* virtual_path,
 //       必ず LZ4 を通し、たとえ size_stored > size_uncompressed でも保存する」
 //       挙動とする。"97%" 安全規則は Phase 3 で per-entry flag を追加して
 //       再検討する (今は単純化を優先)。
-TResult<void> AcpakWriter::Finalize() noexcept {
+TResult<void> FAcpakWriter::Finalize() noexcept {
     if (_file_handle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "AcpakWriter::Finalize: writer not open");
+                       "FAcpakWriter::Finalize: writer not open");
     }
     if (_finalized) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "AcpakWriter::Finalize: already finalized");
+                       "FAcpakWriter::Finalize: already finalized");
     }
 
     HANDLE h = static_cast<HANDLE>(_file_handle);
@@ -288,7 +288,7 @@ TResult<void> AcpakWriter::Finalize() noexcept {
     // file pointer が想定外位置にいるリスクを下げる)。
     if (!SeekTo(h, kAcpakHeaderDiskSize, err)) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "AcpakWriter::Finalize: SetFilePointerEx failed", err);
+                          "FAcpakWriter::Finalize: SetFilePointerEx failed", err);
     }
 
     const bool is_encrypted  = (_flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
@@ -297,7 +297,7 @@ TResult<void> AcpakWriter::Finalize() noexcept {
     // 暗号化が立っているのに鍵未設定なら早期に弾く (失敗のソースを明確化)。
     if (is_encrypted && !_has_key) {
         return ACS_ERR(Asset, kAcpakSubCryptoKey,
-                       "AcpakWriter::Finalize: encrypted flag set but no key");
+                       "FAcpakWriter::Finalize: encrypted flag set but no key");
     }
 
     // 各 entry の (offset, size_unc, size_st, crc32, nonce[12], tag[16]) を控える。
@@ -333,12 +333,12 @@ TResult<void> AcpakWriter::Finalize() noexcept {
         if (is_compressed) {
             if (p.size > 0xFFFFFFFFu) {
                 return ACS_ERR(Asset, kAcpakSubBadSize,
-                               "AcpakWriter::Finalize: input > 4GiB (LZ4 limit)");
+                               "FAcpakWriter::Finalize: input > 4GiB (LZ4 limit)");
             }
             const u32 src_size = static_cast<u32>(p.size);
-            const u32 dst_cap  = AcpakLz4::MaxCompressedSize(src_size);
+            const u32 dst_cap  = FAcpakLz4::MaxCompressedSize(src_size);
             stage_compress.Resize(dst_cap);
-            auto cr = AcpakLz4::Compress(static_cast<const u8*>(p.data),
+            auto cr = FAcpakLz4::Compress(static_cast<const u8*>(p.data),
                                          src_size,
                                          stage_compress.Data(),
                                          dst_cap);
@@ -350,11 +350,11 @@ TResult<void> AcpakWriter::Finalize() noexcept {
         // ---- 暗号化 (compress-then-encrypt の 2 段目) -------------------
         if (is_encrypted) {
             // CSPRNG nonce 生成
-            AcpakCrypto::GenerateRandomNonce(w.cipher_nonce);
+            FAcpakCrypto::GenerateRandomNonce(w.cipher_nonce);
 
             // 出力バッファ (= 同 size の別領域、in-place も可だが分離で安全)
             stage_encrypt.Resize(static_cast<usize>(stage_size));
-            auto er = AcpakCrypto::Encrypt(_key,
+            auto er = FAcpakCrypto::Encrypt(_key,
                                            w.cipher_nonce,
                                            stage_ptr, stage_size,
                                            stage_encrypt.Data(),
@@ -370,7 +370,7 @@ TResult<void> AcpakWriter::Finalize() noexcept {
         if (stage_size > 0) {
             if (!WriteAll(h, stage_ptr, stage_size, err)) {
                 return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                                  "AcpakWriter::Finalize: WriteFile (data) failed", err);
+                                  "FAcpakWriter::Finalize: WriteFile (data) failed", err);
             }
         }
 
@@ -417,14 +417,14 @@ TResult<void> AcpakWriter::Finalize() noexcept {
 
         if (!WriteAll(h, buf, entry_bytes, err)) {
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                              "AcpakWriter::Finalize: WriteFile (entry) failed", err);
+                              "FAcpakWriter::Finalize: WriteFile (entry) failed", err);
         }
     }
 
     // ---- ヘッダ書き戻し (file_count + file_table_offset を確定) ------------
     if (!SeekTo(h, 0, err)) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "AcpakWriter::Finalize: SetFilePointerEx (rewind) failed", err);
+                          "FAcpakWriter::Finalize: SetFilePointerEx (rewind) failed", err);
     }
 
     u8 header[kAcpakHeaderDiskSize] = {};
@@ -438,7 +438,7 @@ TResult<void> AcpakWriter::Finalize() noexcept {
 
     if (!WriteAll(h, header, kAcpakHeaderDiskSize, err)) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "AcpakWriter::Finalize: WriteFile (header rewrite) failed", err);
+                          "FAcpakWriter::Finalize: WriteFile (header rewrite) failed", err);
     }
 
     // ディスクに反映 (クラッシュ耐性は完璧ではないが、最低限 flush 要求)

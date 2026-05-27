@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloECS — Application 実装。
+// HelloECS — FApplication 実装。
 //
 // 学習ポイント:
 //   ・SparseSet ベースの O(1) Add/Remove
@@ -7,7 +7,7 @@
 //     別スレッドで独立に呼ばれるので、共有資源には触らないこと
 //   ・MessageBroker はシングルスレッド前提の同期 pub/sub。よって publish は
 //     並列ループの外（メインスレッド）から行う
-//   ・TimerManager で OnUpdate に頼らない時刻ベース処理
+//   ・FTimerManager で OnUpdate に頼らない時刻ベース処理
 #include "HelloECSApp.h"
 #include "Types.h"
 
@@ -75,7 +75,7 @@ void HelloECSApp::OnUpdate(f32 dt) noexcept {
     const f32 sh = static_cast<f32>(GetRenderer().Swapchain()->Height());
 
     // ラムダ内は別スレッドから呼ばれるので、外部の共有資源 (MessageBroker /
-    // SpriteBatch など) に触らないこと。Position / Velocity は Entity 毎に
+    // FSpriteBatch など) に触らないこと。Position / Velocity は Entity 毎に
     // 独立しているので並列化して安全。
     // grain=64 は demo の Entity 数が少ないため意図的に小さい (実プロジェクト
     // では 1024 程度を目安に — タスク生成オーバーヘッドを減らす)。
@@ -99,7 +99,7 @@ void HelloECSApp::OnRender() noexcept {
     _batch.Begin(*cl, sw, sh);
     _batch.DrawRect(0, 0, (f32)sw, (f32)sh, FVec4{0.05f, 0.06f, 0.1f, 1});
 
-    // 描画は SpriteBatch のコマンド記録がスレッド非安全なので必ず逐次 Each()。
+    // 描画は FSpriteBatch のコマンド記録がスレッド非安全なので必ず逐次 Each()。
     // EachParallel をここで使うと未定義動作になる。
     const f32 r = 8.0f;
     GetWorld().Query<Position, FColor>().Each(

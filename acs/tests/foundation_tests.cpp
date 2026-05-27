@@ -37,6 +37,6 @@ ACS_TEST(Foundation, SourceLocCaptures) {
 
 ACS_TEST(Foundation, LoggerEmits) {
     ACS_LOG_INFO("foundation log smoke test value=%d", 7);
-    Logger::Flush();
+    FLogger::Flush();
     EXPECT_TRUE(true);
 }

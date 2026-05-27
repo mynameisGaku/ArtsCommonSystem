@@ -68,7 +68,7 @@ struct FPipelineDesc {
     // null のままなら "cb{slot}" / "t{slot}" がフォールバックとして使われる。
     // DX12 raw backend は register slot で直接バインドするためここは無視される。
     //
-    // 例: StandardShader の場合
+    // 例: FStandardShader の場合
     //   cbuffer_names[0] = "Frame";   // cbuffer Frame : register(b0)
     //   cbuffer_names[1] = "Object";  // cbuffer Object : register(b1)
     //   texture_names[0] = "albedo";    // Texture2D albedo : register(t0)

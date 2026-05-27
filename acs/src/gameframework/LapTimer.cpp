@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar (ジャンルキット: Racing) — LapTimer 実装
+// GameFramework Pillar (ジャンルキット: Racing) — FLapTimer 実装
 //
 // slot+gen で racer を管理し、Tick で race clock を進めつつ、collider 側からの
 // NotifyCheckpointPassed / NotifyLapCompleted で進捗を蓄積する。順位算出は
@@ -12,7 +12,7 @@ namespace acs::game {
 // helpers (slot 取得 / 検索)
 // ----------------------------------------------------------------------------
 
-u32 LapTimer::AcquireSlot() noexcept {
+u32 FLapTimer::AcquireSlot() noexcept {
     // index 0 を invalid 予約として残す (dummy slot)。
     for (u32 i = 1; i < _slots.Size(); ++i) {
         if (!_slots[i].active) return i;
@@ -24,7 +24,7 @@ u32 LapTimer::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-LapTimer::Slot* LapTimer::FindSlot(RacerId id) noexcept {
+FLapTimer::Slot* FLapTimer::FindSlot(RacerId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0 || idx >= _slots.Size()) return nullptr;
@@ -34,7 +34,7 @@ LapTimer::Slot* LapTimer::FindSlot(RacerId id) noexcept {
     return &s;
 }
 
-const LapTimer::Slot* LapTimer::FindSlot(RacerId id) const noexcept {
+const FLapTimer::Slot* FLapTimer::FindSlot(RacerId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0 || idx >= _slots.Size()) return nullptr;
@@ -44,7 +44,7 @@ const LapTimer::Slot* LapTimer::FindSlot(RacerId id) const noexcept {
     return &s;
 }
 
-bool LapTimer::IsBetterRank(const RacerStats& lhs, const RacerStats& rhs) const noexcept {
+bool FLapTimer::IsBetterRank(const RacerStats& lhs, const RacerStats& rhs) const noexcept {
     // 1. 残りラップ少ない方が上 (= current_lap 多い方が上)。
     if (lhs.current_lap != rhs.current_lap) {
         return lhs.current_lap > rhs.current_lap;
@@ -61,7 +61,7 @@ bool LapTimer::IsBetterRank(const RacerStats& lhs, const RacerStats& rhs) const 
 // セットアップ
 // ----------------------------------------------------------------------------
 
-void LapTimer::Init(u32 total_laps, u32 checkpoints_per_lap) noexcept {
+void FLapTimer::Init(u32 total_laps, u32 checkpoints_per_lap) noexcept {
     // 0 周 / 0 checkpoint は意味を持たないので 1 にクランプ。
     _total_laps          = total_laps          == 0 ? 1u : total_laps;
     _checkpoints_per_lap = checkpoints_per_lap == 0 ? 1u : checkpoints_per_lap;
@@ -86,7 +86,7 @@ void LapTimer::Init(u32 total_laps, u32 checkpoints_per_lap) noexcept {
     }
 }
 
-RacerId LapTimer::AddRacer(const char* display_name) noexcept {
+RacerId FLapTimer::AddRacer(const char* display_name) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
 
@@ -111,7 +111,7 @@ RacerId LapTimer::AddRacer(const char* display_name) noexcept {
     return RacerId{idx, s.gen};
 }
 
-void LapTimer::RemoveRacer(RacerId id) noexcept {
+void FLapTimer::RemoveRacer(RacerId id) noexcept {
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
     // gen はそのまま。次の AddRacer で gen が +1 されて古い handle を無効化する。
@@ -133,7 +133,7 @@ void LapTimer::RemoveRacer(RacerId id) noexcept {
 // レース制御
 // ----------------------------------------------------------------------------
 
-void LapTimer::Start() noexcept {
+void FLapTimer::Start() noexcept {
     _state          = State::Running;
     _race_time_sec  = 0.0f;
     _finished_count = 0;
@@ -154,25 +154,25 @@ void LapTimer::Start() noexcept {
     }
 }
 
-void LapTimer::Stop() noexcept {
+void FLapTimer::Stop() noexcept {
     // Stopped: Tick が止まる。値は据置 (リザルト表示用)。
     _state = State::Stopped;
 }
 
-void LapTimer::Pause() noexcept {
+void FLapTimer::Pause() noexcept {
     // Running 中のみ受理 (Stopped を Paused にすると Resume で誤って動き出すため)。
     if (_state == State::Running) {
         _state = State::Paused;
     }
 }
 
-void LapTimer::Resume() noexcept {
+void FLapTimer::Resume() noexcept {
     if (_state == State::Paused) {
         _state = State::Running;
     }
 }
 
-bool LapTimer::IsRunning() const noexcept {
+bool FLapTimer::IsRunning() const noexcept {
     return _state == State::Running;
 }
 
@@ -180,7 +180,7 @@ bool LapTimer::IsRunning() const noexcept {
 // 進捗通知
 // ----------------------------------------------------------------------------
 
-void LapTimer::NotifyCheckpointPassed(RacerId id, u32 checkpoint_index) noexcept {
+void FLapTimer::NotifyCheckpointPassed(RacerId id, u32 checkpoint_index) noexcept {
     if (_state != State::Running) return;     // 開始前 / 停止中 / Pause 中は無視
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
@@ -196,7 +196,7 @@ void LapTimer::NotifyCheckpointPassed(RacerId id, u32 checkpoint_index) noexcept
     // 「全 checkpoint 完了」状態。次の NotifyLapCompleted で受理される。
 }
 
-void LapTimer::NotifyLapCompleted(RacerId id) noexcept {
+void FLapTimer::NotifyLapCompleted(RacerId id) noexcept {
     if (_state != State::Running) return;
     Slot* s = FindSlot(id);
     if (s == nullptr) return;
@@ -251,7 +251,7 @@ void LapTimer::NotifyLapCompleted(RacerId id) noexcept {
 // driver
 // ----------------------------------------------------------------------------
 
-void LapTimer::Tick(f32 dt) noexcept {
+void FLapTimer::Tick(f32 dt) noexcept {
     if (_state != State::Running) return;
     if (dt <= 0.0f) return;
 
@@ -271,17 +271,17 @@ void LapTimer::Tick(f32 dt) noexcept {
 // 問い合わせ
 // ----------------------------------------------------------------------------
 
-f32 LapTimer::RaceTimeSec() const noexcept {
+f32 FLapTimer::RaceTimeSec() const noexcept {
     return _race_time_sec;
 }
 
-const RacerStats* LapTimer::GetStats(RacerId id) const noexcept {
+const RacerStats* FLapTimer::GetStats(RacerId id) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return nullptr;
     return &s->stats;
 }
 
-RacerId LapTimer::GetLeader() const noexcept {
+RacerId FLapTimer::GetLeader() const noexcept {
     // フィニッシュ済 racer が居れば、その中で racer_position == 1 を返す。
     // 未フィニッシュ集合は IsBetterRank で best を選ぶ。
     const usize n = _slots.Size();
@@ -312,7 +312,7 @@ RacerId LapTimer::GetLeader() const noexcept {
     return RacerId{best_idx, best_s->gen};
 }
 
-u32 LapTimer::PositionOf(RacerId id) const noexcept {
+u32 FLapTimer::PositionOf(RacerId id) const noexcept {
     const Slot* target = FindSlot(id);
     if (target == nullptr) return 0;
 
@@ -339,13 +339,13 @@ u32 LapTimer::PositionOf(RacerId id) const noexcept {
     return better + 1u;
 }
 
-u32 LapTimer::LapRecordCount(RacerId id) const noexcept {
+u32 FLapTimer::LapRecordCount(RacerId id) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return 0;
     return static_cast<u32>(s->records.Size());
 }
 
-const LapRecord* LapTimer::GetLapRecord(RacerId id, u32 lap_index) const noexcept {
+const LapRecord* FLapTimer::GetLapRecord(RacerId id, u32 lap_index) const noexcept {
     const Slot* s = FindSlot(id);
     if (s == nullptr) return nullptr;
     if (static_cast<usize>(lap_index) >= s->records.Size()) return nullptr;
@@ -356,12 +356,12 @@ const LapRecord* LapTimer::GetLapRecord(RacerId id, u32 lap_index) const noexcep
 // callback
 // ----------------------------------------------------------------------------
 
-void LapTimer::SetOnLapCallback(LapCallback cb, void* user) noexcept {
+void FLapTimer::SetOnLapCallback(LapCallback cb, void* user) noexcept {
     _on_lap      = cb;
     _on_lap_user = user;
 }
 
-void LapTimer::SetOnFinishCallback(FinishCallback cb, void* user) noexcept {
+void FLapTimer::SetOnFinishCallback(FinishCallback cb, void* user) noexcept {
     _on_finish      = cb;
     _on_finish_user = user;
 }
@@ -370,7 +370,7 @@ void LapTimer::SetOnFinishCallback(FinishCallback cb, void* user) noexcept {
 // 一括破棄
 // ----------------------------------------------------------------------------
 
-void LapTimer::ClearAll() noexcept {
+void FLapTimer::ClearAll() noexcept {
     _slots.Clear();
     _racer_count    = 0;
     _state          = State::Stopped;

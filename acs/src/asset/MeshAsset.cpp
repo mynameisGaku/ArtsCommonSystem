@@ -16,8 +16,8 @@ namespace acs {
 
 namespace {
 
-// 共通: MeshAsset を TRc<Asset> として返すヘルパ
-TRc<Asset> WrapMesh(FAssetId id, TRc<MeshAsset>&& m) noexcept {
+// 共通: FMeshAsset を TRc<Asset> として返すヘルパ
+TRc<Asset> WrapMesh(FAssetId id, TRc<FMeshAsset>&& m) noexcept {
     m->SetId(id);
     m->SetState(EAssetState::Ready);
     return TRc<Asset>(Move(m));
@@ -48,12 +48,12 @@ void ReadAttributeUV(const cgltf_accessor* a, MeshVertex* dst, usize n) noexcept
     }
 }
 
-// cgltf の data から MeshAsset へ詰める共通処理
-TRc<MeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
-    auto mesh = MakeRc<MeshAsset>();
+// cgltf の data から FMeshAsset へ詰める共通処理
+TRc<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
+    auto mesh = MakeRc<FMeshAsset>();
     if (!data || data->meshes_count == 0) return mesh;
 
-    // 全プリミティブを 1 つの MeshAsset に flatten（v1）
+    // 全プリミティブを 1 つの FMeshAsset に flatten（v1）
     u32 vertex_offset = 0;
     for (cgltf_size mi = 0; mi < data->meshes_count; ++mi) {
         const cgltf_mesh& m = data->meshes[mi];
@@ -121,7 +121,7 @@ TResult<TRc<Asset>> GltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byt
         ::cgltf_free(data);
         return ACS_ERR(Asset, 301, "cgltf_load_buffers failed (external bin not supported in v1)");
     }
-    TRc<MeshAsset> mesh = BuildFromCgltf(data);
+    TRc<FMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
     return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
@@ -136,7 +136,7 @@ TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
         ::cgltf_free(data);
         return ACS_ERR(Asset, 311, "cgltf_load_buffers failed");
     }
-    TRc<MeshAsset> mesh = BuildFromCgltf(data);
+    TRc<FMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
     return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
@@ -144,7 +144,7 @@ TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
 // ---- OBJ (自前パーサ、最小機能) -----------------------------------------
 // v / vn / vt / f だけサポート。マテリアルは無視。
 TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
-    auto mesh = MakeRc<MeshAsset>();
+    auto mesh = MakeRc<FMeshAsset>();
     TArray<FVec3> positions;
     TArray<FVec3> normals;
     struct UV { f32 u, v; };
@@ -250,7 +250,7 @@ TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
     ufbx_scene* scene = ::ufbx_load_memory(bytes.Data(), bytes.Size(), &opts, &err);
     if (!scene) return ACS_ERR(Asset, 400, "ufbx_load_memory failed");
 
-    auto mesh = MakeRc<MeshAsset>();
+    auto mesh = MakeRc<FMeshAsset>();
     u32 vertex_offset = 0;
     for (size_t mi = 0; mi < scene->meshes.count; ++mi) {
         ufbx_mesh* fm = scene->meshes.data[mi];

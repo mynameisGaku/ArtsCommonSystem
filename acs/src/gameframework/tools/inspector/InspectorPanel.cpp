@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — InspectorPanel 実装 (Phase 20 editor 第二弾)
+// GameFramework Pillar K — FInspectorPanel 実装 (Phase 20 editor 第二弾)
 //
-// 仕様の意図は InspectorPanel.h を参照。本ファイルでは:
-//   ・SelectionService からの FNodeId 取得 (forward-decl 経由)
-//   ・`InspectorSeam::GetProvider(FNodeId)` を介した Provider 取得
+// 仕様の意図は FInspectorPanel.h を参照。本ファイルでは:
+//   ・FSelectionService からの FNodeId 取得 (forward-decl 経由)
+//   ・`FInspectorSeam::GetProvider(FNodeId)` を介した Provider 取得
 //   ・`InspectableObject::fields` の 1 件ずつを EFieldKind に応じた
 //     ImGui widget に変換 (Bool / I32 / U32 / F32 / FVec2 / FVec3 / FVec4 /
 //     FColor / FString / Enum)
@@ -22,23 +22,23 @@
 
 namespace acs::game::inspector {
 
-// SelectionService は同名前空間にあり、ヘッダで forward-decl 済み。
+// FSelectionService は同名前空間にあり、ヘッダで forward-decl 済み。
 // 実 API (`CurrentSelection()` 等) はこの .cpp から直接呼ぶ。
 
 // =============================================================================
 // ローカルヘルパ
 // =============================================================================
 
-// `InspectorSeam::GetProvider(FNodeId)` を呼ぶラッパ。
+// `FInspectorSeam::GetProvider(FNodeId)` を呼ぶラッパ。
 //
 // 実 seam 側に `GetProvider(FNodeId)` が無い場合のフォールバックは持たない
 // (= リンクエラーで気付かせる方針)。これは「seam の API が FNodeId 受けで
 // 必ず存在する」前提を panel 側に明示するため。
-static IInspectableProvider* ResolveProvider(InspectorSeam& seam, FNodeId id) noexcept {
+static IInspectableProvider* ResolveProvider(FInspectorSeam& seam, FNodeId id) noexcept {
     if (!id.IsValid()) {
         return nullptr;
     }
-    // InspectorSeam::GetProvider は u32 index (provider list 上の位置) を取る。
+    // FInspectorSeam::GetProvider は u32 index (provider list 上の位置) を取る。
     // FNodeId をそのまま渡せないので index を取り出す (24bit 部分)。
     // 本来は seam が FNodeId → provider のマッピングを持つ方が自然だが、
     // 現状の seam は index ベースなので Phase 24+ で改修予定。
@@ -98,8 +98,8 @@ static bool DrawField(InspectableField& field) noexcept {
         // metadata 拡張後はここで field の min/max を参照する。
         changed = ImGui::SliderFloat(field.name,
                                       p,
-                                      InspectorPanel::kDefaultSliderMin,
-                                      InspectorPanel::kDefaultSliderMax,
+                                      FInspectorPanel::kDefaultSliderMin,
+                                      FInspectorPanel::kDefaultSliderMax,
                                       "%.3f");
         break;
     }
@@ -140,16 +140,16 @@ static bool DrawField(InspectableField& field) noexcept {
     }
 
     case EFieldKind::FString: {
-        // FString は read-only 想定 (InspectorSeam.h の Phase 2 仕様)。
+        // FString は read-only 想定 (FInspectorSeam.h の Phase 2 仕様)。
         // バッファコピー後 InputText を出すが、書き戻しは行わない
         // (= panel 内のローカル編集のみ、永続化は callback 経由で外部担当)。
         const char* src = static_cast<const char*>(field.data);
         if (src == nullptr) src = "";
-        char buf[InspectorPanel::kStringBufferSize] = {};
+        char buf[FInspectorPanel::kStringBufferSize] = {};
         // strncpy_s 系は Windows 限定なので std::strncpy + 末尾 NUL 確実化で。
-        std::strncpy(buf, src, InspectorPanel::kStringBufferSize - 1);
-        buf[InspectorPanel::kStringBufferSize - 1] = '\0';
-        if (ImGui::InputText(field.name, buf, InspectorPanel::kStringBufferSize)) {
+        std::strncpy(buf, src, FInspectorPanel::kStringBufferSize - 1);
+        buf[FInspectorPanel::kStringBufferSize - 1] = '\0';
+        if (ImGui::InputText(field.name, buf, FInspectorPanel::kStringBufferSize)) {
             // 書き戻しは現状しない (read-only)。callback 経由で外部が処理する。
             changed = true;
         }
@@ -199,7 +199,7 @@ static bool DrawField(InspectableField& field) noexcept {
 // Init / Shutdown
 // =============================================================================
 
-void InspectorPanel::Init() noexcept {
+void FInspectorPanel::Init() noexcept {
     // 完全リセット。多重 Init を許容するため、ここでは selection / dirty を
     // クリアするだけで callback は触らない (Init は state リセット、callback
     // のクリアは Shutdown / Set*() の責務)。
@@ -208,8 +208,8 @@ void InspectorPanel::Init() noexcept {
     // _selection_service / callback は維持 (= 再 Init で外部設定を壊さない)。
 }
 
-void InspectorPanel::Shutdown() noexcept {
-    // 全状態を初期に戻す。外部所有の SelectionService / callback ターゲットを
+void FInspectorPanel::Shutdown() noexcept {
+    // 全状態を初期に戻す。外部所有の FSelectionService / callback ターゲットを
     // 破棄するわけではないが、本パネルからの参照は外す。
     _current_selection  = FNodeId {};
     _selection_service  = nullptr;
@@ -222,12 +222,12 @@ void InspectorPanel::Shutdown() noexcept {
 // SetSelectionService / SetOnFieldChangeCallback
 // =============================================================================
 
-void InspectorPanel::SetSelectionService(SelectionService* svc) noexcept {
+void FInspectorPanel::SetSelectionService(FSelectionService* svc) noexcept {
     // non-owning 保存。nullptr で解除可能。
     _selection_service = svc;
 }
 
-void InspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept {
+void FInspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept {
     _on_change_cb   = cb;
     _on_change_user = user;
 }
@@ -235,25 +235,25 @@ void InspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* user
 // =============================================================================
 // DrawUI — メイン ImGui window
 // =============================================================================
-// ・SelectionService が居れば Current() を優先採用、なければ引数 selected_id。
+// ・FSelectionService が居れば Current() を優先採用、なければ引数 selected_id。
 // ・Provider が無効なら "(No provider)" を表示して return。
 // ・Provider の各オブジェクトを type/instance ヘッダ + field 配列で描画。
 // ・field が変わったら _dirty を立て + callback を発火。
 // =============================================================================
-void InspectorPanel::DrawUI() noexcept {
-    // Phase 24: EditorPanel 継承で no-param 化。
-    // - InspectorSeam は SetInspectorSeam で事前 set
-    // - FNodeId は SelectionService::CurrentSelection() で取得 (なければ invalid)
+void FInspectorPanel::DrawUI() noexcept {
+    // Phase 24: FEditorPanel 継承で no-param 化。
+    // - FInspectorSeam は SetInspectorSeam で事前 set
+    // - FNodeId は FSelectionService::CurrentSelection() で取得 (なければ invalid)
     if (!ImGui::Begin("Inspector")) {
         ImGui::End();
         return;
     }
     if (_inspector_seam == nullptr) {
-        ImGui::TextUnformatted("(no InspectorSeam attached; call SetInspectorSeam)");
+        ImGui::TextUnformatted("(no FInspectorSeam attached; call SetInspectorSeam)");
         ImGui::End();
         return;
     }
-    InspectorSeam& seam = *_inspector_seam;
+    FInspectorSeam& seam = *_inspector_seam;
 
     // ----- 選択 FNodeId の解決 -----
     FNodeId effective {};

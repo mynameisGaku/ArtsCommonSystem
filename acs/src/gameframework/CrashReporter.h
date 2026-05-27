@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — CrashReporter (ship build 専用クラッシュ報告 seam)
+// GameFramework Pillar O — FCrashReporter (ship build 専用クラッシュ報告 seam)
 //
 // 役割:
 //   出荷ビルドでプロセスが落ちた時、外部のクラッシュ集約サービス (Sentry /
@@ -8,7 +8,7 @@
 //   `ICrashReporterBackend` インターフェイスと NotImplemented を返すだけの
 //   `CrashReporterStub` のみを提供する。
 //
-//   ・タイトル側 (acs::Application) は ICrashReporterBackend* を持ち、
+//   ・タイトル側 (acs::FApplication) は ICrashReporterBackend* を持ち、
 //   ・実装 (CrashReporterSentry, CrashReporterCrashpad 等) はプロジェクト個別に
 //     差し込む。
 //   これにより、(a) ACS Foundation/GameFramework の依存最小化、(b) ネットワーク
@@ -58,7 +58,7 @@ namespace acs::game {
 // =============================================================================
 // 共通: stub 用エラーサブコード
 // -----------------------------------------------------------------------------
-// SaveSlot / BackendClient と同じく、本ピラーでも「Phase 1 stub = NotImplemented」
+// FSaveSlot / FBackendClient と同じく、本ピラーでも「Phase 1 stub = NotImplemented」
 // を `subcode = kSub_NotImplemented` で表現する。`ErrCategory` には Generic を
 // 使う (クラッシュ報告は I/O とは限らず Generic seam の性格が強い)。
 // =============================================================================
@@ -94,7 +94,7 @@ struct CrashContext {
 // ICrashReporterBackend — クラッシュ報告 backend の抽象 seam
 // -----------------------------------------------------------------------------
 // 1 タイトルにつき通常 1 インスタンス (Singleton 的運用)。
-// 寿命はタイトル側 (acs::Application 等) が握る。
+// 寿命はタイトル側 (acs::FApplication 等) が握る。
 // =============================================================================
 class ICrashReporterBackend {
 public:
@@ -148,7 +148,7 @@ public:
 // 全 API が NotImplemented を返す defensive stub。Init() ですら成功扱いに
 // しないことで、本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。
 // (これは BackendClientStub と同じ方針。SteamworksBridgeStub は Init() のみ
-// 成功扱いだったが、CrashReporter はより厳格にしておく。)
+// 成功扱いだったが、FCrashReporter はより厳格にしておく。)
 // =============================================================================
 class CrashReporterStub final : public ICrashReporterBackend {
 public:

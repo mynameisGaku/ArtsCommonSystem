@@ -2,7 +2,7 @@
 // 非同期アセットロードの結果ハンドル
 //
 // 使い方:
-//   AssetFuture fut = registry.LoadAsync(L"big_mesh.glb");
+//   FAssetFuture fut = registry.LoadAsync(L"big_mesh.glb");
 //   ...
 //   if (fut.IsReady()) {
 //       auto r = fut.Get();
@@ -29,12 +29,12 @@ struct AsyncLoadState {
     bool              has_error = false;
 };
 
-class AssetFuture {
+class FAssetFuture {
 public:
-    AssetFuture() noexcept = default;
+    FAssetFuture() noexcept = default;
 
-    // 内部用: AssetRegistry::LoadAsync が状態を渡してくる
-    explicit AssetFuture(TRc<AsyncLoadState> s) noexcept : _state(Move(s)) {}
+    // 内部用: FAssetRegistry::LoadAsync が状態を渡してくる
+    explicit FAssetFuture(TRc<AsyncLoadState> s) noexcept : _state(Move(s)) {}
 
     // 完了済みか（ノンブロッキング、true ならGet がすぐ返る）
     bool IsReady() const noexcept {
@@ -46,8 +46,8 @@ public:
 
     // 完了を待って結果を取り出す（呼び出しスレッドがワーカーなら手伝う）
     TResult<TRc<Asset>> Get() noexcept {
-        if (!_state.Get()) return ACS_ERR(Asset, 10, "AssetFuture: empty");
-        ThreadPool::Wait(_state->counter);
+        if (!_state.Get()) return ACS_ERR(Asset, 10, "FAssetFuture: empty");
+        FThreadPool::Wait(_state->counter);
         if (_state->has_error) return TResult<TRc<Asset>>(_state->error);
         return TResult<TRc<Asset>>(OkInit, _state->result);
     }

@@ -50,7 +50,7 @@ void AnimCurveScene::OnExit() noexcept {
     _curve_panel.Shutdown();
 
     // _example_curve は Scene のメンバなので自動破棄される。
-    // EditorTheme::Shutdown は存在しない (Dtor で十分)。
+    // FEditorTheme::Shutdown は存在しない (Dtor で十分)。
     ACS_LOG_INFO("[AnimCurveEditor] exited");
 }
 
@@ -67,7 +67,7 @@ void AnimCurveScene::OnRender(RenderContext& /*rc*/) noexcept {
 
     // TickAllPanels は OnFrameBegin → DockSpace → MenuBar → 各 panel の DrawUI
     // を順に発火する。ImGui::* を含むので NewFrame() と Render() の間 (=
-    // OnRender) で呼ぶ必要がある。dt は RenderContext から取れないため Game の
+    // OnRender) で呼ぶ必要がある。dt は RenderContext から取れないため FGame の
     // DeltaTime() を使う。
     _workspace.TickAllPanels(GetGame().DeltaTime());
 }

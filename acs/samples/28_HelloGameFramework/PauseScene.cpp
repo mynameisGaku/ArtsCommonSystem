@@ -13,14 +13,14 @@ namespace hellogf {
 void PauseScene::OnEnter() noexcept {
     GetGame().SetClearColor(0.18f, 0.18f, 0.20f);   // grey
     // Wait → Call → Wait → Call を Loop(0)=無限。Pause を抜けるまで定期出力する。
-    Sequence s;
+    FSequence s;
     s.Wait(0.5f)
      .Call(&PauseScene::LogStillPaused1, this)
      .Wait(1.5f)
      .Call(&PauseScene::LogStillPaused2, this)
      .Loop(0);
     _seqs.Start(Move(s));
-    ACS_LOG_INFO("[Pause] (P: resume, Esc: quit) Sequence loop start");
+    ACS_LOG_INFO("[Pause] (P: resume, Esc: quit) FSequence loop start");
 }
 
 void PauseScene::OnExit() noexcept {

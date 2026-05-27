@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — AnimationCurve 実装 (Phase 3)
+// GameFramework Pillar C — FAnimationCurve 実装 (Phase 3)
 //
 // アルゴリズム:
 //   ・AddKey:  内部 TArray を time 昇順に保つよう、二分探索で挿入位置を決める。
@@ -32,7 +32,7 @@ static u32 LowerBoundByTime(const TArray<CurveKey>& keys, f32 time) noexcept {
     return lo;
 }
 
-void AnimationCurve::AddKey(f32 time, f32 value, ECurveInterpolation interp) noexcept {
+void FAnimationCurve::AddKey(f32 time, f32 value, ECurveInterpolation interp) noexcept {
     const u32 pos = LowerBoundByTime(_keys, time);
     // 同 time の key が既にある → 上書き (in_interp は維持して out_interp と value のみ更新)
     if (pos < _keys.Size() && _keys[pos].time == time) {
@@ -60,7 +60,7 @@ void AnimationCurve::AddKey(f32 time, f32 value, ECurveInterpolation interp) noe
     }
 }
 
-void AnimationCurve::AddKeyHermite(f32 time, f32 value,
+void FAnimationCurve::AddKeyHermite(f32 time, f32 value,
                                    f32 in_tangent, f32 out_tangent) noexcept {
     const u32 pos = LowerBoundByTime(_keys, time);
     if (pos < _keys.Size() && _keys[pos].time == time) {
@@ -88,7 +88,7 @@ void AnimationCurve::AddKeyHermite(f32 time, f32 value,
     }
 }
 
-void AnimationCurve::RemoveKey(u32 index) noexcept {
+void FAnimationCurve::RemoveKey(u32 index) noexcept {
     if (index >= _keys.Size()) return;
     // 順序を保つため左詰め (TArray::RemoveAtSwap は順序を崩すので使えない)
     for (u32 i = index; i + 1u < _keys.Size(); ++i) {
@@ -97,18 +97,18 @@ void AnimationCurve::RemoveKey(u32 index) noexcept {
     _keys.PopBack();
 }
 
-void AnimationCurve::ClearKeys() noexcept {
+void FAnimationCurve::ClearKeys() noexcept {
     _keys.Clear();
 }
 
-f32 AnimationCurve::Duration() const noexcept {
+f32 FAnimationCurve::Duration() const noexcept {
     // 仕様: 「末尾 key の time」を返す。key 0 個では 0。
     // (1 個でも「t==末尾 key.time」を返すことで Evaluate(Duration()) が末尾値になる)
     if (_keys.Size() == 0u) return 0.0f;
     return _keys[_keys.Size() - 1u].time;
 }
 
-f32 AnimationCurve::ApplyWrap(f32 time) const noexcept {
+f32 FAnimationCurve::ApplyWrap(f32 time) const noexcept {
     if (_keys.Size() < 2u) return time;
 
     const f32 t0  = _keys[0].time;
@@ -162,7 +162,7 @@ f32 AnimationCurve::ApplyWrap(f32 time) const noexcept {
     return time;   // 定義域内
 }
 
-u32 AnimationCurve::FindSegmentIndex(f32 time) const noexcept {
+u32 FAnimationCurve::FindSegmentIndex(f32 time) const noexcept {
     // 戻り値は左端 key の index。呼び出し側は _keys.Size() >= 2 を保証する。
     const u32 n = static_cast<u32>(_keys.Size());
     if (time <= _keys[0].time)         return 0u;
@@ -179,7 +179,7 @@ u32 AnimationCurve::FindSegmentIndex(f32 time) const noexcept {
     return lo;
 }
 
-f32 AnimationCurve::InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
+f32 FAnimationCurve::InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
                                        f32 t, f32 dt) noexcept {
     switch (k0.out_interp) {
     case ECurveInterpolation::Step:
@@ -203,7 +203,7 @@ f32 AnimationCurve::InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
     return k0.value;   // 想定外 enum 値の保険
 }
 
-f32 AnimationCurve::Evaluate(f32 time) const noexcept {
+f32 FAnimationCurve::Evaluate(f32 time) const noexcept {
     const u32 n = static_cast<u32>(_keys.Size());
     if (n == 0u) return 0.0f;
     if (n == 1u) return _keys[0].value;

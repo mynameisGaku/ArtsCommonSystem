@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (visual novel) — DialogueScript
+// GameFramework ジャンルキット (visual novel) — FDialogueScript
 //
 // VN 風のシーンスクリプトを再生するための state holder。
 // 「セリフ → ポートレート表示 → BGM 切替 → 選択肢 → ジャンプ」といった
@@ -13,7 +13,7 @@
 //     Wait で時間経過待ち (Playing 継続 + 内部タイマ)
 //   ・実描画 / 音 / 入力には触らない: 各 op 種別は callback で外部に通知し、
 //     ポートレート切替 / BGM 再生 / 選択肢 UI 表示は caller (Scene / UI 層 /
-//     AudioDirector) の責任とする (DialogueSystem / CinematicsDirector と
+//     FAudioDirector) の責任とする (FDialogueSystem / FCinematicsDirector と
 //     同じ「副作用ゼロ + callback 駆動」方針)。
 //
 // 設計選択:
@@ -37,12 +37,12 @@
 //        SelectChoice(idx) で jump_label に飛ぶ。
 //   ・**callback は kind 別に分ける**: Say / Show・Hide / Background /
 //     PlayBgm・StopBgm / PlaySe / ChoicePresent / End の 6 種に分割。
-//     CinematicsDirector と同じく汎用 1 個に集約しない方針。
+//     FCinematicsDirector と同じく汎用 1 個に集約しない方針。
 //   ・**Wait op は AwaitingInput には遷移しない**: arg_f 秒経過で自動進行。
 //     Say op の末尾で AwaitingInput になり、Advance() で次へ進む契約。
 //   ・**非コピー・非ムーブ**: 現在 op_index / state の唯一性を担保するため。
 //
-// 参考: DialogueSystem (タイプライタ + 選択肢)、CinematicsDirector (timeline)
+// 参考: FDialogueSystem (タイプライタ + 選択肢)、FCinematicsDirector (timeline)
 #pragma once
 
 #include "foundation/Types.h"
@@ -114,16 +114,16 @@ using BackgroundCallback    = void(*)(void* user, const char* bg_id) noexcept;
 using ChoicePresentCallback = void(*)(void* user, const ScriptChoice* choices, u32 count) noexcept;
 using EndCallback           = void(*)(void* user, const char* script_id) noexcept;
 
-class DialogueScript {
+class FDialogueScript {
 public:
-    DialogueScript() noexcept = default;
-    ~DialogueScript() noexcept = default;
+    FDialogueScript() noexcept = default;
+    ~FDialogueScript() noexcept = default;
 
     // 進行状態の唯一性を担保するため非コピー・非ムーブ
-    DialogueScript(const DialogueScript&)            = delete;
-    DialogueScript& operator=(const DialogueScript&) = delete;
-    DialogueScript(DialogueScript&&)                 = delete;
-    DialogueScript& operator=(DialogueScript&&)      = delete;
+    FDialogueScript(const FDialogueScript&)            = delete;
+    FDialogueScript& operator=(const FDialogueScript&) = delete;
+    FDialogueScript(FDialogueScript&&)                 = delete;
+    FDialogueScript& operator=(FDialogueScript&&)      = delete;
 
     // ----- セットアップ -----
     // 既定値に戻す (内部状態のみ、callback も含めてリセットしたい場合は ClearAll)。

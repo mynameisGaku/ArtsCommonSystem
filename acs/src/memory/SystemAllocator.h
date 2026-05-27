@@ -22,10 +22,10 @@
 
 namespace acs {
 
-class SystemAllocator final : public Allocator {
+class FSystemAllocator final : public FAllocator {
 public:
-    SystemAllocator() noexcept = default;
-    ~SystemAllocator() noexcept override = default;
+    FSystemAllocator() noexcept = default;
+    ~FSystemAllocator() noexcept override = default;
 
     void* Alloc  (usize size, usize alignment, FSourceLoc loc) noexcept override;
     void  Free   (void* ptr)                                  noexcept override;

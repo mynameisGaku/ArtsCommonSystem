@@ -11,7 +11,7 @@ namespace acs {
 
 class IRhiSwapchain;
 class IRhiCommandList;
-class Window;
+class FWindow;
 
 // グラフィックスデバイスの抽象インターフェイス
 class IRhiDevice {

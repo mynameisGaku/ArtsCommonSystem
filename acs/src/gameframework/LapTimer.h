@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar (ジャンルキット: Racing) — LapTimer
+// GameFramework Pillar (ジャンルキット: Racing) — FLapTimer
 //
 // 複数 racer のラップ時間計測 + 順位算出を一元管理する高レベル API。
 // チェックポイント順序検証、ベストラップ更新、フィニッシュ判定 (= total_laps
@@ -8,7 +8,7 @@
 // `GetStats` / `PositionOf` / `GetLeader` を読むだけで成立する。
 //
 // 使い方:
-//   LapTimer lt;
+//   FLapTimer lt;
 //   lt.Init(/*total_laps=*/3, /*checkpoints_per_lap=*/4);
 //   RacerId player = lt.AddRacer("Player");
 //   RacerId rival  = lt.AddRacer("Rival");
@@ -34,7 +34,7 @@
 //   const auto* s = lt.GetStats(player);
 //
 // 設計選択:
-//   ・**RacerId は 24bit idx + 8bit gen の packed u32**: HealthSystem / Node2D
+//   ・**RacerId は 24bit idx + 8bit gen の packed u32**: FHealthSystem / FNode2D
 //     と同パターン。AddRacer → RemoveRacer → AddRacer で slot 再利用しても
 //     古い handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0
 //     dummy slot)。
@@ -64,7 +64,7 @@
 //   ・周回別 split (各 checkpoint 通過時刻の累積差分) — 現状は 1 lap 単位の time
 //     だけ記録する。UI 上で詳細 split を出したくなったら `LapRecord` に
 //     TArray<f32> sector_times を追加する。
-//   ・rubberband AI / handicap — DynamicDifficulty 側で別途。
+//   ・rubberband AI / handicap — FDynamicDifficulty 側で別途。
 //   ・順位変動の onPositionChanged callback — UI 側で前フレームを保持して
 //     差分検出する方が柔軟と判断 (Manager 内蔵しない)。
 #pragma once
@@ -132,15 +132,15 @@ using LapCallback = void(*)(void* user, RacerId id, u32 lap, f32 lap_time, bool 
 //   final_position: 1-origin の最終順位 (= フィニッシュ順)
 using FinishCallback = void(*)(void* user, RacerId id, f32 final_time, u32 final_position) noexcept;
 
-class LapTimer {
+class FLapTimer {
 public:
-    LapTimer()  noexcept = default;
-    ~LapTimer() noexcept = default;
+    FLapTimer()  noexcept = default;
+    ~FLapTimer() noexcept = default;
 
-    LapTimer(const LapTimer&)            = delete;
-    LapTimer& operator=(const LapTimer&) = delete;
-    LapTimer(LapTimer&&)                 = delete;
-    LapTimer& operator=(LapTimer&&)      = delete;
+    FLapTimer(const FLapTimer&)            = delete;
+    FLapTimer& operator=(const FLapTimer&) = delete;
+    FLapTimer(FLapTimer&&)                 = delete;
+    FLapTimer& operator=(FLapTimer&&)      = delete;
 
     // ---- セットアップ ----------------------------------------------------
     // レース定義 (周回数 / 1 周の checkpoint 数) を設定し、racer 一覧は維持

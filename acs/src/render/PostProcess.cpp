@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// PostProcess (Bloom + ACES Tonemap) 実装
+// FPostProcess (Bloom + ACES Tonemap) 実装
 #include "render/PostProcess.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
@@ -55,7 +55,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 // Phase 36-1: 旧 5-tap "簡易" 版は box artifact (がびがび halo) の主因だったので
 // 本実装 (5 つの partial-box average を Karis-style weighted blend) に置換。
 //
-// Sample layout (t = 1 source texel):
+// FSample layout (t = 1 source texel):
 //   A . B . C
 //   . J . K .
 //   D . E . F      (center = E)
@@ -540,11 +540,11 @@ void FillFullscreenLayout(FPipelineDesc& pd) noexcept {
 
 } // namespace
 
-PostProcess::~PostProcess() noexcept {
+FPostProcess::~FPostProcess() noexcept {
     Shutdown();
 }
 
-TResult<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
+TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
                                 EFormat color_format) noexcept {
     _device = &device;
     _color_format = color_format;
@@ -593,7 +593,7 @@ TResult<void> PostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     return Ok();
 }
 
-void PostProcess::Shutdown() noexcept {
+void FPostProcess::Shutdown() noexcept {
     _taa_depth_fb.Reset();
     _cb_auto.Reset();
     _cb_taa_reproj.Reset();
@@ -629,8 +629,8 @@ void PostProcess::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> PostProcess::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 300, "PostProcess::Resize before Init");
+TResult<void> FPostProcess::Resize(u32 width, u32 height) noexcept {
+    if (!_device) return ACS_ERR(Render, 300, "FPostProcess::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _hdr_rt.Reset();
     for (auto& m : _bloom_mips) m.Reset();
@@ -646,7 +646,7 @@ TResult<void> PostProcess::Resize(u32 width, u32 height) noexcept {
     return CreateRenderTargets(*_device, width, height);
 }
 
-TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
+TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // メイン HDR RT
     FTextureDesc td{};
     td.width  = w;
@@ -731,7 +731,7 @@ TResult<void> PostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h)
     return Ok();
 }
 
-TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
+TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     // ---- 共通 VS ----
     {
         FShaderDesc sd{};
@@ -964,7 +964,7 @@ TResult<void> PostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void PostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
+void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
                           const PostProcessParams& params) noexcept {
     if (!_hdr_rt || !_pipe_extract) return;
 
@@ -1036,7 +1036,7 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
 }
 } // namespace
 
-void PostProcess::Pass_Extract(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
+void FPostProcess::Pass_Extract(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
     auto* dst = _bloom_mips[0].Get();
     if (!dst || !_hdr_rt) return;
     UpdatePostCB(_cb_post.Get(), p, 1.0f / dst->Width(), 1.0f / dst->Height());
@@ -1057,7 +1057,7 @@ void PostProcess::Pass_Extract(IRhiCommandList& cmd, const PostProcessParams& p)
     cmd.EndRenderToTexture(*dst);
 }
 
-void PostProcess::Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept {
+void FPostProcess::Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept {
     auto* src = _bloom_mips[from_mip].Get();
     auto* dst = _bloom_mips[from_mip + 1].Get();
     if (!src || !dst) return;
@@ -1072,7 +1072,7 @@ void PostProcess::Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept {
     cmd.EndRenderToTexture(*dst);
 }
 
-void PostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius) noexcept {
+void FPostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius) noexcept {
     auto* src = _bloom_mips[to_mip + 1].Get();
     auto* dst = _bloom_mips[to_mip].Get();
     if (!src || !dst) return;
@@ -1089,7 +1089,7 @@ void PostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius) no
     cmd.EndRenderToTexture(*dst);
 }
 
-void PostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
+void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
     auto* cur_rt = _taa[_taa_frame % 2].Get();         // 今フレームの書き先
     auto* hist_rt = _taa[(_taa_frame + 1) % 2].Get();   // 前フレームの resolved
     if (!cur_rt || !hist_rt || !_hdr_rt) return;
@@ -1131,7 +1131,7 @@ void PostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams&
     cmd.EndRenderToTexture(*cur_rt);
 }
 
-void PostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
+void FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
                                 const PostProcessParams& p) noexcept {
     UpdatePostCB(_cb_post.Get(), p, 1.0f / sc.Width(), 1.0f / sc.Height());
 
@@ -1160,12 +1160,12 @@ void PostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_
 
 // ==== Auto-exposure passes (Phase 34k-2) ====
 
-IRhiTexture* PostProcess::SceneInput(const PostProcessParams& p) const noexcept {
+IRhiTexture* FPostProcess::SceneInput(const PostProcessParams& p) const noexcept {
     if (p.auto_exposure_enabled && _exposed_rt) return _exposed_rt.Get();
     return _hdr_rt.Get();
 }
 
-void PostProcess::Pass_LumaReduce(IRhiCommandList& cmd) noexcept {
+void FPostProcess::Pass_LumaReduce(IRhiCommandList& cmd) noexcept {
     if (!_hdr_rt || _luma_mip_count == 0 || !_pipe_luma_extract || !_pipe_luma_down) return;
 
     // mip 0: _hdr_rt → _luma_mips[0]、各 texel で log2 輝度を 4-tap 平均。
@@ -1198,7 +1198,7 @@ void PostProcess::Pass_LumaReduce(IRhiCommandList& cmd) noexcept {
     }
 }
 
-void PostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
+void FPostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
     if (_luma_mip_count == 0 || !_pipe_exposure || !_cb_auto) return;
     auto* avg  = _luma_mips[_luma_mip_count - 1].Get();   // 1x1 平均 log2 輝度
     auto* cur  = _exposure[_auto_frame % 2].Get();        // 今フレームの書き先
@@ -1222,7 +1222,7 @@ void PostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessPara
     cmd.EndRenderToTexture(*cur);
 }
 
-void PostProcess::Pass_ExposureApply(IRhiCommandList& cmd) noexcept {
+void FPostProcess::Pass_ExposureApply(IRhiCommandList& cmd) noexcept {
     if (!_hdr_rt || !_exposed_rt || !_pipe_expose_apply) return;
     auto* exp_tex = _exposure[_auto_frame % 2].Get();     // Pass_ExposureAdapt が書いた露出
     if (!exp_tex) return;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — DynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
+// GameFramework Pillar U — FDynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
 //
 // プレイヤーの実プレイスタッツ (死亡 / 撃破 / リトライ / クリア時間 / パワー
 // アップ取得) を追跡し、それを元に「Easy / Normal / Hard / VeryHard / Adaptive」
@@ -8,18 +8,18 @@
 // / 速度 / プレイヤー HP) を返す。
 //
 // 想定する位置付け (Pillar U Phase 2):
-//   ・Pillar U Phase 1 (MlRuntime / Upscaler) は「外部 ML SDK seam」だった。
+//   ・Pillar U Phase 1 (FMlRuntime / Upscaler) は「外部 ML SDK seam」だった。
 //     Phase 2 (本クラス) は ML を使わない **純内製の決定論的 DDA**。
 //   ・**決定論ゾーンの外**: Adaptive の skill 推定 / smooth lerp は浮動小数の
 //     非可換性を含むため、固定タイムステップでの再現性は保証しない。replay /
 //     netcode 同期に乗せるなら `Adaptive` 以外 (Easy/Normal/Hard/VeryHard) を
 //     使うか、難易度値そのものを replay に記録する運用を取ること。
-//   ・DamageFeedback / Progression と独立: DDA は「乗数を提供する純粋 state
+//   ・FDamageFeedback / FProgression と独立: DDA は「乗数を提供する純粋 state
 //     holder」で、ゲーム側の戦闘ロジックが乗数を pull して使う構造。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::DynamicDifficulty _dda;
+//       acs::game::FDynamicDifficulty _dda;
 //       void OnEnter() noexcept override {
 //           _dda.Init(acs::game::EDifficultyLevel::Adaptive);
 //       }
@@ -49,7 +49,7 @@
 //      → skill が高いほど高難易度に寄せる。
 //      重み (w_k / w_c / w_r / w_d) は内部で固定 (Phase 2)。Phase 3 で
 //      `SetAdaptiveWeights(...)` API で外部化検討。
-//   ・**smooth lerp は Camera2D と同じ framerate-independent**:
+//   ・**smooth lerp は FCamera2D と同じ framerate-independent**:
 //      `t = 1 - exp(-rate * dt)` で dt 不変。rate = 0.5 で約 1.4 秒で 50% 詰める
 //      ゆっくり追従。プレイヤーが「急にゲームが楽になった/難しくなった」と
 //      感じない速度に意図的に抑える。
@@ -73,8 +73,8 @@
 // 範囲外 (Phase 3+):
 //   ・skill 重みの外部設定 API
 //   ・per-encounter difficulty (戦闘単位での個別調整)
-//   ・persistence (SaveSlot 経由で stats を残す → Phase 3 で連携検討)
-//   ・ML 推論ベースの skill 推定 (Phase U-3 で MlRuntime と連携検討)
+//   ・persistence (FSaveSlot 経由で stats を残す → Phase 3 で連携検討)
+//   ・ML 推論ベースの skill 推定 (Phase U-3 で FMlRuntime と連携検討)
 #pragma once
 
 #include "foundation/Types.h"
@@ -108,15 +108,15 @@ struct PlayerSkillStats {
     u32 powerups_collected    = 0;
 };
 
-class DynamicDifficulty {
+class FDynamicDifficulty {
 public:
-    DynamicDifficulty()  noexcept = default;
-    ~DynamicDifficulty() noexcept = default;
+    FDynamicDifficulty()  noexcept = default;
+    ~FDynamicDifficulty() noexcept = default;
 
-    DynamicDifficulty(const DynamicDifficulty&)            = delete;
-    DynamicDifficulty& operator=(const DynamicDifficulty&) = delete;
-    DynamicDifficulty(DynamicDifficulty&&)                 = delete;
-    DynamicDifficulty& operator=(DynamicDifficulty&&)      = delete;
+    FDynamicDifficulty(const FDynamicDifficulty&)            = delete;
+    FDynamicDifficulty& operator=(const FDynamicDifficulty&) = delete;
+    FDynamicDifficulty(FDynamicDifficulty&&)                 = delete;
+    FDynamicDifficulty& operator=(FDynamicDifficulty&&)      = delete;
 
     // ----- 初期化 / モード切替 -----
     // base_level: 初期モード。Adaptive 指定時は `_current_difficulty` を

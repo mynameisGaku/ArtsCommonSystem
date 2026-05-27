@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace hellomv {
 
-bool ViewerScenePipeline::Init(Renderer& renderer) noexcept {
+bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     IRhiDevice* dev = renderer.Device();
     if (!dev) {
         ACS_LOG_ERROR("[ModelViewer] Device() == null");

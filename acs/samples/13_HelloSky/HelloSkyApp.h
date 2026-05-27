@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSky — Application 派生クラス。
+// HelloSky — FApplication 派生クラス。
 // 手続き生成スカイ (昼/夕焼け/夜のプリセット切替可) で 1 つの回転球を照らす。
 //
 // このクラスはリソース所有 (sky / shader / sprite / font / camera) と入力
@@ -19,7 +19,7 @@
 
 namespace hellosky {
 
-class HelloSkyApp : public acs::Application {
+class HelloSkyApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -28,9 +28,9 @@ public:
 
 private:
     SkyScene             _scene;
-    acs::Sky             _sky;
-    acs::StandardShader  _shader;
-    acs::SpriteBatch     _batch;
+    acs::FSky             _sky;
+    acs::FStandardShader  _shader;
+    acs::FSpriteBatch     _batch;
     acs::Font            _font;
     acs::GpuMesh         _gm_sphere;
     acs::GpuMesh         _gm_plane;

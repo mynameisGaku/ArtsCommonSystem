@@ -112,7 +112,7 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     if (!_assets.ibl.HasIrradianceMap()) (void)_assets.ibl.EnsureIrradiance(*dev, *cl);
     if (!_assets.ibl.HasPrefilterMap())  (void)_assets.ibl.EnsurePrefilter(*dev, *cl);
 
-    // ===== Opaque HDR pass (Sky + PBR + emissive orb) =====
+    // ===== Opaque HDR pass (FSky + PBR + emissive orb) =====
     FMat4 orb_curr[kOrbCount]{};
     ExecutePbrPass(_assets, *cl, *hdr, *depth, _camera,
                    view_proj_jittered, _cam_pos, _orb_phase,

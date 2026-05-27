@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — MlRuntime / Upscaler stub 実装
+// GameFramework Pillar U — FMlRuntime / Upscaler stub 実装
 //
 // Phase U-1 では具象 ML backend (ONNX Runtime / DirectML / NNAPI / CoreML /
 // TFLite) と Upscaler backend (FSR / DLSS / XeSS) はいずれも未統合のため、
@@ -15,8 +15,8 @@
 //     `ActiveKind()` を見て低解像度描画 → 拡大の path に切り替える。
 //
 // 決定論ゾーン違反検出 (将来):
-//   Phase U-2 で、`Game::Tick()` の固定タイムステップ内で `RunInference` が
-//   呼ばれたら debug build で assert する仕掛けを `Game.cpp` 側に入れる予定。
+//   Phase U-2 で、`FGame::Tick()` の固定タイムステップ内で `RunInference` が
+//   呼ばれたら debug build で assert する仕掛けを `FGame.cpp` 側に入れる予定。
 //   本 stub では何も検出しないが、コメントとして契約を明示しておく。
 #include "gameframework/MlRuntime.h"
 
@@ -26,7 +26,7 @@ namespace acs::game {
 // MlRuntimeStub — 全 method NotImplemented
 // -----------------------------------------------------------------------------
 // `ACS_ERR(Generic, kSub_NotImplemented, ...)` を返す。ErrCategory に
-// `NotImplemented` 専用カテゴリは無いため、SaveSlot.h と同じ「Generic +
+// `NotImplemented` 専用カテゴリは無いため、FSaveSlot.h と同じ「Generic +
 // subcode 99」の規約に揃える。message は静的文字列リテラル (ACS の方針通り)。
 // =============================================================================
 TResult<void> MlRuntimeStub::Init() noexcept {
@@ -57,19 +57,19 @@ TResult<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
 }
 
 // =============================================================================
-// UpscalerStub — Off のみ受け付ける
+// FUpscalerStub — Off のみ受け付ける
 // -----------------------------------------------------------------------------
 // `EUpscalerKind::Off` への Init は「無効化を選んだ」状態として成功扱い。
 // それ以外 (FSR / DLSS / XeSS / Custom) は SDK 未統合なので NotImplemented。
 // =============================================================================
-TResult<void> UpscalerStub::Init(EUpscalerKind k) noexcept {
+TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
     if (k == EUpscalerKind::Off) {
         _kind = EUpscalerKind::Off;
         return Ok();
     }
     // SDK 同梱前提の kind が要求された → 上位は fallback パスを取るべき。
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
-                   "UpscalerStub::Init: requested upscaler backend not integrated (Phase U-1 stub)");
+                   "FUpscalerStub::Init: requested upscaler backend not integrated (Phase U-1 stub)");
 }
 
 // =============================================================================
@@ -81,7 +81,7 @@ TResult<void> UpscalerStub::Init(EUpscalerKind k) noexcept {
 //
 // スレッド安全性:
 //   C++11 以降、関数内 static の初期化は thread-safe (magic statics)。
-//   ただし stub 自身は状態を持つ (UpscalerStub::_kind) ため、複数スレッドから
+//   ただし stub 自身は状態を持つ (FUpscalerStub::_kind) ため、複数スレッドから
 //   同時アクセスする呼び出し側は外部同期を取る必要がある。
 // =============================================================================
 IMlRuntime& GetMlRuntimeStub() noexcept {
@@ -90,7 +90,7 @@ IMlRuntime& GetMlRuntimeStub() noexcept {
 }
 
 IUpscaler& GetUpscalerStub() noexcept {
-    static UpscalerStub instance;
+    static FUpscalerStub instance;
     return instance;
 }
 

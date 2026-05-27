@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — InputRecorder (raw 入力の録画 / 再生) スケルトン
+// GameFramework Pillar D — FInputRecorder (raw 入力の録画 / 再生) スケルトン
 //
 // 役割:
 //   1) **raw 入力レイヤの録画**: キーボード状態変化 (8 key まで) + マウス座標 +
 //      マウスボタン bitmask を 1 tick = 1 `InputSample` として時系列に蓄え、
-//      後でそのまま replay 再生する。Lockstep が「ゲーム的に解釈済みの
+//      後でそのまま replay 再生する。FLockstep が「ゲーム的に解釈済みの
 //      ボタン bitmask + アナログスティック」を扱うのに対し、こちらは
 //      **OS 寄りの raw 信号** (key code + key state + mouse pos) を扱う。
 //   2) **TAS / 自動テスト / バグ再現用 `.acsr` 形式の入力ファイル**: Phase D-2 で
 //      magic + version + tick_rate + count + samples + CRC32 の bit-precise
 //      layout を確定し、SaveToBuffer / LoadFromBuffer で永続化する (Phase D-1
-//      では stub)。Lockstep `.acsl` と並列の独立フォーマット。
-//   3) **InputMap の後段に置く想定**: アプリ側で `Capture(sample)` を呼ぶのは
+//      では stub)。FLockstep `.acsl` と並列の独立フォーマット。
+//   3) **FInputMap の後段に置く想定**: アプリ側で `Capture(sample)` を呼ぶのは
 //      Win32 raw input / SDL event を `InputSample` に詰めた直後。再生側は
 //      `ConsumeSample(tick, out)` で取り出し、ゲームループは録画時と
 //      ピクセル単位で同じ入力列を見ることになる。
 //
 // 使い方 (想定):
-//   InputRecorder rec;
+//   FInputRecorder rec;
 //   rec.StartRecording(/*tick_rate_hz=*/60);
 //
 //   // ゲームループ (録画中):
@@ -48,19 +48,19 @@
 //     9 個以上の key 変化が起きる頻度が事実上ゼロのため (10 finger 同時入力でも
 //     状態変化点に限定すれば 8 で足りる)。9 個以上の場合は呼び出し側で 2 tick に
 //     分割するか、Phase D-2 で variable-length encoding を導入する。
-//   ・**ERecorderMode の 3 状態**: Lockstep の ENetMode (Local/Lockstep/Replay) と
+//   ・**ERecorderMode の 3 状態**: FLockstep の ENetMode (Local/FLockstep/Replay) と
 //     異なり、こちらは「録画もしない・録画する・再生する」の 3 状態のみ。
-//     ネットコードは Lockstep 側に分離してあるため、InputRecorder は録画/再生に
+//     ネットコードは FLockstep 側に分離してあるため、FInputRecorder は録画/再生に
 //     特化する。
 //   ・**TArray<InputSample> による線形ストレージ**: 60 Hz × 30 min = 108,000 件 ×
 //     ~28 B = ~3 MB 程度。`.acsr` ファイルでもこのオーダー。長時間 TAS で
 //     1 時間分でも ~6 MB なので Phase D-2 までは無圧縮で OK。
 //   ・**ConsumeSample は線形検索 + cursor 前進**: 記録順 = tick 昇順を仮定し、
-//     Lockstep と同じ amortised O(1) パターンを採用。
-//   ・**SaveToBuffer / LoadFromBuffer は stub**: Lockstep と同じく Phase D-1 では
+//     FLockstep と同じ amortised O(1) パターンを採用。
+//   ・**SaveToBuffer / LoadFromBuffer は stub**: FLockstep と同じく Phase D-1 では
 //     bit-precise file layout 仕様だけ確定し、本体は ACS_ERR(IO,
 //     kSub_NotImplemented) を返す。
-//   ・**コピー / ムーブ禁止**: Lockstep / Settings / PartySystem と同方針。
+//   ・**コピー / ムーブ禁止**: FLockstep / FSettings / FPartySystem と同方針。
 //     録画中の state が分裂すると再生時にズレるため、誤って値渡しされる経路を
 //     最初から塞ぐ。
 //   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
@@ -110,9 +110,9 @@ struct InputSample {
 };
 
 // =============================================================================
-// ERecorderMode — InputRecorder の動作モード
+// ERecorderMode — FInputRecorder の動作モード
 // -----------------------------------------------------------------------------
-// Lockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
+// FLockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
 // 再生する」の 3 状態のみで完結する。モード切替時は state を Clear せず、
 // cursor だけリセットする (録画した内容をそのまま StartReplay で再生する想定)。
 // =============================================================================
@@ -123,21 +123,21 @@ enum class ERecorderMode : u8 {
 };
 
 // =============================================================================
-// InputRecorder — raw 入力の録画 / 再生
+// FInputRecorder — raw 入力の録画 / 再生
 // -----------------------------------------------------------------------------
 // 1 セッション 1 オブジェクトの想定。コピー / ムーブ禁止で誤分裂を防ぐ。
 // =============================================================================
-class InputRecorder {
+class FInputRecorder {
 public:
-    InputRecorder()  noexcept = default;
-    ~InputRecorder() noexcept = default;
+    FInputRecorder()  noexcept = default;
+    ~FInputRecorder() noexcept = default;
 
-    InputRecorder(const InputRecorder&)            = delete;
-    InputRecorder& operator=(const InputRecorder&) = delete;
-    InputRecorder(InputRecorder&&)                 = delete;
-    InputRecorder& operator=(InputRecorder&&)      = delete;
+    FInputRecorder(const FInputRecorder&)            = delete;
+    FInputRecorder& operator=(const FInputRecorder&) = delete;
+    FInputRecorder(FInputRecorder&&)                 = delete;
+    FInputRecorder& operator=(FInputRecorder&&)      = delete;
 
-    // 共通エラー subcode (SaveSlot / Lockstep / BackendClient と同じ pattern)。
+    // 共通エラー subcode (FSaveSlot / FLockstep / FBackendClient と同じ pattern)。
     // 上位層が switch で分岐できるよう enum 風に固定値を割り当てる。
     enum SubCode : u16 {
         kSub_NullBuffer     = 1,  // SaveToBuffer / LoadFromBuffer の buffer == nullptr

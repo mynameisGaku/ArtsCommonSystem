@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — SceneEventBus 実装 (Phase 1 polish)
+// GameFramework Pillar A — FSceneEventBus 実装 (Phase 1 polish)
 #include "gameframework/SceneEventBus.h"
 
 namespace acs::game {
 
-u32 SceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
+u32 FSceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
     if (fn == nullptr) {
-        ACS_LOG_WARN("SceneEventBus::Subscribe: null handler for event id=%u ignored", id.value);
+        ACS_LOG_WARN("FSceneEventBus::Subscribe: null handler for event id=%u ignored", id.value);
         return 0u;
     }
 
@@ -40,7 +40,7 @@ u32 SceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
     return h;
 }
 
-void SceneEventBus::Unsubscribe(u32 handle) noexcept {
+void FSceneEventBus::Unsubscribe(u32 handle) noexcept {
     if (handle == 0u) return;  // invalid handle は静かに無視 (RAII 解除パスで頻出)
     for (usize i = 0; i < _entries.Size(); ++i) {
         Entry& e = _entries[i];
@@ -53,7 +53,7 @@ void SceneEventBus::Unsubscribe(u32 handle) noexcept {
     // 既に Unsubscribe 済 / 未知 handle: no-op (Warn は出さない、二重解除は良くある)
 }
 
-void SceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) noexcept {
+void FSceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) noexcept {
     // 走査範囲を呼び出し時点で固定。Publish 中に Subscribe された Entry は
     // 次回以降の Publish で呼ばれる (循環 publish の防止にもなる)。
     const usize snapshot_size = _entries.Size();
@@ -73,7 +73,7 @@ void SceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) n
     }
 }
 
-u32 SceneEventBus::SubscriberCount(EventId id) const noexcept {
+u32 FSceneEventBus::SubscriberCount(EventId id) const noexcept {
     u32 count = 0u;
     for (usize i = 0; i < _entries.Size(); ++i) {
         const Entry& e = _entries[i];
@@ -82,7 +82,7 @@ u32 SceneEventBus::SubscriberCount(EventId id) const noexcept {
     return count;
 }
 
-void SceneEventBus::ClearAll() noexcept {
+void FSceneEventBus::ClearAll() noexcept {
     _entries.Clear();
     // _next_handle はリセットしない: ClearAll 後も以前払い出した handle と
     // 衝突しないように単調増加を維持。

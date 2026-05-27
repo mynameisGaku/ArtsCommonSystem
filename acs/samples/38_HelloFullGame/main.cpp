@@ -3,8 +3,8 @@
 //
 // 構成:
 //   GameTypes.h        - HighScore POD + 共通定数 (constexpr / inline)
-//   FullGameApp.{h,cpp}- Game 派生クラス (AudioDirector / Font / SaveSlot 等)
-//   TitleScene.{h,cpp} - Title 画面 (背景色 Tween + Press Space 待ち)
+//   FullGameApp.{h,cpp}- FGame 派生クラス (FAudioDirector / Font / FSaveSlot 等)
+//   TitleScene.{h,cpp} - Title 画面 (背景色 FTween + Press Space 待ち)
 //   GameplayScene.{h,cpp} - 本編 (WASD / Mouse / Fire / wave / HUD / FPS)
 //   GameOverScene.{h,cpp} - 結果画面 (VICTORY / GAME OVER + best 表示)
 //
@@ -15,7 +15,7 @@
 //   Esc        : 終了
 //   R          : Title 戻し (GameOver)
 //
-// ACS_GAME_MAIN は FullGameApp を main エントリに登録 (Application 派生 →
+// ACS_GAME_MAIN は FullGameApp を main エントリに登録 (FApplication 派生 →
 // `int WINAPI WinMain` / `int main` 両方の通常 main を裏で生成)。
 #include "FullGameApp.h"
 

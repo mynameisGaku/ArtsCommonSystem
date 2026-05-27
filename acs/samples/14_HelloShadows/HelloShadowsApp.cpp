@@ -36,7 +36,7 @@ void HelloShadowsApp::OnStart() noexcept {
     _scene.Build();
 
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
     const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                        static_cast<f32>(GetRenderer().Swapchain()->Height());
@@ -86,7 +86,7 @@ void HelloShadowsApp::OnRender() noexcept {
         Cos(_sun_yaw) * 0.6f,
     };
 
-    // シャドウパス + 主パス (Sky → 地面 → キャスタ) は scene に委譲。
+    // シャドウパス + 主パス (FSky → 地面 → キャスタ) は scene に委譲。
     _scene.Render(_sky, _shader, _shadow, *cl, _camera,
                   _gm_plane, _gm_cube, _gm_sphere, sun_dir);
 

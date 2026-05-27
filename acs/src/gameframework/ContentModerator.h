@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — ContentModerator (UGC コンテンツモデレーション seam)
+// GameFramework Pillar U Phase 2 — FContentModerator (UGC コンテンツモデレーション seam)
 //
 // 役割:
 //   ユーザー生成コンテンツ (UGC: チャット文 / アップロード画像 / プロフィール名)
@@ -26,7 +26,7 @@
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は同期で常に
 //     Ok(...) を返し、エラーは API 通信失敗の seam 側でのみ発生。
 //   ・**Tick(dt) 必須**: 非同期モデレーション (= REST 結果ポーリング) を Bridge 側に
-//     畳み込めるよう、SteamworksBridge と同じ規約を採用。Stub では no-op。
+//     畳み込めるよう、FSteamworksBridge と同じ規約を採用。Stub では no-op。
 //   ・**Stub は static singleton**: `GetModeratorStub()` で取得。実 SDK 未統合ビルドでも
 //     `_moderator = &acs::game::GetModeratorStub();` だけでコンパイル可能。
 //
@@ -34,15 +34,15 @@
 //   ・実 SDK 実装 (Azure / Google / OpenAI / Hive)。
 //   ・画像 NSFW スコア (= 画像分類器ローカル推論)。
 //   ・多言語対応 (日本語 / 中国語 / アラビア語の NG 単語辞書)。
-//   ・ユーザー単位レート制限・通報フロー・履歴 (BackendClient と連携で別レイヤ)。
+//   ・ユーザー単位レート制限・通報フロー・履歴 (FBackendClient と連携で別レイヤ)。
 //
 // ACS 規約:
 //   ・STL 不使用 / `<string>` 不使用 / 例外不使用 / 全 noexcept
 //   ・非コピー・非ムーブ (state を 1 箇所にとどめる)
 //
 // 参考:
-//   ・LlmSafetyPipeline (text validation pattern)
-//   ・SteamworksBridge   (seam + Stub singleton pattern)
+//   ・FLlmSafetyPipeline (text validation pattern)
+//   ・FSteamworksBridge   (seam + Stub singleton pattern)
 #pragma once
 
 #include "foundation/Result.h"
@@ -51,7 +51,7 @@
 namespace acs::game {
 
 // ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ----------------------
-// SteamworksBridge と同じく `Generic + 安定 subcode` で未実装/未初期化を表現。
+// FSteamworksBridge と同じく `Generic + 安定 subcode` で未実装/未初期化を表現。
 inline constexpr u16 kSubContentModeratorNotImplemented = 1301;  // Stub による未実装
 inline constexpr u16 kSubContentModeratorBadArgument    = 1302;  // nullptr / size==0 等
 
@@ -110,7 +110,7 @@ struct ModerationResult {
 // `Tick(dt)` で非同期処理 (REST ポーリング等) を回す。
 //
 // 典型使用:
-//   class Game {
+//   class FGame {
 //       acs::game::IContentModerator* _mod = nullptr;
 //       void OnStart() noexcept override {
 //           _mod = &acs::game::GetModeratorStub();
@@ -189,7 +189,7 @@ public:
 // =============================================================================
 // GetModeratorStub() — 全コードで共有できる static singleton
 // -----------------------------------------------------------------------------
-// 実 SDK 実装が DI される前のデフォルト。SteamworksBridge::GetStub() と同じ規約。
+// 実 SDK 実装が DI される前のデフォルト。FSteamworksBridge::GetStub() と同じ規約。
 // =============================================================================
 IContentModerator& GetModeratorStub() noexcept;
 

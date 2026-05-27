@@ -29,7 +29,7 @@ void HelloSkyApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(UploadMesh(*dev, *plane,  _gm_plane));
 
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
     const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                        static_cast<f32>(GetRenderer().Swapchain()->Height());

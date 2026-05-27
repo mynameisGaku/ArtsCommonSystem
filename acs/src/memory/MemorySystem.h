@@ -15,10 +15,10 @@ struct SegmentConfig {
     usize        reserve_bytes;     // 仮想予約サイズ
     usize        commit_initial;    // 初回コミット量
     usize        budget_hard_cap;   // ハード予算（超過時は alloc 失敗）
-    bool         use_linear;        // true なら LinearAllocator
+    bool         use_linear;        // true なら FLinearAllocator
 };
 
-// MemorySystem 全体の初期化設定
+// FMemorySystem 全体の初期化設定
 struct MemorySystemConfig {
     SegmentConfig segments[(usize)ESegment::_Count];
 };
@@ -34,7 +34,7 @@ struct SegmentStats {
     u64         budget;
 };
 
-class MemorySystem {
+class FMemorySystem {
 public:
     // 全セグメントを設定で初期化（多重 Init はエラー）
     static TResult<void> Init(const MemorySystemConfig& cfg) noexcept;
@@ -46,13 +46,13 @@ public:
     static MemorySystemConfig DefaultConfig() noexcept;
 
     // セグメント別アロケータ取得（Init 前は nullptr）
-    static Allocator* Get(ESegment s) noexcept;
+    static FAllocator* Get(ESegment s) noexcept;
 
     // 「現在のセグメント」を取得（ScopedMemorySegment が設定したもの）
     static ESegment Current() noexcept;
 
     // 現在セグメントのアロケータ
-    static Allocator* CurrentAllocator() noexcept;
+    static FAllocator* CurrentAllocator() noexcept;
 
     // Temp セグメントを巻き戻す（フレーム先頭で 1 回呼ぶ）
     static void ResetTemp() noexcept;

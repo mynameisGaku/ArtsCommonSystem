@@ -285,7 +285,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
+TResult<void> FSsr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
     _device = &device;
     _hdr_format = hdr_format;
     _width = width;
@@ -304,7 +304,7 @@ TResult<void> Ssr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 h
     return Ok();
 }
 
-TResult<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> FSsr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     _output.Reset();
     FTextureDesc td{};
     td.width  = width;
@@ -325,12 +325,12 @@ TResult<void> Ssr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noe
     return Ok();
 }
 
-TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> FSsr::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsrHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "Ssr.VS";
+    vs_d.debug_name  = "FSsr.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else _vs = Move(r.Value());
 
@@ -338,7 +338,7 @@ TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsrHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "Ssr.PS";
+    ps_d.debug_name  = "FSsr.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else _ps = Move(r.Value());
 
@@ -421,7 +421,7 @@ TResult<void> Ssr::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void Ssr::Shutdown() noexcept {
+void FSsr::Shutdown() noexcept {
     _temporal_pipeline.Reset();
     _pipeline.Reset();
     _cb.Reset();
@@ -434,8 +434,8 @@ void Ssr::Shutdown() noexcept {
     _device = nullptr;
 }
 
-TResult<void> Ssr::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 320, "Ssr::Resize before Init");
+TResult<void> FSsr::Resize(u32 width, u32 height) noexcept {
+    if (!_device) return ACS_ERR(Render, 320, "FSsr::Resize before Init");
     if (width == _width && height == _height) return Ok();
     _width = width;
     _height = height;
@@ -443,7 +443,7 @@ TResult<void> Ssr::Resize(u32 width, u32 height) noexcept {
     return CreateOutputRT(*_device, width, height);
 }
 
-void Ssr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color, IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
                   const FMat4& view_proj, const FMat4& inv_view_proj,

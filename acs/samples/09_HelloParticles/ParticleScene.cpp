@@ -50,7 +50,7 @@ void ParticleScene::Update(f32 dt) noexcept {
     _ps.Update(dt);
 }
 
-void ParticleScene::Render(SpriteBatch& batch,
+void ParticleScene::Render(FSpriteBatch& batch,
                            Font& font,
                            u32 screen_h,
                            f32 fps) noexcept {

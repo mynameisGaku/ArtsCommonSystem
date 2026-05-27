@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — AmbientDirector 実装
+// GameFramework Pillar Q — FAmbientDirector 実装
 //
 // キーフレーム間を線形補間する time-of-day ドライバの実装。
 // stop 表は雰囲気重視の「ゲームらしい」配色 (写実色温度ではない):
@@ -15,7 +15,7 @@ namespace acs::game {
 
 // stop 表は hour 昇順。隣接 stop 間で線形補間する。
 // 0:00 と 22:00 が同じ夜色なので 22:00→24:00 (= 0:00) 区間も自然にループ。
-const AmbientDirector::TimeStop AmbientDirector::_stops[6] = {
+const FAmbientDirector::TimeStop FAmbientDirector::_stops[6] = {
     //   hour  sky (RGB linear-ish 0..1)        ambient (RGB)
     {  0.0f,  FVec3{0.02f, 0.03f, 0.10f},  FVec3{0.03f, 0.04f, 0.10f} }, // 真夜中 紺
     {  4.0f,  FVec3{0.08f, 0.06f, 0.18f},  FVec3{0.10f, 0.07f, 0.12f} }, // 夜明け前 紫紺
@@ -37,11 +37,11 @@ static f32 WrapHours(f32 h) noexcept {
     return h;
 }
 
-void AmbientDirector::SetTimeOfDay(f32 hours) noexcept {
+void FAmbientDirector::SetTimeOfDay(f32 hours) noexcept {
     _hours = WrapHours(hours);
 }
 
-void AmbientDirector::AdvanceTime(f32 dt_hours) noexcept {
+void FAmbientDirector::AdvanceTime(f32 dt_hours) noexcept {
     if (dt_hours < 0.0f) dt_hours = 0.0f;  // 時間は戻さない
     _hours = WrapHours(_hours + dt_hours);
 }
@@ -51,12 +51,12 @@ void AmbientDirector::AdvanceTime(f32 dt_hours) noexcept {
 // 現在時刻に対し、(prev_stop, next_stop, t) を返す。
 // t = 0 で prev、t = 1 で next。next は 22:00→24:00 ラップ時に _stops[0] (= 0:00) を採用。
 struct StopPair {
-    const AmbientDirector::TimeStop* a;
-    const AmbientDirector::TimeStop* b;
+    const FAmbientDirector::TimeStop* a;
+    const FAmbientDirector::TimeStop* b;
     f32 t;
 };
 
-static StopPair FindPair(const AmbientDirector::TimeStop (&stops)[6], f32 hours) noexcept {
+static StopPair FindPair(const FAmbientDirector::TimeStop (&stops)[6], f32 hours) noexcept {
     // hours は [0, 24)。stops[0].hour == 0、stops[5].hour == 22。
     // ケース 1: 22.0 <= hours < 24.0 → (stops[5], stops[0]+24, span=2h)
     if (hours >= stops[5].hour) {
@@ -79,17 +79,17 @@ static StopPair FindPair(const AmbientDirector::TimeStop (&stops)[6], f32 hours)
 
 // ----- パブリック getter ----------------------------------------------------
 
-FVec3 AmbientDirector::SkyColor() const noexcept {
+FVec3 FAmbientDirector::SkyColor() const noexcept {
     const StopPair p = FindPair(_stops, _hours);
     return Lerp(p.a->sky, p.b->sky, p.t);
 }
 
-FVec3 AmbientDirector::AmbientColor() const noexcept {
+FVec3 FAmbientDirector::AmbientColor() const noexcept {
     const StopPair p = FindPair(_stops, _hours);
     return Lerp(p.a->ambient, p.b->ambient, p.t);
 }
 
-FVec3 AmbientDirector::SunDirection() const noexcept {
+FVec3 FAmbientDirector::SunDirection() const noexcept {
     // hour_angle = (hour - 6) / 12 * π:
     //   06:00 →  0     : 東地平線 (x=+1, y= 0)
     //   12:00 →  π/2   : 天頂   (x= 0, y=+1)

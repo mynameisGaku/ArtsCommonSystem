@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — SceneServices (Phase 8、v3 spec §3.1)
+// GameFramework Pillar A — FSceneServices (Phase 8、v3 spec §3.1)
 //
-// シーンが必要なサービス (SceneClock / TweenManager / SequenceRunner / InputMap)
-// を bit flag (`ESvc`) で宣言、SceneServices が遅延 alloc して保持する取り付けハブ。
-// Game/SceneManager が自動で tick + scene 切替に追従。
+// シーンが必要なサービス (FSceneClock / FTweenManager / FSequenceRunner / FInputMap)
+// を bit flag (`ESvc`) で宣言、FSceneServices が遅延 alloc して保持する取り付けハブ。
+// FGame/FSceneManager が自動で tick + scene 切替に追従。
 //
 // 使い方:
 //   class GameplayScene : public Scene {
@@ -34,8 +34,8 @@
 //     Clock も tick されないので tween/seq は自然に止まる。明示的 Pause 不要。
 //
 // 範囲外 (Phase 8 では):
-//   ・Camera2D / Physics2D / Audio / Events / Debug / Timers / Ui の各サービス
-//     (該当 Pillar 実装時に ESvc enum と SceneServices に追加)。
+//   ・FCamera2D / Physics2D / Audio / Events / Debug / Timers / Ui の各サービス
+//     (該当 Pillar 実装時に ESvc enum と FSceneServices に追加)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -55,7 +55,7 @@ enum class ESvc : u32 {
     Tweens     = 1u << 1,
     Sequences  = 1u << 2,
     Input      = 1u << 3,
-    Camera2D   = 1u << 4,
+    Camera2D    = 1u << 4,
     Physics2D  = 1u << 5,
     // Future: Audio, Events, Debug, Timers, Ui
     Default2D  = Clock | Tweens | Sequences | Input,
@@ -71,27 +71,27 @@ constexpr bool SvcHas(ESvc mask, ESvc flag) noexcept {
     return (static_cast<u32>(mask) & static_cast<u32>(flag)) != 0u;
 }
 
-class SceneServices {
+class FSceneServices {
 public:
     // Wanted bit を見て該当サービスを alloc。未要求は null のまま。
-    explicit SceneServices(ESvc wanted) noexcept;
-    ~SceneServices() noexcept = default;
+    explicit FSceneServices(ESvc wanted) noexcept;
+    ~FSceneServices() noexcept = default;
 
-    SceneServices(const SceneServices&)            = delete;
-    SceneServices& operator=(const SceneServices&) = delete;
+    FSceneServices(const FSceneServices&)            = delete;
+    FSceneServices& operator=(const FSceneServices&) = delete;
 
     ESvc  Wanted() const noexcept { return _wanted; }
     bool Has(ESvc s) const noexcept { return SvcHas(_wanted, s); }
 
     // Accessors. 該当サービスが要求されていなければ ACS_ASSERT で停止。
-    SceneClock&          Clock()     noexcept;
-    TweenManager&        Tweens()    noexcept;
-    SequenceRunner&      Sequences() noexcept;
-    InputMap&            Input()     noexcept;
-    acs::game::Camera2D& Camera()    noexcept;
-    CollisionWorld2D&    Physics()   noexcept;
+    FSceneClock&          Clock()     noexcept;
+    FTweenManager&        Tweens()    noexcept;
+    FSequenceRunner&      Sequences() noexcept;
+    FInputMap&            Input()     noexcept;
+    acs::game::FCamera2D& Camera()    noexcept;
+    FCollisionWorld2D&    Physics()   noexcept;
 
-    // Game/SceneManager driver (利用者は触らない)。
+    // FGame/FSceneManager driver (利用者は触らない)。
     //   PreUpdate: Clock.Tick(raw_dt) で時間を進める (= scaled dt が確定)
     //   PostUpdate: Tweens/Sequences.Tick(scaled_dt) で更新適用
     void _PreUpdate(f32 raw_dt) noexcept;
@@ -102,12 +102,12 @@ public:
 
 private:
     ESvc                       _wanted = ESvc::None;
-    TUniquePtr<SceneClock>     _clock;
-    TUniquePtr<TweenManager>   _tweens;
-    TUniquePtr<SequenceRunner> _sequences;
-    TUniquePtr<InputMap>       _input;
-    TUniquePtr<acs::game::Camera2D> _camera;
-    TUniquePtr<CollisionWorld2D>    _physics;
+    TUniquePtr<FSceneClock>     _clock;
+    TUniquePtr<FTweenManager>   _tweens;
+    TUniquePtr<FSequenceRunner> _sequences;
+    TUniquePtr<FInputMap>       _input;
+    TUniquePtr<acs::game::FCamera2D> _camera;
+    TUniquePtr<FCollisionWorld2D>    _physics;
 };
 
 } // namespace acs::game

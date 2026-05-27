@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — EditorCamera (Phase 21a editor_core 共通基盤)
+// GameFramework Pillar — FEditorCamera (Phase 21a editor_core 共通基盤)
 //
 // ModelViewer (3D) / LevelEditor (2D top-down) / TilemapEditor (2D) / 各種
 // viewport editor が共有する **camera コントローラ**。1 個のクラスで 2D と 3D
@@ -7,7 +7,7 @@
 // 3D orbit / 2D pan-zoom が成立するようにする。
 //
 // 使い方:
-//   acs::game::editor_core::EditorCamera cam;
+//   acs::game::editor_core::FEditorCamera cam;
 //   cam.Init(EEditorCameraMode::Mode3D);
 //
 //   // 毎フレームの editor tick:
@@ -16,7 +16,7 @@
 //   FMat4 view = cam.ViewMatrix();
 //   FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
 //
-//   // 選択へ寄せる (将来 SelectionService + bounds 計算経由):
+//   // 選択へ寄せる (将来 FSelectionService + bounds 計算経由):
 //   cam.FrameToBoundingSphere(node_center, node_radius);
 //
 // 設計選択 (Phase 21a = editor_core Phase 1):
@@ -28,16 +28,16 @@
 //     Maya / Blender 風の orbit。eye 位置は (target + spherical(yaw,pitch)
 //     * distance) で算出。pitch は ±89° にクランプして極点で gimbal flip
 //     しないようにする。
-//   ・**2D = position + zoom_2d**: Camera2D と同じ pan/zoom モデル。orthographic
+//   ・**2D = position + zoom_2d**: FCamera2D と同じ pan/zoom モデル。orthographic
 //     投影で width = base_ortho_size / zoom_2d とすれば「ズームイン = 拡大」
-//     が直感通り。Camera2D の rotation までは持たない (editor は通常 axis-aligned)。
+//     が直感通り。FCamera2D の rotation までは持たない (editor は通常 axis-aligned)。
 //   ・**HandleMouseInput で操作系を集約**: panel 側は ImGui の IO から取った
 //     delta / button / wheel をそのまま渡せばよい。マウス操作の規約:
 //       - 3D: LMB drag = orbit, MMB drag = pan, RMB drag = orbit (Maya 風代替),
 //             wheel = dolly
 //       - 2D: LMB drag = pan, MMB drag = pan, wheel = zoom
 //     この規約は editor 全体で統一すべきもの。
-//   ・**Tick で smoothing**: Camera2D と同じ `1 - exp(-rate*dt)` の framerate
+//   ・**Tick で smoothing**: FCamera2D と同じ `1 - exp(-rate*dt)` の framerate
 //     independent な指数補間で「狙った target / zoom」へ追従させる。マウス
 //     入力は raw target を直接書き換え、Tick が actual state を寄せる構造。
 //     rate = 0 で即時、5.0 で約 0.2s で 63% 詰める典型。
@@ -47,9 +47,9 @@
 // 将来拡張余地 (Phase 21a の範囲外、ヘッダ末尾の TODO 参照):
 //   ・preset (Top/Front/Side/3-quarter 等の標準視点を 1 ボタン)
 //   ・camera lock (Y 軸固定で yaw のみ自由 = ARPG style)
-//   ・focus to selection (現選択 FNodeId にカメラを向ける、SelectionService 経由)
-//   ・camera shake disable (PhotoMode 同様、editor では shake 抑止)
-//   ・rotation 2D (Camera2D と等価の axis 回転)
+//   ・focus to selection (現選択 FNodeId にカメラを向ける、FSelectionService 経由)
+//   ・camera shake disable (FPhotoMode 同様、editor では shake 抑止)
+//   ・rotation 2D (FCamera2D と等価の axis 回転)
 //   ・FPS フリールック (orbit ではなく eye 中心の look-around)
 #pragma once
 
@@ -72,7 +72,7 @@ enum class EEditorCameraMode : u8 {
 // (debug overlay / serializer) のため、可視 struct で公開する。`State()`
 // で const 参照を返す。直接書き換える場合は accessor (`SetTarget` 等) 経由を
 // 推奨 — そうしないと smooth_target との 2 重管理が崩れる。
-struct EditorCameraState {
+struct FEditorCameraState {
     // 3D 用: orbit center / eye 算出に使用
     FVec3 position{0.0f, 0.0f, 0.0f};      // 実 eye position (3D); 2D では (x,y) を使用
     FVec3 target  {0.0f, 0.0f, 0.0f};      // orbit center (3D); 2D では未使用
@@ -88,17 +88,17 @@ struct EditorCameraState {
     f32  distance  = 10.0f;                // target からの距離
 };
 
-// ---- EditorCamera -----------------------------------------------------------
-class EditorCamera {
+// ---- FEditorCamera -----------------------------------------------------------
+class FEditorCamera {
 public:
-    EditorCamera() noexcept = default;
-    ~EditorCamera() noexcept = default;
+    FEditorCamera() noexcept = default;
+    ~FEditorCamera() noexcept = default;
 
     // 非コピー / 非ムーブ (内部 state の所有を曖昧にしない)
-    EditorCamera(const EditorCamera&)            = delete;
-    EditorCamera& operator=(const EditorCamera&) = delete;
-    EditorCamera(EditorCamera&&)                 = delete;
-    EditorCamera& operator=(EditorCamera&&)      = delete;
+    FEditorCamera(const FEditorCamera&)            = delete;
+    FEditorCamera& operator=(const FEditorCamera&) = delete;
+    FEditorCamera(FEditorCamera&&)                 = delete;
+    FEditorCamera& operator=(FEditorCamera&&)      = delete;
 
     // ----- 初期化 / モード -----------------------------------------------
     // 指定モードで完全初期化 (Reset 相当 + mode 設定)。多重呼び出し可。
@@ -158,7 +158,7 @@ public:
     FMat4 ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane) const noexcept;
 
     // ----- state アクセサ -----------------------------------------------
-    const EditorCameraState& State() const noexcept { return _state; }
+    const FEditorCameraState& State() const noexcept { return _state; }
 
     void SetFovDeg(f32 deg) noexcept;
     f32  GetFovDeg() const noexcept { return _state.fov_deg; }
@@ -174,12 +174,12 @@ public:
     FVec3 GetPosition() const noexcept { return _state.position; }
 
     // ----- driver --------------------------------------------------------
-    // smooth target follow + smooth zoom 補間 (Camera2D と同じ
+    // smooth target follow + smooth zoom 補間 (FCamera2D と同じ
     // framerate-independent な `1 - exp(-rate*dt)` モデル)。
     // editor 側で毎フレーム呼ぶ。
     void Tick(f32 dt) noexcept;
 
-    // smoothing rate を設定 (0 = 即時 / 5.0 = デフォルト、Camera2D と同方式)。
+    // smoothing rate を設定 (0 = 即時 / 5.0 = デフォルト、FCamera2D と同方式)。
     void SetSmoothing(f32 rate) noexcept;
     f32  GetSmoothing() const noexcept { return _smoothing; }
 
@@ -201,8 +201,8 @@ private:
     // (eye - target) の正規化ベクトルと等価。
     FVec3 OrbitDirection() const noexcept;
 
-    EditorCameraState _state{};                           // 公開 state (実値)
-    EditorCameraState _smooth_target{};                   // 補間先 (Tick が _state を寄せる)
+    FEditorCameraState _state{};                           // 公開 state (実値)
+    FEditorCameraState _smooth_target{};                   // 補間先 (Tick が _state を寄せる)
     EEditorCameraMode _mode             = EEditorCameraMode::Mode3D;
     f32               _smoothing        = 5.0f;            // 0 = 即時, 5.0 = 既定
     f32               _base_ortho_size  = 20.0f;           // 2D の zoom_2d=1 時の幅 (world)

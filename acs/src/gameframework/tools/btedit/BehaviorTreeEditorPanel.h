@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / BehaviorTreeEditorPanel (Phase 22)
+// GameFramework Pillar — btedit / FBehaviorTreeEditorPanel (Phase 22)
 //
-// `gameframework/BehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
+// `gameframework/FBehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
 // するための ImGui パネル。Unity の Behavior Designer / Unreal の Behavior Tree
 // Editor の `Debugger` モードに相当する役割を担う。Phase 22 では v1 = "visualize
 // + step debug" にスコープを絞り、ノードのグラフ編集 (drag drop で
 // composite に子追加 / 配置入替) は v2 (将来) で対応する。
 //
 // 役割分担:
-//   ・本パネルは「**実行中の BT を観察する**」のが第一責務。BehaviorTree 本体は
-//     panel が直接 walk しない (= BtSelector / BtSequence の `_children` は private、
-//     ACS は RTTI 無効で `dynamic_cast` も使えない、BtAction の `_fn` も private、
+//   ・本パネルは「**実行中の BT を観察する**」のが第一責務。FBehaviorTree 本体は
+//     panel が直接 walk しない (= FBtSelector / FBtSequence の `_children` は private、
+//     ACS は RTTI 無効で `dynamic_cast` も使えない、FBtAction の `_fn` も private、
 //     という三重の事情で実体ツリーを panel から覗けない)。
 //     代わりに「**メタデータミラー**」: ユーザ (sample / ゲーム側) が AddNode で
 //     「親 id・kind・表示名」を panel に push し、panel はそのミラーを描画する。
 //     実体 BT とメタミラーの構造が乖離しない責務はユーザ側にあるが、最も
 //     一般的な「BT 構築直後にミラーも組み立てる」運用なら手書きでも整合は楽。
-//   ・ノードごとの `last_status` は SetNodeStatus で push してもらう。`BtAction`
+//   ・ノードごとの `last_status` は SetNodeStatus で push してもらう。`FBtAction`
 //     の関数ポインタが Tick されるたびに `panel.SetNodeStatus(my_id, ret)` を
-//     呼ぶ規約。composite (Selector / Sequence) の status は root から伝搬する
+//     呼ぶ規約。composite (Selector / FSequence) の status は root から伝搬する
 //     必要があるが、panel 側は気にしない (= ユーザ自由)。
 //   ・StepOnce は `tree->Tick(nullptr, 0.016f)` を 1 回回す + step_count++ +
 //     history ring へ root status を push する最小実装。blackboard は nullptr 固定。
@@ -27,16 +27,16 @@
 //     panel は `tree->Tick` を直接呼ばず、callback だけを呼ぶ (= 排他)。
 //
 // 設計選択 (Pillar 22 — btedit 第一弾):
-//   ・**EditorPanel 継承**: Phase 21a で確立した editor_core 基底に乗せる。
-//     EditorWorkspace に登録するだけで自動 dispatch される。Title は
+//   ・**FEditorPanel 継承**: Phase 21a で確立した editor_core 基底に乗せる。
+//     FEditorWorkspace に登録するだけで自動 dispatch される。Title は
 //     "Behavior Tree Editor"。
-//   ・**メタミラー方式 (前述)**: BehaviorTree.h の API を改造しないために採用。
+//   ・**メタミラー方式 (前述)**: FBehaviorTree.h の API を改造しないために採用。
 //     panel 内に `TArray<NodeMeta>` を持ち、AddNode で順次積む。FNodeId は 0 から
 //     panel が払い出す (= 1 panel 内で unique、複数 BT を同 panel で扱う想定なし)。
 //     parent_id は同 TArray 内の id (== index、payload と一致)。kInvalidId
 //     (= 0xFFFFFFFFu) を root の parent_id として使う。
-//   ・**EBtKind (Selector / Sequence / Action) を u8 enum で持つ**: 表示時の色分け
-//     と TreeNode タイプ判別に使う。BehaviorTree.h の EBtStatus と同じく u8 enum
+//   ・**EBtKind (Selector / FSequence / Action) を u8 enum で持つ**: 表示時の色分け
+//     と TreeNode タイプ判別に使う。FBehaviorTree.h の EBtStatus と同じく u8 enum
 //     で揃え、ACS の "E-prefix enum" 規約 (project_acs_coding_conventions) に従う。
 //   ・**status 表示色は固定リテラル**: Success=緑 (0,1,0)、Failure=赤 (1,0,0)、
 //     Running=黄 (1,1,0)。ImGui::PushStyleColor で TreeNode テキストに反映する。
@@ -44,7 +44,7 @@
 //     `TArray<u8>` で各要素は EBtStatus の生値 (0/1/2)。`_history_head` が次に
 //     書き込む位置 (circular)。Reset でクリア。ImGui::PlotLines に float buffer を
 //     一度展開して渡す。
-//   ・**SelectedNodeId は u32 (-1 = none)**: ParticleEditorPanel の `_selected:i32`
+//   ・**SelectedNodeId は u32 (-1 = none)**: FParticleEditorPanel の `_selected:i32`
 //     と違って u32 を採用する理由は FNodeId 自体が u32 ベース (= AddNode 払い出し
 //     も u32)。none signal は `static_cast<u32>(-1) = 0xFFFFFFFF` で表現。
 //   ・**Autorun**: 毎フレーム OnFrameBegin で 1 tick 進める toggle。ImGui 上では
@@ -56,8 +56,8 @@
 //     で直接 Tick する fallback。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。
 //     name は `const char*` リテラル / 永続文字列を想定 (panel は所有しない)。
-//   ・**ImGui ヘッダは .cpp に閉じる**: ParticleEditorPanel / InspectorPanel /
-//     ModelInspectorPanel と同形。
+//   ・**ImGui ヘッダは .cpp に閉じる**: FParticleEditorPanel / FInspectorPanel /
+//     FModelInspectorPanel と同形。
 //
 // ImGui レイアウト (DrawUI):
 //   ┌────────────── "Behavior Tree Editor" window ─────────────────┐
@@ -67,10 +67,10 @@
 //   │ └───────────────────────────────────────────────────────────┘ │
 //   │ ┌── left: Tree view ─────┐  ┌── right: Node Inspector ────┐ │
 //   │ │  Selector ▶            │  │ Name : <selected name>      │ │
-//   │ │   Sequence ▶           │  │ Kind : Selector/Sequence/   │ │
+//   │ │   FSequence ▶           │  │ Kind : Selector/FSequence/   │ │
 //   │ │    Action "Pickup" ●   │  │        Action               │ │
 //   │ │    Action "Move"   ●   │  │ Id   : <u32>                │ │
-//   │ │   Sequence ▶           │  │ Parent: <u32 or "(root)">   │ │
+//   │ │   FSequence ▶           │  │ Parent: <u32 or "(root)">   │ │
 //   │ │    Action "Wait"   ●   │  │ Children: <u32>             │ │
 //   │ │    Action "Attack" ●   │  │ Last Status: <colored text> │ │
 //   │ └────────────────────────┘  └─────────────────────────────┘ │
@@ -93,10 +93,10 @@
 namespace acs::game::btedit {
 
 // ---------------------------------------------------------------------------
-// EBtKind — メタミラー上の node 種別 (実体 BT の BtNode 派生に対応)
+// EBtKind — メタミラー上の node 種別 (実体 BT の FBtNode 派生に対応)
 // ---------------------------------------------------------------------------
 // 実体 BT 側で RTTI 抜きに種別を判定できないため、メタミラー側で明示的に
-// 保持する。BtSelector → Selector、BtSequence → Sequence、BtAction → Action
+// 保持する。FBtSelector → Selector、FBtSequence → FSequence、FBtAction → Action
 // に 1:1 対応する想定 (= 将来 BtParallel 等が追加されたらここに enum を増やす)。
 enum class EBtKind : u8 {
     Selector = 0,
@@ -105,15 +105,15 @@ enum class EBtKind : u8 {
 };
 
 // ---------------------------------------------------------------------------
-// BehaviorTreeEditorPanel — BehaviorTree の visualize + step debug パネル
+// FBehaviorTreeEditorPanel — FBehaviorTree の visualize + step debug パネル
 // ---------------------------------------------------------------------------
-class BehaviorTreeEditorPanel : public editor_core::EditorPanel {
+class FBehaviorTreeEditorPanel : public editor_core::FEditorPanel {
 public:
     // StepCallback: panel が「1 tick 進めたい」時に呼ばれる関数ポインタ。
     // 登録されていれば panel は `tree->Tick(nullptr, dt)` を直接呼ばず、
     // この callback だけを呼ぶ (= ユーザに blackboard を渡す自由を与える)。
     // `user` は SetOnStepCallback の第二引数で渡したポインタがそのまま戻る。
-    using StepCallback = void(*)(void* user, BehaviorTree* tree, f32 dt) noexcept;
+    using StepCallback = void(*)(void* user, FBehaviorTree* tree, f32 dt) noexcept;
 
     // 履歴 ring buffer の長さ (frame 数)。仕様で 60 frame 固定。
     static constexpr u32 kHistorySize = 60u;
@@ -121,15 +121,15 @@ public:
     // SelectedNodeId / parent_id の "none" シグネル。u32 max。
     static constexpr u32 kInvalidId   = 0xFFFFFFFFu;
 
-    BehaviorTreeEditorPanel() noexcept = default;
-    ~BehaviorTreeEditorPanel() noexcept override = default;
+    FBehaviorTreeEditorPanel() noexcept = default;
+    ~FBehaviorTreeEditorPanel() noexcept override = default;
 
     // 非コピー / 非ムーブ: 内部 `TArray<NodeMeta>` + `TArray<u8>` の所有を曖昧に
-    // しない (EditorPanel 基底もデフォルトで非コピー / 非ムーブ宣言済)。
-    BehaviorTreeEditorPanel(const BehaviorTreeEditorPanel&)            = delete;
-    BehaviorTreeEditorPanel& operator=(const BehaviorTreeEditorPanel&) = delete;
-    BehaviorTreeEditorPanel(BehaviorTreeEditorPanel&&)                 = delete;
-    BehaviorTreeEditorPanel& operator=(BehaviorTreeEditorPanel&&)      = delete;
+    // しない (FEditorPanel 基底もデフォルトで非コピー / 非ムーブ宣言済)。
+    FBehaviorTreeEditorPanel(const FBehaviorTreeEditorPanel&)            = delete;
+    FBehaviorTreeEditorPanel& operator=(const FBehaviorTreeEditorPanel&) = delete;
+    FBehaviorTreeEditorPanel(FBehaviorTreeEditorPanel&&)                 = delete;
+    FBehaviorTreeEditorPanel& operator=(FBehaviorTreeEditorPanel&&)      = delete;
 
     // ----- ライフサイクル ---------------------------------------------------
 
@@ -140,15 +140,15 @@ public:
     // 後片付け: メタミラーと履歴と callback を全部クリア。多重 Shutdown 可。
     void Shutdown() noexcept;
 
-    // ----- BehaviorTree 紐付け ---------------------------------------------
+    // ----- FBehaviorTree 紐付け ---------------------------------------------
 
     // 観察対象の BT を差し替える (nullptr で解除)。所有しない (caller 所有)。
     // 差し替え時に Reset() 相当 (step counter / history / status を初期化) を
     // 行うが、メタミラーは触らない (= 同じ構造で別インスタンスを観察する用途)。
-    void SetTree(BehaviorTree* tree) noexcept;
+    void SetTree(FBehaviorTree* tree) noexcept;
 
     // 現在観察中の BT (なければ nullptr)。
-    BehaviorTree* CurrentTree() const noexcept { return _tree; }
+    FBehaviorTree* CurrentTree() const noexcept { return _tree; }
 
     // ----- autorun / step 制御 ----------------------------------------------
 
@@ -181,7 +181,7 @@ public:
     // ----- メタミラー操作 (= caller が AddNode で BT 構造を panel に教える) -
 
     // 新規 node をメタミラーに追加し、払い出した node_id (= 0..N-1) を返す。
-    // ・kind         : Selector / Sequence / Action のいずれか
+    // ・kind         : Selector / FSequence / Action のいずれか
     // ・name         : ImGui 表示名 (リテラル / 永続領域、panel は所有しない)
     // ・parent_id    : 既存 node の id、root の場合は kInvalidId
     // parent_id が kInvalidId 以外で範囲外を指す場合は parent_id を kInvalidId
@@ -189,7 +189,7 @@ public:
     // 上限 (kMaxNodes) に達したら kInvalidId を返す (= 失敗を id で通知)。
     u32 AddNode(EBtKind kind, const char* name, u32 parent_id) noexcept;
 
-    // 既存 node の last_status を更新する。BtAction の Fn から呼ぶことを想定。
+    // 既存 node の last_status を更新する。FBtAction の Fn から呼ぶことを想定。
     // 範囲外は no-op。Reset で全 node が Failure に戻る。
     void SetNodeStatus(u32 node_id, EBtStatus status) noexcept;
 
@@ -209,7 +209,7 @@ public:
     // nullptr で解除 (= panel が `tree->Tick(nullptr, dt)` を直接呼ぶ fallback)。
     void SetOnStepCallback(StepCallback cb, void* user) noexcept;
 
-    // ----- EditorPanel override --------------------------------------------
+    // ----- FEditorPanel override --------------------------------------------
 
     // ImGui::Begin に渡す window タイトル (リテラル)。
     const char* Title() const noexcept override { return "Behavior Tree Editor"; }
@@ -260,8 +260,8 @@ private:
 
     // ----- 内部状態 ---------------------------------------------------------
 
-    // 観察中の BehaviorTree (非所有)。
-    BehaviorTree* _tree         = nullptr;
+    // 観察中の FBehaviorTree (非所有)。
+    FBehaviorTree* _tree         = nullptr;
 
     // autorun (毎フレーム OnFrameBegin で TickInternal を呼ぶ)。
     bool          _autorun      = false;

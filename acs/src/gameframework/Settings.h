@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — Settings (型付きゲーム設定)
+// GameFramework Pillar G — FSettings (型付きゲーム設定)
 //
 // 音量・解像度・キーバインド等の「ゲームを跨いで永続化したい設定値」を
-// 型付き key-value で保持する小型ストア。InputMap (Pillar D) のキーコンフィグや
+// 型付き key-value で保持する小型ストア。FInputMap (Pillar D) のキーコンフィグや
 // AudioMixer の音量、Display の解像度・ウィンドウモード等の永続化先として使う。
 //
 // 使い方:
-//   Settings s;
+//   FSettings s;
 //   s.SetF32 ("audio.master",   0.8f);
 //   s.SetI32 ("display.width",  1920);
 //   s.SetBool("display.vsync",  true);
@@ -46,7 +46,7 @@
 //   ・配列値 / FVec2 / FVec3 / FColor 等の複合型 (現状は 4 プリミティブのみ)
 //   ・change notification (オブザーバ pattern / callback)
 //   ・section / namespace ツリー
-//   ・暗号化 / 改竄検知 (Pillar S Storefront / AssetPack 側で扱う)
+//   ・暗号化 / 改竄検知 (Pillar S Storefront / FAssetPack 側で扱う)
 //   ・schema migration (バージョン番号の埋め込みと変換)
 #pragma once
 
@@ -66,15 +66,15 @@ enum class ESettingKind : u8 {
     FString,
 };
 
-class Settings {
+class FSettings {
 public:
-    Settings()  noexcept = default;
-    ~Settings() noexcept = default;
+    FSettings()  noexcept = default;
+    ~FSettings() noexcept = default;
 
-    Settings(const Settings&)            = delete;
-    Settings& operator=(const Settings&) = delete;
-    Settings(Settings&&)                 = delete;
-    Settings& operator=(Settings&&)      = delete;
+    FSettings(const FSettings&)            = delete;
+    FSettings& operator=(const FSettings&) = delete;
+    FSettings(FSettings&&)                 = delete;
+    FSettings& operator=(FSettings&&)      = delete;
 
     // ----- 書き込み (同名 key は上書き、key == nullptr は no-op) -----
     void SetF32   (const char* key, f32         v) noexcept;

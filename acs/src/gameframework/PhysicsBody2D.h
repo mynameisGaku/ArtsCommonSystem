@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F Phase 2 — PhysicsBody2D (Phase 11)
+// GameFramework Pillar F Phase 2 — FPhysicsBody2D (Phase 11)
 //
-// kinematic 物理 body の Component2D。velocity + acceleration + gravity を
-// 統合し、CollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
+// kinematic 物理 body の FComponent2D。velocity + acceleration + gravity を
+// 統合し、FCollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
 // blocking する (X 軸試行 → overlap なら velocity.x=0 / x 移動キャンセル、
 // 同様に Y 軸)。剛体ソルバではなく「2D プラットフォーマー / トップダウン用の
-// swept kinematic」(v3 spec §7.2 PhysicsBody2D)。
+// swept kinematic」(v3 spec §7.2 FPhysicsBody2D)。
 //
 // 使い方:
-//   auto ball = MakeUnique<Node2D>();
+//   auto ball = MakeUnique<FNode2D>();
 //   ball->Local().position = FVec2{0, 5};
-//   auto& body = ball->AddComponent<PhysicsBody2D>(Services().Physics());
+//   auto& body = ball->AddComponent<FPhysicsBody2D>(Services().Physics());
 //   body.SetCircle(0.5f);
 //   body.gravity = FVec2{0, -10};
 //   body.velocity = FVec2{1, 0};
 //   root.AddChild(Move(ball));
 //
 // 設計選択 (Phase 11):
-//   ・**Component2D 派生**: AddComponent<PhysicsBody2D>(world) で attach。
+//   ・**FComponent2D 派生**: AddComponent<FPhysicsBody2D>(world) で attach。
 //     CollisionWorld への参照は constructor で受け取る。
 //   ・**axis-separated movement**: X / Y を独立に試して overlap なら止める。
 //     真の collide-and-slide は Phase 3。
@@ -38,12 +38,12 @@
 
 namespace acs::game {
 
-class PhysicsBody2D : public Component2D {
+class FPhysicsBody2D : public FComponent2D {
 public:
-    ACS_GAME_COMPONENT_KIND(PhysicsBody2D)
+    ACS_GAME_COMPONENT_KIND(FPhysicsBody2D)
 
     // CollisionWorld への参照は constructor で必須受取
-    explicit PhysicsBody2D(CollisionWorld2D& world) noexcept : _world(&world) {}
+    explicit FPhysicsBody2D(FCollisionWorld2D& world) noexcept : _world(&world) {}
 
     // ----- 形状設定 (どちらか一方を設定。再設定で上書き) -----
     void SetCircle(f32 radius) noexcept {
@@ -66,8 +66,8 @@ public:
     // 現在の collision handle (deregister 時に invalidated)
     FShapeId Handle() const noexcept { return _handle; }
 
-    // Component2D hooks
-    void OnAttach(Node2D& owner) noexcept override;
+    // FComponent2D hooks
+    void OnAttach(FNode2D& owner) noexcept override;
     void OnUpdate(f32 dt) noexcept override;
     void OnDetach() noexcept override;
 
@@ -78,7 +78,7 @@ private:
     void RegisterShapeAt(FVec2 pos) noexcept;
     void SyncShapeIfRegistered() noexcept;
 
-    CollisionWorld2D* _world  = nullptr;
+    FCollisionWorld2D* _world  = nullptr;
     ShapeKind         _kind   = ShapeKind::None;
     f32               _radius = 0.5f;
     FVec2              _half_size{0.5f, 0.5f};

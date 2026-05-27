@@ -40,9 +40,9 @@ void ShadowsScene::Build() noexcept {
     }
 }
 
-void ShadowsScene::Render(Sky&             sky,
-                          StandardShader&  shader,
-                          ShadowMap&       shadow,
+void ShadowsScene::Render(FSky&             sky,
+                          FStandardShader&  shader,
+                          FShadowMap&       shadow,
                           IRhiCommandList& cl,
                           const FCamera&    camera,
                           const GpuMesh&   plane,

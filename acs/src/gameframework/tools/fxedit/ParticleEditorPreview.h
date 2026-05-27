@@ -20,14 +20,14 @@
 //     (= 古い emitter を Destroy → 新 def で Create) ので、UI 上の値変更が
 //     即座に preview に反映される。
 //
-// 設計選択 (DebugOverlay と同 Pillar の延長線上):
-//   ・**ParticleEffectSystem を所有しない**: preview はあくまで「外部の
-//     ParticleEffectSystem 上に 1 個 emitter を立てる」スタイル。テスト時には
+// 設計選択 (FDebugOverlay と同 Pillar の延長線上):
+//   ・**FParticleEffectSystem を所有しない**: preview はあくまで「外部の
+//     FParticleEffectSystem 上に 1 個 emitter を立てる」スタイル。テスト時には
 //     fake system を渡せるし、in-game ツール時には本番 system を共有できる。
 //   ・**def の copy を内部保持**: 編集中 def を caller のポインタ経由でも、
 //     内部 snapshot 経由でも参照できる。`RecreatePreviewEmitter(system, def)`
 //     に渡された `def` を copy し、`CreateEmitter(copy, spawn_pos)` で新規 instance 化。
-//   ・**frame budget 60-frame ring**: DebugOverlay と同じ循環バッファ方式
+//   ・**frame budget 60-frame ring**: FDebugOverlay と同じ循環バッファ方式
 //     (容量固定 / push 不可時は上書き)。`GraphFps()` は履歴の算術平均を返す。
 //   ・**非コピー・非ムーブ**: 内部に `FEmitterHandle` (= system 内 slot を指す
 //     handle) を保持するため、ムーブで複製されると DestroyEmitter のタイミングが
@@ -39,7 +39,7 @@
 // 範囲外 (Phase 19c+ で):
 //   ・curve editor (color/size の時間カーブ編集)
 //   ・preset library (json/tdat 保存・読み込み)
-//   ・GPU sprite preview (実際の SpriteBatch 統合)
+//   ・GPU sprite preview (実際の FSpriteBatch 統合)
 //   ・複数 emitter の同時 preview (現状 1 個固定)
 #pragma once
 
@@ -51,18 +51,18 @@
 namespace acs::game::fxedit {
 
 // ---------------------------------------------------------------------------
-// ParticleEditorPreview — 編集中 emitter の preview canvas + stats
+// FParticleEditorPreview — 編集中 emitter の preview canvas + stats
 // ---------------------------------------------------------------------------
-class ParticleEditorPreview {
+class FParticleEditorPreview {
 public:
-    ParticleEditorPreview() noexcept = default;
-    ~ParticleEditorPreview() noexcept = default;
+    FParticleEditorPreview() noexcept = default;
+    ~FParticleEditorPreview() noexcept = default;
 
     // 非コピー・非ムーブ: 内部 FEmitterHandle / 履歴バッファの所有権を曖昧にしない。
-    ParticleEditorPreview(const ParticleEditorPreview&)            = delete;
-    ParticleEditorPreview& operator=(const ParticleEditorPreview&) = delete;
-    ParticleEditorPreview(ParticleEditorPreview&&)                 = delete;
-    ParticleEditorPreview& operator=(ParticleEditorPreview&&)      = delete;
+    FParticleEditorPreview(const FParticleEditorPreview&)            = delete;
+    FParticleEditorPreview& operator=(const FParticleEditorPreview&) = delete;
+    FParticleEditorPreview(FParticleEditorPreview&&)                 = delete;
+    FParticleEditorPreview& operator=(FParticleEditorPreview&&)      = delete;
 
     // ----- ライフサイクル -----
     // frame budget ring を事前確保 (60 frame)。再 Init は履歴をクリア。
@@ -82,24 +82,24 @@ public:
     // ここでは「auto-emit が true なら現状 def に従って system に Burst を出す
     // ことはしない」: auto-emit は emit_rate_per_sec ベースの連続放出で、これは
     // emitter active フラグの ON/OFF で system 側が勝手にやってくれる。
-    void Tick(f32 dt, class ParticleEffectSystem& system) noexcept;
+    void Tick(f32 dt, class FParticleEffectSystem& system) noexcept;
 
     // preview window を ImGui で描画。"Particle Preview" タイトルで Begin/End wrap。
     // def == nullptr の場合は "no def selected" 旨だけ表示する (defensive)。
-    void DrawUI(class ParticleEffectSystem& system, const struct ParticleEmitterDef* def) noexcept;
+    void DrawUI(class FParticleEffectSystem& system, const struct ParticleEmitterDef* def) noexcept;
 
     // ----- 編集中 def の同期 -----
     // 編集中 emitter を即時再生成: 既存 handle が valid なら DestroyEmitter 後、
     // 新 def の copy で CreateEmitter する。def == nullptr は no-op (handle 維持)。
-    void RecreatePreviewEmitter(class ParticleEffectSystem& system,
+    void RecreatePreviewEmitter(class FParticleEffectSystem& system,
                                 const struct ParticleEmitterDef* def) noexcept;
 
     // burst_count に従い 1 回 Burst (handle が valid のときのみ)。
-    void TriggerBurst(class ParticleEffectSystem& system) noexcept;
+    void TriggerBurst(class FParticleEffectSystem& system) noexcept;
 
     // 現在の preview emitter を破棄 + system の particle pool 全消去。
     // (= 編集セッションを綺麗な状態に戻すボタン用)
-    void StopAll(class ParticleEffectSystem& system) noexcept;
+    void StopAll(class FParticleEffectSystem& system) noexcept;
 
     // ----- spawn position (preview canvas 上の出生座標) -----
     FVec2 SpawnPos() const noexcept { return _spawn_pos; }
@@ -108,7 +108,7 @@ public:
     // ----- stats アクセサ -----
     // 直近 Tick で記録した system の active particle 数。
     u32  ActiveParticleCount() const noexcept { return _last_active_count; }
-    // pool 容量 (= ParticleEffectSystem::AllParticles の out_count)。
+    // pool 容量 (= FParticleEffectSystem::AllParticles の out_count)。
     u32  MaxParticleCount()    const noexcept { return _last_capacity; }
     // 連続放出モード (true なら emitter は active 状態、false なら手動 Burst のみ)。
     bool IsAutoEmit() const noexcept { return _auto_emit; }
@@ -117,7 +117,7 @@ public:
     f32  GraphFps() const noexcept;
 
 private:
-    // frame budget ring buffer 容量。DebugOverlay と揃える (60 frame)。
+    // frame budget ring buffer 容量。FDebugOverlay と揃える (60 frame)。
     static constexpr u32 kFpsHistoryCap = 60u;
 
     // 編集中 emitter (system 上の 1 instance を指す handle)。Init / Shutdown /
@@ -135,7 +135,7 @@ private:
     u32   _last_active_count = 0u;         // Tick で更新
     u32   _last_capacity     = 0u;         // Tick で更新 (= pool 容量)
 
-    // 60 frame ring (DebugOverlay と同パターン)
+    // 60 frame ring (FDebugOverlay と同パターン)
     TArray<f32> _fps_history;
     u32        _fps_index  = 0u;
     bool       _fps_filled = false;

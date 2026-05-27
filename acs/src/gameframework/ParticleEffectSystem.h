@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I Phase 2 — ParticleEffectSystem (軽量 sprite particle)
+// GameFramework Pillar I Phase 2 — FParticleEffectSystem (軽量 sprite particle)
 //
-// 2D ゲーム向けの最小コスト sprite パーティクル。`EffectSystem` (Pillar I Phase 1)
+// 2D ゲーム向けの最小コスト sprite パーティクル。`FEffectSystem` (Pillar I Phase 1)
 // が「Flash / HitStop / Shake のような単発演出」を担うのに対し、本クラスは
 // 「emitter で粒子を放出し続ける」連続演出 (炎・煙・スパーク・吹き出しなど) を担う。
 //
 // 設計選択:
 //   ・**emitter は generational handle**: 24bit index + 8bit gen を packed した
-//      `FEmitterHandle`。`SceneTimer::TimerHandle` / `TriggerWorld2D::TriggerId` と
+//      `FEmitterHandle`。`FSceneTimer::FTimerHandle` / `FTriggerWorld2D::FTriggerId` と
 //      同じ規約。slot 再利用後の stale 参照は IsValid + gen 一致で検出可能。
 //   ・**particle pool は固定容量**: `Init(max_particles)` で確保した後はリサイズ
 //      しない。リアルタイムループのフレーム落ちを避けるため、最悪ケースを上限と
 //      する保守的なポリシー。空き探索は `next_free` カーソル + 線形走査の
 //      ハイブリッド (大半のフレームで O(1)、最悪 O(N))。
 //   ・**描画は user 側**: 本クラスは描画 API を一切呼ばず、`AllParticles()` で
-//      `const Particle*` を渡すのみ。SpriteBatch / DebugDraw / カスタム pipeline
+//      `const Particle*` を渡すのみ。FSpriteBatch / FDebugDraw / カスタム pipeline
 //      など、ユーザー側の描画戦略に依存しない (= テスト容易・headless 動作可)。
-//   ・**Random は内部 LCG**: `acs::game::Random` (xoshiro128**) には依存せず、
-//      ParticleEffectSystem は単一の `u32` state を持つ簡素な Linear Congruential
+//   ・**FRandom は内部 LCG**: `acs::game::FRandom` (xoshiro128**) には依存せず、
+//      FParticleEffectSystem は単一の `u32` state を持つ簡素な Linear Congruential
 //      Generator で十分。理由は (1) particle 用途は統計的品質要求が弱い (見た目で
 //      バラけていれば十分), (2) 外部 PRNG 状態と独立にしておくと determinism を
 //      議論しやすい (replay 再現で外部 PRNG が動いても particle 配列は影響しない),
@@ -49,7 +49,7 @@
 //   def.scale_end        = 0.0f;
 //   def.gravity          = {0.0f, 60.0f};       // y 下方向加速度
 //
-//   ParticleEffectSystem fx;
+//   FParticleEffectSystem fx;
 //   fx.Init(2048);
 //   auto h = fx.CreateEmitter(def, {200.0f, 300.0f});
 //
@@ -61,7 +61,7 @@
 //   const Particle* p = fx.AllParticles(n);
 //   for (u32 i = 0; i < n; ++i) {
 //       if (!p[i].IsAlive()) continue;
-//       // SpriteBatch.Draw(p[i].position, current_scale, current_color);
+//       // FSpriteBatch.Draw(p[i].position, current_scale, current_color);
 //   }
 //
 //   // 爆発:
@@ -139,7 +139,7 @@ struct Particle {
 // ---------------------------------------------------------------------------
 // FEmitterHandle — 24bit index + 8bit gen を packed した opaque handle
 // ---------------------------------------------------------------------------
-// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`SceneTimer` 等と
+// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`FSceneTimer` 等と
 // 同一規約。slot 再利用後の stale 参照は IsValid + 内部の gen 一致で検出する。
 struct FEmitterHandle {
     u32 _packed = 0u;
@@ -160,19 +160,19 @@ struct FEmitterHandle {
 };
 
 // ---------------------------------------------------------------------------
-// ParticleEffectSystem — 複数 emitter + 共有 particle pool
+// FParticleEffectSystem — 複数 emitter + 共有 particle pool
 // ---------------------------------------------------------------------------
-class ParticleEffectSystem {
+class FParticleEffectSystem {
 public:
-    ParticleEffectSystem() noexcept = default;
-    ~ParticleEffectSystem() noexcept = default;
+    FParticleEffectSystem() noexcept = default;
+    ~FParticleEffectSystem() noexcept = default;
 
     // 非コピー・非ムーブ: AllParticles() が内部 buffer の生ポインタを返すため、
     // ムーブで実体アドレスが変わると外部参照が破綻する。
-    ParticleEffectSystem(const ParticleEffectSystem&)            = delete;
-    ParticleEffectSystem& operator=(const ParticleEffectSystem&) = delete;
-    ParticleEffectSystem(ParticleEffectSystem&&)                 = delete;
-    ParticleEffectSystem& operator=(ParticleEffectSystem&&)      = delete;
+    FParticleEffectSystem(const FParticleEffectSystem&)            = delete;
+    FParticleEffectSystem& operator=(const FParticleEffectSystem&) = delete;
+    FParticleEffectSystem(FParticleEffectSystem&&)                 = delete;
+    FParticleEffectSystem& operator=(FParticleEffectSystem&&)      = delete;
 
     // 初期化。max_particles で pool 上限を確定 (再 Init は no-op)。
     // 0 を渡した場合は default の 1024 を採用 (誤呼出し防御)。

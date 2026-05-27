@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — SceneTimer 実装
+// GameFramework Pillar H — FSceneTimer 実装
 //
 // 設計メモ:
-//  ・slot 再利用は線形走査 (Tween/SequenceRunner と同じ方針)。Scene あたりの
+//  ・slot 再利用は線形走査 (FTween/FSequenceRunner と同じ方針)。Scene あたりの
 //    timer 数は数十〜数百が想定なので O(N) で十分。
 //  ・generation は u8 (0 = 未使用, 1〜255 が有効)。255 で wrap して 1 に戻す
 //    (0 にすると IsValid が常に false になり stale 検知不能になるため)。
@@ -15,7 +15,7 @@
 
 namespace acs::game {
 
-u32 SceneTimer::AcquireSlot() noexcept {
+u32 FSceneTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (キャッシュ局所性 + index 上限 24bit 保護)
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -24,23 +24,23 @@ u32 SceneTimer::AcquireSlot() noexcept {
         }
     }
     // 全 slot 使用中 → 末尾に追加。24bit index 上限を守る (= 16M timer/scene)。
-    if (n >= static_cast<usize>(TimerHandle::kMaxIndex)) {
-        return TimerHandle::kMaxIndex; // sentinel: caller 側で invalid 扱い
+    if (n >= static_cast<usize>(FTimerHandle::kMaxIndex)) {
+        return FTimerHandle::kMaxIndex; // sentinel: caller 側で invalid 扱い
     }
     _entries.PushBack({});
     return static_cast<u32>(_entries.Size()) - 1u;
 }
 
-TimerHandle SceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
-    return TimerHandle::Pack(index, gen);
+FTimerHandle FSceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
+    return FTimerHandle::Pack(index, gen);
 }
 
-TimerHandle SceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
+FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (delay_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
-    if (idx >= TimerHandle::kMaxIndex) return {}; // 上限到達
+    if (idx >= FTimerHandle::kMaxIndex) return {}; // 上限到達
 
     TimerEntry& e = _entries[idx];
     // generation を 1 進める (0 は未使用扱いなので必ず 1 以上を保つ)
@@ -59,12 +59,12 @@ TimerHandle SceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) 
     return MakeHandle(idx, new_gen);
 }
 
-TimerHandle SceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
+FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (period_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
-    if (idx >= TimerHandle::kMaxIndex) return {};
+    if (idx >= FTimerHandle::kMaxIndex) return {};
 
     TimerEntry& e = _entries[idx];
     u8 new_gen = static_cast<u8>(e.gen + 1u);
@@ -82,7 +82,7 @@ TimerHandle SceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user
     return MakeHandle(idx, new_gen);
 }
 
-bool SceneTimer::Cancel(TimerHandle h) noexcept {
+bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= _entries.Size()) return false;
@@ -96,7 +96,7 @@ bool SceneTimer::Cancel(TimerHandle h) noexcept {
     return true;
 }
 
-void SceneTimer::CancelAll() noexcept {
+void FSceneTimer::CancelAll() noexcept {
     const usize n = _entries.Size();
     for (usize i = 0; i < n; ++i) {
         TimerEntry& e = _entries[i];
@@ -108,7 +108,7 @@ void SceneTimer::CancelAll() noexcept {
     _active_count = 0u;
 }
 
-bool SceneTimer::IsActive(TimerHandle h) const noexcept {
+bool FSceneTimer::IsActive(FTimerHandle h) const noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= _entries.Size()) return false;
@@ -116,7 +116,7 @@ bool SceneTimer::IsActive(TimerHandle h) const noexcept {
     return e.active && e.gen == h.Gen();
 }
 
-void SceneTimer::Tick(f32 dt) noexcept {
+void FSceneTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (_active_count == 0u) return;
 

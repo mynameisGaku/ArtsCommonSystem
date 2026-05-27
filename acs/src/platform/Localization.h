@@ -11,7 +11,7 @@
 //   L.LoadActive(L"lang/ja.lang");
 //   L.LoadFallback(L"lang/en.lang");
 //
-//   Renderer 内:
+//   FRenderer 内:
 //     sb.DrawText(font, L.Tr("greeting"), 100, 100, color);
 //
 //   ja.lang 内容例:
@@ -22,7 +22,7 @@
 //
 //   en.lang 内容例:
 //     greeting=Hello, World!
-//     menu.start=Start Game
+//     menu.start=Start FGame
 //     menu.exit=Quit
 //
 // 言語切替:

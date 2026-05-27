@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTextured — Application 実装。
+// HelloTextured — FApplication 実装。
 #include "HelloTexturedApp.h"
 #include "Shaders.h"
 #include "TextureGen.h"

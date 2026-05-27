@@ -28,7 +28,7 @@ TResult<TRc<Asset>> ImageAssetLoader::LoadFromBytes(FAssetId id, const TArray<by
         MemCopy(pixels.Data(), px, byte_count);
         ::stbi_image_free(px);
 
-        TRc<ImageAsset> a = MakeRc<ImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
+        TRc<FImageAsset> a = MakeRc<FImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
                                                EPixelFormat::R32G32B32A32_F, Move(pixels));
         a->SetId(id);
         a->SetState(EAssetState::Ready);
@@ -47,7 +47,7 @@ TResult<TRc<Asset>> ImageAssetLoader::LoadFromBytes(FAssetId id, const TArray<by
     MemCopy(pixels.Data(), px, byte_count);
     ::stbi_image_free(px);
 
-    TRc<ImageAsset> a = MakeRc<ImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
+    TRc<FImageAsset> a = MakeRc<FImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
                                            EPixelFormat::R8G8B8A8, Move(pixels));
     a->SetId(id);
     a->SetState(EAssetState::Ready);

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — MemorySnapshot（メモリ使用率の可視化出力）
+// ACS Memory — FMemorySnapshot（メモリ使用率の可視化出力）
 // -----------------------------------------------------------------------------
-// MemorySystem の現状を SVG / BMP として出力する。SVG はテキストベースで
+// FMemorySystem の現状を SVG / BMP として出力する。SVG はテキストベースで
 // 軽量・ブラウザで開ける、ラベル付きで人間に読みやすい。BMP は外部ツールで
 // パイプライン化しやすい。両方ゼロ依存（自前ライタ）。
 //
@@ -17,7 +17,7 @@
 
 namespace acs {
 
-class MemorySnapshot {
+class FMemorySnapshot {
 public:
     // SVG ファイル出力（人間可読、ラベル付き）
     static TResult<void> WriteSvg(const wchar_t* path,

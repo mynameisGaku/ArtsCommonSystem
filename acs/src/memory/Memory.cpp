@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — グローバルアロケータ実装 + Allocator::Realloc デフォルト
+// ACS Memory — グローバルアロケータ実装 + FAllocator::Realloc デフォルト
 // -----------------------------------------------------------------------------
 // CRT (memcpy/memmove/memset/memcmp) は SSE/AVX で最適化されているため、
 // そのまま委譲する。自前実装するメリットは皆無に近い。
@@ -14,14 +14,14 @@ namespace acs {
 
 namespace {
 // プロセス全体のシステムアロケータ（起動時から有効）
-SystemAllocator g_system_allocator;
-// 現在のデフォルト。起動時は SystemAllocator を指す。
-Allocator*      g_default = &g_system_allocator;
+FSystemAllocator g_system_allocator;
+// 現在のデフォルト。起動時は FSystemAllocator を指す。
+FAllocator*      g_default = &g_system_allocator;
 }
 
-Allocator& DefaultAllocator() noexcept { return *g_default; }
+FAllocator& DefaultAllocator() noexcept { return *g_default; }
 
-void SetDefaultAllocator(Allocator* a) noexcept {
+void SetDefaultAllocator(FAllocator* a) noexcept {
     g_default = a ? a : &g_system_allocator;
 }
 
@@ -32,12 +32,12 @@ void MemSet (void* dst, int v, usize n)            noexcept { ::memset(dst, v, n
 int  MemCmp (const void* a, const void* b, usize n) noexcept { return ::memcmp(a, b, n); }
 
 // =============================================================================
-// Allocator::Realloc — デフォルト実装（Alloc + MemCopy + Free）
+// FAllocator::Realloc — デフォルト実装（Alloc + MemCopy + Free）
 // -----------------------------------------------------------------------------
 // 派生アロケータがオーバーライドしない場合のフォールバック。
 // 効率的な realloc を持つ実装（HeapReAlloc 等）はオーバーライドすべき。
 // =============================================================================
-void* Allocator::Realloc(void* ptr, usize old_size, usize new_size,
+void* FAllocator::Realloc(void* ptr, usize old_size, usize new_size,
                          usize alignment, FSourceLoc loc) noexcept {
     if (new_size == 0) { Free(ptr); return nullptr; }
     void* p = Alloc(new_size, alignment, loc);

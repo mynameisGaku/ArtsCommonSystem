@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — HealthSystem (HP / damage / death / respawn 管理)
+// GameFramework Pillar R/I — FHealthSystem (HP / damage / death / respawn 管理)
 //
 // 複数 entity (敵 / プレイヤー / 破壊可能オブジェクト) の HP を一元管理する
 // 高レベル API。slot+generation パターンの `FHealthId` で entity を識別し、
 // ApplyDamage / Heal / Revive / SetInvulnerable などの操作を提供する。
 //
 // 使い方:
-//   HealthSystem hp;
+//   FHealthSystem hp;
 //   FHealthId player = hp.Spawn(/*max_hp=*/100.0f);
 //   FHealthId enemy  = hp.Spawn(50.0f);
 //
@@ -25,8 +25,8 @@
 //   hp.Revive(player, 0.5f);
 //
 // 設計選択 (Pillar R/I):
-//   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: CollisionWorld2D の
-//     FShapeId / Node2D の FNodeId と同パターン。removed slot を再利用しても古い
+//   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: FCollisionWorld2D の
+//     FShapeId / FNode2D の FNodeId と同パターン。removed slot を再利用しても古い
 //     handle は無効化される。0 は invalid 予約 (index 0 dummy)。
 //   ・**slot 配列 + active フラグ**: AcquireSlot で空きを線形検索、無ければ末尾
 //     拡張。Despawn では generation を進めて handle 無効化。
@@ -43,7 +43,7 @@
 //   ・**EDamageType は enum**: 属性 (Fire / Ice 等) は将来の耐性計算 / VFX 振り分け
 //     用。本クラスでは値をそのまま受け取り callback に伝えるだけで、ダメージ倍率は
 //     掛けない (caller が Resistance を考慮した最終量を渡す方針)。
-//   ・**非コピー・非ムーブ**: Game / Scene 単位で 1 個保持される想定で、所有権
+//   ・**非コピー・非ムーブ**: FGame / Scene 単位で 1 個保持される想定で、所有権
 //     移動は不要。
 //
 // 範囲外 (将来 Phase で):
@@ -110,15 +110,15 @@ enum class EDamageType : u8 {
 //   lethal_type  : 致死を与えた EDamageType
 using DeathCallback = void(*)(void* user, FHealthId id, EDamageType lethal_type) noexcept;
 
-class HealthSystem {
+class FHealthSystem {
 public:
-    HealthSystem() noexcept = default;
-    ~HealthSystem() noexcept = default;
+    FHealthSystem() noexcept = default;
+    ~FHealthSystem() noexcept = default;
 
-    HealthSystem(const HealthSystem&)            = delete;
-    HealthSystem& operator=(const HealthSystem&) = delete;
-    HealthSystem(HealthSystem&&)                 = delete;
-    HealthSystem& operator=(HealthSystem&&)      = delete;
+    FHealthSystem(const FHealthSystem&)            = delete;
+    FHealthSystem& operator=(const FHealthSystem&) = delete;
+    FHealthSystem(FHealthSystem&&)                 = delete;
+    FHealthSystem& operator=(FHealthSystem&&)      = delete;
 
     // ----- entity 登録 / 解除 -----
     // 新規 entity を full HP で登録。max_hp <= 0 の場合は 1.0 にクランプして登録。

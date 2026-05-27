@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / EditorCommand (Phase 21a)
+// GameFramework Tools — editor_core / FEditorCommand (Phase 21a)
 //
 // 役割:
-//   ACS の全エディタ (HierarchyPanel / InspectorPanel / ParticleEditor /
+//   ACS の全エディタ (FHierarchyPanel / FInspectorPanel / ParticleEditor /
 //   SceneInspector ほか将来追加される LevelEditor / TimelineEditor 等) が共有
 //   する **undo/redo の原子単位**。Command パターンの GoF 古典に沿い、
-//   1 操作 = 1 EditorCommand 派生インスタンスとして表現する。
+//   1 操作 = 1 FEditorCommand 派生インスタンスとして表現する。
 //
 // 使い方:
-//   class MoveNodeCommand : public EditorCommand { ... };  // header 下に inline 例
+//   class MoveNodeCommand : public FEditorCommand { ... };  // header 下に inline 例
 //
 //   // editor 側:
 //   acs::TUniquePtr<MoveNodeCommand> cmd = acs::MakeUnique<MoveNodeCommand>(
@@ -16,8 +16,8 @@
 //   undo_stack.Push(cmd.Release());   // 所有権を渡す + Execute 実行
 //
 // 設計選択 (Phase 21a):
-//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<EditorCommand>` で
-//     UndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
+//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<FEditorCommand>` で
+//     FUndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
 //     ACS 規約。
 //   ・**非コピー / 非ムーブ**: 「実行済み command を後から複製」は意味的に怪しい
 //     (二重 Undo 等の事故源)。意図的な複製は派生クラス側で factory を用意する。
@@ -31,10 +31,10 @@
 //     ものを保つ)。これで Undo 1 回で連続 drag 全体を巻き戻せる。
 //
 // 将来拡張余地:
-//   ・transaction (BeginGroup / EndGroup): UndoStack 側で複数 EditorCommand
-//     を 1 件として束ねる `CommandGroup : EditorCommand` を派生で実装する。
+//   ・transaction (BeginGroup / EndGroup): FUndoStack 側で複数 FEditorCommand
+//     を 1 件として束ねる `CommandGroup : FEditorCommand` を派生で実装する。
 //   ・branched history: undo 後に new edit が来た時に redo stack を破棄するの
-//     ではなく分岐として保存する。EditorCommand 側に変更は不要。
+//     ではなく分岐として保存する。FEditorCommand 側に変更は不要。
 //   ・serialization: `virtual void Serialize(Writer&) const` を後付け可能。
 //     既存派生は default = no-op で問題ない。
 #pragma once
@@ -46,21 +46,21 @@
 namespace acs::game::editor_core {
 
 // =============================================================================
-// EditorCommand — undo/redo の原子単位 (純粋抽象)
+// FEditorCommand — undo/redo の原子単位 (純粋抽象)
 // -----------------------------------------------------------------------------
 // 派生クラスは Execute / Undo / Description を必ず override する。
 // CanMerge / MergeWith は default で merge 拒否、必要な派生のみ override する。
 // =============================================================================
-class EditorCommand {
+class FEditorCommand {
 public:
-    EditorCommand() noexcept          = default;
-    virtual ~EditorCommand() noexcept = default;
+    FEditorCommand() noexcept          = default;
+    virtual ~FEditorCommand() noexcept = default;
 
     // 非コピー / 非ムーブ: 実行済み command の複製は意味的に危険なので禁止。
-    EditorCommand(const EditorCommand&)            = delete;
-    EditorCommand& operator=(const EditorCommand&) = delete;
-    EditorCommand(EditorCommand&&)                 = delete;
-    EditorCommand& operator=(EditorCommand&&)      = delete;
+    FEditorCommand(const FEditorCommand&)            = delete;
+    FEditorCommand& operator=(const FEditorCommand&) = delete;
+    FEditorCommand(FEditorCommand&&)                 = delete;
+    FEditorCommand& operator=(FEditorCommand&&)      = delete;
 
     // RTTI を使わずに command の "種類" を識別するための tag。
     // 派生クラスは自前の静的アドレス (static const char k; ... return &k;) を
@@ -69,8 +69,8 @@ public:
     // 派生で確認することで、不正な cross-type cast を防ぐ。
     virtual const void* Kind() const noexcept { return nullptr; }
 
-    // 「Do」を実行する。UndoStack::Push 直後と、Redo 経路の両方から呼ばれる。
-    // 既に Execute 済みの命令を 2 連続で呼ぶケースは UndoStack が排除する
+    // 「Do」を実行する。FUndoStack::Push 直後と、Redo 経路の両方から呼ばれる。
+    // 既に Execute 済みの命令を 2 連続で呼ぶケースは FUndoStack が排除する
     // (Undo を挟まずに同じ command を 2 回 Execute することはない)。
     virtual void Execute() noexcept = 0;
 
@@ -89,23 +89,23 @@ public:
     // 「同じ command kind (typeid 相当のフィールド比較)」のときに限定する。
     // 派生クラスが override する場合は dynamic_cast を使わず、自前の kind 比較
     // (例: const char* GetKind() を override) で行うこと (ACS は RTTI を避ける)。
-    virtual bool CanMerge(const EditorCommand& /*next*/) const noexcept {
+    virtual bool CanMerge(const FEditorCommand& /*next*/) const noexcept {
         return false;
     }
 
-    // CanMerge が true を返した直後に UndoStack が呼ぶ。`next` の「new 値」を
+    // CanMerge が true を返した直後に FUndoStack が呼ぶ。`next` の「new 値」を
     // 自分に取り込み (= 自分の new 値を next の new 値で上書きし)、自分の
     // old 値はそのまま保つ。これで Undo 1 回で連続 drag 全体を巻き戻せる。
     // default は no-op (CanMerge が false なので呼ばれない想定)。
-    virtual void MergeWith(const EditorCommand& /*next*/) noexcept {}
+    virtual void MergeWith(const FEditorCommand& /*next*/) noexcept {}
 };
 
 // =============================================================================
-// MoveNodeCommand — Node2D の position を変更する EditorCommand 派生サンプル
+// MoveNodeCommand — FNode2D の position を変更する FEditorCommand 派生サンプル
 // -----------------------------------------------------------------------------
 // 教科書的な使用例。連続 drag を 1 件にまとめる CanMerge 実装も持つ。
 //
-// 使い方 (UndoStack 経由):
+// 使い方 (FUndoStack 経由):
 //   const acs::FVec2 old_pos = node.Local().position;
 //   const acs::FVec2 new_pos = old_pos + delta;
 //   acs::TUniquePtr<MoveNodeCommand> c = acs::MakeUnique<MoveNodeCommand>(
@@ -122,9 +122,9 @@ public:
 //     だと UB になるので、editor 側で Destroy 時に undo stack を Clear する等の
 //     ハイレベルポリシーで防ぐ (Phase 21a 範囲外)。
 // =============================================================================
-class MoveNodeCommand : public EditorCommand {
+class MoveNodeCommand : public FEditorCommand {
 public:
-    MoveNodeCommand(Node2D* target, FVec2 old_pos, FVec2 new_pos) noexcept
+    MoveNodeCommand(FNode2D* target, FVec2 old_pos, FVec2 new_pos) noexcept
         : _target(target), _old_pos(old_pos), _new_pos(new_pos) {}
 
     void Execute() noexcept override {
@@ -148,7 +148,7 @@ public:
     const void* Kind() const noexcept override { return KindTag(); }
 
     // 同一 target に対する連続 MoveNodeCommand のみ merge を許す。
-    bool CanMerge(const EditorCommand& next) const noexcept override {
+    bool CanMerge(const FEditorCommand& next) const noexcept override {
         // 型 (Kind tag) と対象 (target ポインタ) が両方一致するときだけ merge。
         if (next.Kind() != KindTag()) {
             return false;
@@ -159,8 +159,8 @@ public:
         return nxt._target == _target;
     }
 
-    void MergeWith(const EditorCommand& next) noexcept override {
-        // CanMerge を経ているのが UndoStack 側の前提だが、防御的に再確認する。
+    void MergeWith(const FEditorCommand& next) noexcept override {
+        // CanMerge を経ているのが FUndoStack 側の前提だが、防御的に再確認する。
         if (next.Kind() != KindTag()) {
             return;
         }
@@ -170,7 +170,7 @@ public:
     }
 
     // ----- アクセサ (テスト / inspector 表示用) -----
-    const Node2D* Target() const noexcept { return _target; }
+    const FNode2D* Target() const noexcept { return _target; }
     FVec2          OldPosition() const noexcept { return _old_pos; }
     FVec2          NewPosition() const noexcept { return _new_pos; }
 
@@ -183,7 +183,7 @@ private:
         return &kTag;
     }
 
-    Node2D* _target  = nullptr;
+    FNode2D* _target  = nullptr;
     FVec2    _old_pos {};
     FVec2    _new_pos {};
 };

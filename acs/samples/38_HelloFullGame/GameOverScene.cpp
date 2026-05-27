@@ -18,7 +18,7 @@ using namespace acs::game;
 namespace hellofg {
 
 void GameOverScene::OnEnter() noexcept {
-    InputMap& im = Services().Input();
+    FInputMap& im = Services().Input();
     im.ClearAll();
     im.BindKey(ActionId("Reset"), EKey::R);
     im.BindKey(ActionId("Quit"),  EKey::Escape);
@@ -41,7 +41,7 @@ void GameOverScene::OnExit() noexcept {
 }
 
 void GameOverScene::OnUpdate(f32 dt) noexcept {
-    const InputMap& im = Services().Input();
+    const FInputMap& im = Services().Input();
     if (im.IsPressed(ActionId("Quit"))) {
         GetGame().Quit();
         return;
@@ -58,7 +58,7 @@ void GameOverScene::OnRender(RenderContext& rc) noexcept {
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
-    SpriteBatch& sb = app.Sprites();
+    FSpriteBatch& sb = app.Sprites();
     const u32 sw = rc.Width();
     const u32 sh = rc.Height();
     sb.Begin(rc.Cmd(), sw, sh);

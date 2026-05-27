@@ -30,11 +30,11 @@ struct SubMesh {
     u32 index_count = 0;
 };
 
-class MeshAsset : public Asset {
+class FMeshAsset : public Asset {
 public:
-    ACS_ASSET_TYPE("MeshAsset")
+    ACS_ASSET_TYPE("FMeshAsset")
 
-    MeshAsset() noexcept = default;
+    FMeshAsset() noexcept = default;
 
     const TArray<MeshVertex>& Vertices()  const noexcept { return _vertices; }
     TArray<MeshVertex>&       Vertices()        noexcept { return _vertices; }
@@ -52,14 +52,14 @@ private:
 // glTF / GLB ローダ (cgltf)
 class GltfAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return MeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "gltf"; }
     TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class GlbAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return MeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "glb"; }
     TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
@@ -67,7 +67,7 @@ public:
 // Wavefront OBJ ローダ（自前パーサ）
 class ObjAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return MeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "obj"; }
     TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
@@ -75,7 +75,7 @@ public:
 // FBX ローダ (ufbx)
 class FbxAssetLoader final : public IAssetLoader {
 public:
-    AssetType   TypeId()    const noexcept override { return MeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "fbx"; }
     TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };

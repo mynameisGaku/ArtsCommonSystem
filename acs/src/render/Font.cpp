@@ -8,7 +8,7 @@
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
-// stb_truetype は単一ヘッダ。実装は ImageAsset.cpp で STB_IMAGE_IMPLEMENTATION
+// stb_truetype は単一ヘッダ。実装は FImageAsset.cpp で STB_IMAGE_IMPLEMENTATION
 // しているが、stb_truetype は別マクロなので衝突しない。
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STB_RECT_PACK_IMPLEMENTATION

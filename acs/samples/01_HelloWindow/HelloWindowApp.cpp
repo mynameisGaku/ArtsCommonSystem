@@ -54,7 +54,7 @@ void HelloWindowApp::OnShutdown() noexcept {
 
 void HelloWindowApp::OnEvent(const Event& e) noexcept {
     if (e.type == EventType::WindowResize) {
-        ACS_LOG_INFO("Window resized to %ux%u", e.resize.width, e.resize.height);
+        ACS_LOG_INFO("FWindow resized to %ux%u", e.resize.width, e.resize.height);
     }
 }
 

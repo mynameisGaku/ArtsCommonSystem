@@ -28,7 +28,7 @@ void RecordJob(void* user, u32 /*worker*/) noexcept {
 } // namespace
 
 ACS_TEST(FJobGraph, LinearChainExecutesInOrder) {
-    auto ir = ThreadPool::Init(4);
+    auto ir = FThreadPool::Init(4);
     EXPECT_TRUE(ir.IsOk());
 
     JobCtx ctx_a{}; ctx_a.my_index = 0;
@@ -59,12 +59,12 @@ ACS_TEST(FJobGraph, LinearChainExecutesInOrder) {
     EXPECT_TRUE(ctx_b.counter.Load(EMemoryOrder::Acquire) >= 1);
     EXPECT_TRUE(ctx_c.counter.Load(EMemoryOrder::Acquire) >= 1);
 
-    ThreadPool::Shutdown();
+    FThreadPool::Shutdown();
 }
 
 // 並列実行可能 (依存無し) の job が同時に走ることだけ確認
 ACS_TEST(FJobGraph, ParallelJobsAllRun) {
-    auto ir = ThreadPool::Init(4);
+    auto ir = FThreadPool::Init(4);
     EXPECT_TRUE(ir.IsOk());
 
     constexpr u32 N = 16;
@@ -81,7 +81,7 @@ ACS_TEST(FJobGraph, ParallelJobsAllRun) {
         EXPECT_TRUE(ctxs[i].counter.Load(EMemoryOrder::Acquire) >= 1);
     }
     EXPECT_EQ(g.JobCount(), N);
-    ThreadPool::Shutdown();
+    FThreadPool::Shutdown();
 }
 
 // MessagePipe: Push / TryPop

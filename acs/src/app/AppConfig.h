@@ -8,9 +8,9 @@
 
 namespace acs {
 
-struct AppConfig {
+struct FAppConfig {
     // ウィンドウ
-    const wchar_t* title       = L"ACS Application";
+    const wchar_t* title       = L"ACS FApplication";
     u32            width       = 1280;
     u32            height      = 720;
     bool           resizable   = true;
@@ -24,7 +24,7 @@ struct AppConfig {
     // メモリシステム（nullptr で既定設定を使う）
     const MemorySystemConfig* memory = nullptr;
 
-    // ThreadPool ワーカー数（0 で自動）
+    // FThreadPool ワーカー数（0 で自動）
     u32            worker_count = 0;
 
     // レンダラ

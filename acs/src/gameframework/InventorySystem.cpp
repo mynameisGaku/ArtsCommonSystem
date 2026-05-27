@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O/G — InventorySystem 実装
+// GameFramework Pillar O/G — FInventorySystem 実装
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
-//   ・item_id は const char* per-byte 線形検索 (Entitlement / EconomyDirector と同設計)。
+//   ・item_id は const char* per-byte 線形検索 (FEntitlement / FEconomyDirector と同設計)。
 //     アイテム種別 (500〜2000 のオーダー) は線形で十分。
 //   ・AddItem は積み増し優先 (= 既存 stack で max_stack 未満のものから埋める)。
 //     これにより inventory の fragmentation が抑えられ UI のスロットが散らばらない。
@@ -12,7 +12,7 @@
 //     (UI の slot 並べ替え / クエスト消費等で意図的に動かせるため)。
 //   ・ChangeCallback は変更があった slot ごとに呼ぶ。Add / Remove で複数 slot に
 //     波及した場合はそれぞれ呼ぶ。loop 防止のため Init / ClearAll では呼ばない。
-//   ・WARN は EconomyDirector / Entitlement と同じ Log.h 経由。
+//   ・WARN は FEconomyDirector / FEntitlement と同じ Log.h 経由。
 #include "gameframework/InventorySystem.h"
 #include "foundation/Log.h"
 
@@ -20,7 +20,7 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較。EconomyDirector.cpp / CharacterCustomizer.cpp と同設計。
+// const char* の per-byte 安全比較。FEconomyDirector.cpp / FCharacterCustomizer.cpp と同設計。
 // どちらかが nullptr なら false。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
@@ -32,7 +32,7 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// 「id 未発見」を表す哨兵値 (EconomyDirector / CharacterCustomizer と同設計)。
+// 「id 未発見」を表す哨兵値 (FEconomyDirector / FCharacterCustomizer と同設計)。
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 } // namespace
@@ -41,7 +41,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 // 内部ユーティリティ
 // =============================================================================
 
-u32 InventorySystem::FindItemSlot(const char* item_id) const noexcept {
+u32 FInventorySystem::FindItemSlot(const char* item_id) const noexcept {
     if (item_id == nullptr) return kNotFound;
     const usize n = _items.Size();
     for (usize i = 0; i < n; ++i) {
@@ -50,7 +50,7 @@ u32 InventorySystem::FindItemSlot(const char* item_id) const noexcept {
     return kNotFound;
 }
 
-void InventorySystem::NotifyChange(u32 slot_index) noexcept {
+void FInventorySystem::NotifyChange(u32 slot_index) noexcept {
     if (_on_change == nullptr) return;
     // 範囲外は呼ばない (defensive)。slot_index < SlotCount() のときだけ。
     if (slot_index >= static_cast<u32>(_slots.Size())) return;
@@ -62,7 +62,7 @@ void InventorySystem::NotifyChange(u32 slot_index) noexcept {
 // 初期化
 // =============================================================================
 
-void InventorySystem::Init(u32 slot_count) noexcept {
+void FInventorySystem::Init(u32 slot_count) noexcept {
     // 0 は 1 にクランプ (defensive — Init(0) しても 1 slot だけ確保しておく)。
     if (slot_count == 0) slot_count = 1;
 
@@ -79,13 +79,13 @@ void InventorySystem::Init(u32 slot_count) noexcept {
 // 定義登録
 // =============================================================================
 
-void InventorySystem::RegisterItem(const ItemDef& def) noexcept {
+void FInventorySystem::RegisterItem(const ItemDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
 
     // 同 id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindItemSlot(def.id) != kNotFound) {
-        ACS_LOG_WARN("InventorySystem: duplicate item registration ignored ('%s')", def.id);
+        ACS_LOG_WARN("FInventorySystem: duplicate item registration ignored ('%s')", def.id);
         return;
     }
 
@@ -96,7 +96,7 @@ void InventorySystem::RegisterItem(const ItemDef& def) noexcept {
     _items.PushBack(copy);
 }
 
-const ItemDef* InventorySystem::FindItem(const char* item_id) const noexcept {
+const ItemDef* FInventorySystem::FindItem(const char* item_id) const noexcept {
     const u32 slot = FindItemSlot(item_id);
     if (slot == kNotFound) return nullptr;
     return &_items[slot];
@@ -106,7 +106,7 @@ const ItemDef* InventorySystem::FindItem(const char* item_id) const noexcept {
 // 在庫操作
 // =============================================================================
 
-u32 InventorySystem::AddItem(const char* item_id, u32 count) noexcept {
+u32 FInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
     // 早期 reject — side effect なし。
     if (item_id == nullptr || count == 0) return 0;
     if (_slots.Size() == 0)               return 0;  // Init 前
@@ -149,7 +149,7 @@ u32 InventorySystem::AddItem(const char* item_id, u32 count) noexcept {
     return count - remaining;
 }
 
-u32 InventorySystem::RemoveItem(const char* item_id, u32 count) noexcept {
+u32 FInventorySystem::RemoveItem(const char* item_id, u32 count) noexcept {
     if (item_id == nullptr || count == 0) return 0;
     if (_slots.Size() == 0)               return 0;
 
@@ -177,14 +177,14 @@ u32 InventorySystem::RemoveItem(const char* item_id, u32 count) noexcept {
     return removed;
 }
 
-bool InventorySystem::HasItem(const char* item_id, u32 min_count) const noexcept {
+bool FInventorySystem::HasItem(const char* item_id, u32 min_count) const noexcept {
     // min_count == 0 は「0 個以上 = 常に true」(defensive)。
     if (min_count == 0) return true;
     if (item_id == nullptr) return false;
     return ItemTotal(item_id) >= min_count;
 }
 
-u32 InventorySystem::ItemTotal(const char* item_id) const noexcept {
+u32 FInventorySystem::ItemTotal(const char* item_id) const noexcept {
     if (item_id == nullptr) return 0;
     if (_slots.Size() == 0) return 0;
 
@@ -205,7 +205,7 @@ u32 InventorySystem::ItemTotal(const char* item_id) const noexcept {
 // slot 操作
 // =============================================================================
 
-bool InventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
+bool FInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
     const u32 n_slots = static_cast<u32>(_slots.Size());
     if (n_slots == 0) return false;
     if (from_index >= n_slots || to_index >= n_slots) return false;
@@ -264,7 +264,7 @@ bool InventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
     return true;
 }
 
-bool InventorySystem::DropSlot(u32 index) noexcept {
+bool FInventorySystem::DropSlot(u32 index) noexcept {
     if (index >= static_cast<u32>(_slots.Size())) return false;
 
     InventorySlot& s = _slots[index];
@@ -284,16 +284,16 @@ bool InventorySystem::DropSlot(u32 index) noexcept {
 // 照会
 // =============================================================================
 
-const InventorySlot* InventorySystem::GetSlot(u32 index) const noexcept {
+const InventorySlot* FInventorySystem::GetSlot(u32 index) const noexcept {
     if (index >= static_cast<u32>(_slots.Size())) return nullptr;
     return &_slots[index];
 }
 
-u32 InventorySystem::SlotCount() const noexcept {
+u32 FInventorySystem::SlotCount() const noexcept {
     return static_cast<u32>(_slots.Size());
 }
 
-u32 InventorySystem::EmptySlotCount() const noexcept {
+u32 FInventorySystem::EmptySlotCount() const noexcept {
     const u32 n = static_cast<u32>(_slots.Size());
     u32       e = 0;
     for (u32 i = 0; i < n; ++i) {
@@ -306,7 +306,7 @@ u32 InventorySystem::EmptySlotCount() const noexcept {
 // コールバック
 // =============================================================================
 
-void InventorySystem::SetOnChangeCallback(ChangeCallback cb, void* user) noexcept {
+void FInventorySystem::SetOnChangeCallback(ChangeCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
     _on_change      = cb;
     _on_change_user = user;
@@ -316,7 +316,7 @@ void InventorySystem::SetOnChangeCallback(ChangeCallback cb, void* user) noexcep
 // 全リセット
 // =============================================================================
 
-void InventorySystem::ClearAll() noexcept {
+void FInventorySystem::ClearAll() noexcept {
     _items.Clear();
     _slots.Clear();
     _on_change      = nullptr;

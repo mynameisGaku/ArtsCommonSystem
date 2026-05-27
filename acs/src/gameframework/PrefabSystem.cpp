@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J Phase 2 — PrefabSystem 実装
+// GameFramework Pillar J Phase 2 — FPrefabSystem 実装
 //
 // name lookup は const char* 同士の per-byte 比較で行う (STL/<cstring> 禁止)。
 // 登録件数は通常 1 セッションで数百件以下なので、線形走査でも実用上問題なし。
@@ -13,7 +13,7 @@ namespace {
 
 // const char* の安全比較。どちらかが nullptr なら false。
 // 終端ヌルまで一致した時のみ true (長さ不一致は終端ズレで検出される)。
-// Entitlement.cpp の StrEq と同じパターン。
+// FEntitlement.cpp の StrEq と同じパターン。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -31,7 +31,7 @@ bool IsEmptyName(const char* s) noexcept {
 
 } // namespace
 
-u32 PrefabSystem::AcquireSlot() noexcept {
+u32 FPrefabSystem::AcquireSlot() noexcept {
     // index 0 は invalid 予約。index 1 以降から未使用 slot を探す。
     for (u32 i = 1; i < _entries.Size(); ++i) {
         if (!_entries[i].active) return i;
@@ -45,7 +45,7 @@ u32 PrefabSystem::AcquireSlot() noexcept {
     return static_cast<u32>(_entries.Size()) - 1u;
 }
 
-PrefabId PrefabSystem::Register(const char* name, PrefabFactoryFn factory, void* user_data) noexcept {
+PrefabId FPrefabSystem::Register(const char* name, PrefabFactoryFn factory, void* user_data) noexcept {
     // バリデーション: 名前が空 / factory が無いと spawn が無意味なので拒否。
     if (IsEmptyName(name))      return PrefabId{};
     if (factory == nullptr)     return PrefabId{};
@@ -63,7 +63,7 @@ PrefabId PrefabSystem::Register(const char* name, PrefabFactoryFn factory, void*
     return PrefabId{idx, e.gen};
 }
 
-PrefabId PrefabSystem::FindByName(const char* name) const noexcept {
+PrefabId FPrefabSystem::FindByName(const char* name) const noexcept {
     if (IsEmptyName(name)) return PrefabId{};
     const u32 n = static_cast<u32>(_entries.Size());
     // index 0 は dummy なので 1 から走査。
@@ -75,22 +75,22 @@ PrefabId PrefabSystem::FindByName(const char* name) const noexcept {
     return PrefabId{};
 }
 
-TUniquePtr<Node2D> PrefabSystem::Spawn(PrefabId id) noexcept {
-    if (!id.IsValid()) return TUniquePtr<Node2D>{};
+TUniquePtr<FNode2D> FPrefabSystem::Spawn(PrefabId id) noexcept {
+    if (!id.IsValid()) return TUniquePtr<FNode2D>{};
     const u32 idx = id.Index();
-    if (idx >= _entries.Size()) return TUniquePtr<Node2D>{};
+    if (idx >= _entries.Size()) return TUniquePtr<FNode2D>{};
     const PrefabEntry& e = _entries[idx];
     // active 検証 + 世代一致 (stale handle を弾く)。
-    if (!e.active || e.gen != id.Generation()) return TUniquePtr<Node2D>{};
-    if (e.factory == nullptr)                  return TUniquePtr<Node2D>{};
+    if (!e.active || e.gen != id.Generation()) return TUniquePtr<FNode2D>{};
+    if (e.factory == nullptr)                  return TUniquePtr<FNode2D>{};
     return e.factory(e.user_data);
 }
 
-TUniquePtr<Node2D> PrefabSystem::SpawnByName(const char* name) noexcept {
+TUniquePtr<FNode2D> FPrefabSystem::SpawnByName(const char* name) noexcept {
     return Spawn(FindByName(name));
 }
 
-bool PrefabSystem::Unregister(PrefabId id) noexcept {
+bool FPrefabSystem::Unregister(PrefabId id) noexcept {
     if (!id.IsValid()) return false;
     const u32 idx = id.Index();
     if (idx >= _entries.Size()) return false;
@@ -106,7 +106,7 @@ bool PrefabSystem::Unregister(PrefabId id) noexcept {
     return true;
 }
 
-const char* PrefabSystem::GetName(PrefabId id) const noexcept {
+const char* FPrefabSystem::GetName(PrefabId id) const noexcept {
     if (!id.IsValid()) return "(unknown)";
     const u32 idx = id.Index();
     if (idx >= _entries.Size()) return "(unknown)";
@@ -116,7 +116,7 @@ const char* PrefabSystem::GetName(PrefabId id) const noexcept {
     return e.name;
 }
 
-void PrefabSystem::ClearAll() noexcept {
+void FPrefabSystem::ClearAll() noexcept {
     // gen を進めず TArray ごと捨てる: 古い ID 経由のアクセスは Index 範囲外
     // または slot 再利用後の gen 不一致のどちらかで弾かれる。
     _entries.Clear();

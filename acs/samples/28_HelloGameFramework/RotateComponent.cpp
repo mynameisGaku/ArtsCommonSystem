@@ -6,7 +6,7 @@
 
 namespace hellogf {
 
-void RotateComponent::OnAttach(acs::game::Node2D& /*owner*/) noexcept {
+void RotateComponent::OnAttach(acs::game::FNode2D& /*owner*/) noexcept {
     ACS_LOG_INFO("[Component] RotateComponent attached (speed=%.2f rad/s)",
                  static_cast<double>(_speed));
 }

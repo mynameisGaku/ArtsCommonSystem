@@ -13,8 +13,8 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void Player::Init(GameplayScene& scene, Node2D& root, HealthSystem& health) noexcept {
-    auto player_up = MakeUnique<Node2D>();
+void Player::Init(GameplayScene& scene, FNode2D& root, FHealthSystem& health) noexcept {
+    auto player_up = MakeUnique<FNode2D>();
     player_up->Local().position = FVec2{0.0f, 0.0f};
     _node = &root.AddChild(Move(player_up));
     _node->_SetId(FNodeId{1u, static_cast<u8>(1)});
@@ -42,14 +42,14 @@ FVec2 Player::Position() const noexcept {
     return _node->Local().position;
 }
 
-bool Player::IsInvulnerable(const HealthSystem& h) const noexcept {
+bool Player::IsInvulnerable(const FHealthSystem& h) const noexcept {
     return h.IsInvulnerable(_health_id);
 }
 
 FVec2 Player::UpdateMovement(GameplayScene& scene, f32 dt) noexcept {
     if (!_node) return FVec2{0.0f, 0.0f};
 
-    const InputMap& im = scene.Services().Input();
+    const FInputMap& im = scene.Services().Input();
     FVec2 move{ im.Axis(ActionId("MoveX")), im.Axis(ActionId("MoveY")) };
     if (move.x != 0.0f || move.y != 0.0f) {
         // 斜め入力で 1.41x 倍速にならないよう正規化。
@@ -74,7 +74,7 @@ FVec2 Player::UpdateMovement(GameplayScene& scene, f32 dt) noexcept {
 void Player::UpdateFire(GameplayScene& scene, f32 dt) noexcept {
     _fire_cd -= dt;
     if (!_node) return;
-    const InputMap& im = scene.Services().Input();
+    const FInputMap& im = scene.Services().Input();
     if (im.IsHeld(ActionId("Fire")) && _fire_cd <= 0.0f) {
         const FVec2 from = _node->Local().position;
         const FVec2 dir  = Normalize(scene.MouseWorld() - from);
@@ -86,7 +86,7 @@ void Player::UpdateFire(GameplayScene& scene, f32 dt) noexcept {
 }
 
 bool Player::TryTakeContactDamage(GameplayScene& scene,
-                                  HealthSystem& health,
+                                  FHealthSystem& health,
                                   FVec2 /*player_pos*/) noexcept {
     // この関数は Enemy 側で接触判定したあと呼ばれる。無敵中なら何もしない。
     if (health.IsInvulnerable(_health_id)) return false;

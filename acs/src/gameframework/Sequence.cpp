@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — Sequence / SequenceRunner 実装 (Phase 4)
+// GameFramework Pillar C — FSequence / FSequenceRunner 実装 (Phase 4)
 #include "gameframework/Sequence.h"
 #include "foundation/Move.h"
 
 namespace acs::game {
 
-Sequence& Sequence::Wait(f32 seconds) noexcept {
+FSequence& FSequence::Wait(f32 seconds) noexcept {
     SeqAction a;
     a.kind     = SeqAction::Kind::Wait;
     a.duration = seconds < 0.0f ? 0.0f : seconds;
@@ -13,7 +13,7 @@ Sequence& Sequence::Wait(f32 seconds) noexcept {
     return *this;
 }
 
-Sequence& Sequence::Call(void(*fn)(void*) noexcept, void* user) noexcept {
+FSequence& FSequence::Call(void(*fn)(void*) noexcept, void* user) noexcept {
     SeqAction a;
     a.kind      = SeqAction::Kind::Call;
     a.duration  = 0.0f;
@@ -23,7 +23,7 @@ Sequence& Sequence::Call(void(*fn)(void*) noexcept, void* user) noexcept {
     return *this;
 }
 
-Sequence& Sequence::Tween(f32* target, f32 from, f32 to, f32 duration,
+FSequence& FSequence::FTween(f32* target, f32 from, f32 to, f32 duration,
                            Easing::EasingFn ease) noexcept {
     SeqAction a;
     a.kind           = SeqAction::Kind::TweenF;
@@ -36,7 +36,7 @@ Sequence& Sequence::Tween(f32* target, f32 from, f32 to, f32 duration,
     return *this;
 }
 
-Sequence& Sequence::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+FSequence& FSequence::FTween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                            Easing::EasingFn ease) noexcept {
     SeqAction a;
     a.kind            = SeqAction::Kind::TweenV2;
@@ -49,7 +49,7 @@ Sequence& Sequence::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
     return *this;
 }
 
-Sequence& Sequence::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+FSequence& FSequence::FTween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                            Easing::EasingFn ease) noexcept {
     SeqAction a;
     a.kind            = SeqAction::Kind::TweenV3;
@@ -64,7 +64,7 @@ Sequence& Sequence::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
 
 // =================== Runner ===================
 
-u32 SequenceRunner::AcquireSlot() noexcept {
+u32 FSequenceRunner::AcquireSlot() noexcept {
     for (u32 i = 0; i < _slots.Size(); ++i) {
         if (!_slots[i].active) return i;
     }
@@ -72,7 +72,7 @@ u32 SequenceRunner::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-SeqHandle SequenceRunner::Start(Sequence seq) noexcept {
+SeqHandle FSequenceRunner::Start(FSequence seq) noexcept {
     if (seq.Actions().Size() == 0) return {};
     const u32 idx = AcquireSlot();
     Slot& s = _slots[idx];
@@ -89,7 +89,7 @@ SeqHandle SequenceRunner::Start(Sequence seq) noexcept {
     return SeqHandle{idx, s.generation};
 }
 
-void SequenceRunner::Cancel(SeqHandle h) noexcept {
+void FSequenceRunner::Cancel(SeqHandle h) noexcept {
     if (!h.IsValid() || h.index >= _slots.Size()) return;
     Slot& s = _slots[h.index];
     if (s.generation != h.generation || !s.active) return;
@@ -97,20 +97,20 @@ void SequenceRunner::Cancel(SeqHandle h) noexcept {
     if (_active_count > 0) --_active_count;
 }
 
-void SequenceRunner::CancelAll() noexcept {
+void FSequenceRunner::CancelAll() noexcept {
     for (u32 i = 0; i < _slots.Size(); ++i) {
         _slots[i].active = false;
     }
     _active_count = 0;
 }
 
-bool SequenceRunner::IsActive(SeqHandle h) const noexcept {
+bool FSequenceRunner::IsActive(SeqHandle h) const noexcept {
     if (!h.IsValid() || h.index >= _slots.Size()) return false;
     const Slot& s = _slots[h.index];
     return s.active && s.generation == h.generation;
 }
 
-void SequenceRunner::AdvanceToNext(Slot& s) noexcept {
+void FSequenceRunner::AdvanceToNext(Slot& s) noexcept {
     ++s.action_idx;
     s.action_elapsed = 0.0f;
     s.call_fired     = false;
@@ -128,7 +128,7 @@ void SequenceRunner::AdvanceToNext(Slot& s) noexcept {
     }
 }
 
-void SequenceRunner::FinishAction(Slot& /*s*/, const SeqAction& act) noexcept {
+void FSequenceRunner::FinishAction(Slot& /*s*/, const SeqAction& act) noexcept {
     // 完了時に最終値を正確に書く (浮動小数誤差を残さない)
     switch (act.kind) {
     case SeqAction::Kind::TweenF:
@@ -144,7 +144,7 @@ void SequenceRunner::FinishAction(Slot& /*s*/, const SeqAction& act) noexcept {
     }
 }
 
-void SequenceRunner::Tick(f32 dt) noexcept {
+void FSequenceRunner::Tick(f32 dt) noexcept {
     if (_active_count == 0 || dt <= 0.0f) return;
 
     for (u32 i = 0; i < _slots.Size(); ++i) {

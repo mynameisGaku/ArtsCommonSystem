@@ -2,7 +2,7 @@
 // HelloShowcase — post-process pass (Bloom + ACES tonemap + auto-exposure +
 // TAA history blend)。HDR RT を読んで swapchain backbuffer へ LDR で書く。
 //
-// PostProcess::Render は内部で BeginRenderToSwapchain を発行するので、本 pass
+// FPostProcess::Render は内部で BeginRenderToSwapchain を発行するので、本 pass
 // の呼び出し後の swapchain は (HUD overlay が描ける) "RT bound" 状態になる。
 #pragma once
 

@@ -16,23 +16,23 @@ void BtEditorApp::OnStart() noexcept {
         Quit();
         return;
     }
-    Game::OnStart();
+    FGame::OnStart();
 }
 
 void BtEditorApp::OnRender() noexcept {
     _imgui.NewFrame();
-    Game::OnRender();
+    FGame::OnRender();
     _imgui.Render();
 }
 
 void BtEditorApp::OnShutdown() noexcept {
-    Game::OnShutdown();
+    FGame::OnShutdown();
     _imgui.Shutdown();
 }
 
 void BtEditorApp::OnEvent(const Event& e) noexcept {
     _imgui.OnEvent(e);
-    Game::OnEvent(e);
+    FGame::OnEvent(e);
 }
 
 TUniquePtr<Scene> BtEditorApp::InitialScene() noexcept {

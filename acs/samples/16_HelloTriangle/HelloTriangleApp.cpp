@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloTriangle — Application 実装。
+// HelloTriangle — FApplication 実装。
 #include "HelloTriangleApp.h"
 #include "Shaders.h"
 #include "Types.h"

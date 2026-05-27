@@ -16,7 +16,7 @@
 //   cfg.seed              = 0xDEADBEEFu;
 //   cfg.max_depth         = 5;
 //
-//   DungeonGenerator gen;
+//   FDungeonGenerator gen;
 //   gen.Generate(cfg);
 //
 //   // 描画ループ
@@ -38,7 +38,7 @@
 //
 // 設計選択:
 //   ・**ETileKind = u8**: 5 種類しか無いので u8 で十分。row-major 1D の
-//     acs::TArray<ETileKind> に格納 (Tilemap と異なる layered 構造は不要)。
+//     acs::TArray<ETileKind> に格納 (FTilemap と異なる layered 構造は不要)。
 //   ・**Room = 矩形 + id**: id は生成順 0..N-1。重複しない部屋を保証。
 //   ・**BSP partition tree は temp**: 生成中だけ必要なので TArray<BspNode>
 //     を ローカル変数 として持ち、Generate 終了で破棄する。永続データは
@@ -93,16 +93,16 @@ struct DungeonGenConfig {
 };
 
 // ---- 生成器 ----------------------------------------------------------------
-class DungeonGenerator {
+class FDungeonGenerator {
 public:
-    DungeonGenerator() noexcept  = default;
-    ~DungeonGenerator() noexcept = default;
+    FDungeonGenerator() noexcept  = default;
+    ~FDungeonGenerator() noexcept = default;
 
     // 非コピー・非ムーブ (Scene 所有想定、サイズが大きいので明示複製を強制)
-    DungeonGenerator(const DungeonGenerator&)            = delete;
-    DungeonGenerator& operator=(const DungeonGenerator&) = delete;
-    DungeonGenerator(DungeonGenerator&&)                 = delete;
-    DungeonGenerator& operator=(DungeonGenerator&&)      = delete;
+    FDungeonGenerator(const FDungeonGenerator&)            = delete;
+    FDungeonGenerator& operator=(const FDungeonGenerator&) = delete;
+    FDungeonGenerator(FDungeonGenerator&&)                 = delete;
+    FDungeonGenerator& operator=(FDungeonGenerator&&)      = delete;
 
     // ---- 生成 ----------------------------------------------------------------
     // config に従って全体を再生成 (既存状態は完全破棄)。

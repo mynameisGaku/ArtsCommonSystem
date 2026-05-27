@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar V — IBackendClient / IMatchmaker stub 実装
 //
-// 本ファイルは BackendClient.h で宣言した 2 つの interface に対し、
+// 本ファイルは FBackendClient.h で宣言した 2 つの interface に対し、
 // 「常に NotImplemented を返すだけ」の defensive stub を提供する。
 //
 // 目的:
@@ -45,7 +45,7 @@ public:
 
     TResult<void> Connect(const char* server_url) noexcept override {
         (void)server_url;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IBackendClient::Connect is not implemented "
                        "(stub: link a concrete backend implementation)");
     }
@@ -62,7 +62,7 @@ public:
                                const char* json_payload) noexcept override {
         (void)event_name;
         (void)json_payload;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IBackendClient::SendTelemetry is not implemented "
                        "(stub: link a concrete backend implementation)");
     }
@@ -87,14 +87,14 @@ public:
                                     u32 elo_hint) noexcept override {
         (void)mode;
         (void)elo_hint;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IMatchmaker::StartSearch is not implemented "
                        "(stub: link a concrete matchmaker implementation)");
     }
 
     TResult<void> CancelSearch(MatchTicket t) noexcept override {
         (void)t;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IMatchmaker::CancelSearch is not implemented "
                        "(stub: link a concrete matchmaker implementation)");
     }
@@ -107,7 +107,7 @@ public:
 
     TResult<void> AcceptMatch(MatchTicket t) noexcept override {
         (void)t;
-        return ACS_ERR(IO, BackendError::kSub_NotImplemented,
+        return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IMatchmaker::AcceptMatch is not implemented "
                        "(stub: link a concrete matchmaker implementation)");
     }

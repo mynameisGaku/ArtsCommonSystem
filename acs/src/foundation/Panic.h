@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Foundation — Panic ハンドラ
+// ACS Foundation — FPanic ハンドラ
 // -----------------------------------------------------------------------------
 // プロセスを致命的に終了させる「最終エラー経路」。
 //
@@ -33,6 +33,6 @@ void SetPanicHook(PanicHook hook, void* user) noexcept;
 //   loc  — 発生位置（通常は ACS_ASSERT が FSourceLoc::Current() を渡す）
 //   expr — 失敗した式の文字列（"x < size" など）
 //   fmt  — printf 形式メッセージ
-ACS_NORETURN void Panic(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept;
+ACS_NORETURN void FPanic(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept;
 
 } // namespace acs

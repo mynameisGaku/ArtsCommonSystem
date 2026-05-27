@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — SeasonPass (Battle Pass / Season tracker)
+// GameFramework Pillar O — FSeasonPass (Battle Pass / Season tracker)
 //
 // 期間限定シーズン (Battle Pass) の定義 + 累積 XP に対する tier 進行 + tier 報酬の
 // 請求状態を 1 クラスにまとめた小型マネージャ。シーズン開始 / 終了は wall-clock
@@ -8,27 +8,27 @@
 // 倫理方針 (重要):
 //   ・本クラスが扱う報酬は **cosmetic のみ** を強く推奨する。装備性能・ダメージ
 //     倍率等、ゲームプレイ核心に影響する報酬を Premium tier に置く設計は
-//     pay-to-win に直結し、ACS としては明示的に反対する立場 (Entitlement.h の
+//     pay-to-win に直結し、ACS としては明示的に反対する立場 (FEntitlement.h の
 //     方針を継承)。loot box (中身がランダムで対価が確率に依存する仕組み) も
 //     倫理的に拒絶しており、本 API には乱数要素を一切持たせない (= 払うと
 //     必ず指定の cosmetic が得られる、固定 tier 方式に限定)。
-//   ・SeasonPass 自体には強制機構を置かないが、`reward_id_*` は cosmetic 系
+//   ・FSeasonPass 自体には強制機構を置かないが、`reward_id_*` は cosmetic 系
 //     entitlement / unlock を指すよう設計時に揃えること。
 //
 // 想定する位置付け:
-//   ・Pillar O (Entitlement) との違い:
-//     - Entitlement は「持っているかどうか」の権利フラグを保持する受動レジストリ。
-//     - SeasonPass は「期間内に xp を稼ぐと tier が上がり、各 tier の報酬を請求
+//   ・Pillar O (FEntitlement) との違い:
+//     - FEntitlement は「持っているかどうか」の権利フラグを保持する受動レジストリ。
+//     - FSeasonPass は「期間内に xp を稼ぐと tier が上がり、各 tier の報酬を請求
 //       できる」進行 + claim 状態の能動マネージャ。報酬 ID は entitlement 側に
 //       橋渡しする想定 (本クラスは ID を吐き出すだけ)。
-//   ・Pillar O (Progression / AchievementManager) との違い:
-//     - Progression は「永続レベル / 累積 milestone」を扱う、シーズンを跨いだ進行。
-//     - AchievementManager は「永続実績」を扱い、SDK と双方向。
-//     - SeasonPass は「シーズン (start/end timestamp) で区切られたリセット可能な
+//   ・Pillar O (FProgression / FAchievementManager) との違い:
+//     - FProgression は「永続レベル / 累積 milestone」を扱う、シーズンを跨いだ進行。
+//     - FAchievementManager は「永続実績」を扱い、SDK と双方向。
+//     - FSeasonPass は「シーズン (start/end timestamp) で区切られたリセット可能な
 //       進行」を扱う。シーズン切替で完全リセットされる想定。
 //
 // 使い方:
-//   SeasonPass sp;
+//   FSeasonPass sp;
 //
 //   SeasonInfo info;
 //   info.season_id        = "season.spring_2026";
@@ -43,7 +43,7 @@
 //   sp.DefineTier({ 1, 250,  "cosmetic.frame_basic_t01", "cosmetic.skin_premium_t01" });
 //   // ...
 //
-//   // (任意) プレミアムパス購入が確定したら通知。Entitlement 側で課金検証する。
+//   // (任意) プレミアムパス購入が確定したら通知。FEntitlement 側で課金検証する。
 //   sp.SetPremiumPass(true);
 //
 //   // ゲームプレイ中の xp 加算 + 毎フレームの時刻更新。
@@ -67,13 +67,13 @@
 //     インデックスとして扱う。重複 index は黙って弾く (no-op + WARN)。
 //     xp_threshold は単調増加であることが期待されるが、本クラスは強制しない
 //     (呼出側の責務)。
-//   ・**xp は u32 累積**: Progression と同じ pattern。オーバーフロー時は max クランプ。
+//   ・**xp は u32 累積**: FProgression と同じ pattern。オーバーフロー時は max クランプ。
 //   ・**CurrentTier() は xp_threshold ベースの線形走査**: tier 件数は通常 50〜100
 //     のオーダーなので二分探索化は不要。`xp >= threshold` を満たす最大 tier_index
 //     を返す (どれも満たさなければ ~0u = 「未到達」)。
 //   ・**claim 状態は Def と並行 TArray**: ClaimState{ tier_index; free_claimed;
 //     premium_claimed } を Tier 定義と 1:1 で持つ。`bool` 2 つで Pillar S
-//     AchievementProgress と同じ Def/State 分離設計を踏襲。
+//     FAchievementProgress と同じ Def/State 分離設計を踏襲。
 //   ・**status は (start/end timestamp) と現在時刻の比較**:
 //       NotStarted: now < start_timestamp
 //       Active:     start_timestamp <= now < end_timestamp
@@ -90,7 +90,7 @@
 //     「赤バッジ何個」表示に使う。
 //   ・**EndSeason は手動終了用**: timestamp 経過を待たずにシーズン完了させたい
 //     管理者操作 / デバッグ用。`_current_time = end_timestamp` を強制する。
-//   ・**永続化は範囲外 (Phase 3+)**: Progression と同じく、Save/Load は本フェーズ
+//   ・**永続化は範囲外 (Phase 3+)**: FProgression と同じく、Save/Load は本フェーズ
 //     では未実装。Pillar J Serialize 統合後に追加する。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
@@ -147,16 +147,16 @@ enum class ESeasonStatus : u8 {
     Ended      = 2,
 };
 
-// ---- SeasonPass -----------------------------------------------------------
-class SeasonPass {
+// ---- FSeasonPass -----------------------------------------------------------
+class FSeasonPass {
 public:
-    SeasonPass()  noexcept = default;
-    ~SeasonPass() noexcept = default;
+    FSeasonPass()  noexcept = default;
+    ~FSeasonPass() noexcept = default;
 
-    SeasonPass(const SeasonPass&)            = delete;
-    SeasonPass& operator=(const SeasonPass&) = delete;
-    SeasonPass(SeasonPass&&)                 = delete;
-    SeasonPass& operator=(SeasonPass&&)      = delete;
+    FSeasonPass(const FSeasonPass&)            = delete;
+    FSeasonPass& operator=(const FSeasonPass&) = delete;
+    FSeasonPass(FSeasonPass&&)                 = delete;
+    FSeasonPass& operator=(FSeasonPass&&)      = delete;
 
     // ---- シーズン定義 / 制御 ---------------------------------------------
     // 当該シーズンを開始 (xp = 0, premium = false, 既存 tier 定義は破棄)。

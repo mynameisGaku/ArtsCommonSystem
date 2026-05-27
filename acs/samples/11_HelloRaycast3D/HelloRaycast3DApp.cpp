@@ -22,7 +22,7 @@ void HelloRaycast3DApp::OnStart() noexcept {
 
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
     // フォントは見つからなくても致命的ではない (HUD だけ落ちる) → 結果を捨てる
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
 
     ACS_LOG_INFO("HelloRaycast3D initialized");
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloMVVM — Application 派生クラス。
+// HelloMVVM — FApplication 派生クラス。
 // PlayerVM を保持し、ImGui で MVVM の主要機能 (Observable / Binder / Derived /
 // ObservableArray / Command) を 4 セクションに分けて紹介する。
 #pragma once
@@ -19,7 +19,7 @@
 
 namespace hellomvvm {
 
-class HelloMVVMApp : public acs::Application {
+class HelloMVVMApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

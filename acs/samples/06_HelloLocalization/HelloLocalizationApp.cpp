@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLocalization — Application 実装。
+// HelloLocalization — FApplication 実装。
 #include "HelloLocalizationApp.h"
 #include "Types.h"
 
@@ -26,8 +26,8 @@ void HelloLocalizationApp::OnStart() noexcept {
     SwitchTo(0);    // 起動時は日本語
 
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)Sample::TryLoadDefaultUIFont(_font_big,   *dev, 36.0f, 1024, true);
-    (void)Sample::TryLoadDefaultUIFont(_font_small, *dev, 20.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font_big,   *dev, 36.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font_small, *dev, 20.0f, 1024, true);
 }
 
 void HelloLocalizationApp::OnUpdate(f32 /*dt*/) noexcept {

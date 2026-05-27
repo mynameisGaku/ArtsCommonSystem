@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B Phase 4 — NodePool 実装
+// GameFramework Pillar B Phase 4 — FNodePool 実装
 //
-// ヘッダの設計コメント (NodePool.h) と CollisionWorld2D.cpp の slot+gen pool
+// ヘッダの設計コメント (FNodePool.h) と FCollisionWorld2D.cpp の slot+gen pool
 // パターンに完全準拠する。所有権を持たないこと、index 0 予約、generation 0
 // スキップ、24bit index 上限の 4 点が正しさの肝。
 #include "gameframework/NodePool.h"
@@ -9,7 +9,7 @@
 
 namespace acs::game {
 
-void NodePool::Init(u32 initial_capacity) noexcept {
+void FNodePool::Init(u32 initial_capacity) noexcept {
     // index 0 は予約 (FNodeId{0,0} = invalid と衝突しない dummy slot)。
     // 既に Init 済 (= _slots.Size() > 0) の場合でも追加 reserve だけ行う。
     if (_slots.IsEmpty()) {
@@ -22,7 +22,7 @@ void NodePool::Init(u32 initial_capacity) noexcept {
     }
 }
 
-u32 NodePool::AcquireSlot() noexcept {
+u32 FNodePool::AcquireSlot() noexcept {
     // free stack から再利用 slot を取得
     if (!_free_indices.IsEmpty()) {
         const u32 idx = _free_indices.Back();
@@ -42,7 +42,7 @@ u32 NodePool::AcquireSlot() noexcept {
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-FNodeId NodePool::RegisterExistingNode(Node2D* node) noexcept {
+FNodeId FNodePool::RegisterExistingNode(FNode2D* node) noexcept {
     if (node == nullptr) return FNodeId{};
 
     const u32 idx = AcquireSlot();
@@ -61,7 +61,7 @@ FNodeId NodePool::RegisterExistingNode(Node2D* node) noexcept {
     return new_id;
 }
 
-void NodePool::Unregister(FNodeId id) noexcept {
+void FNodePool::Unregister(FNodeId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= _slots.Size()) return;   // 0 / 範囲外は無視
@@ -69,7 +69,7 @@ void NodePool::Unregister(FNodeId id) noexcept {
     Slot& s = _slots[idx];
     if (!s.active || s.gen != id.Generation()) return;   // stale / 既に free
 
-    // Node2D 側の Id を invalid にリセット (ぶら下がった stale handle を node 経由でも検出可能に)。
+    // FNode2D 側の Id を invalid にリセット (ぶら下がった stale handle を node 経由でも検出可能に)。
     if (s.ptr != nullptr) {
         s.ptr->_SetId(FNodeId{});
     }
@@ -83,7 +83,7 @@ void NodePool::Unregister(FNodeId id) noexcept {
     _free_indices.PushBack(idx);
 }
 
-bool NodePool::IsValid(FNodeId id) const noexcept {
+bool FNodePool::IsValid(FNodeId id) const noexcept {
     if (!id.IsValid()) return false;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= _slots.Size()) return false;
@@ -91,7 +91,7 @@ bool NodePool::IsValid(FNodeId id) const noexcept {
     return s.active && s.gen == id.Generation();
 }
 
-Node2D* NodePool::Get(FNodeId id) const noexcept {
+FNode2D* FNodePool::Get(FNodeId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= _slots.Size()) return nullptr;
@@ -100,7 +100,7 @@ Node2D* NodePool::Get(FNodeId id) const noexcept {
     return s.ptr;
 }
 
-FNodeId NodePool::IdOf(Node2D* node) const noexcept {
+FNodeId FNodePool::IdOf(FNode2D* node) const noexcept {
     if (node == nullptr) return FNodeId{};
     // index 0 は dummy なので 1 から走査。
     for (u32 i = 1; i < _slots.Size(); ++i) {
@@ -112,7 +112,7 @@ FNodeId NodePool::IdOf(Node2D* node) const noexcept {
     return FNodeId{};
 }
 
-void NodePool::ClearAll() noexcept {
+void FNodePool::ClearAll() noexcept {
     // 全 active slot を free 化、対応 node の Id を invalid に。
     // gen はあえてリセットせず維持する (= 同じ slot を ClearAll 後に再利用した時、
     // 旧 handle が gen 不一致で確実に stale 検出される)。

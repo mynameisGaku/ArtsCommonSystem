@@ -22,9 +22,9 @@ void PushVertex(TArray<MeshVertex>& dst, FVec3 pos, FVec3 nrm, f32 u, f32 v) noe
 } // namespace
 
 // ---- Cube --------------------------------------------------------------
-TRc<MeshAsset> MakeCube(f32 size) noexcept {
-    auto m = MakeRc<MeshAsset>();
-    if (!m) return TRc<MeshAsset>();
+TRc<FMeshAsset> MakeCube(f32 size) noexcept {
+    auto m = MakeRc<FMeshAsset>();
+    if (!m) return TRc<FMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     V.Reserve(24);
@@ -69,12 +69,12 @@ TRc<MeshAsset> MakeCube(f32 size) noexcept {
 }
 
 // ---- FSphere (UV) -------------------------------------------------------
-TRc<MeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
+TRc<FMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
     if (segments < 3) segments = 3;
     if (rings    < 2) rings    = 2;
 
-    auto m = MakeRc<MeshAsset>();
-    if (!m) return TRc<MeshAsset>();
+    auto m = MakeRc<FMeshAsset>();
+    if (!m) return TRc<FMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     V.Reserve((segments + 1) * (rings + 1));
@@ -116,9 +116,9 @@ TRc<MeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
 }
 
 // ---- FPlane (XZ) --------------------------------------------------------
-TRc<MeshAsset> MakePlane(f32 width, f32 depth) noexcept {
-    auto m = MakeRc<MeshAsset>();
-    if (!m) return TRc<MeshAsset>();
+TRc<FMeshAsset> MakePlane(f32 width, f32 depth) noexcept {
+    auto m = MakeRc<FMeshAsset>();
+    if (!m) return TRc<FMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
 

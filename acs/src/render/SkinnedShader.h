@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // スキンメッシュ用ライティングシェーダ（GPU スキニング）
 //
-// StandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
+// FStandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
 // 加えて Bones (b2) を持ち、最大 64 ボーンのパレット行列をシェーダに送る。
 //
 // 使い方:
-//   SkinnedShader shd;
+//   FSkinnedShader shd;
 //   shd.Init(*dev, color_fmt, depth_fmt);
 //
-//   // フレーム共通（StandardShader と同じ呼び方）
+//   // フレーム共通（FStandardShader と同じ呼び方）
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
 //                 lights, count, ambient);
 //
@@ -44,22 +44,22 @@
 
 namespace acs {
 
-class SkinnedShader {
+class FSkinnedShader {
 public:
     static constexpr u32 kMaxBones = 64;
 
-    SkinnedShader() noexcept = default;
-    ~SkinnedShader() noexcept = default;
+    FSkinnedShader() noexcept = default;
+    ~FSkinnedShader() noexcept = default;
 
-    SkinnedShader(const SkinnedShader&)            = delete;
-    SkinnedShader& operator=(const SkinnedShader&) = delete;
+    FSkinnedShader(const FSkinnedShader&)            = delete;
+    FSkinnedShader& operator=(const FSkinnedShader&) = delete;
 
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
                       EFormat depth_format = EFormat::D32_Float) noexcept;
     void Shutdown() noexcept;
 
-    // StandardShader と同形式の API（互換）
+    // FStandardShader と同形式の API（互換）
     void SetFrame(const FMat4& view_projection,
                   FVec3 camera_pos,
                   FVec3 light_dir, FVec3 light_color,
@@ -94,7 +94,7 @@ private:
     TUniquePtr<IRhiBuffer>   _bones_cb;
     TUniquePtr<IRhiTexture>  _white;
 
-    // Frame の状態キャッシュ（StandardShader と同パターン）
+    // Frame の状態キャッシュ（FStandardShader と同パターン）
     FMat4       _vp;
     FVec3       _eye = FVec3{0, 0, 0};
     FVec3       _ambient = FVec3{0, 0, 0};

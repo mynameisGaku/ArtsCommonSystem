@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — SteamworksBridge 実装 (Stub のみ)
+// GameFramework Pillar S — FSteamworksBridge 実装 (Stub のみ)
 //
 // 本 .cpp では `ISteamworksBridge` の I/F 自体は提供せず、Steamworks SDK 未統合
 // ビルドでも常に使える `SteamworksBridgeStub` のみを実装する。実 SDK を使う

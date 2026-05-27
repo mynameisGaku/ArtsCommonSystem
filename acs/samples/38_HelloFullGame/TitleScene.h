@@ -20,7 +20,7 @@ public:
 
 private:
     acs::FVec3                  _bg_color  {0.06f, 0.08f, 0.16f};
-    acs::game::TweenHandle     _bg_tween  {};
+    acs::game::FTweenHandle     _bg_tween  {};
     bool                       _to_bright = true;
     acs::f32                   _pulse_sec = 0.0f;   // "Press Space" の点滅位相
 

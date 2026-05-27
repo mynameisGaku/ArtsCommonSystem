@@ -28,8 +28,8 @@ public:
     // フレーム先頭で 1 回呼ぶ（前フレーム状態を更新する）
     static void Update() noexcept;
 
-    // Window から受け取ったイベントを Input に流し込む
-    // Window::SetEventCallback で OnEvent 関数をブリッジする
+    // FWindow から受け取ったイベントを Input に流し込む
+    // FWindow::SetEventCallback で OnEvent 関数をブリッジする
     static void OnEvent(const Event& e) noexcept;
 
     // キーボード

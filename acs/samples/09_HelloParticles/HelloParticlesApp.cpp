@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloParticles — Application 実装。
+// HelloParticles — FApplication 実装。
 #include "HelloParticlesApp.h"
 
 #include "app/Sample.h"
@@ -38,7 +38,7 @@ void HelloParticlesApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    // SpriteBatch (2D 描画) と Glow テクスチャ (粒の見た目) を準備
+    // FSpriteBatch (2D 描画) と Glow テクスチャ (粒の見た目) を準備
     ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
 
     // パーティクルの粒テクスチャを CPU 側で 1 枚だけ生成し GPU へ転送
@@ -51,9 +51,9 @@ void HelloParticlesApp::OnStart() noexcept {
     if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) { Quit(); return; }
     else _glow = Move(r.Value());
 
-    // フォント (OS 別の標準フォント候補を Sample helper で解決。
+    // フォント (OS 別の標準フォント候補を FSample helper で解決。
     // 解像度 18px、atlas 1024px、CJK 対応 true。失敗しても HUD が消えるだけ)
-    (void)Sample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
 
     // 画面中央付近を初期エミッタ位置に
     if (!_scene.Init(_glow.Get(), FVec2{400, 400})) { Quit(); return; }

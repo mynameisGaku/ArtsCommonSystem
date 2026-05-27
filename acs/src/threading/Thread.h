@@ -10,7 +10,7 @@
 //   FThread::Join      — スレッド終了を待機
 //   FThread::Detach    — スレッドハンドルを切り離す
 //   SleepMs / Yield   — 現在スレッドの停止・譲渡
-//   HardwareConcurrency — 論理 CPU 数（ThreadPool のデフォルト worker 数等で使用）
+//   HardwareConcurrency — 論理 CPU 数（FThreadPool のデフォルト worker 数等で使用）
 // =============================================================================
 #pragma once
 

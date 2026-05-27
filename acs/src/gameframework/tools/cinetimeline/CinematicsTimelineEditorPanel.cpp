@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — cinetimeline / CinematicsTimelineEditorPanel 実装 (Phase 23)
+// GameFramework Pillar — cinetimeline / FCinematicsTimelineEditorPanel 実装 (Phase 23)
 //
-// 仕様の意図は CinematicsTimelineEditorPanel.h を参照。本ファイルでは:
+// 仕様の意図は FCinematicsTimelineEditorPanel.h を参照。本ファイルでは:
 //   ・Init / Shutdown / SetCinematicsDirector / Play / Pause / Stop / Step:
 //     状態管理 + director への bake / proxy
 //   ・SetCurrentTimeSec / SetDurationSec / SelectKeyframe / AddKeyframe /
@@ -98,7 +98,7 @@ static f32 CanvasXToTime(f32 x, f32 duration,
 // =============================================================================
 // Init / Shutdown / SetCinematicsDirector / CurrentDirector
 // =============================================================================
-void CinematicsTimelineEditorPanel::Init() noexcept {
+void FCinematicsTimelineEditorPanel::Init() noexcept {
     _director        = nullptr;
     _keyframes.Clear();
     _selected_idx    = kNoKeySelected;
@@ -110,7 +110,7 @@ void CinematicsTimelineEditorPanel::Init() noexcept {
     _add_kind        = ETimelineKeyKind::CameraCut;
 }
 
-void CinematicsTimelineEditorPanel::Shutdown() noexcept {
+void FCinematicsTimelineEditorPanel::Shutdown() noexcept {
     _director        = nullptr;
     _keyframes.Clear();
     _selected_idx    = kNoKeySelected;
@@ -120,8 +120,8 @@ void CinematicsTimelineEditorPanel::Shutdown() noexcept {
     _drag_idx        = -1;
 }
 
-void CinematicsTimelineEditorPanel::SetCinematicsDirector(
-        acs::game::CinematicsDirector* dir) noexcept {
+void FCinematicsTimelineEditorPanel::SetCinematicsDirector(
+        acs::game::FCinematicsDirector* dir) noexcept {
     _director     = dir;
     _selected_idx = kNoKeySelected;
     _current_time = 0.0f;
@@ -131,15 +131,15 @@ void CinematicsTimelineEditorPanel::SetCinematicsDirector(
     BakeToDirector();
 }
 
-acs::game::CinematicsDirector*
-CinematicsTimelineEditorPanel::CurrentDirector() const noexcept {
+acs::game::FCinematicsDirector*
+FCinematicsTimelineEditorPanel::CurrentDirector() const noexcept {
     return _director;
 }
 
 // =============================================================================
 // 再生制御
 // =============================================================================
-void CinematicsTimelineEditorPanel::Play() noexcept {
+void FCinematicsTimelineEditorPanel::Play() noexcept {
     // editor の現状を director に bake してから再生開始 (= scrub で変更があった
     // 場合も runtime に反映される)。
     BakeToDirector();
@@ -155,14 +155,14 @@ void CinematicsTimelineEditorPanel::Play() noexcept {
     _playing      = true;
 }
 
-void CinematicsTimelineEditorPanel::Pause() noexcept {
+void FCinematicsTimelineEditorPanel::Pause() noexcept {
     _playing = false;
     if (_director != nullptr) {
         _director->Pause();
     }
 }
 
-void CinematicsTimelineEditorPanel::Stop() noexcept {
+void FCinematicsTimelineEditorPanel::Stop() noexcept {
     _playing      = false;
     _current_time = 0.0f;
     if (_director != nullptr) {
@@ -170,7 +170,7 @@ void CinematicsTimelineEditorPanel::Stop() noexcept {
     }
 }
 
-void CinematicsTimelineEditorPanel::Step(f32 dt) noexcept {
+void FCinematicsTimelineEditorPanel::Step(f32 dt) noexcept {
     if (!_playing) return;
     if (dt <= 0.0f) return;
     if (_director != nullptr) {
@@ -190,26 +190,26 @@ void CinematicsTimelineEditorPanel::Step(f32 dt) noexcept {
     }
 }
 
-bool CinematicsTimelineEditorPanel::IsPlaying() const noexcept {
+bool FCinematicsTimelineEditorPanel::IsPlaying() const noexcept {
     return _playing;
 }
 
 // =============================================================================
 // 時間軸アクセサ
 // =============================================================================
-f32 CinematicsTimelineEditorPanel::CurrentTimeSec() const noexcept {
+f32 FCinematicsTimelineEditorPanel::CurrentTimeSec() const noexcept {
     return _current_time;
 }
 
-void CinematicsTimelineEditorPanel::SetCurrentTimeSec(f32 t) noexcept {
+void FCinematicsTimelineEditorPanel::SetCurrentTimeSec(f32 t) noexcept {
     _current_time = ClampF(t, 0.0f, _duration);
 }
 
-f32 CinematicsTimelineEditorPanel::DurationSec() const noexcept {
+f32 FCinematicsTimelineEditorPanel::DurationSec() const noexcept {
     return _duration;
 }
 
-void CinematicsTimelineEditorPanel::SetDurationSec(f32 d) noexcept {
+void FCinematicsTimelineEditorPanel::SetDurationSec(f32 d) noexcept {
     if (d < kMinDurationSec) d = kMinDurationSec;
     _duration = d;
     // duration が縮んだ場合、既存 keyframe が範囲外に出ていれば clamp する。
@@ -224,11 +224,11 @@ void CinematicsTimelineEditorPanel::SetDurationSec(f32 d) noexcept {
 // =============================================================================
 // keyframe 操作
 // =============================================================================
-i32 CinematicsTimelineEditorPanel::SelectedKeyframeIndex() const noexcept {
+i32 FCinematicsTimelineEditorPanel::SelectedKeyframeIndex() const noexcept {
     return _selected_idx;
 }
 
-void CinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
+void FCinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
     if (i < 0 || static_cast<usize>(i) >= _keyframes.Size()) {
         _selected_idx = kNoKeySelected;
     } else {
@@ -236,7 +236,7 @@ void CinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
     }
 }
 
-void CinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
+void FCinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
                                                 f32 time_sec) noexcept {
     EditorKeyframe kf;
     kf.kind     = kind;
@@ -252,7 +252,7 @@ void CinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
     BakeToDirector();
 }
 
-void CinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
+void FCinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
     if (_selected_idx < 0) return;
     const usize idx = static_cast<usize>(_selected_idx);
     if (idx >= _keyframes.Size()) {
@@ -273,7 +273,7 @@ void CinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
 // =============================================================================
 // 内部ヘルパ
 // =============================================================================
-i32 CinematicsTimelineEditorPanel::InsertKeyframeSorted(
+i32 FCinematicsTimelineEditorPanel::InsertKeyframeSorted(
         const EditorKeyframe& kf) noexcept {
     // time 昇順 (同時刻は登録順 = stable) を維持する挿入位置を線形探索。
     // 典型 N < 200 で線形でも実用問題なし。
@@ -299,13 +299,13 @@ i32 CinematicsTimelineEditorPanel::InsertKeyframeSorted(
     return static_cast<i32>(insert_at);
 }
 
-void CinematicsTimelineEditorPanel::BakeToDirector() noexcept {
+void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
     if (_director == nullptr) return;
     _director->Clear();
     const usize n = _keyframes.Size();
     for (usize i = 0; i < n; ++i) {
         const EditorKeyframe& ek = _keyframes[i];
-        TimelineKeyframe rk;
+        FTimelineKeyframe rk;
         rk.time_sec = ek.time_sec;
         rk.kind     = ToTrackKind(ek.kind);
         // kind 別 payload を rk に詰める。FireEvent 系は event_id を載せる。
@@ -330,7 +330,7 @@ void CinematicsTimelineEditorPanel::BakeToDirector() noexcept {
 // =============================================================================
 // DrawUI — ImGui で toolbar + timeline canvas + inspector + ruler を描画
 // =============================================================================
-void CinematicsTimelineEditorPanel::DrawUI() noexcept {
+void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &_visible)) {

@@ -24,7 +24,7 @@ public:
     using EntryType = Pair<K, V>;
 
     THashMap() noexcept : _values(DefaultAllocator()), _alloc(&DefaultAllocator()) {}
-    explicit THashMap(Allocator& a) noexcept : _values(a), _alloc(&a) {}
+    explicit THashMap(FAllocator& a) noexcept : _values(a), _alloc(&a) {}
 
     THashMap(const THashMap&) = delete;
     THashMap& operator=(const THashMap&) = delete;
@@ -276,7 +276,7 @@ private:
     Bucket*          _buckets      = nullptr;
     usize            _bucket_count = 0;
     u32              _bucket_mask  = 0;  // bucket_count - 1
-    Allocator*       _alloc        = nullptr;
+    FAllocator*       _alloc        = nullptr;
 };
 
 } // namespace acs

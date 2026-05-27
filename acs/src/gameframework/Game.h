@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — Game クラス (Phase 1 着手 / Phase 2 拡張)
+// GameFramework Pillar A — FGame クラス (Phase 1 着手 / Phase 2 拡張)
 //
-// Application を継承し、SceneManager を駆動する基底。利用者は派生クラスで
+// FApplication を継承し、FSceneManager を駆動する基底。利用者は派生クラスで
 // InitialScene() を override して最初の Scene を返すだけでよい。
 //
 // 使い方:
-//   class MyGame : public acs::game::Game {
+//   class MyGame : public acs::game::FGame {
 //   protected:
 //       acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override {
 //           return acs::MakeUnique<TitleScene>();
@@ -13,10 +13,10 @@
 //   };
 //   ACS_GAME_MAIN(MyGame)
 //
-// Phase 1: SceneManager 駆動 + RenderContext 配線。
+// Phase 1: FSceneManager 駆動 + RenderContext 配線。
 // Phase 2 (本フェーズ): 固定タイムステップ accumulator + AppState 型消去
 //   永続状態 + Scene への dt は time_scale 乗算済を渡す。
-//   OnPause/OnResume は SceneManager 側で配線済 (Push/Pop 時)。
+//   OnPause/OnResume は FSceneManager 側で配線済 (Push/Pop 時)。
 #pragma once
 
 #include "app/Application.h"
@@ -30,15 +30,15 @@ namespace acs::game {
 
 class Scene;
 
-class Game : public Application {
+class FGame : public FApplication {
 public:
-    Game() noexcept = default;
-    ~Game() noexcept override = default;
+    FGame() noexcept = default;
+    ~FGame() noexcept override = default;
 
-    Game(const Game&)            = delete;
-    Game& operator=(const Game&) = delete;
+    FGame(const FGame&)            = delete;
+    FGame& operator=(const FGame&) = delete;
 
-    SceneManager&  Scenes()        noexcept { return _scenes; }
+    FSceneManager&  Scenes()        noexcept { return _scenes; }
     RenderContext& GetRenderCtx()  noexcept { return _render_ctx; }
 
     // 時間スケール。Scene::OnUpdate / OnFixedUpdate に渡る dt に乗算される。
@@ -69,7 +69,7 @@ protected:
     // 派生クラス実装必須: 最初に push される Scene を返す。
     virtual TUniquePtr<Scene> InitialScene() noexcept = 0;
 
-    // Application フックを上書きして SceneManager に流す。
+    // FApplication フックを上書きして FSceneManager に流す。
     // 派生がさらに override したい場合は基底を呼ぶこと。
     void OnStart()    noexcept override;
     void OnUpdate(f32 dt) noexcept override;
@@ -78,9 +78,9 @@ protected:
     void OnEvent(const Event& e) noexcept override;
 
 private:
-    SceneManager  _scenes;
+    FSceneManager  _scenes;
     RenderContext _render_ctx;
-    AppStateSlot  _app_state;
+    FAppStateSlot  _app_state;
     f32           _time_scale       = 1.0f;
     f32           _fixed_dt         = 1.0f / 60.0f;
     f32           _fixed_accum      = 0.0f;

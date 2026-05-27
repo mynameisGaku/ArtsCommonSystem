@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — TurnManager 実装
+// GameFramework ジャンルキット — FTurnManager 実装
 //
 // マルチサイドターン制マネージャの完全実装。
 //
 // 実装メモ:
-//  ・slot 再利用は線形走査 (CooldownTimer と同方針)。side 数はせいぜい数〜十数
+//  ・slot 再利用は線形走査 (FCooldownTimer と同方針)。side 数はせいぜい数〜十数
 //    程度なので O(N) で十分。
 //  ・generation は u8 (0=未使用、1〜255 が有効)。255 で wrap して 1 に戻す
 //    (0 にすると IsValid が常に false になり stale 検知不能になる)。
@@ -24,7 +24,7 @@ namespace acs::game {
 // helpers
 // ----------------------------------------------------------------------------
 
-bool TurnManager::IsEnvironmentName(const char* name) noexcept {
+bool FTurnManager::IsEnvironmentName(const char* name) noexcept {
     if (name == nullptr) return false;
     // strncmp 相当を手書き (STL 禁止 / <cstring> も避け、依存最小化)
     if (name[0] != 'E') return false;
@@ -33,13 +33,13 @@ bool TurnManager::IsEnvironmentName(const char* name) noexcept {
     return true;
 }
 
-ETurnPhase TurnManager::ClassifyPhase(const SideSlot& s) noexcept {
+ETurnPhase FTurnManager::ClassifyPhase(const SideSlot& s) noexcept {
     if (s.view.is_player_controlled) return ETurnPhase::PlayerTurn;
     if (IsEnvironmentName(s.view.display_name)) return ETurnPhase::EnvironmentTurn;
     return ETurnPhase::EnemyTurn;
 }
 
-u32 TurnManager::AcquireSlot() noexcept {
+u32 FTurnManager::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用
     const usize n = _slots.Size();
     for (usize i = 0; i < n; ++i) {
@@ -48,14 +48,14 @@ u32 TurnManager::AcquireSlot() noexcept {
         }
     }
     // 全 slot 使用中 → 末尾に追加。24bit index 上限を守る。
-    if (n >= static_cast<usize>(TurnSideId::kMaxIndex)) {
-        return TurnSideId::kMaxIndex; // sentinel
+    if (n >= static_cast<usize>(FTurnSideId::kMaxIndex)) {
+        return FTurnSideId::kMaxIndex; // sentinel
     }
     _slots.PushBack({});
     return static_cast<u32>(_slots.Size()) - 1u;
 }
 
-TurnManager::SideSlot* TurnManager::Resolve(TurnSideId id) noexcept {
+FTurnManager::SideSlot* FTurnManager::Resolve(FTurnSideId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= _slots.Size()) return nullptr;
@@ -64,7 +64,7 @@ TurnManager::SideSlot* TurnManager::Resolve(TurnSideId id) noexcept {
     return &s;
 }
 
-const TurnManager::SideSlot* TurnManager::Resolve(TurnSideId id) const noexcept {
+const FTurnManager::SideSlot* FTurnManager::Resolve(FTurnSideId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= _slots.Size()) return nullptr;
@@ -77,7 +77,7 @@ const TurnManager::SideSlot* TurnManager::Resolve(TurnSideId id) const noexcept 
 // init / clear
 // ----------------------------------------------------------------------------
 
-void TurnManager::Init() noexcept {
+void FTurnManager::Init() noexcept {
     // 全 slot を inactive 化 (gen は維持 = 次 Acquire で +1 される)
     const usize n = _slots.Size();
     for (usize i = 0; i < n; ++i) {
@@ -99,7 +99,7 @@ void TurnManager::Init() noexcept {
     // callback は保持 (Init は再 enter 用)。
 }
 
-void TurnManager::ClearAll() noexcept {
+void FTurnManager::ClearAll() noexcept {
     Init();
     _on_turn_start      = nullptr;
     _on_turn_start_user = nullptr;
@@ -111,12 +111,12 @@ void TurnManager::ClearAll() noexcept {
 // side 登録 / 解除
 // ----------------------------------------------------------------------------
 
-TurnSideId TurnManager::AddSide(const char* display_name, u32 max_ap, u32 initiative,
+FTurnSideId FTurnManager::AddSide(const char* display_name, u32 max_ap, u32 initiative,
                                 bool is_player_controlled) noexcept {
     if (display_name == nullptr) return {};
 
     const u32 idx = AcquireSlot();
-    if (idx >= TurnSideId::kMaxIndex) return {}; // 上限到達
+    if (idx >= FTurnSideId::kMaxIndex) return {}; // 上限到達
 
     SideSlot& s = _slots[idx];
 
@@ -138,10 +138,10 @@ TurnSideId TurnManager::AddSide(const char* display_name, u32 max_ap, u32 initia
     s.gen                        = new_gen;
 
     ++_active_count;
-    return TurnSideId::Pack(idx, new_gen);
+    return FTurnSideId::Pack(idx, new_gen);
 }
 
-void TurnManager::RemoveSide(TurnSideId id) noexcept {
+void FTurnManager::RemoveSide(FTurnSideId id) noexcept {
     SideSlot* s = Resolve(id);
     if (s == nullptr) return;
 
@@ -213,7 +213,7 @@ void TurnManager::RemoveSide(TurnSideId id) noexcept {
                 _phase = ClassifyPhase(ns);
                 if (_on_turn_start != nullptr) {
                     const u8 gen = ns.gen;
-                    const TurnSideId new_id = TurnSideId::Pack(new_slot_idx, gen);
+                    const FTurnSideId new_id = FTurnSideId::Pack(new_slot_idx, gen);
                     _on_turn_start(_on_turn_start_user, new_id, _round);
                 }
             }
@@ -236,7 +236,7 @@ void TurnManager::RemoveSide(TurnSideId id) noexcept {
 // turn order 構築
 // ----------------------------------------------------------------------------
 
-void TurnManager::RebuildTurnOrder() noexcept {
+void FTurnManager::RebuildTurnOrder() noexcept {
     _turn_order.Clear();
     const usize n = _slots.Size();
     _turn_order.Reserve(n);
@@ -270,7 +270,7 @@ void TurnManager::RebuildTurnOrder() noexcept {
     }
 }
 
-void TurnManager::AdvanceToNextActor(u32 start_from) noexcept {
+void FTurnManager::AdvanceToNextActor(u32 start_from) noexcept {
     const u32 order_n = static_cast<u32>(_turn_order.Size());
     for (u32 i = start_from; i < order_n; ++i) {
         const u32 slot_idx = _turn_order[i];
@@ -288,7 +288,7 @@ void TurnManager::AdvanceToNextActor(u32 start_from) noexcept {
 // ラウンド進行
 // ----------------------------------------------------------------------------
 
-void TurnManager::StartRound() noexcept {
+void FTurnManager::StartRound() noexcept {
     if (_active_count == 0u) {
         // side 未登録 → no-op (phase は Setup のまま)
         return;
@@ -322,12 +322,12 @@ void TurnManager::StartRound() noexcept {
     _phase = ClassifyPhase(cs);
 
     if (_on_turn_start != nullptr) {
-        const TurnSideId id = TurnSideId::Pack(slot_idx, cs.gen);
+        const FTurnSideId id = FTurnSideId::Pack(slot_idx, cs.gen);
         _on_turn_start(_on_turn_start_user, id, _round);
     }
 }
 
-void TurnManager::EndCurrentTurn() noexcept {
+void FTurnManager::EndCurrentTurn() noexcept {
     // Setup / EndOfRound 中の呼び出しは no-op
     if (_phase == ETurnPhase::Setup || _phase == ETurnPhase::EndOfRound) return;
     if (_current_order_index == kInvalidOrderIndex) return;
@@ -351,7 +351,7 @@ void TurnManager::EndCurrentTurn() noexcept {
         _phase = ClassifyPhase(ns);
 
         if (_on_turn_start != nullptr) {
-            const TurnSideId id = TurnSideId::Pack(next_slot_idx, ns.gen);
+            const FTurnSideId id = FTurnSideId::Pack(next_slot_idx, ns.gen);
             _on_turn_start(_on_turn_start_user, id, _round);
         }
         return;
@@ -379,7 +379,7 @@ void TurnManager::EndCurrentTurn() noexcept {
 // AP 消費
 // ----------------------------------------------------------------------------
 
-bool TurnManager::TryConsumeAP(u32 amount) noexcept {
+bool FTurnManager::TryConsumeAP(u32 amount) noexcept {
     if (amount == 0u) return false;
     if (_phase == ETurnPhase::Setup || _phase == ETurnPhase::EndOfRound) return false;
     if (_current_order_index == kInvalidOrderIndex) return false;
@@ -400,7 +400,7 @@ bool TurnManager::TryConsumeAP(u32 amount) noexcept {
 // 問い合わせ
 // ----------------------------------------------------------------------------
 
-TurnSideId TurnManager::CurrentTurnSide() const noexcept {
+FTurnSideId FTurnManager::CurrentTurnSide() const noexcept {
     if (_phase == ETurnPhase::Setup || _phase == ETurnPhase::EndOfRound) return {};
     if (_current_order_index == kInvalidOrderIndex) return {};
     if (_current_order_index >= _turn_order.Size()) return {};
@@ -411,17 +411,17 @@ TurnSideId TurnManager::CurrentTurnSide() const noexcept {
     const SideSlot& s = _slots[slot_idx];
     if (!s.active) return {};
 
-    return TurnSideId::Pack(slot_idx, s.gen);
+    return FTurnSideId::Pack(slot_idx, s.gen);
 }
 
-const TurnSideState* TurnManager::GetSideState(TurnSideId id) const noexcept {
+const FTurnSideState* FTurnManager::GetSideState(FTurnSideId id) const noexcept {
     const SideSlot* s = Resolve(id);
     if (s == nullptr) return nullptr;
-    // SideSlot 内に TurnSideState を埋め込んでいるため、そのアドレスを返すだけ。
+    // SideSlot 内に FTurnSideState を埋め込んでいるため、そのアドレスを返すだけ。
     return &s->view;
 }
 
-u32 TurnManager::TurnsRemainingThisRound() const noexcept {
+u32 FTurnManager::TurnsRemainingThisRound() const noexcept {
     if (_phase == ETurnPhase::Setup || _phase == ETurnPhase::EndOfRound) return 0u;
 
     u32 count = 0u;

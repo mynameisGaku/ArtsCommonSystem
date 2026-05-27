@@ -5,7 +5,7 @@
 //       環境光 + 鏡面反射 + アルベドテクスチャで描画する。
 //
 // 使い方（単一ライトのお手軽版）:
-//   StandardShader shd;
+//   FStandardShader shd;
 //   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 //   shd.SetFrame(camera.ViewProjection(), camera.Eye(),
 //                FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});
@@ -62,13 +62,13 @@ struct PointLight {
     FVec3 color    = FVec3{1, 1, 1};
 };
 
-class StandardShader {
+class FStandardShader {
 public:
-    StandardShader() noexcept = default;
-    ~StandardShader() noexcept = default;
+    FStandardShader() noexcept = default;
+    ~FStandardShader() noexcept = default;
 
-    StandardShader(const StandardShader&)            = delete;
-    StandardShader& operator=(const StandardShader&) = delete;
+    FStandardShader(const FStandardShader&)            = delete;
+    FStandardShader& operator=(const FStandardShader&) = delete;
 
     // 初期化（VS+PS コンパイル + パイプライン + 定数バッファ + デフォルト白テクスチャ）
     TResult<void> Init(IRhiDevice& device,
@@ -96,13 +96,13 @@ public:
     // 呼ばないか count=0 なら点光源無し。
     void SetPointLights(const PointLight* lights, u32 count) noexcept;
 
-    // シャドウマップ設定。tex は ShadowMap::DepthTexture()、light_vp は同 LightViewProjection()。
+    // シャドウマップ設定。tex は FShadowMap::DepthTexture()、light_vp は同 LightViewProjection()。
     // tex に nullptr を渡すとシャドウ無効化（描画は影なしで進む）。
     // bias はシャドウアクネ回避用（一般に 0.0005..0.005）。
     //
     // Phase 36-2 PCSS: filter_radius は影の柔らかさスケール。
     //   0    = hard PCF (penumbra 計算しても min(=1 texel) で実質ハード影)
-    //   1.0  = 標準 PCSS (Fernando 2005 light_size=0.01 相当、PbrShader と一致)
+    //   1.0  = 標準 PCSS (Fernando 2005 light_size=0.01 相当、FPbrShader と一致)
     //   >1   = より柔らかい penumbra (面光源を大きく見せたいとき)
     void SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
                       f32 bias = 0.001f, f32 filter_radius = 1.0f) noexcept;

@@ -2,13 +2,13 @@
 // Win32 ウィンドウ（イベント駆動、初学者向け簡易 API）
 //
 // 使い方:
-//   WindowConfig cfg;
+//   FWindowConfig cfg;
 //   cfg.title  = L"MyGame";
 //   cfg.width  = 1280;
 //   cfg.height = 720;
-//   auto wr = Window::Create(cfg);
+//   auto wr = FWindow::Create(cfg);
 //   if (wr.IsErr()) return -1;
-//   Window& w = wr.Value();
+//   FWindow& w = wr.Value();
 //
 //   while (!w.ShouldClose()) {
 //       w.PollEvents();
@@ -23,8 +23,8 @@
 namespace acs {
 
 // ウィンドウ作成オプション
-struct WindowConfig {
-    const wchar_t* title       = L"ACS Window";
+struct FWindowConfig {
+    const wchar_t* title       = L"ACS FWindow";
     u32            width       = 1280;
     u32            height      = 720;
     bool           resizable   = true;
@@ -35,18 +35,18 @@ struct WindowConfig {
 // イベントコールバック関数型（PollEvents 中に複数回呼ばれる）
 using EventCallback = void (*)(void* user, const Event& e);
 
-class Window {
+class FWindow {
 public:
-    Window() noexcept = default;
-    ~Window() noexcept;
+    FWindow() noexcept = default;
+    ~FWindow() noexcept;
 
-    Window(const Window&) = delete;
-    Window& operator=(const Window&) = delete;
-    Window(Window&& o) noexcept;
-    Window& operator=(Window&& o) noexcept;
+    FWindow(const FWindow&) = delete;
+    FWindow& operator=(const FWindow&) = delete;
+    FWindow(FWindow&& o) noexcept;
+    FWindow& operator=(FWindow&& o) noexcept;
 
     // ウィンドウ生成（失敗時は Err）
-    static TResult<Window> Create(const WindowConfig& cfg) noexcept;
+    static TResult<FWindow> Create(const FWindowConfig& cfg) noexcept;
 
     // メッセージキューを処理（メインループで毎フレーム呼ぶ）
     void PollEvents() noexcept;

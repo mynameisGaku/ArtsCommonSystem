@@ -28,7 +28,7 @@ struct AtmosphereParams {
     u32  sun_steps     = 8;                        // 各 sample から sun への光線でのサンプル数 (透過率)
 };
 
-class Atmosphere {
+class FAtmosphere {
 public:
     // CPU で equirect 画像を焼く。`out_rgba_float` は w*h*4 個の float、上から下、
     // v=0 が +Y 天頂、v=1 が -Y 天底 (sIBL Archive 規約と一致)。

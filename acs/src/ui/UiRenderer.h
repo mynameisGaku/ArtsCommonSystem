@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// UiRenderer — Widget tree を SpriteBatch + Font で描画する
+// FUiRenderer — Widget tree を FSpriteBatch + Font で描画する
 //
 // 使い方:
-//   UiRenderer ur;
+//   FUiRenderer ur;
 //   ur.Init(*dev, GetRenderer().ColorFormat(), default_font);
 //
 //   // 毎フレーム:
@@ -12,10 +12,10 @@
 //   ur.Render(root, *cmd, screen_w, screen_h);
 //
 // 仕組み:
-//   ・SpriteBatch で矩形 + テクスチャ + 文字を発行
+//   ・FSpriteBatch で矩形 + テクスチャ + 文字を発行
 //   ・Font は ACS Font (TTrueType + atlas)
 //   ・Widget::Render(*this) を再帰的に呼ぶ
-//   ・各 widget は描画ヘルパ (DrawRect / DrawText 等) で UiRenderer に依頼
+//   ・各 widget は描画ヘルパ (DrawRect / DrawText 等) で FUiRenderer に依頼
 #pragma once
 
 #include "foundation/Result.h"
@@ -27,13 +27,13 @@
 
 namespace acs {
 
-class UiRenderer {
+class FUiRenderer {
 public:
-    UiRenderer() noexcept = default;
-    ~UiRenderer() noexcept = default;
+    FUiRenderer() noexcept = default;
+    ~FUiRenderer() noexcept = default;
 
-    UiRenderer(const UiRenderer&) = delete;
-    UiRenderer& operator=(const UiRenderer&) = delete;
+    FUiRenderer(const FUiRenderer&) = delete;
+    FUiRenderer& operator=(const FUiRenderer&) = delete;
 
     TResult<void> Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept;
     void Shutdown() noexcept;
@@ -47,22 +47,22 @@ public:
     void DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) noexcept;
 
     // テーマ色 (Widgets が参照)
-    const UiColors& Colors() const noexcept { return _colors; }
-    UiColors&       Colors()       noexcept { return _colors; }
+    const FUiColors& Colors() const noexcept { return _colors; }
+    FUiColors&       Colors()       noexcept { return _colors; }
 
     Font* DefaultFont() const noexcept { return _font; }
 
 private:
-    SpriteBatch _batch;
+    FSpriteBatch _batch;
     Font*       _font = nullptr;     // 所有しない
-    UiColors    _colors;
+    FUiColors    _colors;
     bool        _frame_open = false;
 };
 
 // ============================================================================
-// UiInput — Window のマウス/キーイベントを Widget tree に配信する
+// FUiInput — FWindow のマウス/キーイベントを Widget tree に配信する
 // ============================================================================
-class UiInput {
+class FUiInput {
 public:
     // 毎フレーム呼ぶ。Input モジュールのマウス位置 / クリック / 押下キーを取り出して
     // root の hit-test → 該当 widget の On* に dispatch。

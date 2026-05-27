@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — CraftingSystem 実装
+// GameFramework ジャンルキット — FCraftingSystem 実装
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
-//   ・recipe_id / item_id は const char* per-byte 線形検索 (Entitlement / EconomyDirector /
-//     InventorySystem と同設計)。レシピ件数 (200〜500) なら線形で十分。
+//   ・recipe_id / item_id は const char* per-byte 線形検索 (FEntitlement / FEconomyDirector /
+//     FInventorySystem と同設計)。レシピ件数 (200〜500) なら線形で十分。
 //   ・StartCraft は「ingredient 一括消費 → Crafting 遷移」の 1 動作にまとめる。
 //     consume が途中失敗したケースを救済するため、消費した数を覚えておいて巻き戻し、
 //     atomic に「全成功 or 全部もとのまま」を保証する。
@@ -26,7 +26,7 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較 (Entitlement / EconomyDirector / InventorySystem と同設計)。
+// const char* の per-byte 安全比較 (FEntitlement / FEconomyDirector / FInventorySystem と同設計)。
 // どちらかが nullptr なら false。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
@@ -52,7 +52,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 // 内部検索
 // =============================================================================
 
-u32 CraftingSystem::FindRecipeSlot(const char* recipe_id) const noexcept {
+u32 FCraftingSystem::FindRecipeSlot(const char* recipe_id) const noexcept {
     if (recipe_id == nullptr) return kNotFound;
     const usize n = _recipes.Size();
     for (usize i = 0; i < n; ++i) {
@@ -65,13 +65,13 @@ u32 CraftingSystem::FindRecipeSlot(const char* recipe_id) const noexcept {
 // レシピ定義
 // =============================================================================
 
-void CraftingSystem::RegisterRecipe(const CraftRecipe& recipe) noexcept {
+void FCraftingSystem::RegisterRecipe(const CraftRecipe& recipe) noexcept {
     // defensive: recipe_id == nullptr は意味を持たないので静かに弾く。
     if (recipe.recipe_id == nullptr) return;
 
     // 同 recipe_id の 2 重登録は no-op (アセット二重ロード保護)。
     if (FindRecipeSlot(recipe.recipe_id) != kNotFound) {
-        ACS_LOG_WARN("CraftingSystem: duplicate recipe registration ignored ('%s')",
+        ACS_LOG_WARN("FCraftingSystem: duplicate recipe registration ignored ('%s')",
                      recipe.recipe_id);
         return;
     }
@@ -83,7 +83,7 @@ void CraftingSystem::RegisterRecipe(const CraftRecipe& recipe) noexcept {
     // (起動順序エラーで配列指定漏れを救済 — 素材不要 recipe として登録する)。
     if (copy.ingredient_count > 0 && copy.ingredients == nullptr) {
         ACS_LOG_WARN(
-            "CraftingSystem: recipe '%s' has ingredient_count=%u but ingredients=nullptr; "
+            "FCraftingSystem: recipe '%s' has ingredient_count=%u but ingredients=nullptr; "
             "treating as 0 ingredients",
             copy.recipe_id, copy.ingredient_count);
         copy.ingredient_count = 0;
@@ -92,17 +92,17 @@ void CraftingSystem::RegisterRecipe(const CraftRecipe& recipe) noexcept {
     _recipes.PushBack(copy);
 }
 
-const CraftRecipe* CraftingSystem::FindRecipe(const char* recipe_id) const noexcept {
+const CraftRecipe* FCraftingSystem::FindRecipe(const char* recipe_id) const noexcept {
     const u32 slot = FindRecipeSlot(recipe_id);
     if (slot == kNotFound) return nullptr;
     return &_recipes[slot];
 }
 
-u32 CraftingSystem::RecipeCount() const noexcept {
+u32 FCraftingSystem::RecipeCount() const noexcept {
     return static_cast<u32>(_recipes.Size());
 }
 
-const CraftRecipe* CraftingSystem::AllRecipes(u32& out_count) const noexcept {
+const CraftRecipe* FCraftingSystem::AllRecipes(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_recipes.Size());
     return _recipes.Data();
 }
@@ -111,7 +111,7 @@ const CraftRecipe* CraftingSystem::AllRecipes(u32& out_count) const noexcept {
 // インベントリ adapter
 // =============================================================================
 
-void CraftingSystem::SetInventoryAdapter(InventoryQueryFn   query,
+void FCraftingSystem::SetInventoryAdapter(InventoryQueryFn   query,
                                         InventoryConsumeFn consume,
                                         InventoryGrantFn   grant,
                                         void*              user) noexcept {
@@ -125,7 +125,7 @@ void CraftingSystem::SetInventoryAdapter(InventoryQueryFn   query,
 // クラフト判定 / 実行
 // =============================================================================
 
-bool CraftingSystem::CanCraft(const char* recipe_id,
+bool FCraftingSystem::CanCraft(const char* recipe_id,
                               const char* current_workbench,
                               u32         player_level) const noexcept {
     const u32 slot = FindRecipeSlot(recipe_id);
@@ -156,7 +156,7 @@ bool CraftingSystem::CanCraft(const char* recipe_id,
     return true;
 }
 
-bool CraftingSystem::StartCraft(const char* recipe_id,
+bool FCraftingSystem::StartCraft(const char* recipe_id,
                                 const char* current_workbench,
                                 u32         player_level) noexcept {
     // 既に Crafting 中は上書き不可 (= 並列クラフト禁止、明示的に CancelCraft が必要)。
@@ -196,7 +196,7 @@ bool CraftingSystem::StartCraft(const char* recipe_id,
                 }
             }
             ACS_LOG_WARN(
-                "CraftingSystem: StartCraft('%s') aborted — consume failed at ingredient %u",
+                "FCraftingSystem: StartCraft('%s') aborted — consume failed at ingredient %u",
                 r.recipe_id, consumed_upto);
             return false;
         }
@@ -210,7 +210,7 @@ bool CraftingSystem::StartCraft(const char* recipe_id,
     return true;
 }
 
-void CraftingSystem::CancelCraft() noexcept {
+void FCraftingSystem::CancelCraft() noexcept {
     if (_status != ECraftStatus::Crafting) return;
     if (_current_recipe == nullptr) {
         // 不整合 (Crafting なのに recipe が nullptr) — defensive に Idle に戻す。
@@ -241,11 +241,11 @@ void CraftingSystem::CancelCraft() noexcept {
 // 状態取得
 // =============================================================================
 
-ECraftStatus CraftingSystem::Status() const noexcept {
+ECraftStatus FCraftingSystem::Status() const noexcept {
     return _status;
 }
 
-f32 CraftingSystem::CraftProgress() const noexcept {
+f32 FCraftingSystem::CraftProgress() const noexcept {
     if (_status != ECraftStatus::Crafting) return 0.0f;
     if (_current_duration_sec <= 0.0f) return 1.0f;  // 即時完了 recipe
     const f32 done = _current_duration_sec - _current_remaining_sec;
@@ -255,12 +255,12 @@ f32 CraftingSystem::CraftProgress() const noexcept {
     return p;
 }
 
-f32 CraftingSystem::CraftRemainingSec() const noexcept {
+f32 FCraftingSystem::CraftRemainingSec() const noexcept {
     if (_status != ECraftStatus::Crafting) return 0.0f;
     return _current_remaining_sec;
 }
 
-const char* CraftingSystem::CurrentRecipeId() const noexcept {
+const char* FCraftingSystem::CurrentRecipeId() const noexcept {
     if (_current_recipe == nullptr) return nullptr;
     return _current_recipe->recipe_id;
 }
@@ -269,7 +269,7 @@ const char* CraftingSystem::CurrentRecipeId() const noexcept {
 // 進行
 // =============================================================================
 
-void CraftingSystem::Tick(f32 dt) noexcept {
+void FCraftingSystem::Tick(f32 dt) noexcept {
     if (_status != ECraftStatus::Crafting) return;
     if (dt <= 0.0f)                       return;
     if (_current_recipe == nullptr) {
@@ -290,7 +290,7 @@ void CraftingSystem::Tick(f32 dt) noexcept {
             const bool grant_ok = _grant(_inv_user, r.result_item_id, r.result_count);
             if (!grant_ok) {
                 ACS_LOG_WARN(
-                    "CraftingSystem: grant failed for recipe '%s' result '%s' x%u "
+                    "FCraftingSystem: grant failed for recipe '%s' result '%s' x%u "
                     "(inventory full?) — completing anyway",
                     r.recipe_id, r.result_item_id, r.result_count);
             }
@@ -309,7 +309,7 @@ void CraftingSystem::Tick(f32 dt) noexcept {
 // コールバック
 // =============================================================================
 
-void CraftingSystem::SetOnCompleteCallback(CompleteCallback cb, void* user) noexcept {
+void FCraftingSystem::SetOnCompleteCallback(CompleteCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
     _on_complete      = cb;
     _on_complete_user = user;
@@ -319,7 +319,7 @@ void CraftingSystem::SetOnCompleteCallback(CompleteCallback cb, void* user) noex
 // 全リセット
 // =============================================================================
 
-void CraftingSystem::ClearAll() noexcept {
+void FCraftingSystem::ClearAll() noexcept {
     _recipes.Clear();
     _query            = nullptr;
     _consume          = nullptr;

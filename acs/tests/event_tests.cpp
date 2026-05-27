@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Event — TimerManager / MessageBroker テスト
+// ACS Event — FTimerManager / MessageBroker テスト
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -9,7 +9,7 @@
 
 using namespace acs;
 
-// ---- TimerManager: SetTimeout が指定時間で発火 ------------------------------
+// ---- FTimerManager: SetTimeout が指定時間で発火 ------------------------------
 namespace {
 struct TimeoutCtx { int hits = 0; };
 void OnTimeout(void* user) {
@@ -18,7 +18,7 @@ void OnTimeout(void* user) {
 } // namespace
 
 ACS_TEST(Event, TimerSetTimeoutFires) {
-    TimerManager t;
+    FTimerManager t;
     TimeoutCtx ctx;
     auto h = t.SetTimeout(1.0f, &OnTimeout, &ctx);
     EXPECT_TRUE(h.IsValid());
@@ -37,9 +37,9 @@ ACS_TEST(Event, TimerSetTimeoutFires) {
     EXPECT_EQ(t.ActiveCount(), 0u);
 }
 
-// ---- TimerManager: SetInterval が周期で何回も発火 ---------------------------
+// ---- FTimerManager: SetInterval が周期で何回も発火 ---------------------------
 ACS_TEST(Event, TimerSetIntervalRepeats) {
-    TimerManager t;
+    FTimerManager t;
     TimeoutCtx ctx;
     t.SetInterval(0.5f, &OnTimeout, &ctx);
 
@@ -47,9 +47,9 @@ ACS_TEST(Event, TimerSetIntervalRepeats) {
     EXPECT_TRUE(ctx.hits >= 3);
 }
 
-// ---- TimerManager: Cancel で発火を止められる -------------------------------
+// ---- FTimerManager: Cancel で発火を止められる -------------------------------
 ACS_TEST(Event, TimerCancel) {
-    TimerManager t;
+    FTimerManager t;
     TimeoutCtx ctx;
     auto h = t.SetTimeout(1.0f, &OnTimeout, &ctx);
     EXPECT_TRUE(t.Cancel(h));

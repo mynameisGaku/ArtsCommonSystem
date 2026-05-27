@@ -18,7 +18,7 @@
 //   ACS_NOTREACHED : "ここに来たら必ずバグ。落とす"
 //   ACS_UNREACHABLE: "ここに来ない事を最適化器に教える" (本当に到達しないとき)
 //
-// 失敗したアサートはすべて Panic() を経由する。Panic はファイル/行/関数名/
+// 失敗したアサートはすべて FPanic() を経由する。FPanic はファイル/行/関数名/
 // 失敗式/メッセージ/シンボル化済みスタックトレースを stderr + デバッガに
 // 出力した後、プロセスを TerminateProcess で終了させる。
 //
@@ -40,11 +40,11 @@
 #if ACS_ASSERTS_ENABLED
 
     // ---- ACS_ASSERT(expr) ---------------------------------------------
-    // expr が偽なら Panic を呼ぶ。expr 文字列もパニックメッセージに含まれる。
+    // expr が偽なら FPanic を呼ぶ。expr 文字列もパニックメッセージに含まれる。
     #define ACS_ASSERT(expr)                                                    \
         do {                                                                    \
             if (ACS_UNLIKELY(!(expr))) {                                        \
-                ::acs::Panic(::acs::FSourceLoc::Current(),                       \
+                ::acs::FPanic(::acs::FSourceLoc::Current(),                       \
                              ACS_STRINGIFY(expr), "assertion failed");          \
             }                                                                   \
         } while (0)
@@ -55,7 +55,7 @@
     #define ACS_ASSERTF(expr, fmt, ...)                                         \
         do {                                                                    \
             if (ACS_UNLIKELY(!(expr))) {                                        \
-                ::acs::Panic(::acs::FSourceLoc::Current(),                       \
+                ::acs::FPanic(::acs::FSourceLoc::Current(),                       \
                              ACS_STRINGIFY(expr), fmt, ##__VA_ARGS__);          \
             }                                                                   \
         } while (0)
@@ -63,13 +63,13 @@
     // ---- ACS_UNREACHABLE() --------------------------------------------
     // 「ここには絶対に到達しない」と宣言する箇所に置く。デバッグでパニック。
     #define ACS_UNREACHABLE()                                                   \
-        ::acs::Panic(::acs::FSourceLoc::Current(), "<unreachable>",              \
+        ::acs::FPanic(::acs::FSourceLoc::Current(), "<unreachable>",              \
                      "unreachable code reached")
 
     // ---- ACS_NOT_IMPLEMENTED() ----------------------------------------
     // まだ実装していない関数や分岐に置く。
     #define ACS_NOT_IMPLEMENTED()                                               \
-        ::acs::Panic(::acs::FSourceLoc::Current(), "<not implemented>",          \
+        ::acs::FPanic(::acs::FSourceLoc::Current(), "<not implemented>",          \
                      "feature not implemented")
 
 #else // ACS_ASSERTS_ENABLED == 0 — リリース等でアサート除去
@@ -83,7 +83,7 @@
         #define ACS_UNREACHABLE() __builtin_unreachable()
     #endif
     // 未実装はリリースでもパニックする（致命的なバグなので隠さない）
-    #define ACS_NOT_IMPLEMENTED()           ::acs::Panic(::acs::FSourceLoc::Current(), "<not implemented>", "feature not implemented")
+    #define ACS_NOT_IMPLEMENTED()           ::acs::FPanic(::acs::FSourceLoc::Current(), "<not implemented>", "feature not implemented")
 
 #endif
 
@@ -105,13 +105,13 @@
 // =============================================================================
 
 // ---- ACS_CHECK(expr) -------------------------------------------------
-// expr が偽なら必ず Panic を呼ぶ (リリースでも除去されない)。
+// expr が偽なら必ず FPanic を呼ぶ (リリースでも除去されない)。
 // 例: ACS_CHECK(buffer != nullptr);
 //     ACS_CHECK(size <= capacity);
 #define ACS_CHECK(expr)                                                         \
     do {                                                                        \
         if (ACS_UNLIKELY(!(expr))) {                                            \
-            ::acs::Panic(::acs::FSourceLoc::Current(),                           \
+            ::acs::FPanic(::acs::FSourceLoc::Current(),                           \
                          ACS_STRINGIFY(expr), "check failed");                  \
         }                                                                       \
     } while (0)
@@ -122,7 +122,7 @@
 #define ACS_CHECKF(expr, fmt, ...)                                              \
     do {                                                                        \
         if (ACS_UNLIKELY(!(expr))) {                                            \
-            ::acs::Panic(::acs::FSourceLoc::Current(),                           \
+            ::acs::FPanic(::acs::FSourceLoc::Current(),                           \
                          ACS_STRINGIFY(expr), fmt, ##__VA_ARGS__);              \
         }                                                                       \
     } while (0)
@@ -132,5 +132,5 @@
 // 「ここには来ないはずだが、もし来たら検知してログを残して安全に落とす」。
 // 最適化を効かせたい (本当に到達しないと証明済み) なら ACS_UNREACHABLE() を使う。
 #define ACS_NOTREACHED()                                                        \
-    ::acs::Panic(::acs::FSourceLoc::Current(), "<not reached>",                  \
+    ::acs::FPanic(::acs::FSourceLoc::Current(), "<not reached>",                  \
                  "supposedly unreachable code was reached")

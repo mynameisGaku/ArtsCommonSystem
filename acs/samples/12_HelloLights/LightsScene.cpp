@@ -26,7 +26,7 @@ void LightsScene::Build() noexcept {
     }
 }
 
-void LightsScene::Render(StandardShader&  shader,
+void LightsScene::Render(FStandardShader&  shader,
                          IRhiCommandList& cl,
                          const FCamera&    camera,
                          const GpuMesh&   plane,

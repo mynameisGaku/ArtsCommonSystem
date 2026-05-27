@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloShowcase — opaque HDR pass。Sky + 床 + 4 体の sphere + 公転する
+// HelloShowcase — opaque HDR pass。FSky + 床 + 4 体の sphere + 公転する
 // emissive オーブを HDR RT に描く。ガラス球 (Clear/Frosted) は描かない
 // (RefractionPass がそれらを担当)。
 //
-// PBR ライティングは PbrShader 経由。SSR (前フレームの反射) と SSAO
+// PBR ライティングは FPbrShader 経由。SSR (前フレームの反射) と SSAO
 // (前フレームの indirect AO) を warm flag で 1 フレーム遅延合成する。
 #pragma once
 

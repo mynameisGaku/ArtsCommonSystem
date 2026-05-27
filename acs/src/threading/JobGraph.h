@@ -16,8 +16,8 @@
 //   g.Wait();           // 全 job 完了まで block
 //
 // 実装:
-//   ・ThreadPool 上で動く。各 job は完了時に「dependents の deps_remaining を
-//     atomic decrement して 0 になったら ThreadPool::Submit」する fan-out 方式
+//   ・FThreadPool 上で動く。各 job は完了時に「dependents の deps_remaining を
+//     atomic decrement して 0 になったら FThreadPool::Submit」する fan-out 方式
 //   ・グラフは Submit 後に変更不可 (Add は Submit より前のみ)
 //   ・Reset() で再利用可能 (依存関係はそのまま、deps_remaining だけ復元)
 #pragma once
@@ -43,7 +43,7 @@ struct JobHandle {
     void DependOn(JobHandle upstream) noexcept;
 };
 
-// Job 関数 (ThreadPool::TaskFn と同形式)
+// Job 関数 (FThreadPool::TaskFn と同形式)
 using JobFn = void (*)(void* user, u32 worker_index);
 
 class FJobGraph {
@@ -60,7 +60,7 @@ public:
     // upstream → downstream の依存関係を追加
     void AddDependency(JobHandle upstream, JobHandle downstream) noexcept;
 
-    // 全 job を ThreadPool に投入。依存 0 の job が即座に走り始める。
+    // 全 job を FThreadPool に投入。依存 0 の job が即座に走り始める。
     TResult<void> Submit() noexcept;
 
     // 全 job 完了まで block (待機中もスティーリングに参加)
@@ -75,7 +75,7 @@ public:
 private:
     friend struct JobHandle;
 
-    // Job の static 関数: ThreadPool に渡す TaskFn の thunk
+    // Job の static 関数: FThreadPool に渡す TaskFn の thunk
     static void JobThunk(void* user, u32 worker_index) noexcept;
 
     struct Job {

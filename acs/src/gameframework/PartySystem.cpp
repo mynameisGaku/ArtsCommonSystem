@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — PartySystem 実装 (Phase T-1 スケルトン)
+// GameFramework Pillar T — FPartySystem 実装 (Phase T-1 スケルトン)
 //
 // 現フェーズ: state machine + メンバ/フレンドリスト管理は完全実装。実 SDK 呼び出し
-// (SteamworksBridge / EOS / PSN / Xbox / NSO) は seam として未接続で、Joining /
-// Leaving は Tick で仮想完了する。これにより呼び出し側 (Game / Scene) は本 system を
+// (FSteamworksBridge / EOS / PSN / Xbox / NSO) は seam として未接続で、Joining /
+// Leaving は Tick で仮想完了する。これにより呼び出し側 (FGame / Scene) は本 system を
 // 通常通り使い始めることができ、Pillar S 実装到着時に bridge を差し替えるだけで実
 // プラットフォーム動作する設計。
 //
@@ -13,7 +13,7 @@
 //     state を Solo に戻すリセット動作を入れる予定 (現スケルトンでは未実装)。
 //   ・タイムアウト閾値は短め (1.5 秒) に設定。これは UI のスピナー演出を兼ねた
 //     疑似遅延であり、実 SDK 接続後は外部の真の completion event に置き換わる。
-//   ・メンバ / フレンド比較は Pillar O Entitlement と同じく自前 StrEq で実施。
+//   ・メンバ / フレンド比較は Pillar O FEntitlement と同じく自前 StrEq で実施。
 //     STL 禁止 + <cstring> も避ける方針。
 #include "gameframework/PartySystem.h"
 
@@ -25,7 +25,7 @@ namespace {
 // Phase T-2 で real bridge に差し替え後は使用しない。
 constexpr f32 kPendingDurationSec = 1.5f;
 
-// const char* の安全比較 (Pillar O Entitlement と同じ実装)。どちらかが nullptr
+// const char* の安全比較 (Pillar O FEntitlement と同じ実装)。どちらかが nullptr
 // なら false。終端ヌルまで一致比較。
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
@@ -39,8 +39,8 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
-void PartySystem::EmplaceSelfAsLeader() noexcept {
-    // Phase T-2 で SteamworksBridge::GetLocalPlayerId() / GetLocalDisplayName()
+void FPartySystem::EmplaceSelfAsLeader() noexcept {
+    // Phase T-2 で FSteamworksBridge::GetLocalPlayerId() / GetLocalDisplayName()
     // から取得して入れ替える。現スケルトンでは固定文字列リテラル (寿命無限) を使用。
     PartyMember self{};
     self.player_id    = "local:self";
@@ -50,79 +50,79 @@ void PartySystem::EmplaceSelfAsLeader() noexcept {
     _members.PushBack(self);
 }
 
-TResult<void> PartySystem::CreateParty(const char* party_name) noexcept {
+TResult<void> FPartySystem::CreateParty(const char* party_name) noexcept {
     if (_state != EPartyState::Solo) {
         // 既にパーティ所属中 / 状態遷移中での再要求は許可しない。先に LeaveParty を
         // 完了させること。Generic + subcode 1 = "invalid state for CreateParty"。
-        return ACS_ERR(Generic, 1, "PartySystem::CreateParty: not in Solo state");
+        return ACS_ERR(Generic, 1, "FPartySystem::CreateParty: not in Solo state");
     }
     if (party_name == nullptr) {
         // 空名は将来 SDK によっては許可するが、bridge 統一のため最低限名前必須。
-        return ACS_ERR(Generic, 2, "PartySystem::CreateParty: party_name is null");
+        return ACS_ERR(Generic, 2, "FPartySystem::CreateParty: party_name is null");
     }
     _party_name    = party_name;
     _party_id      = nullptr;  // 自分作成時は SDK が後で割り当てる想定
     _pending_timer = 0.0f;
     _state         = EPartyState::Joining;
-    // TODO(Phase T-2): SteamworksBridge.CreateLobby(party_name) を発行し、
+    // TODO(Phase T-2): FSteamworksBridge.CreateLobby(party_name) を発行し、
     //   Tick() 中に PollResult を見て InParty 遷移する。失敗時は Solo に戻す。
     return Ok();
 }
 
-TResult<void> PartySystem::JoinParty(const char* party_id) noexcept {
+TResult<void> FPartySystem::JoinParty(const char* party_id) noexcept {
     if (_state != EPartyState::Solo) {
-        return ACS_ERR(Generic, 3, "PartySystem::JoinParty: not in Solo state");
+        return ACS_ERR(Generic, 3, "FPartySystem::JoinParty: not in Solo state");
     }
     if (party_id == nullptr) {
-        return ACS_ERR(Generic, 4, "PartySystem::JoinParty: party_id is null");
+        return ACS_ERR(Generic, 4, "FPartySystem::JoinParty: party_id is null");
     }
     _party_name    = nullptr;
     _party_id      = party_id;
     _pending_timer = 0.0f;
     _state         = EPartyState::Joining;
-    // TODO(Phase T-2): SteamworksBridge.JoinLobby(party_id) を発行。
+    // TODO(Phase T-2): FSteamworksBridge.JoinLobby(party_id) を発行。
     return Ok();
 }
 
-TResult<void> PartySystem::LeaveParty() noexcept {
+TResult<void> FPartySystem::LeaveParty() noexcept {
     if (_state != EPartyState::InParty) {
         // Joining / Leaving / Solo からの離脱は no-op ではなくエラーで返す
         // (上位レイヤで状態整合を取れていない時に気付けるように)。
-        return ACS_ERR(Generic, 5, "PartySystem::LeaveParty: not in InParty state");
+        return ACS_ERR(Generic, 5, "FPartySystem::LeaveParty: not in InParty state");
     }
     _pending_timer = 0.0f;
     _state         = EPartyState::Leaving;
-    // TODO(Phase T-2): SteamworksBridge.LeaveLobby(_party_id) を発行。
+    // TODO(Phase T-2): FSteamworksBridge.LeaveLobby(_party_id) を発行。
     return Ok();
 }
 
-TResult<void> PartySystem::InviteFriend(const char* friend_id) noexcept {
+TResult<void> FPartySystem::InviteFriend(const char* friend_id) noexcept {
     if (_state != EPartyState::InParty) {
-        return ACS_ERR(Generic, 6, "PartySystem::InviteFriend: not in InParty state");
+        return ACS_ERR(Generic, 6, "FPartySystem::InviteFriend: not in InParty state");
     }
     if (friend_id == nullptr) {
-        return ACS_ERR(Generic, 7, "PartySystem::InviteFriend: friend_id is null");
+        return ACS_ERR(Generic, 7, "FPartySystem::InviteFriend: friend_id is null");
     }
     // フレンドリスト内に存在するかは「警告のみ」で弾かない。プラットフォーム
     // 上は friend でない相手にも (公開設定次第で) invite を送れるケースがあり、
     // 厳格にローカル list と突き合わせると有効な招待を弾く可能性があるため。
     // 一方で moderation / blocking 判定はここでは行わない (将来の別モジュール)。
     (void)friend_id;
-    // TODO(Phase T-2): SteamworksBridge.InviteFriendToLobby(_party_id, friend_id)。
+    // TODO(Phase T-2): FSteamworksBridge.InviteFriendToLobby(_party_id, friend_id)。
     //   結果通知 (送信失敗 / 受信側拒否 / 受信側 accept) は bridge イベントで
     //   非同期に流れてくる想定。本 API は「送信できたか」だけを返す。
     return Ok();
 }
 
-u32 PartySystem::MemberCount() const noexcept {
+u32 FPartySystem::MemberCount() const noexcept {
     return static_cast<u32>(_members.Size());
 }
 
-const PartyMember* PartySystem::Members() const noexcept {
+const PartyMember* FPartySystem::Members() const noexcept {
     return _members.Data();
 }
 
-void PartySystem::Tick(f32 dt) noexcept {
+void FPartySystem::Tick(f32 dt) noexcept {
     // Solo / InParty では時間進行は不要 (将来 idle 検出を入れる場合はここを拡張)。
     if (_state == EPartyState::Joining) {
         _pending_timer += dt;
@@ -150,7 +150,7 @@ void PartySystem::Tick(f32 dt) noexcept {
     }
 }
 
-void PartySystem::AddFriend(const Friend& f) noexcept {
+void FPartySystem::AddFriend(const Friend& f) noexcept {
     if (f.platform_id == nullptr) {
         // SDK 取得失敗時の nullptr 流入で list を壊さない (Pillar O と同じ防御)。
         return;
@@ -160,13 +160,13 @@ void PartySystem::AddFriend(const Friend& f) noexcept {
     _friends.PushBack(f);
 }
 
-u32 PartySystem::FriendCount() const noexcept {
-    // Pillar O Entitlement と同じく u32 範囲で十分 (現実的に friend list は
+u32 FPartySystem::FriendCount() const noexcept {
+    // Pillar O FEntitlement と同じく u32 範囲で十分 (現実的に friend list は
     // SDK 制限内: 大規模 SNS の Steam で 2000、PSN で 2000、Xbox で 1000 等)。
     return static_cast<u32>(_friends.Size());
 }
 
-const Friend* PartySystem::Friends() const noexcept {
+const Friend* FPartySystem::Friends() const noexcept {
     return _friends.Data();
 }
 

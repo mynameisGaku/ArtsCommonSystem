@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — in-game ParticleEditor (Phase 19b)
 //
-// `ParticleEffectSystem` (gameframework/ParticleEffectSystem.h) の emitter
+// `FParticleEffectSystem` (gameframework/FParticleEffectSystem.h) の emitter
 // パラメータを ImGui で実機編集するためのツール用パネル。Editor / DevTool
 // ビルドからのみ使われる前提で、retail ビルドからは #ifdef で消す想定。
 //
@@ -19,7 +19,7 @@
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<ParticleEmitterDef>` の所有を
-//     曖昧にしない。ACS の他 system (InspectorSeam, ParticleEffectSystem 等)
+//     曖昧にしない。ACS の他 system (FInspectorSeam, FParticleEffectSystem 等)
 //     と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range 等を no-op /
 //     null で表現。
@@ -28,7 +28,7 @@
 //     漏らさず、ヘッダだけ見ても include order を意識せずに済むようにする。
 //   ・**SaveCallback / LoadCallback は raw function pointer + void* user**:
 //     STL の std::function を使えないため、C スタイルのコールバック規約に
-//     揃える。InputManager / Allocator など ACS 既存の callback パターン
+//     揃える。InputManager / FAllocator など ACS 既存の callback パターン
 //     (`acs/src/platform/Input.h` のキャプチャ関数等) と同形。
 //   ・**SelectedIndex は i32**: -1 を「未選択」シグネルとして使うため、
 //     u32 ではなく i32 を採用。`u32 EmitterCount()` とは型が違うが、
@@ -53,7 +53,7 @@
 //   └─────────────────────────────────────────────────────────────┘
 //
 // 注意:
-//   ・`ParticleEffectSystem::CreateEmitter()` 等の真の `FEmitterHandle` 管理
+//   ・`FParticleEffectSystem::CreateEmitter()` 等の真の `FEmitterHandle` 管理
 //     とは独立 (editor 内では index 管理)。これは
 //       「編集中に handle を持ち続けると、emitter 削除のたびに gen が変わって
 //        editor 側の参照が壊れる」
@@ -76,24 +76,24 @@
 namespace acs::game::fxedit {
 
 // ---------------------------------------------------------------------------
-// ParticleEditorPanel — ImGui ベースの emitter property editor
-// (Phase 24: editor_core::EditorPanel 継承)
+// FParticleEditorPanel — ImGui ベースの emitter property editor
+// (Phase 24: editor_core::FEditorPanel 継承)
 // ---------------------------------------------------------------------------
-class ParticleEditorPanel : public ::acs::game::editor_core::EditorPanel {
+class FParticleEditorPanel : public ::acs::game::editor_core::FEditorPanel {
 public:
     // Save / Load callback 型。`user` は SetSaveCallback / SetLoadCallback の
     // 第二引数で渡したポインタがそのまま戻る (closure 代替)。
     using SaveCallback = void (*)(void* user, const ParticleEmitterDef* defs, u32 count) noexcept;
     using LoadCallback = void (*)(void* user, ParticleEmitterDef* defs, u32& inout_count) noexcept;
 
-    ParticleEditorPanel() noexcept = default;
-    ~ParticleEditorPanel() noexcept = default;
+    FParticleEditorPanel() noexcept = default;
+    ~FParticleEditorPanel() noexcept = default;
 
     // 非コピー・非ムーブ: 内部 TArray<ParticleEmitterDef> の所有を曖昧にしない。
-    ParticleEditorPanel(const ParticleEditorPanel&)            = delete;
-    ParticleEditorPanel& operator=(const ParticleEditorPanel&) = delete;
-    ParticleEditorPanel(ParticleEditorPanel&&)                 = delete;
-    ParticleEditorPanel& operator=(ParticleEditorPanel&&)      = delete;
+    FParticleEditorPanel(const FParticleEditorPanel&)            = delete;
+    FParticleEditorPanel& operator=(const FParticleEditorPanel&) = delete;
+    FParticleEditorPanel(FParticleEditorPanel&&)                 = delete;
+    FParticleEditorPanel& operator=(FParticleEditorPanel&&)      = delete;
 
     // 初期化: emitter list を空に戻し selection を解除する。
     // 多重 Init 可能 (= 完全リセット)。
@@ -103,15 +103,15 @@ public:
     // 明示 Shutdown は冪等)。多重 Shutdown 可能。
     void Shutdown() noexcept;
 
-    // Phase 24: EditorPanel 基底に乗せるため、target system は SetTargetSystem
+    // Phase 24: FEditorPanel 基底に乗せるため、target system は SetTargetSystem
     // で先に set してから DrawUI() を呼ぶパターンに変更。
-    void SetTargetSystem(class ParticleEffectSystem* system) noexcept { _target_system = system; }
-    class ParticleEffectSystem* TargetSystem() const noexcept { return _target_system; }
+    void SetTargetSystem(class FParticleEffectSystem* system) noexcept { _target_system = system; }
+    class FParticleEffectSystem* TargetSystem() const noexcept { return _target_system; }
 
-    // EditorPanel override: タイトル。
+    // FEditorPanel override: タイトル。
     const char* Title() const noexcept override { return "Particle Editor"; }
 
-    // EditorPanel override: メイン ImGui window 描画。target system が set されて
+    // FEditorPanel override: メイン ImGui window 描画。target system が set されて
     // いれば active particle 数を表示。`Begin("Particle Editor")` から始まる
     // 単一 window レイアウト。
     void DrawUI() noexcept override;
@@ -179,7 +179,7 @@ private:
 
     // Phase 24: read-only target (active particle count 表示用)。
     // nullptr のときは "(no system attached)" を表示。
-    class ParticleEffectSystem* _target_system = nullptr;
+    class FParticleEffectSystem* _target_system = nullptr;
 };
 
 } // namespace acs::game::fxedit

@@ -14,14 +14,14 @@
 // 動く mesh は ghost していた。本モジュールがその穴を埋める。
 //
 // 設計:
-//   - ShadowMap と同じ Begin/DrawMesh/End パターン (caller がシーンを描く)
+//   - FShadowMap と同じ Begin/DrawMesh/End パターン (caller がシーンを描く)
 //   - 全 mesh を描く前提 (静的 mesh は prev_model == model)。motion texture は
 //     画面全体で authoritative になり、TAA は depth を併用せず済む
 //     (→ TAA resolve PSO の texture slot を増やさず slot binding 問題を回避)
 //   - occlusion 用に専用 depth buffer を内部に持つ (scene depth は共有しない)
 //
 // 使い方:
-//   MotionVector mv;
+//   FMotionVector mv;
 //   mv.Init(*dev, w, h);
 //   ...毎フレーム (シーン color pass のあと):
 //   mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter);
@@ -43,13 +43,13 @@
 
 namespace acs {
 
-class MotionVector {
+class FMotionVector {
 public:
-    MotionVector() noexcept = default;
-    ~MotionVector() noexcept = default;
+    FMotionVector() noexcept = default;
+    ~FMotionVector() noexcept = default;
 
-    MotionVector(const MotionVector&)            = delete;
-    MotionVector& operator=(const MotionVector&) = delete;
+    FMotionVector(const FMotionVector&)            = delete;
+    FMotionVector& operator=(const FMotionVector&) = delete;
 
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
     void Shutdown() noexcept;

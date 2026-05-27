@@ -7,7 +7,7 @@
 // 内部最適化: 一番要素数の少ない SparseSet を「主軸」にし、その dense 走査の
 //             各エンティティが他の SparseSet にも含まれているか確認する。
 //
-// 並列バージョン: EachParallel(fn, grain) は ThreadPool::ParallelFor で
+// 並列バージョン: EachParallel(fn, grain) は FThreadPool::ParallelFor で
 //                 chunk 分割して投入。ラムダはエンティティごとに独立に
 //                 呼ばれることを前提にする (= 共有資源を触るならユーザー側で同期)。
 #pragma once
@@ -42,7 +42,7 @@ public:
         }
     }
 
-    // 並列イテレーション: ThreadPool::ParallelFor で chunk 分割して fn を呼ぶ。
+    // 並列イテレーション: FThreadPool::ParallelFor で chunk 分割して fn を呼ぶ。
     // ラムダはエンティティ単位で独立に呼ばれる前提（同じ entity が複数スレッドから
     // 同時に呼ばれることはないが、グローバル資源は別途同期が必要）。
     //
@@ -55,7 +55,7 @@ public:
         const u32 count = static_cast<u32>(primary->Size());
         if (count == 0) return;
 
-        // ThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
+        // FThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
         // ctx を user data に乗せ、thunk で QueryView の処理に戻す。
         struct Ctx {
             QueryView*  self;
@@ -74,7 +74,7 @@ public:
         };
 
         // ParallelFor は完了まで block する (内部で Wait)。
-        ThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
+        FThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
     }
 
 private:

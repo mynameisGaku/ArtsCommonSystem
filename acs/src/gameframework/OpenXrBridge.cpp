@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar X — OpenXrBridge stub 実装
+// GameFramework Pillar X — FOpenXrBridge stub 実装
 //
 // Phase X-1 では具象 XR backend (OpenXR Khronos loader / Oculus / OpenVR /
 // PS VR2 / VisionOS) はいずれも未統合のため、本ファイルは「常に Init 失敗
@@ -21,7 +21,7 @@
 //   ・`GetXrStub()` は Meyer's singleton。スレッド初回構築は C++11 以降の規格で
 //     保証されているため、追加同期は不要。
 //   ・NotImplemented の subcode は `xr_err::kSub_NotImplemented = 99` を用い、
-//     MlRuntime.h / SaveSlot.h と「Generic + subcode 99」規約を共有する。
+//     FMlRuntime.h / FSaveSlot.h と「Generic + subcode 99」規約を共有する。
 //
 // 決定論ゾーン:
 //   XR ランタイムは入力デバイスのドライバ層に依存するため、ティックレベルの

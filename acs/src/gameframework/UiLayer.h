@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — UiLayer (acs::ui Widget tree を Scene に繋ぐ glue)
+// GameFramework Pillar H — FUiLayer (acs::ui Widget tree を Scene に繋ぐ glue)
 //
 // 役割:
-//   既存の `acs::ui` Widget システム (Widget.h / Widgets.h / UiRenderer.h) は
+//   既存の `acs::ui` Widget システム (Widget.h / Widgets.h / FUiRenderer.h) は
 //   retained-mode UI として強力だが、ゲームコード側 (Scene) から直接触るには
-//   ボイラープレートが多い。UiLayer は **Scene のライフサイクル (Init / Tick /
+//   ボイラープレートが多い。FUiLayer は **Scene のライフサイクル (Init / Tick /
 //   HandleInput / Shutdown) と Widget tree を結ぶ薄い層** で、典型的なゲーム UI
 //   (ボタン / テキスト表示) を最小 API で扱えるようにする。
 //
@@ -15,7 +15,7 @@
 //
 // 使い方 (典型例):
 //   class TitleScene : public Scene {
-//       UiLayer _ui;
+//       FUiLayer _ui;
 //       u32     _play_btn = 0;
 //       void OnEnter() noexcept override {
 //           _ui.Init();
@@ -44,14 +44,14 @@
 //     0 は invalid handle 予約。
 //   ・**const char* 非所有**: 規約通り <string> 不使用。label / text の寿命は
 //     呼び出し側 (文字列リテラル or 長寿命バッファ) が保証する。Pillar T
-//     PartySystem / Pillar O Entitlement と同方針。
+//     FPartySystem / Pillar O FEntitlement と同方針。
 //   ・**コピー / ムーブ禁止**: UI 状態を持つ長寿命オブジェクト。誤コピーで state
 //     が分裂すると詰むため非コピー・非ムーブ。
 //   ・**全 noexcept**: ACS 全体方針。Init / Shutdown は冪等で再呼び出し安全。
 //
 // 範囲外 (Phase H-2 以降で接続):
 //   ・実 `acs::ui::Widget` ツリー構築 (StackPanel / Button / TextBlock の生成)
-//   ・`UiRenderer` による描画 (RenderContext から SpriteBatch / Font を受ける)
+//   ・`FUiRenderer` による描画 (RenderContext から FSpriteBatch / Font を受ける)
 //   ・`Event` → hit-test → Widget::OnPointerDown 等の配送
 //   ・focus / keyboard navigation (Tab 移動 / Enter 確定)
 //   ・MVVM Observable<T> との bind (現状はポーリング型 IsButtonPressed)
@@ -72,7 +72,7 @@ struct Event;
 
 namespace game {
 
-// UiLayer が扱う widget の種類。Phase H-1 はボタンとテキストのみ。Phase H-2 で
+// FUiLayer が扱う widget の種類。Phase H-1 はボタンとテキストのみ。Phase H-2 で
 // Slider / Checkbox / TextInput を追加する想定。
 enum class EWidgetKind : u8 {
     None    = 0,
@@ -98,16 +98,16 @@ struct WidgetEntry {
     bool        just_pressed = false;
 };
 
-class UiLayer {
+class FUiLayer {
 public:
-    UiLayer()  noexcept = default;
-    ~UiLayer() noexcept = default;
+    FUiLayer()  noexcept = default;
+    ~FUiLayer() noexcept = default;
 
     // 非コピー・非ムーブ (state holder。誤コピーで widget 状態が分裂しないよう)。
-    UiLayer(const UiLayer&)            = delete;
-    UiLayer& operator=(const UiLayer&) = delete;
-    UiLayer(UiLayer&&)                 = delete;
-    UiLayer& operator=(UiLayer&&)      = delete;
+    FUiLayer(const FUiLayer&)            = delete;
+    FUiLayer& operator=(const FUiLayer&) = delete;
+    FUiLayer(FUiLayer&&)                 = delete;
+    FUiLayer& operator=(FUiLayer&&)      = delete;
 
     // ----- ライフサイクル -----
     // Scene::OnEnter から呼ぶ。Widget tree の root を確保 (現フェーズは stub、

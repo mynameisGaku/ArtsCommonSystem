@@ -11,7 +11,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void Bullets::Init(ProjectileSystem& sys) noexcept {
+void Bullets::Init(FProjectileSystem& sys) noexcept {
     sys.Init(kMaxBullets);
 
     ProjectileDef bdef{};
@@ -28,7 +28,7 @@ void Bullets::Init(ProjectileSystem& sys) noexcept {
     sys.RegisterDef(bdef);
 }
 
-void Bullets::Shutdown(ProjectileSystem& sys) noexcept {
+void Bullets::Shutdown(FProjectileSystem& sys) noexcept {
     sys.ClearAll();
 }
 
@@ -40,7 +40,7 @@ void Bullets::Fire(GameplayScene& scene, FVec2 from, FVec2 dir_unit) noexcept {
     static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_fire", 0.6f);
 }
 
-void Bullets::DrawAll(const ProjectileSystem& sys, SpriteBatch& sb,
+void Bullets::DrawAll(const FProjectileSystem& sys, FSpriteBatch& sb,
                       f32 last_dt) const noexcept {
     u32 n = 0;
     const ProjectileInstance* bs = sys.AllAlive(n);

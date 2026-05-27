@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloParticleEditor — Game 派生のアプリケーションクラス。
+// HelloParticleEditor — FGame 派生のアプリケーションクラス。
 //
-// ImGui lifecycle を Game に持たせる薄いラッパ。OnStart / OnShutdown / OnEvent
+// ImGui lifecycle を FGame に持たせる薄いラッパ。OnStart / OnShutdown / OnEvent
 // で ImGuiCtx を回し、OnRender を override して NewFrame() → Scene::OnRender →
 // Render() の順で挟む。これで Scene 側はそのまま ImGui::* を呼べる。
 #pragma once
@@ -11,7 +11,7 @@
 
 namespace helloparticleed {
 
-class ParticleEditorApp : public acs::game::Game {
+class ParticleEditorApp : public acs::game::FGame {
 public:
     void OnStart()    noexcept override;
     void OnRender()   noexcept override;

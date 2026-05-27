@@ -37,9 +37,9 @@ void RaycastScene::Update(f32 dt) noexcept {
     _caster.Update(dt, _targets);
 }
 
-void RaycastScene::Render(StandardShader& shader,
+void RaycastScene::Render(FStandardShader& shader,
                           IRhiCommandList& cl,
-                          SpriteBatch& batch,
+                          FSpriteBatch& batch,
                           Font& font,
                           u32 screen_w,
                           u32 screen_h) noexcept {
@@ -64,7 +64,7 @@ void RaycastScene::Render(StandardShader& shader,
     HudRenderer::Draw(batch, font, cl, screen_w, screen_h, _targets);
 }
 
-void RaycastScene::_render_targets(StandardShader& shader,
+void RaycastScene::_render_targets(FStandardShader& shader,
                                    IRhiCommandList& cl) noexcept {
     // 地面 (世界原点に置く)
     shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),

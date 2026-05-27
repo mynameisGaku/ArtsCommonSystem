@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloAudio — Application 実装。
+// HelloAudio — FApplication 実装。
 #include "HelloAudioApp.h"
 
 #include "app/Sample.h"
@@ -31,7 +31,7 @@ void HelloAudioApp::OnUpdate(f32 /*dt*/) noexcept {
             _engine.Stop(_handle);
             _handle = kInvalidSound;
         } else if (_audio) {
-            auto* a = static_cast<AudioAsset*>(_audio.Get());
+            auto* a = static_cast<FAudioAsset*>(_audio.Get());
             _handle = _engine.Play(*a, _volume, /*loop*/ false);
         }
     }
