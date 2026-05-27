@@ -92,3 +92,11 @@ acs_enable_module(AssetPack)
 # フレームワーク。Phase 1 (Pillar A: App & Scene) は v3 確定設計の最小骨格のみ。
 # 名前空間 acs::game、CMake target ACS::GameFramework。詳細 docs/GameFramework.md
 acs_enable_module(GameFramework)
+
+# Steamworks — Steamworks SDK の real backend 実装。ACS_BUILD_STEAMWORKS=ON
+# のときだけビルドされる (Module.cmake が自分で OFF check)。OFF (default) の
+# 場合は acs::game::SteamworksBridgeStub (no-op) を使う。
+# 名前空間 acs::steamworks、CMake target ACS::Steamworks。
+if(ACS_BUILD_STEAMWORKS)
+    acs_enable_module(Steamworks)
+endif()

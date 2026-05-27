@@ -63,6 +63,79 @@ function(acs_third_party_ufbx)
     add_library(acs_third_party::ufbx ALIAS acs_third_party_ufbx)
 endfunction()
 
+# ---- Steamworks SDK (Phase 26+ 実バックエンド) ----------------------------
+# Valve の SDK は partner.steamgames.com (要パートナー登録) からのみ入手可能で
+# 公開ミラー URL は存在しない。よって以下のいずれかで SDK を確保する:
+#
+#   方式 A (推奨): user が SDK を local download し、CMake var を渡す
+#       cmake -DACS_STEAMWORKS_SDK_DIR=C:/path/to/steamworks_sdk_162
+#
+#   方式 B: ZIP URL を渡して FetchContent で取得 (CI 用、user の責任で URL 用意)
+#       cmake -DACS_STEAMWORKS_SDK_URL=file:///C:/sdk.zip
+#       (例: 自前 S3 / GitHub Release の private mirror。要 Valve への確認)
+#
+# 方式 A / B いずれかが ACS_BUILD_STEAMWORKS=ON 時に必須。両方未指定なら
+# WARNING + 自動 OFF。
+#
+# 期待される SDK レイアウト (Steamworks SDK 1.62 確認):
+#   <SDK>/public/steam/steam_api.h            ← C++ ヘッダ群
+#   <SDK>/public/steam/*.h                     ← isteamuser, isteamuserstats, etc.
+#   <SDK>/redistributable_bin/win64/steam_api64.lib  ← import lib
+#   <SDK>/redistributable_bin/win64/steam_api64.dll  ← runtime DLL
+function(acs_third_party_steamworks)
+    if(TARGET acs_third_party::steamworks)
+        return()
+    endif()
+
+    set(_sdk_dir "")
+    if(DEFINED ACS_STEAMWORKS_SDK_DIR AND NOT "${ACS_STEAMWORKS_SDK_DIR}" STREQUAL "")
+        # 方式 A: ローカル SDK ディレクトリ
+        if(EXISTS "${ACS_STEAMWORKS_SDK_DIR}/public/steam/steam_api.h")
+            set(_sdk_dir "${ACS_STEAMWORKS_SDK_DIR}")
+            message(STATUS "ACS: Steamworks SDK (local) = ${_sdk_dir}")
+        else()
+            message(FATAL_ERROR
+                "ACS_STEAMWORKS_SDK_DIR=${ACS_STEAMWORKS_SDK_DIR} に "
+                "public/steam/steam_api.h が見つからない。Steamworks SDK の "
+                "ZIP を展開した directory を指定すること。")
+        endif()
+    elseif(DEFINED ACS_STEAMWORKS_SDK_URL AND NOT "${ACS_STEAMWORKS_SDK_URL}" STREQUAL "")
+        # 方式 B: ZIP URL から FetchContent
+        FetchContent_Declare(
+            acs_steamworks
+            URL "${ACS_STEAMWORKS_SDK_URL}"
+        )
+        FetchContent_MakeAvailable(acs_steamworks)
+        if(EXISTS "${acs_steamworks_SOURCE_DIR}/public/steam/steam_api.h")
+            set(_sdk_dir "${acs_steamworks_SOURCE_DIR}")
+            message(STATUS "ACS: Steamworks SDK (fetched) = ${_sdk_dir}")
+        else()
+            message(FATAL_ERROR
+                "ACS_STEAMWORKS_SDK_URL から取得した内容に "
+                "public/steam/steam_api.h が見つからない。ZIP の中身を確認。")
+        endif()
+    else()
+        message(FATAL_ERROR
+            "ACS_BUILD_STEAMWORKS=ON だが ACS_STEAMWORKS_SDK_DIR / "
+            "ACS_STEAMWORKS_SDK_URL のいずれも指定されていない。"
+            "SDK の取得方法を選んで指定すること:\n"
+            "  -DACS_STEAMWORKS_SDK_DIR=<unzip した SDK の絶対パス>   (推奨)\n"
+            "  -DACS_STEAMWORKS_SDK_URL=<SDK ZIP の URL>            (CI 用)\n"
+            "Steamworks SDK は partner.steamgames.com から入手 (要パートナー登録)。")
+    endif()
+
+    add_library(acs_third_party_steamworks INTERFACE)
+    target_include_directories(acs_third_party_steamworks INTERFACE
+        "${_sdk_dir}/public")
+    # Win64 用 import lib (lib + DLL の両方が必要、runtime DLL は別途 install)
+    target_link_libraries(acs_third_party_steamworks INTERFACE
+        "${_sdk_dir}/redistributable_bin/win64/steam_api64.lib")
+    # 配布時用に DLL のパスを property で保存しておく (install ルールで使う)
+    set_target_properties(acs_third_party_steamworks PROPERTIES
+        ACS_STEAMWORKS_DLL "${_sdk_dir}/redistributable_bin/win64/steam_api64.dll")
+    add_library(acs_third_party::steamworks ALIAS acs_third_party_steamworks)
+endfunction()
+
 # ---- dr_libs (wav / mp3 / flac) -------------------------------------------
 function(acs_third_party_drlibs)
     if(TARGET acs_third_party::drlibs)

@@ -44,6 +44,12 @@ option(ACS_DILIGENT_VULKAN "Build Diligent Vulkan backend (requires ACS_RENDER_D
 # MVVM の ImGui アダプタをビルドするか。OFF にすれば Mvvm モジュールは Imgui に依存しない。
 option(ACS_MVVM_IMGUI_BINDINGS "Build MVVM ImGui binding adapter (requires Imgui module)" ON)
 
+# Phase 26+ 実バックエンド統合: Steamworks SDK の real 実装。
+# OFF (default) なら src/gameframework/SteamworksBridge.h の Stub のみ利用可能。
+# ON にする場合は cmake/ACSThirdParty.cmake の acs_third_party_steamworks() の
+# コメントに従い、ACS_STEAMWORKS_SDK_DIR (推奨) か ACS_STEAMWORKS_SDK_URL を指定。
+option(ACS_BUILD_STEAMWORKS "Build real Steamworks SDK backend (acs_steamworks module)" OFF)
+
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
