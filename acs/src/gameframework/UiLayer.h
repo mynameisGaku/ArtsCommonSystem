@@ -15,21 +15,21 @@
 //
 // 使い方 (典型例):
 //   class TitleScene : public Scene {
-//       FUiLayer _ui;
-//       u32     _play_btn = 0;
+//       FUiLayer m_Ui;
+//       u32     m_PlayBtn = 0;
 //       void OnEnter() noexcept override {
-//           _ui.Init();
-//           _play_btn = _ui.AddButton("Play", {100, 200}, {200, 48});
-//           _ui.AddText("ACS Demo", {100, 100});
+//           m_Ui.Init();
+//           m_PlayBtn = m_Ui.AddButton("Play", {100, 200}, {200, 48});
+//           m_Ui.AddText("ACS Demo", {100, 100});
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _ui.Tick(dt);
-//           if (_ui.IsButtonPressed(_play_btn)) {
+//           m_Ui.Tick(dt);
+//           if (m_Ui.IsButtonPressed(m_PlayBtn)) {
 //               Scenes().ChangeScene(MakeUnique<GameScene>());
 //           }
 //       }
-//       void OnEvent(const Event& e) noexcept override { _ui.HandleInput(e); }
-//       void OnExit() noexcept override { _ui.Shutdown(); }
+//       void OnEvent(const Event& e) noexcept override { m_Ui.HandleInput(e); }
+//       void OnExit() noexcept override { m_Ui.Shutdown(); }
 //   };
 //
 // 設計選択 (Phase H-1 スケルトン):
@@ -161,9 +161,9 @@ private:
     // なら -1 相当 (u32 の MAX = 0xFFFFFFFFu) を返す。
     u32 FindIndex(u32 handle) const noexcept;
 
-    TArray<WidgetEntry> _widgets;          // 全 widget の状態 (handle 順は保証しない)
-    u32                _next_handle = 1;  // 次に発行する handle (0 は invalid 予約)
-    bool               _initialized = false;
+    TArray<WidgetEntry> m_Widgets;          // 全 widget の状態 (handle 順は保証しない)
+    u32                m_NextHandle = 1;  // 次に発行する handle (0 は invalid 予約)
+    bool               m_Initialized = false;
 };
 
 } // namespace game

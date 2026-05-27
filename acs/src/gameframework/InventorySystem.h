@@ -49,7 +49,7 @@
 //     を「空 slot」として表す。
 //   ・**所有しない const char***: id / display_name / icon_path すべて呼出側
 //     (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
-//     slot.item_id も _items[].id を直接指す (= リテラル参照、非所有)。
+//     slot.item_id も m_Items[].id を直接指す (= リテラル参照、非所有)。
 //   ・**AddItem は積み増し優先**: 同 id の既存 stack が max_stack 未満なら先にそちらに
 //     積み、それでも残ったら空 slot を埋める。これにより inventory の fragmentation が
 //     最小化される (= UI のスロットが連続して埋まる / 散らばらない)。
@@ -211,21 +211,21 @@ public:
     void ClearAll() noexcept;
 
 private:
-    // item_id → _items 内 index の per-byte 線形検索。未検出は ~0u。
+    // item_id → m_Items 内 index の per-byte 線形検索。未検出は ~0u。
     u32 FindItemSlot(const char* item_id) const noexcept;
 
     // slot 変更通知 (callback が設定されていれば呼ぶ)。
     void NotifyChange(u32 slot_index) noexcept;
 
     // アイテム定義 (起動時 immutable)。
-    TArray<ItemDef> _items;
+    TArray<ItemDef> m_Items;
 
     // slot data (Init で固定長 Resize、以降伸縮しない)。
-    TArray<InventorySlot> _slots;
+    TArray<InventorySlot> m_Slots;
 
     // 変更通知 callback (C 関数ポインタ + user)。Manager は user を所有しない。
-    ChangeCallback _on_change      = nullptr;
-    void*          _on_change_user = nullptr;
+    ChangeCallback m_OnChange      = nullptr;
+    void*          m_OnChangeUser = nullptr;
 };
 
 } // namespace acs::game

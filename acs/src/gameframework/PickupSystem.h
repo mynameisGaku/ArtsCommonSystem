@@ -96,18 +96,18 @@ enum class EPickupKind : u8 {
 // 32bit packed = 24bit index + 8bit generation。0 = invalid。
 // FCollisionWorld2D::FShapeId / FNode2D の FNodeId と同パターン。
 struct PickupId {
-    u32 _packed = 0;
+    u32 m_Packed = 0;
 
     constexpr PickupId() noexcept = default;
     constexpr PickupId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32  Index()      const noexcept { return _packed & 0x00FFFFFFu; }
-    constexpr u8   Generation() const noexcept { return static_cast<u8>(_packed >> 24); }
-    constexpr bool IsValid()    const noexcept { return _packed != 0; }
+    constexpr u32  Index()      const noexcept { return m_Packed & 0x00FFFFFFu; }
+    constexpr u8   Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+    constexpr bool IsValid()    const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(PickupId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(PickupId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(PickupId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(PickupId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // ---- PickupInfo: pickup 1 件の定義 -----------------------------------------
@@ -214,13 +214,13 @@ private:
     // 未使用 slot を 1 つ確保し index を返す。index 0 は予約 (= invalid)。
     u32 AcquireSlot() noexcept;
 
-    TArray<Slot>     _slots;
-    u32             _alive_count = 0;
+    TArray<Slot>     m_Slots;
+    u32             m_AliveCount = 0;
 
-    PickupCallback  _on_pickup       = nullptr;
-    void*           _on_pickup_user  = nullptr;
-    ExpireCallback  _on_expire       = nullptr;
-    void*           _on_expire_user  = nullptr;
+    PickupCallback  m_OnPickup       = nullptr;
+    void*           m_OnPickupUser  = nullptr;
+    ExpireCallback  m_OnExpire       = nullptr;
+    void*           m_OnExpireUser  = nullptr;
 };
 
 } // namespace acs::game

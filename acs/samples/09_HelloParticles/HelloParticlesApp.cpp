@@ -39,7 +39,7 @@ void HelloParticlesApp::OnStart() noexcept {
     if (!dev) { Quit(); return; }
 
     // FSpriteBatch (2D 描画) と Glow テクスチャ (粒の見た目) を準備
-    ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
+    ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
 
     // パーティクルの粒テクスチャを CPU 側で 1 枚だけ生成し GPU へ転送
     u8 px[kTexSize * kTexSize * 4];
@@ -49,21 +49,21 @@ void HelloParticlesApp::OnStart() noexcept {
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = px; td.initial_data_size = sizeof(px);
     if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) { Quit(); return; }
-    else _glow = Move(r.Value());
+    else m_Glow = Move(r.Value());
 
     // フォント (OS 別の標準フォント候補を FSample helper で解決。
     // 解像度 18px、atlas 1024px、CJK 対応 true。失敗しても HUD が消えるだけ)
-    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f, 1024, true);
 
     // 画面中央付近を初期エミッタ位置に
-    if (!_scene.Init(_glow.Get(), FVec2{400, 400})) { Quit(); return; }
+    if (!m_Scene.Init(m_Glow.Get(), FVec2{400, 400})) { Quit(); return; }
 
     ACS_LOG_INFO("HelloParticles initialized");
 }
 
 void HelloParticlesApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    _scene.Update(dt);
+    m_Scene.Update(dt);
 }
 
 void HelloParticlesApp::OnRender() noexcept {
@@ -72,22 +72,22 @@ void HelloParticlesApp::OnRender() noexcept {
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
 
-    _batch.Begin(*cl, sw, sh);
+    m_Batch.Begin(*cl, sw, sh);
     // 暗めの背景（粒が映える）
-    _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
+    m_Batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
                     FVec4{0.05f, 0.06f, 0.10f, 1});
 
-    _scene.Render(_batch, _font, sh, FPS());
+    m_Scene.Render(m_Batch, m_Font, sh, FPS());
 
-    _batch.End();
+    m_Batch.End();
 }
 
 void HelloParticlesApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _font.Shutdown();
-    _scene.Shutdown();
-    _glow.Reset();
-    _batch.Shutdown();
+    m_Font.Shutdown();
+    m_Scene.Shutdown();
+    m_Glow.Reset();
+    m_Batch.Shutdown();
 }
 
 } // namespace helloparticles

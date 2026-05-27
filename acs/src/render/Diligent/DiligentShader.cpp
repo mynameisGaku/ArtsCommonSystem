@@ -81,12 +81,12 @@ void ParseShaderBindings(
 } // namespace
 
 DiligentShader::~DiligentShader() noexcept {
-    if (_shader) { _shader->Release(); _shader = nullptr; }
+    if (m_Shader) { m_Shader->Release(); m_Shader = nullptr; }
 }
 
 TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& desc) noexcept {
-    _device = &device;
-    _stage  = desc.stage;
+    m_Device = &device;
+    m_Stage  = desc.stage;
 
     auto* dev = device.RenderDev();
     if (!dev) return ACS_ERR(Render, 140, "DiligentShader: device not initialized");
@@ -106,7 +106,7 @@ TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& de
 
     // Diligent 新版で UseCombinedTextureSamplers / CombinedSamplerSuffix は
     // ShaderCreateInfo から FShaderDesc に移動した。
-    // true にすると Diligent が <texture>_sampler 名で sampler を自動紐付け
+    // true にすると Diligent が <texture>m_Sampler 名で sampler を自動紐付け
     // するので、PSO 側の ImmutableSamplerDesc::SamplerOrTextureName に
     // テクスチャ名 ("albedo" 等) を渡すだけで sampler binding が成立する。
     // (D3D12 でも HLSL は分離宣言のまま、紐付けの abstraction)
@@ -114,11 +114,11 @@ TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& de
     sd.Name                       = desc.debug_name ? desc.debug_name : "ACS_Shader";
     sd.ShaderType                 = diligent_detail::ToDiligent(desc.stage);
     sd.UseCombinedTextureSamplers = true;
-    sd.CombinedSamplerSuffix      = "_sampler";
+    sd.CombinedSamplerSuffix      = "m_Sampler";
     sci.Desc                      = sd;
 
-    dev->CreateShader(sci, &_shader);
-    if (!_shader) {
+    dev->CreateShader(sci, &m_Shader);
+    if (!m_Shader) {
         ACS_LOG_ERROR("Diligent: CreateShader failed (entry=%s, name=%s)",
                       sci.EntryPoint, sd.Name);
         return ACS_ERR(Render, 142, "CreateShader failed");
@@ -126,10 +126,10 @@ TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& de
 
     // HLSL source を parse して register(bN/tN) → 名前マッピングを構築。
     // Diligent::ShaderResourceDesc に BindPoint が無いため自前で抽出する。
-    ParseShaderBindings(desc.hlsl_source, "cbuffer",      'b', _cb_names,  kMaxSlots);
-    ParseShaderBindings(desc.hlsl_source, "Texture2D",    't', _tex_names, kMaxSlots);
-    ParseShaderBindings(desc.hlsl_source, "Texture3D",    't', _tex_names, kMaxSlots);
-    ParseShaderBindings(desc.hlsl_source, "TextureCube",  't', _tex_names, kMaxSlots);
+    ParseShaderBindings(desc.hlsl_source, "cbuffer",      'b', m_CbNames,  kMaxSlots);
+    ParseShaderBindings(desc.hlsl_source, "Texture2D",    't', m_TexNames, kMaxSlots);
+    ParseShaderBindings(desc.hlsl_source, "Texture3D",    't', m_TexNames, kMaxSlots);
+    ParseShaderBindings(desc.hlsl_source, "TextureCube",  't', m_TexNames, kMaxSlots);
 
     return Ok();
 }

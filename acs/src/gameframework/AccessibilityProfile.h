@@ -144,7 +144,7 @@ public:
     void Set(const FAccessibilitySettings& s) noexcept;
 
     // 現在の設定値を const 参照で取得。
-    const FAccessibilitySettings& Get() const noexcept { return _settings; }
+    const FAccessibilitySettings& Get() const noexcept { return m_Settings; }
 
     // ----- プリセット -----
     // プリセット適用 (現値を破棄して preset 既定で上書き)。
@@ -155,35 +155,35 @@ public:
     void Reset() noexcept;
 
     // ----- 個別 setter (頻用フィールドのみ) -----
-    void SetColorblindMode (EColorblindMode m)  noexcept { _settings.colorblind = m; }
-    void SetMotionReduction(EMotionReduction m) noexcept { _settings.motion     = m; }
-    void SetTextSize       (ETextSize s)        noexcept { _settings.text_size  = s; }
-    void EnableScreenReader(bool b)            noexcept { _settings.screen_reader_enabled = b; }
-    void EnableSubtitles   (bool b)            noexcept { _settings.subtitles_enabled     = b; }
-    void EnableSfxSubtitles(bool b)            noexcept { _settings.sfx_subtitles_enabled = b; }
-    void EnableOneHandedMode(bool b)           noexcept { _settings.one_handed_mode       = b; }
-    void EnableHighContrastUi(bool b)          noexcept { _settings.high_contrast_ui      = b; }
-    void EnableEyeTrackingInput(bool b)        noexcept { _settings.eye_tracking_input    = b; }
-    void EnableSwitchDeviceInput(bool b)       noexcept { _settings.switch_device_input   = b; }
-    void SetScreenShakeScale   (f32 s)         noexcept { _settings.screen_shake_scale    = s; }
-    void SetFlashIntensityScale(f32 s)         noexcept { _settings.flash_intensity_scale = s; }
+    void SetColorblindMode (EColorblindMode m)  noexcept { m_Settings.colorblind = m; }
+    void SetMotionReduction(EMotionReduction m) noexcept { m_Settings.motion     = m; }
+    void SetTextSize       (ETextSize s)        noexcept { m_Settings.text_size  = s; }
+    void EnableScreenReader(bool b)            noexcept { m_Settings.screen_reader_enabled = b; }
+    void EnableSubtitles   (bool b)            noexcept { m_Settings.subtitles_enabled     = b; }
+    void EnableSfxSubtitles(bool b)            noexcept { m_Settings.sfx_subtitles_enabled = b; }
+    void EnableOneHandedMode(bool b)           noexcept { m_Settings.one_handed_mode       = b; }
+    void EnableHighContrastUi(bool b)          noexcept { m_Settings.high_contrast_ui      = b; }
+    void EnableEyeTrackingInput(bool b)        noexcept { m_Settings.eye_tracking_input    = b; }
+    void EnableSwitchDeviceInput(bool b)       noexcept { m_Settings.switch_device_input   = b; }
+    void SetScreenShakeScale   (f32 s)         noexcept { m_Settings.screen_shake_scale    = s; }
+    void SetFlashIntensityScale(f32 s)         noexcept { m_Settings.flash_intensity_scale = s; }
 
     // ----- 個別 getter (頻用フィールドのみ) -----
-    EColorblindMode  GetColorblindMode () const noexcept { return _settings.colorblind; }
-    EMotionReduction GetMotionReduction() const noexcept { return _settings.motion;     }
-    ETextSize        GetTextSize       () const noexcept { return _settings.text_size;  }
-    bool IsScreenReaderEnabled  () const noexcept { return _settings.screen_reader_enabled; }
-    bool AreSubtitlesEnabled    () const noexcept { return _settings.subtitles_enabled;     }
-    bool AreSfxSubtitlesEnabled () const noexcept { return _settings.sfx_subtitles_enabled; }
-    bool IsOneHandedMode        () const noexcept { return _settings.one_handed_mode;       }
-    bool IsHighContrastUi       () const noexcept { return _settings.high_contrast_ui;      }
-    bool IsEyeTrackingInput     () const noexcept { return _settings.eye_tracking_input;    }
-    bool IsSwitchDeviceInput    () const noexcept { return _settings.switch_device_input;   }
-    f32  ScreenShakeScale       () const noexcept { return _settings.screen_shake_scale;    }
-    f32  FlashIntensityScale    () const noexcept { return _settings.flash_intensity_scale; }
+    EColorblindMode  GetColorblindMode () const noexcept { return m_Settings.colorblind; }
+    EMotionReduction GetMotionReduction() const noexcept { return m_Settings.motion;     }
+    ETextSize        GetTextSize       () const noexcept { return m_Settings.text_size;  }
+    bool IsScreenReaderEnabled  () const noexcept { return m_Settings.screen_reader_enabled; }
+    bool AreSubtitlesEnabled    () const noexcept { return m_Settings.subtitles_enabled;     }
+    bool AreSfxSubtitlesEnabled () const noexcept { return m_Settings.sfx_subtitles_enabled; }
+    bool IsOneHandedMode        () const noexcept { return m_Settings.one_handed_mode;       }
+    bool IsHighContrastUi       () const noexcept { return m_Settings.high_contrast_ui;      }
+    bool IsEyeTrackingInput     () const noexcept { return m_Settings.eye_tracking_input;    }
+    bool IsSwitchDeviceInput    () const noexcept { return m_Settings.switch_device_input;   }
+    f32  ScreenShakeScale       () const noexcept { return m_Settings.screen_shake_scale;    }
+    f32  FlashIntensityScale    () const noexcept { return m_Settings.flash_intensity_scale; }
 
 private:
-    FAccessibilitySettings _settings{};
+    FAccessibilitySettings m_Settings{};
 };
 
 } // namespace acs::game

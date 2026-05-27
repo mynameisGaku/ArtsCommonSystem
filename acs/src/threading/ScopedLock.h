@@ -20,36 +20,36 @@ namespace acs {
 // ---- FMutex 用 RAII ガード ------------------------------------------------
 class FScopedLock {
 public:
-    explicit FScopedLock(FMutex& m) noexcept : _m(m) { _m.Lock(); }
-    ~FScopedLock() noexcept { _m.Unlock(); }
+    explicit FScopedLock(FMutex& m) noexcept : m_M(m) { m_M.Lock(); }
+    ~FScopedLock() noexcept { m_M.Unlock(); }
 
     // ガードはコピー / ムーブ不可
     FScopedLock(const FScopedLock&) = delete;
     FScopedLock& operator=(const FScopedLock&) = delete;
 private:
-    FMutex& _m;
+    FMutex& m_M;
 };
 
 // ---- RwLock 共有（読み取り）用 RAII ガード -----------------------------
 class ScopedSharedLock {
 public:
-    explicit ScopedSharedLock(RwLock& r) noexcept : _r(r) { _r.LockShared(); }
-    ~ScopedSharedLock() noexcept { _r.UnlockShared(); }
+    explicit ScopedSharedLock(RwLock& r) noexcept : m_R(r) { m_R.LockShared(); }
+    ~ScopedSharedLock() noexcept { m_R.UnlockShared(); }
     ScopedSharedLock(const ScopedSharedLock&) = delete;
     ScopedSharedLock& operator=(const ScopedSharedLock&) = delete;
 private:
-    RwLock& _r;
+    RwLock& m_R;
 };
 
 // ---- RwLock 排他（書き込み）用 RAII ガード -----------------------------
 class ScopedExclusiveLock {
 public:
-    explicit ScopedExclusiveLock(RwLock& r) noexcept : _r(r) { _r.LockExclusive(); }
-    ~ScopedExclusiveLock() noexcept { _r.UnlockExclusive(); }
+    explicit ScopedExclusiveLock(RwLock& r) noexcept : m_R(r) { m_R.LockExclusive(); }
+    ~ScopedExclusiveLock() noexcept { m_R.UnlockExclusive(); }
     ScopedExclusiveLock(const ScopedExclusiveLock&) = delete;
     ScopedExclusiveLock& operator=(const ScopedExclusiveLock&) = delete;
 private:
-    RwLock& _r;
+    RwLock& m_R;
 };
 
 } // namespace acs

@@ -20,7 +20,7 @@
 //   ・**FAudioEngine 直叩きしない**: 実際の再生は FAudioDirector / FAudioEngine に
 //     委ねる前提で、本クラスは「どの track を、どのゲインで鳴らすべきか」を
 //     決める state machine に徹する。Phase 2 で FAudioDirector と結線。
-//   ・**state -> track 配列は SoA で分離**: `_tracks` は全 track をフラットに
+//   ・**state -> track 配列は SoA で分離**: `m_Tracks` は全 track をフラットに
 //     保持し、`_state_first[state]` + `_state_count[state]` で各 state の
 //     区間を表現。挿入順は state ごとにグループ化される。RegisterTrack で
 //     後付け挿入時は末尾追加 + state インデックス再構築 (簡素 vs O(N)、
@@ -31,7 +31,7 @@
 //     (fallback、無音にしない方が音楽体験として自然)。
 //   ・**transition は state 単位**: track 切替もすべて state 切替に伴う。
 //     intensity 変化のみによる中間 track 切替は本 Phase では実装せず、
-//     SetState(_current, 0) のような自己再要求で明示的に発火する形にする。
+//     SetState(m_Current, 0) のような自己再要求で明示的に発火する形にする。
 //   ・**Stinger は単一バッファ**: 1 個分だけ「次に演奏すべき stinger」を保持し、
 //     ConsumeStinger() で取り出すまでは pending=true。複数同時投入は警告 +
 //     最新を採用 (BGM 上に重ねる前提なので、多重スタックは認知的にノイズ)。
@@ -99,19 +99,19 @@ public:
     //   同一 state 再要求: no-op (現行 BGM 継続、transition は途中なら継続)。
     void SetState(EMusicState state, f32 transition_sec = 2.0f) noexcept;
 
-    EMusicState CurrentState() const noexcept { return _current_state; }
-    EMusicState TargetState()  const noexcept { return _target_state; }
+    EMusicState CurrentState() const noexcept { return m_CurrentState; }
+    EMusicState TargetState()  const noexcept { return m_TargetState; }
 
     // クロスフェード中 (current != target かつ progress < 1) なら true。
     bool IsTransitioning() const noexcept;
 
     // [0, 1]。遷移中の進捗。1 で current = target に snap 完了。
-    f32 TransitionProgress() const noexcept { return _transition_progress; }
+    f32 TransitionProgress() const noexcept { return m_TransitionProgress; }
 
     // ----- intensity (戦闘激しさ等) -----
     // [0, 1] にクランプ。範囲外は警告 + clamp して受理。
     void SetIntensity(f32 intensity_0_to_1) noexcept;
-    f32  Intensity() const noexcept { return _intensity; }
+    f32  Intensity() const noexcept { return m_Intensity; }
 
     // ----- Stinger (一回限りの SFX、BGM を停めず重ねる) -----
     // asset_path == nullptr / volume <= 0 は警告 + 無視。
@@ -119,7 +119,7 @@ public:
     void PlayStinger(const char* asset_path, f32 volume = 1.0f) noexcept;
 
     // 未消費の stinger があれば true。
-    bool HasPendingStinger() const noexcept { return _stinger_pending; }
+    bool HasPendingStinger() const noexcept { return m_StingerPending; }
 
     // 保持中の stinger を取り出し、pending=false に戻す。out_volume にゲインを返す。
     // pending なしの場合 nullptr を返し、out_volume = 0。
@@ -142,32 +142,32 @@ public:
 private:
     // 内部 helper: state インデックスの整合性を取り直す。Register 後に呼ぶ。
     void RebuildStateIndex() noexcept;
-    // state 内の track 配列から intensity に合う track index を _tracks 上で返す。
-    // 該当なしの場合 npos 相当 (= _tracks.Size()) を返す。
+    // state 内の track 配列から intensity に合う track index を m_Tracks 上で返す。
+    // 該当なしの場合 npos 相当 (= m_Tracks.Size()) を返す。
     usize FindTrackForState(EMusicState state, f32 intensity) const noexcept;
     static f32 Clamp01(f32 v) noexcept;
     static void LogTodoOnce(const char* what) noexcept;
 
     // ----- track 倉庫 (フラット配列) -----
-    TArray<MusicTrack> _tracks;
-    // 各 state の _tracks 上の開始 index と個数 (SoA で state→range mapping)。
+    TArray<MusicTrack> m_Tracks;
+    // 各 state の m_Tracks 上の開始 index と個数 (SoA で state→range mapping)。
     u32 _state_first[kStateCount] {};
     u32 _state_count[kStateCount] {};
 
     // ----- 状態遷移 -----
-    EMusicState _current_state = EMusicState::Silent;
-    EMusicState _target_state  = EMusicState::Silent;
-    f32        _transition_duration = 0.0f;
-    f32        _transition_elapsed  = 0.0f;
-    f32        _transition_progress = 1.0f;  // [0, 1]。1 = 完了 / snap 済み
+    EMusicState m_CurrentState = EMusicState::Silent;
+    EMusicState m_TargetState  = EMusicState::Silent;
+    f32        m_TransitionDuration = 0.0f;
+    f32        m_TransitionElapsed  = 0.0f;
+    f32        m_TransitionProgress = 1.0f;  // [0, 1]。1 = 完了 / snap 済み
 
     // ----- intensity -----
-    f32 _intensity = 0.0f;
+    f32 m_Intensity = 0.0f;
 
     // ----- stinger (単一バッファ) -----
-    const char* _stinger_path    = nullptr;
-    f32         _stinger_volume  = 0.0f;
-    bool        _stinger_pending = false;
+    const char* m_StingerPath    = nullptr;
+    f32         m_StingerVolume  = 0.0f;
+    bool        m_StingerPending = false;
 };
 
 } // namespace acs::game

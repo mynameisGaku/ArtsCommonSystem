@@ -8,22 +8,22 @@
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::FDebugOverlay _overlay;
+//       acs::game::FDebugOverlay m_Overlay;
 //       void OnEnter() noexcept override {
-//           _overlay.Init();
-//           _overlay.SetSceneName("Gameplay");
-//           _overlay.AddWatch("Player.HP", _hp_text);     // 値文字列は caller 所有
-//           _overlay.Show();
+//           m_Overlay.Init();
+//           m_Overlay.SetSceneName("Gameplay");
+//           m_Overlay.AddWatch("Player.HP", m_HpText);     // 値文字列は caller 所有
+//           m_Overlay.Show();
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _overlay.Tick(dt);
-//           if (Input::IsKeyPressed(EKey::F3)) _overlay.Toggle();
+//           m_Overlay.Tick(dt);
+//           if (Input::IsKeyPressed(EKey::F3)) m_Overlay.Toggle();
 //       }
 //       void OnDraw() noexcept override {
-//           if (!_overlay.IsVisible()) return;
+//           if (!m_Overlay.IsVisible()) return;
 //           char line[128];
-//           EFormat(line, "FPS %.1f (avg %.1f)", _overlay.CurrentFps(),
-//                                                _overlay.AverageFps());
+//           EFormat(line, "FPS %.1f (avg %.1f)", m_Overlay.CurrentFps(),
+//                                                m_Overlay.AverageFps());
 //           DrawString(8, 8, line);
 //           // ...etc, watches を順に描画
 //       }
@@ -90,14 +90,14 @@ public:
     void Reset() noexcept;
 
     // ----- 可視状態 -----
-    void Show() noexcept   { _visible = true; }
-    void Hide() noexcept   { _visible = false; }
-    void Toggle() noexcept { _visible = !_visible; }
-    bool IsVisible() const noexcept { return _visible; }
+    void Show() noexcept   { m_Visible = true; }
+    void Hide() noexcept   { m_Visible = false; }
+    void Toggle() noexcept { m_Visible = !m_Visible; }
+    bool IsVisible() const noexcept { return m_Visible; }
 
     // ----- フレームレート計測 (Tick が更新) -----
     // 最新フレームの瞬間 fps (= 1/dt)。Tick 未呼出時は 0。
-    f32 CurrentFps() const noexcept { return _current_fps; }
+    f32 CurrentFps() const noexcept { return m_CurrentFps; }
     // 直近 60 frame の算術平均。履歴が満たない場合は有効分だけで平均。
     f32 AverageFps() const noexcept;
     // 履歴中の最小 fps。履歴空時は 0。
@@ -106,8 +106,8 @@ public:
     f32 MaxFps() const noexcept;
 
     // ----- シーン名 (caller 所有のリテラル想定) -----
-    void SetSceneName(const char* name) noexcept { _scene_name = name; }
-    const char* SceneName() const noexcept { return _scene_name; }
+    void SetSceneName(const char* name) noexcept { m_SceneName = name; }
+    const char* SceneName() const noexcept { return m_SceneName; }
 
     // ----- カスタム watch -----
     // label / value とも caller 所有。同名 label は後勝ち上書き (value 差し替え)。
@@ -132,15 +132,15 @@ private:
     // 履歴は固定容量の循環バッファ。サンプル数 = 60。
     static constexpr u32 kFpsHistoryCap = 60u;
 
-    TArray<f32>    _fps_history;          // size <= kFpsHistoryCap、要素は fps 値
-    u32           _fps_index    = 0u;    // 次に書き込むスロット (mod kFpsHistoryCap)
-    bool          _fps_filled   = false; // 履歴が一周したか (size == cap の意味)
+    TArray<f32>    m_FpsHistory;          // size <= kFpsHistoryCap、要素は fps 値
+    u32           m_FpsIndex    = 0u;    // 次に書き込むスロット (mod kFpsHistoryCap)
+    bool          m_FpsFilled   = false; // 履歴が一周したか (size == cap の意味)
 
-    f32           _current_fps  = 0.0f;
-    const char*   _scene_name   = nullptr;  // caller 所有
+    f32           m_CurrentFps  = 0.0f;
+    const char*   m_SceneName   = nullptr;  // caller 所有
 
-    TArray<Watch>  _watches;
-    bool          _visible      = false;
+    TArray<Watch>  m_Watches;
+    bool          m_Visible      = false;
 };
 
 } // namespace acs::game

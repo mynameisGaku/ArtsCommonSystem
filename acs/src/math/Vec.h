@@ -65,15 +65,15 @@ inline FVec2 Normalize(FVec2 v)  noexcept { f32 l = Length(v); return l > 0 ? v 
 // =============================================================================
 // FVec3 — 16B (パッド付き)、内部 SIMD
 // -----------------------------------------------------------------------------
-// 4 番目の要素 _pad は常に 0。FVec4 と互換のあるレイアウトにすることで
+// 4 番目の要素 m_Pad は常に 0。FVec4 と互換のあるレイアウトにすることで
 // XMLoadFloat4A が使え、ロード/ストアが高速。
 // =============================================================================
 struct alignas(16) FVec3 {
-    f32 x, y, z, _pad;
+    f32 x, y, z, m_Pad;
 
-    constexpr FVec3() noexcept : x(0), y(0), z(0), _pad(0) {}
-    constexpr FVec3(f32 v) noexcept : x(v), y(v), z(v), _pad(0) {}
-    constexpr FVec3(f32 x_, f32 y_, f32 z_) noexcept : x(x_), y(y_), z(z_), _pad(0) {}
+    constexpr FVec3() noexcept : x(0), y(0), z(0), m_Pad(0) {}
+    constexpr FVec3(f32 v) noexcept : x(v), y(v), z(v), m_Pad(0) {}
+    constexpr FVec3(f32 x_, f32 y_, f32 z_) noexcept : x(x_), y(y_), z(z_), m_Pad(0) {}
 
     // よく使う基底ベクトル
     static constexpr FVec3 Zero()    noexcept { return {0,0,0}; }
@@ -98,7 +98,7 @@ ACS_FORCEINLINE dxm::XMVECTOR Load(const FVec3& v) noexcept {
 ACS_FORCEINLINE FVec3 Store(dxm::XMVECTOR x) noexcept {
     FVec3 r;
     dxm::XMStoreFloat4A(reinterpret_cast<dxm::XMFLOAT4A*>(&r), x);
-    r._pad = 0;  // ストア後にパッドを 0 に戻す（保守的）
+    r.m_Pad = 0;  // ストア後にパッドを 0 に戻す（保守的）
     return r;
 }
 } // namespace vec3_detail

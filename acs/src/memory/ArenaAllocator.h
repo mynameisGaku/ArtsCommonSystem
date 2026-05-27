@@ -24,8 +24,8 @@ public:
     // 全確保を「無効」にする。release_pages=true なら backing にページを返却
     void Reset(bool release_pages = false) noexcept;
 
-    u64 BytesAllocated() const noexcept override { return _bytes.Load(EMemoryOrder::Acquire); }
-    u64 PeakBytes()      const noexcept override { return _peak.Load(EMemoryOrder::Acquire); }
+    u64 BytesAllocated() const noexcept override { return m_Bytes.Load(EMemoryOrder::Acquire); }
+    u64 PeakBytes()      const noexcept override { return m_Peak.Load(EMemoryOrder::Acquire); }
     const char* Name()   const noexcept override { return "Arena"; }
 
 private:
@@ -39,13 +39,13 @@ private:
 
     Page* AllocPage(usize size) noexcept;
 
-    FAllocator*    _backing  = nullptr;
-    usize         _page_size = 0;
-    TAtomic<Page*> _current  {nullptr};   // 現在書き込み中のページ
-    Page*         _pages    = nullptr;   // 全ページのリスト
-    FMutex         _grow_lock;            // 新ページ確保用
-    TAtomic<u64>   _bytes {0};
-    mutable TAtomic<u64> _peak  {0};
+    FAllocator*    m_Backing  = nullptr;
+    usize         m_PageSize = 0;
+    TAtomic<Page*> m_Current  {nullptr};   // 現在書き込み中のページ
+    Page*         m_Pages    = nullptr;   // 全ページのリスト
+    FMutex         m_GrowLock;            // 新ページ確保用
+    TAtomic<u64>   m_Bytes {0};
+    mutable TAtomic<u64> m_Peak  {0};
 };
 
 } // namespace acs

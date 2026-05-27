@@ -105,14 +105,14 @@ private:
     // Finalize 後 (or Open 失敗時) に状態をクリアする。
     void ResetState() noexcept;
 
-    void*               _file_handle = nullptr;   // Win32 HANDLE 相当
-    u32                 _flags       = 0;         // header.flags
-    bool                _finalized   = false;     // Finalize 済か
-    TArray<PendingEntry> _pending;                 // AddFile が積んだ entry 群
+    void*               m_FileHandle = nullptr;   // Win32 HANDLE 相当
+    u32                 m_Flags       = 0;         // header.flags
+    bool                m_Finalized   = false;     // Finalize 済か
+    TArray<PendingEntry> m_Pending;                 // AddFile が積んだ entry 群
 
     // Phase 2: 暗号化鍵 (AcpakFlagEncrypted のときに Finalize で使う)。
-    FAcpakKey            _key{};
-    bool                _has_key     = false;
+    FAcpakKey            m_Key{};
+    bool                m_HasKey     = false;
 };
 
 } // namespace acs::assetpack

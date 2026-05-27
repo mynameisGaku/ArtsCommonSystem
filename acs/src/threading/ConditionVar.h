@@ -37,7 +37,7 @@ public:
     void NotifyAll() noexcept;       // 待機中の全スレッドを起こす
 
 private:
-    void* _cv[1];                    // CONDITION_VARIABLE 実体
+    void* m_Cv[1];                    // CONDITION_VARIABLE 実体
 };
 
 } // namespace acs

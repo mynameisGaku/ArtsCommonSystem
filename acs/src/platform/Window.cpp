@@ -10,7 +10,7 @@
 namespace acs {
 
 void FWindow::DispatchEvent_Internal(const Event& e) noexcept {
-    if (_callback) _callback(_callback_user, e);
+    if (m_Callback) m_Callback(m_CallbackUser, e);
 }
 
 namespace {
@@ -199,47 +199,47 @@ bool EnsureWindowClass() noexcept {
 } // namespace
 
 FWindow::~FWindow() noexcept {
-    if (_hwnd) {
-        ::RemovePropW(static_cast<HWND>(_hwnd), kPropKey);
-        ::DestroyWindow(static_cast<HWND>(_hwnd));
+    if (m_Hwnd) {
+        ::RemovePropW(static_cast<HWND>(m_Hwnd), kPropKey);
+        ::DestroyWindow(static_cast<HWND>(m_Hwnd));
     }
 }
 
 FWindow::FWindow(FWindow&& o) noexcept
-    : _hwnd(o._hwnd), _width(o._width), _height(o._height),
-      _should_close(o._should_close),
-      _callback(o._callback), _callback_user(o._callback_user) {
-    if (_hwnd) {
+    : m_Hwnd(o.m_Hwnd), m_Width(o.m_Width), m_Height(o.m_Height),
+      m_ShouldClose(o.m_ShouldClose),
+      m_Callback(o.m_Callback), m_CallbackUser(o.m_CallbackUser) {
+    if (m_Hwnd) {
         // HWND に紐付くポインタを更新
-        ::SetPropW(static_cast<HWND>(_hwnd), kPropKey, this);
+        ::SetPropW(static_cast<HWND>(m_Hwnd), kPropKey, this);
     }
-    o._hwnd = nullptr;
-    o._width = 0;
-    o._height = 0;
-    o._should_close = false;
-    o._callback = nullptr;
-    o._callback_user = nullptr;
+    o.m_Hwnd = nullptr;
+    o.m_Width = 0;
+    o.m_Height = 0;
+    o.m_ShouldClose = false;
+    o.m_Callback = nullptr;
+    o.m_CallbackUser = nullptr;
 }
 
 FWindow& FWindow::operator=(FWindow&& o) noexcept {
     if (this == &o) return *this;
-    if (_hwnd) {
-        ::RemovePropW(static_cast<HWND>(_hwnd), kPropKey);
-        ::DestroyWindow(static_cast<HWND>(_hwnd));
+    if (m_Hwnd) {
+        ::RemovePropW(static_cast<HWND>(m_Hwnd), kPropKey);
+        ::DestroyWindow(static_cast<HWND>(m_Hwnd));
     }
-    _hwnd = o._hwnd;
-    _width = o._width;
-    _height = o._height;
-    _should_close = o._should_close;
-    _callback = o._callback;
-    _callback_user = o._callback_user;
-    if (_hwnd) ::SetPropW(static_cast<HWND>(_hwnd), kPropKey, this);
-    o._hwnd = nullptr;
-    o._width = 0;
-    o._height = 0;
-    o._should_close = false;
-    o._callback = nullptr;
-    o._callback_user = nullptr;
+    m_Hwnd = o.m_Hwnd;
+    m_Width = o.m_Width;
+    m_Height = o.m_Height;
+    m_ShouldClose = o.m_ShouldClose;
+    m_Callback = o.m_Callback;
+    m_CallbackUser = o.m_CallbackUser;
+    if (m_Hwnd) ::SetPropW(static_cast<HWND>(m_Hwnd), kPropKey, this);
+    o.m_Hwnd = nullptr;
+    o.m_Width = 0;
+    o.m_Height = 0;
+    o.m_ShouldClose = false;
+    o.m_Callback = nullptr;
+    o.m_CallbackUser = nullptr;
     return *this;
 }
 
@@ -266,10 +266,10 @@ TResult<FWindow> FWindow::Create(const FWindowConfig& cfg) noexcept {
     }
 
     FWindow w;
-    w._hwnd = hwnd;
-    w._width = cfg.width;
-    w._height = cfg.height;
-    w._should_close = false;
+    w.m_Hwnd = hwnd;
+    w.m_Width = cfg.width;
+    w.m_Height = cfg.height;
+    w.m_ShouldClose = false;
 
     // ムーブで返した後の安定アドレスに紐付けるため、いったん仮で登録 → ムーブ後に再登録
     FWindow result = Move(w);
@@ -289,24 +289,24 @@ void FWindow::PollEvents() noexcept {
 }
 
 void FWindow::SetEventCallback(EventCallback cb, void* user) noexcept {
-    _callback = cb;
-    _callback_user = user;
+    m_Callback = cb;
+    m_CallbackUser = user;
 }
 
 void FWindow::SetTitle(const wchar_t* title) noexcept {
-    if (_hwnd) ::SetWindowTextW(static_cast<HWND>(_hwnd), title);
+    if (m_Hwnd) ::SetWindowTextW(static_cast<HWND>(m_Hwnd), title);
 }
 
 void FWindow::SetFullscreen(bool on) noexcept {
-    if (!_hwnd || on == _fullscreen) return;
-    HWND hwnd = static_cast<HWND>(_hwnd);
+    if (!m_Hwnd || on == m_Fullscreen) return;
+    HWND hwnd = static_cast<HWND>(m_Hwnd);
     if (on) {
         // 現在の窓矩形・スタイルを記憶
         RECT r{};
         ::GetWindowRect(hwnd, &r);
-        _saved_rect[0] = r.left;  _saved_rect[1] = r.top;
-        _saved_rect[2] = r.right; _saved_rect[3] = r.bottom;
-        _saved_style = static_cast<i32>(::GetWindowLongW(hwnd, GWL_STYLE));
+        m_SavedRect[0] = r.left;  m_SavedRect[1] = r.top;
+        m_SavedRect[2] = r.right; m_SavedRect[3] = r.bottom;
+        m_SavedStyle = static_cast<i32>(::GetWindowLongW(hwnd, GWL_STYLE));
         // 現在のモニタ全体を覆うボーダーレス窓へ
         HMONITOR mon = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi{}; mi.cbSize = sizeof(mi);
@@ -319,14 +319,14 @@ void FWindow::SetFullscreen(bool on) noexcept {
                        SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     } else {
         // 記憶した窓に戻す
-        ::SetWindowLongW(hwnd, GWL_STYLE, static_cast<LONG>(_saved_style));
+        ::SetWindowLongW(hwnd, GWL_STYLE, static_cast<LONG>(m_SavedStyle));
         ::SetWindowPos(hwnd, HWND_TOP,
-                       _saved_rect[0], _saved_rect[1],
-                       _saved_rect[2] - _saved_rect[0],
-                       _saved_rect[3] - _saved_rect[1],
+                       m_SavedRect[0], m_SavedRect[1],
+                       m_SavedRect[2] - m_SavedRect[0],
+                       m_SavedRect[3] - m_SavedRect[1],
                        SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     }
-    _fullscreen = on;
+    m_Fullscreen = on;
 }
 
 } // namespace acs

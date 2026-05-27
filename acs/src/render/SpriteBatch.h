@@ -106,27 +106,27 @@ private:
 
     void Flush() noexcept;
     void EnsurePipeline() noexcept;
-    void WriteScreenCBuffer() noexcept;   // screen サイズ + view を _cb に書く
+    void WriteScreenCBuffer() noexcept;   // screen サイズ + view を m_Cb に書く
 
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiBuffer>   _vb;
-    TUniquePtr<IRhiBuffer>   _ib;
-    TUniquePtr<IRhiBuffer>   _cb;       // screen size (1/w, 1/h)
-    TUniquePtr<IRhiTexture>  _white;    // DrawRect 用 1×1 白テクスチャ
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiBuffer>   m_Vb;
+    TUniquePtr<IRhiBuffer>   m_Ib;
+    TUniquePtr<IRhiBuffer>   m_Cb;       // screen size (1/w, 1/h)
+    TUniquePtr<IRhiTexture>  m_White;    // DrawRect 用 1×1 白テクスチャ
 
-    Vertex*          _vertex_cpu    = nullptr;   // CPU 側の VB ステージ
-    u32              _max_sprites   = 0;
-    u32              _sprite_count  = 0;        // フレーム内累計
-    u32              _flushed_count = 0;        // 既に GPU に投入済みのスプライト数
-    IRhiTexture*     _current_tex   = nullptr;
-    IRhiCommandList* _cl            = nullptr;
-    u32              _screen_w      = 1;
-    u32              _screen_h      = 1;
-    f32              _view_x        = 0.0f;   // カメラ中心 X（ワールド座標）
-    f32              _view_y        = 0.0f;   // カメラ中心 Y
-    f32              _view_zoom     = 1.0f;   // ズーム倍率
+    Vertex*          m_VertexCpu    = nullptr;   // CPU 側の VB ステージ
+    u32              m_MaxSprites   = 0;
+    u32              m_SpriteCount  = 0;        // フレーム内累計
+    u32              m_FlushedCount = 0;        // 既に GPU に投入済みのスプライト数
+    IRhiTexture*     m_CurrentTex   = nullptr;
+    IRhiCommandList* m_Cl            = nullptr;
+    u32              m_ScreenW      = 1;
+    u32              m_ScreenH      = 1;
+    f32              m_ViewX        = 0.0f;   // カメラ中心 X（ワールド座標）
+    f32              m_ViewY        = 0.0f;   // カメラ中心 Y
+    f32              m_ViewZoom     = 1.0f;   // ズーム倍率
 };
 
 } // namespace acs

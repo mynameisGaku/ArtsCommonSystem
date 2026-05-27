@@ -24,8 +24,8 @@ public:
     static void UpdateBlink(TitleScene& s, acs::f32 dt) noexcept;
 
 private:
-    acs::game::FStateMachine<TitleScene> _fsm;
-    acs::game::FSceneClock _clock;
+    acs::game::FStateMachine<TitleScene> m_Fsm;
+    acs::game::FSceneClock m_Clock;
     acs::f32 _state_secs = 0.0f;
 };
 

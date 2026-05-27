@@ -125,15 +125,15 @@ D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexc
 } // namespace
 
 Dx12Pipeline::~Dx12Pipeline() noexcept {
-    ACS_SAFE_RELEASE(_pso);
-    ACS_SAFE_RELEASE(_root_sig);
+    ACS_SAFE_RELEASE(m_Pso);
+    ACS_SAFE_RELEASE(m_RootSig);
 }
 
 HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexcept {
     HrResult r{};
-    _topology = desc.topology;
-    _cbuffer_slots = desc.cbuffer_slots;
-    _texture_slots = desc.texture_slots;
+    m_Topology = desc.topology;
+    m_CbufferSlots = desc.cbuffer_slots;
+    m_TextureSlots = desc.texture_slots;
 
     if (!desc.vs) { r.hr = E_INVALIDARG; return r; }
     // ps は省略可（depth-only パイプラインの場合）
@@ -198,7 +198,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     }
     r.hr = device.D3DDevice()->CreateRootSignature(
         0, sig_blob->GetBufferPointer(), sig_blob->GetBufferSize(),
-        IID_PPV_ARGS(&_root_sig));
+        IID_PPV_ARGS(&m_RootSig));
     sig_blob->Release();
     if (err_blob) err_blob->Release();
     if (r.IsErr()) return r;
@@ -217,7 +217,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
 
     // PSO 記述
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pd{};
-    pd.pRootSignature = _root_sig;
+    pd.pRootSignature = m_RootSig;
     pd.VS.pShaderBytecode = desc.vs->Bytecode();
     pd.VS.BytecodeLength  = desc.vs->BytecodeSize();
     if (desc.ps) {
@@ -242,7 +242,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     pd.InputLayout.pInputElementDescs = desc.layout_count > 0 ? ie : nullptr;
     pd.InputLayout.NumElements = desc.layout_count;
 
-    r.hr = device.D3DDevice()->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&_pso));
+    r.hr = device.D3DDevice()->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&m_Pso));
     return r;
 }
 

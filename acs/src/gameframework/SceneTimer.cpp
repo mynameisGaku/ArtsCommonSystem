@@ -8,18 +8,18 @@
 //    (0 にすると IsValid が常に false になり stale 検知不能になるため)。
 //  ・Interval の連続発火は while (elapsed >= period) で carry する。コールバック
 //    内で Cancel された場合の安全のため、ループ内で active/gen を都度確認。
-//  ・Tick 中のコールバックが新規 SetTimeout/SetInterval を呼んだ場合、_entries
+//  ・Tick 中のコールバックが新規 SetTimeout/SetInterval を呼んだ場合、m_Entries
 //    の PushBack が走り得る。生 reference を握り続けないよう、ループは index
-//    アクセスで回し、毎反復ごとに `_entries[i]` を取り直す。
+//    アクセスで回し、毎反復ごとに `m_Entries[i]` を取り直す。
 #include "gameframework/SceneTimer.h"
 
 namespace acs::game {
 
 u32 FSceneTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (キャッシュ局所性 + index 上限 24bit 保護)
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        if (!_entries[i].active) {
+        if (!m_Entries[i].active) {
             return static_cast<u32>(i);
         }
     }
@@ -27,8 +27,8 @@ u32 FSceneTimer::AcquireSlot() noexcept {
     if (n >= static_cast<usize>(FTimerHandle::kMaxIndex)) {
         return FTimerHandle::kMaxIndex; // sentinel: caller 側で invalid 扱い
     }
-    _entries.PushBack({});
-    return static_cast<u32>(_entries.Size()) - 1u;
+    m_Entries.PushBack({});
+    return static_cast<u32>(m_Entries.Size()) - 1u;
 }
 
 FTimerHandle FSceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
@@ -42,7 +42,7 @@ FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user
     const u32 idx = AcquireSlot();
     if (idx >= FTimerHandle::kMaxIndex) return {}; // 上限到達
 
-    TimerEntry& e = _entries[idx];
+    TimerEntry& e = m_Entries[idx];
     // generation を 1 進める (0 は未使用扱いなので必ず 1 以上を保つ)
     u8 new_gen = static_cast<u8>(e.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
@@ -55,7 +55,7 @@ FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user
     e.active    = true;
     e.gen       = new_gen;
 
-    ++_active_count;
+    ++m_ActiveCount;
     return MakeHandle(idx, new_gen);
 }
 
@@ -66,7 +66,7 @@ FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* us
     const u32 idx = AcquireSlot();
     if (idx >= FTimerHandle::kMaxIndex) return {};
 
-    TimerEntry& e = _entries[idx];
+    TimerEntry& e = m_Entries[idx];
     u8 new_gen = static_cast<u8>(e.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
 
@@ -78,58 +78,58 @@ FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* us
     e.active    = true;
     e.gen       = new_gen;
 
-    ++_active_count;
+    ++m_ActiveCount;
     return MakeHandle(idx, new_gen);
 }
 
 bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
-    if (idx >= _entries.Size()) return false;
-    TimerEntry& e = _entries[idx];
+    if (idx >= m_Entries.Size()) return false;
+    TimerEntry& e = m_Entries[idx];
     if (!e.active || e.gen != h.Gen()) return false;
 
     e.active = false;
     e.cb     = nullptr;
     e.user   = nullptr;
-    if (_active_count > 0u) --_active_count;
+    if (m_ActiveCount > 0u) --m_ActiveCount;
     return true;
 }
 
 void FSceneTimer::CancelAll() noexcept {
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        TimerEntry& e = _entries[i];
+        TimerEntry& e = m_Entries[i];
         if (!e.active) continue;
         e.active = false;
         e.cb     = nullptr;
         e.user   = nullptr;
     }
-    _active_count = 0u;
+    m_ActiveCount = 0u;
 }
 
 bool FSceneTimer::IsActive(FTimerHandle h) const noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
-    if (idx >= _entries.Size()) return false;
-    const TimerEntry& e = _entries[idx];
+    if (idx >= m_Entries.Size()) return false;
+    const TimerEntry& e = m_Entries[idx];
     return e.active && e.gen == h.Gen();
 }
 
 void FSceneTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
-    if (_active_count == 0u) return;
+    if (m_ActiveCount == 0u) return;
 
-    // 注意: コールバックは新規 SetTimeout/SetInterval を呼んで _entries.PushBack
+    // 注意: コールバックは新規 SetTimeout/SetInterval を呼んで m_Entries.PushBack
     // を起こし得る (= reference invalidation)。ループは index で回し、毎反復で
     // size を取り直す。新規追加された timer は今回の Tick では発火させない
     // (= 登録時の elapsed=0 で次 Tick まで待つ — 直感的な挙動)。
-    const usize snapshot_size = _entries.Size();
+    const usize snapshot_size = m_Entries.Size();
 
     for (usize i = 0; i < snapshot_size; ++i) {
         // 起動時の世代を覚えておく (コールバック内で Cancel→再 Acquire により
         // 同 slot が別 timer に化ける可能性を検出する)。
-        TimerEntry& e0 = _entries[i];
+        TimerEntry& e0 = m_Entries[i];
         if (!e0.active) continue;
         const u8 launched_gen = e0.gen;
 
@@ -145,16 +145,16 @@ void FSceneTimer::Tick(f32 dt) noexcept {
                 e0.active = false;
                 e0.cb     = nullptr;
                 e0.user   = nullptr;
-                if (_active_count > 0u) --_active_count;
+                if (m_ActiveCount > 0u) --m_ActiveCount;
                 if (cb != nullptr) cb(u);
             }
         } else {
             // ---- repeating ----
             // 大 dt のとき複数回発火させる (carry 方式)。
             // コールバック内で Cancel された場合に備え、毎反復で
-            // active/gen を確認する (_entries[i] を取り直す)。
+            // active/gen を確認する (m_Entries[i] を取り直す)。
             while (true) {
-                TimerEntry& e = _entries[i];
+                TimerEntry& e = m_Entries[i];
                 if (!e.active || e.gen != launched_gen) break;
                 if (e.elapsed < e.period) break;
                 if (e.period <= 0.0f) break; // defense-in-depth

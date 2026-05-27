@@ -270,9 +270,9 @@ constexpr usize CBSize() noexcept {
 } // namespace
 
 TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
-    _device = &device;
-    _width = width;
-    _height = height;
+    m_Device = &device;
+    m_Width = width;
+    m_Height = height;
 
     if (auto r = CreateOutputRT(device, width, height); r.IsErr()) return r;
     if (auto r = CreatePipeline(device); r.IsErr()) return r;
@@ -282,14 +282,14 @@ TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
-    else _cb = Move(r.Value());
+    else m_Cb = Move(r.Value());
 
     return Ok();
 }
 
 TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
-    _output.Reset();
-    _blur_output.Reset();
+    m_Output.Reset();
+    m_BlurOutput.Reset();
     FTextureDesc td{};
     td.width  = width;
     td.height = height;
@@ -298,12 +298,12 @@ TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) n
     td.is_render_target = true;
     auto r = CreateRhiTexture(device, td);
     if (r.IsErr()) return Err<void>(r.Error());
-    _output = Move(r.Value());
+    m_Output = Move(r.Value());
 
     // Phase 34j-4: blur 後の RT (同フォーマット / 同サイズ)
     auto br = CreateRhiTexture(device, td);
     if (br.IsErr()) return Err<void>(br.Error());
-    _blur_output = Move(br.Value());
+    m_BlurOutput = Move(br.Value());
     return Ok();
 }
 
@@ -314,7 +314,7 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "FSsao.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
-    else _vs = Move(r.Value());
+    else m_Vs = Move(r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -322,11 +322,11 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "FSsao.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
-    else _ps = Move(r.Value());
+    else m_Ps = Move(r.Value());
 
     FPipelineDesc pd{};
-    pd.vs            = _vs.Get();
-    pd.ps            = _ps.Get();
+    pd.vs            = m_Vs.Get();
+    pd.ps            = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = EFormat::R8G8B8A8_UNorm;
     pd.depth_format  = EFormat::Unknown;
@@ -349,10 +349,10 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
-    else _pipeline = Move(r.Value());
+    else m_Pipeline = Move(r.Value());
 
     // Phase 34j-4: blur pipeline (ssao_raw + scene_depth → blurred)。
-    // VS は SSAO 本体と同じ fullscreen-triangle なので _vs を再利用する
+    // VS は SSAO 本体と同じ fullscreen-triangle なので m_Vs を再利用する
     // (kSsaoHLSL と kSsaoBlurHLSL の VSMain は同一構造)。
     FShaderDesc bps_d{};
     bps_d.stage = EShaderStage::Pixel;
@@ -360,11 +360,11 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     bps_d.entry_point = "PSMain";
     bps_d.debug_name  = "SsaoBlur.PS";
     if (auto r = CreateRhiShader(device, bps_d); r.IsErr()) return Err<void>(r.Error());
-    else _blur_ps = Move(r.Value());
+    else m_BlurPs = Move(r.Value());
 
     FPipelineDesc bpd{};
-    bpd.vs            = _vs.Get();
-    bpd.ps            = _blur_ps.Get();
+    bpd.vs            = m_Vs.Get();
+    bpd.ps            = m_BlurPs.Get();
     bpd.topology      = EPrimitiveTopology::TriangleList;
     bpd.rt_format     = EFormat::R8G8B8A8_UNorm;
     bpd.depth_format  = EFormat::Unknown;
@@ -387,28 +387,28 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     bpd.vertex_stride = 0;
     bpd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, bpd); r.IsErr()) return Err<void>(r.Error());
-    else _blur_pipeline = Move(r.Value());
+    else m_BlurPipeline = Move(r.Value());
     return Ok();
 }
 
 void FSsao::Shutdown() noexcept {
-    _blur_pipeline.Reset();
-    _pipeline.Reset();
-    _cb.Reset();
-    _blur_ps.Reset();
-    _ps.Reset();
-    _vs.Reset();
-    _blur_output.Reset();
-    _output.Reset();
-    _device = nullptr;
+    m_BlurPipeline.Reset();
+    m_Pipeline.Reset();
+    m_Cb.Reset();
+    m_BlurPs.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
+    m_BlurOutput.Reset();
+    m_Output.Reset();
+    m_Device = nullptr;
 }
 
 TResult<void> FSsao::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 330, "FSsao::Resize before Init");
-    if (width == _width && height == _height) return Ok();
-    _width = width;
-    _height = height;
-    return CreateOutputRT(*_device, width, height);
+    if (!m_Device) return ACS_ERR(Render, 330, "FSsao::Resize before Init");
+    if (width == m_Width && height == m_Height) return Ok();
+    m_Width = width;
+    m_Height = height;
+    return CreateOutputRT(*m_Device, width, height);
 }
 
 void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
@@ -418,35 +418,35 @@ void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   const FMat4& view,
                   FVec3 eye, FVec3 light_dir,
                   f32 intensity, f32 radius) noexcept {
-    if (!_output || !_blur_output || !_pipeline || !_blur_pipeline || !_cb) return;
+    if (!m_Output || !m_BlurOutput || !m_Pipeline || !m_BlurPipeline || !m_Cb) return;
     SsaoCBLayout data{};
     data.view_proj     = view_proj;
     data.inv_view_proj = inv_view_proj;
     data.eye           = FVec4{eye.x, eye.y, eye.z, 1};
     data.params        = FVec4{intensity, radius,
-                               1.0f / static_cast<f32>(_width),
-                               1.0f / static_cast<f32>(_height)};
+                               1.0f / static_cast<f32>(m_Width),
+                               1.0f / static_cast<f32>(m_Height)};
     data.view          = view;       // Phase 34j-6 GTAO: world → view
     data.light_dir     = FVec4{light_dir.x, light_dir.y, light_dir.z, 0};
-    _cb->Update(&data, sizeof(data));
+    m_Cb->Update(&data, sizeof(data));
 
-    // Pass 1: SSAO raw → _output
-    cl.BeginRenderToTexture(*_output, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
-    cl.SetPipeline(*_pipeline);
-    cl.SetConstantBuffer(0, *_cb);
+    // Pass 1: SSAO raw → m_Output
+    cl.BeginRenderToTexture(*m_Output, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
+    cl.SetPipeline(*m_Pipeline);
+    cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, scene_depth);
     cl.SetTexture(1, normal_gbuffer);
     cl.Draw(3);
-    cl.EndRenderToTexture(*_output);
+    cl.EndRenderToTexture(*m_Output);
 
-    // Pass 2 (Phase 34j-4): depth-aware bilateral blur → _blur_output
-    cl.BeginRenderToTexture(*_blur_output, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
-    cl.SetPipeline(*_blur_pipeline);
-    cl.SetConstantBuffer(0, *_cb);
-    cl.SetTexture(0, *_output);       // SSAO raw
+    // Pass 2 (Phase 34j-4): depth-aware bilateral blur → m_BlurOutput
+    cl.BeginRenderToTexture(*m_BlurOutput, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
+    cl.SetPipeline(*m_BlurPipeline);
+    cl.SetConstantBuffer(0, *m_Cb);
+    cl.SetTexture(0, *m_Output);       // SSAO raw
     cl.SetTexture(1, scene_depth);
     cl.Draw(3);
-    cl.EndRenderToTexture(*_blur_output);
+    cl.EndRenderToTexture(*m_BlurOutput);
 }
 
 } // namespace acs

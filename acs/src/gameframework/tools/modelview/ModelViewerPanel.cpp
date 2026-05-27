@@ -104,31 +104,31 @@ const char* TonemapLabel(u32 mode) noexcept {
 void FModelViewerPanel::Init() noexcept {
     // FEditorCamera を 3D mode で完全初期化 (= target=origin, distance=10,
     // pitch=-30° 等のデフォルト姿勢)。
-    _camera.Init(acs::game::editor_core::EEditorCameraMode::Mode3D);
+    m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode3D);
 
     // asset path を空文字に。
-    _asset_path[0] = L'\0';
+    m_AssetPath[0] = L'\0';
 
     // Lighting / Background / 表示 toggle はヘッダ宣言時の初期化子で既に
     // セット済みだが、Init 多重呼び出しでも確定的な値になるよう明示再設定する。
-    _light_dir          = acs::FVec3{0.3f, -0.7f, 0.6f};
-    _light_color        = acs::FVec3{1.0f, 1.0f, 1.0f};
-    _ibl_enabled        = true;
-    _tonemap_mode       = 0u;
-    _bg_color           = acs::FVec4{0.15f, 0.15f, 0.18f, 1.0f};
-    _show_grid          = true;
-    _show_bone_skeleton = false;
+    m_LightDir          = acs::FVec3{0.3f, -0.7f, 0.6f};
+    m_LightColor        = acs::FVec3{1.0f, 1.0f, 1.0f};
+    m_IblEnabled        = true;
+    m_TonemapMode       = 0u;
+    m_BgColor           = acs::FVec4{0.15f, 0.15f, 0.18f, 1.0f};
+    m_ShowGrid          = true;
+    m_ShowBoneSkeleton = false;
 
     // 表示 / dock ヒントの初期値。viewport 系 panel は dock 中央に置きたい
-    // ことが多いので _docked_target = true (= Workspace 側へのヒント)。
-    _visible       = true;
-    _docked_target = true;
+    // ことが多いので m_DockedTarget = true (= Workspace 側へのヒント)。
+    m_Visible       = true;
+    m_DockedTarget = true;
 }
 
 void FModelViewerPanel::Shutdown() noexcept {
     // FEditorCamera は POD だが明示 Reset で確定状態にする。
-    _camera.Reset();
-    _asset_path[0] = L'\0';
+    m_Camera.Reset();
+    m_AssetPath[0] = L'\0';
 }
 
 // =============================================================================
@@ -144,29 +144,29 @@ void FModelViewerPanel::LoadModelAsset(const wchar_t* asset_path) noexcept {
     // 終端 1 文字を必ず L'\0' で埋めるため `kMaxAssetPathChars - 1` で打ち切り。
     usize i = 0;
     for (; asset_path[i] != L'\0' && (i + 1) < kMaxAssetPathChars; ++i) {
-        _asset_path[i] = asset_path[i];
+        m_AssetPath[i] = asset_path[i];
     }
-    _asset_path[i] = L'\0';
+    m_AssetPath[i] = L'\0';
 }
 
 void FModelViewerPanel::ClearModel() noexcept {
-    _asset_path[0] = L'\0';
+    m_AssetPath[0] = L'\0';
 }
 
 bool FModelViewerPanel::HasModel() const noexcept {
-    return _asset_path[0] != L'\0';
+    return m_AssetPath[0] != L'\0';
 }
 
 const wchar_t* FModelViewerPanel::CurrentAssetPath() const noexcept {
-    // 常に終端 wchar_t* を返す (空文字でも nullptr ではなく `_asset_path` を返す)。
-    return _asset_path;
+    // 常に終端 wchar_t* を返す (空文字でも nullptr ではなく `m_AssetPath` を返す)。
+    return m_AssetPath;
 }
 
 // =============================================================================
 // FCamera アクセサ
 // =============================================================================
 acs::game::editor_core::FEditorCamera& FModelViewerPanel::Camera() noexcept {
-    return _camera;
+    return m_Camera;
 }
 
 // =============================================================================
@@ -174,54 +174,54 @@ acs::game::editor_core::FEditorCamera& FModelViewerPanel::Camera() noexcept {
 // =============================================================================
 void FModelViewerPanel::SetLightDirection(acs::FVec3 dir) noexcept {
     // 正規化は呼び出し側 (renderer) 任せ。panel は raw 値で持つ。
-    _light_dir = dir;
+    m_LightDir = dir;
 }
 acs::FVec3 FModelViewerPanel::LightDirection() const noexcept {
-    return _light_dir;
+    return m_LightDir;
 }
 
 void FModelViewerPanel::SetLightColor(acs::FVec3 color) noexcept {
-    _light_color = color;
+    m_LightColor = color;
 }
 acs::FVec3 FModelViewerPanel::LightColor() const noexcept {
-    return _light_color;
+    return m_LightColor;
 }
 
 void FModelViewerPanel::SetIblEnabled(bool b) noexcept {
-    _ibl_enabled = b;
+    m_IblEnabled = b;
 }
 bool FModelViewerPanel::IsIblEnabled() const noexcept {
-    return _ibl_enabled;
+    return m_IblEnabled;
 }
 
 void FModelViewerPanel::SetToneMappingMode(u32 mode) noexcept {
     // 範囲外は黙って無視 (既存値維持)。理由は header の規約節参照。
     if (mode >= kToneMappingModeCount) return;
-    _tonemap_mode = mode;
+    m_TonemapMode = mode;
 }
 u32 FModelViewerPanel::ToneMappingMode() const noexcept {
-    return _tonemap_mode;
+    return m_TonemapMode;
 }
 
 void FModelViewerPanel::SetBackgroundColor(acs::FVec4 color) noexcept {
-    _bg_color = color;
+    m_BgColor = color;
 }
 acs::FVec4 FModelViewerPanel::BackgroundColor() const noexcept {
-    return _bg_color;
+    return m_BgColor;
 }
 
 bool FModelViewerPanel::ShowGrid() const noexcept {
-    return _show_grid;
+    return m_ShowGrid;
 }
 void FModelViewerPanel::SetShowGrid(bool b) noexcept {
-    _show_grid = b;
+    m_ShowGrid = b;
 }
 
 bool FModelViewerPanel::ShowBoneSkeleton() const noexcept {
-    return _show_bone_skeleton;
+    return m_ShowBoneSkeleton;
 }
 void FModelViewerPanel::SetShowBoneSkeleton(bool b) noexcept {
-    _show_bone_skeleton = b;
+    m_ShowBoneSkeleton = b;
 }
 
 // =============================================================================
@@ -235,7 +235,7 @@ void FModelViewerPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspa
     FEditorPanel::OnInit(workspace);
     // FEditorCamera を 3D mode で初期化 (= 既に Init() を呼んでいた場合でも
     // 再初期化される。state は Init/Reset で安定するため副作用は無い)。
-    _camera.Init(acs::game::editor_core::EEditorCameraMode::Mode3D);
+    m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode3D);
 }
 
 // =============================================================================
@@ -268,7 +268,7 @@ void FModelViewerPanel::OnAssetSelected(const char* asset_path) noexcept {
 // =============================================================================
 // ImGui::Begin("Model FViewport") から始まる 1 window レイアウト:
 //   ┌────────────── "Model FViewport" window ────────────────────────┐
-//   │ Asset: <utf-8 of _asset_path>  [Clear]                          │
+//   │ Asset: <utf-8 of m_AssetPath>  [Clear]                          │
 //   │ ┌──────────── viewport area (大) ────────────────────────────┐  │
 //   │ │  (renderer 側で実際の 3D を描く placeholder。Phase 21b 時点 │  │
 //   │ │   ではダミーテキスト表示のみ。)                              │  │
@@ -291,7 +291,7 @@ void FModelViewerPanel::DrawUI() noexcept {
         return;
     }
 
-    if (!ImGui::Begin(Title(), &_visible)) {
+    if (!ImGui::Begin(Title(), &m_Visible)) {
         // 折りたたまれている / minimize されている。
         ImGui::End();
         return;
@@ -299,14 +299,14 @@ void FModelViewerPanel::DrawUI() noexcept {
 
     // ----- 上部: asset path 表示 + Clear ボタン -----
     {
-        // _asset_path (wchar_t) は ImGui に直接渡せないため、UTF-8 に変換して
+        // m_AssetPath (wchar_t) は ImGui に直接渡せないため、UTF-8 に変換して
         // 表示する。FAssetBrowser.cpp の WideToUtf8 と同形のロジックを 1 度だけ
         // 行う (毎フレーム呼ばれるが path 長は短く実用上問題ない)。
         char path_utf8[1024] = {};
-        if (_asset_path[0] != L'\0') {
+        if (m_AssetPath[0] != L'\0') {
             const int n = ::WideCharToMultiByte(
                 CP_UTF8, 0,
-                _asset_path, -1,
+                m_AssetPath, -1,
                 path_utf8, static_cast<int>(sizeof(path_utf8)),
                 nullptr, nullptr);
             if (n <= 0) path_utf8[0] = '\0';
@@ -340,8 +340,8 @@ void FModelViewerPanel::DrawUI() noexcept {
                           ImGuiWindowFlags_NoScrollbar);
         {
             // dummy テキスト (描画 placeholder)。
-            const acs::FVec3 eye = _camera.ComputeEye();
-            const acs::FVec3 tgt = _camera.State().target;
+            const acs::FVec3 eye = m_Camera.ComputeEye();
+            const acs::FVec3 tgt = m_Camera.State().target;
             ImGui::TextDisabled("[ 3D FViewport ]  eye=(%.1f %.1f %.1f)  target=(%.1f %.1f %.1f)",
                                 eye.x, eye.y, eye.z, tgt.x, tgt.y, tgt.z);
             if (!HasModel()) {
@@ -398,28 +398,28 @@ void FModelViewerPanel::DrawUI() noexcept {
         ImGui::Separator();
 
         // Light direction (DragFloat3)
-        f32 ld[3] = { _light_dir.x, _light_dir.y, _light_dir.z };
+        f32 ld[3] = { m_LightDir.x, m_LightDir.y, m_LightDir.z };
         if (ImGui::DragFloat3("Light Dir", ld, 0.01f, -1.0f, 1.0f, "%.3f")) {
-            _light_dir = acs::FVec3{ ld[0], ld[1], ld[2] };
+            m_LightDir = acs::FVec3{ ld[0], ld[1], ld[2] };
         }
 
         // Light color (ColorEdit3)
-        f32 lc[3] = { _light_color.x, _light_color.y, _light_color.z };
+        f32 lc[3] = { m_LightColor.x, m_LightColor.y, m_LightColor.z };
         if (ImGui::ColorEdit3("Light FColor", lc)) {
-            _light_color = acs::FVec3{ lc[0], lc[1], lc[2] };
+            m_LightColor = acs::FVec3{ lc[0], lc[1], lc[2] };
         }
 
         // IBL toggle + Tonemap combo (同じ行に並べる)
-        if (ImGui::Checkbox("IBL", &_ibl_enabled)) {
+        if (ImGui::Checkbox("IBL", &m_IblEnabled)) {
             // 値は Checkbox が直接書き換える。
         }
         ImGui::SameLine();
         ImGui::SetNextItemWidth(160.0f);
-        if (ImGui::BeginCombo("Tonemap", TonemapLabel(_tonemap_mode))) {
+        if (ImGui::BeginCombo("Tonemap", TonemapLabel(m_TonemapMode))) {
             for (u32 m = 0; m < kToneMappingModeCount; ++m) {
-                const bool selected = (m == _tonemap_mode);
+                const bool selected = (m == m_TonemapMode);
                 if (ImGui::Selectable(TonemapLabel(m), selected)) {
-                    _tonemap_mode = m;
+                    m_TonemapMode = m;
                 }
                 if (selected) {
                     ImGui::SetItemDefaultFocus();
@@ -433,22 +433,22 @@ void FModelViewerPanel::DrawUI() noexcept {
         ImGui::Separator();
 
         // Background color (ColorEdit4, RGBA)
-        f32 bg[4] = { _bg_color.x, _bg_color.y, _bg_color.z, _bg_color.w };
+        f32 bg[4] = { m_BgColor.x, m_BgColor.y, m_BgColor.z, m_BgColor.w };
         if (ImGui::ColorEdit4("Background", bg,
                               ImGuiColorEditFlags_AlphaBar |
                               ImGuiColorEditFlags_AlphaPreview)) {
-            _bg_color = acs::FVec4{ bg[0], bg[1], bg[2], bg[3] };
+            m_BgColor = acs::FVec4{ bg[0], bg[1], bg[2], bg[3] };
         }
 
         // Show grid / Show bone skeleton toggle
-        ImGui::Checkbox("Show Grid", &_show_grid);
+        ImGui::Checkbox("Show Grid", &m_ShowGrid);
         ImGui::SameLine();
-        ImGui::Checkbox("Show FBone Skeleton", &_show_bone_skeleton);
+        ImGui::Checkbox("Show FBone Skeleton", &m_ShowBoneSkeleton);
 
         // Reset FCamera ボタン (小さな utility)
         ImGui::Spacing();
         if (ImGui::Button("Reset FCamera")) {
-            _camera.Reset();
+            m_Camera.Reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("Frame Model")) {
@@ -456,7 +456,7 @@ void FModelViewerPanel::DrawUI() noexcept {
             // (origin / radius=1) で frame する (= renderer 側で bounds が
             // 計算できるようになったら FSample 31 で `FrameToBoundingSphere`
             // を直接呼ぶよう差し替える)。
-            _camera.FrameToBoundingSphere(acs::FVec3{0, 0, 0}, 1.0f);
+            m_Camera.FrameToBoundingSphere(acs::FVec3{0, 0, 0}, 1.0f);
         }
     }
 

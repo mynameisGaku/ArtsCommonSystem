@@ -54,60 +54,60 @@ public:
     FCamera2D& operator=(const FCamera2D&) = delete;
 
     // ----- 基本 transform -----
-    FVec2 Position() const noexcept { return _position; }
-    void SetPosition(FVec2 p) noexcept { _position = p; }
+    FVec2 Position() const noexcept { return m_Position; }
+    void SetPosition(FVec2 p) noexcept { m_Position = p; }
 
-    f32  Zoom() const noexcept { return _zoom; }
-    void SetZoom(f32 z) noexcept { _zoom = z > 0.001f ? z : 0.001f; }
+    f32  Zoom() const noexcept { return m_Zoom; }
+    void SetZoom(f32 z) noexcept { m_Zoom = z > 0.001f ? z : 0.001f; }
 
-    f32  Rotation() const noexcept { return _rotation; }
-    void SetRotation(f32 r) noexcept { _rotation = r; }
+    f32  Rotation() const noexcept { return m_Rotation; }
+    void SetRotation(f32 r) noexcept { m_Rotation = r; }
 
     // ----- target follow (毎フレーム値で渡す。stable ptr 不要) -----
     // smoothing: 大きいほど snappier (typical 3..10)。0 以下で即座にスナップ。
     void SetTargetPos(FVec2 target_pos, f32 smoothing = 5.0f) noexcept {
-        _target_pos = target_pos;
-        _smoothing  = smoothing;
-        _has_target = true;
+        m_TargetPos = target_pos;
+        m_Smoothing  = smoothing;
+        m_HasTarget = true;
     }
-    void ClearTarget() noexcept { _has_target = false; }
-    bool HasTarget() const noexcept { return _has_target; }
+    void ClearTarget() noexcept { m_HasTarget = false; }
+    bool HasTarget() const noexcept { return m_HasTarget; }
 
     // ----- screen shake (Eiserloh trauma 方式) -----
     void AddShake(f32 amount) noexcept {
-        _trauma += amount;
-        if (_trauma > 1.0f) _trauma = 1.0f;
-        if (_trauma < 0.0f) _trauma = 0.0f;
+        m_Trauma += amount;
+        if (m_Trauma > 1.0f) m_Trauma = 1.0f;
+        if (m_Trauma < 0.0f) m_Trauma = 0.0f;
     }
-    f32  TraumaLevel() const noexcept { return _trauma; }
-    void SetShakeAmplitude(f32 a) noexcept { _shake_amplitude = a; }
-    void SetShakeDecayRate(f32 r) noexcept { _shake_decay = r; }
+    f32  TraumaLevel() const noexcept { return m_Trauma; }
+    void SetShakeAmplitude(f32 a) noexcept { m_ShakeAmplitude = a; }
+    void SetShakeDecayRate(f32 r) noexcept { m_ShakeDecay = r; }
 
     // shake オフセット込みの実 view center
     FVec2 EffectiveViewCenter() const noexcept {
-        return FVec2{_position.x + _shake_offset.x,
-                     _position.y + _shake_offset.y};
+        return FVec2{m_Position.x + m_ShakeOffset.x,
+                     m_Position.y + m_ShakeOffset.y};
     }
 
     // ----- world bounds clamp -----
     void SetBounds(FVec2 min, FVec2 max) noexcept {
-        _bounds_min = min;
-        _bounds_max = max;
-        _has_bounds = true;
+        m_BoundsMin = min;
+        m_BoundsMax = max;
+        m_HasBounds = true;
     }
-    void ClearBounds() noexcept { _has_bounds = false; }
-    bool HasBounds() const noexcept { return _has_bounds; }
+    void ClearBounds() noexcept { m_HasBounds = false; }
+    bool HasBounds() const noexcept { return m_HasBounds; }
 
     // ----- 座標変換 -----
     // 画面ピクセル → world 座標 (画面中心が view center、zoom > 1 で拡大)
     FVec2 ScreenToWorld(FVec2 screen, u32 screen_w, u32 screen_h) const noexcept {
         const f32 cx = static_cast<f32>(screen_w) * 0.5f;
         const f32 cy = static_cast<f32>(screen_h) * 0.5f;
-        const f32 dx = (screen.x - cx) / _zoom;
-        const f32 dy = (screen.y - cy) / _zoom;
+        const f32 dx = (screen.x - cx) / m_Zoom;
+        const f32 dy = (screen.y - cy) / m_Zoom;
         // rotation を考慮 (逆回転で screen→world)
-        const f32 c = Cos(-_rotation);
-        const f32 s = Sin(-_rotation);
+        const f32 c = Cos(-m_Rotation);
+        const f32 s = Sin(-m_Rotation);
         const f32 rx = dx * c - dy * s;
         const f32 ry = dx * s + dy * c;
         const FVec2 vc = EffectiveViewCenter();
@@ -118,62 +118,62 @@ public:
         const FVec2 vc = EffectiveViewCenter();
         const f32 dx = world.x - vc.x;
         const f32 dy = world.y - vc.y;
-        const f32 c = Cos(_rotation);
-        const f32 s = Sin(_rotation);
+        const f32 c = Cos(m_Rotation);
+        const f32 s = Sin(m_Rotation);
         const f32 rx = dx * c - dy * s;
         const f32 ry = dx * s + dy * c;
         const f32 cx = static_cast<f32>(screen_w) * 0.5f;
         const f32 cy = static_cast<f32>(screen_h) * 0.5f;
-        return FVec2{cx + rx * _zoom, cy + ry * _zoom};
+        return FVec2{cx + rx * m_Zoom, cy + ry * m_Zoom};
     }
 
     // ----- driver (Services が PostUpdate で自動呼出) -----
     void Tick(f32 dt) noexcept {
         if (dt < 0.0f) dt = 0.0f;
         // 1) target follow (framerate-independent exponential smoothing)
-        if (_has_target) {
-            if (_smoothing <= 0.0f) {
-                _position = _target_pos;
+        if (m_HasTarget) {
+            if (m_Smoothing <= 0.0f) {
+                m_Position = m_TargetPos;
             } else {
-                const f32 t = 1.0f - Exp(-_smoothing * dt);
-                _position.x += (_target_pos.x - _position.x) * t;
-                _position.y += (_target_pos.y - _position.y) * t;
+                const f32 t = 1.0f - Exp(-m_Smoothing * dt);
+                m_Position.x += (m_TargetPos.x - m_Position.x) * t;
+                m_Position.y += (m_TargetPos.y - m_Position.y) * t;
             }
         }
         // 2) bounds clamp
-        if (_has_bounds) {
-            if (_position.x < _bounds_min.x) _position.x = _bounds_min.x;
-            if (_position.y < _bounds_min.y) _position.y = _bounds_min.y;
-            if (_position.x > _bounds_max.x) _position.x = _bounds_max.x;
-            if (_position.y > _bounds_max.y) _position.y = _bounds_max.y;
+        if (m_HasBounds) {
+            if (m_Position.x < m_BoundsMin.x) m_Position.x = m_BoundsMin.x;
+            if (m_Position.y < m_BoundsMin.y) m_Position.y = m_BoundsMin.y;
+            if (m_Position.x > m_BoundsMax.x) m_Position.x = m_BoundsMax.x;
+            if (m_Position.y > m_BoundsMax.y) m_Position.y = m_BoundsMax.y;
         }
         // 3) trauma decay + shake offset
-        _trauma -= _shake_decay * dt;
-        if (_trauma < 0.0f) _trauma = 0.0f;
-        _shake_seed += dt * 25.0f;          // 周波数 25 (= ~4 Hz の主要振動)
-        const f32 power = _trauma * _trauma;
-        _shake_offset.x = Sin(_shake_seed)         * power * _shake_amplitude;
-        _shake_offset.y = Cos(_shake_seed * 1.3f)  * power * _shake_amplitude;
+        m_Trauma -= m_ShakeDecay * dt;
+        if (m_Trauma < 0.0f) m_Trauma = 0.0f;
+        m_ShakeSeed += dt * 25.0f;          // 周波数 25 (= ~4 Hz の主要振動)
+        const f32 power = m_Trauma * m_Trauma;
+        m_ShakeOffset.x = Sin(m_ShakeSeed)         * power * m_ShakeAmplitude;
+        m_ShakeOffset.y = Cos(m_ShakeSeed * 1.3f)  * power * m_ShakeAmplitude;
     }
 
 private:
-    FVec2 _position    {0.0f, 0.0f};
-    f32  _zoom         = 1.0f;
-    f32  _rotation     = 0.0f;
+    FVec2 m_Position    {0.0f, 0.0f};
+    f32  m_Zoom         = 1.0f;
+    f32  m_Rotation     = 0.0f;
 
-    FVec2 _target_pos  {0.0f, 0.0f};
-    f32  _smoothing    = 5.0f;
-    bool _has_target   = false;
+    FVec2 m_TargetPos  {0.0f, 0.0f};
+    f32  m_Smoothing    = 5.0f;
+    bool m_HasTarget   = false;
 
-    f32  _trauma           = 0.0f;
-    FVec2 _shake_offset    {0.0f, 0.0f};
-    f32  _shake_seed       = 0.0f;
-    f32  _shake_amplitude  = 0.5f;     // world units max @ trauma=1
-    f32  _shake_decay      = 1.0f;     // 1.0 → 0.0 を 1 秒で
+    f32  m_Trauma           = 0.0f;
+    FVec2 m_ShakeOffset    {0.0f, 0.0f};
+    f32  m_ShakeSeed       = 0.0f;
+    f32  m_ShakeAmplitude  = 0.5f;     // world units max @ trauma=1
+    f32  m_ShakeDecay      = 1.0f;     // 1.0 → 0.0 を 1 秒で
 
-    FVec2 _bounds_min      {0.0f, 0.0f};
-    FVec2 _bounds_max      {0.0f, 0.0f};
-    bool _has_bounds       = false;
+    FVec2 m_BoundsMin      {0.0f, 0.0f};
+    FVec2 m_BoundsMax      {0.0f, 0.0f};
+    bool m_HasBounds       = false;
 };
 
 } // namespace acs::game

@@ -67,9 +67,9 @@ void FDevConsole::ClearLines(TArray<const char*>& buf) noexcept {
 // ============================================================================
 
 FDevConsole::~FDevConsole() noexcept {
-    ClearLines(_history);
-    ClearLines(_log);
-    // _commands は POD ポインタのみで、name/help は caller 所有なので Free 不要。
+    ClearLines(m_History);
+    ClearLines(m_Log);
+    // m_Commands は POD ポインタのみで、name/help は caller 所有なので Free 不要。
 }
 
 // ============================================================================
@@ -86,12 +86,12 @@ void FDevConsole::RegisterCommand(const char* name,
     }
 
     // 既存検索 (線形)。あれば後勝ち上書き。
-    for (usize i = 0; i < _commands.Size(); ++i) {
-        if (std::strcmp(_commands[i].name, name) == 0) {
+    for (usize i = 0; i < m_Commands.Size(); ++i) {
+        if (std::strcmp(m_Commands[i].name, name) == 0) {
             ACS_LOG_WARN("FDevConsole: command '%s' re-registered (overwriting)", name);
-            _commands[i].fn   = fn;
-            _commands[i].user = user;
-            _commands[i].help = help_text;
+            m_Commands[i].fn   = fn;
+            m_Commands[i].user = user;
+            m_Commands[i].help = help_text;
             return;
         }
     }
@@ -101,7 +101,7 @@ void FDevConsole::RegisterCommand(const char* name,
     c.fn   = fn;
     c.user = user;
     c.help = help_text;
-    _commands.PushBack(c);
+    m_Commands.PushBack(c);
 }
 
 // ============================================================================
@@ -153,9 +153,9 @@ void FDevConsole::Execute(const char* command_line) noexcept {
     // 3) コマンド名検索 (線形)。
     const char* cmd_name = tokens[0];
     const Command* found = nullptr;
-    for (usize ci = 0; ci < _commands.Size(); ++ci) {
-        if (std::strcmp(_commands[ci].name, cmd_name) == 0) {
-            found = &_commands[ci];
+    for (usize ci = 0; ci < m_Commands.Size(); ++ci) {
+        if (std::strcmp(m_Commands[ci].name, cmd_name) == 0) {
+            found = &m_Commands[ci];
             break;
         }
     }
@@ -182,27 +182,27 @@ void FDevConsole::Execute(const char* command_line) noexcept {
 
 void FDevConsole::PushHistory(const char* line) noexcept {
     if (line == nullptr || line[0] == '\0') return;
-    PushLine(_history, line);
+    PushLine(m_History, line);
 }
 
 const char* FDevConsole::History(u32 i) const noexcept {
-    if (i >= _history.Size()) return nullptr;
-    return _history[i];
+    if (i >= m_History.Size()) return nullptr;
+    return m_History[i];
 }
 
 void FDevConsole::Log(const char* msg) noexcept {
     if (msg == nullptr) return;
-    PushLine(_log, msg);
+    PushLine(m_Log, msg);
 }
 
 const char* FDevConsole::LogLine(u32 i) const noexcept {
-    if (i >= _log.Size()) return nullptr;
-    return _log[i];
+    if (i >= m_Log.Size()) return nullptr;
+    return m_Log[i];
 }
 
 void FDevConsole::Clear() noexcept {
-    ClearLines(_history);
-    ClearLines(_log);
+    ClearLines(m_History);
+    ClearLines(m_Log);
 }
 
 } // namespace acs::game

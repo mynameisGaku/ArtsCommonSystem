@@ -25,25 +25,25 @@
 //
 // 使い方:
 //   class AssetSystem {
-//       acs::game::HotReloadWatcher _watcher;
+//       acs::game::HotReloadWatcher m_Watcher;
 //       static void OnReload(void* user, const HotReloadEvent& ev) noexcept {
 //           auto* self = static_cast<AssetSystem*>(user);
 //           if (ev.removed) self->Drop(ev.file_path);
 //           else            self->Reload(ev.file_path, ev.modified_timestamp);
 //       }
 //       void Boot() noexcept {
-//           _watcher.Init();
-//           _watcher.WatchDirectory("Assets/Textures", /*recursive=*/true);
-//           _watcher.WatchFile("Assets/Config/FGame.toml");
-//           _watcher.RegisterCallback(&OnReload, this);
+//           m_Watcher.Init();
+//           m_Watcher.WatchDirectory("Assets/Textures", /*recursive=*/true);
+//           m_Watcher.WatchFile("Assets/Config/FGame.toml");
+//           m_Watcher.RegisterCallback(&OnReload, this);
 //       }
 //       void Update(f32 dt) noexcept {
-//           _watcher.Tick(dt);  // Phase K-3 で内部 poll → callback dispatch
+//           m_Watcher.Tick(dt);  // Phase K-3 で内部 poll → callback dispatch
 //           // (Phase K-2 では Tick は何もしない — pending event の手動 drain は下の通り)
 //           HotReloadEvent ev;
-//           while (_watcher.ConsumeNextEvent(ev)) { OnReload(this, ev); }
+//           while (m_Watcher.ConsumeNextEvent(ev)) { OnReload(this, ev); }
 //       }
-//       void Shutdown() noexcept { _watcher.Shutdown(); }
+//       void Shutdown() noexcept { m_Watcher.Shutdown(); }
 //   };
 //
 // 設計選択:
@@ -170,9 +170,9 @@ private:
         void*             user = nullptr;
     };
 
-    TArray<const char*>      _watched_paths;    // caller 所有の path を借用保持
-    TArray<CallbackEntry>    _callbacks;        // (cb, user) ペア集合
-    TArray<HotReloadEvent>   _pending_events;   // FIFO バッファ、Tick で push、Consume で pop
+    TArray<const char*>      m_WatchedPaths;    // caller 所有の path を借用保持
+    TArray<CallbackEntry>    m_Callbacks;        // (cb, user) ペア集合
+    TArray<HotReloadEvent>   m_PendingEvents;   // FIFO バッファ、Tick で push、Consume で pop
 #endif
 };
 

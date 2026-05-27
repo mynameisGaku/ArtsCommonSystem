@@ -21,42 +21,42 @@
 namespace acs::game {
 
 void FStreamingDirector::Init(f32 chunk_size, i32 view_radius_chunks) noexcept {
-    _chunk_size  = chunk_size > 0.0f ? chunk_size : 100.0f;
-    _view_radius = view_radius_chunks >= 0 ? view_radius_chunks : 2;
-    // _max_concurrent_loads / _viewer_pos / _chunks は触らない
+    m_ChunkSize  = chunk_size > 0.0f ? chunk_size : 100.0f;
+    m_ViewRadius = view_radius_chunks >= 0 ? view_radius_chunks : 2;
+    // m_MaxConcurrentLoads / m_ViewerPos / m_Chunks は触らない
     // (Init を「設定値の更新」用途でも呼べるようにするため)。
 }
 
 void FStreamingDirector::SetViewerPos(FVec2 pos) noexcept {
-    _viewer_pos = pos;
+    m_ViewerPos = pos;
 }
 
 void FStreamingDirector::SetMaxConcurrentLoads(u32 n) noexcept {
     // 0 だと永遠に Queued から脱出できないので 1 にクランプ。
-    _max_concurrent_loads = n > 0 ? n : 1;
+    m_MaxConcurrentLoads = n > 0 ? n : 1;
 }
 
 FStreamingDirector::FChunkInfo* FStreamingDirector::Find(FChunkId id) noexcept {
-    const usize n = _chunks.Size();
+    const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_chunks[i].id == id) return &_chunks[i];
+        if (m_Chunks[i].id == id) return &m_Chunks[i];
     }
     return nullptr;
 }
 
 const FStreamingDirector::FChunkInfo* FStreamingDirector::Find(FChunkId id) const noexcept {
-    const usize n = _chunks.Size();
+    const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_chunks[i].id == id) return &_chunks[i];
+        if (m_Chunks[i].id == id) return &m_Chunks[i];
     }
     return nullptr;
 }
 
 FChunkId FStreamingDirector::ViewerChunk() const noexcept {
     // chunk_size は Init で正値にクランプ済 → 0 除算なし。
-    const f32 inv = 1.0f / _chunk_size;
-    const i32 cx  = static_cast<i32>(Floor(_viewer_pos.x * inv));
-    const i32 cy  = static_cast<i32>(Floor(_viewer_pos.y * inv));
+    const f32 inv = 1.0f / m_ChunkSize;
+    const i32 cx  = static_cast<i32>(Floor(m_ViewerPos.x * inv));
+    const i32 cy  = static_cast<i32>(Floor(m_ViewerPos.y * inv));
     return FChunkId{cx, cy};
 }
 
@@ -69,20 +69,20 @@ bool FStreamingDirector::InRange(FChunkId id) const noexcept {
     const i32 adx = dx >= 0 ? dx : -dx;
     const i32 ady = dy >= 0 ? dy : -dy;
     const i32 mx  = adx > ady ? adx : ady;
-    return mx <= _view_radius;
+    return mx <= m_ViewRadius;
 }
 
 void FStreamingDirector::EnqueueInRange() noexcept {
     const FChunkId v = ViewerChunk();
-    for (i32 dy = -_view_radius; dy <= _view_radius; ++dy) {
-        for (i32 dx = -_view_radius; dx <= _view_radius; ++dx) {
+    for (i32 dy = -m_ViewRadius; dy <= m_ViewRadius; ++dy) {
+        for (i32 dx = -m_ViewRadius; dx <= m_ViewRadius; ++dx) {
             const FChunkId cid{v.cx + dx, v.cy + dy};
             if (Find(cid) != nullptr) continue;   // 既に管理下 (どの状態でも)
             FChunkInfo info{};
             info.id      = cid;
             info.state   = EChunkState::Queued;
             info.elapsed = 0.0f;
-            _chunks.PushBack(info);
+            m_Chunks.PushBack(info);
         }
     }
 }
@@ -90,24 +90,24 @@ void FStreamingDirector::EnqueueInRange() noexcept {
 void FStreamingDirector::PromoteQueuedToLoading() noexcept {
     // 現在 Loading 中のチャンクをカウント。
     u32 loading_now = 0;
-    const usize n = _chunks.Size();
+    const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_chunks[i].state == EChunkState::Loading) ++loading_now;
+        if (m_Chunks[i].state == EChunkState::Loading) ++loading_now;
     }
     // 空きスロットが無ければ何もしない。
-    if (loading_now >= _max_concurrent_loads) return;
+    if (loading_now >= m_MaxConcurrentLoads) return;
 
     // 先頭から走査して Queued を Loading に昇格。
     // (Phase P-2 でビューア距離による優先度ソートを入れる予定。今はキュー順 = 挿入順。)
     for (usize i = 0; i < n; ++i) {
-        if (_chunks[i].state != EChunkState::Queued) continue;
-        _chunks[i].state   = EChunkState::Loading;
-        _chunks[i].elapsed = 0.0f;
+        if (m_Chunks[i].state != EChunkState::Queued) continue;
+        m_Chunks[i].state   = EChunkState::Loading;
+        m_Chunks[i].elapsed = 0.0f;
         // TODO(Phase P-2): ここで FAssetBundle::BeginLoad() を発行する。
-        //   _chunks[i].bundle.Add(ChunkAssetPath(cid));
-        //   _chunks[i].bundle.BeginLoad();
+        //   m_Chunks[i].bundle.Add(ChunkAssetPath(cid));
+        //   m_Chunks[i].bundle.BeginLoad();
         ++loading_now;
-        if (loading_now >= _max_concurrent_loads) break;
+        if (loading_now >= m_MaxConcurrentLoads) break;
     }
 }
 
@@ -120,8 +120,8 @@ void FStreamingDirector::Tick(f32 dt) noexcept {
     // 2. Loading の進捗を進めて完了で Loaded へ、範囲外 Loaded は Unloading へ。
     //    走査中に EraseSwap せず、Unloaded フラグを別途立てて後で一括除去する
     //    (TArray のインデックス安定性を保つため)。
-    for (usize i = 0; i < _chunks.Size(); ++i) {
-        FChunkInfo& c = _chunks[i];
+    for (usize i = 0; i < m_Chunks.Size(); ++i) {
+        FChunkInfo& c = m_Chunks[i];
         switch (c.state) {
         case EChunkState::Loading: {
             c.elapsed += dt;
@@ -151,7 +151,7 @@ void FStreamingDirector::Tick(f32 dt) noexcept {
         case EChunkState::Unloaded:
         default:
             // Unloading は次ステップで TArray から除去される。
-            // Unloaded は通常 _chunks に存在しないが、防御的に no-op。
+            // Unloaded は通常 m_Chunks に存在しないが、防御的に no-op。
             break;
         }
     }
@@ -161,12 +161,12 @@ void FStreamingDirector::Tick(f32 dt) noexcept {
     //    Phase P-1 はメタデータだけなので TArray から除去するのみ。
     {
         usize i = 0;
-        while (i < _chunks.Size()) {
-            if (_chunks[i].state == EChunkState::Unloading) {
+        while (i < m_Chunks.Size()) {
+            if (m_Chunks[i].state == EChunkState::Unloading) {
                 // swap-erase で O(1) 削除 (順序は保たない = FChunkInfo は (cx,cy) で識別)
-                const usize last = _chunks.Size() - 1;
-                if (i != last) _chunks[i] = _chunks[last];
-                _chunks.PopBack();
+                const usize last = m_Chunks.Size() - 1;
+                if (i != last) m_Chunks[i] = m_Chunks[last];
+                m_Chunks.PopBack();
             } else {
                 ++i;
             }
@@ -184,30 +184,30 @@ EChunkState FStreamingDirector::GetState(FChunkId id) const noexcept {
 
 u32 FStreamingDirector::LoadedCount() const noexcept {
     u32 n = 0;
-    const usize sz = _chunks.Size();
+    const usize sz = m_Chunks.Size();
     for (usize i = 0; i < sz; ++i) {
-        if (_chunks[i].state == EChunkState::Loaded) ++n;
+        if (m_Chunks[i].state == EChunkState::Loaded) ++n;
     }
     return n;
 }
 
 u32 FStreamingDirector::LoadingCount() const noexcept {
     u32 n = 0;
-    const usize sz = _chunks.Size();
+    const usize sz = m_Chunks.Size();
     for (usize i = 0; i < sz; ++i) {
-        if (_chunks[i].state == EChunkState::Loading) ++n;
+        if (m_Chunks[i].state == EChunkState::Loading) ++n;
     }
     return n;
 }
 
 void FStreamingDirector::ForceUnload(FChunkId id) noexcept {
     // swap-erase で即破棄 (TODO(Phase P-2): Loading 中だった場合は async load の cancel)。
-    const usize n = _chunks.Size();
+    const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_chunks[i].id == id) {
-            const usize last = _chunks.Size() - 1;
-            if (i != last) _chunks[i] = _chunks[last];
-            _chunks.PopBack();
+        if (m_Chunks[i].id == id) {
+            const usize last = m_Chunks.Size() - 1;
+            if (i != last) m_Chunks[i] = m_Chunks[last];
+            m_Chunks.PopBack();
             return;
         }
     }
@@ -217,7 +217,7 @@ void FStreamingDirector::ForceUnload(FChunkId id) noexcept {
 
 void FStreamingDirector::ClearAll() noexcept {
     // TODO(Phase P-2): Loading 中の全 bundle の cancel + Loaded 全 bundle の Unload。
-    _chunks.Clear();
+    m_Chunks.Clear();
 }
 
 } // namespace acs::game

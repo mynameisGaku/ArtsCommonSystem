@@ -8,7 +8,7 @@
 // 実装し、本ファイルには持ち込まない。
 //
 // 設計のポイント:
-//   ・Stub は副作用ゼロ。`Init()` は provider を記録し _initialized を立てるが、
+//   ・Stub は副作用ゼロ。`Init()` は provider を記録し m_Initialized を立てるが、
 //     IsAvailable() は false のまま (SDK 接続が無いことを示す)。
 //   ・JoinChannel / SetLocalMute 等の操作系は全て
 //     `ACS_ERR(Generic, kSubVoiceNotImplemented, ...)` を返し、上位ロジックで
@@ -29,15 +29,15 @@ namespace acs::game {
 TResult<void> FVoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
     // provider 選択は記録するが、Stub は SDK 接続を行わないので IsAvailable は
     // false のまま。多重 Init は明示的に許容 (テスト容易性のため)。
-    _provider = p;
-    _initialized = true;
+    m_Provider = p;
+    m_Initialized = true;
     return Ok();
 }
 
 void FVoiceChatBackendStub::Shutdown() noexcept {
     // Init() 前に呼ばれても安全。状態は完全に初期値に戻す。
-    _provider = EVoiceProvider::None;
-    _initialized = false;
+    m_Provider = EVoiceProvider::None;
+    m_Initialized = false;
 }
 
 // ---- Stub: チャンネル参加 / 離脱 -----------------------------------------
@@ -45,7 +45,7 @@ void FVoiceChatBackendStub::Shutdown() noexcept {
 TResult<void> FVoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
     (void)ch;
     (void)channel_id;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatBackendStub::JoinChannel called before Init()");
     }
@@ -55,7 +55,7 @@ TResult<void> FVoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* c
 
 TResult<void> FVoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
     (void)ch;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatBackendStub::LeaveChannel called before Init()");
     }
@@ -67,7 +67,7 @@ TResult<void> FVoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
 
 TResult<void> FVoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
     (void)muted;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatBackendStub::SetLocalMute called before Init()");
     }
@@ -78,7 +78,7 @@ TResult<void> FVoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
 TResult<void> FVoiceChatBackendStub::SetParticipantMute(const char* user_id, bool muted) noexcept {
     (void)user_id;
     (void)muted;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatBackendStub::SetParticipantMute called before Init()");
     }
@@ -89,7 +89,7 @@ TResult<void> FVoiceChatBackendStub::SetParticipantMute(const char* user_id, boo
 TResult<void> FVoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
     (void)user_id;
     (void)volume;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatBackendStub::SetParticipantVolume called before Init()");
     }
@@ -109,7 +109,7 @@ u32 FVoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
 TResult<VoiceParticipant> FVoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
     (void)ch;
     (void)index;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return TResult<VoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotInitialized,
                     "FVoiceChatBackendStub::GetParticipant called before Init()"));
@@ -129,8 +129,8 @@ void FVoiceChatBackendStub::Tick(f32 dt) noexcept {
 
 IVoiceChatBackend& GetVoiceStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static FVoiceChatBackendStub _instance;
-    return _instance;
+    static FVoiceChatBackendStub m_Instance;
+    return m_Instance;
 }
 
 } // namespace acs::game

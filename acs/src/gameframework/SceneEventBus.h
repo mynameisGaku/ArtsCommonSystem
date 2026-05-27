@@ -9,13 +9,13 @@
 //
 // 使い方:
 //   class EnemySpawner : public Component {
-//       u32 _sub = 0;
+//       u32 m_Sub = 0;
 //       void OnEnter() noexcept override {
-//           _sub = Scene()->Events().Subscribe(
+//           m_Sub = Scene()->Events().Subscribe(
 //               EventId("PlayerDied"), &OnPlayerDied, this);
 //       }
 //       void OnExit() noexcept override {
-//           Scene()->Events().Unsubscribe(_sub);
+//           Scene()->Events().Unsubscribe(m_Sub);
 //       }
 //       static void OnPlayerDied(void* user,
 //                                const void* /*payload*/, u32 /*size*/) noexcept {
@@ -127,8 +127,8 @@ private:
         bool      active = false;
     };
 
-    TArray<Entry> _entries;
-    u32          _next_handle = 1u;  // 0 は invalid 予約
+    TArray<Entry> m_Entries;
+    u32          m_NextHandle = 1u;  // 0 は invalid 予約
 };
 
 } // namespace acs::game

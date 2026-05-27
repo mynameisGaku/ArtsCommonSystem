@@ -24,7 +24,7 @@
 //   ・**TResult<void> は使わない**: この層は失敗を返さない (ログ警告のみ)。
 //     不正引数 (null name / 負の duration 等) は警告ログ + 既定値で続行。
 //   ・**SoA cross-fade state**: 同時に鳴る BGM は最大 2 本 (current + next)。
-//     `_bgm[0]` が現行、`_bgm[1]` が遷移中の新 BGM。遷移完了で swap。
+//     `m_Bgm[0]` が現行、`m_Bgm[1]` が遷移中の新 BGM。遷移完了で swap。
 //   ・**Ducking は単一 timer**: スタックしない (新 Duck が来たら上書き)。
 //     fade-in/fade-out は単純な線形 (depth → 1.0 まで 0.1 秒で復帰の固定窓)。
 //   ・**SFX は ring 風に固定容量**: 容量 32 (典型的同時発音数を踏まえた目安)。
@@ -70,9 +70,9 @@ public:
     void SetMasterVolume(f32 v) noexcept;
     void SetBgmVolume(f32 v) noexcept;
     void SetSfxVolume(f32 v) noexcept;
-    f32  GetMasterVolume() const noexcept { return _master_volume; }
-    f32  GetBgmVolume()    const noexcept { return _bgm_volume; }
-    f32  GetSfxVolume()    const noexcept { return _sfx_volume; }
+    f32  GetMasterVolume() const noexcept { return m_MasterVolume; }
+    f32  GetBgmVolume()    const noexcept { return m_BgmVolume; }
+    f32  GetSfxVolume()    const noexcept { return m_SfxVolume; }
 
     // ----- BGM クロスフェード -----
     // name が同じ場合は no-op (現行 BGM 継続)。fade_in_sec <= 0 で即時切替。
@@ -80,7 +80,7 @@ public:
     void PlayBgm(const char* name, f32 fade_in_sec = 1.0f, bool loop = true) noexcept;
     // BGM を fade out して停止。fade_out_sec <= 0 で即時停止。
     void StopBgm(f32 fade_out_sec = 0.5f) noexcept;
-    const char* CurrentBgmName() const noexcept { return _bgm[0].name; }
+    const char* CurrentBgmName() const noexcept { return m_Bgm[0].name; }
 
     // ----- SFX one-shot -----
     // volume_scale: この one-shot の追加ゲイン [0, ~]。0.0 で no-op。
@@ -102,7 +102,7 @@ public:
     void Resume() noexcept;
     // 全 BGM / SFX を停止して state リセット (volume バスは保持)。
     void StopAll() noexcept;
-    bool IsPaused() const noexcept { return _paused; }
+    bool IsPaused() const noexcept { return m_Paused; }
 
     // ----- driver (FGame / FSceneManager から毎フレーム呼ぶ) -----
     // Pause 中は dt を消費しない (state 凍結)。
@@ -119,8 +119,8 @@ public:
     // concrete backend (FXAudio2Backend 等) を差し込む。nullptr で切断。
     // 切断時に既存 BGM/SFX voice は backend->StopAllVoices で停止する責任は
     // 呼び出し側に委ねる (本層は raw ptr 入替のみ)。
-    void           SetBackend(IAudioBackend* backend) noexcept { _backend = backend; }
-    IAudioBackend* GetBackend() const noexcept { return _backend; }
+    void           SetBackend(IAudioBackend* backend) noexcept { m_Backend = backend; }
+    IAudioBackend* GetBackend() const noexcept { return m_Backend; }
 
     // ----- clip 直接再生 (Phase 2 で追加) -----
     // backend が設定されていない / 不正 clip のとき: kInvalidAudioVoice を返す
@@ -140,7 +140,7 @@ public:
                                  f32 pitch = 1.0f) noexcept;
 
 private:
-    // BGM スロット 1 本の state。`_bgm[0]` = current、`_bgm[1]` = 遷移中の new。
+    // BGM スロット 1 本の state。`m_Bgm[0]` = current、`m_Bgm[1]` = 遷移中の new。
     struct FBgmSlot {
         const char*      name         = nullptr;   // 所有しない (literal 前提)
         f32              gain         = 0.0f;      // 現在の slot ゲイン [0, 1]
@@ -167,31 +167,31 @@ private:
     f32  ComputeDuckEnvelope() const noexcept;
 
     // ----- volume バス -----
-    f32 _master_volume = 1.0f;
-    f32 _bgm_volume    = 1.0f;
-    f32 _sfx_volume    = 1.0f;
+    f32 m_MasterVolume = 1.0f;
+    f32 m_BgmVolume    = 1.0f;
+    f32 m_SfxVolume    = 1.0f;
 
     // ----- BGM クロスフェード state -----
-    FBgmSlot _bgm[2] {};
+    FBgmSlot m_Bgm[2] {};
 
     // ----- SFX ring (固定容量) -----
-    TArray<SfxEntry> _sfx;   // 容量 kMaxSfxVoices で reserve、サイズも同じく予約
-    u32             _sfx_head = 0;  // 上書き時の次書込先 (FIFO)
+    TArray<SfxEntry> m_Sfx;   // 容量 kMaxSfxVoices で reserve、サイズも同じく予約
+    u32             m_SfxHead = 0;  // 上書き時の次書込先 (FIFO)
 
     // ----- Duck state -----
-    bool _duck_active        = false;
-    f32  _duck_depth         = 1.0f;  // 谷底ゲイン [0, 1]
-    f32  _duck_remaining     = 0.0f;  // 全体残り (fade in + hold + fade out)
-    f32  _duck_total         = 0.0f;  // 全体長 (= duration + 2 * kDuckFadeWindow)
+    bool m_DuckActive        = false;
+    f32  m_DuckDepth         = 1.0f;  // 谷底ゲイン [0, 1]
+    f32  m_DuckRemaining     = 0.0f;  // 全体残り (fade in + hold + fade out)
+    f32  m_DuckTotal         = 0.0f;  // 全体長 (= duration + 2 * kDuckFadeWindow)
 
     // ----- 全体制御 -----
-    bool _paused = false;
+    bool m_Paused = false;
 
     // ----- backend (Phase 2 で追加、非所有 raw ptr) -----
     // nullptr 時は state-only 動作 (無音)。`FXAudio2Backend` 等を呼び出し側で
     // 所有し、SetBackend で差し込む。Pause/Resume/StopAll/Tick/SetMasterVolume
     // を本層から forward する。
-    IAudioBackend* _backend = nullptr;
+    IAudioBackend* m_Backend = nullptr;
 };
 
 } // namespace acs::game

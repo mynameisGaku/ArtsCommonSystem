@@ -41,39 +41,39 @@ void HelloIblApp::OnStart() noexcept {
     const u32 sh = sc->Height();
 
     // HDR FPostProcess (Bloom + ACES Tonemap) — HDR RT は R16G16B16A16_Float
-    ACS_SAMPLE_INIT(_post.Init(*dev, sw, sh, GetRenderer().ColorFormat()));
+    ACS_SAMPLE_INIT(m_Post.Init(*dev, sw, sh, GetRenderer().ColorFormat()));
 
     // シーン側は HDR RT format に揃える
-    ACS_SAMPLE_INIT(_sky.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
-    _sky.PresetDay();
-    ACS_SAMPLE_INIT(_pbr.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
+    ACS_SAMPLE_INIT(m_Sky.Init(*dev, m_Post.HdrFormat(), GetRenderer().DepthFormat()));
+    m_Sky.PresetDay();
+    ACS_SAMPLE_INIT(m_Pbr.Init(*dev, m_Post.HdrFormat(), GetRenderer().DepthFormat()));
 
     auto sphere = Primitive::MakeSphere(0.55f, 48, 24);
-    ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, _gm_sphere));
+    ACS_SAMPLE_INIT(UploadMesh(*dev, *sphere, m_GmSphere));
     auto plane  = Primitive::MakePlane(40.0f, 40.0f);
-    ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, _gm_plane));
+    ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, m_GmPlane));
 
     // FShadowMap: 2048 px × 3 cascade atlas (CSM)
-    ACS_SAMPLE_INIT(_shadow.Init(*dev, 2048, /*cascade_count=*/3));
+    ACS_SAMPLE_INIT(m_Shadow.Init(*dev, 2048, /*cascade_count=*/3));
     // SSR: HDR と同フォーマット / 同サイズで scratch を確保
-    ACS_SAMPLE_INIT(_ssr.Init(*dev, _post.HdrFormat(), sw, sh));
+    ACS_SAMPLE_INIT(m_Ssr.Init(*dev, m_Post.HdrFormat(), sw, sh));
     // SSAO: depth から visibility を計算、frame size と同じ解像度
-    ACS_SAMPLE_INIT(_ssao.Init(*dev, sw, sh));
+    ACS_SAMPLE_INIT(m_Ssao.Init(*dev, sw, sh));
     // SSGI: scene_color + depth → 1 bounce indirect light
-    ACS_SAMPLE_INIT(_ssgi.Init(*dev, sw, sh));
+    ACS_SAMPLE_INIT(m_Ssgi.Init(*dev, sw, sh));
     // Motion vector: 動的 mesh の screen-space motion を焼く
-    ACS_SAMPLE_INIT(_motion.Init(*dev, sw, sh));
+    ACS_SAMPLE_INIT(m_Motion.Init(*dev, sw, sh));
 
     // Refraction: screen-space 屈折 + 背景キャプチャ用 RT。
-    // _bg_rt は opaque pass の HDR をコピーする先 (同一 RT の read+write 不可 回避)。
+    // m_BgRt は opaque pass の HDR をコピーする先 (同一 RT の read+write 不可 回避)。
     // HDR と同じフォーマット・解像度で確保。
-    ACS_SAMPLE_INIT(_refr.Init(*dev, _post.HdrFormat(), GetRenderer().DepthFormat()));
-    ACS_SAMPLE_INIT(_blit.Init(*dev, _post.HdrFormat()));
+    ACS_SAMPLE_INIT(m_Refr.Init(*dev, m_Post.HdrFormat(), GetRenderer().DepthFormat()));
+    ACS_SAMPLE_INIT(m_Blit.Init(*dev, m_Post.HdrFormat()));
     {
         FTextureDesc bg_td{};
         bg_td.width            = sw;
         bg_td.height           = sh;
-        bg_td.format           = _post.HdrFormat();
+        bg_td.format           = m_Post.HdrFormat();
         bg_td.is_render_target = true;
         auto bg_r = CreateRhiTexture(*dev, bg_td);
         if (bg_r.IsErr()) {
@@ -82,7 +82,7 @@ void HelloIblApp::OnStart() noexcept {
             Quit();
             return;
         }
-        _bg_rt = Move(bg_r.Value());
+        m_BgRt = Move(bg_r.Value());
     }
 
     // 床用 lightmap を CPU 焼き。FSphere-FRay analytical hit で覆い、各 plane texel
@@ -94,51 +94,51 @@ void HelloIblApp::OnStart() noexcept {
             Quit();
             return;
         }
-        _lightmap = Move(lm_r.Value());
+        m_Lightmap = Move(lm_r.Value());
     }
 
     // FSpriteBatch は LDR backbuffer (tonemap 後)
-    ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
+    (void)FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f, 1024, true);
 
     const f32 aspect = static_cast<f32>(sw) / static_cast<f32>(sh);
-    _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
-    _cam_pos = FVec3{0, 1.0f, -5.0f};
+    m_Camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
+    m_CamPos = FVec3{0, 1.0f, -5.0f};
 
     // Bloom 強度はデフォルトより少し弱めに (Day sky は十分明るいので)
-    _post_params.bloom_threshold = 1.5f;
-    _post_params.bloom_intensity = 0.4f;
+    m_PostParams.bloom_threshold = 1.5f;
+    m_PostParams.bloom_intensity = 0.4f;
     // 手動モード用の初期露出。preset Day = 0.7、adapted も同値に。
-    _exposure_target   = 0.7f;
-    _adapted_exposure  = 0.7f;
+    m_ExposureTarget   = 0.7f;
+    m_AdaptedExposure  = 0.7f;
     // 既定で GPU auto-exposure を有効化。シーン輝度を GPU で実測して露出を
     // 自動算出 → preset 切替 (Day↔Night) でも自動で再露出され、eye adaptation
     // が演出として効く。'U' で手動モードへ切替可。
-    _use_auto_exposure = true;
-    _post_params.auto_exposure_enabled = true;
-    _post_params.auto_exposure_key     = _auto_key;
-    _post_params.auto_exposure_speed   = 1.5f;   // τ≈0.7s のシネマ的順応速度
-    _post_params.exposure              = 1.0f;   // 露出は GPU 側が決める
+    m_UseAutoExposure = true;
+    m_PostParams.auto_exposure_enabled = true;
+    m_PostParams.auto_exposure_key     = m_AutoKey;
+    m_PostParams.auto_exposure_speed   = 1.5f;   // τ≈0.7s のシネマ的順応速度
+    m_PostParams.exposure              = 1.0f;   // 露出は GPU 側が決める
 
     // FColor grading cinematic look: 軽い暖色 + 彩度ブースト + コントラスト
-    _post_params.cg_saturation   = 1.10f;
-    _post_params.cg_contrast     = 1.08f;
-    _post_params.cg_temperature  = 0.08f;     // 暖色寄り
-    _post_params.cg_tint         = -0.02f;    // 軽く緑寄り (映画 teal-orange)
-    _post_params.cg_lift         = FVec3{0.005f, 0.0f, 0.01f};      // 影に微かな青冷感
-    _post_params.cg_gain         = FVec3{1.04f, 1.02f, 0.98f};      // ハイライトを暖色に
+    m_PostParams.cg_saturation   = 1.10f;
+    m_PostParams.cg_contrast     = 1.08f;
+    m_PostParams.cg_temperature  = 0.08f;     // 暖色寄り
+    m_PostParams.cg_tint         = -0.02f;    // 軽く緑寄り (映画 teal-orange)
+    m_PostParams.cg_lift         = FVec3{0.005f, 0.0f, 0.01f};      // 影に微かな青冷感
+    m_PostParams.cg_gain         = FVec3{1.04f, 1.02f, 0.98f};      // ハイライトを暖色に
 
     // CAS sharpening: subtle clarity boost、UE5 デフォルト相当 0.4
-    _post_params.cas_strength    = 0.4f;
+    m_PostParams.cas_strength    = 0.4f;
     // SSR は FPbrShader 側で合成するので tonemap 側の SSR は無効化。intensity 0 に
     // しないと fallback bloom mip が誤加算される。
-    _post_params.ssr_intensity   = 0.0f;
+    m_PostParams.ssr_intensity   = 0.0f;
 
     // 動的球の初期 transform。frame 0 で prev==curr になるよう curr と同値で
     // prev も初期化する。
     for (u32 i = 0; i < kDynCount; ++i) {
-        _dyn_curr[i] = ComputeDynTransform(i, 0.0f);
-        _dyn_prev[i] = _dyn_curr[i];
+        m_DynCurr[i] = ComputeDynTransform(i, 0.0f);
+        m_DynPrev[i] = m_DynCurr[i];
     }
 }
 
@@ -152,80 +152,80 @@ void HelloIblApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
     // 1/2/3/4/5 で env preset 切替。SH9 mode が有効中は SH 9 係数も再計算が必要。
-    // preset ごとに露出目標を変える → _adapted_exposure がじわっと追従して
+    // preset ごとに露出目標を変える → m_AdaptedExposure がじわっと追従して
     // eye adaptation (目が明暗に慣れる) 演出になる。
     if (Input::IsKeyPressed(EKey::Num1)) {
-        _sky.PresetDay();    _current_preset = 0;
-        _need_recapture = true; _need_sh9_rebuild = _use_sh9;
-        _exposure_target = 0.7f;     // Day: 明るいので露出を絞る
+        m_Sky.PresetDay();    m_CurrentPreset = 0;
+        m_NeedRecapture = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_ExposureTarget = 0.7f;     // Day: 明るいので露出を絞る
     }
     if (Input::IsKeyPressed(EKey::Num2)) {
-        _sky.PresetSunset(); _current_preset = 1;
-        _need_recapture = true; _need_sh9_rebuild = _use_sh9;
-        _exposure_target = 1.0f;
+        m_Sky.PresetSunset(); m_CurrentPreset = 1;
+        m_NeedRecapture = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_ExposureTarget = 1.0f;
     }
     if (Input::IsKeyPressed(EKey::Num3)) {
-        _sky.PresetNight();  _current_preset = 2;
-        _need_recapture = true; _need_sh9_rebuild = _use_sh9;
-        _exposure_target = 1.8f;     // Night: 暗いので露出を上げる
+        m_Sky.PresetNight();  m_CurrentPreset = 2;
+        m_NeedRecapture = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_ExposureTarget = 1.8f;     // Night: 暗いので露出を上げる
     }
     if (Input::IsKeyPressed(EKey::Num4)) {
-        _current_preset = 3;
-        _need_studio_hdr = true; _need_sh9_rebuild = _use_sh9;
-        _exposure_target = 1.0f;
+        m_CurrentPreset = 3;
+        m_NeedStudioHdr = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_ExposureTarget = 1.0f;
     }
     if (Input::IsKeyPressed(EKey::Num5)) {
-        _current_preset = 4;
-        _need_atmosphere = true; _need_sh9_rebuild = _use_sh9;
-        _exposure_target = 0.85f;
+        m_CurrentPreset = 4;
+        m_NeedAtmosphere = true; m_NeedSh9Rebuild = m_UseSh9;
+        m_ExposureTarget = 0.85f;
     }
 
-    if (Input::IsKeyPressed(EKey::I)) _display_mode = (_display_mode + 1) % 7;
+    if (Input::IsKeyPressed(EKey::I)) m_DisplayMode = (m_DisplayMode + 1) % 7;
     // SH9 toggle: 現在の irradiance cubemap から計算した SH 9 で diffuse を再構築
     if (Input::IsKeyPressed(EKey::S)) {
-        _use_sh9 = !_use_sh9;
-        _need_sh9_rebuild = _use_sh9;     // 必要なときに再計算
+        m_UseSh9 = !m_UseSh9;
+        m_NeedSh9Rebuild = m_UseSh9;     // 必要なときに再計算
     }
-    if (Input::IsKeyPressed(EKey::C)) _use_clearcoat = !_use_clearcoat;
-    if (Input::IsKeyPressed(EKey::Z)) _use_anisotropy = !_use_anisotropy;
-    if (Input::IsKeyPressed(EKey::L)) _use_area_light = !_use_area_light;
-    if (Input::IsKeyPressed(EKey::G)) _use_probe_grid = !_use_probe_grid;
-    if (Input::IsKeyPressed(EKey::F)) _use_fog = !_use_fog;
-    if (Input::IsKeyPressed(EKey::H)) _use_shadows = !_use_shadows;
-    if (Input::IsKeyPressed(EKey::R)) _show_ssr = !_show_ssr;
-    if (Input::IsKeyPressed(EKey::X)) _show_refraction = !_show_refraction;
-    if (Input::IsKeyPressed(EKey::O)) _use_ssao = !_use_ssao;
-    if (Input::IsKeyPressed(EKey::T)) _use_taa  = !_use_taa;
-    if (Input::IsKeyPressed(EKey::J)) _use_ssgi = !_use_ssgi;
-    if (Input::IsKeyPressed(EKey::K)) _use_lightmap = !_use_lightmap;
-    if (Input::IsKeyPressed(EKey::M)) _use_motion_vec = !_use_motion_vec;
-    if (Input::IsKeyPressed(EKey::B)) _post_params.bloom_enabled = !_post_params.bloom_enabled;
+    if (Input::IsKeyPressed(EKey::C)) m_UseClearcoat = !m_UseClearcoat;
+    if (Input::IsKeyPressed(EKey::Z)) m_UseAnisotropy = !m_UseAnisotropy;
+    if (Input::IsKeyPressed(EKey::L)) m_UseAreaLight = !m_UseAreaLight;
+    if (Input::IsKeyPressed(EKey::G)) m_UseProbeGrid = !m_UseProbeGrid;
+    if (Input::IsKeyPressed(EKey::F)) m_UseFog = !m_UseFog;
+    if (Input::IsKeyPressed(EKey::H)) m_UseShadows = !m_UseShadows;
+    if (Input::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
+    if (Input::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
+    if (Input::IsKeyPressed(EKey::O)) m_UseSsao = !m_UseSsao;
+    if (Input::IsKeyPressed(EKey::T)) m_UseTaa  = !m_UseTaa;
+    if (Input::IsKeyPressed(EKey::J)) m_UseSsgi = !m_UseSsgi;
+    if (Input::IsKeyPressed(EKey::K)) m_UseLightmap = !m_UseLightmap;
+    if (Input::IsKeyPressed(EKey::M)) m_UseMotionVec = !m_UseMotionVec;
+    if (Input::IsKeyPressed(EKey::B)) m_PostParams.bloom_enabled = !m_PostParams.bloom_enabled;
 
     // film grain アニメ用に時間累積 + 動的球の公転時刻
-    _post_params.grain_time += dt;
-    _anim_time += dt;
+    m_PostParams.grain_time += dt;
+    m_AnimTime += dt;
 
     UpdateExposureControls(*this, dt);
 
     // 視点を矢印 (回転) + WASD (移動) で操作
     const f32 mv = 4.0f * dt, tr = 1.5f * dt;
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += tr;
-    if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
+    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (Input::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (Input::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
-    if (_cam_pitch >  limit) _cam_pitch =  limit;
-    if (_cam_pitch < -limit) _cam_pitch = -limit;
+    if (m_CamPitch >  limit) m_CamPitch =  limit;
+    if (m_CamPitch < -limit) m_CamPitch = -limit;
 
-    FVec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
-                 -Sin(_cam_pitch),
-                  Cos(_cam_yaw) * Cos(_cam_pitch) };
-    FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
-    if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
-    if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
-    if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
-    if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * mv;
-    _camera.SetLookAt(_cam_pos, _cam_pos + forward);
+    FVec3 forward{ Sin(m_CamYaw) * Cos(m_CamPitch),
+                 -Sin(m_CamPitch),
+                  Cos(m_CamYaw) * Cos(m_CamPitch) };
+    FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
+    if (Input::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (Input::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (Input::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (Input::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
 // OnCustomFrame() で HDR 経路に切替えてデフォルトフローを置き換える。
@@ -237,7 +237,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
-    IRhiTexture*     hdr   = _post.HdrRenderTarget();
+    IRhiTexture*     hdr   = m_Post.HdrRenderTarget();
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
     if (!dev || !cl || !sc || !hdr) return false;
 
@@ -245,7 +245,7 @@ bool HelloIblApp::OnCustomFrame() noexcept {
 
     // TAA Halton(2,3) sub-pixel jitter を skybox / FPbrShader / SSR / SSAO の
     // VP に適用する。複数フレームの累積でエッジが滑らかになる。
-    const FMat4 vp_no_jitter = _camera.ViewProjection();
+    const FMat4 vp_no_jitter = m_Camera.ViewProjection();
     const FMat4 vp_for_render = BuildJitteredViewProjection(*this, vp_no_jitter,
                                                            hdr->Width(), hdr->Height());
 
@@ -271,41 +271,41 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     // 背景 skybox。表示モードに応じて env / irradiance / prefilter を切替える。
     IRhiTexture* display_cube = nullptr;
     f32          mip_level    = 0.0f;
-    if (_display_mode == 0) {
-        display_cube = _ibl.EnvCubemap();
-    } else if (_display_mode == 1) {
-        display_cube = _ibl.IrradianceMap();
+    if (m_DisplayMode == 0) {
+        display_cube = m_Ibl.EnvCubemap();
+    } else if (m_DisplayMode == 1) {
+        display_cube = m_Ibl.IrradianceMap();
     } else {
-        display_cube = _ibl.PrefilterMap();
-        mip_level    = static_cast<f32>(_display_mode - 2);
+        display_cube = m_Ibl.PrefilterMap();
+        mip_level    = static_cast<f32>(m_DisplayMode - 2);
     }
     if (display_cube) {
-        _ibl.DrawSkybox(*dev, *cl, *display_cube,
-                        vp_for_render, _camera.Eye(),
-                        _post.HdrFormat(), GetRenderer().DepthFormat(),
+        m_Ibl.DrawSkybox(*dev, *cl, *display_cube,
+                        vp_for_render, m_Camera.Eye(),
+                        m_Post.HdrFormat(), GetRenderer().DepthFormat(),
                         mip_level);
     }
 
     // SH9 mode: 現在の env cubemap (sky or studio HDR) から SH 9 を計算
-    if (_need_sh9_rebuild) {
+    if (m_NeedSh9Rebuild) {
         // Studio HDR は別 builder で既に焼かれている。それ以外は FSky 評価から焼く。
-        if (_current_preset != 3) {
-            BuildEquirectFromSky(_sky, _equirect_rgba);
+        if (m_CurrentPreset != 3) {
+            BuildEquirectFromSky(m_Sky, m_EquirectRgba);
         }
         ImageBasedLighting::ComputeSh9FromEquirect(
-            _equirect_rgba.Data(), kEquirectWidth, kEquirectHeight, _sh9);
-        _need_sh9_rebuild = false;
+            m_EquirectRgba.Data(), kEquirectWidth, kEquirectHeight, m_Sh9);
+        m_NeedSh9Rebuild = false;
     }
 
     // 太陽の direct light を 1 灯追加 (Studio HDR では中央パネルを sun に見立てる)。
     // これで clear-coat / anisotropic の direct specular が見える。
     FDirLight sun;
-    if (_current_preset == 3) {
+    if (m_CurrentPreset == 3) {
         sun.direction = FVec3{0, 0.4f, 1.0f};
         sun.color     = FVec3{0.7f, 0.7f, 0.7f};
     } else {
-        sun.direction = _sky.SunDirection();
-        sun.color     = _sky.SunColor() * 0.9f;
+        sun.direction = m_Sky.SunDirection();
+        sun.color     = m_Sky.SunColor() * 0.9f;
     }
 
     BindPbrLighting(*this, vp_for_render, sun);
@@ -324,8 +324,8 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     // motion texture を TAA / SSGI へ渡す。frame 0 は prev VP 未確定なので渡さず、
     // depth reprojection 側の cold-start ガードに委ねる。
     IRhiTexture* motion_tex =
-        (_use_motion_vec && _taa_prev_vp_valid) ? _motion.OutputTexture() : nullptr;
-    _post_params.taa_motion_texture = motion_tex;
+        (m_UseMotionVec && m_TaaPrevVpValid) ? m_Motion.OutputTexture() : nullptr;
+    m_PostParams.taa_motion_texture = motion_tex;
 
     // ===== Screen-space effects (1-frame latency) =====
     const FMat4 inv_vp = Inverse(vp_for_render);
@@ -334,22 +334,22 @@ bool HelloIblApp::OnCustomFrame() noexcept {
     RenderSsgiPass(*this, vp_for_render, inv_vp, vp_no_jitter);
 
     // TAA を毎フレーム params に反映。
-    // 注意 (frame 0 garbage 回避): まだ _prev_vp_no_jitter が default (identity) のときに
+    // 注意 (frame 0 garbage 回避): まだ m_PrevVpNoJitter が default (identity) のときに
     // reproject すると world 座標を clip 座標と誤解して prev_ndc が破綻する。
-    // _taa_prev_vp_valid フラグで「前フレーム VP を本物で書いた」状態を保証してから
+    // m_TaaPrevVpValid フラグで「前フレーム VP を本物で書いた」状態を保証してから
     // depth_texture を渡す。最初の 1 フレームは depth=null で reproject 無効化。
-    _post_params.taa_enabled                  = _use_taa;
-    _post_params.taa_blend_factor             = 0.1f;     // current 10% + history 90%
-    _post_params.taa_depth_texture            = (_use_taa && _taa_prev_vp_valid) ? depth : nullptr;
-    _post_params.taa_view_proj_no_jitter      = vp_no_jitter;
-    _post_params.taa_prev_view_proj_no_jitter = _prev_vp_no_jitter;
+    m_PostParams.taa_enabled                  = m_UseTaa;
+    m_PostParams.taa_blend_factor             = 0.1f;     // current 10% + history 90%
+    m_PostParams.taa_depth_texture            = (m_UseTaa && m_TaaPrevVpValid) ? depth : nullptr;
+    m_PostParams.taa_view_proj_no_jitter      = vp_no_jitter;
+    m_PostParams.taa_prev_view_proj_no_jitter = m_PrevVpNoJitter;
 
     // ===== 2) Bloom + ACES Tonemap → LDR backbuffer (SSR も additive mix) =====
-    _post.Render(*cl, *sc, buf_idx, _post_params);
+    m_Post.Render(*cl, *sc, buf_idx, m_PostParams);
 
     // 次フレーム用に保存 (jitter なしの true VP)
-    _prev_vp_no_jitter = vp_no_jitter;
-    _taa_prev_vp_valid = true;
+    m_PrevVpNoJitter = vp_no_jitter;
+    m_TaaPrevVpValid = true;
 
     // ===== 3) FSpriteBatch HUD (LDR backbuffer) =====
     DrawHud(*this, sc->Width(), sc->Height());
@@ -363,22 +363,22 @@ bool HelloIblApp::OnCustomFrame() noexcept {
 
 void HelloIblApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _font.Shutdown();
-    _batch.Shutdown();
-    _bg_rt.Reset();
-    _blit.Shutdown();
-    _refr.Shutdown();
-    _motion.Shutdown();
-    _ssgi.Shutdown();
-    _ssao.Shutdown();
-    _ssr.Shutdown();
-    _shadow.Shutdown();
-    _gm_plane = GpuMesh{};
-    _gm_sphere = GpuMesh{};
-    _pbr.Shutdown();
-    _ibl.Shutdown();
-    _sky.Shutdown();
-    _post.Shutdown();
+    m_Font.Shutdown();
+    m_Batch.Shutdown();
+    m_BgRt.Reset();
+    m_Blit.Shutdown();
+    m_Refr.Shutdown();
+    m_Motion.Shutdown();
+    m_Ssgi.Shutdown();
+    m_Ssao.Shutdown();
+    m_Ssr.Shutdown();
+    m_Shadow.Shutdown();
+    m_GmPlane = GpuMesh{};
+    m_GmSphere = GpuMesh{};
+    m_Pbr.Shutdown();
+    m_Ibl.Shutdown();
+    m_Sky.Shutdown();
+    m_Post.Shutdown();
 }
 
 } // namespace helloibl

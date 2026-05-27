@@ -56,24 +56,24 @@ namespace acs::game {
 class FNode2D;
 
 /// Prefab を識別する packed 32bit handle (generational)。
-/// layout: low24 = index, high8 = generation。`_packed == 0` が invalid。
+/// layout: low24 = index, high8 = generation。`m_Packed == 0` が invalid。
 /// `FNodeId` / `FShapeId` と完全に同じパターン (Phase 0 codify 済の規約)。
 struct PrefabId {
-    u32 _packed = 0;
+    u32 m_Packed = 0;
 
     constexpr PrefabId() noexcept = default;
     constexpr PrefabId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32 Index() const noexcept { return _packed & 0x00FFFFFFu; }
+    constexpr u32 Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
     constexpr u8  Generation() const noexcept {
-        return static_cast<u8>(_packed >> 24);
+        return static_cast<u8>(m_Packed >> 24);
     }
     /// 0 = invalid。「登録済 slot に存在するか」は FPrefabSystem 側で別途検証する。
-    bool IsValid() const noexcept { return _packed != 0; }
+    bool IsValid() const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(PrefabId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(PrefabId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(PrefabId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(PrefabId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 /// Prefab を実体化するファクトリ関数の signature。
@@ -118,7 +118,7 @@ public:
     bool Unregister(PrefabId id) noexcept;
 
     /// 現在 active な (= Unregister されていない) 登録数。
-    u32 Count() const noexcept { return _active_count; }
+    u32 Count() const noexcept { return m_ActiveCount; }
 
     /// デバッグ用の名前取得。invalid / stale なら `"(unknown)"` を返す
     /// (呼び出し側が条件分岐せずログにそのまま流せるよう nullptr は返さない)。
@@ -140,8 +140,8 @@ private:
     /// index 0 は invalid 予約なので返さない (最低 index 1)。
     u32 AcquireSlot() noexcept;
 
-    TArray<PrefabEntry> _entries;
-    u32                _active_count = 0;
+    TArray<PrefabEntry> m_Entries;
+    u32                m_ActiveCount = 0;
 };
 
 } // namespace acs::game

@@ -37,28 +37,28 @@ inline bool HasPreview(FEmitterHandle h) noexcept {
 
 void FParticleEditorPreview::Init() noexcept {
     // 60 frame 履歴を事前確保 (毎 Tick の reallocation 回避)。
-    _fps_history.Clear();
-    _fps_history.Reserve(kFpsHistoryCap);
-    _fps_index  = 0u;
-    _fps_filled = false;
+    m_FpsHistory.Clear();
+    m_FpsHistory.Reserve(kFpsHistoryCap);
+    m_FpsIndex  = 0u;
+    m_FpsFilled = false;
 
-    _preview_handle    = {};
-    _has_def_snapshot  = false;
-    _last_active_count = 0u;
-    _last_capacity     = 0u;
-    // _spawn_pos / _auto_emit は呼び出し間で保持しても害がない (UX 連続性)。
+    m_PreviewHandle    = {};
+    m_HasDefSnapshot  = false;
+    m_LastActiveCount = 0u;
+    m_LastCapacity     = 0u;
+    // m_SpawnPos / m_AutoEmit は呼び出し間で保持しても害がない (UX 連続性)。
 }
 
 void FParticleEditorPreview::Shutdown() noexcept {
     // system を持っていないため preview emitter の Destroy は行わない。
     // 明示的に止めたい呼出し側は Shutdown 前に StopAll(system) を呼ぶこと。
-    _preview_handle    = {};
-    _has_def_snapshot  = false;
-    _fps_history.Clear();
-    _fps_index         = 0u;
-    _fps_filled        = false;
-    _last_active_count = 0u;
-    _last_capacity     = 0u;
+    m_PreviewHandle    = {};
+    m_HasDefSnapshot  = false;
+    m_FpsHistory.Clear();
+    m_FpsIndex         = 0u;
+    m_FpsFilled        = false;
+    m_LastActiveCount = 0u;
+    m_LastCapacity     = 0u;
 }
 
 // ============================================================================
@@ -73,23 +73,23 @@ void FParticleEditorPreview::Tick(f32 dt, FParticleEffectSystem& system) noexcep
     // stats 更新 (capacity / active 数)。
     u32 cap = 0u;
     (void)system.AllParticles(cap);
-    _last_capacity     = cap;
-    _last_active_count = system.ActiveParticleCount();
+    m_LastCapacity     = cap;
+    m_LastActiveCount = system.ActiveParticleCount();
 
     // frame budget ring: dt <= 0 は無視 (一時停止 / 負値ガード)。
     if (dt <= 0.0f) return;
     const f32 fps = 1.0f / dt;
-    if (!_fps_filled) {
-        _fps_history.PushBack(fps);
-        ++_fps_index;
-        if (_fps_index >= kFpsHistoryCap) {
-            _fps_index  = 0u;
-            _fps_filled = true;
+    if (!m_FpsFilled) {
+        m_FpsHistory.PushBack(fps);
+        ++m_FpsIndex;
+        if (m_FpsIndex >= kFpsHistoryCap) {
+            m_FpsIndex  = 0u;
+            m_FpsFilled = true;
         }
     } else {
-        _fps_history[_fps_index] = fps;
-        ++_fps_index;
-        if (_fps_index >= kFpsHistoryCap) _fps_index = 0u;
+        m_FpsHistory[m_FpsIndex] = fps;
+        ++m_FpsIndex;
+        if (m_FpsIndex >= kFpsHistoryCap) m_FpsIndex = 0u;
     }
 }
 
@@ -118,13 +118,13 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
     // ---- Stats ----
     // active / capacity のフォーマット。snprintf は描画用 transient buffer。
     ImGui::Text("FParticles: %u / %u",
-                static_cast<unsigned>(_last_active_count),
-                static_cast<unsigned>(_last_capacity));
+                static_cast<unsigned>(m_LastActiveCount),
+                static_cast<unsigned>(m_LastCapacity));
     {
         // pool 使用率を progress bar として可視化 (0 capacity 時はゼロ進行)。
-        const f32 ratio = (_last_capacity > 0u)
-            ? (static_cast<f32>(_last_active_count) /
-               static_cast<f32>(_last_capacity))
+        const f32 ratio = (m_LastCapacity > 0u)
+            ? (static_cast<f32>(m_LastActiveCount) /
+               static_cast<f32>(m_LastCapacity))
             : 0.0f;
         char overlay[32];
         std::snprintf(overlay, sizeof(overlay), "%.0f%%", ratio * 100.0f);
@@ -138,23 +138,23 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
     // FVec2 のメモリレイアウトは {f32 x, f32 y} contiguous なので、ImGui::DragFloat2
     // にそのままアドレスを渡せる。値が変わったら即時 system 側にも反映する。
     {
-        f32 tmp[2] = { _spawn_pos.x, _spawn_pos.y };
+        f32 tmp[2] = { m_SpawnPos.x, m_SpawnPos.y };
         if (ImGui::DragFloat2("Spawn Pos", tmp, 1.0f)) {
-            _spawn_pos = FVec2{ tmp[0], tmp[1] };
-            if (HasPreview(_preview_handle)) {
-                system.SetEmitterPosition(_preview_handle, _spawn_pos);
+            m_SpawnPos = FVec2{ tmp[0], tmp[1] };
+            if (HasPreview(m_PreviewHandle)) {
+                system.SetEmitterPosition(m_PreviewHandle, m_SpawnPos);
             }
         }
     }
 
     // ---- Auto-emit toggle ----
     {
-        bool autoe = _auto_emit;
+        bool autoe = m_AutoEmit;
         if (ImGui::Checkbox("Auto Emit (use emit_rate)", &autoe)) {
             // SetAutoEmit を介して system 側にも反映 (active flag を切り替える)。
             SetAutoEmit(autoe);
-            if (HasPreview(_preview_handle)) {
-                system.SetEmitterActive(_preview_handle, _auto_emit);
+            if (HasPreview(m_PreviewHandle)) {
+                system.SetEmitterActive(m_PreviewHandle, m_AutoEmit);
             }
         }
     }
@@ -203,19 +203,19 @@ void FParticleEditorPreview::RecreatePreviewEmitter(FParticleEffectSystem& syste
                                                    const ParticleEmitterDef* def) noexcept {
     if (def == nullptr) return;
 
-    if (HasPreview(_preview_handle)) {
-        system.DestroyEmitter(_preview_handle);
-        _preview_handle = {};
+    if (HasPreview(m_PreviewHandle)) {
+        system.DestroyEmitter(m_PreviewHandle);
+        m_PreviewHandle = {};
     }
 
     // def の copy を snapshot として保持 (caller 側 def が消えても再 Tick できる)。
-    _last_def         = *def;
-    _has_def_snapshot = true;
+    m_LastDef         = *def;
+    m_HasDefSnapshot = true;
 
-    _preview_handle = system.CreateEmitter(_last_def, _spawn_pos);
-    if (HasPreview(_preview_handle)) {
+    m_PreviewHandle = system.CreateEmitter(m_LastDef, m_SpawnPos);
+    if (HasPreview(m_PreviewHandle)) {
         // auto_emit に応じて active 状態を反映 (CreateEmitter 直後は active=true)。
-        system.SetEmitterActive(_preview_handle, _auto_emit);
+        system.SetEmitterActive(m_PreviewHandle, m_AutoEmit);
     }
 }
 
@@ -226,8 +226,8 @@ void FParticleEditorPreview::RecreatePreviewEmitter(FParticleEffectSystem& syste
 //   ・FParticleEffectSystem::Burst は handle 検証 + burst_count に従い floor 切り捨て。
 // ============================================================================
 void FParticleEditorPreview::TriggerBurst(FParticleEffectSystem& system) noexcept {
-    if (!HasPreview(_preview_handle)) return;
-    system.Burst(_preview_handle);
+    if (!HasPreview(m_PreviewHandle)) return;
+    system.Burst(m_PreviewHandle);
 }
 
 // ============================================================================
@@ -237,12 +237,12 @@ void FParticleEditorPreview::TriggerBurst(FParticleEffectSystem& system) noexcep
 //   ・handle は invalid 化 (= 次回 Recreate で再生成必要)。
 // ============================================================================
 void FParticleEditorPreview::StopAll(FParticleEffectSystem& system) noexcept {
-    if (HasPreview(_preview_handle)) {
-        system.DestroyEmitter(_preview_handle);
-        _preview_handle = {};
+    if (HasPreview(m_PreviewHandle)) {
+        system.DestroyEmitter(m_PreviewHandle);
+        m_PreviewHandle = {};
     }
     system.ClearAll();
-    _last_active_count = 0u;
+    m_LastActiveCount = 0u;
 }
 
 // ============================================================================
@@ -253,13 +253,13 @@ void FParticleEditorPreview::StopAll(FParticleEffectSystem& system) noexcept {
 // (UI 経由の更新は DrawUI 内で同じことを行うが、二重反映でも no-op で安全。)
 // ============================================================================
 void FParticleEditorPreview::SetSpawnPos(FVec2 pos) noexcept {
-    _spawn_pos = pos;
+    m_SpawnPos = pos;
     // system reference は受け取らない API なので、内部値だけ更新。次の Tick /
     // Recreate 時に反映される。
 }
 
 void FParticleEditorPreview::SetAutoEmit(bool b) noexcept {
-    _auto_emit = b;
+    m_AutoEmit = b;
     // system reference は受け取らない API。Recreate 時か DrawUI 経由で反映される。
 }
 
@@ -269,10 +269,10 @@ void FParticleEditorPreview::SetAutoEmit(bool b) noexcept {
 //   ・履歴空のとき 0。少数フレームでも有効分だけで平均する (FDebugOverlay と同規約)。
 // ============================================================================
 f32 FParticleEditorPreview::GraphFps() const noexcept {
-    const usize n = _fps_history.Size();
+    const usize n = m_FpsHistory.Size();
     if (n == 0u) return 0.0f;
     f32 sum = 0.0f;
-    for (usize i = 0; i < n; ++i) sum += _fps_history[i];
+    for (usize i = 0; i < n; ++i) sum += m_FpsHistory[i];
     return sum / static_cast<f32>(n);
 }
 

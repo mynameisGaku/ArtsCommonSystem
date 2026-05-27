@@ -43,19 +43,19 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 u32 FInventorySystem::FindItemSlot(const char* item_id) const noexcept {
     if (item_id == nullptr) return kNotFound;
-    const usize n = _items.Size();
+    const usize n = m_Items.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_items[i].id, item_id)) return static_cast<u32>(i);
+        if (StrEq(m_Items[i].id, item_id)) return static_cast<u32>(i);
     }
     return kNotFound;
 }
 
 void FInventorySystem::NotifyChange(u32 slot_index) noexcept {
-    if (_on_change == nullptr) return;
+    if (m_OnChange == nullptr) return;
     // 範囲外は呼ばない (defensive)。slot_index < SlotCount() のときだけ。
-    if (slot_index >= static_cast<u32>(_slots.Size())) return;
-    const InventorySlot& s = _slots[slot_index];
-    _on_change(_on_change_user, slot_index, s.item_id, s.count);
+    if (slot_index >= static_cast<u32>(m_Slots.Size())) return;
+    const InventorySlot& s = m_Slots[slot_index];
+    m_OnChange(m_OnChangeUser, slot_index, s.item_id, s.count);
 }
 
 // =============================================================================
@@ -67,11 +67,11 @@ void FInventorySystem::Init(u32 slot_count) noexcept {
     if (slot_count == 0) slot_count = 1;
 
     // 同じ slot_count なら no-op (再 Init で内容をクリアしないことを保証)。
-    if (static_cast<u32>(_slots.Size()) == slot_count) return;
+    if (static_cast<u32>(m_Slots.Size()) == slot_count) return;
 
     // slot 数が違う場合は内容クリアして resize。
-    _slots.Clear();
-    _slots.Resize(slot_count);
+    m_Slots.Clear();
+    m_Slots.Resize(slot_count);
     // Resize はデフォルト構築するので item_id = nullptr / count = 0 で初期化済。
 }
 
@@ -93,13 +93,13 @@ void FInventorySystem::RegisterItem(const ItemDef& def) noexcept {
     ItemDef copy = def;
     if (copy.max_stack == 0) copy.max_stack = 1;
 
-    _items.PushBack(copy);
+    m_Items.PushBack(copy);
 }
 
 const ItemDef* FInventorySystem::FindItem(const char* item_id) const noexcept {
     const u32 slot = FindItemSlot(item_id);
     if (slot == kNotFound) return nullptr;
-    return &_items[slot];
+    return &m_Items[slot];
 }
 
 // =============================================================================
@@ -109,22 +109,22 @@ const ItemDef* FInventorySystem::FindItem(const char* item_id) const noexcept {
 u32 FInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
     // 早期 reject — side effect なし。
     if (item_id == nullptr || count == 0) return 0;
-    if (_slots.Size() == 0)               return 0;  // Init 前
+    if (m_Slots.Size() == 0)               return 0;  // Init 前
 
     const u32 def_idx = FindItemSlot(item_id);
     if (def_idx == kNotFound) return 0;  // 未登録 item
 
-    // ItemDef::id をリテラル参照として保存する (slot.item_id は _items[].id を指す)。
-    const ItemDef& def     = _items[def_idx];
+    // ItemDef::id をリテラル参照として保存する (slot.item_id は m_Items[].id を指す)。
+    const ItemDef& def     = m_Items[def_idx];
     const char*    canon_id = def.id;
     const u32      max_stk  = def.max_stack;
-    const u32      n_slots  = static_cast<u32>(_slots.Size());
+    const u32      n_slots  = static_cast<u32>(m_Slots.Size());
 
     u32 remaining = count;
 
     // Pass 1: 既存 stack に積み増し (積み増し優先で fragmentation を抑える)。
     for (u32 i = 0; i < n_slots && remaining > 0; ++i) {
-        InventorySlot& s = _slots[i];
+        InventorySlot& s = m_Slots[i];
         if (s.item_id == nullptr) continue;          // 空 slot は Pass 2 で
         if (!StrEq(s.item_id, canon_id)) continue;   // 別 item
         if (s.count >= max_stk)         continue;    // 既に満杯
@@ -137,7 +137,7 @@ u32 FInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
 
     // Pass 2: 空 slot を埋める。
     for (u32 i = 0; i < n_slots && remaining > 0; ++i) {
-        InventorySlot& s = _slots[i];
+        InventorySlot& s = m_Slots[i];
         if (s.item_id != nullptr) continue;  // 埋まっている
         const u32 add = (remaining < max_stk) ? remaining : max_stk;
         s.item_id  = canon_id;  // リテラル参照
@@ -151,14 +151,14 @@ u32 FInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
 
 u32 FInventorySystem::RemoveItem(const char* item_id, u32 count) noexcept {
     if (item_id == nullptr || count == 0) return 0;
-    if (_slots.Size() == 0)               return 0;
+    if (m_Slots.Size() == 0)               return 0;
 
-    const u32 n_slots = static_cast<u32>(_slots.Size());
+    const u32 n_slots = static_cast<u32>(m_Slots.Size());
     u32       removed = 0;
 
     // 前方優先で減らす (UI の見え方を自然にする)。
     for (u32 i = 0; i < n_slots && removed < count; ++i) {
-        InventorySlot& s = _slots[i];
+        InventorySlot& s = m_Slots[i];
         if (s.item_id == nullptr) continue;
         if (!StrEq(s.item_id, item_id)) continue;
         const u32 need = count - removed;
@@ -186,12 +186,12 @@ bool FInventorySystem::HasItem(const char* item_id, u32 min_count) const noexcep
 
 u32 FInventorySystem::ItemTotal(const char* item_id) const noexcept {
     if (item_id == nullptr) return 0;
-    if (_slots.Size() == 0) return 0;
+    if (m_Slots.Size() == 0) return 0;
 
-    const u32 n_slots = static_cast<u32>(_slots.Size());
+    const u32 n_slots = static_cast<u32>(m_Slots.Size());
     u32       total   = 0;
     for (u32 i = 0; i < n_slots; ++i) {
-        const InventorySlot& s = _slots[i];
+        const InventorySlot& s = m_Slots[i];
         if (s.item_id == nullptr) continue;
         if (!StrEq(s.item_id, item_id)) continue;
         // u32 オーバーフローは現実的な inventory サイズでは起きないため
@@ -206,15 +206,15 @@ u32 FInventorySystem::ItemTotal(const char* item_id) const noexcept {
 // =============================================================================
 
 bool FInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
-    const u32 n_slots = static_cast<u32>(_slots.Size());
+    const u32 n_slots = static_cast<u32>(m_Slots.Size());
     if (n_slots == 0) return false;
     if (from_index >= n_slots || to_index >= n_slots) return false;
 
     // 同 index は no-op (UI のドラッグ操作で「同じ場所に落とした」想定)。
     if (from_index == to_index) return true;
 
-    InventorySlot& from = _slots[from_index];
-    InventorySlot& to   = _slots[to_index];
+    InventorySlot& from = m_Slots[from_index];
+    InventorySlot& to   = m_Slots[to_index];
 
     // from が空なら何もしない (操作としては成功扱い)。
     if (from.item_id == nullptr) return true;
@@ -265,9 +265,9 @@ bool FInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
 }
 
 bool FInventorySystem::DropSlot(u32 index) noexcept {
-    if (index >= static_cast<u32>(_slots.Size())) return false;
+    if (index >= static_cast<u32>(m_Slots.Size())) return false;
 
-    InventorySlot& s = _slots[index];
+    InventorySlot& s = m_Slots[index];
     if (s.item_id == nullptr) return false;  // 既に空
 
     // can_drop チェック (quest / key 系を構造的に守る)。
@@ -285,19 +285,19 @@ bool FInventorySystem::DropSlot(u32 index) noexcept {
 // =============================================================================
 
 const InventorySlot* FInventorySystem::GetSlot(u32 index) const noexcept {
-    if (index >= static_cast<u32>(_slots.Size())) return nullptr;
-    return &_slots[index];
+    if (index >= static_cast<u32>(m_Slots.Size())) return nullptr;
+    return &m_Slots[index];
 }
 
 u32 FInventorySystem::SlotCount() const noexcept {
-    return static_cast<u32>(_slots.Size());
+    return static_cast<u32>(m_Slots.Size());
 }
 
 u32 FInventorySystem::EmptySlotCount() const noexcept {
-    const u32 n = static_cast<u32>(_slots.Size());
+    const u32 n = static_cast<u32>(m_Slots.Size());
     u32       e = 0;
     for (u32 i = 0; i < n; ++i) {
-        if (_slots[i].item_id == nullptr) ++e;
+        if (m_Slots[i].item_id == nullptr) ++e;
     }
     return e;
 }
@@ -308,8 +308,8 @@ u32 FInventorySystem::EmptySlotCount() const noexcept {
 
 void FInventorySystem::SetOnChangeCallback(ChangeCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
-    _on_change      = cb;
-    _on_change_user = user;
+    m_OnChange      = cb;
+    m_OnChangeUser = user;
 }
 
 // =============================================================================
@@ -317,10 +317,10 @@ void FInventorySystem::SetOnChangeCallback(ChangeCallback cb, void* user) noexce
 // =============================================================================
 
 void FInventorySystem::ClearAll() noexcept {
-    _items.Clear();
-    _slots.Clear();
-    _on_change      = nullptr;
-    _on_change_user = nullptr;
+    m_Items.Clear();
+    m_Slots.Clear();
+    m_OnChange      = nullptr;
+    m_OnChangeUser = nullptr;
 }
 
 } // namespace acs::game

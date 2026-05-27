@@ -18,38 +18,38 @@ public:
     void OnShutdown() noexcept override;
 
     // ----- 共通サービスへのアクセサ -----
-    acs::game::FAudioDirector& Audio()   noexcept { return _audio; }
-    acs::game::FMusicDirector& Music()   noexcept { return _music; }
-    acs::game::FGameFlow&      Flow()    noexcept { return _flow; }
-    acs::FSpriteBatch&         Sprites() noexcept { return _sprites; }
-    bool                      SpritesReady() const noexcept { return _sprite_initialized; }
+    acs::game::FAudioDirector& Audio()   noexcept { return m_Audio; }
+    acs::game::FMusicDirector& Music()   noexcept { return m_Music; }
+    acs::game::FGameFlow&      Flow()    noexcept { return m_Flow; }
+    acs::FSpriteBatch&         Sprites() noexcept { return m_Sprites; }
+    bool                      SpritesReady() const noexcept { return m_SpriteInitialized; }
 
     // FSpriteBatch + Font を初回 OnRender で 1 度だけ初期化。Init は FRenderer
     // がフレームを始めて Device が生きてからでないと安全に呼べないため遅延。
     void EnsureSpritesInitialized() noexcept;
 
-    acs::Font& FontTitle() noexcept { return _font_title; }
-    acs::Font& FontBody()  noexcept { return _font_body; }
-    bool       FontReady() const noexcept { return _font_initialized; }
+    acs::Font& FontTitle() noexcept { return m_FontTitle; }
+    acs::Font& FontBody()  noexcept { return m_FontBody; }
+    bool       FontReady() const noexcept { return m_FontInitialized; }
 
-    HighScore&                       GetHighScore()    noexcept { return _highscore; }
-    acs::game::FSaveSlot<HighScore>&  HighScoreSlot()   noexcept { return _highscore_slot; }
+    HighScore&                       GetHighScore()    noexcept { return m_Highscore; }
+    acs::game::FSaveSlot<HighScore>&  HighScoreSlot()   noexcept { return m_HighscoreSlot; }
     void SaveHighScoreIfBetter(acs::u64 final_score) noexcept;
 
 protected:
     acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override;
 
 private:
-    acs::game::FAudioDirector            _audio;
-    acs::game::FMusicDirector            _music;
-    acs::game::FGameFlow                 _flow;
-    acs::game::FSaveSlot<HighScore>      _highscore_slot;
-    HighScore                           _highscore{};
-    acs::FSpriteBatch                    _sprites;
-    acs::Font                           _font_title;
-    acs::Font                           _font_body;
-    bool                                _sprite_initialized = false;
-    bool                                _font_initialized   = false;
+    acs::game::FAudioDirector            m_Audio;
+    acs::game::FMusicDirector            m_Music;
+    acs::game::FGameFlow                 m_Flow;
+    acs::game::FSaveSlot<HighScore>      m_HighscoreSlot;
+    HighScore                           m_Highscore{};
+    acs::FSpriteBatch                    m_Sprites;
+    acs::Font                           m_FontTitle;
+    acs::Font                           m_FontBody;
+    bool                                m_SpriteInitialized = false;
+    bool                                m_FontInitialized   = false;
 };
 
 } // namespace hellofg

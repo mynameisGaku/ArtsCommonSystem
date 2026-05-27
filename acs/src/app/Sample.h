@@ -8,8 +8,8 @@
 // 使用例 (HelloHelloMVVM 等):
 //   class MyApp : public FApplication {
 //       void OnStart() noexcept override {
-//           ACS_SAMPLE_INIT(_imgui.Init(GetWindow(), GetRenderer()));
-//           ACS_SAMPLE_INIT(_shader.Init(*GetRenderer().Device(),
+//           ACS_SAMPLE_INIT(m_Imgui.Init(GetWindow(), GetRenderer()));
+//           ACS_SAMPLE_INIT(m_Shader.Init(*GetRenderer().Device(),
 //                                        GetRenderer().ColorFormat(),
 //                                        GetRenderer().DepthFormat()));
 //           // 失敗した時点で自動的に Quit() + ログ出して return される
@@ -19,10 +19,10 @@
 //
 // 標準フォント解決:
 //   const wchar_t* fp = acs::FSample::DefaultUIFontPath();   // OS 別の優先パス
-//   _font.LoadFromFile(*dev, fp, 18.0f);
+//   m_Font.LoadFromFile(*dev, fp, 18.0f);
 //
 // 文字列ベースで複数候補を試すヘルパ:
-//   if (acs::FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f).IsErr()) {
+//   if (acs::FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f).IsErr()) {
 //       // どれも見つからなかった
 //   }
 #pragma once
@@ -59,16 +59,16 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
 // ----------------------------------------------------------------------------
 //
 // 使い方:
-//   ACS_SAMPLE_INIT(_renderer_thing.Init(args));
+//   ACS_SAMPLE_INIT(m_RendererThing.Init(args));
 //
-// マクロ内では `auto _r = (expr); if (_r.IsErr()) { ログ + Quit + return; }` を展開。
+// マクロ内では `auto m_R = (expr); if (m_R.IsErr()) { ログ + Quit + return; }` を展開。
 // FApplication のメンバ関数からのみ使える (Quit() メソッドへのアクセスが要るため)。
 #define ACS_SAMPLE_INIT(expr)                                                      \
     do {                                                                           \
-        auto _acs_sample_r = (expr);                                               \
-        if (_acs_sample_r.IsErr()) {                                               \
+        auto m_AcsSampleR = (expr);                                               \
+        if (m_AcsSampleR.IsErr()) {                                               \
             ACS_LOG_ERROR("FSample init failed at " #expr ": %s",                  \
-                          _acs_sample_r.Error().message);                          \
+                          m_AcsSampleR.Error().message);                          \
             Quit();                                                                \
             return;                                                                \
         }                                                                          \
@@ -79,11 +79,11 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
 //   ACS_SAMPLE_TAKE(tex, CreateRhiTexture(*dev, td));
 //   // 以降 tex を使える
 #define ACS_SAMPLE_TAKE(name, expr)                                                \
-    auto ACS_CONCAT(_acs_take_r_, __LINE__) = (expr);                              \
-    if (ACS_CONCAT(_acs_take_r_, __LINE__).IsErr()) {                              \
+    auto ACS_CONCAT(m_AcsTakeR, __LINE__) = (expr);                              \
+    if (ACS_CONCAT(m_AcsTakeR, __LINE__).IsErr()) {                              \
         ACS_LOG_ERROR("FSample take failed at " #expr ": %s",                      \
-                      ACS_CONCAT(_acs_take_r_, __LINE__).Error().message);         \
+                      ACS_CONCAT(m_AcsTakeR, __LINE__).Error().message);         \
         Quit();                                                                    \
         return;                                                                    \
     }                                                                              \
-    auto name = ::acs::Move(ACS_CONCAT(_acs_take_r_, __LINE__).Value())
+    auto name = ::acs::Move(ACS_CONCAT(m_AcsTakeR, __LINE__).Value())

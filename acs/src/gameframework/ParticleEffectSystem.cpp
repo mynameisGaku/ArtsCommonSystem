@@ -3,7 +3,7 @@
 //
 // 仕様の意図は FParticleEffectSystem.h を参照。本ファイルでは:
 //   ・generational emitter slot の Acquire / Release
-//   ・particle pool の `_next_free` カーソル走査
+//   ・particle pool の `m_NextFree` カーソル走査
 //   ・accumulator 方式の連続放出
 //   ・LCG 乱数 + 円周一様な方向ベクトル
 //   ・Tick での物理積分 (Euler) + 寿命チェック
@@ -22,17 +22,17 @@ namespace acs::game {
 // max_particles == 0 は誤呼出しと見なし 1024 を採用 (silently fail を避ける)。
 // =============================================================================
 void FParticleEffectSystem::Init(u32 max_particles) noexcept {
-    if (_capacity != 0u) return;                  // 既に初期化済み
+    if (m_Capacity != 0u) return;                  // 既に初期化済み
     if (max_particles == 0u) max_particles = 1024u;
 
-    _particles.Resize(static_cast<usize>(max_particles));
-    _particle_active.Resize(static_cast<usize>(max_particles));
-    for (usize i = 0; i < _particle_active.Size(); ++i) {
-        _particle_active[i] = 0u;
+    m_Particles.Resize(static_cast<usize>(max_particles));
+    m_ParticleActive.Resize(static_cast<usize>(max_particles));
+    for (usize i = 0; i < m_ParticleActive.Size(); ++i) {
+        m_ParticleActive[i] = 0u;
     }
-    _capacity         = max_particles;
-    _active_particles = 0u;
-    _next_free        = 0u;
+    m_Capacity         = max_particles;
+    m_ActiveParticles = 0u;
+    m_NextFree        = 0u;
 }
 
 // =============================================================================
@@ -44,17 +44,17 @@ void FParticleEffectSystem::Init(u32 max_particles) noexcept {
 // 線形探索で十分。
 // =============================================================================
 u32 FParticleEffectSystem::AcquireEmitterSlot() noexcept {
-    const usize n = _emitters.Size();
+    const usize n = m_Emitters.Size();
     for (usize i = 0; i < n; ++i) {
-        if (!_emitters[i].in_use) {
+        if (!m_Emitters[i].in_use) {
             return static_cast<u32>(i);
         }
     }
     if (n >= static_cast<usize>(FEmitterHandle::kMaxIndex)) {
         return kInvalidIdx;
     }
-    _emitters.PushBack({});
-    return static_cast<u32>(_emitters.Size()) - 1u;
+    m_Emitters.PushBack({});
+    return static_cast<u32>(m_Emitters.Size()) - 1u;
 }
 
 // =============================================================================
@@ -71,7 +71,7 @@ FEmitterHandle FParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& de
     const u32 idx = AcquireEmitterSlot();
     if (idx == kInvalidIdx) return {};
 
-    Emitter& e = _emitters[static_cast<usize>(idx)];
+    Emitter& e = m_Emitters[static_cast<usize>(idx)];
 
     u8 new_gen = static_cast<u8>(e.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
@@ -83,7 +83,7 @@ FEmitterHandle FParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& de
     e.active     = true;
     e.in_use     = true;
 
-    ++_emitter_count;
+    ++m_EmitterCount;
     return FEmitterHandle::Pack(idx, new_gen);
 }
 
@@ -97,8 +97,8 @@ FEmitterHandle FParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& de
 void FParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
-    if (idx >= _emitters.Size()) return;
-    Emitter& e = _emitters[static_cast<usize>(idx)];
+    if (idx >= m_Emitters.Size()) return;
+    Emitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     e.pos = pos;
 }
@@ -106,8 +106,8 @@ void FParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noex
 void FParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
-    if (idx >= _emitters.Size()) return;
-    Emitter& e = _emitters[static_cast<usize>(idx)];
+    if (idx >= m_Emitters.Size()) return;
+    Emitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     e.active     = active;
     // 非 active → active で「emit_accum が大きく残っていて急に大量放出」を
@@ -127,8 +127,8 @@ void FParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noex
 void FParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
-    if (idx >= _emitters.Size()) return;
-    const Emitter& e = _emitters[static_cast<usize>(idx)];
+    if (idx >= m_Emitters.Size()) return;
+    const Emitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     if (e.def.burst_count <= 0.0f) return;
 
@@ -148,40 +148,40 @@ void FParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
 void FParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
-    if (idx >= _emitters.Size()) return;
-    Emitter& e = _emitters[static_cast<usize>(idx)];
+    if (idx >= m_Emitters.Size()) return;
+    Emitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
 
     e.in_use     = false;
     e.active     = false;
     e.emit_accum = 0.0f;
-    if (_emitter_count > 0u) --_emitter_count;
+    if (m_EmitterCount > 0u) --m_EmitterCount;
 }
 
 // =============================================================================
 // AcquireParticleSlot
 // -----------------------------------------------------------------------------
-// `_next_free` を起点に巡回探索 (modulo capacity)。
+// `m_NextFree` を起点に巡回探索 (modulo capacity)。
 //   ・大半のフレームでは 1〜2 step で空きが見つかる (= O(1) 期待)。
-//   ・最悪 O(N) だが、_active_particles >= _capacity の早期 return で
+//   ・最悪 O(N) だが、m_ActiveParticles >= m_Capacity の早期 return で
 //      満杯時は即時 fail する。
-//   ・found 時に _next_free を「次の slot」に進めておくと、次回呼出が
+//   ・found 時に m_NextFree を「次の slot」に進めておくと、次回呼出が
 //      連続して O(1) になりやすい (= ring buffer 的局所性)。
 // =============================================================================
 u32 FParticleEffectSystem::AcquireParticleSlot() noexcept {
-    if (_capacity == 0u) return kInvalidIdx;
-    if (_active_particles >= _capacity) return kInvalidIdx;
+    if (m_Capacity == 0u) return kInvalidIdx;
+    if (m_ActiveParticles >= m_Capacity) return kInvalidIdx;
 
-    u32 cursor = _next_free;
-    for (u32 step = 0u; step < _capacity; ++step) {
-        if (cursor >= _capacity) cursor = 0u; // wrap
-        if (_particle_active[static_cast<usize>(cursor)] == 0u) {
+    u32 cursor = m_NextFree;
+    for (u32 step = 0u; step < m_Capacity; ++step) {
+        if (cursor >= m_Capacity) cursor = 0u; // wrap
+        if (m_ParticleActive[static_cast<usize>(cursor)] == 0u) {
             // 見つかった
-            _particle_active[static_cast<usize>(cursor)] = 1u;
-            ++_active_particles;
+            m_ParticleActive[static_cast<usize>(cursor)] = 1u;
+            ++m_ActiveParticles;
             // 次回ヒントを 1 進めておく (modulo は次回 wrap で吸収される)
-            _next_free = cursor + 1u;
-            if (_next_free >= _capacity) _next_free = 0u;
+            m_NextFree = cursor + 1u;
+            if (m_NextFree >= m_Capacity) m_NextFree = 0u;
             return cursor;
         }
         ++cursor;
@@ -203,7 +203,7 @@ void FParticleEffectSystem::EmitOne(const Emitter& e) noexcept {
     const u32 idx = AcquireParticleSlot();
     if (idx == kInvalidIdx) return;
 
-    Particle& p = _particles[static_cast<usize>(idx)];
+    Particle& p = m_Particles[static_cast<usize>(idx)];
 
     // 方向: 単位円周上の一様サンプル
     const f32 angle = NextRandRange(0.0f, kTwoPi);
@@ -234,16 +234,16 @@ void FParticleEffectSystem::EmitOne(const Emitter& e) noexcept {
 //    Euler)。これにより gravity 影響下でも数値発散しにくい。
 // 3) age += dt し、lifetime を超えたら active=0 に戻して pool に返却。
 //
-// dt <= 0 は no-op。Init 前 (_capacity == 0) も no-op (defensive)。
+// dt <= 0 は no-op。Init 前 (m_Capacity == 0) も no-op (defensive)。
 // =============================================================================
 void FParticleEffectSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
-    if (_capacity == 0u) return;
+    if (m_Capacity == 0u) return;
 
     // ---- 連続放出 ----------------------------------------------------------
-    const usize en = _emitters.Size();
+    const usize en = m_Emitters.Size();
     for (usize i = 0; i < en; ++i) {
-        Emitter& e = _emitters[i];
+        Emitter& e = m_Emitters[i];
         if (!e.in_use || !e.active) continue;
         if (e.def.emit_rate_per_sec <= 0.0f) continue;
 
@@ -253,8 +253,8 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
         // 次フレに繰り越し)。
         while (e.emit_accum >= 1.0f) {
             // 満杯時は early break して残累積はキープ (次フレ放出のチャンスへ)
-            const u32 free_slots = (_capacity > _active_particles)
-                                 ? (_capacity - _active_particles)
+            const u32 free_slots = (m_Capacity > m_ActiveParticles)
+                                 ? (m_Capacity - m_ActiveParticles)
                                  : 0u;
             if (free_slots == 0u) break;
 
@@ -265,13 +265,13 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
 
     // ---- 物理積分 + 寿命チェック -----------------------------------------
     // semi-implicit Euler: velocity を gravity で先に更新 → position を更新。
-    // 寿命切れは _particle_active[i] を 0 に戻す (slot を pool に返却) し、
-    // _next_free を「今解放した index」まで戻して次の EmitOne の局所性を高める。
-    const usize pn = _particles.Size();
+    // 寿命切れは m_ParticleActive[i] を 0 に戻す (slot を pool に返却) し、
+    // m_NextFree を「今解放した index」まで戻して次の EmitOne の局所性を高める。
+    const usize pn = m_Particles.Size();
     for (usize i = 0; i < pn; ++i) {
-        if (_particle_active[i] == 0u) continue;
+        if (m_ParticleActive[i] == 0u) continue;
 
-        Particle& p = _particles[i];
+        Particle& p = m_Particles[i];
 
         // semi-implicit Euler: v <- v + g*dt, p <- p + v*dt
         p.velocity.x += p.gravity.x * dt;
@@ -282,12 +282,12 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
         // 寿命進行
         p.age += dt;
         if (p.age >= p.lifetime) {
-            _particle_active[i] = 0u;
-            if (_active_particles > 0u) --_active_particles;
+            m_ParticleActive[i] = 0u;
+            if (m_ActiveParticles > 0u) --m_ActiveParticles;
             // 今解放した slot を次の EmitOne で即座に使いやすくする
             // (ring buffer ヒントを巻き戻し)。
-            if (static_cast<u32>(i) < _next_free) {
-                _next_free = static_cast<u32>(i);
+            if (static_cast<u32>(i) < m_NextFree) {
+                m_NextFree = static_cast<u32>(i);
             }
         }
     }
@@ -297,28 +297,28 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
 // AllParticles / ClearAll
 // =============================================================================
 const Particle* FParticleEffectSystem::AllParticles(u32& out_count) const noexcept {
-    out_count = _capacity;
-    if (_capacity == 0u) return nullptr;
-    return _particles.Data();
+    out_count = m_Capacity;
+    if (m_Capacity == 0u) return nullptr;
+    return m_Particles.Data();
 }
 
 void FParticleEffectSystem::ClearAll() noexcept {
     // emitter slot を全て解放 (gen はそのまま残す = stale handle 検出を維持)
-    const usize en = _emitters.Size();
+    const usize en = m_Emitters.Size();
     for (usize i = 0; i < en; ++i) {
-        Emitter& e = _emitters[i];
+        Emitter& e = m_Emitters[i];
         e.in_use     = false;
         e.active     = false;
         e.emit_accum = 0.0f;
     }
-    _emitter_count = 0u;
+    m_EmitterCount = 0u;
 
     // particle pool を全 inactive 化 (中身の値は気にしない、active flag で gate)
-    for (usize i = 0; i < _particle_active.Size(); ++i) {
-        _particle_active[i] = 0u;
+    for (usize i = 0; i < m_ParticleActive.Size(); ++i) {
+        m_ParticleActive[i] = 0u;
     }
-    _active_particles = 0u;
-    _next_free        = 0u;
+    m_ActiveParticles = 0u;
+    m_NextFree        = 0u;
 }
 
 // =============================================================================
@@ -329,9 +329,9 @@ void FParticleEffectSystem::ClearAll() noexcept {
 // 上位 24bit を仮数に詰めて [0,1) f32 を作る (xoshiro と同じ手口、bias 最小)。
 // =============================================================================
 f32 FParticleEffectSystem::NextRandUnit() noexcept {
-    _rng_state = _rng_state * 1664525u + 1013904223u;
+    m_RngState = m_RngState * 1664525u + 1013904223u;
     // 上位 24bit を [0,1) に。0x1p-24 = 1/16777216。
-    const u32 bits = _rng_state >> 8;
+    const u32 bits = m_RngState >> 8;
     return static_cast<f32>(bits) * (1.0f / 16777216.0f);
 }
 

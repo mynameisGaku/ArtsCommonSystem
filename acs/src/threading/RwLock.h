@@ -36,7 +36,7 @@ public:
     void UnlockExclusive()  noexcept;    // 解除
 
 private:
-    void* _srw[1];                       // SRWLOCK 実体
+    void* m_Srw[1];                       // SRWLOCK 実体
 };
 
 } // namespace acs

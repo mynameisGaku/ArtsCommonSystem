@@ -14,16 +14,16 @@ TcpConnection::~TcpConnection() noexcept {
 }
 
 TcpConnection::TcpConnection(TcpConnection&& o) noexcept
-    : _socket(o._socket), _remote(o._remote) {
-    o._socket = ~uptr{0};
+    : m_Socket(o.m_Socket), m_Remote(o.m_Remote) {
+    o.m_Socket = ~uptr{0};
 }
 
 TcpConnection& TcpConnection::operator=(TcpConnection&& o) noexcept {
     if (this == &o) return *this;
     Close();
-    _socket = o._socket;
-    _remote = o._remote;
-    o._socket = ~uptr{0};
+    m_Socket = o.m_Socket;
+    m_Remote = o.m_Remote;
+    o.m_Socket = ~uptr{0};
     return *this;
 }
 
@@ -50,47 +50,47 @@ TResult<TcpConnection> TcpConnection::Connect(IpAddress addr, u16 port) noexcept
     }
 
     TcpConnection c;
-    c._socket = static_cast<uptr>(s);
+    c.m_Socket = static_cast<uptr>(s);
     addr.port = port;
-    c._remote = addr;
+    c.m_Remote = addr;
     return TResult<TcpConnection>(OkInit, Move(c));
 }
 
 TcpConnection TcpConnection::FromAccepted(uptr socket, IpAddress remote) noexcept {
     TcpConnection c;
-    c._socket = socket;
-    c._remote = remote;
+    c.m_Socket = socket;
+    c.m_Remote = remote;
     return c;
 }
 
 void TcpConnection::Close() noexcept {
-    if (_socket != ~uptr{0}) {
-        ::shutdown(static_cast<SOCKET>(_socket), SD_BOTH);
-        ::closesocket(static_cast<SOCKET>(_socket));
-        _socket = ~uptr{0};
+    if (m_Socket != ~uptr{0}) {
+        ::shutdown(static_cast<SOCKET>(m_Socket), SD_BOTH);
+        ::closesocket(static_cast<SOCKET>(m_Socket));
+        m_Socket = ~uptr{0};
     }
 }
 
 isize TcpConnection::Send(const void* data, usize size) noexcept {
-    if (_socket == ~uptr{0}) return -1;
-    int n = ::send(static_cast<SOCKET>(_socket), static_cast<const char*>(data),
+    if (m_Socket == ~uptr{0}) return -1;
+    int n = ::send(static_cast<SOCKET>(m_Socket), static_cast<const char*>(data),
                    static_cast<int>(size), 0);
     if (n == SOCKET_ERROR) return -1;
     return n;
 }
 
 isize TcpConnection::Recv(void* buf, usize size) noexcept {
-    if (_socket == ~uptr{0}) return -1;
-    int n = ::recv(static_cast<SOCKET>(_socket), static_cast<char*>(buf),
+    if (m_Socket == ~uptr{0}) return -1;
+    int n = ::recv(static_cast<SOCKET>(m_Socket), static_cast<char*>(buf),
                    static_cast<int>(size), 0);
     if (n == SOCKET_ERROR) return -1;
     return n;  // 0 は相手切断
 }
 
 TResult<void> TcpConnection::SetNonBlocking(bool enable) noexcept {
-    if (_socket == ~uptr{0}) return ACS_ERR(IO, 213, "socket not open");
+    if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 213, "socket not open");
     u_long mode = enable ? 1 : 0;
-    if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)
+    if (::ioctlsocket(static_cast<SOCKET>(m_Socket), FIONBIO, &mode) == SOCKET_ERROR)
         return ACS_ERR_OS(IO, 214, "ioctlsocket failed",
                           static_cast<u32>(::WSAGetLastError()));
     return Ok();

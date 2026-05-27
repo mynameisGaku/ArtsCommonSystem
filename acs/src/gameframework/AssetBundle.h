@@ -8,21 +8,21 @@
 //
 // 使い方 (典型例):
 //   class GameplayScene : public Scene {
-//       acs::game::FAssetBundle _bundle;
+//       acs::game::FAssetBundle m_Bundle;
 //       void OnEnter() noexcept override {
-//           _bundle.Add("textures/hero.png");
-//           _bundle.Add("audio/bgm.ogg");
-//           _bundle.Add("meshes/level.glb");
-//           _bundle.BeginLoad();
+//           m_Bundle.Add("textures/hero.png");
+//           m_Bundle.Add("audio/bgm.ogg");
+//           m_Bundle.Add("meshes/level.glb");
+//           m_Bundle.BeginLoad();
 //       }
 //       void OnUpdate(f32) noexcept override {
-//           if (!_bundle.IsLoaded()) {
-//               // ローディング画面: _bundle.Progress() を表示
+//           if (!m_Bundle.IsLoaded()) {
+//               // ローディング画面: m_Bundle.Progress() を表示
 //               return;
 //           }
 //           // 通常ゲームループ
 //       }
-//       void OnExit() noexcept override { _bundle.Unload(); }
+//       void OnExit() noexcept override { m_Bundle.Unload(); }
 //   };
 //
 // 設計方針:
@@ -104,8 +104,8 @@ private:
     };
 
     // bundle が BeginLoad を 1 度でも実行したか (Add の閉鎖判定用)。
-    bool          _begun = false;
-    TArray<Entry>  _entries;
+    bool          m_Begun = false;
+    TArray<Entry>  m_Entries;
 };
 
 } // namespace acs::game

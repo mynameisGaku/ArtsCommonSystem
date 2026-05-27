@@ -32,7 +32,7 @@
 //   ・**一様グリッド**: `cell_size` で固定、shape は overlapping cells に
 //     全部登録 (= shape は複数 cell に存在し得る)。クエリ時は cell 走査して
 //     候補集合を作り、narrow phase で実際の交差判定。
-//   ・**dirty flag + lazy rebuild**: Add/Update/Remove で `_dirty = true`、
+//   ・**dirty flag + lazy rebuild**: Add/Update/Remove で `m_Dirty = true`、
 //     query 直前にグリッド再構築。Phase 1 は per-frame full rebuild。
 //   ・**Layer / mask は Phase 2 で**。今は全 shape が交差候補。
 //   ・**FPhysicsBody2D (kinematic body + collide-and-slide) は Phase 2 で**。
@@ -47,20 +47,20 @@
 namespace acs::game {
 
 struct FShapeId {
-    u32 _packed = 0;   // 0 = invalid。layout: low24=index, high8=generation
+    u32 m_Packed = 0;   // 0 = invalid。layout: low24=index, high8=generation
 
     constexpr FShapeId() noexcept = default;
     constexpr FShapeId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32  Index() const noexcept { return _packed & 0x00FFFFFFu; }
+    constexpr u32  Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
     constexpr u8   Generation() const noexcept {
-        return static_cast<u8>(_packed >> 24);
+        return static_cast<u8>(m_Packed >> 24);
     }
-    constexpr bool IsValid() const noexcept { return _packed != 0; }
+    constexpr bool IsValid() const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(FShapeId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(FShapeId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FShapeId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(FShapeId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 class FCollisionWorld2D {
@@ -74,7 +74,7 @@ public:
     // cell_size: SpatialGrid のセルサイズ (world unit)。典型的に形状の最大
     // サイズの 2-3 倍。0 以下 / 未呼出時は 64.0f が既定。
     void Init(f32 cell_size = 64.0f) noexcept {
-        _cell_size = cell_size > 0.0f ? cell_size : 64.0f;
+        m_CellSize = cell_size > 0.0f ? cell_size : 64.0f;
     }
 
     // ----- Shape 登録 -----
@@ -91,7 +91,7 @@ public:
     // 全 shape 破棄。grid もクリア。
     void ClearAll() noexcept;
 
-    u32 ShapeCount() const noexcept { return _shape_count; }
+    u32 ShapeCount() const noexcept { return m_ShapeCount; }
 
     // ----- クエリ (broad-phase grid → narrow-phase math/Collision2D) -----
     // exclude: 自身を除外したい時 (PhysicsBody が自己 overlap を無視するため)。invalid なら除外無し。
@@ -119,7 +119,7 @@ private:
     };
 
     u32  AcquireSlot() noexcept;
-    void MarkDirty() noexcept { _dirty = true; }
+    void MarkDirty() noexcept { m_Dirty = true; }
     void RebuildGridIfDirty() noexcept;
 
     // AABB が overlapping するセル範囲 (cx_min, cy_min, cx_max, cy_max) を返す
@@ -136,13 +136,13 @@ private:
     bool NarrowIntersectAabb  (u32 slot_idx, const Aabb2& a) const noexcept;
     bool NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept;
 
-    TArray<Slot>     _slots;
-    u32             _shape_count = 0;
-    TArray<GridCell> _cells;          // 直接 TArray、cx/cy で線形検索 (Phase 1 簡略化)
-    f32             _cell_size   = 64.0f;
-    bool            _dirty       = false;
+    TArray<Slot>     m_Slots;
+    u32             m_ShapeCount = 0;
+    TArray<GridCell> m_Cells;          // 直接 TArray、cx/cy で線形検索 (Phase 1 簡略化)
+    f32             m_CellSize   = 64.0f;
+    bool            m_Dirty       = false;
     // クエリ中の重複除去用 (Phase 1: shape_count 長 bool array、簡素)
-    TArray<u8>       _query_marks;
+    TArray<u8>       m_QueryMarks;
 };
 
 } // namespace acs::game

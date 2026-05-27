@@ -16,19 +16,19 @@
 //   ls.Init(ENetMode::Local, /*tick_rate_hz=*/60);
 //
 //   // ゲームループ (Local 中):
-//   InputFrame f{ _tick, /*player_id=*/0, _buttons, _stick };
+//   InputFrame f{ m_Tick, /*player_id=*/0, m_Buttons, m_Stick };
 //   ls.RecordInput(f);
 //   // ... シミュレーションに f を反映 ...
-//   ++_tick;
+//   ++m_Tick;
 //
 //   // 後で Replay:
 //   ls.StartReplay();
 //   while (running) {
 //       InputFrame f;
-//       if (ls.ConsumeInput(_tick, 0, f)) {
+//       if (ls.ConsumeInput(m_Tick, 0, f)) {
 //           // f.buttons / f.axis をシミュレーションに反映
 //       }
-//       ++_tick;
+//       ++m_Tick;
 //   }
 //
 // 設計選択 (Phase M-1 スケルトン):
@@ -39,7 +39,7 @@
 //     60 Hz × 4 players × 30 min = 432,000 件 × ~20 B = ~8.6 MB 程度。
 //     大規模 MMO ではなく対戦ゲーム / リプレイ用なのでこの容量で十分。
 //     Phase M-2 で per-player ring buffer / 差分圧縮を検討する。
-//   ・**ConsumeInput は線形検索**: Phase 1 スケルトンでは `_replay_cursor` から
+//   ・**ConsumeInput は線形検索**: Phase 1 スケルトンでは `m_ReplayCursor` から
 //     順に走査して `tick == requested_tick && player_id == requested_player_id`
 //     を探す。記録順 = tick 昇順を仮定し、cursor を前進させることで amortised
 //     O(1)。同 tick 内の player 順は問わない。
@@ -145,24 +145,24 @@ public:
 
     // ----- 記録 -----
     // 入力 1 件を記録する。Replay モード中は no-op (記録しない)。
-    // 内部 _current_tick は frame.tick + 1 に進める (連続 tick 想定)。
+    // 内部 m_CurrentTick は frame.tick + 1 に進める (連続 tick 想定)。
     void RecordInput(const InputFrame& frame) noexcept;
 
     // ----- 再生 -----
-    // mode を Replay に切り替え、_replay_cursor = 0 / _current_tick = 0 にリセット。
+    // mode を Replay に切り替え、m_ReplayCursor = 0 / m_CurrentTick = 0 にリセット。
     // 既存 frames は保持されたまま、ConsumeInput で先頭から取り出せる状態にする。
     void StartReplay() noexcept;
 
     // 指定 tick / player_id の入力を取り出す。Replay モード以外では false を返す。
     // 該当 frame が見つかれば out に書き込んで true、なければ out を変更せず false。
-    // _replay_cursor を前進させ、線形検索を amortised O(1) にする。
+    // m_ReplayCursor を前進させ、線形検索を amortised O(1) にする。
     bool ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept;
 
     // ----- 状態 query -----
-    u32 CurrentTick() const noexcept { return _current_tick; }
+    u32 CurrentTick() const noexcept { return m_CurrentTick; }
     u32 InputCount() const noexcept;
-    ENetMode Mode() const noexcept { return _mode; }
-    u32 TickRateHz() const noexcept { return _tick_rate_hz; }
+    ENetMode Mode() const noexcept { return m_Mode; }
+    u32 TickRateHz() const noexcept { return m_TickRateHz; }
 
     // 全 input frame の FNV-1a-like u64 hash。決定論検証 / replay 同期ずれ検知用。
     u64 ComputeChecksum() const noexcept;
@@ -182,11 +182,11 @@ public:
     TResult<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    ENetMode           _mode          = ENetMode::Local;
-    u32               _tick_rate_hz  = 60;     // sample rate (Hz)
-    u32               _current_tick  = 0;      // 次に書き込む / 消費する tick
-    u32               _replay_cursor = 0;      // ConsumeInput の線形検索開始 index
-    TArray<InputFrame> _frames;
+    ENetMode           m_Mode          = ENetMode::Local;
+    u32               m_TickRateHz  = 60;     // sample rate (Hz)
+    u32               m_CurrentTick  = 0;      // 次に書き込む / 消費する tick
+    u32               m_ReplayCursor = 0;      // ConsumeInput の線形検索開始 index
+    TArray<InputFrame> m_Frames;
 };
 
 } // namespace acs::game

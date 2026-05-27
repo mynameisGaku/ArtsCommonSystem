@@ -20,8 +20,8 @@ public:
     static void LogStillPaused2(void* user) noexcept;
 
 private:
-    acs::game::FSequenceRunner _seqs;
-    acs::game::FSceneClock     _clock;
+    acs::game::FSequenceRunner m_Seqs;
+    acs::game::FSceneClock     m_Clock;
 };
 
 } // namespace hellogf

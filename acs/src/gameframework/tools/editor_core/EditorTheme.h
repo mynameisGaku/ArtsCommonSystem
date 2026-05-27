@@ -24,7 +24,7 @@
 //     漏らさないことで、本ヘッダを include しても include order が壊れない
 //     (FInspectorPanel / FParticleEditorPanel と同パターン)。
 //   ・**preset = 「色パレット定数 + spacing + corner」のスナップショット**:
-//     ApplyPreset は内部 `_colors` を上書きしたあと、`ApplyToImGui()` で
+//     ApplyPreset は内部 `m_Colors` を上書きしたあと、`ApplyToImGui()` で
 //     ImGui::GetStyle() に流す。Custom はユーザが SetCustomColors した状態を
 //     哨兵とする (= 既定の Custom 値は Dark と同等)。
 //   ・**font scale は ImGuiIO::FontGlobalScale に流す**: フォント atlas 自体は
@@ -176,14 +176,14 @@ public:
 
     // ----- preset -----------------------------------------------------------
 
-    // preset 既定の色 / spacing / corner を `_colors` に書き込み、即時 ImGui に
-    // 流す。Custom が渡された場合は `_colors` を保持したまま現値を再適用する
+    // preset 既定の色 / spacing / corner を `m_Colors` に書き込み、即時 ImGui に
+    // 流す。Custom が渡された場合は `m_Colors` を保持したまま現値を再適用する
     // (= SetCustomColors で書き込み後に preset を切り替えても、Custom に戻す
     //  と直前の Custom パレットが復活する)。
     void ApplyPreset(EEditorThemePreset preset) noexcept;
 
     // 現在の preset 種別を返す。SetCustomColors を呼ぶと自動で Custom になる。
-    EEditorThemePreset CurrentPreset() const noexcept { return _preset; }
+    EEditorThemePreset CurrentPreset() const noexcept { return m_Preset; }
 
     // ----- Custom パレット ---------------------------------------------------
 
@@ -193,7 +193,7 @@ public:
     void SetCustomColors(const EditorThemeColors& colors) noexcept;
 
     // 現在のカラーパレット (preset 既定 or Custom) を const 参照で取得。
-    const EditorThemeColors& Colors() const noexcept { return _colors; }
+    const EditorThemeColors& Colors() const noexcept { return m_Colors; }
 
     // ----- font / spacing / corner -----------------------------------------
 
@@ -203,14 +203,14 @@ public:
     void SetFontScale(f32 scale) noexcept;
 
     // 現在の font scale を返す。
-    f32 FontScale() const noexcept { return _font_scale; }
+    f32 FontScale() const noexcept { return m_FontScale; }
 
     // 全 corner radius (FWindow / Frame / Popup / Grab / Tab / Scrollbar) を
     // `radius` に統一する。負値は 0 に clamp。
     void SetRoundedCorners(f32 radius) noexcept;
 
     // 現在の corner radius を返す。
-    f32 RoundedCorners() const noexcept { return _corner_radius; }
+    f32 RoundedCorners() const noexcept { return m_CornerRadius; }
 
     // ItemSpacing.y を `item_spacing_y` に設定 (情報密度の主軸)。
     // ItemSpacing.x はこの値の 0.5 倍に連動 (見た目バランス用の経験則)。
@@ -218,7 +218,7 @@ public:
     void SetSpacing(f32 item_spacing_y) noexcept;
 
     // 現在の ItemSpacing.y を返す。
-    f32 Spacing() const noexcept { return _item_spacing_y; }
+    f32 Spacing() const noexcept { return m_ItemSpacingY; }
 
     // ----- Theme FSettings UI 描画 -------------------------------------------
 
@@ -246,21 +246,21 @@ public:
     static constexpr u32         kCurrentVersion = 1u;
 
 private:
-    // ApplyPreset / SetCustomColors / Load 後に呼ばれる。`_colors` /
-    // `_font_scale` / `_corner_radius` / `_item_spacing_y` を ImGui::GetStyle()
+    // ApplyPreset / SetCustomColors / Load 後に呼ばれる。`m_Colors` /
+    // `m_FontScale` / `m_CornerRadius` / `m_ItemSpacingY` を ImGui::GetStyle()
     // 及び ImGuiIO に流し込む。ImGui context 未生成時は何もしない (defensive)。
     void ApplyToImGui() noexcept;
 
     // preset 種別ごとの既定パレットを `out` に書き込む。Custom が渡された
-    // 場合は `_colors` を上書きしない (= 既存 Custom 値を保持)。
+    // 場合は `m_Colors` を上書きしない (= 既存 Custom 値を保持)。
     static void FillPresetColors(EEditorThemePreset preset,
                                  EditorThemeColors& out) noexcept;
 
-    EEditorThemePreset _preset          = EEditorThemePreset::Dark;
-    EditorThemeColors  _colors          {};
-    f32                _font_scale      = 1.0f;
-    f32                _corner_radius   = 3.0f;
-    f32                _item_spacing_y  = 4.0f;
+    EEditorThemePreset m_Preset          = EEditorThemePreset::Dark;
+    EditorThemeColors  m_Colors          {};
+    f32                m_FontScale      = 1.0f;
+    f32                m_CornerRadius   = 3.0f;
+    f32                m_ItemSpacingY  = 4.0f;
 };
 
 } // namespace acs::game::editor_core

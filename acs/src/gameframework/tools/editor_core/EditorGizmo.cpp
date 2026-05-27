@@ -10,8 +10,8 @@
 //   ・DrawGizmo → FDebugDraw (FVec2) に対し、3D 入力を XY 平面へ射影して描画。
 //     Z 軸ハンドルは「中心からマーカー一個」だけ表示 (top-down view では Z が
 //     画面に向くため、線として描けない)。
-//   ・ray-axis hit test = 「ray と無限直線の最近接距離 ≤ _handle_radius」かつ
-//     「沿軸方向の射影 t が [0, _axis_length]」。完全な ray-finite-cylinder では
+//   ・ray-axis hit test = 「ray と無限直線の最近接距離 ≤ m_HandleRadius」かつ
+//     「沿軸方向の射影 t が [0, m_AxisLength]」。完全な ray-finite-cylinder では
 //     ないが、軸の手先より遠い場所をクリックして反応してしまう問題は防げる。
 //   ・ray-plane hit test = ray-plane 交点を計算 → 中央付近の正方形内判定。
 //   ・全 noexcept / STL 不使用 / 例外なし — 失敗系は no-op / false 戻りで安全。
@@ -166,31 +166,31 @@ void FEditorGizmo::Init() noexcept {
     // callback / snap step / ハンドル形状は意図的に維持 (= editor セッションを
     // またいだ復帰を想定)。完全初期化したい場合は Shutdown を呼ぶ。
     _state                = GizmoState{};
-    _drag_origin_pos      = acs::FVec3{};
-    _drag_origin_rot      = acs::FVec3{};
-    _drag_origin_scl      = acs::FVec3{};
-    _drag_origin_set      = false;
-    _last_ray_origin      = acs::FVec3{};
-    _last_ray_direction   = acs::FVec3{0.0f, 0.0f, 1.0f};
+    m_DragOriginPos      = acs::FVec3{};
+    m_DragOriginRot      = acs::FVec3{};
+    m_DragOriginScl      = acs::FVec3{};
+    m_DragOriginSet      = false;
+    m_LastRayOrigin      = acs::FVec3{};
+    m_LastRayDirection   = acs::FVec3{0.0f, 0.0f, 1.0f};
 }
 
 void FEditorGizmo::Shutdown() noexcept {
     // 完全初期化: state + callback + snap step + ハンドル形状をすべて default に。
     _state                = GizmoState{};
-    _drag_origin_pos      = acs::FVec3{};
-    _drag_origin_rot      = acs::FVec3{};
-    _drag_origin_scl      = acs::FVec3{};
-    _drag_origin_set      = false;
-    _last_ray_origin      = acs::FVec3{};
-    _last_ray_direction   = acs::FVec3{0.0f, 0.0f, 1.0f};
-    _snap_translate       = 0.0f;
-    _snap_rotate          = 0.0f;
-    _snap_scale           = 0.0f;
-    _axis_length          = 1.0f;
-    _handle_radius        = 0.05f;
-    _plane_handle_size    = 0.2f;
-    _cb                   = nullptr;
-    _cb_user              = nullptr;
+    m_DragOriginPos      = acs::FVec3{};
+    m_DragOriginRot      = acs::FVec3{};
+    m_DragOriginScl      = acs::FVec3{};
+    m_DragOriginSet      = false;
+    m_LastRayOrigin      = acs::FVec3{};
+    m_LastRayDirection   = acs::FVec3{0.0f, 0.0f, 1.0f};
+    m_SnapTranslate       = 0.0f;
+    m_SnapRotate          = 0.0f;
+    m_SnapScale           = 0.0f;
+    m_AxisLength          = 1.0f;
+    m_HandleRadius        = 0.05f;
+    m_PlaneHandleSize    = 0.2f;
+    m_Cb                   = nullptr;
+    m_CbUser              = nullptr;
 }
 
 // ============================================================================
@@ -222,21 +222,21 @@ void FEditorGizmo::SetSpace(EGizmoSpace space) noexcept {
 // ============================================================================
 void FEditorGizmo::SetSnapTranslate(f32 step) noexcept {
     // 負値は誤代入と見なして 0 (snap 無効) に倒す。
-    _snap_translate = step > 0.0f ? step : 0.0f;
+    m_SnapTranslate = step > 0.0f ? step : 0.0f;
 }
 
 void FEditorGizmo::SetSnapRotate(f32 step_deg) noexcept {
     // 度 → ラジアン換算して保持。負値は 0 に倒す。
-    _snap_rotate = step_deg > 0.0f ? (step_deg * acs::kDeg2Rad) : 0.0f;
+    m_SnapRotate = step_deg > 0.0f ? (step_deg * acs::kDeg2Rad) : 0.0f;
 }
 
 void FEditorGizmo::SetSnapScale(f32 step) noexcept {
-    _snap_scale = step > 0.0f ? step : 0.0f;
+    m_SnapScale = step > 0.0f ? step : 0.0f;
 }
 
 f32 FEditorGizmo::SnapRotateDeg() const noexcept {
     // 内部 radians → 表示用 deg に戻す (= ImGui 等で表示する際に便利)。
-    return _snap_rotate * acs::kRad2Deg;
+    return m_SnapRotate * acs::kRad2Deg;
 }
 
 // ============================================================================
@@ -244,23 +244,23 @@ f32 FEditorGizmo::SnapRotateDeg() const noexcept {
 // ============================================================================
 void FEditorGizmo::SetAxisLength(f32 length) noexcept {
     // 0 以下は退化 (= 描画も hit test も成立しない)。最小 1e-3 で clamp。
-    _axis_length = length > 1e-3f ? length : 1e-3f;
+    m_AxisLength = length > 1e-3f ? length : 1e-3f;
 }
 
 void FEditorGizmo::SetHandleRadius(f32 radius) noexcept {
-    _handle_radius = radius > 1e-4f ? radius : 1e-4f;
+    m_HandleRadius = radius > 1e-4f ? radius : 1e-4f;
 }
 
 void FEditorGizmo::SetPlaneHandleSize(f32 size) noexcept {
-    _plane_handle_size = size > 1e-3f ? size : 1e-3f;
+    m_PlaneHandleSize = size > 1e-3f ? size : 1e-3f;
 }
 
 // ============================================================================
 // callback 登録
 // ============================================================================
 void FEditorGizmo::SetOnManipulateCallback(ManipulateCallback cb, void* user) noexcept {
-    _cb      = cb;
-    _cb_user = user;
+    m_Cb      = cb;
+    m_CbUser = user;
 }
 
 // ============================================================================
@@ -270,7 +270,7 @@ void FEditorGizmo::SetOnManipulateCallback(ManipulateCallback cb, void* user) no
 //
 // 状態遷移:
 //   (!dragging) + lmb_down + (hot_axis != None_) → drag 開始
-//     - _drag_origin_pos/rot/scl は Manipulate 初回呼び出し時にセット
+//     - m_DragOriginPos/rot/scl は Manipulate 初回呼び出し時にセット
 //       (本関数は transform 値を知らないため)
 //     - drag_start_world は本関数で計算 (現マウス ray と hot 軸/平面の交点)
 //   (dragging)  + lmb_held                       → drag 継続 (hot 保持)
@@ -290,8 +290,8 @@ void FEditorGizmo::ProcessInput(acs::FVec3 mouse_ray_origin,
     }
 
     // 直近 ray は Manipulate / DrawGizmo で使い回す。
-    _last_ray_origin    = mouse_ray_origin;
-    _last_ray_direction = mouse_ray_direction;
+    m_LastRayOrigin    = mouse_ray_origin;
+    m_LastRayDirection = mouse_ray_direction;
 
     if (_state.dragging) {
         // drag 中: hot axis を維持。lmb_up で終了。
@@ -316,10 +316,10 @@ void FEditorGizmo::ProcessInput(acs::FVec3 mouse_ray_origin,
             if (RaycastToHot(mouse_ray_origin, mouse_ray_direction, hit)) {
                 _state.dragging         = true;
                 _state.drag_start_world = hit;
-                // _drag_origin_pos/rot/scl は Manipulate 初回で transform 値を
+                // m_DragOriginPos/rot/scl は Manipulate 初回で transform 値を
                 // 受け取った瞬間にセットする (= 本関数は値を知らない)。
-                // _drag_origin_set フラグで「初回セット待ち」を識別。
-                _drag_origin_set = false;
+                // m_DragOriginSet フラグで「初回セット待ち」を識別。
+                m_DragOriginSet = false;
             }
         }
     }
@@ -336,11 +336,11 @@ void FEditorGizmo::ProcessInput(acs::FVec3 mouse_ray_origin,
 //     2. delta = P_now - drag_start_world。
 //     3. 軸ハンドルなら delta を hot 軸方向に射影 (= 1 軸のみ移動)。
 //     4. snap が有効なら delta を snap step に量子化。
-//     5. inout_position = _drag_origin_pos + delta。
+//     5. inout_position = m_DragOriginPos + delta。
 //   Rotate:
 //     現状は単純実装 — 「ray 上の交点 → pivot からの角度差」を hot 軸に加算。
 //   Scale:
-//     軸方向 drag 距離を _axis_length で割って倍率に変換、hot 軸の scale に加算。
+//     軸方向 drag 距離を m_AxisLength で割って倍率に変換、hot 軸の scale に加算。
 // ============================================================================
 bool FEditorGizmo::Manipulate(acs::FVec3& inout_position,
                               acs::FVec3& inout_rotation_euler,
@@ -352,28 +352,28 @@ bool FEditorGizmo::Manipulate(acs::FVec3& inout_position,
         return false;
     }
 
-    // drag 開始直後 (= 初回 Manipulate 呼び出し) なら _drag_origin_* を確定。
-    // ProcessInput で drag 開始時に `_drag_origin_set = false` にしているので、
+    // drag 開始直後 (= 初回 Manipulate 呼び出し) なら m_DragOrigin* を確定。
+    // ProcessInput で drag 開始時に `m_DragOriginSet = false` にしているので、
     // ここで「未セット ⇒ 今フレームの inout_* をコピーして以後の delta 計算の
     // 基準にする」分岐を行う。bool フラグなので legitimate な (0,0,0) 値でも
     // 正しく動作する (= 値ベース判定の罠を回避)。
-    if (!_drag_origin_set) {
-        _drag_origin_pos = inout_position;
-        _drag_origin_rot = inout_rotation_euler;
-        _drag_origin_scl = inout_scale;
-        _drag_origin_set = true;
+    if (!m_DragOriginSet) {
+        m_DragOriginPos = inout_position;
+        m_DragOriginRot = inout_rotation_euler;
+        m_DragOriginScl = inout_scale;
+        m_DragOriginSet = true;
     }
 
     // 現フレームの hot 軸 / 平面と現マウス ray の交点を取得。
     acs::FVec3 hit_now{};
-    if (!RaycastToHot(_last_ray_origin, _last_ray_direction, hit_now)) {
+    if (!RaycastToHot(m_LastRayOrigin, m_LastRayDirection, hit_now)) {
         // 平行などで hit が取れないフレームは inout を触らず true を返す
         // (drag 状態は維持される)。
         return true;
     }
 
     const acs::FVec3 raw_delta = hit_now - _state.drag_start_world;
-    const AxisBasis basis     = MakeBasis(_state.space, _drag_origin_rot);
+    const AxisBasis basis     = MakeBasis(_state.space, m_DragOriginRot);
 
     switch (_state.mode) {
         case EGizmoMode::Translate: {
@@ -387,19 +387,19 @@ bool FEditorGizmo::Manipulate(acs::FVec3& inout_position,
                 delta = axis * t;
             }
             // snap (各成分独立に量子化)。
-            if (_snap_translate > 0.0f) {
-                delta = ApplySnap(delta, _snap_translate);
+            if (m_SnapTranslate > 0.0f) {
+                delta = ApplySnap(delta, m_SnapTranslate);
             }
-            inout_position = _drag_origin_pos + delta;
+            inout_position = m_DragOriginPos + delta;
             return true;
         }
         case EGizmoMode::Rotate: {
             // 単純実装: drag 開始点 → 現 hit 点の "ベクトル角度差" を hot 軸の
-            // euler 成分に加算する。pivot は _drag_origin_pos。
+            // euler 成分に加算する。pivot は m_DragOriginPos。
             // 厳密には軸まわりの平面投影が必要だが、Phase 21a 範囲では sweep 角度
             // の符号付き大きさで近似する。
-            const acs::FVec3 v0 = _state.drag_start_world - _drag_origin_pos;
-            const acs::FVec3 v1 = hit_now                 - _drag_origin_pos;
+            const acs::FVec3 v0 = _state.drag_start_world - m_DragOriginPos;
+            const acs::FVec3 v1 = hit_now                 - m_DragOriginPos;
             // 軸ベクトル取得 (rotate モードでは X/Y/Z ハンドルのみ有効、
             // 平面ハンドルは hot にならない設計だが念のため default で X)。
             const acs::FVec3 axis = PickAxisVec(basis,
@@ -410,12 +410,12 @@ bool FEditorGizmo::Manipulate(acs::FVec3& inout_position,
             const f32 cos_a = Dot3(v0, v1);
             f32 angle = acs::ATan2(sin_a, cos_a);
             // snap (radians 単位)。
-            if (_snap_rotate > 0.0f) {
-                angle = ApplySnap(angle, _snap_rotate);
+            if (m_SnapRotate > 0.0f) {
+                angle = ApplySnap(angle, m_SnapRotate);
             }
-            // 累積回転を _drag_origin_rot に加算。hot 軸の euler 成分にのみ加算
+            // 累積回転を m_DragOriginRot に加算。hot 軸の euler 成分にのみ加算
             // (= 簡易だが editor 用途では実用範囲)。
-            acs::FVec3 result = _drag_origin_rot;
+            acs::FVec3 result = m_DragOriginRot;
             switch (_state.hot_axis) {
                 case EGizmoAxis::X: result.x += angle; break;
                 case EGizmoAxis::Y: result.y += angle; break;
@@ -435,12 +435,12 @@ bool FEditorGizmo::Manipulate(acs::FVec3& inout_position,
             }
             const acs::FVec3 axis = PickAxisVec(basis, _state.hot_axis);
             const f32 signed_dist = Dot3(raw_delta, axis);
-            f32 factor = signed_dist / _axis_length;  // 0 で 1.0x、+1 で 2.0x 相当
+            f32 factor = signed_dist / m_AxisLength;  // 0 で 1.0x、+1 で 2.0x 相当
             // snap (倍率刻み)
-            if (_snap_scale > 0.0f) {
-                factor = ApplySnap(factor, _snap_scale);
+            if (m_SnapScale > 0.0f) {
+                factor = ApplySnap(factor, m_SnapScale);
             }
-            acs::FVec3 result = _drag_origin_scl;
+            acs::FVec3 result = m_DragOriginScl;
             switch (_state.hot_axis) {
                 case EGizmoAxis::X: result.x += factor; break;
                 case EGizmoAxis::Y: result.y += factor; break;
@@ -497,29 +497,29 @@ void FEditorGizmo::DrawGizmo(FDebugDraw& dd,
     // ----- 軸 line (X / Y / Z) -----
     const acs::FVec2 center2 = to2(position);
     {
-        const acs::FVec3 ex = position + basis.x * _axis_length;
+        const acs::FVec3 ex = position + basis.x * m_AxisLength;
         dd.DrawLine(center2, to2(ex), axis_color(EGizmoAxis::X, kColX));
     }
     {
-        const acs::FVec3 ey = position + basis.y * _axis_length;
+        const acs::FVec3 ey = position + basis.y * m_AxisLength;
         dd.DrawLine(center2, to2(ey), axis_color(EGizmoAxis::Y, kColY));
     }
     {
         // Z 軸: 2D 射影では「中央から短い + マーカー」で表現。
-        const acs::FVec3 ez = position + basis.z * _axis_length;
+        const acs::FVec3 ez = position + basis.z * m_AxisLength;
         const acs::FVec2 ez2 = to2(ez);
         const acs::FVec4 col = axis_color(EGizmoAxis::Z, kColZ);
         // 通常 line も描く (basis.z の XY 成分が 0 でなければ可視)。
         dd.DrawLine(center2, ez2, col);
         // 加えて + マーカー (Z 軸先端の手がかり)。
-        dd.DrawCross(ez2, _handle_radius * 4.0f, col);
+        dd.DrawCross(ez2, m_HandleRadius * 4.0f, col);
     }
 
     // ----- 平面ハンドル (translate モードのみ) -----
     if (_state.mode == EGizmoMode::Translate) {
         // 各平面 (XY / XZ / YZ) を中央の小正方形として描画。サイズは
-        // _plane_handle_size の半サイズ。
-        const f32 h = _plane_handle_size;
+        // m_PlaneHandleSize の半サイズ。
+        const f32 h = m_PlaneHandleSize;
         // XY 平面: basis.x / basis.y で形成。
         {
             const acs::FVec3 p00 = position;
@@ -562,7 +562,7 @@ void FEditorGizmo::DrawGizmo(FDebugDraw& dd,
     if (_state.mode == EGizmoMode::Rotate) {
         // Z 軸まわり (= XY 平面の円) のみ正しい円として 2D 描画可能。
         // X/Y 軸まわりは 2D 射影では楕円 → 線になるため、近似で短い line を出す。
-        const f32 r = _axis_length;
+        const f32 r = m_AxisLength;
 
         // Z 軸まわりの円 (XY 平面)
         {
@@ -586,10 +586,10 @@ void FEditorGizmo::DrawGizmo(FDebugDraw& dd,
     // ----- スケールモード: 軸端のキューブを + マーカーで代用 -----
     if (_state.mode == EGizmoMode::Scale) {
         // 既に軸 line は描画済み。先端に "box っぽい" + マーカーを足す。
-        const f32 m = _handle_radius * 3.0f;
-        dd.DrawCross(to2(position + basis.x * _axis_length), m, axis_color(EGizmoAxis::X, kColX));
-        dd.DrawCross(to2(position + basis.y * _axis_length), m, axis_color(EGizmoAxis::Y, kColY));
-        dd.DrawCross(to2(position + basis.z * _axis_length), m, axis_color(EGizmoAxis::Z, kColZ));
+        const f32 m = m_HandleRadius * 3.0f;
+        dd.DrawCross(to2(position + basis.x * m_AxisLength), m, axis_color(EGizmoAxis::X, kColX));
+        dd.DrawCross(to2(position + basis.y * m_AxisLength), m, axis_color(EGizmoAxis::Y, kColY));
+        dd.DrawCross(to2(position + basis.z * m_AxisLength), m, axis_color(EGizmoAxis::Z, kColZ));
     }
 }
 
@@ -606,17 +606,17 @@ EGizmoAxis FEditorGizmo::PickAxis(acs::FVec3 ray_origin,
         return EGizmoAxis::None_;
     }
 
-    const AxisBasis basis = MakeBasis(_state.space, _drag_origin_rot);
+    const AxisBasis basis = MakeBasis(_state.space, m_DragOriginRot);
     // 位置中心 (drag 中の origin、または 直近 Manipulate に渡された値) は本関数では
     // 不明なので、相対計算用に world 原点扱い。実用上 PickAxis は ProcessInput の
     // 直前に Manipulate でセットされる「対象 transform の position」が必要だが、
     // 本クラスは ProcessInput → Manipulate → DrawGizmo の 3 段構成で「ProcessInput
     // 時点で対象 position を知らない」。Phase 21a の妥協として、PickAxis は
-    // ray_origin から見て _drag_origin_pos (= 直近 Manipulate でセットされた値) を
+    // ray_origin から見て m_DragOriginPos (= 直近 Manipulate でセットされた値) を
     // gizmo 中心と仮定する。drag 開始前は (0,0,0) を中心と仮定するため、editor
     // 統合層が「ProcessInput 直前に SetCenter(node.WorldPosition()) を呼ぶ」運用が
     // 望ましいが、現状は API 簡略化のため省略。
-    const acs::FVec3 center = _drag_origin_pos;
+    const acs::FVec3 center = m_DragOriginPos;
 
     EGizmoAxis best        = EGizmoAxis::None_;
     f32        best_metric = 1e30f;  // 軸: dist_sq、平面: t (近い方が勝ち)
@@ -634,7 +634,7 @@ EGizmoAxis FEditorGizmo::PickAxis(acs::FVec3 ray_origin,
             const acs::FVec3 rel = hit - center;
             const f32 u = Dot3(rel, pf.u);
             const f32 v = Dot3(rel, pf.v);
-            const f32 h = _plane_handle_size;
+            const f32 h = m_PlaneHandleSize;
             if (u >= 0.0f && u <= h && v >= 0.0f && v <= h) {
                 if (t < best_metric) {
                     best_metric = t;
@@ -653,7 +653,7 @@ EGizmoAxis FEditorGizmo::PickAxis(acs::FVec3 ray_origin,
     // rotate モードでも X/Y/Z は有効 (= 各軸まわりの回転)。
     const EGizmoAxis axes[3]      = { EGizmoAxis::X,  EGizmoAxis::Y,  EGizmoAxis::Z  };
     const acs::FVec3  axis_vecs[3] = { basis.x,        basis.y,        basis.z       };
-    const f32 r_sq = _handle_radius * _handle_radius;
+    const f32 r_sq = m_HandleRadius * m_HandleRadius;
     f32 best_dist_sq = 1e30f;
     EGizmoAxis best_axis = EGizmoAxis::None_;
     for (u32 i = 0; i < 3u; ++i) {
@@ -663,7 +663,7 @@ EGizmoAxis FEditorGizmo::PickAxis(acs::FVec3 ray_origin,
             continue;
         }
         // 沿軸 t (= line_s) が [0, axis_length] の範囲内であること。
-        if (cr.line_s < 0.0f || cr.line_s > _axis_length) {
+        if (cr.line_s < 0.0f || cr.line_s > m_AxisLength) {
             continue;
         }
         if (cr.ray_t < 0.0f) {
@@ -689,8 +689,8 @@ bool FEditorGizmo::RaycastToHot(acs::FVec3 ray_origin,
     if (_state.hot_axis == EGizmoAxis::None_) {
         return false;
     }
-    const AxisBasis basis  = MakeBasis(_state.space, _drag_origin_rot);
-    const acs::FVec3 center = _drag_origin_pos;
+    const AxisBasis basis  = MakeBasis(_state.space, m_DragOriginRot);
+    const acs::FVec3 center = m_DragOriginPos;
 
     switch (_state.hot_axis) {
         case EGizmoAxis::X:
@@ -752,20 +752,20 @@ acs::FVec3 FEditorGizmo::ApplySnap(acs::FVec3 v, f32 step) noexcept {
 //   Scale    : scale 倍率差分
 //
 // 注意: 本実装は「FireDragEnd 時点で最後の inout_* 値を持っていない」ため、
-// _drag_origin_* と現 _state.drag_start_world を再計算しても delta は得られない。
+// m_DragOrigin* と現 _state.drag_start_world を再計算しても delta は得られない。
 // 代わりに最後の Manipulate 呼び出しで delta を内部キャッシュする設計が望ましい
 // が、Phase 21a 範囲では「callback には mode 種別のみを渡し、editor 側が
-// node の現値と _drag_origin_* を見比べる」運用を許す。delta = Zero を仮置きで
+// node の現値と m_DragOrigin* を見比べる」運用を許す。delta = Zero を仮置きで
 // 渡し、editor 側で「callback が来た = drag 確定」とだけ判定する形に倒す。
 // ============================================================================
 void FEditorGizmo::FireDragEnd() noexcept {
-    if (_cb == nullptr) {
+    if (m_Cb == nullptr) {
         return;
     }
     // Phase 21a: 代表 delta は Zero。editor は「drag 終了通知」だけを受け取り、
-    // 自前で node の現 transform と _drag_origin_* を比較する想定。
+    // 自前で node の現 transform と m_DragOrigin* を比較する想定。
     // (= FEditorGizmo を更に深く統合する Phase 21b で delta キャッシュを追加予定。)
-    _cb(_cb_user, _state.mode, acs::FVec3{});
+    m_Cb(m_CbUser, _state.mode, acs::FVec3{});
 }
 
 } // namespace acs::game::editor_core

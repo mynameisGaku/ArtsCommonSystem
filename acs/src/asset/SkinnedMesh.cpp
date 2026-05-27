@@ -60,7 +60,7 @@ void SampleChannel(const FAnimationChannel& ch, f32 t,
 // =============================================================================
 
 void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
-    const u32 n = static_cast<u32>(_bones.Size());
+    const u32 n = static_cast<u32>(m_Bones.Size());
     if (n == 0) return;
 
     // 1) 各ボーンのバインド世界行列を親から順に計算する。
@@ -69,7 +69,7 @@ void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     world_at_bind.Resize(n);
 
     for (u32 i = 0; i < n; ++i) {
-        const FBone& b = _bones[i];
+        const FBone& b = m_Bones[i];
         FMat4 local = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
         if (b.parent < 0) {
             world_at_bind[i] = local;
@@ -80,7 +80,7 @@ void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
 
     // 2) 逆行列 = inverse(bind_world)
     for (u32 i = 0; i < n; ++i) {
-        _bones[i].inverse_bind = Inverse(world_at_bind[i]);
+        m_Bones[i].inverse_bind = Inverse(world_at_bind[i]);
     }
 }
 
@@ -89,42 +89,42 @@ void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
 // =============================================================================
 
 void FAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
-    if (!_mesh) return;
-    if (anim_index >= _mesh->Animations().Size()) return;
-    _anim = static_cast<i32>(anim_index);
-    _loop = loop;
-    _time = 0;
-    _playing = true;
+    if (!m_Mesh) return;
+    if (anim_index >= m_Mesh->Animations().Size()) return;
+    m_Anim = static_cast<i32>(anim_index);
+    m_Loop = loop;
+    m_Time = 0;
+    m_Playing = true;
 }
 
 void FAnimationPlayer::Update(f32 dt) noexcept {
-    if (!_playing || !_mesh || _anim < 0) return;
-    if (_anim >= static_cast<i32>(_mesh->Animations().Size())) return;
-    const FAnimation& a = _mesh->Animations()[_anim];
-    _time += dt;
+    if (!m_Playing || !m_Mesh || m_Anim < 0) return;
+    if (m_Anim >= static_cast<i32>(m_Mesh->Animations().Size())) return;
+    const FAnimation& a = m_Mesh->Animations()[m_Anim];
+    m_Time += dt;
     if (a.duration > 0) {
-        if (_loop) {
+        if (m_Loop) {
             // fmod 風（負値ガード付き）
-            while (_time >= a.duration) _time -= a.duration;
-            while (_time < 0)            _time += a.duration;
+            while (m_Time >= a.duration) m_Time -= a.duration;
+            while (m_Time < 0)            m_Time += a.duration;
         } else {
-            if (_time > a.duration) {
-                _time = a.duration;
-                _playing = false;
+            if (m_Time > a.duration) {
+                m_Time = a.duration;
+                m_Playing = false;
             }
         }
     }
 }
 
 u32 FAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
-    if (!_mesh || !out_palette) return 0;
-    const TArray<FBone>& bones = _mesh->Bones();
+    if (!m_Mesh || !out_palette) return 0;
+    const TArray<FBone>& bones = m_Mesh->Bones();
     const u32 nb = static_cast<u32>(bones.Size());
     const u32 count = nb < max_count ? nb : max_count;
     if (count == 0) return 0;
 
     // 1) 各ボーンの「アニメーション後ローカル」を求める
-    //    アニメ無し（_anim == -1）の場合はバインド姿勢の TRS を使う
+    //    アニメ無し（m_Anim == -1）の場合はバインド姿勢の TRS を使う
     static constexpr u32 kStackBones = 256;
     FMat4 local_pose[kStackBones];
     FMat4 world_pose[kStackBones];
@@ -141,13 +141,13 @@ u32 FAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noex
     }
 
     // アニメーションチャネルで上書き
-    if (_anim >= 0 && _anim < static_cast<i32>(_mesh->Animations().Size())) {
-        const FAnimation& a = _mesh->Animations()[_anim];
+    if (m_Anim >= 0 && m_Anim < static_cast<i32>(m_Mesh->Animations().Size())) {
+        const FAnimation& a = m_Mesh->Animations()[m_Anim];
         for (usize ci = 0; ci < a.channels.Size(); ++ci) {
             const FAnimationChannel& ch = a.channels[ci];
             if (ch.bone_index < 0 || ch.bone_index >= static_cast<i32>(effective)) continue;
             FVec3 t, s; FQuat r;
-            SampleChannel(ch, _time, t, r, s);
+            SampleChannel(ch, m_Time, t, r, s);
             local_pose[ch.bone_index] = ComposeTRS(t, r, s);
         }
     }

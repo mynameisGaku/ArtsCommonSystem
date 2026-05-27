@@ -3,7 +3,7 @@
 //
 // 設計のポイント (詳細はヘッダ参照):
 //   ・本基底は「Workspace ポインタを保存する」最低限の OnInit と、
-//     `_visible` / `_docked_target` のアクセサだけを実装する。
+//     `m_Visible` / `m_DockedTarget` のアクセサだけを実装する。
 //   ・残りの hook (OnFrameBegin / OnSelectionChanged / OnAssetSelected /
 //     OnSaveLayout / OnLoadLayout / OnShutdown / WantsFocus) は全て header 側で
 //     inline no-op default を持つため、本 .cpp には実装が無い。
@@ -28,14 +28,14 @@ namespace acs::game::editor_core {
 //
 // Workspace ポインタの解除は基底側では行わない (OnShutdown の default は no-op)。
 // 派生クラスが「Shutdown 後に Workspace() が nullptr を返してほしい」場合は
-// override で明示的に基底の `_workspace = nullptr;` 相当を呼ぶ必要があるが、
-// _workspace は private のため将来 protected に変更するか、
+// override で明示的に基底の `m_Workspace = nullptr;` 相当を呼ぶ必要があるが、
+// m_Workspace は private のため将来 protected に変更するか、
 // `FEditorPanel::OnShutdown()` を明示的に呼べる形にするかは Phase 21b で
 // 利用パターンが揃ってから判断する (= YAGNI、現状は OnInit 1 回 + 終生有効
 // の典型ケースのみ想定)。
 // ============================================================================
 void FEditorPanel::OnInit(FEditorWorkspace& workspace) noexcept {
-    _workspace = &workspace;
+    m_Workspace = &workspace;
 }
 
 } // namespace acs::game::editor_core

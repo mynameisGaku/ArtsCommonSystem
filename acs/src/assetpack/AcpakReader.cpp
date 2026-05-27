@@ -5,14 +5,14 @@
 // Phase 1 実装範囲:
 //   ・magic / version / flags 検証
 //   ・file table をエントリ毎に逐次読み出して `TArray<FAcpakFileEntry>` を構築
-//   ・各 path は `_string_pool` に NUL 終端付きで連結保存し、entry.path はその
+//   ・各 path は `m_StringPool` に NUL 終端付きで連結保存し、entry.path はその
 //     先頭へのポインタを保持する
 //   ・CRC32 (poly 0xEDB88320, init 0xFFFFFFFF, xorout 0xFFFFFFFF) 検証
 //   ・flags = 0 のみ正常パス、Encrypted / Compressed bit は NotImplemented
 //
 // 内部設計のポイント:
 //   ・file table を「2 パス」で読む。1 パス目で各 entry の path 長 + 数値メタ
-//     データだけ拾い、_string_pool を 1 度だけ最終サイズで Reserve する。
+//     データだけ拾い、m_StringPool を 1 度だけ最終サイズで Reserve する。
 //     2 パス目で path 文字列を pool にコピーし、entry.path を pool の最終
 //     アドレスにバインドする。
 //   ・これにより「pool が PushBack 中に grow して既存 entry.path が dangling
@@ -38,19 +38,19 @@ namespace {
 // 256-entry lookup table を最初の呼び出し時に組み立てる。Meyer's singleton で
 // thread-safe (C++11 以降の規格保証)。
 const u32* GetCrc32Table() noexcept {
-    static u32 _table[256] = {};
-    static bool _initialized = false;
-    if (!_initialized) {
+    static u32 m_Table[256] = {};
+    static bool m_Initialized = false;
+    if (!m_Initialized) {
         for (u32 i = 0; i < 256; ++i) {
             u32 c = i;
             for (u32 k = 0; k < 8; ++k) {
                 c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
             }
-            _table[i] = c;
+            m_Table[i] = c;
         }
-        _initialized = true;
+        m_Initialized = true;
     }
-    return _table;
+    return m_Table;
 }
 
 // バイト列の CRC32 を計算する。
@@ -129,24 +129,24 @@ FAcpakReader::~FAcpakReader() noexcept {
 }
 
 void FAcpakReader::Close() noexcept {
-    if (_file_handle != nullptr) {
-        ::CloseHandle(static_cast<HANDLE>(_file_handle));
-        _file_handle = nullptr;
+    if (m_FileHandle != nullptr) {
+        ::CloseHandle(static_cast<HANDLE>(m_FileHandle));
+        m_FileHandle = nullptr;
     }
-    _file_size    = 0;
-    _flags        = 0;
-    _table_offset = 0;
-    _entries.Clear();
-    _string_pool.Clear();
+    m_FileSize    = 0;
+    m_Flags        = 0;
+    m_TableOffset = 0;
+    m_Entries.Clear();
+    m_StringPool.Clear();
 
     // 鍵情報の defensive zero (再 Open のときに古い鍵が漏れないよう)。
-    MemSet(_key.bytes, 0, sizeof(_key.bytes));
-    _has_key = false;
+    MemSet(m_Key.bytes, 0, sizeof(m_Key.bytes));
+    m_HasKey = false;
 }
 
 void FAcpakReader::SetKey(const FAcpakKey& key) noexcept {
-    MemCopy(_key.bytes, key.bytes, sizeof(_key.bytes));
-    _has_key = true;
+    MemCopy(m_Key.bytes, key.bytes, sizeof(m_Key.bytes));
+    m_HasKey = true;
 }
 
 TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
@@ -174,8 +174,8 @@ TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
                           "FAcpakReader::Open: GetFileSizeEx failed", err);
     }
 
-    _file_handle = h;
-    _file_size   = static_cast<u64>(size.QuadPart);
+    m_FileHandle = h;
+    m_FileSize   = static_cast<u64>(size.QuadPart);
 
     auto r = LoadHeaderAndTable();
     if (r.IsErr()) {
@@ -191,16 +191,16 @@ TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
 // 2 パス構成:
 //   Pass 1: 各 entry の (path_len, offset, size_uncompressed, size_stored,
 //           crc32, path_pool_offset) を `entries_raw` に読み出す。path 文字列
-//           は `paths_temp` に連結保存し、_string_pool の最終サイズを確定する。
-//   Pass 2: _string_pool に paths_temp をコピーし、entries_raw を _entries
+//           は `paths_temp` に連結保存し、m_StringPool の最終サイズを確定する。
+//   Pass 2: m_StringPool に paths_temp をコピーし、entries_raw を m_Entries
 //           に変換 (entry.path = pool_base + path_pool_offset)。
 //
-// このやり方なら _string_pool は Pass 2 で 1 度だけ Resize するので、
+// このやり方なら m_StringPool は Pass 2 で 1 度だけ Resize するので、
 // PushBack 中の re-grow による dangling pointer が起きない。
 TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
-    HANDLE h = static_cast<HANDLE>(_file_handle);
+    HANDLE h = static_cast<HANDLE>(m_FileHandle);
 
-    if (_file_size < kAcpakHeaderDiskSize) {
+    if (m_FileSize < kAcpakHeaderDiskSize) {
         return ACS_ERR(IO, kAcpakSubBadSize,
                        "FAcpakReader::Open: file smaller than header");
     }
@@ -243,13 +243,13 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
                        "FAcpakReader::Open: unknown flag bits in header");
     }
 
-    if (file_count > 0 && file_table_offset >= _file_size) {
+    if (file_count > 0 && file_table_offset >= m_FileSize) {
         return ACS_ERR(IO, kAcpakSubBadSize,
                        "FAcpakReader::Open: file_table_offset out of range");
     }
 
-    _flags        = flags;
-    _table_offset = file_table_offset;
+    m_Flags        = flags;
+    m_TableOffset = file_table_offset;
 
     // file_count == 0 ならテーブル読み出しは不要 (空 pak)。
     if (file_count == 0) {
@@ -262,7 +262,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
     // 保持する。Phase 2: encrypted pak のときは追加で cipher_nonce/tag も読む。
     struct RawEntry {
         u32 path_len;          // wchar_t 数
-        u32 path_pool_offset;  // _string_pool 内の先頭オフセット (wchar_t 単位)
+        u32 path_pool_offset;  // m_StringPool 内の先頭オフセット (wchar_t 単位)
         u64 offset;
         u64 size_uncompressed;
         u64 size_stored;
@@ -285,7 +285,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
 
     for (u32 i = 0; i < file_count; ++i) {
         // path_len (u32)
-        if (cursor + 4u > _file_size) {
+        if (cursor + 4u > m_FileSize) {
             return ACS_ERR(IO, kAcpakSubBadSize,
                            "FAcpakReader::Open: file table truncated (path_len)");
         }
@@ -311,7 +311,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         const u64 tail_bytes = is_encrypted
                                    ? (28u + kAcpakCipherFieldsDiskSize)
                                    : 28u;
-        if (cursor + path_bytes + tail_bytes > _file_size) {
+        if (cursor + path_bytes + tail_bytes > m_FileSize) {
             return ACS_ERR(IO, kAcpakSubBadSize,
                            "FAcpakReader::Open: file table truncated (entry)");
         }
@@ -357,7 +357,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         // else: ゼロ初期化のまま (RawEntry r{} で 0 クリア済)
 
         // sanity: entry が指す data 領域が file_size に収まっているか
-        if (r.offset + r.size_stored > _file_size) {
+        if (r.offset + r.size_stored > m_FileSize) {
             return ACS_ERR(IO, kAcpakSubBadSize,
                            "FAcpakReader::Open: entry data range out of file");
         }
@@ -371,19 +371,19 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         raws.PushBack(r);
     }
 
-    // ---- Pass 2: _string_pool を最終サイズで Resize し、paths_temp を
-    //              ムーブ相当でコピー。entry を組み立てて _entries に格納 ----
-    _string_pool.Resize(paths_temp.Size());
+    // ---- Pass 2: m_StringPool を最終サイズで Resize し、paths_temp を
+    //              ムーブ相当でコピー。entry を組み立てて m_Entries に格納 ----
+    m_StringPool.Resize(paths_temp.Size());
     if (!paths_temp.IsEmpty()) {
-        MemCopy(_string_pool.Data(),
+        MemCopy(m_StringPool.Data(),
                 paths_temp.Data(),
                 paths_temp.Size() * sizeof(wchar_t));
     }
-    // ここから _string_pool は再 grow させない (entry.path は pool ベースに
+    // ここから m_StringPool は再 grow させない (entry.path は pool ベースに
     // 依存するため)。
 
-    _entries.Reserve(raws.Size());
-    const wchar_t* pool_base = _string_pool.Data();
+    m_Entries.Reserve(raws.Size());
+    const wchar_t* pool_base = m_StringPool.Data();
     for (usize i = 0; i < raws.Size(); ++i) {
         const RawEntry& r = raws[i];
         FAcpakFileEntry e{};
@@ -395,7 +395,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         // 暗号化フィールドは encrypted pak のみ意味あり、それ以外は 0。
         MemCopy(e.cipher_nonce, r.cipher_nonce, 12);
         MemCopy(e.cipher_tag,   r.cipher_tag,   16);
-        _entries.PushBack(e);
+        m_Entries.PushBack(e);
     }
 
     return Ok();
@@ -407,12 +407,12 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
 // 使う余地があるため delete はしない)。
 // ----------------------------------------------------------------------------
 const wchar_t* FAcpakReader::InternPath(const wchar_t* src, u32 len) noexcept {
-    const usize prev = _string_pool.Size();
+    const usize prev = m_StringPool.Size();
     for (u32 i = 0; i < len; ++i) {
-        _string_pool.PushBack(src[i]);
+        m_StringPool.PushBack(src[i]);
     }
-    _string_pool.PushBack(L'\0');
-    return _string_pool.Data() + prev;
+    m_StringPool.PushBack(L'\0');
+    return m_StringPool.Data() + prev;
 }
 
 // ----------------------------------------------------------------------------
@@ -421,15 +421,15 @@ const wchar_t* FAcpakReader::InternPath(const wchar_t* src, u32 len) noexcept {
 
 const FAcpakFileEntry* FAcpakReader::GetEntry(u32 index) const noexcept {
     if (!IsOpen()) return nullptr;
-    if (static_cast<usize>(index) >= _entries.Size()) return nullptr;
-    return &_entries[static_cast<usize>(index)];
+    if (static_cast<usize>(index) >= m_Entries.Size()) return nullptr;
+    return &m_Entries[static_cast<usize>(index)];
 }
 
 const FAcpakFileEntry* FAcpakReader::FindEntry(const wchar_t* path) const noexcept {
     if (!IsOpen() || path == nullptr) return nullptr;
-    for (usize i = 0; i < _entries.Size(); ++i) {
-        if (CompareW(_entries[i].path, path) == 0) {
-            return &_entries[i];
+    for (usize i = 0; i < m_Entries.Size(); ++i) {
+        if (CompareW(m_Entries[i].path, path) == 0) {
+            return &m_Entries[i];
         }
     }
     return nullptr;
@@ -473,15 +473,15 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
                        "FAcpakReader::ReadFile: buffer too small");
     }
 
-    const bool is_encrypted  = (_flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
-    const bool is_compressed = (_flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
+    const bool is_encrypted  = (m_Flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
+    const bool is_compressed = (m_Flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
 
-    HANDLE h = static_cast<HANDLE>(_file_handle);
+    HANDLE h = static_cast<HANDLE>(m_FileHandle);
     DWORD  err = 0;
 
     // 暗号化 pak で鍵未設定なら早期に弾く (Decrypt がいずれにせよ失敗するが、
     // 専用 subcode で返した方がトラブルシュートに親切)。
-    if (is_encrypted && !_has_key) {
+    if (is_encrypted && !m_HasKey) {
         return ACS_ERR(Asset, kAcpakSubCryptoKey,
                        "FAcpakReader::ReadFile: encrypted pak but no key set");
     }
@@ -535,7 +535,7 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
     // ここを skip すると空ファイルの cipher_tag が攻撃者に書き換え自由になる。
     if (is_encrypted) {
         u8* p = static_cast<u8*>(stored_dst);
-        auto dr = FAcpakCrypto::Decrypt(_key,
+        auto dr = FAcpakCrypto::Decrypt(m_Key,
                                        e->cipher_nonce,
                                        e->cipher_tag,
                                        p, e->size_stored,

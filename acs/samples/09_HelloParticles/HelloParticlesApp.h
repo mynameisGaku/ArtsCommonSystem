@@ -24,10 +24,10 @@ public:
     void OnShutdown()             noexcept override;
 
 private:
-    acs::FSpriteBatch                 _batch;
-    acs::Font                        _font;
-    acs::TUniquePtr<acs::IRhiTexture> _glow;
-    ParticleScene                    _scene;
+    acs::FSpriteBatch                 m_Batch;
+    acs::Font                        m_Font;
+    acs::TUniquePtr<acs::IRhiTexture> m_Glow;
+    ParticleScene                    m_Scene;
 };
 
 } // namespace helloparticles

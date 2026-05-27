@@ -16,22 +16,22 @@ namespace acs {
 
 // SRWLOCK_INIT 相当の初期化を呼ぶ。
 FMutex::FMutex() noexcept {
-    InitializeSRWLock(reinterpret_cast<SRWLOCK*>(&_srw[0]));
+    InitializeSRWLock(reinterpret_cast<SRWLOCK*>(&m_Srw[0]));
 }
 
 // 排他ロック（書き込み側）取得
 void FMutex::Lock() noexcept {
-    AcquireSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_srw[0]));
+    AcquireSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&m_Srw[0]));
 }
 
 // 排他ロック取得試行
 bool FMutex::TryLock() noexcept {
-    return TryAcquireSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_srw[0])) != 0;
+    return TryAcquireSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&m_Srw[0])) != 0;
 }
 
 // 排他ロック解除
 void FMutex::Unlock() noexcept {
-    ReleaseSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&_srw[0]));
+    ReleaseSRWLockExclusive(reinterpret_cast<SRWLOCK*>(&m_Srw[0]));
 }
 
 } // namespace acs

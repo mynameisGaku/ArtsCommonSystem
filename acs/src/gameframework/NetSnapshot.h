@@ -66,7 +66,7 @@
 //     Zlib / PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) を採用予定で、
 //     wire format の改竄 / 破損検知に使う (Phase 3 で送受信時に計算)。
 //   ・**EntitySnapshot は非所有 view**: `const void*` + size の pair。Server 側
-//     は AddEntitySnapshot で _pending_entities にコピーを積み、CommitSnapshot
+//     は AddEntitySnapshot で m_PendingEntities にコピーを積み、CommitSnapshot
 //     で payload に bulk concat する。Client 側は TryGetInterpolatedSnapshot
 //     で ring buffer の中の payload を指す view として返す (寿命は次の Tick
 //     呼び出しまで)。
@@ -269,10 +269,10 @@ public:
     void Shutdown() noexcept;
 
     // ----- 状態 query -----
-    ENetRole Role()                       const noexcept { return _role; }
+    ENetRole Role()                       const noexcept { return m_Role; }
     u32      BufferedSnapshotCount()      const noexcept;
-    f32      CurrentInterpolationDelay()  const noexcept { return _config.interpolation_delay_sec; }
-    u32      LastReceivedTick()           const noexcept { return _last_received_tick; }
+    f32      CurrentInterpolationDelay()  const noexcept { return m_Config.interpolation_delay_sec; }
+    u32      LastReceivedTick()           const noexcept { return m_LastReceivedTick; }
 
     // ----- server 側 API -----
     // 1 entity の現在 state を pending list に積む。data は内部にコピーされる
@@ -306,10 +306,10 @@ public:
     void Tick(f32 dt) noexcept;
 
     // ----- 統計 -----
-    u32 PacketsSent()     const noexcept { return _packets_sent;     }
-    u32 PacketsReceived() const noexcept { return _packets_received; }
-    u32 BytesSent()       const noexcept { return _bytes_sent;       }
-    u32 BytesReceived()   const noexcept { return _bytes_received;   }
+    u32 PacketsSent()     const noexcept { return m_PacketsSent;     }
+    u32 PacketsReceived() const noexcept { return m_PacketsReceived; }
+    u32 BytesSent()       const noexcept { return m_BytesSent;       }
+    u32 BytesReceived()   const noexcept { return m_BytesReceived;   }
 
 private:
     // 1 ring buffer エントリ = SnapshotHeader + payload バイト列。
@@ -338,23 +338,23 @@ private:
 
     // 補間結果を保持するための temporary 領域 (TryGetInterpolatedSnapshot が
     // 返す EntitySnapshot::component_data が指す先)。client 側のみで使う。
-    TArray<u8> _interp_scratch;
+    TArray<u8> m_InterpScratch;
 
-    NetSnapshotConfig          _config         {};
-    ENetRole                   _role           = ENetRole::Standalone;
-    INetTransport*             _transport      = nullptr;
-    TArray<PendingEntity>       _pending_entities;
-    TArray<BufferedSnapshot>    _ring_buffer;   // capacity = config.buffer_capacity_snapshots
-    u32                        _ring_head      = 0;  // 次の挿入位置 (FIFO)
-    u32                        _ring_count     = 0;  // 現在の有効件数 (<= capacity)
-    u32                        _next_sequence  = 1;  // server 送信時の sequence 番号 (0 は無効)
-    u32                        _last_received_tick = 0;
+    NetSnapshotConfig          m_Config         {};
+    ENetRole                   m_Role           = ENetRole::Standalone;
+    INetTransport*             m_Transport      = nullptr;
+    TArray<PendingEntity>       m_PendingEntities;
+    TArray<BufferedSnapshot>    m_RingBuffer;   // capacity = config.buffer_capacity_snapshots
+    u32                        m_RingHead      = 0;  // 次の挿入位置 (FIFO)
+    u32                        m_RingCount     = 0;  // 現在の有効件数 (<= capacity)
+    u32                        m_NextSequence  = 1;  // server 送信時の sequence 番号 (0 は無効)
+    u32                        m_LastReceivedTick = 0;
 
     // 統計
-    u32 _packets_sent     = 0;
-    u32 _packets_received = 0;
-    u32 _bytes_sent       = 0;
-    u32 _bytes_received   = 0;
+    u32 m_PacketsSent     = 0;
+    u32 m_PacketsReceived = 0;
+    u32 m_BytesSent       = 0;
+    u32 m_BytesReceived   = 0;
 };
 
 } // namespace acs::game

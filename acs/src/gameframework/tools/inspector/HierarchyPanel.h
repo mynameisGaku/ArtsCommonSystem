@@ -17,7 +17,7 @@
 // 連携:
 //   ・**FSelectionService** (別エージェントが実装中) — selection 状態を他パネル
 //     (FInspectorPanel 等) と共有する集中点。forward decl で受け、Set されていれば
-//     そちら経由で selection を読み書きする。未注入時は本パネル内の `_selected_id`
+//     そちら経由で selection を読み書きする。未注入時は本パネル内の `m_SelectedId`
 //     を使う (= スタンドアロン動作可能)。
 //   ・**FInspectorPanel** (別エージェントが実装中) — 選択中 FNode2D の property を
 //     編集するパネル。本パネルとは selection 経由でしか連携しない (Hierarchy は
@@ -101,8 +101,8 @@ public:
     // して表示される (= ユーザは root をクリックして scene 全体を選択できる)。
     // Phase 24: FEditorPanel 継承で no-param DrawUI 化。root node は SetRootNode で
     // 事前 set する。
-    void SetRootNode(class FNode2D* root) noexcept { _root_node = root; }
-    class FNode2D* RootNode() const noexcept { return _root_node; }
+    void SetRootNode(class FNode2D* root) noexcept { m_RootNode = root; }
+    class FNode2D* RootNode() const noexcept { return m_RootNode; }
 
     // FEditorPanel override
     const char* Title() const noexcept override { return "Scene Hierarchy"; }
@@ -112,7 +112,7 @@ public:
     void SetSelectionService(class FSelectionService* svc) noexcept;
 
     // 現選択ノードの FNodeId。FSelectionService が注入されていればそちら経由、
-    // そうでなければ内部 `_selected_id` を返す。未選択は `FNodeId{}` (packed==0)。
+    // そうでなければ内部 `m_SelectedId` を返す。未選択は `FNodeId{}` (packed==0)。
     FNodeId SelectedNodeId() const noexcept;
 
     // 選択を `node` に切替。nullptr で選択解除。FSelectionService 注入時は
@@ -127,7 +127,7 @@ public:
 
     // 全 TreeNode を折りたたむ。次回 DrawUI で各ノード描画時に
     // 既存 FNodeId エントリを true に立てる必要があるため、ここでは
-    // `_collapse_all_pending` フラグだけ立てて DrawUI で適用する。
+    // `m_CollapseAllPending` フラグだけ立てて DrawUI で適用する。
     void CollapseAll() noexcept;
 
     // 選択中ノードに `FNode2D::Destroy()` を呼ぶ。pending_destroy がマークされ、
@@ -161,23 +161,23 @@ private:
     static constexpr const char* kDragDropId = "HIER_NODE_PTR";
 
     // Phase 24: 事前 set される root node (DrawUI で再帰描画の起点)
-    class FNode2D*             _root_node          = nullptr;
+    class FNode2D*             m_RootNode          = nullptr;
 
-    TArray<CollapsedEntry>     _collapsed_map      {};
-    FSelectionService*         _selection_service  = nullptr;
+    TArray<CollapsedEntry>     m_CollapsedMap      {};
+    FSelectionService*         m_SelectionService  = nullptr;
     // FSelectionService 未注入時のフォールバック selection。
-    FNodeId                    _selected_id        {};
+    FNodeId                    m_SelectedId        {};
     // 内部 selection の生ポインタ (Delete / Duplicate 用)。FSelectionService 注入
     // 時もキャッシュしておく (DrawUI で更新)。
-    class FNode2D*             _selected_node      = nullptr;
+    class FNode2D*             m_SelectedNode      = nullptr;
     // 右クリック context menu の Reparent target 設定 step 用の一時保管。
     // 1 段目で "Set as Reparent Target" を押すと set、2 段目に別ノード上で
     // "Reparent here" でこれを使って `Reparent` を呼ぶ。
-    class FNode2D*             _reparent_target    = nullptr;
+    class FNode2D*             m_ReparentTarget    = nullptr;
     // CollapseAll の遅延適用フラグ。
-    bool                      _collapse_all_pending = false;
-    NodeRightClickCallback    _right_click_cb     = nullptr;
-    void*                     _right_click_user   = nullptr;
+    bool                      m_CollapseAllPending = false;
+    NodeRightClickCallback    m_RightClickCb     = nullptr;
+    void*                     m_RightClickUser   = nullptr;
 };
 
 } // namespace acs::game::inspector

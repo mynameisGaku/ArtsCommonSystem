@@ -44,7 +44,7 @@ namespace acs::game {
 /// シーングラフ Node を識別する packed 32bit handle (generational)。
 struct FNodeId {
     /// 0 = invalid。layout: low24=index, high8=generation。
-    u32 _packed = 0;
+    u32 m_Packed = 0;
 
     /// 既定構築 = invalid handle (packed == 0)。
     constexpr FNodeId() noexcept = default;
@@ -52,23 +52,23 @@ struct FNodeId {
     /// index (24bit) と generation (8bit) を pack して構築する。
     /// index は `& 0x00FFFFFFu` でマスクされるため、24bit 超の値は上位が落ちる。
     constexpr FNodeId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     /// pool / SoA 配列の index を取り出す (0 〜 16,777,215)。
-    constexpr u32  Index() const noexcept { return _packed & 0x00FFFFFFu; }
+    constexpr u32  Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
 
     /// slot の世代カウンタを取り出す (0 〜 255)。stale handle 検出用。
     constexpr u8   Generation() const noexcept {
-        return static_cast<u8>(_packed >> 24);
+        return static_cast<u8>(m_Packed >> 24);
     }
 
     /// invalid (= packed == 0) でなければ true。
     /// 注意: 「pool に該当 slot が生きているか」は呼び出し側で別途検証すること。
-    constexpr bool IsValid() const noexcept { return _packed != 0; }
+    constexpr bool IsValid() const noexcept { return m_Packed != 0; }
 
     /// 完全一致比較 (index + generation の両方が一致した時のみ true)。
-    constexpr bool operator==(FNodeId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(FNodeId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FNodeId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(FNodeId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 } // namespace acs::game

@@ -63,15 +63,15 @@ void FPickupSystem::Init() noexcept {
 
 u32 FPickupSystem::AcquireSlot() noexcept {
     // index 0 は予約 (= invalid)。i >= 1 から線形検索で inactive slot を探す。
-    for (u32 i = 1; i < _slots.Size(); ++i) {
-        if (!_slots[i].active) return i;
+    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+        if (!m_Slots[i].active) return i;
     }
     // 初回は dummy slot を 0 番に置く (FCollisionWorld2D と同パターン)。
-    if (_slots.IsEmpty()) {
-        _slots.PushBack({});
+    if (m_Slots.IsEmpty()) {
+        m_Slots.PushBack({});
     }
-    _slots.PushBack({});
-    return static_cast<u32>(_slots.Size()) - 1u;
+    m_Slots.PushBack({});
+    return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
 // =============================================================================
@@ -80,24 +80,24 @@ u32 FPickupSystem::AcquireSlot() noexcept {
 
 PickupId FPickupSystem::Spawn(const PickupInfo& info) noexcept {
     const u32 idx = AcquireSlot();
-    Slot& s = _slots[idx];
+    Slot& s = m_Slots[idx];
     s.info   = info;
     // gen をインクリメント。0 はスキップ (= invalid id 生成を回避)。
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;
     s.active = true;
-    ++_alive_count;
+    ++m_AliveCount;
     return PickupId{idx, s.gen};
 }
 
 void FPickupSystem::Despawn(PickupId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
-    if (idx >= _slots.Size()) return;
-    Slot& s = _slots[idx];
+    if (idx >= m_Slots.Size()) return;
+    Slot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
-    if (_alive_count > 0) --_alive_count;
+    if (m_AliveCount > 0) --m_AliveCount;
 }
 
 // =============================================================================
@@ -105,10 +105,10 @@ void FPickupSystem::Despawn(PickupId id) noexcept {
 // =============================================================================
 
 void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept {
-    const usize n = _slots.Size();
+    const usize n = m_Slots.Size();
     // index 0 は予約なのでスキップ。
     for (usize i = 1; i < n; ++i) {
-        Slot& s = _slots[i];
+        Slot& s = m_Slots[i];
         if (!s.active) continue;
 
         // ---- 1) lifetime 進行 ----------------------------------------------
@@ -120,11 +120,11 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
                 // expire: コールバック発火 → Despawn。
                 // 既消滅扱いになるので、後続の磁石 / 拾取は実行しない。
                 const PickupId id{static_cast<u32>(i), s.gen};
-                if (_on_expire != nullptr) {
-                    _on_expire(_on_expire_user, id);
+                if (m_OnExpire != nullptr) {
+                    m_OnExpire(m_OnExpireUser, id);
                 }
                 s.active = false;
-                if (_alive_count > 0) --_alive_count;
+                if (m_AliveCount > 0) --m_AliveCount;
                 continue;
             }
         }
@@ -149,12 +149,12 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
         if (r > 0.0f && dist_sq2 < r * r) {
             // pickup: コールバック発火 → Despawn。
             const PickupId id{static_cast<u32>(i), s.gen};
-            if (_on_pickup != nullptr) {
-                _on_pickup(_on_pickup_user, id, s.info.kind,
+            if (m_OnPickup != nullptr) {
+                m_OnPickup(m_OnPickupUser, id, s.info.kind,
                             s.info.item_id, s.info.value);
             }
             s.active = false;
-            if (_alive_count > 0) --_alive_count;
+            if (m_AliveCount > 0) --m_AliveCount;
         }
     }
 }
@@ -164,14 +164,14 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
 // =============================================================================
 
 u32 FPickupSystem::AlivePickupCount() const noexcept {
-    return _alive_count;
+    return m_AliveCount;
 }
 
 const PickupInfo* FPickupSystem::GetPickup(PickupId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= _slots.Size()) return nullptr;
-    const Slot& s = _slots[idx];
+    if (idx >= m_Slots.Size()) return nullptr;
+    const Slot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return nullptr;
     return &s.info;
 }
@@ -181,13 +181,13 @@ const PickupInfo* FPickupSystem::GetPickup(PickupId id) const noexcept {
 // =============================================================================
 
 void FPickupSystem::SetOnPickupCallback(PickupCallback cb, void* user) noexcept {
-    _on_pickup      = cb;
-    _on_pickup_user = user;
+    m_OnPickup      = cb;
+    m_OnPickupUser = user;
 }
 
 void FPickupSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
-    _on_expire      = cb;
-    _on_expire_user = user;
+    m_OnExpire      = cb;
+    m_OnExpireUser = user;
 }
 
 // =============================================================================
@@ -218,21 +218,21 @@ void FPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_rad
 }
 
 void FPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
-    const usize n = _slots.Size();
+    const usize n = m_Slots.Size();
     for (usize i = 1; i < n; ++i) {
-        Slot& s = _slots[i];
+        Slot& s = m_Slots[i];
         if (!s.active) continue;
         if (s.info.kind != kind) continue;
         s.active = false;
-        if (_alive_count > 0) --_alive_count;
+        if (m_AliveCount > 0) --m_AliveCount;
     }
 }
 
 u32 FPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
     u32 count = 0;
-    const usize n = _slots.Size();
+    const usize n = m_Slots.Size();
     for (usize i = 1; i < n; ++i) {
-        const Slot& s = _slots[i];
+        const Slot& s = m_Slots[i];
         if (!s.active) continue;
         if (s.info.kind == kind) ++count;
     }
@@ -240,8 +240,8 @@ u32 FPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
 }
 
 void FPickupSystem::ClearAll() noexcept {
-    _slots.Clear();
-    _alive_count = 0;
+    m_Slots.Clear();
+    m_AliveCount = 0;
     // コールバック設定は維持 (ヘッダ仕様コメントと対応)。
 }
 

@@ -117,21 +117,21 @@ public:
     void Shutdown() noexcept;
 
     // BRDF LUT (256x256 RG16F)。EnsureBrdfLut 完了後に有効。
-    IRhiTexture* BrdfLut()    const noexcept { return _brdf_lut.Get(); }
-    bool         HasBrdfLut() const noexcept { return static_cast<bool>(_brdf_lut); }
+    IRhiTexture* BrdfLut()    const noexcept { return m_BrdfLut.Get(); }
+    bool         HasBrdfLut() const noexcept { return static_cast<bool>(m_BrdfLut); }
 
     // 環境 cubemap (256x256x6 R11G11B10_Float)。EnsureEnvCubemap 完了後に有効。
-    IRhiTexture* EnvCubemap()    const noexcept { return _env_cube.Get(); }
-    bool         HasEnvCubemap() const noexcept { return static_cast<bool>(_env_cube); }
+    IRhiTexture* EnvCubemap()    const noexcept { return m_EnvCube.Get(); }
+    bool         HasEnvCubemap() const noexcept { return static_cast<bool>(m_EnvCube); }
 
     // Diffuse irradiance cubemap (32x32x6 R11G11B10_Float)。EnsureIrradiance 完了後に有効。
-    IRhiTexture* IrradianceMap()    const noexcept { return _irradiance_cube.Get(); }
-    bool         HasIrradianceMap() const noexcept { return static_cast<bool>(_irradiance_cube); }
+    IRhiTexture* IrradianceMap()    const noexcept { return m_IrradianceCube.Get(); }
+    bool         HasIrradianceMap() const noexcept { return static_cast<bool>(m_IrradianceCube); }
 
     // Specular prefilter cubemap (128x128x6 R11G11B10_Float, 5 mips)。EnsurePrefilter 完了後に有効。
-    IRhiTexture* PrefilterMap()    const noexcept { return _prefilter_cube.Get(); }
-    bool         HasPrefilterMap() const noexcept { return static_cast<bool>(_prefilter_cube); }
-    u32          PrefilterMips()   const noexcept { return _prefilter_mips; }
+    IRhiTexture* PrefilterMap()    const noexcept { return m_PrefilterCube.Get(); }
+    bool         HasPrefilterMap() const noexcept { return static_cast<bool>(m_PrefilterCube); }
+    u32          PrefilterMips()   const noexcept { return m_PrefilterMips; }
 
 private:
     TResult<void> BuildBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
@@ -142,24 +142,24 @@ private:
     TResult<void> EnsureSkyboxPipeline(IRhiDevice& device,
                                       EFormat rt_format, EFormat depth_format) noexcept;
 
-    TUniquePtr<IRhiTexture>  _brdf_lut;
-    TUniquePtr<IRhiTexture>  _env_cube;
-    TUniquePtr<IRhiTexture>  _irradiance_cube;
-    TUniquePtr<IRhiTexture>  _prefilter_cube;
-    u32                     _prefilter_mips = 0;
+    TUniquePtr<IRhiTexture>  m_BrdfLut;
+    TUniquePtr<IRhiTexture>  m_EnvCube;
+    TUniquePtr<IRhiTexture>  m_IrradianceCube;
+    TUniquePtr<IRhiTexture>  m_PrefilterCube;
+    u32                     m_PrefilterMips = 0;
 
     // Skybox preview パイプライン (lazy init)
-    TUniquePtr<IRhiShader>   _sky_vs;
-    TUniquePtr<IRhiShader>   _sky_ps;
-    TUniquePtr<IRhiPipeline> _sky_pipeline;
-    TUniquePtr<IRhiBuffer>   _sky_cb;
-    EFormat                  _sky_rt_format    = EFormat::Unknown;
-    EFormat                  _sky_depth_format = EFormat::Unknown;
+    TUniquePtr<IRhiShader>   m_SkyVs;
+    TUniquePtr<IRhiShader>   m_SkyPs;
+    TUniquePtr<IRhiPipeline> m_SkyPipeline;
+    TUniquePtr<IRhiBuffer>   m_SkyCb;
+    EFormat                  m_SkyRtFormat    = EFormat::Unknown;
+    EFormat                  m_SkyDepthFormat = EFormat::Unknown;
 
-    bool _brdf_built       = false;
-    bool _env_built        = false;
-    bool _irradiance_built = false;
-    bool _prefilter_built  = false;
+    bool m_BrdfBuilt       = false;
+    bool m_EnvBuilt        = false;
+    bool m_IrradianceBuilt = false;
+    bool m_PrefilterBuilt  = false;
 };
 
 } // namespace acs

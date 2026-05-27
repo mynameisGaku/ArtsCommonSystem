@@ -275,7 +275,7 @@ public:
     u64             MemoryUsageBytes()                                        const noexcept override { return 0; }
 
 private:
-    bool _initialized = false;
+    bool m_Initialized = false;
 };
 
 // process 内で 1 個だけ存在する静的 stub への参照を返す (Meyers singleton)。
@@ -375,10 +375,10 @@ private:
     // 上位層 (= 内部) からエラー callback を発火する helper。cb 未設定なら no-op。
     void FireError(const char* chunk_name, u32 line, const char* message) const noexcept;
 
-    IScriptVm*           _vm           = nullptr;
-    TArray<NativeEntry>   _natives;
-    ScriptErrorCallback  _on_error     = nullptr;
-    void*                _on_error_user = nullptr;
+    IScriptVm*           m_Vm           = nullptr;
+    TArray<NativeEntry>   m_Natives;
+    ScriptErrorCallback  m_OnError     = nullptr;
+    void*                m_OnErrorUser = nullptr;
 };
 
 } // namespace acs::game

@@ -62,20 +62,20 @@ namespace acs::game {
 // 0 は invalid 予約 (index 0 dummy)。Despawn → 再利用しても古い handle は
 // generation 不一致で弾かれる。
 struct FHealthId {
-    u32 _packed = 0;   // 0 = invalid。layout: low24=index, high8=generation
+    u32 m_Packed = 0;   // 0 = invalid。layout: low24=index, high8=generation
 
     constexpr FHealthId() noexcept = default;
     constexpr FHealthId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32  Index() const noexcept { return _packed & 0x00FFFFFFu; }
+    constexpr u32  Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
     constexpr u8   Generation() const noexcept {
-        return static_cast<u8>(_packed >> 24);
+        return static_cast<u8>(m_Packed >> 24);
     }
-    constexpr bool IsValid() const noexcept { return _packed != 0; }
+    constexpr bool IsValid() const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(FHealthId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(FHealthId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FHealthId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(FHealthId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // 1 entity 分の HP 状態。GetState() で外部へ const 参照を返す。
@@ -171,7 +171,7 @@ public:
     bool IsInvulnerable(FHealthId id) const noexcept;
 
     // 全 entity 数 (生死問わず active なもの)。
-    u32 EntityCount() const noexcept { return _entity_count; }
+    u32 EntityCount() const noexcept { return m_EntityCount; }
 
     // 生存 entity 数 (is_alive=true)。Tick / 戦闘ロジックで利用。
     u32 AliveCount() const noexcept;
@@ -204,11 +204,11 @@ private:
 
     static f32 Clamp(f32 v, f32 lo, f32 hi) noexcept;
 
-    TArray<Slot>    _slots;
-    u32            _entity_count = 0;
+    TArray<Slot>    m_Slots;
+    u32            m_EntityCount = 0;
 
-    DeathCallback  _on_death       = nullptr;
-    void*          _on_death_user  = nullptr;
+    DeathCallback  m_OnDeath       = nullptr;
+    void*          m_OnDeathUser  = nullptr;
 };
 
 } // namespace acs::game

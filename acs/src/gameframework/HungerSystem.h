@@ -16,7 +16,7 @@
 //
 // 設計選択 (Pillar R/I — FHungerSystem):
 //   ・**SurvivorId は 24bit index + 8bit gen の packed handle**: FHealthId /
-//     FBuffOwnerId / FNodeId と同規約。`_packed == 0` を invalid とし gen は
+//     FBuffOwnerId / FNodeId と同規約。`m_Packed == 0` を invalid とし gen は
 //     常に 1 以上で配る。AddSurvivor 後に RemoveSurvivor された slot を再利用
 //     しても古い handle は gen 不一致で確実に弾ける。
 //   ・**stat enum は固定 7 値 (Hunger / Thirst / Energy / Sanity / Warmth /
@@ -127,27 +127,27 @@ struct StatState {
 };
 
 // ---- SurvivorId: 24bit index + 8bit gen を packed した opaque handle -------
-// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。FHealthId /
+// `m_Packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。FHealthId /
 // FBuffOwnerId と同一規約。
 struct SurvivorId {
-    u32 _packed = 0u;
+    u32 m_Packed = 0u;
 
     static constexpr u32 kIndexBits = 24u;
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
     static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
     static SurvivorId Pack(u32 index, u8 gen) noexcept {
         SurvivorId o;
-        o._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        o.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return o;
     }
-    u32 Index() const noexcept { return _packed & kIndexMask; }
-    u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
+    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 
-    bool operator==(SurvivorId o) const noexcept { return _packed == o._packed; }
-    bool operator!=(SurvivorId o) const noexcept { return _packed != o._packed; }
+    bool operator==(SurvivorId o) const noexcept { return m_Packed == o.m_Packed; }
+    bool operator!=(SurvivorId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // ---- FHungerSystem ----------------------------------------------------------
@@ -225,7 +225,7 @@ public:
     f32 OverallSurvivalHealth(SurvivorId id) const noexcept;
 
     // 全 active survivor 数 (生死問わず)。
-    u32 SurvivorCount() const noexcept { return _survivor_count; }
+    u32 SurvivorCount() const noexcept { return m_SurvivorCount; }
 
     // ---- driver -----------------------------------------------------------
     // 全 survivor × 全 stat を dt 秒進める:
@@ -267,14 +267,14 @@ private:
     static u32 StatIndex(ESurvivalStat stat) noexcept;
 
     // ---- 状態 -----------------------------------------------------------
-    TArray<StatConfig>    _configs   {};   // 7 stat の共通 config
-    TArray<SurvivorSlot>  _survivors {};   // SurvivorSlot 配列 (generational)
-    u32                  _survivor_count = 0u;
+    TArray<StatConfig>    m_Configs   {};   // 7 stat の共通 config
+    TArray<SurvivorSlot>  m_Survivors {};   // SurvivorSlot 配列 (generational)
+    u32                  m_SurvivorCount = 0u;
 
-    CriticalCallback     _on_critical       = nullptr;
-    void*                _on_critical_user  = nullptr;
-    DamageCallback       _on_damage         = nullptr;
-    void*                _on_damage_user    = nullptr;
+    CriticalCallback     m_OnCritical       = nullptr;
+    void*                m_OnCriticalUser  = nullptr;
+    DamageCallback       m_OnDamage         = nullptr;
+    void*                m_OnDamageUser    = nullptr;
 };
 
 } // namespace acs::game

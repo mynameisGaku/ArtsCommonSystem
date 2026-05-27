@@ -78,11 +78,11 @@ struct MotionCB {
 } // namespace
 
 TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
-    _device = &device;
-    _width  = width  > 0 ? width  : 1;
-    _height = height > 0 ? height : 1;
+    m_Device = &device;
+    m_Width  = width  > 0 ? width  : 1;
+    m_Height = height > 0 ? height : 1;
 
-    if (auto r = CreateTargets(device, _width, _height); r.IsErr()) return r;
+    if (auto r = CreateTargets(device, m_Width, m_Height); r.IsErr()) return r;
     if (auto r = CreatePipeline(device);                 r.IsErr()) return r;
 
     FBufferDesc cbd{};
@@ -91,34 +91,34 @@ TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noe
     cbd.cpu_writable = true;
     auto cbr = CreateRhiBuffer(device, cbd);
     if (cbr.IsErr()) return Err<void>(cbr.Error());
-    _cb = Move(cbr.Value());
+    m_Cb = Move(cbr.Value());
 
     return Ok();
 }
 
 void FMotionVector::Shutdown() noexcept {
-    _cb.Reset();
-    _pipeline.Reset();
-    _ps.Reset();
-    _vs.Reset();
-    _depth.Reset();
-    _normal.Reset();
-    _motion.Reset();
-    _device = nullptr;
-    _width  = 0;
-    _height = 0;
+    m_Cb.Reset();
+    m_Pipeline.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
+    m_Depth.Reset();
+    m_Normal.Reset();
+    m_Motion.Reset();
+    m_Device = nullptr;
+    m_Width  = 0;
+    m_Height = 0;
 }
 
 TResult<void> FMotionVector::Resize(u32 width, u32 height) noexcept {
-    if (!_device) return ACS_ERR(Render, 360, "FMotionVector::Resize before Init");
+    if (!m_Device) return ACS_ERR(Render, 360, "FMotionVector::Resize before Init");
     if (width == 0 || height == 0) return Ok();
-    if (width == _width && height == _height) return Ok();
-    _motion.Reset();
-    _normal.Reset();
-    _depth.Reset();
-    _width  = width;
-    _height = height;
-    return CreateTargets(*_device, width, height);
+    if (width == m_Width && height == m_Height) return Ok();
+    m_Motion.Reset();
+    m_Normal.Reset();
+    m_Depth.Reset();
+    m_Width  = width;
+    m_Height = height;
+    return CreateTargets(*m_Device, width, height);
 }
 
 TResult<void> FMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
@@ -130,7 +130,7 @@ TResult<void> FMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noe
     md.is_render_target = true;
     auto mr = CreateRhiTexture(device, md);
     if (mr.IsErr()) return Err<void>(mr.Error());
-    _motion = Move(mr.Value());
+    m_Motion = Move(mr.Value());
 
     // normal RT: RGBA16F。.xyz に world-space normal。SSR/SSGI/SSAO が sample する。
     FTextureDesc nd{};
@@ -140,7 +140,7 @@ TResult<void> FMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noe
     nd.is_render_target = true;
     auto nr = CreateRhiTexture(device, nd);
     if (nr.IsErr()) return Err<void>(nr.Error());
-    _normal = Move(nr.Value());
+    m_Normal = Move(nr.Value());
 
     // 内部 depth: occlusion 判定用 (SRV は不要)。
     FTextureDesc dd{};
@@ -150,7 +150,7 @@ TResult<void> FMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noe
     dd.is_depth_target = true;
     auto dr = CreateRhiTexture(device, dd);
     if (dr.IsErr()) return Err<void>(dr.Error());
-    _depth = Move(dr.Value());
+    m_Depth = Move(dr.Value());
 
     return Ok();
 }
@@ -163,7 +163,7 @@ TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     vs_d.debug_name  = "FMotionVector.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    _vs = Move(vs_r.Value());
+    m_Vs = Move(vs_r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage       = EShaderStage::Pixel;
@@ -172,11 +172,11 @@ TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.debug_name  = "FMotionVector.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
-    _ps = Move(ps_r.Value());
+    m_Ps = Move(ps_r.Value());
 
     FPipelineDesc pd{};
-    pd.vs            = _vs.Get();
-    pd.ps            = _ps.Get();
+    pd.vs            = m_Vs.Get();
+    pd.ps            = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     // MRT: t0 = motion (RG16F)、t1 = world normal (RGBA16F)
     pd.rt_count      = 2;
@@ -198,42 +198,42 @@ TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    _pipeline = Move(pl_r.Value());
+    m_Pipeline = Move(pl_r.Value());
 
     return Ok();
 }
 
 void FMotionVector::Begin(IRhiCommandList& cl,
                          const FMat4& view_proj, const FMat4& prev_view_proj) noexcept {
-    if (!_motion || !_normal || !_depth || !_pipeline) return;
-    _vp      = view_proj;
-    _prev_vp = prev_view_proj;
+    if (!m_Motion || !m_Normal || !m_Depth || !m_Pipeline) return;
+    m_Vp      = view_proj;
+    m_PrevVp = prev_view_proj;
     // motion / normal RT を (0,0,0,0) クリア → 描かれない pixel (= sky 等) は
     // motion 0 (TAA は hist_uv = uv で reproject 無し)、normal 0 (SSR/SSGI/SSAO は
     // sky を depth で先に弾くので未使用)。
-    IRhiTexture* rts[2] = { _motion.Get(), _normal.Get() };
-    cl.BeginRenderToTextureMrt(rts, 2, ClearColor{0, 0, 0, 0}, _depth.Get(), 1.0f);
-    cl.SetPipeline(*_pipeline);
+    IRhiTexture* rts[2] = { m_Motion.Get(), m_Normal.Get() };
+    cl.BeginRenderToTextureMrt(rts, 2, ClearColor{0, 0, 0, 0}, m_Depth.Get(), 1.0f);
+    cl.SetPipeline(*m_Pipeline);
 }
 
 void FMotionVector::DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
                             const FMat4& model, const FMat4& prev_model) noexcept {
-    if (!_cb || !mesh.vertex_buffer || !mesh.index_buffer) return;
+    if (!m_Cb || !mesh.vertex_buffer || !mesh.index_buffer) return;
     MotionCB cb{};
-    cb.curr_mvp   = model      * _vp;
-    cb.prev_mvp   = prev_model * _prev_vp;
+    cb.curr_mvp   = model      * m_Vp;
+    cb.prev_mvp   = prev_model * m_PrevVp;
     cb.curr_model = model;
-    _cb->Update(&cb, sizeof(cb));
+    m_Cb->Update(&cb, sizeof(cb));
 
-    cl.SetConstantBuffer(0, *_cb);
+    cl.SetConstantBuffer(0, *m_Cb);
     cl.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     cl.SetIndexBuffer(*mesh.index_buffer);
     cl.DrawIndexed(mesh.index_count);
 }
 
 void FMotionVector::End(IRhiCommandList& cl) noexcept {
-    if (!_motion) return;
-    cl.EndRenderToTexture(*_motion);
+    if (!m_Motion) return;
+    cl.EndRenderToTexture(*m_Motion);
 }
 
 } // namespace acs

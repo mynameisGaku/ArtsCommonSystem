@@ -38,9 +38,9 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 u32 FBuffSystem::FindBuffDefSlot(const char* buff_id) const noexcept {
     if (buff_id == nullptr) return kNotFound;
-    const usize n = _registry.Size();
+    const usize n = m_Registry.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_registry[i].id, buff_id)) return static_cast<u32>(i);
+        if (StrEq(m_Registry[i].id, buff_id)) return static_cast<u32>(i);
     }
     return kNotFound;
 }
@@ -48,8 +48,8 @@ u32 FBuffSystem::FindBuffDefSlot(const char* buff_id) const noexcept {
 FBuffSystem::OwnerSlot* FBuffSystem::ResolveOwner(FBuffOwnerId owner) noexcept {
     if (!owner.IsValid()) return nullptr;
     const u32 idx = owner.Index();
-    if (idx >= _owners.Size()) return nullptr;
-    OwnerSlot& s = _owners[static_cast<usize>(idx)];
+    if (idx >= m_Owners.Size()) return nullptr;
+    OwnerSlot& s = m_Owners[static_cast<usize>(idx)];
     if (!s.in_use || s.gen != owner.Gen()) return nullptr;
     return &s;
 }
@@ -57,8 +57,8 @@ FBuffSystem::OwnerSlot* FBuffSystem::ResolveOwner(FBuffOwnerId owner) noexcept {
 const FBuffSystem::OwnerSlot* FBuffSystem::ResolveOwner(FBuffOwnerId owner) const noexcept {
     if (!owner.IsValid()) return nullptr;
     const u32 idx = owner.Index();
-    if (idx >= _owners.Size()) return nullptr;
-    const OwnerSlot& s = _owners[static_cast<usize>(idx)];
+    if (idx >= m_Owners.Size()) return nullptr;
+    const OwnerSlot& s = m_Owners[static_cast<usize>(idx)];
     if (!s.in_use || s.gen != owner.Gen()) return nullptr;
     return &s;
 }
@@ -91,7 +91,7 @@ void FBuffSystem::RegisterBuff(const FBuffDef& def) noexcept {
     FBuffDef normalized = def;
     if (normalized.max_stack == 0u) normalized.max_stack = 1u;
 
-    _registry.PushBack(normalized);
+    m_Registry.PushBack(normalized);
 }
 
 // =============================================================================
@@ -100,9 +100,9 @@ void FBuffSystem::RegisterBuff(const FBuffDef& def) noexcept {
 
 FBuffOwnerId FBuffSystem::CreateOwner() noexcept {
     // 既存 inactive slot を線形探索で再利用 (= FParticleEffectSystem と同設計)。
-    const usize n = _owners.Size();
+    const usize n = m_Owners.Size();
     for (usize i = 0; i < n; ++i) {
-        OwnerSlot& s = _owners[i];
+        OwnerSlot& s = m_Owners[i];
         if (s.in_use) continue;
 
         // gen を 1 進める (0 にラップしたら 1 に戻す)。0 は invalid なので配らない。
@@ -120,8 +120,8 @@ FBuffOwnerId FBuffSystem::CreateOwner() noexcept {
         ACS_LOG_WARN("FBuffSystem: owner index space exhausted (>= 16M)");
         return FBuffOwnerId{};
     }
-    _owners.PushBack({});
-    OwnerSlot& s = _owners[n];
+    m_Owners.PushBack({});
+    OwnerSlot& s = m_Owners[n];
     s.gen    = 1u;        // 新規 slot は gen=1 から開始
     s.in_use = true;
     return FBuffOwnerId::Pack(static_cast<u32>(n), 1u);
@@ -150,7 +150,7 @@ bool FBuffSystem::ApplyBuff(FBuffOwnerId owner, const char* buff_id) noexcept {
     const u32 def_slot = FindBuffDefSlot(buff_id);
     if (def_slot == kNotFound) return false;
 
-    const FBuffDef& def = _registry[static_cast<usize>(def_slot)];
+    const FBuffDef& def = m_Registry[static_cast<usize>(def_slot)];
 
     // duration_sec <= 0 は「適用しても即時消滅」となるので拒否
     // (ApplyBuff/Tick/ExpireCallback の発火順がフレーム境界で曖昧になるのを防ぐ)。
@@ -211,8 +211,8 @@ bool FBuffSystem::RemoveBuff(FBuffOwnerId owner, const char* buff_id) noexcept {
 
     // ExpireCallback はコールバック中に Apply/Remove が起きても安全になるよう、
     // 配列操作を済ませてから発火する (= 仕様コメント参照)。
-    if (_on_expire != nullptr) {
-        _on_expire(_on_expire_user, owner, removed_id);
+    if (m_OnExpire != nullptr) {
+        m_OnExpire(m_OnExpireUser, owner, removed_id);
     }
     return true;
 }
@@ -272,13 +272,13 @@ void FBuffSystem::ClearAllOnOwner(FBuffOwnerId owner) noexcept {
 // =============================================================================
 
 void FBuffSystem::SetOnTickCallback(TickCallback cb, void* user) noexcept {
-    _on_tick      = cb;
-    _on_tick_user = user;
+    m_OnTick      = cb;
+    m_OnTickUser = user;
 }
 
 void FBuffSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
-    _on_expire      = cb;
-    _on_expire_user = user;
+    m_OnExpire      = cb;
+    m_OnExpireUser = user;
 }
 
 // =============================================================================
@@ -288,9 +288,9 @@ void FBuffSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
 void FBuffSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
 
-    const usize owner_n = _owners.Size();
+    const usize owner_n = m_Owners.Size();
     for (usize oi = 0; oi < owner_n; ++oi) {
-        OwnerSlot& s = _owners[oi];
+        OwnerSlot& s = m_Owners[oi];
         if (!s.in_use) continue;
 
         // この owner の handle を再構成 (ExpireCallback で渡すため)。
@@ -313,13 +313,13 @@ void FBuffSystem::Tick(f32 dt) noexcept {
             // ホットスワップで挙動が変わって混乱するため、常に registry を参照)。
             const u32 def_slot = FindBuffDefSlot(b.id);
             if (def_slot != kNotFound) {
-                const FBuffDef& def = _registry[static_cast<usize>(def_slot)];
+                const FBuffDef& def = m_Registry[static_cast<usize>(def_slot)];
                 if (def.tick_interval_sec > 0.0f) {
                     b.tick_accum += dt;
                     while (b.tick_accum >= def.tick_interval_sec) {
                         b.tick_accum -= def.tick_interval_sec;
-                        if (_on_tick != nullptr) {
-                            _on_tick(_on_tick_user, owner_handle, b.id, b.stack, def.magnitude);
+                        if (m_OnTick != nullptr) {
+                            m_OnTick(m_OnTickUser, owner_handle, b.id, b.stack, def.magnitude);
                         }
                     }
                 }
@@ -329,8 +329,8 @@ void FBuffSystem::Tick(f32 dt) noexcept {
             if (b.remaining_sec <= 0.0f) {
                 const char* expired_id = b.id;
                 s.buffs.RemoveAtSwap(bi);
-                if (_on_expire != nullptr) {
-                    _on_expire(_on_expire_user, owner_handle, expired_id);
+                if (m_OnExpire != nullptr) {
+                    m_OnExpire(m_OnExpireUser, owner_handle, expired_id);
                 }
                 // bi はここまで「消したばかりの index」を指している。次の
                 // ループ先頭の `--bi` で 1 つ前に進むため、追加の補正は不要。
@@ -349,18 +349,18 @@ void FBuffSystem::ClearAll() noexcept {
     // 全 owner slot の buff 配列を破棄して in_use 落とし、registry も空に。
     // gen は維持しない (= ClearAll はテスト / シーン切替時の「丸ごとリセット」
     // セマンティクスで、stale handle 検出は呼出側の責任になる)。
-    const usize n = _owners.Size();
+    const usize n = m_Owners.Size();
     for (usize i = 0; i < n; ++i) {
-        _owners[i].buffs.Clear();
-        _owners[i].gen    = 0u;
-        _owners[i].in_use = false;
+        m_Owners[i].buffs.Clear();
+        m_Owners[i].gen    = 0u;
+        m_Owners[i].in_use = false;
     }
-    _owners.Clear();
-    _registry.Clear();
-    _on_tick        = nullptr;
-    _on_tick_user   = nullptr;
-    _on_expire      = nullptr;
-    _on_expire_user = nullptr;
+    m_Owners.Clear();
+    m_Registry.Clear();
+    m_OnTick        = nullptr;
+    m_OnTickUser   = nullptr;
+    m_OnExpire      = nullptr;
+    m_OnExpireUser = nullptr;
 }
 
 } // namespace acs::game

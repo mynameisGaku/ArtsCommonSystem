@@ -51,10 +51,10 @@ public:
     void OnEvent(const Event& e) noexcept;
 
 private:
-    FWindow*    _window    = nullptr;
-    FRenderer*  _renderer  = nullptr;
-    void*      _srv_heap  = nullptr;  // ID3D12DescriptorHeap*
-    bool       _initialized = false;
+    FWindow*    m_Window    = nullptr;
+    FRenderer*  m_Renderer  = nullptr;
+    void*      m_SrvHeap  = nullptr;  // ID3D12DescriptorHeap*
+    bool       m_Initialized = false;
 };
 
 } // namespace acs

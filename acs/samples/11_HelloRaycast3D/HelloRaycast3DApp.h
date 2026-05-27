@@ -23,10 +23,10 @@ public:
     void OnShutdown()          noexcept override;
 
 private:
-    acs::FStandardShader _shader;
-    acs::FSpriteBatch    _batch;
-    acs::Font           _font;
-    RaycastScene        _scene;
+    acs::FStandardShader m_Shader;
+    acs::FSpriteBatch    m_Batch;
+    acs::Font           m_Font;
+    RaycastScene        m_Scene;
 };
 
 } // namespace helloraycast3d

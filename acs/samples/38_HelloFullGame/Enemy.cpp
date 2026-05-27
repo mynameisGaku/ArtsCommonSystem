@@ -15,16 +15,16 @@ namespace hellofg {
 
 void EnemyPool::Reset() noexcept {
     for (u32 i = 0; i < kMaxEnemies; ++i) {
-        _enemies[i] = EnemyInstance{};
+        m_Enemies[i] = EnemyInstance{};
     }
 }
 
 void EnemyPool::Shutdown() noexcept {
     for (u32 i = 0; i < kMaxEnemies; ++i) {
-        if (_enemies[i].alive && _enemies[i].node) {
-            _enemies[i].node->Destroy();
+        if (m_Enemies[i].alive && m_Enemies[i].node) {
+            m_Enemies[i].node->Destroy();
         }
-        _enemies[i] = EnemyInstance{};
+        m_Enemies[i] = EnemyInstance{};
     }
 }
 
@@ -32,7 +32,7 @@ void EnemyPool::Spawn(GameplayScene& scene, FNode2D& root, FHealthSystem& health
                      u32 current_wave, FVec2 pos) noexcept {
     u32 slot = kMaxEnemies;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
-        if (!_enemies[i].alive) { slot = i; break; }
+        if (!m_Enemies[i].alive) { slot = i; break; }
     }
     if (slot >= kMaxEnemies) {
         ACS_LOG_WARN("[Gameplay] enemy pool full, drop spawn");
@@ -45,7 +45,7 @@ void EnemyPool::Spawn(GameplayScene& scene, FNode2D& root, FHealthSystem& health
     // FNodeId は 100 オフセットで衝突回避 (player=1)。
     nref._SetId(FNodeId{slot + 100u, static_cast<u8>(1)});
 
-    EnemyInstance& e = _enemies[slot];
+    EnemyInstance& e = m_Enemies[slot];
     e.alive = true;
     e.node  = &nref;
     e.hp    = health.Spawn(kEnemyHp);
@@ -59,7 +59,7 @@ bool EnemyPool::TickChaseAndContact(GameplayScene& scene, FHealthSystem& health,
     bool any_contact_lethal = false;
 
     for (u32 i = 0; i < kMaxEnemies; ++i) {
-        EnemyInstance& e = _enemies[i];
+        EnemyInstance& e = m_Enemies[i];
         if (!e.alive || e.node == nullptr) continue;
 
         // プレイヤーへ単純追跡。AI は方向ベクトル正規化 → 等速移動のみ。
@@ -92,7 +92,7 @@ bool EnemyPool::TickChaseAndContact(GameplayScene& scene, FHealthSystem& health,
 void EnemyPool::ApplyHit(GameplayScene& scene, FHealthSystem& health,
                          u32 target_id, f32 dmg) noexcept {
     if (target_id >= kMaxEnemies) return;
-    EnemyInstance& e = _enemies[target_id];
+    EnemyInstance& e = m_Enemies[target_id];
     if (!e.alive) return;
 
     const bool lethal = health.ApplyDamage(e.hp, dmg, EDamageType::Physical);
@@ -114,7 +114,7 @@ void EnemyPool::ApplyHit(GameplayScene& scene, FHealthSystem& health,
 void EnemyPool::DrawAll(FSpriteBatch& sb) const noexcept {
     const f32 sz = kEnemyRadius * 2.0f;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
-        const EnemyInstance& e = _enemies[i];
+        const EnemyInstance& e = m_Enemies[i];
         if (!e.alive || e.node == nullptr) continue;
         const FVec2 p = e.node->Local().position;
         sb.DrawRect(p.x - kEnemyRadius, p.y - kEnemyRadius, sz, sz, kColorEnemy);

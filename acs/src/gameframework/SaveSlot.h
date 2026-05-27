@@ -62,7 +62,7 @@ public:
     //  ・このクラスはコピーを取らず、ポインタだけを保持する (STL 不使用方針)。
     //  ・file_path が nullptr の場合は「未初期化」状態のまま戻る。
     void Init(const wchar_t* file_path) noexcept {
-        _file_path = file_path;
+        m_FilePath = file_path;
     }
 
     // Save: data を `.acssave` 形式で保存する (FSaveArchive::WriteToFile 経由)。
@@ -89,11 +89,11 @@ public:
     TResult<void> Delete() noexcept;
 
     // 内部状態用 getter (テスト・診断用)。
-    const wchar_t* FilePath() const noexcept { return _file_path; }
+    const wchar_t* FilePath() const noexcept { return m_FilePath; }
 
 private:
     // 未初期化の場合 nullptr。Init で設定される。
-    const wchar_t* _file_path = nullptr;
+    const wchar_t* m_FilePath = nullptr;
 };
 
 // =============================================================================
@@ -126,7 +126,7 @@ TResult<void> SaveSlot_Delete(const wchar_t* file_path) noexcept;
 
 template<typename T>
 TResult<void> FSaveSlot<T>::Save(const T& data, u32 version) noexcept {
-    return detail::SaveSlot_SaveBytes(_file_path,
+    return detail::SaveSlot_SaveBytes(m_FilePath,
                                       version,
                                       static_cast<const void*>(&data),
                                       sizeof(T));
@@ -135,7 +135,7 @@ TResult<void> FSaveSlot<T>::Save(const T& data, u32 version) noexcept {
 template<typename T>
 TResult<T> FSaveSlot<T>::Load(u32 expected_version) noexcept {
     T out{};
-    auto r = detail::SaveSlot_LoadBytes(_file_path,
+    auto r = detail::SaveSlot_LoadBytes(m_FilePath,
                                         expected_version,
                                         static_cast<void*>(&out),
                                         sizeof(T));
@@ -145,12 +145,12 @@ TResult<T> FSaveSlot<T>::Load(u32 expected_version) noexcept {
 
 template<typename T>
 bool FSaveSlot<T>::Exists() const noexcept {
-    return detail::SaveSlot_Exists(_file_path);
+    return detail::SaveSlot_Exists(m_FilePath);
 }
 
 template<typename T>
 TResult<void> FSaveSlot<T>::Delete() noexcept {
-    return detail::SaveSlot_Delete(_file_path);
+    return detail::SaveSlot_Delete(m_FilePath);
 }
 
 } // namespace acs::game

@@ -82,9 +82,9 @@ public:
     void SetObject(const FMat4& model, f32 ior, f32 thickness, FVec3 tint,
                    f32 roughness = 0.0f, f32 dispersion = 0.0f) noexcept;
 
-    IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
-    IRhiBuffer*   PerFrameCB()  const noexcept { return _frame_cb.Get(); }
-    IRhiBuffer*   PerObjectCB() const noexcept { return _object_cb.Get(); }
+    IRhiPipeline* Pipeline()    const noexcept { return m_Pipeline.Get(); }
+    IRhiBuffer*   PerFrameCB()  const noexcept { return m_FrameCb.Get(); }
+    IRhiBuffer*   PerObjectCB() const noexcept { return m_ObjectCb.Get(); }
 
     // 1 関数で 1 体描画: SetObject + CB/Texture バインド + DrawIndexed をまとめる。
     //   background : 屈折で sample する opaque シーンの複製
@@ -99,24 +99,24 @@ public:
                   f32 dispersion = 0.0f) noexcept;
 
 private:
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiBuffer>   _frame_cb;
-    TUniquePtr<IRhiBuffer>   _object_cb;
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiBuffer>   m_FrameCb;
+    TUniquePtr<IRhiBuffer>   m_ObjectCb;
 
     // Phase 35-3f thickness map
-    IRhiTexture*           _back_depth   = nullptr;     // 弱参照 (caller owns)
-    TUniquePtr<IRhiTexture> _back_depth_fb;              // 1x1 R32F fallback (enabled=0 用)
-    f32                    _back_near    = 0.1f;
-    f32                    _back_far     = 100.0f;
-    u32                    _screen_w     = 1;
-    u32                    _screen_h     = 1;
-    bool                   _back_enabled = false;
+    IRhiTexture*           m_BackDepth   = nullptr;     // 弱参照 (caller owns)
+    TUniquePtr<IRhiTexture> m_BackDepthFb;              // 1x1 R32F fallback (enabled=0 用)
+    f32                    m_BackNear    = 0.1f;
+    f32                    m_BackFar     = 100.0f;
+    u32                    m_ScreenW     = 1;
+    u32                    m_ScreenH     = 1;
+    bool                   m_BackEnabled = false;
     // SetFrame で view_proj / camera_pos を覚えておく (SetBackDepth が screen
     // params だけ更新する際に同じ Frame CB を再書き込みする必要がある)。
-    FMat4                   _vp           = {};
-    FVec3                   _eye          = FVec3{0, 0, 0};
+    FMat4                   m_Vp           = {};
+    FVec3                   m_Eye          = FVec3{0, 0, 0};
 };
 
 } // namespace acs

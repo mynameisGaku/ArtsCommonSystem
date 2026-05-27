@@ -80,12 +80,12 @@ public:
     void Close() noexcept;
 
     // Open 成功後かつ Close 前なら true。
-    bool IsOpen() const noexcept { return _file_handle != nullptr; }
+    bool IsOpen() const noexcept { return m_FileHandle != nullptr; }
 
     // ---- file table 参照 ----------------------------------------------------
 
     // 現在開いている pak に含まれる仮想ファイル数。未 Open なら 0。
-    u32 FileCount() const noexcept { return static_cast<u32>(_entries.Size()); }
+    u32 FileCount() const noexcept { return static_cast<u32>(m_Entries.Size()); }
 
     // index 番目の entry を返す。範囲外 / 未 Open なら nullptr。
     // 返り値の寿命は「次の Close まで」。
@@ -119,31 +119,31 @@ public:
     // ヘッダから読み取った flags をそのまま返す。Phase 1 では常に 0 だが、
     // Phase 2 で encrypted / compressed が入ったアーカイブを Open 拒否する前に
     // 何が立っているかロガーで確認する用途。
-    u32 Flags() const noexcept { return _flags; }
+    u32 Flags() const noexcept { return m_Flags; }
 
 private:
     // ヘッダ + file table をハンドルから読み出して内部状態を構築する。
     // Open() からのみ呼ばれる。失敗時は呼び出し側 (= Open) が Close を呼ぶ。
     TResult<void> LoadHeaderAndTable() noexcept;
 
-    // file_path の wchar_t を _string_pool に追加 (NUL 付き) し、その先頭
+    // file_path の wchar_t を m_StringPool に追加 (NUL 付き) し、その先頭
     // ポインタを返す。
     const wchar_t* InternPath(const wchar_t* src, u32 len) noexcept;
 
     // ---- 状態 ---------------------------------------------------------------
     // Win32 HANDLE は void* として保持し、<windows.h> を header から外す。
-    // 実装側 (.cpp) で reinterpret_cast<HANDLE>(_file_handle) として使う。
-    void*                 _file_handle = nullptr;   // Win32 HANDLE 相当
-    u64                   _file_size   = 0;         // CreateFileW 直後の GetFileSizeEx
-    u32                   _flags       = 0;         // header.flags
-    u64                   _table_offset = 0;        // header.file_table_offset
-    TArray<FAcpakFileEntry> _entries;                 // file table の in-memory 表現
-    TArray<wchar_t>        _string_pool;             // path 文字列の連結 (NUL 区切り)
+    // 実装側 (.cpp) で reinterpret_cast<HANDLE>(m_FileHandle) として使う。
+    void*                 m_FileHandle = nullptr;   // Win32 HANDLE 相当
+    u64                   m_FileSize   = 0;         // CreateFileW 直後の GetFileSizeEx
+    u32                   m_Flags       = 0;         // header.flags
+    u64                   m_TableOffset = 0;        // header.file_table_offset
+    TArray<FAcpakFileEntry> m_Entries;                 // file table の in-memory 表現
+    TArray<wchar_t>        m_StringPool;             // path 文字列の連結 (NUL 区切り)
 
     // Phase 2: 暗号化 pak の復号鍵。flags=0 のときは未使用。
-    // Close で _has_key=false にリセットされ、_key も 0 クリアされる。
-    FAcpakKey              _key{};
-    bool                  _has_key     = false;
+    // Close で m_HasKey=false にリセットされ、m_Key も 0 クリアされる。
+    FAcpakKey              m_Key{};
+    bool                  m_HasKey     = false;
 };
 
 } // namespace acs::assetpack

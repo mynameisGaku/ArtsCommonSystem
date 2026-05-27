@@ -70,28 +70,28 @@ public:
     void End(IRhiCommandList& cl) noexcept;
 
     // 出力 motion vector テクスチャ (RG16F、.rg = prev_uv - curr_uv)。
-    IRhiTexture* OutputTexture() const noexcept { return _motion.Get(); }
+    IRhiTexture* OutputTexture() const noexcept { return m_Motion.Get(); }
 
     // 出力 world-space normal テクスチャ (RGBA16F、.xyz = normalized world normal)。
-    IRhiTexture* OutputNormalTexture() const noexcept { return _normal.Get(); }
+    IRhiTexture* OutputNormalTexture() const noexcept { return m_Normal.Get(); }
 
 private:
     TResult<void> CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
     TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
-    IRhiDevice*             _device = nullptr;
-    u32                     _width  = 0;
-    u32                     _height = 0;
-    FMat4                    _vp{};        // Begin で渡された現フレーム VP
-    FMat4                    _prev_vp{};   // Begin で渡された前フレーム VP
+    IRhiDevice*             m_Device = nullptr;
+    u32                     m_Width  = 0;
+    u32                     m_Height = 0;
+    FMat4                    m_Vp{};        // Begin で渡された現フレーム VP
+    FMat4                    m_PrevVp{};   // Begin で渡された前フレーム VP
 
-    TUniquePtr<IRhiTexture>  _motion;      // RG16F、screen-space motion (prev_uv - curr_uv)
-    TUniquePtr<IRhiTexture>  _normal;      // RGBA16F、world-space normal (.xyz)
-    TUniquePtr<IRhiTexture>  _depth;       // D32、occlusion 用の内部 depth
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiBuffer>   _cb;          // MotionCB { curr_mvp, prev_mvp, curr_model }
+    TUniquePtr<IRhiTexture>  m_Motion;      // RG16F、screen-space motion (prev_uv - curr_uv)
+    TUniquePtr<IRhiTexture>  m_Normal;      // RGBA16F、world-space normal (.xyz)
+    TUniquePtr<IRhiTexture>  m_Depth;       // D32、occlusion 用の内部 depth
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiBuffer>   m_Cb;          // MotionCB { curr_mvp, prev_mvp, curr_model }
 };
 
 } // namespace acs

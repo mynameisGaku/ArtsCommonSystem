@@ -51,7 +51,7 @@
 //     (Pillar 規約)。
 //   ・**NormalTimeScale 分離**: slow-motion 演出 (= 通常時 0.5x など) と
 //     pause を直交管理するため、「pause 解除時に戻る scale」を別保持。
-//     EffectiveTimeScale() は pause 中 = 0, 非 pause = _normal_time_scale。
+//     EffectiveTimeScale() は pause 中 = 0, 非 pause = m_NormalTimeScale。
 //   ・**非コピー・非ムーブ**: アプリ全体で 1 個運用される director なので、
 //     値渡しでスタック状態が分裂しないよう移動コンストラクタも禁止。
 //   ・**全 noexcept**: ACS 規約 (TResult<T,E> + 例外なし) に従う。
@@ -151,7 +151,7 @@ public:
     // ----- time scale 連携 -----
     // EffectiveTimeScale: caller が `FGame::SetTimeScale(...)` に渡す値。
     //   pause 中 (= IsPaused()) → 0.0f
-    //   非 pause              → _normal_time_scale
+    //   非 pause              → m_NormalTimeScale
     f32 EffectiveTimeScale() const noexcept;
 
     // SetNormalTimeScale: pause 解除時に戻る scale。slow-motion 演出
@@ -178,10 +178,10 @@ private:
     // changed_bits は「実際に変化した bit」、paused は遷移方向。
     void FireTransitions(u32 changed_bits, bool paused) const noexcept;
 
-    u32                _mask              = 0u;    // 現在立っている reason の bit OR
-    f32                _normal_time_scale = 1.0f;  // pause 解除時に戻る scale
-    PauseEventCallback _callback          = nullptr;
-    void*              _callback_user     = nullptr;
+    u32                m_Mask              = 0u;    // 現在立っている reason の bit OR
+    f32                m_NormalTimeScale = 1.0f;  // pause 解除時に戻る scale
+    PauseEventCallback m_Callback          = nullptr;
+    void*              m_CallbackUser     = nullptr;
 };
 
 } // namespace acs::game

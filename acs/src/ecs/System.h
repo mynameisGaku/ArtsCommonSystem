@@ -28,20 +28,20 @@ public:
     SystemScheduler() noexcept = default;
 
     // システム関数を登録（順序は登録順）
-    void Add(SystemFn fn) noexcept { _systems.PushBack(fn); }
+    void Add(SystemFn fn) noexcept { m_Systems.PushBack(fn); }
 
     // 全システムを順に呼ぶ（dt は前フレームからの経過秒）
     void Tick(World& world, f32 dt) noexcept {
-        for (usize i = 0; i < _systems.Size(); ++i) {
-            _systems[i](world, dt);
+        for (usize i = 0; i < m_Systems.Size(); ++i) {
+            m_Systems[i](world, dt);
         }
     }
 
-    void Clear() noexcept { _systems.Clear(); }
-    usize Count() const noexcept { return _systems.Size(); }
+    void Clear() noexcept { m_Systems.Clear(); }
+    usize Count() const noexcept { return m_Systems.Size(); }
 
 private:
-    TArray<SystemFn> _systems;
+    TArray<SystemFn> m_Systems;
 };
 
 } // namespace acs

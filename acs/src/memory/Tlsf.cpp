@@ -134,18 +134,18 @@ TResult<void> FTlsfAllocator::Init(void* pool_base, usize pool_size) noexcept {
         return ACS_ERR(Memory, 21, "TLSF::Init pool not 16B aligned");
 
     // ビットマップとリストヘッドを 0 / 番兵で初期化
-    _fl_bitmap = 0;
+    m_FlBitmap = 0;
     for (int i = 0; i < tlsf::FL_INDEX_COUNT; ++i) {
-        _sl_bitmap[i] = 0;
+        m_SlBitmap[i] = 0;
         for (int j = 0; j < tlsf::SL_INDEX_COUNT; ++j) {
-            _blocks[i][j] = &_null_block;
+            m_Blocks[i][j] = &m_NullBlock;
         }
     }
     // 番兵ノードは自分を指す循環リスト（リスト末端の表現）
-    _null_block.next_free = &_null_block;
-    _null_block.prev_free = &_null_block;
-    _null_block.size_and_flags = 0;
-    _null_block.prev_phys_block = nullptr;
+    m_NullBlock.next_free = &m_NullBlock;
+    m_NullBlock.prev_free = &m_NullBlock;
+    m_NullBlock.size_and_flags = 0;
+    m_NullBlock.prev_phys_block = nullptr;
 
     return AddPool(pool_base, pool_size);
 }
@@ -158,8 +158,8 @@ TResult<void> FTlsfAllocator::InitWithReservation(VmReservation&& reservation,
     void* base = reservation.Base();
     auto r = Init(base, commit_initial);
     if (r.IsErr()) return r;
-    _reservation = Move(reservation);
-    _owns_reservation = true;
+    m_Reservation = Move(reservation);
+    m_OwnsReservation = true;
     return Ok();
 }
 
@@ -197,15 +197,15 @@ void FTlsfAllocator::InsertFreeBlock(tlsf::FBlockHeader* block) noexcept {
     MappingInsert(BlockSize(block), fl, sl);
 
     // 双方向リンクで先頭挿入
-    FBlockHeader* current = _blocks[fl][sl];
+    FBlockHeader* current = m_Blocks[fl][sl];
     block->next_free = current;
-    block->prev_free = &_null_block;
+    block->prev_free = &m_NullBlock;
     current->prev_free = block;
-    _blocks[fl][sl] = block;
+    m_Blocks[fl][sl] = block;
 
     // ビットマップに「このバケット非空」を立てる
-    _fl_bitmap |= (1u << fl);
-    _sl_bitmap[fl] |= (1u << sl);
+    m_FlBitmap |= (1u << fl);
+    m_SlBitmap[fl] |= (1u << sl);
 }
 
 // フリーリストから取り除く（バケットが空なら対応ビットも下ろす）
@@ -218,13 +218,13 @@ void FTlsfAllocator::RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept {
 
     int fl, sl;
     MappingInsert(BlockSize(block), fl, sl);
-    if (_blocks[fl][sl] == block) {
-        _blocks[fl][sl] = next;
+    if (m_Blocks[fl][sl] == block) {
+        m_Blocks[fl][sl] = next;
         // バケットが空になったらビットマップを下ろす
-        if (next == &_null_block) {
-            _sl_bitmap[fl] &= ~(1u << sl);
-            if (_sl_bitmap[fl] == 0) {
-                _fl_bitmap &= ~(1u << fl);
+        if (next == &m_NullBlock) {
+            m_SlBitmap[fl] &= ~(1u << sl);
+            if (m_SlBitmap[fl] == 0) {
+                m_FlBitmap &= ~(1u << fl);
             }
         }
     }
@@ -234,16 +234,16 @@ void FTlsfAllocator::RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept {
 tlsf::FBlockHeader* FTlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexcept {
     using namespace tlsf;
     // 同じ FL 内で sl 以上のビットを探す
-    u32 sl_map = _sl_bitmap[fl] & (~0u << sl);
+    u32 sl_map = m_SlBitmap[fl] & (~0u << sl);
     if (sl_map == 0) {
         // 見つからなければ FL を 1 つ上にずらす
-        u32 fl_map = _fl_bitmap & (~0u << (fl + 1));
+        u32 fl_map = m_FlBitmap & (~0u << (fl + 1));
         if (fl_map == 0) return nullptr;  // OOM
         fl = Ffs(fl_map);
-        sl_map = _sl_bitmap[fl];
+        sl_map = m_SlBitmap[fl];
     }
     sl = Ffs(sl_map);
-    return _blocks[fl][sl];
+    return m_Blocks[fl][sl];
 }
 
 // 余剰サイズを切り出して新しいフリーブロックとして再登録
@@ -300,7 +300,7 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
     int fl, sl;
     MappingSearch(adjust, fl, sl);
     FBlockHeader* block = SearchSuitableBlock(fl, sl);
-    if (!block || block == &_null_block) return nullptr;  // OOM
+    if (!block || block == &m_NullBlock) return nullptr;  // OOM
 
     // 取り出して必要分に分割
     RemoveFreeBlock(block);
@@ -310,8 +310,8 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
     MarkPrevUsed(after);  // 次ブロックに「前は使用中」を伝達
 
     // 統計更新
-    _bytes_used += BlockSize(block);
-    if (_bytes_used > _bytes_peak) _bytes_peak = _bytes_used;
+    m_BytesUsed += BlockSize(block);
+    if (m_BytesUsed > m_BytesPeak) m_BytesPeak = m_BytesUsed;
     return BlockToPtr(block);
 }
 
@@ -320,7 +320,7 @@ void FTlsfAllocator::Free(void* ptr) noexcept {
     using namespace tlsf;
     if (!ptr) return;
     FBlockHeader* block = PtrToBlock(ptr);
-    _bytes_used -= BlockSize(block);
+    m_BytesUsed -= BlockSize(block);
 
     MarkFree(block);
     // 隣接フリーブロックがあれば統合（外部断片化を防ぐ）
@@ -340,8 +340,8 @@ void* FTlsfAllocator::Realloc(void* ptr, usize old_size, usize new_size,
 
 FTlsfAllocator::Stats FTlsfAllocator::GetStats() const noexcept {
     Stats s {};
-    s.bytes_used = _bytes_used;
-    s.bytes_peak = _bytes_peak;
+    s.bytes_used = m_BytesUsed;
+    s.bytes_peak = m_BytesPeak;
     s.free_blocks = 0;
     s.used_blocks = 0;
     s.largest_free_block = 0;

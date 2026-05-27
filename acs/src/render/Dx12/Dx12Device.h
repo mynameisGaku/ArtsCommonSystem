@@ -13,16 +13,16 @@ public:
     ~Dx12Device() noexcept override;
 
     // 内部使用: DXGI ファクトリ・D3D12 デバイス・コマンドキューを取得
-    IDXGIFactory6*    DxgiFactory()     const noexcept { return _factory; }
-    ID3D12Device*     D3DDevice()       const noexcept { return _device; }
-    ID3D12CommandQueue* GraphicsQueue() const noexcept { return _gfx_queue; }
+    IDXGIFactory6*    DxgiFactory()     const noexcept { return m_Factory; }
+    ID3D12Device*     D3DDevice()       const noexcept { return m_Device; }
+    ID3D12CommandQueue* GraphicsQueue() const noexcept { return m_GfxQueue; }
 
     // SRV/CBV/UAV 用シェーダ可視ヒープ（テクスチャ等が永続スロットを取る）
-    ID3D12DescriptorHeap* SrvHeap()      const noexcept { return _srv_heap; }
-    u32                   SrvHandleSize() const noexcept { return _srv_handle_size; }
+    ID3D12DescriptorHeap* SrvHeap()      const noexcept { return m_SrvHeap; }
+    u32                   SrvHandleSize() const noexcept { return m_SrvHandleSize; }
 
     // SRV ヒープから 1 スロット確保（テクスチャ作成時に呼ばれる）
-    // 戻り値: スロットインデックス（< _srv_capacity）。-1 は失敗。
+    // 戻り値: スロットインデックス（< m_SrvCapacity）。-1 は失敗。
     i32  AllocateSrvSlot() noexcept;
 
     // SRV ヒープスロットを返却（テクスチャ破棄時）
@@ -43,7 +43,7 @@ public:
     D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle(i32 index) const noexcept;
 
     const char* BackendName() const noexcept override { return "DX12"; }
-    const char* AdapterName() const noexcept override { return _adapter_name; }
+    const char* AdapterName() const noexcept override { return m_AdapterName; }
     void WaitIdle() noexcept override;
 
     // フレーム Fence サポート: ExecuteCommandLists 後にこの番号を Signal して返す
@@ -55,8 +55,8 @@ public:
 
     // フレームスロット（kFramesInFlight 個。Uniform バッファ等が使うリングインデックス）
     static constexpr u32 kFramesInFlight = 2;
-    u32  CurrentFrameSlot() const noexcept { return _frame_slot; }
-    void AdvanceFrameSlot() noexcept { _frame_slot = (_frame_slot + 1) % kFramesInFlight; }
+    u32  CurrentFrameSlot() const noexcept { return m_FrameSlot; }
+    void AdvanceFrameSlot() noexcept { m_FrameSlot = (m_FrameSlot + 1) % kFramesInFlight; }
 
     // 初期化（CreateRhiDevice から呼ばれる）
     HrResult Init(const DeviceConfig& cfg) noexcept;
@@ -64,31 +64,31 @@ public:
 private:
     HrResult InitDescriptorHeaps() noexcept;
 
-    IDXGIFactory6*       _factory   = nullptr;
-    IDXGIAdapter1*       _adapter   = nullptr;
-    ID3D12Device*        _device    = nullptr;
-    ID3D12CommandQueue*  _gfx_queue = nullptr;
-    ID3D12Fence*         _idle_fence = nullptr;
-    HANDLE               _idle_event = nullptr;
-    u64                  _idle_value = 0;
-    char                 _adapter_name[128]{};
-    u32                  _frame_slot = 0;
+    IDXGIFactory6*       m_Factory   = nullptr;
+    IDXGIAdapter1*       m_Adapter   = nullptr;
+    ID3D12Device*        m_Device    = nullptr;
+    ID3D12CommandQueue*  m_GfxQueue = nullptr;
+    ID3D12Fence*         m_IdleFence = nullptr;
+    HANDLE               m_IdleEvent = nullptr;
+    u64                  m_IdleValue = 0;
+    char                 m_AdapterName[128]{};
+    u32                  m_FrameSlot = 0;
 
     // シェーダ可視 SRV ヒープ（簡易フリーリスト式）
-    ID3D12DescriptorHeap* _srv_heap        = nullptr;
-    u32                   _srv_handle_size = 0;
+    ID3D12DescriptorHeap* m_SrvHeap        = nullptr;
+    u32                   m_SrvHandleSize = 0;
     static constexpr u32  kSrvCapacity = 1024;
-    u32                   _srv_high_water  = 0;
-    i32                   _srv_free_list[kSrvCapacity]{};
-    u32                   _srv_free_count  = 0;
+    u32                   m_SrvHighWater  = 0;
+    i32                   m_SrvFreeList[kSrvCapacity]{};
+    u32                   m_SrvFreeCount  = 0;
 
     // DSV ヒープ（CPU のみ、小容量）
-    ID3D12DescriptorHeap* _dsv_heap        = nullptr;
-    u32                   _dsv_handle_size = 0;
+    ID3D12DescriptorHeap* m_DsvHeap        = nullptr;
+    u32                   m_DsvHandleSize = 0;
     static constexpr u32  kDsvCapacity = 16;
-    u32                   _dsv_high_water  = 0;
-    i32                   _dsv_free_list[kDsvCapacity]{};
-    u32                   _dsv_free_count  = 0;
+    u32                   m_DsvHighWater  = 0;
+    i32                   m_DsvFreeList[kDsvCapacity]{};
+    u32                   m_DsvFreeCount  = 0;
 };
 
 } // namespace acs

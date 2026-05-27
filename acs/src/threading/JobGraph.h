@@ -70,7 +70,7 @@ public:
     void Reset() noexcept;
 
     // 統計
-    u32 JobCount() const noexcept { return static_cast<u32>(_jobs.Size()); }
+    u32 JobCount() const noexcept { return static_cast<u32>(m_Jobs.Size()); }
 
 private:
     friend struct JobHandle;
@@ -87,9 +87,9 @@ private:
         FJobGraph*      owner            = nullptr;
     };
 
-    TArray<Job*>        _jobs;
-    CompletionCounter  _counter;
-    bool               _submitted       = false;
+    TArray<Job*>        m_Jobs;
+    CompletionCounter  m_Counter;
+    bool               m_Submitted       = false;
 };
 
 } // namespace acs

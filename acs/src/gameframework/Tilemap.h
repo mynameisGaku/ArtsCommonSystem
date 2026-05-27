@@ -105,10 +105,10 @@ public:
     // 全レイヤーを 0 (空) で埋める (サイズは保持)。
     void Clear() noexcept;
 
-    u32 Width()      const noexcept { return _width; }
-    u32 Height()     const noexcept { return _height; }
-    u32 LayerCount() const noexcept { return static_cast<u32>(_layers.Size()); }
-    f32 TileSize()   const noexcept { return _tile_size; }
+    u32 Width()      const noexcept { return m_Width; }
+    u32 Height()     const noexcept { return m_Height; }
+    u32 LayerCount() const noexcept { return static_cast<u32>(m_Layers.Size()); }
+    f32 TileSize()   const noexcept { return m_TileSize; }
 
     // tile (x,y) の **中心** world 座標。範囲外 (x>=width / y>=height) でも
     // 計算式そのものを返す (デバッグ用に左下原点で連続を期待する利用者が
@@ -124,10 +124,10 @@ public:
     const FTileId* LayerData(u32 layer) const noexcept;
 
 private:
-    TArray<TArray<FTileId>> _layers {};      // _layers[L] = row-major (w*h)
-    u32                  _width      = 0;
-    u32                  _height     = 0;
-    f32                  _tile_size  = 16.0f;
+    TArray<TArray<FTileId>> m_Layers {};      // m_Layers[L] = row-major (w*h)
+    u32                  m_Width      = 0;
+    u32                  m_Height     = 0;
+    f32                  m_TileSize  = 16.0f;
 };
 
 } // namespace acs::game

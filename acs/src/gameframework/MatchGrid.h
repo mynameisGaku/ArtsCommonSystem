@@ -106,8 +106,8 @@ public:
     // (width/height は 1、color_count は 1)。chain / clear カウンタもリセット。
     void Init(u32 width, u32 height, u32 color_count) noexcept;
 
-    u32 Width()  const noexcept { return _width; }
-    u32 Height() const noexcept { return _height; }
+    u32 Width()  const noexcept { return m_Width; }
+    u32 Height() const noexcept { return m_Height; }
 
     // 範囲内なら該当 cell の const-ref。範囲外なら内部 static の dummy empty cell。
     const GridCell& Get(u32 x, u32 y) const noexcept;
@@ -148,10 +148,10 @@ public:
     void SetOnClearCallback(ClearCallback cb, void* user) noexcept;
 
     // この chain (= ResetChain 以降) 中の累計除去数。
-    u32 TotalClearedThisChain() const noexcept { return _total_cleared; }
+    u32 TotalClearedThisChain() const noexcept { return m_TotalCleared; }
 
     // この chain 中の cascade 段数 (= ResolveAllMatches の内部ループ回数の累計)。
-    u32 ChainLevel() const noexcept { return _chain_level; }
+    u32 ChainLevel() const noexcept { return m_ChainLevel; }
 
     // 新ターン用に chain / total カウンタを 0 に戻す。
     void ResetChain() noexcept;
@@ -162,7 +162,7 @@ public:
 private:
     // 1D index (`y*width + x`)
     usize Idx(u32 x, u32 y) const noexcept {
-        return static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x);
+        return static_cast<usize>(y) * static_cast<usize>(m_Width) + static_cast<usize>(x);
     }
 
     // セルを 1 個消去し callback / counter を更新。波及 (special 効果) からの
@@ -176,14 +176,14 @@ private:
     // FillRandom 内部用: (x, y) に色を置くとき左 2 個 / 上 2 個と被らない色を選ぶ。
     u8 PickColorAvoidingMatch(u32 x, u32 y, FRandom& rng) const noexcept;
 
-    TArray<GridCell> _cells {};        // row-major (`y * width + x`)
-    u32             _width        = 0;
-    u32             _height       = 0;
-    u32             _color_count  = 1;
-    u32             _chain_level  = 0;
-    u32             _total_cleared = 0;
-    ClearCallback   _on_clear     = nullptr;
-    void*           _on_clear_user = nullptr;
+    TArray<GridCell> m_Cells {};        // row-major (`y * width + x`)
+    u32             m_Width        = 0;
+    u32             m_Height       = 0;
+    u32             m_ColorCount  = 1;
+    u32             m_ChainLevel  = 0;
+    u32             m_TotalCleared = 0;
+    ClearCallback   m_OnClear     = nullptr;
+    void*           m_OnClearUser = nullptr;
 };
 
 } // namespace acs::game

@@ -30,22 +30,22 @@ f32 FBeatGrid::MsToSec(f32 ms) noexcept {
 }
 
 EJudgement FBeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
-    if (abs_delta_sec <= _perfect_window_sec) return EJudgement::Perfect;
-    if (abs_delta_sec <= _great_window_sec)   return EJudgement::Great;
-    if (abs_delta_sec <= _good_window_sec)    return EJudgement::Good;
+    if (abs_delta_sec <= m_PerfectWindowSec) return EJudgement::Perfect;
+    if (abs_delta_sec <= m_GreatWindowSec)   return EJudgement::Great;
+    if (abs_delta_sec <= m_GoodWindowSec)    return EJudgement::Good;
     return EJudgement::Miss;
 }
 
 usize FBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
-    const usize n = _notes.Size();
+    const usize n = m_Notes.Size();
     usize best_idx = n;            // npos
-    f32   best_abs = _good_window_sec; // good_window を超える note は対象外
+    f32   best_abs = m_GoodWindowSec; // good_window を超える note は対象外
 
     for (usize i = 0; i < n; ++i) {
-        if (_judged[i]) continue;
-        const FBeatNote& note = _notes[i];
+        if (m_Judged[i]) continue;
+        const FBeatNote& note = m_Notes[i];
         if (note.lane != lane) continue;
-        f32 delta = note.time_sec - _current_time;
+        f32 delta = note.time_sec - m_CurrentTime;
         if (delta < 0.0f) delta = -delta;
         if (delta <= best_abs) {
             best_abs = delta;
@@ -57,15 +57,15 @@ usize FBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
 
 void FBeatGrid::ApplyJudgement(EBeatLane lane, EJudgement j) noexcept {
     switch (j) {
-        case EJudgement::Perfect: ++_perfect_count; ++_current_combo; break;
-        case EJudgement::Great:   ++_great_count;   ++_current_combo; break;
-        case EJudgement::Good:    ++_good_count;    ++_current_combo; break;
-        case EJudgement::Miss:    ++_miss_count;    _current_combo = 0u; break;
+        case EJudgement::Perfect: ++m_PerfectCount; ++m_CurrentCombo; break;
+        case EJudgement::Great:   ++m_GreatCount;   ++m_CurrentCombo; break;
+        case EJudgement::Good:    ++m_GoodCount;    ++m_CurrentCombo; break;
+        case EJudgement::Miss:    ++m_MissCount;    m_CurrentCombo = 0u; break;
     }
-    if (_current_combo > _max_combo) _max_combo = _current_combo;
+    if (m_CurrentCombo > m_MaxCombo) m_MaxCombo = m_CurrentCombo;
 
-    if (_judge_cb != nullptr) {
-        _judge_cb(_judge_user, lane, j, _current_combo);
+    if (m_JudgeCb != nullptr) {
+        m_JudgeCb(m_JudgeUser, lane, j, m_CurrentCombo);
     }
 }
 
@@ -78,52 +78,52 @@ void FBeatGrid::Init() noexcept {
     // (callback は呼出側が SetOn* で別途設定済みの想定なので維持する。
     //  譜面は LoadChart で都度上書きするため Init 単体ではクリアしない方が
     //  「Init → LoadChart → Start」の素直なフローを邪魔しない。)
-    _current_time   = 0.0f;
-    _playing        = false;
-    _paused         = false;
-    _ended_fired    = false;
-    _perfect_count  = 0u;
-    _great_count    = 0u;
-    _good_count     = 0u;
-    _miss_count     = 0u;
-    _current_combo  = 0u;
-    _max_combo      = 0u;
+    m_CurrentTime   = 0.0f;
+    m_Playing        = false;
+    m_Paused         = false;
+    m_EndedFired    = false;
+    m_PerfectCount  = 0u;
+    m_GreatCount    = 0u;
+    m_GoodCount     = 0u;
+    m_MissCount     = 0u;
+    m_CurrentCombo  = 0u;
+    m_MaxCombo      = 0u;
 
     // judged flag は既存譜面に対して全 false 化する (= 再判定可能状態)。
-    const usize n = _judged.Size();
-    for (usize i = 0; i < n; ++i) _judged[i] = false;
+    const usize n = m_Judged.Size();
+    for (usize i = 0; i < n; ++i) m_Judged[i] = false;
 }
 
 void FBeatGrid::LoadChart(const FBeatNote* notes, u32 count, f32 bpm) noexcept {
     // 既存譜面を破棄
-    _notes.Clear();
-    _judged.Clear();
+    m_Notes.Clear();
+    m_Judged.Clear();
 
-    _bpm = (bpm < 0.0f) ? 0.0f : bpm;
+    m_Bpm = (bpm < 0.0f) ? 0.0f : bpm;
 
     if (notes != nullptr && count > 0u) {
-        _notes.Reserve(count);
-        _judged.Reserve(count);
+        m_Notes.Reserve(count);
+        m_Judged.Reserve(count);
         for (u32 i = 0; i < count; ++i) {
             FBeatNote n = notes[i];
             if (n.hold_duration_sec < 0.0f) n.hold_duration_sec = 0.0f;
-            _notes.PushBack(n);
-            _judged.PushBack(false);
+            m_Notes.PushBack(n);
+            m_Judged.PushBack(false);
         }
     }
-    _total_notes = static_cast<u32>(_notes.Size());
+    m_TotalNotes = static_cast<u32>(m_Notes.Size());
 
     // 統計 / 状態リセット
-    _current_time   = 0.0f;
-    _playing        = false;
-    _paused         = false;
-    _ended_fired    = false;
-    _perfect_count  = 0u;
-    _great_count    = 0u;
-    _good_count     = 0u;
-    _miss_count     = 0u;
-    _current_combo  = 0u;
-    _max_combo      = 0u;
+    m_CurrentTime   = 0.0f;
+    m_Playing        = false;
+    m_Paused         = false;
+    m_EndedFired    = false;
+    m_PerfectCount  = 0u;
+    m_GreatCount    = 0u;
+    m_GoodCount     = 0u;
+    m_MissCount     = 0u;
+    m_CurrentCombo  = 0u;
+    m_MaxCombo      = 0u;
 }
 
 void FBeatGrid::SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms) noexcept {
@@ -133,9 +133,9 @@ void FBeatGrid::SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms) noex
     // 順序逆転は内部で整形 (= perfect <= great <= good を保証)
     if (g < p) g = p;
     if (d < g) d = g;
-    _perfect_window_sec = p;
-    _great_window_sec   = g;
-    _good_window_sec    = d;
+    m_PerfectWindowSec = p;
+    m_GreatWindowSec   = g;
+    m_GoodWindowSec    = d;
 }
 
 // ----------------------------------------------------------------------------
@@ -143,35 +143,35 @@ void FBeatGrid::SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms) noex
 // ----------------------------------------------------------------------------
 
 void FBeatGrid::Start() noexcept {
-    _current_time = 0.0f;
-    _playing      = true;
-    _paused       = false;
-    _ended_fired  = false;
+    m_CurrentTime = 0.0f;
+    m_Playing      = true;
+    m_Paused       = false;
+    m_EndedFired  = false;
     // judged flag を再判定可能状態に戻す + 統計クリア (= 再挑戦)
-    const usize n = _judged.Size();
-    for (usize i = 0; i < n; ++i) _judged[i] = false;
-    _perfect_count = 0u;
-    _great_count   = 0u;
-    _good_count    = 0u;
-    _miss_count    = 0u;
-    _current_combo = 0u;
-    _max_combo     = 0u;
+    const usize n = m_Judged.Size();
+    for (usize i = 0; i < n; ++i) m_Judged[i] = false;
+    m_PerfectCount = 0u;
+    m_GreatCount   = 0u;
+    m_GoodCount    = 0u;
+    m_MissCount    = 0u;
+    m_CurrentCombo = 0u;
+    m_MaxCombo     = 0u;
 }
 
 void FBeatGrid::Stop() noexcept {
-    _playing      = false;
-    _paused       = false;
-    _current_time = 0.0f;
+    m_Playing      = false;
+    m_Paused       = false;
+    m_CurrentTime = 0.0f;
     // 統計 / judged は呼出側がスコア表示等に使う可能性があるため維持する。
     // ClearAll で完全クリア。
 }
 
 void FBeatGrid::Pause() noexcept {
-    if (_playing) _paused = true;
+    if (m_Playing) m_Paused = true;
 }
 
 void FBeatGrid::Resume() noexcept {
-    if (_playing) _paused = false;
+    if (m_Playing) m_Paused = false;
 }
 
 // ----------------------------------------------------------------------------
@@ -180,17 +180,17 @@ void FBeatGrid::Resume() noexcept {
 
 EJudgement FBeatGrid::Tap(EBeatLane lane) noexcept {
     // 停止中は判定対象なし
-    if (!_playing) return EJudgement::Miss;
+    if (!m_Playing) return EJudgement::Miss;
 
     const usize idx = FindNearestNote(lane);
-    if (idx >= _notes.Size()) {
+    if (idx >= m_Notes.Size()) {
         // good_window 内に該当 note なし: caller への通知は Miss だが
         // 統計には影響させない (空打ち)。
         return EJudgement::Miss;
     }
 
-    const FBeatNote& note = _notes[idx];
-    f32 delta = note.time_sec - _current_time;
+    const FBeatNote& note = m_Notes[idx];
+    f32 delta = note.time_sec - m_CurrentTime;
     if (delta < 0.0f) delta = -delta;
     const EJudgement j = ClassifyDelta(delta);
 
@@ -198,41 +198,41 @@ EJudgement FBeatGrid::Tap(EBeatLane lane) noexcept {
     // ここで Miss にはならないはずだが、defense-in-depth で再確認。
     if (j == EJudgement::Miss) return EJudgement::Miss;
 
-    _judged[idx] = true;
+    m_Judged[idx] = true;
     ApplyJudgement(lane, j);
     return j;
 }
 
 void FBeatGrid::Tick(f32 dt) noexcept {
-    if (!_playing) return;
-    if (_paused)   return;
+    if (!m_Playing) return;
+    if (m_Paused)   return;
     if (dt <= 0.0f) return;
 
-    _current_time += dt;
+    m_CurrentTime += dt;
 
     // good_window を 1 frame でも過ぎた note を Miss として確定。
     // 一括処理: 大 dt や譜面後半に未判定が残ったまま停止 → 再生再開の場合も
     // 同一 Tick で全部捌く。
-    const usize n = _notes.Size();
-    const f32 miss_threshold = _current_time - _good_window_sec;
+    const usize n = m_Notes.Size();
+    const f32 miss_threshold = m_CurrentTime - m_GoodWindowSec;
     for (usize i = 0; i < n; ++i) {
-        if (_judged[i]) continue;
-        if (_notes[i].time_sec < miss_threshold) {
-            _judged[i] = true;
-            ApplyJudgement(_notes[i].lane, EJudgement::Miss);
+        if (m_Judged[i]) continue;
+        if (m_Notes[i].time_sec < miss_threshold) {
+            m_Judged[i] = true;
+            ApplyJudgement(m_Notes[i].lane, EJudgement::Miss);
         }
     }
 
     // 全 note 判定完了 → 一度だけ EndCallback。
-    if (!_ended_fired) {
+    if (!m_EndedFired) {
         u32 judged_count = 0u;
         for (usize i = 0; i < n; ++i) {
-            if (_judged[i]) ++judged_count;
+            if (m_Judged[i]) ++judged_count;
         }
-        if (judged_count == _total_notes) {
-            _ended_fired = true;
-            if (_end_cb != nullptr) {
-                _end_cb(_end_user, HitNotes(), _miss_count, Accuracy());
+        if (judged_count == m_TotalNotes) {
+            m_EndedFired = true;
+            if (m_EndCb != nullptr) {
+                m_EndCb(m_EndUser, HitNotes(), m_MissCount, Accuracy());
             }
         }
     }
@@ -243,12 +243,12 @@ void FBeatGrid::Tick(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 
 f32 FBeatGrid::Accuracy() const noexcept {
-    if (_total_notes == 0u) return 1.0f; // 空譜面 = 満点扱い (divide-by-zero 回避)
+    if (m_TotalNotes == 0u) return 1.0f; // 空譜面 = 満点扱い (divide-by-zero 回避)
     const f32 weighted =
-        static_cast<f32>(_perfect_count) * 1.0f +
-        static_cast<f32>(_great_count)   * 0.8f +
-        static_cast<f32>(_good_count)    * 0.5f;
-    return weighted / static_cast<f32>(_total_notes);
+        static_cast<f32>(m_PerfectCount) * 1.0f +
+        static_cast<f32>(m_GreatCount)   * 0.8f +
+        static_cast<f32>(m_GoodCount)    * 0.5f;
+    return weighted / static_cast<f32>(m_TotalNotes);
 }
 
 // ----------------------------------------------------------------------------
@@ -256,27 +256,27 @@ f32 FBeatGrid::Accuracy() const noexcept {
 // ----------------------------------------------------------------------------
 
 void FBeatGrid::ClearAll() noexcept {
-    _notes.Clear();
-    _judged.Clear();
-    _bpm                = 0.0f;
-    _perfect_window_sec = 0.025f;
-    _great_window_sec   = 0.050f;
-    _good_window_sec    = 0.100f;
-    _current_time       = 0.0f;
-    _playing            = false;
-    _paused             = false;
-    _ended_fired        = false;
-    _total_notes        = 0u;
-    _perfect_count      = 0u;
-    _great_count        = 0u;
-    _good_count         = 0u;
-    _miss_count         = 0u;
-    _current_combo      = 0u;
-    _max_combo          = 0u;
-    _judge_cb           = nullptr;
-    _judge_user         = nullptr;
-    _end_cb             = nullptr;
-    _end_user           = nullptr;
+    m_Notes.Clear();
+    m_Judged.Clear();
+    m_Bpm                = 0.0f;
+    m_PerfectWindowSec = 0.025f;
+    m_GreatWindowSec   = 0.050f;
+    m_GoodWindowSec    = 0.100f;
+    m_CurrentTime       = 0.0f;
+    m_Playing            = false;
+    m_Paused             = false;
+    m_EndedFired        = false;
+    m_TotalNotes        = 0u;
+    m_PerfectCount      = 0u;
+    m_GreatCount        = 0u;
+    m_GoodCount         = 0u;
+    m_MissCount         = 0u;
+    m_CurrentCombo      = 0u;
+    m_MaxCombo          = 0u;
+    m_JudgeCb           = nullptr;
+    m_JudgeUser         = nullptr;
+    m_EndCb             = nullptr;
+    m_EndUser           = nullptr;
 }
 
 } // namespace acs::game

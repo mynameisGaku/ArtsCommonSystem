@@ -11,7 +11,7 @@
 //    (charged=true → false) のみで callback は呼ばない (= プレイヤー入力起因
 //    の遷移なので caller 側で既に処理済の想定)。
 //  ・Tick 中に ReadyCallback が新規 Register/Unregister/ClearAll を呼ぶケースに
-//    備え、index アクセスで回し、毎反復で `_slots.Size()` / active を確認する。
+//    備え、index アクセスで回し、毎反復で `m_Slots.Size()` / active を確認する。
 //  ・SetDuration: charged を維持するか reload に戻すかは「remaining と new_duration
 //    の比較」で決める。remaining > new_duration の場合は remaining=new_duration に
 //    クランプ (= 短縮で即 charge 寸前まで進む)。charged なら charged のまま。
@@ -21,9 +21,9 @@ namespace acs::game {
 
 u32 FCooldownTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用
-    const usize n = _slots.Size();
+    const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
-        if (!_slots[i].active) {
+        if (!m_Slots[i].active) {
             return static_cast<u32>(i);
         }
     }
@@ -31,8 +31,8 @@ u32 FCooldownTimer::AcquireSlot() noexcept {
     if (n >= static_cast<usize>(CooldownId::kMaxIndex)) {
         return CooldownId::kMaxIndex; // sentinel: caller 側で invalid 扱い
     }
-    _slots.PushBack({});
-    return static_cast<u32>(_slots.Size()) - 1u;
+    m_Slots.PushBack({});
+    return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
 CooldownId FCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
@@ -42,8 +42,8 @@ CooldownId FCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
 FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= _slots.Size()) return nullptr;
-    Slot& s = _slots[idx];
+    if (idx >= m_Slots.Size()) return nullptr;
+    Slot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
 }
@@ -51,8 +51,8 @@ FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) noexcept {
 const FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx >= _slots.Size()) return nullptr;
-    const Slot& s = _slots[idx];
+    if (idx >= m_Slots.Size()) return nullptr;
+    const Slot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
 }
@@ -63,7 +63,7 @@ CooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcep
     const u32 idx = AcquireSlot();
     if (idx >= CooldownId::kMaxIndex) return {}; // 上限到達
 
-    Slot& s = _slots[idx];
+    Slot& s = m_Slots[idx];
     // generation を 1 進める (0 は未使用扱いなので必ず 1 以上を保つ)
     u8 new_gen = static_cast<u8>(s.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
@@ -75,7 +75,7 @@ CooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcep
     s.active    = true;
     s.gen       = new_gen;
 
-    ++_active_count;
+    ++m_ActiveCount;
     return MakeId(idx, new_gen);
 }
 
@@ -89,7 +89,7 @@ void FCooldownTimer::Unregister(CooldownId id) noexcept {
     s->remaining = 0.0f;
     s->charged   = false;
     // gen はそのまま残す (= 次 Acquire で +1 される)
-    if (_active_count > 0u) --_active_count;
+    if (m_ActiveCount > 0u) --m_ActiveCount;
 }
 
 bool FCooldownTimer::TryUse(CooldownId id) noexcept {
@@ -160,9 +160,9 @@ void FCooldownTimer::SetDuration(CooldownId id, f32 new_duration_sec) noexcept {
 }
 
 void FCooldownTimer::ClearAll() noexcept {
-    const usize n = _slots.Size();
+    const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
-        Slot& s = _slots[i];
+        Slot& s = m_Slots[i];
         if (!s.active) continue;
         s.active    = false;
         s.label     = nullptr;
@@ -170,20 +170,20 @@ void FCooldownTimer::ClearAll() noexcept {
         s.remaining = 0.0f;
         s.charged   = false;
     }
-    _active_count = 0u;
+    m_ActiveCount = 0u;
 }
 
 void FCooldownTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
-    if (_active_count == 0u) return;
+    if (m_ActiveCount == 0u) return;
 
     // Tick 中に callback が Register / Unregister / ClearAll を呼んでも安全な
     // ように index アクセスで回す。新規追加された slot は今回の Tick で進行
     // させない (snapshot_size でストップ、登録時の remaining=duration で次 Tick まで保持)。
-    const usize snapshot_size = _slots.Size();
+    const usize snapshot_size = m_Slots.Size();
 
     for (usize i = 0; i < snapshot_size; ++i) {
-        Slot& s = _slots[i];
+        Slot& s = m_Slots[i];
         if (!s.active) continue;
         if (s.charged) continue; // 既に ready、Tick 不要
 

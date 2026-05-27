@@ -111,18 +111,18 @@ namespace acs::game {
 // 32bit packed = 24bit index + 8bit generation。0 = invalid。
 // FHealthId / PickupId / FShapeId / FNodeId と同パターン。
 struct CheckpointId {
-    u32 _packed = 0;
+    u32 m_Packed = 0;
 
     constexpr CheckpointId() noexcept = default;
     constexpr CheckpointId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32  Index()      const noexcept { return _packed & 0x00FFFFFFu; }
-    constexpr u8   Generation() const noexcept { return static_cast<u8>(_packed >> 24); }
-    constexpr bool IsValid()    const noexcept { return _packed != 0; }
+    constexpr u32  Index()      const noexcept { return m_Packed & 0x00FFFFFFu; }
+    constexpr u8   Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+    constexpr bool IsValid()    const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(CheckpointId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(CheckpointId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(CheckpointId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(CheckpointId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // ---- CheckpointInfo: 1 チェックポイントの定義 -------------------------------
@@ -228,7 +228,7 @@ public:
 
     // ---- 全 checkpoint の生バッファ ------------------------------------
     // out_count に「有効な checkpoint 数」 (= 連続して並ぶ要素数) を書き出して
-    // 返す。返却バッファは内部 _scratch 配列を再利用するため、次の AllCheckpoints
+    // 返す。返却バッファは内部 m_Scratch 配列を再利用するため、次の AllCheckpoints
     // / Register / Unregister / ClearAll で無効化される。
     // (内部の Slot 配列は穴あきだが、本 API は穴を詰めて返す)
     const CheckpointInfo* AllCheckpoints(u32& out_count) const noexcept;
@@ -255,8 +255,8 @@ private:
     // 未使用 slot を 1 つ確保し index を返す。index 0 は予約 (= invalid)。
     u32 AcquireSlot() noexcept;
 
-    // id 文字列で _slots を線形検索。未検出は -1。id == nullptr も -1。
-    // 戻り値は _slots への index (active && id 一致を満たす最初の要素)。
+    // id 文字列で m_Slots を線形検索。未検出は -1。id == nullptr も -1。
+    // 戻り値は m_Slots への index (active && id 一致を満たす最初の要素)。
     isize FindIndexById(const char* id) const noexcept;
 
     // unlocked リストで線形検索。未検出は -1。
@@ -269,27 +269,27 @@ private:
     // Activate 共通ロジック (id / handle 版が両方ここを通る)。
     bool ActivateInternal(u32 slot_index) noexcept;
 
-    TArray<Slot>          _slots;
-    TArray<const char*>   _unlocked;       // unlock された checkpoint id (非所有)
+    TArray<Slot>          m_Slots;
+    TArray<const char*>   m_Unlocked;       // unlock された checkpoint id (非所有)
 
     // 現在 active な checkpoint の handle。invalid = 一度も Activate されていない。
-    CheckpointId         _current;
+    CheckpointId         m_Current;
 
     // 直近に active 化された level_index と spawn_pos。Unregister で active slot
     // が消えても直近値として残しておく (デバッグ表示用)。
-    u32                  _last_level_index = 0;
-    FVec2                 _last_spawn_pos   = FVec2::Zero();
+    u32                  m_LastLevelIndex = 0;
+    FVec2                 m_LastSpawnPos   = FVec2::Zero();
 
-    // active な checkpoint 数 (= active=true な _slots の個数)。
-    u32                  _checkpoint_count = 0;
+    // active な checkpoint 数 (= active=true な m_Slots の個数)。
+    u32                  m_CheckpointCount = 0;
 
     // AllCheckpoints が穴を詰めて返すための一時バッファ (mutable で const 関数から触る)。
-    mutable TArray<CheckpointInfo> _scratch;
+    mutable TArray<CheckpointInfo> m_Scratch;
 
-    ActivateCallback     _on_activate      = nullptr;
-    void*                _on_activate_user = nullptr;
-    RespawnCallback      _on_respawn       = nullptr;
-    void*                _on_respawn_user  = nullptr;
+    ActivateCallback     m_OnActivate      = nullptr;
+    void*                m_OnActivateUser = nullptr;
+    RespawnCallback      m_OnRespawn       = nullptr;
+    void*                m_OnRespawnUser  = nullptr;
 };
 
 } // namespace acs::game

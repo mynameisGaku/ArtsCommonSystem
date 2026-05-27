@@ -14,14 +14,14 @@ FUdpSocket::~FUdpSocket() noexcept {
     Close();
 }
 
-FUdpSocket::FUdpSocket(FUdpSocket&& o) noexcept : _socket(o._socket) {
-    o._socket = ~uptr{0};
+FUdpSocket::FUdpSocket(FUdpSocket&& o) noexcept : m_Socket(o.m_Socket) {
+    o.m_Socket = ~uptr{0};
 }
 FUdpSocket& FUdpSocket::operator=(FUdpSocket&& o) noexcept {
     if (this == &o) return *this;
     Close();
-    _socket = o._socket;
-    o._socket = ~uptr{0};
+    m_Socket = o.m_Socket;
+    o.m_Socket = ~uptr{0};
     return *this;
 }
 
@@ -48,13 +48,13 @@ TResult<FUdpSocket> FUdpSocket::Bind(IpAddress addr, u16 port) noexcept {
     }
 
     FUdpSocket u;
-    u._socket = static_cast<uptr>(s);
+    u.m_Socket = static_cast<uptr>(s);
     return TResult<FUdpSocket>(OkInit, Move(u));
 }
 
 isize FUdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
                         const void* data, usize size) noexcept {
-    if (_socket == ~uptr{0}) return -1;
+    if (m_Socket == ~uptr{0}) return -1;
     sockaddr_in sa{};
     sa.sin_family = AF_INET;
     sa.sin_port   = ::htons(dst_port);
@@ -62,17 +62,17 @@ isize FUdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
     sa.sin_addr.S_un.S_un_b.s_b2 = dst_addr.octets[1];
     sa.sin_addr.S_un.S_un_b.s_b3 = dst_addr.octets[2];
     sa.sin_addr.S_un.S_un_b.s_b4 = dst_addr.octets[3];
-    int n = ::sendto(static_cast<SOCKET>(_socket),
+    int n = ::sendto(static_cast<SOCKET>(m_Socket),
                      static_cast<const char*>(data), static_cast<int>(size), 0,
                      reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
     return (n == SOCKET_ERROR) ? -1 : n;
 }
 
 isize FUdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
-    if (_socket == ~uptr{0}) return -1;
+    if (m_Socket == ~uptr{0}) return -1;
     sockaddr_in sa{};
     int len = sizeof(sa);
-    int n = ::recvfrom(static_cast<SOCKET>(_socket),
+    int n = ::recvfrom(static_cast<SOCKET>(m_Socket),
                        static_cast<char*>(buf), static_cast<int>(size), 0,
                        reinterpret_cast<sockaddr*>(&sa), &len);
     if (n == SOCKET_ERROR) return -1;
@@ -85,18 +85,18 @@ isize FUdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
 }
 
 TResult<void> FUdpSocket::SetNonBlocking(bool enable) noexcept {
-    if (_socket == ~uptr{0}) return ACS_ERR(IO, 233, "socket not open");
+    if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 233, "socket not open");
     u_long mode = enable ? 1 : 0;
-    if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)
+    if (::ioctlsocket(static_cast<SOCKET>(m_Socket), FIONBIO, &mode) == SOCKET_ERROR)
         return ACS_ERR_OS(IO, 234, "ioctlsocket failed",
                           static_cast<u32>(::WSAGetLastError()));
     return Ok();
 }
 
 void FUdpSocket::Close() noexcept {
-    if (_socket != ~uptr{0}) {
-        ::closesocket(static_cast<SOCKET>(_socket));
-        _socket = ~uptr{0};
+    if (m_Socket != ~uptr{0}) {
+        ::closesocket(static_cast<SOCKET>(m_Socket));
+        m_Socket = ~uptr{0};
     }
 }
 

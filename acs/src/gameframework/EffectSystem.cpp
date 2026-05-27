@@ -17,18 +17,18 @@ namespace acs::game {
 void FEffectSystem::Flash(FVec3 color, f32 intensity, f32 duration) noexcept {
     if (duration <= 0.0f) {
         // すでに走っていた flash を即座に消す
-        _flash_t     = 0.0f;
-        _flash_total = 0.0f;
-        _flash_max   = 0.0f;
-        _flash_color = color;
+        m_FlashT     = 0.0f;
+        m_FlashTotal = 0.0f;
+        m_FlashMax   = 0.0f;
+        m_FlashColor = color;
         return;
     }
     // intensity の負値は意味不明なので 0 に clamp (上限は描画側に任せる)。
     const f32 i_safe = intensity < 0.0f ? 0.0f : intensity;
-    _flash_color = color;
-    _flash_max   = i_safe;
-    _flash_total = duration;
-    _flash_t     = duration;  // ピーク状態でスタート
+    m_FlashColor = color;
+    m_FlashMax   = i_safe;
+    m_FlashTotal = duration;
+    m_FlashT     = duration;  // ピーク状態でスタート
 }
 
 // =============================================================================
@@ -39,8 +39,8 @@ void FEffectSystem::Flash(FVec3 color, f32 intensity, f32 duration) noexcept {
 // =============================================================================
 void FEffectSystem::HitStop(f32 duration) noexcept {
     if (duration <= 0.0f) return;
-    if (duration > _hit_stop_remain) {
-        _hit_stop_remain = duration;
+    if (duration > m_HitStopRemain) {
+        m_HitStopRemain = duration;
     }
 }
 
@@ -55,8 +55,8 @@ void FEffectSystem::HitStop(f32 duration) noexcept {
 void FEffectSystem::TriggerShake(f32 trauma, f32 /*duration_hint*/) noexcept {
     if (trauma <= 0.0f) return;
     // pending は max-of-frame (FCamera2D の AddShake が累積側を担う)
-    if (trauma > _pending_shake) {
-        _pending_shake = trauma;
+    if (trauma > m_PendingShake) {
+        m_PendingShake = trauma;
     }
 }
 
@@ -64,7 +64,7 @@ void FEffectSystem::TriggerShake(f32 trauma, f32 /*duration_hint*/) noexcept {
 // Tick
 // -----------------------------------------------------------------------------
 // real-time dt で呼ばれる前提 (hit stop 中も 0 ではない)。
-//   ・Flash timer: 線形減衰。0 を下回ったら停止状態 (_flash_t=0)。
+//   ・Flash timer: 線形減衰。0 を下回ったら停止状態 (m_FlashT=0)。
 //   ・HitStop timer: 線形減衰。
 //   ・Pending shake: ここでは消さない (FCamera2D が ConsumeShake する責務)。
 // dt が負 (= clock 巻き戻し等) のときは 0 扱いにして state を破壊しない。
@@ -73,20 +73,20 @@ void FEffectSystem::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // Flash decay
-    if (_flash_t > 0.0f) {
-        _flash_t -= dt;
-        if (_flash_t <= 0.0f) {
-            _flash_t     = 0.0f;
-            _flash_max   = 0.0f;
-            _flash_total = 0.0f;
+    if (m_FlashT > 0.0f) {
+        m_FlashT -= dt;
+        if (m_FlashT <= 0.0f) {
+            m_FlashT     = 0.0f;
+            m_FlashMax   = 0.0f;
+            m_FlashTotal = 0.0f;
         }
     }
 
     // HitStop decay
-    if (_hit_stop_remain > 0.0f) {
-        _hit_stop_remain -= dt;
-        if (_hit_stop_remain < 0.0f) {
-            _hit_stop_remain = 0.0f;
+    if (m_HitStopRemain > 0.0f) {
+        m_HitStopRemain -= dt;
+        if (m_HitStopRemain < 0.0f) {
+            m_HitStopRemain = 0.0f;
         }
     }
 
@@ -96,12 +96,12 @@ void FEffectSystem::Tick(f32 dt) noexcept {
 // =============================================================================
 // FlashIntensity
 // -----------------------------------------------------------------------------
-// `_flash_max * (_flash_t / _flash_total)` で 1 → 0 の線形減衰。
-// _flash_total <= 0 のときは 0 を返す (除算回避)。
+// `m_FlashMax * (m_FlashT / m_FlashTotal)` で 1 → 0 の線形減衰。
+// m_FlashTotal <= 0 のときは 0 を返す (除算回避)。
 // =============================================================================
 f32 FEffectSystem::FlashIntensity() const noexcept {
-    if (_flash_total <= 0.0f || _flash_t <= 0.0f) return 0.0f;
-    return _flash_max * (_flash_t / _flash_total);
+    if (m_FlashTotal <= 0.0f || m_FlashT <= 0.0f) return 0.0f;
+    return m_FlashMax * (m_FlashT / m_FlashTotal);
 }
 
 } // namespace acs::game

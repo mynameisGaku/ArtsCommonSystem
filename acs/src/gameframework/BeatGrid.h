@@ -8,26 +8,26 @@
 //
 // 使い方:
 //   class RhythmScene : public Scene {
-//       acs::game::FBeatGrid _grid;
+//       acs::game::FBeatGrid m_Grid;
 //
 //       void OnEnter() noexcept override {
-//           _grid.Init();
-//           _grid.SetTimingWindows(25.0f, 50.0f, 100.0f);
-//           _grid.SetOnJudgeCallback(&RhythmScene::OnJudge, this);
-//           _grid.SetOnEndCallback (&RhythmScene::OnEnd,   this);
+//           m_Grid.Init();
+//           m_Grid.SetTimingWindows(25.0f, 50.0f, 100.0f);
+//           m_Grid.SetOnJudgeCallback(&RhythmScene::OnJudge, this);
+//           m_Grid.SetOnEndCallback (&RhythmScene::OnEnd,   this);
 //
 //           acs::game::FBeatNote notes[] = {
 //               { 1.000f, acs::game::EBeatLane::Left,  false, 0.0f },
 //               { 1.500f, acs::game::EBeatLane::Down,  false, 0.0f },
 //               { 2.000f, acs::game::EBeatLane::Up,    true,  0.5f },
 //           };
-//           _grid.LoadChart(notes, 3, 120.0f);
-//           _grid.Start();
+//           m_Grid.LoadChart(notes, 3, 120.0f);
+//           m_Grid.Start();
 //       }
-//       void OnUpdate(f32 dt) noexcept override { _grid.Tick(dt); }
+//       void OnUpdate(f32 dt) noexcept override { m_Grid.Tick(dt); }
 //       void OnInput() noexcept {
 //           if (key_left_pressed)
-//               (void)_grid.Tap(acs::game::EBeatLane::Left);
+//               (void)m_Grid.Tap(acs::game::EBeatLane::Left);
 //       }
 //
 //       static void OnJudge(void* self, acs::game::EBeatLane lane,
@@ -56,7 +56,7 @@
 //     除算。LoadChart 直後は 0、再生開始前でも判定済 note があれば値を持つ。
 //     total_notes==0 のときは 1.0f (満点扱い、divide-by-zero 回避)。
 //   ・**チャート所有**: LoadChart で渡された FBeatNote 配列はコピーして内部
-//     `_notes` (acs::TArray<FBeatNote>) に格納する。caller 側の寿命に依存しない。
+//     `m_Notes` (acs::TArray<FBeatNote>) に格納する。caller 側の寿命に依存しない。
 //   ・**callback**: 関数ポインタ (std::function 不使用)。各 1 スロット。
 //     JudgeCallback は Tap 起因 / Tick 起因 (Miss) どちらでも発火。
 //     EndCallback は最後の note が判定された次の Tick で 1 度だけ発火。
@@ -147,11 +147,11 @@ public:
     void Stop  () noexcept; // 即時停止、current_time=0、終了 callback は呼ばない
     void Pause () noexcept; // 進行停止 (current_time / 判定 flag は保持)
     void Resume() noexcept; // Pause 後の再開
-    bool IsPlaying() const noexcept { return _playing; }
-    bool IsPaused () const noexcept { return _paused;  }
+    bool IsPlaying() const noexcept { return m_Playing; }
+    bool IsPaused () const noexcept { return m_Paused;  }
 
-    f32 CurrentTimeSec() const noexcept { return _current_time; }
-    f32 Bpm           () const noexcept { return _bpm;          }
+    f32 CurrentTimeSec() const noexcept { return m_CurrentTime; }
+    f32 Bpm           () const noexcept { return m_Bpm;          }
 
     // ----- 入力判定 -----
     // lane の最近 note (judged=false) と current_time の差分から判定。
@@ -167,20 +167,20 @@ public:
     void Tick(f32 dt) noexcept;
 
     // ----- 統計 -----
-    u32  TotalNotes () const noexcept { return _total_notes; }
-    u32  HitNotes   () const noexcept { return _perfect_count + _great_count + _good_count; }
-    u32  MissedNotes() const noexcept { return _miss_count; }
+    u32  TotalNotes () const noexcept { return m_TotalNotes; }
+    u32  HitNotes   () const noexcept { return m_PerfectCount + m_GreatCount + m_GoodCount; }
+    u32  MissedNotes() const noexcept { return m_MissCount; }
     // (Perfect*1.0 + Great*0.8 + Good*0.5) / total。total==0 → 1.0f (満点扱い)。
     f32  Accuracy   () const noexcept;
-    u32  MaxCombo   () const noexcept { return _max_combo;     }
-    u32  CurrentCombo() const noexcept { return _current_combo; }
+    u32  MaxCombo   () const noexcept { return m_MaxCombo;     }
+    u32  CurrentCombo() const noexcept { return m_CurrentCombo; }
 
     // ----- callback 設定 -----
     void SetOnJudgeCallback(JudgeCallback cb, void* user) noexcept {
-        _judge_cb = cb; _judge_user = user;
+        m_JudgeCb = cb; m_JudgeUser = user;
     }
     void SetOnEndCallback(BeatEndCallback cb, void* user) noexcept {
-        _end_cb = cb; _end_user = user;
+        m_EndCb = cb; m_EndUser = user;
     }
 
     // 譜面 / 統計 / 状態 / callback を全リセット (Init と同等 + 譜面破棄)。
@@ -188,7 +188,7 @@ public:
 
 private:
     // 最近 note 探索: 同一 lane / judged=false の中で |time-current| が最小の
-    // index を返す。該当なしなら _notes.Size() を返す (= npos)。
+    // index を返す。該当なしなら m_Notes.Size() を返す (= npos)。
     usize FindNearestNote(EBeatLane lane) const noexcept;
     // ms 値を sec に変換 (= ms * 0.001)。負値は 0 にクランプ。
     static f32 MsToSec(f32 ms) noexcept;
@@ -198,35 +198,35 @@ private:
     void ApplyJudgement(EBeatLane lane, EJudgement j) noexcept;
 
     // ----- 譜面 -----
-    TArray<FBeatNote> _notes;
-    TArray<bool>    _judged;  // _notes と同 size、true = 判定済 (Hit or Miss)
-    f32             _bpm = 0.0f;
+    TArray<FBeatNote> m_Notes;
+    TArray<bool>    m_Judged;  // m_Notes と同 size、true = 判定済 (Hit or Miss)
+    f32             m_Bpm = 0.0f;
 
     // ----- 判定窓 (sec) -----
-    f32 _perfect_window_sec = 0.025f; // 25 ms
-    f32 _great_window_sec   = 0.050f; // 50 ms
-    f32 _good_window_sec    = 0.100f; // 100 ms
+    f32 m_PerfectWindowSec = 0.025f; // 25 ms
+    f32 m_GreatWindowSec   = 0.050f; // 50 ms
+    f32 m_GoodWindowSec    = 0.100f; // 100 ms
 
     // ----- 再生状態 -----
-    f32  _current_time = 0.0f;
-    bool _playing      = false;
-    bool _paused       = false;
-    bool _ended_fired  = false; // EndCallback の二重発火防止
+    f32  m_CurrentTime = 0.0f;
+    bool m_Playing      = false;
+    bool m_Paused       = false;
+    bool m_EndedFired  = false; // EndCallback の二重発火防止
 
     // ----- 統計 -----
-    u32 _total_notes    = 0u;
-    u32 _perfect_count  = 0u;
-    u32 _great_count    = 0u;
-    u32 _good_count     = 0u;
-    u32 _miss_count     = 0u;
-    u32 _current_combo  = 0u;
-    u32 _max_combo      = 0u;
+    u32 m_TotalNotes    = 0u;
+    u32 m_PerfectCount  = 0u;
+    u32 m_GreatCount    = 0u;
+    u32 m_GoodCount     = 0u;
+    u32 m_MissCount     = 0u;
+    u32 m_CurrentCombo  = 0u;
+    u32 m_MaxCombo      = 0u;
 
     // ----- callback -----
-    JudgeCallback _judge_cb   = nullptr;
-    void*         _judge_user = nullptr;
-    BeatEndCallback _end_cb   = nullptr;
-    void*         _end_user   = nullptr;
+    JudgeCallback m_JudgeCb   = nullptr;
+    void*         m_JudgeUser = nullptr;
+    BeatEndCallback m_EndCb   = nullptr;
+    void*         m_EndUser   = nullptr;
 };
 
 } // namespace acs::game

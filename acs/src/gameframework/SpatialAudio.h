@@ -17,22 +17,22 @@
 //
 // 使い方:
 //   class WorldScene : public Scene {
-//       acs::game::FSpatialAudio _spatial;
+//       acs::game::FSpatialAudio m_Spatial;
 //
 //       void OnEnter() noexcept override {
 //           // プレイヤ耳位置を listener として登録
-//           _spatial.SetListener({{0,0,0}, {0,0,1}, {0,1,0}});
+//           m_Spatial.SetListener({{0,0,0}, {0,0,1}, {0,1,0}});
 //           // 敵から鳴る連続音 (max 20m 圏内で減衰、線形カーブ)
-//           u32 src = _spatial.RegisterSource({5,0,3}, 20.0f,
+//           u32 src = m_Spatial.RegisterSource({5,0,3}, 20.0f,
 //                                             acs::game::EAttenuationCurve::Linear);
-//           _src_enemy = src;
+//           m_SrcEnemy = src;
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _spatial.UpdateSource(_src_enemy, enemy.WorldPos(), enemy.Velocity());
-//           _spatial.Tick(dt);
+//           m_Spatial.UpdateSource(m_SrcEnemy, enemy.WorldPos(), enemy.Velocity());
+//           m_Spatial.Tick(dt);
 //           // Phase 2: FAudioEngine voice に volume/pan を書き込む。
-//           // f32 vol = _spatial.ComputeAttenuatedVolume(_src_enemy);
-//           // f32 pan = _spatial.ComputePan(_src_enemy);
+//           // f32 vol = m_Spatial.ComputeAttenuatedVolume(m_SrcEnemy);
+//           // f32 pan = m_Spatial.ComputePan(m_SrcEnemy);
 //       }
 //   };
 //
@@ -192,8 +192,8 @@ public:
                                u32 sample_count) noexcept override;
 
 private:
-    FAudioListener _listener {};
-    bool          _initialized = false;
+    FAudioListener m_Listener {};
+    bool          m_Initialized = false;
 };
 
 // =============================================================================
@@ -217,7 +217,7 @@ public:
 
     // ----- listener -----
     void                 SetListener(const FAudioListener& l) noexcept;
-    const FAudioListener& GetListener() const noexcept { return _listener; }
+    const FAudioListener& GetListener() const noexcept { return m_Listener; }
 
     // ----- source 管理 -----
     // 新規 source を登録、source_id を返す (1.. の単調増加)。
@@ -245,12 +245,12 @@ public:
     void Clear() noexcept;              // 全 source を空に (listener は保持)
 
 private:
-    // id → index の線形検索 helper。stale ID で _sources.Size() を返す。
+    // id → index の線形検索 helper。stale ID で m_Sources.Size() を返す。
     usize FindIndex(u32 id) const noexcept;
 
-    FAudioListener     _listener {};
-    TArray<FAudioSource3D> _sources;
-    u32               _next_source_id = 1;  // 0 = 無効予約
+    FAudioListener     m_Listener {};
+    TArray<FAudioSource3D> m_Sources;
+    u32               m_NextSourceId = 1;  // 0 = 無効予約
 };
 
 } // namespace acs::game

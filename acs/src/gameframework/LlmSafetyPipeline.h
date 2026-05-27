@@ -160,23 +160,23 @@ public:
     // rules マスク操作
     bool       IsRuleEnabled(ESafetyRule rule) const noexcept;
     void       EnableRule(ESafetyRule rule, bool enable) noexcept;
-    ESafetyRule Rules() const noexcept { return _rules; }
+    ESafetyRule Rules() const noexcept { return m_Rules; }
 
     // 統計 (テレメトリ / デバッグ用)
-    u32  RefusedCount()  const noexcept { return _refused_count; }
-    u32  FilteredCount() const noexcept { return _filtered_count; }
+    u32  RefusedCount()  const noexcept { return m_RefusedCount; }
+    u32  FilteredCount() const noexcept { return m_FilteredCount; }
 
     // 統計とキャラ anchor を初期状態に戻す (rules / budget は保持)。
     void Reset() noexcept;
 
 private:
-    ESafetyRule  _rules               = ESafetyRule::Default;
-    u32         _max_input_tokens    = 2048;
-    u32         _max_output_tokens   = 1024;
-    const char* _character_anchor    = nullptr;  // 非所有
-    u32         _refused_count       = 0;
-    u32         _filtered_count      = 0;
-    bool        _initialized         = false;
+    ESafetyRule  m_Rules               = ESafetyRule::Default;
+    u32         m_MaxInputTokens    = 2048;
+    u32         m_MaxOutputTokens   = 1024;
+    const char* m_CharacterAnchor    = nullptr;  // 非所有
+    u32         m_RefusedCount       = 0;
+    u32         m_FilteredCount      = 0;
+    bool        m_Initialized         = false;
 };
 
 } // namespace acs::game

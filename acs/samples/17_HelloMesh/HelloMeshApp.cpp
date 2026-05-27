@@ -24,7 +24,7 @@ void HelloMeshApp::OnStart() noexcept {
     vs_desc.debug_name  = "Mesh.VS";
     if (auto r = CreateRhiShader(*dev, vs_desc); r.IsErr()) {
         ACS_LOG_ERROR("VS compile: %s", r.Error().message); Quit(); return;
-    } else _vs = Move(r.Value());
+    } else m_Vs = Move(r.Value());
 
     FShaderDesc ps_desc{};
     ps_desc.stage = EShaderStage::Pixel;
@@ -33,7 +33,7 @@ void HelloMeshApp::OnStart() noexcept {
     ps_desc.debug_name  = "Mesh.PS";
     if (auto r = CreateRhiShader(*dev, ps_desc); r.IsErr()) {
         ACS_LOG_ERROR("PS compile: %s", r.Error().message); Quit(); return;
-    } else _ps = Move(r.Value());
+    } else m_Ps = Move(r.Value());
 
     // === 頂点 / インデックスバッファ ===
     FBufferDesc vb_desc{};
@@ -43,7 +43,7 @@ void HelloMeshApp::OnStart() noexcept {
     vb_desc.initial_data = kCubeVertices;
     if (auto r = CreateRhiBuffer(*dev, vb_desc); r.IsErr()) {
         ACS_LOG_ERROR("VB create: %s", r.Error().message); Quit(); return;
-    } else _vb = Move(r.Value());
+    } else m_Vb = Move(r.Value());
 
     FBufferDesc ib_desc{};
     ib_desc.size = sizeof(kCubeIndices);
@@ -52,7 +52,7 @@ void HelloMeshApp::OnStart() noexcept {
     ib_desc.initial_data = kCubeIndices;
     if (auto r = CreateRhiBuffer(*dev, ib_desc); r.IsErr()) {
         ACS_LOG_ERROR("IB create: %s", r.Error().message); Quit(); return;
-    } else _ib = Move(r.Value());
+    } else m_Ib = Move(r.Value());
 
     // === 定数バッファ (MVP) 256B にアライン ===
     FBufferDesc cb_desc{};
@@ -61,12 +61,12 @@ void HelloMeshApp::OnStart() noexcept {
     cb_desc.cpu_writable = true;
     if (auto r = CreateRhiBuffer(*dev, cb_desc); r.IsErr()) {
         ACS_LOG_ERROR("CB create: %s", r.Error().message); Quit(); return;
-    } else _cb = Move(r.Value());
+    } else m_Cb = Move(r.Value());
 
     // === パイプライン ===
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = GetRenderer().ColorFormat();
     pd.depth_format  = GetRenderer().DepthFormat();
@@ -81,12 +81,12 @@ void HelloMeshApp::OnStart() noexcept {
     pd.layout_count = 2;
     if (auto r = CreateRhiPipeline(*dev, pd); r.IsErr()) {
         ACS_LOG_ERROR("Pipeline create: %s", r.Error().message); Quit(); return;
-    } else _pipeline = Move(r.Value());
+    } else m_Pipeline = Move(r.Value());
 
     // === カメラ ===
     const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                        static_cast<f32>(GetRenderer().Swapchain()->Height());
-    _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
+    m_Camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
 
     ACS_LOG_INFO("HelloMesh initialized");
 }
@@ -94,40 +94,40 @@ void HelloMeshApp::OnStart() noexcept {
 void HelloMeshApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    _angle += dt * 0.8f;
+    m_Angle += dt * 0.8f;
 
     // 矢印キーでカメラを左右回転 (キューブを公転する視点)
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
+    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
+    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
 
     const f32 cam_dist = 5.0f;
-    FVec3 eye{ Sin(_cam_yaw) * cam_dist, 2.0f, -Cos(_cam_yaw) * cam_dist };
-    _camera.SetLookAt(eye, {0, 0, 0});
+    FVec3 eye{ Sin(m_CamYaw) * cam_dist, 2.0f, -Cos(m_CamYaw) * cam_dist };
+    m_Camera.SetLookAt(eye, {0, 0, 0});
 
-    FMat4 model = FMat4::RotationY(_angle);
-    FMat4 mvp   = model * _camera.View() * _camera.Projection();
-    _cb->Update(&mvp, sizeof(FMat4));
+    FMat4 model = FMat4::RotationY(m_Angle);
+    FMat4 mvp   = model * m_Camera.View() * m_Camera.Projection();
+    m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
 void HelloMeshApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
-    if (!cl || !_pipeline) return;
+    if (!cl || !m_Pipeline) return;
 
-    cl->SetPipeline(*_pipeline);
-    cl->SetConstantBuffer(0, *_cb);
-    cl->SetVertexBuffer(*_vb, sizeof(Vertex));
-    cl->SetIndexBuffer(*_ib);
+    cl->SetPipeline(*m_Pipeline);
+    cl->SetConstantBuffer(0, *m_Cb);
+    cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl->SetIndexBuffer(*m_Ib);
     cl->DrawIndexed(36);
 }
 
 void HelloMeshApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _pipeline.Reset();
-    _cb.Reset();
-    _ib.Reset();
-    _vb.Reset();
-    _ps.Reset();
-    _vs.Reset();
+    m_Pipeline.Reset();
+    m_Cb.Reset();
+    m_Ib.Reset();
+    m_Vb.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
 }
 
 } // namespace hellomesh

@@ -181,9 +181,9 @@ public:
 
 private:
     ConsentStatus _status{};                 // 現在の同意状態
-    u32           _current_policy_version = 0; // Init() に渡された版
-    bool          _initialized            = false; // Init() 済みか
-    bool          _initial_consent_shown  = false; // 初回ダイアログを提示したか
+    u32           m_CurrentPolicyVersion = 0; // Init() に渡された版
+    bool          m_Initialized            = false; // Init() 済みか
+    bool          m_InitialConsentShown  = false; // 初回ダイアログを提示したか
 };
 
 } // namespace acs::game

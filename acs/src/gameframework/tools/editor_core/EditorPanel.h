@@ -14,7 +14,7 @@
 //       const char* Title() const noexcept override { return "Model Viewer"; }
 //       void DrawUI() noexcept override {
 //           if (!IsVisible()) return;
-//           if (ImGui::Begin(Title(), &_visible)) {
+//           if (ImGui::Begin(Title(), &m_Visible)) {
 //               // ... viewer 描画 ...
 //           }
 //           ImGui::End();
@@ -41,7 +41,7 @@
 //   ・**ImGui::Begin/End は派生クラス側責務**: 基底で wrap する案も検討したが、
 //     panel ごとに ImGuiWindowFlags / dock target / MenuBar の有無が異なるため、
 //     強制 wrap せず派生側で完全制御させる方針 (Unity Editor の `EditorWindow`
-//     と同じ責任分担)。`_visible` は派生側で `ImGui::Begin(Title(), &_visible)`
+//     と同じ責任分担)。`m_Visible` は派生側で `ImGui::Begin(Title(), &m_Visible)`
 //     の close ボタンに直接渡せる public-ish state。
 //   ・**FEditorWorkspace は forward-decl のみ**: ヘッダ依存を最小化。具体的な
 //     workspace 型 (FSelectionService / FAssetBrowser / DockSpace 等の集約 hub) は
@@ -189,33 +189,33 @@ public:
     // ----- 状態アクセサ -----------------------------------------------------
 
     // panel 表示状態 (close ボタン or プログラム的 hide)。
-    bool IsVisible() const noexcept { return _visible; }
-    void SetVisible(bool b) noexcept { _visible = b; }
+    bool IsVisible() const noexcept { return m_Visible; }
+    void SetVisible(bool b) noexcept { m_Visible = b; }
 
     // dock target にできるか。Workspace 側で dock 対象 panel を絞るためのヒント。
     // 典型: ステータスバーやツールバーは dock target にしない、ビューや
     // インスペクタは dock target にする、等。
-    bool IsDockTarget() const noexcept { return _docked_target; }
-    void SetDockTarget(bool b) noexcept { _docked_target = b; }
+    bool IsDockTarget() const noexcept { return m_DockedTarget; }
+    void SetDockTarget(bool b) noexcept { m_DockedTarget = b; }
 
     // OnInit で保存された Workspace ポインタ。OnInit 前 / OnShutdown 後は
     // nullptr。non-owning (workspace の生存期間は呼び出し側責務)。
-    FEditorWorkspace* Workspace() const noexcept { return _workspace; }
+    FEditorWorkspace* Workspace() const noexcept { return m_Workspace; }
 
 protected:
-    // panel 表示 toggle。派生クラスから `ImGui::Begin(Title(), &_visible)` の
+    // panel 表示 toggle。派生クラスから `ImGui::Begin(Title(), &m_Visible)` の
     // close ボタンに直接バインドできるよう protected 公開。
-    bool _visible = true;
+    bool m_Visible = true;
 
     // dock target 可否。派生クラスがコンストラクタや OnInit で設定する想定。
     // 例: ステータスバーなら false、ビューやインスペクタなら true。
-    bool _docked_target = false;
+    bool m_DockedTarget = false;
 
 private:
     // OnInit で保存される Workspace 参照 (non-owning)。
     // OnShutdown で nullptr に戻すかは基底責務 (= OnShutdown は no-op default の
     // ため、派生側で必要なら明示的に解除すること)。
-    FEditorWorkspace* _workspace = nullptr;
+    FEditorWorkspace* m_Workspace = nullptr;
 };
 
 } // namespace acs::game::editor_core

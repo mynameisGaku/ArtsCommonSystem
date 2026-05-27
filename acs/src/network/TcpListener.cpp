@@ -14,14 +14,14 @@ TcpListener::~TcpListener() noexcept {
     Close();
 }
 
-TcpListener::TcpListener(TcpListener&& o) noexcept : _socket(o._socket) {
-    o._socket = ~uptr{0};
+TcpListener::TcpListener(TcpListener&& o) noexcept : m_Socket(o.m_Socket) {
+    o.m_Socket = ~uptr{0};
 }
 TcpListener& TcpListener::operator=(TcpListener&& o) noexcept {
     if (this == &o) return *this;
     Close();
-    _socket = o._socket;
-    o._socket = ~uptr{0};
+    m_Socket = o.m_Socket;
+    o.m_Socket = ~uptr{0};
     return *this;
 }
 
@@ -57,15 +57,15 @@ TResult<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) 
     }
 
     TcpListener l;
-    l._socket = static_cast<uptr>(s);
+    l.m_Socket = static_cast<uptr>(s);
     return TResult<TcpListener>(OkInit, Move(l));
 }
 
 TResult<TcpConnection> TcpListener::Accept() noexcept {
-    if (_socket == ~uptr{0}) return ACS_ERR(IO, 224, "listener not open");
+    if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 224, "listener not open");
     sockaddr_in sa{};
     int len = sizeof(sa);
-    SOCKET cs = ::accept(static_cast<SOCKET>(_socket),
+    SOCKET cs = ::accept(static_cast<SOCKET>(m_Socket),
                           reinterpret_cast<sockaddr*>(&sa), &len);
     if (cs == INVALID_SOCKET)
         return ACS_ERR_OS(IO, 225, "accept failed", static_cast<u32>(::WSAGetLastError()));
@@ -80,18 +80,18 @@ TResult<TcpConnection> TcpListener::Accept() noexcept {
 }
 
 TResult<void> TcpListener::SetNonBlocking(bool enable) noexcept {
-    if (_socket == ~uptr{0}) return ACS_ERR(IO, 226, "listener not open");
+    if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 226, "listener not open");
     u_long mode = enable ? 1 : 0;
-    if (::ioctlsocket(static_cast<SOCKET>(_socket), FIONBIO, &mode) == SOCKET_ERROR)
+    if (::ioctlsocket(static_cast<SOCKET>(m_Socket), FIONBIO, &mode) == SOCKET_ERROR)
         return ACS_ERR_OS(IO, 227, "ioctlsocket failed",
                           static_cast<u32>(::WSAGetLastError()));
     return Ok();
 }
 
 void TcpListener::Close() noexcept {
-    if (_socket != ~uptr{0}) {
-        ::closesocket(static_cast<SOCKET>(_socket));
-        _socket = ~uptr{0};
+    if (m_Socket != ~uptr{0}) {
+        ::closesocket(static_cast<SOCKET>(m_Socket));
+        m_Socket = ~uptr{0};
     }
 }
 

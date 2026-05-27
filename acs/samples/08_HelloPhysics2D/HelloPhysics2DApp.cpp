@@ -41,11 +41,11 @@ void HelloPhysics2DApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
+    ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
 
     // フォントは OS 別の標準 UI フォント候補を FSample helper で解決。
     // 失敗時 (フォントが見つからない / ロード失敗) は HUD なしで続行する。
-    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f);
+    (void)FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f);
 
     u8 pixels[kBallTexSize * kBallTexSize * 4];
     GenerateBallTexture(pixels);
@@ -55,11 +55,11 @@ void HelloPhysics2DApp::OnStart() noexcept {
     td.initial_data = pixels;
     td.initial_data_size = sizeof(pixels);
     if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) { Quit(); return; }
-    else _tex = Move(r.Value());
+    else m_Tex = Move(r.Value());
 
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
-    _scene.Init(sw, sh, 30);
+    m_Scene.Init(sw, sh, 30);
 
     ACS_LOG_INFO("HelloPhysics2D initialized");
 }
@@ -69,29 +69,29 @@ void HelloPhysics2DApp::OnUpdate(f32 dt) noexcept {
 
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
-    _scene.Update(dt, sw, sh);
+    m_Scene.Update(dt, sw, sh);
 }
 
 void HelloPhysics2DApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
-    if (!cl || !_tex) return;
+    if (!cl || !m_Tex) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
 
-    _batch.Begin(*cl, sw, sh);
-    _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
+    m_Batch.Begin(*cl, sw, sh);
+    m_Batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
                     FVec4{0.05f, 0.07f, 0.10f, 1});
 
-    _scene.Render(_batch, _font, *_tex, FPS());
+    m_Scene.Render(m_Batch, m_Font, *m_Tex, FPS());
 
-    _batch.End();
+    m_Batch.End();
 }
 
 void HelloPhysics2DApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _font.Shutdown();
-    _tex.Reset();
-    _batch.Shutdown();
+    m_Font.Shutdown();
+    m_Tex.Reset();
+    m_Batch.Shutdown();
 }
 
 } // namespace hellophysics2d

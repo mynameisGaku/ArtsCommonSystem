@@ -60,11 +60,11 @@
 //     DrawUI override。
 //   ・**tilemap は raw pointer の非所有保持**: caller 所有 (FAnimCurveEditorPanel
 //     が FAnimationCurve を non-owning で受けるのと同方針)。本 panel は tilemap
-//     の寿命に関与せず、`_tilemap == nullptr` 時は "(No tilemap bound)" を表示。
+//     の寿命に関与せず、`m_Tilemap == nullptr` 時は "(No tilemap bound)" を表示。
 //   ・**FEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ Unity
 //     SceneView 風モデル (FModelViewerPanel と同形)。FCamera() アクセサで参照を
 //     返し、外部 (sample 34) は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
-//     viewport drawing でも `_camera.State().zoom_2d` と `_camera.State().position`
+//     viewport drawing でも `m_Camera.State().zoom_2d` と `m_Camera.State().position`
 //     を使って world → screen 変換する。
 //   ・**EBrushKind は u8 enum**: ACS の E prefix enum 規約。Paint=塗り (drag 対応)、
 //     Erase=消し (FTileId{0} 強制)、Fill=flood-fill (連結成分塗替)、Pick=スポイト
@@ -223,23 +223,23 @@ public:
 
 private:
     // 2D viewport camera (pan / zoom)。Init() で Mode2D に初期化。
-    acs::game::editor_core::FEditorCamera _camera {};
+    acs::game::editor_core::FEditorCamera m_Camera {};
 
     // 編集対象 FTilemap (caller 所有、本 panel は非所有)。
-    class FTilemap* _tilemap = nullptr;
+    class FTilemap* m_Tilemap = nullptr;
 
     // ---- ブラシ / レイヤ / tile id ----
-    EBrushKind _brush          = EBrushKind::Paint;
-    u16        _current_tile_id = 1u;            // 1 にしておくと初手 Paint が「空でない tile」を置く
-    u32        _active_layer    = 0u;
+    EBrushKind m_Brush          = EBrushKind::Paint;
+    u16        m_CurrentTileId = 1u;            // 1 にしておくと初手 Paint が「空でない tile」を置く
+    u32        m_ActiveLayer    = 0u;
 
     // ---- 表示 toggle ----
-    bool       _show_grid       = true;
-    bool       _snap_to_grid    = true;
+    bool       m_ShowGrid       = true;
+    bool       m_SnapToGrid    = true;
 
     // ---- inspector 用「最後にクリック / ホバーした tile coord」----
-    u32        _selected_x      = kNoCoord;
-    u32        _selected_y      = kNoCoord;
+    u32        m_SelectedX      = kNoCoord;
+    u32        m_SelectedY      = kNoCoord;
 };
 
 } // namespace acs::game::leveledit

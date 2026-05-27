@@ -35,20 +35,20 @@ public:
     TResult<void> Init(const DeviceConfig& cfg) noexcept;
 
     // ---- IRhiDevice ----
-    const char* BackendName() const noexcept override { return _backend_name; }
-    const char* AdapterName() const noexcept override { return _adapter_name; }
+    const char* BackendName() const noexcept override { return m_BackendName; }
+    const char* AdapterName() const noexcept override { return m_AdapterName; }
     void        WaitIdle()    noexcept override;
 
     // 実際に選ばれたバックエンド種別
-    ERhiBackendKind ActualBackend() const noexcept { return _actual_backend; }
+    ERhiBackendKind ActualBackend() const noexcept { return m_ActualBackend; }
 
     // ---- 内部公開（他の Diligent* バックエンドが触れる）----
     // Factory は Vulkan / D3D12 で別型。汎用には IEngineFactory を返す。
-    Diligent::IEngineFactory*      FactoryGeneric() const noexcept { return _factory_generic; }
-    Diligent::IEngineFactoryD3D12* Factory()        const noexcept { return _factory; }
-    Diligent::IEngineFactoryVk*    FactoryVk()      const noexcept { return _factory_vk; }
-    Diligent::IRenderDevice*       RenderDev()      const noexcept { return _device; }
-    Diligent::IDeviceContext*      Context()        const noexcept { return _context; }
+    Diligent::IEngineFactory*      FactoryGeneric() const noexcept { return m_FactoryGeneric; }
+    Diligent::IEngineFactoryD3D12* Factory()        const noexcept { return m_Factory; }
+    Diligent::IEngineFactoryVk*    FactoryVk()      const noexcept { return m_FactoryVk; }
+    Diligent::IRenderDevice*       RenderDev()      const noexcept { return m_Device; }
+    Diligent::IDeviceContext*      Context()        const noexcept { return m_Context; }
 
     // フレーム同期: ExecuteCommandLists 後に Signal して値を返す。
     // CommandList::Submit がこれを呼ぶ想定。
@@ -57,8 +57,8 @@ public:
 
     // フレームスロット
     static constexpr u32 kFramesInFlight = 2;
-    u32  CurrentFrameSlot() const noexcept { return _frame_slot; }
-    void AdvanceFrameSlot() noexcept { _frame_slot = (_frame_slot + 1) % kFramesInFlight; }
+    u32  CurrentFrameSlot() const noexcept { return m_FrameSlot; }
+    void AdvanceFrameSlot() noexcept { m_FrameSlot = (m_FrameSlot + 1) % kFramesInFlight; }
 
 private:
     TResult<void> InitD3D12(const DeviceConfig& cfg) noexcept;
@@ -66,17 +66,17 @@ private:
 
     // Diligent オブジェクトは生ポインタで保持し、Release() を明示的に呼んで破棄する。
     // RefCntAutoPtr を使わずに済ませることでヘッダから Diligent 依存を切り離す。
-    Diligent::IEngineFactory*      _factory_generic = nullptr;  // _factory or _factory_vk と同じ実体
-    Diligent::IEngineFactoryD3D12* _factory       = nullptr;     // D3D12 経路
-    Diligent::IEngineFactoryVk*    _factory_vk    = nullptr;     // Vulkan 経路
-    Diligent::IRenderDevice*       _device        = nullptr;
-    Diligent::IDeviceContext*      _context       = nullptr;
-    Diligent::IFence*              _idle_fence    = nullptr;
-    u64                            _idle_value    = 0;
-    u32                            _frame_slot    = 0;
-    ERhiBackendKind                 _actual_backend = ERhiBackendKind::Auto;
-    char                           _adapter_name[128]{};
-    const char*                    _backend_name  = "Diligent";
+    Diligent::IEngineFactory*      m_FactoryGeneric = nullptr;  // m_Factory or m_FactoryVk と同じ実体
+    Diligent::IEngineFactoryD3D12* m_Factory       = nullptr;     // D3D12 経路
+    Diligent::IEngineFactoryVk*    m_FactoryVk    = nullptr;     // Vulkan 経路
+    Diligent::IRenderDevice*       m_Device        = nullptr;
+    Diligent::IDeviceContext*      m_Context       = nullptr;
+    Diligent::IFence*              m_IdleFence    = nullptr;
+    u64                            m_IdleValue    = 0;
+    u32                            m_FrameSlot    = 0;
+    ERhiBackendKind                 m_ActualBackend = ERhiBackendKind::Auto;
+    char                           m_AdapterName[128]{};
+    const char*                    m_BackendName  = "Diligent";
 };
 
 } // namespace acs

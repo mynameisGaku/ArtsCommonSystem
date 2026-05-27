@@ -125,7 +125,7 @@ private:
     // FindIndex で見つかった entry を上書き or 新規 PushBack するヘルパ。
     Entry& UpsertEntry(const char* key) noexcept;
 
-    TArray<Entry> _entries;
+    TArray<Entry> m_Entries;
 };
 
 } // namespace acs::game

@@ -15,11 +15,11 @@ namespace acs::game {
 void FDebugOverlay::Init() noexcept {
     // 履歴 (60 frame) を事前確保しておく (毎 Tick の reallocation を回避)。
     // Reserve は capacity のみで size 不変なので、論理 size はそのまま 0 始まり。
-    _fps_history.Clear();
-    _fps_history.Reserve(kFpsHistoryCap);
-    _fps_index    = 0u;
-    _fps_filled   = false;
-    _current_fps  = 0.0f;
+    m_FpsHistory.Clear();
+    m_FpsHistory.Reserve(kFpsHistoryCap);
+    m_FpsIndex    = 0u;
+    m_FpsFilled   = false;
+    m_CurrentFps  = 0.0f;
 }
 
 void FDebugOverlay::Tick(f32 dt) noexcept {
@@ -27,32 +27,32 @@ void FDebugOverlay::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
 
     const f32 fps = 1.0f / dt;
-    _current_fps = fps;
+    m_CurrentFps = fps;
 
     // 循環バッファ書き込み。
     // まだ 60 個揃っていない間は PushBack で末尾追加、揃った後は index 位置に上書き。
-    if (!_fps_filled) {
-        _fps_history.PushBack(fps);
-        ++_fps_index;
-        if (_fps_index >= kFpsHistoryCap) {
-            _fps_index  = 0u;
-            _fps_filled = true;
+    if (!m_FpsFilled) {
+        m_FpsHistory.PushBack(fps);
+        ++m_FpsIndex;
+        if (m_FpsIndex >= kFpsHistoryCap) {
+            m_FpsIndex  = 0u;
+            m_FpsFilled = true;
         }
     } else {
-        _fps_history[_fps_index] = fps;
-        ++_fps_index;
-        if (_fps_index >= kFpsHistoryCap) _fps_index = 0u;
+        m_FpsHistory[m_FpsIndex] = fps;
+        ++m_FpsIndex;
+        if (m_FpsIndex >= kFpsHistoryCap) m_FpsIndex = 0u;
     }
 }
 
 void FDebugOverlay::Reset() noexcept {
-    _fps_history.Clear();
-    _fps_index    = 0u;
-    _fps_filled   = false;
-    _current_fps  = 0.0f;
-    _scene_name   = nullptr;
-    _watches.Clear();
-    // _visible は意図的に保持 (Reset で誤って非表示にしない)。
+    m_FpsHistory.Clear();
+    m_FpsIndex    = 0u;
+    m_FpsFilled   = false;
+    m_CurrentFps  = 0.0f;
+    m_SceneName   = nullptr;
+    m_Watches.Clear();
+    // m_Visible は意図的に保持 (Reset で誤って非表示にしない)。
 }
 
 // ============================================================================
@@ -60,30 +60,30 @@ void FDebugOverlay::Reset() noexcept {
 // ============================================================================
 
 f32 FDebugOverlay::AverageFps() const noexcept {
-    const usize n = _fps_history.Size();
+    const usize n = m_FpsHistory.Size();
     if (n == 0u) return 0.0f;
     f32 sum = 0.0f;
-    for (usize i = 0; i < n; ++i) sum += _fps_history[i];
+    for (usize i = 0; i < n; ++i) sum += m_FpsHistory[i];
     return sum / static_cast<f32>(n);
 }
 
 f32 FDebugOverlay::MinFps() const noexcept {
-    const usize n = _fps_history.Size();
+    const usize n = m_FpsHistory.Size();
     if (n == 0u) return 0.0f;
-    f32 m = _fps_history[0];
+    f32 m = m_FpsHistory[0];
     for (usize i = 1; i < n; ++i) {
-        const f32 v = _fps_history[i];
+        const f32 v = m_FpsHistory[i];
         if (v < m) m = v;
     }
     return m;
 }
 
 f32 FDebugOverlay::MaxFps() const noexcept {
-    const usize n = _fps_history.Size();
+    const usize n = m_FpsHistory.Size();
     if (n == 0u) return 0.0f;
-    f32 m = _fps_history[0];
+    f32 m = m_FpsHistory[0];
     for (usize i = 1; i < n; ++i) {
-        const f32 v = _fps_history[i];
+        const f32 v = m_FpsHistory[i];
         if (v > m) m = v;
     }
     return m;
@@ -96,43 +96,43 @@ f32 FDebugOverlay::MaxFps() const noexcept {
 void FDebugOverlay::AddWatch(const char* label, const char* value) noexcept {
     if (label == nullptr || value == nullptr) return;
     // 同名 label があれば value を差し替え (後勝ち)。
-    for (usize i = 0; i < _watches.Size(); ++i) {
-        const char* existing = _watches[i].label;
+    for (usize i = 0; i < m_Watches.Size(); ++i) {
+        const char* existing = m_Watches[i].label;
         if (existing == label || (existing != nullptr && ::strcmp(existing, label) == 0)) {
-            _watches[i].value = value;
+            m_Watches[i].value = value;
             return;
         }
     }
     Watch w;
     w.label = label;
     w.value = value;
-    _watches.PushBack(w);
+    m_Watches.PushBack(w);
 }
 
 void FDebugOverlay::RemoveWatch(const char* label) noexcept {
     if (label == nullptr) return;
-    for (usize i = 0; i < _watches.Size(); ++i) {
-        const char* existing = _watches[i].label;
+    for (usize i = 0; i < m_Watches.Size(); ++i) {
+        const char* existing = m_Watches[i].label;
         if (existing == label || (existing != nullptr && ::strcmp(existing, label) == 0)) {
             // 順序は描画側責務として swap-remove で十分。
-            _watches.RemoveAtSwap(i);
+            m_Watches.RemoveAtSwap(i);
             return;
         }
     }
 }
 
 void FDebugOverlay::ClearWatches() noexcept {
-    _watches.Clear();
+    m_Watches.Clear();
 }
 
 u32 FDebugOverlay::WatchCount() const noexcept {
-    return static_cast<u32>(_watches.Size());
+    return static_cast<u32>(m_Watches.Size());
 }
 
 const FDebugOverlay::Watch* FDebugOverlay::AllWatches(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(_watches.Size());
-    if (_watches.Size() == 0u) return nullptr;
-    return _watches.Data();
+    out_count = static_cast<u32>(m_Watches.Size());
+    if (m_Watches.Size() == 0u) return nullptr;
+    return m_Watches.Data();
 }
 
 } // namespace acs::game

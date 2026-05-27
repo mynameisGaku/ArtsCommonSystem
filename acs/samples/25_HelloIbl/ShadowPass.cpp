@@ -12,45 +12,45 @@ namespace helloibl {
 
 FVec3 ResolveSunDirection(const HelloIblApp& app) noexcept {
     // Studio HDR preset (3) は前方上向きの固定方向、それ以外は FSky の太陽。
-    if (app._current_preset == 3) return FVec3{0.3f, 0.6f, -0.5f};
-    return app._sky.SunDirection();
+    if (app.m_CurrentPreset == 3) return FVec3{0.3f, 0.6f, -0.5f};
+    return app.m_Sky.SunDirection();
 }
 
 void RenderShadowPass(HelloIblApp& app, const FVec3& sun_dir) noexcept {
-    if (!app._use_shadows) return;
+    if (!app.m_UseShadows) return;
 
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 
     // CSM: カメラ frustum を 3 cascade に分けて atlas へ焼く。
     // scene 範囲 (object は 30m 内) を near=0.1 / far=40 でカバー。
-    app._shadow.SetDirectionalLightCascades(sun_dir,
-                                            app._camera.View(), app._camera.Projection(),
+    app.m_Shadow.SetDirectionalLightCascades(sun_dir,
+                                            app.m_Camera.View(), app.m_Camera.Projection(),
                                             /*near=*/0.1f, /*far=*/40.0f);
-    cl->BeginShadowPass(*app._shadow.DepthTexture(), 1.0f);   // atlas 全体 clear
-    cl->SetPipeline(*app._shadow.CasterPipeline());
+    cl->BeginShadowPass(*app.m_Shadow.DepthTexture(), 1.0f);   // atlas 全体 clear
+    cl->SetPipeline(*app.m_Shadow.CasterPipeline());
 
     constexpr u32 kGridCast    = 5;
     constexpr f32 kSpacingCast = 1.4f;
-    for (u32 c = 0; c < app._shadow.CascadeCount(); ++c) {
+    for (u32 c = 0; c < app.m_Shadow.CascadeCount(); ++c) {
         // cascade ごとに viewport / scissor / light VP を切替えて caster 描画
-        cl->SetViewport(app._shadow.CascadeViewport(c));
-        cl->SetScissor(app._shadow.CascadeScissor(c));
-        app._shadow.SetCurrentCascade(c);
-        cl->SetConstantBuffer(0, *app._shadow.LightCB());
-        cl->SetVertexBuffer(*app._gm_sphere.vertex_buffer, app._gm_sphere.vertex_stride);
-        cl->SetIndexBuffer(*app._gm_sphere.index_buffer);
+        cl->SetViewport(app.m_Shadow.CascadeViewport(c));
+        cl->SetScissor(app.m_Shadow.CascadeScissor(c));
+        app.m_Shadow.SetCurrentCascade(c);
+        cl->SetConstantBuffer(0, *app.m_Shadow.LightCB());
+        cl->SetVertexBuffer(*app.m_GmSphere.vertex_buffer, app.m_GmSphere.vertex_stride);
+        cl->SetIndexBuffer(*app.m_GmSphere.index_buffer);
         for (u32 y = 0; y < kGridCast; ++y) {
             for (u32 x = 0; x < kGridCast; ++x) {
                 const f32 px = (static_cast<f32>(x) - (kGridCast - 1) * 0.5f) * kSpacingCast;
                 const f32 py = (static_cast<f32>(y) - (kGridCast - 1) * 0.5f) * kSpacingCast + 2.5f;
-                app._shadow.SetCaster(FMat4::Translation(FVec3{px, py, 3.0f}));
-                cl->SetConstantBuffer(1, *app._shadow.CasterObjectCB());
-                cl->DrawIndexed(app._gm_sphere.index_count);
+                app.m_Shadow.SetCaster(FMat4::Translation(FVec3{px, py, 3.0f}));
+                cl->SetConstantBuffer(1, *app.m_Shadow.CasterObjectCB());
+                cl->DrawIndexed(app.m_GmSphere.index_count);
             }
         }
     }
-    cl->EndShadowPass(*app._shadow.DepthTexture());
+    cl->EndShadowPass(*app.m_Shadow.DepthTexture());
 }
 
 } // namespace helloibl

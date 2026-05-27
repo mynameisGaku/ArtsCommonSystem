@@ -26,17 +26,17 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::FPostProcess       _post;
-    acs::FSky               _sky;
-    acs::FStandardShader    _shader;
-    acs::FSpriteBatch       _batch;
-    acs::Font              _font;
-    acs::GpuMesh           _gm_sphere;
-    acs::GpuMesh           _gm_plane;
-    acs::FCamera            _camera;
-    acs::PostProcessParams _params;
-    acs::f32               _cam_yaw = 0.5f;
-    acs::f32               _angle   = 0.0f;
+    acs::FPostProcess       m_Post;
+    acs::FSky               m_Sky;
+    acs::FStandardShader    m_Shader;
+    acs::FSpriteBatch       m_Batch;
+    acs::Font              m_Font;
+    acs::GpuMesh           m_GmSphere;
+    acs::GpuMesh           m_GmPlane;
+    acs::FCamera            m_Camera;
+    acs::PostProcessParams m_Params;
+    acs::f32               m_CamYaw = 0.5f;
+    acs::f32               m_Angle   = 0.0f;
 };
 
 } // namespace hellobloom

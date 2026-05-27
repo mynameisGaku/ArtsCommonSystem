@@ -43,17 +43,17 @@ public:
     Localization& operator=(const Localization&) = delete;
 
     // 現在表示中の言語をファイルから読み込む
-    TResult<void> LoadActive  (const wchar_t* path) noexcept { return _active.Load(path); }
-    TResult<void> LoadFallback(const wchar_t* path) noexcept { return _fallback.Load(path); }
+    TResult<void> LoadActive  (const wchar_t* path) noexcept { return m_Active.Load(path); }
+    TResult<void> LoadFallback(const wchar_t* path) noexcept { return m_Fallback.Load(path); }
 
     // バイト列から（埋め込み用）
-    TResult<void> LoadActiveBytes  (const u8* data, usize size) noexcept { return _active.LoadFromBytes(data, size); }
-    TResult<void> LoadFallbackBytes(const u8* data, usize size) noexcept { return _fallback.LoadFromBytes(data, size); }
+    TResult<void> LoadActiveBytes  (const u8* data, usize size) noexcept { return m_Active.LoadFromBytes(data, size); }
+    TResult<void> LoadFallbackBytes(const u8* data, usize size) noexcept { return m_Fallback.LoadFromBytes(data, size); }
 
     // active と fallback を入替え（言語切替の便利関数）
     void Swap() noexcept;
 
-    void Clear() noexcept { _active.Clear(); _fallback.Clear(); }
+    void Clear() noexcept { m_Active.Clear(); m_Fallback.Clear(); }
 
     // 翻訳取得: active → fallback → key 自体（最後の手段）の順で探す
     const char* Tr(const char* key) const noexcept;
@@ -62,14 +62,14 @@ public:
     bool Has(const char* key) const noexcept;
 
     // 直接 Storage アクセス（独自加工したいとき用）
-    Storage&       Active()         noexcept { return _active; }
-    const Storage& Active()   const noexcept { return _active; }
-    Storage&       Fallback()       noexcept { return _fallback; }
-    const Storage& Fallback() const noexcept { return _fallback; }
+    Storage&       Active()         noexcept { return m_Active; }
+    const Storage& Active()   const noexcept { return m_Active; }
+    Storage&       Fallback()       noexcept { return m_Fallback; }
+    const Storage& Fallback() const noexcept { return m_Fallback; }
 
 private:
-    Storage _active;
-    Storage _fallback;
+    Storage m_Active;
+    Storage m_Fallback;
 };
 
 } // namespace acs

@@ -9,9 +9,9 @@
 //   ・**non-copy / non-move**: `TUniquePtr<FNode2D>` で所有、`FNode2D*` で参照。
 //     `AddChild(MakeUnique<MyNode>(args))` が標準パターン。
 //   ・**lifecycle**: `AddChild` 即時 `OnSpawn` (Phase 1 簡略化)、`Destroy()` で
-//     `_pending_destroy` をマーク、フレーム境界の `ResolveStructuralChanges()`
+//     `m_PendingDestroy` をマーク、フレーム境界の `ResolveStructuralChanges()`
 //     で OnDespawn を呼んで TArray から除去。子ツリーが先に reap される。
-//   ・**transform**: `_local` を真値、`World()` は親をたどってオンザフライ計算
+//   ・**transform**: `m_Local` を真値、`World()` は親をたどってオンザフライ計算
 //     (Phase 1)。dirty キャッシュは Phase 2 (大きなツリーで最適化)。
 //   ・**iteration safety**: UpdateTree/DrawTree は index ベースで走査。
 //     AddChild が走査中に呼ばれた場合の新規子は同フレームで走らせる (Unity 互換)。
@@ -57,23 +57,23 @@ public:
     virtual void OnDespawn()              noexcept {}
 
     // ----- Transform -----
-    FTransform2D&       Local()       noexcept { return _local; }
-    const FTransform2D& Local() const noexcept { return _local; }
+    FTransform2D&       Local()       noexcept { return m_Local; }
+    const FTransform2D& Local() const noexcept { return m_Local; }
 
     // 親をたどって world を合成 (Phase 1 はオンザフライ計算、キャッシュなし)
     FTransform2D World() const noexcept;
 
     // ----- 有効/可視フラグ (subtree ごと skip 可能) -----
-    void SetEnabled(bool b) noexcept { _enabled = b; }
-    bool IsEnabled() const noexcept { return _enabled; }
-    void SetVisible(bool b) noexcept { _visible = b; }
-    bool IsVisible() const noexcept { return _visible; }
+    void SetEnabled(bool b) noexcept { m_Enabled = b; }
+    bool IsEnabled() const noexcept { return m_Enabled; }
+    void SetVisible(bool b) noexcept { m_Visible = b; }
+    bool IsVisible() const noexcept { return m_Visible; }
 
     // ----- Tree -----
-    FNode2D* Parent() const noexcept { return _parent; }
-    u32     ChildCount() const noexcept { return static_cast<u32>(_children.Size()); }
+    FNode2D* Parent() const noexcept { return m_Parent; }
+    u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
     FNode2D* Child(u32 i) const noexcept {
-        return i < _children.Size() ? _children[i].Get() : nullptr;
+        return i < m_Children.Size() ? m_Children[i].Get() : nullptr;
     }
 
     // 子を追加 (所有権を奪う)。Spawn を即時に呼ぶ (Phase 1 簡略化)。
@@ -82,22 +82,22 @@ public:
 
     // 自身を「破棄予定」にマーク。実際の破棄は次の ResolveStructuralChanges で
     // 起こる (OnDespawn 呼出 → TArray から除去 → デストラクタで memory release)。
-    void Destroy() noexcept { _pending_destroy = true; }
-    bool IsPendingDestroy() const noexcept { return _pending_destroy; }
+    void Destroy() noexcept { m_PendingDestroy = true; }
+    bool IsPendingDestroy() const noexcept { return m_PendingDestroy; }
 
     // 自分を `new_parent` の子に移動するよう要求する (フレーム境界で適用)。
     // new_parent == nullptr は不正 (警告ログ + 無視)、自分自身 or 子孫を指定した
     // 場合も不正 (cycle 検出、警告 + 無視)。ResolveStructuralChanges 内で
-    // _children TArray 間を Move し、parent ポインタを書き換える。
+    // m_Children TArray 間を Move し、parent ポインタを書き換える。
     // OnSpawn/OnDespawn は呼ばれない (= 既に生きているノードの移動)。
     void Reparent(FNode2D& new_parent) noexcept;
-    bool IsPendingReparent() const noexcept { return _pending_reparent_target != nullptr; }
+    bool IsPendingReparent() const noexcept { return m_PendingReparentTarget != nullptr; }
 
     // ----- FNodeId (Phase 3 = Pillar B Phase 3) -----
     // ノード単位に振られる generational handle。Scene 内で唯一であることは
-    // 保証されない (生成側が一意性を管理)。default は invalid (_packed == 0)。
-    FNodeId Id() const noexcept { return _id; }
-    void   _SetId(FNodeId id) noexcept { _id = id; }
+    // 保証されない (生成側が一意性を管理)。default は invalid (m_Packed == 0)。
+    FNodeId Id() const noexcept { return m_Id; }
+    void   _SetId(FNodeId id) noexcept { m_Id = id; }
 
     // ----- Components (Phase 7、Pillar B Phase 2) -----
     // T の FComponent2D を構築・attach し、参照を返す。OnAttach は即時呼出。
@@ -106,7 +106,7 @@ public:
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
         ref->_SetOwner(this);
-        _components.PushBack(TUniquePtr<FComponent2D>(comp.Release(), comp.GetAllocator()));
+        m_Components.PushBack(TUniquePtr<FComponent2D>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
         return *ref;
     }
@@ -115,9 +115,9 @@ public:
     template<typename T>
     T* GetComponent() noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < _components.Size(); ++i) {
-            if (_components[i] && _components[i]->Kind() == k) {
-                return static_cast<T*>(_components[i].Get());
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) {
+                return static_cast<T*>(m_Components[i].Get());
             }
         }
         return nullptr;
@@ -126,8 +126,8 @@ public:
     template<typename T>
     bool HasComponent() const noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < _components.Size(); ++i) {
-            if (_components[i] && _components[i]->Kind() == k) return true;
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) return true;
         }
         return false;
     }
@@ -136,22 +136,22 @@ public:
     template<typename T>
     bool RemoveComponent() noexcept {
         const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < _components.Size(); ++i) {
-            if (_components[i] && _components[i]->Kind() == k) {
-                _components[i]->OnDetach();
-                _components[i].Reset();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) {
+                m_Components[i]->OnDetach();
+                m_Components[i].Reset();
                 // compact: 末尾を i に詰める (順序は壊れる、Phase 1 はこれで十分)
-                if (i + 1 < _components.Size()) {
-                    _components[i] = Move(_components[_components.Size() - 1]);
+                if (i + 1 < m_Components.Size()) {
+                    m_Components[i] = Move(m_Components[m_Components.Size() - 1]);
                 }
-                _components.PopBack();
+                m_Components.PopBack();
                 return true;
             }
         }
         return false;
     }
 
-    u32 ComponentCount() const noexcept { return static_cast<u32>(_components.Size()); }
+    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Size()); }
 
     // ----- Subtree traversal (root から呼ぶ) -----
     void UpdateTree(f32 dt) noexcept;
@@ -163,23 +163,23 @@ public:
     // フレーム境界で 1 回呼ぶ。pending_destroy なノードを subtree ごと OnDespawn
     // 呼んで子配列から除去する (子から先に reap、その後に自分が抜ける)。
     // また pending_reparent_target がセットされた子があれば、その子を target
-    // の _children へ Move する (cycle 検出済)。
+    // の m_Children へ Move する (cycle 検出済)。
     void ResolveStructuralChanges() noexcept;
 
 private:
     // Reparent 操作で cycle が生じないか (= target が自分の子孫でないか) を確認。
     bool IsAncestorOf(const FNode2D* candidate) const noexcept;
 
-    FTransform2D _local{};
-    FNode2D*     _parent          = nullptr;
-    TArray<TUniquePtr<FNode2D>>      _children;
-    TArray<TUniquePtr<FComponent2D>> _components;
-    FNodeId      _id{};                        // Phase 3: generational handle (default = invalid)
-    FNode2D*     _pending_reparent_target = nullptr;  // 非 null なら次の resolve で移動
-    bool        _enabled         = true;
-    bool        _visible         = true;
-    bool        _spawned         = false;
-    bool        _pending_destroy = false;
+    FTransform2D m_Local{};
+    FNode2D*     m_Parent          = nullptr;
+    TArray<TUniquePtr<FNode2D>>      m_Children;
+    TArray<TUniquePtr<FComponent2D>> m_Components;
+    FNodeId      m_Id{};                        // Phase 3: generational handle (default = invalid)
+    FNode2D*     m_PendingReparentTarget = nullptr;  // 非 null なら次の resolve で移動
+    bool        m_Enabled         = true;
+    bool        m_Visible         = true;
+    bool        m_Spawned         = false;
+    bool        m_PendingDestroy = false;
 };
 
 } // namespace acs::game

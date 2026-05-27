@@ -15,38 +15,38 @@ void HelloModelApp::OnStart() noexcept {
     if (!dev) { Quit(); return; }
 
     // === 標準ライティングシェーダ ===
-    ACS_SAMPLE_INIT(_shader.Init(*dev,
+    ACS_SAMPLE_INIT(m_Shader.Init(*dev,
                                  GetRenderer().ColorFormat(),
                                  GetRenderer().DepthFormat()));
 
     const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                        static_cast<f32>(GetRenderer().Swapchain()->Height());
-    if (!_scene.Init(*dev, aspect)) { Quit(); return; }
+    if (!m_Scene.Init(*dev, aspect)) { Quit(); return; }
 
     // === オプションで非同期ロードを試みる（ファイルが無くても OK）===
     // 標準ローダ群は FApplication が自動で登録済み。
-    _async_mesh = GetAssets().LoadAsync(L"data/optional_mesh.glb");
+    m_AsyncMesh = GetAssets().LoadAsync(L"data/optional_mesh.glb");
 
     ACS_LOG_INFO("HelloModel initialized");
 }
 
 void HelloModelApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    _scene.Update(dt, _async_mesh, _async_loaded);
+    m_Scene.Update(dt, m_AsyncMesh, m_AsyncLoaded);
 }
 
 void HelloModelApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
-    if (!cl || !_shader.Pipeline()) return;
-    _scene.Render(_shader, *cl);
+    if (!cl || !m_Shader.Pipeline()) return;
+    m_Scene.Render(m_Shader, *cl);
 }
 
 void HelloModelApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     // 非同期ロード進行中なら待ってから解放
-    if (_async_mesh.Valid() && !_async_loaded) (void)_async_mesh.Wait();
-    _scene.Shutdown();
-    _shader.Shutdown();
+    if (m_AsyncMesh.Valid() && !m_AsyncLoaded) (void)m_AsyncMesh.Wait();
+    m_Scene.Shutdown();
+    m_Shader.Shutdown();
 }
 
 } // namespace hellomodel

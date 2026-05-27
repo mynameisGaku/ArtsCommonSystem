@@ -107,7 +107,7 @@ public:
     // mode を切り替える。state は保持 (3D ↔ 2D 間で position/zoom は
     // それぞれ独立に保たれる)。
     void SetMode(EEditorCameraMode mode) noexcept;
-    EEditorCameraMode Mode() const noexcept { return _mode; }
+    EEditorCameraMode Mode() const noexcept { return m_Mode; }
 
     // ----- 入力 ----------------------------------------------------------
     // editor 側がマウス IO をそのまま流し込むエントリポイント。
@@ -181,13 +181,13 @@ public:
 
     // smoothing rate を設定 (0 = 即時 / 5.0 = デフォルト、FCamera2D と同方式)。
     void SetSmoothing(f32 rate) noexcept;
-    f32  GetSmoothing() const noexcept { return _smoothing; }
+    f32  GetSmoothing() const noexcept { return m_Smoothing; }
 
     // ----- 基本 ortho サイズ (2D の zoom_2d=1 時の表示幅 world units) ----
     // 既定 20.0 (= 画面に 20 単位幅が映る)。editor 起動時に project の単位
     // 系に合わせて調整できるよう公開。
     void SetBaseOrthoSize(f32 world_width) noexcept;
-    f32  GetBaseOrthoSize() const noexcept { return _base_ortho_size; }
+    f32  GetBaseOrthoSize() const noexcept { return m_BaseOrthoSize; }
 
     // 3D orbit の現 eye 位置を spherical 計算で算出 (target + dir*distance)。
     // ViewMatrix の内部実装と等価。debug overlay や ray pick 用に公開。
@@ -202,10 +202,10 @@ private:
     FVec3 OrbitDirection() const noexcept;
 
     FEditorCameraState _state{};                           // 公開 state (実値)
-    FEditorCameraState _smooth_target{};                   // 補間先 (Tick が _state を寄せる)
-    EEditorCameraMode _mode             = EEditorCameraMode::Mode3D;
-    f32               _smoothing        = 5.0f;            // 0 = 即時, 5.0 = 既定
-    f32               _base_ortho_size  = 20.0f;           // 2D の zoom_2d=1 時の幅 (world)
+    FEditorCameraState m_SmoothTarget{};                   // 補間先 (Tick が _state を寄せる)
+    EEditorCameraMode m_Mode             = EEditorCameraMode::Mode3D;
+    f32               m_Smoothing        = 5.0f;            // 0 = 即時, 5.0 = 既定
+    f32               m_BaseOrthoSize  = 20.0f;           // 2D の zoom_2d=1 時の幅 (world)
 };
 
 } // namespace acs::game::editor_core

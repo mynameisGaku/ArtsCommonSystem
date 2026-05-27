@@ -27,10 +27,10 @@ public:
 private:
     void SpawnSprites(acs::u32 n) noexcept;
 
-    acs::FSpriteBatch                 _batch;
-    acs::TUniquePtr<acs::IRhiTexture> _tex;
-    Sprite                           _sprites[kMaxSprites] {};
-    acs::u32                         _sprite_count = 0;
+    acs::FSpriteBatch                 m_Batch;
+    acs::TUniquePtr<acs::IRhiTexture> m_Tex;
+    Sprite                           m_Sprites[kMaxSprites] {};
+    acs::u32                         m_SpriteCount = 0;
 };
 
 } // namespace hellosprite

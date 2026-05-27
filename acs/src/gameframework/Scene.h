@@ -85,30 +85,30 @@ public:
     // FSceneManager が attach 済の FSceneServices。WantedServices が None で
     // attach されていない場合は ACS_ASSERT で停止 (= 使う気がないなら呼ばない)。
     FSceneServices& Services() const noexcept {
-        ACS_ASSERTF(_services.Get() != nullptr,
+        ACS_ASSERTF(m_Services.Get() != nullptr,
                     "Scene::Services() called but WantedServices() returned None (or attach failed)");
-        return *_services;
+        return *m_Services;
     }
-    bool HasServices() const noexcept { return _services.Get() != nullptr; }
+    bool HasServices() const noexcept { return m_Services.Get() != nullptr; }
 
     // ----- Context accessors (FGame が _SetContext で配線) -----
-    FGame&         GetGame() const noexcept { return *_game; }
-    FSceneManager& Scenes()  const noexcept { return *_scenes; }
+    FGame&         GetGame() const noexcept { return *m_Game; }
+    FSceneManager& Scenes()  const noexcept { return *m_Scenes; }
 
     // FGame/FSceneManager が attach する際に呼ぶ。利用者は触らない。
     void _SetContext(FGame* g, FSceneManager* sm) noexcept {
-        _game   = g;
-        _scenes = sm;
+        m_Game   = g;
+        m_Scenes = sm;
     }
     void _AttachServices(TUniquePtr<FSceneServices> svc) noexcept {
-        _services = Move(svc);
+        m_Services = Move(svc);
     }
-    FSceneServices* _ServicesOrNull() const noexcept { return _services.Get(); }
+    FSceneServices* _ServicesOrNull() const noexcept { return m_Services.Get(); }
 
 private:
-    FGame*                    _game     = nullptr;
-    FSceneManager*            _scenes   = nullptr;
-    TUniquePtr<FSceneServices> _services;
+    FGame*                    m_Game     = nullptr;
+    FSceneManager*            m_Scenes   = nullptr;
+    TUniquePtr<FSceneServices> m_Services;
 };
 
 } // namespace game

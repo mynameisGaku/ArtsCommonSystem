@@ -31,22 +31,22 @@ u32 BytesPerPixel(EFormat f) noexcept {
 } // namespace
 
 Dx12Texture::~Dx12Texture() noexcept {
-    if (_device) {
-        if (_srv_slot >= 0) _device->FreeSrvSlot(_srv_slot);
-        if (_dsv_slot >= 0) _device->FreeDsvSlot(_dsv_slot);
+    if (m_Device) {
+        if (m_SrvSlot >= 0) m_Device->FreeSrvSlot(m_SrvSlot);
+        if (m_DsvSlot >= 0) m_Device->FreeDsvSlot(m_DsvSlot);
     }
-    _srv_slot = -1;
-    _dsv_slot = -1;
-    ACS_SAFE_RELEASE(_resource);
+    m_SrvSlot = -1;
+    m_DsvSlot = -1;
+    ACS_SAFE_RELEASE(m_Resource);
 }
 
 HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcept {
     HrResult r{};
-    _device = &device;
-    _width  = desc.width;
-    _height = desc.height;
-    _format = desc.format;
-    _is_depth = desc.is_depth_target;
+    m_Device = &device;
+    m_Width  = desc.width;
+    m_Height = desc.height;
+    m_Format = desc.format;
+    m_IsDepth = desc.is_depth_target;
 
     if (desc.width == 0 || desc.height == 0) {
         r.hr = E_INVALIDARG;
@@ -104,35 +104,35 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         init_state = desc.initial_data ? D3D12_RESOURCE_STATE_COPY_DEST
                                        : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     }
-    _current_state = init_state;
+    m_CurrentState = init_state;
 
     r.hr = device.D3DDevice()->CreateCommittedResource(
         &default_hp, D3D12_HEAP_FLAG_NONE, &td, init_state, clear_ptr,
-        IID_PPV_ARGS(&_resource));
+        IID_PPV_ARGS(&m_Resource));
     if (r.IsErr()) return r;
 
     // ===== 1b. 深度バッファの DSV + （任意）SRV =====
     if (desc.is_depth_target) {
-        _dsv_slot = device.AllocateDsvSlot();
-        if (_dsv_slot < 0) { r.hr = E_OUTOFMEMORY; return r; }
+        m_DsvSlot = device.AllocateDsvSlot();
+        if (m_DsvSlot < 0) { r.hr = E_OUTOFMEMORY; return r; }
         D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
         dsv.Format = dsv_fmt;
         dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
         dsv.Flags = D3D12_DSV_FLAG_NONE;
         device.D3DDevice()->CreateDepthStencilView(
-            _resource, &dsv, device.DsvCpuHandle(_dsv_slot));
+            m_Resource, &dsv, device.DsvCpuHandle(m_DsvSlot));
 
         // シェーダから読みたい場合のみ SRV も作る
         if (desc.shader_visible_depth && depth_srv_fmt != DXGI_FORMAT_UNKNOWN) {
-            _srv_slot = device.AllocateSrvSlot();
-            if (_srv_slot < 0) { r.hr = E_OUTOFMEMORY; return r; }
+            m_SrvSlot = device.AllocateSrvSlot();
+            if (m_SrvSlot < 0) { r.hr = E_OUTOFMEMORY; return r; }
             D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
             srv.Format = depth_srv_fmt;
             srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
             srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
             srv.Texture2D.MipLevels = 1;
             device.D3DDevice()->CreateShaderResourceView(
-                _resource, &srv, device.SrvCpuHandle(_srv_slot));
+                m_Resource, &srv, device.SrvCpuHandle(m_SrvSlot));
         }
         return r;
     }
@@ -199,7 +199,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         src_loc.PlacedFootprint = fp;
 
         D3D12_TEXTURE_COPY_LOCATION dst_loc{};
-        dst_loc.pResource = _resource;
+        dst_loc.pResource = m_Resource;
         dst_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         dst_loc.SubresourceIndex = 0;
 
@@ -208,7 +208,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         // バリアで PixelShaderResource 状態に遷移
         D3D12_RESOURCE_BARRIER b{};
         b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = _resource;
+        b.Transition.pResource   = m_Resource;
         b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
         b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -225,9 +225,9 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     }
 
     // ===== 4. SRV ヒープに SRV を作成 =====
-    _srv_slot = device.AllocateSrvSlot();
-    if (_srv_slot < 0) { r.hr = E_OUTOFMEMORY; return r; }
-    _current_state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    m_SrvSlot = device.AllocateSrvSlot();
+    if (m_SrvSlot < 0) { r.hr = E_OUTOFMEMORY; return r; }
+    m_CurrentState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
     srv.Format = typed_fmt;
@@ -235,17 +235,17 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = static_cast<UINT>(desc.mip_levels);
     device.D3DDevice()->CreateShaderResourceView(
-        _resource, &srv, device.SrvCpuHandle(_srv_slot));
+        m_Resource, &srv, device.SrvCpuHandle(m_SrvSlot));
 
     return r;
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE Dx12Texture::SrvGpuHandle() const noexcept {
-    return _device ? _device->SrvGpuHandle(_srv_slot) : D3D12_GPU_DESCRIPTOR_HANDLE{0};
+    return m_Device ? m_Device->SrvGpuHandle(m_SrvSlot) : D3D12_GPU_DESCRIPTOR_HANDLE{0};
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::DsvCpuHandle() const noexcept {
-    return _device ? _device->DsvCpuHandle(_dsv_slot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    return m_Device ? m_Device->DsvCpuHandle(m_DsvSlot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
 }
 
 // ファクトリ（Diligent バックエンドが有効化されている場合は Diligent 側に譲る）

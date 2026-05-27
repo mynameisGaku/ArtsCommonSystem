@@ -13,9 +13,9 @@ using namespace acs::game;
 namespace hellogf {
 
 void TitleScene::OnEnter() noexcept {
-    _fsm.Configure(Idle,  { &TitleScene::EnterIdle,  &TitleScene::UpdateIdle,  nullptr });
-    _fsm.Configure(Blink, { &TitleScene::EnterBlink, &TitleScene::UpdateBlink, nullptr });
-    _fsm.Start(Idle, *this);
+    m_Fsm.Configure(Idle,  { &TitleScene::EnterIdle,  &TitleScene::UpdateIdle,  nullptr });
+    m_Fsm.Configure(Blink, { &TitleScene::EnterBlink, &TitleScene::UpdateBlink, nullptr });
+    m_Fsm.Start(Idle, *this);
     auto* prof = GetGame().AppState<PlayerProfile>();
     if (prof) {
         ACS_LOG_INFO("[Title] hi_score=%u sessions=%u  (Space: start, Esc: quit) FSM Idle/Blink",
@@ -33,8 +33,8 @@ void TitleScene::OnUpdate(f32 dt) noexcept {
         Scenes().ChangeScene(MakeUnique<GameplayScene>());
         return;
     }
-    _clock.Tick(dt);
-    _fsm.Update(*this, _clock.Dt());
+    m_Clock.Tick(dt);
+    m_Fsm.Update(*this, m_Clock.Dt());
 }
 
 // 2 秒間 Idle (dark blue) → 0.3 秒 Blink (明るい青) を交互に繰返す FSM デモ。
@@ -44,7 +44,7 @@ void TitleScene::EnterIdle(TitleScene& s) noexcept {
 }
 void TitleScene::UpdateIdle(TitleScene& s, f32 dt) noexcept {
     s._state_secs += dt;
-    if (s._state_secs > 2.0f) s._fsm.ChangeState(Blink, s);
+    if (s._state_secs > 2.0f) s.m_Fsm.ChangeState(Blink, s);
 }
 void TitleScene::EnterBlink(TitleScene& s) noexcept {
     s.GetGame().SetClearColor(0.20f, 0.25f, 0.50f);
@@ -52,7 +52,7 @@ void TitleScene::EnterBlink(TitleScene& s) noexcept {
 }
 void TitleScene::UpdateBlink(TitleScene& s, f32 dt) noexcept {
     s._state_secs += dt;
-    if (s._state_secs > 0.3f) s._fsm.ChangeState(Idle, s);
+    if (s._state_secs > 0.3f) s.m_Fsm.ChangeState(Idle, s);
 }
 
 } // namespace hellogf

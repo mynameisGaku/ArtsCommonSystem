@@ -26,14 +26,14 @@ void FModRegistry::Register(const ModInfo& info) noexcept {
 
     // 同 id 重複は警告 (既存エントリは残す = 先勝ち)。manifest loader 側で
     // 検出するのが本来だが、二重防御として警告ログだけ出す。
-    for (u32 i = 0; i < _mods.Size(); ++i) {
-        if (IdEquals(_mods[i].id, info.id)) {
+    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+        if (IdEquals(m_Mods[i].id, info.id)) {
             ACS_LOG_WARN("FModRegistry::Register: duplicate id '%s' ignored", info.id);
             return;
         }
     }
 
-    _mods.PushBack(info);
+    m_Mods.PushBack(info);
 
     // TODO(Pillar G FAssetPack Phase 2): info.pack_path が非 nullptr なら
     // VirtualFileSystem に mount 予約 (まだ enable=true のときだけ実 mount する)。
@@ -41,9 +41,9 @@ void FModRegistry::Register(const ModInfo& info) noexcept {
 }
 
 bool FModRegistry::Enable(const char* mod_id) noexcept {
-    for (u32 i = 0; i < _mods.Size(); ++i) {
-        if (IdEquals(_mods[i].id, mod_id)) {
-            _mods[i].enabled = true;
+    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+        if (IdEquals(m_Mods[i].id, mod_id)) {
+            m_Mods[i].enabled = true;
             // TODO(Pillar N hook): 実 mount + hook 適用 (Lua 5.4 / C++ plugin)
             // をここでトリガーする。スケルトンでは flag だけ。
             return true;
@@ -53,9 +53,9 @@ bool FModRegistry::Enable(const char* mod_id) noexcept {
 }
 
 bool FModRegistry::Disable(const char* mod_id) noexcept {
-    for (u32 i = 0; i < _mods.Size(); ++i) {
-        if (IdEquals(_mods[i].id, mod_id)) {
-            _mods[i].enabled = false;
+    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+        if (IdEquals(m_Mods[i].id, mod_id)) {
+            m_Mods[i].enabled = false;
             // TODO(Pillar N hook): unmount + hook 解除。
             return true;
         }
@@ -64,9 +64,9 @@ bool FModRegistry::Disable(const char* mod_id) noexcept {
 }
 
 void FModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
-    for (u32 i = 0; i < _mods.Size(); ++i) {
-        if (IdEquals(_mods[i].id, mod_id)) {
-            _mods[i].load_order = order;
+    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+        if (IdEquals(m_Mods[i].id, mod_id)) {
+            m_Mods[i].load_order = order;
             return;
         }
     }
@@ -74,39 +74,39 @@ void FModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
 }
 
 u32 FModRegistry::Count() const noexcept {
-    return static_cast<u32>(_mods.Size());
+    return static_cast<u32>(m_Mods.Size());
 }
 
 const ModInfo* FModRegistry::Find(const char* mod_id) const noexcept {
-    for (u32 i = 0; i < _mods.Size(); ++i) {
-        if (IdEquals(_mods[i].id, mod_id)) return &_mods[i];
+    for (u32 i = 0; i < m_Mods.Size(); ++i) {
+        if (IdEquals(m_Mods[i].id, mod_id)) return &m_Mods[i];
     }
     return nullptr;
 }
 
 const ModInfo* FModRegistry::All() const noexcept {
-    return _mods.Data();
+    return m_Mods.Data();
 }
 
 void FModRegistry::SortByLoadOrder() noexcept {
     // Insertion sort: N (= mod 数) は実用上 < 64 と想定。安定 sort なので
     // 同 load_order は登録順を保ち、UI の見え方に予測可能性が出る。
-    const u32 n = static_cast<u32>(_mods.Size());
+    const u32 n = static_cast<u32>(m_Mods.Size());
     for (u32 i = 1; i < n; ++i) {
-        ModInfo key = _mods[i];
+        ModInfo key = m_Mods[i];
         u32 j = i;
-        while (j > 0 && _mods[j - 1].load_order > key.load_order) {
-            _mods[j] = _mods[j - 1];
+        while (j > 0 && m_Mods[j - 1].load_order > key.load_order) {
+            m_Mods[j] = m_Mods[j - 1];
             --j;
         }
-        _mods[j] = key;
+        m_Mods[j] = key;
     }
 }
 
 void FModRegistry::Clear() noexcept {
     // TODO(Pillar N): enabled な Mod に対しては Disable と同等の hook 解除を
     // 内部で走らせる必要がある。現状は単純クリア。
-    _mods.Clear();
+    m_Mods.Clear();
 }
 
 } // namespace acs::game

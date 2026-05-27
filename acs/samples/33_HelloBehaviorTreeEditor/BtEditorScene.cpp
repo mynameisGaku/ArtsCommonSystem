@@ -23,34 +23,34 @@ void BtEditorScene::OnEnter() noexcept {
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
     // panel 初期化 (順序: Init → AddNode 構造登録 → SetTree → SetCallback)。
-    _panel.Init();
+    m_Panel.Init();
 
     // panel に「メタミラー node 構造」を登録、続けて同形の実 BT を組む。
     // この 2 つは 1:1 対応で組むことで、Action Fn からの panel.SetNodeStatus
     // 呼び出しが正しい node に着地する。
-    BuildPanelMirror(_panel, _bb);
-    BuildBehaviorTree(_bt);
+    BuildPanelMirror(m_Panel, m_Bb);
+    BuildBehaviorTree(m_Bt);
 
     // panel に観察対象 BT + callback を登録。
-    _bb.panel = &_panel;
-    _panel.SetTree(&_bt);
-    _panel.SetOnStepCallback(&StepCallbackFn, &_bb);
+    m_Bb.panel = &m_Panel;
+    m_Panel.SetTree(&m_Bt);
+    m_Panel.SetOnStepCallback(&StepCallbackFn, &m_Bb);
 
     // 起動時 selection を root に向けておく
     // (UX: 最初から Inspector に情報が見えるように)。
-    _panel.SelectNode(_bb.id_root);
+    m_Panel.SelectNode(m_Bb.id_root);
 
     // 起動時は Continuous (autorun) ON にして、すぐにアニメーションを見せる。
-    _panel.SetAutorun(true);
+    m_Panel.SetAutorun(true);
 
     ACS_LOG_INFO("[BtEditor] entered (BT: Selector{Seq{Pickup,Move},Seq{Wait,Attack}})");
 }
 
 void BtEditorScene::OnExit() noexcept {
     // 順序: callback 解除 → SetTree(nullptr) → Shutdown。
-    _panel.SetOnStepCallback(nullptr, nullptr);
-    _panel.SetTree(nullptr);
-    _panel.Shutdown();
+    m_Panel.SetOnStepCallback(nullptr, nullptr);
+    m_Panel.SetTree(nullptr);
+    m_Panel.Shutdown();
 
     ACS_LOG_INFO("[BtEditor] exited");
 }
@@ -67,7 +67,7 @@ void BtEditorScene::OnUpdate(f32 dt) noexcept {
     // panel.OnFrameBegin を呼ぶ (= autorun ON なら 1 tick 進む)。
     // Workspace 統合していない構成では sample 側で明示的に呼ぶ責務がある。
     // ImGui::* を触らない hook なので OnUpdate 内で OK。
-    _panel.OnFrameBegin(dt);
+    m_Panel.OnFrameBegin(dt);
 }
 
 void BtEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
@@ -77,9 +77,9 @@ void BtEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
             if (ImGui::MenuItem("Reset Tree", "R")) {
                 // bb 進捗カウンタを 0 に戻し、panel 側も Reset (= step counter /
                 // history / 全 status を初期化)。メタミラーと autorun は維持。
-                _bb.counter_move = 0;
-                _bb.counter_wait = 0;
-                _panel.Reset();
+                m_Bb.counter_move = 0;
+                m_Bb.counter_wait = 0;
+                m_Panel.Reset();
                 ACS_LOG_INFO("[BtEditor] Reset Tree");
             }
             ImGui::Separator();
@@ -93,7 +93,7 @@ void BtEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
 
     // FBehaviorTreeEditorPanel 本体。
     // Workspace 未統合の最小構成なので、sample 側で直接 DrawUI を呼ぶ。
-    _panel.DrawUI();
+    m_Panel.DrawUI();
 }
 
 } // namespace hellobt

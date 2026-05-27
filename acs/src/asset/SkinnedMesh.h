@@ -82,25 +82,25 @@ public:
 
     FSkinnedMeshAsset() noexcept = default;
 
-    TArray<FSkinnedVertex>& Vertices()     noexcept { return _vertices; }
-    TArray<u32>&           Indices()      noexcept { return _indices; }
-    TArray<FBone>&          Bones()        noexcept { return _bones; }
-    TArray<FAnimation>&     Animations()   noexcept { return _animations; }
+    TArray<FSkinnedVertex>& Vertices()     noexcept { return m_Vertices; }
+    TArray<u32>&           Indices()      noexcept { return m_Indices; }
+    TArray<FBone>&          Bones()        noexcept { return m_Bones; }
+    TArray<FAnimation>&     Animations()   noexcept { return m_Animations; }
 
-    const TArray<FSkinnedVertex>& Vertices()   const noexcept { return _vertices; }
-    const TArray<u32>&           Indices()    const noexcept { return _indices; }
-    const TArray<FBone>&          Bones()      const noexcept { return _bones; }
-    const TArray<FAnimation>&     Animations() const noexcept { return _animations; }
+    const TArray<FSkinnedVertex>& Vertices()   const noexcept { return m_Vertices; }
+    const TArray<u32>&           Indices()    const noexcept { return m_Indices; }
+    const TArray<FBone>&          Bones()      const noexcept { return m_Bones; }
+    const TArray<FAnimation>&     Animations() const noexcept { return m_Animations; }
 
     // 全 bind_* が設定されてから 1 度呼ぶ。
     // FBone::inverse_bind を計算する。
     void ComputeInverseBindMatrices() noexcept;
 
 private:
-    TArray<FSkinnedVertex> _vertices;
-    TArray<u32>           _indices;
-    TArray<FBone>          _bones;
-    TArray<FAnimation>     _animations;
+    TArray<FSkinnedVertex> m_Vertices;
+    TArray<u32>           m_Indices;
+    TArray<FBone>          m_Bones;
+    TArray<FAnimation>     m_Animations;
 };
 
 // =============================================================================
@@ -120,15 +120,15 @@ class FAnimationPlayer {
 public:
     FAnimationPlayer() noexcept = default;
 
-    void SetMesh(const FSkinnedMeshAsset* mesh) noexcept { _mesh = mesh; _anim = -1; _time = 0; }
+    void SetMesh(const FSkinnedMeshAsset* mesh) noexcept { m_Mesh = mesh; m_Anim = -1; m_Time = 0; }
     void Play(u32 anim_index, bool loop = true) noexcept;
-    void Pause() noexcept { _playing = false; }
-    void Resume() noexcept { _playing = true; }
-    void Stop() noexcept { _playing = false; _time = 0; }
+    void Pause() noexcept { m_Playing = false; }
+    void Resume() noexcept { m_Playing = true; }
+    void Stop() noexcept { m_Playing = false; m_Time = 0; }
 
-    void SetTime(f32 t) noexcept { _time = t; }
-    f32  Time() const noexcept { return _time; }
-    bool IsPlaying() const noexcept { return _playing; }
+    void SetTime(f32 t) noexcept { m_Time = t; }
+    f32  Time() const noexcept { return m_Time; }
+    bool IsPlaying() const noexcept { return m_Playing; }
 
     void Update(f32 dt) noexcept;
 
@@ -137,11 +137,11 @@ public:
     u32 WritePalette(FMat4* out_palette, u32 max_count) const noexcept;
 
 private:
-    const FSkinnedMeshAsset* _mesh    = nullptr;
-    i32                     _anim    = -1;       // -1 = T-pose（バインド姿勢のまま）
-    f32                     _time    = 0.0f;
-    bool                    _loop    = true;
-    bool                    _playing = false;
+    const FSkinnedMeshAsset* m_Mesh    = nullptr;
+    i32                     m_Anim    = -1;       // -1 = T-pose（バインド姿勢のまま）
+    f32                     m_Time    = 0.0f;
+    bool                    m_Loop    = true;
+    bool                    m_Playing = false;
 };
 
 } // namespace acs

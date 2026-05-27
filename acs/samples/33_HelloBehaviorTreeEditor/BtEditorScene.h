@@ -64,9 +64,9 @@ public:
     void OnRender(acs::game::RenderContext& rc) noexcept override;
 
 private:
-    acs::game::FBehaviorTree                            _bt;
-    BtEditorBb                                         _bb;
-    acs::game::btedit::FBehaviorTreeEditorPanel         _panel;
+    acs::game::FBehaviorTree                            m_Bt;
+    BtEditorBb                                         m_Bb;
+    acs::game::btedit::FBehaviorTreeEditorPanel         m_Panel;
 };
 
 } // namespace hellobt

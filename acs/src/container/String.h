@@ -26,10 +26,10 @@ public:
     FString& operator=(FString&& o)      noexcept;
     ~FString() noexcept;
 
-    const char* Data()  const noexcept { return IsHeap() ? _heap.data : _sso.data; }
-    char*       Data()        noexcept { return IsHeap() ? _heap.data : _sso.data; }
-    usize       Size()  const noexcept { return IsHeap() ? _heap.size : (kSsoCapacity - _sso.remaining); }
-    usize       Capacity() const noexcept { return IsHeap() ? _heap.capacity : kSsoCapacity; }
+    const char* Data()  const noexcept { return IsHeap() ? m_Heap.data : m_Sso.data; }
+    char*       Data()        noexcept { return IsHeap() ? m_Heap.data : m_Sso.data; }
+    usize       Size()  const noexcept { return IsHeap() ? m_Heap.size : (kSsoCapacity - m_Sso.remaining); }
+    usize       Capacity() const noexcept { return IsHeap() ? m_Heap.capacity : kSsoCapacity; }
     bool        IsEmpty() const noexcept { return Size() == 0; }
     FStringView  View()  const noexcept { return FStringView(Data(), Size()); }
     operator FStringView() const noexcept { return View(); }
@@ -46,13 +46,13 @@ public:
     // printf 風フォーマット追記。最終サイズを返す（失敗時は 0）
     usize AppendFormat(const char* fmt, ...) noexcept;
 
-    FAllocator* GetAllocator() const noexcept { return _alloc; }
+    FAllocator* GetAllocator() const noexcept { return m_Alloc; }
 
 private:
     // remaining バイトの MSB がヒープフラグ
-    bool IsHeap() const noexcept { return (_sso.remaining & 0x80) != 0; }
-    void SetHeap() noexcept { _sso.remaining |= 0x80; }
-    void SetInlineLen(u8 len) noexcept { _sso.remaining = static_cast<u8>(kSsoCapacity - len); }
+    bool IsHeap() const noexcept { return (m_Sso.remaining & 0x80) != 0; }
+    void SetHeap() noexcept { m_Sso.remaining |= 0x80; }
+    void SetInlineLen(u8 len) noexcept { m_Sso.remaining = static_cast<u8>(kSsoCapacity - len); }
 
     void Grow(usize new_capacity) noexcept;
 
@@ -61,15 +61,15 @@ private:
         struct {
             char  data[kSsoCapacity + 1]; // +1 = NUL 終端
             u8    remaining;              // SSO: 残り容量、MSB がヒープフラグ
-        } _sso;
+        } m_Sso;
         struct {
             char* data;
             usize size;
             usize capacity;
-            // remaining フィールドは _sso.remaining と同じバイトに重なる
-        } _heap;
+            // remaining フィールドは m_Sso.remaining と同じバイトに重なる
+        } m_Heap;
     };
-    FAllocator* _alloc = nullptr;
+    FAllocator* m_Alloc = nullptr;
 };
 
 inline bool operator==(const FString& a, FStringView b) noexcept { return a.View() == b; }

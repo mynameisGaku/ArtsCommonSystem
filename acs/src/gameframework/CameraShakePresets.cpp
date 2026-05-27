@@ -102,9 +102,9 @@ void FCameraShakePresets::ApplyPreset(IShakeTarget& target,
 
 u32 FCameraShakePresets::FindCustomIndex(const char* name) const noexcept {
     if (name == nullptr) return kNotFound;
-    const usize n = _customs.Size();
+    const usize n = m_Customs.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_customs[i].name, name)) return static_cast<u32>(i);
+        if (StrEq(m_Customs[i].name, name)) return static_cast<u32>(i);
     }
     return kNotFound;
 }
@@ -116,14 +116,14 @@ void FCameraShakePresets::RegisterCustomPreset(const char*        name,
     // 既存 name は上書き (DCC ツール再ロードで最新値が勝つ運用)。
     const u32 idx = FindCustomIndex(name);
     if (idx != kNotFound) {
-        _customs[idx].params = params;
+        m_Customs[idx].params = params;
         return;
     }
 
     CustomEntry e{};
     e.name   = name;     // static lifetime を caller が保証する
     e.params = params;
-    _customs.PushBack(e);
+    m_Customs.PushBack(e);
 }
 
 bool FCameraShakePresets::ApplyCustomByName(IShakeTarget& target,
@@ -131,7 +131,7 @@ bool FCameraShakePresets::ApplyCustomByName(IShakeTarget& target,
     const u32 idx = FindCustomIndex(name);
     if (idx == kNotFound) return false;
 
-    const ShakeParams& p = _customs[idx].params;
+    const ShakeParams& p = m_Customs[idx].params;
     // 組み込み preset と同じ順序で適用 (SetAmp → SetDecay → AddShake)。
     target.SetShakeAmplitude(p.amplitude);
     target.SetShakeDecayRate(p.decay_rate);
@@ -140,7 +140,7 @@ bool FCameraShakePresets::ApplyCustomByName(IShakeTarget& target,
 }
 
 u32 FCameraShakePresets::CustomCount() const noexcept {
-    return static_cast<u32>(_customs.Size());
+    return static_cast<u32>(m_Customs.Size());
 }
 
 } // namespace acs::game

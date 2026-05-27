@@ -16,7 +16,7 @@
 //   ・`SetPassthrough(true)` を呼ばれても passthrough は非サポートなので no-op。
 //
 // 設計のポイント:
-//   ・stub は副作用なし。`Init()` が失敗するので `_initialized` は常に false。
+//   ・stub は副作用なし。`Init()` が失敗するので `m_Initialized` は常に false。
 //   ・`Tick()` は callback pump を持たないので何もしない。
 //   ・`GetXrStub()` は Meyer's singleton。スレッド初回構築は C++11 以降の規格で
 //     保証されているため、追加同期は不要。
@@ -40,7 +40,7 @@ namespace acs::game {
 // -----------------------------------------------------------------------------
 // `platform` は受け取るが stub では一切使わない (Phase X-2 で具象 backend が
 // 選ばれるまでは検出も接続もしないため)。`(void)platform` で未使用警告を抑止。
-// `_initialized` は false のまま据え置く (Init 失敗時に initialized=true にすると
+// `m_Initialized` は false のまま据え置く (Init 失敗時に initialized=true にすると
 // 上位の IsInitialized 判定が壊れるため)。
 // =============================================================================
 TResult<void> OpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
@@ -52,12 +52,12 @@ TResult<void> OpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
 // =============================================================================
 // OpenXrBridgeStub::Shutdown — no-op
 // -----------------------------------------------------------------------------
-// Init が常に失敗する以上、解放対象は存在しない。`_initialized` を false に
+// Init が常に失敗する以上、解放対象は存在しない。`m_Initialized` を false に
 // 戻すだけにする (将来 Init 成功する具象 backend に置き換わったときの
 // 防御として副作用最小で残す)。
 // =============================================================================
 void OpenXrBridgeStub::Shutdown() noexcept {
-    _initialized = false;
+    m_Initialized = false;
 }
 
 // =============================================================================
@@ -91,7 +91,7 @@ void OpenXrBridgeStub::SetPassthrough(bool on) noexcept {
 //
 // スレッド安全性:
 //   C++11 以降、関数内 static の初期化は thread-safe (magic statics)。
-//   ただし stub 自身は状態 (`_initialized`) を持つため、複数スレッドから
+//   ただし stub 自身は状態 (`m_Initialized`) を持つため、複数スレッドから
 //   同時に Init/Shutdown を呼ぶ場合は呼び出し側で同期を取る必要がある。
 //   (stub は Init が必ず失敗するので競合は発生しないが、Phase X-2 の具象
 //    backend に差し替わったときの契約として明示しておく。)

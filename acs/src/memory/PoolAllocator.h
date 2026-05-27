@@ -38,21 +38,21 @@ public:
     void  Free (void* ptr)                                  noexcept override;
 
     // ブロックサイズ / 総数の取得
-    u64 BlockSize()      const noexcept { return _block_size; }
-    u64 BlockCount()     const noexcept { return _block_count; }
+    u64 BlockSize()      const noexcept { return m_BlockSize; }
+    u64 BlockCount()     const noexcept { return m_BlockCount; }
 
     // 現在の使用量 = 生存ブロック数 × ブロックサイズ
     u64 BytesAllocated() const noexcept override {
-        return _live.Load(EMemoryOrder::Acquire) * _block_size;
+        return m_Live.Load(EMemoryOrder::Acquire) * m_BlockSize;
     }
     const char* Name()   const noexcept override { return "TPool"; }
 
     // ptr がこのプールから払い出されたものか判定（Heap フォールバックとの区別用）
     bool Contains(const void* ptr) const noexcept {
-        if (!_storage || !ptr) return false;
+        if (!m_Storage || !ptr) return false;
         const u8* p = static_cast<const u8*>(ptr);
-        const u8* end = _storage + _block_size * _block_count;
-        return p >= _storage && p < end;
+        const u8* end = m_Storage + m_BlockSize * m_BlockCount;
+        return p >= m_Storage && p < end;
     }
 
 private:
@@ -67,14 +67,14 @@ private:
         u64   tag;
     };
 
-    u8*               _storage    = nullptr;     // ブロック配列の先頭
-    u64               _block_size = 0;
-    u64               _block_count= 0;
-    u64               _alignment  = 0;
-    FAllocator*        _backing    = nullptr;     // _storage の確保元
-    TAtomic<u64>       _live {0};                 // 現在使用中のブロック数
+    u8*               m_Storage    = nullptr;     // ブロック配列の先頭
+    u64               m_BlockSize = 0;
+    u64               m_BlockCount= 0;
+    u64               m_Alignment  = 0;
+    FAllocator*        m_Backing    = nullptr;     // m_Storage の確保元
+    TAtomic<u64>       m_Live {0};                 // 現在使用中のブロック数
     // フリーリストの head + ABA タグ を 1 つの 64bit にパック
-    TAtomic<u64>       _head_packed {0};
+    TAtomic<u64>       m_HeadPacked {0};
 };
 
 } // namespace acs

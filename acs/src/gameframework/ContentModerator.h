@@ -28,7 +28,7 @@
 //   ・**Tick(dt) 必須**: 非同期モデレーション (= REST 結果ポーリング) を Bridge 側に
 //     畳み込めるよう、FSteamworksBridge と同じ規約を採用。Stub では no-op。
 //   ・**Stub は static singleton**: `GetModeratorStub()` で取得。実 SDK 未統合ビルドでも
-//     `_moderator = &acs::game::GetModeratorStub();` だけでコンパイル可能。
+//     `m_Moderator = &acs::game::GetModeratorStub();` だけでコンパイル可能。
 //
 // 範囲外 (Phase 2+ で):
 //   ・実 SDK 実装 (Azure / Google / OpenAI / Hive)。
@@ -111,15 +111,15 @@ struct ModerationResult {
 //
 // 典型使用:
 //   class FGame {
-//       acs::game::IContentModerator* _mod = nullptr;
+//       acs::game::IContentModerator* m_Mod = nullptr;
 //       void OnStart() noexcept override {
-//           _mod = &acs::game::GetModeratorStub();
+//           m_Mod = &acs::game::GetModeratorStub();
 //       }
 //       void OnTick(f32 dt) noexcept override {
-//           _mod->Tick(dt);
+//           m_Mod->Tick(dt);
 //       }
 //       bool TryPostChat(const char* user_id, const char* text) noexcept {
-//           auto r = _mod->ModerateText(user_id, text);
+//           auto r = m_Mod->ModerateText(user_id, text);
 //           if (!r) { LogError(); return false; }
 //           if (r.Value().verdict == EModerationVerdict::Block) { ShowBlockedUi(r.Value().reason); return false; }
 //           if (r.Value().verdict == EModerationVerdict::Warn ) { ShowWarnUi (r.Value().reason); /* 続行可 */ }

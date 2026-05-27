@@ -64,7 +64,7 @@ TResult<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
 // =============================================================================
 TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
     if (k == EUpscalerKind::Off) {
-        _kind = EUpscalerKind::Off;
+        m_Kind = EUpscalerKind::Off;
         return Ok();
     }
     // SDK 同梱前提の kind が要求された → 上位は fallback パスを取るべき。
@@ -81,7 +81,7 @@ TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
 //
 // スレッド安全性:
 //   C++11 以降、関数内 static の初期化は thread-safe (magic statics)。
-//   ただし stub 自身は状態を持つ (FUpscalerStub::_kind) ため、複数スレッドから
+//   ただし stub 自身は状態を持つ (FUpscalerStub::m_Kind) ため、複数スレッドから
 //   同時アクセスする呼び出し側は外部同期を取る必要がある。
 // =============================================================================
 IMlRuntime& GetMlRuntimeStub() noexcept {

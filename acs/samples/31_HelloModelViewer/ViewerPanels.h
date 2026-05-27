@@ -36,27 +36,27 @@ public:
     void Shutdown() noexcept;
 
     // OnUpdate からカメラ姿勢を引くため viewer panel を露出。
-    acs::game::modelview::FModelViewerPanel&    Viewer()    noexcept { return _viewer_panel; }
+    acs::game::modelview::FModelViewerPanel&    Viewer()    noexcept { return m_ViewerPanel; }
 
     // OnUpdate で animation 時間を進めるため animation panel を露出。
-    acs::game::modelview::FModelAnimationPanel& FAnimation() noexcept { return _animation_panel; }
+    acs::game::modelview::FModelAnimationPanel& FAnimation() noexcept { return m_AnimationPanel; }
 
     // OnRender が File メニュー描画のために theme / workspace を必要とする。
-    acs::game::editor_core::FEditorWorkspace&   Workspace() noexcept { return _workspace; }
-    acs::game::editor_core::FEditorTheme&       Theme()     noexcept { return _theme; }
+    acs::game::editor_core::FEditorWorkspace&   Workspace() noexcept { return m_Workspace; }
+    acs::game::editor_core::FEditorTheme&       Theme()     noexcept { return m_Theme; }
 
     // 1 フレーム分の panel 群 + asset browser を描画する。
     // ImGui::Begin 系を含むため NewFrame() と Render() の間でしか呼べない。
     void Draw(acs::f32 dt) noexcept;
 
 private:
-    acs::game::editor_core::FEditorWorkspace   _workspace;
-    acs::game::editor_core::FAssetBrowser      _asset_browser;
-    acs::game::editor_core::FEditorTheme       _theme;
-    acs::game::modelview::FModelViewerPanel    _viewer_panel;
-    acs::game::modelview::FModelInspectorPanel _info_panel;
-    acs::game::modelview::FModelMaterialPanel  _material_panel;
-    acs::game::modelview::FModelAnimationPanel _animation_panel;
+    acs::game::editor_core::FEditorWorkspace   m_Workspace;
+    acs::game::editor_core::FAssetBrowser      m_AssetBrowser;
+    acs::game::editor_core::FEditorTheme       m_Theme;
+    acs::game::modelview::FModelViewerPanel    m_ViewerPanel;
+    acs::game::modelview::FModelInspectorPanel m_InfoPanel;
+    acs::game::modelview::FModelMaterialPanel  m_MaterialPanel;
+    acs::game::modelview::FModelAnimationPanel m_AnimationPanel;
 };
 
 } // namespace hellomv

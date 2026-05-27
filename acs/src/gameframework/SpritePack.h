@@ -103,13 +103,13 @@ public:
     const SpriteFrame* AllFrames(u32& out_count) const noexcept;
 
     // atlas メタ情報を取得。
-    const SpritePackInfo& Info() const noexcept { return _info; }
+    const SpritePackInfo& Info() const noexcept { return m_Info; }
 
     // 指定 name の frame を削除。複数一致しても全て削除する。
     // 順序は保持しない (= 末尾 swap)。name == nullptr は no-op。
     void RemoveFrame(const char* name) noexcept;
 
-    // 全 frame を削除。atlas メタ情報 (_info) は保持される。
+    // 全 frame を削除。atlas メタ情報 (m_Info) は保持される。
     void ClearAll() noexcept;
 
     // UV 計算ヘルパ: frame の矩形を atlas size で割って [0,1] UV を返す。
@@ -118,8 +118,8 @@ public:
     acs::FVec4 ComputeUv(const SpriteFrame& frame) const noexcept;
 
 private:
-    SpritePackInfo     _info;
-    TArray<SpriteFrame> _frames;
+    SpritePackInfo     m_Info;
+    TArray<SpriteFrame> m_Frames;
 };
 
 } // namespace acs::game

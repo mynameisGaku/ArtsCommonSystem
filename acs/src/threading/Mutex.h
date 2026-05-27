@@ -30,7 +30,7 @@ public:
 
 private:
     // SRWLOCK 実体。<windows.h> をヘッダで取り込まないため void* で持つ。
-    void* _srw[1];
+    void* m_Srw[1];
 };
 
 } // namespace acs

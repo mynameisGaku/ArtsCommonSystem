@@ -22,10 +22,10 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::FAudioEngine _engine;
-    acs::TRc<acs::Asset> _audio;
-    acs::SoundHandle    _handle = acs::kInvalidSound;
-    acs::f32            _volume = 1.0f;
+    acs::FAudioEngine m_Engine;
+    acs::TRc<acs::Asset> m_Audio;
+    acs::SoundHandle    m_Handle = acs::kInvalidSound;
+    acs::f32            m_Volume = 1.0f;
 };
 
 } // namespace helloaudio

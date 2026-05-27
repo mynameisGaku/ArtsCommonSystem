@@ -113,10 +113,10 @@ public:
 //   undo_stack.Push(c.Release());
 //
 // マージ規約:
-//   ・同じ `_target` (raw pointer 一致) かつ同じ kind (= MoveNodeCommand)
+//   ・同じ `m_Target` (raw pointer 一致) かつ同じ kind (= MoveNodeCommand)
 //     なら merge OK。
-//   ・MergeWith で `_new_pos` を next の `_new_pos` に置き換える。
-//     `_old_pos` は最初の cmd のものを保つ (= Undo 1 回で初期位置に戻る)。
+//   ・MergeWith で `m_NewPos` を next の `m_NewPos` に置き換える。
+//     `m_OldPos` は最初の cmd のものを保つ (= Undo 1 回で初期位置に戻る)。
 //   ・対象ノードが既に Destroy 済みの場合 (= raw pointer dangling) でも
 //     比較自体は安全 (pointer 比較のみ)。実 Execute / Undo 時に対象が dangling
 //     だと UB になるので、editor 側で Destroy 時に undo stack を Clear する等の
@@ -125,17 +125,17 @@ public:
 class MoveNodeCommand : public FEditorCommand {
 public:
     MoveNodeCommand(FNode2D* target, FVec2 old_pos, FVec2 new_pos) noexcept
-        : _target(target), _old_pos(old_pos), _new_pos(new_pos) {}
+        : m_Target(target), m_OldPos(old_pos), m_NewPos(new_pos) {}
 
     void Execute() noexcept override {
-        if (_target != nullptr) {
-            _target->Local().position = _new_pos;
+        if (m_Target != nullptr) {
+            m_Target->Local().position = m_NewPos;
         }
     }
 
     void Undo() noexcept override {
-        if (_target != nullptr) {
-            _target->Local().position = _old_pos;
+        if (m_Target != nullptr) {
+            m_Target->Local().position = m_OldPos;
         }
     }
 
@@ -156,7 +156,7 @@ public:
         // ここまでくれば next は MoveNodeCommand と確定 (Kind tag は static アドレス
         // で派生クラスを一意に識別している)。安全に static_cast 可能。
         const MoveNodeCommand& nxt = static_cast<const MoveNodeCommand&>(next);
-        return nxt._target == _target;
+        return nxt.m_Target == m_Target;
     }
 
     void MergeWith(const FEditorCommand& next) noexcept override {
@@ -166,13 +166,13 @@ public:
         }
         const MoveNodeCommand& nxt = static_cast<const MoveNodeCommand&>(next);
         // new 値だけ更新し、old 値 (= 連続 drag の始点) は保持する。
-        _new_pos = nxt._new_pos;
+        m_NewPos = nxt.m_NewPos;
     }
 
     // ----- アクセサ (テスト / inspector 表示用) -----
-    const FNode2D* Target() const noexcept { return _target; }
-    FVec2          OldPosition() const noexcept { return _old_pos; }
-    FVec2          NewPosition() const noexcept { return _new_pos; }
+    const FNode2D* Target() const noexcept { return m_Target; }
+    FVec2          OldPosition() const noexcept { return m_OldPos; }
+    FVec2          NewPosition() const noexcept { return m_NewPos; }
 
 private:
     // 派生固有の kind 識別用の静的アドレス。内容は使わない、アドレスだけが ID。
@@ -183,9 +183,9 @@ private:
         return &kTag;
     }
 
-    FNode2D* _target  = nullptr;
-    FVec2    _old_pos {};
-    FVec2    _new_pos {};
+    FNode2D* m_Target  = nullptr;
+    FVec2    m_OldPos {};
+    FVec2    m_NewPos {};
 };
 
 } // namespace acs::game::editor_core

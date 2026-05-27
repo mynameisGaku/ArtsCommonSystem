@@ -63,9 +63,9 @@
 //     正 ≠ snap 有効」とだけ判定する (= 入力依存を抽象化)。
 //   ・**ray-axis hit test**: 各軸ハンドル = 始点中心の細い円柱とみなし、ray と
 //     円柱の最小距離が threshold 以下なら hit。閾値は world unit (= camera 距離
-//     スケーリングは外側責務、本クラスは固定の `_handle_radius` を持つ)。
+//     スケーリングは外側責務、本クラスは固定の `m_HandleRadius` を持つ)。
 //   ・**ray-plane hit test**: 平面ハンドル = 中央付近の小正方形。ray-plane 交差
-//     → 矩形内判定。サイズは `_plane_handle_size`。
+//     → 矩形内判定。サイズは `m_PlaneHandleSize`。
 //   ・**hot axis 永続性**: drag 中は hot axis を新しい hit に書き換えない
 //     (= 一度掴んだ軸を離すまで保持)。drag 中でない時のみ毎フレーム判定する。
 //   ・**Manipulate は delta ベースで動く**: drag 開始時の world-space 座標
@@ -239,9 +239,9 @@ public:
     void SetSnapRotate(f32 step_deg) noexcept;  // degrees (内部で radians 換算)
     void SetSnapScale(f32 step) noexcept;       // 倍率 (例: 0.1 → 10% 刻み)
 
-    f32 SnapTranslate() const noexcept { return _snap_translate; }
+    f32 SnapTranslate() const noexcept { return m_SnapTranslate; }
     f32 SnapRotateDeg() const noexcept;
-    f32 SnapScale() const noexcept     { return _snap_scale; }
+    f32 SnapScale() const noexcept     { return m_SnapScale; }
 
     // ----- 入力処理 ---------------------------------------------------------
     // 毎フレーム呼ぶ。マウス ray と LMB 状態を渡して、drag 開始 / 継続 / 終了の
@@ -312,9 +312,9 @@ public:
     void SetHandleRadius(f32 radius) noexcept;     // 軸 hit 円柱半径 (default 0.05)
     void SetPlaneHandleSize(f32 size) noexcept;    // 平面 hit 矩形半サイズ (default 0.2)
 
-    f32 AxisLength() const noexcept       { return _axis_length; }
-    f32 HandleRadius() const noexcept     { return _handle_radius; }
-    f32 PlaneHandleSize() const noexcept  { return _plane_handle_size; }
+    f32 AxisLength() const noexcept       { return m_AxisLength; }
+    f32 HandleRadius() const noexcept     { return m_HandleRadius; }
+    f32 PlaneHandleSize() const noexcept  { return m_PlaneHandleSize; }
 
 private:
     // ProcessInput から呼ぶ「現マウス ray がどの軸/平面に当たっているか」判定。
@@ -341,29 +341,29 @@ private:
     // drag 開始時に記録される「直近の Manipulate 入力 transform 値」。
     // 一連の drag で累積 delta を計算するために使う (drag_start_world とは別)。
     // drag_start_world はワールド空間のヒット点、これは元の transform value。
-    acs::FVec3 _drag_origin_pos{};
-    acs::FVec3 _drag_origin_rot{};
-    acs::FVec3 _drag_origin_scl{};
-    // 初回 Manipulate で _drag_origin_* をセット済みかフラグ (= 0 判定の罠回避)。
-    bool      _drag_origin_set = false;
+    acs::FVec3 m_DragOriginPos{};
+    acs::FVec3 m_DragOriginRot{};
+    acs::FVec3 m_DragOriginScl{};
+    // 初回 Manipulate で m_DragOrigin* をセット済みかフラグ (= 0 判定の罠回避)。
+    bool      m_DragOriginSet = false;
 
     // 直近マウス ray (ProcessInput で更新、Manipulate で参照)
-    acs::FVec3 _last_ray_origin{};
-    acs::FVec3 _last_ray_direction{0.0f, 0.0f, 1.0f};
+    acs::FVec3 m_LastRayOrigin{};
+    acs::FVec3 m_LastRayDirection{0.0f, 0.0f, 1.0f};
 
     // snap step (各モードごと、0 で disable)
-    f32 _snap_translate = 0.0f;
-    f32 _snap_rotate    = 0.0f;  // radians (SetSnapRotate(deg) で換算して格納)
-    f32 _snap_scale     = 0.0f;
+    f32 m_SnapTranslate = 0.0f;
+    f32 m_SnapRotate    = 0.0f;  // radians (SetSnapRotate(deg) で換算して格納)
+    f32 m_SnapScale     = 0.0f;
 
     // ハンドル形状
-    f32 _axis_length        = 1.0f;
-    f32 _handle_radius      = 0.05f;
-    f32 _plane_handle_size  = 0.2f;
+    f32 m_AxisLength        = 1.0f;
+    f32 m_HandleRadius      = 0.05f;
+    f32 m_PlaneHandleSize  = 0.2f;
 
     // drag 終了通知 callback
-    ManipulateCallback _cb      = nullptr;
-    void*              _cb_user = nullptr;
+    ManipulateCallback m_Cb      = nullptr;
+    void*              m_CbUser = nullptr;
 };
 
 } // namespace acs::game::editor_core

@@ -23,8 +23,8 @@ ImGuiCtx::~ImGuiCtx() noexcept {
 }
 
 TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
-    _window = &window;
-    _renderer = &renderer;
+    m_Window = &window;
+    m_Renderer = &renderer;
 
     // ImGui コンテキスト作成 + キーボード/ナビゲーション有効化
     IMGUI_CHECKVERSION();
@@ -58,7 +58,7 @@ TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
         ImGui::DestroyContext();
         return ACS_ERR(Render, 102, "ImGui SRV heap create failed");
     }
-    _srv_heap = srv_heap;
+    m_SrvHeap = srv_heap;
 
     // DX12 backend 初期化
     if (!ImGui_ImplDX12_Init(
@@ -69,54 +69,54 @@ TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
             srv_heap->GetCPUDescriptorHandleForHeapStart(),
             srv_heap->GetGPUDescriptorHandleForHeapStart())) {
         srv_heap->Release();
-        _srv_heap = nullptr;
+        m_SrvHeap = nullptr;
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
         return ACS_ERR(Render, 103, "ImGui_ImplDX12_Init failed");
     }
 
-    _initialized = true;
+    m_Initialized = true;
     ACS_LOG_INFO("ImGui initialized (Win32 + DX12)");
     return Ok();
 }
 
 void ImGuiCtx::Shutdown() noexcept {
-    if (!_initialized) return;
+    if (!m_Initialized) return;
     ImGui_ImplDX12_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
-    if (_srv_heap) {
-        static_cast<ID3D12DescriptorHeap*>(_srv_heap)->Release();
-        _srv_heap = nullptr;
+    if (m_SrvHeap) {
+        static_cast<ID3D12DescriptorHeap*>(m_SrvHeap)->Release();
+        m_SrvHeap = nullptr;
     }
-    _initialized = false;
+    m_Initialized = false;
 }
 
 void ImGuiCtx::NewFrame() noexcept {
-    if (!_initialized) return;
+    if (!m_Initialized) return;
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 }
 
 void ImGuiCtx::Render() noexcept {
-    if (!_initialized || !_renderer) return;
+    if (!m_Initialized || !m_Renderer) return;
     ImGui::Render();
 
     // 現在のコマンドリストに ImGui の描画コマンドを発行
     auto* cmd_list = static_cast<ID3D12GraphicsCommandList*>(
-        _renderer->CommandList()->NativeHandle());
+        m_Renderer->CommandList()->NativeHandle());
     if (!cmd_list) return;
 
     // ImGui は SRV ヒープをバインドする必要がある
-    ID3D12DescriptorHeap* heaps[] = { static_cast<ID3D12DescriptorHeap*>(_srv_heap) };
+    ID3D12DescriptorHeap* heaps[] = { static_cast<ID3D12DescriptorHeap*>(m_SrvHeap) };
     cmd_list->SetDescriptorHeaps(1, heaps);
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd_list);
 }
 
 // FWindow のイベントを ImGui に転送（FApplication::OnEvent から呼ぶ）
 void ImGuiCtx::OnEvent(const Event& e) noexcept {
-    if (!_initialized || !_window) return;
+    if (!m_Initialized || !m_Window) return;
     // ImGui の Win32 backend は WndProc 経由でメッセージを受け取る設計。
     // ACS は独自イベントを使っているため、ここで Win32 メッセージに復元するか、
     // ImGui の IO に直接書き込む必要がある。

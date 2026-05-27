@@ -109,11 +109,11 @@ private:
     };
 
     // 立ち上がり / 立ち下がり共通の通知ヘルパ。
-    // `_current` の更新は呼び出し側で完了させてから呼ぶこと。
+    // `m_Current` の更新は呼び出し側で完了させてから呼ぶこと。
     void FireChange(FNodeId from, FNodeId to) const noexcept;
 
-    FNodeId               _current;        // 現選択 (default = invalid)
-    TArray<CallbackEntry> _callbacks;      // 登録 callback 群
+    FNodeId               m_Current;        // 現選択 (default = invalid)
+    TArray<CallbackEntry> m_Callbacks;      // 登録 callback 群
 };
 
 } // namespace acs::game::inspector

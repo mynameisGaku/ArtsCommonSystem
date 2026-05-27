@@ -18,23 +18,23 @@ bool RaycastScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
     auto cube   = Primitive::MakeCube(1.0f);
     auto plane  = Primitive::MakePlane(40.0f, 40.0f);
     if (!sphere || !cube || !plane) return false;
-    if (UploadMesh(dev, *sphere, _gm_sphere).IsErr()) return false;
-    if (UploadMesh(dev, *cube,   _gm_cube).IsErr())   return false;
-    if (UploadMesh(dev, *plane,  _gm_plane).IsErr())  return false;
+    if (UploadMesh(dev, *sphere, m_GmSphere).IsErr()) return false;
+    if (UploadMesh(dev, *cube,   m_GmCube).IsErr())   return false;
+    if (UploadMesh(dev, *plane,  m_GmPlane).IsErr())  return false;
 
-    _targets.Init();
-    _caster.Init(aspect);
+    m_Targets.Init();
+    m_Caster.Init(aspect);
     return true;
 }
 
 void RaycastScene::Shutdown() noexcept {
-    _gm_plane  = GpuMesh{};
-    _gm_cube   = GpuMesh{};
-    _gm_sphere = GpuMesh{};
+    m_GmPlane  = GpuMesh{};
+    m_GmCube   = GpuMesh{};
+    m_GmSphere = GpuMesh{};
 }
 
 void RaycastScene::Update(f32 dt) noexcept {
-    _caster.Update(dt, _targets);
+    m_Caster.Update(dt, m_Targets);
 }
 
 void RaycastScene::Render(FStandardShader& shader,
@@ -50,7 +50,7 @@ void RaycastScene::Render(FStandardShader& shader,
     lights[0].color     = FVec3{ 1.0f, 0.9f, 0.7f};
     lights[1].direction = FVec3{-0.4f, 0.5f,-0.7f};
     lights[1].color     = FVec3{ 0.3f, 0.4f, 0.6f};
-    const FCamera& cam = _caster.Camera();
+    const FCamera& cam = m_Caster.Camera();
     shader.SetLights(cam.ViewProjection(), cam.Eye(), lights, 2, kAmbient);
 
     cl.SetPipeline(*shader.Pipeline());
@@ -59,25 +59,25 @@ void RaycastScene::Render(FStandardShader& shader,
     cl.SetTexture(0, *shader.DefaultWhiteTexture());
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
-    _render_targets(shader, cl);
+    m_RenderTargets(shader, cl);
 
-    HudRenderer::Draw(batch, font, cl, screen_w, screen_h, _targets);
+    HudRenderer::Draw(batch, font, cl, screen_w, screen_h, m_Targets);
 }
 
-void RaycastScene::_render_targets(FStandardShader& shader,
+void RaycastScene::m_RenderTargets(FStandardShader& shader,
                                    IRhiCommandList& cl) noexcept {
     // 地面 (世界原点に置く)
     shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
                      kPlaneColor, 0.0f, 1.0f);
-    cl.SetVertexBuffer(*_gm_plane.vertex_buffer, _gm_plane.vertex_stride);
-    cl.SetIndexBuffer(*_gm_plane.index_buffer);
-    cl.DrawIndexed(_gm_plane.index_count);
+    cl.SetVertexBuffer(*m_GmPlane.vertex_buffer, m_GmPlane.vertex_stride);
+    cl.SetIndexBuffer(*m_GmPlane.index_buffer);
+    cl.DrawIndexed(m_GmPlane.index_count);
 
     // 各オブジェクト: ヒット中は色を白 + spec/shine を強めてハイライト
-    const u32 n = _targets.Count();
+    const u32 n = m_Targets.Count();
     for (u32 i = 0; i < n; ++i) {
-        const Object& o = _targets.At(i);
-        const bool    selected = (static_cast<i32>(i) == _targets.HitIndex());
+        const Object& o = m_Targets.At(i);
+        const bool    selected = (static_cast<i32>(i) == m_Targets.HitIndex());
         const FVec3    col   = selected ? kSelectedColor : o.base_color;
         const f32     spec  = selected ? 0.9f  : 0.3f;
         const f32     shine = selected ? 64.0f : 16.0f;
@@ -88,7 +88,7 @@ void RaycastScene::_render_targets(FStandardShader& shader,
                        FMat4::Translation(o.position);
         shader.SetObject(m, col, spec, shine);
 
-        const GpuMesh& mesh = (o.kind == ShapeKind::FSphere) ? _gm_sphere : _gm_cube;
+        const GpuMesh& mesh = (o.kind == ShapeKind::FSphere) ? m_GmSphere : m_GmCube;
         cl.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
         cl.SetIndexBuffer(*mesh.index_buffer);
         cl.DrawIndexed(mesh.index_count);

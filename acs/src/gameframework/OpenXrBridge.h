@@ -187,7 +187,7 @@ protected:
 // (= 通常の 2D ディスプレイ向け描画) を書けるようにするための placeholder。
 //
 // 仕様:
-//   ・`Init()` は NotImplemented を返す (副作用なし、_initialized は false のまま)。
+//   ・`Init()` は NotImplemented を返す (副作用なし、m_Initialized は false のまま)。
 //   ・`HeadPose()` / `LeftController()` / `RightController()` は zero-initialized
 //     な pose / state を返す。
 //   ・`ActivePlatform()` は常に `Unknown`。
@@ -201,7 +201,7 @@ public:
 
     TResult<void>      Init(EXrPlatform platform = EXrPlatform::Unknown) noexcept override;
     void              Shutdown()                                      noexcept override;
-    bool              IsInitialized()                           const noexcept override { return _initialized; }
+    bool              IsInitialized()                           const noexcept override { return m_Initialized; }
     EXrPlatform        ActivePlatform()                          const noexcept override { return EXrPlatform::Unknown; }
     XrPose            HeadPose()                                const noexcept override { return XrPose{}; }
     XrControllerState LeftController()                          const noexcept override { return XrControllerState{}; }
@@ -211,7 +211,7 @@ public:
     void              SetPassthrough(bool on)                         noexcept override;
 
 private:
-    bool _initialized = false;  // Init は NotImplemented で失敗するので常に false
+    bool m_Initialized = false;  // Init は NotImplemented で失敗するので常に false
 };
 
 // =============================================================================

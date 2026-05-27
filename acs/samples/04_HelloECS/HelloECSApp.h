@@ -31,11 +31,11 @@ public:
     void SpawnRandomEntities(acs::u32 n) noexcept;
 
 private:
-    acs::f32 _rnd() noexcept;
+    acs::f32 m_Rnd() noexcept;
 
-    acs::FSpriteBatch            _batch;
-    acs::TUniquePtr<acs::IRhiTexture> _tex;
-    acs::u32                    _seed = 0xCAFEBABEu;
+    acs::FSpriteBatch            m_Batch;
+    acs::TUniquePtr<acs::IRhiTexture> m_Tex;
+    acs::u32                    m_Seed = 0xCAFEBABEu;
 };
 
 } // namespace hello04

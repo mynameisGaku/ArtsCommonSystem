@@ -36,12 +36,12 @@ static bool IsValidIndex(i32 index, u32 count) noexcept {
 // =============================================================================
 void FParticleEditorPanel::Init() noexcept {
     // 完全リセット: 既存登録があれば破棄して 0 件状態にする。
-    // 多重 Init を許容するため、_emitters.Clear() で実体は解放せず
+    // 多重 Init を許容するため、m_Emitters.Clear() で実体は解放せず
     // 容量だけ保持 (= 次回再構築のアロケーション節約)。
-    _emitters.Clear();
-    _extra_spread_radians.Clear();
-    _selected  = -1;
-    _dirty     = false;
+    m_Emitters.Clear();
+    m_ExtraSpreadRadians.Clear();
+    m_Selected  = -1;
+    m_Dirty     = false;
     // callback はリセットしない (Init は emitter list の reset、callback の
     // クリアは別操作と扱う)。
 }
@@ -49,15 +49,15 @@ void FParticleEditorPanel::Init() noexcept {
 void FParticleEditorPanel::Shutdown() noexcept {
     // TArray はデストラクタで解放されるが、明示的に Clear することで
     // 多重 Shutdown / 再 Init の確定状態を作る。
-    _emitters.Clear();
-    _extra_spread_radians.Clear();
-    _selected = -1;
-    _dirty    = false;
+    m_Emitters.Clear();
+    m_ExtraSpreadRadians.Clear();
+    m_Selected = -1;
+    m_Dirty    = false;
     // callback は外部所有 (関数ポインタ) なので破棄不要。明示的に解除する。
-    _save_cb   = nullptr;
-    _save_user = nullptr;
-    _load_cb   = nullptr;
-    _load_user = nullptr;
+    m_SaveCb   = nullptr;
+    m_SaveUser = nullptr;
+    m_LoadCb   = nullptr;
+    m_LoadUser = nullptr;
 }
 
 // =============================================================================
@@ -67,7 +67,7 @@ void FParticleEditorPanel::Shutdown() noexcept {
 // 上限 kMaxEmitters に達していれば no-op。
 // =============================================================================
 void FParticleEditorPanel::AddEmitter() noexcept {
-    if (_emitters.Size() >= static_cast<usize>(kMaxEmitters)) {
+    if (m_Emitters.Size() >= static_cast<usize>(kMaxEmitters)) {
         // 上限到達は silent no-op (UI からは Add ボタンが見えていても安全)。
         return;
     }
@@ -85,10 +85,10 @@ void FParticleEditorPanel::AddEmitter() noexcept {
     def.color_end          = {0.8f, 0.1f, 0.0f};
     def.gravity            = {0.0f, 60.0f};
 
-    _emitters.PushBack(def);
-    _extra_spread_radians.PushBack(0.0f);  // spread = 0 = 円周一様
-    _selected = static_cast<i32>(_emitters.Size()) - 1;
-    _dirty    = true;
+    m_Emitters.PushBack(def);
+    m_ExtraSpreadRadians.PushBack(0.0f);  // spread = 0 = 円周一様
+    m_Selected = static_cast<i32>(m_Emitters.Size()) - 1;
+    m_Dirty    = true;
 }
 
 // =============================================================================
@@ -98,29 +98,29 @@ void FParticleEditorPanel::AddEmitter() noexcept {
 // 詰める方式)。emitter リストは「上から順に表示される」ので順序を保つ。
 // =============================================================================
 void FParticleEditorPanel::RemoveSelectedEmitter() noexcept {
-    const u32 count = static_cast<u32>(_emitters.Size());
-    if (!IsValidIndex(_selected, count)) return;
+    const u32 count = static_cast<u32>(m_Emitters.Size());
+    if (!IsValidIndex(m_Selected, count)) return;
 
-    const usize sel = static_cast<usize>(_selected);
+    const usize sel = static_cast<usize>(m_Selected);
     // 順序保存削除 (= 後ろの要素を 1 個ずつ前に詰める)。
     // TArray に Erase API が無いので手書き。
-    for (usize i = sel + 1; i < _emitters.Size(); ++i) {
-        _emitters[i - 1]               = _emitters[i];
-        _extra_spread_radians[i - 1]   = _extra_spread_radians[i];
+    for (usize i = sel + 1; i < m_Emitters.Size(); ++i) {
+        m_Emitters[i - 1]               = m_Emitters[i];
+        m_ExtraSpreadRadians[i - 1]   = m_ExtraSpreadRadians[i];
     }
-    _emitters.PopBack();
-    _extra_spread_radians.PopBack();
+    m_Emitters.PopBack();
+    m_ExtraSpreadRadians.PopBack();
 
     // selection 更新: 削除後は同 index の要素 (= 元の次の emitter) を
     // 選択。最後尾を消した場合は前の要素を選択。空なら -1。
-    const i32 new_count = static_cast<i32>(_emitters.Size());
+    const i32 new_count = static_cast<i32>(m_Emitters.Size());
     if (new_count == 0) {
-        _selected = -1;
-    } else if (_selected >= new_count) {
-        _selected = new_count - 1;
+        m_Selected = -1;
+    } else if (m_Selected >= new_count) {
+        m_Selected = new_count - 1;
     }
-    // _selected < new_count の場合はそのまま (= 詰めた要素が選ばれる)。
-    _dirty = true;
+    // m_Selected < new_count の場合はそのまま (= 詰めた要素が選ばれる)。
+    m_Dirty = true;
 }
 
 // =============================================================================
@@ -130,80 +130,80 @@ void FParticleEditorPanel::RemoveSelectedEmitter() noexcept {
 // 上限到達 / 未選択 は no-op。
 // =============================================================================
 void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
-    const u32 count = static_cast<u32>(_emitters.Size());
-    if (!IsValidIndex(_selected, count)) return;
-    if (_emitters.Size() >= static_cast<usize>(kMaxEmitters)) return;
+    const u32 count = static_cast<u32>(m_Emitters.Size());
+    if (!IsValidIndex(m_Selected, count)) return;
+    if (m_Emitters.Size() >= static_cast<usize>(kMaxEmitters)) return;
 
-    const usize src = static_cast<usize>(_selected);
+    const usize src = static_cast<usize>(m_Selected);
     // 末尾に PushBack してから 1 個ずつ後ろにシフトして挿入位置を空ける。
     // src+1 番目に挿入したい。
-    ParticleEmitterDef copy   = _emitters[src];                // 値コピー
-    f32                spread = _extra_spread_radians[src];
-    _emitters.PushBack(copy);
-    _extra_spread_radians.PushBack(spread);
+    ParticleEmitterDef copy   = m_Emitters[src];                // 値コピー
+    f32                spread = m_ExtraSpreadRadians[src];
+    m_Emitters.PushBack(copy);
+    m_ExtraSpreadRadians.PushBack(spread);
 
     // src+1 .. (旧末尾) を 1 つ後ろにシフト。末尾には今 PushBack した
     // 値が居るので、その上書きは避けるため逆順に走査する。
     // 旧末尾 index = new_size - 2、shift 範囲 = src+1 .. old_last
-    const usize new_size = _emitters.Size();
+    const usize new_size = m_Emitters.Size();
     if (new_size >= 2) {
         for (usize i = new_size - 1; i > src + 1; --i) {
-            _emitters[i]             = _emitters[i - 1];
-            _extra_spread_radians[i] = _extra_spread_radians[i - 1];
+            m_Emitters[i]             = m_Emitters[i - 1];
+            m_ExtraSpreadRadians[i] = m_ExtraSpreadRadians[i - 1];
         }
     }
     // src + 1 に複製を書き込む (シフト後は src+1 の中身が src の元値で
     // 上書きされている可能性があるため、最後に明示代入する)。
     if (src + 1 < new_size) {
-        _emitters[src + 1]             = copy;
-        _extra_spread_radians[src + 1] = spread;
+        m_Emitters[src + 1]             = copy;
+        m_ExtraSpreadRadians[src + 1] = spread;
     }
 
-    _selected = static_cast<i32>(src) + 1;
-    _dirty    = true;
+    m_Selected = static_cast<i32>(src) + 1;
+    m_Dirty    = true;
 }
 
 // =============================================================================
 // SelectEmitter / EmitterCount / GetEmitterDef
 // =============================================================================
 void FParticleEditorPanel::SelectEmitter(i32 index) noexcept {
-    const u32 count = static_cast<u32>(_emitters.Size());
+    const u32 count = static_cast<u32>(m_Emitters.Size());
     if (index < 0) {
-        _selected = -1;
+        m_Selected = -1;
         return;
     }
     if (static_cast<u32>(index) >= count) {
-        _selected = -1;
+        m_Selected = -1;
         return;
     }
-    _selected = index;
+    m_Selected = index;
 }
 
 u32 FParticleEditorPanel::EmitterCount() const noexcept {
-    return static_cast<u32>(_emitters.Size());
+    return static_cast<u32>(m_Emitters.Size());
 }
 
 const ParticleEmitterDef* FParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
-    if (!IsValidIndex(index, static_cast<u32>(_emitters.Size()))) return nullptr;
-    return &_emitters[static_cast<usize>(index)];
+    if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
+    return &m_Emitters[static_cast<usize>(index)];
 }
 
 ParticleEmitterDef* FParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
-    if (!IsValidIndex(index, static_cast<u32>(_emitters.Size()))) return nullptr;
-    return &_emitters[static_cast<usize>(index)];
+    if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
+    return &m_Emitters[static_cast<usize>(index)];
 }
 
 // =============================================================================
 // SetSaveCallback / SetLoadCallback
 // =============================================================================
 void FParticleEditorPanel::SetSaveCallback(SaveCallback cb, void* user) noexcept {
-    _save_cb   = cb;
-    _save_user = user;
+    m_SaveCb   = cb;
+    m_SaveUser = user;
 }
 
 void FParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept {
-    _load_cb   = cb;
-    _load_user = user;
+    m_LoadCb   = cb;
+    m_LoadUser = user;
 }
 
 // =============================================================================
@@ -213,7 +213,7 @@ void FParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept
 //   left  : emitter list + Add / Dup / Remove / Save / Load
 //   right : 選択中 emitter の properties (slider / colorEdit / inputFloat)
 //
-// ImGui 関数の戻り値 (= true on change) を捕まえて _dirty を立てる。
+// ImGui 関数の戻り値 (= true on change) を捕まえて m_Dirty を立てる。
 // =============================================================================
 void FParticleEditorPanel::DrawUI() noexcept {
     // Phase 24: FEditorPanel 継承で no-param DrawUI 化。target system は
@@ -227,14 +227,14 @@ void FParticleEditorPanel::DrawUI() noexcept {
     // ヘッダ行: 現在の active particle 数 (target_system 由来) と emitter 数。
     // editor 内の emitter 数と system 側の真の emitter 数は別物だが、
     // particle 数は system が真値なので分けて表示する。
-    if (_target_system != nullptr) {
+    if (m_TargetSystem != nullptr) {
         ImGui::Text("Editor Emitters: %u / %u    Live FParticles: %u",
-                    static_cast<unsigned>(_emitters.Size()),
+                    static_cast<unsigned>(m_Emitters.Size()),
                     static_cast<unsigned>(kMaxEmitters),
-                    static_cast<unsigned>(_target_system->ActiveParticleCount()));
+                    static_cast<unsigned>(m_TargetSystem->ActiveParticleCount()));
     } else {
         ImGui::Text("Editor Emitters: %u / %u    Live FParticles: (no system attached)",
-                    static_cast<unsigned>(_emitters.Size()),
+                    static_cast<unsigned>(m_Emitters.Size()),
                     static_cast<unsigned>(kMaxEmitters));
     }
     ImGui::Separator();
@@ -251,13 +251,13 @@ void FParticleEditorPanel::DrawUI() noexcept {
         ImGui::TextUnformatted("Emitters");
         ImGui::Separator();
 
-        for (i32 i = 0; i < static_cast<i32>(_emitters.Size()); ++i) {
+        for (i32 i = 0; i < static_cast<i32>(m_Emitters.Size()); ++i) {
             char label[32];
             FormatEmitterLabel(label, sizeof(label), i);
-            const bool is_selected = (_selected == i);
+            const bool is_selected = (m_Selected == i);
             ImGui::PushID(i);
             if (ImGui::Selectable(label, is_selected)) {
-                _selected = i;
+                m_Selected = i;
             }
             ImGui::PopID();
         }
@@ -277,38 +277,38 @@ void FParticleEditorPanel::DrawUI() noexcept {
 
         ImGui::Separator();
         // Save: callback 未登録時は disabled 風表示。
-        const bool save_enabled = (_save_cb != nullptr);
+        const bool save_enabled = (m_SaveCb != nullptr);
         if (!save_enabled) ImGui::BeginDisabled();
         if (ImGui::Button("Save")) {
-            if (_save_cb) {
-                _save_cb(_save_user,
-                         _emitters.IsEmpty() ? nullptr : _emitters.Data(),
-                         static_cast<u32>(_emitters.Size()));
+            if (m_SaveCb) {
+                m_SaveCb(m_SaveUser,
+                         m_Emitters.IsEmpty() ? nullptr : m_Emitters.Data(),
+                         static_cast<u32>(m_Emitters.Size()));
                 // Save 後は dirty クリア (= 外部書き出し完了)。
-                _dirty = false;
+                m_Dirty = false;
             }
         }
         if (!save_enabled) ImGui::EndDisabled();
 
         ImGui::SameLine();
-        const bool load_enabled = (_load_cb != nullptr);
+        const bool load_enabled = (m_LoadCb != nullptr);
         if (!load_enabled) ImGui::BeginDisabled();
         if (ImGui::Button("Load")) {
-            if (_load_cb) {
+            if (m_LoadCb) {
                 // Load は in-out で個数を受け渡し。callback 側で kMaxEmitters
                 // 個まで埋めてもらう。内部 TArray を resize してから渡す。
-                _emitters.Resize(static_cast<usize>(kMaxEmitters));
-                _extra_spread_radians.Resize(static_cast<usize>(kMaxEmitters));
-                for (usize i = 0; i < _extra_spread_radians.Size(); ++i) {
-                    _extra_spread_radians[i] = 0.0f;
+                m_Emitters.Resize(static_cast<usize>(kMaxEmitters));
+                m_ExtraSpreadRadians.Resize(static_cast<usize>(kMaxEmitters));
+                for (usize i = 0; i < m_ExtraSpreadRadians.Size(); ++i) {
+                    m_ExtraSpreadRadians[i] = 0.0f;
                 }
                 u32 actual = kMaxEmitters;
-                _load_cb(_load_user, _emitters.Data(), actual);
+                m_LoadCb(m_LoadUser, m_Emitters.Data(), actual);
                 if (actual > kMaxEmitters) actual = kMaxEmitters;
-                _emitters.Resize(static_cast<usize>(actual));
-                _extra_spread_radians.Resize(static_cast<usize>(actual));
-                _selected = (actual == 0) ? -1 : 0;
-                _dirty    = true;
+                m_Emitters.Resize(static_cast<usize>(actual));
+                m_ExtraSpreadRadians.Resize(static_cast<usize>(actual));
+                m_Selected = (actual == 0) ? -1 : 0;
+                m_Dirty    = true;
             }
         }
         if (!load_enabled) ImGui::EndDisabled();
@@ -320,26 +320,26 @@ void FParticleEditorPanel::DrawUI() noexcept {
     // ===== 右カラム: 選択中 emitter properties =====
     ImGui::BeginChild("##fxedit_right", ImVec2(0, 0), true);
     {
-        const u32 count = static_cast<u32>(_emitters.Size());
-        if (!IsValidIndex(_selected, count)) {
+        const u32 count = static_cast<u32>(m_Emitters.Size());
+        if (!IsValidIndex(m_Selected, count)) {
             ImGui::TextDisabled("(No emitter selected)");
         } else {
-            ParticleEmitterDef& def = _emitters[static_cast<usize>(_selected)];
-            ImGui::Text("Selected: idx=%d", static_cast<int>(_selected));
+            ParticleEmitterDef& def = m_Emitters[static_cast<usize>(m_Selected)];
+            ImGui::Text("Selected: idx=%d", static_cast<int>(m_Selected));
             ImGui::Separator();
 
             // ---- timing ----
             if (ImGui::SliderFloat("lifetime_sec", &def.lifetime_sec,
                                    0.0f, 10.0f, "%.3f")) {
-                _dirty = true;
+                m_Dirty = true;
             }
             if (ImGui::SliderFloat("emit_rate_per_sec", &def.emit_rate_per_sec,
                                    0.0f, 500.0f, "%.1f")) {
-                _dirty = true;
+                m_Dirty = true;
             }
             if (ImGui::SliderFloat("burst_count", &def.burst_count,
                                    0.0f, 256.0f, "%.0f")) {
-                _dirty = true;
+                m_Dirty = true;
             }
 
             ImGui::Separator();
@@ -347,31 +347,31 @@ void FParticleEditorPanel::DrawUI() noexcept {
             if (ImGui::SliderFloat("speed_min", &def.speed_min,
                                    0.0f, 500.0f, "%.2f")) {
                 if (def.speed_min > def.speed_max) def.speed_max = def.speed_min;
-                _dirty = true;
+                m_Dirty = true;
             }
             if (ImGui::SliderFloat("speed_max", &def.speed_max,
                                    0.0f, 500.0f, "%.2f")) {
                 if (def.speed_max < def.speed_min) def.speed_min = def.speed_max;
-                _dirty = true;
+                m_Dirty = true;
             }
 
             ImGui::Separator();
             // ---- scale ----
             if (ImGui::SliderFloat("scale_start", &def.scale_start,
                                    0.0f, 64.0f, "%.2f")) {
-                _dirty = true;
+                m_Dirty = true;
             }
             if (ImGui::SliderFloat("scale_end", &def.scale_end,
                                    0.0f, 64.0f, "%.2f")) {
-                _dirty = true;
+                m_Dirty = true;
             }
 
             ImGui::Separator();
             // ---- spread_radians (editor-side placeholder) ----
-            f32& spread = _extra_spread_radians[static_cast<usize>(_selected)];
+            f32& spread = m_ExtraSpreadRadians[static_cast<usize>(m_Selected)];
             if (ImGui::SliderFloat("spread_radians", &spread,
                                    0.0f, 6.28318f /* 2*pi */, "%.3f")) {
-                _dirty = true;
+                m_Dirty = true;
             }
             ImGui::TextDisabled("(spread_radians: editor-side preview)");
 
@@ -381,7 +381,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
             if (ImGui::InputFloat2("gravity", gravity_xy)) {
                 def.gravity.x = gravity_xy[0];
                 def.gravity.y = gravity_xy[1];
-                _dirty = true;
+                m_Dirty = true;
             }
 
             ImGui::Separator();
@@ -391,19 +391,19 @@ void FParticleEditorPanel::DrawUI() noexcept {
                 def.color_start.x = color_start_rgb[0];
                 def.color_start.y = color_start_rgb[1];
                 def.color_start.z = color_start_rgb[2];
-                _dirty = true;
+                m_Dirty = true;
             }
             f32 color_end_rgb[3] = { def.color_end.x, def.color_end.y, def.color_end.z };
             if (ImGui::ColorEdit3("color_end", color_end_rgb)) {
                 def.color_end.x = color_end_rgb[0];
                 def.color_end.y = color_end_rgb[1];
                 def.color_end.z = color_end_rgb[2];
-                _dirty = true;
+                m_Dirty = true;
             }
 
             ImGui::Separator();
             // ---- status footer ----
-            if (_dirty) {
+            if (m_Dirty) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "* modified");
             } else {
                 ImGui::TextDisabled("(saved)");

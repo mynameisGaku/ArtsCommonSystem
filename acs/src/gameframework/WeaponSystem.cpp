@@ -5,7 +5,7 @@
 //   ・武器定義は const char* 線形検索 (FEconomyDirector / FEntitlement と同設計)。
 //     per-entity の武器数は通常 5〜10 オーダーで、線形で十分。
 //   ・装備中武器の per-weapon 状態 (ammo_in_mag) は装備切替前に
-//     _reserves[_current_slot] に書き戻し、新武器切替時に新 slot から
+//     m_Reserves[m_CurrentSlot] に書き戻し、新武器切替時に新 slot から
 //     復元する。reload 中の切替は ammo_in_mag を「reload 開始前の値」のまま
 //     保持する (= reload は単に破棄される)。
 //   ・fire_rate_per_sec <= 0 は「1 秒に 1 発」フォールバック (NaN / 0 除算回避)。
@@ -49,9 +49,9 @@ u32 SaturatingAdd(u32 a, u32 b) noexcept {
 
 u32 FWeaponSystem::FindWeaponSlot(const char* weapon_id) const noexcept {
     if (weapon_id == nullptr) return kNotFound;
-    const usize n = _defs.Size();
+    const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_defs[i].id, weapon_id)) return static_cast<u32>(i);
+        if (StrEq(m_Defs[i].id, weapon_id)) return static_cast<u32>(i);
     }
     return kNotFound;
 }
@@ -70,7 +70,7 @@ void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
         return;
     }
 
-    _defs.PushBack(def);
+    m_Defs.PushBack(def);
     // 並行 TArray — reserve は 0、mag も 0 で初期化。EquipWeapon 時に新規装備の
     // mag が 0 のままだと使い物にならないので、Equip 時に「初装備なら mag_size
     // まで充填する」フォールバックを入れる (詳細は EquipWeapon 参照)。
@@ -78,7 +78,7 @@ void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
     slot.weapon_id    = def.id;
     slot.reserve_ammo = 0u;
     slot.ammo_in_mag  = 0u;
-    _reserves.PushBack(slot);
+    m_Reserves.PushBack(slot);
 }
 
 // =============================================================================
@@ -86,11 +86,11 @@ void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
 // =============================================================================
 
 void FWeaponSystem::SaveCurrentToSlot() noexcept {
-    if (_current_def == nullptr) return;
-    if (_current_slot == kNotFound) return;
-    if (_current_slot >= static_cast<u32>(_reserves.Size())) return;
+    if (m_CurrentDef == nullptr) return;
+    if (m_CurrentSlot == kNotFound) return;
+    if (m_CurrentSlot >= static_cast<u32>(m_Reserves.Size())) return;
 
-    ReserveSlot& slot = _reserves[_current_slot];
+    ReserveSlot& slot = m_Reserves[m_CurrentSlot];
     slot.reserve_ammo = _state.reserve_ammo;
     slot.ammo_in_mag  = _state.ammo_in_mag;
 }
@@ -106,7 +106,7 @@ bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
     // 同武器への再装備も許可するが、reload 状態 / next_fire_time はリセット
     // しない方が「切替で fire-rate ペナルティ無し」になるため、別武器のとき
     // だけ next_fire_time をリセットする (= 武器切替には硬直時間を入れない)。
-    const bool is_same = (_current_slot == slot);
+    const bool is_same = (m_CurrentSlot == slot);
 
     // 装備中武器の per-weapon 状態を保存 (reload 中なら ammo_in_mag は reload
     // 開始前の値のまま保存される = reload は破棄される仕様)。
@@ -115,11 +115,11 @@ bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
     }
 
     // 新武器の slot から状態を復元する。
-    const ReserveSlot& src = _reserves[slot];
-    const FWeaponDef&   def = _defs[slot];
+    const ReserveSlot& src = m_Reserves[slot];
+    const FWeaponDef&   def = m_Defs[slot];
 
-    _current_def  = &_defs[slot];
-    _current_slot = slot;
+    m_CurrentDef  = &m_Defs[slot];
+    m_CurrentSlot = slot;
 
     _state.current_def_id = def.id;
     _state.reserve_ammo   = src.reserve_ammo;
@@ -152,13 +152,13 @@ bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
 
 bool FWeaponSystem::TryFire() noexcept {
     // 装備なし / reload 中は失敗。
-    if (_current_def == nullptr) return false;
+    if (m_CurrentDef == nullptr) return false;
     if (_state.reloading) return false;
 
     // 連射間隔未到。
-    if (_elapsed_time < _state.next_fire_time_sec) return false;
+    if (m_ElapsedTime < _state.next_fire_time_sec) return false;
 
-    const FWeaponDef& def = *_current_def;
+    const FWeaponDef& def = *m_CurrentDef;
 
     // mag_size == 0 (= マガジン非搭載) は reserve から直接 1 発消費する。
     // それ以外は ammo_in_mag をチェック。
@@ -174,13 +174,13 @@ bool FWeaponSystem::TryFire() noexcept {
     const f32 interval = (def.fire_rate_per_sec > 0.0f)
                             ? (1.0f / def.fire_rate_per_sec)
                             : 1.0f;
-    _state.next_fire_time_sec = _elapsed_time + interval;
+    _state.next_fire_time_sec = m_ElapsedTime + interval;
 
     // pellets は 0 入力を 1 に正規化 (= 1 発単発相当)。
     const u32 pellets = (def.pellets_per_shot == 0u) ? 1u : def.pellets_per_shot;
 
-    if (_on_fire != nullptr) {
-        _on_fire(_on_fire_user, def.projectile_id, def.base_damage, def.spread_deg, pellets);
+    if (m_OnFire != nullptr) {
+        m_OnFire(m_OnFireUser, def.projectile_id, def.base_damage, def.spread_deg, pellets);
     }
     return true;
 }
@@ -191,10 +191,10 @@ bool FWeaponSystem::TryFire() noexcept {
 
 void FWeaponSystem::StartReload() noexcept {
     // 装備なし / reload 中は no-op。
-    if (_current_def == nullptr) return;
+    if (m_CurrentDef == nullptr) return;
     if (_state.reloading) return;
 
-    const FWeaponDef& def = *_current_def;
+    const FWeaponDef& def = *m_CurrentDef;
 
     // mag_size == 0 (= マガジン非搭載) は reload 概念なし、no-op。
     if (def.mag_size == 0u) return;
@@ -227,13 +227,13 @@ void FWeaponSystem::CancelReload() noexcept {
 
 void FWeaponSystem::CompleteReload() noexcept {
     // 装備なしは defensive: ここに来る前に StartReload で弾いている前提。
-    if (_current_def == nullptr) {
+    if (m_CurrentDef == nullptr) {
         _state.reloading            = false;
         _state.reload_remaining_sec = 0.0f;
         return;
     }
 
-    const FWeaponDef& def = *_current_def;
+    const FWeaponDef& def = *m_CurrentDef;
     if (def.mag_size > 0u) {
         const u32 need = def.mag_size - _state.ammo_in_mag;
         const u32 take = (need < _state.reserve_ammo) ? need : _state.reserve_ammo;
@@ -244,15 +244,15 @@ void FWeaponSystem::CompleteReload() noexcept {
     _state.reloading            = false;
     _state.reload_remaining_sec = 0.0f;
 
-    if (_on_reload != nullptr) {
-        _on_reload(_on_reload_user, def.id);
+    if (m_OnReload != nullptr) {
+        m_OnReload(m_OnReloadUser, def.id);
     }
 }
 
 f32 FWeaponSystem::ReloadProgress() const noexcept {
     if (!_state.reloading) return 0.0f;
-    if (_current_def == nullptr) return 0.0f;
-    const f32 total = _current_def->reload_sec;
+    if (m_CurrentDef == nullptr) return 0.0f;
+    const f32 total = m_CurrentDef->reload_sec;
     if (total <= 0.0f) return 1.0f;
     const f32 done = total - _state.reload_remaining_sec;
     if (done <= 0.0f) return 0.0f;
@@ -269,14 +269,14 @@ void FWeaponSystem::AddReserveAmmo(const char* weapon_id, u32 amount) noexcept {
     const u32 slot = FindWeaponSlot(weapon_id);
     if (slot == kNotFound) return;
 
-    const FWeaponDef&   def    = _defs[slot];
-    ReserveSlot&       res    = _reserves[slot];
+    const FWeaponDef&   def    = m_Defs[slot];
+    ReserveSlot&       res    = m_Reserves[slot];
     const u32          maxRes = (def.max_reserve == 0u) ? ~static_cast<u32>(0) : def.max_reserve;
 
     // 装備中武器なら _state 側にも反映する (= 二重管理を避けるため
-    // 「装備中は _state が真実、非装備中は _reserves が真実」と決め、
+    // 「装備中は _state が真実、非装備中は m_Reserves が真実」と決め、
     // 補給時は両方を整合させる)。
-    if (_current_slot == slot) {
+    if (m_CurrentSlot == slot) {
         const u32 next = SaturatingAdd(_state.reserve_ammo, amount);
         _state.reserve_ammo = (next > maxRes) ? maxRes : next;
         res.reserve_ammo    = _state.reserve_ammo;
@@ -292,7 +292,7 @@ void FWeaponSystem::AddReserveAmmo(const char* weapon_id, u32 amount) noexcept {
 
 void FWeaponSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
-    _elapsed_time += dt;
+    m_ElapsedTime += dt;
 
     // reload 進行 (装備中のみ)。
     if (_state.reloading) {
@@ -308,16 +308,16 @@ void FWeaponSystem::Tick(f32 dt) noexcept {
 // =============================================================================
 
 void FWeaponSystem::ClearAll() noexcept {
-    _defs.Clear();
-    _reserves.Clear();
-    _current_def  = nullptr;
-    _current_slot = kNotFound;
+    m_Defs.Clear();
+    m_Reserves.Clear();
+    m_CurrentDef  = nullptr;
+    m_CurrentSlot = kNotFound;
     _state        = FWeaponState{};
-    _elapsed_time = 0.0f;
-    _on_fire        = nullptr;
-    _on_fire_user   = nullptr;
-    _on_reload      = nullptr;
-    _on_reload_user = nullptr;
+    m_ElapsedTime = 0.0f;
+    m_OnFire        = nullptr;
+    m_OnFireUser   = nullptr;
+    m_OnReload      = nullptr;
+    m_OnReloadUser = nullptr;
 }
 
 } // namespace acs::game

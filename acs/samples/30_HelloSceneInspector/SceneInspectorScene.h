@@ -23,21 +23,21 @@ public:
 
 private:
     // ツリー組立を OnEnter から切り出した小ヘルパ。
-    void _build_node_tree() noexcept;
+    void m_BuildNodeTree() noexcept;
 
     // File メニュー stub の保存先 (現状 callback だけ走らせる)。
     static constexpr const char* kScenePath = "scene.acscene";
 
     // FNode2D ツリーのルート。ChildCount() == 2 (wheel, player) になる。
-    acs::game::FNode2D _root_node;
+    acs::game::FNode2D m_RootNode;
 
     // 弱参照: OnExit 以外で Destroy を呼ばないので OnUpdate 中は安全。
-    PlayerNode*        _player    = nullptr;
-    WheelNode*         _wheel     = nullptr;
-    acs::game::FNode2D* _spoke[2]  = { nullptr, nullptr };
+    PlayerNode*        m_Player    = nullptr;
+    WheelNode*         m_Wheel     = nullptr;
+    acs::game::FNode2D* m_Spoke[2]  = { nullptr, nullptr };
 
     // 4 panel + Selection + Seam の束ね。
-    PanelLayout _panels;
+    PanelLayout m_Panels;
 };
 
 } // namespace helloscene

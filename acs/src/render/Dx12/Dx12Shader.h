@@ -19,17 +19,17 @@ public:
 
     HrResult Init(Dx12Device& device, const FShaderDesc& desc) noexcept;
 
-    EShaderStage Stage() const noexcept override { return _stage; }
+    EShaderStage Stage() const noexcept override { return m_Stage; }
     const byte* Bytecode() const noexcept override {
-        return _blob ? static_cast<const byte*>(_blob->GetBufferPointer()) : nullptr;
+        return m_Blob ? static_cast<const byte*>(m_Blob->GetBufferPointer()) : nullptr;
     }
     usize BytecodeSize() const noexcept override {
-        return _blob ? _blob->GetBufferSize() : 0;
+        return m_Blob ? m_Blob->GetBufferSize() : 0;
     }
 
 private:
-    ID3DBlob*    _blob  = nullptr;
-    EShaderStage  _stage = EShaderStage::Vertex;
+    ID3DBlob*    m_Blob  = nullptr;
+    EShaderStage  m_Stage = EShaderStage::Vertex;
 };
 
 } // namespace acs

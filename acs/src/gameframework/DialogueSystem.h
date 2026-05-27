@@ -9,8 +9,8 @@
 // 役割:
 //   ・行コレクションの保持 (AddLine で順次追加)
 //   ・分岐選択肢の登録 (AddChoices: 特定 line 直後に提示する選択肢群)
-//   ・タイプライタ演出 (cps = chars per second, Tick で _visible_chars 増)
-//   ・auto-advance: line に紐づく choices が無く、_auto_advance_delay > 0 の
+//   ・タイプライタ演出 (cps = chars per second, Tick で m_VisibleChars 増)
+//   ・auto-advance: line に紐づく choices が無く、m_AutoAdvanceDelay > 0 の
 //     ときは「タイプ完了 + 一定秒経過」で勝手に次行へ進む
 //   ・分岐選択 (ChooseOption: choices[i].next_line_index にジャンプ)
 //
@@ -19,7 +19,7 @@
 //     scenario データは literal / バンドル等で別に管理する想定 (STL <string> 禁止)。
 //   ・**type_speed_cps <= 0 は瞬時表示**: 計算分岐を 1 ヶ所に集約。
 //   ・**choices は別 TArray**: ChoicesAt は (line_index, choice_start, choice_count)
-//     のみ持ち、実選択肢は `_all_choices` から slice する。挿入順に並ぶ前提で
+//     のみ持ち、実選択肢は `m_AllChoices` から slice する。挿入順に並ぶ前提で
 //     線形検索 (典型シナリオで N < 数百なので問題なし)。
 //   ・**auto-advance は per-line ではなく system 共通の delay**: 仕様簡素化。
 //     選択肢が登録されている line では auto-advance 抑止。
@@ -73,7 +73,7 @@ public:
     void Start() noexcept;
 
     // 次の行へ。タイプが完了していて、かつ choices が pending でないときのみ進む。
-    // 末尾行で呼ぶと _completed = true / _active = false に遷移。
+    // 末尾行で呼ぶと m_Completed = true / m_Active = false に遷移。
     void AdvanceLine() noexcept;
 
     // 現在行を即座に全文表示 (タイプ中なら強制完了)。
@@ -87,19 +87,19 @@ public:
     void Reset() noexcept;
 
     // ----- 進行確認 -----
-    bool IsActive()    const noexcept { return _active; }
-    bool IsCompleted() const noexcept { return _completed; }
+    bool IsActive()    const noexcept { return m_Active; }
+    bool IsCompleted() const noexcept { return m_Completed; }
     // 「タイプが完了し」「選択肢が登録されていて」「まだ選択されていない」状態
     bool HasChoicesPending() const noexcept;
-    // タイプライタが進行中か (= _visible_chars < 全長)
-    bool IsTyping() const noexcept { return _active && _typing; }
+    // タイプライタが進行中か (= m_VisibleChars < 全長)
+    bool IsTyping() const noexcept { return m_Active && m_Typing; }
 
     // ----- 現在状態のアクセサ -----
     // 非アクティブ時は nullptr。
     const DialogueLine* CurrentLine() const noexcept;
 
     // タイプライタで現在見えている文字数 (text の先頭から)。
-    u32 VisibleCharCount() const noexcept { return _visible_chars; }
+    u32 VisibleCharCount() const noexcept { return m_VisibleChars; }
 
     // pending な選択肢の本数 / 配列ポインタ。pending でなければ 0 / nullptr。
     u32                   ChoiceCount() const noexcept;
@@ -113,7 +113,7 @@ public:
     // auto-advance を有効化したいときに呼ぶ。delay <= 0 で無効化 (= 既定)。
     // 選択肢が pending な line では発火しない。
     void SetAutoAdvanceDelay(f32 delay_sec) noexcept;
-    f32  AutoAdvanceDelay() const noexcept { return _auto_advance_delay; }
+    f32  AutoAdvanceDelay() const noexcept { return m_AutoAdvanceDelay; }
 
 private:
     // 「line_index 直後に提示する選択肢」の範囲記録
@@ -123,32 +123,32 @@ private:
         u32 choice_count = 0;
     };
 
-    // _current_line_index に対応する ChoicesAt を返す (なければ nullptr)。
+    // m_CurrentLineIndex に対応する ChoicesAt を返す (なければ nullptr)。
     const ChoicesAt* FindChoicesForCurrent() const noexcept;
 
     // 現在行の全文字数 (text == nullptr のときは 0)。
     u32 CurrentLineLength() const noexcept;
 
     // current_line が変わったときの初期化 (visible_chars=0, typing=true 等)。
-    // 末尾を超えていれば _completed=true、_active=false にする。
+    // 末尾を超えていれば m_Completed=true、m_Active=false にする。
     void EnterLine(u32 new_index) noexcept;
 
-    TArray<DialogueLine>   _lines;
-    TArray<ChoicesAt>      _choices_at;     // line_index 昇順想定 (線形検索)
-    TArray<DialogueChoice> _all_choices;    // 全 choice をフラットに保持
+    TArray<DialogueLine>   m_Lines;
+    TArray<ChoicesAt>      m_ChoicesAt;     // line_index 昇順想定 (線形検索)
+    TArray<DialogueChoice> m_AllChoices;    // 全 choice をフラットに保持
 
-    u32  _current_line_index = 0;
-    u32  _visible_chars      = 0;
-    f32  _char_accum         = 0.0f;       // 累積 char 単位 (整数化されて _visible_chars 化)
-    f32  _post_type_elapsed  = 0.0f;       // タイプ完了後の経過 (auto-advance 用)
+    u32  m_CurrentLineIndex = 0;
+    u32  m_VisibleChars      = 0;
+    f32  m_CharAccum         = 0.0f;       // 累積 char 単位 (整数化されて m_VisibleChars 化)
+    f32  m_PostTypeElapsed  = 0.0f;       // タイプ完了後の経過 (auto-advance 用)
 
-    f32  _auto_advance_delay = 0.0f;       // <= 0 で無効
+    f32  m_AutoAdvanceDelay = 0.0f;       // <= 0 で無効
 
-    bool _active             = false;
-    bool _completed          = false;
-    bool _typing             = false;
+    bool m_Active             = false;
+    bool m_Completed          = false;
+    bool m_Typing             = false;
     // 選択肢が pending なときに choice_consumed=false。ChooseOption で true 化。
-    bool _choices_consumed   = true;
+    bool m_ChoicesConsumed   = true;
 };
 
 } // namespace acs::game

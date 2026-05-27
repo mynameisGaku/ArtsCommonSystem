@@ -9,7 +9,7 @@ using namespace acs;
 namespace helloshadows {
 
 void ShadowsScene::Build() noexcept {
-    _casters.Clear();
+    m_Casters.Clear();
     // 中央に背の高い柱
     for (u32 i = 0; i < 4; ++i) {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / 4.0f + 0.4f;
@@ -19,7 +19,7 @@ void ShadowsScene::Build() noexcept {
         c.base_color = FVec3{0.85f, 0.7f, 0.5f};
         c.model = FMat4::Scale(FVec3{0.6f, 2.0f, 0.6f}) *
                   FMat4::Translation(FVec3{Sin(a) * r, 1.0f, Cos(a) * r});
-        _casters.PushBack(c);
+        m_Casters.PushBack(c);
     }
     // 周囲に球 (複数色)
     const FVec3 colors[4] = {
@@ -36,7 +36,7 @@ void ShadowsScene::Build() noexcept {
         c.base_color = colors[i];
         c.model = FMat4::Scale(FVec3{1.0f, 1.0f, 1.0f}) *
                   FMat4::Translation(FVec3{Sin(a) * r, 0.5f, Cos(a) * r});
-        _casters.PushBack(c);
+        m_Casters.PushBack(c);
     }
 }
 
@@ -59,7 +59,7 @@ void ShadowsScene::Render(FSky&             sky,
     cl.SetConstantBuffer(1, *shadow.CasterObjectCB());
 
     // 地面はシャドウキャスタにしないので、影を落とす物体だけ
-    for (const CasterInst& obj : _casters) {
+    for (const CasterInst& obj : m_Casters) {
         shadow.SetCaster(obj.model);
         const GpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);
@@ -93,7 +93,7 @@ void ShadowsScene::Render(FSky&             sky,
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
-    for (const CasterInst& obj : _casters) {
+    for (const CasterInst& obj : m_Casters) {
         shader.SetObject(obj.model, obj.base_color, 0.4f, 32.0f);
         const GpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);

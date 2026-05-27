@@ -125,13 +125,13 @@ enum class EMatchStatus : u8 {
     Failed    = 3,  // タイムアウト / サーバエラー / ticket 無効
 };
 
-// 検索 handle。`_opaque == 0` は無効値 (NULL ticket) を意味する。
+// 検索 handle。`m_Opaque == 0` は無効値 (NULL ticket) を意味する。
 // 値は実装側が自由に解釈してよい (連番 ID / pointer / hash 等)。
 struct MatchTicket {
-    u64 _opaque = 0;
+    u64 m_Opaque = 0;
 
     // 有効な ticket か (StartSearch 成功 = 非ゼロ)。
-    bool IsValid() const noexcept { return _opaque != 0; }
+    bool IsValid() const noexcept { return m_Opaque != 0; }
 };
 
 class IMatchmaker {

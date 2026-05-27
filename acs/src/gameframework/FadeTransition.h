@@ -9,23 +9,23 @@
 //
 // 使い方:
 //   class TitleScene : public Scene {
-//       acs::game::FFadeTransition _fade;
+//       acs::game::FFadeTransition m_Fade;
 //       void OnEnter() noexcept override {
 //           // 画面が黒から徐々に明けるフェードイン
-//           _fade.StartFade(EFadeKind::FadeIn, /*out=*/0.0f, /*in=*/0.5f);
+//           m_Fade.StartFade(EFadeKind::FadeIn, /*out=*/0.0f, /*in=*/0.5f);
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _fade.Tick(dt);
-//           if (_fade.IsMidPause()) {
+//           m_Fade.Tick(dt);
+//           if (m_Fade.IsMidPause()) {
 //               // FadeInOut の暗転中: ここでシーン切替
 //               Manager().ChangeScene<GameplayScene>();
 //           }
 //       }
 //       void OnRender() noexcept override {
 //           // ... 通常描画 ...
-//           if (_fade.IsActive()) {
-//               const acs::FVec3 c = _fade.OverlayColor();
-//               const f32       a = _fade.OverlayAlpha();
+//           if (m_Fade.IsActive()) {
+//               const acs::FVec3 c = m_Fade.OverlayColor();
+//               const f32       a = m_Fade.OverlayAlpha();
 //               FSpriteBatch().FillFullScreen(c.x, c.y, c.z, a);
 //           }
 //       }
@@ -98,17 +98,17 @@ public:
                    f32 mid_pause    = 0.0f) noexcept;
 
     // ----- 状態 -----
-    bool      IsActive()      const noexcept { return _phase != EFadePhase::Idle; }
-    bool      IsMidPause()    const noexcept { return _phase == EFadePhase::MidPause; }
-    EFadePhase CurrentPhase()  const noexcept { return _phase; }
-    EFadeKind  CurrentKind()   const noexcept { return _kind; }
+    bool      IsActive()      const noexcept { return m_Phase != EFadePhase::Idle; }
+    bool      IsMidPause()    const noexcept { return m_Phase == EFadePhase::MidPause; }
+    EFadePhase CurrentPhase()  const noexcept { return m_Phase; }
+    EFadeKind  CurrentKind()   const noexcept { return m_Kind; }
 
     // [0, 1]、描画側 overlay の不透明度
-    f32  OverlayAlpha() const noexcept { return _alpha; }
+    f32  OverlayAlpha() const noexcept { return m_Alpha; }
 
     // Overlay 色 (既定 = black)
-    FVec3 OverlayColor() const noexcept { return _color; }
-    void SetOverlayColor(FVec3 c) noexcept { _color = c; }
+    FVec3 OverlayColor() const noexcept { return m_Color; }
+    void SetOverlayColor(FVec3 c) noexcept { m_Color = c; }
 
     // ----- driver -----
     void Tick(f32 dt) noexcept;
@@ -120,17 +120,17 @@ private:
     // CrossFade のピーク alpha (= 0.5 が「画面が半透けまで暗くなって戻る」相当)
     static constexpr f32 kCrossFadePeak = 0.5f;
 
-    EFadePhase _phase         = EFadePhase::Idle;
-    EFadeKind  _kind          = EFadeKind::None;
+    EFadePhase m_Phase         = EFadePhase::Idle;
+    EFadeKind  m_Kind          = EFadeKind::None;
 
-    f32  _alpha              = 0.0f;
-    FVec3 _color              {0.0f, 0.0f, 0.0f};  // 既定: black
+    f32  m_Alpha              = 0.0f;
+    FVec3 m_Color              {0.0f, 0.0f, 0.0f};  // 既定: black
 
-    f32  _out_duration       = 0.0f;
-    f32  _in_duration        = 0.0f;
-    f32  _mid_pause          = 0.0f;
-    f32  _elapsed            = 0.0f;   // 現在 phase 内での経過秒
-    bool _mid_pause_consumed = false;  // mid_pause=0 のとき 1 Tick 保証
+    f32  m_OutDuration       = 0.0f;
+    f32  m_InDuration        = 0.0f;
+    f32  m_MidPause          = 0.0f;
+    f32  m_Elapsed            = 0.0f;   // 現在 phase 内での経過秒
+    bool m_MidPauseConsumed = false;  // mid_pause=0 のとき 1 Tick 保証
 };
 
 } // namespace acs::game

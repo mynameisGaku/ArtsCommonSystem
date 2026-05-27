@@ -8,12 +8,12 @@
 namespace acs {
 
 Dx12Shader::~Dx12Shader() noexcept {
-    ACS_SAFE_RELEASE(_blob);
+    ACS_SAFE_RELEASE(m_Blob);
 }
 
 HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexcept {
     HrResult r{};
-    _stage = desc.stage;
+    m_Stage = desc.stage;
 
     if (!desc.hlsl_source) { r.hr = E_INVALIDARG; return r; }
 
@@ -42,7 +42,7 @@ HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexc
         desc.hlsl_source, source_len, desc.debug_name,
         nullptr, nullptr,
         desc.entry_point, target, flags, 0,
-        &_blob, &err_blob);
+        &m_Blob, &err_blob);
 
     if (r.IsErr() && err_blob) {
         // コンパイルエラーをログに出力（行番号付きメッセージ）

@@ -45,9 +45,9 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 u32 FAchievementManager::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return kNotFound;
-    const usize n = _defs.Size();
+    const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_defs[i].id, id)) return static_cast<u32>(i);
+        if (StrEq(m_Defs[i].id, id)) return static_cast<u32>(i);
     }
     return kNotFound;
 }
@@ -55,9 +55,9 @@ u32 FAchievementManager::FindIndex(const char* id) const noexcept {
 void FAchievementManager::UnlockInternal(u32 index) noexcept {
     // 呼出側で index 有効性は保証済 (FindIndex から流れてくる) だが、
     // 念のため範囲チェック (Reset 等経由のレースに備える保険)。
-    if (static_cast<usize>(index) >= _progress.Size()) return;
+    if (static_cast<usize>(index) >= m_Progress.Size()) return;
 
-    FAchievementProgress& p = _progress[index];
+    FAchievementProgress& p = m_Progress[index];
     if (p.unlocked) return;  // 多重 unlock は no-op (timestamp は最初の値を保持)
 
     p.current_progress = p.max_progress;
@@ -66,8 +66,8 @@ void FAchievementManager::UnlockInternal(u32 index) noexcept {
     p.unlock_timestamp = Clock::MillisSinceStartup();
 
     // Bridge attach 中なら SDK へ送信。失敗時はローカル進捗には影響させない。
-    if (_bridge != nullptr) {
-        TResult<void> r = _bridge->UnlockAchievement(p.id);
+    if (m_Bridge != nullptr) {
+        TResult<void> r = m_Bridge->UnlockAchievement(p.id);
         if (r.IsErr()) {
             // Stub だと未実装で必ず Err になるため、Warn 1 行で抑える。
             // 実 SDK 統合後は Err = 通信失敗 / 未初期化 → 監視対象に格上げ可。
@@ -102,8 +102,8 @@ void FAchievementManager::RegisterAchievement(const FAchievementDef& def) noexce
     p.unlocked         = false;
     p.unlock_timestamp = 0;
 
-    _defs.PushBack(d);
-    _progress.PushBack(p);
+    m_Defs.PushBack(d);
+    m_Progress.PushBack(p);
 }
 
 // =============================================================================
@@ -114,7 +114,7 @@ void FAchievementManager::SetProgress(const char* id, u32 progress) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
 
-    FAchievementProgress& p = _progress[idx];
+    FAchievementProgress& p = m_Progress[idx];
     if (p.unlocked) return;  // 既 unlock は変更しない (再 reset したい場合は Reset() 経由で)
 
     // max_progress クランプ。
@@ -130,7 +130,7 @@ void FAchievementManager::IncrementProgress(const char* id, u32 delta) noexcept 
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
 
-    FAchievementProgress& p = _progress[idx];
+    FAchievementProgress& p = m_Progress[idx];
     if (p.unlocked) return;
 
     // u32 オーバーフロー時の安全側クランプ。
@@ -158,7 +158,7 @@ void FAchievementManager::Unlock(const char* id) noexcept {
 void FAchievementManager::Reset(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
-    FAchievementProgress& p = _progress[idx];
+    FAchievementProgress& p = m_Progress[idx];
     p.current_progress = 0;
     p.unlocked         = false;
     p.unlock_timestamp = 0;
@@ -166,9 +166,9 @@ void FAchievementManager::Reset(const char* id) noexcept {
 }
 
 void FAchievementManager::ResetAll() noexcept {
-    const usize n = _progress.Size();
+    const usize n = m_Progress.Size();
     for (usize i = 0; i < n; ++i) {
-        FAchievementProgress& p = _progress[i];
+        FAchievementProgress& p = m_Progress[i];
         p.current_progress = 0;
         p.unlocked         = false;
         p.unlock_timestamp = 0;
@@ -182,24 +182,24 @@ void FAchievementManager::ResetAll() noexcept {
 bool FAchievementManager::IsUnlocked(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return false;
-    return _progress[idx].unlocked;
+    return m_Progress[idx].unlocked;
 }
 
 u32 FAchievementManager::GetProgress(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return 0;
-    return _progress[idx].current_progress;
+    return m_Progress[idx].current_progress;
 }
 
 u32 FAchievementManager::TotalCount() const noexcept {
-    return static_cast<u32>(_progress.Size());
+    return static_cast<u32>(m_Progress.Size());
 }
 
 u32 FAchievementManager::UnlockedCount() const noexcept {
     u32 c = 0;
-    const usize n = _progress.Size();
+    const usize n = m_Progress.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_progress[i].unlocked) ++c;
+        if (m_Progress[i].unlocked) ++c;
     }
     return c;
 }
@@ -207,12 +207,12 @@ u32 FAchievementManager::UnlockedCount() const noexcept {
 const FAchievementProgress* FAchievementManager::GetState(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return nullptr;
-    return &_progress[idx];
+    return &m_Progress[idx];
 }
 
 const FAchievementProgress* FAchievementManager::AllStates(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(_progress.Size());
-    return _progress.Data();
+    out_count = static_cast<u32>(m_Progress.Size());
+    return m_Progress.Data();
 }
 
 // =============================================================================
@@ -221,7 +221,7 @@ const FAchievementProgress* FAchievementManager::AllStates(u32& out_count) const
 
 void FAchievementManager::AttachSteamworks(ISteamworksBridge* bridge) noexcept {
     // nullptr で detach は明示的に許可 (オフラインモードへ戻す)。
-    _bridge = bridge;
+    m_Bridge = bridge;
 }
 
 // =============================================================================

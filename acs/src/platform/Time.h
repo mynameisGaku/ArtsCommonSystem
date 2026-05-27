@@ -36,19 +36,19 @@ public:
     f32 Tick() noexcept;
 
     // 過去 N フレームの平均 dt
-    f32 SmoothedDelta() const noexcept { return _smoothed; }
+    f32 SmoothedDelta() const noexcept { return m_Smoothed; }
     // 過去 N フレームの平均 FPS
-    f32 SmoothedFPS()   const noexcept { return _smoothed > 0 ? 1.0f / _smoothed : 0; }
+    f32 SmoothedFPS()   const noexcept { return m_Smoothed > 0 ? 1.0f / m_Smoothed : 0; }
     // 累積フレーム数
-    u64 FrameCount()    const noexcept { return _frames; }
+    u64 FrameCount()    const noexcept { return m_Frames; }
     // 起動からの累積秒
-    f64 TotalSeconds()  const noexcept { return _total; }
+    f64 TotalSeconds()  const noexcept { return m_Total; }
 
 private:
-    u64 _last_ticks = 0;     // 前回 Tick の時刻
-    f32 _smoothed   = 0.0f;  // 平滑化された dt
-    f64 _total      = 0.0;
-    u64 _frames     = 0;
+    u64 m_LastTicks = 0;     // 前回 Tick の時刻
+    f32 m_Smoothed   = 0.0f;  // 平滑化された dt
+    f64 m_Total      = 0.0;
+    u64 m_Frames     = 0;
 };
 
 } // namespace acs

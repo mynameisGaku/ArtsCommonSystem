@@ -26,17 +26,17 @@ void FEditorToolbar::Init() noexcept {
     // 「セッション再開」用途で呼ぶこともあるため。完全初期化したい場合は
     // Shutdown → Init の順で呼ぶ)。
     _state              = EEditorState::Playing;
-    _normal_time_scale  = 1.0f;
-    _show_debug_overlay = false;
+    m_NormalTimeScale  = 1.0f;
+    m_ShowDebugOverlay = false;
 }
 
 void FEditorToolbar::Shutdown() noexcept {
     // 完全初期化: 状態 + callback + flag を全てデフォルトに。
     _state              = EEditorState::Playing;
-    _normal_time_scale  = 1.0f;
-    _show_debug_overlay = false;
-    _save_cb            = nullptr;
-    _save_user          = nullptr;
+    m_NormalTimeScale  = 1.0f;
+    m_ShowDebugOverlay = false;
+    m_SaveCb            = nullptr;
+    m_SaveUser          = nullptr;
 }
 
 // ============================================================================
@@ -73,43 +73,43 @@ void FEditorToolbar::Step() noexcept {
 }
 
 void FEditorToolbar::SetOnSaveSceneCallback(SaveSceneCallback cb, void* user) noexcept {
-    _save_cb   = cb;
-    _save_user = user;
+    m_SaveCb   = cb;
+    m_SaveUser = user;
 }
 
 // ============================================================================
 // 内部: state → FGame への反映
 // ============================================================================
 // DrawUI から呼ぶ。state に応じて FGame::SetTimeScale を更新する。
-//   Playing  → TimeScale = _normal_time_scale
+//   Playing  → TimeScale = m_NormalTimeScale
 //   Paused   → TimeScale = 0
-//   Stepping → TimeScale = _normal_time_scale (1 フレームだけ。DrawUI 末尾で
+//   Stepping → TimeScale = m_NormalTimeScale (1 フレームだけ。DrawUI 末尾で
 //              Paused に戻し、次フレームの DrawUI で 0 になる)
 // ============================================================================
 void FEditorToolbar::ApplyStateToGame(FGame& game) noexcept {
     switch (_state) {
         case EEditorState::Playing: {
             // Pause から復帰した直後はここに来る。
-            // 記憶していた _normal_time_scale を書き戻す。
-            game.SetTimeScale(_normal_time_scale);
+            // 記憶していた m_NormalTimeScale を書き戻す。
+            game.SetTimeScale(m_NormalTimeScale);
             break;
         }
         case EEditorState::Paused: {
             // 直近の TimeScale を記録 (= 後で Play に戻る時の復帰値)。
             // ただし 0 (= 既に Pause 済) は無視 (= 二重 Pause で
-            // _normal_time_scale を 0 に上書きしないため)。
+            // m_NormalTimeScale を 0 に上書きしないため)。
             const f32 ts = game.TimeScale();
             if (ts > 0.0f) {
-                _normal_time_scale = ts;
+                m_NormalTimeScale = ts;
             }
             game.SetTimeScale(0.0f);
             break;
         }
         case EEditorState::Stepping: {
             // 1 フレームだけ通常速度で進める。Stepping → Paused 復帰は
-            // DrawUI 末尾で行うため、ここでは scale を _normal_time_scale に
+            // DrawUI 末尾で行うため、ここでは scale を m_NormalTimeScale に
             // 設定するだけ。
-            game.SetTimeScale(_normal_time_scale);
+            game.SetTimeScale(m_NormalTimeScale);
             break;
         }
     }
@@ -146,7 +146,7 @@ void FEditorToolbar::DrawUI() noexcept {
     // ImGui::Button は戻り値で「クリックされたか」を返す。
     if (ImGui::Button("Play")) {
         // Pause / Stepping から Playing へ。同じ Playing で押された場合は
-        // _normal_time_scale をそのまま再適用する (= no-op に近い)。
+        // m_NormalTimeScale をそのまま再適用する (= no-op に近い)。
         _state = EEditorState::Playing;
     }
     ImGui::SameLine();
@@ -169,11 +169,11 @@ void FEditorToolbar::DrawUI() noexcept {
 
     // ----- Save Scene -----
     // callback 未登録時は disabled 風表示 (FParticleEditorPanel と同じパターン)。
-    const bool save_enabled = (_save_cb != nullptr);
+    const bool save_enabled = (m_SaveCb != nullptr);
     if (!save_enabled) ImGui::BeginDisabled();
     if (ImGui::Button("Save")) {
-        if (_save_cb != nullptr) {
-            _save_cb(_save_user);
+        if (m_SaveCb != nullptr) {
+            m_SaveCb(m_SaveUser);
         }
     }
     if (!save_enabled) ImGui::EndDisabled();
@@ -184,7 +184,7 @@ void FEditorToolbar::DrawUI() noexcept {
 
     // ----- FDebugOverlay 切替 -----
     // bool flag を ImGui::Checkbox で切り替えるだけ。実描画は外側の責務。
-    ImGui::Checkbox("FDebugOverlay", &_show_debug_overlay);
+    ImGui::Checkbox("FDebugOverlay", &m_ShowDebugOverlay);
 
     ImGui::SameLine();
     ImGui::TextUnformatted("|");
@@ -198,19 +198,19 @@ void FEditorToolbar::DrawUI() noexcept {
         case EEditorState::Stepping: state_label = "Stepping"; break;
     }
     ImGui::Text("state: %s  (scale=%.2f)", state_label,
-                static_cast<double>(_normal_time_scale));
+                static_cast<double>(m_NormalTimeScale));
 
     // ----- state を FGame に反映 -----
     // ボタン操作の結果を本フレームの末尾で 1 度だけ反映する。
     // (ボタン処理ごとに SetTimeScale を呼ぶと、同フレーム内で複数回
     //  TimeScale が動くのを避けるため最後にまとめる。)
-    if (_game != nullptr) {
-        ApplyStateToGame(*_game);
+    if (m_Game != nullptr) {
+        ApplyStateToGame(*m_Game);
     }
 
     // ----- Stepping の自動 Pause 復帰 -----
     // Stepping は「本フレーム 1 回だけ Playing 相当の dt を走らせる」一時状態。
-    // 本フレームの SetTimeScale = _normal_time_scale は既に発行済 (= FGame の
+    // 本フレームの SetTimeScale = m_NormalTimeScale は既に発行済 (= FGame の
     // 次回 Update では dt が scale 1 で 1 回流れる)、次フレーム以降は再び
     // Paused に戻したいので、ここで state だけを切り替える。
     // 注意: 実 SetTimeScale=0 は次フレームの DrawUI で ApplyStateToGame が

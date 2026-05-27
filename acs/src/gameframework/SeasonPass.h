@@ -78,8 +78,8 @@
 //       NotStarted: now < start_timestamp
 //       Active:     start_timestamp <= now < end_timestamp
 //       Ended:      now >= end_timestamp
-//     現在時刻は内部カウンタ `_current_time` で保持し、Tick(dt) で増分。
-//     StartSeason 時に `_current_time = start_timestamp` で初期化する設計 (Tick
+//     現在時刻は内部カウンタ `m_CurrentTime` で保持し、Tick(dt) で増分。
+//     StartSeason 時に `m_CurrentTime = start_timestamp` で初期化する設計 (Tick
 //     呼出が始まる前は「ちょうど開始時刻」と仮定)。f32 dt は秒として扱い、
 //     timestamp 単位も「秒」として一貫させる (呼出側責務 — UTC seconds since epoch
 //     を渡すのが典型)。
@@ -89,7 +89,7 @@
 //     カウント (premium pass 未所持なら premium 分は除外)。シーズン UI で
 //     「赤バッジ何個」表示に使う。
 //   ・**EndSeason は手動終了用**: timestamp 経過を待たずにシーズン完了させたい
-//     管理者操作 / デバッグ用。`_current_time = end_timestamp` を強制する。
+//     管理者操作 / デバッグ用。`m_CurrentTime = end_timestamp` を強制する。
 //   ・**永続化は範囲外 (Phase 3+)**: FProgression と同じく、Save/Load は本フェーズ
 //     では未実装。Pillar J Serialize 統合後に追加する。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -161,7 +161,7 @@ public:
     // ---- シーズン定義 / 制御 ---------------------------------------------
     // 当該シーズンを開始 (xp = 0, premium = false, 既存 tier 定義は破棄)。
     // start_timestamp >= end_timestamp は受理するが、即 Ended 状態になる。
-    // _current_time は start_timestamp で初期化 (= 「ちょうど開始」)。
+    // m_CurrentTime は start_timestamp で初期化 (= 「ちょうど開始」)。
     void StartSeason(const SeasonInfo& info) noexcept;
 
     // tier を 1 件登録。tier_index 重複は no-op (WARN)。
@@ -169,14 +169,14 @@ public:
     void DefineTier(const Tier& t) noexcept;
 
     // 手動でシーズンを終了させる (timestamp 経過を待たずに Ended に遷移)。
-    // _current_time = end_timestamp を強制。tier 定義 / claim 状態は保持する
+    // m_CurrentTime = end_timestamp を強制。tier 定義 / claim 状態は保持する
     // (報酬は Ended でも claim 可能 — UI からシーズン後グレースピリオドを
     //  実装するため)。
     void EndSeason() noexcept;
 
     // 時刻ベース status 更新。dt は秒。
     // status が NotStarted / Active → 自動で Ended へ遷移する。
-    // EndSeason() が既に呼ばれている (= _current_time >= end_timestamp) なら no-op。
+    // EndSeason() が既に呼ばれている (= m_CurrentTime >= end_timestamp) なら no-op。
     void Tick(f32 dt) noexcept;
 
     // ---- XP 操作 ----------------------------------------------------------
@@ -236,21 +236,21 @@ private:
     u32 FindTierSlot(u32 tier_index) const noexcept;
 
     // シーズン定義 (StartSeason 時に上書き)。
-    SeasonInfo _info{};
+    SeasonInfo m_Info{};
 
     // 累積 xp (シーズン内のみ意味を持つ)。
-    u32 _xp = 0;
+    u32 m_Xp = 0;
 
     // プレミアムパス所持フラグ。
-    bool _has_premium = false;
+    bool m_HasPremium = false;
 
     // 現在時刻 (timestamp 単位)。StartSeason で start_timestamp に初期化、
     // Tick(dt) で dt[秒] を加算、EndSeason で end_timestamp に強制セット。
-    u64 _current_time = 0;
+    u64 m_CurrentTime = 0;
 
     // Tier 定義 + claim 状態 (同 index で 1:1 対応)。
-    TArray<Tier>       _tiers;
-    TArray<ClaimState> _claims;
+    TArray<Tier>       m_Tiers;
+    TArray<ClaimState> m_Claims;
 };
 
 } // namespace acs::game

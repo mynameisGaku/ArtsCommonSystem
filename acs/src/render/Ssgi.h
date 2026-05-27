@@ -69,30 +69,30 @@ public:
     // Phase 33c-3: temporal accumulation 後の history RT を返す (= 直近の Render
     // が書き込んだ index)。FPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
     IRhiTexture* OutputTexture() const noexcept {
-        return _history[_temporal_frame == 0u ? 0u : ((_temporal_frame - 1u) & 1u)].Get();
+        return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
     }
-    IRhiTexture* RawTexture()    const noexcept { return _output.Get(); }
+    IRhiTexture* RawTexture()    const noexcept { return m_Output.Get(); }
 
 private:
     TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
     TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
-    IRhiDevice*             _device = nullptr;
-    u32                     _width  = 0;
-    u32                     _height = 0;
+    IRhiDevice*             m_Device = nullptr;
+    u32                     m_Width  = 0;
+    u32                     m_Height = 0;
 
-    TUniquePtr<IRhiTexture>  _output;       // SSGI raw
-    TUniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 33c-2)
-    TUniquePtr<IRhiTexture>  _history[2];   // temporal accumulation ping-pong (Phase 33c-3)
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiShader>   _blur_ps;      // Phase 33c-2
-    TUniquePtr<IRhiShader>   _temporal_ps;  // Phase 33c-3
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiPipeline> _blur_pipeline;    // Phase 33c-2
-    TUniquePtr<IRhiPipeline> _temporal_pipeline;// Phase 33c-3
-    TUniquePtr<IRhiBuffer>   _cb;
-    u32                     _temporal_frame = 0;
+    TUniquePtr<IRhiTexture>  m_Output;       // SSGI raw
+    TUniquePtr<IRhiTexture>  m_BlurOutput;  // depth-aware bilateral blur 後 (Phase 33c-2)
+    TUniquePtr<IRhiTexture>  m_History[2];   // temporal accumulation ping-pong (Phase 33c-3)
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiShader>   m_BlurPs;      // Phase 33c-2
+    TUniquePtr<IRhiShader>   m_TemporalPs;  // Phase 33c-3
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiPipeline> m_BlurPipeline;    // Phase 33c-2
+    TUniquePtr<IRhiPipeline> m_TemporalPipeline;// Phase 33c-3
+    TUniquePtr<IRhiBuffer>   m_Cb;
+    u32                     m_TemporalFrame = 0;
 };
 
 } // namespace acs

@@ -10,7 +10,7 @@ void FInputMap::BindKey(ActionId action, EKey key) noexcept {
     b.action = action;
     b.kind   = BindKind::EKey;
     b.code   = static_cast<u32>(key);
-    _bindings.PushBack(b);
+    m_Bindings.PushBack(b);
 }
 
 void FInputMap::BindMouseButton(ActionId action, EMouseButton mb) noexcept {
@@ -18,7 +18,7 @@ void FInputMap::BindMouseButton(ActionId action, EMouseButton mb) noexcept {
     b.action = action;
     b.kind   = BindKind::EMouseButton;
     b.code   = static_cast<u32>(mb);
-    _bindings.PushBack(b);
+    m_Bindings.PushBack(b);
 }
 
 void FInputMap::BindGamepad(ActionId action, EGamepadButton gb, u32 player_index) noexcept {
@@ -27,7 +27,7 @@ void FInputMap::BindGamepad(ActionId action, EGamepadButton gb, u32 player_index
     b.kind   = BindKind::EGamepadButton;
     b.code   = static_cast<u32>(gb);
     b.player = player_index;
-    _bindings.PushBack(b);
+    m_Bindings.PushBack(b);
 }
 
 void FInputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
@@ -36,27 +36,27 @@ void FInputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
     b.kind     = BindKind::Axis1D;
     b.code     = static_cast<u32>(neg);
     b.code_pos = static_cast<u32>(pos);
-    _bindings.PushBack(b);
+    m_Bindings.PushBack(b);
 }
 
 void FInputMap::Unbind(ActionId action) noexcept {
     u32 w = 0;
-    for (u32 r = 0; r < _bindings.Size(); ++r) {
-        if (_bindings[r].action != action) {
-            if (w != r) _bindings[w] = _bindings[r];
+    for (u32 r = 0; r < m_Bindings.Size(); ++r) {
+        if (m_Bindings[r].action != action) {
+            if (w != r) m_Bindings[w] = m_Bindings[r];
             ++w;
         }
     }
-    while (_bindings.Size() > w) _bindings.PopBack();
+    while (m_Bindings.Size() > w) m_Bindings.PopBack();
 }
 
 void FInputMap::ClearAll() noexcept {
-    _bindings.Clear();
+    m_Bindings.Clear();
 }
 
 bool FInputMap::IsPressed(ActionId action) const noexcept {
-    for (u32 i = 0; i < _bindings.Size(); ++i) {
-        const Binding& b = _bindings[i];
+    for (u32 i = 0; i < m_Bindings.Size(); ++i) {
+        const Binding& b = m_Bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
         case BindKind::EKey:
@@ -77,8 +77,8 @@ bool FInputMap::IsPressed(ActionId action) const noexcept {
 }
 
 bool FInputMap::IsHeld(ActionId action) const noexcept {
-    for (u32 i = 0; i < _bindings.Size(); ++i) {
-        const Binding& b = _bindings[i];
+    for (u32 i = 0; i < m_Bindings.Size(); ++i) {
+        const Binding& b = m_Bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
         case BindKind::EKey:
@@ -101,8 +101,8 @@ bool FInputMap::IsHeld(ActionId action) const noexcept {
 }
 
 bool FInputMap::IsReleased(ActionId action) const noexcept {
-    for (u32 i = 0; i < _bindings.Size(); ++i) {
-        const Binding& b = _bindings[i];
+    for (u32 i = 0; i < m_Bindings.Size(); ++i) {
+        const Binding& b = m_Bindings[i];
         if (b.action != action) continue;
         switch (b.kind) {
         case BindKind::EKey:
@@ -123,8 +123,8 @@ bool FInputMap::IsReleased(ActionId action) const noexcept {
 
 f32 FInputMap::Axis(ActionId action) const noexcept {
     f32 acc = 0.0f;
-    for (u32 i = 0; i < _bindings.Size(); ++i) {
-        const Binding& b = _bindings[i];
+    for (u32 i = 0; i < m_Bindings.Size(); ++i) {
+        const Binding& b = m_Bindings[i];
         if (b.action != action) continue;
         if (b.kind != BindKind::Axis1D) continue;
         const bool n = Input::IsKeyDown(static_cast<EKey>(b.code));

@@ -61,26 +61,26 @@ public:
                 f32 radius    = 0.5f) noexcept;
 
     // Phase 34j-4: blur 後の RT を返す (FPbrShader / overlay はこちらを読む)。
-    IRhiTexture* OutputTexture() const noexcept { return _blur_output.Get(); }
+    IRhiTexture* OutputTexture() const noexcept { return m_BlurOutput.Get(); }
     // raw (blur 前) が必要なデバッグ用途向け。
-    IRhiTexture* RawTexture() const noexcept { return _output.Get(); }
+    IRhiTexture* RawTexture() const noexcept { return m_Output.Get(); }
 
 private:
     TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
     TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
-    IRhiDevice*             _device = nullptr;
-    u32                     _width  = 0;
-    u32                     _height = 0;
+    IRhiDevice*             m_Device = nullptr;
+    u32                     m_Width  = 0;
+    u32                     m_Height = 0;
 
-    TUniquePtr<IRhiTexture>  _output;       // SSAO raw
-    TUniquePtr<IRhiTexture>  _blur_output;  // depth-aware bilateral blur 後 (Phase 34j-4)
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiShader>   _blur_ps;      // Phase 34j-4 blur PS
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiPipeline> _blur_pipeline;// Phase 34j-4
-    TUniquePtr<IRhiBuffer>   _cb;
+    TUniquePtr<IRhiTexture>  m_Output;       // SSAO raw
+    TUniquePtr<IRhiTexture>  m_BlurOutput;  // depth-aware bilateral blur 後 (Phase 34j-4)
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiShader>   m_BlurPs;      // Phase 34j-4 blur PS
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiPipeline> m_BlurPipeline;// Phase 34j-4
+    TUniquePtr<IRhiBuffer>   m_Cb;
 };
 
 } // namespace acs

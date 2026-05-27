@@ -47,16 +47,16 @@ public:
     void DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) noexcept;
 
     // テーマ色 (Widgets が参照)
-    const FUiColors& Colors() const noexcept { return _colors; }
-    FUiColors&       Colors()       noexcept { return _colors; }
+    const FUiColors& Colors() const noexcept { return m_Colors; }
+    FUiColors&       Colors()       noexcept { return m_Colors; }
 
-    Font* DefaultFont() const noexcept { return _font; }
+    Font* DefaultFont() const noexcept { return m_Font; }
 
 private:
-    FSpriteBatch _batch;
-    Font*       _font = nullptr;     // 所有しない
-    FUiColors    _colors;
-    bool        _frame_open = false;
+    FSpriteBatch m_Batch;
+    Font*       m_Font = nullptr;     // 所有しない
+    FUiColors    m_Colors;
+    bool        m_FrameOpen = false;
 };
 
 // ============================================================================
@@ -69,9 +69,9 @@ public:
     void Dispatch(Widget& root) noexcept;
 
 private:
-    Widget* _hovered  = nullptr;     // 直近 hover 中 widget
-    Widget* _pressed  = nullptr;     // pointer-down 中 widget (drag 連続)
-    Widget* _focused  = nullptr;     // フォーカス中 (TextInput)
+    Widget* m_Hovered  = nullptr;     // 直近 hover 中 widget
+    Widget* m_Pressed  = nullptr;     // pointer-down 中 widget (drag 連続)
+    Widget* m_Focused  = nullptr;     // フォーカス中 (TextInput)
 };
 
 } // namespace acs

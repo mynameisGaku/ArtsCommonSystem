@@ -97,7 +97,7 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
 
 } // namespace
 
-void FSky::SetSunDirection(FVec3 dir) noexcept { _sun_dir = NormalizeSafe(dir); }
+void FSky::SetSunDirection(FVec3 dir) noexcept { m_SunDir = NormalizeSafe(dir); }
 
 TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     FShaderDesc vs_d{};
@@ -107,7 +107,7 @@ TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
     vs_d.debug_name  = "FSky.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    _vs = Move(vs_r.Value());
+    m_Vs = Move(vs_r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -116,7 +116,7 @@ TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
     ps_d.debug_name  = "FSky.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
-    _ps = Move(ps_r.Value());
+    m_Ps = Move(ps_r.Value());
 
     FBufferDesc cbd{};
     cbd.size = CBSize<SkyCB>();
@@ -124,11 +124,11 @@ TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
     cbd.cpu_writable = true;
     auto cb_r = CreateRhiBuffer(device, cbd);
     if (cb_r.IsErr()) return Err<void>(cb_r.Error());
-    _cb = Move(cb_r.Value());
+    m_Cb = Move(cb_r.Value());
 
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
@@ -143,64 +143,64 @@ TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
     pd.vertex_stride = 0;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    _pipeline = Move(pl_r.Value());
+    m_Pipeline = Move(pl_r.Value());
 
     return Ok();
 }
 
 void FSky::Shutdown() noexcept {
-    _pipeline.Reset();
-    _cb.Reset();
-    _ps.Reset();
-    _vs.Reset();
+    m_Pipeline.Reset();
+    m_Cb.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
 }
 
 void FSky::PresetDay() noexcept {
-    _sun_dir     = NormalizeSafe(FVec3{0.4f, 0.7f, 0.4f});
-    _sun_color   = FVec3{1.0f, 0.95f, 0.85f};
-    _sun_radius  = 0.0006f;
-    _sun_glow    = 0.05f;
-    _zenith      = FVec3{0.15f, 0.35f, 0.78f};
-    _horizon     = FVec3{0.70f, 0.83f, 0.95f};
-    _ground      = FVec3{0.18f, 0.20f, 0.20f};
+    m_SunDir     = NormalizeSafe(FVec3{0.4f, 0.7f, 0.4f});
+    m_SunColor   = FVec3{1.0f, 0.95f, 0.85f};
+    m_SunRadius  = 0.0006f;
+    m_SunGlow    = 0.05f;
+    m_Zenith      = FVec3{0.15f, 0.35f, 0.78f};
+    m_Horizon     = FVec3{0.70f, 0.83f, 0.95f};
+    m_Ground      = FVec3{0.18f, 0.20f, 0.20f};
 }
 
 void FSky::PresetSunset() noexcept {
-    _sun_dir     = NormalizeSafe(FVec3{0.7f, 0.05f, 0.5f});
-    _sun_color   = FVec3{1.0f, 0.55f, 0.25f};
-    _sun_radius  = 0.001f;
-    _sun_glow    = 0.20f;
-    _zenith      = FVec3{0.06f, 0.10f, 0.30f};
-    _horizon     = FVec3{1.00f, 0.55f, 0.25f};
-    _ground      = FVec3{0.10f, 0.06f, 0.08f};
+    m_SunDir     = NormalizeSafe(FVec3{0.7f, 0.05f, 0.5f});
+    m_SunColor   = FVec3{1.0f, 0.55f, 0.25f};
+    m_SunRadius  = 0.001f;
+    m_SunGlow    = 0.20f;
+    m_Zenith      = FVec3{0.06f, 0.10f, 0.30f};
+    m_Horizon     = FVec3{1.00f, 0.55f, 0.25f};
+    m_Ground      = FVec3{0.10f, 0.06f, 0.08f};
 }
 
 void FSky::PresetNight() noexcept {
-    _sun_dir     = NormalizeSafe(FVec3{0.3f, 0.6f, 0.2f});
-    _sun_color   = FVec3{0.85f, 0.85f, 0.95f};
-    _sun_radius  = 0.0008f;
-    _sun_glow    = 0.04f;
-    _zenith      = FVec3{0.02f, 0.03f, 0.08f};
-    _horizon     = FVec3{0.05f, 0.07f, 0.15f};
-    _ground      = FVec3{0.02f, 0.03f, 0.05f};
+    m_SunDir     = NormalizeSafe(FVec3{0.3f, 0.6f, 0.2f});
+    m_SunColor   = FVec3{0.85f, 0.85f, 0.95f};
+    m_SunRadius  = 0.0008f;
+    m_SunGlow    = 0.04f;
+    m_Zenith      = FVec3{0.02f, 0.03f, 0.08f};
+    m_Horizon     = FVec3{0.05f, 0.07f, 0.15f};
+    m_Ground      = FVec3{0.02f, 0.03f, 0.05f};
 }
 
 void FSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
-    if (!_pipeline || !_cb) return;
+    if (!m_Pipeline || !m_Cb) return;
     SkyCB cb{};
     cb.inv_view_proj = Inverse(camera.ViewProjection());
     FVec3 eye = camera.Eye();
     cb.camera_pos = FVec4{eye.x, eye.y, eye.z, 1};
-    cb.sun_dir    = FVec4{_sun_dir.x, _sun_dir.y, _sun_dir.z, 0};
-    cb.sun_color  = FVec4{_sun_color.x, _sun_color.y, _sun_color.z, 1};
-    cb.sun_params = FVec4{_sun_radius, _sun_glow, 0, 0};
-    cb.zenith     = FVec4{_zenith.x, _zenith.y, _zenith.z, 1};
-    cb.horizon    = FVec4{_horizon.x, _horizon.y, _horizon.z, 1};
-    cb.ground     = FVec4{_ground.x, _ground.y, _ground.z, 1};
-    _cb->Update(&cb, sizeof(cb));
+    cb.sun_dir    = FVec4{m_SunDir.x, m_SunDir.y, m_SunDir.z, 0};
+    cb.sun_color  = FVec4{m_SunColor.x, m_SunColor.y, m_SunColor.z, 1};
+    cb.sun_params = FVec4{m_SunRadius, m_SunGlow, 0, 0};
+    cb.zenith     = FVec4{m_Zenith.x, m_Zenith.y, m_Zenith.z, 1};
+    cb.horizon    = FVec4{m_Horizon.x, m_Horizon.y, m_Horizon.z, 1};
+    cb.ground     = FVec4{m_Ground.x, m_Ground.y, m_Ground.z, 1};
+    m_Cb->Update(&cb, sizeof(cb));
 
-    cl.SetPipeline(*_pipeline);
-    cl.SetConstantBuffer(0, *_cb);
+    cl.SetPipeline(*m_Pipeline);
+    cl.SetConstantBuffer(0, *m_Cb);
     cl.Draw(3);    // VB 無し、SV_VertexID で 3 頂点
 }
 

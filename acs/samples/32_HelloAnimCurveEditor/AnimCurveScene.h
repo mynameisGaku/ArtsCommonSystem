@@ -26,14 +26,14 @@ private:
     // DrawMenuBar より前に push する必要がある (= ImGui は同一フレーム内で
     // BeginMainMenuBar を複数回呼ぶと 1 個の bar にマージするため、本 sample
     // 固有の File メニューと Workspace の FWindow/Layout メニューを並べられる)。
-    void _draw_file_menu() noexcept;
+    void m_DrawFileMenu() noexcept;
 
-    acs::game::editor_core::FEditorWorkspace _workspace;
-    acs::game::editor_core::FEditorTheme     _theme;
-    acs::game::animcurve::FAnimCurveEditorPanel _curve_panel;
+    acs::game::editor_core::FEditorWorkspace m_Workspace;
+    acs::game::editor_core::FEditorTheme     m_Theme;
+    acs::game::animcurve::FAnimCurveEditorPanel m_CurvePanel;
 
     // 編集対象の FAnimationCurve。Scene が所有し、panel は raw 参照を保持する。
-    acs::game::FAnimationCurve _example_curve;
+    acs::game::FAnimationCurve m_ExampleCurve;
 };
 
 } // namespace helloac

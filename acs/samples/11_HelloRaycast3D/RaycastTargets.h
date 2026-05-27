@@ -24,18 +24,18 @@ public:
 
     // 読み取り専用アクセス
     acs::u32        Count()           const noexcept { return kNumObjects; }
-    const Object&   At(acs::u32 i)    const noexcept { return _objects[i]; }
-    acs::i32        HitIndex()        const noexcept { return _hit_index; }
-    acs::FVec3       HitPoint()        const noexcept { return _hit_point; }
-    bool            HasHit()          const noexcept { return _hit_index >= 0; }
+    const Object&   At(acs::u32 i)    const noexcept { return m_Objects[i]; }
+    acs::i32        HitIndex()        const noexcept { return m_HitIndex; }
+    acs::FVec3       HitPoint()        const noexcept { return m_HitPoint; }
+    bool            HasHit()          const noexcept { return m_HitIndex >= 0; }
 
 private:
     // HSV→RGB (0..1)。色相を順に振って虹色配置するため。
-    static acs::FVec3 _hsv_to_rgb(acs::f32 h, acs::f32 s, acs::f32 v) noexcept;
+    static acs::FVec3 m_HsvToRgb(acs::f32 h, acs::f32 s, acs::f32 v) noexcept;
 
-    Object    _objects[kNumObjects]{};
-    acs::i32  _hit_index = -1;
-    acs::FVec3 _hit_point{};
+    Object    m_Objects[kNumObjects]{};
+    acs::i32  m_HitIndex = -1;
+    acs::FVec3 m_HitPoint{};
 };
 
 } // namespace helloraycast3d

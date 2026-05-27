@@ -65,15 +65,15 @@ public:
 
     void Shutdown() noexcept;
 
-    IRhiTexture* AtlasTexture() const noexcept { return _atlas.Get(); }
-    u32          AtlasSize()    const noexcept { return _atlas_size; }
-    f32          PixelSize()    const noexcept { return _pixel_size; }
+    IRhiTexture* AtlasTexture() const noexcept { return m_Atlas.Get(); }
+    u32          AtlasSize()    const noexcept { return m_AtlasSize; }
+    f32          PixelSize()    const noexcept { return m_PixelSize; }
 
     // フォント全体のメトリクス（ピクセル単位）
-    f32 Ascent()     const noexcept { return _ascent; }
-    f32 Descent()    const noexcept { return _descent; }    // 通常負値
-    f32 LineGap()    const noexcept { return _line_gap; }
-    f32 LineHeight() const noexcept { return _ascent - _descent + _line_gap; }
+    f32 Ascent()     const noexcept { return m_Ascent; }
+    f32 Descent()    const noexcept { return m_Descent; }    // 通常負値
+    f32 LineGap()    const noexcept { return m_LineGap; }
+    f32 LineHeight() const noexcept { return m_Ascent - m_Descent + m_LineGap; }
 
     // コードポイントのグリフ情報を取得（アトラス未収録なら false）
     bool GetGlyph(u32 codepoint, GlyphInfo& out) const noexcept;
@@ -82,13 +82,13 @@ public:
     f32 MeasureWidth(const char* utf8_text) const noexcept;
 
 private:
-    TUniquePtr<IRhiTexture>    _atlas;
-    THashMap<u32, GlyphInfo>   _glyphs;
-    u32                       _atlas_size = 0;
-    f32                       _pixel_size = 0;
-    f32                       _ascent     = 0;
-    f32                       _descent    = 0;
-    f32                       _line_gap   = 0;
+    TUniquePtr<IRhiTexture>    m_Atlas;
+    THashMap<u32, GlyphInfo>   m_Glyphs;
+    u32                       m_AtlasSize = 0;
+    f32                       m_PixelSize = 0;
+    f32                       m_Ascent     = 0;
+    f32                       m_Descent    = 0;
+    f32                       m_LineGap   = 0;
 };
 
 // UTF-8 デコード: *p から 1 文字ぶん読み、コードポイントを返す。

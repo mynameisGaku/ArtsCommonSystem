@@ -19,21 +19,21 @@
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::FDynamicDifficulty _dda;
+//       acs::game::FDynamicDifficulty m_Dda;
 //       void OnEnter() noexcept override {
-//           _dda.Init(acs::game::EDifficultyLevel::Adaptive);
+//           m_Dda.Init(acs::game::EDifficultyLevel::Adaptive);
 //       }
 //       void OnPlayerDeath() noexcept {
-//           _dda.RecordDeath();
-//           _dda.RecordRetry();
+//           m_Dda.RecordDeath();
+//           m_Dda.RecordRetry();
 //       }
-//       void OnEnemyKilled() noexcept { _dda.RecordKill(); }
-//       void OnLevelCleared(f32 time) noexcept { _dda.RecordLevelComplete(time); }
+//       void OnEnemyKilled() noexcept { m_Dda.RecordKill(); }
+//       void OnLevelCleared(f32 time) noexcept { m_Dda.RecordLevelComplete(time); }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _dda.Tick(dt);
+//           m_Dda.Tick(dt);
 //           // 戦闘ロジックは乗数を pull して使う
-//           f32 enemy_hp_mul = _dda.EnemyHealthMultiplier();
-//           f32 enemy_dmg    = _dda.EnemyDamageMultiplier();
+//           f32 enemy_hp_mul = m_Dda.EnemyHealthMultiplier();
+//           f32 enemy_dmg    = m_Dda.EnemyDamageMultiplier();
 //           // ...
 //       }
 //   };
@@ -119,16 +119,16 @@ public:
     FDynamicDifficulty& operator=(FDynamicDifficulty&&)      = delete;
 
     // ----- 初期化 / モード切替 -----
-    // base_level: 初期モード。Adaptive 指定時は `_current_difficulty` を
+    // base_level: 初期モード。Adaptive 指定時は `m_CurrentDifficulty` を
     //             0.5 (= Normal 相当) スタートにして、Tick で target に寄せていく。
     void Init(EDifficultyLevel base_level = EDifficultyLevel::Normal) noexcept;
 
-    // モード切替。離散モードへの変更は `_current_difficulty` を該当段の
+    // モード切替。離散モードへの変更は `m_CurrentDifficulty` を該当段の
     // 連続値 (Easy=0 / Normal=1/3 / Hard=2/3 / VeryHard=1) に即スナップ。
     // Adaptive へ切替時は現在値を保持して target に向かって lerp 続行。
     void SetMode(EDifficultyLevel mode) noexcept;
 
-    EDifficultyLevel CurrentMode() const noexcept { return _mode; }
+    EDifficultyLevel CurrentMode() const noexcept { return m_Mode; }
 
     // ----- 統計記録 (gameplay 側がイベント駆動で呼ぶ) -----
     void RecordDeath()           noexcept;
@@ -141,7 +141,7 @@ public:
 
     // ----- 連続値難易度 [0, 1] -----
     // 離散モード: 該当段の固定値。Adaptive: smooth lerp 中の現在値。
-    f32 CurrentDifficulty() const noexcept { return _current_difficulty; }
+    f32 CurrentDifficulty() const noexcept { return m_CurrentDifficulty; }
 
     // ----- 乗数 accessor (戦闘ロジックが pull) -----
     // 0.5 = Easy, 1.0 = Normal, 1.5 = Hard, 2.0 = VeryHard。
@@ -173,12 +173,12 @@ private:
     // 連続値 [0,1] を 4 段表 (vals[4]) で線形補間。区間 0.0..1/3..2/3..1.0。
     static f32 SampleCurve(f32 t, const f32 vals[4]) noexcept;
 
-    EDifficultyLevel _mode               = EDifficultyLevel::Normal;
-    f32             _current_difficulty = 0.333333f;  // Normal start (= 1/3)
+    EDifficultyLevel m_Mode               = EDifficultyLevel::Normal;
+    f32             m_CurrentDifficulty = 0.333333f;  // Normal start (= 1/3)
     PlayerSkillStats _stats {};
 
     // Adaptive 用の累積セッション時間 (= 統計密度の分母として使う)。
-    f32 _session_time = 0.0f;
+    f32 m_SessionTime = 0.0f;
 
     // smooth lerp rate (1/s)。`1 - exp(-rate * dt)` で dt 不変な指数追従。
     // 0.5 で約 1.4 秒で 50% 詰める。意図的にゆっくり (急変回避)。

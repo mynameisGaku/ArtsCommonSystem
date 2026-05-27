@@ -56,7 +56,7 @@ static IInspectableProvider* ResolveProvider(FInspectorSeam& seam, FNodeId id) n
 //  ポインタを const char* として読み、書き戻しは行わない)。
 //
 // kind 分岐は switch にまとめてレジスタ局所化を狙う。各 case は ImGui の
-// 該当 widget を呼び、戻り値が true なら _dirty を立てる。
+// 該当 widget を呼び、戻り値が true なら m_Dirty を立てる。
 static bool DrawField(InspectableField& field) noexcept {
     if (field.name == nullptr || field.data == nullptr) {
         // データ未設定の field は描画しない (no-op + change=false)。
@@ -117,8 +117,8 @@ static bool DrawField(InspectableField& field) noexcept {
     }
 
     case EFieldKind::FVec3: {
-        // acs::FVec3 は alignas(16) で内部に _pad を含む。x/y/z は連続するが
-        // ImGui に &p->x を直接渡すと _pad を踏まずに 3 要素読むので安全。
+        // acs::FVec3 は alignas(16) で内部に m_Pad を含む。x/y/z は連続するが
+        // ImGui に &p->x を直接渡すと m_Pad を踏まずに 3 要素読むので安全。
         // ただし可読性のため一時配列に詰める。
         FVec3* p = static_cast<FVec3*>(field.data);
         f32 tmp[3] = { p->x, p->y, p->z };
@@ -203,19 +203,19 @@ void FInspectorPanel::Init() noexcept {
     // 完全リセット。多重 Init を許容するため、ここでは selection / dirty を
     // クリアするだけで callback は触らない (Init は state リセット、callback
     // のクリアは Shutdown / Set*() の責務)。
-    _current_selection = FNodeId {};
-    _dirty             = false;
-    // _selection_service / callback は維持 (= 再 Init で外部設定を壊さない)。
+    m_CurrentSelection = FNodeId {};
+    m_Dirty             = false;
+    // m_SelectionService / callback は維持 (= 再 Init で外部設定を壊さない)。
 }
 
 void FInspectorPanel::Shutdown() noexcept {
     // 全状態を初期に戻す。外部所有の FSelectionService / callback ターゲットを
     // 破棄するわけではないが、本パネルからの参照は外す。
-    _current_selection  = FNodeId {};
-    _selection_service  = nullptr;
-    _dirty              = false;
-    _on_change_cb       = nullptr;
-    _on_change_user     = nullptr;
+    m_CurrentSelection  = FNodeId {};
+    m_SelectionService  = nullptr;
+    m_Dirty              = false;
+    m_OnChangeCb       = nullptr;
+    m_OnChangeUser     = nullptr;
 }
 
 // =============================================================================
@@ -224,12 +224,12 @@ void FInspectorPanel::Shutdown() noexcept {
 
 void FInspectorPanel::SetSelectionService(FSelectionService* svc) noexcept {
     // non-owning 保存。nullptr で解除可能。
-    _selection_service = svc;
+    m_SelectionService = svc;
 }
 
 void FInspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept {
-    _on_change_cb   = cb;
-    _on_change_user = user;
+    m_OnChangeCb   = cb;
+    m_OnChangeUser = user;
 }
 
 // =============================================================================
@@ -238,7 +238,7 @@ void FInspectorPanel::SetOnFieldChangeCallback(FieldChangeCallback cb, void* use
 // ・FSelectionService が居れば Current() を優先採用、なければ引数 selected_id。
 // ・Provider が無効なら "(No provider)" を表示して return。
 // ・Provider の各オブジェクトを type/instance ヘッダ + field 配列で描画。
-// ・field が変わったら _dirty を立て + callback を発火。
+// ・field が変わったら m_Dirty を立て + callback を発火。
 // =============================================================================
 void FInspectorPanel::DrawUI() noexcept {
     // Phase 24: FEditorPanel 継承で no-param 化。
@@ -248,22 +248,22 @@ void FInspectorPanel::DrawUI() noexcept {
         ImGui::End();
         return;
     }
-    if (_inspector_seam == nullptr) {
+    if (m_InspectorSeam == nullptr) {
         ImGui::TextUnformatted("(no FInspectorSeam attached; call SetInspectorSeam)");
         ImGui::End();
         return;
     }
-    FInspectorSeam& seam = *_inspector_seam;
+    FInspectorSeam& seam = *m_InspectorSeam;
 
     // ----- 選択 FNodeId の解決 -----
     FNodeId effective {};
-    if (_selection_service != nullptr) {
-        FNodeId from_svc = _selection_service->CurrentSelection();
+    if (m_SelectionService != nullptr) {
+        FNodeId from_svc = m_SelectionService->CurrentSelection();
         if (from_svc.IsValid()) {
             effective = from_svc;
         }
     }
-    _current_selection = effective;
+    m_CurrentSelection = effective;
 
     // ヘッダ: 現在の選択 FNodeId を表示 (デバッグ + 視認性)。
     if (!effective.IsValid()) {
@@ -315,12 +315,12 @@ void FInspectorPanel::DrawUI() noexcept {
                     InspectableField& field = obj.fields[f];
                     if (DrawField(field)) {
                         // field 編集発生: dirty 立て、Provider 通知、callback 発火。
-                        _dirty = true;
+                        m_Dirty = true;
                         // Provider への通知 (clamp / 派生値再計算 hook)。
                         prov->OnFieldChanged(obj_index, f);
                         // 外部 callback (永続化 / undo) への通知。
-                        if (_on_change_cb != nullptr) {
-                            _on_change_cb(_on_change_user,
+                        if (m_OnChangeCb != nullptr) {
+                            m_OnChangeCb(m_OnChangeUser,
                                           effective,
                                           field.name,
                                           field.kind);
@@ -335,7 +335,7 @@ void FInspectorPanel::DrawUI() noexcept {
 
     // ----- フッタ: dirty 状態のインジケータ -----
     ImGui::Separator();
-    if (_dirty) {
+    if (m_Dirty) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "* modified");
     } else {
         ImGui::TextDisabled("(no changes)");

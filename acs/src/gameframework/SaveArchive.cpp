@@ -43,19 +43,19 @@ namespace {
 // Meyer's singleton で thread-safe な lookup table 初期化を行う。
 // (assetpack/FAcpakReader.cpp と同一実装)
 const u32* GetCrc32Table() noexcept {
-    static u32 _table[256] = {};
-    static bool _initialized = false;
-    if (!_initialized) {
+    static u32 m_Table[256] = {};
+    static bool m_Initialized = false;
+    if (!m_Initialized) {
         for (u32 i = 0; i < 256; ++i) {
             u32 c = i;
             for (u32 k = 0; k < 8; ++k) {
                 c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
             }
-            _table[i] = c;
+            m_Table[i] = c;
         }
-        _initialized = true;
+        m_Initialized = true;
     }
-    return _table;
+    return m_Table;
 }
 
 // バイト列の CRC32 を計算する (Zlib / PNG 規約)。

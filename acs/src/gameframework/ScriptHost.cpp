@@ -65,19 +65,19 @@ TResult<void> ScriptVmStub::Init() noexcept {
     // Stub は副作用ゼロで成功させる (= 起動シーケンスを通すため)。
     // 実際のスクリプト動作は LoadScript / CallFunction の段階で
     // NotImplemented として落とす。
-    _initialized = true;
+    m_Initialized = true;
     return Ok();
 }
 
 void ScriptVmStub::Shutdown() noexcept {
     // 何も保持していないので no-op。Init 前に呼ばれても安全。
-    _initialized = false;
+    m_Initialized = false;
 }
 
 TResult<void> ScriptVmStub::LoadScript(const char* /*source*/,
                                       u32         /*source_len*/,
                                       const char* /*chunk_name*/) noexcept {
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized,
                        "ScriptVmStub::LoadScript called before Init()");
     }
@@ -88,7 +88,7 @@ TResult<void> ScriptVmStub::LoadScript(const char* /*source*/,
 TResult<void> ScriptVmStub::CallFunction(const char* /*function_name*/,
                                         const ScriptValue* /*args*/, u32 /*arg_count*/,
                                         ScriptValue* /*ret_out*/) noexcept {
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized,
                        "ScriptVmStub::CallFunction called before Init()");
     }
@@ -99,7 +99,7 @@ TResult<void> ScriptVmStub::CallFunction(const char* /*function_name*/,
 TResult<void> ScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
                                                   NativeFunction /*fn*/,
                                                   void* /*user*/) noexcept {
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized,
                        "ScriptVmStub::RegisterNativeFunction called before Init()");
     }
@@ -128,7 +128,7 @@ void ScriptVmStub::CollectGarbage() noexcept {
 //
 // スレッド安全性:
 //   C++11 以降、関数内 static の初期化は thread-safe (magic statics)。
-//   ただし stub 自身が状態を持つ (`_initialized`) ため、複数スレッドから
+//   ただし stub 自身が状態を持つ (`m_Initialized`) ため、複数スレッドから
 //   同時アクセスする呼び出し側は外部同期を取る必要がある。
 // =============================================================================
 IScriptVm& GetVmStub() noexcept {
@@ -142,7 +142,7 @@ IScriptVm& GetVmStub() noexcept {
 // 設計のポイント:
 //   ・vm を **所有しない** (raw ポインタ保持のみ)。差し込み側 (FGame / Scene /
 //     stub singleton) が破棄責任を持つ。
-//   ・`_natives` に登録履歴を保持しておくことで、将来 backend hot-swap が
+//   ・`m_Natives` に登録履歴を保持しておくことで、将来 backend hot-swap が
 //     必要になった際にもう一度すべて register し直せる素地を作る。
 //   ・全 method noexcept、引数 nullptr はすべて防御的にチェック。
 // =============================================================================
@@ -155,30 +155,30 @@ void FScriptHost::Init(IScriptVm* vm) noexcept {
     // 既に他の vm が設定されていた場合は、警告ログを出して上書きする
     // (後勝ち)。本来は二度差しを避けるべきだが、テスト中の差し替え運用を
     // 楽にするため拒否ではなく警告に留める。
-    if (_vm != nullptr && _vm != vm) {
+    if (m_Vm != nullptr && m_Vm != vm) {
         ACS_LOG_WARN("FScriptHost::Init: overwriting existing vm (likely a re-init in tests)");
         // 既存の native 登録は新 vm 向けではないのでクリアする。
-        _natives.Clear();
+        m_Natives.Clear();
     }
-    _vm = vm;
+    m_Vm = vm;
 }
 
 void FScriptHost::Shutdown() noexcept {
     // vm 自体は所有していないので破棄しない。参照だけ切る。
-    _vm = nullptr;
-    _natives.Clear();
+    m_Vm = nullptr;
+    m_Natives.Clear();
     // error callback はあえて残す (Shutdown 後 → 再 Init で同じ UI に
     // 通知させたいシナリオが多いため)。明示的に SetOnErrorCallback(nullptr)
     // を呼んでクリアすること。
 }
 
 IScriptVm* FScriptHost::Vm() const noexcept {
-    return _vm;
+    return m_Vm;
 }
 
 TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // ---- 事前チェック ---------------------------------------------------
-    if (_vm == nullptr) {
+    if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
                        "FScriptHost::LoadAndRun: vm not initialized (call Init(vm) first)");
     }
@@ -214,7 +214,7 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     if (size_u64 == 0) {
         // 空ファイル → 空 chunk として LoadScript を呼ぶ (backend が許容する想定)。
         ::CloseHandle(h);
-        return _vm->LoadScript("", 0, "<empty>");
+        return m_Vm->LoadScript("", 0, "<empty>");
     }
     if (size_u64 > kMaxScriptFileBytes) {
         ::CloseHandle(h);
@@ -263,7 +263,7 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // 固定文字列で代用する。実 Lua backend (Phase N-3) では caller から
     // explicit chunk name を取る overload を追加予定。
     const u32 src_len = (buf_size > 0xFFFFFFFFull) ? 0xFFFFFFFFu : static_cast<u32>(buf_size);
-    TResult<void> r = _vm->LoadScript(reinterpret_cast<const char*>(buf),
+    TResult<void> r = m_Vm->LoadScript(reinterpret_cast<const char*>(buf),
                                      src_len,
                                      "<file>");
 
@@ -282,7 +282,7 @@ TResult<void> FScriptHost::CallGlobalFunction(const char*        function_name,
                                             const ScriptValue* args,
                                             u32                arg_count,
                                             ScriptValue*       ret_out) noexcept {
-    if (_vm == nullptr) {
+    if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
                        "FScriptHost::CallGlobalFunction: vm not initialized (call Init(vm) first)");
     }
@@ -295,7 +295,7 @@ TResult<void> FScriptHost::CallGlobalFunction(const char*        function_name,
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
                        "FScriptHost::CallGlobalFunction: arg_count > 0 but args is null");
     }
-    TResult<void> r = _vm->CallFunction(function_name, args, arg_count, ret_out);
+    TResult<void> r = m_Vm->CallFunction(function_name, args, arg_count, ret_out);
     if (r.IsErr()) {
         FireError(function_name, 0, r.Error().message);
     }
@@ -305,7 +305,7 @@ TResult<void> FScriptHost::CallGlobalFunction(const char*        function_name,
 TResult<void> FScriptHost::RegisterNative(const char*    function_name,
                                         NativeFunction fn,
                                         void*          user) noexcept {
-    if (_vm == nullptr) {
+    if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
                        "FScriptHost::RegisterNative: vm not initialized (call Init(vm) first)");
     }
@@ -316,17 +316,17 @@ TResult<void> FScriptHost::RegisterNative(const char*    function_name,
 
     // 同名既登録なら entry を上書きする (= 内部 registry は名前ユニーク前提)。
     bool replaced = false;
-    for (u32 i = 0; i < _natives.Size(); ++i) {
-        if (CStrEquals(_natives[i].name, function_name)) {
-            _natives[i].fn   = fn;
-            _natives[i].user = user;
+    for (u32 i = 0; i < m_Natives.Size(); ++i) {
+        if (CStrEquals(m_Natives[i].name, function_name)) {
+            m_Natives[i].fn   = fn;
+            m_Natives[i].user = user;
             replaced         = true;
             break;
         }
     }
 
     // vm 側にも登録 (backend が同名上書きをどう扱うかは backend 依存)。
-    TResult<void> r = _vm->RegisterNativeFunction(function_name, fn, user);
+    TResult<void> r = m_Vm->RegisterNativeFunction(function_name, fn, user);
     if (r.IsErr()) {
         // backend 失敗時は本 host の registry にも追加しない (= 巻き戻し)。
         // 既に上書き済みだった場合は中途半端な状態を避けるため、巻き戻しは
@@ -349,7 +349,7 @@ TResult<void> FScriptHost::RegisterNative(const char*    function_name,
         e.name = function_name;
         e.fn   = fn;
         e.user = user;
-        _natives.PushBack(e);
+        m_Natives.PushBack(e);
     }
     return Ok();
 }
@@ -367,7 +367,7 @@ void FScriptHost::RegisterStandardBindings() noexcept {
     // 各 Pillar が backend 側で「自分の binding」を `FScriptHost::RegisterNative`
     // で登録するインターフェースを別途持ち、ここはその dispatch を呼ぶだけに
     // 留める想定 (= 本 module が全 Pillar に依存しないようにする)。
-    if (_vm == nullptr) {
+    if (m_Vm == nullptr) {
         // Init 前の呼び出しは事故 (FGame の startup 順序を疑え)。
         ACS_LOG_WARN("FScriptHost::RegisterStandardBindings: vm not initialized; skipping");
         return;
@@ -377,19 +377,19 @@ void FScriptHost::RegisterStandardBindings() noexcept {
 }
 
 u32 FScriptHost::RegisteredNativeCount() const noexcept {
-    return static_cast<u32>(_natives.Size());
+    return static_cast<u32>(m_Natives.Size());
 }
 
 void FScriptHost::SetOnErrorCallback(ScriptErrorCallback cb, void* user) noexcept {
-    _on_error      = cb;
-    _on_error_user = user;
+    m_OnError      = cb;
+    m_OnErrorUser = user;
 }
 
 void FScriptHost::FireError(const char* chunk_name, u32 line, const char* message) const noexcept {
-    if (_on_error == nullptr) return;
+    if (m_OnError == nullptr) return;
     // callback は noexcept 必須 (= 例外伝搬しない、scripting backend 由来の
     // C スタックを traverse しないため)。
-    _on_error(_on_error_user, chunk_name, line, message);
+    m_OnError(m_OnErrorUser, chunk_name, line, message);
 }
 
 } // namespace acs::game

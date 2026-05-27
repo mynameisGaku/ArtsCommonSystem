@@ -22,13 +22,13 @@ private:
     // File menu stub の保存先 (現状 callback だけ走らせるため未使用)。
     static constexpr const char* kAtlasFilePath = "preset.acsatlas";
 
-    acs::game::editor_core::FEditorWorkspace           _workspace;
-    acs::game::spriteatlas::FSpriteAtlasEditorPanel    _editor_panel;
+    acs::game::editor_core::FEditorWorkspace           m_Workspace;
+    acs::game::spriteatlas::FSpriteAtlasEditorPanel    m_EditorPanel;
 
     // 編集対象 FSpritePack (256x256 dummy atlas + 3 frame)。
-    // FSpritePack は非コピー / 非ムーブなのでメンバ直保持。`_editor_panel` に
-    // SetSpritePack(&_pack) で raw 注入する。
-    acs::game::FSpritePack                             _pack;
+    // FSpritePack は非コピー / 非ムーブなのでメンバ直保持。`m_EditorPanel` に
+    // SetSpritePack(&m_Pack) で raw 注入する。
+    acs::game::FSpritePack                             m_Pack;
 };
 
 } // namespace hellosa

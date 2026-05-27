@@ -72,21 +72,21 @@ struct FWaterVolumeInfo {
 /// FWaterVolume を識別する packed 32bit handle (generational)。
 /// レイアウトは FShapeId と同一 (low24=index, high8=generation)。
 struct FWaterVolumeId {
-    u32 _packed = 0;   // 0 = invalid
+    u32 m_Packed = 0;   // 0 = invalid
 
     constexpr FWaterVolumeId() noexcept = default;
     constexpr FWaterVolumeId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32  Index() const noexcept { return _packed & 0x00FFFFFFu; }
+    constexpr u32  Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
     constexpr u8   Generation() const noexcept {
-        return static_cast<u8>(_packed >> 24);
+        return static_cast<u8>(m_Packed >> 24);
     }
     /// invalid (packed == 0) でなければ true。
-    bool IsValid() const noexcept { return _packed != 0; }
+    bool IsValid() const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(FWaterVolumeId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(FWaterVolumeId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FWaterVolumeId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(FWaterVolumeId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 class FWaterVolume {
@@ -130,7 +130,7 @@ public:
 
     // ----- 全 volume 列挙 / 情報取得 -----
     /// active な volume 数。
-    u32 VolumeCount() const noexcept { return _volume_count; }
+    u32 VolumeCount() const noexcept { return m_VolumeCount; }
 
     /// active な全 volume を packed array で返す (内部表現と異なる)。
     /// out_count に書き込んだ要素数を返し、戻り値は先頭ポインタ。
@@ -150,16 +150,16 @@ private:
     };
 
     u32  AcquireSlot() noexcept;
-    /// AllVolumes() 用に active な info を `_packed_cache` に詰める。
+    /// AllVolumes() 用に active な info を `m_PackedCache` に詰める。
     void RebuildPackedCacheIfNeeded() const noexcept;
 
-    TArray<Slot> _slots;
-    u32         _volume_count = 0;
+    TArray<Slot> m_Slots;
+    u32         m_VolumeCount = 0;
 
     // AllVolumes() の戻り値用 cache。Add/Update/Remove で dirty になる。
     // mutable なのは const なクエリ API から lazy build したいため。
-    mutable TArray<FWaterVolumeInfo> _packed_cache;
-    mutable bool                   _cache_dirty = true;
+    mutable TArray<FWaterVolumeInfo> m_PackedCache;
+    mutable bool                   m_CacheDirty = true;
 };
 
 } // namespace acs::game

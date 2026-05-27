@@ -83,8 +83,8 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     if (atlas_size == 0) atlas_size = 1024;
     // CJK を含むなら 2048 未満は自動で 2048 へ
     if (include_cjk && atlas_size < 2048) atlas_size = 2048;
-    _pixel_size = pixel_size;
-    _atlas_size = atlas_size;
+    m_PixelSize = pixel_size;
+    m_AtlasSize = atlas_size;
 
     // stb_truetype で font 情報を取得
     stbtt_fontinfo info{};
@@ -94,9 +94,9 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     const f32 scale = stbtt_ScaleForPixelHeight(&info, pixel_size);
     int ascent = 0, descent = 0, line_gap = 0;
     stbtt_GetFontVMetrics(&info, &ascent, &descent, &line_gap);
-    _ascent   = ascent   * scale;
-    _descent  = descent  * scale;
-    _line_gap = line_gap * scale;
+    m_Ascent   = ascent   * scale;
+    m_Descent  = descent  * scale;
+    m_LineGap = line_gap * scale;
 
     // ===== アトラス用ピクセル（R8 single-channel）=====
     const usize atlas_bytes = static_cast<usize>(atlas_size) * atlas_size;
@@ -168,7 +168,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     auto tr = CreateRhiTexture(device, td);
     DefaultAllocator().Free(atlas_rgba);
     if (tr.IsErr()) return Err<void>(tr.Error());
-    _atlas = Move(tr.Value());
+    m_Atlas = Move(tr.Value());
 
     // ===== グリフマップ構築 =====
     const f32 inv_size = 1.0f / static_cast<f32>(atlas_size);
@@ -189,7 +189,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
             g.y_offset = pc.yoff;
             g.x_advance = pc.xadvance;
             const u32 cp = active_ranges[ri].first + i;
-            _glyphs.Insert(cp, g);
+            m_Glyphs.Insert(cp, g);
         }
     }
 
@@ -206,14 +206,14 @@ TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
 }
 
 void Font::Shutdown() noexcept {
-    _atlas.Reset();
-    _glyphs.Clear();
-    _atlas_size = 0;
-    _pixel_size = 0;
+    m_Atlas.Reset();
+    m_Glyphs.Clear();
+    m_AtlasSize = 0;
+    m_PixelSize = 0;
 }
 
 bool Font::GetGlyph(u32 codepoint, GlyphInfo& out) const noexcept {
-    const GlyphInfo* hit = _glyphs.Find(codepoint);
+    const GlyphInfo* hit = m_Glyphs.Find(codepoint);
     if (!hit) return false;
     out = *hit;
     return true;

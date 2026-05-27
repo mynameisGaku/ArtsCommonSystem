@@ -228,7 +228,7 @@ void Drawer_TextInput(const PropertyContext& ctx) noexcept {
 
 void PropertyDrawerRegistry::Init() noexcept {
     // 既存登録を全て破棄 (多重 Init を許容)。
-    _entries.Clear();
+    m_Entries.Clear();
 
     // bundled drawer 9 種を順に自動登録。
     //   ・名前順ではなく「カテゴリ順 (scalar → vector → color → asset → enum → text)」
@@ -248,13 +248,13 @@ void PropertyDrawerRegistry::Init() noexcept {
 void PropertyDrawerRegistry::Shutdown() noexcept {
     // 全 drawer 登録を破棄。Init での bundled 再注入は呼び出し側で `Init()` を
     // 呼び直す責務 (= Shutdown は state を空に倒すだけ)。
-    _entries.Clear();
+    m_Entries.Clear();
 }
 
 void PropertyDrawerRegistry::ClearAll() noexcept {
     // Shutdown と同義 (= ImGui 等のグローバル状態は触らないため等価)。
     // 別名 API として残しているのは Init/Shutdown/ClearAll の対称性を取るため。
-    _entries.Clear();
+    m_Entries.Clear();
 }
 
 // =============================================================================
@@ -263,9 +263,9 @@ void PropertyDrawerRegistry::ClearAll() noexcept {
 
 isize PropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
     if (type_name == nullptr || type_name[0] == '\0') return -1;
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_entries[i].name, type_name)) {
+        if (StrEq(m_Entries[i].name, type_name)) {
             return static_cast<isize>(i);
         }
     }
@@ -283,10 +283,10 @@ void PropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) 
     // 同 name が既に登録済みなら **後勝ち** で fn を置き換える。
     const isize idx = FindIndex(type_name);
     if (idx >= 0) {
-        _entries[static_cast<usize>(idx)].fn = fn;
+        m_Entries[static_cast<usize>(idx)].fn = fn;
         // name は同じ文字列リテラルが来る前提だが、念のため上書きしておく
         // (= 違うアドレスの同内容文字列が来た場合に古いポインタを保持しないため)。
-        _entries[static_cast<usize>(idx)].name = type_name;
+        m_Entries[static_cast<usize>(idx)].name = type_name;
         return;
     }
 
@@ -294,7 +294,7 @@ void PropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) 
     Entry e;
     e.name = type_name;
     e.fn   = fn;
-    _entries.PushBack(e);
+    m_Entries.PushBack(e);
 }
 
 void PropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
@@ -302,7 +302,7 @@ void PropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
     if (idx < 0) return;
     // 末尾 swap で O(1) 削除 (順序非保持)。RegisterDrawer で再登録すれば
     // 末尾に戻るので影響は少ない。
-    _entries.RemoveAtSwap(static_cast<usize>(idx));
+    m_Entries.RemoveAtSwap(static_cast<usize>(idx));
 }
 
 bool PropertyDrawerRegistry::HasDrawer(const char* type_name) const noexcept {
@@ -314,7 +314,7 @@ bool PropertyDrawerRegistry::DrawProperty(const char* type_name,
     const isize idx = FindIndex(type_name);
     if (idx < 0) return false;
 
-    DrawerFn fn = _entries[static_cast<usize>(idx)].fn;
+    DrawerFn fn = m_Entries[static_cast<usize>(idx)].fn;
     if (fn == nullptr) {
         // 防御的: Register 時に null fn は弾いているはずだが、念のため。
         return false;
@@ -328,12 +328,12 @@ bool PropertyDrawerRegistry::DrawProperty(const char* type_name,
 // =============================================================================
 
 u32 PropertyDrawerRegistry::DrawerCount() const noexcept {
-    return static_cast<u32>(_entries.Size());
+    return static_cast<u32>(m_Entries.Size());
 }
 
 const char* PropertyDrawerRegistry::DrawerName(u32 index) const noexcept {
-    if (static_cast<usize>(index) >= _entries.Size()) return nullptr;
-    return _entries[static_cast<usize>(index)].name;
+    if (static_cast<usize>(index) >= m_Entries.Size()) return nullptr;
+    return m_Entries[static_cast<usize>(index)].name;
 }
 
 } // namespace acs::game::editor_core

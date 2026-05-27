@@ -173,28 +173,28 @@ public:
 
     // ----- 読み出しアクセサ ------------------------------------------------
 
-    const MeshSummary& Summary() const noexcept { return _summary; }
+    const MeshSummary& Summary() const noexcept { return m_Summary; }
 
-    u32 SubmeshCount() const noexcept { return static_cast<u32>(_submeshes.Size()); }
+    u32 SubmeshCount() const noexcept { return static_cast<u32>(m_Submeshes.Size()); }
     // i >= SubmeshCount() のとき nullptr を返す (= 防衛的アクセス、UB なし)。
     const SubmeshInfo* Submesh(u32 i) const noexcept {
-        return (i < _submeshes.Size()) ? &_submeshes[i] : nullptr;
+        return (i < m_Submeshes.Size()) ? &m_Submeshes[i] : nullptr;
     }
 
-    u32 BoneCount() const noexcept { return static_cast<u32>(_bones.Size()); }
+    u32 BoneCount() const noexcept { return static_cast<u32>(m_Bones.Size()); }
     const BoneInfo* FBone(u32 i) const noexcept {
-        return (i < _bones.Size()) ? &_bones[i] : nullptr;
+        return (i < m_Bones.Size()) ? &m_Bones[i] : nullptr;
     }
 
     u32 AnimationClipCount() const noexcept {
-        return static_cast<u32>(_clips.Size());
+        return static_cast<u32>(m_Clips.Size());
     }
     const FAnimationClipInfo* AnimationClip(u32 i) const noexcept {
-        return (i < _clips.Size()) ? &_clips[i] : nullptr;
+        return (i < m_Clips.Size()) ? &m_Clips[i] : nullptr;
     }
 
     // 何らかの model が UpdateFromModel 経由で push されたか。
-    bool HasModel() const noexcept { return _has_model; }
+    bool HasModel() const noexcept { return m_HasModel; }
 
     // ----- FEditorPanel override --------------------------------------------
 
@@ -206,17 +206,17 @@ public:
     //   - Submeshes         (CollapsingHeader + Table)
     //   - Bones             (CollapsingHeader + TreeNode 再帰)
     //   - FAnimation Clips   (CollapsingHeader + Table)
-    // model 未 load (`!_has_model`) の場合は "(No model loaded)" を表示して
+    // model 未 load (`!m_HasModel`) の場合は "(No model loaded)" を表示して
     // セクションは描画しない。
     void DrawUI() noexcept override;
 
 private:
     // ----- 内部状態 ---------------------------------------------------------
-    MeshSummary                _summary{};                // 単一 summary
-    acs::TArray<SubmeshInfo>    _submeshes;                // submesh 配列
-    acs::TArray<BoneInfo>       _bones;                    // bone 配列
-    acs::TArray<FAnimationClipInfo> _clips;                 // animation clip 配列
-    bool                       _has_model      = false;   // UpdateFromModel 済みフラグ
+    MeshSummary                m_Summary{};                // 単一 summary
+    acs::TArray<SubmeshInfo>    m_Submeshes;                // submesh 配列
+    acs::TArray<BoneInfo>       m_Bones;                    // bone 配列
+    acs::TArray<FAnimationClipInfo> m_Clips;                 // animation clip 配列
+    bool                       m_HasModel      = false;   // UpdateFromModel 済みフラグ
 
     // bone 階層描画用の内部ヘルパ (実装は .cpp 側)。
     // bone_index の子を全 bone から線形走査し、TreeNode で再帰描画する。

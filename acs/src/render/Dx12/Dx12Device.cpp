@@ -7,14 +7,14 @@ namespace acs {
 
 Dx12Device::~Dx12Device() noexcept {
     WaitIdle();  // Pending コマンドの完了を待ってから破棄
-    if (_idle_event) ::CloseHandle(_idle_event);
-    ACS_SAFE_RELEASE(_idle_fence);
-    ACS_SAFE_RELEASE(_dsv_heap);
-    ACS_SAFE_RELEASE(_srv_heap);
-    ACS_SAFE_RELEASE(_gfx_queue);
-    ACS_SAFE_RELEASE(_device);
-    ACS_SAFE_RELEASE(_adapter);
-    ACS_SAFE_RELEASE(_factory);
+    if (m_IdleEvent) ::CloseHandle(m_IdleEvent);
+    ACS_SAFE_RELEASE(m_IdleFence);
+    ACS_SAFE_RELEASE(m_DsvHeap);
+    ACS_SAFE_RELEASE(m_SrvHeap);
+    ACS_SAFE_RELEASE(m_GfxQueue);
+    ACS_SAFE_RELEASE(m_Device);
+    ACS_SAFE_RELEASE(m_Adapter);
+    ACS_SAFE_RELEASE(m_Factory);
 }
 
 HrResult Dx12Device::InitDescriptorHeaps() noexcept {
@@ -25,12 +25,12 @@ HrResult Dx12Device::InitDescriptorHeaps() noexcept {
     hd.NumDescriptors = kSrvCapacity;
     hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hd.NodeMask = 0;
-    r.hr = _device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&_srv_heap));
+    r.hr = m_Device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&m_SrvHeap));
     if (r.IsErr()) return r;
-    _srv_handle_size =
-        _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    _srv_high_water = 0;
-    _srv_free_count = 0;
+    m_SrvHandleSize =
+        m_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    m_SrvHighWater = 0;
+    m_SrvFreeCount = 0;
 
     // DSV 用 CPU 専用ヒープ
     D3D12_DESCRIPTOR_HEAP_DESC dsv_hd{};
@@ -38,56 +38,56 @@ HrResult Dx12Device::InitDescriptorHeaps() noexcept {
     dsv_hd.NumDescriptors = kDsvCapacity;
     dsv_hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     dsv_hd.NodeMask = 0;
-    r.hr = _device->CreateDescriptorHeap(&dsv_hd, IID_PPV_ARGS(&_dsv_heap));
+    r.hr = m_Device->CreateDescriptorHeap(&dsv_hd, IID_PPV_ARGS(&m_DsvHeap));
     if (r.IsErr()) return r;
-    _dsv_handle_size =
-        _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-    _dsv_high_water = 0;
-    _dsv_free_count = 0;
+    m_DsvHandleSize =
+        m_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+    m_DsvHighWater = 0;
+    m_DsvFreeCount = 0;
     return r;
 }
 
 i32 Dx12Device::AllocateSrvSlot() noexcept {
-    if (_srv_free_count > 0) {
-        return _srv_free_list[--_srv_free_count];
+    if (m_SrvFreeCount > 0) {
+        return m_SrvFreeList[--m_SrvFreeCount];
     }
-    if (_srv_high_water >= kSrvCapacity) return -1;
-    return static_cast<i32>(_srv_high_water++);
+    if (m_SrvHighWater >= kSrvCapacity) return -1;
+    return static_cast<i32>(m_SrvHighWater++);
 }
 
 void Dx12Device::FreeSrvSlot(i32 index) noexcept {
     if (index < 0) return;
-    if (_srv_free_count < kSrvCapacity) {
-        _srv_free_list[_srv_free_count++] = index;
+    if (m_SrvFreeCount < kSrvCapacity) {
+        m_SrvFreeList[m_SrvFreeCount++] = index;
     }
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::SrvCpuHandle(i32 index) const noexcept {
-    D3D12_CPU_DESCRIPTOR_HANDLE h = _srv_heap->GetCPUDescriptorHandleForHeapStart();
-    h.ptr += static_cast<SIZE_T>(_srv_handle_size) * static_cast<SIZE_T>(index);
+    D3D12_CPU_DESCRIPTOR_HANDLE h = m_SrvHeap->GetCPUDescriptorHandleForHeapStart();
+    h.ptr += static_cast<SIZE_T>(m_SrvHandleSize) * static_cast<SIZE_T>(index);
     return h;
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE Dx12Device::SrvGpuHandle(i32 index) const noexcept {
-    D3D12_GPU_DESCRIPTOR_HANDLE h = _srv_heap->GetGPUDescriptorHandleForHeapStart();
-    h.ptr += static_cast<UINT64>(_srv_handle_size) * static_cast<UINT64>(index);
+    D3D12_GPU_DESCRIPTOR_HANDLE h = m_SrvHeap->GetGPUDescriptorHandleForHeapStart();
+    h.ptr += static_cast<UINT64>(m_SrvHandleSize) * static_cast<UINT64>(index);
     return h;
 }
 
 i32 Dx12Device::AllocateDsvSlot() noexcept {
-    if (_dsv_free_count > 0) return _dsv_free_list[--_dsv_free_count];
-    if (_dsv_high_water >= kDsvCapacity) return -1;
-    return static_cast<i32>(_dsv_high_water++);
+    if (m_DsvFreeCount > 0) return m_DsvFreeList[--m_DsvFreeCount];
+    if (m_DsvHighWater >= kDsvCapacity) return -1;
+    return static_cast<i32>(m_DsvHighWater++);
 }
 
 void Dx12Device::FreeDsvSlot(i32 index) noexcept {
     if (index < 0) return;
-    if (_dsv_free_count < kDsvCapacity) _dsv_free_list[_dsv_free_count++] = index;
+    if (m_DsvFreeCount < kDsvCapacity) m_DsvFreeList[m_DsvFreeCount++] = index;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::DsvCpuHandle(i32 index) const noexcept {
-    D3D12_CPU_DESCRIPTOR_HANDLE h = _dsv_heap->GetCPUDescriptorHandleForHeapStart();
-    h.ptr += static_cast<SIZE_T>(_dsv_handle_size) * static_cast<SIZE_T>(index);
+    D3D12_CPU_DESCRIPTOR_HANDLE h = m_DsvHeap->GetCPUDescriptorHandleForHeapStart();
+    h.ptr += static_cast<SIZE_T>(m_DsvHandleSize) * static_cast<SIZE_T>(index);
     return h;
 }
 
@@ -105,7 +105,7 @@ HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
 
     // DXGI ファクトリ作成
     UINT factory_flags = cfg.enable_debug_layer ? DXGI_CREATE_FACTORY_DEBUG : 0;
-    r.hr = ::CreateDXGIFactory2(factory_flags, IID_PPV_ARGS(&_factory));
+    r.hr = ::CreateDXGIFactory2(factory_flags, IID_PPV_ARGS(&m_Factory));
     if (r.IsErr()) return r;
 
     // 適切なアダプタ（GPU）を列挙して選ぶ
@@ -114,7 +114,7 @@ HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
         : DXGI_GPU_PREFERENCE_UNSPECIFIED;
     for (UINT i = 0;; ++i) {
         IDXGIAdapter1* adapter = nullptr;
-        HRESULT enum_hr = _factory->EnumAdapterByGpuPreference(i, pref, IID_PPV_ARGS(&adapter));
+        HRESULT enum_hr = m_Factory->EnumAdapterByGpuPreference(i, pref, IID_PPV_ARGS(&adapter));
         if (enum_hr == DXGI_ERROR_NOT_FOUND) break;
         if (FAILED(enum_hr)) continue;
         DXGI_ADAPTER_DESC1 desc{};
@@ -123,19 +123,19 @@ HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
         if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) { adapter->Release(); continue; }
         // この GPU で D3D12 デバイス作成を試みる
         if (SUCCEEDED(::D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_0,
-                                          IID_PPV_ARGS(&_device)))) {
-            _adapter = adapter;
+                                          IID_PPV_ARGS(&m_Device)))) {
+            m_Adapter = adapter;
             // GPU 名（UTF-16 → UTF-8 簡易変換）
             for (int j = 0; j < 127 && desc.Description[j]; ++j) {
                 wchar_t c = desc.Description[j];
-                _adapter_name[j] = (c < 128) ? static_cast<char>(c) : '?';
-                _adapter_name[j + 1] = 0;
+                m_AdapterName[j] = (c < 128) ? static_cast<char>(c) : '?';
+                m_AdapterName[j + 1] = 0;
             }
             break;
         }
         adapter->Release();
     }
-    if (!_device) {
+    if (!m_Device) {
         r.hr = E_FAIL;
         return r;
     }
@@ -146,13 +146,13 @@ HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
     qd.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
     qd.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     qd.NodeMask = 0;
-    r.hr = _device->CreateCommandQueue(&qd, IID_PPV_ARGS(&_gfx_queue));
+    r.hr = m_Device->CreateCommandQueue(&qd, IID_PPV_ARGS(&m_GfxQueue));
     if (r.IsErr()) return r;
 
     // WaitIdle 用フェンス
-    r.hr = _device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_idle_fence));
+    r.hr = m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_IdleFence));
     if (r.IsErr()) return r;
-    _idle_event = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    m_IdleEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
 
     // 共有 SRV ヒープ
     r = InitDescriptorHeaps();
@@ -161,28 +161,28 @@ HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
 
 // GPU が現在のキューに積まれた全コマンドを完了するまで待つ
 void Dx12Device::WaitIdle() noexcept {
-    if (!_gfx_queue || !_idle_fence) return;
-    ++_idle_value;
-    _gfx_queue->Signal(_idle_fence, _idle_value);
-    if (_idle_fence->GetCompletedValue() < _idle_value) {
-        _idle_fence->SetEventOnCompletion(_idle_value, _idle_event);
-        ::WaitForSingleObject(_idle_event, INFINITE);
+    if (!m_GfxQueue || !m_IdleFence) return;
+    ++m_IdleValue;
+    m_GfxQueue->Signal(m_IdleFence, m_IdleValue);
+    if (m_IdleFence->GetCompletedValue() < m_IdleValue) {
+        m_IdleFence->SetEventOnCompletion(m_IdleValue, m_IdleEvent);
+        ::WaitForSingleObject(m_IdleEvent, INFINITE);
     }
 }
 
 // フレーム単位で利用する Signal/Wait（WaitIdle と同じ fence を共有）
 u64 Dx12Device::SignalGraphicsQueue() noexcept {
-    if (!_gfx_queue || !_idle_fence) return 0;
-    ++_idle_value;
-    _gfx_queue->Signal(_idle_fence, _idle_value);
-    return _idle_value;
+    if (!m_GfxQueue || !m_IdleFence) return 0;
+    ++m_IdleValue;
+    m_GfxQueue->Signal(m_IdleFence, m_IdleValue);
+    return m_IdleValue;
 }
 
 void Dx12Device::WaitForFenceValue(u64 value) noexcept {
-    if (!_idle_fence || value == 0) return;
-    if (_idle_fence->GetCompletedValue() >= value) return;
-    _idle_fence->SetEventOnCompletion(value, _idle_event);
-    ::WaitForSingleObject(_idle_event, INFINITE);
+    if (!m_IdleFence || value == 0) return;
+    if (m_IdleFence->GetCompletedValue() >= value) return;
+    m_IdleFence->SetEventOnCompletion(value, m_IdleEvent);
+    ::WaitForSingleObject(m_IdleEvent, INFINITE);
 }
 
 // ファクトリ関数: CreateRhiDevice の DX12 実装

@@ -244,23 +244,23 @@ public:
 
 private:
     // 3D viewport camera (orbit / pan / dolly)。Init() で Mode3D に初期化。
-    acs::game::editor_core::FEditorCamera _camera {};
+    acs::game::editor_core::FEditorCamera m_Camera {};
 
     // 現在のモデル asset path (UTF-16)。未設定時は先頭が L'\0'。
     // コピー所有 (= FAssetBrowser の文字列寿命に依存しない)。
-    wchar_t _asset_path[kMaxAssetPathChars] = {};
+    wchar_t m_AssetPath[kMaxAssetPathChars] = {};
 
     // ---- Lighting 状態 ----
     // 既定値はヘッダコメントの設計選択節と一致 (sun が右上から斜めに差す形)。
-    acs::FVec3 _light_dir   {0.3f, -0.7f, 0.6f};   // direction (renderer 側で正規化)
-    acs::FVec3 _light_color {1.0f, 1.0f, 1.0f};    // RGB linear
-    bool      _ibl_enabled = true;
-    u32       _tonemap_mode = 0u;                  // 0=ACES, 1=Reinhard, 2=Linear
+    acs::FVec3 m_LightDir   {0.3f, -0.7f, 0.6f};   // direction (renderer 側で正規化)
+    acs::FVec3 m_LightColor {1.0f, 1.0f, 1.0f};    // RGB linear
+    bool      m_IblEnabled = true;
+    u32       m_TonemapMode = 0u;                  // 0=ACES, 1=Reinhard, 2=Linear
 
     // ---- 背景 / 表示 toggle ----
-    acs::FVec4 _bg_color    {0.15f, 0.15f, 0.18f, 1.0f};
-    bool      _show_grid           = true;
-    bool      _show_bone_skeleton  = false;
+    acs::FVec4 m_BgColor    {0.15f, 0.15f, 0.18f, 1.0f};
+    bool      m_ShowGrid           = true;
+    bool      m_ShowBoneSkeleton  = false;
 };
 
 } // namespace acs::game::modelview

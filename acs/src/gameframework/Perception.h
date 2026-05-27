@@ -125,19 +125,19 @@ public:
 
 private:
     // id から target の配列インデックスを線形検索。
-    // 見つからなければ _targets.Size() を返す (= "not found" の番兵)。
+    // 見つからなければ m_Targets.Size() を返す (= "not found" の番兵)。
     usize FindIndexById(u32 id) const noexcept;
 
     // ---- 設定 ----
-    SenseConfig _cfg            = {};
-    f32         _cos_half_fov   = 1.0f;   // SetConfig でキャッシュ (= cos(fov/2))
+    SenseConfig m_Cfg            = {};
+    f32         m_CosHalfFov   = 1.0f;   // SetConfig でキャッシュ (= cos(fov/2))
 
     // ---- eye 状態 ----
-    FVec2        _eye_pos        = FVec2::Zero();
-    FVec2        _eye_forward    = FVec2{1.0f, 0.0f};   // 既定 +X
+    FVec2        m_EyePos        = FVec2::Zero();
+    FVec2        m_EyeForward    = FVec2{1.0f, 0.0f};   // 既定 +X
 
     // ---- target ----
-    TArray<PerceptionTarget> _targets;
+    TArray<PerceptionTarget> m_Targets;
 };
 
 } // namespace acs::game

@@ -8,7 +8,7 @@
 //     stub (FSaveSlot Phase 1 と同じ pattern)。Phase M-2 で実 I/O 接続予定。
 //
 // 設計メモ:
-//   ・ConsumeInput は _replay_cursor から線形走査する。記録順 = tick 昇順を
+//   ・ConsumeInput は m_ReplayCursor から線形走査する。記録順 = tick 昇順を
 //     仮定すれば、cursor を前進させることで amortised O(1)。同 tick 内の
 //     player_id 順は問わない (4 人対戦なら 4 frame だけ走査する)。
 //   ・ComputeChecksum は FNV-1a-like u64。OFFSET_BASIS = 0xCBF29CE484222325,
@@ -62,52 +62,52 @@ inline u32 BitsOf(f32 v) noexcept {
 } // namespace
 
 void FLockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
-    _mode          = mode;
+    m_Mode          = mode;
     // tick_rate_hz == 0 は意味を成さないので最低 1 に丸める。0 除算防止。
-    _tick_rate_hz  = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
-    _current_tick  = 0;
-    _replay_cursor = 0;
+    m_TickRateHz  = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
+    m_CurrentTick  = 0;
+    m_ReplayCursor = 0;
     // 既存 frames は破棄しない (mode を切り替えるだけの使い方も許容)。
     // 完全リセットしたい場合は呼び出し側で Clear() を併用する。
 }
 
 void FLockstep::RecordInput(const InputFrame& frame) noexcept {
     // Replay モード中は記録しない (上書きを防ぐ)。
-    if (_mode == ENetMode::Replay) {
+    if (m_Mode == ENetMode::Replay) {
         return;
     }
-    _frames.PushBack(frame);
-    // _current_tick は「次に書き込む tick」のヒント。連続 tick 想定で frame.tick+1
+    m_Frames.PushBack(frame);
+    // m_CurrentTick は「次に書き込む tick」のヒント。連続 tick 想定で frame.tick+1
     // に進める。非連続な tick (rollback で巻き戻し等) を許容する場合は呼び出し側で
     // 明示的に管理することになる (Phase M-2 で rollback 対応する際に再設計)。
-    _current_tick = frame.tick + 1u;
+    m_CurrentTick = frame.tick + 1u;
 }
 
 void FLockstep::StartReplay() noexcept {
-    _mode          = ENetMode::Replay;
-    _replay_cursor = 0;
-    _current_tick  = 0;
-    // _frames はそのまま。Local で記録した内容を頭から再生する。
+    m_Mode          = ENetMode::Replay;
+    m_ReplayCursor = 0;
+    m_CurrentTick  = 0;
+    // m_Frames はそのまま。Local で記録した内容を頭から再生する。
 }
 
 bool FLockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept {
     // Replay モード以外では取り出しを禁止する (誤用検知)。
-    if (_mode != ENetMode::Replay) {
+    if (m_Mode != ENetMode::Replay) {
         return false;
     }
-    const usize n = _frames.Size();
-    // _replay_cursor から線形走査。記録順 = tick 昇順を仮定するため、
+    const usize n = m_Frames.Size();
+    // m_ReplayCursor から線形走査。記録順 = tick 昇順を仮定するため、
     // ヒット後に cursor を前進させて amortised O(1) を狙う。
-    for (usize i = _replay_cursor; i < n; ++i) {
-        const InputFrame& f = _frames[i];
+    for (usize i = m_ReplayCursor; i < n; ++i) {
+        const InputFrame& f = m_Frames[i];
         if (f.tick == tick && f.player_id == player_id) {
             out = f;
             // 次回検索開始位置を更新。同 tick の他プレイヤーも cursor の後ろにある
             // 想定なので、cursor は i+1 ではなく i のままにして次の player を探せる
             // ようにする選択肢もあるが、4 人対戦程度なら全件走査コストが小さいため
             // ここでは「次の tick への前進」を素朴に表現する i+1 を採用。
-            _replay_cursor = static_cast<u32>(i + 1u);
-            _current_tick  = tick + 1u;
+            m_ReplayCursor = static_cast<u32>(i + 1u);
+            m_CurrentTick  = tick + 1u;
             return true;
         }
         // 記録順が tick 昇順を破る場合 (rollback / 未来 frame の混入) は素朴に
@@ -117,14 +117,14 @@ bool FLockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept 
 }
 
 u32 FLockstep::InputCount() const noexcept {
-    return static_cast<u32>(_frames.Size());
+    return static_cast<u32>(m_Frames.Size());
 }
 
 u64 FLockstep::ComputeChecksum() const noexcept {
     u64 h = kFnvOffsetBasis;
-    const usize n = _frames.Size();
+    const usize n = m_Frames.Size();
     for (usize i = 0; i < n; ++i) {
-        const InputFrame& f = _frames[i];
+        const InputFrame& f = m_Frames[i];
         h = FnvFoldU32(h, f.tick);
         h = FnvFoldU32(h, f.player_id);
         h = FnvFold(h, f.buttons);
@@ -137,10 +137,10 @@ u64 FLockstep::ComputeChecksum() const noexcept {
 }
 
 void FLockstep::Clear() noexcept {
-    _frames.Clear();
-    _current_tick  = 0;
-    _replay_cursor = 0;
-    // _mode / _tick_rate_hz は保持。Init で改めて切り替える設計。
+    m_Frames.Clear();
+    m_CurrentTick  = 0;
+    m_ReplayCursor = 0;
+    // m_Mode / m_TickRateHz は保持。Init で改めて切り替える設計。
 }
 
 // -----------------------------------------------------------------------------
@@ -175,8 +175,8 @@ TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
 //   3. version 検証 → kVersion と不一致なら kSub_BadVersion
 //   4. frame_count * sizeof(InputFrame) + 20 が size と一致しなければ kSub_BadSize
 //   5. crc32 計算 → footer と不一致なら kSub_BadCrc
-//   6. _frames.Clear(); _frames.Reserve(frame_count); 順次 PushBack
-//   7. _tick_rate_hz / _current_tick を 0 にリセット (StartReplay 待ち状態)
+//   6. m_Frames.Clear(); m_Frames.Reserve(frame_count); 順次 PushBack
+//   7. m_TickRateHz / m_CurrentTick を 0 にリセット (StartReplay 待ち状態)
 TResult<void> FLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,

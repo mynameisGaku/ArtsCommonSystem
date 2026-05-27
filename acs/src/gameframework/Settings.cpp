@@ -29,9 +29,9 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 isize FSettings::FindIndex(const char* key) const noexcept {
     if (key == nullptr) return -1;
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_entries[i].key, key)) return static_cast<isize>(i);
+        if (StrEq(m_Entries[i].key, key)) return static_cast<isize>(i);
     }
     return -1;
 }
@@ -41,13 +41,13 @@ FSettings::Entry& FSettings::UpsertEntry(const char* key) noexcept {
     // 末尾を返す代わりに sentinel を立てる必要はない (Set* 側で弾く)。
     const isize idx = FindIndex(key);
     if (idx >= 0) {
-        return _entries[static_cast<usize>(idx)];
+        return m_Entries[static_cast<usize>(idx)];
     }
     Entry e;
     e.key  = key;
     e.kind = ESettingKind::None;
-    _entries.PushBack(e);
-    return _entries[_entries.Size() - 1];
+    m_Entries.PushBack(e);
+    return m_Entries[m_Entries.Size() - 1];
 }
 
 // ============================================================================
@@ -87,7 +87,7 @@ void FSettings::SetString(const char* key, const char* v) noexcept {
 f32 FSettings::GetF32(const char* key, f32 default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
-    const Entry& e = _entries[static_cast<usize>(idx)];
+    const Entry& e = m_Entries[static_cast<usize>(idx)];
     if (e.kind != ESettingKind::F32) return default_value;
     return e.value.f;
 }
@@ -95,7 +95,7 @@ f32 FSettings::GetF32(const char* key, f32 default_value) const noexcept {
 i32 FSettings::GetI32(const char* key, i32 default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
-    const Entry& e = _entries[static_cast<usize>(idx)];
+    const Entry& e = m_Entries[static_cast<usize>(idx)];
     if (e.kind != ESettingKind::I32) return default_value;
     return e.value.i;
 }
@@ -103,7 +103,7 @@ i32 FSettings::GetI32(const char* key, i32 default_value) const noexcept {
 bool FSettings::GetBool(const char* key, bool default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
-    const Entry& e = _entries[static_cast<usize>(idx)];
+    const Entry& e = m_Entries[static_cast<usize>(idx)];
     if (e.kind != ESettingKind::Bool) return default_value;
     return e.value.b;
 }
@@ -111,7 +111,7 @@ bool FSettings::GetBool(const char* key, bool default_value) const noexcept {
 const char* FSettings::GetString(const char* key, const char* default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
-    const Entry& e = _entries[static_cast<usize>(idx)];
+    const Entry& e = m_Entries[static_cast<usize>(idx)];
     if (e.kind != ESettingKind::FString) return default_value;
     return e.value.s;
 }
@@ -127,16 +127,16 @@ void FSettings::Remove(const char* key) noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return;
     // 順序は保持しなくてよい (key 検索は全件走査するため、index は不変条件にない)。
-    _entries.RemoveAtSwap(static_cast<usize>(idx));
+    m_Entries.RemoveAtSwap(static_cast<usize>(idx));
 }
 
 void FSettings::Clear() noexcept {
-    _entries.Clear();
+    m_Entries.Clear();
 }
 
 u32 FSettings::Count() const noexcept {
     // 件数は通常 u32 範囲を超えない (UI 設定で数百個が現実的上限)。
-    return static_cast<u32>(_entries.Size());
+    return static_cast<u32>(m_Entries.Size());
 }
 
 // ============================================================================

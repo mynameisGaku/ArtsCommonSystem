@@ -23,9 +23,9 @@ void HitEffects::Init(FParticleEffectSystem& particles) noexcept {
     pdef.scale_start       = 0.3f;
     pdef.scale_end         = 0.0f;
     pdef.gravity           = FVec2{0.0f, 0.0f};
-    _hit_emitter = particles.CreateEmitter(pdef, FVec2{0.0f, 0.0f});
+    m_HitEmitter = particles.CreateEmitter(pdef, FVec2{0.0f, 0.0f});
     // 連続発射はせず、Burst だけ使うので非アクティブで開始する。
-    particles.SetEmitterActive(_hit_emitter, false);
+    particles.SetEmitterActive(m_HitEmitter, false);
 }
 
 void HitEffects::Shutdown(FParticleEffectSystem& particles) noexcept {
@@ -33,26 +33,26 @@ void HitEffects::Shutdown(FParticleEffectSystem& particles) noexcept {
 }
 
 void HitEffects::Tick(GameplayScene& scene, f32 dt) noexcept {
-    _fx.Tick(dt);
+    m_Fx.Tick(dt);
     // FEffectSystem 内に溜まったトラウマを camera に流して消費する。
-    if (_fx.PendingShakeTrauma() > 0.0f) {
-        scene.Services().Camera().AddShake(_fx.PendingShakeTrauma());
-        _fx.ConsumeShake();
+    if (m_Fx.PendingShakeTrauma() > 0.0f) {
+        scene.Services().Camera().AddShake(m_Fx.PendingShakeTrauma());
+        m_Fx.ConsumeShake();
     }
 }
 
 void HitEffects::TriggerPlayerHurt(GameplayScene& scene, FVec2 pos) noexcept {
-    _fx.TriggerShake(0.9f);
-    scene.GetParticles().SetEmitterPosition(_hit_emitter, pos);
-    scene.GetParticles().Burst(_hit_emitter);
+    m_Fx.TriggerShake(0.9f);
+    scene.GetParticles().SetEmitterPosition(m_HitEmitter, pos);
+    scene.GetParticles().Burst(m_HitEmitter);
     static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_player_hurt", 1.0f);
 }
 
 void HitEffects::TriggerEnemyHit(GameplayScene& scene, FVec2 pos) noexcept {
-    scene.GetParticles().SetEmitterPosition(_hit_emitter, pos);
-    scene.GetParticles().Burst(_hit_emitter);
-    _fx.TriggerShake(0.35f);
-    _fx.Flash(FVec3{1.0f, 0.95f, 0.7f}, 0.25f, 0.08f);
+    scene.GetParticles().SetEmitterPosition(m_HitEmitter, pos);
+    scene.GetParticles().Burst(m_HitEmitter);
+    m_Fx.TriggerShake(0.35f);
+    m_Fx.Flash(FVec3{1.0f, 0.95f, 0.7f}, 0.25f, 0.08f);
     static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_enemy_hit", 0.8f);
 }
 

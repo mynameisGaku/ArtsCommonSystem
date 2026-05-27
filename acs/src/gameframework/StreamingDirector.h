@@ -51,7 +51,7 @@ struct FChunkId {
 };
 
 // チャンクのライフサイクル状態。
-//   Unloaded:  メモリ不在 (= 内部 _chunks に存在しないのと等価)
+//   Unloaded:  メモリ不在 (= 内部 m_Chunks に存在しないのと等価)
 //   Queued:    範囲内に入ったが Loading スロット空き待ち
 //   Loading:   実 asset load 進行中 (elapsed が積算される)
 //   Loaded:    使用可能。範囲外に出るまで保持。
@@ -97,7 +97,7 @@ public:
     // 毎フレーム呼ぶ。
     //   1. ビューア周辺の必要チャンクを Queued として挿入 (重複は無視)。
     //   2. Loading の進捗を dt 加算で進める。完了で Loaded に遷移。
-    //   3. 範囲外の Loaded を Unloading → 即 Unloaded (= _chunks から除去) に。
+    //   3. 範囲外の Loaded を Unloading → 即 Unloaded (= m_Chunks から除去) に。
     //   4. Loading 上限の範囲で Queued → Loading に昇格。
     // dt < 0 は 0 にクランプ (時間巻き戻し防止)。
     void Tick(f32 dt) noexcept;
@@ -148,15 +148,15 @@ private:
     static constexpr f32 kSimulatedLoadSeconds = 0.5f;
 
     // 設定値。Init 未呼出時のフォールバック既定。
-    f32 _chunk_size           = 100.0f;
-    i32 _view_radius          = 2;
-    u32 _max_concurrent_loads = 4;
+    f32 m_ChunkSize           = 100.0f;
+    i32 m_ViewRadius          = 2;
+    u32 m_MaxConcurrentLoads = 4;
 
-    FVec2 _viewer_pos = {0.0f, 0.0f};
+    FVec2 m_ViewerPos = {0.0f, 0.0f};
 
     // 管理対象チャンク群。範囲外で Unloaded 確定したものは TArray から除去する
     // (= Unloaded 状態の FChunkInfo は内部に残らない、というインバリアント)。
-    TArray<FChunkInfo> _chunks;
+    TArray<FChunkInfo> m_Chunks;
 };
 
 } // namespace acs::game

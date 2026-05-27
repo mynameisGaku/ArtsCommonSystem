@@ -167,7 +167,7 @@ public:
 
 // プロセス共有の stub ICrashReporterBackend。常に NotImplemented を返す。
 // 本体側 (タイトル / サンプル) はまずこれを使ってリンクを通す。具象実装に
-// 切り替える際は `_crash` メンバ等に CrashReporterSentry 等を差し替える。
+// 切り替える際は `m_Crash` メンバ等に CrashReporterSentry 等を差し替える。
 ICrashReporterBackend& GetCrashStub() noexcept;
 
 // =============================================================================
@@ -207,7 +207,7 @@ public:
     void AddBreadcrumb(const char* category, const char* message) noexcept;
 
 private:
-    ICrashReporterBackend* _backend = nullptr;
+    ICrashReporterBackend* m_Backend = nullptr;
 };
 
 } // namespace acs::game

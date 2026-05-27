@@ -52,17 +52,17 @@ public:
     void PollEvents() noexcept;
 
     // × ボタン or 閉じる要求が来たか
-    bool ShouldClose() const noexcept { return _should_close; }
+    bool ShouldClose() const noexcept { return m_ShouldClose; }
 
     // 閉じる要求を出す（ゲームコード側からウィンドウを閉じたいとき）
-    void Close() noexcept { _should_close = true; }
+    void Close() noexcept { m_ShouldClose = true; }
 
     // クライアント領域のサイズ
-    u32 Width()  const noexcept { return _width; }
-    u32 Height() const noexcept { return _height; }
+    u32 Width()  const noexcept { return m_Width; }
+    u32 Height() const noexcept { return m_Height; }
 
     // ネイティブ HWND を取得（Render モジュールが Swapchain 作成に使う）
-    void* NativeHandle() const noexcept { return _hwnd; }
+    void* NativeHandle() const noexcept { return m_Hwnd; }
 
     // イベント通知先を登録（user は callback に渡される任意ポインタ）
     void SetEventCallback(EventCallback cb, void* user) noexcept;
@@ -72,24 +72,24 @@ public:
 
     // ボーダーレス全画面の ON/OFF。元のウィンドウ位置・スタイルを記憶して復元する。
     void SetFullscreen(bool on) noexcept;
-    bool IsFullscreen() const noexcept { return _fullscreen; }
+    bool IsFullscreen() const noexcept { return m_Fullscreen; }
 
     // 内部用: WindowProc から呼ばれるイベント発行
     void DispatchEvent_Internal(const Event& e) noexcept;
     // 内部用: WindowProc から呼ばれるサイズ更新
-    void UpdateSize_Internal(u32 w, u32 h) noexcept { _width = w; _height = h; }
+    void UpdateSize_Internal(u32 w, u32 h) noexcept { m_Width = w; m_Height = h; }
 
 private:
-    void*           _hwnd          = nullptr;   // HWND
-    u32             _width         = 0;
-    u32             _height        = 0;
-    bool            _should_close  = false;
-    EventCallback   _callback      = nullptr;
-    void*           _callback_user = nullptr;
+    void*           m_Hwnd          = nullptr;   // HWND
+    u32             m_Width         = 0;
+    u32             m_Height        = 0;
+    bool            m_ShouldClose  = false;
+    EventCallback   m_Callback      = nullptr;
+    void*           m_CallbackUser = nullptr;
     // フルスクリーン状態（ウィンドウ生成直後のムーブのみ想定。ムーブ後の保持は非対応）
-    bool            _fullscreen    = false;
-    i32             _saved_style   = 0;          // 全画面化前の GWL_STYLE
-    i32             _saved_rect[4] {};           // 全画面化前の窓矩形 (l,t,r,b)
+    bool            m_Fullscreen    = false;
+    i32             m_SavedStyle   = 0;          // 全画面化前の GWL_STYLE
+    i32             m_SavedRect[4] {};           // 全画面化前の窓矩形 (l,t,r,b)
 };
 
 } // namespace acs

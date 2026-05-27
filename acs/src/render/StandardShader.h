@@ -106,9 +106,9 @@ public:
     //   >1   = より柔らかい penumbra (面光源を大きく見せたいとき)
     void SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
                       f32 bias = 0.001f, f32 filter_radius = 1.0f) noexcept;
-    bool IsShadowEnabled() const noexcept { return _shadow_tex != nullptr; }
+    bool IsShadowEnabled() const noexcept { return m_ShadowTex != nullptr; }
     IRhiTexture* ShadowTextureOrDefault() const noexcept {
-        return _shadow_tex ? _shadow_tex : _white.Get();
+        return m_ShadowTex ? m_ShadowTex : m_White.Get();
     }
 
     // 描画オブジェクトごとに呼ぶ
@@ -119,12 +119,12 @@ public:
                    f32  specular_strength  = 0.0f,
                    f32  shininess          = 32.0f) noexcept;
 
-    IRhiPipeline*  Pipeline()      const noexcept { return _pipeline.Get(); }
-    IRhiBuffer*    PerFrameCB()    const noexcept { return _frame_cb.Get(); }
-    IRhiBuffer*    PerObjectCB()   const noexcept { return _object_cb.Get(); }
+    IRhiPipeline*  Pipeline()      const noexcept { return m_Pipeline.Get(); }
+    IRhiBuffer*    PerFrameCB()    const noexcept { return m_FrameCb.Get(); }
+    IRhiBuffer*    PerObjectCB()   const noexcept { return m_ObjectCb.Get(); }
 
     // テクスチャを指定したくない場合に渡せる 1×1 白テクスチャ
-    IRhiTexture*   DefaultWhiteTexture() const noexcept { return _white.Get(); }
+    IRhiTexture*   DefaultWhiteTexture() const noexcept { return m_White.Get(); }
 
     // 1 関数で描画 1 体分: SetPipeline + CB + Texture + VB/IB + DrawIndexed をまとめる。
     // 細かく制御したい場合は Pipeline()/PerFrameCB()/PerObjectCB() を直接使う。
@@ -144,25 +144,25 @@ public:
 private:
     void FlushFrameCB() noexcept;
 
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiBuffer>   _frame_cb;
-    TUniquePtr<IRhiBuffer>   _object_cb;
-    TUniquePtr<IRhiTexture>  _white;
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiBuffer>   m_FrameCb;
+    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    TUniquePtr<IRhiTexture>  m_White;
 
     // Frame の状態キャッシュ（SetLights / SetPointLights が独立に呼べるように）
-    FMat4       _vp;
-    FVec3       _eye      = FVec3{0, 0, 0};
-    FVec3       _ambient  = FVec3{0, 0, 0};
-    FDirLight   _dir_lights[4];
-    u32        _dir_count = 0;
-    PointLight _point_lights[4];
-    u32        _point_count = 0;
-    FMat4       _light_vp;
-    f32        _shadow_bias = 0.001f;
-    f32        _shadow_filter = 1.0f;       // Phase 36-2 PCSS: filter_radius (w of shadow_params)
-    IRhiTexture* _shadow_tex = nullptr;     // 弱参照（user owns）
+    FMat4       m_Vp;
+    FVec3       m_Eye      = FVec3{0, 0, 0};
+    FVec3       m_Ambient  = FVec3{0, 0, 0};
+    FDirLight   m_DirLights[4];
+    u32        m_DirCount = 0;
+    PointLight m_PointLights[4];
+    u32        m_PointCount = 0;
+    FMat4       m_LightVp;
+    f32        m_ShadowBias = 0.001f;
+    f32        m_ShadowFilter = 1.0f;       // Phase 36-2 PCSS: filter_radius (w of shadow_params)
+    IRhiTexture* m_ShadowTex = nullptr;     // 弱参照（user owns）
 };
 
 } // namespace acs

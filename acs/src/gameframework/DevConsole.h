@@ -95,14 +95,14 @@ public:
     // ----- 履歴 (input line 単位) -----
     // line を内部バッファにコピーして末尾に追加。上限超過時は最古を drop。
     void PushHistory(const char* line) noexcept;
-    u32  HistoryCount() const noexcept { return static_cast<u32>(_history.Size()); }
+    u32  HistoryCount() const noexcept { return static_cast<u32>(m_History.Size()); }
     // i = 0 が最古、HistoryCount()-1 が最新。範囲外は nullptr 安全。
     const char* History(u32 i) const noexcept;
 
     // ----- ログ (コマンド出力 / エラーメッセージ) -----
     // msg を内部バッファにコピーして末尾に追加。上限超過時は最古を drop。
     void Log(const char* msg) noexcept;
-    u32  LogCount() const noexcept { return static_cast<u32>(_log.Size()); }
+    u32  LogCount() const noexcept { return static_cast<u32>(m_Log.Size()); }
     // i = 0 が最古、LogCount()-1 が最新。範囲外は nullptr 安全。
     const char* LogLine(u32 i) const noexcept;
 
@@ -111,7 +111,7 @@ public:
     void Clear() noexcept;
 
     // 登録済みコマンド数 (helper / unit test 用)
-    u32 CommandCount() const noexcept { return static_cast<u32>(_commands.Size()); }
+    u32 CommandCount() const noexcept { return static_cast<u32>(m_Commands.Size()); }
 
 private:
     static constexpr u32 kMaxArgs    = 8;    // tokenize 上限
@@ -136,9 +136,9 @@ private:
     // buf の全エントリを Free して Clear。
     static void ClearLines(TArray<const char*>& buf) noexcept;
 
-    TArray<Command>     _commands;
-    TArray<const char*> _history;
-    TArray<const char*> _log;
+    TArray<Command>     m_Commands;
+    TArray<const char*> m_History;
+    TArray<const char*> m_Log;
     bool               _open = false;
 };
 

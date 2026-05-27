@@ -184,7 +184,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     vs_d.debug_name  = "Refraction.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    _vs = Move(vs_r.Value());
+    m_Vs = Move(vs_r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -193,7 +193,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     ps_d.debug_name  = "Refraction.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
-    _ps = Move(ps_r.Value());
+    m_Ps = Move(ps_r.Value());
 
     // === 定数バッファ ===
     FBufferDesc fcb{};
@@ -202,7 +202,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     fcb.cpu_writable = true;
     auto fcb_r = CreateRhiBuffer(device, fcb);
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
-    _frame_cb = Move(fcb_r.Value());
+    m_FrameCb = Move(fcb_r.Value());
 
     FBufferDesc ocb{};
     ocb.size = CBSize<ObjectCBLayout>();
@@ -210,12 +210,12 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     ocb.cpu_writable = true;
     auto ocb_r = CreateRhiBuffer(device, ocb);
     if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
-    _object_cb = Move(ocb_r.Value());
+    m_ObjectCb = Move(ocb_r.Value());
 
     // === パイプライン ===
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
@@ -248,7 +248,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    _pipeline = Move(pl_r.Value());
+    m_Pipeline = Move(pl_r.Value());
 
     // Phase 35-3f back_depth fallback: 1x1 R32G32_Float texture。.r = 1.0 を
     // 入れ、shader の「back_d >= 0.9999 → スカラー fallback」分岐に必ず hit
@@ -262,60 +262,60 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
         td.initial_data_size = sizeof(data);
         auto fb_r = CreateRhiTexture(device, td);
         if (fb_r.IsErr()) return Err<void>(fb_r.Error());
-        _back_depth_fb = Move(fb_r.Value());
+        m_BackDepthFb = Move(fb_r.Value());
     }
 
     return Ok();
 }
 
 void FRefractionShader::Shutdown() noexcept {
-    _back_depth_fb.Reset();
-    _back_depth = nullptr;
-    _pipeline.Reset();
-    _object_cb.Reset();
-    _frame_cb.Reset();
-    _ps.Reset();
-    _vs.Reset();
+    m_BackDepthFb.Reset();
+    m_BackDepth = nullptr;
+    m_Pipeline.Reset();
+    m_ObjectCb.Reset();
+    m_FrameCb.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
 }
 
 void FRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos) noexcept {
-    if (!_frame_cb) return;
-    _vp  = view_projection;
-    _eye = camera_pos;
+    if (!m_FrameCb) return;
+    m_Vp  = view_projection;
+    m_Eye = camera_pos;
     FrameCBLayout cb{};
-    cb.view_proj  = _vp;
-    cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
-    cb.back_params = FVec4{_back_enabled ? 1.0f : 0.0f, _back_near, _back_far, 0};
+    cb.view_proj  = m_Vp;
+    cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
+    cb.back_params = FVec4{m_BackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
     cb.screen_params = FVec4{
-        _screen_w > 0 ? 1.0f / static_cast<f32>(_screen_w) : 0.0f,
-        _screen_h > 0 ? 1.0f / static_cast<f32>(_screen_h) : 0.0f,
+        m_ScreenW > 0 ? 1.0f / static_cast<f32>(m_ScreenW) : 0.0f,
+        m_ScreenH > 0 ? 1.0f / static_cast<f32>(m_ScreenH) : 0.0f,
         0, 0};
-    _frame_cb->Update(&cb, sizeof(cb));
+    m_FrameCb->Update(&cb, sizeof(cb));
 }
 
 void FRefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 far_z,
                                      u32 screen_w, u32 screen_h) noexcept {
-    _back_depth   = back_depth;
-    _back_enabled = (back_depth != nullptr);
-    _back_near    = near_z > 0.0f ? near_z : 0.1f;
-    _back_far     = far_z  > _back_near ? far_z : (_back_near + 1.0f);
-    _screen_w     = screen_w > 0 ? screen_w : 1;
-    _screen_h     = screen_h > 0 ? screen_h : 1;
+    m_BackDepth   = back_depth;
+    m_BackEnabled = (back_depth != nullptr);
+    m_BackNear    = near_z > 0.0f ? near_z : 0.1f;
+    m_BackFar     = far_z  > m_BackNear ? far_z : (m_BackNear + 1.0f);
+    m_ScreenW     = screen_w > 0 ? screen_w : 1;
+    m_ScreenH     = screen_h > 0 ? screen_h : 1;
     // Frame CB を再 flush して back_params / screen_params を反映
-    if (_frame_cb) {
+    if (m_FrameCb) {
         FrameCBLayout cb{};
-        cb.view_proj  = _vp;
-        cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
-        cb.back_params = FVec4{_back_enabled ? 1.0f : 0.0f, _back_near, _back_far, 0};
-        cb.screen_params = FVec4{1.0f / static_cast<f32>(_screen_w),
-                                1.0f / static_cast<f32>(_screen_h), 0, 0};
-        _frame_cb->Update(&cb, sizeof(cb));
+        cb.view_proj  = m_Vp;
+        cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
+        cb.back_params = FVec4{m_BackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
+        cb.screen_params = FVec4{1.0f / static_cast<f32>(m_ScreenW),
+                                1.0f / static_cast<f32>(m_ScreenH), 0, 0};
+        m_FrameCb->Update(&cb, sizeof(cb));
     }
 }
 
 void FRefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
                                  FVec3 tint, f32 roughness, f32 dispersion) noexcept {
-    if (!_object_cb) return;
+    if (!m_ObjectCb) return;
     const f32 r = roughness < 0.0f ? 0.0f : (roughness > 1.0f ? 1.0f : roughness);
     const f32 d = dispersion < 0.0f ? 0.0f : (dispersion > 1.0f ? 1.0f : dispersion);
     ObjectCBLayout cb{};
@@ -323,24 +323,24 @@ void FRefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
     cb.material = FVec4{ior < 1.0f ? 1.0f : ior,
                        thickness < 0.0f ? 0.0f : thickness, r, d};
     cb.tint     = FVec4{tint.x, tint.y, tint.z, 0};
-    _object_cb->Update(&cb, sizeof(cb));
+    m_ObjectCb->Update(&cb, sizeof(cb));
 }
 
 void FRefractionShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh,
                                 const FMat4& model, IRhiTexture& background,
                                 IRhiTexture& env, f32 ior, f32 thickness,
                                 FVec3 tint, f32 roughness, f32 dispersion) noexcept {
-    if (!_pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
+    if (!m_Pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
     SetObject(model, ior, thickness, tint, roughness, dispersion);
 
-    cmd.SetPipeline(*_pipeline);
-    cmd.SetConstantBuffer(0, *_frame_cb);
-    cmd.SetConstantBuffer(1, *_object_cb);
+    cmd.SetPipeline(*m_Pipeline);
+    cmd.SetConstantBuffer(0, *m_FrameCb);
+    cmd.SetConstantBuffer(1, *m_ObjectCb);
     cmd.SetTexture(0, background);
     cmd.SetTexture(1, env);
     // Phase 35-3f: back_depth slot は SetBackDepth で渡されたテクスチャ、
     // 未設定なら 1x1 = 1.0 fallback (shader 側で「back_d>=0.9999 → scalar」)
-    cmd.SetTexture(2, _back_depth ? *_back_depth : *_back_depth_fb);
+    cmd.SetTexture(2, m_BackDepth ? *m_BackDepth : *m_BackDepthFb);
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     cmd.SetIndexBuffer(*mesh.index_buffer);
     cmd.DrawIndexed(mesh.index_count);

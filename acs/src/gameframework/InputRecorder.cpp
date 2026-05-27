@@ -13,7 +13,7 @@
 //                       Idle → (StartReplay)    → Replaying → (StopReplay)    → Idle
 //     Recording 中に StartReplay を呼ぶと黙って Replaying に切り替わる (cursor
 //     はリセット)。逆も同様。録画と再生が同時並行することはない。
-//   ・ConsumeSample は _cursor から線形走査。記録順 = tick 昇順を仮定すれば
+//   ・ConsumeSample は m_Cursor から線形走査。記録順 = tick 昇順を仮定すれば
 //     cursor 前進で amortised O(1)。FLockstep::ConsumeInput と同じ pattern。
 //   ・key_codes_changed / key_states は struct 定義時にデフォルト初期化済みなので
 //     Capture 側は値コピーのみ。InputSample の sizeof は環境依存 (FVec2 = 8 B,
@@ -29,12 +29,12 @@ namespace acs::game {
 // -----------------------------------------------------------------------------
 
 void FInputRecorder::StartRecording(u32 tick_rate_hz) noexcept {
-    _mode = ERecorderMode::Recording;
+    m_Mode = ERecorderMode::Recording;
     // tick_rate_hz == 0 は意味を成さないので最低 1 に丸める。0 除算防止 +
     // FLockstep::Init と同じ規約。
-    _tick_rate_hz = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
-    _current_tick = 0;
-    _cursor       = 0;
+    m_TickRateHz = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
+    m_CurrentTick = 0;
+    m_Cursor       = 0;
     // 既存 samples は破棄しない (続きから録画したい場合の許容)。
     // 完全リセットしたい場合は呼び出し側で Clear() を併用する。
 }
@@ -42,7 +42,7 @@ void FInputRecorder::StartRecording(u32 tick_rate_hz) noexcept {
 void FInputRecorder::StopRecording() noexcept {
     // Idle に戻すだけで samples / tick_rate_hz は保持。直後に SaveToBuffer を
     // 呼ぶ想定。Capture/ConsumeSample 双方の no-op 条件を兼ねる。
-    _mode = ERecorderMode::Idle;
+    m_Mode = ERecorderMode::Idle;
 }
 
 // -----------------------------------------------------------------------------
@@ -50,15 +50,15 @@ void FInputRecorder::StopRecording() noexcept {
 // -----------------------------------------------------------------------------
 
 void FInputRecorder::StartReplay() noexcept {
-    _mode         = ERecorderMode::Replaying;
-    _cursor       = 0;
-    _current_tick = 0;
-    // _samples はそのまま。直前に Capture した内容を頭から再生する想定。
+    m_Mode         = ERecorderMode::Replaying;
+    m_Cursor       = 0;
+    m_CurrentTick = 0;
+    // m_Samples はそのまま。直前に Capture した内容を頭から再生する想定。
 }
 
 void FInputRecorder::StopReplay() noexcept {
     // Idle に戻すだけ。再度 StartReplay すれば cursor は 0 から再開する。
-    _mode = ERecorderMode::Idle;
+    m_Mode = ERecorderMode::Idle;
 }
 
 // -----------------------------------------------------------------------------
@@ -69,13 +69,13 @@ void FInputRecorder::Capture(const InputSample& s) noexcept {
     // Recording モード以外では記録しない (Idle / Replaying 中の誤呼び出しを許容)。
     // 黙って no-op にする理由: ゲームループから無条件に Capture を呼べる設計に
     // しておくと、上位層の if 分岐が不要になり録画開始/停止だけで切り替えできる。
-    if (_mode != ERecorderMode::Recording) {
+    if (m_Mode != ERecorderMode::Recording) {
         return;
     }
-    _samples.PushBack(s);
-    // _current_tick は「次に書き込む tick」のヒント。連続 tick 想定で
+    m_Samples.PushBack(s);
+    // m_CurrentTick は「次に書き込む tick」のヒント。連続 tick 想定で
     // sample.tick + 1 に進める。FLockstep::RecordInput と同じ方針。
-    _current_tick = s.tick + 1u;
+    m_CurrentTick = s.tick + 1u;
 }
 
 // -----------------------------------------------------------------------------
@@ -84,21 +84,21 @@ void FInputRecorder::Capture(const InputSample& s) noexcept {
 
 bool FInputRecorder::ConsumeSample(u32 tick, InputSample& out) noexcept {
     // Replaying モード以外では取り出しを禁止する (誤用検知)。
-    if (_mode != ERecorderMode::Replaying) {
+    if (m_Mode != ERecorderMode::Replaying) {
         return false;
     }
-    const usize n = _samples.Size();
-    // _cursor から線形走査。記録順 = tick 昇順を仮定するため、
+    const usize n = m_Samples.Size();
+    // m_Cursor から線形走査。記録順 = tick 昇順を仮定するため、
     // ヒット後に cursor を前進させて amortised O(1) を狙う。
-    for (usize i = _cursor; i < n; ++i) {
-        const InputSample& s = _samples[i];
+    for (usize i = m_Cursor; i < n; ++i) {
+        const InputSample& s = m_Samples[i];
         if (s.tick == tick) {
             out = s;
             // 次回検索開始位置を更新。FLockstep と異なり同 tick 内に複数 sample が
             // 入る想定はない (1 tick = 1 sample = 1 raw input snapshot) ため、
             // 単純に i + 1 を採用する。
-            _cursor       = static_cast<u32>(i + 1u);
-            _current_tick = tick + 1u;
+            m_Cursor       = static_cast<u32>(i + 1u);
+            m_CurrentTick = tick + 1u;
             return true;
         }
         // 記録順が tick 昇順を破る場合 (rollback / 未来 sample の混入) は素朴に
@@ -112,14 +112,14 @@ bool FInputRecorder::ConsumeSample(u32 tick, InputSample& out) noexcept {
 // -----------------------------------------------------------------------------
 
 u32 FInputRecorder::SampleCount() const noexcept {
-    return static_cast<u32>(_samples.Size());
+    return static_cast<u32>(m_Samples.Size());
 }
 
 void FInputRecorder::Clear() noexcept {
-    _samples.Clear();
-    _current_tick = 0;
-    _cursor       = 0;
-    // _mode / _tick_rate_hz は保持。StartRecording / StartReplay で改めて切り替える設計。
+    m_Samples.Clear();
+    m_CurrentTick = 0;
+    m_Cursor       = 0;
+    // m_Mode / m_TickRateHz は保持。StartRecording / StartReplay で改めて切り替える設計。
 }
 
 // -----------------------------------------------------------------------------
@@ -156,8 +156,8 @@ TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
 //   3. version 検証 → kVersion と不一致なら kSub_BadVersion
 //   4. sample_count * sizeof_on_disk(InputSample) + 20 が size と一致しなければ kSub_BadSize
 //   5. crc32 計算 → footer と不一致なら kSub_BadCrc
-//   6. _samples.Clear(); _samples.Reserve(sample_count); 順次 PushBack
-//   7. _tick_rate_hz / _current_tick を 0 にリセット (StartReplay 待ち状態)
+//   6. m_Samples.Clear(); m_Samples.Reserve(sample_count); 順次 PushBack
+//   7. m_TickRateHz / m_CurrentTick を 0 にリセット (StartReplay 待ち状態)
 TResult<void> FInputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,

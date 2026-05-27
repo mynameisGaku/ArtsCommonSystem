@@ -71,13 +71,13 @@ public:
     // 物理ページ返却（実際の VirtualFree は LRU エビクト時）
     TResult<void> Decommit(usize offset, usize size) noexcept;
 
-    void* Base()      const noexcept { return _base; }
-    usize Capacity()  const noexcept { return _capacity; }
-    usize Committed() const noexcept { return _committed; }
+    void* Base()      const noexcept { return m_Base; }
+    usize Capacity()  const noexcept { return m_Capacity; }
+    usize Committed() const noexcept { return m_Committed; }
 
     // LRU キャッシュ統計（プロファイラ用）
-    u32   LruHitCount()  const noexcept { return _lru_hits; }
-    u32   LruMissCount() const noexcept { return _lru_misses; }
+    u32   LruHitCount()  const noexcept { return m_LruHits; }
+    u32   LruMissCount() const noexcept { return m_LruMisses; }
 
 private:
     static constexpr u32 kLruEntries = 16;
@@ -85,14 +85,14 @@ private:
     bool  LruTake(u64 offset, u32 page_count) noexcept;
     void  LruEvictAll() noexcept;
 
-    void*       _base       = nullptr;
-    usize       _capacity   = 0;
-    usize       _committed  = 0;
+    void*       m_Base       = nullptr;
+    usize       m_Capacity   = 0;
+    usize       m_Committed  = 0;
 
-    mapped_t    _lru[kLruEntries] {};
-    u32         _lru_count = 0;
-    u32         _lru_hits = 0;
-    u32         _lru_misses = 0;
+    mapped_t    m_Lru[kLruEntries] {};
+    u32         m_LruCount = 0;
+    u32         m_LruHits = 0;
+    u32         m_LruMisses = 0;
 };
 
 // =============================================================================

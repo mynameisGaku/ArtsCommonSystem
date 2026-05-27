@@ -21,10 +21,10 @@ public:
     void OnShutdown()             noexcept override;
 
 private:
-    acs::FStandardShader _shader;
-    acs::FAssetFuture    _async_mesh;
-    bool                _async_loaded = false;
-    ModelScene          _scene;
+    acs::FStandardShader m_Shader;
+    acs::FAssetFuture    m_AsyncMesh;
+    bool                m_AsyncLoaded = false;
+    ModelScene          m_Scene;
 };
 
 } // namespace hellomodel

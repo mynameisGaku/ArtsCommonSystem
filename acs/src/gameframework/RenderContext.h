@@ -30,27 +30,27 @@ public:
 
     // FGame がフレーム冒頭で配線する。Scene からは Cmd()/FRenderer() で取得。
     void _BeginFrame(FRenderer& r, IRhiCommandList& cl, u32 w, u32 h) noexcept {
-        _renderer = &r;
-        _cmd      = &cl;
-        _width    = w;
-        _height   = h;
+        m_Renderer = &r;
+        m_Cmd      = &cl;
+        m_Width    = w;
+        m_Height   = h;
     }
     void _EndFrame() noexcept {
-        _cmd = nullptr;
+        m_Cmd = nullptr;
     }
 
     // 現フレームの IRhiCommandList (nullptr の可能性は OnRender 外でのみ起きる)。
-    IRhiCommandList& Cmd() const noexcept { return *_cmd; }
-    FRenderer&        GetRenderer() const noexcept { return *_renderer; }
-    u32              Width()  const noexcept { return _width; }
-    u32              Height() const noexcept { return _height; }
-    bool             IsFrameActive() const noexcept { return _cmd != nullptr; }
+    IRhiCommandList& Cmd() const noexcept { return *m_Cmd; }
+    FRenderer&        GetRenderer() const noexcept { return *m_Renderer; }
+    u32              Width()  const noexcept { return m_Width; }
+    u32              Height() const noexcept { return m_Height; }
+    bool             IsFrameActive() const noexcept { return m_Cmd != nullptr; }
 
 private:
-    FRenderer*        _renderer = nullptr;
-    IRhiCommandList* _cmd      = nullptr;
-    u32              _width    = 0;
-    u32              _height   = 0;
+    FRenderer*        m_Renderer = nullptr;
+    IRhiCommandList* m_Cmd      = nullptr;
+    u32              m_Width    = 0;
+    u32              m_Height   = 0;
 };
 
 } // namespace acs::game

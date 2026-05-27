@@ -33,7 +33,7 @@
 //     倒す: arg_u を 「次に続く Choice op の本数」(= group size) として扱い、
 //     SelectChoice() が消費する。
 //     -> 簡素化: 「Choice op = 選択肢 1 件」、AwaitingChoice 中は
-//        連続する Choice op 群を _current_choices に展開しておき、
+//        連続する Choice op 群を m_CurrentChoices に展開しておき、
 //        SelectChoice(idx) で jump_label に飛ぶ。
 //   ・**callback は kind 別に分ける**: Say / Show・Hide / Background /
 //     PlayBgm・StopBgm / PlaySe / ChoicePresent / End の 6 種に分割。
@@ -142,7 +142,7 @@ public:
     // ラベル未解決 / op 列が空なら即 Finished。
     void Start(const char* start_label = nullptr) noexcept;
 
-    // 完全停止 (State = Idle、_current_choices もクリア)。
+    // 完全停止 (State = Idle、m_CurrentChoices もクリア)。
     void Stop() noexcept;
 
     // 全 op / ラベル / callback / state を破棄して初期状態に戻す。
@@ -161,7 +161,7 @@ public:
     void SelectChoice(u32 choice_index) noexcept;
 
     // ----- accessors -----
-    u32             CurrentOpIndex()  const noexcept { return _current_op_index; }
+    u32             CurrentOpIndex()  const noexcept { return m_CurrentOpIndex; }
     const ScriptOp* CurrentOp()       const noexcept;
     u32             CurrentChoiceCount()           const noexcept;
     const ScriptChoice* CurrentChoice(u32 index) const noexcept;
@@ -193,45 +193,45 @@ private:
     // ラベル名 → op_index 解決 (見つからなければ UINT32_MAX 相当の 0xFFFFFFFFu)。
     u32 ResolveLabel(const char* label) const noexcept;
 
-    // _current_op_index を起点に「即進行する op」を消化する。
+    // m_CurrentOpIndex を起点に「即進行する op」を消化する。
     // Say に当たれば AwaitingInput、Choice 群を踏めば AwaitingChoice、
-    // Wait に当たれば _wait_remaining をセットして Playing 継続、
+    // Wait に当たれば m_WaitRemaining をセットして Playing 継続、
     // EndScene / 末尾到達で Finished に遷移する。
     void RunUntilBlocked() noexcept;
 
-    // _current_op_index 起点から連続する Choice op 群を _current_choices に展開し
+    // m_CurrentOpIndex 起点から連続する Choice op 群を m_CurrentChoices に展開し
     // AwaitingChoice に遷移。ChoicePresent callback を発火する。
     void EnterChoiceGroup() noexcept;
 
     // 単発 op (= 即進行系: Show / Hide / Background / PlayBgm / StopBgm / PlaySe / Jump)
-    // を実行して _current_op_index を 1 進める。op が範囲外なら何もしない。
+    // を実行して m_CurrentOpIndex を 1 進める。op が範囲外なら何もしない。
     void ExecuteImmediateOp(const ScriptOp& op) noexcept;
 
     // Finished 状態へ遷移し、End callback を発火する (1 度だけ)。
     void EnterFinished() noexcept;
 
     // ----- データ -----
-    TArray<ScriptOp>       _ops;             // ロードされた命令列 (deep copy)
-    TArray<LabelEntry>     _labels;          // ラベルテーブル (線形検索)
-    TArray<ScriptChoice> _current_choices; // AwaitingChoice 中に展開された選択肢群
+    TArray<ScriptOp>       m_Ops;             // ロードされた命令列 (deep copy)
+    TArray<LabelEntry>     m_Labels;          // ラベルテーブル (線形検索)
+    TArray<ScriptChoice> m_CurrentChoices; // AwaitingChoice 中に展開された選択肢群
 
-    const char* _script_id = nullptr;       // LoadScript で渡された ID (所有しない)
+    const char* m_ScriptId = nullptr;       // LoadScript で渡された ID (所有しない)
 
-    u32 _current_op_index = 0u;             // 次に実行する op の index
-    f32 _wait_remaining   = 0.0f;           // Wait op の残り秒数 (>0 で Playing 継続)
+    u32 m_CurrentOpIndex = 0u;             // 次に実行する op の index
+    f32 m_WaitRemaining   = 0.0f;           // Wait op の残り秒数 (>0 で Playing 継続)
 
     EDialogueScriptState _state = EDialogueScriptState::Idle;
 
     // ---- callbacks ----
-    SayCallback           _say_cb          = nullptr; void* _say_user          = nullptr;
-    ShowHideCallback      _show_cb         = nullptr; void* _show_user         = nullptr;
-    ShowHideCallback      _hide_cb         = nullptr; void* _hide_user         = nullptr;
-    BackgroundCallback    _bg_cb           = nullptr; void* _bg_user           = nullptr;
-    BgmSeCallback         _play_bgm_cb     = nullptr; void* _play_bgm_user     = nullptr;
-    BgmSeCallback         _stop_bgm_cb     = nullptr; void* _stop_bgm_user     = nullptr;
-    BgmSeCallback         _play_se_cb      = nullptr; void* _play_se_user      = nullptr;
-    ChoicePresentCallback _choice_cb       = nullptr; void* _choice_user       = nullptr;
-    EndCallback           _end_cb          = nullptr; void* _end_user          = nullptr;
+    SayCallback           m_SayCb          = nullptr; void* m_SayUser          = nullptr;
+    ShowHideCallback      m_ShowCb         = nullptr; void* m_ShowUser         = nullptr;
+    ShowHideCallback      m_HideCb         = nullptr; void* m_HideUser         = nullptr;
+    BackgroundCallback    m_BgCb           = nullptr; void* m_BgUser           = nullptr;
+    BgmSeCallback         m_PlayBgmCb     = nullptr; void* m_PlayBgmUser     = nullptr;
+    BgmSeCallback         m_StopBgmCb     = nullptr; void* m_StopBgmUser     = nullptr;
+    BgmSeCallback         m_PlaySeCb      = nullptr; void* m_PlaySeUser      = nullptr;
+    ChoicePresentCallback m_ChoiceCb       = nullptr; void* m_ChoiceUser       = nullptr;
+    EndCallback           m_EndCb          = nullptr; void* m_EndUser          = nullptr;
 };
 
 } // namespace acs::game

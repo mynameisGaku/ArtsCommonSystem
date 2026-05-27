@@ -112,8 +112,8 @@ public:
     // 想定)。nullptr が返ったら "(No provider)" を表示。
     // Phase 24: FEditorPanel 継承で no-param DrawUI 化。FInspectorSeam は
     // SetInspectorSeam で事前 set、selection は FSelectionService 経由で取得。
-    void SetInspectorSeam(class FInspectorSeam* seam) noexcept { _inspector_seam = seam; }
-    class FInspectorSeam* InspectorSeamPtr() const noexcept { return _inspector_seam; }
+    void SetInspectorSeam(class FInspectorSeam* seam) noexcept { m_InspectorSeam = seam; }
+    class FInspectorSeam* InspectorSeamPtr() const noexcept { return m_InspectorSeam; }
 
     const char* Title() const noexcept override { return "Inspector"; }
     void DrawUI() noexcept override;
@@ -123,10 +123,10 @@ public:
     void SetSelectionService(FSelectionService* svc) noexcept;
 
     // 直近の DrawUI 内で何らかの field が編集されたか。
-    bool IsAnyFieldDirty() const noexcept { return _dirty; }
+    bool IsAnyFieldDirty() const noexcept { return m_Dirty; }
 
     // dirty フラグをクリア。外部の永続化 / undo 処理完了後に呼ぶ想定。
-    void ClearDirtyFlag() noexcept { _dirty = false; }
+    void ClearDirtyFlag() noexcept { m_Dirty = false; }
 
     // field 変更通知 callback を登録。nullptr で解除。
     void SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept;
@@ -143,21 +143,21 @@ public:
 private:
     // 現在の選択 FNodeId キャッシュ。FSelectionService から取得した値、または
     // DrawUI の引数で渡された値を反映する (DrawUI 末尾で更新)。デバッグ表示用。
-    FNodeId               _current_selection {};
+    FNodeId               m_CurrentSelection {};
 
     // FSelectionService (non-owning)。nullptr ならば DrawUI 引数を採用。
-    FSelectionService*    _selection_service = nullptr;
+    FSelectionService*    m_SelectionService = nullptr;
 
     // Phase 24: 事前 set される FInspectorSeam (DrawUI で provider lookup に使う)
-    class FInspectorSeam* _inspector_seam    = nullptr;
+    class FInspectorSeam* m_InspectorSeam    = nullptr;
 
     // 直近フレームで field 変更が起きたか。外部が IsAnyFieldDirty() で読み、
     // ClearDirtyFlag() でクリアする。
-    bool                 _dirty             = false;
+    bool                 m_Dirty             = false;
 
     // field 変更通知 callback。
-    FieldChangeCallback  _on_change_cb      = nullptr;
-    void*                _on_change_user    = nullptr;
+    FieldChangeCallback  m_OnChangeCb      = nullptr;
+    void*                m_OnChangeUser    = nullptr;
 };
 
 } // namespace acs::game::inspector

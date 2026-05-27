@@ -37,51 +37,51 @@ void ShowcaseApp::OnStart() noexcept {
 
     const u32 sw = sc->Width();
     const u32 sh = sc->Height();
-    ACS_SAMPLE_INIT(InitializeAssets(_assets, *dev, sw, sh,
+    ACS_SAMPLE_INIT(InitializeAssets(m_Assets, *dev, sw, sh,
                                       GetRenderer().ColorFormat(),
                                       GetRenderer().DepthFormat()));
 
     const f32 aspect = static_cast<f32>(sw) / static_cast<f32>(sh);
-    _camera.SetPerspective(45.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
+    m_Camera.SetPerspective(45.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
 
     // post params: 控えめな bloom + ACES + mild vignette。
     // sun.color が 1.2x (HelloIbl 0.9x 互換) なので threshold もそれ相応に下げて
     // emissive orb (strength=4.0) の bloom がちゃんと光るようにする。
-    _post_params.bloom_threshold      = 1.0f;
-    _post_params.bloom_intensity      = 0.40f;
-    _post_params.vignette_intensity   = 0.25f;
-    _post_params.chromatic_aberration = 0.0f;        // 邪魔なので OFF
-    _post_params.grain_intensity      = 0.0f;
-    _post_params.tonemap_kind         = 0;           // 0=ACES (Narkowicz)
+    m_PostParams.bloom_threshold      = 1.0f;
+    m_PostParams.bloom_intensity      = 0.40f;
+    m_PostParams.vignette_intensity   = 0.25f;
+    m_PostParams.chromatic_aberration = 0.0f;        // 邪魔なので OFF
+    m_PostParams.grain_intensity      = 0.0f;
+    m_PostParams.tonemap_kind         = 0;           // 0=ACES (Narkowicz)
 
     // exposure を Day 想定にセット
-    _exposure_target  = 0.7f;
-    _adapted_exposure = 0.7f;
+    m_ExposureTarget  = 0.7f;
+    m_AdaptedExposure = 0.7f;
 }
 
 void ShowcaseApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) { Quit(); return; }
-    if (Input::IsKeyPressed(EKey::P)) _paused = !_paused;
-    if (Input::IsKeyPressed(EKey::R)) _show_ssr = !_show_ssr;
-    if (Input::IsKeyPressed(EKey::X)) _show_refraction = !_show_refraction;
+    if (Input::IsKeyPressed(EKey::P)) m_Paused = !m_Paused;
+    if (Input::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
+    if (Input::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
 
-    if (!_paused) {
-        _orbit_angle += dt * 0.20f;     // 約 31 秒で 1 周
-        _orb_phase   += dt * 0.50f;
+    if (!m_Paused) {
+        m_OrbitAngle += dt * 0.20f;     // 約 31 秒で 1 周
+        m_OrbPhase   += dt * 0.50f;
     }
 
     // カメラ: scene 中心 (0, 0.4, 0) を見ながら半径 5.5 で水平回転 +
     // 微小な垂直 bob (cinematic ペン回し風)
     const f32 cam_radius = 5.5f;
     const f32 cam_y_base = 1.4f;
-    const f32 cam_y_bob  = 0.18f * Sin(_orbit_angle * 1.3f);     // ±18cm 縦揺れ
+    const f32 cam_y_bob  = 0.18f * Sin(m_OrbitAngle * 1.3f);     // ±18cm 縦揺れ
     const FVec3 cam_target{0.0f, 0.4f, 0.0f};
-    _cam_pos = FVec3{
-        cam_target.x + cam_radius * Sin(_orbit_angle),
+    m_CamPos = FVec3{
+        cam_target.x + cam_radius * Sin(m_OrbitAngle),
         cam_y_base + cam_y_bob,
-        cam_target.z + cam_radius * Cos(_orbit_angle),
+        cam_target.z + cam_radius * Cos(m_OrbitAngle),
     };
-    _camera.SetLookAt(_cam_pos, cam_target, FVec3::Up());
+    m_Camera.SetLookAt(m_CamPos, cam_target, FVec3::Up());
 }
 
 bool ShowcaseApp::OnCustomFrame() noexcept {
@@ -89,64 +89,64 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
-    IRhiTexture*     hdr   = _assets.post.HdrRenderTarget();
+    IRhiTexture*     hdr   = m_Assets.post.HdrRenderTarget();
     if (!dev || !cl || !sc || !hdr || !depth) return false;
 
     cl->Begin();
 
     // ===== TAA jitter (Halton 2,3) =====
     // Halton(0, b) = 0 を避けるため +1 オフセット (HelloIbl と同様)
-    const f32 jx = Halton((_taa_frame_index & 31) + 1, 2) - 0.5f;
-    const f32 jy = Halton((_taa_frame_index & 31) + 1, 3) - 0.5f;
-    ++_taa_frame_index;
+    const f32 jx = Halton((m_TaaFrameIndex & 31) + 1, 2) - 0.5f;
+    const f32 jy = Halton((m_TaaFrameIndex & 31) + 1, 3) - 0.5f;
+    ++m_TaaFrameIndex;
     const f32 jx_ndc = jx * 2.0f / static_cast<f32>(hdr->Width());
     const f32 jy_ndc = jy * 2.0f / static_cast<f32>(hdr->Height());
-    const FMat4 view_proj_jittered = _camera.ViewProjection() *
+    const FMat4 view_proj_jittered = m_Camera.ViewProjection() *
                                     FMat4::Translation(FVec3{jx_ndc, jy_ndc, 0.0f});
-    const FMat4 vp_no_jitter = _camera.ViewProjection();
+    const FMat4 vp_no_jitter = m_Camera.ViewProjection();
     const FMat4 inv_vp        = Inverse(view_proj_jittered);
 
     // ===== IBL warmup (1 度だけ走る) =====
-    if (!_assets.ibl.HasBrdfLut())       (void)_assets.ibl.EnsureBrdfLut(*dev, *cl);
-    if (!_assets.ibl.HasEnvCubemap())    (void)_assets.ibl.EnsureEnvCubemap(*dev, *cl, _assets.sky);
-    if (!_assets.ibl.HasIrradianceMap()) (void)_assets.ibl.EnsureIrradiance(*dev, *cl);
-    if (!_assets.ibl.HasPrefilterMap())  (void)_assets.ibl.EnsurePrefilter(*dev, *cl);
+    if (!m_Assets.ibl.HasBrdfLut())       (void)m_Assets.ibl.EnsureBrdfLut(*dev, *cl);
+    if (!m_Assets.ibl.HasEnvCubemap())    (void)m_Assets.ibl.EnsureEnvCubemap(*dev, *cl, m_Assets.sky);
+    if (!m_Assets.ibl.HasIrradianceMap()) (void)m_Assets.ibl.EnsureIrradiance(*dev, *cl);
+    if (!m_Assets.ibl.HasPrefilterMap())  (void)m_Assets.ibl.EnsurePrefilter(*dev, *cl);
 
     // ===== Opaque HDR pass (FSky + PBR + emissive orb) =====
     FMat4 orb_curr[kOrbCount]{};
-    ExecutePbrPass(_assets, *cl, *hdr, *depth, _camera,
-                   view_proj_jittered, _cam_pos, _orb_phase,
-                   _ssr_warm, _ssao_warm, orb_curr);
+    ExecutePbrPass(m_Assets, *cl, *hdr, *depth, m_Camera,
+                   view_proj_jittered, m_CamPos, m_OrbPhase,
+                   m_SsrWarm, m_SsaoWarm, orb_curr);
 
     // ===== Refraction pass (clear / frosted glass) =====
-    if (_show_refraction) {
-        ExecuteRefractionPass(_assets, *cl, *hdr, *depth,
-                              view_proj_jittered, _cam_pos);
+    if (m_ShowRefraction) {
+        ExecuteRefractionPass(m_Assets, *cl, *hdr, *depth,
+                              view_proj_jittered, m_CamPos);
     }
 
     // ===== Motion + normal G-buffer pass (TAA / SSR / SSAO 用) =====
-    IRhiTexture* motion_tex = ExecuteMotionPass(_assets, *cl, vp_no_jitter,
-                                                 _prev_vp_no_jitter, _prev_vp_valid,
-                                                 _prev_orb_phase, orb_curr);
+    IRhiTexture* motion_tex = ExecuteMotionPass(m_Assets, *cl, vp_no_jitter,
+                                                 m_PrevVpNoJitter, m_PrevVpValid,
+                                                 m_PrevOrbPhase, orb_curr);
 
     // ===== SSR / SSAO (1-frame latency で次フレームの PBR が合成) =====
-    const FMat4& ssr_prev_vp = _prev_vp_valid ? _prev_vp_no_jitter : vp_no_jitter;
-    ExecuteSsrPass(_assets, *dev, *cl, *hdr, *depth,
+    const FMat4& ssr_prev_vp = m_PrevVpValid ? m_PrevVpNoJitter : vp_no_jitter;
+    ExecuteSsrPass(m_Assets, *dev, *cl, *hdr, *depth,
                    view_proj_jittered, inv_vp, ssr_prev_vp,
-                   _cam_pos, motion_tex, _show_ssr);
-    if (_show_ssr) _ssr_warm = true;
-    ExecuteSsaoPass(_assets, *dev, *cl, *depth,
-                    view_proj_jittered, inv_vp, _camera.View(), _cam_pos);
-    _ssao_warm = true;
+                   m_CamPos, motion_tex, m_ShowSsr);
+    if (m_ShowSsr) m_SsrWarm = true;
+    ExecuteSsaoPass(m_Assets, *dev, *cl, *depth,
+                    view_proj_jittered, inv_vp, m_Camera.View(), m_CamPos);
+    m_SsaoWarm = true;
 
     // ===== Post-process (HDR -> LDR backbuffer) =====
     const u32 buf_idx = sc->AcquireNextImage();
-    ExecuteBloomPass(_assets, *cl, *sc, buf_idx, *depth,
-                     _post_params, vp_no_jitter, _prev_vp_no_jitter,
-                     _prev_vp_valid, motion_tex);
+    ExecuteBloomPass(m_Assets, *cl, *sc, buf_idx, *depth,
+                     m_PostParams, vp_no_jitter, m_PrevVpNoJitter,
+                     m_PrevVpValid, motion_tex);
 
     // ===== HUD overlay =====
-    ExecuteHudPass(_assets, *cl, *sc, _paused, _show_ssr, _show_refraction);
+    ExecuteHudPass(m_Assets, *cl, *sc, m_Paused, m_ShowSsr, m_ShowRefraction);
 
     cl->EndRenderToSwapchain(*sc, buf_idx);
     cl->End();
@@ -154,15 +154,15 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     sc->Present();
 
     // 次フレーム用の前 VP / orb phase (TAA reprojection / motion 用)
-    _prev_vp_no_jitter = vp_no_jitter;
-    _prev_orb_phase    = _orb_phase;
-    _prev_vp_valid     = true;
+    m_PrevVpNoJitter = vp_no_jitter;
+    m_PrevOrbPhase    = m_OrbPhase;
+    m_PrevVpValid     = true;
     return true;
 }
 
 void ShowcaseApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    ShutdownAssets(_assets);
+    ShutdownAssets(m_Assets);
 }
 
 } // namespace helloshowcase

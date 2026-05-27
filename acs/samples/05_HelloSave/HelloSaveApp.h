@@ -32,15 +32,15 @@ public:
 private:
     void FlushAndSave() noexcept;
 
-    acs::Storage     _store;
-    acs::FSpriteBatch _batch;
-    acs::Font        _font_big;
-    acs::Font        _font_small;
+    acs::Storage     m_Store;
+    acs::FSpriteBatch m_Batch;
+    acs::Font        m_FontBig;
+    acs::Font        m_FontSmall;
 
-    wchar_t   _save_path[260] = {};
-    acs::i64  _clicks = 0;
-    acs::i64  _high_score = 0;
-    bool      _dirty = false;
+    wchar_t   m_SavePath[260] = {};
+    acs::i64  m_Clicks = 0;
+    acs::i64  m_HighScore = 0;
+    bool      m_Dirty = false;
 };
 
 } // namespace hellosave

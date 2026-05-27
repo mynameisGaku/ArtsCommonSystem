@@ -93,27 +93,27 @@ ParticleSystem::~ParticleSystem() noexcept {
 TResult<void> ParticleSystem::Init(u32 max_particles) noexcept {
     if (max_particles == 0) max_particles = 1024;
     Shutdown();
-    _capacity = max_particles;
-    _active = 0;
-    _spawn_accum = 0;
-    _pool = static_cast<Particle*>(
+    m_Capacity = max_particles;
+    m_Active = 0;
+    m_SpawnAccum = 0;
+    m_Pool = static_cast<Particle*>(
         DefaultAllocator().Alloc(sizeof(Particle) * max_particles));
-    if (!_pool) return ACS_ERR(Memory, 300, "ParticleSystem: pool alloc failed");
+    if (!m_Pool) return ACS_ERR(Memory, 300, "ParticleSystem: pool alloc failed");
     return Ok();
 }
 
 void ParticleSystem::Shutdown() noexcept {
-    if (_pool) {
-        DefaultAllocator().Free(_pool);
-        _pool = nullptr;
+    if (m_Pool) {
+        DefaultAllocator().Free(m_Pool);
+        m_Pool = nullptr;
     }
-    _capacity = 0;
-    _active = 0;
+    m_Capacity = 0;
+    m_Active = 0;
 }
 
 f32 ParticleSystem::RandF() noexcept {
-    _seed ^= _seed << 13; _seed ^= _seed >> 17; _seed ^= _seed << 5;
-    return static_cast<f32>(_seed & 0xFFFFFFu) / 16777216.0f;
+    m_Seed ^= m_Seed << 13; m_Seed ^= m_Seed >> 17; m_Seed ^= m_Seed << 5;
+    return static_cast<f32>(m_Seed & 0xFFFFFFu) / 16777216.0f;
 }
 
 f32 ParticleSystem::RandRange(f32 a, f32 b) noexcept {
@@ -121,53 +121,53 @@ f32 ParticleSystem::RandRange(f32 a, f32 b) noexcept {
 }
 
 void ParticleSystem::SpawnOne() noexcept {
-    if (_active >= _capacity) return;
-    Particle& p = _pool[_active++];
+    if (m_Active >= m_Capacity) return;
+    Particle& p = m_Pool[m_Active++];
     p.age = 0;
     // 寿命: ±life_variance の範囲でランダム
-    p.life = _emitter.life_seconds + (RandF() * 2.0f - 1.0f) * _emitter.life_variance;
+    p.life = m_Emitter.life_seconds + (RandF() * 2.0f - 1.0f) * m_Emitter.life_variance;
     if (p.life < 0.05f) p.life = 0.05f;
     // 出現位置 = エミッタ + spawn_offset 範囲
-    p.pos.x = _emitter.position.x +
-              RandRange(_emitter.spawn_offset_min.x, _emitter.spawn_offset_max.x);
-    p.pos.y = _emitter.position.y +
-              RandRange(_emitter.spawn_offset_min.y, _emitter.spawn_offset_max.y);
+    p.pos.x = m_Emitter.position.x +
+              RandRange(m_Emitter.spawn_offset_min.x, m_Emitter.spawn_offset_max.x);
+    p.pos.y = m_Emitter.position.y +
+              RandRange(m_Emitter.spawn_offset_min.y, m_Emitter.spawn_offset_max.y);
     // 速度 = base + variance
-    p.vel.x = _emitter.velocity.x + (RandF() * 2 - 1) * _emitter.velocity_variance.x;
-    p.vel.y = _emitter.velocity.y + (RandF() * 2 - 1) * _emitter.velocity_variance.y;
-    p.size_start  = _emitter.size_start;
-    p.size_end    = _emitter.size_end;
-    p.color_start = _emitter.color_start;
-    p.color_end   = _emitter.color_end;
+    p.vel.x = m_Emitter.velocity.x + (RandF() * 2 - 1) * m_Emitter.velocity_variance.x;
+    p.vel.y = m_Emitter.velocity.y + (RandF() * 2 - 1) * m_Emitter.velocity_variance.y;
+    p.size_start  = m_Emitter.size_start;
+    p.size_end    = m_Emitter.size_end;
+    p.color_start = m_Emitter.color_start;
+    p.color_end   = m_Emitter.color_end;
 }
 
 void ParticleSystem::EmitBurst(u32 count) noexcept {
-    if (!_pool) return;
+    if (!m_Pool) return;
     for (u32 i = 0; i < count; ++i) SpawnOne();
 }
 
 void ParticleSystem::Update(f32 dt) noexcept {
-    if (!_pool) return;
+    if (!m_Pool) return;
 
     // 1) 連続生成
-    if (_emitter.active && _emitter.rate_per_sec > 0) {
-        _spawn_accum += dt * _emitter.rate_per_sec;
-        const u32 n = static_cast<u32>(_spawn_accum);
-        _spawn_accum -= static_cast<f32>(n);
+    if (m_Emitter.active && m_Emitter.rate_per_sec > 0) {
+        m_SpawnAccum += dt * m_Emitter.rate_per_sec;
+        const u32 n = static_cast<u32>(m_SpawnAccum);
+        m_SpawnAccum -= static_cast<f32>(n);
         for (u32 i = 0; i < n; ++i) SpawnOne();
     }
 
     // 2) 物理積分 + 寿命管理（swap-pop で死亡粒子を除去）
-    for (u32 i = 0; i < _active; ) {
-        Particle& p = _pool[i];
-        p.vel.x += _emitter.gravity.x * dt;
-        p.vel.y += _emitter.gravity.y * dt;
+    for (u32 i = 0; i < m_Active; ) {
+        Particle& p = m_Pool[i];
+        p.vel.x += m_Emitter.gravity.x * dt;
+        p.vel.y += m_Emitter.gravity.y * dt;
         p.pos.x += p.vel.x * dt;
         p.pos.y += p.vel.y * dt;
         p.age   += dt;
         if (p.age >= p.life) {
             // 死亡: 末尾と入れ替えて active を 1 減らす
-            p = _pool[--_active];
+            p = m_Pool[--m_Active];
             continue;
         }
         ++i;
@@ -175,12 +175,12 @@ void ParticleSystem::Update(f32 dt) noexcept {
 }
 
 void ParticleSystem::Render(FSpriteBatch& sb) noexcept {
-    if (!_pool || _active == 0) return;
+    if (!m_Pool || m_Active == 0) return;
 
     // テクスチャ未設定なら FSpriteBatch の DrawRect 相当（白矩形）
     // 設定済みなら DrawSub 経由
-    for (u32 i = 0; i < _active; ++i) {
-        const Particle& p = _pool[i];
+    for (u32 i = 0; i < m_Active; ++i) {
+        const Particle& p = m_Pool[i];
         const f32 t = p.age / p.life;        // 0 (誕生) .. 1 (死亡)
         // size と color を線形補間
         const f32 s = p.size_start + (p.size_end - p.size_start) * t;
@@ -189,8 +189,8 @@ void ParticleSystem::Render(FSpriteBatch& sb) noexcept {
         const f32 b = p.color_start.z + (p.color_end.z - p.color_start.z) * t;
         const f32 a = p.color_start.w + (p.color_end.w - p.color_start.w) * t;
         const f32 hs = s * 0.5f;
-        if (_tex) {
-            sb.Draw(*_tex, p.pos.x - hs, p.pos.y - hs, s, s, FVec4{r, g, b, a});
+        if (m_Tex) {
+            sb.Draw(*m_Tex, p.pos.x - hs, p.pos.y - hs, s, s, FVec4{r, g, b, a});
         } else {
             sb.DrawRect(p.pos.x - hs, p.pos.y - hs, s, s, FVec4{r, g, b, a});
         }

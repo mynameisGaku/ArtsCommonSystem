@@ -77,31 +77,31 @@ public:
     // ボーンパレット（最大 kMaxBones 個）。残りは内部で単位行列で埋める。
     void SetBonePalette(const FMat4* palette, u32 count) noexcept;
 
-    IRhiPipeline*  Pipeline()    const noexcept { return _pipeline.Get(); }
-    IRhiBuffer*    PerFrameCB()  const noexcept { return _frame_cb.Get(); }
-    IRhiBuffer*    PerObjectCB() const noexcept { return _object_cb.Get(); }
-    IRhiBuffer*    BonesCB()     const noexcept { return _bones_cb.Get(); }
-    IRhiTexture*   DefaultWhiteTexture() const noexcept { return _white.Get(); }
+    IRhiPipeline*  Pipeline()    const noexcept { return m_Pipeline.Get(); }
+    IRhiBuffer*    PerFrameCB()  const noexcept { return m_FrameCb.Get(); }
+    IRhiBuffer*    PerObjectCB() const noexcept { return m_ObjectCb.Get(); }
+    IRhiBuffer*    BonesCB()     const noexcept { return m_BonesCb.Get(); }
+    IRhiTexture*   DefaultWhiteTexture() const noexcept { return m_White.Get(); }
 
 private:
     void FlushFrameCB() noexcept;
 
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiBuffer>   _frame_cb;
-    TUniquePtr<IRhiBuffer>   _object_cb;
-    TUniquePtr<IRhiBuffer>   _bones_cb;
-    TUniquePtr<IRhiTexture>  _white;
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiBuffer>   m_FrameCb;
+    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    TUniquePtr<IRhiBuffer>   m_BonesCb;
+    TUniquePtr<IRhiTexture>  m_White;
 
     // Frame の状態キャッシュ（FStandardShader と同パターン）
-    FMat4       _vp;
-    FVec3       _eye = FVec3{0, 0, 0};
-    FVec3       _ambient = FVec3{0, 0, 0};
-    FDirLight   _dir_lights[4];
-    u32        _dir_count = 0;
-    PointLight _point_lights[4];
-    u32        _point_count = 0;
+    FMat4       m_Vp;
+    FVec3       m_Eye = FVec3{0, 0, 0};
+    FVec3       m_Ambient = FVec3{0, 0, 0};
+    FDirLight   m_DirLights[4];
+    u32        m_DirCount = 0;
+    PointLight m_PointLights[4];
+    u32        m_PointCount = 0;
 };
 
 } // namespace acs

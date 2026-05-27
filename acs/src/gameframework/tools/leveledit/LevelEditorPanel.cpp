@@ -142,113 +142,113 @@ void FloodFill(class FTilemap& map, u32 layer,
 // =============================================================================
 void FLevelEditorPanel::Init() noexcept {
     // FEditorCamera を 2D mode で完全初期化 (= position=origin, zoom=1.0)。
-    _camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
+    m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
     // tilemap 1 セル = 16 world unit が典型 (FTilemap.h default) なので、
     // base ortho size を「32 セル分 = 512」相当にしておくと初期表示で 32x32
     // マップがちょうど画面に収まる。
-    _camera.SetBaseOrthoSize(512.0f);
+    m_Camera.SetBaseOrthoSize(512.0f);
 
-    _tilemap          = nullptr;
-    _brush            = EBrushKind::Paint;
-    _current_tile_id  = 1u;
-    _active_layer     = 0u;
-    _show_grid        = true;
-    _snap_to_grid     = true;
-    _selected_x       = kNoCoord;
-    _selected_y       = kNoCoord;
+    m_Tilemap          = nullptr;
+    m_Brush            = EBrushKind::Paint;
+    m_CurrentTileId  = 1u;
+    m_ActiveLayer     = 0u;
+    m_ShowGrid        = true;
+    m_SnapToGrid     = true;
+    m_SelectedX       = kNoCoord;
+    m_SelectedY       = kNoCoord;
 
     // 表示 / dock ヒントの初期値。viewport 系 panel は dock 中央に置きたい
-    // ことが多いので _docked_target = true (= Workspace 側へのヒント)。
-    _visible       = true;
-    _docked_target = true;
+    // ことが多いので m_DockedTarget = true (= Workspace 側へのヒント)。
+    m_Visible       = true;
+    m_DockedTarget = true;
 }
 
 void FLevelEditorPanel::Shutdown() noexcept {
     // FEditorCamera は POD だが明示 Reset で確定状態にする。
-    _camera.Reset();
-    _tilemap     = nullptr;
-    _selected_x  = kNoCoord;
-    _selected_y  = kNoCoord;
+    m_Camera.Reset();
+    m_Tilemap     = nullptr;
+    m_SelectedX  = kNoCoord;
+    m_SelectedY  = kNoCoord;
 }
 
 // =============================================================================
 // SetTilemap / CurrentTilemap
 // =============================================================================
 void FLevelEditorPanel::SetTilemap(class FTilemap* tm) noexcept {
-    _tilemap = tm;
+    m_Tilemap = tm;
     // active_layer を LayerCount() でクランプ (= 別 tilemap に切替えたら
     // 前 tilemap の layer 番号は無意味)。
-    if (_tilemap != nullptr) {
-        const u32 lc = _tilemap->LayerCount();
+    if (m_Tilemap != nullptr) {
+        const u32 lc = m_Tilemap->LayerCount();
         if (lc == 0u) {
-            _active_layer = 0u;
-        } else if (_active_layer >= lc) {
-            _active_layer = lc - 1u;
+            m_ActiveLayer = 0u;
+        } else if (m_ActiveLayer >= lc) {
+            m_ActiveLayer = lc - 1u;
         }
     }
     // selection もリセット
-    _selected_x = kNoCoord;
-    _selected_y = kNoCoord;
+    m_SelectedX = kNoCoord;
+    m_SelectedY = kNoCoord;
 }
 
 class FTilemap* FLevelEditorPanel::CurrentTilemap() const noexcept {
-    return _tilemap;
+    return m_Tilemap;
 }
 
 // =============================================================================
 // FCamera アクセサ
 // =============================================================================
 acs::game::editor_core::FEditorCamera& FLevelEditorPanel::Camera() noexcept {
-    return _camera;
+    return m_Camera;
 }
 
 // =============================================================================
 // ブラシ / レイヤ / tile id / 表示 toggle のアクセサ
 // =============================================================================
 EBrushKind FLevelEditorPanel::CurrentBrush() const noexcept {
-    return _brush;
+    return m_Brush;
 }
 void FLevelEditorPanel::SetCurrentBrush(EBrushKind b) noexcept {
-    _brush = b;
+    m_Brush = b;
 }
 
 u16 FLevelEditorPanel::CurrentTileId() const noexcept {
-    return _current_tile_id;
+    return m_CurrentTileId;
 }
 void FLevelEditorPanel::SetCurrentTileId(u16 id) noexcept {
     if (id > kTileIdMax) id = kTileIdMax;
-    _current_tile_id = id;
+    m_CurrentTileId = id;
 }
 
 u32 FLevelEditorPanel::ActiveLayer() const noexcept {
-    return _active_layer;
+    return m_ActiveLayer;
 }
 void FLevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
     // tilemap がある場合は LayerCount でクランプ、無い場合はそのまま受け入れる
     // (後で SetTilemap でクランプされる)。
-    if (_tilemap != nullptr) {
-        const u32 lc = _tilemap->LayerCount();
+    if (m_Tilemap != nullptr) {
+        const u32 lc = m_Tilemap->LayerCount();
         if (lc == 0u) {
-            _active_layer = 0u;
+            m_ActiveLayer = 0u;
             return;
         }
         if (layer >= lc) layer = lc - 1u;
     }
-    _active_layer = layer;
+    m_ActiveLayer = layer;
 }
 
 bool FLevelEditorPanel::ShowGrid() const noexcept {
-    return _show_grid;
+    return m_ShowGrid;
 }
 void FLevelEditorPanel::SetShowGrid(bool b) noexcept {
-    _show_grid = b;
+    m_ShowGrid = b;
 }
 
 bool FLevelEditorPanel::SnapToGrid() const noexcept {
-    return _snap_to_grid;
+    return m_SnapToGrid;
 }
 void FLevelEditorPanel::SetSnapToGrid(bool b) noexcept {
-    _snap_to_grid = b;
+    m_SnapToGrid = b;
 }
 
 // =============================================================================
@@ -260,8 +260,8 @@ void FLevelEditorPanel::SetSnapToGrid(bool b) noexcept {
 // =============================================================================
 void FLevelEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
     FEditorPanel::OnInit(workspace);
-    _camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
-    _camera.SetBaseOrthoSize(512.0f);
+    m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
+    m_Camera.SetBaseOrthoSize(512.0f);
 }
 
 // =============================================================================
@@ -287,18 +287,18 @@ void FLevelEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspa
 void FLevelEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
-    if (!ImGui::Begin(Title(), &_visible)) {
+    if (!ImGui::Begin(Title(), &m_Visible)) {
         ImGui::End();
         return;
     }
 
-    if (_tilemap == nullptr) {
+    if (m_Tilemap == nullptr) {
         ImGui::TextDisabled("(No tilemap bound — call SetTilemap(&tm) to start editing)");
         ImGui::End();
         return;
     }
 
-    FTilemap& map = *_tilemap;
+    FTilemap& map = *m_Tilemap;
     const u32 map_w = map.Width();
     const u32 map_h = map.Height();
     const f32 tile_size = map.TileSize();
@@ -310,12 +310,12 @@ void FLevelEditorPanel::DrawUI() noexcept {
     {
         // Brush kind combo
         ImGui::SetNextItemWidth(120.0f);
-        if (ImGui::BeginCombo("Brush", BrushLabel(_brush))) {
+        if (ImGui::BeginCombo("Brush", BrushLabel(m_Brush))) {
             for (u32 k = 0; k < 4u; ++k) {
                 const EBrushKind kk = static_cast<EBrushKind>(k);
-                const bool selected = (kk == _brush);
+                const bool selected = (kk == m_Brush);
                 if (ImGui::Selectable(BrushLabel(kk), selected)) {
-                    _brush = kk;
+                    m_Brush = kk;
                 }
                 if (selected) ImGui::SetItemDefaultFocus();
             }
@@ -326,10 +326,10 @@ void FLevelEditorPanel::DrawUI() noexcept {
         // Active layer combo
         ImGui::SetNextItemWidth(80.0f);
         char layer_label[32] = {};
-        std::snprintf(layer_label, sizeof(layer_label), "Layer %u", _active_layer);
+        std::snprintf(layer_label, sizeof(layer_label), "Layer %u", m_ActiveLayer);
         if (ImGui::BeginCombo("Layer", layer_label)) {
             for (u32 L = 0; L < layer_count; ++L) {
-                const bool selected = (L == _active_layer);
+                const bool selected = (L == m_ActiveLayer);
                 char item_label[32] = {};
                 std::snprintf(item_label, sizeof(item_label), "Layer %u", L);
                 if (ImGui::Selectable(item_label, selected)) {
@@ -344,20 +344,20 @@ void FLevelEditorPanel::DrawUI() noexcept {
         // Tile id picker (DragInt 0〜kTileIdMax)
         ImGui::SetNextItemWidth(120.0f);
         // Erase ブラシ中は tile id 編集を disable (= 強制 0 扱いだから)
-        const bool tile_id_disabled = (_brush == EBrushKind::Erase);
+        const bool tile_id_disabled = (m_Brush == EBrushKind::Erase);
         if (tile_id_disabled) ImGui::BeginDisabled();
-        int tid = static_cast<int>(_current_tile_id);
+        int tid = static_cast<int>(m_CurrentTileId);
         if (ImGui::DragInt("Tile ID", &tid, 1.0f, 0, static_cast<int>(kTileIdMax))) {
             if (tid < 0) tid = 0;
             if (tid > static_cast<int>(kTileIdMax)) tid = static_cast<int>(kTileIdMax);
-            _current_tile_id = static_cast<u16>(tid);
+            m_CurrentTileId = static_cast<u16>(tid);
         }
         if (tile_id_disabled) ImGui::EndDisabled();
 
         // Show grid / Snap to grid toggle
-        ImGui::Checkbox("Show Grid", &_show_grid);
+        ImGui::Checkbox("Show Grid", &m_ShowGrid);
         ImGui::SameLine();
-        ImGui::Checkbox("Snap to Grid", &_snap_to_grid);
+        ImGui::Checkbox("Snap to Grid", &m_SnapToGrid);
     }
 
     ImGui::Separator();
@@ -405,14 +405,14 @@ void FLevelEditorPanel::DrawUI() noexcept {
         const ImVec2 mouse = io.MousePos;
 
         // FEditorCamera 状態を取得 (2D position と zoom)。
-        const acs::game::editor_core::FEditorCameraState& cs = _camera.State();
+        const acs::game::editor_core::FEditorCameraState& cs = m_Camera.State();
         const f32 cam_x = cs.position.x;
         const f32 cam_y = cs.position.y;
         const f32 zoom  = (cs.zoom_2d > 0.001f) ? cs.zoom_2d : 0.001f;
 
         // ortho 幅 (world units / 画面横) を pixels_per_world に変換。
         // base_ortho_size は zoom=1 時の world 幅 (default 512 = 32 タイル分)。
-        const f32 ortho_w_world  = _camera.GetBaseOrthoSize() / zoom;
+        const f32 ortho_w_world  = m_Camera.GetBaseOrthoSize() / zoom;
         const f32 pixels_per_world = (ortho_w_world > 0.001f)
                                    ? (canvas_size.x / ortho_w_world)
                                    : 1.0f;
@@ -426,12 +426,12 @@ void FLevelEditorPanel::DrawUI() noexcept {
             const bool mmb = io.MouseDown[ImGuiMouseButton_Middle];
             const bool rmb = io.MouseDown[ImGuiMouseButton_Right];
             const ImVec2 mdelta = io.MouseDelta;
-            _camera.HandleMouseInput(FVec2{mdelta.x, mdelta.y},
+            m_Camera.HandleMouseInput(FVec2{mdelta.x, mdelta.y},
                                      /*lmb=*/false, rmb, mmb, wheel);
         }
         // smoothing tick (Workspace 側でも呼ばれる可能性があるが、二重 Tick も
         // 単に 0 dt 補間で害が無いので安全)。
-        _camera.Tick(io.DeltaTime);
+        m_Camera.Tick(io.DeltaTime);
 
         // tile 矩形を 1 cell ずつ描画 (= ImDrawList::AddRectFilled の row-major
         // スイープ)。world 座標は左下を原点 (FTilemap.TileToWorld 慣習)、
@@ -466,7 +466,7 @@ void FLevelEditorPanel::DrawUI() noexcept {
         }
 
         // grid line 描画 (show_grid=true の時)
-        if (_show_grid) {
+        if (m_ShowGrid) {
             const ImU32 grid_col = IM_COL32(80, 80, 90, 180);
             // 縦線: x = 0, 1, ..., map_w (= tile_size 単位)
             for (u32 x = 0; x <= map_w; ++x) {
@@ -514,49 +514,49 @@ void FLevelEditorPanel::DrawUI() noexcept {
                                                 cam_x, cam_y,
                                                 pixels_per_world, canvas_center);
                 const ImU32 hilite_col = IM_COL32(255, 220, 80, 200);
-                dl->AddRect(ha, hb, hilite_col, 0.0f, 0, _snap_to_grid ? 2.5f : 1.5f);
+                dl->AddRect(ha, hb, hilite_col, 0.0f, 0, m_SnapToGrid ? 2.5f : 1.5f);
 
                 // ブラシ動作: LMB に応じて 4 種を分岐
                 const bool lmb_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
                 const bool lmb_click = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
                 // canvas_active が true なら LMB drag 中
-                switch (_brush) {
+                switch (m_Brush) {
                 case EBrushKind::Paint:
                     // drag 対応: lmb_down 中は毎フレーム SetTile (= 連続塗り)。
                     if (canvas_active && lmb_down) {
-                        map.SetTile(tx, ty, FTileId{_current_tile_id}, _active_layer);
-                        _selected_x = tx;
-                        _selected_y = ty;
+                        map.SetTile(tx, ty, FTileId{m_CurrentTileId}, m_ActiveLayer);
+                        m_SelectedX = tx;
+                        m_SelectedY = ty;
                     }
                     break;
 
                 case EBrushKind::Erase:
                     // drag 対応: lmb_down 中は毎フレーム 0 を SetTile。
                     if (canvas_active && lmb_down) {
-                        map.SetTile(tx, ty, FTileId{0u}, _active_layer);
-                        _selected_x = tx;
-                        _selected_y = ty;
+                        map.SetTile(tx, ty, FTileId{0u}, m_ActiveLayer);
+                        m_SelectedX = tx;
+                        m_SelectedY = ty;
                     }
                     break;
 
                 case EBrushKind::Fill:
                     // クリック単発で flood-fill。drag は無効化 (誤動作防止)。
                     if (lmb_click) {
-                        FloodFill(map, _active_layer, tx, ty,
-                                  _current_tile_id, kFloodFillMaxCells);
-                        _selected_x = tx;
-                        _selected_y = ty;
+                        FloodFill(map, m_ActiveLayer, tx, ty,
+                                  m_CurrentTileId, kFloodFillMaxCells);
+                        m_SelectedX = tx;
+                        m_SelectedY = ty;
                     }
                     break;
 
                 case EBrushKind::Pick:
                     // クリック単発で tile id をコピー (= スポイト)。
                     if (lmb_click) {
-                        const u16 picked = map.GetTile(tx, ty, _active_layer).value;
+                        const u16 picked = map.GetTile(tx, ty, m_ActiveLayer).value;
                         SetCurrentTileId(picked);
-                        _selected_x = tx;
-                        _selected_y = ty;
+                        m_SelectedX = tx;
+                        m_SelectedY = ty;
                     }
                     break;
                 }
@@ -576,27 +576,27 @@ void FLevelEditorPanel::DrawUI() noexcept {
     {
         ImGui::TextUnformatted("Selected Tile");
         ImGui::Separator();
-        if (_selected_x == kNoCoord || _selected_y == kNoCoord) {
+        if (m_SelectedX == kNoCoord || m_SelectedY == kNoCoord) {
             ImGui::TextDisabled("(none — hover & click in the viewport)");
         } else {
-            ImGui::Text("x: %u", _selected_x);
-            ImGui::Text("y: %u", _selected_y);
-            ImGui::Text("layer: %u", _active_layer);
-            const u16 here_id = (_tilemap != nullptr)
-                              ? _tilemap->GetTile(_selected_x, _selected_y, _active_layer).value
+            ImGui::Text("x: %u", m_SelectedX);
+            ImGui::Text("y: %u", m_SelectedY);
+            ImGui::Text("layer: %u", m_ActiveLayer);
+            const u16 here_id = (m_Tilemap != nullptr)
+                              ? m_Tilemap->GetTile(m_SelectedX, m_SelectedY, m_ActiveLayer).value
                               : 0u;
             ImGui::Text("tile id (here): %u", static_cast<u32>(here_id));
         }
         ImGui::Spacing();
         ImGui::TextUnformatted("Current Brush");
         ImGui::Separator();
-        ImGui::Text("brush: %s", BrushLabel(_brush));
-        ImGui::Text("current tile id: %u", static_cast<u32>(_current_tile_id));
+        ImGui::Text("brush: %s", BrushLabel(m_Brush));
+        ImGui::Text("current tile id: %u", static_cast<u32>(m_CurrentTileId));
 
         ImGui::Spacing();
         ImGui::TextUnformatted("FCamera");
         ImGui::Separator();
-        const acs::game::editor_core::FEditorCameraState& cs = _camera.State();
+        const acs::game::editor_core::FEditorCameraState& cs = m_Camera.State();
         ImGui::Text("pos: (%.1f, %.1f)",
                     static_cast<double>(cs.position.x),
                     static_cast<double>(cs.position.y));
@@ -605,12 +605,12 @@ void FLevelEditorPanel::DrawUI() noexcept {
             // FTilemap 全体が画面に収まる camera 位置 / zoom に
             const f32 fw = static_cast<f32>(map_w) * tile_size;
             const f32 fh = static_cast<f32>(map_h) * tile_size;
-            _camera.FrameToBoundingBox2D(FVec2{0.0f, 0.0f}, FVec2{fw, fh});
+            m_Camera.FrameToBoundingBox2D(FVec2{0.0f, 0.0f}, FVec2{fw, fh});
         }
         ImGui::SameLine();
         if (ImGui::Button("Reset")) {
-            _camera.Reset();
-            _camera.SetBaseOrthoSize(512.0f);
+            m_Camera.Reset();
+            m_Camera.SetBaseOrthoSize(512.0f);
         }
 
         ImGui::Spacing();

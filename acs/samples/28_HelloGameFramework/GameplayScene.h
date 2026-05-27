@@ -32,23 +32,23 @@ public:
 
 private:
     // FTween / Clock / Sequences / Input は Services() 経由で取得するので member は不要。
-    acs::FVec3                _color {0.05f, 0.20f, 0.10f};
-    acs::game::FTweenHandle   _color_tween;
-    bool                     _to_bright = true;
-    acs::f32                 _fixed_secs = 0.0f;
-    acs::u32                 _fixed_step_log_counter = 0;
+    acs::FVec3                m_Color {0.05f, 0.20f, 0.10f};
+    acs::game::FTweenHandle   m_ColorTween;
+    bool                     m_ToBright = true;
+    acs::f32                 m_FixedSecs = 0.0f;
+    acs::u32                 m_FixedStepLogCounter = 0;
 
     // FNode2D ツリー (root → wheel → spoke[0/1])。
-    acs::game::FNode2D        _root;
-    RotatingNode*            _wheel    = nullptr;
-    RotatingNode*            _spoke[2] = {nullptr, nullptr};
+    acs::game::FNode2D        m_Root;
+    RotatingNode*            m_Wheel    = nullptr;
+    RotatingNode*            m_Spoke[2] = {nullptr, nullptr};
     // composition 版 (プレーン FNode2D + RotateComponent attach)。
-    acs::game::FNode2D*       _rotator  = nullptr;
+    acs::game::FNode2D*       m_Rotator  = nullptr;
     // spoke[0/1] の world pos に毎フレーム追従させる CollisionWorld 上の円。
-    acs::game::FShapeId       _spoke_shape[2];
+    acs::game::FShapeId       m_SpokeShape[2];
     // 重力で落下する ball (弱参照、ツリーの所有) と静的 ground。
-    acs::game::FNode2D*       _ball         = nullptr;
-    acs::game::FShapeId       _ground_shape;
+    acs::game::FNode2D*       m_Ball         = nullptr;
+    acs::game::FShapeId       m_GroundShape;
 
     static constexpr acs::FVec3 kColorDark  {0.05f, 0.20f, 0.10f};
     static constexpr acs::FVec3 kColorBright{0.10f, 0.32f, 0.18f};

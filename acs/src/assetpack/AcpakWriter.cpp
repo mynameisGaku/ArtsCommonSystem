@@ -39,19 +39,19 @@ namespace {
 // FAcpakReader.cpp と同じ実装。link 単位を分けているので重複する。
 // (Hash.cpp に共通 CRC32 を出す案は Phase 2 でやる)
 const u32* GetCrc32Table() noexcept {
-    static u32 _table[256] = {};
-    static bool _initialized = false;
-    if (!_initialized) {
+    static u32 m_Table[256] = {};
+    static bool m_Initialized = false;
+    if (!m_Initialized) {
         for (u32 i = 0; i < 256; ++i) {
             u32 c = i;
             for (u32 k = 0; k < 8; ++k) {
                 c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
             }
-            _table[i] = c;
+            m_Table[i] = c;
         }
-        _initialized = true;
+        m_Initialized = true;
     }
-    return _table;
+    return m_Table;
 }
 
 u32 ComputeCrc32(const void* data, u64 size) noexcept {
@@ -136,30 +136,30 @@ FAcpakWriter::~FAcpakWriter() noexcept {
 }
 
 void FAcpakWriter::Close() noexcept {
-    if (_file_handle != nullptr) {
-        ::CloseHandle(static_cast<HANDLE>(_file_handle));
-        _file_handle = nullptr;
+    if (m_FileHandle != nullptr) {
+        ::CloseHandle(static_cast<HANDLE>(m_FileHandle));
+        m_FileHandle = nullptr;
     }
     ResetState();
 }
 
 void FAcpakWriter::ResetState() noexcept {
-    _flags     = 0;
-    _finalized = false;
-    _pending.Clear();
+    m_Flags     = 0;
+    m_Finalized = false;
+    m_Pending.Clear();
 
     // 鍵 defensive zero
-    MemSet(_key.bytes, 0, sizeof(_key.bytes));
-    _has_key = false;
+    MemSet(m_Key.bytes, 0, sizeof(m_Key.bytes));
+    m_HasKey = false;
 }
 
 void FAcpakWriter::SetKey(const FAcpakKey& key) noexcept {
-    MemCopy(_key.bytes, key.bytes, sizeof(_key.bytes));
-    _has_key = true;
+    MemCopy(m_Key.bytes, key.bytes, sizeof(m_Key.bytes));
+    m_HasKey = true;
 }
 
 TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) noexcept {
-    if (_file_handle != nullptr) {
+    if (m_FileHandle != nullptr) {
         return ACS_ERR(IO, kAcpakSubAlreadyOpen,
                        "FAcpakWriter::Open: writer already open");
     }
@@ -184,16 +184,16 @@ TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) 
                           ::GetLastError());
     }
 
-    _file_handle = h;
-    _flags       = static_cast<u32>(flags);
-    _finalized   = false;
-    _pending.Clear();
+    m_FileHandle = h;
+    m_Flags       = static_cast<u32>(flags);
+    m_Finalized   = false;
+    m_Pending.Clear();
 
     // ---- ヘッダプレースホルダを書く (Finalize で上書きする) -----------------
     u8 header[kAcpakHeaderDiskSize] = {};
     MemCopy(header, kAcpakMagic, 8);
     WriteU32LE(header + 8,  kAcpakVersion);
-    WriteU32LE(header + 12, _flags);
+    WriteU32LE(header + 12, m_Flags);
     WriteU32LE(header + 16, 0);            // file_count placeholder
     WriteU32LE(header + 20, 0);            // padding = 0
     WriteU64LE(header + 24, 0);            // file_table_offset placeholder
@@ -202,7 +202,7 @@ TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) 
     DWORD err = 0;
     if (!WriteAll(h, header, kAcpakHeaderDiskSize, err)) {
         ::CloseHandle(h);
-        _file_handle = nullptr;
+        m_FileHandle = nullptr;
         ResetState();
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
                           "FAcpakWriter::Open: WriteFile (header) failed", err);
@@ -214,11 +214,11 @@ TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) 
 TResult<void> FAcpakWriter::AddFile(const wchar_t* virtual_path,
                                   const void*    data,
                                   u64            size) noexcept {
-    if (_file_handle == nullptr) {
+    if (m_FileHandle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
                        "FAcpakWriter::AddFile: writer not open");
     }
-    if (_finalized) {
+    if (m_Finalized) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
                        "FAcpakWriter::AddFile: writer already finalized");
     }
@@ -235,7 +235,7 @@ TResult<void> FAcpakWriter::AddFile(const wchar_t* virtual_path,
     e.path = virtual_path;
     e.data = data;
     e.size = size;
-    _pending.PushBack(e);
+    m_Pending.PushBack(e);
     return Ok();
 }
 
@@ -271,16 +271,16 @@ TResult<void> FAcpakWriter::AddFile(const wchar_t* virtual_path,
 //       挙動とする。"97%" 安全規則は Phase 3 で per-entry flag を追加して
 //       再検討する (今は単純化を優先)。
 TResult<void> FAcpakWriter::Finalize() noexcept {
-    if (_file_handle == nullptr) {
+    if (m_FileHandle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
                        "FAcpakWriter::Finalize: writer not open");
     }
-    if (_finalized) {
+    if (m_Finalized) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
                        "FAcpakWriter::Finalize: already finalized");
     }
 
-    HANDLE h = static_cast<HANDLE>(_file_handle);
+    HANDLE h = static_cast<HANDLE>(m_FileHandle);
     DWORD  err = 0;
 
     // ---- 既にヘッダ 36B は Open で書いてあり、file pointer は 36 にある -----
@@ -291,11 +291,11 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
                           "FAcpakWriter::Finalize: SetFilePointerEx failed", err);
     }
 
-    const bool is_encrypted  = (_flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
-    const bool is_compressed = (_flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
+    const bool is_encrypted  = (m_Flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
+    const bool is_compressed = (m_Flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
 
     // 暗号化が立っているのに鍵未設定なら早期に弾く (失敗のソースを明確化)。
-    if (is_encrypted && !_has_key) {
+    if (is_encrypted && !m_HasKey) {
         return ACS_ERR(Asset, kAcpakSubCryptoKey,
                        "FAcpakWriter::Finalize: encrypted flag set but no key");
     }
@@ -310,15 +310,15 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
         u8  cipher_tag[16];
     };
     TArray<WrittenEntry> written;
-    written.Reserve(_pending.Size());
+    written.Reserve(m_Pending.Size());
 
     // 中間バッファは entry 間で再利用する (TArray<u8> を 2 つ用意)。
     TArray<u8> stage_compress;   // LZ4 圧縮出力先
     TArray<u8> stage_encrypt;    // AES-GCM 暗号化出力先 (in-place 可だが安全のため別)
 
     // ---- ファイルデータ書き出し -------------------------------------------
-    for (usize i = 0; i < _pending.Size(); ++i) {
-        const PendingEntry& p = _pending[i];
+    for (usize i = 0; i < m_Pending.Size(); ++i) {
+        const PendingEntry& p = m_Pending[i];
 
         WrittenEntry w{};
         w.offset   = Tell(h);
@@ -354,7 +354,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
 
             // 出力バッファ (= 同 size の別領域、in-place も可だが分離で安全)
             stage_encrypt.Resize(static_cast<usize>(stage_size));
-            auto er = FAcpakCrypto::Encrypt(_key,
+            auto er = FAcpakCrypto::Encrypt(m_Key,
                                            w.cipher_nonce,
                                            stage_ptr, stage_size,
                                            stage_encrypt.Data(),
@@ -380,8 +380,8 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
     // ---- file table 書き出し ---------------------------------------------
     const u64 file_table_offset = Tell(h);
 
-    for (usize i = 0; i < _pending.Size(); ++i) {
-        const PendingEntry& p    = _pending[i];
+    for (usize i = 0; i < m_Pending.Size(); ++i) {
+        const PendingEntry& p    = m_Pending[i];
         const WrittenEntry&  w   = written[i];
         const u32            len = LenW(p.path);
 
@@ -430,8 +430,8 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
     u8 header[kAcpakHeaderDiskSize] = {};
     MemCopy(header, kAcpakMagic, 8);
     WriteU32LE(header + 8,  kAcpakVersion);
-    WriteU32LE(header + 12, _flags);
-    WriteU32LE(header + 16, static_cast<u32>(_pending.Size()));
+    WriteU32LE(header + 12, m_Flags);
+    WriteU32LE(header + 16, static_cast<u32>(m_Pending.Size()));
     WriteU32LE(header + 20, 0);            // padding = 0
     WriteU64LE(header + 24, file_table_offset);
     WriteU32LE(header + 32, 0);            // reserved = 0
@@ -444,7 +444,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
     // ディスクに反映 (クラッシュ耐性は完璧ではないが、最低限 flush 要求)
     ::FlushFileBuffers(h);
 
-    _finalized = true;
+    m_Finalized = true;
     return Ok();
 }
 

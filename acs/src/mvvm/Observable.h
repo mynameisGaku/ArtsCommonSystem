@@ -51,26 +51,26 @@ public:
     using Listener = void (*)(const T& new_value, void* user);
 
     Observable() noexcept = default;
-    explicit Observable(T initial) noexcept : _value(Move(initial)) {}
+    explicit Observable(T initial) noexcept : m_Value(Move(initial)) {}
 
     Observable(const Observable&) = delete;
     Observable& operator=(const Observable&) = delete;
 
     // 値の取得 / 設定
-    const T& Get() const noexcept { return _value; }
-    operator const T&() const noexcept { return _value; }
+    const T& Get() const noexcept { return m_Value; }
+    operator const T&() const noexcept { return m_Value; }
 
     // 値を変更し、変わった場合のみ全監視者に通知
     void Set(const T& v) noexcept {
         ACS_THREAD_AFFINITY_CHECK();
-        if (_value == v) return;
-        _value = v;
+        if (m_Value == v) return;
+        m_Value = v;
         Notify();
     }
     void Set(T&& v) noexcept {
         ACS_THREAD_AFFINITY_CHECK();
-        if (_value == v) return;
-        _value = Move(v);
+        if (m_Value == v) return;
+        m_Value = Move(v);
         Notify();
     }
 
@@ -82,15 +82,15 @@ public:
         ACS_THREAD_AFFINITY_CHECK();
         if (!cb) return kInvalidObservable;
         u32 idx;
-        if (_free_indices.Size() > 0) {
-            idx = _free_indices[_free_indices.Size() - 1];
-            _free_indices.PopBack();
+        if (m_FreeIndices.Size() > 0) {
+            idx = m_FreeIndices[m_FreeIndices.Size() - 1];
+            m_FreeIndices.PopBack();
         } else {
-            idx = static_cast<u32>(_slots.Size());
-            _slots.PushBack(Slot{});
+            idx = static_cast<u32>(m_Slots.Size());
+            m_Slots.PushBack(Slot{});
         }
-        Slot& s = _slots[idx];
-        if (s.id == 0) s.id = _next_id++;
+        Slot& s = m_Slots[idx];
+        if (s.id == 0) s.id = m_NextId++;
         s.generation++;
         s.active = true;
         s.cb     = cb;
@@ -101,17 +101,17 @@ public:
     // 監視を解除
     bool Unsubscribe(ObservableHandle h) noexcept {
         if (!h.IsValid()) return false;
-        for (usize i = 0; i < _slots.Size(); ++i) {
-            Slot& s = _slots[i];
+        for (usize i = 0; i < m_Slots.Size(); ++i) {
+            Slot& s = m_Slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
-                if (_notify_depth > 0) {
+                if (m_NotifyDepth > 0) {
                     s.active = false;
-                    _pending_cancel.PushBack(static_cast<u32>(i));
+                    m_PendingCancel.PushBack(static_cast<u32>(i));
                 } else {
                     s.active = false;
                     s.cb     = nullptr;
                     s.user   = nullptr;
-                    _free_indices.PushBack(static_cast<u32>(i));
+                    m_FreeIndices.PushBack(static_cast<u32>(i));
                 }
                 return true;
             }
@@ -121,31 +121,31 @@ public:
 
     u32 SubscriberCount() const noexcept {
         u32 n = 0;
-        for (usize i = 0; i < _slots.Size(); ++i) if (_slots[i].active) ++n;
+        for (usize i = 0; i < m_Slots.Size(); ++i) if (m_Slots[i].active) ++n;
         return n;
     }
 
 private:
     void Notify() noexcept {
-        ++_notify_depth;
-        const usize n = _slots.Size();
+        ++m_NotifyDepth;
+        const usize n = m_Slots.Size();
         for (usize i = 0; i < n; ++i) {
-            Slot& s = _slots[i];
+            Slot& s = m_Slots[i];
             if (!s.active || !s.cb) continue;
-            s.cb(_value, s.user);
+            s.cb(m_Value, s.user);
         }
-        --_notify_depth;
-        if (_notify_depth == 0 && _pending_cancel.Size() > 0) {
-            for (usize i = 0; i < _pending_cancel.Size(); ++i) {
-                u32 idx = _pending_cancel[i];
-                if (idx < _slots.Size()) {
-                    Slot& s = _slots[idx];
+        --m_NotifyDepth;
+        if (m_NotifyDepth == 0 && m_PendingCancel.Size() > 0) {
+            for (usize i = 0; i < m_PendingCancel.Size(); ++i) {
+                u32 idx = m_PendingCancel[i];
+                if (idx < m_Slots.Size()) {
+                    Slot& s = m_Slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
-                    _free_indices.PushBack(idx);
+                    m_FreeIndices.PushBack(idx);
                 }
             }
-            _pending_cancel.Clear();
+            m_PendingCancel.Clear();
         }
     }
 
@@ -157,12 +157,12 @@ private:
         void*    user        = nullptr;
     };
 
-    T            _value{};
-    TArray<Slot>  _slots;
-    TArray<u32>   _free_indices;
-    TArray<u32>   _pending_cancel;
-    u32          _next_id      = 1;
-    i32          _notify_depth = 0;
+    T            m_Value{};
+    TArray<Slot>  m_Slots;
+    TArray<u32>   m_FreeIndices;
+    TArray<u32>   m_PendingCancel;
+    u32          m_NextId      = 1;
+    i32          m_NotifyDepth = 0;
     ACS_THREAD_AFFINITY_FIELD();
 };
 

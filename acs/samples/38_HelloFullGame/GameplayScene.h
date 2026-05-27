@@ -6,7 +6,7 @@
 // モジュール (Player / EnemyPool / Bullets / HitEffects / Hud) を tick / draw する。
 //
 // Pillar の使い分け:
-//   - B FNode2D : player + enemy node。_root.UpdateTree で subtree 更新
+//   - B FNode2D : player + enemy node。m_Root.UpdateTree で subtree 更新
 //   - D FInputMap: WASD / Mouse / Fire
 //   - E FCamera2D: smooth follow + trauma shake
 //   - F FCollisionWorld2D: Circle vs Circle
@@ -42,21 +42,21 @@ public:
     void OnRender(acs::game::RenderContext& rc) noexcept override;
 
     // ----- 公開 (GameOverScene 遷移時に score / 勝敗を読むため) -----
-    acs::u64 FinalScore() const noexcept { return _score.CurrentScore(); }
-    bool     DidWin()     const noexcept { return _victory; }
+    acs::u64 FinalScore() const noexcept { return m_Score.CurrentScore(); }
+    bool     DidWin()     const noexcept { return m_Victory; }
 
     // ----- モジュール間連携 (Player / Enemy / Bullets / HitEffects / WaveCallbacks 用) -----
-    Player&                       GetPlayer()      noexcept { return _player; }
-    EnemyPool&                    GetEnemies()     noexcept { return _enemies; }
-    Bullets&                      GetBullets()     noexcept { return _bullets_mod; }
-    HitEffects&                   GetHitEffects()  noexcept { return _hit_effects; }
-    acs::game::FNode2D&            GetRoot()        noexcept { return _root; }
-    acs::game::FHealthSystem&      GetHealth()      noexcept { return _health; }
-    acs::game::FScoreSystem&       GetScore()       noexcept { return _score; }
-    acs::game::FWaveSpawner&       GetWaves()       noexcept { return _waves; }
-    acs::game::FProjectileSystem&  GetProjectiles() noexcept { return _bullets; }
-    acs::game::FParticleEffectSystem& GetParticles() noexcept { return _particles; }
-    acs::game::FRandom&            GetRng()         noexcept { return _rng; }
+    Player&                       GetPlayer()      noexcept { return m_Player; }
+    EnemyPool&                    GetEnemies()     noexcept { return m_Enemies; }
+    Bullets&                      GetBullets()     noexcept { return m_BulletsMod; }
+    HitEffects&                   GetHitEffects()  noexcept { return m_HitEffects; }
+    acs::game::FNode2D&            GetRoot()        noexcept { return m_Root; }
+    acs::game::FHealthSystem&      GetHealth()      noexcept { return m_Health; }
+    acs::game::FScoreSystem&       GetScore()       noexcept { return m_Score; }
+    acs::game::FWaveSpawner&       GetWaves()       noexcept { return m_Waves; }
+    acs::game::FProjectileSystem&  GetProjectiles() noexcept { return m_Bullets; }
+    acs::game::FParticleEffectSystem& GetParticles() noexcept { return m_Particles; }
+    acs::game::FRandom&            GetRng()         noexcept { return m_Rng; }
 
     // ----- モジュール間コールバック (Player → HitEffects、Enemy → score / wave 通知) -----
     void OnPlayerHurt() noexcept;     // 接触ダメージ時のフィードバック発火
@@ -68,33 +68,33 @@ public:
 
 private:
     // ----- world state -----
-    acs::game::FNode2D                _root;
-    acs::game::FHealthSystem          _health;
-    acs::game::FScoreSystem           _score;
-    acs::game::FWaveSpawner           _waves;
-    acs::game::FProjectileSystem      _bullets;     // ECS 側
-    acs::game::FParticleEffectSystem  _particles;
-    acs::game::FPerception            _perception;
-    acs::game::FTilemap               _floor;
+    acs::game::FNode2D                m_Root;
+    acs::game::FHealthSystem          m_Health;
+    acs::game::FScoreSystem           m_Score;
+    acs::game::FWaveSpawner           m_Waves;
+    acs::game::FProjectileSystem      m_Bullets;     // ECS 側
+    acs::game::FParticleEffectSystem  m_Particles;
+    acs::game::FPerception            m_Perception;
+    acs::game::FTilemap               m_Floor;
 
     // ----- 機能別モジュール -----
-    Player       _player;
-    EnemyPool    _enemies;
-    Bullets      _bullets_mod;
-    HitEffects   _hit_effects;
-    Hud          _hud;
+    Player       m_Player;
+    EnemyPool    m_Enemies;
+    Bullets      m_BulletsMod;
+    HitEffects   m_HitEffects;
+    Hud          m_Hud;
 
     // wave 用の SpawnRule 配列 (caller 所有、寿命 = scene 寿命)。
-    acs::game::SpawnRule _wave_rules[kTotalWaves] {};
-    acs::game::FWaveDef   _wave_defs [kTotalWaves] {};
+    acs::game::SpawnRule m_WaveRules[kTotalWaves] {};
+    acs::game::FWaveDef   m_WaveDefs [kTotalWaves] {};
 
     // 決定論 PRNG (敵スポーン位置の seed をシーンごと固定にしてリプレイ性確保)。
-    acs::game::FRandom _rng{ 0x5A17C0DEu };
+    acs::game::FRandom m_Rng{ 0x5A17C0DEu };
 
-    bool       _victory       = false;
-    bool       _game_over_req = false;
-    acs::f32   _last_dt       = 1.0f / 60.0f;
-    acs::f32   _fps_ema       = 60.0f;
+    bool       m_Victory       = false;
+    bool       m_GameOverReq = false;
+    acs::f32   m_LastDt       = 1.0f / 60.0f;
+    acs::f32   m_FpsEma       = 60.0f;
 };
 
 } // namespace hellofg

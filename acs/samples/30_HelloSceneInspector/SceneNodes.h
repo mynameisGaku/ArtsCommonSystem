@@ -29,27 +29,27 @@ private:
     static constexpr acs::u32 kFieldCount = 5;
 
     // Inspector で編集される player の state (`InspectableField::data` が指す)。
-    acs::f32  _speed      = 5.0f;
-    acs::i32  _hp         = 100;
-    bool      _invincible = false;
-    acs::FVec3 _color      { 0.2f, 0.8f, 0.3f };
-    acs::FVec2 _position   { 0.0f, 0.0f };
+    acs::f32  m_Speed      = 5.0f;
+    acs::i32  m_Hp         = 100;
+    bool      m_Invincible = false;
+    acs::FVec3 m_Color      { 0.2f, 0.8f, 0.3f };
+    acs::FVec2 m_Position   { 0.0f, 0.0f };
 
     // GetObject が毎回同じ配列のポインタを返すため、永続所有する。
-    acs::game::InspectableField _fields[kFieldCount]{};
+    acs::game::InspectableField m_Fields[kFieldCount]{};
 };
 
 // 自転する FNode2D。Hierarchy 表示で親子関係 (wheel ← spoke) を見せる役。
 class WheelNode : public acs::game::FNode2D {
 public:
-    explicit WheelNode(acs::f32 speed_rps) noexcept : _speed_rps(speed_rps) {}
+    explicit WheelNode(acs::f32 speed_rps) noexcept : m_SpeedRps(speed_rps) {}
 
     void OnUpdate(acs::f32 dt) noexcept override {
-        Local().rotation += _speed_rps * dt;
+        Local().rotation += m_SpeedRps * dt;
     }
 
 private:
-    acs::f32 _speed_rps;
+    acs::f32 m_SpeedRps;
 };
 
 } // namespace helloscene

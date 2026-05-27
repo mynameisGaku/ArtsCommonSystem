@@ -17,9 +17,9 @@ void ModelViewerScene::OnEnter() noexcept {
     // (= viewport の外側) のクリア色を編集向けに揃える。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
-    _panels.Init(kAssetRoot);
+    m_Panels.Init(kAssetRoot);
 
-    if (!_pipeline.Init(GetGame().GetRenderer())) {
+    if (!m_Pipeline.Init(GetGame().GetRenderer())) {
         GetGame().Quit();
         return;
     }
@@ -38,8 +38,8 @@ void ModelViewerScene::OnExit() noexcept {
     if (GetGame().GetRenderer().Device()) {
         GetGame().GetRenderer().Device()->WaitIdle();
     }
-    _pipeline.Shutdown();
-    _panels.Shutdown();
+    m_Pipeline.Shutdown();
+    m_Panels.Shutdown();
 
     ACS_LOG_INFO("[ModelViewer] exited");
 }
@@ -58,36 +58,36 @@ void ModelViewerScene::OnUpdate(f32 dt) noexcept {
 
     // animation 時間を進める (Tick は ImGui を触らない契約のため OnUpdate で OK)。
     // frame callback が pose を適用する実 loader は未配線。
-    _panels.Animation().Tick(dt);
+    m_Panels.Animation().Tick(dt);
 
     // 3D cube の自転 (sample 17 と同形)。
-    _angle += dt * 0.8f;
+    m_Angle += dt * 0.8f;
 
     // MVP 更新: FModelViewerPanel::FCamera() の view/proj を使う。editor 上の
     // マウスドラッグで orbit / dolly した姿勢がそのまま 3D 像に反映される。
     // FEditorCamera::Tick (smooth target) は OnRender 側の TickAllPanels →
     // OnFrameBegin から呼ばれる想定。
-    editor_core::FEditorCamera& cam = _panels.Viewer().Camera();
+    editor_core::FEditorCamera& cam = m_Panels.Viewer().Camera();
     const FMat4 view = cam.ViewMatrix();
     const f32  aspect = static_cast<f32>(GetGame().GetRenderer().Swapchain()->Width()) /
                         static_cast<f32>(GetGame().GetRenderer().Swapchain()->Height());
     const FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 100.0f);
-    _pipeline.UpdateMvp(view, proj, _angle);
+    m_Pipeline.UpdateMvp(view, proj, m_Angle);
 }
 
 void ModelViewerScene::OnRender(RenderContext& rc) noexcept {
     // (1) 3D scene 描画 (cube only)。同じコマンドリスト上で ImGui より前に
     //     出すことで、ImGui ウィンドウが viewport をオーバーレイで覆える
     //     (= フレームバッファ直書きの背景レイヤ)。
-    _pipeline.Render(rc.Cmd());
+    m_Pipeline.Render(rc.Cmd());
 
     // (2) File メニュー (Workspace::DrawMenuBar の前に push する)。
-    _menu_bar.Draw(GetGame(), _panels.Workspace(), _panels.Theme(),
+    m_MenuBar.Draw(GetGame(), m_Panels.Workspace(), m_Panels.Theme(),
                    kDefaultModelPath, kLayoutPath, kThemePath);
 
     // (3) workspace 全描画 + asset browser。dt は RenderContext からは取れない
     //     ので FGame の DeltaTime() を使う。
-    _panels.Draw(GetGame().DeltaTime());
+    m_Panels.Draw(GetGame().DeltaTime());
 }
 
 } // namespace hellomv

@@ -13,7 +13,7 @@
 //       }
 //       void OnEnter() noexcept override {
 //           Services().Input().BindKey(ActionId("Jump"), EKey::Space);
-//           Services().Tweens().Tween(&_color, c1, c2, 2.0f, Easing::InOutSine);
+//           Services().Tweens().Tween(&m_Color, c1, c2, 2.0f, Easing::InOutSine);
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           // dt は Clock 経由 scaled (services 有効時)。Tweens/Sequences は
@@ -80,8 +80,8 @@ public:
     FSceneServices(const FSceneServices&)            = delete;
     FSceneServices& operator=(const FSceneServices&) = delete;
 
-    ESvc  Wanted() const noexcept { return _wanted; }
-    bool Has(ESvc s) const noexcept { return SvcHas(_wanted, s); }
+    ESvc  Wanted() const noexcept { return m_Wanted; }
+    bool Has(ESvc s) const noexcept { return SvcHas(m_Wanted, s); }
 
     // Accessors. 該当サービスが要求されていなければ ACS_ASSERT で停止。
     FSceneClock&          Clock()     noexcept;
@@ -101,13 +101,13 @@ public:
     f32  _ScaledDt(f32 raw_dt) const noexcept;
 
 private:
-    ESvc                       _wanted = ESvc::None;
-    TUniquePtr<FSceneClock>     _clock;
-    TUniquePtr<FTweenManager>   _tweens;
-    TUniquePtr<FSequenceRunner> _sequences;
-    TUniquePtr<FInputMap>       _input;
-    TUniquePtr<acs::game::FCamera2D> _camera;
-    TUniquePtr<FCollisionWorld2D>    _physics;
+    ESvc                       m_Wanted = ESvc::None;
+    TUniquePtr<FSceneClock>     m_Clock;
+    TUniquePtr<FTweenManager>   m_Tweens;
+    TUniquePtr<FSequenceRunner> m_Sequences;
+    TUniquePtr<FInputMap>       m_Input;
+    TUniquePtr<acs::game::FCamera2D> m_Camera;
+    TUniquePtr<FCollisionWorld2D>    m_Physics;
 };
 
 } // namespace acs::game

@@ -102,7 +102,7 @@ FXAudio2Backend::~FXAudio2Backend() noexcept {
 // ----------------------------------------------------------------------------
 
 TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
-    if (_impl != nullptr && _impl->initialized) {
+    if (m_Impl != nullptr && m_Impl->initialized) {
         return ACS_ERR(Generic, kSubAudioAlreadyInitialized,
                        "FXAudio2Backend::Init: already initialized");
     }
@@ -117,8 +117,8 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
                        "FXAudio2Backend::Init: max_voices too large (must be < 2^24)");
     }
 
-    if (_impl == nullptr) {
-        _impl = new Impl();
+    if (m_Impl == nullptr) {
+        m_Impl = new Impl();
     }
 
     // ---- COM 初期化 -----
@@ -126,15 +126,15 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
     // 自分が成功 (S_OK) したときだけ Shutdown で CoUninitialize を呼ぶ。
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (hr == S_OK) {
-        _impl->com_initialized = true;
+        m_Impl->com_initialized = true;
     } else if (hr == S_FALSE) {
         // 同モードで既に init 済。CoUninitialize は呼ばない。
-        _impl->com_initialized = false;
+        m_Impl->com_initialized = false;
     } else if (hr == RPC_E_CHANGED_MODE) {
         // 別モードで init 済。XAudio2 は両モードで動くので警告のみ。
         ACS_LOG_WARN("FXAudio2Backend::Init: COM already initialized in a different "
                      "threading mode (RPC_E_CHANGED_MODE) — continuing");
-        _impl->com_initialized = false;
+        m_Impl->com_initialized = false;
     } else {
         Shutdown();
         return ACS_ERR_OS(Generic, kSubAudioComInitFailed,
@@ -143,7 +143,7 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
     }
 
     // ---- XAudio2 エンジン作成 -----
-    hr = ::XAudio2Create(&_impl->xaudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+    hr = ::XAudio2Create(&m_Impl->xaudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
     if (FAILED(hr)) {
         Shutdown();
         return ACS_ERR_OS(Generic, kSubAudioCreateFailed,
@@ -152,7 +152,7 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
     }
 
     // ---- マスタリングボイス -----
-    hr = _impl->xaudio2->CreateMasteringVoice(&_impl->mastering);
+    hr = m_Impl->xaudio2->CreateMasteringVoice(&m_Impl->mastering);
     if (FAILED(hr)) {
         Shutdown();
         return ACS_ERR_OS(Generic, kSubAudioMasterVoiceFailed,
@@ -161,48 +161,48 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
     }
 
     // ---- voice pool -----
-    _impl->max_voices = max_voices;
-    _impl->slots.Resize(max_voices);  // VoiceSlot{} で初期化 (active=false)
+    m_Impl->max_voices = max_voices;
+    m_Impl->slots.Resize(max_voices);  // VoiceSlot{} で初期化 (active=false)
 
-    _impl->initialized = true;
+    m_Impl->initialized = true;
     ACS_LOG_INFO("FXAudio2Backend: initialized (max_voices=%u)", max_voices);
     return Ok();
 }
 
 void FXAudio2Backend::Shutdown() noexcept {
-    if (_impl == nullptr) return;
+    if (m_Impl == nullptr) return;
 
     // ---- 全 voice 停止 + destroy -----
     StopAllVoices();
     // slot TArray 自体は Impl のデストラクタで TArray<VoiceSlot> 経由解放される。
-    _impl->slots.Clear();
-    _impl->max_voices = 0;
+    m_Impl->slots.Clear();
+    m_Impl->max_voices = 0;
 
     // ---- mastering voice -----
-    if (_impl->mastering != nullptr) {
-        _impl->mastering->DestroyVoice();
-        _impl->mastering = nullptr;
+    if (m_Impl->mastering != nullptr) {
+        m_Impl->mastering->DestroyVoice();
+        m_Impl->mastering = nullptr;
     }
 
     // ---- XAudio2 engine -----
-    if (_impl->xaudio2 != nullptr) {
-        _impl->xaudio2->Release();
-        _impl->xaudio2 = nullptr;
+    if (m_Impl->xaudio2 != nullptr) {
+        m_Impl->xaudio2->Release();
+        m_Impl->xaudio2 = nullptr;
     }
 
     // ---- COM -----
-    if (_impl->com_initialized) {
+    if (m_Impl->com_initialized) {
         ::CoUninitialize();
-        _impl->com_initialized = false;
+        m_Impl->com_initialized = false;
     }
 
-    _impl->initialized = false;
-    delete _impl;
-    _impl = nullptr;
+    m_Impl->initialized = false;
+    delete m_Impl;
+    m_Impl = nullptr;
 }
 
 bool FXAudio2Backend::IsInitialized() const noexcept {
-    return _impl != nullptr && _impl->initialized;
+    return m_Impl != nullptr && m_Impl->initialized;
 }
 
 // ----------------------------------------------------------------------------
@@ -342,15 +342,15 @@ static AudioVoiceHandle PlayInternal(FXAudio2Backend::Impl& impl,
 AudioVoiceHandle FXAudio2Backend::PlayOneShot(const AudioClipDesc& clip,
                                              f32 volume,
                                              f32 pitch) noexcept {
-    if (_impl == nullptr) return kInvalidAudioVoice;
-    return PlayInternal(*_impl, clip, volume, pitch, /*loop=*/false);
+    if (m_Impl == nullptr) return kInvalidAudioVoice;
+    return PlayInternal(*m_Impl, clip, volume, pitch, /*loop=*/false);
 }
 
 AudioVoiceHandle FXAudio2Backend::PlayLooped(const AudioClipDesc& clip,
                                             f32 volume,
                                             f32 pitch) noexcept {
-    if (_impl == nullptr) return kInvalidAudioVoice;
-    return PlayInternal(*_impl, clip, volume, pitch, /*loop=*/true);
+    if (m_Impl == nullptr) return kInvalidAudioVoice;
+    return PlayInternal(*m_Impl, clip, volume, pitch, /*loop=*/true);
 }
 
 // ----------------------------------------------------------------------------
@@ -358,24 +358,24 @@ AudioVoiceHandle FXAudio2Backend::PlayLooped(const AudioClipDesc& clip,
 // ----------------------------------------------------------------------------
 
 void FXAudio2Backend::StopVoice(AudioVoiceHandle voice) noexcept {
-    if (_impl == nullptr || !_impl->initialized) return;
+    if (m_Impl == nullptr || !m_Impl->initialized) return;
     if (!voice.IsValid()) return;
     const u32 idx = voice.Index();
-    if (idx >= _impl->max_voices) return;
-    VoiceSlot& slot = _impl->slots[idx];
+    if (idx >= m_Impl->max_voices) return;
+    VoiceSlot& slot = m_Impl->slots[idx];
     if (!slot.active) return;
     if (slot.generation != voice.Generation()) return;  // 古いハンドル、無視
 
     DestroySlot(slot);
-    if (_impl->active_count > 0) --_impl->active_count;
+    if (m_Impl->active_count > 0) --m_Impl->active_count;
 }
 
 void FXAudio2Backend::SetVoiceVolume(AudioVoiceHandle voice, f32 volume) noexcept {
-    if (_impl == nullptr || !_impl->initialized) return;
+    if (m_Impl == nullptr || !m_Impl->initialized) return;
     if (!voice.IsValid()) return;
     const u32 idx = voice.Index();
-    if (idx >= _impl->max_voices) return;
-    VoiceSlot& slot = _impl->slots[idx];
+    if (idx >= m_Impl->max_voices) return;
+    VoiceSlot& slot = m_Impl->slots[idx];
     if (!slot.active || slot.voice == nullptr) return;
     if (slot.generation != voice.Generation()) return;
 
@@ -383,31 +383,31 @@ void FXAudio2Backend::SetVoiceVolume(AudioVoiceHandle voice, f32 volume) noexcep
 }
 
 void FXAudio2Backend::StopAllVoices() noexcept {
-    if (_impl == nullptr) return;
-    for (u32 i = 0; i < _impl->max_voices; ++i) {
-        VoiceSlot& s = _impl->slots[i];
+    if (m_Impl == nullptr) return;
+    for (u32 i = 0; i < m_Impl->max_voices; ++i) {
+        VoiceSlot& s = m_Impl->slots[i];
         if (s.active) DestroySlot(s);
     }
-    _impl->active_count = 0;
+    m_Impl->active_count = 0;
 }
 
 u32 FXAudio2Backend::ActiveVoiceCount() const noexcept {
-    return _impl != nullptr ? _impl->active_count : 0u;
+    return m_Impl != nullptr ? m_Impl->active_count : 0u;
 }
 
 void FXAudio2Backend::Tick(f32 /*dt*/) noexcept {
-    if (_impl == nullptr || !_impl->initialized) return;
+    if (m_Impl == nullptr || !m_Impl->initialized) return;
     // 一発再生の完了 voice (BuffersQueued == 0) を回収する。ループ再生は
     // BuffersQueued が常に >= 1 のままなので、自然回収されない (StopVoice
     // を呼ばないと止まらない、これは仕様)。
-    for (u32 i = 0; i < _impl->max_voices; ++i) {
-        VoiceSlot& s = _impl->slots[i];
+    for (u32 i = 0; i < m_Impl->max_voices; ++i) {
+        VoiceSlot& s = m_Impl->slots[i];
         if (!s.active || s.looped || s.voice == nullptr) continue;
         XAUDIO2_VOICE_STATE st{};
         s.voice->GetState(&st);
         if (st.BuffersQueued == 0) {
             DestroySlot(s);
-            if (_impl->active_count > 0) --_impl->active_count;
+            if (m_Impl->active_count > 0) --m_Impl->active_count;
         }
     }
 }
@@ -417,8 +417,8 @@ void FXAudio2Backend::Tick(f32 /*dt*/) noexcept {
 // ----------------------------------------------------------------------------
 
 void FXAudio2Backend::SetMasterVolume(f32 volume) noexcept {
-    if (_impl == nullptr || _impl->mastering == nullptr) return;
-    _impl->mastering->SetVolume(ClampVolume(volume));
+    if (m_Impl == nullptr || m_Impl->mastering == nullptr) return;
+    m_Impl->mastering->SetVolume(ClampVolume(volume));
 }
 
 } // namespace acs::game

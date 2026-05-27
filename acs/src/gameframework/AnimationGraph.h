@@ -171,9 +171,9 @@ struct FAnimationTransition {
 // 本 Phase では FAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身
 // 別レイヤ) を将来導入する際に再利用するため API として公開しておく。
 struct GraphHandle {
-    u32 _packed = 0u;
+    u32 m_Packed = 0u;
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
     static constexpr u32 kIndexBits = 24u;
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
@@ -181,14 +181,14 @@ struct GraphHandle {
 
     static GraphHandle Pack(u32 index, u8 gen) noexcept {
         GraphHandle h;
-        h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
-    u32 Index() const noexcept { return _packed & kIndexMask; }
-    u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
+    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 
-    constexpr bool operator==(GraphHandle o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(GraphHandle o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(GraphHandle o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(GraphHandle o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // ---------------------------------------------------------------------------
@@ -272,9 +272,9 @@ public:
 
     // ----- 状態取得 --------------------------------------------------------
 
-    EAnimationGraphState CurrentState()      const noexcept { return _current_state;  }
-    EAnimationGraphState PreviousState()     const noexcept { return _previous_state; }
-    f32                  CurrentLocalTime()  const noexcept { return _local_time;     }
+    EAnimationGraphState CurrentState()      const noexcept { return m_CurrentState;  }
+    EAnimationGraphState PreviousState()     const noexcept { return m_PreviousState; }
+    f32                  CurrentLocalTime()  const noexcept { return m_LocalTime;     }
 
     // blend 中なら 0..1 (新状態の比率)、否なら 1.0。
     // blend_duration <= 0 のときは即時切替なので常に 1.0。
@@ -328,27 +328,27 @@ private:
     bool AdvanceLocalTime(f32 dt) noexcept;
 
     // ---- データ ----
-    TArray<FAnimationClipBinding> _clips;
+    TArray<FAnimationClipBinding> m_Clips;
     TArray<FAnimationStateNode>   _state_nodes;
-    TArray<FAnimationTransition>  _transitions;
-    TArray<Param>                _params;
+    TArray<FAnimationTransition>  m_Transitions;
+    TArray<Param>                m_Params;
 
     // ---- 実行時状態 ----
-    EAnimationGraphState _current_state    = EAnimationGraphState::Idle;
-    EAnimationGraphState _previous_state   = EAnimationGraphState::Idle;
-    f32                  _local_time       = 0.0f; // 現 clip 内の経過秒
-    f32                  _blend_timer      = 0.0f; // 0 = blend 完了 / >0 = blend 残時間
-    f32                  _blend_duration   = 0.0f; // 現遷移の総 blend 時間
-    bool                 _has_current      = false;// state node が 1 つでも入って Reset 済か
-    bool                 _clip_ended_fired = false;// 同 Once clip で多重発火を防ぐ
-    EAnimationGraphState _pending_trigger  = EAnimationGraphState::Idle;
-    bool                 _trigger_pending  = false;
+    EAnimationGraphState m_CurrentState    = EAnimationGraphState::Idle;
+    EAnimationGraphState m_PreviousState   = EAnimationGraphState::Idle;
+    f32                  m_LocalTime       = 0.0f; // 現 clip 内の経過秒
+    f32                  m_BlendTimer      = 0.0f; // 0 = blend 完了 / >0 = blend 残時間
+    f32                  m_BlendDuration   = 0.0f; // 現遷移の総 blend 時間
+    bool                 m_HasCurrent      = false;// state node が 1 つでも入って Reset 済か
+    bool                 m_ClipEndedFired = false;// 同 Once clip で多重発火を防ぐ
+    EAnimationGraphState m_PendingTrigger  = EAnimationGraphState::Idle;
+    bool                 m_TriggerPending  = false;
 
     // ---- callback ----
     StateEnterCallback _state_enter_cb   = nullptr;
     void*              _state_enter_user = nullptr;
-    ClipEndCallback    _clip_end_cb      = nullptr;
-    void*              _clip_end_user    = nullptr;
+    ClipEndCallback    m_ClipEndCb      = nullptr;
+    void*              m_ClipEndUser    = nullptr;
 };
 
 } // namespace acs::game

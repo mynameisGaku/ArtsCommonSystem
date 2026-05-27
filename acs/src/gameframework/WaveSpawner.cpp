@@ -16,21 +16,21 @@ namespace acs::game {
 // ----------------------------------------------------------------------------
 
 FWaveSpawner::FWaveSpawner() noexcept {
-    _waves.Reserve(kWaveReserveHint);
+    m_Waves.Reserve(kWaveReserveHint);
 }
 
 void FWaveSpawner::Init() noexcept {
     _state              = EWaveState::Idle;
-    _current_wave       = 0u;
-    _wave_timer         = 0.0f;
-    _intermission_timer = 0.0f;
-    _alive_count        = 0u;
-    _paused             = false;
+    m_CurrentWave       = 0u;
+    m_WaveTimer         = 0.0f;
+    m_IntermissionTimer = 0.0f;
+    m_AliveCount        = 0u;
+    m_Paused             = false;
 
     // 各 wave の spawned_per_rule を全部 0 にリセット (queue 自身は保持)。
-    const usize n = _waves.Size();
+    const usize n = m_Waves.Size();
     for (usize i = 0; i < n; ++i) {
-        TArray<u32>& s = _waves[i].spawned_per_rule;
+        TArray<u32>& s = m_Waves[i].spawned_per_rule;
         const usize m = s.Size();
         for (usize j = 0; j < m; ++j) {
             s[j] = 0u;
@@ -45,14 +45,14 @@ void FWaveSpawner::Reset() noexcept {
 
 void FWaveSpawner::ClearAll() noexcept {
     _state              = EWaveState::Idle;
-    _current_wave       = 0u;
-    _wave_timer         = 0.0f;
-    _intermission_timer = 0.0f;
-    _alive_count        = 0u;
-    _paused             = false;
-    _waves.Clear();
-    _spawn_cb       = nullptr;
-    _spawn_cb_user  = nullptr;
+    m_CurrentWave       = 0u;
+    m_WaveTimer         = 0.0f;
+    m_IntermissionTimer = 0.0f;
+    m_AliveCount        = 0u;
+    m_Paused             = false;
+    m_Waves.Clear();
+    m_SpawnCb       = nullptr;
+    m_SpawnCbUser  = nullptr;
     _state_cb       = nullptr;
     _state_cb_user  = nullptr;
 }
@@ -73,11 +73,11 @@ void FWaveSpawner::AddWave(const FWaveDef& def) noexcept {
         entry.spawned_per_rule[static_cast<usize>(i)] = 0u;
     }
     // TArray<TArray<u32>> は move-only なので Move で挿入。
-    _waves.PushBack(Move(entry));
+    m_Waves.PushBack(Move(entry));
 }
 
 u32 FWaveSpawner::TotalWaves() const noexcept {
-    return static_cast<u32>(_waves.Size());
+    return static_cast<u32>(m_Waves.Size());
 }
 
 // ----------------------------------------------------------------------------
@@ -96,17 +96,17 @@ void FWaveSpawner::TransitionTo(EWaveState next) noexcept {
     //   Cleared          → intermission_timer = 0
     //   AllComplete/Idle → タイマは保持 (caller が問い合わせる用)
     if (next == EWaveState::Spawning) {
-        _wave_timer = 0.0f;
+        m_WaveTimer = 0.0f;
     } else if (next == EWaveState::Cleared) {
-        _intermission_timer = 0.0f;
+        m_IntermissionTimer = 0.0f;
     }
 
     // callback: state 更新後に呼ぶ (= callback 内で CurrentState() を見て OK)。
     // wave_index は遷移時点の current wave index を渡す (AllComplete でも
-    // _current_wave は最後の wave index のまま、ここでは TotalWaves() ではなく
+    // m_CurrentWave は最後の wave index のまま、ここでは TotalWaves() ではなく
     // 「最後に処理していた wave」の index を渡す方が caller の解釈が容易)。
     if (_state_cb != nullptr) {
-        _state_cb(_state_cb_user, _current_wave, prev, next);
+        _state_cb(_state_cb_user, m_CurrentWave, prev, next);
     }
 }
 
@@ -123,21 +123,21 @@ void FWaveSpawner::StartWaves() noexcept {
     }
 
     // 空 queue で開始 → 即 AllComplete (state callback が必要なら発火する)。
-    if (_waves.IsEmpty()) {
-        _current_wave = 0u;
+    if (m_Waves.IsEmpty()) {
+        m_CurrentWave = 0u;
         TransitionTo(EWaveState::AllComplete);
         return;
     }
 
     // 進行カウンタを完全リセットしてから 0 番目の wave を Spawning にする。
-    _current_wave       = 0u;
-    _wave_timer         = 0.0f;
-    _intermission_timer = 0.0f;
-    _alive_count        = 0u;
-    _paused             = false;
+    m_CurrentWave       = 0u;
+    m_WaveTimer         = 0.0f;
+    m_IntermissionTimer = 0.0f;
+    m_AliveCount        = 0u;
+    m_Paused             = false;
     // 0 番 wave の spawned_per_rule を 0 に揃え直す (= 再 Start での再湧き対応)。
     {
-        TArray<u32>& s = _waves[0].spawned_per_rule;
+        TArray<u32>& s = m_Waves[0].spawned_per_rule;
         const usize m = s.Size();
         for (usize j = 0; j < m; ++j) s[j] = 0u;
     }
@@ -145,11 +145,11 @@ void FWaveSpawner::StartWaves() noexcept {
 }
 
 void FWaveSpawner::StopWaves() noexcept {
-    _paused = true;
+    m_Paused = true;
 }
 
 void FWaveSpawner::ResumeWaves() noexcept {
-    _paused = false;
+    m_Paused = false;
 }
 
 void FWaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
@@ -159,17 +159,17 @@ void FWaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
     if (_state != EWaveState::Spawning && _state != EWaveState::WaitingClear) {
         return;
     }
-    if (_alive_count == 0u) {
+    if (m_AliveCount == 0u) {
         // 既に 0 なら下回らせない (defense-in-depth)。
         return;
     }
-    --_alive_count;
+    --m_AliveCount;
 
     // WaitingClear かつ alive==0 になった瞬間に Cleared へ遷移。
     // Spawning 中 + alive==0 はまだ全 rule が発火しきっていない可能性があり、
     // ここでは Cleared にせず Spawning 継続する (= TickSpawning が rule 完走 →
     // WaitingClear → 即 Cleared を保証する)。
-    if (_state == EWaveState::WaitingClear && _alive_count == 0u) {
+    if (_state == EWaveState::WaitingClear && m_AliveCount == 0u) {
         TransitionTo(EWaveState::Cleared);
     }
 }
@@ -179,11 +179,11 @@ void FWaveSpawner::NotifyEnemyKilled(const char* enemy_id) noexcept {
 // ----------------------------------------------------------------------------
 
 void FWaveSpawner::TickSpawning(f32 dt) noexcept {
-    if (_current_wave >= _waves.Size()) return;  // defense
-    FWaveEntry&     entry = _waves[_current_wave];
+    if (m_CurrentWave >= m_Waves.Size()) return;  // defense
+    FWaveEntry&     entry = m_Waves[m_CurrentWave];
     const FWaveDef& def   = entry.def;
 
-    _wave_timer += dt;
+    m_WaveTimer += dt;
 
     // 空 wave (rule_count == 0): 即 WaitingClear へ。alive_count は 0 のまま。
     if (def.rule_count == 0u || def.rules == nullptr) {
@@ -213,16 +213,16 @@ void FWaveSpawner::TickSpawning(f32 dt) noexcept {
 
         // 発火タイミング: spawn_time(n) = initial_delay + n * interval (n は 0-based)。
         // interval <= 0 のときは「initial_delay 後にまとめて count 個」扱いとする
-        // (= 連続発火、_wave_timer >= initial_delay を満たした瞬間に残数を全部
+        // (= 連続発火、m_WaveTimer >= initial_delay を満たした瞬間に残数を全部
         // 同フレームで発火させる)。
         if (rule.spawn_interval_sec <= 0.0f) {
-            if (_wave_timer >= rule.initial_delay_sec) {
+            if (m_WaveTimer >= rule.initial_delay_sec) {
                 while (spawned < rule.count) {
-                    if (_spawn_cb != nullptr) {
-                        _spawn_cb(_spawn_cb_user, rule.enemy_id, rule.spawn_position);
+                    if (m_SpawnCb != nullptr) {
+                        m_SpawnCb(m_SpawnCbUser, rule.enemy_id, rule.spawn_position);
                     }
                     ++spawned;
-                    ++_alive_count;
+                    ++m_AliveCount;
                 }
             }
         } else {
@@ -231,12 +231,12 @@ void FWaveSpawner::TickSpawning(f32 dt) noexcept {
             while (spawned < rule.count) {
                 const f32 next_fire_time = rule.initial_delay_sec
                                          + static_cast<f32>(spawned) * rule.spawn_interval_sec;
-                if (_wave_timer < next_fire_time) break;
-                if (_spawn_cb != nullptr) {
-                    _spawn_cb(_spawn_cb_user, rule.enemy_id, rule.spawn_position);
+                if (m_WaveTimer < next_fire_time) break;
+                if (m_SpawnCb != nullptr) {
+                    m_SpawnCb(m_SpawnCbUser, rule.enemy_id, rule.spawn_position);
                 }
                 ++spawned;
-                ++_alive_count;
+                ++m_AliveCount;
             }
         }
 
@@ -258,19 +258,19 @@ void FWaveSpawner::TickSpawning(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 
 void FWaveSpawner::AdvanceToNextWave() noexcept {
-    const u32 next_index = _current_wave + 1u;
-    if (next_index >= _waves.Size()) {
-        // 最後の wave を終えた → AllComplete。_current_wave はそのまま (最後の
+    const u32 next_index = m_CurrentWave + 1u;
+    if (next_index >= m_Waves.Size()) {
+        // 最後の wave を終えた → AllComplete。m_CurrentWave はそのまま (最後の
         // 有効 wave index を保持) で callback に渡す。
         TransitionTo(EWaveState::AllComplete);
         return;
     }
 
-    _current_wave = next_index;
-    _alive_count  = 0u;
+    m_CurrentWave = next_index;
+    m_AliveCount  = 0u;
     // 次 wave の spawned_per_rule を 0 に揃え直す (= 再起動時の再湧きにも対応)。
     {
-        TArray<u32>& s = _waves[_current_wave].spawned_per_rule;
+        TArray<u32>& s = m_Waves[m_CurrentWave].spawned_per_rule;
         const usize m = s.Size();
         for (usize j = 0; j < m; ++j) s[j] = 0u;
     }
@@ -282,8 +282,8 @@ void FWaveSpawner::AdvanceToNextWave() noexcept {
 // ----------------------------------------------------------------------------
 
 void FWaveSpawner::SetOnSpawnCallback(SpawnCallback cb, void* user) noexcept {
-    _spawn_cb      = cb;
-    _spawn_cb_user = user;
+    m_SpawnCb      = cb;
+    m_SpawnCbUser = user;
 }
 
 void FWaveSpawner::SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void* user) noexcept {
@@ -297,8 +297,8 @@ void FWaveSpawner::SetOnWaveStateChangeCallback(WaveStateChangeCallback cb, void
 
 u32 FWaveSpawner::EnemiesSpawnedInWave() const noexcept {
     if (_state == EWaveState::Idle || _state == EWaveState::AllComplete) return 0u;
-    if (_current_wave >= _waves.Size()) return 0u;
-    const TArray<u32>& s = _waves[_current_wave].spawned_per_rule;
+    if (m_CurrentWave >= m_Waves.Size()) return 0u;
+    const TArray<u32>& s = m_Waves[m_CurrentWave].spawned_per_rule;
     u32 total = 0u;
     const usize m = s.Size();
     for (usize i = 0; i < m; ++i) total += s[i];
@@ -310,7 +310,7 @@ u32 FWaveSpawner::EnemiesSpawnedInWave() const noexcept {
 // ----------------------------------------------------------------------------
 
 void FWaveSpawner::Tick(f32 dt) noexcept {
-    if (_paused) return;
+    if (m_Paused) return;
     if (dt < 0.0f) dt = 0.0f;
 
     // state 連鎖を許容するためのループ。1 Tick 内に
@@ -329,7 +329,7 @@ void FWaveSpawner::Tick(f32 dt) noexcept {
                 TickSpawning(dt);
                 // TickSpawning 内で WaitingClear に遷移し得る。さらに alive==0 なら
                 // この iter 末で WaitingClear → Cleared に上げる (下の処理に流す)。
-                if (_state == EWaveState::WaitingClear && _alive_count == 0u) {
+                if (_state == EWaveState::WaitingClear && m_AliveCount == 0u) {
                     TransitionTo(EWaveState::Cleared);
                 }
                 break;
@@ -338,26 +338,26 @@ void FWaveSpawner::Tick(f32 dt) noexcept {
                 // ここでは spawn は終わっているが alive>0 のはず。何もしないで
                 // NotifyEnemyKilled を待つ。dt はカウンタに加算しておく (= 演出/
                 // 統計用、HUD に wave 経過秒として出せる)。
-                _wave_timer += dt;
+                m_WaveTimer += dt;
                 // 防衛的に alive==0 を再チェック (= NotifyEnemyKilled が外から
                 // 来て前 iter で alive を減らしていた場合に対応)。
-                if (_alive_count == 0u) {
+                if (m_AliveCount == 0u) {
                     TransitionTo(EWaveState::Cleared);
                 }
                 break;
 
             case EWaveState::Cleared: {
                 // intermission を進める。閾値到達で次 wave へ。
-                // _wave_timer も加算継続する (= 「wave 開始からの経過秒」契約)。
-                _wave_timer         += dt;
-                _intermission_timer += dt;
+                // m_WaveTimer も加算継続する (= 「wave 開始からの経過秒」契約)。
+                m_WaveTimer         += dt;
+                m_IntermissionTimer += dt;
                 // 現 wave の intermission 設定を引く。
                 f32 threshold = 0.0f;
-                if (_current_wave < _waves.Size()) {
-                    threshold = _waves[_current_wave].def.wave_intermission_sec;
+                if (m_CurrentWave < m_Waves.Size()) {
+                    threshold = m_Waves[m_CurrentWave].def.wave_intermission_sec;
                     if (threshold < 0.0f) threshold = 0.0f;
                 }
-                if (_intermission_timer >= threshold) {
+                if (m_IntermissionTimer >= threshold) {
                     AdvanceToNextWave();
                 }
                 break;

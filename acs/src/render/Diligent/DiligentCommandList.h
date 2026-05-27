@@ -66,13 +66,13 @@ public:
     void* NativeHandle() noexcept override;
 
 private:
-    DiligentDevice*    _device   = nullptr;
-    DiligentPipeline*  _pipeline = nullptr;
-    bool               _is_index32 = false;
+    DiligentDevice*    m_Device   = nullptr;
+    DiligentPipeline*  m_Pipeline = nullptr;
+    bool               m_IsIndex32 = false;
     // フレーム内 main pass の RT を記憶する: shadow / off-screen pass を
     // 途中で挟んでも EndShadowPass / EndRenderToTexture で復帰させるため。
-    DiligentSwapchain* _main_swapchain     = nullptr;
-    DiligentTexture*   _main_depth         = nullptr;
+    DiligentSwapchain* m_MainSwapchain     = nullptr;
+    DiligentTexture*   m_MainDepth         = nullptr;
 };
 
 } // namespace acs

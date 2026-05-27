@@ -50,21 +50,21 @@ u32 HardwareConcurrency() noexcept {
 
 // デストラクタ: ハンドルが残っていれば閉じる（Detach 相当）
 FThread::~FThread() noexcept {
-    if (_handle) ::CloseHandle(_handle);
+    if (m_Handle) ::CloseHandle(m_Handle);
 }
 
 // ムーブ: ハンドル所有権を移譲
-FThread::FThread(FThread&& other) noexcept : _handle(other._handle), _id(other._id) {
-    other._handle = nullptr;
-    other._id     = {};
+FThread::FThread(FThread&& other) noexcept : m_Handle(other.m_Handle), m_Id(other.m_Id) {
+    other.m_Handle = nullptr;
+    other.m_Id     = {};
 }
 FThread& FThread::operator=(FThread&& other) noexcept {
     if (this == &other) return *this;
-    if (_handle) ::CloseHandle(_handle);
-    _handle       = other._handle;
-    _id           = other._id;
-    other._handle = nullptr;
-    other._id     = {};
+    if (m_Handle) ::CloseHandle(m_Handle);
+    m_Handle       = other.m_Handle;
+    m_Id           = other.m_Id;
+    other.m_Handle = nullptr;
+    other.m_Id     = {};
     return *this;
 }
 
@@ -93,24 +93,24 @@ TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const ThreadConfi
     if (cfg.affinity != 0) ::SetThreadAffinityMask(h, static_cast<DWORD_PTR>(cfg.affinity));
 
     FThread t;
-    t._handle = h;
-    t._id     = ThreadId{ static_cast<u32>(tid) };
+    t.m_Handle = h;
+    t.m_Id     = ThreadId{ static_cast<u32>(tid) };
     return TResult<FThread>(OkInit, Move(t));
 }
 
 // スレッド終了まで待機し、ハンドルを閉じる。
 void FThread::Join() noexcept {
-    if (!_handle) return;
-    ::WaitForSingleObject(_handle, INFINITE);
-    ::CloseHandle(_handle);
-    _handle = nullptr;
+    if (!m_Handle) return;
+    ::WaitForSingleObject(m_Handle, INFINITE);
+    ::CloseHandle(m_Handle);
+    m_Handle = nullptr;
 }
 
 // ハンドルだけ閉じてスレッドは独立して継続する。
 void FThread::Detach() noexcept {
-    if (_handle) {
-        ::CloseHandle(_handle);
-        _handle = nullptr;
+    if (m_Handle) {
+        ::CloseHandle(m_Handle);
+        m_Handle = nullptr;
     }
 }
 

@@ -8,19 +8,19 @@
 //
 // 使い方:
 //   class Player : public FNode2D {
-//       acs::game::FCooldownTimer _cd;
-//       acs::game::CooldownId    _fireball;
-//       acs::game::CooldownId    _dash;
+//       acs::game::FCooldownTimer m_Cd;
+//       acs::game::CooldownId    m_Fireball;
+//       acs::game::CooldownId    m_Dash;
 //
 //       void OnEnter() noexcept override {
-//           _fireball = _cd.Register("fireball", 3.0f);
-//           _dash     = _cd.Register("dash",     0.8f);
-//           _cd.SetOnReadyCallback(&Player::OnReady, this);
-//           _cd.ForceReady(_fireball); // 初期は即撃てる
+//           m_Fireball = m_Cd.Register("fireball", 3.0f);
+//           m_Dash     = m_Cd.Register("dash",     0.8f);
+//           m_Cd.SetOnReadyCallback(&Player::OnReady, this);
+//           m_Cd.ForceReady(m_Fireball); // 初期は即撃てる
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _cd.Tick(dt);
-//           if (input.JustPressed(EKey::Z) && _cd.TryUse(_fireball)) {
+//           m_Cd.Tick(dt);
+//           if (input.JustPressed(EKey::Z) && m_Cd.TryUse(m_Fireball)) {
 //               SpawnFireball();
 //           }
 //       }
@@ -51,11 +51,11 @@
 namespace acs::game {
 
 // 24bit index + 8bit generation を packed した cooldown handle。
-// _packed == 0 を invalid と定義 (gen は常に 1 以上)。
+// m_Packed == 0 を invalid と定義 (gen は常に 1 以上)。
 struct CooldownId {
-    u32 _packed = 0u;
+    u32 m_Packed = 0u;
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
     // pack/unpack ヘルパ (manager 内部用)
     static constexpr u32 kIndexBits = 24u;
@@ -64,14 +64,14 @@ struct CooldownId {
 
     static CooldownId Pack(u32 index, u8 gen) noexcept {
         CooldownId h;
-        h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
-    u32 Index() const noexcept { return _packed & kIndexMask; }
-    u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
+    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 
-    constexpr bool operator==(CooldownId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(CooldownId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(CooldownId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(CooldownId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // UI / デバッグ表示用の snapshot 型 (内部 Slot とは別)
@@ -123,7 +123,7 @@ public:
     void SetDuration(CooldownId id, f32 new_duration_sec) noexcept; // 進行中 cooldown の長さ変更
 
     // ----- 一括 -----
-    u32  Count() const noexcept { return _active_count; }
+    u32  Count() const noexcept { return m_ActiveCount; }
     void ClearAll() noexcept;
 
     // charged 遷移時 callback (単一スロット)。cb=nullptr で解除。
@@ -152,8 +152,8 @@ private:
     Slot*       Resolve(CooldownId id) noexcept;
     const Slot* Resolve(CooldownId id) const noexcept;
 
-    TArray<Slot>   _slots;
-    u32           _active_count = 0u;
+    TArray<Slot>   m_Slots;
+    u32           m_ActiveCount = 0u;
     ReadyCallback _ready_cb     = nullptr;
     void*         _ready_user   = nullptr;
 };

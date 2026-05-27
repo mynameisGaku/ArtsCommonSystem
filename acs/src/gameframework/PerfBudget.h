@@ -7,20 +7,20 @@
 // `acs::easy::DrawString` 等) は呼出し側責務。
 //
 // 使い方:
-//   acs::game::FPerfBudget _budget;
+//   acs::game::FPerfBudget m_Budget;
 //   void OnInit() noexcept {
-//       _budget.SetFrameBudget(16.67f);                // 60fps
-//       _budget.DefineCategory("Render", 8.0f, 64u*1024u*1024u);
-//       _budget.DefineCategory("AI",     2.0f, 16u*1024u*1024u);
-//       _budget.DefineCategory("Audio",  1.0f,  8u*1024u*1024u);
+//       m_Budget.SetFrameBudget(16.67f);                // 60fps
+//       m_Budget.DefineCategory("Render", 8.0f, 64u*1024u*1024u);
+//       m_Budget.DefineCategory("AI",     2.0f, 16u*1024u*1024u);
+//       m_Budget.DefineCategory("Audio",  1.0f,  8u*1024u*1024u);
 //   }
 //   void OnFrame(f32 dt) noexcept {
-//       _budget.BeginFrame();
+//       m_Budget.BeginFrame();
 //       // ... 各システムが計測スコープ末尾で RecordTimeMs / RecordMemoryAlloc を呼ぶ
-//       _budget.RecordTimeMs("Render", render_elapsed_ms);
-//       _budget.RecordMemoryAlloc("Render", bytes_allocated_this_frame);
-//       _budget.EndFrame();
-//       if (_budget.IsOverBudget("Render")) { /* 警告表示 */ }
+//       m_Budget.RecordTimeMs("Render", render_elapsed_ms);
+//       m_Budget.RecordMemoryAlloc("Render", bytes_allocated_this_frame);
+//       m_Budget.EndFrame();
+//       if (m_Budget.IsOverBudget("Render")) { /* 警告表示 */ }
 //   }
 //
 // 設計選択 (GameFramework meta Phase 1):
@@ -109,7 +109,7 @@ public:
     void BeginFrame() noexcept;
 
     // 全 category の spent_ms 合計を frame 履歴 (60 frame 循環バッファ) に push。
-    // _last_frame_ms / _frame_over_budget を更新。
+    // m_LastFrameMs / m_FrameOverBudget を更新。
     void EndFrame() noexcept;
 
     // ----- 問い合わせ -----
@@ -120,10 +120,10 @@ public:
 
     // 直近 EndFrame で集計した frame 合計 ms が frame_budget_ms を超過したか。
     // SetFrameBudget 未呼出 (= 0) なら常に false。
-    bool IsFrameOverBudget() const noexcept { return _frame_over_budget; }
+    bool IsFrameOverBudget() const noexcept { return m_FrameOverBudget; }
 
     // 直近 EndFrame で記録した frame 合計 ms。EndFrame 未呼出時は 0。
-    f32 LastFrameMs() const noexcept { return _last_frame_ms; }
+    f32 LastFrameMs() const noexcept { return m_LastFrameMs; }
 
     // 直近 60 frame の合計 ms 算術平均。履歴空時は 0。
     f32 AverageFrameMs() const noexcept;
@@ -146,19 +146,19 @@ private:
     static constexpr u32 kFrameHistoryCap = 60u;
 
     // category 配列内で一致する entry の index を返す。見つからなければ
-    // _categories.Size() を返す (= 範囲外)。pointer 同一 → strcmp の順。
+    // m_Categories.Size() を返す (= 範囲外)。pointer 同一 → strcmp の順。
     usize FindCategoryIndex(const char* category) const noexcept;
 
-    TArray<BudgetEntry> _categories;
+    TArray<BudgetEntry> m_Categories;
 
-    f32  _frame_budget_ms     = 0.0f;   // 0 のとき = フレーム超過判定無効
+    f32  m_FrameBudgetMs     = 0.0f;   // 0 のとき = フレーム超過判定無効
 
-    TArray<f32> _frame_history;          // size <= kFrameHistoryCap、要素は合計 ms
-    u32        _frame_index   = 0u;     // 次に書き込むスロット (mod kFrameHistoryCap)
-    bool       _frame_filled  = false;  // 履歴が一周したか (size == cap の意味)
+    TArray<f32> m_FrameHistory;          // size <= kFrameHistoryCap、要素は合計 ms
+    u32        m_FrameIndex   = 0u;     // 次に書き込むスロット (mod kFrameHistoryCap)
+    bool       m_FrameFilled  = false;  // 履歴が一周したか (size == cap の意味)
 
-    f32  _last_frame_ms       = 0.0f;
-    bool _frame_over_budget   = false;
+    f32  m_LastFrameMs       = 0.0f;
+    bool m_FrameOverBudget   = false;
 };
 
 } // namespace acs::game

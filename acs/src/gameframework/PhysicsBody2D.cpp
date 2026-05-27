@@ -5,52 +5,52 @@
 namespace acs::game {
 
 void FPhysicsBody2D::OnAttach(FNode2D& owner) noexcept {
-    if (_world == nullptr || _kind == ShapeKind::None) return;
+    if (m_World == nullptr || m_Kind == ShapeKind::None) return;
     RegisterShapeAt(owner.Local().position);
 }
 
 void FPhysicsBody2D::OnDetach() noexcept {
-    if (_world != nullptr && _registered) {
-        _world->Remove(_handle);
+    if (m_World != nullptr && m_Registered) {
+        m_World->Remove(m_Handle);
     }
-    _handle = FShapeId{};
-    _registered = false;
+    m_Handle = FShapeId{};
+    m_Registered = false;
 }
 
 void FPhysicsBody2D::RegisterShapeAt(FVec2 pos) noexcept {
-    if (_world == nullptr || _registered) return;
-    if (_kind == ShapeKind::Circle) {
-        _handle = _world->AddCircle(Circle{pos, _radius});
-    } else if (_kind == ShapeKind::FAabb) {
-        _handle = _world->AddAabb(Aabb2{pos, _half_size});
+    if (m_World == nullptr || m_Registered) return;
+    if (m_Kind == ShapeKind::Circle) {
+        m_Handle = m_World->AddCircle(Circle{pos, m_Radius});
+    } else if (m_Kind == ShapeKind::FAabb) {
+        m_Handle = m_World->AddAabb(Aabb2{pos, m_HalfSize});
     }
-    _registered = _handle.IsValid();
+    m_Registered = m_Handle.IsValid();
 }
 
 void FPhysicsBody2D::SyncShapeIfRegistered() noexcept {
-    if (_world == nullptr || !_registered || !HasOwner()) return;
+    if (m_World == nullptr || !m_Registered || !HasOwner()) return;
     const FVec2 pos = Owner().Local().position;
-    if (_kind == ShapeKind::Circle) {
-        _world->UpdateCircle(_handle, Circle{pos, _radius});
-    } else if (_kind == ShapeKind::FAabb) {
-        _world->UpdateAabb(_handle, Aabb2{pos, _half_size});
+    if (m_Kind == ShapeKind::Circle) {
+        m_World->UpdateCircle(m_Handle, Circle{pos, m_Radius});
+    } else if (m_Kind == ShapeKind::FAabb) {
+        m_World->UpdateAabb(m_Handle, Aabb2{pos, m_HalfSize});
     }
 }
 
 bool FPhysicsBody2D::WouldBlockAt(FVec2 pos) noexcept {
-    if (_world == nullptr) return false;
+    if (m_World == nullptr) return false;
     TArray<FShapeId> hits;
-    if (_kind == ShapeKind::Circle) {
-        _world->OverlapCircle(Circle{pos, _radius}, hits, _handle);
-    } else if (_kind == ShapeKind::FAabb) {
-        _world->OverlapAabb(Aabb2{pos, _half_size}, hits, _handle);
+    if (m_Kind == ShapeKind::Circle) {
+        m_World->OverlapCircle(Circle{pos, m_Radius}, hits, m_Handle);
+    } else if (m_Kind == ShapeKind::FAabb) {
+        m_World->OverlapAabb(Aabb2{pos, m_HalfSize}, hits, m_Handle);
     }
     return hits.Size() > 0;
 }
 
 void FPhysicsBody2D::OnUpdate(f32 dt) noexcept {
-    if (_world == nullptr || _kind == ShapeKind::None || dt <= 0.0f) return;
-    if (!_registered) RegisterShapeAt(Owner().Local().position);
+    if (m_World == nullptr || m_Kind == ShapeKind::None || dt <= 0.0f) return;
+    if (!m_Registered) RegisterShapeAt(Owner().Local().position);
 
     // 1) 速度統合 (acceleration + gravity)
     velocity.x += (acceleration.x + gravity.x) * dt;

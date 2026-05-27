@@ -49,7 +49,7 @@ public:
     // ----- 状態取得 -----
     Scene*  Top()   const noexcept;
     u32     Depth() const noexcept;
-    bool    IsEmpty() const noexcept { return _stack.IsEmpty(); }
+    bool    IsEmpty() const noexcept { return m_Stack.IsEmpty(); }
 
     // ----- FGame から呼ぶ駆動 API -----
 
@@ -85,11 +85,11 @@ private:
     // resume_new: Pop 後に新 top に OnResume を呼ぶか (Change は false、Pop は true)。
     void DoPopInternal(bool resume_new) noexcept;
 
-    TArray<TUniquePtr<Scene>> _stack;          // top = Back()
-    Op                      _pending_op   = Op::None;
-    TUniquePtr<Scene>        _pending_arg;    // Change/Push の next、Pop では未使用
-    TUniquePtr<Scene>        _retired[kRetireRingSize];  // GPU 遅延削除 ring buffer
-    u32                     _retire_head  = 0;           // 次に release するスロット
+    TArray<TUniquePtr<Scene>> m_Stack;          // top = Back()
+    Op                      m_PendingOp   = Op::None;
+    TUniquePtr<Scene>        m_PendingArg;    // Change/Push の next、Pop では未使用
+    TUniquePtr<Scene>        m_Retired[kRetireRingSize];  // GPU 遅延削除 ring buffer
+    u32                     m_RetireHead  = 0;           // 次に release するスロット
 };
 
 } // namespace acs::game

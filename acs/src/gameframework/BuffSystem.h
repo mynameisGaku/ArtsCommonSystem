@@ -12,7 +12,7 @@
 //
 // 設計選択 (Phase R/I — FBuffSystem):
 //   ・**FBuffOwnerId は 24bit index + 8bit gen の packed handle**:
-//     `FNodeId` / `FEmitterHandle` / `FTimerHandle` と同一規約。`_packed == 0` を
+//     `FNodeId` / `FEmitterHandle` / `FTimerHandle` と同一規約。`m_Packed == 0` を
 //     invalid とし、gen は常に 1 以上で配る (0 は「未使用 slot」を意味する)。
 //     これにより DestroyOwner 後の stale handle を gen 不一致で確実に弾ける。
 //   ・**owner ごとに sparse な buff 配列**: OwnerSlot 内に `TArray<FBuffInstance>`
@@ -167,24 +167,24 @@ struct FBuffInstance {
 };
 
 // ---- FBuffOwnerId: 24bit index + 8bit gen を packed した opaque handle ------
-// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`FNodeId` /
+// `m_Packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`FNodeId` /
 // `FEmitterHandle` / `FTimerHandle` と同一規約。
 struct FBuffOwnerId {
-    u32 _packed = 0u;
+    u32 m_Packed = 0u;
 
     static constexpr u32 kIndexBits = 24u;
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
     static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
     static FBuffOwnerId Pack(u32 index, u8 gen) noexcept {
         FBuffOwnerId o;
-        o._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        o.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return o;
     }
-    u32 Index() const noexcept { return _packed & kIndexMask; }
-    u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
+    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 };
 
 // ---- FBuffSystem ------------------------------------------------------------
@@ -316,13 +316,13 @@ private:
     static u32 FindBuffInstance(const OwnerSlot& slot, const char* buff_id) noexcept;
 
     // ---- 状態 ----------------------------------------------------------
-    TArray<FBuffDef>   _registry  {};  // FBuffDef テーブル (id ベースで find)
-    TArray<OwnerSlot> _owners    {};  // OwnerSlot 配列 (generational)
+    TArray<FBuffDef>   m_Registry  {};  // FBuffDef テーブル (id ベースで find)
+    TArray<OwnerSlot> m_Owners    {};  // OwnerSlot 配列 (generational)
 
-    TickCallback     _on_tick        = nullptr;
-    void*            _on_tick_user   = nullptr;
-    ExpireCallback   _on_expire      = nullptr;
-    void*            _on_expire_user = nullptr;
+    TickCallback     m_OnTick        = nullptr;
+    void*            m_OnTickUser   = nullptr;
+    ExpireCallback   m_OnExpire      = nullptr;
+    void*            m_OnExpireUser = nullptr;
 };
 
 } // namespace acs::game

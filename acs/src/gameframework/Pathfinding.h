@@ -62,12 +62,12 @@ public:
     // 通行可否を取得。範囲外座標は false を返す。
     bool IsWalkable(u32 x, u32 y) const noexcept;
 
-    u32 Width()  const noexcept { return _width; }
-    u32 Height() const noexcept { return _height; }
+    u32 Width()  const noexcept { return m_Width; }
+    u32 Height() const noexcept { return m_Height; }
 
     // 対角移動の許可フラグ。既定は false (4 方向のみ)。
-    void SetAllowDiagonal(bool allow) noexcept { _allow_diagonal = allow; }
-    bool AllowDiagonal() const noexcept { return _allow_diagonal; }
+    void SetAllowDiagonal(bool allow) noexcept { m_AllowDiagonal = allow; }
+    bool AllowDiagonal() const noexcept { return m_AllowDiagonal; }
 
     // A* 経路探索。
     //   ・成功時: out_path に start → goal の連続 cell を書き込み true 返す
@@ -83,7 +83,7 @@ public:
 
 private:
     // index 計算 (y * width + x)。範囲チェックは呼び出し側責務。
-    u32 IndexOf(u32 x, u32 y) const noexcept { return y * _width + x; }
+    u32 IndexOf(u32 x, u32 y) const noexcept { return y * m_Width + x; }
 
     // open list の中から f_score 最小のノードを線形走査して取り出す。
     // 見つかった場合はそのインデックスを返し、見つからなければ size を返す。
@@ -96,22 +96,22 @@ private:
     void Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_path) const noexcept;
 
     // ---- 形状 ----
-    u32       _width          = 0;
-    u32       _height         = 0;
-    bool      _allow_diagonal = false;
+    u32       m_Width          = 0;
+    u32       m_Height         = 0;
+    bool      m_AllowDiagonal = false;
 
     // ---- 静的状態: 通行可否 (size = width*height) ----
     // 1 = walkable, 0 = blocked。
-    TArray<u8> _walkable;
+    TArray<u8> m_Walkable;
 
     // ---- A* 一時バッファ (FindPath 呼び出し毎に reset) ----
     // 毎回 alloc しなくて済むようメンバに保持。
     TArray<u32> _open;          // open set: 候補 cell index 列
     TArray<u8>  _closed;        // closed flag (size = width*height)
-    TArray<u8>  _in_open;       // open set 在籍 flag (重複追加を防ぐ高速判定用)
-    TArray<f32> _g_score;       // start からの実コスト (size = width*height)
-    TArray<f32> _f_score;       // g + h (size = width*height)
-    TArray<u32> _came_from;     // 親 cell index (size = width*height)。0xFFFFFFFF = 未設定
+    TArray<u8>  m_InOpen;       // open set 在籍 flag (重複追加を防ぐ高速判定用)
+    TArray<f32> m_GScore;       // start からの実コスト (size = width*height)
+    TArray<f32> m_FScore;       // g + h (size = width*height)
+    TArray<u32> m_CameFrom;     // 親 cell index (size = width*height)。0xFFFFFFFF = 未設定
 };
 
 } // namespace acs::game

@@ -12,7 +12,7 @@
 // 設計上の留意:
 //   ・FLocalizationDirector::Get は key == nullptr 時に空文字 "" を返す契約。
 //     未翻訳時は key 自身を返すので、cb に nullptr が渡ることは原理的に無い。
-//     ただし _localizer == nullptr のときは FLocalizationDirector を呼べないので、
+//     ただし m_Localizer == nullptr のときは FLocalizationDirector を呼べないので、
 //     その場合に「key 自身 (または空文字)」を渡す挙動をここで自前で再現する。
 //   ・speaker_id が nullptr (ナレーション行) のときは空文字 "" を speaker に渡す。
 //     line_key が nullptr (空行) のときも空文字 "" を text に渡す。
@@ -27,14 +27,14 @@ namespace {
 
 // FLocalizationDirector が未接続のときに「key 自身 or 空文字」を返す helper。
 // FLocalizationDirector::Get の契約 (key==nullptr→"" / 未翻訳→key) と同じ挙動を
-// 自前で再現することで、_localizer の有無に関わらず callback に渡る値の
+// 自前で再現することで、m_Localizer の有無に関わらず callback に渡る値の
 // nullptr-safe 性を保証する。
 const char* ResolveWithoutLocalizer(const char* key) noexcept {
     if (key == nullptr) return "";
     return key;
 }
 
-// _localizer 有無を一元化して key→text 解決。
+// m_Localizer 有無を一元化して key→text 解決。
 // 戻り値は常に非 nullptr (空文字最小)。
 const char* ResolveKey(const FLocalizationDirector* loc, const char* key) noexcept {
     if (loc == nullptr) {
@@ -51,37 +51,37 @@ const char* ResolveKey(const FLocalizationDirector* loc, const char* key) noexce
 void FDialogueLocalizer::RegisterLine(const LocalizedDialogueLine& line) noexcept {
     // speaker_id / line_key が nullptr でも蓄積は許す (= ナレーション行 / 空行を
     // 表現可能)。StartFromLine 側で nullptr→"" 変換するので落ちない。
-    _lines.PushBack(line);
+    m_Lines.PushBack(line);
 }
 
 void FDialogueLocalizer::RegisterChoice(u32 at_line_index,
                                        const LocalizedDialogueChoice* choices, u32 count) noexcept {
     // FDialogueSystem::AddChoices と同契約: 不正引数は no-op、上書き禁止。
     if (choices == nullptr || count == 0u) return;
-    if (at_line_index >= static_cast<u32>(_lines.Size())) return;
+    if (at_line_index >= static_cast<u32>(m_Lines.Size())) return;
 
     // 同 line への重複登録は無視 (= 最初の登録のみ有効)
-    for (usize i = 0; i < _choices_at.Size(); ++i) {
-        if (_choices_at[i].line_index == at_line_index) return;
+    for (usize i = 0; i < m_ChoicesAt.Size(); ++i) {
+        if (m_ChoicesAt[i].line_index == at_line_index) return;
     }
 
     ChoicesAt rec;
     rec.line_index   = at_line_index;
-    rec.choice_start = static_cast<u32>(_all_choices.Size());
+    rec.choice_start = static_cast<u32>(m_AllChoices.Size());
     rec.choice_count = count;
     for (u32 i = 0; i < count; ++i) {
         // choices[i] を値コピーで保持 (const char* メンバの寿命は呼び出し側保証、
         // 文字列バッファそのものは複製しない)
-        _all_choices.PushBack(choices[i]);
+        m_AllChoices.PushBack(choices[i]);
     }
-    _choices_at.PushBack(rec);
+    m_ChoicesAt.PushBack(rec);
 }
 
 void FDialogueLocalizer::SetLocalizer(FLocalizationDirector* loc) noexcept {
     // nullptr で detach (= 以降 ResolveKey は key 自身 or 空文字を返す)。
     // 寿命は呼び出し側保証 (FLocalizationDirector は通常セッション寿命なので
     // dangling になるのは Director 側のリセット忘れの場合のみ)。
-    _localizer = loc;
+    m_Localizer = loc;
 }
 
 void FDialogueLocalizer::StartFromLine(u32 line_index, BindCallback cb, void* user) noexcept {
@@ -89,12 +89,12 @@ void FDialogueLocalizer::StartFromLine(u32 line_index, BindCallback cb, void* us
     if (cb == nullptr) return;
     // 範囲外 index は no-op (= DialogueChoice::next_line_index で UINT32_MAX 等が
     // 渡されて終了扱いになるケースをここで吸収)。
-    if (line_index >= static_cast<u32>(_lines.Size())) return;
+    if (line_index >= static_cast<u32>(m_Lines.Size())) return;
 
-    const LocalizedDialogueLine& line = _lines[line_index];
+    const LocalizedDialogueLine& line = m_Lines[line_index];
 
-    const char* speaker = ResolveKey(_localizer, line.speaker_id);
-    const char* text    = ResolveKey(_localizer, line.line_key);
+    const char* speaker = ResolveKey(m_Localizer, line.speaker_id);
+    const char* text    = ResolveKey(m_Localizer, line.line_key);
 
     // ResolveKey の契約上、speaker / text は常に非 nullptr。
     // cb 側で nullptr チェック不要。
@@ -102,15 +102,15 @@ void FDialogueLocalizer::StartFromLine(u32 line_index, BindCallback cb, void* us
 }
 
 u32 FDialogueLocalizer::LineCount() const noexcept {
-    return static_cast<u32>(_lines.Size());
+    return static_cast<u32>(m_Lines.Size());
 }
 
 void FDialogueLocalizer::Clear() noexcept {
     // 蓄積データを全破棄。Localizer 参照は維持する
     // (= 同 Localizer で別シナリオを再構築する想定が大半)。
-    _lines.Clear();
-    _choices_at.Clear();
-    _all_choices.Clear();
+    m_Lines.Clear();
+    m_ChoicesAt.Clear();
+    m_AllChoices.Clear();
 }
 
 } // namespace acs::game

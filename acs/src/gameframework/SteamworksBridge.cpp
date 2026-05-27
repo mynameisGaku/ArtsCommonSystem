@@ -8,7 +8,7 @@
 // 持ち込まない。
 //
 // 設計のポイント:
-//   ・Stub は副作用ゼロ。`Init()` は単に `_initialized = true` を立てるのみ。
+//   ・Stub は副作用ゼロ。`Init()` は単に `m_Initialized = true` を立てるのみ。
 //   ・Achievement / Leaderboard 系は `ACS_ERR(Generic, kSubSteamworksNotImplemented,
 //     ...)` を返し、上位ロジックでサイレントに無視するか or ログ出力するかを
 //     呼び出し側に委ねる。
@@ -28,20 +28,20 @@ namespace acs::game {
 TResult<void> SteamworksBridgeStub::Init() noexcept {
     // 多重 Init は明示的に許容する。実 SDK の SteamAPI_Init() は失敗時 false を
     // 返すが、Stub はテスト容易性のため常に成功。
-    _initialized = true;
+    m_Initialized = true;
     return Ok();
 }
 
 void SteamworksBridgeStub::Shutdown() noexcept {
     // Init() 前に呼ばれても安全。
-    _initialized = false;
+    m_Initialized = false;
 }
 
 // ---- Stub: ローカルプレイヤー -------------------------------------------
 
 PlayerIdentity SteamworksBridgeStub::GetLocalPlayer() const noexcept {
     PlayerIdentity id{};
-    if (!_initialized) {
+    if (!m_Initialized) {
         // 未初期化時は全フィールド空のまま返す (Bridge は throw しない方針)。
         return id;
     }
@@ -57,7 +57,7 @@ PlayerIdentity SteamworksBridgeStub::GetLocalPlayer() const noexcept {
 
 TResult<void> SteamworksBridgeStub::UnlockAchievement(const char* ach_id) noexcept {
     (void)ach_id;  // 未使用引数 (Stub なので no-op)
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized,
                        "SteamworksBridgeStub::UnlockAchievement called before Init()");
     }
@@ -68,7 +68,7 @@ TResult<void> SteamworksBridgeStub::UnlockAchievement(const char* ach_id) noexce
 TResult<void> SteamworksBridgeStub::SetLeaderboardScore(const char* board_id, i64 score) noexcept {
     (void)board_id;
     (void)score;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized,
                        "SteamworksBridgeStub::SetLeaderboardScore called before Init()");
     }
@@ -78,7 +78,7 @@ TResult<void> SteamworksBridgeStub::SetLeaderboardScore(const char* board_id, i6
 
 TResult<i64> SteamworksBridgeStub::GetLeaderboardScore(const char* board_id) noexcept {
     (void)board_id;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return TResult<i64>(ACS_ERR(Generic, kSubSteamworksNotInitialized,
                                    "SteamworksBridgeStub::GetLeaderboardScore called before Init()"));
     }
@@ -96,8 +96,8 @@ void SteamworksBridgeStub::Tick(f32 dt) noexcept {
 
 SteamworksBridgeStub& SteamworksBridgeStub::GetStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static SteamworksBridgeStub _instance;
-    return _instance;
+    static SteamworksBridgeStub m_Instance;
+    return m_Instance;
 }
 
 } // namespace acs::game

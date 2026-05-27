@@ -138,11 +138,11 @@ private:
         u32 choice_count = 0;
     };
 
-    TArray<LocalizedDialogueLine>   _lines;
-    TArray<ChoicesAt>               _choices_at;     // line_index 昇順想定 (線形検索)
-    TArray<LocalizedDialogueChoice> _all_choices;    // 全 choice をフラットに保持
+    TArray<LocalizedDialogueLine>   m_Lines;
+    TArray<ChoicesAt>               m_ChoicesAt;     // line_index 昇順想定 (線形検索)
+    TArray<LocalizedDialogueChoice> m_AllChoices;    // 全 choice をフラットに保持
 
-    FLocalizationDirector* _localizer = nullptr;     // 非所有、null で detach
+    FLocalizationDirector* m_Localizer = nullptr;     // 非所有、null で detach
 };
 
 } // namespace acs::game

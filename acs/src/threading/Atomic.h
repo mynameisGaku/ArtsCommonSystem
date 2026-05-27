@@ -9,7 +9,7 @@
 //   - x64 では「自然整列の 8 バイト以下のロード/ストア」は CPU レベルで
 //     アトミック。さらに普通の MOV が acquire / release セマンティクスを
 //     満たすため、Load/Store はコンパイラバリアだけで足りる。
-//   - ARM64 では弱メモリモデルなので、明示的に _acq / _rel サフィックスを
+//   - ARM64 では弱メモリモデルなので、明示的に m_Acq / m_Rel サフィックスを
 //     付けた組み込みを呼んで dmb を最小化する。
 //   - RMW 系（Exchange / CompareExchange / FetchAdd...）は x64 では常に
 //     完全バリア。ARM64 ではサフィックス付き版を使うが現状実装は無印で統一。
@@ -147,7 +147,7 @@ class TAtomic {
                   "TAtomic<T>: T must be 1, 2, 4, or 8 bytes");
 public:
     TAtomic() noexcept = default;
-    constexpr explicit TAtomic(T v) noexcept : _v(v) {}
+    constexpr explicit TAtomic(T v) noexcept : m_V(v) {}
 
     // アトミック型はコピーできない（std::atomic と同様の制約）
     TAtomic(const TAtomic&) = delete;
@@ -156,23 +156,23 @@ public:
     // ---- ロード ----
     ACS_FORCEINLINE T Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept {
         return o == EMemoryOrder::Relaxed
-            ? atomic_detail::LoadRelaxed (&_v)
-            : atomic_detail::LoadAcquire (&_v);
+            ? atomic_detail::LoadRelaxed (&m_V)
+            : atomic_detail::LoadAcquire (&m_V);
     }
     // ---- ストア ----
     ACS_FORCEINLINE void Store(T v, EMemoryOrder o = EMemoryOrder::SeqCst) noexcept {
-        if (o == EMemoryOrder::Relaxed) atomic_detail::StoreRelaxed(&_v, v);
-        else                           atomic_detail::StoreRelease(&_v, v);
+        if (o == EMemoryOrder::Relaxed) atomic_detail::StoreRelaxed(&m_V, v);
+        else                           atomic_detail::StoreRelease(&m_V, v);
     }
     // ---- RMW 群 ----
-    ACS_FORCEINLINE T Exchange(T v) noexcept                          { return atomic_detail::Exchange(&_v, v); }
+    ACS_FORCEINLINE T Exchange(T v) noexcept                          { return atomic_detail::Exchange(&m_V, v); }
     ACS_FORCEINLINE bool CompareExchange(T& expected, T desired) noexcept {
-        return atomic_detail::CompareExchange(&_v, expected, desired);
+        return atomic_detail::CompareExchange(&m_V, expected, desired);
     }
-    ACS_FORCEINLINE T FetchAdd(T v) noexcept                          { return atomic_detail::FetchAdd(&_v, v); }
-    ACS_FORCEINLINE T FetchSub(T v) noexcept                          { return atomic_detail::FetchSub(&_v, v); }
-    ACS_FORCEINLINE T FetchOr (T v) noexcept                          { return atomic_detail::FetchOr (&_v, v); }
-    ACS_FORCEINLINE T FetchAnd(T v) noexcept                          { return atomic_detail::FetchAnd(&_v, v); }
+    ACS_FORCEINLINE T FetchAdd(T v) noexcept                          { return atomic_detail::FetchAdd(&m_V, v); }
+    ACS_FORCEINLINE T FetchSub(T v) noexcept                          { return atomic_detail::FetchSub(&m_V, v); }
+    ACS_FORCEINLINE T FetchOr (T v) noexcept                          { return atomic_detail::FetchOr (&m_V, v); }
+    ACS_FORCEINLINE T FetchAnd(T v) noexcept                          { return atomic_detail::FetchAnd(&m_V, v); }
 
     // ---- インクリメント / デクリメント ----
     ACS_FORCEINLINE T operator++()    noexcept { return FetchAdd((T)1) + (T)1; }
@@ -181,7 +181,7 @@ public:
     ACS_FORCEINLINE T operator--(int) noexcept { return FetchSub((T)1); }
 
 private:
-    volatile T _v {};
+    volatile T m_V {};
 };
 
 // =============================================================================
@@ -191,35 +191,35 @@ template<typename T>
 class TAtomic<T*> {
 public:
     TAtomic() noexcept = default;
-    constexpr explicit TAtomic(T* v) noexcept : _v(v) {}
+    constexpr explicit TAtomic(T* v) noexcept : m_V(v) {}
 
     TAtomic(const TAtomic&) = delete;
     TAtomic& operator=(const TAtomic&) = delete;
 
     ACS_FORCEINLINE T* Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept {
         return reinterpret_cast<T*>(o == EMemoryOrder::Relaxed
-            ? atomic_detail::LoadRelaxed (reinterpret_cast<const volatile uptr*>(&_v))
-            : atomic_detail::LoadAcquire (reinterpret_cast<const volatile uptr*>(&_v)));
+            ? atomic_detail::LoadRelaxed (reinterpret_cast<const volatile uptr*>(&m_V))
+            : atomic_detail::LoadAcquire (reinterpret_cast<const volatile uptr*>(&m_V)));
     }
     ACS_FORCEINLINE void Store(T* v, EMemoryOrder o = EMemoryOrder::SeqCst) noexcept {
         uptr p = reinterpret_cast<uptr>(v);
-        if (o == EMemoryOrder::Relaxed) atomic_detail::StoreRelaxed(reinterpret_cast<volatile uptr*>(&_v), p);
-        else                           atomic_detail::StoreRelease(reinterpret_cast<volatile uptr*>(&_v), p);
+        if (o == EMemoryOrder::Relaxed) atomic_detail::StoreRelaxed(reinterpret_cast<volatile uptr*>(&m_V), p);
+        else                           atomic_detail::StoreRelease(reinterpret_cast<volatile uptr*>(&m_V), p);
     }
     ACS_FORCEINLINE T* Exchange(T* v) noexcept {
         return reinterpret_cast<T*>(atomic_detail::Exchange(
-            reinterpret_cast<volatile uptr*>(&_v), reinterpret_cast<uptr>(v)));
+            reinterpret_cast<volatile uptr*>(&m_V), reinterpret_cast<uptr>(v)));
     }
     ACS_FORCEINLINE bool CompareExchange(T*& expected, T* desired) noexcept {
         uptr e = reinterpret_cast<uptr>(expected);
         bool ok = atomic_detail::CompareExchange(
-            reinterpret_cast<volatile uptr*>(&_v), e, reinterpret_cast<uptr>(desired));
+            reinterpret_cast<volatile uptr*>(&m_V), e, reinterpret_cast<uptr>(desired));
         expected = reinterpret_cast<T*>(e);
         return ok;
     }
 
 private:
-    T* volatile _v = nullptr;
+    T* volatile m_V = nullptr;
 };
 
 } // namespace acs

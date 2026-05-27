@@ -14,14 +14,14 @@ namespace hellogf {
 class RotateComponent : public acs::game::FComponent2D {
 public:
     ACS_GAME_COMPONENT_KIND(RotateComponent)
-    explicit RotateComponent(acs::f32 speed_rps) noexcept : _speed(speed_rps) {}
+    explicit RotateComponent(acs::f32 speed_rps) noexcept : m_Speed(speed_rps) {}
 
     void OnAttach(acs::game::FNode2D& owner) noexcept override;
     void OnUpdate(acs::f32 dt)              noexcept override;
     void OnDetach()                         noexcept override;
 
 private:
-    acs::f32 _speed;
+    acs::f32 m_Speed;
 };
 
 } // namespace hellogf

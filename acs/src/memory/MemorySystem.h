@@ -71,7 +71,7 @@ public:
     ScopedMemorySegment& operator=(const ScopedMemorySegment&) = delete;
 
 private:
-    ESegment _previous;
+    ESegment m_Previous;
 };
 
 } // namespace acs

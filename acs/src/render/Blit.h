@@ -48,12 +48,12 @@ public:
     // viewport は dst のサイズに自動設定される。
     void Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept;
 
-    IRhiPipeline* Pipeline() const noexcept { return _pipeline.Get(); }
+    IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
 
 private:
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiPipeline> _pipeline;
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
 };
 
 } // namespace acs

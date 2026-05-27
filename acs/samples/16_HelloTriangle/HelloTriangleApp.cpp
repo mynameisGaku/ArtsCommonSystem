@@ -24,7 +24,7 @@ void HelloTriangleApp::OnStart() noexcept {
         Quit();
         return;
     }
-    _vs = Move(vs_r.Value());
+    m_Vs = Move(vs_r.Value());
 
     FShaderDesc ps_desc{};
     ps_desc.stage = EShaderStage::Pixel;
@@ -37,7 +37,7 @@ void HelloTriangleApp::OnStart() noexcept {
         Quit();
         return;
     }
-    _ps = Move(ps_r.Value());
+    m_Ps = Move(ps_r.Value());
 
     // === 頂点バッファ ===
     FBufferDesc vb_desc{};
@@ -51,12 +51,12 @@ void HelloTriangleApp::OnStart() noexcept {
         Quit();
         return;
     }
-    _vb = Move(vb_r.Value());
+    m_Vb = Move(vb_r.Value());
 
     // === パイプライン ===
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology = EPrimitiveTopology::TriangleList;
     pd.rt_format = EFormat::B8G8R8A8_UNorm;
     pd.depth_format = EFormat::Unknown;
@@ -70,7 +70,7 @@ void HelloTriangleApp::OnStart() noexcept {
         Quit();
         return;
     }
-    _pipeline = Move(pl_r.Value());
+    m_Pipeline = Move(pl_r.Value());
 
     ACS_LOG_INFO("HelloTriangle initialized");
 }
@@ -82,20 +82,20 @@ void HelloTriangleApp::OnUpdate(f32 /*dt*/) noexcept {
 void HelloTriangleApp::OnRender() noexcept {
     // BeginFrame は基底クラスが先に呼んでくれる (クリア済み)。
     IRhiCommandList* cl = GetRenderer().CommandList();
-    if (!cl || !_pipeline || !_vb) return;
+    if (!cl || !m_Pipeline || !m_Vb) return;
 
-    cl->SetPipeline(*_pipeline);
-    cl->SetVertexBuffer(*_vb, sizeof(Vertex));
+    cl->SetPipeline(*m_Pipeline);
+    cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
     cl->Draw(3);
 }
 
 void HelloTriangleApp::OnShutdown() noexcept {
     // GPU が描画完了するまで待ってからリソースを解放
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _pipeline.Reset();
-    _vb.Reset();
-    _ps.Reset();
-    _vs.Reset();
+    m_Pipeline.Reset();
+    m_Vb.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
 }
 
 } // namespace hellotri

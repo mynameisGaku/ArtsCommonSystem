@@ -128,8 +128,8 @@ private:
     // (locale, key) 一致 entry の index を返す。未検出は -1。
     isize FindIndex(ELocale loc, const char* key) const noexcept;
 
-    ELocale              _current = ELocale::Default;
-    TArray<LocaleEntry>  _entries;
+    ELocale              m_Current = ELocale::Default;
+    TArray<LocaleEntry>  m_Entries;
 };
 
 } // namespace acs::game

@@ -131,45 +131,45 @@ const char* KindTag(EAssetKind k) noexcept {
 // Init / Shutdown
 // ===========================================================================
 void FAssetBrowser::Init(const wchar_t* root_directory) noexcept {
-    // _root_directory にコピー (空 / nullptr は既定 L"assets")。
+    // m_RootDirectory にコピー (空 / nullptr は既定 L"assets")。
     const wchar_t* src = (root_directory != nullptr && root_directory[0] != L'\0')
                             ? root_directory : L"assets";
     usize i = 0;
     for (; src[i] != L'\0' && i + 1 < kMaxPathChars; ++i) {
-        _root_directory[i] = src[i];
+        m_RootDirectory[i] = src[i];
     }
-    _root_directory[i] = L'\0';
+    m_RootDirectory[i] = L'\0';
 
     // current_directory は root 直下 (空文字)。
-    _current_directory[0] = L'\0';
+    m_CurrentDirectory[0] = L'\0';
 
-    _selected_index = -1;
-    _filter_kind    = EAssetKind::Unknown;
+    m_SelectedIndex = -1;
+    m_FilterKind    = EAssetKind::Unknown;
 
     // pool に余裕を確保。これで RebuildEntries 中の AppendPathOffset /
     // AppendNameOffset で内部 Grow 頻度を下げる。Grow が走っても offset 基準で
     // 管理しているため pointer 無効化問題は起きない (列挙完走後に 1 度だけ
     // pool.Data() からの絶対 pointer を計算する設計のため)。
-    _path_pool.Reserve(kInitialPathPoolBytes / sizeof(wchar_t));
-    _name_pool.Reserve(kInitialPathPoolBytes / sizeof(char));
+    m_PathPool.Reserve(kInitialPathPoolBytes / sizeof(wchar_t));
+    m_NamePool.Reserve(kInitialPathPoolBytes / sizeof(char));
 
     // 初回 rescan。
     Refresh();
 }
 
 void FAssetBrowser::Shutdown() noexcept {
-    _entries.Clear();
-    _path_pool.Clear();
-    _name_pool.Clear();
-    _root_directory[0]    = L'\0';
-    _current_directory[0] = L'\0';
-    _selected_index       = -1;
-    _filter_kind          = EAssetKind::Unknown;
+    m_Entries.Clear();
+    m_PathPool.Clear();
+    m_NamePool.Clear();
+    m_RootDirectory[0]    = L'\0';
+    m_CurrentDirectory[0] = L'\0';
+    m_SelectedIndex       = -1;
+    m_FilterKind          = EAssetKind::Unknown;
     // callback は外部所有 (関数ポインタ) なので、明示的に解除する。
-    _on_selected_cb         = nullptr;
-    _on_selected_user       = nullptr;
-    _on_double_clicked_cb   = nullptr;
-    _on_double_clicked_user = nullptr;
+    m_OnSelectedCb         = nullptr;
+    m_OnSelectedUser       = nullptr;
+    m_OnDoubleClickedCb   = nullptr;
+    m_OnDoubleClickedUser = nullptr;
 }
 
 // ===========================================================================
@@ -181,14 +181,14 @@ void FAssetBrowser::Refresh() noexcept {
 
 void FAssetBrowser::RebuildEntries() noexcept {
     // 既存 entry / pool を全クリア (容量は維持)。pointer は全て無効化される。
-    _entries.Clear();
-    _path_pool.Clear();
-    _name_pool.Clear();
-    _selected_index = -1;  // pool 再構築で path pointer 寿命が切れるため
+    m_Entries.Clear();
+    m_PathPool.Clear();
+    m_NamePool.Clear();
+    m_SelectedIndex = -1;  // pool 再構築で path pointer 寿命が切れるため
 
     // ----- Win32 FindFirstFileW で current_directory 配下を列挙 -----
     wchar_t full_dir[kMaxPathChars] = {};
-    BuildFullPath(_current_directory, full_dir, kMaxPathChars);
+    BuildFullPath(m_CurrentDirectory, full_dir, kMaxPathChars);
 
     // "<dir>\\*" の検索パターン。
     wchar_t pattern[kMaxPathChars] = {};
@@ -237,8 +237,8 @@ void FAssetBrowser::RebuildEntries() noexcept {
         // "<current_directory>\\<fileName>" の相対パスを組み立てる。
         wchar_t rel_path[kMaxPathChars] = {};
         usize rl = 0;
-        for (; _current_directory[rl] != L'\0' && rl + 1 < kMaxPathChars; ++rl) {
-            rel_path[rl] = _current_directory[rl];
+        for (; m_CurrentDirectory[rl] != L'\0' && rl + 1 < kMaxPathChars; ++rl) {
+            rel_path[rl] = m_CurrentDirectory[rl];
         }
         // current_directory が空でなければ separator を挟む。
         if (rl > 0 && rel_path[rl - 1] != L'\\' && rel_path[rl - 1] != L'/'
@@ -273,9 +273,9 @@ void FAssetBrowser::RebuildEntries() noexcept {
     ::FindClose(h);
 
     // ---- offset → pointer 解決 (これ以後 pool は触らない) ----
-    const wchar_t* path_base = _path_pool.IsEmpty() ? nullptr : &_path_pool[0];
-    const char*    name_base = _name_pool.IsEmpty() ? nullptr : &_name_pool[0];
-    _entries.Reserve(pending.Size());
+    const wchar_t* path_base = m_PathPool.IsEmpty() ? nullptr : &m_PathPool[0];
+    const char*    name_base = m_NamePool.IsEmpty() ? nullptr : &m_NamePool[0];
+    m_Entries.Reserve(pending.Size());
     for (usize i = 0; i < pending.Size(); ++i) {
         const PendingEntry& pe = pending[i];
         AssetEntry e {};
@@ -285,7 +285,7 @@ void FAssetBrowser::RebuildEntries() noexcept {
         e.file_size_bytes = pe.size;
         e.last_modified   = pe.mtime;
         e.is_directory    = pe.is_dir;
-        _entries.PushBack(e);
+        m_Entries.PushBack(e);
     }
 }
 
@@ -293,22 +293,22 @@ void FAssetBrowser::RebuildEntries() noexcept {
 // アクセサ
 // ===========================================================================
 u32 FAssetBrowser::EntryCount() const noexcept {
-    return static_cast<u32>(_entries.Size());
+    return static_cast<u32>(m_Entries.Size());
 }
 
 const AssetEntry* FAssetBrowser::GetEntry(u32 index) const noexcept {
-    if (index >= _entries.Size()) return nullptr;
-    return &_entries[static_cast<usize>(index)];
+    if (index >= m_Entries.Size()) return nullptr;
+    return &m_Entries[static_cast<usize>(index)];
 }
 
 const wchar_t* FAssetBrowser::CurrentDirectory() const noexcept {
-    return _current_directory;
+    return m_CurrentDirectory;
 }
 
 void FAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
     // path == nullptr / 空文字 → ルート (current_directory を空文字に)
     if (path == nullptr || path[0] == L'\0') {
-        _current_directory[0] = L'\0';
+        m_CurrentDirectory[0] = L'\0';
         Refresh();
         return;
     }
@@ -324,42 +324,42 @@ void FAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
         return;
     }
 
-    // path を _current_directory にコピー。
+    // path を m_CurrentDirectory にコピー。
     usize i = 0;
     for (; path[i] != L'\0' && i + 1 < kMaxPathChars; ++i) {
-        _current_directory[i] = path[i];
+        m_CurrentDirectory[i] = path[i];
     }
-    _current_directory[i] = L'\0';
+    m_CurrentDirectory[i] = L'\0';
 
     Refresh();
 }
 
 const wchar_t* FAssetBrowser::SelectedAssetPath() const noexcept {
-    if (_selected_index < 0) return nullptr;
-    const u32 idx = static_cast<u32>(_selected_index);
-    if (idx >= _entries.Size()) return nullptr;
-    return _entries[idx].path;
+    if (m_SelectedIndex < 0) return nullptr;
+    const u32 idx = static_cast<u32>(m_SelectedIndex);
+    if (idx >= m_Entries.Size()) return nullptr;
+    return m_Entries[idx].path;
 }
 
 EAssetKind FAssetBrowser::SelectedAssetKind() const noexcept {
-    if (_selected_index < 0) return EAssetKind::Unknown;
-    const u32 idx = static_cast<u32>(_selected_index);
-    if (idx >= _entries.Size()) return EAssetKind::Unknown;
-    return _entries[idx].kind;
+    if (m_SelectedIndex < 0) return EAssetKind::Unknown;
+    const u32 idx = static_cast<u32>(m_SelectedIndex);
+    if (idx >= m_Entries.Size()) return EAssetKind::Unknown;
+    return m_Entries[idx].kind;
 }
 
 void FAssetBrowser::SetOnAssetSelectedCallback(AssetSelectedCallback cb, void* user) noexcept {
-    _on_selected_cb   = cb;
-    _on_selected_user = user;
+    m_OnSelectedCb   = cb;
+    m_OnSelectedUser = user;
 }
 
 void FAssetBrowser::SetOnAssetDoubleClickedCallback(AssetDoubleClickedCallback cb, void* user) noexcept {
-    _on_double_clicked_cb   = cb;
-    _on_double_clicked_user = user;
+    m_OnDoubleClickedCb   = cb;
+    m_OnDoubleClickedUser = user;
 }
 
 void FAssetBrowser::SetFilterByKind(EAssetKind kind) noexcept {
-    _filter_kind = kind;
+    m_FilterKind = kind;
 }
 
 // ===========================================================================
@@ -423,8 +423,8 @@ void FAssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize ca
 
     usize w = 0;
     // root_directory コピー
-    for (usize i = 0; _root_directory[i] != L'\0' && w + 1 < cap; ++i, ++w) {
-        out_buf[w] = _root_directory[i];
+    for (usize i = 0; m_RootDirectory[i] != L'\0' && w + 1 < cap; ++i, ++w) {
+        out_buf[w] = m_RootDirectory[i];
     }
     // sub が空 (= ルート直下) ならここで終了。
     if (sub == nullptr || sub[0] == L'\0') {
@@ -449,17 +449,17 @@ usize FAssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
     // 不足時は予防的に余裕を持って Grow させ、書き込み中の inner PushBack
     // が更に relocation を起こさないようにする (= 1 回の Reserve でこの append
     // を完了する分の容量を確保する)。
-    const usize need = _path_pool.Size() + len;
-    if (need > _path_pool.Capacity()) {
-        usize new_cap = _path_pool.Capacity();
+    const usize need = m_PathPool.Size() + len;
+    if (need > m_PathPool.Capacity()) {
+        usize new_cap = m_PathPool.Capacity();
         if (new_cap == 0) new_cap = kInitialPathPoolBytes / sizeof(wchar_t);
         while (new_cap < need) new_cap *= 2u;
-        _path_pool.Reserve(new_cap);
+        m_PathPool.Reserve(new_cap);
     }
 
-    const usize start = _path_pool.Size();
+    const usize start = m_PathPool.Size();
     for (usize i = 0; i < len; ++i) {
-        _path_pool.PushBack(src[i]);
+        m_PathPool.PushBack(src[i]);
     }
     return start;
 }
@@ -468,17 +468,17 @@ usize FAssetBrowser::AppendNameOffset(const char* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = std::strlen(src) + 1u;
 
-    const usize need = _name_pool.Size() + len;
-    if (need > _name_pool.Capacity()) {
-        usize new_cap = _name_pool.Capacity();
+    const usize need = m_NamePool.Size() + len;
+    if (need > m_NamePool.Capacity()) {
+        usize new_cap = m_NamePool.Capacity();
         if (new_cap == 0) new_cap = kInitialPathPoolBytes / sizeof(char);
         while (new_cap < need) new_cap *= 2u;
-        _name_pool.Reserve(new_cap);
+        m_NamePool.Reserve(new_cap);
     }
 
-    const usize start = _name_pool.Size();
+    const usize start = m_NamePool.Size();
     for (usize i = 0; i < len; ++i) {
-        _name_pool.PushBack(src[i]);
+        m_NamePool.PushBack(src[i]);
     }
     return start;
 }
@@ -509,23 +509,23 @@ void FAssetBrowser::DrawUI() noexcept {
     }
     ImGui::SameLine();
 
-    const bool at_root = (_current_directory[0] == L'\0');
+    const bool at_root = (m_CurrentDirectory[0] == L'\0');
     if (at_root) ImGui::BeginDisabled();
     if (ImGui::Button("Up")) {
         // current_directory の最後の '\\' / '/' 以降を削る。
-        usize len = WLen(_current_directory);
+        usize len = WLen(m_CurrentDirectory);
         if (len > 0) {
             isize cut = -1;
             for (isize i = static_cast<isize>(len) - 1; i >= 0; --i) {
-                if (_current_directory[i] == L'\\' || _current_directory[i] == L'/') {
+                if (m_CurrentDirectory[i] == L'\\' || m_CurrentDirectory[i] == L'/') {
                     cut = i;
                     break;
                 }
             }
             if (cut >= 0) {
-                _current_directory[cut] = L'\0';
+                m_CurrentDirectory[cut] = L'\0';
             } else {
-                _current_directory[0] = L'\0';  // ルート直下
+                m_CurrentDirectory[0] = L'\0';  // ルート直下
             }
             Refresh();
         }
@@ -539,7 +539,7 @@ void FAssetBrowser::DrawUI() noexcept {
         std::snprintf(cur_utf8, sizeof(cur_utf8), "Path: <root>");
     } else {
         char tmp[kMaxPathChars] = {};
-        WideToUtf8(_current_directory, tmp, static_cast<int>(kMaxPathChars));
+        WideToUtf8(m_CurrentDirectory, tmp, static_cast<int>(kMaxPathChars));
         std::snprintf(cur_utf8, sizeof(cur_utf8), "Path: %s", tmp);
     }
     ImGui::TextUnformatted(cur_utf8);
@@ -547,7 +547,7 @@ void FAssetBrowser::DrawUI() noexcept {
     // ----- Filter combo (右端寄せはしない、SameLine で続ける) -----
     ImGui::SameLine();
     ImGui::SetNextItemWidth(140.0f);
-    const char* current_filter = KindLabel(_filter_kind);
+    const char* current_filter = KindLabel(m_FilterKind);
     if (ImGui::BeginCombo("Filter", current_filter)) {
         static const EAssetKind kAll[] = {
             EAssetKind::Unknown,  // = フィルタ解除
@@ -558,10 +558,10 @@ void FAssetBrowser::DrawUI() noexcept {
             EAssetKind::Other,
         };
         for (usize i = 0; i < sizeof(kAll) / sizeof(kAll[0]); ++i) {
-            const bool selected = (kAll[i] == _filter_kind);
+            const bool selected = (kAll[i] == m_FilterKind);
             const char* lbl = (kAll[i] == EAssetKind::Unknown) ? "(All)" : KindLabel(kAll[i]);
             if (ImGui::Selectable(lbl, selected)) {
-                _filter_kind = kAll[i];
+                m_FilterKind = kAll[i];
             }
         }
         ImGui::EndCombo();
@@ -614,7 +614,7 @@ void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcep
     if (rel_dir == nullptr || rel_dir[0] == L'\0') {
         // root のベース名を表示。
         char root_utf8[kMaxPathChars] = {};
-        WideToUtf8(WBaseName(_root_directory), root_utf8, static_cast<int>(kMaxPathChars));
+        WideToUtf8(WBaseName(m_RootDirectory), root_utf8, static_cast<int>(kMaxPathChars));
         std::snprintf(label, sizeof(label), "%s", root_utf8[0] ? root_utf8 : "assets");
     } else {
         char rel_utf8[kMaxPathChars] = {};
@@ -626,7 +626,7 @@ void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcep
                              | ImGuiTreeNodeFlags_OpenOnDoubleClick
                              | ImGuiTreeNodeFlags_SpanAvailWidth;
     // current_directory と一致するノードはハイライト。
-    const wchar_t* cd = _current_directory;
+    const wchar_t* cd = m_CurrentDirectory;
     bool selected_node = false;
     if ((rel_dir == nullptr || rel_dir[0] == L'\0') && cd[0] == L'\0') {
         selected_node = true;
@@ -705,17 +705,17 @@ void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcep
 // ===========================================================================
 void FAssetBrowser::DrawList() noexcept {
     ImGui::Text("Entries: %u%s",
-                static_cast<unsigned>(_entries.Size()),
-                (_filter_kind == EAssetKind::Unknown) ? "" : " (filtered)");
+                static_cast<unsigned>(m_Entries.Size()),
+                (m_FilterKind == EAssetKind::Unknown) ? "" : " (filtered)");
     ImGui::Separator();
 
-    for (u32 i = 0; i < _entries.Size(); ++i) {
-        const AssetEntry& e = _entries[static_cast<usize>(i)];
+    for (u32 i = 0; i < m_Entries.Size(); ++i) {
+        const AssetEntry& e = m_Entries[static_cast<usize>(i)];
 
         // kind フィルタ (ディレクトリは常に表示)。
-        if (_filter_kind != EAssetKind::Unknown
+        if (m_FilterKind != EAssetKind::Unknown
             && !e.is_directory
-            && e.kind != _filter_kind) {
+            && e.kind != m_FilterKind) {
             continue;
         }
 
@@ -743,14 +743,14 @@ void FAssetBrowser::DrawList() noexcept {
                           size_buf);
         }
 
-        const bool selected = (static_cast<i32>(i) == _selected_index);
+        const bool selected = (static_cast<i32>(i) == m_SelectedIndex);
         ImGui::PushID(static_cast<int>(i));
 
         if (ImGui::Selectable(row_label, selected,
                               ImGuiSelectableFlags_AllowDoubleClick)) {
-            _selected_index = static_cast<i32>(i);
-            if (_on_selected_cb != nullptr) {
-                _on_selected_cb(_on_selected_user, e.path, e.kind);
+            m_SelectedIndex = static_cast<i32>(i);
+            if (m_OnSelectedCb != nullptr) {
+                m_OnSelectedCb(m_OnSelectedUser, e.path, e.kind);
             }
             // ダブルクリック検知 (Selectable_AllowDoubleClick が必要)
             if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -760,17 +760,17 @@ void FAssetBrowser::DrawList() noexcept {
                     // 再構築するため `e.path` は終了後に dangling になる。
                     // 注: callback は **先** に発火させる (= e.path がまだ有効
                     // な間) → その後 navigate して return。
-                    if (_on_double_clicked_cb != nullptr) {
-                        _on_double_clicked_cb(_on_double_clicked_user, e.path, e.kind);
+                    if (m_OnDoubleClickedCb != nullptr) {
+                        m_OnDoubleClickedCb(m_OnDoubleClickedUser, e.path, e.kind);
                     }
                     SetCurrentDirectory(e.path);
-                    // この後の _entries 走査は安全に中断する (次フレームで
-                    // 再描画され、新しい _entries に対して回る)。
+                    // この後の m_Entries 走査は安全に中断する (次フレームで
+                    // 再描画され、新しい m_Entries に対して回る)。
                     ImGui::PopID();
                     return;
                 } else {
-                    if (_on_double_clicked_cb != nullptr) {
-                        _on_double_clicked_cb(_on_double_clicked_user, e.path, e.kind);
+                    if (m_OnDoubleClickedCb != nullptr) {
+                        m_OnDoubleClickedCb(m_OnDoubleClickedUser, e.path, e.kind);
                     }
                 }
             }

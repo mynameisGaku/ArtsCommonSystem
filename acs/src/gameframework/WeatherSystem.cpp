@@ -51,11 +51,11 @@ const FWeatherSystem::KindParams& FWeatherSystem::Params(EWeatherKind k) noexcep
 
 void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noexcept {
     // 同一天候: 既にその天候なので即完了状態に揃える。
-    if (kind == _current && _transition_t >= 1.0f) {
-        _target              = kind;
-        _transition_duration = 0.0f;
-        _transition_elapsed  = 0.0f;
-        _transition_t        = 1.0f;
+    if (kind == m_Current && m_TransitionT >= 1.0f) {
+        m_Target              = kind;
+        m_TransitionDuration = 0.0f;
+        m_TransitionElapsed  = 0.0f;
+        m_TransitionT        = 1.0f;
         return;
     }
 
@@ -63,22 +63,22 @@ void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noex
     // するのが理想だが、KindParams は離散なので簡略化 — 単純に current を
     // 「今までの target」に置き換え、新しい target に向け再スタートする。
     // (混合途中の急な切替は視覚的に気にならない範囲、Phase 3 で要検討。)
-    if (_transition_t < 1.0f) {
-        _current = _target;
+    if (m_TransitionT < 1.0f) {
+        m_Current = m_Target;
     }
 
-    _target = kind;
+    m_Target = kind;
 
     if (transition_duration <= 0.0f) {
         // 即時切替: snap して完了状態に。
-        _current             = kind;
-        _transition_duration = 0.0f;
-        _transition_elapsed  = 0.0f;
-        _transition_t        = 1.0f;
+        m_Current             = kind;
+        m_TransitionDuration = 0.0f;
+        m_TransitionElapsed  = 0.0f;
+        m_TransitionT        = 1.0f;
     } else {
-        _transition_duration = transition_duration;
-        _transition_elapsed  = 0.0f;
-        _transition_t        = 0.0f;
+        m_TransitionDuration = transition_duration;
+        m_TransitionElapsed  = 0.0f;
+        m_TransitionT        = 0.0f;
     }
 }
 
@@ -86,64 +86,64 @@ void FWeatherSystem::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // 既に完了状態なら何もしない (浮動小数の累積ドリフトを避ける)。
-    if (_transition_t >= 1.0f) return;
-    if (_transition_duration <= 0.0f) {
+    if (m_TransitionT >= 1.0f) return;
+    if (m_TransitionDuration <= 0.0f) {
         // 念のため (SetWeather を経由しない代入で 0 になった場合のセーフネット)。
-        _current      = _target;
-        _transition_t = 1.0f;
+        m_Current      = m_Target;
+        m_TransitionT = 1.0f;
         return;
     }
 
-    _transition_elapsed += dt;
-    if (_transition_elapsed >= _transition_duration) {
+    m_TransitionElapsed += dt;
+    if (m_TransitionElapsed >= m_TransitionDuration) {
         // 遷移完了: current を target にスナップし、t を 1 で固定。
-        _current             = _target;
-        _transition_elapsed  = _transition_duration;
-        _transition_t        = 1.0f;
+        m_Current             = m_Target;
+        m_TransitionElapsed  = m_TransitionDuration;
+        m_TransitionT        = 1.0f;
     } else {
-        _transition_t = _transition_elapsed / _transition_duration;
+        m_TransitionT = m_TransitionElapsed / m_TransitionDuration;
     }
 }
 
 void FWeatherSystem::Reset() noexcept {
-    _current             = EWeatherKind::Clear;
-    _target              = EWeatherKind::Clear;
-    _transition_duration = 0.0f;
-    _transition_elapsed  = 0.0f;
-    _transition_t        = 1.0f;
-    _wind_dir            = FVec2{1.0f, 0.0f};
+    m_Current             = EWeatherKind::Clear;
+    m_Target              = EWeatherKind::Clear;
+    m_TransitionDuration = 0.0f;
+    m_TransitionElapsed  = 0.0f;
+    m_TransitionT        = 1.0f;
+    m_WindDir            = FVec2{1.0f, 0.0f};
 }
 
 // ----- 描画 / lighting 用 modifier (current → target を線形補間) ------------
 
 f32 FWeatherSystem::AmbientLightMultiplier() const noexcept {
-    const KindParams& a = Params(_current);
-    const KindParams& b = Params(_target);
-    return Lerp(a.ambient_mult, b.ambient_mult, _transition_t);
+    const KindParams& a = Params(m_Current);
+    const KindParams& b = Params(m_Target);
+    return Lerp(a.ambient_mult, b.ambient_mult, m_TransitionT);
 }
 
 f32 FWeatherSystem::ParticleDensity() const noexcept {
-    const KindParams& a = Params(_current);
-    const KindParams& b = Params(_target);
-    return Lerp(a.particle_density, b.particle_density, _transition_t);
+    const KindParams& a = Params(m_Current);
+    const KindParams& b = Params(m_Target);
+    return Lerp(a.particle_density, b.particle_density, m_TransitionT);
 }
 
 FVec3 FWeatherSystem::SkyTintMultiplier() const noexcept {
-    const KindParams& a = Params(_current);
-    const KindParams& b = Params(_target);
-    return Lerp(a.sky_tint, b.sky_tint, _transition_t);
+    const KindParams& a = Params(m_Current);
+    const KindParams& b = Params(m_Target);
+    return Lerp(a.sky_tint, b.sky_tint, m_TransitionT);
 }
 
 f32 FWeatherSystem::WindStrength() const noexcept {
-    const KindParams& a = Params(_current);
-    const KindParams& b = Params(_target);
-    return Lerp(a.wind_strength, b.wind_strength, _transition_t);
+    const KindParams& a = Params(m_Current);
+    const KindParams& b = Params(m_Target);
+    return Lerp(a.wind_strength, b.wind_strength, m_TransitionT);
 }
 
 f32 FWeatherSystem::FogDensityMultiplier() const noexcept {
-    const KindParams& a = Params(_current);
-    const KindParams& b = Params(_target);
-    return Lerp(a.fog_density, b.fog_density, _transition_t);
+    const KindParams& a = Params(m_Current);
+    const KindParams& b = Params(m_Target);
+    return Lerp(a.fog_density, b.fog_density, m_TransitionT);
 }
 
 } // namespace acs::game

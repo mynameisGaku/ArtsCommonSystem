@@ -14,15 +14,15 @@ namespace hellogf {
 class RotatingNode : public acs::game::FNode2D {
 public:
     explicit RotatingNode(acs::f32 speed_rps, const char* label) noexcept
-        : _speed(speed_rps), _label(label) {}
+        : m_Speed(speed_rps), m_Label(label) {}
 
     void OnSpawn()             noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
     void OnDespawn()           noexcept override;
 
 private:
-    acs::f32    _speed;
-    const char* _label;
+    acs::f32    m_Speed;
+    const char* m_Label;
 };
 
 } // namespace hellogf

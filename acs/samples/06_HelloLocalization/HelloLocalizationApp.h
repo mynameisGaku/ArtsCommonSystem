@@ -30,10 +30,10 @@ public:
 private:
     void SwitchTo(acs::u32 idx) noexcept;
 
-    acs::Localization _loc;
-    acs::FSpriteBatch  _batch;
-    acs::Font         _font_big, _font_small;
-    acs::u32          _lang = 0;
+    acs::Localization m_Loc;
+    acs::FSpriteBatch  m_Batch;
+    acs::Font         m_FontBig, m_FontSmall;
+    acs::u32          m_Lang = 0;
 };
 
 } // namespace helloloc

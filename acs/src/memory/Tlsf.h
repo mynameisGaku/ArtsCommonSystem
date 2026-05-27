@@ -54,8 +54,8 @@ public:
     void* Realloc(void* ptr, usize old_size, usize new_size,
                   usize alignment, FSourceLoc loc)           noexcept override;
 
-    u64 BytesAllocated() const noexcept override { return _bytes_used; }
-    u64 PeakBytes()      const noexcept override { return _bytes_peak; }
+    u64 BytesAllocated() const noexcept override { return m_BytesUsed; }
+    u64 PeakBytes()      const noexcept override { return m_BytesPeak; }
     const char* Name()   const noexcept override { return "TLSF"; }
 
     struct Stats {
@@ -68,16 +68,16 @@ public:
     Stats GetStats() const noexcept;
 
 private:
-    u32              _fl_bitmap = 0;
-    u32              _sl_bitmap[tlsf::FL_INDEX_COUNT] = {};
-    tlsf::FBlockHeader* _blocks[tlsf::FL_INDEX_COUNT][tlsf::SL_INDEX_COUNT] = {};
-    tlsf::FBlockHeader  _null_block {};
+    u32              m_FlBitmap = 0;
+    u32              m_SlBitmap[tlsf::FL_INDEX_COUNT] = {};
+    tlsf::FBlockHeader* m_Blocks[tlsf::FL_INDEX_COUNT][tlsf::SL_INDEX_COUNT] = {};
+    tlsf::FBlockHeader  m_NullBlock {};
 
-    VmReservation    _reservation;
-    bool             _owns_reservation = false;
+    VmReservation    m_Reservation;
+    bool             m_OwnsReservation = false;
 
-    u64              _bytes_used = 0;
-    u64              _bytes_peak = 0;
+    u64              m_BytesUsed = 0;
+    u64              m_BytesPeak = 0;
 
     void InsertFreeBlock(tlsf::FBlockHeader* block) noexcept;
     void RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept;

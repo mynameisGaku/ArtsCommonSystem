@@ -44,9 +44,9 @@ void FSocialModeration::Init() noexcept {
 
 bool FSocialModeration::FindBlocked(const char* user_id) const noexcept {
     if (user_id == nullptr) return false;
-    const usize n = _blocked.Size();
+    const usize n = m_Blocked.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_blocked[i].blocked_user_id, user_id)) return true;
+        if (StrEq(m_Blocked[i].blocked_user_id, user_id)) return true;
     }
     return false;
 }
@@ -68,19 +68,19 @@ void FSocialModeration::BlockUser(const char* user_id) noexcept {
     // 呼び出し側が必要なら BlockUser 前後で自分で記録する想定だが、構造体に
     // フィールドを残すことで将来の API 拡張余地は確保。
     e.timestamp = 0;
-    _blocked.PushBack(e);
+    m_Blocked.PushBack(e);
     // TODO(Phase T-3): FSteamworksBridge.SetCommunicationRestriction(user_id, true)。
     //   PSN / Xbox では SDK 側にも同期反映が必要 (通信遮断のため)。
 }
 
 void FSocialModeration::UnblockUser(const char* user_id) noexcept {
     if (user_id == nullptr) return;
-    const usize n = _blocked.Size();
+    const usize n = m_Blocked.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_blocked[i].blocked_user_id, user_id)) {
+        if (StrEq(m_Blocked[i].blocked_user_id, user_id)) {
             // 順序は保持しない (RemoveAtSwap)。block list は集合的に扱われるため
             // UI 表示でも順序依存しない設計。
-            _blocked.RemoveAtSwap(i);
+            m_Blocked.RemoveAtSwap(i);
             // TODO(Phase T-3): FSteamworksBridge.SetCommunicationRestriction(user_id, false)。
             return;
         }
@@ -94,12 +94,12 @@ bool FSocialModeration::IsBlocked(const char* user_id) const noexcept {
 }
 
 u32 FSocialModeration::BlockedCount() const noexcept {
-    return static_cast<u32>(_blocked.Size());
+    return static_cast<u32>(m_Blocked.Size());
 }
 
 const FBlockEntry* FSocialModeration::AllBlocked(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(_blocked.Size());
-    return _blocked.Data();
+    out_count = static_cast<u32>(m_Blocked.Size());
+    return m_Blocked.Data();
 }
 
 TResult<void> FSocialModeration::SubmitReport(const ReportRecord& rep) noexcept {
@@ -113,21 +113,21 @@ TResult<void> FSocialModeration::SubmitReport(const ReportRecord& rep) noexcept 
     // 現フェーズでは SDK 未接続のため queue に積むだけで Ok() を返す。
     // Phase T-3 で FSteamworksBridge.ReportPlayer(rep) を呼び、成功時は queue に
     // 積まない / 失敗時のみ積む挙動に変更する予定。
-    _pending_reports.PushBack(rep);
+    m_PendingReports.PushBack(rep);
     // TODO(Phase T-3): bridge 経由で同期送信を試みる。失敗時のみ queue に残す。
     return Ok();
 }
 
 u32 FSocialModeration::PendingReportCount() const noexcept {
-    return static_cast<u32>(_pending_reports.Size());
+    return static_cast<u32>(m_PendingReports.Size());
 }
 
 TResult<void> FSocialModeration::FlushReports() noexcept {
     // 現フェーズでは SDK 未接続のため queue を空にして Ok() を返す。
-    // Phase T-3 で bridge.ReportPlayer(_pending_reports[i]) を順次呼び、
+    // Phase T-3 で bridge.ReportPlayer(m_PendingReports[i]) を順次呼び、
     // 成功した分だけ queue から削除する挙動に変更する。失敗が混在した場合は
     // 部分成功扱い (成功分は削除、失敗分は queue に残す + 集約エラーを返す)。
-    _pending_reports.Clear();
+    m_PendingReports.Clear();
     // TODO(Phase T-3): bridge 経由で全件送信、失敗分は queue に残す。
     return Ok();
 }
@@ -136,8 +136,8 @@ void FSocialModeration::ClearLocalState() noexcept {
     // テスト / アカウント切り替え / セーブデータ削除時に呼ぶ。SDK 同期は
     // 行わない (ローカル state のみ消去するため、SDK 側のブロック設定は
     // 別途 UnblockUser を呼ぶか、SDK 自身の管理画面から消す必要がある)。
-    _blocked.Clear();
-    _pending_reports.Clear();
+    m_Blocked.Clear();
+    m_PendingReports.Clear();
 }
 
 } // namespace acs::game

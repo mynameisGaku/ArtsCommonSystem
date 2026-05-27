@@ -5,8 +5,8 @@
 // 出ない。glossy な床にも映り込む (SSR が scene color = 発光込みを反射するため)。
 //
 // 各フレームで:
-//   1) _dyn_prev ← 前フレームの _dyn_curr へ swap
-//   2) _dyn_curr を _anim_time から再計算
+//   1) m_DynPrev ← 前フレームの m_DynCurr へ swap
+//   2) m_DynCurr を m_AnimTime から再計算
 // この prev/curr ペアを color pass と motion pass の両方が読む。
 #include "HelloIblApp.h"
 
@@ -30,8 +30,8 @@ void UpdateDynamicOrbs(HelloIblApp& app) noexcept {
     // prev ← 前フレームの curr。OnCustomFrame の冒頭で呼ぶこと
     // (FPbrShader が curr を読み、FMotionVector が prev/curr を比べる)。
     for (u32 i = 0; i < kDynCount; ++i) {
-        app._dyn_prev[i] = app._dyn_curr[i];
-        app._dyn_curr[i] = app.ComputeDynTransform(i, app._anim_time);
+        app.m_DynPrev[i] = app.m_DynCurr[i];
+        app.m_DynCurr[i] = app.ComputeDynTransform(i, app.m_AnimTime);
     }
 }
 
@@ -39,13 +39,13 @@ void DrawDynamicOrbs(HelloIblApp& app) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 
-    app._pbr.SetExtParams(0.0f, 0.5f, 0.0f, FVec3{1, 0, 0});
+    app.m_Pbr.SetExtParams(0.0f, 0.5f, 0.0f, FVec3{1, 0, 0});
     for (u32 i = 0; i < kDynCount; ++i) {
-        app._pbr.SetEmissive(kOrbGlow[i], /*strength=*/3.0f);
-        app._pbr.DrawMesh(*cl, app._gm_sphere, app._dyn_curr[i],
+        app.m_Pbr.SetEmissive(kOrbGlow[i], /*strength=*/3.0f);
+        app.m_Pbr.DrawMesh(*cl, app.m_GmSphere, app.m_DynCurr[i],
                           kOrbGlow[i], 0.0f, 0.35f, 1.0f);
     }
-    app._pbr.SetEmissive(FVec3{0, 0, 0}, 0.0f);   // 後続描画のため reset
+    app.m_Pbr.SetEmissive(FVec3{0, 0, 0}, 0.0f);   // 後続描画のため reset
 }
 
 } // namespace helloibl

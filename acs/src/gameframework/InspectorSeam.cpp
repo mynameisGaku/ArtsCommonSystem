@@ -33,12 +33,12 @@ void FInspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
     }
     // 重複登録は no-op で弾く。誤って同じ Provider を二重に Register しても
     // UI 側で同じオブジェクトが 2 回描画されるのを防ぐ。
-    for (usize i = 0; i < _providers.Size(); ++i) {
-        if (_providers[i] == provider) {
+    for (usize i = 0; i < m_Providers.Size(); ++i) {
+        if (m_Providers[i] == provider) {
             return;
         }
     }
-    _providers.PushBack(provider);
+    m_Providers.PushBack(provider);
 }
 
 // ---- UnregisterProvider -------------------------------------------------
@@ -52,14 +52,14 @@ void FInspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept
     // 同一ポインタは高々 1 件しか存在しない前提)。
     // 順序保存は不要 (UI 描画順は Phase K-3 で別途決める想定)、最後の要素を
     // 上書きして PopBack する swap-remove で削除コストを O(1) に。
-    const usize n = _providers.Size();
+    const usize n = m_Providers.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_providers[i] == provider) {
+        if (m_Providers[i] == provider) {
             const usize last = n - 1;
             if (i != last) {
-                _providers[i] = _providers[last];
+                m_Providers[i] = m_Providers[last];
             }
-            _providers.PopBack();
+            m_Providers.PopBack();
             return;
         }
     }
@@ -70,26 +70,26 @@ void FInspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept
 // ---- ProviderCount / GetProvider ----------------------------------------
 
 u32 FInspectorSeam::ProviderCount() const noexcept {
-    return static_cast<u32>(_providers.Size());
+    return static_cast<u32>(m_Providers.Size());
 }
 
 IInspectableProvider* FInspectorSeam::GetProvider(u32 index) const noexcept {
-    if (index >= _providers.Size()) {
+    if (index >= m_Providers.Size()) {
         // 範囲外は nullptr を返す (TArray::operator[] の ASSERT を避ける防御)。
         return nullptr;
     }
-    return _providers[index];
+    return m_Providers[index];
 }
 
 // ---- NotifyFieldChanged -------------------------------------------------
 
 void FInspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept {
-    if (provider_index >= _providers.Size()) {
+    if (provider_index >= m_Providers.Size()) {
         // 範囲外は no-op。UI 側のリストと本体側の登録が一瞬ずれることがあるため
         // 防御的にチェックする。
         return;
     }
-    IInspectableProvider* prov = _providers[provider_index];
+    IInspectableProvider* prov = m_Providers[provider_index];
     if (prov == nullptr) {
         // 通常は到達しないが、念のための null チェック。
         return;
@@ -104,7 +104,7 @@ void FInspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 f
 void FInspectorSeam::ClearAll() noexcept {
     // Provider は non-owning なので破棄せず、配列だけ空にする。
     // 容量は保持 (Reserve 状態を保つ ≒ 次回再登録時のアロケーション節約)。
-    _providers.Clear();
+    m_Providers.Clear();
 }
 
 } // namespace acs::game

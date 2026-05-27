@@ -6,67 +6,67 @@
 namespace acs::game {
 
 FSceneServices::FSceneServices(ESvc wanted) noexcept
-    : _wanted(wanted) {
-    if (Has(ESvc::Clock))     _clock     = MakeUnique<FSceneClock>();
-    if (Has(ESvc::Tweens))    _tweens    = MakeUnique<FTweenManager>();
-    if (Has(ESvc::Sequences)) _sequences = MakeUnique<FSequenceRunner>();
-    if (Has(ESvc::Input))     _input     = MakeUnique<FInputMap>();
-    if (Has(ESvc::Camera2D))  _camera    = MakeUnique<acs::game::FCamera2D>();
+    : m_Wanted(wanted) {
+    if (Has(ESvc::Clock))     m_Clock     = MakeUnique<FSceneClock>();
+    if (Has(ESvc::Tweens))    m_Tweens    = MakeUnique<FTweenManager>();
+    if (Has(ESvc::Sequences)) m_Sequences = MakeUnique<FSequenceRunner>();
+    if (Has(ESvc::Input))     m_Input     = MakeUnique<FInputMap>();
+    if (Has(ESvc::Camera2D))  m_Camera    = MakeUnique<acs::game::FCamera2D>();
     if (Has(ESvc::Physics2D)) {
-        _physics = MakeUnique<FCollisionWorld2D>();
-        _physics->Init();   // 既定 cell_size=64
+        m_Physics = MakeUnique<FCollisionWorld2D>();
+        m_Physics->Init();   // 既定 cell_size=64
     }
 }
 
 FSceneClock& FSceneServices::Clock() noexcept {
-    ACS_ASSERTF(_clock.Get() != nullptr,
+    ACS_ASSERTF(m_Clock.Get() != nullptr,
                 "FSceneServices::Clock() called but ESvc::Clock not requested in WantedServices()");
-    return *_clock;
+    return *m_Clock;
 }
 
 FTweenManager& FSceneServices::Tweens() noexcept {
-    ACS_ASSERTF(_tweens.Get() != nullptr,
+    ACS_ASSERTF(m_Tweens.Get() != nullptr,
                 "FSceneServices::Tweens() called but ESvc::Tweens not requested in WantedServices()");
-    return *_tweens;
+    return *m_Tweens;
 }
 
 FSequenceRunner& FSceneServices::Sequences() noexcept {
-    ACS_ASSERTF(_sequences.Get() != nullptr,
+    ACS_ASSERTF(m_Sequences.Get() != nullptr,
                 "FSceneServices::Sequences() called but ESvc::Sequences not requested in WantedServices()");
-    return *_sequences;
+    return *m_Sequences;
 }
 
 FInputMap& FSceneServices::Input() noexcept {
-    ACS_ASSERTF(_input.Get() != nullptr,
+    ACS_ASSERTF(m_Input.Get() != nullptr,
                 "FSceneServices::Input() called but ESvc::Input not requested in WantedServices()");
-    return *_input;
+    return *m_Input;
 }
 
 acs::game::FCamera2D& FSceneServices::Camera() noexcept {
-    ACS_ASSERTF(_camera.Get() != nullptr,
+    ACS_ASSERTF(m_Camera.Get() != nullptr,
                 "FSceneServices::Camera() called but ESvc::Camera2D not requested in WantedServices()");
-    return *_camera;
+    return *m_Camera;
 }
 
 FCollisionWorld2D& FSceneServices::Physics() noexcept {
-    ACS_ASSERTF(_physics.Get() != nullptr,
+    ACS_ASSERTF(m_Physics.Get() != nullptr,
                 "FSceneServices::Physics() called but ESvc::Physics2D not requested in WantedServices()");
-    return *_physics;
+    return *m_Physics;
 }
 
 void FSceneServices::_PreUpdate(f32 raw_dt) noexcept {
     // Clock 進行 (= scaled dt 確定)。他サービスは scene.OnUpdate の後で tick。
-    if (_clock) _clock->Tick(raw_dt);
+    if (m_Clock) m_Clock->Tick(raw_dt);
 }
 
 void FSceneServices::_PostUpdate(f32 scaled_dt) noexcept {
-    if (_tweens)    _tweens->Tick(scaled_dt);
-    if (_sequences) _sequences->Tick(scaled_dt);
-    if (_camera)    _camera->Tick(scaled_dt);
+    if (m_Tweens)    m_Tweens->Tick(scaled_dt);
+    if (m_Sequences) m_Sequences->Tick(scaled_dt);
+    if (m_Camera)    m_Camera->Tick(scaled_dt);
 }
 
 f32 FSceneServices::_ScaledDt(f32 raw_dt) const noexcept {
-    return _clock ? _clock->Dt() : raw_dt;
+    return m_Clock ? m_Clock->Dt() : raw_dt;
 }
 
 } // namespace acs::game

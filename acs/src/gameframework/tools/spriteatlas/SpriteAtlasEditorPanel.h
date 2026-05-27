@@ -80,7 +80,7 @@
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。frame name は FSpritePack 側 (= caller 所有) のリテラル前提。
 //     panel 内で新規 frame を AddFrame するときの name は静的バッファ
-//     (`_default_frame_name_pool[]`) に書き込み、FSpritePack に const char*
+//     (`m_DefaultFrameNamePool[]`) に書き込み、FSpritePack に const char*
 //     ポインタを渡す。TPool は kMaxOwnedFrames * 32 byte 固定。
 //   ・**ImGui ヘッダは .cpp 限定**: FParticleEditorPanel / FModelViewerPanel と
 //     同形 (header から imgui.h を出さない)。
@@ -172,7 +172,7 @@ public:
     // ----- frame 操作 ------------------------------------------------------
 
     // 新規 frame を default 64x64 (atlas 左上 0,0 起点) で追加する。
-    // 名前は内部の `_default_frame_name_pool[]` に "Frame_NN" 形式で書き込み、
+    // 名前は内部の `m_DefaultFrameNamePool[]` に "Frame_NN" 形式で書き込み、
     // FSpritePack に const char* として渡す。追加後 selection を新規 frame に移す。
     // pack 未注入 or 上限到達 (= kMaxOwnedFrames) なら no-op。
     void AddFrame() noexcept;
@@ -180,7 +180,7 @@ public:
     // 選択中 frame を FSpritePack から削除する。
     // 削除は FSpritePack::RemoveFrame で行うが、FSpritePack の RemoveFrame は
     // name ベース (= 同名 frame は全削除) なので、本 panel では一意性を担保
-    // するため `_default_frame_name_pool` で命名済 frame しか削除しない契約。
+    // するため `m_DefaultFrameNamePool` で命名済 frame しか削除しない契約。
     // 削除後 selection は前の index に詰める。未選択 / 範囲外 / pack 未注入は
     // no-op。FSpritePack は順序非保持 swap remove のため、削除後の index 整合は
     // panel 側で FSpritePack::AllFrames を再走査して取り直す (= state 同期)。
@@ -197,7 +197,7 @@ public:
 
     // toolbar の Pivot toggle の現在値。Center / TopLeft / Custom。
     // Custom 以外を選んだ瞬間、selected frame があれば pivot 値が流し込まれる。
-    EPivotPreset PivotPreset() const noexcept { return _pivot_preset; }
+    EPivotPreset PivotPreset() const noexcept { return m_PivotPreset; }
     void SetPivotPreset(EPivotPreset p) noexcept;
 
     // ----- FEditorPanel override -------------------------------------------
@@ -231,24 +231,24 @@ public:
 
 private:
     // ---- 注入された編集対象 FSpritePack (raw / 非所有) ----
-    class acs::game::FSpritePack* _pack = nullptr;
+    class acs::game::FSpritePack* m_Pack = nullptr;
 
     // ---- 選択中 frame index (-1 = 未選択) ----
-    i32 _selected = -1;
+    i32 m_Selected = -1;
 
     // ---- atlas placeholder 表示倍率 ----
-    f32 _zoom = 1.0f;
+    f32 m_Zoom = 1.0f;
 
     // ---- toolbar の Pivot toggle 現在値 ----
-    EPivotPreset _pivot_preset = EPivotPreset::Center;
+    EPivotPreset m_PivotPreset = EPivotPreset::Center;
 
     // ---- 命名済 frame name の静的バッファ ----
     // FSpritePack に const char* を渡すため、panel 寿命中に確実に生存する
     // 領域が必要。固定長 2 次元配列 (kMaxOwnedFrames × kFrameNameMaxChars)
     // で provision する。生成済個数は AddFrame で単調増加、Shutdown で 0 に。
     // 削除した name の slot は再利用しない (= シンプル優先、上限 64 で十分)。
-    c8 _default_frame_name_pool[kMaxOwnedFrames][kFrameNameMaxChars] = {};
-    u32 _owned_name_count = 0;
+    c8 m_DefaultFrameNamePool[kMaxOwnedFrames][kFrameNameMaxChars] = {};
+    u32 m_OwnedNameCount = 0;
 };
 
 } // namespace acs::game::spriteatlas

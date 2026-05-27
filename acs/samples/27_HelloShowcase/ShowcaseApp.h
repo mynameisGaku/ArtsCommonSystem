@@ -36,23 +36,23 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    Assets                  _assets;
-    acs::FCamera             _camera;
-    acs::PostProcessParams  _post_params;
-    acs::FVec3               _cam_pos        = acs::FVec3{0, 1.4f, -5.5f};
-    acs::f32                _orbit_angle    = 0.0f;     // カメラ orbit (rad)
-    acs::f32                _orb_phase      = 0.0f;     // emissive オーブの位相 (rad)
-    acs::f32                _prev_orb_phase = 0.0f;
-    acs::f32                _exposure_target  = 0.7f;
-    acs::f32                _adapted_exposure = 0.7f;
-    acs::FMat4               _prev_vp_no_jitter{};
-    bool                    _prev_vp_valid   = false;
-    acs::u32                _taa_frame_index = 0;
-    bool                    _show_ssr        = true;
-    bool                    _ssr_warm        = false;
-    bool                    _ssao_warm       = false;
-    bool                    _show_refraction = true;
-    bool                    _paused          = false;
+    Assets                  m_Assets;
+    acs::FCamera             m_Camera;
+    acs::PostProcessParams  m_PostParams;
+    acs::FVec3               m_CamPos        = acs::FVec3{0, 1.4f, -5.5f};
+    acs::f32                m_OrbitAngle    = 0.0f;     // カメラ orbit (rad)
+    acs::f32                m_OrbPhase      = 0.0f;     // emissive オーブの位相 (rad)
+    acs::f32                m_PrevOrbPhase = 0.0f;
+    acs::f32                m_ExposureTarget  = 0.7f;
+    acs::f32                m_AdaptedExposure = 0.7f;
+    acs::FMat4               m_PrevVpNoJitter{};
+    bool                    m_PrevVpValid   = false;
+    acs::u32                m_TaaFrameIndex = 0;
+    bool                    m_ShowSsr        = true;
+    bool                    m_SsrWarm        = false;
+    bool                    m_SsaoWarm       = false;
+    bool                    m_ShowRefraction = true;
+    bool                    m_Paused          = false;
 };
 
 } // namespace helloshowcase

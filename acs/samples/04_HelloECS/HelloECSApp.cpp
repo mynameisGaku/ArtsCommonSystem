@@ -32,7 +32,7 @@ void HelloECSApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
+    ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
 
     u8 pixels[kBallTexSize * kBallTexSize * 4];
     GenerateBallTexture(pixels);
@@ -45,7 +45,7 @@ void HelloECSApp::OnStart() noexcept {
         ACS_LOG_ERROR("ball texture: %s", r.Error().message);
         Quit(); return;
     } else {
-        _tex = Move(r.Value());
+        m_Tex = Move(r.Value());
     }
 
     SpawnRandomEntities(200);
@@ -92,28 +92,28 @@ void HelloECSApp::OnUpdate(f32 dt) noexcept {
 
 void HelloECSApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
-    if (!cl || !_tex) return;
+    if (!cl || !m_Tex) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
 
-    _batch.Begin(*cl, sw, sh);
-    _batch.DrawRect(0, 0, (f32)sw, (f32)sh, FVec4{0.05f, 0.06f, 0.1f, 1});
+    m_Batch.Begin(*cl, sw, sh);
+    m_Batch.DrawRect(0, 0, (f32)sw, (f32)sh, FVec4{0.05f, 0.06f, 0.1f, 1});
 
     // 描画は FSpriteBatch のコマンド記録がスレッド非安全なので必ず逐次 Each()。
     // EachParallel をここで使うと未定義動作になる。
     const f32 r = 8.0f;
     GetWorld().Query<Position, FColor>().Each(
         [this, r](EntityId, Position& p, FColor& c){
-            _batch.Draw(*_tex, p.v.x - r, p.v.y - r, r * 2, r * 2,
+            m_Batch.Draw(*m_Tex, p.v.x - r, p.v.y - r, r * 2, r * 2,
                         FVec4{c.r, c.g, c.b, 0.95f});
         });
 
-    _batch.End();
+    m_Batch.End();
 }
 
 void HelloECSApp::OnShutdown() noexcept {
-    _tex.Reset();
-    _batch.Shutdown();
+    m_Tex.Reset();
+    m_Batch.Shutdown();
 }
 
 void HelloECSApp::SpawnRandomEntities(u32 n) noexcept {
@@ -122,15 +122,15 @@ void HelloECSApp::SpawnRandomEntities(u32 n) noexcept {
     World& w = GetWorld();
     for (u32 i = 0; i < n; ++i) {
         EntityId e = w.Create();
-        w.Add(e, Position{ FVec2{ _rnd() * sw, _rnd() * sh } });
-        w.Add(e, Velocity{ FVec2{ (_rnd() - 0.5f) * 200.0f, (_rnd() - 0.5f) * 200.0f } });
-        w.Add(e, FColor{ 0.5f + _rnd() * 0.5f, 0.5f + _rnd() * 0.5f, 0.5f + _rnd() * 0.5f });
+        w.Add(e, Position{ FVec2{ m_Rnd() * sw, m_Rnd() * sh } });
+        w.Add(e, Velocity{ FVec2{ (m_Rnd() - 0.5f) * 200.0f, (m_Rnd() - 0.5f) * 200.0f } });
+        w.Add(e, FColor{ 0.5f + m_Rnd() * 0.5f, 0.5f + m_Rnd() * 0.5f, 0.5f + m_Rnd() * 0.5f });
     }
 }
 
-f32 HelloECSApp::_rnd() noexcept {
-    _seed ^= _seed << 13; _seed ^= _seed >> 17; _seed ^= _seed << 5;
-    return static_cast<f32>(_seed & 0xFFFFFFu) / 16777216.0f;
+f32 HelloECSApp::m_Rnd() noexcept {
+    m_Seed ^= m_Seed << 13; m_Seed ^= m_Seed >> 17; m_Seed ^= m_Seed << 5;
+    return static_cast<f32>(m_Seed & 0xFFFFFFu) / 16777216.0f;
 }
 
 } // namespace hello04

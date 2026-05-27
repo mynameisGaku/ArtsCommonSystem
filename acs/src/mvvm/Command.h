@@ -39,34 +39,34 @@ public:
 
     // 常時実行可能版
     Command(ExecFn fn, void* user) noexcept
-        : _fn(fn), _user(user), _can_execute(nullptr) {}
+        : m_Fn(fn), m_User(user), m_CanExecute(nullptr) {}
 
     // 条件付き実行版 (can_execute が false の間は Execute() が no-op)
     Command(ExecFn fn, void* user, Observable<bool>* can_execute) noexcept
-        : _fn(fn), _user(user), _can_execute(can_execute) {}
+        : m_Fn(fn), m_User(user), m_CanExecute(can_execute) {}
 
     // 実行 (条件不成立なら何もしない)
     void Execute() noexcept {
-        if (!_fn) return;
-        if (_can_execute && !_can_execute->Get()) return;
-        _fn(_user);
+        if (!m_Fn) return;
+        if (m_CanExecute && !m_CanExecute->Get()) return;
+        m_Fn(m_User);
     }
 
     // 現在実行可能か (UI の grayout 判定に使う)
     bool CanExecute() const noexcept {
-        return _fn && (!_can_execute || _can_execute->Get());
+        return m_Fn && (!m_CanExecute || m_CanExecute->Get());
     }
 
     // 内部から無効化したいとき (VM の dtor で呼ぶと吊り回避)
-    void Invalidate() noexcept { _fn = nullptr; _user = nullptr; }
+    void Invalidate() noexcept { m_Fn = nullptr; m_User = nullptr; }
 
     // can_execute Observable のポインタ (BindCommand が監視するため)
-    Observable<bool>* CanExecuteSource() const noexcept { return _can_execute; }
+    Observable<bool>* CanExecuteSource() const noexcept { return m_CanExecute; }
 
 private:
-    ExecFn            _fn          = nullptr;
-    void*             _user        = nullptr;
-    Observable<bool>* _can_execute = nullptr;
+    ExecFn            m_Fn          = nullptr;
+    void*             m_User        = nullptr;
+    Observable<bool>* m_CanExecute = nullptr;
 };
 
 } // namespace acs

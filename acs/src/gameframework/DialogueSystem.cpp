@@ -8,9 +8,9 @@
 //   末尾行で AdvanceLine / auto-advance -> Completed
 //
 // タイプライタ:
-//   _char_accum += dt * cps を毎フレーム加算し、floor して _visible_chars 化。
-//   text 全長を超えたらクリップして _typing=false。
-//   cps <= 0 は EnterLine 段階で _visible_chars = 全長 / _typing=false にする
+//   m_CharAccum += dt * cps を毎フレーム加算し、floor して m_VisibleChars 化。
+//   text 全長を超えたらクリップして m_Typing=false。
+//   cps <= 0 は EnterLine 段階で m_VisibleChars = 全長 / m_Typing=false にする
 //   (= 瞬時表示)。
 #include "gameframework/DialogueSystem.h"
 
@@ -19,99 +19,99 @@
 namespace acs::game {
 
 void FDialogueSystem::AddLine(const DialogueLine& line) noexcept {
-    _lines.PushBack(line);
+    m_Lines.PushBack(line);
 }
 
 void FDialogueSystem::AddChoices(u32 at_line_index,
                                 const DialogueChoice* choices, u32 count) noexcept {
     if (choices == nullptr || count == 0u) return;
-    if (at_line_index >= static_cast<u32>(_lines.Size())) return;
+    if (at_line_index >= static_cast<u32>(m_Lines.Size())) return;
 
     // 同 line への重複登録は無視 (= 上書き禁止、最初の登録のみ有効)
-    for (usize i = 0; i < _choices_at.Size(); ++i) {
-        if (_choices_at[i].line_index == at_line_index) return;
+    for (usize i = 0; i < m_ChoicesAt.Size(); ++i) {
+        if (m_ChoicesAt[i].line_index == at_line_index) return;
     }
 
     ChoicesAt rec;
     rec.line_index   = at_line_index;
-    rec.choice_start = static_cast<u32>(_all_choices.Size());
+    rec.choice_start = static_cast<u32>(m_AllChoices.Size());
     rec.choice_count = count;
     for (u32 i = 0; i < count; ++i) {
-        _all_choices.PushBack(choices[i]);
+        m_AllChoices.PushBack(choices[i]);
     }
-    _choices_at.PushBack(rec);
+    m_ChoicesAt.PushBack(rec);
 }
 
 void FDialogueSystem::Start() noexcept {
-    if (_lines.Size() == 0) {
+    if (m_Lines.Size() == 0) {
         // 行が無い場合は何もしない (caller は IsActive()==false を見て検知)
-        _active    = false;
-        _completed = false;
+        m_Active    = false;
+        m_Completed = false;
         return;
     }
-    _active    = true;
-    _completed = false;
+    m_Active    = true;
+    m_Completed = false;
     EnterLine(0);
 }
 
 void FDialogueSystem::AdvanceLine() noexcept {
-    if (!_active) return;
-    if (_typing)  return;                 // タイプ未完では進めない
+    if (!m_Active) return;
+    if (m_Typing)  return;                 // タイプ未完では進めない
     if (HasChoicesPending()) return;      // 選択肢提示中は進めない (要 ChooseOption)
 
-    const u32 next = _current_line_index + 1u;
+    const u32 next = m_CurrentLineIndex + 1u;
     EnterLine(next);
 }
 
 void FDialogueSystem::SkipTypewriter() noexcept {
-    if (!_active) return;
-    if (!_typing) return;
-    _visible_chars = CurrentLineLength();
-    _char_accum    = static_cast<f32>(_visible_chars);
-    _typing        = false;
-    _post_type_elapsed = 0.0f;            // auto-advance タイマ起点をリセット
+    if (!m_Active) return;
+    if (!m_Typing) return;
+    m_VisibleChars = CurrentLineLength();
+    m_CharAccum    = static_cast<f32>(m_VisibleChars);
+    m_Typing        = false;
+    m_PostTypeElapsed = 0.0f;            // auto-advance タイマ起点をリセット
 }
 
 void FDialogueSystem::ChooseOption(u32 choice_index) noexcept {
-    if (!_active) return;
+    if (!m_Active) return;
     if (!HasChoicesPending()) return;
 
     const ChoicesAt* rec = FindChoicesForCurrent();
     if (rec == nullptr) return;            // HasChoicesPending と整合性で来ないはず
     if (choice_index >= rec->choice_count) return;
 
-    const DialogueChoice& c = _all_choices[rec->choice_start + choice_index];
-    _choices_consumed = true;              // 同 line で再提示しないように消費フラグ
+    const DialogueChoice& c = m_AllChoices[rec->choice_start + choice_index];
+    m_ChoicesConsumed = true;              // 同 line で再提示しないように消費フラグ
 
     // next_line_index が範囲外なら終了扱い
     EnterLine(c.next_line_index);
 }
 
 void FDialogueSystem::Reset() noexcept {
-    _lines.Clear();
-    _choices_at.Clear();
-    _all_choices.Clear();
-    _current_line_index = 0;
-    _visible_chars      = 0;
-    _char_accum         = 0.0f;
-    _post_type_elapsed  = 0.0f;
-    _active             = false;
-    _completed          = false;
-    _typing             = false;
-    _choices_consumed   = true;
+    m_Lines.Clear();
+    m_ChoicesAt.Clear();
+    m_AllChoices.Clear();
+    m_CurrentLineIndex = 0;
+    m_VisibleChars      = 0;
+    m_CharAccum         = 0.0f;
+    m_PostTypeElapsed  = 0.0f;
+    m_Active             = false;
+    m_Completed          = false;
+    m_Typing             = false;
+    m_ChoicesConsumed   = true;
 }
 
 bool FDialogueSystem::HasChoicesPending() const noexcept {
-    if (!_active)         return false;
-    if (_typing)          return false;    // タイプ完了するまで提示しない
-    if (_choices_consumed) return false;
+    if (!m_Active)         return false;
+    if (m_Typing)          return false;    // タイプ完了するまで提示しない
+    if (m_ChoicesConsumed) return false;
     return FindChoicesForCurrent() != nullptr;
 }
 
 const DialogueLine* FDialogueSystem::CurrentLine() const noexcept {
-    if (!_active) return nullptr;
-    if (_current_line_index >= static_cast<u32>(_lines.Size())) return nullptr;
-    return &_lines[_current_line_index];
+    if (!m_Active) return nullptr;
+    if (m_CurrentLineIndex >= static_cast<u32>(m_Lines.Size())) return nullptr;
+    return &m_Lines[m_CurrentLineIndex];
 }
 
 u32 FDialogueSystem::ChoiceCount() const noexcept {
@@ -124,34 +124,34 @@ const DialogueChoice* FDialogueSystem::Choices() const noexcept {
     if (!HasChoicesPending()) return nullptr;
     const ChoicesAt* rec = FindChoicesForCurrent();
     if (rec == nullptr) return nullptr;
-    if (_all_choices.Size() == 0) return nullptr;
-    return &_all_choices[rec->choice_start];
+    if (m_AllChoices.Size() == 0) return nullptr;
+    return &m_AllChoices[rec->choice_start];
 }
 
 void FDialogueSystem::Tick(f32 dt) noexcept {
-    if (!_active) return;
+    if (!m_Active) return;
     if (dt <= 0.0f) return;
 
     // ----- 1) タイプライタ進行 -----
-    if (_typing) {
+    if (m_Typing) {
         const DialogueLine* line = CurrentLine();
         if (line != nullptr && line->type_speed_cps > 0.0f) {
-            _char_accum += dt * line->type_speed_cps;
+            m_CharAccum += dt * line->type_speed_cps;
             const u32 total = CurrentLineLength();
             // floor して整数化
-            u32 next_visible = static_cast<u32>(_char_accum);
+            u32 next_visible = static_cast<u32>(m_CharAccum);
             if (next_visible > total) next_visible = total;
-            _visible_chars = next_visible;
+            m_VisibleChars = next_visible;
 
-            if (_visible_chars >= total) {
-                _typing            = false;
-                _post_type_elapsed = 0.0f;
+            if (m_VisibleChars >= total) {
+                m_Typing            = false;
+                m_PostTypeElapsed = 0.0f;
             }
         } else {
             // 不正状態 (Typing == true なのに cps<=0) は瞬時完了に倒す
-            _visible_chars     = CurrentLineLength();
-            _typing            = false;
-            _post_type_elapsed = 0.0f;
+            m_VisibleChars     = CurrentLineLength();
+            m_Typing            = false;
+            m_PostTypeElapsed = 0.0f;
         }
         return; // タイプ中は auto-advance を評価しない (1 フレーム 1 進行)
     }
@@ -159,25 +159,25 @@ void FDialogueSystem::Tick(f32 dt) noexcept {
     // ----- 2) auto-advance -----
     // 選択肢 pending 中は auto-advance しない
     if (HasChoicesPending()) return;
-    if (_auto_advance_delay <= 0.0f) return;
+    if (m_AutoAdvanceDelay <= 0.0f) return;
 
-    _post_type_elapsed += dt;
-    if (_post_type_elapsed >= _auto_advance_delay) {
-        const u32 next = _current_line_index + 1u;
+    m_PostTypeElapsed += dt;
+    if (m_PostTypeElapsed >= m_AutoAdvanceDelay) {
+        const u32 next = m_CurrentLineIndex + 1u;
         EnterLine(next);
     }
 }
 
 void FDialogueSystem::SetAutoAdvanceDelay(f32 delay_sec) noexcept {
-    _auto_advance_delay = delay_sec > 0.0f ? delay_sec : 0.0f;
+    m_AutoAdvanceDelay = delay_sec > 0.0f ? delay_sec : 0.0f;
 }
 
 // ===== private =====
 
 const FDialogueSystem::ChoicesAt* FDialogueSystem::FindChoicesForCurrent() const noexcept {
-    for (usize i = 0; i < _choices_at.Size(); ++i) {
-        if (_choices_at[i].line_index == _current_line_index) {
-            return &_choices_at[i];
+    for (usize i = 0; i < m_ChoicesAt.Size(); ++i) {
+        if (m_ChoicesAt[i].line_index == m_CurrentLineIndex) {
+            return &m_ChoicesAt[i];
         }
     }
     return nullptr;
@@ -191,32 +191,32 @@ u32 FDialogueSystem::CurrentLineLength() const noexcept {
 
 void FDialogueSystem::EnterLine(u32 new_index) noexcept {
     // 範囲外 (= 末尾の先 or ChooseOption が UINT32_MAX を返した) なら終了
-    if (new_index >= static_cast<u32>(_lines.Size())) {
-        _active             = false;
-        _completed          = true;
-        _typing             = false;
-        _visible_chars      = 0;
-        _char_accum         = 0.0f;
-        _post_type_elapsed  = 0.0f;
-        _choices_consumed   = true;
+    if (new_index >= static_cast<u32>(m_Lines.Size())) {
+        m_Active             = false;
+        m_Completed          = true;
+        m_Typing             = false;
+        m_VisibleChars      = 0;
+        m_CharAccum         = 0.0f;
+        m_PostTypeElapsed  = 0.0f;
+        m_ChoicesConsumed   = true;
         return;
     }
 
-    _current_line_index = new_index;
-    _visible_chars      = 0;
-    _char_accum         = 0.0f;
-    _post_type_elapsed  = 0.0f;
-    _choices_consumed   = false;          // この line に紐づく choices は未消費
+    m_CurrentLineIndex = new_index;
+    m_VisibleChars      = 0;
+    m_CharAccum         = 0.0f;
+    m_PostTypeElapsed  = 0.0f;
+    m_ChoicesConsumed   = false;          // この line に紐づく choices は未消費
 
     // cps <= 0 は瞬時表示
-    const DialogueLine& line = _lines[new_index];
+    const DialogueLine& line = m_Lines[new_index];
     if (line.type_speed_cps > 0.0f && line.text != nullptr && line.text[0] != '\0') {
-        _typing        = true;
-        _visible_chars = 0;
+        m_Typing        = true;
+        m_VisibleChars = 0;
     } else {
-        _typing        = false;
-        _visible_chars = CurrentLineLength();
-        _char_accum    = static_cast<f32>(_visible_chars);
+        m_Typing        = false;
+        m_VisibleChars = CurrentLineLength();
+        m_CharAccum    = static_cast<f32>(m_VisibleChars);
     }
 }
 

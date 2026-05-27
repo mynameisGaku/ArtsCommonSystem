@@ -33,13 +33,13 @@ public:
                   usize alignment, FSourceLoc loc)             noexcept override;
 
     // 統計取得（アトミックで集計）
-    u64 BytesAllocated() const noexcept override { return _bytes.Load(EMemoryOrder::Acquire); }
-    u64 PeakBytes()      const noexcept override { return _peak.Load(EMemoryOrder::Acquire); }
+    u64 BytesAllocated() const noexcept override { return m_Bytes.Load(EMemoryOrder::Acquire); }
+    u64 PeakBytes()      const noexcept override { return m_Peak.Load(EMemoryOrder::Acquire); }
     const char* Name()   const noexcept override { return "System"; }
 
 private:
-    mutable TAtomic<u64> _bytes {0};   // 現在の総割当量
-    mutable TAtomic<u64> _peak  {0};   // 過去ピーク
+    mutable TAtomic<u64> m_Bytes {0};   // 現在の総割当量
+    mutable TAtomic<u64> m_Peak  {0};   // 過去ピーク
 };
 
 } // namespace acs

@@ -52,37 +52,37 @@ inline u32 PartitionH(const BspNode& n) noexcept { return n.y1 - n.y0 + 1u; }
 // ---------------------------------------------------------------------------
 
 void FDungeonGenerator::Clear() noexcept {
-    _grid.Clear();
-    _rooms.Clear();
-    _width  = 0;
-    _height = 0;
-    _seed   = 0;
+    m_Grid.Clear();
+    m_Rooms.Clear();
+    m_Width  = 0;
+    m_Height = 0;
+    m_Seed   = 0;
 }
 
 ETileKind FDungeonGenerator::At(u32 x, u32 y) const noexcept {
-    if (x >= _width || y >= _height) return ETileKind::Wall;
-    return _grid[static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x)];
+    if (x >= m_Width || y >= m_Height) return ETileKind::Wall;
+    return m_Grid[static_cast<usize>(y) * static_cast<usize>(m_Width) + static_cast<usize>(x)];
 }
 
 void FDungeonGenerator::SetTile(u32 x, u32 y, ETileKind kind) noexcept {
-    if (x >= _width || y >= _height) return;
-    _grid[static_cast<usize>(y) * static_cast<usize>(_width) + static_cast<usize>(x)] = kind;
+    if (x >= m_Width || y >= m_Height) return;
+    m_Grid[static_cast<usize>(y) * static_cast<usize>(m_Width) + static_cast<usize>(x)] = kind;
 }
 
 const Room* FDungeonGenerator::GetRoom(u32 index) const noexcept {
-    if (index >= _rooms.Size()) return nullptr;
-    return &_rooms[index];
+    if (index >= m_Rooms.Size()) return nullptr;
+    return &m_Rooms[index];
 }
 
 const Room* FDungeonGenerator::AllRooms(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(_rooms.Size());
+    out_count = static_cast<u32>(m_Rooms.Size());
     if (out_count == 0u) return nullptr;
-    return _rooms.Data();
+    return m_Rooms.Data();
 }
 
 void FDungeonGenerator::GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) const noexcept {
-    if (room_index >= _rooms.Size()) { out_x = 0; out_y = 0; return; }
-    const Room& r = _rooms[room_index];
+    if (room_index >= m_Rooms.Size()) { out_x = 0; out_y = 0; return; }
+    const Room& r = m_Rooms[room_index];
     out_x = r.x + r.w / 2u;
     out_y = r.y + r.h / 2u;
 }
@@ -95,13 +95,13 @@ bool FDungeonGenerator::IsWalkable(u32 x, u32 y) const noexcept {
 
 u32 FDungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
     out_x = 0; out_y = 0;
-    if (_width == 0u || _height == 0u) return 0u;
+    if (m_Width == 0u || m_Height == 0u) return 0u;
     // 仕様: 試行回数 100。const メソッドなので一時 FRandom をローカルに作る
     // (seed は最後の Generate と FindRandomFloor 呼び出し回数で軽く撹拌)。
-    FRandom r(static_cast<u64>(_seed) ^ 0xA5A5A5A5A5A5A5A5ULL);
+    FRandom r(static_cast<u64>(m_Seed) ^ 0xA5A5A5A5A5A5A5A5ULL);
     for (u32 attempt = 1; attempt <= 100u; ++attempt) {
-        const u32 x = r.NextU32() % _width;
-        const u32 y = r.NextU32() % _height;
+        const u32 x = r.NextU32() % m_Width;
+        const u32 y = r.NextU32() % m_Height;
         if (At(x, y) == ETileKind::Floor) {
             out_x = x; out_y = y;
             return attempt;
@@ -136,14 +136,14 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     if (max_depth > 16u) max_depth = 16u;          // 2^16 leaves は明らかにやりすぎ
 
     // ---- 2. グリッド確保 + Wall で塗る -----------------------------------------
-    _width  = width;
-    _height = height;
-    _grid.Clear();
+    m_Width  = width;
+    m_Height = height;
+    m_Grid.Clear();
     const usize cells = static_cast<usize>(width) * static_cast<usize>(height);
-    _grid.Resize(cells);
-    for (usize i = 0; i < cells; ++i) _grid[i] = ETileKind::Wall;
-    _rooms.Clear();
-    _seed = config.seed;
+    m_Grid.Resize(cells);
+    for (usize i = 0; i < cells; ++i) m_Grid[i] = ETileKind::Wall;
+    m_Rooms.Clear();
+    m_Seed = config.seed;
 
     FRandom rng(static_cast<u64>(config.seed));
 
@@ -280,15 +280,15 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
         room.y  = ry;
         room.w  = rw;
         room.h  = rh;
-        room.id = static_cast<u32>(_rooms.Size());
+        room.id = static_cast<u32>(m_Rooms.Size());
         for (u32 yy = ry; yy < ry + rh; ++yy) {
-            const usize row = static_cast<usize>(yy) * static_cast<usize>(_width);
+            const usize row = static_cast<usize>(yy) * static_cast<usize>(m_Width);
             for (u32 xx = rx; xx < rx + rw; ++xx) {
-                _grid[row + static_cast<usize>(xx)] = ETileKind::Floor;
+                m_Grid[row + static_cast<usize>(xx)] = ETileKind::Floor;
             }
         }
         n.rep_room = room.id;
-        _rooms.PushBack(room);
+        m_Rooms.PushBack(room);
     }
 
     // ---- 5. 兄弟 leaf 間に廊下 -------------------------------------------------
@@ -313,8 +313,8 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
             }
 
             // 各代表の中心を結ぶ L 字廊下を描く。
-            const Room& ra = _rooms[L.rep_room];
-            const Room& rb = _rooms[R.rep_room];
+            const Room& ra = m_Rooms[L.rep_room];
+            const Room& rb = m_Rooms[R.rep_room];
             const u32 ax = ra.x + ra.w / 2u;
             const u32 ay = ra.y + ra.h / 2u;
             const u32 bx = rb.x + rb.w / 2u;
@@ -341,17 +341,17 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
             // 廊下を Corridor で塗る。既に Floor (部屋内) のセルは上書きしない
             // (部屋の床を Corridor に変えてしまうと描画 / IsWalkable は同じだが
             //  Room 範囲との整合性で見栄えが悪い)。
-            for (u32 x = hx0; x <= hx1 && x < _width; ++x) {
-                if (horiz_y >= _height) break;
-                const usize idx2 = static_cast<usize>(horiz_y) * static_cast<usize>(_width)
+            for (u32 x = hx0; x <= hx1 && x < m_Width; ++x) {
+                if (horiz_y >= m_Height) break;
+                const usize idx2 = static_cast<usize>(horiz_y) * static_cast<usize>(m_Width)
                                   + static_cast<usize>(x);
-                if (_grid[idx2] == ETileKind::Wall) _grid[idx2] = ETileKind::Corridor;
+                if (m_Grid[idx2] == ETileKind::Wall) m_Grid[idx2] = ETileKind::Corridor;
             }
-            for (u32 y = vy0; y <= vy1 && y < _height; ++y) {
-                if (vert_x >= _width) break;
-                const usize idx2 = static_cast<usize>(y) * static_cast<usize>(_width)
+            for (u32 y = vy0; y <= vy1 && y < m_Height; ++y) {
+                if (vert_x >= m_Width) break;
+                const usize idx2 = static_cast<usize>(y) * static_cast<usize>(m_Width)
                                   + static_cast<usize>(vert_x);
-                if (_grid[idx2] == ETileKind::Wall) _grid[idx2] = ETileKind::Corridor;
+                if (m_Grid[idx2] == ETileKind::Wall) m_Grid[idx2] = ETileKind::Corridor;
             }
 
             // 親の代表はランダムに左右どちらかから引き継ぐ
@@ -363,13 +363,13 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     // 仕様: ランダムな部屋に階段。最後の部屋固定だとプレイヤーが学習してしまうので
     //       random pick が望ましい。部屋が無い (極小 grid で leaf に room が
     //       入らなかった) ケースは no-op。
-    if (_rooms.Size() > 0u) {
-        const u32 pick = rng.NextU32() % static_cast<u32>(_rooms.Size());
-        const Room& r = _rooms[pick];
+    if (m_Rooms.Size() > 0u) {
+        const u32 pick = rng.NextU32() % static_cast<u32>(m_Rooms.Size());
+        const Room& r = m_Rooms[pick];
         const u32 sx = r.x + r.w / 2u;
         const u32 sy = r.y + r.h / 2u;
-        if (sx < _width && sy < _height) {
-            _grid[static_cast<usize>(sy) * static_cast<usize>(_width)
+        if (sx < m_Width && sy < m_Height) {
+            m_Grid[static_cast<usize>(sy) * static_cast<usize>(m_Width)
                 + static_cast<usize>(sx)] = ETileKind::Stairs;
         }
     }

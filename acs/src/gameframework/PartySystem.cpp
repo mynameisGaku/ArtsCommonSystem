@@ -47,7 +47,7 @@ void FPartySystem::EmplaceSelfAsLeader() noexcept {
     self.display_name = "You";
     self.is_leader    = true;
     self.is_ready     = false;
-    _members.PushBack(self);
+    m_Members.PushBack(self);
 }
 
 TResult<void> FPartySystem::CreateParty(const char* party_name) noexcept {
@@ -60,9 +60,9 @@ TResult<void> FPartySystem::CreateParty(const char* party_name) noexcept {
         // 空名は将来 SDK によっては許可するが、bridge 統一のため最低限名前必須。
         return ACS_ERR(Generic, 2, "FPartySystem::CreateParty: party_name is null");
     }
-    _party_name    = party_name;
-    _party_id      = nullptr;  // 自分作成時は SDK が後で割り当てる想定
-    _pending_timer = 0.0f;
+    m_PartyName    = party_name;
+    m_PartyId      = nullptr;  // 自分作成時は SDK が後で割り当てる想定
+    m_PendingTimer = 0.0f;
     _state         = EPartyState::Joining;
     // TODO(Phase T-2): FSteamworksBridge.CreateLobby(party_name) を発行し、
     //   Tick() 中に PollResult を見て InParty 遷移する。失敗時は Solo に戻す。
@@ -76,9 +76,9 @@ TResult<void> FPartySystem::JoinParty(const char* party_id) noexcept {
     if (party_id == nullptr) {
         return ACS_ERR(Generic, 4, "FPartySystem::JoinParty: party_id is null");
     }
-    _party_name    = nullptr;
-    _party_id      = party_id;
-    _pending_timer = 0.0f;
+    m_PartyName    = nullptr;
+    m_PartyId      = party_id;
+    m_PendingTimer = 0.0f;
     _state         = EPartyState::Joining;
     // TODO(Phase T-2): FSteamworksBridge.JoinLobby(party_id) を発行。
     return Ok();
@@ -90,9 +90,9 @@ TResult<void> FPartySystem::LeaveParty() noexcept {
         // (上位レイヤで状態整合を取れていない時に気付けるように)。
         return ACS_ERR(Generic, 5, "FPartySystem::LeaveParty: not in InParty state");
     }
-    _pending_timer = 0.0f;
+    m_PendingTimer = 0.0f;
     _state         = EPartyState::Leaving;
-    // TODO(Phase T-2): FSteamworksBridge.LeaveLobby(_party_id) を発行。
+    // TODO(Phase T-2): FSteamworksBridge.LeaveLobby(m_PartyId) を発行。
     return Ok();
 }
 
@@ -108,42 +108,42 @@ TResult<void> FPartySystem::InviteFriend(const char* friend_id) noexcept {
     // 厳格にローカル list と突き合わせると有効な招待を弾く可能性があるため。
     // 一方で moderation / blocking 判定はここでは行わない (将来の別モジュール)。
     (void)friend_id;
-    // TODO(Phase T-2): FSteamworksBridge.InviteFriendToLobby(_party_id, friend_id)。
+    // TODO(Phase T-2): FSteamworksBridge.InviteFriendToLobby(m_PartyId, friend_id)。
     //   結果通知 (送信失敗 / 受信側拒否 / 受信側 accept) は bridge イベントで
     //   非同期に流れてくる想定。本 API は「送信できたか」だけを返す。
     return Ok();
 }
 
 u32 FPartySystem::MemberCount() const noexcept {
-    return static_cast<u32>(_members.Size());
+    return static_cast<u32>(m_Members.Size());
 }
 
 const PartyMember* FPartySystem::Members() const noexcept {
-    return _members.Data();
+    return m_Members.Data();
 }
 
 void FPartySystem::Tick(f32 dt) noexcept {
     // Solo / InParty では時間進行は不要 (将来 idle 検出を入れる場合はここを拡張)。
     if (_state == EPartyState::Joining) {
-        _pending_timer += dt;
-        if (_pending_timer >= kPendingDurationSec) {
+        m_PendingTimer += dt;
+        if (m_PendingTimer >= kPendingDurationSec) {
             // 仮想 SDK 完了: メンバリストに自分をリーダーとして登録、InParty へ。
             // 既存メンバが残っている可能性は通常無いが、防御的に Clear してから登録。
-            _members.Clear();
+            m_Members.Clear();
             EmplaceSelfAsLeader();
-            _pending_timer = 0.0f;
+            m_PendingTimer = 0.0f;
             _state         = EPartyState::InParty;
         }
         return;
     }
     if (_state == EPartyState::Leaving) {
-        _pending_timer += dt;
-        if (_pending_timer >= kPendingDurationSec) {
+        m_PendingTimer += dt;
+        if (m_PendingTimer >= kPendingDurationSec) {
             // 仮想 SDK 完了: メンバリストをクリアして Solo に戻す。
-            _members.Clear();
-            _party_name    = nullptr;
-            _party_id      = nullptr;
-            _pending_timer = 0.0f;
+            m_Members.Clear();
+            m_PartyName    = nullptr;
+            m_PartyId      = nullptr;
+            m_PendingTimer = 0.0f;
             _state         = EPartyState::Solo;
         }
         return;
@@ -157,17 +157,17 @@ void FPartySystem::AddFriend(const Friend& f) noexcept {
     }
     // 重複 platform_id は上書きせず単純追加 (Pillar S 側で dedup する想定)。
     // 必要なら同 ID 検出ループを将来追加するが、線形走査コストを増やすので保留。
-    _friends.PushBack(f);
+    m_Friends.PushBack(f);
 }
 
 u32 FPartySystem::FriendCount() const noexcept {
     // Pillar O FEntitlement と同じく u32 範囲で十分 (現実的に friend list は
     // SDK 制限内: 大規模 SNS の Steam で 2000、PSN で 2000、Xbox で 1000 等)。
-    return static_cast<u32>(_friends.Size());
+    return static_cast<u32>(m_Friends.Size());
 }
 
 const Friend* FPartySystem::Friends() const noexcept {
-    return _friends.Data();
+    return m_Friends.Data();
 }
 
 // 未使用ヘルパだが、将来 InviteFriend で「ローカル list 内のフレンドのみ許可」

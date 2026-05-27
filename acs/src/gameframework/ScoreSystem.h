@@ -136,17 +136,17 @@ public:
     void AddScore(const char* category, u64 base_value) noexcept;
 
     // ---- スコア照会 -------------------------------------------------------
-    u64 CurrentScore() const noexcept { return _current_score; }
-    u64 HighScore()    const noexcept { return _high_score; }
+    u64 CurrentScore() const noexcept { return m_CurrentScore; }
+    u64 HighScore()    const noexcept { return m_HighScore; }
 
     // 外部から HighScore を注入 (Save/Load から復元)。score が現在の
     // HighScore より低い値であっても上書きする (= 強制セット)。永続化との
     // 連携を意識した最低限の API。
-    void SetHighScore(u64 score) noexcept { _high_score = score; }
+    void SetHighScore(u64 score) noexcept { m_HighScore = score; }
 
     // ---- コンボ -----------------------------------------------------------
-    u32 ComboCount()          const noexcept { return _combo_count; }
-    f32 ComboTimeRemaining()  const noexcept { return _combo_timer; }
+    u32 ComboCount()          const noexcept { return m_ComboCount; }
+    f32 ComboTimeRemaining()  const noexcept { return m_ComboTimer; }
 
     // ヒット成功 (敵撃破 / コンボ継続)。combo_count++、combo_timer をリセット
     // (= combo_duration に再設定)。max 件数の上限はかけない (u32 max まで)。
@@ -210,32 +210,32 @@ private:
     static f32 DefaultMultiplierFn(u32 combo) noexcept;
 
     // 加算後の milestone 走査。CurrentScore() が新しい値に更新された直後に
-    // 呼ばれる。_milestones / _milestone_hit を 1:1 並行 TArray で管理する。
+    // 呼ばれる。m_Milestones / m_MilestoneHit を 1:1 並行 TArray で管理する。
     void CheckMilestones() noexcept;
 
     // ScoreEntry を log に push (capped append)。
     void PushEntry(const ScoreEntry& e) noexcept;
 
     // 状態
-    u64 _current_score = 0;
-    u64 _high_score    = 0;
-    u32 _combo_count   = 0;
-    f32 _combo_timer   = 0.0f;
-    f32 _combo_duration = 3.0f;
+    u64 m_CurrentScore = 0;
+    u64 m_HighScore    = 0;
+    u32 m_ComboCount   = 0;
+    f32 m_ComboTimer   = 0.0f;
+    f32 m_ComboDuration = 3.0f;
 
     // entry log。最大 kMaxEntries 件で capped append。
-    TArray<ScoreEntry> _entries;
+    TArray<ScoreEntry> m_Entries;
 
     // milestone 定義と通過済フラグ。1:1 並行 TArray (= 同 index で対応)。
-    TArray<u64>  _milestones;
-    TArray<bool> _milestone_hit;
+    TArray<u64>  m_Milestones;
+    TArray<bool> m_MilestoneHit;
 
     // 差し替え可能な倍率関数 (nullptr = 内部デフォルト)。
-    MultiplierFn _multiplier_fn = nullptr;
+    MultiplierFn m_MultiplierFn = nullptr;
 
     // milestone callback (C 関数ポインタ + user)。Manager は user を所有しない。
-    MilestoneCallback _on_milestone      = nullptr;
-    void*             _on_milestone_user = nullptr;
+    MilestoneCallback m_OnMilestone      = nullptr;
+    void*             m_OnMilestoneUser = nullptr;
 };
 
 } // namespace acs::game

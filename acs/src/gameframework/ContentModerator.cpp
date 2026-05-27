@@ -174,8 +174,8 @@ void ContentModeratorStub::Tick(f32 dt) noexcept {
 // C++11 以降、関数スコープ static の初期化は thread-safe。追加同期は不要。
 // =============================================================================
 IContentModerator& GetModeratorStub() noexcept {
-    static ContentModeratorStub _instance;
-    return _instance;
+    static ContentModeratorStub m_Instance;
+    return m_Instance;
 }
 
 } // namespace acs::game

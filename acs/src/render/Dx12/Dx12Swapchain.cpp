@@ -9,26 +9,26 @@ namespace acs {
 
 Dx12Swapchain::~Dx12Swapchain() noexcept {
     ReleaseBuffers();
-    ACS_SAFE_RELEASE(_rtv_heap);
-    ACS_SAFE_RELEASE(_swapchain);
+    ACS_SAFE_RELEASE(m_RtvHeap);
+    ACS_SAFE_RELEASE(m_Swapchain);
 }
 
 HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noexcept {
     HrResult r{};
-    _device = &device;
-    _buffer_count = (cfg.buffer_count >= 2 && cfg.buffer_count <= kMaxBuffers) ? cfg.buffer_count : 2;
-    _vsync = cfg.vsync;
-    _width  = cfg.window ? cfg.window->Width()  : 0;
-    _height = cfg.window ? cfg.window->Height() : 0;
+    m_Device = &device;
+    m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= kMaxBuffers) ? cfg.buffer_count : 2;
+    m_Vsync = cfg.vsync;
+    m_Width  = cfg.window ? cfg.window->Width()  : 0;
+    m_Height = cfg.window ? cfg.window->Height() : 0;
 
     // スワップチェイン記述
     DXGI_SWAP_CHAIN_DESC1 sd{};
-    sd.Width  = _width;
-    sd.Height = _height;
+    sd.Width  = m_Width;
+    sd.Height = m_Height;
     sd.Format = ToDxgiFormat(cfg.format);
     sd.SampleDesc.Count = 1;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.BufferCount = _buffer_count;
+    sd.BufferCount = m_BufferCount;
     sd.Scaling = DXGI_SCALING_NONE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     sd.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
@@ -43,7 +43,7 @@ HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noe
     if (r.IsErr()) return r;
 
     // SwapChain1 → SwapChain3 へキャスト（GetCurrentBackBufferIndex を使うため）
-    r.hr = sc1->QueryInterface(IID_PPV_ARGS(&_swapchain));
+    r.hr = sc1->QueryInterface(IID_PPV_ARGS(&m_Swapchain));
     sc1->Release();
     if (r.IsErr()) return r;
 
@@ -53,65 +53,65 @@ HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noe
     // RTV 用デスクリプタヒープ作成
     D3D12_DESCRIPTOR_HEAP_DESC hd{};
     hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    hd.NumDescriptors = _buffer_count;
+    hd.NumDescriptors = m_BufferCount;
     hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    r.hr = device.D3DDevice()->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&_rtv_heap));
+    r.hr = device.D3DDevice()->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&m_RtvHeap));
     if (r.IsErr()) return r;
-    _rtv_size = device.D3DDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    m_RtvSize = device.D3DDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
     return AcquireBuffers(device);
 }
 
 void Dx12Swapchain::ReleaseBuffers() noexcept {
-    for (u32 i = 0; i < _buffer_count; ++i) ACS_SAFE_RELEASE(_back_buffers[i]);
+    for (u32 i = 0; i < m_BufferCount; ++i) ACS_SAFE_RELEASE(m_BackBuffers[i]);
 }
 
 // 各バックバッファ用に ID3D12Resource を取得し、RTV を作成する
 HrResult Dx12Swapchain::AcquireBuffers(Dx12Device& device) noexcept {
     HrResult r{};
-    D3D12_CPU_DESCRIPTOR_HANDLE rtv = _rtv_heap->GetCPUDescriptorHandleForHeapStart();
-    for (u32 i = 0; i < _buffer_count; ++i) {
-        r.hr = _swapchain->GetBuffer(i, IID_PPV_ARGS(&_back_buffers[i]));
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_RtvHeap->GetCPUDescriptorHandleForHeapStart();
+    for (u32 i = 0; i < m_BufferCount; ++i) {
+        r.hr = m_Swapchain->GetBuffer(i, IID_PPV_ARGS(&m_BackBuffers[i]));
         if (r.IsErr()) return r;
-        device.D3DDevice()->CreateRenderTargetView(_back_buffers[i], nullptr, rtv);
-        rtv.ptr += _rtv_size;
+        device.D3DDevice()->CreateRenderTargetView(m_BackBuffers[i], nullptr, rtv);
+        rtv.ptr += m_RtvSize;
     }
     return r;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Swapchain::BackBufferRTV(u32 i) const noexcept {
-    D3D12_CPU_DESCRIPTOR_HANDLE rtv = _rtv_heap->GetCPUDescriptorHandleForHeapStart();
-    rtv.ptr += static_cast<SIZE_T>(_rtv_size) * i;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_RtvHeap->GetCPUDescriptorHandleForHeapStart();
+    rtv.ptr += static_cast<SIZE_T>(m_RtvSize) * i;
     return rtv;
 }
 
 u32 Dx12Swapchain::AcquireNextImage() noexcept {
-    return _swapchain->GetCurrentBackBufferIndex();
+    return m_Swapchain->GetCurrentBackBufferIndex();
 }
 
 void Dx12Swapchain::Present() noexcept {
-    UINT sync_interval = _vsync ? 1 : 0;
-    UINT flags = _vsync ? 0 : DXGI_PRESENT_ALLOW_TEARING;
-    _swapchain->Present(sync_interval, flags);
+    UINT sync_interval = m_Vsync ? 1 : 0;
+    UINT flags = m_Vsync ? 0 : DXGI_PRESENT_ALLOW_TEARING;
+    m_Swapchain->Present(sync_interval, flags);
 }
 
 void Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
     if (width == 0 || height == 0) return;
-    if (width == _width && height == _height) return;
-    if (!_device || !_swapchain) return;
+    if (width == m_Width && height == m_Height) return;
+    if (!m_Device || !m_Swapchain) return;
 
     // 進行中の GPU 作業が終わるまで待ってから解放しないと「使用中」エラーになる
-    _device->WaitIdle();
+    m_Device->WaitIdle();
     ReleaseBuffers();
 
-    HRESULT hr = _swapchain->ResizeBuffers(_buffer_count, width, height,
+    HRESULT hr = m_Swapchain->ResizeBuffers(m_BufferCount, width, height,
                                             DXGI_FORMAT_UNKNOWN,
                                             DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
     if (FAILED(hr)) return;
 
-    _width = width;
-    _height = height;
-    AcquireBuffers(*_device);
+    m_Width = width;
+    m_Height = height;
+    AcquireBuffers(*m_Device);
 }
 
 // ファクトリ関数: CreateRhiSwapchain の DX12 実装

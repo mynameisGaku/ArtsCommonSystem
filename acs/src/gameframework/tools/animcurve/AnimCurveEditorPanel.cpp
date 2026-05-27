@@ -154,55 +154,55 @@ static i32 ReplaceKeyAtNewTime(FAnimationCurve& curve, u32 old_idx,
 // Init / Shutdown / SetCurve / IsDirty / ClearDirty / SetOnChangeCallback
 // =============================================================================
 void FAnimCurveEditorPanel::Init() noexcept {
-    _curve            = nullptr;
-    _selected_key_idx = kNoKeySelected;
-    _dirty            = false;
-    _drag_kind        = 0u;
-    _drag_key_idx     = -1;
-    _on_change_cb     = nullptr;
-    _on_change_user   = nullptr;
+    m_Curve            = nullptr;
+    m_SelectedKeyIdx = kNoKeySelected;
+    m_Dirty            = false;
+    m_DragKind        = 0u;
+    m_DragKeyIdx     = -1;
+    m_OnChangeCb     = nullptr;
+    m_OnChangeUser   = nullptr;
 }
 
 void FAnimCurveEditorPanel::Shutdown() noexcept {
-    _curve            = nullptr;
-    _selected_key_idx = kNoKeySelected;
-    _dirty            = false;
-    _drag_kind        = 0u;
-    _drag_key_idx     = -1;
-    _on_change_cb     = nullptr;
-    _on_change_user   = nullptr;
+    m_Curve            = nullptr;
+    m_SelectedKeyIdx = kNoKeySelected;
+    m_Dirty            = false;
+    m_DragKind        = 0u;
+    m_DragKeyIdx     = -1;
+    m_OnChangeCb     = nullptr;
+    m_OnChangeUser   = nullptr;
 }
 
 void FAnimCurveEditorPanel::SetCurve(FAnimationCurve* curve) noexcept {
-    _curve            = curve;
-    _selected_key_idx = kNoKeySelected;
-    _dirty            = false;
-    _drag_kind        = 0u;
-    _drag_key_idx     = -1;
+    m_Curve            = curve;
+    m_SelectedKeyIdx = kNoKeySelected;
+    m_Dirty            = false;
+    m_DragKind        = 0u;
+    m_DragKeyIdx     = -1;
 }
 
 FAnimationCurve* FAnimCurveEditorPanel::CurrentCurve() const noexcept {
-    return _curve;
+    return m_Curve;
 }
 
 bool FAnimCurveEditorPanel::IsDirty() const noexcept {
-    return _dirty;
+    return m_Dirty;
 }
 
 void FAnimCurveEditorPanel::ClearDirty() noexcept {
-    _dirty = false;
+    m_Dirty = false;
 }
 
 void FAnimCurveEditorPanel::SetOnChangeCallback(CurveChangeCallback cb,
                                                void* user) noexcept {
-    _on_change_cb   = cb;
-    _on_change_user = user;
+    m_OnChangeCb   = cb;
+    m_OnChangeUser = user;
 }
 
 void FAnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
-    _dirty = true;
-    if (immediate && _on_change_cb != nullptr) {
-        _on_change_cb(_on_change_user, _curve);
+    m_Dirty = true;
+    if (immediate && m_OnChangeCb != nullptr) {
+        m_OnChangeCb(m_OnChangeUser, m_Curve);
     }
 }
 
@@ -212,19 +212,19 @@ void FAnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
 void FAnimCurveEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
-    if (!ImGui::Begin(Title(), &_visible)) {
+    if (!ImGui::Begin(Title(), &m_Visible)) {
         ImGui::End();
         return;
     }
 
-    if (_curve == nullptr) {
+    if (m_Curve == nullptr) {
         ImGui::TextDisabled("(No curve bound)");
         ImGui::TextDisabled("Call SetCurve(&curve) on this panel to start editing.");
         ImGui::End();
         return;
     }
 
-    FAnimationCurve& curve = *_curve;
+    FAnimationCurve& curve = *m_Curve;
 
     // ------------------------------------------------------------------------
     // Toolbar 1: Interpolation Combo (= 選択中 key の out_interp を切替)
@@ -234,11 +234,11 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         ImGui::TextUnformatted("Interp:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(110.0f);
-        const bool has_sel = (_selected_key_idx >= 0)
-                          && (static_cast<u32>(_selected_key_idx) < curve.KeyCount());
+        const bool has_sel = (m_SelectedKeyIdx >= 0)
+                          && (static_cast<u32>(m_SelectedKeyIdx) < curve.KeyCount());
         ECurveInterpolation cur = ECurveInterpolation::Linear;
         if (has_sel) {
-            const CurveKey* k = curve.EKey(static_cast<u32>(_selected_key_idx));
+            const CurveKey* k = curve.EKey(static_cast<u32>(m_SelectedKeyIdx));
             if (k != nullptr) cur = k->out_interp;
         }
         ImGui::BeginDisabled(!has_sel);
@@ -252,7 +252,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
                 const bool selected = (cur == kAll[i]);
                 if (ImGui::Selectable(InterpName(kAll[i]), selected)) {
                     if (has_sel) {
-                        const u32 idx = static_cast<u32>(_selected_key_idx);
+                        const u32 idx = static_cast<u32>(m_SelectedKeyIdx);
                         const CurveKey* k = curve.EKey(idx);
                         if (k != nullptr) {
                             // AddKey は同 time 上書きで value と out_interp を更新する。
@@ -345,7 +345,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         for (u32 i = 0; i < newn; ++i) {
             const CurveKey* k = curve.EKey(i);
             if (k != nullptr && k->time == new_t) {
-                _selected_key_idx = static_cast<i32>(i);
+                m_SelectedKeyIdx = static_cast<i32>(i);
                 break;
             }
         }
@@ -354,7 +354,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
         curve.ClearKeys();
-        _selected_key_idx = kNoKeySelected;
+        m_SelectedKeyIdx = kNoKeySelected;
         NotifyChanged(true);
     }
 
@@ -462,8 +462,8 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
     const u32 nk = curve.KeyCount();
 
     // mouse down 時にどの要素にヒットしているかを評価。
-    // _drag_kind が 0 (= 未 drag) のときだけ判定する (drag 中は既存 _drag_kind を維持)。
-    if (canvas_hovered && _drag_kind == 0u
+    // m_DragKind が 0 (= 未 drag) のときだけ判定する (drag 中は既存 m_DragKind を維持)。
+    if (canvas_hovered && m_DragKind == 0u
         && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         i32 best_idx = -1;
         u8  best_kind = 0u;
@@ -516,19 +516,19 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
             }
         }
         if (best_idx >= 0) {
-            _selected_key_idx = best_idx;
-            _drag_kind        = best_kind;
-            _drag_key_idx     = best_idx;
+            m_SelectedKeyIdx = best_idx;
+            m_DragKind        = best_kind;
+            m_DragKeyIdx     = best_idx;
         }
     }
 
     // drag 継続中の処理 (drag_kind != 0 のとき)。
-    if (_drag_kind != 0u && _drag_key_idx >= 0
-        && static_cast<u32>(_drag_key_idx) < curve.KeyCount()) {
-        const u32 didx = static_cast<u32>(_drag_key_idx);
+    if (m_DragKind != 0u && m_DragKeyIdx >= 0
+        && static_cast<u32>(m_DragKeyIdx) < curve.KeyCount()) {
+        const u32 didx = static_cast<u32>(m_DragKeyIdx);
         const CurveKey* k_const = curve.EKey(didx);
         if (k_const != nullptr) {
-            if (_drag_kind == 1u) {
+            if (m_DragKind == 1u) {
                 // key 本体: マウス位置を curve 空間に逆変換して time/value 上書き。
                 f32 new_t = 0.0f, new_v = 0.0f;
                 CanvasToCurve(mouse, bounds, canvas_origin, canvas_size, new_t, new_v);
@@ -552,10 +552,10 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
                 const i32 new_idx = ReplaceKeyAtNewTime(
                     curve, didx, new_t, new_v, in_t, out_t, interp);
                 if (new_idx >= 0) {
-                    _selected_key_idx = new_idx;
-                    _drag_key_idx     = new_idx;
+                    m_SelectedKeyIdx = new_idx;
+                    m_DragKeyIdx     = new_idx;
                 }
-            } else if (_drag_kind == 2u) {
+            } else if (m_DragKind == 2u) {
                 // in tangent: handle 位置からマウス y オフセットを 1/10 倍して
                 // tangent 値に。X 軸 (= 時間方向) は固定 handle なので無視。
                 const ImVec2 kp = CurveToCanvas(k_const->time, k_const->value,
@@ -566,7 +566,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
                 // 値は維持、out_tangent も維持、interp は Hermite に。
                 curve.AddKeyHermite(k_const->time, k_const->value,
                                     new_in_tan, k_const->out_tangent);
-            } else if (_drag_kind == 3u) {
+            } else if (m_DragKind == 3u) {
                 // out tangent: in と同様、ただし上向き = 正に。
                 const ImVec2 kp = CurveToCanvas(k_const->time, k_const->value,
                                                 bounds, canvas_origin, canvas_size);
@@ -577,17 +577,17 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
                                     k_const->in_tangent, new_out_tan);
             }
             // drag 中は dirty だけ立てる (callback は drag end で 1 度)。
-            _dirty = true;
+            m_Dirty = true;
         }
     }
 
     // マウス release で drag 終了 + callback 1 回。
-    if (_drag_kind != 0u && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-        if (_on_change_cb != nullptr) {
-            _on_change_cb(_on_change_user, &curve);
+    if (m_DragKind != 0u && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        if (m_OnChangeCb != nullptr) {
+            m_OnChangeCb(m_OnChangeUser, &curve);
         }
-        _drag_kind    = 0u;
-        _drag_key_idx = -1;
+        m_DragKind    = 0u;
+        m_DragKeyIdx = -1;
     }
 
     // key marker を全描画 (drag 後の最新状態を反映)。
@@ -596,7 +596,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         if (k == nullptr) continue;
         const ImVec2 kp = CurveToCanvas(k->time, k->value, bounds,
                                         canvas_origin, canvas_size);
-        const bool is_sel = (_selected_key_idx == static_cast<i32>(i));
+        const bool is_sel = (m_SelectedKeyIdx == static_cast<i32>(i));
         const ImU32 col = is_sel ? IM_COL32(255, 220, 100, 255)
                                   : IM_COL32(180, 180, 180, 255);
         dl->AddCircleFilled(kp, kKeyMarkerRadiusPx, col, 12);
@@ -638,19 +638,19 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
             for (u32 i = 0; i < newn; ++i) {
                 const CurveKey* k = curve.EKey(i);
                 if (k != nullptr && k->time == ctx_t) {
-                    _selected_key_idx = static_cast<i32>(i);
+                    m_SelectedKeyIdx = static_cast<i32>(i);
                     break;
                 }
             }
             NotifyChanged(true);
         }
-        const bool has_sel = (_selected_key_idx >= 0)
-                          && (static_cast<u32>(_selected_key_idx) < curve.KeyCount());
+        const bool has_sel = (m_SelectedKeyIdx >= 0)
+                          && (static_cast<u32>(m_SelectedKeyIdx) < curve.KeyCount());
         ImGui::BeginDisabled(!has_sel);
         if (ImGui::MenuItem("Delete Selected Key")) {
             if (has_sel) {
-                curve.RemoveKey(static_cast<u32>(_selected_key_idx));
-                _selected_key_idx = kNoKeySelected;
+                curve.RemoveKey(static_cast<u32>(m_SelectedKeyIdx));
+                m_SelectedKeyIdx = kNoKeySelected;
                 NotifyChanged(true);
             }
         }
@@ -659,12 +659,12 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
     }
 
     // 選択 key の情報を canvas 下にテキスト表示 (= デバッグ用 + 視認性向上)。
-    if (_selected_key_idx >= 0
-        && static_cast<u32>(_selected_key_idx) < curve.KeyCount()) {
-        const CurveKey* k = curve.EKey(static_cast<u32>(_selected_key_idx));
+    if (m_SelectedKeyIdx >= 0
+        && static_cast<u32>(m_SelectedKeyIdx) < curve.KeyCount()) {
+        const CurveKey* k = curve.EKey(static_cast<u32>(m_SelectedKeyIdx));
         if (k != nullptr) {
             ImGui::TextDisabled("Key %d: t=%.3f v=%.3f  in_tan=%.3f out_tan=%.3f  interp=%s",
-                                static_cast<int>(_selected_key_idx),
+                                static_cast<int>(m_SelectedKeyIdx),
                                 static_cast<double>(k->time),
                                 static_cast<double>(k->value),
                                 static_cast<double>(k->in_tangent),

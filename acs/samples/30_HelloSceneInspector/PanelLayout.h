@@ -39,11 +39,11 @@ public:
     void DrawUI(acs::game::FGame& game, acs::game::FNode2D& root) noexcept;
 
 private:
-    acs::game::inspector::FHierarchyPanel   _hierarchy_panel;
-    acs::game::inspector::FInspectorPanel   _inspector_panel;
-    acs::game::inspector::FEditorToolbar    _toolbar;
-    acs::game::inspector::FSelectionService _selection;
-    acs::game::FInspectorSeam               _seam;
+    acs::game::inspector::FHierarchyPanel   m_HierarchyPanel;
+    acs::game::inspector::FInspectorPanel   m_InspectorPanel;
+    acs::game::inspector::FEditorToolbar    m_Toolbar;
+    acs::game::inspector::FSelectionService m_Selection;
+    acs::game::FInspectorSeam               m_Seam;
 };
 
 } // namespace helloscene

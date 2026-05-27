@@ -38,7 +38,7 @@ void HelloSpriteApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
-    if (auto r = _batch.Init(*dev, GetRenderer().ColorFormat(), kMaxSprites);
+    if (auto r = m_Batch.Init(*dev, GetRenderer().ColorFormat(), kMaxSprites);
         r.IsErr()) {
         ACS_LOG_ERROR("FSpriteBatch::Init failed: %s", r.Error().message);
         Quit();
@@ -54,7 +54,7 @@ void HelloSpriteApp::OnStart() noexcept {
     td.initial_data_size = sizeof(pixels);
     if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) {
         ACS_LOG_ERROR("Texture create"); Quit(); return;
-    } else _tex = Move(r.Value());
+    } else m_Tex = Move(r.Value());
 
     SpawnSprites(kInitialSprites);
 
@@ -64,14 +64,14 @@ void HelloSpriteApp::OnStart() noexcept {
 void HelloSpriteApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (Input::IsKeyPressed(EKey::Space))     SpawnSprites(_sprite_count + 10);
-    if (Input::IsKeyPressed(EKey::Backspace)) SpawnSprites(_sprite_count >= 10 ? _sprite_count - 10 : 0);
+    if (Input::IsKeyPressed(EKey::Space))     SpawnSprites(m_SpriteCount + 10);
+    if (Input::IsKeyPressed(EKey::Backspace)) SpawnSprites(m_SpriteCount >= 10 ? m_SpriteCount - 10 : 0);
 
     // 壁にぶつかったら反射 (s.x/s.y を境界内にクランプしてから速度反転)。
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
-    for (u32 i = 0; i < _sprite_count; ++i) {
-        Sprite& s = _sprites[i];
+    for (u32 i = 0; i < m_SpriteCount; ++i) {
+        Sprite& s = m_Sprites[i];
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         if (s.x < 0)              { s.x = 0;              s.vx = -s.vx; }
@@ -83,29 +83,29 @@ void HelloSpriteApp::OnUpdate(f32 dt) noexcept {
 
 void HelloSpriteApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
-    if (!cl || !_tex) return;
+    if (!cl || !m_Tex) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
 
-    _batch.Begin(*cl, sw, sh);
+    m_Batch.Begin(*cl, sw, sh);
 
-    _batch.DrawRect(0, 0, static_cast<f32>(sw), 32.0f, FVec4{0, 0, 0, 0.6f});
+    m_Batch.DrawRect(0, 0, static_cast<f32>(sw), 32.0f, FVec4{0, 0, 0, 0.6f});
 
-    for (u32 i = 0; i < _sprite_count; ++i) {
-        const Sprite& s = _sprites[i];
-        _batch.Draw(*_tex, s.x, s.y, s.size, s.size, FVec4{s.r, s.g, s.b, s.a});
+    for (u32 i = 0; i < m_SpriteCount; ++i) {
+        const Sprite& s = m_Sprites[i];
+        m_Batch.Draw(*m_Tex, s.x, s.y, s.size, s.size, FVec4{s.r, s.g, s.b, s.a});
     }
 
-    _batch.DrawRect(0, static_cast<f32>(sh - 16), static_cast<f32>(sw), 16.0f,
+    m_Batch.DrawRect(0, static_cast<f32>(sh - 16), static_cast<f32>(sw), 16.0f,
                     FVec4{0.2f, 0.5f, 0.8f, 0.5f});
 
-    _batch.End();
+    m_Batch.End();
 }
 
 void HelloSpriteApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _tex.Reset();
-    _batch.Shutdown();
+    m_Tex.Reset();
+    m_Batch.Shutdown();
 }
 
 void HelloSpriteApp::SpawnSprites(u32 n) noexcept {
@@ -121,10 +121,10 @@ void HelloSpriteApp::SpawnSprites(u32 n) noexcept {
     };
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
-    const u32 old = _sprite_count;
-    _sprite_count = n;
+    const u32 old = m_SpriteCount;
+    m_SpriteCount = n;
     for (u32 i = old; i < n; ++i) {
-        Sprite& s = _sprites[i];
+        Sprite& s = m_Sprites[i];
         s.size = 16.0f + rand_f() * 48.0f;
         s.x = rand_f() * (sw - s.size);
         s.y = 32.0f + rand_f() * (sh - 64.0f - s.size);

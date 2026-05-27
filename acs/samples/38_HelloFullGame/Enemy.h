@@ -58,10 +58,10 @@ public:
     void DrawAll(acs::FSpriteBatch& sb) const noexcept;
 
     // hit test 用に raw 配列をそのまま渡す。
-    const EnemyInstance* Data() const noexcept { return _enemies; }
+    const EnemyInstance* Data() const noexcept { return m_Enemies; }
 
 private:
-    EnemyInstance _enemies[kMaxEnemies] {};
+    EnemyInstance m_Enemies[kMaxEnemies] {};
 };
 
 } // namespace hellofg

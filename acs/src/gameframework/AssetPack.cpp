@@ -85,13 +85,13 @@ TResult<void> FAssetPackWriterStub::FinishPack() noexcept {
 
 IAssetPackReader& GetReaderStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static FAssetPackReaderStub _instance;
-    return _instance;
+    static FAssetPackReaderStub m_Instance;
+    return m_Instance;
 }
 
 IAssetPackWriter& GetWriterStub() noexcept {
-    static FAssetPackWriterStub _instance;
-    return _instance;
+    static FAssetPackWriterStub m_Instance;
+    return m_Instance;
 }
 
 } // namespace acs::game

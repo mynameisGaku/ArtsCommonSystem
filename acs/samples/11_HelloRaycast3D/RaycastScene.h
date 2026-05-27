@@ -41,14 +41,14 @@ public:
                 acs::u32 screen_h) noexcept;
 
 private:
-    void _render_targets(acs::FStandardShader& shader,
+    void m_RenderTargets(acs::FStandardShader& shader,
                          acs::IRhiCommandList& cl) noexcept;
 
-    acs::GpuMesh    _gm_sphere{};
-    acs::GpuMesh    _gm_cube{};
-    acs::GpuMesh    _gm_plane{};
-    RaycastTargets  _targets;
-    RayCaster       _caster;
+    acs::GpuMesh    m_GmSphere{};
+    acs::GpuMesh    m_GmCube{};
+    acs::GpuMesh    m_GmPlane{};
+    RaycastTargets  m_Targets;
+    RayCaster       m_Caster;
 };
 
 } // namespace helloraycast3d

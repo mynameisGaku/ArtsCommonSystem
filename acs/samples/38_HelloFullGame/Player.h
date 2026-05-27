@@ -39,18 +39,18 @@ public:
                               acs::FVec2 player_pos) noexcept;
 
     // ----- アクセサ -----
-    acs::game::FNode2D* Node()       noexcept { return _node; }
-    const acs::game::FNode2D* Node() const noexcept { return _node; }
+    acs::game::FNode2D* Node()       noexcept { return m_Node; }
+    const acs::game::FNode2D* Node() const noexcept { return m_Node; }
     acs::FVec2          Position() const noexcept;
-    acs::game::FHealthId  HealthHandle() const noexcept { return _health_id; }
-    acs::game::FShapeId   Shape()        const noexcept { return _shape; }
+    acs::game::FHealthId  HealthHandle() const noexcept { return m_HealthId; }
+    acs::game::FShapeId   Shape()        const noexcept { return m_Shape; }
     bool                 IsInvulnerable(const acs::game::FHealthSystem& h) const noexcept;
 
 private:
-    acs::game::FNode2D*    _node      = nullptr;
-    acs::game::FHealthId   _health_id {};
-    acs::game::FShapeId    _shape     {};
-    acs::f32              _fire_cd   = 0.0f;
+    acs::game::FNode2D*    m_Node      = nullptr;
+    acs::game::FHealthId   m_HealthId {};
+    acs::game::FShapeId    m_Shape     {};
+    acs::f32              m_FireCd   = 0.0f;
 };
 
 } // namespace hellofg

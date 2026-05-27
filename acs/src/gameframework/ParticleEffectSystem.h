@@ -24,10 +24,10 @@
 //      (3) ヘッダ依存を最小化できる。Numerical Recipes の LCG (a=1664525,
 //      c=1013904223) を採用。
 //   ・**lifetime 切れは pool に返却**: particle.age >= particle.lifetime で
-//      `_active[i] = 0`、`--_active_particles` で実質的にプールへ戻す。slot の
+//      `m_Active[i] = 0`、`--m_ActiveParticles` で実質的にプールへ戻す。slot の
 //      物理 index は変えない (= 描画側がフレームをまたぐ参照を握っている可能性は
 //      無いが、内部での swap-and-pop も不要にして単純化)。
-//   ・**emit_rate は accumulator 方式**: `_emit_accum += emit_rate * dt` を加算し、
+//   ・**emit_rate は accumulator 方式**: `m_EmitAccum += emit_rate * dt` を加算し、
 //      整数部分だけ放出する。dt が小さくても累積で放出できるし、大 dt のときも
 //      欠落しない。ただし上限は「pool 空き数」でクランプ。
 //   ・**Burst は emit_rate と独立**: `Burst()` は burst_count 個を一気に放出。
@@ -139,12 +139,12 @@ struct Particle {
 // ---------------------------------------------------------------------------
 // FEmitterHandle — 24bit index + 8bit gen を packed した opaque handle
 // ---------------------------------------------------------------------------
-// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`FSceneTimer` 等と
+// `m_Packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。`FSceneTimer` 等と
 // 同一規約。slot 再利用後の stale 参照は IsValid + 内部の gen 一致で検出する。
 struct FEmitterHandle {
-    u32 _packed = 0u;
+    u32 m_Packed = 0u;
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
     static constexpr u32 kIndexBits = 24u;
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
@@ -152,11 +152,11 @@ struct FEmitterHandle {
 
     static FEmitterHandle Pack(u32 index, u8 gen) noexcept {
         FEmitterHandle h;
-        h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
-    u32 Index() const noexcept { return _packed & kIndexMask; }
-    u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
+    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 };
 
 // ---------------------------------------------------------------------------
@@ -203,10 +203,10 @@ public:
     void Tick(f32 dt) noexcept;
 
     // 現在 active な particle 数 (描画予定数)。
-    u32 ActiveParticleCount() const noexcept { return _active_particles; }
+    u32 ActiveParticleCount() const noexcept { return m_ActiveParticles; }
 
     // 現在 active な emitter 数 (= 自動放出してくる emitter ではなく、生きてる slot 数)。
-    u32 EmitterCount() const noexcept { return _emitter_count; }
+    u32 EmitterCount() const noexcept { return m_EmitterCount; }
 
     // 描画用 raw buffer。out_count には pool 全体サイズが入る (active かどうかは
     // `Particle::IsAlive()` で判定する)。返却ポインタは Init で確定し、Init or
@@ -233,7 +233,7 @@ private:
     void EmitOne(const Emitter& e) noexcept;
 
     // 空き particle slot を 1 個確保し index を返す。満杯なら kInvalidIdx を返す。
-    // `_next_free` を起点に巡回探索 (= 大半のフレームで O(1))。
+    // `m_NextFree` を起点に巡回探索 (= 大半のフレームで O(1))。
     static constexpr u32 kInvalidIdx = 0xFFFFFFFFu;
     u32 AcquireParticleSlot() noexcept;
 
@@ -246,14 +246,14 @@ private:
     // [min, max] の f32 (min > max は swap)。
     f32 NextRandRange(f32 min, f32 max) noexcept;
 
-    TArray<Emitter>  _emitters       {};       // emitter slot 配列 (generational)
-    TArray<Particle> _particles      {};       // particle pool (固定容量)
-    TArray<u8>       _particle_active{};       // _particle_active[i] = 1 で使用中
-    u32             _capacity         = 0u;   // particle 上限 (Init で確定)
-    u32             _active_particles = 0u;   // 現在使用中 particle 数
-    u32             _emitter_count    = 0u;   // 現在予約中 emitter slot 数
-    u32             _next_free        = 0u;   // particle 空き探索のヒントカーソル
-    u32             _rng_state        = 0x9E3779B9u; // LCG state (golden ratio で初期化)
+    TArray<Emitter>  m_Emitters       {};       // emitter slot 配列 (generational)
+    TArray<Particle> m_Particles      {};       // particle pool (固定容量)
+    TArray<u8>       m_ParticleActive{};       // m_ParticleActive[i] = 1 で使用中
+    u32             m_Capacity         = 0u;   // particle 上限 (Init で確定)
+    u32             m_ActiveParticles = 0u;   // 現在使用中 particle 数
+    u32             m_EmitterCount    = 0u;   // 現在予約中 emitter slot 数
+    u32             m_NextFree        = 0u;   // particle 空き探索のヒントカーソル
+    u32             m_RngState        = 0x9E3779B9u; // LCG state (golden ratio で初期化)
 };
 
 } // namespace acs::game

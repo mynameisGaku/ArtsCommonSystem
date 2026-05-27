@@ -41,42 +41,42 @@ struct SegmentSlot {
 class SegmentAllocator final : public FAllocator {
 public:
     SegmentAllocator() noexcept = default;
-    void Bind(SegmentSlot* slot) noexcept { _slot = slot; }
+    void Bind(SegmentSlot* slot) noexcept { m_Slot = slot; }
 
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override {
-        if (!_slot || !_slot->initialized) return nullptr;
-        FScopedLock lk(_slot->lock);
+        if (!m_Slot || !m_Slot->initialized) return nullptr;
+        FScopedLock lk(m_Slot->lock);
         // 予算超過なら確保失敗
-        u64 cur = _slot->use_linear
-                  ? _slot->linear->BytesAllocated()
-                  : _slot->tlsf.BytesAllocated();
-        if (_slot->budget > 0 && cur + size > _slot->budget) return nullptr;
-        if (_slot->use_linear) return _slot->linear->Alloc(size, alignment, loc);
-        return _slot->tlsf.Alloc(size, alignment, loc);
+        u64 cur = m_Slot->use_linear
+                  ? m_Slot->linear->BytesAllocated()
+                  : m_Slot->tlsf.BytesAllocated();
+        if (m_Slot->budget > 0 && cur + size > m_Slot->budget) return nullptr;
+        if (m_Slot->use_linear) return m_Slot->linear->Alloc(size, alignment, loc);
+        return m_Slot->tlsf.Alloc(size, alignment, loc);
     }
 
     void Free(void* ptr) noexcept override {
-        if (!_slot || !_slot->initialized || !ptr) return;
-        FScopedLock lk(_slot->lock);
-        if (_slot->use_linear) _slot->linear->Free(ptr);
-        else                   _slot->tlsf.Free(ptr);
+        if (!m_Slot || !m_Slot->initialized || !ptr) return;
+        FScopedLock lk(m_Slot->lock);
+        if (m_Slot->use_linear) m_Slot->linear->Free(ptr);
+        else                   m_Slot->tlsf.Free(ptr);
     }
 
     u64 BytesAllocated() const noexcept override {
-        if (!_slot || !_slot->initialized) return 0;
-        return _slot->use_linear ? _slot->linear->BytesAllocated()
-                                 : _slot->tlsf.BytesAllocated();
+        if (!m_Slot || !m_Slot->initialized) return 0;
+        return m_Slot->use_linear ? m_Slot->linear->BytesAllocated()
+                                 : m_Slot->tlsf.BytesAllocated();
     }
     u64 PeakBytes() const noexcept override {
-        if (!_slot || !_slot->initialized) return 0;
-        return _slot->use_linear ? _slot->linear->PeakBytes()
-                                 : _slot->tlsf.PeakBytes();
+        if (!m_Slot || !m_Slot->initialized) return 0;
+        return m_Slot->use_linear ? m_Slot->linear->PeakBytes()
+                                 : m_Slot->tlsf.PeakBytes();
     }
     const char* Name() const noexcept override {
-        return _slot ? ToString(_slot->segment) : "Unbound";
+        return m_Slot ? ToString(m_Slot->segment) : "Unbound";
     }
 private:
-    SegmentSlot* _slot = nullptr;
+    SegmentSlot* m_Slot = nullptr;
 };
 
 // プロセスに 1 つだけのグローバル状態
@@ -207,12 +207,12 @@ u32 FMemorySystem::GetStats(SegmentStats* out, u32 max_count) noexcept {
 // =============================================================================
 // コンストラクタで TLS の現在セグメントを上書き、デストラクタで元に戻す
 ScopedMemorySegment::ScopedMemorySegment(ESegment s) noexcept
-    : _previous(tls_current_segment) {
+    : m_Previous(tls_current_segment) {
     tls_current_segment = s;
 }
 
 ScopedMemorySegment::~ScopedMemorySegment() noexcept {
-    tls_current_segment = _previous;
+    tls_current_segment = m_Previous;
 }
 
 } // namespace acs

@@ -14,7 +14,7 @@ namespace acs::game {
 void FBtSelector::AddChild(TUniquePtr<FBtNode> child) noexcept {
     // nullptr 子はそもそも tick できないので追加しない (静かに無視)。
     if (!child) return;
-    _children.PushBack(Move(child));
+    m_Children.PushBack(Move(child));
 }
 
 EBtStatus FBtSelector::Tick(void* blackboard, f32 dt) noexcept {
@@ -23,9 +23,9 @@ EBtStatus FBtSelector::Tick(void* blackboard, f32 dt) noexcept {
     //   ・Success → この子で目的達成、Selector も Success
     //   ・Failure → 次の子へ
     // すべて Failure を返したら、Selector 全体としても Failure。
-    const usize n = _children.Size();
+    const usize n = m_Children.Size();
     for (usize i = 0; i < n; ++i) {
-        FBtNode* c = _children[i].Get();
+        FBtNode* c = m_Children[i].Get();
         if (c == nullptr) continue;            // 万一の null 安全 (本来 AddChild で弾く)
         const EBtStatus s = c->Tick(blackboard, dt);
         if (s == EBtStatus::Running) return EBtStatus::Running;
@@ -39,7 +39,7 @@ EBtStatus FBtSelector::Tick(void* blackboard, f32 dt) noexcept {
 
 void FBtSequence::AddChild(TUniquePtr<FBtNode> child) noexcept {
     if (!child) return;
-    _children.PushBack(Move(child));
+    m_Children.PushBack(Move(child));
 }
 
 EBtStatus FBtSequence::Tick(void* blackboard, f32 dt) noexcept {
@@ -48,9 +48,9 @@ EBtStatus FBtSequence::Tick(void* blackboard, f32 dt) noexcept {
     //   ・Failure → この子で失敗、FSequence も Failure
     //   ・Success → 次の子へ
     // すべて Success を返したら、FSequence 全体としても Success。
-    const usize n = _children.Size();
+    const usize n = m_Children.Size();
     for (usize i = 0; i < n; ++i) {
-        FBtNode* c = _children[i].Get();
+        FBtNode* c = m_Children[i].Get();
         if (c == nullptr) continue;
         const EBtStatus s = c->Tick(blackboard, dt);
         if (s == EBtStatus::Running) return EBtStatus::Running;
@@ -64,21 +64,21 @@ EBtStatus FBtSequence::Tick(void* blackboard, f32 dt) noexcept {
 
 EBtStatus FBtAction::Tick(void* blackboard, f32 dt) noexcept {
     // 関数ポインタ未設定はソフトフェイル: Failure を返して composite が前進する。
-    if (_fn == nullptr) return EBtStatus::Failure;
-    return _fn(blackboard, dt);
+    if (m_Fn == nullptr) return EBtStatus::Failure;
+    return m_Fn(blackboard, dt);
 }
 
 // ---- FBehaviorTree ------------------------------------------------------------
 
 void FBehaviorTree::SetRoot(TUniquePtr<FBtNode> root) noexcept {
     // 旧 root はここで TUniquePtr デストラクタにより自動破棄される。
-    _root = Move(root);
+    m_Root = Move(root);
 }
 
 EBtStatus FBehaviorTree::Tick(void* blackboard, f32 dt) noexcept {
     // root 未設定の tree は「常に失敗」として扱う (composite と同じ規約)。
-    if (!_root) return EBtStatus::Failure;
-    return _root->Tick(blackboard, dt);
+    if (!m_Root) return EBtStatus::Failure;
+    return m_Root->Tick(blackboard, dt);
 }
 
 } // namespace acs::game

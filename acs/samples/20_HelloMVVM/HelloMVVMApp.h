@@ -28,14 +28,14 @@ public:
     void OnEvent(const acs::Event& e) noexcept override;
 
 private:
-    acs::ImGuiCtx                                       _imgui;
-    PlayerVM                                            _vm;
-    acs::Observable<acs::f32>                           _hp_mirror{};
-    acs::Observable<acs::FString>                        _hp_text  { acs::FString{} };
-    acs::TUniquePtr<acs::OneWayBinder<acs::f32>>         _hp_mirror_binder;
-    acs::TUniquePtr<acs::OneWayConvertBinder<acs::f32, acs::FString>> _hp_text_binder;
-    acs::Derived<acs::f32, acs::f32>*                   _ratio = nullptr;
-    char                                                _name_buf[64] = "勇者";
+    acs::ImGuiCtx                                       m_Imgui;
+    PlayerVM                                            m_Vm;
+    acs::Observable<acs::f32>                           m_HpMirror{};
+    acs::Observable<acs::FString>                        m_HpText  { acs::FString{} };
+    acs::TUniquePtr<acs::OneWayBinder<acs::f32>>         m_HpMirrorBinder;
+    acs::TUniquePtr<acs::OneWayConvertBinder<acs::f32, acs::FString>> m_HpTextBinder;
+    acs::Derived<acs::f32, acs::f32>*                   m_Ratio = nullptr;
+    char                                                m_NameBuf[64] = "勇者";
 };
 
 } // namespace hellomvvm

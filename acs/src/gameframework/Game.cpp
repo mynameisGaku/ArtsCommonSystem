@@ -18,52 +18,52 @@ void FGame::OnStart() noexcept {
         Quit();
         return;
     }
-    _scenes.PushScene(Move(first));
-    _scenes._ApplyPending(*this);     // 起動時の最初の遷移は即時適用
+    m_Scenes.PushScene(Move(first));
+    m_Scenes._ApplyPending(*this);     // 起動時の最初の遷移は即時適用
 }
 
 void FGame::OnUpdate(f32 dt) noexcept {
-    const f32 scaled_dt = dt * _time_scale;
-    _scenes._ApplyPending(*this);
+    const f32 scaled_dt = dt * m_TimeScale;
+    m_Scenes._ApplyPending(*this);
 
     // Phase 2 固定タイムステップ accumulator (Phase 1 で宣言だけだった
     // Scene::OnFixedUpdate が実際に呼ばれるようになる)。
     //   accumulator += dt → fixed_dt 単位で消費しつつ OnFixedUpdate を呼ぶ。
     //   max_fixed_steps を超える遅延は捨てる (= spiral of death 防止)。
     //   fixed_dt <= 0 なら固定 update は無効 (旧挙動)。
-    if (_fixed_dt > 0.0f) {
-        _fixed_accum += scaled_dt;
+    if (m_FixedDt > 0.0f) {
+        m_FixedAccum += scaled_dt;
         u32 steps = 0;
-        while (_fixed_accum >= _fixed_dt && steps < _max_fixed_steps) {
-            _scenes._FixedUpdate(_fixed_dt);
-            _fixed_accum -= _fixed_dt;
+        while (m_FixedAccum >= m_FixedDt && steps < m_MaxFixedSteps) {
+            m_Scenes._FixedUpdate(m_FixedDt);
+            m_FixedAccum -= m_FixedDt;
             ++steps;
         }
         // 上限超え分は捨てる (遅延を引きずらない)
-        if (steps == _max_fixed_steps && _fixed_accum > _fixed_dt) {
-            _fixed_accum = 0.0f;
+        if (steps == m_MaxFixedSteps && m_FixedAccum > m_FixedDt) {
+            m_FixedAccum = 0.0f;
         }
     }
 
     // variable-rate update (毎フレーム dt)
-    _scenes._Update(scaled_dt);
+    m_Scenes._Update(scaled_dt);
 }
 
 void FGame::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
-    _render_ctx._BeginFrame(GetRenderer(), *cl, sc->Width(), sc->Height());
-    _scenes._Render(_render_ctx);
-    _render_ctx._EndFrame();
+    m_RenderCtx._BeginFrame(GetRenderer(), *cl, sc->Width(), sc->Height());
+    m_Scenes._Render(m_RenderCtx);
+    m_RenderCtx._EndFrame();
 }
 
 void FGame::OnShutdown() noexcept {
-    _scenes._ShutdownAll();
+    m_Scenes._ShutdownAll();
 }
 
 void FGame::OnEvent(const Event& e) noexcept {
-    _scenes._DispatchEvent(e);
+    m_Scenes._DispatchEvent(e);
 }
 
 } // namespace acs::game

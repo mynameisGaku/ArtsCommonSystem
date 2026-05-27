@@ -135,8 +135,8 @@ public:
     TResult<void> Resize(u32 width, u32 height) noexcept;
 
     // シーンが描かれる HDR RT を取得（FRenderer がここに描画する）
-    IRhiTexture* HdrRenderTarget() const noexcept { return _hdr_rt.Get(); }
-    EFormat       HdrFormat()       const noexcept { return _hdr_format; }
+    IRhiTexture* HdrRenderTarget() const noexcept { return m_HdrRt.Get(); }
+    EFormat       HdrFormat()       const noexcept { return m_HdrFormat; }
 
     // Bloom + Tonemap を実行して swapchain buffer に書き出す
     //   cmd      : 既に Begin 済みの command list
@@ -168,66 +168,66 @@ private:
     void Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
     void Pass_ExposureApply(IRhiCommandList& cmd) noexcept;
     // 下流パス (TAA / Bloom / Tonemap) が読むシーン texture。auto-exposure 有効なら
-    // 露出適用後の _exposed_rt、そうでなければ raw _hdr_rt。
+    // 露出適用後の m_ExposedRt、そうでなければ raw m_HdrRt。
     IRhiTexture* SceneInput(const PostProcessParams& p) const noexcept;
 
-    IRhiDevice* _device = nullptr;
-    u32         _width  = 0;
-    u32         _height = 0;
-    EFormat      _color_format = EFormat::B8G8R8A8_UNorm;
-    EFormat      _hdr_format   = EFormat::R16G16B16A16_Float;
+    IRhiDevice* m_Device = nullptr;
+    u32         m_Width  = 0;
+    u32         m_Height = 0;
+    EFormat      m_ColorFormat = EFormat::B8G8R8A8_UNorm;
+    EFormat      m_HdrFormat   = EFormat::R16G16B16A16_Float;
 
     // メイン HDR RT (シーン描画先)
-    TUniquePtr<IRhiTexture> _hdr_rt;
+    TUniquePtr<IRhiTexture> m_HdrRt;
 
     // Bloom mip chain (各段は HDR、解像度は半分ずつ)
-    TUniquePtr<IRhiTexture> _bloom_mips[kBloomMips];
+    TUniquePtr<IRhiTexture> m_BloomMips[kBloomMips];
 
     // パイプライン
-    TUniquePtr<IRhiShader>   _vs_fullscreen;     // 共通の全画面三角形 VS
-    TUniquePtr<IRhiShader>   _ps_extract;
-    TUniquePtr<IRhiShader>   _ps_downsample;
-    TUniquePtr<IRhiShader>   _ps_upsample;
-    TUniquePtr<IRhiShader>   _ps_tonemap;
-    TUniquePtr<IRhiPipeline> _pipe_extract;     // HDR → bloom_mips[0]
-    TUniquePtr<IRhiPipeline> _pipe_downsample;  // bloom_mips[i] → bloom_mips[i+1]
-    TUniquePtr<IRhiPipeline> _pipe_upsample;    // bloom_mips[i+1] + bloom_mips[i] → bloom_mips[i]
-    TUniquePtr<IRhiPipeline> _pipe_tonemap;     // HDR + bloom_mips[0] → backbuffer
+    TUniquePtr<IRhiShader>   m_VsFullscreen;     // 共通の全画面三角形 VS
+    TUniquePtr<IRhiShader>   m_PsExtract;
+    TUniquePtr<IRhiShader>   m_PsDownsample;
+    TUniquePtr<IRhiShader>   m_PsUpsample;
+    TUniquePtr<IRhiShader>   m_PsTonemap;
+    TUniquePtr<IRhiPipeline> m_PipeExtract;     // HDR → bloom_mips[0]
+    TUniquePtr<IRhiPipeline> m_PipeDownsample;  // bloom_mips[i] → bloom_mips[i+1]
+    TUniquePtr<IRhiPipeline> m_PipeUpsample;    // bloom_mips[i+1] + bloom_mips[i] → bloom_mips[i]
+    TUniquePtr<IRhiPipeline> m_PipeTonemap;     // HDR + bloom_mips[0] → backbuffer
 
     // 共通の動的 CB
-    TUniquePtr<IRhiBuffer>   _cb_post;          // 各パスのパラメータを統一して入れる
+    TUniquePtr<IRhiBuffer>   m_CbPost;          // 各パスのパラメータを統一して入れる
 
     // TAA (Phase 34f): ping-pong history RT + resolve pipeline。
-    // _taa[N%2] が current frame の resolved 出力、_taa[(N+1)%2] が previous frame の
+    // m_Taa[N%2] が current frame の resolved 出力、m_Taa[(N+1)%2] が previous frame の
     // resolved 出力 (= history input)。frame index で role を swap する。
-    TUniquePtr<IRhiTexture>  _taa[2];
-    TUniquePtr<IRhiShader>   _ps_taa_resolve;
-    TUniquePtr<IRhiPipeline> _pipe_taa_resolve;
-    u32                     _taa_frame = 0;
-    TUniquePtr<IRhiBuffer>   _cb_taa_reproj;     // Phase 34f-2: separate b1 で行列 2 枚
-    TUniquePtr<IRhiTexture>  _taa_depth_fb;      // depth 未指定時の fallback (1x1)
+    TUniquePtr<IRhiTexture>  m_Taa[2];
+    TUniquePtr<IRhiShader>   m_PsTaaResolve;
+    TUniquePtr<IRhiPipeline> m_PipeTaaResolve;
+    u32                     m_TaaFrame = 0;
+    TUniquePtr<IRhiBuffer>   m_CbTaaReproj;     // Phase 34f-2: separate b1 で行列 2 枚
+    TUniquePtr<IRhiTexture>  m_TaaDepthFb;      // depth 未指定時の fallback (1x1)
 
     // Auto-exposure (Phase 34k-2): GPU luminance 測定 + eye adaptation。
-    // _luma_mips は _hdr_rt の 1/2 から 1x1 まで縮約する mip chain。最深段 (1x1) に
-    // シーン平均 log2 輝度が入る。_exposure[2] は順応済み露出を保持する 1x1 ping-pong
-    // (frame N が _exposure[N%2] に書き、_exposure[(N+1)%2] = 前フレーム値を読む)。
-    // _exposed_rt は _hdr_rt に自動露出を掛けた結果で、下流パスはこれを読む。
+    // m_LumaMips は m_HdrRt の 1/2 から 1x1 まで縮約する mip chain。最深段 (1x1) に
+    // シーン平均 log2 輝度が入る。m_Exposure[2] は順応済み露出を保持する 1x1 ping-pong
+    // (frame N が m_Exposure[N%2] に書き、m_Exposure[(N+1)%2] = 前フレーム値を読む)。
+    // m_ExposedRt は m_HdrRt に自動露出を掛けた結果で、下流パスはこれを読む。
     static constexpr u32 kMaxLumaMips = 13;     // 4K (3840) でも floor(log2)+1 に収まる
-    TUniquePtr<IRhiTexture>  _luma_mips[kMaxLumaMips];
-    u32                     _luma_mip_count = 0;
-    TUniquePtr<IRhiTexture>  _exposure[2];       // 1x1、順応済み露出 (ping-pong)
-    TUniquePtr<IRhiTexture>  _exposed_rt;        // _hdr_rt * auto exposure
-    TUniquePtr<IRhiShader>   _ps_luma_extract;   // HDR → log2 輝度 (downsample 兼)
-    TUniquePtr<IRhiShader>   _ps_luma_down;      // log2 輝度の box average
-    TUniquePtr<IRhiShader>   _ps_exposure;       // 露出順応 (eye adaptation)
-    TUniquePtr<IRhiShader>   _ps_expose_apply;   // _hdr_rt * 露出 → _exposed_rt
-    TUniquePtr<IRhiPipeline> _pipe_luma_extract;
-    TUniquePtr<IRhiPipeline> _pipe_luma_down;
-    TUniquePtr<IRhiPipeline> _pipe_exposure;
-    TUniquePtr<IRhiPipeline> _pipe_expose_apply;
-    TUniquePtr<IRhiBuffer>   _cb_auto;           // auto-exposure 用パラメータ CB
-    u32                     _auto_frame = 0;    // 露出 ping-pong / cold-start 判定用
-    EFormat                  _luma_format = EFormat::R16G16_Float;
+    TUniquePtr<IRhiTexture>  m_LumaMips[kMaxLumaMips];
+    u32                     m_LumaMipCount = 0;
+    TUniquePtr<IRhiTexture>  m_Exposure[2];       // 1x1、順応済み露出 (ping-pong)
+    TUniquePtr<IRhiTexture>  m_ExposedRt;        // m_HdrRt * auto exposure
+    TUniquePtr<IRhiShader>   m_PsLumaExtract;   // HDR → log2 輝度 (downsample 兼)
+    TUniquePtr<IRhiShader>   m_PsLumaDown;      // log2 輝度の box average
+    TUniquePtr<IRhiShader>   m_PsExposure;       // 露出順応 (eye adaptation)
+    TUniquePtr<IRhiShader>   m_PsExposeApply;   // m_HdrRt * 露出 → m_ExposedRt
+    TUniquePtr<IRhiPipeline> m_PipeLumaExtract;
+    TUniquePtr<IRhiPipeline> m_PipeLumaDown;
+    TUniquePtr<IRhiPipeline> m_PipeExposure;
+    TUniquePtr<IRhiPipeline> m_PipeExposeApply;
+    TUniquePtr<IRhiBuffer>   m_CbAuto;           // auto-exposure 用パラメータ CB
+    u32                     m_AutoFrame = 0;    // 露出 ping-pong / cold-start 判定用
+    EFormat                  m_LumaFormat = EFormat::R16G16_Float;
 };
 
 } // namespace acs

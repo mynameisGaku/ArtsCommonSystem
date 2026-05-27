@@ -40,7 +40,7 @@ cbuffer Object : register(b1) {
 
 Texture2D    albedo : register(t0);
 Texture2D    shadow_map : register(t1);
-// 命名規約: <texture>_sampler。Diligent の CombinedSamplerSuffix=_sampler と一致
+// 命名規約: <texture>m_Sampler。Diligent の CombinedSamplerSuffix=m_Sampler と一致
 SamplerState albedo_sampler     : register(s0);
 SamplerState shadow_map_sampler : register(s1);
 
@@ -226,7 +226,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     vs_d.debug_name  = "Standard.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    _vs = Move(vs_r.Value());
+    m_Vs = Move(vs_r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -235,7 +235,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     ps_d.debug_name  = "Standard.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
-    _ps = Move(ps_r.Value());
+    m_Ps = Move(ps_r.Value());
 
     // === 定数バッファ ===
     FBufferDesc fcb{};
@@ -244,7 +244,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     fcb.cpu_writable = true;
     auto fcb_r = CreateRhiBuffer(device, fcb);
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
-    _frame_cb = Move(fcb_r.Value());
+    m_FrameCb = Move(fcb_r.Value());
 
     FBufferDesc ocb{};
     ocb.size = CBSize<ObjectCBLayout>();
@@ -252,7 +252,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     ocb.cpu_writable = true;
     auto ocb_r = CreateRhiBuffer(device, ocb);
     if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
-    _object_cb = Move(ocb_r.Value());
+    m_ObjectCb = Move(ocb_r.Value());
 
     // === 1×1 白テクスチャ ===
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
@@ -263,12 +263,12 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     td.initial_data_size = 4;
     auto wt_r = CreateRhiTexture(device, td);
     if (wt_r.IsErr()) return Err<void>(wt_r.Error());
-    _white = Move(wt_r.Value());
+    m_White = Move(wt_r.Value());
 
     // === パイプライン ===
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
@@ -295,18 +295,18 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    _pipeline = Move(pl_r.Value());
+    m_Pipeline = Move(pl_r.Value());
 
     return Ok();
 }
 
 void FStandardShader::Shutdown() noexcept {
-    _pipeline.Reset();
-    _white.Reset();
-    _object_cb.Reset();
-    _frame_cb.Reset();
-    _ps.Reset();
-    _vs.Reset();
+    m_Pipeline.Reset();
+    m_White.Reset();
+    m_ObjectCb.Reset();
+    m_FrameCb.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
 }
 
 void FStandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
@@ -321,72 +321,72 @@ void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
                                const FDirLight* lights, u32 count,
                                FVec3 ambient) noexcept {
     if (count > kMaxDirLights) count = kMaxDirLights;
-    _vp = vp;
-    _eye = cam;
-    _ambient = ambient;
-    _dir_count = count;
-    for (u32 i = 0; i < count; ++i) _dir_lights[i] = lights[i];
+    m_Vp = vp;
+    m_Eye = cam;
+    m_Ambient = ambient;
+    m_DirCount = count;
+    for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
     FlushFrameCB();
 }
 
 void FStandardShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
-    _point_count = count;
-    for (u32 i = 0; i < count; ++i) _point_lights[i] = lights[i];
+    m_PointCount = count;
+    for (u32 i = 0; i < count; ++i) m_PointLights[i] = lights[i];
     FlushFrameCB();
 }
 
 void FStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
                                    f32 bias, f32 filter_radius) noexcept {
-    _shadow_tex    = tex;
-    _light_vp      = light_vp;
-    _shadow_bias   = bias;
-    _shadow_filter = filter_radius;
+    m_ShadowTex    = tex;
+    m_LightVp      = light_vp;
+    m_ShadowBias   = bias;
+    m_ShadowFilter = filter_radius;
     FlushFrameCB();
 }
 
 void FStandardShader::FlushFrameCB() noexcept {
-    if (!_frame_cb) return;
+    if (!m_FrameCb) return;
     FrameCBLayout cb{};
-    cb.view_proj  = _vp;
-    cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
-    cb.ambient    = FVec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
-    cb.point_count_pad = FVec4{static_cast<f32>(_point_count), 0, 0, 0};
-    for (u32 i = 0; i < _dir_count; ++i) {
-        const FVec3& d = _dir_lights[i].direction;
-        const FVec3& c = _dir_lights[i].color;
+    cb.view_proj  = m_Vp;
+    cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
+    cb.ambient    = FVec4{m_Ambient.x, m_Ambient.y, m_Ambient.z, static_cast<f32>(m_DirCount)};
+    cb.point_count_pad = FVec4{static_cast<f32>(m_PointCount), 0, 0, 0};
+    for (u32 i = 0; i < m_DirCount; ++i) {
+        const FVec3& d = m_DirLights[i].direction;
+        const FVec3& c = m_DirLights[i].color;
         cb.light_dir[i]   = FVec4{d.x, d.y, d.z, 0};
         cb.light_color[i] = FVec4{c.x, c.y, c.z, 1};
     }
-    for (u32 i = 0; i < _point_count; ++i) {
-        const FVec3& p = _point_lights[i].position;
-        const FVec3& c = _point_lights[i].color;
-        cb.point_pos_range[i] = FVec4{p.x, p.y, p.z, _point_lights[i].range};
+    for (u32 i = 0; i < m_PointCount; ++i) {
+        const FVec3& p = m_PointLights[i].position;
+        const FVec3& c = m_PointLights[i].color;
+        cb.point_pos_range[i] = FVec4{p.x, p.y, p.z, m_PointLights[i].range};
         cb.point_color[i]     = FVec4{c.x, c.y, c.z, 1};
     }
-    cb.light_view_proj = _light_vp;
+    cb.light_view_proj = m_LightVp;
     // shadow_params: x=bias, y=enabled (0/1), z=texel_size (UV)、w=filter_radius
     // texel_size は FShadowMap 固定 2048 想定 (FPbrShader と同じ近似)。PCSS は
     // 1 texel offset でも blocker search が正しく機能するため、Vogel 時代の
     // 2-texel bilinear 補正は不要 (penumbra 計算で自動的にエッジが広がる)。
     // w=0 で hard、w=1 で FPbrShader と同じ標準 PCSS。
     cb.shadow_params = FVec4{
-        _shadow_bias,
-        _shadow_tex ? 1.0f : 0.0f,
+        m_ShadowBias,
+        m_ShadowTex ? 1.0f : 0.0f,
         1.0f / 2048.0f,
-        _shadow_filter
+        m_ShadowFilter
     };
-    _frame_cb->Update(&cb, sizeof(cb));
+    m_FrameCb->Update(&cb, sizeof(cb));
 }
 
 void FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
                                f32 specular_strength, f32 shininess) noexcept {
-    if (!_object_cb) return;
+    if (!m_ObjectCb) return;
     ObjectCBLayout cb{};
     cb.model      = model;
     cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
     cb.material   = FVec4{specular_strength, shininess, 0, 0};
-    _object_cb->Update(&cb, sizeof(cb));
+    m_ObjectCb->Update(&cb, sizeof(cb));
 }
 
 void FStandardShader::DrawMesh(IRhiCommandList& cmd,
@@ -396,13 +396,13 @@ void FStandardShader::DrawMesh(IRhiCommandList& cmd,
                               f32  specular_strength,
                               f32  shininess,
                               IRhiTexture* albedo) noexcept {
-    if (!_pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
+    if (!m_Pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
     SetObject(model, base_color, specular_strength, shininess);
 
-    cmd.SetPipeline(*_pipeline);
-    cmd.SetConstantBuffer(0, *_frame_cb);
-    cmd.SetConstantBuffer(1, *_object_cb);
-    cmd.SetTexture(0, albedo ? *albedo : *_white);
+    cmd.SetPipeline(*m_Pipeline);
+    cmd.SetConstantBuffer(0, *m_FrameCb);
+    cmd.SetConstantBuffer(1, *m_ObjectCb);
+    cmd.SetTexture(0, albedo ? *albedo : *m_White);
     cmd.SetTexture(1, *ShadowTextureOrDefault());
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     cmd.SetIndexBuffer(*mesh.index_buffer);

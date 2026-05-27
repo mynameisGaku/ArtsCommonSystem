@@ -25,27 +25,27 @@ public:
 
     // 既存ポインタからの構築（所有権を奪う）
     explicit TUniquePtr(T* p, FAllocator* a = nullptr) noexcept
-        : _ptr(p), _alloc(a ? a : &DefaultAllocator()) {}
+        : m_Ptr(p), m_Alloc(a ? a : &DefaultAllocator()) {}
 
     // コピー禁止
     TUniquePtr(const TUniquePtr&) = delete;
     TUniquePtr& operator=(const TUniquePtr&) = delete;
 
     // ムーブ: 所有権を譲渡
-    TUniquePtr(TUniquePtr&& o) noexcept : _ptr(o._ptr), _alloc(o._alloc) {
-        o._ptr = nullptr;
+    TUniquePtr(TUniquePtr&& o) noexcept : m_Ptr(o.m_Ptr), m_Alloc(o.m_Alloc) {
+        o.m_Ptr = nullptr;
     }
 
     // U → T への変換ムーブ（基底クラスへのアップキャスト等）
     template<typename U>
-    TUniquePtr(TUniquePtr<U>&& o) noexcept : _ptr(o.Release()), _alloc(o.GetAllocator()) {}
+    TUniquePtr(TUniquePtr<U>&& o) noexcept : m_Ptr(o.Release()), m_Alloc(o.GetAllocator()) {}
 
     TUniquePtr& operator=(TUniquePtr&& o) noexcept {
         if (this == &o) return *this;
         Reset();
-        _ptr = o._ptr;
-        _alloc = o._alloc;
-        o._ptr = nullptr;
+        m_Ptr = o.m_Ptr;
+        m_Alloc = o.m_Alloc;
+        o.m_Ptr = nullptr;
         return *this;
     }
 
@@ -53,30 +53,30 @@ public:
 
     // ---- アクセス ----
     // std::unique_ptr<T>::get() と同じ意味論。TUniquePtr の const 性と T の const 性は独立。
-    T* Get() const noexcept { return _ptr; }
+    T* Get() const noexcept { return m_Ptr; }
 
-    T& operator*()  const noexcept { return *_ptr; }
-    T* operator->() const noexcept { return _ptr; }
-    explicit operator bool() const noexcept { return _ptr != nullptr; }
+    T& operator*()  const noexcept { return *m_Ptr; }
+    T* operator->() const noexcept { return m_Ptr; }
+    explicit operator bool() const noexcept { return m_Ptr != nullptr; }
 
     // 所有権を放棄して生ポインタを返す（呼び出し側が解放責任を持つ）
     T* Release() noexcept {
-        T* p = _ptr;
-        _ptr = nullptr;
+        T* p = m_Ptr;
+        m_Ptr = nullptr;
         return p;
     }
 
     // 既存対象を破棄して新しい対象を保持（または null にする）
     void Reset(T* p = nullptr) noexcept {
-        if (_ptr) Delete(*_alloc, _ptr);
-        _ptr = p;
+        if (m_Ptr) Delete(*m_Alloc, m_Ptr);
+        m_Ptr = p;
     }
 
-    FAllocator* GetAllocator() const noexcept { return _alloc; }
+    FAllocator* GetAllocator() const noexcept { return m_Alloc; }
 
 private:
-    T*         _ptr   = nullptr;
-    FAllocator* _alloc = nullptr;
+    T*         m_Ptr   = nullptr;
+    FAllocator* m_Alloc = nullptr;
 };
 
 // ---- ファクトリ -----------------------------------------------------------

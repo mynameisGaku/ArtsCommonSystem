@@ -68,36 +68,36 @@ public:
 
     // 初期状態に入る。OnEnter が呼ばれる。
     void Start(u32 initial_state, Owner& owner) noexcept {
-        _current = initial_state;
-        if (_current < kMaxStates && _states[_current].on_enter != nullptr) {
-            _states[_current].on_enter(owner);
+        m_Current = initial_state;
+        if (m_Current < kMaxStates && _states[m_Current].on_enter != nullptr) {
+            _states[m_Current].on_enter(owner);
         }
     }
 
     // 即時遷移: 現状態の OnExit → 新状態の OnEnter を同期実行。
     void ChangeState(u32 new_state, Owner& owner) noexcept {
-        if (_current < kMaxStates && _states[_current].on_exit != nullptr) {
-            _states[_current].on_exit(owner);
+        if (m_Current < kMaxStates && _states[m_Current].on_exit != nullptr) {
+            _states[m_Current].on_exit(owner);
         }
-        _current = new_state;
-        if (_current < kMaxStates && _states[_current].on_enter != nullptr) {
-            _states[_current].on_enter(owner);
+        m_Current = new_state;
+        if (m_Current < kMaxStates && _states[m_Current].on_enter != nullptr) {
+            _states[m_Current].on_enter(owner);
         }
     }
 
     // OnUpdate を発火。毎フレーム呼ぶ。
     void Update(Owner& owner, f32 dt) noexcept {
-        if (_current < kMaxStates && _states[_current].on_update != nullptr) {
-            _states[_current].on_update(owner, dt);
+        if (m_Current < kMaxStates && _states[m_Current].on_update != nullptr) {
+            _states[m_Current].on_update(owner, dt);
         }
     }
 
-    u32  Current() const noexcept { return _current; }
-    bool IsIn(u32 state_id) const noexcept { return _current == state_id; }
+    u32  Current() const noexcept { return m_Current; }
+    bool IsIn(u32 state_id) const noexcept { return m_Current == state_id; }
 
 private:
     State _states[kMaxStates] = {};
-    u32   _current = kInvalidState;
+    u32   m_Current = kInvalidState;
 };
 
 } // namespace acs::game

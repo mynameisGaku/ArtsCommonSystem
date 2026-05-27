@@ -66,72 +66,72 @@ public:
     // ---- 要素操作 ----
     void PushBack(T v) noexcept {
         AssertMutationOK();
-        usize idx = _items.Size();
-        _items.PushBack(Move(v));
-        Notify(EArrayChange::Inserted, idx, &_items[idx]);
+        usize idx = m_Items.Size();
+        m_Items.PushBack(Move(v));
+        Notify(EArrayChange::Inserted, idx, &m_Items[idx]);
     }
 
     // 末尾の要素を削除 (空なら no-op)
     void PopBack() noexcept {
-        if (_items.Size() == 0) return;
+        if (m_Items.Size() == 0) return;
         AssertMutationOK();
-        usize idx = _items.Size() - 1;
+        usize idx = m_Items.Size() - 1;
         // PopBack 後は要素アクセスできないので value=nullptr で通知
-        _items.PopBack();
+        m_Items.PopBack();
         Notify(EArrayChange::Removed, idx, nullptr);
     }
 
     // 任意 index を削除 (末尾入れ替えではなく前詰め — 順序保持)
     void RemoveAt(usize index) noexcept {
-        if (index >= _items.Size()) return;
+        if (index >= m_Items.Size()) return;
         AssertMutationOK();
-        for (usize i = index + 1; i < _items.Size(); ++i) {
-            _items[i - 1] = Move(_items[i]);
+        for (usize i = index + 1; i < m_Items.Size(); ++i) {
+            m_Items[i - 1] = Move(m_Items[i]);
         }
-        _items.PopBack();
+        m_Items.PopBack();
         Notify(EArrayChange::Removed, index, nullptr);
     }
 
     // 要素を書き換え (同値ならスキップ)
     void SetAt(usize index, T v) noexcept {
-        if (index >= _items.Size()) return;
-        if (_items[index] == v) return;
+        if (index >= m_Items.Size()) return;
+        if (m_Items[index] == v) return;
         AssertMutationOK();
-        _items[index] = Move(v);
-        Notify(EArrayChange::Changed, index, &_items[index]);
+        m_Items[index] = Move(v);
+        Notify(EArrayChange::Changed, index, &m_Items[index]);
     }
 
     // 全削除
     void Clear() noexcept {
-        if (_items.Size() == 0) return;
+        if (m_Items.Size() == 0) return;
         AssertMutationOK();
-        _items.Clear();
+        m_Items.Clear();
         Notify(EArrayChange::Cleared, 0, nullptr);
     }
 
     // ---- 読み取り ----
-    usize Size() const noexcept { return _items.Size(); }
-    bool  Empty() const noexcept { return _items.Size() == 0; }
+    usize Size() const noexcept { return m_Items.Size(); }
+    bool  Empty() const noexcept { return m_Items.Size() == 0; }
 
-    const T& At(usize index) const noexcept { return _items[index]; }
-    T&       At(usize index)       noexcept { return _items[index]; }
+    const T& At(usize index) const noexcept { return m_Items[index]; }
+    T&       At(usize index)       noexcept { return m_Items[index]; }
 
-    const T* Data() const noexcept { return _items.Data(); }
-    T*       Data()       noexcept { return _items.Data(); }
+    const T* Data() const noexcept { return m_Items.Data(); }
+    T*       Data()       noexcept { return m_Items.Data(); }
 
     // ---- 購読 ----
     FArrayObserverHandle Subscribe(Listener cb, void* user) noexcept {
         if (!cb) return kInvalidArrayObserver;
         u32 idx;
-        if (_free_indices.Size() > 0) {
-            idx = _free_indices[_free_indices.Size() - 1];
-            _free_indices.PopBack();
+        if (m_FreeIndices.Size() > 0) {
+            idx = m_FreeIndices[m_FreeIndices.Size() - 1];
+            m_FreeIndices.PopBack();
         } else {
-            idx = static_cast<u32>(_slots.Size());
-            _slots.PushBack(Slot{});
+            idx = static_cast<u32>(m_Slots.Size());
+            m_Slots.PushBack(Slot{});
         }
-        Slot& s = _slots[idx];
-        if (s.id == 0) s.id = _next_id++;
+        Slot& s = m_Slots[idx];
+        if (s.id == 0) s.id = m_NextId++;
         s.generation++;
         s.active = true;
         s.cb     = cb;
@@ -141,17 +141,17 @@ public:
 
     bool Unsubscribe(FArrayObserverHandle h) noexcept {
         if (!h.IsValid()) return false;
-        for (usize i = 0; i < _slots.Size(); ++i) {
-            Slot& s = _slots[i];
+        for (usize i = 0; i < m_Slots.Size(); ++i) {
+            Slot& s = m_Slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
-                if (_notify_depth > 0) {
+                if (m_NotifyDepth > 0) {
                     s.active = false;
-                    _pending_cancel.PushBack(static_cast<u32>(i));
+                    m_PendingCancel.PushBack(static_cast<u32>(i));
                 } else {
                     s.active = false;
                     s.cb     = nullptr;
                     s.user   = nullptr;
-                    _free_indices.PushBack(static_cast<u32>(i));
+                    m_FreeIndices.PushBack(static_cast<u32>(i));
                 }
                 return true;
             }
@@ -161,7 +161,7 @@ public:
 
     u32 SubscriberCount() const noexcept {
         u32 n = 0;
-        for (usize i = 0; i < _slots.Size(); ++i) if (_slots[i].active) ++n;
+        for (usize i = 0; i < m_Slots.Size(); ++i) if (m_Slots[i].active) ++n;
         return n;
     }
 
@@ -170,31 +170,31 @@ private:
         // listener (Notify) 中に Add/Remove を呼ぶと要素配列の再配置で
         // 同じ listener ループに dangling pointer が渡される危険がある。
         // Debug ビルドで検出 (Release はコスト 0)。
-        ACS_ASSERTF(_notify_depth == 0,
+        ACS_ASSERTF(m_NotifyDepth == 0,
                     "ObservableArray: mutation during Notify is not allowed (depth=%d)",
-                    _notify_depth);
+                    m_NotifyDepth);
     }
 
     void Notify(EArrayChange kind, usize index, const T* value) noexcept {
-        ++_notify_depth;
-        const usize n = _slots.Size();
+        ++m_NotifyDepth;
+        const usize n = m_Slots.Size();
         for (usize i = 0; i < n; ++i) {
-            Slot& s = _slots[i];
+            Slot& s = m_Slots[i];
             if (!s.active || !s.cb) continue;
             s.cb(kind, index, value, s.user);
         }
-        --_notify_depth;
-        if (_notify_depth == 0 && _pending_cancel.Size() > 0) {
-            for (usize i = 0; i < _pending_cancel.Size(); ++i) {
-                u32 idx = _pending_cancel[i];
-                if (idx < _slots.Size()) {
-                    Slot& s = _slots[idx];
+        --m_NotifyDepth;
+        if (m_NotifyDepth == 0 && m_PendingCancel.Size() > 0) {
+            for (usize i = 0; i < m_PendingCancel.Size(); ++i) {
+                u32 idx = m_PendingCancel[i];
+                if (idx < m_Slots.Size()) {
+                    Slot& s = m_Slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
-                    _free_indices.PushBack(idx);
+                    m_FreeIndices.PushBack(idx);
                 }
             }
-            _pending_cancel.Clear();
+            m_PendingCancel.Clear();
         }
     }
 
@@ -206,12 +206,12 @@ private:
         void*    user        = nullptr;
     };
 
-    TArray<T>     _items;
-    TArray<Slot>  _slots;
-    TArray<u32>   _free_indices;
-    TArray<u32>   _pending_cancel;
-    u32          _next_id      = 1;
-    i32          _notify_depth = 0;
+    TArray<T>     m_Items;
+    TArray<Slot>  m_Slots;
+    TArray<u32>   m_FreeIndices;
+    TArray<u32>   m_PendingCancel;
+    u32          m_NextId      = 1;
+    i32          m_NotifyDepth = 0;
 };
 
 } // namespace acs

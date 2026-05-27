@@ -125,140 +125,140 @@ inline void FormatCodepointLabel(u32 cp, c8* out, usize out_cap) noexcept {
 // Init / Shutdown
 // ============================================================================
 void FFontEditorPanel::Init() noexcept {
-    // _faces (acs::TArray) は Clear で size を 0 に (capacity は保持)。
-    _faces.Clear();
-    _selected     = -1;
-    _preview_size = 24.0f;
+    // m_Faces (acs::TArray) は Clear で size を 0 に (capacity は保持)。
+    m_Faces.Clear();
+    m_Selected     = -1;
+    m_PreviewSize = 24.0f;
 
     // preview buffer はデフォルト文字列で埋める。utf-8 リテラルで安全な範囲
     // (= ASCII + ASCII range) のみ採用。広めの代表的サンプルは caller (sample
     // 36) が SetPreviewText で上書きする想定。
-    for (u32 i = 0; i < kPreviewTextCapacity; ++i) _preview_text[i] = '\0';
+    for (u32 i = 0; i < kPreviewTextCapacity; ++i) m_PreviewText[i] = '\0';
     const c8* def = "The quick brown fox jumps over the lazy dog.";
     for (u32 i = 0; def[i] != '\0' && i + 1u < kPreviewTextCapacity; ++i) {
-        _preview_text[i] = def[i];
+        m_PreviewText[i] = def[i];
     }
 
     // viewport 系 panel は dock 中央に置きたいことが多い (FSpriteAtlasEditorPanel
     // と同方針)。
-    _visible       = true;
-    _docked_target = true;
+    m_Visible       = true;
+    m_DockedTarget = true;
 }
 
 void FFontEditorPanel::Shutdown() noexcept {
-    _faces.Clear();
-    _selected     = -1;
-    _preview_size = 24.0f;
-    for (u32 i = 0; i < kPreviewTextCapacity; ++i) _preview_text[i] = '\0';
+    m_Faces.Clear();
+    m_Selected     = -1;
+    m_PreviewSize = 24.0f;
+    for (u32 i = 0; i < kPreviewTextCapacity; ++i) m_PreviewText[i] = '\0';
 }
 
 // ============================================================================
 // face リスト操作
 // ============================================================================
 u32 FFontEditorPanel::FontFaceCount() const noexcept {
-    return static_cast<u32>(_faces.Size());
+    return static_cast<u32>(m_Faces.Size());
 }
 
 const FontFaceInfo* FFontEditorPanel::GetFontFace(u32 i) const noexcept {
-    if (i >= static_cast<u32>(_faces.Size())) return nullptr;
-    return &_faces[static_cast<usize>(i)];
+    if (i >= static_cast<u32>(m_Faces.Size())) return nullptr;
+    return &m_Faces[static_cast<usize>(i)];
 }
 
 void FFontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
-    if (static_cast<u32>(_faces.Size()) >= kMaxFontFaces) return;
+    if (static_cast<u32>(m_Faces.Size()) >= kMaxFontFaces) return;
     // 末尾追加 + fallback_index を TArray index と同期。
-    _faces.PushBack(info);
-    const u32 new_idx = static_cast<u32>(_faces.Size()) - 1u;
-    _faces[new_idx].fallback_index = new_idx;
+    m_Faces.PushBack(info);
+    const u32 new_idx = static_cast<u32>(m_Faces.Size()) - 1u;
+    m_Faces[new_idx].fallback_index = new_idx;
     // 未選択だったら新規 face を選択 (UX: 追加直後に inspector が表示される)。
-    if (_selected < 0) _selected = static_cast<i32>(new_idx);
+    if (m_Selected < 0) m_Selected = static_cast<i32>(new_idx);
 }
 
 void FFontEditorPanel::RemoveFontFace(u32 i) noexcept {
-    const u32 count = static_cast<u32>(_faces.Size());
+    const u32 count = static_cast<u32>(m_Faces.Size());
     if (i >= count) return;
     // 順序保持削除: i 以降を 1 つ前にシフトしてから PopBack。TArray に
     // RemoveAt (順序保持) が無いため、PODs だけ手で詰める。
     for (usize k = static_cast<usize>(i); k + 1u < static_cast<usize>(count); ++k) {
-        _faces[k] = _faces[k + 1u];
+        m_Faces[k] = m_Faces[k + 1u];
     }
-    _faces.PopBack();
+    m_Faces.PopBack();
     // fallback_index 再振り直し (= chain 順位と同期)。
-    const u32 new_count = static_cast<u32>(_faces.Size());
+    const u32 new_count = static_cast<u32>(m_Faces.Size());
     for (u32 k = 0; k < new_count; ++k) {
-        _faces[static_cast<usize>(k)].fallback_index = k;
+        m_Faces[static_cast<usize>(k)].fallback_index = k;
     }
     // selection 補正:
     //   削除対象を選んでた → -1
     //   後ろを選んでた → 1 つ詰める
     //   それ以外 (前) は据え置き
-    if (_selected == static_cast<i32>(i)) {
-        _selected = (new_count > 0u)
-                        ? ClampI32(_selected, 0, static_cast<i32>(new_count) - 1)
+    if (m_Selected == static_cast<i32>(i)) {
+        m_Selected = (new_count > 0u)
+                        ? ClampI32(m_Selected, 0, static_cast<i32>(new_count) - 1)
                         : -1;
-    } else if (_selected > static_cast<i32>(i)) {
-        --_selected;
+    } else if (m_Selected > static_cast<i32>(i)) {
+        --m_Selected;
     }
-    if (new_count == 0u) _selected = -1;
+    if (new_count == 0u) m_Selected = -1;
 }
 
 void FFontEditorPanel::MoveFaceUp(u32 i) noexcept {
-    const u32 count = static_cast<u32>(_faces.Size());
+    const u32 count = static_cast<u32>(m_Faces.Size());
     if (i == 0u || i >= count) return;
-    SwapFaces(_faces[static_cast<usize>(i - 1u)], _faces[static_cast<usize>(i)]);
-    _faces[static_cast<usize>(i - 1u)].fallback_index = i - 1u;
-    _faces[static_cast<usize>(i)     ].fallback_index = i;
+    SwapFaces(m_Faces[static_cast<usize>(i - 1u)], m_Faces[static_cast<usize>(i)]);
+    m_Faces[static_cast<usize>(i - 1u)].fallback_index = i - 1u;
+    m_Faces[static_cast<usize>(i)     ].fallback_index = i;
     // selection 追随 (移動した face を引き続き選択し続けるのが UX 上自然)。
-    if (_selected == static_cast<i32>(i))      _selected = static_cast<i32>(i - 1u);
-    else if (_selected == static_cast<i32>(i - 1u)) _selected = static_cast<i32>(i);
+    if (m_Selected == static_cast<i32>(i))      m_Selected = static_cast<i32>(i - 1u);
+    else if (m_Selected == static_cast<i32>(i - 1u)) m_Selected = static_cast<i32>(i);
 }
 
 void FFontEditorPanel::MoveFaceDown(u32 i) noexcept {
-    const u32 count = static_cast<u32>(_faces.Size());
+    const u32 count = static_cast<u32>(m_Faces.Size());
     if (count == 0u || i + 1u >= count) return;
-    SwapFaces(_faces[static_cast<usize>(i)], _faces[static_cast<usize>(i + 1u)]);
-    _faces[static_cast<usize>(i)     ].fallback_index = i;
-    _faces[static_cast<usize>(i + 1u)].fallback_index = i + 1u;
-    if (_selected == static_cast<i32>(i))           _selected = static_cast<i32>(i + 1u);
-    else if (_selected == static_cast<i32>(i + 1u)) _selected = static_cast<i32>(i);
+    SwapFaces(m_Faces[static_cast<usize>(i)], m_Faces[static_cast<usize>(i + 1u)]);
+    m_Faces[static_cast<usize>(i)     ].fallback_index = i;
+    m_Faces[static_cast<usize>(i + 1u)].fallback_index = i + 1u;
+    if (m_Selected == static_cast<i32>(i))           m_Selected = static_cast<i32>(i + 1u);
+    else if (m_Selected == static_cast<i32>(i + 1u)) m_Selected = static_cast<i32>(i);
 }
 
 // ============================================================================
 // 選択
 // ============================================================================
 i32 FFontEditorPanel::SelectedIndex() const noexcept {
-    return _selected;
+    return m_Selected;
 }
 
 void FFontEditorPanel::SelectFace(i32 i) noexcept {
-    const i32 count = static_cast<i32>(_faces.Size());
-    if (i < 0 || i >= count) { _selected = -1; return; }
-    _selected = i;
+    const i32 count = static_cast<i32>(m_Faces.Size());
+    if (i < 0 || i >= count) { m_Selected = -1; return; }
+    m_Selected = i;
 }
 
 // ============================================================================
 // Preview text / size
 // ============================================================================
 void FFontEditorPanel::SetPreviewText(const char* utf8) noexcept {
-    for (u32 i = 0; i < kPreviewTextCapacity; ++i) _preview_text[i] = '\0';
+    for (u32 i = 0; i < kPreviewTextCapacity; ++i) m_PreviewText[i] = '\0';
     if (utf8 == nullptr) return;
     for (u32 i = 0; utf8[i] != '\0' && i + 1u < kPreviewTextCapacity; ++i) {
-        _preview_text[i] = utf8[i];
+        m_PreviewText[i] = utf8[i];
     }
     // 念のため終端保証。
-    _preview_text[kPreviewTextCapacity - 1u] = '\0';
+    m_PreviewText[kPreviewTextCapacity - 1u] = '\0';
 }
 
 const char* FFontEditorPanel::PreviewText() const noexcept {
-    return _preview_text;
+    return m_PreviewText;
 }
 
 f32 FFontEditorPanel::PreviewFontSize() const noexcept {
-    return _preview_size;
+    return m_PreviewSize;
 }
 
 void FFontEditorPanel::SetPreviewFontSize(f32 px) noexcept {
-    _preview_size = ClampF32(px, kMinPreviewFontSize, kMaxPreviewFontSize);
+    m_PreviewSize = ClampF32(px, kMinPreviewFontSize, kMaxPreviewFontSize);
 }
 
 // ============================================================================
@@ -267,7 +267,7 @@ void FFontEditorPanel::SetPreviewFontSize(f32 px) noexcept {
 void FFontEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
     FEditorPanel::OnInit(workspace);
     // preview バッファ終端 0 を念のため確定 (多重 OnInit でも安全)。
-    _preview_text[kPreviewTextCapacity - 1u] = '\0';
+    m_PreviewText[kPreviewTextCapacity - 1u] = '\0';
 }
 
 // ============================================================================
@@ -291,12 +291,12 @@ void FFontEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspac
 void FFontEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
-    if (!ImGui::Begin(Title(), &_visible)) {
+    if (!ImGui::Begin(Title(), &m_Visible)) {
         ImGui::End();
         return;
     }
 
-    const i32 count = static_cast<i32>(_faces.Size());
+    const i32 count = static_cast<i32>(m_Faces.Size());
 
     // ----- 上部 toolbar -----
     {
@@ -312,26 +312,26 @@ void FFontEditorPanel::DrawUI() noexcept {
         if (!can_add) ImGui::EndDisabled();
 
         ImGui::SameLine();
-        const bool has_sel = (_selected >= 0 && _selected < count);
+        const bool has_sel = (m_Selected >= 0 && m_Selected < count);
         if (!has_sel) ImGui::BeginDisabled();
         if (ImGui::Button("- Remove Selected")) {
-            RemoveFontFace(static_cast<u32>(_selected));
+            RemoveFontFace(static_cast<u32>(m_Selected));
         }
         if (!has_sel) ImGui::EndDisabled();
 
         ImGui::SameLine();
-        const bool can_up = has_sel && (_selected > 0);
+        const bool can_up = has_sel && (m_Selected > 0);
         if (!can_up) ImGui::BeginDisabled();
         if (ImGui::Button("^ Up")) {
-            MoveFaceUp(static_cast<u32>(_selected));
+            MoveFaceUp(static_cast<u32>(m_Selected));
         }
         if (!can_up) ImGui::EndDisabled();
 
         ImGui::SameLine();
-        const bool can_down = has_sel && (_selected + 1 < count);
+        const bool can_down = has_sel && (m_Selected + 1 < count);
         if (!can_down) ImGui::BeginDisabled();
         if (ImGui::Button("v Down")) {
-            MoveFaceDown(static_cast<u32>(_selected));
+            MoveFaceDown(static_cast<u32>(m_Selected));
         }
         if (!can_down) ImGui::EndDisabled();
 
@@ -365,16 +365,16 @@ void FFontEditorPanel::DrawUI() noexcept {
             ImGui::TextDisabled("(no faces)");
         } else {
             for (i32 i = 0; i < count; ++i) {
-                const FontFaceInfo& f = _faces[static_cast<usize>(i)];
+                const FontFaceInfo& f = m_Faces[static_cast<usize>(i)];
                 const c8* nm = (f.family_name != nullptr) ? f.family_name : "(unnamed)";
                 // 表示形式: "[NN] family"
                 c8 row_label[96] = {};
                 std::snprintf(row_label, sizeof(row_label), "[%02d] %s",
                               static_cast<int>(i), nm);
                 ImGui::PushID(i);
-                const bool selected = (i == _selected);
+                const bool selected = (i == m_Selected);
                 if (ImGui::Selectable(row_label, selected)) {
-                    _selected = i;
+                    m_Selected = i;
                 }
                 ImGui::PopID();
             }
@@ -398,14 +398,14 @@ void FFontEditorPanel::DrawUI() noexcept {
         // 幅 -1.0f は ImGui 規約「残りを全て使う」。
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputText("##fontedit_preview_text",
-                         _preview_text,
+                         m_PreviewText,
                          static_cast<size_t>(kPreviewTextCapacity));
 
         // ---- preview size slider ----
         ImGui::TextUnformatted("Size:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(220.0f);
-        f32 sz = _preview_size;
+        f32 sz = m_PreviewSize;
         if (ImGui::SliderFloat("##fontedit_preview_size", &sz,
                                kMinPreviewFontSize, kMaxPreviewFontSize,
                                "%.1f px")) {
@@ -424,7 +424,7 @@ void FFontEditorPanel::DrawUI() noexcept {
             // scale = preview_size / base_size (= 各 face の atlas pixel size と
             // preview の対比)。base_size_px が 0 / 負なら 1.0 を fallback。
             for (i32 i = 0; i < count; ++i) {
-                const FontFaceInfo& f = _faces[static_cast<usize>(i)];
+                const FontFaceInfo& f = m_Faces[static_cast<usize>(i)];
                 const c8* nm = (f.family_name != nullptr) ? f.family_name : "(unnamed)";
                 ImGui::PushID(i);
                 ImGui::Text("[%02d] %s  (base %.1f px, %s)",
@@ -434,14 +434,14 @@ void FFontEditorPanel::DrawUI() noexcept {
                 // ImGui::SetWindowFontScale はそのウィンドウ全体のフォント倍率を
                 // 変えるので、Push/Pop 風に前後で 1.0 に戻す。
                 const f32 base = (f.base_size_px > 0.0f) ? f.base_size_px : 14.0f;
-                const f32 face_scale = _preview_size / base;
+                const f32 face_scale = m_PreviewSize / base;
                 const f32 default_h  = ImGui::GetFontSize();
-                const f32 base_scale = (default_h > 0.0f) ? (_preview_size / default_h) : 1.0f;
+                const f32 base_scale = (default_h > 0.0f) ? (m_PreviewSize / default_h) : 1.0f;
                 // 細かい挙動の差を避けるため、preview 行は default font の絶対
                 // size = preview_size で出す (= face base_size は info で表示)。
                 ImGui::SetWindowFontScale(base_scale);
-                if (_preview_text[0] != '\0') {
-                    ImGui::TextUnformatted(_preview_text);
+                if (m_PreviewText[0] != '\0') {
+                    ImGui::TextUnformatted(m_PreviewText);
                 } else {
                     ImGui::TextDisabled("(empty)");
                 }
@@ -464,10 +464,10 @@ void FFontEditorPanel::DrawUI() noexcept {
         ImGui::TextUnformatted("Inspector");
         ImGui::Separator();
 
-        if (_selected < 0 || _selected >= count) {
+        if (m_Selected < 0 || m_Selected >= count) {
             ImGui::TextDisabled("(no selection)");
         } else {
-            FontFaceInfo& f = _faces[static_cast<usize>(_selected)];
+            FontFaceInfo& f = m_Faces[static_cast<usize>(m_Selected)];
 
             ImGui::Text("family:  %s",
                         (f.family_name != nullptr) ? f.family_name : "(null)");
@@ -558,7 +558,7 @@ void FFontEditorPanel::DrawUI() noexcept {
                             bool any = false;
                             for (i32 i = 0; i < count; ++i) {
                                 const FontFaceInfo& f =
-                                    _faces[static_cast<usize>(i)];
+                                    m_Faces[static_cast<usize>(i)];
                                 if (FaceCoversCodepoint(f, cp)) {
                                     const c8* nm = (f.family_name != nullptr)
                                                        ? f.family_name
@@ -580,7 +580,7 @@ void FFontEditorPanel::DrawUI() noexcept {
             // utf-8 input の codepoint デコードを 1 ループだけ走らせて
             // (= 未使用ヘルパ警告を抑え、preview text 内の最初の codepoint を
             //  下部に補助表示)。
-            const U8Decoded first = DecodeUtf8One(_preview_text);
+            const U8Decoded first = DecodeUtf8One(m_PreviewText);
             (void)first;
             ImGui::EndTable();
         }

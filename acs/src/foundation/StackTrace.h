@@ -27,18 +27,18 @@ public:
     // 取得済みアドレスをシンボル/ファイル/行に解決（内部ロックでスレッドセーフ）
     void Resolve() noexcept;
 
-    u32              FrameCount() const noexcept { return _count; }
-    const StackFrame& Frame(u32 i) const noexcept { return _frames[i]; }
+    u32              FrameCount() const noexcept { return m_Count; }
+    const StackFrame& Frame(u32 i) const noexcept { return m_Frames[i]; }
 
     // 1 行ずつテキストを sink に渡す
     using Sink = void (*)(void* user, const char* line, usize len);
     void Print(Sink sink, void* user) const noexcept;
 
 private:
-    u32        _count = 0;                         // 取得したフレーム数
-    bool       _resolved = false;                  // Resolve 済みか
-    void*      _addrs[kStackTraceMaxFrames] = {};  // 生のフレームアドレス
-    StackFrame _frames[kStackTraceMaxFrames] = {}; // 解決後の情報
+    u32        m_Count = 0;                         // 取得したフレーム数
+    bool       m_Resolved = false;                  // Resolve 済みか
+    void*      m_Addrs[kStackTraceMaxFrames] = {};  // 生のフレームアドレス
+    StackFrame m_Frames[kStackTraceMaxFrames] = {}; // 解決後の情報
 };
 
 } // namespace acs

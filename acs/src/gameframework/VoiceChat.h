@@ -10,18 +10,18 @@
 //
 // 使い方 (典型例):
 //   class FGame {
-//       acs::game::IVoiceChatBackend* _voice = nullptr;
+//       acs::game::IVoiceChatBackend* m_Voice = nullptr;
 //
 //       void OnStart() noexcept override {
 //           // 出荷ビルドでは Vivox/Discord/Steam Voice 実装を DI、開発ビルドは Stub。
-//           _voice = &acs::game::GetVoiceStub();
-//           (void)_voice->Init(acs::game::EVoiceProvider::None);
+//           m_Voice = &acs::game::GetVoiceStub();
+//           (void)m_Voice->Init(acs::game::EVoiceProvider::None);
 //       }
 //       void OnPartyJoined() noexcept {
-//           (void)_voice->JoinChannel(acs::game::EVoiceChannel::Party, "party-1234");
+//           (void)m_Voice->JoinChannel(acs::game::EVoiceChannel::Party, "party-1234");
 //       }
 //       void OnTick(f32 dt) noexcept override {
-//           _voice->Tick(dt);  // audio level 取得 / 発言検出 pump
+//           m_Voice->Tick(dt);  // audio level 取得 / 発言検出 pump
 //       }
 //   };
 //
@@ -47,7 +47,7 @@
 //     を Backend 側に畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバック
 //     ポンプの存在を意識しなくて良い。
 //   ・**Stub は static singleton**: 依存ゼロのデフォルト実装として `GetVoiceStub()`
-//     を提供。実 SDK 未統合のビルドでも `_voice = &GetVoiceStub();` だけでコンパイル可能。
+//     を提供。実 SDK 未統合のビルドでも `m_Voice = &GetVoiceStub();` だけでコンパイル可能。
 //
 // 倫理 / 安全方針:
 //   ・**moderation は別モジュール**: 文字起こしによる NG ワード判定 / 通報導線は
@@ -187,7 +187,7 @@ public:
     TResult<void>             Init(EVoiceProvider p) noexcept override;
     void                     Shutdown() noexcept override;
     bool                     IsAvailable() const noexcept override { return false; }
-    EVoiceProvider            ActiveProvider() const noexcept override { return _provider; }
+    EVoiceProvider            ActiveProvider() const noexcept override { return m_Provider; }
     TResult<void>             JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept override;
     TResult<void>             LeaveChannel(EVoiceChannel ch) noexcept override;
     TResult<void>             SetLocalMute(bool muted) noexcept override;
@@ -198,8 +198,8 @@ public:
     void                     Tick(f32 dt) noexcept override;
 
 private:
-    EVoiceProvider _provider = EVoiceProvider::None;
-    bool          _initialized = false;
+    EVoiceProvider m_Provider = EVoiceProvider::None;
+    bool          m_Initialized = false;
 };
 
 // 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。

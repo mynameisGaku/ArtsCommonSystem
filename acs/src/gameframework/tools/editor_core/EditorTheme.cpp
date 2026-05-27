@@ -188,24 +188,24 @@ void FEditorTheme::FillPresetColors(EEditorThemePreset       preset,
 // Init — default = Dark を ImGui に流す
 // =============================================================================
 void FEditorTheme::Init() noexcept {
-    _preset         = EEditorThemePreset::Dark;
-    _font_scale     = 1.0f;
-    _corner_radius  = 3.0f;
-    _item_spacing_y = 4.0f;
-    FillPresetColors(_preset, _colors);
+    m_Preset         = EEditorThemePreset::Dark;
+    m_FontScale     = 1.0f;
+    m_CornerRadius  = 3.0f;
+    m_ItemSpacingY = 4.0f;
+    FillPresetColors(m_Preset, m_Colors);
     ApplyToImGui();
 }
 
 // =============================================================================
-// ApplyPreset — preset 既定値を `_colors` に書き、ImGui に流す
+// ApplyPreset — preset 既定値を `m_Colors` に書き、ImGui に流す
 // =============================================================================
 void FEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
-    _preset = preset;
-    // Custom 以外なら _colors を上書き。Custom は SetCustomColors 経由で
+    m_Preset = preset;
+    // Custom 以外なら m_Colors を上書き。Custom は SetCustomColors 経由で
     // 設定された値を保持したまま現値を再適用する (= preset 切替で Custom に
     // 戻すと、直前の Custom パレットが復活する設計)。
     if (preset != EEditorThemePreset::Custom) {
-        FillPresetColors(preset, _colors);
+        FillPresetColors(preset, m_Colors);
     }
     ApplyToImGui();
 }
@@ -214,8 +214,8 @@ void FEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
 // SetCustomColors — 任意パレットを設定 + Custom に切り替え
 // =============================================================================
 void FEditorTheme::SetCustomColors(const EditorThemeColors& colors) noexcept {
-    _colors = colors;
-    _preset = EEditorThemePreset::Custom;
+    m_Colors = colors;
+    m_Preset = EEditorThemePreset::Custom;
     ApplyToImGui();
 }
 
@@ -231,9 +231,9 @@ void FEditorTheme::SetFontScale(f32 scale) noexcept {
                      static_cast<double>(scale));
         scale = 4.0f;
     }
-    _font_scale = scale;
+    m_FontScale = scale;
     if (HasImGuiContext()) {
-        ImGui::GetIO().FontGlobalScale = _font_scale;
+        ImGui::GetIO().FontGlobalScale = m_FontScale;
     }
 }
 
@@ -242,16 +242,16 @@ void FEditorTheme::SetFontScale(f32 scale) noexcept {
 // =============================================================================
 void FEditorTheme::SetRoundedCorners(f32 radius) noexcept {
     if (radius < 0.0f) radius = 0.0f;
-    _corner_radius = radius;
+    m_CornerRadius = radius;
     if (HasImGuiContext()) {
         ImGuiStyle& s     = ImGui::GetStyle();
-        s.WindowRounding    = _corner_radius;
-        s.FrameRounding     = _corner_radius;
-        s.PopupRounding     = _corner_radius;
-        s.GrabRounding      = _corner_radius;
-        s.TabRounding       = _corner_radius;
-        s.ScrollbarRounding = _corner_radius;
-        s.ChildRounding     = _corner_radius;
+        s.WindowRounding    = m_CornerRadius;
+        s.FrameRounding     = m_CornerRadius;
+        s.PopupRounding     = m_CornerRadius;
+        s.GrabRounding      = m_CornerRadius;
+        s.TabRounding       = m_CornerRadius;
+        s.ScrollbarRounding = m_CornerRadius;
+        s.ChildRounding     = m_CornerRadius;
     }
 }
 
@@ -260,16 +260,16 @@ void FEditorTheme::SetRoundedCorners(f32 radius) noexcept {
 // =============================================================================
 void FEditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
     if (item_spacing_y < 0.0f) item_spacing_y = 0.0f;
-    _item_spacing_y = item_spacing_y;
+    m_ItemSpacingY = item_spacing_y;
     if (HasImGuiContext()) {
         ImGuiStyle& s = ImGui::GetStyle();
         // x は y の 0.5 倍 (見た目バランスのための経験則: 横は詰め気味)。
-        s.ItemSpacing = ImVec2(_item_spacing_y * 0.5f, _item_spacing_y);
+        s.ItemSpacing = ImVec2(m_ItemSpacingY * 0.5f, m_ItemSpacingY);
     }
 }
 
 // =============================================================================
-// ApplyToImGui — `_colors` / 各 metric を ImGui::GetStyle() / IO に流し込む
+// ApplyToImGui — `m_Colors` / 各 metric を ImGui::GetStyle() / IO に流し込む
 // =============================================================================
 void FEditorTheme::ApplyToImGui() noexcept {
     if (!HasImGuiContext()) return;
@@ -278,72 +278,72 @@ void FEditorTheme::ApplyToImGui() noexcept {
     ImVec4*     col  = s.Colors;
 
     // ---- 基本背景 / フレーム --------------------------------------------
-    col[ImGuiCol_WindowBg]              = ToImVec4(_colors.window_bg);
-    col[ImGuiCol_ChildBg]               = ToImVec4(_colors.window_bg);
-    col[ImGuiCol_PopupBg]               = ToImVec4(_colors.window_bg);
-    col[ImGuiCol_FrameBg]               = ToImVec4(_colors.frame_bg);
-    col[ImGuiCol_FrameBgHovered]        = ToImVec4(_colors.button_hover);
-    col[ImGuiCol_FrameBgActive]         = ToImVec4(_colors.button_active);
+    col[ImGuiCol_WindowBg]              = ToImVec4(m_Colors.window_bg);
+    col[ImGuiCol_ChildBg]               = ToImVec4(m_Colors.window_bg);
+    col[ImGuiCol_PopupBg]               = ToImVec4(m_Colors.window_bg);
+    col[ImGuiCol_FrameBg]               = ToImVec4(m_Colors.frame_bg);
+    col[ImGuiCol_FrameBgHovered]        = ToImVec4(m_Colors.button_hover);
+    col[ImGuiCol_FrameBgActive]         = ToImVec4(m_Colors.button_active);
 
     // ---- タイトルバー ---------------------------------------------------
-    col[ImGuiCol_TitleBg]               = ToImVec4(_colors.title_bg);
-    col[ImGuiCol_TitleBgActive]         = ToImVec4(_colors.title_bg);
-    col[ImGuiCol_TitleBgCollapsed]      = ToImVec4(_colors.title_bg);
-    col[ImGuiCol_MenuBarBg]             = ToImVec4(_colors.title_bg);
+    col[ImGuiCol_TitleBg]               = ToImVec4(m_Colors.title_bg);
+    col[ImGuiCol_TitleBgActive]         = ToImVec4(m_Colors.title_bg);
+    col[ImGuiCol_TitleBgCollapsed]      = ToImVec4(m_Colors.title_bg);
+    col[ImGuiCol_MenuBarBg]             = ToImVec4(m_Colors.title_bg);
 
     // ---- ボタン ---------------------------------------------------------
-    col[ImGuiCol_Button]                = ToImVec4(_colors.button_bg);
-    col[ImGuiCol_ButtonHovered]         = ToImVec4(_colors.button_hover);
-    col[ImGuiCol_ButtonActive]          = ToImVec4(_colors.button_active);
+    col[ImGuiCol_Button]                = ToImVec4(m_Colors.button_bg);
+    col[ImGuiCol_ButtonHovered]         = ToImVec4(m_Colors.button_hover);
+    col[ImGuiCol_ButtonActive]          = ToImVec4(m_Colors.button_active);
 
     // ---- ヘッダ (CollapsingHeader / Selectable hover 等) -----------------
-    col[ImGuiCol_Header]                = ToImVec4(_colors.button_bg);
-    col[ImGuiCol_HeaderHovered]         = ToImVec4(_colors.button_hover);
-    col[ImGuiCol_HeaderActive]          = ToImVec4(_colors.button_active);
+    col[ImGuiCol_Header]                = ToImVec4(m_Colors.button_bg);
+    col[ImGuiCol_HeaderHovered]         = ToImVec4(m_Colors.button_hover);
+    col[ImGuiCol_HeaderActive]          = ToImVec4(m_Colors.button_active);
 
     // ---- 文字 -----------------------------------------------------------
-    col[ImGuiCol_Text]                  = ToImVec4(_colors.text);
-    col[ImGuiCol_TextDisabled]          = ToImVec4(_colors.text_disabled);
+    col[ImGuiCol_Text]                  = ToImVec4(m_Colors.text);
+    col[ImGuiCol_TextDisabled]          = ToImVec4(m_Colors.text_disabled);
 
     // ---- 枠 / 区切り ----------------------------------------------------
-    col[ImGuiCol_Border]                = ToImVec4(_colors.border);
+    col[ImGuiCol_Border]                = ToImVec4(m_Colors.border);
     col[ImGuiCol_BorderShadow]          = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    col[ImGuiCol_Separator]             = ToImVec4(_colors.separator);
-    col[ImGuiCol_SeparatorHovered]      = ToImVec4(_colors.accent);
-    col[ImGuiCol_SeparatorActive]       = ToImVec4(_colors.accent);
+    col[ImGuiCol_Separator]             = ToImVec4(m_Colors.separator);
+    col[ImGuiCol_SeparatorHovered]      = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_SeparatorActive]       = ToImVec4(m_Colors.accent);
 
     // ---- accent (CheckMark / Slider / Tab / Resize) ----------------------
-    col[ImGuiCol_CheckMark]             = ToImVec4(_colors.accent);
-    col[ImGuiCol_SliderGrab]            = ToImVec4(_colors.accent);
-    col[ImGuiCol_SliderGrabActive]      = ToImVec4(_colors.accent);
-    col[ImGuiCol_ResizeGrip]            = ToImVec4(_colors.accent);
-    col[ImGuiCol_ResizeGripHovered]     = ToImVec4(_colors.accent);
-    col[ImGuiCol_ResizeGripActive]      = ToImVec4(_colors.accent);
-    col[ImGuiCol_Tab]                   = ToImVec4(_colors.button_bg);
-    col[ImGuiCol_TabHovered]            = ToImVec4(_colors.accent);
-    col[ImGuiCol_TabActive]             = ToImVec4(_colors.accent);
-    col[ImGuiCol_TabUnfocused]          = ToImVec4(_colors.button_bg);
-    col[ImGuiCol_TabUnfocusedActive]    = ToImVec4(_colors.button_active);
+    col[ImGuiCol_CheckMark]             = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_SliderGrab]            = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_SliderGrabActive]      = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_ResizeGrip]            = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_ResizeGripHovered]     = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_ResizeGripActive]      = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_Tab]                   = ToImVec4(m_Colors.button_bg);
+    col[ImGuiCol_TabHovered]            = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_TabActive]             = ToImVec4(m_Colors.accent);
+    col[ImGuiCol_TabUnfocused]          = ToImVec4(m_Colors.button_bg);
+    col[ImGuiCol_TabUnfocusedActive]    = ToImVec4(m_Colors.button_active);
 
     // ---- スクロールバー -------------------------------------------------
-    col[ImGuiCol_ScrollbarBg]           = ToImVec4(_colors.frame_bg);
-    col[ImGuiCol_ScrollbarGrab]         = ToImVec4(_colors.button_bg);
-    col[ImGuiCol_ScrollbarGrabHovered]  = ToImVec4(_colors.button_hover);
-    col[ImGuiCol_ScrollbarGrabActive]   = ToImVec4(_colors.button_active);
+    col[ImGuiCol_ScrollbarBg]           = ToImVec4(m_Colors.frame_bg);
+    col[ImGuiCol_ScrollbarGrab]         = ToImVec4(m_Colors.button_bg);
+    col[ImGuiCol_ScrollbarGrabHovered]  = ToImVec4(m_Colors.button_hover);
+    col[ImGuiCol_ScrollbarGrabActive]   = ToImVec4(m_Colors.button_active);
 
     // ---- corner / spacing / font ---------------------------------------
-    s.WindowRounding    = _corner_radius;
-    s.FrameRounding     = _corner_radius;
-    s.PopupRounding     = _corner_radius;
-    s.GrabRounding      = _corner_radius;
-    s.TabRounding       = _corner_radius;
-    s.ScrollbarRounding = _corner_radius;
-    s.ChildRounding     = _corner_radius;
+    s.WindowRounding    = m_CornerRadius;
+    s.FrameRounding     = m_CornerRadius;
+    s.PopupRounding     = m_CornerRadius;
+    s.GrabRounding      = m_CornerRadius;
+    s.TabRounding       = m_CornerRadius;
+    s.ScrollbarRounding = m_CornerRadius;
+    s.ChildRounding     = m_CornerRadius;
 
     // x は y の 0.5 倍 (見た目バランス)。
-    s.ItemSpacing = ImVec2(_item_spacing_y * 0.5f, _item_spacing_y);
+    s.ItemSpacing = ImVec2(m_ItemSpacingY * 0.5f, m_ItemSpacingY);
 
-    ImGui::GetIO().FontGlobalScale = _font_scale;
+    ImGui::GetIO().FontGlobalScale = m_FontScale;
 }
 
 // =============================================================================
@@ -361,7 +361,7 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
     const char* items[] = {
         "Dark", "DarkBlue", "Light", "HighContrast", "Sepia", "Custom",
     };
-    int current = static_cast<int>(_preset);
+    int current = static_cast<int>(m_Preset);
     if (ImGui::Combo("Preset", &current, items, IM_ARRAYSIZE(items))) {
         ApplyPreset(static_cast<EEditorThemePreset>(current));
     }
@@ -379,37 +379,37 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
         }
     };
 
-    edit("FWindow BG",     _colors.window_bg);
-    edit("Title BG",      _colors.title_bg);
-    edit("Button BG",     _colors.button_bg);
-    edit("Button Hover",  _colors.button_hover);
-    edit("Button Active", _colors.button_active);
-    edit("Frame BG",      _colors.frame_bg);
-    edit("Text",          _colors.text);
-    edit("Text Disabled", _colors.text_disabled);
-    edit("Border",        _colors.border);
-    edit("Separator",     _colors.separator);
-    edit("Accent",        _colors.accent);
-    edit("Warning",       _colors.warning);
-    edit("Error",         _colors.error);
+    edit("FWindow BG",     m_Colors.window_bg);
+    edit("Title BG",      m_Colors.title_bg);
+    edit("Button BG",     m_Colors.button_bg);
+    edit("Button Hover",  m_Colors.button_hover);
+    edit("Button Active", m_Colors.button_active);
+    edit("Frame BG",      m_Colors.frame_bg);
+    edit("Text",          m_Colors.text);
+    edit("Text Disabled", m_Colors.text_disabled);
+    edit("Border",        m_Colors.border);
+    edit("Separator",     m_Colors.separator);
+    edit("Accent",        m_Colors.accent);
+    edit("Warning",       m_Colors.warning);
+    edit("Error",         m_Colors.error);
 
     if (changed) {
-        _preset = EEditorThemePreset::Custom;
+        m_Preset = EEditorThemePreset::Custom;
         ApplyToImGui();
     }
 
     ImGui::Separator();
 
     // ---- metric (font / corner / spacing) -------------------------------
-    f32 font_scale = _font_scale;
+    f32 font_scale = m_FontScale;
     if (ImGui::SliderFloat("Font Scale", &font_scale, 0.5f, 3.0f, "%.2fx")) {
         SetFontScale(font_scale);
     }
-    f32 corner = _corner_radius;
+    f32 corner = m_CornerRadius;
     if (ImGui::SliderFloat("Corner Radius", &corner, 0.0f, 16.0f, "%.1fpx")) {
         SetRoundedCorners(corner);
     }
-    f32 spacing = _item_spacing_y;
+    f32 spacing = m_ItemSpacingY;
     if (ImGui::SliderFloat("Item Spacing Y", &spacing, 0.0f, 16.0f, "%.1fpx")) {
         SetSpacing(spacing);
     }
@@ -477,28 +477,28 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
 
     // ---- ヘッダ + metric ------------------------------------------------
     if (!write_line("%s %u\n", kMagic, kCurrentVersion) ||
-        !write_line("preset %s\n", PresetName(_preset)) ||
-        !write_line("font_scale %.3f\n",      static_cast<double>(_font_scale)) ||
-        !write_line("corner_radius %.3f\n",   static_cast<double>(_corner_radius)) ||
-        !write_line("item_spacing_y %.3f\n",  static_cast<double>(_item_spacing_y))) {
+        !write_line("preset %s\n", PresetName(m_Preset)) ||
+        !write_line("font_scale %.3f\n",      static_cast<double>(m_FontScale)) ||
+        !write_line("corner_radius %.3f\n",   static_cast<double>(m_CornerRadius)) ||
+        !write_line("item_spacing_y %.3f\n",  static_cast<double>(m_ItemSpacingY))) {
         ACS_LOG_WARN("FEditorTheme::SaveTheme: header buffer overflow");
         return;
     }
 
     // ---- カラー 13 件 ---------------------------------------------------
-    if (!write_color("window_bg",     _colors.window_bg)     ||
-        !write_color("title_bg",      _colors.title_bg)      ||
-        !write_color("button_bg",     _colors.button_bg)     ||
-        !write_color("button_hover",  _colors.button_hover)  ||
-        !write_color("button_active", _colors.button_active) ||
-        !write_color("frame_bg",      _colors.frame_bg)      ||
-        !write_color("text",          _colors.text)          ||
-        !write_color("text_disabled", _colors.text_disabled) ||
-        !write_color("border",        _colors.border)        ||
-        !write_color("separator",     _colors.separator)     ||
-        !write_color("accent",        _colors.accent)        ||
-        !write_color("warning",       _colors.warning)       ||
-        !write_color("error",         _colors.error)) {
+    if (!write_color("window_bg",     m_Colors.window_bg)     ||
+        !write_color("title_bg",      m_Colors.title_bg)      ||
+        !write_color("button_bg",     m_Colors.button_bg)     ||
+        !write_color("button_hover",  m_Colors.button_hover)  ||
+        !write_color("button_active", m_Colors.button_active) ||
+        !write_color("frame_bg",      m_Colors.frame_bg)      ||
+        !write_color("text",          m_Colors.text)          ||
+        !write_color("text_disabled", m_Colors.text_disabled) ||
+        !write_color("border",        m_Colors.border)        ||
+        !write_color("separator",     m_Colors.separator)     ||
+        !write_color("accent",        m_Colors.accent)        ||
+        !write_color("warning",       m_Colors.warning)       ||
+        !write_color("error",         m_Colors.error)) {
         ACS_LOG_WARN("FEditorTheme::SaveTheme: color buffer overflow");
         return;
     }
@@ -547,11 +547,11 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     // ---- 行単位 parser --------------------------------------------------
     // 既存値を破壊しないよう一時バッファに読んだ結果を蓄積し、最後に
     // commit する (= magic mismatch 等で部分上書きされない)。
-    EditorThemeColors  new_colors      = _colors;
-    EEditorThemePreset new_preset      = _preset;
-    f32                new_font_scale  = _font_scale;
-    f32                new_corner      = _corner_radius;
-    f32                new_spacing     = _item_spacing_y;
+    EditorThemeColors  new_colors      = m_Colors;
+    EEditorThemePreset new_preset      = m_Preset;
+    f32                new_font_scale  = m_FontScale;
+    f32                new_corner      = m_CornerRadius;
+    f32                new_spacing     = m_ItemSpacingY;
     bool               magic_ok        = false;
 
     char line[256];
@@ -661,11 +661,11 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     }
 
     // ---- commit (= 全部読めたら一括反映) ---------------------------------
-    _colors          = new_colors;
-    _preset          = new_preset;
-    _font_scale      = new_font_scale;
-    _corner_radius   = new_corner;
-    _item_spacing_y  = new_spacing;
+    m_Colors          = new_colors;
+    m_Preset          = new_preset;
+    m_FontScale      = new_font_scale;
+    m_CornerRadius   = new_corner;
+    m_ItemSpacingY  = new_spacing;
     ApplyToImGui();
 }
 

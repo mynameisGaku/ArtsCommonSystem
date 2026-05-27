@@ -52,7 +52,7 @@
 //     線形走査で十分 (Inventory / FEconomyDirector と同じ判断)。重複登録は WARN で no-op。
 //   ・**所有しない const char***: id / display_name / description / art_path / card_type すべて
 //     呼出側 (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
-//     deck / hand / discard / exile の `const char*` 要素は `_cards[].id` を直接指す (= リテラル参照、非所有)。
+//     deck / hand / discard / exile の `const char*` 要素は `m_Cards[].id` を直接指す (= リテラル参照、非所有)。
 //   ・**4 ゾーン (deck / hand / discard / exile) は別 TArray<const char*>**:
 //     - `deck`    : 山札。末尾が「次に引くトップ」(PopBack で O(1) ドロー)。
 //     - `hand`    : 手札。順序は登録順 (= 引いた順)、UI の表示位置に対応。
@@ -110,25 +110,25 @@ struct FCardDef {
 };
 
 // ---- FCardId: 場に存在する 1 枚の identity (24bit idx + 8bit gen) -----------
-// `_packed == 0` を invalid (default) として扱う。`FNodeId` / `FShapeId` と同パターンで、
+// `m_Packed == 0` を invalid (default) として扱う。`FNodeId` / `FShapeId` と同パターンで、
 // 将来的に「同名カードでも個別の付与効果 (カウンタ / 修正値) を持たせたい」拡張で
 // idx を FCardDef 登録 index、gen を世代カウンタとして使う土台にする。
 //
 // Phase 1 (本ファイル) では `FDeckSystem` 内部での生成は予約のみで、現状は const char*
 // ベースの API のみ公開している (PlayCallback も card_id 文字列を渡す)。
 struct FCardId {
-    u32 _packed = 0;
+    u32 m_Packed = 0;
 
     constexpr FCardId() noexcept = default;
     constexpr FCardId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32  Index()      const noexcept { return _packed & 0x00FFFFFFu; }
-    constexpr u8   Generation() const noexcept { return static_cast<u8>(_packed >> 24); }
-    bool IsValid() const noexcept { return _packed != 0; }
+    constexpr u32  Index()      const noexcept { return m_Packed & 0x00FFFFFFu; }
+    constexpr u8   Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+    bool IsValid() const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(FCardId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(FCardId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FCardId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(FCardId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // ---- FDeckSystem ------------------------------------------------------------
@@ -218,22 +218,22 @@ public:
     void ClearAll() noexcept;
 
 private:
-    // card_id → _cards 内 index の per-byte 線形検索。未検出は ~0u。
+    // card_id → m_Cards 内 index の per-byte 線形検索。未検出は ~0u。
     u32 FindCardSlot(const char* card_id) const noexcept;
 
     // カード定義 (起動時 immutable)。
-    TArray<FCardDef> _cards;
+    TArray<FCardDef> m_Cards;
 
-    // 4 ゾーン。各要素は `_cards[].id` を直接指すリテラル参照ポインタ (非所有)。
+    // 4 ゾーン。各要素は `m_Cards[].id` を直接指すリテラル参照ポインタ (非所有)。
     // deck は末尾がトップ、PushBack / PopBack で O(1) ドロー。
-    TArray<const char*> _deck;
-    TArray<const char*> _hand;
-    TArray<const char*> _discard;
-    TArray<const char*> _exile;
+    TArray<const char*> m_Deck;
+    TArray<const char*> m_Hand;
+    TArray<const char*> m_Discard;
+    TArray<const char*> m_Exile;
 
     // プレイ callback (C 関数ポインタ + user)。Manager は user を所有しない。
-    PlayCallback _on_play      = nullptr;
-    void*        _on_play_user = nullptr;
+    PlayCallback m_OnPlay      = nullptr;
+    void*        m_OnPlayUser = nullptr;
 };
 
 } // namespace acs::game

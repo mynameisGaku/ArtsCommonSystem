@@ -215,15 +215,15 @@ private:
     u32 FindItemSlot(const char* item_id) const noexcept;
 
     // 通貨定義 + 残高 (同 index で 1:1 対応の並行 TArray)。
-    TArray<CurrencyDef> _currencies;
-    TArray<u32>         _balances;
+    TArray<CurrencyDef> m_Currencies;
+    TArray<u32>         m_Balances;
 
     // 商品定義。
-    TArray<ShopItem> _items;
+    TArray<ShopItem> m_Items;
 
     // 購入コールバック (C 関数ポインタ + user)。Manager は user を所有しない。
-    PurchaseCallback _on_purchase      = nullptr;
-    void*            _on_purchase_user = nullptr;
+    PurchaseCallback m_OnPurchase      = nullptr;
+    void*            m_OnPurchaseUser = nullptr;
 };
 
 } // namespace acs::game

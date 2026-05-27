@@ -8,7 +8,7 @@
 // 設計選択:
 //   ・**FProjectileId は 24bit idx + 8bit gen の packed u32**: FHealthId / FNodeId /
 //     FEmitterHandle と同じ規約。slot 再利用後の stale 参照は IsValid + 内部 gen
-//     一致で検出する。_packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。
+//     一致で検出する。m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。
 //   ・**pool は固定容量**: Init(max_concurrent) で確保した後はリサイズしない。
 //     Spawn は inactive な slot を線形探索し、満杯なら invalid を返す。これに
 //     より realtime ループでのフレーム落ちを防ぐ (= 最悪ケース上限を制限する
@@ -141,12 +141,12 @@ struct ProjectileDef {
 // ---------------------------------------------------------------------------
 // FProjectileId — 24bit index + 8bit gen を packed した opaque handle
 // ---------------------------------------------------------------------------
-// `_packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。slot 再利用後の
+// `m_Packed == 0` を invalid と定義 (gen は常に 1 以上で配る)。slot 再利用後の
 // stale 参照は IsValid + 内部 gen 一致で検出する。
 struct FProjectileId {
-    u32 _packed = 0u;
+    u32 m_Packed = 0u;
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
     static constexpr u32 kIndexBits = 24u;
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
@@ -154,11 +154,11 @@ struct FProjectileId {
 
     static FProjectileId Pack(u32 index, u8 gen) noexcept {
         FProjectileId h;
-        h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
-    u32 Index() const noexcept { return _packed & kIndexMask; }
-    u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
+    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 };
 
 // ---------------------------------------------------------------------------
@@ -231,10 +231,10 @@ public:
     void Despawn(FProjectileId id) noexcept;
 
     // 現在 alive な projectile 数。
-    u32 AliveCount() const noexcept { return _alive_count; }
+    u32 AliveCount() const noexcept { return m_AliveCount; }
 
     // pool 容量 (Init で確定)。
-    u32 MaxCount() const noexcept { return _capacity; }
+    u32 MaxCount() const noexcept { return m_Capacity; }
 
     // 個別 instance の参照取得。stale handle は nullptr。
     const ProjectileInstance* GetInstance(FProjectileId id) const noexcept;
@@ -284,21 +284,21 @@ private:
     };
 
     // 登録済 def の保持 (固定容量ではなく可変、id ポインタで識別)。
-    TArray<ProjectileDef> _defs;
+    TArray<ProjectileDef> m_Defs;
     // pool 本体 + alive 番号バッファ (AllAlive 用、Tick 終端で再構築)。
-    TArray<Slot>                _slots;
-    TArray<ProjectileInstance>  _alive_snapshot;  // AllAlive 専用 (連続配列で返す)
+    TArray<Slot>                m_Slots;
+    TArray<ProjectileInstance>  m_AliveSnapshot;  // AllAlive 専用 (連続配列で返す)
 
-    u32 _capacity     = 0u;
-    u32 _alive_count  = 0u;
-    u32 _snapshot_dirty_size = 0u;  // _alive_snapshot に詰まっている個数
+    u32 m_Capacity     = 0u;
+    u32 m_AliveCount  = 0u;
+    u32 m_SnapshotDirtySize = 0u;  // m_AliveSnapshot に詰まっている個数
 
-    HitTestFn      _hit_test_fn       = nullptr;
-    void*          _hit_test_user     = nullptr;
-    HitCallback    _on_hit            = nullptr;
-    void*          _on_hit_user       = nullptr;
-    ExpireCallback _on_expire         = nullptr;
-    void*          _on_expire_user    = nullptr;
+    HitTestFn      m_HitTestFn       = nullptr;
+    void*          m_HitTestUser     = nullptr;
+    HitCallback    m_OnHit            = nullptr;
+    void*          m_OnHitUser       = nullptr;
+    ExpireCallback m_OnExpire         = nullptr;
+    void*          m_OnExpireUser    = nullptr;
 
     // def_id (const char*) で登録 def を引く。見つからなければ nullptr。
     const ProjectileDef* FindDef(const char* id) const noexcept;

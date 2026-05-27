@@ -16,14 +16,14 @@
 namespace acs {
 
 DiligentDevice::~DiligentDevice() noexcept {
-    if (_idle_fence) { _idle_fence->Release(); _idle_fence = nullptr; }
-    if (_context)    { _context->Flush(); _context->Release(); _context = nullptr; }
-    if (_device)     { _device->Release();  _device  = nullptr; }
-    if (_factory)    { _factory->Release(); _factory = nullptr; }
+    if (m_IdleFence) { m_IdleFence->Release(); m_IdleFence = nullptr; }
+    if (m_Context)    { m_Context->Flush(); m_Context->Release(); m_Context = nullptr; }
+    if (m_Device)     { m_Device->Release();  m_Device  = nullptr; }
+    if (m_Factory)    { m_Factory->Release(); m_Factory = nullptr; }
 #if WITH_RENDER_DILIGENT_VULKAN
-    if (_factory_vk) { _factory_vk->Release(); _factory_vk = nullptr; }
+    if (m_FactoryVk) { m_FactoryVk->Release(); m_FactoryVk = nullptr; }
 #endif
-    _factory_generic = nullptr;
+    m_FactoryGeneric = nullptr;
 }
 
 TResult<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
@@ -47,21 +47,21 @@ TResult<void> DiligentDevice::Init(const DeviceConfig& cfg) noexcept {
 TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     // 静的リンク (Diligent-GraphicsEngineD3D12-static) では LoadGraphicsEngineD3D12
     // (DLL ロード経由) は宣言されない。GetEngineFactoryD3D12 を直接呼ぶ。
-    _factory = Diligent::GetEngineFactoryD3D12();
-    if (!_factory) {
+    m_Factory = Diligent::GetEngineFactoryD3D12();
+    if (!m_Factory) {
         ACS_LOG_ERROR("Diligent: GetEngineFactoryD3D12 returned null");
         return ACS_ERR(Render, 101, "GetEngineFactoryD3D12 failed");
     }
     // 新版 Diligent は d3d12.dll の明示ロードが必要。EnumerateAdapters の前に呼ぶ
     // (CreateDeviceAndContextsD3D12 は内部で auto-load するが、EnumerateAdapters は手動)
-    if (!_factory->LoadD3D12()) {
+    if (!m_Factory->LoadD3D12()) {
         ACS_LOG_ERROR("Diligent: LoadD3D12 failed (d3d12.dll not found?)");
         return ACS_ERR(Render, 104, "LoadD3D12 failed");
     }
-    _factory->AddRef();
-    _factory_generic = _factory;
-    _actual_backend  = ERhiBackendKind::D3D12;
-    _backend_name    = "Diligent-D3D12";
+    m_Factory->AddRef();
+    m_FactoryGeneric = m_Factory;
+    m_ActualBackend  = ERhiBackendKind::D3D12;
+    m_BackendName    = "Diligent-D3D12";
 
     Diligent::EngineD3D12CreateInfo eci{};
     eci.GraphicsAPIVersion = {12, 0};
@@ -80,7 +80,7 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     // }
 
     Diligent::Uint32 num_adapters = 0;
-    _factory->EnumerateAdapters(eci.GraphicsAPIVersion, num_adapters, nullptr);
+    m_Factory->EnumerateAdapters(eci.GraphicsAPIVersion, num_adapters, nullptr);
     if (num_adapters == 0) {
         ACS_LOG_ERROR("Diligent: No D3D12 adapter found");
         return ACS_ERR(Render, 102, "No D3D12 adapter");
@@ -88,7 +88,7 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     constexpr Diligent::Uint32 kMaxAdapters = 8;
     Diligent::GraphicsAdapterInfo adapters[kMaxAdapters]{};
     Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;
-    _factory->EnumerateAdapters(eci.GraphicsAPIVersion, enumerate, adapters);
+    m_Factory->EnumerateAdapters(eci.GraphicsAPIVersion, enumerate, adapters);
     Diligent::Uint32 selected = 0;
     if (cfg.prefer_high_perf) {
         for (Diligent::Uint32 i = 0; i < enumerate; ++i) {
@@ -96,11 +96,11 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
         }
     }
     eci.AdapterId = selected;
-    std::strncpy(_adapter_name, adapters[selected].Description, sizeof(_adapter_name) - 1);
-    _adapter_name[sizeof(_adapter_name) - 1] = 0;
+    std::strncpy(m_AdapterName, adapters[selected].Description, sizeof(m_AdapterName) - 1);
+    m_AdapterName[sizeof(m_AdapterName) - 1] = 0;
 
-    _factory->CreateDeviceAndContextsD3D12(eci, &_device, &_context);
-    if (!_device || !_context) {
+    m_Factory->CreateDeviceAndContextsD3D12(eci, &m_Device, &m_Context);
+    if (!m_Device || !m_Context) {
         ACS_LOG_ERROR("Diligent: CreateDeviceAndContextsD3D12 failed");
         return ACS_ERR(Render, 103, "CreateDeviceAndContextsD3D12 failed");
     }
@@ -108,23 +108,23 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     Diligent::FenceDesc fd;
     fd.Name = "ACS_DiligentDevice_IdleFence";
     fd.Type = Diligent::FENCE_TYPE_GENERAL;
-    _device->CreateFence(fd, &_idle_fence);
+    m_Device->CreateFence(fd, &m_IdleFence);
 
-    ACS_LOG_INFO("Diligent D3D12 device created: %s", _adapter_name);
+    ACS_LOG_INFO("Diligent D3D12 device created: %s", m_AdapterName);
     return Ok();
 }
 
 TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
 #if WITH_RENDER_DILIGENT_VULKAN
-    _factory_vk = Diligent::GetEngineFactoryVk();
-    if (!_factory_vk) {
+    m_FactoryVk = Diligent::GetEngineFactoryVk();
+    if (!m_FactoryVk) {
         ACS_LOG_ERROR("Diligent: GetEngineFactoryVk returned null");
         return ACS_ERR(Render, 111, "GetEngineFactoryVk failed");
     }
-    _factory_vk->AddRef();
-    _factory_generic = _factory_vk;
-    _actual_backend  = ERhiBackendKind::Vulkan;
-    _backend_name    = "Diligent-Vulkan";
+    m_FactoryVk->AddRef();
+    m_FactoryGeneric = m_FactoryVk;
+    m_ActualBackend  = ERhiBackendKind::Vulkan;
+    m_BackendName    = "Diligent-Vulkan";
 
     Diligent::EngineVkCreateInfo eci{};
     if (cfg.enable_debug_layer) {
@@ -138,7 +138,7 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
     }
 
     Diligent::Uint32 num_adapters = 0;
-    _factory_vk->EnumerateAdapters({}, num_adapters, nullptr);
+    m_FactoryVk->EnumerateAdapters({}, num_adapters, nullptr);
     if (num_adapters == 0) {
         ACS_LOG_ERROR("Diligent: No Vulkan adapter found");
         return ACS_ERR(Render, 112, "No Vulkan adapter");
@@ -146,7 +146,7 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
     constexpr Diligent::Uint32 kMaxAdapters = 8;
     Diligent::GraphicsAdapterInfo adapters[kMaxAdapters]{};
     Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;
-    _factory_vk->EnumerateAdapters({}, enumerate, adapters);
+    m_FactoryVk->EnumerateAdapters({}, enumerate, adapters);
     Diligent::Uint32 selected = 0;
     if (cfg.prefer_high_perf) {
         for (Diligent::Uint32 i = 0; i < enumerate; ++i) {
@@ -154,11 +154,11 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
         }
     }
     eci.AdapterId = selected;
-    std::strncpy(_adapter_name, adapters[selected].Description, sizeof(_adapter_name) - 1);
-    _adapter_name[sizeof(_adapter_name) - 1] = 0;
+    std::strncpy(m_AdapterName, adapters[selected].Description, sizeof(m_AdapterName) - 1);
+    m_AdapterName[sizeof(m_AdapterName) - 1] = 0;
 
-    _factory_vk->CreateDeviceAndContextsVk(eci, &_device, &_context);
-    if (!_device || !_context) {
+    m_FactoryVk->CreateDeviceAndContextsVk(eci, &m_Device, &m_Context);
+    if (!m_Device || !m_Context) {
         ACS_LOG_ERROR("Diligent: CreateDeviceAndContextsVk failed");
         return ACS_ERR(Render, 113, "CreateDeviceAndContextsVk failed");
     }
@@ -166,9 +166,9 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
     Diligent::FenceDesc fd;
     fd.Name = "ACS_DiligentDevice_IdleFence";
     fd.Type = Diligent::FENCE_TYPE_GENERAL;
-    _device->CreateFence(fd, &_idle_fence);
+    m_Device->CreateFence(fd, &m_IdleFence);
 
-    ACS_LOG_INFO("Diligent Vulkan device created: %s", _adapter_name);
+    ACS_LOG_INFO("Diligent Vulkan device created: %s", m_AdapterName);
     return Ok();
 #else
     (void)cfg;
@@ -177,29 +177,29 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
 }
 
 void DiligentDevice::WaitIdle() noexcept {
-    if (!_context) return;
-    if (_idle_fence) {
-        ++_idle_value;
-        _context->EnqueueSignal(_idle_fence, _idle_value);
-        _context->WaitForIdle();
-        _idle_fence->Wait(_idle_value);
+    if (!m_Context) return;
+    if (m_IdleFence) {
+        ++m_IdleValue;
+        m_Context->EnqueueSignal(m_IdleFence, m_IdleValue);
+        m_Context->WaitForIdle();
+        m_IdleFence->Wait(m_IdleValue);
     } else {
-        _context->Flush();
-        _context->WaitForIdle();
+        m_Context->Flush();
+        m_Context->WaitForIdle();
     }
 }
 
 u64 DiligentDevice::SignalGraphicsQueue() noexcept {
-    if (!_context || !_idle_fence) return 0;
-    ++_idle_value;
-    _context->EnqueueSignal(_idle_fence, _idle_value);
-    return _idle_value;
+    if (!m_Context || !m_IdleFence) return 0;
+    ++m_IdleValue;
+    m_Context->EnqueueSignal(m_IdleFence, m_IdleValue);
+    return m_IdleValue;
 }
 
 void DiligentDevice::WaitForFenceValue(u64 v) noexcept {
-    if (!_idle_fence) return;
-    if (_idle_fence->GetCompletedValue() >= v) return;
-    _idle_fence->Wait(v);
+    if (!m_IdleFence) return;
+    if (m_IdleFence->GetCompletedValue() >= v) return;
+    m_IdleFence->Wait(v);
 }
 
 } // namespace acs

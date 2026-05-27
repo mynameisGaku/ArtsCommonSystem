@@ -43,10 +43,10 @@ public:
         Reset();
         FAllocator& a = DefaultAllocator();
         T* p = New<T>(a, Forward<Args>(args)...);
-        _data    = p;
-        _alloc   = &a;
-        _type_id = TypeId<T>();
-        _destroy = +[](void* ptr, FAllocator& al) noexcept {
+        m_Data    = p;
+        m_Alloc   = &a;
+        m_TypeId = TypeId<T>();
+        m_Destroy = +[](void* ptr, FAllocator& al) noexcept {
             T* tp = static_cast<T*>(ptr);
             Delete(al, tp);
         };
@@ -56,21 +56,21 @@ public:
     // 型 T として取り出す。未設定 or 型不一致なら nullptr。
     template<typename T>
     T* Get() noexcept {
-        if (_type_id != TypeId<T>()) return nullptr;
-        return static_cast<T*>(_data);
+        if (m_TypeId != TypeId<T>()) return nullptr;
+        return static_cast<T*>(m_Data);
     }
 
     void Reset() noexcept {
-        if (_destroy != nullptr && _data != nullptr && _alloc != nullptr) {
-            _destroy(_data, *_alloc);
+        if (m_Destroy != nullptr && m_Data != nullptr && m_Alloc != nullptr) {
+            m_Destroy(m_Data, *m_Alloc);
         }
-        _data    = nullptr;
-        _alloc   = nullptr;
-        _type_id = nullptr;
-        _destroy = nullptr;
+        m_Data    = nullptr;
+        m_Alloc   = nullptr;
+        m_TypeId = nullptr;
+        m_Destroy = nullptr;
     }
 
-    bool IsSet() const noexcept { return _data != nullptr; }
+    bool IsSet() const noexcept { return m_Data != nullptr; }
 
 private:
     // 型 T 一意 ID = static int のアドレス (T ごとに別 instantiation = 別アドレス)。
@@ -81,10 +81,10 @@ private:
         return static_cast<const void*>(&s_tag);
     }
 
-    void*       _data    = nullptr;
-    FAllocator*  _alloc   = nullptr;
-    const void* _type_id = nullptr;
-    void(*_destroy)(void*, FAllocator&) noexcept = nullptr;
+    void*       m_Data    = nullptr;
+    FAllocator*  m_Alloc   = nullptr;
+    const void* m_TypeId = nullptr;
+    void(*m_Destroy)(void*, FAllocator&) noexcept = nullptr;
 };
 
 } // namespace acs::game

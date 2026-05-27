@@ -13,7 +13,7 @@ namespace hellocine {
 
 void CineEditorApp::OnStart() noexcept {
     // ImGui を FWindow + FRenderer に紐付け。失敗時は早期 Quit。
-    if (auto r = _imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
+    if (auto r = m_Imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
         ACS_LOG_ERROR("[CineEditorApp] ImGuiCtx.Init failed -> Quit");
         Quit();
         return;
@@ -25,20 +25,20 @@ void CineEditorApp::OnStart() noexcept {
 void CineEditorApp::OnRender() noexcept {
     // ImGui フレーム開始 → Scene::OnRender で ImGui::* が呼ばれる →
     // ImGui の描画コマンドをコマンドリストに発行、の順。
-    _imgui.NewFrame();
+    m_Imgui.NewFrame();
     FGame::OnRender();
-    _imgui.Render();
+    m_Imgui.Render();
 }
 
 void CineEditorApp::OnShutdown() noexcept {
     // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
     // ないことを保証)。
     FGame::OnShutdown();
-    _imgui.Shutdown();
+    m_Imgui.Shutdown();
 }
 
 void CineEditorApp::OnEvent(const Event& e) noexcept {
-    _imgui.OnEvent(e);
+    m_Imgui.OnEvent(e);
     FGame::OnEvent(e);
 }
 

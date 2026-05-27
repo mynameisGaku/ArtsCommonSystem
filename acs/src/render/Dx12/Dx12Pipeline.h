@@ -16,18 +16,18 @@ public:
 
     HrResult Init(Dx12Device& device, const FPipelineDesc& desc) noexcept;
 
-    ID3D12PipelineState*   Pso()           const noexcept { return _pso; }
-    ID3D12RootSignature*   RootSignature() const noexcept { return _root_sig; }
-    EPrimitiveTopology      Topology()      const noexcept { return _topology; }
-    u32                    CBufferSlots()  const noexcept { return _cbuffer_slots; }
-    u32                    TextureSlots()  const noexcept { return _texture_slots; }
+    ID3D12PipelineState*   Pso()           const noexcept { return m_Pso; }
+    ID3D12RootSignature*   RootSignature() const noexcept { return m_RootSig; }
+    EPrimitiveTopology      Topology()      const noexcept { return m_Topology; }
+    u32                    CBufferSlots()  const noexcept { return m_CbufferSlots; }
+    u32                    TextureSlots()  const noexcept { return m_TextureSlots; }
 
 private:
-    ID3D12PipelineState* _pso      = nullptr;
-    ID3D12RootSignature* _root_sig = nullptr;
-    EPrimitiveTopology    _topology = EPrimitiveTopology::TriangleList;
-    u32                  _cbuffer_slots = 0;
-    u32                  _texture_slots = 0;
+    ID3D12PipelineState* m_Pso      = nullptr;
+    ID3D12RootSignature* m_RootSig = nullptr;
+    EPrimitiveTopology    m_Topology = EPrimitiveTopology::TriangleList;
+    u32                  m_CbufferSlots = 0;
+    u32                  m_TextureSlots = 0;
 };
 
 } // namespace acs

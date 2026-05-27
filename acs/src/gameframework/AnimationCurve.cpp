@@ -33,11 +33,11 @@ static u32 LowerBoundByTime(const TArray<CurveKey>& keys, f32 time) noexcept {
 }
 
 void FAnimationCurve::AddKey(f32 time, f32 value, ECurveInterpolation interp) noexcept {
-    const u32 pos = LowerBoundByTime(_keys, time);
+    const u32 pos = LowerBoundByTime(m_Keys, time);
     // 同 time の key が既にある → 上書き (in_interp は維持して out_interp と value のみ更新)
-    if (pos < _keys.Size() && _keys[pos].time == time) {
-        _keys[pos].value      = value;
-        _keys[pos].out_interp = interp;
+    if (pos < m_Keys.Size() && m_Keys[pos].time == time) {
+        m_Keys[pos].value      = value;
+        m_Keys[pos].out_interp = interp;
         return;
     }
 
@@ -50,25 +50,25 @@ void FAnimationCurve::AddKey(f32 time, f32 value, ECurveInterpolation interp) no
     k.out_interp  = interp;
     k.in_tangent  = 0.0f;
     k.out_tangent = 0.0f;
-    _keys.PushBack(k);
+    m_Keys.PushBack(k);
 
     // バブルダウン: 直前要素より時間が小さければ swap (= sorted insert)
-    for (u32 i = static_cast<u32>(_keys.Size()) - 1u; i > pos; --i) {
-        const CurveKey tmp = _keys[i];
-        _keys[i]     = _keys[i - 1u];
-        _keys[i - 1u] = tmp;
+    for (u32 i = static_cast<u32>(m_Keys.Size()) - 1u; i > pos; --i) {
+        const CurveKey tmp = m_Keys[i];
+        m_Keys[i]     = m_Keys[i - 1u];
+        m_Keys[i - 1u] = tmp;
     }
 }
 
 void FAnimationCurve::AddKeyHermite(f32 time, f32 value,
                                    f32 in_tangent, f32 out_tangent) noexcept {
-    const u32 pos = LowerBoundByTime(_keys, time);
-    if (pos < _keys.Size() && _keys[pos].time == time) {
-        _keys[pos].value       = value;
-        _keys[pos].in_tangent  = in_tangent;
-        _keys[pos].out_tangent = out_tangent;
-        _keys[pos].in_interp   = ECurveInterpolation::Hermite;
-        _keys[pos].out_interp  = ECurveInterpolation::Hermite;
+    const u32 pos = LowerBoundByTime(m_Keys, time);
+    if (pos < m_Keys.Size() && m_Keys[pos].time == time) {
+        m_Keys[pos].value       = value;
+        m_Keys[pos].in_tangent  = in_tangent;
+        m_Keys[pos].out_tangent = out_tangent;
+        m_Keys[pos].in_interp   = ECurveInterpolation::Hermite;
+        m_Keys[pos].out_interp  = ECurveInterpolation::Hermite;
         return;
     }
 
@@ -79,45 +79,45 @@ void FAnimationCurve::AddKeyHermite(f32 time, f32 value,
     k.out_tangent = out_tangent;
     k.in_interp   = ECurveInterpolation::Hermite;
     k.out_interp  = ECurveInterpolation::Hermite;
-    _keys.PushBack(k);
+    m_Keys.PushBack(k);
 
-    for (u32 i = static_cast<u32>(_keys.Size()) - 1u; i > pos; --i) {
-        const CurveKey tmp = _keys[i];
-        _keys[i]      = _keys[i - 1u];
-        _keys[i - 1u] = tmp;
+    for (u32 i = static_cast<u32>(m_Keys.Size()) - 1u; i > pos; --i) {
+        const CurveKey tmp = m_Keys[i];
+        m_Keys[i]      = m_Keys[i - 1u];
+        m_Keys[i - 1u] = tmp;
     }
 }
 
 void FAnimationCurve::RemoveKey(u32 index) noexcept {
-    if (index >= _keys.Size()) return;
+    if (index >= m_Keys.Size()) return;
     // 順序を保つため左詰め (TArray::RemoveAtSwap は順序を崩すので使えない)
-    for (u32 i = index; i + 1u < _keys.Size(); ++i) {
-        _keys[i] = _keys[i + 1u];
+    for (u32 i = index; i + 1u < m_Keys.Size(); ++i) {
+        m_Keys[i] = m_Keys[i + 1u];
     }
-    _keys.PopBack();
+    m_Keys.PopBack();
 }
 
 void FAnimationCurve::ClearKeys() noexcept {
-    _keys.Clear();
+    m_Keys.Clear();
 }
 
 f32 FAnimationCurve::Duration() const noexcept {
     // 仕様: 「末尾 key の time」を返す。key 0 個では 0。
     // (1 個でも「t==末尾 key.time」を返すことで Evaluate(Duration()) が末尾値になる)
-    if (_keys.Size() == 0u) return 0.0f;
-    return _keys[_keys.Size() - 1u].time;
+    if (m_Keys.Size() == 0u) return 0.0f;
+    return m_Keys[m_Keys.Size() - 1u].time;
 }
 
 f32 FAnimationCurve::ApplyWrap(f32 time) const noexcept {
-    if (_keys.Size() < 2u) return time;
+    if (m_Keys.Size() < 2u) return time;
 
-    const f32 t0  = _keys[0].time;
-    const f32 t1  = _keys[_keys.Size() - 1u].time;
+    const f32 t0  = m_Keys[0].time;
+    const f32 t1  = m_Keys[m_Keys.Size() - 1u].time;
     const f32 dur = t1 - t0;
     if (dur <= 0.0f) return t0;
 
     if (time < t0) {
-        switch (_pre_wrap) {
+        switch (m_PreWrap) {
         case WrapMode::Clamp:    return t0;
         case WrapMode::Loop: {
             // (t0 - time) 分だけ右に折り返す。`Mod` は負数で実装差があるため
@@ -140,7 +140,7 @@ f32 FAnimationCurve::ApplyWrap(f32 time) const noexcept {
     }
 
     if (time > t1) {
-        switch (_post_wrap) {
+        switch (m_PostWrap) {
         case WrapMode::Clamp:    return t1;
         case WrapMode::Loop: {
             const f32 diff   = time - t1;
@@ -163,17 +163,17 @@ f32 FAnimationCurve::ApplyWrap(f32 time) const noexcept {
 }
 
 u32 FAnimationCurve::FindSegmentIndex(f32 time) const noexcept {
-    // 戻り値は左端 key の index。呼び出し側は _keys.Size() >= 2 を保証する。
-    const u32 n = static_cast<u32>(_keys.Size());
-    if (time <= _keys[0].time)         return 0u;
-    if (time >= _keys[n - 1u].time)    return n - 2u;
+    // 戻り値は左端 key の index。呼び出し側は m_Keys.Size() >= 2 を保証する。
+    const u32 n = static_cast<u32>(m_Keys.Size());
+    if (time <= m_Keys[0].time)         return 0u;
+    if (time >= m_Keys[n - 1u].time)    return n - 2u;
 
-    // 二分探索: _keys[lo].time <= time < _keys[lo+1].time となる lo
+    // 二分探索: m_Keys[lo].time <= time < m_Keys[lo+1].time となる lo
     u32 lo = 0;
     u32 hi = n - 1u;
     while (lo + 1u < hi) {
         const u32 mid = lo + (hi - lo) / 2u;
-        if (_keys[mid].time <= time) lo = mid;
+        if (m_Keys[mid].time <= time) lo = mid;
         else                          hi = mid;
     }
     return lo;
@@ -204,14 +204,14 @@ f32 FAnimationCurve::InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
 }
 
 f32 FAnimationCurve::Evaluate(f32 time) const noexcept {
-    const u32 n = static_cast<u32>(_keys.Size());
+    const u32 n = static_cast<u32>(m_Keys.Size());
     if (n == 0u) return 0.0f;
-    if (n == 1u) return _keys[0].value;
+    if (n == 1u) return m_Keys[0].value;
 
     const f32 wrapped = ApplyWrap(time);
     const u32 i       = FindSegmentIndex(wrapped);
-    const CurveKey& k0 = _keys[i];
-    const CurveKey& k1 = _keys[i + 1u];
+    const CurveKey& k0 = m_Keys[i];
+    const CurveKey& k1 = m_Keys[i + 1u];
     const f32 dt = k1.time - k0.time;
     if (dt <= 0.0f) return k0.value;   // 退化 segment (同 time の key が混入した保険)
     const f32 t  = (wrapped - k0.time) / dt;

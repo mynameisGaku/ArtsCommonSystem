@@ -29,9 +29,9 @@ constexpr u64 kMaxTimestamp = ~static_cast<u64>(0);
 // =============================================================================
 
 u32 FSeasonPass::FindTierSlot(u32 tier_index) const noexcept {
-    const usize n = _tiers.Size();
+    const usize n = m_Tiers.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_tiers[i].tier_index == tier_index) return static_cast<u32>(i);
+        if (m_Tiers[i].tier_index == tier_index) return static_cast<u32>(i);
     }
     return kNotFound;
 }
@@ -41,14 +41,14 @@ u32 FSeasonPass::FindTierSlot(u32 tier_index) const noexcept {
 // =============================================================================
 
 void FSeasonPass::StartSeason(const SeasonInfo& info) noexcept {
-    _info         = info;
-    _xp           = 0;
-    _has_premium  = false;
-    _current_time = info.start_timestamp;
+    m_Info         = info;
+    m_Xp           = 0;
+    m_HasPremium  = false;
+    m_CurrentTime = info.start_timestamp;
 
     // 既存 tier 定義 / claim 状態を破棄 (新シーズンはクリーンスレート)。
-    _tiers.Clear();
-    _claims.Clear();
+    m_Tiers.Clear();
+    m_Claims.Clear();
 }
 
 void FSeasonPass::DefineTier(const Tier& t) noexcept {
@@ -58,26 +58,26 @@ void FSeasonPass::DefineTier(const Tier& t) noexcept {
         return;
     }
 
-    _tiers.PushBack(t);
+    m_Tiers.PushBack(t);
 
     ClaimState cs{};
     cs.tier_index      = t.tier_index;
     cs.free_claimed    = false;
     cs.premium_claimed = false;
-    _claims.PushBack(cs);
+    m_Claims.PushBack(cs);
 }
 
 void FSeasonPass::EndSeason() noexcept {
     // 手動終了: 現在時刻を end_timestamp に強制して Ended 状態に固定。
     // tier 定義 / claim 状態 / xp は保持 (シーズン後グレースピリオドの claim 用)。
-    _current_time = _info.end_timestamp;
+    m_CurrentTime = m_Info.end_timestamp;
 }
 
 void FSeasonPass::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
 
     // 既に Ended なら何もしない (時刻が end_timestamp 以上で停止)。
-    if (_current_time >= _info.end_timestamp) return;
+    if (m_CurrentTime >= m_Info.end_timestamp) return;
 
     // dt[秒] を u64 timestamp 単位 (秒) に加算。
     // f32 を u64 にそのままキャストすると小数が消えるため、整数秒部分は
@@ -95,15 +95,15 @@ void FSeasonPass::Tick(f32 dt) noexcept {
     const u64 add_secs = static_cast<u64>(dt);
 
     // u64 オーバーフロー防御 (現実には起こり得ないが防御的に)。
-    if (add_secs > kMaxTimestamp - _current_time) {
-        _current_time = kMaxTimestamp;
+    if (add_secs > kMaxTimestamp - m_CurrentTime) {
+        m_CurrentTime = kMaxTimestamp;
     } else {
-        _current_time += add_secs;
+        m_CurrentTime += add_secs;
     }
 
     // end_timestamp を越えたら丁度の値に丸める (Ended 判定で意図しない超過を防止)。
-    if (_current_time > _info.end_timestamp) {
-        _current_time = _info.end_timestamp;
+    if (m_CurrentTime > m_Info.end_timestamp) {
+        m_CurrentTime = m_Info.end_timestamp;
     }
 }
 
@@ -113,10 +113,10 @@ void FSeasonPass::Tick(f32 dt) noexcept {
 
 void FSeasonPass::AwardXp(u32 amount) noexcept {
     if (amount == 0) return;
-    if (amount > kMaxXp - _xp) {
-        _xp = kMaxXp;
+    if (amount > kMaxXp - m_Xp) {
+        m_Xp = kMaxXp;
     } else {
-        _xp += amount;
+        m_Xp += amount;
     }
 }
 
@@ -125,7 +125,7 @@ void FSeasonPass::AwardXp(u32 amount) noexcept {
 // =============================================================================
 
 u32 FSeasonPass::CurrentXp() const noexcept {
-    return _xp;
+    return m_Xp;
 }
 
 u32 FSeasonPass::CurrentTier() const noexcept {
@@ -133,10 +133,10 @@ u32 FSeasonPass::CurrentTier() const noexcept {
     // 線形走査 (件数は通常 50〜100)。
     u32 best   = kNotFound;
     u32 best_t = 0;  // tier_index 比較用
-    const usize n = _tiers.Size();
+    const usize n = m_Tiers.Size();
     for (usize i = 0; i < n; ++i) {
-        const Tier& t = _tiers[i];
-        if (_xp < t.xp_threshold) continue;
+        const Tier& t = m_Tiers[i];
+        if (m_Xp < t.xp_threshold) continue;
         if (best == kNotFound || t.tier_index > best_t) {
             best   = t.tier_index;
             best_t = t.tier_index;
@@ -146,8 +146,8 @@ u32 FSeasonPass::CurrentTier() const noexcept {
 }
 
 ESeasonStatus FSeasonPass::Status() const noexcept {
-    if (_current_time < _info.start_timestamp) return ESeasonStatus::NotStarted;
-    if (_current_time >= _info.end_timestamp)  return ESeasonStatus::Ended;
+    if (m_CurrentTime < m_Info.start_timestamp) return ESeasonStatus::NotStarted;
+    if (m_CurrentTime >= m_Info.end_timestamp)  return ESeasonStatus::Ended;
     return ESeasonStatus::Active;
 }
 
@@ -156,14 +156,14 @@ ESeasonStatus FSeasonPass::Status() const noexcept {
 // =============================================================================
 
 bool FSeasonPass::HasPremiumPass() const noexcept {
-    return _has_premium;
+    return m_HasPremium;
 }
 
 void FSeasonPass::SetPremiumPass(bool has) noexcept {
     // false にしても既 claim 済の premium 報酬は巻き戻さない (返金後でも貰った
     // ものは保持する設計)。再 claim 防止のために premium_claimed フラグは
     // 触らない。
-    _has_premium = has;
+    m_HasPremium = has;
 }
 
 // =============================================================================
@@ -173,7 +173,7 @@ void FSeasonPass::SetPremiumPass(bool has) noexcept {
 bool FSeasonPass::IsRewardClaimed(u32 tier_index, bool premium) const noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return false;
-    const ClaimState& cs = _claims[slot];
+    const ClaimState& cs = m_Claims[slot];
     return premium ? cs.premium_claimed : cs.free_claimed;
 }
 
@@ -181,11 +181,11 @@ bool FSeasonPass::ClaimReward(u32 tier_index, bool premium) noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return false;
 
-    const Tier& tier = _tiers[slot];
-    ClaimState& cs   = _claims[slot];
+    const Tier& tier = m_Tiers[slot];
+    ClaimState& cs   = m_Claims[slot];
 
     // 解放条件チェック: 累積 xp が xp_threshold 以上か。
-    if (_xp < tier.xp_threshold) return false;
+    if (m_Xp < tier.xp_threshold) return false;
 
     // 該当ストリームの reward_id が nullptr の tier は claim 不可。
     const char* reward = premium ? tier.reward_id_premium : tier.reward_id_free;
@@ -193,7 +193,7 @@ bool FSeasonPass::ClaimReward(u32 tier_index, bool premium) noexcept {
 
     if (premium) {
         // プレミアム未購入なら claim 不可。
-        if (!_has_premium) return false;
+        if (!m_HasPremium) return false;
         if (cs.premium_claimed) return false;
         cs.premium_claimed = true;
     } else {
@@ -206,7 +206,7 @@ bool FSeasonPass::ClaimReward(u32 tier_index, bool premium) noexcept {
 const char* FSeasonPass::GetRewardId(u32 tier_index, bool premium) const noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return nullptr;
-    const Tier& tier = _tiers[slot];
+    const Tier& tier = m_Tiers[slot];
     return premium ? tier.reward_id_premium : tier.reward_id_free;
 }
 
@@ -215,16 +215,16 @@ u32 FSeasonPass::ClaimableCount() const noexcept {
     // ・free: reward_id_free != nullptr かつ xp >= threshold かつ !free_claimed
     // ・premium: 同条件 + HasPremiumPass()==true
     u32 count = 0;
-    const usize n = _tiers.Size();
+    const usize n = m_Tiers.Size();
     for (usize i = 0; i < n; ++i) {
-        const Tier&       tier = _tiers[i];
-        const ClaimState& cs   = _claims[i];
-        if (_xp < tier.xp_threshold) continue;
+        const Tier&       tier = m_Tiers[i];
+        const ClaimState& cs   = m_Claims[i];
+        if (m_Xp < tier.xp_threshold) continue;
 
         if (tier.reward_id_free != nullptr && !cs.free_claimed) {
             ++count;
         }
-        if (_has_premium && tier.reward_id_premium != nullptr && !cs.premium_claimed) {
+        if (m_HasPremium && tier.reward_id_premium != nullptr && !cs.premium_claimed) {
             ++count;
         }
     }
@@ -232,7 +232,7 @@ u32 FSeasonPass::ClaimableCount() const noexcept {
 }
 
 u32 FSeasonPass::TierCount() const noexcept {
-    return static_cast<u32>(_tiers.Size());
+    return static_cast<u32>(m_Tiers.Size());
 }
 
 } // namespace acs::game

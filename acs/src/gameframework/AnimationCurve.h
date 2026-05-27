@@ -95,9 +95,9 @@ public:
 
     void ClearKeys() noexcept;
 
-    u32             KeyCount() const noexcept { return static_cast<u32>(_keys.Size()); }
+    u32             KeyCount() const noexcept { return static_cast<u32>(m_Keys.Size()); }
     const CurveKey* EKey(u32 index) const noexcept {
-        return index < _keys.Size() ? &_keys[index] : nullptr;
+        return index < m_Keys.Size() ? &m_Keys[index] : nullptr;
     }
 
     // 時間 → 値の補間評価。key が 0 個なら 0、1 個ならその value。
@@ -112,12 +112,12 @@ public:
 
     // time < (第 1 key の time) のときの挙動。典型ケースで第 1 key.time == 0 なら
     // 「time < 0」のときの挙動 = Unity の preWrapMode と等価。
-    void SetPreWrap (WrapMode m) noexcept { _pre_wrap  = m; }
+    void SetPreWrap (WrapMode m) noexcept { m_PreWrap  = m; }
     // time > (末尾 key の time = Duration()) のときの挙動 = Unity の postWrapMode。
-    void SetPostWrap(WrapMode m) noexcept { _post_wrap = m; }
+    void SetPostWrap(WrapMode m) noexcept { m_PostWrap = m; }
 
-    WrapMode PreWrap () const noexcept { return _pre_wrap;  }
-    WrapMode PostWrap() const noexcept { return _post_wrap; }
+    WrapMode PreWrap () const noexcept { return m_PreWrap;  }
+    WrapMode PostWrap() const noexcept { return m_PostWrap; }
 
 private:
     // 時間を [0, Duration()] にラップ (WrapMode 適用)。空 / Duration==0 の場合は
@@ -134,9 +134,9 @@ private:
     static f32 InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
                                   f32 t, f32 dt) noexcept;
 
-    TArray<CurveKey> _keys;
-    WrapMode        _pre_wrap  = WrapMode::Clamp;
-    WrapMode        _post_wrap = WrapMode::Clamp;
+    TArray<CurveKey> m_Keys;
+    WrapMode        m_PreWrap  = WrapMode::Clamp;
+    WrapMode        m_PostWrap = WrapMode::Clamp;
 };
 
 } // namespace acs::game

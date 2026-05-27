@@ -27,12 +27,12 @@ public:
     TResult<void> Init(DiligentDevice& device, const FShaderDesc& desc) noexcept;
 
     // ---- IRhiShader ----
-    EShaderStage Stage()         const noexcept override { return _stage; }
+    EShaderStage Stage()         const noexcept override { return m_Stage; }
     const byte* Bytecode()      const noexcept override { return nullptr; }
     usize       BytecodeSize()  const noexcept override { return 0; }
 
     // 内部公開
-    Diligent::IShader* Native() const noexcept { return _shader; }
+    Diligent::IShader* Native() const noexcept { return m_Shader; }
 
     // HLSL source を parse して取得した register binding。slot は b0/t0/s0
     // 等の数字。array index は ACS の slot 番号と一致する想定 (上限 16)。
@@ -40,21 +40,21 @@ public:
     static constexpr u32 kMaxSlots    = 16;     // Phase 33f-prep: 8→16
     static constexpr u32 kMaxNameLen  = 64;
     const char* CbufferNameAt(u32 slot) const noexcept {
-        return slot < kMaxSlots && _cb_names[slot][0] ? _cb_names[slot] : nullptr;
+        return slot < kMaxSlots && m_CbNames[slot][0] ? m_CbNames[slot] : nullptr;
     }
     const char* TextureNameAt(u32 slot) const noexcept {
-        return slot < kMaxSlots && _tex_names[slot][0] ? _tex_names[slot] : nullptr;
+        return slot < kMaxSlots && m_TexNames[slot][0] ? m_TexNames[slot] : nullptr;
     }
 
 private:
-    DiligentDevice*    _device = nullptr;
-    Diligent::IShader* _shader = nullptr;
-    EShaderStage        _stage  = EShaderStage::Vertex;
+    DiligentDevice*    m_Device = nullptr;
+    Diligent::IShader* m_Shader = nullptr;
+    EShaderStage        m_Stage  = EShaderStage::Vertex;
     // HLSL source 内の `cbuffer X : register(bN)` / `Texture2D Y : register(tN)`
     // から取得した N → 名前のマッピング (Diligent::ShaderResourceDesc に
     // BindPoint が無いため source parse で代用)。
-    char _cb_names [kMaxSlots][kMaxNameLen] = {};
-    char _tex_names[kMaxSlots][kMaxNameLen] = {};
+    char m_CbNames [kMaxSlots][kMaxNameLen] = {};
+    char m_TexNames[kMaxSlots][kMaxNameLen] = {};
 };
 
 } // namespace acs

@@ -54,10 +54,10 @@ void* FSystemAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) n
     void* p = AlignedAlloc(size, alignment, actual);
     if (!p) return nullptr;
     // 統計更新（atomic）
-    u64 cur = _bytes.FetchAdd(actual) + actual;
+    u64 cur = m_Bytes.FetchAdd(actual) + actual;
     // ピーク更新は CAS で（cur > peak の間ループ）
-    u64 peak = _peak.Load(EMemoryOrder::Relaxed);
-    while (cur > peak && !_peak.CompareExchange(peak, cur)) {}
+    u64 peak = m_Peak.Load(EMemoryOrder::Relaxed);
+    while (cur > peak && !m_Peak.CompareExchange(peak, cur)) {}
     return p;
 }
 
@@ -65,7 +65,7 @@ void FSystemAllocator::Free(void* ptr) noexcept {
     if (!ptr) return;
     usize freed = 0;
     AlignedFree(ptr, freed);
-    _bytes.FetchSub(freed);
+    m_Bytes.FetchSub(freed);
 }
 
 // HeapReAlloc はアラインヘッダ方式と相性が悪いので、デフォルト実装を使う

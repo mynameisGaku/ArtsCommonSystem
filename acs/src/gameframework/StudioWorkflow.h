@@ -15,22 +15,22 @@
 //
 // 使い方:
 //   class StudioEditor {
-//       acs::game::IAssetLockingBackend* _locks = nullptr;
-//       acs::game::IBuildFarmBackend*    _farm  = nullptr;
+//       acs::game::IAssetLockingBackend* m_Locks = nullptr;
+//       acs::game::IBuildFarmBackend*    m_Farm  = nullptr;
 //
 //       void OnStart() noexcept override {
 //           // 出荷ビルドでは PerforceAssetLocking / JenkinsBuildFarm を DI、
 //           // 開発ビルドでは Stub。
-//           _locks = &acs::game::GetAssetLockingStub();
-//           _farm  = &acs::game::GetBuildFarmStub();
+//           m_Locks = &acs::game::GetAssetLockingStub();
+//           m_Farm  = &acs::game::GetBuildFarmStub();
 //       }
 //       void OnOpenAsset(const char* path) noexcept {
-//           (void)_locks->LockAsset(path, "designer_a");
+//           (void)m_Locks->LockAsset(path, "designer_a");
 //       }
 //       void OnRequestNightlyBuild() noexcept {
 //           acs::game::IBuildFarmBackend::BuildRequest req{
 //               "Shipping_Win64", "main", "1e6c12b"};
-//           (void)_farm->SubmitBuild(req);
+//           (void)m_Farm->SubmitBuild(req);
 //       }
 //   };
 //
@@ -54,7 +54,7 @@
 //     opaque ID として扱う。`0` は「無効な ID」予約 (StartSearch ticket と同じ約束)。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
 //     `GetAssetLockingStub()` / `GetBuildFarmStub()` を提供。実 SDK 未統合の
-//     ビルドでも `_locks = &GetAssetLockingStub();` だけでコンパイル可能。
+//     ビルドでも `m_Locks = &GetAssetLockingStub();` だけでコンパイル可能。
 //   ・**実 SDK 実装はここでは作らない**: PerforceAssetLocking / JenkinsBuildFarm 等は
 //     外部 SDK 依存を伴うため、本ファイルでは I/F + Stub のみ。
 //

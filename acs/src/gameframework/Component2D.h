@@ -9,12 +9,12 @@
 //   class RotateComponent : public FComponent2D {
 //   public:
 //       ACS_GAME_COMPONENT_KIND(RotateComponent)
-//       explicit RotateComponent(f32 speed_rps) noexcept : _speed(speed_rps) {}
+//       explicit RotateComponent(f32 speed_rps) noexcept : m_Speed(speed_rps) {}
 //       void OnUpdate(f32 dt) noexcept override {
-//           Owner().Local().rotation += _speed * dt;
+//           Owner().Local().rotation += m_Speed * dt;
 //       }
 //   private:
-//       f32 _speed;
+//       f32 m_Speed;
 //   };
 //
 //   auto node = MakeUnique<FNode2D>();
@@ -73,15 +73,15 @@ public:
     virtual void OnDraw(RenderContext& /*rc*/) noexcept {}
     virtual void OnDetach()                  noexcept {}
 
-    FNode2D& Owner() noexcept { return *_owner; }
-    const FNode2D& Owner() const noexcept { return *_owner; }
-    bool HasOwner() const noexcept { return _owner != nullptr; }
+    FNode2D& Owner() noexcept { return *m_Owner; }
+    const FNode2D& Owner() const noexcept { return *m_Owner; }
+    bool HasOwner() const noexcept { return m_Owner != nullptr; }
 
     // FNode2D::AddComponent から呼ぶ (internal)
-    void _SetOwner(FNode2D* o) noexcept { _owner = o; }
+    void _SetOwner(FNode2D* o) noexcept { m_Owner = o; }
 
 private:
-    FNode2D* _owner = nullptr;
+    FNode2D* m_Owner = nullptr;
 };
 
 // 派生クラスで `Kind()` を 1 行で override するための macro。

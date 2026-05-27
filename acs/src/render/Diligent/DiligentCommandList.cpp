@@ -17,7 +17,7 @@ namespace acs {
 DiligentCommandList::~DiligentCommandList() noexcept = default;
 
 TResult<void> DiligentCommandList::Init(DiligentDevice& device) noexcept {
-    _device = &device;
+    m_Device = &device;
     return Ok();
 }
 
@@ -30,21 +30,21 @@ void DiligentCommandList::End() noexcept {
 }
 
 void DiligentCommandList::Submit() noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     // フレーム終了タイミングで Flush + フェンス Signal
     ctx->Flush();
-    _device->SignalGraphicsQueue();
-    _device->AdvanceFrameSlot();
+    m_Device->SignalGraphicsQueue();
+    m_Device->AdvanceFrameSlot();
 }
 
 void DiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer_index*/,
                                                   const ClearColor& clear,
                                                   IRhiTexture* depth,
                                                   f32 depth_clear) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
 
     auto& dsc = static_cast<DiligentSwapchain&>(sc);
@@ -64,8 +64,8 @@ void DiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer
     }
 
     // フレーム内で shadow / off-screen pass を挟んだあと復帰するために記憶。
-    _main_swapchain = &dsc;
-    _main_depth     = depth ? static_cast<DiligentTexture*>(depth) : nullptr;
+    m_MainSwapchain = &dsc;
+    m_MainDepth     = depth ? static_cast<DiligentTexture*>(depth) : nullptr;
 }
 
 void DiligentCommandList::EndRenderToSwapchain(IRhiSwapchain& /*sc*/, u32 /*buffer_index*/) noexcept {
@@ -73,8 +73,8 @@ void DiligentCommandList::EndRenderToSwapchain(IRhiSwapchain& /*sc*/, u32 /*buff
 }
 
 void DiligentCommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& d = static_cast<DiligentTexture&>(depth);
     auto* dsv = d.DsvView();
@@ -99,30 +99,30 @@ void DiligentCommandList::EndShadowPass(IRhiTexture& /*depth*/) noexcept {
     // 自動で行う。ただし RT の復帰はやってくれないので、フレーム冒頭の
     // BeginRenderToSwapchain で記憶した swap chain RTV + main pass DSV を
     // 再 bind する。viewport / scissor も swap chain サイズへ戻す。
-    if (!_device || !_main_swapchain) return;
-    auto* ctx = _device->Context();
+    if (!m_Device || !m_MainSwapchain) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto* swap = _main_swapchain->SwapChain();
+    auto* swap = m_MainSwapchain->SwapChain();
     if (!swap) return;
     auto* rtv = swap->GetCurrentBackBufferRTV();
-    auto* dsv = _main_depth ? _main_depth->DsvView() : nullptr;
+    auto* dsv = m_MainDepth ? m_MainDepth->DsvView() : nullptr;
     Diligent::ITextureView* rtvs[1] = { rtv };
     ctx->SetRenderTargets(1, rtvs, dsv,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     FViewport vp;
-    vp.width  = static_cast<f32>(_main_swapchain->Width());
-    vp.height = static_cast<f32>(_main_swapchain->Height());
+    vp.width  = static_cast<f32>(m_MainSwapchain->Width());
+    vp.height = static_cast<f32>(m_MainSwapchain->Height());
     SetViewport(vp);
     FScissorRect sr;
-    sr.right  = static_cast<i32>(_main_swapchain->Width());
-    sr.bottom = static_cast<i32>(_main_swapchain->Height());
+    sr.right  = static_cast<i32>(m_MainSwapchain->Width());
+    sr.bottom = static_cast<i32>(m_MainSwapchain->Height());
     SetScissor(sr);
 }
 
 void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor& clear,
                                                 IRhiTexture* depth, f32 depth_clear) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& t = static_cast<DiligentTexture&>(rt);
     auto* rtv = t.RtvView();
@@ -150,8 +150,8 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
 
 void DiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
                                                     IRhiTexture* depth) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& t = static_cast<DiligentTexture&>(rt);
     auto* rtv = t.RtvView();
@@ -176,8 +176,8 @@ void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 r
                                                    const ClearColor& clear,
                                                    IRhiTexture* depth,
                                                    f32 depth_clear) noexcept {
-    if (!_device || rt_count == 0 || rt_count > 8 || !rts) return;
-    auto* ctx = _device->Context();
+    if (!m_Device || rt_count == 0 || rt_count > 8 || !rts) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
 
     Diligent::ITextureView* rtvs[8] = {};
@@ -228,8 +228,8 @@ void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 r
 
 void DiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
                                                      const ClearColor& clear) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& t = static_cast<DiligentTexture&>(rt);
     auto* rtv = t.RtvSlice(slice, mip);
@@ -264,29 +264,29 @@ void DiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
     // BeginRenderToSwapchain で記憶した swap chain RTV + main pass DSV +
     // viewport を再 bind する (EndShadowPass と同じパターン)。
     // 復帰先が無い場合 (= フレーム冒頭の swap chain bind 前 等) は noop。
-    if (!_device || !_main_swapchain) return;
-    auto* ctx = _device->Context();
+    if (!m_Device || !m_MainSwapchain) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto* swap = _main_swapchain->SwapChain();
+    auto* swap = m_MainSwapchain->SwapChain();
     if (!swap) return;
     auto* rtv = swap->GetCurrentBackBufferRTV();
-    auto* dsv = _main_depth ? _main_depth->DsvView() : nullptr;
+    auto* dsv = m_MainDepth ? m_MainDepth->DsvView() : nullptr;
     Diligent::ITextureView* rtvs[1] = { rtv };
     ctx->SetRenderTargets(1, rtvs, dsv,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     FViewport vp;
-    vp.width  = static_cast<f32>(_main_swapchain->Width());
-    vp.height = static_cast<f32>(_main_swapchain->Height());
+    vp.width  = static_cast<f32>(m_MainSwapchain->Width());
+    vp.height = static_cast<f32>(m_MainSwapchain->Height());
     SetViewport(vp);
     FScissorRect sr;
-    sr.right  = static_cast<i32>(_main_swapchain->Width());
-    sr.bottom = static_cast<i32>(_main_swapchain->Height());
+    sr.right  = static_cast<i32>(m_MainSwapchain->Width());
+    sr.bottom = static_cast<i32>(m_MainSwapchain->Height());
     SetScissor(sr);
 }
 
 void DiligentCommandList::SetViewport(const FViewport& vp) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     Diligent::Viewport dvp;
     dvp.TopLeftX = vp.x;
@@ -299,8 +299,8 @@ void DiligentCommandList::SetViewport(const FViewport& vp) noexcept {
 }
 
 void DiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     Diligent::Rect r;
     r.left   = sr.left;
@@ -311,17 +311,17 @@ void DiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
 }
 
 void DiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& p = static_cast<DiligentPipeline&>(pipeline);
-    _pipeline = &p;
+    m_Pipeline = &p;
     if (p.Native()) ctx->SetPipelineState(p.Native());
 }
 
 void DiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& b = static_cast<DiligentBuffer&>(vb);
     if (!b.Native()) return;
@@ -333,25 +333,25 @@ void DiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexce
 }
 
 void DiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
-    if (!_device) return;
-    auto* ctx = _device->Context();
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& b = static_cast<DiligentBuffer&>(ib);
     if (!b.Native()) return;
-    _is_index32 = (b.Usage() == EBufferUsage::Index32);
+    m_IsIndex32 = (b.Usage() == EBufferUsage::Index32);
     ctx->SetIndexBuffer(b.Native(), 0,
                         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }
 
 void DiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
-    if (!_pipeline || !_device) return;
-    auto* srb = _pipeline->Srb();
+    if (!m_Pipeline || !m_Device) return;
+    auto* srb = m_Pipeline->Srb();
     if (!srb) return;
     auto& b = static_cast<DiligentBuffer&>(cb);
     if (!b.Native()) return;
 
     // Pipeline が保持してる名前 (cbuffer_names[slot]) で lookup
-    const char* name = _pipeline->CbufferName(slot);
+    const char* name = m_Pipeline->CbufferName(slot);
     auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_VERTEX, name);
     if (var) var->Set(b.Native());
     var = srb->GetVariableByName(Diligent::SHADER_TYPE_PIXEL, name);
@@ -359,23 +359,23 @@ void DiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
 }
 
 void DiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
-    if (!_pipeline || !_device) return;
-    auto* srb = _pipeline->Srb();
+    if (!m_Pipeline || !m_Device) return;
+    auto* srb = m_Pipeline->Srb();
     if (!srb) return;
     auto& t = static_cast<DiligentTexture&>(tex);
     if (!t.SrvView()) return;
 
-    const char* name = _pipeline->TextureName(slot);
+    const char* name = m_Pipeline->TextureName(slot);
     auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_PIXEL, name);
     if (var) var->Set(t.SrvView());
 }
 
 void DiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
-    if (!_device || !_pipeline) return;
-    auto* ctx = _device->Context();
+    if (!m_Device || !m_Pipeline) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
-    if (_pipeline->Srb()) {
-        ctx->CommitShaderResources(_pipeline->Srb(),
+    if (m_Pipeline->Srb()) {
+        ctx->CommitShaderResources(m_Pipeline->Srb(),
                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
     Diligent::DrawAttribs da;
@@ -390,16 +390,16 @@ void DiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
 }
 
 void DiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
-    if (!_device || !_pipeline) return;
-    auto* ctx = _device->Context();
+    if (!m_Device || !m_Pipeline) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
-    if (_pipeline->Srb()) {
-        ctx->CommitShaderResources(_pipeline->Srb(),
+    if (m_Pipeline->Srb()) {
+        ctx->CommitShaderResources(m_Pipeline->Srb(),
                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
     Diligent::DrawIndexedAttribs dia;
     dia.NumIndices   = index_count;
-    dia.IndexType    = _is_index32 ? Diligent::VT_UINT32 : Diligent::VT_UINT16;
+    dia.IndexType    = m_IsIndex32 ? Diligent::VT_UINT32 : Diligent::VT_UINT16;
     dia.FirstIndexLocation = first_index;
     dia.BaseVertex   = base_vertex;
     dia.Flags = Diligent::DRAW_FLAG_NONE;
@@ -407,7 +407,7 @@ void DiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base
 }
 
 void* DiligentCommandList::NativeHandle() noexcept {
-    return _device ? _device->Context() : nullptr;
+    return m_Device ? m_Device->Context() : nullptr;
 }
 
 } // namespace acs

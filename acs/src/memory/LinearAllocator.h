@@ -22,18 +22,18 @@ public:
     // カーソルを 0 に戻す（並行 Alloc 中に呼ぶと UB）
     void Reset() noexcept;
 
-    u64 BytesAllocated() const noexcept override { return _used.Load(EMemoryOrder::Acquire); }
-    u64 PeakBytes()      const noexcept override { return _peak.Load(EMemoryOrder::Acquire); }
-    u64 Capacity()       const noexcept          { return _capacity; }
+    u64 BytesAllocated() const noexcept override { return m_Used.Load(EMemoryOrder::Acquire); }
+    u64 PeakBytes()      const noexcept override { return m_Peak.Load(EMemoryOrder::Acquire); }
+    u64 Capacity()       const noexcept          { return m_Capacity; }
     const char* Name()   const noexcept override { return "Linear"; }
 
 private:
-    u8*           _base     = nullptr;
-    u64           _capacity = 0;
-    FAllocator*    _backing  = nullptr;
-    bool          _owns_backing = false;
-    TAtomic<u64>   _used {0};                  // 現在のカーソル位置
-    mutable TAtomic<u64> _peak {0};            // ピーク位置
+    u8*           m_Base     = nullptr;
+    u64           m_Capacity = 0;
+    FAllocator*    m_Backing  = nullptr;
+    bool          m_OwnsBacking = false;
+    TAtomic<u64>   m_Used {0};                  // 現在のカーソル位置
+    mutable TAtomic<u64> m_Peak {0};            // ピーク位置
 };
 
 } // namespace acs

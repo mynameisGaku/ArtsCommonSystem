@@ -39,23 +39,23 @@ static const char* SafeName(const char* name) noexcept {
 // Init / Shutdown
 // =============================================================================
 void FModelInspectorPanel::Init() noexcept {
-    // _summary は値型 = ゼロ初期化に戻す。
-    _summary    = MeshSummary{};
-    _submeshes.Clear();
-    _bones.Clear();
-    _clips.Clear();
-    _has_model  = false;
+    // m_Summary は値型 = ゼロ初期化に戻す。
+    m_Summary    = MeshSummary{};
+    m_Submeshes.Clear();
+    m_Bones.Clear();
+    m_Clips.Clear();
+    m_HasModel  = false;
 }
 
 void FModelInspectorPanel::Shutdown() noexcept {
     // TArray の容量も解放したいので Clear() に追加して何もしない (TArray は
     // Clear で要素数 0、Destruct で容量解放)。ここでは要素破棄のみで十分
     // (panel 自身の destructor が容量を解放する)。
-    _summary    = MeshSummary{};
-    _submeshes.Clear();
-    _bones.Clear();
-    _clips.Clear();
-    _has_model  = false;
+    m_Summary    = MeshSummary{};
+    m_Submeshes.Clear();
+    m_Bones.Clear();
+    m_Clips.Clear();
+    m_HasModel  = false;
 }
 
 // =============================================================================
@@ -74,55 +74,55 @@ void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
                                           u32                       bone_count,
                                           const FAnimationClipInfo*  clips,
                                           u32                       clip_count) noexcept {
-    _summary = summary;
+    m_Summary = summary;
 
     // ----- Submeshes -----
-    _submeshes.Clear();
+    m_Submeshes.Clear();
     if (submeshes != nullptr && submesh_count > 0) {
-        _submeshes.Reserve(submesh_count);
+        m_Submeshes.Reserve(submesh_count);
         for (u32 i = 0; i < submesh_count; ++i) {
             // SubmeshInfo は POD (const char* + u32 三つ) なので値コピーで OK。
             // TArray::PushBack は perfect forward され T(...) で構築する。
-            _submeshes.PushBack(submeshes[i]);
+            m_Submeshes.PushBack(submeshes[i]);
         }
     }
 
     // ----- Bones -----
-    _bones.Clear();
+    m_Bones.Clear();
     if (bones != nullptr && bone_count > 0) {
-        _bones.Reserve(bone_count);
+        m_Bones.Reserve(bone_count);
         for (u32 i = 0; i < bone_count; ++i) {
-            _bones.PushBack(bones[i]);
+            m_Bones.PushBack(bones[i]);
         }
     }
 
     // ----- FAnimation Clips -----
-    _clips.Clear();
+    m_Clips.Clear();
     if (clips != nullptr && clip_count > 0) {
-        _clips.Reserve(clip_count);
+        m_Clips.Reserve(clip_count);
         for (u32 i = 0; i < clip_count; ++i) {
-            _clips.PushBack(clips[i]);
+            m_Clips.PushBack(clips[i]);
         }
     }
 
-    _has_model = true;
+    m_HasModel = true;
 }
 
 // =============================================================================
 // Clear — "No model loaded" 状態に戻す
 // =============================================================================
 void FModelInspectorPanel::Clear() noexcept {
-    _summary    = MeshSummary{};
-    _submeshes.Clear();
-    _bones.Clear();
-    _clips.Clear();
-    _has_model  = false;
+    m_Summary    = MeshSummary{};
+    m_Submeshes.Clear();
+    m_Bones.Clear();
+    m_Clips.Clear();
+    m_HasModel  = false;
 }
 
 // =============================================================================
 // DrawBoneRecursive — 1 bone と子を TreeNode で再帰描画
 // =============================================================================
-// bone_index を root とする部分木を描画する。同 _bones 配列を線形走査して
+// bone_index を root とする部分木を描画する。同 m_Bones 配列を線形走査して
 // `parent_index == bone_index` の要素を子として再帰呼び出しする。
 //
 // depth は無限再帰防止のガード:
@@ -137,18 +137,18 @@ void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
         ImGui::TextDisabled("  (bone depth limit reached)");
         return;
     }
-    if (bone_index < 0 || static_cast<u32>(bone_index) >= _bones.Size()) {
+    if (bone_index < 0 || static_cast<u32>(bone_index) >= m_Bones.Size()) {
         // 範囲外 = データ破損 / 不正 parent。安全に no-op。
         return;
     }
 
-    const BoneInfo& bone = _bones[static_cast<u32>(bone_index)];
+    const BoneInfo& bone = m_Bones[static_cast<u32>(bone_index)];
 
     // この bone を親とする子 bone があるかを線形走査で先に確認。
     // (TreeNode の Leaf flag を正確に立てるため = 矢印表示の精度が上がる)。
     bool has_child = false;
-    for (u32 i = 0; i < _bones.Size(); ++i) {
-        if (_bones[i].parent_index == bone_index) {
+    for (u32 i = 0; i < m_Bones.Size(); ++i) {
+        if (m_Bones[i].parent_index == bone_index) {
             has_child = true;
             break;
         }
@@ -174,8 +174,8 @@ void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
 
     if (open && has_child) {
         // 子 bone を線形走査して再帰描画。元配列を走査するため index は安定。
-        for (u32 i = 0; i < _bones.Size(); ++i) {
-            if (_bones[i].parent_index == bone_index) {
+        for (u32 i = 0; i < m_Bones.Size(); ++i) {
+            if (m_Bones[i].parent_index == bone_index) {
                 DrawBoneRecursive(static_cast<i32>(i), depth + 1u);
             }
         }
@@ -191,13 +191,13 @@ void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
 void FModelInspectorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
-    if (!ImGui::Begin(Title(), &_visible)) {
+    if (!ImGui::Begin(Title(), &m_Visible)) {
         // 折りたたまれている等、描画が無効化されている場合は End だけ呼んで return。
         ImGui::End();
         return;
     }
 
-    if (!_has_model) {
+    if (!m_HasModel) {
         ImGui::TextDisabled("(No model loaded)");
         ImGui::TextDisabled("Drop a model from the Asset Browser into the Model Viewer.");
         ImGui::End();
@@ -211,18 +211,18 @@ void FModelInspectorPanel::DrawUI() noexcept {
     // 高頻度に確認される情報のため、開閉を許さず常に視認できる位置に置く
     // (Unity の Mesh Inspector もヘッダー直下に常時表示する設計)。
     ImGui::SeparatorText("Summary");
-    ImGui::Text("Vertices       : %u", static_cast<unsigned>(_summary.vertex_count));
-    ImGui::Text("Triangles      : %u", static_cast<unsigned>(_summary.triangle_count));
-    ImGui::Text("Submeshes      : %u", static_cast<unsigned>(_summary.submesh_count));
-    ImGui::Text("Material slots : %u", static_cast<unsigned>(_summary.material_slot_count));
-    ImGui::Text("Bones          : %u", static_cast<unsigned>(_summary.bone_count));
-    ImGui::Text("FAnimation clips: %u", static_cast<unsigned>(_summary.animation_clip_count));
+    ImGui::Text("Vertices       : %u", static_cast<unsigned>(m_Summary.vertex_count));
+    ImGui::Text("Triangles      : %u", static_cast<unsigned>(m_Summary.triangle_count));
+    ImGui::Text("Submeshes      : %u", static_cast<unsigned>(m_Summary.submesh_count));
+    ImGui::Text("Material slots : %u", static_cast<unsigned>(m_Summary.material_slot_count));
+    ImGui::Text("Bones          : %u", static_cast<unsigned>(m_Summary.bone_count));
+    ImGui::Text("FAnimation clips: %u", static_cast<unsigned>(m_Summary.animation_clip_count));
     ImGui::Text("Bounding center: (%.3f, %.3f, %.3f)",
-                static_cast<double>(_summary.bounding_center.x),
-                static_cast<double>(_summary.bounding_center.y),
-                static_cast<double>(_summary.bounding_center.z));
+                static_cast<double>(m_Summary.bounding_center.x),
+                static_cast<double>(m_Summary.bounding_center.y),
+                static_cast<double>(m_Summary.bounding_center.z));
     ImGui::Text("Bounding radius: %.3f",
-                static_cast<double>(_summary.bounding_radius));
+                static_cast<double>(m_Summary.bounding_radius));
 
     ImGui::Spacing();
 
@@ -232,7 +232,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
     // 大きな model では数十 submesh あり得るので、開閉できる方が UX 上望ましい。
     // Table は ImGuiTableFlags_Borders + RowBg で見やすく整形する。
     if (ImGui::CollapsingHeader("Submeshes", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (_submeshes.IsEmpty()) {
+        if (m_Submeshes.IsEmpty()) {
             ImGui::TextDisabled("  (no submeshes)");
         } else {
             const ImGuiTableFlags table_flags =
@@ -253,8 +253,8 @@ void FModelInspectorPanel::DrawUI() noexcept {
                 ImGui::TableSetupColumn("Material Slot", ImGuiTableColumnFlags_WidthStretch, 1.0f);
                 ImGui::TableHeadersRow();
 
-                for (u32 i = 0; i < _submeshes.Size(); ++i) {
-                    const SubmeshInfo& sm = _submeshes[i];
+                for (u32 i = 0; i < m_Submeshes.Size(); ++i) {
+                    const SubmeshInfo& sm = m_Submeshes[i];
                     ImGui::TableNextRow();
 
                     ImGui::TableSetColumnIndex(0);
@@ -282,18 +282,18 @@ void FModelInspectorPanel::DrawUI() noexcept {
     // 一般のキャラクタは root が 1 つだが、ACS は複数 root を許容する (=
     // 武器 attach 用の補助 skeleton root 等)。
     if (ImGui::CollapsingHeader("Bones", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (_bones.IsEmpty()) {
+        if (m_Bones.IsEmpty()) {
             ImGui::TextDisabled("  (no skeleton)");
         } else {
             // root bone を線形走査で全て描画。
-            // parent_index < 0 もしくは「parent_index が _bones 範囲外」を root とみなす
+            // parent_index < 0 もしくは「parent_index が m_Bones 範囲外」を root とみなす
             // (= 不正データに対する fail-safe で、孤立した bone も表示できるように)。
             bool drew_any_root = false;
-            for (u32 i = 0; i < _bones.Size(); ++i) {
-                const i32 pi = _bones[i].parent_index;
+            for (u32 i = 0; i < m_Bones.Size(); ++i) {
+                const i32 pi = m_Bones[i].parent_index;
                 const bool is_root =
                     (pi < 0) ||
-                    (static_cast<u32>(pi) >= _bones.Size());
+                    (static_cast<u32>(pi) >= m_Bones.Size());
                 if (is_root) {
                     DrawBoneRecursive(static_cast<i32>(i), 0u);
                     drew_any_root = true;
@@ -312,7 +312,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
     // 4) FAnimation Clips セクション — CollapsingHeader + Table
     // ------------------------------------------------------------------------
     if (ImGui::CollapsingHeader("FAnimation Clips", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (_clips.IsEmpty()) {
+        if (m_Clips.IsEmpty()) {
             ImGui::TextDisabled("  (no animation clips)");
         } else {
             const ImGuiTableFlags table_flags =
@@ -332,8 +332,8 @@ void FModelInspectorPanel::DrawUI() noexcept {
                 ImGui::TableSetupColumn("Looping",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
                 ImGui::TableHeadersRow();
 
-                for (u32 i = 0; i < _clips.Size(); ++i) {
-                    const FAnimationClipInfo& clip = _clips[i];
+                for (u32 i = 0; i < m_Clips.Size(); ++i) {
+                    const FAnimationClipInfo& clip = m_Clips[i];
                     ImGui::TableNextRow();
 
                     ImGui::TableSetColumnIndex(0);

@@ -43,15 +43,15 @@ void EnsureSymbols() noexcept {
 // 現在のスタックフレームを取得する。
 // CaptureStackBackTrace は WinAPI で、非常に高速かつスレッドセーフ。
 void StackTrace::Capture(u32 skip) noexcept {
-    USHORT n = ::CaptureStackBackTrace(static_cast<DWORD>(skip), kStackTraceMaxFrames, _addrs, nullptr);
-    _count    = static_cast<u32>(n);
-    _resolved = false;
+    USHORT n = ::CaptureStackBackTrace(static_cast<DWORD>(skip), kStackTraceMaxFrames, m_Addrs, nullptr);
+    m_Count    = static_cast<u32>(n);
+    m_Resolved = false;
 }
 
 // 取得済みアドレスをシンボル名 / ファイル名 / 行番号に変換する。
 // SYMBOL_INFO は末尾可変長の構造体なので適切なサイズで確保する。
 void StackTrace::Resolve() noexcept {
-    if (_resolved || _count == 0) return;
+    if (m_Resolved || m_Count == 0) return;
     EnsureSymbols();
 
     AcquireSRWLockExclusive(&g_sym_lock);
@@ -66,20 +66,20 @@ void StackTrace::Resolve() noexcept {
     IMAGEHLP_LINE64 line {};
     line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
 
-    for (u32 i = 0; i < _count; ++i) {
-        StackFrame& f = _frames[i];
-        f.address  = _addrs[i];
+    for (u32 i = 0; i < m_Count; ++i) {
+        StackFrame& f = m_Frames[i];
+        f.address  = m_Addrs[i];
         f.symbol[0] = 0;
         f.file[0]   = 0;
         f.line      = 0;
 
-        DWORD64 addr = reinterpret_cast<DWORD64>(_addrs[i]);
+        DWORD64 addr = reinterpret_cast<DWORD64>(m_Addrs[i]);
         DWORD64 disp64 = 0;
         // シンボル取得（失敗時はアドレスのみ表示）
         if (SymFromAddr(proc, addr, &disp64, sym)) {
             ::strncpy_s(f.symbol, sym->Name, sizeof(f.symbol) - 1);
         } else {
-            ::snprintf(f.symbol, sizeof(f.symbol), "??? @ 0x%p", _addrs[i]);
+            ::snprintf(f.symbol, sizeof(f.symbol), "??? @ 0x%p", m_Addrs[i]);
         }
         // ファイル名 / 行番号取得
         DWORD disp32 = 0;
@@ -89,15 +89,15 @@ void StackTrace::Resolve() noexcept {
         }
     }
     ReleaseSRWLockExclusive(&g_sym_lock);
-    _resolved = true;
+    m_Resolved = true;
 }
 
 // 解決済みフレームを 1 行ずつ整形して sink に渡す。
 // 出力先（stderr / ロガー / ファイル）は呼び出し元が決める。
 void StackTrace::Print(Sink sink, void* user) const noexcept {
     char buf[640];
-    for (u32 i = 0; i < _count; ++i) {
-        const StackFrame& f = _frames[i];
+    for (u32 i = 0; i < m_Count; ++i) {
+        const StackFrame& f = m_Frames[i];
         int n;
         if (f.file[0])
             n = ::snprintf(buf, sizeof(buf), "  #%u %s\n      at %s:%llu\n",

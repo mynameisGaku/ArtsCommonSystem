@@ -528,10 +528,10 @@ struct EquirectCBLayout {
 
 TResult<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
                                                 IRhiCommandList& cl) noexcept {
-    if (_brdf_built) return Ok();
+    if (m_BrdfBuilt) return Ok();
     auto r = BuildBrdfLut(device, cl);
     if (r.IsErr()) return r;
-    _brdf_built = true;
+    m_BrdfBuilt = true;
     return Ok();
 }
 
@@ -545,7 +545,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     }
     // 前回失敗で残った半端テクスチャは破棄。途中失敗時にも次回呼び出しで
     // 確実に rebuild されるよう、入口で全 reset しておく。
-    _brdf_lut.Reset();
+    m_BrdfLut.Reset();
 
     // 1) RT 用テクスチャ
     FTextureDesc td{};
@@ -555,7 +555,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     td.is_render_target = true;
     auto t_r = CreateRhiTexture(device, td);
     if (t_r.IsErr()) return Err<void>(t_r.Error());
-    _brdf_lut = Move(t_r.Value());
+    m_BrdfLut = Move(t_r.Value());
 
     // 2) 一時 VS/PS/Pipeline (LUT は 1 回描画後は静的データなのでパイプラインは捨てる)
     TUniquePtr<IRhiShader>   vs;
@@ -600,22 +600,22 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
 
     // 3) RT に 1 パス描画
     ClearColor black{0, 0, 0, 1};
-    cl.BeginRenderToTexture(*_brdf_lut, black);
+    cl.BeginRenderToTexture(*m_BrdfLut, black);
     cl.SetPipeline(*pipeline);
     cl.Draw(3);
-    cl.EndRenderToTexture(*_brdf_lut);
+    cl.EndRenderToTexture(*m_BrdfLut);
 
-    // pipeline / vs / ps はここで解放されるが、_brdf_lut は残る。
+    // pipeline / vs / ps はここで解放されるが、m_BrdfLut は残る。
     return Ok();
 }
 
 TResult<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
                                                   const FSky& sky) noexcept {
-    if (_env_built) return Ok();
+    if (m_EnvBuilt) return Ok();
     auto r = BuildEnvCubemap(device, cl, sky);
     if (r.IsErr()) return r;
-    _env_built = true;
+    m_EnvBuilt = true;
     return Ok();
 }
 
@@ -626,7 +626,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
         ACS_LOG_WARN("ImageBasedLighting: env cubemap skipped (backend != Diligent)");
         return Ok();
     }
-    _env_cube.Reset();
+    m_EnvCube.Reset();
 
     // 1) cubemap (6 face, R11G11B10_Float, per-slice RTV)
     FTextureDesc td{};
@@ -639,7 +639,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     td.per_slice_rtv    = true;
     auto t_r = CreateRhiTexture(device, td);
     if (t_r.IsErr()) return Err<void>(t_r.Error());
-    _env_cube = Move(t_r.Value());
+    m_EnvCube = Move(t_r.Value());
 
     // 2) 一時 VS/PS/Pipeline/CB
     TUniquePtr<IRhiShader>   vs;
@@ -710,7 +710,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
         data.ground     = FVec4{gr.x, gr.y, gr.z, 1};
         cb->Update(&data, sizeof(data));
 
-        cl.BeginRenderToTextureSlice(*_env_cube, face, 0, black);
+        cl.BeginRenderToTextureSlice(*m_EnvCube, face, 0, black);
         cl.SetPipeline(*pipeline);          // BeginRenderToTextureSlice 後の re-bind 保険
         cl.SetConstantBuffer(0, *cb);
         cl.Draw(3);
@@ -718,7 +718,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     // 最後の slice 描画後 main pass RT に戻すため EndRenderToTexture を呼ぶ。
     // BeginRenderToTextureSlice は EndRenderToTexture の RT 復帰ロジックと
     // 共用する設計なので、何かしらの "終わり" 通知が必要。
-    cl.EndRenderToTexture(*_env_cube);
+    cl.EndRenderToTexture(*m_EnvCube);
 
     return Ok();
 }
@@ -836,7 +836,7 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
         td.per_slice_rtv    = true;
         auto r = CreateRhiTexture(device, td);
         if (r.IsErr()) return Err<void>(r.Error());
-        _env_cube = Move(r.Value());
+        m_EnvCube = Move(r.Value());
     }
 
     // 3) 一時 VS/PS/Pipeline/CB
@@ -901,27 +901,27 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
         data.face_index = static_cast<i32>(face);
         cb->Update(&data, sizeof(data));
 
-        cl.BeginRenderToTextureSlice(*_env_cube, face, 0, black);
+        cl.BeginRenderToTextureSlice(*m_EnvCube, face, 0, black);
         cl.Draw(3);
     }
-    cl.EndRenderToTexture(*_env_cube);
+    cl.EndRenderToTexture(*m_EnvCube);
 
-    _env_built = true;
+    m_EnvBuilt = true;
     return Ok();
 }
 
 TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
                                                    IRhiCommandList& cl) noexcept {
-    if (_irradiance_built) return Ok();
+    if (m_IrradianceBuilt) return Ok();
     // Diligent でなければ silent no-op (EnsureBrdfLut/EnsureEnvCubemap と一貫した挙動)
     if (!IsDiligentBackend(device)) return Ok();
-    if (!_env_cube) {
+    if (!m_EnvCube) {
         return ACS_ERR(Render, 160,
             "ImageBasedLighting::EnsureIrradiance: env cubemap not built yet");
     }
     auto r = BuildIrradiance(device, cl);
     if (r.IsErr()) return r;
-    _irradiance_built = true;
+    m_IrradianceBuilt = true;
     return Ok();
 }
 
@@ -931,7 +931,7 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
         ACS_LOG_WARN("ImageBasedLighting: irradiance skipped (backend != Diligent)");
         return Ok();
     }
-    _irradiance_cube.Reset();
+    m_IrradianceCube.Reset();
 
     // 1) irradiance cubemap (6 face, 32x32, R11G11B10_Float, per-slice RTV)
     FTextureDesc td{};
@@ -944,7 +944,7 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     td.per_slice_rtv    = true;
     auto t_r = CreateRhiTexture(device, td);
     if (t_r.IsErr()) return Err<void>(t_r.Error());
-    _irradiance_cube = Move(t_r.Value());
+    m_IrradianceCube = Move(t_r.Value());
 
     // 2) 一時 VS/PS/Pipeline/CB
     TUniquePtr<IRhiShader>   vs;
@@ -1006,30 +1006,30 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     ClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);
-    cl.SetTexture(0, *_env_cube);
+    cl.SetTexture(0, *m_EnvCube);
     for (u32 face = 0; face < 6; ++face) {
         IrradianceCBLayout data{};
         data.face_index = static_cast<i32>(face);
         cb->Update(&data, sizeof(data));
 
-        cl.BeginRenderToTextureSlice(*_irradiance_cube, face, 0, black);
+        cl.BeginRenderToTextureSlice(*m_IrradianceCube, face, 0, black);
         cl.Draw(3);
     }
-    cl.EndRenderToTexture(*_irradiance_cube);
+    cl.EndRenderToTexture(*m_IrradianceCube);
     return Ok();
 }
 
 TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
-    if (_prefilter_built) return Ok();
+    if (m_PrefilterBuilt) return Ok();
     if (!IsDiligentBackend(device)) return Ok();
-    if (!_env_cube) {
+    if (!m_EnvCube) {
         return ACS_ERR(Render, 161,
             "ImageBasedLighting::EnsurePrefilter: env cubemap not built yet");
     }
     auto r = BuildPrefilter(device, cl);
     if (r.IsErr()) return r;
-    _prefilter_built = true;
+    m_PrefilterBuilt = true;
     return Ok();
 }
 
@@ -1039,8 +1039,8 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
         ACS_LOG_WARN("ImageBasedLighting: prefilter skipped (backend != Diligent)");
         return Ok();
     }
-    _prefilter_cube.Reset();
-    _prefilter_mips = 0;
+    m_PrefilterCube.Reset();
+    m_PrefilterMips = 0;
 
     // 1) prefilter cubemap (6 face, 128x128, 5 mips, R11G11B10_Float, per-slice RTV)
     FTextureDesc td{};
@@ -1054,8 +1054,8 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     td.per_slice_rtv    = true;
     auto t_r = CreateRhiTexture(device, td);
     if (t_r.IsErr()) return Err<void>(t_r.Error());
-    _prefilter_cube  = Move(t_r.Value());
-    _prefilter_mips  = kPrefilterMips;
+    m_PrefilterCube  = Move(t_r.Value());
+    m_PrefilterMips  = kPrefilterMips;
 
     // 2) 一時 VS/PS/Pipeline/CB
     TUniquePtr<IRhiShader>   vs;
@@ -1114,7 +1114,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     ClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);
-    cl.SetTexture(0, *_env_cube);
+    cl.SetTexture(0, *m_EnvCube);
     for (u32 mip = 0; mip < kPrefilterMips; ++mip) {
         const f32 roughness = static_cast<f32>(mip) / static_cast<f32>(kPrefilterMips - 1);
         for (u32 face = 0; face < 6; ++face) {
@@ -1123,25 +1123,25 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
             data.roughness  = roughness;
             cb->Update(&data, sizeof(data));
 
-            cl.BeginRenderToTextureSlice(*_prefilter_cube, face, mip, black);
+            cl.BeginRenderToTextureSlice(*m_PrefilterCube, face, mip, black);
             cl.Draw(3);
         }
     }
-    cl.EndRenderToTexture(*_prefilter_cube);
+    cl.EndRenderToTexture(*m_PrefilterCube);
     return Ok();
 }
 
 TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
                                                        EFormat rt_format,
                                                        EFormat depth_format) noexcept {
-    if (_sky_pipeline && _sky_rt_format == rt_format && _sky_depth_format == depth_format) {
+    if (m_SkyPipeline && m_SkyRtFormat == rt_format && m_SkyDepthFormat == depth_format) {
         return Ok();
     }
     // RT/depth format が変わったら再構築
-    _sky_pipeline.Reset();
-    _sky_cb.Reset();
-    _sky_ps.Reset();
-    _sky_vs.Reset();
+    m_SkyPipeline.Reset();
+    m_SkyCb.Reset();
+    m_SkyPs.Reset();
+    m_SkyVs.Reset();
 
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -1149,7 +1149,7 @@ TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "IblSkybox.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
-    else _sky_vs = Move(r.Value());
+    else m_SkyVs = Move(r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -1157,18 +1157,18 @@ TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "IblSkybox.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
-    else _sky_ps = Move(r.Value());
+    else m_SkyPs = Move(r.Value());
 
     FBufferDesc cbd{};
     cbd.size = (sizeof(SkyboxCBLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
-    else _sky_cb = Move(r.Value());
+    else m_SkyCb = Move(r.Value());
 
     FPipelineDesc pd{};
-    pd.vs            = _sky_vs.Get();
-    pd.ps            = _sky_ps.Get();
+    pd.vs            = m_SkyVs.Get();
+    pd.ps            = m_SkyPs.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
@@ -1188,10 +1188,10 @@ TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
-    else _sky_pipeline = Move(r.Value());
+    else m_SkyPipeline = Move(r.Value());
 
-    _sky_rt_format    = rt_format;
-    _sky_depth_format = depth_format;
+    m_SkyRtFormat    = rt_format;
+    m_SkyDepthFormat = depth_format;
     return Ok();
 }
 
@@ -1207,10 +1207,10 @@ void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
     cb.inv_view_proj = Inverse(view_proj);
     cb.eye           = FVec4{eye.x, eye.y, eye.z, 1};
     cb.mip_pad       = FVec4{mip_level, 0, 0, 0};
-    _sky_cb->Update(&cb, sizeof(cb));
+    m_SkyCb->Update(&cb, sizeof(cb));
 
-    cl.SetPipeline(*_sky_pipeline);
-    cl.SetConstantBuffer(0, *_sky_cb);
+    cl.SetPipeline(*m_SkyPipeline);
+    cl.SetConstantBuffer(0, *m_SkyCb);
     cl.SetTexture(0, cube);
     cl.Draw(3);
 }
@@ -1218,37 +1218,37 @@ void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
 void ImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                         const FMat4& view_proj, FVec3 eye,
                                         EFormat rt_format, EFormat depth_format) noexcept {
-    if (!_env_cube) return;
-    DrawSkybox(device, cl, *_env_cube, view_proj, eye, rt_format, depth_format);
+    if (!m_EnvCube) return;
+    DrawSkybox(device, cl, *m_EnvCube, view_proj, eye, rt_format, depth_format);
 }
 
 void ImageBasedLighting::ResetEnvCubemap() noexcept {
     // env が無効になれば irradiance / prefilter も無効。
-    _prefilter_cube.Reset();
-    _prefilter_mips   = 0;
-    _prefilter_built  = false;
-    _irradiance_cube.Reset();
-    _irradiance_built = false;
-    _env_cube.Reset();
-    _env_built        = false;
+    m_PrefilterCube.Reset();
+    m_PrefilterMips   = 0;
+    m_PrefilterBuilt  = false;
+    m_IrradianceCube.Reset();
+    m_IrradianceBuilt = false;
+    m_EnvCube.Reset();
+    m_EnvBuilt        = false;
 }
 
 void ImageBasedLighting::Shutdown() noexcept {
-    _sky_pipeline.Reset();
-    _sky_cb.Reset();
-    _sky_ps.Reset();
-    _sky_vs.Reset();
-    _sky_rt_format    = EFormat::Unknown;
-    _sky_depth_format = EFormat::Unknown;
-    _prefilter_cube.Reset();
-    _prefilter_mips   = 0;
-    _irradiance_cube.Reset();
-    _env_cube.Reset();
-    _brdf_lut.Reset();
-    _prefilter_built  = false;
-    _irradiance_built = false;
-    _env_built        = false;
-    _brdf_built       = false;
+    m_SkyPipeline.Reset();
+    m_SkyCb.Reset();
+    m_SkyPs.Reset();
+    m_SkyVs.Reset();
+    m_SkyRtFormat    = EFormat::Unknown;
+    m_SkyDepthFormat = EFormat::Unknown;
+    m_PrefilterCube.Reset();
+    m_PrefilterMips   = 0;
+    m_IrradianceCube.Reset();
+    m_EnvCube.Reset();
+    m_BrdfLut.Reset();
+    m_PrefilterBuilt  = false;
+    m_IrradianceBuilt = false;
+    m_EnvBuilt        = false;
+    m_BrdfBuilt       = false;
 }
 
 } // namespace acs

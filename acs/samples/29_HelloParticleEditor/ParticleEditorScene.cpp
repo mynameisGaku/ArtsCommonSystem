@@ -16,7 +16,7 @@ namespace helloparticleed {
 
 void ParticleEditorScene::OnEnter() noexcept {
     // 連続放出 + Burst のピークを吸収するため pool 容量を多めに取る。
-    _particle_system.Init(4096);
+    m_ParticleSystem.Init(4096);
 
     // 既定値が「無発射 / 黒粒子」なので、起動直後に何も見えない事故を避ける
     // ため、最低限の見た目が出る連続放出パラメータで emitter 1 個を作る。
@@ -34,8 +34,8 @@ void ParticleEditorScene::OnEnter() noexcept {
     def.gravity            = FVec2{0.0f, 60.0f};
 
     // Preview が原点中心に描画する想定なので world 座標 (0,0) に配置。
-    _default_emitter = _particle_system.CreateEmitter(def, FVec2{0.0f, 0.0f});
-    _particle_system.SetEmitterActive(_default_emitter, true);
+    m_DefaultEmitter = m_ParticleSystem.CreateEmitter(def, FVec2{0.0f, 0.0f});
+    m_ParticleSystem.SetEmitterActive(m_DefaultEmitter, true);
 
     // Panel 側は SelectedIndex() のデフォルト 0 で十分動く前提なので、
     // 明示的な SyncFromSystem 系 API は呼ばない (最小契約)。
@@ -43,7 +43,7 @@ void ParticleEditorScene::OnEnter() noexcept {
 }
 
 void ParticleEditorScene::OnExit() noexcept {
-    _particle_system.ClearAll();
+    m_ParticleSystem.ClearAll();
     ACS_LOG_INFO("[ParticleEditor] exited");
 }
 
@@ -56,40 +56,40 @@ void ParticleEditorScene::OnUpdate(f32 dt) noexcept {
     // FApplication 側の大 dt スパイクで particle が飛び散らないよう clamp。
     if (dt > 0.1f) dt = 0.1f;
 
-    _particle_system.Tick(dt);
+    m_ParticleSystem.Tick(dt);
 
     // Preview 内部の auto-rotate / カメラ追従などを進める。
-    _editor_preview.Tick(dt, _particle_system);
+    m_EditorPreview.Tick(dt, m_ParticleSystem);
 }
 
 void ParticleEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
     // ImGui の draw コマンドは FGame::OnRender の NewFrame() と Render() の間で
     // 発行される。Scene::OnRender はその内側なのでそのまま ImGui::* を呼べる。
-    _draw_file_menu();
+    m_DrawFileMenu();
 
     // emitter パラメータ編集 panel。
-    _editor_panel.SetTargetSystem(&_particle_system);
-    _editor_panel.DrawUI();
+    m_EditorPanel.SetTargetSystem(&m_ParticleSystem);
+    m_EditorPanel.DrawUI();
 
     // Preview 描画 + Burst/Restart ボタン。
-    _editor_preview.DrawUI(
-        _particle_system,
-        _editor_panel.GetEmitterDef(_editor_panel.SelectedIndex()));
+    m_EditorPreview.DrawUI(
+        m_ParticleSystem,
+        m_EditorPanel.GetEmitterDef(m_EditorPanel.SelectedIndex()));
 }
 
 // ----------------------------------------------------------------------------
-// File メニュー: Save / Load / Quit のディスパッチのみ。実処理は _save_preset /
-// _load_preset に逃がして、OnRender 側の見通しを保つ。
+// File メニュー: Save / Load / Quit のディスパッチのみ。実処理は m_SavePreset /
+// m_LoadPreset に逃がして、OnRender 側の見通しを保つ。
 // ----------------------------------------------------------------------------
-void ParticleEditorScene::_draw_file_menu() noexcept {
+void ParticleEditorScene::m_DrawFileMenu() noexcept {
     if (!ImGui::BeginMainMenuBar()) return;
 
     if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("Save .fxedit")) {
-            _save_preset();
+            m_SavePreset();
         }
         if (ImGui::MenuItem("Load .fxedit")) {
-            _load_preset();
+            m_LoadPreset();
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Quit", "Esc")) {
@@ -101,9 +101,9 @@ void ParticleEditorScene::_draw_file_menu() noexcept {
     ImGui::EndMainMenuBar();
 }
 
-void ParticleEditorScene::_save_preset() noexcept {
-    const u32 idx = _editor_panel.SelectedIndex();
-    const ParticleEmitterDef& def = _editor_panel.GetEmitterDef(idx);
+void ParticleEditorScene::m_SavePreset() noexcept {
+    const u32 idx = m_EditorPanel.SelectedIndex();
+    const ParticleEmitterDef& def = m_EditorPanel.GetEmitterDef(idx);
     if (auto r = fxedit::FFxeditSerializer::Save(kPresetPath, def); r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Save '%s' failed", kPresetPath);
     } else {
@@ -111,15 +111,15 @@ void ParticleEditorScene::_save_preset() noexcept {
     }
 }
 
-void ParticleEditorScene::_load_preset() noexcept {
+void ParticleEditorScene::m_LoadPreset() noexcept {
     auto r = fxedit::FFxeditSerializer::Load(kPresetPath);
     if (r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Load '%s' failed", kPresetPath);
         return;
     }
     // GetEmitterDef(idx) は mutable 参照を返す契約 (Save 側と対称)。
-    const u32 idx = _editor_panel.SelectedIndex();
-    _editor_panel.GetEmitterDef(idx) = r.Value();
+    const u32 idx = m_EditorPanel.SelectedIndex();
+    m_EditorPanel.GetEmitterDef(idx) = r.Value();
     ACS_LOG_INFO("[ParticleEditor] loaded <- %s", kPresetPath);
 }
 

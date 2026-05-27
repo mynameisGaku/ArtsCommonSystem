@@ -51,8 +51,8 @@
 //   static EBtStatus Patrol(void* bb, f32 dt) noexcept { ... }
 //
 //   class Enemy {
-//       acs::game::FBehaviorTree _bt;
-//       EnemyBb                 _bb;
+//       acs::game::FBehaviorTree m_Bt;
+//       EnemyBb                 m_Bb;
 //
 //       Enemy() noexcept {
 //           // Selector: 「敵が見えたら追跡、見えなければパトロール」
@@ -62,9 +62,9 @@
 //           chase->AddChild(acs::MakeUnique<acs::game::FBtAction>(&MoveToPlayer));
 //           root->AddChild(acs::Move(chase));
 //           root->AddChild(acs::MakeUnique<acs::game::FBtAction>(&Patrol));
-//           _bt.SetRoot(acs::Move(root));
+//           m_Bt.SetRoot(acs::Move(root));
 //       }
-//       void Tick(f32 dt) noexcept { _bt.Tick(&_bb, dt); }
+//       void Tick(f32 dt) noexcept { m_Bt.Tick(&m_Bb, dt); }
 //   };
 #pragma once
 
@@ -113,10 +113,10 @@ public:
 
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
-    usize ChildCount() const noexcept { return _children.Size(); }
+    usize ChildCount() const noexcept { return m_Children.Size(); }
 
 private:
-    TArray<TUniquePtr<FBtNode>> _children;
+    TArray<TUniquePtr<FBtNode>> m_Children;
 };
 
 // FSequence ("AND" 合成): 子を順に Tick し、最初に Running か Failure を返した子で停止。
@@ -132,10 +132,10 @@ public:
 
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
-    usize ChildCount() const noexcept { return _children.Size(); }
+    usize ChildCount() const noexcept { return m_Children.Size(); }
 
 private:
-    TArray<TUniquePtr<FBtNode>> _children;
+    TArray<TUniquePtr<FBtNode>> m_Children;
 };
 
 // Action: 関数ポインタを呼ぶだけの末端 leaf。
@@ -145,13 +145,13 @@ class FBtAction : public FBtNode {
 public:
     using Fn = EBtStatus(*)(void* blackboard, f32 dt) noexcept;
 
-    explicit FBtAction(Fn fn) noexcept : _fn(fn) {}
+    explicit FBtAction(Fn fn) noexcept : m_Fn(fn) {}
     ~FBtAction() noexcept override = default;
 
     EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
 
 private:
-    Fn _fn = nullptr;
+    Fn m_Fn = nullptr;
 };
 
 // FBehaviorTree: root を抱えて Tick を駆動するだけのハーネス。
@@ -173,10 +173,10 @@ public:
     // 1 フレーム分の評価。root 未設定なら Failure を返す。
     EBtStatus Tick(void* blackboard, f32 dt) noexcept;
 
-    bool HasRoot() const noexcept { return static_cast<bool>(_root); }
+    bool HasRoot() const noexcept { return static_cast<bool>(m_Root); }
 
 private:
-    TUniquePtr<FBtNode> _root;
+    TUniquePtr<FBtNode> m_Root;
 };
 
 } // namespace acs::game

@@ -182,19 +182,19 @@ public:
     TResult<void> Load(const wchar_t* file_path) noexcept;
 
 private:
-    // id 文字列を _defs から線形検索。未検出は -1。`id == nullptr` も -1。
+    // id 文字列を m_Defs から線形検索。未検出は -1。`id == nullptr` も -1。
     isize FindIndex(const char* id) const noexcept;
 
     // 累計 XP。AwardXp で加算され、ResetProgress で 0 に戻る。
-    u32 _xp = 0;
+    u32 m_Xp = 0;
 
     // Def / State は 1:1 対応 (同 index)。
-    TArray<MilestoneDef>   _defs;
+    TArray<MilestoneDef>   m_Defs;
     TArray<MilestoneState> _states;
 
     // 達成時 callback (関数ポインタ + user data)。両方 nullptr で「未設定」。
-    MilestoneCallback _on_achieved      = nullptr;
-    void*             _on_achieved_user = nullptr;
+    MilestoneCallback m_OnAchieved      = nullptr;
+    void*             m_OnAchievedUser = nullptr;
 };
 
 } // namespace acs::game

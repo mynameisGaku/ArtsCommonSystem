@@ -8,7 +8,7 @@
 //     在庫減算の順序に注意 — 在庫先 check → 残高先 check → 両方通れば deduct +
 //     stock-- を一気にやる (途中失敗が起きないため atomic と等価)。
 //   ・stock_remaining == ~0u は「無制限」の哨兵値。Purchase 時には減算しない。
-//   ・コールバックは `_on_purchase != nullptr` のときだけ呼ぶ。
+//   ・コールバックは `m_OnPurchase != nullptr` のときだけ呼ぶ。
 //     失敗時 (item_id 不明等) でも呼出側 UI で失敗トーストを出したいので、
 //     `item_id != nullptr` のときは success=false でも呼ぶ設計。
 //   ・WARN は FEntitlement / FSeasonPass / FAchievementManager と同じ Log.h 経由。
@@ -48,18 +48,18 @@ constexpr u32 kMaxBalance = ~static_cast<u32>(0);
 
 u32 FEconomyDirector::FindCurrencySlot(const char* currency_id) const noexcept {
     if (currency_id == nullptr) return kNotFound;
-    const usize n = _currencies.Size();
+    const usize n = m_Currencies.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_currencies[i].id, currency_id)) return static_cast<u32>(i);
+        if (StrEq(m_Currencies[i].id, currency_id)) return static_cast<u32>(i);
     }
     return kNotFound;
 }
 
 u32 FEconomyDirector::FindItemSlot(const char* item_id) const noexcept {
     if (item_id == nullptr) return kNotFound;
-    const usize n = _items.Size();
+    const usize n = m_Items.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_items[i].item_id, item_id)) return static_cast<u32>(i);
+        if (StrEq(m_Items[i].item_id, item_id)) return static_cast<u32>(i);
     }
     return kNotFound;
 }
@@ -78,21 +78,21 @@ void FEconomyDirector::RegisterCurrency(const CurrencyDef& def) noexcept {
         return;
     }
 
-    _currencies.PushBack(def);
+    m_Currencies.PushBack(def);
     // 並行 TArray — 残高は 0 で初期化。
-    _balances.PushBack(static_cast<u32>(0));
+    m_Balances.PushBack(static_cast<u32>(0));
 }
 
 void FEconomyDirector::SetBalance(const char* currency_id, u32 amount) noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return;
-    _balances[slot] = amount;
+    m_Balances[slot] = amount;
 }
 
 u32 FEconomyDirector::GetBalance(const char* currency_id) const noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return 0;
-    return _balances[slot];
+    return m_Balances[slot];
 }
 
 bool FEconomyDirector::AddToBalance(const char* currency_id, u32 delta) noexcept {
@@ -100,7 +100,7 @@ bool FEconomyDirector::AddToBalance(const char* currency_id, u32 delta) noexcept
     if (slot == kNotFound) return false;
 
     // u32 オーバーフロー時は max にクランプ (AwardXp と同パターン)。
-    u32& bal = _balances[slot];
+    u32& bal = m_Balances[slot];
     if (delta > kMaxBalance - bal) {
         bal = kMaxBalance;
     } else {
@@ -113,7 +113,7 @@ bool FEconomyDirector::DeductFromBalance(const char* currency_id, u32 delta) noe
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return false;
 
-    u32& bal = _balances[slot];
+    u32& bal = m_Balances[slot];
     if (bal < delta) return false;  // 残高不足 — 変更しない
     bal -= delta;
     return true;
@@ -135,7 +135,7 @@ void FEconomyDirector::RegisterItem(const ShopItem& item) noexcept {
 
     // currency_id 未登録でも登録自体は受理する (起動順序依存を緩める)。
     // 購入時に未登録通貨を検出して失敗を返す。
-    _items.PushBack(item);
+    m_Items.PushBack(item);
 }
 
 // =============================================================================
@@ -150,20 +150,20 @@ bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
     if (item_slot == kNotFound) {
         // 不明 item_id でも UI で「不明な商品」エラーを出させたいので
         // コールバックは呼ぶ。生 item_id (= 呼出側が渡したポインタ) を返す。
-        if (_on_purchase != nullptr) {
-            _on_purchase(_on_purchase_user, item_id, false);
+        if (m_OnPurchase != nullptr) {
+            m_OnPurchase(m_OnPurchaseUser, item_id, false);
         }
         return false;
     }
 
     // 以降は内部状態を参照する。失敗判定をすべて済ませてから side effect を
     // 起こすことで「失敗時 side effect なし」を保証する。
-    ShopItem& item = _items[item_slot];
+    ShopItem& item = m_Items[item_slot];
 
     // 在庫切れ判定 (~0u は無制限の哨兵値)。
     if (item.stock_remaining != kStockUnlimited && item.stock_remaining == 0) {
-        if (_on_purchase != nullptr) {
-            _on_purchase(_on_purchase_user, item.item_id, false);
+        if (m_OnPurchase != nullptr) {
+            m_OnPurchase(m_OnPurchaseUser, item.item_id, false);
         }
         return false;
     }
@@ -176,15 +176,15 @@ bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
             "FEconomyDirector: item '%s' references unknown currency '%s'",
             item.item_id,
             item.currency_id != nullptr ? item.currency_id : "<null>");
-        if (_on_purchase != nullptr) {
-            _on_purchase(_on_purchase_user, item.item_id, false);
+        if (m_OnPurchase != nullptr) {
+            m_OnPurchase(m_OnPurchaseUser, item.item_id, false);
         }
         return false;
     }
-    u32& bal = _balances[cur_slot];
+    u32& bal = m_Balances[cur_slot];
     if (bal < item.price) {
-        if (_on_purchase != nullptr) {
-            _on_purchase(_on_purchase_user, item.item_id, false);
+        if (m_OnPurchase != nullptr) {
+            m_OnPurchase(m_OnPurchaseUser, item.item_id, false);
         }
         return false;
     }
@@ -195,8 +195,8 @@ bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
         --item.stock_remaining;
     }
 
-    if (_on_purchase != nullptr) {
-        _on_purchase(_on_purchase_user, item.item_id, true);
+    if (m_OnPurchase != nullptr) {
+        m_OnPurchase(m_OnPurchaseUser, item.item_id, true);
     }
     return true;
 }
@@ -208,16 +208,16 @@ bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
 const ShopItem* FEconomyDirector::FindItem(const char* item_id) const noexcept {
     const u32 slot = FindItemSlot(item_id);
     if (slot == kNotFound) return nullptr;
-    return &_items[slot];
+    return &m_Items[slot];
 }
 
 u32 FEconomyDirector::ItemCount() const noexcept {
-    return static_cast<u32>(_items.Size());
+    return static_cast<u32>(m_Items.Size());
 }
 
 const ShopItem* FEconomyDirector::AllItems(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(_items.Size());
-    return _items.Data();
+    out_count = static_cast<u32>(m_Items.Size());
+    return m_Items.Data();
 }
 
 // =============================================================================
@@ -226,8 +226,8 @@ const ShopItem* FEconomyDirector::AllItems(u32& out_count) const noexcept {
 
 void FEconomyDirector::SetOnPurchaseCallback(PurchaseCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
-    _on_purchase      = cb;
-    _on_purchase_user = user;
+    m_OnPurchase      = cb;
+    m_OnPurchaseUser = user;
 }
 
 // =============================================================================
@@ -235,11 +235,11 @@ void FEconomyDirector::SetOnPurchaseCallback(PurchaseCallback cb, void* user) no
 // =============================================================================
 
 void FEconomyDirector::ClearAll() noexcept {
-    _currencies.Clear();
-    _balances.Clear();
-    _items.Clear();
-    _on_purchase      = nullptr;
-    _on_purchase_user = nullptr;
+    m_Currencies.Clear();
+    m_Balances.Clear();
+    m_Items.Clear();
+    m_OnPurchase      = nullptr;
+    m_OnPurchaseUser = nullptr;
 }
 
 } // namespace acs::game

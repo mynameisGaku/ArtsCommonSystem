@@ -10,23 +10,23 @@
 //
 // 使い方:
 //   class WorldScene : public Scene {
-//       acs::game::FWeatherSystem _weather;
+//       acs::game::FWeatherSystem m_Weather;
 //
 //       void OnEnter() noexcept override {
-//           _weather.SetWeather(acs::game::EWeatherKind::Clear);
-//           _weather.SetWindDirection(acs::FVec2{1.0f, 0.0f});
+//           m_Weather.SetWeather(acs::game::EWeatherKind::Clear);
+//           m_Weather.SetWindDirection(acs::FVec2{1.0f, 0.0f});
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _weather.Tick(dt);
+//           m_Weather.Tick(dt);
 //           // 雨へ 8 秒掛けて遷移
-//           if (player.EnteredRainZone()) _weather.SetWeather(
+//           if (player.EnteredRainZone()) m_Weather.SetWeather(
 //               acs::game::EWeatherKind::Rain, 8.0f);
 //
-//           FRenderer().SetAmbientMultiplier(_weather.AmbientLightMultiplier());
-//           FRenderer().SetSkyTint          (_weather.SkyTintMultiplier());
-//           FRenderer().SetFogDensityScale  (_weather.FogDensityMultiplier());
-//           FParticles().SetGlobalDensity   (_weather.ParticleDensity());
-//           Wind().SetVector(_weather.WindDirection() * _weather.WindStrength());
+//           FRenderer().SetAmbientMultiplier(m_Weather.AmbientLightMultiplier());
+//           FRenderer().SetSkyTint          (m_Weather.SkyTintMultiplier());
+//           FRenderer().SetFogDensityScale  (m_Weather.FogDensityMultiplier());
+//           FParticles().SetGlobalDensity   (m_Weather.ParticleDensity());
+//           Wind().SetVector(m_Weather.WindDirection() * m_Weather.WindStrength());
 //       }
 //   };
 //
@@ -88,11 +88,11 @@ public:
     // transition_duration <= 0 は即時切替 (transition_t = 1)。
     void SetWeather(EWeatherKind kind, f32 transition_duration = 5.0f) noexcept;
 
-    EWeatherKind CurrentWeather() const noexcept { return _current; }
-    EWeatherKind TargetWeather()  const noexcept { return _target; }
+    EWeatherKind CurrentWeather() const noexcept { return m_Current; }
+    EWeatherKind TargetWeather()  const noexcept { return m_Target; }
 
     // [0, 1]。1 で遷移完了 (current == target に snap 済み)。
-    f32 TransitionT() const noexcept { return _transition_t; }
+    f32 TransitionT() const noexcept { return m_TransitionT; }
 
     // ----- 進行 (FSceneServices などから毎フレーム呼ぶ。dt はリアル秒) -----
     void Tick(f32 dt) noexcept;
@@ -110,8 +110,8 @@ public:
     f32 FogDensityMultiplier() const noexcept;
 
     // ----- 風向き (天候とは独立) -----
-    void SetWindDirection(FVec2 dir) noexcept { _wind_dir = dir; }
-    FVec2 WindDirection() const noexcept { return _wind_dir; }
+    void SetWindDirection(FVec2 dir) noexcept { m_WindDir = dir; }
+    FVec2 WindDirection() const noexcept { return m_WindDir; }
 
     // ----- リセット (初期化直後の状態へ戻す) -----
     void Reset() noexcept;
@@ -130,16 +130,16 @@ public:
 private:
     static const KindParams& Params(EWeatherKind k) noexcept;
 
-    EWeatherKind _current = EWeatherKind::Clear;
-    EWeatherKind _target  = EWeatherKind::Clear;
+    EWeatherKind m_Current = EWeatherKind::Clear;
+    EWeatherKind m_Target  = EWeatherKind::Clear;
 
     // 遷移残り時間 [s]。> 0 の間 Tick で減算し、transition_t を更新する。
-    f32 _transition_duration = 0.0f;
-    f32 _transition_elapsed  = 0.0f;
+    f32 m_TransitionDuration = 0.0f;
+    f32 m_TransitionElapsed  = 0.0f;
     // [0, 1]。1 = 完了。current == target かつ duration <= 0 のとき常に 1。
-    f32 _transition_t = 1.0f;
+    f32 m_TransitionT = 1.0f;
 
-    FVec2 _wind_dir{1.0f, 0.0f};
+    FVec2 m_WindDir{1.0f, 0.0f};
 };
 
 } // namespace acs::game

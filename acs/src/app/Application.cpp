@@ -17,14 +17,14 @@ void FApplication::EventBridge(void* user, const Event& e) noexcept {
     FApplication* app = static_cast<FApplication*>(user);
     Input::OnEvent(e);
     if (e.type == EventType::WindowResize) {
-        app->_renderer.OnResize(e.resize.width, e.resize.height);
+        app->m_Renderer.OnResize(e.resize.width, e.resize.height);
     }
     app->OnEvent(e);
 }
 
 int FApplication::Run(const FAppConfig& cfg) noexcept {
-    _cfg = cfg;
-    _clear_color = ClearColor{ cfg.clear_r, cfg.clear_g, cfg.clear_b, cfg.clear_a };
+    m_Cfg = cfg;
+    m_ClearColor = ClearColor{ cfg.clear_r, cfg.clear_g, cfg.clear_b, cfg.clear_a };
 
     // ロガー初期化（最初に立ち上げて以降のエラーを記録できるように）
     FLogConfig lc{};
@@ -68,11 +68,11 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
         FLogger::Shutdown();
         return 3;
     }
-    _window = Move(wr.Value());
-    _window.SetEventCallback(&EventBridge, this);
+    m_Window = Move(wr.Value());
+    m_Window.SetEventCallback(&EventBridge, this);
 
     // レンダラ初期化
-    auto rr = _renderer.Init(_window, cfg.enable_gpu_debug);
+    auto rr = m_Renderer.Init(m_Window, cfg.enable_gpu_debug);
     if (rr.IsErr()) {
         ACS_LOG_ERROR("FRenderer::Init failed: %s", rr.Error().message);
         FThreadPool::Shutdown();
@@ -82,48 +82,48 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
     }
 
     ACS_LOG_INFO("Backend: %s, GPU: %s",
-                 _renderer.Device()->BackendName(),
-                 _renderer.Device()->AdapterName());
+                 m_Renderer.Device()->BackendName(),
+                 m_Renderer.Device()->AdapterName());
 
     // 標準アセットローダを登録（画像/音声/メッシュ/テキスト/バイナリ）
-    _assets.RegisterDefaultLoaders();
+    m_Assets.RegisterDefaultLoaders();
 
     // 派生クラスの初期化フック
     OnStart();
 
     // メインループ
-    while (_running && !_window.ShouldClose()) {
+    while (m_Running && !m_Window.ShouldClose()) {
         // フレーム先頭処理
         Input::Update();         // 押下状態を 1 フレーム進める
-        _window.PollEvents();    // OS メッセージ処理
+        m_Window.PollEvents();    // OS メッセージ処理
         FMemorySystem::ResetTemp();  // Temp セグメントを毎フレーム巻き戻し
-        _dt = _frame_timer.Tick();
+        m_Dt = m_FrameTimer.Tick();
 
         // タイマーをまず進める (派生クラスの OnUpdate より前に発火させて、
         // ゲームロジックがタイマー結果を見られるようにする)
-        _timers.Tick(_dt);
+        m_Timers.Tick(m_Dt);
 
         // 派生クラスの更新フック
-        OnUpdate(_dt);
+        OnUpdate(m_Dt);
 
         // フレーム描画 — OnCustomFrame() が true を返すなら派生クラスに完全委譲
         if (!OnCustomFrame()) {
-            // _clear_color は既定で FAppConfig 由来。SetClearColor() で毎フレーム変更可能。
-            _renderer.BeginFrame(_clear_color);
+            // m_ClearColor は既定で FAppConfig 由来。SetClearColor() で毎フレーム変更可能。
+            m_Renderer.BeginFrame(m_ClearColor);
             OnRender();
-            _renderer.EndFrame();
+            m_Renderer.EndFrame();
         }
     }
 
     // 派生クラスが GPU リソースを保持しているはずなので、OnShutdown より先に
     // GPU 完了を待つ。これを忘れると use-after-free でクラッシュしがち。
-    if (_renderer.Device()) _renderer.Device()->WaitIdle();
+    if (m_Renderer.Device()) m_Renderer.Device()->WaitIdle();
 
     // 派生クラスの終了フック
     OnShutdown();
 
     // サブシステムの破棄（逆順）
-    _renderer.Shutdown();
+    m_Renderer.Shutdown();
     FThreadPool::Shutdown();
     FMemorySystem::Shutdown();
 

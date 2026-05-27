@@ -32,7 +32,7 @@ f32 FCameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
 // ====== 遷移 =========================================================
 
 void FCameraStack::PushCamera(FCamera2D& cam, f32 blend_duration) noexcept {
-    if (_entries.Size() >= kMaxLayers) {
+    if (m_Entries.Size() >= kMaxLayers) {
         ACS_LOG_WARN("FCameraStack::PushCamera: layer cap reached (%u) — ignored",
                      kMaxLayers);
         return;
@@ -43,16 +43,16 @@ void FCameraStack::PushCamera(FCamera2D& cam, f32 blend_duration) noexcept {
     // blend_duration <= 0 → 即時 active (blend_t=1)。それ以外は 0 から開始。
     e.blend_t        = e.blend_duration > 0.0f ? 0.0f : 1.0f;
     e.is_in          = true;
-    _entries.PushBack(e);
+    m_Entries.PushBack(e);
 }
 
 void FCameraStack::PopCamera(f32 blend_duration) noexcept {
-    if (_entries.Size() <= 1) {
+    if (m_Entries.Size() <= 1) {
         ACS_LOG_WARN("FCameraStack::PopCamera on stack of size %u (need >=2) — ignored",
-                     static_cast<u32>(_entries.Size()));
+                     static_cast<u32>(m_Entries.Size()));
         return;
     }
-    CameraEntry& top = _entries[_entries.Size() - 1u];
+    CameraEntry& top = m_Entries[m_Entries.Size() - 1u];
     // top を「フェードアウト」状態に切り替える。is_in=false なら blend_t は
     // 「pop 進捗」(= 完了で 1)。即時 pop の場合は次の Tick で直ちに除去される。
     top.blend_duration = blend_duration > 0.0f ? blend_duration : 0.0f;
@@ -63,41 +63,41 @@ void FCameraStack::PopCamera(f32 blend_duration) noexcept {
 // ====== 状態取得 =====================================================
 
 FCamera2D* FCameraStack::Active() const noexcept {
-    if (_entries.IsEmpty()) return nullptr;
-    return _entries.Back().cam;
+    if (m_Entries.IsEmpty()) return nullptr;
+    return m_Entries.Back().cam;
 }
 
 bool FCameraStack::IsBlending() const noexcept {
-    if (_entries.IsEmpty()) return false;
-    const CameraEntry& top = _entries.Back();
+    if (m_Entries.IsEmpty()) return false;
+    const CameraEntry& top = m_Entries.Back();
     // 「blend 中」= top が補間途中。下層が無いと (= 1 枚だけだと) blending
     // 概念がない (= 補間相手がいない)。Pop 中も top が is_in=false で残って
     // いれば blending と見做す。
     return top.blend_t < 1.0f && top.blend_duration > 0.0f
-        && _entries.Size() >= 2u;
+        && m_Entries.Size() >= 2u;
 }
 
 f32 FCameraStack::BlendProgress() const noexcept {
-    if (_entries.IsEmpty()) return 1.0f;
-    const f32 t = _entries.Back().blend_t;
+    if (m_Entries.IsEmpty()) return 1.0f;
+    const f32 t = m_Entries.Back().blend_t;
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
 
 void FCameraStack::Clear() noexcept {
-    _entries.Clear();
+    m_Entries.Clear();
 }
 
 // ====== Effective* (描画側が読む) ====================================
 
 FVec2 FCameraStack::EffectivePosition() const noexcept {
-    if (_entries.IsEmpty()) return FVec2{0.0f, 0.0f};
-    const CameraEntry& top = _entries.Back();
+    if (m_Entries.IsEmpty()) return FVec2{0.0f, 0.0f};
+    const CameraEntry& top = m_Entries.Back();
     const FVec2 top_pos = top.cam->EffectiveViewCenter();
     // 1 枚しか無い or blend 完了 → top をそのまま。
-    if (_entries.Size() < 2u || top.blend_t >= 1.0f || top.blend_duration <= 0.0f) {
+    if (m_Entries.Size() < 2u || top.blend_t >= 1.0f || top.blend_duration <= 0.0f) {
         return top_pos;
     }
-    const CameraEntry& under = _entries[_entries.Size() - 2u];
+    const CameraEntry& under = m_Entries[m_Entries.Size() - 2u];
     const FVec2 under_pos = under.cam->EffectiveViewCenter();
     // is_in=true  : under → top (進捗 t で top に近づく)
     // is_in=false : top  → under (進捗 t で under に近づく)
@@ -106,26 +106,26 @@ FVec2 FCameraStack::EffectivePosition() const noexcept {
 }
 
 f32 FCameraStack::EffectiveZoom() const noexcept {
-    if (_entries.IsEmpty()) return 1.0f;
-    const CameraEntry& top = _entries.Back();
+    if (m_Entries.IsEmpty()) return 1.0f;
+    const CameraEntry& top = m_Entries.Back();
     const f32 top_z = top.cam->Zoom();
-    if (_entries.Size() < 2u || top.blend_t >= 1.0f || top.blend_duration <= 0.0f) {
+    if (m_Entries.Size() < 2u || top.blend_t >= 1.0f || top.blend_duration <= 0.0f) {
         return top_z;
     }
-    const CameraEntry& under = _entries[_entries.Size() - 2u];
+    const CameraEntry& under = m_Entries[m_Entries.Size() - 2u];
     const f32 under_z = under.cam->Zoom();
     return top.is_in ? LerpZoom(under_z, top_z, top.blend_t)
                      : LerpZoom(top_z, under_z, top.blend_t);
 }
 
 f32 FCameraStack::EffectiveRotation() const noexcept {
-    if (_entries.IsEmpty()) return 0.0f;
-    const CameraEntry& top = _entries.Back();
+    if (m_Entries.IsEmpty()) return 0.0f;
+    const CameraEntry& top = m_Entries.Back();
     const f32 top_r = top.cam->Rotation();
-    if (_entries.Size() < 2u || top.blend_t >= 1.0f || top.blend_duration <= 0.0f) {
+    if (m_Entries.Size() < 2u || top.blend_t >= 1.0f || top.blend_duration <= 0.0f) {
         return top_r;
     }
-    const CameraEntry& under = _entries[_entries.Size() - 2u];
+    const CameraEntry& under = m_Entries[m_Entries.Size() - 2u];
     const f32 under_r = under.cam->Rotation();
     return top.is_in ? LerpAngle(under_r, top_r, top.blend_t)
                      : LerpAngle(top_r, under_r, top.blend_t);
@@ -135,18 +135,18 @@ f32 FCameraStack::EffectiveRotation() const noexcept {
 
 void FCameraStack::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
-    if (_entries.IsEmpty()) return;
+    if (m_Entries.IsEmpty()) return;
 
     // 1) active な 2 層 (top と、blend 中なら下層) だけ FCamera2D::Tick を呼ぶ。
     //    blend 中でなければ top のみ。下層を独自に動かしたい場合は user 側で
     //    個別 Tick できるので、ここでは「描画に絡む層」のみ tick で十分。
-    CameraEntry& top = _entries[_entries.Size() - 1u];
-    const bool has_under = _entries.Size() >= 2u;
+    CameraEntry& top = m_Entries[m_Entries.Size() - 1u];
+    const bool has_under = m_Entries.Size() >= 2u;
     const bool blending  = has_under && top.blend_t < 1.0f && top.blend_duration > 0.0f;
 
     if (top.cam) top.cam->Tick(dt);
     if (blending) {
-        CameraEntry& under = _entries[_entries.Size() - 2u];
+        CameraEntry& under = m_Entries[m_Entries.Size() - 2u];
         if (under.cam) under.cam->Tick(dt);
     }
 
@@ -160,9 +160,9 @@ void FCameraStack::Tick(f32 dt) noexcept {
     //    除去後の新 top は「フェードイン完了状態」(blend_t=1) に強制リセット
     //    する (= 既に十分前から下に居たので blend 不要)。
     if (!top.is_in && top.blend_t >= 1.0f) {
-        _entries.PopBack();
-        if (!_entries.IsEmpty()) {
-            CameraEntry& new_top = _entries[_entries.Size() - 1u];
+        m_Entries.PopBack();
+        if (!m_Entries.IsEmpty()) {
+            CameraEntry& new_top = m_Entries[m_Entries.Size() - 1u];
             new_top.blend_t        = 1.0f;
             new_top.blend_duration = 0.0f;
             new_top.is_in          = true;

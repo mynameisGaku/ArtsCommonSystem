@@ -175,8 +175,8 @@ private:
     // 見つかったら true、なければ false。nullptr は false。
     bool FindBlocked(const char* user_id) const noexcept;
 
-    TArray<FBlockEntry>   _blocked;        // ローカルブロックリスト
-    TArray<ReportRecord> _pending_reports; // 未送信通報キュー
+    TArray<FBlockEntry>   m_Blocked;        // ローカルブロックリスト
+    TArray<ReportRecord> m_PendingReports; // 未送信通報キュー
 };
 
 } // namespace acs::game

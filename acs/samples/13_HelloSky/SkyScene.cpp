@@ -9,7 +9,7 @@ using namespace acs;
 namespace hellosky {
 
 void SkyScene::SetPreset(FSky& sky, SkyPreset p) noexcept {
-    _preset = p;
+    m_Preset = p;
     switch (p) {
         case SkyPreset::Day:    sky.PresetDay();    break;
         case SkyPreset::Sunset: sky.PresetSunset(); break;
@@ -41,7 +41,7 @@ void SkyScene::Render(FSky&             sky,
     lights[1].color     = FVec3{0.15f, 0.18f, 0.25f};
 
     FVec3 ambient;
-    switch (_preset) {
+    switch (m_Preset) {
         case SkyPreset::Day:    ambient = kAmbientDay;    break;
         case SkyPreset::Sunset: ambient = kAmbientSunset; break;
         default:                ambient = kAmbientNight;  break;

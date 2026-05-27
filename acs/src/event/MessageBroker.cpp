@@ -5,25 +5,25 @@
 namespace acs {
 
 MessageBroker::~MessageBroker() noexcept {
-    for (usize i = 0; i < _channels.Size(); ++i) {
-        if (_channels[i]) {
-            delete _channels[i];
-            _channels[i] = nullptr;
+    for (usize i = 0; i < m_Channels.Size(); ++i) {
+        if (m_Channels[i]) {
+            delete m_Channels[i];
+            m_Channels[i] = nullptr;
         }
     }
 }
 
 MessageBroker::Channel* MessageBroker::GetChannel(EventTypeId id, bool create) noexcept {
-    if (id >= _channels.Size()) {
+    if (id >= m_Channels.Size()) {
         if (!create) return nullptr;
-        usize old = _channels.Size();
-        _channels.Resize(id + 1);
-        for (usize i = old; i <= id; ++i) _channels[i] = nullptr;
+        usize old = m_Channels.Size();
+        m_Channels.Resize(id + 1);
+        for (usize i = old; i <= id; ++i) m_Channels[i] = nullptr;
     }
-    if (!_channels[id] && create) {
-        _channels[id] = new Channel();
+    if (!m_Channels[id] && create) {
+        m_Channels[id] = new Channel();
     }
-    return _channels[id];
+    return m_Channels[id];
 }
 
 SubscriptionHandle MessageBroker::SubscribeRaw(EventTypeId channel,
@@ -104,8 +104,8 @@ void MessageBroker::PublishRaw(EventTypeId channel, const void* payload) noexcep
 }
 
 u32 MessageBroker::SubscriberCount(EventTypeId channel) const noexcept {
-    if (channel >= _channels.Size() || !_channels[channel]) return 0;
-    const Channel* ch = _channels[channel];
+    if (channel >= m_Channels.Size() || !m_Channels[channel]) return 0;
+    const Channel* ch = m_Channels[channel];
     u32 n = 0;
     for (usize i = 0; i < ch->slots.Size(); ++i) if (ch->slots[i].active) ++n;
     return n;

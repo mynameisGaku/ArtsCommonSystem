@@ -18,23 +18,23 @@
 //     出し側が保証する。
 //   ・**非コピー・非ムーブ**: チュートリアルは通常 Scene につき 1 個の長寿命
 //     オブジェクトで、誤コピーで state 分裂すると詰むため最初から禁止。
-//   ・**Skip は不可逆**: Skip() を呼ぶと _completed=true / _active=false に
+//   ・**Skip は不可逆**: Skip() を呼ぶと m_Completed=true / m_Active=false に
 //     遷移し、Reset() しない限りどの query も終了扱い。誤って 2 度目を呼ばれ
 //     ても no-op になるよう冪等。
 //
 // 使い方:
 //   class TutorialScene : public Scene {
-//       FTutorialFlow _tut;
+//       FTutorialFlow m_Tut;
 //       void OnEnter() noexcept override {
-//           _tut.AddStep({"move",  "WASD で移動してみよう", "player", true});
-//           _tut.AddStep({"jump",  "SPACE でジャンプ",       "player", true});
-//           _tut.AddStep({"done",  "チュートリアル完了！",  nullptr,  false});
-//           _tut.Start();
+//           m_Tut.AddStep({"move",  "WASD で移動してみよう", "player", true});
+//           m_Tut.AddStep({"jump",  "SPACE でジャンプ",       "player", true});
+//           m_Tut.AddStep({"done",  "チュートリアル完了！",  nullptr,  false});
+//           m_Tut.Start();
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _tut.Tick(dt);
-//           if (input.JustPressed(EKey::W)) _tut.NotifyAction("move");
-//           if (input.JustPressed(EKey::Space)) _tut.NotifyAction("jump");
+//           m_Tut.Tick(dt);
+//           if (input.JustPressed(EKey::W)) m_Tut.NotifyAction("move");
+//           if (input.JustPressed(EKey::Space)) m_Tut.NotifyAction("jump");
 //       }
 //   };
 #pragma once
@@ -79,14 +79,14 @@ public:
     void AddStep(const FTutorialStep& step) noexcept;
 
     // ----- 制御 -----
-    // ステップ 0 から表示開始。ステップが 1 件も無い場合は _completed=true に
+    // ステップ 0 から表示開始。ステップが 1 件も無い場合は m_Completed=true に
     // 遷移して即終了 (空チュートリアルの no-op)。複数回呼ばれた場合は Reset
     // 相当の再初期化を行う。
     void Start() noexcept;
 
     // 次のステップへ手動前進。require_user_action のステップで条件達成後、
     // または require_user_action=false のステップでガイダンス確認後に呼ぶ。
-    // 最終ステップで呼ばれた場合は _completed=true に遷移。inactive 状態
+    // 最終ステップで呼ばれた場合は m_Completed=true に遷移。inactive 状態
     // (Start 前 / Skip 後 / 完了後) の呼び出しは no-op。
     void AdvanceStep() noexcept;
 
@@ -103,13 +103,13 @@ public:
 
     // ----- 状態 query -----
     // Start 後・Skip / 完了前なら true。
-    bool IsActive() const noexcept { return _active; }
+    bool IsActive() const noexcept { return m_Active; }
 
     // 全ステップを通過 or Skip 済みなら true。
-    bool IsCompleted() const noexcept { return _completed; }
+    bool IsCompleted() const noexcept { return m_Completed; }
 
     // 現在のステップ番号 (Start 前は 0)。
-    u32 CurrentStepIndex() const noexcept { return _current_step; }
+    u32 CurrentStepIndex() const noexcept { return m_CurrentStep; }
 
     // 描画 / 表示用の現在ステップポインタ。Start 前・Skip 後・完了後は nullptr。
     const FTutorialStep* CurrentStep() const noexcept;
@@ -122,10 +122,10 @@ public:
     void Tick(f32 dt) noexcept;
 
 private:
-    TArray<FTutorialStep> _steps;
-    u32                 _current_step = 0;
-    bool                _active       = false;
-    bool                _completed    = false;
+    TArray<FTutorialStep> m_Steps;
+    u32                 m_CurrentStep = 0;
+    bool                m_Active       = false;
+    bool                m_Completed    = false;
 };
 
 } // namespace acs::game

@@ -41,8 +41,8 @@
 //     最古を捨てる (順序は保証しない、ただし「送信成功側 vs drop 側」の
 //     カウンタは独立に進む)。
 //   ・**send は Phase 2 stub**: 実 backend protocol が確定するまでは Flush()
-//     内で `_backend->SendTelemetry()` を呼ぶだけの thin pump にとどめる。
-//     Stub backend は必ず Err を返すので、_failed_count が上がり pending は
+//     内で `m_Backend->SendTelemetry()` を呼ぶだけの thin pump にとどめる。
+//     Stub backend は必ず Err を返すので、m_FailedCount が上がり pending は
 //     残る。具象 backend が attach されたら自然に sent_count が進む。
 //   ・**const char* 非所有**: event_name / category / json_payload は呼び出し
 //     側 (ゲームコード or リテラル) が保証する static / member lifetime の
@@ -148,10 +148,10 @@ public:
                     const char*   category     = "general") noexcept;
 
     // pending を 1 件ずつ backend->SendTelemetry() に流し込む。
-    // 成功 → _sent_count++、pending から除去。
-    // 失敗 → _failed_count++、pending には残す (= 次回 Flush で再送試行)。
+    // 成功 → m_SentCount++、pending から除去。
+    // 失敗 → m_FailedCount++、pending には残す (= 次回 Flush で再送試行)。
     // backend == nullptr / consent 無し なら全件残したまま return。
-    // Phase 2 では stub backend が常に Err を返すため、実質 _failed_count が
+    // Phase 2 では stub backend が常に Err を返すため、実質 m_FailedCount が
     // 増える挙動になる。
     void Flush() noexcept;
 
@@ -161,7 +161,7 @@ public:
     u32 FailedCount()  const noexcept;
 
     // ----- フレーム pump --------------------------------------------------
-    // dt を蓄積し、_flush_interval を超えたら自動 Flush。0 < interval が前提。
+    // dt を蓄積し、m_FlushInterval を超えたら自動 Flush。0 < interval が前提。
     // Init() 未呼出時は no-op。
     void Tick(f32 dt) noexcept;
 
@@ -198,19 +198,19 @@ private:
     // できる目安。AAA タイトルでも通常 1〜2 evt/sec なので 100 件は十分。
     static constexpr u32 kMaxPending = 100;
 
-    TArray<TelemetryEvent>  _pending;        // 送信待ち event queue
-    TArray<FCategoryFilter>  _filters;        // category 別 enable/disable
+    TArray<TelemetryEvent>  m_Pending;        // 送信待ち event queue
+    TArray<FCategoryFilter>  m_Filters;        // category 別 enable/disable
 
-    IBackendClient*        _backend  = nullptr;  // 注入 (寿命は呼出側)
-    FPrivacyDirector*       _privacy  = nullptr;  // optional 注入
+    IBackendClient*        m_Backend  = nullptr;  // 注入 (寿命は呼出側)
+    FPrivacyDirector*       m_Privacy  = nullptr;  // optional 注入
 
-    u32  _sent_count     = 0;
-    u32  _failed_count   = 0;
+    u32  m_SentCount     = 0;
+    u32  m_FailedCount   = 0;
 
-    f32  _flush_interval = 5.0f;   // 既定 5 秒
-    f32  _elapsed_since_flush = 0.0f;
+    f32  m_FlushInterval = 5.0f;   // 既定 5 秒
+    f32  m_ElapsedSinceFlush = 0.0f;
 
-    bool _initialized    = false;
+    bool m_Initialized    = false;
 };
 
 } // namespace acs::game

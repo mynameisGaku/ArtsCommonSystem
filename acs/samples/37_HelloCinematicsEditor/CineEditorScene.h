@@ -27,14 +27,14 @@ private:
     static constexpr const char* kCinePath = "preset.acscinetimeline";
 
     // ---- editor_core ----
-    acs::game::editor_core::FEditorWorkspace                  _workspace;
-    acs::game::editor_core::FEditorTheme                      _theme;
+    acs::game::editor_core::FEditorWorkspace                  m_Workspace;
+    acs::game::editor_core::FEditorTheme                      m_Theme;
 
     // ---- cinetimeline ----
-    acs::game::cinetimeline::FCinematicsTimelineEditorPanel   _cine_panel;
+    acs::game::cinetimeline::FCinematicsTimelineEditorPanel   m_CinePanel;
 
     // ---- 編集対象の FCinematicsDirector (= Scene が所有、panel は raw 参照) ----
-    acs::game::FCinematicsDirector                            _director;
+    acs::game::FCinematicsDirector                            m_Director;
 
     // ---- runtime callback (= keyframe 発火可視化用、ACS_LOG_INFO に出力) ----
     static void OnCamera(void* /*user*/, acs::FVec2 target, acs::f32 zoom, acs::f32 dur) noexcept;

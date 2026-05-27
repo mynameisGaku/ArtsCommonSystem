@@ -176,11 +176,11 @@ private:
     // index は FindIndex() で確定済みであること。Bridge への送信もここで実施。
     void UnlockInternal(u32 index) noexcept;
 
-    TArray<FAchievementDef>      _defs;
-    TArray<FAchievementProgress> _progress;
+    TArray<FAchievementDef>      m_Defs;
+    TArray<FAchievementProgress> m_Progress;
 
     // Bridge 注入用 raw ポインタ (所有しない)。寿命は呼出側 (= FApplication) 責務。
-    ISteamworksBridge* _bridge = nullptr;
+    ISteamworksBridge* m_Bridge = nullptr;
 };
 
 } // namespace acs::game

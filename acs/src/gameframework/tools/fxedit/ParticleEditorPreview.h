@@ -102,16 +102,16 @@ public:
     void StopAll(class FParticleEffectSystem& system) noexcept;
 
     // ----- spawn position (preview canvas 上の出生座標) -----
-    FVec2 SpawnPos() const noexcept { return _spawn_pos; }
+    FVec2 SpawnPos() const noexcept { return m_SpawnPos; }
     void SetSpawnPos(FVec2 pos) noexcept;
 
     // ----- stats アクセサ -----
     // 直近 Tick で記録した system の active particle 数。
-    u32  ActiveParticleCount() const noexcept { return _last_active_count; }
+    u32  ActiveParticleCount() const noexcept { return m_LastActiveCount; }
     // pool 容量 (= FParticleEffectSystem::AllParticles の out_count)。
-    u32  MaxParticleCount()    const noexcept { return _last_capacity; }
+    u32  MaxParticleCount()    const noexcept { return m_LastCapacity; }
     // 連続放出モード (true なら emitter は active 状態、false なら手動 Burst のみ)。
-    bool IsAutoEmit() const noexcept { return _auto_emit; }
+    bool IsAutoEmit() const noexcept { return m_AutoEmit; }
     void SetAutoEmit(bool b) noexcept;
     // frame budget 表示用: 直近 60 frame の平均 fps。履歴空なら 0。
     f32  GraphFps() const noexcept;
@@ -122,23 +122,23 @@ private:
 
     // 編集中 emitter (system 上の 1 instance を指す handle)。Init / Shutdown /
     // RecreatePreviewEmitter / StopAll で更新される。
-    FEmitterHandle _preview_handle {};
+    FEmitterHandle m_PreviewHandle {};
 
     // 現在 caller が編集中の def の snapshot (RecreatePreviewEmitter 時の copy 元)。
     // ヘッダ依存を最小化するためフル struct を持つが、ParticleEmitterDef は
     // POD 同等 (FVec2/FVec3/f32 のみ) なのでサイズ的にも問題なし。
-    ParticleEmitterDef _last_def {};
-    bool               _has_def_snapshot = false;
+    ParticleEmitterDef m_LastDef {};
+    bool               m_HasDefSnapshot = false;
 
-    FVec2  _spawn_pos = {320.0f, 240.0f};   // preview canvas のデフォルト中央
-    bool  _auto_emit = true;               // 連続放出 ON
-    u32   _last_active_count = 0u;         // Tick で更新
-    u32   _last_capacity     = 0u;         // Tick で更新 (= pool 容量)
+    FVec2  m_SpawnPos = {320.0f, 240.0f};   // preview canvas のデフォルト中央
+    bool  m_AutoEmit = true;               // 連続放出 ON
+    u32   m_LastActiveCount = 0u;         // Tick で更新
+    u32   m_LastCapacity     = 0u;         // Tick で更新 (= pool 容量)
 
     // 60 frame ring (FDebugOverlay と同パターン)
-    TArray<f32> _fps_history;
-    u32        _fps_index  = 0u;
-    bool       _fps_filled = false;
+    TArray<f32> m_FpsHistory;
+    u32        m_FpsIndex  = 0u;
+    bool       m_FpsFilled = false;
 };
 
 } // namespace acs::game::fxedit

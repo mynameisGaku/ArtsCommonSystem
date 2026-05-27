@@ -8,17 +8,17 @@
 //
 // 使い方 (典型例):
 //   class FGame {
-//       acs::game::FXAudio2Backend _audio;
-//       acs::game::FAudioDirector  _director;
+//       acs::game::FXAudio2Backend m_Audio;
+//       acs::game::FAudioDirector  m_Director;
 //
 //       TResult<void> OnStart() noexcept override {
-//           ACS_TRY(_audio.Init(64));      // 同時発音 64 voice
-//           _director.SetBackend(&_audio);
+//           ACS_TRY(m_Audio.Init(64));      // 同時発音 64 voice
+//           m_Director.SetBackend(&m_Audio);
 //           return Ok();
 //       }
 //       void OnShutdown() noexcept override {
-//           _director.SetBackend(nullptr);  // 先に director を切る (delegate 停止)
-//           _audio.Shutdown();
+//           m_Director.SetBackend(nullptr);  // 先に director を切る (delegate 停止)
+//           m_Audio.Shutdown();
 //       }
 //   };
 //
@@ -92,7 +92,7 @@ public:
     struct Impl;
 
 private:
-    Impl* _impl = nullptr;
+    Impl* m_Impl = nullptr;
 };
 
 } // namespace acs::game

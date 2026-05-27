@@ -22,22 +22,22 @@
 //
 //   // ゲームループ (録画中):
 //   InputSample s;
-//   s.tick                = _tick;
+//   s.tick                = m_Tick;
 //   s.key_codes_changed[] = ...; // 今 tick に押下/解放された key (最大 8 個)
 //   s.key_states[]        = ...; // 同 index の press(1)/release(0) 状態
 //   s.mouse_pos           = { mx, my };
 //   s.mouse_button_states = mouse_bitmask;
 //   rec.Capture(s);
-//   ++_tick;
+//   ++m_Tick;
 //
 //   // 後で Replay:
 //   rec.StartReplay();
 //   while (running) {
 //       InputSample s;
-//       if (rec.ConsumeSample(_tick, s)) {
+//       if (rec.ConsumeSample(m_Tick, s)) {
 //           // s を OS 入力レイヤの代わりに使う (差し替え)
 //       }
-//       ++_tick;
+//       ++m_Tick;
 //   }
 //
 // 設計選択 (Phase D-1 スケルトン):
@@ -168,19 +168,19 @@ public:
 
     // ----- Capture / Consume -----
     // 1 sample を記録する。Recording モード以外では no-op (誤呼び出しを許容)。
-    // 内部 _current_tick は sample.tick + 1 に進める (連続 tick 想定)。
+    // 内部 m_CurrentTick は sample.tick + 1 に進める (連続 tick 想定)。
     void Capture(const InputSample& s) noexcept;
 
     // 指定 tick の sample を取り出す。Replaying モード以外では false を返す。
     // 該当 sample が見つかれば out に書き込んで true、なければ out を変更せず false。
-    // _cursor を前進させ、線形検索を amortised O(1) にする。
+    // m_Cursor を前進させ、線形検索を amortised O(1) にする。
     bool ConsumeSample(u32 tick, InputSample& out) noexcept;
 
     // ----- 状態 query -----
-    ERecorderMode CurrentMode() const noexcept { return _mode; }
+    ERecorderMode CurrentMode() const noexcept { return m_Mode; }
     u32          SampleCount() const noexcept;
-    u32          CurrentTick() const noexcept { return _current_tick; }
-    u32          TickRateHz()  const noexcept { return _tick_rate_hz; }
+    u32          CurrentTick() const noexcept { return m_CurrentTick; }
+    u32          TickRateHz()  const noexcept { return m_TickRateHz; }
 
     // 全 samples を破棄し、cursor / current_tick をリセットする。Mode は保持。
     void Clear() noexcept;
@@ -197,11 +197,11 @@ public:
     TResult<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    ERecorderMode       _mode          = ERecorderMode::Idle;
-    u32                _tick_rate_hz  = 60;  // sample rate (Hz)
-    u32                _current_tick  = 0;   // 次に書き込む / 消費する tick
-    u32                _cursor        = 0;   // ConsumeSample の線形検索開始 index
-    TArray<InputSample> _samples;
+    ERecorderMode       m_Mode          = ERecorderMode::Idle;
+    u32                m_TickRateHz  = 60;  // sample rate (Hz)
+    u32                m_CurrentTick  = 0;   // 次に書き込む / 消費する tick
+    u32                m_Cursor        = 0;   // ConsumeSample の線形検索開始 index
+    TArray<InputSample> m_Samples;
 };
 
 } // namespace acs::game

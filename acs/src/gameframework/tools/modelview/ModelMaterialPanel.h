@@ -217,7 +217,7 @@ public:
     // window タイトル (= ImGui ID + FWindow メニュー表記)。
     const char* Title() const noexcept override { return "Material Override"; }
 
-    // メイン ImGui window 描画。`ImGui::Begin("Material Override", &_visible)` で
+    // メイン ImGui window 描画。`ImGui::Begin("Material Override", &m_Visible)` で
     // start し、各 slot を CollapsingHeader 内に展開する。
     void DrawUI() noexcept override;
 
@@ -244,11 +244,11 @@ private:
     void FireChangeCallback(u32 slot_index) noexcept;
 
     // override list (1:1 with slot index)。SetMaterialSlotCount で Resize。
-    TArray<MaterialOverride> _overrides {};
+    TArray<MaterialOverride> m_Overrides {};
 
     // 変更通知 callback。nullptr 許容。
-    MaterialChangeCallback  _on_change_cb   = nullptr;
-    void*                   _on_change_user = nullptr;
+    MaterialChangeCallback  m_OnChangeCb   = nullptr;
+    void*                   m_OnChangeUser = nullptr;
 };
 
 } // namespace acs::game::modelview

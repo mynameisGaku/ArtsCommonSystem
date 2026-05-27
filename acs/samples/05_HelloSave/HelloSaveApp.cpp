@@ -20,47 +20,47 @@ void HelloSaveApp::OnStart() noexcept {
 
     // %APPDATA% 配下なら UAC でもユーザ書き込み可。Load 失敗は初回起動の正常系。
     ACS_SAMPLE_INIT(Storage::GetAppDataPath(L"acs_demo", L"hello_save.ini",
-                                             _save_path, 260));
-    ACS_LOG_INFO("Save file: %ls", _save_path);
-    if (auto r = _store.Load(_save_path); r.IsErr()) {
+                                             m_SavePath, 260));
+    ACS_LOG_INFO("Save file: %ls", m_SavePath);
+    if (auto r = m_Store.Load(m_SavePath); r.IsErr()) {
         ACS_LOG_WARN("Storage::Load failed: %s (continuing with empty)", r.Error().message);
     }
 
-    i64 launches = _store.GetInt("launches", 0) + 1;
-    _store.SetInt("launches", launches);
+    i64 launches = m_Store.GetInt("launches", 0) + 1;
+    m_Store.SetInt("launches", launches);
 
-    _clicks    = _store.GetInt("clicks", 0);
-    _high_score = _store.GetInt("high_score", 0);
-    const char* name = _store.GetString("player_name", "");
+    m_Clicks    = m_Store.GetInt("clicks", 0);
+    m_HighScore = m_Store.GetInt("high_score", 0);
+    const char* name = m_Store.GetString("player_name", "");
     if (name[0] == 0) {
-        _store.SetString("player_name", "プレイヤー");
+        m_Store.SetString("player_name", "プレイヤー");
     }
 
-    ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)FSample::TryLoadDefaultUIFont(_font_big,   *dev, 32.0f, 1024, true);
-    (void)FSample::TryLoadDefaultUIFont(_font_small, *dev, 18.0f, 1024, true);
+    ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
+    (void)FSample::TryLoadDefaultUIFont(m_FontBig,   *dev, 32.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(m_FontSmall, *dev, 18.0f, 1024, true);
 
     ACS_LOG_INFO("HelloSave: launches=%lld, clicks=%lld, high_score=%lld",
-                 launches, static_cast<long long>(_clicks),
-                 static_cast<long long>(_high_score));
+                 launches, static_cast<long long>(m_Clicks),
+                 static_cast<long long>(m_HighScore));
 }
 
 void HelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
     if (Input::IsKeyPressed(EKey::Space)) {
-        ++_clicks;
-        if (_clicks > _high_score) _high_score = _clicks;
-        _dirty = true;
+        ++m_Clicks;
+        if (m_Clicks > m_HighScore) m_HighScore = m_Clicks;
+        m_Dirty = true;
     }
     if (Input::IsKeyPressed(EKey::R)) {
         // Clear() は launches も消すので、本セッションを 1 回目として再播種する。
-        _store.Clear();
-        _clicks = 0;
-        _high_score = 0;
-        _store.SetInt("launches", 1);
-        _store.SetString("player_name", "プレイヤー");
-        _dirty = true;
+        m_Store.Clear();
+        m_Clicks = 0;
+        m_HighScore = 0;
+        m_Store.SetInt("launches", 1);
+        m_Store.SetString("player_name", "プレイヤー");
+        m_Dirty = true;
     }
     if (Input::IsKeyPressed(EKey::S)) {
         FlushAndSave();
@@ -73,70 +73,70 @@ void HelloSaveApp::OnRender() noexcept {
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
 
-    _batch.Begin(*cl, sw, sh);
-    _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
+    m_Batch.Begin(*cl, sw, sh);
+    m_Batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
                     FVec4{0.10f, 0.13f, 0.18f, 1});
-    _batch.DrawRect(40, 40, static_cast<f32>(sw - 80), static_cast<f32>(sh - 80),
+    m_Batch.DrawRect(40, 40, static_cast<f32>(sw - 80), static_cast<f32>(sh - 80),
                     FVec4{0.16f, 0.20f, 0.28f, 1});
 
-    if (_font_big.AtlasTexture()) {
+    if (m_FontBig.AtlasTexture()) {
         char buf[256];
         std::snprintf(buf, sizeof(buf), "%s さん、ようこそ！",
-                      _store.GetString("player_name", "プレイヤー"));
-        _batch.DrawString(_font_big, buf, 80, 80, FVec4{1, 0.95f, 0.7f, 1});
+                      m_Store.GetString("player_name", "プレイヤー"));
+        m_Batch.DrawString(m_FontBig, buf, 80, 80, FVec4{1, 0.95f, 0.7f, 1});
     }
-    if (_font_small.AtlasTexture()) {
+    if (m_FontSmall.AtlasTexture()) {
         char buf[256];
         std::snprintf(buf, sizeof(buf), "起動回数: %lld",
-                      static_cast<long long>(_store.GetInt("launches", 0)));
-        _batch.DrawString(_font_small, buf, 80, 150, FVec4{0.9f,0.95f,1,1});
+                      static_cast<long long>(m_Store.GetInt("launches", 0)));
+        m_Batch.DrawString(m_FontSmall, buf, 80, 150, FVec4{0.9f,0.95f,1,1});
 
         std::snprintf(buf, sizeof(buf), "今回のクリック数: %lld",
-                      static_cast<long long>(_clicks));
-        _batch.DrawString(_font_small, buf, 80, 180, FVec4{0.9f,0.95f,1,1});
+                      static_cast<long long>(m_Clicks));
+        m_Batch.DrawString(m_FontSmall, buf, 80, 180, FVec4{0.9f,0.95f,1,1});
 
         std::snprintf(buf, sizeof(buf), "ハイスコア: %lld",
-                      static_cast<long long>(_high_score));
-        _batch.DrawString(_font_small, buf, 80, 210,
-                        (_clicks == _high_score && _clicks > 0)
+                      static_cast<long long>(m_HighScore));
+        m_Batch.DrawString(m_FontSmall, buf, 80, 210,
+                        (m_Clicks == m_HighScore && m_Clicks > 0)
                         ? FVec4{1, 0.85f, 0.4f, 1}    // ハイスコア更新中は黄色で強調
                         : FVec4{0.9f, 0.95f, 1, 1});
 
-        _batch.DrawString(_font_small,
+        m_Batch.DrawString(m_FontSmall,
                         "Space: クリック  S: 手動保存  R: リセット  Esc: 終了 (自動保存)",
                         80, static_cast<f32>(sh - 80),
                         FVec4{0.6f, 0.7f, 0.85f, 1});
 
-        if (_dirty) {
-            _batch.DrawString(_font_small, "● 未保存（終了か S で保存）",
+        if (m_Dirty) {
+            m_Batch.DrawString(m_FontSmall, "● 未保存（終了か S で保存）",
                             80, static_cast<f32>(sh - 110),
                             FVec4{1, 0.5f, 0.5f, 1});
         } else {
-            _batch.DrawString(_font_small, "○ 保存済み",
+            m_Batch.DrawString(m_FontSmall, "○ 保存済み",
                             80, static_cast<f32>(sh - 110),
                             FVec4{0.5f, 1, 0.5f, 1});
         }
     }
-    _batch.End();
+    m_Batch.End();
 }
 
 void HelloSaveApp::OnShutdown() noexcept {
     // GPU リソース破棄前に保存しておけば、保存中クラッシュでもプレイデータは無事。
     FlushAndSave();
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _font_small.Shutdown();
-    _font_big.Shutdown();
-    _batch.Shutdown();
+    m_FontSmall.Shutdown();
+    m_FontBig.Shutdown();
+    m_Batch.Shutdown();
 }
 
 void HelloSaveApp::FlushAndSave() noexcept {
-    _store.SetInt("clicks",     _clicks);
-    _store.SetInt("high_score", _high_score);
-    if (auto r = _store.Save(_save_path); r.IsErr()) {
+    m_Store.SetInt("clicks",     m_Clicks);
+    m_Store.SetInt("high_score", m_HighScore);
+    if (auto r = m_Store.Save(m_SavePath); r.IsErr()) {
         ACS_LOG_ERROR("Save failed: %s", r.Error().message);
     } else {
-        _dirty = false;
-        ACS_LOG_INFO("Saved to %ls", _save_path);
+        m_Dirty = false;
+        ACS_LOG_INFO("Saved to %ls", m_SavePath);
     }
 }
 

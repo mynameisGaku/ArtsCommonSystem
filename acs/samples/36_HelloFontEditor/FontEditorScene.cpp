@@ -20,13 +20,13 @@ void FontEditorScene::OnEnter() noexcept {
     // 外側のクリア色を編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
-    _workspace.Init();
+    m_Workspace.Init();
 
     // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶ。
     // よって panel.OnInit を別途呼ぶ必要は無い。
     // SetPreviewText / AddFontFace は OnInit より後でも構わない。
-    _editor_panel.Init();
-    _workspace.RegisterPanel(&_editor_panel);
+    m_EditorPanel.Init();
+    m_Workspace.RegisterPanel(&m_EditorPanel);
 
     // ---- 初期 3 face を fallback chain に登録 ----
     // file_path は stub (実 loader 統合は未着手)。path 文字列は静的リテラル
@@ -39,7 +39,7 @@ void FontEditorScene::OnEnter() noexcept {
         jp.char_range_min = 0x0020u;
         jp.char_range_max = 0xFFFFu;
         jp.is_msdf        = true;
-        _editor_panel.AddFontFace(jp);
+        m_EditorPanel.AddFontFace(jp);
     }
     {
         fontedit::FontFaceInfo mono{};
@@ -49,7 +49,7 @@ void FontEditorScene::OnEnter() noexcept {
         mono.char_range_min = 0x0020u;
         mono.char_range_max = 0x024Fu;
         mono.is_msdf        = false;
-        _editor_panel.AddFontFace(mono);
+        m_EditorPanel.AddFontFace(mono);
     }
     {
         fontedit::FontFaceInfo emoji{};
@@ -59,14 +59,14 @@ void FontEditorScene::OnEnter() noexcept {
         emoji.char_range_min = 0x1F300u;
         emoji.char_range_max = 0x1FAFFu;
         emoji.is_msdf        = false;
-        _editor_panel.AddFontFace(emoji);
+        m_EditorPanel.AddFontFace(emoji);
     }
 
-    _editor_panel.SetPreviewText("ACS Font Editor サンプル 123 αβγ ★★★");
-    _editor_panel.SetPreviewFontSize(28.0f);
+    m_EditorPanel.SetPreviewText("ACS Font Editor サンプル 123 αβγ ★★★");
+    m_EditorPanel.SetPreviewFontSize(28.0f);
 
     // 最初の face を選択 (UX: 起動直後に inspector が表示される)。
-    _editor_panel.SelectFace(0);
+    m_EditorPanel.SelectFace(0);
 
     ACS_LOG_INFO("[FontEditor] entered (3 faces: Noto Sans JP / Noto Sans Mono / fallback emoji)");
 }
@@ -77,9 +77,9 @@ void FontEditorScene::OnEnter() noexcept {
 void FontEditorScene::OnExit() noexcept {
     // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
-    _workspace.Shutdown();
+    m_Workspace.Shutdown();
     // panel 本体の internal state を解放 (face 配列 / preview バッファクリア)。
-    _editor_panel.Shutdown();
+    m_EditorPanel.Shutdown();
 
     ACS_LOG_INFO("[FontEditor] exited");
 }
@@ -109,10 +109,10 @@ void FontEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Save .acsfont")) {
                 // serializer 本体は未配線。callback hook だけ走らせる stub。
-                // 将来は FontSerializer::Save(kFontFilePath, _editor_panel) を呼ぶ。
+                // 将来は FontSerializer::Save(kFontFilePath, m_EditorPanel) を呼ぶ。
                 ACS_LOG_INFO("[FontEditor] Save .acsfont -> '%s' (stub, no-op, %u faces)",
                              kFontFilePath,
-                             static_cast<unsigned>(_editor_panel.FontFaceCount()));
+                             static_cast<unsigned>(m_EditorPanel.FontFaceCount()));
             }
             if (ImGui::MenuItem("Load .acsfont")) {
                 ACS_LOG_INFO("[FontEditor] Load .acsfont <- '%s' (stub, no-op)", kFontFilePath);
@@ -128,7 +128,7 @@ void FontEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
 
     // Workspace 全描画 (1 行で OnFrameBegin → DockSpace → MenuBar → 各 panel
     // DrawUI を順に発火)。
-    _workspace.TickAllPanels(GetGame().DeltaTime());
+    m_Workspace.TickAllPanels(GetGame().DeltaTime());
 }
 
 } // namespace hellofont

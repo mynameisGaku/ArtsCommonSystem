@@ -9,7 +9,7 @@ using namespace acs;
 namespace hellolights {
 
 void LightsScene::Build() noexcept {
-    _objects.Clear();
+    m_Objects.Clear();
     for (u32 i = 0; i < kCubeCount; ++i) {
         // 開始位相 0.4f はカメラ初期位置と物体が重ならないようにずらすため。
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kCubeCount + 0.4f;
@@ -22,7 +22,7 @@ void LightsScene::Build() noexcept {
         // 物体側は白に近い灰色に統一: 点光源の色がそのまま乗って見えるので
         // ライトのデモとして読みやすい。
         o.color = FVec3{0.85f, 0.85f, 0.85f};
-        _objects.PushBack(o);
+        m_Objects.PushBack(o);
     }
 }
 
@@ -78,7 +78,7 @@ void LightsScene::Render(FStandardShader&  shader,
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
-    for (const ObjectInst& obj : _objects) {
+    for (const ObjectInst& obj : m_Objects) {
         shader.SetObject(obj.model, obj.color, 0.5f, 32.0f);
         const GpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);

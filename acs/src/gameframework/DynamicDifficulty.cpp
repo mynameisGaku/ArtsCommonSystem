@@ -102,20 +102,20 @@ f32 FDynamicDifficulty::SampleCurve(f32 t, const f32 vals[4]) noexcept {
 // =============================================================================
 void FDynamicDifficulty::Init(EDifficultyLevel base_level) noexcept {
     _stats        = PlayerSkillStats{};
-    _session_time = 0.0f;
-    _mode         = base_level;
+    m_SessionTime = 0.0f;
+    m_Mode         = base_level;
     if (base_level == EDifficultyLevel::Adaptive) {
-        _current_difficulty = 0.5f;  // 中庸スタート、Tick で target へ寄せる
+        m_CurrentDifficulty = 0.5f;  // 中庸スタート、Tick で target へ寄せる
     } else {
-        _current_difficulty = ContinuousFromDiscrete(base_level);
+        m_CurrentDifficulty = ContinuousFromDiscrete(base_level);
     }
 }
 
 void FDynamicDifficulty::SetMode(EDifficultyLevel mode) noexcept {
-    _mode = mode;
+    m_Mode = mode;
     if (mode != EDifficultyLevel::Adaptive) {
         // 離散モードへの切替は値を即スナップ (UI 反映が遅れない方が直感的)
-        _current_difficulty = ContinuousFromDiscrete(mode);
+        m_CurrentDifficulty = ContinuousFromDiscrete(mode);
     }
     // Adaptive への切替は current を保持 (Tick で target に向け smooth lerp 継続)
 }
@@ -172,7 +172,7 @@ void FDynamicDifficulty::RecordPowerupCollected() noexcept {
 // =============================================================================
 void FDynamicDifficulty::ResetStats() noexcept {
     _stats        = PlayerSkillStats{};
-    _session_time = 0.0f;
+    m_SessionTime = 0.0f;
 }
 
 // =============================================================================
@@ -183,31 +183,31 @@ void FDynamicDifficulty::ResetStats() noexcept {
 // テーブル直接参照のほうが意図が読めて分岐コストも誤差レベル。
 // =============================================================================
 f32 FDynamicDifficulty::EnemyHealthMultiplier() const noexcept {
-    if (_mode == EDifficultyLevel::Adaptive) {
-        return SampleCurve(_current_difficulty, kEnemyHpTable);
+    if (m_Mode == EDifficultyLevel::Adaptive) {
+        return SampleCurve(m_CurrentDifficulty, kEnemyHpTable);
     }
-    return kEnemyHpTable[static_cast<u32>(_mode)];
+    return kEnemyHpTable[static_cast<u32>(m_Mode)];
 }
 
 f32 FDynamicDifficulty::EnemyDamageMultiplier() const noexcept {
-    if (_mode == EDifficultyLevel::Adaptive) {
-        return SampleCurve(_current_difficulty, kEnemyDmgTable);
+    if (m_Mode == EDifficultyLevel::Adaptive) {
+        return SampleCurve(m_CurrentDifficulty, kEnemyDmgTable);
     }
-    return kEnemyDmgTable[static_cast<u32>(_mode)];
+    return kEnemyDmgTable[static_cast<u32>(m_Mode)];
 }
 
 f32 FDynamicDifficulty::EnemySpeedMultiplier() const noexcept {
-    if (_mode == EDifficultyLevel::Adaptive) {
-        return SampleCurve(_current_difficulty, kEnemySpdTable);
+    if (m_Mode == EDifficultyLevel::Adaptive) {
+        return SampleCurve(m_CurrentDifficulty, kEnemySpdTable);
     }
-    return kEnemySpdTable[static_cast<u32>(_mode)];
+    return kEnemySpdTable[static_cast<u32>(m_Mode)];
 }
 
 f32 FDynamicDifficulty::PlayerHealthMultiplier() const noexcept {
-    if (_mode == EDifficultyLevel::Adaptive) {
-        return SampleCurve(_current_difficulty, kPlayerHpTable);
+    if (m_Mode == EDifficultyLevel::Adaptive) {
+        return SampleCurve(m_CurrentDifficulty, kPlayerHpTable);
     }
-    return kPlayerHpTable[static_cast<u32>(_mode)];
+    return kPlayerHpTable[static_cast<u32>(m_Mode)];
 }
 
 // =============================================================================
@@ -230,8 +230,8 @@ f32 FDynamicDifficulty::PlayerHealthMultiplier() const noexcept {
 // =============================================================================
 f32 FDynamicDifficulty::ComputeAdaptiveTarget() const noexcept {
     // session_time 下限ガード。プレイ開始直後の DDA 暴れを防ぐ。
-    const f32 session_sec = _session_time < kMinSessionTimeSec
-                          ? kMinSessionTimeSec : _session_time;
+    const f32 session_sec = m_SessionTime < kMinSessionTimeSec
+                          ? kMinSessionTimeSec : m_SessionTime;
     const f32 minutes     = session_sec / 60.0f;
 
     // kill / death を「分あたり」に正規化して baseline と比較
@@ -283,9 +283,9 @@ f32 FDynamicDifficulty::ComputeAdaptiveTarget() const noexcept {
 // =============================================================================
 void FDynamicDifficulty::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
-    _session_time += dt;
+    m_SessionTime += dt;
 
-    if (_mode != EDifficultyLevel::Adaptive) {
+    if (m_Mode != EDifficultyLevel::Adaptive) {
         // 離散モードは current が固定 (SetMode で snap 済み) なので何もしない
         return;
     }
@@ -294,10 +294,10 @@ void FDynamicDifficulty::Tick(f32 dt) noexcept {
     // framerate-independent exponential smoothing (FCamera2D と同じ式)
     // t = 1 - exp(-rate * dt) で dt 不変な指数追従。rate = 0.5 で約 1.4 秒で 50%。
     const f32 t = 1.0f - Exp(-kAdaptiveLerpRate * dt);
-    _current_difficulty += (target - _current_difficulty) * t;
+    m_CurrentDifficulty += (target - m_CurrentDifficulty) * t;
 
     // 数値誤差で [0,1] を僅かに外れる可能性に備えて saturate
-    _current_difficulty = Saturate(_current_difficulty);
+    m_CurrentDifficulty = Saturate(m_CurrentDifficulty);
 }
 
 } // namespace acs::game

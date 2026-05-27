@@ -26,16 +26,16 @@ template<typename T>
 class FTwoWayBinder {
 public:
     FTwoWayBinder(Observable<T>& a, Observable<T>& b) noexcept
-        : _a(&a), _b(&b) {
+        : m_A(&a), m_B(&b) {
         // 初期同期: a の値を b に反映 (FViewModel → View 想定)
         b.Set(a.Get());
-        _h_a = a.Subscribe(&OnAChanged, this);
-        _h_b = b.Subscribe(&OnBChanged, this);
+        m_HA = a.Subscribe(&OnAChanged, this);
+        m_HB = b.Subscribe(&OnBChanged, this);
     }
 
     ~FTwoWayBinder() noexcept {
-        if (_a) _a->Unsubscribe(_h_a);
-        if (_b) _b->Unsubscribe(_h_b);
+        if (m_A) m_A->Unsubscribe(m_HA);
+        if (m_B) m_B->Unsubscribe(m_HB);
     }
 
     FTwoWayBinder(const FTwoWayBinder&) = delete;
@@ -44,24 +44,24 @@ public:
 private:
     static void OnAChanged(const T& v, void* user) noexcept {
         auto* self = static_cast<FTwoWayBinder*>(user);
-        if (self->_updating) return;
-        self->_updating = true;
-        self->_b->Set(v);
-        self->_updating = false;
+        if (self->m_Updating) return;
+        self->m_Updating = true;
+        self->m_B->Set(v);
+        self->m_Updating = false;
     }
     static void OnBChanged(const T& v, void* user) noexcept {
         auto* self = static_cast<FTwoWayBinder*>(user);
-        if (self->_updating) return;
-        self->_updating = true;
-        self->_a->Set(v);
-        self->_updating = false;
+        if (self->m_Updating) return;
+        self->m_Updating = true;
+        self->m_A->Set(v);
+        self->m_Updating = false;
     }
 
-    Observable<T>*    _a = nullptr;
-    Observable<T>*    _b = nullptr;
-    ObservableHandle  _h_a;
-    ObservableHandle  _h_b;
-    bool              _updating = false;
+    Observable<T>*    m_A = nullptr;
+    Observable<T>*    m_B = nullptr;
+    ObservableHandle  m_HA;
+    ObservableHandle  m_HB;
+    bool              m_Updating = false;
 };
 
 // 片方向 (src → dst のみ)
@@ -69,12 +69,12 @@ template<typename T>
 class OneWayBinder {
 public:
     OneWayBinder(Observable<T>& src, Observable<T>& dst) noexcept
-        : _src(&src), _dst(&dst) {
+        : m_Src(&src), m_Dst(&dst) {
         dst.Set(src.Get());
-        _h = src.Subscribe(&OnChanged, this);
+        m_H = src.Subscribe(&OnChanged, this);
     }
     ~OneWayBinder() noexcept {
-        if (_src) _src->Unsubscribe(_h);
+        if (m_Src) m_Src->Unsubscribe(m_H);
     }
     OneWayBinder(const OneWayBinder&) = delete;
     OneWayBinder& operator=(const OneWayBinder&) = delete;
@@ -82,11 +82,11 @@ public:
 private:
     static void OnChanged(const T& v, void* user) noexcept {
         auto* self = static_cast<OneWayBinder*>(user);
-        self->_dst->Set(v);
+        self->m_Dst->Set(v);
     }
-    Observable<T>*   _src = nullptr;
-    Observable<T>*   _dst = nullptr;
-    ObservableHandle _h;
+    Observable<T>*   m_Src = nullptr;
+    Observable<T>*   m_Dst = nullptr;
+    ObservableHandle m_H;
 };
 
 // View → FViewModel 方向は OneWayBinder(view, vm) と書く (alias は提供しない、混乱の元)。
@@ -108,12 +108,12 @@ public:
 
     OneWayConvertBinder(Observable<Src>& src, Observable<Dst>& dst,
                         ConvertFn fn, void* user) noexcept
-        : _src(&src), _dst(&dst), _fn(fn), _user(user) {
+        : m_Src(&src), m_Dst(&dst), m_Fn(fn), m_User(user) {
         dst.Set(fn(src.Get(), user));
-        _h = src.Subscribe(&OnChanged, this);
+        m_H = src.Subscribe(&OnChanged, this);
     }
     ~OneWayConvertBinder() noexcept {
-        if (_src) _src->Unsubscribe(_h);
+        if (m_Src) m_Src->Unsubscribe(m_H);
     }
     OneWayConvertBinder(const OneWayConvertBinder&)            = delete;
     OneWayConvertBinder& operator=(const OneWayConvertBinder&) = delete;
@@ -121,13 +121,13 @@ public:
 private:
     static void OnChanged(const Src& v, void* user) noexcept {
         auto* self = static_cast<OneWayConvertBinder*>(user);
-        if (self->_fn) self->_dst->Set(self->_fn(v, self->_user));
+        if (self->m_Fn) self->m_Dst->Set(self->m_Fn(v, self->m_User));
     }
-    Observable<Src>*  _src  = nullptr;
-    Observable<Dst>*  _dst  = nullptr;
-    ConvertFn         _fn   = nullptr;
-    void*             _user = nullptr;
-    ObservableHandle  _h;
+    Observable<Src>*  m_Src  = nullptr;
+    Observable<Dst>*  m_Dst  = nullptr;
+    ConvertFn         m_Fn   = nullptr;
+    void*             m_User = nullptr;
+    ObservableHandle  m_H;
 };
 
 // 1 回だけ src の値を dst にコピーする (live binding ではなく初期化用)。
@@ -177,10 +177,10 @@ inline FTwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept 
 // クラスメンバとして自然に持てる + dtor で自動的に Unsubscribe される。
 //
 //   class MyApp {
-//       TUniquePtr<OneWayBinder<f32>> _bind;
+//       TUniquePtr<OneWayBinder<f32>> m_Bind;
 //       void OnStart() {
-//           _bind = MakeBind(vm.hp, view.hp);
-//           // OnShutdown で _bind.Reset() するか、デストラクタ任せ
+//           m_Bind = MakeBind(vm.hp, view.hp);
+//           // OnShutdown で m_Bind.Reset() するか、デストラクタ任せ
 //       }
 //   };
 // ============================================================================

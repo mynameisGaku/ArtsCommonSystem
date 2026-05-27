@@ -43,9 +43,9 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 u32 FDeckSystem::FindCardSlot(const char* card_id) const noexcept {
     if (card_id == nullptr) return kNotFound;
-    const usize n = _cards.Size();
+    const usize n = m_Cards.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_cards[i].id, card_id)) return static_cast<u32>(i);
+        if (StrEq(m_Cards[i].id, card_id)) return static_cast<u32>(i);
     }
     return kNotFound;
 }
@@ -64,13 +64,13 @@ void FDeckSystem::RegisterCard(const FCardDef& def) noexcept {
         return;
     }
 
-    _cards.PushBack(def);
+    m_Cards.PushBack(def);
 }
 
 const FCardDef* FDeckSystem::FindCardDef(const char* card_id) const noexcept {
     const u32 slot = FindCardSlot(card_id);
     if (slot == kNotFound) return nullptr;
-    return &_cards[slot];
+    return &m_Cards[slot];
 }
 
 // =============================================================================
@@ -88,24 +88,24 @@ void FDeckSystem::AddToDeck(const char* card_id, u32 count) noexcept {
     }
 
     // ItemDef::id を直接参照 (= リテラル参照、非所有)。Inventory と同じパターン。
-    const char* canon_id = _cards[def_idx].id;
+    const char* canon_id = m_Cards[def_idx].id;
     for (u32 i = 0; i < count; ++i) {
-        _deck.PushBack(canon_id);
+        m_Deck.PushBack(canon_id);
     }
 }
 
 void FDeckSystem::ClearDeck() noexcept {
-    _deck.Clear();
+    m_Deck.Clear();
 }
 
 // =============================================================================
 // ゾーンサイズ照会
 // =============================================================================
 
-u32 FDeckSystem::DeckSize()    const noexcept { return static_cast<u32>(_deck.Size());    }
-u32 FDeckSystem::HandSize()    const noexcept { return static_cast<u32>(_hand.Size());    }
-u32 FDeckSystem::DiscardSize() const noexcept { return static_cast<u32>(_discard.Size()); }
-u32 FDeckSystem::ExileSize()   const noexcept { return static_cast<u32>(_exile.Size());   }
+u32 FDeckSystem::DeckSize()    const noexcept { return static_cast<u32>(m_Deck.Size());    }
+u32 FDeckSystem::HandSize()    const noexcept { return static_cast<u32>(m_Hand.Size());    }
+u32 FDeckSystem::DiscardSize() const noexcept { return static_cast<u32>(m_Discard.Size()); }
+u32 FDeckSystem::ExileSize()   const noexcept { return static_cast<u32>(m_Exile.Size());   }
 
 // =============================================================================
 // シャッフル
@@ -113,15 +113,15 @@ u32 FDeckSystem::ExileSize()   const noexcept { return static_cast<u32>(_exile.S
 
 void FDeckSystem::Shuffle(u32 seed) noexcept {
     // FRandom::Shuffle は Fisher-Yates (O(n))。0/1 枚のときは即帰る。
-    if (_deck.Size() < 2) return;
+    if (m_Deck.Size() < 2) return;
 
     if (seed == 0u) {
         // 真にランダム = プロセス共有 Global を使う (時刻ベース seed)。
-        FRandom::Global().Shuffle(_deck);
+        FRandom::Global().Shuffle(m_Deck);
     } else {
         // 決定論再現 = ローカル instance を作って使う (Global を汚さない)。
         FRandom r(static_cast<u64>(seed));
-        r.Shuffle(_deck);
+        r.Shuffle(m_Deck);
     }
 }
 
@@ -131,28 +131,28 @@ void FDeckSystem::Shuffle(u32 seed) noexcept {
 
 bool FDeckSystem::Draw() noexcept {
     // デッキ空時は discard を shuffle して reuse。
-    if (_deck.IsEmpty()) {
-        if (_discard.IsEmpty()) return false;  // 両方とも空 → 引けない
+    if (m_Deck.IsEmpty()) {
+        if (m_Discard.IsEmpty()) return false;  // 両方とも空 → 引けない
 
         // discard → deck へ全部移動 (PushBack で順序は元のまま、直後の Shuffle で乱す)。
-        const usize n = _discard.Size();
-        _deck.Reserve(n);
+        const usize n = m_Discard.Size();
+        m_Deck.Reserve(n);
         for (usize i = 0; i < n; ++i) {
-            _deck.PushBack(_discard[i]);
+            m_Deck.PushBack(m_Discard[i]);
         }
-        _discard.Clear();
+        m_Discard.Clear();
 
         // reshuffle。seed=0 = Global (時刻ベース)。
-        if (_deck.Size() >= 2) {
-            FRandom::Global().Shuffle(_deck);
+        if (m_Deck.Size() >= 2) {
+            FRandom::Global().Shuffle(m_Deck);
         }
     }
 
-    // ここまで来れば _deck.Size() >= 1 が保証される (上で空 chain を処理済)。
+    // ここまで来れば m_Deck.Size() >= 1 が保証される (上で空 chain を処理済)。
     // 「トップ = 末尾」約束に従って PopBack で O(1) ドロー。
-    const char* top = _deck.Back();
-    _deck.PopBack();
-    _hand.PushBack(top);
+    const char* top = m_Deck.Back();
+    m_Deck.PopBack();
+    m_Hand.PushBack(top);
     return true;
 }
 
@@ -170,72 +170,72 @@ bool FDeckSystem::DrawN(u32 n) noexcept {
 // =============================================================================
 
 bool FDeckSystem::DiscardFromHand(u32 hand_index) noexcept {
-    if (hand_index >= static_cast<u32>(_hand.Size())) return false;
-    const char* card = _hand[hand_index];
+    if (hand_index >= static_cast<u32>(m_Hand.Size())) return false;
+    const char* card = m_Hand[hand_index];
 
     // hand から削除 (順序保持のため前方シフト)。手札数は数枚〜十数枚オーダーで
     // O(n) シフトが UI 上自然 (= 引いた順序を維持する)。
-    const usize n = _hand.Size();
+    const usize n = m_Hand.Size();
     for (usize i = static_cast<usize>(hand_index); i + 1u < n; ++i) {
-        _hand[i] = _hand[i + 1u];
+        m_Hand[i] = m_Hand[i + 1u];
     }
-    _hand.PopBack();
+    m_Hand.PopBack();
 
-    _discard.PushBack(card);
+    m_Discard.PushBack(card);
     return true;
 }
 
 bool FDeckSystem::ExileFromHand(u32 hand_index) noexcept {
-    if (hand_index >= static_cast<u32>(_hand.Size())) return false;
-    const char* card = _hand[hand_index];
+    if (hand_index >= static_cast<u32>(m_Hand.Size())) return false;
+    const char* card = m_Hand[hand_index];
 
-    const usize n = _hand.Size();
+    const usize n = m_Hand.Size();
     for (usize i = static_cast<usize>(hand_index); i + 1u < n; ++i) {
-        _hand[i] = _hand[i + 1u];
+        m_Hand[i] = m_Hand[i + 1u];
     }
-    _hand.PopBack();
+    m_Hand.PopBack();
 
-    _exile.PushBack(card);
+    m_Exile.PushBack(card);
     return true;
 }
 
 bool FDeckSystem::DiscardAllHand() noexcept {
     // 手札空でも true (= no-op として成功扱い、ターン終了処理を統一して書きやすくする)。
-    const usize n = _hand.Size();
+    const usize n = m_Hand.Size();
     if (n == 0u) return true;
 
-    _discard.Reserve(_discard.Size() + n);
+    m_Discard.Reserve(m_Discard.Size() + n);
     for (usize i = 0; i < n; ++i) {
-        _discard.PushBack(_hand[i]);
+        m_Discard.PushBack(m_Hand[i]);
     }
-    _hand.Clear();
+    m_Hand.Clear();
     return true;
 }
 
 bool FDeckSystem::PlayCard(u32 hand_index) noexcept {
-    if (hand_index >= static_cast<u32>(_hand.Size())) return false;
+    if (hand_index >= static_cast<u32>(m_Hand.Size())) return false;
 
     // callback 発火 (登録されていれば)。hand_index は callback 呼び出し時点の値を渡す
     // (= callback 内で「どこから出した」が分かるようにする)。
-    const char* card = _hand[hand_index];
-    if (_on_play != nullptr) {
-        _on_play(_on_play_user, card, hand_index);
+    const char* card = m_Hand[hand_index];
+    if (m_OnPlay != nullptr) {
+        m_OnPlay(m_OnPlayUser, card, hand_index);
     }
 
     // callback 後に hand → discard へ移動。
     // 注意: callback 内で FDeckSystem を再帰的に触られた場合の防御は持たない
     // (= 呼出側の責務)。Inventory の ChangeCallback と同じ。
-    const usize n = _hand.Size();
+    const usize n = m_Hand.Size();
     // callback 内で hand が変動している可能性があるので、再度範囲チェック。
     if (hand_index >= static_cast<u32>(n)) return false;
     // card が callback 内で別物に差し替わっている可能性 (リサイズ等) は通常起きないが、
     // 念のため hand[hand_index] を読み直して discard へ送る。
-    const char* card_now = _hand[hand_index];
+    const char* card_now = m_Hand[hand_index];
     for (usize i = static_cast<usize>(hand_index); i + 1u < n; ++i) {
-        _hand[i] = _hand[i + 1u];
+        m_Hand[i] = m_Hand[i + 1u];
     }
-    _hand.PopBack();
-    _discard.PushBack(card_now);
+    m_Hand.PopBack();
+    m_Discard.PushBack(card_now);
     return true;
 }
 
@@ -244,8 +244,8 @@ bool FDeckSystem::PlayCard(u32 hand_index) noexcept {
 // =============================================================================
 
 const char* FDeckSystem::HandCardAt(u32 index) const noexcept {
-    if (index >= static_cast<u32>(_hand.Size())) return nullptr;
-    return _hand[index];
+    if (index >= static_cast<u32>(m_Hand.Size())) return nullptr;
+    return m_Hand[index];
 }
 
 // =============================================================================
@@ -254,8 +254,8 @@ const char* FDeckSystem::HandCardAt(u32 index) const noexcept {
 
 void FDeckSystem::SetOnPlayCallback(PlayCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
-    _on_play      = cb;
-    _on_play_user = user;
+    m_OnPlay      = cb;
+    m_OnPlayUser = user;
 }
 
 // =============================================================================
@@ -263,13 +263,13 @@ void FDeckSystem::SetOnPlayCallback(PlayCallback cb, void* user) noexcept {
 // =============================================================================
 
 void FDeckSystem::ClearAll() noexcept {
-    _cards.Clear();
-    _deck.Clear();
-    _hand.Clear();
-    _discard.Clear();
-    _exile.Clear();
-    _on_play      = nullptr;
-    _on_play_user = nullptr;
+    m_Cards.Clear();
+    m_Deck.Clear();
+    m_Hand.Clear();
+    m_Discard.Clear();
+    m_Exile.Clear();
+    m_OnPlay      = nullptr;
+    m_OnPlayUser = nullptr;
 }
 
 } // namespace acs::game

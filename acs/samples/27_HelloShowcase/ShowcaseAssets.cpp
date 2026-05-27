@@ -21,11 +21,11 @@ namespace {
 // 使えない。代わりに TResult を伝搬する形にする。
 #define HS_TRY(expr)                                                              \
     do {                                                                          \
-        auto _r = (expr);                                                         \
-        if (_r.IsErr()) {                                                         \
+        auto m_R = (expr);                                                         \
+        if (m_R.IsErr()) {                                                         \
             ACS_LOG_ERROR("HelloShowcase init failed at " #expr ": %s",          \
-                          _r.Error().message);                                    \
-            return _r;                                                            \
+                          m_R.Error().message);                                    \
+            return m_R;                                                            \
         }                                                                         \
     } while (0)
 

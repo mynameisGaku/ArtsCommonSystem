@@ -32,10 +32,10 @@ public:
 
     void Check() noexcept {
         const u64 cur = static_cast<u64>(acs::CurrentThreadId().raw);
-        u64 expected = _expected_thread;
+        u64 expected = m_ExpectedThread;
         if (expected == 0) {
             // 初回: 現在のスレッドを固定
-            _expected_thread = cur;
+            m_ExpectedThread = cur;
         } else {
             ACS_ASSERTF(expected == cur,
                         "thread affinity violated (expected tid=%llu, got tid=%llu)",
@@ -44,22 +44,22 @@ public:
     }
 
     // 明示的にリセット (テスト等で再固定したい場合)
-    void Reset() noexcept { _expected_thread = 0; }
+    void Reset() noexcept { m_ExpectedThread = 0; }
 
 private:
-    u64 _expected_thread = 0;
+    u64 m_ExpectedThread = 0;
 };
 
 } // namespace acs::detail
 
 #define ACS_THREAD_AFFINITY_FIELD() \
-    mutable ::acs::detail::ThreadAffinityGuard _acs_affinity_guard
+    mutable ::acs::detail::ThreadAffinityGuard m_AcsAffinityGuard
 
 #define ACS_THREAD_AFFINITY_CHECK() \
-    _acs_affinity_guard.Check()
+    m_AcsAffinityGuard.Check()
 
 #define ACS_THREAD_AFFINITY_RESET() \
-    _acs_affinity_guard.Reset()
+    m_AcsAffinityGuard.Reset()
 
 #else  // Release: no-op (0 byte field, empty check)
 

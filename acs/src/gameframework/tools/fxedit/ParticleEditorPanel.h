@@ -59,13 +59,13 @@
 //        editor 側の参照が壊れる」
 //     のを避けるため。Apply 時に呼び出し側が `CreateEmitter` で反映する。
 //   ・ImGui 関数の戻り値 (true on change) を見て emitter def を書き換えた
-//     直後に `_dirty = true` を立てる。外部は `IsDirty()` で確認後 `ClearDirty()`
+//     直後に `m_Dirty = true` を立てる。外部は `IsDirty()` で確認後 `ClearDirty()`
 //     で同期 (= Save 用のシグナル)。
 //   ・`spread_radians` は `ParticleEmitterDef` には現状フィールドが無いが、
 //     仕様 (Phase 19b) で要求されているため editor 側で「将来追加予定」の
 //     placeholder field を持つ。実 emitter 実行時には未使用。
 //     ParticleEmitterDef に spread_radians フィールドが正式追加されたら、
-//     `_extra_spread_radians` を削除して `def.spread_radians` 直結に切替える。
+//     `m_ExtraSpreadRadians` を削除して `def.spread_radians` 直結に切替える。
 #pragma once
 
 #include "container/Array.h"
@@ -105,8 +105,8 @@ public:
 
     // Phase 24: FEditorPanel 基底に乗せるため、target system は SetTargetSystem
     // で先に set してから DrawUI() を呼ぶパターンに変更。
-    void SetTargetSystem(class FParticleEffectSystem* system) noexcept { _target_system = system; }
-    class FParticleEffectSystem* TargetSystem() const noexcept { return _target_system; }
+    void SetTargetSystem(class FParticleEffectSystem* system) noexcept { m_TargetSystem = system; }
+    class FParticleEffectSystem* TargetSystem() const noexcept { return m_TargetSystem; }
 
     // FEditorPanel override: タイトル。
     const char* Title() const noexcept override { return "Particle Editor"; }
@@ -129,7 +129,7 @@ public:
     void DuplicateSelectedEmitter() noexcept;
 
     // 現在の選択 index。未選択は -1。
-    i32 SelectedIndex() const noexcept { return _selected; }
+    i32 SelectedIndex() const noexcept { return m_Selected; }
 
     // 選択 index を設定。範囲外 (>= EmitterCount()) は -1 (未選択) に
     // 正規化する。負値も -1 にクランプ。
@@ -157,29 +157,29 @@ public:
 
     // 現在 dirty (= UI で何か書き換えた / Add / Remove / Dup された) か。
     // 外部の Save タイミング判定に使う。
-    bool IsDirty() const noexcept { return _dirty; }
+    bool IsDirty() const noexcept { return m_Dirty; }
 
     // dirty フラグをクリア。Save 完了後に外部が呼ぶ想定。
-    void ClearDirty() noexcept { _dirty = false; }
+    void ClearDirty() noexcept { m_Dirty = false; }
 
 private:
-    TArray<ParticleEmitterDef> _emitters {};
+    TArray<ParticleEmitterDef> m_Emitters {};
     // editor 専用の「将来 ParticleEmitterDef に追加される予定」の値。
     // 現状 ParticleEmitterDef に spread_radians フィールドが無いので、
-    // editor 側のみで持つ。長さは _emitters と同期する。
-    TArray<f32>                _extra_spread_radians {};
+    // editor 側のみで持つ。長さは m_Emitters と同期する。
+    TArray<f32>                m_ExtraSpreadRadians {};
 
-    i32           _selected     = -1;
-    bool          _dirty        = false;
+    i32           m_Selected     = -1;
+    bool          m_Dirty        = false;
 
-    SaveCallback  _save_cb      = nullptr;
-    void*         _save_user    = nullptr;
-    LoadCallback  _load_cb      = nullptr;
-    void*         _load_user    = nullptr;
+    SaveCallback  m_SaveCb      = nullptr;
+    void*         m_SaveUser    = nullptr;
+    LoadCallback  m_LoadCb      = nullptr;
+    void*         m_LoadUser    = nullptr;
 
     // Phase 24: read-only target (active particle count 表示用)。
     // nullptr のときは "(no system attached)" を表示。
-    class FParticleEffectSystem* _target_system = nullptr;
+    class FParticleEffectSystem* m_TargetSystem = nullptr;
 };
 
 } // namespace acs::game::fxedit

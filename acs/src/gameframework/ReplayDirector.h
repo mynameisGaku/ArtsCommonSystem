@@ -37,7 +37,7 @@
 //   dir.StartRecording(meta);
 //
 //   // ゲームループ (録画中):
-//   dir.Tick(dt);  // 内部で _current_tick を進めるだけ。
+//   dir.Tick(dt);  // 内部で m_CurrentTick を進めるだけ。
 //                  // 入力 capture は FInputRecorder/FLockstep 側で別途行う想定。
 //
 //   // 録画停止
@@ -117,8 +117,8 @@ class FLockstep;
 // =============================================================================
 enum class EReplayMode : u8 {
     Idle      = 0,  // 録画も再生もしない (初期状態 / 停止状態)
-    Recording = 1,  // 録画中 (Tick で _current_tick を進める)
-    Playback  = 2,  // 再生中 (Tick で _current_tick を speed 倍で進める)
+    Recording = 1,  // 録画中 (Tick で m_CurrentTick を進める)
+    Playback  = 2,  // 再生中 (Tick で m_CurrentTick を speed 倍で進める)
     Paused    = 3,  // 再生中だが進行停止 (Tick は no-op)
 };
 
@@ -164,7 +164,7 @@ public:
     };
 
     // ----- 初期化 -----
-    // _mode = Idle / _current_tick = 0 / _playback_speed = 1.0 にリセット。
+    // m_Mode = Idle / m_CurrentTick = 0 / m_PlaybackSpeed = 1.0 にリセット。
     // metadata はデフォルト初期化 (全 null / 0)。
     void Init() noexcept;
 
@@ -174,12 +174,12 @@ public:
     TResult<void> StartRecording(const ReplayMetadata& meta) noexcept;
 
     // StopRecording: Recording から Idle へ。metadata.duration_ticks に
-    //   _current_tick を確定書き込みする。Recording 以外で呼ぶと kSub_BadMode。
+    //   m_CurrentTick を確定書き込みする。Recording 以外で呼ぶと kSub_BadMode。
     TResult<void> StopRecording() noexcept;
 
     // ----- 再生開始 / 停止 -----
     // StartPlayback: 録画したものを再生する。Idle 以外で呼ぶと kSub_BadMode。
-    //   _current_tick = 0 にリセット。metadata は LoadReplay 経由 or 直前の
+    //   m_CurrentTick = 0 にリセット。metadata は LoadReplay 経由 or 直前の
     //   StartRecording で設定済みである前提。
     TResult<void> StartPlayback() noexcept;
 
@@ -193,12 +193,12 @@ public:
     void StopPlayback() noexcept;
 
     // ----- 状態 query -----
-    EReplayMode CurrentMode()         const noexcept { return _mode; }
-    f32        PlaybackSpeed()       const noexcept { return _playback_speed; }
-    u32        CurrentTick()         const noexcept { return _current_tick; }
-    u32        DurationTicks()       const noexcept { return _metadata.duration_ticks; }
+    EReplayMode CurrentMode()         const noexcept { return m_Mode; }
+    f32        PlaybackSpeed()       const noexcept { return m_PlaybackSpeed; }
+    u32        CurrentTick()         const noexcept { return m_CurrentTick; }
+    u32        DurationTicks()       const noexcept { return m_Metadata.duration_ticks; }
     f32        ProgressNormalized()  const noexcept;
-    const ReplayMetadata& Metadata() const noexcept { return _metadata; }
+    const ReplayMetadata& Metadata() const noexcept { return m_Metadata; }
 
     // SetPlaybackSpeed: 0.25x / 0.5x / 1x / 2x / 4x 等の任意倍速。
     //   0 < speed <= 16 の範囲外は最寄りの有効値に clamp する。
@@ -206,15 +206,15 @@ public:
     void SetPlaybackSpeed(f32 speed) noexcept;
 
     // ----- 任意位置への Seek -----
-    // _current_tick を tick にジャンプする。duration_ticks を超える値は末尾に
+    // m_CurrentTick を tick にジャンプする。duration_ticks を超える値は末尾に
     // clamp。Mode は変更しない (Paused 中も Playback 中も可)。
     void SeekToTick(u32 tick) noexcept;
 
     // ----- 毎フレーム呼び出し -----
-    // Recording 中: _current_tick を 1 tick / Tick(dt) 進める単純実装。
+    // Recording 中: m_CurrentTick を 1 tick / Tick(dt) 進める単純実装。
     //   tick 単位の精密制御は呼び出し側 (FLockstep) の責務。
     // Playback 中: dt * speed をアキュムレートし、tick_rate_hz 換算で必要 tick 数を
-    //   _current_tick に加算する。duration_ticks を超えたら自動的に Idle へ。
+    //   m_CurrentTick に加算する。duration_ticks を超えたら自動的に Idle へ。
     // Paused / Idle: no-op。
     void Tick(f32 dt) noexcept;
 
@@ -229,12 +229,12 @@ public:
     TResult<void> LoadReplay(const wchar_t* file_path) noexcept;
 
 private:
-    EReplayMode     _mode             = EReplayMode::Idle;
-    ReplayMetadata _metadata         {};         // 現在の録画 / 再生対象の metadata
-    u32            _current_tick     = 0;        // 録画中: 次に書き込む tick / 再生中: 次に消費する tick
-    f32            _playback_speed   = 1.0f;     // 再生倍速 (1.0 = 等倍)
-    f32            _tick_accumulator = 0.0f;     // Tick(dt) の余り (sub-tick の dt を持ち越す)
-    u32            _tick_rate_hz     = 60;       // 再生時の sample rate (Phase R-4 で metadata 経由に置換)
+    EReplayMode     m_Mode             = EReplayMode::Idle;
+    ReplayMetadata m_Metadata         {};         // 現在の録画 / 再生対象の metadata
+    u32            m_CurrentTick     = 0;        // 録画中: 次に書き込む tick / 再生中: 次に消費する tick
+    f32            m_PlaybackSpeed   = 1.0f;     // 再生倍速 (1.0 = 等倍)
+    f32            m_TickAccumulator = 0.0f;     // Tick(dt) の余り (sub-tick の dt を持ち越す)
+    u32            m_TickRateHz     = 60;       // 再生時の sample rate (Phase R-4 で metadata 経由に置換)
 };
 
 } // namespace acs::game

@@ -25,21 +25,21 @@ void HelloWindowApp::OnStart() noexcept {
 void HelloWindowApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (Input::IsKeyDown(EKey::W)) _r += dt;
-    if (Input::IsKeyDown(EKey::S)) _r -= dt;
-    if (Input::IsKeyDown(EKey::A)) _g += dt;
-    if (Input::IsKeyDown(EKey::D)) _g -= dt;
+    if (Input::IsKeyDown(EKey::W)) m_R += dt;
+    if (Input::IsKeyDown(EKey::S)) m_R -= dt;
+    if (Input::IsKeyDown(EKey::A)) m_G += dt;
+    if (Input::IsKeyDown(EKey::D)) m_G -= dt;
     // 0..1 にクランプ (SetClearColor は範囲外の値を受け取ると見た目が破綻する)
-    if (_r < 0) _r = 0; if (_r > 1) _r = 1;
-    if (_g < 0) _g = 0; if (_g > 1) _g = 1;
+    if (m_R < 0) m_R = 0; if (m_R > 1) m_R = 1;
+    if (m_G < 0) m_G = 0; if (m_G > 1) m_G = 1;
 
-    SetClearColor(_r, _g, _b);
+    SetClearColor(m_R, m_G, m_B);
 
     // 毎フレーム SetTitle するとちらつくので 30 フレーム間引き
     if (FrameCount() % 30 == 0) {
         wchar_t title[128];
         ::swprintf_s(title, L"HelloWindow  |  FPS: %.1f  |  RGB: (%.2f, %.2f, %.2f)",
-                     FPS(), _r, _g, _b);
+                     FPS(), m_R, m_G, m_B);
         GetWindow().SetTitle(title);
     }
 }

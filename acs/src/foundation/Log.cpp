@@ -18,7 +18,7 @@ constexpr u32 kMessageMax = 480;  // 1 メッセージ最大長
 struct alignas(64) Cell {
     volatile LONG64 sequence;       // CAS 調停用シーケンス番号
     ELogSeverity     severity;
-    u8              _pad0[7];
+    u8              m_Pad0[7];
     FSourceLoc       loc;
     DWORD           thread_id;
     LARGE_INTEGER   timestamp;      // QPC ティック

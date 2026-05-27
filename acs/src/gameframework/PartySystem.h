@@ -165,11 +165,11 @@ private:
     void EmplaceSelfAsLeader() noexcept;
 
     EPartyState         _state          = EPartyState::Solo;
-    const char*        _party_name     = nullptr;   // CreateParty 時に保持 (非所有)
-    const char*        _party_id       = nullptr;   // JoinParty 時に保持 (非所有)
-    f32                _pending_timer  = 0.0f;      // Joining / Leaving 経過秒
-    TArray<PartyMember> _members;
-    TArray<Friend>      _friends;
+    const char*        m_PartyName     = nullptr;   // CreateParty 時に保持 (非所有)
+    const char*        m_PartyId       = nullptr;   // JoinParty 時に保持 (非所有)
+    f32                m_PendingTimer  = 0.0f;      // Joining / Leaving 経過秒
+    TArray<PartyMember> m_Members;
+    TArray<Friend>      m_Friends;
 };
 
 } // namespace acs::game

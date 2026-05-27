@@ -107,39 +107,39 @@ constexpr u32 kMaxOutputBytes = kFilteredBufSize - 1u;
 // FLlmSafetyPipeline 実装
 // =============================================================================
 void FLlmSafetyPipeline::Init(ESafetyRule rules) noexcept {
-    _rules            = rules;
-    _refused_count    = 0;
-    _filtered_count   = 0;
-    _initialized      = true;
+    m_Rules            = rules;
+    m_RefusedCount    = 0;
+    m_FilteredCount   = 0;
+    m_Initialized      = true;
     ACS_LOG_DEBUG("FLlmSafetyPipeline: Init (rules=0x%08X)", static_cast<u32>(rules));
 }
 
 void FLlmSafetyPipeline::SetTokenBudget(u32 max_input_tokens, u32 max_output_tokens) noexcept {
-    _max_input_tokens  = max_input_tokens;
-    _max_output_tokens = max_output_tokens;
+    m_MaxInputTokens  = max_input_tokens;
+    m_MaxOutputTokens = max_output_tokens;
 }
 
 void FLlmSafetyPipeline::SetCharacterAnchor(const char* system_prompt) noexcept {
-    _character_anchor = system_prompt;  // 非所有 (寿命は呼び出し側)
+    m_CharacterAnchor = system_prompt;  // 非所有 (寿命は呼び出し側)
 }
 
 bool FLlmSafetyPipeline::IsRuleEnabled(ESafetyRule rule) const noexcept {
-    return SafetyHas(_rules, rule);
+    return SafetyHas(m_Rules, rule);
 }
 
 void FLlmSafetyPipeline::EnableRule(ESafetyRule rule, bool enable) noexcept {
     if (enable) {
-        _rules = _rules | rule;
+        m_Rules = m_Rules | rule;
     } else {
-        _rules = static_cast<ESafetyRule>(
-            static_cast<u32>(_rules) & ~static_cast<u32>(rule));
+        m_Rules = static_cast<ESafetyRule>(
+            static_cast<u32>(m_Rules) & ~static_cast<u32>(rule));
     }
 }
 
 void FLlmSafetyPipeline::Reset() noexcept {
-    _refused_count    = 0;
-    _filtered_count   = 0;
-    _character_anchor = nullptr;
+    m_RefusedCount    = 0;
+    m_FilteredCount   = 0;
+    m_CharacterAnchor = nullptr;
 }
 
 SafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
@@ -148,38 +148,38 @@ SafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
     r.input_tokens = EstimateTokens(len);
 
     // ---- InputValidation: 空 / 過大 ----------------------------------------
-    if (SafetyHas(_rules, ESafetyRule::InputValidation)) {
+    if (SafetyHas(m_Rules, ESafetyRule::InputValidation)) {
         if (len == 0) {
             r.verdict        = ESafetyVerdict::Refused;
             r.refusal_reason = "empty input";
-            ++_refused_count;
+            ++m_RefusedCount;
             return r;
         }
         if (len > kMaxInputBytes) {
             r.verdict        = ESafetyVerdict::Refused;
             r.refusal_reason = "input too long";
-            ++_refused_count;
+            ++m_RefusedCount;
             return r;
         }
     }
 
     // ---- TokenBudget: 概算トークン超過 -------------------------------------
-    if (SafetyHas(_rules, ESafetyRule::TokenBudget)
-        && _max_input_tokens > 0
-        && r.input_tokens > _max_input_tokens) {
+    if (SafetyHas(m_Rules, ESafetyRule::TokenBudget)
+        && m_MaxInputTokens > 0
+        && r.input_tokens > m_MaxInputTokens) {
         r.verdict        = ESafetyVerdict::BudgetExceeded;
         r.refusal_reason = "input token budget exceeded";
-        ++_refused_count;
+        ++m_RefusedCount;
         return r;
     }
 
     // ---- JailbreakDetection: 既知の典型句 (Phase 1 stub) -------------------
-    if (SafetyHas(_rules, ESafetyRule::JailbreakDetection)) {
+    if (SafetyHas(m_Rules, ESafetyRule::JailbreakDetection)) {
         for (u32 i = 0; i < kJailbreakPatternCount; ++i) {
             if (ContainsCaseInsensitive(user_text, kJailbreakPatterns[i])) {
                 r.verdict        = ESafetyVerdict::Refused;
                 r.refusal_reason = "jailbreak attempt detected";
-                ++_refused_count;
+                ++m_RefusedCount;
                 ACS_LOG_WARN("FLlmSafetyPipeline: jailbreak pattern matched ('%s')",
                              kJailbreakPatterns[i]);
                 return r;
@@ -203,40 +203,40 @@ SafetyResult FLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept
     if (len > kMaxOutputBytes) {
         r.verdict        = ESafetyVerdict::Refused;
         r.refusal_reason = "llm response too long";
-        ++_refused_count;
+        ++m_RefusedCount;
         return r;
     }
 
     // ---- TokenBudget: 概算トークン超過 -------------------------------------
-    if (SafetyHas(_rules, ESafetyRule::TokenBudget)
-        && _max_output_tokens > 0
-        && r.output_tokens > _max_output_tokens) {
+    if (SafetyHas(m_Rules, ESafetyRule::TokenBudget)
+        && m_MaxOutputTokens > 0
+        && r.output_tokens > m_MaxOutputTokens) {
         r.verdict        = ESafetyVerdict::BudgetExceeded;
         r.refusal_reason = "output token budget exceeded";
-        ++_refused_count;
+        ++m_RefusedCount;
         return r;
     }
 
     // ---- PiiRedaction (TODO Phase 2): 個人情報を [REDACTED] に置換 ----------
     // Phase 2 で電話 / メール / 住所 / クレカ番号の各国フォーマット regex を導入。
-    // 現状は no-op で素通し。実装後は r.verdict = Filtered / ++_filtered_count。
-    if (SafetyHas(_rules, ESafetyRule::PiiRedaction)) {
+    // 現状は no-op で素通し。実装後は r.verdict = Filtered / ++m_FilteredCount。
+    if (SafetyHas(m_Rules, ESafetyRule::PiiRedaction)) {
         // TODO(phase2): apply PII regex, set verdict = Filtered if redacted
     }
 
     // ---- EContentRating (TODO Phase 2): 危険スコア超過チェック --------------
     // Phase 2 で暴力 / 性的 / 自傷 / ヘイトの 4 軸スコア分類器を導入。
     // 現状は no-op。
-    if (SafetyHas(_rules, ESafetyRule::EContentRating)) {
+    if (SafetyHas(m_Rules, ESafetyRule::EContentRating)) {
         // TODO(phase2): run classifier, set verdict = Refused if any score > threshold
     }
 
     // ---- RefusalEnforcement (TODO Phase 2): キャラ逸脱チェック -------------
-    // Phase 2 で `_character_anchor` と応答の semantic similarity を取って、
+    // Phase 2 で `m_CharacterAnchor` と応答の semantic similarity を取って、
     // 逸脱度が高ければ Refused。Phase 1 は anchor の存在だけ確認して素通し。
-    if (SafetyHas(_rules, ESafetyRule::RefusalEnforcement)) {
-        // TODO(phase2): check semantic distance from _character_anchor
-        (void)_character_anchor;
+    if (SafetyHas(m_Rules, ESafetyRule::RefusalEnforcement)) {
+        // TODO(phase2): check semantic distance from m_CharacterAnchor
+        (void)m_CharacterAnchor;
     }
 
     // ---- Pass: 応答をそのまま返す ------------------------------------------

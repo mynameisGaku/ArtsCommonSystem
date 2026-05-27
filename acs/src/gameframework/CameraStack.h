@@ -8,25 +8,25 @@
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::FCamera2D  _follow_cam;     // プレイヤー追従カメラ
-//       acs::game::FCamera2D  _cinematic_cam;  // 演出用カメラ (固定 or 別追従)
-//       acs::game::FCameraStack _stack;
+//       acs::game::FCamera2D  m_FollowCam;     // プレイヤー追従カメラ
+//       acs::game::FCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
+//       acs::game::FCameraStack m_Stack;
 //       void OnEnter() noexcept override {
-//           _stack.PushCamera(_follow_cam);                // 初期 top
+//           m_Stack.PushCamera(m_FollowCam);                // 初期 top
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _follow_cam.SetTargetPos(player.Position());
-//           _stack.Tick(dt);  // blend + active camera tick
+//           m_FollowCam.SetTargetPos(player.Position());
+//           m_Stack.Tick(dt);  // blend + active camera tick
 //           if (BossIntroStarted()) {
-//               _stack.PushCamera(_cinematic_cam, 1.0f);   // 1 秒で blend
+//               m_Stack.PushCamera(m_CinematicCam, 1.0f);   // 1 秒で blend
 //           } else if (BossIntroEnded()) {
-//               _stack.PopCamera(0.5f);                    // 戻る
+//               m_Stack.PopCamera(0.5f);                    // 戻る
 //           }
 //       }
 //       void OnRender(RenderContext& rc) noexcept override {
-//           rc.SetViewCenter(_stack.EffectivePosition());
-//           rc.SetViewZoom(_stack.EffectiveZoom());
-//           rc.SetViewRotation(_stack.EffectiveRotation());
+//           rc.SetViewCenter(m_Stack.EffectivePosition());
+//           rc.SetViewZoom(m_Stack.EffectiveZoom());
+//           rc.SetViewRotation(m_Stack.EffectiveRotation());
 //           // ... draw ...
 //       }
 //   };
@@ -94,7 +94,7 @@ public:
     FCamera2D* Active() const noexcept;          // 現在の top (= 最上層)。空なら nullptr。
     bool      IsBlending() const noexcept;
     f32       BlendProgress() const noexcept;   // [0, 1]、非 blend 時は 1。
-    u32       Depth() const noexcept { return static_cast<u32>(_entries.Size()); }
+    u32       Depth() const noexcept { return static_cast<u32>(m_Entries.Size()); }
     void      Clear() noexcept;
 
     // ----- 描画側が読む補間結果 -----
@@ -128,7 +128,7 @@ private:
     // rotation は差分を [-π, π] に正規化してから lerp (最短角)。
     static f32  LerpAngle(f32 a, f32 b, f32 t) noexcept;
 
-    TArray<CameraEntry> _entries;   // _entries.Back() が top (= active)
+    TArray<CameraEntry> m_Entries;   // m_Entries.Back() が top (= active)
 };
 
 } // namespace acs::game

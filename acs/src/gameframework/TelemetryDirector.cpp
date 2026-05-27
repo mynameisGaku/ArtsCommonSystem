@@ -11,7 +11,7 @@
 //     timestamp を持つので利用側でソート可能。
 //   ・Flush は backend->SendTelemetry() に 1 件ずつ流し、Err なら pending に
 //     残す = 次回 Flush で再送される。Phase 2 の stub backend は必ず Err を
-//     返すため、実機テストでは _failed_count が増える挙動が観察される。
+//     返すため、実機テストでは m_FailedCount が増える挙動が観察される。
 //   ・consent ガード: FPrivacyDirector が attach されていれば
 //     HasConsent(EConsentCategory::Telemetry) を毎 TrackEvent / Flush で確認。
 //     nullptr 注入時はガードスキップ (テスト用)。
@@ -51,10 +51,10 @@ bool FTelemetryDirector::IsCategoryEnabledInternal(const char* category) const n
     if (category == nullptr) return true;
 
     // 線形検索: 明示 false に設定されたカテゴリのみ deny、それ以外は enabled。
-    const usize n = _filters.Size();
+    const usize n = m_Filters.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_filters[i].category, category)) {
-            return _filters[i].enabled;
+        if (StrEq(m_Filters[i].category, category)) {
+            return m_Filters[i].enabled;
         }
     }
     // 未登録カテゴリは既定 enabled。
@@ -63,14 +63,14 @@ bool FTelemetryDirector::IsCategoryEnabledInternal(const char* category) const n
 
 void FTelemetryDirector::DropOldestIfFull() noexcept {
     // 上限未満なら何もしない。
-    if (_pending.Size() < static_cast<usize>(kMaxPending)) return;
+    if (m_Pending.Size() < static_cast<usize>(kMaxPending)) return;
 
     // 上限に達している = 最古 1 件 (index 0) を捨てて 1 枠空ける。
     // RemoveAtSwap は末尾要素を index 0 にムーブするため FIFO 順序は壊れる
     // が、event 側 timestamp で利用側ソート可能。
     ACS_LOG_WARN("FTelemetryDirector: pending queue full (%u), dropping oldest event",
                  kMaxPending);
-    _pending.RemoveAtSwap(0);
+    m_Pending.RemoveAtSwap(0);
 }
 
 // =============================================================================
@@ -78,23 +78,23 @@ void FTelemetryDirector::DropOldestIfFull() noexcept {
 // =============================================================================
 
 void FTelemetryDirector::Init(IBackendClient* backend, FPrivacyDirector* privacy) noexcept {
-    _backend            = backend;
-    _privacy            = privacy;
-    _initialized        = true;
-    _elapsed_since_flush = 0.0f;
+    m_Backend            = backend;
+    m_Privacy            = privacy;
+    m_Initialized        = true;
+    m_ElapsedSinceFlush = 0.0f;
     // 統計と pending queue は Init() で初期化しない。
     // 既に投入された event を保持したまま backend を差し替える運用を許す。
 }
 
 void FTelemetryDirector::Shutdown() noexcept {
     // pending queue を空にし、参照を切る。送信は試みない (呼出側が事前に Flush)。
-    _pending.Clear();
-    _filters.Clear();
-    _backend            = nullptr;
-    _privacy            = nullptr;
-    _initialized        = false;
-    _elapsed_since_flush = 0.0f;
-    // _sent_count / _failed_count は監査用にリセットしない (Clear() で 0 に戻す)。
+    m_Pending.Clear();
+    m_Filters.Clear();
+    m_Backend            = nullptr;
+    m_Privacy            = nullptr;
+    m_Initialized        = false;
+    m_ElapsedSinceFlush = 0.0f;
+    // m_SentCount / m_FailedCount は監査用にリセットしない (Clear() で 0 に戻す)。
 }
 
 // =============================================================================
@@ -106,13 +106,13 @@ void FTelemetryDirector::TrackEvent(const char*   event_name,
                                    EventPriority priority,
                                    const char*   category) noexcept {
     // Init() 前 / event_name nullptr / json_payload nullptr は no-op。
-    if (!_initialized) return;
+    if (!m_Initialized) return;
     if (event_name == nullptr || json_payload == nullptr) return;
 
     // consent ガード: privacy attach されていて Telemetry consent が無ければ無視。
     // GDPR 要件 (同意取得前に追跡を開始しない)。
-    if (_privacy != nullptr &&
-        !_privacy->HasConsent(EConsentCategory::Telemetry)) {
+    if (m_Privacy != nullptr &&
+        !m_Privacy->HasConsent(EConsentCategory::Telemetry)) {
         return;
     }
 
@@ -133,7 +133,7 @@ void FTelemetryDirector::TrackEvent(const char*   event_name,
     e.priority     = priority;
     e.timestamp    = Clock::MillisSinceStartup();
 
-    _pending.PushBack(e);
+    m_Pending.PushBack(e);
 }
 
 // =============================================================================
@@ -142,30 +142,30 @@ void FTelemetryDirector::TrackEvent(const char*   event_name,
 
 void FTelemetryDirector::Flush() noexcept {
     // Init() 前 / backend 無し は no-op (pending はそのまま温存)。
-    if (!_initialized || _backend == nullptr) {
+    if (!m_Initialized || m_Backend == nullptr) {
         // タイマーだけはリセット (次回試行までに再度待たせる)。
-        _elapsed_since_flush = 0.0f;
+        m_ElapsedSinceFlush = 0.0f;
         return;
     }
 
     // consent ガード: 投入時に弾いているが、TrackEvent 後に Revoke された場合に
     // 備えて Flush でも再確認。consent 無しなら送信せずタイマーだけリセット。
-    if (_privacy != nullptr &&
-        !_privacy->HasConsent(EConsentCategory::Telemetry)) {
-        _elapsed_since_flush = 0.0f;
+    if (m_Privacy != nullptr &&
+        !m_Privacy->HasConsent(EConsentCategory::Telemetry)) {
+        m_ElapsedSinceFlush = 0.0f;
         return;
     }
 
     // pending を末尾から走査して送信。成功 → 該当 index を RemoveAtSwap で除去、
     // 失敗 → 残す。逆順走査により RemoveAtSwap で起こる末尾→該当位置のムーブ
     // で「未走査側を壊す」事故を防ぐ (走査済み末尾が消えるだけ)。
-    for (usize i = _pending.Size(); i-- > 0;) {
-        const TelemetryEvent& e = _pending[i];
-        TResult<void> r = _backend->SendTelemetry(e.event_name, e.json_payload);
+    for (usize i = m_Pending.Size(); i-- > 0;) {
+        const TelemetryEvent& e = m_Pending[i];
+        TResult<void> r = m_Backend->SendTelemetry(e.event_name, e.json_payload);
         if (r.IsErr()) {
             // 失敗カウンタを上げ、pending には残す = 次 Flush で再送試行。
             // stub backend では常にこの分岐 (NotImplemented) を踏む。
-            ++_failed_count;
+            ++m_FailedCount;
             // ログは多発するので Warn ではなく Debug に抑える。
             ACS_LOG_DEBUG("FTelemetryDirector: SendTelemetry('%s') failed (will retry)",
                           e.event_name != nullptr ? e.event_name : "<null>");
@@ -173,12 +173,12 @@ void FTelemetryDirector::Flush() noexcept {
             // 送信成功。pending から除去。RemoveAtSwap は末尾を i 位置に
             // ムーブする = 順序は保たれないが、本ループが逆順走査なので
             // 走査済み末尾だけ消える形になり、未走査側に影響しない。
-            ++_sent_count;
-            _pending.RemoveAtSwap(i);
+            ++m_SentCount;
+            m_Pending.RemoveAtSwap(i);
         }
     }
 
-    _elapsed_since_flush = 0.0f;
+    m_ElapsedSinceFlush = 0.0f;
 }
 
 // =============================================================================
@@ -186,15 +186,15 @@ void FTelemetryDirector::Flush() noexcept {
 // =============================================================================
 
 u32 FTelemetryDirector::PendingCount() const noexcept {
-    return static_cast<u32>(_pending.Size());
+    return static_cast<u32>(m_Pending.Size());
 }
 
 u32 FTelemetryDirector::SentCount() const noexcept {
-    return _sent_count;
+    return m_SentCount;
 }
 
 u32 FTelemetryDirector::FailedCount() const noexcept {
-    return _failed_count;
+    return m_FailedCount;
 }
 
 // =============================================================================
@@ -202,20 +202,20 @@ u32 FTelemetryDirector::FailedCount() const noexcept {
 // =============================================================================
 
 void FTelemetryDirector::Tick(f32 dt) noexcept {
-    if (!_initialized) return;
+    if (!m_Initialized) return;
     // 異常値 (NaN / 負値) ガード。負の dt は 0 扱いに丸める。
     if (dt > 0.0f) {
-        _elapsed_since_flush += dt;
+        m_ElapsedSinceFlush += dt;
     }
     // 間隔超過なら自動 Flush。pending が空でも Flush 自体は安価。
-    if (_elapsed_since_flush >= _flush_interval) {
+    if (m_ElapsedSinceFlush >= m_FlushInterval) {
         Flush();
     }
 }
 
 void FTelemetryDirector::SetFlushInterval(f32 sec) noexcept {
     // 0 以下は 5 秒既定に丸める (= 暴走防止)。
-    _flush_interval = sec > 0.0f ? sec : 5.0f;
+    m_FlushInterval = sec > 0.0f ? sec : 5.0f;
 }
 
 // =============================================================================
@@ -226,10 +226,10 @@ void FTelemetryDirector::EnableCategory(const char* category, bool enabled) noex
     if (category == nullptr) return;
 
     // 既存登録があれば in-place 更新。
-    const usize n = _filters.Size();
+    const usize n = m_Filters.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_filters[i].category, category)) {
-            _filters[i].enabled = enabled;
+        if (StrEq(m_Filters[i].category, category)) {
+            m_Filters[i].enabled = enabled;
             return;
         }
     }
@@ -240,7 +240,7 @@ void FTelemetryDirector::EnableCategory(const char* category, bool enabled) noex
         FCategoryFilter f;
         f.category = category;
         f.enabled  = false;
-        _filters.PushBack(f);
+        m_Filters.PushBack(f);
     }
 }
 
@@ -249,12 +249,12 @@ void FTelemetryDirector::EnableCategory(const char* category, bool enabled) noex
 // =============================================================================
 
 void FTelemetryDirector::Clear() noexcept {
-    _pending.Clear();
-    _filters.Clear();
-    _sent_count          = 0;
-    _failed_count        = 0;
-    _elapsed_since_flush = 0.0f;
-    // backend / privacy / _initialized は維持 (テスト中の再利用を許す)。
+    m_Pending.Clear();
+    m_Filters.Clear();
+    m_SentCount          = 0;
+    m_FailedCount        = 0;
+    m_ElapsedSinceFlush = 0.0f;
+    // backend / privacy / m_Initialized は維持 (テスト中の再利用を許す)。
 }
 
 } // namespace acs::game

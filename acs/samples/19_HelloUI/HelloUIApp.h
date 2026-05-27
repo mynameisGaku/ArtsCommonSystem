@@ -11,7 +11,7 @@
 //   - MakeBindConvert で f32 → FString 変換 (HP 値 → ラベル文字)
 //
 // 破棄順の注意 (詳細は HelloUIApp.cpp::OnShutdown のコメント参照):
-//   _root / Binder 群はメンバ宣言順の自動破棄に任せる。手動で _root.Reset() を
+//   m_Root / Binder 群はメンバ宣言順の自動破棄に任せる。手動で m_Root.Reset() を
 //   先に呼ぶと、Binder の dtor が dangling pointer を叩いて AV する。
 #pragma once
 
@@ -36,19 +36,19 @@ public:
 private:
     void BuildUI() noexcept;
 
-    acs::Font                                                _font;
-    acs::FUiRenderer                                          _ui;
-    acs::FUiInput                                             _input;
-    PlayerVM                                                 _vm;
-    acs::TUniquePtr<acs::StackPanel>                          _root;
-    acs::Label*                                              _lbl_hp = nullptr;
-    // Binder 群は _root より後に宣言 → dtor で先に死ぬ。OnShutdown コメント参照。
-    acs::TUniquePtr<acs::FTwoWayBinder<acs::f32>>              _hp_slider_binder;
-    acs::TUniquePtr<acs::FTwoWayBinder<acs::f32>>              _mp_slider_binder;
-    acs::TUniquePtr<acs::FTwoWayBinder<bool>>                  _invincible_binder;
-    acs::TUniquePtr<acs::FTwoWayBinder<acs::FString>>           _name_binder;
-    acs::TUniquePtr<acs::OneWayConvertBinder<acs::f32, acs::FString>> _hp_text_binder;
-    acs::TUniquePtr<acs::OneWayBinder<acs::FString>>           _hp_label_binder;
+    acs::Font                                                m_Font;
+    acs::FUiRenderer                                          m_Ui;
+    acs::FUiInput                                             m_Input;
+    PlayerVM                                                 m_Vm;
+    acs::TUniquePtr<acs::StackPanel>                          m_Root;
+    acs::Label*                                              m_LblHp = nullptr;
+    // Binder 群は m_Root より後に宣言 → dtor で先に死ぬ。OnShutdown コメント参照。
+    acs::TUniquePtr<acs::FTwoWayBinder<acs::f32>>              m_HpSliderBinder;
+    acs::TUniquePtr<acs::FTwoWayBinder<acs::f32>>              m_MpSliderBinder;
+    acs::TUniquePtr<acs::FTwoWayBinder<bool>>                  m_InvincibleBinder;
+    acs::TUniquePtr<acs::FTwoWayBinder<acs::FString>>           m_NameBinder;
+    acs::TUniquePtr<acs::OneWayConvertBinder<acs::f32, acs::FString>> m_HpTextBinder;
+    acs::TUniquePtr<acs::OneWayBinder<acs::FString>>           m_HpLabelBinder;
 };
 
 } // namespace helloui

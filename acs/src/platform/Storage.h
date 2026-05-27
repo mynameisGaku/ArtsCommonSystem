@@ -44,9 +44,9 @@ public:
     Storage& operator=(const Storage&) = delete;
 
     // ムーブは可（Localization::Swap 等で使う）
-    Storage(Storage&& o) noexcept : _entries(Move(o._entries)) {}
+    Storage(Storage&& o) noexcept : m_Entries(Move(o.m_Entries)) {}
     Storage& operator=(Storage&& o) noexcept {
-        if (this != &o) _entries = Move(o._entries);
+        if (this != &o) m_Entries = Move(o.m_Entries);
         return *this;
     }
 
@@ -63,7 +63,7 @@ public:
     TResult<void> Save(const char*    path_utf8) noexcept;
 
     // 全エントリ削除（ファイルは触らない）
-    void Clear() noexcept { _entries.Clear(); }
+    void Clear() noexcept { m_Entries.Clear(); }
 
     // ===== Set =====
     void SetString(const char* key, const char* value) noexcept;
@@ -82,7 +82,7 @@ public:
     // ===== その他 =====
     bool Has(const char* key) const noexcept;
     void Remove(const char* key) noexcept;
-    usize Count() const noexcept { return _entries.Size(); }
+    usize Count() const noexcept { return m_Entries.Size(); }
 
     // ===== ユーティリティ =====
     // %APPDATA%/<sub_dir>/<file_name> へのフルパスを out に書き込む。
@@ -104,7 +104,7 @@ private:
     Entry*       FindEntry(const char* key) noexcept;
     const Entry* FindEntry(const char* key) const noexcept;
 
-    TArray<Entry> _entries;
+    TArray<Entry> m_Entries;
 };
 
 } // namespace acs

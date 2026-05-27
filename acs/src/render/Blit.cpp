@@ -40,7 +40,7 @@ TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     vs_d.debug_name  = "FBlit.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    _vs = Move(vs_r.Value());
+    m_Vs = Move(vs_r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -49,11 +49,11 @@ TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     ps_d.debug_name  = "FBlit.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
-    _ps = Move(ps_r.Value());
+    m_Ps = Move(ps_r.Value());
 
     FPipelineDesc pd{};
-    pd.vs            = _vs.Get();
-    pd.ps            = _ps.Get();
+    pd.vs            = m_Vs.Get();
+    pd.ps            = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = EFormat::Unknown;       // depth 不使用
@@ -71,23 +71,23 @@ TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     // 頂点バッファ無し (SV_VertexID 駆動): vertex_stride=0, layout_count=0 (既定値)
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    _pipeline = Move(pl_r.Value());
+    m_Pipeline = Move(pl_r.Value());
 
     return Ok();
 }
 
 void FBlit::Shutdown() noexcept {
-    _pipeline.Reset();
-    _ps.Reset();
-    _vs.Reset();
+    m_Pipeline.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
 }
 
 void FBlit::Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept {
-    if (!_pipeline) return;
+    if (!m_Pipeline) return;
     // 全 pixel が src で上書きされるので clear 不要 → load 版で開始する。
     // (本コミットで追加した BeginRenderToTextureLoad の自然な利用例)。
     cmd.BeginRenderToTextureLoad(dst, nullptr);
-    cmd.SetPipeline(*_pipeline);
+    cmd.SetPipeline(*m_Pipeline);
     cmd.SetTexture(0, src);
     cmd.Draw(3, 0);                          // fullscreen 三角形 (頂点バッファ無し)
     cmd.EndRenderToTexture(dst);

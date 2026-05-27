@@ -2,7 +2,7 @@
 // GameFramework Pillar B Phase 4 — FNodePool (FNode2D の generational pool)
 //
 // シーン全体で唯一の `FNode2D*` レジストリ。`FNode2D` インスタンス自体は親の
-// `_children` (TUniquePtr<FNode2D>) が所有し続け、本 pool は **参照のみ** を
+// `m_Children` (TUniquePtr<FNode2D>) が所有し続け、本 pool は **参照のみ** を
 // 保持して安定した `FNodeId` を発行する。同時に発行済 `FNodeId` の **stale 検出**
 // (= 既に Unregister されたハンドル) を提供する。
 //
@@ -88,12 +88,12 @@ public:
     FNodeId IdOf(FNode2D* node) const noexcept;
 
     /// 現在 active な slot 数。
-    u32 ActiveCount() const noexcept { return _active_count; }
+    u32 ActiveCount() const noexcept { return m_ActiveCount; }
 
     /// 現在の slot 数 (内部配列長 - 1、index 0 予約分を除外)。
     /// 物理的に確保された FNode2D 個数の上限ではなく、過去に到達した最大値の指標。
     u32 Capacity() const noexcept {
-        const u32 sz = static_cast<u32>(_slots.Size());
+        const u32 sz = static_cast<u32>(m_Slots.Size());
         return sz > 0 ? sz - 1u : 0u;   // index 0 予約分を引く
     }
 
@@ -116,9 +116,9 @@ private:
     /// 24bit index 上限 (FNodeId pack 仕様に合わせる)。
     static constexpr u32 kMaxIndex = 0x00FFFFFFu;   // = 16,777,215
 
-    TArray<Slot> _slots;          // index 0 は dummy (= invalid 用予約)
-    TArray<u32>  _free_indices;   // LIFO stack。pop → 再利用 slot、empty → 末尾追加
-    u32         _active_count = 0;
+    TArray<Slot> m_Slots;          // index 0 は dummy (= invalid 用予約)
+    TArray<u32>  m_FreeIndices;   // LIFO stack。pop → 再利用 slot、empty → 末尾追加
+    u32         m_ActiveCount = 0;
 };
 
 } // namespace acs::game

@@ -19,7 +19,7 @@ f32 FCombatStateMachine::Clamp01(f32 v) noexcept {
     return v;
 }
 
-// 各 state の既定脅威レベル。Tick 内で _threat_target に流し込む。
+// 各 state の既定脅威レベル。Tick 内で m_ThreatTarget に流し込む。
 // 値は「BGM intensity / camera shake の自然な強度」に合わせた経験値。
 //   Peaceful  = 0.00 — 平穏 (BGM Calm / 環境音 のみ)
 //   Alert     = 0.30 — 緊張 (BGM Tension / 心拍 SE)
@@ -44,23 +44,23 @@ f32 FCombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
 // ----------------------------------------------------------------------------
 
 FCombatStateMachine::FCombatStateMachine() noexcept {
-    _enemies.Reserve(kEnemyReserveHint);
+    m_Enemies.Reserve(kEnemyReserveHint);
 }
 
 void FCombatStateMachine::Init() noexcept {
     _state             = ECombatState::Peaceful;
-    _threat_target     = DefaultThreatTarget(ECombatState::Peaceful);
-    _threat_current    = 0.0f;
-    _engaged_elapsed   = 0.0f;
-    _pre_boss_state    = ECombatState::Peaceful;
-    _enemies.Clear();
-    // _callback / _callback_user は保持 (Init は scene 再 enter 用と位置付け)。
+    m_ThreatTarget     = DefaultThreatTarget(ECombatState::Peaceful);
+    m_ThreatCurrent    = 0.0f;
+    m_EngagedElapsed   = 0.0f;
+    m_PreBossState    = ECombatState::Peaceful;
+    m_Enemies.Clear();
+    // m_Callback / m_CallbackUser は保持 (Init は scene 再 enter 用と位置付け)。
 }
 
 void FCombatStateMachine::Reset() noexcept {
     Init();
-    _callback      = nullptr;
-    _callback_user = nullptr;
+    m_Callback      = nullptr;
+    m_CallbackUser = nullptr;
 }
 
 // ----------------------------------------------------------------------------
@@ -68,18 +68,18 @@ void FCombatStateMachine::Reset() noexcept {
 // ----------------------------------------------------------------------------
 
 usize FCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
-    const usize n = _enemies.Size();
+    const usize n = m_Enemies.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_enemies[i].enemy_id == enemy_id) return i;
+        if (m_Enemies[i].enemy_id == enemy_id) return i;
     }
     return n;
 }
 
 u32 FCombatStateMachine::EngagedEnemyCount() const noexcept {
     u32 count = 0;
-    const usize n = _enemies.Size();
+    const usize n = m_Enemies.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_enemies[i].is_engaged) ++count;
+        if (m_Enemies[i].is_engaged) ++count;
     }
     return count;
 }
@@ -98,18 +98,18 @@ void FCombatStateMachine::TransitionTo(ECombatState next) noexcept {
     _state = next;
 
     // 新 state の既定 threat target をセット (Tick 内で smooth に追従)。
-    _threat_target = DefaultThreatTarget(next);
+    m_ThreatTarget = DefaultThreatTarget(next);
 
     // Engaged ドリフトタイマは Engaged へ "入った瞬間" にリセット。
     if (next == ECombatState::Engaged) {
-        _engaged_elapsed = 0.0f;
+        m_EngagedElapsed = 0.0f;
     } else {
-        _engaged_elapsed = 0.0f;
+        m_EngagedElapsed = 0.0f;
     }
 
     // callback は state 更新後に呼び、再入安全性を担保する。
-    if (_callback != nullptr) {
-        _callback(_callback_user, prev, next);
+    if (m_Callback != nullptr) {
+        m_Callback(m_CallbackUser, prev, next);
     }
 }
 
@@ -121,14 +121,14 @@ void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     // awareness レコードを upsert (新規 or 1.0 へ上書き)。is_engaged は据置 —
     // 既に交戦中の敵を再検出しても engaged 状態を解除しない。
     const usize idx = FindEnemy(enemy_id);
-    if (idx >= _enemies.Size()) {
+    if (idx >= m_Enemies.Size()) {
         EnemyAwareness aw;
         aw.enemy_id        = enemy_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = false;
-        _enemies.PushBack(aw);
+        m_Enemies.PushBack(aw);
     } else {
-        _enemies[idx].awareness_level = 1.0f;
+        m_Enemies[idx].awareness_level = 1.0f;
     }
 
     // state 遷移: Peaceful のみ Alert に上げる。Alert / Engaged / BossFight /
@@ -142,15 +142,15 @@ void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
 void FCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     // 該当敵を is_engaged=true に。未登録なら新規追加 (awareness=1.0)。
     const usize idx = FindEnemy(enemy_id);
-    if (idx >= _enemies.Size()) {
+    if (idx >= m_Enemies.Size()) {
         EnemyAwareness aw;
         aw.enemy_id        = enemy_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = true;
-        _enemies.PushBack(aw);
+        m_Enemies.PushBack(aw);
     } else {
-        _enemies[idx].awareness_level = 1.0f;
-        _enemies[idx].is_engaged      = true;
+        m_Enemies[idx].awareness_level = 1.0f;
+        m_Enemies[idx].is_engaged      = true;
     }
 
     // BossFight 中は state 据置 (boss 優先)。それ以外なら Engaged へ。
@@ -164,9 +164,9 @@ void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
     // 該当敵を engaged から外す。awareness は 0 に落として「忘れた」扱いに。
     // (= 次フレーム以降の NotifyEnemyDetected で再 alert 可能)
     const usize idx = FindEnemy(enemy_id);
-    if (idx < _enemies.Size()) {
-        _enemies[idx].is_engaged      = false;
-        _enemies[idx].awareness_level = 0.0f;
+    if (idx < m_Enemies.Size()) {
+        m_Enemies[idx].is_engaged      = false;
+        m_Enemies[idx].awareness_level = 0.0f;
     } else {
         // 未登録 enemy_id で end が来た: 警告のみで no-op。
         ACS_LOG_WARN("FCombatStateMachine::NotifyCombatEnded: unknown enemy_id=%u", enemy_id);
@@ -184,20 +184,20 @@ void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
 void FCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
     // ボスを engaged 一覧に upsert (awareness=1, is_engaged=true)。
     const usize idx = FindEnemy(boss_id);
-    if (idx >= _enemies.Size()) {
+    if (idx >= m_Enemies.Size()) {
         EnemyAwareness aw;
         aw.enemy_id        = boss_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = true;
-        _enemies.PushBack(aw);
+        m_Enemies.PushBack(aw);
     } else {
-        _enemies[idx].awareness_level = 1.0f;
-        _enemies[idx].is_engaged      = true;
+        m_Enemies[idx].awareness_level = 1.0f;
+        m_Enemies[idx].is_engaged      = true;
     }
 
     // 復帰先を覚えておく: Engaged 中なら Engaged に、それ以外なら Peaceful に
     // 戻す (= 一般敵が残っていない状況での孤独なボス撃破は Victory に行く)。
-    _pre_boss_state = (_state == ECombatState::Engaged) ? ECombatState::Engaged
+    m_PreBossState = (_state == ECombatState::Engaged) ? ECombatState::Engaged
                                                        : ECombatState::Peaceful;
 
     // どの state からでも BossFight に割り込み遷移。
@@ -216,11 +216,11 @@ void FCombatStateMachine::NotifyBossDefeated() noexcept {
 
     // is_engaged=true な最初の敵を boss とみなして外す (= 単一ボス想定)。
     // 複数ボス対応が必要になったら ID を引数に取る別 API を追加する。
-    const usize n = _enemies.Size();
+    const usize n = m_Enemies.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_enemies[i].is_engaged) {
-            _enemies[i].is_engaged      = false;
-            _enemies[i].awareness_level = 0.0f;
+        if (m_Enemies[i].is_engaged) {
+            m_Enemies[i].is_engaged      = false;
+            m_Enemies[i].awareness_level = 0.0f;
             break;
         }
     }
@@ -243,15 +243,15 @@ void FCombatStateMachine::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // Engaged 中はドリフトを target に加算: 戦闘が長引くほど脅威感が上がる。
-    // 60 秒で +0.3 (上限) に到達する曲線 (= 0.005/sec を _engaged_elapsed と
-    // 連動させた cap 加算)。Engaged 以外では _engaged_elapsed=0 にリセット
+    // 60 秒で +0.3 (上限) に到達する曲線 (= 0.005/sec を m_EngagedElapsed と
+    // 連動させた cap 加算)。Engaged 以外では m_EngagedElapsed=0 にリセット
     // 済みなので drift=0。
-    f32 effective_target = _threat_target;
+    f32 effective_target = m_ThreatTarget;
     if (_state == ECombatState::Engaged) {
-        _engaged_elapsed += dt;
-        const f32 drift = _engaged_elapsed * 0.005f;  // 60s で +0.3
+        m_EngagedElapsed += dt;
+        const f32 drift = m_EngagedElapsed * 0.005f;  // 60s で +0.3
         const f32 drift_capped = drift > 0.3f ? 0.3f : drift;
-        effective_target = Clamp01(_threat_target + drift_capped);
+        effective_target = Clamp01(m_ThreatTarget + drift_capped);
     }
 
     // 指数減衰追従: tau=0.5s で current → effective_target。
@@ -261,8 +261,8 @@ void FCombatStateMachine::Tick(f32 dt) noexcept {
     // 近似式 (Taylor 展開): alpha ≈ dt / (tau + dt)。STL 不使用方針で expf を
     // 避け、十分滑らかな一次遅れに収まる近似を採用。
     const f32 alpha = dt / (tau + dt);
-    _threat_current += (effective_target - _threat_current) * alpha;
-    _threat_current  = Clamp01(_threat_current);
+    m_ThreatCurrent += (effective_target - m_ThreatCurrent) * alpha;
+    m_ThreatCurrent  = Clamp01(m_ThreatCurrent);
 }
 
 // ----------------------------------------------------------------------------
@@ -270,8 +270,8 @@ void FCombatStateMachine::Tick(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 
 void FCombatStateMachine::SetOnStateChangeCallback(StateChangeCallback cb, void* user) noexcept {
-    _callback      = cb;
-    _callback_user = user;
+    m_Callback      = cb;
+    m_CallbackUser = user;
 }
 
 } // namespace acs::game

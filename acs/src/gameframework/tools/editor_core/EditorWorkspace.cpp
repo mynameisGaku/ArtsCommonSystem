@@ -64,29 +64,29 @@ static bool StrEqual(const char* a, const char* b) noexcept {
 void FEditorWorkspace::Init() noexcept {
     // 完全リセット: 登録 panel list を空に、参照 / フラグを default に。
     // 容量は保持 (Clear は size=0 にするだけ、capacity はそのまま)。
-    _panels.Clear();
+    m_Panels.Clear();
 
-    _selection_service          = nullptr;
+    m_SelectionService          = nullptr;
 
-    _no_docking_in_central_node = false;
-    _enable_dockspace           = true;
-    _enable_menu_bar            = true;
+    m_NoDockingInCentralNode = false;
+    m_EnableDockspace           = true;
+    m_EnableMenuBar            = true;
 }
 
 void FEditorWorkspace::Shutdown() noexcept {
     // 登録済み panel に OnShutdown を呼び、list を空にする。
     // 呼び出し順は登録順 (= Init / Tick と同じ順序で逆順にしない)。
     // 「逆順 shutdown」は dependency 解決が必要だが Phase 21a では未対応。
-    const usize n = _panels.Size();
+    const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        FEditorPanel* p = _panels[i];
+        FEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
             p->OnShutdown();
         }
     }
-    _panels.Clear();
+    m_Panels.Clear();
 
-    _selection_service = nullptr;
+    m_SelectionService = nullptr;
     // フラグ類は意図的にリセットしない (= Shutdown 後に再 Init で同じ host 設定を
     // 引き継げるよう)。完全 default に戻したい host は Init() を続けて呼ぶこと。
 }
@@ -106,13 +106,13 @@ void FEditorWorkspace::RegisterPanel(FEditorPanel* panel) noexcept {
         return;
     }
     // 上限到達 silent no-op (kMaxPanels はあくまで安全弁)。
-    if (_panels.Size() >= static_cast<usize>(kMaxPanels)) {
+    if (m_Panels.Size() >= static_cast<usize>(kMaxPanels)) {
         ACS_LOG_WARN("FEditorWorkspace::RegisterPanel: panel limit %u reached, ignoring '%s'",
                      static_cast<unsigned>(kMaxPanels),
                      panel->Title());
         return;
     }
-    _panels.PushBack(panel);
+    m_Panels.PushBack(panel);
     // OnInit はリスト登録 **後** に呼ぶ。これにより OnInit 内から
     // `Workspace()->PanelCount()` 等を呼んだ場合に自身も数に含まれる
     // (= 自己参照アクセスが破綻しない)。
@@ -132,26 +132,26 @@ void FEditorWorkspace::UnregisterPanel(FEditorPanel* panel) noexcept {
     // 順序保存削除 (shift)。RemoveAtSwap は使わない (= UI 表示順を保ちたい)。
     // TArray に Erase API が無いため手書きシフト (= FParticleEditorPanel と同形)。
     const usize sel = static_cast<usize>(idx);
-    for (usize i = sel + 1; i < _panels.Size(); ++i) {
-        _panels[i - 1] = _panels[i];
+    for (usize i = sel + 1; i < m_Panels.Size(); ++i) {
+        m_Panels[i - 1] = m_Panels[i];
     }
-    _panels.PopBack();
+    m_Panels.PopBack();
 }
 
 u32 FEditorWorkspace::PanelCount() const noexcept {
-    return static_cast<u32>(_panels.Size());
+    return static_cast<u32>(m_Panels.Size());
 }
 
 FEditorPanel* FEditorWorkspace::GetPanelByIndex(u32 i) const noexcept {
-    if (i >= static_cast<u32>(_panels.Size())) return nullptr;
-    return _panels[static_cast<usize>(i)];
+    if (i >= static_cast<u32>(m_Panels.Size())) return nullptr;
+    return m_Panels[static_cast<usize>(i)];
 }
 
 FEditorPanel* FEditorWorkspace::FindPanelByTitle(const char* title) const noexcept {
     if (title == nullptr) return nullptr;
-    const usize n = _panels.Size();
+    const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        FEditorPanel* p = _panels[i];
+        FEditorPanel* p = m_Panels[i];
         if (p == nullptr) continue;
         if (StrEqual(p->Title(), title)) {
             return p;
@@ -174,9 +174,9 @@ void FEditorWorkspace::TickAllPanels(f32 dt) noexcept {
     //    polling, animation timer 等) を進める可能性があるため、visibility を
     //    問わず全 panel に呼ぶ。
     {
-        const usize n = _panels.Size();
+        const usize n = m_Panels.Size();
         for (usize i = 0; i < n; ++i) {
-            FEditorPanel* p = _panels[i];
+            FEditorPanel* p = m_Panels[i];
             if (p != nullptr) {
                 p->OnFrameBegin(dt);
             }
@@ -186,21 +186,21 @@ void FEditorWorkspace::TickAllPanels(f32 dt) noexcept {
     // 2) DockSpace: ImGui FWindow より前に central node を確保しておくと、
     //    panel 側で初回 ImGui::Begin した時点で自動 dock 候補に central node が
     //    含まれるようになる。
-    if (_enable_dockspace) {
+    if (m_EnableDockspace) {
         DrawDockSpace();
     }
 
     // 3) MenuBar (MainMenuBar 一段). DockSpace と並んで host 側で抑制できる。
-    if (_enable_menu_bar) {
+    if (m_EnableMenuBar) {
         DrawMenuBar();
     }
 
     // 4) DrawUI: 各 panel に描画させる。visibility / ImGui::Begin / End は
     //    派生 panel 側の責務 (本 workspace は呼び出すだけ)。
     {
-        const usize n = _panels.Size();
+        const usize n = m_Panels.Size();
         for (usize i = 0; i < n; ++i) {
-            FEditorPanel* p = _panels[i];
+            FEditorPanel* p = m_Panels[i];
             if (p != nullptr) {
                 p->DrawUI();
             }
@@ -215,7 +215,7 @@ void FEditorWorkspace::DrawDockSpace() noexcept {
     // 同 ID で多重呼び出ししても ImGui 側で no-op になるため、TickAllPanels
     // 自動呼出しと host 側手動呼出しの共存は安全。
     ImGuiDockNodeFlags flags = ImGuiDockNodeFlags_PassthruCentralNode;
-    if (_no_docking_in_central_node) {
+    if (m_NoDockingInCentralNode) {
         flags |= ImGuiDockNodeFlags_NoDockingInCentralNode;
     }
     // 0 を渡すと ImGui がメインビューポートを選択 (NULL viewport 相当)。
@@ -223,7 +223,7 @@ void FEditorWorkspace::DrawDockSpace() noexcept {
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), flags);
 #else
     // docking 非対応 ImGui (master branch) — DockSpace は描画できないため
-    // no-op。各 panel は通常の float ImGui window として並ぶ。`_no_docking_in_central_node`
+    // no-op。各 panel は通常の float ImGui window として並ぶ。`m_NoDockingInCentralNode`
     // の値は参照しないが、API シグネチャは docking branch と共通に保つ。
     // Phase 21c 以降で ImGui を docking branch に切替えた際に自動有効化される。
 #endif
@@ -236,12 +236,12 @@ void FEditorWorkspace::DrawMenuBar() noexcept {
 
     // ----- FWindow メニュー (panel toggle) -----
     if (ImGui::BeginMenu("FWindow")) {
-        const usize n = _panels.Size();
+        const usize n = m_Panels.Size();
         if (n == 0) {
             ImGui::TextDisabled("(no panels registered)");
         } else {
             for (usize i = 0; i < n; ++i) {
-                FEditorPanel* p = _panels[i];
+                FEditorPanel* p = m_Panels[i];
                 if (p == nullptr) continue;
                 const char* title = p->Title();
                 if (title == nullptr) continue;
@@ -297,7 +297,7 @@ void FEditorWorkspace::SaveLayout(const wchar_t* file_path) noexcept {
     // 確保上限を見積もって PushBack 連発するより、Resize+memcpy の方が
     // 1 度 で済む。
     const usize approx_capacity =
-        64u + static_cast<usize>(ini_size) + _panels.Size() * 128u;
+        64u + static_cast<usize>(ini_size) + m_Panels.Size() * 128u;
     TArray<char> out;
     out.Reserve(approx_capacity);
 
@@ -342,9 +342,9 @@ void FEditorWorkspace::SaveLayout(const wchar_t* file_path) noexcept {
 
     // ----- 3) PANEL 行群 -----
     {
-        const usize n_panels = _panels.Size();
+        const usize n_panels = m_Panels.Size();
         for (usize i = 0; i < n_panels; ++i) {
-            const FEditorPanel* p = _panels[i];
+            const FEditorPanel* p = m_Panels[i];
             if (p == nullptr) continue;
             const char* title = p->Title();
             if (title == nullptr) continue;
@@ -516,24 +516,24 @@ void FEditorWorkspace::LoadLayout(const wchar_t* file_path) noexcept {
 // FSelectionService 連携
 // =============================================================================
 void FEditorWorkspace::SetSelectionService(inspector::FSelectionService* svc) noexcept {
-    _selection_service = svc;
+    m_SelectionService = svc;
 }
 
 inspector::FSelectionService* FEditorWorkspace::GetSelectionService() const noexcept {
-    return _selection_service;
+    return m_SelectionService;
 }
 
 void FEditorWorkspace::BroadcastSelectionChanged() noexcept {
-    if (_selection_service == nullptr) {
+    if (m_SelectionService == nullptr) {
         // panel 側の OnSelectionChanged シグネチャが FSelectionService& 必須なので、
         // 未注入時は呼べない。silent no-op (= editor 起動初期化中の呼出しも安全)。
         return;
     }
-    const usize n = _panels.Size();
+    const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        FEditorPanel* p = _panels[i];
+        FEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
-            p->OnSelectionChanged(*_selection_service);
+            p->OnSelectionChanged(*m_SelectionService);
         }
     }
 }
@@ -541,9 +541,9 @@ void FEditorWorkspace::BroadcastSelectionChanged() noexcept {
 void FEditorWorkspace::BroadcastAssetSelected(const char* asset_path) noexcept {
     // asset_path == nullptr は「選択解除」として panel に伝播する規約
     // (FEditorPanel.h の OnAssetSelected コメント参照)。null チェックはしない。
-    const usize n = _panels.Size();
+    const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        FEditorPanel* p = _panels[i];
+        FEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
             p->OnAssetSelected(asset_path);
         }
@@ -555,9 +555,9 @@ void FEditorWorkspace::BroadcastAssetSelected(const char* asset_path) noexcept {
 // =============================================================================
 i32 FEditorWorkspace::FindPanelIndex(const FEditorPanel* panel) const noexcept {
     if (panel == nullptr) return kInvalidIndex;
-    const usize n = _panels.Size();
+    const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_panels[i] == panel) {
+        if (m_Panels[i] == panel) {
             return static_cast<i32>(i);
         }
     }

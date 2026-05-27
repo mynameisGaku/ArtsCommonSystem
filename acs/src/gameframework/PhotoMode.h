@@ -72,7 +72,7 @@ public:
     // active=false に戻す。caller が SavedTimeScale() を見て復元する。
     void Exit() noexcept;
 
-    bool IsActive() const noexcept { return _active; }
+    bool IsActive() const noexcept { return m_Active; }
 
     // ----- カメラ自由操作 (累積 offset) -----
     // パン: 入力 delta を累積。座標系は world units 想定。
@@ -86,17 +86,17 @@ public:
     void RotateCamera(f32 rad_delta) noexcept;
 
     // ----- accessor -----
-    FVec2 CameraOffset()    const noexcept { return _offset; }
-    f32  ZoomMultiplier()  const noexcept { return _zoom_mult; }
-    f32  RotationOffset()  const noexcept { return _rot; }
+    FVec2 CameraOffset()    const noexcept { return m_Offset; }
+    f32  ZoomMultiplier()  const noexcept { return m_ZoomMult; }
+    f32  RotationOffset()  const noexcept { return m_Rot; }
 
     // ----- フィルタ -----
-    void       SetFilter(FilterKind f) noexcept { _filter = f; }
-    FilterKind GetFilter() const noexcept       { return _filter; }
+    void       SetFilter(FilterKind f) noexcept { m_Filter = f; }
+    FilterKind GetFilter() const noexcept       { return m_Filter; }
 
     // ----- 撮影リクエスト (poll-and-consume) -----
     // ユーザがシャッターボタンを押した時に呼ぶ。flag が立つだけ。
-    void RequestCapture() noexcept { _capture_pending = true; }
+    void RequestCapture() noexcept { m_CapturePending = true; }
 
     // 描画側が 1 フレーム末尾で呼ぶ。立っていれば true を返して同時に rear。
     bool ConsumeCaptureRequest() noexcept;
@@ -104,16 +104,16 @@ public:
     // ----- time scale 連携 -----
     // Enter() 時に保存した値。caller が Exit() 後に
     // `FGame::SetTimeScale(photo.SavedTimeScale())` で復元する用。
-    f32 SavedTimeScale() const noexcept { return _saved_time_scale; }
+    f32 SavedTimeScale() const noexcept { return m_SavedTimeScale; }
 
 private:
-    bool       _active            = false;
-    FVec2       _offset            {0.0f, 0.0f};
-    f32        _zoom_mult         = 1.0f;
-    f32        _rot               = 0.0f;
-    FilterKind _filter            = None;
-    bool       _capture_pending   = false;
-    f32        _saved_time_scale  = 1.0f;
+    bool       m_Active            = false;
+    FVec2       m_Offset            {0.0f, 0.0f};
+    f32        m_ZoomMult         = 1.0f;
+    f32        m_Rot               = 0.0f;
+    FilterKind m_Filter            = None;
+    bool       m_CapturePending   = false;
+    f32        m_SavedTimeScale  = 1.0f;
 };
 
 } // namespace acs::game

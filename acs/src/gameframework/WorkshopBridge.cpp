@@ -7,7 +7,7 @@
 // `acs_steamworks` 等) で独立に実装し、本ファイルには持ち込まない。
 //
 // 設計のポイント:
-//   ・Stub は副作用ゼロ。`Init()` は単に `_initialized = true` を立てるのみで、
+//   ・Stub は副作用ゼロ。`Init()` は単に `m_Initialized = true` を立てるのみで、
 //     `IsAvailable()` は header inline で常に false を返す (UI 側で Workshop
 //     ボタンを非表示にする判定用)。
 //   ・全 publish / subscribe / download / query 系は ACS_ERR(Generic,
@@ -29,13 +29,13 @@ namespace acs::game {
 TResult<void> WorkshopBridgeStub::Init() noexcept {
     // 多重 Init は明示的に許容する。実 SDK の SteamUGC()->Init() 相当は本来
     // 失敗パスがあるが、Stub はテスト容易性のため常に成功。
-    _initialized = true;
+    m_Initialized = true;
     return Ok();
 }
 
 void WorkshopBridgeStub::Shutdown() noexcept {
     // Init() 前に呼ばれても安全。
-    _initialized = false;
+    m_Initialized = false;
 }
 
 // ---- Stub: Publish (Create / Update) ------------------------------------
@@ -43,7 +43,7 @@ void WorkshopBridgeStub::Shutdown() noexcept {
 TResult<u64> WorkshopBridgeStub::CreateItem(const char* title, const char* content_path) noexcept {
     (void)title;
     (void)content_path;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return TResult<u64>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
                                    "WorkshopBridgeStub::CreateItem called before Init()"));
     }
@@ -57,7 +57,7 @@ TResult<void> WorkshopBridgeStub::UpdateItem(u64 item_id,
     (void)item_id;
     (void)content_path;
     (void)change_note;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
                        "WorkshopBridgeStub::UpdateItem called before Init()");
     }
@@ -69,7 +69,7 @@ TResult<void> WorkshopBridgeStub::UpdateItem(u64 item_id,
 
 TResult<WorkshopItem> WorkshopBridgeStub::QueryItem(u64 item_id) noexcept {
     (void)item_id;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return TResult<WorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
                                             "WorkshopBridgeStub::QueryItem called before Init()"));
     }
@@ -78,7 +78,7 @@ TResult<WorkshopItem> WorkshopBridgeStub::QueryItem(u64 item_id) noexcept {
 }
 
 TResult<u32> WorkshopBridgeStub::QuerySubscribedCount() noexcept {
-    if (!_initialized) {
+    if (!m_Initialized) {
         return TResult<u32>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
                                    "WorkshopBridgeStub::QuerySubscribedCount called before Init()"));
     }
@@ -90,7 +90,7 @@ TResult<u32> WorkshopBridgeStub::QuerySubscribedCount() noexcept {
 
 TResult<void> WorkshopBridgeStub::SubscribeItem(u64 item_id) noexcept {
     (void)item_id;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
                        "WorkshopBridgeStub::SubscribeItem called before Init()");
     }
@@ -100,7 +100,7 @@ TResult<void> WorkshopBridgeStub::SubscribeItem(u64 item_id) noexcept {
 
 TResult<void> WorkshopBridgeStub::UnsubscribeItem(u64 item_id) noexcept {
     (void)item_id;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
                        "WorkshopBridgeStub::UnsubscribeItem called before Init()");
     }
@@ -110,7 +110,7 @@ TResult<void> WorkshopBridgeStub::UnsubscribeItem(u64 item_id) noexcept {
 
 TResult<void> WorkshopBridgeStub::DownloadItem(u64 item_id) noexcept {
     (void)item_id;
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
                        "WorkshopBridgeStub::DownloadItem called before Init()");
     }
@@ -135,8 +135,8 @@ void WorkshopBridgeStub::Tick(f32 dt) noexcept {
 
 IWorkshopBridge& GetWorkshopStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static WorkshopBridgeStub _instance;
-    return _instance;
+    static WorkshopBridgeStub m_Instance;
+    return m_Instance;
 }
 
 } // namespace acs::game

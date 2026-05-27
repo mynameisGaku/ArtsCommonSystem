@@ -17,13 +17,13 @@ public:
     ACS_ASSET_TYPE("FBinaryAsset")
 
     FBinaryAsset() noexcept = default;
-    explicit FBinaryAsset(TArray<byte>&& bytes) noexcept : _bytes(Move(bytes)) {}
+    explicit FBinaryAsset(TArray<byte>&& bytes) noexcept : m_Bytes(Move(bytes)) {}
 
-    const TArray<byte>& Bytes() const noexcept { return _bytes; }
-    TArray<byte>&       Bytes()       noexcept { return _bytes; }
+    const TArray<byte>& Bytes() const noexcept { return m_Bytes; }
+    TArray<byte>&       Bytes()       noexcept { return m_Bytes; }
 
 private:
-    TArray<byte> _bytes;
+    TArray<byte> m_Bytes;
 };
 
 // 拡張子フォールバックローダ（任意の拡張子を担当する）

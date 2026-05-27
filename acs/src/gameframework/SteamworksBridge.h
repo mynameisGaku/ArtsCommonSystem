@@ -8,18 +8,18 @@
 //
 // 使い方:
 //   class FGame {
-//       acs::game::ISteamworksBridge* _social = nullptr;
+//       acs::game::ISteamworksBridge* m_Social = nullptr;
 //
 //       void OnStart() noexcept override {
 //           // 出荷ビルドでは GoldenSteamworksBridge を DI、開発ビルドでは Stub。
-//           _social = &acs::game::SteamworksBridgeStub::GetStub();
-//           (void)_social->Init();
+//           m_Social = &acs::game::SteamworksBridgeStub::GetStub();
+//           (void)m_Social->Init();
 //       }
 //       void OnTick(f32 dt) noexcept override {
-//           _social->Tick(dt);  // callback pump
+//           m_Social->Tick(dt);  // callback pump
 //       }
 //       void OnBossKilled() noexcept {
-//           (void)_social->UnlockAchievement("ACH_BOSS_01");
+//           (void)m_Social->UnlockAchievement("ACH_BOSS_01");
 //       }
 //   };
 //
@@ -42,7 +42,7 @@
 //     意識しなくて良い。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
 //     `SteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
-//     `_social = &SteamworksBridgeStub::GetStub();` だけでコンパイル可能。
+//     `m_Social = &SteamworksBridgeStub::GetStub();` だけでコンパイル可能。
 //   ・**実 SDK 実装はここでは作らない**: GoldenSteamworksBridge 等は Steamworks SDK
 //     ヘッダ / ライブラリへの依存を伴うため、本ファイルでは I/F + Stub のみ。
 //
@@ -129,7 +129,7 @@ public:
 
     TResult<void>    Init() noexcept override;
     void            Shutdown() noexcept override;
-    bool            IsInitialized() const noexcept override { return _initialized; }
+    bool            IsInitialized() const noexcept override { return m_Initialized; }
     PlayerIdentity  GetLocalPlayer() const noexcept override;
     TResult<void>    UnlockAchievement(const char* ach_id) noexcept override;
     TResult<void>    SetLeaderboardScore(const char* board_id, i64 score) noexcept override;
@@ -140,7 +140,7 @@ public:
     static SteamworksBridgeStub& GetStub() noexcept;
 
 private:
-    bool _initialized = false;
+    bool m_Initialized = false;
 };
 
 } // namespace acs::game

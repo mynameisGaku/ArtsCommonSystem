@@ -48,9 +48,9 @@ u32 Floor_Log2_NonZero(u32 v) noexcept {
 // ============================================================================
 isize FProgression::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return -1;
-    const usize n = _defs.Size();
+    const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_defs[i].id, id)) return static_cast<isize>(i);
+        if (StrEq(m_Defs[i].id, id)) return static_cast<isize>(i);
     }
     return -1;
 }
@@ -64,7 +64,7 @@ void FProgression::RegisterMilestone(const MilestoneDef& def) noexcept {
     // 同 id の 2 重登録は no-op (FAchievementManager / FModRegistry と同じ防御)。
     if (FindIndex(def.id) >= 0) return;
 
-    _defs.PushBack(def);
+    m_Defs.PushBack(def);
 
     // State は Def と同 index に 1:1 で並ぶ。id は Def 側の文字列リテラルを
     // ポインタ参照コピーする (中身を duplicate しない)。
@@ -84,10 +84,10 @@ void FProgression::AwardXp(u32 amount) noexcept {
     // u32 オーバーフロー防御: amount を加算しても u32 範囲を超えそうなら
     // u32_max にクランプする (silent wrap で進行が巻き戻る事故を避ける)。
     constexpr u32 kMaxXp = static_cast<u32>(~0u);
-    if (amount > kMaxXp - _xp) {
-        _xp = kMaxXp;
+    if (amount > kMaxXp - m_Xp) {
+        m_Xp = kMaxXp;
     } else {
-        _xp += amount;
+        m_Xp += amount;
     }
 
     // 全 milestone を線形走査して「未達成 → 達成」遷移を判定。
@@ -95,25 +95,25 @@ void FProgression::AwardXp(u32 amount) noexcept {
     // timestamp は Clock::MillisSinceStartup() を 1 回だけ取得して全達成に
     // 同じ値を入れる (同フレームで複数達成しても順序情報は持たない設計)。
     const u64 now = ::acs::Clock::MillisSinceStartup();
-    const usize n = _defs.Size();
+    const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
         MilestoneState& st  = _states[i];
-        const MilestoneDef& d = _defs[i];
+        const MilestoneDef& d = m_Defs[i];
         if (st.achieved) continue;
-        if (_xp < d.required_xp) continue;
+        if (m_Xp < d.required_xp) continue;
 
         st.achieved           = true;
         st.achieved_timestamp = now;
 
         // FCallback 通知。設定されていなければ no-op。
         // 呼出中に callback がさらに AwardXp / RegisterMilestone を叩く可能性
-        // はあるが、_defs / _states は TArray 内部で再確保される場合があるため
+        // はあるが、m_Defs / _states は TArray 内部で再確保される場合があるため
         // callback 内での再入は推奨しない (API ドキュメント側で注意喚起)。
-        // ただし最低限 _defs.Size() を毎ループ取り直すのではなく、最初に取った
+        // ただし最低限 m_Defs.Size() を毎ループ取り直すのではなく、最初に取った
         // n を信頼することで「callback 内 RegisterMilestone は次回 AwardXp で
         // 評価される」という挙動に固定する (現在の達成走査では拾わない)。
-        if (_on_achieved != nullptr) {
-            _on_achieved(_on_achieved_user, d.id);
+        if (m_OnAchieved != nullptr) {
+            m_OnAchieved(m_OnAchievedUser, d.id);
         }
     }
 }
@@ -122,7 +122,7 @@ void FProgression::AwardXp(u32 amount) noexcept {
 // 照会
 // ============================================================================
 u32 FProgression::CurrentXp() const noexcept {
-    return _xp;
+    return m_Xp;
 }
 
 u32 FProgression::CurrentLevel() const noexcept {
@@ -136,9 +136,9 @@ u32 FProgression::CurrentLevel() const noexcept {
     // xp = u32_max のとき xp + 1 が u32 でラップするので、ここだけ手動で
     // 32 を返す (= 32bit の上限を超えた場合の論理レベル)。
     constexpr u32 kMaxXp = static_cast<u32>(~0u);
-    if (_xp == kMaxXp) return 32u;
+    if (m_Xp == kMaxXp) return 32u;
 
-    const u32 v = _xp + 1u;  // v >= 1 が保証される
+    const u32 v = m_Xp + 1u;  // v >= 1 が保証される
     return Floor_Log2_NonZero(v);
 }
 
@@ -150,7 +150,7 @@ bool FProgression::IsMilestoneAchieved(const char* id) const noexcept {
 
 u32 FProgression::MilestoneCount() const noexcept {
     // 件数は通常 u32 範囲を超えない (タイトル 1 つで通常 10〜100)。
-    return static_cast<u32>(_defs.Size());
+    return static_cast<u32>(m_Defs.Size());
 }
 
 u32 FProgression::AchievedCount() const noexcept {
@@ -177,8 +177,8 @@ const MilestoneState* FProgression::AllStates(u32& out_count) const noexcept {
 // リセット
 // ============================================================================
 void FProgression::ResetProgress() noexcept {
-    _xp = 0;
-    // 定義配列 (_defs) は保持。State 側だけ未達成に戻す。
+    m_Xp = 0;
+    // 定義配列 (m_Defs) は保持。State 側だけ未達成に戻す。
     const usize n = _states.Size();
     for (usize i = 0; i < n; ++i) {
         _states[i].achieved           = false;
@@ -190,8 +190,8 @@ void FProgression::ResetProgress() noexcept {
 // FCallback
 // ============================================================================
 void FProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept {
-    _on_achieved      = cb;
-    _on_achieved_user = user;
+    m_OnAchieved      = cb;
+    m_OnAchievedUser = user;
 }
 
 // ============================================================================

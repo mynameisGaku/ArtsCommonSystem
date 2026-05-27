@@ -21,13 +21,13 @@ void HelloLocalizationApp::OnStart() noexcept {
     if (!dev) { Quit(); return; }
 
     // Fallback は英語固定。Active だけ切替。
-    ACS_SAMPLE_INIT(_loc.LoadFallbackBytes(reinterpret_cast<const u8*>(kLangEn),
+    ACS_SAMPLE_INIT(m_Loc.LoadFallbackBytes(reinterpret_cast<const u8*>(kLangEn),
                                              std::strlen(kLangEn)));
     SwitchTo(0);    // 起動時は日本語
 
-    ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)FSample::TryLoadDefaultUIFont(_font_big,   *dev, 36.0f, 1024, true);
-    (void)FSample::TryLoadDefaultUIFont(_font_small, *dev, 20.0f, 1024, true);
+    ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
+    (void)FSample::TryLoadDefaultUIFont(m_FontBig,   *dev, 36.0f, 1024, true);
+    (void)FSample::TryLoadDefaultUIFont(m_FontSmall, *dev, 20.0f, 1024, true);
 }
 
 void HelloLocalizationApp::OnUpdate(f32 /*dt*/) noexcept {
@@ -43,49 +43,49 @@ void HelloLocalizationApp::OnRender() noexcept {
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
 
-    _batch.Begin(*cl, sw, sh);
-    _batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
+    m_Batch.Begin(*cl, sw, sh);
+    m_Batch.DrawRect(0, 0, static_cast<f32>(sw), static_cast<f32>(sh),
                     FVec4{0.10f, 0.13f, 0.20f, 1});
-    _batch.DrawRect(40, 40, static_cast<f32>(sw - 80), static_cast<f32>(sh - 80),
+    m_Batch.DrawRect(40, 40, static_cast<f32>(sw - 80), static_cast<f32>(sh - 80),
                     FVec4{0.16f, 0.20f, 0.30f, 1});
 
-    if (_font_big.AtlasTexture()) {
-        _batch.DrawString(_font_big, _loc.Tr("title"),
+    if (m_FontBig.AtlasTexture()) {
+        m_Batch.DrawString(m_FontBig, m_Loc.Tr("title"),
                         80, 80, FVec4{1, 0.85f, 0.4f, 1});
     }
-    if (_font_small.AtlasTexture()) {
-        _batch.DrawString(_font_small, _loc.Tr("greeting"),
+    if (m_FontSmall.AtlasTexture()) {
+        m_Batch.DrawString(m_FontSmall, m_Loc.Tr("greeting"),
                         80, 150, FVec4{0.95f, 0.95f, 1, 1});
 
-        const char* lang_name = (_lang == 0) ? "(日本語 / Japanese)"
-                              : (_lang == 1) ? "(English)"
+        const char* lang_name = (m_Lang == 0) ? "(日本語 / Japanese)"
+                              : (m_Lang == 1) ? "(English)"
                               : "(Français)";
-        _batch.DrawString(_font_small, lang_name,
+        m_Batch.DrawString(m_FontSmall, lang_name,
                         80, 180, FVec4{0.6f, 0.7f, 0.85f, 1});
 
-        _batch.DrawString(_font_small, _loc.Tr("menu.start"),   80, 240, FVec4{1,1,1,1});
-        _batch.DrawString(_font_small, _loc.Tr("menu.options"), 80, 270, FVec4{1,1,1,1});
-        _batch.DrawString(_font_small, _loc.Tr("menu.exit"),    80, 300, FVec4{1,1,1,1});
+        m_Batch.DrawString(m_FontSmall, m_Loc.Tr("menu.start"),   80, 240, FVec4{1,1,1,1});
+        m_Batch.DrawString(m_FontSmall, m_Loc.Tr("menu.options"), 80, 270, FVec4{1,1,1,1});
+        m_Batch.DrawString(m_FontSmall, m_Loc.Tr("menu.exit"),    80, 300, FVec4{1,1,1,1});
 
-        _batch.DrawString(_font_small, _loc.Tr("note"),
+        m_Batch.DrawString(m_FontSmall, m_Loc.Tr("note"),
                         80, static_cast<f32>(sh - 130), FVec4{0.7f, 0.7f, 0.8f, 1});
-        _batch.DrawString(_font_small, _loc.Tr("hint"),
+        m_Batch.DrawString(m_FontSmall, m_Loc.Tr("hint"),
                         80, static_cast<f32>(sh - 90), FVec4{0.6f, 0.7f, 0.95f, 1});
     }
-    _batch.End();
+    m_Batch.End();
 }
 
 void HelloLocalizationApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _font_small.Shutdown();
-    _font_big.Shutdown();
-    _batch.Shutdown();
+    m_FontSmall.Shutdown();
+    m_FontBig.Shutdown();
+    m_Batch.Shutdown();
 }
 
 void HelloLocalizationApp::SwitchTo(u32 idx) noexcept {
     const char* src = (idx == 0) ? kLangJa : (idx == 1) ? kLangEn : kLangFr;
-    _loc.LoadActiveBytes(reinterpret_cast<const u8*>(src), std::strlen(src));
-    _lang = idx;
+    m_Loc.LoadActiveBytes(reinterpret_cast<const u8*>(src), std::strlen(src));
+    m_Lang = idx;
 }
 
 } // namespace helloloc

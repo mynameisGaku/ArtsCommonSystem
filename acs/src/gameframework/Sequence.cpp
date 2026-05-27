@@ -9,7 +9,7 @@ FSequence& FSequence::Wait(f32 seconds) noexcept {
     SeqAction a;
     a.kind     = SeqAction::Kind::Wait;
     a.duration = seconds < 0.0f ? 0.0f : seconds;
-    _actions.PushBack(Move(a));
+    m_Actions.PushBack(Move(a));
     return *this;
 }
 
@@ -19,7 +19,7 @@ FSequence& FSequence::Call(void(*fn)(void*) noexcept, void* user) noexcept {
     a.duration  = 0.0f;
     a.call_fn   = fn;
     a.call_user = user;
-    _actions.PushBack(Move(a));
+    m_Actions.PushBack(Move(a));
     return *this;
 }
 
@@ -32,7 +32,7 @@ FSequence& FSequence::FTween(f32* target, f32 from, f32 to, f32 duration,
     a.tween_f_from   = from;
     a.tween_f_to     = to;
     a.ease           = ease != nullptr ? ease : Easing::Linear;
-    _actions.PushBack(Move(a));
+    m_Actions.PushBack(Move(a));
     return *this;
 }
 
@@ -45,7 +45,7 @@ FSequence& FSequence::FTween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
     a.tween_v2_from   = from;
     a.tween_v2_to     = to;
     a.ease            = ease != nullptr ? ease : Easing::Linear;
-    _actions.PushBack(Move(a));
+    m_Actions.PushBack(Move(a));
     return *this;
 }
 
@@ -58,24 +58,24 @@ FSequence& FSequence::FTween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
     a.tween_v3_from   = from;
     a.tween_v3_to     = to;
     a.ease            = ease != nullptr ? ease : Easing::Linear;
-    _actions.PushBack(Move(a));
+    m_Actions.PushBack(Move(a));
     return *this;
 }
 
 // =================== Runner ===================
 
 u32 FSequenceRunner::AcquireSlot() noexcept {
-    for (u32 i = 0; i < _slots.Size(); ++i) {
-        if (!_slots[i].active) return i;
+    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+        if (!m_Slots[i].active) return i;
     }
-    _slots.PushBack({});
-    return static_cast<u32>(_slots.Size()) - 1u;
+    m_Slots.PushBack({});
+    return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
 SeqHandle FSequenceRunner::Start(FSequence seq) noexcept {
     if (seq.Actions().Size() == 0) return {};
     const u32 idx = AcquireSlot();
-    Slot& s = _slots[idx];
+    Slot& s = m_Slots[idx];
     // Slot は再利用なので明示的にリセット (seq は新しいものを Move 代入)
     s.seq            = Move(seq);
     s.action_idx     = 0;
@@ -85,28 +85,28 @@ SeqHandle FSequenceRunner::Start(FSequence seq) noexcept {
     s.active         = true;
     s.generation     = s.generation + 1u;
     if (s.generation == 0u) s.generation = 1u;
-    ++_active_count;
+    ++m_ActiveCount;
     return SeqHandle{idx, s.generation};
 }
 
 void FSequenceRunner::Cancel(SeqHandle h) noexcept {
-    if (!h.IsValid() || h.index >= _slots.Size()) return;
-    Slot& s = _slots[h.index];
+    if (!h.IsValid() || h.index >= m_Slots.Size()) return;
+    Slot& s = m_Slots[h.index];
     if (s.generation != h.generation || !s.active) return;
     s.active = false;
-    if (_active_count > 0) --_active_count;
+    if (m_ActiveCount > 0) --m_ActiveCount;
 }
 
 void FSequenceRunner::CancelAll() noexcept {
-    for (u32 i = 0; i < _slots.Size(); ++i) {
-        _slots[i].active = false;
+    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+        m_Slots[i].active = false;
     }
-    _active_count = 0;
+    m_ActiveCount = 0;
 }
 
 bool FSequenceRunner::IsActive(SeqHandle h) const noexcept {
-    if (!h.IsValid() || h.index >= _slots.Size()) return false;
-    const Slot& s = _slots[h.index];
+    if (!h.IsValid() || h.index >= m_Slots.Size()) return false;
+    const Slot& s = m_Slots[h.index];
     return s.active && s.generation == h.generation;
 }
 
@@ -123,7 +123,7 @@ void FSequenceRunner::AdvanceToNext(Slot& s) noexcept {
         } else {
             // 終了
             s.active = false;
-            if (_active_count > 0) --_active_count;
+            if (m_ActiveCount > 0) --m_ActiveCount;
         }
     }
 }
@@ -145,10 +145,10 @@ void FSequenceRunner::FinishAction(Slot& /*s*/, const SeqAction& act) noexcept {
 }
 
 void FSequenceRunner::Tick(f32 dt) noexcept {
-    if (_active_count == 0 || dt <= 0.0f) return;
+    if (m_ActiveCount == 0 || dt <= 0.0f) return;
 
-    for (u32 i = 0; i < _slots.Size(); ++i) {
-        Slot& s = _slots[i];
+    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+        Slot& s = m_Slots[i];
         if (!s.active) continue;
 
         // 1 フレームで複数アクションを進める可能性 (Call が連続する場合等) を扱う

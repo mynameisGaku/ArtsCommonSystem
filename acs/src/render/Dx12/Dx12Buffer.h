@@ -16,26 +16,26 @@ public:
 
     HrResult Init(Dx12Device& device, const FBufferDesc& desc) noexcept;
 
-    usize       Size()  const noexcept override { return _size; }
-    EBufferUsage Usage() const noexcept override { return _usage; }
+    usize       Size()  const noexcept override { return m_Size; }
+    EBufferUsage Usage() const noexcept override { return m_Usage; }
 
     void Update(const void* data, usize size, usize offset = 0) noexcept override;
 
     // 内部使用: GPU リソース取得 + ビュー作成補助
-    ID3D12Resource*           Resource() const noexcept { return _resource; }
+    ID3D12Resource*           Resource() const noexcept { return m_Resource; }
 
     // 現在の GPU 仮想アドレス（フレームリングなら slot 分のオフセットを足す）
     D3D12_GPU_VIRTUAL_ADDRESS Gpu()      const noexcept;
 
 private:
-    Dx12Device*     _device       = nullptr;     // フレームスロット問い合わせ用
-    ID3D12Resource* _resource     = nullptr;
-    void*           _mapped       = nullptr;     // cpu_writable=true なら永続マップ
-    usize           _size         = 0;            // 1 フレームスロットあたりサイズ
-    usize           _slot_stride  = 0;            // ring 用ストライド（256 align、リング無効なら 0）
-    EBufferUsage     _usage        = EBufferUsage::Vertex;
-    bool            _cpu_writable = false;
-    bool            _frame_cycled = false;       // Uniform + cpu_writable で自動 ON
+    Dx12Device*     m_Device       = nullptr;     // フレームスロット問い合わせ用
+    ID3D12Resource* m_Resource     = nullptr;
+    void*           m_Mapped       = nullptr;     // cpu_writable=true なら永続マップ
+    usize           m_Size         = 0;            // 1 フレームスロットあたりサイズ
+    usize           m_SlotStride  = 0;            // ring 用ストライド（256 align、リング無効なら 0）
+    EBufferUsage     m_Usage        = EBufferUsage::Vertex;
+    bool            m_CpuWritable = false;
+    bool            m_FrameCycled = false;       // Uniform + cpu_writable で自動 ON
 };
 
 } // namespace acs

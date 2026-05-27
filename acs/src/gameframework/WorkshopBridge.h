@@ -8,18 +8,18 @@
 //
 // 使い方:
 //   class ModBrowserUI {
-//       acs::game::IWorkshopBridge* _workshop = nullptr;
+//       acs::game::IWorkshopBridge* m_Workshop = nullptr;
 //
 //       void OnStart() noexcept override {
-//           _workshop = &acs::game::GetWorkshopStub();
-//           (void)_workshop->Init();
+//           m_Workshop = &acs::game::GetWorkshopStub();
+//           (void)m_Workshop->Init();
 //       }
 //       void OnTick(f32 dt) noexcept override {
-//           _workshop->Tick(dt);  // callback pump
+//           m_Workshop->Tick(dt);  // callback pump
 //       }
 //       void OnSubscribeClicked(acs::u64 item_id) noexcept {
-//           (void)_workshop->SubscribeItem(item_id);
-//           (void)_workshop->DownloadItem(item_id);
+//           (void)m_Workshop->SubscribeItem(item_id);
+//           (void)m_Workshop->DownloadItem(item_id);
 //       }
 //   };
 //
@@ -135,7 +135,7 @@ public:
 
 // ---- Stub 実装 ------------------------------------------------------------
 // Steamworks UGC SDK 未統合ビルド / ユニットテスト用の no-op 実装。
-//   ・Init() のみ常に成功 (_initialized = true)。
+//   ・Init() のみ常に成功 (m_Initialized = true)。
 //   ・IsAvailable() は常に false (UI 側で Workshop ボタンを非表示にする判定用)。
 //   ・全 publish / subscribe / download 系は ACS_ERR(Generic,
 //     kSubWorkshopNotImplemented) を返す。
@@ -160,7 +160,7 @@ public:
     void                 Tick(f32 dt) noexcept override;
 
 private:
-    bool _initialized = false;
+    bool m_Initialized = false;
 };
 
 // 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。

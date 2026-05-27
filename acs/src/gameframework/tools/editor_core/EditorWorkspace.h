@@ -53,7 +53,7 @@
 //     dock_target hint を DockSpace に強制反映する仕組みは持たない (Phase 21c 予定)。
 //   ・**FWindow メニュー / Layout メニュー は `DrawMenuBar()` 内で MainMenuBar に
 //     直接 push**: 派生コードからは TickAllPanels を呼ぶだけで自動描画される。
-//     MenuBar の有無は `_enable_menu_bar` で制御可能 (= 既存 MainMenuBar に
+//     MenuBar の有無は `m_EnableMenuBar` で制御可能 (= 既存 MainMenuBar に
 //     共存させたい host は disable できる)。
 //   ・**SaveLayout / LoadLayout のファイル形式**: 自前テキストフォーマット
 //     `ACS_EDLAYOUT 1`。
@@ -152,7 +152,7 @@ public:
     // title が nullptr の場合は nullptr。比較は strcmp。
     FEditorPanel* FindPanelByTitle(const char* title) const noexcept;
 
-    // Title が完全一致する panel の `_visible` を反転。未発見 / null は no-op。
+    // Title が完全一致する panel の `m_Visible` を反転。未発見 / null は no-op。
     // 副作用として該当 panel の `SetVisible(!IsVisible())` を呼ぶ。
     void TogglePanelVisible(const char* title) noexcept;
 
@@ -160,15 +160,15 @@ public:
 
     // 全 panel の 1 フレーム分を駆動: 順に
     //   1) 各 panel の OnFrameBegin(dt) を呼ぶ (visible / 非 visible を問わず)
-    //   2) DockSpace を描画 (`_enable_dockspace` が true のとき)
-    //   3) MenuBar を描画 (`_enable_menu_bar` が true のとき)
+    //   2) DockSpace を描画 (`m_EnableDockspace` が true のとき)
+    //   3) MenuBar を描画 (`m_EnableMenuBar` が true のとき)
     //   4) 各 panel の DrawUI を順に呼ぶ
     // OnFrameBegin の例外的 早期 return は持たない (= visible flag は DrawUI 側
     // で判断する規約。OnFrameBegin はバックグラウンド処理含む可能性があるため)。
     void TickAllPanels(f32 dt) noexcept;
 
     // ImGui::DockSpaceOverViewport で main viewport にドック空間を出す。
-    // `_no_docking_in_central_node` が true の場合は central node を split せず
+    // `m_NoDockingInCentralNode` が true の場合は central node を split せず
     // 単一 viewport として扱う (= ImGuiDockNodeFlags_NoDockingInCentralNode 相当)。
     // TickAllPanels から自動呼出しされるが、自前 main loop に組み込みたい host は
     // 直接呼んで良い (多重描画はしない: ImGui 側で同名 DockSpace が二重生成
@@ -224,16 +224,16 @@ public:
     // ----- 動作フラグ --------------------------------------------------------
     // DockSpace の central node 内 docking を無効化する (= central node を
     // 「メインビュー」専用として固定したい時に true)。default false。
-    void SetNoDockingInCentralNode(bool b) noexcept { _no_docking_in_central_node = b; }
-    bool NoDockingInCentralNode() const noexcept { return _no_docking_in_central_node; }
+    void SetNoDockingInCentralNode(bool b) noexcept { m_NoDockingInCentralNode = b; }
+    bool NoDockingInCentralNode() const noexcept { return m_NoDockingInCentralNode; }
 
     // DockSpace 自動描画の on/off。既存 host が独自 DockSpace を持つ場合は false。
-    void SetEnableDockSpace(bool b) noexcept { _enable_dockspace = b; }
-    bool IsDockSpaceEnabled() const noexcept { return _enable_dockspace; }
+    void SetEnableDockSpace(bool b) noexcept { m_EnableDockspace = b; }
+    bool IsDockSpaceEnabled() const noexcept { return m_EnableDockspace; }
 
     // MainMenuBar 自動描画の on/off。既存 host が MainMenuBar を持つなら false。
-    void SetEnableMenuBar(bool b) noexcept { _enable_menu_bar = b; }
-    bool IsMenuBarEnabled() const noexcept { return _enable_menu_bar; }
+    void SetEnableMenuBar(bool b) noexcept { m_EnableMenuBar = b; }
+    bool IsMenuBarEnabled() const noexcept { return m_EnableMenuBar; }
 
     // ----- 公開定数 ----------------------------------------------------------
     // SaveLayout の magic / version。LoadLayout 側で同値を期待。
@@ -252,15 +252,15 @@ private:
     static constexpr i32 kInvalidIndex = -1;
 
     // 登録 panel 群 (raw pointer / 非所有)。順序 = 登録順 = dispatch 順。
-    TArray<FEditorPanel*>          _panels;
+    TArray<FEditorPanel*>          m_Panels;
 
     // FSelectionService (non-owning)。未注入時 nullptr。
-    inspector::FSelectionService* _selection_service          = nullptr;
+    inspector::FSelectionService* m_SelectionService          = nullptr;
 
     // 動作フラグ群 (詳細は setter のコメント参照)。
-    bool                         _no_docking_in_central_node = false;
-    bool                         _enable_dockspace           = true;
-    bool                         _enable_menu_bar            = true;
+    bool                         m_NoDockingInCentralNode = false;
+    bool                         m_EnableDockspace           = true;
+    bool                         m_EnableMenuBar            = true;
 };
 
 } // namespace acs::game::editor_core

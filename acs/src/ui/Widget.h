@@ -54,14 +54,14 @@ public:
     W* Add(Args&&... args) noexcept {
         auto u = MakeUnique<W>(Forward<Args>(args)...);
         W* raw = u.Get();
-        raw->_parent = this;
-        _children.PushBack(Move(u));
+        raw->m_Parent = this;
+        m_Children.PushBack(Move(u));
         return raw;
     }
 
-    Widget* Parent() const noexcept { return _parent; }
-    usize   ChildCount() const noexcept { return _children.Size(); }
-    Widget* Child(usize i) const noexcept { return i < _children.Size() ? _children[i].Get() : nullptr; }
+    Widget* Parent() const noexcept { return m_Parent; }
+    usize   ChildCount() const noexcept { return m_Children.Size(); }
+    Widget* Child(usize i) const noexcept { return i < m_Children.Size() ? m_Children[i].Get() : nullptr; }
 
     // ---- 表示 ----
     bool   visible = true;
@@ -80,8 +80,8 @@ public:
 
     virtual void Render(class FUiRenderer& r) noexcept {
         // 既定は子だけ描画する (visible なものに絞り)
-        for (usize i = 0; i < _children.Size(); ++i) {
-            if (_children[i] && _children[i]->visible) _children[i]->Render(r);
+        for (usize i = 0; i < m_Children.Size(); ++i) {
+            if (m_Children[i] && m_Children[i]->visible) m_Children[i]->Render(r);
         }
     }
 
@@ -101,8 +101,8 @@ public:
     Widget* HitTestRecursive(f32 px, f32 py) noexcept {
         if (!visible) return nullptr;
         // 後ろの子 (上に描画されてる) から優先的にヒット
-        for (usize i = _children.Size(); i > 0; --i) {
-            Widget* c = _children[i - 1].Get();
+        for (usize i = m_Children.Size(); i > 0; --i) {
+            Widget* c = m_Children[i - 1].Get();
             if (c) {
                 if (Widget* h = c->HitTestRecursive(px, py)) return h;
             }
@@ -111,8 +111,8 @@ public:
     }
 
 protected:
-    Widget*                       _parent   = nullptr;
-    TArray<TUniquePtr<Widget>>      _children;
+    Widget*                       m_Parent   = nullptr;
+    TArray<TUniquePtr<Widget>>      m_Children;
 };
 
 // ---------- レイアウト系 ----------
@@ -133,8 +133,8 @@ public:
         f32 cw = w - padding.l - padding.r;
         f32 ch = h - padding.t - padding.b;
 
-        for (usize i = 0; i < _children.Size(); ++i) {
-            Widget* c = _children[i].Get();
+        for (usize i = 0; i < m_Children.Size(); ++i) {
+            Widget* c = m_Children[i].Get();
             if (!c || !c->visible) continue;
 
             if (dir == EStackDir::Vertical) {
@@ -155,8 +155,8 @@ class Container : public Widget {
 public:
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
-        for (usize i = 0; i < _children.Size(); ++i) {
-            Widget* c = _children[i].Get();
+        for (usize i = 0; i < m_Children.Size(); ++i) {
+            Widget* c = m_Children[i].Get();
             if (c && c->visible) c->Layout(x, y, w, h);
         }
     }

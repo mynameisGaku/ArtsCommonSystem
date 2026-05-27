@@ -27,9 +27,9 @@
 // a == b でなければ失敗を記録
 #define EXPECT_EQ(a, b)                                                       \
     do {                                                                      \
-        auto _av = (a);                                                       \
-        auto _bv = (b);                                                       \
-        if (!(_av == _bv)) {                                                  \
+        auto m_Av = (a);                                                       \
+        auto m_Bv = (b);                                                       \
+        if (!(m_Av == m_Bv)) {                                                  \
             ::acs::test::RecordFailure(::acs::FSourceLoc::Current(),           \
                 ACS_STRINGIFY(a) " == " ACS_STRINGIFY(b),                     \
                 "values differ");                                             \
@@ -39,9 +39,9 @@
 // a != b でなければ失敗を記録
 #define EXPECT_NE(a, b)                                                       \
     do {                                                                      \
-        auto _av = (a);                                                       \
-        auto _bv = (b);                                                       \
-        if (_av == _bv) {                                                     \
+        auto m_Av = (a);                                                       \
+        auto m_Bv = (b);                                                       \
+        if (m_Av == m_Bv) {                                                     \
             ::acs::test::RecordFailure(::acs::FSourceLoc::Current(),           \
                 ACS_STRINGIFY(a) " != " ACS_STRINGIFY(b),                     \
                 "values equal");                                              \
@@ -51,11 +51,11 @@
 // |a - b| が eps 以下でなければ失敗を記録（浮動小数比較）
 #define EXPECT_NEAR(a, b, eps)                                                \
     do {                                                                      \
-        f32 _diff = (f32)((a) - (b));                                         \
-        if (_diff < 0) _diff = -_diff;                                        \
-        if (_diff > (eps)) {                                                  \
+        f32 m_Diff = (f32)((a) - (b));                                         \
+        if (m_Diff < 0) m_Diff = -m_Diff;                                        \
+        if (m_Diff > (eps)) {                                                  \
             ::acs::test::RecordFailure(::acs::FSourceLoc::Current(),           \
                 ACS_STRINGIFY(a) " ~= " ACS_STRINGIFY(b),                     \
-                "diff %.6f > %.6f", _diff, (f32)(eps));                       \
+                "diff %.6f > %.6f", m_Diff, (f32)(eps));                       \
         }                                                                     \
     } while (0)

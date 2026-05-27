@@ -24,16 +24,16 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::TUniquePtr<acs::IRhiShader>   _vs;
-    acs::TUniquePtr<acs::IRhiShader>   _ps;
-    acs::TUniquePtr<acs::IRhiBuffer>   _vb;
-    acs::TUniquePtr<acs::IRhiBuffer>   _ib;
-    acs::TUniquePtr<acs::IRhiBuffer>   _cb;
-    acs::TUniquePtr<acs::IRhiPipeline> _pipeline;
+    acs::TUniquePtr<acs::IRhiShader>   m_Vs;
+    acs::TUniquePtr<acs::IRhiShader>   m_Ps;
+    acs::TUniquePtr<acs::IRhiBuffer>   m_Vb;
+    acs::TUniquePtr<acs::IRhiBuffer>   m_Ib;
+    acs::TUniquePtr<acs::IRhiBuffer>   m_Cb;
+    acs::TUniquePtr<acs::IRhiPipeline> m_Pipeline;
 
-    acs::FCamera _camera;
-    acs::f32    _angle   = 0.0f;
-    acs::f32    _cam_yaw = 0.0f;
+    acs::FCamera m_Camera;
+    acs::f32    m_Angle   = 0.0f;
+    acs::f32    m_CamYaw = 0.0f;
 };
 
 } // namespace hellomesh

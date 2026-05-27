@@ -31,18 +31,18 @@ void FPauseDirector::Pause(EPauseReason reason) noexcept {
     // OR で bit を立てる。複合 (UserMenu | SystemMenu) もそのまま受理。
     // None (= 0) を渡されても OR で変化なしなので分岐不要。
     const u32 add        = static_cast<u32>(reason);
-    const u32 newly_set  = AndNotBits(add, _mask);  // 立っていなかった bit のみ抽出
-    _mask                = _mask | add;
+    const u32 newly_set  = AndNotBits(add, m_Mask);  // 立っていなかった bit のみ抽出
+    m_Mask                = m_Mask | add;
     // callback は "新たに立った" bit のみ通知 (= 重複 Pause は no-op)。
     FireTransitions(newly_set, /*paused=*/true);
 }
 
 void FPauseDirector::Resume(EPauseReason reason) noexcept {
     // & ~reason で bit を落とす。None (= 0) は ~0 で全 bit になるが
-    // _mask & 全 bit = _mask なので変化なし (no-op)。明示判定は不要。
+    // m_Mask & 全 bit = m_Mask なので変化なし (no-op)。明示判定は不要。
     const u32 remove     = static_cast<u32>(reason);
-    const u32 actually   = remove & _mask;          // 実際に落ちる bit のみ抽出
-    _mask                = AndNotBits(_mask, remove);
+    const u32 actually   = remove & m_Mask;          // 実際に落ちる bit のみ抽出
+    m_Mask                = AndNotBits(m_Mask, remove);
     // callback は "実際に落ちた" bit のみ通知 (= 立っていなかった bit の
     // Resume は no-op)。
     FireTransitions(actually, /*paused=*/false);
@@ -56,17 +56,17 @@ bool FPauseDirector::IsPausedFor(EPauseReason reason) const noexcept {
     // 紛らわしい挙動になる。
     // None (= 0) を渡した場合は (mask & 0) == 0 となり true (空集合包含)。
     const u32 want = static_cast<u32>(reason);
-    return (_mask & want) == want;
+    return (m_Mask & want) == want;
 }
 
 bool FPauseDirector::IsPaused() const noexcept {
     // 1 つでも reason が立っていれば pause 中。
-    // None (= 0) を保持しているだけの状態は _mask == 0 で false。
-    return _mask != 0u;
+    // None (= 0) を保持しているだけの状態は m_Mask == 0 で false。
+    return m_Mask != 0u;
 }
 
 EPauseReason FPauseDirector::ActiveReasons() const noexcept {
-    return static_cast<EPauseReason>(_mask);
+    return static_cast<EPauseReason>(m_Mask);
 }
 
 // ----- 一括解除 -------------------------------------------------------------
@@ -75,27 +75,27 @@ void FPauseDirector::Clear() noexcept {
     // 立っていた全 bit について callback を発火してから mask を 0 に。
     // callback 中に Pause が再帰呼び出しされた場合は新 mask が再度立つが、
     // それは caller の意図と見なす (= 競合は caller 側で解決)。
-    const u32 was   = _mask;
-    _mask           = 0u;
+    const u32 was   = m_Mask;
+    m_Mask           = 0u;
     FireTransitions(was, /*paused=*/false);
 }
 
 // ----- time scale 連携 ------------------------------------------------------
 
 f32 FPauseDirector::EffectiveTimeScale() const noexcept {
-    // pause 中は 0、非 pause は _normal_time_scale を返す。
+    // pause 中は 0、非 pause は m_NormalTimeScale を返す。
     // slow-motion (= 通常時 0.5x) は SetNormalTimeScale(0.5f) で表現。
-    return IsPaused() ? 0.0f : _normal_time_scale;
+    return IsPaused() ? 0.0f : m_NormalTimeScale;
 }
 
 void FPauseDirector::SetNormalTimeScale(f32 s) noexcept {
     // 負値は 0 に clamp。負の時間進行 (= 逆再生) は別概念なので
     // この API では扱わない (Cinematics / リプレイ側の責務)。
-    _normal_time_scale = (s < 0.0f) ? 0.0f : s;
+    m_NormalTimeScale = (s < 0.0f) ? 0.0f : s;
 }
 
 f32 FPauseDirector::NormalTimeScale() const noexcept {
-    return _normal_time_scale;
+    return m_NormalTimeScale;
 }
 
 // ----- 遷移通知 -------------------------------------------------------------
@@ -103,8 +103,8 @@ f32 FPauseDirector::NormalTimeScale() const noexcept {
 void FPauseDirector::SetCallback(PauseEventCallback cb, void* user) noexcept {
     // 重複登録は不可 (上書き)。cb == nullptr で実質登録解除。
     // user は cb と一緒に保持しないと nullptr 化されて呼び出し時に死ぬ。
-    _callback      = cb;
-    _callback_user = user;
+    m_Callback      = cb;
+    m_CallbackUser = user;
 }
 
 // ----- 内部: 遷移通知の個別発火 ---------------------------------------------
@@ -113,7 +113,7 @@ void FPauseDirector::SetCallback(PauseEventCallback cb, void* user) noexcept {
 // 例えば changed_bits = UserMenu | SystemMenu なら 2 回呼ばれる。
 // callback が未登録なら何もしない。
 void FPauseDirector::FireTransitions(u32 changed_bits, bool paused) const noexcept {
-    if (_callback == nullptr) return;
+    if (m_Callback == nullptr) return;
     if (changed_bits == 0u)   return;
 
     // EPauseReason は 8 bit (Custom2 = 1<<7) しか定義していないが、
@@ -122,7 +122,7 @@ void FPauseDirector::FireTransitions(u32 changed_bits, bool paused) const noexce
     for (u32 i = 0u; i < 32u; ++i) {
         const u32 bit = 1u << i;
         if ((changed_bits & bit) == 0u) continue;
-        _callback(_callback_user,
+        m_Callback(m_CallbackUser,
                   static_cast<EPauseReason>(bit),
                   paused);
     }

@@ -11,26 +11,26 @@ void JobHandle::DependOn(JobHandle upstream) noexcept {
 }
 
 JobHandle FJobGraph::Add(JobFn fn, void* user) noexcept {
-    if (_submitted || !fn) return JobHandle{};
+    if (m_Submitted || !fn) return JobHandle{};
     auto* j = new Job();
     j->fn    = fn;
     j->user  = user;
     j->owner = this;
-    u32 idx = static_cast<u32>(_jobs.Size());
-    _jobs.PushBack(j);
+    u32 idx = static_cast<u32>(m_Jobs.Size());
+    m_Jobs.PushBack(j);
     return JobHandle{ this, idx };
 }
 
 void FJobGraph::AddDependency(JobHandle upstream, JobHandle downstream) noexcept {
-    if (_submitted) return;
+    if (m_Submitted) return;
     if (!upstream.IsValid() || !downstream.IsValid()) return;
     if (upstream.graph != this || downstream.graph != this) return;
     if (upstream.index == downstream.index) return;  // self-dep は無視
 
-    Job* up = _jobs[upstream.index];
+    Job* up = m_Jobs[upstream.index];
     up->dependents.PushBack(downstream.index);
 
-    Job* dn = _jobs[downstream.index];
+    Job* dn = m_Jobs[downstream.index];
     dn->initial_deps += 1;
     dn->deps_remaining.Store(dn->initial_deps);
 }
@@ -45,7 +45,7 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
     // 依存先の deps_remaining を減らし、0 になったものを FThreadPool に投入
     for (usize i = 0; i < j->dependents.Size(); ++i) {
         u32 dep_idx = j->dependents[i];
-        Job* down = graph->_jobs[dep_idx];
+        Job* down = graph->m_Jobs[dep_idx];
         u32 prev = down->deps_remaining.FetchSub(1);
         if (prev == 1) {
             // 自分が最後の依存を解いた → 起動
@@ -58,23 +58,23 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
     }
 
     // 自身の完了を counter に通知
-    graph->_counter.Done();
+    graph->m_Counter.Done();
 }
 
 TResult<void> FJobGraph::Submit() noexcept {
-    if (_submitted) return ACS_ERR(Threading, 1, "FJobGraph already submitted");
-    if (_jobs.Size() == 0) {
-        _submitted = true;
+    if (m_Submitted) return ACS_ERR(Threading, 1, "FJobGraph already submitted");
+    if (m_Jobs.Size() == 0) {
+        m_Submitted = true;
         return Ok();
     }
 
     // ---- サイクル検知 (Kahn 法、O(N + E)) ----
     {
-        const u32 N = static_cast<u32>(_jobs.Size());
+        const u32 N = static_cast<u32>(m_Jobs.Size());
         TArray<u32> remaining;
         remaining.Resize(N);
         for (u32 i = 0; i < N; ++i) {
-            remaining[i] = _jobs[i]->deps_remaining.Load(EMemoryOrder::Acquire);
+            remaining[i] = m_Jobs[i]->deps_remaining.Load(EMemoryOrder::Acquire);
         }
         TArray<u32> queue;
         queue.Reserve(N);
@@ -85,7 +85,7 @@ TResult<void> FJobGraph::Submit() noexcept {
             u32 idx = queue[queue.Size() - 1];
             queue.PopBack();
             ++visited;
-            const auto& deps = _jobs[idx]->dependents;
+            const auto& deps = m_Jobs[idx]->dependents;
             for (usize k = 0; k < deps.Size(); ++k) {
                 u32 dep_idx = deps[k];
                 if (--remaining[dep_idx] == 0) queue.PushBack(dep_idx);
@@ -98,16 +98,16 @@ TResult<void> FJobGraph::Submit() noexcept {
         }
     }
 
-    _submitted = true;
+    m_Submitted = true;
 
     // 全 job 数を counter に積む (Submit 失敗時は後で巻き戻す)
-    _counter.Add(static_cast<u32>(_jobs.Size()));
+    m_Counter.Add(static_cast<u32>(m_Jobs.Size()));
 
     // 依存 0 の job を FThreadPool に投入
     bool any_started = false;
     u32 submitted_count = 0;
-    for (usize i = 0; i < _jobs.Size(); ++i) {
-        Job* j = _jobs[i];
+    for (usize i = 0; i < m_Jobs.Size(); ++i) {
+        Job* j = m_Jobs[i];
         if (j->deps_remaining.Load(EMemoryOrder::Acquire) == 0) {
             Task t{};
             t.fn      = &FJobGraph::JobThunk;
@@ -118,8 +118,8 @@ TResult<void> FJobGraph::Submit() noexcept {
                 ACS_LOG_ERROR("FJobGraph::Submit: FThreadPool::Submit failed: %s",
                               r.Error().message);
                 // 既に Add 済みのカウンタを巻き戻す (デッドロック回避)
-                u32 unstarted = static_cast<u32>(_jobs.Size()) - submitted_count;
-                for (u32 k = 0; k < unstarted; ++k) _counter.Done();
+                u32 unstarted = static_cast<u32>(m_Jobs.Size()) - submitted_count;
+                for (u32 k = 0; k < unstarted; ++k) m_Counter.Done();
                 return r;
             }
             ++submitted_count;
@@ -127,7 +127,7 @@ TResult<void> FJobGraph::Submit() noexcept {
         }
     }
 
-    if (!any_started && _jobs.Size() > 0) {
+    if (!any_started && m_Jobs.Size() > 0) {
         // サイクル検知を抜けてここに来たら、空のグラフ (entry も無い) のはず
         ACS_LOG_ERROR("FJobGraph::Submit: no entry job after cycle check");
         return ACS_ERR(Threading, 2, "FJobGraph: no entry job");
@@ -136,20 +136,20 @@ TResult<void> FJobGraph::Submit() noexcept {
 }
 
 void FJobGraph::Wait() noexcept {
-    if (!_submitted) return;
+    if (!m_Submitted) return;
     // Submit 時に Add(N) したカウンタを、Job 完了で Done() する仕組みが要る。
     // JobThunk 内で counter.Done() を呼ぶよう改修する必要があるが、
     // FThreadPool::Submit に counter を渡せば自動 Add+Done してくれる。
     // 上の実装では Submit 時に自前で Add してしまったので調整 -- このシンプル版では
     // FThreadPool::Submit に counter を渡して任せる方がきれい。実装は素直にする:
-    FThreadPool::Wait(_counter);
+    FThreadPool::Wait(m_Counter);
 }
 
 void FJobGraph::Reset() noexcept {
-    for (usize i = 0; i < _jobs.Size(); ++i) {
-        _jobs[i]->deps_remaining.Store(_jobs[i]->initial_deps);
+    for (usize i = 0; i < m_Jobs.Size(); ++i) {
+        m_Jobs[i]->deps_remaining.Store(m_Jobs[i]->initial_deps);
     }
-    _submitted = false;
+    m_Submitted = false;
 }
 
 } // namespace acs

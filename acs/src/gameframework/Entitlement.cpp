@@ -29,49 +29,49 @@ void EntitlementRegistry::Add(EntitlementInfo info) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (DLC 一覧取得が失敗した
     // 時のフォールバック流入で nullptr が来ても registry を壊さない)。
     if (info.id == nullptr) return;
-    _infos.PushBack(info);
+    m_Infos.PushBack(info);
 }
 
 bool EntitlementRegistry::Has(const char* id) const noexcept {
     if (id == nullptr) return false;
-    const usize n = _infos.Size();
+    const usize n = m_Infos.Size();
     for (usize i = 0; i < n; ++i) {
-        if (StrEq(_infos[i].id, id)) return true;
+        if (StrEq(m_Infos[i].id, id)) return true;
     }
     return false;
 }
 
 bool EntitlementRegistry::IsActive(const char* id) const noexcept {
     if (id == nullptr) return false;
-    const usize n = _infos.Size();
+    const usize n = m_Infos.Size();
     for (usize i = 0; i < n; ++i) {
-        const EntitlementInfo& e = _infos[i];
+        const EntitlementInfo& e = m_Infos[i];
         if (StrEq(e.id, id)) return e.active;
     }
     return false;
 }
 
 bool EntitlementRegistry::HasAny(EntitlementKind k) const noexcept {
-    const usize n = _infos.Size();
+    const usize n = m_Infos.Size();
     for (usize i = 0; i < n; ++i) {
-        const EntitlementInfo& e = _infos[i];
+        const EntitlementInfo& e = m_Infos[i];
         if (e.kind == k && e.active) return true;
     }
     return false;
 }
 
 void EntitlementRegistry::Clear() noexcept {
-    _infos.Clear();
+    m_Infos.Clear();
 }
 
 u32 EntitlementRegistry::Count() const noexcept {
     // TArray<T>::Size() は usize (= size_t) を返す。Pillar O の entitlement 件数は
     // 現実的に u32 範囲を超えないので、上位ビットを切り捨てる cast で十分。
-    return static_cast<u32>(_infos.Size());
+    return static_cast<u32>(m_Infos.Size());
 }
 
 const EntitlementInfo* EntitlementRegistry::AllInfos() const noexcept {
-    return _infos.Data();
+    return m_Infos.Data();
 }
 
 } // namespace acs::game

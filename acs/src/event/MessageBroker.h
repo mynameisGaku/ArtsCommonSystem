@@ -116,7 +116,7 @@ private:
     void PublishRaw(EventTypeId channel, const void* payload) noexcept;
     Channel* GetChannel(EventTypeId id, bool create) noexcept;
 
-    TArray<Channel*> _channels;   // EventTypeId -> Channel*
+    TArray<Channel*> m_Channels;   // EventTypeId -> Channel*
 };
 
 } // namespace acs

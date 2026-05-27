@@ -13,7 +13,7 @@
 namespace acs {
 
 DiligentBuffer::~DiligentBuffer() noexcept {
-    if (_buffer) { _buffer->Release(); _buffer = nullptr; }
+    if (m_Buffer) { m_Buffer->Release(); m_Buffer = nullptr; }
 }
 
 namespace {
@@ -36,9 +36,9 @@ Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
 } // namespace
 
 TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& desc) noexcept {
-    _device  = &device;
-    _size    = desc.size;
-    _usage   = desc.usage;
+    m_Device  = &device;
+    m_Size    = desc.size;
+    m_Usage   = desc.usage;
 
     auto* dev = device.RenderDev();
     if (!dev) return ACS_ERR(Render, 120, "DiligentBuffer: device not initialized");
@@ -75,8 +75,8 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& de
         p_init = &bdata;
     }
 
-    dev->CreateBuffer(bd, p_init, &_buffer);
-    if (!_buffer) {
+    dev->CreateBuffer(bd, p_init, &m_Buffer);
+    if (!m_Buffer) {
         return ACS_ERR(Render, 121, "CreateBuffer failed");
     }
 
@@ -89,20 +89,20 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& de
 }
 
 void DiligentBuffer::Update(const void* data, usize size, usize offset) noexcept {
-    if (!_buffer || !_device || !data || size == 0) return;
-    auto* ctx = _device->Context();
+    if (!m_Buffer || !m_Device || !data || size == 0) return;
+    auto* ctx = m_Device->Context();
     if (!ctx) return;
 
     // USAGE_DEFAULT は UpdateBuffer、USAGE_STAGING は Map で書く
-    if (_usage == EBufferUsage::Staging) {
+    if (m_Usage == EBufferUsage::Staging) {
         void* p = nullptr;
-        ctx->MapBuffer(_buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, p);
+        ctx->MapBuffer(m_Buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, p);
         if (p) {
             std::memcpy(static_cast<u8*>(p) + offset, data, size);
-            ctx->UnmapBuffer(_buffer, Diligent::MAP_WRITE);
+            ctx->UnmapBuffer(m_Buffer, Diligent::MAP_WRITE);
         }
     } else {
-        ctx->UpdateBuffer(_buffer,
+        ctx->UpdateBuffer(m_Buffer,
                           static_cast<Diligent::Uint64>(offset),
                           static_cast<Diligent::Uint64>(size),
                           data,

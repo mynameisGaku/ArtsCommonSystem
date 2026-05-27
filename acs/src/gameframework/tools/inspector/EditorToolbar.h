@@ -26,12 +26,12 @@
 //   ・**FGame への time_scale 反映は本クラスが行う**: FPauseDirector のように
 //     「caller に値だけ返す」設計も検討したが、editor はゲームコードを
 //     触らずに使われる前提なので、本クラスが直接 `FGame::SetTimeScale(...)` を
-//     呼ぶ。Play 時に戻す scale は `_normal_time_scale` (= Pause 直前の値) を
+//     呼ぶ。Play 時に戻す scale は `m_NormalTimeScale` (= Pause 直前の値) を
 //     記憶しておく。
 //   ・**Save callback は外部委譲**: scene の serialize 形式 (JSON / binary /
 //     ACS Pak) は editor 統合層が決める。本クラスは「Save ボタンが押された」
 //     という通知だけを発火する。
-//   ・**FDebugOverlay の所有は外側**: ここでは bool flag (`_show_debug_overlay`)
+//   ・**FDebugOverlay の所有は外側**: ここでは bool flag (`m_ShowDebugOverlay`)
 //     だけを保持する。実描画は外側コードが flag を見て OverlayDirector を
 //     呼ぶ責務。これで FDebugOverlay 本体への依存を回避し、ship build で
 //     editor だけ消したいケースをサポートする。
@@ -64,7 +64,7 @@ namespace acs::game::inspector {
 // ---- editor 再生状態 -----------------------------------------------------
 // E prefix は Phase 19a の ACS 規約 (Enum は E から、各値は名詞)。
 enum class EEditorState : u8 {
-    Playing  = 0,   // 通常実行中 (TimeScale = _normal_time_scale)
+    Playing  = 0,   // 通常実行中 (TimeScale = m_NormalTimeScale)
     Paused   = 1,   // 一時停止中 (TimeScale = 0)
     Stepping = 2,   // 1 fixed step 進める一時状態 (本フレームで Playing 相当の dt 1 回 → Paused 復帰)
 };
@@ -94,19 +94,19 @@ public:
     void Shutdown() noexcept;
 
     // Phase 24: FEditorPanel 継承で no-param 化。FGame は SetGame で事前 set。
-    void SetGame(FGame* game) noexcept { _game = game; }
-    FGame* GameRef() const noexcept { return _game; }
+    void SetGame(FGame* game) noexcept { m_Game = game; }
+    FGame* GameRef() const noexcept { return m_Game; }
 
     const char* Title() const noexcept override { return "Editor Toolbar"; }
 
     // 毎フレーム描画。ImGui main menu bar の下 (or 独立 window) に Play /
     // Pause / Step / Save / FDebugOverlay ボタン行を描画する。
-    // 内部 _game ptr が nullptr のときは TimeScale 反映を skip (UI のみ動作)。
+    // 内部 m_Game ptr が nullptr のときは TimeScale 反映を skip (UI のみ動作)。
     void DrawUI() noexcept override;
 
     // Play ↔ Pause の切替。
-    //   Playing → Paused: 現 TimeScale を `_normal_time_scale` に記録して 0 にする。
-    //   Paused  → Playing: 記録した `_normal_time_scale` を TimeScale に書き戻す。
+    //   Playing → Paused: 現 TimeScale を `m_NormalTimeScale` に記録して 0 にする。
+    //   Paused  → Playing: 記録した `m_NormalTimeScale` を TimeScale に書き戻す。
     //   Stepping → 仕様外 (Step 中に呼ばれた場合は Playing 扱いで遷移する)。
     // FGame への直接反映は DrawUI 内で行う (本 API は state 切替まで)。
     void TogglePlayPause() noexcept;
@@ -124,8 +124,8 @@ public:
     void SetOnSaveSceneCallback(SaveSceneCallback cb, void* user) noexcept;
 
     // FDebugOverlay の表示要望 flag。実描画は外側のコードが flag を見て切替える。
-    void SetShowDebugOverlay(bool b) noexcept { _show_debug_overlay = b; }
-    bool ShowDebugOverlay() const noexcept    { return _show_debug_overlay; }
+    void SetShowDebugOverlay(bool b) noexcept { m_ShowDebugOverlay = b; }
+    bool ShowDebugOverlay() const noexcept    { return m_ShowDebugOverlay; }
 
 private:
     // DrawUI が「ボタンが押されたら state を変える」内部分岐から呼ぶ。
@@ -136,16 +136,16 @@ private:
     // Pause 直前の time scale を保持。Play 復帰時にこの値を書き戻す。
     // slow-motion 演出 (= 通常時 0.5x など) と pause を直交管理する考え方は
     // FPauseDirector の NormalTimeScale と同じ。既定 1.0f。
-    f32               _normal_time_scale  = 1.0f;
+    f32               m_NormalTimeScale  = 1.0f;
     // FDebugOverlay 表示要望。caller が flag を見て描画する。
-    bool              _show_debug_overlay = false;
+    bool              m_ShowDebugOverlay = false;
 
-    SaveSceneCallback _save_cb            = nullptr;
-    void*             _save_user          = nullptr;
+    SaveSceneCallback m_SaveCb            = nullptr;
+    void*             m_SaveUser          = nullptr;
 
     // Phase 24: 事前 set される FGame ptr。nullptr のときは UI 更新のみで
     // FGame::SetTimeScale 反映を skip。
-    FGame*             _game               = nullptr;
+    FGame*             m_Game               = nullptr;
 };
 
 } // namespace acs::game::inspector

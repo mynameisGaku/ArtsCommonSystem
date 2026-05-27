@@ -21,7 +21,7 @@
 //       - Clear ボタン (= 全 key 削除)
 //       - Eval preview slider (= 現在時刻 [0, Duration] で曲線を sample し、
 //         結果値を表示。アニメ確認用)
-//   ・「キー変更があった」フラグ `_dirty` を内部に保持し、`CurveChangeCallback`
+//   ・「キー変更があった」フラグ `m_Dirty` を内部に保持し、`CurveChangeCallback`
 //     経由で外部 (= caller) に通知 (例: 保存ボタンの有効化 / 自動再描画)
 //
 // 役割分担:
@@ -59,7 +59,7 @@
 //     に続く 2 つ目)。Title = "FAnimation Curve Editor"、DrawUI override。
 //   ・**curve は raw pointer の非所有保持**: caller が own する設計
 //     (FParticleEditorPanel が FParticleEffectSystem を参照渡しで受けるのと
-//     同じ方針)。本 panel は curve の寿命に関与せず、`_curve == nullptr` 時は
+//     同じ方針)。本 panel は curve の寿命に関与せず、`m_Curve == nullptr` 時は
 //     「(No curve bound)」を表示。
 //   ・**canvas は ImGui::InvisibleButton + GetWindowDrawList()**: ImGui の
 //     標準パターン (Demo の Canvas example と同形)。ButtonBehavior で hover /
@@ -75,7 +75,7 @@
 //     書き込むが、handle 描画位置だけは固定スケールで「短い棒」として出す。
 //   ・**右クリック menu は ImGui::OpenPopup + BeginPopup**: ImGui 標準。
 //     "Add Key Here" は click 位置の (time, value) を decode してそこに key
-//     追加。"Delete Selected" は `_selected_key_idx` が有効なら RemoveKey。
+//     追加。"Delete Selected" は `m_SelectedKeyIdx` が有効なら RemoveKey。
 //   ・**CurveChangeCallback は raw 関数ポインタ + void* user**: ACS は
 //     std::function 禁止。FParticleEditorPanel / FAssetBrowser と同形の C-style
 //     callback 規約 (FModelAnimationPanel の AnimationFrameCallback と同形)。
@@ -206,24 +206,24 @@ public:
 
 private:
     // 編集対象 FAnimationCurve (caller 所有、本 panel は非所有)。
-    acs::game::FAnimationCurve* _curve = nullptr;
+    acs::game::FAnimationCurve* m_Curve = nullptr;
 
-    // 現在選択中の key index (`_curve->KeyCount()` 未満、未選択は kNoKeySelected)。
-    i32 _selected_key_idx = kNoKeySelected;
+    // 現在選択中の key index (`m_Curve->KeyCount()` 未満、未選択は kNoKeySelected)。
+    i32 m_SelectedKeyIdx = kNoKeySelected;
 
     // 最後の ClearDirty() 以降に編集があったか。
-    bool _dirty = false;
+    bool m_Dirty = false;
 
     // ドラッグ中 (= マウス左ボタン押下中) フラグ。drag end で callback 1 回発火。
     // 0=なし / 1=key 本体 / 2=in-tangent handle / 3=out-tangent handle。
-    u8 _drag_kind = 0u;
+    u8 m_DragKind = 0u;
 
     // drag 中の対象 key index (drag_kind != 0 の時のみ有効)。
-    i32 _drag_key_idx = -1;
+    i32 m_DragKeyIdx = -1;
 
     // 変更通知 callback。
-    CurveChangeCallback _on_change_cb   = nullptr;
-    void*               _on_change_user = nullptr;
+    CurveChangeCallback m_OnChangeCb   = nullptr;
+    void*               m_OnChangeUser = nullptr;
 
     // dirty を true にし、callback を呼ぶ内部ヘルパ。
     // immediate=true の場合は即時 callback (key 追加 / 削除 / interp 変更等)、

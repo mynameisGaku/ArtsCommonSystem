@@ -30,21 +30,21 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    AnimationScene                _scene;
-    acs::FSky                      _sky;
-    acs::FSkinnedShader            _shader;       // スキンメッシュ用
-    acs::FStandardShader           _std_shader;   // 地面用
-    acs::FSpriteBatch              _batch;
-    acs::Font                     _font;
+    AnimationScene                m_Scene;
+    acs::FSky                      m_Sky;
+    acs::FSkinnedShader            m_Shader;       // スキンメッシュ用
+    acs::FStandardShader           m_StdShader;   // 地面用
+    acs::FSpriteBatch              m_Batch;
+    acs::Font                     m_Font;
 
-    acs::TRc<acs::FSkinnedMeshAsset> _snake;
-    acs::SkinnedGpuMesh            _gm_snake;
-    acs::GpuMesh                   _gm_plane;
-    acs::FAnimationPlayer           _player;
+    acs::TRc<acs::FSkinnedMeshAsset> m_Snake;
+    acs::SkinnedGpuMesh            m_GmSnake;
+    acs::GpuMesh                   m_GmPlane;
+    acs::FAnimationPlayer           m_Player;
 
-    acs::FCamera                   _camera;
-    acs::FVec3                     _cam_pos;
-    acs::f32                      _cam_yaw = 0.6f;
+    acs::FCamera                   m_Camera;
+    acs::FVec3                     m_CamPos;
+    acs::f32                      m_CamYaw = 0.6f;
 };
 
 } // namespace helloanim

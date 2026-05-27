@@ -8,9 +8,9 @@
 // `acs::ui` 接続を入れるだけで実 UI が表示される設計。
 //
 // 設計メモ:
-//   ・handle 発行は単純な単調増加 (`_next_handle++`)。重複しない正の u32 を保証。
+//   ・handle 発行は単純な単調増加 (`m_NextHandle++`)。重複しない正の u32 を保証。
 //     現実的なシーンで widget 数が 2^32 を超えることはないため reuse は不要。
-//   ・FindIndex の戻り値 0xFFFFFFFFu はセンチネル。`_widgets.Size()` と比較して
+//   ・FindIndex の戻り値 0xFFFFFFFFu はセンチネル。`m_Widgets.Size()` と比較して
 //     見つからなかったか判定する (signed/unsigned 混在を避ける慣用)。
 //   ・Tick で `just_pressed` を一括クリアする。これにより IsButtonPressed は
 //     **直前フレームに発生した押下** のみ true を返すワンショットセマンティクス
@@ -31,7 +31,7 @@ constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 } // namespace
 
 void FUiLayer::Init() noexcept {
-    if (_initialized) {
+    if (m_Initialized) {
         // 冪等性確保。重複 Init はログのみで何もしない (Shutdown 経由せず再 Init
         // するケースもあり得るが、現状は警告レベルではなく Debug で記録)。
         ACS_LOG_DEBUG("FUiLayer::Init called twice (ignored)");
@@ -39,27 +39,27 @@ void FUiLayer::Init() noexcept {
     }
     // TODO(Phase H-2): `acs::ui::Container` を root として `MakeUnique` で確保し
     //   メンバ保持する。現フェーズは state holder のみで root インスタンス不要。
-    _widgets.Clear();
-    _next_handle = 1;
-    _initialized = true;
+    m_Widgets.Clear();
+    m_NextHandle = 1;
+    m_Initialized = true;
     ACS_LOG_DEBUG("FUiLayer::Init: state holder ready (root widget TODO)");
 }
 
 void FUiLayer::Shutdown() noexcept {
-    if (!_initialized) {
+    if (!m_Initialized) {
         // 未初期化での Shutdown は no-op (冪等)。
         return;
     }
     // TODO(Phase H-2): root Container を破棄。現フェーズは保持していないので
-    //   _widgets をクリアするだけで完結。
-    _widgets.Clear();
-    _next_handle = 1;
-    _initialized = false;
+    //   m_Widgets をクリアするだけで完結。
+    m_Widgets.Clear();
+    m_NextHandle = 1;
+    m_Initialized = false;
     ACS_LOG_DEBUG("FUiLayer::Shutdown: state cleared");
 }
 
 void FUiLayer::Tick(f32 /*dt*/) noexcept {
-    if (!_initialized) return;
+    if (!m_Initialized) return;
     // ワンショット押下フラグをクリア。HandleInput で立てられた just_pressed は
     // 同フレーム中の OnUpdate で IsButtonPressed として消費されるので、次の
     // Tick 開始時にゼロに戻す。
@@ -69,15 +69,15 @@ void FUiLayer::Tick(f32 /*dt*/) noexcept {
     //   配送に切り替える際は、HandleInput で立てた直後の OnUpdate で読めるよう、
     //   Tick の末尾 (= 次フレーム入る前) でクリアするのが正解。現スケルトンでは
     //   末尾クリアで統一する。
-    for (u32 i = 0; i < _widgets.Size(); ++i) {
-        _widgets[i].just_pressed = false;
+    for (u32 i = 0; i < m_Widgets.Size(); ++i) {
+        m_Widgets[i].just_pressed = false;
     }
     // TODO(Phase H-2): `acs::ui::Widget::Layout(0, 0, screen_w, screen_h)` 等で
     //   レイアウトを再計算し、tween / animation の進行を更新する。
 }
 
 void FUiLayer::HandleInput(const acs::Event& /*event*/) noexcept {
-    if (!_initialized) return;
+    if (!m_Initialized) return;
     // TODO(Phase H-2): event.type に応じて分岐:
     //   ・MouseButtonPressed   → カーソル位置で hit-test、ボタン widget の
     //                            just_pressed = true を立てる
@@ -90,48 +90,48 @@ void FUiLayer::HandleInput(const acs::Event& /*event*/) noexcept {
 }
 
 u32 FUiLayer::WidgetCount() const noexcept {
-    return static_cast<u32>(_widgets.Size());
+    return static_cast<u32>(m_Widgets.Size());
 }
 
 u32 FUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noexcept {
-    if (!_initialized) {
+    if (!m_Initialized) {
         // Init せずに使われたら warn (Scene 側の OnEnter で Init 漏れ検出)。
         ACS_LOG_WARN("FUiLayer::AddButton called before Init (ignored)");
         return 0;
     }
     WidgetEntry e{};
-    e.handle       = _next_handle++;
+    e.handle       = m_NextHandle++;
     e.kind         = EWidgetKind::Button;
     e.pos          = pos;
     e.size         = size;
     e.text         = label;          // 非所有、寿命は呼び出し側保証
     e.visible      = true;
     e.just_pressed = false;
-    _widgets.PushBack(e);
+    m_Widgets.PushBack(e);
     return e.handle;
 }
 
 u32 FUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
-    if (!_initialized) {
+    if (!m_Initialized) {
         ACS_LOG_WARN("FUiLayer::AddText called before Init (ignored)");
         return 0;
     }
     WidgetEntry e{};
-    e.handle       = _next_handle++;
+    e.handle       = m_NextHandle++;
     e.kind         = EWidgetKind::Text;
     e.pos          = pos;
     e.size         = acs::FVec2{0.0f, 0.0f};  // Phase H-2 でフォントメトリックから計算
     e.text         = text;                    // 非所有
     e.visible      = true;
     e.just_pressed = false;
-    _widgets.PushBack(e);
+    m_Widgets.PushBack(e);
     return e.handle;
 }
 
 bool FUiLayer::IsButtonPressed(u32 handle) const noexcept {
     const u32 idx = FindIndex(handle);
     if (idx == kInvalidIndex) return false;
-    const WidgetEntry& e = _widgets[idx];
+    const WidgetEntry& e = m_Widgets[idx];
     // Text widget には押下概念がない。Button のみが押下対象。
     if (e.kind != EWidgetKind::Button) return false;
     return e.just_pressed;
@@ -143,7 +143,7 @@ void FUiLayer::SetVisible(u32 handle, bool visible) noexcept {
         ACS_LOG_WARN("FUiLayer::SetVisible: invalid handle %u", handle);
         return;
     }
-    _widgets[idx].visible = visible;
+    m_Widgets[idx].visible = visible;
 }
 
 void FUiLayer::Remove(u32 handle) noexcept {
@@ -157,24 +157,24 @@ void FUiLayer::Remove(u32 handle) noexcept {
     // 末尾と swap して PopBack (順序非保持の高速削除、ハンドル探索は線形なので
     // 順序保持不要)。TArray に EraseSwap 等の API があればそちらを使うがここでは
     // 明示的に書く。
-    const u32 last = static_cast<u32>(_widgets.Size()) - 1u;
+    const u32 last = static_cast<u32>(m_Widgets.Size()) - 1u;
     if (idx != last) {
-        _widgets[idx] = _widgets[last];
+        m_Widgets[idx] = m_Widgets[last];
     }
-    _widgets.PopBack();
+    m_Widgets.PopBack();
 }
 
 void FUiLayer::Clear() noexcept {
-    _widgets.Clear();
-    // _next_handle はリセットしない: Clear 後も以前の handle が外部に残っている
+    m_Widgets.Clear();
+    // m_NextHandle はリセットしない: Clear 後も以前の handle が外部に残っている
     // 可能性があり、再利用すると意図しないヒットが起こり得る。Shutdown まで
     // 単調増加を維持する。
 }
 
 u32 FUiLayer::FindIndex(u32 handle) const noexcept {
     if (handle == 0) return kInvalidIndex;
-    for (u32 i = 0; i < _widgets.Size(); ++i) {
-        if (_widgets[i].handle == handle) return i;
+    for (u32 i = 0; i < m_Widgets.Size(); ++i) {
+        if (m_Widgets[i].handle == handle) return i;
     }
     return kInvalidIndex;
 }

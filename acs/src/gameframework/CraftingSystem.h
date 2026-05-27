@@ -259,31 +259,31 @@ public:
     void ClearAll() noexcept;
 
 private:
-    // recipe_id → _recipes 内 index の per-byte 線形検索。未検出は ~0u。
+    // recipe_id → m_Recipes 内 index の per-byte 線形検索。未検出は ~0u。
     u32 FindRecipeSlot(const char* recipe_id) const noexcept;
 
     // レシピ定義 (起動時 immutable)。
-    TArray<CraftRecipe> _recipes;
+    TArray<CraftRecipe> m_Recipes;
 
     // インベントリ adapter (C 関数ポインタ + user)。
-    InventoryQueryFn   _query   = nullptr;
-    InventoryConsumeFn _consume = nullptr;
-    InventoryGrantFn   _grant   = nullptr;
-    void*              _inv_user = nullptr;
+    InventoryQueryFn   m_Query   = nullptr;
+    InventoryConsumeFn m_Consume = nullptr;
+    InventoryGrantFn   m_Grant   = nullptr;
+    void*              m_InvUser = nullptr;
 
     // 完了通知 callback (C 関数ポインタ + user)。
-    CompleteCallback _on_complete      = nullptr;
-    void*            _on_complete_user = nullptr;
+    CompleteCallback m_OnComplete      = nullptr;
+    void*            m_OnCompleteUser = nullptr;
 
     // 現在のクラフト状態。
     ECraftStatus _status               = ECraftStatus::Idle;
-    // 現在のクラフト対象 recipe (= _recipes の要素を指す or nullptr)。
+    // 現在のクラフト対象 recipe (= m_Recipes の要素を指す or nullptr)。
     // Crafting / Completed / Cancelled の間は有効、Idle / ClearAll で nullptr。
-    const CraftRecipe* _current_recipe = nullptr;
+    const CraftRecipe* m_CurrentRecipe = nullptr;
     // craft_duration_sec — 進行率計算用に保持 (recipe を差し替えても安定)。
-    f32 _current_duration_sec          = 0.0f;
+    f32 m_CurrentDurationSec          = 0.0f;
     // 残り秒数 (Tick で減算)。完了で 0、Cancel でも 0 にリセット。
-    f32 _current_remaining_sec         = 0.0f;
+    f32 m_CurrentRemainingSec         = 0.0f;
 };
 
 } // namespace acs::game

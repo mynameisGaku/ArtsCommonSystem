@@ -43,7 +43,7 @@ void FMusicDirector::LogTodoOnce(const char* what) noexcept {
 
 FMusicDirector::FMusicDirector() noexcept {
     // 想定登録数で track 配列を事前確保 (拡張時の reallocation を抑える)。
-    _tracks.Reserve(kTrackReserveHint);
+    m_Tracks.Reserve(kTrackReserveHint);
     for (u32 i = 0; i < kStateCount; ++i) {
         _state_first[i] = 0;
         _state_count[i] = 0;
@@ -80,11 +80,11 @@ void FMusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) n
     // 該当 state の末尾位置に挿入するため、それより後ろの track を 1 つずつ後方シフト。
     // (state ごとに連続区間を維持する SoA 戦略)
     const u32 insert_at = _state_first[state_idx] + _state_count[state_idx];
-    _tracks.PushBack(MusicTrack{});  // 末尾に空き枠を確保
-    for (usize i = _tracks.Size() - 1; i > insert_at; --i) {
-        _tracks[i] = _tracks[i - 1];
+    m_Tracks.PushBack(MusicTrack{});  // 末尾に空き枠を確保
+    for (usize i = m_Tracks.Size() - 1; i > insert_at; --i) {
+        m_Tracks[i] = m_Tracks[i - 1];
     }
-    _tracks[insert_at] = normalized;
+    m_Tracks[insert_at] = normalized;
     _state_count[state_idx] += 1;
 
     // 自身より後ろの state は first を 1 つずつ繰り下げる。
@@ -100,17 +100,17 @@ void FMusicDirector::RebuildStateIndex() noexcept {
 
 usize FMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const noexcept {
     const u32 state_idx = static_cast<u32>(state);
-    if (state_idx >= kStateCount) return _tracks.Size();
+    if (state_idx >= kStateCount) return m_Tracks.Size();
     const u32 first = _state_first[state_idx];
     const u32 count = _state_count[state_idx];
-    if (count == 0) return _tracks.Size();
+    if (count == 0) return m_Tracks.Size();
 
     // 1) intensity 範囲ヒットを線形探索 (count は通常 1..4 個程度)。
-    usize fallback = _tracks.Size();
+    usize fallback = m_Tracks.Size();
     f32   fallback_max = -1.0f;
     for (u32 i = 0; i < count; ++i) {
         const usize idx = static_cast<usize>(first + i);
-        const MusicTrack& t = _tracks[idx];
+        const MusicTrack& t = m_Tracks[idx];
         if (intensity >= t.intensity_min && intensity <= t.intensity_max) {
             return idx;
         }
@@ -137,31 +137,31 @@ void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     LogTodoOnce("SetState");
 
     // 同一 state 再要求: no-op (現行を継続)。遷移中ならそれも継続。
-    if (state == _target_state && !IsTransitioning()) {
+    if (state == m_TargetState && !IsTransitioning()) {
         return;
     }
 
     if (transition_sec <= 0.0f) {
         // 即時切替: current / target ともに即合わせ、progress=1 にスナップ。
-        _current_state        = state;
-        _target_state         = state;
-        _transition_duration  = 0.0f;
-        _transition_elapsed   = 0.0f;
-        _transition_progress  = 1.0f;
+        m_CurrentState        = state;
+        m_TargetState         = state;
+        m_TransitionDuration  = 0.0f;
+        m_TransitionElapsed   = 0.0f;
+        m_TransitionProgress  = 1.0f;
         return;
     }
 
     // クロスフェード開始: current は据え置き、target を新 state に。
     // 既に遷移中だった場合は「現在の current を起点に、新 target へ」再遷移。
     // (= 中断して新方向に切り替える。前の target は破棄される)
-    _target_state         = state;
-    _transition_duration  = transition_sec;
-    _transition_elapsed   = 0.0f;
-    _transition_progress  = 0.0f;
+    m_TargetState         = state;
+    m_TransitionDuration  = transition_sec;
+    m_TransitionElapsed   = 0.0f;
+    m_TransitionProgress  = 0.0f;
 }
 
 bool FMusicDirector::IsTransitioning() const noexcept {
-    return _current_state != _target_state && _transition_progress < 1.0f;
+    return m_CurrentState != m_TargetState && m_TransitionProgress < 1.0f;
 }
 
 // ----------------------------------------------------------------------------
@@ -174,7 +174,7 @@ void FMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
         ACS_LOG_WARN("FMusicDirector::SetIntensity: out-of-range %.3f → clamped to %.3f",
                      intensity_0_to_1, c);
     }
-    _intensity = c;
+    m_Intensity = c;
 }
 
 // ----------------------------------------------------------------------------
@@ -190,27 +190,27 @@ void FMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
         ACS_LOG_WARN("FMusicDirector::PlayStinger: volume=%.3f <= 0 → ignored", volume);
         return;
     }
-    if (_stinger_pending) {
+    if (m_StingerPending) {
         // 既存 pending を上書き (最新採用ポリシー、スタックしない)。
         ACS_LOG_WARN("FMusicDirector::PlayStinger: pending stinger overwritten (%s → %s)",
-                     _stinger_path, asset_path);
+                     m_StingerPath, asset_path);
     }
     LogTodoOnce("Stinger");
-    _stinger_path    = asset_path;
-    _stinger_volume  = volume;
-    _stinger_pending = true;
+    m_StingerPath    = asset_path;
+    m_StingerVolume  = volume;
+    m_StingerPending = true;
 }
 
 const char* FMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
-    if (!_stinger_pending) {
+    if (!m_StingerPending) {
         out_volume = 0.0f;
         return nullptr;
     }
-    const char* path = _stinger_path;
-    out_volume       = _stinger_volume;
-    _stinger_pending = false;
-    _stinger_path    = nullptr;
-    _stinger_volume  = 0.0f;
+    const char* path = m_StingerPath;
+    out_volume       = m_StingerVolume;
+    m_StingerPending = false;
+    m_StingerPath    = nullptr;
+    m_StingerVolume  = 0.0f;
     return path;
 }
 
@@ -223,23 +223,23 @@ void FMusicDirector::Tick(f32 dt) noexcept {
     LogTodoOnce("Tick");
 
     // クロスフェード進行。current == target なら何もしない (定常状態)。
-    if (_current_state != _target_state) {
-        if (_transition_duration <= 0.0f) {
+    if (m_CurrentState != m_TargetState) {
+        if (m_TransitionDuration <= 0.0f) {
             // 不正状態 (duration=0 で current != target) → 即 snap して防御。
-            _current_state       = _target_state;
-            _transition_progress = 1.0f;
+            m_CurrentState       = m_TargetState;
+            m_TransitionProgress = 1.0f;
             return;
         }
-        _transition_elapsed += dt;
-        const f32 t = _transition_elapsed / _transition_duration;
+        m_TransitionElapsed += dt;
+        const f32 t = m_TransitionElapsed / m_TransitionDuration;
         if (t >= 1.0f) {
             // 遷移完了: current を target に snap。
-            _current_state       = _target_state;
-            _transition_progress = 1.0f;
-            _transition_elapsed  = 0.0f;
-            _transition_duration = 0.0f;
+            m_CurrentState       = m_TargetState;
+            m_TransitionProgress = 1.0f;
+            m_TransitionElapsed  = 0.0f;
+            m_TransitionDuration = 0.0f;
         } else {
-            _transition_progress = t;
+            m_TransitionProgress = t;
         }
     }
 }
@@ -250,15 +250,15 @@ void FMusicDirector::Tick(f32 dt) noexcept {
 
 void FMusicDirector::Stop() noexcept {
     LogTodoOnce("Stop");
-    _current_state        = EMusicState::Silent;
-    _target_state         = EMusicState::Silent;
-    _transition_duration  = 0.0f;
-    _transition_elapsed   = 0.0f;
-    _transition_progress  = 1.0f;
+    m_CurrentState        = EMusicState::Silent;
+    m_TargetState         = EMusicState::Silent;
+    m_TransitionDuration  = 0.0f;
+    m_TransitionElapsed   = 0.0f;
+    m_TransitionProgress  = 1.0f;
     // stinger pending も破棄 (一律停止のため)。
-    _stinger_pending = false;
-    _stinger_path    = nullptr;
-    _stinger_volume  = 0.0f;
+    m_StingerPending = false;
+    m_StingerPath    = nullptr;
+    m_StingerVolume  = 0.0f;
     // intensity は保持 (next state 開始時の体験を断絶させない)。
 }
 
@@ -267,16 +267,16 @@ void FMusicDirector::Stop() noexcept {
 // ----------------------------------------------------------------------------
 
 const MusicTrack* FMusicDirector::CurrentTrack() const noexcept {
-    const usize idx = FindTrackForState(_current_state, _intensity);
-    if (idx >= _tracks.Size()) return nullptr;
-    return &_tracks[idx];
+    const usize idx = FindTrackForState(m_CurrentState, m_Intensity);
+    if (idx >= m_Tracks.Size()) return nullptr;
+    return &m_Tracks[idx];
 }
 
 const MusicTrack* FMusicDirector::TargetTrack() const noexcept {
-    if (_current_state == _target_state) return nullptr;
-    const usize idx = FindTrackForState(_target_state, _intensity);
-    if (idx >= _tracks.Size()) return nullptr;
-    return &_tracks[idx];
+    if (m_CurrentState == m_TargetState) return nullptr;
+    const usize idx = FindTrackForState(m_TargetState, m_Intensity);
+    if (idx >= m_Tracks.Size()) return nullptr;
+    return &m_Tracks[idx];
 }
 
 } // namespace acs::game

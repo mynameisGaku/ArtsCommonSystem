@@ -15,8 +15,8 @@ void FSceneManager::ChangeScene(TUniquePtr<Scene> next) noexcept {
         ACS_LOG_WARN("FSceneManager::ChangeScene(nullptr) ignored");
         return;
     }
-    _pending_op  = Op::Change;
-    _pending_arg = Move(next);
+    m_PendingOp  = Op::Change;
+    m_PendingArg = Move(next);
 }
 
 void FSceneManager::PushScene(TUniquePtr<Scene> next) noexcept {
@@ -24,30 +24,30 @@ void FSceneManager::PushScene(TUniquePtr<Scene> next) noexcept {
         ACS_LOG_WARN("FSceneManager::PushScene(nullptr) ignored");
         return;
     }
-    _pending_op  = Op::Push;
-    _pending_arg = Move(next);
+    m_PendingOp  = Op::Push;
+    m_PendingArg = Move(next);
 }
 
 void FSceneManager::PopScene() noexcept {
-    _pending_op = Op::Pop;
-    _pending_arg.Reset();
+    m_PendingOp = Op::Pop;
+    m_PendingArg.Reset();
 }
 
 Scene* FSceneManager::Top() const noexcept {
-    if (_stack.IsEmpty()) return nullptr;
-    return _stack.Back().Get();
+    if (m_Stack.IsEmpty()) return nullptr;
+    return m_Stack.Back().Get();
 }
 
 u32 FSceneManager::Depth() const noexcept {
-    return static_cast<u32>(_stack.Size());
+    return static_cast<u32>(m_Stack.Size());
 }
 
 void FSceneManager::DoPushInternal(FGame& game, TUniquePtr<Scene> next,
                                    bool pause_current) noexcept {
     if (!next) return;
     // 旧 top を OnPause (Push 時のみ。Change は新 top 直入れなので skip)
-    if (pause_current && !_stack.IsEmpty()) {
-        _stack.Back()->OnPause();
+    if (pause_current && !m_Stack.IsEmpty()) {
+        m_Stack.Back()->OnPause();
     }
     next->_SetContext(&game, this);
     // Phase 8: WantedServices に基づいて FSceneServices を構築・attach。
@@ -56,20 +56,20 @@ void FSceneManager::DoPushInternal(FGame& game, TUniquePtr<Scene> next,
     if (wanted != ESvc::None) {
         next->_AttachServices(MakeUnique<FSceneServices>(wanted));
     }
-    _stack.PushBack(Move(next));
-    _stack.Back()->OnEnter();
+    m_Stack.PushBack(Move(next));
+    m_Stack.Back()->OnEnter();
 }
 
 void FSceneManager::DoPopInternal(bool resume_new) noexcept {
-    if (_stack.IsEmpty()) return;
-    _stack.Back()->OnExit();
+    if (m_Stack.IsEmpty()) return;
+    m_Stack.Back()->OnExit();
     // 退場 Scene を ring buffer の現在ヘッドに格納 (3 フレーム保持)。
     // ヘッドは _ApplyPending の冒頭で前進 + 古いスロット解放済。
-    _retired[_retire_head] = Move(_stack.Back());
-    _stack.PopBack();
+    m_Retired[m_RetireHead] = Move(m_Stack.Back());
+    m_Stack.PopBack();
     // 新 top を OnResume (Pop 時のみ。Change は次の Push が走るので skip)
-    if (resume_new && !_stack.IsEmpty()) {
-        _stack.Back()->OnResume();
+    if (resume_new && !m_Stack.IsEmpty()) {
+        m_Stack.Back()->OnResume();
     }
 }
 
@@ -77,12 +77,12 @@ void FSceneManager::_ApplyPending(FGame& game) noexcept {
     // GPU N+1 frame 遅延削除: ring を 1 つ前進し、新ヘッド位置のスロットを
     // 解放する (= 3 フレーム前に退場した Scene を今ここで破棄)。フレーム
     // インフライト 2 + 1 で「直前 2 フレームを GPU が参照中でも安全」を保つ。
-    _retire_head = (_retire_head + 1u) % kRetireRingSize;
-    _retired[_retire_head].Reset();
+    m_RetireHead = (m_RetireHead + 1u) % kRetireRingSize;
+    m_Retired[m_RetireHead].Reset();
 
-    Op op = _pending_op;
-    _pending_op = Op::None;
-    TUniquePtr<Scene> arg = Move(_pending_arg);
+    Op op = m_PendingOp;
+    m_PendingOp = Op::None;
+    TUniquePtr<Scene> arg = Move(m_PendingArg);
 
     switch (op) {
     case Op::None:
@@ -98,9 +98,9 @@ void FSceneManager::_ApplyPending(FGame& game) noexcept {
         DoPushInternal(game, Move(arg), /*pause_current=*/true);
         break;
     case Op::Pop:
-        if (_stack.Size() <= 1) {
+        if (m_Stack.Size() <= 1) {
             ACS_LOG_WARN("FSceneManager::PopScene on a stack of size %u (need >=2) — ignored",
-                         static_cast<u32>(_stack.Size()));
+                         static_cast<u32>(m_Stack.Size()));
             return;
         }
         // 新しく top に戻るシーンを OnResume する。
@@ -145,15 +145,15 @@ void FSceneManager::_DispatchEvent(const Event& e) noexcept {
 
 void FSceneManager::_ShutdownAll() noexcept {
     // top から順に OnExit を呼んでから破棄。
-    while (!_stack.IsEmpty()) {
-        _stack.Back()->OnExit();
-        _stack.PopBack();
+    while (!m_Stack.IsEmpty()) {
+        m_Stack.Back()->OnExit();
+        m_Stack.PopBack();
     }
     for (u32 i = 0; i < kRetireRingSize; ++i) {
-        _retired[i].Reset();
+        m_Retired[i].Reset();
     }
-    _pending_arg.Reset();
-    _pending_op = Op::None;
+    m_PendingArg.Reset();
+    m_PendingOp = Op::None;
 }
 
 } // namespace acs::game

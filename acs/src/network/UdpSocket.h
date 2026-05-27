@@ -41,10 +41,10 @@ public:
     TResult<void> SetNonBlocking(bool enable) noexcept;
 
     void Close() noexcept;
-    bool IsValid() const noexcept { return _socket != ~uptr{0}; }
+    bool IsValid() const noexcept { return m_Socket != ~uptr{0}; }
 
 private:
-    uptr _socket = ~uptr{0};
+    uptr m_Socket = ~uptr{0};
 };
 
 } // namespace acs

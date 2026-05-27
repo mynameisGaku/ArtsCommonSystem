@@ -12,19 +12,19 @@ namespace acs {
 class CompletionCounter {
 public:
     CompletionCounter() noexcept = default;
-    explicit CompletionCounter(u32 initial) noexcept : _v(initial) {}
+    explicit CompletionCounter(u32 initial) noexcept : m_V(initial) {}
 
     // 共有してもカウントが直交しないのでコピー禁止
     CompletionCounter(const CompletionCounter&) = delete;
     CompletionCounter& operator=(const CompletionCounter&) = delete;
 
-    void Add(u32 n = 1) noexcept   { _v.FetchAdd(n); }                       // タスク投入時
-    void Done()         noexcept   { _v.FetchSub(1); }                       // タスク完了時
-    u32  Pending() const noexcept  { return _v.Load(EMemoryOrder::Acquire); } // 残数
+    void Add(u32 n = 1) noexcept   { m_V.FetchAdd(n); }                       // タスク投入時
+    void Done()         noexcept   { m_V.FetchSub(1); }                       // タスク完了時
+    u32  Pending() const noexcept  { return m_V.Load(EMemoryOrder::Acquire); } // 残数
     bool Finished() const noexcept { return Pending() == 0; }                // 全完了か
 
 private:
-    mutable TAtomic<u32> _v {0};
+    mutable TAtomic<u32> m_V {0};
 };
 
 // タスク本体の関数型（worker_index は実行ワーカーの ID 0..N-1）

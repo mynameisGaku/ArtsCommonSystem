@@ -29,35 +29,35 @@ bool StrEq(const char* a, const char* b) noexcept {
 } // namespace
 
 void FTutorialFlow::AddStep(const FTutorialStep& step) noexcept {
-    _steps.PushBack(step);
+    m_Steps.PushBack(step);
 }
 
 void FTutorialFlow::Start() noexcept {
-    _current_step = 0;
-    _completed    = false;
-    if (_steps.Size() == 0) {
+    m_CurrentStep = 0;
+    m_Completed    = false;
+    if (m_Steps.Size() == 0) {
         // 空チュートリアル: 即完了扱いで終わる (no-op 防御)
-        _active    = false;
-        _completed = true;
+        m_Active    = false;
+        m_Completed = true;
         return;
     }
-    _active = true;
+    m_Active = true;
 }
 
 void FTutorialFlow::AdvanceStep() noexcept {
-    if (!_active) return;
-    ++_current_step;
-    if (_current_step >= static_cast<u32>(_steps.Size())) {
+    if (!m_Active) return;
+    ++m_CurrentStep;
+    if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) {
         // 最終ステップを越えた → 完了
-        _active    = false;
-        _completed = true;
+        m_Active    = false;
+        m_Completed = true;
     }
 }
 
 void FTutorialFlow::NotifyAction(const char* action_id) noexcept {
-    if (!_active || action_id == nullptr) return;
-    if (_current_step >= static_cast<u32>(_steps.Size())) return;
-    const FTutorialStep& step = _steps[_current_step];
+    if (!m_Active || action_id == nullptr) return;
+    if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) return;
+    const FTutorialStep& step = m_Steps[m_CurrentStep];
     if (!step.require_user_action) return;     // 自動 advance しないステップ
     if (StrEq(step.id, action_id)) {
         AdvanceStep();
@@ -65,31 +65,31 @@ void FTutorialFlow::NotifyAction(const char* action_id) noexcept {
 }
 
 void FTutorialFlow::Reset() noexcept {
-    _current_step = 0;
-    _active       = false;
-    _completed    = false;
+    m_CurrentStep = 0;
+    m_Active       = false;
+    m_Completed    = false;
 }
 
 void FTutorialFlow::Skip() noexcept {
-    if (_completed) return;     // 冪等: 2 度目は no-op
-    _active    = false;
-    _completed = true;
+    if (m_Completed) return;     // 冪等: 2 度目は no-op
+    m_Active    = false;
+    m_Completed = true;
 }
 
 const FTutorialStep* FTutorialFlow::CurrentStep() const noexcept {
-    if (!_active) return nullptr;
-    if (_current_step >= static_cast<u32>(_steps.Size())) return nullptr;
-    return &_steps[_current_step];
+    if (!m_Active) return nullptr;
+    if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) return nullptr;
+    return &m_Steps[m_CurrentStep];
 }
 
 u32 FTutorialFlow::StepCount() const noexcept {
-    return static_cast<u32>(_steps.Size());
+    return static_cast<u32>(m_Steps.Size());
 }
 
 void FTutorialFlow::Tick(f32 /*dt*/) noexcept {
     // Phase 2: 内部 timer 無し (require_user_action のステップは NotifyAction
     // または AdvanceStep のみで進む)。将来 hint 出現遅延 / auto-advance step
-    // を入れる際にここで _current_step の elapsed を進める想定。
+    // を入れる際にここで m_CurrentStep の elapsed を進める想定。
 }
 
 } // namespace acs::game

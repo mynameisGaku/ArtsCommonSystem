@@ -36,12 +36,12 @@ public:
                        acs::FSpriteBatch& sb) const noexcept;
 
     // HUD 描画で使う: 直近 flash の色と強度。
-    acs::game::FEffectSystem&       Fx()       noexcept { return _fx; }
-    const acs::game::FEffectSystem& Fx() const noexcept { return _fx; }
+    acs::game::FEffectSystem&       Fx()       noexcept { return m_Fx; }
+    const acs::game::FEffectSystem& Fx() const noexcept { return m_Fx; }
 
 private:
-    acs::game::FEmitterHandle  _hit_emitter {};
-    acs::game::FEffectSystem   _fx;
+    acs::game::FEmitterHandle  m_HitEmitter {};
+    acs::game::FEffectSystem   m_Fx;
 };
 
 } // namespace hellofg

@@ -12,7 +12,7 @@ using namespace acs;
 namespace helloaudio {
 
 void HelloAudioApp::OnStart() noexcept {
-    ACS_SAMPLE_INIT(_engine.Init());
+    ACS_SAMPLE_INIT(m_Engine.Init());
     // wav / mp3 / flac / ogg のいずれでも OK（拡張子を変えるだけ）
     auto a = GetAssets().Load(L"test.wav");
     if (a.IsErr()) {
@@ -20,27 +20,27 @@ void HelloAudioApp::OnStart() noexcept {
         // 音ファイルが無くてもアプリは動かせる
         return;
     }
-    _audio = a.Value();
+    m_Audio = a.Value();
 }
 
 void HelloAudioApp::OnUpdate(f32 /*dt*/) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
     if (Input::IsKeyPressed(EKey::Space)) {
-        if (_handle.IsValid()) {
-            _engine.Stop(_handle);
-            _handle = kInvalidSound;
-        } else if (_audio) {
-            auto* a = static_cast<FAudioAsset*>(_audio.Get());
-            _handle = _engine.Play(*a, _volume, /*loop*/ false);
+        if (m_Handle.IsValid()) {
+            m_Engine.Stop(m_Handle);
+            m_Handle = kInvalidSound;
+        } else if (m_Audio) {
+            auto* a = static_cast<FAudioAsset*>(m_Audio.Get());
+            m_Handle = m_Engine.Play(*a, m_Volume, /*loop*/ false);
         }
     }
-    if (Input::IsKeyPressed(EKey::Up))   { _volume += 0.1f; if (_volume > 1) _volume = 1; _engine.SetVolume(_handle, _volume); }
-    if (Input::IsKeyPressed(EKey::Down)) { _volume -= 0.1f; if (_volume < 0) _volume = 0; _engine.SetVolume(_handle, _volume); }
+    if (Input::IsKeyPressed(EKey::Up))   { m_Volume += 0.1f; if (m_Volume > 1) m_Volume = 1; m_Engine.SetVolume(m_Handle, m_Volume); }
+    if (Input::IsKeyPressed(EKey::Down)) { m_Volume -= 0.1f; if (m_Volume < 0) m_Volume = 0; m_Engine.SetVolume(m_Handle, m_Volume); }
 }
 
 void HelloAudioApp::OnShutdown() noexcept {
-    _engine.Shutdown();
+    m_Engine.Shutdown();
 }
 
 } // namespace helloaudio

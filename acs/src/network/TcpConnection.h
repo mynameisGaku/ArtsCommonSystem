@@ -43,12 +43,12 @@ public:
     // ノンブロッキングモードに切り替え
     TResult<void> SetNonBlocking(bool enable) noexcept;
 
-    bool      IsValid()  const noexcept { return _socket != ~uptr{0}; }
-    IpAddress Remote()   const noexcept { return _remote; }
+    bool      IsValid()  const noexcept { return m_Socket != ~uptr{0}; }
+    IpAddress Remote()   const noexcept { return m_Remote; }
 
 private:
-    uptr      _socket = ~uptr{0};   // SOCKET (~0 を無効値とする)
-    IpAddress _remote {};
+    uptr      m_Socket = ~uptr{0};   // SOCKET (~0 を無効値とする)
+    IpAddress m_Remote {};
 };
 
 } // namespace acs

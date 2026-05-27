@@ -77,7 +77,7 @@ namespace acs::game {
 
 // ---- ECosmeticSlot: 装着位置 ------------------------------------------------
 // 11 種類で固定 (Phase 3)。slot index は固定長配列のキーとしても使うため、
-// 数値順に連続させること (中抜けすると _equipped_in_slot[] が穴あきになる)。
+// 数値順に連続させること (中抜けすると m_EquippedInSlot[] が穴あきになる)。
 // ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
 enum class ECosmeticSlot : u8 {
     Head         = 0,
@@ -194,18 +194,18 @@ private:
     u32 FindIndex(const char* id) const noexcept;
 
     // 登録済 cosmetic 定義 (immutable)。
-    TArray<CosmeticItem> _items;
+    TArray<CosmeticItem> m_Items;
 
-    // unlock 状態 (_items と並行配列、1:1 対応)。
-    TArray<bool> _unlocked;
+    // unlock 状態 (m_Items と並行配列、1:1 対応)。
+    TArray<bool> m_Unlocked;
 
     // slot ごとの現在装着 id (kCosmeticSlotCount 個の固定長配列)。
-    // 値は _items の id をそのまま指すリテラル参照 (非所有)。
-    const char* _equipped_in_slot[kCosmeticSlotCount];
+    // 値は m_Items の id をそのまま指すリテラル参照 (非所有)。
+    const char* m_EquippedInSlot[kCosmeticSlotCount];
 
     // 装着 callback (関数ポインタ + user data)。両方 nullptr で未設定。
-    EquipCallback _on_equip      = nullptr;
-    void*         _on_equip_user = nullptr;
+    EquipCallback m_OnEquip      = nullptr;
+    void*         m_OnEquipUser = nullptr;
 };
 
 } // namespace acs::game

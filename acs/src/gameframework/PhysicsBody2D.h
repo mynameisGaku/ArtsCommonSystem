@@ -21,7 +21,7 @@
 //     CollisionWorld への参照は constructor で受け取る。
 //   ・**axis-separated movement**: X / Y を独立に試して overlap なら止める。
 //     真の collide-and-slide は Phase 3。
-//   ・**自己除外**: OverlapAabb/Circle の `exclude` 引数で _handle を渡し、
+//   ・**自己除外**: OverlapAabb/Circle の `exclude` 引数で m_Handle を渡し、
 //     自分との衝突を無視。
 //   ・**OnUpdate で統合**: dt は scene の (scaled) dt。fixed timestep が
 //     必要なら scene 側で `OnFixedUpdate` から body.Step(fixed_dt) を呼ぶ
@@ -43,18 +43,18 @@ public:
     ACS_GAME_COMPONENT_KIND(FPhysicsBody2D)
 
     // CollisionWorld への参照は constructor で必須受取
-    explicit FPhysicsBody2D(FCollisionWorld2D& world) noexcept : _world(&world) {}
+    explicit FPhysicsBody2D(FCollisionWorld2D& world) noexcept : m_World(&world) {}
 
     // ----- 形状設定 (どちらか一方を設定。再設定で上書き) -----
     void SetCircle(f32 radius) noexcept {
-        _kind = ShapeKind::Circle;
-        _radius = radius > 0.0f ? radius : 0.001f;
+        m_Kind = ShapeKind::Circle;
+        m_Radius = radius > 0.0f ? radius : 0.001f;
         // 既に登録済なら CollisionWorld 側に反映
         SyncShapeIfRegistered();
     }
     void SetAabb(FVec2 half_size) noexcept {
-        _kind = ShapeKind::FAabb;
-        _half_size = half_size;
+        m_Kind = ShapeKind::FAabb;
+        m_HalfSize = half_size;
         SyncShapeIfRegistered();
     }
 
@@ -64,7 +64,7 @@ public:
     FVec2 gravity      {0.0f, 0.0f};
 
     // 現在の collision handle (deregister 時に invalidated)
-    FShapeId Handle() const noexcept { return _handle; }
+    FShapeId Handle() const noexcept { return m_Handle; }
 
     // FComponent2D hooks
     void OnAttach(FNode2D& owner) noexcept override;
@@ -78,12 +78,12 @@ private:
     void RegisterShapeAt(FVec2 pos) noexcept;
     void SyncShapeIfRegistered() noexcept;
 
-    FCollisionWorld2D* _world  = nullptr;
-    ShapeKind         _kind   = ShapeKind::None;
-    f32               _radius = 0.5f;
-    FVec2              _half_size{0.5f, 0.5f};
-    FShapeId           _handle;
-    bool              _registered = false;
+    FCollisionWorld2D* m_World  = nullptr;
+    ShapeKind         m_Kind   = ShapeKind::None;
+    f32               m_Radius = 0.5f;
+    FVec2              m_HalfSize{0.5f, 0.5f};
+    FShapeId           m_Handle;
+    bool              m_Registered = false;
 };
 
 } // namespace acs::game

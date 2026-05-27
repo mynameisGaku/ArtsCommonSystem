@@ -52,18 +52,18 @@ void RecordInfo   (FSourceLoc loc, const char* fmt, ...) noexcept;
 // main 開始前にテスト一覧が構築される。
 // =============================================================================
 #define ACS_TEST(suite, name)                                                  \
-    static void ACS_CONCAT(_acs_test_fn_, __LINE__)();                         \
+    static void ACS_CONCAT(m_AcsTestFn, __LINE__)();                         \
     namespace {                                                                \
-        struct ACS_CONCAT(_acs_test_reg_, __LINE__) {                          \
-            ACS_CONCAT(_acs_test_reg_, __LINE__)() noexcept {                  \
+        struct ACS_CONCAT(m_AcsTestReg, __LINE__) {                          \
+            ACS_CONCAT(m_AcsTestReg, __LINE__)() noexcept {                  \
                 static ::acs::test::TestCase tc {                              \
                     #suite, #name, __FILE__, __LINE__,                         \
-                    &ACS_CONCAT(_acs_test_fn_, __LINE__),                      \
+                    &ACS_CONCAT(m_AcsTestFn, __LINE__),                      \
                     nullptr                                                    \
                 };                                                             \
                 ::acs::test::Register(&tc);                                    \
             }                                                                  \
         };                                                                     \
-        static ACS_CONCAT(_acs_test_reg_, __LINE__) ACS_CONCAT(_acs_test_inst_, __LINE__);\
+        static ACS_CONCAT(m_AcsTestReg, __LINE__) ACS_CONCAT(m_AcsTestInst, __LINE__);\
     }                                                                          \
-    static void ACS_CONCAT(_acs_test_fn_, __LINE__)()
+    static void ACS_CONCAT(m_AcsTestFn, __LINE__)()

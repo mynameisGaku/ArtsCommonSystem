@@ -54,74 +54,74 @@ public:
     TRc() noexcept = default;
 
     // コピー: 参照カウント increment
-    TRc(const TRc& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
-        if (_cb) _cb->strong.FetchAdd(1);
+    TRc(const TRc& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) {
+        if (m_Cb) m_Cb->strong.FetchAdd(1);
     }
     // ムーブ: カウントは触らず所有権だけ移譲
-    TRc(TRc&& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
-        o._ptr = nullptr;
-        o._cb  = nullptr;
+    TRc(TRc&& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) {
+        o.m_Ptr = nullptr;
+        o.m_Cb  = nullptr;
     }
 
     // U が T の派生型なら TRc<U> から TRc<T> へアップキャスト変換できる
     template<typename U>
-    TRc(const TRc<U>& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
-        if (_cb) _cb->strong.FetchAdd(1);
+    TRc(const TRc<U>& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) {
+        if (m_Cb) m_Cb->strong.FetchAdd(1);
     }
     template<typename U>
-    TRc(TRc<U>&& o) noexcept : _ptr(o._ptr), _cb(o._cb) {
-        o._ptr = nullptr;
-        o._cb  = nullptr;
+    TRc(TRc<U>&& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) {
+        o.m_Ptr = nullptr;
+        o.m_Cb  = nullptr;
     }
 
     template<typename U> friend class TRc;  // U → T 変換のために privates を共有
     TRc& operator=(const TRc& o) noexcept {
         if (this == &o) return *this;
         Release();
-        _ptr = o._ptr;
-        _cb  = o._cb;
-        if (_cb) _cb->strong.FetchAdd(1);
+        m_Ptr = o.m_Ptr;
+        m_Cb  = o.m_Cb;
+        if (m_Cb) m_Cb->strong.FetchAdd(1);
         return *this;
     }
     TRc& operator=(TRc&& o) noexcept {
         if (this == &o) return *this;
         Release();
-        _ptr = o._ptr;
-        _cb  = o._cb;
-        o._ptr = nullptr;
-        o._cb  = nullptr;
+        m_Ptr = o.m_Ptr;
+        m_Cb  = o.m_Cb;
+        o.m_Ptr = nullptr;
+        o.m_Cb  = nullptr;
         return *this;
     }
     ~TRc() noexcept { Release(); }
 
     // ---- アクセス ----
-    T*       Get()       noexcept { return _ptr; }
-    const T* Get() const noexcept { return _ptr; }
-    T& operator*()  const noexcept { return *_ptr; }
-    T* operator->() const noexcept { return _ptr; }
-    explicit operator bool() const noexcept { return _ptr != nullptr; }
+    T*       Get()       noexcept { return m_Ptr; }
+    const T* Get() const noexcept { return m_Ptr; }
+    T& operator*()  const noexcept { return *m_Ptr; }
+    T* operator->() const noexcept { return m_Ptr; }
+    explicit operator bool() const noexcept { return m_Ptr != nullptr; }
 
     // 現在の参照数（デバッグ用、相対値）
-    u32 UseCount() const noexcept { return _cb ? _cb->strong.Load(EMemoryOrder::Acquire) : 0; }
+    u32 UseCount() const noexcept { return m_Cb ? m_Cb->strong.Load(EMemoryOrder::Acquire) : 0; }
 
     template<typename U, typename... Args> friend TRc<U> MakeRc(Args&&...) noexcept;
     template<typename U, typename... Args> friend TRc<U> MakeRcIn(FAllocator&, Args&&...) noexcept;
 
 private:
-    TRc(T* p, rc_detail::ControlBlock* cb) noexcept : _ptr(p), _cb(cb) {}
+    TRc(T* p, rc_detail::ControlBlock* cb) noexcept : m_Ptr(p), m_Cb(cb) {}
 
     // 参照カウントを 1 減らし、0 なら対象を解放する
     void Release() noexcept {
-        if (!_cb) return;
-        if (_cb->strong.FetchSub(1) == 1) {
-            _cb->destroy(_cb);  // strong が 1 → 0 になったので破棄
+        if (!m_Cb) return;
+        if (m_Cb->strong.FetchSub(1) == 1) {
+            m_Cb->destroy(m_Cb);  // strong が 1 → 0 になったので破棄
         }
-        _ptr = nullptr;
-        _cb  = nullptr;
+        m_Ptr = nullptr;
+        m_Cb  = nullptr;
     }
 
-    T*                       _ptr = nullptr;
-    rc_detail::ControlBlock* _cb  = nullptr;
+    T*                       m_Ptr = nullptr;
+    rc_detail::ControlBlock* m_Cb  = nullptr;
 };
 
 // ---- ファクトリ -----------------------------------------------------------

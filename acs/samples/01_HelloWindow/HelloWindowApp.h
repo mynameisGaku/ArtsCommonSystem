@@ -22,9 +22,9 @@ public:
     void OnEvent(const acs::Event& e) noexcept override;
 
 private:
-    acs::f32 _r = 0.1f;
-    acs::f32 _g = 0.12f;
-    acs::f32 _b = 0.16f;
+    acs::f32 m_R = 0.1f;
+    acs::f32 m_G = 0.12f;
+    acs::f32 m_B = 0.16f;
 };
 
 } // namespace hellowin

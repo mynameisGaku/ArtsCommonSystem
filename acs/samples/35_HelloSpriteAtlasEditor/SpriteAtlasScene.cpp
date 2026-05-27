@@ -20,7 +20,7 @@ void SpriteAtlasScene::OnEnter() noexcept {
     // 外側のクリア色を編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
-    _workspace.Init();
+    m_Workspace.Init();
 
     // 実 texture path は文字列リテラルとして渡すだけ (loader 未配線)。
     // panel の viewport は texture を描かず grid placeholder で代用する。
@@ -28,7 +28,7 @@ void SpriteAtlasScene::OnEnter() noexcept {
     info.atlas_texture_path = "assets/dummy_atlas.png";
     info.atlas_width        = 256u;
     info.atlas_height       = 256u;
-    _pack.Init(info);
+    m_Pack.Init(info);
 
     // 3 frame (Idle / Walk / Jump 各 32x32) を登録。
     // name は文字列リテラル (FSpritePack 規約: caller 所有 / リテラル前提)。
@@ -41,24 +41,24 @@ void SpriteAtlasScene::OnEnter() noexcept {
     f.name = "Idle";
     f.x = 0u;
     f.y = 0u;
-    _pack.AddFrame(f);
+    m_Pack.AddFrame(f);
 
     f.name = "Walk";
     f.x = 32u;
     f.y = 0u;
-    _pack.AddFrame(f);
+    m_Pack.AddFrame(f);
 
     f.name = "Jump";
     f.x = 64u;
     f.y = 0u;
-    _pack.AddFrame(f);
+    m_Pack.AddFrame(f);
 
     // FEditorWorkspace::RegisterPanel は内部で panel->OnInit(*this) を呼ぶため、
     // panel.OnInit を別途呼ぶ必要は無い。SetSpritePack は Init / OnInit の
     // どちらより後でも構わない (panel が pack の存在を毎フレーム確認するため)。
-    _editor_panel.Init();
-    _workspace.RegisterPanel(&_editor_panel);
-    _editor_panel.SetSpritePack(&_pack);
+    m_EditorPanel.Init();
+    m_Workspace.RegisterPanel(&m_EditorPanel);
+    m_EditorPanel.SetSpritePack(&m_Pack);
 
     ACS_LOG_INFO("[SpriteAtlasEditor] entered (256x256 dummy atlas, 3 frames: Idle/Walk/Jump)");
 }
@@ -69,13 +69,13 @@ void SpriteAtlasScene::OnEnter() noexcept {
 void SpriteAtlasScene::OnExit() noexcept {
     // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear するため、個別 UnregisterPanel は不要。
-    _workspace.Shutdown();
+    m_Workspace.Shutdown();
     // panel 本体の internal state を解放 (name pool / selection クリア)。
-    _editor_panel.Shutdown();
+    m_EditorPanel.Shutdown();
 
     // FSpritePack は Dtor で frame 配列を解放する (TArray の所有を持つ)。
     // 明示 ClearAll しても良いが、scene 破棄と同時なので無くても問題なし。
-    _pack.ClearAll();
+    m_Pack.ClearAll();
 
     ACS_LOG_INFO("[SpriteAtlasEditor] exited");
 }
@@ -105,7 +105,7 @@ void SpriteAtlasScene::OnRender(RenderContext& /*rc*/) noexcept {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Save .acsatlas")) {
                 // serializer 本体は未配線。callback hook だけ走らせる stub。
-                // 将来は AtlasSerializer::Save(kAtlasFilePath, _pack) を呼ぶ。
+                // 将来は AtlasSerializer::Save(kAtlasFilePath, m_Pack) を呼ぶ。
                 ACS_LOG_INFO("[SpriteAtlasEditor] Save .acsatlas -> '%s' (stub, no-op)", kAtlasFilePath);
             }
             if (ImGui::MenuItem("Load .acsatlas")) {
@@ -121,7 +121,7 @@ void SpriteAtlasScene::OnRender(RenderContext& /*rc*/) noexcept {
     }
 
     // OnFrameBegin → DockSpace → MenuBar → 各 panel DrawUI を順に発火。
-    _workspace.TickAllPanels(GetGame().DeltaTime());
+    m_Workspace.TickAllPanels(GetGame().DeltaTime());
 }
 
 } // namespace hellosa

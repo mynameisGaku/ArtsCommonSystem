@@ -36,17 +36,17 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    acs::FPbrShader         _pbr;
-    acs::FPostProcess       _post;
-    acs::PostProcessParams _post_params;
-    Quad                   _quads[kQuadCount];
-    acs::FSpriteBatch       _batch;
-    acs::Font              _font;
-    acs::FCamera            _camera;
-    acs::FVec3              _cam_pos{0, 1.0f, -0.9f};
-    acs::f32               _cam_yaw   = 0.0f;
-    acs::f32               _cam_pitch = 0.0f;
-    bool                   _show_lightmap = true;
+    acs::FPbrShader         m_Pbr;
+    acs::FPostProcess       m_Post;
+    acs::PostProcessParams m_PostParams;
+    Quad                   m_Quads[kQuadCount];
+    acs::FSpriteBatch       m_Batch;
+    acs::Font              m_Font;
+    acs::FCamera            m_Camera;
+    acs::FVec3              m_CamPos{0, 1.0f, -0.9f};
+    acs::f32               m_CamYaw   = 0.0f;
+    acs::f32               m_CamPitch = 0.0f;
+    bool                   m_ShowLightmap = true;
 };
 
 } // namespace hellolightmap

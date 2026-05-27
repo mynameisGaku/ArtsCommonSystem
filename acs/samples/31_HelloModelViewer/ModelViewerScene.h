@@ -34,10 +34,10 @@ private:
     static constexpr const wchar_t* kThemePath        = L"data/editor/theme.acstheme";
     static constexpr const wchar_t* kAssetRoot        = L"assets/";
 
-    ViewerPanels         _panels;
-    ViewerScenePipeline  _pipeline;
-    ViewerMenuBar        _menu_bar;
-    acs::f32             _angle = 0.0f;
+    ViewerPanels         m_Panels;
+    ViewerScenePipeline  m_Pipeline;
+    ViewerMenuBar        m_MenuBar;
+    acs::f32             m_Angle = 0.0f;
 };
 
 } // namespace hellomv

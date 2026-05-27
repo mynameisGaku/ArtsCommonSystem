@@ -17,9 +17,9 @@
 //   ・ロード済みモデルが持つ animation clip 一覧を保持 (`SetClips`)
 //   ・clip 切替 (dropdown) + Play / Pause / Stop + Loop toggle + Speed slider
 //     + Time slider (現フレームの時刻 [0, duration]) + Blend weight slider
-//   ・`Tick(dt)` で Playing 状態の場合 `_current_time += dt * _speed` を進める
+//   ・`Tick(dt)` で Playing 状態の場合 `m_CurrentTime += dt * m_Speed` を進める
 //   ・duration 到達時、looping ならラップ、そうでなければ Stopped に遷移
-//   ・毎 Tick 終端で `_on_frame_cb(user, clip_index, time_sec)` を発火し、
+//   ・毎 Tick 終端で `m_OnFrameCb(user, clip_index, time_sec)` を発火し、
 //     呼出側 (ModelViewportRenderer 等) が FAnimationPlayer に時刻を反映する
 //
 // 役割分担 (本 panel と外部):
@@ -46,7 +46,7 @@
 //   anim.Play();
 //
 //   // 毎フレーム:
-//   anim.Tick(dt);          // _current_time += dt * speed (Playing 中のみ)
+//   anim.Tick(dt);          // m_CurrentTime += dt * speed (Playing 中のみ)
 //   // → callback 内で FAnimationPlayer::SetTime(clip_index, time_sec) を呼ぶ
 //
 // 設計選択 (Phase 21b FModelAnimationPanel):
@@ -64,10 +64,10 @@
 //     FSample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
 //     FEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
 //     呼ぶ規約 (= Workspace の dt と FAnimation の dt は分離したい場面用)。
-//   ・**duration 到達時の挙動**: clip の `is_looping` または `_loop_override`
-//     が true なら wrap (= `_current_time = fmodf(t, dur)`)、そうでなければ
-//     `_state = Stopped` + `_current_time = dur` で末尾に固定。
-//     `_loop_override = true` で clip 側 is_looping を強制 true 化 (= UI の
+//   ・**duration 到達時の挙動**: clip の `is_looping` または `m_LoopOverride`
+//     が true なら wrap (= `m_CurrentTime = fmodf(t, dur)`)、そうでなければ
+//     `_state = Stopped` + `m_CurrentTime = dur` で末尾に固定。
+//     `m_LoopOverride = true` で clip 側 is_looping を強制 true 化 (= UI の
 //     "Loop" checkbox に bind)。Phase 21b 時点では override は単方向 (= ON
 //     にすると loop、OFF だと clip 既定に従う) で運用。
 //   ・**Speed slider [0.1, 4.0]**: 仕様通り。逆再生 (= 負値) は範囲外で
@@ -106,9 +106,9 @@ namespace acs::game::modelview {
 // EAnimationPlayState — 再生状態
 // ---------------------------------------------------------------------------
 // Phase 19a E-prefix 規約 (= `enum class E*` + 基底 u8)。
-//   Stopped : 未再生 (= `_current_time = 0`、Play で頭から開始)
-//   Playing : 再生中 (= Tick(dt) で `_current_time += dt * speed`)
-//   Paused  : 一時停止 (= `_current_time` 保持、Play で同位置から再開)
+//   Stopped : 未再生 (= `m_CurrentTime = 0`、Play で頭から開始)
+//   Playing : 再生中 (= Tick(dt) で `m_CurrentTime += dt * speed`)
+//   Paused  : 一時停止 (= `m_CurrentTime` 保持、Play で同位置から再開)
 // ---------------------------------------------------------------------------
 enum class EAnimationPlayState : u8 {
     Stopped = 0,
@@ -195,14 +195,14 @@ public:
     // ----- 再生制御 --------------------------------------------------------
 
     // 現在位置から再生開始。clip が未選択 (= -1) なら no-op。
-    // Stopped から Play した場合は `_current_time = 0` から、Paused から
-    // Play した場合は `_current_time` 維持で再開。
+    // Stopped から Play した場合は `m_CurrentTime = 0` から、Paused から
+    // Play した場合は `m_CurrentTime` 維持で再開。
     void Play() noexcept;
 
-    // 一時停止 (`_current_time` 保持)。`Playing` 以外からは no-op。
+    // 一時停止 (`m_CurrentTime` 保持)。`Playing` 以外からは no-op。
     void Pause() noexcept;
 
-    // 停止 (`_current_time = 0` + state = Stopped)。`Stopped` でも安全。
+    // 停止 (`m_CurrentTime = 0` + state = Stopped)。`Stopped` でも安全。
     void Stop() noexcept;
 
     // 現在の再生状態。
@@ -216,11 +216,11 @@ public:
 
     // 再生位置を直接設定 (= UI の Time slider 操作 or 外部スクラブ用)。
     // 0 未満は 0、duration 超過は duration にクランプ (clip 未選択時は
-    // `_current_time = 0` のまま no-op)。state は変更しない (= Paused 中の
+    // `m_CurrentTime = 0` のまま no-op)。state は変更しない (= Paused 中の
     // scrub 後も Paused のまま、Playing 中の scrub 後も Playing のまま)。
     void SetCurrentTimeSec(f32 t) noexcept;
 
-    // 再生速度 (倍率)。Tick で `_current_time += dt * speed` に乗る。
+    // 再生速度 (倍率)。Tick で `m_CurrentTime += dt * speed` に乗る。
     f32 PlaybackSpeed() const noexcept;
 
     // 再生速度を設定。仕様: [0.1, 4.0] にクランプ。
@@ -243,10 +243,10 @@ public:
 
     // ----- Tick + callback -------------------------------------------------
 
-    // Playing 中は `_current_time += dt * _speed`。duration 到達時は
-    //   ・loop 有効 → 余りを wrap (= `_current_time -= duration` を繰り返す)
-    //   ・loop 無効 → `_current_time = duration` + state = Stopped に遷移
-    // 終端で callback (`_on_frame_cb`) を発火 (= 設定されていれば)。
+    // Playing 中は `m_CurrentTime += dt * m_Speed`。duration 到達時は
+    //   ・loop 有効 → 余りを wrap (= `m_CurrentTime -= duration` を繰り返す)
+    //   ・loop 無効 → `m_CurrentTime = duration` + state = Stopped に遷移
+    // 終端で callback (`m_OnFrameCb`) を発火 (= 設定されていれば)。
     // clip 未選択 / Stopped / Paused 時は no-op (= state を進めず callback も
     // 発火しない)。dt <= 0 も no-op (= 巻き戻し非対応、FSpriteAnimator と同方針)。
     void Tick(f32 dt) noexcept;
@@ -277,30 +277,30 @@ public:
 
 private:
     // 内部 clip 一覧 (値コピー所有)。name ポインタの寿命は呼出側責任。
-    TArray<FAnimationClipBinding> _clips {};
+    TArray<FAnimationClipBinding> m_Clips {};
 
-    // 現在選択中の clip index (`_clips` 内 index、未選択は kNoClipSelected)。
-    i32 _current_clip_idx = kNoClipSelected;
+    // 現在選択中の clip index (`m_Clips` 内 index、未選択は kNoClipSelected)。
+    i32 m_CurrentClipIdx = kNoClipSelected;
 
     // 再生状態。Stopped / Playing / Paused。
     EAnimationPlayState _state = EAnimationPlayState::Stopped;
 
     // 現在の再生位置 (秒)。clip duration を超えないようにクランプ / ラップされる。
-    f32 _current_time_sec = 0.0f;
+    f32 m_CurrentTimeSec = 0.0f;
 
     // 再生速度 (倍率)。[0.1, 4.0] にクランプ。
-    f32 _speed = 1.0f;
+    f32 m_Speed = 1.0f;
 
     // UI の Loop checkbox 状態。true なら clip 既定 is_looping を無視して
     // 強制 loop。false なら clip 既定に従う。
-    bool _loop_override = false;
+    bool m_LoopOverride = false;
 
     // blend weight (Phase 21b は表示 + callback 出力のみ、再生には影響しない)。
-    f32 _blend_weight = 1.0f;
+    f32 m_BlendWeight = 1.0f;
 
     // Tick 終端で呼ばれる callback (= 外部 FAnimationPlayer への時刻反映点)。
-    AnimationFrameCallback _on_frame_cb = nullptr;
-    void*                  _on_frame_user = nullptr;
+    AnimationFrameCallback m_OnFrameCb = nullptr;
+    void*                  m_OnFrameUser = nullptr;
 };
 
 } // namespace acs::game::modelview

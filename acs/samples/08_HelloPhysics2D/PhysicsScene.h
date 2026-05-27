@@ -27,10 +27,10 @@ public:
                 acs::IRhiTexture& ball_tex,
                 acs::f32 fps) noexcept;
 
-    void Clear() noexcept { _ball_count = 0; }
+    void Clear() noexcept { m_BallCount = 0; }
     void SpawnBallAt(acs::f32 x, acs::f32 y) noexcept;
 
-    acs::u32 BallCount() const noexcept { return _ball_count; }
+    acs::u32 BallCount() const noexcept { return m_BallCount; }
 
 private:
     void SpawnRandomBalls(acs::u32 n, acs::u32 screen_w, acs::u32 screen_h) noexcept;
@@ -38,9 +38,9 @@ private:
     // xorshift32: 軽量・状態 4 byte のみで決定論的、サンプル用途に十分。
     acs::f32 RandF() noexcept;
 
-    Ball     _balls[kMaxBalls] {};
-    acs::u32 _ball_count = 0;
-    acs::u32 _seed       = 0xCAFEBABEu;
+    Ball     m_Balls[kMaxBalls] {};
+    acs::u32 m_BallCount = 0;
+    acs::u32 m_Seed       = 0xCAFEBABEu;
 };
 
 } // namespace hellophysics2d

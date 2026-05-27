@@ -16,7 +16,7 @@
 //              `ConsumeShake()` で 0 リセット。
 //      これにより FEffectSystem は **副作用ゼロ / 純粋 state machine**。
 //      テスト容易 + FCamera2D / FGame との結合が最小限。
-//   ・**Flash は線形減衰**: `intensity(t) = _flash_max * (_flash_t / _flash_total)`
+//   ・**Flash は線形減衰**: `intensity(t) = m_FlashMax * (m_FlashT / m_FlashTotal)`
 //      で 1 → 0 へ落ちる。fade out 寄りで「閃光が引いていく」感が出る。
 //      Flash() を再呼出すれば常に新しい flash で上書き (累積しない)。
 //   ・**HitStop は単純な timer**: 重ねがけしたとき、残時間と新時間の max を採用
@@ -27,19 +27,19 @@
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       FEffectSystem _fx;
+//       FEffectSystem m_Fx;
 //       void OnHit() noexcept {
-//           _fx.Flash({1,1,1}, 0.8f, 0.15f);   // 白フラッシュ 150ms
-//           _fx.HitStop(0.08f);                 // 80ms 停止
-//           _fx.TriggerShake(0.5f);             // trauma 0.5 を FCamera2D に流す
+//           m_Fx.Flash({1,1,1}, 0.8f, 0.15f);   // 白フラッシュ 150ms
+//           m_Fx.HitStop(0.08f);                 // 80ms 停止
+//           m_Fx.TriggerShake(0.5f);             // trauma 0.5 を FCamera2D に流す
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           const f32 ts = _fx.IsHitStop() ? 0.0f : 1.0f;
+//           const f32 ts = m_Fx.IsHitStop() ? 0.0f : 1.0f;
 //           // ... game update with (dt * ts) ...
-//           _fx.Tick(dt);                       // FEffectSystem は real dt で進む
-//           if (_fx.PendingShakeTrauma() > 0.0f) {
-//               Services().Camera().AddShake(_fx.PendingShakeTrauma());
-//               _fx.ConsumeShake();
+//           m_Fx.Tick(dt);                       // FEffectSystem は real dt で進む
+//           if (m_Fx.PendingShakeTrauma() > 0.0f) {
+//               Services().Camera().AddShake(m_Fx.PendingShakeTrauma());
+//               m_Fx.ConsumeShake();
 //           }
 //       }
 //   };
@@ -91,28 +91,28 @@ public:
     // ----- accessors (描画側 / FCamera2D 側が pull する) -----
     // 0 = フラッシュなし、>0 で描画側が overlay
     f32  FlashIntensity() const noexcept;
-    FVec3 FlashColor()     const noexcept { return _flash_color; }
+    FVec3 FlashColor()     const noexcept { return m_FlashColor; }
 
-    bool IsHitStop()      const noexcept { return _hit_stop_remain > 0.0f; }
-    f32  HitStopRemain()  const noexcept { return _hit_stop_remain; }
+    bool IsHitStop()      const noexcept { return m_HitStopRemain > 0.0f; }
+    f32  HitStopRemain()  const noexcept { return m_HitStopRemain; }
 
     // FCamera2D 側が読んで AddShake に流す
-    f32  PendingShakeTrauma() const noexcept { return _pending_shake; }
+    f32  PendingShakeTrauma() const noexcept { return m_PendingShake; }
     // FCamera2D 側が AddShake 後に呼んで pending を 0 に
-    void ConsumeShake() noexcept { _pending_shake = 0.0f; }
+    void ConsumeShake() noexcept { m_PendingShake = 0.0f; }
 
 private:
     // Flash state
-    f32  _flash_t        = 0.0f;        // 残時間 (0..flash_total)
-    f32  _flash_total    = 0.0f;        // 開始時 duration (除算用)
-    f32  _flash_max      = 0.0f;        // ピーク intensity
-    FVec3 _flash_color   {0.0f, 0.0f, 0.0f};
+    f32  m_FlashT        = 0.0f;        // 残時間 (0..flash_total)
+    f32  m_FlashTotal    = 0.0f;        // 開始時 duration (除算用)
+    f32  m_FlashMax      = 0.0f;        // ピーク intensity
+    FVec3 m_FlashColor   {0.0f, 0.0f, 0.0f};
 
     // HitStop state
-    f32  _hit_stop_remain = 0.0f;
+    f32  m_HitStopRemain = 0.0f;
 
     // Shake pending (FCamera2D が次フレーム consume するまで保持)
-    f32  _pending_shake   = 0.0f;
+    f32  m_PendingShake   = 0.0f;
 };
 
 } // namespace acs::game

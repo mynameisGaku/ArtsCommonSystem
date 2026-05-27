@@ -36,9 +36,9 @@ static constexpr EConsentCategory AndNot(EConsentCategory a, EConsentCategory b)
 // ----- 初期化 ---------------------------------------------------------------
 
 void FPrivacyDirector::Init(u32 current_policy_version) noexcept {
-    _current_policy_version = current_policy_version;
-    _initialized            = true;
-    // _status / _initial_consent_shown は LoadConsent() で上書きされる想定。
+    m_CurrentPolicyVersion = current_policy_version;
+    m_Initialized            = true;
+    // _status / m_InitialConsentShown は LoadConsent() で上書きされる想定。
     // 未 Load なら「初回 = 何も同意していない = Required のみ」の状態のまま。
 }
 
@@ -90,12 +90,12 @@ EConsentCategory FPrivacyDirector::GrantedMask() const noexcept {
 bool FPrivacyDirector::RequiresInitialConsent() const noexcept {
     // Init() 前は判定不能なので「要・表示」を返す保守側にしておく
     // (= ダイアログを必ず出してから先に進ませる)。
-    if (!_initialized) return true;
-    return !_initial_consent_shown;
+    if (!m_Initialized) return true;
+    return !m_InitialConsentShown;
 }
 
 void FPrivacyDirector::MarkInitialConsentShown() noexcept {
-    _initial_consent_shown = true;
+    m_InitialConsentShown = true;
 }
 
 // ----- ポリシー版管理 -------------------------------------------------------
@@ -104,8 +104,8 @@ bool FPrivacyDirector::IsPolicyOutdated() const noexcept {
     // 保存済み policy_version が「現在」より古ければ再同意が必要。
     // Init() 前は current が 0 のままなので、未初期化なら常に false (= 古くない)。
     // この保守側により Init() 忘れで誤ったダイアログを出す事故を防ぐ。
-    if (!_initialized) return false;
-    return _status.policy_version < _current_policy_version;
+    if (!m_Initialized) return false;
+    return _status.policy_version < m_CurrentPolicyVersion;
 }
 
 u32 FPrivacyDirector::StoredPolicyVersion() const noexcept {
@@ -113,7 +113,7 @@ u32 FPrivacyDirector::StoredPolicyVersion() const noexcept {
 }
 
 u32 FPrivacyDirector::CurrentPolicyVersion() const noexcept {
-    return _current_policy_version;
+    return m_CurrentPolicyVersion;
 }
 
 // ----- デバッグ -------------------------------------------------------------
@@ -121,9 +121,9 @@ u32 FPrivacyDirector::CurrentPolicyVersion() const noexcept {
 void FPrivacyDirector::Reset() noexcept {
     // テスト用。本番フローでは呼ばない。
     _status                 = ConsentStatus{};
-    _current_policy_version = 0;
-    _initialized            = false;
-    _initial_consent_shown  = false;
+    m_CurrentPolicyVersion = 0;
+    m_Initialized            = false;
+    m_InitialConsentShown  = false;
 }
 
 // ----- 永続化 (Phase 1 stub) ------------------------------------------------
@@ -133,7 +133,7 @@ TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
         return ACS_ERR(IO, kSub_BadPath,
                        "FPrivacyDirector::SaveConsent received null path");
     }
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(IO, kSub_NotInitialized,
                        "FPrivacyDirector::SaveConsent called before Init()");
     }
@@ -150,7 +150,7 @@ TResult<void> FPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
         return ACS_ERR(IO, kSub_BadPath,
                        "FPrivacyDirector::LoadConsent received null path");
     }
-    if (!_initialized) {
+    if (!m_Initialized) {
         return ACS_ERR(IO, kSub_NotInitialized,
                        "FPrivacyDirector::LoadConsent called before Init()");
     }
@@ -160,7 +160,7 @@ TResult<void> FPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
     //   3. auto r = slot.Load();
     //   4. if (r) {
     //        _status = r.Value();
-    //        _initial_consent_shown = true;   // 過去に同意済み → ダイアログ不要
+    //        m_InitialConsentShown = true;   // 過去に同意済み → ダイアログ不要
     //      }
     return ACS_ERR(IO, kSub_NotImplemented,
                    "FPrivacyDirector::LoadConsent is not yet implemented (Phase 1 stub)");

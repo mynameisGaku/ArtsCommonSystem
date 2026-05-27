@@ -20,9 +20,9 @@ namespace acs::game::editor_core {
 void FUndoStack::Init(u32 max_history) noexcept {
     // 履歴を全破棄して上限を再設定する。多重 Init 安全。
     // 0 を渡された場合は default (64) にフォールバック (誤渡し対策)。
-    _undo_stack.Clear();
-    _redo_stack.Clear();
-    _max_history = (max_history == 0u) ? 64u : max_history;
+    m_UndoStack.Clear();
+    m_RedoStack.Clear();
+    m_MaxHistory = (max_history == 0u) ? 64u : max_history;
     // callback はあえて Init で解除しない (= editor 起動側で SetOnExecutedCallback
     // を Init より先に呼ぶケースを許容)。明示的に解除したい場合は
     // SetOnExecutedCallback(nullptr, nullptr) を呼ぶ。
@@ -51,37 +51,37 @@ void FUndoStack::Push(FEditorCommand* cmd) noexcept {
     owned->Execute();
 
     // 3. 直前の cmd と merge 可能か判定する。merge できれば new cmd は
-    //    そのまま破棄され、_undo_stack 件数は増えない (= 連続 drag 1 件化)。
+    //    そのまま破棄され、m_UndoStack 件数は増えない (= 連続 drag 1 件化)。
     //    merge 後の callback は「スタック top の方」を渡す (= 利用側が
     //    "最新状態" を取りに来たときに整合する)。
     bool merged = false;
-    if (!_undo_stack.IsEmpty()) {
-        FEditorCommand* prev = _undo_stack.Back().Get();
+    if (!m_UndoStack.IsEmpty()) {
+        FEditorCommand* prev = m_UndoStack.Back().Get();
         if (prev != nullptr && prev->CanMerge(*owned)) {
             prev->MergeWith(*owned);
             merged = true;
         }
     }
 
-    // 4. merge しなかった場合のみ _undo_stack に PushBack。
+    // 4. merge しなかった場合のみ m_UndoStack に PushBack。
     //    merged のときは owned が scope 抜けで自動 delete される。
     if (!merged) {
-        _undo_stack.PushBack(Move(owned));
+        m_UndoStack.PushBack(Move(owned));
     }
 
-    // 5. new edit が来た時点で _redo_stack の "未来" は破棄される。
+    // 5. new edit が来た時点で m_RedoStack の "未来" は破棄される。
     //    branched history が欲しくなった段階で Phase 21+ で見直す。
-    _redo_stack.Clear();
+    m_RedoStack.Clear();
 
     // 6. 上限超えチェック。merge 経路で件数は増えないので超過は起こらないが、
-    //    防御的に毎回呼んでおく (空 _undo_stack でも no-op)。
+    //    防御的に毎回呼んでおく (空 m_UndoStack でも no-op)。
     DropOldestIfOverflow();
 
     // 7. callback 発火。merge があった場合は top (= 直前 cmd と同一 = merge 先) を
     //    渡す。merge しなかった場合も top (= 今 Push したばかりの cmd) を渡す。
     //    is_redo は false (= Push は初回 Execute、Redo 経路ではない)。
-    if (_cb != nullptr && !_undo_stack.IsEmpty()) {
-        _cb(_cb_user, _undo_stack.Back().Get(), /*is_redo=*/false);
+    if (m_Cb != nullptr && !m_UndoStack.IsEmpty()) {
+        m_Cb(m_CbUser, m_UndoStack.Back().Get(), /*is_redo=*/false);
     }
 }
 
@@ -91,15 +91,15 @@ void FUndoStack::Push(FEditorCommand* cmd) noexcept {
 bool FUndoStack::Undo() noexcept {
     // 何も積まれていなければ no-op で false を返す (= UI 側で MenuItem の
     // enabled チェックがあっても、race 等で空のときに silent に弾ける)。
-    if (_undo_stack.IsEmpty()) {
+    if (m_UndoStack.IsEmpty()) {
         return false;
     }
 
     // top を取り出す。PopBack は破棄してしまうので、先に Move で別 TUniquePtr に
     // 移してから PopBack する。Move 後の Back() は moved-from 状態 (= 内部
     // pointer が nullptr) なので、PopBack の dtor は何もしない。
-    TUniquePtr<FEditorCommand> cmd = Move(_undo_stack.Back());
-    _undo_stack.PopBack();
+    TUniquePtr<FEditorCommand> cmd = Move(m_UndoStack.Back());
+    m_UndoStack.PopBack();
 
     // Undo を実行。基底経由なので派生の override に dispatch される。
     if (cmd) {
@@ -109,11 +109,11 @@ bool FUndoStack::Undo() noexcept {
     // redo stack に押し込む (= 次の Redo で再実行可能になる)。
     // callback には Move 前の生ポインタを渡したいので raw を取ってから Move。
     FEditorCommand* raw = cmd.Get();
-    _redo_stack.PushBack(Move(cmd));
+    m_RedoStack.PushBack(Move(cmd));
 
     // callback 発火。Undo は Redo 由来ではないので is_redo = false。
-    if (_cb != nullptr) {
-        _cb(_cb_user, raw, /*is_redo=*/false);
+    if (m_Cb != nullptr) {
+        m_Cb(m_CbUser, raw, /*is_redo=*/false);
     }
     return true;
 }
@@ -122,13 +122,13 @@ bool FUndoStack::Undo() noexcept {
 // Redo
 // ============================================================================
 bool FUndoStack::Redo() noexcept {
-    if (_redo_stack.IsEmpty()) {
+    if (m_RedoStack.IsEmpty()) {
         return false;
     }
 
     // Undo と対称的に redo stack の top を取り出す。
-    TUniquePtr<FEditorCommand> cmd = Move(_redo_stack.Back());
-    _redo_stack.PopBack();
+    TUniquePtr<FEditorCommand> cmd = Move(m_RedoStack.Back());
+    m_RedoStack.PopBack();
 
     // Execute を再実行。FEditorCommand::Execute は idempotent な実装が前提
     // (Undo を挟まずに連続 Execute は FUndoStack 側で発生しない)。
@@ -138,11 +138,11 @@ bool FUndoStack::Redo() noexcept {
 
     // undo stack に戻す (= 再度 Undo で巻き戻せる)。
     FEditorCommand* raw = cmd.Get();
-    _undo_stack.PushBack(Move(cmd));
+    m_UndoStack.PushBack(Move(cmd));
 
     // callback 発火。Redo 経由なので is_redo = true。
-    if (_cb != nullptr) {
-        _cb(_cb_user, raw, /*is_redo=*/true);
+    if (m_Cb != nullptr) {
+        m_Cb(m_CbUser, raw, /*is_redo=*/true);
     }
     return true;
 }
@@ -151,27 +151,27 @@ bool FUndoStack::Redo() noexcept {
 // 問い合わせ
 // ============================================================================
 bool FUndoStack::CanUndo() const noexcept {
-    return !_undo_stack.IsEmpty();
+    return !m_UndoStack.IsEmpty();
 }
 
 bool FUndoStack::CanRedo() const noexcept {
-    return !_redo_stack.IsEmpty();
+    return !m_RedoStack.IsEmpty();
 }
 
 u32 FUndoStack::UndoCount() const noexcept {
-    return static_cast<u32>(_undo_stack.Size());
+    return static_cast<u32>(m_UndoStack.Size());
 }
 
 u32 FUndoStack::RedoCount() const noexcept {
-    return static_cast<u32>(_redo_stack.Size());
+    return static_cast<u32>(m_RedoStack.Size());
 }
 
 const char* FUndoStack::UndoDescription() const noexcept {
     // 空のときは空文字列 (nullptr ではない → strlen / strcmp が安全)。
-    if (_undo_stack.IsEmpty()) {
+    if (m_UndoStack.IsEmpty()) {
         return "";
     }
-    const FEditorCommand* top = _undo_stack.Back().Get();
+    const FEditorCommand* top = m_UndoStack.Back().Get();
     if (top == nullptr) {
         return "";
     }
@@ -180,10 +180,10 @@ const char* FUndoStack::UndoDescription() const noexcept {
 }
 
 const char* FUndoStack::RedoDescription() const noexcept {
-    if (_redo_stack.IsEmpty()) {
+    if (m_RedoStack.IsEmpty()) {
         return "";
     }
-    const FEditorCommand* top = _redo_stack.Back().Get();
+    const FEditorCommand* top = m_RedoStack.Back().Get();
     if (top == nullptr) {
         return "";
     }
@@ -198,34 +198,34 @@ void FUndoStack::Clear() noexcept {
     // TUniquePtr の dtor で全 cmd が自動 delete される。TArray::Clear は size を
     // 0 に戻すだけで capacity は維持されるため、その後の Push で再アロケーション
     // 不要 (=「シーン切替時に Clear」のような典型用途で GC 負荷が出ない)。
-    _undo_stack.Clear();
-    _redo_stack.Clear();
+    m_UndoStack.Clear();
+    m_RedoStack.Clear();
 }
 
 void FUndoStack::SetOnExecutedCallback(CommandExecutedCallback cb, void* user) noexcept {
     // cb / user ともそのまま保存。nullptr 解除 OK (= cb は呼ばれなくなる)。
-    _cb      = cb;
-    _cb_user = user;
+    m_Cb      = cb;
+    m_CbUser = user;
 }
 
 // ============================================================================
 // 内部ヘルパ
 // ============================================================================
 void FUndoStack::DropOldestIfOverflow() noexcept {
-    // _undo_stack のみが上限管理対象 (redo は Push 時に Clear されるため自然に
+    // m_UndoStack のみが上限管理対象 (redo は Push 時に Clear されるため自然に
     // 上限以下になる)。
     // 超過件数は最大でも 1 (= 直前の PushBack 1 件分のみ) を想定する。
-    while (static_cast<u32>(_undo_stack.Size()) > _max_history) {
+    while (static_cast<u32>(m_UndoStack.Size()) > m_MaxHistory) {
         // 最古 = index 0 を捨てる。TArray は RemoveAt(0) を持たないので、
         // 自前で 1 つずつ前にずらしてから PopBack する。
         // ・要素は TUniquePtr<FEditorCommand> なのでムーブ可能。
         // ・PopBack 前に index 0 が末尾要素まで移送されていれば、PopBack の
         //   破棄で最古 cmd が dtor 経由で delete される。
-        const usize n = _undo_stack.Size();
+        const usize n = m_UndoStack.Size();
         for (usize i = 1; i < n; ++i) {
-            _undo_stack[i - 1] = Move(_undo_stack[i]);
+            m_UndoStack[i - 1] = Move(m_UndoStack[i]);
         }
-        _undo_stack.PopBack();
+        m_UndoStack.PopBack();
     }
 }
 

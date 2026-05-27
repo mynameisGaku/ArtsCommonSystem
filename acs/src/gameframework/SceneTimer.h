@@ -7,15 +7,15 @@
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::FSceneTimer _timers;
-//       acs::game::FTimerHandle _spawn_timer;
+//       acs::game::FSceneTimer m_Timers;
+//       acs::game::FTimerHandle m_SpawnTimer;
 //
 //       void OnEnter() noexcept override {
-//           _spawn_timer = _timers.SetInterval(2.0f, &GameplayScene::SpawnEnemy, this);
-//           _timers.SetTimeout(10.0f, &GameplayScene::EndWave, this);
+//           m_SpawnTimer = m_Timers.SetInterval(2.0f, &GameplayScene::SpawnEnemy, this);
+//           m_Timers.SetTimeout(10.0f, &GameplayScene::EndWave, this);
 //       }
-//       void OnUpdate(f32 dt) noexcept override { _timers.Tick(dt); }
-//       void OnExit() noexcept override { _timers.CancelAll(); }
+//       void OnUpdate(f32 dt) noexcept override { m_Timers.Tick(dt); }
+//       void OnExit() noexcept override { m_Timers.CancelAll(); }
 //
 //       static void SpawnEnemy(void* self) noexcept { /* ... */ }
 //       static void EndWave(void* self) noexcept    { /* ... */ }
@@ -37,11 +37,11 @@
 namespace acs::game {
 
 // 24bit index + 8bit generation を packed した handle。
-// _packed == 0 を invalid と定義 (gen は常に 1 以上)。
+// m_Packed == 0 を invalid と定義 (gen は常に 1 以上)。
 struct FTimerHandle {
-    u32 _packed = 0u;
+    u32 m_Packed = 0u;
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
     // pack/unpack ヘルパ (manager 内部用、誤用防止に static で明示)。
     static constexpr u32 kIndexBits = 24u;
@@ -50,11 +50,11 @@ struct FTimerHandle {
 
     static FTimerHandle Pack(u32 index, u8 gen) noexcept {
         FTimerHandle h;
-        h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
-    u32 Index() const noexcept { return _packed & kIndexMask; }
-    u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
+    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 };
 
 using TimerCallback = void(*)(void* user) noexcept;
@@ -85,7 +85,7 @@ public:
     void CancelAll() noexcept;
 
     bool IsActive(FTimerHandle h) const noexcept;
-    u32  ActiveCount() const noexcept { return _active_count; }
+    u32  ActiveCount() const noexcept { return m_ActiveCount; }
 
     // 毎フレーム呼ぶ。dt < 0 は無視 (= 0 は何もしない)。
     // 大 dt のとき Interval は同 Tick 内で複数回発火し得る (carry 方式)。
@@ -105,8 +105,8 @@ private:
     u32         AcquireSlot() noexcept;
     FTimerHandle MakeHandle(u32 index, u8 gen) const noexcept;
 
-    TArray<TimerEntry> _entries;
-    u32               _active_count = 0u;
+    TArray<TimerEntry> m_Entries;
+    u32               m_ActiveCount = 0u;
 };
 
 } // namespace acs::game

@@ -99,33 +99,33 @@ static f32 CanvasXToTime(f32 x, f32 duration,
 // Init / Shutdown / SetCinematicsDirector / CurrentDirector
 // =============================================================================
 void FCinematicsTimelineEditorPanel::Init() noexcept {
-    _director        = nullptr;
-    _keyframes.Clear();
-    _selected_idx    = kNoKeySelected;
-    _current_time    = 0.0f;
-    _duration        = kDefaultDurationSec;
-    _playing         = false;
-    _dragging_marker = false;
-    _drag_idx        = -1;
-    _add_kind        = ETimelineKeyKind::CameraCut;
+    m_Director        = nullptr;
+    m_Keyframes.Clear();
+    m_SelectedIdx    = kNoKeySelected;
+    m_CurrentTime    = 0.0f;
+    m_Duration        = kDefaultDurationSec;
+    m_Playing         = false;
+    m_DraggingMarker = false;
+    m_DragIdx        = -1;
+    m_AddKind        = ETimelineKeyKind::CameraCut;
 }
 
 void FCinematicsTimelineEditorPanel::Shutdown() noexcept {
-    _director        = nullptr;
-    _keyframes.Clear();
-    _selected_idx    = kNoKeySelected;
-    _current_time    = 0.0f;
-    _playing         = false;
-    _dragging_marker = false;
-    _drag_idx        = -1;
+    m_Director        = nullptr;
+    m_Keyframes.Clear();
+    m_SelectedIdx    = kNoKeySelected;
+    m_CurrentTime    = 0.0f;
+    m_Playing         = false;
+    m_DraggingMarker = false;
+    m_DragIdx        = -1;
 }
 
 void FCinematicsTimelineEditorPanel::SetCinematicsDirector(
         acs::game::FCinematicsDirector* dir) noexcept {
-    _director     = dir;
-    _selected_idx = kNoKeySelected;
-    _current_time = 0.0f;
-    _playing      = false;
+    m_Director     = dir;
+    m_SelectedIdx = kNoKeySelected;
+    m_CurrentTime = 0.0f;
+    m_Playing      = false;
     // director を切替えたら editor の現状を即時 bake する (= 既に keyframe を
     // 編集していた場合、新 director にも同じ keyframe が出るのが直感的)。
     BakeToDirector();
@@ -133,7 +133,7 @@ void FCinematicsTimelineEditorPanel::SetCinematicsDirector(
 
 acs::game::FCinematicsDirector*
 FCinematicsTimelineEditorPanel::CurrentDirector() const noexcept {
-    return _director;
+    return m_Director;
 }
 
 // =============================================================================
@@ -143,96 +143,96 @@ void FCinematicsTimelineEditorPanel::Play() noexcept {
     // editor の現状を director に bake してから再生開始 (= scrub で変更があった
     // 場合も runtime に反映される)。
     BakeToDirector();
-    if (_director != nullptr) {
-        // director は内部 _time / _last_fired_index を Stop で 0 リセットする仕様。
-        // editor の _current_time に合わせて再生を始めたいが、director は途中位置
-        // 開始 API が無いため、簡略のため _current_time を 0 に戻して頭から再生。
+    if (m_Director != nullptr) {
+        // director は内部 m_Time / m_LastFiredIndex を Stop で 0 リセットする仕様。
+        // editor の m_CurrentTime に合わせて再生を始めたいが、director は途中位置
+        // 開始 API が無いため、簡略のため m_CurrentTime を 0 に戻して頭から再生。
         // (= 厳密な部分再生は将来 director に SeekTo(t) を足して対応)
-        _director->Stop();
-        _director->Play();
+        m_Director->Stop();
+        m_Director->Play();
     }
-    _current_time = 0.0f;
-    _playing      = true;
+    m_CurrentTime = 0.0f;
+    m_Playing      = true;
 }
 
 void FCinematicsTimelineEditorPanel::Pause() noexcept {
-    _playing = false;
-    if (_director != nullptr) {
-        _director->Pause();
+    m_Playing = false;
+    if (m_Director != nullptr) {
+        m_Director->Pause();
     }
 }
 
 void FCinematicsTimelineEditorPanel::Stop() noexcept {
-    _playing      = false;
-    _current_time = 0.0f;
-    if (_director != nullptr) {
-        _director->Stop();
+    m_Playing      = false;
+    m_CurrentTime = 0.0f;
+    if (m_Director != nullptr) {
+        m_Director->Stop();
     }
 }
 
 void FCinematicsTimelineEditorPanel::Step(f32 dt) noexcept {
-    if (!_playing) return;
+    if (!m_Playing) return;
     if (dt <= 0.0f) return;
-    if (_director != nullptr) {
-        _director->Tick(dt);
+    if (m_Director != nullptr) {
+        m_Director->Tick(dt);
         // director の時刻と同期する (= editor cursor が一緒に進む)。
-        _current_time = _director->CurrentTime();
+        m_CurrentTime = m_Director->CurrentTime();
     } else {
-        _current_time += dt;
+        m_CurrentTime += dt;
     }
-    // duration を超えたら再生終了 (= Pause 相当、_current_time は最大値に固定)。
-    if (_current_time >= _duration) {
-        _current_time = _duration;
-        _playing      = false;
-        if (_director != nullptr) {
-            _director->Pause();
+    // duration を超えたら再生終了 (= Pause 相当、m_CurrentTime は最大値に固定)。
+    if (m_CurrentTime >= m_Duration) {
+        m_CurrentTime = m_Duration;
+        m_Playing      = false;
+        if (m_Director != nullptr) {
+            m_Director->Pause();
         }
     }
 }
 
 bool FCinematicsTimelineEditorPanel::IsPlaying() const noexcept {
-    return _playing;
+    return m_Playing;
 }
 
 // =============================================================================
 // 時間軸アクセサ
 // =============================================================================
 f32 FCinematicsTimelineEditorPanel::CurrentTimeSec() const noexcept {
-    return _current_time;
+    return m_CurrentTime;
 }
 
 void FCinematicsTimelineEditorPanel::SetCurrentTimeSec(f32 t) noexcept {
-    _current_time = ClampF(t, 0.0f, _duration);
+    m_CurrentTime = ClampF(t, 0.0f, m_Duration);
 }
 
 f32 FCinematicsTimelineEditorPanel::DurationSec() const noexcept {
-    return _duration;
+    return m_Duration;
 }
 
 void FCinematicsTimelineEditorPanel::SetDurationSec(f32 d) noexcept {
     if (d < kMinDurationSec) d = kMinDurationSec;
-    _duration = d;
+    m_Duration = d;
     // duration が縮んだ場合、既存 keyframe が範囲外に出ていれば clamp する。
-    for (usize i = 0; i < _keyframes.Size(); ++i) {
-        if (_keyframes[i].time_sec > _duration) {
-            _keyframes[i].time_sec = _duration;
+    for (usize i = 0; i < m_Keyframes.Size(); ++i) {
+        if (m_Keyframes[i].time_sec > m_Duration) {
+            m_Keyframes[i].time_sec = m_Duration;
         }
     }
-    if (_current_time > _duration) _current_time = _duration;
+    if (m_CurrentTime > m_Duration) m_CurrentTime = m_Duration;
 }
 
 // =============================================================================
 // keyframe 操作
 // =============================================================================
 i32 FCinematicsTimelineEditorPanel::SelectedKeyframeIndex() const noexcept {
-    return _selected_idx;
+    return m_SelectedIdx;
 }
 
 void FCinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
-    if (i < 0 || static_cast<usize>(i) >= _keyframes.Size()) {
-        _selected_idx = kNoKeySelected;
+    if (i < 0 || static_cast<usize>(i) >= m_Keyframes.Size()) {
+        m_SelectedIdx = kNoKeySelected;
     } else {
-        _selected_idx = i;
+        m_SelectedIdx = i;
     }
 }
 
@@ -240,11 +240,11 @@ void FCinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
                                                 f32 time_sec) noexcept {
     EditorKeyframe kf;
     kf.kind     = kind;
-    kf.time_sec = ClampF(time_sec, 0.0f, _duration);
+    kf.time_sec = ClampF(time_sec, 0.0f, m_Duration);
     // kind 別 default payload は struct のデフォルト初期値を使うので明示しない。
     const i32 inserted = InsertKeyframeSorted(kf);
     if (inserted >= 0) {
-        _selected_idx = inserted;
+        m_SelectedIdx = inserted;
     }
     // director に即時 bake (= 次の Step / Play で発火対象になる)。
     // 編集オペレーション 1 回ごとに全 keyframe を bake するのは O(N) コストだが、
@@ -253,19 +253,19 @@ void FCinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
 }
 
 void FCinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
-    if (_selected_idx < 0) return;
-    const usize idx = static_cast<usize>(_selected_idx);
-    if (idx >= _keyframes.Size()) {
-        _selected_idx = kNoKeySelected;
+    if (m_SelectedIdx < 0) return;
+    const usize idx = static_cast<usize>(m_SelectedIdx);
+    if (idx >= m_Keyframes.Size()) {
+        m_SelectedIdx = kNoKeySelected;
         return;
     }
     // 順序保存削除 (= shift)。TArray に Erase が無いので手動で詰める。
-    const usize n = _keyframes.Size();
+    const usize n = m_Keyframes.Size();
     for (usize i = idx; i + 1 < n; ++i) {
-        _keyframes[i] = _keyframes[i + 1];
+        m_Keyframes[i] = m_Keyframes[i + 1];
     }
-    _keyframes.PopBack();
-    _selected_idx = kNoKeySelected;
+    m_Keyframes.PopBack();
+    m_SelectedIdx = kNoKeySelected;
     // director に即時 bake (= 次の Step / Play で発火対象から外れる)。
     BakeToDirector();
 }
@@ -277,34 +277,34 @@ i32 FCinematicsTimelineEditorPanel::InsertKeyframeSorted(
         const EditorKeyframe& kf) noexcept {
     // time 昇順 (同時刻は登録順 = stable) を維持する挿入位置を線形探索。
     // 典型 N < 200 で線形でも実用問題なし。
-    const usize n = _keyframes.Size();
+    const usize n = m_Keyframes.Size();
     usize insert_at = n;
     for (usize i = 0; i < n; ++i) {
-        if (kf.time_sec < _keyframes[i].time_sec) {
+        if (kf.time_sec < m_Keyframes[i].time_sec) {
             insert_at = i;
             break;
         }
     }
 
     if (insert_at == n) {
-        _keyframes.PushBack(kf);
+        m_Keyframes.PushBack(kf);
     } else {
         // 末尾を 1 つ伸ばし、[insert_at..n-1] を 1 つ後ろにずらして空きを作る。
-        _keyframes.PushBack(_keyframes[n - 1]);
+        m_Keyframes.PushBack(m_Keyframes[n - 1]);
         for (usize i = n - 1; i > insert_at; --i) {
-            _keyframes[i] = _keyframes[i - 1];
+            m_Keyframes[i] = m_Keyframes[i - 1];
         }
-        _keyframes[insert_at] = kf;
+        m_Keyframes[insert_at] = kf;
     }
     return static_cast<i32>(insert_at);
 }
 
 void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
-    if (_director == nullptr) return;
-    _director->Clear();
-    const usize n = _keyframes.Size();
+    if (m_Director == nullptr) return;
+    m_Director->Clear();
+    const usize n = m_Keyframes.Size();
     for (usize i = 0; i < n; ++i) {
-        const EditorKeyframe& ek = _keyframes[i];
+        const EditorKeyframe& ek = m_Keyframes[i];
         FTimelineKeyframe rk;
         rk.time_sec = ek.time_sec;
         rk.kind     = ToTrackKind(ek.kind);
@@ -323,7 +323,7 @@ void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
             rk.payload.event.event_id = ek.event_id;
             break;
         }
-        _director->AddKeyframe(rk);
+        m_Director->AddKeyframe(rk);
     }
 }
 
@@ -333,7 +333,7 @@ void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
 void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
-    if (!ImGui::Begin(Title(), &_visible)) {
+    if (!ImGui::Begin(Title(), &m_Visible)) {
         ImGui::End();
         return;
     }
@@ -357,29 +357,29 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         if (ImGui::Button("Step+0.1s")) {
             // 1 フレーム的に director を 0.1s 進める (= scrub テスト用)。
             // 再生中フラグに依存せず、director.Tick を強制呼出。
-            if (_director != nullptr) {
-                const bool was_playing = _director->IsPlaying();
-                if (!was_playing) _director->Play();
-                _director->Tick(0.1f);
-                if (!was_playing) _director->Pause();
-                _current_time = _director->CurrentTime();
+            if (m_Director != nullptr) {
+                const bool was_playing = m_Director->IsPlaying();
+                if (!was_playing) m_Director->Play();
+                m_Director->Tick(0.1f);
+                if (!was_playing) m_Director->Pause();
+                m_CurrentTime = m_Director->CurrentTime();
             } else {
-                _current_time = ClampF(_current_time + 0.1f, 0.0f, _duration);
+                m_CurrentTime = ClampF(m_CurrentTime + 0.1f, 0.0f, m_Duration);
             }
         }
 
         // Time slider (現在カーソル位置)。drag で scrub。
         ImGui::SameLine();
         ImGui::SetNextItemWidth(220.0f);
-        float t = _current_time;
-        if (ImGui::SliderFloat("##time_slider", &t, 0.0f, _duration, "t=%.2fs")) {
-            _current_time = ClampF(t, 0.0f, _duration);
+        float t = m_CurrentTime;
+        if (ImGui::SliderFloat("##time_slider", &t, 0.0f, m_Duration, "t=%.2fs")) {
+            m_CurrentTime = ClampF(t, 0.0f, m_Duration);
         }
 
         // Duration 編集 (= 全体の長さを変える)。
         ImGui::SameLine();
         ImGui::SetNextItemWidth(80.0f);
-        float d = _duration;
+        float d = m_Duration;
         if (ImGui::DragFloat("##duration", &d, 0.1f, kMinDurationSec, 600.0f,
                               "dur=%.1fs")) {
             SetDurationSec(d);
@@ -388,7 +388,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         // Add Keyframe combo + button (= 現在の time にこの kind を新規追加)。
         ImGui::SameLine();
         ImGui::SetNextItemWidth(140.0f);
-        if (ImGui::BeginCombo("##add_kind", KindName(_add_kind))) {
+        if (ImGui::BeginCombo("##add_kind", KindName(m_AddKind))) {
             const ETimelineKeyKind kAll[5] = {
                 ETimelineKeyKind::CameraCut,
                 ETimelineKeyKind::FadeColor,
@@ -397,9 +397,9 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
                 ETimelineKeyKind::TriggerCallback,
             };
             for (u32 i = 0; i < 5u; ++i) {
-                const bool selected = (_add_kind == kAll[i]);
+                const bool selected = (m_AddKind == kAll[i]);
                 if (ImGui::Selectable(KindName(kAll[i]), selected)) {
-                    _add_kind = kAll[i];
+                    m_AddKind = kAll[i];
                 }
                 if (selected) ImGui::SetItemDefaultFocus();
             }
@@ -407,11 +407,11 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         }
         ImGui::SameLine();
         if (ImGui::Button("+Add")) {
-            AddKeyframe(_add_kind, _current_time);
+            AddKeyframe(m_AddKind, m_CurrentTime);
         }
         ImGui::SameLine();
         // 削除ボタン (選択中 keyframe が無ければ disable)。
-        ImGui::BeginDisabled(_selected_idx < 0);
+        ImGui::BeginDisabled(m_SelectedIdx < 0);
         if (ImGui::Button("-Del")) {
             RemoveSelectedKeyframe();
         }
@@ -454,9 +454,9 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         dl->AddRectFilled(ImVec2(canvas_origin.x, ruler_y0),
                           ImVec2(canvas_end.x, ruler_y1),
                           IM_COL32(40, 40, 48, 255));
-        const i32 max_tick = static_cast<i32>(_duration + 0.5f);
+        const i32 max_tick = static_cast<i32>(m_Duration + 0.5f);
         for (i32 s = 0; s <= max_tick; ++s) {
-            const f32 x = TimeToCanvasX(static_cast<f32>(s), _duration,
+            const f32 x = TimeToCanvasX(static_cast<f32>(s), m_Duration,
                                         canvas_origin.x, canvas_w);
             dl->AddLine(ImVec2(x, ruler_y0),
                         ImVec2(x, ruler_y1),
@@ -498,16 +498,16 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         const ImGuiIO& io = ImGui::GetIO();
         const ImVec2  mouse = io.MousePos;
 
-        // mouse down: marker の AABB hit-test で _drag_idx を決定。
-        if (canvas_hovered && !_dragging_marker
+        // mouse down: marker の AABB hit-test で m_DragIdx を決定。
+        if (canvas_hovered && !m_DraggingMarker
             && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             i32 hit = -1;
             const f32 half_w = kMarkerWidthPx * 0.5f + kMarkerHitSlackPx;
-            for (usize i = 0; i < _keyframes.Size(); ++i) {
-                const EditorKeyframe& kf = _keyframes[i];
+            for (usize i = 0; i < m_Keyframes.Size(); ++i) {
+                const EditorKeyframe& kf = m_Keyframes[i];
                 const u32 row = static_cast<u32>(kf.kind);
                 if (row >= kTrackCount) continue;
-                const f32 cx = TimeToCanvasX(kf.time_sec, _duration,
+                const f32 cx = TimeToCanvasX(kf.time_sec, m_Duration,
                                               canvas_origin.x, canvas_w);
                 const f32 ry0 = tracks_y0
                               + kTrackRowHeightPx * static_cast<f32>(row);
@@ -519,17 +519,17 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
                 }
             }
             if (hit >= 0) {
-                _selected_idx    = hit;
-                _dragging_marker = true;
-                _drag_idx        = hit;
+                m_SelectedIdx    = hit;
+                m_DraggingMarker = true;
+                m_DragIdx        = hit;
             } else {
                 // ルーラー領域クリックなら time scrub
                 if (mouse.y >= ruler_y0 && mouse.y <= ruler_y1) {
-                    _current_time = CanvasXToTime(mouse.x, _duration,
+                    m_CurrentTime = CanvasXToTime(mouse.x, m_Duration,
                                                   canvas_origin.x, canvas_w);
                 } else {
                     // 何にも当たらないクリックは selection 解除
-                    _selected_idx = kNoKeySelected;
+                    m_SelectedIdx = kNoKeySelected;
                 }
             }
         }
@@ -537,23 +537,23 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         // drag 継続中: マウス x → time へ逆変換して keyframe.time_sec を更新。
         // 並び順を維持するため、変更後に sorted insert で並び直す簡易方式
         // (= 抜いて入れ直す)。
-        if (_dragging_marker && _drag_idx >= 0
-            && static_cast<usize>(_drag_idx) < _keyframes.Size()) {
-            const f32 new_t = CanvasXToTime(mouse.x, _duration,
+        if (m_DraggingMarker && m_DragIdx >= 0
+            && static_cast<usize>(m_DragIdx) < m_Keyframes.Size()) {
+            const f32 new_t = CanvasXToTime(mouse.x, m_Duration,
                                             canvas_origin.x, canvas_w);
-            EditorKeyframe modified = _keyframes[static_cast<usize>(_drag_idx)];
-            modified.time_sec = ClampF(new_t, 0.0f, _duration);
+            EditorKeyframe modified = m_Keyframes[static_cast<usize>(m_DragIdx)];
+            modified.time_sec = ClampF(new_t, 0.0f, m_Duration);
             // 抜く → 並び直して挿入
-            const usize remove_at = static_cast<usize>(_drag_idx);
-            const usize n = _keyframes.Size();
+            const usize remove_at = static_cast<usize>(m_DragIdx);
+            const usize n = m_Keyframes.Size();
             for (usize i = remove_at; i + 1 < n; ++i) {
-                _keyframes[i] = _keyframes[i + 1];
+                m_Keyframes[i] = m_Keyframes[i + 1];
             }
-            _keyframes.PopBack();
+            m_Keyframes.PopBack();
             const i32 new_idx = InsertKeyframeSorted(modified);
             if (new_idx >= 0) {
-                _drag_idx     = new_idx;
-                _selected_idx = new_idx;
+                m_DragIdx     = new_idx;
+                m_SelectedIdx = new_idx;
             }
         }
 
@@ -561,26 +561,26 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         // drag 中は AnimCurveEditor と同様に毎フレーム再 sort はするが、
         // BakeToDirector は drag end で 1 度だけ (= drag 中の毎フレーム bake は
         // O(N) なので panel→director copy の overhead を最小化)。
-        if (_dragging_marker
+        if (m_DraggingMarker
             && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-            _dragging_marker = false;
-            _drag_idx        = -1;
+            m_DraggingMarker = false;
+            m_DragIdx        = -1;
             BakeToDirector();
         }
 
         // ----- marker 描画 (全 keyframe を縦長四角で) -----
         const f32 marker_pad_y = 4.0f;
-        for (usize i = 0; i < _keyframes.Size(); ++i) {
-            const EditorKeyframe& kf = _keyframes[i];
+        for (usize i = 0; i < m_Keyframes.Size(); ++i) {
+            const EditorKeyframe& kf = m_Keyframes[i];
             const u32 row = static_cast<u32>(kf.kind);
             if (row >= kTrackCount) continue;
-            const f32 cx = TimeToCanvasX(kf.time_sec, _duration,
+            const f32 cx = TimeToCanvasX(kf.time_sec, m_Duration,
                                           canvas_origin.x, canvas_w);
             const f32 ry0 = tracks_y0
                           + kTrackRowHeightPx * static_cast<f32>(row);
             const f32 ry1 = ry0 + kTrackRowHeightPx;
             const f32 half_w = kMarkerWidthPx * 0.5f;
-            const bool is_sel = (_selected_idx == static_cast<i32>(i));
+            const bool is_sel = (m_SelectedIdx == static_cast<i32>(i));
             // 選択中は黄色枠 + 元色塗り。非選択は元色だけ。
             const ImU32 fill = KindColor(kf.kind);
             const ImU32 stroke = is_sel
@@ -594,7 +594,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
 
         // ----- 現在カーソルの縦線 (赤) -----
         {
-            const f32 cx = TimeToCanvasX(_current_time, _duration,
+            const f32 cx = TimeToCanvasX(m_CurrentTime, m_Duration,
                                           canvas_origin.x, canvas_w);
             dl->AddLine(ImVec2(cx, canvas_origin.y),
                         ImVec2(cx, canvas_end.y),
@@ -609,8 +609,8 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
     {
         ImGui::TextUnformatted("Inspector");
         ImGui::Separator();
-        if (_selected_idx < 0
-            || static_cast<usize>(_selected_idx) >= _keyframes.Size()) {
+        if (m_SelectedIdx < 0
+            || static_cast<usize>(m_SelectedIdx) >= m_Keyframes.Size()) {
             ImGui::TextDisabled("(no keyframe selected)");
             ImGui::TextDisabled("Click a marker in the timeline,");
             ImGui::TextDisabled("or use +Add to create one.");
@@ -619,27 +619,27 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             // 変数として捕獲しておく (= time の DragFloat が並び替え + PushBack
             // による TArray 再確保を引き起こすと kf 参照が dangling になる)。
             const ETimelineKeyKind kind_for_payload =
-                _keyframes[static_cast<usize>(_selected_idx)].kind;
+                m_Keyframes[static_cast<usize>(m_SelectedIdx)].kind;
             ImGui::Text("Kind: %s", KindName(kind_for_payload));
 
             // time 編集 (drag float、[0, Duration] clamp)。reorder が発生したら
             // 以降の payload 編集は今フレームではスキップ (= 次フレームで安全に
             // 新位置の kf を編集)。
             {
-                float t = _keyframes[static_cast<usize>(_selected_idx)].time_sec;
-                if (ImGui::DragFloat("time (s)", &t, 0.05f, 0.0f, _duration, "%.3f")) {
+                float t = m_Keyframes[static_cast<usize>(m_SelectedIdx)].time_sec;
+                if (ImGui::DragFloat("time (s)", &t, 0.05f, 0.0f, m_Duration, "%.3f")) {
                     EditorKeyframe modified =
-                        _keyframes[static_cast<usize>(_selected_idx)];
-                    modified.time_sec = ClampF(t, 0.0f, _duration);
+                        m_Keyframes[static_cast<usize>(m_SelectedIdx)];
+                    modified.time_sec = ClampF(t, 0.0f, m_Duration);
                     // 古 entry を順序保存削除 → 新時刻で挿入し直す。
-                    const usize remove_at = static_cast<usize>(_selected_idx);
-                    const usize n = _keyframes.Size();
+                    const usize remove_at = static_cast<usize>(m_SelectedIdx);
+                    const usize n = m_Keyframes.Size();
                     for (usize i = remove_at; i + 1 < n; ++i) {
-                        _keyframes[i] = _keyframes[i + 1];
+                        m_Keyframes[i] = m_Keyframes[i + 1];
                     }
-                    _keyframes.PopBack();
+                    m_Keyframes.PopBack();
                     const i32 new_idx = InsertKeyframeSorted(modified);
-                    if (new_idx >= 0) _selected_idx = new_idx;
+                    if (new_idx >= 0) m_SelectedIdx = new_idx;
                     BakeToDirector();
                 }
             }
@@ -647,8 +647,8 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
 
             // payload 編集 (= 上記 time 編集で reorder されていなければ index は
             // 有効なので、改めて参照を取り直して安全に編集)。
-            if (static_cast<usize>(_selected_idx) < _keyframes.Size()) {
-                EditorKeyframe& kf = _keyframes[static_cast<usize>(_selected_idx)];
+            if (static_cast<usize>(m_SelectedIdx) < m_Keyframes.Size()) {
+                EditorKeyframe& kf = m_Keyframes[static_cast<usize>(m_SelectedIdx)];
                 switch (kind_for_payload) {
                 case ETimelineKeyKind::CameraCut: {
                     float v[3] = { kf.camera_target.x,
@@ -708,9 +708,9 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             }
         }
         ImGui::Separator();
-        ImGui::Text("Count: %u", static_cast<unsigned>(_keyframes.Size()));
-        ImGui::Text("Director: %s", _director ? "bound" : "(none)");
-        ImGui::Text("Playing: %s", _playing ? "yes" : "no");
+        ImGui::Text("Count: %u", static_cast<unsigned>(m_Keyframes.Size()));
+        ImGui::Text("Director: %s", m_Director ? "bound" : "(none)");
+        ImGui::Text("Playing: %s", m_Playing ? "yes" : "no");
     }
     ImGui::EndChild();
 

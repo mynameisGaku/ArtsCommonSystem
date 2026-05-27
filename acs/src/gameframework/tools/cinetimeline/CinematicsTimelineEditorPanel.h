@@ -69,15 +69,15 @@
 //     5 種 (= 副作用ゼロな状態遷移マーカー)。両者は ToTrackKind() マッピング
 //     関数で繋ぐ。例: CameraCut → MoveCamera、FadeColor/TimeScale/SpawnEffect/
 //     TriggerCallback → FireEvent (event_id を kind ごとに別 reserve)。
-//   ・**TArray<EditorKeyframe> は panel 所有**: director の internal _keyframes
+//   ・**TArray<EditorKeyframe> は panel 所有**: director の internal m_Keyframes
 //     を直接編集するには FCinematicsDirector の private を覗く必要があり、また
 //     payload に色や FVec3 を持たせるには既存 union を拡張する必要がある。
 //     editor は「リッチな payload を持つ自前 storage」を持ち、Play 時に
 //     director に baked FTimelineKeyframe を渡す方が依存が浅い。
-//   ・**panel-local clock (`_current_time`) と director.CurrentTime() の二重保持**:
-//     editor で scrub したいだけのときは director を進めずに `_current_time` の
+//   ・**panel-local clock (`m_CurrentTime`) と director.CurrentTime() の二重保持**:
+//     editor で scrub したいだけのときは director を進めずに `m_CurrentTime` の
 //     カーソルだけ動かす。Play 時は両方同期 (panel が Step(dt) → director.Tick(dt)
-//     → panel._current_time = director.CurrentTime())。Stop 時は両方 0 に reset。
+//     → panel.m_CurrentTime = director.CurrentTime())。Stop 時は両方 0 に reset。
 //   ・**Duration は panel 側設定 (default 10s)**: director の TotalDuration() は
 //     keyframe の末尾 time から自動算出されるが、編集中は「将来追加される
 //     keyframe のために予め長めに取りたい」需要がある。editor 側で
@@ -197,7 +197,7 @@ public:
 
     // 編集対象の FCinematicsDirector を raw 参照でセット (nullptr で解除)。
     // 寿命は caller 責任 (本 panel は director を所有しない)。
-    // セット直後は selection をリセット、_current_time も 0 に戻す。
+    // セット直後は selection をリセット、m_CurrentTime も 0 に戻す。
     void SetCinematicsDirector(acs::game::FCinematicsDirector* dir) noexcept;
 
     // 現在編集対象の FCinematicsDirector (未バインド時は nullptr)。
@@ -210,15 +210,15 @@ public:
     // (= editor で編集した内容を runtime に反映してから再生開始)。
     void Play() noexcept;
 
-    // 再生一時停止 (`_playing = false`、`_current_time` 保持)。
+    // 再生一時停止 (`m_Playing = false`、`m_CurrentTime` 保持)。
     void Pause() noexcept;
 
-    // 完全停止 (`_playing = false`、`_current_time = 0`、director.Stop も呼ぶ)。
+    // 完全停止 (`m_Playing = false`、`m_CurrentTime = 0`、director.Stop も呼ぶ)。
     void Stop() noexcept;
 
-    // dt 秒進める。`_playing == true` なら director.Tick(dt) も呼んで keyframe を
-    // 発火させ、`_current_time` を director.CurrentTime() と同期する。
-    // `_playing == false` (= scrub 中) なら panel-local clock だけ進める用途には
+    // dt 秒進める。`m_Playing == true` なら director.Tick(dt) も呼んで keyframe を
+    // 発火させ、`m_CurrentTime` を director.CurrentTime() と同期する。
+    // `m_Playing == false` (= scrub 中) なら panel-local clock だけ進める用途には
     // 使わない (= scrub は slider 直接編集で行う、Step は再生中専用)。
     void Step(f32 dt) noexcept;
 
@@ -281,30 +281,30 @@ public:
 
 private:
     // 編集対象 FCinematicsDirector (caller 所有、本 panel は非所有)。
-    acs::game::FCinematicsDirector* _director = nullptr;
+    acs::game::FCinematicsDirector* m_Director = nullptr;
 
     // panel 所有の keyframe 配列 (time 昇順、stable insertion で維持)。
-    TArray<EditorKeyframe> _keyframes;
+    TArray<EditorKeyframe> m_Keyframes;
 
     // 現在選択中の keyframe index。
-    i32 _selected_idx = kNoKeySelected;
+    i32 m_SelectedIdx = kNoKeySelected;
 
     // タイムライン上の現在時刻 [秒]。slider / Step / Stop で更新。
-    f32 _current_time = 0.0f;
+    f32 m_CurrentTime = 0.0f;
 
     // タイムライン全体の長さ [秒]。default 10s。
-    f32 _duration = kDefaultDurationSec;
+    f32 m_Duration = kDefaultDurationSec;
 
     // 再生中フラグ。Play で true、Pause / Stop で false。
-    bool _playing = false;
+    bool m_Playing = false;
 
     // marker ドラッグ中フラグ + 対象 index。Step / 他処理に影響しない UI 専用 state。
-    bool _dragging_marker = false;
-    i32  _drag_idx        = -1;
+    bool m_DraggingMarker = false;
+    i32  m_DragIdx        = -1;
 
     // 追加 combo のために現在選択している kind (Add ボタン押下時にこの kind で
-    // 新規 keyframe を _current_time に追加)。
-    ETimelineKeyKind _add_kind = ETimelineKeyKind::CameraCut;
+    // 新規 keyframe を m_CurrentTime に追加)。
+    ETimelineKeyKind m_AddKind = ETimelineKeyKind::CameraCut;
 
     // ヘルパ: keyframes を time 昇順を保ったまま `kf` を挿入する。
     // 戻り値: 挿入された index (= sort 後の位置)。

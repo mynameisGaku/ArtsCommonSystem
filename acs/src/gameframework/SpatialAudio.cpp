@@ -14,7 +14,7 @@ namespace acs::game {
 // =============================================================================
 
 TResult<void> HrtfRendererStub::Init() noexcept {
-    _initialized = true;
+    m_Initialized = true;
     // Phase 2 で KEMAR 256-tap IR を埋め込み配列から構築する。stub は何も
     // ロードしない (= ~140KB 削減)。一度きりログで「HRTF off」を明示。
     static bool s_logged = false;
@@ -26,11 +26,11 @@ TResult<void> HrtfRendererStub::Init() noexcept {
 }
 
 void HrtfRendererStub::Shutdown() noexcept {
-    _initialized = false;
+    m_Initialized = false;
 }
 
 void HrtfRendererStub::SetListener(const FAudioListener& listener) noexcept {
-    _listener = listener;
+    m_Listener = listener;
 }
 
 void HrtfRendererStub::ProcessSource(const FAudioSource3D& source,
@@ -51,8 +51,8 @@ void HrtfRendererStub::ProcessSource(const FAudioSource3D& source,
     // pan を listener 基準で計算 (FSpatialAudio::ComputePan と同じ式)。
     // right = up × forward。標準姿勢 (forward=Z+, up=Y+) で右ベクトル X+ を
     // 返す式で、左手系 / 右手系どちらでも符号一貫 (Y+up を共通慣習にしている)。
-    const FVec3 right = Cross(_listener.up, _listener.forward);
-    const FVec3 to_src = source.position - _listener.position;
+    const FVec3 right = Cross(m_Listener.up, m_Listener.forward);
+    const FVec3 to_src = source.position - m_Listener.position;
     f32 pan = 0.0f;
     const f32 len_sq = LengthSq(to_src);
     if (len_sq > kEpsilon) {
@@ -77,11 +77,11 @@ void HrtfRendererStub::ProcessSource(const FAudioSource3D& source,
 // =============================================================================
 
 FSpatialAudio::FSpatialAudio() noexcept {
-    _sources.Reserve(kInitialSourceCapacity);
+    m_Sources.Reserve(kInitialSourceCapacity);
 }
 
 void FSpatialAudio::SetListener(const FAudioListener& l) noexcept {
-    _listener = l;
+    m_Listener = l;
 }
 
 // =============================================================================
@@ -91,7 +91,7 @@ void FSpatialAudio::SetListener(const FAudioListener& l) noexcept {
 u32 FSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
                                   EAttenuationCurve curve) noexcept {
     FAudioSource3D s {};
-    s.source_id    = _next_source_id++;
+    s.source_id    = m_NextSourceId++;
     s.position     = pos;
     s.velocity     = FVec3::Zero();
     s.volume       = 1.0f;
@@ -99,23 +99,23 @@ u32 FSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
     s.max_distance = (max_distance > 0.0f) ? max_distance : 20.0f;
     s.active       = true;
     s.curve        = static_cast<u8>(curve);
-    _sources.PushBack(s);
+    m_Sources.PushBack(s);
     return s.source_id;
 }
 
 void FSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= _sources.Size()) {
+    if (idx >= m_Sources.Size()) {
         ACS_LOG_WARN("FSpatialAudio::UpdateSource: stale id=%u → ignored", id);
         return;
     }
-    _sources[idx].position = pos;
-    _sources[idx].velocity = vel;
+    m_Sources[idx].position = pos;
+    m_Sources[idx].velocity = vel;
 }
 
 void FSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= _sources.Size()) {
+    if (idx >= m_Sources.Size()) {
         ACS_LOG_WARN("FSpatialAudio::SetSourceVolume: stale id=%u → ignored", id);
         return;
     }
@@ -123,18 +123,18 @@ void FSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
     if (c != v) {
         ACS_LOG_WARN("FSpatialAudio::SetSourceVolume: out-of-range %.3f → clamped to %.3f", v, c);
     }
-    _sources[idx].volume = c;
+    m_Sources[idx].volume = c;
 }
 
 void FSpatialAudio::RemoveSource(u32 id) noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= _sources.Size()) {
+    if (idx >= m_Sources.Size()) {
         // 既に削除済みは静かに無視 (典型: クロスフェード後の cleanup)。
         return;
     }
     // active=false のままにして、Tick で物理的に圧縮するのが理想だが、
     // Phase H-3 は素朴に末尾と swap して削除 (順序不問)。
-    _sources.RemoveAtSwap(idx);
+    m_Sources.RemoveAtSwap(idx);
 }
 
 // =============================================================================
@@ -143,11 +143,11 @@ void FSpatialAudio::RemoveSource(u32 id) noexcept {
 
 f32 FSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= _sources.Size()) return 0.0f;
-    const FAudioSource3D& s = _sources[idx];
+    if (idx >= m_Sources.Size()) return 0.0f;
+    const FAudioSource3D& s = m_Sources[idx];
     if (!s.active) return 0.0f;
 
-    const FVec3 to_src = s.position - _listener.position;
+    const FVec3 to_src = s.position - m_Listener.position;
     const f32  d      = Length(to_src);
     if (d >= s.max_distance) return 0.0f;  // culling
 
@@ -187,18 +187,18 @@ f32 FSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
 
 f32 FSpatialAudio::ComputePan(u32 id) const noexcept {
     const usize idx = FindIndex(id);
-    if (idx >= _sources.Size()) return 0.0f;
-    const FAudioSource3D& s = _sources[idx];
+    if (idx >= m_Sources.Size()) return 0.0f;
+    const FAudioSource3D& s = m_Sources[idx];
     if (!s.active) return 0.0f;
 
-    const FVec3 to_src = s.position - _listener.position;
+    const FVec3 to_src = s.position - m_Listener.position;
     const f32  len_sq = LengthSq(to_src);
     if (len_sq <= kEpsilon) {
         // listener の真上に重なっている場合は中央 (= 0)。
         return 0.0f;
     }
     // listener の右ベクトル = up × forward (HrtfRendererStub と同じ式)。
-    const FVec3 right = Cross(_listener.up, _listener.forward);
+    const FVec3 right = Cross(m_Listener.up, m_Listener.forward);
     if (LengthSq(right) <= kEpsilon) {
         // forward と up が縮退している (= 不正な姿勢) → 中央扱い。
         return 0.0f;
@@ -218,8 +218,8 @@ f32 FSpatialAudio::ComputePan(u32 id) const noexcept {
 
 u32 FSpatialAudio::SourceCount() const noexcept {
     u32 n = 0;
-    for (usize i = 0; i < _sources.Size(); ++i) {
-        if (_sources[i].active) ++n;
+    for (usize i = 0; i < m_Sources.Size(); ++i) {
+        if (m_Sources[i].active) ++n;
     }
     return n;
 }
@@ -234,8 +234,8 @@ void FSpatialAudio::Tick(f32 /*dt*/) noexcept {
 }
 
 void FSpatialAudio::Clear() noexcept {
-    _sources.Clear();
-    // _next_source_id はリセットしない。Clear 直後に登録した source は新 ID
+    m_Sources.Clear();
+    // m_NextSourceId はリセットしない。Clear 直後に登録した source は新 ID
     // を受け取り、外部に握られた古い ID とは衝突しない (stale 検出が機能する)。
 }
 
@@ -244,11 +244,11 @@ void FSpatialAudio::Clear() noexcept {
 // =============================================================================
 
 usize FSpatialAudio::FindIndex(u32 id) const noexcept {
-    if (id == 0) return _sources.Size();  // 0 は無効予約
-    for (usize i = 0; i < _sources.Size(); ++i) {
-        if (_sources[i].source_id == id) return i;
+    if (id == 0) return m_Sources.Size();  // 0 は無効予約
+    for (usize i = 0; i < m_Sources.Size(); ++i) {
+        if (m_Sources[i].source_id == id) return i;
     }
-    return _sources.Size();
+    return m_Sources.Size();
 }
 
 } // namespace acs::game

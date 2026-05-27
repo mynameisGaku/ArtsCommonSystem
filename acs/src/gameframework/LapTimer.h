@@ -88,18 +88,18 @@ struct LapRecord {
 // レース参加者識別子。FHealthId と同じく 24bit index + 8bit generation。
 // 0 は invalid 予約 (index 0 dummy)。
 struct RacerId {
-    u32 _packed = 0;   // 0 = invalid。layout: low24=index, high8=generation
+    u32 m_Packed = 0;   // 0 = invalid。layout: low24=index, high8=generation
 
     constexpr RacerId() noexcept = default;
     constexpr RacerId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32  Index()      const noexcept { return _packed & 0x00FFFFFFu; }
-    constexpr u8   Generation() const noexcept { return static_cast<u8>(_packed >> 24); }
-    bool IsValid() const noexcept { return _packed != 0; }
+    constexpr u32  Index()      const noexcept { return m_Packed & 0x00FFFFFFu; }
+    constexpr u8   Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+    bool IsValid() const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(RacerId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(RacerId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(RacerId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(RacerId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // レース中・終了時に外部から読まれる racer 統計。GetStats() で const 参照。
@@ -200,7 +200,7 @@ public:
     u32 PositionOf(RacerId id) const noexcept;
 
     // 登録中 racer 数 (生存問わず active なもの)。
-    u32 RacerCount() const noexcept { return _racer_count; }
+    u32 RacerCount() const noexcept { return m_RacerCount; }
 
     // 当該 racer の完了ラップ数 (= LapRecord 件数)。invalid id は 0。
     u32 LapRecordCount(RacerId id) const noexcept;
@@ -244,28 +244,28 @@ private:
     const Slot* FindSlot(RacerId id) const noexcept;
 
     // 順位比較: lhs が rhs より上位なら true。
-    //   1. (_total_laps - current_lap) 昇順 (= 残りラップ少ない方が上)
+    //   1. (m_TotalLaps - current_lap) 昇順 (= 残りラップ少ない方が上)
     //   2. checkpoints_passed 降順 (= 同じラップ数なら checkpoint 多い方が上)
     //   3. total_time_sec 昇順 (= 同じ進捗なら速い方が上)
     // 注: フィニッシュ後の racer は racer_position が固定されているため、
     //     比較から除外して別途処理する (Calculate*).
     bool IsBetterRank(const RacerStats& lhs, const RacerStats& rhs) const noexcept;
 
-    TArray<Slot>    _slots;
-    u32            _racer_count          = 0;
+    TArray<Slot>    m_Slots;
+    u32            m_RacerCount          = 0;
 
-    u32            _total_laps           = 1;
-    u32            _checkpoints_per_lap  = 1;
+    u32            m_TotalLaps           = 1;
+    u32            m_CheckpointsPerLap  = 1;
 
     State          _state                = State::Stopped;
-    f32            _race_time_sec        = 0.0f;
-    u32            _finished_count       = 0;   // 既にフィニッシュした racer 数
+    f32            m_RaceTimeSec        = 0.0f;
+    u32            m_FinishedCount       = 0;   // 既にフィニッシュした racer 数
 
-    LapCallback    _on_lap       = nullptr;
-    void*          _on_lap_user  = nullptr;
+    LapCallback    m_OnLap       = nullptr;
+    void*          m_OnLapUser  = nullptr;
 
-    FinishCallback _on_finish      = nullptr;
-    void*          _on_finish_user = nullptr;
+    FinishCallback m_OnFinish      = nullptr;
+    void*          m_OnFinishUser = nullptr;
 };
 
 } // namespace acs::game

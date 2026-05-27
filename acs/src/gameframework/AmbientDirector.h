@@ -8,18 +8,18 @@
 //
 // 使い方:
 //   class WorldScene : public Scene {
-//       acs::game::FAmbientDirector _ambient;
+//       acs::game::FAmbientDirector m_Ambient;
 //
 //       void OnEnter() noexcept override {
-//           _ambient.SetTimeOfDay(6.5f);     // 朝焼け開始
-//           _ambient.SetTimeScale(0.1f);     // リアル 1s = 0.1 game-hour
+//           m_Ambient.SetTimeOfDay(6.5f);     // 朝焼け開始
+//           m_Ambient.SetTimeScale(0.1f);     // リアル 1s = 0.1 game-hour
 //                                            // → 1 game 日 = リアル 240s
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _ambient.Tick(dt);
-//           FRenderer().SetSkyColor    (_ambient.SkyColor());
-//           FRenderer().SetAmbientColor(_ambient.AmbientColor());
-//           FRenderer().SetSunDir      (_ambient.SunDirection());
+//           m_Ambient.Tick(dt);
+//           FRenderer().SetSkyColor    (m_Ambient.SkyColor());
+//           FRenderer().SetAmbientColor(m_Ambient.AmbientColor());
+//           FRenderer().SetSunDir      (m_Ambient.SunDirection());
 //       }
 //   };
 //
@@ -70,7 +70,7 @@ public:
     // dt_hours だけゲーム時間を進める。負値は 0 にクランプ (時を戻さない方針)。
     void AdvanceTime(f32 dt_hours) noexcept;
 
-    f32 TimeOfDay() const noexcept { return _hours; }
+    f32 TimeOfDay() const noexcept { return m_Hours; }
 
     // ----- 色・方向 (補間結果を pull) -----
     FVec3 SkyColor()     const noexcept;
@@ -78,21 +78,21 @@ public:
     FVec3 SunDirection() const noexcept;
 
     // ----- 昼夜判定 -----
-    bool IsDay()   const noexcept { return _hours >= 6.0f && _hours < 18.0f; }
+    bool IsDay()   const noexcept { return m_Hours >= 6.0f && m_Hours < 18.0f; }
     bool IsNight() const noexcept { return !IsDay(); }
 
     // ----- リアル時間 → ゲーム時間 換算 -----
     // game_hours_per_real_sec: リアル 1 秒で進めるゲーム時間。
     // 既定 1/60 = リアル 1 分でゲーム 1 時間 (= 1 日 24 分)。
     void SetTimeScale(f32 game_hours_per_real_sec) noexcept {
-        _time_scale = game_hours_per_real_sec >= 0.0f ? game_hours_per_real_sec : 0.0f;
+        m_TimeScale = game_hours_per_real_sec >= 0.0f ? game_hours_per_real_sec : 0.0f;
     }
-    f32 TimeScale() const noexcept { return _time_scale; }
+    f32 TimeScale() const noexcept { return m_TimeScale; }
 
     // FSceneServices などから毎フレーム呼ぶ。dt はリアル秒。
     void Tick(f32 dt) noexcept {
         if (dt < 0.0f) dt = 0.0f;
-        AdvanceTime(dt * _time_scale);
+        AdvanceTime(dt * m_TimeScale);
     }
 
 public:
@@ -106,11 +106,11 @@ public:
 
 private:
     // 6 個の固定 stop。0:00 と 24:00 は夜色で揃えてラップを連続化。
-    static const TimeStop _stops[6];
+    static const TimeStop m_Stops[6];
 
     // 現在時刻 [0, 24)。
-    f32 _hours      = 12.0f;
-    f32 _time_scale = 1.0f / 60.0f;  // リアル 1s = 1/60 game-h = 1 game-min
+    f32 m_Hours      = 12.0f;
+    f32 m_TimeScale = 1.0f / 60.0f;  // リアル 1s = 1/60 game-h = 1 game-min
 };
 
 } // namespace acs::game

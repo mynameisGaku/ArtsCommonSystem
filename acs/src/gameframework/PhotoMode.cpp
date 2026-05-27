@@ -19,16 +19,16 @@ namespace acs::game {
 //   5. capture_pending もリセットして「Enter 直後に誤撮影」を防ぐ
 // =============================================================================
 void FPhotoMode::Enter(f32 current_time_scale) noexcept {
-    if (_active) {
-        return;  // 二重 Enter ガード (_saved_time_scale を上書きしない)
+    if (m_Active) {
+        return;  // 二重 Enter ガード (m_SavedTimeScale を上書きしない)
     }
-    _active           = true;
-    _saved_time_scale = current_time_scale;
-    _offset           = FVec2{0.0f, 0.0f};
-    _zoom_mult        = 1.0f;
-    _rot              = 0.0f;
-    _capture_pending  = false;
-    // _filter は意図的に保持
+    m_Active           = true;
+    m_SavedTimeScale = current_time_scale;
+    m_Offset           = FVec2{0.0f, 0.0f};
+    m_ZoomMult        = 1.0f;
+    m_Rot              = 0.0f;
+    m_CapturePending  = false;
+    // m_Filter は意図的に保持
 }
 
 // =============================================================================
@@ -39,8 +39,8 @@ void FPhotoMode::Enter(f32 current_time_scale) noexcept {
 //   リセットされるので、Exit→Enter 間に値を見たい用途を阻害しない。
 // =============================================================================
 void FPhotoMode::Exit() noexcept {
-    _active          = false;
-    _capture_pending = false;
+    m_Active          = false;
+    m_CapturePending = false;
 }
 
 // =============================================================================
@@ -48,9 +48,9 @@ void FPhotoMode::Exit() noexcept {
 //   active 中のみ反映 (撮影モード外で誤って積まないようにガード)。
 // =============================================================================
 void FPhotoMode::MoveCamera(FVec2 delta) noexcept {
-    if (!_active) return;
-    _offset.x += delta.x;
-    _offset.y += delta.y;
+    if (!m_Active) return;
+    m_Offset.x += delta.x;
+    m_Offset.y += delta.y;
 }
 
 // =============================================================================
@@ -63,10 +63,10 @@ void FPhotoMode::MoveCamera(FVec2 delta) noexcept {
 //   active 外でも操作許可 (Enter() で 1.0 にリセットされるため副作用なし)。
 // =============================================================================
 void FPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
-    if (!_active) return;
-    _zoom_mult += zoom_delta;
-    if (_zoom_mult < 0.1f)  _zoom_mult = 0.1f;
-    if (_zoom_mult > 10.0f) _zoom_mult = 10.0f;
+    if (!m_Active) return;
+    m_ZoomMult += zoom_delta;
+    if (m_ZoomMult < 0.1f)  m_ZoomMult = 0.1f;
+    if (m_ZoomMult > 10.0f) m_ZoomMult = 10.0f;
 }
 
 // =============================================================================
@@ -75,20 +75,20 @@ void FPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
 //   なので overflow しても挙動は変わらない。
 // =============================================================================
 void FPhotoMode::RotateCamera(f32 rad_delta) noexcept {
-    if (!_active) return;
-    _rot += rad_delta;
+    if (!m_Active) return;
+    m_Rot += rad_delta;
 }
 
 // =============================================================================
 // ConsumeCaptureRequest — 撮影 flag を読んで同時に落とす
 //   ・active 外では常に false を返す (Exit 後の取り残し flag 防止)
-//   ・成功時は _capture_pending を false に rear:
+//   ・成功時は m_CapturePending を false に rear:
 //     描画ループが同一フレームで複数回呼んでも 1 枚しか撮影されない
 // =============================================================================
 bool FPhotoMode::ConsumeCaptureRequest() noexcept {
-    if (!_active) return false;
-    if (!_capture_pending) return false;
-    _capture_pending = false;
+    if (!m_Active) return false;
+    if (!m_CapturePending) return false;
+    m_CapturePending = false;
     return true;
 }
 

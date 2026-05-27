@@ -44,24 +44,24 @@ public:
     int Run(const FAppConfig& cfg) noexcept;
 
     // 終了要求（ループを抜ける、OnShutdown が呼ばれる）
-    void Quit() noexcept { _running = false; }
+    void Quit() noexcept { m_Running = false; }
 
     // 背景クリア色を動的に変更する（次フレームの描画から反映される）。
     // 既定値は FAppConfig の clear_r/g/b/a（起動時）。
     void SetClearColor(f32 r, f32 g, f32 b, f32 a = 1.0f) noexcept {
-        _clear_color = ClearColor{ r, g, b, a };
+        m_ClearColor = ClearColor{ r, g, b, a };
     }
 
     // 初学者がアクセスしやすいようにエンジンサブシステムを公開
-    FWindow&         GetWindow()        noexcept { return _window; }
-    FRenderer&       GetRenderer()      noexcept { return _renderer; }
-    World&          GetWorld()         noexcept { return _world; }
-    FAssetRegistry&  GetAssets()        noexcept { return _assets; }
-    FTimerManager&   GetTimers()        noexcept { return _timers; }
-    MessageBroker&  GetEvents()        noexcept { return _events; }
-    f32             DeltaTime()  const noexcept { return _dt; }
-    u64             FrameCount() const noexcept { return _frame_timer.FrameCount(); }
-    f32             FPS()        const noexcept { return _frame_timer.SmoothedFPS(); }
+    FWindow&         GetWindow()        noexcept { return m_Window; }
+    FRenderer&       GetRenderer()      noexcept { return m_Renderer; }
+    World&          GetWorld()         noexcept { return m_World; }
+    FAssetRegistry&  GetAssets()        noexcept { return m_Assets; }
+    FTimerManager&   GetTimers()        noexcept { return m_Timers; }
+    MessageBroker&  GetEvents()        noexcept { return m_Events; }
+    f32             DeltaTime()  const noexcept { return m_Dt; }
+    u64             FrameCount() const noexcept { return m_FrameTimer.FrameCount(); }
+    f32             FPS()        const noexcept { return m_FrameTimer.SmoothedFPS(); }
 
 protected:
     // 派生クラスでオーバーライドするフック群（順番にフレームごとに呼ばれる）
@@ -81,17 +81,17 @@ private:
     // FWindow のイベントを Input に流しつつ OnEvent も呼ぶブリッジ
     static void EventBridge(void* user, const Event& e) noexcept;
 
-    FWindow         _window;
-    FRenderer       _renderer;
-    World          _world;
-    FAssetRegistry  _assets;
-    FTimerManager   _timers;
-    MessageBroker  _events;
-    FrameTimer     _frame_timer;
-    f32            _dt       = 0.0f;
-    bool           _running  = true;
-    FAppConfig      _cfg;
-    ClearColor     _clear_color{};   // BeginFrame に渡す現在のクリア色
+    FWindow         m_Window;
+    FRenderer       m_Renderer;
+    World          m_World;
+    FAssetRegistry  m_Assets;
+    FTimerManager   m_Timers;
+    MessageBroker  m_Events;
+    FrameTimer     m_FrameTimer;
+    f32            m_Dt       = 0.0f;
+    bool           m_Running  = true;
+    FAppConfig      m_Cfg;
+    ClearColor     m_ClearColor{};   // BeginFrame に渡す現在のクリア色
 };
 
 } // namespace acs

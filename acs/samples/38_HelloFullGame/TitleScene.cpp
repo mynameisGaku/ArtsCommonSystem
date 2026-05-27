@@ -18,12 +18,12 @@ using namespace acs::game;
 namespace hellofg {
 
 void TitleScene::OnEnter() noexcept {
-    GetGame().SetClearColor(_bg_color.x, _bg_color.y, _bg_color.z);
+    GetGame().SetClearColor(m_BgColor.x, m_BgColor.y, m_BgColor.z);
 
     // 背景色を 2 秒 ping-pong する FTween (Services 経由で自動 tick される)
-    _bg_tween = Services().Tweens().Tween(
-        &_bg_color, kBgDark, kBgBright, /*duration=*/2.0f, Easing::InOutSine);
-    _to_bright = true;
+    m_BgTween = Services().Tweens().Tween(
+        &m_BgColor, kBgDark, kBgBright, /*duration=*/2.0f, Easing::InOutSine);
+    m_ToBright = true;
 
     // 入力バインド
     FInputMap& im = Services().Input();
@@ -56,15 +56,15 @@ void TitleScene::OnUpdate(f32 dt) noexcept {
     }
 
     // ping-pong 完了で逆向き再開
-    if (!Services().Tweens().IsActive(_bg_tween)) {
-        _to_bright = !_to_bright;
-        const FVec3 to = _to_bright ? kBgBright : kBgDark;
-        _bg_tween = Services().Tweens().Tween(
-            &_bg_color, _bg_color, to, /*duration=*/2.0f, Easing::InOutSine);
+    if (!Services().Tweens().IsActive(m_BgTween)) {
+        m_ToBright = !m_ToBright;
+        const FVec3 to = m_ToBright ? kBgBright : kBgDark;
+        m_BgTween = Services().Tweens().Tween(
+            &m_BgColor, m_BgColor, to, /*duration=*/2.0f, Easing::InOutSine);
     }
-    GetGame().SetClearColor(_bg_color.x, _bg_color.y, _bg_color.z);
+    GetGame().SetClearColor(m_BgColor.x, m_BgColor.y, m_BgColor.z);
 
-    _pulse_sec += dt;
+    m_PulseSec += dt;
 }
 
 void TitleScene::OnRender(RenderContext& rc) noexcept {
@@ -86,7 +86,7 @@ void TitleScene::OnRender(RenderContext& rc) noexcept {
     sb.DrawRect(cx - 340.0f, cy + 26.0f, 680.0f, 14.0f, FVec4{0.30f, 0.55f, 1.00f, 0.9f});
 
     // "Press Space" の点滅板。Sin で 0..1 を作って α に流す
-    const f32 alpha = 0.35f + 0.45f * (0.5f + 0.5f * Sin(_pulse_sec * 3.5f));
+    const f32 alpha = 0.35f + 0.45f * (0.5f + 0.5f * Sin(m_PulseSec * 3.5f));
     sb.DrawRect(cx - 220.0f, cy + 120.0f, 440.0f, 36.0f,
                 FVec4{0.95f, 0.95f, 0.95f, alpha});
 

@@ -116,63 +116,63 @@ private:
     friend void UpdateExposureControls(HelloIblApp&, acs::f32) noexcept;
     friend void DrawHud(HelloIblApp&, acs::u32, acs::u32) noexcept;
 
-    acs::FPostProcess        _post;
-    acs::ImageBasedLighting _ibl;
-    acs::FSky                _sky;
-    acs::FPbrShader          _pbr;
-    acs::GpuMesh            _gm_sphere;
-    acs::GpuMesh            _gm_plane;
-    acs::FSpriteBatch        _batch;
-    acs::Font               _font;
-    acs::FCamera             _camera;
-    acs::PostProcessParams  _post_params;
-    acs::TArray<acs::f32>    _equirect_rgba;          // 4 ch float
-    acs::FVec4               _sh9[9]   = {};          // 計算済 SH 9 係数 (xyz=RGB)
-    acs::FVec3               _cam_pos  = acs::FVec3{0, 1.0f, -5.0f};
-    acs::f32                _cam_yaw   = 0.0f;
-    acs::f32                _cam_pitch = 0.0f;
-    acs::i32                _current_preset = 0;
-    bool                    _need_recapture   = false;
-    bool                    _need_studio_hdr  = false;
-    bool                    _use_sh9          = false;
-    bool                    _need_sh9_rebuild = false;
-    bool                    _use_clearcoat    = false;
-    bool                    _use_anisotropy   = false;
-    bool                    _use_area_light   = false;
-    bool                    _use_probe_grid   = false;
-    bool                    _use_fog          = false;
-    bool                    _need_atmosphere  = false;
-    bool                    _use_shadows      = false;
-    bool                    _show_ssr         = false;
-    bool                    _ssr_warm         = false; // _ssr.Render が 1 度以上走った？
-    bool                    _use_ssao         = true;  // FPbrShader 側で composite (1-frame latency)
-    bool                    _ssao_warm        = false; // _ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
-    bool                    _use_taa          = true;
-    acs::u32                _taa_frame_index  = 0;     // Halton(2,3) 用カウンタ
-    acs::FMat4               _prev_vp_no_jitter{};      // 前フレームの jitter なし VP
-    bool                    _taa_prev_vp_valid = false;// 上が本物の VP (default identity 以外) か
-    acs::f32                _exposure_target  = 0.7f;  // 露出目標 (preset / Q-E で動く)
-    acs::f32                _adapted_exposure = 0.7f;  // 実露出 (target へ dt 補間)
-    bool                    _use_auto_exposure = true; // GPU auto-exposure ('U' で手動切替)
-    acs::f32                _auto_key          = 0.5f; // 自動露出の目標平均輝度 (Q/E で調整)
-    bool                    _use_ssgi         = true;
-    bool                    _ssgi_warm        = false; // _ssgi.Render が 1 度以上走った？
-    bool                    _use_lightmap     = true;
-    acs::TUniquePtr<acs::IRhiTexture> _lightmap;        // 床用 baked lightmap (256x256 RGBA8)
-    acs::FShadowMap          _shadow;
-    acs::FSsr                _ssr;
-    acs::FSsao               _ssao;
-    acs::FSsgi               _ssgi;
-    acs::FMotionVector       _motion;
-    bool                    _use_motion_vec   = true;
-    acs::FRefractionShader   _refr;                     // screen-space 屈折
-    acs::FBlit               _blit;                     // HDR -> _bg_rt コピー
-    acs::TUniquePtr<acs::IRhiTexture> _bg_rt;           // 屈折用 background キャプチャ
-    bool                    _show_refraction  = true;
-    acs::FMat4               _dyn_curr[kDynCount] = {}; // 動的球の現フレーム transform
-    acs::FMat4               _dyn_prev[kDynCount] = {}; // 動的球の前フレーム transform
-    acs::f32                _anim_time        = 0.0f;  // 動的球公転の時刻アキュムレータ
-    acs::u32                _display_mode     = 0;
+    acs::FPostProcess        m_Post;
+    acs::ImageBasedLighting m_Ibl;
+    acs::FSky                m_Sky;
+    acs::FPbrShader          m_Pbr;
+    acs::GpuMesh            m_GmSphere;
+    acs::GpuMesh            m_GmPlane;
+    acs::FSpriteBatch        m_Batch;
+    acs::Font               m_Font;
+    acs::FCamera             m_Camera;
+    acs::PostProcessParams  m_PostParams;
+    acs::TArray<acs::f32>    m_EquirectRgba;          // 4 ch float
+    acs::FVec4               m_Sh9[9]   = {};          // 計算済 SH 9 係数 (xyz=RGB)
+    acs::FVec3               m_CamPos  = acs::FVec3{0, 1.0f, -5.0f};
+    acs::f32                m_CamYaw   = 0.0f;
+    acs::f32                m_CamPitch = 0.0f;
+    acs::i32                m_CurrentPreset = 0;
+    bool                    m_NeedRecapture   = false;
+    bool                    m_NeedStudioHdr  = false;
+    bool                    m_UseSh9          = false;
+    bool                    m_NeedSh9Rebuild = false;
+    bool                    m_UseClearcoat    = false;
+    bool                    m_UseAnisotropy   = false;
+    bool                    m_UseAreaLight   = false;
+    bool                    m_UseProbeGrid   = false;
+    bool                    m_UseFog          = false;
+    bool                    m_NeedAtmosphere  = false;
+    bool                    m_UseShadows      = false;
+    bool                    m_ShowSsr         = false;
+    bool                    m_SsrWarm         = false; // m_Ssr.Render が 1 度以上走った？
+    bool                    m_UseSsao         = true;  // FPbrShader 側で composite (1-frame latency)
+    bool                    m_SsaoWarm        = false; // m_Ssao.Render が 1 度以上走った？ (frame 0 garbage 回避)
+    bool                    m_UseTaa          = true;
+    acs::u32                m_TaaFrameIndex  = 0;     // Halton(2,3) 用カウンタ
+    acs::FMat4               m_PrevVpNoJitter{};      // 前フレームの jitter なし VP
+    bool                    m_TaaPrevVpValid = false;// 上が本物の VP (default identity 以外) か
+    acs::f32                m_ExposureTarget  = 0.7f;  // 露出目標 (preset / Q-E で動く)
+    acs::f32                m_AdaptedExposure = 0.7f;  // 実露出 (target へ dt 補間)
+    bool                    m_UseAutoExposure = true; // GPU auto-exposure ('U' で手動切替)
+    acs::f32                m_AutoKey          = 0.5f; // 自動露出の目標平均輝度 (Q/E で調整)
+    bool                    m_UseSsgi         = true;
+    bool                    m_SsgiWarm        = false; // m_Ssgi.Render が 1 度以上走った？
+    bool                    m_UseLightmap     = true;
+    acs::TUniquePtr<acs::IRhiTexture> m_Lightmap;        // 床用 baked lightmap (256x256 RGBA8)
+    acs::FShadowMap          m_Shadow;
+    acs::FSsr                m_Ssr;
+    acs::FSsao               m_Ssao;
+    acs::FSsgi               m_Ssgi;
+    acs::FMotionVector       m_Motion;
+    bool                    m_UseMotionVec   = true;
+    acs::FRefractionShader   m_Refr;                     // screen-space 屈折
+    acs::FBlit               m_Blit;                     // HDR -> m_BgRt コピー
+    acs::TUniquePtr<acs::IRhiTexture> m_BgRt;           // 屈折用 background キャプチャ
+    bool                    m_ShowRefraction  = true;
+    acs::FMat4               m_DynCurr[kDynCount] = {}; // 動的球の現フレーム transform
+    acs::FMat4               m_DynPrev[kDynCount] = {}; // 動的球の前フレーム transform
+    acs::f32                m_AnimTime        = 0.0f;  // 動的球公転の時刻アキュムレータ
+    acs::u32                m_DisplayMode     = 0;
 };
 
 } // namespace helloibl

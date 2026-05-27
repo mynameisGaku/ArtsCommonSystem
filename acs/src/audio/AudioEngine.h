@@ -70,7 +70,7 @@ public:
     struct Impl;
 
 private:
-    Impl* _impl = nullptr;
+    Impl* m_Impl = nullptr;
 };
 
 } // namespace acs

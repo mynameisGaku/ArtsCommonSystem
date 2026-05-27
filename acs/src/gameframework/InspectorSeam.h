@@ -8,16 +8,16 @@
 //
 // 使い方:
 //   class Player : public acs::game::IInspectableProvider {
-//       f32  _speed = 5.0f;
-//       i32  _hp    = 100;
-//       bool _invincible = false;
+//       f32  m_Speed = 5.0f;
+//       i32  m_Hp    = 100;
+//       bool m_Invincible = false;
 //
 //       u32 ObjectCount() noexcept override { return 1; }
 //       InspectableObject GetObject(u32) noexcept override {
 //           static InspectableField fields[] = {
-//               { "speed",      EFieldKind::F32,  &_speed,      0, nullptr },
-//               { "hp",         EFieldKind::I32,  &_hp,         0, nullptr },
-//               { "invincible", EFieldKind::Bool, &_invincible, 0, nullptr },
+//               { "speed",      EFieldKind::F32,  &m_Speed,      0, nullptr },
+//               { "hp",         EFieldKind::I32,  &m_Hp,         0, nullptr },
+//               { "invincible", EFieldKind::Bool, &m_Invincible, 0, nullptr },
 //           };
 //           return { "Player", "P1", fields, 3 };
 //       }
@@ -179,7 +179,7 @@ public:
     //   持たない純粋なレジストリのままにする。
 
 private:
-    TArray<IInspectableProvider*> _providers;
+    TArray<IInspectableProvider*> m_Providers;
 };
 
 } // namespace acs::game

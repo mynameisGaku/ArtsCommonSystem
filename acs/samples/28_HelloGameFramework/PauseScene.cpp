@@ -19,12 +19,12 @@ void PauseScene::OnEnter() noexcept {
      .Wait(1.5f)
      .Call(&PauseScene::LogStillPaused2, this)
      .Loop(0);
-    _seqs.Start(Move(s));
+    m_Seqs.Start(Move(s));
     ACS_LOG_INFO("[Pause] (P: resume, Esc: quit) FSequence loop start");
 }
 
 void PauseScene::OnExit() noexcept {
-    _seqs.CancelAll();
+    m_Seqs.CancelAll();
     ACS_LOG_INFO("[Pause] exit");
 }
 
@@ -34,8 +34,8 @@ void PauseScene::OnUpdate(f32 dt) noexcept {
         Scenes().PopScene();
         return;
     }
-    _clock.Tick(dt);
-    _seqs.Tick(_clock.Dt());
+    m_Clock.Tick(dt);
+    m_Seqs.Tick(m_Clock.Dt());
 }
 
 void PauseScene::LogStillPaused1(void* /*user*/) noexcept {

@@ -12,27 +12,27 @@
 namespace acs {
 
 DiligentSwapchain::~DiligentSwapchain() noexcept {
-    if (_swap) { _swap->Release(); _swap = nullptr; }
+    if (m_Swap) { m_Swap->Release(); m_Swap = nullptr; }
 }
 
 TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept {
-    _device = &device;
-    _buffer_count = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
-    _vsync  = cfg.vsync;
-    _format = cfg.format;
-    _width  = cfg.window ? cfg.window->Width()  : 0;
-    _height = cfg.window ? cfg.window->Height() : 0;
+    m_Device = &device;
+    m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
+    m_Vsync  = cfg.vsync;
+    m_Format = cfg.format;
+    m_Width  = cfg.window ? cfg.window->Width()  : 0;
+    m_Height = cfg.window ? cfg.window->Height() : 0;
 
     if (!cfg.window || !cfg.window->NativeHandle()) {
         return ACS_ERR(Render, 110, "DiligentSwapchain::Init requires a valid window");
     }
 
     Diligent::SwapChainDesc sd;
-    sd.Width             = _width;
-    sd.Height            = _height;
-    sd.ColorBufferFormat = diligent_detail::ToDiligent(_format);
+    sd.Width             = m_Width;
+    sd.Height            = m_Height;
+    sd.ColorBufferFormat = diligent_detail::ToDiligent(m_Format);
     sd.DepthBufferFormat = Diligent::TEX_FORMAT_UNKNOWN;  // 深度は ACS 側で別途管理
-    sd.BufferCount       = _buffer_count;
+    sd.BufferCount       = m_BufferCount;
     sd.PreTransform      = Diligent::SURFACE_TRANSFORM_OPTIMAL;
     sd.Usage             = Diligent::SWAP_CHAIN_USAGE_RENDER_TARGET;
 
@@ -51,41 +51,41 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
 #if WITH_RENDER_DILIGENT_VULKAN
         auto* factory = device.FactoryVk();
         if (!factory) return ACS_ERR(Render, 113, "Vulkan factory missing");
-        factory->CreateSwapChainVk(dev, ctx, sd, win, &_swap);
+        factory->CreateSwapChainVk(dev, ctx, sd, win, &m_Swap);
 #else
         return ACS_ERR(Render, 114, "Vulkan backend not built");
 #endif
     } else {
         auto* factory = device.Factory();
         if (!factory) return ACS_ERR(Render, 115, "D3D12 factory missing");
-        factory->CreateSwapChainD3D12(dev, ctx, sd, fs, win, &_swap);
+        factory->CreateSwapChainD3D12(dev, ctx, sd, fs, win, &m_Swap);
     }
-    if (!_swap) {
+    if (!m_Swap) {
         return ACS_ERR(Render, 112, "CreateSwapChain failed");
     }
 
     ACS_LOG_INFO("Diligent swapchain created: %ux%u, format=%d, buffers=%u",
-                 _width, _height, static_cast<int>(_format), _buffer_count);
+                 m_Width, m_Height, static_cast<int>(m_Format), m_BufferCount);
     return Ok();
 }
 
 u32 DiligentSwapchain::AcquireNextImage() noexcept {
     // Diligent はバックバッファインデックスを内部管理する。
-    // BeginRenderToSwapchain では SetRenderTargets(_swap->GetCurrentBackBufferRTV()) を呼ぶ。
+    // BeginRenderToSwapchain では SetRenderTargets(m_Swap->GetCurrentBackBufferRTV()) を呼ぶ。
     return 0;
 }
 
 void DiligentSwapchain::Present() noexcept {
-    if (!_swap) return;
-    _swap->Present(_vsync ? 1 : 0);
+    if (!m_Swap) return;
+    m_Swap->Present(m_Vsync ? 1 : 0);
 }
 
 void DiligentSwapchain::Resize(u32 width, u32 height) noexcept {
-    if (!_swap) return;
+    if (!m_Swap) return;
     if (width == 0 || height == 0) return;
-    _width  = width;
-    _height = height;
-    _swap->Resize(width, height);
+    m_Width  = width;
+    m_Height = height;
+    m_Swap->Resize(width, height);
 }
 
 } // namespace acs

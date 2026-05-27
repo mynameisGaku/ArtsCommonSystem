@@ -35,8 +35,8 @@ public:
 private:
     void ApplyPreset(acs::u32 idx, acs::FVec2 pos) noexcept;
 
-    acs::ParticleSystem _ps;
-    acs::u32            _preset = 0;
+    acs::ParticleSystem m_Ps;
+    acs::u32            m_Preset = 0;
 };
 
 } // namespace helloparticles

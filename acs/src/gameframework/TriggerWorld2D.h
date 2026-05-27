@@ -52,21 +52,21 @@ namespace acs::game {
 /// Trigger を識別する packed 32bit handle (generational)。
 /// レイアウトは FShapeId / FNodeId と同一 (low24=index, high8=generation)。
 struct FTriggerId {
-    u32 _packed = 0;   // 0 = invalid
+    u32 m_Packed = 0;   // 0 = invalid
 
     constexpr FTriggerId() noexcept = default;
     constexpr FTriggerId(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    constexpr u32  Index() const noexcept { return _packed & 0x00FFFFFFu; }
+    constexpr u32  Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
     constexpr u8   Generation() const noexcept {
-        return static_cast<u8>(_packed >> 24);
+        return static_cast<u8>(m_Packed >> 24);
     }
     /// invalid (packed == 0) でなければ true。
-    bool IsValid() const noexcept { return _packed != 0; }
+    bool IsValid() const noexcept { return m_Packed != 0; }
 
-    constexpr bool operator==(FTriggerId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(FTriggerId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FTriggerId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(FTriggerId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 /// Trigger イベントコールバック: (user, self, other) の順で受け取る。
@@ -109,7 +109,7 @@ public:
     void Tick(f32 dt) noexcept;
 
     /// active な trigger の総数。
-    u32 TriggerCount() const noexcept { return _trigger_count; }
+    u32 TriggerCount() const noexcept { return m_TriggerCount; }
 
     /// 全 trigger と overlap state を破棄。
     void ClearAll() noexcept;
@@ -137,17 +137,17 @@ private:
     u32  AcquireSlot() noexcept;
     bool ShapesOverlap(const FTriggerSlot& a, const FTriggerSlot& b) const noexcept;
 
-    TArray<FTriggerSlot> _slots;
-    TArray<OverlapPair> _pairs;         // a_idx < b_idx でソート済み
-    TArray<OverlapPair> _next_pairs;    // Tick 内の作業バッファ (再確保を抑える)
-    u32 _trigger_count = 0;
+    TArray<FTriggerSlot> m_Slots;
+    TArray<OverlapPair> m_Pairs;         // a_idx < b_idx でソート済み
+    TArray<OverlapPair> m_NextPairs;    // Tick 内の作業バッファ (再確保を抑える)
+    u32 m_TriggerCount = 0;
 
-    TriggerEventCallback _on_enter      = nullptr;
-    TriggerEventCallback _on_stay       = nullptr;
-    TriggerEventCallback _on_exit       = nullptr;
-    void*                _on_enter_user = nullptr;
-    void*                _on_stay_user  = nullptr;
-    void*                _on_exit_user  = nullptr;
+    TriggerEventCallback m_OnEnter      = nullptr;
+    TriggerEventCallback m_OnStay       = nullptr;
+    TriggerEventCallback m_OnExit       = nullptr;
+    void*                m_OnEnterUser = nullptr;
+    void*                m_OnStayUser  = nullptr;
+    void*                m_OnExitUser  = nullptr;
 };
 
 } // namespace acs::game

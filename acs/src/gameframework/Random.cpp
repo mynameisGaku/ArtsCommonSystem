@@ -51,16 +51,16 @@ void FRandom::Seed(u64 seed) noexcept {
     u64 sm = seed;
     const u64 a = SplitMix64Step(sm);
     const u64 b = SplitMix64Step(sm);
-    _s0 = static_cast<u32>(a & 0xFFFFFFFFULL);
-    _s1 = static_cast<u32>(a >> 32);
-    _s2 = static_cast<u32>(b & 0xFFFFFFFFULL);
-    _s3 = static_cast<u32>(b >> 32);
+    m_S0 = static_cast<u32>(a & 0xFFFFFFFFULL);
+    m_S1 = static_cast<u32>(a >> 32);
+    m_S2 = static_cast<u32>(b & 0xFFFFFFFFULL);
+    m_S3 = static_cast<u32>(b >> 32);
     // 保険: 4 個全部 0 (理論上 SplitMix 経由では発生しないが) のときは固定値で回避。
-    if ((_s0 | _s1 | _s2 | _s3) == 0u) {
-        _s0 = 0xDEADBEEFu;
-        _s1 = 0xCAFEBABEu;
-        _s2 = 0xFEEDF00Du;
-        _s3 = 0x12345678u;
+    if ((m_S0 | m_S1 | m_S2 | m_S3) == 0u) {
+        m_S0 = 0xDEADBEEFu;
+        m_S1 = 0xCAFEBABEu;
+        m_S2 = 0xFEEDF00Du;
+        m_S3 = 0x12345678u;
     }
 }
 
@@ -70,15 +70,15 @@ void FRandom::Seed(u64 seed) noexcept {
 u32 FRandom::NextU32() noexcept {
     // xoshiro128** の "**" バリアント: state の線形進行に
     // 非線形スクランブラを乗せて高品質 32bit を出力。
-    const u32 result = Rotl32(_s1 * 5u, 7) * 9u;
+    const u32 result = Rotl32(m_S1 * 5u, 7) * 9u;
 
-    const u32 t = _s1 << 9;
-    _s2 ^= _s0;
-    _s3 ^= _s1;
-    _s1 ^= _s2;
-    _s0 ^= _s3;
-    _s2 ^= t;
-    _s3 = Rotl32(_s3, 11);
+    const u32 t = m_S1 << 9;
+    m_S2 ^= m_S0;
+    m_S3 ^= m_S1;
+    m_S1 ^= m_S2;
+    m_S0 ^= m_S3;
+    m_S2 ^= t;
+    m_S3 = Rotl32(m_S3, 11);
 
     return result;
 }

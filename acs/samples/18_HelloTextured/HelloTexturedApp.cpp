@@ -25,7 +25,7 @@ void HelloTexturedApp::OnStart() noexcept {
     vs_desc.debug_name  = "Tex.VS";
     if (auto r = CreateRhiShader(*dev, vs_desc); r.IsErr()) {
         ACS_LOG_ERROR("VS: %s", r.Error().message); Quit(); return;
-    } else _vs = Move(r.Value());
+    } else m_Vs = Move(r.Value());
 
     FShaderDesc ps_desc{};
     ps_desc.stage = EShaderStage::Pixel;
@@ -34,7 +34,7 @@ void HelloTexturedApp::OnStart() noexcept {
     ps_desc.debug_name  = "Tex.PS";
     if (auto r = CreateRhiShader(*dev, ps_desc); r.IsErr()) {
         ACS_LOG_ERROR("PS: %s", r.Error().message); Quit(); return;
-    } else _ps = Move(r.Value());
+    } else m_Ps = Move(r.Value());
 
     // === バッファ ===
     FBufferDesc vb{};
@@ -44,7 +44,7 @@ void HelloTexturedApp::OnStart() noexcept {
     if (auto r = CreateRhiBuffer(*dev, vb); r.IsErr()) {
         ACS_LOG_ERROR("頂点バッファ作成に失敗: %s", r.Error().message); Quit(); return;
     }
-    else _vb = Move(r.Value());
+    else m_Vb = Move(r.Value());
 
     FBufferDesc ib{};
     ib.size = sizeof(kCubeIndices);
@@ -53,14 +53,14 @@ void HelloTexturedApp::OnStart() noexcept {
     if (auto r = CreateRhiBuffer(*dev, ib); r.IsErr()) {
         ACS_LOG_ERROR("インデックスバッファ作成に失敗: %s", r.Error().message); Quit(); return;
     }
-    else _ib = Move(r.Value());
+    else m_Ib = Move(r.Value());
 
     FBufferDesc cb_d{};
     cb_d.size = 256; cb_d.usage = EBufferUsage::Uniform; cb_d.cpu_writable = true;
     if (auto r = CreateRhiBuffer(*dev, cb_d); r.IsErr()) {
         ACS_LOG_ERROR("定数バッファ作成に失敗: %s", r.Error().message); Quit(); return;
     }
-    else _cb = Move(r.Value());
+    else m_Cb = Move(r.Value());
 
     // === テクスチャ (手続き生成) ===
     // CPU 側で kTexSize x kTexSize の RGBA8 を組み立て、initial_data で 1 度に GPU へ転送する。
@@ -75,12 +75,12 @@ void HelloTexturedApp::OnStart() noexcept {
     td.initial_data_size = sizeof(pixels);
     if (auto r = CreateRhiTexture(*dev, td); r.IsErr()) {
         ACS_LOG_ERROR("Texture create: %s", r.Error().message); Quit(); return;
-    } else _tex = Move(r.Value());
+    } else m_Tex = Move(r.Value());
 
     // === パイプライン (CB 1 + Texture 1 + Sampler 1) ===
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = GetRenderer().ColorFormat();
     pd.depth_format  = GetRenderer().DepthFormat();
@@ -100,12 +100,12 @@ void HelloTexturedApp::OnStart() noexcept {
     pd.layout_count = 2;
     if (auto r = CreateRhiPipeline(*dev, pd); r.IsErr()) {
         ACS_LOG_ERROR("Pipeline create: %s", r.Error().message); Quit(); return;
-    } else _pipeline = Move(r.Value());
+    } else m_Pipeline = Move(r.Value());
 
     // === カメラ ===
     const f32 aspect = static_cast<f32>(GetRenderer().Swapchain()->Width()) /
                        static_cast<f32>(GetRenderer().Swapchain()->Height());
-    _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
+    m_Camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 100.0f);
 
     ACS_LOG_INFO("HelloTextured initialized");
 }
@@ -113,38 +113,38 @@ void HelloTexturedApp::OnStart() noexcept {
 void HelloTexturedApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
 
-    _angle += dt * 0.6f;
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= dt * 1.5f;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += dt * 1.5f;
+    m_Angle += dt * 0.6f;
+    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
+    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
 
-    FVec3 eye{ Sin(_cam_yaw) * 5.0f, 1.5f, -Cos(_cam_yaw) * 5.0f };
-    _camera.SetLookAt(eye, {0, 0, 0});
+    FVec3 eye{ Sin(m_CamYaw) * 5.0f, 1.5f, -Cos(m_CamYaw) * 5.0f };
+    m_Camera.SetLookAt(eye, {0, 0, 0});
 
-    FMat4 model = FMat4::RotationY(_angle) * FMat4::RotationX(_angle * 0.4f);
-    FMat4 mvp   = model * _camera.View() * _camera.Projection();
-    _cb->Update(&mvp, sizeof(FMat4));
+    FMat4 model = FMat4::RotationY(m_Angle) * FMat4::RotationX(m_Angle * 0.4f);
+    FMat4 mvp   = model * m_Camera.View() * m_Camera.Projection();
+    m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
 void HelloTexturedApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
-    if (!cl || !_pipeline) return;
-    cl->SetPipeline(*_pipeline);
-    cl->SetConstantBuffer(0, *_cb);
-    cl->SetTexture(0, *_tex);
-    cl->SetVertexBuffer(*_vb, sizeof(Vertex));
-    cl->SetIndexBuffer(*_ib);
+    if (!cl || !m_Pipeline) return;
+    cl->SetPipeline(*m_Pipeline);
+    cl->SetConstantBuffer(0, *m_Cb);
+    cl->SetTexture(0, *m_Tex);
+    cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl->SetIndexBuffer(*m_Ib);
     cl->DrawIndexed(36);
 }
 
 void HelloTexturedApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _pipeline.Reset();
-    _tex.Reset();
-    _cb.Reset();
-    _ib.Reset();
-    _vb.Reset();
-    _ps.Reset();
-    _vs.Reset();
+    m_Pipeline.Reset();
+    m_Tex.Reset();
+    m_Cb.Reset();
+    m_Ib.Reset();
+    m_Vb.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
 }
 
 } // namespace hellotextured

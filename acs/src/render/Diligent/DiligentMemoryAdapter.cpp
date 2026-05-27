@@ -26,21 +26,21 @@ namespace {
 
 class AcsMemoryAllocator final : public Diligent::IMemoryAllocator {
 public:
-    explicit AcsMemoryAllocator(FAllocator* backing) noexcept : _backing(backing) {}
+    explicit AcsMemoryAllocator(FAllocator* backing) noexcept : m_Backing(backing) {}
 
     void* Allocate(size_t Size, const Diligent::Char* /*dbgInfo*/,
                    const Diligent::Char* /*dbgFile*/,
                    const Diligent::Int32 /*dbgLine*/) override {
-        if (!_backing || Size == 0) return nullptr;
-        return _backing->Alloc(Size, alignof(::max_align_t), FSourceLoc::Current());
+        if (!m_Backing || Size == 0) return nullptr;
+        return m_Backing->Alloc(Size, alignof(::max_align_t), FSourceLoc::Current());
     }
 
     void Free(void* Ptr) override {
-        if (_backing && Ptr) _backing->Free(Ptr);
+        if (m_Backing && Ptr) m_Backing->Free(Ptr);
     }
 
 private:
-    FAllocator* _backing = nullptr;
+    FAllocator* m_Backing = nullptr;
 };
 
 // プロセス寿命のシングルトン（Diligent はアロケータを所有しないので、誰かが持つ必要がある）

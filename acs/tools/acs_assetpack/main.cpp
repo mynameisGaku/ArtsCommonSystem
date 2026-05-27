@@ -248,7 +248,7 @@ void FormatBytes(u64 bytes, char* out, int out_size) noexcept {
 // pack — input_dir 再帰スキャン → 各 file を ReadAllBytes → AddFile → Finalize
 // ============================================================================
 // AddFile は data ポインタをコピーせず参照だけ保持するため、Finalize までは
-// 全ファイルの byte 配列を生かしておく必要がある。よって _all_blobs に
+// 全ファイルの byte 配列を生かしておく必要がある。よって m_AllBlobs に
 // TArray<byte> をすべて貯めてから Finalize する。
 
 struct PackedBlob {

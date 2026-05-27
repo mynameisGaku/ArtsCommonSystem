@@ -130,10 +130,10 @@ struct FWeaponDef {
 // ---- FWeaponState: 現在装備中武器のランタイム状態 -------------------------
 // 主に UI 表示 / デバッグ用の snapshot。内部更新は FWeaponSystem が行う。
 struct FWeaponState {
-    const char* current_def_id      = nullptr; // 装備中武器の id (= 内部 _current_def->id と同値)
+    const char* current_def_id      = nullptr; // 装備中武器の id (= 内部 m_CurrentDef->id と同値)
     u32         ammo_in_mag         = 0u;      // マガジン内の残弾
     u32         reserve_ammo        = 0u;      // 予備弾薬残量
-    f32         next_fire_time_sec  = 0.0f;    // この時刻まで TryFire は失敗する (= _elapsed >= next_fire_time で発射可)
+    f32         next_fire_time_sec  = 0.0f;    // この時刻まで TryFire は失敗する (= m_Elapsed >= next_fire_time で発射可)
     bool        reloading           = false;   // reload 中フラグ
     f32         reload_remaining_sec = 0.0f;   // reload 完了までの残り秒数
 };
@@ -173,7 +173,7 @@ public:
     // ---- 武器切替 ---------------------------------------------------------
     // 未登録 id / nullptr は false。reload 中でも遮らずに切替可能 (元武器の
     // reload は破棄される = ammo_in_mag は reload 開始前の値のままで保持)。
-    // 成功時に _current_state を新武器の保存値から復元する。
+    // 成功時に m_CurrentState を新武器の保存値から復元する。
     bool EquipWeapon(const char* weapon_id) noexcept;
 
     // ---- 発射 -------------------------------------------------------------
@@ -201,7 +201,7 @@ public:
     u32 GetReserveAmmo() const noexcept { return _state.reserve_ammo; }
 
     // 装備中武器の定義 (`EquipWeapon` 成功後でないと nullptr)。
-    const FWeaponDef* CurrentDef() const noexcept { return _current_def; }
+    const FWeaponDef* CurrentDef() const noexcept { return m_CurrentDef; }
     const FWeaponState& State() const noexcept { return _state; }
 
     bool IsReloading() const noexcept { return _state.reloading; }
@@ -212,17 +212,17 @@ public:
     // ---- コールバック -----------------------------------------------------
     // cb = nullptr で detach。user は所有しない (= 呼出側の責務)。
     void SetOnFireCallback(FireCallback cb, void* user) noexcept {
-        _on_fire = cb;
-        _on_fire_user = user;
+        m_OnFire = cb;
+        m_OnFireUser = user;
     }
 
     void SetOnReloadCompleteCallback(ReloadCallback cb, void* user) noexcept {
-        _on_reload = cb;
-        _on_reload_user = user;
+        m_OnReload = cb;
+        m_OnReloadUser = user;
     }
 
     // ---- フレーム更新 -----------------------------------------------------
-    // dt <= 0 は無視。_elapsed_time に dt を加算し、reload 中なら
+    // dt <= 0 は無視。m_ElapsedTime に dt を加算し、reload 中なら
     // reload_remaining_sec を減算、0 到達で mag に reserve を補填して
     // ReloadCallback を発火する (1 回の Tick 内で 1 回だけ)。
     void Tick(f32 dt) noexcept;
@@ -233,9 +233,9 @@ public:
 
 private:
     // 並行 TArray で per-weapon の reserve_ammo を保持する。
-    // (= 武器定義 _defs[i] に対して _reserves[i] が対応)
+    // (= 武器定義 m_Defs[i] に対して m_Reserves[i] が対応)
     struct ReserveSlot {
-        const char* weapon_id    = nullptr; // _defs[i].id へのコピー (非所有、寿命は呼出側)
+        const char* weapon_id    = nullptr; // m_Defs[i].id へのコピー (非所有、寿命は呼出側)
         u32         reserve_ammo = 0u;
         u32         ammo_in_mag  = 0u;      // 装備外時の mag 保存 (装備切替時の継続のため)
     };
@@ -246,22 +246,22 @@ private:
     // reload を完了させる内部 helper (mag に reserve を補填 + callback)。
     void CompleteReload() noexcept;
 
-    // 装備中武器の per-weapon 状態を _reserves[] へ書き戻す (装備切替前)。
+    // 装備中武器の per-weapon 状態を m_Reserves[] へ書き戻す (装備切替前)。
     void SaveCurrentToSlot() noexcept;
 
-    TArray<FWeaponDef>   _defs;       // 武器定義 (id 線形検索)
-    TArray<ReserveSlot> _reserves;   // _defs[i] と並行
+    TArray<FWeaponDef>   m_Defs;       // 武器定義 (id 線形検索)
+    TArray<ReserveSlot> m_Reserves;   // m_Defs[i] と並行
 
-    const FWeaponDef* _current_def  = nullptr; // 装備中武器の定義 (Equip 前は nullptr)
-    u32              _current_slot = ~0u;     // _defs / _reserves の index (Equip 前は ~0u)
+    const FWeaponDef* m_CurrentDef  = nullptr; // 装備中武器の定義 (Equip 前は nullptr)
+    u32              m_CurrentSlot = ~0u;     // m_Defs / m_Reserves の index (Equip 前は ~0u)
     FWeaponState      _state{};                // 装備中のランタイム状態
 
-    f32 _elapsed_time = 0.0f; // Tick で累積する内部時計 (next_fire_time との比較に使用)
+    f32 m_ElapsedTime = 0.0f; // Tick で累積する内部時計 (next_fire_time との比較に使用)
 
-    FireCallback   _on_fire        = nullptr;
-    void*          _on_fire_user   = nullptr;
-    ReloadCallback _on_reload      = nullptr;
-    void*          _on_reload_user = nullptr;
+    FireCallback   m_OnFire        = nullptr;
+    void*          m_OnFireUser   = nullptr;
+    ReloadCallback m_OnReload      = nullptr;
+    void*          m_OnReloadUser = nullptr;
 };
 
 } // namespace acs::game

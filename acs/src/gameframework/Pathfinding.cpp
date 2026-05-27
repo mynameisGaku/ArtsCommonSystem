@@ -31,39 +31,39 @@ static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 // ---- Init / Setter / Getter ----------------------------------------------------
 
 void NavGrid::Init(u32 width, u32 height) noexcept {
-    _width  = width;
-    _height = height;
+    m_Width  = width;
+    m_Height = height;
     const u32 count = width * height;
-    _walkable.Clear();
-    _walkable.Resize(count);
-    for (u32 i = 0; i < count; ++i) _walkable[i] = 1;   // 全 cell walkable
+    m_Walkable.Clear();
+    m_Walkable.Resize(count);
+    for (u32 i = 0; i < count; ++i) m_Walkable[i] = 1;   // 全 cell walkable
     // A* 一時バッファも事前 reserve しておく (FindPath 初回の alloc を減らす)。
     _open.Clear();
     _closed.Clear();
     _closed.Resize(count);
-    _in_open.Clear();
-    _in_open.Resize(count);
-    _g_score.Clear();
-    _g_score.Resize(count);
-    _f_score.Clear();
-    _f_score.Resize(count);
-    _came_from.Clear();
-    _came_from.Resize(count);
+    m_InOpen.Clear();
+    m_InOpen.Resize(count);
+    m_GScore.Clear();
+    m_GScore.Resize(count);
+    m_FScore.Clear();
+    m_FScore.Resize(count);
+    m_CameFrom.Clear();
+    m_CameFrom.Resize(count);
 }
 
 void NavGrid::SetWalkable(u32 x, u32 y, bool walkable) noexcept {
-    if (x >= _width || y >= _height) return;          // 範囲外は no-op
-    _walkable[IndexOf(x, y)] = walkable ? 1 : 0;
+    if (x >= m_Width || y >= m_Height) return;          // 範囲外は no-op
+    m_Walkable[IndexOf(x, y)] = walkable ? 1 : 0;
 }
 
 bool NavGrid::IsWalkable(u32 x, u32 y) const noexcept {
-    if (x >= _width || y >= _height) return false;   // 範囲外は通行不可扱い
-    return _walkable[IndexOf(x, y)] != 0;
+    if (x >= m_Width || y >= m_Height) return false;   // 範囲外は通行不可扱い
+    return m_Walkable[IndexOf(x, y)] != 0;
 }
 
 void NavGrid::ClearWalls() noexcept {
-    const u32 count = _width * _height;
-    for (u32 i = 0; i < count; ++i) _walkable[i] = 1;
+    const u32 count = m_Width * m_Height;
+    for (u32 i = 0; i < count; ++i) m_Walkable[i] = 1;
 }
 
 // ---- Heuristic -----------------------------------------------------------------
@@ -72,7 +72,7 @@ f32 NavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
     // 符号付き距離を取るため一度 i64 経由で減算してから絶対値。
     const f32 dx = Abs(static_cast<f32>(static_cast<i64>(x) - static_cast<i64>(goal_x)));
     const f32 dy = Abs(static_cast<f32>(static_cast<i64>(y) - static_cast<i64>(goal_y)));
-    if (_allow_diagonal) {
+    if (m_AllowDiagonal) {
         // Octile distance: 対角移動を考慮した admissible heuristic。
         //   octile = max(dx,dy) + (sqrt(2)-1) * min(dx,dy)
         // Euclidean より tight だが overestimate しない (= optimal を保証)。
@@ -91,9 +91,9 @@ usize NavGrid::PopLowestF() noexcept {
     const usize n = _open.Size();
     if (n == 0) return 0;
     usize best_pos = 0;
-    f32   best_f   = _f_score[_open[0]];
+    f32   best_f   = m_FScore[_open[0]];
     for (usize i = 1; i < n; ++i) {
-        const f32 f = _f_score[_open[i]];
+        const f32 f = m_FScore[_open[i]];
         if (f < best_f) {
             best_f   = f;
             best_pos = i;
@@ -110,15 +110,15 @@ void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_pa
     out_path.Clear();
     u32 cur = goal_idx;
     // 安全弁 (循環参照などで無限ループしないよう、最大 width*height 回で打ち切り)。
-    const u32 max_steps = _width * _height + 1u;
+    const u32 max_steps = m_Width * m_Height + 1u;
     u32 steps = 0;
     while (cur != kInvalidIndex && steps <= max_steps) {
         PathPoint p;
-        p.x = cur % _width;
-        p.y = cur / _width;
+        p.x = cur % m_Width;
+        p.y = cur / m_Width;
         out_path.PushBack(p);
         if (cur == start_idx) break;
-        cur = _came_from[cur];
+        cur = m_CameFrom[cur];
         ++steps;
     }
     // 逆順反転 (start → goal にする)。
@@ -138,9 +138,9 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
     out_path.Clear();
 
     // ----- 早期失敗ガード -----
-    if (_width == 0 || _height == 0)                return false;
-    if (start_x >= _width || start_y >= _height)    return false;
-    if (goal_x  >= _width || goal_y  >= _height)    return false;
+    if (m_Width == 0 || m_Height == 0)                return false;
+    if (start_x >= m_Width || start_y >= m_Height)    return false;
+    if (goal_x  >= m_Width || goal_y  >= m_Height)    return false;
     if (!IsWalkable(start_x, start_y))              return false;
     if (!IsWalkable(goal_x,  goal_y))               return false;
 
@@ -158,25 +158,25 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
 
     // ----- 一時バッファのリセット -----
     // (Init で resize 済みのはずだが、念のためサイズ齟齬があれば調整)。
-    const u32 count = _width * _height;
+    const u32 count = m_Width * m_Height;
     if (_closed.Size()    != count) _closed.Resize(count);
-    if (_in_open.Size()   != count) _in_open.Resize(count);
-    if (_g_score.Size()   != count) _g_score.Resize(count);
-    if (_f_score.Size()   != count) _f_score.Resize(count);
-    if (_came_from.Size() != count) _came_from.Resize(count);
+    if (m_InOpen.Size()   != count) m_InOpen.Resize(count);
+    if (m_GScore.Size()   != count) m_GScore.Resize(count);
+    if (m_FScore.Size()   != count) m_FScore.Resize(count);
+    if (m_CameFrom.Size() != count) m_CameFrom.Resize(count);
     for (u32 i = 0; i < count; ++i) {
         _closed[i]    = 0;
-        _in_open[i]   = 0;
-        _g_score[i]   = 0.0f;
-        _f_score[i]   = 0.0f;
-        _came_from[i] = kInvalidIndex;
+        m_InOpen[i]   = 0;
+        m_GScore[i]   = 0.0f;
+        m_FScore[i]   = 0.0f;
+        m_CameFrom[i] = kInvalidIndex;
     }
     _open.Clear();
 
     // ----- start を open へ -----
-    _g_score[start_idx]  = 0.0f;
-    _f_score[start_idx]  = Heuristic(start_x, start_y, goal_x, goal_y);
-    _in_open[start_idx]  = 1;
+    m_GScore[start_idx]  = 0.0f;
+    m_FScore[start_idx]  = Heuristic(start_x, start_y, goal_x, goal_y);
+    m_InOpen[start_idx]  = 1;
     _open.PushBack(start_idx);
 
     // ----- 隣接 offset 表 -----
@@ -197,7 +197,7 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
         { -1,  1, kDiagCost     },
         {  1,  1, kDiagCost     },
     };
-    const u32 neighbor_count = _allow_diagonal ? 8u : 4u;
+    const u32 neighbor_count = m_AllowDiagonal ? 8u : 4u;
 
     // ----- メインループ -----
     while (!_open.IsEmpty()) {
@@ -206,7 +206,7 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
         const u32 current = _open[pos];
         // RemoveAtSwap は順序保持しないが、open set の順序は不要 (どうせ毎回最小走査)。
         _open.RemoveAtSwap(pos);
-        _in_open[current] = 0;
+        m_InOpen[current] = 0;
 
         // 2. ゴール到達?
         if (current == goal_idx) {
@@ -217,8 +217,8 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
         // 3. closed へ。
         _closed[current] = 1;
 
-        const u32 cx = current % _width;
-        const u32 cy = current / _width;
+        const u32 cx = current % m_Width;
+        const u32 cy = current / m_Width;
 
         // 4. 隣接を展開。
         for (u32 n = 0; n < neighbor_count; ++n) {
@@ -228,23 +228,23 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
             if (nx_i < 0 || ny_i < 0) continue;
             const u32 nx = static_cast<u32>(nx_i);
             const u32 ny = static_cast<u32>(ny_i);
-            if (nx >= _width || ny >= _height) continue;
+            if (nx >= m_Width || ny >= m_Height) continue;
             const u32 n_idx = IndexOf(nx, ny);
             // 通行不可 / closed ならスキップ。
-            if (_walkable[n_idx] == 0) continue;
+            if (m_Walkable[n_idx] == 0) continue;
             if (_closed[n_idx] != 0)   continue;
 
             // tentative_g = current の g + 移動コスト
-            const f32 tentative_g = _g_score[current] + neighbors[n].cost;
+            const f32 tentative_g = m_GScore[current] + neighbors[n].cost;
 
             // open 未在籍 か、より良い経路を発見 か。
-            const bool in_open_now = (_in_open[n_idx] != 0);
-            if (!in_open_now || tentative_g < _g_score[n_idx]) {
-                _came_from[n_idx] = current;
-                _g_score[n_idx]   = tentative_g;
-                _f_score[n_idx]   = tentative_g + Heuristic(nx, ny, goal_x, goal_y);
+            const bool in_open_now = (m_InOpen[n_idx] != 0);
+            if (!in_open_now || tentative_g < m_GScore[n_idx]) {
+                m_CameFrom[n_idx] = current;
+                m_GScore[n_idx]   = tentative_g;
+                m_FScore[n_idx]   = tentative_g + Heuristic(nx, ny, goal_x, goal_y);
                 if (!in_open_now) {
-                    _in_open[n_idx] = 1;
+                    m_InOpen[n_idx] = 1;
                     _open.PushBack(n_idx);
                 }
                 // 既に open にいる場合は f を上書きするだけで OK (次の PopLowestF が拾う)。

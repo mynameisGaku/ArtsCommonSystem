@@ -26,53 +26,53 @@ void HelloLightmapApp::OnStart() noexcept {
     if (!sc) { Quit(); return; }
 
     // HDR FPostProcess (Bloom + ACES tonemap)。シーンは HDR RT に描く。
-    ACS_SAMPLE_INIT(_post.Init(*dev, sc->Width(), sc->Height(),
+    ACS_SAMPLE_INIT(m_Post.Init(*dev, sc->Width(), sc->Height(),
                                GetRenderer().ColorFormat()));
     // FPbrShader は HDR RT フォーマットに合わせて init する。
-    ACS_SAMPLE_INIT(_pbr.Init(*dev, _post.HdrFormat(),
+    ACS_SAMPLE_INIT(m_Pbr.Init(*dev, m_Post.HdrFormat(),
                               GetRenderer().DepthFormat()));
 
-    BuildCornellBox(*dev, _quads);
-    BakeLightmaps(*dev, _quads);
+    BuildCornellBox(*dev, m_Quads);
+    BakeLightmaps(*dev, m_Quads);
 
     // FSpriteBatch は tonemap 後の LDR backbuffer に描く。
-    ACS_SAMPLE_INIT(_batch.Init(*dev, GetRenderer().ColorFormat()));
-    (void)FSample::TryLoadDefaultUIFont(_font, *dev, 18.0f, 1024, true);
+    ACS_SAMPLE_INIT(m_Batch.Init(*dev, GetRenderer().ColorFormat()));
+    (void)FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f, 1024, true);
 
     const f32 aspect = static_cast<f32>(sc->Width()) /
                        static_cast<f32>(sc->Height());
-    _camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.05f, 100.0f);
-    _cam_pos = FVec3{0.0f, 1.0f, -0.9f};
+    m_Camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.05f, 100.0f);
+    m_CamPos = FVec3{0.0f, 1.0f, -0.9f};
 
     // FPostProcess パラメータ (絵作りで調整可)。
-    _post_params.bloom_threshold    = 2.5f;   // 天井 (光源) だけが bloom する閾値
-    _post_params.bloom_intensity    = 0.5f;
-    _post_params.grain_intensity    = 0.0f;   // GI デモなので film grain は切る
-    _post_params.vignette_intensity = 0.15f;
-    _post_params.ssr_intensity      = 0.0f;   // SSR 未使用 (fallback mip の誤加算防止)
+    m_PostParams.bloom_threshold    = 2.5f;   // 天井 (光源) だけが bloom する閾値
+    m_PostParams.bloom_intensity    = 0.5f;
+    m_PostParams.grain_intensity    = 0.0f;   // GI デモなので film grain は切る
+    m_PostParams.vignette_intensity = 0.15f;
+    m_PostParams.ssr_intensity      = 0.0f;   // SSR 未使用 (fallback mip の誤加算防止)
 }
 
 void HelloLightmapApp::OnUpdate(f32 dt) noexcept {
     if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::L)) _show_lightmap = !_show_lightmap;
+    if (Input::IsKeyPressed(EKey::L)) m_ShowLightmap = !m_ShowLightmap;
 
     const f32 mv = 2.0f * dt, tr = 1.4f * dt;
-    if (Input::IsKeyDown(EKey::Left))  _cam_yaw -= tr;
-    if (Input::IsKeyDown(EKey::Right)) _cam_yaw += tr;
-    if (Input::IsKeyDown(EKey::Up))    _cam_pitch -= tr * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  _cam_pitch += tr * 0.8f;
+    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (Input::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (Input::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
-    if (_cam_pitch >  limit) _cam_pitch =  limit;
-    if (_cam_pitch < -limit) _cam_pitch = -limit;
-    FVec3 forward{ Sin(_cam_yaw) * Cos(_cam_pitch),
-                 -Sin(_cam_pitch),
-                  Cos(_cam_yaw) * Cos(_cam_pitch) };
-    FVec3 right{ Cos(_cam_yaw), 0, -Sin(_cam_yaw) };
-    if (Input::IsKeyDown(EKey::W)) _cam_pos += forward * mv;
-    if (Input::IsKeyDown(EKey::S)) _cam_pos -= forward * mv;
-    if (Input::IsKeyDown(EKey::D)) _cam_pos += right   * mv;
-    if (Input::IsKeyDown(EKey::A)) _cam_pos -= right   * mv;
-    _camera.SetLookAt(_cam_pos, _cam_pos + forward);
+    if (m_CamPitch >  limit) m_CamPitch =  limit;
+    if (m_CamPitch < -limit) m_CamPitch = -limit;
+    FVec3 forward{ Sin(m_CamYaw) * Cos(m_CamPitch),
+                 -Sin(m_CamPitch),
+                  Cos(m_CamYaw) * Cos(m_CamPitch) };
+    FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
+    if (Input::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (Input::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (Input::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (Input::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
 // OnCustomFrame: HDR RT にシーンを描き、FPostProcess (Bloom + ACES tonemap)
@@ -81,7 +81,7 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
-    IRhiTexture*     hdr   = _post.HdrRenderTarget();
+    IRhiTexture*     hdr   = m_Post.HdrRenderTarget();
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
     if (!dev || !cl || !sc || !hdr) return false;
 
@@ -98,26 +98,26 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
     cl->SetScissor(svr);
 
     // 動的ライトは使わず ごく弱い ambient のみ。間接光は lightmap が担う。
-    _pbr.SetLights(_camera.ViewProjection(), _camera.Eye(),
+    m_Pbr.SetLights(m_Camera.ViewProjection(), m_Camera.Eye(),
                    nullptr, 0, FVec3{0.02f, 0.02f, 0.02f});
-    _pbr.SetPointLights(nullptr, 0);
+    m_Pbr.SetPointLights(nullptr, 0);
 
-    cl->SetPipeline(*_pbr.Pipeline());
-    cl->SetConstantBuffer(0, *_pbr.PerFrameCB());
-    cl->SetConstantBuffer(1, *_pbr.PerObjectCB());
-    cl->SetTexture(0, *_pbr.DefaultWhiteTexture());
+    cl->SetPipeline(*m_Pbr.Pipeline());
+    cl->SetConstantBuffer(0, *m_Pbr.PerFrameCB());
+    cl->SetConstantBuffer(1, *m_Pbr.PerObjectCB());
+    cl->SetTexture(0, *m_Pbr.DefaultWhiteTexture());
 
     for (u32 i = 0; i < kQuadCount; ++i) {
-        Quad& q = _quads[i];
+        Quad& q = m_Quads[i];
         // L キーで OFF にすると flat ambient のみになり、間接光の寄与が消える。
-        if (_show_lightmap && q.lightmap) {
-            _pbr.SetLightmap(q.lightmap.Get(), 1.0f);
+        if (m_ShowLightmap && q.lightmap) {
+            m_Pbr.SetLightmap(q.lightmap.Get(), 1.0f);
         } else {
-            _pbr.SetLightmap(nullptr, 0.0f);
+            m_Pbr.SetLightmap(nullptr, 0.0f);
         }
-        _pbr.SetObject(q.model, q.albedo, /*metallic=*/0.0f,
+        m_Pbr.SetObject(q.model, q.albedo, /*metallic=*/0.0f,
                        /*roughness=*/0.9f, /*ao=*/1.0f);
-        _pbr.BindIblTextures(*cl);
+        m_Pbr.BindIblTextures(*cl);
         cl->SetVertexBuffer(*q.mesh.vertex_buffer, q.mesh.vertex_stride);
         cl->SetIndexBuffer(*q.mesh.index_buffer);
         cl->DrawIndexed(q.mesh.index_count);
@@ -125,24 +125,24 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
     cl->EndRenderToTexture(*hdr);
 
     // ===== Bloom + ACES tonemap → LDR backbuffer =====
-    _post.Render(*cl, *sc, buf_idx, _post_params);
+    m_Post.Render(*cl, *sc, buf_idx, m_PostParams);
 
     // ===== HUD (LDR backbuffer) =====
-    if (_font.AtlasTexture()) {
+    if (m_Font.AtlasTexture()) {
         const u32 sw = sc->Width();
         const u32 sh = sc->Height();
-        _batch.Begin(*cl, sw, sh);
+        m_Batch.Begin(*cl, sw, sh);
         char buf[160];
         std::snprintf(buf, sizeof(buf),
                       "Cornell box - path-traced HDR lightmap (%u rays x %u bounces)  FPS: %.1f",
                       kBakeRays, kBounceDepth, static_cast<double>(FPS()));
-        _batch.DrawString(_font, buf, 20, 20, FVec4{1, 1, 1, 1});
+        m_Batch.DrawString(m_Font, buf, 20, 20, FVec4{1, 1, 1, 1});
         std::snprintf(buf, sizeof(buf), "Lightmap: %s   (L で切替)",
-                      _show_lightmap ? "ON" : "OFF");
-        _batch.DrawString(_font, buf, 20, 44, FVec4{1.0f, 0.95f, 0.7f, 1});
-        _batch.DrawString(_font, "WASD: 移動   矢印: 視点   Esc: 終了",
+                      m_ShowLightmap ? "ON" : "OFF");
+        m_Batch.DrawString(m_Font, buf, 20, 44, FVec4{1.0f, 0.95f, 0.7f, 1});
+        m_Batch.DrawString(m_Font, "WASD: 移動   矢印: 視点   Esc: 終了",
                           20, 68, FVec4{0.7f, 0.85f, 1.0f, 1});
-        _batch.End();
+        m_Batch.End();
     }
 
     cl->EndRenderToSwapchain(*sc, buf_idx);
@@ -154,14 +154,14 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
 
 void HelloLightmapApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
-    _font.Shutdown();
-    _batch.Shutdown();
+    m_Font.Shutdown();
+    m_Batch.Shutdown();
     for (u32 i = 0; i < kQuadCount; ++i) {
-        _quads[i].lightmap.Reset();
-        _quads[i].mesh = GpuMesh{};
+        m_Quads[i].lightmap.Reset();
+        m_Quads[i].mesh = GpuMesh{};
     }
-    _pbr.Shutdown();
-    _post.Shutdown();
+    m_Pbr.Shutdown();
+    m_Post.Shutdown();
 }
 
 } // namespace hellolightmap

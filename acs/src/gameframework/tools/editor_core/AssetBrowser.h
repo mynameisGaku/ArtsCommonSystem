@@ -216,57 +216,57 @@ public:
 
 private:
     // root_directory 文字列の保持 (Init 呼び出しでコピー)。最大長 kMaxPathChars。
-    wchar_t                _root_directory[kMaxPathChars] = {};
+    wchar_t                m_RootDirectory[kMaxPathChars] = {};
 
     // current_directory 文字列 (root からの相対、`\\` 区切り)。root 直下では空文字。
-    wchar_t                _current_directory[kMaxPathChars] = {};
+    wchar_t                m_CurrentDirectory[kMaxPathChars] = {};
 
     // current_directory 配下を rescan した結果の AssetEntry 群。
     // entry の path / short_name pointer は下の pool 内を指している。
-    TArray<AssetEntry>      _entries {};
+    TArray<AssetEntry>      m_Entries {};
 
     // 文字列 pool (wchar_t 用 = path、char 用 = short_name)。Refresh で
     // Clear & 再構築。Reserve しておけば address 安定性が確保される
     // (= 一度 Reserve した capacity を超えなければ Grow しない)。
-    TArray<wchar_t>         _path_pool {};
-    TArray<char>            _name_pool {};
+    TArray<wchar_t>         m_PathPool {};
+    TArray<char>            m_NamePool {};
 
-    // 選択中 entry の index (= _entries 内の位置)。-1 で未選択。
+    // 選択中 entry の index (= m_Entries 内の位置)。-1 で未選択。
     // i32 を採用するのは FParticleEditorPanel と同じ規約 (-1 = 「なし」)。
-    i32                    _selected_index    = -1;
+    i32                    m_SelectedIndex    = -1;
 
     // kind フィルタ。EAssetKind::Unknown は「フィルタなし」を意味する。
-    EAssetKind             _filter_kind       = EAssetKind::Unknown;
+    EAssetKind             m_FilterKind       = EAssetKind::Unknown;
 
     // 選択 / ダブルクリック通知 callback。
-    AssetSelectedCallback       _on_selected_cb       = nullptr;
-    void*                       _on_selected_user     = nullptr;
-    AssetDoubleClickedCallback  _on_double_clicked_cb = nullptr;
-    void*                       _on_double_clicked_user = nullptr;
+    AssetSelectedCallback       m_OnSelectedCb       = nullptr;
+    void*                       m_OnSelectedUser     = nullptr;
+    AssetDoubleClickedCallback  m_OnDoubleClickedCb = nullptr;
+    void*                       m_OnDoubleClickedUser = nullptr;
 
     // ---- 内部ヘルパ (実装詳細は .cpp 側) --------------------------------
     // current_directory 配下を Win32 FindFirstFileW で列挙して
-    // `_entries` / `_path_pool` / `_name_pool` を再構築。
+    // `m_Entries` / `m_PathPool` / `m_NamePool` を再構築。
     void RebuildEntries() noexcept;
 
     // root_directory + sub (relative) を 1 つのフルパスに合成する。
     // out_buf に書き込む (cap は wchar_t 単位の容量、終端含む)。
     void BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize cap) const noexcept;
 
-    // _path_pool に wchar_t 文字列を末尾追加し、書き込み開始の **offset** を返す。
+    // m_PathPool に wchar_t 文字列を末尾追加し、書き込み開始の **offset** を返す。
     // pointer を返さないのは、列挙ループ中の Reserve / Grow で過去に取った
     // pointer が無効化されるのを避けるため (絶対 pointer は列挙完走後に
-    // `&_path_pool[offset]` で resolve する 2 段構え)。
+    // `&m_PathPool[offset]` で resolve する 2 段構え)。
     usize AppendPathOffset(const wchar_t* src) noexcept;
 
-    // _name_pool に UTF-8 文字列を末尾追加し、書き込み開始の offset を返す
+    // m_NamePool に UTF-8 文字列を末尾追加し、書き込み開始の offset を返す
     // (AppendPathOffset と同じ理由で pointer を返さない)。
     usize AppendNameOffset(const char* src) noexcept;
 
     // 左 tree ペイン描画 (再帰)。引数 `rel_dir` は assets/ ルートからの相対パス。
     void DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcept;
 
-    // 右 list ペイン描画 (current_directory の `_entries` を表示)。
+    // 右 list ペイン描画 (current_directory の `m_Entries` を表示)。
     void DrawList() noexcept;
 };
 

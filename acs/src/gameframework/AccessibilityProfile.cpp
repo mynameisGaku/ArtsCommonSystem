@@ -14,7 +14,7 @@ namespace acs::game {
 //   `Set(profile.Get())` は値コピーで一時を介して書き戻すのと等価)。
 // =============================================================================
 void FAccessibilityProfile::Set(const FAccessibilitySettings& s) noexcept {
-    _settings = s;
+    m_Settings = s;
 }
 
 // =============================================================================
@@ -22,7 +22,7 @@ void FAccessibilityProfile::Set(const FAccessibilitySettings& s) noexcept {
 //   FAccessibilitySettings の inline 初期化子と一致させるため `= {}` で再構築。
 // =============================================================================
 void FAccessibilityProfile::Reset() noexcept {
-    _settings = FAccessibilitySettings{};
+    m_Settings = FAccessibilitySettings{};
 }
 
 // =============================================================================
@@ -62,7 +62,7 @@ void FAccessibilityProfile::Reset() noexcept {
 // =============================================================================
 void FAccessibilityProfile::ApplyPreset(EPreset p) noexcept {
     // まずデフォルトに戻して、preset 固有の差分のみ上書きする方針。
-    _settings = FAccessibilitySettings{};
+    m_Settings = FAccessibilitySettings{};
 
     switch (p) {
         case EPreset::Default:
@@ -70,35 +70,35 @@ void FAccessibilityProfile::ApplyPreset(EPreset p) noexcept {
             break;
 
         case EPreset::Dyslexia:
-            _settings.text_size         = ETextSize::Large;
-            _settings.high_contrast_ui  = true;
-            _settings.subtitles_enabled = true;
+            m_Settings.text_size         = ETextSize::Large;
+            m_Settings.high_contrast_ui  = true;
+            m_Settings.subtitles_enabled = true;
             break;
 
         case EPreset::ADHD:
-            _settings.motion             = EMotionReduction::Reduced;
-            _settings.screen_shake_scale = 0.5f;
+            m_Settings.motion             = EMotionReduction::Reduced;
+            m_Settings.screen_shake_scale = 0.5f;
             break;
 
         case EPreset::Autism:
-            _settings.motion                = EMotionReduction::Reduced;
-            _settings.flash_intensity_scale = 0.3f;
-            _settings.sfx_subtitles_enabled = true;
+            m_Settings.motion                = EMotionReduction::Reduced;
+            m_Settings.flash_intensity_scale = 0.3f;
+            m_Settings.sfx_subtitles_enabled = true;
             break;
 
         case EPreset::Aphasia:
-            _settings.text_size             = ETextSize::Large;
-            _settings.screen_reader_enabled = true;
-            _settings.subtitles_enabled     = true;
+            m_Settings.text_size             = ETextSize::Large;
+            m_Settings.screen_reader_enabled = true;
+            m_Settings.subtitles_enabled     = true;
             break;
 
         case EPreset::AAC:
-            _settings.screen_reader_enabled = true;
-            _settings.switch_device_input   = true;
+            m_Settings.screen_reader_enabled = true;
+            m_Settings.switch_device_input   = true;
             break;
 
         case EPreset::OneHanded:
-            _settings.one_handed_mode = true;
+            m_Settings.one_handed_mode = true;
             break;
 
         // default 句は意図的に省略:

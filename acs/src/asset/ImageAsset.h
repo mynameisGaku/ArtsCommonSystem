@@ -30,19 +30,19 @@ public:
 
     FImageAsset() noexcept = default;
     FImageAsset(u32 w, u32 h, EPixelFormat fmt, TArray<byte>&& pixels) noexcept
-        : _width(w), _height(h), _format(fmt), _pixels(Move(pixels)) {}
+        : m_Width(w), m_Height(h), m_Format(fmt), m_Pixels(Move(pixels)) {}
 
-    u32         Width()  const noexcept { return _width; }
-    u32         Height() const noexcept { return _height; }
-    EPixelFormat EFormat() const noexcept { return _format; }
-    const byte* Pixels() const noexcept { return _pixels.Data(); }
-    usize       PixelByteCount() const noexcept { return _pixels.Size(); }
+    u32         Width()  const noexcept { return m_Width; }
+    u32         Height() const noexcept { return m_Height; }
+    EPixelFormat EFormat() const noexcept { return m_Format; }
+    const byte* Pixels() const noexcept { return m_Pixels.Data(); }
+    usize       PixelByteCount() const noexcept { return m_Pixels.Size(); }
 
 private:
-    u32         _width  = 0;
-    u32         _height = 0;
-    EPixelFormat _format = EPixelFormat::R8G8B8A8;
-    TArray<byte> _pixels;
+    u32         m_Width  = 0;
+    u32         m_Height = 0;
+    EPixelFormat m_Format = EPixelFormat::R8G8B8A8;
+    TArray<byte> m_Pixels;
 };
 
 // 画像ローダ (stb_image)

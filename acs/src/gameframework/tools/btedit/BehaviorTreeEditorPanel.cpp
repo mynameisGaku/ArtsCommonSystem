@@ -60,7 +60,7 @@ static const char* SafeName(const char* name) noexcept {
     return (name != nullptr) ? name : "(unnamed)";
 }
 
-// id が _nodes の有効範囲内かをチェック。
+// id が m_Nodes の有効範囲内かをチェック。
 static bool IsValidId(u32 id, usize node_count) noexcept {
     if (id == FBehaviorTreeEditorPanel::kInvalidId) return false;
     return static_cast<usize>(id) < node_count;
@@ -90,56 +90,56 @@ void FBehaviorTreeEditorPanel::StatusColor(EBtStatus s, f32 out_rgba[4]) noexcep
 // ============================================================================
 void FBehaviorTreeEditorPanel::Init() noexcept {
     // メタミラー / 履歴 / selection / step counter を全 reset。
-    _nodes.Clear();
-    _history.Clear();
-    _history.Resize(static_cast<usize>(kHistorySize)); // 60 frame 分を確保
-    for (usize i = 0; i < _history.Size(); ++i) {
-        _history[i] = static_cast<u8>(EBtStatus::Failure); // 初期は Failure
+    m_Nodes.Clear();
+    m_History.Clear();
+    m_History.Resize(static_cast<usize>(kHistorySize)); // 60 frame 分を確保
+    for (usize i = 0; i < m_History.Size(); ++i) {
+        m_History[i] = static_cast<u8>(EBtStatus::Failure); // 初期は Failure
     }
-    _history_head = 0;
+    m_HistoryHead = 0;
 
-    _tree       = nullptr; // BT は SetTree で後付け
-    _autorun    = false;
-    _step_count = 0;
-    _selected   = kInvalidId;
+    m_Tree       = nullptr; // BT は SetTree で後付け
+    m_Autorun    = false;
+    m_StepCount = 0;
+    m_Selected   = kInvalidId;
     // callback はリセットしない (Init は state の reset、callback は別操作)。
 }
 
 void FBehaviorTreeEditorPanel::Shutdown() noexcept {
     // 多重 Shutdown 可。TArray は Clear() で要素破棄 + 容量保持。
-    _nodes.Clear();
-    _history.Clear();
-    _history_head = 0;
+    m_Nodes.Clear();
+    m_History.Clear();
+    m_HistoryHead = 0;
 
-    _tree       = nullptr;
-    _autorun    = false;
-    _step_count = 0;
-    _selected   = kInvalidId;
+    m_Tree       = nullptr;
+    m_Autorun    = false;
+    m_StepCount = 0;
+    m_Selected   = kInvalidId;
 
     // callback も解除する (Shutdown は完全リセットの意味合い)。
-    _step_cb    = nullptr;
-    _step_user  = nullptr;
+    m_StepCb    = nullptr;
+    m_StepUser  = nullptr;
 }
 
 // ============================================================================
 // SetTree / Reset
 // ============================================================================
 void FBehaviorTreeEditorPanel::SetTree(FBehaviorTree* tree) noexcept {
-    _tree = tree;
+    m_Tree = tree;
     // 観察対象が変わったので step counter / 履歴 / 全 status を初期化する。
-    // メタミラー (_nodes) は触らない (= 同構造で別インスタンスを観察する用途に
+    // メタミラー (m_Nodes) は触らない (= 同構造で別インスタンスを観察する用途に
     // 対応するため、ユーザが ClearNodes を別途呼ばない限り維持する)。
     Reset();
 }
 
 void FBehaviorTreeEditorPanel::Reset() noexcept {
-    _step_count   = 0;
-    _history_head = 0;
-    for (usize i = 0; i < _history.Size(); ++i) {
-        _history[i] = static_cast<u8>(EBtStatus::Failure);
+    m_StepCount   = 0;
+    m_HistoryHead = 0;
+    for (usize i = 0; i < m_History.Size(); ++i) {
+        m_History[i] = static_cast<u8>(EBtStatus::Failure);
     }
-    for (usize i = 0; i < _nodes.Size(); ++i) {
-        _nodes[i].last_status = EBtStatus::Failure;
+    for (usize i = 0; i < m_Nodes.Size(); ++i) {
+        m_Nodes[i].last_status = EBtStatus::Failure;
     }
     // autorun / selection / メタミラーは触らない (= ユーザ操作で変える物)。
 }
@@ -154,45 +154,45 @@ void FBehaviorTreeEditorPanel::StepOnce() noexcept {
 }
 
 void FBehaviorTreeEditorPanel::TickInternal(f32 dt) noexcept {
-    if (_tree == nullptr) return;
+    if (m_Tree == nullptr) return;
 
     // ----- (1) 実 BT を 1 tick 進める -----
     EBtStatus root_status = EBtStatus::Failure;
-    if (_step_cb != nullptr) {
+    if (m_StepCb != nullptr) {
         // callback に委譲 (ユーザが任意 blackboard を渡せる)。
         // callback 側で `tree->Tick(my_bb, dt)` を呼ぶ規約。戻り値は取れないので、
         // root status は callback が SetNodeStatus(root_id=0, ...) で push する想定。
-        // ここでは _nodes[0].last_status を採用する fallback (= 履歴 graph 用)。
-        _step_cb(_step_user, _tree, dt);
-        if (!_nodes.IsEmpty()) {
-            root_status = _nodes[0].last_status;
+        // ここでは m_Nodes[0].last_status を採用する fallback (= 履歴 graph 用)。
+        m_StepCb(m_StepUser, m_Tree, dt);
+        if (!m_Nodes.IsEmpty()) {
+            root_status = m_Nodes[0].last_status;
         }
     } else {
         // fallback: blackboard = nullptr で直接呼ぶ。
         // 戻り値を取れるのでそのまま履歴に push する。
-        root_status = _tree->Tick(nullptr, dt);
-        if (!_nodes.IsEmpty()) {
+        root_status = m_Tree->Tick(nullptr, dt);
+        if (!m_Nodes.IsEmpty()) {
             // root の last_status も同期的に更新 (Inspector / TreeView 表示と
             // PlotLines の値を一致させるため)。
-            _nodes[0].last_status = root_status;
+            m_Nodes[0].last_status = root_status;
         }
     }
 
     // ----- (2) 履歴 ring buffer に push -----
-    if (!_history.IsEmpty()) {
-        _history[_history_head] = static_cast<u8>(root_status);
-        _history_head = (_history_head + 1u) % kHistorySize;
+    if (!m_History.IsEmpty()) {
+        m_History[m_HistoryHead] = static_cast<u8>(root_status);
+        m_HistoryHead = (m_HistoryHead + 1u) % kHistorySize;
     }
 
     // ----- (3) step counter -----
-    ++_step_count;
+    ++m_StepCount;
 }
 
 void FBehaviorTreeEditorPanel::OnFrameBegin(f32 dt) noexcept {
     // autorun ON のときだけ毎フレーム 1 tick 進める。実 dt を渡すことで
     // ゲームの fps に追従させる (Step は 0.016 固定だが autorun は別)。
-    if (!_autorun) return;
-    if (_tree == nullptr) return;
+    if (!m_Autorun) return;
+    if (m_Tree == nullptr) return;
     if (dt <= 0.0f) return; // 0 dt スパイクで何もしない (= 一時停止と同じ)
     TickInternal(dt);
 }
@@ -201,68 +201,68 @@ void FBehaviorTreeEditorPanel::OnFrameBegin(f32 dt) noexcept {
 // selection
 // ============================================================================
 void FBehaviorTreeEditorPanel::SelectNode(u32 node_id) noexcept {
-    if (!IsValidId(node_id, _nodes.Size())) {
-        _selected = kInvalidId;
+    if (!IsValidId(node_id, m_Nodes.Size())) {
+        m_Selected = kInvalidId;
         return;
     }
-    _selected = node_id;
+    m_Selected = node_id;
 }
 
 // ============================================================================
 // AddNode / SetNodeStatus / ClearNodes / NodeStatus
 // ============================================================================
 u32 FBehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent_id) noexcept {
-    if (_nodes.Size() >= static_cast<usize>(kMaxNodes)) {
+    if (m_Nodes.Size() >= static_cast<usize>(kMaxNodes)) {
         // 上限到達は silent fail (= kInvalidId 返却で通知)。
         return kInvalidId;
     }
 
     // parent_id バリデーション: kInvalidId 以外で範囲外なら root 扱いに倒す。
     // (= 不正な parent でも panel が落ちないようにする防衛策)
-    if (parent_id != kInvalidId && !IsValidId(parent_id, _nodes.Size())) {
+    if (parent_id != kInvalidId && !IsValidId(parent_id, m_Nodes.Size())) {
         parent_id = kInvalidId;
     }
 
     NodeMeta n;
-    n.id          = static_cast<u32>(_nodes.Size()); // 払い出し = 現在の末尾 index
+    n.id          = static_cast<u32>(m_Nodes.Size()); // 払い出し = 現在の末尾 index
     n.parent_id   = parent_id;
     n.kind        = kind;
     n.name        = name;
     n.last_status = EBtStatus::Failure; // 初期は Failure
 
     const u32 new_id = n.id;
-    _nodes.PushBack(n);
+    m_Nodes.PushBack(n);
     return new_id;
 }
 
 void FBehaviorTreeEditorPanel::SetNodeStatus(u32 node_id, EBtStatus status) noexcept {
-    if (!IsValidId(node_id, _nodes.Size())) return;
-    _nodes[static_cast<usize>(node_id)].last_status = status;
+    if (!IsValidId(node_id, m_Nodes.Size())) return;
+    m_Nodes[static_cast<usize>(node_id)].last_status = status;
 }
 
 void FBehaviorTreeEditorPanel::ClearNodes() noexcept {
-    _nodes.Clear();
-    _selected = kInvalidId;
+    m_Nodes.Clear();
+    m_Selected = kInvalidId;
     // history / step counter / autorun は触らない (= ユーザの明示操作で変える物)。
 }
 
 EBtStatus FBehaviorTreeEditorPanel::NodeStatus(u32 node_id) const noexcept {
-    if (!IsValidId(node_id, _nodes.Size())) return EBtStatus::Failure;
-    return _nodes[static_cast<usize>(node_id)].last_status;
+    if (!IsValidId(node_id, m_Nodes.Size())) return EBtStatus::Failure;
+    return m_Nodes[static_cast<usize>(node_id)].last_status;
 }
 
 // ============================================================================
 // SetOnStepCallback
 // ============================================================================
 void FBehaviorTreeEditorPanel::SetOnStepCallback(StepCallback cb, void* user) noexcept {
-    _step_cb   = cb;
-    _step_user = user;
+    m_StepCb   = cb;
+    m_StepUser = user;
 }
 
 // ============================================================================
 // DrawTreeRecursive — 1 node を TreeNode で描画し、子を線形走査して再帰
 // ============================================================================
-// parent_id が node_id を指す子 node を _nodes 内で線形に探して再帰描画する。
+// parent_id が node_id を指す子 node を m_Nodes 内で線形に探して再帰描画する。
 // Action (= leaf) は ImGuiTreeNodeFlags_Leaf を付ける。Selectable と TreeNode を
 // 兼ねるため `ImGuiTreeNodeFlags_OpenOnArrow` で「矢印クリックで展開、ラベル
 // クリックで選択」にする (Unity Hierarchy と同形)。
@@ -271,16 +271,16 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
         ImGui::TextDisabled("  (tree depth limit reached)");
         return;
     }
-    if (!IsValidId(node_id, _nodes.Size())) return;
+    if (!IsValidId(node_id, m_Nodes.Size())) return;
 
-    const NodeMeta& node = _nodes[static_cast<usize>(node_id)];
+    const NodeMeta& node = m_Nodes[static_cast<usize>(node_id)];
 
     // 子検索 (= 線形走査で parent_id == node_id の要素があるか)。
     bool has_child = false;
     if (node.kind != EBtKind::Action) {
         // Action は仕様上 leaf。Selector / FSequence のみ子を持ち得る。
-        for (usize i = 0; i < _nodes.Size(); ++i) {
-            if (_nodes[i].parent_id == node_id) {
+        for (usize i = 0; i < m_Nodes.Size(); ++i) {
+            if (m_Nodes[i].parent_id == node_id) {
                 has_child = true;
                 break;
             }
@@ -295,7 +295,7 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
     if (!has_child) {
         flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     }
-    if (_selected == node_id) {
+    if (m_Selected == node_id) {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
 
@@ -321,7 +321,7 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
     // ラベルクリックで選択 (TreeNode の click 領域に対する反応を捕捉)。
     // arrow click は TreeNode が消費するので、それ以外の click を selection に。
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-        _selected = node_id;
+        m_Selected = node_id;
     }
 
     // 同行右側に status バッジを SameLine 表示 ([Success/Failure/Running])。
@@ -330,8 +330,8 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
                        "[%s]", StatusLabel(node.last_status));
 
     if (open && has_child) {
-        for (usize i = 0; i < _nodes.Size(); ++i) {
-            if (_nodes[i].parent_id == node_id) {
+        for (usize i = 0; i < m_Nodes.Size(); ++i) {
+            if (m_Nodes[i].parent_id == node_id) {
                 DrawTreeRecursive(static_cast<u32>(i), depth + 1u);
             }
         }
@@ -347,7 +347,7 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
 void FBehaviorTreeEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
-    if (!ImGui::Begin(Title(), &_visible)) {
+    if (!ImGui::Begin(Title(), &m_Visible)) {
         ImGui::End();
         return;
     }
@@ -360,7 +360,7 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
     }
     ImGui::SameLine();
     // Step は tree 未設定なら disable (押しても no-op だが UX 改善)。
-    const bool step_enabled = (_tree != nullptr);
+    const bool step_enabled = (m_Tree != nullptr);
     if (!step_enabled) ImGui::BeginDisabled();
     if (ImGui::Button("Step")) {
         StepOnce();
@@ -370,9 +370,9 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
     ImGui::SameLine();
     // Continuous: autorun toggle。ON/OFF をラベルで明示。
     {
-        bool autorun = _autorun;
+        bool autorun = m_Autorun;
         if (ImGui::Checkbox("Continuous", &autorun)) {
-            _autorun = autorun;
+            m_Autorun = autorun;
         }
     }
 
@@ -380,12 +380,12 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
     // Active node count: status != Failure な node 数を毎フレーム集計。
     // (= Inspector で「今いくつの node が Success/Running か」を一目で見る指標)
     u32 active = 0;
-    for (usize i = 0; i < _nodes.Size(); ++i) {
-        if (_nodes[i].last_status != EBtStatus::Failure) ++active;
+    for (usize i = 0; i < m_Nodes.Size(); ++i) {
+        if (m_Nodes[i].last_status != EBtStatus::Failure) ++active;
     }
     ImGui::Text("| Active: %u  Step: %u",
                 static_cast<unsigned>(active),
-                static_cast<unsigned>(_step_count));
+                static_cast<unsigned>(m_StepCount));
 
     ImGui::Separator();
 
@@ -393,21 +393,21 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
     // (2) History graph: 60 frame の root status を PlotLines で表示
     // ------------------------------------------------------------------------
     // ring buffer を新→旧の時系列順に float へ展開する。
-    // _history_head は「次に書き込む位置」 = "ちょうど 1 frame 前 + 1" なので、
+    // m_HistoryHead は「次に書き込む位置」 = "ちょうど 1 frame 前 + 1" なので、
     // PlotLines に対して `(head, head+1, ..., head+kHistorySize-1) mod size` の
     // 順に並べると左 → 右 = 古い → 新しい時系列になる。
-    if (!_history.IsEmpty()) {
+    if (!m_History.IsEmpty()) {
         f32 plot[kHistorySize];
         for (u32 i = 0; i < kHistorySize; ++i) {
-            const u32 idx = (_history_head + i) % kHistorySize;
-            const EBtStatus s = static_cast<EBtStatus>(_history[idx]);
+            const u32 idx = (m_HistoryHead + i) % kHistorySize;
+            const EBtStatus s = static_cast<EBtStatus>(m_History[idx]);
             plot[i] = StatusToPlotValue(s);
         }
         // overlay 表示: 最新値の文字列ラベル。
         char overlay[32];
-        const u32 last_idx = (_history_head + kHistorySize - 1u) % kHistorySize;
+        const u32 last_idx = (m_HistoryHead + kHistorySize - 1u) % kHistorySize;
         std::snprintf(overlay, sizeof(overlay), "Root: %s",
-                      StatusLabel(static_cast<EBtStatus>(_history[last_idx])));
+                      StatusLabel(static_cast<EBtStatus>(m_History[last_idx])));
         ImGui::PlotLines("##bt_history", plot, static_cast<int>(kHistorySize),
                          0, overlay,
                          0.0f, 1.0f, // y range [Failure=0 .. Success=1]
@@ -428,15 +428,15 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
         ImGui::TextUnformatted("Behavior Tree");
         ImGui::Separator();
 
-        if (_nodes.IsEmpty()) {
+        if (m_Nodes.IsEmpty()) {
             ImGui::TextDisabled("(No nodes registered)");
             ImGui::TextDisabled("Call panel.AddNode(kind, name, parent_id) from your sample.");
         } else {
             // root (= parent_id == kInvalidId) を全て描画。
             // 一般的には root は 1 つだが、複数 root も許容 (= forest 表示)。
             bool drew_any = false;
-            for (u32 i = 0; i < _nodes.Size(); ++i) {
-                if (_nodes[i].parent_id == kInvalidId) {
+            for (u32 i = 0; i < m_Nodes.Size(); ++i) {
+                if (m_Nodes[i].parent_id == kInvalidId) {
                     DrawTreeRecursive(i, 0u);
                     drew_any = true;
                 }
@@ -456,17 +456,17 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
         ImGui::TextUnformatted("Node Inspector");
         ImGui::Separator();
 
-        if (!IsValidId(_selected, _nodes.Size())) {
+        if (!IsValidId(m_Selected, m_Nodes.Size())) {
             ImGui::TextDisabled("(No node selected)");
             ImGui::TextDisabled("Click a node in the tree view.");
         } else {
-            const NodeMeta& n = _nodes[static_cast<usize>(_selected)];
+            const NodeMeta& n = m_Nodes[static_cast<usize>(m_Selected)];
 
             // child count を線形走査でカウント (Action なら 0)。
             u32 child_count = 0;
             if (n.kind != EBtKind::Action) {
-                for (usize i = 0; i < _nodes.Size(); ++i) {
-                    if (_nodes[i].parent_id == _selected) ++child_count;
+                for (usize i = 0; i < m_Nodes.Size(); ++i) {
+                    if (m_Nodes[i].parent_id == m_Selected) ++child_count;
                 }
             }
 

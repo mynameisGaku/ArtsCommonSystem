@@ -11,10 +11,10 @@ class FSourceLoc {
 public:
     constexpr FSourceLoc() noexcept = default;
 
-    constexpr const char* File()     const noexcept { return _file; }
-    constexpr const char* Function() const noexcept { return _func; }
-    constexpr u32         Line()     const noexcept { return _line; }
-    constexpr u32         Column()   const noexcept { return _col;  }
+    constexpr const char* File()     const noexcept { return m_File; }
+    constexpr const char* Function() const noexcept { return m_Func; }
+    constexpr u32         Line()     const noexcept { return m_Line; }
+    constexpr u32         Column()   const noexcept { return m_Col;  }
 
     // デフォルト引数として渡すと呼び出し位置をキャプチャする
     static consteval FSourceLoc Current(
@@ -28,18 +28,18 @@ public:
 #endif
     ) noexcept {
         FSourceLoc s;
-        s._file = file;
-        s._func = func;
-        s._line = line;
-        s._col  = col;
+        s.m_File = file;
+        s.m_Func = func;
+        s.m_Line = line;
+        s.m_Col  = col;
         return s;
     }
 
 private:
-    const char* _file = "";
-    const char* _func = "";
-    u32         _line = 0;
-    u32         _col  = 0;
+    const char* m_File = "";
+    const char* m_Func = "";
+    u32         m_Line = 0;
+    u32         m_Col  = 0;
 };
 
 } // namespace acs

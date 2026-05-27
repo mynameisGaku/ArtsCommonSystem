@@ -17,7 +17,7 @@ namespace hellosky {
 class SkyScene {
 public:
     void SetPreset(acs::FSky& sky, SkyPreset p) noexcept;
-    SkyPreset CurrentPreset() const noexcept { return _preset; }
+    SkyPreset CurrentPreset() const noexcept { return m_Preset; }
 
     // 1 フレームの描画 (FSky → 地面 → 球)。
     // sky / shader / camera / mesh は App が所有、引数で借りる形にして
@@ -31,7 +31,7 @@ public:
                 acs::f32              angle) noexcept;
 
 private:
-    SkyPreset _preset = SkyPreset::Day;
+    SkyPreset m_Preset = SkyPreset::Day;
 };
 
 } // namespace hellosky

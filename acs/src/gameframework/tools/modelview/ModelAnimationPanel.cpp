@@ -54,29 +54,29 @@ inline const char* SafeClipName(const char* name) noexcept {
 // callback も解除する (= Shutdown と同じ深さの reset)。
 // =============================================================================
 void FModelAnimationPanel::Init() noexcept {
-    _clips.Clear();  // 中身は破棄、容量は保持 (= 次回再構築のアロケ節約)
-    _current_clip_idx = kNoClipSelected;
+    m_Clips.Clear();  // 中身は破棄、容量は保持 (= 次回再構築のアロケ節約)
+    m_CurrentClipIdx = kNoClipSelected;
     _state            = EAnimationPlayState::Stopped;
-    _current_time_sec = 0.0f;
-    _speed            = 1.0f;
-    _loop_override    = false;
-    _blend_weight     = 1.0f;
-    _on_frame_cb      = nullptr;
-    _on_frame_user    = nullptr;
+    m_CurrentTimeSec = 0.0f;
+    m_Speed            = 1.0f;
+    m_LoopOverride    = false;
+    m_BlendWeight     = 1.0f;
+    m_OnFrameCb      = nullptr;
+    m_OnFrameUser    = nullptr;
 }
 
 void FModelAnimationPanel::Shutdown() noexcept {
     // Init と同じ深さの reset。TArray は ~TArray で破棄されるが明示 Clear で
     // 多重 Shutdown / 再 Init の確定状態を作る (FParticleEditorPanel と同形)。
-    _clips.Clear();
-    _current_clip_idx = kNoClipSelected;
+    m_Clips.Clear();
+    m_CurrentClipIdx = kNoClipSelected;
     _state            = EAnimationPlayState::Stopped;
-    _current_time_sec = 0.0f;
-    _speed            = 1.0f;
-    _loop_override    = false;
-    _blend_weight     = 1.0f;
-    _on_frame_cb      = nullptr;
-    _on_frame_user    = nullptr;
+    m_CurrentTimeSec = 0.0f;
+    m_Speed            = 1.0f;
+    m_LoopOverride    = false;
+    m_BlendWeight     = 1.0f;
+    m_OnFrameCb      = nullptr;
+    m_OnFrameUser    = nullptr;
 }
 
 // =============================================================================
@@ -86,67 +86,67 @@ void FModelAnimationPanel::SetClips(const FAnimationClipBinding* clips,
                                    u32 count) noexcept {
     // nullptr + count > 0 は呼出側ミスだが、defensive に「count = 0 として扱う」。
     // count == 0 / clips == nullptr ともに「空にする」セマンティクス。
-    _clips.Clear();
+    m_Clips.Clear();
     if (clips == nullptr || count == 0) {
-        _current_clip_idx = kNoClipSelected;
+        m_CurrentClipIdx = kNoClipSelected;
         _state            = EAnimationPlayState::Stopped;
-        _current_time_sec = 0.0f;
+        m_CurrentTimeSec = 0.0f;
         return;
     }
 
     // Resize で領域確保 + 中身を値コピー。FAnimationClipBinding は POD なので
     // 単純代入で安全。`name` ポインタの寿命は呼出側責任 (= 本 panel は
     // const char* リテラル / 永続バッファを前提とする)。
-    _clips.Resize(static_cast<usize>(count));
+    m_Clips.Resize(static_cast<usize>(count));
     for (u32 i = 0; i < count; ++i) {
-        _clips[i] = clips[i];
+        m_Clips[i] = clips[i];
         // duration_sec が負 / NaN だと slider が壊れるので保険で 0 にクランプ。
-        if (!(_clips[i].duration_sec >= 0.0f)) {
-            _clips[i].duration_sec = 0.0f;
+        if (!(m_Clips[i].duration_sec >= 0.0f)) {
+            m_Clips[i].duration_sec = 0.0f;
         }
     }
 
     // モデル切替の典型運用 = 「先頭 clip を自動選択 + Stopped から開始」。
     // 既存 selection を保持する設計だと、別モデルの違う index を見続けて
     // 別 clip が再生される事故が起きるため、明示的に reset する。
-    _current_clip_idx = 0;
+    m_CurrentClipIdx = 0;
     _state            = EAnimationPlayState::Stopped;
-    _current_time_sec = 0.0f;
+    m_CurrentTimeSec = 0.0f;
 }
 
 void FModelAnimationPanel::ClearClips() noexcept {
-    _clips.Clear();
-    _current_clip_idx = kNoClipSelected;
+    m_Clips.Clear();
+    m_CurrentClipIdx = kNoClipSelected;
     _state            = EAnimationPlayState::Stopped;
-    _current_time_sec = 0.0f;
+    m_CurrentTimeSec = 0.0f;
     // callback / speed / loop_override / blend_weight は保持
     // (= Init / Shutdown より浅い reset、UI 設定は維持したい)。
 }
 
 u32 FModelAnimationPanel::ClipCount() const noexcept {
-    return static_cast<u32>(_clips.Size());
+    return static_cast<u32>(m_Clips.Size());
 }
 
 const FAnimationClipBinding* FModelAnimationPanel::CurrentClip() const noexcept {
-    if (!IsValidClipIndex(_current_clip_idx, static_cast<u32>(_clips.Size()))) {
+    if (!IsValidClipIndex(m_CurrentClipIdx, static_cast<u32>(m_Clips.Size()))) {
         return nullptr;
     }
-    return &_clips[static_cast<usize>(_current_clip_idx)];
+    return &m_Clips[static_cast<usize>(m_CurrentClipIdx)];
 }
 
 i32 FModelAnimationPanel::CurrentClipIndex() const noexcept {
-    return _current_clip_idx;
+    return m_CurrentClipIdx;
 }
 
 void FModelAnimationPanel::SelectClip(u32 clip_index) noexcept {
     // 範囲外 (>= ClipCount) は no-op (= 静かに無視、エラーは LogWarning 等で
     // 出すべきだが本 panel は log 依存を持たない方針)。
-    if (clip_index >= static_cast<u32>(_clips.Size())) return;
+    if (clip_index >= static_cast<u32>(m_Clips.Size())) return;
 
     // 同 clip を再選択した場合も time = 0 + Stopped に戻す
     // (= UI 上で同じ clip を「もう一度選ぶ」操作は明確なリスタート意図と解釈)。
-    _current_clip_idx = static_cast<i32>(clip_index);
-    _current_time_sec = 0.0f;
+    m_CurrentClipIdx = static_cast<i32>(clip_index);
+    m_CurrentTimeSec = 0.0f;
     _state            = EAnimationPlayState::Stopped;
 }
 
@@ -155,12 +155,12 @@ void FModelAnimationPanel::SelectClip(u32 clip_index) noexcept {
 // =============================================================================
 void FModelAnimationPanel::Play() noexcept {
     // clip 未選択 = 何も再生できない。silent no-op。
-    if (_current_clip_idx < 0) return;
+    if (m_CurrentClipIdx < 0) return;
 
     // Stopped → Playing 移行時のみ time = 0 (= 頭出し)。Paused → Playing
     // では time を保持して continue。Playing → Playing は副作用なし。
     if (_state == EAnimationPlayState::Stopped) {
-        _current_time_sec = 0.0f;
+        m_CurrentTimeSec = 0.0f;
     }
     _state = EAnimationPlayState::Playing;
 }
@@ -176,7 +176,7 @@ void FModelAnimationPanel::Pause() noexcept {
 void FModelAnimationPanel::Stop() noexcept {
     // どの状態からも Stopped + time = 0 に遷移 (= 完全頭出し)。
     _state            = EAnimationPlayState::Stopped;
-    _current_time_sec = 0.0f;
+    m_CurrentTimeSec = 0.0f;
 }
 
 EAnimationPlayState FModelAnimationPanel::PlayState() const noexcept {
@@ -187,14 +187,14 @@ EAnimationPlayState FModelAnimationPanel::PlayState() const noexcept {
 // 時刻 / 速度 / Loop / Blend
 // =============================================================================
 f32 FModelAnimationPanel::CurrentTimeSec() const noexcept {
-    return _current_time_sec;
+    return m_CurrentTimeSec;
 }
 
 void FModelAnimationPanel::SetCurrentTimeSec(f32 t) noexcept {
     // clip 未選択 = 時刻も意味を持たない (= 0 のまま固定)。
     const FAnimationClipBinding* c = CurrentClip();
     if (c == nullptr) {
-        _current_time_sec = 0.0f;
+        m_CurrentTimeSec = 0.0f;
         return;
     }
     // duration が 0 の clip (= 静止ポーズ) は常に 0 に。負値も 0、duration
@@ -202,44 +202,44 @@ void FModelAnimationPanel::SetCurrentTimeSec(f32 t) noexcept {
     // 状態を保持)。
     const f32 dur = c->duration_sec;
     if (dur <= 0.0f) {
-        _current_time_sec = 0.0f;
+        m_CurrentTimeSec = 0.0f;
         return;
     }
-    _current_time_sec = ClampF(t, 0.0f, dur);
+    m_CurrentTimeSec = ClampF(t, 0.0f, dur);
 }
 
 f32 FModelAnimationPanel::PlaybackSpeed() const noexcept {
-    return _speed;
+    return m_Speed;
 }
 
 void FModelAnimationPanel::SetPlaybackSpeed(f32 speed) noexcept {
     // 仕様: [0.1, 4.0] にクランプ。負値も 0.1 へ正規化 (= 逆再生は将来対応)。
-    _speed = ClampF(speed, kMinPlaybackSpeed, kMaxPlaybackSpeed);
+    m_Speed = ClampF(speed, kMinPlaybackSpeed, kMaxPlaybackSpeed);
 }
 
 bool FModelAnimationPanel::IsLoopingOverride() const noexcept {
-    return _loop_override;
+    return m_LoopOverride;
 }
 
 void FModelAnimationPanel::SetLoopingOverride(bool b) noexcept {
-    _loop_override = b;
+    m_LoopOverride = b;
 }
 
 f32 FModelAnimationPanel::BlendWeight() const noexcept {
-    return _blend_weight;
+    return m_BlendWeight;
 }
 
 void FModelAnimationPanel::SetBlendWeight(f32 w) noexcept {
-    _blend_weight = ClampF(w, 0.0f, 1.0f);
+    m_BlendWeight = ClampF(w, 0.0f, 1.0f);
 }
 
 // =============================================================================
 // Tick — 時刻進行 + duration 到達処理 + callback 発火
 // =============================================================================
-// Playing 中のみ `_current_time += dt * _speed` を進め、duration を超えたら:
-//   ・loop (= clip.is_looping || _loop_override) → 余りで wrap
+// Playing 中のみ `m_CurrentTime += dt * m_Speed` を進め、duration を超えたら:
+//   ・loop (= clip.is_looping || m_LoopOverride) → 余りで wrap
 //   ・loop でない                                → Stopped + time = duration
-// 終端で _on_frame_cb (設定されていれば) を 1 度発火する。
+// 終端で m_OnFrameCb (設定されていれば) を 1 度発火する。
 //
 // dt <= 0 は no-op (= 巻き戻し非対応、FSpriteAnimator と同方針)。
 // clip 未選択 / Stopped / Paused / duration <= 0 はすべて no-op
@@ -253,7 +253,7 @@ void FModelAnimationPanel::Tick(f32 dt) noexcept {
     if (c == nullptr) {
         // clip が消えた (= SetClips で空にされた) 場合は安全に Stopped に倒す。
         _state            = EAnimationPlayState::Stopped;
-        _current_time_sec = 0.0f;
+        m_CurrentTimeSec = 0.0f;
         return;
     }
     const f32 dur = c->duration_sec;
@@ -261,19 +261,19 @@ void FModelAnimationPanel::Tick(f32 dt) noexcept {
         // duration 0 = 静止ポーズ。Playing でも時刻は進まないが、callback は
         // 発火する (= 呼出側に「現在 clip / time=0」を通知して bind pose を
         // 反映してもらう)。
-        _current_time_sec = 0.0f;
-        if (_on_frame_cb != nullptr) {
-            _on_frame_cb(_on_frame_user, c->clip_index, _current_time_sec);
+        m_CurrentTimeSec = 0.0f;
+        if (m_OnFrameCb != nullptr) {
+            m_OnFrameCb(m_OnFrameUser, c->clip_index, m_CurrentTimeSec);
         }
         return;
     }
 
     // 時刻を進める。
-    _current_time_sec += dt * _speed;
+    m_CurrentTimeSec += dt * m_Speed;
 
     // duration 到達処理。
-    const bool looping = c->is_looping || _loop_override;
-    if (_current_time_sec >= dur) {
+    const bool looping = c->is_looping || m_LoopOverride;
+    if (m_CurrentTimeSec >= dur) {
         if (looping) {
             // 余りで wrap。dt が極端に大きい (= duration 数倍) ケースも
             // fmodf 相当の繰り返し減算で吸収する。Mod を使わないのは
@@ -282,31 +282,31 @@ void FModelAnimationPanel::Tick(f32 dt) noexcept {
             // とはいえ pathological case の防御として、減算は count 上限を
             // 64 回に制限する (= dt * speed > dur*64 のケースは破棄)。
             i32 guard = 64;
-            while (_current_time_sec >= dur && guard-- > 0) {
-                _current_time_sec -= dur;
+            while (m_CurrentTimeSec >= dur && guard-- > 0) {
+                m_CurrentTimeSec -= dur;
             }
             // guard 越えは「dt が duration の 64 倍以上 = フレーム落ち過剰」
             // とみなして time = 0 に倒す (= ロジック破綻防止)。
-            if (_current_time_sec >= dur || _current_time_sec < 0.0f) {
-                _current_time_sec = 0.0f;
+            if (m_CurrentTimeSec >= dur || m_CurrentTimeSec < 0.0f) {
+                m_CurrentTimeSec = 0.0f;
             }
         } else {
             // 非 loop = 末尾に固定 + Stopped に遷移。
-            _current_time_sec = dur;
+            m_CurrentTimeSec = dur;
             _state            = EAnimationPlayState::Stopped;
         }
     }
 
     // callback 発火 (= 外部 FAnimationPlayer に時刻反映)。
-    if (_on_frame_cb != nullptr) {
-        _on_frame_cb(_on_frame_user, c->clip_index, _current_time_sec);
+    if (m_OnFrameCb != nullptr) {
+        m_OnFrameCb(m_OnFrameUser, c->clip_index, m_CurrentTimeSec);
     }
 }
 
 void FModelAnimationPanel::SetOnFrameCallback(AnimationFrameCallback cb,
                                              void* user) noexcept {
-    _on_frame_cb   = cb;
-    _on_frame_user = user;
+    m_OnFrameCb   = cb;
+    m_OnFrameUser = user;
 }
 
 // =============================================================================
@@ -325,28 +325,28 @@ void FModelAnimationPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     // Begin の戻り値で「window が collapsed / hidden」を判定し、それ以外
-    // 早期 End。`&_visible` を渡すことで close ボタン (× 印) が `_visible` を
+    // 早期 End。`&m_Visible` を渡すことで close ボタン (× 印) が `m_Visible` を
     // false にする (= FEditorPanel 規約)。
-    if (!ImGui::Begin(Title(), &_visible)) {
+    if (!ImGui::Begin(Title(), &m_Visible)) {
         ImGui::End();
         return;
     }
 
-    const u32 clip_count = static_cast<u32>(_clips.Size());
+    const u32 clip_count = static_cast<u32>(m_Clips.Size());
 
     // ----- ClipCombo (dropdown) ------------------------------------------
     // current preview 文字列: 未選択 / 空 list なら "(no clip)"、それ以外は
     // 選択中 clip 名。
     const char* preview = "(no clip)";
-    if (clip_count > 0 && _current_clip_idx >= 0
-        && static_cast<u32>(_current_clip_idx) < clip_count) {
-        preview = SafeClipName(_clips[static_cast<usize>(_current_clip_idx)].name);
+    if (clip_count > 0 && m_CurrentClipIdx >= 0
+        && static_cast<u32>(m_CurrentClipIdx) < clip_count) {
+        preview = SafeClipName(m_Clips[static_cast<usize>(m_CurrentClipIdx)].name);
     }
 
     if (ImGui::BeginCombo("Clip", preview)) {
         for (u32 i = 0; i < clip_count; ++i) {
-            const bool is_selected = (static_cast<i32>(i) == _current_clip_idx);
-            const char* label      = SafeClipName(_clips[i].name);
+            const bool is_selected = (static_cast<i32>(i) == m_CurrentClipIdx);
+            const char* label      = SafeClipName(m_Clips[i].name);
             // PushID で同名 clip があっても ID 衝突しないようにする。
             ImGui::PushID(static_cast<int>(i));
             if (ImGui::Selectable(label, is_selected)) {
@@ -376,7 +376,7 @@ void FModelAnimationPanel::DrawUI() noexcept {
         const f32 dur = (cur != nullptr && cur->duration_sec > 0.0f)
                             ? cur->duration_sec
                             : 1.0f;
-        f32 t = _current_time_sec;
+        f32 t = m_CurrentTimeSec;
         // SliderFloat の戻り値で「ユーザが drag した」か判定。
         if (ImGui::SliderFloat("Time", &t, 0.0f, dur, "%.3f s")) {
             // SetCurrentTimeSec 経由で clamp + 安全反映 (= state は変えない)。
@@ -410,7 +410,7 @@ void FModelAnimationPanel::DrawUI() noexcept {
     // Loop checkbox (override)。clip 既定 (is_looping) も小さく併記して、
     // ユーザに「override が現在の clip 設定とどう違うか」をわかりやすくする。
     {
-        bool loop = _loop_override;
+        bool loop = m_LoopOverride;
         if (ImGui::Checkbox("Loop (override)", &loop)) {
             SetLoopingOverride(loop);
         }
@@ -425,7 +425,7 @@ void FModelAnimationPanel::DrawUI() noexcept {
     // が、Phase 21b は線形で十分 (= 後で SliderFloat の flags に
     // ImGuiSliderFlags_Logarithmic を足せる)。
     {
-        f32 s = _speed;
+        f32 s = m_Speed;
         if (ImGui::SliderFloat("Speed", &s,
                                kMinPlaybackSpeed, kMaxPlaybackSpeed,
                                "%.2fx")) {
@@ -436,7 +436,7 @@ void FModelAnimationPanel::DrawUI() noexcept {
     // BlendWeight slider [0, 1]。Phase 21b は表示用、Phase 22+ で複数 clip
     // blending の primary slot として再利用する予定 (ヘッダ設計選択節参照)。
     {
-        f32 w = _blend_weight;
+        f32 w = m_BlendWeight;
         if (ImGui::SliderFloat("BlendWeight", &w, 0.0f, 1.0f, "%.2f")) {
             SetBlendWeight(w);
         }

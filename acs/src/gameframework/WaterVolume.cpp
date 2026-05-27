@@ -23,54 +23,54 @@ static bool ContainsPoint(const FWaterVolumeInfo& v, FVec2 pos) noexcept {
 
 // index 0 は invalid handle に予約 (FCollisionWorld2D と同じ規約)。
 u32 FWaterVolume::AcquireSlot() noexcept {
-    for (u32 i = 1; i < _slots.Size(); ++i) {
-        if (!_slots[i].active) return i;
+    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+        if (!m_Slots[i].active) return i;
     }
-    if (_slots.IsEmpty()) {
-        _slots.PushBack({});   // dummy at index 0
+    if (m_Slots.IsEmpty()) {
+        m_Slots.PushBack({});   // dummy at index 0
     }
-    _slots.PushBack({});
-    return static_cast<u32>(_slots.Size()) - 1u;
+    m_Slots.PushBack({});
+    return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
 // ----- パブリック API -------------------------------------------------------
 
 FWaterVolumeId FWaterVolume::AddVolume(const FWaterVolumeInfo& info) noexcept {
     const u32 idx = AcquireSlot();
-    Slot& s = _slots[idx];
+    Slot& s = m_Slots[idx];
     s.info   = info;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;     // 0 を予約値として避ける (Add 時の安全弁)
     s.active = true;
-    ++_volume_count;
-    _cache_dirty = true;
+    ++m_VolumeCount;
+    m_CacheDirty = true;
     return FWaterVolumeId{idx, s.gen};
 }
 
 void FWaterVolume::RemoveVolume(FWaterVolumeId id) noexcept {
-    if (!id.IsValid() || id.Index() >= _slots.Size()) return;
-    Slot& s = _slots[id.Index()];
+    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    Slot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
-    if (_volume_count > 0) --_volume_count;
-    _cache_dirty = true;
+    if (m_VolumeCount > 0) --m_VolumeCount;
+    m_CacheDirty = true;
 }
 
 void FWaterVolume::UpdateVolume(FWaterVolumeId id, FVec2 center, FVec2 half_size) noexcept {
-    if (!id.IsValid() || id.Index() >= _slots.Size()) return;
-    Slot& s = _slots[id.Index()];
+    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    Slot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.info.center    = center;
     s.info.half_size = half_size;
     // surface_y / buoyancy_strength / drag / water_color は info から不変。
     // 水面位置を変えたい時は Remove → Add で。
-    _cache_dirty = true;
+    m_CacheDirty = true;
 }
 
 bool FWaterVolume::IsUnderwater(FVec2 pos) const noexcept {
     // index 0 は invalid 予約なので 1 から走査。
-    for (u32 i = 1; i < _slots.Size(); ++i) {
-        const Slot& s = _slots[i];
+    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+        const Slot& s = m_Slots[i];
         if (!s.active) continue;
         if (ContainsPoint(s.info, pos)) return true;
     }
@@ -78,8 +78,8 @@ bool FWaterVolume::IsUnderwater(FVec2 pos) const noexcept {
 }
 
 f32 FWaterVolume::SubmersionDepth(FVec2 pos) const noexcept {
-    for (u32 i = 1; i < _slots.Size(); ++i) {
-        const Slot& s = _slots[i];
+    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+        const Slot& s = m_Slots[i];
         if (!s.active) continue;
         if (!ContainsPoint(s.info, pos)) continue;
         const f32 depth = s.info.surface_y - pos.y;
@@ -97,8 +97,8 @@ FVec2 FWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) co
     f32  total_drag           = 0.0f;  // Σ drag を蓄積
     bool in_water             = false;
 
-    for (u32 i = 1; i < _slots.Size(); ++i) {
-        const Slot& s = _slots[i];
+    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+        const Slot& s = m_Slots[i];
         if (!s.active) continue;
         if (!ContainsPoint(s.info, pos)) continue;
 
@@ -124,27 +124,27 @@ FVec2 FWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) co
 
 const FWaterVolumeInfo* FWaterVolume::AllVolumes(u32& out_count) const noexcept {
     RebuildPackedCacheIfNeeded();
-    out_count = static_cast<u32>(_packed_cache.Size());
-    return out_count > 0 ? _packed_cache.Data() : nullptr;
+    out_count = static_cast<u32>(m_PackedCache.Size());
+    return out_count > 0 ? m_PackedCache.Data() : nullptr;
 }
 
 void FWaterVolume::ClearAll() noexcept {
-    _slots.Clear();
-    _packed_cache.Clear();
-    _volume_count = 0;
-    _cache_dirty  = false;   // 空状態は dirty 不要
+    m_Slots.Clear();
+    m_PackedCache.Clear();
+    m_VolumeCount = 0;
+    m_CacheDirty  = false;   // 空状態は dirty 不要
 }
 
 // ----- private キャッシュ --------------------------------------------------
 
 void FWaterVolume::RebuildPackedCacheIfNeeded() const noexcept {
-    if (!_cache_dirty) return;
-    _packed_cache.Clear();
-    for (u32 i = 1; i < _slots.Size(); ++i) {
-        const Slot& s = _slots[i];
-        if (s.active) _packed_cache.PushBack(s.info);
+    if (!m_CacheDirty) return;
+    m_PackedCache.Clear();
+    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+        const Slot& s = m_Slots[i];
+        if (s.active) m_PackedCache.PushBack(s.info);
     }
-    _cache_dirty = false;
+    m_CacheDirty = false;
 }
 
 } // namespace acs::game

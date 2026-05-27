@@ -53,15 +53,15 @@ public:
     void Draw(u32 vertex_count, u32 first_vertex = 0) noexcept override;
     void DrawIndexed(u32 index_count, u32 first_index = 0, i32 base_vertex = 0) noexcept override;
 
-    void* NativeHandle() noexcept override { return _cmd_list; }
+    void* NativeHandle() noexcept override { return m_CmdList; }
 
 private:
-    Dx12Device*                     _device      = nullptr;
+    Dx12Device*                     m_Device      = nullptr;
     // kFramesInFlight 個のアロケータ + 各スロットの GPU 完了 fence 値
     ID3D12CommandAllocator*         _allocators[2] {};   // kFramesInFlight=2
-    u64                             _frame_fences[2] {};
-    ID3D12GraphicsCommandList*      _cmd_list    = nullptr;
-    class Dx12Pipeline*             _bound_pipe  = nullptr;
+    u64                             m_FrameFences[2] {};
+    ID3D12GraphicsCommandList*      m_CmdList    = nullptr;
+    class Dx12Pipeline*             m_BoundPipe  = nullptr;
     bool                            _open        = false;
 };
 

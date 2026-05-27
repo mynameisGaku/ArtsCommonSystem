@@ -17,15 +17,15 @@ public:
     ACS_ASSET_TYPE("FTextAsset")
 
     FTextAsset() noexcept = default;
-    explicit FTextAsset(TArray<char>&& text) noexcept : _text(Move(text)) {}
+    explicit FTextAsset(TArray<char>&& text) noexcept : m_Text(Move(text)) {}
 
     // NUL 終端された文字列ポインタ
-    const char* CStr() const noexcept { return _text.IsEmpty() ? "" : _text.Data(); }
-    usize       Size() const noexcept { return _text.IsEmpty() ? 0 : _text.Size() - 1; }
-    const TArray<char>& Raw() const noexcept { return _text; }
+    const char* CStr() const noexcept { return m_Text.IsEmpty() ? "" : m_Text.Data(); }
+    usize       Size() const noexcept { return m_Text.IsEmpty() ? 0 : m_Text.Size() - 1; }
+    const TArray<char>& Raw() const noexcept { return m_Text; }
 
 private:
-    TArray<char> _text;  // 末尾に NUL を含む
+    TArray<char> m_Text;  // 末尾に NUL を含む
 };
 
 class FTextAssetLoader final : public IAssetLoader {

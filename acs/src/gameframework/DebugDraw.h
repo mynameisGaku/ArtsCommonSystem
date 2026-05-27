@@ -77,20 +77,20 @@ public:
 
     // ---- バッファ管理 -------------------------------------------------------
     // 蓄積をクリア（容量は保持）。フレーム頭か描画消費後に呼ぶ。
-    void Clear() noexcept { _lines.Clear(); }
+    void Clear() noexcept { m_Lines.Clear(); }
 
     // 蓄積線数。
-    u32 LineCount() const noexcept { return static_cast<u32>(_lines.Size()); }
+    u32 LineCount() const noexcept { return static_cast<u32>(m_Lines.Size()); }
 
     // 描画システムが読み取る生バッファ先頭（連続メモリ保証）。
     // 空のとき nullptr を返す可能性があるため、利用側は LineCount() で
     // ガードすること。
     const Line* Lines() const noexcept {
-        return _lines.IsEmpty() ? nullptr : &_lines.begin()[0];
+        return m_Lines.IsEmpty() ? nullptr : &m_Lines.begin()[0];
     }
 
 private:
-    TArray<Line> _lines;
+    TArray<Line> m_Lines;
 };
 
 } // namespace acs::game

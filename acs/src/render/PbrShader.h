@@ -166,7 +166,7 @@ public:
     //   filter_radius (Phase 34b-2): PCSS 強度。0 = hard PCF、1 = 標準、>1 で柔らか
     //
     // **重要**: shadow を disable したいときは必ず `SetShadowMap(nullptr, ...)` を使うこと。
-    // `_shadow_params.y` を直接 0 にして再有効化する経路は texel_size=0 の場合 PCSS の
+    // `m_ShadowParams.y` を直接 0 にして再有効化する経路は texel_size=0 の場合 PCSS の
     // blocker search で search_r=0 になり結果が壊れる。常にこの API 経由で更新する。
     void SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
                       f32 bias = 0.002f, f32 texel_size = 1.0f / 2048.0f,
@@ -231,10 +231,10 @@ public:
     //   sss_color: 内部散乱の色 (肌なら赤み)。weight=0 で無効 (既定、他 sample 無影響)。
     void SetSubsurface(FVec3 sss_color, f32 weight) noexcept;
 
-    IRhiPipeline* Pipeline()    const noexcept { return _pipeline.Get(); }
-    IRhiBuffer*   PerFrameCB()  const noexcept { return _frame_cb.Get(); }
-    IRhiBuffer*   PerObjectCB() const noexcept { return _object_cb.Get(); }
-    IRhiTexture*  DefaultWhiteTexture() const noexcept { return _white.Get(); }
+    IRhiPipeline* Pipeline()    const noexcept { return m_Pipeline.Get(); }
+    IRhiBuffer*   PerFrameCB()  const noexcept { return m_FrameCb.Get(); }
+    IRhiBuffer*   PerObjectCB() const noexcept { return m_ObjectCb.Get(); }
+    IRhiTexture*  DefaultWhiteTexture() const noexcept { return m_White.Get(); }
 
     // SetPipeline + CB + Tex + VB/IB + DrawIndexed をまとめた便利 API。
     void DrawMesh(IRhiCommandList& cmd,
@@ -249,102 +249,102 @@ public:
 private:
     void FlushFrameCB() noexcept;
 
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiBuffer>   _frame_cb;
-    TUniquePtr<IRhiBuffer>   _object_cb;
-    TUniquePtr<IRhiTexture>  _white;
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiBuffer>   m_FrameCb;
+    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    TUniquePtr<IRhiTexture>  m_White;
     // IBL を使わないときに texture slot 1-3 に bind するための fallback。
     // shader は ibl_params.x で uniform branching し、ここを sample しないが
     // SRB の bind は必須。1x1 cubemap / 1x1 2D で、内容は undefined (zero 化される)。
-    TUniquePtr<IRhiTexture>  _ibl_irradiance_fb;     // 1x1x6 R11G11B10F cubemap
-    TUniquePtr<IRhiTexture>  _ibl_prefilter_fb;       // 1x1x6 R11G11B10F cubemap
-    TUniquePtr<IRhiTexture>  _ibl_brdf_fb;            // 1x1   RG16F 2D
-    TUniquePtr<IRhiTexture>  _normal_map_fb;          // 1x1   RGBA8 flat normal
+    TUniquePtr<IRhiTexture>  m_IblIrradianceFb;     // 1x1x6 R11G11B10F cubemap
+    TUniquePtr<IRhiTexture>  m_IblPrefilterFb;       // 1x1x6 R11G11B10F cubemap
+    TUniquePtr<IRhiTexture>  m_IblBrdfFb;            // 1x1   RG16F 2D
+    TUniquePtr<IRhiTexture>  m_NormalMapFb;          // 1x1   RGBA8 flat normal
 
-    FMat4       _vp;
-    FVec3       _eye      = FVec3{0, 0, 0};
-    FVec3       _ambient  = FVec3{0, 0, 0};
-    FDirLight   _dir_lights[4];
-    u32        _dir_count = 0;
-    PointLight _point_lights[4];
-    u32        _point_count = 0;
-    AreaLight  _area_lights[2];
-    u32        _area_count = 0;
+    FMat4       m_Vp;
+    FVec3       m_Eye      = FVec3{0, 0, 0};
+    FVec3       m_Ambient  = FVec3{0, 0, 0};
+    FDirLight   m_DirLights[4];
+    u32        m_DirCount = 0;
+    PointLight m_PointLights[4];
+    u32        m_PointCount = 0;
+    AreaLight  m_AreaLights[2];
+    u32        m_AreaCount = 0;
 
-    // SetIbl で渡された (非所有) ポインタ。3 つとも非 null かつ _ibl_mips > 0 なら有効。
-    IRhiTexture* _ibl_irradiance = nullptr;
-    IRhiTexture* _ibl_prefilter  = nullptr;
-    IRhiTexture* _ibl_brdf       = nullptr;
-    u32          _ibl_mips       = 0;
-    bool         _ibl_enabled    = false;
+    // SetIbl で渡された (非所有) ポインタ。3 つとも非 null かつ m_IblMips > 0 なら有効。
+    IRhiTexture* m_IblIrradiance = nullptr;
+    IRhiTexture* m_IblPrefilter  = nullptr;
+    IRhiTexture* m_IblBrdf       = nullptr;
+    u32          m_IblMips       = 0;
+    bool         m_IblEnabled    = false;
 
     // SH 9 light probe (optional Phase 32c)
-    FVec4         _sh9[9]         = {};
-    bool         _sh9_enabled    = false;
+    FVec4         m_Sh9[9]         = {};
+    bool         m_Sh9Enabled    = false;
 
     // 静的光プローブグリッド (Phase 33d)、最大 4 個
-    FVec4         _probe_pos[4]      = {};
-    FVec4         _probe_sh9[4 * 9]  = {};
-    u32          _probe_count       = 0;
+    FVec4         m_ProbePos[4]      = {};
+    FVec4         m_ProbeSh9[4 * 9]  = {};
+    u32          m_ProbeCount       = 0;
 
     // Volumetric fog (Phase 33e)
-    FVec4         _fog_color_density = FVec4{0, 0, 0, 0};
-    FVec4         _fog_height_params = FVec4{0.5f, 0, 0, 0};
+    FVec4         m_FogColorDensity = FVec4{0, 0, 0, 0};
+    FVec4         m_FogHeightParams = FVec4{0.5f, 0, 0, 0};
 
     // Normal map (Phase 34g)、SetNormalMap で差し替え可能
-    IRhiTexture* _normal_map = nullptr;
+    IRhiTexture* m_NormalMap = nullptr;
 
     // SSAO map (Phase 34j-2)、SetSsao で差し替え可能
-    IRhiTexture* _ssao_tex     = nullptr;
-    f32          _ssao_intensity = 0.0f;
-    f32          _ssao_inv_w   = 0.0f;
-    f32          _ssao_inv_h   = 0.0f;
-    TUniquePtr<IRhiTexture> _ssao_fb;     // 1x1 全 255 fallback (visibility=1)
+    IRhiTexture* m_SsaoTex     = nullptr;
+    f32          m_SsaoIntensity = 0.0f;
+    f32          m_SsaoInvW   = 0.0f;
+    f32          m_SsaoInvH   = 0.0f;
+    TUniquePtr<IRhiTexture> m_SsaoFb;     // 1x1 全 255 fallback (visibility=1)
 
     // SSGI color (Phase 33c)、SetSsgi で差し替え可能
-    IRhiTexture* _ssgi_tex       = nullptr;
-    f32          _ssgi_intensity = 0.0f;
-    TUniquePtr<IRhiTexture> _ssgi_fb;    // 1x1 R11G11B10F fallback (initial 0)
+    IRhiTexture* m_SsgiTex       = nullptr;
+    f32          m_SsgiIntensity = 0.0f;
+    TUniquePtr<IRhiTexture> m_SsgiFb;    // 1x1 R11G11B10F fallback (initial 0)
 
     // SSR (Phase 34e-2fix)、SetSsr で差し替え可能
-    IRhiTexture* _ssr_tex       = nullptr;
-    f32          _ssr_intensity = 0.0f;
-    TUniquePtr<IRhiTexture> _ssr_fb;     // 1x1 RGBA8 黒 (hit mask 0) fallback
+    IRhiTexture* m_SsrTex       = nullptr;
+    f32          m_SsrIntensity = 0.0f;
+    TUniquePtr<IRhiTexture> m_SsrFb;     // 1x1 RGBA8 黒 (hit mask 0) fallback
 
     // Lightmap (Phase 33f)、SetLightmap で差し替え可能
-    IRhiTexture* _lightmap_tex       = nullptr;
-    f32          _lightmap_intensity = 0.0f;
-    TUniquePtr<IRhiTexture> _lightmap_fb;  // 1x1 RGBA8 黒 fallback
+    IRhiTexture* m_LightmapTex       = nullptr;
+    f32          m_LightmapIntensity = 0.0f;
+    TUniquePtr<IRhiTexture> m_LightmapFb;  // 1x1 RGBA8 黒 fallback
 
     // Shadow map (Phase 34b + CSM = Phase 34b part 3)。
     // FShadowMap::kMaxCascades と一致 (現状 4)。Frame CB の shadow_view_proj[4] と対応。
     static constexpr u32 kMaxShadowCascades = 4;
-    IRhiTexture* _shadow_depth          = nullptr;
-    FMat4         _shadow_view_proj[kMaxShadowCascades] = {};   // 各 cascade の light VP
-    FVec4         _shadow_params         = FVec4{0.002f, 0, 1.0f/2048.0f, 0};
-    FVec4         _cascade_splits        = FVec4{1e30f, 1e30f, 1e30f, 1e30f};  // single mode: 常に cascade 0
-    FVec4         _cascade_uv_scale      = FVec4{1.0f, 1.0f, 0, 0};            // single mode: atlas 変換無し
-    TUniquePtr<IRhiTexture> _shadow_fb;   // fallback (1x1 depth-ish texture、未バインド時用)
+    IRhiTexture* m_ShadowDepth          = nullptr;
+    FMat4         m_ShadowViewProj[kMaxShadowCascades] = {};   // 各 cascade の light VP
+    FVec4         m_ShadowParams         = FVec4{0.002f, 0, 1.0f/2048.0f, 0};
+    FVec4         m_CascadeSplits        = FVec4{1e30f, 1e30f, 1e30f, 1e30f};  // single mode: 常に cascade 0
+    FVec4         m_CascadeUvScale      = FVec4{1.0f, 1.0f, 0, 0};            // single mode: atlas 変換無し
+    TUniquePtr<IRhiTexture> m_ShadowFb;   // fallback (1x1 depth-ish texture、未バインド時用)
 
     // 拡張 material (Phase 33a)、SetObject で reset、SetExtParams で上書き
-    FVec4         _ext_params     = FVec4{0, 0.5f, 0, 0};
-    FVec4         _aniso_tangent  = FVec4{1, 0, 0, 0};
+    FVec4         m_ExtParams     = FVec4{0, 0.5f, 0, 0};
+    FVec4         m_AnisoTangent  = FVec4{1, 0, 0, 0};
 
     // Emissive (Phase 34l)、SetEmissive で上書き。xyz=color*strength、既定 0 (無効)
-    FVec4         _emissive       = FVec4{0, 0, 0, 0};
+    FVec4         m_Emissive       = FVec4{0, 0, 0, 0};
 
     // Sheen (Phase 35-1a)、SetSheen で上書き。xyz=color, w=weight (既定 0=OFF)
-    FVec4         _sheen_params   = FVec4{0, 0, 0, 0};
-    FVec4         _sheen_rough    = FVec4{0.3f, 0, 0, 0};
+    FVec4         m_SheenParams   = FVec4{0, 0, 0, 0};
+    FVec4         m_SheenRough    = FVec4{0.3f, 0, 0, 0};
 
     // Iridescence (Phase 35-1b)、SetIridescence で上書き。
     // x=weight (既定 0=OFF)、y=thickness(nm)、z=film IOR
-    FVec4         _irid_params    = FVec4{0, 400.0f, 1.4f, 0};
+    FVec4         m_IridParams    = FVec4{0, 400.0f, 1.4f, 0};
 
     // Subsurface (Phase 35-2)、SetSubsurface で上書き。xyz=color, w=weight (既定 0=OFF)
-    FVec4         _sss_params     = FVec4{0, 0, 0, 0};
+    FVec4         m_SssParams     = FVec4{0, 0, 0, 0};
 };
 
 } // namespace acs

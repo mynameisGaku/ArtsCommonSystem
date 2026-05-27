@@ -140,7 +140,7 @@ public:
 
     // 連続値 [0, 1]。BGM intensity / ambient saturation / camera shake に流す想定。
     // 内部の smooth interpolation 結果なので、state 遷移直後でも急変しない。
-    f32 ThreatLevel() const noexcept { return _threat_current; }
+    f32 ThreatLevel() const noexcept { return m_ThreatCurrent; }
 
     // is_engaged=true な EnemyAwareness の数 (= 実際に交戦中の敵数)。
     u32 EngagedEnemyCount() const noexcept;
@@ -150,8 +150,8 @@ public:
 
     // ----- driver -----
     // FSceneServices / FGame から毎フレーム呼ぶ。dt はリアル秒。
-    // 内部で ThreatLevel を _threat_target に向けて指数減衰で追従させる。
-    // また Engaged 中は時間ドリフト (最大 +0.3) を _threat_target に加算する。
+    // 内部で ThreatLevel を m_ThreatTarget に向けて指数減衰で追従させる。
+    // また Engaged 中は時間ドリフト (最大 +0.3) を m_ThreatTarget に加算する。
     void Tick(f32 dt) noexcept;
 
     // ----- callback -----
@@ -161,10 +161,10 @@ public:
 
 private:
     // 内部 state 遷移。同一 state への遷移は no-op (callback 不発火)。
-    // 必要に応じて _threat_target を新 state 既定値に再設定する。
+    // 必要に応じて m_ThreatTarget を新 state 既定値に再設定する。
     void TransitionTo(ECombatState next) noexcept;
 
-    // EnemyAwareness を id で線形探索。見つからなければ npos 相当 (= _enemies.Size())。
+    // EnemyAwareness を id で線形探索。見つからなければ npos 相当 (= m_Enemies.Size())。
     usize FindEnemy(u32 enemy_id) const noexcept;
 
     // _state に紐づく既定 threat target を返す ([0, 1])。
@@ -176,24 +176,24 @@ private:
     ECombatState _state = ECombatState::Peaceful;
 
     // ----- threat level smoothing -----
-    // _threat_target: state によって決まる目標値 + Engaged 中のドリフト加算。
-    // _threat_current: target に向けて指数減衰で追従する表示用の値。
-    f32 _threat_target  = 0.0f;
-    f32 _threat_current = 0.0f;
+    // m_ThreatTarget: state によって決まる目標値 + Engaged 中のドリフト加算。
+    // m_ThreatCurrent: target に向けて指数減衰で追従する表示用の値。
+    f32 m_ThreatTarget  = 0.0f;
+    f32 m_ThreatCurrent = 0.0f;
 
     // Engaged 中の経過時間 (ドリフト加算用)。state 遷移ごとにリセット。
-    f32 _engaged_elapsed = 0.0f;
+    f32 m_EngagedElapsed = 0.0f;
 
     // ----- enemy 追跡 -----
-    TArray<EnemyAwareness> _enemies;
+    TArray<EnemyAwareness> m_Enemies;
 
     // BossFight に入る前の state を覚えておき、NotifyBossDefeated 後に
     // engaged 敵が残っていれば Engaged、いなければ Victory に戻す。
-    ECombatState _pre_boss_state = ECombatState::Peaceful;
+    ECombatState m_PreBossState = ECombatState::Peaceful;
 
     // ----- callback -----
-    StateChangeCallback _callback     = nullptr;
-    void*               _callback_user = nullptr;
+    StateChangeCallback m_Callback     = nullptr;
+    void*               m_CallbackUser = nullptr;
 };
 
 } // namespace acs::game

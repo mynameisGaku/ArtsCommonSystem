@@ -26,7 +26,7 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     if (auto r = CreateRhiShader(*dev, vs_desc); r.IsErr()) {
         ACS_LOG_ERROR("[ModelViewer] VS compile failed");
         return false;
-    } else { _vs = Move(r.Value()); }
+    } else { m_Vs = Move(r.Value()); }
 
     FShaderDesc ps_desc{};
     ps_desc.stage       = EShaderStage::Pixel;
@@ -36,7 +36,7 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     if (auto r = CreateRhiShader(*dev, ps_desc); r.IsErr()) {
         ACS_LOG_ERROR("[ModelViewer] PS compile failed");
         return false;
-    } else { _ps = Move(r.Value()); }
+    } else { m_Ps = Move(r.Value()); }
 
     // ---- VB / IB ----
     FBufferDesc vb_desc{};
@@ -47,7 +47,7 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     if (auto r = CreateRhiBuffer(*dev, vb_desc); r.IsErr()) {
         ACS_LOG_ERROR("[ModelViewer] VB create failed");
         return false;
-    } else { _vb = Move(r.Value()); }
+    } else { m_Vb = Move(r.Value()); }
 
     FBufferDesc ib_desc{};
     ib_desc.size = sizeof(kCubeIndices);
@@ -57,7 +57,7 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     if (auto r = CreateRhiBuffer(*dev, ib_desc); r.IsErr()) {
         ACS_LOG_ERROR("[ModelViewer] IB create failed");
         return false;
-    } else { _ib = Move(r.Value()); }
+    } else { m_Ib = Move(r.Value()); }
 
     // 定数バッファ (MVP 1 個分、256B アライン)。
     FBufferDesc cb_desc{};
@@ -67,12 +67,12 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     if (auto r = CreateRhiBuffer(*dev, cb_desc); r.IsErr()) {
         ACS_LOG_ERROR("[ModelViewer] CB create failed");
         return false;
-    } else { _cb = Move(r.Value()); }
+    } else { m_Cb = Move(r.Value()); }
 
     // ---- Pipeline ----
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology         = EPrimitiveTopology::TriangleList;
     pd.rt_format        = renderer.ColorFormat();
     pd.depth_format     = renderer.DepthFormat();
@@ -88,7 +88,7 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     if (auto r = CreateRhiPipeline(*dev, pd); r.IsErr()) {
         ACS_LOG_ERROR("[ModelViewer] Pipeline create failed");
         return false;
-    } else { _pipeline = Move(r.Value()); }
+    } else { m_Pipeline = Move(r.Value()); }
 
     return true;
 }
@@ -96,27 +96,27 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
 void ViewerScenePipeline::Shutdown() noexcept {
     // GPU 側参照が消えていることは caller (Scene の WaitIdle) 側で保証する。
     // ここでは順序だけ揃えて Release: pipeline → buffer → shader。
-    _pipeline.Reset();
-    _cb.Reset();
-    _ib.Reset();
-    _vb.Reset();
-    _ps.Reset();
-    _vs.Reset();
+    m_Pipeline.Reset();
+    m_Cb.Reset();
+    m_Ib.Reset();
+    m_Vb.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
 }
 
 void ViewerScenePipeline::UpdateMvp(const FMat4& view, const FMat4& proj, f32 angle) noexcept {
-    if (!_cb) return;
+    if (!m_Cb) return;
     const FMat4 model = FMat4::RotationY(angle);
     const FMat4 mvp = model * view * proj;
-    _cb->Update(&mvp, sizeof(FMat4));
+    m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
 void ViewerScenePipeline::Render(IRhiCommandList& cl) noexcept {
-    if (!_pipeline) return;
-    cl.SetPipeline(*_pipeline);
-    cl.SetConstantBuffer(0, *_cb);
-    cl.SetVertexBuffer(*_vb, sizeof(Vertex));
-    cl.SetIndexBuffer(*_ib);
+    if (!m_Pipeline) return;
+    cl.SetPipeline(*m_Pipeline);
+    cl.SetConstantBuffer(0, *m_Cb);
+    cl.SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl.SetIndexBuffer(*m_Ib);
     cl.DrawIndexed(36);
 }
 

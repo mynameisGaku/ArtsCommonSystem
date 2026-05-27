@@ -21,7 +21,7 @@ namespace acs {
 template<typename... Comps>
 class QueryView {
 public:
-    explicit QueryView(World& w) noexcept : _world(w) {}
+    explicit QueryView(World& w) noexcept : m_World(w) {}
 
     // 各エンティティに対してラムダを呼ぶ
     // ラムダは (EntityId, Comps&...) を受け取る
@@ -35,7 +35,7 @@ public:
         usize count = primary->Size();
         for (usize i = 0; i < count; ++i) {
             u32 idx = dense[i];
-            EntityId e = _world.MakeIdFromIndex(idx);
+            EntityId e = m_World.MakeIdFromIndex(idx);
             if (AllPresent(e)) {
                 InvokeWith(fn, e);
             }
@@ -67,7 +67,7 @@ public:
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<Ctx*>(user);
             u32 idx = c->dense[i];
-            EntityId e = c->self->_world.MakeIdFromIndex(idx);
+            EntityId e = c->self->m_World.MakeIdFromIndex(idx);
             if (c->self->AllPresent(e)) {
                 c->self->InvokeWith(*c->fn, e);
             }
@@ -82,7 +82,7 @@ private:
     // どれか 1 つでも欠けていれば false を返す。
     bool ResolvePrimary(SparseSetBase*& out_primary) noexcept {
         SparseSetBase* sets[sizeof...(Comps)] = {
-            static_cast<SparseSetBase*>(_world.template TryGetSet<Comps>())... };
+            static_cast<SparseSetBase*>(m_World.template TryGetSet<Comps>())... };
         for (usize i = 0; i < sizeof...(Comps); ++i) {
             if (!sets[i]) return false;
         }
@@ -97,17 +97,17 @@ private:
     // 指定エンティティが全コンポーネントを持っているか
     bool AllPresent(EntityId e) noexcept {
         bool all = true;
-        ((all = all && (_world.template Get<Comps>(e) != nullptr)), ...);
+        ((all = all && (m_World.template Get<Comps>(e) != nullptr)), ...);
         return all;
     }
 
     // 全コンポーネントを取り出して fn を呼ぶ（呼び出し前に AllPresent で確認済み）
     template<typename Fn>
     void InvokeWith(Fn fn, EntityId e) noexcept {
-        fn(e, *_world.template Get<Comps>(e)...);
+        fn(e, *m_World.template Get<Comps>(e)...);
     }
 
-    World& _world;
+    World& m_World;
 };
 
 // World::Query<...>() の実装本体（World.h で前方宣言）

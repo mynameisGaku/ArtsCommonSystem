@@ -49,15 +49,15 @@ public:
     static TResult<FThread> Spawn(ThreadEntry entry, void* user,
                                 const ThreadConfig& cfg = {}) noexcept;
 
-    bool Joinable() const noexcept { return _handle != nullptr; }
+    bool Joinable() const noexcept { return m_Handle != nullptr; }
     void Join() noexcept;                  // 終了まで待機（その後ハンドル解放）
     void Detach() noexcept;                // ハンドルだけ閉じてスレッドは継続
 
-    ThreadId Id() const noexcept { return _id; }
+    ThreadId Id() const noexcept { return m_Id; }
 
 private:
-    void*    _handle = nullptr;            // HANDLE (CloseHandle 対象)
-    ThreadId _id     = {};
+    void*    m_Handle = nullptr;            // HANDLE (CloseHandle 対象)
+    ThreadId m_Id     = {};
 };
 
 // ---- フリー関数 ----------------------------------------------------------

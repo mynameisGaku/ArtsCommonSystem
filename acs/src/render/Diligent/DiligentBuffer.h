@@ -24,18 +24,18 @@ public:
     TResult<void> Init(DiligentDevice& device, const FBufferDesc& desc) noexcept;
 
     // ---- IRhiBuffer ----
-    usize       Size()  const noexcept override { return _size; }
-    EBufferUsage Usage() const noexcept override { return _usage; }
+    usize       Size()  const noexcept override { return m_Size; }
+    EBufferUsage Usage() const noexcept override { return m_Usage; }
     void        Update(const void* data, usize size, usize offset = 0) noexcept override;
 
     // 内部公開
-    Diligent::IBuffer* Native() const noexcept { return _buffer; }
+    Diligent::IBuffer* Native() const noexcept { return m_Buffer; }
 
 private:
-    DiligentDevice*    _device = nullptr;
-    Diligent::IBuffer* _buffer = nullptr;
-    usize              _size   = 0;
-    EBufferUsage        _usage  = EBufferUsage::Vertex;
+    DiligentDevice*    m_Device = nullptr;
+    Diligent::IBuffer* m_Buffer = nullptr;
+    usize              m_Size   = 0;
+    EBufferUsage        m_Usage  = EBufferUsage::Vertex;
 };
 
 } // namespace acs

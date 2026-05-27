@@ -9,8 +9,8 @@
 //
 // 役割分担:
 //   ・本パネルは「**実行中の BT を観察する**」のが第一責務。FBehaviorTree 本体は
-//     panel が直接 walk しない (= FBtSelector / FBtSequence の `_children` は private、
-//     ACS は RTTI 無効で `dynamic_cast` も使えない、FBtAction の `_fn` も private、
+//     panel が直接 walk しない (= FBtSelector / FBtSequence の `m_Children` は private、
+//     ACS は RTTI 無効で `dynamic_cast` も使えない、FBtAction の `m_Fn` も private、
 //     という三重の事情で実体ツリーを panel から覗けない)。
 //     代わりに「**メタデータミラー**」: ユーザ (sample / ゲーム側) が AddNode で
 //     「親 id・kind・表示名」を panel に push し、panel はそのミラーを描画する。
@@ -41,10 +41,10 @@
 //   ・**status 表示色は固定リテラル**: Success=緑 (0,1,0)、Failure=赤 (1,0,0)、
 //     Running=黄 (1,1,0)。ImGui::PushStyleColor で TreeNode テキストに反映する。
 //   ・**history ring buffer は固定長 60**: 60 frame ≈ 1 秒 @ 60 fps の窓。
-//     `TArray<u8>` で各要素は EBtStatus の生値 (0/1/2)。`_history_head` が次に
+//     `TArray<u8>` で各要素は EBtStatus の生値 (0/1/2)。`m_HistoryHead` が次に
 //     書き込む位置 (circular)。Reset でクリア。ImGui::PlotLines に float buffer を
 //     一度展開して渡す。
-//   ・**SelectedNodeId は u32 (-1 = none)**: FParticleEditorPanel の `_selected:i32`
+//   ・**SelectedNodeId は u32 (-1 = none)**: FParticleEditorPanel の `m_Selected:i32`
 //     と違って u32 を採用する理由は FNodeId 自体が u32 ベース (= AddNode 払い出し
 //     も u32)。none signal は `static_cast<u32>(-1) = 0xFFFFFFFF` で表現。
 //   ・**Autorun**: 毎フレーム OnFrameBegin で 1 tick 進める toggle。ImGui 上では
@@ -148,14 +148,14 @@ public:
     void SetTree(FBehaviorTree* tree) noexcept;
 
     // 現在観察中の BT (なければ nullptr)。
-    FBehaviorTree* CurrentTree() const noexcept { return _tree; }
+    FBehaviorTree* CurrentTree() const noexcept { return m_Tree; }
 
     // ----- autorun / step 制御 ----------------------------------------------
 
     // autorun (= 毎フレーム自動 Tick) の現在値。
-    bool IsAutorun() const noexcept { return _autorun; }
+    bool IsAutorun() const noexcept { return m_Autorun; }
     // autorun を切替。ON にすると OnFrameBegin で毎 frame 1 tick 進む。
-    void SetAutorun(bool b) noexcept { _autorun = b; }
+    void SetAutorun(bool b) noexcept { m_Autorun = b; }
 
     // 1 tick (dt = 0.016f 固定) だけ手動で進める。StepCallback が登録されていれば
     // そちらに委譲、無ければ `tree->Tick(nullptr, 0.016f)` を直接呼ぶ。
@@ -168,12 +168,12 @@ public:
     void Reset() noexcept;
 
     // 現在の step counter (Reset で 0 に戻る、StepOnce で +1)。
-    u32 StepCount() const noexcept { return _step_count; }
+    u32 StepCount() const noexcept { return m_StepCount; }
 
     // ----- selection ---------------------------------------------------------
 
     // 現在の選択 node id。未選択は kInvalidId (= 0xFFFFFFFF)。
-    u32 SelectedNodeId() const noexcept { return _selected; }
+    u32 SelectedNodeId() const noexcept { return m_Selected; }
 
     // 選択 node を設定。範囲外 / kInvalidId 渡しで「未選択」に正規化される。
     void SelectNode(u32 node_id) noexcept;
@@ -198,7 +198,7 @@ public:
     void ClearNodes() noexcept;
 
     // 現在登録済 node 数。
-    u32 NodeCount() const noexcept { return static_cast<u32>(_nodes.Size()); }
+    u32 NodeCount() const noexcept { return static_cast<u32>(m_Nodes.Size()); }
 
     // 指定 id の node の last_status (範囲外は Failure)。
     EBtStatus NodeStatus(u32 node_id) const noexcept;
@@ -261,29 +261,29 @@ private:
     // ----- 内部状態 ---------------------------------------------------------
 
     // 観察中の FBehaviorTree (非所有)。
-    FBehaviorTree* _tree         = nullptr;
+    FBehaviorTree* m_Tree         = nullptr;
 
     // autorun (毎フレーム OnFrameBegin で TickInternal を呼ぶ)。
-    bool          _autorun      = false;
+    bool          m_Autorun      = false;
 
     // 累積 step 数 (Reset で 0、StepOnce / autorun tick で +1)。
-    u32           _step_count   = 0;
+    u32           m_StepCount   = 0;
 
     // 選択中 node id (kInvalidId = 未選択)。
-    u32           _selected     = kInvalidId;
+    u32           m_Selected     = kInvalidId;
 
     // メタミラー本体。index == id。
-    TArray<NodeMeta> _nodes;
+    TArray<NodeMeta> m_Nodes;
 
     // root status の履歴 ring buffer (要素は EBtStatus の u8 生値)。
     // 容量は Init で kHistorySize 個を Resize、以降 Resize しない。
-    TArray<u8>     _history;
+    TArray<u8>     m_History;
     // 次に書き込む位置 (circular)。0..kHistorySize-1。
-    u32           _history_head = 0;
+    u32           m_HistoryHead = 0;
 
     // tick callback (= 独自 blackboard を渡したい場合の hook)。
-    StepCallback  _step_cb      = nullptr;
-    void*         _step_user    = nullptr;
+    StepCallback  m_StepCb      = nullptr;
+    void*         m_StepUser    = nullptr;
 };
 
 } // namespace acs::game::btedit

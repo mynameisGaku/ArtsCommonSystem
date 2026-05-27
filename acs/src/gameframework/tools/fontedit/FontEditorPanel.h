@@ -248,17 +248,17 @@ public:
 private:
     // ---- 編集対象 face 配列 (順序保持、index = fallback chain 順位) ----
     // PushBack / RemoveAt / 自前 swap で順序を維持する。
-    acs::TArray<FontFaceInfo> _faces;
+    acs::TArray<FontFaceInfo> m_Faces;
 
     // ---- 選択中 face index (-1 = 未選択) ----
-    i32 _selected = -1;
+    i32 m_Selected = -1;
 
     // ---- preview 用 utf-8 文字列バッファ (静的、ImGui::InputText 直結) ----
     // panel 寿命中アドレス不変なので、ImGui に渡す char* として安全に使える。
-    c8 _preview_text[kPreviewTextCapacity] = {};
+    c8 m_PreviewText[kPreviewTextCapacity] = {};
 
     // ---- preview font size (px) ----
-    f32 _preview_size = 24.0f;
+    f32 m_PreviewSize = 24.0f;
 };
 
 } // namespace acs::game::fontedit

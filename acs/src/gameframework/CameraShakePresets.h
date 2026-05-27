@@ -157,7 +157,7 @@ private:
     // 名前で線形検索 (件数は典型 < 20)。見つからなければ ~0u を返す。
     u32 FindCustomIndex(const char* name) const noexcept;
 
-    TArray<CustomEntry> _customs;
+    TArray<CustomEntry> m_Customs;
 };
 
 } // namespace acs::game

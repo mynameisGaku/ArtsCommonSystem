@@ -67,7 +67,7 @@
 #pragma once
 
 #include "foundation/Types.h"
-#include "container/Array.h"  // _entries が Array<Entry> なので header include 必須
+#include "container/Array.h"  // m_Entries が Array<Entry> なので header include 必須
 
 namespace acs::game::editor_core {
 
@@ -169,7 +169,7 @@ private:
 
     // 動的配列。bundled 9 種 + ゲーム拡張分。少数 (~10-30 件) を想定するため
     // hash table ではなく線形探索で十分。
-    TArray<Entry> _entries;
+    TArray<Entry> m_Entries;
 };
 
 } // namespace acs::game::editor_core

@@ -13,17 +13,17 @@
 //
 // 使い方:
 //   class AssetLoader {
-//       acs::game::IAssetPackReader* _pack = nullptr;
+//       acs::game::IAssetPackReader* m_Pack = nullptr;
 //
 //       void OnStart() noexcept override {
 //           // 出荷ビルドでは GoldenAssetPackReader を DI、開発ビルドでは Stub。
-//           _pack = &acs::game::GetReaderStub();
-//           (void)_pack->Mount("game.acpak");
+//           m_Pack = &acs::game::GetReaderStub();
+//           (void)m_Pack->Mount("game.acpak");
 //       }
 //       void LoadTexture(const char* name) noexcept {
-//           if (auto sz = _pack->FileSize(name); sz.IsOk()) {
+//           if (auto sz = m_Pack->FileSize(name); sz.IsOk()) {
 //               u8* buf = AllocateBuffer(sz.Value());
-//               (void)_pack->ReadFile(name, buf, sz.Value());
+//               (void)m_Pack->ReadFile(name, buf, sz.Value());
 //               // ... decode ...
 //           }
 //       }

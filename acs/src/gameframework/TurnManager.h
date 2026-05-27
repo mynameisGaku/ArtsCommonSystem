@@ -61,12 +61,12 @@ enum class ETurnPhase : u8 {
 };
 
 // ----- side handle --------------------------------------------------------
-// 24bit index + 8bit generation。_packed == 0 を invalid と定義
+// 24bit index + 8bit generation。m_Packed == 0 を invalid と定義
 // (gen は常に 1 以上に保たれる)。
 struct FTurnSideId {
-    u32 _packed = 0u;
+    u32 m_Packed = 0u;
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
     static constexpr u32 kIndexBits = 24u;
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
@@ -74,14 +74,14 @@ struct FTurnSideId {
 
     static FTurnSideId Pack(u32 index, u8 gen) noexcept {
         FTurnSideId h;
-        h._packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
-    u32 Index() const noexcept { return _packed & kIndexMask; }
-    u8  Gen()   const noexcept { return static_cast<u8>(_packed >> kIndexBits); }
+    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 
-    constexpr bool operator==(FTurnSideId o) const noexcept { return _packed == o._packed; }
-    constexpr bool operator!=(FTurnSideId o) const noexcept { return _packed != o._packed; }
+    constexpr bool operator==(FTurnSideId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator!=(FTurnSideId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 // ----- side 状態 (公開 snapshot) ------------------------------------------
@@ -158,8 +158,8 @@ public:
     // 現ターン側 ID。Setup / EndOfRound 中は invalid id を返す。
     FTurnSideId CurrentTurnSide() const noexcept;
 
-    ETurnPhase CurrentPhase() const noexcept { return _phase; }
-    u32       CurrentRound() const noexcept { return _round; }
+    ETurnPhase CurrentPhase() const noexcept { return m_Phase; }
+    u32       CurrentRound() const noexcept { return m_Round; }
 
     // stale handle / 未登録 ID は nullptr。返却された pointer は次の
     // AddSide / RemoveSide / ClearAll / Init までしか有効ではない (TArray 再確保で
@@ -167,7 +167,7 @@ public:
     const FTurnSideState* GetSideState(FTurnSideId id) const noexcept;
 
     // 登録 side 数 (RemoveSide で除去した分は含まない)。
-    u32 SideCount() const noexcept { return _active_count; }
+    u32 SideCount() const noexcept { return m_ActiveCount; }
 
     // 今ラウンドで残り未行動の side 数 (= turn order 中 has_acted=false の数)。
     // 現ターン中の side も「まだ行動完結していない」ので残数に含まれる。
@@ -177,12 +177,12 @@ public:
     // ----- callback -----
     // cb == nullptr で登録解除。重複登録は不可 (上書き)。
     void SetOnTurnStartCallback(TurnStartCallback cb, void* user) noexcept {
-        _on_turn_start      = cb;
-        _on_turn_start_user = user;
+        m_OnTurnStart      = cb;
+        m_OnTurnStartUser = user;
     }
     void SetOnRoundEndCallback(RoundEndCallback cb, void* user) noexcept {
-        _on_round_end      = cb;
-        _on_round_end_user = user;
+        m_OnRoundEnd      = cb;
+        m_OnRoundEndUser = user;
     }
 
 private:
@@ -200,11 +200,11 @@ private:
     SideSlot*       Resolve(FTurnSideId id) noexcept;
     const SideSlot* Resolve(FTurnSideId id) const noexcept;
 
-    // initiative 降順 (安定ソート) で _turn_order を再構築。
+    // initiative 降順 (安定ソート) で m_TurnOrder を再構築。
     void RebuildTurnOrder() noexcept;
 
     // turn order 内で order index >= start_from な最初の「未行動 (has_acted=false)
-    // かつ active」slot を見つけ、_current_order_index に設定。
+    // かつ active」slot を見つけ、m_CurrentOrderIndex に設定。
     // 見つからなければ kInvalidOrderIndex を設定。
     void AdvanceToNextActor(u32 start_from) noexcept;
 
@@ -215,21 +215,21 @@ private:
     static bool IsEnvironmentName(const char* name) noexcept;
 
     // ----- データ -----
-    TArray<SideSlot> _slots;          // AoS、AddSide 順
-    TArray<u32>      _turn_order;     // initiative 順に並んだ slot index 列
-    u32             _active_count          = 0u; // RemoveSide で減る
-    u32             _round                 = 0u; // StartRound で +1
-    ETurnPhase       _phase                 = ETurnPhase::Setup;
+    TArray<SideSlot> m_Slots;          // AoS、AddSide 順
+    TArray<u32>      m_TurnOrder;     // initiative 順に並んだ slot index 列
+    u32             m_ActiveCount          = 0u; // RemoveSide で減る
+    u32             m_Round                 = 0u; // StartRound で +1
+    ETurnPhase       m_Phase                 = ETurnPhase::Setup;
 
-    // _turn_order 内の現在位置。kInvalidOrderIndex は「現ターン無し」。
+    // m_TurnOrder 内の現在位置。kInvalidOrderIndex は「現ターン無し」。
     static constexpr u32 kInvalidOrderIndex = 0xFFFFFFFFu;
-    u32 _current_order_index = kInvalidOrderIndex;
+    u32 m_CurrentOrderIndex = kInvalidOrderIndex;
 
     // ----- callback -----
-    TurnStartCallback _on_turn_start      = nullptr;
-    void*             _on_turn_start_user = nullptr;
-    RoundEndCallback  _on_round_end       = nullptr;
-    void*             _on_round_end_user  = nullptr;
+    TurnStartCallback m_OnTurnStart      = nullptr;
+    void*             m_OnTurnStartUser = nullptr;
+    RoundEndCallback  m_OnRoundEnd       = nullptr;
+    void*             m_OnRoundEndUser  = nullptr;
 };
 
 } // namespace acs::game

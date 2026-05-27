@@ -105,16 +105,16 @@ public:
     void Init(EFlowState initial_state = EFlowState::Splash) noexcept;
 
     // ----- 状態 query -----
-    EFlowState CurrentState()    const noexcept { return _current; }
-    EFlowState PendingState()    const noexcept { return _pending; }
-    bool      IsTransitioning() const noexcept { return _is_transitioning; }
+    EFlowState CurrentState()    const noexcept { return m_Current; }
+    EFlowState PendingState()    const noexcept { return m_Pending; }
+    bool      IsTransitioning() const noexcept { return m_IsTransitioning; }
 
     // 遷移の合法性を返す。Init 後の table を参照。同一 state (from==to) は false。
     bool CanTransitionTo(EFlowState to) const noexcept;
 
     // 現在 fade overlay の進捗 [0, 1]。fade_out 中は 0→1、切替後の fade_in 中は
     // 1→0。非遷移中は 0。
-    f32  FadeProgress() const noexcept { return _fade_progress; }
+    f32  FadeProgress() const noexcept { return m_FadeProgress; }
 
     // ----- 遷移要求 -----
     // 不正遷移は no-op。既に遷移中の追加要求も no-op (= 後勝ちしない、現遷移を
@@ -129,7 +129,7 @@ public:
     void SetOnExitCallback (EFlowState state, StateCallback cb, void* user) noexcept;
 
     // ----- 駆動 -----
-    // fade timer を進め、必要なら _current の切替と enter/exit コールバックを
+    // fade timer を進め、必要なら m_Current の切替と enter/exit コールバックを
     // 発火する。Init 前 / 非遷移中の Tick は no-op (timer 進行なし)。
     void Tick(f32 dt) noexcept;
 
@@ -145,8 +145,8 @@ private:
     // 遷移の進行段階。
     enum class Phase : u8 {
         Idle      = 0,  // 非遷移中
-        FadingOut = 1,  // fade_out 中 (旧 state がまだ _current)
-        FadingIn  = 2,  // _current 切替済、fade_in で overlay が消えていく
+        FadingOut = 1,  // fade_out 中 (旧 state がまだ m_Current)
+        FadingIn  = 2,  // m_Current 切替済、fade_in で overlay が消えていく
     };
 
     // 遷移許可テーブルを作る (10x10 の bool)。Init() から呼ばれる。
@@ -157,18 +157,18 @@ private:
     static u32 IndexOf(EFlowState s) noexcept { return static_cast<u32>(s); }
 
     TArray<StateSlot> _states;          // size = kFlowStateCount
-    bool             _allowed[kFlowStateCount][kFlowStateCount] = {};
-    bool             _initialized      = false;
+    bool             m_Allowed[kFlowStateCount][kFlowStateCount] = {};
+    bool             m_Initialized      = false;
 
-    EFlowState _current          = EFlowState::Splash;
-    EFlowState _pending          = EFlowState::Splash;
-    Phase     _phase            = Phase::Idle;
-    bool      _is_transitioning = false;
+    EFlowState m_Current          = EFlowState::Splash;
+    EFlowState m_Pending          = EFlowState::Splash;
+    Phase     m_Phase            = Phase::Idle;
+    bool      m_IsTransitioning = false;
 
-    f32 _fade_out_sec  = 0.0f;
-    f32 _fade_in_sec   = 0.0f;
-    f32 _phase_elapsed = 0.0f;     // 現在 phase 内での経過秒
-    f32 _fade_progress = 0.0f;     // [0, 1] overlay 不透明度
+    f32 m_FadeOutSec  = 0.0f;
+    f32 m_FadeInSec   = 0.0f;
+    f32 m_PhaseElapsed = 0.0f;     // 現在 phase 内での経過秒
+    f32 m_FadeProgress = 0.0f;     // [0, 1] overlay 不透明度
 };
 
 } // namespace acs::game

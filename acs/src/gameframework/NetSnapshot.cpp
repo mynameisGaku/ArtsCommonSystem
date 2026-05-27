@@ -118,41 +118,41 @@ INetTransport& GetTransportStub() noexcept {
 // =============================================================================
 void FNetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
                        INetTransport* transport) noexcept {
-    _config = config;
-    _role   = role;
+    m_Config = config;
+    m_Role   = role;
 
     // buffer_capacity が 0 / 1 だと補間 (= 2 snapshot 必須) が成立しないため
     // 最低 2 に丸める。max_payload_bytes が 0 の場合は 1KB に。
-    if (_config.buffer_capacity_snapshots < 2) {
-        _config.buffer_capacity_snapshots = 2;
+    if (m_Config.buffer_capacity_snapshots < 2) {
+        m_Config.buffer_capacity_snapshots = 2;
     }
-    if (_config.max_payload_bytes == 0) {
-        _config.max_payload_bytes = 1024;
+    if (m_Config.max_payload_bytes == 0) {
+        m_Config.max_payload_bytes = 1024;
     }
 
     // Standalone 以外で nullptr が渡されたら stub に差し替える (落ちないように)。
     if (role == ENetRole::Standalone) {
-        _transport = transport;  // nullptr 許容
+        m_Transport = transport;  // nullptr 許容
     } else {
-        _transport = (transport != nullptr) ? transport : &GetTransportStub();
+        m_Transport = (transport != nullptr) ? transport : &GetTransportStub();
     }
 
     // ring buffer を capacity 件で fixed-size 確保。各エントリの payload は
     // 初期サイズ 0 (CommitSnapshot で書き込まれる際に Resize される)。
-    _ring_buffer.Clear();
-    _ring_buffer.Resize(static_cast<usize>(_config.buffer_capacity_snapshots));
-    _ring_head  = 0;
-    _ring_count = 0;
+    m_RingBuffer.Clear();
+    m_RingBuffer.Resize(static_cast<usize>(m_Config.buffer_capacity_snapshots));
+    m_RingHead  = 0;
+    m_RingCount = 0;
 
-    _pending_entities.Clear();
-    _interp_scratch.Clear();
+    m_PendingEntities.Clear();
+    m_InterpScratch.Clear();
 
-    _next_sequence      = 1;
-    _last_received_tick = 0;
-    _packets_sent       = 0;
-    _packets_received   = 0;
-    _bytes_sent         = 0;
-    _bytes_received     = 0;
+    m_NextSequence      = 1;
+    m_LastReceivedTick = 0;
+    m_PacketsSent       = 0;
+    m_PacketsReceived   = 0;
+    m_BytesSent         = 0;
+    m_BytesReceived     = 0;
 }
 
 // =============================================================================
@@ -161,16 +161,16 @@ void FNetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
 // transport は外部所有なので触らない。ring buffer / pending / scratch を解放。
 // =============================================================================
 void FNetSnapshot::Shutdown() noexcept {
-    _ring_buffer.Clear();
-    _pending_entities.Clear();
-    _interp_scratch.Clear();
-    _ring_head  = 0;
-    _ring_count = 0;
-    _transport  = nullptr;
+    m_RingBuffer.Clear();
+    m_PendingEntities.Clear();
+    m_InterpScratch.Clear();
+    m_RingHead  = 0;
+    m_RingCount = 0;
+    m_Transport  = nullptr;
 }
 
 u32 FNetSnapshot::BufferedSnapshotCount() const noexcept {
-    return _ring_count;
+    return m_RingCount;
 }
 
 // =============================================================================
@@ -183,7 +183,7 @@ u32 FNetSnapshot::BufferedSnapshotCount() const noexcept {
 void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
                                     const void* data, u32 data_size) noexcept {
     // Client / Standalone は送信側ではないので no-op。
-    if (_role == ENetRole::Client || _role == ENetRole::Standalone) {
+    if (m_Role == ENetRole::Client || m_Role == ENetRole::Standalone) {
         return;
     }
     // 不正な引数は黙ってスキップ (defensive、ベストエフォート方針)。
@@ -198,7 +198,7 @@ void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
         pe.data.Resize(static_cast<usize>(data_size));
         MemCopy(pe.data.Data(), data, data_size);
     }
-    _pending_entities.PushBack(Move(pe));
+    m_PendingEntities.PushBack(Move(pe));
 }
 
 // =============================================================================
@@ -217,31 +217,31 @@ void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
 // AddEntitySnapshot は前 tick の残骸を引きずらない。
 //
 // TODO (Phase 3): delta compression — 前 snapshot との XOR 差分を取って
-// payload を縮める。`_ring_buffer.Back().payload` を参照して entity 単位で
+// payload を縮める。`m_RingBuffer.Back().payload` を参照して entity 単位で
 // XOR を取り、変更ビットだけ送る形に書き換える。
 // =============================================================================
 void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // 役割チェック。Client / Standalone は no-op。
-    if (_role == ENetRole::Client || _role == ENetRole::Standalone) {
-        _pending_entities.Clear();
+    if (m_Role == ENetRole::Client || m_Role == ENetRole::Standalone) {
+        m_PendingEntities.Clear();
         return;
     }
-    if (_transport == nullptr) {
-        _pending_entities.Clear();
+    if (m_Transport == nullptr) {
+        m_PendingEntities.Clear();
         return;
     }
 
     // payload バイト数を見積もる。
     //   per-entity = kEntityHeaderSize (12) + data_size
     usize payload_size = 0;
-    const usize n_ent = _pending_entities.Size();
+    const usize n_ent = m_PendingEntities.Size();
     for (usize i = 0; i < n_ent; ++i) {
         payload_size += static_cast<usize>(kEntityHeaderSize)
-                      + static_cast<usize>(_pending_entities[i].data.Size());
+                      + static_cast<usize>(m_PendingEntities[i].data.Size());
     }
-    if (payload_size > static_cast<usize>(_config.max_payload_bytes)) {
+    if (payload_size > static_cast<usize>(m_Config.max_payload_bytes)) {
         // 上限超過。Phase 3 で interest management / 分割送信を入れる候補。
-        _pending_entities.Clear();
+        m_PendingEntities.Clear();
         return;
     }
 
@@ -251,7 +251,7 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // header を構築。CRC32 は Phase 3 で計算 (現状 0)。
     SnapshotHeader hdr;
     hdr.tick                = tick;
-    hdr.sequence            = _next_sequence;
+    hdr.sequence            = m_NextSequence;
     hdr.server_timestamp_us = 0;  // タイムスタンプ source は Phase 3 で wire 化
     hdr.payload_size        = static_cast<u32>(payload_size);
     hdr.crc32               = 0;
@@ -270,7 +270,7 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // payload を per-entity layout で書き出す。
     usize off = 0;
     for (usize i = 0; i < n_ent; ++i) {
-        const PendingEntity& pe = _pending_entities[i];
+        const PendingEntity& pe = m_PendingEntities[i];
         const u32 data_size = static_cast<u32>(pe.data.Size());
         WriteU32LE(payload_ptr + off + 0, pe.entity_id);
         WriteU32LE(payload_ptr + off + 4, pe.component_mask);
@@ -282,36 +282,36 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     }
 
     // 送信 (best-effort)。失敗してもクラッシュさせず、統計だけ更新しない。
-    TResult<void> r = _transport->Send(wire_buf.Data(), static_cast<u32>(total));
+    TResult<void> r = m_Transport->Send(wire_buf.Data(), static_cast<u32>(total));
     if (r.IsOk()) {
-        ++_packets_sent;
-        _bytes_sent += static_cast<u32>(total);
-        ++_next_sequence;
-        if (_next_sequence == 0) {
-            _next_sequence = 1;  // 0 は invalid 値として予約
+        ++m_PacketsSent;
+        m_BytesSent += static_cast<u32>(total);
+        ++m_NextSequence;
+        if (m_NextSequence == 0) {
+            m_NextSequence = 1;  // 0 は invalid 値として予約
         }
 
         // ServerListener は host が自分の画面用に補間も使うため、自分が
         // commit した snapshot を ring buffer にも積む (loopback)。
-        if (_role == ENetRole::ServerListener) {
-            const u32 idx = _ring_head;
-            BufferedSnapshot& slot = _ring_buffer[static_cast<usize>(idx)];
+        if (m_Role == ENetRole::ServerListener) {
+            const u32 idx = m_RingHead;
+            BufferedSnapshot& slot = m_RingBuffer[static_cast<usize>(idx)];
             slot.header = hdr;
             slot.payload.Resize(static_cast<usize>(payload_size));
             if (payload_size > 0) {
                 MemCopy(slot.payload.Data(), payload_ptr, payload_size);
             }
-            _ring_head = (_ring_head + 1u) % _config.buffer_capacity_snapshots;
-            if (_ring_count < _config.buffer_capacity_snapshots) {
-                ++_ring_count;
+            m_RingHead = (m_RingHead + 1u) % m_Config.buffer_capacity_snapshots;
+            if (m_RingCount < m_Config.buffer_capacity_snapshots) {
+                ++m_RingCount;
             }
-            _last_received_tick = hdr.tick;
+            m_LastReceivedTick = hdr.tick;
         }
     }
 
     // pending list は成否によらずクリア (= 次 tick の AddEntitySnapshot は
     // 必ず空 list から積み直す)。
-    _pending_entities.Clear();
+    m_PendingEntities.Clear();
 }
 
 // =============================================================================
@@ -332,24 +332,24 @@ void FNetSnapshot::Tick(f32 dt) noexcept {
 
     // Server (listen 非搭載) は受信側を持たないので何もしない。
     // Client / ServerListener / Standalone は (transport があれば) 受信する。
-    if (_role == ENetRole::Server) {
+    if (m_Role == ENetRole::Server) {
         return;
     }
-    if (_transport == nullptr) {
+    if (m_Transport == nullptr) {
         return;
     }
 
     // 受信用一時 buffer。max_payload_bytes + header 分。Phase 3 で reuse 用に
     // メンバ化する候補 (毎 Tick で再 alloc しないように)。
-    const u32 cap = static_cast<u32>(kHeaderWireSize) + _config.max_payload_bytes;
+    const u32 cap = static_cast<u32>(kHeaderWireSize) + m_Config.max_payload_bytes;
     TArray<u8> rx_buf;
     rx_buf.Resize(static_cast<usize>(cap));
 
     // 1 Tick で取りきる安全上限 (transport が壊れてループが終わらない事故予防)。
     // ring buffer 容量の 2 倍を上限としておく (古い snapshot は捨てる流儀)。
-    const u32 max_iters = _config.buffer_capacity_snapshots * 2u;
+    const u32 max_iters = m_Config.buffer_capacity_snapshots * 2u;
     for (u32 iter = 0; iter < max_iters; ++iter) {
-        TResult<u32> r = _transport->Receive(rx_buf.Data(), cap);
+        TResult<u32> r = m_Transport->Receive(rx_buf.Data(), cap);
         if (r.IsErr()) {
             // 受信エラーは loss と等価扱い。次 Tick で再試行。
             break;
@@ -361,8 +361,8 @@ void FNetSnapshot::Tick(f32 dt) noexcept {
         }
         // header 最低長未満は破棄。
         if (got < kHeaderWireSize) {
-            ++_packets_received;  // バイト数だけ統計には載せる
-            _bytes_received += got;
+            ++m_PacketsReceived;  // バイト数だけ統計には載せる
+            m_BytesReceived += got;
             continue;
         }
 
@@ -370,22 +370,22 @@ void FNetSnapshot::Tick(f32 dt) noexcept {
         ReadHeader(rx_buf.Data(), hdr);
 
         // payload size sanity check。max を超えるか、got と矛盾するなら破棄。
-        if (hdr.payload_size > _config.max_payload_bytes) {
-            ++_packets_received;
-            _bytes_received += got;
+        if (hdr.payload_size > m_Config.max_payload_bytes) {
+            ++m_PacketsReceived;
+            m_BytesReceived += got;
             continue;
         }
         const u32 expected = kHeaderWireSize + hdr.payload_size;
         if (got < expected) {
-            ++_packets_received;
-            _bytes_received += got;
+            ++m_PacketsReceived;
+            m_BytesReceived += got;
             continue;
         }
         // crc32 検証は Phase 3 で。現状 0 充填なので無条件にパス。
 
         // ring buffer に挿入。FIFO で最古を上書きする。
-        const u32 idx = _ring_head;
-        BufferedSnapshot& slot = _ring_buffer[static_cast<usize>(idx)];
+        const u32 idx = m_RingHead;
+        BufferedSnapshot& slot = m_RingBuffer[static_cast<usize>(idx)];
         slot.header = hdr;
         slot.payload.Resize(static_cast<usize>(hdr.payload_size));
         if (hdr.payload_size > 0) {
@@ -393,13 +393,13 @@ void FNetSnapshot::Tick(f32 dt) noexcept {
                     rx_buf.Data() + kHeaderWireSize,
                     static_cast<usize>(hdr.payload_size));
         }
-        _ring_head = (_ring_head + 1u) % _config.buffer_capacity_snapshots;
-        if (_ring_count < _config.buffer_capacity_snapshots) {
-            ++_ring_count;
+        m_RingHead = (m_RingHead + 1u) % m_Config.buffer_capacity_snapshots;
+        if (m_RingCount < m_Config.buffer_capacity_snapshots) {
+            ++m_RingCount;
         }
-        _last_received_tick = hdr.tick;
-        ++_packets_received;
-        _bytes_received += got;
+        m_LastReceivedTick = hdr.tick;
+        ++m_PacketsReceived;
+        m_BytesReceived += got;
     }
 }
 
@@ -434,21 +434,21 @@ bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
     out_actual_count = 0;
 
     // Server は補間を持たない。
-    if (_role == ENetRole::Server) {
+    if (m_Role == ENetRole::Server) {
         return false;
     }
     if (out_snapshots == nullptr || max_count == 0) {
         return false;
     }
-    if (_ring_count == 0) {
+    if (m_RingCount == 0) {
         return false;
     }
 
-    // ring buffer 中の最新スロットを探す。挿入は _ring_head に書き込み後に
-    // インクリメントするので、最新エントリは (_ring_head - 1) % capacity。
-    const u32 cap = _config.buffer_capacity_snapshots;
-    const u32 newest_idx = (_ring_head + cap - 1u) % cap;
-    const BufferedSnapshot& newest = _ring_buffer[static_cast<usize>(newest_idx)];
+    // ring buffer 中の最新スロットを探す。挿入は m_RingHead に書き込み後に
+    // インクリメントするので、最新エントリは (m_RingHead - 1) % capacity。
+    const u32 cap = m_Config.buffer_capacity_snapshots;
+    const u32 newest_idx = (m_RingHead + cap - 1u) % cap;
+    const BufferedSnapshot& newest = m_RingBuffer[static_cast<usize>(newest_idx)];
 
     // target_seq: client_time_sec を秒として持つが、Phase 2 では実時刻軸を
     // wire format に乗せていない (server_timestamp_us は 0 固定)。よって本
@@ -456,7 +456,7 @@ bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
     //
     // Phase 3 で server_timestamp_us を実装 / 計測時刻と紐付けたら、ここで
     //   target_us = newest.header.server_timestamp_us
-    //             - static_cast<u64>(_config.interpolation_delay_sec * 1e6f);
+    //             - static_cast<u64>(m_Config.interpolation_delay_sec * 1e6f);
     // を計算し、target_us を挟む 2 snapshot を ring から線形探索 → lerp する。
     // 現状 client_time_sec は受け取るだけで使わない (将来の API 後方互換のため)。
     (void)client_time_sec;

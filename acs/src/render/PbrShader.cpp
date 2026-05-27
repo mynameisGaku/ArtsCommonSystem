@@ -969,7 +969,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     vs_d.debug_name  = "Pbr.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr())
         return Err<void>(r.Error());
-    else _vs = Move(r.Value());
+    else m_Vs = Move(r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -978,7 +978,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     ps_d.debug_name  = "Pbr.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr())
         return Err<void>(r.Error());
-    else _ps = Move(r.Value());
+    else m_Ps = Move(r.Value());
 
     FBufferDesc fb{};
     fb.size = CBSize<FrameCBLayout>();
@@ -986,7 +986,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     fb.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, fb); r.IsErr())
         return Err<void>(r.Error());
-    else _frame_cb = Move(r.Value());
+    else m_FrameCb = Move(r.Value());
 
     FBufferDesc ob{};
     ob.size = CBSize<ObjectCBLayout>();
@@ -994,7 +994,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     ob.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, ob); r.IsErr())
         return Err<void>(r.Error());
-    else _object_cb = Move(r.Value());
+    else m_ObjectCb = Move(r.Value());
 
     // 1x1 白テクスチャ (albedo fallback)
     const u8 white[4] = {255, 255, 255, 255};
@@ -1004,7 +1004,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     td.initial_data = white; td.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, td); r.IsErr())
         return Err<void>(r.Error());
-    else _white = Move(r.Value());
+    else m_White = Move(r.Value());
 
     // Shadow map fallback: 1x1 RGBA8 全 255 (.r=1.0 = far、shadow_params.y=0 で
     // shader 側が早期 return するので実際には sample されない。SRB の有効 binding 要件用)。
@@ -1015,7 +1015,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     sd.initial_data = far_depth; sd.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, sd); r.IsErr())
         return Err<void>(r.Error());
-    else _shadow_fb = Move(r.Value());
+    else m_ShadowFb = Move(r.Value());
 
     // Normal map fallback: 1x1 RGBA8 (128,128,255,0) = tangent (0,0,1) → 無変化
     const u8 flat_nrm[4] = { 128, 128, 255, 0 };
@@ -1025,7 +1025,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     nt.initial_data = flat_nrm; nt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, nt); r.IsErr())
         return Err<void>(r.Error());
-    else _normal_map_fb = Move(r.Value());
+    else m_NormalMapFb = Move(r.Value());
 
     // SSAO fallback: 1x1 全 255 = visibility 1.0 (AO 無し)。ssao_params.x=0 でも
     // SRB に valid texture を bind する要件のため作成しておく。
@@ -1036,7 +1036,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     st.initial_data = full_vis; st.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, st); r.IsErr())
         return Err<void>(r.Error());
-    else _ssao_fb = Move(r.Value());
+    else m_SsaoFb = Move(r.Value());
 
     // SSGI fallback: 1x1 R11G11B10F、初期値 0 (indirect light なし)。SRB binding 用。
     // initial_data 経路は R11G11B10F でサポート無いので、blank RT として作る。
@@ -1047,7 +1047,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     gt.is_render_target = true;     // RT 兼用にすると SRV が自動で付く
     if (auto r = CreateRhiTexture(device, gt); r.IsErr())
         return Err<void>(r.Error());
-    else _ssgi_fb = Move(r.Value());
+    else m_SsgiFb = Move(r.Value());
 
     // Lightmap fallback: 1x1 RGBA8 全 0 (baked light なし)。
     // lightmap_params.x=0 で shader が早期 return するので unused。
@@ -1058,7 +1058,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     lt.initial_data = zero_rgba; lt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, lt); r.IsErr())
         return Err<void>(r.Error());
-    else _lightmap_fb = Move(r.Value());
+    else m_LightmapFb = Move(r.Value());
 
     // SSR fallback: 1x1 RGBA8 全 0 (.a=0 → hit mask 0 = 反射なし)。
     // ssr_params.x=0 で shader が早期 return するので unused だが SRB binding 用。
@@ -1068,7 +1068,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     rt.initial_data = zero_rgba; rt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, rt); r.IsErr())
         return Err<void>(r.Error());
-    else _ssr_fb = Move(r.Value());
+    else m_SsrFb = Move(r.Value());
 
     // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
@@ -1081,21 +1081,21 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     ic.is_cubemap = true;
     if (auto r = CreateRhiTexture(device, ic); r.IsErr())
         return Err<void>(r.Error());
-    else _ibl_irradiance_fb = Move(r.Value());
+    else m_IblIrradianceFb = Move(r.Value());
     if (auto r = CreateRhiTexture(device, ic); r.IsErr())
         return Err<void>(r.Error());
-    else _ibl_prefilter_fb = Move(r.Value());
+    else m_IblPrefilterFb = Move(r.Value());
 
     FTextureDesc bt{};
     bt.width = 1; bt.height = 1;
     bt.format = EFormat::R16G16_Float;
     if (auto r = CreateRhiTexture(device, bt); r.IsErr())
         return Err<void>(r.Error());
-    else _ibl_brdf_fb = Move(r.Value());
+    else m_IblBrdfFb = Move(r.Value());
 
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
@@ -1161,175 +1161,175 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.layout_count = 3;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr())
         return Err<void>(r.Error());
-    else _pipeline = Move(r.Value());
+    else m_Pipeline = Move(r.Value());
 
     return Ok();
 }
 
 void FPbrShader::Shutdown() noexcept {
-    _pipeline.Reset();
-    _object_cb.Reset();
-    _frame_cb.Reset();
-    _shadow_fb.Reset();
-    _shadow_depth = nullptr;
-    _normal_map_fb.Reset();
-    _normal_map = nullptr;
-    _ssao_fb.Reset();
-    _ssao_tex = nullptr;
-    _ssgi_fb.Reset();
-    _ssgi_tex = nullptr;
-    _lightmap_fb.Reset();
-    _lightmap_tex = nullptr;
-    _ssr_fb.Reset();
-    _ssr_tex = nullptr;
-    _ibl_brdf_fb.Reset();
-    _ibl_prefilter_fb.Reset();
-    _ibl_irradiance_fb.Reset();
-    _white.Reset();
-    _ps.Reset();
-    _vs.Reset();
-    _ibl_irradiance = nullptr;
-    _ibl_prefilter  = nullptr;
-    _ibl_brdf       = nullptr;
-    _ibl_mips       = 0;
-    _ibl_enabled    = false;
+    m_Pipeline.Reset();
+    m_ObjectCb.Reset();
+    m_FrameCb.Reset();
+    m_ShadowFb.Reset();
+    m_ShadowDepth = nullptr;
+    m_NormalMapFb.Reset();
+    m_NormalMap = nullptr;
+    m_SsaoFb.Reset();
+    m_SsaoTex = nullptr;
+    m_SsgiFb.Reset();
+    m_SsgiTex = nullptr;
+    m_LightmapFb.Reset();
+    m_LightmapTex = nullptr;
+    m_SsrFb.Reset();
+    m_SsrTex = nullptr;
+    m_IblBrdfFb.Reset();
+    m_IblPrefilterFb.Reset();
+    m_IblIrradianceFb.Reset();
+    m_White.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
+    m_IblIrradiance = nullptr;
+    m_IblPrefilter  = nullptr;
+    m_IblBrdf       = nullptr;
+    m_IblMips       = 0;
+    m_IblEnabled    = false;
 }
 
 void FPbrShader::SetIbl(IRhiTexture* irradiance,
                        IRhiTexture* prefilter,
                        IRhiTexture* brdf_lut,
                        u32 prefilter_mips) noexcept {
-    _ibl_irradiance = irradiance;
-    _ibl_prefilter  = prefilter;
-    _ibl_brdf       = brdf_lut;
-    _ibl_mips       = prefilter_mips;
-    _ibl_enabled    = (irradiance != nullptr) && (prefilter != nullptr)
+    m_IblIrradiance = irradiance;
+    m_IblPrefilter  = prefilter;
+    m_IblBrdf       = brdf_lut;
+    m_IblMips       = prefilter_mips;
+    m_IblEnabled    = (irradiance != nullptr) && (prefilter != nullptr)
                        && (brdf_lut != nullptr) && (prefilter_mips > 0);
     FlushFrameCB();
 }
 
 void FPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
-    _fog_color_density = FVec4{color.x, color.y, color.z, density};
-    _fog_height_params = FVec4{height_falloff, height_base, 0, 0};
+    m_FogColorDensity = FVec4{color.x, color.y, color.z, density};
+    m_FogHeightParams = FVec4{height_falloff, height_base, 0, 0};
     FlushFrameCB();
 }
 
 void FPbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
     if (count > 4) count = 4;
-    _probe_count = count;
+    m_ProbeCount = count;
     for (u32 i = 0; i < count; ++i) {
-        _probe_pos[i] = FVec4{probes[i].position.x, probes[i].position.y, probes[i].position.z, 0};
+        m_ProbePos[i] = FVec4{probes[i].position.x, probes[i].position.y, probes[i].position.z, 0};
         for (u32 k = 0; k < 9; ++k) {
-            _probe_sh9[i * 9 + k] = probes[i].sh9[k];
+            m_ProbeSh9[i * 9 + k] = probes[i].sh9[k];
         }
     }
     for (u32 i = count; i < 4; ++i) {
-        _probe_pos[i] = FVec4{0, 0, 0, 0};
-        for (u32 k = 0; k < 9; ++k) _probe_sh9[i * 9 + k] = FVec4{0, 0, 0, 0};
+        m_ProbePos[i] = FVec4{0, 0, 0, 0};
+        for (u32 k = 0; k < 9; ++k) m_ProbeSh9[i * 9 + k] = FVec4{0, 0, 0, 0};
     }
     FlushFrameCB();
 }
 
 void FPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     if (sh9_or_null) {
-        for (u32 i = 0; i < 9; ++i) _sh9[i] = sh9_or_null[i];
-        _sh9_enabled = true;
+        for (u32 i = 0; i < 9; ++i) m_Sh9[i] = sh9_or_null[i];
+        m_Sh9Enabled = true;
     } else {
-        for (u32 i = 0; i < 9; ++i) _sh9[i] = FVec4{0, 0, 0, 0};
-        _sh9_enabled = false;
+        for (u32 i = 0; i < 9; ++i) m_Sh9[i] = FVec4{0, 0, 0, 0};
+        m_Sh9Enabled = false;
     }
     FlushFrameCB();
 }
 
 void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
-    if (_ibl_enabled) {
-        cmd.SetTexture(1, *_ibl_irradiance);
-        cmd.SetTexture(2, *_ibl_prefilter);
-        cmd.SetTexture(3, *_ibl_brdf);
+    if (m_IblEnabled) {
+        cmd.SetTexture(1, *m_IblIrradiance);
+        cmd.SetTexture(2, *m_IblPrefilter);
+        cmd.SetTexture(3, *m_IblBrdf);
     } else {
-        if (_ibl_irradiance_fb) cmd.SetTexture(1, *_ibl_irradiance_fb);
-        if (_ibl_prefilter_fb)  cmd.SetTexture(2, *_ibl_prefilter_fb);
-        if (_ibl_brdf_fb)       cmd.SetTexture(3, *_ibl_brdf_fb);
+        if (m_IblIrradianceFb) cmd.SetTexture(1, *m_IblIrradianceFb);
+        if (m_IblPrefilterFb)  cmd.SetTexture(2, *m_IblPrefilterFb);
+        if (m_IblBrdfFb)       cmd.SetTexture(3, *m_IblBrdfFb);
     }
     // Normal map (Phase 34g): 必ず slot 4 を bind
-    if (_normal_map) {
-        cmd.SetTexture(4, *_normal_map);
-    } else if (_normal_map_fb) {
-        cmd.SetTexture(4, *_normal_map_fb);
+    if (m_NormalMap) {
+        cmd.SetTexture(4, *m_NormalMap);
+    } else if (m_NormalMapFb) {
+        cmd.SetTexture(4, *m_NormalMapFb);
     }
     // Shadow map (Phase 34b): slot 5
-    if (_shadow_depth) {
-        cmd.SetTexture(5, *_shadow_depth);
-    } else if (_shadow_fb) {
-        cmd.SetTexture(5, *_shadow_fb);
+    if (m_ShadowDepth) {
+        cmd.SetTexture(5, *m_ShadowDepth);
+    } else if (m_ShadowFb) {
+        cmd.SetTexture(5, *m_ShadowFb);
     }
     // SSAO map (Phase 34j-2): slot 6
-    if (_ssao_tex) {
-        cmd.SetTexture(6, *_ssao_tex);
-    } else if (_ssao_fb) {
-        cmd.SetTexture(6, *_ssao_fb);
+    if (m_SsaoTex) {
+        cmd.SetTexture(6, *m_SsaoTex);
+    } else if (m_SsaoFb) {
+        cmd.SetTexture(6, *m_SsaoFb);
     }
     // SSGI color (Phase 33c): slot 7
-    if (_ssgi_tex) {
-        cmd.SetTexture(7, *_ssgi_tex);
-    } else if (_ssgi_fb) {
-        cmd.SetTexture(7, *_ssgi_fb);
+    if (m_SsgiTex) {
+        cmd.SetTexture(7, *m_SsgiTex);
+    } else if (m_SsgiFb) {
+        cmd.SetTexture(7, *m_SsgiFb);
     }
     // Lightmap (Phase 33f): slot 8
-    if (_lightmap_tex) {
-        cmd.SetTexture(8, *_lightmap_tex);
-    } else if (_lightmap_fb) {
-        cmd.SetTexture(8, *_lightmap_fb);
+    if (m_LightmapTex) {
+        cmd.SetTexture(8, *m_LightmapTex);
+    } else if (m_LightmapFb) {
+        cmd.SetTexture(8, *m_LightmapFb);
     }
     // SSR (Phase 34e-2fix): slot 9
-    if (_ssr_tex) {
-        cmd.SetTexture(9, *_ssr_tex);
-    } else if (_ssr_fb) {
-        cmd.SetTexture(9, *_ssr_fb);
+    if (m_SsrTex) {
+        cmd.SetTexture(9, *m_SsrTex);
+    } else if (m_SsrFb) {
+        cmd.SetTexture(9, *m_SsrFb);
     }
 }
 
 void FPbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
-    _normal_map = tex;
+    m_NormalMap = tex;
 }
 
 void FPbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
                         u32 viewport_w, u32 viewport_h) noexcept {
-    _ssao_tex       = ssao_tex;
-    _ssao_intensity = intensity < 0 ? 0.0f : intensity;
-    _ssao_inv_w     = (viewport_w > 0) ? (1.0f / static_cast<f32>(viewport_w)) : 0.0f;
-    _ssao_inv_h     = (viewport_h > 0) ? (1.0f / static_cast<f32>(viewport_h)) : 0.0f;
+    m_SsaoTex       = ssao_tex;
+    m_SsaoIntensity = intensity < 0 ? 0.0f : intensity;
+    m_SsaoInvW     = (viewport_w > 0) ? (1.0f / static_cast<f32>(viewport_w)) : 0.0f;
+    m_SsaoInvH     = (viewport_h > 0) ? (1.0f / static_cast<f32>(viewport_h)) : 0.0f;
     FlushFrameCB();
 }
 
 void FPbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
-    _ssgi_tex       = ssgi_tex;
-    _ssgi_intensity = intensity < 0 ? 0.0f : intensity;
+    m_SsgiTex       = ssgi_tex;
+    m_SsgiIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
 void FPbrShader::SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept {
-    _ssr_tex       = ssr_tex;
-    _ssr_intensity = intensity < 0 ? 0.0f : intensity;
+    m_SsrTex       = ssr_tex;
+    m_SsrIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
 void FPbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
-    _lightmap_tex       = lightmap_tex;
-    _lightmap_intensity = intensity < 0 ? 0.0f : intensity;
+    m_LightmapTex       = lightmap_tex;
+    m_LightmapIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
 void FPbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
                               f32 bias, f32 texel_size, f32 filter_radius) noexcept {
-    _shadow_depth     = depth;
+    m_ShadowDepth     = depth;
     // 後方互換: 全 cascade スロットに同じ VP を書き、splits を inf にして
     // HLSL の cascade 選択が常に cascade 0 を選ぶようにする。
     // uv_scale = {1, 1, 0, 0} で atlas 変換をパススルー (single texture モード)。
-    for (u32 c = 0; c < kMaxShadowCascades; ++c) _shadow_view_proj[c] = light_vp;
-    _shadow_params     = FVec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
-    _cascade_splits    = FVec4{1e30f, 1e30f, 1e30f, 1e30f};
-    _cascade_uv_scale  = FVec4{1.0f, 1.0f, 0, 0};
+    for (u32 c = 0; c < kMaxShadowCascades; ++c) m_ShadowViewProj[c] = light_vp;
+    m_ShadowParams     = FVec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
+    m_CascadeSplits    = FVec4{1e30f, 1e30f, 1e30f, 1e30f};
+    m_CascadeUvScale  = FVec4{1.0f, 1.0f, 0, 0};
     FlushFrameCB();
 }
 
@@ -1339,140 +1339,140 @@ void FPbrShader::SetShadowMapCascades(IRhiTexture* depth,
                                       u32 cascade_count,
                                       f32 bias, f32 texel_size,
                                       f32 filter_radius) noexcept {
-    _shadow_depth = depth;
+    m_ShadowDepth = depth;
     if (cascade_count == 0) cascade_count = 1;
     if (cascade_count > kMaxShadowCascades) cascade_count = kMaxShadowCascades;
-    for (u32 c = 0; c < cascade_count; ++c) _shadow_view_proj[c] = light_vp[c];
+    for (u32 c = 0; c < cascade_count; ++c) m_ShadowViewProj[c] = light_vp[c];
     // 未使用 slot は cascade_count-1 を再利用 (cascade 選択結果が不正値になっても無害)
     for (u32 c = cascade_count; c < kMaxShadowCascades; ++c)
-        _shadow_view_proj[c] = light_vp[cascade_count - 1];
+        m_ShadowViewProj[c] = light_vp[cascade_count - 1];
 
     // cascade_splits xyzw に 4 cascade の z far を詰め、未使用は inf
     f32 splits[kMaxShadowCascades] = {1e30f, 1e30f, 1e30f, 1e30f};
     for (u32 c = 0; c < cascade_count; ++c) splits[c] = cascade_splits[c];
-    _cascade_splits = FVec4{splits[0], splits[1], splits[2], splits[3]};
+    m_CascadeSplits = FVec4{splits[0], splits[1], splits[2], splits[3]};
 
-    _shadow_params    = FVec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
+    m_ShadowParams    = FVec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
     // atlas X scale = 1 / cascade_count (single mode は cascade_count=1 で 1)
     const f32 scale_x = 1.0f / static_cast<f32>(cascade_count);
-    _cascade_uv_scale = FVec4{scale_x, 1.0f, 0, 0};
+    m_CascadeUvScale = FVec4{scale_x, 1.0f, 0, 0};
     FlushFrameCB();
 }
 
 void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
                           const FDirLight* lights, u32 count,
                           FVec3 ambient) noexcept {
-    _vp = vp;
-    _eye = eye;
-    _ambient = ambient;
+    m_Vp = vp;
+    m_Eye = eye;
+    m_Ambient = ambient;
     if (count > kMaxDirLights) count = kMaxDirLights;
-    _dir_count = count;
-    for (u32 i = 0; i < count; ++i) _dir_lights[i] = lights[i];
+    m_DirCount = count;
+    for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
     FlushFrameCB();
 }
 
 void FPbrShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
-    _point_count = count;
-    for (u32 i = 0; i < count; ++i) _point_lights[i] = lights[i];
+    m_PointCount = count;
+    for (u32 i = 0; i < count; ++i) m_PointLights[i] = lights[i];
     FlushFrameCB();
 }
 
 void FPbrShader::SetAreaLights(const AreaLight* lights, u32 count) noexcept {
     if (count > kMaxAreaLights) count = kMaxAreaLights;
-    _area_count = count;
-    for (u32 i = 0; i < count; ++i) _area_lights[i] = lights[i];
+    m_AreaCount = count;
+    for (u32 i = 0; i < count; ++i) m_AreaLights[i] = lights[i];
     FlushFrameCB();
 }
 
 void FPbrShader::FlushFrameCB() noexcept {
-    if (!_frame_cb) return;
+    if (!m_FrameCb) return;
     FrameCBLayout cb{};
-    cb.view_proj  = _vp;
-    cb.camera_pos = FVec4{_eye.x, _eye.y, _eye.z, 1.0f};
-    cb.ambient    = FVec4{_ambient.x, _ambient.y, _ambient.z, static_cast<f32>(_dir_count)};
-    cb.point_count_pad = FVec4{static_cast<f32>(_point_count), static_cast<f32>(_area_count), 0, 0};
-    for (u32 i = 0; i < _dir_count; ++i) {
-        const FVec3& d = _dir_lights[i].direction;
-        const FVec3& c = _dir_lights[i].color;
+    cb.view_proj  = m_Vp;
+    cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
+    cb.ambient    = FVec4{m_Ambient.x, m_Ambient.y, m_Ambient.z, static_cast<f32>(m_DirCount)};
+    cb.point_count_pad = FVec4{static_cast<f32>(m_PointCount), static_cast<f32>(m_AreaCount), 0, 0};
+    for (u32 i = 0; i < m_DirCount; ++i) {
+        const FVec3& d = m_DirLights[i].direction;
+        const FVec3& c = m_DirLights[i].color;
         cb.light_dir[i]   = FVec4{d.x, d.y, d.z, 0};
         cb.light_color[i] = FVec4{c.x, c.y, c.z, 1};
     }
-    for (u32 i = 0; i < _point_count; ++i) {
-        const FVec3& p = _point_lights[i].position;
-        const FVec3& c = _point_lights[i].color;
-        cb.point_pos_range[i] = FVec4{p.x, p.y, p.z, _point_lights[i].range};
+    for (u32 i = 0; i < m_PointCount; ++i) {
+        const FVec3& p = m_PointLights[i].position;
+        const FVec3& c = m_PointLights[i].color;
+        cb.point_pos_range[i] = FVec4{p.x, p.y, p.z, m_PointLights[i].range};
         cb.point_color[i]     = FVec4{c.x, c.y, c.z, 1};
     }
-    for (u32 i = 0; i < _area_count; ++i) {
-        const AreaLight& a = _area_lights[i];
+    for (u32 i = 0; i < m_AreaCount; ++i) {
+        const AreaLight& a = m_AreaLights[i];
         cb.area_center[i] = FVec4{a.center.x, a.center.y, a.center.z, 0};
         cb.area_axis_x[i] = FVec4{a.axis_x.x, a.axis_x.y, a.axis_x.z, 0};
         cb.area_axis_y[i] = FVec4{a.axis_y.x, a.axis_y.y, a.axis_y.z, 0};
         cb.area_color[i]  = FVec4{a.color.x,  a.color.y,  a.color.z,  0};
     }
-    cb.probe_params = FVec4{static_cast<f32>(_probe_count), 0, 0, 0};
-    for (u32 i = 0; i < 4; ++i) cb.probe_pos[i] = _probe_pos[i];
-    for (u32 i = 0; i < 4 * 9; ++i) cb.probe_sh9[i] = _probe_sh9[i];
-    cb.fog_color_density = _fog_color_density;
-    cb.fog_height_params = _fog_height_params;
+    cb.probe_params = FVec4{static_cast<f32>(m_ProbeCount), 0, 0, 0};
+    for (u32 i = 0; i < 4; ++i) cb.probe_pos[i] = m_ProbePos[i];
+    for (u32 i = 0; i < 4 * 9; ++i) cb.probe_sh9[i] = m_ProbeSh9[i];
+    cb.fog_color_density = m_FogColorDensity;
+    cb.fog_height_params = m_FogHeightParams;
     for (u32 c = 0; c < kMaxShadowCascades; ++c)
-        cb.shadow_view_proj[c] = _shadow_view_proj[c];
-    cb.shadow_params     = _shadow_params;
-    cb.cascade_splits    = _cascade_splits;
-    cb.cascade_uv_scale  = _cascade_uv_scale;
+        cb.shadow_view_proj[c] = m_ShadowViewProj[c];
+    cb.shadow_params     = m_ShadowParams;
+    cb.cascade_splits    = m_CascadeSplits;
+    cb.cascade_uv_scale  = m_CascadeUvScale;
     cb.ibl_params = FVec4{
-        _ibl_enabled ? 1.0f : 0.0f,
-        static_cast<f32>(_ibl_mips),
-        _sh9_enabled ? 1.0f : 0.0f,
+        m_IblEnabled ? 1.0f : 0.0f,
+        static_cast<f32>(m_IblMips),
+        m_Sh9Enabled ? 1.0f : 0.0f,
         0
     };
     cb.ssao_params = FVec4{
-        (_ssao_tex && _ssao_inv_w > 0 && _ssao_inv_h > 0) ? 1.0f : 0.0f,
-        _ssao_intensity,
-        _ssao_inv_w,
-        _ssao_inv_h
+        (m_SsaoTex && m_SsaoInvW > 0 && m_SsaoInvH > 0) ? 1.0f : 0.0f,
+        m_SsaoIntensity,
+        m_SsaoInvW,
+        m_SsaoInvH
     };
     cb.ssgi_params = FVec4{
-        _ssgi_tex ? 1.0f : 0.0f,
-        _ssgi_intensity,
+        m_SsgiTex ? 1.0f : 0.0f,
+        m_SsgiIntensity,
         0, 0
     };
     cb.lightmap_params = FVec4{
-        _lightmap_tex ? 1.0f : 0.0f,
-        _lightmap_intensity,
+        m_LightmapTex ? 1.0f : 0.0f,
+        m_LightmapIntensity,
         0, 0
     };
     cb.ssr_params = FVec4{
-        _ssr_tex ? 1.0f : 0.0f,
-        _ssr_intensity,
+        m_SsrTex ? 1.0f : 0.0f,
+        m_SsrIntensity,
         0, 0
     };
-    for (u32 i = 0; i < 9; ++i) cb.sh9[i] = _sh9[i];
-    _frame_cb->Update(&cb, sizeof(cb));
+    for (u32 i = 0; i < 9; ++i) cb.sh9[i] = m_Sh9[i];
+    m_FrameCb->Update(&cb, sizeof(cb));
 }
 
 void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
-    if (!_object_cb) return;
+    if (!m_ObjectCb) return;
     ObjectCBLayout cb{};
     cb.model = model;
     cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
     cb.pbr_params = FVec4{metallic, roughness, ao, 0};
-    cb.ext_params    = _ext_params;
-    cb.aniso_tangent = _aniso_tangent;
-    cb.emissive      = _emissive;
-    cb.sheen_params  = _sheen_params;
-    cb.sheen_rough   = _sheen_rough;
-    cb.irid_params   = _irid_params;
-    cb.sss_params    = _sss_params;
-    _object_cb->Update(&cb, sizeof(cb));
+    cb.ext_params    = m_ExtParams;
+    cb.aniso_tangent = m_AnisoTangent;
+    cb.emissive      = m_Emissive;
+    cb.sheen_params  = m_SheenParams;
+    cb.sheen_rough   = m_SheenRough;
+    cb.irid_params   = m_IridParams;
+    cb.sss_params    = m_SssParams;
+    m_ObjectCb->Update(&cb, sizeof(cb));
 }
 
 void FPbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
                              f32 anisotropy, FVec3 tangent) noexcept {
-    _ext_params    = FVec4{clearcoat, clearcoat_roughness, anisotropy, 0};
-    _aniso_tangent = FVec4{tangent.x, tangent.y, tangent.z, 0};
+    m_ExtParams    = FVec4{clearcoat, clearcoat_roughness, anisotropy, 0};
+    m_AnisoTangent = FVec4{tangent.x, tangent.y, tangent.z, 0};
     // 注: SetObject が CB を flush するので、SetExtParams 単独では反映されない。
     // SetObject 直後に呼んでも次の SetObject で 上書き されない (member に格納)。
     // 描画前に SetObject() が再度呼ばれて反映される設計。
@@ -1480,7 +1480,7 @@ void FPbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
 
 void FPbrShader::SetEmissive(FVec3 color, f32 strength) noexcept {
     const f32 s = strength < 0.0f ? 0.0f : strength;
-    _emissive = FVec4{color.x * s, color.y * s, color.z * s, 0.0f};
+    m_Emissive = FVec4{color.x * s, color.y * s, color.z * s, 0.0f};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
@@ -1490,8 +1490,8 @@ void FPbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
     const f32 w = sat01(weight);
     const f32 r = roughness < 0.04f ? 0.04f : roughness;
-    _sheen_params = FVec4{sat01(sheen_color.x), sat01(sheen_color.y), sat01(sheen_color.z), w};
-    _sheen_rough  = FVec4{r, 0, 0, 0};
+    m_SheenParams = FVec4{sat01(sheen_color.x), sat01(sheen_color.y), sat01(sheen_color.z), w};
+    m_SheenRough  = FVec4{r, 0, 0, 0};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
@@ -1500,14 +1500,14 @@ void FPbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noex
     const f32 w = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
     const f32 t = thickness_nm < 0.0f ? 0.0f : thickness_nm;
     const f32 i = film_ior < 1.0f ? 1.0f : film_ior;
-    _irid_params = FVec4{w, t, i, 0};
+    m_IridParams = FVec4{w, t, i, 0};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
 void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // weight は [0,1] の blend 係数、sss_color は内部散乱の色 (各 ch [0,1])。
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
-    _sss_params = FVec4{sat01(sss_color.x), sat01(sss_color.y), sat01(sss_color.z),
+    m_SssParams = FVec4{sat01(sss_color.x), sat01(sss_color.y), sat01(sss_color.z),
                        sat01(weight)};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
@@ -1515,12 +1515,12 @@ void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
 void FPbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
                         FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
                         IRhiTexture* albedo) noexcept {
-    if (!_pipeline || !_frame_cb || !_object_cb) return;
+    if (!m_Pipeline || !m_FrameCb || !m_ObjectCb) return;
     SetObject(model, base_color, metallic, roughness, ao);
-    cmd.SetPipeline(*_pipeline);
-    cmd.SetConstantBuffer(0, *_frame_cb);
-    cmd.SetConstantBuffer(1, *_object_cb);
-    cmd.SetTexture(0, *(albedo ? albedo : _white.Get()));
+    cmd.SetPipeline(*m_Pipeline);
+    cmd.SetConstantBuffer(0, *m_FrameCb);
+    cmd.SetConstantBuffer(1, *m_ObjectCb);
+    cmd.SetTexture(0, *(albedo ? albedo : m_White.Get()));
     BindIblTextures(cmd);
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     cmd.SetIndexBuffer(*mesh.index_buffer);

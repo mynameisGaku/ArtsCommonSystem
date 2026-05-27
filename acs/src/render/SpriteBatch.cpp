@@ -47,7 +47,7 @@ VSOut VSMain(VSIn v) {
 }
 
 Texture2D    atlas : register(t0);
-// 命名規約: <texture>_sampler
+// 命名規約: <texture>m_Sampler
 SamplerState atlas_sampler : register(s0);
 
 float4 PSMain(VSOut v) : SV_TARGET {
@@ -59,7 +59,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites) noexcept {
     if (max_sprites == 0) max_sprites = 4096;
-    _max_sprites = max_sprites;
+    m_MaxSprites = max_sprites;
 
     // === シェーダ ===
     FShaderDesc vs_d{};
@@ -69,7 +69,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     vs_d.debug_name  = "Sprite.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    _vs = Move(vs_r.Value());
+    m_Vs = Move(vs_r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -78,7 +78,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     ps_d.debug_name  = "Sprite.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
-    _ps = Move(ps_r.Value());
+    m_Ps = Move(ps_r.Value());
 
     // === 動的頂点バッファ（4 頂点 / sprite）===
     const usize vb_size = sizeof(Vertex) * 4 * max_sprites;
@@ -88,11 +88,11 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     vbd.cpu_writable = true;       // 自動で frame-cycled になる
     auto vb_r = CreateRhiBuffer(device, vbd);
     if (vb_r.IsErr()) return Err<void>(vb_r.Error());
-    _vb = Move(vb_r.Value());
+    m_Vb = Move(vb_r.Value());
 
     // CPU 側のステージング配列（各フレームここに頂点を積んでから VB へコピー）
-    _vertex_cpu = static_cast<Vertex*>(DefaultAllocator().Alloc(vb_size));
-    if (!_vertex_cpu) return ACS_ERR(Memory, 250, "FSpriteBatch: vertex stage alloc");
+    m_VertexCpu = static_cast<Vertex*>(DefaultAllocator().Alloc(vb_size));
+    if (!m_VertexCpu) return ACS_ERR(Memory, 250, "FSpriteBatch: vertex stage alloc");
 
     // === インデックスバッファ（quad ごとに 6 indices、固定）===
     const u32 idx_count = max_sprites * 6;
@@ -116,7 +116,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     auto ib_r = CreateRhiBuffer(device, ibd);
     DefaultAllocator().Free(idx_ptr);
     if (ib_r.IsErr()) return Err<void>(ib_r.Error());
-    _ib = Move(ib_r.Value());
+    m_Ib = Move(ib_r.Value());
 
     // === 定数バッファ（screen size）===
     FBufferDesc cbd{};
@@ -125,7 +125,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     cbd.cpu_writable = true;
     auto cb_r = CreateRhiBuffer(device, cbd);
     if (cb_r.IsErr()) return Err<void>(cb_r.Error());
-    _cb = Move(cb_r.Value());
+    m_Cb = Move(cb_r.Value());
 
     // === 1×1 白テクスチャ（DrawRect 用、矩形には常にこれを bind）===
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
@@ -136,12 +136,12 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     td.initial_data_size = 4;
     auto wt_r = CreateRhiTexture(device, td);
     if (wt_r.IsErr()) return Err<void>(wt_r.Error());
-    _white = Move(wt_r.Value());
+    m_White = Move(wt_r.Value());
 
     // === パイプライン（α ブレンド有効、深度無し、カリング無し）===
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
-    pd.ps = _ps.Get();
+    pd.vs = m_Vs.Get();
+    pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = EFormat::Unknown;   // 2D は深度無し
@@ -163,44 +163,44 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    _pipeline = Move(pl_r.Value());
+    m_Pipeline = Move(pl_r.Value());
 
     return Ok();
 }
 
 void FSpriteBatch::Shutdown() noexcept {
-    _pipeline.Reset();
-    _white.Reset();
-    _cb.Reset();
-    _ib.Reset();
-    _vb.Reset();
-    _ps.Reset();
-    _vs.Reset();
-    if (_vertex_cpu) {
-        DefaultAllocator().Free(_vertex_cpu);
-        _vertex_cpu = nullptr;
+    m_Pipeline.Reset();
+    m_White.Reset();
+    m_Cb.Reset();
+    m_Ib.Reset();
+    m_Vb.Reset();
+    m_Ps.Reset();
+    m_Vs.Reset();
+    if (m_VertexCpu) {
+        DefaultAllocator().Free(m_VertexCpu);
+        m_VertexCpu = nullptr;
     }
 }
 
 void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcept {
-    _cl = &cl;
-    _screen_w = screen_w == 0 ? 1 : screen_w;
-    _screen_h = screen_h == 0 ? 1 : screen_h;
-    _sprite_count = 0;
-    _flushed_count = 0;
-    _current_tex = nullptr;
+    m_Cl = &cl;
+    m_ScreenW = screen_w == 0 ? 1 : screen_w;
+    m_ScreenH = screen_h == 0 ? 1 : screen_h;
+    m_SpriteCount = 0;
+    m_FlushedCount = 0;
+    m_CurrentTex = nullptr;
 
     // ビューを恒等（カメラ無し）に戻し、定数バッファを更新
-    _view_x    = static_cast<f32>(_screen_w) * 0.5f;
-    _view_y    = static_cast<f32>(_screen_h) * 0.5f;
-    _view_zoom = 1.0f;
+    m_ViewX    = static_cast<f32>(m_ScreenW) * 0.5f;
+    m_ViewY    = static_cast<f32>(m_ScreenH) * 0.5f;
+    m_ViewZoom = 1.0f;
     WriteScreenCBuffer();
 
     // パイプラインと共通リソースを bind
-    cl.SetPipeline(*_pipeline);
-    cl.SetConstantBuffer(0, *_cb);
-    cl.SetVertexBuffer(*_vb, sizeof(Vertex));
-    cl.SetIndexBuffer(*_ib);
+    cl.SetPipeline(*m_Pipeline);
+    cl.SetConstantBuffer(0, *m_Cb);
+    cl.SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl.SetIndexBuffer(*m_Ib);
 }
 
 void FSpriteBatch::Draw(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h, FVec4 tint) noexcept {
@@ -211,34 +211,34 @@ void FSpriteBatch::DrawSub(IRhiTexture& tex,
                           f32 x, f32 y, f32 w, f32 h,
                           f32 u0, f32 v0, f32 u1, f32 v1,
                           FVec4 tint) noexcept {
-    if (!_cl) return;
+    if (!m_Cl) return;
     // テクスチャ切替でフラッシュ（同じテクスチャは累積）
-    if (_current_tex && _current_tex != &tex) Flush();
+    if (m_CurrentTex && m_CurrentTex != &tex) Flush();
     // 容量上限に達したら以降は無視（max_sprites を Init 時に増やす）
-    if (_sprite_count >= _max_sprites) return;
-    _current_tex = &tex;
+    if (m_SpriteCount >= m_MaxSprites) return;
+    m_CurrentTex = &tex;
 
-    Vertex* v = _vertex_cpu + _sprite_count * 4;
+    Vertex* v = m_VertexCpu + m_SpriteCount * 4;
     // 4 頂点を時計回りに積む: (x,y), (x+w,y), (x+w,y+h), (x,y+h)
     v[0] = { x,     y,     u0, v0, tint.x, tint.y, tint.z, tint.w };
     v[1] = { x+w,   y,     u1, v0, tint.x, tint.y, tint.z, tint.w };
     v[2] = { x+w,   y+h,   u1, v1, tint.x, tint.y, tint.z, tint.w };
     v[3] = { x,     y+h,   u0, v1, tint.x, tint.y, tint.z, tint.w };
-    ++_sprite_count;
+    ++m_SpriteCount;
 }
 
 void FSpriteBatch::DrawRect(f32 x, f32 y, f32 w, f32 h, FVec4 color) noexcept {
-    DrawSub(*_white, x, y, w, h, 0, 0, 1, 1, color);
+    DrawSub(*m_White, x, y, w, h, 0, 0, 1, 1, color);
 }
 
 void FSpriteBatch::DrawRotated(IRhiTexture& tex,
                               f32 cx, f32 cy, f32 w, f32 h, f32 radians,
                               f32 u0, f32 v0, f32 u1, f32 v1,
                               FVec4 tint) noexcept {
-    if (!_cl) return;
-    if (_current_tex && _current_tex != &tex) Flush();
-    if (_sprite_count >= _max_sprites) return;
-    _current_tex = &tex;
+    if (!m_Cl) return;
+    if (m_CurrentTex && m_CurrentTex != &tex) Flush();
+    if (m_SpriteCount >= m_MaxSprites) return;
+    m_CurrentTex = &tex;
 
     const f32 s  = ::sinf(radians);
     const f32 c  = ::cosf(radians);
@@ -250,67 +250,67 @@ void FSpriteBatch::DrawRotated(IRhiTexture& tex,
     const f32 uu[4] = {  u0,  u1,  u1,  u0 };
     const f32 vv[4] = {  v0,  v0,  v1,  v1 };
 
-    Vertex* vtx = _vertex_cpu + _sprite_count * 4;
+    Vertex* vtx = m_VertexCpu + m_SpriteCount * 4;
     for (int i = 0; i < 4; ++i) {
         const f32 px = cx + lx[i] * c - ly[i] * s;
         const f32 py = cy + lx[i] * s + ly[i] * c;
         vtx[i] = { px, py, uu[i], vv[i], tint.x, tint.y, tint.z, tint.w };
     }
-    ++_sprite_count;
+    ++m_SpriteCount;
 }
 
 void FSpriteBatch::DrawRectRotated(f32 cx, f32 cy, f32 w, f32 h, f32 radians,
                                   FVec4 color) noexcept {
-    DrawRotated(*_white, cx, cy, w, h, radians, 0, 0, 1, 1, color);
+    DrawRotated(*m_White, cx, cy, w, h, radians, 0, 0, 1, 1, color);
 }
 
 void FSpriteBatch::WriteScreenCBuffer() noexcept {
-    const f32 sw = static_cast<f32>(_screen_w);
-    const f32 sh = static_cast<f32>(_screen_h);
+    const f32 sw = static_cast<f32>(m_ScreenW);
+    const f32 sh = static_cast<f32>(m_ScreenH);
     f32 cb[8] = {
         1.0f / sw, 1.0f / sh, sw, sh,
-        _view_x, _view_y, _view_zoom, 0.0f,
+        m_ViewX, m_ViewY, m_ViewZoom, 0.0f,
     };
-    _cb->Update(cb, sizeof(cb));
+    m_Cb->Update(cb, sizeof(cb));
 }
 
 void FSpriteBatch::SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept {
-    if (!_cl) return;
+    if (!m_Cl) return;
     Flush();   // 既存バッチを現在のビューで確定してから切り替える
-    _view_x    = cam_x;
-    _view_y    = cam_y;
-    _view_zoom = (zoom > 0.0001f) ? zoom : 1.0f;
+    m_ViewX    = cam_x;
+    m_ViewY    = cam_y;
+    m_ViewZoom = (zoom > 0.0001f) ? zoom : 1.0f;
     WriteScreenCBuffer();
 }
 
 void FSpriteBatch::SetClipRect(i32 x, i32 y, i32 w, i32 h) noexcept {
-    if (!_cl) return;
+    if (!m_Cl) return;
     Flush();   // クリップ変更前のバッチを確定
     FScissorRect sr{ x, y, x + w, y + h };
-    _cl->SetScissor(sr);
+    m_Cl->SetScissor(sr);
 }
 
 void FSpriteBatch::ClearClipRect() noexcept {
-    if (!_cl) return;
+    if (!m_Cl) return;
     Flush();
-    FScissorRect sr{ 0, 0, static_cast<i32>(_screen_w), static_cast<i32>(_screen_h) };
-    _cl->SetScissor(sr);
+    FScissorRect sr{ 0, 0, static_cast<i32>(m_ScreenW), static_cast<i32>(m_ScreenH) };
+    m_Cl->SetScissor(sr);
 }
 
 void FSpriteBatch::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                                FVec4 color) noexcept {
-    if (!_cl) return;
-    if (_current_tex && _current_tex != _white.Get()) Flush();
-    if (_sprite_count >= _max_sprites) return;
-    _current_tex = _white.Get();
+    if (!m_Cl) return;
+    if (m_CurrentTex && m_CurrentTex != m_White.Get()) Flush();
+    if (m_SpriteCount >= m_MaxSprites) return;
+    m_CurrentTex = m_White.Get();
     // 4 頂点目に 3 頂点目を重ねる。インデックス (0,2,3) の三角形は面積 0 に
     // 退化して描画されず、(0,1,2) の三角形だけが塗られる。
-    Vertex* v = _vertex_cpu + _sprite_count * 4;
+    Vertex* v = m_VertexCpu + m_SpriteCount * 4;
     v[0] = { x0, y0, 0, 0, color.x, color.y, color.z, color.w };
     v[1] = { x1, y1, 0, 0, color.x, color.y, color.z, color.w };
     v[2] = { x2, y2, 0, 0, color.x, color.y, color.z, color.w };
     v[3] = { x2, y2, 0, 0, color.x, color.y, color.z, color.w };
-    ++_sprite_count;
+    ++m_SpriteCount;
 }
 
 void FSpriteBatch::DrawString(const Font& font, const char* utf8_text,
@@ -344,26 +344,26 @@ void FSpriteBatch::DrawString(const Font& font, const char* utf8_text,
 
 void FSpriteBatch::End() noexcept {
     Flush();
-    _cl = nullptr;
+    m_Cl = nullptr;
 }
 
 void FSpriteBatch::Flush() noexcept {
-    if (!_cl || !_current_tex) return;
-    if (_sprite_count <= _flushed_count) return;
+    if (!m_Cl || !m_CurrentTex) return;
+    if (m_SpriteCount <= m_FlushedCount) return;
 
     // 既にフラッシュ済みのスプライトの後ろに、新しい範囲だけを VB に部分書き込みする。
     // こうすることで、先行投入済みの DrawIndexed が参照する範囲を上書きしない。
-    const u32   first_sprite = _flushed_count;
-    const u32   count        = _sprite_count - _flushed_count;
+    const u32   first_sprite = m_FlushedCount;
+    const u32   count        = m_SpriteCount - m_FlushedCount;
     const usize byte_offset  = static_cast<usize>(first_sprite) * 4 * sizeof(Vertex);
     const usize byte_size    = static_cast<usize>(count) * 4 * sizeof(Vertex);
-    _vb->Update(_vertex_cpu + first_sprite * 4, byte_size, byte_offset);
+    m_Vb->Update(m_VertexCpu + first_sprite * 4, byte_size, byte_offset);
 
-    _cl->SetTexture(0, *_current_tex);
-    _cl->DrawIndexed(count * 6, first_sprite * 6, 0);
+    m_Cl->SetTexture(0, *m_CurrentTex);
+    m_Cl->DrawIndexed(count * 6, first_sprite * 6, 0);
 
-    _flushed_count = _sprite_count;
-    _current_tex   = nullptr;
+    m_FlushedCount = m_SpriteCount;
+    m_CurrentTex   = nullptr;
 }
 
 void FSpriteBatch::EnsurePipeline() noexcept {

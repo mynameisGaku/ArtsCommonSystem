@@ -36,17 +36,17 @@ public:
 
     FMeshAsset() noexcept = default;
 
-    const TArray<MeshVertex>& Vertices()  const noexcept { return _vertices; }
-    TArray<MeshVertex>&       Vertices()        noexcept { return _vertices; }
-    const TArray<u32>&        Indices()   const noexcept { return _indices; }
-    TArray<u32>&              Indices()         noexcept { return _indices; }
-    const TArray<SubMesh>&    SubMeshes() const noexcept { return _submeshes; }
-    TArray<SubMesh>&          SubMeshes()       noexcept { return _submeshes; }
+    const TArray<MeshVertex>& Vertices()  const noexcept { return m_Vertices; }
+    TArray<MeshVertex>&       Vertices()        noexcept { return m_Vertices; }
+    const TArray<u32>&        Indices()   const noexcept { return m_Indices; }
+    TArray<u32>&              Indices()         noexcept { return m_Indices; }
+    const TArray<SubMesh>&    SubMeshes() const noexcept { return m_Submeshes; }
+    TArray<SubMesh>&          SubMeshes()       noexcept { return m_Submeshes; }
 
 private:
-    TArray<MeshVertex> _vertices;
-    TArray<u32>        _indices;
-    TArray<SubMesh>    _submeshes;
+    TArray<MeshVertex> m_Vertices;
+    TArray<u32>        m_Indices;
+    TArray<SubMesh>    m_Submeshes;
 };
 
 // glTF / GLB ローダ (cgltf)

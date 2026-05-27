@@ -7,19 +7,19 @@
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::FTweenManager _tweens;
-//       acs::FVec3 _color{0, 0, 0};
+//       acs::game::FTweenManager m_Tweens;
+//       acs::FVec3 m_Color{0, 0, 0};
 //
 //       void OnEnter() noexcept override {
-//           _tweens.Tween(&_color,
+//           m_Tweens.Tween(&m_Color,
 //                          acs::FVec3{0.05f, 0.20f, 0.10f},
 //                          acs::FVec3{0.10f, 0.30f, 0.20f},
 //                          /*duration=*/2.0f,
 //                          Easing::InOutSine);
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
-//           _tweens.Tick(dt);
-//           GetGame().SetClearColor(_color.x, _color.y, _color.z);
+//           m_Tweens.Tick(dt);
+//           GetGame().SetClearColor(m_Color.x, m_Color.y, m_Color.z);
 //       }
 //   };
 //
@@ -102,8 +102,8 @@ private:
     void FillCommon(Slot& s, void* target, f32 duration,
                     Easing::EasingFn ease) noexcept;
 
-    TArray<Slot> _slots;
-    u32         _active_count = 0;
+    TArray<Slot> m_Slots;
+    u32         m_ActiveCount = 0;
 };
 
 } // namespace acs::game

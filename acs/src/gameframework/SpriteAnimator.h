@@ -30,8 +30,8 @@
 //     ユニットテスト可能。
 //   ・std::function を避けるため frame event のコールバックは関数ポインタ + user 引数。
 //     Lambda は capture 無しに限る (= ACS の関数ポインタ規約と整合)。
-//   ・dt 駆動でラップアラウンドを正しく扱うため _elapsed は周期長を超えないよう
-//     wrap (Loop/PingPong) または末尾に固定 (Once)。長時間プレイで _elapsed が
+//   ・dt 駆動でラップアラウンドを正しく扱うため m_Elapsed は周期長を超えないよう
+//     wrap (Loop/PingPong) または末尾に固定 (Once)。長時間プレイで m_Elapsed が
 //     f32 精度を失う事故を防ぐ。
 #pragma once
 
@@ -69,29 +69,29 @@ public:
     void Play()  noexcept;
     void Pause() noexcept;
     void Stop()  noexcept;
-    bool IsPlaying() const noexcept { return _playing; }
+    bool IsPlaying() const noexcept { return m_Playing; }
 
     // 経過時間を流す。dt <= 0 は no-op (= 巻き戻し非対応)。
     void Tick(f32 dt) noexcept;
 
-    u32  CurrentFrame()    const noexcept { return _current_frame; }
-    bool IsFinished()      const noexcept { return _finished; }
+    u32  CurrentFrame()    const noexcept { return m_CurrentFrame; }
+    bool IsFinished()      const noexcept { return m_Finished; }
     // [0, 1] のフレーム進行率 (Loop/PingPong は周期内、Once は 0→1 の単調進行)
     f32  NormalizedTime()  const noexcept;
 
     // 強制シーク。frame_count を超える値は末尾にクランプ。
-    // _elapsed は新 frame の先頭時刻に合わせて再計算され、
+    // m_Elapsed は新 frame の先頭時刻に合わせて再計算され、
     // 同じ frame に再進入したものとして frame event は次回境界跨ぎで発火する。
     void SetCurrentFrame(u32 i) noexcept;
 
     // fps を差し替える。負値は 0 にクランプ (= 0 fps はフリーズと等価)。
-    // _elapsed は維持されるが新しい fps で再評価されるため、見かけ上の
+    // m_Elapsed は維持されるが新しい fps で再評価されるため、見かけ上の
     // CurrentFrame は次 Tick から変わる。
     void SetFps(f32 fps) noexcept;
 
-    f32      Fps()        const noexcept { return _fps; }
-    u32      FrameCount() const noexcept { return _frame_count; }
-    EPlayMode Mode()       const noexcept { return _mode; }
+    f32      Fps()        const noexcept { return m_Fps; }
+    u32      FrameCount() const noexcept { return m_FrameCount; }
+    EPlayMode Mode()       const noexcept { return m_Mode; }
 
     // frame に進入した瞬間 1 度だけ cb を呼ぶ。同じ frame に複数登録すれば
     // 登録順に発火。重複は許容 (= 利用者の責任で重複を避ける)。
@@ -106,23 +106,23 @@ private:
         void*        user  = nullptr;
     };
 
-    // _elapsed から周期 (Loop / PingPong) を考慮した「論理 frame index」を計算。
+    // m_Elapsed から周期 (Loop / PingPong) を考慮した「論理 frame index」を計算。
     // 戻り値は [0, frame_count) に収まる。
     u32 ComputeFrame(f32 elapsed) const noexcept;
 
-    // _current_frame が prev → next に変化したとき、間に挟まる全 frame の
+    // m_CurrentFrame が prev → next に変化したとき、間に挟まる全 frame の
     // event を発火する。Loop での周回 (next < prev) もハンドルする。
     void FireEventsBetween(u32 prev, u32 next, bool wrapped) noexcept;
 
-    u32       _frame_count   = 1;
-    f32       _fps           = 1.0f;
-    EPlayMode  _mode          = EPlayMode::Loop;
-    f32       _elapsed       = 0.0f;
-    u32       _current_frame = 0;
-    bool      _playing       = false;
-    bool      _finished      = false;
+    u32       m_FrameCount   = 1;
+    f32       m_Fps           = 1.0f;
+    EPlayMode  m_Mode          = EPlayMode::Loop;
+    f32       m_Elapsed       = 0.0f;
+    u32       m_CurrentFrame = 0;
+    bool      m_Playing       = false;
+    bool      m_Finished      = false;
 
-    TArray<FrameEvent> _events;
+    TArray<FrameEvent> m_Events;
 };
 
 } // namespace acs::game

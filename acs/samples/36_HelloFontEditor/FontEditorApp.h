@@ -19,7 +19,7 @@ protected:
     acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override;
 
 private:
-    acs::ImGuiCtx _imgui;
+    acs::ImGuiCtx m_Imgui;
 };
 
 } // namespace hellofont

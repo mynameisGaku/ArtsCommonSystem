@@ -77,18 +77,18 @@ struct AudioClipDesc {
 // ---- voice handle --------------------------------------------------------
 // 内部表現: 下位 24bit = voice index、上位 8bit = generation。
 // 再利用された slot を古いハンドルで参照する事故を generation で検出する。
-// 全 0 (= _packed == 0) は無効ハンドルを意味する。
+// 全 0 (= m_Packed == 0) は無効ハンドルを意味する。
 struct AudioVoiceHandle {
-    u32 _packed = 0;
+    u32 m_Packed = 0;
 
     constexpr AudioVoiceHandle() noexcept = default;
     constexpr AudioVoiceHandle(u32 index, u8 gen) noexcept
-        : _packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    bool IsValid() const noexcept { return _packed != 0u; }
+    bool IsValid() const noexcept { return m_Packed != 0u; }
 
-    u32 Index() const noexcept { return _packed & 0x00FFFFFFu; }
-    u8  Generation() const noexcept { return static_cast<u8>(_packed >> 24); }
+    u32 Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
+    u8  Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
 };
 
 inline constexpr AudioVoiceHandle kInvalidAudioVoice {};

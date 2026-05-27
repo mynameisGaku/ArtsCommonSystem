@@ -59,26 +59,26 @@ public:
 
     // 1/8 解像度の min-depth RT (R16G16_Float、.r=min depth)、SSR の
     // skip-ahead で sample する。
-    IRhiTexture* Texture() const noexcept { return _hiz.Get(); }
-    u32 SrcWidth()  const noexcept { return _src_w; }
-    u32 SrcHeight() const noexcept { return _src_h; }
-    u32 Width()     const noexcept { return _hiz_w; }
-    u32 Height()    const noexcept { return _hiz_h; }
+    IRhiTexture* Texture() const noexcept { return m_Hiz.Get(); }
+    u32 SrcWidth()  const noexcept { return m_SrcW; }
+    u32 SrcHeight() const noexcept { return m_SrcH; }
+    u32 Width()     const noexcept { return m_HizW; }
+    u32 Height()    const noexcept { return m_HizH; }
     static constexpr u32 kBlockSize = 8;
 
 private:
     TResult<void> CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept;
     TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
-    IRhiDevice* _device = nullptr;
-    u32 _src_w = 0, _src_h = 0;
-    u32 _hiz_w = 0, _hiz_h = 0;
+    IRhiDevice* m_Device = nullptr;
+    u32 m_SrcW = 0, m_SrcH = 0;
+    u32 m_HizW = 0, m_HizH = 0;
 
-    TUniquePtr<IRhiTexture>  _hiz;       // R32_Float, 1 mip, src/8
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiShader>   _ps;
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiBuffer>   _cb;
+    TUniquePtr<IRhiTexture>  m_Hiz;       // R32_Float, 1 mip, src/8
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiShader>   m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiBuffer>   m_Cb;
 };
 
 } // namespace acs

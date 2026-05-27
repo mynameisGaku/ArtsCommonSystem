@@ -86,28 +86,28 @@ public:
     template<typename T>
     SparseSet<T>& GetOrCreateSet() noexcept {
         ComponentTypeId id = GetComponentTypeId<T>();
-        if (id >= _sets.Size()) _sets.Resize(id + 1);
-        if (!_sets[id]) {
-            _sets[id] = static_cast<SparseSetBase*>(::new SparseSet<T>());
+        if (id >= m_Sets.Size()) m_Sets.Resize(id + 1);
+        if (!m_Sets[id]) {
+            m_Sets[id] = static_cast<SparseSetBase*>(::new SparseSet<T>());
         }
-        return *static_cast<SparseSet<T>*>(_sets[id]);
+        return *static_cast<SparseSet<T>*>(m_Sets[id]);
     }
 
     // 内部使用: 型 T の SparseSet を取得（無ければ nullptr）
     template<typename T>
     SparseSet<T>* TryGetSet() noexcept {
         ComponentTypeId id = GetComponentTypeId<T>();
-        if (id >= _sets.Size()) return nullptr;
-        return static_cast<SparseSet<T>*>(_sets[id]);
+        if (id >= m_Sets.Size()) return nullptr;
+        return static_cast<SparseSet<T>*>(m_Sets[id]);
     }
 
     // 全エンティティ数（生存数）
-    u32 EntityCount() const noexcept { return _alive_count; }
+    u32 EntityCount() const noexcept { return m_AliveCount; }
 
     // index 単独から EntityId を復元（Query 内部で使う、世代を付加）
     EntityId MakeIdFromIndex(u32 index) const noexcept {
-        if (index >= _slots.Size()) return kInvalidEntity;
-        return EntityId{ index, _slots[index].generation };
+        if (index >= m_Slots.Size()) return kInvalidEntity;
+        return EntityId{ index, m_Slots[index].generation };
     }
 
 private:
@@ -117,10 +117,10 @@ private:
         bool alive      = false;
     };
 
-    TArray<Slot>           _slots;          // index -> Slot
-    TArray<u32>            _free_indices;   // 解放済みでまだ再利用できるスロット
-    TArray<SparseSetBase*> _sets;           // ComponentTypeId -> SparseSet*
-    u32                   _alive_count = 0;
+    TArray<Slot>           m_Slots;          // index -> Slot
+    TArray<u32>            m_FreeIndices;   // 解放済みでまだ再利用できるスロット
+    TArray<SparseSetBase*> m_Sets;           // ComponentTypeId -> SparseSet*
+    u32                   m_AliveCount = 0;
 };
 
 } // namespace acs

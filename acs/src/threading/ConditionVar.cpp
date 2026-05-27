@@ -15,24 +15,24 @@ static_assert(sizeof(CONDITION_VARIABLE) == sizeof(void*),
 namespace acs {
 
 ConditionVar::ConditionVar() noexcept {
-    InitializeConditionVariable(reinterpret_cast<CONDITION_VARIABLE*>(&_cv[0]));
+    InitializeConditionVariable(reinterpret_cast<CONDITION_VARIABLE*>(&m_Cv[0]));
 }
 
 // 無限待機。FMutex は Wait 中に一時開放され、復帰時に再取得される。
 void ConditionVar::Wait(FMutex& m) noexcept {
-    SleepConditionVariableSRW(reinterpret_cast<CONDITION_VARIABLE*>(&_cv[0]),
+    SleepConditionVariableSRW(reinterpret_cast<CONDITION_VARIABLE*>(&m_Cv[0]),
                               reinterpret_cast<SRWLOCK*>(&m), INFINITE, 0);
 }
 
 // タイムアウト付き待機。戻り値: true=起こされた, false=タイムアウト
 bool ConditionVar::WaitFor(FMutex& m, u32 timeout_ms) noexcept {
-    BOOL ok = SleepConditionVariableSRW(reinterpret_cast<CONDITION_VARIABLE*>(&_cv[0]),
+    BOOL ok = SleepConditionVariableSRW(reinterpret_cast<CONDITION_VARIABLE*>(&m_Cv[0]),
                                         reinterpret_cast<SRWLOCK*>(&m),
                                         static_cast<DWORD>(timeout_ms), 0);
     return ok != 0;
 }
 
-void ConditionVar::NotifyOne() noexcept { WakeConditionVariable(reinterpret_cast<CONDITION_VARIABLE*>(&_cv[0])); }
-void ConditionVar::NotifyAll() noexcept { WakeAllConditionVariable(reinterpret_cast<CONDITION_VARIABLE*>(&_cv[0])); }
+void ConditionVar::NotifyOne() noexcept { WakeConditionVariable(reinterpret_cast<CONDITION_VARIABLE*>(&m_Cv[0])); }
+void ConditionVar::NotifyAll() noexcept { WakeAllConditionVariable(reinterpret_cast<CONDITION_VARIABLE*>(&m_Cv[0])); }
 
 } // namespace acs

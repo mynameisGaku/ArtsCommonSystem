@@ -26,7 +26,7 @@
 //   ・**Push で所有権を奪う (raw pointer 引数 + delete 責任)**: 既存サンプル
 //     (FHierarchyPanel 等) と同じく ImGui 連携の単純な C-API 風シグネチャに
 //     揃える。caller は `cmd.Release()` で渡す or 自分で New してそのまま渡す。
-//     Push 内で TUniquePtr に詰め直してから _undo_stack に PushBack することで
+//     Push 内で TUniquePtr に詰め直してから m_UndoStack に PushBack することで
 //     その後の代入 / pop で自動 delete される。
 //   ・**Push 内で Execute も実行**: GUI コードが「new FEditorCommand → Push」
 //     しか書かなくて済む (= Execute 忘れを構造的に防ぐ)。Redo 経路でも
@@ -40,7 +40,7 @@
 //     上限を守る。下端 drop なので TUniquePtr の delete が自動走り、メモリリーク
 //     しない。TArray に LIFO + 上限管理しか要らない用途で circular buffer は不要
 //     (上限超は希なはず、上限超時に O(N) shift しても害は少ない)。
-//   ・**CanMerge / MergeWith**: Push 時に「直前の _undo_stack.Back() が merge
+//   ・**CanMerge / MergeWith**: Push 時に「直前の m_UndoStack.Back() が merge
 //     可能か」を判定し、可能なら新 cmd を merge してそのまま破棄する (= スタッ
 //     ク件数は増えない)。連続 drag が爆発しない用の最重要機能。
 //   ・**callback (CommandExecutedCallback)**: editor が「Undo されたから
@@ -110,27 +110,27 @@ public:
     // 動作順:
     //   1. cmd == nullptr なら no-op (誤呼び対策、cmd は delete されない)。
     //   2. cmd->Execute() を呼ぶ。
-    //   3. 直前 (= _undo_stack.Back()) と CanMerge / MergeWith できれば
-    //      `_undo_stack` には PushBack せず、merge 結果として cmd は破棄。
-    //   4. merge しなければ _undo_stack に PushBack。
-    //   5. _redo_stack を Clear (= new edit が来たので redo の未来は破棄)。
-    //   6. _undo_stack.Size() > _max_history なら最古を 1 件捨てる。
+    //   3. 直前 (= m_UndoStack.Back()) と CanMerge / MergeWith できれば
+    //      `m_UndoStack` には PushBack せず、merge 結果として cmd は破棄。
+    //   4. merge しなければ m_UndoStack に PushBack。
+    //   5. m_RedoStack を Clear (= new edit が来たので redo の未来は破棄)。
+    //   6. m_UndoStack.Size() > m_MaxHistory なら最古を 1 件捨てる。
     //   7. callback を (cb_user, スタック top の cmd, is_redo=false) で発火。
     void Push(class FEditorCommand* cmd) noexcept;
 
     // undo を 1 件巻き戻す。動作順:
-    //   1. _undo_stack.IsEmpty() なら false を返して no-op。
+    //   1. m_UndoStack.IsEmpty() なら false を返して no-op。
     //   2. top を取り出して cmd->Undo() を呼ぶ。
-    //   3. その cmd を _redo_stack に Move する (= 再度 Redo で execute できる)。
+    //   3. その cmd を m_RedoStack に Move する (= 再度 Redo で execute できる)。
     //   4. callback を (cb_user, cmd, is_redo=false) で発火 (undo は redo 由来
     //      ではないので false)。
     //   5. true を返す。
     bool Undo() noexcept;
 
     // redo を 1 件やり直す。動作順は Undo の対称:
-    //   1. _redo_stack.IsEmpty() なら false を返して no-op。
-    //   2. _redo_stack.Back() を取り出して cmd->Execute() を呼ぶ。
-    //   3. その cmd を _undo_stack に Move する。
+    //   1. m_RedoStack.IsEmpty() なら false を返して no-op。
+    //   2. m_RedoStack.Back() を取り出して cmd->Execute() を呼ぶ。
+    //   3. その cmd を m_UndoStack に Move する。
     //   4. callback を (cb_user, cmd, is_redo=true) で発火。
     //   5. true を返す。
     bool Redo() noexcept;
@@ -155,15 +155,15 @@ public:
     void SetOnExecutedCallback(CommandExecutedCallback cb, void* user) noexcept;
 
 private:
-    // _undo_stack が _max_history を超えていれば、最古 1 件を捨てる。
+    // m_UndoStack が m_MaxHistory を超えていれば、最古 1 件を捨てる。
     // PushBack 後にのみ呼ぶ前提なので、超過量は高々 1。
     void DropOldestIfOverflow() noexcept;
 
-    TArray<TUniquePtr<FEditorCommand>> _undo_stack {};
-    TArray<TUniquePtr<FEditorCommand>> _redo_stack {};
-    u32                             _max_history = 64;
-    CommandExecutedCallback         _cb          = nullptr;
-    void*                           _cb_user     = nullptr;
+    TArray<TUniquePtr<FEditorCommand>> m_UndoStack {};
+    TArray<TUniquePtr<FEditorCommand>> m_RedoStack {};
+    u32                             m_MaxHistory = 64;
+    CommandExecutedCallback         m_Cb          = nullptr;
+    void*                           m_CbUser     = nullptr;
 };
 
 } // namespace acs::game::editor_core

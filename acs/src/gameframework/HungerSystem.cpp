@@ -27,8 +27,8 @@ u32 FHungerSystem::StatIndex(ESurvivalStat stat) noexcept {
 FHungerSystem::SurvivorSlot* FHungerSystem::ResolveSurvivor(SurvivorId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0u || idx >= _survivors.Size()) return nullptr;
-    SurvivorSlot& s = _survivors[idx];
+    if (idx == 0u || idx >= m_Survivors.Size()) return nullptr;
+    SurvivorSlot& s = m_Survivors[idx];
     if (!s.in_use) return nullptr;
     if (s.gen != id.Gen()) return nullptr;
     return &s;
@@ -37,8 +37,8 @@ FHungerSystem::SurvivorSlot* FHungerSystem::ResolveSurvivor(SurvivorId id) noexc
 const FHungerSystem::SurvivorSlot* FHungerSystem::ResolveSurvivor(SurvivorId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
-    if (idx == 0u || idx >= _survivors.Size()) return nullptr;
-    const SurvivorSlot& s = _survivors[idx];
+    if (idx == 0u || idx >= m_Survivors.Size()) return nullptr;
+    const SurvivorSlot& s = m_Survivors[idx];
     if (!s.in_use) return nullptr;
     if (s.gen != id.Gen()) return nullptr;
     return &s;
@@ -50,23 +50,23 @@ const FHungerSystem::SurvivorSlot* FHungerSystem::ResolveSurvivor(SurvivorId id)
 
 void FHungerSystem::Init() noexcept {
     // 既存 survivor / config を全破棄して再初期化する。
-    _survivors.Clear();
-    _survivor_count = 0u;
-    _configs.Clear();
+    m_Survivors.Clear();
+    m_SurvivorCount = 0u;
+    m_Configs.Clear();
 
     // 7 stat 分の default config を確保。default 値は StatConfig 既定 (max=100,
     // decay=0, critical=20, zero_dmg=0)。caller が ConfigureStat で上書きする。
     for (u32 i = 0; i < kSurvivalStatCount; ++i) {
-        _configs.PushBack(StatConfig{});
+        m_Configs.PushBack(StatConfig{});
     }
-    // index 0 dummy slot を確保 (= SurvivorId._packed == 0 を invalid 予約)。
-    _survivors.PushBack(SurvivorSlot{});
+    // index 0 dummy slot を確保 (= SurvivorId.m_Packed == 0 を invalid 予約)。
+    m_Survivors.PushBack(SurvivorSlot{});
 }
 
 void FHungerSystem::ConfigureStat(ESurvivalStat stat, const StatConfig& config) noexcept {
     const u32 idx = StatIndex(stat);
     if (idx == ~0u) return;
-    if (_configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
+    if (m_Configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
 
     StatConfig sanitized = config;
     if (sanitized.max_value <= 0.0f) sanitized.max_value = 1.0f;   // 0/負値は防御的に 1.0
@@ -79,7 +79,7 @@ void FHungerSystem::ConfigureStat(ESurvivalStat stat, const StatConfig& config) 
     if (sanitized.decay_per_sec < 0.0f) sanitized.decay_per_sec = 0.0f;
     if (sanitized.zero_damage_per_sec < 0.0f) sanitized.zero_damage_per_sec = 0.0f;
 
-    _configs[idx] = sanitized;
+    m_Configs[idx] = sanitized;
 }
 
 // ----------------------------------------------------------------------------
@@ -87,22 +87,22 @@ void FHungerSystem::ConfigureStat(ESurvivalStat stat, const StatConfig& config) 
 // ----------------------------------------------------------------------------
 
 SurvivorId FHungerSystem::AddSurvivor() noexcept {
-    if (_configs.Size() < kSurvivalStatCount) return SurvivorId{};   // Init 未呼び出し
+    if (m_Configs.Size() < kSurvivalStatCount) return SurvivorId{};   // Init 未呼び出し
 
     // 空き slot を線形検索 (index 0 は dummy なので 1 から)。
     u32 found = 0u;
-    for (u32 i = 1u; i < _survivors.Size(); ++i) {
-        if (!_survivors[i].in_use) { found = i; break; }
+    for (u32 i = 1u; i < m_Survivors.Size(); ++i) {
+        if (!m_Survivors[i].in_use) { found = i; break; }
     }
 
     if (found == 0u) {
         // 末尾に新規拡張。24bit index 上限を超えるなら invalid 返却。
-        if (_survivors.Size() > SurvivorId::kMaxIndex) return SurvivorId{};
-        _survivors.PushBack(SurvivorSlot{});
-        found = static_cast<u32>(_survivors.Size() - 1u);
+        if (m_Survivors.Size() > SurvivorId::kMaxIndex) return SurvivorId{};
+        m_Survivors.PushBack(SurvivorSlot{});
+        found = static_cast<u32>(m_Survivors.Size() - 1u);
     }
 
-    SurvivorSlot& s = _survivors[found];
+    SurvivorSlot& s = m_Survivors[found];
     // gen を進める (0 は invalid 予約なので skip)。
     s.gen = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0u) s.gen = 1u;
@@ -111,7 +111,7 @@ SurvivorId FHungerSystem::AddSurvivor() noexcept {
     // stat 配列を 7 個用意 (再利用 slot の場合は既存があるので Clear で 0 戻し)。
     s.stats.Clear();
     for (u32 i = 0u; i < kSurvivalStatCount; ++i) {
-        const StatConfig& cfg = _configs[i];
+        const StatConfig& cfg = m_Configs[i];
         StatState st;
         st.current     = cfg.max_value;     // 全 stat を max でスタート
         st.max         = cfg.max_value;
@@ -119,7 +119,7 @@ SurvivorId FHungerSystem::AddSurvivor() noexcept {
         s.stats.PushBack(st);
     }
 
-    ++_survivor_count;
+    ++m_SurvivorCount;
     return SurvivorId::Pack(found, s.gen);
 }
 
@@ -131,7 +131,7 @@ void FHungerSystem::RemoveSurvivor(SurvivorId id) noexcept {
     s->stats.Clear();
     // gen はそのまま (次回 AddSurvivor で +1 されて古い handle 無効化)。
 
-    if (_survivor_count > 0u) --_survivor_count;
+    if (m_SurvivorCount > 0u) --m_SurvivorCount;
 }
 
 // ----------------------------------------------------------------------------
@@ -238,18 +238,18 @@ f32 FHungerSystem::OverallSurvivalHealth(SurvivorId id) const noexcept {
 
 void FHungerSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
-    if (_configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
+    if (m_Configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
 
-    const usize n_surv = _survivors.Size();
+    const usize n_surv = m_Survivors.Size();
     // index 0 は dummy なので 1 から走査。
     for (usize si = 1u; si < n_surv; ++si) {
-        SurvivorSlot& slot = _survivors[si];
+        SurvivorSlot& slot = m_Survivors[si];
         if (!slot.in_use) continue;
 
         const usize n_stat = slot.stats.Size();
         for (usize st_i = 0u; st_i < n_stat && st_i < kSurvivalStatCount; ++st_i) {
             StatState&        st  = slot.stats[st_i];
-            const StatConfig& cfg = _configs[st_i];
+            const StatConfig& cfg = m_Configs[st_i];
 
             // 1) 自然減少を適用。decay_per_sec <= 0 なら不変。
             if (cfg.decay_per_sec > 0.0f) {
@@ -263,9 +263,9 @@ void FHungerSystem::Tick(f32 dt) noexcept {
             const bool now_critical = (st.current < cfg.critical_threshold);
             if (now_critical != was_critical) {
                 st.is_critical = now_critical;
-                if (_on_critical != nullptr) {
+                if (m_OnCritical != nullptr) {
                     const SurvivorId id = SurvivorId::Pack(static_cast<u32>(si), slot.gen);
-                    _on_critical(_on_critical_user, id,
+                    m_OnCritical(m_OnCriticalUser, id,
                                  static_cast<ESurvivalStat>(st_i), now_critical);
                 }
             }
@@ -273,10 +273,10 @@ void FHungerSystem::Tick(f32 dt) noexcept {
             // 3) stat==0 の場合は zero_damage_per_sec * dt を HealthBridge へ通知。
             //    zero_damage_per_sec <= 0 なら通知しない (= 不快なだけで死なない stat)。
             if (st.current <= 0.0f && cfg.zero_damage_per_sec > 0.0f) {
-                if (_on_damage != nullptr) {
+                if (m_OnDamage != nullptr) {
                     const f32 dmg = cfg.zero_damage_per_sec * dt;
                     const SurvivorId id = SurvivorId::Pack(static_cast<u32>(si), slot.gen);
-                    _on_damage(_on_damage_user, id,
+                    m_OnDamage(m_OnDamageUser, id,
                                static_cast<ESurvivalStat>(st_i), dmg);
                 }
             }
@@ -289,13 +289,13 @@ void FHungerSystem::Tick(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 
 void FHungerSystem::SetOnCriticalCallback(CriticalCallback cb, void* user) noexcept {
-    _on_critical      = cb;
-    _on_critical_user = user;
+    m_OnCritical      = cb;
+    m_OnCriticalUser = user;
 }
 
 void FHungerSystem::SetOnDamageCallback(DamageCallback cb, void* user) noexcept {
-    _on_damage      = cb;
-    _on_damage_user = user;
+    m_OnDamage      = cb;
+    m_OnDamageUser = user;
 }
 
 // ----------------------------------------------------------------------------
@@ -304,13 +304,13 @@ void FHungerSystem::SetOnDamageCallback(DamageCallback cb, void* user) noexcept 
 
 void FHungerSystem::ClearAll() noexcept {
     // 全 survivor + stat config を default に戻し、index 0 dummy を再確保。
-    _survivors.Clear();
-    _configs.Clear();
-    _survivor_count = 0u;
+    m_Survivors.Clear();
+    m_Configs.Clear();
+    m_SurvivorCount = 0u;
     for (u32 i = 0u; i < kSurvivalStatCount; ++i) {
-        _configs.PushBack(StatConfig{});
+        m_Configs.PushBack(StatConfig{});
     }
-    _survivors.PushBack(SurvivorSlot{});
+    m_Survivors.PushBack(SurvivorSlot{});
     // callback は保持 (ClearAll は entity 全消去のみ、Director 結線は維持)。
 }
 

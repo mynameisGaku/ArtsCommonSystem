@@ -5,7 +5,7 @@
 // SSR 出力 / SSAO 出力は次フレームの PBR pass が 1 フレーム遅延で合成する
 // (frame 0 の garbage を避けるため呼び出し側で warm flag を管理)。
 //
-// SSR は _show_ssr で toggle。SSAO は常に走らせる (画作りで必須)。
+// SSR は m_ShowSsr で toggle。SSAO は常に走らせる (画作りで必須)。
 #pragma once
 
 #include "ShowcaseAssets.h"

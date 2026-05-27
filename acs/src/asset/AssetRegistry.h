@@ -63,9 +63,9 @@ private:
     // 拡張子から適切なローダを選ぶ（マッチなしならフォールバック "*" を返す）
     IAssetLoader* FindLoader(const wchar_t* path) noexcept;
 
-    FMutex                          _lock;
-    THashMap<FAssetId, TRc<Asset>>    _cache;
-    TArray<IAssetLoader*>           _loaders;
+    FMutex                          m_Lock;
+    THashMap<FAssetId, TRc<Asset>>    m_Cache;
+    TArray<IAssetLoader*>           m_Loaders;
 };
 
 } // namespace acs

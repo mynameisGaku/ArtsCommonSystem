@@ -6,14 +6,14 @@ namespace acs::game {
 
 u32 FTweenManager::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (= 一定 Tick 後の FTween 群はキャッシュ局所性高い)
-    for (u32 i = 0; i < _slots.Size(); ++i) {
-        if (!_slots[i].active) {
+    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+        if (!m_Slots[i].active) {
             return i;
         }
     }
     // 全 slot 使用中 → 末尾に追加
-    _slots.PushBack({});
-    return static_cast<u32>(_slots.Size()) - 1u;
+    m_Slots.PushBack({});
+    return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
 void FTweenManager::FillCommon(Slot& s, void* target, f32 duration,
@@ -36,12 +36,12 @@ FTweenHandle FTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
         return {};
     }
     const u32 idx = AcquireSlot();
-    Slot& s = _slots[idx];
+    Slot& s = m_Slots[idx];
     s.kind   = Kind::F32;
     s.from_f = from;
     s.to_f   = to;
     FillCommon(s, target, duration, ease);
-    ++_active_count;
+    ++m_ActiveCount;
     return FTweenHandle{idx, s.generation};
 }
 
@@ -53,12 +53,12 @@ FTweenHandle FTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 durat
         return {};
     }
     const u32 idx = AcquireSlot();
-    Slot& s = _slots[idx];
+    Slot& s = m_Slots[idx];
     s.kind    = Kind::FVec2;
     s.from_v2 = from;
     s.to_v2   = to;
     FillCommon(s, target, duration, ease);
-    ++_active_count;
+    ++m_ActiveCount;
     return FTweenHandle{idx, s.generation};
 }
 
@@ -70,28 +70,28 @@ FTweenHandle FTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 durat
         return {};
     }
     const u32 idx = AcquireSlot();
-    Slot& s = _slots[idx];
+    Slot& s = m_Slots[idx];
     s.kind    = Kind::FVec3;
     s.from_v3 = from;
     s.to_v3   = to;
     FillCommon(s, target, duration, ease);
-    ++_active_count;
+    ++m_ActiveCount;
     return FTweenHandle{idx, s.generation};
 }
 
 void FTweenManager::Cancel(FTweenHandle h) noexcept {
-    if (!h.IsValid() || h.index >= _slots.Size()) return;
-    Slot& s = _slots[h.index];
+    if (!h.IsValid() || h.index >= m_Slots.Size()) return;
+    Slot& s = m_Slots[h.index];
     if (s.generation != h.generation || !s.active) return;
     s.active = false;
     s.kind   = Kind::None;
     s.target = nullptr;
-    if (_active_count > 0) --_active_count;
+    if (m_ActiveCount > 0) --m_ActiveCount;
 }
 
 void FTweenManager::CompleteAll() noexcept {
-    for (u32 i = 0; i < _slots.Size(); ++i) {
-        Slot& s = _slots[i];
+    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+        Slot& s = m_Slots[i];
         if (!s.active) continue;
         switch (s.kind) {
         case Kind::F32:  *static_cast<f32*>(s.target)  = s.to_f;  break;
@@ -103,32 +103,32 @@ void FTweenManager::CompleteAll() noexcept {
         s.kind   = Kind::None;
         s.target = nullptr;
     }
-    _active_count = 0;
+    m_ActiveCount = 0;
 }
 
 void FTweenManager::CancelAll() noexcept {
-    for (u32 i = 0; i < _slots.Size(); ++i) {
-        _slots[i].active = false;
-        _slots[i].kind   = Kind::None;
-        _slots[i].target = nullptr;
+    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+        m_Slots[i].active = false;
+        m_Slots[i].kind   = Kind::None;
+        m_Slots[i].target = nullptr;
     }
-    _active_count = 0;
+    m_ActiveCount = 0;
 }
 
 bool FTweenManager::IsActive(FTweenHandle h) const noexcept {
-    if (!h.IsValid() || h.index >= _slots.Size()) return false;
-    const Slot& s = _slots[h.index];
+    if (!h.IsValid() || h.index >= m_Slots.Size()) return false;
+    const Slot& s = m_Slots[h.index];
     return s.active && s.generation == h.generation;
 }
 
 u32 FTweenManager::ActiveCount() const noexcept {
-    return _active_count;
+    return m_ActiveCount;
 }
 
 void FTweenManager::Tick(f32 dt) noexcept {
-    if (_active_count == 0 || dt <= 0.0f) return;
-    for (u32 i = 0; i < _slots.Size(); ++i) {
-        Slot& s = _slots[i];
+    if (m_ActiveCount == 0 || dt <= 0.0f) return;
+    for (u32 i = 0; i < m_Slots.Size(); ++i) {
+        Slot& s = m_Slots[i];
         if (!s.active) continue;
 
         s.elapsed += dt;
@@ -172,7 +172,7 @@ void FTweenManager::Tick(f32 dt) noexcept {
             s.active = false;
             s.kind   = Kind::None;
             s.target = nullptr;
-            if (_active_count > 0) --_active_count;
+            if (m_ActiveCount > 0) --m_ActiveCount;
         }
     }
 }

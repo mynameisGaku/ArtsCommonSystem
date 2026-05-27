@@ -61,27 +61,27 @@ public:
     // ウィンドウサイズ変更時に呼ぶ（イベントハンドラから）
     void OnResize(u32 width, u32 height) noexcept;
 
-    IRhiDevice*     Device()      const noexcept { return _device.Get(); }
-    IRhiSwapchain*  Swapchain()   const noexcept { return _swapchain.Get(); }
-    IRhiCommandList* CommandList() const noexcept { return _cmd.Get(); }
-    IRhiTexture*    DepthBuffer() const noexcept { return _depth.Get(); }
+    IRhiDevice*     Device()      const noexcept { return m_Device.Get(); }
+    IRhiSwapchain*  Swapchain()   const noexcept { return m_Swapchain.Get(); }
+    IRhiCommandList* CommandList() const noexcept { return m_Cmd.Get(); }
+    IRhiTexture*    DepthBuffer() const noexcept { return m_Depth.Get(); }
 
     // 描画ターゲットのフォーマット（パイプライン作成時に必要）
-    EFormat          ColorFormat() const noexcept { return _color_format; }
-    EFormat          DepthFormat() const noexcept { return _depth_format; }
+    EFormat          ColorFormat() const noexcept { return m_ColorFormat; }
+    EFormat          DepthFormat() const noexcept { return m_DepthFormat; }
 
 private:
     TResult<void> RebuildDepth(u32 w, u32 h) noexcept;
 
-    TUniquePtr<IRhiDevice>      _device;
-    TUniquePtr<IRhiSwapchain>   _swapchain;
-    TUniquePtr<IRhiCommandList> _cmd;
-    TUniquePtr<IRhiTexture>     _depth;
-    EFormat                      _color_format  = EFormat::B8G8R8A8_UNorm;
-    EFormat                      _depth_format  = EFormat::D32_Float;
-    u32                         _current_buffer = 0;
-    bool                        _enable_depth   = true;
-    bool                        _frame_open     = false;
+    TUniquePtr<IRhiDevice>      m_Device;
+    TUniquePtr<IRhiSwapchain>   m_Swapchain;
+    TUniquePtr<IRhiCommandList> m_Cmd;
+    TUniquePtr<IRhiTexture>     m_Depth;
+    EFormat                      m_ColorFormat  = EFormat::B8G8R8A8_UNorm;
+    EFormat                      m_DepthFormat  = EFormat::D32_Float;
+    u32                         m_CurrentBuffer = 0;
+    bool                        m_EnableDepth   = true;
+    bool                        m_FrameOpen     = false;
 };
 
 } // namespace acs

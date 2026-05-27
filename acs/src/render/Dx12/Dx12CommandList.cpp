@@ -31,12 +31,12 @@ D3D12_PRIMITIVE_TOPOLOGY ToD3DPrimitive(EPrimitiveTopology t) noexcept {
 
 Dx12CommandList::~Dx12CommandList() noexcept {
     // 全 fence の完了を待ってから破棄しないとアロケータ再利用で UB
-    if (_device) {
+    if (m_Device) {
         for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
-            _device->WaitForFenceValue(_frame_fences[i]);
+            m_Device->WaitForFenceValue(m_FrameFences[i]);
         }
     }
-    ACS_SAFE_RELEASE(_cmd_list);
+    ACS_SAFE_RELEASE(m_CmdList);
     for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
         ACS_SAFE_RELEASE(_allocators[i]);
     }
@@ -44,60 +44,60 @@ Dx12CommandList::~Dx12CommandList() noexcept {
 
 HrResult Dx12CommandList::Init(Dx12Device& device) noexcept {
     HrResult r{};
-    _device = &device;
+    m_Device = &device;
     // フレームインフライト数ぶんアロケータを作成（GPU/CPU 並列実行のため）
     for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
         r.hr = device.D3DDevice()->CreateCommandAllocator(
             D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_allocators[i]));
         if (r.IsErr()) return r;
-        _frame_fences[i] = 0;
+        m_FrameFences[i] = 0;
     }
     r.hr = device.D3DDevice()->CreateCommandList(
         0, D3D12_COMMAND_LIST_TYPE_DIRECT, _allocators[0], nullptr,
-        IID_PPV_ARGS(&_cmd_list));
+        IID_PPV_ARGS(&m_CmdList));
     if (r.IsErr()) return r;
-    _cmd_list->Close();  // 作成時は Open 状態 → 閉じておく
+    m_CmdList->Close();  // 作成時は Open 状態 → 閉じておく
     return r;
 }
 
 void Dx12CommandList::Begin() noexcept {
-    const u32 slot = _device->CurrentFrameSlot();
+    const u32 slot = m_Device->CurrentFrameSlot();
     _allocators[slot]->Reset();
-    _cmd_list->Reset(_allocators[slot], nullptr);
+    m_CmdList->Reset(_allocators[slot], nullptr);
 
     // 共有 SRV ヒープを bind（テクスチャをバインドする際に必要）
-    if (_device && _device->SrvHeap()) {
-        ID3D12DescriptorHeap* heaps[] = { _device->SrvHeap() };
-        _cmd_list->SetDescriptorHeaps(1, heaps);
+    if (m_Device && m_Device->SrvHeap()) {
+        ID3D12DescriptorHeap* heaps[] = { m_Device->SrvHeap() };
+        m_CmdList->SetDescriptorHeaps(1, heaps);
     }
-    _bound_pipe = nullptr;
+    m_BoundPipe = nullptr;
     _open = true;
 }
 
 void Dx12CommandList::End() noexcept {
     if (!_open) return;
-    _cmd_list->Close();
+    m_CmdList->Close();
     _open = false;
 }
 
 void Dx12CommandList::Submit() noexcept {
     if (_open) End();
-    ID3D12CommandList* lists[] = { _cmd_list };
-    _device->GraphicsQueue()->ExecuteCommandLists(1, lists);
+    ID3D12CommandList* lists[] = { m_CmdList };
+    m_Device->GraphicsQueue()->ExecuteCommandLists(1, lists);
 
-    const u32 cur_slot  = _device->CurrentFrameSlot();
+    const u32 cur_slot  = m_Device->CurrentFrameSlot();
     const u32 next_slot = (cur_slot + 1) % Dx12Device::kFramesInFlight;
 
     // 1) このフレームの GPU 完了を fence に Signal
-    _frame_fences[cur_slot] = _device->SignalGraphicsQueue();
+    m_FrameFences[cur_slot] = m_Device->SignalGraphicsQueue();
 
     // 2) 次に使うスロットが GPU で完了するまで待つ。Submit が戻った時点で
     //    「次フレームの OnUpdate で書き込む UPLOAD ヒープスロット」は
     //    GPU から見て開放済み = 競合しない。
-    _device->WaitForFenceValue(_frame_fences[next_slot]);
+    m_Device->WaitForFenceValue(m_FrameFences[next_slot]);
 
     // 3) Device 側のスロットを切替（リングバッファ化された CB が次スロットを返すように）
-    _device->AdvanceFrameSlot();
+    m_Device->AdvanceFrameSlot();
 }
 
 void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
@@ -114,7 +114,7 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
     b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
     b.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
     b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    _cmd_list->ResourceBarrier(1, &b);
+    m_CmdList->ResourceBarrier(1, &b);
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_sc.BackBufferRTV(buffer_index);
 
@@ -125,18 +125,18 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
         dx_depth = static_cast<Dx12Texture*>(depth);
         if (dx_depth->IsDepth()) {
             dsv = dx_depth->DsvCpuHandle();
-            _cmd_list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-            _cmd_list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH,
+            m_CmdList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+            m_CmdList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH,
                                               depth_clear, 0, 0, nullptr);
         } else {
-            _cmd_list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+            m_CmdList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
         }
     } else {
-        _cmd_list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        m_CmdList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     }
 
     const FLOAT col[4] = { clear.r, clear.g, clear.b, clear.a };
-    _cmd_list->ClearRenderTargetView(rtv, col, 0, nullptr);
+    m_CmdList->ClearRenderTargetView(rtv, col, 0, nullptr);
 }
 
 void Dx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept {
@@ -149,7 +149,7 @@ void Dx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) 
     b.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
     b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
     b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    _cmd_list->ResourceBarrier(1, &b);
+    m_CmdList->ResourceBarrier(1, &b);
 }
 
 void Dx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
@@ -164,27 +164,27 @@ void Dx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexc
         b.Transition.StateBefore = dx_depth.CurrentState();
         b.Transition.StateAfter  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        _cmd_list->ResourceBarrier(1, &b);
+        m_CmdList->ResourceBarrier(1, &b);
         dx_depth.SetCurrentState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE dsv = dx_depth.DsvCpuHandle();
-    _cmd_list->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
-    _cmd_list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depth_clear, 0, 0, nullptr);
+    m_CmdList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
+    m_CmdList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depth_clear, 0, 0, nullptr);
 
     D3D12_VIEWPORT vp{};
     vp.TopLeftX = 0; vp.TopLeftY = 0;
     vp.Width    = static_cast<f32>(dx_depth.Width());
     vp.Height   = static_cast<f32>(dx_depth.Height());
     vp.MinDepth = 0.0f; vp.MaxDepth = 1.0f;
-    _cmd_list->RSSetViewports(1, &vp);
+    m_CmdList->RSSetViewports(1, &vp);
     D3D12_RECT sr{};
     sr.left = 0; sr.top = 0;
     sr.right  = static_cast<i32>(dx_depth.Width());
     sr.bottom = static_cast<i32>(dx_depth.Height());
-    _cmd_list->RSSetScissorRects(1, &sr);
+    m_CmdList->RSSetScissorRects(1, &sr);
 
-    _bound_pipe = nullptr;
+    m_BoundPipe = nullptr;
 }
 
 // オフスクリーン RT 用 API（Dx12 raw backend 未実装。Diligent backend を使うこと）
@@ -230,7 +230,7 @@ void Dx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
         b.Transition.StateBefore = dx_depth.CurrentState();
         b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        _cmd_list->ResourceBarrier(1, &b);
+        m_CmdList->ResourceBarrier(1, &b);
         dx_depth.SetCurrentState(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }
 }
@@ -243,22 +243,22 @@ void Dx12CommandList::SetViewport(const FViewport& vp) noexcept {
     v.Height   = vp.height;
     v.MinDepth = vp.min_depth;
     v.MaxDepth = vp.max_depth;
-    _cmd_list->RSSetViewports(1, &v);
+    m_CmdList->RSSetViewports(1, &v);
 }
 
 void Dx12CommandList::SetScissor(const FScissorRect& sr) noexcept {
     D3D12_RECT r{};
     r.left = sr.left; r.top = sr.top;
     r.right = sr.right; r.bottom = sr.bottom;
-    _cmd_list->RSSetScissorRects(1, &r);
+    m_CmdList->RSSetScissorRects(1, &r);
 }
 
 void Dx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
     auto& p = static_cast<Dx12Pipeline&>(pipeline);
-    _cmd_list->SetPipelineState(p.Pso());
-    _cmd_list->SetGraphicsRootSignature(p.RootSignature());
-    _cmd_list->IASetPrimitiveTopology(ToD3DPrimitive(p.Topology()));
-    _bound_pipe = &p;
+    m_CmdList->SetPipelineState(p.Pso());
+    m_CmdList->SetGraphicsRootSignature(p.RootSignature());
+    m_CmdList->IASetPrimitiveTopology(ToD3DPrimitive(p.Topology()));
+    m_BoundPipe = &p;
 }
 
 void Dx12CommandList::SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept {
@@ -267,7 +267,7 @@ void Dx12CommandList::SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept {
     v.BufferLocation = b.Gpu();
     v.SizeInBytes    = static_cast<UINT>(b.Size());
     v.StrideInBytes  = stride;
-    _cmd_list->IASetVertexBuffers(0, 1, &v);
+    m_CmdList->IASetVertexBuffers(0, 1, &v);
 }
 
 void Dx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
@@ -276,30 +276,30 @@ void Dx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     v.BufferLocation = b.Gpu();
     v.SizeInBytes    = static_cast<UINT>(b.Size());
     v.Format = (b.Usage() == EBufferUsage::Index32) ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
-    _cmd_list->IASetIndexBuffer(&v);
+    m_CmdList->IASetIndexBuffer(&v);
 }
 
 void Dx12CommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
-    if (!_bound_pipe || slot >= _bound_pipe->CBufferSlots()) return;
+    if (!m_BoundPipe || slot >= m_BoundPipe->CBufferSlots()) return;
     auto& b = static_cast<Dx12Buffer&>(cb);
     // ルートパラメータ index = slot（CBV はパラメータの先頭側に並べてある）
-    _cmd_list->SetGraphicsRootConstantBufferView(slot, b.Gpu());
+    m_CmdList->SetGraphicsRootConstantBufferView(slot, b.Gpu());
 }
 
 void Dx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
-    if (!_bound_pipe || slot >= _bound_pipe->TextureSlots()) return;
+    if (!m_BoundPipe || slot >= m_BoundPipe->TextureSlots()) return;
     auto& t = static_cast<Dx12Texture&>(tex);
     // ルートパラメータ index = cbuffer_slots + slot
-    const u32 root_index = _bound_pipe->CBufferSlots() + slot;
-    _cmd_list->SetGraphicsRootDescriptorTable(root_index, t.SrvGpuHandle());
+    const u32 root_index = m_BoundPipe->CBufferSlots() + slot;
+    m_CmdList->SetGraphicsRootDescriptorTable(root_index, t.SrvGpuHandle());
 }
 
 void Dx12CommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
-    _cmd_list->DrawInstanced(vertex_count, 1, first_vertex, 0);
+    m_CmdList->DrawInstanced(vertex_count, 1, first_vertex, 0);
 }
 
 void Dx12CommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
-    _cmd_list->DrawIndexedInstanced(index_count, 1, first_index, base_vertex, 0);
+    m_CmdList->DrawIndexedInstanced(index_count, 1, first_index, base_vertex, 0);
 }
 
 // ファクトリ関数

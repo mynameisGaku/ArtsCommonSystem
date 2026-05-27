@@ -56,39 +56,39 @@ constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 // =============================================================================
 
 void FAnimationGraph::Init() noexcept {
-    _clips.Clear();
+    m_Clips.Clear();
     _state_nodes.Clear();
-    _transitions.Clear();
-    _params.Clear();
+    m_Transitions.Clear();
+    m_Params.Clear();
 
-    _current_state    = EAnimationGraphState::Idle;
-    _previous_state   = EAnimationGraphState::Idle;
-    _local_time       = 0.0f;
-    _blend_timer      = 0.0f;
-    _blend_duration   = 0.0f;
-    _has_current      = false;
-    _clip_ended_fired = false;
-    _trigger_pending  = false;
-    _pending_trigger  = EAnimationGraphState::Idle;
+    m_CurrentState    = EAnimationGraphState::Idle;
+    m_PreviousState   = EAnimationGraphState::Idle;
+    m_LocalTime       = 0.0f;
+    m_BlendTimer      = 0.0f;
+    m_BlendDuration   = 0.0f;
+    m_HasCurrent      = false;
+    m_ClipEndedFired = false;
+    m_TriggerPending  = false;
+    m_PendingTrigger  = EAnimationGraphState::Idle;
 
     _state_enter_cb   = nullptr;
     _state_enter_user = nullptr;
-    _clip_end_cb      = nullptr;
-    _clip_end_user    = nullptr;
+    m_ClipEndCb      = nullptr;
+    m_ClipEndUser    = nullptr;
 }
 
 void FAnimationGraph::Shutdown() noexcept {
-    _clips.Clear();
+    m_Clips.Clear();
     _state_nodes.Clear();
-    _transitions.Clear();
-    _params.Clear();
+    m_Transitions.Clear();
+    m_Params.Clear();
 
-    _has_current      = false;
-    _trigger_pending  = false;
-    _blend_timer      = 0.0f;
-    _blend_duration   = 0.0f;
-    _local_time       = 0.0f;
-    _clip_ended_fired = false;
+    m_HasCurrent      = false;
+    m_TriggerPending  = false;
+    m_BlendTimer      = 0.0f;
+    m_BlendDuration   = 0.0f;
+    m_LocalTime       = 0.0f;
+    m_ClipEndedFired = false;
 }
 
 // =============================================================================
@@ -96,17 +96,17 @@ void FAnimationGraph::Shutdown() noexcept {
 // =============================================================================
 
 u32 FAnimationGraph::AddClip(const FAnimationClipBinding& clip) noexcept {
-    _clips.PushBack(clip);
-    return static_cast<u32>(_clips.Size()) - 1u;
+    m_Clips.PushBack(clip);
+    return static_cast<u32>(m_Clips.Size()) - 1u;
 }
 
 u32 FAnimationGraph::ClipCount() const noexcept {
-    return static_cast<u32>(_clips.Size());
+    return static_cast<u32>(m_Clips.Size());
 }
 
 const FAnimationClipBinding* FAnimationGraph::GetClip(u32 i) const noexcept {
-    if (i >= _clips.Size()) return nullptr;
-    return &_clips[i];
+    if (i >= m_Clips.Size()) return nullptr;
+    return &m_Clips[i];
 }
 
 // =============================================================================
@@ -124,15 +124,15 @@ void FAnimationGraph::AddStateNode(const FAnimationStateNode& node) noexcept {
     }
     _state_nodes.PushBack(node);
 
-    // 初回追加で _has_current が立っていなければ初期状態としてセット
-    if (!_has_current) {
-        _current_state    = node.id;
-        _previous_state   = node.id;
-        _local_time       = 0.0f;
-        _blend_timer      = 0.0f;
-        _blend_duration   = 0.0f;
-        _clip_ended_fired = false;
-        _has_current      = true;
+    // 初回追加で m_HasCurrent が立っていなければ初期状態としてセット
+    if (!m_HasCurrent) {
+        m_CurrentState    = node.id;
+        m_PreviousState   = node.id;
+        m_LocalTime       = 0.0f;
+        m_BlendTimer      = 0.0f;
+        m_BlendDuration   = 0.0f;
+        m_ClipEndedFired = false;
+        m_HasCurrent      = true;
     }
 }
 
@@ -150,16 +150,16 @@ const FAnimationStateNode* FAnimationGraph::GetStateNode(u32 i) const noexcept {
 // =============================================================================
 
 void FAnimationGraph::AddTransition(const FAnimationTransition& trans) noexcept {
-    _transitions.PushBack(trans);
+    m_Transitions.PushBack(trans);
 }
 
 u32 FAnimationGraph::TransitionCount() const noexcept {
-    return static_cast<u32>(_transitions.Size());
+    return static_cast<u32>(m_Transitions.Size());
 }
 
 const FAnimationTransition* FAnimationGraph::GetTransition(u32 i) const noexcept {
-    if (i >= _transitions.Size()) return nullptr;
-    return &_transitions[i];
+    if (i >= m_Transitions.Size()) return nullptr;
+    return &m_Transitions[i];
 }
 
 // =============================================================================
@@ -169,25 +169,25 @@ const FAnimationTransition* FAnimationGraph::GetTransition(u32 i) const noexcept
 void FAnimationGraph::SetParam(const char* name, f32 value) noexcept {
     if (name == nullptr) return;
 
-    const usize n = _params.Size();
+    const usize n = m_Params.Size();
     for (usize i = 0; i < n; ++i) {
-        if (NamesEqual(_params[i].name, name)) {
-            _params[i].value = value;
+        if (NamesEqual(m_Params[i].name, name)) {
+            m_Params[i].value = value;
             return;
         }
     }
     Param p;
     p.name  = name;
     p.value = value;
-    _params.PushBack(p);
+    m_Params.PushBack(p);
 }
 
 f32 FAnimationGraph::GetParam(const char* name) const noexcept {
     if (name == nullptr) return 0.0f;
-    const usize n = _params.Size();
+    const usize n = m_Params.Size();
     for (usize i = 0; i < n; ++i) {
-        if (NamesEqual(_params[i].name, name)) {
-            return _params[i].value;
+        if (NamesEqual(m_Params[i].name, name)) {
+            return m_Params[i].value;
         }
     }
     return 0.0f;
@@ -200,9 +200,9 @@ f32 FAnimationGraph::GetParam(const char* name) const noexcept {
 void FAnimationGraph::TriggerTransition(EAnimationGraphState target_state) noexcept {
     // 同 state への明示的遷移は no-op (= 意図せぬ self-loop による再 enter を
     // 防ぐ; どうしても再 enter したい場合は一旦別 state を経由する設計に)
-    if (_has_current && target_state == _current_state) return;
-    _pending_trigger = target_state;
-    _trigger_pending = true;
+    if (m_HasCurrent && target_state == m_CurrentState) return;
+    m_PendingTrigger = target_state;
+    m_TriggerPending = true;
 }
 
 // =============================================================================
@@ -210,10 +210,10 @@ void FAnimationGraph::TriggerTransition(EAnimationGraphState target_state) noexc
 // =============================================================================
 
 f32 FAnimationGraph::CurrentBlendAlpha() const noexcept {
-    if (_blend_duration <= 0.0f) return 1.0f;       // 即時切替の場合
-    if (_blend_timer    <= 0.0f) return 1.0f;       // blend 完了
+    if (m_BlendDuration <= 0.0f) return 1.0f;       // 即時切替の場合
+    if (m_BlendTimer    <= 0.0f) return 1.0f;       // blend 完了
     // blend_timer は「残時間」: alpha = 1 - (残 / 全)
-    const f32 ratio = _blend_timer / _blend_duration;
+    const f32 ratio = m_BlendTimer / m_BlendDuration;
     const f32 a     = 1.0f - ratio;
     if (a < 0.0f) return 0.0f;
     if (a > 1.0f) return 1.0f;
@@ -221,8 +221,8 @@ f32 FAnimationGraph::CurrentBlendAlpha() const noexcept {
 }
 
 u32 FAnimationGraph::CurrentClipIndex() const noexcept {
-    if (!_has_current) return 0u;
-    const u32 idx = FindStateNodeIndex(_current_state);
+    if (!m_HasCurrent) return 0u;
+    const u32 idx = FindStateNodeIndex(m_CurrentState);
     if (idx == kInvalidIndex) return 0u;
     return _state_nodes[idx].clip_index;
 }
@@ -243,15 +243,15 @@ void FAnimationGraph::DoTransition(EAnimationGraphState target) noexcept {
     const u32 target_idx = FindStateNodeIndex(target);
     if (target_idx == kInvalidIndex) return;   // 未登録 state への遷移は無視
 
-    const EAnimationGraphState from = _current_state;
-    _previous_state   = from;
-    _current_state    = target;
-    _local_time       = 0.0f;
-    _clip_ended_fired = false;
-    _blend_duration   = _state_nodes[target_idx].enter_blend_sec;
-    if (_blend_duration < 0.0f) _blend_duration = 0.0f;
-    _blend_timer      = _blend_duration;  // duration==0 なら即時 alpha=1
-    _has_current      = true;
+    const EAnimationGraphState from = m_CurrentState;
+    m_PreviousState   = from;
+    m_CurrentState    = target;
+    m_LocalTime       = 0.0f;
+    m_ClipEndedFired = false;
+    m_BlendDuration   = _state_nodes[target_idx].enter_blend_sec;
+    if (m_BlendDuration < 0.0f) m_BlendDuration = 0.0f;
+    m_BlendTimer      = m_BlendDuration;  // duration==0 なら即時 alpha=1
+    m_HasCurrent      = true;
 
     if (_state_enter_cb != nullptr) {
         _state_enter_cb(_state_enter_user, from, target);
@@ -259,45 +259,45 @@ void FAnimationGraph::DoTransition(EAnimationGraphState target) noexcept {
 }
 
 bool FAnimationGraph::AdvanceLocalTime(f32 dt) noexcept {
-    const u32 idx = FindStateNodeIndex(_current_state);
+    const u32 idx = FindStateNodeIndex(m_CurrentState);
     if (idx == kInvalidIndex) return false;
 
     const FAnimationStateNode& node = _state_nodes[idx];
-    if (node.clip_index >= _clips.Size()) return false;
+    if (node.clip_index >= m_Clips.Size()) return false;
 
-    const FAnimationClipBinding& clip = _clips[node.clip_index];
+    const FAnimationClipBinding& clip = m_Clips[node.clip_index];
 
     const f32 speed = clip.default_speed;
-    _local_time += dt * speed;
+    m_LocalTime += dt * speed;
 
     // 0 以下の duration は進行させない (= ガード)
     if (clip.duration_sec <= 0.0f) {
-        _local_time = 0.0f;
+        m_LocalTime = 0.0f;
         return false;
     }
 
     bool ended = false;
     if (clip.is_looping) {
         // 巨大 dt 対策で while wrap (f32 精度を保つため)
-        while (_local_time >= clip.duration_sec) {
-            _local_time -= clip.duration_sec;
+        while (m_LocalTime >= clip.duration_sec) {
+            m_LocalTime -= clip.duration_sec;
         }
-        if (_local_time < 0.0f) _local_time = 0.0f;
+        if (m_LocalTime < 0.0f) m_LocalTime = 0.0f;
     } else {
-        if (_local_time >= clip.duration_sec) {
-            _local_time = clip.duration_sec;
+        if (m_LocalTime >= clip.duration_sec) {
+            m_LocalTime = clip.duration_sec;
             ended       = true;
         }
-        if (_local_time < 0.0f) _local_time = 0.0f;
+        if (m_LocalTime < 0.0f) m_LocalTime = 0.0f;
     }
     return ended;
 }
 
 bool FAnimationGraph::EvaluateTransitions() noexcept {
-    const usize n = _transitions.Size();
+    const usize n = m_Transitions.Size();
     for (usize i = 0; i < n; ++i) {
-        const FAnimationTransition& t = _transitions[i];
-        if (t.from != _current_state) continue;
+        const FAnimationTransition& t = m_Transitions[i];
+        if (t.from != m_CurrentState) continue;
 
         // param 条件: name が nullptr なら param 評価をスキップ (exit_immediately
         // のみで成立判定)。
@@ -309,7 +309,7 @@ bool FAnimationGraph::EvaluateTransitions() noexcept {
         if (!param_ok) continue;
 
         // exit_immediately=false の場合は Once clip 終端到達時のみ発火
-        if (!t.exit_immediately && !_clip_ended_fired) continue;
+        if (!t.exit_immediately && !m_ClipEndedFired) continue;
 
         DoTransition(t.to);
         return true;
@@ -324,30 +324,30 @@ bool FAnimationGraph::EvaluateTransitions() noexcept {
 void FAnimationGraph::Tick(f32 dt) noexcept {
     if (dt <= 0.0f)            return;
     if (_state_nodes.IsEmpty()) return;
-    if (!_has_current)         return;
+    if (!m_HasCurrent)         return;
 
     // 1. pending trigger を最優先で処理 (input event 駆動の即時遷移を保証)
-    if (_trigger_pending) {
-        _trigger_pending = false;
-        DoTransition(_pending_trigger);
+    if (m_TriggerPending) {
+        m_TriggerPending = false;
+        DoTransition(m_PendingTrigger);
         // 遷移後 1 Tick の clip 進行は次フレームから (= enter 直後の安定化)
         // ただし blend timer は本 Tick で進めておく必要が無いので return
         return;
     }
 
     // 2. blend timer を進める (CurrentBlendAlpha() は lazy 計算)
-    if (_blend_timer > 0.0f) {
-        _blend_timer -= dt;
-        if (_blend_timer < 0.0f) _blend_timer = 0.0f;
+    if (m_BlendTimer > 0.0f) {
+        m_BlendTimer -= dt;
+        if (m_BlendTimer < 0.0f) m_BlendTimer = 0.0f;
     }
 
     // 3. local_time を進める。Once clip 終端到達なら ClipEndCallback 発火 (1 度のみ)
     const bool ended = AdvanceLocalTime(dt);
-    if (ended && !_clip_ended_fired) {
-        _clip_ended_fired = true;
-        if (_clip_end_cb != nullptr) {
+    if (ended && !m_ClipEndedFired) {
+        m_ClipEndedFired = true;
+        if (m_ClipEndCb != nullptr) {
             const u32 ci = CurrentClipIndex();
-            _clip_end_cb(_clip_end_user, _current_state, ci);
+            m_ClipEndCb(m_ClipEndUser, m_CurrentState, ci);
         }
     }
 
@@ -357,26 +357,26 @@ void FAnimationGraph::Tick(f32 dt) noexcept {
 
 void FAnimationGraph::Reset() noexcept {
     if (_state_nodes.IsEmpty()) {
-        _has_current      = false;
-        _local_time       = 0.0f;
-        _blend_timer      = 0.0f;
-        _blend_duration   = 0.0f;
-        _clip_ended_fired = false;
-        _trigger_pending  = false;
+        m_HasCurrent      = false;
+        m_LocalTime       = 0.0f;
+        m_BlendTimer      = 0.0f;
+        m_BlendDuration   = 0.0f;
+        m_ClipEndedFired = false;
+        m_TriggerPending  = false;
         return;
     }
 
-    // 先頭 state を初期状態として採用 (AddStateNode 1 つ目で _has_current が
+    // 先頭 state を初期状態として採用 (AddStateNode 1 つ目で m_HasCurrent が
     // 立つときと同じ規約)。
     const FAnimationStateNode& first = _state_nodes[0];
-    _current_state    = first.id;
-    _previous_state   = first.id;
-    _local_time       = 0.0f;
-    _blend_timer      = 0.0f;
-    _blend_duration   = 0.0f;
-    _clip_ended_fired = false;
-    _trigger_pending  = false;
-    _has_current      = true;
+    m_CurrentState    = first.id;
+    m_PreviousState   = first.id;
+    m_LocalTime       = 0.0f;
+    m_BlendTimer      = 0.0f;
+    m_BlendDuration   = 0.0f;
+    m_ClipEndedFired = false;
+    m_TriggerPending  = false;
+    m_HasCurrent      = true;
 }
 
 // =============================================================================
@@ -389,8 +389,8 @@ void FAnimationGraph::SetOnStateEnterCallback(StateEnterCallback cb, void* user)
 }
 
 void FAnimationGraph::SetOnClipEndCallback(ClipEndCallback cb, void* user) noexcept {
-    _clip_end_cb   = cb;
-    _clip_end_user = user;
+    m_ClipEndCb   = cb;
+    m_ClipEndUser = user;
 }
 
 } // namespace acs::game

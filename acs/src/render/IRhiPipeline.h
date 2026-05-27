@@ -74,7 +74,7 @@ struct FPipelineDesc {
     //   texture_names[0] = "albedo";    // Texture2D albedo : register(t0)
     //   texture_names[1] = "shadow_map"; // Texture2D shadow_map : register(t1)
     //
-    // Diligent では HLSL サンプラ名は「<texture>_sampler」固定（CombinedSamplerSuffix）。
+    // Diligent では HLSL サンプラ名は「<texture>m_Sampler」固定（CombinedSamplerSuffix）。
     // 例: Texture2D albedo;   SamplerState albedo_sampler;
     const char*       cbuffer_names[16] = {};
     const char*       texture_names[16] = {};

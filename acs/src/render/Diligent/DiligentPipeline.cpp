@@ -35,27 +35,27 @@ const char* DiligentPipeline::FallbackTexName(u32 slot) noexcept {
 
 const char* DiligentPipeline::CbufferName(u32 slot) const noexcept {
     if (slot >= kMaxResourceSlots) return FallbackCbName(slot);
-    return _cb_names[slot] ? _cb_names[slot] : FallbackCbName(slot);
+    return m_CbNames[slot] ? m_CbNames[slot] : FallbackCbName(slot);
 }
 const char* DiligentPipeline::TextureName(u32 slot) const noexcept {
     if (slot >= kMaxResourceSlots) return FallbackTexName(slot);
-    return _tex_names[slot] ? _tex_names[slot] : FallbackTexName(slot);
+    return m_TexNames[slot] ? m_TexNames[slot] : FallbackTexName(slot);
 }
 
 DiligentPipeline::~DiligentPipeline() noexcept {
-    if (_srb) { _srb->Release(); _srb = nullptr; }
-    if (_pso) { _pso->Release(); _pso = nullptr; }
+    if (m_Srb) { m_Srb->Release(); m_Srb = nullptr; }
+    if (m_Pso) { m_Pso->Release(); m_Pso = nullptr; }
 }
 
 TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept {
-    _device = &device;
-    _cb_slots  = desc.cbuffer_slots;
-    _tex_slots = desc.texture_slots;
+    m_Device = &device;
+    m_CbSlots  = desc.cbuffer_slots;
+    m_TexSlots = desc.texture_slots;
 
     // FPipelineDesc の名前を取り込む（null は維持してフォールバックさせる）
     for (u32 i = 0; i < kMaxResourceSlots; ++i) {
-        _cb_names[i]  = desc.cbuffer_names[i];
-        _tex_names[i] = desc.texture_names[i];
+        m_CbNames[i]  = desc.cbuffer_names[i];
+        m_TexNames[i] = desc.texture_names[i];
     }
 
     auto* dev = device.RenderDev();
@@ -73,15 +73,15 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     // 慣行: VS / PS で同じ cbuffer を共有)。Diligent::ShaderResourceDesc に
     // BindPoint が無い問題を回避し、HLSL declaration 順依存を消す。
     for (u32 i = 0; i < kMaxResourceSlots && i < DiligentShader::kMaxSlots; ++i) {
-        if (!_cb_names[i]) {
+        if (!m_CbNames[i]) {
             const char* n = vs->CbufferNameAt(i);
             if (!n && ps) n = ps->CbufferNameAt(i);
-            if (n) _cb_names[i] = n;
+            if (n) m_CbNames[i] = n;
         }
-        if (!_tex_names[i]) {
+        if (!m_TexNames[i]) {
             const char* n = ps ? ps->TextureNameAt(i) : nullptr;
             if (!n) n = vs->TextureNameAt(i);
-            if (n) _tex_names[i] = n;
+            if (n) m_TexNames[i] = n;
         }
     }
     // PS は depth-only pass (FShadowMap 等) で null OK。NumRenderTargets=0、
@@ -189,7 +189,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     gp.InputLayout.NumElements    = desc.layout_count;
 
     // === Resource layout ===
-    // 各 texture に対応する static sampler を `<TextureName>_sampler` の名前で
+    // 各 texture に対応する static sampler を `<TextureName>m_Sampler` の名前で
     // ImmutableSampler 登録する（Diligent の CombinedSamplerSuffix と一致）。
     psoCI.PSODesc.ResourceLayout.DefaultVariableType =
         Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC;
@@ -217,13 +217,13 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     psoCI.PSODesc.ResourceLayout.ImmutableSamplers    = ns > 0 ? samplers : nullptr;
     psoCI.PSODesc.ResourceLayout.NumImmutableSamplers = ns;
 
-    dev->CreateGraphicsPipelineState(psoCI, &_pso);
-    if (!_pso) {
+    dev->CreateGraphicsPipelineState(psoCI, &m_Pso);
+    if (!m_Pso) {
         return ACS_ERR(Render, 152, "CreateGraphicsPipelineState failed");
     }
 
-    _pso->CreateShaderResourceBinding(&_srb, true);
-    if (!_srb) {
+    m_Pso->CreateShaderResourceBinding(&m_Srb, true);
+    if (!m_Srb) {
         return ACS_ERR(Render, 153, "CreateShaderResourceBinding failed");
     }
 

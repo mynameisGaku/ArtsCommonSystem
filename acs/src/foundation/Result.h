@@ -59,59 +59,59 @@ public:
              typename = EnableIfT<!IsSameV<RemoveCVRefT<U>, E> &&
                                   !IsSameV<RemoveCVRefT<U>, TResult<T, E>>>>
     TResult(U&& v) noexcept
-        : _has_value(true) {
-        ::new (static_cast<void*>(&_storage._value)) T(Forward<U>(v));
+        : m_HasValue(true) {
+        ::new (static_cast<void*>(&m_Storage.m_Value)) T(Forward<U>(v));
     }
 
     // OkInit タグ + 値を渡して明示的に成功側を構築する（rvalue / lvalue 両対応）。
     TResult(detail::FOkTag, T&& v) noexcept
-        : _has_value(true) {
-        ::new (static_cast<void*>(&_storage._value)) T(Move(v));
+        : m_HasValue(true) {
+        ::new (static_cast<void*>(&m_Storage.m_Value)) T(Move(v));
     }
     TResult(detail::FOkTag, const T& v) noexcept
-        : _has_value(true) {
-        ::new (static_cast<void*>(&_storage._value)) T(v);
+        : m_HasValue(true) {
+        ::new (static_cast<void*>(&m_Storage.m_Value)) T(v);
     }
 
     // ErrInit タグ + エラー値で明示的にエラー側を構築する。
     TResult(detail::FErrTag, E&& e) noexcept
-        : _has_value(false) {
-        ::new (static_cast<void*>(&_storage._error)) E(Move(e));
+        : m_HasValue(false) {
+        ::new (static_cast<void*>(&m_Storage.m_Error)) E(Move(e));
     }
 
     // E の暗黙変換コンストラクタ。`return ACS_ERR(...);` のような呼び方を可能にする。
     TResult(const E& e) noexcept
-        : _has_value(false) {
-        ::new (static_cast<void*>(&_storage._error)) E(e);
+        : m_HasValue(false) {
+        ::new (static_cast<void*>(&m_Storage.m_Error)) E(e);
     }
 
     // ---- コピー / ムーブ -------------------------------------------------
     // どちらの側 (value / error) を保持しているかで配置 new の対象を切り替える。
-    TResult(const TResult& other) noexcept : _has_value(other._has_value) {
-        if (_has_value) ::new (static_cast<void*>(&_storage._value)) T(other._storage._value);
-        else            ::new (static_cast<void*>(&_storage._error)) E(other._storage._error);
+    TResult(const TResult& other) noexcept : m_HasValue(other.m_HasValue) {
+        if (m_HasValue) ::new (static_cast<void*>(&m_Storage.m_Value)) T(other.m_Storage.m_Value);
+        else            ::new (static_cast<void*>(&m_Storage.m_Error)) E(other.m_Storage.m_Error);
     }
 
-    TResult(TResult&& other) noexcept : _has_value(other._has_value) {
-        if (_has_value) ::new (static_cast<void*>(&_storage._value)) T(Move(other._storage._value));
-        else            ::new (static_cast<void*>(&_storage._error)) E(Move(other._storage._error));
+    TResult(TResult&& other) noexcept : m_HasValue(other.m_HasValue) {
+        if (m_HasValue) ::new (static_cast<void*>(&m_Storage.m_Value)) T(Move(other.m_Storage.m_Value));
+        else            ::new (static_cast<void*>(&m_Storage.m_Error)) E(Move(other.m_Storage.m_Error));
     }
 
     TResult& operator=(const TResult& other) noexcept {
         if (this == &other) return *this;
         Destroy();
-        _has_value = other._has_value;
-        if (_has_value) ::new (static_cast<void*>(&_storage._value)) T(other._storage._value);
-        else            ::new (static_cast<void*>(&_storage._error)) E(other._storage._error);
+        m_HasValue = other.m_HasValue;
+        if (m_HasValue) ::new (static_cast<void*>(&m_Storage.m_Value)) T(other.m_Storage.m_Value);
+        else            ::new (static_cast<void*>(&m_Storage.m_Error)) E(other.m_Storage.m_Error);
         return *this;
     }
 
     TResult& operator=(TResult&& other) noexcept {
         if (this == &other) return *this;
         Destroy();
-        _has_value = other._has_value;
-        if (_has_value) ::new (static_cast<void*>(&_storage._value)) T(Move(other._storage._value));
-        else            ::new (static_cast<void*>(&_storage._error)) E(Move(other._storage._error));
+        m_HasValue = other.m_HasValue;
+        if (m_HasValue) ::new (static_cast<void*>(&m_Storage.m_Value)) T(Move(other.m_Storage.m_Value));
+        else            ::new (static_cast<void*>(&m_Storage.m_Error)) E(Move(other.m_Storage.m_Error));
         return *this;
     }
 
@@ -119,46 +119,46 @@ public:
     ~TResult() noexcept { Destroy(); }
 
     // ---- 状態確認 --------------------------------------------------------
-    bool IsOk()  const noexcept { return _has_value; }      // 成功か
-    bool IsErr() const noexcept { return !_has_value; }     // エラーか
-    explicit operator bool() const noexcept { return _has_value; } // if (r) で成功判定
+    bool IsOk()  const noexcept { return m_HasValue; }      // 成功か
+    bool IsErr() const noexcept { return !m_HasValue; }     // エラーか
+    explicit operator bool() const noexcept { return m_HasValue; } // if (r) で成功判定
 
     // ---- 値アクセス（Ok 側）---------------------------------------------
     // 注: IsErr() の状態で Value() を呼ぶと ACS_ASSERT で即座に停止する
     //     （誤用を確実に検出するため）。呼ぶ前に IsOk() で成功を確認すること。
-    T&       Value()       noexcept { ACS_ASSERT(_has_value); return _storage._value; }
-    const T& Value() const noexcept { ACS_ASSERT(_has_value); return _storage._value; }
+    T&       Value()       noexcept { ACS_ASSERT(m_HasValue); return m_Storage.m_Value; }
+    const T& Value() const noexcept { ACS_ASSERT(m_HasValue); return m_Storage.m_Value; }
 
     // ---- エラーアクセス（Err 側）----------------------------------------
     // 注: IsOk() の状態で Error() を呼ぶと ACS_ASSERT で即座に停止する。
-    E&       Error()       noexcept { ACS_ASSERT(!_has_value); return _storage._error; }
-    const E& Error() const noexcept { ACS_ASSERT(!_has_value); return _storage._error; }
+    E&       Error()       noexcept { ACS_ASSERT(!m_HasValue); return m_Storage.m_Error; }
+    const E& Error() const noexcept { ACS_ASSERT(!m_HasValue); return m_Storage.m_Error; }
 
     // 値を取得、エラー時は fallback を返す（簡易デフォルト適用）
     T ValueOr(T fallback) const noexcept {
-        return _has_value ? _storage._value : fallback;
+        return m_HasValue ? m_Storage.m_Value : fallback;
     }
 
 private:
     // 保持側に応じて適切なデストラクタを呼び出す。
     // トリビアル破棄可能型は何もしない（ゼロコスト）。
     void Destroy() noexcept {
-        if (_has_value) {
-            if constexpr (!IsTriviallyDestructibleV<T>) _storage._value.~T();
+        if (m_HasValue) {
+            if constexpr (!IsTriviallyDestructibleV<T>) m_Storage.m_Value.~T();
         } else {
-            if constexpr (!IsTriviallyDestructibleV<E>) _storage._error.~E();
+            if constexpr (!IsTriviallyDestructibleV<E>) m_Storage.m_Error.~E();
         }
     }
 
     // ストレージは union で T と E を排他的に保持する（メモリ節約）。
-    // どちらが有効かは _has_value で判別する。
+    // どちらが有効かは m_HasValue で判別する。
     union Storage {
         Storage() noexcept {}
         ~Storage() noexcept {}
-        T _value;
-        E _error;
-    } _storage;
-    bool _has_value;
+        T m_Value;
+        E m_Error;
+    } m_Storage;
+    bool m_HasValue;
 };
 
 // =============================================================================
@@ -171,56 +171,56 @@ public:
     using ValueType = void;
     using ErrorType = E;
 
-    TResult() noexcept : _has_value(true) {}                                      // デフォルトは成功
-    TResult(detail::FOkTag) noexcept : _has_value(true) {}                          // 明示的成功
-    TResult(detail::FErrTag, E&& e) noexcept : _has_value(false) {                  // 明示的エラー
-        ::new (static_cast<void*>(&_storage._error)) E(Move(e));
+    TResult() noexcept : m_HasValue(true) {}                                      // デフォルトは成功
+    TResult(detail::FOkTag) noexcept : m_HasValue(true) {}                          // 明示的成功
+    TResult(detail::FErrTag, E&& e) noexcept : m_HasValue(false) {                  // 明示的エラー
+        ::new (static_cast<void*>(&m_Storage.m_Error)) E(Move(e));
     }
-    TResult(const E& e) noexcept : _has_value(false) {                             // E からの暗黙変換
-        ::new (static_cast<void*>(&_storage._error)) E(e);
+    TResult(const E& e) noexcept : m_HasValue(false) {                             // E からの暗黙変換
+        ::new (static_cast<void*>(&m_Storage.m_Error)) E(e);
     }
 
-    TResult(const TResult& other) noexcept : _has_value(other._has_value) {
-        if (!_has_value) ::new (static_cast<void*>(&_storage._error)) E(other._storage._error);
+    TResult(const TResult& other) noexcept : m_HasValue(other.m_HasValue) {
+        if (!m_HasValue) ::new (static_cast<void*>(&m_Storage.m_Error)) E(other.m_Storage.m_Error);
     }
-    TResult(TResult&& other) noexcept : _has_value(other._has_value) {
-        if (!_has_value) ::new (static_cast<void*>(&_storage._error)) E(Move(other._storage._error));
+    TResult(TResult&& other) noexcept : m_HasValue(other.m_HasValue) {
+        if (!m_HasValue) ::new (static_cast<void*>(&m_Storage.m_Error)) E(Move(other.m_Storage.m_Error));
     }
     TResult& operator=(const TResult& other) noexcept {
         if (this == &other) return *this;
         Destroy();
-        _has_value = other._has_value;
-        if (!_has_value) ::new (static_cast<void*>(&_storage._error)) E(other._storage._error);
+        m_HasValue = other.m_HasValue;
+        if (!m_HasValue) ::new (static_cast<void*>(&m_Storage.m_Error)) E(other.m_Storage.m_Error);
         return *this;
     }
     TResult& operator=(TResult&& other) noexcept {
         if (this == &other) return *this;
         Destroy();
-        _has_value = other._has_value;
-        if (!_has_value) ::new (static_cast<void*>(&_storage._error)) E(Move(other._storage._error));
+        m_HasValue = other.m_HasValue;
+        if (!m_HasValue) ::new (static_cast<void*>(&m_Storage.m_Error)) E(Move(other.m_Storage.m_Error));
         return *this;
     }
     ~TResult() noexcept { Destroy(); }
 
-    bool IsOk()  const noexcept { return _has_value; }
-    bool IsErr() const noexcept { return !_has_value; }
-    explicit operator bool() const noexcept { return _has_value; }
+    bool IsOk()  const noexcept { return m_HasValue; }
+    bool IsErr() const noexcept { return !m_HasValue; }
+    explicit operator bool() const noexcept { return m_HasValue; }
 
     // 注: IsOk() の状態で Error() を呼ぶと ACS_ASSERT で即座に停止する。
-    E&       Error()       noexcept { ACS_ASSERT(!_has_value); return _storage._error; }
-    const E& Error() const noexcept { ACS_ASSERT(!_has_value); return _storage._error; }
+    E&       Error()       noexcept { ACS_ASSERT(!m_HasValue); return m_Storage.m_Error; }
+    const E& Error() const noexcept { ACS_ASSERT(!m_HasValue); return m_Storage.m_Error; }
 
 private:
     void Destroy() noexcept {
-        if (!_has_value) if constexpr (!IsTriviallyDestructibleV<E>) _storage._error.~E();
+        if (!m_HasValue) if constexpr (!IsTriviallyDestructibleV<E>) m_Storage.m_Error.~E();
     }
     union Storage {
         Storage() noexcept {}
         ~Storage() noexcept {}
-        u8 _pad;
-        E  _error;
-    } _storage;
-    bool _has_value;
+        u8 m_Pad;
+        E  m_Error;
+    } m_Storage;
+    bool m_HasValue;
 };
 
 // =============================================================================
@@ -244,14 +244,14 @@ TResult<T> Err(FErrorCode e) noexcept { return TResult<T>(e); }
 // =============================================================================
 #define ACS_TRY(expr)                                                         \
     do {                                                                      \
-        auto _acs_try_r = (expr);                                             \
-        if (_acs_try_r.IsErr()) return ::acs::Err(_acs_try_r.Error());        \
+        auto m_AcsTryR = (expr);                                             \
+        if (m_AcsTryR.IsErr()) return ::acs::Err(m_AcsTryR.Error());        \
     } while (0)
 
 #define ACS_TRY_ASSIGN(name, expr)                                            \
-    auto ACS_CONCAT(_acs_tmp_, __LINE__) = (expr);                            \
-    if (ACS_CONCAT(_acs_tmp_, __LINE__).IsErr())                              \
-        return ::acs::Err(ACS_CONCAT(_acs_tmp_, __LINE__).Error());           \
-    auto&& name = ACS_CONCAT(_acs_tmp_, __LINE__).Value()
+    auto ACS_CONCAT(m_AcsTmp, __LINE__) = (expr);                            \
+    if (ACS_CONCAT(m_AcsTmp, __LINE__).IsErr())                              \
+        return ::acs::Err(ACS_CONCAT(m_AcsTmp, __LINE__).Error());           \
+    auto&& name = ACS_CONCAT(m_AcsTmp, __LINE__).Value()
 
 } // namespace acs

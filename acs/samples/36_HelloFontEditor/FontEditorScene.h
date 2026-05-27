@@ -22,8 +22,8 @@ private:
     // File menu stub の保存先 (現状 callback だけ走らせるため未使用)。
     static constexpr const char* kFontFilePath = "preset.acsfont";
 
-    acs::game::editor_core::FEditorWorkspace  _workspace;
-    acs::game::fontedit::FFontEditorPanel     _editor_panel;
+    acs::game::editor_core::FEditorWorkspace  m_Workspace;
+    acs::game::fontedit::FFontEditorPanel     m_EditorPanel;
 };
 
 } // namespace hellofont

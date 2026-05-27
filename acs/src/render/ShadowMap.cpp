@@ -66,8 +66,8 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     if (size == 0) size = 2048;
     if (cascade_count == 0) cascade_count = 1;
     if (cascade_count > kMaxCascades) cascade_count = kMaxCascades;
-    _size          = size;
-    _cascade_count = cascade_count;
+    m_Size          = size;
+    m_CascadeCount = cascade_count;
 
     // ===== 深度テクスチャ（SRV 可視）======================================
     // single mode (cascade_count=1): size × size
@@ -80,7 +80,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     td.shader_visible_depth = true;
     auto tr = CreateRhiTexture(device, td);
     if (tr.IsErr()) return Err<void>(tr.Error());
-    _depth = Move(tr.Value());
+    m_Depth = Move(tr.Value());
 
     // ===== Caster VS =====
     FShaderDesc vs_d{};
@@ -90,7 +90,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     vs_d.debug_name  = "ShadowCaster.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    _vs = Move(vs_r.Value());
+    m_Vs = Move(vs_r.Value());
 
     // ===== 定数バッファ =====
     FBufferDesc cbd{};
@@ -99,15 +99,15 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     cbd.cpu_writable = true;
     auto lb_r = CreateRhiBuffer(device, cbd);
     if (lb_r.IsErr()) return Err<void>(lb_r.Error());
-    _light_cb = Move(lb_r.Value());
+    m_LightCb = Move(lb_r.Value());
 
     auto ob_r = CreateRhiBuffer(device, cbd);
     if (ob_r.IsErr()) return Err<void>(ob_r.Error());
-    _object_cb = Move(ob_r.Value());
+    m_ObjectCb = Move(ob_r.Value());
 
     // ===== 深度のみパイプライン =====
     FPipelineDesc pd{};
-    pd.vs = _vs.Get();
+    pd.vs = m_Vs.Get();
     pd.ps = nullptr;          // depth-only
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = EFormat::Unknown;       // ps==nullptr なら無視される
@@ -127,22 +127,22 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    _pipeline = Move(pl_r.Value());
+    m_Pipeline = Move(pl_r.Value());
 
     // 未使用 cascade スロットは inf split で「常に cascade 0 を選択」に
-    for (u32 c = 0; c < kMaxCascades; ++c) _cascade_splits[c] = 1e30f;
+    for (u32 c = 0; c < kMaxCascades; ++c) m_CascadeSplits[c] = 1e30f;
 
     return Ok();
 }
 
 void FShadowMap::Shutdown() noexcept {
-    _pipeline.Reset();
-    _object_cb.Reset();
-    _light_cb.Reset();
-    _vs.Reset();
-    _depth.Reset();
-    _size          = 0;
-    _cascade_count = 1;
+    m_Pipeline.Reset();
+    m_ObjectCb.Reset();
+    m_LightCb.Reset();
+    m_Vs.Reset();
+    m_Depth.Reset();
+    m_Size          = 0;
+    m_CascadeCount = 1;
 }
 
 void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) noexcept {
@@ -157,15 +157,15 @@ void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) 
 
     FMat4 view = FMat4::LookAtLH(light_pos, center, up);
     FMat4 proj = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
-    _light_vp[0] = view * proj;
+    m_LightVp[0] = view * proj;
     // 残りの cascade は同じ VP を入れて split を inf に (常に cascade 0 が当たる)
     for (u32 c = 1; c < kMaxCascades; ++c) {
-        _light_vp[c]       = _light_vp[0];
-        _cascade_splits[c] = 1e30f;
+        m_LightVp[c]       = m_LightVp[0];
+        m_CascadeSplits[c] = 1e30f;
     }
-    _cascade_splits[0] = 1e30f;   // single mode は cascade 0 が全範囲
+    m_CascadeSplits[0] = 1e30f;   // single mode は cascade 0 が全範囲
 
-    if (_light_cb) _light_cb->Update(&_light_vp[0], sizeof(FMat4));
+    if (m_LightCb) m_LightCb->Update(&m_LightVp[0], sizeof(FMat4));
 }
 
 void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
@@ -182,9 +182,9 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     // 配列要素は cascade 境界の view-space z (splits[0]=near、splits[N]=far)
     f32 splits[kMaxCascades + 1] = {};
     splits[0] = near_z;
-    splits[_cascade_count] = far_z;
-    const f32 inv_n = 1.0f / static_cast<f32>(_cascade_count);
-    for (u32 c = 1; c < _cascade_count; ++c) {
+    splits[m_CascadeCount] = far_z;
+    const f32 inv_n = 1.0f / static_cast<f32>(m_CascadeCount);
+    for (u32 c = 1; c < m_CascadeCount; ++c) {
         const f32 f         = static_cast<f32>(c) * inv_n;
         const f32 uniform_v = near_z + (far_z - near_z) * f;
         const f32 log_v     = near_z * Pow(far_z / near_z, f);
@@ -211,7 +211,7 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     FVec3 up  = (Abs(dir.y) > 0.95f) ? FVec3{0, 0, 1} : FVec3{0, 1, 0};
 
     const f32 inv_full = 1.0f / (far_z - near_z);
-    for (u32 c = 0; c < _cascade_count; ++c) {
+    for (u32 c = 0; c < m_CascadeCount; ++c) {
         const f32 z_n = splits[c];
         const f32 z_f = splits[c + 1];
         const f32 t_n = (z_n - near_z) * inv_full;
@@ -244,47 +244,47 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
         };
         const FMat4 view_l = FMat4::LookAtLH(light_pos, center, up);
         const FMat4 proj_l = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
-        _light_vp[c]       = view_l * proj_l;
-        _cascade_splits[c] = z_f;            // view-space z far (cascade 選択の閾値)
+        m_LightVp[c]       = view_l * proj_l;
+        m_CascadeSplits[c] = z_f;            // view-space z far (cascade 選択の閾値)
     }
     // 未使用 cascade は inf で「常にスキップ」
-    for (u32 c = _cascade_count; c < kMaxCascades; ++c) {
-        _light_vp[c]       = _light_vp[_cascade_count - 1];
-        _cascade_splits[c] = 1e30f;
+    for (u32 c = m_CascadeCount; c < kMaxCascades; ++c) {
+        m_LightVp[c]       = m_LightVp[m_CascadeCount - 1];
+        m_CascadeSplits[c] = 1e30f;
     }
 
     // default: LightCB に cascade 0 を書いておく
-    if (_light_cb) _light_cb->Update(&_light_vp[0], sizeof(FMat4));
+    if (m_LightCb) m_LightCb->Update(&m_LightVp[0], sizeof(FMat4));
 }
 
 void FShadowMap::SetCurrentCascade(u32 cascade) noexcept {
-    if (cascade >= _cascade_count) cascade = 0;
-    if (_light_cb) _light_cb->Update(&_light_vp[cascade], sizeof(FMat4));
+    if (cascade >= m_CascadeCount) cascade = 0;
+    if (m_LightCb) m_LightCb->Update(&m_LightVp[cascade], sizeof(FMat4));
 }
 
 void FShadowMap::SetCaster(const FMat4& model) noexcept {
-    if (_object_cb) _object_cb->Update(&model, sizeof(FMat4));
+    if (m_ObjectCb) m_ObjectCb->Update(&model, sizeof(FMat4));
 }
 
 FViewport FShadowMap::CascadeViewport(u32 cascade) const noexcept {
-    if (cascade >= _cascade_count) cascade = 0;
+    if (cascade >= m_CascadeCount) cascade = 0;
     FViewport vp{};
-    vp.x         = static_cast<f32>(cascade * _size);
+    vp.x         = static_cast<f32>(cascade * m_Size);
     vp.y         = 0.0f;
-    vp.width     = static_cast<f32>(_size);
-    vp.height    = static_cast<f32>(_size);
+    vp.width     = static_cast<f32>(m_Size);
+    vp.height    = static_cast<f32>(m_Size);
     vp.min_depth = 0.0f;
     vp.max_depth = 1.0f;
     return vp;
 }
 
 FScissorRect FShadowMap::CascadeScissor(u32 cascade) const noexcept {
-    if (cascade >= _cascade_count) cascade = 0;
+    if (cascade >= m_CascadeCount) cascade = 0;
     FScissorRect r{};
-    r.left   = static_cast<i32>(cascade * _size);
+    r.left   = static_cast<i32>(cascade * m_Size);
     r.top    = 0;
-    r.right  = static_cast<i32>((cascade + 1) * _size);
-    r.bottom = static_cast<i32>(_size);
+    r.right  = static_cast<i32>((cascade + 1) * m_Size);
+    r.bottom = static_cast<i32>(m_Size);
     return r;
 }
 

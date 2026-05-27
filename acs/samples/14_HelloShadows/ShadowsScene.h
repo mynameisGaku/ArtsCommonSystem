@@ -43,7 +43,7 @@ public:
                 acs::FVec3             sun_dir) noexcept;
 
 private:
-    acs::TArray<CasterInst> _casters;
+    acs::TArray<CasterInst> m_Casters;
 };
 
 } // namespace helloshadows

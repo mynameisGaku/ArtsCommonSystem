@@ -29,7 +29,7 @@
 //   ・全関数 noexcept。stub なので分岐も最小限。
 //   ・引数バリデーション (nullptr 等) は本実装ではしない: NotImplemented を
 //     先に返してしまうため。具象実装側で kSub_BadArgument を返す責務になる。
-//   ・CrashHandler の `_backend == nullptr` チェックは「二次クラッシュ防止」が
+//   ・CrashHandler の `m_Backend == nullptr` チェックは「二次クラッシュ防止」が
 //     主目的。クラッシュ報告 API 自体で SEGV を起こすと最悪なので、guard を
 //     最優先に入れる。
 
@@ -101,21 +101,21 @@ ICrashReporterBackend& GetCrashStub() noexcept {
 // -----------------------------------------------------------------------------
 // CrashHandler — 高レベル wrapper
 // -----------------------------------------------------------------------------
-// `_backend == nullptr` チェックを全 API に入れて二次クラッシュを防ぐ。
+// `m_Backend == nullptr` チェックを全 API に入れて二次クラッシュを防ぐ。
 // クラッシュ報告系のホットパスでは branch 1 本の方が安全で、性能ペナルティも
 // 無視できる (どうせ呼ばれる頻度は低い)。
 
 void CrashHandler::Install(ICrashReporterBackend* backend) noexcept {
     // nullptr 受け入れは Uninstall と同義。多重 Install は最後の 1 個で上書き。
-    _backend = backend;
+    m_Backend = backend;
 }
 
 void CrashHandler::Uninstall() noexcept {
-    _backend = nullptr;
+    m_Backend = nullptr;
 }
 
 void CrashHandler::NotifyCrash(const char* exception_type, const char* message) noexcept {
-    if (_backend == nullptr) {
+    if (m_Backend == nullptr) {
         // 未 Install: 黙って no-op。クラッシュ報告経路で SEGV を起こさない。
         return;
     }
@@ -124,15 +124,15 @@ void CrashHandler::NotifyCrash(const char* exception_type, const char* message) 
     ctx.message        = message;
     // frame_count / timestamp / scene_name / build_id は呼出側が後から
     // 拡張 API で詰める想定。stub には届かないので TResult も無視で良い。
-    (void)_backend->ReportCrash(ctx);
+    (void)m_Backend->ReportCrash(ctx);
 }
 
 void CrashHandler::AddBreadcrumb(const char* category, const char* message) noexcept {
-    if (_backend == nullptr) {
+    if (m_Backend == nullptr) {
         return;
     }
     // backend が NotImplemented を返してもクラッシュ報告経路は止めない。
-    (void)_backend->AddBreadcrumb(category, message);
+    (void)m_Backend->AddBreadcrumb(category, message);
 }
 
 } // namespace acs::game

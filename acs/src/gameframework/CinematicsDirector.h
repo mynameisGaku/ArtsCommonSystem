@@ -19,9 +19,9 @@
 //   ・**time 順に内部で sort**: AddKeyframe は時系列で挿入順を強制しない —
 //      シナリオ作成側が宣言順に書きやすいよう、内部で stable な挿入 sort を
 //      維持する (要素数 N は典型的に < 100 なので O(N) で十分)。
-//   ・**発火は一度のみ**: _last_fired_index で「次に発火する keyframe」を
+//   ・**発火は一度のみ**: m_LastFiredIndex で「次に発火する keyframe」を
 //      追跡し、time >= kf.time_sec になった時点で 1 度だけ callback を呼ぶ。
-//      Skip() は残り全部を一気に発火 + _time を末尾に進める。
+//      Skip() は残り全部を一気に発火 + m_Time を末尾に進める。
 //   ・**callback は kind ごとに型を分ける**: 全 kind を 1 つの汎用 callback
 //      で受けると caller 側が分岐 + cast を書くことになり typo の温床。
 //      kind 別に signature を分けて「カメラ用」「ダイアログ用」「音楽用」
@@ -33,39 +33,39 @@
 //      「ここは何もしない」を表現することで debug 時の意図伝達を助ける。
 //   ・**TotalDuration() は最大 time_sec**: 何秒で終わるかを caller が知るため
 //      の純粋なヘルパ。発火順とは独立に max を取るだけなので O(N)。
-//   ・**Pause / Resume は _playing フラグのみ**: Tick は _playing == false で
-//      no-op。_time は保存。Stop は _playing=false + _time=0 + _last_fired=0。
+//   ・**Pause / Resume は m_Playing フラグのみ**: Tick は m_Playing == false で
+//      no-op。m_Time は保存。Stop は m_Playing=false + m_Time=0 + m_LastFired=0。
 //   ・**Skip 中の callback 発火**: Skip は「残り全 keyframe を即座に発火」を
 //      意味するので、Skip 内で callback を呼ぶ。発火順は time 昇順を維持。
-//   ・**非コピー・非ムーブ**: state の唯一性 (現在 _time / _last_fired_index)
+//   ・**非コピー・非ムーブ**: state の唯一性 (現在 m_Time / m_LastFiredIndex)
 //      を担保するため機械的に禁止。Scene にメンバとして 1 個埋め込む想定。
 //
 // 使い方:
 //   class OpeningScene : public Scene {
-//       FCinematicsDirector _cine;
+//       FCinematicsDirector m_Cine;
 //       void OnEnter() noexcept override {
 //           FTimelineKeyframe kf;
 //           kf.time_sec = 0.0f;
 //           kf.kind     = ETimelineTrackKind::PlayMusic;
 //           kf.payload.music = {"opening_theme", 1.5f};
-//           _cine.AddKeyframe(kf);
+//           m_Cine.AddKeyframe(kf);
 //
 //           kf.time_sec = 2.0f;
 //           kf.kind     = ETimelineTrackKind::MoveCamera;
 //           kf.payload.camera = {FVec2{100, 200}, 1.5f, 3.0f};
-//           _cine.AddKeyframe(kf);
+//           m_Cine.AddKeyframe(kf);
 //
 //           kf.time_sec = 3.0f;
 //           kf.kind     = ETimelineTrackKind::ShowDialogue;
 //           kf.payload.dialogue = {"line_intro_001"};
-//           _cine.AddKeyframe(kf);
+//           m_Cine.AddKeyframe(kf);
 //
-//           _cine.SetCameraCallback(&OpeningScene::DoMoveCamera, this);
-//           _cine.SetDialogueCallback(&OpeningScene::DoShowDialogue, this);
-//           _cine.SetMusicCallback(&OpeningScene::DoPlayMusic, this);
-//           _cine.Play();
+//           m_Cine.SetCameraCallback(&OpeningScene::DoMoveCamera, this);
+//           m_Cine.SetDialogueCallback(&OpeningScene::DoShowDialogue, this);
+//           m_Cine.SetMusicCallback(&OpeningScene::DoPlayMusic, this);
+//           m_Cine.Play();
 //       }
-//       void OnUpdate(f32 dt) noexcept override { _cine.Tick(dt); }
+//       void OnUpdate(f32 dt) noexcept override { m_Cine.Tick(dt); }
 //   };
 //
 // 範囲外 (将来フェーズで):
@@ -151,33 +151,33 @@ public:
     void Clear() noexcept;
 
     // ----- 再生制御 -----
-    // 先頭から再生開始 (Stop されていれば _time=0 から、Pause からは Resume)。
-    // keyframe が空でも _playing=true にはなる (実害なし)。
+    // 先頭から再生開始 (Stop されていれば m_Time=0 から、Pause からは Resume)。
+    // keyframe が空でも m_Playing=true にはなる (実害なし)。
     void Play() noexcept;
 
-    // 一時停止 (_time / _last_fired_index は保持)。
+    // 一時停止 (m_Time / m_LastFiredIndex は保持)。
     void Pause() noexcept;
 
-    // 完全停止 (_playing=false, _time=0, _last_fired_index=0)。
+    // 完全停止 (m_Playing=false, m_Time=0, m_LastFiredIndex=0)。
     void Stop() noexcept;
 
-    // 残り全 keyframe を即座に順番に発火し、_time を TotalDuration() に進める。
+    // 残り全 keyframe を即座に順番に発火し、m_Time を TotalDuration() に進める。
     // 終了したシネマティクスを「ボタン押下でスキップ」した時の正攻法。
     void Skip() noexcept;
 
-    bool IsPlaying()  const noexcept { return _playing; }
-    // 全 keyframe を発火し終わったか (= _last_fired_index == KeyframeCount())
+    bool IsPlaying()  const noexcept { return m_Playing; }
+    // 全 keyframe を発火し終わったか (= m_LastFiredIndex == KeyframeCount())
     bool IsFinished() const noexcept;
 
     // ----- フレーム更新 -----
-    // dt 秒進める。_playing == false / dt <= 0 は no-op。
-    // _time += dt し、time_sec <= _time な未発火 keyframe を時刻昇順に発火する。
+    // dt 秒進める。m_Playing == false / dt <= 0 は no-op。
+    // m_Time += dt し、time_sec <= m_Time な未発火 keyframe を時刻昇順に発火する。
     void Tick(f32 dt) noexcept;
 
     // ----- accessors -----
-    f32 CurrentTime()    const noexcept { return _time; }
+    f32 CurrentTime()    const noexcept { return m_Time; }
     f32 TotalDuration()  const noexcept;
-    u32 KeyframeCount()  const noexcept { return static_cast<u32>(_keyframes.Size()); }
+    u32 KeyframeCount()  const noexcept { return static_cast<u32>(m_Keyframes.Size()); }
 
     // ----- callback 登録 -----
     // 各 kind の発火コールバックを設定。cb == nullptr で「未登録」にできる
@@ -188,34 +188,34 @@ public:
     void SetEventCallback   (EventCallbackFn    cb, void* user) noexcept;
 
 private:
-    // _last_fired_index 以降で time_sec <= _time な keyframe を全て発火し、
-    // _last_fired_index を進める。Tick と Skip の共通処理。
+    // m_LastFiredIndex 以降で time_sec <= m_Time な keyframe を全て発火し、
+    // m_LastFiredIndex を進める。Tick と Skip の共通処理。
     void FireUpTo(f32 up_to_time) noexcept;
 
     // kf を kind に応じた callback で発火 (Wait は no-op)。
     void FireOne(const FTimelineKeyframe& kf) noexcept;
 
     // 全 keyframe (time_sec 昇順、stable sort 維持)
-    TArray<FTimelineKeyframe> _keyframes;
+    TArray<FTimelineKeyframe> m_Keyframes;
 
     // 現在のタイムライン時刻 [秒]、Play 開始時に 0 (Resume 時は維持)
-    f32 _time = 0.0f;
+    f32 m_Time = 0.0f;
 
     // 次に発火する keyframe の index (= 既に発火済みの個数)
-    u32 _last_fired_index = 0u;
+    u32 m_LastFiredIndex = 0u;
 
     // 再生中フラグ。Pause で false、Play で true、Stop で false。
-    bool _playing = false;
+    bool m_Playing = false;
 
     // ---- callback ----
-    CameraCallbackFn   _camera_cb   = nullptr;
-    void*              _camera_user = nullptr;
-    DialogueCallbackFn _dialogue_cb   = nullptr;
-    void*              _dialogue_user = nullptr;
-    MusicCallbackFn    _music_cb    = nullptr;
-    void*              _music_user  = nullptr;
-    EventCallbackFn    _event_cb    = nullptr;
-    void*              _event_user  = nullptr;
+    CameraCallbackFn   m_CameraCb   = nullptr;
+    void*              m_CameraUser = nullptr;
+    DialogueCallbackFn m_DialogueCb   = nullptr;
+    void*              m_DialogueUser = nullptr;
+    MusicCallbackFn    m_MusicCb    = nullptr;
+    void*              m_MusicUser  = nullptr;
+    EventCallbackFn    m_EventCb    = nullptr;
+    void*              m_EventUser  = nullptr;
 };
 
 } // namespace acs::game

@@ -34,29 +34,29 @@ VmReservation::~VmReservation() noexcept {
 }
 
 VmReservation::VmReservation(VmReservation&& o) noexcept
-    : _base(o._base), _capacity(o._capacity), _committed(o._committed),
-      _lru_count(o._lru_count), _lru_hits(o._lru_hits), _lru_misses(o._lru_misses) {
-    for (u32 i = 0; i < o._lru_count; ++i) _lru[i] = o._lru[i];
-    o._base = nullptr;
-    o._capacity = 0;
-    o._committed = 0;
-    o._lru_count = 0;
+    : m_Base(o.m_Base), m_Capacity(o.m_Capacity), m_Committed(o.m_Committed),
+      m_LruCount(o.m_LruCount), m_LruHits(o.m_LruHits), m_LruMisses(o.m_LruMisses) {
+    for (u32 i = 0; i < o.m_LruCount; ++i) m_Lru[i] = o.m_Lru[i];
+    o.m_Base = nullptr;
+    o.m_Capacity = 0;
+    o.m_Committed = 0;
+    o.m_LruCount = 0;
 }
 
 VmReservation& VmReservation::operator=(VmReservation&& o) noexcept {
     if (this == &o) return *this;
     Release();
-    _base = o._base;
-    _capacity = o._capacity;
-    _committed = o._committed;
-    _lru_count = o._lru_count;
-    _lru_hits = o._lru_hits;
-    _lru_misses = o._lru_misses;
-    for (u32 i = 0; i < o._lru_count; ++i) _lru[i] = o._lru[i];
-    o._base = nullptr;
-    o._capacity = 0;
-    o._committed = 0;
-    o._lru_count = 0;
+    m_Base = o.m_Base;
+    m_Capacity = o.m_Capacity;
+    m_Committed = o.m_Committed;
+    m_LruCount = o.m_LruCount;
+    m_LruHits = o.m_LruHits;
+    m_LruMisses = o.m_LruMisses;
+    for (u32 i = 0; i < o.m_LruCount; ++i) m_Lru[i] = o.m_Lru[i];
+    o.m_Base = nullptr;
+    o.m_Capacity = 0;
+    o.m_Committed = 0;
+    o.m_LruCount = 0;
     return *this;
 }
 
@@ -72,96 +72,96 @@ TResult<VmReservation> VmReservation::Reserve(usize capacity_bytes) noexcept {
         return ACS_ERR_OS(Memory, 11, "VirtualAlloc MEM_RESERVE failed", err);
     }
     VmReservation r;
-    r._base = base;
-    r._capacity = capacity_bytes;
-    r._committed = 0;
+    r.m_Base = base;
+    r.m_Capacity = capacity_bytes;
+    r.m_Committed = 0;
     return TResult<VmReservation>(OkInit, Move(r));
 }
 
 void VmReservation::Release() noexcept {
-    if (!_base) return;
+    if (!m_Base) return;
     LruEvictAll();
-    ::VirtualFree(_base, 0, MEM_RELEASE);
-    _base = nullptr;
-    _capacity = 0;
-    _committed = 0;
-    _lru_count = 0;
+    ::VirtualFree(m_Base, 0, MEM_RELEASE);
+    m_Base = nullptr;
+    m_Capacity = 0;
+    m_Committed = 0;
+    m_LruCount = 0;
 }
 
 // LRU 末尾エントリを実 VirtualFree して新エントリを先頭挿入
 void VmReservation::LruInsert(u64 offset, u32 page_count) noexcept {
-    if (_lru_count == kLruEntries) {
-        const mapped_t& victim = _lru[kLruEntries - 1];
-        void* addr = static_cast<u8*>(_base) + (victim.packed_virtual_addr << 16);
+    if (m_LruCount == kLruEntries) {
+        const mapped_t& victim = m_Lru[kLruEntries - 1];
+        void* addr = static_cast<u8*>(m_Base) + (victim.packed_virtual_addr << 16);
         usize bytes = static_cast<usize>(victim.page_count) * VmPageSize();
         ::VirtualFree(addr, bytes, MEM_DECOMMIT);
-        --_lru_count;
+        --m_LruCount;
     }
-    for (u32 i = _lru_count; i > 0; --i) _lru[i] = _lru[i - 1];
-    mapped_t& head = _lru[0];
+    for (u32 i = m_LruCount; i > 0; --i) m_Lru[i] = m_Lru[i - 1];
+    mapped_t& head = m_Lru[0];
     head.packed_virtual_addr = (offset >> 16) & ((1ull << 44) - 1);
     head.page_count          = page_count;
     head.sparse              = 0;
     head.misc                = 0;
-    ++_lru_count;
+    ++m_LruCount;
 }
 
 // 一致エントリを取り除いて true を返す（再利用可能）
 bool VmReservation::LruTake(u64 offset, u32 page_count) noexcept {
     u64 packed = (offset >> 16) & ((1ull << 44) - 1);
-    for (u32 i = 0; i < _lru_count; ++i) {
-        if (_lru[i].packed_virtual_addr == packed && _lru[i].page_count == page_count) {
-            for (u32 j = i; j + 1 < _lru_count; ++j) _lru[j] = _lru[j + 1];
-            --_lru_count;
-            ++_lru_hits;
+    for (u32 i = 0; i < m_LruCount; ++i) {
+        if (m_Lru[i].packed_virtual_addr == packed && m_Lru[i].page_count == page_count) {
+            for (u32 j = i; j + 1 < m_LruCount; ++j) m_Lru[j] = m_Lru[j + 1];
+            --m_LruCount;
+            ++m_LruHits;
             return true;
         }
     }
-    ++_lru_misses;
+    ++m_LruMisses;
     return false;
 }
 
 // LRU 内のすべてを実 VirtualFree
 void VmReservation::LruEvictAll() noexcept {
-    for (u32 i = 0; i < _lru_count; ++i) {
-        const mapped_t& v = _lru[i];
-        void* addr = static_cast<u8*>(_base) + (v.packed_virtual_addr << 16);
+    for (u32 i = 0; i < m_LruCount; ++i) {
+        const mapped_t& v = m_Lru[i];
+        void* addr = static_cast<u8*>(m_Base) + (v.packed_virtual_addr << 16);
         usize bytes = static_cast<usize>(v.page_count) * VmPageSize();
         ::VirtualFree(addr, bytes, MEM_DECOMMIT);
     }
-    _lru_count = 0;
+    m_LruCount = 0;
 }
 
 // 物理ページ確保（LRU ヒットなら VirtualAlloc 省略）
 TResult<void> VmReservation::Commit(usize offset, usize size) noexcept {
-    if (!_base) return ACS_ERR(Memory, 12, "Commit: reservation released");
-    if (offset + size > _capacity) return ACS_ERR(Memory, 13, "Commit: out of reservation");
+    if (!m_Base) return ACS_ERR(Memory, 12, "Commit: reservation released");
+    if (offset + size > m_Capacity) return ACS_ERR(Memory, 13, "Commit: out of reservation");
     usize page_size = VmPageSize();
     u32 page_count = static_cast<u32>((size + page_size - 1) / page_size);
 
     if (LruTake(static_cast<u64>(offset), page_count)) {
-        _committed += size;
+        m_Committed += size;
         return Ok();
     }
 
-    void* addr = static_cast<u8*>(_base) + offset;
+    void* addr = static_cast<u8*>(m_Base) + offset;
     void* p = ::VirtualAlloc(addr, size, MEM_COMMIT, PAGE_READWRITE);
     if (!p) {
         DWORD err = ::GetLastError();
         return ACS_ERR_OS(Memory, 14, "VirtualAlloc MEM_COMMIT failed", err);
     }
-    _committed += size;
+    m_Committed += size;
     return Ok();
 }
 
 // 物理ページ返却（実 VirtualFree は LRU エビクト時）
 TResult<void> VmReservation::Decommit(usize offset, usize size) noexcept {
-    if (!_base) return ACS_ERR(Memory, 15, "Decommit: reservation released");
-    if (offset + size > _capacity) return ACS_ERR(Memory, 16, "Decommit: out of reservation");
+    if (!m_Base) return ACS_ERR(Memory, 15, "Decommit: reservation released");
+    if (offset + size > m_Capacity) return ACS_ERR(Memory, 16, "Decommit: out of reservation");
     usize page_size = VmPageSize();
     u32 page_count = static_cast<u32>((size + page_size - 1) / page_size);
     LruInsert(static_cast<u64>(offset), page_count);
-    _committed = (_committed > size) ? _committed - size : 0;
+    m_Committed = (m_Committed > size) ? m_Committed - size : 0;
     return Ok();
 }
 

@@ -2,7 +2,7 @@
 // HelloParticleEditor — Particle 編集対象 Scene。
 //
 // emitter 1 個 + FParticleEditorPanel + FParticleEditorPreview を保持する 1
-// シーン。WantedServices() は None なので、自前で _particle_system.Tick /
+// シーン。WantedServices() は None なので、自前で m_ParticleSystem.Tick /
 // Preview.Tick を呼ぶ。main menu bar "File > Save .fxedit / Load .fxedit" で
 // `FFxeditSerializer` 経由の永続化を行う。
 #pragma once
@@ -27,14 +27,14 @@ private:
 
     // OnRender の File メニュー本体を二分割して、メニュー UI と
     // 永続化詳細 (FFxeditSerializer 呼出) を切り離す。
-    void _draw_file_menu() noexcept;
-    void _save_preset()    noexcept;
-    void _load_preset()    noexcept;
+    void m_DrawFileMenu() noexcept;
+    void m_SavePreset()    noexcept;
+    void m_LoadPreset()    noexcept;
 
-    acs::game::FParticleEffectSystem          _particle_system;
-    acs::game::fxedit::FParticleEditorPanel   _editor_panel;
-    acs::game::fxedit::FParticleEditorPreview _editor_preview;
-    acs::game::FEmitterHandle                 _default_emitter;
+    acs::game::FParticleEffectSystem          m_ParticleSystem;
+    acs::game::fxedit::FParticleEditorPanel   m_EditorPanel;
+    acs::game::fxedit::FParticleEditorPreview m_EditorPreview;
+    acs::game::FEmitterHandle                 m_DefaultEmitter;
 };
 
 } // namespace helloparticleed

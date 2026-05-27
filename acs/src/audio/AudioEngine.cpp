@@ -38,22 +38,22 @@ FAudioEngine::~FAudioEngine() noexcept {
 }
 
 TResult<void> FAudioEngine::Init() noexcept {
-    if (_impl) return ACS_ERR(Generic, 1, "FAudioEngine already initialized");
-    _impl = new Impl();
+    if (m_Impl) return ACS_ERR(Generic, 1, "FAudioEngine already initialized");
+    m_Impl = new Impl();
 
     // COM 初期化（マルチスレッド形式、XAudio2 が要求）
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (SUCCEEDED(hr)) _impl->com_initialized = true;
+    if (SUCCEEDED(hr)) m_Impl->com_initialized = true;
 
     // XAudio2 エンジン作成
-    hr = ::XAudio2Create(&_impl->xaudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+    hr = ::XAudio2Create(&m_Impl->xaudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
     if (FAILED(hr)) {
         Shutdown();
         return ACS_ERR_OS(Generic, 2, "XAudio2Create failed", static_cast<u32>(hr));
     }
 
     // マスタリングボイス（最終出力）
-    hr = _impl->xaudio2->CreateMasteringVoice(&_impl->mastering);
+    hr = m_Impl->xaudio2->CreateMasteringVoice(&m_Impl->mastering);
     if (FAILED(hr)) {
         Shutdown();
         return ACS_ERR_OS(Generic, 3, "CreateMasteringVoice failed", static_cast<u32>(hr));
@@ -64,22 +64,22 @@ TResult<void> FAudioEngine::Init() noexcept {
 }
 
 void FAudioEngine::Shutdown() noexcept {
-    if (!_impl) return;
+    if (!m_Impl) return;
     StopAll();
-    if (_impl->mastering) {
-        _impl->mastering->DestroyVoice();
-        _impl->mastering = nullptr;
+    if (m_Impl->mastering) {
+        m_Impl->mastering->DestroyVoice();
+        m_Impl->mastering = nullptr;
     }
-    if (_impl->xaudio2) {
-        _impl->xaudio2->Release();
-        _impl->xaudio2 = nullptr;
+    if (m_Impl->xaudio2) {
+        m_Impl->xaudio2->Release();
+        m_Impl->xaudio2 = nullptr;
     }
-    if (_impl->com_initialized) {
+    if (m_Impl->com_initialized) {
         ::CoUninitialize();
-        _impl->com_initialized = false;
+        m_Impl->com_initialized = false;
     }
-    delete _impl;
-    _impl = nullptr;
+    delete m_Impl;
+    m_Impl = nullptr;
 }
 
 namespace {
@@ -108,14 +108,14 @@ u32 FindFreeSlot(FAudioEngine::Impl& impl) noexcept {
 } // namespace
 
 SoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) noexcept {
-    if (!_impl || !_impl->xaudio2) return kInvalidSound;
+    if (!m_Impl || !m_Impl->xaudio2) return kInvalidSound;
     if (asset.SampleByteCount() == 0) return kInvalidSound;
 
-    FScopedLock lk(_impl->lock);
+    FScopedLock lk(m_Impl->lock);
 
-    u32 idx = FindFreeSlot(*_impl);
+    u32 idx = FindFreeSlot(*m_Impl);
     if (idx == 0xFFFFFFFFu) return kInvalidSound;
-    VoiceSlot& slot = _impl->slots[idx];
+    VoiceSlot& slot = m_Impl->slots[idx];
 
     // ソースボイスのフォーマット設定
     WAVEFORMATEX wf{};
@@ -127,7 +127,7 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) 
     wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
     wf.cbSize          = 0;
 
-    HRESULT hr = _impl->xaudio2->CreateSourceVoice(&slot.voice, &wf);
+    HRESULT hr = m_Impl->xaudio2->CreateSourceVoice(&slot.voice, &wf);
     if (FAILED(hr)) return kInvalidSound;
 
     // サンプルデータを再生中保持するためコピー
@@ -148,7 +148,7 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) 
     slot.voice->SetVolume(volume);
     slot.voice->Start(0);
     slot.in_use = true;
-    ++_impl->active_count;
+    ++m_Impl->active_count;
 
     SoundHandle h{ idx, slot.generation };
     return h;
@@ -169,18 +169,18 @@ void DestroySlot(VoiceSlot& slot) noexcept {
 } // namespace
 
 void FAudioEngine::Stop(SoundHandle h) noexcept {
-    if (!_impl || !h.IsValid() || h.index >= kMaxVoices) return;
-    FScopedLock lk(_impl->lock);
-    VoiceSlot& slot = _impl->slots[h.index];
+    if (!m_Impl || !h.IsValid() || h.index >= kMaxVoices) return;
+    FScopedLock lk(m_Impl->lock);
+    VoiceSlot& slot = m_Impl->slots[h.index];
     if (!slot.in_use || slot.generation != h.generation) return;
     DestroySlot(slot);
-    if (_impl->active_count > 0) --_impl->active_count;
+    if (m_Impl->active_count > 0) --m_Impl->active_count;
 }
 
 void FAudioEngine::SetVolume(SoundHandle h, f32 volume) noexcept {
-    if (!_impl || !h.IsValid() || h.index >= kMaxVoices) return;
-    FScopedLock lk(_impl->lock);
-    VoiceSlot& slot = _impl->slots[h.index];
+    if (!m_Impl || !h.IsValid() || h.index >= kMaxVoices) return;
+    FScopedLock lk(m_Impl->lock);
+    VoiceSlot& slot = m_Impl->slots[h.index];
     if (!slot.in_use || slot.generation != h.generation) return;
     if (volume < 0) volume = 0;
     if (volume > 1) volume = 1;
@@ -188,41 +188,41 @@ void FAudioEngine::SetVolume(SoundHandle h, f32 volume) noexcept {
 }
 
 void FAudioEngine::StopAll() noexcept {
-    if (!_impl) return;
-    FScopedLock lk(_impl->lock);
+    if (!m_Impl) return;
+    FScopedLock lk(m_Impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
-        if (_impl->slots[i].in_use) DestroySlot(_impl->slots[i]);
+        if (m_Impl->slots[i].in_use) DestroySlot(m_Impl->slots[i]);
     }
-    _impl->active_count = 0;
+    m_Impl->active_count = 0;
 }
 
 void FAudioEngine::SetMasterVolume(f32 volume) noexcept {
-    if (!_impl || !_impl->mastering) return;
+    if (!m_Impl || !m_Impl->mastering) return;
     if (volume < 0) volume = 0;
     if (volume > 1) volume = 1;
-    _impl->mastering->SetVolume(volume);
+    m_Impl->mastering->SetVolume(volume);
 }
 
 void FAudioEngine::PauseAll() noexcept {
-    if (!_impl) return;
-    FScopedLock lk(_impl->lock);
+    if (!m_Impl) return;
+    FScopedLock lk(m_Impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
-        VoiceSlot& s = _impl->slots[i];
+        VoiceSlot& s = m_Impl->slots[i];
         if (s.in_use && s.voice) s.voice->Stop(0);
     }
 }
 
 void FAudioEngine::ResumeAll() noexcept {
-    if (!_impl) return;
-    FScopedLock lk(_impl->lock);
+    if (!m_Impl) return;
+    FScopedLock lk(m_Impl->lock);
     for (u32 i = 0; i < kMaxVoices; ++i) {
-        VoiceSlot& s = _impl->slots[i];
+        VoiceSlot& s = m_Impl->slots[i];
         if (s.in_use && s.voice) s.voice->Start(0);
     }
 }
 
 u32 FAudioEngine::ActiveCount() const noexcept {
-    return _impl ? _impl->active_count : 0;
+    return m_Impl ? m_Impl->active_count : 0;
 }
 
 } // namespace acs

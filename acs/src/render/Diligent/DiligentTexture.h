@@ -26,45 +26,45 @@ public:
     TResult<void> Init(DiligentDevice& device, const FTextureDesc& desc) noexcept;
 
     // ---- IRhiTexture ----
-    u32    Width()       const noexcept override { return _width; }
-    u32    Height()      const noexcept override { return _height; }
-    EFormat EPixelFormat() const noexcept override { return _format; }
-    u32    MipLevels()   const noexcept override { return _mips; }
-    u32    ArraySize()   const noexcept override { return _array_size; }
-    bool   IsCubemap()   const noexcept override { return _is_cubemap; }
+    u32    Width()       const noexcept override { return m_Width; }
+    u32    Height()      const noexcept override { return m_Height; }
+    EFormat EPixelFormat() const noexcept override { return m_Format; }
+    u32    MipLevels()   const noexcept override { return m_Mips; }
+    u32    ArraySize()   const noexcept override { return m_ArraySize; }
+    bool   IsCubemap()   const noexcept override { return m_IsCubemap; }
 
     // 内部公開
-    Diligent::ITexture*     Native()    const noexcept { return _texture; }
-    Diligent::ITextureView* SrvView()   const noexcept { return _srv; }
-    Diligent::ITextureView* RtvView()   const noexcept { return _rtv; }
-    Diligent::ITextureView* DsvView()   const noexcept { return _dsv; }
+    Diligent::ITexture*     Native()    const noexcept { return m_Texture; }
+    Diligent::ITextureView* SrvView()   const noexcept { return m_Srv; }
+    Diligent::ITextureView* RtvView()   const noexcept { return m_Rtv; }
+    Diligent::ITextureView* DsvView()   const noexcept { return m_Dsv; }
 
     // per_slice_rtv で生成した slice/mip ごとの RTV を取得 (見つからなければ nullptr)
     Diligent::ITextureView* RtvSlice(u32 slice, u32 mip) const noexcept;
 
-    bool IsRenderTarget()    const noexcept { return _is_rt; }
-    bool IsDepthTarget()     const noexcept { return _is_depth; }
-    bool ShaderVisibleDepth() const noexcept { return _depth_srv; }
+    bool IsRenderTarget()    const noexcept { return m_IsRt; }
+    bool IsDepthTarget()     const noexcept { return m_IsDepth; }
+    bool ShaderVisibleDepth() const noexcept { return m_DepthSrv; }
 
 private:
-    DiligentDevice*         _device  = nullptr;
-    Diligent::ITexture*     _texture = nullptr;
-    Diligent::ITextureView* _srv     = nullptr;  // not addref'd; owned by _texture
-    Diligent::ITextureView* _rtv     = nullptr;
-    Diligent::ITextureView* _dsv     = nullptr;
+    DiligentDevice*         m_Device  = nullptr;
+    Diligent::ITexture*     m_Texture = nullptr;
+    Diligent::ITextureView* m_Srv     = nullptr;  // not addref'd; owned by m_Texture
+    Diligent::ITextureView* m_Rtv     = nullptr;
+    Diligent::ITextureView* m_Dsv     = nullptr;
     // per_slice_rtv=true のとき、array_size*mip_levels 個の RTV を Init で生成して
     // ここに保持する。これらは ITexture::CreateView で別途生成されるので
-    // 明示 Release が必要 (_texture 所有ではない default view と異なる)。
-    TArray<Diligent::ITextureView*> _slice_rtvs;
-    u32                     _width   = 0;
-    u32                     _height  = 0;
-    u32                     _mips    = 1;
-    u32                     _array_size = 1;
-    EFormat                  _format  = EFormat::R8G8B8A8_UNorm;
-    bool                    _is_rt    = false;
-    bool                    _is_depth = false;
-    bool                    _depth_srv = false;
-    bool                    _is_cubemap = false;
+    // 明示 Release が必要 (m_Texture 所有ではない default view と異なる)。
+    TArray<Diligent::ITextureView*> m_SliceRtvs;
+    u32                     m_Width   = 0;
+    u32                     m_Height  = 0;
+    u32                     m_Mips    = 1;
+    u32                     m_ArraySize = 1;
+    EFormat                  m_Format  = EFormat::R8G8B8A8_UNorm;
+    bool                    m_IsRt    = false;
+    bool                    m_IsDepth = false;
+    bool                    m_DepthSrv = false;
+    bool                    m_IsCubemap = false;
 };
 
 } // namespace acs

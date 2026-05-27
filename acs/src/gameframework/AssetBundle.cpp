@@ -21,7 +21,7 @@ void FAssetBundle::Add(const char* asset_path) noexcept {
         ACS_LOG_WARN("FAssetBundle::Add: null path ignored");
         return;
     }
-    if (_begun) {
+    if (m_Begun) {
         // BeginLoad 済 bundle への追加はサポートしない (進捗計算の意味が破綻するため)。
         ACS_LOG_WARN("FAssetBundle::Add: bundle already began loading, ignored '%s'",
                      asset_path);
@@ -30,15 +30,15 @@ void FAssetBundle::Add(const char* asset_path) noexcept {
     Entry e{};
     e.path   = asset_path;
     e.status = LoadStatus::Pending;
-    _entries.PushBack(e);
+    m_Entries.PushBack(e);
 }
 
 void FAssetBundle::BeginLoad() noexcept {
-    if (_begun) {
+    if (m_Begun) {
         ACS_LOG_WARN("FAssetBundle::BeginLoad: already begun, ignored");
         return;
     }
-    _begun = true;
+    m_Begun = true;
 
     // TODO(Phase G-2): 各 entry について
     //   FAssetFuture fut = FAssetRegistry::Instance().LoadAsync(WidenPath(entry.path));
@@ -50,24 +50,24 @@ void FAssetBundle::BeginLoad() noexcept {
     //
     // bridge スケルトン: 同期完了扱いで全 entry を Loaded に。これにより呼び出し側
     // (Scene) は「BeginLoad 直後に IsLoaded() == true」と見えて先に進める。
-    for (usize i = 0; i < _entries.Size(); ++i) {
-        _entries[i].status = LoadStatus::Loaded;
+    for (usize i = 0; i < m_Entries.Size(); ++i) {
+        m_Entries[i].status = LoadStatus::Loaded;
     }
 }
 
 f32 FAssetBundle::Progress() const noexcept {
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     if (n == 0) {
         // 空 bundle は「読むものが無い = 100%」とみなす (UI のプログレスバー実装を簡潔に)。
         return 1.0f;
     }
-    if (!_begun) {
+    if (!m_Begun) {
         // 未開始: Add しただけの段階は 0%。
         return 0.0f;
     }
     u32 done = 0;
     for (usize i = 0; i < n; ++i) {
-        const LoadStatus s = _entries[i].status;
+        const LoadStatus s = m_Entries[i].status;
         if (s == LoadStatus::Loaded || s == LoadStatus::Failed) {
             ++done;
         }
@@ -76,11 +76,11 @@ f32 FAssetBundle::Progress() const noexcept {
 }
 
 bool FAssetBundle::IsLoaded() const noexcept {
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     if (n == 0) return true;       // 空 bundle は即 loaded
-    if (!_begun) return false;     // 未開始なら未完了
+    if (!m_Begun) return false;     // 未開始なら未完了
     for (usize i = 0; i < n; ++i) {
-        const LoadStatus s = _entries[i].status;
+        const LoadStatus s = m_Entries[i].status;
         if (s != LoadStatus::Loaded && s != LoadStatus::Failed) {
             return false;
         }
@@ -89,9 +89,9 @@ bool FAssetBundle::IsLoaded() const noexcept {
 }
 
 bool FAssetBundle::HasFailed() const noexcept {
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_entries[i].status == LoadStatus::Failed) {
+        if (m_Entries[i].status == LoadStatus::Failed) {
             return true;
         }
     }
@@ -99,14 +99,14 @@ bool FAssetBundle::HasFailed() const noexcept {
 }
 
 u32 FAssetBundle::AssetCount() const noexcept {
-    return static_cast<u32>(_entries.Size());
+    return static_cast<u32>(m_Entries.Size());
 }
 
 u32 FAssetBundle::LoadedCount() const noexcept {
     u32 done = 0;
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_entries[i].status == LoadStatus::Loaded) {
+        if (m_Entries[i].status == LoadStatus::Loaded) {
             ++done;
         }
     }
@@ -119,14 +119,14 @@ void FAssetBundle::Unload() noexcept {
     // を呼んでキャッシュからも外す。他 Scene がまだ参照していれば refcount > 0 で
     // 実体は残り、最後の参照消失時に自動解放される (TRc の決定的破棄)。
     //
-    // bridge スケルトン: 内部 state を Pending に戻し、_begun フラグもクリアして
+    // bridge スケルトン: 内部 state を Pending に戻し、m_Begun フラグもクリアして
     // 再利用可能な状態にする (同一 bundle インスタンスの再 Add + 再 BeginLoad を許す)。
-    const usize n = _entries.Size();
+    const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        _entries[i].status = LoadStatus::Pending;
+        m_Entries[i].status = LoadStatus::Pending;
     }
-    _entries.Clear();
-    _begun = false;
+    m_Entries.Clear();
+    m_Begun = false;
 }
 
 } // namespace acs::game

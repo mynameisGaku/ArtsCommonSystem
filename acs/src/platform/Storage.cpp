@@ -82,7 +82,7 @@ void Storage::SetString(const char* key, const char* value) noexcept {
         Entry ne;
         ne.key   = FString(key);
         ne.value = FString(value ? value : "");
-        _entries.PushBack(Move(ne));
+        m_Entries.PushBack(Move(ne));
     }
 }
 
@@ -135,11 +135,11 @@ bool Storage::Has(const char* key) const noexcept {
 
 void Storage::Remove(const char* key) noexcept {
     if (!key) return;
-    for (usize i = 0; i < _entries.Size(); ++i) {
-        if (StrEq(_entries[i].key.Data(), key)) {
+    for (usize i = 0; i < m_Entries.Size(); ++i) {
+        if (StrEq(m_Entries[i].key.Data(), key)) {
             // 末尾と入替えて Pop（順序は保証しない）
-            _entries[i] = Move(_entries[_entries.Size() - 1]);
-            _entries.PopBack();
+            m_Entries[i] = Move(m_Entries[m_Entries.Size() - 1]);
+            m_Entries.PopBack();
             return;
         }
     }
@@ -147,8 +147,8 @@ void Storage::Remove(const char* key) noexcept {
 
 Storage::Entry* Storage::FindEntry(const char* key) noexcept {
     if (!key) return nullptr;
-    for (usize i = 0; i < _entries.Size(); ++i) {
-        if (StrEq(_entries[i].key.Data(), key)) return &_entries[i];
+    for (usize i = 0; i < m_Entries.Size(); ++i) {
+        if (StrEq(m_Entries[i].key.Data(), key)) return &m_Entries[i];
     }
     return nullptr;
 }
@@ -170,7 +170,7 @@ TResult<void> Storage::Load(const wchar_t* path) noexcept {
 }
 
 TResult<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
-    _entries.Clear();
+    m_Entries.Clear();
     if (!data) return Ok();
 
     const char* p   = reinterpret_cast<const char*>(data);
@@ -208,7 +208,7 @@ TResult<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
         Entry e;
         e.key   = FString(FStringView(line.Data() + ks, ke - ks));
         e.value = FString(FStringView(line.Data() + vs, ve - vs));
-        _entries.PushBack(Move(e));
+        m_Entries.PushBack(Move(e));
     }
     return Ok();
 }
@@ -228,12 +228,12 @@ TResult<void> Storage::Save(const wchar_t* path) noexcept {
     }
 
     FString out;
-    out.Reserve(64 * (_entries.Size() + 1));
+    out.Reserve(64 * (m_Entries.Size() + 1));
     out.Append(FStringView("# acs Storage\n"));
-    for (usize i = 0; i < _entries.Size(); ++i) {
-        out.Append(_entries[i].key.View());
+    for (usize i = 0; i < m_Entries.Size(); ++i) {
+        out.Append(m_Entries[i].key.View());
         out.Append('=');
-        out.Append(_entries[i].value.View());
+        out.Append(m_Entries[i].value.View());
         out.Append('\n');
     }
     return FileSystem::WriteAllBytes(path,

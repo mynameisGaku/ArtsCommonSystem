@@ -66,15 +66,15 @@ namespace acs::game {
 // ゲーム層に対して **不透明な u64** として公開する。これにより上位は
 // backend が変わってもコードを書き換えずに済む。
 //
-//   ・`_opaque == 0` を「無効ハンドル」として予約。
+//   ・`m_Opaque == 0` を「無効ハンドル」として予約。
 //   ・LoadModel が成功すると、backend は 0 以外の値を入れて返す。
 //   ・UnloadModel に渡した後は再利用禁止 (use-after-free 検出は backend 任意)。
 // =============================================================================
 struct MlModelHandle {
-    u64 _opaque = 0;  // backend 固有の値。0 は無効を表す予約値。
+    u64 m_Opaque = 0;  // backend 固有の値。0 は無効を表す予約値。
 
     // 有効なハンドルか (= LoadModel から正常に返されたか) を判定。
-    bool IsValid() const noexcept { return _opaque != 0; }
+    bool IsValid() const noexcept { return m_Opaque != 0; }
 };
 
 // =============================================================================
@@ -219,8 +219,8 @@ public:
     ~FUpscalerStub() noexcept override = default;
 
     TResult<void> Init(EUpscalerKind k)     noexcept override;
-    EUpscalerKind ActiveKind()       const noexcept override { return _kind; }
-    void         Shutdown()               noexcept override { _kind = EUpscalerKind::Off; }
+    EUpscalerKind ActiveKind()       const noexcept override { return m_Kind; }
+    void         Shutdown()               noexcept override { m_Kind = EUpscalerKind::Off; }
 
     u32 InputWidth()   const noexcept override { return 0; }
     u32 InputHeight()  const noexcept override { return 0; }
@@ -228,7 +228,7 @@ public:
     u32 OutputHeight() const noexcept override { return 0; }
 
 private:
-    EUpscalerKind _kind = EUpscalerKind::Off;
+    EUpscalerKind m_Kind = EUpscalerKind::Off;
 };
 
 // =============================================================================

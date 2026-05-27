@@ -113,8 +113,8 @@ public:
     void Clear() noexcept;
 
     // ---- 形状 / 範囲 ---------------------------------------------------------
-    u32 Width()  const noexcept { return _width;  }
-    u32 Height() const noexcept { return _height; }
+    u32 Width()  const noexcept { return m_Width;  }
+    u32 Height() const noexcept { return m_Height; }
 
     // ---- グリッド読み書き ----------------------------------------------------
     // 範囲外は Wall (通行不可) を返す。
@@ -123,7 +123,7 @@ public:
     void SetTile(u32 x, u32 y, ETileKind kind) noexcept;
 
     // ---- 部屋情報 -----------------------------------------------------------
-    u32 RoomCount() const noexcept { return static_cast<u32>(_rooms.Size()); }
+    u32 RoomCount() const noexcept { return static_cast<u32>(m_Rooms.Size()); }
 
     // 範囲外 index は nullptr。
     const Room* GetRoom(u32 index) const noexcept;
@@ -145,11 +145,11 @@ public:
 
 private:
     // ---- 永続データ ---------------------------------------------------------
-    u32              _width  = 0;
-    u32              _height = 0;
-    TArray<ETileKind>  _grid;   // row-major (width * height)
-    TArray<Room>      _rooms;  // 生成順
-    u32              _seed   = 0; // 直近 Generate の seed (FindRandomFloor 等で再利用)
+    u32              m_Width  = 0;
+    u32              m_Height = 0;
+    TArray<ETileKind>  m_Grid;   // row-major (width * height)
+    TArray<Room>      m_Rooms;  // 生成順
+    u32              m_Seed   = 0; // 直近 Generate の seed (FindRandomFloor 等で再利用)
 };
 
 } // namespace acs::game

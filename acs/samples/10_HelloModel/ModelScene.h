@@ -34,13 +34,13 @@ public:
     void Render(acs::FStandardShader& shader, acs::IRhiCommandList& cl) noexcept;
 
 private:
-    acs::GpuMesh _gm_sphere, _gm_plane, _gm_cube;
+    acs::GpuMesh m_GmSphere, m_GmPlane, m_GmCube;
 
-    acs::FCamera _camera;
-    acs::FVec3   _cam_pos{0, 1.5f, -5.0f};
-    acs::f32    _cam_yaw   = 0.0f;
-    acs::f32    _cam_pitch = 0.0f;
-    acs::f32    _angle     = 0.0f;
+    acs::FCamera m_Camera;
+    acs::FVec3   m_CamPos{0, 1.5f, -5.0f};
+    acs::f32    m_CamYaw   = 0.0f;
+    acs::f32    m_CamPitch = 0.0f;
+    acs::f32    m_Angle     = 0.0f;
 };
 
 } // namespace hellomodel

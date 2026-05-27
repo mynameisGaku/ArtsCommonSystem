@@ -79,12 +79,12 @@ public:
     void Shutdown() noexcept;
 
     // null 渡しなら DrawRect 相当の白矩形（FSpriteBatch の内部白テクスチャ）
-    void SetTexture(IRhiTexture* tex) noexcept { _tex = tex; }
+    void SetTexture(IRhiTexture* tex) noexcept { m_Tex = tex; }
 
     // エミッタ設定。中の active=true で連続生成、false で停止のみ。
-    void SetEmitter(const EmitterDesc& d) noexcept { _emitter = d; }
-    EmitterDesc& Emitter() noexcept { return _emitter; }
-    const EmitterDesc& Emitter() const noexcept { return _emitter; }
+    void SetEmitter(const EmitterDesc& d) noexcept { m_Emitter = d; }
+    EmitterDesc& Emitter() noexcept { return m_Emitter; }
+    const EmitterDesc& Emitter() const noexcept { return m_Emitter; }
 
     // 1 フレーム分シミュレーション
     void Update(f32 dt) noexcept;
@@ -93,13 +93,13 @@ public:
     void EmitBurst(u32 count) noexcept;
 
     // 全粒子を即座に消滅
-    void Reset() noexcept { _active = 0; _spawn_accum = 0; }
+    void Reset() noexcept { m_Active = 0; m_SpawnAccum = 0; }
 
     // FSpriteBatch に粒子を積む（事前に Begin 済みであること）
     void Render(FSpriteBatch& sb) noexcept;
 
-    u32  ActiveCount() const noexcept { return _active; }
-    u32  Capacity()    const noexcept { return _capacity; }
+    u32  ActiveCount() const noexcept { return m_Active; }
+    u32  Capacity()    const noexcept { return m_Capacity; }
 
 private:
     struct Particle {
@@ -115,13 +115,13 @@ private:
     f32  RandF() noexcept;       // 0..1
     f32  RandRange(f32 a, f32 b) noexcept;
 
-    Particle*    _pool         = nullptr;
-    u32          _capacity     = 0;
-    u32          _active       = 0;
-    f32          _spawn_accum  = 0.0f;
-    EmitterDesc  _emitter;
-    IRhiTexture* _tex          = nullptr;
-    u32          _seed         = 0xC0FFEEu;
+    Particle*    m_Pool         = nullptr;
+    u32          m_Capacity     = 0;
+    u32          m_Active       = 0;
+    f32          m_SpawnAccum  = 0.0f;
+    EmitterDesc  m_Emitter;
+    IRhiTexture* m_Tex          = nullptr;
+    u32          m_Seed         = 0xC0FFEEu;
 };
 
 } // namespace acs

@@ -82,9 +82,9 @@ private:
         void*           user        = nullptr;
     };
 
-    TArray<Slot> _slots;
-    TArray<u32>  _free_indices;  // 1-based id を再利用するための空きスロット
-    u32         _next_id = 1;
+    TArray<Slot> m_Slots;
+    TArray<u32>  m_FreeIndices;  // 1-based id を再利用するための空きスロット
+    u32         m_NextId = 1;
 };
 
 } // namespace acs

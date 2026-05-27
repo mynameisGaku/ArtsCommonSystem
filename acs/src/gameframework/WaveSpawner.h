@@ -7,7 +7,7 @@
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       acs::game::FWaveSpawner _waves;
+//       acs::game::FWaveSpawner m_Waves;
 //
 //       static void OnSpawn(void* self, const char* enemy_id, acs::FVec2 pos) noexcept {
 //           auto* s = static_cast<GameplayScene*>(self);
@@ -20,15 +20,15 @@
 //       }
 //
 //       void OnEnter() noexcept override {
-//           _waves.Init();
-//           _waves.SetOnSpawnCallback(&OnSpawn, this);
-//           _waves.SetOnWaveStateChangeCallback(&OnWaveState, this);
-//           _waves.AddWave(wave0_def);
-//           _waves.AddWave(wave1_def);
-//           _waves.StartWaves();
+//           m_Waves.Init();
+//           m_Waves.SetOnSpawnCallback(&OnSpawn, this);
+//           m_Waves.SetOnWaveStateChangeCallback(&OnWaveState, this);
+//           m_Waves.AddWave(wave0_def);
+//           m_Waves.AddWave(wave1_def);
+//           m_Waves.StartWaves();
 //       }
-//       void OnUpdate(f32 dt) noexcept override { _waves.Tick(dt); }
-//       void OnEnemyDefeated(const char* id) noexcept { _waves.NotifyEnemyKilled(id); }
+//       void OnUpdate(f32 dt) noexcept override { m_Waves.Tick(dt); }
+//       void OnEnemyDefeated(const char* id) noexcept { m_Waves.NotifyEnemyKilled(id); }
 //   };
 //
 // 設計選択:
@@ -172,13 +172,13 @@ public:
 
     // 現在処理中の wave index。Idle では 0、AllComplete では TotalWaves() を返す
     // (= 範囲外の sentinel として使える、TotalWaves() 自身は有効 wave index 数)。
-    u32 CurrentWaveIndex() const noexcept { return _current_wave; }
+    u32 CurrentWaveIndex() const noexcept { return m_CurrentWave; }
 
     // AddWave で積まれた総 wave 数。
     u32 TotalWaves() const noexcept;
 
     // 現 wave で生きている (= 湧かせた - 倒した) 敵の数。Idle/AllComplete では 0。
-    u32 EnemiesRemainingInWave() const noexcept { return _alive_count; }
+    u32 EnemiesRemainingInWave() const noexcept { return m_AliveCount; }
 
     // 現 wave で既に湧かせた敵の総数 (全 rule 合計)。Idle/AllComplete では 0。
     u32 EnemiesSpawnedInWave() const noexcept;
@@ -186,7 +186,7 @@ public:
     // 現 wave 開始からの経過 sec。Spawning に入った瞬間に 0 にリセットされ、
     // WaitingClear / Cleared の間も加算され続ける (= 次 wave Spawning でリセット)。
     // Idle / AllComplete では 0。Pause 中は加算停止。
-    f32 WaveTimerSec() const noexcept { return _wave_timer; }
+    f32 WaveTimerSec() const noexcept { return m_WaveTimer; }
 
     // ----- callback -----
     // cb == nullptr で登録解除。重複登録は上書き。
@@ -219,26 +219,26 @@ private:
     EWaveState _state = EWaveState::Idle;
 
     // 現 wave index (0-based)。Idle では 0、AllComplete では TotalWaves()。
-    u32 _current_wave = 0u;
+    u32 m_CurrentWave = 0u;
 
     // Spawning に入ってから経過した sec。rule の delay / interval 判定の基準。
-    f32 _wave_timer = 0.0f;
+    f32 m_WaveTimer = 0.0f;
 
     // Cleared 中の intermission 経過 sec。intermission 完了で次 wave へ。
-    f32 _intermission_timer = 0.0f;
+    f32 m_IntermissionTimer = 0.0f;
 
     // この wave 内で生きている敵数 (= spawned 合計 - killed)。
-    u32 _alive_count = 0u;
+    u32 m_AliveCount = 0u;
 
     // Pause フラグ。Tick の冒頭で見て、true なら timer 進行をスキップ。
-    bool _paused = false;
+    bool m_Paused = false;
 
     // ----- queue -----
-    TArray<FWaveEntry> _waves;
+    TArray<FWaveEntry> m_Waves;
 
     // ----- callback -----
-    SpawnCallback           _spawn_cb           = nullptr;
-    void*                   _spawn_cb_user      = nullptr;
+    SpawnCallback           m_SpawnCb           = nullptr;
+    void*                   m_SpawnCbUser      = nullptr;
     WaveStateChangeCallback _state_cb           = nullptr;
     void*                   _state_cb_user      = nullptr;
 };

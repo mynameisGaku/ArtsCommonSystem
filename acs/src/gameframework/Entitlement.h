@@ -98,7 +98,7 @@ public:
     const EntitlementInfo* AllInfos() const noexcept;
 
 private:
-    TArray<EntitlementInfo> _infos;
+    TArray<EntitlementInfo> m_Infos;
 };
 
 } // namespace acs::game

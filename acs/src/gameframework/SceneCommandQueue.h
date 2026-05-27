@@ -10,16 +10,16 @@
 //
 // 使い方:
 //   class GameplayScene : public Scene {
-//       FSceneCommandQueue _cmds;
+//       FSceneCommandQueue m_Cmds;
 //
 //       void OnUpdate(f32 dt) noexcept override {
 //           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
 //           if (Input::IsKeyPressed(EKey::Delete)) {
-//               _cmds.Enqueue("DeleteSelected", &GameplayScene::DeleteSelected, this);
+//               m_Cmds.Enqueue("DeleteSelected", &GameplayScene::DeleteSelected, this);
 //           }
 //           // 同 label が既にキュー上に居れば denounce (連打抑制)
 //           if (held) {
-//               _cmds.EnqueueIfAbsent("Refresh", &GameplayScene::RefreshUi, this, /*priority=*/50);
+//               m_Cmds.EnqueueIfAbsent("Refresh", &GameplayScene::RefreshUi, this, /*priority=*/50);
 //           }
 //       }
 //       void OnDraw() noexcept override {
@@ -124,7 +124,7 @@ private:
     // Flush の安定 priority 昇順ソート (insertion sort、N が小さい想定)。
     void StableSortByPriority() noexcept;
 
-    TArray<CommandRecord> _records;
+    TArray<CommandRecord> m_Records;
 };
 
 } // namespace acs::game

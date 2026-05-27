@@ -15,37 +15,37 @@ using namespace acs;
 namespace hellomvvm {
 
 void HelloMVVMApp::OnStart() noexcept {
-    ACS_SAMPLE_INIT(_imgui.Init(GetWindow(), GetRenderer()));
+    ACS_SAMPLE_INIT(m_Imgui.Init(GetWindow(), GetRenderer()));
 
     // Subscribe で値の変化をフックできる。ここではログに流して
     // bind が走っていることを目で確認できるようにしておく。
-    _vm.hp.Subscribe([](const f32& v, void*){
+    m_Vm.hp.Subscribe([](const f32& v, void*){
         ACS_LOG_INFO("VM hp: %.1f", v);
     }, nullptr);
 
     // MakeBind は TUniquePtr を返すので、所有権だけ持っていれば
     // 寿命管理 (Unsubscribe) は自動で走る。
-    _hp_mirror_binder = MakeBind(_vm.hp, _hp_mirror);
+    m_HpMirrorBinder = MakeBind(m_Vm.hp, m_HpMirror);
 
     // 型が異なる Observable 同士は MakeBindConvert で繋ぐ。
     // 組込みの TDefaultConverter<f32, FString> が選択されるので
     // 変換ラムダを書く必要はない。
-    _hp_text_binder = MakeBindConvert<f32, FString>(_vm.hp, _hp_text);
+    m_HpTextBinder = MakeBindConvert<f32, FString>(m_Vm.hp, m_HpText);
 
     // Derived は依存元 Observable が変わると lazy に再計算される派生 Observable。
-    _ratio = new Derived<f32, f32>(
+    m_Ratio = new Derived<f32, f32>(
         [](const f32& h, const f32& m) {
             return m > 0 ? h / m : 0.0f;
         },
-        _vm.hp, _vm.max_hp);
+        m_Vm.hp, m_Vm.max_hp);
 
-    _vm.inventory.PushBack(7);
-    _vm.inventory.PushBack(15);
-    _vm.inventory.PushBack(99);
+    m_Vm.inventory.PushBack(7);
+    m_Vm.inventory.PushBack(15);
+    m_Vm.inventory.PushBack(99);
 
     // ObservableArray は要素単位の Insert/Remove/Change/Clear イベントを
     // 配るので、UI 全更新ではなく差分更新が書ける。
-    _vm.inventory.Subscribe([](EArrayChange k, usize i, const i32* v, void*){
+    m_Vm.inventory.Subscribe([](EArrayChange k, usize i, const i32* v, void*){
         switch (k) {
             case EArrayChange::Inserted: ACS_LOG_INFO("Inv[+%zu] = %d", i, *v); break;
             case EArrayChange::Removed:  ACS_LOG_INFO("Inv[-%zu]", i); break;
@@ -62,7 +62,7 @@ void HelloMVVMApp::OnUpdate(f32 /*dt*/) noexcept {
 }
 
 void HelloMVVMApp::OnRender() noexcept {
-    _imgui.NewFrame();
+    m_Imgui.NewFrame();
 
     ImGui::SetNextWindowSize(ImVec2(440, 720), ImGuiCond_FirstUseEver);
     ImGui::Begin("ACS MVVM Demo");
@@ -72,17 +72,17 @@ void HelloMVVMApp::OnRender() noexcept {
     // ============================================================
     if (ImGui::CollapsingHeader("① 5 分入門 (Set/Get + Bind)", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Text("Observable<T> をスライダーで編集する最小例:");
-        mvvm::imgui::Bind("HP",     _vm.hp,     0.0f, 100.0f);
-        mvvm::imgui::Bind("Mana",   _vm.mana,   0.0f, 100.0f);
-        mvvm::imgui::Bind("Lv",     _vm.level,  1, 99);
-        mvvm::imgui::Bind("無敵",   _vm.invincible);
+        mvvm::imgui::Bind("HP",     m_Vm.hp,     0.0f, 100.0f);
+        mvvm::imgui::Bind("Mana",   m_Vm.mana,   0.0f, 100.0f);
+        mvvm::imgui::Bind("Lv",     m_Vm.level,  1, 99);
+        mvvm::imgui::Bind("無敵",   m_Vm.invincible);
         ImGui::Separator();
 
-        mvvm::imgui::BindText("名前", _vm.name, _name_buf, sizeof(_name_buf));
-        mvvm::imgui::BindColor3("シンボル色", _vm.color);
+        mvvm::imgui::BindText("名前", m_Vm.name, m_NameBuf, sizeof(m_NameBuf));
+        mvvm::imgui::BindColor3("シンボル色", m_Vm.color);
 
         const char* classes[] = { "戦士", "魔法使い", "盗賊" };
-        mvvm::imgui::BindCombo("クラス", _vm.class_idx, classes, 3);
+        mvvm::imgui::BindCombo("クラス", m_Vm.class_idx, classes, 3);
     }
 
     // ============================================================
@@ -90,15 +90,15 @@ void HelloMVVMApp::OnRender() noexcept {
     // ============================================================
     if (ImGui::CollapsingHeader("② Binder (自動同期)")) {
         ImGui::Text("OneWayBinder: HP が変わると自動で hp_mirror も更新");
-        mvvm::imgui::BindProgress("Mirror HP", _hp_mirror, 0.0f, 100.0f);
+        mvvm::imgui::BindProgress("Mirror HP", m_HpMirror, 0.0f, 100.0f);
 
         ImGui::Spacing();
         ImGui::Text("組込み暗黙変換: f32 → FString (TDefaultConverter 自動選択)");
-        ImGui::Text("HP 文字列: \"%s\"", _hp_text.Get().Data());
+        ImGui::Text("HP 文字列: \"%s\"", m_HpText.Get().Data());
 
         ImGui::Spacing();
         ImGui::Text("Bind(src, dst) ファクトリは型違いでも自動で converter 選択:");
-        ImGui::BulletText("Observable<f32> → Observable<FString>: \"%s\"", _hp_text.Get().Data());
+        ImGui::BulletText("Observable<f32> → Observable<FString>: \"%s\"", m_HpText.Get().Data());
         ImGui::BulletText("Observable<i32> → Observable<f32>: 同型なら OneWayBinder");
         ImGui::BulletText("Observable<FString> → Observable<i32>: パース失敗時 0");
     }
@@ -108,58 +108,58 @@ void HelloMVVMApp::OnRender() noexcept {
     // ============================================================
     if (ImGui::CollapsingHeader("③ Derived (派生 Observable)")) {
         ImGui::Text("Max HP を変えると ratio が自動再計算 (lazy):");
-        mvvm::imgui::Bind("Max HP", _vm.max_hp, 1.0f, 200.0f);
+        mvvm::imgui::Bind("Max HP", m_Vm.max_hp, 1.0f, 200.0f);
         ImGui::Spacing();
         // Derived 本体は Observable ではないので、bind には AsObservable() を経由する。
-        mvvm::imgui::BindFormat<f32>("HP / MaxHP = %.2f", _ratio->AsObservable());
-        mvvm::imgui::BindProgress("Ratio", _ratio->AsObservable(), 0.0f, 1.0f);
+        mvvm::imgui::BindFormat<f32>("HP / MaxHP = %.2f", m_Ratio->AsObservable());
+        mvvm::imgui::BindProgress("Ratio", m_Ratio->AsObservable(), 0.0f, 1.0f);
     }
 
     // ============================================================
     // ④ ObservableArray + Command — コレクションとアクション
     // ============================================================
     if (ImGui::CollapsingHeader("④ TArray + Command")) {
-        ImGui::Text("Inventory (%zu 個):", _vm.inventory.Size());
-        for (usize i = 0; i < _vm.inventory.Size(); ++i) {
-            ImGui::BulletText("[%zu] = %d", i, _vm.inventory.At(i));
+        ImGui::Text("Inventory (%zu 個):", m_Vm.inventory.Size());
+        for (usize i = 0; i < m_Vm.inventory.Size(); ++i) {
+            ImGui::BulletText("[%zu] = %d", i, m_Vm.inventory.At(i));
         }
         if (ImGui::Button("ランダム追加")) {
-            _vm.inventory.PushBack((rand() % 100) + 1);
+            m_Vm.inventory.PushBack((rand() % 100) + 1);
         }
         ImGui::SameLine();
-        if (ImGui::Button("末尾削除") && _vm.inventory.Size() > 0) {
-            _vm.inventory.PopBack();
+        if (ImGui::Button("末尾削除") && m_Vm.inventory.Size() > 0) {
+            m_Vm.inventory.PopBack();
         }
         ImGui::SameLine();
         if (ImGui::Button("全削除")) {
-            _vm.inventory.Clear();
+            m_Vm.inventory.Clear();
         }
 
         ImGui::Spacing();
         ImGui::Text("Command (ボタン化、無敵中は grayout):");
         // Command 自体は can_execute=null で常時実行可能にしておき、
         // 無敵フラグによる UI 抑止だけを View 側 (BeginDisabled) で行う。
-        if (_vm.invincible.Get()) ImGui::BeginDisabled();
-        mvvm::imgui::BindCommand("攻撃を受ける (-10 HP)", _vm.attack);
-        if (_vm.invincible.Get()) ImGui::EndDisabled();
+        if (m_Vm.invincible.Get()) ImGui::BeginDisabled();
+        mvvm::imgui::BindCommand("攻撃を受ける (-10 HP)", m_Vm.attack);
+        if (m_Vm.invincible.Get()) ImGui::EndDisabled();
     }
 
     ImGui::End();
 
-    _imgui.Render();
+    m_Imgui.Render();
 }
 
 void HelloMVVMApp::OnShutdown() noexcept {
     // Reset/delete を OnShutdown 側で明示的に走らせることで、
     // Subscribe の解除順を ImGui::Shutdown より前に固定する。
-    delete _ratio; _ratio = nullptr;
-    _hp_text_binder.Reset();
-    _hp_mirror_binder.Reset();
-    _imgui.Shutdown();
+    delete m_Ratio; m_Ratio = nullptr;
+    m_HpTextBinder.Reset();
+    m_HpMirrorBinder.Reset();
+    m_Imgui.Shutdown();
 }
 
 void HelloMVVMApp::OnEvent(const Event& e) noexcept {
-    _imgui.OnEvent(e);
+    m_Imgui.OnEvent(e);
 }
 
 } // namespace hellomvvm

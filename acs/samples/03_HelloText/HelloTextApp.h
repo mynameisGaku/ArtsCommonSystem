@@ -24,11 +24,11 @@ public:
     void OnShutdown()         noexcept override;
 
 private:
-    acs::FSpriteBatch _batch;
-    acs::Font        _title_font;
-    acs::Font        _body_font;
-    acs::Font        _small_font;
-    acs::f32         _time = 0.0f;
+    acs::FSpriteBatch m_Batch;
+    acs::Font        m_TitleFont;
+    acs::Font        m_BodyFont;
+    acs::Font        m_SmallFont;
+    acs::f32         m_Time = 0.0f;
 };
 
 } // namespace hellotext

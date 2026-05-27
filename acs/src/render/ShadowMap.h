@@ -89,46 +89,46 @@ public:
                                       f32 lambda = 0.5f) noexcept;
 
     // 現在描画する cascade を選択 (CSM mode、BeginShadowPass の後に呼ぶ)。
-    // _light_cb を当該 cascade の VP で更新する。
+    // m_LightCb を当該 cascade の VP で更新する。
     void SetCurrentCascade(u32 cascade) noexcept;
 
     // キャスター描画ごとのモデル行列を設定
     void SetCaster(const FMat4& model) noexcept;
 
-    IRhiTexture*  DepthTexture()   const noexcept { return _depth.Get(); }
-    IRhiPipeline* CasterPipeline() const noexcept { return _pipeline.Get(); }
-    IRhiBuffer*   LightCB()        const noexcept { return _light_cb.Get(); }   // b0 = light_vp
-    IRhiBuffer*   CasterObjectCB() const noexcept { return _object_cb.Get(); } // b1 = model
+    IRhiTexture*  DepthTexture()   const noexcept { return m_Depth.Get(); }
+    IRhiPipeline* CasterPipeline() const noexcept { return m_Pipeline.Get(); }
+    IRhiBuffer*   LightCB()        const noexcept { return m_LightCb.Get(); }   // b0 = light_vp
+    IRhiBuffer*   CasterObjectCB() const noexcept { return m_ObjectCb.Get(); } // b1 = model
 
     // single cascade 用の後方互換 getter
-    FMat4 LightViewProjection() const noexcept { return _light_vp[0]; }
+    FMat4 LightViewProjection() const noexcept { return m_LightVp[0]; }
 
     // CSM 用 (cascade 0..CascadeCount()-1)
     FMat4 LightViewProjection(u32 cascade) const noexcept {
-        return _light_vp[cascade < _cascade_count ? cascade : 0];
+        return m_LightVp[cascade < m_CascadeCount ? cascade : 0];
     }
     f32 CascadeSplit(u32 cascade) const noexcept {
-        return _cascade_splits[cascade < _cascade_count ? cascade : 0];
+        return m_CascadeSplits[cascade < m_CascadeCount ? cascade : 0];
     }
-    u32 CascadeCount() const noexcept { return _cascade_count; }
+    u32 CascadeCount() const noexcept { return m_CascadeCount; }
 
     // atlas 内の cascade 領域に対する viewport / scissor。BeginShadowPass の
     // 後・各 caster 群描画の前に SetViewport / SetScissor へ渡す。
     FViewport    CascadeViewport(u32 cascade) const noexcept;
     FScissorRect CascadeScissor (u32 cascade) const noexcept;
 
-    u32 Size() const noexcept { return _size; }
+    u32 Size() const noexcept { return m_Size; }
 
 private:
-    TUniquePtr<IRhiTexture>  _depth;
-    TUniquePtr<IRhiShader>   _vs;
-    TUniquePtr<IRhiPipeline> _pipeline;
-    TUniquePtr<IRhiBuffer>   _light_cb;
-    TUniquePtr<IRhiBuffer>   _object_cb;
-    FMat4                    _light_vp      [kMaxCascades] = {};
-    f32                     _cascade_splits[kMaxCascades] = {};
-    u32                     _size          = 0;
-    u32                     _cascade_count = 1;
+    TUniquePtr<IRhiTexture>  m_Depth;
+    TUniquePtr<IRhiShader>   m_Vs;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiBuffer>   m_LightCb;
+    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    FMat4                    m_LightVp      [kMaxCascades] = {};
+    f32                     m_CascadeSplits[kMaxCascades] = {};
+    u32                     m_Size          = 0;
+    u32                     m_CascadeCount = 1;
 };
 
 } // namespace acs

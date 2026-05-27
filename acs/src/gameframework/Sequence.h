@@ -14,17 +14,17 @@
 //
 // 使い方:
 //   class TitleScene : public Scene {
-//       FSequenceRunner _seqs;
-//       FVec3 _logo_color;
+//       FSequenceRunner m_Seqs;
+//       FVec3 m_LogoColor;
 //       void OnEnter() noexcept override {
 //           FSequence s;
 //           s.Wait(0.3f)
-//            .Tween(&_logo_color, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
+//            .Tween(&m_LogoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
 //            .Wait(1.0f)
 //            .Call(&TitleScene::FadeOutBegin, this);
-//           _seqs.Start(Move(s));
+//           m_Seqs.Start(Move(s));
 //       }
-//       void OnUpdate(f32 dt) noexcept override { _seqs.Tick(dt); }
+//       void OnUpdate(f32 dt) noexcept override { m_Seqs.Tick(dt); }
 //       static void FadeOutBegin(void* self) noexcept {
 //           static_cast<TitleScene*>(self)->_ready_to_quit = true;
 //       }
@@ -87,16 +87,16 @@ public:
 
     // ループ回数。0 = 無限。既定 1 (1 回再生で終了)。
     FSequence& Loop(u32 count) noexcept {
-        _loop_count = count;
+        m_LoopCount = count;
         return *this;
     }
 
-    const TArray<SeqAction>& Actions() const noexcept { return _actions; }
-    u32 LoopCount() const noexcept { return _loop_count; }
+    const TArray<SeqAction>& Actions() const noexcept { return m_Actions; }
+    u32 LoopCount() const noexcept { return m_LoopCount; }
 
 private:
-    TArray<SeqAction> _actions;
-    u32              _loop_count = 1;
+    TArray<SeqAction> m_Actions;
+    u32              m_LoopCount = 1;
 };
 
 struct SeqHandle {
@@ -123,7 +123,7 @@ public:
     void CancelAll() noexcept;
 
     bool IsActive(SeqHandle h) const noexcept;
-    u32  ActiveCount() const noexcept { return _active_count; }
+    u32  ActiveCount() const noexcept { return m_ActiveCount; }
 
     // 毎フレーム呼ぶ (Scene::OnUpdate から FSceneClock::Dt() を渡す想定)。
     void Tick(f32 dt) noexcept;
@@ -143,8 +143,8 @@ private:
     void AdvanceToNext(Slot& s) noexcept;
     void FinishAction(Slot& s, const SeqAction& act) noexcept;
 
-    TArray<Slot> _slots;
-    u32         _active_count = 0;
+    TArray<Slot> m_Slots;
+    u32         m_ActiveCount = 0;
 };
 
 } // namespace acs::game

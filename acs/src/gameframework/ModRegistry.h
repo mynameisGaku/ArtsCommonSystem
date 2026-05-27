@@ -128,7 +128,7 @@ private:
     // 内部の id 比較ヘルパ (両者 nullptr 安全)。
     static bool IdEquals(const char* a, const char* b) noexcept;
 
-    TArray<ModInfo> _mods;
+    TArray<ModInfo> m_Mods;
 };
 
 } // namespace acs::game

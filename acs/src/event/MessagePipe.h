@@ -45,66 +45,66 @@ public:
     // 値を末尾に積む。Close() 済みなら false、追加成功なら true。
     bool Push(T value) noexcept {
         {
-            FScopedLock lock(_mtx);
+            FScopedLock lock(m_Mtx);
             if (_closed) return false;
-            _q.PushBack(Move(value));
+            m_Q.PushBack(Move(value));
         }
-        _cv.NotifyOne();
+        m_Cv.NotifyOne();
         return true;
     }
 
     // 即座に取り出し試行 (空なら false)
     bool TryPop(T& out) noexcept {
-        FScopedLock lock(_mtx);
-        if (_q.Size() == 0) return false;
-        out = Move(_q[0]);
+        FScopedLock lock(m_Mtx);
+        if (m_Q.Size() == 0) return false;
+        out = Move(m_Q[0]);
         // 簡易: 先頭削除は O(N) だが小規模ならコスト無視。
         // 性能必要なら ring buffer 化する。
-        for (usize i = 1; i < _q.Size(); ++i) {
-            _q[i - 1] = Move(_q[i]);
+        for (usize i = 1; i < m_Q.Size(); ++i) {
+            m_Q[i - 1] = Move(m_Q[i]);
         }
-        _q.PopBack();
+        m_Q.PopBack();
         return true;
     }
 
     // 値が来るまで block。Close() 中に呼ばれた / 呼ばれた後なら false 返す。
     bool Pop(T& out) noexcept {
-        FScopedLock lock(_mtx);
-        while (_q.Size() == 0 && !_closed) {
-            _cv.Wait(_mtx);  // FScopedLock 内部の mutex を unlock+wait+relock
+        FScopedLock lock(m_Mtx);
+        while (m_Q.Size() == 0 && !_closed) {
+            m_Cv.Wait(m_Mtx);  // FScopedLock 内部の mutex を unlock+wait+relock
         }
-        if (_q.Size() == 0) return false;     // closed && empty
-        out = Move(_q[0]);
-        for (usize i = 1; i < _q.Size(); ++i) {
-            _q[i - 1] = Move(_q[i]);
+        if (m_Q.Size() == 0) return false;     // closed && empty
+        out = Move(m_Q[0]);
+        for (usize i = 1; i < m_Q.Size(); ++i) {
+            m_Q[i - 1] = Move(m_Q[i]);
         }
-        _q.PopBack();
+        m_Q.PopBack();
         return true;
     }
 
     // 待機中のすべての Pop を解放 (false で抜けさせる)
     void Close() noexcept {
         {
-            FScopedLock lock(_mtx);
+            FScopedLock lock(m_Mtx);
             _closed = true;
         }
-        _cv.NotifyAll();
+        m_Cv.NotifyAll();
     }
 
     bool IsClosed() const noexcept {
-        FScopedLock lock(_mtx);
+        FScopedLock lock(m_Mtx);
         return _closed;
     }
 
     usize Size() const noexcept {
-        FScopedLock lock(_mtx);
-        return _q.Size();
+        FScopedLock lock(m_Mtx);
+        return m_Q.Size();
     }
 
 private:
-    mutable FMutex   _mtx;
-    ConditionVar    _cv;
-    TArray<T>        _q;
+    mutable FMutex   m_Mtx;
+    ConditionVar    m_Cv;
+    TArray<T>        m_Q;
     bool            _closed = false;
 };
 
