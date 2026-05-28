@@ -36,12 +36,14 @@ acs_module(
     SOURCES
         AcpakReader.cpp
         AcpakWriter.cpp
+        AcpakGameBridge.cpp
         AcpakCrypto.cpp
         AcpakLz4.cpp
     HEADERS
         AcpakFormat.h
         AcpakReader.h
         AcpakWriter.h
+        AcpakGameBridge.h
         AcpakCrypto.h
         AcpakLz4.h
     PUBLIC_DEPS
@@ -49,6 +51,7 @@ acs_module(
         Container
         Memory
         Platform
+        GameFramework
     # Bcrypt.lib は AcpakCrypto.cpp が AES-256-GCM / PBKDF2 / CSPRNG に使う。
     # OS 同梱なので third_party 依存は増えない (Windows SDK だけで完結)。
     LINK_PRIVATE

@@ -307,6 +307,10 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_BUILD_LOCAL_MATCHMAKER)
         acs_add_sample(45_HelloLocalMatchmaker)
     endif()
+
+    # --- (24) HelloAssetPackBridge (IAssetPackReader/Writer / .acpak) ---
+    # Real adapter smoke test. Writes a pack, mounts it, enumerates and reads bytes.
+    acs_add_sample(46_HelloAssetPackBridge)
 endif()
 
 # ============================================================================
