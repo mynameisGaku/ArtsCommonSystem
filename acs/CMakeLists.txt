@@ -331,6 +331,12 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(47_HelloLight2D)
     endif()
+
+    # --- (26) HelloSpriteCollider / HelloMeshCollider (ACS::Collision) ---
+    # スプライト alpha → 形状コライダー / 3D メッシュ → 三角形 BVH コライダーの
+    # 検証コンソール。GPU 不要・ヘッドレスで完結 (assert ベース)。
+    acs_add_sample(48_HelloSpriteCollider)
+    acs_add_sample(49_HelloMeshCollider)
 endif()
 
 # ============================================================================

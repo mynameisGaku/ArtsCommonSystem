@@ -93,6 +93,11 @@ acs_enable_module(AssetPack)
 # 名前空間 acs::game、CMake target ACS::GameFramework。詳細 docs/GameFramework.md
 acs_enable_module(GameFramework)
 
+# Collision — スプライト alpha / 3D メッシュから衝突形状 (凸包・輪郭・三角形 BVH)
+# を生成するジオメトリ処理。純 CPU・軽量依存なので常時有効。
+# 名前空間 acs、CMake target ACS::Collision。
+acs_enable_module(Collision)
+
 # Steamworks — Steamworks SDK の real backend 実装。ACS_BUILD_STEAMWORKS=ON
 # のときだけビルドされる (Module.cmake が自分で OFF check)。OFF (default) の
 # 場合は acs::game::SteamworksBridgeStub (no-op) を使う。

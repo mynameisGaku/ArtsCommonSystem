@@ -191,6 +191,35 @@ ACS_FORCEINLINE RayHit3 RaycastSphere(const Ray3& ray, const FSphere& s,
     return r;
 }
 
+// 三角形 (両面) とレイの交差 — Möller–Trumbore。normal は常にレイと逆向きを返す。
+ACS_FORCEINLINE RayHit3 RaycastTriangle(const Ray3& ray, FVec3 v0, FVec3 v1, FVec3 v2,
+                                        f32 t_max = 3.4028235e38f) noexcept {
+    RayHit3 r{};
+    const FVec3 e1 = v1 - v0;
+    const FVec3 e2 = v2 - v0;
+    const FVec3 pv = Cross(ray.direction, e2);
+    const f32   det = Dot(e1, pv);
+    if (det > -1e-8f && det < 1e-8f) return r;       // レイと三角形が平行
+    const f32 inv_det = 1.0f / det;
+    const FVec3 tv = ray.origin - v0;
+    const f32 u = Dot(tv, pv) * inv_det;
+    if (u < 0.0f || u > 1.0f) return r;
+    const FVec3 qv = Cross(tv, e1);
+    const f32 v = Dot(ray.direction, qv) * inv_det;
+    if (v < 0.0f || u + v > 1.0f) return r;
+    const f32 t = Dot(e2, qv) * inv_det;
+    if (t < 1e-6f || t > t_max) return r;
+    r.hit   = true;
+    r.t     = t;
+    r.point = { ray.origin.x + ray.direction.x * t,
+                ray.origin.y + ray.direction.y * t,
+                ray.origin.z + ray.direction.z * t };
+    FVec3 n = Normalize(Cross(e1, e2));
+    if (Dot(n, ray.direction) > 0.0f) n = -n;        // レイ側を向く面法線
+    r.normal = n;
+    return r;
+}
+
 ACS_FORCEINLINE RayHit3 RaycastPlane(const Ray3& ray, const FPlane& p,
                                      f32 t_max = 3.4028235e38f) noexcept {
     RayHit3 r{};
