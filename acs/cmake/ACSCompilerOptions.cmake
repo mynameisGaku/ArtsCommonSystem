@@ -47,4 +47,39 @@ function(acs_apply_compiler_options tgt)
     else()
         target_compile_definitions(${tgt} PUBLIC ACS_ASSERTS_ENABLED=0)
     endif()
+
+    # VS Solution Explorer のフィルタを実ディスクのフォルダ構成と一致させる。
+    # ターゲット定義 dir を基準に source_group(TREE) を張り、engine は src/<mod>/…、
+    # 各サンプルは自身の dir 構成をそのまま反映する。各サンプル CMakeLists 側で
+    # "Source Files"/"Header Files" の regex grouping を書く必要はない (撤去済み)。
+    #
+    # 一部のエディタ系サンプルは自分の dir 外 (src/gameframework/tools/*/…) の
+    # ソースを直接 add_executable しているため、自 dir 内/外でルートを分ける:
+    #   ・自 dir 内 → SOURCE_DIR 基準 (例: main.cpp が直下に出る)
+    #   ・自 dir 外 → プロジェクト root 基準 (実際のパス階層 src/… に出る)
+    get_target_property(_acs_tgt_srcdir ${tgt} SOURCE_DIR)
+    get_target_property(_acs_tgt_srcs   ${tgt} SOURCES)
+    if(_acs_tgt_srcs AND _acs_tgt_srcdir)
+        set(_acs_inside "")
+        set(_acs_outside "")
+        foreach(_s ${_acs_tgt_srcs})
+            if(IS_ABSOLUTE "${_s}")
+                set(_abs "${_s}")
+            else()
+                set(_abs "${_acs_tgt_srcdir}/${_s}")
+            endif()
+            file(RELATIVE_PATH _rel "${_acs_tgt_srcdir}" "${_abs}")
+            if(_rel MATCHES "^\\.\\.")
+                list(APPEND _acs_outside "${_abs}")
+            else()
+                list(APPEND _acs_inside "${_abs}")
+            endif()
+        endforeach()
+        if(_acs_inside)
+            source_group(TREE "${_acs_tgt_srcdir}" FILES ${_acs_inside})
+        endif()
+        if(_acs_outside)
+            source_group(TREE "${CMAKE_SOURCE_DIR}" FILES ${_acs_outside})
+        endif()
+    endif()
 endfunction()

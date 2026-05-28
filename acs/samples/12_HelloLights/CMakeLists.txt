@@ -13,5 +13,3 @@ acs_apply_compiler_options(hello_lights)
 # サンプル自身の dir を include path に追加。
 target_include_directories(hello_lights PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(hello_lights PRIVATE ACS::Game)
-source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
-source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

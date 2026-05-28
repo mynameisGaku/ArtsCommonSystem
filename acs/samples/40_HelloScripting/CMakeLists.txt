@@ -23,6 +23,3 @@ target_link_libraries(hello_scripting PRIVATE ACS::GameFramework)
 if(ACS_BUILD_SCRIPTING)
     target_link_libraries(hello_scripting PRIVATE ACS::Scripting)
 endif()
-
-source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
-source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

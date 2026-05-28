@@ -11,5 +11,3 @@ target_include_directories(hello_window PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(hello_window PRIVATE ACS::Game)
 
 # Visual Studio の Solution Explorer で .cpp / .h をフォルダ分けする。
-source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
-source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

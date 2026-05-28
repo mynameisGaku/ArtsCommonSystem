@@ -23,6 +23,3 @@ if(ACS_BUILD_STEAMWORKS)
     target_link_libraries(hello_steamworks PRIVATE ACS::Steamworks)
     acs_steamworks_runtime(hello_steamworks APPID 480)
 endif()
-
-source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
-source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

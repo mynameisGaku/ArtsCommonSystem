@@ -15,6 +15,12 @@ cmake_install.cmake
 CTestTestfile.cmake
 Testing/
 
+# ---- UE5 風レイアウト: 生成物の隔離先 (generate.ps1 が hidden 属性も付与) ----
+# 表層にはソース/アセットだけが見え、これらは「見ようとすれば見える」状態。
+Binaries/
+Intermediate/
+Saved/
+
 # ---- Rider / CLion ---------------------------------------------------------
 .idea/
 *.iml

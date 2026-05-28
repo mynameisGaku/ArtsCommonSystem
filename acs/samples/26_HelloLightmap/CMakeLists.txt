@@ -22,5 +22,3 @@ add_executable(hello_lightmap WIN32
 acs_apply_compiler_options(hello_lightmap)
 target_include_directories(hello_lightmap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(hello_lightmap PRIVATE ACS::Game)
-source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
-source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

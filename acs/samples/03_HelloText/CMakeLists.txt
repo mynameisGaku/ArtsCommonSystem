@@ -13,7 +13,3 @@ acs_apply_compiler_options(hello_text)
 # "HelloTextApp.h" のように local include で書けるようにする)
 target_include_directories(hello_text PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(hello_text PRIVATE ACS::Game)
-
-# Solution Explorer 内で .cpp と .h を Source Files / Header Files にグループ化。
-source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
-source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

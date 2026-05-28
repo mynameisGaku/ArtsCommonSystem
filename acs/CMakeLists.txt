@@ -27,6 +27,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Phase 3c (StyleGuide v1) — リント基盤の最小実装。詳細は docs/StyleGuide.md §12.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "Export compile_commands.json for clang-tidy / IDE.")
 
+# ---- UE5 風レイアウト: ソース/アセットだけが表層に見えるよう生成物を隔離 -----
+# Binaries/    … 実行ファイル + 配布 DLL (TARGET_FILE_DIR もここ)
+# Intermediate/… CMake cache / vcxproj / obj / .lib / FetchContent の _deps
+# Saved/       … ログ・生成ファイル
+# build tree (-B) は generate スクリプトが Intermediate/vs を指す。静的 lib と
+# pdb は build tree に残し、表層には出さない。これらは generate.ps1 が hidden 属性
+# を付与し .gitignore 済み。ACS_LAYOUT_ROOT で配置基準を上書きできる。
+if(NOT DEFINED ACS_LAYOUT_ROOT OR "${ACS_LAYOUT_ROOT}" STREQUAL "")
+    set(ACS_LAYOUT_ROOT "${CMAKE_SOURCE_DIR}")
+endif()
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${ACS_LAYOUT_ROOT}/Binaries")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${ACS_LAYOUT_ROOT}/Binaries")
+
 option(ACS_BUILD_TESTS    "Build ACS unit tests"               ON)
 option(ACS_BUILD_SAMPLES  "Build sample applications"          ON)
 option(ACS_BUILD_TOOLS    "Build ACS CLI tools (acs_assetpack)" ON)

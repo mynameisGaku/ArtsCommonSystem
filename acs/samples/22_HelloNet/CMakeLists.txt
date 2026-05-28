@@ -22,6 +22,3 @@ target_link_libraries(hello_net PRIVATE
     ACS::Container
     ACS::Network
 )
-# Solution Explorer 内で .cpp と .h を Source Files / Header Files にグループ化。
-source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
-source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

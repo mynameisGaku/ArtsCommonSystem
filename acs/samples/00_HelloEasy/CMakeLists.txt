@@ -17,6 +17,3 @@ target_link_libraries(hello_easy PRIVATE ACS::Easy)
 # hello_easy.exe + 依存 DLL + (assets/) を含む ZIP が build/ 直下に生成される。
 # 利用者の自作ゲーム CMakeLists でも同じ 1 行で OK。
 acs_package_game(hello_easy)
-
-source_group("Source Files" REGULAR_EXPRESSION "\\.(cpp|cxx|cc|c)$")
-source_group("Header Files" REGULAR_EXPRESSION "\\.(h|hpp|hxx)$")

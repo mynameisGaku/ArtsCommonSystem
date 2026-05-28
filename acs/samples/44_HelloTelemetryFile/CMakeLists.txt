@@ -6,4 +6,3 @@ add_executable(hello_telemetry_file
 )
 acs_apply_compiler_options(hello_telemetry_file)
 target_link_libraries(hello_telemetry_file PRIVATE ACS::Game ACS::GameFramework ACS::TelemetryFile)
-

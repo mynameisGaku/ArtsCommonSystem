@@ -6,4 +6,3 @@ add_executable(hello_crash_reporter
 )
 acs_apply_compiler_options(hello_crash_reporter)
 target_link_libraries(hello_crash_reporter PRIVATE ACS::Game ACS::GameFramework ACS::CrashWin)
-
