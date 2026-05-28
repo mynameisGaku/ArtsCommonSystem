@@ -112,3 +112,8 @@ endif()
 if(ACS_BUILD_ML_ONNX)
     acs_enable_module(MlOnnx)
 endif()
+
+# OpenXR - real Khronos OpenXR loader backend for IOpenXrBridge.
+if(ACS_BUILD_OPENXR)
+    acs_enable_module(OpenXr)
+endif()

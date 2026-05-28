@@ -28,32 +28,32 @@ constexpr acs::u16 kSubOrtShapeMismatch   = 204;
 constexpr acs::u16 kSubOrtInvalidHandle   = 205;
 constexpr acs::u16 kSubOrtPoolFull        = 206;
 
-acs::TResult<void> OrtStatusToResult(const OrtApi& api, OrtStatus* status,
-                                      acs::u16 subcode, const char* fallback) noexcept {
-    if (status == nullptr) {
+acs::TResult<void> OrtStatusToResult(const OrtApi& Api, OrtStatus* Status,
+                                      acs::u16 Subcode, const char* Fallback) noexcept {
+    if (Status == nullptr) {
         return acs::Ok();
     }
-    const char* msg = api.GetErrorMessage(status);
-    acs::FErrorCode err = ACS_ERR(Generic, subcode, msg ? msg : fallback);
-    api.ReleaseStatus(status);
-    return err;
+    const char* Message = Api.GetErrorMessage(Status);
+    acs::FErrorCode Error = ACS_ERR(Generic, Subcode, Message ? Message : Fallback);
+    Api.ReleaseStatus(Status);
+    return Error;
 }
 
-void CopyCString(char* dst, acs::u32 dst_size, const char* src) noexcept {
-    if (!dst || dst_size == 0) return;
-    if (!src) {
-        dst[0] = 0;
+void CopyCString(char* Dst, acs::u32 DstSize, const char* Src) noexcept {
+    if (!Dst || DstSize == 0) return;
+    if (!Src) {
+        Dst[0] = 0;
         return;
     }
-    std::strncpy(dst, src, dst_size - 1);
-    dst[dst_size - 1] = 0;
+    std::strncpy(Dst, Src, DstSize - 1);
+    Dst[DstSize - 1] = 0;
 }
 
-bool Utf8ToWide(const char* src, wchar_t* dst, acs::u32 dst_count) noexcept {
-    if (!src || !dst || dst_count == 0) return false;
-    const int n = MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, static_cast<int>(dst_count));
+bool Utf8ToWide(const char* Src, wchar_t* Dst, acs::u32 DstCount) noexcept {
+    if (!Src || !Dst || DstCount == 0) return false;
+    const int n = MultiByteToWideChar(CP_UTF8, 0, Src, -1, Dst, static_cast<int>(DstCount));
     if (n <= 0) {
-        dst[0] = 0;
+        Dst[0] = 0;
         return false;
     }
     return true;
@@ -61,8 +61,8 @@ bool Utf8ToWide(const char* src, wchar_t* dst, acs::u32 dst_count) noexcept {
 
 } // namespace
 
-struct FOnnxMlRuntime::Impl {
-    struct Model {
+struct FOnnxMlRuntime::FImpl {
+    struct FModel {
         acs::u64   m_Id = 0;
         OrtSession* m_Session = nullptr;
         char       m_InputName[128] = {};
@@ -73,7 +73,7 @@ struct FOnnxMlRuntime::Impl {
         acs::u32   m_OutputRank = 0;
         acs::u32   m_InputCount = 0;
         acs::u32   m_OutputCount = 0;
-        bool       m_Used = false;
+        bool       m_bUsed = false;
     };
 
     static constexpr acs::u32 kMaxModels = 16;
@@ -82,14 +82,14 @@ struct FOnnxMlRuntime::Impl {
     OrtEnv*            m_Env = nullptr;
     OrtSessionOptions* m_SessionOptions = nullptr;
     OrtAllocator*      m_Allocator = nullptr;
-    Model              m_Models[kMaxModels] = {};
+    FModel             m_Models[kMaxModels] = {};
     acs::u64           m_NextId = 1;
-    bool               m_Initialized = false;
+    bool               m_bInitialized = false;
 
-    Model* Find(acs::game::MlModelHandle h) noexcept {
-        if (!h.IsValid()) return nullptr;
+    FModel* Find(acs::game::MlModelHandle H) noexcept {
+        if (!H.IsValid()) return nullptr;
         for (acs::u32 i = 0; i < kMaxModels; ++i) {
-            if (m_Models[i].m_Used && m_Models[i].m_Id == h.m_Opaque) {
+            if (m_Models[i].m_bUsed && m_Models[i].m_Id == H.m_Opaque) {
                 return &m_Models[i];
             }
         }
@@ -98,7 +98,7 @@ struct FOnnxMlRuntime::Impl {
 };
 
 FOnnxMlRuntime::FOnnxMlRuntime() noexcept {
-    m_Impl = new Impl();
+    m_Impl = new FImpl();
 }
 
 FOnnxMlRuntime::~FOnnxMlRuntime() noexcept {
@@ -109,75 +109,75 @@ FOnnxMlRuntime::~FOnnxMlRuntime() noexcept {
 
 TResult<void> FOnnxMlRuntime::Init() noexcept {
     if (!m_Impl) return ACS_ERR(Generic, kSubOrtInitFailed, "FOnnxMlRuntime allocation failed");
-    if (m_Impl->m_Initialized) return Ok();
+    if (m_Impl->m_bInitialized) return Ok();
 
     m_Impl->m_Api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
     if (!m_Impl->m_Api) {
         return ACS_ERR(Generic, kSubOrtInitFailed, "OrtGetApi returned null");
     }
-    const OrtApi& api = *m_Impl->m_Api;
+    const OrtApi& Api = *m_Impl->m_Api;
 
-    if (auto r = OrtStatusToResult(api,
-            api.CreateEnv(ORT_LOGGING_LEVEL_WARNING, "ACS", &m_Impl->m_Env),
-            kSubOrtInitFailed, "CreateEnv failed"); r.IsErr()) {
-        return r;
+    if (auto Result = OrtStatusToResult(Api,
+            Api.CreateEnv(ORT_LOGGING_LEVEL_WARNING, "ACS", &m_Impl->m_Env),
+            kSubOrtInitFailed, "CreateEnv failed"); Result.IsErr()) {
+        return Result;
     }
-    if (auto r = OrtStatusToResult(api,
-            api.CreateSessionOptions(&m_Impl->m_SessionOptions),
-            kSubOrtInitFailed, "CreateSessionOptions failed"); r.IsErr()) {
+    if (auto Result = OrtStatusToResult(Api,
+            Api.CreateSessionOptions(&m_Impl->m_SessionOptions),
+            kSubOrtInitFailed, "CreateSessionOptions failed"); Result.IsErr()) {
         Shutdown();
-        return r;
+        return Result;
     }
-    api.SetIntraOpNumThreads(m_Impl->m_SessionOptions, 1);
-    api.SetSessionGraphOptimizationLevel(m_Impl->m_SessionOptions, ORT_ENABLE_BASIC);
-    if (auto r = OrtStatusToResult(api,
-            api.GetAllocatorWithDefaultOptions(&m_Impl->m_Allocator),
-            kSubOrtInitFailed, "GetAllocatorWithDefaultOptions failed"); r.IsErr()) {
+    Api.SetIntraOpNumThreads(m_Impl->m_SessionOptions, 1);
+    Api.SetSessionGraphOptimizationLevel(m_Impl->m_SessionOptions, ORT_ENABLE_BASIC);
+    if (auto Result = OrtStatusToResult(Api,
+            Api.GetAllocatorWithDefaultOptions(&m_Impl->m_Allocator),
+            kSubOrtInitFailed, "GetAllocatorWithDefaultOptions failed"); Result.IsErr()) {
         Shutdown();
-        return r;
+        return Result;
     }
 
-    m_Impl->m_Initialized = true;
+    m_Impl->m_bInitialized = true;
     ACS_LOG_INFO("FOnnxMlRuntime initialized (ONNX Runtime API %u)", ORT_API_VERSION);
     return Ok();
 }
 
 void FOnnxMlRuntime::Shutdown() noexcept {
     if (!m_Impl || !m_Impl->m_Api) return;
-    const OrtApi& api = *m_Impl->m_Api;
-    for (acs::u32 i = 0; i < Impl::kMaxModels; ++i) {
-        Impl::Model& m = m_Impl->m_Models[i];
+    const OrtApi& Api = *m_Impl->m_Api;
+    for (acs::u32 i = 0; i < FImpl::kMaxModels; ++i) {
+        FImpl::FModel& m = m_Impl->m_Models[i];
         if (m.m_Session) {
-            api.ReleaseSession(m.m_Session);
+            Api.ReleaseSession(m.m_Session);
         }
-        m = Impl::Model{};
+        m = FImpl::FModel{};
     }
     if (m_Impl->m_SessionOptions) {
-        api.ReleaseSessionOptions(m_Impl->m_SessionOptions);
+        Api.ReleaseSessionOptions(m_Impl->m_SessionOptions);
         m_Impl->m_SessionOptions = nullptr;
     }
     if (m_Impl->m_Env) {
-        api.ReleaseEnv(m_Impl->m_Env);
+        Api.ReleaseEnv(m_Impl->m_Env);
         m_Impl->m_Env = nullptr;
     }
     m_Impl->m_Allocator = nullptr;
     m_Impl->m_Api = nullptr;
-    m_Impl->m_Initialized = false;
+    m_Impl->m_bInitialized = false;
 }
 
-TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) noexcept {
-    if (!m_Impl || !m_Impl->m_Initialized) {
+TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* ModelPath) noexcept {
+    if (!m_Impl || !m_Impl->m_bInitialized) {
         return TResult<game::MlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_NotImplemented,
             "FOnnxMlRuntime::LoadModel called before Init"));
     }
-    if (!model_path || model_path[0] == 0) {
+    if (!ModelPath || ModelPath[0] == 0) {
         return TResult<game::MlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_InvalidArg,
             "model_path is null or empty"));
     }
 
-    Impl::Model* slot = nullptr;
-    for (acs::u32 i = 0; i < Impl::kMaxModels; ++i) {
-        if (!m_Impl->m_Models[i].m_Used) {
+    FImpl::FModel* slot = nullptr;
+    for (acs::u32 i = 0; i < FImpl::kMaxModels; ++i) {
+        if (!m_Impl->m_Models[i].m_bUsed) {
             slot = &m_Impl->m_Models[i];
             break;
         }
@@ -186,66 +186,66 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
         return TResult<game::MlModelHandle>(ACS_ERR(Generic, kSubOrtPoolFull, "ONNX model pool full"));
     }
 
-    wchar_t wpath[MAX_PATH] = {};
-    if (!Utf8ToWide(model_path, wpath, static_cast<acs::u32>(MAX_PATH))) {
+    wchar_t WPath[MAX_PATH] = {};
+    if (!Utf8ToWide(ModelPath, WPath, static_cast<acs::u32>(MAX_PATH))) {
         return TResult<game::MlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_InvalidArg,
             "model_path UTF-8 conversion failed"));
     }
 
-    const OrtApi& api = *m_Impl->m_Api;
-    OrtSession* session = nullptr;
-    if (auto r = OrtStatusToResult(api,
-            api.CreateSession(m_Impl->m_Env, wpath, m_Impl->m_SessionOptions, &session),
-            kSubOrtLoadFailed, "CreateSession failed"); r.IsErr()) {
-        return TResult<game::MlModelHandle>(r.Error());
+    const OrtApi& Api = *m_Impl->m_Api;
+    OrtSession* Session = nullptr;
+    if (auto Result = OrtStatusToResult(Api,
+            Api.CreateSession(m_Impl->m_Env, WPath, m_Impl->m_SessionOptions, &Session),
+            kSubOrtLoadFailed, "CreateSession failed"); Result.IsErr()) {
+        return TResult<game::MlModelHandle>(Result.Error());
     }
 
-    size_t input_count = 0;
-    size_t output_count = 0;
-    api.SessionGetInputCount(session, &input_count);
-    api.SessionGetOutputCount(session, &output_count);
-    if (input_count != 1 || output_count != 1) {
-        api.ReleaseSession(session);
+    size_t InputCount = 0;
+    size_t OutputCount = 0;
+    Api.SessionGetInputCount(Session, &InputCount);
+    Api.SessionGetOutputCount(Session, &OutputCount);
+    if (InputCount != 1 || OutputCount != 1) {
+        Api.ReleaseSession(Session);
         return TResult<game::MlModelHandle>(ACS_ERR(Generic, kSubOrtShapeMismatch,
             "Only 1-input/1-output ONNX models are supported by this seam"));
     }
 
-    char* input_name = nullptr;
-    char* output_name = nullptr;
-    api.SessionGetInputName(session, 0, m_Impl->m_Allocator, &input_name);
-    api.SessionGetOutputName(session, 0, m_Impl->m_Allocator, &output_name);
-    CopyCString(slot->m_InputName, static_cast<acs::u32>(sizeof(slot->m_InputName)), input_name);
-    CopyCString(slot->m_OutputName, static_cast<acs::u32>(sizeof(slot->m_OutputName)), output_name);
-    if (input_name) m_Impl->m_Allocator->Free(m_Impl->m_Allocator, input_name);
-    if (output_name) m_Impl->m_Allocator->Free(m_Impl->m_Allocator, output_name);
+    char* InputName = nullptr;
+    char* OutputName = nullptr;
+    Api.SessionGetInputName(Session, 0, m_Impl->m_Allocator, &InputName);
+    Api.SessionGetOutputName(Session, 0, m_Impl->m_Allocator, &OutputName);
+    CopyCString(slot->m_InputName, static_cast<acs::u32>(sizeof(slot->m_InputName)), InputName);
+    CopyCString(slot->m_OutputName, static_cast<acs::u32>(sizeof(slot->m_OutputName)), OutputName);
+    if (InputName) m_Impl->m_Allocator->Free(m_Impl->m_Allocator, InputName);
+    if (OutputName) m_Impl->m_Allocator->Free(m_Impl->m_Allocator, OutputName);
 
-    OrtTypeInfo* input_type = nullptr;
-    OrtTypeInfo* output_type = nullptr;
-    api.SessionGetInputTypeInfo(session, 0, &input_type);
-    api.SessionGetOutputTypeInfo(session, 0, &output_type);
-    const OrtTensorTypeAndShapeInfo* input_tensor = nullptr;
-    const OrtTensorTypeAndShapeInfo* output_tensor = nullptr;
-    api.CastTypeInfoToTensorInfo(input_type, &input_tensor);
-    api.CastTypeInfoToTensorInfo(output_type, &output_tensor);
-    size_t input_rank = 0;
-    size_t output_rank = 0;
-    api.GetDimensionsCount(input_tensor, &input_rank);
-    api.GetDimensionsCount(output_tensor, &output_rank);
-    if (input_rank > 8 || output_rank > 8) {
-        if (input_type) api.ReleaseTypeInfo(input_type);
-        if (output_type) api.ReleaseTypeInfo(output_type);
-        api.ReleaseSession(session);
+    OrtTypeInfo* InputType = nullptr;
+    OrtTypeInfo* OutputType = nullptr;
+    Api.SessionGetInputTypeInfo(Session, 0, &InputType);
+    Api.SessionGetOutputTypeInfo(Session, 0, &OutputType);
+    const OrtTensorTypeAndShapeInfo* InputTensor = nullptr;
+    const OrtTensorTypeAndShapeInfo* OutputTensor = nullptr;
+    Api.CastTypeInfoToTensorInfo(InputType, &InputTensor);
+    Api.CastTypeInfoToTensorInfo(OutputType, &OutputTensor);
+    size_t InputRank = 0;
+    size_t OutputRank = 0;
+    Api.GetDimensionsCount(InputTensor, &InputRank);
+    Api.GetDimensionsCount(OutputTensor, &OutputRank);
+    if (InputRank > 8 || OutputRank > 8) {
+        if (InputType) Api.ReleaseTypeInfo(InputType);
+        if (OutputType) Api.ReleaseTypeInfo(OutputType);
+        Api.ReleaseSession(Session);
         return TResult<game::MlModelHandle>(ACS_ERR(Generic, kSubOrtShapeMismatch,
             "ONNX tensor rank exceeds ACS fixed limit"));
     }
-    api.GetDimensions(input_tensor, slot->m_InputShape, input_rank);
-    api.GetDimensions(output_tensor, slot->m_OutputShape, output_rank);
-    if (input_type) api.ReleaseTypeInfo(input_type);
-    if (output_type) api.ReleaseTypeInfo(output_type);
+    Api.GetDimensions(InputTensor, slot->m_InputShape, InputRank);
+    Api.GetDimensions(OutputTensor, slot->m_OutputShape, OutputRank);
+    if (InputType) Api.ReleaseTypeInfo(InputType);
+    if (OutputType) Api.ReleaseTypeInfo(OutputType);
 
-    slot->m_Session = session;
-    slot->m_InputRank = static_cast<acs::u32>(input_rank);
-    slot->m_OutputRank = static_cast<acs::u32>(output_rank);
+    slot->m_Session = Session;
+    slot->m_InputRank = static_cast<acs::u32>(InputRank);
+    slot->m_OutputRank = static_cast<acs::u32>(OutputRank);
     slot->m_InputCount = 1;
     for (acs::u32 i = 0; i < slot->m_InputRank; ++i) {
         if (slot->m_InputShape[i] > 0) slot->m_InputCount *= static_cast<acs::u32>(slot->m_InputShape[i]);
@@ -255,105 +255,105 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
         if (slot->m_OutputShape[i] > 0) slot->m_OutputCount *= static_cast<acs::u32>(slot->m_OutputShape[i]);
     }
     slot->m_Id = m_Impl->m_NextId++;
-    slot->m_Used = true;
+    slot->m_bUsed = true;
 
     return TResult<game::MlModelHandle>(OkInit, game::MlModelHandle{slot->m_Id});
 }
 
-TResult<void> FOnnxMlRuntime::UnloadModel(game::MlModelHandle h) noexcept {
-    if (!m_Impl || !m_Impl->m_Initialized) return ACS_ERR(Generic, game::ml_err::kSub_NotImplemented, "Init first");
-    Impl::Model* m = m_Impl->Find(h);
-    if (!m) return Ok();
-    if (m->m_Session) {
-        m_Impl->m_Api->ReleaseSession(m->m_Session);
+TResult<void> FOnnxMlRuntime::UnloadModel(game::MlModelHandle H) noexcept {
+    if (!m_Impl || !m_Impl->m_bInitialized) return ACS_ERR(Generic, game::ml_err::kSub_NotImplemented, "Init first");
+    FImpl::FModel* Model = m_Impl->Find(H);
+    if (!Model) return Ok();
+    if (Model->m_Session) {
+        m_Impl->m_Api->ReleaseSession(Model->m_Session);
     }
-    *m = Impl::Model{};
+    *Model = FImpl::FModel{};
     return Ok();
 }
 
-TResult<void> FOnnxMlRuntime::RunInference(game::MlModelHandle h,
-                                           const f32* inputs, u32 in_count,
-                                           f32* outputs, u32 out_count) noexcept {
-    if (!m_Impl || !m_Impl->m_Initialized) {
+TResult<void> FOnnxMlRuntime::RunInference(game::MlModelHandle H,
+                                           const f32* Inputs, u32 InCount,
+                                           f32* Outputs, u32 OutCount) noexcept {
+    if (!m_Impl || !m_Impl->m_bInitialized) {
         return ACS_ERR(Generic, game::ml_err::kSub_NotImplemented, "FOnnxMlRuntime::RunInference called before Init");
     }
-    if (!inputs || !outputs || in_count == 0 || out_count == 0) {
+    if (!Inputs || !Outputs || InCount == 0 || OutCount == 0) {
         return ACS_ERR(Generic, game::ml_err::kSub_InvalidArg, "RunInference invalid buffers/counts");
     }
-    Impl::Model* m = m_Impl->Find(h);
-    if (!m || !m->m_Session) {
+    FImpl::FModel* Model = m_Impl->Find(H);
+    if (!Model || !Model->m_Session) {
         return ACS_ERR(Generic, kSubOrtInvalidHandle, "Invalid ONNX model handle");
     }
 
-    int64_t input_shape[8] = {};
-    for (u32 i = 0; i < m->m_InputRank; ++i) input_shape[i] = m->m_InputShape[i];
-    acs::u32 static_product = 1;
-    int dynamic_axis = -1;
-    for (u32 i = 0; i < m->m_InputRank; ++i) {
-        if (input_shape[i] <= 0) {
-            if (dynamic_axis < 0) dynamic_axis = static_cast<int>(i);
-            input_shape[i] = 1;
+    int64_t InputShape[8] = {};
+    for (u32 i = 0; i < Model->m_InputRank; ++i) InputShape[i] = Model->m_InputShape[i];
+    acs::u32 StaticProduct = 1;
+    int DynamicAxis = -1;
+    for (u32 i = 0; i < Model->m_InputRank; ++i) {
+        if (InputShape[i] <= 0) {
+            if (DynamicAxis < 0) DynamicAxis = static_cast<int>(i);
+            InputShape[i] = 1;
         } else {
-            static_product *= static_cast<acs::u32>(input_shape[i]);
+            StaticProduct *= static_cast<acs::u32>(InputShape[i]);
         }
     }
-    if (dynamic_axis >= 0) {
-        input_shape[dynamic_axis] = static_product > 0 ? static_cast<int64_t>(in_count / static_product) : in_count;
-    } else if (m->m_InputCount != in_count) {
+    if (DynamicAxis >= 0) {
+        InputShape[DynamicAxis] = StaticProduct > 0 ? static_cast<int64_t>(InCount / StaticProduct) : InCount;
+    } else if (Model->m_InputCount != InCount) {
         return ACS_ERR(Generic, kSubOrtShapeMismatch, "Input count does not match ONNX tensor shape");
     }
 
-    const OrtApi& api = *m_Impl->m_Api;
-    OrtMemoryInfo* mem_info = nullptr;
-    if (auto r = OrtStatusToResult(api,
-            api.CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &mem_info),
-            kSubOrtRunFailed, "CreateCpuMemoryInfo failed"); r.IsErr()) {
-        return r;
+    const OrtApi& Api = *m_Impl->m_Api;
+    OrtMemoryInfo* MemoryInfo = nullptr;
+    if (auto Result = OrtStatusToResult(Api,
+            Api.CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &MemoryInfo),
+            kSubOrtRunFailed, "CreateCpuMemoryInfo failed"); Result.IsErr()) {
+        return Result;
     }
 
-    OrtValue* input_value = nullptr;
-    if (auto r = OrtStatusToResult(api,
-            api.CreateTensorWithDataAsOrtValue(mem_info,
-                const_cast<f32*>(inputs), static_cast<size_t>(in_count) * sizeof(f32),
-                input_shape, m->m_InputRank, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_value),
-            kSubOrtRunFailed, "CreateTensorWithDataAsOrtValue failed"); r.IsErr()) {
-        api.ReleaseMemoryInfo(mem_info);
-        return r;
+    OrtValue* InputValue = nullptr;
+    if (auto Result = OrtStatusToResult(Api,
+            Api.CreateTensorWithDataAsOrtValue(MemoryInfo,
+                const_cast<f32*>(Inputs), static_cast<size_t>(InCount) * sizeof(f32),
+                InputShape, Model->m_InputRank, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &InputValue),
+            kSubOrtRunFailed, "CreateTensorWithDataAsOrtValue failed"); Result.IsErr()) {
+        Api.ReleaseMemoryInfo(MemoryInfo);
+        return Result;
     }
 
-    const char* input_names[1] = { m->m_InputName };
-    const char* output_names[1] = { m->m_OutputName };
-    const OrtValue* input_values[1] = { input_value };
-    OrtValue* output_values[1] = { nullptr };
+    const char* InputNames[1] = { Model->m_InputName };
+    const char* OutputNames[1] = { Model->m_OutputName };
+    const OrtValue* InputValues[1] = { InputValue };
+    OrtValue* OutputValues[1] = { nullptr };
 
-    TResult<void> run_result = OrtStatusToResult(api,
-        api.Run(m->m_Session, nullptr, input_names, input_values, 1, output_names, 1, output_values),
+    TResult<void> RunResult = OrtStatusToResult(Api,
+        Api.Run(Model->m_Session, nullptr, InputNames, InputValues, 1, OutputNames, 1, OutputValues),
         kSubOrtRunFailed, "ONNX Runtime Run failed");
-    api.ReleaseValue(input_value);
-    api.ReleaseMemoryInfo(mem_info);
-    if (run_result.IsErr()) return run_result;
+    Api.ReleaseValue(InputValue);
+    Api.ReleaseMemoryInfo(MemoryInfo);
+    if (RunResult.IsErr()) return RunResult;
 
-    OrtTensorTypeAndShapeInfo* out_info = nullptr;
-    api.GetTensorTypeAndShape(output_values[0], &out_info);
-    size_t elem_count = 0;
-    api.GetTensorShapeElementCount(out_info, &elem_count);
-    api.ReleaseTensorTypeAndShapeInfo(out_info);
-    if (elem_count > out_count) {
-        api.ReleaseValue(output_values[0]);
+    OrtTensorTypeAndShapeInfo* OutputInfo = nullptr;
+    Api.GetTensorTypeAndShape(OutputValues[0], &OutputInfo);
+    size_t ElemCount = 0;
+    Api.GetTensorShapeElementCount(OutputInfo, &ElemCount);
+    Api.ReleaseTensorTypeAndShapeInfo(OutputInfo);
+    if (ElemCount > OutCount) {
+        Api.ReleaseValue(OutputValues[0]);
         return ACS_ERR(Generic, kSubOrtShapeMismatch, "Output buffer too small for ONNX result");
     }
 
-    f32* ort_output = nullptr;
-    if (auto r = OrtStatusToResult(api,
-            api.GetTensorMutableData(output_values[0], reinterpret_cast<void**>(&ort_output)),
-            kSubOrtRunFailed, "GetTensorMutableData failed"); r.IsErr()) {
-        api.ReleaseValue(output_values[0]);
-        return r;
+    f32* OrtOutput = nullptr;
+    if (auto Result = OrtStatusToResult(Api,
+            Api.GetTensorMutableData(OutputValues[0], reinterpret_cast<void**>(&OrtOutput)),
+            kSubOrtRunFailed, "GetTensorMutableData failed"); Result.IsErr()) {
+        Api.ReleaseValue(OutputValues[0]);
+        return Result;
     }
-    for (size_t i = 0; i < elem_count; ++i) {
-        outputs[i] = ort_output[i];
+    for (size_t i = 0; i < ElemCount; ++i) {
+        Outputs[i] = OrtOutput[i];
     }
-    api.ReleaseValue(output_values[0]);
+    Api.ReleaseValue(OutputValues[0]);
     return Ok();
 }
 

@@ -61,6 +61,12 @@ option(ACS_BUILD_SCRIPTING "Build real Lua 5.4 scripting backend (acs_scripting 
 # ONNX Runtime Windows x64 package and builds ACS::MlOnnx.
 option(ACS_BUILD_ML_ONNX "Build real ONNX Runtime backend (acs_mlonnx module)" OFF)
 
+# Real Khronos OpenXR loader backend for acs::game::IOpenXrBridge.
+# The backend is compiled and linked against OpenXR-SDK-Source. Runtime smoke
+# tests accept XR_ERROR_RUNTIME_UNAVAILABLE as a valid "loader works, no XR
+# runtime installed" result.
+option(ACS_BUILD_OPENXR "Build real Khronos OpenXR backend (acs_openxr module)" OFF)
+
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
@@ -262,6 +268,13 @@ if(ACS_BUILD_SAMPLES)
     # Real backend smoke test. Only added when ACS::MlOnnx is enabled.
     if(ACS_BUILD_ML_ONNX)
         acs_add_sample(41_HelloOnnx)
+    endif()
+
+    # --- (20) HelloOpenXR (IOpenXrBridge / Khronos OpenXR loader) ---
+    # Real loader smoke test. Accepts "runtime unavailable" as a valid result
+    # because CI/dev machines often have no active OpenXR runtime installed.
+    if(ACS_BUILD_OPENXR)
+        acs_add_sample(42_HelloOpenXR)
     endif()
 endif()
 

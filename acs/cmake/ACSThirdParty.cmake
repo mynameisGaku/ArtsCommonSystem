@@ -223,6 +223,44 @@ function(acs_steamworks_runtime target)
     message(STATUS "ACS: Steamworks runtime 配備を ${target} に設定 (AppID=${ACS_SW_APPID})")
 endfunction()
 
+# ---- OpenXR SDK / Loader (XR backend) -------------------------------------
+function(acs_third_party_openxr)
+    if(TARGET acs_third_party::openxr)
+        return()
+    endif()
+
+    if(NOT DEFINED ACS_OPENXR_SDK_GIT OR "${ACS_OPENXR_SDK_GIT}" STREQUAL "")
+        set(ACS_OPENXR_SDK_GIT "https://github.com/KhronosGroup/OpenXR-SDK-Source.git")
+    endif()
+    if(NOT DEFINED ACS_OPENXR_SDK_GIT_TAG OR "${ACS_OPENXR_SDK_GIT_TAG}" STREQUAL "")
+        set(ACS_OPENXR_SDK_GIT_TAG "release-1.1.60")
+    endif()
+
+    set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)
+    set(BUILD_CONFORMANCE_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_WITH_SYSTEM_JSONCPP OFF CACHE BOOL "" FORCE)
+
+    FetchContent_Declare(
+        acs_openxr
+        GIT_REPOSITORY "${ACS_OPENXR_SDK_GIT}"
+        GIT_TAG        "${ACS_OPENXR_SDK_GIT_TAG}"
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(acs_openxr)
+
+    add_library(acs_third_party_openxr INTERFACE)
+    if(TARGET OpenXR::openxr_loader)
+        target_link_libraries(acs_third_party_openxr INTERFACE OpenXR::openxr_loader)
+    elseif(TARGET openxr_loader)
+        target_link_libraries(acs_third_party_openxr INTERFACE openxr_loader)
+        set_target_properties(openxr_loader PROPERTIES FOLDER "third_party/OpenXR")
+    else()
+        message(FATAL_ERROR "OpenXR loader target was not created by OpenXR-SDK-Source")
+    endif()
+    add_library(acs_third_party::openxr ALIAS acs_third_party_openxr)
+endfunction()
+
 # ---- ONNX Runtime (ML inference backend) ----------------------------------
 # Official CPU prebuilt package. This is a real runtime: headers + import lib
 # are linked at build time, and onnxruntime.dll is copied beside executables by

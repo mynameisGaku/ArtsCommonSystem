@@ -14,16 +14,16 @@ public:
     acs::TResult<void> Init() noexcept override;
     void Shutdown() noexcept override;
 
-    acs::TResult<acs::game::MlModelHandle> LoadModel(const char* model_path) noexcept override;
+    acs::TResult<acs::game::MlModelHandle> LoadModel(const char* ModelPath) noexcept override;
     acs::TResult<void> UnloadModel(acs::game::MlModelHandle h) noexcept override;
 
     acs::TResult<void> RunInference(acs::game::MlModelHandle h,
-                                    const acs::f32* inputs, acs::u32 in_count,
-                                    acs::f32* outputs, acs::u32 out_count) noexcept override;
+                                    const acs::f32* Inputs, acs::u32 InCount,
+                                    acs::f32* Outputs, acs::u32 OutCount) noexcept override;
 
 private:
-    struct Impl;
-    Impl* m_Impl = nullptr;
+    struct FImpl;
+    FImpl* m_Impl = nullptr;
 };
 
 } // namespace acs::mlonnx
