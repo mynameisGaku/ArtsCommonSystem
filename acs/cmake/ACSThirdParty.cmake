@@ -130,10 +130,61 @@ function(acs_third_party_steamworks)
     # Win64 用 import lib (lib + DLL の両方が必要、runtime DLL は別途 install)
     target_link_libraries(acs_third_party_steamworks INTERFACE
         "${_sdk_dir}/redistributable_bin/win64/steam_api64.lib")
-    # 配布時用に DLL のパスを property で保存しておく (install ルールで使う)
-    set_target_properties(acs_third_party_steamworks PROPERTIES
-        ACS_STEAMWORKS_DLL "${_sdk_dir}/redistributable_bin/win64/steam_api64.dll")
+    # 配布時用に DLL のパスを GLOBAL property で保存 (acs_steamworks_runtime で使う)
+    set_property(GLOBAL PROPERTY ACS_STEAMWORKS_DLL_PATH
+        "${_sdk_dir}/redistributable_bin/win64/steam_api64.dll")
     add_library(acs_third_party::steamworks ALIAS acs_third_party_steamworks)
+endfunction()
+
+# ---- Steamworks runtime 配備ヘルパ ----------------------------------------
+# acs_steamworks_runtime(<target> [APPID <id>])
+#   <target> の出力ディレクトリに:
+#     1) steam_api64.dll をコピー (post-build)
+#     2) steam_appid.txt を生成 (APPID 未指定なら 480 = Spacewar)
+#   かつ install ルールにも DLL を登録 (配布 ZIP に同梱)。
+#
+# ACS_BUILD_STEAMWORKS=OFF のときは no-op (= stub ビルドでは何もしない)。
+#
+# 使い方 (利用者の CMakeLists.txt):
+#   add_executable(my_game main.cpp)
+#   target_link_libraries(my_game PRIVATE ACS::Game ACS::Steamworks)
+#   acs_steamworks_runtime(my_game APPID 480)
+function(acs_steamworks_runtime target)
+    if(NOT ACS_BUILD_STEAMWORKS)
+        return()
+    endif()
+    cmake_parse_arguments(ACS_SW "" "APPID" "" ${ARGN})
+    if(NOT ACS_SW_APPID)
+        set(ACS_SW_APPID "480")  # Spacewar (dev default)
+    endif()
+
+    get_property(_dll GLOBAL PROPERTY ACS_STEAMWORKS_DLL_PATH)
+    if(NOT _dll OR NOT EXISTS "${_dll}")
+        message(WARNING "ACS: steam_api64.dll が見つからない (${_dll})。"
+                        "acs_third_party_steamworks() を先に呼ぶこと。")
+        return()
+    endif()
+
+    # 1) DLL を exe 出力 dir に post-build コピー
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_dll}" "$<TARGET_FILE_DIR:${target}>/steam_api64.dll"
+        COMMENT "Copying steam_api64.dll next to ${target}"
+        VERBATIM)
+
+    # 2) steam_appid.txt を出力 dir に生成 (build dir、実行時に SteamAPI_Init が読む)
+    file(GENERATE
+        OUTPUT "$<TARGET_FILE_DIR:${target}>/steam_appid.txt"
+        CONTENT "${ACS_SW_APPID}")
+
+    # 3) install: 配布 ZIP に DLL + steam_appid.txt を同梱
+    install(FILES "${_dll}" DESTINATION ".")
+    # steam_appid.txt は configure 時に build dir に作って install
+    set(_appid_file "${CMAKE_BINARY_DIR}/steam_appid_${target}.txt")
+    file(WRITE "${_appid_file}" "${ACS_SW_APPID}")
+    install(FILES "${_appid_file}" DESTINATION "." RENAME "steam_appid.txt")
+
+    message(STATUS "ACS: Steamworks runtime 配備を ${target} に設定 (AppID=${ACS_SW_APPID})")
 endfunction()
 
 # ---- dr_libs (wav / mp3 / flac) -------------------------------------------
