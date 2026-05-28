@@ -234,6 +234,13 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(38_HelloFullGame)
     endif()
+
+    # --- (17) Phase 26: HelloSteamworks (ISteamworksBridge デモ) ---
+    # stub mode (default) でビルド可能。ACS_BUILD_STEAMWORKS=ON で real backend。
+    # DX12 raw のみ (SpriteBatch/Font HUD のため、他サンプルと同条件)。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(39_HelloSteamworks)
+    endif()
 endif()
 
 # ============================================================================
