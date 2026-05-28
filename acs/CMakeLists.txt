@@ -72,6 +72,10 @@ option(ACS_BUILD_OPENXR "Build real Khronos OpenXR backend (acs_openxr module)" 
 # external services or SDK accounts.
 option(ACS_BUILD_CRASH_REPORTER "Build real Windows crash reporter backend (acs_crashwin module)" OFF)
 
+# Real file-backed telemetry sink for acs::game::IBackendClient.
+# ON builds ACS::TelemetryFile and sample 44 writes JSON Lines telemetry.
+option(ACS_BUILD_TELEMETRY_FILE "Build real file telemetry backend (acs_telemetryfile module)" OFF)
+
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
@@ -286,6 +290,12 @@ if(ACS_BUILD_SAMPLES)
     # Real DbgHelp smoke test. Writes a .txt report and .dmp minidump.
     if(ACS_BUILD_CRASH_REPORTER)
         acs_add_sample(43_HelloCrashReporter)
+    endif()
+
+    # --- (22) HelloTelemetryFile (IBackendClient / JSONL telemetry sink) ---
+    # Real local telemetry sink. Writes events through FTelemetryDirector.
+    if(ACS_BUILD_TELEMETRY_FILE)
+        acs_add_sample(44_HelloTelemetryFile)
     endif()
 endif()
 

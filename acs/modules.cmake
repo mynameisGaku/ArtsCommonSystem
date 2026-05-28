@@ -122,3 +122,8 @@ endif()
 if(ACS_BUILD_CRASH_REPORTER)
     acs_enable_module(CrashWin)
 endif()
+
+# TelemetryFile - real JSON Lines telemetry sink for IBackendClient.
+if(ACS_BUILD_TELEMETRY_FILE)
+    acs_enable_module(TelemetryFile)
+endif()
