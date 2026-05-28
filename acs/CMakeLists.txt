@@ -76,6 +76,10 @@ option(ACS_BUILD_CRASH_REPORTER "Build real Windows crash reporter backend (acs_
 # ON builds ACS::TelemetryFile and sample 44 writes JSON Lines telemetry.
 option(ACS_BUILD_TELEMETRY_FILE "Build real file telemetry backend (acs_telemetryfile module)" OFF)
 
+# Real deterministic local matchmaker backend for acs::game::IMatchmaker.
+# Useful for gameplay tests and offline development without a backend service.
+option(ACS_BUILD_LOCAL_MATCHMAKER "Build real local matchmaker backend (acs_localmatch module)" OFF)
+
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
@@ -296,6 +300,12 @@ if(ACS_BUILD_SAMPLES)
     # Real local telemetry sink. Writes events through FTelemetryDirector.
     if(ACS_BUILD_TELEMETRY_FILE)
         acs_add_sample(44_HelloTelemetryFile)
+    endif()
+
+    # --- (23) HelloLocalMatchmaker (IMatchmaker / deterministic local queue) ---
+    # Real offline matchmaker. Exercises search -> matched -> accept/cancel.
+    if(ACS_BUILD_LOCAL_MATCHMAKER)
+        acs_add_sample(45_HelloLocalMatchmaker)
     endif()
 endif()
 

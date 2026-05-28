@@ -127,3 +127,8 @@ endif()
 if(ACS_BUILD_TELEMETRY_FILE)
     acs_enable_module(TelemetryFile)
 endif()
+
+# LocalMatch - real deterministic local IMatchmaker backend.
+if(ACS_BUILD_LOCAL_MATCHMAKER)
+    acs_enable_module(LocalMatch)
+endif()
