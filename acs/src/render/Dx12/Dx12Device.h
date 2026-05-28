@@ -89,6 +89,14 @@ private:
     u32                   m_DsvHighWater  = 0;
     i32                   m_DsvFreeList[kDsvCapacity]{};
     u32                   m_DsvFreeCount  = 0;
+
+    // RTV ヒープ（CPU のみ、オフスクリーン RT 用。BeginRenderToTexture で使う）
+    ID3D12DescriptorHeap* m_RtvHeap        = nullptr;
+    u32                   m_RtvHandleSize = 0;
+    static constexpr u32  kRtvCapacity = 32;
+    u32                   m_RtvHighWater  = 0;
+    i32                   m_RtvFreeList[kRtvCapacity]{};
+    u32                   m_RtvFreeCount  = 0;
 };
 
 } // namespace acs

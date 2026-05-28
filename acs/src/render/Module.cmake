@@ -28,6 +28,7 @@ set(_acs_render_sources
     RefractionShader.cpp
     HiZ.cpp
     Blit.cpp
+    Light2D.cpp
 )
 set(_acs_render_headers
     RhiTypes.h
@@ -59,6 +60,7 @@ set(_acs_render_headers
     RefractionShader.h
     HiZ.h
     Blit.h
+    Light2D.h
     Render.h
 )
 

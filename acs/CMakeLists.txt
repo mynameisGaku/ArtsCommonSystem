@@ -324,6 +324,13 @@ if(ACS_BUILD_SAMPLES)
     # --- (24) HelloAssetPackBridge (IAssetPackReader/Writer / .acpak) ---
     # Real adapter smoke test. Writes a pack, mounts it, enumerates and reads bytes.
     acs_add_sample(46_HelloAssetPackBridge)
+
+    # --- (25) HelloLight2D (2D 動的ライト + ソフト影 + ブロブ影、Core Keeper 風) ---
+    # ACS::Render の FLighting2D / FBlobShadow を使う 2D サンプル。SpriteBatch +
+    # offscreen RT を使うため DX12 raw のみ。
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(47_HelloLight2D)
+    endif()
 endif()
 
 # ============================================================================

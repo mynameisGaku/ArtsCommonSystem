@@ -187,18 +187,94 @@ void Dx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexc
     m_BoundPipe = nullptr;
 }
 
-// オフスクリーン RT 用 API（Dx12 raw backend 未実装。Diligent backend を使うこと）
-void Dx12CommandList::BeginRenderToTexture(IRhiTexture& /*rt*/, const ClearColor& /*clear*/,
-                                            IRhiTexture* /*depth*/, f32 /*depth_clear*/) noexcept {
-    // Phase 19 (HDR/Bloom/Tonemap) は Diligent backend 専用機能。
-    // -DACS_RENDER_DILIGENT=ON で有効化すること。
+// オフスクリーン RT 用 API。RT を RENDER_TARGET に遷移し OMSetRenderTargets で bind、
+// viewport / scissor を RT サイズに合わせる。do_clear で clear の有無を切替 (load 版)。
+namespace {
+void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, Dx12Texture& rt, IRhiTexture* depth,
+                     bool do_clear, const ClearColor& clear, f32 depth_clear) noexcept {
+    if (rt.CurrentState() != D3D12_RESOURCE_STATE_RENDER_TARGET) {
+        D3D12_RESOURCE_BARRIER b{};
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource   = rt.Resource();
+        b.Transition.StateBefore = rt.CurrentState();
+        b.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        cmd->ResourceBarrier(1, &b);
+        rt.SetCurrentState(D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv = rt.RtvCpuHandle();
+    Dx12Texture* dx_depth = depth ? static_cast<Dx12Texture*>(depth) : nullptr;
+    if (dx_depth && dx_depth->IsDepth()) {
+        if (dx_depth->CurrentState() != D3D12_RESOURCE_STATE_DEPTH_WRITE) {
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition.pResource   = dx_depth->Resource();
+            b.Transition.StateBefore = dx_depth->CurrentState();
+            b.Transition.StateAfter  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            cmd->ResourceBarrier(1, &b);
+            dx_depth->SetCurrentState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        }
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv = dx_depth->DsvCpuHandle();
+        cmd->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+        if (do_clear) {
+            cmd->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depth_clear, 0, 0, nullptr);
+        }
+    } else {
+        cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    }
+
+    if (do_clear) {
+        const FLOAT col[4] = { clear.r, clear.g, clear.b, clear.a };
+        cmd->ClearRenderTargetView(rtv, col, 0, nullptr);
+    }
+
+    D3D12_VIEWPORT vp{};
+    vp.TopLeftX = 0; vp.TopLeftY = 0;
+    vp.Width    = static_cast<f32>(rt.Width());
+    vp.Height   = static_cast<f32>(rt.Height());
+    vp.MinDepth = 0.0f; vp.MaxDepth = 1.0f;
+    cmd->RSSetViewports(1, &vp);
+    D3D12_RECT sr{};
+    sr.left = 0; sr.top = 0;
+    sr.right  = static_cast<i32>(rt.Width());
+    sr.bottom = static_cast<i32>(rt.Height());
+    cmd->RSSetScissorRects(1, &sr);
+}
+} // namespace
+
+void Dx12CommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor& clear,
+                                            IRhiTexture* depth, f32 depth_clear) noexcept {
+    auto& dx_rt = static_cast<Dx12Texture&>(rt);
+    if (!dx_rt.HasRtv()) return;       // is_render_target=true で作成された RT のみ
+    BindOffscreenRT(m_CmdList, dx_rt, depth, true, clear, depth_clear);
+    m_BoundPipe = nullptr;             // パイプライン再 bind を強制
 }
 
-void Dx12CommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {}
+void Dx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
+    auto& dx_rt = static_cast<Dx12Texture&>(rt);
+    if (!dx_rt.HasRtv()) return;
+    if (dx_rt.CurrentState() != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
+        D3D12_RESOURCE_BARRIER b{};
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource   = dx_rt.Resource();
+        b.Transition.StateBefore = dx_rt.CurrentState();
+        b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        m_CmdList->ResourceBarrier(1, &b);
+        dx_rt.SetCurrentState(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    }
+}
 
-// Phase 35-3b: SS 屈折用の load 版。Dx12 raw backend は Diligent と同じく未実装。
-void Dx12CommandList::BeginRenderToTextureLoad(IRhiTexture& /*rt*/,
-                                                IRhiTexture* /*depth*/) noexcept {}
+// Phase 35-3b: SS 屈折用の load 版 (clear せず再 bind)。
+void Dx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
+                                                IRhiTexture* depth) noexcept {
+    auto& dx_rt = static_cast<Dx12Texture&>(rt);
+    if (!dx_rt.HasRtv()) return;
+    BindOffscreenRT(m_CmdList, dx_rt, depth, false, ClearColor{0, 0, 0, 1}, 1.0f);
+    m_BoundPipe = nullptr;
+}
 
 // IBL / cubemap 描画は Diligent backend 専用機能 (Phase 31)。
 // Dx12 raw backend には実装しない。

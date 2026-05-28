@@ -3,6 +3,7 @@
 #include "render/Dx12/Dx12Texture.h"
 #include "render/Dx12/Dx12Device.h"
 #include "memory/UniquePtr.h"
+#include "foundation/Log.h"
 
 #include <cstring>
 
@@ -34,9 +35,11 @@ Dx12Texture::~Dx12Texture() noexcept {
     if (m_Device) {
         if (m_SrvSlot >= 0) m_Device->FreeSrvSlot(m_SrvSlot);
         if (m_DsvSlot >= 0) m_Device->FreeDsvSlot(m_DsvSlot);
+        if (m_RtvSlot >= 0) m_Device->FreeRtvSlot(m_RtvSlot);
     }
     m_SrvSlot = -1;
     m_DsvSlot = -1;
+    m_RtvSlot = -1;
     ACS_SAFE_RELEASE(m_Resource);
 }
 
@@ -49,13 +52,17 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     m_IsDepth = desc.is_depth_target;
 
     if (desc.width == 0 || desc.height == 0) {
+        ACS_LOG_ERROR("Dx12Texture: zero dimension %ux%u", desc.width, desc.height);
         r.hr = E_INVALIDARG;
         return r;
     }
 
     const DXGI_FORMAT typed_fmt = ToDxgiFormat(desc.format);
     const u32 bpp = BytesPerPixel(desc.format);
-    if (bpp == 0 && !desc.is_depth_target) { r.hr = E_INVALIDARG; return r; }
+    if (bpp == 0 && !desc.is_depth_target) {
+        ACS_LOG_ERROR("Dx12Texture: bpp=0 for fmt=%d", static_cast<int>(desc.format));
+        r.hr = E_INVALIDARG; return r;
+    }
 
     // 深度の場合: 後で SRV/DSV 両方作れるよう TYPELESS で確保する
     DXGI_FORMAT resource_fmt = typed_fmt;
@@ -103,13 +110,30 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     } else {
         init_state = desc.initial_data ? D3D12_RESOURCE_STATE_COPY_DEST
                                        : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        // RT は最適化クリア値を渡す (ALLOW_RENDER_TARGET で null clear だと一部
+        // ドライバ / debug layer が作成を弾く / 警告するため、format 一致値を付ける)。
+        if (desc.is_render_target) {
+            clear_val.Format   = typed_fmt;
+            clear_val.Color[0] = 0.0f;
+            clear_val.Color[1] = 0.0f;
+            clear_val.Color[2] = 0.0f;
+            clear_val.Color[3] = 1.0f;
+            clear_ptr = &clear_val;
+        }
     }
     m_CurrentState = init_state;
 
     r.hr = device.D3DDevice()->CreateCommittedResource(
         &default_hp, D3D12_HEAP_FLAG_NONE, &td, init_state, clear_ptr,
         IID_PPV_ARGS(&m_Resource));
-    if (r.IsErr()) return r;
+    if (r.IsErr()) {
+        ACS_LOG_ERROR("Dx12Texture CreateCommittedResource failed: hr=0x%08X "
+                      "fmt=%d %ux%u rt=%d depth=%d",
+                      static_cast<unsigned>(r.hr), static_cast<int>(desc.format),
+                      desc.width, desc.height,
+                      desc.is_render_target ? 1 : 0, desc.is_depth_target ? 1 : 0);
+        return r;
+    }
 
     // ===== 1b. 深度バッファの DSV + （任意）SRV =====
     if (desc.is_depth_target) {
@@ -226,7 +250,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
 
     // ===== 4. SRV ヒープに SRV を作成 =====
     m_SrvSlot = device.AllocateSrvSlot();
-    if (m_SrvSlot < 0) { r.hr = E_OUTOFMEMORY; return r; }
+    if (m_SrvSlot < 0) { ACS_LOG_ERROR("Dx12Texture: SRV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
     m_CurrentState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -237,7 +261,22 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     device.D3DDevice()->CreateShaderResourceView(
         m_Resource, &srv, device.SrvCpuHandle(m_SrvSlot));
 
+    // ===== 5. オフスクリーン RT は RTV も作成 (BeginRenderToTexture 用) =====
+    if (desc.is_render_target) {
+        m_RtvSlot = device.AllocateRtvSlot();
+        if (m_RtvSlot < 0) { ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
+        D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+        rtv.Format        = typed_fmt;
+        rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        device.D3DDevice()->CreateRenderTargetView(
+            m_Resource, &rtv, device.RtvCpuHandle(m_RtvSlot));
+    }
+
     return r;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandle() const noexcept {
+    return m_Device ? m_Device->RtvCpuHandle(m_RtvSlot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE Dx12Texture::SrvGpuHandle() const noexcept {

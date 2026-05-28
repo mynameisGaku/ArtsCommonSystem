@@ -25,8 +25,11 @@ public:
 
     // 内部使用: DSV ハンドル（深度バッファのみ）
     D3D12_CPU_DESCRIPTOR_HANDLE DsvCpuHandle() const noexcept;
+    // 内部使用: RTV ハンドル（オフスクリーン RT のみ）
+    D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle() const noexcept;
     bool                        IsDepth()       const noexcept { return m_IsDepth; }
     bool                        HasSrv()        const noexcept { return m_SrvSlot >= 0; }
+    bool                        HasRtv()        const noexcept { return m_RtvSlot >= 0; }
     ID3D12Resource*             Resource()      const noexcept { return m_Resource; }
 
     // CommandList が状態遷移バリアを発行した後に呼んで反映する
@@ -41,6 +44,7 @@ private:
     EFormat                m_Format   = EFormat::Unknown;
     i32                   m_SrvSlot = -1;
     i32                   m_DsvSlot = -1;
+    i32                   m_RtvSlot = -1;
     bool                  m_IsDepth = false;
     D3D12_RESOURCE_STATES m_CurrentState = D3D12_RESOURCE_STATE_COMMON;
 };

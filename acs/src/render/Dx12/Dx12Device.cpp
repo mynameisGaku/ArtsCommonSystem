@@ -9,6 +9,7 @@ Dx12Device::~Dx12Device() noexcept {
     WaitIdle();  // Pending コマンドの完了を待ってから破棄
     if (m_IdleEvent) ::CloseHandle(m_IdleEvent);
     ACS_SAFE_RELEASE(m_IdleFence);
+    ACS_SAFE_RELEASE(m_RtvHeap);
     ACS_SAFE_RELEASE(m_DsvHeap);
     ACS_SAFE_RELEASE(m_SrvHeap);
     ACS_SAFE_RELEASE(m_GfxQueue);
@@ -44,6 +45,19 @@ HrResult Dx12Device::InitDescriptorHeaps() noexcept {
         m_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
     m_DsvHighWater = 0;
     m_DsvFreeCount = 0;
+
+    // RTV 用 CPU 専用ヒープ（オフスクリーン RT 用）
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_hd{};
+    rtv_hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_hd.NumDescriptors = kRtvCapacity;
+    rtv_hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    rtv_hd.NodeMask = 0;
+    r.hr = m_Device->CreateDescriptorHeap(&rtv_hd, IID_PPV_ARGS(&m_RtvHeap));
+    if (r.IsErr()) return r;
+    m_RtvHandleSize =
+        m_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    m_RtvHighWater = 0;
+    m_RtvFreeCount = 0;
     return r;
 }
 
@@ -88,6 +102,23 @@ void Dx12Device::FreeDsvSlot(i32 index) noexcept {
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::DsvCpuHandle(i32 index) const noexcept {
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_DsvHeap->GetCPUDescriptorHandleForHeapStart();
     h.ptr += static_cast<SIZE_T>(m_DsvHandleSize) * static_cast<SIZE_T>(index);
+    return h;
+}
+
+i32 Dx12Device::AllocateRtvSlot() noexcept {
+    if (m_RtvFreeCount > 0) return m_RtvFreeList[--m_RtvFreeCount];
+    if (m_RtvHighWater >= kRtvCapacity) return -1;
+    return static_cast<i32>(m_RtvHighWater++);
+}
+
+void Dx12Device::FreeRtvSlot(i32 index) noexcept {
+    if (index < 0) return;
+    if (m_RtvFreeCount < kRtvCapacity) m_RtvFreeList[m_RtvFreeCount++] = index;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::RtvCpuHandle(i32 index) const noexcept {
+    D3D12_CPU_DESCRIPTOR_HANDLE h = m_RtvHeap->GetCPUDescriptorHandleForHeapStart();
+    h.ptr += static_cast<SIZE_T>(m_RtvHandleSize) * static_cast<SIZE_T>(index);
     return h;
 }
 
