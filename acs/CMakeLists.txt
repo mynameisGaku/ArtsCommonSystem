@@ -56,6 +56,11 @@ option(ACS_BUILD_STEAMWORKS "Build real Steamworks SDK backend (acs_steamworks m
 # acs_scripting module (FLuaVm) を real ビルドする。
 option(ACS_BUILD_SCRIPTING "Build real Lua 5.4 scripting backend (acs_scripting module)" OFF)
 
+# Real ONNX Runtime CPU inference backend for acs::game::IMlRuntime.
+# OFF (default) keeps only MlRuntimeStub. ON fetches/links the official
+# ONNX Runtime Windows x64 package and builds ACS::MlOnnx.
+option(ACS_BUILD_ML_ONNX "Build real ONNX Runtime backend (acs_mlonnx module)" OFF)
+
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
@@ -252,6 +257,12 @@ if(ACS_BUILD_SAMPLES)
     # window / renderer 不要のコンソールアプリ。stub mode (default) でビルド可能。
     # ACS_BUILD_SCRIPTING=ON で real Lua 5.4 backend (ACS::Scripting) をリンク。
     acs_add_sample(40_HelloScripting)
+
+    # --- (19) HelloOnnx (IMlRuntime / ONNX Runtime real backend) ---
+    # Real backend smoke test. Only added when ACS::MlOnnx is enabled.
+    if(ACS_BUILD_ML_ONNX)
+        acs_add_sample(41_HelloOnnx)
+    endif()
 endif()
 
 # ============================================================================

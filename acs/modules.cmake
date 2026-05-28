@@ -107,3 +107,8 @@ endif()
 if(ACS_BUILD_SCRIPTING)
     acs_enable_module(Scripting)
 endif()
+
+# MlOnnx - real ONNX Runtime CPU backend for IMlRuntime.
+if(ACS_BUILD_ML_ONNX)
+    acs_enable_module(MlOnnx)
+endif()

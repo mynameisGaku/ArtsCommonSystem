@@ -223,6 +223,83 @@ function(acs_steamworks_runtime target)
     message(STATUS "ACS: Steamworks runtime 配備を ${target} に設定 (AppID=${ACS_SW_APPID})")
 endfunction()
 
+# ---- ONNX Runtime (ML inference backend) ----------------------------------
+# Official CPU prebuilt package. This is a real runtime: headers + import lib
+# are linked at build time, and onnxruntime.dll is copied beside executables by
+# acs_onnxruntime_runtime().
+function(_acs_find_onnxruntime_root search_dir out_var)
+    set(${out_var} "" PARENT_SCOPE)
+    file(GLOB_RECURSE _hits "${search_dir}/*onnxruntime_c_api.h")
+    foreach(_h ${_hits})
+        get_filename_component(_include_dir "${_h}" DIRECTORY)
+        get_filename_component(_root "${_include_dir}" DIRECTORY)
+        if(EXISTS "${_root}/lib/onnxruntime.lib" AND EXISTS "${_root}/lib/onnxruntime.dll")
+            set(${out_var} "${_root}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+endfunction()
+
+function(acs_third_party_onnxruntime)
+    if(TARGET acs_third_party::onnxruntime)
+        return()
+    endif()
+
+    set(_ort_root "")
+    if(DEFINED ACS_ONNXRUNTIME_DIR AND NOT "${ACS_ONNXRUNTIME_DIR}" STREQUAL "")
+        _acs_find_onnxruntime_root("${ACS_ONNXRUNTIME_DIR}" _ort_root)
+        if(NOT _ort_root)
+            message(FATAL_ERROR
+                "ACS_ONNXRUNTIME_DIR=${ACS_ONNXRUNTIME_DIR} does not contain "
+                "include/onnxruntime_c_api.h and lib/onnxruntime.{lib,dll}.")
+        endif()
+        message(STATUS "ACS: ONNX Runtime (local) = ${_ort_root}")
+    else()
+        if(NOT DEFINED ACS_ONNXRUNTIME_VERSION OR "${ACS_ONNXRUNTIME_VERSION}" STREQUAL "")
+            set(ACS_ONNXRUNTIME_VERSION "1.23.0")
+        endif()
+        if(NOT DEFINED ACS_ONNXRUNTIME_URL OR "${ACS_ONNXRUNTIME_URL}" STREQUAL "")
+            set(ACS_ONNXRUNTIME_URL
+                "https://github.com/microsoft/onnxruntime/releases/download/v${ACS_ONNXRUNTIME_VERSION}/onnxruntime-win-x64-${ACS_ONNXRUNTIME_VERSION}.zip")
+        endif()
+        FetchContent_Declare(
+            acs_onnxruntime
+            URL "${ACS_ONNXRUNTIME_URL}"
+        )
+        FetchContent_MakeAvailable(acs_onnxruntime)
+        _acs_find_onnxruntime_root("${acs_onnxruntime_SOURCE_DIR}" _ort_root)
+        if(NOT _ort_root)
+            message(FATAL_ERROR
+                "ONNX Runtime package did not contain the expected Windows x64 layout. "
+                "Set ACS_ONNXRUNTIME_DIR to an extracted official package.")
+        endif()
+        message(STATUS "ACS: ONNX Runtime (fetched) = ${_ort_root}")
+    endif()
+
+    add_library(acs_third_party_onnxruntime INTERFACE)
+    target_include_directories(acs_third_party_onnxruntime INTERFACE "${_ort_root}/include")
+    target_link_libraries(acs_third_party_onnxruntime INTERFACE "${_ort_root}/lib/onnxruntime.lib")
+    set_property(GLOBAL PROPERTY ACS_ONNXRUNTIME_DLL_PATH "${_ort_root}/lib/onnxruntime.dll")
+    add_library(acs_third_party::onnxruntime ALIAS acs_third_party_onnxruntime)
+endfunction()
+
+function(acs_onnxruntime_runtime target)
+    if(NOT ACS_BUILD_ML_ONNX)
+        return()
+    endif()
+    get_property(_dll GLOBAL PROPERTY ACS_ONNXRUNTIME_DLL_PATH)
+    if(NOT _dll OR NOT EXISTS "${_dll}")
+        message(WARNING "ACS: onnxruntime.dll not found (${_dll}). Call acs_third_party_onnxruntime() first.")
+        return()
+    endif()
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_dll}" "$<TARGET_FILE_DIR:${target}>/onnxruntime.dll"
+        COMMENT "Copying onnxruntime.dll next to ${target}"
+        VERBATIM)
+    install(FILES "${_dll}" DESTINATION ".")
+endfunction()
+
 # ---- dr_libs (wav / mp3 / flac) -------------------------------------------
 function(acs_third_party_drlibs)
     if(TARGET acs_third_party::drlibs)
