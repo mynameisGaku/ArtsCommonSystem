@@ -100,3 +100,10 @@ acs_enable_module(GameFramework)
 if(ACS_BUILD_STEAMWORKS)
     acs_enable_module(Steamworks)
 endif()
+
+# Scripting — Lua 5.4 scripting backend (IScriptVm の real 実装)。
+# ACS_BUILD_SCRIPTING=ON のときだけビルド。OFF (default) なら
+# acs::game::ScriptVmStub を使う。名前空間 acs::scripting、target ACS::Scripting。
+if(ACS_BUILD_SCRIPTING)
+    acs_enable_module(Scripting)
+endif()

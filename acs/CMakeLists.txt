@@ -50,6 +50,12 @@ option(ACS_MVVM_IMGUI_BINDINGS "Build MVVM ImGui binding adapter (requires Imgui
 # コメントに従い、ACS_STEAMWORKS_SDK_DIR (推奨) か ACS_STEAMWORKS_SDK_URL を指定。
 option(ACS_BUILD_STEAMWORKS "Build real Steamworks SDK backend (acs_steamworks module)" OFF)
 
+# Phase N-3 実バックエンド統合: Lua 5.4 scripting の real 実装。
+# OFF (default) なら src/gameframework/ScriptHost.h の ScriptVmStub のみ。
+# ON にすると Lua 5.4 を FetchContent 取得 (MIT、gating 無し) し
+# acs_scripting module (FLuaVm) を real ビルドする。
+option(ACS_BUILD_SCRIPTING "Build real Lua 5.4 scripting backend (acs_scripting module)" OFF)
+
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
@@ -241,6 +247,11 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(39_HelloSteamworks)
     endif()
+
+    # --- (18) Phase N-3: HelloScripting (IScriptVm / Lua 5.4 デモ) ---
+    # window / renderer 不要のコンソールアプリ。stub mode (default) でビルド可能。
+    # ACS_BUILD_SCRIPTING=ON で real Lua 5.4 backend (ACS::Scripting) をリンク。
+    acs_add_sample(40_HelloScripting)
 endif()
 
 # ============================================================================
