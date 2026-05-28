@@ -67,6 +67,11 @@ option(ACS_BUILD_ML_ONNX "Build real ONNX Runtime backend (acs_mlonnx module)" O
 # runtime installed" result.
 option(ACS_BUILD_OPENXR "Build real Khronos OpenXR backend (acs_openxr module)" OFF)
 
+# Real Windows DbgHelp minidump backend for acs::game::ICrashReporterBackend.
+# ON builds ACS::CrashWin and sample 43 can write a real .dmp file without
+# external services or SDK accounts.
+option(ACS_BUILD_CRASH_REPORTER "Build real Windows crash reporter backend (acs_crashwin module)" OFF)
+
 set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
@@ -275,6 +280,12 @@ if(ACS_BUILD_SAMPLES)
     # because CI/dev machines often have no active OpenXR runtime installed.
     if(ACS_BUILD_OPENXR)
         acs_add_sample(42_HelloOpenXR)
+    endif()
+
+    # --- (21) HelloCrashReporter (ICrashReporterBackend / Windows minidump) ---
+    # Real DbgHelp smoke test. Writes a .txt report and .dmp minidump.
+    if(ACS_BUILD_CRASH_REPORTER)
+        acs_add_sample(43_HelloCrashReporter)
     endif()
 endif()
 

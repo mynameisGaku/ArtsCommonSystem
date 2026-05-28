@@ -117,3 +117,8 @@ endif()
 if(ACS_BUILD_OPENXR)
     acs_enable_module(OpenXr)
 endif()
+
+# CrashWin - real Windows DbgHelp minidump backend for ICrashReporterBackend.
+if(ACS_BUILD_CRASH_REPORTER)
+    acs_enable_module(CrashWin)
+endif()
