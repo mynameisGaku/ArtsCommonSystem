@@ -82,6 +82,22 @@ endfunction()
 #   <SDK>/public/steam/*.h                     ← isteamuser, isteamuserstats, etc.
 #   <SDK>/redistributable_bin/win64/steam_api64.lib  ← import lib
 #   <SDK>/redistributable_bin/win64/steam_api64.dll  ← runtime DLL
+# SDK root (= public/ と redistributable_bin/ を含む dir) を search_dir 以下から探す。
+# ミラーによっては SDK が `sdk/` サブディレクトリに入っているので再帰探索する。
+function(_acs_find_steamworks_root search_dir out_var)
+    set(${out_var} "" PARENT_SCOPE)
+    file(GLOB_RECURSE _hits "${search_dir}/*steam_api.h")
+    foreach(_h ${_hits})
+        get_filename_component(_steamdir  "${_h}" DIRECTORY)        # .../public/steam
+        get_filename_component(_publicdir "${_steamdir}" DIRECTORY) # .../public
+        get_filename_component(_root      "${_publicdir}" DIRECTORY) # .../ (SDK root)
+        if(EXISTS "${_root}/redistributable_bin/win64/steam_api64.lib")
+            set(${out_var} "${_root}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+endfunction()
+
 function(acs_third_party_steamworks)
     if(TARGET acs_third_party::steamworks)
         return()
@@ -106,22 +122,42 @@ function(acs_third_party_steamworks)
             URL "${ACS_STEAMWORKS_SDK_URL}"
         )
         FetchContent_MakeAvailable(acs_steamworks)
-        if(EXISTS "${acs_steamworks_SOURCE_DIR}/public/steam/steam_api.h")
-            set(_sdk_dir "${acs_steamworks_SOURCE_DIR}")
-            message(STATUS "ACS: Steamworks SDK (fetched) = ${_sdk_dir}")
+        _acs_find_steamworks_root("${acs_steamworks_SOURCE_DIR}" _sdk_dir)
+        if(_sdk_dir)
+            message(STATUS "ACS: Steamworks SDK (URL fetched) = ${_sdk_dir}")
         else()
             message(FATAL_ERROR
                 "ACS_STEAMWORKS_SDK_URL から取得した内容に "
                 "public/steam/steam_api.h が見つからない。ZIP の中身を確認。")
         endif()
     else()
-        message(FATAL_ERROR
-            "ACS_BUILD_STEAMWORKS=ON だが ACS_STEAMWORKS_SDK_DIR / "
-            "ACS_STEAMWORKS_SDK_URL のいずれも指定されていない。"
-            "SDK の取得方法を選んで指定すること:\n"
-            "  -DACS_STEAMWORKS_SDK_DIR=<unzip した SDK の絶対パス>   (推奨)\n"
-            "  -DACS_STEAMWORKS_SDK_URL=<SDK ZIP の URL>            (CI 用)\n"
-            "Steamworks SDK は partner.steamgames.com から入手 (要パートナー登録)。")
+        # 方式 C (default): 公開 git ミラーから取得。
+        # Valve 公式 SDK は partner gating されるが、CI 用に SDK を再配布する
+        # 公開 repo がある。ACS_STEAMWORKS_SDK_GIT / _TAG で差し替え可能。
+        if(NOT DEFINED ACS_STEAMWORKS_SDK_GIT OR "${ACS_STEAMWORKS_SDK_GIT}" STREQUAL "")
+            set(ACS_STEAMWORKS_SDK_GIT "https://github.com/julianxhokaxhiu/SteamworksSDKCI.git")
+        endif()
+        if(NOT DEFINED ACS_STEAMWORKS_SDK_GIT_TAG OR "${ACS_STEAMWORKS_SDK_GIT_TAG}" STREQUAL "")
+            set(ACS_STEAMWORKS_SDK_GIT_TAG "1.62")  # Steamworks SDK 1.62 (julianxhokaxhiu mirror tag)
+        endif()
+        message(STATUS "ACS: Steamworks SDK を git ミラーから取得: "
+                       "${ACS_STEAMWORKS_SDK_GIT} @ ${ACS_STEAMWORKS_SDK_GIT_TAG}")
+        FetchContent_Declare(
+            acs_steamworks
+            GIT_REPOSITORY "${ACS_STEAMWORKS_SDK_GIT}"
+            GIT_TAG        "${ACS_STEAMWORKS_SDK_GIT_TAG}"
+            GIT_SHALLOW    TRUE
+        )
+        FetchContent_MakeAvailable(acs_steamworks)
+        _acs_find_steamworks_root("${acs_steamworks_SOURCE_DIR}" _sdk_dir)
+        if(NOT _sdk_dir)
+            message(FATAL_ERROR
+                "git ミラー (${ACS_STEAMWORKS_SDK_GIT}) から取得した内容に "
+                "public/steam/steam_api.h が見つからない。レイアウトが想定と"
+                "違う場合は -DACS_STEAMWORKS_SDK_DIR=<local SDK> で直接指定するか、"
+                "別ミラーを -DACS_STEAMWORKS_SDK_GIT=... で指定すること。")
+        endif()
+        message(STATUS "ACS: Steamworks SDK (git mirror) = ${_sdk_dir}")
     endif()
 
     add_library(acs_third_party_steamworks INTERFACE)
@@ -202,6 +238,46 @@ function(acs_third_party_drlibs)
     add_library(acs_third_party_drlibs INTERFACE)
     target_include_directories(acs_third_party_drlibs INTERFACE "${acs_drlibs_SOURCE_DIR}")
     add_library(acs_third_party::drlibs ALIAS acs_third_party_drlibs)
+endfunction()
+
+# ---- Lua 5.4 (scripting backend) ------------------------------------------
+# 公式 Lua repo (MIT、gating 無し) を取得し、core .c を自前で static lib 化する。
+# lua.c (standalone interpreter main) と luac.c (compiler main) は除外。
+# acs_third_party::lua として include path + static lib を公開。
+function(acs_third_party_lua)
+    if(TARGET acs_third_party::lua)
+        return()
+    endif()
+    FetchContent_Declare(
+        acs_lua
+        GIT_REPOSITORY https://github.com/lua/lua.git
+        GIT_TAG        v5.4.7
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(acs_lua)
+
+    # Lua core ソース (lua.c / luac.c / onelua.c を除く全 .c)。
+    # 明示列挙して将来の repo 構成変更に強くする (Lua 5.4 の固定セット)。
+    set(_lua_src
+        lapi.c lauxlib.c lbaselib.c lcode.c lcorolib.c lctype.c ldblib.c
+        ldebug.c ldo.c ldump.c lfunc.c lgc.c linit.c liolib.c llex.c
+        lmathlib.c lmem.c loadlib.c lobject.c lopcodes.c loslib.c lparser.c
+        lstate.c lstring.c lstrlib.c ltable.c ltablib.c ltm.c lundump.c
+        lutf8lib.c lvm.c lzio.c
+    )
+    list(TRANSFORM _lua_src PREPEND "${acs_lua_SOURCE_DIR}/")
+
+    add_library(acs_third_party_lua STATIC ${_lua_src})
+    target_include_directories(acs_third_party_lua PUBLIC "${acs_lua_SOURCE_DIR}")
+    if(MSVC)
+        # Lua は C89/C99 想定。MSVC の C4xxx 警告を抑制。
+        target_compile_options(acs_third_party_lua PRIVATE /W3 /wd4297 /wd4310 /wd4334)
+        target_compile_definitions(acs_third_party_lua PRIVATE _CRT_SECURE_NO_WARNINGS)
+        # C++ ではなく C としてコンパイル (Lua は C extern "C" 前提)
+        set_source_files_properties(${_lua_src} PROPERTIES LANGUAGE C)
+    endif()
+    set_target_properties(acs_third_party_lua PROPERTIES FOLDER "third_party")
+    add_library(acs_third_party::lua ALIAS acs_third_party_lua)
 endfunction()
 
 # ImGui は src/imgui/Module.cmake が独自に FetchContent するため、

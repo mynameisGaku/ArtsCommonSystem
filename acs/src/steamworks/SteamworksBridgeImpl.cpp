@@ -10,6 +10,7 @@
 #include "steam/steam_api.h"
 
 #include <cstring>   // strncmp
+#include <cstdio>    // snprintf
 
 namespace acs::steamworks {
 
@@ -138,7 +139,7 @@ acs::TResult<void> FSteamworksBridgeImpl::Init() noexcept {
         //   2) steam_appid.txt が見つからない / AppID 不一致
         //   3) SDK バージョンと Steam クライアントが不整合
         ACS_LOG_ERROR("SteamAPI_Init failed (Steam クライアント起動 / steam_appid.txt 確認)");
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed,
+        return ACS_ERR(Generic, kSubSteamworksInitFailed,
                        "SteamAPI_Init returned false");
     }
     m_bInitialized = true;
@@ -172,15 +173,15 @@ acs::game::PlayerIdentity FSteamworksBridgeImpl::GetLocalPlayer() const noexcept
 
 acs::TResult<void> FSteamworksBridgeImpl::UnlockAchievement(const char* ach_id) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before UnlockAchievement");
     }
     if (ach_id == nullptr || ach_id[0] == 0) {
-        return ACS_ERR(EErrCategory::Generic, 0, "ach_id is null or empty");
+        return ACS_ERR(Generic, 0, "ach_id is null or empty");
     }
     ISteamUserStats* stats = SteamUserStats();
     if (!stats) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed, "SteamUserStats() null");
+        return ACS_ERR(Generic, kSubSteamworksInitFailed, "SteamUserStats() null");
     }
     stats->SetAchievement(ach_id);
     stats->StoreStats();
@@ -189,15 +190,15 @@ acs::TResult<void> FSteamworksBridgeImpl::UnlockAchievement(const char* ach_id) 
 
 acs::TResult<void> FSteamworksBridgeImpl::SetLeaderboardScore(const char* board_id, acs::i64 score) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before SetLeaderboardScore");
     }
     if (board_id == nullptr || board_id[0] == 0) {
-        return ACS_ERR(EErrCategory::Generic, 0, "board_id is null or empty");
+        return ACS_ERR(Generic, 0, "board_id is null or empty");
     }
     // pool に空き op を確保 (Pimpl 内 fixed pool)
     if (m_Impl->m_NumPending >= Impl::kMaxPendingOps) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksUploadFailed,
+        return ACS_ERR(Generic, kSubSteamworksUploadFailed,
                        "too many pending leaderboard ops");
     }
     FAsyncLeaderboardOp& op = m_Impl->m_PendingOps[m_Impl->m_NumPending++];
@@ -213,14 +214,14 @@ acs::TResult<void> FSteamworksBridgeImpl::SetLeaderboardScore(const char* board_
 
 acs::TResult<acs::i64> FSteamworksBridgeImpl::GetLeaderboardScore(const char* board_id) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before GetLeaderboardScore");
     }
     if (board_id == nullptr || board_id[0] == 0) {
-        return ACS_ERR(EErrCategory::Generic, 0, "board_id is null or empty");
+        return ACS_ERR(Generic, 0, "board_id is null or empty");
     }
     if (m_Impl->m_NumPending >= Impl::kMaxPendingOps) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksDownloadFailed,
+        return ACS_ERR(Generic, kSubSteamworksDownloadFailed,
                        "too many pending leaderboard ops");
     }
     FAsyncLeaderboardOp& op = m_Impl->m_PendingOps[m_Impl->m_NumPending++];
@@ -246,15 +247,15 @@ acs::TResult<acs::i64> FSteamworksBridgeImpl::GetLeaderboardScore(const char* bo
 
 acs::TResult<void> FSteamworksBridgeImpl::SetStat(const char* stat_name, acs::i64 value) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before SetStat");
     }
     if (stat_name == nullptr || stat_name[0] == 0) {
-        return ACS_ERR(EErrCategory::Generic, 0, "stat_name null");
+        return ACS_ERR(Generic, 0, "stat_name null");
     }
     ISteamUserStats* stats = SteamUserStats();
     if (!stats) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed, "SteamUserStats() null");
+        return ACS_ERR(Generic, kSubSteamworksInitFailed, "SteamUserStats() null");
     }
     // Steamworks API は int32、本ヘッダの方が広い (i64) ので clamp
     int32 v = (value > 0x7fffffffLL)  ? 0x7fffffff
@@ -267,16 +268,16 @@ acs::TResult<void> FSteamworksBridgeImpl::SetStat(const char* stat_name, acs::i6
 
 acs::TResult<acs::i64> FSteamworksBridgeImpl::GetStat(const char* stat_name) noexcept {
     if (!m_bInitialized) {
-        return acs::TResult<acs::i64>(ACS_ERR(EErrCategory::Generic,
+        return acs::TResult<acs::i64>(ACS_ERR(Generic,
                                               acs::game::kSubSteamworksNotInitialized,
                                               "Init() before GetStat"));
     }
     if (stat_name == nullptr || stat_name[0] == 0) {
-        return acs::TResult<acs::i64>(ACS_ERR(EErrCategory::Generic, 0, "stat_name null"));
+        return acs::TResult<acs::i64>(ACS_ERR(Generic, 0, "stat_name null"));
     }
     ISteamUserStats* stats = SteamUserStats();
     if (!stats) {
-        return acs::TResult<acs::i64>(ACS_ERR(EErrCategory::Generic,
+        return acs::TResult<acs::i64>(ACS_ERR(Generic,
                                               kSubSteamworksInitFailed,
                                               "SteamUserStats() null"));
     }
@@ -287,15 +288,15 @@ acs::TResult<acs::i64> FSteamworksBridgeImpl::GetStat(const char* stat_name) noe
 
 acs::TResult<void> FSteamworksBridgeImpl::SetFloatStat(const char* stat_name, acs::f32 value) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before SetFloatStat");
     }
     if (stat_name == nullptr || stat_name[0] == 0) {
-        return ACS_ERR(EErrCategory::Generic, 0, "stat_name null");
+        return ACS_ERR(Generic, 0, "stat_name null");
     }
     ISteamUserStats* stats = SteamUserStats();
     if (!stats) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed, "SteamUserStats() null");
+        return ACS_ERR(Generic, kSubSteamworksInitFailed, "SteamUserStats() null");
     }
     stats->SetStat(stat_name, value);  // overload for float
     stats->StoreStats();
@@ -304,16 +305,16 @@ acs::TResult<void> FSteamworksBridgeImpl::SetFloatStat(const char* stat_name, ac
 
 acs::TResult<acs::f32> FSteamworksBridgeImpl::GetFloatStat(const char* stat_name) noexcept {
     if (!m_bInitialized) {
-        return acs::TResult<acs::f32>(ACS_ERR(EErrCategory::Generic,
+        return acs::TResult<acs::f32>(ACS_ERR(Generic,
                                               acs::game::kSubSteamworksNotInitialized,
                                               "Init() before GetFloatStat"));
     }
     if (stat_name == nullptr || stat_name[0] == 0) {
-        return acs::TResult<acs::f32>(ACS_ERR(EErrCategory::Generic, 0, "stat_name null"));
+        return acs::TResult<acs::f32>(ACS_ERR(Generic, 0, "stat_name null"));
     }
     ISteamUserStats* stats = SteamUserStats();
     if (!stats) {
-        return acs::TResult<acs::f32>(ACS_ERR(EErrCategory::Generic,
+        return acs::TResult<acs::f32>(ACS_ERR(Generic,
                                               kSubSteamworksInitFailed,
                                               "SteamUserStats() null"));
     }
@@ -331,19 +332,19 @@ bool FSteamworksBridgeImpl::IsDlcOwned(acs::u32 app_id) const noexcept {
 
 acs::TResult<void> FSteamworksBridgeImpl::SetRichPresence(const char* key, const char* value) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before SetRichPresence");
     }
     if (key == nullptr || key[0] == 0) {
-        return ACS_ERR(EErrCategory::Generic, 0, "key null");
+        return ACS_ERR(Generic, 0, "key null");
     }
     ISteamFriends* friends = SteamFriends();
     if (!friends) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed, "SteamFriends() null");
+        return ACS_ERR(Generic, kSubSteamworksInitFailed, "SteamFriends() null");
     }
     bool ok = friends->SetRichPresence(key, value);
     if (!ok) {
-        return ACS_ERR(EErrCategory::Generic, 0, "SetRichPresence returned false");
+        return ACS_ERR(Generic, 0, "SetRichPresence returned false");
     }
     return acs::OkInit;
 }
@@ -392,27 +393,27 @@ acs::game::PlayerIdentity FSteamworksBridgeImpl::GetFriendByIndex(acs::u32 index
 
 acs::TResult<void> FSteamworksBridgeImpl::CloudWriteFile(const char* path, const void* data, acs::u32 size) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before CloudWriteFile");
     }
     ISteamRemoteStorage* rs = SteamRemoteStorage();
     if (!rs) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed, "SteamRemoteStorage() null");
+        return ACS_ERR(Generic, kSubSteamworksInitFailed, "SteamRemoteStorage() null");
     }
     bool ok = rs->FileWrite(path, data, static_cast<int32>(size));
-    if (!ok) return ACS_ERR(EErrCategory::Generic, 0, "FileWrite failed (quota / Cloud disabled?)");
+    if (!ok) return ACS_ERR(Generic, 0, "FileWrite failed (quota / Cloud disabled?)");
     return acs::OkInit;
 }
 
 acs::TResult<acs::u32> FSteamworksBridgeImpl::CloudReadFile(const char* path, void* out_buf, acs::u32 buf_size) noexcept {
     if (!m_bInitialized) {
-        return acs::TResult<acs::u32>(ACS_ERR(EErrCategory::Generic,
+        return acs::TResult<acs::u32>(ACS_ERR(Generic,
                                               acs::game::kSubSteamworksNotInitialized,
                                               "Init() before CloudReadFile"));
     }
     ISteamRemoteStorage* rs = SteamRemoteStorage();
     if (!rs) {
-        return acs::TResult<acs::u32>(ACS_ERR(EErrCategory::Generic,
+        return acs::TResult<acs::u32>(ACS_ERR(Generic,
                                               kSubSteamworksInitFailed,
                                               "SteamRemoteStorage() null"));
     }
@@ -429,12 +430,12 @@ bool FSteamworksBridgeImpl::CloudFileExists(const char* path) const noexcept {
 
 acs::TResult<void> FSteamworksBridgeImpl::CloudDeleteFile(const char* path) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before CloudDeleteFile");
     }
     ISteamRemoteStorage* rs = SteamRemoteStorage();
     if (!rs) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed, "SteamRemoteStorage() null");
+        return ACS_ERR(Generic, kSubSteamworksInitFailed, "SteamRemoteStorage() null");
     }
     rs->FileDelete(path);  // 戻り値 bool だが、存在しない path も成功扱い
     return acs::OkInit;
@@ -486,12 +487,12 @@ void FSteamworksBridgeImpl::WorkshopGetSubscribedItem(acs::u32 index, acs::u64& 
 
 acs::TResult<void> FSteamworksBridgeImpl::VoiceStartRecording() noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before VoiceStartRecording");
     }
     ISteamUser* user = SteamUser();
     if (!user) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed, "SteamUser() null");
+        return ACS_ERR(Generic, kSubSteamworksInitFailed, "SteamUser() null");
     }
     user->StartVoiceRecording();
     return acs::OkInit;
@@ -510,7 +511,7 @@ acs::TResult<acs::u32> FSteamworksBridgeImpl::VoiceGetCompressed(void* out_buf, 
     }
     ISteamUser* user = SteamUser();
     if (!user) {
-        return acs::TResult<acs::u32>(ACS_ERR(EErrCategory::Generic,
+        return acs::TResult<acs::u32>(ACS_ERR(Generic,
                                               kSubSteamworksInitFailed,
                                               "SteamUser() null"));
     }
@@ -520,20 +521,20 @@ acs::TResult<acs::u32> FSteamworksBridgeImpl::VoiceGetCompressed(void* out_buf, 
     if (r == k_EVoiceResultOK || r == k_EVoiceResultNoData) {
         return acs::TResult<acs::u32>(acs::OkInit, written);
     }
-    return acs::TResult<acs::u32>(ACS_ERR(EErrCategory::Generic, 0, "GetVoice error"));
+    return acs::TResult<acs::u32>(ACS_ERR(Generic, 0, "GetVoice error"));
 }
 
 acs::TResult<void> FSteamworksBridgeImpl::InputInit() noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(EErrCategory::Generic, acs::game::kSubSteamworksNotInitialized,
+        return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before InputInit");
     }
     ISteamInput* input = SteamInput();
     if (!input) {
-        return ACS_ERR(EErrCategory::Generic, kSubSteamworksInitFailed, "SteamInput() null");
+        return ACS_ERR(Generic, kSubSteamworksInitFailed, "SteamInput() null");
     }
     bool ok = input->Init(false);  // false = no explicit standalone (Steam runtime active)
-    if (!ok) return ACS_ERR(EErrCategory::Generic, 0, "SteamInput::Init failed");
+    if (!ok) return ACS_ERR(Generic, 0, "SteamInput::Init failed");
     return acs::OkInit;
 }
 
