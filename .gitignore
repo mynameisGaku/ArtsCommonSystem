@@ -21,6 +21,10 @@ Binaries/
 Intermediate/
 Saved/
 
+# User-facing generated Visual Studio solutions (created by acs/generate.bat).
+acs/*.sln
+acs/*.slnx
+
 # ---- Rider / CLion ---------------------------------------------------------
 .idea/
 *.iml

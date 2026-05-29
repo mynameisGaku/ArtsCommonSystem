@@ -11,7 +11,7 @@ endif()
 # - acs_add_sample()   → "game"
 # - acs_third_party_diligent() の Diligent ターゲット → "third_party"
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Generated/CMake")
+set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Engine/Generated")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -114,7 +114,7 @@ acs_finalize_modules()
 # 追加モジュールは ACS::Audio などを個別に足す。
 add_library(acs_game INTERFACE)
 add_library(ACS::Game ALIAS acs_game)
-set_target_properties(acs_game PROPERTIES FOLDER "Engine")
+set_target_properties(acs_game PROPERTIES FOLDER "Game")
 target_link_libraries(acs_game INTERFACE
     ACS::Foundation ACS::Threading ACS::Memory ACS::Container ACS::Math
     ACS::Platform ACS::Asset ACS::Ecs ACS::Render ACS::App)
@@ -148,14 +148,17 @@ function(acs_add_sample sample_dir)
         # add_subdirectory 前後の target diff を取って、サンプルで作られた target を game folder へ移す。
         get_property(_before_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
         get_property(_before_imports DIRECTORY PROPERTY IMPORTED_TARGETS)
+        set(_acs_prev_cmake_folder "${CMAKE_FOLDER}")
+        set(CMAKE_FOLDER "Game")
         add_subdirectory(samples/${sample_dir})
+        set(CMAKE_FOLDER "${_acs_prev_cmake_folder}")
         get_property(_after_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
         foreach(_t ${_after_targets})
             if(NOT _t IN_LIST _before_targets)
                 # サンプルが作った target だけ FOLDER 設定 (INTERFACE は除外)
                 get_target_property(_type ${_t} TYPE)
                 if(NOT _type STREQUAL "INTERFACE_LIBRARY")
-                    set_target_properties(${_t} PROPERTIES FOLDER "Game/Samples")
+                    set_target_properties(${_t} PROPERTIES FOLDER "Game")
                 endif()
             endif()
         endforeach()
@@ -414,7 +417,7 @@ if(ACS_CLANG_TIDY_EXE)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running clang-tidy on src/ samples/ tests/ (config: .clang-tidy)"
         VERBATIM USES_TERMINAL)
-    set_target_properties(acs_lint PROPERTIES FOLDER "Tools/CodeQuality")
+    set_target_properties(acs_lint PROPERTIES FOLDER "Engine/Tools")
     message(STATUS "ACS: acs_lint ターゲットを登録 (clang-tidy at ${ACS_CLANG_TIDY_EXE})")
 else()
     message(STATUS "ACS: clang-tidy が見つからないため acs_lint ターゲットは未登録。")
