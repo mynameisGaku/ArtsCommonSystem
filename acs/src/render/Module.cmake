@@ -29,6 +29,7 @@ set(_acs_render_sources
     HiZ.cpp
     Blit.cpp
     Light2D.cpp
+    DebugDraw.cpp
 )
 set(_acs_render_headers
     RhiTypes.h
@@ -61,6 +62,7 @@ set(_acs_render_headers
     HiZ.h
     Blit.h
     Light2D.h
+    DebugDraw.h
     Render.h
 )
 

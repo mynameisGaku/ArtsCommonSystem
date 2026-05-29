@@ -348,6 +348,11 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(52_HelloColliderViz2D)
     endif()
+
+    # --- (30) HelloColliderViz3D (3D メッシュ/凸包の wireframe 目視確認、windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(53_HelloColliderViz3D)
+    endif()
 endif()
 
 # ============================================================================
