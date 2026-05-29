@@ -191,14 +191,84 @@ ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Circle& c) noexcep
 ACS_FORCEINLINE bool Intersect(const Circle& c, const ConvexPoly2& poly) noexcept { return Intersect(poly, c); }
 
 // 凸ポリゴン vs AABB (AABB を 4 頂点ポリゴンに変換して SAT)。
-ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Aabb2& box) noexcept {
+ACS_FORCEINLINE ConvexPoly2 ToPoly(const Aabb2& box) noexcept {
     const FVec2 mn = box.Min(), mx = box.Max();
-    ConvexPoly2 bp;
-    bp.Add(FVec2{ mn.x, mn.y }); bp.Add(FVec2{ mx.x, mn.y });
-    bp.Add(FVec2{ mx.x, mx.y }); bp.Add(FVec2{ mn.x, mx.y });
-    return Intersect(poly, bp);
+    ConvexPoly2 p;
+    p.Add(FVec2{ mn.x, mn.y }); p.Add(FVec2{ mx.x, mn.y });
+    p.Add(FVec2{ mx.x, mx.y }); p.Add(FVec2{ mn.x, mx.y });
+    return p;
+}
+ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Aabb2& box) noexcept {
+    return Intersect(poly, ToPoly(box));
 }
 ACS_FORCEINLINE bool Intersect(const Aabb2& box, const ConvexPoly2& poly) noexcept { return Intersect(poly, box); }
+
+ACS_FORCEINLINE FVec2 Centroid(const ConvexPoly2& p) noexcept {
+    if (p.count == 0) return FVec2{ 0, 0 };
+    FVec2 c{ 0, 0 };
+    for (u32 i = 0; i < p.count; ++i) { c.x += p.verts[i].x; c.y += p.verts[i].y; }
+    return FVec2{ c.x / static_cast<f32>(p.count), c.y / static_cast<f32>(p.count) };
+}
+
+// ===== 押し出しベクトル (SAT MTV)。push は「A を B から離す」最小移動 =====
+ACS_FORCEINLINE bool Resolve(const ConvexPoly2& A, const ConvexPoly2& B, FVec2& push) noexcept {
+    if (A.count < 3 || B.count < 3) return false;
+    f32 min_overlap = 3.4028235e38f;
+    FVec2 best_axis{ 0, 0 };
+    for (int side = 0; side < 2; ++side) {
+        const ConvexPoly2& P = (side == 0) ? A : B;
+        for (u32 i = 0; i < P.count; ++i) {
+            const FVec2 e = P.verts[(i + 1) % P.count] - P.verts[i];
+            FVec2 axis = Normalize(FVec2{ -e.y, e.x });
+            if (axis.x == 0.0f && axis.y == 0.0f) continue;
+            f32 amn, amx, bmn, bmx;
+            poly_detail::ProjectPoly(A, axis, amn, amx);
+            poly_detail::ProjectPoly(B, axis, bmn, bmx);
+            const f32 overlap = (amx < bmx ? amx : bmx) - (amn > bmn ? amn : bmn);
+            if (overlap <= 0.0f) return false;       // 分離軸あり → 重ならない
+            if (overlap < min_overlap) { min_overlap = overlap; best_axis = axis; }
+        }
+    }
+    const FVec2 d = Centroid(A) - Centroid(B);
+    if (best_axis.x * d.x + best_axis.y * d.y < 0.0f) best_axis = FVec2{ -best_axis.x, -best_axis.y };
+    push = FVec2{ best_axis.x * min_overlap, best_axis.y * min_overlap };
+    return true;
+}
+
+// 円を凸ポリゴンから押し出す MTV。
+ACS_FORCEINLINE bool Resolve(const Circle& c, const ConvexPoly2& P, FVec2& push) noexcept {
+    if (P.count < 3) return false;
+    f32 min_overlap = 3.4028235e38f;
+    FVec2 best_axis{ 0, 0 };
+    auto test_axis = [&](FVec2 axis) -> bool {
+        if (axis.x == 0.0f && axis.y == 0.0f) return true;
+        f32 pmn, pmx;
+        poly_detail::ProjectPoly(P, axis, pmn, pmx);
+        const f32 cp = c.center.x * axis.x + c.center.y * axis.y;
+        const f32 cmn = cp - c.radius, cmx = cp + c.radius;
+        const f32 overlap = (pmx < cmx ? pmx : cmx) - (pmn > cmn ? pmn : cmn);
+        if (overlap <= 0.0f) return false;
+        if (overlap < min_overlap) { min_overlap = overlap; best_axis = axis; }
+        return true;
+    };
+    for (u32 i = 0; i < P.count; ++i) {
+        const FVec2 e = P.verts[(i + 1) % P.count] - P.verts[i];
+        if (!test_axis(Normalize(FVec2{ -e.y, e.x }))) return false;
+    }
+    // 最近接頂点 → 円中心 の軸 (円の角衝突)
+    u32 nearest = 0; f32 nd = 3.4028235e38f;
+    for (u32 i = 0; i < P.count; ++i) {
+        const f32 dq = (P.verts[i].x - c.center.x) * (P.verts[i].x - c.center.x) +
+                       (P.verts[i].y - c.center.y) * (P.verts[i].y - c.center.y);
+        if (dq < nd) { nd = dq; nearest = i; }
+    }
+    if (!test_axis(Normalize(c.center - P.verts[nearest]))) return false;
+
+    const FVec2 d = c.center - Centroid(P);
+    if (best_axis.x * d.x + best_axis.y * d.y < 0.0f) best_axis = FVec2{ -best_axis.x, -best_axis.y };
+    push = FVec2{ best_axis.x * min_overlap, best_axis.y * min_overlap };  // 円を押し出す向き
+    return true;
+}
 
 // ===== 押し出しベクトル（A を B から離す最小ベクトル）=====
 // 戻り値: 衝突していたら true、push に A を動かすべき方向 × 距離が入る。

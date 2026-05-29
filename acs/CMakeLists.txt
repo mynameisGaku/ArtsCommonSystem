@@ -353,6 +353,9 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(53_HelloColliderViz3D)
     endif()
+
+    # --- (31) HelloCollideSlide (FPhysicsBody2D collide-and-slide 検証、console) ---
+    acs_add_sample(54_HelloCollideSlide)
 endif()
 
 # ============================================================================

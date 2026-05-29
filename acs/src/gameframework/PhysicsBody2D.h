@@ -57,6 +57,16 @@ public:
         m_HalfSize = half_size;
         SyncShapeIfRegistered();
     }
+    // local_poly はボディ原点基準のローカル頂点 (例: スプライト凸包を中心原点に
+    // ずらしたもの)。world での形状は body 位置 + local 頂点。
+    void SetPolygon(const ConvexPoly2& local_poly) noexcept {
+        m_Kind = ShapeKind::Poly;
+        m_LocalPoly = local_poly;
+        SyncShapeIfRegistered();
+    }
+
+    // collide-and-slide を使うか (既定 true)。false で旧来の軸独立 block。
+    bool slide = true;
 
     // ----- 動力学 -----
     FVec2 velocity     {0.0f, 0.0f};
@@ -72,16 +82,18 @@ public:
     void OnDetach() noexcept override;
 
 private:
-    enum class ShapeKind : u8 { None = 0, Circle, FAabb };
+    enum class ShapeKind : u8 { None = 0, Circle, FAabb, Poly };
 
     bool WouldBlockAt(FVec2 pos) noexcept;
     void RegisterShapeAt(FVec2 pos) noexcept;
     void SyncShapeIfRegistered() noexcept;
+    ConvexPoly2 WorldPoly(FVec2 pos) const noexcept;   // local poly を pos へ平行移動
 
     FCollisionWorld2D* m_World  = nullptr;
     ShapeKind         m_Kind   = ShapeKind::None;
     f32               m_Radius = 0.5f;
     FVec2              m_HalfSize{0.5f, 0.5f};
+    ConvexPoly2       m_LocalPoly{};
     FShapeId           m_Handle;
     bool              m_Registered = false;
 };

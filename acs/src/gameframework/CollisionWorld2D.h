@@ -103,6 +103,12 @@ public:
     // Raycast: 最も近い shape を 1 つ返す (out_hit / out_id 設定、無ければ false)
     bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id) noexcept;
 
+    // collide-and-slide 用: query 形状を重なっている全 shape から押し出す合計
+    // ベクトルを返す (重なり無しなら {0,0})。body が move 後にこれで貫通解消し、
+    // 押し出し法線方向の速度成分を消すことでスライドする。
+    FVec2 ResolveCircle (const Circle& c,      FShapeId exclude = {}) noexcept;
+    FVec2 ResolvePolygon(const ConvexPoly2& p, FShapeId exclude = {}) noexcept;
+
 private:
     enum class Kind : u8 { None = 0, FAabb, Circle, Poly };
 

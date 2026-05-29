@@ -268,6 +268,73 @@ void FCollisionWorld2D::OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& o
     }
 }
 
+FVec2 FCollisionWorld2D::ResolveCircle(const Circle& c, FShapeId exclude) noexcept {
+    RebuildGridIfDirty();
+    m_QueryMarks.Resize(m_Slots.Size());
+    for (u32 i = 0; i < m_QueryMarks.Size(); ++i) m_QueryMarks[i] = 0;
+    const u32 ex_idx = exclude.IsValid() ? exclude.Index() : 0u;
+    FVec2 total{ 0, 0 };
+    const Aabb2 box{ c.center, FVec2{ c.radius, c.radius } };
+    i32 cx_min = 0, cy_min = 0, cx_max = 0, cy_max = 0;
+    CellRange(box, cx_min, cy_min, cx_max, cy_max);
+    for (i32 cy = cy_min; cy <= cy_max; ++cy) {
+        for (i32 cx = cx_min; cx <= cx_max; ++cx) {
+            GridCell* cell = FindCell(cx, cy);
+            if (!cell) continue;
+            for (u32 i = 0; i < cell->shapes.Size(); ++i) {
+                const u32 idx = cell->shapes[i];
+                if (idx == ex_idx || m_QueryMarks[idx]) continue;
+                m_QueryMarks[idx] = 1;
+                const Slot& s = m_Slots[idx];
+                FVec2 push{ 0, 0 }; bool hit = false;
+                switch (s.kind) {
+                case Kind::FAabb:   hit = Resolve(c, ToPoly(s.aabb), push); break;
+                case Kind::Circle: hit = Resolve(c, s.circle, push);       break;
+                case Kind::Poly:   hit = Resolve(c, s.poly, push);         break;
+                default: break;
+                }
+                if (hit) { total.x += push.x; total.y += push.y; }
+            }
+        }
+    }
+    return total;
+}
+
+FVec2 FCollisionWorld2D::ResolvePolygon(const ConvexPoly2& p, FShapeId exclude) noexcept {
+    RebuildGridIfDirty();
+    m_QueryMarks.Resize(m_Slots.Size());
+    for (u32 i = 0; i < m_QueryMarks.Size(); ++i) m_QueryMarks[i] = 0;
+    const u32 ex_idx = exclude.IsValid() ? exclude.Index() : 0u;
+    FVec2 total{ 0, 0 };
+    const Aabb2 box = AabbOf(p);
+    i32 cx_min = 0, cy_min = 0, cx_max = 0, cy_max = 0;
+    CellRange(box, cx_min, cy_min, cx_max, cy_max);
+    for (i32 cy = cy_min; cy <= cy_max; ++cy) {
+        for (i32 cx = cx_min; cx <= cx_max; ++cx) {
+            GridCell* cell = FindCell(cx, cy);
+            if (!cell) continue;
+            for (u32 i = 0; i < cell->shapes.Size(); ++i) {
+                const u32 idx = cell->shapes[i];
+                if (idx == ex_idx || m_QueryMarks[idx]) continue;
+                m_QueryMarks[idx] = 1;
+                const Slot& s = m_Slots[idx];
+                FVec2 push{ 0, 0 }; bool hit = false;
+                switch (s.kind) {
+                case Kind::FAabb:   hit = Resolve(p, ToPoly(s.aabb), push); break;
+                case Kind::Poly:   hit = Resolve(p, s.poly, push);         break;
+                case Kind::Circle: {
+                    FVec2 cp;                                 // 円を p から押す → 反転で p を押す
+                    if (Resolve(s.circle, p, cp)) { push = FVec2{ -cp.x, -cp.y }; hit = true; }
+                } break;
+                default: break;
+                }
+                if (hit) { total.x += push.x; total.y += push.y; }
+            }
+        }
+    }
+    return total;
+}
+
 bool FCollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                                 RayHit2& out_hit, FShapeId& out_id) noexcept {
     out_hit = {};
