@@ -191,6 +191,20 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
     return Ok();
 }
 
+ConvexPoly2 FSpriteCollider::HullPolygon() const noexcept {
+    ConvexPoly2 poly;
+    const u32 n = m_HullCount;
+    if (n == 0) return poly;
+    if (n <= ConvexPoly2::kMaxVerts) {
+        for (u32 i = 0; i < n; ++i) poly.Add(m_Hull[i]);
+    } else {
+        for (u32 i = 0; i < ConvexPoly2::kMaxVerts; ++i) {
+            poly.Add(m_Hull[(i * n) / ConvexPoly2::kMaxVerts]);
+        }
+    }
+    return poly;
+}
+
 bool FSpriteCollider::ContainsPoint(FVec2 p) const noexcept {
     const u32 n = m_OutlineCount;
     if (n < 3) return false;

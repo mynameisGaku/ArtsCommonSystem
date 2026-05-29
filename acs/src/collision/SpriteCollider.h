@@ -47,6 +47,10 @@ public:
     // 簡略化済み輪郭ポリゴンの内外判定 (ray-crossing、凹形状対応)。
     bool ContainsPoint(FVec2 p) const noexcept;
 
+    // 凸包を ConvexPoly2 (物理用、最大 16 頂点) に変換。FCollisionWorld2D::AddPolygon
+    // にそのまま渡せる。頂点が多い場合は均等に間引く。
+    ConvexPoly2 HullPolygon() const noexcept;
+
 private:
     FVec2     m_Hull[kMaxVertices]{};
     acs::u32  m_HullCount = 0;

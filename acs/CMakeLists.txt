@@ -337,6 +337,9 @@ if(ACS_BUILD_SAMPLES)
     # 検証コンソール。GPU 不要・ヘッドレスで完結 (assert ベース)。
     acs_add_sample(48_HelloSpriteCollider)
     acs_add_sample(49_HelloMeshCollider)
+
+    # --- (27) HelloSpritePhysics (凸包コライダー → FCollisionWorld2D 統合) ---
+    acs_add_sample(50_HelloSpritePhysics)
 endif()
 
 # ============================================================================

@@ -55,6 +55,29 @@ struct Circle {
     f32  radius = 0.0f;
 };
 
+// 凸多角形（頂点は時計回り/反時計回りどちらでも可、凸であることが前提）。
+// 物理で扱いやすいよう固定上限。スプライトの凸包コライダー等を載せる。
+struct ConvexPoly2 {
+    static constexpr u32 kMaxVerts = 16;
+    FVec2 verts[kMaxVerts]{};
+    u32   count = 0;
+
+    void Clear() noexcept { count = 0; }
+    void Add(FVec2 v) noexcept { if (count < kMaxVerts) verts[count++] = v; }
+};
+
+ACS_FORCEINLINE Aabb2 AabbOf(const ConvexPoly2& p) noexcept {
+    if (p.count == 0) return Aabb2{};
+    FVec2 mn = p.verts[0], mx = p.verts[0];
+    for (u32 i = 1; i < p.count; ++i) {
+        if (p.verts[i].x < mn.x) mn.x = p.verts[i].x;
+        if (p.verts[i].y < mn.y) mn.y = p.verts[i].y;
+        if (p.verts[i].x > mx.x) mx.x = p.verts[i].x;
+        if (p.verts[i].y > mx.y) mx.y = p.verts[i].y;
+    }
+    return Aabb2::FromMinMax(mn, mx);
+}
+
 // レイ（始点 + 方向、必ずしも正規化されてなくて良いが、t 解釈は方向長さ依存）
 struct Ray2 {
     FVec2 origin;
@@ -100,6 +123,82 @@ ACS_FORCEINLINE bool Intersect(const Aabb2& a, const Circle& c) noexcept {
     return dx*dx + dy*dy <= c.radius * c.radius;
 }
 ACS_FORCEINLINE bool Intersect(const Circle& c, const Aabb2& a) noexcept { return Intersect(a, c); }
+
+// ===== 凸多角形 =====
+// 凸ポリゴンの内外判定 (全エッジで同じ側にあれば内側、巻き順は問わない)。
+ACS_FORCEINLINE bool Contains(const ConvexPoly2& poly, FVec2 p) noexcept {
+    if (poly.count < 3) return false;
+    int sign = 0;
+    for (u32 i = 0; i < poly.count; ++i) {
+        const FVec2 a = poly.verts[i];
+        const FVec2 b = poly.verts[(i + 1) % poly.count];
+        const f32 cr = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        if (cr > 1e-6f)      { if (sign < 0) return false; sign = 1; }
+        else if (cr < -1e-6f){ if (sign > 0) return false; sign = -1; }
+    }
+    return true;
+}
+
+namespace poly_detail {
+ACS_FORCEINLINE void ProjectPoly(const ConvexPoly2& p, FVec2 axis, f32& mn, f32& mx) noexcept {
+    mn = mx = p.verts[0].x * axis.x + p.verts[0].y * axis.y;
+    for (u32 i = 1; i < p.count; ++i) {
+        const f32 d = p.verts[i].x * axis.x + p.verts[i].y * axis.y;
+        if (d < mn) mn = d;
+        if (d > mx) mx = d;
+    }
+}
+ACS_FORCEINLINE bool AxisSeparates(const ConvexPoly2& a, const ConvexPoly2& b, FVec2 axis) noexcept {
+    f32 amn, amx, bmn, bmx;
+    ProjectPoly(a, axis, amn, amx);
+    ProjectPoly(b, axis, bmn, bmx);
+    return amx < bmn || bmx < amn;
+}
+} // namespace poly_detail
+
+// SAT: 2 つの凸ポリゴンの重なり判定。
+ACS_FORCEINLINE bool Intersect(const ConvexPoly2& a, const ConvexPoly2& b) noexcept {
+    if (a.count < 3 || b.count < 3) return false;
+    for (u32 i = 0; i < a.count; ++i) {
+        const FVec2 e = a.verts[(i + 1) % a.count] - a.verts[i];
+        if (poly_detail::AxisSeparates(a, b, FVec2{ -e.y, e.x })) return false;
+    }
+    for (u32 i = 0; i < b.count; ++i) {
+        const FVec2 e = b.verts[(i + 1) % b.count] - b.verts[i];
+        if (poly_detail::AxisSeparates(a, b, FVec2{ -e.y, e.x })) return false;
+    }
+    return true;
+}
+
+// 凸ポリゴン vs 円: 中心が内側、またはどれかのエッジに半径以内で接触なら重なる。
+ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Circle& c) noexcept {
+    if (poly.count < 3) return false;
+    if (Contains(poly, c.center)) return true;
+    const f32 r2 = c.radius * c.radius;
+    for (u32 i = 0; i < poly.count; ++i) {
+        const FVec2 a = poly.verts[i];
+        const FVec2 b = poly.verts[(i + 1) % poly.count];
+        const FVec2 ab = b - a;
+        const f32 len2 = ab.x * ab.x + ab.y * ab.y;
+        f32 t = len2 > 1e-12f ? ((c.center.x - a.x) * ab.x + (c.center.y - a.y) * ab.y) / len2 : 0.0f;
+        t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        const f32 dx = c.center.x - (a.x + ab.x * t);
+        const f32 dy = c.center.y - (a.y + ab.y * t);
+        if (dx * dx + dy * dy <= r2) return true;
+    }
+    return false;
+}
+ACS_FORCEINLINE bool Intersect(const Circle& c, const ConvexPoly2& poly) noexcept { return Intersect(poly, c); }
+
+// 凸ポリゴン vs AABB (AABB を 4 頂点ポリゴンに変換して SAT)。
+ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Aabb2& box) noexcept {
+    const FVec2 mn = box.Min(), mx = box.Max();
+    ConvexPoly2 bp;
+    bp.Add(FVec2{ mn.x, mn.y }); bp.Add(FVec2{ mx.x, mn.y });
+    bp.Add(FVec2{ mx.x, mx.y }); bp.Add(FVec2{ mn.x, mx.y });
+    return Intersect(poly, bp);
+}
+ACS_FORCEINLINE bool Intersect(const Aabb2& box, const ConvexPoly2& poly) noexcept { return Intersect(poly, box); }
 
 // ===== 押し出しベクトル（A を B から離す最小ベクトル）=====
 // 戻り値: 衝突していたら true、push に A を動かすべき方向 × 距離が入る。
@@ -189,6 +288,34 @@ ACS_FORCEINLINE RayHit2 RaycastCircle(const Ray2& ray, const Circle& c,
     const f32 ny = (r.point.y - c.center.y);
     const f32 inv_r = 1.0f / c.radius;
     r.normal = { nx * inv_r, ny * inv_r };
+    return r;
+}
+
+// レイ vs 凸ポリゴン: 各エッジ線分との交差のうち最近接を返す (エッジ法線つき)。
+ACS_FORCEINLINE RayHit2 RaycastConvexPoly2(const Ray2& ray, const ConvexPoly2& poly,
+                                           f32 t_max = 3.4028235e38f) noexcept {
+    RayHit2 r{};
+    if (poly.count < 2) return r;
+    f32 best = t_max;
+    for (u32 i = 0; i < poly.count; ++i) {
+        const FVec2 a = poly.verts[i];
+        const FVec2 b = poly.verts[(i + 1) % poly.count];
+        const FVec2 e = b - a;
+        const f32 denom = ray.direction.x * e.y - ray.direction.y * e.x;  // dir × e
+        if (Abs(denom) < 1e-8f) continue;                                 // 平行
+        const FVec2 ao = a - ray.origin;
+        const f32 t = (ao.x * e.y - ao.y * e.x) / denom;
+        const f32 u = (ao.x * ray.direction.y - ao.y * ray.direction.x) / denom;
+        if (t >= 0.0f && t <= best && u >= 0.0f && u <= 1.0f) {
+            best = t;
+            r.hit = true;
+            r.t = t;
+            r.point = { ray.origin.x + ray.direction.x * t, ray.origin.y + ray.direction.y * t };
+            FVec2 n = Normalize(FVec2{ e.y, -e.x });
+            if (n.x * ray.direction.x + n.y * ray.direction.y > 0.0f) n = FVec2{ -n.x, -n.y };
+            r.normal = n;
+        }
+    }
     return r;
 }
 

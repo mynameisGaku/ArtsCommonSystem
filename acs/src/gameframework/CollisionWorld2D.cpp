@@ -43,6 +43,19 @@ FShapeId FCollisionWorld2D::AddCircle(const Circle& c) noexcept {
     return FShapeId{idx, s.gen};
 }
 
+FShapeId FCollisionWorld2D::AddPolygon(const ConvexPoly2& p) noexcept {
+    const u32 idx = AcquireSlot();
+    Slot& s = m_Slots[idx];
+    s.kind   = Kind::Poly;
+    s.poly   = p;
+    s.gen    = static_cast<u8>(s.gen + 1u);
+    if (s.gen == 0) s.gen = 1;
+    s.active = true;
+    ++m_ShapeCount;
+    MarkDirty();
+    return FShapeId{idx, s.gen};
+}
+
 void FCollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -56,6 +69,14 @@ void FCollisionWorld2D::UpdateCircle(FShapeId id, const Circle& c) noexcept {
     Slot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != Kind::Circle) return;
     s.circle = c;
+    MarkDirty();
+}
+
+void FCollisionWorld2D::UpdatePolygon(FShapeId id, const ConvexPoly2& p) noexcept {
+    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    Slot& s = m_Slots[id.Index()];
+    if (!s.active || s.gen != id.Generation() || s.kind != Kind::Poly) return;
+    s.poly = p;
     MarkDirty();
 }
 
@@ -119,6 +140,7 @@ void FCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     switch (s.kind) {
     case Kind::FAabb:   CellRange(s.aabb,   cx_min, cy_min, cx_max, cy_max); break;
     case Kind::Circle: CellRange(s.circle, cx_min, cy_min, cx_max, cy_max); break;
+    case Kind::Poly:   CellRange(AabbOf(s.poly), cx_min, cy_min, cx_max, cy_max); break;
     default: return;
     }
     for (i32 cy = cy_min; cy <= cy_max; ++cy) {
@@ -143,6 +165,7 @@ bool FCollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const 
     switch (s.kind) {
     case Kind::FAabb:   return Intersect(s.aabb,   a);
     case Kind::Circle: return Intersect(s.circle, a);
+    case Kind::Poly:   return Intersect(s.poly,   a);
     default: return false;
     }
 }
@@ -152,6 +175,17 @@ bool FCollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) con
     switch (s.kind) {
     case Kind::FAabb:   return Intersect(s.aabb,   c);
     case Kind::Circle: return Intersect(s.circle, c);
+    case Kind::Poly:   return Intersect(s.poly,   c);
+    default: return false;
+    }
+}
+
+bool FCollisionWorld2D::NarrowIntersectPoly(u32 slot_idx, const ConvexPoly2& p) const noexcept {
+    const Slot& s = m_Slots[slot_idx];
+    switch (s.kind) {
+    case Kind::FAabb:   return Intersect(p, s.aabb);
+    case Kind::Circle: return Intersect(p, s.circle);
+    case Kind::Poly:   return Intersect(p, s.poly);
     default: return false;
     }
 }
@@ -207,6 +241,33 @@ void FCollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FS
     }
 }
 
+void FCollisionWorld2D::OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude) noexcept {
+    out.Clear();
+    if (p.count < 3) return;
+    RebuildGridIfDirty();
+    m_QueryMarks.Resize(m_Slots.Size());
+    for (u32 i = 0; i < m_QueryMarks.Size(); ++i) m_QueryMarks[i] = 0;
+    const u32 ex_idx = exclude.IsValid() ? exclude.Index() : 0u;
+    const Aabb2 box = AabbOf(p);
+    i32 cx_min = 0, cy_min = 0, cx_max = 0, cy_max = 0;
+    CellRange(box, cx_min, cy_min, cx_max, cy_max);
+    for (i32 cy = cy_min; cy <= cy_max; ++cy) {
+        for (i32 cx = cx_min; cx <= cx_max; ++cx) {
+            GridCell* cell = FindCell(cx, cy);
+            if (!cell) continue;
+            for (u32 i = 0; i < cell->shapes.Size(); ++i) {
+                const u32 idx = cell->shapes[i];
+                if (idx == ex_idx) continue;
+                if (m_QueryMarks[idx]) continue;
+                m_QueryMarks[idx] = 1;
+                if (NarrowIntersectPoly(idx, p)) {
+                    out.PushBack(FShapeId{idx, m_Slots[idx].gen});
+                }
+            }
+        }
+    }
+}
+
 bool FCollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                                 RayHit2& out_hit, FShapeId& out_id) noexcept {
     out_hit = {};
@@ -246,6 +307,7 @@ bool FCollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                 switch (s.kind) {
                 case Kind::FAabb:   rh = RaycastAabb(ray,   s.aabb,   max_t); break;
                 case Kind::Circle: rh = RaycastCircle(ray, s.circle, max_t); break;
+                case Kind::Poly:   rh = RaycastConvexPoly2(ray, s.poly, max_t); break;
                 default: break;
                 }
                 if (rh.hit && rh.t < best_t) {

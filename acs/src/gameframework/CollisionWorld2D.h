@@ -78,12 +78,14 @@ public:
     }
 
     // ----- Shape 登録 -----
-    FShapeId AddAabb  (const Aabb2& a) noexcept;
-    FShapeId AddCircle(const Circle& c) noexcept;
+    FShapeId AddAabb   (const Aabb2& a) noexcept;
+    FShapeId AddCircle (const Circle& c) noexcept;
+    FShapeId AddPolygon(const ConvexPoly2& p) noexcept;   // スプライト凸包コライダー等
 
     // 形状更新 (移動した時)。dirty にして次のクエリで再構築。
-    void UpdateAabb  (FShapeId id, const Aabb2& a) noexcept;
-    void UpdateCircle(FShapeId id, const Circle& c) noexcept;
+    void UpdateAabb   (FShapeId id, const Aabb2& a) noexcept;
+    void UpdateCircle (FShapeId id, const Circle& c) noexcept;
+    void UpdatePolygon(FShapeId id, const ConvexPoly2& p) noexcept;
 
     // shape 削除 (slot は再利用、generation 進む)
     void Remove(FShapeId id) noexcept;
@@ -95,20 +97,22 @@ public:
 
     // ----- クエリ (broad-phase grid → narrow-phase math/Collision2D) -----
     // exclude: 自身を除外したい時 (PhysicsBody が自己 overlap を無視するため)。invalid なら除外無し。
-    void OverlapAabb  (const Aabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
-    void OverlapCircle(const Circle& c,  TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
+    void OverlapAabb   (const Aabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
+    void OverlapCircle (const Circle& c,  TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
+    void OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
     // Raycast: 最も近い shape を 1 つ返す (out_hit / out_id 設定、無ければ false)
     bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id) noexcept;
 
 private:
-    enum class Kind : u8 { None = 0, FAabb, Circle };
+    enum class Kind : u8 { None = 0, FAabb, Circle, Poly };
 
     struct Slot {
-        Kind   kind   = Kind::None;
-        bool   active = false;
-        u8     gen    = 0;
-        Aabb2  aabb   {};
-        Circle circle {};
+        Kind        kind   = Kind::None;
+        bool        active = false;
+        u8          gen    = 0;
+        Aabb2       aabb   {};
+        Circle      circle {};
+        ConvexPoly2 poly   {};
     };
 
     // SpatialGrid: cell key (hash of 2D cell coords) → list of slot indices
@@ -135,6 +139,7 @@ private:
     // Narrow phase: slot[idx] が形状 X と交差するか
     bool NarrowIntersectAabb  (u32 slot_idx, const Aabb2& a) const noexcept;
     bool NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept;
+    bool NarrowIntersectPoly  (u32 slot_idx, const ConvexPoly2& p) const noexcept;
 
     TArray<Slot>     m_Slots;
     u32             m_ShapeCount = 0;
