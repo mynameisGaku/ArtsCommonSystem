@@ -340,6 +340,9 @@ if(ACS_BUILD_SAMPLES)
 
     # --- (27) HelloSpritePhysics (凸包コライダー → FCollisionWorld2D 統合) ---
     acs_add_sample(50_HelloSpritePhysics)
+
+    # --- (28) HelloConvexHull (3D 凸包生成 → 凸コライダー) ---
+    acs_add_sample(51_HelloConvexHull)
 endif()
 
 # ============================================================================

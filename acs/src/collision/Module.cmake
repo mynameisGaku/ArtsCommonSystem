@@ -9,9 +9,11 @@ acs_module(
     SOURCES
         SpriteCollider.cpp
         MeshCollider.cpp
+        ConvexHull3.cpp
     HEADERS
         SpriteCollider.h
         MeshCollider.h
+        ConvexHull3.h
     PUBLIC_DEPS
         Foundation
         Container
