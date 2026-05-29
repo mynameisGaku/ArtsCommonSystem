@@ -343,6 +343,11 @@ if(ACS_BUILD_SAMPLES)
 
     # --- (28) HelloConvexHull (3D 凸包生成 → 凸コライダー) ---
     acs_add_sample(51_HelloConvexHull)
+
+    # --- (29) HelloColliderViz2D (スプライトコライダーの目視確認、windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(52_HelloColliderViz2D)
+    endif()
 endif()
 
 # ============================================================================
