@@ -147,8 +147,7 @@ function(acs_finalize_modules)
         add_library(ACS::${mod} ALIAS ${tgt})
 
         # Solution Explorer (Visual Studio) でエンジンモジュールを 1 フォルダに集約。
-        set_target_properties(${tgt} PROPERTIES FOLDER "engine")
-
+        set_target_properties(${tgt} PROPERTIES FOLDER "Engine")
         target_include_directories(${tgt} PUBLIC ${ACS_SOURCE_ROOT})
         acs_apply_compiler_options(${tgt})
 

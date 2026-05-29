@@ -12,6 +12,7 @@ add_executable(acs_unit_tests
     mvvm_tests.cpp
     ui_tests.cpp
 )
+set_target_properties(acs_unit_tests PROPERTIES FOLDER "Tests")
 
 acs_apply_compiler_options(acs_unit_tests)
 

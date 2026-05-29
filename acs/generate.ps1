@@ -38,16 +38,43 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Keep a valid Windows Path for CMake/MSBuild child processes. Some shells inject
+# odd PATH/Path combinations; resetting the process `Path` from machine + user
+# scope keeps tools discoverable without relying on the caller's transient env.
+$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+$userPath    = [Environment]::GetEnvironmentVariable("Path", "User")
+$processPath = [Environment]::GetEnvironmentVariable("Path", "Process")
+$pathParts = @($machinePath, $userPath, $processPath) |
+    Where-Object { $_ -and $_.Trim().Length -gt 0 }
+if ($pathParts.Count -gt 0) {
+    $env:Path = ($pathParts -join ";")
+}
+
 $proj  = $PSScriptRoot
 $inter = Join-Path $proj "Intermediate\vs"
 $saved = Join-Path $proj "Saved"
 $bin   = Join-Path $proj "Binaries"
+
+function Repair-GeneratedAcl([string]$path) {
+    if (-not (Test-Path $path)) { return }
+    $icacls = Join-Path $env:SystemRoot "System32\icacls.exe"
+    if (-not (Test-Path $icacls)) { return }
+    # Convert inherited ACEs to explicit ACEs for generated trees, then remove
+    # inherited deny-delete ACEs such as Everyone:(DENY)(DC). MSBuild writes
+    # .tlog files via temporary-file replacement; deny-delete breaks that.
+    & $icacls $path /inheritance:d /T | Out-Null
+    & $icacls $path /remove:d Everyone /T | Out-Null
+}
 
 if ($Clean -and (Test-Path $inter)) {
     Write-Host "[generate] cleaning $inter" -ForegroundColor Yellow
     Remove-Item -Recurse -Force $inter
 }
 New-Item -ItemType Directory -Force -Path $inter, $saved, $bin | Out-Null
+Repair-GeneratedAcl (Join-Path $proj "Intermediate")
+Repair-GeneratedAcl $saved
+Repair-GeneratedAcl $bin
 
 $cmakeArgs = @(
     "-S", $proj,

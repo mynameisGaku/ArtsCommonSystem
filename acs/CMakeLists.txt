@@ -11,6 +11,7 @@ endif()
 # - acs_add_sample()   → "game"
 # - acs_third_party_diligent() の Diligent ターゲット → "third_party"
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Generated/CMake")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -44,6 +45,8 @@ option(ACS_BUILD_TESTS    "Build ACS unit tests"               ON)
 option(ACS_BUILD_SAMPLES  "Build sample applications"          ON)
 option(ACS_BUILD_TOOLS    "Build ACS CLI tools (acs_assetpack)" ON)
 option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
+set(ACS_STARTUP_PROJECT "hello_scene2d" CACHE STRING
+    "Visual Studio startup project when the single ACS solution is opened.")
 
 # RHI バックエンド選択（Render モジュールが参照する。ACS_Render_* 系の feature と
 # 一致させ、Module.cmake のソース/リンク条件にも使う）。
@@ -111,6 +114,7 @@ acs_finalize_modules()
 # 追加モジュールは ACS::Audio などを個別に足す。
 add_library(acs_game INTERFACE)
 add_library(ACS::Game ALIAS acs_game)
+set_target_properties(acs_game PROPERTIES FOLDER "Engine")
 target_link_libraries(acs_game INTERFACE
     ACS::Foundation ACS::Threading ACS::Memory ACS::Container ACS::Math
     ACS::Platform ACS::Asset ACS::Ecs ACS::Render ACS::App)
@@ -151,7 +155,7 @@ function(acs_add_sample sample_dir)
                 # サンプルが作った target だけ FOLDER 設定 (INTERFACE は除外)
                 get_target_property(_type ${_t} TYPE)
                 if(NOT _type STREQUAL "INTERFACE_LIBRARY")
-                    set_target_properties(${_t} PROPERTIES FOLDER "game")
+                    set_target_properties(${_t} PROPERTIES FOLDER "Game/Samples")
                 endif()
             endif()
         endforeach()
@@ -363,6 +367,14 @@ if(ACS_BUILD_SAMPLES)
     endif()
 endif()
 
+if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})
+    set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY
+        VS_STARTUP_PROJECT ${ACS_STARTUP_PROJECT})
+elseif(TARGET hello_easy)
+    set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY
+        VS_STARTUP_PROJECT hello_easy)
+endif()
+
 # ============================================================================
 # acs_lint — clang-tidy リントターゲット (Phase 3c)
 # ----------------------------------------------------------------------------
@@ -402,6 +414,7 @@ if(ACS_CLANG_TIDY_EXE)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running clang-tidy on src/ samples/ tests/ (config: .clang-tidy)"
         VERBATIM USES_TERMINAL)
+    set_target_properties(acs_lint PROPERTIES FOLDER "Tools/CodeQuality")
     message(STATUS "ACS: acs_lint ターゲットを登録 (clang-tidy at ${ACS_CLANG_TIDY_EXE})")
 else()
     message(STATUS "ACS: clang-tidy が見つからないため acs_lint ターゲットは未登録。")

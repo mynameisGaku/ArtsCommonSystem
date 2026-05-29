@@ -17,6 +17,7 @@
 # OUTPUT_NAME で実行ファイル名は意図通り `acs_assetpack.exe` のまま。
 add_executable(acs_assetpack_cli main.cpp)
 set_target_properties(acs_assetpack_cli PROPERTIES
+    FOLDER Tools
     OUTPUT_NAME acs_assetpack   # 実行ファイル名は acs_assetpack(.exe)
     WIN32_EXECUTABLE OFF        # CONSOLE app (stdout / stderr を出す)
     CXX_STANDARD 20
