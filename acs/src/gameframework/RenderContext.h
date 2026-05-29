@@ -16,6 +16,7 @@
 namespace acs {
 class IRhiCommandList;
 class FRenderer;
+class FSpriteBatch;
 }
 
 namespace acs::game {
@@ -34,9 +35,11 @@ public:
         m_Cmd      = &cl;
         m_Width    = w;
         m_Height   = h;
+        m_Sprites  = nullptr;
     }
     void _EndFrame() noexcept {
         m_Cmd = nullptr;
+        m_Sprites = nullptr;
     }
 
     // 現フレームの IRhiCommandList (nullptr の可能性は OnRender 外でのみ起きる)。
@@ -46,9 +49,17 @@ public:
     u32              Height() const noexcept { return m_Height; }
     bool             IsFrameActive() const noexcept { return m_Cmd != nullptr; }
 
+    // Optional 2D draw batch installed by FScene2D or a custom host for the
+    // current render pass. Components can use HasSprites()/Sprites() without
+    // owning a SpriteBatch themselves.
+    void _SetSpriteBatch(FSpriteBatch* sb) noexcept { m_Sprites = sb; }
+    bool HasSprites() const noexcept { return m_Sprites != nullptr; }
+    FSpriteBatch& Sprites() const noexcept { return *m_Sprites; }
+
 private:
     FRenderer*        m_Renderer = nullptr;
     IRhiCommandList* m_Cmd      = nullptr;
+    FSpriteBatch*    m_Sprites  = nullptr;
     u32              m_Width    = 0;
     u32              m_Height   = 0;
 };

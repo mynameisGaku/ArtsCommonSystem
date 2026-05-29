@@ -356,6 +356,11 @@ if(ACS_BUILD_SAMPLES)
 
     # --- (31) HelloCollideSlide (FPhysicsBody2D collide-and-slide 検証、console) ---
     acs_add_sample(54_HelloCollideSlide)
+
+    # --- (32) HelloScene2D (FScene2D starter foundation, windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(55_HelloScene2D)
+    endif()
 endif()
 
 # ============================================================================

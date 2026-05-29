@@ -7,6 +7,7 @@
 
 #include "gameframework/Game.h"
 #include "gameframework/Scene.h"
+#include "gameframework/Scene2D.h"
 #include "gameframework/SceneManager.h"
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
@@ -22,6 +23,7 @@
 #include "gameframework/Camera2D.h"
 #include "gameframework/CollisionWorld2D.h"
 #include "gameframework/PhysicsBody2D.h"
+#include "gameframework/Sprite2DComponent.h"
 #include "gameframework/SceneServices.h"
 
 // ----- Phase 12: parallel agent batch (Pillar B/C/G/H/I/J/L/N/O/Q/R/S 拡張) -----

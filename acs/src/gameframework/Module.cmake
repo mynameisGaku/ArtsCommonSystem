@@ -19,6 +19,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         Game.cpp
+        Scene2D.cpp
         SceneManager.cpp
         Tween.cpp
         Sequence.cpp
@@ -27,6 +28,7 @@ acs_module(
         SceneServices.cpp
         CollisionWorld2D.cpp
         PhysicsBody2D.cpp
+        Sprite2DComponent.cpp
         # ----- Phase 12: parallel agent batch -----
         Random.cpp
         DebugDraw.cpp
@@ -170,6 +172,7 @@ acs_module(
     HEADERS
         GameFramework.h
         Game.h
+        Scene2D.h
         Scene.h
         SceneManager.h
         RenderContext.h
@@ -186,6 +189,7 @@ acs_module(
         Camera2D.h
         CollisionWorld2D.h
         PhysicsBody2D.h
+        Sprite2DComponent.h
         SceneServices.h
         # ----- Phase 12: parallel agent batch -----
         NodeId.h

@@ -50,19 +50,22 @@ public:
         m_Kind = ShapeKind::Circle;
         m_Radius = radius > 0.0f ? radius : 0.001f;
         // 既に登録済なら CollisionWorld 側に反映
-        SyncShapeIfRegistered();
+        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Local().position);
+        else SyncShapeIfRegistered();
     }
     void SetAabb(FVec2 half_size) noexcept {
         m_Kind = ShapeKind::FAabb;
         m_HalfSize = half_size;
-        SyncShapeIfRegistered();
+        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Local().position);
+        else SyncShapeIfRegistered();
     }
     // local_poly はボディ原点基準のローカル頂点 (例: スプライト凸包を中心原点に
     // ずらしたもの)。world での形状は body 位置 + local 頂点。
     void SetPolygon(const ConvexPoly2& local_poly) noexcept {
         m_Kind = ShapeKind::Poly;
         m_LocalPoly = local_poly;
-        SyncShapeIfRegistered();
+        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Local().position);
+        else SyncShapeIfRegistered();
     }
 
     // collide-and-slide を使うか (既定 true)。false で旧来の軸独立 block。
