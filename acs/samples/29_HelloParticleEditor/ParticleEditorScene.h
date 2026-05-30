@@ -23,7 +23,9 @@ public:
 
 private:
     // File メニューで Save/Load を選んだときのファイルパス (固定)。
-    static constexpr const char* kPresetPath = "preset.fxedit";
+    // narrow はログ用 (%s)、wide は FFxeditSerializer (Win32 wide path) 用。
+    static constexpr const char*    kPresetPath  = "preset.fxedit";
+    static constexpr const wchar_t* kPresetPathW = L"preset.fxedit";
 
     // OnRender の File メニュー本体を二分割して、メニュー UI と
     // 永続化詳細 (FFxeditSerializer 呼出) を切り離す。

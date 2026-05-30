@@ -102,25 +102,47 @@ void ParticleEditorScene::m_DrawFileMenu() noexcept {
 }
 
 void ParticleEditorScene::m_SavePreset() noexcept {
-    const u32 idx = m_EditorPanel.SelectedIndex();
-    const ParticleEmitterDef& def = m_EditorPanel.GetEmitterDef(idx);
-    if (auto r = fxedit::FFxeditSerializer::Save(kPresetPath, def); r.IsErr()) {
+    // FFxeditSerializer は emitter 群 (def 配列 + 名前 + 個数) を保存する契約。
+    // panel の全 emitter def を集めて配列で渡す。
+    constexpr u32 kMax = fxedit::FParticleEditorPanel::kMaxEmitters;
+    const u32 count = m_EditorPanel.EmitterCount();
+    if (count == 0) {
+        ACS_LOG_WARN("[ParticleEditor] 保存対象の emitter がありません");
+        return;
+    }
+    const u32 n = count < kMax ? count : kMax;
+    ParticleEmitterDef defs[kMax];
+    const char*        names[kMax];
+    for (u32 i = 0; i < n; ++i) {
+        const ParticleEmitterDef* d = m_EditorPanel.GetEmitterDef(static_cast<i32>(i));
+        defs[i]  = (d != nullptr) ? *d : ParticleEmitterDef{};
+        names[i] = nullptr;   // panel は emitter 名を保持しないため "" 扱い
+    }
+    if (auto r = fxedit::FFxeditSerializer::Save(kPresetPathW, defs, names, n); r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Save '%s' failed", kPresetPath);
     } else {
-        ACS_LOG_INFO("[ParticleEditor] saved -> %s", kPresetPath);
+        ACS_LOG_INFO("[ParticleEditor] saved %u emitter(s) -> %s", n, kPresetPath);
     }
 }
 
 void ParticleEditorScene::m_LoadPreset() noexcept {
-    auto r = fxedit::FFxeditSerializer::Load(kPresetPath);
+    constexpr u32 kMax = fxedit::FParticleEditorPanel::kMaxEmitters;
+    ParticleEmitterDef defs[kMax];
+    char               name_buf[2048];
+    auto r = fxedit::FFxeditSerializer::Load(kPresetPathW, defs, name_buf,
+                                             static_cast<u32>(sizeof(name_buf)), kMax);
     if (r.IsErr()) {
         ACS_LOG_ERROR("[ParticleEditor] Load '%s' failed", kPresetPath);
         return;
     }
-    // GetEmitterDef(idx) は mutable 参照を返す契約 (Save 側と対称)。
-    const u32 idx = m_EditorPanel.SelectedIndex();
-    m_EditorPanel.GetEmitterDef(idx) = r.Value();
-    ACS_LOG_INFO("[ParticleEditor] loaded <- %s", kPresetPath);
+    const u32 loaded = r.Value();
+    // panel の emitter 数を loaded まで増やし、各 def を上書きする。
+    while (m_EditorPanel.EmitterCount() < loaded) m_EditorPanel.AddEmitter();
+    for (u32 i = 0; i < loaded; ++i) {
+        ParticleEmitterDef* d = m_EditorPanel.GetEmitterDefMutable(static_cast<i32>(i));
+        if (d != nullptr) *d = defs[i];
+    }
+    ACS_LOG_INFO("[ParticleEditor] loaded %u emitter(s) <- %s", loaded, kPresetPath);
 }
 
 } // namespace helloparticleed

@@ -28,11 +28,9 @@
 //                  ImGuiCtx が DX12 raw backend 経由のため)。
 #include "BtEditorApp.h"
 
-#if defined(ACS_RENDER_DX12_RAW)
+// 本 sample は DX12 raw 限定だが、その制約は CMakeLists.txt の
+// `if(ACS_RENDER_DX12_RAW)` ガードで担保している (ON のときだけ target を追加)。
+// ACS_RENDER_DX12_RAW はコンパイル定義として渡らないため、ソース側の #if ガードは
+// 機能せず WIN32 entry (WinMain) が欠落する不具合があった → sample 30 と同じく
+// ACS_GAME_MAIN を無条件で使う。
 ACS_GAME_MAIN(hellobt::BtEditorApp)
-#else
-// ACS_RENDER_DX12_RAW 未定義時はビルドガード (= ImGuiCtx が dx12 raw 専用)。
-// sample 21/29/30/31 と同じ理由で本 sample も DX12 raw 限定。
-// CMakeLists.txt でも `if(ACS_RENDER_DX12_RAW)` ガードを掛けている。
-int main() { return 0; }
-#endif

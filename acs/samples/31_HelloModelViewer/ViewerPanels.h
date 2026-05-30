@@ -39,7 +39,7 @@ public:
     acs::game::modelview::FModelViewerPanel&    Viewer()    noexcept { return m_ViewerPanel; }
 
     // OnUpdate で animation 時間を進めるため animation panel を露出。
-    acs::game::modelview::FModelAnimationPanel& FAnimation() noexcept { return m_AnimationPanel; }
+    acs::game::modelview::FModelAnimationPanel& Animation() noexcept { return m_AnimationPanel; }
 
     // OnRender が File メニュー描画のために theme / workspace を必要とする。
     acs::game::editor_core::FEditorWorkspace&   Workspace() noexcept { return m_Workspace; }
