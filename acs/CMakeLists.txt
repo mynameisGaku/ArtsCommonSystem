@@ -381,6 +381,11 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(58_HelloTilemap)
     endif()
+
+    # --- (36) HelloEffects2D (Package D: shader-free interactive effects, windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(59_HelloEffects2D)
+    endif()
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})
