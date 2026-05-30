@@ -293,6 +293,10 @@ void FEditorGizmo::ProcessInput(acs::FVec3 mouse_ray_origin,
     m_LastRayOrigin    = mouse_ray_origin;
     m_LastRayDirection = mouse_ray_direction;
 
+    // lmb_held は契約上の存在意義 (drag 継続は state で表現) はあるが、本実装の
+    // 制御は dragging フラグ + lmb_up で完結するため明示的には参照しない。
+    (void)lmb_held;
+
     if (_state.dragging) {
         // drag 中: hot axis を維持。lmb_up で終了。
         if (lmb_up) {

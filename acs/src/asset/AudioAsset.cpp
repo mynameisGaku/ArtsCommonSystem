@@ -15,8 +15,17 @@
 #define STB_VORBIS_HEADER_ONLY
 #include <stb_vorbis.c>
 #undef STB_VORBIS_HEADER_ONLY
-// .c ファイルの実装部だけを再 include で取り込む（stb_vorbis 標準パターン）
+// .c ファイルの実装部だけを再 include で取り込む（stb_vorbis 標準パターン）。
+// stb_vorbis 実装は C4701 ('mid' 未初期化の偽陽性) 等を出すので、この TU 限定で
+// 抑制する（global /wd4701 にすると ACS 自身のコードの有用な警告まで消えるため）。
+#if defined(_MSC_VER)
+#  pragma warning(push)
+#  pragma warning(disable: 4701)   // potentially uninitialized local ('mid' in stb_vorbis)
+#endif
 #include <stb_vorbis.c>
+#if defined(_MSC_VER)
+#  pragma warning(pop)
+#endif
 
 namespace acs {
 

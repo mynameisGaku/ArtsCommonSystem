@@ -9,6 +9,16 @@
 
 namespace acs::game {
 
+namespace {
+// 文字列を内容で比較する (どちらかが nullptr なら false)。AchievementManager 等
+// 他 GameFramework モジュールと同じ自前 StrEq pattern を踏襲 (STL 非依存)。
+bool StrEq(const char* a, const char* b) noexcept {
+    if (a == nullptr || b == nullptr) return false;
+    while (*a != '\0' && *a == *b) { ++a; ++b; }
+    return *a == *b;
+}
+} // namespace
+
 // ----------------------------------------------------------------------------
 // helpers
 // ----------------------------------------------------------------------------
@@ -30,15 +40,16 @@ void FAudioDirector::LogTodoOnce(const char* what) noexcept {
     static bool s_logged_resume   = false;
     static bool s_logged_tick     = false;
 
-    // what は文字列リテラル比較で十分 (ポインタ identity を当て込む)。
+    // what は内容比較で照合する。literal pooling 任せのポインタ比較は Debug の
+    // /Od で破綻し「毎フレーム重複ログ」になるため StrEq で確実に判定する。
     bool* slot = nullptr;
-    if      (what == "PlayBgm") slot = &s_logged_play_bgm;
-    else if (what == "StopBgm") slot = &s_logged_stop_bgm;
-    else if (what == "PlaySfx") slot = &s_logged_play_sfx;
-    else if (what == "StopAll") slot = &s_logged_stop_all;
-    else if (what == "Pause")   slot = &s_logged_pause;
-    else if (what == "Resume")  slot = &s_logged_resume;
-    else if (what == "Tick")    slot = &s_logged_tick;
+    if      (StrEq(what, "PlayBgm")) slot = &s_logged_play_bgm;
+    else if (StrEq(what, "StopBgm")) slot = &s_logged_stop_bgm;
+    else if (StrEq(what, "PlaySfx")) slot = &s_logged_play_sfx;
+    else if (StrEq(what, "StopAll")) slot = &s_logged_stop_all;
+    else if (StrEq(what, "Pause"))   slot = &s_logged_pause;
+    else if (StrEq(what, "Resume"))  slot = &s_logged_resume;
+    else if (StrEq(what, "Tick"))    slot = &s_logged_tick;
 
     if (slot != nullptr && *slot) return;
     if (slot != nullptr) *slot = true;

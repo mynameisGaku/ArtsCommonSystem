@@ -8,6 +8,16 @@
 
 namespace acs::game {
 
+namespace {
+// 文字列を内容で比較する (どちらかが nullptr なら false)。FAudioDirector 等と同じ
+// 自前 StrEq pattern (STL 非依存)。
+bool StrEq(const char* a, const char* b) noexcept {
+    if (a == nullptr || b == nullptr) return false;
+    while (*a != '\0' && *a == *b) { ++a; ++b; }
+    return *a == *b;
+}
+} // namespace
+
 // ----------------------------------------------------------------------------
 // helpers
 // ----------------------------------------------------------------------------
@@ -27,10 +37,10 @@ void FMusicDirector::LogTodoOnce(const char* what) noexcept {
     static bool s_logged_tick      = false;
 
     bool* slot = nullptr;
-    if      (what == "SetState") slot = &s_logged_set_state;
-    else if (what == "Stinger")  slot = &s_logged_stinger;
-    else if (what == "Stop")     slot = &s_logged_stop;
-    else if (what == "Tick")     slot = &s_logged_tick;
+    if      (StrEq(what, "SetState")) slot = &s_logged_set_state;
+    else if (StrEq(what, "Stinger"))  slot = &s_logged_stinger;
+    else if (StrEq(what, "Stop"))     slot = &s_logged_stop;
+    else if (StrEq(what, "Tick"))     slot = &s_logged_tick;
 
     if (slot != nullptr && *slot) return;
     if (slot != nullptr) *slot = true;
