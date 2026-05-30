@@ -257,12 +257,20 @@ f32 FWater2DComponent::SurfaceY() const noexcept {
     return Owner().World().position.y + m_MinY;   // bbox 上端
 }
 
-f32 FWater2DComponent::WaveAt(f32 world_x) const noexcept {
-    f32 off = m_Amp        * Sin(world_x * 3.0f + m_Time * m_Speed)
-            + m_Amp * 0.4f * Sin(world_x * 7.0f - m_Time * m_Speed * 1.7f);
+void FWater2DComponent::SetFlow(FVec2 dir, f32 speed) noexcept {
+    const f32 len = Sqrt(dir.x * dir.x + dir.y * dir.y);
+    m_FlowDir   = len > 1e-5f ? FVec2{ dir.x / len, dir.y / len } : FVec2{ 1.0f, 0.0f };
+    m_FlowSpeed = speed;
+}
+
+f32 FWater2DComponent::WaveAt(FVec2 world) const noexcept {
+    // 流れ方向への射影 c を波の位相座標にする → 波が m_FlowDir 方向へ流れる。
+    const f32 c = world.x * m_FlowDir.x + world.y * m_FlowDir.y;
+    f32 off = m_Amp        * Sin(c * 3.0f - m_Time * m_FlowSpeed)
+            + m_Amp * 0.4f * Sin(c * 7.0f + m_Time * m_FlowSpeed * 1.3f);
     for (u32 i = 0; i < kMaxRipples; ++i) {
         if (!m_Ripples[i].active) continue;
-        const f32 d    = world_x - m_Ripples[i].x;
+        const f32 d    = world.x - m_Ripples[i].x;
         const f32 dist = d < 0.0f ? -d : d;
         f32 env = 1.0f - dist * 0.6f - m_Ripples[i].time * 0.25f;
         if (env <= 0.0f) continue;
@@ -290,7 +298,8 @@ void FWater2DComponent::OnDraw(RenderContext& rc) noexcept {
     FVec2 disp[kMaxVerts];
     for (u32 i = 0; i < m_VCount; ++i) {
         const f32 wx = o.x + m_Vert[i].x;
-        const f32 wy = o.y + m_Vert[i].y - WaveAt(wx) * m_Weight[i];
+        const f32 wy0 = o.y + m_Vert[i].y;
+        const f32 wy = wy0 - WaveAt(FVec2{ wx, wy0 }) * m_Weight[i];
         disp[i] = FVec2{ wx, wy };
     }
     // 本体: 深さ勾配を頂点カラーで (water surface → deep)。

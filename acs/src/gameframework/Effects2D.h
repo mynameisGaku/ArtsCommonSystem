@@ -55,7 +55,11 @@ public:
         m_DeepColor = FVec3{ rgb.x * 0.45f, rgb.y * 0.45f, rgb.z * 0.45f };
     }
     void SetAlpha(f32 a) noexcept { m_Alpha = a; m_ShallowAlpha = a; m_DeepAlpha = a; }
-    void SetWaves(f32 amplitude, f32 speed) noexcept { m_Amp = amplitude; m_Speed = speed; }
+    void SetWaves(f32 amplitude, f32 speed) noexcept { m_Amp = amplitude; m_Speed = speed; m_FlowSpeed = speed; }
+
+    // 流れる方向: 波(と泡)が dir 方向へ流れる。川は流れに沿った dir を指定。
+    // dir は内部で正規化。speed は流れの速さ。(既定 = +X 方向)
+    void SetFlow(FVec2 dir, f32 speed) noexcept;
 
     // ----- 深さ / 泡 / 縁 (HLSL 不要、頂点カラー勾配 + 境界ストリップで表現) -----
     // 深さ: 水面(shallow)→深部(deep) を頂点ごとに補間。SpriteBatch::DrawTriangleVC で描く。
@@ -88,7 +92,7 @@ private:
     void PushTri(u32 a, u32 b, u32 c) noexcept;
     void Finish() noexcept;                            // weight / bbox / 境界を再計算
     void BuildBoundary() noexcept;                     // edge-incidence で外周ループ + 外向き法線
-    f32  WaveAt(f32 world_x) const noexcept;           // ambient 波 + 波紋
+    f32  WaveAt(FVec2 world) const noexcept;           // ambient 波 (流れ方向) + 波紋
     FVec4 DepthColorAt(u32 vert_index) const noexcept; // 深さ勾配の頂点カラー
 
     struct Ripple { f32 x = 0, amp = 0, amp0 = 0, time = 0; bool active = false; };
@@ -126,6 +130,8 @@ private:
     f32   m_Amp   = 0.12f;
     f32   m_Speed = 1.6f;
     f32   m_Time  = 0.0f;
+    FVec2 m_FlowDir{1.0f, 0.0f};   // 波が流れる向き (正規化済)
+    f32   m_FlowSpeed = 1.6f;       // 流れの速さ
 };
 
 // ===========================================================================

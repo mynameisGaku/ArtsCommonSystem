@@ -60,6 +60,7 @@ public:
             w.SetSplineRiver(ctrl, 5, 1.3f, 10);
             w.SetColor(FVec3{0.12f, 0.42f, 0.68f});
             w.SetWaves(0.10f, 2.0f);
+            w.SetFlow(FVec2{1.0f, -0.1f}, 2.4f);    // 川は左→右に流れる
             m_Waters[m_WaterCount++] = &w;
             Root().AddChild(Move(n));
         }
