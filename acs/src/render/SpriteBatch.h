@@ -114,6 +114,11 @@ public:
     void SetClipRect(i32 x, i32 y, i32 w, i32 h) noexcept;
     void ClearClipRect() noexcept;
 
+    // ブレンドモードを切り替える (バッチを flush してから PSO を切替)。Additive は
+    // 遅延生成。コースティクス/光のきらめき等、背景を「加算で明るくする」表現に使う。
+    // Off に戻すときは AlphaBlend を渡す。ステンシルモードとは併用しないこと。
+    void SetBlendMode(EBlendMode mode) noexcept;
+
     // ステンシルマスクモードを切り替える (バッチを flush してから PSO + 参照値を切替)。
     // 任意形状のマスクで描画範囲を制限する用途。WriteMask でマスク形状を焼き、
     // KeepInside/KeepOutside でその内/外だけに後続描画を通す。Off で解除。
@@ -139,6 +144,7 @@ private:
     void AdvanceViewBuffer() noexcept;    // 次の view 定数バッファへ (フレーム内の view 切替ごと)
     void BindViewBuffer() noexcept;       // 現 view 定数バッファを slot0 に bind
     bool EnsureStencilPipelines() noexcept;  // 4 種のステンシル PSO を遅延生成
+    bool EnsureAdditivePipeline() noexcept;  // 加算ブレンド PSO を遅延生成
     void FillCommonPipelineDesc(struct FPipelineDesc& pd) const noexcept;  // vs/ps/layout 等共通部
 
     IRhiDevice*              m_Device  = nullptr;   // ステンシル PSO 遅延生成用
@@ -152,6 +158,10 @@ private:
     TUniquePtr<IRhiPipeline> m_StencilPipe[4];
     bool                     m_StencilReady = false;
     EStencilMode             m_StencilMode  = EStencilMode::Off;
+    // 加算ブレンド用 PSO (DSV 無し、Additive)。初回 SetBlendMode(Additive) で遅延生成。
+    TUniquePtr<IRhiPipeline> m_AdditivePipe;
+    bool                     m_AdditiveReady = false;
+    EBlendMode               m_BlendMode = EBlendMode::AlphaBlend;
     TUniquePtr<IRhiBuffer>   m_Vb;
     TUniquePtr<IRhiBuffer>   m_Ib;
     // view 定数バッファのリング (screen size + view)。1 フレームで world / HUD / 反射

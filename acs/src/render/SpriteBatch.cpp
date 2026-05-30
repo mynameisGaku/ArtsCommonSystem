@@ -216,6 +216,39 @@ bool FSpriteBatch::EnsureStencilPipelines() noexcept {
     return true;
 }
 
+bool FSpriteBatch::EnsureAdditivePipeline() noexcept {
+    if (m_AdditiveReady) return true;
+    if (!m_Device) return false;
+    FPipelineDesc pd{};
+    FillCommonPipelineDesc(pd);
+    pd.blend_mode   = EBlendMode::Additive;   // src*srcA + dst (背景を明るくする)
+    pd.depth_format = EFormat::Unknown;
+    pd.depth_test   = false;
+    auto r = CreateRhiPipeline(*m_Device, pd);
+    if (r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 加算 PSO の生成に失敗"); return false; }
+    m_AdditivePipe = Move(r.Value());
+    m_AdditiveReady = true;
+    return true;
+}
+
+void FSpriteBatch::SetBlendMode(EBlendMode mode) noexcept {
+    if (!m_Cl || mode == m_BlendMode) return;
+    Flush();                                  // 直前のバッチを現ブレンドで確定
+    IRhiPipeline* pl = nullptr;
+    if (mode == EBlendMode::Additive) {
+        if (!EnsureAdditivePipeline()) return;
+        pl = m_AdditivePipe.Get();
+    } else {
+        pl = m_Pipeline.Get();                // 既定 = AlphaBlend
+    }
+    if (!pl) return;
+    m_Cl->SetPipeline(*pl);
+    BindViewBuffer();                          // PSO 切替で root 引数が無効化される
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetIndexBuffer(*m_Ib);
+    m_BlendMode = mode;
+}
+
 void FSpriteBatch::SetStencilMode(EStencilMode mode, u8 ref) noexcept {
     if (!m_Cl) return;
     Flush();                                  // 直前のバッチを現モードで確定
@@ -237,6 +270,8 @@ void FSpriteBatch::Shutdown() noexcept {
     m_Pipeline.Reset();
     for (u32 i = 0; i < 4; ++i) m_StencilPipe[i].Reset();
     m_StencilReady = false;
+    m_AdditivePipe.Reset();
+    m_AdditiveReady = false;
     m_White.Reset();
     for (u32 i = 0; i < kViewRing; ++i) m_Cb[i].Reset();
     m_Ib.Reset();
@@ -257,6 +292,7 @@ void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexce
     m_FlushedCount = 0;
     m_CurrentTex = nullptr;
     m_StencilMode = EStencilMode::Off;   // 既定パイプライン (m_Pipeline) で開始
+    m_BlendMode   = EBlendMode::AlphaBlend;
 
     // ビューを恒等（カメラ無し）に戻し、フレッシュな view バッファへ書く。
     // (Begin は同一フレーム内で複数回呼ばれ得る — 反射の 2 パス等 — ので、

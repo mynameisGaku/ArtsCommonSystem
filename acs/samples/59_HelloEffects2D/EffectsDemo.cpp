@@ -39,14 +39,19 @@ public:
             m_Waters[m_WaterCount++] = &w;
             Root().AddChild(Move(n));
         }
-        // 水溜まり (楕円)。
+        // 水溜まり (見下ろし: Core Keeper 風コースティクス + 岸泡 + radial 深度)。
         {
             auto n = MakeUnique<FNode2D>();
-            n->Local().position = FVec2{4.8f, 0.8f};
+            n->Local().position = FVec2{4.9f, 0.6f};
             auto& w = n->AddComponent<FWater2DComponent>();
-            w.SetEllipse(FVec2{0.0f, 0.0f}, 2.2f, 1.1f, 28);
-            w.SetColor(FVec3{0.15f, 0.45f, 0.66f});
-            w.SetWaves(0.08f, 2.2f);
+            w.SetStyle(EWaterStyle::TopDown);
+            w.SetEllipse(FVec2{0.0f, 0.0f}, 3.0f, 1.7f, 36);
+            w.SetDepthColors(FVec3{0.22f, 0.58f, 0.72f}, FVec3{0.02f, 0.15f, 0.34f});  // 縁=浅, 中心=深
+            w.SetDepthAlpha(0.92f, 1.0f);
+            w.SetCaustics(FVec3{0.55f, 0.82f, 1.0f}, 0.6f, 1.7f, 0.8f);                // 光の網目
+            w.EnableGlints(true);
+            w.SetFoam(FVec3{0.95f, 0.98f, 1.0f}, 0.0f, 2.4f, 0.85f);                   // 全周の岸泡
+            w.SetWaves(0.05f, 1.4f);
             m_Waters[m_WaterCount++] = &w;
             Root().AddChild(Move(n));
         }

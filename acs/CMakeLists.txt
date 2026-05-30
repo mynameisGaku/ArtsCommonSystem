@@ -391,6 +391,11 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(60_HelloStencilMask)
     endif()
+
+    # --- (38) HelloWaterTopDown (見下ろし Core Keeper 風水面: caustics + 岸泡, windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(61_HelloWaterTopDown)
+    endif()
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})

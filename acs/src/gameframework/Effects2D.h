@@ -19,17 +19,26 @@
 #include "gameframework/Component2D.h"
 #include "math/Vec.h"
 
+namespace acs { class FSpriteBatch; }   // 加算パス描画ヘルパで使う (前方宣言)
+
 namespace acs::game {
 
+// 水の見せ方。SideView = 横視点 (海/プール、上端が水面で波打つ・平面反射)。
+// TopDown = 見下ろし (Core Keeper 風: 縁が浅く中心が深い radial 深度 + コースティクス
+// + 全周の岸泡、平面反射は無し)。
+enum class EWaterStyle : u8 { SideView, TopDown };
+
 // ===========================================================================
-// FWater2DComponent — 波打つ水面 + 干渉 (ripple / splash)
+// FWater2DComponent — 波打つ水面 + 干渉 (ripple / splash) + コースティクス
 // ===========================================================================
 class FWater2DComponent : public FComponent2D {
 public:
     ACS_GAME_COMPONENT_KIND(FWater2DComponent)
 
-    static constexpr u32 kMaxVerts = 64;
-    static constexpr u32 kMaxTris  = 128;
+    // 内部メッシュは「実三角形メッシュ」(grid / 同心リング / リボン)。内部頂点を持つので
+    // 深さ勾配・コースティクス・反射 UV が滑らかに補間される (扇/ストリップの直線スメア解消)。
+    static constexpr u32 kMaxVerts = 320;
+    static constexpr u32 kMaxTris  = 560;
 
     // ----- 形状指定 (すべて owner 相対) -----
     // 矩形 (海/プール)。上辺を top_segments 分割して滑らかに波打たせる。
@@ -82,12 +91,39 @@ public:
         m_ReflectEnabled = enable; m_ReflectTint = tint; m_ReflectAlpha = alpha;
     }
     void SetReflectionDistortion(f32 amplitude_mult) noexcept { m_ReflectDistort = amplitude_mult; }
+    // 反射を上部 (水面側) のみに効かせ深部はフェード/カリングする (残スメア隠し + 軽量化)。
+    // fade=1 で上 ~45% に集中、0 で全面 (従来)。
+    void SetReflectionFade(f32 depth_fade) noexcept { m_ReflectFade = depth_fade < 0.0f ? 0.0f : depth_fade; }
 
-    // インタラクション: world_x 付近の水面に強さ strength の波紋を立てる。
+    // ----- スタイル (横視点 / 見下ろし) -----
+    void SetStyle(EWaterStyle s) noexcept { m_Style = s; }
+    EWaterStyle Style() const noexcept { return m_Style; }
+
+    // ----- コースティクス (見下ろし水面の光の網目、加算ブレンドで描く) -----
+    void EnableCaustics(bool on) noexcept { m_CausticsOn = on; }
+    void SetCaustics(FVec3 tint, f32 intensity = 0.55f, f32 scale = 1.4f, f32 speed = 0.7f) noexcept {
+        m_CausticsOn = true; m_CausticsTint = tint;
+        m_CausticsIntensity = intensity; m_CausticsScale = scale; m_CausticsSpeed = speed;
+    }
+    // 波頭/リップル front の散発的なきらめき (加算、両スタイル)。
+    void EnableGlints(bool on) noexcept { m_GlintsOn = on; }
+    // 見下ろしで平面反射の代わりに薄く乗せる空色 (加算、alpha=0 で無効)。
+    void SetSkyTint(FVec3 rgb, f32 alpha) noexcept { m_SkyTint = rgb; m_SkyAlpha = alpha; }
+
+    // メッシュ密度の手動指定 (0=自動)。rect: cols,rows / ellipse・polygon: segments,rings / river: spans,_。
+    void SetMeshResolution(u32 a, u32 b) noexcept { m_ResA = a; m_ResB = b; }
+
+    // インタラクション: 触れた点から 2D の放射状リップル (輪) を立てる。
+    void Disturb(FVec2 world_point, f32 strength) noexcept;
+    // 後方互換: world_x の指定は水面 (SurfaceY) 上の点としてリップルを立てる。
     void Disturb(f32 world_x, f32 strength) noexcept;
+    // リップルの伝播 (輪の広がる速さ speed、波長 wavelength)。
+    void SetRipplePropagation(f32 speed, f32 wavelength) noexcept {
+        m_RippleSpeed = speed; m_RippleWavelength = wavelength > 1e-3f ? wavelength : 1.0f;
+    }
 
     // 入水判定ヘルパ。
-    bool ContainsPoint(FVec2 world) const noexcept;   // 点が水域内か (point-in-polygon)
+    bool ContainsPoint(FVec2 world) const noexcept;   // 点が水域内か (bbox 近似)
     bool ContainsX(f32 world_x) const noexcept;        // bbox の x 範囲内か
     f32  SurfaceY() const noexcept;                    // 水域 bbox 上端の world y
 
@@ -95,19 +131,26 @@ public:
     void OnDraw(RenderContext& rc) noexcept override;
 
 private:
-    void PushVert(FVec2 v) noexcept;
+    void PushVert(FVec2 v, f32 edge_dist = -1.0f) noexcept;
     void PushTri(u32 a, u32 b, u32 c) noexcept;
-    void Finish() noexcept;                            // weight / bbox / 境界を再計算
+    void Finish() noexcept;                            // weight / edge-dist / bbox / 境界を再計算
     void BuildBoundary() noexcept;                     // edge-incidence で外周ループ + 外向き法線
-    f32  WaveAt(FVec2 world) const noexcept;           // ambient 波 (流れ方向) + 波紋
-    FVec4 DepthColorAt(u32 vert_index) const noexcept; // 深さ勾配の頂点カラー
+    void ComputeEdgeDistFallback() noexcept;           // builder が未設定なら境界距離で埋める
+    f32  WaveRadialAt(FVec2 world) const noexcept;     // ambient 波 + 2D 放射状リップル
+    f32  RippleAt(FVec2 world) const noexcept;         // リップルのみ (ambient 抜き、輪 glow 用)
+    bool AnyRippleActive() const noexcept;
+    f32  CausticAt(FVec2 world) const noexcept;        // 光の網目セル値 [0,1]
+    FVec4 DepthColorAt(u32 vert_index) const noexcept; // 深さ勾配の頂点カラー (style 依存)
+    void DrawCaustics(FSpriteBatch& sb, const FVec2* disp) noexcept;  // 加算パス
+    void DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept;
 
-    struct Ripple { f32 x = 0, amp = 0, amp0 = 0, time = 0; bool active = false; };
+    struct Ripple { FVec2 center{0,0}; f32 amp0 = 0, amp = 0, time = 0, speed = 0; bool active = false; };
     static constexpr u32 kMaxRipples = 16;
     Ripple m_Ripples[kMaxRipples];
 
     FVec2 m_Vert[kMaxVerts];        // owner 相対の頂点
-    f32   m_Weight[kMaxVerts];      // 水面らしさ [0,1] (bbox 上端ほど 1)
+    f32   m_Weight[kMaxVerts];      // 水面らしさ [0,1] (bbox 上端ほど 1、SideView 用)
+    f32   m_EdgeDist[kMaxVerts];    // 縁 0 .. 最深 1 (TopDown 深度 + 泡/コースティクス falloff)
     u32   m_VCount = 0;
     u16   m_Tri[kMaxTris * 3];      // m_Vert への index (3 個 1 組)
     u32   m_TCount = 0;
@@ -136,6 +179,20 @@ private:
     FVec3 m_ReflectTint{1.0f, 1.0f, 1.0f};
     f32   m_ReflectAlpha = 0.55f;
     f32   m_ReflectDistort = 1.0f;
+    f32   m_ReflectFade = 1.0f;     // 1=上部のみ、0=全面
+
+    // スタイル / コースティクス / きらめき / 空色。
+    EWaterStyle m_Style = EWaterStyle::SideView;
+    bool  m_CausticsOn = false;
+    FVec3 m_CausticsTint{0.85f, 0.95f, 1.0f};
+    f32   m_CausticsIntensity = 0.55f;
+    f32   m_CausticsScale = 1.4f;
+    f32   m_CausticsSpeed = 0.7f;
+    bool  m_GlintsOn = false;
+    FVec3 m_SkyTint{0.55f, 0.72f, 0.95f};
+    f32   m_SkyAlpha = 0.0f;
+    // メッシュ密度 (0=自動)。
+    u32   m_ResA = 0, m_ResB = 0;
 
     FVec3 m_Color{0.12f, 0.35f, 0.6f};
     f32   m_Alpha = 0.72f;
@@ -144,6 +201,8 @@ private:
     f32   m_Time  = 0.0f;
     FVec2 m_FlowDir{1.0f, 0.0f};   // 波が流れる向き (正規化済)
     f32   m_FlowSpeed = 1.6f;       // 流れの速さ
+    f32   m_RippleSpeed = 3.2f;     // リップルの輪が広がる速さ
+    f32   m_RippleWavelength = 0.9f;
 };
 
 // ===========================================================================
