@@ -319,6 +319,23 @@ void FSpriteBatch::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
     DrawTriangleVC(x0, y0, x1, y1, x2, y2, color, color, color);
 }
 
+void FSpriteBatch::DrawTriangleSub(IRhiTexture& tex,
+                                   f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+                                   f32 u0, f32 v0, f32 u1, f32 v1, f32 u2, f32 v2,
+                                   FVec4 tint) noexcept {
+    if (!m_Cl) return;
+    if (m_CurrentTex && m_CurrentTex != &tex) Flush();
+    if (m_SpriteCount >= m_MaxSprites) return;
+    m_CurrentTex = &tex;
+    // 任意テクスチャを per-vertex UV で貼る三角形 (水の反射でシーン RT をサンプル)。
+    Vertex* v = m_VertexCpu + m_SpriteCount * 4;
+    v[0] = { x0, y0, u0, v0, tint.x, tint.y, tint.z, tint.w };
+    v[1] = { x1, y1, u1, v1, tint.x, tint.y, tint.z, tint.w };
+    v[2] = { x2, y2, u2, v2, tint.x, tint.y, tint.z, tint.w };
+    v[3] = { x2, y2, u2, v2, tint.x, tint.y, tint.z, tint.w };
+    ++m_SpriteCount;
+}
+
 void FSpriteBatch::DrawString(const Font& font, const char* utf8_text,
                            f32 x, f32 y, FVec4 color) noexcept {
     if (!utf8_text || !font.AtlasTexture()) return;

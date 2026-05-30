@@ -302,6 +302,36 @@ void FWater2DComponent::OnDraw(RenderContext& rc) noexcept {
         const f32 wy = wy0 - WaveAt(FVec2{ wx, wy0 }) * m_Weight[i];
         disp[i] = FVec2{ wx, wy };
     }
+
+    // 平面反射: 水面 (bbox 上端 = world min Y) で各頂点を鏡像化し、その screen 位置を
+    // UV にしてシーン RT をサンプルする。水の三角形がそのままクリップ形状になる。
+    // 本体 fill より先に描き、半透明の fill が上から水色を乗せる。
+    if (m_ReflectEnabled && rc.HasReflection()) {
+        IRhiTexture& refl = rc.Reflection();
+        const FVec2 vc = rc.ViewCenter();
+        const f32   vs = rc.ViewScale();
+        const f32   hw = static_cast<f32>(rc.Width())  * 0.5f;
+        const f32   hh = static_cast<f32>(rc.Height()) * 0.5f;
+        const f32   invW = rc.Width()  > 0 ? 1.0f / static_cast<f32>(rc.Width())  : 0.0f;
+        const f32   invH = rc.Height() > 0 ? 1.0f / static_cast<f32>(rc.Height()) : 0.0f;
+        const f32   surfaceY = o.y + m_MinY;
+        const FVec4 rtint{ m_ReflectTint.x, m_ReflectTint.y, m_ReflectTint.z, m_ReflectAlpha };
+        FVec2 ruv[kMaxVerts];
+        for (u32 i = 0; i < m_VCount; ++i) {
+            const f32 mx  = disp[i].x;
+            const f32 my  = 2.0f * surfaceY - disp[i].y;                 // 水面で鏡像
+            const f32 wob = WaveAt(disp[i]) * m_ReflectDistort * vs;      // 波で UV を揺らす
+            const f32 sx  = (mx - vc.x) * vs + hw + wob;
+            const f32 sy  = (my - vc.y) * vs + hh;
+            ruv[i] = FVec2{ sx * invW, sy * invH };
+        }
+        for (u32 t = 0; t < m_TCount; ++t) {
+            const u16 a = m_Tri[t*3], b = m_Tri[t*3+1], c = m_Tri[t*3+2];
+            sb.DrawTriangleSub(refl, disp[a].x, disp[a].y, disp[b].x, disp[b].y, disp[c].x, disp[c].y,
+                               ruv[a].x, ruv[a].y, ruv[b].x, ruv[b].y, ruv[c].x, ruv[c].y, rtint);
+        }
+    }
+
     // 本体: 深さ勾配を頂点カラーで (water surface → deep)。
     for (u32 t = 0; t < m_TCount; ++t) {
         const u16 a = m_Tri[t*3], b = m_Tri[t*3+1], c = m_Tri[t*3+2];

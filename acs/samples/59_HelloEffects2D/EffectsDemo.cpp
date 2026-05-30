@@ -34,6 +34,8 @@ public:
             w.SetDepthAlpha(0.60f, 0.95f);
             w.SetFoam(FVec3{0.95f, 0.98f, 1.0f}, 0.0f, 3.0f, 0.9f);                   // 陸際の白泡
             w.SetRim(FVec3{0.60f, 0.85f, 1.0f}, 0.0f, 0.5f);                          // 水際の縁
+            w.SetReflection(true, FVec3{0.85f, 0.92f, 1.0f}, 0.5f);                   // 平面反射
+            w.SetReflectionDistortion(1.2f);
             m_Waters[m_WaterCount++] = &w;
             Root().AddChild(Move(n));
         }
@@ -87,6 +89,15 @@ public:
             m_Player = &Root().AddChild(Move(n));
         }
 
+        // 海の上に立つ柱 (反射の確認用、海面より上 = 小さい Y)。
+        {
+            auto n = MakeUnique<FNode2D>();
+            n->Local().position = FVec2{0.0f, 1.4f};
+            n->AddComponent<FSprite2DComponent>(FVec2{0.7f, 3.2f}, FVec4{0.95f, 0.55f, 0.25f, 1.0f});
+            Root().AddChild(Move(n));
+        }
+
+        SetReflectionEnabled(true);   // 3 パス描画 (world→RT→ swapchain で水が反射)
         Services().Camera().SetPosition(FVec2{0.0f, 0.0f});
         Services().Camera().SetZoom(1.0f);
         GetGame().SetClearColor(0.05f, 0.06f, 0.09f);

@@ -63,6 +63,9 @@ private:
     ID3D12GraphicsCommandList*      m_CmdList    = nullptr;
     class Dx12Pipeline*             m_BoundPipe  = nullptr;
     bool                            _open        = false;
+    // バックバッファが RENDER_TARGET 状態か。Begin/EndRenderToSwapchain のバリアを
+    // 冪等化し、同一フレームでオフスクリーン RT を挟んで再バインドしても安全にする。
+    bool                            m_BackbufferIsRt = false;
 };
 
 } // namespace acs

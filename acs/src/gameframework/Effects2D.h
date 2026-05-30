@@ -76,6 +76,13 @@ public:
     }
     void EnableRim(bool on) noexcept { m_RimEnabled = on; }
 
+    // 平面反射: 水面より上のシーンを鏡像で映す (FScene2D::SetReflectionEnabled(true)
+    // が前提。RT が rc に配線されていなければ無視)。tint/alpha で色味と強さ。
+    void SetReflection(bool enable, FVec3 tint = FVec3{1.0f, 1.0f, 1.0f}, f32 alpha = 0.55f) noexcept {
+        m_ReflectEnabled = enable; m_ReflectTint = tint; m_ReflectAlpha = alpha;
+    }
+    void SetReflectionDistortion(f32 amplitude_mult) noexcept { m_ReflectDistort = amplitude_mult; }
+
     // インタラクション: world_x 付近の水面に強さ strength の波紋を立てる。
     void Disturb(f32 world_x, f32 strength) noexcept;
 
@@ -124,6 +131,11 @@ private:
     f32   m_RimWidth = 0.0f;        // 0 = 自動
     f32   m_RimAlpha = 0.5f;
     bool  m_RimEnabled = true;
+    // 平面反射。
+    bool  m_ReflectEnabled = false;
+    FVec3 m_ReflectTint{1.0f, 1.0f, 1.0f};
+    f32   m_ReflectAlpha = 0.55f;
+    f32   m_ReflectDistort = 1.0f;
 
     FVec3 m_Color{0.12f, 0.35f, 0.6f};
     f32   m_Alpha = 0.72f;

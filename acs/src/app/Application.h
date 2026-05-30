@@ -51,6 +51,8 @@ public:
     void SetClearColor(f32 r, f32 g, f32 b, f32 a = 1.0f) noexcept {
         m_ClearColor = ClearColor{ r, g, b, a };
     }
+    // 現在のクリア色 (マルチパス描画で RT/再バインドのクリアに使う)。
+    const ClearColor& GetClearColor() const noexcept { return m_ClearColor; }
 
     // 初学者がアクセスしやすいようにエンジンサブシステムを公開
     FWindow&         GetWindow()        noexcept { return m_Window; }

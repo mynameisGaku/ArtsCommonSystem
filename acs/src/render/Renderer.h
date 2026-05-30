@@ -65,6 +65,9 @@ public:
     IRhiSwapchain*  Swapchain()   const noexcept { return m_Swapchain.Get(); }
     IRhiCommandList* CommandList() const noexcept { return m_Cmd.Get(); }
     IRhiTexture*    DepthBuffer() const noexcept { return m_Depth.Get(); }
+    // 現在 BeginFrame で取得したバックバッファ index。マルチパス (反射等) で
+    // 同一フレーム内にスワップチェーンを再バインドする際に必要。
+    u32             CurrentBuffer() const noexcept { return m_CurrentBuffer; }
 
     // 描画ターゲットのフォーマット（パイプライン作成時に必要）
     EFormat          ColorFormat() const noexcept { return m_ColorFormat; }

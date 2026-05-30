@@ -43,6 +43,13 @@ public:
     u32   ScreenWidth()  const noexcept { return m_ScreenW; }
     u32   ScreenHeight() const noexcept { return m_ScreenH; }
 
+    // 平面反射を有効化する。ON にすると OnRender が「world をオフスクリーン RT に
+    // 焼く → スワップチェーンに world+水(反射)+HUD」の 3 パスになる (反射する水が
+    // 無くても world を 2 度描くコストがかかるので、反射を使うシーンだけ ON にする)。
+    // 既定 OFF = 従来の単一パス (挙動・コスト無変更)。
+    void SetReflectionEnabled(bool on) noexcept { m_ReflectionEnabled = on; }
+    bool ReflectionEnabled() const noexcept { return m_ReflectionEnabled; }
+
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
@@ -58,6 +65,9 @@ protected:
 
 private:
     bool EnsureSpriteBatch(RenderContext& rc) noexcept;
+    bool EnsureSceneRt(RenderContext& rc) noexcept;       // 反射用シーン RT を遅延作成
+    void DrawWorldPass(RenderContext& rc) noexcept;       // world (DrawTree + OnDrawWorld)
+    void DrawHudPass(RenderContext& rc) noexcept;         // HUD view + OnDrawHud
 
     FNode2D      m_Root;
     FSpriteBatch m_Sprites;
@@ -65,6 +75,10 @@ private:
     f32          m_PixelsPerUnit = 64.0f;
     u32          m_ScreenW = 1280;        // 直近 OnRender の画面サイズ (picking 用)
     u32          m_ScreenH = 720;
+
+    TUniquePtr<IRhiTexture> m_SceneRt;    // 反射用: world を焼くオフスクリーン RT
+    u32          m_RtW = 0, m_RtH = 0;
+    bool         m_ReflectionEnabled = false;
 };
 
 } // namespace acs::game

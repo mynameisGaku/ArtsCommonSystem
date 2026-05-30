@@ -107,14 +107,19 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
     auto& dx_sc = static_cast<Dx12Swapchain&>(sc);
     ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
 
-    // Present → RenderTarget へバリア
-    D3D12_RESOURCE_BARRIER b{};
-    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    b.Transition.pResource   = rt;
-    b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    m_CmdList->ResourceBarrier(1, &b);
+    // Present → RenderTarget へバリア。ただし既に RT 状態なら skip する。
+    // (同一フレーム内でオフスクリーン RT を挟んでから再バインドする —
+    //  FScene2D の反射パス等 — を安全にするためのガード)。
+    if (!m_BackbufferIsRt) {
+        D3D12_RESOURCE_BARRIER b{};
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource   = rt;
+        b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        b.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        m_CmdList->ResourceBarrier(1, &b);
+        m_BackbufferIsRt = true;
+    }
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_sc.BackBufferRTV(buffer_index);
 
@@ -140,6 +145,7 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
 }
 
 void Dx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept {
+    if (!m_BackbufferIsRt) return;   // 既に PRESENT 状態 (二重 End 防止)
     auto& dx_sc = static_cast<Dx12Swapchain&>(sc);
     ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
 
@@ -150,6 +156,7 @@ void Dx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) 
     b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
     b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     m_CmdList->ResourceBarrier(1, &b);
+    m_BackbufferIsRt = false;
 }
 
 void Dx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {

@@ -90,6 +90,13 @@ public:
     void DrawTriangleVC(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                         FVec4 c0, FVec4 c1, FVec4 c2) noexcept;
 
+    // 任意テクスチャを per-vertex UV で貼る三角形。水の反射 (シーン RT を鏡像 UV で
+    // サンプル) 等に使う。tint は全頂点共通の乗算色。
+    void DrawTriangleSub(IRhiTexture& tex,
+                         f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+                         f32 u0, f32 v0, f32 u1, f32 v1, f32 u2, f32 v2,
+                         FVec4 tint = FVec4{1, 1, 1, 1}) noexcept;
+
     // 2D カメラ。(cam_x,cam_y) を画面中心に映し、zoom 倍で拡縮する。
     // Begin() で恒等（カメラ無し）にリセットされる。
     void SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept;

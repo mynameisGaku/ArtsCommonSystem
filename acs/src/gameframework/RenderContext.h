@@ -12,12 +12,14 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "math/Vec.h"
 
 namespace acs {
 class IRhiCommandList;
 class FRenderer;
 class FSpriteBatch;
 class Font;
+class IRhiTexture;
 }
 
 namespace acs::game {
@@ -37,12 +39,14 @@ public:
         m_Width    = w;
         m_Height   = h;
         m_Sprites  = nullptr;
+        m_Reflection = nullptr;
         // m_Font は FGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
     }
     void _EndFrame() noexcept {
         m_Cmd = nullptr;
         m_Sprites = nullptr;
         m_Font = nullptr;
+        m_Reflection = nullptr;
     }
 
     // 現フレームの IRhiCommandList (nullptr の可能性は OnRender 外でのみ起きる)。
@@ -66,11 +70,27 @@ public:
     bool HasFont() const noexcept { return m_Font != nullptr; }
     Font& GetFont() const noexcept { return *m_Font; }
 
+    // 反射用シーンテクスチャ (FScene2D が world をオフスクリーン RT に焼いて配線)。
+    // 水が per-vertex 鏡像 UV でこれをサンプルして planar reflection を出す。
+    void _SetReflection(IRhiTexture* tex) noexcept { m_Reflection = tex; }
+    bool HasReflection() const noexcept { return m_Reflection != nullptr; }
+    IRhiTexture& Reflection() const noexcept { return *m_Reflection; }
+
+    // 2D world→screen 変換パラメータ (FScene2D が world パスで配線)。
+    //   screen_px = (world - ViewCenter) * ViewScale + (Width/2, Height/2)
+    // 水の反射 UV など、コンポーネントが screen 投影するのに使う。
+    void _SetView2D(FVec2 center, f32 scale) noexcept { m_ViewCenter = center; m_ViewScale = scale; }
+    FVec2 ViewCenter() const noexcept { return m_ViewCenter; }
+    f32   ViewScale()  const noexcept { return m_ViewScale; }
+
 private:
     FRenderer*        m_Renderer = nullptr;
     IRhiCommandList* m_Cmd      = nullptr;
     FSpriteBatch*    m_Sprites  = nullptr;
     Font*            m_Font     = nullptr;
+    IRhiTexture*     m_Reflection = nullptr;
+    FVec2            m_ViewCenter{0.0f, 0.0f};
+    f32              m_ViewScale = 1.0f;
     u32              m_Width    = 0;
     u32              m_Height   = 0;
 };
