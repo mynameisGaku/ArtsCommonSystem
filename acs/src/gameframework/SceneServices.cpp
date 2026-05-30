@@ -16,6 +16,10 @@ FSceneServices::FSceneServices(ESvc wanted) noexcept
         m_Physics = MakeUnique<FCollisionWorld2D>();
         m_Physics->Init();   // 既定 cell_size=64
     }
+    if (Has(ESvc::Triggers)) {
+        m_Triggers = MakeUnique<FTriggerWorld2D>();
+        m_Triggers->Init();
+    }
 }
 
 FSceneClock& FSceneServices::Clock() noexcept {
@@ -54,6 +58,12 @@ FCollisionWorld2D& FSceneServices::Physics() noexcept {
     return *m_Physics;
 }
 
+FTriggerWorld2D& FSceneServices::Triggers() noexcept {
+    ACS_ASSERTF(m_Triggers.Get() != nullptr,
+                "FSceneServices::Triggers() called but ESvc::Triggers not requested in WantedServices()");
+    return *m_Triggers;
+}
+
 void FSceneServices::_PreUpdate(f32 raw_dt) noexcept {
     // Clock 進行 (= scaled dt 確定)。他サービスは scene.OnUpdate の後で tick。
     if (m_Clock) m_Clock->Tick(raw_dt);
@@ -63,6 +73,9 @@ void FSceneServices::_PostUpdate(f32 scaled_dt) noexcept {
     if (m_Tweens)    m_Tweens->Tick(scaled_dt);
     if (m_Sequences) m_Sequences->Tick(scaled_dt);
     if (m_Camera)    m_Camera->Tick(scaled_dt);
+    // Triggers は overlap 比較 + enter/stay/exit 発火。物理 body の move 後に
+    // 評価したいので Tweens/Camera と同じ PostUpdate 段で tick する。
+    if (m_Triggers)  m_Triggers->Tick(scaled_dt);
 }
 
 f32 FSceneServices::_ScaledDt(f32 raw_dt) const noexcept {

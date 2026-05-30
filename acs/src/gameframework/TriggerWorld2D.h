@@ -98,6 +98,11 @@ public:
     /// trigger 削除。slot は再利用、generation が進む。次の Tick で関連 pair も purge。
     void Remove(FTriggerId id) noexcept;
 
+    /// trigger に任意の user ポインタを紐付ける / 取得する。FTriggerComponent が
+    /// イベント発火時に id → component を逆引きするのに使う (overlap 判定には不使用)。
+    void  SetUserData(FTriggerId id, void* user) noexcept;
+    void* UserData(FTriggerId id) const noexcept;
+
     // ----- イベントコールバック (関数ポインタ + user data) -----
     void SetOnEnter(TriggerEventCallback cb, void* user) noexcept;
     void SetOnStay (TriggerEventCallback cb, void* user) noexcept;
@@ -122,6 +127,7 @@ private:
         Aabb2  aabb   {};
         Circle circle {};
         u32    layer  = 0;
+        void*  user   = nullptr;   // FTriggerComponent* 等 (id→object 逆引き用)
         bool   active = false;
         u8     gen    = 0;
     };

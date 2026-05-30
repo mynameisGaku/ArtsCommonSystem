@@ -77,10 +77,16 @@ public:
         m_CellSize = cell_size > 0.0f ? cell_size : 64.0f;
     }
 
+    // 全レイヤを表すマスク (= レイヤ無指定の既定値)。
+    static constexpr u32 kAllLayers = 0xFFFFFFFFu;
+
     // ----- Shape 登録 -----
-    FShapeId AddAabb   (const Aabb2& a) noexcept;
-    FShapeId AddCircle (const Circle& c) noexcept;
-    FShapeId AddPolygon(const ConvexPoly2& p) noexcept;   // スプライト凸包コライダー等
+    // layer: この shape が属するレイヤ bitmask (既定 = 全レイヤ)。クエリ側の mask と
+    //        bitwise-AND して 0 でなければヒット候補になる (player/enemy/pickup/wall の
+    //        絞り込み)。既定値のままなら従来通り「全 shape が候補」。
+    FShapeId AddAabb   (const Aabb2& a, u32 layer = kAllLayers) noexcept;
+    FShapeId AddCircle (const Circle& c, u32 layer = kAllLayers) noexcept;
+    FShapeId AddPolygon(const ConvexPoly2& p, u32 layer = kAllLayers) noexcept;
 
     // 形状更新 (移動した時)。dirty にして次のクエリで再構築。
     void UpdateAabb   (FShapeId id, const Aabb2& a) noexcept;
@@ -97,17 +103,20 @@ public:
 
     // ----- クエリ (broad-phase grid → narrow-phase math/Collision2D) -----
     // exclude: 自身を除外したい時 (PhysicsBody が自己 overlap を無視するため)。invalid なら除外無し。
-    void OverlapAabb   (const Aabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
-    void OverlapCircle (const Circle& c,  TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
-    void OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude = {}) noexcept;
-    // Raycast: 最も近い shape を 1 つ返す (out_hit / out_id 設定、無ければ false)
-    bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id) noexcept;
+    // mask: ヒット候補を絞るレイヤ bitmask。shape.layer & mask == 0 のものは無視。
+    //       既定 (kAllLayers) なら全 shape が候補 (従来挙動)。
+    void OverlapAabb   (const Aabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    void OverlapCircle (const Circle& c,  TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    void OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    // Raycast: 最も近い shape を 1 つ返す (out_hit / out_id 設定、無ければ false)。
+    // mask でレイヤ絞込 (既定 = 全レイヤ)。
+    bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id, u32 mask = kAllLayers) noexcept;
 
     // collide-and-slide 用: query 形状を重なっている全 shape から押し出す合計
     // ベクトルを返す (重なり無しなら {0,0})。body が move 後にこれで貫通解消し、
     // 押し出し法線方向の速度成分を消すことでスライドする。
-    FVec2 ResolveCircle (const Circle& c,      FShapeId exclude = {}) noexcept;
-    FVec2 ResolvePolygon(const ConvexPoly2& p, FShapeId exclude = {}) noexcept;
+    FVec2 ResolveCircle (const Circle& c,      FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    FVec2 ResolvePolygon(const ConvexPoly2& p, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
 
 private:
     enum class Kind : u8 { None = 0, FAabb, Circle, Poly };
@@ -116,6 +125,7 @@ private:
         Kind        kind   = Kind::None;
         bool        active = false;
         u8          gen    = 0;
+        u32         layer  = kAllLayers;
         Aabb2       aabb   {};
         Circle      circle {};
         ConvexPoly2 poly   {};

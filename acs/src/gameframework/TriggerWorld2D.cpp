@@ -29,6 +29,7 @@ FTriggerId FTriggerWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
     s.kind   = Kind::Circle;
     s.circle = c;
     s.layer  = layer;
+    s.user   = nullptr;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;   // generation 0 は invalid 予約のためスキップ
     s.active = true;
@@ -42,6 +43,7 @@ FTriggerId FTriggerWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
     s.kind   = Kind::FAabb;
     s.aabb   = a;
     s.layer  = layer;
+    s.user   = nullptr;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;
     s.active = true;
@@ -71,6 +73,20 @@ void FTriggerWorld2D::Remove(FTriggerId id) noexcept {
     s.kind   = Kind::None;
     if (m_TriggerCount > 0) --m_TriggerCount;
     // 関連 pair は次 Tick で OnExit 発火後に自然消滅する (next_pairs に乗らないため)
+}
+
+void FTriggerWorld2D::SetUserData(FTriggerId id, void* user) noexcept {
+    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    FTriggerSlot& s = m_Slots[id.Index()];
+    if (!s.active || s.gen != id.Generation()) return;
+    s.user = user;
+}
+
+void* FTriggerWorld2D::UserData(FTriggerId id) const noexcept {
+    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return nullptr;
+    const FTriggerSlot& s = m_Slots[id.Index()];
+    if (!s.active || s.gen != id.Generation()) return nullptr;
+    return s.user;
 }
 
 void FTriggerWorld2D::SetOnEnter(TriggerEventCallback cb, void* user) noexcept {

@@ -17,11 +17,12 @@ u32 FCollisionWorld2D::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
-FShapeId FCollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
+FShapeId FCollisionWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
     s.kind   = Kind::FAabb;
     s.aabb   = a;
+    s.layer  = layer;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;
     s.active = true;
@@ -30,11 +31,12 @@ FShapeId FCollisionWorld2D::AddAabb(const Aabb2& a) noexcept {
     return FShapeId{idx, s.gen};
 }
 
-FShapeId FCollisionWorld2D::AddCircle(const Circle& c) noexcept {
+FShapeId FCollisionWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
     s.kind   = Kind::Circle;
     s.circle = c;
+    s.layer  = layer;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;
     s.active = true;
@@ -43,11 +45,12 @@ FShapeId FCollisionWorld2D::AddCircle(const Circle& c) noexcept {
     return FShapeId{idx, s.gen};
 }
 
-FShapeId FCollisionWorld2D::AddPolygon(const ConvexPoly2& p) noexcept {
+FShapeId FCollisionWorld2D::AddPolygon(const ConvexPoly2& p, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
     s.kind   = Kind::Poly;
     s.poly   = p;
+    s.layer  = layer;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;
     s.active = true;
@@ -191,7 +194,7 @@ bool FCollisionWorld2D::NarrowIntersectPoly(u32 slot_idx, const ConvexPoly2& p) 
 }
 
 // ===== クエリ =====
-void FCollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShapeId exclude) noexcept {
+void FCollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     m_QueryMarks.Resize(m_Slots.Size());
@@ -208,6 +211,7 @@ void FCollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShap
                 if (idx == ex_idx) continue;
                 if (m_QueryMarks[idx]) continue;
                 m_QueryMarks[idx] = 1;
+                if ((m_Slots[idx].layer & mask) == 0u) continue;
                 if (NarrowIntersectAabb(idx, a)) {
                     out.PushBack(FShapeId{idx, m_Slots[idx].gen});
                 }
@@ -216,7 +220,7 @@ void FCollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShap
     }
 }
 
-void FCollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FShapeId exclude) noexcept {
+void FCollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
     out.Clear();
     RebuildGridIfDirty();
     m_QueryMarks.Resize(m_Slots.Size());
@@ -233,6 +237,7 @@ void FCollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FS
                 if (idx == ex_idx) continue;
                 if (m_QueryMarks[idx]) continue;
                 m_QueryMarks[idx] = 1;
+                if ((m_Slots[idx].layer & mask) == 0u) continue;
                 if (NarrowIntersectCircle(idx, c)) {
                     out.PushBack(FShapeId{idx, m_Slots[idx].gen});
                 }
@@ -241,7 +246,7 @@ void FCollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FS
     }
 }
 
-void FCollisionWorld2D::OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude) noexcept {
+void FCollisionWorld2D::OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
     out.Clear();
     if (p.count < 3) return;
     RebuildGridIfDirty();
@@ -260,6 +265,7 @@ void FCollisionWorld2D::OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& o
                 if (idx == ex_idx) continue;
                 if (m_QueryMarks[idx]) continue;
                 m_QueryMarks[idx] = 1;
+                if ((m_Slots[idx].layer & mask) == 0u) continue;
                 if (NarrowIntersectPoly(idx, p)) {
                     out.PushBack(FShapeId{idx, m_Slots[idx].gen});
                 }
@@ -268,7 +274,7 @@ void FCollisionWorld2D::OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& o
     }
 }
 
-FVec2 FCollisionWorld2D::ResolveCircle(const Circle& c, FShapeId exclude) noexcept {
+FVec2 FCollisionWorld2D::ResolveCircle(const Circle& c, FShapeId exclude, u32 mask) noexcept {
     RebuildGridIfDirty();
     m_QueryMarks.Resize(m_Slots.Size());
     for (u32 i = 0; i < m_QueryMarks.Size(); ++i) m_QueryMarks[i] = 0;
@@ -285,6 +291,7 @@ FVec2 FCollisionWorld2D::ResolveCircle(const Circle& c, FShapeId exclude) noexce
                 const u32 idx = cell->shapes[i];
                 if (idx == ex_idx || m_QueryMarks[idx]) continue;
                 m_QueryMarks[idx] = 1;
+                if ((m_Slots[idx].layer & mask) == 0u) continue;
                 const Slot& s = m_Slots[idx];
                 FVec2 push{ 0, 0 }; bool hit = false;
                 switch (s.kind) {
@@ -300,7 +307,7 @@ FVec2 FCollisionWorld2D::ResolveCircle(const Circle& c, FShapeId exclude) noexce
     return total;
 }
 
-FVec2 FCollisionWorld2D::ResolvePolygon(const ConvexPoly2& p, FShapeId exclude) noexcept {
+FVec2 FCollisionWorld2D::ResolvePolygon(const ConvexPoly2& p, FShapeId exclude, u32 mask) noexcept {
     RebuildGridIfDirty();
     m_QueryMarks.Resize(m_Slots.Size());
     for (u32 i = 0; i < m_QueryMarks.Size(); ++i) m_QueryMarks[i] = 0;
@@ -317,6 +324,7 @@ FVec2 FCollisionWorld2D::ResolvePolygon(const ConvexPoly2& p, FShapeId exclude) 
                 const u32 idx = cell->shapes[i];
                 if (idx == ex_idx || m_QueryMarks[idx]) continue;
                 m_QueryMarks[idx] = 1;
+                if ((m_Slots[idx].layer & mask) == 0u) continue;
                 const Slot& s = m_Slots[idx];
                 FVec2 push{ 0, 0 }; bool hit = false;
                 switch (s.kind) {
@@ -336,7 +344,7 @@ FVec2 FCollisionWorld2D::ResolvePolygon(const ConvexPoly2& p, FShapeId exclude) 
 }
 
 bool FCollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
-                                RayHit2& out_hit, FShapeId& out_id) noexcept {
+                                RayHit2& out_hit, FShapeId& out_id, u32 mask) noexcept {
     out_hit = {};
     out_id  = {};
     RebuildGridIfDirty();
@@ -369,6 +377,7 @@ bool FCollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                 const u32 idx = cell->shapes[i];
                 if (m_QueryMarks[idx]) continue;
                 m_QueryMarks[idx] = 1;
+                if ((m_Slots[idx].layer & mask) == 0u) continue;
                 const Slot& s = m_Slots[idx];
                 RayHit2 rh{};
                 switch (s.kind) {

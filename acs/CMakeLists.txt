@@ -373,6 +373,9 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(56_HelloSpriteAnim)
     endif()
+
+    # --- (34) HelloTriggers (Package B: collision layers/masks + triggers, console) ---
+    acs_add_sample(57_HelloTriggers)
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})

@@ -46,6 +46,7 @@
 #include "gameframework/InputMap.h"
 #include "gameframework/Camera2D.h"
 #include "gameframework/CollisionWorld2D.h"
+#include "gameframework/TriggerWorld2D.h"
 
 namespace acs::game {
 
@@ -57,6 +58,7 @@ enum class ESvc : u32 {
     Input      = 1u << 3,
     Camera2D    = 1u << 4,
     Physics2D  = 1u << 5,
+    Triggers   = 1u << 6,   // FTriggerWorld2D (overlap enter/stay/exit イベント)
     // Future: Audio, Events, Debug, Timers, Ui
     Default2D  = Clock | Tweens | Sequences | Input,
 };
@@ -90,6 +92,7 @@ public:
     FInputMap&            Input()     noexcept;
     acs::game::FCamera2D& Camera()    noexcept;
     FCollisionWorld2D&    Physics()   noexcept;
+    FTriggerWorld2D&      Triggers()  noexcept;
 
     // FGame/FSceneManager driver (利用者は触らない)。
     //   PreUpdate: Clock.Tick(raw_dt) で時間を進める (= scaled dt が確定)
@@ -108,6 +111,7 @@ private:
     TUniquePtr<FInputMap>       m_Input;
     TUniquePtr<acs::game::FCamera2D> m_Camera;
     TUniquePtr<FCollisionWorld2D>    m_Physics;
+    TUniquePtr<FTriggerWorld2D>      m_Triggers;
 };
 
 } // namespace acs::game
