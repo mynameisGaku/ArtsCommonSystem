@@ -17,6 +17,7 @@ namespace acs {
 class IRhiCommandList;
 class FRenderer;
 class FSpriteBatch;
+class Font;
 }
 
 namespace acs::game {
@@ -36,10 +37,12 @@ public:
         m_Width    = w;
         m_Height   = h;
         m_Sprites  = nullptr;
+        // m_Font は FGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
     }
     void _EndFrame() noexcept {
         m_Cmd = nullptr;
         m_Sprites = nullptr;
+        m_Font = nullptr;
     }
 
     // 現フレームの IRhiCommandList (nullptr の可能性は OnRender 外でのみ起きる)。
@@ -56,10 +59,18 @@ public:
     bool HasSprites() const noexcept { return m_Sprites != nullptr; }
     FSpriteBatch& Sprites() const noexcept { return *m_Sprites; }
 
+    // 全シーン共有の UI フォント (FGame がロードして毎フレーム配線)。
+    // OnDrawHud から `sb.DrawString(rc.GetFont(), ...)` でテキストを描ける。
+    // フォントが読めなかった環境では HasFont()==false (テキストは単に描かれない)。
+    void _SetFont(Font* f) noexcept { m_Font = f; }
+    bool HasFont() const noexcept { return m_Font != nullptr; }
+    Font& GetFont() const noexcept { return *m_Font; }
+
 private:
     FRenderer*        m_Renderer = nullptr;
     IRhiCommandList* m_Cmd      = nullptr;
     FSpriteBatch*    m_Sprites  = nullptr;
+    Font*            m_Font     = nullptr;
     u32              m_Width    = 0;
     u32              m_Height   = 0;
 };

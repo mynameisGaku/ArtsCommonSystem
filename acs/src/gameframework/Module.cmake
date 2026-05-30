@@ -29,6 +29,7 @@ acs_module(
         CollisionWorld2D.cpp
         PhysicsBody2D.cpp
         Sprite2DComponent.cpp
+        SpriteAnimComponent.cpp
         # ----- Phase 12: parallel agent batch -----
         Random.cpp
         DebugDraw.cpp
@@ -190,6 +191,7 @@ acs_module(
         CollisionWorld2D.h
         PhysicsBody2D.h
         Sprite2DComponent.h
+        SpriteAnimComponent.h
         SceneServices.h
         # ----- Phase 12: parallel agent batch -----
         NodeId.h

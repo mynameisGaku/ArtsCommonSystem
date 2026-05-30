@@ -368,6 +368,11 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(55_HelloScene2D)
     endif()
+
+    # --- (33) HelloSpriteAnim (Package A: sprite-sheet anim + HUD text, windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(56_HelloSpriteAnim)
+    endif()
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})

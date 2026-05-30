@@ -22,6 +22,7 @@
 #include "app/Application.h"
 #include "memory/UniquePtr.h"
 #include "foundation/Move.h"
+#include "render/Font.h"
 #include "gameframework/SceneManager.h"
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
@@ -78,9 +79,14 @@ protected:
     void OnEvent(const Event& e) noexcept override;
 
 private:
+    void EnsureUiFont() noexcept;   // 初回 OnRender で default UI フォントを遅延ロード
+
     FSceneManager  m_Scenes;
     RenderContext m_RenderCtx;
     FAppStateSlot  m_AppState;
+    Font          m_UiFont;             // 全シーン共有の HUD フォント (game 寿命)
+    bool          m_UiFontReady = false;
+    bool          m_UiFontTried = false;
     f32           m_TimeScale       = 1.0f;
     f32           m_FixedDt         = 1.0f / 60.0f;
     f32           m_FixedAccum      = 0.0f;

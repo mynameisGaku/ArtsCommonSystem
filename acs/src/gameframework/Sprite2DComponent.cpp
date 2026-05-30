@@ -19,7 +19,8 @@ void FSprite2DComponent::OnDraw(RenderContext& rc) noexcept {
 
     FSpriteBatch& sb = rc.Sprites();
     if (m_Texture) {
-        sb.DrawRotated(*m_Texture, cx, cy, w, h, wt.rotation, 0.0f, 0.0f, 1.0f, 1.0f, m_Tint);
+        sb.DrawRotated(*m_Texture, cx, cy, w, h, wt.rotation,
+                       m_UvMin.x, m_UvMin.y, m_UvMax.x, m_UvMax.y, m_Tint);
     } else {
         sb.DrawRectRotated(cx, cy, w, h, wt.rotation, m_Tint);
     }

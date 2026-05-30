@@ -6,6 +6,7 @@
 #include "render/Renderer.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiSwapchain.h"
+#include "app/Sample.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
@@ -49,17 +50,33 @@ void FGame::OnUpdate(f32 dt) noexcept {
     m_Scenes._Update(scaled_dt);
 }
 
+void FGame::EnsureUiFont() noexcept {
+    if (m_UiFontTried) return;
+    IRhiDevice* dev = GetRenderer().Device();
+    if (dev == nullptr) return;     // device 未準備 → 次フレーム再試行
+    m_UiFontTried = true;
+    auto r = FSample::TryLoadDefaultUIFont(m_UiFont, *dev, 18.0f);
+    m_UiFontReady = r.IsOk();
+    if (!m_UiFontReady) {
+        ACS_LOG_WARN("FGame: default UI font のロードに失敗 (HUD テキストは無効)");
+    }
+}
+
 void FGame::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
     m_RenderCtx._BeginFrame(GetRenderer(), *cl, sc->Width(), sc->Height());
+    // 全シーン共有の UI フォントを毎フレーム配線 (初回に遅延ロード)。
+    EnsureUiFont();
+    if (m_UiFontReady) m_RenderCtx._SetFont(&m_UiFont);
     m_Scenes._Render(m_RenderCtx);
     m_RenderCtx._EndFrame();
 }
 
 void FGame::OnShutdown() noexcept {
     m_Scenes._ShutdownAll();
+    if (m_UiFontReady) m_UiFont.Shutdown();
 }
 
 void FGame::OnEvent(const Event& e) noexcept {
