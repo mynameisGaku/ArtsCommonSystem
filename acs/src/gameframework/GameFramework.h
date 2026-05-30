@@ -26,6 +26,7 @@
 #include "gameframework/Sprite2DComponent.h"
 #include "gameframework/SpriteAnimComponent.h"
 #include "gameframework/TriggerComponent.h"
+#include "gameframework/TilemapComponent.h"
 #include "gameframework/SceneServices.h"
 
 // ----- Phase 12: parallel agent batch (Pillar B/C/G/H/I/J/L/N/O/Q/R/S 拡張) -----

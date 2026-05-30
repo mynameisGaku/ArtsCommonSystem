@@ -376,6 +376,11 @@ if(ACS_BUILD_SAMPLES)
 
     # --- (34) HelloTriggers (Package B: collision layers/masks + triggers, console) ---
     acs_add_sample(57_HelloTriggers)
+
+    # --- (35) HelloTilemap (Package C: tilemap render + fade scene transition, windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(58_HelloTilemap)
+    endif()
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})

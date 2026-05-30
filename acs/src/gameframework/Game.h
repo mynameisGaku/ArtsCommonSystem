@@ -23,9 +23,11 @@
 #include "memory/UniquePtr.h"
 #include "foundation/Move.h"
 #include "render/Font.h"
+#include "render/SpriteBatch.h"
 #include "gameframework/SceneManager.h"
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
+#include "gameframework/FadeTransition.h"
 
 namespace acs::game {
 
@@ -66,6 +68,15 @@ public:
     template<typename T>
     T* AppState() noexcept { return m_AppState.Get<T>(); }
 
+    // フェード付きシーン遷移。fade-out → (暗転中に) Scene 切替 → fade-in を
+    // 1 行で行う。out_sec/in_sec はフェード秒数。フェードは time_scale の影響を
+    // 受けない実時間で進む (ポーズ中でも遷移は進む)。遷移演出は FGame が描画する
+    // ので、切替先 Scene 側で重ねてフェードしないこと。
+    void TransitionTo(TUniquePtr<Scene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
+
+    // 進行中のフェード状態 (overlay alpha/color、phase) を参照したい場合に。
+    FFadeTransition& Fade() noexcept { return m_Fade; }
+
 protected:
     // 派生クラス実装必須: 最初に push される Scene を返す。
     virtual TUniquePtr<Scene> InitialScene() noexcept = 0;
@@ -79,7 +90,9 @@ protected:
     void OnEvent(const Event& e) noexcept override;
 
 private:
-    void EnsureUiFont() noexcept;   // 初回 OnRender で default UI フォントを遅延ロード
+    void EnsureUiFont() noexcept;     // 初回 OnRender で default UI フォントを遅延ロード
+    void EnsureOverlay() noexcept;    // フェード overlay 用 SpriteBatch を遅延 init
+    void DrawFadeOverlay() noexcept;  // 進行中フェードの fullscreen quad を描く
 
     FSceneManager  m_Scenes;
     RenderContext m_RenderCtx;
@@ -87,6 +100,13 @@ private:
     Font          m_UiFont;             // 全シーン共有の HUD フォント (game 寿命)
     bool          m_UiFontReady = false;
     bool          m_UiFontTried = false;
+
+    FFadeTransition   m_Fade;             // シーン遷移フェード
+    TUniquePtr<Scene> m_PendingScene;     // 暗転中に差し替える次 Scene
+    FSpriteBatch      m_Overlay;          // フェード overlay 描画用
+    bool              m_OverlayReady = false;
+    bool              m_OverlayTried = false;
+
     f32           m_TimeScale       = 1.0f;
     f32           m_FixedDt         = 1.0f / 60.0f;
     f32           m_FixedAccum      = 0.0f;

@@ -24,6 +24,15 @@ void FGame::OnStart() noexcept {
 }
 
 void FGame::OnUpdate(f32 dt) noexcept {
+    // フェード遷移は実時間で進める (time_scale / pause の影響を受けない)。
+    // 暗転 (MidPause) になった瞬間に次 Scene へ差し替え、そのまま fade-in する。
+    if (m_Fade.IsActive()) {
+        m_Fade.Tick(dt);
+        if (m_Fade.IsMidPause() && m_PendingScene) {
+            m_Scenes.ChangeScene(Move(m_PendingScene));   // deferred → 下の _ApplyPending で適用
+        }
+    }
+
     const f32 scaled_dt = dt * m_TimeScale;
     m_Scenes._ApplyPending(*this);
 
@@ -71,12 +80,47 @@ void FGame::OnRender() noexcept {
     EnsureUiFont();
     if (m_UiFontReady) m_RenderCtx._SetFont(&m_UiFont);
     m_Scenes._Render(m_RenderCtx);
+    DrawFadeOverlay();                  // シーン描画の上にフェード幕を重ねる
     m_RenderCtx._EndFrame();
+}
+
+void FGame::EnsureOverlay() noexcept {
+    if (m_OverlayTried) return;
+    IRhiDevice* dev = GetRenderer().Device();
+    if (dev == nullptr) return;
+    m_OverlayTried = true;
+    auto r = m_Overlay.Init(*dev, GetRenderer().ColorFormat(), 16);
+    m_OverlayReady = r.IsOk();
+    if (!m_OverlayReady) {
+        ACS_LOG_WARN("FGame: fade overlay SpriteBatch の init に失敗 (遷移は無描画)");
+    }
+}
+
+void FGame::DrawFadeOverlay() noexcept {
+    if (!m_Fade.IsActive()) return;
+    EnsureOverlay();
+    if (!m_OverlayReady) return;
+    IRhiCommandList* cl = GetRenderer().CommandList();
+    IRhiSwapchain*   sc = GetRenderer().Swapchain();
+    if (cl == nullptr || sc == nullptr) return;
+    m_Overlay.Begin(*cl, sc->Width(), sc->Height());   // Begin で view = 画面ピクセル
+    const FVec3 col = m_Fade.OverlayColor();
+    m_Overlay.DrawRect(0.0f, 0.0f,
+                       static_cast<f32>(sc->Width()), static_cast<f32>(sc->Height()),
+                       FVec4{col.x, col.y, col.z, m_Fade.OverlayAlpha()});
+    m_Overlay.End();
+}
+
+void FGame::TransitionTo(TUniquePtr<Scene> next, f32 out_sec, f32 in_sec) noexcept {
+    if (!next) return;
+    m_PendingScene = Move(next);
+    m_Fade.StartFade(EFadeKind::FadeInOut, out_sec, in_sec, 0.0f);
 }
 
 void FGame::OnShutdown() noexcept {
     m_Scenes._ShutdownAll();
     if (m_UiFontReady) m_UiFont.Shutdown();
+    if (m_OverlayReady) m_Overlay.Shutdown();
 }
 
 void FGame::OnEvent(const Event& e) noexcept {

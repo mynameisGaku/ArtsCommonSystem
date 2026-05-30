@@ -31,6 +31,7 @@ acs_module(
         Sprite2DComponent.cpp
         SpriteAnimComponent.cpp
         TriggerComponent.cpp
+        TilemapComponent.cpp
         # ----- Phase 12: parallel agent batch -----
         Random.cpp
         DebugDraw.cpp
@@ -194,6 +195,7 @@ acs_module(
         Sprite2DComponent.h
         SpriteAnimComponent.h
         TriggerComponent.h
+        TilemapComponent.h
         SceneServices.h
         # ----- Phase 12: parallel agent batch -----
         NodeId.h
