@@ -297,20 +297,26 @@ void FSpriteBatch::ClearClipRect() noexcept {
     m_Cl->SetScissor(sr);
 }
 
-void FSpriteBatch::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
-                               FVec4 color) noexcept {
+void FSpriteBatch::DrawTriangleVC(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+                                 FVec4 c0, FVec4 c1, FVec4 c2) noexcept {
     if (!m_Cl) return;
     if (m_CurrentTex && m_CurrentTex != m_White.Get()) Flush();
     if (m_SpriteCount >= m_MaxSprites) return;
     m_CurrentTex = m_White.Get();
     // 4 頂点目に 3 頂点目を重ねる。インデックス (0,2,3) の三角形は面積 0 に
-    // 退化して描画されず、(0,1,2) の三角形だけが塗られる。
+    // 退化して描画されず、(0,1,2) の三角形だけが塗られる。各頂点に別の色を
+    // 持たせると、シェーダが COLOR を補間してグラデーション三角形になる。
     Vertex* v = m_VertexCpu + m_SpriteCount * 4;
-    v[0] = { x0, y0, 0, 0, color.x, color.y, color.z, color.w };
-    v[1] = { x1, y1, 0, 0, color.x, color.y, color.z, color.w };
-    v[2] = { x2, y2, 0, 0, color.x, color.y, color.z, color.w };
-    v[3] = { x2, y2, 0, 0, color.x, color.y, color.z, color.w };
+    v[0] = { x0, y0, 0, 0, c0.x, c0.y, c0.z, c0.w };
+    v[1] = { x1, y1, 0, 0, c1.x, c1.y, c1.z, c1.w };
+    v[2] = { x2, y2, 0, 0, c2.x, c2.y, c2.z, c2.w };
+    v[3] = { x2, y2, 0, 0, c2.x, c2.y, c2.z, c2.w };
     ++m_SpriteCount;
+}
+
+void FSpriteBatch::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+                               FVec4 color) noexcept {
+    DrawTriangleVC(x0, y0, x1, y1, x2, y2, color, color, color);
 }
 
 void FSpriteBatch::DrawString(const Font& font, const char* utf8_text,

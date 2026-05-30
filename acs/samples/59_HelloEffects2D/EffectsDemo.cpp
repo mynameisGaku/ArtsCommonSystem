@@ -29,8 +29,11 @@ public:
             n->Local().position = FVec2{0.0f, 0.0f};
             auto& w = n->AddComponent<FWater2DComponent>();
             w.SetRect(FVec2{0.0f, 5.0f}, FVec2{11.0f, 2.0f});
-            w.SetColor(FVec3{0.10f, 0.36f, 0.60f});
             w.SetWaves(0.16f, 1.6f);
+            w.SetDepthColors(FVec3{0.22f, 0.55f, 0.78f}, FVec3{0.03f, 0.14f, 0.30f}); // 浅→深
+            w.SetDepthAlpha(0.60f, 0.95f);
+            w.SetFoam(FVec3{0.95f, 0.98f, 1.0f}, 0.0f, 3.0f, 0.9f);                   // 陸際の白泡
+            w.SetRim(FVec3{0.60f, 0.85f, 1.0f}, 0.0f, 0.5f);                          // 水際の縁
             m_Waters[m_WaterCount++] = &w;
             Root().AddChild(Move(n));
         }
@@ -114,7 +117,7 @@ public:
         sb.DrawRect(8.0f, 8.0f, 640.0f, 30.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
         if (rc.HasFont()) {
             sb.DrawString(rc.GetFont(),
-                          "Effects2D  sea/puddle/spline-river  mouse=trail, drag/click water=ripple, near fire=flare  [Esc]",
+                          "Effects2D  sea/puddle/spline-river (depth+foam+rim)  mouse=trail, drag/click water=ripple, near fire=flare  [Esc]",
                           16.0f, 15.0f, FVec4{0.9f, 0.95f, 1.0f, 1.0f});
         }
     }

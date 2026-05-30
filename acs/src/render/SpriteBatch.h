@@ -85,6 +85,11 @@ public:
     void DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                       FVec4 color) noexcept;
 
+    // 頂点カラー三角形 (gradient)。各頂点に別の色を与えると既存シェーダが
+    // COLOR を補間する。水面の深さ勾配や泡のフェード等に使う。
+    void DrawTriangleVC(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+                        FVec4 c0, FVec4 c1, FVec4 c2) noexcept;
+
     // 2D カメラ。(cam_x,cam_y) を画面中心に映し、zoom 倍で拡縮する。
     // Begin() で恒等（カメラ無し）にリセットされる。
     void SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept;

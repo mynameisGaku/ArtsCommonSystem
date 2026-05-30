@@ -53,6 +53,75 @@ void FWater2DComponent::Finish() noexcept {
         f32 w = 1.0f - (m_Vert[i].y - m_MinY) / band;
         m_Weight[i] = w < 0.0f ? 0.0f : (w > 1.0f ? 1.0f : w);
     }
+    BuildBoundary();
+}
+
+// edge-incidence で外周ループを抽出: 1 つの三角形にしか使われていないエッジ =
+// 境界エッジ。それらを順に繋いでリング化し、各境界頂点の外向き法線を求める。
+// (weight ヒューリスティックと違い、どの形状でも正しく外周を取れる)
+void FWater2DComponent::BuildBoundary() noexcept {
+    m_BoundaryCount = 0;
+    if (m_TCount < 1) return;
+
+    // 1) 無向エッジの出現回数を数える。
+    u16 ea[kMaxTris * 3]; u16 eb[kMaxTris * 3]; u8 ec[kMaxTris * 3];
+    u32 ne = 0;
+    for (u32 t = 0; t < m_TCount; ++t) {
+        const u16 tri[3] = { m_Tri[t*3], m_Tri[t*3+1], m_Tri[t*3+2] };
+        for (u32 j = 0; j < 3; ++j) {
+            u16 a = tri[j], b = tri[(j + 1) % 3];
+            if (a > b) { const u16 s = a; a = b; b = s; }
+            u32 found = ne;
+            for (u32 i = 0; i < ne; ++i) { if (ea[i] == a && eb[i] == b) { found = i; break; } }
+            if (found < ne) { ++ec[found]; }
+            else if (ne < kMaxTris * 3) { ea[ne] = a; eb[ne] = b; ec[ne] = 1; ++ne; }
+        }
+    }
+    // 2) count==1 のエッジを集めて順序付きリングに繋ぐ。
+    u16 ba[kMaxVerts * 2]; u16 bb[kMaxVerts * 2]; u32 nb = 0;
+    for (u32 i = 0; i < ne; ++i)
+        if (ec[i] == 1 && nb < kMaxVerts * 2) { ba[nb] = ea[i]; bb[nb] = eb[i]; ++nb; }
+    if (nb < 3) return;
+
+    u8 used[kMaxVerts * 2] = {};
+    const u16 startV = ba[0];
+    used[0] = 1;
+    m_Boundary[m_BoundaryCount++] = ba[0];
+    u16 nextV = bb[0];
+    while (nextV != startV && m_BoundaryCount < kMaxVerts) {
+        m_Boundary[m_BoundaryCount++] = nextV;
+        bool found = false;
+        for (u32 i = 0; i < nb; ++i) {
+            if (used[i]) continue;
+            if (ba[i] == nextV) { used[i] = 1; nextV = bb[i]; found = true; break; }
+            if (bb[i] == nextV) { used[i] = 1; nextV = ba[i]; found = true; break; }
+        }
+        if (!found) break;
+    }
+
+    // 3) 外向き単位法線 (隣接 2 エッジの垂線平均、bbox 中心から外を向くよう符号調整)。
+    const FVec2 ctr{ (m_MinX + m_MaxX) * 0.5f, (m_MinY + m_MaxY) * 0.5f };
+    for (u32 k = 0; k < m_BoundaryCount; ++k) {
+        const FVec2 v  = m_Vert[m_Boundary[k]];
+        const FVec2 vp = m_Vert[m_Boundary[(k + m_BoundaryCount - 1) % m_BoundaryCount]];
+        const FVec2 vn = m_Vert[m_Boundary[(k + 1) % m_BoundaryCount]];
+        FVec2 n{ -((v.y - vp.y) + (vn.y - v.y)), ((v.x - vp.x) + (vn.x - v.x)) };
+        const f32 len = Sqrt(n.x * n.x + n.y * n.y);
+        if (len > 1e-5f) { n.x /= len; n.y /= len; } else { n = FVec2{ 0.0f, -1.0f }; }
+        const FVec2 d{ v.x - ctr.x, v.y - ctr.y };
+        if (n.x * d.x + n.y * d.y < 0.0f) { n.x = -n.x; n.y = -n.y; }
+        m_BoundaryNormal[k] = n;
+    }
+}
+
+FVec4 FWater2DComponent::DepthColorAt(u32 i) const noexcept {
+    const f32 dt = 1.0f - m_Weight[i];   // 0=水面, 1=深部
+    return FVec4{
+        m_ShallowColor.x + (m_DeepColor.x - m_ShallowColor.x) * dt,
+        m_ShallowColor.y + (m_DeepColor.y - m_ShallowColor.y) * dt,
+        m_ShallowColor.z + (m_DeepColor.z - m_ShallowColor.z) * dt,
+        m_ShallowAlpha + (m_DeepAlpha - m_ShallowAlpha) * dt
+    };
 }
 
 void FWater2DComponent::SetRect(FVec2 center, FVec2 half, u32 top_segments) noexcept {
@@ -224,16 +293,48 @@ void FWater2DComponent::OnDraw(RenderContext& rc) noexcept {
         const f32 wy = o.y + m_Vert[i].y - WaveAt(wx) * m_Weight[i];
         disp[i] = FVec2{ wx, wy };
     }
-    const FVec4 body{ m_Color.x, m_Color.y, m_Color.z, m_Alpha };
+    // 本体: 深さ勾配を頂点カラーで (water surface → deep)。
     for (u32 t = 0; t < m_TCount; ++t) {
         const u16 a = m_Tri[t*3], b = m_Tri[t*3+1], c = m_Tri[t*3+2];
-        sb.DrawTriangle(disp[a].x, disp[a].y, disp[b].x, disp[b].y, disp[c].x, disp[c].y, body);
+        sb.DrawTriangleVC(disp[a].x, disp[a].y, disp[b].x, disp[b].y, disp[c].x, disp[c].y,
+                          DepthColorAt(a), DepthColorAt(b), DepthColorAt(c));
     }
-    // 泡: 水面らしさが高い頂点に小さな明るい点 (どの形状でも crest が光る)。
-    const FVec4 foam{ 0.85f, 0.95f, 1.0f, m_Alpha * 0.9f };
-    const f32   fs = (m_MaxX - m_MinX + m_MaxY - m_MinY) * 0.006f + 0.04f;
-    for (u32 i = 0; i < m_VCount; ++i) {
-        if (m_Weight[i] > 0.5f) sb.DrawRectRotated(disp[i].x, disp[i].y, fs, fs, 0.0f, foam);
+    if (m_BoundaryCount < 3) return;
+    const f32 autoScale = (m_MaxX - m_MinX) + (m_MaxY - m_MinY);
+
+    // 縁取り: 境界から内側へフェードする細い帯 (水際を引き締める)。
+    if (m_RimEnabled) {
+        const f32 rimW = m_RimWidth > 0.0f ? m_RimWidth : autoScale * 0.008f;
+        const FVec4 cEdge{ m_RimColor.x, m_RimColor.y, m_RimColor.z, m_RimAlpha };
+        const FVec4 cIn  { m_RimColor.x, m_RimColor.y, m_RimColor.z, 0.0f };
+        for (u32 k = 0; k < m_BoundaryCount; ++k) {
+            const u32 k2 = (k + 1) % m_BoundaryCount;
+            const FVec2 p0 = disp[m_Boundary[k]],  p1 = disp[m_Boundary[k2]];
+            const FVec2 n0 = m_BoundaryNormal[k],  n1 = m_BoundaryNormal[k2];
+            const FVec2 i0{ p0.x - n0.x * rimW, p0.y - n0.y * rimW };
+            const FVec2 i1{ p1.x - n1.x * rimW, p1.y - n1.y * rimW };
+            sb.DrawTriangleVC(p0.x, p0.y, p1.x, p1.y, i1.x, i1.y, cEdge, cEdge, cIn);
+            sb.DrawTriangleVC(p0.x, p0.y, i1.x, i1.y, i0.x, i0.y, cEdge, cIn, cIn);
+        }
+    }
+    // 陸際の白泡: 境界から外側へフェード + アニメ (shimmer + 揺らぎ)。
+    if (m_FoamEnabled) {
+        const f32 foamW = m_FoamWidth > 0.0f ? m_FoamWidth : autoScale * 0.02f;
+        for (u32 k = 0; k < m_BoundaryCount; ++k) {
+            const u32 k2 = (k + 1) % m_BoundaryCount;
+            const f32 param = static_cast<f32>(k) / static_cast<f32>(m_BoundaryCount);
+            f32 s = Sin(m_Time * m_FoamSpeed + param * 6.2831853f); if (s < 0.0f) s = -s;
+            const f32 sh  = 0.45f + 0.55f * s;
+            const f32 wob = foamW * (0.8f + 0.2f * Sin(m_Time * m_FoamSpeed * 1.3f + param * 9.0f));
+            const FVec2 p0 = disp[m_Boundary[k]],  p1 = disp[m_Boundary[k2]];
+            const FVec2 n0 = m_BoundaryNormal[k],  n1 = m_BoundaryNormal[k2];
+            const FVec2 q0{ p0.x + n0.x * wob, p0.y + n0.y * wob };
+            const FVec2 q1{ p1.x + n1.x * wob, p1.y + n1.y * wob };
+            const FVec4 cIn { m_FoamColor.x, m_FoamColor.y, m_FoamColor.z, m_FoamAlpha * sh };
+            const FVec4 cOut{ m_FoamColor.x, m_FoamColor.y, m_FoamColor.z, 0.0f };
+            sb.DrawTriangleVC(p0.x, p0.y, p1.x, p1.y, q1.x, q1.y, cIn, cIn, cOut);
+            sb.DrawTriangleVC(p0.x, p0.y, q1.x, q1.y, q0.x, q0.y, cIn, cOut, cOut);
+        }
     }
 }
 
