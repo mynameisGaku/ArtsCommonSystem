@@ -20,9 +20,97 @@
 //     padding 込みで 28〜32 B) だが、本クラスは内部で sizeof に依存しないため
 //     ABI 変動に耐える。Phase D-2 の file I/O 時は明示的に field を 1 つずつ
 //     little-endian で書き出す予定 (`InputSample` 自体の memcpy には頼らない)。
+//   ・Phase D-2 で SaveToBuffer / LoadFromBuffer を実装。`.acsr` の on-disk
+//     layout は header 16B + samples (1 sample = 29B、field 単位 LE) + footer 4B。
+//     1 sample = tick(4) + key_codes_changed(8) + key_states(8) + mouse_pos.x(4) +
+//     mouse_pos.y(4) + mouse_button_states(1) = 29B。CRC32 は samples 部のみを
+//     対象に計算し footer に置く (FSaveArchive / assetpack と同一の
+//     poly 0xEDB88320 実装)。InputSample 自体の memcpy には頼らず、ABI 非依存。
 #include "gameframework/InputRecorder.h"
 
+#include "memory/Memory.h"  // MemCopy
+
 namespace acs::game {
+
+namespace {
+
+// -----------------------------------------------------------------------------
+// `.acsr` on-disk フォーマット定数
+// -----------------------------------------------------------------------------
+// magic 'ACSR' = 0x52534341 (little-endian)。header.h の File layout 節と一致。
+constexpr u32 kMagic        = 0x52534341u;  // 'A''C''S''R' を LE u32 に詰めた値
+constexpr u32 kVersion      = 1u;           // Phase D-2 開始時 = 1
+constexpr u32 kHeaderSize   = 16u;          // magic(4)+version(4)+tick_rate(4)+count(4)
+constexpr u32 kFooterSize   = 4u;           // crc32(4)
+// 1 sample の on-disk バイト数: tick(4)+codes(8)+states(8)+mx(4)+my(4)+buttons(1)。
+// InputSample の sizeof (padding 込み) には依存しない明示レイアウト。
+constexpr u32 kSampleOnDisk = 29u;
+
+// -----------------------------------------------------------------------------
+// little-endian 読み書き helper (strict-aliasing 安全)
+// -----------------------------------------------------------------------------
+// ホスト側 (Win x64 / ARM64 LE) 前提。FSaveArchive.cpp / FNetSnapshot.cpp と同流儀。
+inline void WriteU32LE(u8* dst, u32 v) noexcept { MemCopy(dst, &v, sizeof(u32)); }
+inline u32  ReadU32LE (const u8* src) noexcept { u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v; }
+
+// f32 のビットパターンを u32 として取り出す / 書き戻す (memcpy で aliasing 回避)。
+inline u32 BitsOfF32(f32 v) noexcept { u32 out = 0; MemCopy(&out, &v, sizeof(u32)); return out; }
+inline f32 F32FromBits(u32 v) noexcept { f32 out = 0.0f; MemCopy(&out, &v, sizeof(f32)); return out; }
+
+// -----------------------------------------------------------------------------
+// CRC32 (poly 0xEDB88320, init/xorout 0xFFFFFFFF)
+// -----------------------------------------------------------------------------
+// FSaveArchive.cpp / assetpack と同一実装。あちらの ComputeCrc32 は anonymous
+// namespace に閉じていて外から link できないため、ここでも単独に持つ
+// (link 単位を独立させ、SaveArchive を依存に持たなくても InputRecorder が
+// 単体で使えるようにする)。Meyer's singleton で table を thread-safe に初期化。
+const u32* GetCrc32Table() noexcept {
+    static u32 table[256] = {};
+    static bool initialized = false;
+    if (!initialized) {
+        for (u32 i = 0; i < 256; ++i) {
+            u32 c = i;
+            for (u32 k = 0; k < 8; ++k) {
+                c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+            }
+            table[i] = c;
+        }
+        initialized = true;
+    }
+    return table;
+}
+
+u32 ComputeCrc32(const void* data, u64 size) noexcept {
+    const u32* table = GetCrc32Table();
+    const u8*  p     = static_cast<const u8*>(data);
+    u32        crc   = 0xFFFFFFFFu;
+    for (u64 i = 0; i < size; ++i) {
+        crc = table[(crc ^ p[i]) & 0xFFu] ^ (crc >> 8);
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+// 1 sample を on-disk LE フォーマット (kSampleOnDisk バイト) に書き出す。
+void WriteSample(u8* dst, const InputSample& s) noexcept {
+    WriteU32LE(dst + 0, s.tick);
+    MemCopy(dst + 4,  s.key_codes_changed, 8);
+    MemCopy(dst + 12, s.key_states,        8);
+    WriteU32LE(dst + 20, BitsOfF32(s.mouse_pos.x));
+    WriteU32LE(dst + 24, BitsOfF32(s.mouse_pos.y));
+    dst[28] = s.mouse_button_states;
+}
+
+// 1 sample を on-disk LE フォーマット (kSampleOnDisk バイト) から復元する。
+void ReadSample(const u8* src, InputSample& out) noexcept {
+    out.tick = ReadU32LE(src + 0);
+    MemCopy(out.key_codes_changed, src + 4,  8);
+    MemCopy(out.key_states,        src + 12, 8);
+    out.mouse_pos.x          = F32FromBits(ReadU32LE(src + 20));
+    out.mouse_pos.y          = F32FromBits(ReadU32LE(src + 24));
+    out.mouse_button_states  = src[28];
+}
+
+} // namespace
 
 // -----------------------------------------------------------------------------
 // 録画開始 / 停止
@@ -123,15 +211,13 @@ void FInputRecorder::Clear() noexcept {
 }
 
 // -----------------------------------------------------------------------------
-// SaveToBuffer — Phase D-1: stub (NotImplemented を返す)
+// SaveToBuffer — `.acsr` layout で現在の samples を buffer に書き出す
 // -----------------------------------------------------------------------------
-// Phase D-2 の擬似コード:
-//   1. required = 16 (header) + sample_count * sizeof_on_disk(InputSample) + 4 (footer)
-//      ※ sizeof_on_disk は memcpy ではなく field を 1 つずつ little-endian で
-//      書き出す前提で 4 + 8 + 8 + 8 + 1 + padding = 32 B 程度を想定。
+// layout: [magic][version][tick_rate_hz][sample_count][samples...][crc32]
+//   1. required = 16 (header) + sample_count * 29 (samples) + 4 (footer)
 //   2. size < required なら kSub_BufferTooSmall
 //   3. write [magic='ACSR'][version=1][tick_rate_hz][sample_count]
-//   4. write samples (field 単位で LE エンコード)
+//   4. write samples (field 単位で LE エンコード、1 sample = 29B)
 //   5. write crc32(samples) footer
 //   6. out_written = required
 TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
@@ -140,32 +226,111 @@ TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
         return ACS_ERR(IO, kSub_NullBuffer,
                        "FInputRecorder::SaveToBuffer: buffer is null");
     }
-    (void)size;
-    // Phase 1: 実 I/O は未接続。"動くが必ず失敗する" stub にしておき、
-    // 呼び出し側 (replay 保存 UI / テスト) が TResult を握りつぶさない設計を強制する。
-    return ACS_ERR(IO, kSub_NotImplemented,
-                   "FInputRecorder::SaveToBuffer is not yet implemented (Phase D-1 stub)");
+
+    const u32 sample_count = static_cast<u32>(m_Samples.Size());
+    // 必要バイト数 = header + samples + footer。u64 で計算して overflow を避ける。
+    const u64 required64 =
+        static_cast<u64>(kHeaderSize) +
+        static_cast<u64>(sample_count) * static_cast<u64>(kSampleOnDisk) +
+        static_cast<u64>(kFooterSize);
+    if (required64 > static_cast<u64>(size)) {
+        return ACS_ERR(IO, kSub_BufferTooSmall,
+                       "FInputRecorder::SaveToBuffer: buffer too small for samples");
+    }
+    const u32 required = static_cast<u32>(required64);
+
+    // ---- header (16B) -------------------------------------------------------
+    WriteU32LE(buffer + 0,  kMagic);
+    WriteU32LE(buffer + 4,  kVersion);
+    WriteU32LE(buffer + 8,  m_TickRateHz);
+    WriteU32LE(buffer + 12, sample_count);
+
+    // ---- samples (field 単位 LE。1 sample = kSampleOnDisk バイト) -----------
+    u8* samples_begin = buffer + kHeaderSize;
+    for (u32 i = 0; i < sample_count; ++i) {
+        WriteSample(samples_begin + static_cast<u64>(i) * kSampleOnDisk, m_Samples[i]);
+    }
+
+    // ---- crc32 footer (samples 部のみを対象) --------------------------------
+    const u64 samples_bytes = static_cast<u64>(sample_count) * kSampleOnDisk;
+    const u32 crc = ComputeCrc32(samples_begin, samples_bytes);
+    WriteU32LE(samples_begin + samples_bytes, crc);
+
+    out_written = required;
+    return Ok();
 }
 
 // -----------------------------------------------------------------------------
-// LoadFromBuffer — Phase D-1: stub (NotImplemented を返す)
+// LoadFromBuffer — `.acsr` buffer を検証して samples を復元する
 // -----------------------------------------------------------------------------
-// Phase D-2 の擬似コード:
-//   1. size < 20 (header + footer 最小) なら kSub_BadSize
+// layout: [magic][version][tick_rate_hz][sample_count][samples...][crc32]
+//   1. size < 20 (header 16 + footer 4 = 最小) なら kSub_BadSize
 //   2. magic 検証 → 'ACSR' と不一致なら kSub_BadMagic
 //   3. version 検証 → kVersion と不一致なら kSub_BadVersion
-//   4. sample_count * sizeof_on_disk(InputSample) + 20 が size と一致しなければ kSub_BadSize
+//   4. sample_count * 29 + 20 が size と一致しなければ kSub_BadSize
 //   5. crc32 計算 → footer と不一致なら kSub_BadCrc
 //   6. m_Samples.Clear(); m_Samples.Reserve(sample_count); 順次 PushBack
-//   7. m_TickRateHz / m_CurrentTick を 0 にリセット (StartReplay 待ち状態)
+//   7. m_TickRateHz は header の値で更新、m_CurrentTick / m_Cursor を 0 に
+//      リセット (StartReplay 待ち状態)
 TResult<void> FInputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
                        "FInputRecorder::LoadFromBuffer: buffer is null");
     }
-    (void)size;
-    return ACS_ERR(IO, kSub_NotImplemented,
-                   "FInputRecorder::LoadFromBuffer is not yet implemented (Phase D-1 stub)");
+    // header + footer 最小サイズ。これ未満は magic すら読めない。
+    if (size < kHeaderSize + kFooterSize) {
+        return ACS_ERR(IO, kSub_BadSize,
+                       "FInputRecorder::LoadFromBuffer: buffer smaller than header+footer");
+    }
+
+    // ---- header parse -------------------------------------------------------
+    const u32 magic        = ReadU32LE(buffer + 0);
+    if (magic != kMagic) {
+        return ACS_ERR(IO, kSub_BadMagic,
+                       "FInputRecorder::LoadFromBuffer: magic mismatch (not an .acsr)");
+    }
+    const u32 version      = ReadU32LE(buffer + 4);
+    if (version != kVersion) {
+        return ACS_ERR(IO, kSub_BadVersion,
+                       "FInputRecorder::LoadFromBuffer: version mismatch");
+    }
+    const u32 tick_rate_hz = ReadU32LE(buffer + 8);
+    const u32 sample_count = ReadU32LE(buffer + 12);
+
+    // ---- sample_count とサイズの整合検証 (overflow 安全に u64 で) ------------
+    const u64 expected64 =
+        static_cast<u64>(kHeaderSize) +
+        static_cast<u64>(sample_count) * static_cast<u64>(kSampleOnDisk) +
+        static_cast<u64>(kFooterSize);
+    if (expected64 != static_cast<u64>(size)) {
+        return ACS_ERR(IO, kSub_BadSize,
+                       "FInputRecorder::LoadFromBuffer: sample_count inconsistent with size");
+    }
+
+    // ---- crc32 検証 (samples 部のみを対象) ----------------------------------
+    const u8* samples_begin = buffer + kHeaderSize;
+    const u64 samples_bytes = static_cast<u64>(sample_count) * kSampleOnDisk;
+    const u32 expected_crc  = ReadU32LE(samples_begin + samples_bytes);
+    const u32 actual_crc    = ComputeCrc32(samples_begin, samples_bytes);
+    if (actual_crc != expected_crc) {
+        return ACS_ERR(IO, kSub_BadCrc,
+                       "FInputRecorder::LoadFromBuffer: CRC32 mismatch (corrupt or tampered)");
+    }
+
+    // ---- samples を復元 (append でなく置換) ---------------------------------
+    m_Samples.Clear();
+    m_Samples.Reserve(static_cast<usize>(sample_count));
+    for (u32 i = 0; i < sample_count; ++i) {
+        InputSample s;
+        ReadSample(samples_begin + static_cast<u64>(i) * kSampleOnDisk, s);
+        m_Samples.PushBack(s);
+    }
+
+    // ---- 再生待ち状態へ。tick_rate は file 由来の値で上書きする -------------
+    m_TickRateHz  = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
+    m_CurrentTick = 0;
+    m_Cursor      = 0;
+    return Ok();
 }
 
 } // namespace acs::game

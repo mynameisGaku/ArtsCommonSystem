@@ -170,15 +170,13 @@ public:
     // 全 frames を破棄し、cursor / current_tick もリセットする。Mode は保持。
     void Clear() noexcept;
 
-    // ----- 永続化 (Phase M-2 で実装) -----
-    // SaveToBuffer: 現在の frames を上記 file layout で buffer に書き出す。
-    //   out_written には実書き込みバイト数を返す (失敗時は 0)。
-    //   Phase 1 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
+    // ----- 永続化 (上記 file layout で実装済み、round-trip 検証済み) -----
+    // SaveToBuffer: 現在の frames を file layout で buffer に書き出す。out_written に
+    //   実書き込みバイト数を返す。buffer 不足は kSub_BufferTooSmall。frames 部に CRC32。
     TResult<void> SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept;
 
-    // LoadFromBuffer: buffer の内容を解釈して frames を復元する。
-    //   呼び出し前に Clear() を呼ぶことを推奨 (本実装は append でなく置換予定)。
-    //   Phase 1 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
+    // LoadFromBuffer: buffer を解釈して frames を「置換」復元する
+    //   (magic 'ACSL' / version / size / CRC32 を検証し、不正なら Err)。
     TResult<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:

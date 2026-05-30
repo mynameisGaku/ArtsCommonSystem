@@ -160,9 +160,25 @@ public:
     // 未送信通報の件数 (queue サイズ)。
     u32 PendingReportCount() const noexcept;
 
-    // 未送信通報をまとめて backend に送信する seam。現フェーズでは SDK 未接続
-    // のため queue を空にして Ok() を返す (実 SDK 接続後は ReportPlayer を
-    // 各件に対して呼び、失敗時は残す)。
+    // これまでに backend へ「受理された」通報の累計件数 (監査 / UI 表示用)。
+    // FlushReports / SubmitReport が seam 経由で受理に成功した分だけ加算される。
+    // ClearLocalState でも 0 にリセットしない (アカウント単位の累計を保つ)。
+    u32 DeliveredReportCount() const noexcept;
+
+    // backend (FSteamworksBridge / cloud filter) への接続有無を切り替える seam。
+    // 上位レイヤ (Pillar S) が SDK 接続完了 / 切断時に呼ぶ。現フェーズでは誰も
+    // 呼ばないため false のまま → FlushReports は 1 件も受理せず queue を保持する
+    // (「送信したつもりで消える」事故を防ぐ honest な local 挙動)。
+    void SetBackendConnected(bool connected) noexcept;
+
+    // backend が接続済みか。FlushReports の挙動を呼び出し側が事前に判断する用。
+    bool IsBackendConnected() const noexcept;
+
+    // 未送信通報をまとめて backend に送信する local state machine。
+    // queue 先頭から TrySubmitToBackend() を順次呼び、受理された分だけ queue から
+    // 削除して m_Delivered を加算、未受理 (= backend 未接続) の分は queue に残す。
+    // 1 件でも残れば集約エラーを返す (呼び出し側が「全件は送れていない」と検知でき、
+    // オンライン復帰後の再フラッシュを促せる)。全件受理 or 元から空なら Ok()。
     TResult<void> FlushReports() noexcept;
 
     // ----- 全消去 -----
@@ -175,8 +191,19 @@ private:
     // 見つかったら true、なければ false。nullptr は false。
     bool FindBlocked(const char* user_id) const noexcept;
 
+    // ===== 通報送信 seam (Phase T-3 で実 SDK 接続) =====
+    // 1 件の通報を backend (Steam ReportPlayer / EOS / PSN / Xbox / NSO、もしくは
+    // クラウドフィルタ) へ送信し、受理されたら true を返す。**ネットワーク送信
+    // 本体はここで実装する** ため、現フェーズでは backend 未接続 = m_BackendConnected
+    // が false の間は常に false を返す (1 件も受理しない = queue に残す)。
+    // local state machine (FlushReports / SubmitReport) はこの戻り値だけを見て
+    // bookkeeping を行い、SDK の有無を意識しない。
+    bool TrySubmitToBackend(const ReportRecord& rep) noexcept;
+
     TArray<FBlockEntry>   m_Blocked;        // ローカルブロックリスト
     TArray<ReportRecord> m_PendingReports; // 未送信通報キュー
+    bool                 m_BackendConnected = false;  // backend 接続フラグ (seam)
+    u32                  m_Delivered        = 0;       // backend 受理済み通報の累計
 };
 
 } // namespace acs::game

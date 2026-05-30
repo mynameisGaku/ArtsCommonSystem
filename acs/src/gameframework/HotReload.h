@@ -78,6 +78,10 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#ifndef ACS_GAME_SHIPPING
+#include "container/String.h"     // FString — OS から払い出された path を UTF-8 で所有
+#include "memory/UniquePtr.h"     // TUniquePtr<WatchEntry> — OVERLAPPED アドレス安定化
+#endif
 
 namespace acs::game {
 
@@ -101,10 +105,18 @@ using HotReloadCallback = void(*)(void* user, const HotReloadEvent& ev) noexcept
 // ---- Watcher ------------------------------------------------------------
 // 開発時のファイル変更を監視し、登録済みコールバック群に dispatch するためのハブ。
 // Phase 2 では「登録 / 列挙 / event FIFO」だけを実装し、実 FS poll は Phase K-3 へ。
+// 監視ディレクトリ 1 件あたりの OS watcher 状態 (Windows: ReadDirectoryChangesW
+// の HANDLE + OVERLAPPED + 受信バッファ)。OVERLAPPED のアドレスは I/O 発行から
+// 完了まで安定している必要があるため、本体は `.cpp` 側で定義し、ここでは前方宣言
+// だけに留めて TUniquePtr で個別 heap 確保する (TArray 再確保による移動を回避)。
+struct WatchEntry;
+
 class HotReloadWatcher {
 public:
     HotReloadWatcher() noexcept = default;
-    ~HotReloadWatcher() noexcept = default;
+    // dtor は out-of-line: TUniquePtr<WatchEntry> の解放には完全型が要るが、
+    // WatchEntry は `.cpp` でのみ完全になるため (ship build では空 dtor)。
+    ~HotReloadWatcher() noexcept;
 
     // 非コピー・非ムーブ: 内部 TArray 3 本の所有を曖昧にしない。
     HotReloadWatcher(const HotReloadWatcher&)            = delete;
@@ -164,6 +176,10 @@ public:
 
 private:
 #ifndef ACS_GAME_SHIPPING
+    // pending event 先頭 1 件を物理削除 (m_PendingEvents / m_EventPaths を lockstep
+    // で先頭 shift-left)。FIFO 順を保つため swap ではなく shift。
+    void RemoveFrontEventPair() noexcept;
+
     // コールバックエントリ。POD で trivially copyable。
     struct CallbackEntry {
         HotReloadCallback cb   = nullptr;
@@ -173,6 +189,17 @@ private:
     TArray<const char*>      m_WatchedPaths;    // caller 所有の path を借用保持
     TArray<CallbackEntry>    m_Callbacks;        // (cb, user) ペア集合
     TArray<HotReloadEvent>   m_PendingEvents;   // FIFO バッファ、Tick で push、Consume で pop
+
+    // pending event が指す path 文字列の実体 (OS 由来の WCHAR を UTF-8 化して所有)。
+    // m_PendingEvents と常に lockstep: Tick で同時 push、Consume / dispatch で同時
+    // 先頭 shift、Clear で同時消し。`file_path` は cache せず Consume / dispatch 時に
+    // m_EventPaths[0].Data() から解決する (TArray 再確保で SSO 文字列のアドレスが
+    // 動いても dangling しないため)。これで「event が pending な間だけ valid」を満たす。
+    TArray<FString>          m_EventPaths;
+
+    // OS watcher 状態。WatchDirectory ごとに 1 entry を heap 確保し、Shutdown で
+    // HANDLE を閉じる。OVERLAPPED のアドレス安定化のため TUniquePtr で個別確保。
+    TArray<TUniquePtr<WatchEntry>> m_Watchers;
 #endif
 };
 

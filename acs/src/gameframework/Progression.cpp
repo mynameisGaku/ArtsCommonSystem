@@ -11,7 +11,10 @@
 // 側からは引かない方針 (依存最小化)。Milestone 達成判定は通常 1 セッション
 // あたり数十〜数百回しか走らないので、ループのオーバーヘッドは無視できる。
 #include "gameframework/Progression.h"
+#include "gameframework/SaveArchive.h"
 #include "platform/Time.h"
+#include "container/Array.h"
+#include "foundation/Log.h"
 
 namespace acs::game {
 
@@ -28,6 +31,64 @@ bool StrEq(const char* a, const char* b) noexcept {
     }
     return *a == '\0' && *b == '\0';
 }
+
+// ---- 永続化フォーマット定数 -----------------------------------------------
+// FSaveArchive payload の schema バージョン。レイアウト変更時に bump する。
+constexpr u32 kProgressionSaveVersion = 1u;
+
+// id 文字列の FNV-1a 32bit ハッシュ。InputMap.h の ActionHash と同一規約
+// (offset basis 2166136261, prime 16777619)。永続化キーとして使い、リテラル
+// 提示順に依存しない安定 ID を得る。id == nullptr は 0 を返す (RegisterMilestone
+// 時点で nullptr id は弾かれているので実際には来ない)。
+u32 HashId(const char* id) noexcept {
+    if (id == nullptr) return 0u;
+    u32 h = 2166136261u;
+    while (*id != '\0') {
+        h ^= static_cast<u32>(static_cast<unsigned char>(*id));
+        h *= 16777619u;
+        ++id;
+    }
+    return h;
+}
+
+// ---- little-endian バイト列ライタ (TArray<u8> 末尾追記) --------------------
+// FSaveArchive と同じ LE 規約。MemCopy ではなくシフトで書くのでホスト
+// endianness 非依存。
+void AppendU32LE(TArray<u8>& buf, u32 v) noexcept {
+    buf.PushBack(static_cast<u8>(v        & 0xFFu));
+    buf.PushBack(static_cast<u8>((v >> 8 ) & 0xFFu));
+    buf.PushBack(static_cast<u8>((v >> 16) & 0xFFu));
+    buf.PushBack(static_cast<u8>((v >> 24) & 0xFFu));
+}
+
+void AppendU64LE(TArray<u8>& buf, u64 v) noexcept {
+    for (u32 i = 0; i < 8; ++i) {
+        buf.PushBack(static_cast<u8>((v >> (i * 8)) & 0xFFull));
+    }
+}
+
+// ---- little-endian バイト列リーダ (境界チェックは呼出側) ------------------
+u32 ReadU32LE(const u8* p) noexcept {
+    return static_cast<u32>(p[0])
+         | (static_cast<u32>(p[1]) << 8)
+         | (static_cast<u32>(p[2]) << 16)
+         | (static_cast<u32>(p[3]) << 24);
+}
+
+u64 ReadU64LE(const u8* p) noexcept {
+    u64 v = 0;
+    for (u32 i = 0; i < 8; ++i) {
+        v |= static_cast<u64>(p[i]) << (i * 8);
+    }
+    return v;
+}
+
+// ---- per-entry のバイト数 ---------------------------------------------------
+// id_hash(u32=4) + achieved(u8=1) + pad(3) + timestamp(u64=8) = 16 バイト。
+// achieved の後ろを 3 バイト pad して timestamp を 8byte 境界に揃え、
+// レイアウトを読みやすくする (pad はゼロ書き)。
+constexpr usize kEntrySize  = 16;
+constexpr usize kHeaderPart = 8;  // xp(u32) + count(u32)
 
 // floor(log2(v)) を非負整数ループで算出。
 //   v == 0 は呼出側で弾く前提 (log2(0) は未定義)。
@@ -195,34 +256,127 @@ void FProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexc
 }
 
 // ============================================================================
-// 永続化 (Phase 2 で実装)
-// ============================================================================
-// Phase 1 は TODO スタブ。形だけ TResult<void> を返して呼出側の構造を
-// 先に組めるようにする。Phase 2 で FSaveSlot<ProgressionSaveData> 経由の
-// atomic write + 読み取りに接続する。
+// 永続化 — FSaveArchive 経由の binary I/O
+// ----------------------------------------------------------------------------
+// payload レイアウト (すべて little-endian、schema version = kProgressionSaveVersion):
 //
-// 永続化対象 (Phase 2 設計案):
-//   ・累計 XP (u32)
-//   ・各 milestone の達成フラグと timestamp を id でキーにしたペア配列
-//     → スキーマ進化を考えると単純な memcpy では足りないため、
-//        FSaveArchive 経由の field-by-field writer を導入してから実装する。
+//   offset  size  field        説明
+//   ------  ----  -----------  -------------------------------------------------
+//   0x00    4     xp           累計 XP (m_Xp)
+//   0x04    4     count        後続 entry 数 (= 登録 milestone 数)
+//   0x08    16*N  entries[N]   各 milestone の {id_hash, achieved, pad, timestamp}
+//
+//   1 entry (16 バイト):
+//     +0   4   id_hash             def.id の FNV-1a 32bit hash (永続キー)
+//     +4   1   achieved            0/1
+//     +5   3   pad                 ゼロ詰め (timestamp の 8byte 整列用)
+//     +8   8   achieved_timestamp  Clock::MillisSinceStartup() の値
+//
+// header / magic / CRC32 / atomic な truncate-write は FSaveArchive が担う。
+// id は文字列ではなく FNV-1a hash で書き出すことで、リテラルの提示順や
+// アドレスに依存しない安定キーで Load 時に突き合わせできる。
+// ============================================================================
 TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
-    (void)file_path;
-    // TODO(Phase 2): FSaveSlot<ProgressionSaveData> 経由で atomic write。
-    //   ・xp (u32)
-    //   ・achieved_count (u32)
-    //   ・[ {id_hash, achieved_flag, achieved_timestamp_ms}, ... ]
-    //   id は文字列ではなく FNV-1a 等のハッシュ値で保存する想定 (リテラル文字列を
-    //   そのまま書き出すと提示順次第で破損するため)。
-    return Ok();
+    if (file_path == nullptr) {
+        return ACS_ERR(IO, 0, "FProgression::Save: file_path is null");
+    }
+
+    const usize n = m_Defs.Size();
+
+    // payload バッファを組み立てる (xp + count + N*entry)。
+    TArray<u8> payload;
+    payload.Reserve(kHeaderPart + n * kEntrySize);
+
+    AppendU32LE(payload, m_Xp);
+    AppendU32LE(payload, static_cast<u32>(n));
+
+    for (usize i = 0; i < n; ++i) {
+        const MilestoneState& st = _states[i];
+        AppendU32LE(payload, HashId(m_Defs[i].id));
+        payload.PushBack(st.achieved ? 1u : 0u);
+        payload.PushBack(0u);  // pad
+        payload.PushBack(0u);  // pad
+        payload.PushBack(0u);  // pad
+        AppendU64LE(payload, st.achieved_timestamp);
+    }
+
+    return FSaveArchive::WriteToFile(file_path,
+                                     kProgressionSaveVersion,
+                                     payload.Data(),
+                                     static_cast<u64>(payload.Size()));
 }
 
 TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
-    (void)file_path;
-    // TODO(Phase 2): Save と対称な reader を実装。読み込んだ id_hash を
-    //   現在登録済みの milestone 群と突き合わせ、一致した分だけ achieved /
-    //   achieved_timestamp を復元する。未知の id_hash は警告して skip
-    //   (旧バージョンで登録されたが現バージョンで削除された milestone)。
+    if (file_path == nullptr) {
+        return ACS_ERR(IO, 0, "FProgression::Load: file_path is null");
+    }
+
+    // payload サイズを先読みしてバッファを確保する。
+    auto size_r = FSaveArchive::PeekPayloadSize(file_path);
+    if (size_r.IsErr()) return size_r.Error();
+    const u64 payload_size = size_r.Value();
+
+    if (payload_size < static_cast<u64>(kHeaderPart)) {
+        return ACS_ERR(Asset, 0, "FProgression::Load: payload smaller than header");
+    }
+
+    TArray<u8> payload;
+    payload.Resize(static_cast<usize>(payload_size));
+
+    u64 actual_size = 0;
+    auto rd = FSaveArchive::ReadFromFile(file_path,
+                                         payload.Data(),
+                                         payload_size,
+                                         kProgressionSaveVersion,
+                                         actual_size);
+    if (rd.IsErr()) return rd.Error();
+
+    const u8* p = payload.Data();
+    const u32 xp    = ReadU32LE(p + 0);
+    const u32 count = ReadU32LE(p + 4);
+
+    // entry 群が payload に収まることを検証 (破損 / 改竄に対する境界チェック)。
+    const u64 need = static_cast<u64>(kHeaderPart)
+                   + static_cast<u64>(count) * static_cast<u64>(kEntrySize);
+    if (need > payload_size) {
+        return ACS_ERR(Asset, 0, "FProgression::Load: entry count exceeds payload size");
+    }
+
+    // 検証を通ったので状態を反映する。まず全状態を未達成に戻し、
+    // ファイルに記録された分だけ id_hash で突き合わせて復元する。
+    m_Xp = xp;
+    const usize ns = _states.Size();
+    for (usize i = 0; i < ns; ++i) {
+        _states[i].achieved           = false;
+        _states[i].achieved_timestamp = 0;
+    }
+
+    usize off = kHeaderPart;
+    for (u32 e = 0; e < count; ++e) {
+        const u8* ep            = p + off;
+        const u32 id_hash       = ReadU32LE(ep + 0);
+        const bool achieved     = (ep[4] != 0u);
+        const u64 timestamp     = ReadU64LE(ep + 8);
+        off += kEntrySize;
+
+        // 現在登録済みの milestone から同 hash を線形探索して復元する。
+        // 見つからない id_hash (旧バージョンで削除された milestone 等) は
+        // 警告して skip する。
+        bool matched = false;
+        for (usize i = 0; i < ns; ++i) {
+            if (HashId(m_Defs[i].id) == id_hash) {
+                _states[i].achieved           = achieved;
+                _states[i].achieved_timestamp = timestamp;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            ACS_LOG_WARN("FProgression::Load: unknown milestone id_hash=0x%08x (skipped)",
+                         id_hash);
+        }
+    }
+
     return Ok();
 }
 

@@ -134,11 +134,36 @@ public:
     EPartyState State()        const noexcept { return _state; }
 
     // ----- メンバアクセス -----
+    // FindMember() が「見つからない」を表す番兵 (u32 全 1)。MemberCount() より
+    // 大きい値なので GetMember() にそのまま渡しても安全に nullptr を返す。
+    static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
+
     // パーティ内メンバ数 (自分含む)。Solo 状態は 0。
     u32                MemberCount() const noexcept;
 
     // メンバ生バッファ (MemberCount() 件)。Leave / Add 系で無効化される。
     const PartyMember* Members()     const noexcept;
+
+    // ----- ローカルメンバ roster 操作 -----
+    // メンバを 1 件追加 (自分含むローカルロスター)。player_id == nullptr は
+    // Generic+8 でエラー。同 player_id が既に居る場合は dedup して上書きせず
+    // Generic+9 でエラー (二重追加を呼び出し側が検知できるように)。SDK 側で
+    // accept された相手をこの API でローカル roster に流し込む想定。
+    TResult<void> AddMember(const PartyMember& member) noexcept;
+
+    // player_id 一致のメンバを削除し true。順序を保ったまま前詰めする。
+    // 見つからない / nullptr の場合は false (no-op、エラーにはしない)。
+    bool RemoveMember(const char* player_id) noexcept;
+
+    // index 番のメンバへの非所有ポインタ。範囲外 (kInvalidIndex 含む) は nullptr。
+    const PartyMember* GetMember(u32 index) const noexcept;
+
+    // player_id 一致のメンバが居るか。nullptr は false。
+    bool HasMember(const char* player_id) const noexcept;
+
+    // player_id 一致のメンバの index を返す。見つからない / nullptr は
+    // kInvalidIndex。GetMember() にそのまま渡せる。
+    u32 FindMember(const char* player_id) const noexcept;
 
     // ----- フレームごとの状態更新 -----
     // Joining / Leaving の timeout 監視 + 仮想 SDK 完了の状態遷移。

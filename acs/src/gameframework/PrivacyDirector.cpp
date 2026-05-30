@@ -8,12 +8,22 @@
 //   ・RevokeConsent(Required) も同様
 //   ・HasConsent(Required) は仕様により常に true
 //
-// Save/Load は Phase 1 では stub (NotImplemented)。Phase 2 で FSaveSlot や
-// FAssetPack 経由でバイナリ永続化する予定。永続化先は ConsentStatus 構造体
-// 単体を想定 (POD として完結している)。
+// Save/Load は FSaveSlot<ConsentStatus> 経由でローカルにバイナリ永続化する。
+// GDPR/CCPA の同意情報は端末ローカルに保持する性質のものなので、プラット
+// フォーム backend は不要 (クラウド同期は将来の別案件)。永続化単位は
+// ConsentStatus 構造体単体 (POD として完結している)。
 #include "gameframework/PrivacyDirector.h"
 
+#include "gameframework/SaveSlot.h"   // FSaveSlot<T> (FSaveArchive 経由の永続化)
+
 namespace acs::game {
+
+// ----- 永続化フォーマット定数 ----------------------------------------------
+
+// consent ファイルの schema version。policy_version (= ポリシー文言の版) とは
+// 別物で、こちらは ConsentStatus の **バイナリレイアウト** に対する版番号。
+// レイアウトを変えたら +1 し、旧ファイル読込時に kSubMigrationNeeded で検知する。
+static constexpr u32 kConsentSchemaVersion = 1u;
 
 // ----- 内部ヘルパ -----------------------------------------------------------
 
@@ -126,7 +136,7 @@ void FPrivacyDirector::Reset() noexcept {
     m_bInitialConsentShown  = false;
 }
 
-// ----- 永続化 (Phase 1 stub) ------------------------------------------------
+// ----- 永続化 ---------------------------------------------------------------
 
 TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
@@ -137,12 +147,18 @@ TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
         return ACS_ERR(IO, kSub_NotInitialized,
                        "FPrivacyDirector::SaveConsent called before Init()");
     }
-    // Phase 2 の擬似コード:
-    //   1. FSaveSlot<ConsentStatus> slot; slot.Init(file_path);
-    //   2. slot.Save(_status);
-    //   3. エラーは TResult<void> でそのまま伝搬。
-    return ACS_ERR(IO, kSub_NotImplemented,
-                   "FPrivacyDirector::SaveConsent is not yet implemented (Phase 1 stub)");
+
+    // 保存直前に「現在のポリシー版」を同意状態へ焼き込む。これにより次回起動の
+    // LoadConsent + IsPolicyOutdated() 判定が成立する (= 古いポリシーで同意した
+    // ことが stored < current として検出できる)。
+    _status.policy_version = m_CurrentPolicyVersion;
+
+    // ConsentStatus は POD (enum / u64 / u32 のみ) なので FSaveSlot にそのまま
+    // 委譲できる。Save 内部で FSaveArchive が 24B header + payload + CRC32 を
+    // little-endian で書き出す。
+    FSaveSlot<ConsentStatus> slot;
+    slot.Init(file_path);
+    return slot.Save(_status, kConsentSchemaVersion);
 }
 
 TResult<void> FPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
@@ -154,16 +170,30 @@ TResult<void> FPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
         return ACS_ERR(IO, kSub_NotInitialized,
                        "FPrivacyDirector::LoadConsent called before Init()");
     }
-    // Phase 2 の擬似コード:
-    //   1. FSaveSlot<ConsentStatus> slot; slot.Init(file_path);
-    //   2. if (!slot.Exists()) return Ok();   // 初回起動扱い (ダイアログ強制)
-    //   3. auto r = slot.Load();
-    //   4. if (r) {
-    //        _status = r.Value();
-    //        m_bInitialConsentShown = true;   // 過去に同意済み → ダイアログ不要
-    //      }
-    return ACS_ERR(IO, kSub_NotImplemented,
-                   "FPrivacyDirector::LoadConsent is not yet implemented (Phase 1 stub)");
+
+    FSaveSlot<ConsentStatus> slot;
+    slot.Init(file_path);
+
+    // ファイルが無いのは「初回起動」= エラーではない。_status は Required のみの
+    // ままにして Ok() を返し、RequiresInitialConsent() に同意ダイアログを強制
+    // させる (m_bInitialConsentShown は触らない)。
+    if (!slot.Exists()) {
+        return Ok();
+    }
+
+    auto r = slot.Load(kConsentSchemaVersion);
+    if (r.IsErr()) {
+        // version 不一致 (kSubMigrationNeeded) / CRC 破損 / I/O 失敗はそのまま
+        // 伝搬する。呼び出し側は「壊れた consent → 再同意」を選べるが、ここで
+        // 勝手に Ok 扱いにはしない (誤って追跡を開始する事故を避ける)。
+        return r.Error();
+    }
+
+    // 復元成功: 過去に同意操作が行われた証拠なので、初回ダイアログは不要にする。
+    // (全カテゴリ reject = mask が Required のみでも「ダイアログは提示済み」)。
+    _status                = r.Value();
+    m_bInitialConsentShown = true;
+    return Ok();
 }
 
 } // namespace acs::game

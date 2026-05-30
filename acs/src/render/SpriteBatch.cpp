@@ -508,8 +508,4 @@ void FSpriteBatch::Flush() noexcept {
     m_CurrentTex   = nullptr;
 }
 
-void FSpriteBatch::EnsurePipeline() noexcept {
-    // 現状未使用。RT フォーマットが動的に変わる場合のリビルドフックの placeholder
-}
-
 } // namespace acs

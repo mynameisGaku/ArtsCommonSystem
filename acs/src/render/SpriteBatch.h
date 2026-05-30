@@ -139,7 +139,6 @@ private:
     };
 
     void Flush() noexcept;
-    void EnsurePipeline() noexcept;
     void WriteScreenCBuffer() noexcept;   // screen サイズ + view を現 view バッファに書く
     void AdvanceViewBuffer() noexcept;    // 次の view 定数バッファへ (フレーム内の view 切替ごと)
     void BindViewBuffer() noexcept;       // 現 view 定数バッファを slot0 に bind

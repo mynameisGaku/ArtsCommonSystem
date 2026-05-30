@@ -102,6 +102,23 @@ const FBlockEntry* FSocialModeration::AllBlocked(u32& out_count) const noexcept 
     return m_Blocked.Data();
 }
 
+bool FSocialModeration::TrySubmitToBackend(const ReportRecord& rep) noexcept {
+    (void)rep;  // 現フェーズでは未使用 (seam の引数だけ確定させておく)。
+    // ===== seam: 実ネットワーク送信本体 (Phase T-3 で実装) =====
+    // backend 未接続なら受理しない → 呼び出し側 (SubmitReport / FlushReports) が
+    // queue に残し、「送信したつもりで消える」事故を防ぐ。
+    // Phase T-3 でここに FSteamworksBridge.ReportPlayer(rep) 等を実装し、SDK が
+    // 受理 (HTTP 2xx / SDK success) を返したら true を返すように差し替える。
+    if (!m_BackendConnected) {
+        return false;
+    }
+    // backend 接続済みでも、実送信ロジック未実装の現フェーズでは受理しない。
+    // (SetBackendConnected(true) を seam テストで呼んでも、まだ送信本体が無いため
+    //  false を返す。これにより「接続フラグだけ立てて中身は空」という嘘の成功を
+    //  作らない — Phase T-3 で送信実装と同時に true 返却へ差し替える。)
+    return false;
+}
+
 TResult<void> FSocialModeration::SubmitReport(const ReportRecord& rep) noexcept {
     if (rep.reported_user_id == nullptr) {
         // 通報対象が空なら審査側で識別不能 (必須項目)。Generic + subcode 1。
@@ -110,11 +127,15 @@ TResult<void> FSocialModeration::SubmitReport(const ReportRecord& rep) noexcept 
     // 通報者 (reporter_user_id) と note は欠落許容: 匿名通報 / 種別のみ通報の
     // ケースをサポート (プラットフォームによっては reporter 非公開で送信可能)。
 
-    // 現フェーズでは SDK 未接続のため queue に積むだけで Ok() を返す。
-    // Phase T-3 で FSteamworksBridge.ReportPlayer(rep) を呼び、成功時は queue に
-    // 積まない / 失敗時のみ積む挙動に変更する予定。
-    m_PendingReports.PushBack(rep);
-    // TODO(Phase T-3): bridge 経由で同期送信を試みる。失敗時のみ queue に残す。
+    // まず seam 経由で同期送信を試みる。受理されれば queue に積まず累計のみ加算。
+    // 未受理 (現フェーズは常にこちら) なら pending queue に保持し、後で
+    // FlushReports() による再送に委ねる (オフライン耐性)。どちらの経路でも
+    // 「通報を受け付けた」ことは保証されるため呼び出し側には Ok() を返す。
+    if (TrySubmitToBackend(rep)) {
+        ++m_Delivered;
+    } else {
+        m_PendingReports.PushBack(rep);
+    }
     return Ok();
 }
 
@@ -122,13 +143,52 @@ u32 FSocialModeration::PendingReportCount() const noexcept {
     return static_cast<u32>(m_PendingReports.Size());
 }
 
+u32 FSocialModeration::DeliveredReportCount() const noexcept {
+    return m_Delivered;
+}
+
+void FSocialModeration::SetBackendConnected(bool connected) noexcept {
+    // Pillar S 側が SDK 接続完了 / 切断時に呼ぶ seam。接続状態を切り替えるだけで
+    // 自動フラッシュはしない (フラッシュ契機は呼び出し側が FlushReports で制御)。
+    m_BackendConnected = connected;
+}
+
+bool FSocialModeration::IsBackendConnected() const noexcept {
+    return m_BackendConnected;
+}
+
 TResult<void> FSocialModeration::FlushReports() noexcept {
-    // 現フェーズでは SDK 未接続のため queue を空にして Ok() を返す。
-    // Phase T-3 で bridge.ReportPlayer(m_PendingReports[i]) を順次呼び、
-    // 成功した分だけ queue から削除する挙動に変更する。失敗が混在した場合は
-    // 部分成功扱い (成功分は削除、失敗分は queue に残す + 集約エラーを返す)。
-    m_PendingReports.Clear();
-    // TODO(Phase T-3): bridge 経由で全件送信、失敗分は queue に残す。
+    // 未送信通報を queue 先頭から順に seam へ流す local state machine。
+    // 受理された分だけ前方に詰め直さず「残す側」を後ろから前へ走査して
+    // RemoveAtSwap で抜く設計だと順序が崩れ、通報の時系列が乱れる。通報は
+    // timestamp 昇順 (= 追加順) を保ったまま再送したいので、前から走査しつつ
+    // 受理分をスキップして「残す分」を in-place で前詰めする安定圧縮を行う。
+    const usize n     = m_PendingReports.Size();
+    usize       keep  = 0;   // 残す要素の書き込み先 (前詰めカーソル)
+    u32         failed = 0;  // 未受理 (= queue に残った) 件数
+
+    for (usize i = 0; i < n; ++i) {
+        if (TrySubmitToBackend(m_PendingReports[i])) {
+            // 受理: queue から落とす (前詰めしない) + 累計加算。
+            ++m_Delivered;
+        } else {
+            // 未受理: 順序を保って前方へ詰め直す。
+            if (keep != i) {
+                m_PendingReports[keep] = m_PendingReports[i];
+            }
+            ++keep;
+            ++failed;
+        }
+    }
+    // 末尾の余剰 (受理して落とした分) を捨てて queue サイズを残存数に縮める。
+    m_PendingReports.Resize(keep);
+
+    if (failed != 0) {
+        // 1 件でも残れば「全件は送れていない」ことを集約エラーで通知。
+        // 呼び出し側はオンライン復帰後に再度 FlushReports を呼ぶ契機にできる。
+        return ACS_ERR(Generic, 2,
+                       "FSocialModeration::FlushReports: backend not connected; reports remain queued");
+    }
     return Ok();
 }
 
@@ -138,6 +198,8 @@ void FSocialModeration::ClearLocalState() noexcept {
     // 別途 UnblockUser を呼ぶか、SDK 自身の管理画面から消す必要がある)。
     m_Blocked.Clear();
     m_PendingReports.Clear();
+    // m_Delivered は累計監査値なのでリセットしない。m_BackendConnected も接続状態
+    // を表す seam フラグであり local state ではないため触らない。
 }
 
 } // namespace acs::game

@@ -41,16 +41,17 @@
 //     再同意が必要になる (GDPR Article 7 規定)。Init() に渡した値を
 //     "current" として保持し、保存側 stored < current なら IsPolicyOutdated()
 //     が true を返して再同意を促す。
-//   ・**Save/Load は stub**: 永続化は FAssetPack/FSaveSlot 接続後に Phase 2 で
-//     実装する。現段階では API 形状だけ確定し、ACS_ERR(IO, kSub_NotImplemented)
-//     を返す stub にしておく (FSaveSlot 等と同じ規約)。
+//   ・**Save/Load = ローカル永続化**: FSaveSlot<ConsentStatus> 経由で端末ローカル
+//     に `.acssave` バイナリ (24B header + payload + CRC32) として書き出す。
+//     GDPR/CCPA の同意情報は端末ローカルに保持する性質のものなので、プラット
+//     フォーム backend には依存しない (クラウド同期は将来の別案件)。
 //   ・**非コピー・非ムーブ**: アプリ全体で 1 個運用される director なので、
 //     誤って値渡しされて consent 状態が分裂しないよう移動コンストラクタも禁止。
 //   ・**全 noexcept**: ACS 規約に従い例外なし。TResult<void, FErrorCode> で
 //     エラーを伝搬する。
 //
 // 範囲外 (Phase 2+ で):
-//   ・Save/Load の実 I/O 接続 (FSaveSlot/FAssetPack 経由でバイナリ永続化)
+//   ・consent 設定のクラウド同期 (端末間で同意状態を共有する Backend 連携)
 //   ・consent 取得 UI そのもの (ゲーム側 / Editor 側で別途実装)
 //   ・地域判定 (GDPR 地域だけダイアログを強制する 等の policy)
 //   ・consent 変更時の subscribe コールバック (今は pull 型のみ)
@@ -164,19 +165,24 @@ public:
     //   テストとデバッグ用。本番フローでは呼ばない。
     void Reset() noexcept;
 
-    // ----- 永続化 (Phase 1: stub) -----
-    // SaveConsent: file_path に ConsentStatus をバイナリ保存する。
-    //   Phase 1 では ACS_ERR(IO, kSub_NotImplemented) を返す stub。
+    // ----- 永続化 (ローカルファイル) -----
+    // SaveConsent: file_path に ConsentStatus を `.acssave` バイナリ保存する。
+    //   保存直前に現在の policy_version を焼き込むため、次回 Load 後の
+    //   IsPolicyOutdated() 判定が成立する。下層 I/O は FSaveSlot に委譲。
     // LoadConsent: file_path から ConsentStatus を読み出して内部状態を復元する。
-    //   Phase 1 では ACS_ERR(IO, kSub_NotImplemented) を返す stub。
+    //   ファイルが存在しない場合は「初回起動」扱いで Ok() を返し (= ダイアログ
+    //   強制)、復元成功時は m_bInitialConsentShown を true にする。version 不一致
+    //   (kSubMigrationNeeded) / CRC 破損 / I/O 失敗はそのまま Err で伝搬する。
     TResult<void> SaveConsent(const wchar_t* file_path) noexcept;
     TResult<void> LoadConsent(const wchar_t* file_path) noexcept;
 
     // 共通エラー subcode (TResult<...,FErrorCode> の subcode に入る)。
+    // 下層 I/O 由来のエラー (CRC 破損 / version 不一致 / 下層 file not found 等)
+    // は ESaveArchiveSubCode (gameframework/SaveArchive.h) の値で返るため、
+    // 呼び出し側はそちらも参照して分岐できる。
     enum SubCode : u16 {
         kSub_NotInitialized = 1,  // Init() 未呼出で Save/Load した
         kSub_BadPath        = 2,  // file_path が nullptr
-        kSub_NotImplemented = 99, // Phase 1 stub
     };
 
 private:

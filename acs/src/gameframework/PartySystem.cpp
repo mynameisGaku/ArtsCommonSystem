@@ -122,6 +122,58 @@ const PartyMember* FPartySystem::Members() const noexcept {
     return m_Members.Data();
 }
 
+u32 FPartySystem::FindMember(const char* player_id) const noexcept {
+    if (player_id == nullptr) return kInvalidIndex;
+    const usize n = m_Members.Size();
+    for (usize i = 0; i < n; ++i) {
+        if (StrEq(m_Members[i].player_id, player_id)) {
+            return static_cast<u32>(i);
+        }
+    }
+    return kInvalidIndex;
+}
+
+bool FPartySystem::HasMember(const char* player_id) const noexcept {
+    return FindMember(player_id) != kInvalidIndex;
+}
+
+const PartyMember* FPartySystem::GetMember(u32 index) const noexcept {
+    // kInvalidIndex を含む範囲外は安全に nullptr (FindMember の戻り値を
+    // チェック無しで渡しても落ちないように)。
+    if (static_cast<usize>(index) >= m_Members.Size()) return nullptr;
+    return &m_Members[index];
+}
+
+TResult<void> FPartySystem::AddMember(const PartyMember& member) noexcept {
+    if (member.player_id == nullptr) {
+        // SDK 取得失敗時の nullptr 流入で roster を壊さない。Generic+8。
+        return ACS_ERR(Generic, 8, "FPartySystem::AddMember: player_id is null");
+    }
+    // 同 player_id の二重追加は上書きせずエラーで弾く (呼び出し側が
+    // accept イベントを取りこぼして再送した等を検知できるように)。Generic+9。
+    if (FindMember(member.player_id) != kInvalidIndex) {
+        return ACS_ERR(Generic, 9, "FPartySystem::AddMember: duplicate player_id");
+    }
+    m_Members.PushBack(member);
+    return Ok();
+}
+
+bool FPartySystem::RemoveMember(const char* player_id) noexcept {
+    const u32 idx = FindMember(player_id);
+    if (idx == kInvalidIndex) {
+        // nullptr / 不在は no-op。呼び出し側でリトライ判定しやすいよう false。
+        return false;
+    }
+    // 順序を保ったまま前詰め (RemoveAtSwap だとリーダー先頭の並びが崩れ、
+    // UI のメンバ表示順が安定しないため線形シフトを選択)。
+    const usize n = m_Members.Size();
+    for (usize i = static_cast<usize>(idx) + 1; i < n; ++i) {
+        m_Members[i - 1] = m_Members[i];
+    }
+    m_Members.PopBack();
+    return true;
+}
+
 void FPartySystem::Tick(f32 dt) noexcept {
     // Solo / InParty では時間進行は不要 (将来 idle 検出を入れる場合はここを拡張)。
     if (_state == EPartyState::Joining) {

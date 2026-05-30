@@ -20,6 +20,8 @@
 //     より強い hash (xxHash3 / CRC-64) は Phase M-2 で考慮する。
 #include "gameframework/Lockstep.h"
 
+#include "memory/Memory.h"   // MemCopy
+
 namespace acs::game {
 
 namespace {
@@ -27,6 +29,63 @@ namespace {
 // FNV-1a 64-bit 定数 (RFC 風)。
 constexpr u64 kFnvOffsetBasis = 0xCBF29CE484222325ull;
 constexpr u64 kFnvPrime       = 0x100000001B3ull;
+
+// =============================================================================
+// SaveToBuffer / LoadFromBuffer 用フォーマット定数
+// -----------------------------------------------------------------------------
+// レイアウト (すべて little-endian):
+//   [magic 'ACSL'][version][tick_rate_hz][frame_count][frames...][crc32]
+// crc32 は frames 部 (header と footer を除いた本体) のみを対象に計算する
+// (FSaveArchive の payload CRC と同じ思想)。
+// InputFrame は padding を含む POD なので生 memcpy はせず、各フィールドを
+// 固定幅の wire layout (tick=4 / player_id=4 / buttons=1 / axis.x=4 / axis.y=4
+// = 17 B) で書き出す。これで ABI / padding に依存しない bit-precise な永続化に
+// なる (デターミニズム検証用途では再現性が最重要)。
+// =============================================================================
+constexpr u8  kMagic[4]       = { 'A', 'C', 'S', 'L' };  // 'ACSL'
+constexpr u32 kFormatVersion  = 1u;
+constexpr u32 kHeaderSize     = 16u;  // magic(4) + version(4) + tick_rate_hz(4) + frame_count(4)
+constexpr u32 kFrameWireSize  = 17u;  // tick(4) + player_id(4) + buttons(1) + axis.x(4) + axis.y(4)
+constexpr u32 kFooterSize     = 4u;   // crc32
+
+// ---- CRC32 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) ----------------------
+// FSaveArchive / assetpack と同一実装 (link 単位を独立させるためここでも単独に
+// 持つ — gameframework は assetpack を依存に持たない)。Meyer's singleton で
+// thread-safe な lookup table 初期化を行う。
+const u32* GetCrc32Table() noexcept {
+    static u32 m_Table[256] = {};
+    static bool m_Initialized = false;
+    if (!m_Initialized) {
+        for (u32 i = 0; i < 256; ++i) {
+            u32 c = i;
+            for (u32 k = 0; k < 8; ++k) {
+                c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+            }
+            m_Table[i] = c;
+        }
+        m_Initialized = true;
+    }
+    return m_Table;
+}
+
+// バイト列の CRC32 を計算する (Zlib / PNG 規約)。
+u32 ComputeCrc32(const void* data, u64 size) noexcept {
+    const u32* table = GetCrc32Table();
+    const u8*  p     = static_cast<const u8*>(data);
+    u32        crc   = 0xFFFFFFFFu;
+    for (u64 i = 0; i < size; ++i) {
+        crc = table[(crc ^ p[i]) & 0xFFu] ^ (crc >> 8);
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+// ---- little-endian 読み書き helper (strict-aliasing 安全) -----------------
+// FSaveArchive と同じく MemCopy 経由でバイトコピーする。ホスト側も LE 前提。
+void WriteU32LE(u8* dst, u32 v) noexcept { MemCopy(dst, &v, sizeof(u32)); }
+
+u32 ReadU32LE(const u8* src) noexcept {
+    u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v;
+}
 
 // 1 バイトを FNV-1a で混ぜる。
 inline u64 FnvFold(u64 h, u8 byte) noexcept {
@@ -56,6 +115,13 @@ inline u32 BitsOf(f32 v) noexcept {
     out |= static_cast<u32>(src[1]) << 8;
     out |= static_cast<u32>(src[2]) << 16;
     out |= static_cast<u32>(src[3]) << 24;
+    return out;
+}
+
+// BitsOf の逆: u32 ビットパターンを f32 に読み替える (strict-aliasing 安全)。
+inline f32 F32FromBits(u32 bits) noexcept {
+    f32 out = 0.0f;
+    MemCopy(&out, &bits, sizeof(f32));
     return out;
 }
 
@@ -144,14 +210,15 @@ void FLockstep::Clear() noexcept {
 }
 
 // -----------------------------------------------------------------------------
-// SaveToBuffer — Phase M-1: stub (NotImplemented を返す)
+// SaveToBuffer — frames を [magic][version][tick_rate_hz][frame_count][frames][crc32]
+//                レイアウトで buffer に書き出す。
 // -----------------------------------------------------------------------------
-// Phase M-2 の擬似コード:
-//   1. required = 16 (header) + frame_count * sizeof(InputFrame) + 4 (footer)
+// 手順:
+//   1. required = header(16) + frame_count * 17 + footer(4)
 //   2. size < required なら kSub_BufferTooSmall
-//   3. write [magic][version][tick_rate_hz][frame_count]
-//   4. write frames (bulk memcpy)
-//   5. write crc32(frames) footer
+//   3. write header [magic][version][tick_rate_hz][frame_count]
+//   4. write frames (各 17 B の固定 wire layout、padding 非依存)
+//   5. write crc32(frames 部) footer
 //   6. out_written = required
 TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
     out_written = 0;
@@ -159,32 +226,129 @@ TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
         return ACS_ERR(IO, kSub_NullBuffer,
                        "FLockstep::SaveToBuffer: buffer is null");
     }
-    (void)size;
-    // Phase 1: 実 I/O は未接続。"動くが必ず失敗する" stub にしておき、
-    // 呼び出し側 (replay 保存 UI / テスト) が TResult を握りつぶさない設計を強制する。
-    return ACS_ERR(IO, kSub_NotImplemented,
-                   "FLockstep::SaveToBuffer is not yet implemented (Phase M-1 stub)");
+
+    const u32 frame_count = static_cast<u32>(m_Frames.Size());
+    // 必要バイト数。frame_count を u64 に広げて 32bit 乗算オーバーフローを避ける。
+    const u64 required64 =
+        static_cast<u64>(kHeaderSize) +
+        static_cast<u64>(frame_count) * static_cast<u64>(kFrameWireSize) +
+        static_cast<u64>(kFooterSize);
+    if (static_cast<u64>(size) < required64) {
+        return ACS_ERR(IO, kSub_BufferTooSmall,
+                       "FLockstep::SaveToBuffer: buffer too small for frames");
+    }
+    const u32 required = static_cast<u32>(required64);
+
+    // ---- header (16 B) ---------------------------------------------------
+    MemCopy(buffer, kMagic, sizeof(kMagic));      // 0x00: magic 'ACSL'
+    WriteU32LE(buffer + 4,  kFormatVersion);      // 0x04: version
+    WriteU32LE(buffer + 8,  m_TickRateHz);        // 0x08: tick_rate_hz
+    WriteU32LE(buffer + 12, frame_count);         // 0x0C: frame_count
+
+    // ---- frames (各 17 B、固定 wire layout) ------------------------------
+    u8* frames_begin = buffer + kHeaderSize;
+    u8* p = frames_begin;
+    for (u32 i = 0; i < frame_count; ++i) {
+        const InputFrame& f = m_Frames[i];
+        WriteU32LE(p,      f.tick);            // +0:  tick
+        WriteU32LE(p + 4,  f.player_id);       // +4:  player_id
+        p[8] = f.buttons;                      // +8:  buttons (u8)
+        WriteU32LE(p + 9,  BitsOf(f.axis.x));  // +9:  axis.x (f32 bits)
+        WriteU32LE(p + 13, BitsOf(f.axis.y));  // +13: axis.y (f32 bits)
+        p += kFrameWireSize;
+    }
+
+    // ---- crc32 footer (frames 部のみを対象) ------------------------------
+    const u32 frames_bytes = frame_count * kFrameWireSize;
+    const u32 crc = ComputeCrc32(frames_begin, frames_bytes);
+    WriteU32LE(p, crc);
+
+    out_written = required;
+    return Ok();
 }
 
 // -----------------------------------------------------------------------------
-// LoadFromBuffer — Phase M-1: stub (NotImplemented を返す)
+// LoadFromBuffer — buffer を解釈して frames を復元する (置換セマンティクス)。
 // -----------------------------------------------------------------------------
-// Phase M-2 の擬似コード:
-//   1. size < 20 (header + footer 最小) なら kSub_BadSize
+// 手順:
+//   1. size < header(16) + footer(4) なら kSub_BadSize
 //   2. magic 検証 → 不一致なら kSub_BadMagic
-//   3. version 検証 → kVersion と不一致なら kSub_BadVersion
-//   4. frame_count * sizeof(InputFrame) + 20 が size と一致しなければ kSub_BadSize
-//   5. crc32 計算 → footer と不一致なら kSub_BadCrc
+//   3. version 検証 → kFormatVersion と不一致なら kSub_BadVersion
+//   4. header(16) + frame_count * 17 + footer(4) が size と一致しなければ kSub_BadSize
+//   5. crc32(frames 部) → footer と不一致なら kSub_BadCrc
 //   6. m_Frames.Clear(); m_Frames.Reserve(frame_count); 順次 PushBack
-//   7. m_TickRateHz / m_CurrentTick を 0 にリセット (StartReplay 待ち状態)
+//   7. tick_rate_hz を復元、m_CurrentTick / m_ReplayCursor を 0 にリセット
+//      (StartReplay 待ち状態)
 TResult<void> FLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
                        "FLockstep::LoadFromBuffer: buffer is null");
     }
-    (void)size;
-    return ACS_ERR(IO, kSub_NotImplemented,
-                   "FLockstep::LoadFromBuffer is not yet implemented (Phase M-1 stub)");
+
+    // ---- 最小サイズ (header + footer) -----------------------------------
+    if (size < kHeaderSize + kFooterSize) {
+        return ACS_ERR(IO, kSub_BadSize,
+                       "FLockstep::LoadFromBuffer: buffer smaller than header+footer");
+    }
+
+    // ---- magic 検証 ------------------------------------------------------
+    if (MemCmp(buffer, kMagic, sizeof(kMagic)) != 0) {
+        return ACS_ERR(IO, kSub_BadMagic,
+                       "FLockstep::LoadFromBuffer: magic mismatch (not an ACSL buffer)");
+    }
+
+    // ---- version 検証 ----------------------------------------------------
+    const u32 version = ReadU32LE(buffer + 4);
+    if (version != kFormatVersion) {
+        return ACS_ERR(IO, kSub_BadVersion,
+                       "FLockstep::LoadFromBuffer: unsupported format version");
+    }
+
+    const u32 tick_rate_hz = ReadU32LE(buffer + 8);
+    const u32 frame_count  = ReadU32LE(buffer + 12);
+
+    // ---- frame_count とサイズの整合 -------------------------------------
+    // header + frames + footer が size と完全一致することを要求する。
+    // u64 で計算して 32bit 乗算オーバーフローを避ける。
+    const u64 expected64 =
+        static_cast<u64>(kHeaderSize) +
+        static_cast<u64>(frame_count) * static_cast<u64>(kFrameWireSize) +
+        static_cast<u64>(kFooterSize);
+    if (expected64 != static_cast<u64>(size)) {
+        return ACS_ERR(IO, kSub_BadSize,
+                       "FLockstep::LoadFromBuffer: frame_count inconsistent with buffer size");
+    }
+
+    // ---- crc32 検証 (frames 部のみ) -------------------------------------
+    const u8* frames_begin = buffer + kHeaderSize;
+    const u32 frames_bytes = frame_count * kFrameWireSize;
+    const u32 actual_crc   = ComputeCrc32(frames_begin, frames_bytes);
+    const u32 stored_crc   = ReadU32LE(frames_begin + frames_bytes);  // footer
+    if (actual_crc != stored_crc) {
+        return ACS_ERR(IO, kSub_BadCrc,
+                       "FLockstep::LoadFromBuffer: CRC32 mismatch (corrupt or tampered)");
+    }
+
+    // ---- frames を復元 (置換) -------------------------------------------
+    m_Frames.Clear();
+    m_Frames.Reserve(frame_count);
+    const u8* p = frames_begin;
+    for (u32 i = 0; i < frame_count; ++i) {
+        InputFrame f;
+        f.tick      = ReadU32LE(p);            // +0:  tick
+        f.player_id = ReadU32LE(p + 4);        // +4:  player_id
+        f.buttons   = p[8];                    // +8:  buttons (u8)
+        f.axis.x    = F32FromBits(ReadU32LE(p + 9));   // +9:  axis.x
+        f.axis.y    = F32FromBits(ReadU32LE(p + 13));  // +13: axis.y
+        m_Frames.PushBack(f);
+        p += kFrameWireSize;
+    }
+
+    // ---- 状態リセット (StartReplay 待ち) --------------------------------
+    m_TickRateHz   = (tick_rate_hz == 0) ? 1u : tick_rate_hz;  // Init と同じ 0 丸め
+    m_CurrentTick  = 0;
+    m_ReplayCursor = 0;
+    return Ok();
 }
 
 } // namespace acs::game

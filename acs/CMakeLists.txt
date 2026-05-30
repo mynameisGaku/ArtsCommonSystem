@@ -396,6 +396,9 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(61_HelloWaterTopDown)
     endif()
+
+    # --- (39) HelloPersistVerify (stub 撲滅 Batch 1 の永続化 round-trip 検証, console) ---
+    acs_add_sample(62_HelloPersistVerify)
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})

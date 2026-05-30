@@ -175,9 +175,11 @@ public:
     // milestone ごとに 1 回呼ばれる。
     void SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept;
 
-    // ---- 永続化 (Phase 2 で実装) ----------------------------------------
-    // Phase 1 は TODO スタブ。形だけ TResult<void> を返して呼出側の構造を
-    // 先に組めるようにする。Phase 2 で FSaveSlot 経由の atomic write に接続。
+    // ---- 永続化 (FSaveArchive で実装済み、round-trip 検証済み) -----------
+    // Save: 累計 XP + 達成済み milestone を FSaveArchive バイナリ (CRC32 付き) で
+    //   file_path に書く。milestone は id の FNV-1a hash をキーにするので登録順に非依存。
+    // Load: 同じ MilestoneDef 群を RegisterMilestone した後に呼ぶと、XP と各 milestone の
+    //   達成状態を復元する (hash 一致でマッチング、未登録 hash は無視)。
     TResult<void> Save(const wchar_t* file_path) noexcept;
     TResult<void> Load(const wchar_t* file_path) noexcept;
 
