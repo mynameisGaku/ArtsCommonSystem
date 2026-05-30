@@ -26,6 +26,8 @@ void FScene2D::OnExit() noexcept {
     }
     m_Sprites.Shutdown();
     m_SpritesReady = false;
+    m_SceneSprites.Shutdown();
+    m_SceneSpritesReady = false;
 }
 
 void FScene2D::OnUpdate(f32 dt) noexcept {
@@ -54,6 +56,24 @@ bool FScene2D::EnsureSpriteBatch(RenderContext& rc) noexcept {
     return true;
 }
 
+bool FScene2D::EnsureSceneSprites(RenderContext& rc) noexcept {
+    // 反射のオフスクリーン (Phase 1) 専用の SpriteBatch。Phase 1 と Phase 2 で
+    // 同一バッチを使うと、頂点/定数バッファがフレーム内で上書きし合い、Phase 1 の
+    // 遅延 draw が Phase 2 のデータを読んでしまう (RT = 反射元が壊れる)。別バッチに
+    // 分離して両パスが GPU バッファを共有しないようにする。
+    if (m_SceneSpritesReady) return true;
+    FRenderer& renderer = rc.GetRenderer();
+    IRhiDevice* device = renderer.Device();
+    if (!device) return false;
+    auto r = m_SceneSprites.Init(*device, renderer.ColorFormat(), 8192);
+    if (r.IsErr()) {
+        ACS_LOG_ERROR("FScene2D: 反射用 FSpriteBatch init failed");
+        return false;
+    }
+    m_SceneSpritesReady = true;
+    return true;
+}
+
 FVec2 FScene2D::ScreenToWorld(FVec2 screen_px) noexcept {
     FVec2 vc{0.0f, 0.0f};
     f32   zoom = 1.0f;
@@ -69,7 +89,7 @@ FVec2 FScene2D::ScreenToWorld(FVec2 screen_px) noexcept {
 }
 
 void FScene2D::DrawWorldPass(RenderContext& rc) noexcept {
-    FSpriteBatch& sb = m_Sprites;
+    FSpriteBatch& sb = rc.Sprites();   // 現パスに配線されたバッチ (通常 or 反射 RT 用)
     FCamera2D& cam = Services().Camera();
     const FVec2 center = cam.EffectiveViewCenter();
     sb.SetView(center.x, center.y, m_PixelsPerUnit * cam.Zoom());
@@ -78,7 +98,7 @@ void FScene2D::DrawWorldPass(RenderContext& rc) noexcept {
 }
 
 void FScene2D::DrawHudPass(RenderContext& rc) noexcept {
-    FSpriteBatch& sb = m_Sprites;
+    FSpriteBatch& sb = rc.Sprites();
     sb.SetView(static_cast<f32>(rc.Width()) * 0.5f,
                static_cast<f32>(rc.Height()) * 0.5f, 1.0f);
     OnDrawHud(rc, sb);
@@ -136,17 +156,20 @@ void FScene2D::OnRender(RenderContext& rc) noexcept {
     IRhiSwapchain* sc = renderer.Swapchain();
     const ClearColor cc = GetGame().GetClearColor();
 
-    if (m_ReflectionEnabled && EnsureSceneRt(rc)) {
+    if (m_ReflectionEnabled && EnsureSceneRt(rc) && EnsureSceneSprites(rc)) {
         // Phase 1: world をオフスクリーン RT に焼く (反射バインド無し → 水はプレーン fill。
-        //          RT に stencil は無いのでマスクは非アクティブ)。
+        //          RT に stencil は無いのでマスクは非アクティブ)。専用バッチ m_SceneSprites
+        //          を使い、Phase 2 の m_Sprites と GPU バッファを共有しない (フレーム内
+        //          上書きで RT が壊れるのを防ぐ)。
+        FSpriteBatch& sbR = m_SceneSprites;
         cl.BeginRenderToTexture(*m_SceneRt, cc);
-        sb.Begin(cl, rc.Width(), rc.Height());
-        rc._SetSpriteBatch(&sb);
+        sbR.Begin(cl, rc.Width(), rc.Height());
+        rc._SetSpriteBatch(&sbR);
         rc._SetReflection(nullptr);
         rc._SetStencilMaskActive(false);
         DrawWorldPass(rc);
         rc._SetSpriteBatch(nullptr);
-        sb.End();
+        sbR.End();
         cl.EndRenderToTexture(*m_SceneRt);
 
         // Phase 2: スワップチェーン (必要なら stencil 付き) を再バインド → world+水(反射)+HUD。

@@ -74,14 +74,23 @@ public:
         GetGame().SetClearColor(0.04f, 0.05f, 0.07f);
     }
 
-    void OnTick(f32 /*dt*/) noexcept override {
+    void OnTick(f32 dt) noexcept override {
         if (Input::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
+        m_Time += dt;
 
-        // 窓の中心をマウスへ追従させる (owner は原点なので world = 相対座標)。
-        const FVec2 mw = ScreenToWorld(Input::MousePos());
+        // 既定は時間ベースで隠しシーン上を自動巡回する (マウス操作が無くても窓が
+        // 動いて中身が見える)。一度でもマウスを動かしたら以降はマウス追従に切替。
+        const FVec2 md = Input::MouseDelta();
+        if ((md.x * md.x + md.y * md.y) > 1.0f) m_FollowMouse = true;
+        FVec2 c;
+        if (m_FollowMouse) {
+            c = ScreenToWorld(Input::MousePos());   // owner は原点なので world = 相対
+        } else {
+            c = FVec2{ Cos(m_Time * 0.6f) * 4.5f, 1.5f + Sin(m_Time * 0.9f) * 2.5f };
+        }
         if (m_Clip) {
-            if (m_RectShape) m_Clip->SetRect(mw, FVec2{m_Radius * 1.2f, m_Radius * 0.9f});
-            else             m_Clip->SetCircle(mw, m_Radius, 48);
+            if (m_RectShape) m_Clip->SetRect(c, FVec2{m_Radius * 1.2f, m_Radius * 0.9f});
+            else             m_Clip->SetCircle(c, m_Radius, 48);
         }
 
         // [Space] 内外反転 (押した瞬間だけトグル)。
@@ -114,6 +123,8 @@ public:
 private:
     FStencilClip2DComponent* m_Clip = nullptr;
     f32  m_Radius    = 2.4f;
+    f32  m_Time      = 0.0f;
+    bool m_FollowMouse = false;
     bool m_RectShape = false;
     bool m_Invert    = false;
     bool m_SpacePrev = false;

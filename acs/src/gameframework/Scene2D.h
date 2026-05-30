@@ -71,6 +71,7 @@ protected:
 
 private:
     bool EnsureSpriteBatch(RenderContext& rc) noexcept;
+    bool EnsureSceneSprites(RenderContext& rc) noexcept;  // 反射オフスクリーン用の別バッチ
     bool EnsureSceneRt(RenderContext& rc) noexcept;       // 反射用シーン RT を遅延作成
     bool EnsureStencilBuffer(RenderContext& rc) noexcept; // マスク用 D24S8 を遅延作成
     void DrawWorldPass(RenderContext& rc) noexcept;       // world (DrawTree + OnDrawWorld)
@@ -79,6 +80,8 @@ private:
     FNode2D      m_Root;
     FSpriteBatch m_Sprites;
     bool         m_SpritesReady = false;
+    FSpriteBatch m_SceneSprites;          // 反射オフスクリーン (Phase 1) 専用
+    bool         m_SceneSpritesReady = false;
     f32          m_PixelsPerUnit = 64.0f;
     u32          m_ScreenW = 1280;        // 直近 OnRender の画面サイズ (picking 用)
     u32          m_ScreenH = 720;

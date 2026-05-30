@@ -120,14 +120,19 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     if (ib_r.IsErr()) return Err<void>(ib_r.Error());
     m_Ib = Move(ib_r.Value());
 
-    // === 定数バッファ（screen size）===
-    FBufferDesc cbd{};
-    cbd.size = 256;
-    cbd.usage = EBufferUsage::Uniform;
-    cbd.cpu_writable = true;
-    auto cb_r = CreateRhiBuffer(device, cbd);
-    if (cb_r.IsErr()) return Err<void>(cb_r.Error());
-    m_Cb = Move(cb_r.Value());
+    // === 定数バッファ（screen size + view）のリング ===
+    // 1 個だとフレーム内の複数 view (world/HUD/反射) が同一アドレスを上書きし合い、
+    // 先に積んだ draw が後の view を読んでしまう。view 切替ごとに別スロットを使う。
+    for (u32 i = 0; i < kViewRing; ++i) {
+        FBufferDesc cbd{};
+        cbd.size = 256;
+        cbd.usage = EBufferUsage::Uniform;
+        cbd.cpu_writable = true;
+        auto cb_r = CreateRhiBuffer(device, cbd);
+        if (cb_r.IsErr()) return Err<void>(cb_r.Error());
+        m_Cb[i] = Move(cb_r.Value());
+    }
+    m_CbCur = 0;
 
     // === 1×1 白テクスチャ（DrawRect 用、矩形には常にこれを bind）===
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
@@ -219,9 +224,10 @@ void FSpriteBatch::SetStencilMode(EStencilMode mode, u8 ref) noexcept {
     if (!pl) return;
     m_Cl->SetPipeline(*pl);
     m_Cl->SetStencilRef(ref);
-    // PSO (= root signature) 切替で root 引数が無効化されるので CBV を貼り直す。
-    // IA (VB/IB) は PSO 切替で無効化されないが、念のため再 bind してパリティを保つ。
-    m_Cl->SetConstantBuffer(0, *m_Cb);
+    // PSO (= root signature) 切替で root 引数が無効化されるので CBV を貼り直す
+    // (現 view バッファを bind = view は変えない)。IA (VB/IB) は PSO 切替で無効化
+    // されないが、念のため再 bind してパリティを保つ。
+    BindViewBuffer();
     m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
     m_Cl->SetIndexBuffer(*m_Ib);
     m_StencilMode = mode;
@@ -232,7 +238,7 @@ void FSpriteBatch::Shutdown() noexcept {
     for (u32 i = 0; i < 4; ++i) m_StencilPipe[i].Reset();
     m_StencilReady = false;
     m_White.Reset();
-    m_Cb.Reset();
+    for (u32 i = 0; i < kViewRing; ++i) m_Cb[i].Reset();
     m_Ib.Reset();
     m_Vb.Reset();
     m_Ps.Reset();
@@ -252,15 +258,18 @@ void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexce
     m_CurrentTex = nullptr;
     m_StencilMode = EStencilMode::Off;   // 既定パイプライン (m_Pipeline) で開始
 
-    // ビューを恒等（カメラ無し）に戻し、定数バッファを更新
+    // ビューを恒等（カメラ無し）に戻し、フレッシュな view バッファへ書く。
+    // (Begin は同一フレーム内で複数回呼ばれ得る — 反射の 2 パス等 — ので、
+    //  リングを reset せず常に次スロットへ進めて前パスの draw と干渉させない。)
     m_ViewX    = static_cast<f32>(m_ScreenW) * 0.5f;
     m_ViewY    = static_cast<f32>(m_ScreenH) * 0.5f;
     m_ViewZoom = 1.0f;
+    AdvanceViewBuffer();
     WriteScreenCBuffer();
 
     // パイプラインと共通リソースを bind
     cl.SetPipeline(*m_Pipeline);
-    cl.SetConstantBuffer(0, *m_Cb);
+    BindViewBuffer();
     cl.SetVertexBuffer(*m_Vb, sizeof(Vertex));
     cl.SetIndexBuffer(*m_Ib);
 }
@@ -333,16 +342,28 @@ void FSpriteBatch::WriteScreenCBuffer() noexcept {
         1.0f / sw, 1.0f / sh, sw, sh,
         m_ViewX, m_ViewY, m_ViewZoom, 0.0f,
     };
-    m_Cb->Update(cb, sizeof(cb));
+    m_Cb[m_CbCur]->Update(cb, sizeof(cb));
+}
+
+void FSpriteBatch::AdvanceViewBuffer() noexcept {
+    m_CbCur = (m_CbCur + 1u) % kViewRing;
+}
+
+void FSpriteBatch::BindViewBuffer() noexcept {
+    if (m_Cl) m_Cl->SetConstantBuffer(0, *m_Cb[m_CbCur]);
 }
 
 void FSpriteBatch::SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept {
     if (!m_Cl) return;
-    Flush();   // 既存バッチを現在のビューで確定してから切り替える
+    Flush();   // 既存バッチを「現在の view バッファ」で確定してから切り替える
+    // 別スロットへ進めて新 view を書き、root CBV を貼り直す。これで Flush 済みの
+    // draw は旧スロット (旧 view) を、以降の draw は新スロット (新 view) を読む。
+    AdvanceViewBuffer();
     m_ViewX    = cam_x;
     m_ViewY    = cam_y;
     m_ViewZoom = (zoom > 0.0001f) ? zoom : 1.0f;
     WriteScreenCBuffer();
+    BindViewBuffer();
 }
 
 void FSpriteBatch::SetClipRect(i32 x, i32 y, i32 w, i32 h) noexcept {

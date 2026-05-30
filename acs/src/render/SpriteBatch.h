@@ -135,7 +135,9 @@ private:
 
     void Flush() noexcept;
     void EnsurePipeline() noexcept;
-    void WriteScreenCBuffer() noexcept;   // screen サイズ + view を m_Cb に書く
+    void WriteScreenCBuffer() noexcept;   // screen サイズ + view を現 view バッファに書く
+    void AdvanceViewBuffer() noexcept;    // 次の view 定数バッファへ (フレーム内の view 切替ごと)
+    void BindViewBuffer() noexcept;       // 現 view 定数バッファを slot0 に bind
     bool EnsureStencilPipelines() noexcept;  // 4 種のステンシル PSO を遅延生成
     void FillCommonPipelineDesc(struct FPipelineDesc& pd) const noexcept;  // vs/ps/layout 等共通部
 
@@ -152,7 +154,16 @@ private:
     EStencilMode             m_StencilMode  = EStencilMode::Off;
     TUniquePtr<IRhiBuffer>   m_Vb;
     TUniquePtr<IRhiBuffer>   m_Ib;
-    TUniquePtr<IRhiBuffer>   m_Cb;       // screen size (1/w, 1/h)
+    // view 定数バッファのリング (screen size + view)。1 フレームで world / HUD / 反射
+    // 各パスと複数の SetView があり、定数バッファは「フレーム内は単一アドレス上書き」
+    // なので、1 個だと先に積んだ DrawIndexed が後で上書きされた view を読んでしまう
+    // (world が HUD view で描かれて画面端に潰れる)。view 切替ごとに別スロットへ書き、
+    // root CBV を貼り直すことで、各 draw が記録時の view を確実に読む。リングは
+    // フレーム内の view 切替数 (反射込みで ~6) を十分上回る本数を確保 (in-flight 2 フレーム
+    // 分でも巻き戻り衝突しない)。
+    static constexpr u32     kViewRing = 32;
+    TUniquePtr<IRhiBuffer>   m_Cb[kViewRing];
+    u32                      m_CbCur = 0;
     TUniquePtr<IRhiTexture>  m_White;    // DrawRect 用 1×1 白テクスチャ
 
     Vertex*          m_VertexCpu    = nullptr;   // CPU 側の VB ステージ
