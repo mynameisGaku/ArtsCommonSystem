@@ -49,8 +49,24 @@ bool FScene2D::EnsureSpriteBatch(RenderContext& rc) noexcept {
     return true;
 }
 
+FVec2 FScene2D::ScreenToWorld(FVec2 screen_px) noexcept {
+    FVec2 vc{0.0f, 0.0f};
+    f32   zoom = 1.0f;
+    if (HasServices()) {
+        FCamera2D& cam = Services().Camera();
+        vc   = cam.EffectiveViewCenter();
+        zoom = cam.Zoom();
+    }
+    const f32 scale = m_PixelsPerUnit * zoom;
+    const f32 inv   = scale > 1e-6f ? 1.0f / scale : 0.0f;
+    return FVec2{ vc.x + (screen_px.x - static_cast<f32>(m_ScreenW) * 0.5f) * inv,
+                  vc.y + (screen_px.y - static_cast<f32>(m_ScreenH) * 0.5f) * inv };
+}
+
 void FScene2D::OnRender(RenderContext& rc) noexcept {
     if (!EnsureSpriteBatch(rc)) return;
+    m_ScreenW = rc.Width();        // picking 用に画面サイズをキャッシュ
+    m_ScreenH = rc.Height();
     FSpriteBatch& sb = m_Sprites;
     sb.Begin(rc.Cmd(), rc.Width(), rc.Height());
     rc._SetSpriteBatch(&sb);

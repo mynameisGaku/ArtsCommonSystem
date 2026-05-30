@@ -51,6 +51,12 @@ void FSpriteAnimComponent::ApplyCurrentFrame() noexcept {
     m_Sprite->SetUvRect(m_FrameUvs[i]);
 }
 
+void FSpriteAnimComponent::OnRequire(FNode2D& owner) noexcept {
+    // 描画先が無ければ既定の FSprite2DComponent を自動追加する。
+    // 利用者が先にテクスチャ付きで AddComponent していればそれを使う。
+    owner.GetOrAddComponent<FSprite2DComponent>();
+}
+
 void FSpriteAnimComponent::OnUpdate(f32 dt) noexcept {
     // add 順非依存にするため sibling sprite は初回 OnUpdate で遅延 lookup。
     if (m_Sprite == nullptr && HasOwner()) {

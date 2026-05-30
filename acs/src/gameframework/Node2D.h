@@ -106,9 +106,20 @@ public:
         TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
         T* ref = comp.Get();
         ref->_SetOwner(this);
+        // 依存コンポーネントを先に確保 (Unity の RequireComponent 相当)。
+        // 依存が m_Components に先に積まれるので、この後の OnAttach から
+        // GetComponent<Dep>() で確実に取得できる。
+        ref->OnRequire(*this);
         m_Components.PushBack(TUniquePtr<FComponent2D>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
         return *ref;
+    }
+
+    // T があれば返し、無ければ追加して返す (RequireComponent の自動追加に使う)。
+    template<typename T, typename... Args>
+    T& GetOrAddComponent(Args&&... args) noexcept {
+        if (T* existing = GetComponent<T>()) return *existing;
+        return AddComponent<T>(Forward<Args>(args)...);
     }
 
     // 最初に見つかった T 型コンポーネントを返す。無ければ nullptr。

@@ -35,6 +35,14 @@ public:
     void SetPixelsPerUnit(f32 ppu) noexcept { m_PixelsPerUnit = ppu > 0.001f ? ppu : 1.0f; }
     f32  PixelsPerUnit() const noexcept { return m_PixelsPerUnit; }
 
+    // マウスピッキング用: 画面ピクセル座標 (左上原点、Input::MousePos() の値) を
+    // ワールド座標へ変換する。FScene2D のレンダリング (ppu * camera zoom、camera
+    // 中心) と厳密に逆対応するので、Camera2D::ScreenToWorld (ppu 非考慮) ではなく
+    // こちらを使うこと。画面サイズは直近の OnRender でキャッシュした値を用いる。
+    FVec2 ScreenToWorld(FVec2 screen_px) noexcept;
+    u32   ScreenWidth()  const noexcept { return m_ScreenW; }
+    u32   ScreenHeight() const noexcept { return m_ScreenH; }
+
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
@@ -55,6 +63,8 @@ private:
     FSpriteBatch m_Sprites;
     bool         m_SpritesReady = false;
     f32          m_PixelsPerUnit = 64.0f;
+    u32          m_ScreenW = 1280;        // 直近 OnRender の画面サイズ (picking 用)
+    u32          m_ScreenH = 720;
 };
 
 } // namespace acs::game

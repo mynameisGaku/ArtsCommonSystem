@@ -63,6 +63,8 @@ public:
     // 下位 animator に直接触れたい場合 (frame event 登録など)。
     FSpriteAnimator& Animator() noexcept { return m_Anim; }
 
+    // RequireComponent: 描画先の FSprite2DComponent を要求 (無ければ自動追加)。
+    void OnRequire(FNode2D& owner) noexcept override;
     void OnUpdate(f32 dt) noexcept override;
 
 private:

@@ -63,6 +63,16 @@ public:
     // 派生クラスは ACS_GAME_COMPONENT_KIND(MyComp) で実装。
     virtual const void* Kind() const noexcept = 0;
 
+    // 依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。
+    // AddComponent が OnAttach の前に 1 度だけ呼ぶ。実装側で
+    // `owner.GetOrAddComponent<Dep>()` を呼べば、必要な兄弟コンポーネントを
+    // 自動確保できる (型安全・reflection 不要)。依存は本コンポーネントより先に
+    // attach されるので、OnAttach/OnUpdate から GetComponent<Dep>() で必ず取れる。
+    //   void OnRequire(FNode2D& owner) noexcept override {
+    //       owner.GetOrAddComponent<FSprite2DComponent>();
+    //   }
+    virtual void OnRequire(FNode2D& /*owner*/) noexcept {}
+
     // Lifecycle (override only what you need)
     virtual void OnAttach(FNode2D& /*owner*/) noexcept {}
     virtual void OnUpdate(f32 /*dt*/)        noexcept {}

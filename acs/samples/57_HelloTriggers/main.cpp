@@ -115,6 +115,25 @@ int main() {
         Check(pickupC.exit == 1, "pickup exited player");
     }
 
+    // ---- 3) RequireComponent: 依存コンポーネントの自動追加 ----
+    {
+        // FSpriteAnimComponent は FSprite2DComponent を要求する。sprite が無い
+        // ノードに anim を足すと、OnRequire 経由で sprite が自動追加されるはず。
+        FNode2D node;
+        Check(!node.HasComponent<FSprite2DComponent>(), "initially no sprite");
+        node.AddComponent<FSpriteAnimComponent>();
+        Check(node.HasComponent<FSprite2DComponent>(),
+              "RequireComponent auto-added FSprite2DComponent");
+        Check(node.HasComponent<FSpriteAnimComponent>(), "anim component present");
+
+        // 既に sprite があれば重複追加せず既存を再利用する。
+        FNode2D node2;
+        auto& spr = node2.AddComponent<FSprite2DComponent>(FVec2{1.0f, 1.0f});
+        node2.AddComponent<FSpriteAnimComponent>();
+        Check(node2.GetComponent<FSprite2DComponent>() == &spr,
+              "existing sprite reused (no replacement)");
+    }
+
     std::printf("result: %s\n", g_fail == 0 ? "ALL PASS" : "FAIL");
     return g_fail;
 }
