@@ -188,4 +188,56 @@ private:
     u32   m_Max = 24;
 };
 
+// ===========================================================================
+// FStencilClip2DComponent — 任意形状のステンシルマスクで子ツリーをクリップ
+// ===========================================================================
+// このコンポーネントを attach したノードの「子ツリー」を、指定形状の内側 (既定) か
+// 外側だけにクリップして描く。窓越しに他のエフェクトを覗かせる / 穴あきマスク等。
+// シェーダ不要 — SpriteBatch の stencil モードを使う。
+//
+// **前提**: シーンで `SetStencilMaskEnabled(true)` を呼んでおくこと。stencil バッファ
+//           が無いパス (例: 反射の RT パス) では自動的に素通し (クリップしない)。
+//
+//   auto win = MakeUnique<FNode2D>();
+//   win->Local().position = {0, 0};
+//   auto& clip = win->AddComponent<FStencilClip2DComponent>();
+//   clip.SetCircle({0, 0}, 2.5f);          // 窓の形 (owner 相対)
+//   win->AddChild(MakeWaterNode());        // 子 = 窓の中だけに見えるエフェクト
+//   root.AddChild(Move(win));
+class FStencilClip2DComponent : public FComponent2D {
+public:
+    ACS_GAME_COMPONENT_KIND(FStencilClip2DComponent)
+
+    static constexpr u32 kMaxTris = 96;
+
+    // ----- マスク形状 (すべて owner 相対) -----
+    void SetRect(FVec2 center, FVec2 half_size) noexcept;
+    void SetCircle(FVec2 center, f32 radius, u32 segments = 40) noexcept;
+    void SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments = 40) noexcept;
+    void SetPolygon(const FVec2* pts, u32 count) noexcept;   // 単純多角形 (centroid fan)
+
+    // 内側(false=既定) ではなく外側だけを残す (穴あき)。
+    void SetInvert(bool clip_outside) noexcept { m_Outside = clip_outside; }
+    // ネスト用のステンシル参照値 (1..255、既定 1)。入れ子マスクは別値にすること。
+    void SetRef(u8 ref) noexcept { m_Ref = ref < 1 ? 1u : ref; }
+    // マスク形状自体を可視化する (デバッグ。既定 false = 不可視)。
+    void SetDebugVisualize(bool on, FVec4 color = FVec4{1.0f, 1.0f, 0.0f, 0.25f}) noexcept {
+        m_DebugVis = on; m_DebugColor = color;
+    }
+
+    void OnDraw(RenderContext& rc) noexcept override;              // マスク書込み → KeepInside
+    void OnDrawPostChildren(RenderContext& rc) noexcept override;  // マスク解除
+
+private:
+    void PushTri(FVec2 a, FVec2 b, FVec2 c) noexcept;
+
+    FVec2 m_Tri[kMaxTris * 3];     // owner 相対の三角形頂点 (3 個 1 組、扇状)
+    u32   m_TriCount = 0;
+    bool  m_Outside  = false;
+    u8    m_Ref      = 1;
+    bool  m_Active   = false;      // OnDraw でマスクを張ったか (PostChildren 解除判定)
+    bool  m_DebugVis = false;
+    FVec4 m_DebugColor{1.0f, 1.0f, 0.0f, 0.25f};
+};
+
 } // namespace acs::game

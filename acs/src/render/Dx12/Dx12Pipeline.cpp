@@ -74,12 +74,52 @@ D3D12_BLEND_DESC MakeBlend(EBlendMode mode) noexcept {
     return b;
 }
 
-D3D12_DEPTH_STENCIL_DESC MakeDepthStencil(bool enabled, bool write) noexcept {
+// ECompareFunc → DX12 比較関数
+D3D12_COMPARISON_FUNC ToD3DCompare(ECompareFunc f) noexcept {
+    switch (f) {
+        case ECompareFunc::Never:        return D3D12_COMPARISON_FUNC_NEVER;
+        case ECompareFunc::Less:         return D3D12_COMPARISON_FUNC_LESS;
+        case ECompareFunc::Equal:        return D3D12_COMPARISON_FUNC_EQUAL;
+        case ECompareFunc::LessEqual:    return D3D12_COMPARISON_FUNC_LESS_EQUAL;
+        case ECompareFunc::Greater:      return D3D12_COMPARISON_FUNC_GREATER;
+        case ECompareFunc::NotEqual:     return D3D12_COMPARISON_FUNC_NOT_EQUAL;
+        case ECompareFunc::GreaterEqual: return D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+        case ECompareFunc::Always:       return D3D12_COMPARISON_FUNC_ALWAYS;
+    }
+    return D3D12_COMPARISON_FUNC_ALWAYS;
+}
+
+// EStencilOp → DX12 ステンシル操作
+D3D12_STENCIL_OP ToD3DStencilOp(EStencilOp o) noexcept {
+    switch (o) {
+        case EStencilOp::Keep:     return D3D12_STENCIL_OP_KEEP;
+        case EStencilOp::Zero:     return D3D12_STENCIL_OP_ZERO;
+        case EStencilOp::Replace:  return D3D12_STENCIL_OP_REPLACE;
+        case EStencilOp::IncrSat:  return D3D12_STENCIL_OP_INCR_SAT;
+        case EStencilOp::DecrSat:  return D3D12_STENCIL_OP_DECR_SAT;
+        case EStencilOp::Invert:   return D3D12_STENCIL_OP_INVERT;
+        case EStencilOp::IncrWrap: return D3D12_STENCIL_OP_INCR;
+        case EStencilOp::DecrWrap: return D3D12_STENCIL_OP_DECR;
+    }
+    return D3D12_STENCIL_OP_KEEP;
+}
+
+D3D12_DEPTH_STENCIL_DESC MakeDepthStencil(bool enabled, bool write,
+                                          const FStencilDesc& st) noexcept {
     D3D12_DEPTH_STENCIL_DESC d{};
     d.DepthEnable = enabled ? TRUE : FALSE;
     d.DepthWriteMask = write ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
     d.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-    d.StencilEnable = FALSE;
+    d.StencilEnable = st.enable ? TRUE : FALSE;
+    d.StencilReadMask  = st.read_mask;
+    d.StencilWriteMask = st.write_mask;
+    D3D12_DEPTH_STENCILOP_DESC face{};
+    face.StencilFunc        = ToD3DCompare(st.func);
+    face.StencilPassOp      = ToD3DStencilOp(st.pass_op);
+    face.StencilFailOp      = ToD3DStencilOp(st.fail_op);
+    face.StencilDepthFailOp = ToD3DStencilOp(st.depth_fail_op);
+    d.FrontFace = face;
+    d.BackFace  = face;   // 2D は両面同一 (cull None)
     return d;
 }
 
@@ -228,7 +268,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     pd.RasterizerState   = MakeRasterizer(desc.cull_mode);
     pd.BlendState        = MakeBlend(desc.blend_mode);
     pd.DepthStencilState = MakeDepthStencil(desc.depth_test && desc.depth_format != EFormat::Unknown,
-                                            desc.depth_write);
+                                            desc.depth_write, desc.stencil);
     pd.SampleMask = UINT_MAX;
     pd.PrimitiveTopologyType = ToD3DTopologyType(desc.topology);
     if (desc.ps) {

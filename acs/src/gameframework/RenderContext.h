@@ -40,6 +40,7 @@ public:
         m_Height   = h;
         m_Sprites  = nullptr;
         m_Reflection = nullptr;
+        m_StencilMaskActive = false;
         // m_Font は FGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
     }
     void _EndFrame() noexcept {
@@ -47,6 +48,7 @@ public:
         m_Sprites = nullptr;
         m_Font = nullptr;
         m_Reflection = nullptr;
+        m_StencilMaskActive = false;
     }
 
     // 現フレームの IRhiCommandList (nullptr の可能性は OnRender 外でのみ起きる)。
@@ -83,6 +85,12 @@ public:
     FVec2 ViewCenter() const noexcept { return m_ViewCenter; }
     f32   ViewScale()  const noexcept { return m_ViewScale; }
 
+    // ステンシルマスクが有効なパスか (FScene2D が stencil 付き DSV を bind した
+    // world パスでのみ true)。clip コンポーネントはこれを見て、stencil が使えない
+    // パス (反射の RT パス等) ではマスクせずに素通しする。
+    void _SetStencilMaskActive(bool b) noexcept { m_StencilMaskActive = b; }
+    bool StencilMaskActive() const noexcept { return m_StencilMaskActive; }
+
 private:
     FRenderer*        m_Renderer = nullptr;
     IRhiCommandList* m_Cmd      = nullptr;
@@ -91,6 +99,7 @@ private:
     IRhiTexture*     m_Reflection = nullptr;
     FVec2            m_ViewCenter{0.0f, 0.0f};
     f32              m_ViewScale = 1.0f;
+    bool             m_StencilMaskActive = false;
     u32              m_Width    = 0;
     u32              m_Height   = 0;
 };

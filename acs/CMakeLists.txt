@@ -386,6 +386,11 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(59_HelloEffects2D)
     endif()
+
+    # --- (37) HelloStencilMask (任意形状の stencil マスクで子ツリーをクリップ, windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(60_HelloStencilMask)
+    endif()
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})

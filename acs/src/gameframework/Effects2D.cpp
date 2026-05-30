@@ -458,4 +458,82 @@ void FTrail2DComponent::OnDraw(RenderContext& rc) noexcept {
     }
 }
 
+// ===========================================================================
+// FStencilClip2DComponent
+// ===========================================================================
+
+void FStencilClip2DComponent::PushTri(FVec2 a, FVec2 b, FVec2 c) noexcept {
+    if (m_TriCount >= kMaxTris) return;
+    m_Tri[m_TriCount * 3 + 0] = a;
+    m_Tri[m_TriCount * 3 + 1] = b;
+    m_Tri[m_TriCount * 3 + 2] = c;
+    ++m_TriCount;
+}
+
+void FStencilClip2DComponent::SetRect(FVec2 center, FVec2 half) noexcept {
+    m_TriCount = 0;
+    const FVec2 tl{ center.x - half.x, center.y - half.y };
+    const FVec2 tr{ center.x + half.x, center.y - half.y };
+    const FVec2 br{ center.x + half.x, center.y + half.y };
+    const FVec2 bl{ center.x - half.x, center.y + half.y };
+    PushTri(tl, tr, br);
+    PushTri(tl, br, bl);
+}
+
+void FStencilClip2DComponent::SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments) noexcept {
+    m_TriCount = 0;
+    if (segments < 3) segments = 3;
+    if (segments > kMaxTris) segments = kMaxTris;
+    FVec2 prev{ center.x + rx, center.y };
+    for (u32 i = 1; i <= segments; ++i) {
+        const f32 t = 6.2831853f * (static_cast<f32>(i) / static_cast<f32>(segments));
+        const FVec2 cur{ center.x + Cos(t) * rx, center.y + Sin(t) * ry };
+        PushTri(center, prev, cur);   // 中心からの扇
+        prev = cur;
+    }
+}
+
+void FStencilClip2DComponent::SetCircle(FVec2 center, f32 radius, u32 segments) noexcept {
+    SetEllipse(center, radius, radius, segments);
+}
+
+void FStencilClip2DComponent::SetPolygon(const FVec2* pts, u32 count) noexcept {
+    m_TriCount = 0;
+    if (!pts || count < 3) return;
+    // centroid を求めて扇状に三角形化 (凸〜緩い凹向け)。
+    FVec2 c{ 0.0f, 0.0f };
+    for (u32 i = 0; i < count; ++i) { c.x += pts[i].x; c.y += pts[i].y; }
+    c.x /= static_cast<f32>(count); c.y /= static_cast<f32>(count);
+    for (u32 i = 0; i < count; ++i) {
+        const FVec2 a = pts[i];
+        const FVec2 b = pts[(i + 1) % count];
+        PushTri(c, a, b);
+    }
+}
+
+void FStencilClip2DComponent::OnDraw(RenderContext& rc) noexcept {
+    m_Active = false;
+    // stencil バッファが用意されていないパスではマスクせず素通し。
+    if (!rc.HasSprites() || !rc.StencilMaskActive() || m_TriCount == 0) return;
+    FSpriteBatch& sb = rc.Sprites();
+    const FVec2 o = Owner().World().position;
+
+    // 1) マスク形状をステンシルへ焼く。色は不可視 (alpha 0)、debug 時のみ可視。
+    const FVec4 col = m_DebugVis ? m_DebugColor : FVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
+    sb.SetStencilMode(EStencilMode::WriteMask, m_Ref);
+    for (u32 t = 0; t < m_TriCount; ++t) {
+        const FVec2 a = m_Tri[t * 3 + 0], b = m_Tri[t * 3 + 1], cc = m_Tri[t * 3 + 2];
+        sb.DrawTriangle(o.x + a.x, o.y + a.y, o.x + b.x, o.y + b.y, o.x + cc.x, o.y + cc.y, col);
+    }
+    // 2) 以降の描画 (= 子ツリー) を内側 (or 外側) だけに通す。
+    sb.SetStencilMode(m_Outside ? EStencilMode::KeepOutside : EStencilMode::KeepInside, m_Ref);
+    m_Active = true;
+}
+
+void FStencilClip2DComponent::OnDrawPostChildren(RenderContext& rc) noexcept {
+    if (!m_Active || !rc.HasSprites()) return;
+    rc.Sprites().SetStencilMode(EStencilMode::Off, m_Ref);   // クリップ解除
+    m_Active = false;
+}
+
 } // namespace acs::game

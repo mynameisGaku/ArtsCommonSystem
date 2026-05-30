@@ -44,6 +44,11 @@ public:
 
     bool IsRenderTarget()    const noexcept { return m_IsRt; }
     bool IsDepthTarget()     const noexcept { return m_IsDepth; }
+    // 深度バッファが stencil 成分を持つか (D24_UNorm_S8_UInt)。clear で stencil
+    // フラグを足すかの判定に使う。
+    bool HasStencil()        const noexcept {
+        return m_IsDepth && m_Format == EFormat::D24_UNorm_S8_UInt;
+    }
     bool ShaderVisibleDepth() const noexcept { return m_DepthSrv; }
 
 private:

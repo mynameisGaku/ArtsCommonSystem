@@ -131,7 +131,9 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
         if (dx_depth->IsDepth()) {
             dsv = dx_depth->DsvCpuHandle();
             m_CmdList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-            m_CmdList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH,
+            UINT cf = D3D12_CLEAR_FLAG_DEPTH;
+            if (dx_depth->HasStencil()) cf |= D3D12_CLEAR_FLAG_STENCIL;
+            m_CmdList->ClearDepthStencilView(dsv, static_cast<D3D12_CLEAR_FLAGS>(cf),
                                               depth_clear, 0, 0, nullptr);
         } else {
             m_CmdList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
@@ -226,7 +228,10 @@ void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, Dx12Texture& rt, IRhiTextur
         D3D12_CPU_DESCRIPTOR_HANDLE dsv = dx_depth->DsvCpuHandle();
         cmd->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
         if (do_clear) {
-            cmd->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depth_clear, 0, 0, nullptr);
+            UINT cf = D3D12_CLEAR_FLAG_DEPTH;
+            if (dx_depth->HasStencil()) cf |= D3D12_CLEAR_FLAG_STENCIL;
+            cmd->ClearDepthStencilView(dsv, static_cast<D3D12_CLEAR_FLAGS>(cf),
+                                       depth_clear, 0, 0, nullptr);
         }
     } else {
         cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
@@ -334,6 +339,10 @@ void Dx12CommandList::SetScissor(const FScissorRect& sr) noexcept {
     r.left = sr.left; r.top = sr.top;
     r.right = sr.right; r.bottom = sr.bottom;
     m_CmdList->RSSetScissorRects(1, &r);
+}
+
+void Dx12CommandList::SetStencilRef(u32 ref) noexcept {
+    m_CmdList->OMSetStencilRef(ref);
 }
 
 void Dx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {

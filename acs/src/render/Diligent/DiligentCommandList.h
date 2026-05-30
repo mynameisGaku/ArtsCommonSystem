@@ -53,6 +53,7 @@ public:
 
     void SetViewport(const FViewport& vp) noexcept override;
     void SetScissor(const FScissorRect& sr) noexcept override;
+    void SetStencilRef(u32 ref) noexcept override;
 
     void SetPipeline(IRhiPipeline& pipeline) noexcept override;
     void SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept override;

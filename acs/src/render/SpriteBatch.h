@@ -31,6 +31,15 @@
 
 namespace acs {
 
+// ステンシルマスク描画モード。SetStencilMode で切り替える。stencil 付き深度バッファが
+// bind されたパス (FScene2D::SetStencilMaskEnabled(true)) でのみ意味を持つ。
+enum class EStencilMode : u8 {
+    Off,          // ステンシルテスト無し (ただし DSV bind パスでは DSV 整合 PSO を使う)
+    WriteMask,    // 描いたピクセルにステンシル参照値を書く (マスク形状を焼く)
+    KeepInside,   // ステンシル == 参照値 の所だけ描く (マスク内側)
+    KeepOutside,  // ステンシル != 参照値 の所だけ描く (マスク外側)
+};
+
 class FSpriteBatch {
 public:
     FSpriteBatch() noexcept = default;
@@ -105,6 +114,14 @@ public:
     void SetClipRect(i32 x, i32 y, i32 w, i32 h) noexcept;
     void ClearClipRect() noexcept;
 
+    // ステンシルマスクモードを切り替える (バッチを flush してから PSO + 参照値を切替)。
+    // 任意形状のマスクで描画範囲を制限する用途。WriteMask でマスク形状を焼き、
+    // KeepInside/KeepOutside でその内/外だけに後続描画を通す。Off で解除。
+    // **前提**: stencil 付き深度バッファが bind されたパスでのみ呼ぶこと
+    //   (FScene2D::SetStencilMaskEnabled(true) が用意する)。それ以外で呼ぶと
+    //   DSV 不整合になるため、呼び出し側 (FScene2D / clip component) がガードする。
+    void SetStencilMode(EStencilMode mode, u8 ref = 1) noexcept;
+
     // 描画終了（残りバッチを GPU に送る）
     void End() noexcept;
 
@@ -119,10 +136,20 @@ private:
     void Flush() noexcept;
     void EnsurePipeline() noexcept;
     void WriteScreenCBuffer() noexcept;   // screen サイズ + view を m_Cb に書く
+    bool EnsureStencilPipelines() noexcept;  // 4 種のステンシル PSO を遅延生成
+    void FillCommonPipelineDesc(struct FPipelineDesc& pd) const noexcept;  // vs/ps/layout 等共通部
+
+    IRhiDevice*              m_Device  = nullptr;   // ステンシル PSO 遅延生成用
+    EFormat                  m_RtFormat = EFormat::B8G8R8A8_UNorm;
 
     TUniquePtr<IRhiShader>   m_Vs;
     TUniquePtr<IRhiShader>   m_Ps;
     TUniquePtr<IRhiPipeline> m_Pipeline;
+    // ステンシルマスク用 PSO (DSVFormat=D24S8)。EStencilMode の順に [Off/Write/In/Out]。
+    // 初回 SetStencilMode で遅延生成 (使わないシーンでは作らない)。
+    TUniquePtr<IRhiPipeline> m_StencilPipe[4];
+    bool                     m_StencilReady = false;
+    EStencilMode             m_StencilMode  = EStencilMode::Off;
     TUniquePtr<IRhiBuffer>   m_Vb;
     TUniquePtr<IRhiBuffer>   m_Ib;
     TUniquePtr<IRhiBuffer>   m_Cb;       // screen size (1/w, 1/h)

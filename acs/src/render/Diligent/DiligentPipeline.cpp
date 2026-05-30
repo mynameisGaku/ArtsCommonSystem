@@ -141,6 +141,47 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     gp.DepthStencilDesc.DepthWriteEnable = desc.depth_write;
     gp.DepthStencilDesc.DepthFunc   = Diligent::COMPARISON_FUNC_LESS_EQUAL;
 
+    // ステンシル (マスク描画用)。FStencilDesc → Diligent DepthStencilStateDesc。
+    {
+        auto to_cmp = [](ECompareFunc f) -> Diligent::COMPARISON_FUNCTION {
+            switch (f) {
+                case ECompareFunc::Never:        return Diligent::COMPARISON_FUNC_NEVER;
+                case ECompareFunc::Less:         return Diligent::COMPARISON_FUNC_LESS;
+                case ECompareFunc::Equal:        return Diligent::COMPARISON_FUNC_EQUAL;
+                case ECompareFunc::LessEqual:    return Diligent::COMPARISON_FUNC_LESS_EQUAL;
+                case ECompareFunc::Greater:      return Diligent::COMPARISON_FUNC_GREATER;
+                case ECompareFunc::NotEqual:     return Diligent::COMPARISON_FUNC_NOT_EQUAL;
+                case ECompareFunc::GreaterEqual: return Diligent::COMPARISON_FUNC_GREATER_EQUAL;
+                case ECompareFunc::Always:       return Diligent::COMPARISON_FUNC_ALWAYS;
+            }
+            return Diligent::COMPARISON_FUNC_ALWAYS;
+        };
+        auto to_op = [](EStencilOp o) -> Diligent::STENCIL_OP {
+            switch (o) {
+                case EStencilOp::Keep:     return Diligent::STENCIL_OP_KEEP;
+                case EStencilOp::Zero:     return Diligent::STENCIL_OP_ZERO;
+                case EStencilOp::Replace:  return Diligent::STENCIL_OP_REPLACE;
+                case EStencilOp::IncrSat:  return Diligent::STENCIL_OP_INCR_SAT;
+                case EStencilOp::DecrSat:  return Diligent::STENCIL_OP_DECR_SAT;
+                case EStencilOp::Invert:   return Diligent::STENCIL_OP_INVERT;
+                case EStencilOp::IncrWrap: return Diligent::STENCIL_OP_INCR_WRAP;
+                case EStencilOp::DecrWrap: return Diligent::STENCIL_OP_DECR_WRAP;
+            }
+            return Diligent::STENCIL_OP_KEEP;
+        };
+        const FStencilDesc& st = desc.stencil;
+        gp.DepthStencilDesc.StencilEnable    = st.enable;
+        gp.DepthStencilDesc.StencilReadMask  = st.read_mask;
+        gp.DepthStencilDesc.StencilWriteMask = st.write_mask;
+        Diligent::StencilOpDesc face;
+        face.StencilFunc        = to_cmp(st.func);
+        face.StencilPassOp      = to_op(st.pass_op);
+        face.StencilFailOp      = to_op(st.fail_op);
+        face.StencilDepthFailOp = to_op(st.depth_fail_op);
+        gp.DepthStencilDesc.FrontFace = face;
+        gp.DepthStencilDesc.BackFace  = face;
+    }
+
     diligent_detail::ApplyBlend(desc.blend_mode, gp.BlendDesc.RenderTargets[0]);
     gp.BlendDesc.RenderTargets[0].RenderTargetWriteMask = Diligent::COLOR_MASK_ALL;
 

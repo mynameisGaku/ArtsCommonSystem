@@ -65,6 +65,12 @@ void FNode2D::DrawTree(RenderContext& rc) noexcept {
         FNode2D* c = m_Children[i].Get();
         if (c != nullptr) c->DrawTree(rc);
     }
+    // 子ツリー描画の後に後処理フックを呼ぶ (ステンシルマスクの解除等)。
+    // これにより clip コンポーネントは「OnDraw でマスク設定 → 子ツリー描画 →
+    // OnDrawPostChildren で解除」と、自分の子ツリーをマスクで囲える。
+    for (u32 i = 0; i < m_Components.Size(); ++i) {
+        if (m_Components[i]) m_Components[i]->OnDrawPostChildren(rc);
+    }
 }
 
 bool FNode2D::IsAncestorOf(const FNode2D* candidate) const noexcept {

@@ -50,6 +50,12 @@ public:
     void SetReflectionEnabled(bool on) noexcept { m_ReflectionEnabled = on; }
     bool ReflectionEnabled() const noexcept { return m_ReflectionEnabled; }
 
+    // ステンシルマスクを有効化する。ON にすると world パスが stencil 付き深度バッファ
+    // (D24S8) を bind した状態で描かれ、FStencilClip2DComponent 等が任意形状で描画
+    // 範囲をマスクできるようになる。既定 OFF = 従来どおり (DSV 無し)。反射と併用可。
+    void SetStencilMaskEnabled(bool on) noexcept { m_StencilMaskEnabled = on; }
+    bool StencilMaskEnabled() const noexcept { return m_StencilMaskEnabled; }
+
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
@@ -66,6 +72,7 @@ protected:
 private:
     bool EnsureSpriteBatch(RenderContext& rc) noexcept;
     bool EnsureSceneRt(RenderContext& rc) noexcept;       // 反射用シーン RT を遅延作成
+    bool EnsureStencilBuffer(RenderContext& rc) noexcept; // マスク用 D24S8 を遅延作成
     void DrawWorldPass(RenderContext& rc) noexcept;       // world (DrawTree + OnDrawWorld)
     void DrawHudPass(RenderContext& rc) noexcept;         // HUD view + OnDrawHud
 
@@ -79,6 +86,10 @@ private:
     TUniquePtr<IRhiTexture> m_SceneRt;    // 反射用: world を焼くオフスクリーン RT
     u32          m_RtW = 0, m_RtH = 0;
     bool         m_ReflectionEnabled = false;
+
+    TUniquePtr<IRhiTexture> m_StencilBuf; // マスク用: stencil 付き深度バッファ (D24S8)
+    u32          m_StencilW = 0, m_StencilH = 0;
+    bool         m_StencilMaskEnabled = false;
 };
 
 } // namespace acs::game

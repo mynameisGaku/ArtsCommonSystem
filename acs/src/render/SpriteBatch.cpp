@@ -60,6 +60,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
 TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites) noexcept {
     if (max_sprites == 0) max_sprites = 4096;
     m_MaxSprites = max_sprites;
+    m_Device   = &device;     // ステンシル PSO の遅延生成で再利用
+    m_RtFormat = rt_format;
 
     // === シェーダ ===
     FShaderDesc vs_d{};
@@ -140,12 +142,23 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
 
     // === パイプライン（α ブレンド有効、深度無し、カリング無し）===
     FPipelineDesc pd{};
+    FillCommonPipelineDesc(pd);
+    pd.depth_format  = EFormat::Unknown;   // 2D は深度無し
+    pd.depth_test    = false;
+    auto pl_r = CreateRhiPipeline(device, pd);
+    if (pl_r.IsErr()) return Err<void>(pl_r.Error());
+    m_Pipeline = Move(pl_r.Value());
+
+    return Ok();
+}
+
+// vs/ps/layout/blend/sampler/slot など、全 SpriteBatch PSO 共通の部分を埋める。
+// depth_format / depth_test / stencil は呼び出し側がパス種別に応じて設定する。
+void FSpriteBatch::FillCommonPipelineDesc(FPipelineDesc& pd) const noexcept {
     pd.vs = m_Vs.Get();
     pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
-    pd.rt_format     = rt_format;
-    pd.depth_format  = EFormat::Unknown;   // 2D は深度無し
-    pd.depth_test    = false;
+    pd.rt_format     = m_RtFormat;
     pd.cull_mode     = ECullMode::None;
     pd.blend_mode    = EBlendMode::AlphaBlend;
     pd.cbuffer_slots = 1;
@@ -161,15 +174,63 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     pd.layout[1] = { "TEXCOORD", 0, EFormat::R32G32_Float,    8  };
     pd.layout[2] = { "COLOR",    0, EFormat::R32G32B32A32_Float, 16 };
     pd.layout_count = 3;
-    auto pl_r = CreateRhiPipeline(device, pd);
-    if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    m_Pipeline = Move(pl_r.Value());
+}
 
-    return Ok();
+// ステンシル 4 モードの PSO を遅延生成する。すべて DSVFormat=D24S8 で、深度テスト/
+// 書込みは無効 (2D)。StencilEnable と比較/操作だけがモードごとに異なる。
+bool FSpriteBatch::EnsureStencilPipelines() noexcept {
+    if (m_StencilReady) return true;
+    if (!m_Device) return false;
+
+    struct ModeCfg { bool enable; ECompareFunc func; EStencilOp pass; };
+    const ModeCfg cfg[4] = {
+        { false, ECompareFunc::Always,   EStencilOp::Keep    },  // Off
+        { true,  ECompareFunc::Always,   EStencilOp::Replace },  // WriteMask
+        { true,  ECompareFunc::Equal,    EStencilOp::Keep    },  // KeepInside
+        { true,  ECompareFunc::NotEqual, EStencilOp::Keep    },  // KeepOutside
+    };
+    for (u32 i = 0; i < 4; ++i) {
+        FPipelineDesc pd{};
+        FillCommonPipelineDesc(pd);
+        pd.depth_format = EFormat::D24_UNorm_S8_UInt;  // stencil 付き DSV と整合させる
+        pd.depth_test   = false;
+        pd.depth_write  = false;
+        pd.stencil.enable     = cfg[i].enable;
+        pd.stencil.func       = cfg[i].func;
+        pd.stencil.pass_op    = cfg[i].pass;
+        pd.stencil.fail_op    = EStencilOp::Keep;
+        pd.stencil.depth_fail_op = EStencilOp::Keep;
+        auto r = CreateRhiPipeline(*m_Device, pd);
+        if (r.IsErr()) {
+            ACS_LOG_ERROR("FSpriteBatch: ステンシル PSO %u の生成に失敗", i);
+            return false;
+        }
+        m_StencilPipe[i] = Move(r.Value());
+    }
+    m_StencilReady = true;
+    return true;
+}
+
+void FSpriteBatch::SetStencilMode(EStencilMode mode, u8 ref) noexcept {
+    if (!m_Cl) return;
+    Flush();                                  // 直前のバッチを現モードで確定
+    if (!EnsureStencilPipelines()) return;
+    IRhiPipeline* pl = m_StencilPipe[static_cast<u32>(mode)].Get();
+    if (!pl) return;
+    m_Cl->SetPipeline(*pl);
+    m_Cl->SetStencilRef(ref);
+    // PSO (= root signature) 切替で root 引数が無効化されるので CBV を貼り直す。
+    // IA (VB/IB) は PSO 切替で無効化されないが、念のため再 bind してパリティを保つ。
+    m_Cl->SetConstantBuffer(0, *m_Cb);
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetIndexBuffer(*m_Ib);
+    m_StencilMode = mode;
 }
 
 void FSpriteBatch::Shutdown() noexcept {
     m_Pipeline.Reset();
+    for (u32 i = 0; i < 4; ++i) m_StencilPipe[i].Reset();
+    m_StencilReady = false;
     m_White.Reset();
     m_Cb.Reset();
     m_Ib.Reset();
@@ -189,6 +250,7 @@ void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexce
     m_SpriteCount = 0;
     m_FlushedCount = 0;
     m_CurrentTex = nullptr;
+    m_StencilMode = EStencilMode::Off;   // 既定パイプライン (m_Pipeline) で開始
 
     // ビューを恒等（カメラ無し）に戻し、定数バッファを更新
     m_ViewX    = static_cast<f32>(m_ScreenW) * 0.5f;

@@ -35,6 +35,37 @@ enum class EBlendMode : u8 {
     Additive,      // src + dst（加算）
 };
 
+// 比較関数（深度 / ステンシルテスト共通）
+enum class ECompareFunc : u8 {
+    Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always,
+};
+
+// ステンシル操作（テスト結果に応じてステンシル値をどう更新するか）
+enum class EStencilOp : u8 {
+    Keep,      // 現在値を保持
+    Zero,      // 0 にする
+    Replace,   // 参照値 (SetStencilRef) で置換
+    IncrSat,   // +1 (飽和)
+    DecrSat,   // -1 (飽和)
+    Invert,    // ビット反転
+    IncrWrap,  // +1 (ラップ)
+    DecrWrap,  // -1 (ラップ)
+};
+
+// ステンシル設定（マスク描画用）。enable=false (既定) なら無効。
+// 有効化には depth_format が stencil 成分を持つ format (D24_UNorm_S8_UInt) で
+// あること、かつ stencil 付き深度バッファが bind されていることが必要。
+// 参照値は実行時に IRhiCommandList::SetStencilRef で動的に与える。
+struct FStencilDesc {
+    bool         enable        = false;
+    ECompareFunc func          = ECompareFunc::Always;  // 比較関数
+    EStencilOp   pass_op       = EStencilOp::Keep;        // stencil+depth 共に pass
+    EStencilOp   fail_op       = EStencilOp::Keep;        // stencil fail
+    EStencilOp   depth_fail_op = EStencilOp::Keep;        // stencil pass / depth fail
+    u8           read_mask     = 0xFF;                    // 比較時に AND するマスク
+    u8           write_mask    = 0xFF;                    // 書込み時に AND するマスク
+};
+
 struct FPipelineDesc {
     IRhiShader*       vs            = nullptr;
     IRhiShader*       ps            = nullptr;
@@ -84,6 +115,10 @@ struct FPipelineDesc {
     EBlendMode         blend_mode = EBlendMode::Opaque;
     bool              depth_test  = false;   // depth_format != Unknown のとき有効
     bool              depth_write = true;
+
+    // ステンシル (マスク描画用、既定 disable)。depth とは独立に有効化でき、
+    // depth_test=false でも stencil.enable=true なら stencil テスト/書込みが効く。
+    FStencilDesc      stencil    = {};
 };
 
 class IRhiPipeline {

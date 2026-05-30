@@ -59,7 +59,10 @@ void DiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer
     const float clr[4] = { clear.r, clear.g, clear.b, clear.a };
     ctx->ClearRenderTarget(rtv, clr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     if (dsv) {
-        ctx->ClearDepthStencil(dsv, Diligent::CLEAR_DEPTH_FLAG, depth_clear, 0,
+        const auto cf = (depth && static_cast<DiligentTexture*>(depth)->HasStencil())
+            ? (Diligent::CLEAR_DEPTH_FLAG | Diligent::CLEAR_STENCIL_FLAG)
+            : Diligent::CLEAR_DEPTH_FLAG;
+        ctx->ClearDepthStencil(dsv, cf, depth_clear, 0,
                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
 
@@ -135,7 +138,10 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
     const float clr[4] = { clear.r, clear.g, clear.b, clear.a };
     ctx->ClearRenderTarget(rtv, clr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     if (dsv) {
-        ctx->ClearDepthStencil(dsv, Diligent::CLEAR_DEPTH_FLAG, depth_clear, 0,
+        const auto cf = (depth && static_cast<DiligentTexture*>(depth)->HasStencil())
+            ? (Diligent::CLEAR_DEPTH_FLAG | Diligent::CLEAR_STENCIL_FLAG)
+            : Diligent::CLEAR_DEPTH_FLAG;
+        ctx->ClearDepthStencil(dsv, cf, depth_clear, 0,
                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
     FViewport vp;
@@ -308,6 +314,12 @@ void DiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
     r.right  = sr.right;
     r.bottom = sr.bottom;
     ctx->SetScissorRects(1, &r, 0, 0);
+}
+
+void DiligentCommandList::SetStencilRef(u32 ref) noexcept {
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
+    if (ctx) ctx->SetStencilRef(ref);
 }
 
 void DiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {

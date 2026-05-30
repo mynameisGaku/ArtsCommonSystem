@@ -28,6 +28,11 @@ public:
     // 内部使用: RTV ハンドル（オフスクリーン RT のみ）
     D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle() const noexcept;
     bool                        IsDepth()       const noexcept { return m_IsDepth; }
+    // 深度バッファが stencil 成分を持つか (D24_UNorm_S8_UInt)。clear で stencil
+    // フラグを足すか、マスク描画で使えるかの判定に使う。
+    bool                        HasStencil()    const noexcept {
+        return m_IsDepth && m_Format == EFormat::D24_UNorm_S8_UInt;
+    }
     bool                        HasSrv()        const noexcept { return m_SrvSlot >= 0; }
     bool                        HasRtv()        const noexcept { return m_RtvSlot >= 0; }
     ID3D12Resource*             Resource()      const noexcept { return m_Resource; }

@@ -81,6 +81,10 @@ public:
     // 物理シミュレーションや決定論的ロジックはここに置く。default は no-op。
     virtual void OnFixedUpdate(f32 /*fixed_dt*/) noexcept {}
     virtual void OnDraw(RenderContext& /*rc*/) noexcept {}
+    // OnDraw とノードの子ツリー描画の「後」に呼ばれる後処理フック。OnDraw で
+    // 設定した描画状態 (ステンシルマスク等) を子ツリーの描画後に解除するのに使う。
+    // 既定 no-op。これにより 1 コンポーネントで「子ツリーをマスクで囲う」が書ける。
+    virtual void OnDrawPostChildren(RenderContext& /*rc*/) noexcept {}
     virtual void OnDetach()                  noexcept {}
 
     FNode2D& Owner() noexcept { return *m_Owner; }

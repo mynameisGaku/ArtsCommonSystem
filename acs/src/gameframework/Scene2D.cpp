@@ -101,6 +101,23 @@ bool FScene2D::EnsureSceneRt(RenderContext& rc) noexcept {
     return true;
 }
 
+bool FScene2D::EnsureStencilBuffer(RenderContext& rc) noexcept {
+    const u32 w = rc.Width(), h = rc.Height();
+    if (w == 0 || h == 0) return false;
+    if (m_StencilBuf && m_StencilW == w && m_StencilH == h) return true;
+    IRhiDevice* dev = rc.GetRenderer().Device();
+    if (dev == nullptr) return false;
+    FTextureDesc td{};
+    td.width = w; td.height = h;
+    td.format = EFormat::D24_UNorm_S8_UInt;   // 深度 8bit ステンシル付き
+    td.is_depth_target = true;
+    auto r = CreateRhiTexture(*dev, td);
+    if (r.IsErr()) { ACS_LOG_WARN("FScene2D: マスク用 stencil バッファの作成に失敗 (マスク無効)"); return false; }
+    m_StencilBuf = Move(r.Value());
+    m_StencilW = w; m_StencilH = h;
+    return true;
+}
+
 void FScene2D::OnRender(RenderContext& rc) noexcept {
     if (!EnsureSpriteBatch(rc)) return;
     m_ScreenW = rc.Width();        // picking 用に画面サイズをキャッシュ
@@ -111,33 +128,53 @@ void FScene2D::OnRender(RenderContext& rc) noexcept {
     const f32 scale = m_PixelsPerUnit * cam.Zoom();
     rc._SetView2D(center, scale);   // 反射等の world→screen 投影用に配線
 
-    if (m_ReflectionEnabled && EnsureSceneRt(rc)) {
-        FRenderer& renderer = rc.GetRenderer();
-        IRhiCommandList& cl = rc.Cmd();
-        IRhiSwapchain* sc = renderer.Swapchain();
-        const ClearColor cc = GetGame().GetClearColor();
+    // マスク用 stencil バッファ (有効かつ作成成功時のみ)。world パスで DSV として bind。
+    IRhiTexture* stencil = (m_StencilMaskEnabled && EnsureStencilBuffer(rc)) ? m_StencilBuf.Get() : nullptr;
 
-        // Phase 1: world をオフスクリーン RT に焼く (反射バインド無し → 水はプレーン fill)。
+    FRenderer& renderer = rc.GetRenderer();
+    IRhiCommandList& cl = rc.Cmd();
+    IRhiSwapchain* sc = renderer.Swapchain();
+    const ClearColor cc = GetGame().GetClearColor();
+
+    if (m_ReflectionEnabled && EnsureSceneRt(rc)) {
+        // Phase 1: world をオフスクリーン RT に焼く (反射バインド無し → 水はプレーン fill。
+        //          RT に stencil は無いのでマスクは非アクティブ)。
         cl.BeginRenderToTexture(*m_SceneRt, cc);
         sb.Begin(cl, rc.Width(), rc.Height());
         rc._SetSpriteBatch(&sb);
         rc._SetReflection(nullptr);
+        rc._SetStencilMaskActive(false);
         DrawWorldPass(rc);
         rc._SetSpriteBatch(nullptr);
         sb.End();
         cl.EndRenderToTexture(*m_SceneRt);
 
-        // Phase 2: スワップチェーンを再バインド (バリアはガード済) → world+水(反射)+HUD。
-        if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc);
+        // Phase 2: スワップチェーン (必要なら stencil 付き) を再バインド → world+水(反射)+HUD。
+        if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc, stencil);
         sb.Begin(cl, rc.Width(), rc.Height());
         rc._SetSpriteBatch(&sb);
+        if (stencil) { rc._SetStencilMaskActive(true); sb.SetStencilMode(EStencilMode::Off); }
         rc._SetReflection(m_SceneRt.Get());   // 水がこの RT を鏡像 UV でサンプル
         DrawWorldPass(rc);
         rc._SetReflection(nullptr);
+        if (stencil) { sb.SetStencilMode(EStencilMode::Off); rc._SetStencilMaskActive(false); }
         DrawHudPass(rc);
         rc._SetSpriteBatch(nullptr);
         sb.End();
         // EndRenderToSwapchain は FGame/Renderer の EndFrame が行う。
+    } else if (stencil) {
+        // stencil のみ: スワップチェーンを stencil 付きで再バインド (バリアはガード済)。
+        if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc, stencil);
+        sb.Begin(cl, rc.Width(), rc.Height());
+        rc._SetSpriteBatch(&sb);
+        rc._SetStencilMaskActive(true);
+        sb.SetStencilMode(EStencilMode::Off);   // DSV 整合の既定 PSO へ切替
+        DrawWorldPass(rc);
+        sb.SetStencilMode(EStencilMode::Off);   // HUD が誤ってマスクされないよう解除
+        rc._SetStencilMaskActive(false);
+        DrawHudPass(rc);
+        rc._SetSpriteBatch(nullptr);
+        sb.End();
     } else {
         sb.Begin(rc.Cmd(), rc.Width(), rc.Height());
         rc._SetSpriteBatch(&sb);

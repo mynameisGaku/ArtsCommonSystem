@@ -85,6 +85,10 @@ public:
     virtual void SetViewport(const FViewport& vp) noexcept = 0;
     virtual void SetScissor (const FScissorRect& sr) noexcept = 0;
 
+    // ステンシル参照値を設定 (stencil 有効パイプラインの Replace / 比較で使う)。
+    // PSO ではなくコマンドリスト状態なので、同じ PSO で ref を切り替えられる。
+    virtual void SetStencilRef(u32 ref) noexcept = 0;
+
     // パイプラインを設定（次の Draw 命令で使う VS+PS+入力レイアウト等）
     virtual void SetPipeline(class IRhiPipeline& pipeline) noexcept = 0;
 
