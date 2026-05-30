@@ -22,15 +22,42 @@ public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(48.0f);
 
-        // 水域 (画面下側、world +Y = 画面下)。
+        // --- 形状ちがいの水域を 3 つ (world +Y = 画面下) ---
+        // 海 (矩形、画面下端)。
         {
             auto n = MakeUnique<FNode2D>();
             n->Local().position = FVec2{0.0f, 0.0f};
             auto& w = n->AddComponent<FWater2DComponent>();
-            w.SetArea(FVec2{0.0f, 4.6f}, FVec2{11.0f, 2.4f});
-            w.SetColor(FVec3{0.10f, 0.38f, 0.62f});
-            w.SetWaves(0.18f, 1.6f);
-            m_Water = &w;
+            w.SetRect(FVec2{0.0f, 5.0f}, FVec2{11.0f, 2.0f});
+            w.SetColor(FVec3{0.10f, 0.36f, 0.60f});
+            w.SetWaves(0.16f, 1.6f);
+            m_Waters[m_WaterCount++] = &w;
+            Root().AddChild(Move(n));
+        }
+        // 水溜まり (楕円)。
+        {
+            auto n = MakeUnique<FNode2D>();
+            n->Local().position = FVec2{4.8f, 0.8f};
+            auto& w = n->AddComponent<FWater2DComponent>();
+            w.SetEllipse(FVec2{0.0f, 0.0f}, 2.2f, 1.1f, 28);
+            w.SetColor(FVec3{0.15f, 0.45f, 0.66f});
+            w.SetWaves(0.08f, 2.2f);
+            m_Waters[m_WaterCount++] = &w;
+            Root().AddChild(Move(n));
+        }
+        // 川 (スプライン: 少ない制御点で曲がりくねった帯)。
+        {
+            auto n = MakeUnique<FNode2D>();
+            n->Local().position = FVec2{0.0f, 0.0f};
+            auto& w = n->AddComponent<FWater2DComponent>();
+            const FVec2 ctrl[5] = {
+                FVec2{-10.0f, -3.2f}, FVec2{-5.0f, -1.6f}, FVec2{0.0f, -3.4f},
+                FVec2{ 5.0f, -1.2f}, FVec2{10.0f, -2.6f},
+            };
+            w.SetSplineRiver(ctrl, 5, 1.3f, 10);
+            w.SetColor(FVec3{0.12f, 0.42f, 0.68f});
+            w.SetWaves(0.10f, 2.0f);
+            m_Waters[m_WaterCount++] = &w;
             Root().AddChild(Move(n));
         }
         // 焚き火 (左下)。
@@ -67,16 +94,14 @@ public:
         const FVec2 mw = ScreenToWorld(Input::MousePos());   // ppu 対応のピッキング
         if (m_Player) m_Player->Local().position = mw;
 
-        // 水: なぞると波紋、左クリックで splash。
-        if (m_Water) {
-            if (m_Water->ContainsPoint(mw)) {
-                const FVec2 md = Input::MouseDelta();
-                const f32 sp = Sqrt(md.x * md.x + md.y * md.y);   // px/frame
-                if (sp > 1.0f) m_Water->Disturb(mw.x, 0.05f + sp * 0.0006f);
-            }
-            if (Input::IsMouseButtonPressed(EMouseButton::Left) && m_Water->ContainsX(mw.x)) {
-                m_Water->Disturb(mw.x, 0.55f);
-            }
+        // 水: なぞると波紋、左クリックで splash (各水域に対して)。
+        const FVec2 md = Input::MouseDelta();
+        const f32 sp = Sqrt(md.x * md.x + md.y * md.y);          // px/frame
+        const bool click = Input::IsMouseButtonPressed(EMouseButton::Left);
+        for (u32 i = 0; i < m_WaterCount; ++i) {
+            FWater2DComponent* w = m_Waters[i];
+            if (sp > 1.0f && w->ContainsPoint(mw)) w->Disturb(mw.x, 0.05f + sp * 0.0006f);
+            if (click && w->ContainsPoint(mw))     w->Disturb(mw.x, 0.55f);
         }
         // 炎: 近づくと勢い UP。
         if (m_Fire) {
@@ -89,13 +114,14 @@ public:
         sb.DrawRect(8.0f, 8.0f, 640.0f, 30.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
         if (rc.HasFont()) {
             sb.DrawString(rc.GetFont(),
-                          "Effects2D  mouse=trail / drag-click on water=ripple / near fire=flare  [Esc]",
+                          "Effects2D  sea/puddle/spline-river  mouse=trail, drag/click water=ripple, near fire=flare  [Esc]",
                           16.0f, 15.0f, FVec4{0.9f, 0.95f, 1.0f, 1.0f});
         }
     }
 
 private:
-    FWater2DComponent* m_Water  = nullptr;
+    FWater2DComponent* m_Waters[3] = { nullptr, nullptr, nullptr };
+    u32                m_WaterCount = 0;
     FFire2DComponent*  m_Fire   = nullptr;
     FNode2D*           m_Player = nullptr;
     FVec2              m_FirePos{0.0f, 0.0f};

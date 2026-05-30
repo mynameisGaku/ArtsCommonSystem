@@ -7,12 +7,162 @@
 
 namespace acs::game {
 
+namespace {
+// Catmull-Rom 補間: p1,p2 間を t で。p0/p3 は隣接制御点 (端は端点を複製)。
+inline FVec2 CatmullRom(FVec2 p0, FVec2 p1, FVec2 p2, FVec2 p3, f32 t) noexcept {
+    const f32 t2 = t * t, t3 = t2 * t;
+    return FVec2{
+        0.5f * ((2.0f*p1.x) + (-p0.x+p2.x)*t + (2.0f*p0.x-5.0f*p1.x+4.0f*p2.x-p3.x)*t2 + (-p0.x+3.0f*p1.x-3.0f*p2.x+p3.x)*t3),
+        0.5f * ((2.0f*p1.y) + (-p0.y+p2.y)*t + (2.0f*p0.y-5.0f*p1.y+4.0f*p2.y-p3.y)*t2 + (-p0.y+3.0f*p1.y-3.0f*p2.y+p3.y)*t3)
+    };
+}
+} // namespace
+
 // ===========================================================================
 // FWater2DComponent
 // ===========================================================================
 
+// ---- 形状ビルダー共通ヘルパ ----
+void FWater2DComponent::PushVert(FVec2 v) noexcept {
+    if (m_VCount < kMaxVerts) m_Vert[m_VCount++] = v;
+}
+
+void FWater2DComponent::PushTri(u32 a, u32 b, u32 c) noexcept {
+    if (m_TCount < kMaxTris && a < m_VCount && b < m_VCount && c < m_VCount) {
+        m_Tri[m_TCount * 3 + 0] = static_cast<u16>(a);
+        m_Tri[m_TCount * 3 + 1] = static_cast<u16>(b);
+        m_Tri[m_TCount * 3 + 2] = static_cast<u16>(c);
+        ++m_TCount;
+    }
+}
+
+void FWater2DComponent::Finish() noexcept {
+    if (m_VCount == 0) return;
+    m_MinX = m_MaxX = m_Vert[0].x;
+    m_MinY = m_MaxY = m_Vert[0].y;
+    for (u32 i = 1; i < m_VCount; ++i) {
+        if (m_Vert[i].x < m_MinX) m_MinX = m_Vert[i].x;
+        if (m_Vert[i].x > m_MaxX) m_MaxX = m_Vert[i].x;
+        if (m_Vert[i].y < m_MinY) m_MinY = m_Vert[i].y;
+        if (m_Vert[i].y > m_MaxY) m_MaxY = m_Vert[i].y;
+    }
+    // 「水面らしさ」: bbox 上端 (= min Y、画面上) から band 内を 1→0。
+    // 上端の頂点ほど波で揺れ、底の頂点は動かない (どの形状でも自然な水面に)。
+    const f32 band = (m_MaxY - m_MinY) * 0.4f + 1e-4f;
+    for (u32 i = 0; i < m_VCount; ++i) {
+        f32 w = 1.0f - (m_Vert[i].y - m_MinY) / band;
+        m_Weight[i] = w < 0.0f ? 0.0f : (w > 1.0f ? 1.0f : w);
+    }
+}
+
+void FWater2DComponent::SetRect(FVec2 center, FVec2 half, u32 top_segments) noexcept {
+    m_VCount = 0; m_TCount = 0;
+    if (top_segments < 1) top_segments = 1;
+    if (top_segments > kMaxVerts - 3) top_segments = kMaxVerts - 3;
+    const f32 topY = center.y - half.y;     // 画面上 = min Y
+    const f32 botY = center.y + half.y;
+    const f32 lx = center.x - half.x, rx = center.x + half.x;
+    for (u32 i = 0; i <= top_segments; ++i) {            // 上辺を分割 (滑らかな波)
+        const f32 x = lx + (rx - lx) * (static_cast<f32>(i) / static_cast<f32>(top_segments));
+        PushVert(FVec2{ x, topY });
+    }
+    const u32 br = m_VCount; PushVert(FVec2{ rx, botY });
+    const u32 bl = m_VCount; PushVert(FVec2{ lx, botY });
+    for (u32 i = 0; i < top_segments; ++i) PushTri(bl, i, i + 1);   // bl から扇状に
+    PushTri(bl, top_segments, br);
+    Finish();
+}
+
+void FWater2DComponent::SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments) noexcept {
+    m_VCount = 0; m_TCount = 0;
+    if (segments < 3) segments = 3;
+    if (segments > kMaxVerts - 1) segments = kMaxVerts - 1;
+    const u32 c = m_VCount; PushVert(center);            // 中心 (扇の要)
+    for (u32 i = 0; i < segments; ++i) {
+        const f32 a = 6.2831853f * (static_cast<f32>(i) / static_cast<f32>(segments));
+        PushVert(FVec2{ center.x + Cos(a) * rx, center.y + Sin(a) * ry });
+    }
+    for (u32 i = 0; i < segments; ++i)
+        PushTri(c, c + 1 + i, c + 1 + ((i + 1) % segments));
+    Finish();
+}
+
+void FWater2DComponent::SetPolygon(const FVec2* pts, u32 count) noexcept {
+    m_VCount = 0; m_TCount = 0;
+    if (pts == nullptr || count < 3) return;
+    if (count > kMaxVerts - 1) count = kMaxVerts - 1;
+    FVec2 ctr{ 0.0f, 0.0f };
+    for (u32 i = 0; i < count; ++i) { ctr.x += pts[i].x; ctr.y += pts[i].y; }
+    ctr.x /= static_cast<f32>(count); ctr.y /= static_cast<f32>(count);
+    const u32 c = m_VCount; PushVert(ctr);               // centroid から扇状に
+    for (u32 i = 0; i < count; ++i) PushVert(pts[i]);
+    for (u32 i = 0; i < count; ++i)
+        PushTri(c, c + 1 + i, c + 1 + ((i + 1) % count));
+    Finish();
+}
+
+void FWater2DComponent::SetRiver(const FVec2* path, u32 count, f32 width) noexcept {
+    m_VCount = 0; m_TCount = 0;
+    if (path == nullptr || count < 2) return;
+    const u32 maxPts = kMaxVerts / 2u;
+    if (count > maxPts) count = maxPts;
+    const f32 hw = width * 0.5f;
+    for (u32 i = 0; i < count; ++i) {                    // 各 path 点で左右にオフセット
+        FVec2 dir;
+        if (i == 0)            dir = FVec2{ path[1].x - path[0].x, path[1].y - path[0].y };
+        else if (i == count-1) dir = FVec2{ path[i].x - path[i-1].x, path[i].y - path[i-1].y };
+        else                   dir = FVec2{ path[i+1].x - path[i-1].x, path[i+1].y - path[i-1].y };
+        const f32 len = Sqrt(dir.x * dir.x + dir.y * dir.y);
+        const FVec2 n = len > 1e-5f ? FVec2{ -dir.y / len, dir.x / len } : FVec2{ 0.0f, 1.0f };
+        PushVert(FVec2{ path[i].x + n.x * hw, path[i].y + n.y * hw });   // 左岸 (偶数)
+        PushVert(FVec2{ path[i].x - n.x * hw, path[i].y - n.y * hw });   // 右岸 (奇数)
+    }
+    for (u32 i = 0; i + 1 < count; ++i) {                // quad strip
+        const u32 a = 2*i, b = 2*i+1, cc = 2*i+2, d = 2*i+3;
+        PushTri(a, b, cc);
+        PushTri(b, d, cc);
+    }
+    Finish();
+}
+
+void FWater2DComponent::SetSplineRiver(const FVec2* control, u32 count, f32 width,
+                                       u32 samples_per_seg) noexcept {
+    if (control == nullptr || count < 2) return;
+    if (samples_per_seg < 1) samples_per_seg = 1;
+    FVec2 dense[kMaxVerts / 2u];
+    const u32 cap = kMaxVerts / 2u;
+    u32 n = 0;
+    for (u32 i = 0; i + 1 < count && n < cap; ++i) {
+        const FVec2 p0 = control[i == 0 ? 0 : i - 1];
+        const FVec2 p1 = control[i];
+        const FVec2 p2 = control[i + 1];
+        const FVec2 p3 = control[i + 2 < count ? i + 2 : count - 1];
+        for (u32 s = 0; s < samples_per_seg && n < cap; ++s)
+            dense[n++] = CatmullRom(p0, p1, p2, p3, static_cast<f32>(s) / static_cast<f32>(samples_per_seg));
+    }
+    if (n < cap) dense[n++] = control[count - 1];        // 終端を含める
+    SetRiver(dense, n, width);
+}
+
+void FWater2DComponent::SetSplineRegion(const FVec2* control, u32 count,
+                                        u32 samples_per_seg) noexcept {
+    if (control == nullptr || count < 3) return;
+    if (samples_per_seg < 1) samples_per_seg = 1;
+    FVec2 dense[kMaxVerts - 1u];
+    const u32 cap = kMaxVerts - 1u;
+    u32 n = 0;
+    for (u32 i = 0; i < count && n < cap; ++i) {         // 閉ループ (添字を wrap)
+        const FVec2 p0 = control[(i + count - 1) % count];
+        const FVec2 p1 = control[i];
+        const FVec2 p2 = control[(i + 1) % count];
+        const FVec2 p3 = control[(i + 2) % count];
+        for (u32 s = 0; s < samples_per_seg && n < cap; ++s)
+            dense[n++] = CatmullRom(p0, p1, p2, p3, static_cast<f32>(s) / static_cast<f32>(samples_per_seg));
+    }
+    SetPolygon(dense, n);
+}
+
 void FWater2DComponent::Disturb(f32 world_x, f32 strength) noexcept {
-    // 空きスロット優先、無ければ最も古い波紋を上書き。
     u32 slot = kMaxRipples;
     f32 oldest = -1.0f;
     for (u32 i = 0; i < kMaxRipples; ++i) {
@@ -23,32 +173,29 @@ void FWater2DComponent::Disturb(f32 world_x, f32 strength) noexcept {
     m_Ripples[slot] = Ripple{ world_x, strength, strength, 0.0f, true };
 }
 
-f32 FWater2DComponent::SurfaceY() const noexcept {
-    return Owner().World().position.y + m_Center.y + m_Half.y;
+bool FWater2DComponent::ContainsPoint(FVec2 world) const noexcept {
+    const FVec2 o = Owner().World().position;
+    return world.x >= o.x + m_MinX && world.x <= o.x + m_MaxX &&
+           world.y >= o.y + m_MinY && world.y <= o.y + m_MaxY;
 }
 
 bool FWater2DComponent::ContainsX(f32 world_x) const noexcept {
-    const f32 ox = Owner().World().position.x + m_Center.x;
-    return world_x >= ox - m_Half.x && world_x <= ox + m_Half.x;
+    const f32 ox = Owner().World().position.x;
+    return world_x >= ox + m_MinX && world_x <= ox + m_MaxX;
 }
 
-bool FWater2DComponent::ContainsPoint(FVec2 world) const noexcept {
-    const FVec2 o = Owner().World().position;
-    const f32 cx = o.x + m_Center.x, cy = o.y + m_Center.y;
-    return world.x >= cx - m_Half.x && world.x <= cx + m_Half.x &&
-           world.y >= cy - m_Half.y && world.y <= cy + m_Half.y;
+f32 FWater2DComponent::SurfaceY() const noexcept {
+    return Owner().World().position.y + m_MinY;   // bbox 上端
 }
 
-f32 FWater2DComponent::SurfaceOffsetAt(f32 world_x) const noexcept {
-    // ambient: 2 つの sin の和で有機的なうねり。
+f32 FWater2DComponent::WaveAt(f32 world_x) const noexcept {
     f32 off = m_Amp        * Sin(world_x * 3.0f + m_Time * m_Speed)
             + m_Amp * 0.4f * Sin(world_x * 7.0f - m_Time * m_Speed * 1.7f);
-    // 干渉: 各 Disturb から外側へ広がりながら減衰する波紋。
     for (u32 i = 0; i < kMaxRipples; ++i) {
         if (!m_Ripples[i].active) continue;
         const f32 d    = world_x - m_Ripples[i].x;
         const f32 dist = d < 0.0f ? -d : d;
-        f32 env = 1.0f - dist * 0.6f - m_Ripples[i].time * 0.25f;  // 時間で縮む包絡
+        f32 env = 1.0f - dist * 0.6f - m_Ripples[i].time * 0.25f;
         if (env <= 0.0f) continue;
         off += m_Ripples[i].amp * Cos(dist * 9.0f - m_Ripples[i].time * 11.0f) * env;
     }
@@ -66,31 +213,27 @@ void FWater2DComponent::OnUpdate(f32 dt) noexcept {
 }
 
 void FWater2DComponent::OnDraw(RenderContext& rc) noexcept {
-    if (!rc.HasSprites()) return;
+    if (!rc.HasSprites() || m_TCount == 0) return;
     FSpriteBatch& sb = rc.Sprites();
     const FVec2 o = Owner().World().position;
-    const f32 left   = o.x + m_Center.x - m_Half.x;
-    const f32 right  = o.x + m_Center.x + m_Half.x;
-    const f32 bottom = o.y + m_Center.y - m_Half.y;
-    const f32 surf   = o.y + m_Center.y + m_Half.y;
-    const u32 N = m_Segs;
 
+    // 各頂点を「水面らしさ × 波」で画面上 (-Y) へ揺らした world 位置に変換。
+    FVec2 disp[kMaxVerts];
+    for (u32 i = 0; i < m_VCount; ++i) {
+        const f32 wx = o.x + m_Vert[i].x;
+        const f32 wy = o.y + m_Vert[i].y - WaveAt(wx) * m_Weight[i];
+        disp[i] = FVec2{ wx, wy };
+    }
     const FVec4 body{ m_Color.x, m_Color.y, m_Color.z, m_Alpha };
+    for (u32 t = 0; t < m_TCount; ++t) {
+        const u16 a = m_Tri[t*3], b = m_Tri[t*3+1], c = m_Tri[t*3+2];
+        sb.DrawTriangle(disp[a].x, disp[a].y, disp[b].x, disp[b].y, disp[c].x, disp[c].y, body);
+    }
+    // 泡: 水面らしさが高い頂点に小さな明るい点 (どの形状でも crest が光る)。
     const FVec4 foam{ 0.85f, 0.95f, 1.0f, m_Alpha * 0.9f };
-    const f32   foamT = (m_Half.x + m_Half.y) * 0.02f + 0.03f;   // 泡の厚み
-
-    f32 prevX   = left;
-    f32 prevTop = surf + SurfaceOffsetAt(left);
-    for (u32 i = 1; i <= N; ++i) {
-        const f32 x   = left + (right - left) * (static_cast<f32>(i) / static_cast<f32>(N));
-        const f32 top = surf + SurfaceOffsetAt(x);
-        // 本体 (波打つ上辺 → 平らな底) を 2 三角形で塗る。
-        sb.DrawTriangle(prevX, bottom, x, bottom, x, top, body);
-        sb.DrawTriangle(prevX, bottom, x, top, prevX, prevTop, body);
-        // 泡 (crest の薄い明るい帯)。
-        sb.DrawTriangle(prevX, prevTop - foamT, x, top - foamT, x, top, foam);
-        sb.DrawTriangle(prevX, prevTop - foamT, x, top, prevX, prevTop, foam);
-        prevX = x; prevTop = top;
+    const f32   fs = (m_MaxX - m_MinX + m_MaxY - m_MinY) * 0.006f + 0.04f;
+    for (u32 i = 0; i < m_VCount; ++i) {
+        if (m_Weight[i] > 0.5f) sb.DrawRectRotated(disp[i].x, disp[i].y, fs, fs, 0.0f, foam);
     }
 }
 
