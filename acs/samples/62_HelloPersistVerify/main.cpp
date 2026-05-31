@@ -20,6 +20,7 @@
 #include "gameframework/Lockstep.h"
 #include "memory/Tlsf.h"
 #include "foundation/SourceLoc.h"
+#include "container/Json.h"
 
 #include <cstdio>
 #include <cstring>
@@ -127,6 +128,95 @@ void TestStringSelfAppend() noexcept {
     t.Append(t.View().SubView(0, 5));           // "abcde" を末尾へ
     Check(t.Size() == 31 && t.Data()[26] == 'a' && t.Data()[30] == 'e',
           "部分文字列 self-append が正しい");
+}
+
+void TestJson() noexcept {
+    std::printf("[FJson] JSON パーサ (content pipeline 基盤)\n");
+    const char* atlas =
+        "{\n"
+        "  \"frames\": {\n"
+        "    \"hero 0.png\": { \"frame\": {\"x\":0,\"y\":0,\"w\":32,\"h\":48}, \"pivot\":{\"x\":0.5,\"y\":1.0} },\n"
+        "    \"hero 1.png\": { \"frame\": {\"x\":32,\"y\":0,\"w\":32,\"h\":48} }\n"
+        "  },\n"
+        "  \"meta\": { \"image\": \"hero.png\", \"size\": {\"w\":64,\"h\":48} }\n"
+        "}";
+    auto r = ParseJson(atlas, std::strlen(atlas));
+    Check(r.IsOk(), "Aseprite 風 atlas JSON parse 成功");
+    if (r.IsOk()) {
+        const FJsonValue& root = r.Value();
+        Check(root.IsObject(), "root は Object");
+        Check(root.Get("meta").Get("image").AsString() == FStringView("hero.png"), "meta.image=hero.png");
+        Check(root.Get("meta").Get("size").Get("w").AsU32() == 64, "meta.size.w=64");
+        const FJsonValue& frames = root.Get("frames");
+        Check(frames.IsObject() && frames.MemberCount() == 2, "frames 2 メンバ");
+        Check(frames.MemberKey(0) == FStringView("hero 0.png"), "frame[0] key (空白含む)");
+        const FJsonValue& f0 = frames.At(0).Get("frame");
+        Check(f0.Get("w").AsU32() == 32 && f0.Get("h").AsU32() == 48, "frame[0] w=32 h=48");
+        Check(NearF(frames.At(0).Get("pivot").Get("y").AsF32(), 1.0f), "frame[0] pivot.y=1.0");
+        Check(root.Get("nope").Get("x").AsU32(7) == 7, "欠損キー chain は default (crash 無し)");
+    }
+    // 配列 + bool/null + 指数 + エスケープ + \u。
+    const char* arr = "[true, null, -3.5e2, \"a\\nb\\u0041\"]";
+    auto r3 = ParseJson(arr, std::strlen(arr));
+    Check(r3.IsOk() && r3.Value().IsArray() && r3.Value().Size() == 4, "配列 4 要素");
+    if (r3.IsOk()) {
+        const FJsonValue& a = r3.Value();
+        Check(a.At(0).AsBool() == true && a.At(1).IsNull(), "true / null");
+        Check(NearF(a.At(2).AsF32(), -350.0f), "指数 -3.5e2 = -350");
+        Check(a.At(3).AsString() == FStringView("a\nbA"), "エスケープ \\n + \\u0041=A");
+    }
+    // 不正入力は Err (crash しない)。
+    Check(ParseJson("{bad}", 5).IsErr(), "不正 JSON は Err");
+    Check(ParseJson("[1,2", 4).IsErr(), "未終端配列は Err");
+    Check(ParseJson("", 0).IsErr(), "空入力は Err");
+    Check(ParseJson("123 456", 7).IsErr(), "ルート後ゴミは Err");
+    // review 修正の検証: 非有限数 (1e400→inf) は cast UB 無しで clamp。
+    auto rb = ParseJson("1e400", 5);
+    Check(rb.IsOk() && rb.Value().AsInt(0) == 9223372036854775807LL, "inf → AsInt clamp I64_MAX");
+    Check(rb.IsOk() && rb.Value().AsU32(0) == 0xFFFFFFFFu, "inf → AsU32 clamp U32_MAX");
+    // エラーメッセージが dangling せず安全に読める (thread_local 化)。
+    auto re = ParseJson("{bad}", 5);
+    Check(re.IsErr() && re.Error().message != nullptr
+          && std::strstr(re.Error().message, "JSON") != nullptr,
+          "エラーメッセージが dangling せず読める");
+}
+
+void TestSpriteAtlasLoad() noexcept {
+    std::printf("[FSpritePack] atlas JSON ロード (content pipeline)\n");
+    // Aseprite "hash" 形式。
+    const char* atlas =
+        "{ \"frames\": {"
+        "  \"idle 0\": { \"frame\": {\"x\":0,\"y\":0,\"w\":32,\"h\":48}, \"pivot\":{\"x\":0.5,\"y\":1.0} },"
+        "  \"idle 1\": { \"frame\": {\"x\":32,\"y\":0,\"w\":32,\"h\":48} }"
+        " }, \"meta\": { \"image\": \"hero.png\", \"size\": {\"w\":128,\"h\":48} } }";
+    FSpritePack pack;
+    Check(pack.LoadAtlasJson(atlas, std::strlen(atlas)).IsOk(), "Aseprite hash 形式ロード成功");
+    Check(pack.FrameCount() == 2, "frame 2 個");
+    const SpriteFrame* f = pack.FindFrame("idle 0");
+    Check(f != nullptr, "FindFrame('idle 0') 空白名で取得");
+    if (f) {
+        Check(f->x == 0 && f->w == 32 && f->h == 48, "frame 矩形");
+        Check(NearF(f->pivot_y, 1.0f), "pivot.y=1.0");
+    }
+    Check(pack.Info().atlas_texture_path != nullptr
+          && std::strcmp(pack.Info().atlas_texture_path, "hero.png") == 0, "image path 内部所有");
+    Check(pack.Info().atlas_width == 128, "atlas size.w=128");
+    if (const SpriteFrame* f1 = pack.FindFrame("idle 1")) {
+        const FVec4 uv = pack.ComputeUv(*f1);   // x=32,w=32 → u0=0.25, u1=0.5
+        Check(NearF(uv.x, 0.25f) && NearF(uv.z, 0.5f), "ComputeUv 正しい");
+    }
+    // TexturePacker "array" 形式。
+    const char* tp =
+        "{ \"frames\": ["
+        "  { \"filename\": \"a.png\", \"frame\": {\"x\":0,\"y\":0,\"w\":16,\"h\":16} },"
+        "  { \"filename\": \"b.png\", \"frame\": {\"x\":16,\"y\":0,\"w\":16,\"h\":16} }"
+        " ], \"meta\": { \"image\": \"sheet.png\", \"size\": {\"w\":32,\"h\":16} } }";
+    FSpritePack pack2;
+    Check(pack2.LoadAtlasJson(tp, std::strlen(tp)).IsOk(), "TexturePacker array 形式ロード成功");
+    Check(pack2.FrameCount() == 2 && pack2.HasFrame("b.png"), "array 形式 frame 取得");
+    // frames 欠如は Err。
+    FSpritePack pack3;
+    Check(pack3.LoadAtlasJson("{}", 2).IsErr(), "frames 欠如は Err");
 }
 
 void TestTlsfExactFit() noexcept {
@@ -608,6 +698,8 @@ int main() {
     TestDrawOrder();
     TestStringSelfAppend();
     TestTlsfExactFit();
+    TestJson();
+    TestSpriteAtlasLoad();
     std::printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILED");
     return g_fail;
 }

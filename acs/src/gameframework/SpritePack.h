@@ -42,7 +42,9 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "foundation/Result.h"
 #include "container/Array.h"
+#include "container/String.h"
 #include "math/Vec.h"
 
 namespace acs::game {
@@ -88,6 +90,16 @@ public:
     // FindFrame は最初に一致したものを返す)。
     void AddFrame(const SpriteFrame& frame) noexcept;
 
+    // ----- atlas JSON ローダ (content pipeline) -----
+    // Aseprite / TexturePacker が吐く sprite atlas JSON を読み込む。frame 名と
+    // image path は **内部で所有** するので、JSON テキストの寿命に依存しない。
+    // 既存 frame は ClearAll してから読み込む。対応形式:
+    //   ・Aseprite "hash":  { "frames": { "name": { "frame": {x,y,w,h}, ["pivot":{x,y}] } } }
+    //   ・TexturePacker "array": { "frames": [ { "filename": "name", "frame": {x,y,w,h} } ] }
+    //   ・meta: { "image": "...", "size": { "w":.., "h":.. } } を atlas メタへ取り込む。
+    // 解析失敗 / frames 欠如は ACS_ERR。成功時は FindFrame("name") で取り出せる。
+    TResult<void> LoadAtlasJson(const char* json_text, usize len) noexcept;
+
     // 名前で frame を検索。見つからなければ nullptr。
     // 比較は pointer 同一 → strcmp の順。name == nullptr は常に nullptr。
     const SpriteFrame* FindFrame(const char* name) const noexcept;
@@ -120,6 +132,10 @@ public:
 private:
     SpritePackInfo     m_Info;
     TArray<SpriteFrame> m_Frames;
+    // LoadAtlasJson が所有する文字列 (frame 名 / image path)。SpriteFrame.name は
+    // m_OwnedNames[i].Data() を指す。Reserve 済みで再 alloc しないため SSO でも安定。
+    TArray<FString>    m_OwnedNames;
+    FString            m_OwnedImagePath;
 };
 
 } // namespace acs::game

@@ -3,6 +3,9 @@
 //
 // data holder のみ。描画 / texture ロードは責務外。詳細は FSpritePack.h 参照。
 #include "gameframework/SpritePack.h"
+#include "container/Json.h"
+#include "foundation/Error.h"
+#include "foundation/Move.h"
 
 #include <cstring>   // strcmp
 
@@ -57,6 +60,65 @@ void FSpritePack::RemoveFrame(const char* name) noexcept {
 
 void FSpritePack::ClearAll() noexcept {
     m_Frames.Clear();
+}
+
+// ============================================================================
+// atlas JSON ローダ (content pipeline)
+// ============================================================================
+
+TResult<void> FSpritePack::LoadAtlasJson(const char* json_text, usize len) noexcept {
+    auto pr = ParseJson(json_text, len);
+    if (pr.IsErr()) return pr.Error();
+    const FJsonValue& root = pr.Value();
+    if (!root.IsObject()) {
+        return ACS_ERR(Generic, 1410, "atlas JSON: root is not an object");
+    }
+
+    // frames は Aseprite "hash" (object) か TexturePacker "array" のどちらか。
+    const FJsonValue& frames = root.Get("frames");
+    u32  count;
+    bool hash_form;
+    if (frames.IsObject())      { count = frames.MemberCount(); hash_form = true; }
+    else if (frames.IsArray())  { count = frames.Size();        hash_form = false; }
+    else return ACS_ERR(Generic, 1411, "atlas JSON: 'frames' is neither object nor array");
+
+    // 既存をクリアし名前所有バッファを Reserve (再 alloc を防ぎ SSO name を安定化)。
+    m_Frames.Clear();
+    m_OwnedNames.Clear();
+    m_OwnedNames.Reserve(count);
+
+    for (u32 i = 0; i < count; ++i) {
+        const FJsonValue& entry = frames.At(i);   // hash/array とも i 番目の値
+        const FStringView name_v = hash_form ? frames.MemberKey(i)
+                                             : entry.Get("filename").AsString();
+        const FJsonValue& fr = entry.Get("frame");
+
+        FString name;
+        name.Append(name_v);
+        m_OwnedNames.PushBack(Move(name));         // Reserve 済 → realloc しない
+
+        SpriteFrame sf;
+        sf.name = m_OwnedNames[m_OwnedNames.Size() - 1].Data();   // 安定ポインタ
+        sf.x = fr.Get("x").AsU32();
+        sf.y = fr.Get("y").AsU32();
+        sf.w = fr.Get("w").AsU32();
+        sf.h = fr.Get("h").AsU32();
+        const FJsonValue& piv = entry.Get("pivot");
+        if (piv.IsObject()) {
+            sf.pivot_x = piv.Get("x").AsF32(0.5f);
+            sf.pivot_y = piv.Get("y").AsF32(0.5f);
+        }
+        m_Frames.PushBack(sf);
+    }
+
+    // meta を取り込む (image path は内部所有)。
+    const FJsonValue& meta = root.Get("meta");
+    m_OwnedImagePath.Clear();
+    m_OwnedImagePath.Append(meta.Get("image").AsString());
+    m_Info.atlas_texture_path = m_OwnedImagePath.Data();
+    m_Info.atlas_width  = meta.Get("size").Get("w").AsU32();
+    m_Info.atlas_height = meta.Get("size").Get("h").AsU32();
+    return Ok();
 }
 
 // ============================================================================

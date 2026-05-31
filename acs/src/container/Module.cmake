@@ -4,6 +4,7 @@ acs_module(
     SOURCES
         String.cpp
         Hash.cpp
+        Json.cpp
     HEADERS
         Span.h
         Array.h
@@ -11,6 +12,7 @@ acs_module(
         String.h
         Hash.h
         HashMap.h
+        Json.h
     PUBLIC_DEPS
         Foundation
         Memory
