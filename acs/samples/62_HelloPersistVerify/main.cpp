@@ -21,6 +21,7 @@
 #include "memory/Tlsf.h"
 #include "foundation/SourceLoc.h"
 #include "container/Json.h"
+#include "gameframework/Tilemap.h"
 
 #include <cstdio>
 #include <cstring>
@@ -217,6 +218,34 @@ void TestSpriteAtlasLoad() noexcept {
     // frames 欠如は Err。
     FSpritePack pack3;
     Check(pack3.LoadAtlasJson("{}", 2).IsErr(), "frames 欠如は Err");
+}
+
+void TestTilemapLoad() noexcept {
+    std::printf("[FTilemap] Tiled JSON ロード (content pipeline)\n");
+    const char* tiled =
+        "{ \"width\":3, \"height\":2, \"tilewidth\":16, \"tileheight\":16,"
+        "  \"layers\": ["
+        "    { \"type\":\"tilelayer\", \"name\":\"ground\", \"width\":3, \"height\":2, \"data\":[1,2,3,4,5,6] },"
+        "    { \"type\":\"objectgroup\", \"name\":\"objs\" },"
+        "    { \"type\":\"tilelayer\", \"name\":\"over\", \"width\":3, \"height\":2, \"data\":[0,0,7,0,0,0] }"
+        "  ] }";
+    FTilemap map;
+    Check(map.LoadTiledJson(tiled, std::strlen(tiled)).IsOk(), "Tiled JSON ロード成功");
+    Check(map.Width() == 3 && map.Height() == 2, "サイズ 3x2");
+    Check(map.LayerCount() == 2, "tilelayer のみ 2 (objectgroup 無視)");
+    Check(NearF(map.TileSize(), 16.0f), "tile_size=16");
+    Check(map.GetTile(0, 0, 0).value == 1 && map.GetTile(2, 0, 0).value == 3, "layer0 行0 = 1,2,3");
+    Check(map.GetTile(0, 1, 0).value == 4 && map.GetTile(2, 1, 0).value == 6, "layer0 行1 = 4,5,6");
+    Check(map.GetTile(2, 0, 1).value == 7 && map.GetTile(0, 0, 1).value == 0, "layer1 (over)");
+    // GID flip フラグ (上位bit) 除去: 0x80000005 → GID 5。
+    const char* flip =
+        "{ \"width\":1,\"height\":1,\"tilewidth\":16,"
+        "  \"layers\":[{\"type\":\"tilelayer\",\"data\":[2147483653]}]}";
+    FTilemap m2;
+    Check(m2.LoadTiledJson(flip, std::strlen(flip)).IsOk() && m2.GetTile(0, 0, 0).value == 5,
+          "flip フラグ除去 → GID 5");
+    FTilemap m3;
+    Check(m3.LoadTiledJson("{\"width\":0}", 11).IsErr(), "width=0 / tilelayer 欠如は Err");
 }
 
 void TestTlsfExactFit() noexcept {
@@ -700,6 +729,7 @@ int main() {
     TestTlsfExactFit();
     TestJson();
     TestSpriteAtlasLoad();
+    TestTilemapLoad();
     std::printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILED");
     return g_fail;
 }

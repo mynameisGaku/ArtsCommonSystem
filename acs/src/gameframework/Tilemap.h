@@ -55,6 +55,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "foundation/Result.h"
 #include "container/Array.h"
 #include "math/Vec.h"
 
@@ -87,6 +88,15 @@ public:
     // 不正値 (0) は安全な既定 (width/height は 1、layer_count は 1、
     // tile_size は 16.0f) にフォールバック。
     void Init(u32 width, u32 height, u32 layer_count = 1, f32 tile_size = 16.0f) noexcept;
+
+    // ----- Tiled (.tmj/.json) ローダ (content pipeline) -----
+    // Tiled Map Editor の JSON マップを読み込む。map の width/height/tilewidth と
+    // "layers" 配列中の各 "tilelayer" の "data" (row-major GID 配列) を取り込む。
+    //   ・tilelayer のみ対象 (objectgroup 等は無視)。GID 上位 3bit の flip フラグは
+    //     除去し、FTileId(u16) に clamp する (GID 0 = 空)。
+    //   ・data[k] を (x = k%w, y = k/w) に配置 (Tiled の行順)。
+    // 解析失敗 / width=0 / tilelayer 欠如は ACS_ERR。Init をこの中で呼ぶ。
+    TResult<void> LoadTiledJson(const char* json_text, usize len) noexcept;
 
     // 個別タイル設定。範囲外 (x / y / layer) は no-op。
     void SetTile(u32 x, u32 y, FTileId tile, u32 layer = 0) noexcept;

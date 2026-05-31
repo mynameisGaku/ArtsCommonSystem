@@ -1,9 +1,54 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar Q — FTilemap 実装
 #include "gameframework/Tilemap.h"
+#include "container/Json.h"
+#include "foundation/Error.h"
 #include "math/Math.h"
 
 namespace acs::game {
+
+TResult<void> FTilemap::LoadTiledJson(const char* json_text, usize len) noexcept {
+    auto pr = ParseJson(json_text, len);
+    if (pr.IsErr()) return pr.Error();
+    const FJsonValue& root = pr.Value();
+
+    const u32 w  = root.Get("width").AsU32();
+    const u32 h  = root.Get("height").AsU32();
+    const f32 ts = root.Get("tilewidth").AsF32(16.0f);
+    if (w == 0 || h == 0) return ACS_ERR(Generic, 1420, "Tiled JSON: width/height is 0");
+
+    const FJsonValue& layers = root.Get("layers");
+    if (!layers.IsArray()) return ACS_ERR(Generic, 1421, "Tiled JSON: 'layers' is not an array");
+
+    // tilelayer のみ数える。
+    const FStringView kTileLayer("tilelayer");
+    u32 tile_layer_count = 0;
+    for (u32 i = 0; i < layers.Size(); ++i) {
+        if (layers.At(i).Get("type").AsString() == kTileLayer) ++tile_layer_count;
+    }
+    if (tile_layer_count == 0) return ACS_ERR(Generic, 1422, "Tiled JSON: no tilelayer found");
+
+    Init(w, h, tile_layer_count, ts);
+
+    u32 layer_idx = 0;
+    for (u32 i = 0; i < layers.Size(); ++i) {
+        const FJsonValue& L = layers.At(i);
+        if (L.Get("type").AsString() != kTileLayer) continue;
+        const FJsonValue& data = L.Get("data");
+        if (data.IsArray()) {
+            const u32 cap = w * h;
+            const u32 n   = data.Size();
+            const u32 lim = n < cap ? n : cap;
+            for (u32 k = 0; k < lim; ++k) {
+                u32 gid = data.At(k).AsU32() & 0x1FFFFFFFu;   // 上位 flip フラグ除去
+                if (gid > 0xFFFFu) gid = 0xFFFFu;             // FTileId(u16) に clamp
+                SetTile(k % w, k / w, FTileId(static_cast<u16>(gid)), layer_idx);
+            }
+        }
+        ++layer_idx;
+    }
+    return Ok();
+}
 
 void FTilemap::Init(u32 width, u32 height, u32 layer_count, f32 tile_size) noexcept {
     // 不正値はサイレントに安全な既定にフォールバック (Init を呼んだのに
