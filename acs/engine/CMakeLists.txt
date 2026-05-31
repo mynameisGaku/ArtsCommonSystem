@@ -405,6 +405,12 @@ if(ACS_BUILD_SAMPLES)
 
     # --- (39) HelloPersistVerify (stub 撲滅 Batch 1 の永続化 round-trip 検証, console) ---
     acs_add_sample(62_HelloPersistVerify)
+
+    # --- (40) HelloVerticalSlice (縦スライス: title→play→pause→game over→save を
+    #          FScene2D + FUiLayer + 自前 atlas + tilemap で 1 本に統合。Y-down, windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(63_HelloVerticalSlice)
+    endif()
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})
