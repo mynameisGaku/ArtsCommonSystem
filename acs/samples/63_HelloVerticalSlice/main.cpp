@@ -53,8 +53,8 @@ constexpr f32 kCoinRadius  = 0.55f;      // 取得判定半径
 constexpr f32 kGameTime    = 30.0f;      // 制限時間 (秒)
 constexpr u32 kNumCoins    = 6;
 
-// プレイ可能内側矩形 (石の外周の内側、Y-down)。
-constexpr f32 kMinX = -6.5f, kMaxX = 6.5f, kMinY = -4.0f, kMaxY = 4.0f;
+// プレイ範囲は石の外周 (実 AABB コライダー) が FPhysicsBody2D の collide-and-slide で
+// 囲うので、手動クランプは不要 (壁/水に沿って滑る)。
 
 // コインのタイル座標 (草マスのみ、外周/水たまりを避ける)。
 constexpr u32 kCoinTileX[kNumCoins] = { 3, 12,  2, 13,  7,  8 };
@@ -291,7 +291,18 @@ public:
         if (m_TileAtlas) { tm.SetTexture(m_TileAtlas.Get()); tm.SetAtlasGrid(2, 2); }
         Root().AddChild(Move(mapNode));
 
-        // --- プレイヤー (atlas の "hero" フレームを UV で貼る) ---
+        // --- 壁/水を実コライダー化 (collide-and-slide 用)。Y-down で AABB を配置 ---
+        FCollisionWorld2D& phy = Services().Physics();
+        phy.Init(2.0f);
+        const f32 hw = static_cast<f32>(kMapW) * 0.5f;            // マップ半幅/半高
+        const f32 hh = static_cast<f32>(kMapH) * 0.5f;
+        phy.AddAabb(Aabb2{FVec2{0.0f, kOriginY + 0.5f},                         FVec2{hw, 0.5f}});  // 上端 石
+        phy.AddAabb(Aabb2{FVec2{0.0f, kOriginY + static_cast<f32>(kMapH) - 0.5f}, FVec2{hw, 0.5f}}); // 下端 石
+        phy.AddAabb(Aabb2{FVec2{kOriginX + 0.5f, 0.0f},                         FVec2{0.5f, hh}});  // 左端 石
+        phy.AddAabb(Aabb2{FVec2{kOriginX + static_cast<f32>(kMapW) - 0.5f, 0.0f}, FVec2{0.5f, hh}}); // 右端 石
+        phy.AddAabb(Aabb2{FVec2{0.0f, 0.0f},                                    FVec2{2.0f, 1.5f}}); // 中央 水たまり
+
+        // --- プレイヤー (atlas の "hero" フレームを UV で貼る + 物理ボディ) ---
         if (dev) m_HeroAtlas = MakeHeroAtlas(*dev);
         SpritePackInfo info{}; info.atlas_width = 64; info.atlas_height = 32;
         m_Pack.Init(info);
@@ -304,6 +315,11 @@ public:
             spr.SetTexture(m_HeroAtlas.Get());
             spr.SetUvRect(m_Pack.ComputeUv(*f));                   // atlas 左半分のみ
         }
+        auto& body = player->AddComponent<FPhysicsBody2D>(phy);
+        body.SetCircle(0.4f);
+        body.gravity = FVec2{0.0f, 0.0f};   // 見下ろし: 重力なし
+        body.slide   = true;                // 壁/水に沿って滑る (collide-and-slide)
+        m_PlayerBody = &body;
         m_Player = &Root().AddChild(Move(player));
 
         // --- コイン (data のみ。OnDrawWorld で描く) ---
@@ -392,6 +408,7 @@ private:
     TUniquePtr<IRhiTexture> m_HeroAtlas;
     FSpritePack             m_Pack;
     FNode2D*                m_Player = nullptr;
+    FPhysicsBody2D*         m_PlayerBody = nullptr;
     FVec2  m_CoinPos[kNumCoins]{};
     bool   m_CoinGot[kNumCoins]{};
     u32    m_Collected = 0;
@@ -503,16 +520,14 @@ void PlayScene::OnTick(f32 dt) noexcept {
 
     if (in.IsPressed(kPause)) { SetPaused(true); return; }
 
-    // --- 移動 (Y-down) ---
+    // --- 移動 (Y-down): 入力を velocity にして FPhysicsBody2D の collide-and-slide に
+    //     任せる。壁/水の AABB に当たると軸ごとに止まりつつ沿って滑る。位置は body が
+    //     m_Root.UpdateTree (OnTick の後) で更新する。 ---
     f32 dx = in.Axis(kMoveX), dy = in.Axis(kMoveY);
     const f32 len = Sqrt(dx * dx + dy * dy);
     if (len > 0.0001f) { dx /= len; dy /= len; }
-    FVec2 p = m_Player->Local().position;
-    p.x += dx * kPlayerSpeed * dt;
-    p.y += dy * kPlayerSpeed * dt;
-    if (p.x < kMinX) p.x = kMinX; else if (p.x > kMaxX) p.x = kMaxX;
-    if (p.y < kMinY) p.y = kMinY; else if (p.y > kMaxY) p.y = kMaxY;
-    m_Player->Local().position = p;
+    if (m_PlayerBody) m_PlayerBody->velocity = FVec2{dx * kPlayerSpeed, dy * kPlayerSpeed};
+    const FVec2 p = m_Player->Local().position;   // body が前フレームに更新した現在位置
 
     // --- コイン取得 ---
     for (u32 i = 0; i < kNumCoins; ++i) {
