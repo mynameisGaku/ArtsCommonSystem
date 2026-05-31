@@ -198,9 +198,9 @@ void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override
 
 ## 注意点 (gotcha)
 
-- **座標系（ワールド）**: 中心が原点、`+Y = 画面上`（数学系）。スクリーン投影は
+- **座標系（ワールド）**: 中心が原点、`+Y = 画面下`（スクリーン系・DirectX/Tiled と同じ。HUD も同じ向き）。スクリーン投影は
   `screen_px = (world - ViewCenter) * (ppu * zoom) + (Width/2, Height/2)`。
-  `OnReady` でプレイヤーに `gravity = FVec2{0, -14}` のように**下向きは負の Y**を使います（サンプル 55 もそう）。
+  `OnReady` でプレイヤーに `gravity = FVec2{0, 14}` のように**下向きは正の Y**を使います（サンプル 55 もそう）。
 - **HUD は別座標系**: `OnDrawHud` のスプライトバッチは**左上原点・ピクセル単位**。world と混同しない。
 - **ピッキングは `FScene2D::ScreenToWorld` を使う**: `Camera2D::ScreenToWorld` は ppu を考慮しないため、`FScene2D` のレンダリングと逆対応しません。マウス→ワールド変換はシーン側の `ScreenToWorld(Input::MousePos())` を使うこと。
 - **フックは全部 `noexcept`**: `override` の付け忘れ・`noexcept` の付け忘れはコンパイルエラー。

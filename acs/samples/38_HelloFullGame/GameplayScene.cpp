@@ -22,7 +22,7 @@ void GameplayScene::OnEnter() noexcept {
     FInputMap& im = Services().Input();
     im.ClearAll();
     im.BindAxisKeys(ActionId("MoveX"), EKey::A, EKey::D);
-    im.BindAxisKeys(ActionId("MoveY"), EKey::S, EKey::W);  // 上向き = +Y
+    im.BindAxisKeys(ActionId("MoveY"), EKey::W, EKey::S);  // W=画面上=-Y (Y-down: 画面上ほど小さい Y)
     im.BindMouseButton(ActionId("Fire"), EMouseButton::Left);
     im.BindKey(ActionId("Pause"), EKey::P);
     im.BindKey(ActionId("Quit"),  EKey::Escape);

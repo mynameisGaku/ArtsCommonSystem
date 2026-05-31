@@ -600,7 +600,7 @@ void FFire2DComponent::OnDraw(RenderContext& rc) noexcept {
         const f32 w     = m_W * (1.0f - t) * flick;
         const f32 sway  = Sin(m_Time * 5.0f + t * 4.0f) * m_W * 0.25f * t; // 先端ほど揺れる
         const f32 cx    = base.x + sway;
-        const f32 cy    = base.y + H * t;
+        const f32 cy    = base.y - H * t;   // +Y=画面下なので炎は -Y (画面上) へ伸ばす
         // 色: 黄 → 橙 → 赤、alpha は上ほど薄く。
         FVec4 col;
         if (t < 0.5f) {

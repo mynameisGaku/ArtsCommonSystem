@@ -67,12 +67,12 @@ public:
         if (dev != nullptr) m_Atlas = MakeTileAtlas(*dev);
 
         auto node = MakeUnique<FNode2D>();
-        node->Local().position = FVec2{-8.0f, -5.5f};      // マップ原点 (左下寄り)
+        node->Local().position = FVec2{-8.0f, -5.5f};      // マップ原点 (左上寄り。Y-down: row0 が画面上)
         auto& tm = node->AddComponent<FTilemapComponent>();
         tm.Map().Init(/*w=*/16, /*h=*/11, /*layers=*/1, /*tile_size=*/1.0f);
         tm.Map().Fill(FTileId{1});                          // 全面 草
-        tm.Map().FillRect(0, 0, 15, 0,  FTileId{2});        // 下端 石
-        tm.Map().FillRect(0, 10, 15, 10, FTileId{2});       // 上端 石
+        tm.Map().FillRect(0, 0, 15, 0,  FTileId{2});        // 上端 石 (row0 = 画面上)
+        tm.Map().FillRect(0, 10, 15, 10, FTileId{2});       // 下端 石 (最大 row = 画面下)
         tm.Map().FillRect(0, 0, 0, 10,  FTileId{2});        // 左端 石
         tm.Map().FillRect(15, 0, 15, 10, FTileId{2});       // 右端 石
         tm.Map().FillRect(6, 4, 9, 6,   FTileId{3});        // 中央に 水たまり

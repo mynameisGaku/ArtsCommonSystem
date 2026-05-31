@@ -6,7 +6,7 @@
 // API (Disturb / SetIntensity / owner 追従) を持ち、入力や物理と連動できる。
 //
 //   auto& w = node->AddComponent<FWater2DComponent>();
-//   w.SetArea({0,-3}, {16,2}); w.SetColor({0.1f,0.35f,0.6f}); w.SetWaves(0.15f,1.5f);
+//   w.SetArea({0,3}, {16,2}); w.SetColor({0.1f,0.35f,0.6f}); w.SetWaves(0.15f,1.5f);  // +Y=画面下: 水面は下に置く
 //   w.Disturb(mouse_world_x, 0.4f);     // ← 触れると波紋
 //
 //   auto& f = node->AddComponent<FFire2DComponent>();

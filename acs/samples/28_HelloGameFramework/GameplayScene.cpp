@@ -52,16 +52,16 @@ void GameplayScene::OnEnter() noexcept {
         m_SpokeShape[i] = phy.AddCircle(Circle{sp, /*radius=*/0.5f});
     }
 
-    // y=-2 中心の幅広 AABB を静的 ground として登録。
-    m_GroundShape = phy.AddAabb(Aabb2{FVec2{0.0f, -2.0f}, FVec2{20.0f, 0.5f}});
+    // y=+2 中心 (画面下) の幅広 AABB を静的 ground として登録 (world +Y = 画面下)。
+    m_GroundShape = phy.AddAabb(Aabb2{FVec2{0.0f, 2.0f}, FVec2{20.0f, 0.5f}});
 
     // 落下 ball: FNode2D + FPhysicsBody2D。Component が phy を握って自前更新する。
     auto ball_up = MakeUnique<FNode2D>();
-    ball_up->Local().position = FVec2{0.0f, 8.0f};
+    ball_up->Local().position = FVec2{0.0f, -8.0f};   // ground より上 = 小さい Y (画面上)
     FNode2D& ball_ref = m_Root.AddChild(Move(ball_up));
     FPhysicsBody2D& body = ball_ref.AddComponent<FPhysicsBody2D>(phy);
     body.SetCircle(0.5f);
-    body.gravity = FVec2{0.0f, -10.0f};
+    body.gravity = FVec2{0.0f, 10.0f};   // +Y = 画面下 (下へ落ちる)
     m_Ball = &ball_ref;
 
     FInputMap& im = Services().Input();

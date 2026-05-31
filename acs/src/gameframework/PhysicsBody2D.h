@@ -12,7 +12,7 @@
 //   ball->Local().position = FVec2{0, 5};
 //   auto& body = ball->AddComponent<FPhysicsBody2D>(Services().Physics());
 //   body.SetCircle(0.5f);
-//   body.gravity = FVec2{0, -10};
+//   body.gravity = FVec2{0, 10};   // +Y=画面下: 重力は下向き = 正の Y
 //   body.velocity = FVec2{1, 0};
 //   root.AddChild(Move(ball));
 //

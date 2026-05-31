@@ -177,7 +177,7 @@ player->Local().position = FVec2{0.0f, 0.0f};
 player->AddComponent<FSprite2DComponent>(FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
 FPhysicsBody2D& body = player->AddComponent<FPhysicsBody2D>(physics);  // 参照を保持して操作
 body.SetCircle(0.45f);
-body.gravity = FVec2{0.0f, -14.0f};
+body.gravity = FVec2{0.0f, 14.0f};   // +Y=画面下: 下向き重力は正の Y
 m_Player = &Root().AddChild(Move(player));   // 後で参照する用にポインタ控え
 ```
 `AddComponent` の戻り値（参照）を保持しておくと、毎フレーム `body.velocity.x = ...` のように直接いじれます。

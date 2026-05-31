@@ -121,8 +121,8 @@ public:
     f32 TileSize()   const noexcept { return m_TileSize; }
 
     // tile (x,y) の **中心** world 座標。範囲外 (x>=width / y>=height) でも
-    // 計算式そのものを返す (デバッグ用に左下原点で連続を期待する利用者が
-    // 居るため明示的にチェックしない)。
+    // 計算式そのものを返す (デバッグ用に左上原点で連続を期待する利用者が
+    // 居るため明示的にチェックしない。+Y=画面下なので row 0 が画面上端)。
     FVec2 TileToWorld(u32 x, u32 y) const noexcept;
 
     // world → tile。範囲外 (グリッド外 / 負値) は false。

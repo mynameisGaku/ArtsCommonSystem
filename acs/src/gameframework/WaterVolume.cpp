@@ -82,7 +82,7 @@ f32 FWaterVolume::SubmersionDepth(FVec2 pos) const noexcept {
         const Slot& s = m_Slots[i];
         if (!s.active) continue;
         if (!ContainsPoint(s.info, pos)) continue;
-        const f32 depth = s.info.surface_y - pos.y;
+        const f32 depth = pos.y - s.info.surface_y;   // +Y=画面下: 水面=最小y、沈むほど y 大
         // depth が負 (pos が surface_y より上) の場合は 0 にクランプ。
         // AABB 内だが「水面より上」の異常な surface_y 設定でも 0 を返して
         // 利用側の浮力計算が暴走しないようにする。
@@ -104,7 +104,7 @@ FVec2 FWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) co
 
         in_water = true;
 
-        f32 depth = s.info.surface_y - pos.y;
+        f32 depth = pos.y - s.info.surface_y;   // +Y=画面下: 水面=最小y、沈むほど y 大
         if (depth < 0.0f) depth = 0.0f;
 
         total_depth_strength += s.info.buoyancy_strength * depth;
@@ -113,9 +113,9 @@ FVec2 FWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) co
 
     if (!in_water) return FVec2{0.0f, 0.0f};
 
-    // 浮力 = (0, +Σ(strength * depth) * mass)
+    // 浮力 = (0, -Σ(strength * depth) * mass)  ※ 上向き = -Y (Y-down: +Y=画面下)
     // drag = -velocity * Σ(drag)
-    const f32 fy = total_depth_strength * mass;
+    const f32 fy = -(total_depth_strength * mass);
     return FVec2{
         -velocity.x * total_drag,
         fy - velocity.y * total_drag,

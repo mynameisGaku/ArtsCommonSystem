@@ -12,11 +12,11 @@
 //
 //   // 池を 1 つ登録
 //   acs::game::FWaterVolumeInfo pond{
-//       /*center=*/      {0.0f, -50.0f},
+//       /*center=*/      {0.0f, 50.0f},
 //       /*half_size=*/   {200.0f, 50.0f},
 //       /*buoyancy=*/    9.8f,        // 重力と同程度の浮力強度
 //       /*drag=*/        2.0f,        // 水中減衰係数
-//       /*surface_y=*/    0.0f,        // 水面 y 座標 (= center.y + half_size.y)
+//       /*surface_y=*/    0.0f,        // 水面 y 座標 (= center.y - half_size.y、+Y=画面下なので水面=最小 y)
 //       /*water_color=*/ {0.1f, 0.3f, 0.6f},
 //   };
 //   auto id = water.AddVolume(pond);
@@ -32,8 +32,8 @@
 //     generation。remove → re-add で slot 再利用しても旧 handle は無効化される。
 //   ・**broad phase は線形走査**: Phase 3 では全 volume を直接走査 (典型 N ≤ 数
 //     十)。SpatialGrid 化は Phase 4 で。
-//   ・**浮力モデル = 単純な「水深×強さ×質量」の上向き力**: depth = surface_y -
-//     pos.y。depth が大きいほど浮力大きい。実 Archimedes の「排除体積」ではなく
+//   ・**浮力モデル = 単純な「水深×強さ×質量」の上向き力**: depth = pos.y -
+//     surface_y (+Y=画面下: 水面=最小y、沈むほど y 大)。depth が大きいほど浮力大きい。実 Archimedes の「排除体積」ではなく
 //     ゲーム向けの簡易モデル。volume 毎に `buoyancy_strength` で調整可。
 //   ・**drag**: velocity に対し `-velocity * drag` を加算。水中での運動減衰を
 //     表現。`drag` は加速度ではなく力係数 (kg / s 単位の粘性的減衰) として扱う。
@@ -65,7 +65,7 @@ struct FWaterVolumeInfo {
     FVec2 half_size          {1.0f, 1.0f};   // AABB 半サイズ (world、両軸 > 0 想定)
     f32  buoyancy_strength  = 9.8f;         // 浮力強度 (重力相当)
     f32  drag               = 1.0f;         // 水中 drag 係数 (kg/s 粘性)
-    f32  surface_y          = 1.0f;         // 水面 y 座標 (= center.y + half_size.y が自然)
+    f32  surface_y          = -1.0f;        // 水面 y 座標 (= center.y - half_size.y が自然、+Y=画面下)
     FVec3 water_color        {0.1f, 0.3f, 0.6f}; // レンダラが水面描画に使う色 (linear RGB)
 };
 
@@ -116,13 +116,13 @@ public:
     /// 任意の volume の AABB 内に pos が入っていれば true。
     bool IsUnderwater(FVec2 pos) const noexcept;
 
-    /// 「水面からの沈み深さ」を返す。surface_y - pos.y。
+    /// 「水面からの沈み深さ」を返す。pos.y - surface_y (+Y=画面下: 沈むと y 大)。
     /// 戻り値 >= 0 で潜水中。水中でない (どの volume にも属さない) ときは 0。
     /// 複数 volume が重なる場合、最初に AABB 内に居る volume の surface_y を採用。
     f32 SubmersionDepth(FVec2 pos) const noexcept;
 
     /// pos / velocity / mass の物体に掛かる合計浮力 + drag 力を返す (world force)。
-    /// 浮力  = (0, +buoyancy_strength * mass * depth)  ※ +Y 上向き想定
+    /// 浮力  = (0, -buoyancy_strength * mass * depth)  ※ 上向き = -Y (Y-down: +Y=画面下)
     /// drag  = -velocity * drag
     /// 複数 volume が重なる場合は全 volume の寄与を加算。
     /// pos が水中でない場合は (0,0)。

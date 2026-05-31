@@ -75,8 +75,8 @@ public:
     enum class EChildDrawOrder : u8 {
         Tree       = 0,  // 配列追加順 (従来)。ソートしない。
         Layer      = 1,  // SortLayer 昇順 (低い層が奥=先に描画)。同層は配列順で安定。
-        LayerThenY = 2,  // SortLayer 昇順 → 同層内は (world.y + YSortBias) の降順。
-                         // +Y=up なので大きい y (画面上=奥) を先に描画 = 見下ろし遮蔽。
+        LayerThenY = 2,  // SortLayer 昇順 → 同層内は (world.y + YSortBias) の昇順。
+                         // +Y=画面下なので小さい y (画面上=奥) を先に描画 = 見下ろし遮蔽。
     };
 
     // この node が「自分の子」を描画する順序を設定する。Layer/LayerThenY のとき
@@ -90,7 +90,7 @@ public:
     i32  SortLayer() const noexcept { return m_SortLayer; }
 
     // Y-sort の pivot バイアス。world.y に加算してソートキーにする
-    // (例: スプライト中心でなく「足元」で遮蔽したい場合に負値を入れる)。既定 0。
+    // (例: スプライト中心でなく「足元」で遮蔽したい場合に正値を入れる。+Y=画面下=足元)。既定 0。
     void SetYSortBias(f32 bias) noexcept { m_YSortBias = bias; }
     f32  YSortBias() const noexcept { return m_YSortBias; }
 

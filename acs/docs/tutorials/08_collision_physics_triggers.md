@@ -54,13 +54,13 @@ if (world.Raycast(Ray2{ FVec2{-50, 0}, FVec2{1, 0} }, /*max_t=*/200.0f, rh, hit_
 using namespace acs::game;
 
 FCollisionWorld2D w; w.Init(8.0f);
-w.AddAabb(Aabb2{ FVec2{0, -10}, FVec2{100, 10} });   // 床 (上面 y=0)
+w.AddAabb(Aabb2{ FVec2{0, 10}, FVec2{100, 10} });    // 床 (上面 y=0、本体 y∈[0,20]=画面下)
 
 FNode2D node;
-node.Local().position = FVec2{ 0, 5 };               // 床の上空から落とす
+node.Local().position = FVec2{ 0, -5 };              // 床の上空(画面上=小さい Y)から落とす
 auto& body = node.AddComponent<FPhysicsBody2D>(w);   // ★ world を constructor 引数で渡す
 body.SetCircle(1.0f);
-body.gravity  = FVec2{ 0, -20 };                     // 下向き重力
+body.gravity  = FVec2{ 0, 20 };                      // 下向き重力 (+Y=画面下)
 body.velocity = FVec2{ 3, 0 };                       // 右へ
 
 for (int i = 0; i < 90; ++i) node.UpdateTree(1.0f / 60.0f);
@@ -208,7 +208,7 @@ ConvexPoly2 local;                            // 2x2 ボックス (中心原点)
 local.Add(FVec2{-1,-1}); local.Add(FVec2{1,-1});
 local.Add(FVec2{ 1, 1}); local.Add(FVec2{-1, 1});
 body.SetPolygon(local);                       // local_poly は body 原点基準
-body.gravity  = FVec2{0, -20};
+body.gravity  = FVec2{0, 20};                 // +Y=画面下
 body.velocity = FVec2{4, 0};
 ```
 

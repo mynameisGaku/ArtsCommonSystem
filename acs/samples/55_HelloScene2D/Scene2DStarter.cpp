@@ -34,11 +34,11 @@ public:
 
         FCollisionWorld2D& physics = Services().Physics();
         physics.Init(1.0f);
-        physics.AddAabb(Aabb2{FVec2{0.0f, -2.25f}, FVec2{8.0f, 0.35f}});
+        physics.AddAabb(Aabb2{FVec2{0.0f, 2.25f}, FVec2{8.0f, 0.35f}});
         physics.AddAabb(Aabb2{FVec2{-4.25f, 0.0f}, FVec2{0.35f, 2.5f}});
         physics.AddAabb(Aabb2{FVec2{4.25f, 0.0f}, FVec2{0.35f, 2.5f}});
 
-        AddBox(FVec2{0.0f, -2.25f}, FVec2{16.0f, 0.7f}, FVec4{0.25f, 0.28f, 0.34f, 1.0f});
+        AddBox(FVec2{0.0f, 2.25f}, FVec2{16.0f, 0.7f}, FVec4{0.25f, 0.28f, 0.34f, 1.0f});
         AddBox(FVec2{-4.25f, 0.0f}, FVec2{0.7f, 5.0f}, FVec4{0.22f, 0.24f, 0.30f, 1.0f});
         AddBox(FVec2{4.25f, 0.0f}, FVec2{0.7f, 5.0f}, FVec4{0.22f, 0.24f, 0.30f, 1.0f});
 
@@ -47,7 +47,7 @@ public:
         player->AddComponent<FSprite2DComponent>(FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
         FPhysicsBody2D& body = player->AddComponent<FPhysicsBody2D>(physics);
         body.SetCircle(0.45f);
-        body.gravity = FVec2{0.0f, -14.0f};
+        body.gravity = FVec2{0.0f, 14.0f};  // +Y = 画面下 (重力は下向き = 正の Y)
         body.slide = true;
         m_PlayerBody = &body;
         m_Player = &Root().AddChild(Move(player));
@@ -68,9 +68,9 @@ public:
         const f32 mx = Services().Input().Axis(kMoveX);
         const f32 my = Services().Input().Axis(kMoveY);
         m_PlayerBody->velocity.x = mx * 4.0f;
-        if (my > 0.1f && m_Player->Local().position.y <= -1.30f)
+        if (my > 0.1f && m_Player->Local().position.y >= 1.30f)
         {
-            m_PlayerBody->velocity.y = 7.0f;
+            m_PlayerBody->velocity.y = -7.0f;  // ジャンプ = 画面上 = 負の Y
         }
         Services().Camera().SetTargetPos(m_Player->Local().position, 8.0f);
     }

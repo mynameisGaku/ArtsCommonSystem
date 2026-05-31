@@ -23,6 +23,7 @@
 #include "container/Json.h"
 #include "gameframework/Tilemap.h"
 #include "gameframework/UiLayer.h"
+#include "gameframework/WaterVolume.h"
 #include "platform/Event.h"
 #include "platform/InputCodes.h"
 
@@ -70,7 +71,7 @@ void TestDrawOrder() noexcept {
         Check(g_draw_count == 3 && g_draw_order[0] == 1 && g_draw_order[1] == 2 && g_draw_order[2] == 0,
               "Layer 昇順で描画 (追加順 0,1,2 / layer 2,0,1 → 1,2,0)");
     }
-    // --- LayerThenY: 同層内 world.y 降順 (+Y=up なので奥=大 y を先に) ---
+    // --- LayerThenY: 同層内 world.y 昇順 (+Y=画面下なので奥=小 y を先に) ---
     {
         FNode2D root;
         auto& a = root.AddChild(MakeUnique<OrderNode>(0)); a.Local().position = FVec2{0.0f, 10.0f};
@@ -78,8 +79,8 @@ void TestDrawOrder() noexcept {
         auto& c = root.AddChild(MakeUnique<OrderNode>(2)); c.Local().position = FVec2{0.0f,  3.0f};
         root.SetChildDrawOrder(FNode2D::EChildDrawOrder::LayerThenY);
         g_draw_count = 0; root.DrawTree(rc);
-        Check(g_draw_count == 3 && g_draw_order[0] == 0 && g_draw_order[1] == 2 && g_draw_order[2] == 1,
-              "Y-sort: world.y 降順 (10,3,-5 → 0,2,1)");
+        Check(g_draw_count == 3 && g_draw_order[0] == 1 && g_draw_order[1] == 2 && g_draw_order[2] == 0,
+              "Y-sort: world.y 昇順 (-5,3,10 → 1,2,0)");
     }
     // --- レイヤ優先 + 同層内 Y ---
     {
@@ -89,7 +90,7 @@ void TestDrawOrder() noexcept {
         root.SetChildDrawOrder(FNode2D::EChildDrawOrder::LayerThenY);
         g_draw_count = 0; root.DrawTree(rc);
         Check(g_draw_count == 2 && g_draw_order[0] == 1 && g_draw_order[1] == 0,
-              "layer が y より優先 (layer0 が高 y より先)");
+              "layer が y より優先 (層が低い方を先)");
     }
     // --- 安定性: 同 layer 同 y は追加順を保つ ---
     {
@@ -111,6 +112,28 @@ void TestDrawOrder() noexcept {
         Check(g_draw_count == 2 && g_draw_order[0] == 5 && g_draw_order[1] == 6,
               "Tree 既定は配列順 (layer 無視)");
     }
+}
+
+void TestBuoyancy() noexcept {
+    std::printf("[FWaterVolume] 浮力方向 (Y-down: 上向き = -Y、沈むほど y 大)\n");
+    FWaterVolume water;
+    FWaterVolumeInfo info{};
+    info.center            = FVec2{0.0f, 50.0f};    // 水域 y∈[0,100] = 画面下
+    info.half_size         = FVec2{200.0f, 50.0f};
+    info.buoyancy_strength = 9.8f;
+    info.drag              = 2.0f;
+    info.surface_y         = 0.0f;                  // 水面 = 最小 y (= center.y - half_size.y)
+    water.AddVolume(info);
+
+    Check(water.IsUnderwater(FVec2{0.0f, 30.0f}),       "水面より下(y=30)は水中");
+    Check(!water.IsUnderwater(FVec2{0.0f, -10.0f}),     "水面より上(y=-10)は水中でない");
+    Check(water.SubmersionDepth(FVec2{0.0f, 30.0f}) > 0.0f, "沈み深さ > 0 (沈むほど y 大)");
+
+    const FVec2 f = water.ComputeBuoyancyForce(FVec2{0.0f, 30.0f}, FVec2{0.0f, 0.0f}, 1.0f);
+    Check(f.y < 0.0f, "浮力は上向き = -Y (Y-down で正しく発火する)");
+    // 深いほど浮力が強い: y=80 (depth 80) の上向き力 > y=30 (depth 30)。
+    const FVec2 f_deep = water.ComputeBuoyancyForce(FVec2{0.0f, 80.0f}, FVec2{0.0f, 0.0f}, 1.0f);
+    Check(f_deep.y < f.y, "深いほど浮力が強い (より大きな -Y)");
 }
 
 void TestStringSelfAppend() noexcept {
@@ -770,6 +793,7 @@ int main() {
     TestReplayDirector();
     TestImageModeration();
     TestDrawOrder();
+    TestBuoyancy();
     TestStringSelfAppend();
     TestTlsfExactFit();
     TestJson();

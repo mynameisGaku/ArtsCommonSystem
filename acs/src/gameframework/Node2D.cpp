@@ -79,9 +79,9 @@ void FNode2D::DrawTree(RenderContext& rc) noexcept {
     }
 }
 
-// Phase 8: 子を (SortLayer 昇順, world.y+YSortBias 降順) で安定ソートして描画。
+// Phase 8: 子を (SortLayer 昇順, world.y+YSortBias 昇順) で安定ソートして描画。
 // - 第1キー = SortLayer 昇順 (低い層を先に=奥)。
-// - 第2キー (LayerThenY のみ) = world.y 降順 (+Y=up なので大きい y=画面奥 を先に)。
+// - 第2キー (LayerThenY のみ) = world.y 昇順 (+Y=画面下なので小さい y=画面上=奥 を先に)。
 // - 安定: 同キーの兄弟は配列追加順を保つ。
 // World() は O(深さ) なので 1 子につき 1 回だけ評価してキャッシュ (比較中は読まない)。
 // 兄弟数は通常小さいので挿入ソート (安定・追加メモリ最小)。スタック上限超過時のみ
@@ -125,7 +125,7 @@ void FNode2D::DrawChildrenSorted(RenderContext& rc) noexcept {
             const f32 py = yy[j - 1];
             bool prev_after;                       // prev を ti の後ろに描くべきか
             if (pl != tl)      prev_after = (pl > tl);   // 層が大 = 手前 = 後
-            else if (by_y)     prev_after = (py < ty);   // y が小 = 手前 = 後
+            else if (by_y)     prev_after = (py > ty);   // y が大 (画面下) = 手前 = 後
             else               prev_after = false;        // 同キー = 安定 (動かさない)
             if (!prev_after) break;
             idx[j] = idx[j - 1]; lay[j] = lay[j - 1]; yy[j] = yy[j - 1];
