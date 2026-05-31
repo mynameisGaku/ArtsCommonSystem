@@ -153,6 +153,9 @@ private:
 
     // 新容量で再確保し、既存要素をムーブ移送
     void Grow(usize new_capacity) noexcept {
+        // sizeof(T) * new_capacity の乗算ラップを防ぐ（過小確保 → バッファ外書き込み防止）
+        ACS_ASSERTF(new_capacity == 0 || new_capacity <= (~usize(0)) / sizeof(T),
+                    "TArray::Grow: size overflow (cap=%zu)", new_capacity);
         T* new_data = static_cast<T*>(m_Alloc->Alloc(sizeof(T) * new_capacity, alignof(T), FSourceLoc::Current()));
         ACS_ASSERTF(new_data != nullptr, "TArray::Grow: allocator returned null (cap=%zu, T=%zu)",
                     new_capacity, sizeof(T));

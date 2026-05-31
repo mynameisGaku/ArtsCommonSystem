@@ -99,6 +99,10 @@ ACS_FORCEINLINE void MappingInsert(usize size, int& fl, int& sl) noexcept {
         fl = FlsSize(size);
         sl = static_cast<int>((size >> (fl - SL_INDEX_LOG2)) ^ (1u << SL_INDEX_LOG2));
         fl -= (FL_INDEX_SHIFT - 1);
+        // size >= 2^32 では fl が FL_INDEX_COUNT(=26) に達し配列を 1 つ越える。
+        // 範囲外参照を防ぐため最上位バケットへクランプ（>=4GiB 単一ブロックは top bucket 扱い）。
+        ACS_ASSERT(fl < FL_INDEX_COUNT);
+        if (fl >= FL_INDEX_COUNT) fl = FL_INDEX_COUNT - 1;
     }
 }
 
@@ -249,8 +253,17 @@ tlsf::FBlockHeader* FTlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexce
 // 余剰サイズを切り出して新しいフリーブロックとして再登録
 void FTlsfAllocator::TrimFreeBlock(tlsf::FBlockHeader* block, usize size) noexcept {
     using namespace tlsf;
-    usize remaining = BlockSize(block) - size - kBlockHeaderOverhead;
-    if (remaining < MIN_BLOCK_SIZE) return;  // 切り出す余裕がないなら何もしない
+    // **引き算の前に比較形でガードする** (canonical TLSF の block_can_split)。
+    // exact-fit (BlockSize==size) や僅差では `BlockSize - size - overhead` が
+    // unsigned で wrap (~2^64) し、後段の `remaining < MIN_BLOCK_SIZE` 判定を
+    // すり抜けて巨大な偽フリーブロックを stamp → MappingInsert が m_Blocks 配列外へ
+    // wild write する (auditor HIGH 指摘、小サイズ領域の exact-fit alloc で到達)。
+    const usize bs = BlockSize(block);
+    if (bs < size || (bs - size) < kBlockHeaderOverhead + MIN_BLOCK_SIZE) {
+        return;  // 切り出す余裕が無い (exact-fit / 僅差を含む) → 分割しない
+    }
+    usize remaining = bs - size - kBlockHeaderOverhead;
+    if (remaining < MIN_BLOCK_SIZE) return;  // 念のため (上のガードで保証済み)
 
     SetBlockSize(block, size);
     // 残りを新ブロックとして構築 → フリーリストへ

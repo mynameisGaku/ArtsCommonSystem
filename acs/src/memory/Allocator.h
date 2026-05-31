@@ -22,6 +22,7 @@
 #include "foundation/Types.h"
 #include "foundation/Compiler.h"
 #include "foundation/SourceLoc.h"
+#include "foundation/Assert.h"
 
 namespace acs {
 
@@ -69,6 +70,8 @@ ACS_FORCEINLINE bool IsPow2(usize v) noexcept { return v != 0 && (v & (v - 1)) =
 
 // アラインアップ: n を a の倍数に切り上げる（a は 2 のべき乗である必要がある）
 ACS_FORCEINLINE usize AlignUp(usize n, usize a) noexcept {
+    ACS_ASSERT(a != 0 && (a & (a - 1)) == 0);  // a はマスクが成立する 2 のべき乗である必要
+    ACS_ASSERT(n <= (~usize(0)) - (a - 1));     // (n + a-1) がラップしてはならない
     return (n + (a - 1)) & ~(a - 1);
 }
 

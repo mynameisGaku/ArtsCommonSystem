@@ -135,15 +135,37 @@ void FString::Reserve(usize new_capacity) noexcept {
 // 文字列追記。容量不足なら 1.5 倍ずつ拡大
 void FString::Append(FStringView v) noexcept {
     if (v.IsEmpty()) return;
-    usize cur = Size();
-    usize req = cur + v.Size();
+    const usize cur  = Size();
+    const usize vlen = v.Size();
+    const usize req  = cur + vlen;
+
+    // self-aliasing 検出: v が自分のバッファ内容を指しているか (s += s /
+    // s.Append(s.View()) / 自分の部分文字列の append)。Grow() は旧バッファを
+    // Free して内容を新バッファへコピーするので、aliasing したまま後で v.Data()
+    // を読むと use-after-free / overwritten-union 読みになる (auditor 指摘)。
+    const char* const old_data = Data();
+    const char* const vd       = v.Data();
+    const bool  aliases = (vd >= old_data && vd < old_data + cur);
+    const usize voff    = aliases ? static_cast<usize>(vd - old_data) : 0;
+
     if (req > Capacity()) {
         usize n = Capacity() == 0 ? kSsoCapacity : Capacity();
-        while (n < req) n = n + n / 2 + 1;
-        Grow(n);
+        // 幾何級数拡大。n + n/2 + 1 が usize を wrap したら req で打ち切る
+        // (異常な巨大 req でも under-allocate しない防御)。
+        while (n < req) {
+            const usize next = n + n / 2 + 1;
+            if (next <= n) { n = req; break; }   // overflow → req に確定
+            n = next;
+        }
+        Grow(n);   // 旧内容 [0,cur)+NUL を新バッファへコピー (aliasing バイトも移動)
     }
+
     char* d = Data();
-    for (usize i = 0; i < v.Size(); ++i) d[cur + i] = v[i];
+    // aliasing していたら Grow がコピー済みの新バッファ内同オフセットから読む。
+    // v は content の部分文字列 (voff+vlen <= cur) なので src=[voff,voff+vlen) は
+    // dst=[cur,req) と重ならない (src 終端 <= cur = dst 先頭) → 前方コピーで安全。
+    const char* src = aliases ? (d + voff) : vd;
+    MemMove(d + cur, src, vlen);   // 非重なりだが防御的に MemMove
     d[req] = 0;
     if (IsHeap()) m_Heap.size = req;
     else          SetInlineLen(static_cast<u8>(req));

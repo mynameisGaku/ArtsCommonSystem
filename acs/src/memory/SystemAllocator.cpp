@@ -22,6 +22,8 @@ constexpr usize kHeaderSize = sizeof(void*) + sizeof(usize);
 // actual_size: 実際にヒープから取った総バイト数（解放時に統計を引くために必要）
 void* AlignedAlloc(usize size, usize alignment, usize& actual_size) noexcept {
     if (alignment < sizeof(void*)) alignment = sizeof(void*);
+    // size + alignment + kHeaderSize の加算ラップを防ぐ（過小確保防止）
+    if (size > (~usize(0)) - alignment - kHeaderSize) { actual_size = 0; return nullptr; }
     usize raw_size = size + alignment + kHeaderSize;
     void* raw = ::HeapAlloc(::GetProcessHeap(), 0, raw_size);
     if (!raw) { actual_size = 0; return nullptr; }

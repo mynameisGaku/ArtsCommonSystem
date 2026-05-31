@@ -246,6 +246,7 @@ private:
         }
 
         // 新規エントリ: 値配列末尾に追加 → Robin Hood 挿入
+        ACS_ASSERT(m_Values.Size() < 0xFFFFFFFFull);  // u32 への切り詰めによる無言の index 破壊を捕捉
         u32 new_idx = static_cast<u32>(m_Values.Size());
         m_Values.PushBack(EntryType{ key, Move(value) });
         Bucket nb;

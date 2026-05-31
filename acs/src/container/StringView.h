@@ -34,7 +34,7 @@ public:
 
     // 部分文字列ビュー
     constexpr FStringView SubView(usize offset, usize count) const noexcept {
-        ACS_ASSERT(offset + count <= m_Size);
+        ACS_ASSERT(offset <= m_Size && count <= m_Size - offset);  // 加算ラップしない形で範囲検査
         return FStringView(m_Data + offset, count);
     }
 

@@ -18,6 +18,8 @@
 #include "gameframework/ReplayDirector.h"
 #include "gameframework/InputRecorder.h"
 #include "gameframework/Lockstep.h"
+#include "memory/Tlsf.h"
+#include "foundation/SourceLoc.h"
 
 #include <cstdio>
 #include <cstring>
@@ -104,6 +106,58 @@ void TestDrawOrder() noexcept {
         Check(g_draw_count == 2 && g_draw_order[0] == 5 && g_draw_order[1] == 6,
               "Tree 既定は配列順 (layer 無視)");
     }
+}
+
+void TestStringSelfAppend() noexcept {
+    std::printf("[FString] self-append (s += s) UAF 修正\n");
+    // 22 文字 (SSO 上限) → +8 で heap 化させる。
+    FString s("0123456789ABCDEFGHIJKL");      // 22 chars (SSO)
+    s.Append(FStringView("MNOPQRST"));         // 30 chars → heap
+    FString expect(s.View());                  // 現在の内容を独立コピー
+    s.Append(s.View());                        // self-append (修正前は UAF read)
+    Check(s.Size() == expect.Size() * 2, "self-append でサイズ 2 倍");
+    bool ok = (s.Size() == expect.Size() * 2);
+    for (usize i = 0; ok && i < expect.Size(); ++i) {
+        if (s.Data()[i] != expect.Data()[i]) ok = false;                  // 前半
+        if (s.Data()[expect.Size() + i] != expect.Data()[i]) ok = false;  // 後半
+    }
+    Check(ok, "self-append 内容が元の 2 連結と一致 (corruption 無し)");
+    // 自分の部分文字列を self-append。
+    FString t("abcdefghijklmnopqrstuvwxyz");    // 26 chars heap
+    t.Append(t.View().SubView(0, 5));           // "abcde" を末尾へ
+    Check(t.Size() == 31 && t.Data()[26] == 'a' && t.Data()[30] == 'e',
+          "部分文字列 self-append が正しい");
+}
+
+void TestTlsfExactFit() noexcept {
+    std::printf("[FTlsfAllocator] exact-fit split underflow 修正\n");
+    alignas(16) static u8 pool[65536];
+    FTlsfAllocator tlsf;
+    Check(tlsf.Init(pool, sizeof(pool)).IsOk(), "TLSF Init (64KB pool)");
+    const FSourceLoc loc = FSourceLoc::Current();
+
+    // 決定的 exact-fit: a,b,c 確保 → b を free (used a / used c に挟まれた孤立
+    // フリーブロック) → 同サイズ d を確保すると b のブロックに exact-fit。
+    // 修正前は TrimFreeBlock の引き算が underflow して wild OOB write した。
+    void* a = tlsf.Alloc(64, 16, loc);
+    void* b = tlsf.Alloc(64, 16, loc);
+    void* c = tlsf.Alloc(64, 16, loc);
+    Check(a && b && c, "3 ブロック確保");
+    tlsf.Free(b);
+    void* d = tlsf.Alloc(64, 16, loc);   // ← exact-fit (旧コードはここで破壊)
+    Check(d != nullptr, "exact-fit 再確保 成功 (クラッシュ無し)");
+    tlsf.Free(a); tlsf.Free(c); tlsf.Free(d);
+
+    // ストレス: 様々サイズの alloc/free を回して exact-fit を多数踏む。
+    void* prev = nullptr; bool ok = true;
+    for (int i = 0; i < 300; ++i) {
+        void* p = tlsf.Alloc(static_cast<usize>(32 + (i % 8) * 16), 16, loc);
+        if (!p) { ok = false; break; }
+        if (prev) tlsf.Free(prev);
+        prev = p;
+    }
+    if (prev) tlsf.Free(prev);
+    Check(ok, "300 回 alloc/free ストレス (exact-fit 多数) でクラッシュ無し");
 }
 
 void TestSettings() noexcept {
@@ -552,6 +606,8 @@ int main() {
     TestReplayDirector();
     TestImageModeration();
     TestDrawOrder();
+    TestStringSelfAppend();
+    TestTlsfExactFit();
     std::printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILED");
     return g_fail;
 }

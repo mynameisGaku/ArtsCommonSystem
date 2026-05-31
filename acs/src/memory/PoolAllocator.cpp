@@ -42,6 +42,10 @@ FPoolAllocator::FPoolAllocator(usize block_size, usize block_count,
     if (m_BlockSize < sizeof(Node)) m_BlockSize = sizeof(Node);
     m_BlockSize = AlignUp(m_BlockSize, m_Alignment);
 
+    // m_BlockSize * m_BlockCount の乗算ラップを防ぐ（過小確保 → バッファ外アクセス防止）。
+    // 失敗時はアロケート失敗と同様に空プール化して構築を打ち切る。
+    if (m_BlockCount != 0 && m_BlockSize > (~usize(0)) / m_BlockCount) { m_BlockCount = 0; return; }
+
     // ストレージ全体を 1 回確保
     usize total = static_cast<usize>(m_BlockSize * m_BlockCount);
     m_Storage = static_cast<u8*>(m_Backing->Alloc(total, m_Alignment, FSourceLoc::Current()));

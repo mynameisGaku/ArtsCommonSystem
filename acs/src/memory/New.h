@@ -39,6 +39,7 @@ ACS_FORCEINLINE void Delete(FAllocator& a, T* p) noexcept {
 template<typename T>
 ACS_FORCEINLINE T* NewArray(FAllocator& a, usize n) noexcept {
     if (n == 0) return nullptr;
+    if (n > (~usize(0)) / sizeof(T)) return nullptr;  // sizeof(T)*n のラップ → 失敗
     void* p = a.Alloc(sizeof(T) * n, alignof(T), FSourceLoc::Current());
     if (!p) return nullptr;
     T* arr = static_cast<T*>(p);

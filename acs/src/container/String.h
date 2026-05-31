@@ -59,7 +59,10 @@ private:
     // remaining バイトの MSB がヒープフラグ
     bool IsHeap() const noexcept { return (m_Sso.remaining & 0x80) != 0; }
     void SetHeap() noexcept { m_Sso.remaining |= 0x80; }
-    void SetInlineLen(u8 len) noexcept { m_Sso.remaining = static_cast<u8>(kSsoCapacity - len); }
+    void SetInlineLen(u8 len) noexcept {
+        ACS_ASSERT(len <= kSsoCapacity);  // bit7 は heap フラグ専用。remaining が MSB を侵さない不変条件を保証
+        m_Sso.remaining = static_cast<u8>(kSsoCapacity - len);
+    }
 
     void Grow(usize new_capacity) noexcept;
 
