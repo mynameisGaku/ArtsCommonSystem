@@ -537,11 +537,16 @@ TResult<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
 
 TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
                                                IRhiCommandList& cl) noexcept {
-    // Dx12 raw backend では何もしない (BeginRenderToTexture が空、Pipeline cast 不能)。
-    // FIbl.h で「Diligent 専用」と謳っているが運用上の事故防止のため early-return。
+    // Dx12 raw backend には高度3D (cubemap / per-slice RTV) が無いため本実装不能。
+    // fake-success せず正直に capability error を返す (Ibl.h の境界を参照)。
     if (!IsDiligentBackend(device)) {
-        ACS_LOG_WARN("ImageBasedLighting: BRDF LUT skipped (backend != Diligent)");
-        return Ok();
+        static bool s_warned = false;
+        if (!s_warned) {
+            ACS_LOG_WARN("ImageBasedLighting: BRDF LUT requires the Diligent backend "
+                         "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
+            s_warned = true;
+        }
+        return ACS_ERR(Render, 88, "BRDF LUT requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
     }
     // 前回失敗で残った半端テクスチャは破棄。途中失敗時にも次回呼び出しで
     // 確実に rebuild されるよう、入口で全 reset しておく。
@@ -623,8 +628,13 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
                                                   const FSky& sky) noexcept {
     if (!IsDiligentBackend(device)) {
-        ACS_LOG_WARN("ImageBasedLighting: env cubemap skipped (backend != Diligent)");
-        return Ok();
+        static bool s_warned = false;
+        if (!s_warned) {
+            ACS_LOG_WARN("ImageBasedLighting: env cubemap requires the Diligent backend "
+                         "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
+            s_warned = true;
+        }
+        return ACS_ERR(Render, 88, "env cubemap requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
     }
     m_EnvCube.Reset();
 
@@ -800,8 +810,13 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
         IRhiDevice& device, IRhiCommandList& cl,
         const f32* rgba_float, u32 width, u32 height) noexcept {
     if (!IsDiligentBackend(device)) {
-        ACS_LOG_WARN("ImageBasedLighting: LoadEquirectHdr skipped (backend != Diligent)");
-        return Ok();
+        static bool s_warned = false;
+        if (!s_warned) {
+            ACS_LOG_WARN("ImageBasedLighting: equirect HDR requires the Diligent backend "
+                         "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
+            s_warned = true;
+        }
+        return ACS_ERR(Render, 88, "equirect HDR requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
     }
     if (!rgba_float || width == 0 || height == 0) {
         return ACS_ERR(Render, 165, "LoadEquirectHdrFromMemory: invalid input");
@@ -913,8 +928,16 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
 TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
                                                    IRhiCommandList& cl) noexcept {
     if (m_bIrradianceBuilt) return Ok();
-    // Diligent でなければ silent no-op (EnsureBrdfLut/EnsureEnvCubemap と一貫した挙動)
-    if (!IsDiligentBackend(device)) return Ok();
+    // Diligent でなければ高度3D 不能 → fake-success せず capability error を返す。
+    if (!IsDiligentBackend(device)) {
+        static bool s_warned = false;
+        if (!s_warned) {
+            ACS_LOG_WARN("ImageBasedLighting: irradiance requires the Diligent backend "
+                         "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
+            s_warned = true;
+        }
+        return ACS_ERR(Render, 88, "irradiance requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
+    }
     if (!m_EnvCube) {
         return ACS_ERR(Render, 160,
             "ImageBasedLighting::EnsureIrradiance: env cubemap not built yet");
@@ -928,8 +951,13 @@ TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
 TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (!IsDiligentBackend(device)) {
-        ACS_LOG_WARN("ImageBasedLighting: irradiance skipped (backend != Diligent)");
-        return Ok();
+        static bool s_warned = false;
+        if (!s_warned) {
+            ACS_LOG_WARN("ImageBasedLighting: irradiance requires the Diligent backend "
+                         "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
+            s_warned = true;
+        }
+        return ACS_ERR(Render, 88, "irradiance requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
     }
     m_IrradianceCube.Reset();
 
@@ -1022,7 +1050,16 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
 TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (m_bPrefilterBuilt) return Ok();
-    if (!IsDiligentBackend(device)) return Ok();
+    // Diligent でなければ高度3D 不能 → fake-success せず capability error を返す。
+    if (!IsDiligentBackend(device)) {
+        static bool s_warned = false;
+        if (!s_warned) {
+            ACS_LOG_WARN("ImageBasedLighting: prefilter requires the Diligent backend "
+                         "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
+            s_warned = true;
+        }
+        return ACS_ERR(Render, 88, "prefilter requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
+    }
     if (!m_EnvCube) {
         return ACS_ERR(Render, 161,
             "ImageBasedLighting::EnsurePrefilter: env cubemap not built yet");
@@ -1036,8 +1073,13 @@ TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
 TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
                                                  IRhiCommandList& cl) noexcept {
     if (!IsDiligentBackend(device)) {
-        ACS_LOG_WARN("ImageBasedLighting: prefilter skipped (backend != Diligent)");
-        return Ok();
+        static bool s_warned = false;
+        if (!s_warned) {
+            ACS_LOG_WARN("ImageBasedLighting: prefilter requires the Diligent backend "
+                         "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
+            s_warned = true;
+        }
+        return ACS_ERR(Render, 88, "prefilter requires the Diligent backend (-DACS_RENDER_DILIGENT=ON)");
     }
     m_PrefilterCube.Reset();
     m_PrefilterMips = 0;
@@ -1200,7 +1242,17 @@ void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                      const FMat4& view_proj, FVec3 eye,
                                      EFormat rt_format, EFormat depth_format,
                                      f32 mip_level) noexcept {
-    if (!IsDiligentBackend(device)) return;
+    // void なので error を返せない。fake-success と同義の no-op だが、最低限
+    // 一度だけ warn して capability 境界を明示する (raw-DX12 は高度3D 非対応)。
+    if (!IsDiligentBackend(device)) {
+        static bool s_warned = false;
+        if (!s_warned) {
+            ACS_LOG_WARN("ImageBasedLighting: skybox preview requires the Diligent backend "
+                         "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
+            s_warned = true;
+        }
+        return;
+    }
     if (auto r = EnsureSkyboxPipeline(device, rt_format, depth_format); r.IsErr()) return;
 
     SkyboxCBLayout cb{};

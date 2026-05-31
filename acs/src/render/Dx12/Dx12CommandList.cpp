@@ -289,10 +289,17 @@ void Dx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
 }
 
 // IBL / cubemap 描画は Diligent backend 専用機能 (Phase 31)。
-// Dx12 raw backend には実装しない。
+// Dx12 raw backend には実装しない。誤って呼んだケースを log で検出可能にする。
 void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& /*rt*/,
                                                  u32 /*slice*/, u32 /*mip*/,
-                                                 const ClearColor& /*clear*/) noexcept {}
+                                                 const ClearColor& /*clear*/) noexcept {
+    static bool warned_once = false;
+    if (!warned_once) {
+        ACS_LOG_WARN("Dx12CommandList::BeginRenderToTextureSlice is not implemented for raw DX12 "
+                     "backend (Diligent-only). Build with -DACS_RENDER_DILIGENT=ON.");
+        warned_once = true;
+    }
+}
 
 // MRT (Phase 34d-2) も同様、Diligent 専用。Dx12 raw では stub。
 // 誤って Dx12 raw backend で MRT を呼んだケースを log で検出可能にする。

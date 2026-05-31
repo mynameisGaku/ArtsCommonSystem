@@ -17,8 +17,10 @@
 //   // ibl.EnsurePrefilter(*cl);                 // 環境 → prefilter (mip)
 //   // pbr.SetIbl(*ibl.IrradianceMap(), *ibl.PrefilterMap(), *ibl.BrdfLut());
 //
-// 注意: Diligent backend 専用 (BeginRenderToTextureSlice / cubemap 依存)。
-//       Dx12 raw backend では Init は成功するが LUT 生成は no-op になる。
+// 注意: IBL は Diligent backend 専用の本実装 (BeginRenderToTextureSlice / cubemap 依存)。
+//       raw-DX12 backend では各 Build/Ensure が ACS_ERR(Render, 88) を返す
+//       (fake-success しない)。高度3D を使うには -DACS_RENDER_DILIGENT=ON でビルドする。
+//       (raw-DX12 = 軽量 2D/基本3D backend、Diligent = 公式の高度3D backend)
 #pragma once
 
 #include "foundation/Result.h"
