@@ -72,6 +72,8 @@ struct Event;
 
 namespace game {
 
+class RenderContext;   // OnDrawHud 等で渡される描画コンテキスト (gameframework)
+
 // FUiLayer が扱う widget の種類。Phase H-1 はボタンとテキストのみ。Phase H-2 で
 // Slider / Checkbox / TextInput を追加する想定。
 enum class EWidgetKind : u8 {
@@ -95,7 +97,9 @@ struct WidgetEntry {
     acs::FVec2   size        {0.0f, 0.0f};
     const char* text         = nullptr;
     bool        visible      = true;
-    bool        just_pressed = false;
+    bool        just_pressed = false;   // クリック成立 (consume-on-read)
+    bool        hovered      = false;    // カーソルが上 (描画ハイライト)
+    bool        pressed_down = false;    // pointer-down 中 (押し込み描画)
 };
 
 class FUiLayer {
@@ -123,9 +127,17 @@ public:
     // tween / animation の更新を入れる。
     void Tick(f32 dt) noexcept;
 
-    // Scene::OnEvent から呼ぶ。マウス / キーイベントを widget に dispatch
-    // する。Phase H-1 は TODO (HitTestRecursive 接続待ち)。
+    // Scene::OnEvent から呼ぶ。マウスイベントを処理する:
+    //   ・MouseMoved          → カーソル位置を記録し hover 状態を更新
+    //   ・MouseButtonPressed   → カーソル位置の最前面ボタンを押し込み状態に
+    //   ・MouseButtonReleased  → 押し込み開始ボタンと同じボタン上で離したら
+    //                            「クリック成立」= just_pressed を立てる
     void HandleInput(const acs::Event& event) noexcept;
+
+    // Scene::OnDrawHud から呼ぶ。登録 widget を rc の SpriteBatch + Font で描画する
+    // (ボタンは hover/押下で色変化、Text はラベル)。SpriteBatch セッションが開いて
+    // いる前提 (FScene2D の HUD パスから呼ぶ)。Font が無い環境では矩形のみ。
+    void Draw(RenderContext& rc) const noexcept;
 
     // 現在登録されている widget 数 (visible / hidden 問わず)。テスト / デバッグ向け。
     u32 WidgetCount() const noexcept;
@@ -161,8 +173,15 @@ private:
     // なら -1 相当 (u32 の MAX = 0xFFFFFFFFu) を返す。
     u32 FindIndex(u32 handle) const noexcept;
 
+    // (x,y) を含む最前面 (= 最後に追加された) の visible なボタンの handle を返す。
+    // 無ければ 0。
+    u32 HitTopButton(f32 x, f32 y) const noexcept;
+
     TArray<WidgetEntry> m_Widgets;          // 全 widget の状態 (handle 順は保証しない)
-    u32                m_NextHandle = 1;  // 次に発行する handle (0 は invalid 予約)
+    u32                m_NextHandle  = 1;  // 次に発行する handle (0 は invalid 予約)
+    f32                m_MouseX      = 0.0f;  // 直近のカーソル位置 (MouseMoved で更新)
+    f32                m_MouseY      = 0.0f;
+    u32                m_PressedHandle = 0;   // pointer-down を開始したボタン (0=無し)
     bool               m_Initialized = false;
 };
 

@@ -22,6 +22,9 @@
 #include "foundation/SourceLoc.h"
 #include "container/Json.h"
 #include "gameframework/Tilemap.h"
+#include "gameframework/UiLayer.h"
+#include "platform/Event.h"
+#include "platform/InputCodes.h"
 
 #include <cstdio>
 #include <cstring>
@@ -218,6 +221,48 @@ void TestSpriteAtlasLoad() noexcept {
     // frames 欠如は Err。
     FSpritePack pack3;
     Check(pack3.LoadAtlasJson("{}", 2).IsErr(), "frames 欠如は Err");
+}
+
+void TestUiLayer() noexcept {
+    std::printf("[FUiLayer] hit-test + click 検出 (ゲーム内UI)\n");
+    FUiLayer ui;
+    ui.Init();
+    const u32 play = ui.AddButton("Play", FVec2{100, 200}, FVec2{200, 48});
+    const u32 quit = ui.AddButton("Quit", FVec2{100, 260}, FVec2{200, 48});
+    ui.AddText("ACS Demo", FVec2{100, 100});
+    Check(ui.WidgetCount() == 3, "widget 3 個");
+    Check(!ui.IsButtonPressed(play), "初期は未押下");
+
+    auto move = [&](f32 x, f32 y) {
+        Event e; e.type = EventType::MouseMoved;
+        e.mouse_move.x = x; e.mouse_move.y = y; e.mouse_move.dx = 0; e.mouse_move.dy = 0;
+        ui.HandleInput(e);
+    };
+    auto down = [&]() {
+        Event e; e.type = EventType::MouseButtonPressed; e.mouse_button.button = EMouseButton::Left;
+        ui.HandleInput(e);
+    };
+    auto up = [&]() {
+        Event e; e.type = EventType::MouseButtonReleased; e.mouse_button.button = EMouseButton::Left;
+        ui.HandleInput(e);
+    };
+
+    // Play 中心 (200,224) をクリック。
+    move(200, 224); down(); up();
+    Check(ui.IsButtonPressed(play), "Play クリック → 押下検出");
+    Check(!ui.IsButtonPressed(quit), "Quit は未押下");
+    Check(!ui.IsButtonPressed(play), "consume-on-read (2 度目は false)");
+    // 範囲外でクリック。
+    move(10, 10); down(); up();
+    Check(!ui.IsButtonPressed(play), "範囲外クリックは無視");
+    // down は中、up は外 → クリック不成立。
+    move(200, 224); down(); move(10, 10); up();
+    Check(!ui.IsButtonPressed(play), "down内→up外 はクリック不成立");
+    // 非表示ボタンはヒットしない。
+    ui.SetVisible(quit, false);
+    move(200, 284); down(); up();
+    Check(!ui.IsButtonPressed(quit), "非表示ボタンはヒットしない");
+    ui.Shutdown();
 }
 
 void TestTilemapLoad() noexcept {
@@ -730,6 +775,7 @@ int main() {
     TestJson();
     TestSpriteAtlasLoad();
     TestTilemapLoad();
+    TestUiLayer();
     std::printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILED");
     return g_fail;
 }
