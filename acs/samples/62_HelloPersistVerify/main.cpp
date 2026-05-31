@@ -166,15 +166,90 @@ void TestAssetBundle() noexcept {
     std::remove(fname);
 }
 
+void WriteTestWav(const char* path) noexcept {
+    auto wu32 = [](std::FILE* f, u32 v) { std::fwrite(&v, 4, 1, f); };
+    auto wu16 = [](std::FILE* f, u16 v) { std::fwrite(&v, 2, 1, f); };
+    const u32 rate = 44100; const u16 ch = 1; const u16 bits = 16;
+    const u32 nsamp = rate / 5;                       // 0.2 秒
+    const u32 dataSize = nsamp * ch * (bits / 8);
+    std::FILE* f = std::fopen(path, "wb");
+    if (!f) return;
+    std::fwrite("RIFF", 1, 4, f); wu32(f, 36 + dataSize); std::fwrite("WAVE", 1, 4, f);
+    std::fwrite("fmt ", 1, 4, f); wu32(f, 16); wu16(f, 1); wu16(f, ch);
+    wu32(f, rate); wu32(f, rate * ch * (bits / 8)); wu16(f, ch * (bits / 8)); wu16(f, bits);
+    std::fwrite("data", 1, 4, f); wu32(f, dataSize);
+    for (u32 i = 0; i < nsamp; ++i) {
+        const f32 t = static_cast<f32>(i) / static_cast<f32>(rate);
+        const i16 s = static_cast<i16>(std::sin(t * 440.0f * 6.2831853f) * 8000.0f);  // 440Hz
+        std::fwrite(&s, 2, 1, f);
+    }
+    std::fclose(f);
+}
+
+// mock backend: AudioDirector の name→clip 解決 + dispatch を XAudio2 ランタイム
+// (COM/スレッド) 抜きで検証する。実音は実 XAudio2 backend が出す (VS 実機で確認)。
+struct FMockAudioBackend final : IAudioBackend {
+    u32         active   = 0;
+    const void* last_pcm = nullptr;
+    u32         last_rate = 0, last_ch = 0;
+    u32         next = 1;
+    TResult<void> Init(u32) noexcept override { return Ok(); }
+    void Shutdown() noexcept override { active = 0; }
+    bool IsInitialized() const noexcept override { return true; }
+    AudioVoiceHandle PlayOneShot(const AudioClipDesc& c, f32, f32) noexcept override {
+        last_pcm = c.pcm_data; last_rate = c.sample_rate; last_ch = c.channel_count;
+        ++active; return AudioVoiceHandle(next++, 1);
+    }
+    AudioVoiceHandle PlayLooped(const AudioClipDesc& c, f32, f32) noexcept override {
+        last_pcm = c.pcm_data; last_rate = c.sample_rate; last_ch = c.channel_count;
+        ++active; return AudioVoiceHandle(next++, 1);
+    }
+    void StopVoice(AudioVoiceHandle) noexcept override { if (active) --active; }
+    void SetVoiceVolume(AudioVoiceHandle, f32) noexcept override {}
+    void StopAllVoices() noexcept override { active = 0; }
+    u32  ActiveVoiceCount() const noexcept override { return active; }
+    void Tick(f32) noexcept override {}
+};
+
+void TestAudioDirector() noexcept {
+    std::printf("[FAudioDirector] name->clip 解決 + backend dispatch (mock)\n");
+    const char* wav = "tone62.wav";
+    WriteTestWav(wav);
+    FAssetRegistry reg; reg.RegisterDefaultLoaders();
+    FMockAudioBackend backend;
+    FAudioDirector dir;
+    dir.SetBackend(&backend);
+    dir.SetAssetRegistry(&reg);
+
+    dir.PlaySfx(wav, 1.0f);                               // name → WAV ロード → clip → one-shot
+    Check(backend.active >= 1, "PlaySfx → backend one-shot dispatch");
+    Check(backend.last_pcm != nullptr && backend.last_rate == 44100 && backend.last_ch == 1,
+          "解決した clip が正しい PCM/rate/channels");
+
+    dir.PlayBgm(wav, 0.0f, true);                         // name → clip → looped + name 紐付
+    const char* bn = dir.CurrentBgmName();
+    Check(bn != nullptr && std::strcmp(bn, wav) == 0, "PlayBgm → CurrentBgmName 紐付");
+    Check(backend.active >= 2, "PlayBgm → backend looped dispatch");
+
+    dir.PlaySfx("missing62.wav", 1.0f);                   // load 失敗 → state-only fallback (no crash)
+    Check(true, "欠落 name でも no-crash (fallback)");
+
+    dir.StopAll();
+    Check(backend.active == 0, "StopAll → 全 voice 停止");
+    std::remove(wav);
+}
+
 } // namespace
 
 int main() {
-    std::printf("=== Persist/Serialize round-trip 検証 (stub 撲滅 Batch 1/2) ===\n");
+    std::setvbuf(stdout, nullptr, _IONBF, 0);   // crash 時も出力が残るよう無バッファ
+    std::printf("=== Persist/Serialize/Asset/Audio 検証 (stub 撲滅 Batch 1/2) ===\n");
     TestSettings();
     TestLockstep();
     TestInputRecorder();
     TestProgression();
     TestAssetBundle();
+    TestAudioDirector();
     std::printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILED");
     return g_fail;
 }

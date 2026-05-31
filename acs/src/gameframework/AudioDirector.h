@@ -50,6 +50,8 @@
 #include "container/Array.h"
 #include "gameframework/audio_backend/IAudioBackend.h"
 
+namespace acs { class FAssetRegistry; }   // name→clip 解決に使う (前方宣言)
+
 namespace acs::game {
 
 class FAudioDirector {
@@ -122,6 +124,13 @@ public:
     void           SetBackend(IAudioBackend* backend) noexcept { m_Backend = backend; }
     IAudioBackend* GetBackend() const noexcept { return m_Backend; }
 
+    // ----- asset registry 接続 (name → AudioClipDesc 解決) -----
+    // app 所有の registry (FApplication::GetAssets()) を差し込むと、PlayBgm/PlaySfx の
+    // name (= asset path、例 "audio/bgm.ogg") を実ロードして実音再生する。
+    // registry または backend が未設定のときは従来の state-only (無音) で動作する。
+    void            SetAssetRegistry(FAssetRegistry* registry) noexcept { m_Registry = registry; }
+    FAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
+
     // ----- clip 直接再生 (Phase 2 で追加) -----
     // backend が設定されていない / 不正 clip のとき: kInvalidAudioVoice を返す
     // (no-op、警告は backend 側で出す)。
@@ -162,7 +171,6 @@ private:
 
     // ----- 内部ヘルパ -----
     static f32 Clamp01(f32 v) noexcept;
-    static void LogTodoOnce(const char* what) noexcept;
     // duck envelope (= BGM に掛ける 0..1 のゲイン係数) を現在 timer から計算。
     f32  ComputeDuckEnvelope() const noexcept;
 
@@ -192,6 +200,10 @@ private:
     // 所有し、SetBackend で差し込む。Pause/Resume/StopAll/Tick/SetMasterVolume
     // を本層から forward する。
     IAudioBackend* m_Backend = nullptr;
+
+    // ----- asset registry (非所有 raw ptr) -----
+    // name → AudioClipDesc 解決用。app 所有の registry を SetAssetRegistry で差す。
+    FAssetRegistry* m_Registry = nullptr;
 };
 
 } // namespace acs::game

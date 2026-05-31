@@ -6,6 +6,12 @@
 #include "gameframework/AudioDirector.h"
 #include "foundation/Log.h"
 #include "gameframework/audio_backend/IAudioBackend.h"
+#include "asset/AssetRegistry.h"
+#include "asset/AudioAsset.h"
+#include "memory/Rc.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 
 namespace acs::game {
 
@@ -17,6 +23,29 @@ bool StrEq(const char* a, const char* b) noexcept {
     while (*a != '\0' && *a == *b) { ++a; ++b; }
     return *a == *b;
 }
+
+// name (= asset path、例 "audio/bgm.ogg") を registry でロードし AudioClipDesc を組む。
+// keep は呼び出し中 asset を生存させる (backend が Play* で PCM を内部コピーするので、
+// 呼び出し後に drop してよい)。registry 未設定 / 非音声 / load 失敗は false。
+bool ResolveAudioClip(FAssetRegistry* reg, const char* name,
+                      AudioClipDesc& out, TRc<Asset>& keep) noexcept {
+    if (reg == nullptr || name == nullptr) return false;
+    wchar_t wpath[260];
+    if (::MultiByteToWideChar(CP_UTF8, 0, name, -1, wpath, 260) <= 0) return false;
+    auto r = reg->Load(wpath);
+    if (r.IsErr()) return false;
+    keep = r.Value();
+    Asset* a = keep.Get();
+    if (a == nullptr || a->Type() != FAudioAsset::StaticType()) return false;
+    const FAudioAsset* audio = static_cast<const FAudioAsset*>(a);
+    out.pcm_data      = audio->Samples();
+    out.pcm_size      = audio->SampleByteCount();
+    out.sample_rate   = audio->SampleRate();
+    out.channel_count = audio->Channels();
+    out.format        = (audio->EFormat() == ESampleFormat::PCM_S16)
+                        ? EAudioFormat::Pcm16 : EAudioFormat::Pcm32Float;
+    return true;
+}
 } // namespace
 
 // ----------------------------------------------------------------------------
@@ -27,33 +56,6 @@ f32 FAudioDirector::Clamp01(f32 v) noexcept {
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
-}
-
-// 同一 TODO メッセージを毎フレーム吐かないよう、ファイル static の `done` flag
-// で 1 度きりに絞る。マルチスレッドからは Tick が呼ばれない前提 (data race なし)。
-void FAudioDirector::LogTodoOnce(const char* what) noexcept {
-    static bool s_logged_play_bgm = false;
-    static bool s_logged_stop_bgm = false;
-    static bool s_logged_play_sfx = false;
-    static bool s_logged_stop_all = false;
-    static bool s_logged_pause    = false;
-    static bool s_logged_resume   = false;
-    static bool s_logged_tick     = false;
-
-    // what は内容比較で照合する。literal pooling 任せのポインタ比較は Debug の
-    // /Od で破綻し「毎フレーム重複ログ」になるため StrEq で確実に判定する。
-    bool* slot = nullptr;
-    if      (StrEq(what, "PlayBgm")) slot = &s_logged_play_bgm;
-    else if (StrEq(what, "StopBgm")) slot = &s_logged_stop_bgm;
-    else if (StrEq(what, "PlaySfx")) slot = &s_logged_play_sfx;
-    else if (StrEq(what, "StopAll")) slot = &s_logged_stop_all;
-    else if (StrEq(what, "Pause"))   slot = &s_logged_pause;
-    else if (StrEq(what, "Resume"))  slot = &s_logged_resume;
-    else if (StrEq(what, "Tick"))    slot = &s_logged_tick;
-
-    if (slot != nullptr && *slot) return;
-    if (slot != nullptr) *slot = true;
-    ACS_LOG_INFO("FAudioDirector: %s — Phase 2 で acs::FAudioEngine と接続予定 (現在は state のみ)", what);
 }
 
 // ----------------------------------------------------------------------------
@@ -107,12 +109,25 @@ void FAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
         ACS_LOG_WARN("FAudioDirector::PlayBgm: name=nullptr → ignored");
         return;
     }
-    // 同一 BGM 再要求は no-op (current の loop / target を尊重)。
-    if (m_Bgm[0].active && m_Bgm[0].name == name) {
-        // ポインタ一致 = literal 同一を意図 (Phase 3 で strcmp に置き換え検討)。
+    // 同一 BGM 再要求は no-op (current の loop / target を尊重)。内容比較。
+    if (m_Bgm[0].active && StrEq(m_Bgm[0].name, name)) {
         return;
     }
-    LogTodoOnce("PlayBgm");
+
+    // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
+    if (m_Backend != nullptr && m_Registry != nullptr) {
+        AudioClipDesc clip; TRc<Asset> keep;
+        if (ResolveAudioClip(m_Registry, name, clip, keep)) {
+            const AudioVoiceHandle h = PlayBgmClip(clip, fade_in_sec, loop);
+            if (h.IsValid()) {
+                // PlayBgmClip が voice を入れた slot に name を紐付ける (CurrentBgmName 用)。
+                for (u32 i = 0; i < 2; ++i)
+                    if (m_Bgm[i].active && m_Bgm[i].voice.m_Packed == h.m_Packed) m_Bgm[i].name = name;
+                return;
+            }
+        }
+        // 解決 / 再生失敗 → 以下の state-only にフォールバック (UI に name は追える)。
+    }
 
     // 既存遷移中 (slot[1] active) → 強制的に current に格上げして上書き。
     // backend voice が slot[0] に残っていれば backend->StopVoice で先に止める
@@ -158,7 +173,6 @@ void FAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
 
 void FAudioDirector::StopBgm(f32 fade_out_sec) noexcept {
     if (!m_Bgm[0].active && !m_Bgm[1].active) return;
-    LogTodoOnce("StopBgm");
 
     if (fade_out_sec <= 0.0f) {
         m_Bgm[0] = FBgmSlot{};
@@ -186,7 +200,17 @@ void FAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept {
         // 0 ゲインは「鳴らさない」明示要求とみなし no-op (警告も出さない)。
         return;
     }
-    LogTodoOnce("PlaySfx");
+
+    // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
+    // backend が voice を管理するので、成功時は state ring に積まない。
+    if (m_Backend != nullptr && m_Registry != nullptr) {
+        AudioClipDesc clip; TRc<Asset> keep;
+        if (ResolveAudioClip(m_Registry, name, clip, keep)) {
+            PlaySfxClip(clip, volume_scale, 1.0f);
+            return;
+        }
+        // 解決失敗 → 以下の state-only ring にフォールバック。
+    }
 
     // 空きを探す。なければ ring 先頭 (= 最古) を上書き。
     u32 slot = kMaxSfxVoices;
