@@ -4,9 +4,10 @@
 // 3D 位置情報を持つ FAudioSource3D と単一の FAudioListener (= プレイヤ耳位置) から
 // 距離減衰 (attenuation) / 左右パン (stereo pan) を算出する音声空間化レイヤ。
 // HRTF (Head-Related Transfer Function) によるバイノーラル化は `IHrtfRenderer`
-// interface seam として隔離し、Phase H-3 では stereo panning だけの stub
-// (`HrtfRendererStub`) を提供する。実際の KEMAR 256-tap convolution は Phase 2 で
-// 別モジュール (~140KB の埋め込み impulse response) として差し込む予定。
+// interface seam として隔離する。`HrtfRendererStub` は constant-power stereo
+// panning + 距離減衰を**実数学** (in-repo 完結) で行い、真のバイノーラル化
+// (KEMAR 256-tap convolution、~140KB の埋め込み impulse response) のみが seam
+// として残る (外部 IR データ必須のため Phase 2 で別モジュールとして差し込む)。
 //
 // FAudioDirector との関係:
 //   FAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
@@ -53,8 +54,13 @@
 //     dot(dir, right) ∈ [-1, +1] をそのまま pan として返す。
 //     左手系 / 右手系どちらでも Y+up 慣習なら X+ が右になり符号一貫。
 //     listener の真後ろも +0 ± で連続 (head-shadow なしの単純化)。
+//   ・**Pan→ゲイン変換**: constant-power (等パワー) パン則。
+//     θ = (pan+1)·π/4、left = cos θ、right = sin θ。中央でも left²+right² = 1 を
+//     満たし、左右に振っても知覚音量が一定 (linear pan の中央ディップを回避)。
 //   ・**HRTF seam**: `IHrtfRenderer` 経由で convolution を差し替え可能に。
-//     stub は単純な L = mono*(1-pan)/2, R = mono*(1+pan)/2 だけ。
+//     stub は constant-power パン + 距離減衰を実数学で行う (= 実空間化)。
+//     真のバイノーラル化 (KEMAR IR convolution、外部データ必須) のみ Phase 2 で
+//     別モジュールとして差し込む。
 //   ・**非コピー・非ムーブ**: シーン局所 instance としての所有が前提。
 //
 // 範囲外 (Phase H-4+ で):
@@ -171,11 +177,15 @@ protected:
 };
 
 // =============================================================================
-// HrtfRendererStub — 簡易 stereo panning のみ (HRTF なし)
+// HrtfRendererStub — constant-power stereo panning + 距離減衰 (HRTF なし)
 // -----------------------------------------------------------------------------
-// L = mono * (1 - pan) * 0.5,  R = mono * (1 + pan) * 0.5,
-// pan は FSpatialAudio::ComputePan と同じ右ベクトル投影で計算。
-// Phase H-3 ではこれが唯一の `IHrtfRenderer` 実装。
+// 真のバイノーラル化 (HRTF convolution) のみ stub。stereo 空間化は実数学:
+//   pan      = FSpatialAudio::ComputePan と同じ右ベクトル投影 (dot(dir, right))。
+//   L = mono * cos((pan+1)·π/4) * volume * atten,
+//   R = mono * sin((pan+1)·π/4) * volume * atten   (constant-power パン則)。
+//   atten    = source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。
+// 現状これが唯一の `IHrtfRenderer` 実装。IsHrtfEnabled() は false (= 真の HRTF
+// 効果は無いが、stereo パン + 距離減衰は本物)。
 // =============================================================================
 class HrtfRendererStub final : public IHrtfRenderer {
 public:

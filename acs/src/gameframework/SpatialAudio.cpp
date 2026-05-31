@@ -1,26 +1,89 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar H — FSpatialAudio 実装 (Phase 3)
 //
-// 3D listener + source の集中管理、距離減衰 / pan 計算、HRTF stub。
-// 実 FAudioEngine voice バインドは Phase 2 で FAudioDirector と統合予定。
+// 3D listener + source の集中管理、距離減衰 / constant-power stereo panning。
+// stereo パン + 距離減衰は実数学 (in-repo 完結) で、真のバイノーラル化
+// (HRTF / KEMAR 256-tap convolution、外部 IR データ必須) のみが seam として残る。
+// 実 FAudioEngine voice バインドは FAudioDirector と統合予定。
 #include "gameframework/SpatialAudio.h"
 #include "math/Math.h"
 #include "foundation/Log.h"
 
 namespace acs::game {
 
+namespace {
+
+// -----------------------------------------------------------------------------
+// 距離減衰ゲイン — curve 種別に応じて d ∈ [0, max_d] を gain ∈ [0, 1] に写像。
+// d >= max_d は culling (0)。d <= 0 は最大 (1)。FSpatialAudio::ComputeAttenuatedVolume
+// と HrtfRendererStub::ProcessSource の双方で同一の式を共有する。
+// -----------------------------------------------------------------------------
+f32 ComputeAttenuationGain(f32 d, f32 max_distance, EAttenuationCurve curve) noexcept {
+    if (max_distance <= 0.0f) return 0.0f;
+    if (d <= 0.0f)            return 1.0f;
+    if (d >= max_distance)    return 0.0f;  // culling
+
+    f32 atten = 1.0f;
+    switch (curve) {
+    case EAttenuationCurve::Linear: {
+        // 素朴な線形: gain = clamp(1 - d / max_d, 0, 1)。
+        atten = 1.0f - (d / max_distance);
+        break;
+    }
+    case EAttenuationCurve::Inverse: {
+        // 1 / (1 + r) 型を max_distance でスケール。ref_d = max_d / 8 を
+        // 半減距離の目安とし、tail を線形ブレンドで max_d で 0 に収束させる
+        // (純粋 inverse は無限遠でしか 0 にならないため culling と一貫させる)。
+        const f32 ref_d = max_distance * 0.125f;
+        const f32 base  = 1.0f / (1.0f + d / ref_d);
+        const f32 t     = d / max_distance;   // 0..1
+        atten = base * (1.0f - t);            // tail で 0 へ収束
+        break;
+    }
+    case EAttenuationCurve::Exponential: {
+        // e^(-k * d) 型、k = 4 / max_d で max_d で約 e^-4 ≈ 0.018。
+        // 同じく tail を線形ブレンドして max_d で 0 に到達させる。
+        const f32 k    = 4.0f / max_distance;
+        const f32 base = Exp(-k * d);
+        const f32 t    = d / max_distance;
+        atten = base * (1.0f - t);
+        break;
+    }
+    }
+    return Saturate(atten);
+}
+
+// -----------------------------------------------------------------------------
+// Constant-power (等パワー) stereo パンゲイン — pan ∈ [-1, +1] を左右ゲインへ。
+//   θ = (pan + 1) * π/4   (pan=-1→θ=0, pan=0→θ=π/4, pan=+1→θ=π/2)
+//   left  = cos(θ),  right = sin(θ)
+// linear pan ((1±pan)/2) と違い、中央でも left²+right² = 1 を満たすため
+// 左右に振っても知覚音量 (パワー) が一定に保たれる (-3dB pan law)。
+// -----------------------------------------------------------------------------
+void ComputeConstantPowerGains(f32 pan, f32& left, f32& right) noexcept {
+    if (pan < -1.0f) pan = -1.0f;
+    if (pan >  1.0f) pan =  1.0f;
+    const f32 theta = (pan + 1.0f) * (kPi * 0.25f);
+    left  = Cos(theta);
+    right = Sin(theta);
+}
+
+} // namespace
+
 // =============================================================================
-// HrtfRendererStub — 簡易 stereo panning だけ
+// HrtfRendererStub — constant-power stereo panning + 距離減衰 (HRTF seam のみ stub)
 // =============================================================================
 
 TResult<void> HrtfRendererStub::Init() noexcept {
     m_Initialized = true;
-    // Phase 2 で KEMAR 256-tap IR を埋め込み配列から構築する。stub は何も
-    // ロードしない (= ~140KB 削減)。一度きりログで「HRTF off」を明示。
+    // 真の HRTF (KEMAR 256-tap convolution) は外部 IR データを要するため
+    // seam として保留。本 stub は constant-power パン + 距離減衰を実数学で行う。
+    // 一度きりログで「HRTF off (panning は実装済)」を明示。
     static bool s_logged = false;
     if (!s_logged) {
         s_logged = true;
-        ACS_LOG_INFO("HrtfRendererStub::Init: HRTF disabled (Phase H-3 stub, panning only)");
+        ACS_LOG_INFO("HrtfRendererStub::Init: HRTF binaural disabled (seam), "
+                     "using real constant-power stereo panning + distance attenuation");
     }
     return Ok();
 }
@@ -51,20 +114,30 @@ void HrtfRendererStub::ProcessSource(const FAudioSource3D& source,
     // pan を listener 基準で計算 (FSpatialAudio::ComputePan と同じ式)。
     // right = up × forward。標準姿勢 (forward=Z+, up=Y+) で右ベクトル X+ を
     // 返す式で、左手系 / 右手系どちらでも符号一貫 (Y+up を共通慣習にしている)。
-    const FVec3 right = Cross(m_Listener.up, m_Listener.forward);
+    const FVec3 right  = Cross(m_Listener.up, m_Listener.forward);
     const FVec3 to_src = source.position - m_Listener.position;
+    const f32   d      = Length(to_src);
     f32 pan = 0.0f;
-    const f32 len_sq = LengthSq(to_src);
-    if (len_sq > kEpsilon) {
-        const FVec3 dir = Normalize(to_src);
+    if (d > kEpsilon && LengthSq(right) > kEpsilon) {
+        const FVec3 dir     = Normalize(to_src);
         const FVec3 right_n = Normalize(right);
         pan = Dot(dir, right_n);
         // 数値誤差で [-1,1] を越えうるので clamp。
         if (pan < -1.0f) pan = -1.0f;
         if (pan >  1.0f) pan =  1.0f;
     }
-    const f32 gain_l = (1.0f - pan) * 0.5f * source.volume;
-    const f32 gain_r = (1.0f + pan) * 0.5f * source.volume;
+    // 距離減衰 (curve 種別) を listener 基準で適用。FSpatialAudio::
+    // ComputeAttenuatedVolume と同一の式を共有するので、pull API と
+    // per-sample 出力で減衰量が一致する。
+    const EAttenuationCurve curve = static_cast<EAttenuationCurve>(source.curve);
+    const f32 atten = ComputeAttenuationGain(d, source.max_distance, curve);
+    // constant-power (等パワー) パン: left² + right² = 1 を満たし、
+    // 左右に振っても知覚音量が一定 (linear pan の中央 -6dB ディップを回避)。
+    f32 pan_l = 0.0f;
+    f32 pan_r = 0.0f;
+    ComputeConstantPowerGains(pan, pan_l, pan_r);
+    const f32 gain_l = pan_l * source.volume * atten;
+    const f32 gain_r = pan_r * source.volume * atten;
     for (u32 i = 0; i < sample_count; ++i) {
         const f32 s = mono_input[i];
         stereo_output[i * 2 + 0] = s * gain_l;
@@ -149,39 +222,10 @@ f32 FSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
 
     const FVec3 to_src = s.position - m_Listener.position;
     const f32  d      = Length(to_src);
-    if (d >= s.max_distance) return 0.0f;  // culling
-
-    // 0 距離は max 音量。各 curve で d=0 → 1, d=max → 0 を満たすように設計。
-    f32 atten = 1.0f;
+    // 距離減衰は ProcessSource と共有する curve-aware helper で算出
+    // (d >= max_distance の culling、d=0 → 1, d=max → 0 を満たす)。
     const EAttenuationCurve curve = static_cast<EAttenuationCurve>(s.curve);
-    switch (curve) {
-    case EAttenuationCurve::Linear: {
-        // 素朴な線形: vol = 1 - d / max_d
-        atten = 1.0f - (d / s.max_distance);
-        break;
-    }
-    case EAttenuationCurve::Inverse: {
-        // 1 / (1 + r) 型を max_distance でスケール。
-        //   ref_d = max_d / 8 を「半減距離の目安」とし、max_d で 0 に到達するよう
-        //   tail を線形ブレンドで打ち切る (純粋 inverse は無限遠で 0 にしか
-        //   ならないため culling と一貫させる)。
-        const f32 ref_d = s.max_distance * 0.125f;
-        const f32 base  = 1.0f / (1.0f + d / ref_d);
-        const f32 t     = d / s.max_distance;   // 0..1
-        atten = base * (1.0f - t);              // tail で 0 へ収束
-        break;
-    }
-    case EAttenuationCurve::Exponential: {
-        // e^(-k * d) 型、k = 4 / max_d で max_d で約 e^-4 ≈ 0.018。
-        // 同じく tail を線形ブレンドして max_d で 0 に到達させる。
-        const f32 k     = 4.0f / s.max_distance;
-        const f32 base  = Exp(-k * d);
-        const f32 t     = d / s.max_distance;
-        atten = base * (1.0f - t);
-        break;
-    }
-    }
-    if (atten < 0.0f) atten = 0.0f;
+    const f32 atten = ComputeAttenuationGain(d, s.max_distance, curve);
     return s.volume * atten;
 }
 

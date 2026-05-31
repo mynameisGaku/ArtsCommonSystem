@@ -23,19 +23,29 @@
 //   ・view_radius_chunks=2 は ビューアチャンクを中心に 5x5 (= (2*2+1)^2 = 25 個)。
 //   ・状態遷移: Unloaded → Queued → Loading → Loaded → Unloading → Unloaded。
 //     Tick() で「同時 Loading 数 ≤ max_concurrent_loads」を保ちつつキューを進める。
-//   ・実アセットロード (FAssetBundle / FAssetRegistry 接続) は TODO 化。
-//     スケルトンでは elapsed += dt で simulated load time = 0.5s/chunk として進行。
-//   ・Pillar G の FAssetBundle と二段構え: 1 chunk = 1 FAssetBundle 相当の単位を想定し、
-//     Phase P-2 で FStreamingDirector が FAssetBundle を保有する形に拡張する。
+//   ・実アセットロード: 1 chunk = 1 FAssetBundle。SetAssetRegistry() で app 所有の
+//     FAssetRegistry を差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、
+//     bundle.Progress()/IsLoaded() で実完了を判定、Unloading で bundle.Unload() する。
+//     registry が未設定 (nullptr) のときは simulated load time = 0.5s/chunk の
+//     フォールバックで進行する (ヘッドレステスト / registry を持たない用途向け)。
+//   ・Pillar G の FAssetBundle と二段構え: FStreamingDirector が各チャンクの FAssetBundle
+//     を保有し、チャンクごとのアセット集合 (パス) を SetChunkPathFormat() で決める。
 //   ・非コピー・非ムーブ (内部 TArray 規約 / 単一所有を強制)。
 //   ・全 API noexcept、STL 不使用 (acs::TArray<FChunkInfo> で管理)。
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "container/String.h"
+#include "memory/UniquePtr.h"
 #include "math/Vec.h"
 
+namespace acs { class FAssetRegistry; }
+
 namespace acs::game {
+
+// 前方宣言: FAssetBundle はチャンクごとの実アセットロード単位。
+class FAssetBundle;
 
 // チャンクの 2D 整数座標。FNodeId / FShapeId と異なり generation を持たない
 // (同じ (cx, cy) は常に同じチャンクを指す)。比較は値ベース。
@@ -53,9 +63,10 @@ struct FChunkId {
 // チャンクのライフサイクル状態。
 //   Unloaded:  メモリ不在 (= 内部 m_Chunks に存在しないのと等価)
 //   Queued:    範囲内に入ったが Loading スロット空き待ち
-//   Loading:   実 asset load 進行中 (elapsed が積算される)
+//   Loading:   実 asset load 進行中 (registry 接続時は bundle.BeginLoad 済で完了待ち、
+//              非接続時は elapsed が積算される)
 //   Loaded:    使用可能。範囲外に出るまで保持。
-//   Unloading: 範囲外に出て解放処理中 (Phase P-2 で async unload するための予約状態)
+//   Unloading: 範囲外に出て解放処理中 (bundle.Unload を発行して同フレームで破棄)
 enum class EChunkState : u8 {
     Unloaded  = 0,
     Queued    = 1,
@@ -72,7 +83,9 @@ enum class EChunkState : u8 {
 class FStreamingDirector {
 public:
     FStreamingDirector() noexcept = default;
-    ~FStreamingDirector() noexcept = default;
+    // dtor は .cpp 側で定義する (TUniquePtr<FAssetBundle> の破棄に FAssetBundle の
+    // 完全型が必要なため。ヘッダのみ include する TU で不完全型 delete を避ける)。
+    ~FStreamingDirector() noexcept;
 
     FStreamingDirector(const FStreamingDirector&)            = delete;
     FStreamingDirector& operator=(const FStreamingDirector&) = delete;
@@ -85,6 +98,21 @@ public:
     // 0 以下 / 不正値は既定値にフォールバック。多重呼び出しは値の更新のみ
     // (既存チャンクの再評価は次の Tick() で自動的に行われる)。
     void Init(f32 chunk_size = 100.0f, i32 view_radius_chunks = 2) noexcept;
+
+    // 実アセットロード用の registry を差し込む (app 所有 = FApplication::GetAssets() /
+    // FGame 経由、非所有 raw ptr)。設定すると各チャンクが Loading に入るとき
+    // FAssetBundle::BeginLoad(*registry) を発行し、進捗/完了を bundle から取得する。
+    // nullptr を渡す (= 未設定) と simulated load time フォールバックで動作する。
+    // 既に Loading 中のチャンクには影響しない (次に Loading へ昇格するものから適用)。
+    void            SetAssetRegistry(FAssetRegistry* registry) noexcept { m_Registry = registry; }
+    FAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
+
+    // チャンク (cx, cy) → アセットパスを組み立てる printf 風フォーマットを設定する。
+    // 第 1, 第 2 引数に cx, cy (いずれも i32) が渡される。既定は "chunks/chunk_%d_%d.bundle"。
+    // 内部で FString::AppendFormat に転送するため、必ず "%d" を 2 つこの順で含めること。
+    // fmt が nullptr / 既定どおりで良ければ呼ぶ必要はない。
+    // registry 未設定時はパスは使われない (simulated path のため no-op)。
+    void SetChunkPathFormat(const char* fmt) noexcept;
 
     // ビューア (カメラ) のワールド座標を更新する。
     // 次の Tick() で必要なチャンクの load/unload が再評価される。
@@ -112,7 +140,8 @@ public:
     u32 LoadingCount() const noexcept;
 
     // 指定チャンクを強制的に Unloaded にする (デバッグ / メモリ圧追従用)。
-    // Loading 中でも即座に破棄する (実 asset load の cancel は Phase P-2 で対応)。
+    // Loading 中でも即座に破棄する (bundle.Unload で TRc を drop。FAssetBundle は同期
+    // ロードなので「進行中の async load」は無く、cancel 不要で即時解放できる)。
     // 範囲内にあれば次 Tick() で再び Queued に戻る点に注意。
     void ForceUnload(FChunkId id) noexcept;
 
@@ -121,11 +150,20 @@ public:
 
 private:
     // 1 チャンクの管理情報。
-    // elapsed は Loading 中のみ意味を持つ (Loaded 到達後はリセットされる)。
+    // elapsed は simulated フォールバック時の Loading 中のみ意味を持つ
+    // (registry 接続時は bundle 進捗を見るので未使用、Loaded 到達後はリセットされる)。
+    //
+    // bundle は registry 接続時のみ生成される (MakeUnique で遅延生成し、Unloading で破棄)。
+    // path は bundle が const char* を借用するため FChunkInfo が所有する必要がある
+    // (FAssetBundle::Add は文字列を借用するだけ = bundle より長寿命であること)。
+    // FString / TUniquePtr メンバを持つため FChunkInfo はムーブのみ可 (コピー不可)。
+    // → TArray の swap-erase / Grow は Move 経路を使うこと (RemoveAtSwap / Move 代入)。
     struct FChunkInfo {
-        FChunkId    id      {};
-        EChunkState state   = EChunkState::Unloaded;
-        f32        elapsed = 0.0f;
+        FChunkId               id      {};
+        EChunkState            state   = EChunkState::Unloaded;
+        f32                   elapsed = 0.0f;
+        FString                path;    // "chunks/chunk_<cx>_<cy>.bundle" 等 (bundle が借用)
+        TUniquePtr<FAssetBundle> bundle; // registry 接続時のみ生成 (非接続時は null)
     };
 
     // 同名 (cx, cy) のチャンクを検索。無ければ nullptr。
@@ -142,15 +180,29 @@ private:
     void EnqueueInRange() noexcept;
 
     // Queued → Loading への昇格 (max_concurrent_loads を遵守)。
+    // registry 接続時は bundle を生成して BeginLoad、非接続時は elapsed をリセットする。
     void PromoteQueuedToLoading() noexcept;
 
-    // simulated load time = 0.5s/chunk。Phase P-2 で FAssetBundle::Progress() と置換予定。
+    // チャンク (cx, cy) の bundle を生成し、SetChunkPathFormat のパスを Add → BeginLoad。
+    // registry が null のときは何もしない (simulated 経路で進行)。
+    void BeginChunkLoad(FChunkInfo& c) noexcept;
+
+    // registry 未接続時の simulated load time = 0.5s/chunk (フォールバック)。
     static constexpr f32 kSimulatedLoadSeconds = 0.5f;
+
+    // SetChunkPathFormat 未設定時の既定パスフォーマット (cx, cy = i32)。
+    static constexpr const char* kDefaultChunkPathFormat = "chunks/chunk_%d_%d.bundle";
 
     // 設定値。Init 未呼出時のフォールバック既定。
     f32 m_ChunkSize           = 100.0f;
     i32 m_ViewRadius          = 2;
     u32 m_MaxConcurrentLoads = 4;
+
+    // 実アセットロード接続先 (非所有)。null なら simulated フォールバック。
+    FAssetRegistry* m_Registry = nullptr;
+
+    // チャンクパス組み立てフォーマット (空なら kDefaultChunkPathFormat を使用)。
+    FString m_ChunkPathFormat;
 
     FVec2 m_ViewerPos = {0.0f, 0.0f};
 

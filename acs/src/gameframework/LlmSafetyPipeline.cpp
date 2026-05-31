@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — FLlmSafetyPipeline 実装 (stub)
+// GameFramework Pillar U Phase 2 — FLlmSafetyPipeline 実装
 //
-// 本ファイルは Phase 2 の **スケルトン** 実装。実 ML 分類器 / regex は将来差し込み。
-// 現段階で機能するもの:
+// 各ルールの実装状況:
 //   ・InputValidation: 空 / 長すぎる入力 (> 8KB) を Refused
 //   ・JailbreakDetection: 既知の prompt injection 典型句 (大小文字非感受) を Refused
 //   ・TokenBudget: byte_len/4 概算でトークン超過を BudgetExceeded
-//   ・PiiRedaction: TODO (Phase 2 で実装、現状は no-op で Pass)
-//   ・EContentRating: TODO (Phase 2 で実装、現状は no-op で Pass)
-//   ・RefusalEnforcement: TODO (Phase 2 で実装、現状は no-op で Pass)
+//   ・PiiRedaction: 手書き char スキャナでメール / 電話 / クレカ番号を [REDACTED]
+//                  に置換 → Filtered (`<regex>` 不使用、RedactPii 参照)
+//   ・RefusalEnforcement: キャラ逸脱 / メタ発言キーワード一致で Refused
+//   ・EContentRating: 暴力 / 性的 / 自傷 / ヘイトの 4 軸スコアは **ML 分類器を
+//                    要する seam** として意図的に no-op (FMlRuntime と同様に
+//                    classifier 注入で有効化する設計。文字列一致は誤検出が多い)
 //
 // 文字列バッファ:
 //   `SafetyResult::filtered_text` が指すのは関数内 thread_local バッファ。
@@ -56,6 +58,32 @@ u32 EstimateTokens(u32 byte_len) noexcept {
     return (byte_len + 3u) / 4u;
 }
 
+// ---- 文字クラス判定 (ASCII、`<ctype.h>` 不使用) ------------------------------
+bool IsDigit(char c) noexcept {
+    return c >= '0' && c <= '9';
+}
+
+bool IsAlpha(char c) noexcept {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+// メール local-part / domain-part に許される文字 (簡易: RFC を厳密に追わない)。
+// 検出目的なので「現実のアドレスを取りこぼさない」最小集合に絞る。
+bool IsEmailLocalChar(char c) noexcept {
+    return IsAlpha(c) || IsDigit(c)
+        || c == '.' || c == '_' || c == '%' || c == '+' || c == '-';
+}
+
+bool IsEmailDomainChar(char c) noexcept {
+    return IsAlpha(c) || IsDigit(c) || c == '.' || c == '-';
+}
+
+// 電話 / クレカの「数字グルーピング区切り」とみなす文字。
+// 数字の連なりを跨いで連続桁数を数えるために許容する。
+bool IsPhoneSeparator(char c) noexcept {
+    return c == ' ' || c == '-' || c == '.' || c == '(' || c == ')' || c == '+';
+}
+
 // ---- jailbreak 典型句リスト (Phase 1) ----------------------------------------
 // 実運用では prompt injection corpus + 分類器に置き換える。本リストは
 // 「最低限の防御線」として有名な英語句のみを並べる。日本語版 / 多言語拡張は
@@ -76,8 +104,34 @@ constexpr const char* kJailbreakPatterns[] = {
 constexpr u32 kJailbreakPatternCount =
     sizeof(kJailbreakPatterns) / sizeof(kJailbreakPatterns[0]);
 
+// ---- RefusalEnforcement キーワードリスト -------------------------------------
+// LLM 応答が「キャラ設定を破って素のアシスタントに戻った」「禁止トピックに
+// 踏み込んだ」典型句を弾く防御線。jailbreak リスト (入力側) と異なり、こちらは
+// **出力側でモデルがメタ発言・規約逸脱した兆候** を拾う。
+//   ・"as an ai language model" 等 = キャラを脱いで素のアシスタントに戻った合図
+//   ・"ignore previous instructions" 等 = 応答内に注入文がエコーされた / 自己注入
+//   ・"system prompt" / "jailbreak" = 内部情報の漏洩兆候
+// 実運用では分類器 + キャラ anchor との semantic 距離で補強するが、文字列一致
+// だけでも「明確な逸脱」は確実に捕まえられる。
+constexpr const char* kRefusalKeywords[] = {
+    "as an ai language model",
+    "as an ai assistant",
+    "i am an ai",
+    "i'm an ai",
+    "i cannot fulfill",
+    "i can't fulfill",
+    "ignore previous instructions",
+    "my system prompt",
+    "the system prompt",
+    "jailbreak",
+    "developer mode",
+};
+
+constexpr u32 kRefusalKeywordCount =
+    sizeof(kRefusalKeywords) / sizeof(kRefusalKeywords[0]);
+
 // ---- 文字列バッファ (filtered_text 用) ---------------------------------------
-// Phase 1 では PiiRedaction / Filter 処理が空なので入力をそのまま返す。
+// 素通し時は入力をそのままコピー、PII 検出時は [REDACTED] 置換後の文字列を保持。
 // 入力ポインタの寿命を呼び出し側が保証できない可能性に備えて thread_local
 // バッファにコピーして返す。サイズは入力上限と同じ 8KB。
 //
@@ -95,6 +149,165 @@ const char* StoreFiltered(const char* src, u32 len) noexcept {
     for (u32 i = 0; i < copy_n; ++i) buf[i] = src[i];
     buf[copy_n] = '\0';
     return buf;
+}
+
+// ---- PII 検出 ----------------------------------------------------------------
+// 置換トークン。検出した PII スパンを丸ごとこの文字列で上書きする。
+constexpr char kRedactToken[]   = "[REDACTED]";
+constexpr u32  kRedactTokenLen  = sizeof(kRedactToken) - 1u;  // '\0' を除く
+
+// テキスト位置 i から始まるメールアドレス様トークンを検出する。
+// 規則: local-part (1+ 文字) → '@' → domain-part に '.' が 1 つ以上含まれ、
+//       かつ '@' の後の domain が英数字で始まる。マッチしたら全長を返す
+//       (= スパン byte 数)、しなければ 0。`<regex>` 不使用の手書きスキャナ。
+//
+// 注意: local-part の先頭文字は呼び出し側で「直前が単語境界」を保証済み前提
+//       (= 数字/メール文字が連続する途中から呼ばれない)。
+u32 MatchEmail(const char* text, u32 len, u32 i) noexcept {
+    u32 p = i;
+    // local-part: 1 文字以上のメール許容文字。'@' 直前なので '.' で終わってもよい
+    // (検出が目的、厳密 RFC 検証はしない)。
+    u32 local_begin = p;
+    while (p < len && IsEmailLocalChar(text[p])) ++p;
+    if (p == local_begin) return 0;   // local-part 無し
+    if (p >= len || text[p] != '@') return 0;
+    ++p;                              // '@' を消費
+    // domain: 英数字で始まること
+    if (p >= len || !(IsAlpha(text[p]) || IsDigit(text[p]))) return 0;
+    u32 domain_begin = p;
+    bool has_dot = false;
+    while (p < len && IsEmailDomainChar(text[p])) {
+        if (text[p] == '.') has_dot = true;
+        ++p;
+    }
+    // 末尾の '.' / '-' は TLD として不正なので削る (例: "a@b.com." → "a@b.com")
+    while (p > domain_begin && (text[p - 1] == '.' || text[p - 1] == '-')) --p;
+    if (!has_dot) return 0;           // domain に '.' が無ければメールとみなさない
+    // '.' を削った結果 domain が消えた / TLD 部が空ならメールでない
+    if (p <= domain_begin) return 0;
+    return p - i;
+}
+
+// テキスト位置 i から始まる「数字グループ run」を走査し、含まれる数字の総数 (=
+// digit_count) と run の byte 長 (= span) を求める。区切り (空白/ダッシュ/括弧/
+// '+'/'.') を数字に挟む形を 1 つの run とみなす。電話番号・クレカ番号の共通土台。
+//
+// `out_digit_count` に純粋な数字桁数、戻り値に run 全体の byte 数を返す。
+// 先頭が数字でなければ 0 を返す。末尾の区切りは run に含めない (trim)。
+u32 ScanDigitRun(const char* text, u32 len, u32 i, u32* out_digit_count) noexcept {
+    *out_digit_count = 0;
+    if (i >= len || !IsDigit(text[i])) return 0;
+    u32 p          = i;
+    u32 digits     = 0;
+    u32 last_digit = i;   // 最後に数字を見た位置 +1 (末尾区切りの trim 用)
+    while (p < len) {
+        if (IsDigit(text[p])) {
+            ++digits;
+            ++p;
+            last_digit = p;
+        } else if (IsPhoneSeparator(text[p])) {
+            // 区切りは継続。ただし区切りの次が数字でなければ run はここまで。
+            if (p + 1 < len && IsDigit(text[p + 1])) {
+                ++p;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    *out_digit_count = digits;
+    return last_digit - i;   // 末尾区切りを除いたスパン
+}
+
+// run (= 数字 + 区切りの並び) がメールアドレス内かどうかは呼び出し側でメール
+// 検出を優先することで回避する。ここでは「単語境界から始まる数字 run」のみ扱う。
+//
+// 入力位置 i の直前が「数字 / メール文字 / '@'」でないこと = 単語境界。
+bool IsWordBoundaryBefore(const char* text, u32 i) noexcept {
+    if (i == 0) return true;
+    char prev = text[i - 1];
+    if (IsDigit(prev) || IsAlpha(prev)) return false;
+    if (prev == '@' || prev == '_' || prev == '%' || prev == '+') return false;
+    // 区切り (空白/ダッシュ/括弧/'.') は run の一部なので、その手前から
+    // run を取りこぼさないよう「直前が数字でなければ境界」とみなす。
+    return true;
+}
+
+// [REDACTED] トークンを out[*w] に書き込む。容量不足なら *out_truncated を立てて
+// false を返す (= 呼び出し側は走査を打ち切る)。書けたら *w を進めて true。
+bool EmitRedactToken(char* out, u32 out_cap, u32* w, bool* out_truncated) noexcept {
+    if (*w + kRedactTokenLen >= out_cap) {
+        *out_truncated = true;
+        return false;
+    }
+    for (u32 k = 0; k < kRedactTokenLen; ++k) out[(*w)++] = kRedactToken[k];
+    return true;
+}
+
+// PII (メール / 電話 / クレカ) を検出して [REDACTED] に置換し、結果を thread_local
+// バッファに書く。1 件以上置換したら true (= Filtered)、無置換なら false (= Pass)。
+//
+// 走査ポリシー (左から 1 パス、貪欲):
+//   1. 各位置でまずメールを試す (メールは '@' を含むので数字 run より優先)。
+//   2. メールでなければ、単語境界かつ数字始まりなら数字 run を測る。
+//        ・桁数 13〜16        → クレカ様      → 置換
+//        ・桁数 10 以上       → 電話様        → 置換
+//        ・それ未満           → 無視 (誤検出を避ける)
+//      (13〜16 はクレカ、それ以外の 10+ は電話。両者とも [REDACTED] で同じ扱い。)
+//   3. どれにもマッチしなければ 1 文字コピーして次へ。
+// バッファ溢れ時は途中で打ち切り ('\0' 終端は保証)。
+bool RedactPii(const char* src, u32 len, char* out, u32 out_cap, bool* out_truncated) noexcept {
+    *out_truncated = false;
+    bool redacted = false;
+    u32  w        = 0;   // 書き込み位置
+
+    u32 i = 0;
+    while (i < len) {
+        // --- 1. メール検出 (単語境界からのみ) ---
+        if (IsWordBoundaryBefore(src, i) && IsEmailLocalChar(src[i])) {
+            u32 email_span = MatchEmail(src, len, i);
+            if (email_span > 0) {
+                if (!EmitRedactToken(out, out_cap, &w, out_truncated)) break;
+                redacted = true;
+                i += email_span;
+                continue;
+            }
+        }
+
+        // --- 2. 電話 / クレカ検出 (単語境界からの数字 run) ---
+        if (IsDigit(src[i]) && IsWordBoundaryBefore(src, i)) {
+            u32 digit_count = 0;
+            u32 span        = ScanDigitRun(src, len, i, &digit_count);
+            // クレカ (13〜16 桁) または電話 (10 桁以上) を PII とみなす。
+            if (span > 0 && digit_count >= 10) {
+                if (!EmitRedactToken(out, out_cap, &w, out_truncated)) break;
+                redacted = true;
+                i += span;
+                continue;
+            }
+        }
+
+        // --- 3. 通常文字 ---
+        if (w + 1 >= out_cap) { *out_truncated = true; break; }
+        out[w++] = src[i++];
+    }
+
+    out[w < out_cap ? w : out_cap - 1u] = '\0';
+    return redacted;
+}
+
+// PII 置換結果を thread_local バッファに書いて返すラッパ。
+// 戻り値: 1 件以上置換したか (= Filtered にすべきか)。
+bool StoreRedacted(const char* src, u32 len, const char** out_ptr) noexcept {
+    static thread_local char buf[kFilteredBufSize];
+    bool truncated = false;
+    bool redacted  = RedactPii(src, len, buf, kFilteredBufSize, &truncated);
+    if (truncated) {
+        ACS_LOG_WARN("FLlmSafetyPipeline: redaction buffer truncated (len=%u)", len);
+    }
+    *out_ptr = buf;
+    return redacted;
 }
 
 // 入力上限 byte 数 (= filtered バッファサイズ - 1)。これ以上は Refused 扱い。
@@ -173,7 +386,7 @@ SafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
         return r;
     }
 
-    // ---- JailbreakDetection: 既知の典型句 (Phase 1 stub) -------------------
+    // ---- JailbreakDetection: 既知の典型句を大小文字非感受で照合 -----------
     if (SafetyHas(m_Rules, ESafetyRule::JailbreakDetection)) {
         for (u32 i = 0; i < kJailbreakPatternCount; ++i) {
             if (ContainsCaseInsensitive(user_text, kJailbreakPatterns[i])) {
@@ -217,26 +430,58 @@ SafetyResult FLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept
         return r;
     }
 
-    // ---- PiiRedaction (TODO Phase 2): 個人情報を [REDACTED] に置換 ----------
-    // Phase 2 で電話 / メール / 住所 / クレカ番号の各国フォーマット regex を導入。
-    // 現状は no-op で素通し。実装後は r.verdict = Filtered / ++m_FilteredCount。
-    if (SafetyHas(m_Rules, ESafetyRule::PiiRedaction)) {
-        // TODO(phase2): apply PII regex, set verdict = Filtered if redacted
-    }
-
-    // ---- EContentRating (TODO Phase 2): 危険スコア超過チェック --------------
-    // Phase 2 で暴力 / 性的 / 自傷 / ヘイトの 4 軸スコア分類器を導入。
-    // 現状は no-op。
-    if (SafetyHas(m_Rules, ESafetyRule::EContentRating)) {
-        // TODO(phase2): run classifier, set verdict = Refused if any score > threshold
-    }
-
-    // ---- RefusalEnforcement (TODO Phase 2): キャラ逸脱チェック -------------
-    // Phase 2 で `m_CharacterAnchor` と応答の semantic similarity を取って、
-    // 逸脱度が高ければ Refused。Phase 1 は anchor の存在だけ確認して素通し。
+    // ---- RefusalEnforcement: キャラ逸脱 / メタ発言 / 規約逸脱を弾く ----------
+    // モデルが「キャラを脱いで素のアシスタントに戻った」「内部情報を漏らした」
+    // 典型句 (kRefusalKeywords) を文字列一致で検出する。1 つでも当たれば、その
+    // 応答は NPC のセリフとして表示せず Refused にする (= 上位は NPC を黙らせる /
+    // 別セリフに差し替える)。redaction より先に gate するのは、refuse する応答を
+    // わざわざ redact しても無駄だから。
+    //
+    // 設計の seam: 文字列一致は「明確な逸脱」しか捕まえない。曖昧な逸脱
+    // (キャラ性格との semantic 距離) は m_CharacterAnchor を埋め込み比較する
+    // 分類器が必要 = EContentRating と同じく ML レイヤの差し込み口として残す。
     if (SafetyHas(m_Rules, ESafetyRule::RefusalEnforcement)) {
-        // TODO(phase2): check semantic distance from m_CharacterAnchor
-        (void)m_CharacterAnchor;
+        for (u32 i = 0; i < kRefusalKeywordCount; ++i) {
+            if (ContainsCaseInsensitive(llm_response, kRefusalKeywords[i])) {
+                r.verdict        = ESafetyVerdict::Refused;
+                r.refusal_reason = "character anchor violation";
+                ++m_RefusedCount;
+                ACS_LOG_WARN("FLlmSafetyPipeline: refusal keyword matched ('%s')",
+                             kRefusalKeywords[i]);
+                return r;
+            }
+        }
+        (void)m_CharacterAnchor;  // semantic 比較 (ML seam) で将来使用
+    }
+
+    // ---- EContentRating (ML seam): 危険スコア超過チェック -------------------
+    // 暴力 / 性的 / 自傷 / ヘイトの 4 軸スコアは学習済み分類器を要するため、
+    // ここはモデル差し込み口として意図的に no-op で残す (FMlRuntime と同様に、
+    // 別途 classifier を注入して本軸を有効化する設計)。文字列一致で代替すると
+    // 誤検出 (false positive) が多く、ゲーム体験を壊すため敢えて実装しない。
+    if (SafetyHas(m_Rules, ESafetyRule::EContentRating)) {
+        // 分類器未注入のため判定を保留 (= Pass 継続)。注入後は score > threshold で
+        // r.verdict = Refused / ++m_RefusedCount。
+    }
+
+    // ---- PiiRedaction: メール / 電話 / クレカ番号を [REDACTED] に置換 --------
+    // 手書き char スキャナ (RedactPii) で、メール様トークン (@ + dot)、電話様
+    // 10 桁以上の数字 run、クレカ様 13〜16 桁 run を検出し置換する。1 件でも
+    // 置換したら Filtered として置換済みテキストを返す。
+    if (SafetyHas(m_Rules, ESafetyRule::PiiRedaction)) {
+        const char* redacted_ptr = nullptr;
+        const bool  redacted     = StoreRedacted(llm_response, len, &redacted_ptr);
+        if (redacted) {
+            r.verdict       = ESafetyVerdict::Filtered;
+            r.filtered_text = redacted_ptr;
+            ++m_FilteredCount;
+            ACS_LOG_DEBUG("FLlmSafetyPipeline: PII redacted from response");
+            return r;
+        }
+        // 無置換 → Pass。redacted_ptr は入力コピーそのものなので再利用する。
+        r.verdict       = ESafetyVerdict::Pass;
+        r.filtered_text = redacted_ptr;
+        return r;
     }
 
     // ---- Pass: 応答をそのまま返す ------------------------------------------

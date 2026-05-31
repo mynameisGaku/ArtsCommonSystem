@@ -1,22 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FMusicDirector 実装 (Phase 1: bridge スケルトン)
+// GameFramework Pillar H — FMusicDirector 実装
 //
-// state machine + transition / stinger pending 管理を完全実装。
-// 実際の BGM / SFX 再生は FAudioDirector 経由で Phase 2 に接続予定。
+// state machine + transition / stinger pending 管理を完全実装し、
+// SetAudioDirector で結線された実 FAudioDirector へ BGM/SFX を delegate する。
+// 未結線 (m_Audio == nullptr) のときは state-only で動作する (無音、crash しない)。
 #include "gameframework/MusicDirector.h"
+#include "gameframework/AudioDirector.h"
 #include "foundation/Log.h"
 
 namespace acs::game {
-
-namespace {
-// 文字列を内容で比較する (どちらかが nullptr なら false)。FAudioDirector 等と同じ
-// 自前 StrEq pattern (STL 非依存)。
-bool StrEq(const char* a, const char* b) noexcept {
-    if (a == nullptr || b == nullptr) return false;
-    while (*a != '\0' && *a == *b) { ++a; ++b; }
-    return *a == *b;
-}
-} // namespace
 
 // ----------------------------------------------------------------------------
 // helpers
@@ -28,23 +20,20 @@ f32 FMusicDirector::Clamp01(f32 v) noexcept {
     return v;
 }
 
-// 同一 TODO メッセージを毎フレーム吐かないよう、ファイル static の `done` flag
-// で 1 度きりに絞る。FAudioDirector::LogTodoOnce と同方針。
-void FMusicDirector::LogTodoOnce(const char* what) noexcept {
-    static bool s_logged_set_state = false;
-    static bool s_logged_stinger   = false;
-    static bool s_logged_stop      = false;
-    static bool s_logged_tick      = false;
+// 現在 state / intensity に合致する track を選び、結線済みなら実 director の
+// PlayBgm へ流す。未結線なら no-op (state のみ更新済み)。fade_in_sec は state
+// 遷移の長さをそのまま BGM クロスフェードに渡す (即時切替なら 0)。
+void FMusicDirector::RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept {
+    if (m_Audio == nullptr) return;  // state-only 動作 (無音、crash しない)
 
-    bool* slot = nullptr;
-    if      (StrEq(what, "SetState")) slot = &s_logged_set_state;
-    else if (StrEq(what, "Stinger"))  slot = &s_logged_stinger;
-    else if (StrEq(what, "Stop"))     slot = &s_logged_stop;
-    else if (StrEq(what, "Tick"))     slot = &s_logged_tick;
-
-    if (slot != nullptr && *slot) return;
-    if (slot != nullptr) *slot = true;
-    ACS_LOG_INFO("FMusicDirector: %s — Phase 2 で FAudioDirector と接続予定 (現在は state のみ)", what);
+    const usize idx = FindTrackForState(m_TargetState, m_Intensity);
+    if (idx >= m_Tracks.Size()) {
+        // 対象 state に track 未登録 → 鳴らすものが無いので BGM 停止。
+        m_Audio->StopBgm(fade_in_sec);
+        return;
+    }
+    const MusicTrack& t = m_Tracks[idx];
+    m_Audio->PlayBgm(t.asset_path, fade_in_sec, t.loop);
 }
 
 // ----------------------------------------------------------------------------
@@ -144,7 +133,6 @@ void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
         ACS_LOG_WARN("FMusicDirector::SetState: invalid state=%u → ignored", state_idx);
         return;
     }
-    LogTodoOnce("SetState");
 
     // 同一 state 再要求: no-op (現行を継続)。遷移中ならそれも継続。
     if (state == m_TargetState && !IsTransitioning()) {
@@ -158,6 +146,8 @@ void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
         m_TransitionDuration  = 0.0f;
         m_TransitionElapsed   = 0.0f;
         m_TransitionProgress  = 1.0f;
+        // 結線済みなら新 state の track を即時 BGM 再生 (fade=0)。
+        RouteCurrentTrackToAudio(0.0f);
         return;
     }
 
@@ -168,6 +158,10 @@ void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     m_TransitionDuration  = transition_sec;
     m_TransitionElapsed   = 0.0f;
     m_TransitionProgress  = 0.0f;
+    // 結線済みなら新 target の track を同じ fade 長で BGM クロスフェード開始。
+    // (FAudioDirector 側が実際のゲイン補間を行うため、本層 Tick での progress
+    //  進行とは独立に低レイヤで滑らかに遷移する)
+    RouteCurrentTrackToAudio(transition_sec);
 }
 
 bool FMusicDirector::IsTransitioning() const noexcept {
@@ -205,10 +199,16 @@ void FMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
         ACS_LOG_WARN("FMusicDirector::PlayStinger: pending stinger overwritten (%s → %s)",
                      m_StingerPath, asset_path);
     }
-    LogTodoOnce("Stinger");
+    // pending 情報は ConsumeStinger 用に常に保持 (結線有無に依らず)。
     m_StingerPath    = asset_path;
     m_StingerVolume  = volume;
     m_StingerPending = true;
+
+    // 結線済みなら BGM を停めずに一発 SFX として即時重ね再生する。
+    // (PlaySfx は混ぜて並列発火 = BGM クロスフェードに干渉しない)
+    if (m_Audio != nullptr) {
+        m_Audio->PlaySfx(asset_path, volume);
+    }
 }
 
 const char* FMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
@@ -230,7 +230,11 @@ const char* FMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
 
 void FMusicDirector::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
-    LogTodoOnce("Tick");
+
+    // 実 BGM/SFX のゲイン補間・クロスフェード進行は FAudioDirector 側で行われる。
+    // 本層は state machine (current↔target の遷移進捗) のみを進める。
+    // FAudioDirector::Tick は所有者 (FGame / app) が直接呼ぶ規約のため、ここから
+    // 二重に forward はしない (timer の二重進行を避ける)。
 
     // クロスフェード進行。current == target なら何もしない (定常状態)。
     if (m_CurrentState != m_TargetState) {
@@ -259,7 +263,6 @@ void FMusicDirector::Tick(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 
 void FMusicDirector::Stop() noexcept {
-    LogTodoOnce("Stop");
     m_CurrentState        = EMusicState::Silent;
     m_TargetState         = EMusicState::Silent;
     m_TransitionDuration  = 0.0f;
@@ -270,6 +273,11 @@ void FMusicDirector::Stop() noexcept {
     m_StingerPath    = nullptr;
     m_StingerVolume  = 0.0f;
     // intensity は保持 (next state 開始時の体験を断絶させない)。
+
+    // 結線済みなら実 BGM も即時停止 (fade=0、一律停止のため)。
+    if (m_Audio != nullptr) {
+        m_Audio->StopBgm(0.0f);
+    }
 }
 
 // ----------------------------------------------------------------------------

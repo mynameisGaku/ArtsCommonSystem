@@ -17,11 +17,18 @@
 //        コンポーネントスキーマが入ってから本実装する。
 //
 // 設計メモ:
-//   ・wire format: SnapshotHeader (24B) + payload。payload の各 entity は
+//   ・wire format (frame): [magic 'ACSN'][version][SnapshotHeader(24B)]
+//     [payload][crc32]。payload の各 entity は
 //     [entity_id u32][component_mask u32][data_size u32][data]。
+//   ・直列化の実体は EncodeSnapshot / DecodeSnapshot (static 純粋関数)。
+//     CommitSnapshot は EncodeSnapshot の結果を transport.Send し、Tick は
+//     transport.Receive した bytes を DecodeSnapshot で検証してから ring
+//     buffer に積む。transport (socket) seam は INetTransport のまま外部差替で、
+//     encode/decode は seam に依存しない real な byte serialization になっている。
 //   ・LE 固定。MemCopy 経由で strict-aliasing 安全。
-//   ・delta compression は v1 では未実装。Phase 3 で前 snapshot との差分を
-//     計算する hook ポイントを CommitSnapshot 内 TODO で残してある。
+//   ・CRC32 は Zlib / PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF)。
+//     FSaveArchive.cpp / FLockstep.cpp と同一の file-local ComputeCrc32 を持つ
+//     (gameframework は assetpack を依存に持たないため link 単位を独立させる)。
 //   ・全 noexcept。エラーは内部で握り潰す (transport.Send 失敗は packet
 //     loss と等価扱い)。INetTransport API は TResult<T> だが、上位の
 //     CommitSnapshot/Tick は void で「ベストエフォート」配信を表現する。
@@ -47,8 +54,61 @@ inline void WriteU64LE(u8* dst, u64 v) noexcept { MemCopy(dst, &v, sizeof(u64));
 inline u32  ReadU32LE (const u8* src) noexcept { u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v; }
 inline u64  ReadU64LE (const u8* src) noexcept { u64 v = 0; MemCopy(&v, src, sizeof(u64)); return v; }
 
+// -----------------------------------------------------------------------------
+// frame wire format 定数
+// -----------------------------------------------------------------------------
+// frame = [magic 'ACSN'(4)][version(4)][SnapshotHeader(24)][payload][crc32(4)]。
+// magic + version は FLockstep の 'ACSL' / version レイアウトと同思想で、
+// 異なる wire stream の混入 / 非互換バージョンを受信時に弾く。
+constexpr u8  kFrameMagic[4]   = { 'A', 'C', 'S', 'N' };  // 'ACSN' (Net Snapshot)
+constexpr u32 kFrameVersion    = 1u;
+constexpr u32 kMagicSize       = 4u;
+constexpr u32 kVersionSize     = 4u;
+
 // SnapshotHeader を 24 byte の LE wire format に書く / 読む。
 constexpr u32 kHeaderWireSize = 24;
+
+// frame 内オフセット。
+constexpr u32 kVersionOffset = kMagicSize;                          // 4
+constexpr u32 kHeaderOffset  = kMagicSize + kVersionSize;           // 8
+constexpr u32 kPayloadOffset = kHeaderOffset + kHeaderWireSize;     // 32
+constexpr u32 kCrcFooterSize = 4u;
+
+// magic / version / header / payload を除いた固定オーバーヘッド。
+//   = magic(4) + version(4) + header(24) + crc32(4) = 36 byte。
+constexpr u32 kFrameFixedOverhead =
+    kMagicSize + kVersionSize + kHeaderWireSize + kCrcFooterSize;
+
+// ---- CRC32 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) ----------------------
+// FSaveArchive / FLockstep と同一実装 (gameframework は assetpack を依存に
+// 持たないため link 単位を独立させる)。Meyer's singleton で thread-safe な
+// lookup table 初期化を行う。
+const u32* GetCrc32Table() noexcept {
+    static u32 m_Table[256] = {};
+    static bool m_Initialized = false;
+    if (!m_Initialized) {
+        for (u32 i = 0; i < 256; ++i) {
+            u32 c = i;
+            for (u32 k = 0; k < 8; ++k) {
+                c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+            }
+            m_Table[i] = c;
+        }
+        m_Initialized = true;
+    }
+    return m_Table;
+}
+
+// バイト列の CRC32 を計算する (Zlib / PNG 規約)。
+u32 ComputeCrc32(const void* data, u64 size) noexcept {
+    const u32* table = GetCrc32Table();
+    const u8*  p     = static_cast<const u8*>(data);
+    u32        crc   = 0xFFFFFFFFu;
+    for (u64 i = 0; i < size; ++i) {
+        crc = table[(crc ^ p[i]) & 0xFFu] ^ (crc >> 8);
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
 
 void WriteHeader(u8* dst, const SnapshotHeader& h) noexcept {
     WriteU32LE(dst + 0,  h.tick);
@@ -107,6 +167,154 @@ TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept 
 INetTransport& GetTransportStub() noexcept {
     static NetTransportStub s_instance;
     return s_instance;
+}
+
+// =============================================================================
+// FNetSnapshot::EncodedSnapshotSize
+// -----------------------------------------------------------------------------
+// 1 frame の総バイト数。payload_size を u64 に広げてから clamp し、32bit
+// 加算オーバーフローを避ける (max_payload_bytes 上限内なら必ず収まる)。
+// =============================================================================
+u32 FNetSnapshot::EncodedSnapshotSize(u32 payload_size) noexcept {
+    const u64 total = static_cast<u64>(kFrameFixedOverhead)
+                    + static_cast<u64>(payload_size);
+    // payload_size は呼出側で max_payload_bytes 以下に制限済み。理論上の
+    // オーバーフローは clamp で防御 (u32 上限を超えたら u32 max を返す)。
+    if (total > 0xFFFFFFFFull) {
+        return 0xFFFFFFFFu;
+    }
+    return static_cast<u32>(total);
+}
+
+// =============================================================================
+// FNetSnapshot::EncodeSnapshot
+// -----------------------------------------------------------------------------
+// header + payload を frame wire layout で out_buffer に書き出す real な直列化。
+//   [magic 'ACSN'][version][SnapshotHeader(24, crc32=0 で書く)][payload][crc32]
+// CRC32 は magic を除いた [version .. payload 末尾) を対象に計算し、footer に
+// 格納する (FLockstep が frames 部に CRC を付けるのと同思想)。
+// =============================================================================
+TResult<void> FNetSnapshot::EncodeSnapshot(const SnapshotHeader& header,
+                                          const u8* payload, u32 payload_size,
+                                          u8* out_buffer, u32 out_capacity,
+                                          u32& out_written) noexcept {
+    out_written = 0;
+    if (out_buffer == nullptr) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_NullBuffer,
+                       "FNetSnapshot::EncodeSnapshot: out_buffer is null");
+    }
+    // payload == nullptr は payload_size == 0 のときのみ許容。
+    if (payload == nullptr && payload_size != 0) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
+                       "FNetSnapshot::EncodeSnapshot: payload is null but size != 0");
+    }
+    // header.payload_size と引数 payload_size の不一致は wire 不整合の元なので拒否。
+    if (header.payload_size != payload_size) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
+                       "FNetSnapshot::EncodeSnapshot: header.payload_size != payload_size");
+    }
+
+    const u32 required = EncodedSnapshotSize(payload_size);
+    if (out_capacity < required) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BufferTooSmall,
+                       "FNetSnapshot::EncodeSnapshot: out_buffer too small for frame");
+    }
+
+    // ---- magic (4) + version (4) ----------------------------------------
+    MemCopy(out_buffer, kFrameMagic, sizeof(kFrameMagic));
+    WriteU32LE(out_buffer + kVersionOffset, kFrameVersion);
+
+    // ---- SnapshotHeader (24, crc32 フィールドは 0 で書き出す) -------------
+    // crc32 は frame footer に置くため、CRC 計算対象に含まれる header 内
+    // フィールドは 0 として扱う (= 自己参照を避ける)。
+    SnapshotHeader hdr = header;
+    hdr.crc32 = 0;
+    WriteHeader(out_buffer + kHeaderOffset, hdr);
+
+    // ---- payload --------------------------------------------------------
+    if (payload_size > 0) {
+        MemCopy(out_buffer + kPayloadOffset, payload, payload_size);
+    }
+
+    // ---- crc32 footer ---------------------------------------------------
+    // 対象 = [version .. payload 末尾) = magic を除いた本体。
+    const u32 crc_region_size = kVersionSize + kHeaderWireSize + payload_size;
+    const u32 crc = ComputeCrc32(out_buffer + kVersionOffset, crc_region_size);
+    WriteU32LE(out_buffer + kPayloadOffset + payload_size, crc);
+
+    out_written = required;
+    return Ok();
+}
+
+// =============================================================================
+// FNetSnapshot::DecodeSnapshot
+// -----------------------------------------------------------------------------
+// frame bytes を検証 + 復元する real な逆直列化。magic / version / size /
+// CRC32 を順に検証し、不正なら対応する Err を返す。成功時は out_header に
+// SnapshotHeader (footer の crc32 を復元含む) を、out_payload に payload を
+// 置換コピーする。
+// =============================================================================
+TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size,
+                                          SnapshotHeader& out_header,
+                                          TArray<u8>& out_payload) noexcept {
+    if (buffer == nullptr) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_NullBuffer,
+                       "FNetSnapshot::DecodeSnapshot: buffer is null");
+    }
+    // ---- 最小サイズ (固定オーバーヘッド = payload 0 のケース) ------------
+    if (size < kFrameFixedOverhead) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadSize,
+                       "FNetSnapshot::DecodeSnapshot: buffer smaller than frame overhead");
+    }
+    // ---- magic 検証 ------------------------------------------------------
+    if (MemCmp(buffer, kFrameMagic, sizeof(kFrameMagic)) != 0) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadMagic,
+                       "FNetSnapshot::DecodeSnapshot: magic mismatch (not an ACSN frame)");
+    }
+    // ---- version 検証 ----------------------------------------------------
+    const u32 version = ReadU32LE(buffer + kVersionOffset);
+    if (version != kFrameVersion) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadVersion,
+                       "FNetSnapshot::DecodeSnapshot: unsupported frame version");
+    }
+
+    // ---- header 読み出し + payload_size とサイズの整合 -------------------
+    SnapshotHeader hdr{};
+    ReadHeader(buffer + kHeaderOffset, hdr);
+
+    // payload_size + 固定オーバーヘッドが size と完全一致することを要求する。
+    // u64 で計算して 32bit 加算オーバーフローを避ける。
+    const u64 expected64 = static_cast<u64>(kFrameFixedOverhead)
+                         + static_cast<u64>(hdr.payload_size);
+    if (expected64 != static_cast<u64>(size)) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadSize,
+                       "FNetSnapshot::DecodeSnapshot: payload_size inconsistent with buffer size");
+    }
+
+    // ---- crc32 検証 ------------------------------------------------------
+    // 対象 = [version .. payload 末尾)。header 内 crc32 フィールドは encode 時に
+    // 0 だったので、ここでも自然に 0 が CRC 計算へ寄与する。
+    const u32 crc_region_size = kVersionSize + kHeaderWireSize + hdr.payload_size;
+    const u32 actual_crc = ComputeCrc32(buffer + kVersionOffset, crc_region_size);
+    const u32 stored_crc = ReadU32LE(buffer + kPayloadOffset + hdr.payload_size);
+    if (actual_crc != stored_crc) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadCrc,
+                       "FNetSnapshot::DecodeSnapshot: CRC32 mismatch (corrupt or tampered)");
+    }
+
+    // ---- payload を復元 (置換) ------------------------------------------
+    out_payload.Clear();
+    out_payload.Resize(static_cast<usize>(hdr.payload_size));
+    if (hdr.payload_size > 0) {
+        MemCopy(out_payload.Data(),
+                buffer + kPayloadOffset,
+                static_cast<usize>(hdr.payload_size));
+    }
+
+    // footer の CRC を header に復元して返す (呼出側が保持できるように)。
+    hdr.crc32  = stored_crc;
+    out_header = hdr;
+    return Ok();
 }
 
 // =============================================================================
@@ -205,20 +413,18 @@ void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
 // FNetSnapshot::CommitSnapshot
 // -----------------------------------------------------------------------------
 // pending list を 1 つの payload に concat し、SnapshotHeader を付けて
+// EncodeSnapshot で frame bytes (magic+version+header+payload+crc32) を構築し、
 // transport.Send する。
 //
 // 失敗ケース (黙ってスキップ):
 //   ・Client / Standalone 役割: 送信側ではないので no-op。
 //   ・transport == nullptr: Standalone fallback で起きうる。
 //   ・payload > max_payload_bytes: 設定上限超過。
+//   ・EncodeSnapshot が Err: 内部 buffer 確保失敗等 (ベストエフォートで skip)。
 //   ・transport.Send が Err 返却: packet loss と等価扱い (ベストエフォート)。
 //
 // pending list は呼出後にクリアされる (成否によらず)。これにより次 tick の
 // AddEntitySnapshot は前 tick の残骸を引きずらない。
-//
-// TODO (Phase 3): delta compression — 前 snapshot との XOR 差分を取って
-// payload を縮める。`m_RingBuffer.Back().payload` を参照して entity 単位で
-// XOR を取り、変更ビットだけ送る形に書き換える。
 // =============================================================================
 void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // 役割チェック。Client / Standalone は no-op。
@@ -240,34 +446,15 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
                       + static_cast<usize>(m_PendingEntities[i].data.Size());
     }
     if (payload_size > static_cast<usize>(m_Config.max_payload_bytes)) {
-        // 上限超過。Phase 3 で interest management / 分割送信を入れる候補。
+        // 上限超過。interest management / 分割送信は本クラスの範囲外なので skip。
         m_PendingEntities.Clear();
         return;
     }
 
-    // wire bytes = header + payload を 1 本にまとめる (Send 1 回で送信)。
-    const usize total = static_cast<usize>(kHeaderWireSize) + payload_size;
-
-    // header を構築。CRC32 は Phase 3 で計算 (現状 0)。
-    SnapshotHeader hdr;
-    hdr.tick                = tick;
-    hdr.sequence            = m_NextSequence;
-    hdr.server_timestamp_us = 0;  // タイムスタンプ source は Phase 3 で wire 化
-    hdr.payload_size        = static_cast<u32>(payload_size);
-    hdr.crc32               = 0;
-
-    // 送信用 buffer (= ring buffer に保存される表現と同じバイト列の payload 側)。
-    // ring buffer には header と payload を分けて保持し、送信時は temp buffer に
-    // concat する流れにする。Phase 3 で zero-copy gather IO に置換余地あり。
-    TArray<u8> wire_buf;
-    wire_buf.Resize(total);
-    u8* p = wire_buf.Data();
-
-    // [0..24) = header
-    WriteHeader(p, hdr);
-    u8* payload_ptr = p + kHeaderWireSize;
-
-    // payload を per-entity layout で書き出す。
+    // payload を per-entity layout で 1 本に concat する。
+    TArray<u8> payload_buf;
+    payload_buf.Resize(payload_size);
+    u8* payload_ptr = payload_buf.Data();
     usize off = 0;
     for (usize i = 0; i < n_ent; ++i) {
         const PendingEntity& pe = m_PendingEntities[i];
@@ -281,31 +468,57 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
         off += static_cast<usize>(kEntityHeaderSize) + static_cast<usize>(data_size);
     }
 
+    // header を構築。crc32 は EncodeSnapshot が footer に計算して書き込む。
+    SnapshotHeader hdr;
+    hdr.tick                = tick;
+    hdr.sequence            = m_NextSequence;
+    hdr.server_timestamp_us = 0;  // タイムスタンプ source の wire 化は caller 責務
+    hdr.payload_size        = static_cast<u32>(payload_size);
+    hdr.crc32               = 0;
+
+    // frame bytes = magic+version+header+payload+crc32 を 1 本にまとめる
+    // (Send 1 回で送信)。EncodeSnapshot が real CRC を計算する。
+    TArray<u8> wire_buf;
+    const u32 frame_size = EncodedSnapshotSize(static_cast<u32>(payload_size));
+    wire_buf.Resize(static_cast<usize>(frame_size));
+    u32 written = 0;
+    TResult<void> enc = EncodeSnapshot(hdr, payload_ptr,
+                                       static_cast<u32>(payload_size),
+                                       wire_buf.Data(), frame_size, written);
+    if (enc.IsErr()) {
+        // 直列化に失敗したら send せず skip (ベストエフォート)。
+        m_PendingEntities.Clear();
+        return;
+    }
+
     // 送信 (best-effort)。失敗してもクラッシュさせず、統計だけ更新しない。
-    TResult<void> r = m_Transport->Send(wire_buf.Data(), static_cast<u32>(total));
+    TResult<void> r = m_Transport->Send(wire_buf.Data(), written);
     if (r.IsOk()) {
         ++m_PacketsSent;
-        m_BytesSent += static_cast<u32>(total);
+        m_BytesSent += written;
         ++m_NextSequence;
         if (m_NextSequence == 0) {
             m_NextSequence = 1;  // 0 は invalid 値として予約
         }
 
         // ServerListener は host が自分の画面用に補間も使うため、自分が
-        // commit した snapshot を ring buffer にも積む (loopback)。
+        // commit した snapshot を ring buffer にも積む (loopback)。送信した
+        // frame を DecodeSnapshot で復元することで、受信経路と同じ検証 (CRC 等)
+        // を通した上で ring buffer に積む (= encode/decode の round-trip 検証)。
         if (m_Role == ENetRole::ServerListener) {
             const u32 idx = m_RingHead;
             BufferedSnapshot& slot = m_RingBuffer[static_cast<usize>(idx)];
-            slot.header = hdr;
-            slot.payload.Resize(static_cast<usize>(payload_size));
-            if (payload_size > 0) {
-                MemCopy(slot.payload.Data(), payload_ptr, payload_size);
+            SnapshotHeader decoded{};
+            TResult<void> dec = DecodeSnapshot(wire_buf.Data(), written,
+                                               decoded, slot.payload);
+            if (dec.IsOk()) {
+                slot.header = decoded;
+                m_RingHead = (m_RingHead + 1u) % m_Config.buffer_capacity_snapshots;
+                if (m_RingCount < m_Config.buffer_capacity_snapshots) {
+                    ++m_RingCount;
+                }
+                m_LastReceivedTick = decoded.tick;
             }
-            m_RingHead = (m_RingHead + 1u) % m_Config.buffer_capacity_snapshots;
-            if (m_RingCount < m_Config.buffer_capacity_snapshots) {
-                ++m_RingCount;
-            }
-            m_LastReceivedTick = hdr.tick;
         }
     }
 
@@ -322,10 +535,13 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
 // なるまでループする (PendingBytesIn が 0 で抜ける)。
 //
 // 受信した snapshot の wire format は CommitSnapshot 側と対称:
-//   header (24B) + payload (header.payload_size B)。
+//   magic+version+header(24B)+payload(header.payload_size B)+crc32。
+// 各 frame は DecodeSnapshot で magic / version / size / CRC32 を検証してから
+// ring buffer に積む。検証に失敗した frame (破損 / 改竄 / 非互換) は破棄し、
+// 統計 (PacketsReceived/BytesReceived) にだけ載せる。
 // 受信フレームを 1 度に取り切る前提 (INetTransport の Receive がメッセージ
-// 境界保持の契約)。Phase 3 で TCP framing を入れる場合は、ここで length
-// prefix を見て partial reassembly を実装する。
+// 境界保持の契約)。TCP のような stream transport を使う場合は派生実装側で
+// length-prefixed framing を実装する (INetTransport の契約どおり)。
 // =============================================================================
 void FNetSnapshot::Tick(f32 dt) noexcept {
     (void)dt;
@@ -339,9 +555,8 @@ void FNetSnapshot::Tick(f32 dt) noexcept {
         return;
     }
 
-    // 受信用一時 buffer。max_payload_bytes + header 分。Phase 3 で reuse 用に
-    // メンバ化する候補 (毎 Tick で再 alloc しないように)。
-    const u32 cap = static_cast<u32>(kHeaderWireSize) + m_Config.max_payload_bytes;
+    // 受信用一時 buffer。1 frame 最大長 = 固定オーバーヘッド + max_payload_bytes。
+    const u32 cap = kFrameFixedOverhead + m_Config.max_payload_bytes;
     TArray<u8> rx_buf;
     rx_buf.Resize(static_cast<usize>(cap));
 
@@ -359,40 +574,22 @@ void FNetSnapshot::Tick(f32 dt) noexcept {
             // データなし。受信側 pump 完了。
             break;
         }
-        // header 最低長未満は破棄。
-        if (got < kHeaderWireSize) {
-            ++m_PacketsReceived;  // バイト数だけ統計には載せる
-            m_BytesReceived += got;
-            continue;
-        }
 
-        SnapshotHeader hdr{};
-        ReadHeader(rx_buf.Data(), hdr);
-
-        // payload size sanity check。max を超えるか、got と矛盾するなら破棄。
-        if (hdr.payload_size > m_Config.max_payload_bytes) {
-            ++m_PacketsReceived;
-            m_BytesReceived += got;
-            continue;
-        }
-        const u32 expected = kHeaderWireSize + hdr.payload_size;
-        if (got < expected) {
-            ++m_PacketsReceived;
-            m_BytesReceived += got;
-            continue;
-        }
-        // crc32 検証は Phase 3 で。現状 0 充填なので無条件にパス。
-
-        // ring buffer に挿入。FIFO で最古を上書きする。
+        // ring buffer の挿入先 slot に直接 decode する (payload を slot に複製)。
+        // FIFO で最古を上書きするため、検証成功時にのみ head を進める。
         const u32 idx = m_RingHead;
         BufferedSnapshot& slot = m_RingBuffer[static_cast<usize>(idx)];
-        slot.header = hdr;
-        slot.payload.Resize(static_cast<usize>(hdr.payload_size));
-        if (hdr.payload_size > 0) {
-            MemCopy(slot.payload.Data(),
-                    rx_buf.Data() + kHeaderWireSize,
-                    static_cast<usize>(hdr.payload_size));
+        SnapshotHeader hdr{};
+        TResult<void> dec = DecodeSnapshot(rx_buf.Data(), got, hdr, slot.payload);
+        if (dec.IsErr()) {
+            // magic / version / size / CRC のいずれかで弾かれた frame。破棄して
+            // 統計にだけ載せる (= 破損 / 非互換 / 改竄パケットは ring に積まない)。
+            ++m_PacketsReceived;
+            m_BytesReceived += got;
+            continue;
         }
+
+        slot.header = hdr;
         m_RingHead = (m_RingHead + 1u) % m_Config.buffer_capacity_snapshots;
         if (m_RingCount < m_Config.buffer_capacity_snapshots) {
             ++m_RingCount;

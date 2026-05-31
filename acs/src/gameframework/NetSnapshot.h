@@ -62,17 +62,22 @@
 //     simulation を server として回しつつ自分の画面用に snapshot 補間も使う
 //     ケースに使う (HelloMultiplayer サンプル等)。
 //   ・**SnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
-//     payload_size(4) + crc32(4) = 24 byte。LE 固定。CRC32 は payload に対する
-//     Zlib / PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) を採用予定で、
-//     wire format の改竄 / 破損検知に使う (Phase 3 で送受信時に計算)。
+//     payload_size(4) + crc32(4) = 24 byte。LE 固定。CRC32 は magic 直後 〜
+//     payload 末尾 (= version + SnapshotHeader 本体 + payload) に対する Zlib /
+//     PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) で、wire format の
+//     改竄 / 破損検知に使う。EncodeSnapshot で計算し DecodeSnapshot で検証する。
+//     なお SnapshotHeader::crc32 フィールドは header を CRC 対象に含めるため
+//     計算時に 0 として扱い (= header の他フィールドのみが寄与)、実際の値は
+//     frame 末尾 4 byte の footer に格納される。
 //   ・**EntitySnapshot は非所有 view**: `const void*` + size の pair。Server 側
 //     は AddEntitySnapshot で m_PendingEntities にコピーを積み、CommitSnapshot
 //     で payload に bulk concat する。Client 側は TryGetInterpolatedSnapshot
 //     で ring buffer の中の payload を指す view として返す (寿命は次の Tick
 //     呼び出しまで)。
-//   ・**delta compression は v1 未実装**: 前 snapshot との XOR 差分のみを送る
-//     最適化は Phase 3 の hook ポイントとして「.cpp の CommitSnapshot 内部に
-//     TODO コメント」を残す。v1 は素直に full snapshot を毎回送る。
+//   ・**delta compression は範囲外**: 前 snapshot との XOR 差分のみを送る最適化は
+//     本クラスでは扱わず、full snapshot を毎回 encode/送信する。各 frame は
+//     EncodeSnapshot / DecodeSnapshot で magic+version+payload+crc32 を伴う
+//     real な byte serialization として完結している (round-trip 検証済み)。
 //   ・**ring buffer = TArray<{header, payload}> 固定容量**: snapshot は時系列順
 //     に追加され、capacity を超えたら最古を上書きする FIFO。線形検索でも
 //     buffer_capacity (= 数十) なので O(N) で十分。Phase 3 で per-sequence
@@ -115,18 +120,19 @@ enum class ENetRole : u8 {
 };
 
 // =============================================================================
-// SnapshotHeader — wire format の 1 snapshot 先頭 24 byte
+// SnapshotHeader — wire format の 1 snapshot 内 header 24 byte
 // -----------------------------------------------------------------------------
-// LE 固定。client は受信時に magic 相当のフィルタとして payload_size 上限と
-// crc32 を検証する (Phase 3 で実装)。Phase 2 では構造体定義のみ確定し、
-// CRC は 0 充填 (= 検証スキップ) で送受信する。
+// LE 固定。frame 全体は [magic 'ACSN'(4)][version(4)][SnapshotHeader(24)]
+// [payload(payload_size)][crc32(4)] のレイアウトで、client は受信時に magic /
+// version / payload_size 上限 / crc32 を検証する (EncodeSnapshot で書き、
+// DecodeSnapshot で検証する)。
 // =============================================================================
 struct SnapshotHeader {
     u32 tick               = 0;  // server tick (1 simulation step = 1 tick)
     u32 sequence           = 0;  // 送信側でモノトニック増加 (loss / 重複検知用)
     u64 server_timestamp_us = 0; // server 計測時の Unix microseconds
     u32 payload_size       = 0;  // 後続 payload のバイト数
-    u32 crc32              = 0;  // payload に対する CRC32 (Phase 3 で実装、現状 0)
+    u32 crc32              = 0;  // frame footer に格納される CRC32 (DecodeSnapshot が復元)
 };
 
 // =============================================================================
@@ -215,6 +221,12 @@ struct NetSnapshotError {
         kSub_BadArgument    = 2,  // size == 0 / address == nullptr 等
         kSub_BufferFull     = 3,  // Send: 送信 buffer 満杯 / Receive: out_buffer 不足
         kSub_PayloadTooBig  = 4,  // CommitSnapshot: payload が max_payload_bytes 超
+        kSub_NullBuffer     = 5,  // Encode/DecodeSnapshot: buffer == nullptr
+        kSub_BufferTooSmall = 6,  // EncodeSnapshot: out_buffer が frame 長未満
+        kSub_BadSize        = 7,  // DecodeSnapshot: frame 長がフィールドと矛盾
+        kSub_BadMagic       = 8,  // DecodeSnapshot: magic 不一致 ('ACSN' でない)
+        kSub_BadVersion     = 9,  // DecodeSnapshot: version 不一致
+        kSub_BadCrc         = 10, // DecodeSnapshot: CRC32 mismatch (破損 / 改竄)
         kSub_NotImplemented = 99, // stub: 未実装
     };
 };
@@ -310,6 +322,44 @@ public:
     u32 PacketsReceived() const noexcept { return m_PacketsReceived; }
     u32 BytesSent()       const noexcept { return m_BytesSent;       }
     u32 BytesReceived()   const noexcept { return m_BytesReceived;   }
+
+    // ----- wire codec (transport 非依存・round-trip 可能) -----
+    // EncodeSnapshot / DecodeSnapshot は 1 snapshot を byte buffer に対して
+    // 直列化 / 復元する純粋関数 (static)。transport seam とは独立で、
+    // CommitSnapshot は EncodeSnapshot の結果を Send し、Tick は Receive した
+    // bytes を DecodeSnapshot で検証してから ring buffer に積む。テストや
+    // loopback / record-replay でも再利用できる。
+    //
+    // frame wire layout (すべて little-endian):
+    //   [0)   magic 'ACSN' (4)
+    //   [4)   version       (4)
+    //   [8)   SnapshotHeader (24): tick / sequence / timestamp_us / payload_size / crc32
+    //   [32)  payload        (payload_size): entity record の concat
+    //   [末尾] crc32 footer   (4): magic を除く [4 .. payload 末尾) に対する CRC32
+    //
+    // payload 内 1 entity = [entity_id(4)][component_mask(4)][data_size(4)][data]。
+
+    // 1 frame に必要な総バイト数を返す (header.payload_size をそのまま信頼する)。
+    // = magic(4) + version(4) + header(24) + payload_size + crc32(4)。
+    static u32 EncodedSnapshotSize(u32 payload_size) noexcept;
+
+    // header + payload を wire layout で out_buffer に書き出す。
+    //   ・header.payload_size は payload_size 引数と一致している必要がある
+    //     (不一致なら kSub_BadArgument)。crc32 フィールドは内部で計算・上書きする。
+    //   ・out_capacity が必要量未満なら kSub_BufferTooSmall。
+    //   ・成功時 out_written に書き込みバイト数 (= EncodedSnapshotSize) を返す。
+    static TResult<void> EncodeSnapshot(const SnapshotHeader& header,
+                                        const u8* payload, u32 payload_size,
+                                        u8* out_buffer, u32 out_capacity,
+                                        u32& out_written) noexcept;
+
+    // wire bytes を解釈し、header を復元 + payload を out_payload に複製する。
+    //   ・magic / version / size / CRC32 を検証し、不正なら対応する Err。
+    //   ・out_header.crc32 には footer に格納されていた CRC を復元する。
+    //   ・out_payload は置換セマンティクス (Clear → payload_size 件 Resize)。
+    static TResult<void> DecodeSnapshot(const u8* buffer, u32 size,
+                                        SnapshotHeader& out_header,
+                                        TArray<u8>& out_payload) noexcept;
 
 private:
     // 1 ring buffer エントリ = SnapshotHeader + payload バイト列。

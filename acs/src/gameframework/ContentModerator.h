@@ -164,14 +164,21 @@ public:
 };
 
 // =============================================================================
-// ContentModeratorStub — 依存ゼロのデフォルト実装 (Phase 1)
+// ContentModeratorStub — 依存ゼロのデフォルト実装 (ローカルテキストフィルタ)
 // -----------------------------------------------------------------------------
-// ・text: 内部の小さな NG 単語リスト (kBlockedWords[]) で contain チェック。
+// ・text: 内部の小さな NG 単語リスト (kBlockedWords[]) に対し、
+//     (a) 生文字列の ASCII 大小文字非感受 contain チェック、および
+//     (b) **正規化文字列** (小文字化 + leet 数字/記号置換 + 空白/記号除去) の
+//         contain チェックの 2 経路で照合する。これにより `f u c k` / `f.u.c.k` /
+//         `sh1t` 風の spaced / 記号挿入 / 桁置換変種も同じ辞書エントリで捕捉する。
 //   ヒット時は verdict=Block / rating=Mature が基本。但し `SexualMinor` 関連
 //   keyword (kHardcodedBlockWords[]) にヒットした場合は **必ず**
 //   verdict=Block / rating=SexualMinor_HardcodedBlock を返す (= ハードコード block)。
-// ・image: 全部 Allow (TODO Phase 2 で NSFW 分類器導入)。size==0 / nullptr は BadArgument。
-// ・username: text と同じ辞書を使用。
+// ・image: ローカルに画像分類器が無いため判定不能。**Safe と断定せず**
+//     verdict=Allow / rating=Mature ("ローカル未審査") で通過させる seam。
+//     実 NSFW 分類器 (ローカル ONNX / リモート API) は別モジュールで override する。
+//     size==0 / nullptr は BadArgument。
+// ・username: text と同じ正規化付き辞書照合を使用。
 // ・Tick(dt) / IsAvailable() は no-op (常に true)。
 // =============================================================================
 class ContentModeratorStub final : public IContentModerator {

@@ -16,10 +16,11 @@
 //   ・**bit flag で個別 on/off**: シーン (チュートリアル / 児童向け / 大人向け) ごとに
 //     PII redaction だけ無効化したい等の要望に応えるため、ESvc/FSceneServices と
 //     同じ「mask で機能宣言」スタイルに揃える。
-//   ・**stub 実装**: Phase 1 (本フェーズ) は単純な文字列長 / keyword チェックのみ。
-//     実 jailbreak 検出器・PII regex・コンテンツ分類器は Phase 2 以降で差し込み。
-//     現段階でも「常に refusal を返す閾値」を持っているので、上位層は day-0 から
-//     "Refused" 経路の表示 (例: NPC が黙る / 別セリフを話す) を必ず書ける。
+//   ・**決定論的ルールベース実装**: jailbreak / refusal は keyword 一致、PII は
+//     手書き char スキャナ (`<regex>` 不使用) で実装。常に同じ入力に同じ判定を
+//     返すので上位層は "Refused" / "Filtered" 経路の表示 (例: NPC が黙る / 別
+//     セリフを話す) を確実に書ける。EContentRating の 4 軸スコアだけは学習済み
+//     分類器を要するため、明示的に ML 注入の seam として残してある。
 //   ・**所有しない文字列**: `<string>` 不使用 (ACS 規約)。`SafetyResult::filtered_text`
 //     は呼び出しごとに内部の static thread_local バッファを指す。次回呼び出しで
 //     上書きされるため、呼び出し側は **使い終わるまでに必ずコピー or 消費** すること。
@@ -27,10 +28,13 @@
 //     `FGame::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
 //     コールバックから呼ぶ前提)。FMlRuntime と同じ契約。
 //
-// 範囲外 (Phase 2):
-//   ・実 jailbreak 検出 (BERT 系分類器、prompt injection corpus 照合)
-//   ・PII regex (電話 / メール / 住所 / クレカ番号の各国フォーマット)
-//   ・コンテンツレーティングモデル (暴力 / 性的 / 自傷 / ヘイト の 4 軸スコア)
+// 範囲外 (ML 分類器の差し込み口として残す seam):
+//   ・分類器ベース jailbreak 検出 (BERT 系、prompt injection corpus 照合) —
+//     現状は keyword 一致で代替。corpus が用意でき次第ここを置き換える。
+//   ・住所 PII (各国フォーマットが多様で誤検出が多い) — メール / 電話 / クレカは
+//     本実装で検出済み。住所は分類器側の責務とする。
+//   ・コンテンツレーティングモデル (暴力 / 性的 / 自傷 / ヘイトの 4 軸スコア) —
+//     EContentRating 軸として有効化口だけ用意済み (classifier 注入待ち)。
 //   ・rate limit / per-user quota (FBackendClient と連携で別レイヤ)
 //
 // ACS 規約:
@@ -52,10 +56,10 @@ enum class ESafetyRule : u32 {
     None                = 0,
     InputValidation     = 1u << 0,  // 空文字 / 長すぎる入力を弾く
     JailbreakDetection  = 1u << 1,  // "ignore previous instructions" 等の典型句を弾く
-    PiiRedaction        = 1u << 2,  // 個人情報を `[REDACTED]` に置換 (Phase 2 では stub)
-    EContentRating       = 1u << 3,  // 暴力 / 性的 / 自傷 / ヘイトを弾く (Phase 2 では stub)
+    PiiRedaction        = 1u << 2,  // メール / 電話 / クレカ番号を `[REDACTED]` に置換
+    EContentRating       = 1u << 3,  // 暴力 / 性的 / 自傷 / ヘイトを弾く (ML 分類器 seam)
     TokenBudget         = 1u << 4,  // 入出力トークン上限 (簡易: 1 token ≒ 4 byte)
-    RefusalEnforcement  = 1u << 5,  // キャラ設定逸脱を弾く (Phase 2 では stub)
+    RefusalEnforcement  = 1u << 5,  // キャラ逸脱 / メタ発言キーワードを弾く
 
     Default = InputValidation | JailbreakDetection | PiiRedaction
             | EContentRating   | TokenBudget        | RefusalEnforcement,
@@ -150,10 +154,10 @@ public:
     // - TokenBudget: input_tokens > max_input_tokens → BudgetExceeded
     SafetyResult ValidateInput(const char* user_text) noexcept;
 
-    // LLM 応答を検証 / フィルタ (UI 表示前)。
-    // - PiiRedaction: 個人情報を `[REDACTED]` に置換 → Filtered (Phase 2: stub)
-    // - EContentRating: 危険スコア超過 → Refused (Phase 2: stub)
-    // - RefusalEnforcement: キャラ逸脱 → Refused (Phase 2: stub)
+    // LLM 応答を検証 / フィルタ (UI 表示前)。判定順は Refusal → Rating → PII。
+    // - RefusalEnforcement: キャラ逸脱 / メタ発言キーワード一致 → Refused
+    // - EContentRating: 危険スコア超過 → Refused (ML 分類器 seam、未注入時 no-op)
+    // - PiiRedaction: メール / 電話 / クレカ番号を `[REDACTED]` に置換 → Filtered
     // - TokenBudget: output_tokens > max_output_tokens → BudgetExceeded
     SafetyResult FilterOutput(const char* llm_response) noexcept;
 

@@ -13,13 +13,15 @@
 //   ・SetIntensity(0..1) で「同じ状態内での激しさ」を表現
 //     (Combat 内で 0.2 = 探索的、0.9 = 高激戦、など intensity range で track 分岐)
 //   ・PlayStinger() で「BGM を停めずに重ねる一発もの SFX」(ボス出現 / 達成等)
-//     実演奏は FAudioDirector::PlaySfx に流す想定 (本クラスは pending 情報のみ管理)
+//     実演奏は FAudioDirector::PlaySfx に流す (本クラスは pending 情報も保持)
 //   ・Tick(dt) で transition / stinger timer を進行
 //
-// 設計選択 (Phase 1: bridge スケルトン):
-//   ・**FAudioEngine 直叩きしない**: 実際の再生は FAudioDirector / FAudioEngine に
-//     委ねる前提で、本クラスは「どの track を、どのゲインで鳴らすべきか」を
-//     決める state machine に徹する。Phase 2 で FAudioDirector と結線。
+// 設計選択:
+//   ・**FAudioEngine 直叩きしない**: 実際の再生は FAudioDirector に委ね、本クラスは
+//     「どの track を、どのゲインで鳴らすべきか」を決める state machine に徹する。
+//     SetAudioDirector(FAudioDirector*) で結線すると、SetState → PlayBgm、
+//     PlayStinger → PlaySfx、Stop → StopBgm を実 director へ delegate する。
+//     未結線 (nullptr) のときは従来通り state-only で動作する (無音、crash しない)。
 //   ・**state -> track 配列は SoA で分離**: `m_Tracks` は全 track をフラットに
 //     保持し、`_state_first[state]` + `_state_count[state]` で各 state の
 //     区間を表現。挿入順は state ごとにグループ化される。RegisterTrack で
@@ -39,7 +41,6 @@
 //     Phase 2 で FStringView / Asset Handle に置き換える。
 //
 // 範囲外 (Phase 2+ で):
-//   ・FAudioDirector との実結線 (実 BGM 再生)
 //   ・intensity 変化に追従する中間 track 切替 (state を変えずに track 切替)
 //   ・ビート同期 stinger / 拍頭スナップ
 //   ・横展開: vertical re-mixing (stem 分離 mix), pre-emption 優先度
@@ -49,6 +50,8 @@
 #include "container/Array.h"
 
 namespace acs::game {
+
+class FAudioDirector;  // 実 BGM/SFX 再生を委ねる低レイヤ director (前方宣言、非所有)
 
 // 適応 BGM の状態。値は安定なので save に書ける (将来 enum 追加時は末尾追加のみ、
 // 既存値の意味は不変とする規約)。
@@ -125,6 +128,13 @@ public:
     // pending なしの場合 nullptr を返し、out_volume = 0。
     const char* ConsumeStinger(f32& out_volume) noexcept;
 
+    // ----- 実 backend 接続 -----
+    // 低レイヤ FAudioDirector を差し込む (非所有 raw ptr)。結線後は SetState →
+    // PlayBgm、PlayStinger → PlaySfx、Stop → StopBgm を実 director へ delegate する。
+    // nullptr で切断 (= state-only 動作に戻る)。呼び出し側が director を所有する。
+    void           SetAudioDirector(FAudioDirector* audio) noexcept { m_Audio = audio; }
+    FAudioDirector* GetAudioDirector() const noexcept { return m_Audio; }
+
     // ----- driver -----
     // FSceneServices / FGame から毎フレーム呼ぶ。dt はリアル秒。
     void Tick(f32 dt) noexcept;
@@ -133,7 +143,7 @@ public:
     // 状態を Silent に即時切替、stinger pending を破棄、intensity は保持。
     void Stop() noexcept;
 
-    // ----- 派生情報 (debug / Phase 2 で FAudioDirector に流す予定) -----
+    // ----- 派生情報 (debug / FAudioDirector に流す track 情報) -----
     // 現在 state で intensity に合致する track を返す。該当なし or 未登録なら nullptr。
     const MusicTrack* CurrentTrack() const noexcept;
     // 遷移中 (slot[1]) の target state 側 track。遷移していない場合は nullptr。
@@ -146,7 +156,9 @@ private:
     // 該当なしの場合 npos 相当 (= m_Tracks.Size()) を返す。
     usize FindTrackForState(EMusicState state, f32 intensity) const noexcept;
     static f32 Clamp01(f32 v) noexcept;
-    static void LogTodoOnce(const char* what) noexcept;
+    // 現在 state / intensity に応じた track を選び、結線済みなら m_Audio->PlayBgm
+    // へ流す。未結線 (m_Audio == nullptr) なら no-op (state-only)。
+    void RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept;
 
     // ----- track 倉庫 (フラット配列) -----
     TArray<MusicTrack> m_Tracks;
@@ -168,6 +180,10 @@ private:
     const char* m_StingerPath    = nullptr;
     f32         m_StingerVolume  = 0.0f;
     bool        m_StingerPending = false;
+
+    // ----- 実 backend (非所有 raw ptr) -----
+    // nullptr 時は state-only 動作 (無音、crash しない)。SetAudioDirector で差す。
+    FAudioDirector* m_Audio = nullptr;
 };
 
 } // namespace acs::game
