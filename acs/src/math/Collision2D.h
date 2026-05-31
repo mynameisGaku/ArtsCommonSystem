@@ -389,4 +389,69 @@ ACS_FORCEINLINE RayHit2 RaycastConvexPoly2(const Ray2& ray, const ConvexPoly2& p
     return r;
 }
 
+// ===== 有向境界ボックス (OBB) =====
+// 回転できる矩形コライダー。中心 + 半サイズ + 回転角 (rad、反時計回り +X→+Y)。
+// 幾何的には 4 頂点の凸ポリゴンなので、判定は ToPoly() で既存の凸ポリゴン SAT
+// (Intersect / Resolve / RaycastConvexPoly2) に委譲する (実績ロジックを再利用)。
+// 点内外判定だけは OBB ローカル空間の軸並行比較で直接 (高速・分岐少)。
+struct Obb2 {
+    FVec2 center;
+    FVec2 half_size;          // ローカル軸での (w/2, h/2)
+    f32   rotation = 0.0f;    // ラジアン
+
+    constexpr Obb2() noexcept = default;
+    Obb2(FVec2 c, FVec2 hs, f32 rot) noexcept : center(c), half_size(hs), rotation(rot) {}
+
+    // 回転後のローカル軸 (単位ベクトル)。
+    FVec2 AxisX() const noexcept { return FVec2{ Cos(rotation),  Sin(rotation) }; }
+    FVec2 AxisY() const noexcept { return FVec2{ -Sin(rotation), Cos(rotation) }; }
+};
+
+// OBB → 4 頂点凸ポリゴン (反時計回り: -X-Y, +X-Y, +X+Y, -X+Y)。
+ACS_FORCEINLINE ConvexPoly2 ToPoly(const Obb2& o) noexcept {
+    const FVec2 ax = o.AxisX();
+    const FVec2 ay = o.AxisY();
+    const FVec2 hx{ ax.x * o.half_size.x, ax.y * o.half_size.x };
+    const FVec2 hy{ ay.x * o.half_size.y, ay.y * o.half_size.y };
+    ConvexPoly2 p;
+    p.Add(FVec2{ o.center.x - hx.x - hy.x, o.center.y - hx.y - hy.y });
+    p.Add(FVec2{ o.center.x + hx.x - hy.x, o.center.y + hx.y - hy.y });
+    p.Add(FVec2{ o.center.x + hx.x + hy.x, o.center.y + hx.y + hy.y });
+    p.Add(FVec2{ o.center.x - hx.x + hy.x, o.center.y - hx.y + hy.y });
+    return p;
+}
+
+ACS_FORCEINLINE Aabb2 AabbOf(const Obb2& o) noexcept { return AabbOf(ToPoly(o)); }
+
+// 点内外: OBB ローカル空間に射影して軸並行比較 (高速)。
+ACS_FORCEINLINE bool Contains(const Obb2& o, FVec2 p) noexcept {
+    const FVec2 d{ p.x - o.center.x, p.y - o.center.y };
+    const FVec2 ax = o.AxisX(), ay = o.AxisY();
+    const f32 lx = d.x * ax.x + d.y * ax.y;     // ローカル X 射影
+    const f32 ly = d.x * ay.x + d.y * ay.y;     // ローカル Y 射影
+    return Abs(lx) <= o.half_size.x && Abs(ly) <= o.half_size.y;
+}
+
+// ----- 重なり判定 (凸ポリ SAT へ委譲) -----
+ACS_FORCEINLINE bool Intersect(const Obb2& a, const Obb2& b) noexcept { return Intersect(ToPoly(a), ToPoly(b)); }
+ACS_FORCEINLINE bool Intersect(const Obb2& o, const Aabb2& b) noexcept { return Intersect(ToPoly(o), b); }
+ACS_FORCEINLINE bool Intersect(const Aabb2& b, const Obb2& o) noexcept { return Intersect(ToPoly(o), b); }
+ACS_FORCEINLINE bool Intersect(const Obb2& o, const Circle& c) noexcept { return Intersect(ToPoly(o), c); }
+ACS_FORCEINLINE bool Intersect(const Circle& c, const Obb2& o) noexcept { return Intersect(ToPoly(o), c); }
+ACS_FORCEINLINE bool Intersect(const Obb2& o, const ConvexPoly2& p) noexcept { return Intersect(ToPoly(o), p); }
+ACS_FORCEINLINE bool Intersect(const ConvexPoly2& p, const Obb2& o) noexcept { return Intersect(p, ToPoly(o)); }
+
+// ----- 押し出しベクトル MTV (凸ポリ Resolve へ委譲) -----
+ACS_FORCEINLINE bool Resolve(const Obb2& A, const Obb2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), ToPoly(B), push); }
+ACS_FORCEINLINE bool Resolve(const Obb2& A, const Aabb2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), ToPoly(B), push); }
+ACS_FORCEINLINE bool Resolve(const Obb2& A, const ConvexPoly2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), B, push); }
+ACS_FORCEINLINE bool Resolve(const ConvexPoly2& A, const Obb2& B, FVec2& push) noexcept { return Resolve(A, ToPoly(B), push); }
+ACS_FORCEINLINE bool Resolve(const Circle& c, const Obb2& o, FVec2& push) noexcept { return Resolve(c, ToPoly(o), push); }
+
+// ----- レイキャスト (凸ポリ raycast へ委譲) -----
+ACS_FORCEINLINE RayHit2 RaycastObb2(const Ray2& ray, const Obb2& o,
+                                    f32 t_max = 3.4028235e38f) noexcept {
+    return RaycastConvexPoly2(ray, ToPoly(o), t_max);
+}
+
 } // namespace acs

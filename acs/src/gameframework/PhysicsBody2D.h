@@ -67,6 +67,10 @@ public:
         if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Local().position);
         else SyncShapeIfRegistered();
     }
+    // OBB ボディ (回転矩形)。回転は中心原点の local poly に焼き込み (body 位置で平行移動)。
+    void SetObb(FVec2 half_size, f32 rotation) noexcept {
+        SetPolygon(ToPoly(Obb2{FVec2{0.0f, 0.0f}, half_size, rotation}));
+    }
 
     // collide-and-slide を使うか (既定 true)。false で旧来の軸独立 block。
     bool slide = true;

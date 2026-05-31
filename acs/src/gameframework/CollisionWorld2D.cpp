@@ -59,6 +59,20 @@ FShapeId FCollisionWorld2D::AddPolygon(const ConvexPoly2& p, u32 layer) noexcept
     return FShapeId{idx, s.gen};
 }
 
+FShapeId FCollisionWorld2D::AddObb(const Obb2& o, u32 layer) noexcept {
+    const u32 idx = AcquireSlot();
+    Slot& s = m_Slots[idx];
+    s.kind   = Kind::Obb;
+    s.obb    = o;
+    s.layer  = layer;
+    s.gen    = static_cast<u8>(s.gen + 1u);
+    if (s.gen == 0) s.gen = 1;
+    s.active = true;
+    ++m_ShapeCount;
+    MarkDirty();
+    return FShapeId{idx, s.gen};
+}
+
 void FCollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -80,6 +94,14 @@ void FCollisionWorld2D::UpdatePolygon(FShapeId id, const ConvexPoly2& p) noexcep
     Slot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation() || s.kind != Kind::Poly) return;
     s.poly = p;
+    MarkDirty();
+}
+
+void FCollisionWorld2D::UpdateObb(FShapeId id, const Obb2& o) noexcept {
+    if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
+    Slot& s = m_Slots[id.Index()];
+    if (!s.active || s.gen != id.Generation() || s.kind != Kind::Obb) return;
+    s.obb = o;
     MarkDirty();
 }
 
@@ -144,6 +166,7 @@ void FCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     case Kind::FAabb:   CellRange(s.aabb,   cx_min, cy_min, cx_max, cy_max); break;
     case Kind::Circle: CellRange(s.circle, cx_min, cy_min, cx_max, cy_max); break;
     case Kind::Poly:   CellRange(AabbOf(s.poly), cx_min, cy_min, cx_max, cy_max); break;
+    case Kind::Obb:    CellRange(AabbOf(s.obb),  cx_min, cy_min, cx_max, cy_max); break;
     default: return;
     }
     for (i32 cy = cy_min; cy <= cy_max; ++cy) {
@@ -169,6 +192,7 @@ bool FCollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const 
     case Kind::FAabb:   return Intersect(s.aabb,   a);
     case Kind::Circle: return Intersect(s.circle, a);
     case Kind::Poly:   return Intersect(s.poly,   a);
+    case Kind::Obb:    return Intersect(s.obb,    a);
     default: return false;
     }
 }
@@ -179,6 +203,7 @@ bool FCollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) con
     case Kind::FAabb:   return Intersect(s.aabb,   c);
     case Kind::Circle: return Intersect(s.circle, c);
     case Kind::Poly:   return Intersect(s.poly,   c);
+    case Kind::Obb:    return Intersect(s.obb,    c);
     default: return false;
     }
 }
@@ -189,6 +214,7 @@ bool FCollisionWorld2D::NarrowIntersectPoly(u32 slot_idx, const ConvexPoly2& p) 
     case Kind::FAabb:   return Intersect(p, s.aabb);
     case Kind::Circle: return Intersect(p, s.circle);
     case Kind::Poly:   return Intersect(p, s.poly);
+    case Kind::Obb:    return Intersect(p, s.obb);
     default: return false;
     }
 }
@@ -298,6 +324,7 @@ FVec2 FCollisionWorld2D::ResolveCircle(const Circle& c, FShapeId exclude, u32 ma
                 case Kind::FAabb:   hit = Resolve(c, ToPoly(s.aabb), push); break;
                 case Kind::Circle: hit = Resolve(c, s.circle, push);       break;
                 case Kind::Poly:   hit = Resolve(c, s.poly, push);         break;
+                case Kind::Obb:    hit = Resolve(c, s.obb, push);          break;
                 default: break;
                 }
                 if (hit) { total.x += push.x; total.y += push.y; }
@@ -330,6 +357,7 @@ FVec2 FCollisionWorld2D::ResolvePolygon(const ConvexPoly2& p, FShapeId exclude, 
                 switch (s.kind) {
                 case Kind::FAabb:   hit = Resolve(p, ToPoly(s.aabb), push); break;
                 case Kind::Poly:   hit = Resolve(p, s.poly, push);         break;
+                case Kind::Obb:    hit = Resolve(p, s.obb, push);          break;
                 case Kind::Circle: {
                     FVec2 cp;                                 // 円を p から押す → 反転で p を押す
                     if (Resolve(s.circle, p, cp)) { push = FVec2{ -cp.x, -cp.y }; hit = true; }
@@ -384,6 +412,7 @@ bool FCollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                 case Kind::FAabb:   rh = RaycastAabb(ray,   s.aabb,   max_t); break;
                 case Kind::Circle: rh = RaycastCircle(ray, s.circle, max_t); break;
                 case Kind::Poly:   rh = RaycastConvexPoly2(ray, s.poly, max_t); break;
+                case Kind::Obb:    rh = RaycastObb2(ray, s.obb, max_t); break;
                 default: break;
                 }
                 if (rh.hit && rh.t < best_t) {

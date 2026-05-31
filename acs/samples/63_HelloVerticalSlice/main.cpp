@@ -301,6 +301,9 @@ public:
         phy.AddAabb(Aabb2{FVec2{kOriginX + 0.5f, 0.0f},                         FVec2{0.5f, hh}});  // 左端 石
         phy.AddAabb(Aabb2{FVec2{kOriginX + static_cast<f32>(kMapW) - 0.5f, 0.0f}, FVec2{0.5f, hh}}); // 右端 石
         phy.AddAabb(Aabb2{FVec2{0.0f, 0.0f},                                    FVec2{2.0f, 1.5f}}); // 中央 水たまり
+        // 斜めの OBB バー (有向境界ボックス)。回転矩形の実コライダー。
+        m_ObbBar = Obb2{ FVec2{-4.5f, -2.2f}, FVec2{1.5f, 0.28f}, 0.5f };
+        phy.AddObb(m_ObbBar);
 
         // --- プレイヤー (atlas の "hero" フレームを UV で貼る + 物理ボディ) ---
         if (dev) m_HeroAtlas = MakeHeroAtlas(*dev);
@@ -339,6 +342,10 @@ public:
     void OnTick(f32 dt) noexcept override;       // 遷移/ロジックを含むので out-of-line
 
     void OnDrawWorld(RenderContext& /*rc*/, FSpriteBatch& sb) noexcept override {
+        // 斜めの OBB バー (回転矩形コライダー) を可視化。collider と同じ中心/回転。
+        sb.DrawRectRotated(m_ObbBar.center.x, m_ObbBar.center.y,
+                           m_ObbBar.half_size.x * 2.0f, m_ObbBar.half_size.y * 2.0f,
+                           m_ObbBar.rotation, FVec4{0.52f, 0.36f, 0.20f, 1.0f});
         // コイン (world 空間)。取得済みは描かない。軽く明滅。
         const f32 pulse = 0.75f + 0.25f * Sin(m_Time * 6.0f);
         for (u32 i = 0; i < kNumCoins; ++i) {
@@ -409,6 +416,7 @@ private:
     FSpritePack             m_Pack;
     FNode2D*                m_Player = nullptr;
     FPhysicsBody2D*         m_PlayerBody = nullptr;
+    Obb2                    m_ObbBar;
     FVec2  m_CoinPos[kNumCoins]{};
     bool   m_CoinGot[kNumCoins]{};
     u32    m_Collected = 0;

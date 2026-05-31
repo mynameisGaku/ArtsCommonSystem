@@ -87,11 +87,14 @@ public:
     FShapeId AddAabb   (const Aabb2& a, u32 layer = kAllLayers) noexcept;
     FShapeId AddCircle (const Circle& c, u32 layer = kAllLayers) noexcept;
     FShapeId AddPolygon(const ConvexPoly2& p, u32 layer = kAllLayers) noexcept;
+    // OBB (有向境界ボックス = 回転矩形)。内部は 4 頂点凸ポリとして SAT 判定。
+    FShapeId AddObb    (const Obb2& o, u32 layer = kAllLayers) noexcept;
 
     // 形状更新 (移動した時)。dirty にして次のクエリで再構築。
     void UpdateAabb   (FShapeId id, const Aabb2& a) noexcept;
     void UpdateCircle (FShapeId id, const Circle& c) noexcept;
     void UpdatePolygon(FShapeId id, const ConvexPoly2& p) noexcept;
+    void UpdateObb    (FShapeId id, const Obb2& o) noexcept;
 
     // shape 削除 (slot は再利用、generation 進む)
     void Remove(FShapeId id) noexcept;
@@ -119,7 +122,7 @@ public:
     FVec2 ResolvePolygon(const ConvexPoly2& p, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
 
 private:
-    enum class Kind : u8 { None = 0, FAabb, Circle, Poly };
+    enum class Kind : u8 { None = 0, FAabb, Circle, Poly, Obb };
 
     struct Slot {
         Kind        kind   = Kind::None;
@@ -129,6 +132,7 @@ private:
         Aabb2       aabb   {};
         Circle      circle {};
         ConvexPoly2 poly   {};
+        Obb2        obb    {};
     };
 
     // SpatialGrid: cell key (hash of 2D cell coords) → list of slot indices

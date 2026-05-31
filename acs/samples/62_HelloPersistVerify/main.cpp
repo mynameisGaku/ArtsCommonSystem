@@ -24,6 +24,8 @@
 #include "gameframework/Tilemap.h"
 #include "gameframework/UiLayer.h"
 #include "gameframework/WaterVolume.h"
+#include "gameframework/CollisionWorld2D.h"
+#include "math/Collision2D.h"
 #include "platform/Event.h"
 #include "platform/InputCodes.h"
 
@@ -134,6 +136,74 @@ void TestBuoyancy() noexcept {
     // 深いほど浮力が強い: y=80 (depth 80) の上向き力 > y=30 (depth 30)。
     const FVec2 f_deep = water.ComputeBuoyancyForce(FVec2{0.0f, 80.0f}, FVec2{0.0f, 0.0f}, 1.0f);
     Check(f_deep.y < f.y, "深いほど浮力が強い (より大きな -Y)");
+}
+
+void TestObb() noexcept {
+    std::printf("[Obb2] 有向境界ボックス (OBB) + world ディスパッチ\n");
+
+    // --- 点内外 (45° 回転、ローカル軸で判定) ---
+    Obb2 box{ FVec2{0, 0}, FVec2{2.0f, 1.0f}, 0.7853982f };   // 45°
+    Check(Contains(box, FVec2{0, 0}), "中心は内側");
+    Check(Contains(box, FVec2{1.9f * 0.7071f, 1.9f * 0.7071f}),  "ローカルX 1.9 は内側");
+    Check(!Contains(box, FVec2{2.5f * 0.7071f, 2.5f * 0.7071f}), "ローカルX 2.5 は外側");
+
+    // --- 重なり判定 ---
+    Obb2 a{ FVec2{0, 0},   FVec2{1, 1}, 0.0f };
+    Obb2 b{ FVec2{1.2f, 0}, FVec2{1, 1}, 0.7853982f };   // 45° の角が a に食い込む
+    Check(Intersect(a, b), "重なる OBB 同士");
+    Check(!Intersect(a, Obb2{ FVec2{5, 0}, FVec2{1, 1}, 0.5f }), "離れた OBB は非重なり");
+    Check(Intersect(box, Circle{FVec2{0, 0}, 0.5f}),  "OBB vs 内側円");
+    Check(!Intersect(box, Circle{FVec2{10, 0}, 0.5f}), "OBB vs 遠い円");
+    Check(Intersect(box, Aabb2{FVec2{0, 0}, FVec2{0.5f, 0.5f}}), "OBB vs 重なる AABB");
+
+    // --- Resolve: 90° OBB (= 1x2 box) にめり込む円を +Y へ押し出す ---
+    {
+        Obb2 o{ FVec2{0, 0}, FVec2{2, 1}, 1.5707963f };   // 90°: ローカルX(half2)→world Y
+        FVec2 push{};
+        const bool hit = Resolve(Circle{FVec2{0, 1.7f}, 0.5f}, o, push);
+        Check(hit, "円が OBB にめり込む → Resolve hit");
+        Check(push.y > 0.0f && std::fabs(push.x) < 0.2f, "押し出しは +Y (上面)");
+    }
+
+    // --- Raycast: +X レイが 45° ダイヤ OBB の左頂点 (~ -1.414,0) に命中 ---
+    {
+        Obb2 o{ FVec2{0, 0}, FVec2{1, 1}, 0.7853982f };
+        RayHit2 rh = RaycastObb2(Ray2{ FVec2{-5, 0}, FVec2{1, 0} }, o);
+        Check(rh.hit, "+X レイが 45° OBB に命中");
+        Check(rh.point.x < -1.0f && rh.point.x > -1.6f, "命中点が左頂点付近");
+    }
+
+    // --- world ディスパッチ: 全クエリ経路で OBB を検出 (漏れ検出の安全網) ---
+    {
+        FCollisionWorld2D w; w.Init(4.0f);
+        const FShapeId oid = w.AddObb(Obb2{ FVec2{0, 0}, FVec2{2, 0.5f}, 0.7853982f });   // 45° バー
+        TArray<FShapeId> hits;
+
+        w.OverlapCircle(Circle{FVec2{0, 0}, 0.3f}, hits);
+        Check(hits.Size() == 1 && hits[0] == oid, "OverlapCircle が OBB を検出");
+        w.OverlapCircle(Circle{FVec2{10, 10}, 0.3f}, hits);
+        Check(hits.Size() == 0, "遠い円は OBB 非検出");
+
+        w.OverlapAabb(Aabb2{FVec2{0, 0}, FVec2{0.3f, 0.3f}}, hits);
+        Check(hits.Size() == 1 && hits[0] == oid, "OverlapAabb が OBB を検出");
+
+        ConvexPoly2 probe;
+        probe.Add({-0.3f, -0.3f}); probe.Add({0.3f, -0.3f});
+        probe.Add({0.3f, 0.3f});   probe.Add({-0.3f, 0.3f});
+        w.OverlapPolygon(probe, hits);
+        Check(hits.Size() == 1 && hits[0] == oid, "OverlapPolygon が OBB を検出");
+
+        const FVec2 push = w.ResolveCircle(Circle{FVec2{0.1f, 0.1f}, 0.4f});
+        Check(push.x * push.x + push.y * push.y > 1e-4f, "ResolveCircle が OBB から押し出す");
+
+        RayHit2 rh; FShapeId hid;
+        const bool rhit = w.Raycast(Ray2{FVec2{-5, 0}, FVec2{1, 0}}, 20.0f, rh, hid);
+        Check(rhit && hid == oid, "Raycast が OBB に命中");
+
+        w.UpdateObb(oid, Obb2{ FVec2{20, 20}, FVec2{2, 0.5f}, 0.0f });
+        w.OverlapCircle(Circle{FVec2{0, 0}, 0.3f}, hits);
+        Check(hits.Size() == 0, "UpdateObb 移動後は元位置で非検出");
+    }
 }
 
 void TestStringSelfAppend() noexcept {
@@ -794,6 +864,7 @@ int main() {
     TestImageModeration();
     TestDrawOrder();
     TestBuoyancy();
+    TestObb();
     TestStringSelfAppend();
     TestTlsfExactFit();
     TestJson();
