@@ -29,7 +29,11 @@ public:
     const char* Data()  const noexcept { return IsHeap() ? m_Heap.data : m_Sso.data; }
     char*       Data()        noexcept { return IsHeap() ? m_Heap.data : m_Sso.data; }
     usize       Size()  const noexcept { return IsHeap() ? m_Heap.size : (kSsoCapacity - m_Sso.remaining); }
-    usize       Capacity() const noexcept { return IsHeap() ? m_Heap.capacity : kSsoCapacity; }
+    // ヒープフラグ (m_Sso.remaining の MSB) は m_Heap.capacity の最上位バイト
+    // (LE x64 で bit 63) に union で重なる。容量として読む際は必ずフラグ bit を
+    // マスクすること。さもないと Capacity() が 0x8000... 0000 を足した巨大値を返し、
+    // Append の拡大判定 (req > Capacity()) が常に偽となって heap バッファを溢れる。
+    usize       Capacity() const noexcept { return IsHeap() ? (m_Heap.capacity & ~kHeapFlagBit) : kSsoCapacity; }
     bool        IsEmpty() const noexcept { return Size() == 0; }
     FStringView  View()  const noexcept { return FStringView(Data(), Size()); }
     operator FStringView() const noexcept { return View(); }
@@ -49,6 +53,9 @@ public:
     FAllocator* GetAllocator() const noexcept { return m_Alloc; }
 
 private:
+    // ヒープフラグ bit。m_Sso.remaining の MSB (= LE x64 で m_Heap.capacity の bit 63)。
+    static constexpr usize kHeapFlagBit = usize{1} << 63;
+
     // remaining バイトの MSB がヒープフラグ
     bool IsHeap() const noexcept { return (m_Sso.remaining & 0x80) != 0; }
     void SetHeap() noexcept { m_Sso.remaining |= 0x80; }
