@@ -130,4 +130,28 @@ IMatchmaker& GetMatchmakerStub() noexcept {
     return s_instance;
 }
 
+// ---- 既定 backend provider 結線 (実 backend への委譲) ----------------------
+// gameframework 単体 (SDK / backend 無し) でもリンクが通るよう、provider は
+// 関数ポインタ 1 個で保持し、未登録なら stub にフォールバックする。
+namespace {
+BackendClientProvider g_BackendClientProvider = nullptr;
+MatchmakerProvider    g_MatchmakerProvider    = nullptr;
+} // namespace
+
+void SetBackendClientProvider(BackendClientProvider provider) noexcept {
+    g_BackendClientProvider = provider;
+}
+
+IBackendClient& GetDefaultBackendClient() noexcept {
+    return g_BackendClientProvider ? g_BackendClientProvider() : GetBackendStub();
+}
+
+void SetMatchmakerProvider(MatchmakerProvider provider) noexcept {
+    g_MatchmakerProvider = provider;
+}
+
+IMatchmaker& GetDefaultMatchmaker() noexcept {
+    return g_MatchmakerProvider ? g_MatchmakerProvider() : GetMatchmakerStub();
+}
+
 } // namespace acs::game

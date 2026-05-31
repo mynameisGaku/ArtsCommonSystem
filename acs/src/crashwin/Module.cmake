@@ -10,6 +10,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         WindowsCrashReporter.cpp
+        WindowsCrashReporterDefault.cpp
     HEADERS
         WindowsCrashReporter.h
     PUBLIC_DEPS

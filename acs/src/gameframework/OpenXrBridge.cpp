@@ -101,4 +101,28 @@ IOpenXrBridge& GetXrStub() noexcept {
     return instance;
 }
 
+// =============================================================================
+// 既定 OpenXrBridge provider 結線
+// -----------------------------------------------------------------------------
+// 実 backend モジュール (ACS::OpenXr) は本 gameframework に依存するが、その逆は
+// 依存できない (循環依存) ため、結線は backend 側から `SetOpenXrBridgeProvider()`
+// を呼んで動的に登録する。未登録時は GetXrStub() に縮退するので、backend 未リンク
+// (= SDK 無し) のビルドでもここはそのままコンパイル / 実行できる。
+//
+// provider ポインタは anon-namespace の static。プロセス内 1 個で、後勝ち登録。
+// 単一スレッド初期化前提 (アプリ起動時に一度 Install を呼ぶ慣習) のため、素朴な
+// 生ポインタで足りる。
+// =============================================================================
+namespace {
+    OpenXrBridgeProvider g_OpenXrBridgeProvider = nullptr;
+} // namespace
+
+void SetOpenXrBridgeProvider(OpenXrBridgeProvider provider) noexcept {
+    g_OpenXrBridgeProvider = provider;
+}
+
+IOpenXrBridge& GetDefaultOpenXrBridge() noexcept {
+    return g_OpenXrBridgeProvider ? g_OpenXrBridgeProvider() : GetXrStub();
+}
+
 } // namespace acs::game

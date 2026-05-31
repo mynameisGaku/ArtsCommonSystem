@@ -65,4 +65,20 @@ private:
     Impl* m_Impl = nullptr;
 };
 
+// =============================================================================
+// 既定 ScriptVm 結線ヘルパ (gameframework の provider へ FLuaVm を登録)
+// -----------------------------------------------------------------------------
+// アプリ起動時に一度だけ `InstallLuaAsDefault()` を呼ぶと、以降
+// `acs::game::GetDefaultScriptVm()` が本物の Lua 5.4 VM (プロセス共有 singleton)
+// を返すようになる。これにより上位コードは backend 非依存に
+// `GetDefaultScriptVm()` だけで実 VM を取得できる (`#if WITH_ACS_SCRIPTING` は
+// この Install 呼び出し 1 箇所だけで済む)。
+// =============================================================================
+
+// プロセス共有の既定 FLuaVm singleton を返す (provider の実体)。
+acs::game::IScriptVm& GetDefaultLuaVm() noexcept;
+
+// gameframework の ScriptVm provider に GetDefaultLuaVm を登録する。
+void InstallLuaAsDefault() noexcept;
+
 } // namespace acs::scripting

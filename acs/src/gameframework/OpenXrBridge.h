@@ -225,6 +225,32 @@ private:
 // =============================================================================
 IOpenXrBridge& GetXrStub() noexcept;
 
+// =============================================================================
+// 既定 OpenXrBridge の provider 結線 (実 backend モジュールへの委譲点)
+// -----------------------------------------------------------------------------
+// gameframework は実 backend モジュール (例: ACS::OpenXr / FKhronosOpenXrBridge)
+// に依存できない (循環依存になる: backend 側が本 interface に依存する)。そこで実
+// backend 側が `SetOpenXrBridgeProvider()` で「既定 bridge を返す関数」を登録し、
+// ゲームコードは `GetDefaultOpenXrBridge()` を通じて backend 非依存に既定 bridge を
+// 取得する。
+//
+//   ・provider 未登録 (= backend 未リンク / flag OFF) → GetXrStub() を返す。
+//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実 bridge を返す。
+//
+// 典型: アプリ起動時に一度だけ
+//   #if WITH_ACS_OPENXR
+//       acs::openxr::InstallOpenXrAsDefault();   // provider を登録
+//   #endif
+// 以降はどこでも `acs::game::GetDefaultOpenXrBridge()` で実 OpenXR bridge が得られる。
+using OpenXrBridgeProvider = IOpenXrBridge& (*)() noexcept;
+
+// 既定 bridge provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetOpenXrBridgeProvider(OpenXrBridgeProvider provider) noexcept;
+
+// 既定 OpenXrBridge を返す。provider 登録済みならその実 bridge、未登録なら GetXrStub()。
+IOpenXrBridge& GetDefaultOpenXrBridge() noexcept;
+
 // FMlRuntime.h と subcode 番号を揃え、上位は category 横断で「未実装」を
 // 一律で扱えるようにする (FSaveSlot.h と同じく `Generic + subcode 99` 規約)。
 namespace xr_err {

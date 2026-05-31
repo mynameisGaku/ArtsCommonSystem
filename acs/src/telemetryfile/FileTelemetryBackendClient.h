@@ -39,5 +39,20 @@ private:
     acs::u32 m_WrittenCount = 0;
 };
 
+// =============================================================================
+// 既定 IBackendClient 結線ヘルパ (gameframework の provider へ本実装を登録)
+// -----------------------------------------------------------------------------
+// アプリ起動時に一度だけ `InstallFileTelemetryAsDefault()` を呼ぶと、以降
+// `acs::game::GetDefaultBackendClient()` がファイルバック実装 (プロセス共有
+// singleton) を返すようになる。これにより上位コードは backend 非依存に
+// `GetDefaultBackendClient()` だけで実 backend を取得できる。
+// =============================================================================
+
+// プロセス共有の既定 FFileTelemetryBackendClient singleton を返す (provider 実体)。
+acs::game::IBackendClient& GetDefaultFileTelemetryBackendClient() noexcept;
+
+// gameframework の backend provider に GetDefaultFileTelemetryBackendClient を登録。
+void InstallFileTelemetryAsDefault() noexcept;
+
 } // namespace acs::telemetryfile
 

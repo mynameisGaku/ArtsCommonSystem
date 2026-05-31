@@ -65,5 +65,22 @@ private:
     bool        m_bInitialized = false;
 };
 
+// =============================================================================
+// 既定 CrashReporter 結線ヘルパ (gameframework の provider へ本 backend を登録)
+// -----------------------------------------------------------------------------
+// アプリ起動時に一度だけ `InstallWindowsCrashReporterAsDefault()` を呼ぶと、
+// 以降 `acs::game::GetDefaultCrashReporter()` が本物の Windows DbgHelp backend
+// (プロセス共有 singleton) を返すようになる。これにより上位コードは backend
+// 非依存に `GetDefaultCrashReporter()` だけで実 backend を取得できる
+// (`#if WITH_ACS_CRASH_REPORTER` はインストール呼び出し 1 箇所のみで済む)。
+// =============================================================================
+
+// プロセス共有の既定 FWindowsCrashReporter singleton を返す (provider の実体)。
+acs::game::ICrashReporterBackend& GetDefaultWindowsCrashReporter() noexcept;
+
+// gameframework の CrashReporter provider に GetDefaultWindowsCrashReporter を
+// 登録する。
+void InstallWindowsCrashReporterAsDefault() noexcept;
+
 } // namespace acs::crashwin
 

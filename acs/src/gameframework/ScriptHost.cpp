@@ -136,6 +136,19 @@ IScriptVm& GetVmStub() noexcept {
     return instance;
 }
 
+// ---- 既定 VM provider 結線 (実 backend への委譲) --------------------------
+namespace {
+ScriptVmProvider g_ScriptVmProvider = nullptr;
+}
+
+void SetScriptVmProvider(ScriptVmProvider provider) noexcept {
+    g_ScriptVmProvider = provider;
+}
+
+IScriptVm& GetDefaultScriptVm() noexcept {
+    return g_ScriptVmProvider ? g_ScriptVmProvider() : GetVmStub();
+}
+
 // =============================================================================
 // FScriptHost — IScriptVm を集約する高レベル wrapper
 // -----------------------------------------------------------------------------

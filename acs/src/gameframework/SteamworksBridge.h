@@ -238,4 +238,29 @@ private:
     bool m_Initialized = false;
 };
 
+// ---- 既定 Bridge provider 結線 (実 backend への委譲点) --------------------
+// gameframework は実 backend モジュール (ACS::Steamworks / FSteamworksBridgeImpl)
+// に依存できない (循環依存になる: backend 側が本 interface に依存する)。そこで実
+// backend 側が `SetSteamworksBridgeProvider()` で「既定 Bridge を返す関数」を登録し、
+// ゲームコードは `GetDefaultSteamworksBridge()` を通じて backend 非依存に既定 Bridge
+// を取得する。
+//
+//   ・provider 未登録 (= backend 未リンク / flag OFF) → SteamworksBridgeStub::GetStub() を返す。
+//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実 Bridge を返す。
+//
+// 典型: アプリ起動時に一度だけ
+//   #if WITH_ACS_STEAMWORKS
+//       acs::steamworks::InstallSteamworksAsDefault();   // provider を登録
+//   #endif
+// 以降はどこでも `acs::game::GetDefaultSteamworksBridge()` で実 Bridge が得られる。
+using SteamworksBridgeProvider = ISteamworksBridge& (*)() noexcept;
+
+// 既定 Bridge provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetSteamworksBridgeProvider(SteamworksBridgeProvider provider) noexcept;
+
+// 既定 ISteamworksBridge を返す。provider 登録済みならその実 Bridge、未登録なら
+// SteamworksBridgeStub::GetStub()。
+ISteamworksBridge& GetDefaultSteamworksBridge() noexcept;
+
 } // namespace acs::game

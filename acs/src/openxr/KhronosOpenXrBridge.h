@@ -38,4 +38,21 @@ private:
     bool m_bPassthroughRequested = false;
 };
 
+// =============================================================================
+// 既定 OpenXrBridge への結線 (gameframework provider への登録 helper)
+// -----------------------------------------------------------------------------
+// gameframework は本モジュール (ACS::OpenXr) に依存できない (循環依存) ため、結線は
+// backend 側 (本モジュール) から `acs::game::SetOpenXrBridgeProvider()` を呼んで行う。
+// アプリは起動時に一度 `acs::openxr::InstallOpenXrAsDefault()` を呼ぶだけで、以降は
+// backend 非依存に `acs::game::GetDefaultOpenXrBridge()` で実 Khronos OpenXR bridge を
+// 取得できる。
+// =============================================================================
+
+// プロセス共有 singleton の実 Khronos bridge を返す。初回アクセス時に Init() を 1 回
+// 走らせる (失敗しても参照は返す)。
+acs::game::IOpenXrBridge& GetDefaultKhronosOpenXrBridge() noexcept;
+
+// gameframework の既定 provider に GetDefaultKhronosOpenXrBridge を登録する。
+void InstallOpenXrAsDefault() noexcept;
+
 } // namespace acs::openxr

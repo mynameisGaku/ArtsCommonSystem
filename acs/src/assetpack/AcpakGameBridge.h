@@ -64,4 +64,25 @@ private:
     wchar_t m_WideScratch[kPathCapacity] = {};
 };
 
+// ---- 既定 provider 結線 (gameframework seam への委譲点) -------------------
+// gameframework (`acs::game::IAssetPackReader` / `IAssetPackWriter`) は本 backend
+// モジュールに依存できないため、結線は backend 側 (本モジュール) から
+// `acs::game::SetAssetPackReaderProvider()` / `SetAssetPackWriterProvider()` を
+// 呼んで行う。アプリは起動時に一度 `InstallAcpakReaderAsDefault()` /
+// `InstallAcpakWriterAsDefault()` を呼ぶだけで、以降は backend 非依存に
+// `acs::game::GetDefaultAssetPackReader()` / `GetDefaultAssetPackWriter()` で
+// 実 `.acpak` Reader/Writer を取得できる。
+
+// プロセス共有の既定 Reader を返す (Meyers singleton)。
+acs::game::IAssetPackReader& GetDefaultAcpakReader() noexcept;
+
+// `acs::game::SetAssetPackReaderProvider(&GetDefaultAcpakReader)` を呼ぶ。
+void InstallAcpakReaderAsDefault() noexcept;
+
+// プロセス共有の既定 Writer を返す (Meyers singleton)。
+acs::game::IAssetPackWriter& GetDefaultAcpakWriter() noexcept;
+
+// `acs::game::SetAssetPackWriterProvider(&GetDefaultAcpakWriter)` を呼ぶ。
+void InstallAcpakWriterAsDefault() noexcept;
+
 } // namespace acs::assetpack

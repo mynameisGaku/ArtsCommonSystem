@@ -21,6 +21,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         LuaVm.cpp
+        LuaDefault.cpp
     HEADERS
         LuaVm.h
     PUBLIC_DEPS

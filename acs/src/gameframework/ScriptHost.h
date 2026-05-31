@@ -283,6 +283,31 @@ private:
 IScriptVm& GetVmStub() noexcept;
 
 // =============================================================================
+// 既定 ScriptVm の provider 結線 (実 backend モジュールへの委譲点)
+// -----------------------------------------------------------------------------
+// gameframework は実 backend モジュール (例: ACS::Scripting / FLuaVm) に依存
+// できない (循環依存になる: backend 側が本 interface に依存する)。そこで実 backend
+// 側が `SetScriptVmProvider()` で「既定 VM を返す関数」を登録し、ゲームコードは
+// `GetDefaultScriptVm()` を通じて backend 非依存に既定 VM を取得する。
+//
+//   ・provider 未登録 (= backend 未リンク / flag OFF) → GetVmStub() を返す。
+//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実 VM を返す。
+//
+// 典型: アプリ起動時に一度だけ
+//   #if WITH_ACS_SCRIPTING
+//       acs::scripting::InstallLuaAsDefault();   // provider を登録
+//   #endif
+// 以降はどこでも `acs::game::GetDefaultScriptVm()` で実 Lua VM が得られる。
+using ScriptVmProvider = IScriptVm& (*)() noexcept;
+
+// 既定 VM provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetScriptVmProvider(ScriptVmProvider provider) noexcept;
+
+// 既定 ScriptVm を返す。provider 登録済みならその実 VM、未登録なら GetVmStub()。
+IScriptVm& GetDefaultScriptVm() noexcept;
+
+// =============================================================================
 // FScriptHost — IScriptVm を集約する高レベルラッパ
 // -----------------------------------------------------------------------------
 // 役割:

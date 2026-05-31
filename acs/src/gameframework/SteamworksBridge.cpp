@@ -240,4 +240,18 @@ SteamworksBridgeStub& SteamworksBridgeStub::GetStub() noexcept {
     return m_Instance;
 }
 
+// ---- 既定 Bridge provider 結線 (実 backend への委譲) ----------------------
+namespace {
+SteamworksBridgeProvider g_SteamworksBridgeProvider = nullptr;
+}
+
+void SetSteamworksBridgeProvider(SteamworksBridgeProvider provider) noexcept {
+    g_SteamworksBridgeProvider = provider;
+}
+
+ISteamworksBridge& GetDefaultSteamworksBridge() noexcept {
+    return g_SteamworksBridgeProvider ? g_SteamworksBridgeProvider()
+                                      : SteamworksBridgeStub::GetStub();
+}
+
 } // namespace acs::game

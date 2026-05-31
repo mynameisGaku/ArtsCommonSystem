@@ -94,4 +94,20 @@ IUpscaler& GetUpscalerStub() noexcept {
     return instance;
 }
 
+// ---- 既定 MlRuntime provider 結線 (実 backend への委譲) -------------------
+// gameframework は実 backend (ACS::MlOnnx) に依存できない (循環依存) ため、
+// 実 backend 側 (例: acs::mlonnx::InstallOnnxAsDefault) が `SetMlRuntimeProvider`
+// を呼んで関数ポインタを登録する。未登録なら GetMlRuntimeStub() を返す。
+namespace {
+MlRuntimeProvider g_MlRuntimeProvider = nullptr;
+}
+
+void SetMlRuntimeProvider(MlRuntimeProvider provider) noexcept {
+    g_MlRuntimeProvider = provider;
+}
+
+IMlRuntime& GetDefaultMlRuntime() noexcept {
+    return g_MlRuntimeProvider ? g_MlRuntimeProvider() : GetMlRuntimeStub();
+}
+
 } // namespace acs::game

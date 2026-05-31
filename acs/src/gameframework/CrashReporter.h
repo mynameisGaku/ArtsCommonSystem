@@ -171,6 +171,33 @@ public:
 ICrashReporterBackend& GetCrashStub() noexcept;
 
 // =============================================================================
+// 既定 CrashReporter の provider 結線 (実 backend モジュールへの委譲点)
+// -----------------------------------------------------------------------------
+// gameframework は実 backend モジュール (例: ACS::CrashWin /
+// FWindowsCrashReporter) に依存できない (循環依存になる: backend 側が本
+// interface に依存する)。そこで実 backend 側が `SetCrashReporterProvider()` で
+// 「既定 backend を返す関数」を登録し、ゲームコードは
+// `GetDefaultCrashReporter()` を通じて backend 非依存に既定 backend を取得する。
+//
+//   ・provider 未登録 (= backend 未リンク / flag OFF) → GetCrashStub() を返す。
+//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実 backend。
+//
+// 典型: アプリ起動時に一度だけ
+//   #if WITH_ACS_CRASH_REPORTER
+//       acs::crashwin::InstallWindowsCrashReporterAsDefault();   // provider 登録
+//   #endif
+// 以降はどこでも `acs::game::GetDefaultCrashReporter()` で実 backend が得られる。
+using CrashReporterProvider = ICrashReporterBackend& (*)() noexcept;
+
+// 既定 backend provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetCrashReporterProvider(CrashReporterProvider provider) noexcept;
+
+// 既定 backend を返す。provider 登録済みならその実 backend、未登録なら
+// GetCrashStub()。
+ICrashReporterBackend& GetDefaultCrashReporter() noexcept;
+
+// =============================================================================
 // CrashHandler — 高レベル wrapper
 // -----------------------------------------------------------------------------
 // ICrashReporterBackend を 1 つ抱えて、タイトル側のホットパスで使いやすい

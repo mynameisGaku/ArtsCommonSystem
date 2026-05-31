@@ -137,6 +137,19 @@ int ScriptDemoApp::Run() noexcept {
     std::printf("backend: %s\n\n", m_bRealBackend ? "REAL Lua 5.4 (FLuaVm)"
                                                   : "Stub (build with -DACS_BUILD_SCRIPTING=ON)");
 
+    int provider_failures = 0;
+#if WITH_ACS_SCRIPTING
+    // provider 結線の検証 (Wave 3): InstallLuaAsDefault() を呼ぶと gameframework の
+    // GetDefaultScriptVm() が backend 非依存に実 Lua VM (Language==Lua54) を返す。
+    acs::scripting::InstallLuaAsDefault();
+    IScriptVm& def = acs::game::GetDefaultScriptVm();
+    const bool provider_ok = (def.Language() == acs::game::EScriptLanguage::Lua54);
+    std::printf("provider : GetDefaultScriptVm() -> %s\n\n",
+                provider_ok ? "REAL Lua 5.4 (WIRED via provider)"
+                            : "stub (NOT wired — bug)");
+    if (!provider_ok) ++provider_failures;
+#endif
+
     if (vm.Init().IsErr()) {
         std::printf("VM Init failed.\n");
         return m_bRealBackend ? 1 : 0;
@@ -150,6 +163,7 @@ int ScriptDemoApp::Run() noexcept {
 
     vm.Shutdown();
 
+    failures += provider_failures;
     std::printf("\nresult: %s\n", failures == 0 ? "ALL PASS" : "FAILURES");
     // stub のときは「未実装」が正常なので 0 を返す。
     return (m_bRealBackend && failures > 0) ? 1 : 0;

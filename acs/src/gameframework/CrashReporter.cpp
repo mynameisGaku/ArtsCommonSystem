@@ -98,6 +98,19 @@ ICrashReporterBackend& GetCrashStub() noexcept {
     return s_instance;
 }
 
+// ---- 既定 backend provider 結線 (実 backend への委譲) ----------------------
+namespace {
+CrashReporterProvider g_CrashReporterProvider = nullptr;
+}
+
+void SetCrashReporterProvider(CrashReporterProvider provider) noexcept {
+    g_CrashReporterProvider = provider;
+}
+
+ICrashReporterBackend& GetDefaultCrashReporter() noexcept {
+    return g_CrashReporterProvider ? g_CrashReporterProvider() : GetCrashStub();
+}
+
 // -----------------------------------------------------------------------------
 // CrashHandler — 高レベル wrapper
 // -----------------------------------------------------------------------------

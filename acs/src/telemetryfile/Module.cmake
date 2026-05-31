@@ -10,6 +10,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         FileTelemetryBackendClient.cpp
+        FileTelemetryDefault.cpp
     HEADERS
         FileTelemetryBackendClient.h
     PUBLIC_DEPS

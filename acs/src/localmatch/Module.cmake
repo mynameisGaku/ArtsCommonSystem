@@ -10,6 +10,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         LocalMatchmaker.cpp
+        LocalMatchmakerDefault.cpp
     HEADERS
         LocalMatchmaker.h
     PUBLIC_DEPS

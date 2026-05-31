@@ -61,4 +61,19 @@ private:
     acs::u32 m_MaxRatingDelta = 150;
 };
 
+// =============================================================================
+// 既定 IMatchmaker 結線ヘルパ (gameframework の provider へ本実装を登録)
+// -----------------------------------------------------------------------------
+// アプリ起動時に一度だけ `InstallLocalMatchmakerAsDefault()` を呼ぶと、以降
+// `acs::game::GetDefaultMatchmaker()` がローカル matchmaker 実装 (プロセス共有
+// singleton) を返すようになる。これにより上位コードは backend 非依存に
+// `GetDefaultMatchmaker()` だけで実 matchmaker を取得できる。
+// =============================================================================
+
+// プロセス共有の既定 FLocalMatchmaker singleton を返す (provider 実体)。
+acs::game::IMatchmaker& GetDefaultLocalMatchmaker() noexcept;
+
+// gameframework の matchmaker provider に GetDefaultLocalMatchmaker を登録する。
+void InstallLocalMatchmakerAsDefault() noexcept;
+
 } // namespace acs::localmatch

@@ -243,6 +243,33 @@ private:
 IMlRuntime& GetMlRuntimeStub() noexcept;
 IUpscaler&  GetUpscalerStub()  noexcept;
 
+// =============================================================================
+// 既定 MlRuntime の provider 結線 (実 backend モジュールへの委譲点)
+// -----------------------------------------------------------------------------
+// gameframework は実 backend モジュール (例: ACS::MlOnnx / FOnnxMlRuntime) に
+// 依存できない (循環依存になる: backend 側が本 interface に依存する)。そこで実
+// backend 側が `SetMlRuntimeProvider()` で「既定 MlRuntime を返す関数」を登録し、
+// ゲームコードは `GetDefaultMlRuntime()` を通じて backend 非依存に既定 ML ランタイム
+// を取得する。
+//
+//   ・provider 未登録 (= backend 未リンク / ACS_BUILD_ML_ONNX=OFF) → GetMlRuntimeStub() を返す。
+//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実 runtime を返す。
+//
+// 典型: アプリ起動時に一度だけ
+//   #if WITH_ACS_ML_ONNX
+//       acs::mlonnx::InstallOnnxAsDefault();   // provider を登録
+//   #endif
+// 以降はどこでも `acs::game::GetDefaultMlRuntime()` で実 ONNX runtime が得られる。
+// 本 seam は純粋な関数ポインタ + アクセサのみなので、SDK 無しでも本層は compile できる。
+using MlRuntimeProvider = IMlRuntime& (*)() noexcept;
+
+// 既定 MlRuntime provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetMlRuntimeProvider(MlRuntimeProvider provider) noexcept;
+
+// 既定 MlRuntime を返す。provider 登録済みならその実 runtime、未登録なら GetMlRuntimeStub()。
+IMlRuntime& GetDefaultMlRuntime() noexcept;
+
 // NotImplemented 等の subcode を上位層が switch 分岐できるよう、
 // FSaveSlot.h と同じ「subcode = u16 で番号固定」の規約を踏襲する。
 namespace ml_err {

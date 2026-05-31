@@ -94,4 +94,27 @@ IAssetPackWriter& GetWriterStub() noexcept {
     return m_Instance;
 }
 
+// ---- 既定 provider 結線 (実 backend モジュールから登録される) -------------
+
+namespace {
+AssetPackReaderProvider g_ReaderProvider = nullptr;
+AssetPackWriterProvider g_WriterProvider = nullptr;
+} // namespace
+
+void SetAssetPackReaderProvider(AssetPackReaderProvider provider) noexcept {
+    g_ReaderProvider = provider;
+}
+
+IAssetPackReader& GetDefaultAssetPackReader() noexcept {
+    return g_ReaderProvider ? g_ReaderProvider() : GetReaderStub();
+}
+
+void SetAssetPackWriterProvider(AssetPackWriterProvider provider) noexcept {
+    g_WriterProvider = provider;
+}
+
+IAssetPackWriter& GetDefaultAssetPackWriter() noexcept {
+    return g_WriterProvider ? g_WriterProvider() : GetWriterStub();
+}
+
 } // namespace acs::game

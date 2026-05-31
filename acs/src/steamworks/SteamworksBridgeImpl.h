@@ -101,4 +101,18 @@ private:
     bool  m_bInitialized = false;
 };
 
+// ---- 既定 Bridge provider 結線 (gameframework への登録点) -----------------
+// gameframework は ACS::Steamworks に依存できない (循環依存) ため、結線は backend
+// 側 (SteamworksDefault.cpp) から `acs::game::SetSteamworksBridgeProvider()` を呼んで
+// 行う。アプリは起動時に一度 `acs::steamworks::InstallSteamworksAsDefault()` を呼ぶ
+// だけで、以降は backend 非依存に `acs::game::GetDefaultSteamworksBridge()` で実
+// Bridge を取得できる。
+
+// プロセス共有 singleton の実 Bridge を返す。初回アクセス時に Init() を 1 回走らせる
+// (Steam クライアント未起動等で失敗しても参照は返す — 呼び出し側が IsInitialized 等で判断)。
+acs::game::ISteamworksBridge& GetDefaultSteamworksBridge() noexcept;
+
+// 既定 Bridge provider を gameframework に登録する。起動時に一度だけ呼ぶ。
+void InstallSteamworksAsDefault() noexcept;
+
 } // namespace acs::steamworks

@@ -13,6 +13,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         OnnxMlRuntime.cpp
+        OnnxDefault.cpp
     HEADERS
         OnnxMlRuntime.h
     PUBLIC_DEPS

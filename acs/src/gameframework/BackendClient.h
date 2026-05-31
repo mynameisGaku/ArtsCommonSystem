@@ -177,4 +177,49 @@ IBackendClient& GetBackendStub() noexcept;
 // プロセス共有の stub IMatchmaker。常に NotImplemented を返す。
 IMatchmaker& GetMatchmakerStub() noexcept;
 
+// =============================================================================
+// 既定 backend の provider 結線 (実 backend モジュールへの委譲点)
+// -----------------------------------------------------------------------------
+// gameframework は実 backend モジュール (例: ACS::TelemetryFile / ACS::LocalMatch)
+// に依存できない (循環依存になる: backend 側が本 interface に依存する)。そこで実
+// backend 側が `SetBackendClientProvider()` / `SetMatchmakerProvider()` で「既定
+// 実装を返す関数」を登録し、ゲームコードは `GetDefaultBackendClient()` /
+// `GetDefaultMatchmaker()` を通じて backend 非依存に既定実装を取得する。
+//
+//   ・provider 未登録 (= backend 未リンク / flag OFF) → stub を返す。
+//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実装を返す。
+//
+// 典型: アプリ起動時に一度だけ
+//   #if WITH_ACS_TELEMETRY_FILE
+//       acs::telemetryfile::InstallFileTelemetryAsDefault();   // provider を登録
+//   #endif
+//   #if WITH_ACS_LOCAL_MATCHMAKER
+//       acs::localmatch::InstallLocalMatchmakerAsDefault();     // provider を登録
+//   #endif
+// 以降はどこでも `acs::game::GetDefaultBackendClient()` /
+// `GetDefaultMatchmaker()` で実 backend が得られる。
+// =============================================================================
+
+// 既定 IBackendClient provider を返す関数の型。
+using BackendClientProvider = IBackendClient& (*)() noexcept;
+
+// 既定 backend provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetBackendClientProvider(BackendClientProvider provider) noexcept;
+
+// 既定 IBackendClient を返す。provider 登録済みならその実装、未登録なら
+// GetBackendStub()。
+IBackendClient& GetDefaultBackendClient() noexcept;
+
+// 既定 IMatchmaker provider を返す関数の型。
+using MatchmakerProvider = IMatchmaker& (*)() noexcept;
+
+// 既定 matchmaker provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetMatchmakerProvider(MatchmakerProvider provider) noexcept;
+
+// 既定 IMatchmaker を返す。provider 登録済みならその実装、未登録なら
+// GetMatchmakerStub()。
+IMatchmaker& GetDefaultMatchmaker() noexcept;
+
 } // namespace acs::game

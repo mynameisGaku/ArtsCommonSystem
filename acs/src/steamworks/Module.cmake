@@ -22,6 +22,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         SteamworksBridgeImpl.cpp
+        SteamworksDefault.cpp
     HEADERS
         SteamworksBridgeImpl.h
     PUBLIC_DEPS

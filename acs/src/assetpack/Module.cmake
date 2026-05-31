@@ -37,6 +37,7 @@ acs_module(
         AcpakReader.cpp
         AcpakWriter.cpp
         AcpakGameBridge.cpp
+        AcpakDefault.cpp
         AcpakCrypto.cpp
         AcpakLz4.cpp
     HEADERS

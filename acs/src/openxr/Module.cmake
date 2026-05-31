@@ -13,6 +13,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         KhronosOpenXrBridge.cpp
+        OpenXrDefault.cpp
     HEADERS
         KhronosOpenXrBridge.h
     PUBLIC_DEPS

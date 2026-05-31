@@ -179,4 +179,40 @@ public:
 IAssetPackReader& GetReaderStub() noexcept;
 IAssetPackWriter& GetWriterStub() noexcept;
 
+// =============================================================================
+// 既定 AssetPack の provider 結線 (実 backend モジュールへの委譲点)
+// -----------------------------------------------------------------------------
+// gameframework は実 backend モジュール (ACS::AssetPack / FAcpakGameReader /
+// FAcpakGameWriter) に依存できない (循環依存になる: backend 側が本 interface に
+// 依存する)。そこで実 backend 側が `SetAssetPackReaderProvider()` /
+// `SetAssetPackWriterProvider()` で「既定 Reader/Writer を返す関数」を登録し、
+// ゲームコードは `GetDefaultAssetPackReader()` / `GetDefaultAssetPackWriter()` を
+// 通じて backend 非依存に既定実装を取得する。
+//
+//   ・provider 未登録 (= backend 未リンク / Install 未呼出) → Stub を返す。
+//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実装を返す。
+//
+// 典型: アプリ起動時に一度だけ
+//   acs::assetpack::InstallAcpakReaderAsDefault();   // provider を登録
+//   acs::assetpack::InstallAcpakWriterAsDefault();
+// 以降はどこでも `acs::game::GetDefaultAssetPackReader()` で実 `.acpak` Reader が
+// 得られる。
+// =============================================================================
+using AssetPackReaderProvider = IAssetPackReader& (*)() noexcept;
+using AssetPackWriterProvider = IAssetPackWriter& (*)() noexcept;
+
+// 既定 Reader provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetAssetPackReaderProvider(AssetPackReaderProvider provider) noexcept;
+
+// 既定 Reader を返す。provider 登録済みならその実装、未登録なら GetReaderStub()。
+IAssetPackReader& GetDefaultAssetPackReader() noexcept;
+
+// 既定 Writer provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+// nullptr 登録で stub に戻す。後勝ち。
+void SetAssetPackWriterProvider(AssetPackWriterProvider provider) noexcept;
+
+// 既定 Writer を返す。provider 登録済みならその実装、未登録なら GetWriterStub()。
+IAssetPackWriter& GetDefaultAssetPackWriter() noexcept;
+
 } // namespace acs::game
