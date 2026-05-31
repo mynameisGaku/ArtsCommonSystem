@@ -79,7 +79,13 @@ function(acs_apply_compiler_options tgt)
             source_group(TREE "${_acs_tgt_srcdir}" FILES ${_acs_inside})
         endif()
         if(_acs_outside)
-            source_group(TREE "${CMAKE_SOURCE_DIR}" FILES ${_acs_outside})
+            # Files referenced from outside the target's own dir (e.g. editor
+            # samples pulling in src/gameframework/tools/...). Anchor the VS
+            # filter tree at the acs/ source root, NOT CMAKE_SOURCE_DIR — the
+            # latter is acs/engine/ (where the build system lives) and those
+            # files live one level up under acs/src, which source_group(TREE)
+            # would reject as "not under the tree".
+            source_group(TREE "${ACS_TREE_ROOT}" FILES ${_acs_outside})
         endif()
     endif()
 endfunction()

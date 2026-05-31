@@ -25,7 +25,7 @@ add_executable(hello_cinematics_editor WIN32
     main.cpp
     CineEditorApp.cpp
     CineEditorScene.cpp
-    ${CMAKE_SOURCE_DIR}/src/gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.cpp
+    ${ACS_TREE_ROOT}/src/gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.cpp
     # Header 群 (VS Solution Explorer で表示するため)
     CineEditorApp.h
     CineEditorScene.h
@@ -33,7 +33,7 @@ add_executable(hello_cinematics_editor WIN32
 acs_apply_compiler_options(hello_cinematics_editor)
 target_include_directories(hello_cinematics_editor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/src
+    ${ACS_TREE_ROOT}/src
 )
 target_link_libraries(hello_cinematics_editor PRIVATE
     ACS::GameFramework

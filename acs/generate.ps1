@@ -156,7 +156,7 @@ if (-not $AllSamples -and $Sample -ne "55_HelloScene2D" -and $StartupProject -eq
 }
 
 $cmakeArgs = @(
-    "-S", $proj,
+    "-S", (Join-Path $proj "engine"),
     "-B", $inter,
     "-G", $Generator,
     "-DACS_RENDER_DX12_RAW=ON",

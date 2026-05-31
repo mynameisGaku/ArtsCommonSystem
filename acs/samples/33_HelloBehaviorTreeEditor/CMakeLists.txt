@@ -26,7 +26,7 @@ add_executable(hello_behavior_tree_editor WIN32
     TreeActions.cpp
     TreeBuilder.cpp
     # btedit panel 本体 (sample 側でビルドさせる、Module.cmake 不変)。
-    ${CMAKE_SOURCE_DIR}/src/gameframework/tools/btedit/BehaviorTreeEditorPanel.cpp
+    ${ACS_TREE_ROOT}/src/gameframework/tools/btedit/BehaviorTreeEditorPanel.cpp
     # Header 群 (VS Solution Explorer で表示するため)
     BtEditorApp.h
     BtEditorScene.h

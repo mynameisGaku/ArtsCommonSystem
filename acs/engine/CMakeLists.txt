@@ -13,6 +13,12 @@ endif()
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Engine/Generated")
 
+# The build system lives in acs/engine/, but source/asset trees (src, samples,
+# tests, tools) live one level up in acs/. ACS_TREE_ROOT is that acs/ directory;
+# every tree-relative path below is anchored to it rather than to this list dir.
+get_filename_component(ACS_TREE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
+set(ACS_TREE_ROOT "${ACS_TREE_ROOT}" CACHE INTERNAL "ACS source-tree root (parent of engine/)")
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(ACSCompilerOptions)
@@ -36,7 +42,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "Export compile_commands.jso
 # pdb は build tree に残し、表層には出さない。これらは generate.ps1 が hidden 属性
 # を付与し .gitignore 済み。ACS_LAYOUT_ROOT で配置基準を上書きできる。
 if(NOT DEFINED ACS_LAYOUT_ROOT OR "${ACS_LAYOUT_ROOT}" STREQUAL "")
-    set(ACS_LAYOUT_ROOT "${CMAKE_SOURCE_DIR}")
+    set(ACS_LAYOUT_ROOT "${ACS_TREE_ROOT}")
 endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${ACS_LAYOUT_ROOT}/Binaries")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${ACS_LAYOUT_ROOT}/Binaries")
@@ -96,7 +102,7 @@ option(ACS_BUILD_TELEMETRY_FILE "Build real file telemetry backend (acs_telemetr
 # Useful for gameplay tests and offline development without a backend service.
 option(ACS_BUILD_LOCAL_MATCHMAKER "Build real local matchmaker backend (acs_localmatch module)" OFF)
 
-set(ACS_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(ACS_SOURCE_ROOT "${ACS_TREE_ROOT}/src")
 
 # ---- 1. src/<mod>/Module.cmake から利用可能なモジュールを発見する ---------
 acs_discover_modules("${ACS_SOURCE_ROOT}")
@@ -121,17 +127,17 @@ target_link_libraries(acs_game INTERFACE
 
 if(ACS_BUILD_TESTS)
     enable_testing()
-    add_subdirectory(tests)
+    add_subdirectory("${ACS_TREE_ROOT}/tests" "${CMAKE_CURRENT_BINARY_DIR}/tests")
 endif()
 
 # ---- 5. CLI ツール群 (acs/tools/<name>/CMakeLists.txt) --------------------
 # 配布用 ZIP には含めない開発時ユーティリティ。AssetPack モジュールが有効な
 # ときだけ acs_assetpack を組み込む (依存欠落でビルドが落ちないように)。
-if(ACS_BUILD_TOOLS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/acs_assetpack/CMakeLists.txt")
+if(ACS_BUILD_TOOLS AND EXISTS "${ACS_TREE_ROOT}/tools/acs_assetpack/CMakeLists.txt")
     get_property(_acs_enabled_mods GLOBAL PROPERTY _ACS_ENABLED_MODULES)
     list(FIND _acs_enabled_mods "AssetPack" _acs_assetpack_idx)
     if(NOT _acs_assetpack_idx EQUAL -1)
-        add_subdirectory(tools/acs_assetpack)
+        add_subdirectory("${ACS_TREE_ROOT}/tools/acs_assetpack" "${CMAKE_CURRENT_BINARY_DIR}/tools/acs_assetpack")
     endif()
 endif()
 
@@ -150,7 +156,7 @@ function(acs_add_sample sample_dir)
         get_property(_before_imports DIRECTORY PROPERTY IMPORTED_TARGETS)
         set(_acs_prev_cmake_folder "${CMAKE_FOLDER}")
         set(CMAKE_FOLDER "Game")
-        add_subdirectory(samples/${sample_dir})
+        add_subdirectory("${ACS_TREE_ROOT}/samples/${sample_dir}" "${CMAKE_CURRENT_BINARY_DIR}/samples/${sample_dir}")
         set(CMAKE_FOLDER "${_acs_prev_cmake_folder}")
         get_property(_after_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
         foreach(_t ${_after_targets})
@@ -430,12 +436,12 @@ find_program(ACS_CLANG_TIDY_EXE
 
 if(ACS_CLANG_TIDY_EXE)
     file(GLOB_RECURSE ACS_LINT_SOURCES CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.inl"
-        "${CMAKE_CURRENT_SOURCE_DIR}/samples/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp")
+        "${ACS_TREE_ROOT}/src/*.h"
+        "${ACS_TREE_ROOT}/src/*.hpp"
+        "${ACS_TREE_ROOT}/src/*.cpp"
+        "${ACS_TREE_ROOT}/src/*.inl"
+        "${ACS_TREE_ROOT}/samples/*.cpp"
+        "${ACS_TREE_ROOT}/tests/*.cpp")
     # _deps/ や cmake-build-* 以下は除外（third-party / build artifact）
     list(FILTER ACS_LINT_SOURCES EXCLUDE REGEX "(/_deps/|/cmake-build-)")
 
@@ -443,7 +449,7 @@ if(ACS_CLANG_TIDY_EXE)
         COMMAND ${ACS_CLANG_TIDY_EXE}
                 --quiet
                 -p "${CMAKE_BINARY_DIR}"
-                --config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy
+                --config-file=${ACS_TREE_ROOT}/../.clang-tidy
                 ${ACS_LINT_SOURCES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running clang-tidy on src/ samples/ tests/ (config: .clang-tidy)"
