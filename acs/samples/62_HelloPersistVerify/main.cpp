@@ -13,10 +13,16 @@
 #include "gameframework/SpatialAudio.h"
 #include "gameframework/LlmSafetyPipeline.h"
 #include "gameframework/NetSnapshot.h"
+#include "gameframework/VoiceChat.h"
+#include "gameframework/StudioWorkflow.h"
+#include "gameframework/ReplayDirector.h"
+#include "gameframework/InputRecorder.h"
+#include "gameframework/Lockstep.h"
 
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <windows.h>   // Sleep (UDP loopback poll)
 
 using namespace acs;
 using namespace acs::game;
@@ -309,6 +315,153 @@ void TestNetSnapshot() noexcept {
     Check(FNetSnapshot::DecodeSnapshot(buf, written, oh2, opl2).IsErr(), "CRC 改竄を検知");
 }
 
+void TestNetTransport() noexcept {
+    std::printf("[FUdpTransport] Winsock UDP localhost ループバック\n");
+    FUdpTransport server, client;
+    server.SetLocalPort(53701);
+    Check(server.Connect("127.0.0.1", 53702).IsOk(), "server Connect (bind 53701 → 53702)");
+    client.SetLocalPort(53702);
+    Check(client.Connect("127.0.0.1", 53701).IsOk(), "client Connect (bind 53702 → 53701)");
+
+    const u8 msg[9] = { 'A','C','S','N', 1,2,3,4,5 };
+    Check(server.Send(msg, sizeof(msg)).IsOk(), "server Send datagram");
+
+    u8 rbuf[256]; u32 got = 0; bool recv_ok = true;
+    for (int i = 0; i < 3000 && got == 0; ++i) {
+        auto r = client.Receive(rbuf, sizeof(rbuf));
+        if (r.IsErr()) { recv_ok = false; break; }   // WSAEWOULDBLOCK は Ok(0)
+        got = r.Value();
+        if (got == 0) ::Sleep(1);
+    }
+    Check(recv_ok, "Receive がエラー無し (no-data は Ok(0))");
+    Check(got == sizeof(msg), "受信バイト数一致");
+    bool same = (got == sizeof(msg));
+    for (u32 i = 0; same && i < got; ++i) if (rbuf[i] != msg[i]) same = false;
+    Check(same, "受信内容がバイト完全一致");
+    server.Disconnect();
+    client.Disconnect();
+}
+
+void TestVoiceChat() noexcept {
+    std::printf("[FVoiceChatLoopbackBackend] loopback PCM mix\n");
+    auto& v = GetVoiceLoopback();
+    Check(v.Init(EVoiceProvider::OpusSelf).IsOk(), "Init(OpusSelf)");
+    v.JoinChannel(EVoiceChannel::Party, "p1");
+    v.AddParticipant(EVoiceChannel::Party, "A", "Alice");   // index0 = ローカル(送話)
+    v.AddParticipant(EVoiceChannel::Party, "B", "Bob");     // 受話
+
+    const i16 X[4] = { 1000, -2000, 30000, -30000 };
+    v.PushLocalFrame(EVoiceChannel::Party, X, 4);           // A が発話 → B へ配送
+    v.SetPumpTarget(EVoiceChannel::Party, "B");
+    i16 out[4] = {};
+    u32 n = v.PumpMixedOutput(EVoiceChannel::Party, out, 4);
+    Check(n == 4, "PumpMixedOutput 4 サンプル");
+    Check(out[0]==1000 && out[1]==-2000 && out[2]==30000 && out[3]==-30000,
+          "identity round-trip (gain 1.0)");
+
+    v.SetParticipantVolume("B", 0.5f);                      // 受話 gain 0.5
+    v.PushLocalFrame(EVoiceChannel::Party, X, 4);
+    n = v.PumpMixedOutput(EVoiceChannel::Party, out, 4);
+    Check(out[0]==500 && out[1]==-1000 && out[2]==15000 && out[3]==-15000, "gain 0.5 適用");
+
+    const f32 lvl = v.LocalAudioLevel();
+    Check(lvl > 0.6f && lvl < 0.7f, "RMS level が実測値 (≈0.648、定数でない)");
+}
+
+void TestStudioWorkflow() noexcept {
+    std::printf("[Studio] on-disk asset lock + ローカル build 実行\n");
+    auto& L = GetLocalFileAssetLocking();
+    const char* asset = "wf_test_asset.bin";
+    L.UnlockAsset(asset);   // 前回の残骸を掃除 (存在しなければ Err、無視)
+
+    Check(L.LockAsset(asset, "designer_a").IsOk(), "LockAsset 成功");
+    Check(L.LockAsset(asset, "designer_b").IsErr(), "二重ロックは失敗 (CREATE_NEW atomicity)");
+    auto q = L.QueryLock(asset);
+    Check(q.IsOk() && q.Value().locker_user != nullptr
+          && std::strcmp(q.Value().locker_user, "designer_a") == 0, "QueryLock owner=designer_a");
+    Check(L.UnlockAsset(asset).IsOk(), "UnlockAsset 成功");
+    Check(L.LockAsset(asset, "designer_b").IsOk(), "解放後の再ロック成功");
+    Check(L.UnlockAssetAs(asset, "intruder").IsErr(), "別ユーザの owner-checked unlock 拒否");
+    Check(L.UnlockAssetAs(asset, "designer_b").IsOk(), "owner 一致 unlock 成功");
+
+    auto& B = GetLocalBuildRunner();
+    u32 ec = 99;
+    Check(B.RunBuild(L"cmd /c exit 3", ec).IsOk(), "RunBuild 起動成功");
+    Check(ec == 3, "実 exit code 3 を捕捉");
+}
+
+void TestReplayDirector() noexcept {
+    std::printf("[FReplayDirector] replay container round-trip\n");
+    FInputRecorder rec; rec.StartRecording(60);
+    const u32 N = 5;
+    for (u32 t = 0; t < N; ++t) {
+        InputSample s; s.tick = t;
+        s.key_codes_changed[0] = static_cast<u8>('A' + t);
+        s.key_states[0] = 1;
+        s.mouse_pos = FVec2{ static_cast<f32>(t), static_cast<f32>(t * 2) };
+        s.mouse_button_states = static_cast<u8>(t & 0x1F);
+        rec.Capture(s);
+    }
+    rec.StopRecording();
+
+    FLockstep ls; ls.Init(ENetMode::Local, 60);
+    const u32 M = 7;
+    for (u32 t = 0; t < M; ++t) {
+        InputFrame f; f.tick = t; f.player_id = 0; f.buttons = static_cast<u8>(t);
+        f.axis = FVec2{ 0.5f, -0.5f };
+        ls.RecordInput(f);
+    }
+    const u64 cks = ls.ComputeChecksum();
+
+    ReplayMetadata meta{};
+    meta.game_version = "1.2.3"; meta.level_id = "stage_07"; meta.seed = 0xDEADBEEFCAFEull;
+    meta.timestamp = 1700000000ull; meta.duration_ticks = 0;
+    meta.player_name = "Tester"; meta.checksum_hex = "0011223344556677";
+
+    FReplayDirector dir; dir.Init(); dir.SetSources(&rec, &ls);
+    Check(dir.StartRecording(meta).IsOk(), "StartRecording(meta)");
+    dir.StopRecording();
+    Check(dir.SaveReplay(L"replay_test.acrp").IsOk(), "SaveReplay 成功 (input+lockstep+meta)");
+
+    FInputRecorder rec2; FLockstep ls2; ls2.Init(ENetMode::Local, 60);
+    FReplayDirector dir2; dir2.Init(); dir2.SetSources(&rec2, &ls2);
+    Check(dir2.LoadReplay(L"replay_test.acrp").IsOk(), "LoadReplay 成功");
+    const ReplayMetadata& m = dir2.Metadata();
+    Check(m.game_version && std::strcmp(m.game_version, "1.2.3") == 0, "game_version 復元");
+    Check(m.level_id && std::strcmp(m.level_id, "stage_07") == 0, "level_id 復元");
+    Check(m.player_name && std::strcmp(m.player_name, "Tester") == 0, "player_name 復元 (owned)");
+    Check(m.seed == 0xDEADBEEFCAFEull && m.timestamp == 1700000000ull, "数値 metadata 復元");
+    Check(rec2.SampleCount() == N, "input sample 復元 (5)");
+    Check(ls2.InputCount() == M, "lockstep frame 復元 (7)");
+    Check(ls2.ComputeChecksum() == cks, "lockstep checksum bit 一致");
+    Check(dir2.SaveReplay(nullptr).IsErr(), "null path → Err");
+    std::remove("replay_test.acrp");
+}
+
+void TestImageModeration() noexcept {
+    std::printf("[FContentModerator] 画像 NSFW skin-ratio heuristic\n");
+    auto& cm = static_cast<ContentModeratorStub&>(GetModeratorStub());
+
+    // 肌色 (R=200,G=120,B=90) で埋めた 8x8 → ratio 1.0 → Block(Explicit)
+    u8 skin[8 * 8 * 4];
+    for (int i = 0; i < 64; ++i) { skin[i*4+0]=200; skin[i*4+1]=120; skin[i*4+2]=90; skin[i*4+3]=255; }
+    auto rs = cm.ModerateImageRgba8(skin, 8, 8);
+    Check(rs.IsOk() && rs.Value().verdict == EModerationVerdict::Block, "肌色 100% → Block");
+
+    // 青一色 → 肌色 0% → Allow(Safe)
+    u8 blue[8 * 8 * 4];
+    for (int i = 0; i < 64; ++i) { blue[i*4+0]=20; blue[i*4+1]=40; blue[i*4+2]=200; blue[i*4+3]=255; }
+    auto rb = cm.ModerateImageRgba8(blue, 8, 8);
+    Check(rb.IsOk() && rb.Value().verdict == EModerationVerdict::Allow, "青一色 → Allow");
+
+    // 全透明 → 母数 0 → ratio 0 → Allow
+    u8 trans[2 * 2 * 4] = { 0 };
+    auto rt = cm.ModerateImageRgba8(trans, 2, 2);
+    Check(rt.IsOk() && rt.Value().verdict == EModerationVerdict::Allow, "全透明 → Allow (母数0)");
+
+    Check(cm.ModerateImageRgba8(nullptr, 8, 8).IsErr(), "null pixels → Err");
+}
+
 } // namespace
 
 int main() {
@@ -324,6 +477,11 @@ int main() {
     TestSpatialAudio();
     TestLlmSafety();
     TestNetSnapshot();
+    TestNetTransport();
+    TestVoiceChat();
+    TestStudioWorkflow();
+    TestReplayDirector();
+    TestImageModeration();
     std::printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILED");
     return g_fail;
 }

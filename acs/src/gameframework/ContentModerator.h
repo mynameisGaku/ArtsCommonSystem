@@ -191,6 +191,15 @@ public:
     TResult<ModerationResult> ModerateUserName(const char* name) noexcept override;
     void                     Tick(f32 dt) noexcept override;
     bool                     IsAvailable() const noexcept override { return true; }
+
+    // 既にデコード済みの RGBA8 ピクセル列を直接 NSFW 判定する公開 API。
+    // エンジンが CPU 側にテクスチャを持っている場合に再デコードを避けられる。
+    // 肌色比率 heuristic (Kovac et al.) で露出度を推定する本実装。
+    TResult<ModerationResult> ModerateImageRgba8(const u8* rgba, u32 width, u32 height) noexcept;
+
+private:
+    // 肌色比率 → verdict/rating のしきい値判定 (ModerateImage / RGBA 直接判定で共用)。
+    TResult<ModerationResult> ClassifyImageRatio(f32 skin_ratio) const noexcept;
 };
 
 // =============================================================================

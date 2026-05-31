@@ -36,8 +36,16 @@
 
 #include "gameframework/NetSnapshot.h"
 
-#include "foundation/Move.h"  // Move (rvalue cast)
-#include "memory/Memory.h"    // MemCopy / MemSet
+#include "foundation/Move.h"   // Move (rvalue cast)
+#include "memory/Memory.h"     // MemCopy / MemSet
+#include "threading/Atomic.h"  // TAtomic (WSAStartup の ref-count)
+
+// ---- 実 Winsock2 UDP transport (FUdpTransport) 用 ---------------------------
+// <winsock2.h> は <windows.h> より先に include しないと winsock(1) と衝突する
+// ため、明示的に先頭で取り込む。header (NetSnapshot.h) には漏らさない (uptr /
+// raw octets で socket / endpoint を保持しているため)。
+#include <winsock2.h>
+#include <ws2tcpip.h>
 
 namespace acs::game {
 
@@ -126,6 +134,38 @@ void ReadHeader(const u8* src, SnapshotHeader& h) noexcept {
     h.crc32               = ReadU32LE(src + 20);
 }
 
+// -----------------------------------------------------------------------------
+// WSAStartup の プロセス内 ref-count (FUdpTransport 用)
+// -----------------------------------------------------------------------------
+// 複数の FUdpTransport / 他モジュールの Winsock 利用と共存できるよう、
+// WSAStartup は「初回のみ実行」「最後の解放で WSACleanup」とする。network
+// モジュール (Network.cpp) と同じ流儀だが、gameframework は Network を依存に
+// 持たないため file-local に独立した counter を持つ (両者の counter は別物だが、
+// WSAStartup/WSACleanup 自体が OS 側で ref-count されるため共存しても安全)。
+TAtomic<u32> g_WsaRefCount{0};
+
+// WSAStartup を ref-count して 1 回だけ実行する。
+// 戻り値: 0 = 成功、それ以外 = WSAStartup の戻り値 (= エラーコード)。
+int WsaStartupAddRef() noexcept {
+    if (g_WsaRefCount.FetchAdd(1) > 0) {
+        return 0;  // 既に他がスタート済み。
+    }
+    WSADATA wsa{};
+    const int r = ::WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (r != 0) {
+        g_WsaRefCount.FetchSub(1);  // 失敗したので加算を取り消す。
+    }
+    return r;
+}
+
+// WSAStartup の ref を 1 戻す。最後の解放で WSACleanup を呼ぶ。
+void WsaStartupRelease() noexcept {
+    const u32 prev = g_WsaRefCount.FetchSub(1);
+    if (prev == 1) {
+        ::WSACleanup();
+    }
+}
+
 } // namespace
 
 // =============================================================================
@@ -167,6 +207,205 @@ TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept 
 INetTransport& GetTransportStub() noexcept {
     static NetTransportStub s_instance;
     return s_instance;
+}
+
+// =============================================================================
+// FUdpTransport — 実 Winsock2 UDP transport
+// -----------------------------------------------------------------------------
+// 全 method が real な Winsock 呼び出しを行う。NetTransportStub と違い
+// NotImplemented は一切返さない。失敗時は WSAGetLastError() を os_error に
+// 載せた FErrorCode を返す。
+// =============================================================================
+
+FUdpTransport::~FUdpTransport() noexcept {
+    // socket を確実に閉じ、WSAStartup の ref も戻す (べき等)。
+    Disconnect();
+}
+
+// -----------------------------------------------------------------------------
+// Connect — WSAStartup → socket → 非ブロッキング → bind → remote endpoint 保持
+// -----------------------------------------------------------------------------
+// UDP はコネクションレスなので「接続」= 「送受信できる open な socket を用意し、
+// 送信先 endpoint を確定する」を意味する。多重 Connect は前の socket を閉じて
+// から張り直す (べき等な再接続)。
+TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept {
+    if (address == nullptr) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
+                       "FUdpTransport::Connect: address is null");
+    }
+
+    // ---- remote endpoint の IPv4 dotted-quad を先に検証 (副作用前に弾く) ----
+    // inet_pton で "127.0.0.1" 等を 4 octet に変換する。失敗 = 不正なアドレス。
+    in_addr remote_in{};
+    if (::inet_pton(AF_INET, address, &remote_in) != 1) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadAddress,
+                       "FUdpTransport::Connect: address is not a valid IPv4 dotted-quad");
+    }
+
+    // 多重 Connect 対応: 既存 socket があれば一旦閉じる (WSAStartup ref も戻る)。
+    if (m_Socket != kInvalidSocket || m_WsaStarted) {
+        Disconnect();
+    }
+
+    // ---- WSAStartup (ref-count、初回のみ実行) -----------------------------
+    const int wsa_rc = WsaStartupAddRef();
+    if (wsa_rc != 0) {
+        return ACS_ERR_OS(IO, NetSnapshotError::kSub_WsaStartup,
+                          "FUdpTransport::Connect: WSAStartup failed",
+                          static_cast<u32>(wsa_rc));
+    }
+    m_WsaStarted = true;
+
+    // ---- UDP socket 生成 -------------------------------------------------
+    SOCKET sock = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock == INVALID_SOCKET) {
+        const u32 err = static_cast<u32>(::WSAGetLastError());
+        WsaStartupRelease();
+        m_WsaStarted = false;
+        return ACS_ERR_OS(IO, NetSnapshotError::kSub_SocketCreate,
+                          "FUdpTransport::Connect: socket() failed", err);
+    }
+
+    // ---- 非ブロッキング化 (FIONBIO) --------------------------------------
+    u_long nonblock = 1;
+    if (::ioctlsocket(sock, FIONBIO, &nonblock) == SOCKET_ERROR) {
+        const u32 err = static_cast<u32>(::WSAGetLastError());
+        ::closesocket(sock);
+        WsaStartupRelease();
+        m_WsaStarted = false;
+        return ACS_ERR_OS(IO, NetSnapshotError::kSub_SetNonBlocking,
+                          "FUdpTransport::Connect: ioctlsocket(FIONBIO) failed", err);
+    }
+
+    // ---- local port に bind (m_LocalPort == 0 なら ephemeral) ------------
+    // 全インターフェイス (INADDR_ANY) で受け、送信のみなら port 0 で OS 任せ。
+    sockaddr_in local{};
+    local.sin_family      = AF_INET;
+    local.sin_port        = ::htons(m_LocalPort);
+    local.sin_addr.s_addr = ::htonl(INADDR_ANY);
+    if (::bind(sock, reinterpret_cast<sockaddr*>(&local), sizeof(local)) == SOCKET_ERROR) {
+        const u32 err = static_cast<u32>(::WSAGetLastError());
+        ::closesocket(sock);
+        WsaStartupRelease();
+        m_WsaStarted = false;
+        return ACS_ERR_OS(IO, NetSnapshotError::kSub_Bind,
+                          "FUdpTransport::Connect: bind() failed (local port in use?)", err);
+    }
+
+    // ---- 状態確定: socket open + remote endpoint 保持 --------------------
+    m_Socket = static_cast<uptr>(sock);
+    // inet_pton が書いた network-order 4 byte をそのまま octets に複製する。
+    MemCopy(m_RemoteOctets, &remote_in, sizeof(m_RemoteOctets));
+    m_RemotePort = port;
+    return Ok();
+}
+
+// -----------------------------------------------------------------------------
+// Disconnect — closesocket + WSACleanup (ref を戻す)。多重 / 未接続呼出は no-op。
+// -----------------------------------------------------------------------------
+void FUdpTransport::Disconnect() noexcept {
+    if (m_Socket != kInvalidSocket) {
+        ::closesocket(static_cast<SOCKET>(m_Socket));
+        m_Socket = kInvalidSocket;
+    }
+    if (m_WsaStarted) {
+        WsaStartupRelease();
+        m_WsaStarted = false;
+    }
+    m_RemoteOctets[0] = m_RemoteOctets[1] = m_RemoteOctets[2] = m_RemoteOctets[3] = 0;
+    m_RemotePort = 0;
+}
+
+// -----------------------------------------------------------------------------
+// Send — remote endpoint へ 1 datagram を sendto()。境界保持 (1 Send = 1 packet)。
+// -----------------------------------------------------------------------------
+// WSAEWOULDBLOCK (送信 buffer 一時的満杯) は kSub_BufferFull で返し、上位
+// (FNetSnapshot::CommitSnapshot) は packet loss 相当に扱える。それ以外の失敗は
+// kSub_SendFailed (os_error 付き)。
+TResult<void> FUdpTransport::Send(const void* data, u32 size) noexcept {
+    if (m_Socket == kInvalidSocket) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_NotConnected,
+                       "FUdpTransport::Send: not connected (call Connect first)");
+    }
+    if (data == nullptr || size == 0) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
+                       "FUdpTransport::Send: data is null or size == 0");
+    }
+
+    sockaddr_in remote{};
+    remote.sin_family = AF_INET;
+    remote.sin_port   = ::htons(m_RemotePort);
+    // 保持しておいた network-order 4 byte を in_addr に戻す。
+    MemCopy(&remote.sin_addr, m_RemoteOctets, sizeof(m_RemoteOctets));
+
+    const int sent = ::sendto(static_cast<SOCKET>(m_Socket),
+                              static_cast<const char*>(data),
+                              static_cast<int>(size), 0,
+                              reinterpret_cast<sockaddr*>(&remote), sizeof(remote));
+    if (sent == SOCKET_ERROR) {
+        const int werr = ::WSAGetLastError();
+        if (werr == WSAEWOULDBLOCK) {
+            // 送信 buffer が一時的に満杯。BufferFull として上位に伝える。
+            return ACS_ERR(IO, NetSnapshotError::kSub_BufferFull,
+                           "FUdpTransport::Send: send buffer full (WSAEWOULDBLOCK)");
+        }
+        return ACS_ERR_OS(IO, NetSnapshotError::kSub_SendFailed,
+                          "FUdpTransport::Send: sendto() failed",
+                          static_cast<u32>(werr));
+    }
+    // UDP の sendto は datagram 全体を一度に送る (部分送信は起きない)。
+    return Ok();
+}
+
+// -----------------------------------------------------------------------------
+// Receive — 非ブロッキング recvfrom() で 1 datagram を取り出す。境界保持。
+// -----------------------------------------------------------------------------
+// 受信データなし (WSAEWOULDBLOCK) は「成功・0 byte」で返す (Err にしない)。
+// これにより FNetSnapshot::Tick の pump ループは「0 で抜ける」契約を満たす。
+TResult<u32> FUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept {
+    if (m_Socket == kInvalidSocket) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_NotConnected,
+                       "FUdpTransport::Receive: not connected (call Connect first)");
+    }
+    if (out_buffer == nullptr || capacity == 0) {
+        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
+                       "FUdpTransport::Receive: out_buffer is null or capacity == 0");
+    }
+
+    sockaddr_in from{};
+    int from_len = static_cast<int>(sizeof(from));
+    const int got = ::recvfrom(static_cast<SOCKET>(m_Socket),
+                               static_cast<char*>(out_buffer),
+                               static_cast<int>(capacity), 0,
+                               reinterpret_cast<sockaddr*>(&from), &from_len);
+    if (got == SOCKET_ERROR) {
+        const int werr = ::WSAGetLastError();
+        if (werr == WSAEWOULDBLOCK) {
+            // 受信データなし。0 byte の成功 (= Tick の pump ループ終了条件)。
+            return TResult<u32>(OkInit, 0u);
+        }
+        return ACS_ERR_OS(IO, NetSnapshotError::kSub_RecvFailed,
+                          "FUdpTransport::Receive: recvfrom() failed",
+                          static_cast<u32>(werr));
+    }
+    // got >= 0。0 byte datagram (空 UDP packet) もそのまま成功で返す。
+    return TResult<u32>(OkInit, static_cast<u32>(got));
+}
+
+// -----------------------------------------------------------------------------
+// PendingBytesIn — recv 待ちバイト数を ioctlsocket(FIONREAD) で問い合わせる。
+// -----------------------------------------------------------------------------
+// UDP では「次に取り出せる 1 datagram のサイズ」を返す (OS 実装依存)。
+// 失敗時 / 未接続時は 0 (= 「不明 / なし」の defensive fallback)。
+u32 FUdpTransport::PendingBytesIn() const noexcept {
+    if (m_Socket == kInvalidSocket) {
+        return 0;
+    }
+    u_long avail = 0;
+    if (::ioctlsocket(static_cast<SOCKET>(m_Socket), FIONREAD, &avail) == SOCKET_ERROR) {
+        return 0;
+    }
+    return static_cast<u32>(avail);
 }
 
 // =============================================================================
@@ -667,13 +906,17 @@ bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
     // 非所有 view (寿命 = 次の Tick() まで)。
     u32 off       = 0;
     u32 emitted   = 0;
-    while (off + kEntityHeaderSize <= payload_size && emitted < max_count) {
+    while (static_cast<u64>(off) + kEntityHeaderSize <= payload_size && emitted < max_count) {
         const u32 entity_id      = ReadU32LE(payload_ptr + off + 0);
         const u32 component_mask = ReadU32LE(payload_ptr + off + 4);
         const u32 data_size      = ReadU32LE(payload_ptr + off + 8);
 
         // size sanity check。payload を超えるなら破損 (= 残りを捨てる)。
-        if (off + kEntityHeaderSize + data_size > payload_size) {
+        // **u64 で計算する**: data_size は CRC 検証済みでも構造的には信頼できない
+        // (悪意ある peer / 破損)。u32 のまま off+12+data_size を計算すると
+        // data_size≈0xFFFFFFFF で加算が wrap して check をすり抜け、payload_ptr に
+        // 多 GB の OOB view を返してしまう (auditor 指摘)。
+        if (static_cast<u64>(off) + kEntityHeaderSize + data_size > payload_size) {
             break;
         }
 

@@ -227,6 +227,15 @@ struct NetSnapshotError {
         kSub_BadMagic       = 8,  // DecodeSnapshot: magic 不一致 ('ACSN' でない)
         kSub_BadVersion     = 9,  // DecodeSnapshot: version 不一致
         kSub_BadCrc         = 10, // DecodeSnapshot: CRC32 mismatch (破損 / 改竄)
+        // ---- FUdpTransport (実 Winsock2 UDP) 固有 ----
+        // os_error には WSAGetLastError() の値をそのまま載せる (FErrorCode::os_error)。
+        kSub_WsaStartup     = 20, // WSAStartup 失敗
+        kSub_SocketCreate   = 21, // socket() 失敗
+        kSub_SetNonBlocking = 22, // ioctlsocket(FIONBIO) 失敗
+        kSub_Bind           = 23, // bind() 失敗 (local port 衝突等)
+        kSub_BadAddress     = 24, // address 文字列が IPv4 dotted-quad として不正
+        kSub_SendFailed     = 25, // sendto() 失敗 (WSAEWOULDBLOCK 以外)
+        kSub_RecvFailed     = 26, // recvfrom() 失敗 (WSAEWOULDBLOCK 以外)
         kSub_NotImplemented = 99, // stub: 未実装
     };
 };
@@ -254,6 +263,78 @@ public:
 
 // プロセス共有の stub INetTransport。常に NotImplemented を返す。
 INetTransport& GetTransportStub() noexcept;
+
+// =============================================================================
+// FUdpTransport — INetTransport の実 Winsock2 UDP 実装
+// -----------------------------------------------------------------------------
+// NetTransportStub (null-object) の隣に置く本実装。実 socket を用いた
+// コネクションレス UDP datagram transport で、1 Send = 1 sendto() = 1 datagram、
+// 1 Receive = 1 recvfrom() = 1 datagram (= INetTransport の「メッセージ境界
+// 保持」契約をそのまま満たす)。
+//
+// 役割マッピング (INetTransport の 7 method):
+//   ・Connect(address, port): WSAStartup (プロセス内 ref-count、初回のみ) →
+//     UDP socket 生成 → 非ブロッキング化 (FIONBIO) → local port (m_LocalPort、
+//     0 なら ephemeral) に bind → remote endpoint (address+port) を保持。
+//   ・Disconnect(): closesocket + WSACleanup (ref-count を 1 戻す)。べき等。
+//   ・IsConnected(): socket が open かを返す (real socket state)。
+//   ・Send(): remote endpoint への sendto()。WSAEWOULDBLOCK は送信 buffer 満杯
+//     として kSub_BufferFull、その他失敗は kSub_SendFailed (os_error 付き)。
+//   ・Receive(): 非ブロッキング recvfrom()。WSAEWOULDBLOCK は「受信なし」として
+//     out=0 の成功 (Err ではない)。それ以外の失敗は kSub_RecvFailed。
+//   ・PendingBytesIn(): recv 待ちバイト数を ioctlsocket(FIONREAD) で問い合わせる。
+//   ・PendingBytesOut(): UDP は OS が即送出するため常に 0 (内部バッファを持たない)。
+//
+// Winsock 型 (SOCKET / sockaddr_in) を header に漏らさないため、socket は uptr、
+// remote endpoint は raw octets + port で保持し、.cpp 内でのみ Winsock 型に
+// 復元する (network/UdpSocket.h の uptr 保持と同じ流儀)。<winsock2.h> を
+// public include しない設計。
+//
+// 使い方 (loopback round-trip):
+//   FUdpTransport server, client;
+//   server.SetLocalPort(50000);  // 受信側を固定 port に bind
+//   server.Connect("127.0.0.1", 50001);  // 送り先 = client
+//   client.SetLocalPort(50001);
+//   client.Connect("127.0.0.1", 50000);  // 送り先 = server
+//   server.Send(frame, n);                // server → client へ datagram
+//   u8 buf[2048]; auto r = client.Receive(buf, sizeof(buf));
+//   // r.Value() == n、buf[0..n) == frame[0..n)
+//
+// 1 セッション 1 オブジェクト。コピー / ムーブ禁止 (INetTransport 由来)。
+// =============================================================================
+class FUdpTransport final : public INetTransport {
+public:
+    FUdpTransport() noexcept = default;
+    ~FUdpTransport() noexcept override;  // Disconnect を呼んで socket を確実に閉じる
+
+    // bind する local port を指定する。0 (既定) なら OS が ephemeral port を割当。
+    // 受信側は固定 port に bind したいので Connect 前に呼ぶ。Connect 後の変更は
+    // 次回 Connect まで反映されない。
+    void SetLocalPort(u16 local_port) noexcept { m_LocalPort = local_port; }
+    u16  LocalPort() const noexcept { return m_LocalPort; }
+
+    // ----- INetTransport 実装 -----
+    TResult<void> Connect(const char* address, u16 port) noexcept override;
+    void          Disconnect() noexcept override;
+    bool          IsConnected() const noexcept override { return m_Socket != kInvalidSocket; }
+    TResult<void> Send(const void* data, u32 size) noexcept override;
+    TResult<u32>  Receive(void* out_buffer, u32 capacity) noexcept override;
+    u32           PendingBytesIn() const noexcept override;
+    u32           PendingBytesOut() const noexcept override { return 0; }
+
+private:
+    // SOCKET を uptr で保持 (header に <winsock2.h> を漏らさないため)。
+    // 無効値は全 bit 1 (= INVALID_SOCKET と同値、network/UdpSocket.h と同流儀)。
+    static constexpr uptr kInvalidSocket = ~uptr{0};
+
+    uptr m_Socket     = kInvalidSocket;  // open な UDP socket、未接続なら kInvalidSocket
+    u16  m_LocalPort  = 0;               // bind する local port (0 = ephemeral)
+    bool m_WsaStarted = false;           // この instance が WSAStartup を 1 回計上したか
+
+    // remote endpoint (送信先)。Winsock 型を header に出さないため raw 保持。
+    u8   m_RemoteOctets[4] = {0, 0, 0, 0};  // IPv4 dotted-quad
+    u16  m_RemotePort      = 0;
+};
 
 // =============================================================================
 // FNetSnapshot — server-side 書出 / client-side 補間

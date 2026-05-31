@@ -359,4 +359,7 @@ acs_module(
         # (Audio モジュールと同じ綴り。Windows SDK 同梱なので third_party 不要。)
         xaudio2
         ole32
+        # NetSnapshot.cpp の FUdpTransport (実 Winsock2 UDP) が呼ぶ socket API。
+        # (network モジュールと同じ綴り。Windows SDK 同梱なので third_party 不要。)
+        ws2_32
 )

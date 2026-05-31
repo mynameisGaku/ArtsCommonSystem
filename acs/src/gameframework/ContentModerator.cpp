@@ -25,10 +25,73 @@
 #include "gameframework/ContentModerator.h"
 
 #include "foundation/Error.h"
+#include "asset/ImageAsset.h"   // 画像 NSFW heuristic 用のローカルデコード (stb_image)
+#include "container/Array.h"
+#include "memory/Memory.h"      // MemCopy
 
 namespace acs::game {
 
 namespace {
+
+// =============================================================================
+// 画像 NSFW ローカル heuristic (skin-tone 比率法)
+// -----------------------------------------------------------------------------
+// 外部 SDK / クラウド API なしで動く実分類器。よく知られた肌色ピクセル比率
+// (Kovac et al. の RGB 肌色判定) を使い、画像中の肌色ピクセル割合から露出度を
+// 推定する。完璧ではない (顔のアップ等で false positive、未成年検出は不可) が、
+// 「常に Allow」の seam ではなく、ピクセルを実際に解析して判定する本実装。
+//   ・skin_ratio >= 0.55 → Explicit / Block
+//   ・skin_ratio >= 0.35 → Mature   / Warn   (要手動確認 = borderline)
+//   ・skin_ratio >= 0.18 → Mild     / Allow
+//   ・それ未満           → Safe     / Allow
+// 透明ピクセル (alpha < 16) は UI パディング等とみなし母数から除外する。
+// 注意: 未成年性的搾取 (SexualMinor_HardcodedBlock) は肌色比率では検出できない。
+//   その rating は専用の年齢/CSAM 分類器が必須で、本 heuristic の範囲外 (正直)。
+
+// Kovac et al. (2003) のアップライト肌色判定ルール (sRGB 8-bit 前提)。
+bool IsSkinTone(u8 r, u8 g, u8 b) noexcept {
+    const i32 ri = r, gi = g, bi = b;
+    i32 mx = ri; if (gi > mx) mx = gi; if (bi > mx) mx = bi;
+    i32 mn = ri; if (gi < mn) mn = gi; if (bi < mn) mn = bi;
+    const i32 absRG = (ri > gi) ? (ri - gi) : (gi - ri);
+    return ri > 95 && gi > 40 && bi > 20 &&
+           (mx - mn) > 15 &&
+           absRG > 15 &&
+           ri > gi && ri > bi;
+}
+
+// RGBA8 ピクセル列から肌色比率を求める。母数は不透明ピクセル数。
+f32 SkinRatioRgba8(const u8* rgba, u64 pixel_count) noexcept {
+    u64 opaque = 0;
+    u64 skin   = 0;
+    for (u64 i = 0; i < pixel_count; ++i) {
+        const u8 a = rgba[i * 4 + 3];
+        if (a < 16) continue;            // 透明 = パディング扱いで除外
+        ++opaque;
+        if (IsSkinTone(rgba[i * 4 + 0], rgba[i * 4 + 1], rgba[i * 4 + 2])) ++skin;
+    }
+    if (opaque == 0) return 0.0f;
+    return static_cast<f32>(skin) / static_cast<f32>(opaque);
+}
+
+// HDR (float RGBA) 用: 各成分を [0,1] clamp → 8-bit 量子化して同じ判定にかける。
+f32 SkinRatioRgbaF32(const f32* rgba, u64 pixel_count) noexcept {
+    u64 opaque = 0;
+    u64 skin   = 0;
+    for (u64 i = 0; i < pixel_count; ++i) {
+        const f32 af = rgba[i * 4 + 3];
+        if (af < 0.0625f) continue;
+        ++opaque;
+        auto q = [](f32 v) noexcept -> u8 {
+            if (v <= 0.0f) return 0;
+            if (v >= 1.0f) return 255;
+            return static_cast<u8>(v * 255.0f + 0.5f);
+        };
+        if (IsSkinTone(q(rgba[i * 4 + 0]), q(rgba[i * 4 + 1]), q(rgba[i * 4 + 2]))) ++skin;
+    }
+    if (opaque == 0) return 0.0f;
+    return static_cast<f32>(skin) / static_cast<f32>(opaque);
+}
 
 // ---- 内部: 文字列長 (`<string.h>` 不使用、明示ループ) ----------------------
 // strlen 等価。nullptr は 0 を返す (呼び出し側で null チェックを省略可能に)。
@@ -229,23 +292,67 @@ TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_i
             ACS_ERR(Generic, kSubContentModeratorBadArgument,
                     "ContentModeratorStub::ModerateImage: image_data == nullptr or size == 0"));
     }
-    // ---- 画像モデレーション seam (外部 NSFW 分類器の差し込み点) -------------
-    // リポジトリ内には画像分類器 (NSFW / 児童性的搾取検出) が存在しないため、
-    // ローカルでは画像ピクセルから安全性を判定できない。テキストのような
-    // 辞書照合に相当する手段が無いので、ここでは **「安全と断定」せず**、
-    // 「ローカルでは判定不能 = デフォルト Allow で通過」とする方針を取る。
-    //   ・rating は Safe ではなく **Mature** を返す: 「ローカルでは判定できず未審査」
-    //     を呼び出し側に伝えるため。年齢ゲート / 手動確認フローに繋げやすくする。
-    //   ・verdict は Allow: ブロックする根拠 (= NSFW スコア) をローカルで得られない以上、
-    //     ここで一律 Block すると正当な投稿まで弾く。実審査は下記 seam に委ねる。
-    // 実 NSFW 分類器 (ローカル ONNX 推論 or Azure/Hive 等のリモート API) を統合する
-    // 別モジュールがこの override を差し替え、その際は kHardcodedBlockWords と同等の
-    // 二段判定 (= SexualMinor 検出時はハードコード Block) を画像側にも適用すること。
+    // ---- 画像 NSFW ローカル本実装 -----------------------------------------
+    // 外部 SDK なしで実際にピクセルを解析する: stb_image (asset モジュール) で
+    // RGBA にデコード → 肌色比率 heuristic で露出度を判定する。デコード不能な
+    // バイト列は BadArgument。SexualMinor の専用判定だけは肌色比率では不可能な
+    // ため範囲外 (要 専用分類器)。詳細は SkinRatioRgba8 / ClassifyImageRgba8。
+    ImageAssetLoader loader;
+    TArray<byte> encoded;
+    encoded.Resize(static_cast<usize>(size));
+    MemCopy(encoded.Data(), image_data, static_cast<usize>(size));
+    auto decoded = loader.LoadFromBytes(FAssetId{0}, encoded);
+    if (decoded.IsErr()) {
+        return TResult<ModerationResult>(
+            ACS_ERR(Generic, kSubContentModeratorBadArgument,
+                    "ContentModeratorStub::ModerateImage: undecodable image bytes"));
+    }
+    auto* img = static_cast<FImageAsset*>(decoded.Value().Get());
+    const u64 px = static_cast<u64>(img->Width()) * static_cast<u64>(img->Height());
+    f32 ratio = 0.0f;
+    if (img->EFormat() == EPixelFormat::R32G32B32A32_F) {
+        ratio = SkinRatioRgbaF32(reinterpret_cast<const f32*>(img->Pixels()), px);
+    } else {
+        // ImageAssetLoader は LDR を必ず 4ch RGBA8 に正規化する。
+        ratio = SkinRatioRgba8(reinterpret_cast<const u8*>(img->Pixels()), px);
+    }
+    return ClassifyImageRatio(ratio);
+}
+
+// 肌色比率 → ModerationResult のしきい値判定 (ModerateImage と RGBA 直接判定で共用)。
+TResult<ModerationResult> ContentModeratorStub::ClassifyImageRatio(f32 skin_ratio) const noexcept {
     ModerationResult r{};
-    r.verdict = EModerationVerdict::Allow;
-    r.rating  = EContentRating::Mature;  // = ローカル未審査 (Safe と断定しない)
-    r.reason  = "image not screened locally: needs external NSFW classifier";
+    if (skin_ratio >= 0.55f) {
+        r.verdict = EModerationVerdict::Block;
+        r.rating  = EContentRating::Explicit;
+        r.reason  = "image NSFW heuristic: very high skin-tone ratio (explicit)";
+    } else if (skin_ratio >= 0.35f) {
+        r.verdict = EModerationVerdict::Warn;
+        r.rating  = EContentRating::Mature;
+        r.reason  = "image NSFW heuristic: elevated skin-tone ratio (borderline, needs review)";
+    } else if (skin_ratio >= 0.18f) {
+        r.verdict = EModerationVerdict::Allow;
+        r.rating  = EContentRating::Mild;
+        r.reason  = nullptr;
+    } else {
+        r.verdict = EModerationVerdict::Allow;
+        r.rating  = EContentRating::Safe;
+        r.reason  = nullptr;
+    }
     return r;
+}
+
+// 既にデコード済みの RGBA8 ピクセルを直接判定する公開 API (エンジンが既に
+// テクスチャを CPU 側に持っている場合に再デコードを避けられる)。
+TResult<ModerationResult> ContentModeratorStub::ModerateImageRgba8(
+        const u8* rgba, u32 width, u32 height) noexcept {
+    if (rgba == nullptr || width == 0 || height == 0) {
+        return TResult<ModerationResult>(
+            ACS_ERR(Generic, kSubContentModeratorBadArgument,
+                    "ContentModeratorStub::ModerateImageRgba8: null pixels or zero dimension"));
+    }
+    const f32 ratio = SkinRatioRgba8(rgba, static_cast<u64>(width) * static_cast<u64>(height));
+    return ClassifyImageRatio(ratio);
 }
 
 TResult<ModerationResult> ContentModeratorStub::ModerateUserName(const char* name) noexcept {

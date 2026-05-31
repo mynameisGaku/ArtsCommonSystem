@@ -66,6 +66,8 @@
 
 #include "foundation/Result.h"
 #include "foundation/Types.h"
+#include "container/Array.h"
+#include "container/String.h"
 
 namespace acs::game {
 
@@ -75,6 +77,11 @@ namespace acs::game {
 // でフィルタ可能。
 inline constexpr u16 kSubVoiceNotImplemented = 99;    // Stub による未実装 (仕様準拠)
 inline constexpr u16 kSubVoiceNotInitialized = 1102;  // Init() 前の API 呼び出し
+inline constexpr u16 kSubVoiceNotJoined      = 1103;  // 未 join のチャンネルへの操作
+inline constexpr u16 kSubVoiceUnknownUser    = 1104;  // 未知の user_id を指定
+inline constexpr u16 kSubVoiceBadArgument    = 1105;  // 不正引数 (null / 範囲外 / 過大フレーム)
+inline constexpr u16 kSubVoiceFrameCorrupt   = 1106;  // 受信フレームのヘッダ / magic 破損
+inline constexpr u16 kSubVoiceCapacity       = 1107;  // 参加者 / フレームキュー容量超過
 
 // ---- プロバイダ種別 -------------------------------------------------------
 // `Init(EVoiceProvider)` で 1 個選んで初期化する。`OpusSelf` は SDK 非依存の
@@ -112,6 +119,33 @@ struct VoiceParticipant {
     bool        is_speaking    = false;    // 現在発言中フラグ
     bool        is_muted_local = false;    // ローカル側ミュート
     f32         audio_level    = 0.0f;     // 0.0〜1.0 の音声レベル
+};
+
+// ---- 音声フレーム関連 -----------------------------------------------------
+// ループバック (= 自前ローカル) backend が実際の PCM を運ぶための型。実 SDK
+// backend (Vivox/Discord/Steam) はマイク捕捉〜再生まで SDK 内部で完結するため
+// これらの push/pump API を **既定実装 (no-op / NotImplemented)** として持つ。
+// 自前 backend (`FVoiceChatLoopbackBackend`) のみがこれらを override し、
+//   push PCM → encode(framing) → 参加者ごとの in-process キュー
+//     → decode → per-participant gain → N-way mix(sum+clamp) → pump
+// の往復を本実装する。
+
+// 1 フレームの想定サンプル数。実 codec (Opus) なら 20ms@48kHz=960 等だが、本
+// ループバックは sample-rate 非依存で「呼び出し側が渡した int16 配列」をそのまま
+// 1 フレームとして扱う (識別 PCM framing)。上限のみ規定し、超過は分割を呼び出し
+// 側に委ねる (over-large frame は kSubVoiceBadArgument)。
+inline constexpr u32 kVoiceMaxFrameSamples = 4096;   // 1 push あたりの最大サンプル数
+inline constexpr u32 kVoiceFrameMagic      = 0x41435631u; // 'ACV1' = ACS Voice frame v1
+
+// 線形 PCM フレームの固定ヘッダ (16 byte、LE)。encode 時に前置し、decode 時に
+// magic / サンプル数を検証してから payload (int16 PCM) を復元する。識別変換だが
+// seq + magic + サンプル数を伴う real な framing であり、実 wire codec を後で
+// 差し込む際の境界もここで確定する。
+struct VoiceFrameHeader {
+    u32 magic        = kVoiceFrameMagic;  // 破損検知用マジック
+    u32 sequence     = 0;                 // 送信元ごとの単調増加シーケンス番号
+    u32 sample_count = 0;                 // payload の int16 サンプル数
+    u32 reserved     = 0;                 // 将来の codec id / channel 用 (現状 0)
 };
 
 // ---- 抽象 I/F -------------------------------------------------------------
@@ -170,6 +204,43 @@ public:
     // event pump / VAD threshold 監視を Backend 側に畳み込む。ゲームループから
     // 毎フレーム呼ぶこと。dt は実時間秒 (実装によっては使わない)。
     virtual void Tick(f32 dt) noexcept = 0;
+
+    // ---- 音声フレーム I/O (自前ループバック backend 用、既定は no-op) -------
+    // 実 SDK backend はマイク捕捉/再生を SDK 内部で行うため、これらは override
+    // せず既定実装 (NotImplemented / 0 / 無音) のままで良い。
+    // `FVoiceChatLoopbackBackend` のみが本実装し、PCM の往復を成立させる。
+
+    // ローカルマイク相当の int16 PCM フレームを 1 つ push する (push 型 capture)。
+    // `pcm` は `sample_count` 個の int16 サンプル (非所有、本呼び出し中のみ参照)。
+    // ローカルミュート中は送信されない (capture は続くが route しない)。
+    // 既定: NotImplemented を返す。
+    virtual TResult<void> PushLocalFrame(EVoiceChannel ch, const i16* pcm, u32 sample_count) noexcept {
+        (void)ch; (void)pcm; (void)sample_count;
+        return ACS_ERR(Generic, kSubVoiceNotImplemented,
+                       "IVoiceChatBackend::PushLocalFrame: backend does not support PCM push");
+    }
+
+    // ローカル float [-1,1] PCM を push する利便メソッド。内部で int16 に量子化。
+    // 既定: NotImplemented を返す。
+    virtual TResult<void> PushLocalFrameF32(EVoiceChannel ch, const f32* pcm, u32 sample_count) noexcept {
+        (void)ch; (void)pcm; (void)sample_count;
+        return ACS_ERR(Generic, kSubVoiceNotImplemented,
+                       "IVoiceChatBackend::PushLocalFrameF32: backend does not support PCM push");
+    }
+
+    // 指定チャンネルで「自分以外の全参加者から受信したフレーム」を per-participant
+    // gain / mute を適用して N-way mix (sum + clamp i16) し、`out` に書き込む。
+    // 返り値は実際に書き込んだサンプル数 (`out_capacity` で頭打ち、超過分は捨てる)。
+    // mix 後に消費されたフレームは各参加者キューから取り除かれる。
+    // 既定: 0 (無音)。
+    virtual u32 PumpMixedOutput(EVoiceChannel ch, i16* out, u32 out_capacity) noexcept {
+        (void)ch; (void)out; (void)out_capacity;
+        return 0;
+    }
+
+    // 直近に push したローカルフレームの音声レベル (RMS, 0.0〜1.0)。VAD/メーター用。
+    // 既定: 0.0f。
+    virtual f32 LocalAudioLevel() const noexcept { return 0.0f; }
 };
 
 // ---- Stub 実装 ------------------------------------------------------------
@@ -205,5 +276,121 @@ private:
 // 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。
 // FSteamworksBridge::GetStub() と同じ Meyer's singleton パターン。
 IVoiceChatBackend& GetVoiceStub() noexcept;
+
+// ---- ループバック (自前ローカル) 実装 -------------------------------------
+// SDK 非依存で **実際に音声フレームを往復させる** backend。Vivox 等の外部 SDK を
+// リンクできない / したくないビルドでも、同一プロセス内で
+//   PushLocalFrame(A) → encode(framing) → A 以外の全参加者の受信キュー
+//     → decode → per-participant gain/mute → N-way mix(sum+clamp) → PumpMixedOutput(B)
+// を成立させる。ネットワークは使わず純粋に in-process なので決定的でユニット
+// テスト可能。実 wire codec / トランスポートを後で差し込む際の境界も本クラスの
+// encode/decode と参加者キューが担う。
+//
+// チャンネルモデル:
+//   ・本ループバックは「1 プロセス = 1 ローカルセッション」を表現する。各
+//     チャンネル (Party/Team/Global/Custom) は独立した参加者テーブル + per-user
+//     受信キューを持つ。
+//   ・`PushLocalFrame(ch, ...)` で push したフレームは、その ch に join 済みの
+//     **自分以外の全参加者** の受信キューに enqueue される (= 自分の声が他者へ
+//     届く loopback)。誰が "自分" かは慣習上 index 0 の participant (= ローカル
+//     ユーザ)。AddParticipant で最初に追加した参加者をローカルとして扱う。
+//   ・`PumpMixedOutput(ch, ...)` は「ある参加者 (既定: ローカル以外を含む全員) の
+//     受信キューに溜まったフレーム」を gain/mute 適用して mix する。テストでは
+//     SetPumpTarget で「誰の耳としてミックスするか」を選べる。
+class FVoiceChatLoopbackBackend final : public IVoiceChatBackend {
+public:
+    FVoiceChatLoopbackBackend() noexcept = default;
+    ~FVoiceChatLoopbackBackend() noexcept override = default;
+
+    // ---- IVoiceChatBackend (制御系) --------------------------------------
+    TResult<void>             Init(EVoiceProvider p) noexcept override;
+    void                     Shutdown() noexcept override;
+    bool                     IsAvailable() const noexcept override { return m_Initialized; }
+    EVoiceProvider            ActiveProvider() const noexcept override { return m_Provider; }
+    TResult<void>             JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept override;
+    TResult<void>             LeaveChannel(EVoiceChannel ch) noexcept override;
+    TResult<void>             SetLocalMute(bool muted) noexcept override;
+    TResult<void>             SetParticipantMute(const char* user_id, bool muted) noexcept override;
+    TResult<void>             SetParticipantVolume(const char* user_id, f32 volume) noexcept override;
+    u32                      ParticipantCount(EVoiceChannel ch) noexcept override;
+    TResult<VoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept override;
+    void                     Tick(f32 dt) noexcept override;
+
+    // ---- IVoiceChatBackend (音声フレーム系、本実装) ----------------------
+    TResult<void> PushLocalFrame(EVoiceChannel ch, const i16* pcm, u32 sample_count) noexcept override;
+    TResult<void> PushLocalFrameF32(EVoiceChannel ch, const f32* pcm, u32 sample_count) noexcept override;
+    u32           PumpMixedOutput(EVoiceChannel ch, i16* out, u32 out_capacity) noexcept override;
+    f32           LocalAudioLevel() const noexcept override { return m_LastLocalRms; }
+
+    // ---- ループバック専用 API (テスト / ローカルセッション構築用) --------
+    // 参加者を ch に追加する。最初に追加した参加者がローカルユーザ (= 自分。
+    // PushLocalFrame の送信元、PumpMixedOutput では自分のフレームは聞かない)。
+    // 同一 user_id の二重追加は kSubVoiceUnknownUser ではなく成功 (冪等) 扱い。
+    TResult<void> AddParticipant(EVoiceChannel ch, const char* user_id, const char* display_name) noexcept;
+
+    // 参加者を ch から取り除く (受信キューも破棄)。未知 user は kSubVoiceUnknownUser。
+    TResult<void> RemoveParticipant(EVoiceChannel ch, const char* user_id) noexcept;
+
+    // PumpMixedOutput が「誰の耳」としてミックスするかを選ぶ。既定はローカル
+    // ユーザ (index 0)。`user_id` の受信キューを mix 対象にする。
+    TResult<void> SetPumpTarget(EVoiceChannel ch, const char* user_id) noexcept;
+
+    // 直近に push したローカルフレームのピーク絶対値 (0.0〜1.0)。
+    f32 LocalAudioPeak() const noexcept { return m_LastLocalPeak; }
+
+    // 指定参加者の現在の受信キューに溜まっているフレーム数 (テスト検証用)。
+    u32 PendingFrameCount(EVoiceChannel ch, const char* user_id) noexcept;
+
+    // ---- codec (public static、ユニットテストから直接叩ける) -------------
+    // int16 PCM → framed バイト列。out は header(16B) + sample_count*2 byte 必要。
+    // 戻り値は書き込んだ総バイト数 (0 = 引数不正)。
+    static u32 EncodeFrame(const i16* pcm, u32 sample_count, u32 sequence,
+                           u8* out, u32 out_capacity) noexcept;
+    // framed バイト列 → int16 PCM。header を検証し payload を out へ復元する。
+    // 戻り値の成功時 value は復元したサンプル数。magic 破損等は kSubVoiceFrameCorrupt。
+    static TResult<u32> DecodeFrame(const u8* in, u32 in_size,
+                                    i16* out, u32 out_capacity) noexcept;
+
+private:
+    // 参加者ごとの状態。受信キューは encode 済みバイト列を時系列に連結した frame
+    // 群を保持する (各 frame = VoiceFrameHeader + payload)。
+    struct FLoopParticipant {
+        FString        user_id;                  // 所有コピー (非所有 const char* を受けてコピー)
+        FString        display_name;             // 所有コピー
+        f32            volume      = 1.0f;        // ローカル音量 (mix 時に適用)
+        bool           muted_local = false;       // 自分から見たミュート
+        u32            next_seq    = 0;           // この送信元が次に使う sequence
+        TArray<u8>     rx_frames;                 // 受信フレーム連結バッファ (encode 済み)
+    };
+
+    // 1 チャンネル分の状態。
+    struct FChannel {
+        bool                      joined       = false;
+        FString                   channel_id;
+        u32                       pump_target  = 0;     // PumpMixedOutput の対象 index (既定 0=ローカル)
+        TArray<FLoopParticipant>  participants;
+    };
+
+    // ch に対応する FChannel を返す (常に 4 種固定で確保済み)。
+    FChannel&       Chan(EVoiceChannel ch) noexcept { return m_Channels[static_cast<u32>(ch)]; }
+    const FChannel& Chan(EVoiceChannel ch) const noexcept { return m_Channels[static_cast<u32>(ch)]; }
+
+    // ch 内で user_id を線形検索 (見つからなければ size を返す)。
+    u32 FindParticipant(const FChannel& c, const char* user_id) const noexcept;
+
+    // 1 フレームを participant の rx_frames に enqueue する。
+    void EnqueueFrame(FLoopParticipant& p, const i16* pcm, u32 sample_count) noexcept;
+
+    EVoiceProvider m_Provider     = EVoiceProvider::None;
+    bool          m_Initialized  = false;
+    bool          m_LocalMuted   = false;        // SetLocalMute (送信抑止)
+    f32           m_LastLocalRms = 0.0f;         // 直近 push の RMS
+    f32           m_LastLocalPeak= 0.0f;         // 直近 push のピーク
+    FChannel      m_Channels[4]  = {};           // Party/Team/Global/Custom
+};
+
+// ループバック backend の static singleton アクセサ。DI 不要で
+// `m_Voice = &GetVoiceLoopback();` だけで本物の音声往復が動く。
+FVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept;
 
 } // namespace acs::game

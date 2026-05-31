@@ -89,14 +89,16 @@
 //   ・ネットワーク replay 共有 (StorefrontBridge 経由で別途)
 #pragma once
 
+#include "container/String.h"
 #include "foundation/Result.h"
 #include "foundation/Types.h"
 
 namespace acs::game {
 
-// ----- forward decl (Phase R-4 で本実装に接続) -----
-// FReplayDirector は両者を直接所有せず、参照経由で連動させる想定。
-// 現フェーズではメンバとしては未保持のため declaration だけで十分。
+// ----- forward decl (実 I/O は .cpp で接続) -----
+// FReplayDirector は両者を直接所有せず、非所有ポインタ経由で連動させる
+// (SetSources で注入する)。header では型の完全定義を必要としないため
+// forward decl のみに留め、実 include は ReplayDirector.cpp 側に閉じ込める。
 class FInputRecorder;
 class FLockstep;
 
@@ -160,13 +162,31 @@ public:
     enum SubCode : u16 {
         kSub_NullPath         = 1,  // SaveReplay / LoadReplay の file_path == nullptr
         kSub_BadMode          = 2,  // Start/Stop が現在 mode と不整合
-        kSub_NotImplemented   = 99, // Phase R-3 stub
+        kSub_Io               = 3,  // CreateFileW / ReadFile / WriteFile / MoveFileExW 失敗
+        kSub_BadMagic         = 4,  // LoadReplay: container magic 'ACRP' 不一致
+        kSub_BadVersion       = 5,  // LoadReplay: container version 不一致
+        kSub_BadSize          = 6,  // LoadReplay: blob サイズが container と矛盾
+        kSub_BadCrc           = 7,  // LoadReplay: CRC32 mismatch (破損 / 改竄)
+        kSub_Oom              = 8,  // 読み書きバッファの確保に失敗
+        kSub_PathTooLong      = 9,  // SaveReplay: file_path が .tmp suffix を足すと長すぎる
+        kSub_NotImplemented   = 99, // (旧 stub 値。後方互換のため残置。現在は未使用)
     };
 
     // ----- 初期化 -----
     // m_Mode = Idle / m_CurrentTick = 0 / m_PlaybackSpeed = 1.0 にリセット。
     // metadata はデフォルト初期化 (全 null / 0)。
+    // 注: SetSources で注入した source ポインタ / owned 文字列バッファは
+    //     Init() では触らない (source 結線は director の寿命を通じて維持したい)。
     void Init() noexcept;
+
+    // ----- 低レベル source の注入 (非所有) -----
+    // SaveReplay / LoadReplay が直列化対象とする raw 入力 (FInputRecorder) と
+    // deterministic input frame (FLockstep) を注入する。両者とも非所有
+    // (director は所有権を持たず、ポインタの寿命は呼び出し側が保証する)。
+    // nullptr を渡した側は SaveReplay 時に size 0 の blob として扱われ、
+    // LoadReplay 時はその blob を復元先なしで読み飛ばす (container は valid)。
+    // SaveReplay / LoadReplay より前に 1 度呼んでおく想定。
+    void SetSources(FInputRecorder* recorder, FLockstep* lockstep) noexcept;
 
     // ----- 録画開始 / 停止 -----
     // StartRecording: mode を Recording に切り替え、metadata をコピー保存。
@@ -218,14 +238,22 @@ public:
     // Paused / Idle: no-op。
     void Tick(f32 dt) noexcept;
 
-    // ----- 永続化 (Phase R-4 で実装) -----
-    // SaveReplay: 現在の metadata + 紐付け先 .acsr / .acsl を file_path に書き出す。
-    //   Phase R-3 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
+    // ----- 永続化 (本実装。container 1 ファイル + atomic write) -----
+    // SaveReplay: 現在の metadata + 注入済み FInputRecorder / FLockstep の
+    //   直列化 blob を 1 つの container ファイル (.acsr 拡張子想定) に書き出す。
+    //   layout は [magic 'ACRP'][version][metadata][input_blob][lockstep_blob][crc32]。
+    //   FSaveArchive / FSettings と同じ atomic write (`.tmp` → MoveFileExW rename)
+    //   で書き込み途中のクラッシュでも本ファイルが破損しないことを保証する。
+    //   source が未注入 (nullptr) の側は size 0 の blob として書かれる。
+    //   file_path == nullptr は kSub_NullPath、I/O 失敗は kSub_Io。
     TResult<void> SaveReplay(const wchar_t* file_path) noexcept;
 
-    // LoadReplay: file_path から metadata + .acsr / .acsl を復元する。
-    //   呼び出し前に Init() で状態をクリアしておくことを推奨。
-    //   Phase R-3 stub: ACS_ERR(IO, kSub_NotImplemented) を返す。
+    // LoadReplay: file_path の container を読み、magic / version / CRC32 を検証して
+    //   metadata を復元し、注入済み source があれば input_blob / lockstep_blob を
+    //   各 LoadFromBuffer に渡す。復元した metadata の文字列フィールドは director が
+    //   所有する内部バッファ (m_*Owned) を指す (ファイル由来の寿命を director に
+    //   束ねる)。成功後は m_Mode = Idle / m_CurrentTick = 0 とし StartPlayback 待ち。
+    //   file_path == nullptr は kSub_NullPath、magic/version/CRC 不正は対応 subcode。
     TResult<void> LoadReplay(const wchar_t* file_path) noexcept;
 
 private:
@@ -234,7 +262,20 @@ private:
     u32            m_CurrentTick     = 0;        // 録画中: 次に書き込む tick / 再生中: 次に消費する tick
     f32            m_PlaybackSpeed   = 1.0f;     // 再生倍速 (1.0 = 等倍)
     f32            m_TickAccumulator = 0.0f;     // Tick(dt) の余り (sub-tick の dt を持ち越す)
-    u32            m_TickRateHz     = 60;       // 再生時の sample rate (Phase R-4 で metadata 経由に置換)
+    u32            m_TickRateHz     = 60;       // 再生時の sample rate
+
+    // ----- 低レベル source (非所有。SetSources で注入) -----
+    FInputRecorder* m_Recorder = nullptr;  // raw 入力 (.acsr blob) の供給元 / 復元先
+    FLockstep*      m_Lockstep = nullptr;  // deterministic input frame (.acsl blob) の供給元 / 復元先
+
+    // ----- LoadReplay 後の metadata 文字列の所有バッファ -----
+    // ReplayMetadata は const char* しか持たないため、LoadReplay でファイルから
+    // 復元した文字列の寿命を director に束ねる。m_Metadata.game_version 等は
+    // これらの Data() を指す (FString::Data() は常に NUL 終端)。
+    FString m_GameVersionOwned;
+    FString m_LevelIdOwned;
+    FString m_PlayerNameOwned;
+    FString m_ChecksumHexOwned;
 };
 
 } // namespace acs::game

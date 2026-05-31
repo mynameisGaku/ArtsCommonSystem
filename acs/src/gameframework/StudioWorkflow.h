@@ -55,8 +55,16 @@
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
 //     `GetAssetLockingStub()` / `GetBuildFarmStub()` を提供。実 SDK 未統合の
 //     ビルドでも `m_Locks = &GetAssetLockingStub();` だけでコンパイル可能。
-//   ・**実 SDK 実装はここでは作らない**: PerforceAssetLocking / JenkinsBuildFarm 等は
-//     外部 SDK 依存を伴うため、本ファイルでは I/F + Stub のみ。
+//   ・**実 (ローカル) 実装を同梱**: 外部 SDK (P4 / Jenkins) を必要としない
+//     ローカル本実装を 2 つ提供する。`FLocalFileAssetLocking` = オンディスクの
+//     サイドカー lock ファイル (CreateFileW CREATE_NEW の原子性で協調ロック) を
+//     使う実ロック、`FLocalBuildRunner` = CreateProcessW で実際にローカルの
+//     ビルドコマンドを起動し終了コードを回収する「サイズ 1 の実ビルドファーム」。
+//     `GetLocalFileAssetLocking()` / `GetLocalBuildRunner()` で取得する。
+//     これらは stub ではなく、実際に動作する本実装である。
+//   ・**実 SDK 実装はここでは作らない**: PerforceAssetLocking / JenkinsBuildFarm 等
+//     「ネットワーク越しの SCM / ビルドファーム」連携は外部 SDK 依存を伴うため、
+//     本ファイルでは I/F + Stub + ローカル本実装まで。SDK 連携は別モジュールで。
 //
 // 範囲外 (Phase 2+ で):
 //   ・ロック取得のリトライ / 自動再接続 / 切断検知の callback。
@@ -221,6 +229,139 @@ public:
 };
 
 // =============================================================================
+// FLocalFileAssetLocking — オンディスク lock ファイルによる実ロック実装
+// -----------------------------------------------------------------------------
+// Perforce / Plastic 等の外部 SCM サーバを使わず、**ローカルファイルシステム上の
+// サイドカー lock ファイル** で IAssetLockingBackend を本実装する。
+// 「実 (non-Perforce) 実装」であり stub ではない。
+//
+// 仕組み:
+//   ・LockAsset(asset_path, user):
+//       `<asset_path>.lock` を Win32 `CreateFileW(CREATE_NEW)` で生成する。
+//       CREATE_NEW は「ファイルが既に存在したら ERROR_FILE_EXISTS で失敗する」
+//       **原子的 (atomic)** な作成フラグ。OS カーネルが排他を保証するため、
+//       2 プロセス / 2 スレッドが同時に同じアセットをロックしようとしても
+//       片方だけが成功する (= 協調ロックの race を正しく処理)。成功した側は
+//       lock ファイルへ owner 名と取得時刻 (UNIX epoch 秒) を書き込む。
+//       既にロック済みなら kSub_AlreadyLocked。
+//   ・UnlockAsset(asset_path):
+//       lock ファイルを読み、所有者を検証してから `DeleteFileW` で削除する。
+//       未ロックなら kSub_NotFound。
+//   ・QueryLock(asset_path):
+//       lock ファイルの存在 + 内容 (owner / time) を読み取って FAssetLockInfo に
+//       詰めて返す。文字列は本オブジェクト内の固定長バッファ (m_QueryPathBuf /
+//       m_QueryUserBuf) を指すため、寿命は「次の Backend 呼び出しまで」。
+//   ・IsConnected(): ローカル FS は常に利用可能なので true。
+//
+// 設計メモ:
+//   ・asset_path は UTF-8 の `const char*`。Win32 へ渡す前に内部で UTF-16 へ
+//     変換する (FHotReload / FSaveArchive と同じ流儀)。`//depot/...` のような
+//     P4 depot 構文ではなく、ローカル実装では実ファイルパス (相対/絶対) を渡す。
+//   ・lock ファイルのフォーマットは 1 行目=owner、2 行目=取得時刻(10 進秒) の
+//     極小テキスト。人間が読めて、クラッシュ後に手で消せる (協調ロックなので
+//     強制力は無く、運用での合意が前提)。
+//   ・STL 非依存: owner / path は固定長 char バッファ (member) に保持する。
+// =============================================================================
+class FLocalFileAssetLocking final : public IAssetLockingBackend {
+public:
+    // path / user バッファの最大長 (NUL 含む)。MAX_PATH 級 + 余裕。
+    static constexpr int kMaxPathChars = 1024;
+    static constexpr int kMaxUserChars = 256;
+
+    FLocalFileAssetLocking() noexcept = default;
+    ~FLocalFileAssetLocking() noexcept override = default;
+
+    TResult<void>           LockAsset(const char* asset_path, const char* user) noexcept override;
+    TResult<void>           UnlockAsset(const char* asset_path) noexcept override;
+    TResult<FAssetLockInfo> QueryLock(const char* asset_path) noexcept override;
+    bool                    IsConnected() const noexcept override { return true; }
+
+    // 所有者検証付き解除 (seam 拡張)。lock ファイルの owner が `user` と一致する
+    // 場合のみ削除する。一致しなければ kSub_PermissionDenied、未ロックは
+    // kSub_NotFound。「自分のロックだけ外す」厳格運用が必要な場合に使う。
+    // (基底 UnlockAsset(asset_path) は協調ロックとして誰でも解除可。)
+    TResult<void> UnlockAssetAs(const char* asset_path, const char* user) noexcept;
+
+private:
+    // QueryLock の戻り値文字列が指す先 (寿命 = 次の呼び出しまで)。
+    char m_QueryPathBuf[kMaxPathChars] = {};
+    char m_QueryUserBuf[kMaxUserChars] = {};
+};
+
+// =============================================================================
+// FLocalBuildRunner — Win32 CreateProcessW によるローカルビルド実行 (実装)
+// -----------------------------------------------------------------------------
+// Jenkins / TeamCity 等の外部ビルドファームを使わず、**ローカルマシン上で実際に
+// ビルドコマンド (バッチ / exe) を起動して終了コードを回収する** ことで
+// IBuildFarmBackend を本実装する。いわば「サイズ 1 の実ビルドファーム」。
+// 「実 (non-Jenkins) 実装」であり stub ではない。
+//
+// 2 系統の API を提供する:
+//   (A) RunBuild(command_line, &out_exit_code) — **同期** 実行ヘルパ。
+//       Win32 CreateProcessW でコマンドを起動し、WaitForSingleObject で完了を
+//       待ち、GetExitCodeProcess で実際の終了コードを回収して out_exit_code に
+//       入れる。プロセス起動自体に成功すれば (終了コードが何であれ) IsOk を返す。
+//       例: RunBuild(L"cmd /c exit 3", ec) → ec == 3。
+//   (B) IBuildFarmBackend seam (SubmitBuild/PollBuild/CancelBuild) — preset を
+//       「起動するコマンドライン」として解釈し、ジョブを内部テーブルに登録して
+//       非同期に起動・追跡する。Jenkins 連携コードをそのまま流用できる。
+//
+// 設計メモ:
+//   ・command_line は CreateProcessW の lpCommandLine 仕様に従い **書き換え可能な
+//     バッファ** が必要なため、内部で固定長バッファへコピーしてから渡す。
+//   ・SubmitBuild の `req.preset` を起動コマンドライン (UTF-8) とみなす。branch /
+//     commit_sha は環境変数的なメタ情報として lock せず、ここでは情報のみ。
+//   ・ジョブは固定長テーブル (kMaxJobs 件) で管理。build_id は 1 始まりの連番
+//     (0 は無効予約)。
+//   ・STL 非依存: ジョブテーブルは固定長配列、文字列は固定長 char バッファ。
+// =============================================================================
+class FLocalBuildRunner final : public IBuildFarmBackend {
+public:
+    static constexpr int kMaxJobs        = 32;     // 同時追跡できるビルドジョブ数
+    static constexpr int kMaxCmdChars    = 4096;   // コマンドライン最大長 (NUL 含む)
+    static constexpr int kMaxArtifactLen = 1024;   // artifact パス最大長 (NUL 含む)
+
+    FLocalBuildRunner() noexcept = default;
+    ~FLocalBuildRunner() noexcept override;
+
+    // ---- (A) 同期実行ヘルパ (seam 非経由) ----------------------------------
+    // command_line (UTF-16, 書き換え可能) を起動し、終了まで待ってから
+    // out_exit_code に実際の終了コードを書く。起動失敗は OS サブコードで Err。
+    // timeout_ms に 0 を渡すと INFINITE (完了まで待つ)。
+    TResult<void> RunBuild(const wchar_t* command_line,
+                           u32&           out_exit_code,
+                           u32            timeout_ms = 0) noexcept;
+
+    // command_line を UTF-8 で受ける版 (内部で UTF-16 へ変換)。
+    TResult<void> RunBuildUtf8(const char* command_line,
+                               u32&        out_exit_code,
+                               u32         timeout_ms = 0) noexcept;
+
+    // ---- (B) IBuildFarmBackend seam ----------------------------------------
+    TResult<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
+    TResult<BuildResult>  PollBuild(u64 build_id) noexcept override;
+    TResult<void>         CancelBuild(u64 build_id) noexcept override;
+    bool                  IsConnected() const noexcept override { return true; }
+
+private:
+    // 1 ビルドジョブの追跡状態。
+    struct Job {
+        u64    m_BuildId = 0;                       // 0 = 空きスロット
+        void*  m_Process = nullptr;                 // HANDLE (プロセス)。void* で windows.h を header に持ち込まない
+        bool   m_Finished = false;                  // 完了済みか (poll でラッチ)
+        bool   m_Success  = false;                  // exit_code == 0 か
+        u32    m_ExitCode = 0;                      // 完了時の終了コード
+        char   m_Artifact[kMaxArtifactLen] = {};    // 成功時に返す疑似 artifact パス
+    };
+
+    Job* FindJob(u64 build_id) noexcept;            // build_id でジョブを引く (無ければ nullptr)
+    void CloseJob(Job& job) noexcept;               // プロセス HANDLE を閉じてスロットを空ける
+
+    Job m_Jobs[kMaxJobs] = {};
+    u64 m_NextBuildId    = 1;                        // 連番発番器 (0 は無効予約)
+};
+
+// =============================================================================
 // アクセサ: stub 実装への参照を取る
 // -----------------------------------------------------------------------------
 // 本体側 (タイトル / エディタ) はまずこの 2 つを使ってリンクを通す。
@@ -233,5 +374,18 @@ IAssetLockingBackend& GetAssetLockingStub() noexcept;
 
 // プロセス共有の stub IBuildFarmBackend。常に NotImplemented を返す。
 IBuildFarmBackend& GetBuildFarmStub() noexcept;
+
+// =============================================================================
+// アクセサ: 実 (ローカル) 実装への参照を取る
+// -----------------------------------------------------------------------------
+// 外部 SDK に依存しないオンディスク / ローカルプロセス本実装。stub と差し替えて
+// `m_Locks = &GetLocalFileAssetLocking();` のように使う。process-wide singleton。
+// =============================================================================
+
+// プロセス共有の実 IAssetLockingBackend (オンディスク lock ファイル)。
+FLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept;
+
+// プロセス共有の実 IBuildFarmBackend (ローカル CreateProcessW)。
+FLocalBuildRunner& GetLocalBuildRunner() noexcept;
 
 } // namespace acs::game
