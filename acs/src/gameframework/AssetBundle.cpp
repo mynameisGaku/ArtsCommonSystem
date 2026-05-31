@@ -1,20 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FAssetBundle 実装 (bridge スケルトン)
+// GameFramework Pillar G — FAssetBundle 実装 (FAssetRegistry 実接続)
 //
-// 現フェーズ (G-1): bundle 表層 API + state machine だけを実装。
-// FAssetRegistry::LoadAsync / FAssetFuture / Unload の実 API 接続は TODO に集約し、
-// Phase G-2 でまとめて差し替える。スケルトンでも進捗 0→1 の遷移は確認可能 (Add 後に
-// BeginLoad を呼ぶと全 entry が即座に Loaded 扱いになる仮想完了モードで動作)。
-//
-// 設計メモ:
-//   ・「シーン破棄 → bundle 破棄 → TRc<Asset> drop → refcount 0 で実体解放」の流れは
-//     Phase G-2 で FAssetFuture から取った TRc を Entry に保持して実現する。
-//     現スケルトンでは TRc を持たないため、Unload は status リセットのみで十分。
+// BeginLoad(registry) で各 path を registry 経由で実ロードし、TRc<Asset> を Entry に
+// 保持する (同期 Load)。bundle が TRc を持つことで Unload まで生存を保証し、Unload /
+// bundle 破棄で TRc が drop → refcount 0 で実体解放 (GC 不要・決定的解放)。
 //   ・進捗計算は entries が空の場合 1.0 を返す (=「読むものが無いので即完了」)。
-//     これは BeginLoad 前後で挙動が変わらない (Add 0 件で BeginLoad しても 1.0)。
+//   ・同期 Load を採用 (シーン開始時の一括ロード用途)。ストリーミング/非同期分割は
+//     FStreamingDirector + LoadAsync 側で扱う (本 bundle は確定的な集合ロード)。
 #include "gameframework/AssetBundle.h"
+#include "asset/AssetRegistry.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 
 namespace acs::game {
+
+namespace {
+// UTF-8 const char* path → wchar_t[260] (FAssetRegistry が wide path を取るため)。
+bool WidenPath(const char* utf8, wchar_t* out, int cap) noexcept {
+    if (!utf8 || cap <= 0) return false;
+    const int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out, cap);
+    if (n <= 0) { out[0] = 0; return false; }   // 変換失敗 / バッファ不足
+    return true;
+}
+} // namespace
 
 void FAssetBundle::Add(const char* asset_path) noexcept {
     if (asset_path == nullptr) {
@@ -33,26 +42,50 @@ void FAssetBundle::Add(const char* asset_path) noexcept {
     m_Entries.PushBack(e);
 }
 
-void FAssetBundle::BeginLoad() noexcept {
+void FAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept {
     if (m_bBegun) {
         ACS_LOG_WARN("FAssetBundle::BeginLoad: already begun, ignored");
         return;
     }
     m_bBegun = true;
 
-    // TODO(Phase G-2): 各 entry について
-    //   FAssetFuture fut = FAssetRegistry::Instance().LoadAsync(WidenPath(entry.path));
-    //   entry.future = Move(fut);
-    //   entry.status = LoadStatus::Loading;
-    // を発行する。完了 polling は Tick() を別途追加するか、Progress() 呼び出し時に
-    // future.IsReady() を見て status を Loaded/Failed に遷移させる。
-    // wchar_t 化が必要なため、PathConv ユーティリティを foundation 側に追加予定。
-    //
-    // bridge スケルトン: 同期完了扱いで全 entry を Loaded に。これにより呼び出し側
-    // (Scene) は「BeginLoad 直後に IsLoaded() == true」と見えて先に進める。
+    // 各 entry を registry 経由で同期ロードし、TRc を保持。失敗は Failed としてマーク
+    // し他 entry のロードは続ける (bundle 全体は HasFailed() で判定できる)。
     for (usize i = 0; i < m_Entries.Size(); ++i) {
-        m_Entries[i].status = LoadStatus::Loaded;
+        Entry& e = m_Entries[i];
+        wchar_t wpath[260];
+        if (!WidenPath(e.path, wpath, 260)) {
+            ACS_LOG_WARN("FAssetBundle::BeginLoad: path 変換失敗 '%s'", e.path ? e.path : "(null)");
+            e.status = LoadStatus::Failed;
+            continue;
+        }
+        auto r = registry.Load(wpath);
+        if (r.IsErr()) {
+            ACS_LOG_WARN("FAssetBundle::BeginLoad: load 失敗 '%s'", e.path);
+            e.status = LoadStatus::Failed;
+            continue;
+        }
+        e.asset  = Move(r.Value());
+        e.status = LoadStatus::Loaded;
     }
+}
+
+TRc<Asset> FAssetBundle::GetAsset(u32 index) const noexcept {
+    if (index >= m_Entries.Size()) return TRc<Asset>();
+    return m_Entries[index].asset;
+}
+
+TRc<Asset> FAssetBundle::FindAsset(const char* asset_path) const noexcept {
+    if (!asset_path) return TRc<Asset>();
+    for (usize i = 0; i < m_Entries.Size(); ++i) {
+        const char* p = m_Entries[i].path;
+        if (p) {
+            const char* a = p; const char* b = asset_path;
+            while (*a && *b && *a == *b) { ++a; ++b; }
+            if (*a == 0 && *b == 0) return m_Entries[i].asset;
+        }
+    }
+    return TRc<Asset>();
 }
 
 f32 FAssetBundle::Progress() const noexcept {
@@ -114,17 +147,11 @@ u32 FAssetBundle::LoadedCount() const noexcept {
 }
 
 void FAssetBundle::Unload() noexcept {
-    // TODO(Phase G-2): 各 entry の TRc<Asset> を drop し、必要なら
-    //   FAssetRegistry::Instance().Unload(AssetIdFromPath(entry.path));
-    // を呼んでキャッシュからも外す。他 Scene がまだ参照していれば refcount > 0 で
-    // 実体は残り、最後の参照消失時に自動解放される (TRc の決定的破棄)。
-    //
-    // bridge スケルトン: 内部 state を Pending に戻し、m_bBegun フラグもクリアして
-    // 再利用可能な状態にする (同一 bundle インスタンスの再 Add + 再 BeginLoad を許す)。
-    const usize n = m_Entries.Size();
-    for (usize i = 0; i < n; ++i) {
-        m_Entries[i].status = LoadStatus::Pending;
-    }
+    // m_Entries.Clear() で各 Entry が破棄され、保持していた TRc<Asset> が drop される。
+    // 他 bundle / registry cache がまだ参照していれば refcount > 0 で実体は残り、最後の
+    // 参照消失時に自動解放される (TRc の決定的破棄、GC 不要)。registry cache から完全に
+    // 外したい場合は app 側で registry.Unload(id) / Clear() を呼ぶ (bundle は共有参照の
+    // 解放のみ担当し、cache 寿命管理には踏み込まない)。
     m_Entries.Clear();
     m_bBegun = false;
 }

@@ -38,6 +38,10 @@
 #include "foundation/Types.h"
 #include "foundation/Log.h"
 #include "container/Array.h"
+#include "memory/Rc.h"
+#include "asset/Asset.h"
+
+namespace acs { class FAssetRegistry; }
 
 namespace acs::game {
 
@@ -68,9 +72,16 @@ public:
     // BeginLoad 後の Add は no-op (警告ログのみ)。
     void Add(const char* asset_path) noexcept;
 
-    // 全 path に対して FAssetRegistry::LoadAsync を発行し、bundle を Loading 状態に。
-    // 多重呼び出しは no-op (idempotent: 2 回目以降は警告のみ)。
-    void BeginLoad() noexcept;
+    // 全 path を registry 経由で実ロードし、結果 (TRc<Asset>) を各 entry に保持する。
+    // registry は app が所有するもの (FApplication::GetAssets() / FGame 経由) を渡す。
+    // RegisterDefaultLoaders() 済みであること。多重呼び出しは no-op (警告のみ)。
+    // 同期ロード (FAssetRegistry::Load): 戻った時点で各 entry は Loaded / Failed 確定。
+    void BeginLoad(FAssetRegistry& registry) noexcept;
+
+    // ロード済み asset を取得する (未ロード / 範囲外 / 失敗は空 TRc)。index は Add 順。
+    TRc<Asset> GetAsset(u32 index) const noexcept;
+    // path 一致の asset を取得 (見つからない / 失敗は空 TRc)。
+    TRc<Asset> FindAsset(const char* asset_path) const noexcept;
 
     // 完了割合 [0, 1]。BeginLoad 未呼び出しは 0、全 asset 完了 (成功/失敗問わず) で 1。
     // 「ローディング画面のプログレスバー」用途を想定。
@@ -99,8 +110,8 @@ private:
     struct Entry {
         const char* path   = nullptr;
         LoadStatus  status = LoadStatus::Pending;
-        // Phase G-2 でここに FAssetFuture を追加し、Tick で polling する。
-        // 現スケルトンでは status のみで状態遷移を追跡。
+        TRc<Asset>  asset;   // BeginLoad で registry からロードした実体 (失敗時は空)。
+                             // bundle が参照を保持することで、Unload まで生存を保証する。
     };
 
     // bundle が BeginLoad を 1 度でも実行したか (Add の閉鎖判定用)。

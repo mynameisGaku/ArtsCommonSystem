@@ -8,6 +8,7 @@
 //   4) FProgression::Save/Load       (FSaveArchive バイナリ、XP + milestone 達成)
 // GPU 不要・ヘッドレス。全項目 OK なら exit 0、1 つでも FAIL なら exit 1。
 #include "gameframework/GameFramework.h"
+#include "asset/AssetRegistry.h"
 
 #include <cstdio>
 #include <cstring>
@@ -139,14 +140,41 @@ void TestProgression() noexcept {
     Check(p2.AchievedCount() == 1, "達成数 1");
 }
 
+void TestAssetBundle() noexcept {
+    std::printf("[FAssetBundle] FAssetRegistry 実ロード\n");
+    FAssetRegistry reg;
+    reg.RegisterDefaultLoaders();
+    const char* fname = "bundle_test.dat";
+    {
+        std::FILE* f = std::fopen(fname, "wb");
+        Check(f != nullptr, "テストファイル作成");
+        if (f) { std::fwrite("ACS-BUNDLE-OK", 1, 13, f); std::fclose(f); }
+    }
+    FAssetBundle bundle;
+    bundle.Add(fname);
+    bundle.Add("does_not_exist_xyz.dat");          // 失敗パス
+    bundle.BeginLoad(reg);
+    Check(bundle.AssetCount() == 2, "登録 2 件");
+    Check(bundle.IsLoaded(), "IsLoaded (成功/失敗とも完了)");
+    Check(bundle.LoadedCount() == 1, "成功 1 件");
+    Check(bundle.HasFailed(), "欠落ファイルを Failed 検知");
+    Check(bundle.GetAsset(0).Get() != nullptr, "GetAsset(0) で実体保持");
+    Check(bundle.FindAsset(fname).Get() != nullptr, "FindAsset で取得");
+    Check(bundle.GetAsset(1).Get() == nullptr, "失敗 entry は空 TRc");
+    bundle.Unload();
+    Check(bundle.AssetCount() == 0, "Unload で空に");
+    std::remove(fname);
+}
+
 } // namespace
 
 int main() {
-    std::printf("=== Persist/Serialize round-trip 検証 (stub 撲滅 Batch 1) ===\n");
+    std::printf("=== Persist/Serialize round-trip 検証 (stub 撲滅 Batch 1/2) ===\n");
     TestSettings();
     TestLockstep();
     TestInputRecorder();
     TestProgression();
+    TestAssetBundle();
     std::printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILED");
     return g_fail;
 }
