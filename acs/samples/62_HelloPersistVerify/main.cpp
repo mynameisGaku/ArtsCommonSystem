@@ -37,6 +37,75 @@ void Check(bool cond, const char* what) noexcept {
 
 bool NearF(f32 a, f32 b) noexcept { return std::fabs(a - b) < 1e-4f; }
 
+// 描画順テスト用: OnDraw で自分の tag を順に記録するノード。
+int g_draw_order[64];
+int g_draw_count = 0;
+struct OrderNode final : FNode2D {
+    int tag = 0;
+    explicit OrderNode(int t) noexcept : tag(t) {}
+    void OnDraw(RenderContext&) noexcept override {
+        if (g_draw_count < 64) g_draw_order[g_draw_count++] = tag;
+    }
+};
+
+void TestDrawOrder() noexcept {
+    std::printf("[FNode2D] 描画順 (レイヤ / Y-sort)\n");
+    RenderContext rc;   // headless: default 構築 (GPU 不要、OnDraw は tag 記録のみ)
+
+    // --- Layer 昇順 ---
+    {
+        FNode2D root;
+        auto& a = root.AddChild(MakeUnique<OrderNode>(0)); a.SetSortLayer(2);
+        auto& b = root.AddChild(MakeUnique<OrderNode>(1)); b.SetSortLayer(0);
+        auto& c = root.AddChild(MakeUnique<OrderNode>(2)); c.SetSortLayer(1);
+        root.SetChildDrawOrder(FNode2D::EChildDrawOrder::Layer);
+        g_draw_count = 0; root.DrawTree(rc);
+        Check(g_draw_count == 3 && g_draw_order[0] == 1 && g_draw_order[1] == 2 && g_draw_order[2] == 0,
+              "Layer 昇順で描画 (追加順 0,1,2 / layer 2,0,1 → 1,2,0)");
+    }
+    // --- LayerThenY: 同層内 world.y 降順 (+Y=up なので奥=大 y を先に) ---
+    {
+        FNode2D root;
+        auto& a = root.AddChild(MakeUnique<OrderNode>(0)); a.Local().position = FVec2{0.0f, 10.0f};
+        auto& b = root.AddChild(MakeUnique<OrderNode>(1)); b.Local().position = FVec2{0.0f, -5.0f};
+        auto& c = root.AddChild(MakeUnique<OrderNode>(2)); c.Local().position = FVec2{0.0f,  3.0f};
+        root.SetChildDrawOrder(FNode2D::EChildDrawOrder::LayerThenY);
+        g_draw_count = 0; root.DrawTree(rc);
+        Check(g_draw_count == 3 && g_draw_order[0] == 0 && g_draw_order[1] == 2 && g_draw_order[2] == 1,
+              "Y-sort: world.y 降順 (10,3,-5 → 0,2,1)");
+    }
+    // --- レイヤ優先 + 同層内 Y ---
+    {
+        FNode2D root;
+        auto& a = root.AddChild(MakeUnique<OrderNode>(0)); a.SetSortLayer(1); a.Local().position = FVec2{0, 100.0f};
+        auto& b = root.AddChild(MakeUnique<OrderNode>(1)); b.SetSortLayer(0); b.Local().position = FVec2{0, -100.0f};
+        root.SetChildDrawOrder(FNode2D::EChildDrawOrder::LayerThenY);
+        g_draw_count = 0; root.DrawTree(rc);
+        Check(g_draw_count == 2 && g_draw_order[0] == 1 && g_draw_order[1] == 0,
+              "layer が y より優先 (layer0 が高 y より先)");
+    }
+    // --- 安定性: 同 layer 同 y は追加順を保つ ---
+    {
+        FNode2D root;
+        root.AddChild(MakeUnique<OrderNode>(0));
+        root.AddChild(MakeUnique<OrderNode>(1));
+        root.AddChild(MakeUnique<OrderNode>(2));
+        root.SetChildDrawOrder(FNode2D::EChildDrawOrder::LayerThenY);
+        g_draw_count = 0; root.DrawTree(rc);
+        Check(g_draw_count == 3 && g_draw_order[0] == 0 && g_draw_order[1] == 1 && g_draw_order[2] == 2,
+              "同キーは安定ソート (追加順 0,1,2)");
+    }
+    // --- 既定 Tree は配列順 (layer 無視・ゼロオーバーヘッド) ---
+    {
+        FNode2D root;
+        root.AddChild(MakeUnique<OrderNode>(5)).SetSortLayer(99);
+        root.AddChild(MakeUnique<OrderNode>(6)).SetSortLayer(-99);
+        g_draw_count = 0; root.DrawTree(rc);   // ChildDrawOrder 既定 = Tree
+        Check(g_draw_count == 2 && g_draw_order[0] == 5 && g_draw_order[1] == 6,
+              "Tree 既定は配列順 (layer 無視)");
+    }
+}
+
 void TestSettings() noexcept {
     std::printf("[FSettings] INI 保存/読込 round-trip\n");
     const wchar_t* path = L"persist_settings.ini";
@@ -482,6 +551,7 @@ int main() {
     TestStudioWorkflow();
     TestReplayDirector();
     TestImageModeration();
+    TestDrawOrder();
     std::printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILED");
     return g_fail;
 }

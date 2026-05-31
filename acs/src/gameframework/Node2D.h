@@ -69,6 +69,31 @@ public:
     void SetVisible(bool b) noexcept { m_Visible = b; }
     bool IsVisible() const noexcept { return m_Visible; }
 
+    // ----- 描画順 (Phase 8: レイヤ / Y-sort) -----
+    // 子の描画順モード。既定 Tree = 配列追加順 (従来挙動・ゼロオーバーヘッド)。
+    // 見下ろしゲームの Y 遮蔽や、背景/ワールド/前景/HUD のレイヤ分離に使う。
+    enum class EChildDrawOrder : u8 {
+        Tree       = 0,  // 配列追加順 (従来)。ソートしない。
+        Layer      = 1,  // SortLayer 昇順 (低い層が奥=先に描画)。同層は配列順で安定。
+        LayerThenY = 2,  // SortLayer 昇順 → 同層内は (world.y + YSortBias) の降順。
+                         // +Y=up なので大きい y (画面上=奥) を先に描画 = 見下ろし遮蔽。
+    };
+
+    // この node が「自分の子」を描画する順序を設定する。Layer/LayerThenY のとき
+    // DrawTree は子を安定ソートしてから描く (兄弟間のみ。木の階層は維持)。
+    void            SetChildDrawOrder(EChildDrawOrder o) noexcept { m_ChildOrder = o; }
+    EChildDrawOrder ChildDrawOrder() const noexcept { return m_ChildOrder; }
+
+    // この node の描画レイヤ。親が Layer/LayerThenY のとき兄弟間ソートの第1キー。
+    // 低いほど奥 (先に描画)。既定 0。
+    void SetSortLayer(i32 layer) noexcept { m_SortLayer = layer; }
+    i32  SortLayer() const noexcept { return m_SortLayer; }
+
+    // Y-sort の pivot バイアス。world.y に加算してソートキーにする
+    // (例: スプライト中心でなく「足元」で遮蔽したい場合に負値を入れる)。既定 0。
+    void SetYSortBias(f32 bias) noexcept { m_YSortBias = bias; }
+    f32  YSortBias() const noexcept { return m_YSortBias; }
+
     // ----- Tree -----
     FNode2D* Parent() const noexcept { return m_Parent; }
     u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
@@ -181,12 +206,18 @@ private:
     // Reparent 操作で cycle が生じないか (= target が自分の子孫でないか) を確認。
     bool IsAncestorOf(const FNode2D* candidate) const noexcept;
 
+    // m_ChildOrder != Tree のとき、子を (SortLayer, world.y) で安定ソートして描画する。
+    void DrawChildrenSorted(RenderContext& rc) noexcept;
+
     FTransform2D m_Local{};
     FNode2D*     m_Parent          = nullptr;
     TArray<TUniquePtr<FNode2D>>      m_Children;
     TArray<TUniquePtr<FComponent2D>> m_Components;
     FNodeId      m_Id{};                        // Phase 3: generational handle (default = invalid)
     FNode2D*     m_PendingReparentTarget = nullptr;  // 非 null なら次の resolve で移動
+    i32          m_SortLayer       = 0;          // Phase 8: 描画レイヤ (親ソート時の第1キー)
+    f32          m_YSortBias       = 0.0f;       // Phase 8: Y-sort の pivot バイアス
+    EChildDrawOrder m_ChildOrder   = EChildDrawOrder::Tree;  // Phase 8: 子の描画順モード
     bool        m_Enabled         = true;
     bool        m_Visible         = true;
     bool        m_bSpawned         = false;

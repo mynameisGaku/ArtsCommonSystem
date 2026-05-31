@@ -61,15 +61,82 @@ void FNode2D::DrawTree(RenderContext& rc) noexcept {
     for (u32 i = 0; i < m_Components.Size(); ++i) {
         if (m_Components[i]) m_Components[i]->OnDraw(rc);
     }
-    for (u32 i = 0; i < m_Children.Size(); ++i) {
-        FNode2D* c = m_Children[i].Get();
-        if (c != nullptr) c->DrawTree(rc);
+    // Phase 8: 描画順モード。既定 (Tree) は配列順でゼロオーバーヘッド。
+    // Layer/LayerThenY のときだけ兄弟を安定ソートしてから描く。
+    if (m_ChildOrder == EChildDrawOrder::Tree) {
+        for (u32 i = 0; i < m_Children.Size(); ++i) {
+            FNode2D* c = m_Children[i].Get();
+            if (c != nullptr) c->DrawTree(rc);
+        }
+    } else {
+        DrawChildrenSorted(rc);
     }
     // 子ツリー描画の後に後処理フックを呼ぶ (ステンシルマスクの解除等)。
     // これにより clip コンポーネントは「OnDraw でマスク設定 → 子ツリー描画 →
     // OnDrawPostChildren で解除」と、自分の子ツリーをマスクで囲える。
     for (u32 i = 0; i < m_Components.Size(); ++i) {
         if (m_Components[i]) m_Components[i]->OnDrawPostChildren(rc);
+    }
+}
+
+// Phase 8: 子を (SortLayer 昇順, world.y+YSortBias 降順) で安定ソートして描画。
+// - 第1キー = SortLayer 昇順 (低い層を先に=奥)。
+// - 第2キー (LayerThenY のみ) = world.y 降順 (+Y=up なので大きい y=画面奥 を先に)。
+// - 安定: 同キーの兄弟は配列追加順を保つ。
+// World() は O(深さ) なので 1 子につき 1 回だけ評価してキャッシュ (比較中は読まない)。
+// 兄弟数は通常小さいので挿入ソート (安定・追加メモリ最小)。スタック上限超過時のみ
+// ヒープ確保にフォールバックする。
+void FNode2D::DrawChildrenSorted(RenderContext& rc) noexcept {
+    const u32 n = static_cast<u32>(m_Children.Size());
+    if (n == 0) return;
+    const bool by_y = (m_ChildOrder == EChildDrawOrder::LayerThenY);
+
+    constexpr u32 kStackCap = 256;
+    u32 idx_s[kStackCap];
+    i32 lay_s[kStackCap];
+    f32 y_s[kStackCap];
+    TArray<u32> idx_h;
+    TArray<i32> lay_h;
+    TArray<f32> y_h;
+    u32* idx = idx_s;
+    i32* lay = lay_s;
+    f32* yy  = y_s;
+    if (n > kStackCap) {
+        idx_h.Resize(n); lay_h.Resize(n); y_h.Resize(n);
+        idx = idx_h.Data(); lay = lay_h.Data(); yy = y_h.Data();
+    }
+
+    // キー収集 (World() は 1 回だけ)。
+    for (u32 i = 0; i < n; ++i) {
+        idx[i] = i;
+        FNode2D* c = m_Children[i].Get();
+        lay[i] = (c != nullptr) ? c->m_SortLayer : 0;
+        yy[i]  = (by_y && c != nullptr) ? (c->World().position.y + c->m_YSortBias) : 0.0f;
+    }
+
+    // 安定挿入ソート。prev(j-1) が ti より「後ろに描く」べきなら右へずらす。
+    for (u32 i = 1; i < n; ++i) {
+        const u32 ti = idx[i];
+        const i32 tl = lay[i];
+        const f32 ty = yy[i];
+        u32 j = i;
+        while (j > 0) {
+            const i32 pl = lay[j - 1];
+            const f32 py = yy[j - 1];
+            bool prev_after;                       // prev を ti の後ろに描くべきか
+            if (pl != tl)      prev_after = (pl > tl);   // 層が大 = 手前 = 後
+            else if (by_y)     prev_after = (py < ty);   // y が小 = 手前 = 後
+            else               prev_after = false;        // 同キー = 安定 (動かさない)
+            if (!prev_after) break;
+            idx[j] = idx[j - 1]; lay[j] = lay[j - 1]; yy[j] = yy[j - 1];
+            --j;
+        }
+        idx[j] = ti; lay[j] = tl; yy[j] = ty;
+    }
+
+    for (u32 i = 0; i < n; ++i) {
+        FNode2D* c = m_Children[idx[i]].Get();
+        if (c != nullptr) c->DrawTree(rc);
     }
 }
 
