@@ -66,7 +66,13 @@ f32 ClampPitch(f32 p) noexcept {
 struct VoiceSlot {
     IXAudio2SourceVoice* voice    = nullptr;  // XAudio2 source voice
     TArray<byte>          buffer;              // 再生中保持する PCM コピー
-    u8                   generation = 0;      // handle 検証用 (0..255 を循環)
+    // handle 検証用 generation。**1 始まり** (0 は invalid 表現に予約)。
+    // 理由: AudioVoiceHandle は (index<<0 | gen<<24) を packed == 0 で invalid と
+    // する規約 (FNodeId / FShapeId と同一)。generation=0 のまま index=0 の slot を
+    // 配ると packed == 0 = kInvalidAudioVoice と衝突し、確保成功が IsValid()==false
+    // となって StopVoice 不能 → voice リーク + active_count 不整合を起こす。
+    // よって初期値を 1 にし、DestroySlot でのラップ時も 0 をスキップする。
+    u8                   generation = 1;      // handle 検証用 (1..255 を循環、0 は予約)
     bool                 active    = false;   // true なら use 中
     bool                 looped    = false;   // ループ再生か (一発再生は Tick で回収)
 };
@@ -251,7 +257,10 @@ void DestroySlot(VoiceSlot& slot) noexcept {
     slot.buffer.Clear();
     slot.active = false;
     slot.looped = false;
-    ++slot.generation;  // 0..255 循環 (オーバーフローは UB ではない / u8 wrap)
+    // generation を進めて古いハンドルを無効化。0 にラップしたら 1 にスキップする
+    // (0 は invalid 表現に予約 = FNodePool::RegisterExistingNode と同じ規約)。
+    ++slot.generation;  // u8 wrap (オーバーフローは UB ではない)
+    if (slot.generation == 0u) slot.generation = 1u;
 }
 
 } // namespace

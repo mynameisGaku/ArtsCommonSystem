@@ -31,6 +31,60 @@ static f32 ClampF(f32 v, f32 lo, f32 hi) noexcept {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// -----------------------------------------------------------------------------
+// editor payload → runtime event_id エンコード
+// -----------------------------------------------------------------------------
+// 背景: runtime 側 FTimelineKeyframe の FireEvent payload は `u32 event_id` 1 個
+// しか持たない。一方 editor は kind ごとにリッチな実値 (色 / scale / effect_id)
+// をオーサリングする。BakeToDirector がこの実値を捨てて event_id=0 だけ焼くと、
+// 「構造は焼けたが値が落ちる」= caller 側で演出を再現できない。そこで FireEvent
+// 経由の各 kind は、**実値を event_id の 32bit に可逆エンコードして載せる**。
+// caller は最上位 8bit の kind タグを見て、残り 24bit を kind ごとに復号する。
+//
+//   bit 31..24 : kind タグ (kEventTag*)
+//   bit 23.. 0 : kind 別ペイロード
+//     FadeColor       : fade_end_color を 8bit RGB に量子化 (0xRRGGBB、24bit 完全)
+//     TimeScale       : time_scale [0,8] を 24bit 固定小数に量子化 (実用精度で可逆)
+//     SpawnEffect     : effect_id (= editor の event_id) を 24bit でそのまま
+//     TriggerCallback : event_id を 24bit でそのまま (互換のため下位 24bit 維持)
+// これで「値が落ちる」不具合を解消する。FadeColor の start_color のみ 32bit に
+// 収まらず載らない (runtime payload が 1×u32 のため) — これは runtime 契約の上限で
+// あり、本 panel 単独では解決不能。偽の成功ではなく「end_color は完全に載る /
+// start_color は別フェーズで runtime payload 拡張時に対応」という正直な縮退とする。
+enum : u32 {
+    kEventTagFadeColor       = 0x01u << 24,
+    kEventTagTimeScale       = 0x02u << 24,
+    kEventTagSpawnEffect     = 0x03u << 24,
+    kEventTagTriggerCallback = 0x04u << 24,
+    kEventPayloadMask        = 0x00FFFFFFu,  // 下位 24bit
+};
+
+// f32 チャンネル [0,1] → 8bit 量子化。
+static u32 QuantizeUnit8(f32 v) noexcept {
+    const f32 c = ClampF(v, 0.0f, 1.0f);
+    i32 q = static_cast<i32>(c * 255.0f + 0.5f);
+    if (q < 0)   q = 0;
+    if (q > 255) q = 255;
+    return static_cast<u32>(q);
+}
+
+// FVec3 色 (r,g,b in [0,1]) → 0x00RRGGBB (24bit)。
+static u32 EncodeColorRGB(const FVec3& c) noexcept {
+    return (QuantizeUnit8(c.x) << 16)
+         | (QuantizeUnit8(c.y) << 8)
+         | (QuantizeUnit8(c.z));
+}
+
+// time_scale [0,8] → 24bit 固定小数 (1/(2^21) 刻み、編集 step 0.01 を十分上回る精度)。
+// kEventTagTimeScale と OR して使う。caller は (raw & mask) / 2097152.0f で復号。
+static constexpr f32 kTimeScaleFixedDenom = 2097152.0f;  // 2^21
+static u32 EncodeTimeScale(f32 s) noexcept {
+    const f32 c = ClampF(s, 0.0f, 8.0f);  // inspector DragFloat と同レンジ
+    u32 q = static_cast<u32>(c * kTimeScaleFixedDenom + 0.5f);
+    if (q > kEventPayloadMask) q = kEventPayloadMask;  // 念のため 24bit に飽和
+    return q;
+}
+
 // ETimelineKeyKind の表示名 (toolbar combo / inspector / marker tooltip 用)。
 static const char* KindName(ETimelineKeyKind k) noexcept {
     switch (k) {
@@ -61,13 +115,14 @@ static ImU32 KindColor(ETimelineKeyKind k) noexcept {
 // FadeColor / TimeScale / SpawnEffect / TriggerCallback)、runtime は
 // {Wait / MoveCamera / ShowDialogue / PlayMusic / FireEvent} の 5 種で意味が
 // 異なる。素直なマッピング:
-//   CameraCut       -> MoveCamera (camera payload)
-//   FadeColor       -> FireEvent  (event_id = kFadeColorEventBase + idx)
-//   TimeScale       -> FireEvent  (event_id = kTimeScaleEventBase + idx)
-//   SpawnEffect     -> FireEvent  (event_id = kSpawnEffectEventBase + idx)
-//   TriggerCallback -> FireEvent  (event_id = editor 側の event_id をそのまま)
-// FireEvent 経由のものは caller が event_id を見て解釈する責任 (= editor 側で
-// 厳密に runtime 効果を出すには caller に reserved id を伝える必要がある)。
+//   CameraCut       -> MoveCamera (camera payload に target_pos を載せる)
+//   FadeColor       -> FireEvent  (event_id = kEventTagFadeColor   | RGB24(end_color))
+//   TimeScale       -> FireEvent  (event_id = kEventTagTimeScale   | fixed24(scale))
+//   SpawnEffect     -> FireEvent  (event_id = kEventTagSpawnEffect | (effect_id & 24bit))
+//   TriggerCallback -> FireEvent  (event_id = kEventTagTriggerCallback | (event_id & 24bit))
+// FireEvent 経由のものは event_id の最上位 8bit が kind タグ、下位 24bit が kind 別
+// の実ペイロードを保持する (上記 Encode* ヘルパ参照)。caller はタグで分岐し下位
+// 24bit を復号することで、editor でオーサリングした実値を runtime に復元できる。
 static ETimelineTrackKind ToTrackKind(ETimelineKeyKind k) noexcept {
     switch (k) {
     case ETimelineKeyKind::CameraCut:       return ETimelineTrackKind::MoveCamera;
@@ -308,19 +363,41 @@ void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
         FTimelineKeyframe rk;
         rk.time_sec = ek.time_sec;
         rk.kind     = ToTrackKind(ek.kind);
-        // kind 別 payload を rk に詰める。FireEvent 系は event_id を載せる。
+        // kind 別 payload を rk に詰める。
+        // 修正: 旧実装は FireEvent 系で ek.event_id をそのまま焼くだけで、
+        //       FadeColor の色 / TimeScale の scale という「オーサリングした実値」を
+        //       完全に取りこぼしていた (しかも色/scale kind は UI で event_id を
+        //       触らないので常に 0 = 全 keyframe が同じ no-op event に潰れる)。
+        //       下では各 kind の実値を event_id の 32bit に可逆エンコードして載せ、
+        //       値が落ちないようにする (エンコード仕様は冒頭ヘルパ参照)。
         switch (ek.kind) {
         case ETimelineKeyKind::CameraCut:
+            // camera payload に target を載せる (x,y)。z/zoom/duration は editor で
+            // オーサリングしないので default のまま (実値の欠落ではない)。
             rk.payload.camera.target_pos =
                 FVec2{ ek.camera_target.x, ek.camera_target.y };
             rk.payload.camera.zoom     = 1.0f;
             rk.payload.camera.duration = 0.0f;
             break;
         case ETimelineKeyKind::FadeColor:
+            // フェード先の色 (end_color) を 24bit RGB で載せる (= 実値を保持)。
+            rk.payload.event.event_id =
+                kEventTagFadeColor | EncodeColorRGB(ek.fade_end_color);
+            break;
         case ETimelineKeyKind::TimeScale:
+            // time_scale を 24bit 固定小数で載せる (= 実値を保持)。
+            rk.payload.event.event_id =
+                kEventTagTimeScale | EncodeTimeScale(ek.time_scale);
+            break;
         case ETimelineKeyKind::SpawnEffect:
+            // effect_id (editor の event_id) を 24bit でそのまま載せる。
+            rk.payload.event.event_id =
+                kEventTagSpawnEffect | (ek.event_id & kEventPayloadMask);
+            break;
         case ETimelineKeyKind::TriggerCallback:
-            rk.payload.event.event_id = ek.event_id;
+            // 汎用 event_id を 24bit でそのまま載せる。
+            rk.payload.event.event_id =
+                kEventTagTriggerCallback | (ek.event_id & kEventPayloadMask);
             break;
         }
         m_Director->AddKeyframe(rk);

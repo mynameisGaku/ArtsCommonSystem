@@ -245,8 +245,10 @@ private:
     // ---- 命名済 frame name の静的バッファ ----
     // FSpritePack に const char* を渡すため、panel 寿命中に確実に生存する
     // 領域が必要。固定長 2 次元配列 (kMaxOwnedFrames × kFrameNameMaxChars)
-    // で provision する。生成済個数は AddFrame で単調増加、Shutdown で 0 に。
-    // 削除した name の slot は再利用しない (= シンプル優先、上限 64 で十分)。
+    // で provision する。生成済個数は AddFrame で増加、Shutdown で 0 に。
+    // DeleteSelectedFrame は削除 slot を末尾 slot で swap-fill して回収し
+    // (参照する FSpritePack frame の name pointer も repoint)、m_OwnedNameCount
+    // を減算する。これにより Add/Delete を繰り返しても上限 64 で枯渇しない。
     c8 m_DefaultFrameNamePool[kMaxOwnedFrames][kFrameNameMaxChars] = {};
     u32 m_OwnedNameCount = 0;
 };

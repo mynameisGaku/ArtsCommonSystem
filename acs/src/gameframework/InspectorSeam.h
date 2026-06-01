@@ -68,6 +68,7 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/NodeId.h"  // FNodeId (node-keyed provider lookup 用)
 
 namespace acs::game {
 
@@ -155,7 +156,19 @@ public:
     // Provider 登録。non-owning: provider の生存期間は呼び出し側責務。
     // 同一ポインタの多重登録は許可しない (重複は無視 + 何もしない)。
     // nullptr は無視。
+    // node 紐付けなし版 (= 紐付く FNodeId は invalid)。FNodeId からの逆引きを
+    // 使いたい場合は RegisterProviderForNode を使うこと。
     void RegisterProvider(IInspectableProvider* provider) noexcept;
+
+    // node 紐付き版の Provider 登録。`node_id` をキーに後で GetProviderForNode で
+    // 逆引きできる。non-owning は RegisterProvider と同じ。同一 provider ポインタの
+    // 多重登録は弾く (この場合 node_id の更新も行わない)。nullptr は無視。
+    //
+    // 設計意図: FNodeId は「シーングラフ上の slot index + generation」を表す
+    // ハンドルであり、provider レジストリ上の登録順 index とは別物。両者を取り
+    // 違えると別 provider を引いてしまうため、node→provider の対応は明示的に
+    // ここで記録する (panel 側が id.Index() を登録 index と誤用しないため)。
+    void RegisterProviderForNode(FNodeId node_id, IInspectableProvider* provider) noexcept;
 
     // Provider 登録解除。未登録 / nullptr は無視 (no-op)。
     // 解除後、Provider オブジェクト自体は破棄しない (non-owning なので)。
@@ -165,7 +178,14 @@ public:
     u32 ProviderCount() const noexcept;
 
     // index 番目の Provider。範囲外 (index >= ProviderCount()) は nullptr 安全。
+    // ここでの index は **登録順 (provider レジストリ上の位置)** であり、FNodeId の
+    // Index() ではない。FNodeId から引きたい場合は GetProviderForNode を使う。
     IInspectableProvider* GetProvider(u32 index) const noexcept;
+
+    // FNodeId をキーに紐付く Provider を逆引きする。RegisterProviderForNode で
+    // 登録した node_id に完全一致 (index + generation) する provider を返す。
+    // 一致なし / invalid id は nullptr。これが node-keyed lookup の正しい入口。
+    IInspectableProvider* GetProviderForNode(FNodeId node_id) const noexcept;
 
     // UI 側が値を書き換えた直後に呼ぶ。指定 Provider の OnFieldChanged() に
     // forward する。範囲外 (provider_index >= ProviderCount()) は no-op。
@@ -179,7 +199,11 @@ public:
     //   持たない純粋なレジストリのままにする。
 
 private:
+    // m_Providers[i] と m_NodeIds[i] は常に同じ index で対応する parallel array。
+    // 追加 / swap-remove / Clear は両者を必ず揃えて操作すること。
+    // node 紐付けなしで登録した provider の m_NodeIds[i] は invalid (FNodeId{})。
     TArray<IInspectableProvider*> m_Providers;
+    TArray<FNodeId>               m_NodeIds;
 };
 
 } // namespace acs::game

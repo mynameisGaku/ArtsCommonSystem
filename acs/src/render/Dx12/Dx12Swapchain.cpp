@@ -71,8 +71,16 @@ HrResult Dx12Swapchain::AcquireBuffers(Dx12Device& device) noexcept {
     HrResult r{};
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_RtvHeap->GetCPUDescriptorHandleForHeapStart();
     for (u32 i = 0; i < m_BufferCount; ++i) {
+        // GetBuffer は失敗時に out ポインタを書き換えない場合があるため明示初期化
+        m_BackBuffers[i] = nullptr;
         r.hr = m_Swapchain->GetBuffer(i, IID_PPV_ARGS(&m_BackBuffers[i]));
-        if (r.IsErr()) return r;
+        if (r.IsErr()) {
+            // 途中失敗時は取得済みバッファを解放し全 null に戻す。
+            // 半端な状態を残すと BackBuffer() が null を返し描画側で参照外れになる。
+            ACS_SAFE_RELEASE(m_BackBuffers[i]);  // GetBuffer が部分書き込みした可能性に備える
+            ReleaseBuffers();
+            return r;
+        }
         device.D3DDevice()->CreateRenderTargetView(m_BackBuffers[i], nullptr, rtv);
         rtv.ptr += m_RtvSize;
     }
@@ -107,11 +115,22 @@ void Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
     HRESULT hr = m_Swapchain->ResizeBuffers(m_BufferCount, width, height,
                                             DXGI_FORMAT_UNKNOWN,
                                             DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
-    if (FAILED(hr)) return;
+    if (FAILED(hr)) {
+        // ResizeBuffers 失敗。バッファは既に解放済みなので幅/高さは更新せず、
+        // 旧寸法のまま矛盾なく残す（次フレームで再 Resize される想定）。
+        return;
+    }
+
+    // バッファ再取得が成功した場合にのみ寸法を確定させる。
+    // 失敗時に幅/高さを更新すると BackBuffer() が null を返し描画側で参照外れになる。
+    HrResult ar = AcquireBuffers(*m_Device);
+    if (ar.IsErr()) {
+        // 取得失敗時 AcquireBuffers が全バッファを解放済み。寸法は更新しない。
+        return;
+    }
 
     m_Width = width;
     m_Height = height;
-    AcquireBuffers(*m_Device);
 }
 
 // ファクトリ関数: CreateRhiSwapchain の DX12 実装

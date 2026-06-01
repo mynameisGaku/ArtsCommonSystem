@@ -356,8 +356,14 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         }
         // else: ゼロ初期化のまま (RawEntry r{} で 0 クリア済)
 
-        // sanity: entry が指す data 領域が file_size に収まっているか
-        if (r.offset + r.size_stored > m_FileSize) {
+        // sanity: entry が指す data 領域が file_size に収まっているか。
+        // offset / size_stored は untrusted な u64 のため、`offset + size_stored`
+        // を直接比較すると加算が u64 で wrap し、巨大値の組み合わせ
+        // (例: offset=0xFFFF...FF00, size_stored=0x200) が境界チェックをすり抜け、
+        // ReadFile で任意オフセットへ seek して OOB read する。減算側で評価して
+        // overflow を回避する: size_stored > file_size || offset > file_size - size_stored。
+        if (r.size_stored > m_FileSize ||
+            r.offset > m_FileSize - r.size_stored) {
             return ACS_ERR(IO, kAcpakSubBadSize,
                            "FAcpakReader::Open: entry data range out of file");
         }

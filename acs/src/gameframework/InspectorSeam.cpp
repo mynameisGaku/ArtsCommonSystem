@@ -27,6 +27,14 @@ void FInspectorSeam::Init() noexcept {
 // ---- RegisterProvider ---------------------------------------------------
 
 void FInspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
+    // node 紐付けなし = invalid FNodeId で登録 (GetProviderForNode の対象外)。
+    RegisterProviderForNode(FNodeId{}, provider);
+}
+
+// ---- RegisterProviderForNode --------------------------------------------
+
+void FInspectorSeam::RegisterProviderForNode(FNodeId node_id,
+                                             IInspectableProvider* provider) noexcept {
     if (provider == nullptr) {
         // nullptr は無視 (呼び出し側の境界条件を吸収する)。
         return;
@@ -38,7 +46,9 @@ void FInspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
             return;
         }
     }
+    // provider と node_id を同じ index で対応させる (parallel array)。
     m_Providers.PushBack(provider);
+    m_NodeIds.PushBack(node_id);
 }
 
 // ---- UnregisterProvider -------------------------------------------------
@@ -57,9 +67,12 @@ void FInspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept
         if (m_Providers[i] == provider) {
             const usize last = n - 1;
             if (i != last) {
+                // parallel array なので provider / node_id を同じ index で swap。
                 m_Providers[i] = m_Providers[last];
+                m_NodeIds[i]   = m_NodeIds[last];
             }
             m_Providers.PopBack();
+            m_NodeIds.PopBack();
             return;
         }
     }
@@ -79,6 +92,24 @@ IInspectableProvider* FInspectorSeam::GetProvider(u32 index) const noexcept {
         return nullptr;
     }
     return m_Providers[index];
+}
+
+// ---- GetProviderForNode -------------------------------------------------
+
+IInspectableProvider* FInspectorSeam::GetProviderForNode(FNodeId node_id) const noexcept {
+    if (!node_id.IsValid()) {
+        // invalid id (= 未紐付け sentinel) では引かない。RegisterProvider 由来の
+        // 紐付けなし provider (m_NodeIds[i] == invalid) を誤ヒットさせないため。
+        return nullptr;
+    }
+    // FNodeId 完全一致 (index + generation) で線形検索。登録数は数十想定なので
+    // 線形で十分 (hash 化は Phase K-3+ で必要になれば再考)。
+    for (usize i = 0; i < m_Providers.Size(); ++i) {
+        if (m_NodeIds[i] == node_id) {
+            return m_Providers[i];
+        }
+    }
+    return nullptr;
 }
 
 // ---- NotifyFieldChanged -------------------------------------------------
@@ -104,7 +135,9 @@ void FInspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 f
 void FInspectorSeam::ClearAll() noexcept {
     // Provider は non-owning なので破棄せず、配列だけ空にする。
     // 容量は保持 (Reserve 状態を保つ ≒ 次回再登録時のアロケーション節約)。
+    // parallel array なので node_id 側も必ず一緒に空にする。
     m_Providers.Clear();
+    m_NodeIds.Clear();
 }
 
 } // namespace acs::game

@@ -310,19 +310,33 @@ TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
 // ============================================================================
 // FAcpakCrypto::GenerateRandomNonce — CSPRNG 12 バイト
 // ============================================================================
-void FAcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept {
-    if (nonce_out == nullptr) return;
+// セキュリティ上の不変条件: AES-GCM では (key, nonce) の組が一度でも再利用される
+// と認証鍵 (H) が漏洩し、任意改竄が可能になる致命的破綻を起こす。したがって
+// CSPRNG が失敗した場合に「ゼロ / 予測可能な nonce」で処理を続行してはならない。
+// 旧実装は失敗時に MemSet(0) して void で黙って返していたため、呼び出し側が
+// 失敗を検知できず全エントリ共通のゼロ nonce で暗号化される危険があった。
+// ここでは TResult<void> を返し、RNG 失敗を必ずエラーとして伝播させる。
+TResult<void> FAcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept {
+    if (nonce_out == nullptr) {
+        return ACS_ERR(Asset, kAcpakSubCryptoRand,
+                       "FAcpakCrypto::GenerateRandomNonce: nonce_out pointer is null");
+    }
 
     NTSTATUS s = ::BCryptGenRandom(nullptr,
                                    nonce_out,
                                    static_cast<ULONG>(kAcpakNonceSize),
                                    BCRYPT_USE_SYSTEM_PREFERRED_RNG);
     if (s != STATUS_SUCCESS) {
-        // フォールバック: 全 0 (= GCM が破滅するが、CNG 異常時は他にも問題が
-        // 出ているはずなので production としては事実上発生しないパス)。
-        // Phase 3 で TResult<void> 化することを検討する。
+        // CSPRNG 失敗。ゼロ/予測可能 nonce での暗号化を絶対に避けるため、出力を
+        // 0 クリアしたうえでエラーを返し、呼び出し側に暗号化を中止させる。
+        // (0 クリアは「失敗後に呼び出し側が誤って使っても弱鍵で暗号化しない」
+        //  防御だが、本実装では呼び出し側が必ずエラーを伝播するので未使用になる。)
         MemSet(nonce_out, 0, kAcpakNonceSize);
+        return ACS_ERR_OS(Asset, kAcpakSubCryptoRand,
+                          "FAcpakCrypto::GenerateRandomNonce: BCryptGenRandom failed",
+                          static_cast<u32>(s));
     }
+    return Ok();
 }
 
 } // namespace acs::assetpack

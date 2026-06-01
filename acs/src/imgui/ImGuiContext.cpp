@@ -103,10 +103,14 @@ void ImGuiCtx::Render() noexcept {
     if (!m_Initialized || !m_Renderer) return;
     ImGui::Render();
 
-    // 現在のコマンドリストに ImGui の描画コマンドを発行
-    auto* cmd_list = static_cast<ID3D12GraphicsCommandList*>(
-        m_Renderer->CommandList()->NativeHandle());
-    if (!cmd_list) return;
+    // 現在のコマンドリストに ImGui の描画コマンドを発行。
+    // CommandList() は BeginFrame 前や未初期化時に null を返しうる（m_Cmd.Get()）。
+    // 旧コードは戻り値を直接 ->NativeHandle() で deref しており null 参照になるため、
+    // ポインタ自体を先にガードしてから native handle を取得する。
+    IRhiCommandList* rhi_cmd = m_Renderer->CommandList();
+    if (!rhi_cmd) return;
+    auto* cmd_list = static_cast<ID3D12GraphicsCommandList*>(rhi_cmd->NativeHandle());
+    if (!cmd_list || !m_SrvHeap) return;
 
     // ImGui は SRV ヒープをバインドする必要がある
     ID3D12DescriptorHeap* heaps[] = { static_cast<ID3D12DescriptorHeap*>(m_SrvHeap) };

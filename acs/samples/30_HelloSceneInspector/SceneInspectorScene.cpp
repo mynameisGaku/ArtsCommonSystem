@@ -21,8 +21,9 @@ void SceneInspectorScene::OnEnter() noexcept {
 
     m_Panels.Init();
     // 本サンプルでは Player のみ Provider を実装。他ノードは Inspector で
-    // "(No provider)" 表示になる契約。
-    m_Panels.RegisterProvider(m_Player);
+    // "(No provider)" 表示になる契約。Player の FNodeId をキーに登録し、
+    // Inspector が選択 FNodeId から node-keyed で逆引きできるようにする。
+    m_Panels.RegisterProvider(m_Player->Id(), m_Player);
     // 起動時から Inspector に値が見えるよう、最初の selection を Player に。
     m_Panels.SelectInitial(m_Player->Id());
 

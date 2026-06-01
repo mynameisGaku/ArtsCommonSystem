@@ -213,10 +213,13 @@ void FSpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
 
     // pool 内アドレスかチェック (= panel が AddFrame した frame か確認)。
     // m_DefaultFrameNamePool[i][0] のアドレス範囲に target_name が含まれるか。
+    // 一致した slot index も控える (= 削除後に name pool を回収するため)。
     bool owned_by_panel = false;
+    u32  freed_slot     = 0;
     for (u32 i = 0; i < m_OwnedNameCount; ++i) {
         if (target_name == m_DefaultFrameNamePool[i]) {
             owned_by_panel = true;
+            freed_slot     = i;
             break;
         }
     }
@@ -227,6 +230,43 @@ void FSpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
     }
 
     m_Pack->RemoveFrame(target_name);
+
+    // ---- name pool slot の回収 (= 単調増加カウンタによる枯渇を防ぐ) ----
+    // 旧実装は m_OwnedNameCount を減算せず slot を再利用しなかったため、
+    // Add/Delete を kMaxOwnedFrames 回繰り返すと pack が空でも AddFrame が
+    // 恒久 no-op になっていた (slot リーク)。削除した slot を末尾 slot で
+    // swap-fill して live 区間 [0, m_OwnedNameCount) を縮める。
+    // pool slot は FSpritePack frame から raw const char* で参照されるため、
+    // 末尾 slot を移動したら、その slot を name に持つ frame を repoint する
+    // (pointer 一致でちょうど 1 個。同名 strcmp 衝突は pool 外なので無関係)。
+    if (m_OwnedNameCount > 0) {
+        const u32 last_slot = m_OwnedNameCount - 1;
+        if (freed_slot != last_slot) {
+            // 末尾 slot を name に持つ frame を pack 内から探して repoint する。
+            // RemoveFrame 後の現配列を取り直す (swap remove で再配置済)。
+            u32 cur_count = 0;
+            const SpriteFrame* cur = m_Pack->AllFrames(cur_count);
+            if (cur != nullptr) {
+                SpriteFrame* mut_cur = const_cast<SpriteFrame*>(cur);
+                const c8* last_addr = m_DefaultFrameNamePool[last_slot];
+                for (u32 i = 0; i < cur_count; ++i) {
+                    if (mut_cur[i].name == last_addr) {
+                        mut_cur[i].name = m_DefaultFrameNamePool[freed_slot];
+                        break;  // pool pointer は一意なので 1 個で打ち切り
+                    }
+                }
+            }
+            // 末尾 slot の文字列を freed_slot にコピー (固定長 + 終端保証)。
+            for (u32 c = 0; c < kFrameNameMaxChars; ++c) {
+                m_DefaultFrameNamePool[freed_slot][c] =
+                    m_DefaultFrameNamePool[last_slot][c];
+            }
+            m_DefaultFrameNamePool[freed_slot][kFrameNameMaxChars - 1] = '\0';
+        }
+        // 回収した末尾 slot をクリアして live 個数を 1 減らす。
+        m_DefaultFrameNamePool[last_slot][0] = '\0';
+        --m_OwnedNameCount;
+    }
 
     // 削除後の selection は前の index に詰める。空なら -1。
     const i32 new_count = static_cast<i32>(m_Pack->FrameCount());

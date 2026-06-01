@@ -29,20 +29,22 @@ namespace acs::game::inspector {
 // ローカルヘルパ
 // =============================================================================
 
-// `FInspectorSeam::GetProvider(FNodeId)` を呼ぶラッパ。
+// 選択 FNodeId から、その node に紐付いた Provider を seam 経由で逆引きする。
 //
-// 実 seam 側に `GetProvider(FNodeId)` が無い場合のフォールバックは持たない
-// (= リンクエラーで気付かせる方針)。これは「seam の API が FNodeId 受けで
-// 必ず存在する」前提を panel 側に明示するため。
+// 【修正の背景】以前はここで `seam.GetProvider(id.Index())` を呼んでいたが、
+// これは誤り。FNodeId::Index() は「シーングラフ上の slot index」であり、
+// seam の GetProvider(u32) が取る「provider レジストリ上の登録順 index」とは
+// 別の index 空間。両者は一般に一致しないため (例: node index=1 の provider が
+// 登録順 0 番目、等)、別 provider または範囲外 nullptr を引く偽実装だった。
+//
+// 正しい解決は node identity (FNodeId 完全一致) での逆引き。seam に追加した
+// node-keyed lookup `GetProviderForNode(FNodeId)` を使う。これは
+// RegisterProviderForNode で記録した node_id に完全一致する provider を返す。
 static IInspectableProvider* ResolveProvider(FInspectorSeam& seam, FNodeId id) noexcept {
     if (!id.IsValid()) {
         return nullptr;
     }
-    // FInspectorSeam::GetProvider は u32 index (provider list 上の位置) を取る。
-    // FNodeId をそのまま渡せないので index を取り出す (24bit 部分)。
-    // 本来は seam が FNodeId → provider のマッピングを持つ方が自然だが、
-    // 現状の seam は index ベースなので Phase 24+ で改修予定。
-    return seam.GetProvider(id.Index());
+    return seam.GetProviderForNode(id);
 }
 
 // 1 InspectableField を ImGui 上に描画 / 編集する。値が書き換わったら
@@ -143,7 +145,14 @@ static bool DrawField(InspectableField& field) noexcept {
         // FString は read-only 想定 (FInspectorSeam.h の Phase 2 仕様)。
         // バッファコピー後 InputText を出すが、書き戻しは行わない
         // (= panel 内のローカル編集のみ、永続化は callback 経由で外部担当)。
-        const char* src = static_cast<const char*>(field.data);
+        //
+        // 【修正】EFieldKind::FString の data は `const char**` (= 文字列ポインタ
+        // への間接) が仕様 (FInspectorSeam.h enum コメント参照)。以前は data を
+        // 直接 `const char*` とキャストしており、ポインタのポインタを文字列
+        // 本体ポインタとして誤読していた (= 文字データではなくアドレス値の
+        // バイト列を文字列として読む不正アクセス)。正しくは一段 deref する。
+        const char* const* pp = static_cast<const char* const*>(field.data);
+        const char* src = (pp != nullptr) ? *pp : nullptr;
         if (src == nullptr) src = "";
         char buf[FInspectorPanel::kStringBufferSize] = {};
         // strncpy_s 系は Windows 限定なので std::strncpy + 末尾 NUL 確実化で。

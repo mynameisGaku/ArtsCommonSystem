@@ -22,6 +22,11 @@ namespace {
 // 単一の leaderboard 操作の完了待ち state。async result が来たら m_bDone=true
 // + m_Score を埋めて Tick() スレッドから取り出される。
 struct FAsyncLeaderboardOp {
+    // 要求された board_id 文字列を保持する。これが無いと結果がどの board の
+    // ものか相関できず、GetLeaderboardScore が無関係な board のスコアを成功と
+    // して返してしまう (本バグの根本原因)。FindLeaderboard 完了後に解決される
+    // m_BoardHandle (= Steam 側 handle) とは別物で、リクエスト識別に使う。
+    char               m_BoardId[64]  = {};       // 要求時の board_id (相関キー)
     SteamLeaderboard_t m_BoardHandle  = 0;
     bool               m_bUpload      = false;  // true=upload, false=download
     acs::i64           m_ScoreToUpload= 0;
@@ -206,6 +211,9 @@ acs::TResult<void> FSteamworksBridgeImpl::SetLeaderboardScore(const char* board_
     op.m_bUpload        = true;
     op.m_ScoreToUpload  = score;
     op.m_bDone          = false;
+    // 要求 board_id を記録 (結果相関用)。
+    std::strncpy(op.m_BoardId, board_id, sizeof(op.m_BoardId) - 1);
+    op.m_BoardId[sizeof(op.m_BoardId) - 1] = 0;
     // FindLeaderboard kick off (async、result は OnLeaderboardFindResult で受ける)
     SteamAPICall_t hCall = SteamUserStats()->FindLeaderboard(board_id);
     m_Impl->m_FindResult.Set(hCall, m_Impl, &Impl::OnLeaderboardFindResult);
@@ -220,25 +228,56 @@ acs::TResult<acs::i64> FSteamworksBridgeImpl::GetLeaderboardScore(const char* bo
     if (board_id == nullptr || board_id[0] == 0) {
         return ACS_ERR(Generic, 0, "board_id is null or empty");
     }
+    // この board_id について既に download op が完了していれば、その結果を相関を
+    // 取った上で返す。古い未消化 op を再利用しないよう、download op に限定して
+    // 「同じ board_id」の完了 op を探す (新規 op を積む前にチェック)。
+    //   ・完了 & 成功      → そのスコアを返す
+    //   ・完了 & 失敗      → DownloadFailed エラー (誤った成功を返さない)
+    //   ・pending (未完了) → 後段で kick off 済みなので Timeout/Pending エラー
+    // バグ修正前は「どの board でも最初に見つかった成功 download op の score」を
+    // OkInit として返しており、要求 board と無関係/古い board のスコアを成功扱い
+    // していた。board_id を相関キーにすることで誤った成功を排除する。
+    for (u32 i = 0; i < m_Impl->m_NumPending; ++i) {
+        FAsyncLeaderboardOp& prev = m_Impl->m_PendingOps[i];
+        if (prev.m_bUpload) continue;
+        if (std::strncmp(prev.m_BoardId, board_id, sizeof(prev.m_BoardId)) != 0) continue;
+        if (!prev.m_bDone) {
+            // 同じ board の download が進行中。まだ結果が無いので成功を偽装しない。
+            return acs::TResult<acs::i64>(
+                ACS_ERR(Generic, kSubSteamworksTimeout,
+                        "GetLeaderboardScore: download still pending (call Tick to pump)"));
+        }
+        if (!prev.m_bSuccess) {
+            // 完了したが失敗。0 成功ではなく明示エラーを返す。
+            return acs::TResult<acs::i64>(
+                ACS_ERR(Generic, kSubSteamworksDownloadFailed,
+                        "GetLeaderboardScore: download failed for requested board"));
+        }
+        // 完了 & 成功: 要求 board と相関の取れたスコアを返す。
+        return acs::TResult<acs::i64>(acs::OkInit, prev.m_ResultScore);
+    }
+
+    // この board の download op がまだ存在しない場合のみ新規に kick off する。
     if (m_Impl->m_NumPending >= Impl::kMaxPendingOps) {
-        return ACS_ERR(Generic, kSubSteamworksDownloadFailed,
-                       "too many pending leaderboard ops");
+        return acs::TResult<acs::i64>(
+            ACS_ERR(Generic, kSubSteamworksDownloadFailed,
+                    "too many pending leaderboard ops"));
     }
     FAsyncLeaderboardOp& op = m_Impl->m_PendingOps[m_Impl->m_NumPending++];
     op = FAsyncLeaderboardOp{};
     op.m_bUpload = false;
     op.m_bDone   = false;
+    // 要求 board_id を記録 (結果相関用)。
+    std::strncpy(op.m_BoardId, board_id, sizeof(op.m_BoardId) - 1);
+    op.m_BoardId[sizeof(op.m_BoardId) - 1] = 0;
     SteamAPICall_t hCall = SteamUserStats()->FindLeaderboard(board_id);
     m_Impl->m_FindResult.Set(hCall, m_Impl, &Impl::OnLeaderboardFindResult);
-    // 同期 wait はせず、Phase 1 では「最新の完了済み op の score」を即返す。
-    // production ならコールバック完了を future で返す API にする (Phase 2 拡張)。
-    for (u32 i = 0; i < m_Impl->m_NumPending; ++i) {
-        if (m_Impl->m_PendingOps[i].m_bDone && m_Impl->m_PendingOps[i].m_bSuccess
-            && !m_Impl->m_PendingOps[i].m_bUpload) {
-            return acs::TResult<acs::i64>(acs::OkInit, m_Impl->m_PendingOps[i].m_ResultScore);
-        }
-    }
-    return acs::TResult<acs::i64>(acs::OkInit, 0);  // 未完了時は 0 を返す
+    // 同期 wait はしない (async)。Find→Download 完了後に再度本関数を呼べば、上の
+    // 相関ループが完了 op を拾って正しいスコアを返す。初回呼び出しでは結果が無い
+    // ため、誤った成功 (旧実装の OkInit, 0) ではなく Timeout/Pending を返す。
+    return acs::TResult<acs::i64>(
+        ACS_ERR(Generic, kSubSteamworksTimeout,
+                "GetLeaderboardScore: request issued, result pending (call Tick then retry)"));
 }
 
 // ============================================================================
@@ -569,15 +608,42 @@ void FSteamworksBridgeImpl::Tick(acs::f32 /*dt*/) noexcept {
         }
     }
 
-    // 完了 op を pool から compact 削除 (= 古い op が pool を埋めないように)
+    // op を pool から compact する。残すのは:
+    //   ・未完了 op (進行中)
+    //   ・完了済み「成功 download」op = GetLeaderboardScore が後で読み取る結果
+    // 削除するのは完了済み upload / 失敗 download / IO エラー op。
+    // 注意: 旧実装は完了 op を一律削除していたため、download 結果が「callback を
+    // pump した Tick」で即消え、GetLeaderboardScore が結果を読めなかった
+    // (= board 相関を付けても常に pending になる)。成功 download を board ごとに
+    // 1 件保持することで、Find→Download 完了後の再呼び出しが正しいスコアを返せる。
+    // 同一 board の古い成功 download は最新で上書きし、pool 肥大を防ぐ。
     u32 write = 0;
     for (u32 read = 0; read < m_Impl->m_NumPending; ++read) {
-        if (!m_Impl->m_PendingOps[read].m_bDone) {
-            if (write != read) {
-                m_Impl->m_PendingOps[write] = m_Impl->m_PendingOps[read];
+        FAsyncLeaderboardOp& cur = m_Impl->m_PendingOps[read];
+        const bool keep =
+            !cur.m_bDone ||                                   // 進行中
+            (cur.m_bDone && cur.m_bSuccess && !cur.m_bUpload); // 読み取り可能な結果
+        if (!keep) continue;
+
+        // 完了 download を残す場合、既に保持済みの同一 board の完了 download を
+        // 破棄して最新だけを残す (board ごとに 1 件、pool 肥大防止)。
+        if (cur.m_bDone && !cur.m_bUpload) {
+            for (u32 w = 0; w < write; ++w) {
+                FAsyncLeaderboardOp& kept = m_Impl->m_PendingOps[w];
+                if (kept.m_bDone && !kept.m_bUpload
+                    && std::strncmp(kept.m_BoardId, cur.m_BoardId,
+                                    sizeof(kept.m_BoardId)) == 0) {
+                    // 既存を新しい方で上書きしてスキップ
+                    kept = cur;
+                    goto next_read;
+                }
             }
-            ++write;
         }
+        if (write != read) {
+            m_Impl->m_PendingOps[write] = cur;
+        }
+        ++write;
+    next_read:;
     }
     m_Impl->m_NumPending = write;
 }

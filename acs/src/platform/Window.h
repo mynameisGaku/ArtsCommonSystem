@@ -86,7 +86,7 @@ private:
     bool            m_ShouldClose  = false;
     EventCallback   m_Callback      = nullptr;
     void*           m_CallbackUser = nullptr;
-    // フルスクリーン状態（ウィンドウ生成直後のムーブのみ想定。ムーブ後の保持は非対応）
+    // フルスクリーン状態。ムーブ (ctor / operator=) でも保存矩形/スタイルごと引き継ぐ。
     bool            m_Fullscreen    = false;
     i32             m_SavedStyle   = 0;          // 全画面化前の GWL_STYLE
     i32             m_SavedRect[4] {};           // 全画面化前の窓矩形 (l,t,r,b)

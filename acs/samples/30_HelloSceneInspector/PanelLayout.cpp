@@ -28,8 +28,10 @@ void PanelLayout::Shutdown() noexcept {
     m_Seam.ClearAll();
 }
 
-void PanelLayout::RegisterProvider(acs::game::IInspectableProvider* provider) noexcept {
-    m_Seam.RegisterProvider(provider);
+void PanelLayout::RegisterProvider(acs::game::FNodeId node_id,
+                                   acs::game::IInspectableProvider* provider) noexcept {
+    // node_id をキーに登録 (= Inspector が選択 FNodeId から逆引きできるように)。
+    m_Seam.RegisterProviderForNode(node_id, provider);
 }
 
 void PanelLayout::SelectInitial(acs::game::FNodeId id) noexcept {

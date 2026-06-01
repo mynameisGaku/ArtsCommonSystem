@@ -109,10 +109,14 @@ public:
 
     // CSPRNG で 12 バイトのランダム nonce を生成する。
     //   ・BCryptGenRandom + BCRYPT_USE_SYSTEM_PREFERRED_RNG で OS 標準乱数源。
-    //   ・失敗時 (= OS 異常) は MemSet(0) でフォールバック。FAcpakWriter は
-    //     致命的でなく単に「弱い nonce」になるが、production code として
-    //     正常パスのみ通る前提。Phase 3 で TResult<void> 化する余地あり。
-    static void GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept;
+    //   ・【セキュリティ】RNG 失敗時は決して成功を返さない。AES-GCM は
+    //     (key, nonce) 再利用で認証鍵が漏洩する致命的破綻を起こすため、
+    //     ゼロ/予測可能な nonce で暗号化を続行してはならない。失敗時は
+    //     nonce_out を 0 クリアしたうえで ACS_ERR(kAcpakSubCryptoRand) を返す。
+    //     呼び出し側は必ずこのエラーを伝播し、暗号化を中止すること。
+    // 主なエラー:
+    //   ・ACS_ERR_OS(Asset, kAcpakSubCryptoRand, ...) — BCryptGenRandom 失敗
+    static TResult<void> GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept;
 };
 
 } // namespace acs::assetpack

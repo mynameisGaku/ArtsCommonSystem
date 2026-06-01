@@ -27,6 +27,14 @@ public:
     bool IsPassthroughSupported() const noexcept override { return m_bPassthroughSupported; }
     void SetPassthrough(bool bOn) noexcept override;
 
+    // 実トラッキングが生きているか (= xrCreateSession + frame/view/action loop が
+    // 確立済みか) の正直な問い合わせ。本 backend は loader/instance seam のみを
+    // 所有し session loop は未実装なので、現状は常に false を返す。HeadPose() /
+    // LeftController() / RightController() が返すゼロポーズを「有効なトラッキング
+    // 値」と誤認しないために、消費側はこのフラグを見て fallback を選ぶこと。
+    // (IsInitialized() は instance 生成成功を表すだけで、トラッキング有効性とは別。)
+    bool IsTrackingActive() const noexcept { return m_bSessionTracking; }
+
 private:
     void* m_Instance = nullptr; // XrInstance, kept opaque in the public header's TU.
     acs::game::XrPose m_HeadPose{};
@@ -36,6 +44,11 @@ private:
     bool m_bInitialized = false;
     bool m_bPassthroughSupported = false;
     bool m_bPassthroughRequested = false;
+    // 実セッション (xrCreateSession + frame/view/action loop) が確立してポーズが
+    // 実際に更新されているか。session loop は本 TU では未実装なので常に false。
+    bool m_bSessionTracking = false;
+    // Tick() の「session loop 未実装」警告を一度だけ出すためのラッチ。
+    bool m_bTickWarned = false;
 };
 
 // =============================================================================

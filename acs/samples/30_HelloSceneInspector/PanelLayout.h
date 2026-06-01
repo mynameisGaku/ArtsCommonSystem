@@ -28,8 +28,11 @@ public:
     void Shutdown() noexcept;
 
     // Inspector 編集対象になる Provider を 1 つ登録 (典型: PlayerNode)。
+    // `node_id` はその provider が紐付く FNodeId。Inspector は選択 FNodeId から
+    // node-keyed lookup で provider を逆引きするため、この紐付けが必須。
     // 複数登録したい場合は呼び出し側で繰り返す。
-    void RegisterProvider(acs::game::IInspectableProvider* provider) noexcept;
+    void RegisterProvider(acs::game::FNodeId node_id,
+                          acs::game::IInspectableProvider* provider) noexcept;
 
     // 起動時に何を選択状態にしておくか。Inspector に最初から値が見える UX 用。
     void SelectInitial(acs::game::FNodeId id) noexcept;

@@ -64,6 +64,24 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         r.hr = E_INVALIDARG; return r;
     }
 
+    // 配列レイヤ / キューブマップ / per-slice RTV は、この DX12 フォールバック
+    // バックエンド (WITH_RENDER_DILIGENT が無効な構成でのみコンパイルされる) では
+    // 未配線。以前は array_size/is_cubemap/per_slice_rtv を黙って無視し DepthOrArraySize=1
+    // の単一 2D・TEXTURE2D ビューを作っていたため、cubemap (IBL 等、array_size=6) を要求
+    // した呼び出し側に「成功したが中身は単一 2D」という偽の成功を返していた。
+    // 規約上「黙って偽の成功を返す」のは禁止なので、未対応構成は honest にエラーを返す。
+    // (canonical な Diligent バックエンドはこれらを完全サポートしている)
+    const u32 req_array = desc.array_size > 0 ? desc.array_size : 1;
+    if (desc.is_cubemap || req_array > 1 || desc.per_slice_rtv) {
+        ACS_LOG_ERROR("Dx12Texture: array/cubemap/per-slice RTV は DX12 フォールバック "
+                      "バックエンドでは未対応 (array_size=%u cubemap=%d per_slice_rtv=%d)。"
+                      "Diligent バックエンドを使用してください",
+                      desc.array_size, desc.is_cubemap ? 1 : 0,
+                      desc.per_slice_rtv ? 1 : 0);
+        r.hr = E_NOTIMPL;
+        return r;
+    }
+
     // 深度の場合: 後で SRV/DSV 両方作れるよう TYPELESS で確保する
     DXGI_FORMAT resource_fmt = typed_fmt;
     DXGI_FORMAT dsv_fmt      = typed_fmt;
@@ -165,6 +183,14 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     if (desc.initial_data && desc.initial_data_size > 0) {
         ID3D12Device* dev = device.D3DDevice();
 
+        // mip_levels>1 で initial_data を渡されても、ここでアップロードするのは
+        // subresource 0 (mip 0) のみ。上位 mip は未初期化のままなので、黙って
+        // 部分初期化にせず警告を出す (Diligent バックエンドの挙動に合わせる)。
+        if (desc.mip_levels > 1) {
+            ACS_LOG_WARN("Dx12Texture: initial_data は mip 0 のみアップロードされ、"
+                         "mip_levels=%u の上位 mip は未初期化になります", desc.mip_levels);
+        }
+
         // 必要な UPLOAD バッファサイズを取得（GetCopyableFootprints）
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};
         UINT64 row_size_bytes = 0;
@@ -198,13 +224,33 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         if (r.IsErr()) { upload->Release(); return r; }
 
         const u8* src = static_cast<const u8*>(desc.initial_data);
-        const u32 src_row_pitch = desc.width * bpp;
+        // tightly-packed なソース行ピッチ。これに対し initial_data_size を検証しないと、
+        // 呼び出し側が想定より小さいバッファを渡した場合に src + y*pitch の memcpy が
+        // バッファ外を読む (OOB read)。期待バイト数 = src_row_pitch * num_rows を計算し、
+        // initial_data_size と突き合わせる。
+        const u64 src_row_pitch = static_cast<u64>(desc.width) * bpp;
+        // 行ごとに実際にコピーするバイト数 (DEFAULT 側の行サイズと src 行サイズの小さい方)。
+        const u64 copy_row_len  = src_row_pitch < row_size_bytes ? src_row_pitch : row_size_bytes;
+        const u64 expected_src  = src_row_pitch * static_cast<u64>(num_rows);
+        if (desc.initial_data_size < expected_src) {
+            // 不足: 想定サブリソースサイズを満たさない。OOB を避けるためエラーにする
+            // (足りないデータで黙って成功扱いにしない)。
+            ACS_LOG_ERROR("Dx12Texture: initial_data_size=%llu が想定値 %llu (=%ux%u rows x %llu bytes) "
+                          "未満です。OOB read を避けるため中断します",
+                          static_cast<unsigned long long>(desc.initial_data_size),
+                          static_cast<unsigned long long>(expected_src),
+                          desc.width, num_rows,
+                          static_cast<unsigned long long>(src_row_pitch));
+            upload->Unmap(0, nullptr);
+            upload->Release();
+            r.hr = E_INVALIDARG;
+            return r;
+        }
         u8* dst = mapped + fp.Offset;
         for (u32 y = 0; y < num_rows; ++y) {
-            ::memcpy(dst + y * fp.Footprint.RowPitch,
-                     src + y * src_row_pitch,
-                     src_row_pitch < row_size_bytes ? src_row_pitch
-                                                    : static_cast<u32>(row_size_bytes));
+            ::memcpy(dst + static_cast<usize>(y) * fp.Footprint.RowPitch,
+                     src + static_cast<usize>(y) * src_row_pitch,
+                     static_cast<usize>(copy_row_len));
         }
         upload->Unmap(0, nullptr);
 

@@ -183,7 +183,16 @@ HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
     // WaitIdle 用フェンス
     r.hr = m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_IdleFence));
     if (r.IsErr()) return r;
+    // CreateEventW は失敗時 NULL を返す。未チェックだと m_IdleEvent==NULL のまま
+    // WaitIdle()/WaitForFenceValue() の WaitForSingleObject(NULL,…) が即 WAIT_FAILED で
+    // 返り、GPU 完了を待たずにリソースを破棄して GPU 側 use-after-free を招く。
+    // ここで正直に失敗を伝播し、偽の成功を返さない。
     m_IdleEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!m_IdleEvent) {
+        r.hr = HRESULT_FROM_WIN32(::GetLastError());
+        if (!r.IsErr()) r.hr = E_FAIL;  // GetLastError が 0 を返した場合の保険
+        return r;
+    }
 
     // 共有 SRV ヒープ
     r = InitDescriptorHeaps();

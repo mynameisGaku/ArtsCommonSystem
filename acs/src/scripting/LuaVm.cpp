@@ -37,11 +37,28 @@ struct FLuaVm::Impl {
     acs::TArray<NativeReg> m_Natives;
     FLuaVm*               m_Owner = nullptr;  // trampoline が IScriptVm& を渡すため
 
+    // CallFunction が返す FString は Lua 所有メモリを指す。スタックから pop
+    // すると GC 対象になり dangling になるため、直前に registry へ anchor して
+    // VM 寿命の間 (= 次の CallFunction まで) 値を生かす。LUA_NOREF=未保持。
+    int m_LastStringRef = LUA_NOREF;  // lauxlib.h。-2 = 未保持。
+
+    // 直前に anchor した戻り文字列を registry から外す (GC 許可)。
+    void ReleaseLastString() noexcept;
+
     // lua_CFunction (int(*)(lua_State*))。static メンバなので Impl の private
     // メンバにアクセスできる。匿名 namespace の free 関数だと Impl が
     // FLuaVm の private nested 型なので触れない。
     static int NativeTrampoline(lua_State* L) noexcept;
 };
+
+// 直前に anchor した戻り文字列を解放。CallFunction の度に呼び、前回の
+// 戻り文字列を解放してから今回の値を anchor し直す (1 個だけ生かす方式)。
+void FLuaVm::Impl::ReleaseLastString() noexcept {
+    if (m_L && m_LastStringRef != LUA_NOREF && m_LastStringRef != LUA_REFNIL) {
+        luaL_unref(m_L, LUA_REGISTRYINDEX, m_LastStringRef);
+    }
+    m_LastStringRef = LUA_NOREF;
+}
 
 namespace {
 
@@ -147,9 +164,12 @@ acs::TResult<void> FLuaVm::Init() noexcept {
 
 void FLuaVm::Shutdown() noexcept {
     if (m_Impl && m_Impl->m_L) {
-        lua_close(m_Impl->m_L);
+        lua_close(m_Impl->m_L);              // registry ごと破棄されるので ref は無効化
         m_Impl->m_L = nullptr;
         m_Impl->m_Natives.Clear();
+        // 旧 state の registry ref を持ち越すと再 Init 後に別 state へ
+        // luaL_unref してしまうため、未保持状態にリセットする。
+        m_Impl->m_LastStringRef = LUA_NOREF;
     }
 }
 
@@ -189,7 +209,17 @@ acs::TResult<void> FLuaVm::CallFunction(const char* function_name,
     if (!function_name || function_name[0] == 0) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg, "function_name null/empty");
     }
+    // arg_count>0 で args が null だと PushScriptValue ループで null deref する。
+    // 引数なしは (args==null, arg_count==0) が契約 (ScriptHost.h) なので防御する。
+    if (arg_count > 0 && !args) {
+        return ACS_ERR(Generic, script_err::kSub_InvalidArg, "arg_count>0 but args is null");
+    }
     lua_State* L = m_Impl->m_L;
+
+    // 前回の CallFunction が anchor した戻り文字列を解放してから今回に入る。
+    // (戻り FString は VM 寿命管理 = 次の CallFunction まで有効、の契約)
+    m_Impl->ReleaseLastString();
+
     lua_getglobal(L, function_name);
     if (!lua_isfunction(L, -1)) {
         lua_pop(L, 1);
@@ -207,7 +237,22 @@ acs::TResult<void> FLuaVm::CallFunction(const char* function_name,
     }
     if (ret_out) {
         *ret_out = LuaToScriptValue(L, -1);
-        lua_pop(L, 1);
+        // 戻り値が文字列のとき、ret_out->v.str は Lua スタック上の文字列を指す。
+        // 直後の lua_pop でスタックが縮むとその文字列は GC 対象 = dangling になる。
+        // ScriptValue::FString は非所有 (ScriptHost.h) なので呼び出し側でコピー
+        // 保持する義務はない契約。よって VM 側で registry に anchor して値を生かし、
+        // pop 後も const char* を有効に保つ (次の CallFunction / Shutdown まで)。
+        if (ret_out->kind == EScriptValueKind::FString) {
+            // 値を複製して push し直し、複製を registry に anchor (元はそのまま pop)。
+            // luaL_ref は top を pop しつつ ref を返すので、複製を積んで ref 化する。
+            lua_pushvalue(L, -1);                                  // 戻り文字列を複製 push
+            m_Impl->m_LastStringRef = luaL_ref(L, LUA_REGISTRYINDEX);  // 複製を anchor (pop 済)
+            // anchor した本体から改めて安定した const char* を取り直す。
+            lua_rawgeti(L, LUA_REGISTRYINDEX, m_Impl->m_LastStringRef);
+            ret_out->v.str = lua_tostring(L, -1);                 // registry 内文字列を指す
+            lua_pop(L, 1);                                        // rawgeti で積んだ複製を pop
+        }
+        lua_pop(L, 1);  // 元の戻り値を pop
     }
     return acs::Ok();
 }

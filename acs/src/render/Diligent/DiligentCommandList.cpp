@@ -220,15 +220,18 @@ void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 r
         ctx->ClearDepthStencil(dsv, Diligent::CLEAR_DEPTH_FLAG, depth_clear, 0,
                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
-    // FViewport は最初の RT のサイズに合わせる (全 RT が同サイズ前提)
-    auto* first = static_cast<DiligentTexture*>(rts[0]);
+    // FViewport は最初の有効 RT のサイズに合わせる (全 RT が同サイズ前提)。
+    // rts[0] を無条件 deref すると、rts[0] が null / RTV 無しで後続 RT のみ
+    // 有効なケース (valid_count>0 だが rts[0] は bind されていない) で
+    // null-deref / 不整合サイズになる。ループで既に算出した最初の有効 RT の
+    // 寸法 (ref_w/ref_h) を再利用して安全かつ正しい viewport を設定する。
     FViewport vp;
-    vp.width  = static_cast<f32>(first->Width());
-    vp.height = static_cast<f32>(first->Height());
+    vp.width  = static_cast<f32>(ref_w);
+    vp.height = static_cast<f32>(ref_h);
     SetViewport(vp);
     FScissorRect sr;
-    sr.right  = static_cast<i32>(first->Width());
-    sr.bottom = static_cast<i32>(first->Height());
+    sr.right  = static_cast<i32>(ref_w);
+    sr.bottom = static_cast<i32>(ref_h);
     SetScissor(sr);
 }
 

@@ -349,8 +349,11 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
 
         // ---- 暗号化 (compress-then-encrypt の 2 段目) -------------------
         if (is_encrypted) {
-            // CSPRNG nonce 生成
-            FAcpakCrypto::GenerateRandomNonce(w.cipher_nonce);
+            // CSPRNG nonce 生成。RNG 失敗時はゼロ nonce での AES-GCM 暗号化
+            // (= nonce 再利用 → 認証鍵漏洩) を絶対に避けるため、エラーを伝播し
+            // 暗号化を中止する。
+            auto nr = FAcpakCrypto::GenerateRandomNonce(w.cipher_nonce);
+            if (nr.IsErr()) return nr.Error();
 
             // 出力バッファ (= 同 size の別領域、in-place も可だが分離で安全)
             stage_encrypt.Resize(static_cast<usize>(stage_size));

@@ -142,8 +142,41 @@ void FUiInput::Dispatch(Widget& root) noexcept {
     }
 
     // テキスト入力 / キー (focus 中の widget に流す)
-    // 注: ACS Input がテキスト入力イベントを保持しているなら配信する。
-    // 現状の Input API で取得できない場合はコメントアウトでスキップ。
+    // 問題: 以前はここで何も配信しておらず、TextInput ウィジェットが文字も
+    //       Backspace も受け取れず実質死んでいた。Input::TextInput() の確定文字列と
+    //       編集系キーを読み取り、focus 中 widget の OnTextInput/OnKey へ実配信する。
+    if (m_Focused) {
+        // 1) このフレームに確定した文字列 (UTF-8, IME 確定後) を codepoint 単位で配信。
+        //    DecodeUtf8 は render/Font.h の正規デコーダ (SpriteBatch 等と同一実装)。
+        const char* txt = Input::TextInput();
+        if (txt) {
+            const char* p = txt;
+            while (*p) {
+                u32 cp = DecodeUtf8(&p);
+                if (cp == 0) break;            // 終端 / デコード失敗で停止
+                if (cp == 0xFFFD) continue;     // 不正バイトはスキップ
+                m_Focused->OnTextInput(cp);
+            }
+        }
+
+        // 2) 文字を生まない編集系キーを OnKey へ。widget 側は慣用の制御コード
+        //    (例: Backspace=0x08) で判定するため、EKey をその制御コードに対応付けて渡す。
+        struct KeyMap { EKey key; i32 code; };
+        static const KeyMap kEditKeys[] = {
+            { EKey::Backspace, 0x08 },  // BS
+            { EKey::Delete,    0x7F },  // DEL
+            { EKey::Enter,     0x0D },  // CR
+            { EKey::Tab,       0x09 },  // HT
+            { EKey::Escape,    0x1B },  // ESC
+            { EKey::Left,      0x25 },  // VK_LEFT  相当
+            { EKey::Right,     0x27 },  // VK_RIGHT 相当
+            { EKey::Home,      0x24 },  // VK_HOME  相当
+            { EKey::End,       0x23 },  // VK_END   相当
+        };
+        for (const auto& km : kEditKeys) {
+            if (Input::IsKeyPressed(km.key)) m_Focused->OnKey(km.code, true);
+        }
+    }
 }
 
 } // namespace acs

@@ -208,7 +208,13 @@ FWindow::~FWindow() noexcept {
 FWindow::FWindow(FWindow&& o) noexcept
     : m_Hwnd(o.m_Hwnd), m_Width(o.m_Width), m_Height(o.m_Height),
       m_ShouldClose(o.m_ShouldClose),
-      m_Callback(o.m_Callback), m_CallbackUser(o.m_CallbackUser) {
+      m_Callback(o.m_Callback), m_CallbackUser(o.m_CallbackUser),
+      // フルスクリーン状態 (現在値 + 復元用の保存矩形/スタイル) も漏れなくムーブする。
+      // 以前はこれらを取りこぼし、フルスクリーン中の窓をムーブすると IsFullscreen() が
+      // 偽になり SetFullscreen(false) で元の矩形へ戻せなくなっていた。
+      m_Fullscreen(o.m_Fullscreen), m_SavedStyle(o.m_SavedStyle) {
+    m_SavedRect[0] = o.m_SavedRect[0]; m_SavedRect[1] = o.m_SavedRect[1];
+    m_SavedRect[2] = o.m_SavedRect[2]; m_SavedRect[3] = o.m_SavedRect[3];
     if (m_Hwnd) {
         // HWND に紐付くポインタを更新
         ::SetPropW(static_cast<HWND>(m_Hwnd), kPropKey, this);
@@ -219,6 +225,10 @@ FWindow::FWindow(FWindow&& o) noexcept
     o.m_ShouldClose = false;
     o.m_Callback = nullptr;
     o.m_CallbackUser = nullptr;
+    o.m_Fullscreen = false;
+    o.m_SavedStyle = 0;
+    o.m_SavedRect[0] = 0; o.m_SavedRect[1] = 0;
+    o.m_SavedRect[2] = 0; o.m_SavedRect[3] = 0;
 }
 
 FWindow& FWindow::operator=(FWindow&& o) noexcept {
@@ -233,6 +243,11 @@ FWindow& FWindow::operator=(FWindow&& o) noexcept {
     m_ShouldClose = o.m_ShouldClose;
     m_Callback = o.m_Callback;
     m_CallbackUser = o.m_CallbackUser;
+    // フルスクリーン状態 (現在値 + 復元用の保存矩形/スタイル) も漏れなくムーブする。
+    m_Fullscreen = o.m_Fullscreen;
+    m_SavedStyle = o.m_SavedStyle;
+    m_SavedRect[0] = o.m_SavedRect[0]; m_SavedRect[1] = o.m_SavedRect[1];
+    m_SavedRect[2] = o.m_SavedRect[2]; m_SavedRect[3] = o.m_SavedRect[3];
     if (m_Hwnd) ::SetPropW(static_cast<HWND>(m_Hwnd), kPropKey, this);
     o.m_Hwnd = nullptr;
     o.m_Width = 0;
@@ -240,6 +255,10 @@ FWindow& FWindow::operator=(FWindow&& o) noexcept {
     o.m_ShouldClose = false;
     o.m_Callback = nullptr;
     o.m_CallbackUser = nullptr;
+    o.m_Fullscreen = false;
+    o.m_SavedStyle = 0;
+    o.m_SavedRect[0] = 0; o.m_SavedRect[1] = 0;
+    o.m_SavedRect[2] = 0; o.m_SavedRect[3] = 0;
     return *this;
 }
 
@@ -271,12 +290,17 @@ TResult<FWindow> FWindow::Create(const FWindowConfig& cfg) noexcept {
     w.m_Height = cfg.height;
     w.m_ShouldClose = false;
 
-    // ムーブで返した後の安定アドレスに紐付けるため、いったん仮で登録 → ムーブ後に再登録
-    FWindow result = Move(w);
-    ::SetPropW(hwnd, kPropKey, &result);
+    // 結果オブジェクトを構築。ここで FWindow のムーブコンストラクタが走り、
+    // HWND の prop が最終的な格納先 (result の実体) を指すよう再登録される。
+    // 以前はローカル w の後にもう一段ローカル result を作り、その &result
+    // (ムーブで抜け殻になる一時オブジェクトのアドレス) を prop に登録していたが、
+    // これは寿命を超えて生きないアドレスを保持する危険な実装だった。
+    TResult<FWindow> result(OkInit, Move(w));
+    // prop は result.Value() の実体を指している。ShowWindow が同期的に発する
+    // WM_SIZE / WM_PAINT 等が正しい FWindow* へ届くよう、表示はムーブ確定後に行う。
     ::ShowWindow(hwnd, SW_SHOW);
     ::UpdateWindow(hwnd);
-    return TResult<FWindow>(OkInit, Move(result));
+    return result;
 }
 
 void FWindow::PollEvents() noexcept {
@@ -310,7 +334,11 @@ void FWindow::SetFullscreen(bool on) noexcept {
         // 現在のモニタ全体を覆うボーダーレス窓へ
         HMONITOR mon = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi{}; mi.cbSize = sizeof(mi);
-        ::GetMonitorInfoW(mon, &mi);
+        // GetMonitorInfoW が失敗するとゼロ初期化されたゴミ矩形 (0x0 @ 0,0) のまま
+        // 進み、窓が消滅サイズになってしまう。失敗時は状態を一切変えずに中断する。
+        if (!::GetMonitorInfoW(mon, &mi)) {
+            return;
+        }
         ::SetWindowLongW(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
         ::SetWindowPos(hwnd, HWND_TOP,
                        mi.rcMonitor.left, mi.rcMonitor.top,

@@ -77,7 +77,16 @@ struct AudioClipDesc {
 // ---- voice handle --------------------------------------------------------
 // 内部表現: 下位 24bit = voice index、上位 8bit = generation。
 // 再利用された slot を古いハンドルで参照する事故を generation で検出する。
-// 全 0 (= m_Packed == 0) は無効ハンドルを意味する。
+// 全 0 (= m_Packed == 0) は無効ハンドルを意味する (kInvalidAudioVoice)。
+//
+// **重要な不変条件 (backend 実装側の契約)**:
+//   有効ハンドルの packed 値は決して 0 になってはならない。pack は
+//   `(index & 0x00FFFFFF) | (gen << 24)` なので、index==0 かつ gen==0 だと
+//   packed==0 となり kInvalidAudioVoice と区別不能になる。これを避けるため、
+//   **backend は generation を必ず 1 以上で配る** (slot 初期 gen=1、ラップ時は
+//   0 をスキップして 1 にする)。これで最初の voice (index=0) でも packed が
+//   非 0 になり、確保成功を IsValid()==false と誤判定しない。
+//   この規約は FNodeId / FShapeId (24bit index + 8bit gen, gen>=1) と同一。
 struct AudioVoiceHandle {
     u32 m_Packed = 0;
 
