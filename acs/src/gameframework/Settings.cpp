@@ -50,6 +50,25 @@ void AppendF32(FString& out, f32 v) noexcept {
         out.Append('-');
         v = -v;
     }
+    // u64 に収まらない巨大値 (v >= 2^64) を static_cast<u64> すると範囲外変換で
+    // 未定義動作になる。f32 は 2^24 超で整数値しか持たない (小数部は 0) ため、
+    // double 空間で上位桁から 10 進展開して桁を直接出力する (u64 オーバーフロー回避)。
+    const f32 kU64Max = 18446744073709551616.0f; // 2^64 (f32 で厳密表現可)
+    if (v >= kU64Max) {
+        double dv = static_cast<double>(v);
+        double p  = 1.0;
+        while (p * 10.0 <= dv) p *= 10.0;   // p = 10^k (<= dv の最大の 10 冪)
+        while (p >= 1.0) {
+            int digit = static_cast<int>(dv / p);
+            if (digit < 0) digit = 0;
+            if (digit > 9) digit = 9;        // 丸め誤差で 10 になる場合の保険
+            out.Append(static_cast<char>('0' + digit));
+            dv -= static_cast<double>(digit) * p;
+            p  /= 10.0;
+        }
+        return;
+    }
+
     // 整数部
     u64 int_part = static_cast<u64>(v);
     f32 frac     = v - static_cast<f32>(int_part);

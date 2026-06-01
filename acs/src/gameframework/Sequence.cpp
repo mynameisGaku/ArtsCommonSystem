@@ -164,10 +164,17 @@ void FSequenceRunner::Tick(f32 dt) noexcept {
             switch (act.kind) {
             case SeqAction::Kind::Call:
                 if (!s.call_fired) {
-                    if (act.call_fn) act.call_fn(act.call_user);
-                    s.call_fired = true;
+                    s.call_fired = true;                 // 先に立てて二重発火を防ぐ
+                    const auto fn   = act.call_fn;       // act 参照を退避 (callback 後 s/act は dangling し得る)
+                    const auto user = act.call_user;
+                    if (fn) {
+                        fn(user);   // callback 内 Start() 等で m_Slots 再確保 → s/act が無効化され得る
+                        // s/act を触らず index で再取得。まだ同一の active slot なら進める。
+                        if (i < m_Slots.Size() && m_Slots[i].active) AdvanceToNext(m_Slots[i]);
+                        break;      // 今フレームのこの slot 処理は安全のため打ち切り (次 Tick で継続)
+                    }
                 }
-                AdvanceToNext(s);
+                AdvanceToNext(s);   // callback 無し (fn==null / 既発火) → s は有効
                 continue;     // 残 dt で次のアクションへ
 
             case SeqAction::Kind::Wait:

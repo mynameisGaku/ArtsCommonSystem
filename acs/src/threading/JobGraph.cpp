@@ -52,8 +52,9 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
             Task t{};
             t.fn      = &FJobGraph::JobThunk;
             t.user    = down;
-            t.counter = nullptr;  // counter は graph 全体で 1 度だけ Add し、ここで Done する
-            (void)FThreadPool::Submit(t);
+            t.counter = nullptr;  // counter は submit 時 Add(1) / 完了時 Done(1) で会計
+            graph->m_Counter.Add(1);
+            if (FThreadPool::Submit(t).IsErr()) graph->m_Counter.Done();  // 走らないので打ち消す
         }
     }
 
@@ -100,8 +101,9 @@ TResult<void> FJobGraph::Submit() noexcept {
 
     m_bSubmitted = true;
 
-    // 全 job 数を counter に積む (Submit 失敗時は後で巻き戻す)
-    m_Counter.Add(static_cast<u32>(m_Jobs.Size()));
+    // カウンタは「submit 時に Add(1) / 完了時に Done(1)」で会計する。upfront Add(N) +
+    // 失敗時の概算巻き戻しは、cascade で実行されるジョブ数を予測できず over/under-Done
+    // して underflow → Wait() ハングや早期完了を招くため採用しない。
 
     // 依存 0 の job を FThreadPool に投入
     bool any_started = false;
@@ -113,13 +115,14 @@ TResult<void> FJobGraph::Submit() noexcept {
             t.fn      = &FJobGraph::JobThunk;
             t.user    = j;
             t.counter = nullptr;
+            m_Counter.Add(1);                       // この job 1 個ぶんを計上
             auto r = FThreadPool::Submit(t);
             if (r.IsErr()) {
                 ACS_LOG_ERROR("FJobGraph::Submit: FThreadPool::Submit failed: %s",
                               r.Error().message);
-                // 既に Add 済みのカウンタを巻き戻す (デッドロック回避)
-                u32 unstarted = static_cast<u32>(m_Jobs.Size()) - submitted_count;
-                for (u32 k = 0; k < unstarted; ++k) m_Counter.Done();
+                m_Counter.Done();                   // この job は走らないので計上を打ち消す
+                // 既に submit 済みの entry とその cascade は走り切って各自 Done() するので
+                // 巻き戻し不要。未 submit の entry は Add していないので leak しない。
                 return r;
             }
             ++submitted_count;

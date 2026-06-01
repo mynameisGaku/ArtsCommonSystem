@@ -120,11 +120,14 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
                 // expire: コールバック発火 → Despawn。
                 // 既消滅扱いになるので、後続の磁石 / 拾取は実行しない。
                 const PickupId id{static_cast<u32>(i), s.gen};
+                // ★ コールバック前に状態更新を完了させる。コールバック内で Spawn() が
+                //   m_Slots を Grow→旧バッファ Free すると `s` が dangling になるため、
+                //   callback 復帰後に s を触ってはいけない (UAF)。
+                s.active = false;
+                if (m_AliveCount > 0) --m_AliveCount;
                 if (m_OnExpire != nullptr) {
                     m_OnExpire(m_OnExpireUser, id);
                 }
-                s.active = false;
-                if (m_AliveCount > 0) --m_AliveCount;
                 continue;
             }
         }
@@ -149,12 +152,16 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
         if (r > 0.0f && dist_sq2 < r * r) {
             // pickup: コールバック発火 → Despawn。
             const PickupId id{static_cast<u32>(i), s.gen};
-            if (m_OnPickup != nullptr) {
-                m_OnPickup(m_OnPickupUser, id, s.info.kind,
-                            s.info.item_id, s.info.value);
-            }
+            // ★ コールバックに渡す値を事前にコピーし、状態更新も callback 前に完了させる
+            //   (callback 内 Spawn() の m_Slots 再確保で s が dangling になる UAF を防ぐ)。
+            const auto kind    = s.info.kind;
+            const auto item_id = s.info.item_id;
+            const auto value   = s.info.value;
             s.active = false;
             if (m_AliveCount > 0) --m_AliveCount;
+            if (m_OnPickup != nullptr) {
+                m_OnPickup(m_OnPickupUser, id, kind, item_id, value);
+            }
         }
     }
 }

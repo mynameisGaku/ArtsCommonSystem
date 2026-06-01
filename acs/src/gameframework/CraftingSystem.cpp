@@ -89,7 +89,15 @@ void FCraftingSystem::RegisterRecipe(const CraftRecipe& recipe) noexcept {
         copy.ingredient_count = 0;
     }
 
+    // 再確保前に進行中 craft の recipe index を控える。PushBack は末尾追加で既存 index は
+    // 不変なので、m_CurrentRecipe が Grow で dangling になっても index から張り直せる。
+    const bool  had_active = (m_CurrentRecipe != nullptr);
+    const usize active_idx = had_active
+        ? static_cast<usize>(m_CurrentRecipe - m_Recipes.Data()) : 0;
     m_Recipes.PushBack(copy);
+    if (had_active && active_idx < m_Recipes.Size()) {
+        m_CurrentRecipe = &m_Recipes[active_idx];   // 旧バッファへの dangling pointer を防ぐ
+    }
 }
 
 const CraftRecipe* FCraftingSystem::FindRecipe(const char* recipe_id) const noexcept {

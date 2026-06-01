@@ -22,6 +22,8 @@
 //   セットして再び RunUntilBlocked を回す。
 #include "gameframework/DialogueScript.h"
 
+#include "foundation/Log.h"
+
 #include <cstring>   // strcmp
 
 namespace acs::game {
@@ -246,7 +248,19 @@ void FDialogueScript::RunUntilBlocked() noexcept {
     // 即進行系を一気に消化し、停止ポイント (Say / Choice / Wait / EndScene / 末尾) で抜ける。
     const u32 n = static_cast<u32>(m_Ops.Size());
 
+    // Jump によるラベル循環 (op0 → Jump op0 等) では停止ポイントに到達できず
+    // while が無限ループする。即進行 op の処理回数は最大でも op 数 n 回までで、
+    // それを超えると必ず同じ index を再訪している = 循環。ガードカウンタで打ち切り、
+    // 安全に EnterFinished へ落とす (ハングよりシーン終了が望ましい)。
+    u32 guard = 0;
+    const u32 guard_max = n + 1u;  // 終端チェックの 1 反復ぶん余裕を持たせる
+
     while (_state == EDialogueScriptState::Playing) {
+        if (++guard > guard_max) {
+            ACS_LOG_WARN("FDialogueScript::RunUntilBlocked: Jump ラベル循環を検知 (op数=%u)。スクリプトを終了します。", n);
+            EnterFinished();
+            return;
+        }
         if (m_CurrentOpIndex >= n) {
             EnterFinished();
             return;

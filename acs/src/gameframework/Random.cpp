@@ -99,8 +99,11 @@ i32 FRandom::RangeInt(i32 min, i32 max) noexcept {
         const i32 t = min; min = max; max = t;
     }
     // span = max - min + 1, 1 以上が保証される。
-    // (max - min) は最大 2^31-1-(-2^31)=2^32-1 で u32 に収まるよう u32 で計算。
-    const u32 span = static_cast<u32>(max - min) + 1u;
+    // (max - min) を i32 のまま計算すると min=INT32_MIN, max=INT32_MAX で
+    // 2^32-1 となり i32 の表現域を超えて符号付きオーバーフロー (UB)。
+    // 各オペランドを先に u32 へ昇格してから減算する (u32 の減算は modulo 2^32 で
+    // well-defined、結果も正しい差になる)。
+    const u32 span = (static_cast<u32>(max) - static_cast<u32>(min)) + 1u;
     if (span == 0u) {
         // span オーバーフロー (min=INT32_MIN, max=INT32_MAX)。
         // フル 32bit 範囲を返してよい。

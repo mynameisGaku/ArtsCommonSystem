@@ -19,7 +19,14 @@ public:
     CompletionCounter& operator=(const CompletionCounter&) = delete;
 
     void Add(u32 n = 1) noexcept   { m_V.FetchAdd(n); }                       // タスク投入時
-    void Done()         noexcept   { m_V.FetchSub(1); }                       // タスク完了時
+    // タスク完了時。下限 0 で飽和させ、Add より多く Done が呼ばれても 0xFFFFFFFF へ
+    // underflow しない (underflow すると Finished() が永久に false → Wait() ハング)。
+    void Done() noexcept {
+        u32 cur = m_V.Load(EMemoryOrder::Relaxed);
+        while (cur != 0) {
+            if (m_V.CompareExchange(cur, cur - 1)) return;   // 失敗時 cur は実値に更新される
+        }
+    }
     u32  Pending() const noexcept  { return m_V.Load(EMemoryOrder::Acquire); } // 残数
     bool Finished() const noexcept { return Pending() == 0; }                // 全完了か
 

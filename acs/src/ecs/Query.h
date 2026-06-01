@@ -29,13 +29,19 @@ public:
     void Each(Fn fn) noexcept {
         SparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
-        if (primary->Size() == 0) return;
+        const usize count = primary->Size();
+        if (count == 0) return;
 
+        // dense[] をローカルへスナップショットしてから反復する。fn が当該コンポーネントを
+        // Add/Remove して SparseSet が m_Dense を再確保すると、生 dense ポインタが dangling
+        // になり use-after-free する。コピーに対して反復することで構造的変更に安全化する。
+        TArray<u32> snapshot;
+        snapshot.Resize(count);
         const u32* dense = primary->DenseEntities();
-        usize count = primary->Size();
+        for (usize i = 0; i < count; ++i) snapshot[i] = dense[i];
+
         for (usize i = 0; i < count; ++i) {
-            u32 idx = dense[i];
-            EntityId e = m_World.MakeIdFromIndex(idx);
+            EntityId e = m_World.MakeIdFromIndex(snapshot[i]);
             if (AllPresent(e)) {
                 InvokeWith(fn, e);
             }
@@ -55,6 +61,15 @@ public:
         const u32 count = static_cast<u32>(primary->Size());
         if (count == 0) return;
 
+        // dense[] をスナップショットしてから並列反復する。fn が構造的変更を起こすと生 dense
+        // が dangling するため、コピーを指す (snapshot は ParallelFor の block 中ずっと生存)。
+        TArray<u32> snapshot;
+        snapshot.Resize(count);
+        {
+            const u32* dense = primary->DenseEntities();
+            for (u32 i = 0; i < count; ++i) snapshot[i] = dense[i];
+        }
+
         // FThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
         // ctx を user data に乗せ、thunk で QueryView の処理に戻す。
         struct Ctx {
@@ -62,7 +77,7 @@ public:
             Fn*         fn;
             const u32*  dense;
         };
-        Ctx ctx{ this, &fn, primary->DenseEntities() };
+        Ctx ctx{ this, &fn, snapshot.Data() };
 
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<Ctx*>(user);

@@ -79,6 +79,12 @@ void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
     slot.reserve_ammo = 0u;
     slot.ammo_in_mag  = 0u;
     m_Reserves.PushBack(slot);
+
+    // m_Defs を PushBack で再確保した可能性があるため、装備中なら m_CurrentDef を
+    // slot index から張り直す (旧バッファへの dangling pointer = UAF を防ぐ)。
+    if (m_CurrentSlot != kNotFound && m_CurrentSlot < static_cast<u32>(m_Defs.Size())) {
+        m_CurrentDef = &m_Defs[m_CurrentSlot];
+    }
 }
 
 // =============================================================================

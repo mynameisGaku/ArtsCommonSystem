@@ -58,6 +58,9 @@ void FSceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) 
     // 次回以降の Publish で呼ばれる (循環 publish の防止にもなる)。
     const usize snapshot_size = m_Entries.Size();
     for (usize i = 0; i < snapshot_size; ++i) {
+        // ハンドラが ClearAll() で m_Entries を縮めると、固定 snapshot_size の i が現サイズを
+        // 超えて OOB になる。各反復で現在サイズをガードする。
+        if (i >= m_Entries.Size()) break;
         Entry& e = m_Entries[i];
         if (!e.active) continue;
         if (e.id != id) continue;

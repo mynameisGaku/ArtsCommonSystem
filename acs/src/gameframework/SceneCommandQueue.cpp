@@ -164,6 +164,9 @@ void FSceneCommandQueue::Flush() noexcept {
     TArray<CommandRecord> retained;
 
     for (usize i = 0; i < snapshot_size; ++i) {
+        // fn が ClearAll()/Cancel() で m_Records を縮めると、固定 snapshot_size の i が
+        // 現サイズを超えて OOB read になる。各反復で現在サイズをガードする。
+        if (i >= m_Records.Size()) break;
         // ループ内で m_Records が再 alloc される可能性に備え、各反復で値をコピー。
         const CommandRecord rec = m_Records[i];
 

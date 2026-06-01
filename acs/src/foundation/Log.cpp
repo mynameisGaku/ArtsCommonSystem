@@ -36,7 +36,8 @@ struct LoggerState {
     // プロデューサとコンシューマのカーソルは別キャッシュラインに置く
     ACS_CACHELINE_ALIGN volatile LONG64 enqueue_pos = 0;
     ACS_CACHELINE_ALIGN volatile LONG64 dequeue_pos = 0;
-    ACS_CACHELINE_ALIGN volatile LONG64 dropped     = 0;
+    ACS_CACHELINE_ALIGN volatile LONG64 dropped       = 0;  // 未警告ぶんの drop バッチ (writer が周回毎に 0 化)
+    ACS_CACHELINE_ALIGN volatile LONG64 dropped_total = 0;  // 累積 drop (DroppedCount 用、決して 0 化しない)
 
     // ホットパスの severity ゲートも別ラインに
     ACS_CACHELINE_ALIGN volatile LONG min_severity = static_cast<LONG>(ELogSeverity::Info);
@@ -58,7 +59,8 @@ struct LoggerState {
 };
 
 LoggerState g_state;
-volatile LONG g_inited = 0;
+volatile LONG g_inited    = 0;   // ready フラグ: producer はこれが 1 の時のみ ring に触れる (全設定完了後に立てる)
+volatile LONG g_init_lock = 0;   // once ガード: Init/Shutdown の二重実行を防ぐ
 
 // 2 のべき乗判定
 ACS_FORCEINLINE bool IsPowerOfTwo(u32 v) noexcept {
@@ -80,7 +82,12 @@ void WriteAll(HANDLE h, const char* p, usize n) noexcept {
 // QPC ティックを「YYYY-MM-DD HH:MM:SS.mmm」文字列に変換
 void FormatTimestamp(const LARGE_INTEGER& qpc, char* out, usize cap) noexcept {
     LONGLONG delta = qpc.QuadPart - g_state.qpc_origin.QuadPart;
-    LONGLONG ns100 = (delta * 10000000LL) / g_state.qpc_freq.QuadPart;
+    const LONGLONG freq = g_state.qpc_freq.QuadPart > 0 ? g_state.qpc_freq.QuadPart : 1;
+    // delta*10000000 を直接やると freq~10MHz では稼働 ~25h で i64 overflow するため、
+    // 秒部と剰余部に分けて 100ns 単位へ変換する (どちらも overflow しない)。
+    const LONGLONG sec = delta / freq;
+    const LONGLONG rem = delta % freq;
+    LONGLONG ns100 = sec * 10000000LL + (rem * 10000000LL) / freq;
 
     ULARGE_INTEGER ft;
     ft.LowPart  = g_state.ft_origin.dwLowDateTime;
@@ -181,7 +188,10 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept {
 
 // 初期化
 void FLogger::Init(const FLogConfig& cfg) noexcept {
-    if (::_InterlockedCompareExchange(&g_inited, 1, 0) != 0) return;
+    // once ガードは g_init_lock で取る。g_inited (ready) は ring/threads を全部
+    // 用意し終えた末尾でのみ立てる。これをしないと、CAS 直後〜ring 確保前の窓で
+    // 別スレッドの Write() が g_inited==1 を見て nullptr ring を deref する。
+    if (::_InterlockedCompareExchange(&g_init_lock, 1, 0) != 0) return;
 
     // capacity を 2 のべき乗（最低 16）に補正
     u32 cap = cfg.ring_capacity;
@@ -195,7 +205,7 @@ void FLogger::Init(const FLogConfig& cfg) noexcept {
                                MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!mem) {
         ::OutputDebugStringA("[acs::FLogger] FATAL: ring allocation failed\n");
-        ::_InterlockedExchange(&g_inited, 0);
+        ::_InterlockedExchange(&g_init_lock, 0);   // 失敗 → 再 Init を許可 (g_inited は未設定のまま)
         return;
     }
     g_state.ring     = static_cast<Cell*>(mem);
@@ -229,12 +239,18 @@ void FLogger::Init(const FLogConfig& cfg) noexcept {
     // ライタースレッド起動
     g_state.writer_thread = ::CreateThread(nullptr, 0, &WriterThreadProc, nullptr, 0, nullptr);
     ::SetThreadDescription(g_state.writer_thread, L"acs::FLogger writer");
+
+    // 全状態 (ring/mask/threads/calibration) を公開し終えた最後に ready を立てる。
+    ::_InterlockedExchange(&g_inited, 1);
 }
 
 // シャットダウン
 void FLogger::Shutdown() noexcept {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
 
+    // ring 解放より先に ready を下げ、新規 producer を ring から締め出す
+    // (free-before-clear だと g_inited==1 のまま解放済み ring を UAF し得る)。
+    ::_InterlockedExchange(&g_inited, 0);
     ::_InterlockedExchange(&g_state.running, 0);
     ::WakeAllConditionVariable(&g_state.wake_cv);
     if (g_state.writer_thread) {
@@ -250,7 +266,7 @@ void FLogger::Shutdown() noexcept {
         ::VirtualFree(g_state.ring, 0, MEM_RELEASE);
         g_state.ring = nullptr;
     }
-    ::_InterlockedExchange(&g_inited, 0);
+    ::_InterlockedExchange(&g_init_lock, 0);   // 再 Init を許可
 }
 
 // 残レコードを書き出すまで待つ
@@ -277,7 +293,8 @@ bool FLogger::Enabled(ELogSeverity s) noexcept {
 }
 
 u64 FLogger::DroppedCount() noexcept {
-    return static_cast<u64>(::_InterlockedExchangeAdd64(&g_state.dropped, 0));
+    // writer は g_state.dropped を周回毎に 0 化するため、累積は dropped_total を返す。
+    return static_cast<u64>(::_InterlockedExchangeAdd64(&g_state.dropped_total, 0));
 }
 
 // プロデューサ実体（Vyukov 風 CAS でセル予約 → 書き込み → release 公開）
@@ -296,8 +313,9 @@ void FLogger::Write(ELogSeverity sev, FSourceLoc loc, const char* fmt, ...) noex
             // セルが空なら pos を進めて確保
             if (::_InterlockedCompareExchange64(&g_state.enqueue_pos, pos + 1, pos) == pos) break;
         } else if (dif < 0) {
-            // リング満杯なら drop
+            // リング満杯なら drop (未警告バッチと累積の両方を加算)
             ::_InterlockedIncrement64(&g_state.dropped);
+            ::_InterlockedIncrement64(&g_state.dropped_total);
             return;
         } else {
             // 他プロデューサが先に取った — pos を再読み込み

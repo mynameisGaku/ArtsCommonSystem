@@ -272,7 +272,10 @@ struct Parser {
         buf[n] = '\0';
         char* term = nullptr;
         // ロケール非依存変換 (',' 小数点ロケールでも "1.5" を正しく読む)。
-        out = ::_strtod_l(buf, &term, JsonCLocale());
+        // _create_locale 失敗時 JsonCLocale() は NULL を返し得るので、その場合は
+        // 通常 strtod へフォールバック (NULL locale を _strtod_l に渡すと UB)。
+        const _locale_t loc = JsonCLocale();
+        out = loc ? ::_strtod_l(buf, &term, loc) : ::strtod(buf, &term);
         if (term != buf + n) { Fail(kSubJsonBadNumber, "unparsable number"); return false; }
         return true;
     }

@@ -38,8 +38,11 @@ void FCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
         // 末尾に追加 (時刻が現在の最大以上)
         m_Keyframes.PushBack(entry);
     } else {
-        // [insert_at..n-1] を 1 つ後ろにずらして空きを作る
-        m_Keyframes.PushBack(m_Keyframes[n - 1]);  // 末尾を増やす (旧末尾のコピー)
+        // [insert_at..n-1] を 1 つ後ろにずらして空きを作る。
+        // 末尾要素を必ずローカルへ退避してから PushBack する。PushBack(m_Keyframes[n-1])
+        // と書くと、Grow 再確保で旧バッファが Free された後に引数参照を読み UAF になる。
+        const FTimelineKeyframe tail = m_Keyframes[n - 1];
+        m_Keyframes.PushBack(tail);
         for (usize i = n - 1; i > insert_at; --i) {
             m_Keyframes[i] = m_Keyframes[i - 1];
         }
