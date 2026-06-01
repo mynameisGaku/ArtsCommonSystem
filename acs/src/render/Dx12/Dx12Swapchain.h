@@ -14,8 +14,11 @@ public:
     Dx12Swapchain() noexcept = default;
     ~Dx12Swapchain() noexcept override;
 
-    // 内部使用: バックバッファのリソースおよび RTV ハンドルを取得
-    ID3D12Resource*             BackBuffer(u32 i)        const noexcept { return m_BackBuffers[i]; }
+    // 内部使用: バックバッファのリソースおよび RTV ハンドルを取得。
+    // 範囲外 index は nullptr を返す (Resize 失敗直後の未取得状態でも安全に判定できる)。
+    ID3D12Resource*             BackBuffer(u32 i)        const noexcept {
+        return (i < m_BufferCount) ? m_BackBuffers[i] : nullptr;
+    }
     D3D12_CPU_DESCRIPTOR_HANDLE BackBufferRTV(u32 i)     const noexcept;
     ID3D12DescriptorHeap*       RtvHeap()                const noexcept { return m_RtvHeap; }
 
@@ -24,7 +27,7 @@ public:
     // IRhiSwapchain
     u32  AcquireNextImage() noexcept override;
     void Present() noexcept override;
-    void Resize(u32 width, u32 height) noexcept override;
+    bool Resize(u32 width, u32 height) noexcept override;
     u32  BufferCount() const noexcept override { return m_BufferCount; }
     u32  Width()       const noexcept override { return m_Width; }
     u32  Height()      const noexcept override { return m_Height; }

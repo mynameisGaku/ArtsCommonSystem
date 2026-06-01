@@ -106,6 +106,12 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
                                               f32 depth_clear) noexcept {
     auto& dx_sc = static_cast<Dx12Swapchain&>(sc);
     ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
+    if (rt == nullptr) {
+        // バックバッファ未取得 (Resize 失敗直後 / 範囲外 index)。null リソースで
+        // barrier や RTV を積むとクラッシュするため、本フレームのスワップチェイン
+        // 描画開始をスキップする。m_BackbufferIsRt は false のままなので End も整合する。
+        return;
+    }
 
     // Present → RenderTarget へバリア。ただし既に RT 状態なら skip する。
     // (同一フレーム内でオフスクリーン RT を挟んでから再バインドする —
@@ -150,6 +156,10 @@ void Dx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) 
     if (!m_BackbufferIsRt) return;   // 既に PRESENT 状態 (二重 End 防止)
     auto& dx_sc = static_cast<Dx12Swapchain&>(sc);
     ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
+    if (rt == nullptr) {             // 念のため: バックバッファ未取得なら状態だけ戻す
+        m_BackbufferIsRt = false;
+        return;
+    }
 
     D3D12_RESOURCE_BARRIER b{};
     b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;

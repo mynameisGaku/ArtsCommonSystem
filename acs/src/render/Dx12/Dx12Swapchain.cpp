@@ -103,10 +103,10 @@ void Dx12Swapchain::Present() noexcept {
     m_Swapchain->Present(sync_interval, flags);
 }
 
-void Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
-    if (width == 0 || height == 0) return;
-    if (width == m_Width && height == m_Height) return;
-    if (!m_Device || !m_Swapchain) return;
+bool Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
+    if (width == 0 || height == 0) return true;          // 無効サイズ要求は no-op (成功扱い)
+    if (width == m_Width && height == m_Height) return true;  // 変化なし
+    if (!m_Device || !m_Swapchain) return false;         // リサイズ不能
 
     // 進行中の GPU 作業が終わるまで待ってから解放しないと「使用中」エラーになる
     m_Device->WaitIdle();
@@ -117,8 +117,8 @@ void Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
                                             DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
     if (FAILED(hr)) {
         // ResizeBuffers 失敗。バッファは既に解放済みなので幅/高さは更新せず、
-        // 旧寸法のまま矛盾なく残す（次フレームで再 Resize される想定）。
-        return;
+        // 旧寸法のまま矛盾なく残す。false を返して呼び出し側に描画スキップを促す。
+        return false;
     }
 
     // バッファ再取得が成功した場合にのみ寸法を確定させる。
@@ -126,11 +126,12 @@ void Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
     HrResult ar = AcquireBuffers(*m_Device);
     if (ar.IsErr()) {
         // 取得失敗時 AcquireBuffers が全バッファを解放済み。寸法は更新しない。
-        return;
+        return false;
     }
 
     m_Width = width;
     m_Height = height;
+    return true;
 }
 
 // ファクトリ関数: CreateRhiSwapchain の DX12 実装

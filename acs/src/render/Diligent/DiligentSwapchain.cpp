@@ -80,12 +80,13 @@ void DiligentSwapchain::Present() noexcept {
     m_Swap->Present(m_bVsync ? 1 : 0);
 }
 
-void DiligentSwapchain::Resize(u32 width, u32 height) noexcept {
-    if (!m_Swap) return;
-    if (width == 0 || height == 0) return;
+bool DiligentSwapchain::Resize(u32 width, u32 height) noexcept {
+    if (!m_Swap) return false;               // スワップチェイン未初期化 = リサイズ不能
+    if (width == 0 || height == 0) return true;  // 無効サイズ要求は no-op
     m_Width  = width;
     m_Height = height;
     m_Swap->Resize(width, height);
+    return true;
 }
 
 } // namespace acs

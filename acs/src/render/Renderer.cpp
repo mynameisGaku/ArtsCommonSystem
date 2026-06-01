@@ -3,6 +3,7 @@
 #include "render/Renderer.h"
 #include "platform/Window.h"
 #include "foundation/Move.h"
+#include "foundation/Log.h"
 
 namespace acs {
 
@@ -106,7 +107,14 @@ void FRenderer::EndFrame() noexcept {
 void FRenderer::OnResize(u32 width, u32 height) noexcept {
     if (!m_Swapchain) return;
     if (m_Device) m_Device->WaitIdle();
-    m_Swapchain->Resize(width, height);
+    if (!m_Swapchain->Resize(width, height)) {
+        // リサイズ失敗 (バックバッファ未取得状態)。深度再構築や本フレームの描画を行わず、
+        // 次フレームの再 Resize に委ねる。BeginRenderToSwapchain 側も null バックバッファを
+        // ガードするため、ここで早期 return しても安全に縮退する。
+        ACS_LOG_WARN("FRenderer::OnResize: swapchain Resize に失敗 (%ux%u)。次フレームで再試行します。",
+                     width, height);
+        return;
+    }
     if (m_EnableDepth) (void)RebuildDepth(width, height);
 }
 

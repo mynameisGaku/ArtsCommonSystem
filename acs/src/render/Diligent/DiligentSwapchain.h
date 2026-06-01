@@ -26,7 +26,7 @@ public:
     // ---- IRhiSwapchain ----
     u32  AcquireNextImage() noexcept override;
     void Present()          noexcept override;
-    void Resize(u32 width, u32 height) noexcept override;
+    bool Resize(u32 width, u32 height) noexcept override;
     u32  BufferCount() const noexcept override { return m_BufferCount; }
     u32  Width()       const noexcept override { return m_Width; }
     u32  Height()      const noexcept override { return m_Height; }

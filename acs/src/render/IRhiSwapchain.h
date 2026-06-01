@@ -31,8 +31,11 @@ public:
     // 描画後に呼ぶ — 画面に反映
     virtual void Present() noexcept = 0;
 
-    // ウィンドウサイズ変更時に呼ぶ
-    virtual void Resize(u32 width, u32 height) noexcept = 0;
+    // ウィンドウサイズ変更時に呼ぶ。
+    // 戻り値: true = 成功(または無効サイズ/同一サイズで no-op)、false = リサイズ失敗
+    // (バッファ再取得に失敗しバックバッファ未取得状態)。呼び出し側は false の場合、
+    // 本フレームの描画をスキップして次フレームで再試行すること (null バックバッファ参照回避)。
+    virtual bool Resize(u32 width, u32 height) noexcept = 0;
 
     // バックバッファ枚数 / 解像度
     virtual u32 BufferCount() const noexcept = 0;
