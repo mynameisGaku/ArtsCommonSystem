@@ -23,6 +23,8 @@
 #include "gameframework/SpritePack.h"
 #include "gameframework/Sprite2DComponent.h"
 #include "gameframework/TilemapComponent.h"
+#include "gameframework/AudioDirector.h"
+#include "gameframework/audio_backend/XAudio2Backend.h"
 #include "render/IRhiTexture.h"
 #include "render/SpriteBatch.h"
 #include "render/Font.h"
@@ -131,6 +133,42 @@ TUniquePtr<IRhiTexture> MakeHeroAtlas(IRhiDevice& dev) noexcept {
     return Move(r.Value());
 }
 
+// ---- 手続き SFX (XAudio2 で鳴らす 16bit mono PCM、WAV ファイル/registry 不要) ----
+constexpr u32 kSfxRate = 44100;
+i16  g_SfxCoin[3528];    // コイン取得 (~0.08s)
+i16  g_SfxWin [17640];   // 勝利 (~0.40s、3 音上昇)
+i16  g_SfxLose[22050];   // 敗北 (~0.50s、低音)
+bool g_SfxReady = false;
+
+// 単音 + 線形減衰エンベロープ。STL 非依存 (acs::Sin)。
+void GenTone(i16* buf, u32 n, f32 freq, f32 amp) noexcept {
+    const f32 inv_rate = 1.0f / static_cast<f32>(kSfxRate);
+    for (u32 i = 0; i < n; ++i) {
+        const f32 t   = static_cast<f32>(i) * inv_rate;
+        const f32 env = 1.0f - static_cast<f32>(i) / static_cast<f32>(n);   // 線形フェードアウト
+        buf[i] = static_cast<i16>(amp * env * Sin(6.2831853f * freq * t) * 32767.0f);
+    }
+}
+
+void EnsureSfx() noexcept {
+    if (g_SfxReady) return;
+    GenTone(g_SfxCoin, static_cast<u32>(sizeof(g_SfxCoin) / sizeof(i16)), 1046.5f, 0.30f); // C6 ピン
+    GenTone(g_SfxLose, static_cast<u32>(sizeof(g_SfxLose) / sizeof(i16)),  196.0f, 0.30f); // G3 低音
+    // 勝利 = 523/659/880Hz を 3 等分で上昇。
+    const u32 wn  = static_cast<u32>(sizeof(g_SfxWin) / sizeof(i16));
+    const u32 seg = wn / 3u;
+    const f32 freqs[3] = { 523.25f, 659.25f, 880.0f };
+    const f32 inv_rate = 1.0f / static_cast<f32>(kSfxRate);
+    for (u32 i = 0; i < wn; ++i) {
+        const u32 k   = (i / seg < 3u) ? (i / seg) : 2u;
+        const u32 li  = i % seg;
+        const f32 t   = static_cast<f32>(li) * inv_rate;
+        const f32 env = 1.0f - static_cast<f32>(li) / static_cast<f32>(seg);
+        g_SfxWin[i] = static_cast<i16>(0.30f * env * Sin(6.2831853f * freqs[k] * t) * 32767.0f);
+    }
+    g_SfxReady = true;
+}
+
 // 入力アクション
 constexpr ActionId kMoveX("vs.MoveX");
 constexpr ActionId kMoveY("vs.MoveY");
@@ -171,27 +209,66 @@ public:
         return m_TitleReady ? &m_TitleFont : nullptr;
     }
 
+    // ----- 音声 (実 XAudio2 backend、手続き SFX) -----
+    bool AudioOn()     const noexcept { return m_AudioOn; }
+    u32  PeakVoices()  const noexcept { return m_PeakVoices; }   // これまでの最大同時 voice 数
+    void PlayCoinSfx() noexcept { PlaySfx(g_SfxCoin, static_cast<u32>(sizeof(g_SfxCoin))); }
+    void PlayWinSfx()  noexcept { PlaySfx(g_SfxWin,  static_cast<u32>(sizeof(g_SfxWin))); }
+    void PlayLoseSfx() noexcept { PlaySfx(g_SfxLose, static_cast<u32>(sizeof(g_SfxLose))); }
+
 protected:
     void OnStart() noexcept override {
         // 設定ファイルがあればハイスコアを読む (無ければ Err → 0 のまま)。
         (void)m_Cfg.Load(kSavePath);
         m_HighScore = m_Cfg.GetI32("hi.score", 0);
+        // 実 XAudio2 backend を起動して director に接続 (デバイス無し環境では失敗 → 無音)。
+        EnsureSfx();
+        if (m_Backend.Init(64).IsOk()) { m_Audio.SetBackend(&m_Backend); m_AudioOn = true; }
+        else ACS_LOG_WARN("vslice: XAudio2 backend init failed (silent)");
         FGame::OnStart();   // InitialScene() を push
+    }
+
+    void OnUpdate(f32 dt) noexcept override {
+        // FGame は audio を tick しないので app が手動で。実 voice 数のピークを記録
+        // (発音できたことの検証用 = 0 でなければ実 voice が XAudio2 に提出された)。
+        if (m_AudioOn) {
+            m_Audio.Tick(dt);
+            const u32 v = m_Backend.ActiveVoiceCount();
+            if (v > m_PeakVoices) m_PeakVoices = v;
+        }
+        FGame::OnUpdate(dt);
     }
 
     void OnShutdown() noexcept override {
         if (m_TitleReady) m_TitleFont.Shutdown();
+        m_Audio.SetBackend(nullptr);          // 先に director を切ってから
+        if (m_AudioOn) m_Backend.Shutdown();  // backend を解放
         FGame::OnShutdown();
     }
 
     TUniquePtr<Scene> InitialScene() noexcept override;   // 下で定義 (TitleScene 完全後)
 
 private:
+    void PlaySfx(const i16* pcm, u32 bytes) noexcept {
+        if (!m_AudioOn) return;
+        AudioClipDesc clip{};
+        clip.pcm_data      = pcm;
+        clip.pcm_size      = bytes;
+        clip.sample_rate   = kSfxRate;
+        clip.channel_count = 1;
+        clip.format        = EAudioFormat::Pcm16;
+        (void)m_Audio.PlaySfxClip(clip, 1.0f, 1.0f);   // → XAudio2 SourceVoice で発音
+    }
+
     FSettings m_Cfg;
     i32       m_HighScore  = 0;
     Font      m_TitleFont;
     bool      m_TitleTried = false;
     bool      m_TitleReady = false;
+    FXAudio2Backend m_Backend;
+    FAudioDirector  m_Audio;
+    bool      m_AudioOn    = false;
+    u32       m_PeakVoices = 0;
 };
 
 // 共有: スクリーン中央寄せでテキストを描く。
@@ -364,10 +441,11 @@ public:
         // 上部 HUD バー: スコア / コイン / 残り時間。
         sb.DrawRect(0.0f, 0.0f, static_cast<f32>(rc.Width()), 34.0f, kColTopBar);
         if (small) {
-            char hud[128];
-            std::snprintf(hud, sizeof(hud), "SCORE %d    COINS %u/%u    TIME %d",
+            char hud[160];
+            std::snprintf(hud, sizeof(hud), "SCORE %d   COINS %u/%u   TIME %d   AUDIO %s (peak v%u)",
                           m_Score, m_Collected, kNumCoins,
-                          static_cast<int>(m_TimeLeft + 0.999f));
+                          static_cast<int>(m_TimeLeft + 0.999f),
+                          App(*this).AudioOn() ? "ON" : "OFF", App(*this).PeakVoices());
             sb.DrawString(*small, hud, 14.0f, 9.0f, kColText);
         }
         DrawCentered(sb, small, "WASD move (W=up, Y-down)   P/Esc pause",
@@ -440,6 +518,8 @@ public:
     void OnReady() noexcept override {
         GetGame().SetClearColor(m_Win ? 0.05f : 0.10f, 0.07f, m_Win ? 0.10f : 0.06f);
         m_NewHigh = App(*this).SubmitScore(m_Score);   // 自己ベストなら INI 保存
+        if (m_Win) App(*this).PlayWinSfx();            // 勝利/敗北ジングル (実 XAudio2)
+        else       App(*this).PlayLoseSfx();
         FInputMap& in = Services().Input();
         in.ClearAll();
         in.BindKey(kStart, EKey::Space);
@@ -473,6 +553,11 @@ public:
         m_Ui.Draw(rc);
         DrawCentered(sb, small, "Space: retry    Esc: title",
                      cx, rc.Height() - 40.0f, FVec4{0.7f, 0.75f, 0.85f, 1.0f});
+        // 実 XAudio2 で勝/負ジングルを発音した証拠 (peak v>=1 = voice 提出済み)。
+        char astat[64];
+        std::snprintf(astat, sizeof(astat), "AUDIO %s (peak v%u)",
+                      App(*this).AudioOn() ? "ON" : "OFF", App(*this).PeakVoices());
+        DrawCentered(sb, small, astat, cx, rc.Height() - 18.0f, FVec4{0.55f, 0.6f, 0.7f, 1.0f});
     }
 
     void OnExit() noexcept override { m_Ui.Shutdown(); FScene2D::OnExit(); }
@@ -543,6 +628,7 @@ void PlayScene::OnTick(f32 dt) noexcept {
         const f32 ddx = p.x - m_CoinPos[i].x, ddy = p.y - m_CoinPos[i].y;
         if (ddx * ddx + ddy * ddy < kCoinRadius * kCoinRadius) {
             m_CoinGot[i] = true; ++m_Collected; m_Score += 10;
+            App(*this).PlayCoinSfx();                    // コイン取得音 (実 XAudio2)
         }
     }
 
