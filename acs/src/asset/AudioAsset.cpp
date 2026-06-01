@@ -30,13 +30,31 @@
 namespace acs {
 
 namespace {
+// frames * ch * sizeof(i16) を usize オーバーフロー無しで計算し、妥当上限を超える
+// 要求 (壊れた/悪意あるヘッダ) を弾く。戻り値 true で out_bytes 有効、false で範囲外。
+// 上限 512 MiB = PCM S16 換算で約 1.4 億フレーム(2ch、約 47 分@48k)。ゲーム用途の
+// 効果音/BGM には十分で、巨大フレーム数を主張する不正ヘッダの OOM/オーバーフローを拒否する。
+bool ComputeSampleBytes(u64 frames, u8 ch, usize& out_bytes) noexcept {
+    constexpr u64 kMaxBytes = 512ull * 1024ull * 1024ull;
+    if (ch == 0) return false;
+    if (frames == 0) { out_bytes = 0; return true; }
+    if (frames > (~0ull) / ch) return false;                 // frames*ch オーバーフロー
+    const u64 samples = frames * static_cast<u64>(ch);
+    if (samples > (~0ull) / sizeof(i16)) return false;        // *2 オーバーフロー
+    const u64 total = samples * sizeof(i16);
+    if (total > kMaxBytes) return false;                      // 妥当上限超過
+    out_bytes = static_cast<usize>(total);
+    return true;
+}
+
 // dr_libs / stb_vorbis から取得したサンプル列を FAudioAsset に詰める共通処理
 TRc<Asset> MakeAudio(FAssetId id, u32 sr, u8 ch, ESampleFormat fmt, u64 frames,
                     const void* src, usize src_bytes) noexcept {
     TArray<byte> samples;
     samples.Resize(src_bytes);
-    MemCopy(samples.Data(), src, src_bytes);
+    if (src_bytes != 0) MemCopy(samples.Data(), src, src_bytes);
     TRc<FAudioAsset> a = MakeRc<FAudioAsset>(sr, ch, fmt, frames, Move(samples));
+    if (!a) return TRc<Asset>();  // alloc 失敗: null を返す (null-deref 回避、呼び出し側で判定)
     a->SetId(id);
     a->SetState(EAssetState::Ready);
     return TRc<Asset>(Move(a));
@@ -51,7 +69,9 @@ TResult<TRc<Asset>> WavAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
     u64 frames = wav.totalPCMFrameCount;
     u8  ch     = static_cast<u8>(wav.channels);
     u32 sr     = wav.sampleRate;
-    usize byte_count = static_cast<usize>(frames) * ch * sizeof(i16);
+    usize byte_count = 0;
+    if (!ComputeSampleBytes(frames, ch, byte_count))
+        return ACS_ERR(Asset, 240, "audio frame count out of range (corrupt/oversized header)");
     TArray<byte> tmp;
     tmp.Resize(byte_count);
     u64 read = ::drwav_read_pcm_frames_s16(&wav, frames, reinterpret_cast<drwav_int16*>(tmp.Data()));
@@ -69,7 +89,9 @@ TResult<TRc<Asset>> Mp3AssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
     u64 frames = ::drmp3_get_pcm_frame_count(&mp3);
     u8  ch     = static_cast<u8>(mp3.channels);
     u32 sr     = mp3.sampleRate;
-    usize byte_count = static_cast<usize>(frames) * ch * sizeof(i16);
+    usize byte_count = 0;
+    if (!ComputeSampleBytes(frames, ch, byte_count))
+        return ACS_ERR(Asset, 240, "audio frame count out of range (corrupt/oversized header)");
     TArray<byte> tmp;
     tmp.Resize(byte_count);
     u64 read = ::drmp3_read_pcm_frames_s16(&mp3, frames, reinterpret_cast<drmp3_int16*>(tmp.Data()));
@@ -86,7 +108,9 @@ TResult<TRc<Asset>> FlacAssetLoader::LoadFromBytes(FAssetId id, const TArray<byt
     u64 frames = flac->totalPCMFrameCount;
     u8  ch     = static_cast<u8>(flac->channels);
     u32 sr     = flac->sampleRate;
-    usize byte_count = static_cast<usize>(frames) * ch * sizeof(i16);
+    usize byte_count = 0;
+    if (!ComputeSampleBytes(frames, ch, byte_count))
+        return ACS_ERR(Asset, 240, "audio frame count out of range (corrupt/oversized header)");
     TArray<byte> tmp;
     tmp.Resize(byte_count);
     u64 read = ::drflac_read_pcm_frames_s16(flac, frames, reinterpret_cast<drflac_int16*>(tmp.Data()));
@@ -107,7 +131,9 @@ TResult<TRc<Asset>> OggAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
     u32 frames = ::stb_vorbis_stream_length_in_samples(v);
     u8  ch     = static_cast<u8>(info.channels);
     u32 sr     = info.sample_rate;
-    usize byte_count = static_cast<usize>(frames) * ch * sizeof(i16);
+    usize byte_count = 0;
+    if (!ComputeSampleBytes(frames, ch, byte_count))
+        return ACS_ERR(Asset, 240, "audio frame count out of range (corrupt/oversized header)");
     TArray<byte> tmp;
     tmp.Resize(byte_count);
     int got = ::stb_vorbis_get_samples_short_interleaved(

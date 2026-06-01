@@ -61,6 +61,58 @@ ACS_TEST(MemSystem, TlsfBasic) {
     ::HeapFree(::GetProcessHeap(), 0, pool);
 }
 
+// TLSF: 返却ポインタが要求アライメントを必ず満たすことを検証
+// (chaining が block_size を ≡8 mod16 に保つことで全 payload が 16 整列、>16 は leading split)
+ACS_TEST(MemSystem, TlsfAlignment) {
+    constexpr usize kPoolSize = 4 * 1024 * 1024;
+    void* pool = ::HeapAlloc(::GetProcessHeap(), 0, kPoolSize);
+    EXPECT_TRUE(pool != nullptr);
+    if (!pool) return;
+
+    FTlsfAllocator t;
+    auto ir = t.Init(pool, kPoolSize);
+    EXPECT_TRUE(ir.IsOk());
+
+    // 16 整列: 多数の確保が連鎖しても全て 16 整列を保つこと (旧バグ: 約半数が 8 整列)
+    void* ptrs[64] = {};
+    bool all16 = true;
+    for (int i = 0; i < 64; ++i) {
+        // サイズを変化させて分割パターンを揺らす
+        usize sz = (usize)(8 + (i * 13) % 200);
+        ptrs[i] = t.Alloc(sz, 16, FSourceLoc::Current());
+        if (!ptrs[i] || (reinterpret_cast<uptr>(ptrs[i]) & 15u) != 0) all16 = false;
+    }
+    EXPECT_TRUE(all16);
+    for (int i = 0; i < 64; ++i) if (ptrs[i]) t.Free(ptrs[i]);
+
+    // 大アライメント: 32/64/128/256 をそれぞれ複数確保して境界を満たすこと
+    const usize aligns[4] = { 32, 64, 128, 256 };
+    bool all_big = true;
+    for (int a = 0; a < 4; ++a) {
+        void* bp[8] = {};
+        for (int i = 0; i < 8; ++i) {
+            usize sz = (usize)(16 + (i * 37) % 500);
+            bp[i] = t.Alloc(sz, aligns[a], FSourceLoc::Current());
+            if (!bp[i] || (reinterpret_cast<uptr>(bp[i]) & (aligns[a] - 1)) != 0) all_big = false;
+            // 書き込んでもクラッシュしないこと (確保領域が実際に使えること)
+            if (bp[i]) {
+                u8* b = static_cast<u8*>(bp[i]);
+                for (usize k = 0; k < sz; ++k) b[k] = (u8)(k & 0xFF);
+            }
+        }
+        for (int i = 0; i < 8; ++i) if (bp[i]) t.Free(bp[i]);
+    }
+    EXPECT_TRUE(all_big);
+
+    // leading split で生じた free ブロックが再利用でき、ヒープが壊れていないことの確認:
+    // 全解放後に大きな確保ができること
+    void* big = t.Alloc(1024 * 1024, 16, FSourceLoc::Current());
+    EXPECT_TRUE(big != nullptr);
+    if (big) t.Free(big);
+
+    ::HeapFree(::GetProcessHeap(), 0, pool);
+}
+
 // FMemorySystem: 全セグメント初期化 → 取得 → 解放
 ACS_TEST(MemSystem, SegmentInitGet) {
     MemorySystemConfig cfg = FMemorySystem::DefaultConfig();

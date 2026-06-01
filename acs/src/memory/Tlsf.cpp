@@ -115,11 +115,24 @@ ACS_FORCEINLINE void MappingSearch(usize size, int& fl, int& sl) noexcept {
     MappingInsert(size, fl, sl);
 }
 
-// 要求サイズをアライン + 最小ブロック制約に揃える
-ACS_FORCEINLINE usize AdjustRequestSize(usize size, usize align) noexcept {
+// 要求サイズを block_size へ変換する。
+//
+// 重要な不変条件: 連続するブロックヘッダの間隔は block_size + kBlockHeaderOverhead。
+// 先頭ブロックは 16 整列、payload は header + kBlockStartOffset(=16) なので、すべての
+// payload を 16 整列に保つには「全ブロックヘッダが 16 整列」である必要があり、それには
+//     (block_size + kBlockHeaderOverhead) ≡ 0  (mod ALIGN_SIZE)
+//   ⇔ block_size ≡ ALIGN_SIZE - kBlockHeaderOverhead ≡ 8  (mod 16)
+// でなければならない。AlignUp(size,16) は ≡0 になり連鎖の途中で payload が 8 整列に
+// 落ちる (確保の約半数が 16 整列を満たさない) ため、+kBlockHeaderOverhead して ≡8 に補正する。
+// 先頭プールブロック (pool_size-24) も ≡8、分割/統合もこの剰余を保存する。
+ACS_FORCEINLINE usize AdjustRequestSize(usize size, usize /*align*/) noexcept {
     if (size == 0) return 0;
-    usize adjust = AlignUp(size, align);
-    if (adjust < MIN_BLOCK_SIZE) adjust = MIN_BLOCK_SIZE;
+    // AlignUp(size,16) (>= size, ≡0 mod16) に overhead を足して ≡8 mod16 にする。
+    // 結果として使用可能領域 block_size - overhead >= size を必ず満たす。
+    usize adjust = AlignUp(size, ALIGN_SIZE) + kBlockHeaderOverhead;
+    // ≡8 を保った最小ブロック (free 時に next_free/prev_free を収容できる) へクランプ。
+    constexpr usize kMinBlock8 = MIN_BLOCK_SIZE - kBlockHeaderOverhead; // 32-8 = 24, ≡8 mod16
+    if (adjust < kMinBlock8) adjust = kMinBlock8;
     return adjust;
 }
 
@@ -310,13 +323,60 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
 
     // サイズをアライン → バケット検索
     usize adjust = AdjustRequestSize(size, alignment);
+
+    // alignment > ALIGN_SIZE(16) の場合、chaining が保証する 16 整列では足りない。
+    // 先頭に余白 (leading free ブロック) を切り出して payload を要求境界へ前進させる
+    // memalign 経路を使う。そのぶん余白 + 最小 leading ブロックを上乗せして探索する。
+    usize search_size = adjust;
+    if (alignment > ALIGN_SIZE) {
+        search_size = adjust + alignment + (kBlockHeaderOverhead + MIN_BLOCK_SIZE);
+    }
+
     int fl, sl;
-    MappingSearch(adjust, fl, sl);
+    MappingSearch(search_size, fl, sl);
     FBlockHeader* block = SearchSuitableBlock(fl, sl);
     if (!block || block == &m_NullBlock) return nullptr;  // OOM
 
-    // 取り出して必要分に分割
+    // 取り出す
     RemoveFreeBlock(block);
+
+    // ---- over-alignment: 先頭ギャップを leading free ブロックとして切り出す ----
+    if (alignment > ALIGN_SIZE) {
+        u8* ptr     = static_cast<u8*>(BlockToPtr(block));
+        u8* aligned = reinterpret_cast<u8*>(
+            AlignUp(reinterpret_cast<uptr>(ptr), static_cast<uptr>(alignment)));
+        usize gap = static_cast<usize>(aligned - ptr);  // ptr/aligned とも 16 整列 → gap は 16 の倍数
+        if (gap != 0) {
+            // leading ブロックは free pointer (next_free/prev_free) を収容できる全長が必要。
+            // gap が小さすぎる場合は 1 アライメント分前進させて十分な leading 長を確保する。
+            const usize min_lead = kBlockHeaderOverhead + MIN_BLOCK_SIZE;
+            while (gap < min_lead) {
+                aligned += alignment;
+                gap     += alignment;
+            }
+            const usize bs = BlockSize(block);
+            // leading: [block, block+gap)、remainder: block+gap 起点 (block_to_ptr = aligned)
+            FBlockHeader* leading   = block;
+            FBlockHeader* remainder = reinterpret_cast<FBlockHeader*>(
+                reinterpret_cast<u8*>(block) + gap);
+            SetBlockSize(leading, gap - kBlockHeaderOverhead);  // ≡8 mod16
+            MarkFree(leading);
+            remainder->prev_phys_block = leading;
+            remainder->size_and_flags  = (bs - gap) | kBlockFreeBit | kPrevFreeBit;
+            remainder->next_free = nullptr;
+            remainder->prev_free = nullptr;
+            // remainder の物理次ブロック (= 元の NextBlock) の prev リンクを張り直す
+            FBlockHeader* after_rem = NextBlock(remainder);
+            after_rem->prev_phys_block = remainder;
+            // leading を free リストへ登録
+            leading->next_free = nullptr;
+            leading->prev_free = nullptr;
+            InsertFreeBlock(leading);
+            block = remainder;  // 以降は remainder を確保対象にする
+        }
+    }
+
+    // 必要分に分割
     TrimFreeBlock(block, adjust);
     MarkUsed(block);
     FBlockHeader* after = NextBlock(block);
@@ -325,7 +385,11 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
     // 統計更新
     m_BytesUsed += BlockSize(block);
     if (m_BytesUsed > m_BytesPeak) m_BytesPeak = m_BytesUsed;
-    return BlockToPtr(block);
+
+    void* result = BlockToPtr(block);
+    // payload は必ず要求 alignment を満たす (16 は chaining 不変条件、>16 は上の leading split)
+    ACS_ASSERT((reinterpret_cast<uptr>(result) & (static_cast<uptr>(alignment) - 1)) == 0);
+    return result;
 }
 
 // 解放

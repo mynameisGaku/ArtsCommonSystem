@@ -21,6 +21,9 @@ FArenaAllocator::~FArenaAllocator() noexcept {
 
 // 新ページ確保（ヘッダ + データ + 64B 整列の余裕を 1 回で取る）
 FArenaAllocator::Page* FArenaAllocator::AllocPage(usize size) noexcept {
+    // sizeof(Page) + size + 64 の usize オーバーフローを防ぐ。wrap すると過小な total で
+    // alloc し、その後の base/used 計算でページ境界を越えて書き込む (OOB)。
+    if (size > (~usize(0)) - sizeof(Page) - 64) return nullptr;
     usize total = sizeof(Page) + size + 64;
     void* raw = m_Backing->Alloc(total, alignof(Page), FSourceLoc::Current());
     if (!raw) return nullptr;

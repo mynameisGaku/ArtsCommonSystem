@@ -71,10 +71,13 @@ void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     for (u32 i = 0; i < n; ++i) {
         const FBone& b = m_Bones[i];
         FMat4 local = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
-        if (b.parent < 0) {
-            world_at_bind[i] = local;
-        } else {
+        // 親 index は子 (i) より小さい前提。不正な glTF で parent>=i や parent>=n の場合、
+        // 未計算/範囲外の world_at_bind[parent] を読むと未初期化値読み or OOB になる。
+        // parent が 0..i-1 の範囲にあるときだけ親乗算し、それ以外はローカルを採用する。
+        if (b.parent >= 0 && static_cast<u32>(b.parent) < i) {
             world_at_bind[i] = local * world_at_bind[b.parent];
+        } else {
+            world_at_bind[i] = local;
         }
     }
 

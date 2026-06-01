@@ -98,6 +98,8 @@ TResult<TRc<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
     if (asset_r.IsErr()) return Err<TRc<Asset>>(asset_r.Error());
 
     TRc<Asset> a = Move(asset_r.Value());
+    if (!a.Get())  // ローダが OkInit で null を返した場合 (alloc 失敗等) の null-deref 回避
+        return ACS_ERR(Asset, 3, "loader returned null asset");
     a->SetId(id);
     a->SetState(EAssetState::Ready);
 
@@ -139,6 +141,12 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     }
 
     TRc<Asset> a = Move(asset_r.Value());
+    if (!a.Get()) {  // ローダが OkInit で null を返した場合の null-deref 回避
+        job->state->error = ACS_ERR(Asset, 3, "loader returned null asset");
+        job->state->has_error = true;
+        job->state->counter.Done();
+        return;
+    }
     a->SetId(job->id);
     a->SetState(EAssetState::Ready);
 

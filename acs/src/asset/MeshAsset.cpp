@@ -150,7 +150,13 @@ TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
     struct UV { f32 u, v; };
     TArray<UV> uvs;
 
-    const char* p = reinterpret_cast<const char*>(bytes.Data());
+    // strtod/strtol は NUL 終端まで数字を読むため、bytes が NUL 終端でないと
+    // バッファ末尾を越えて OOB read する。NUL 終端コピーを作ってから解析する。
+    TArray<char> text;
+    text.Resize(bytes.Size() + 1);
+    for (usize i = 0; i < bytes.Size(); ++i) text[i] = static_cast<char>(bytes[i]);
+    text[bytes.Size()] = '\0';
+    const char* p = text.Data();
     const char* end = p + bytes.Size();
 
     auto skip_ws = [&](const char*& s) {
@@ -205,7 +211,7 @@ TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
                 vi[n] = parse_index(p);
                 if (p < end && *p == '/') {
                     ++p;
-                    if (*p != '/') ti[n] = parse_index(p);
+                    if (p < end && *p != '/') ti[n] = parse_index(p);
                     if (p < end && *p == '/') {
                         ++p;
                         ni[n] = parse_index(p);

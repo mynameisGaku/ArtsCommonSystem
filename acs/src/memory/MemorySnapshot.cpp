@@ -71,7 +71,8 @@ TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* path, u32 width, u32 row_
     WriteAll(h, buf, len);
 
     u32 bar_x = 120;
-    u32 bar_w = width - bar_x - 10;
+    // width が小さいと width - bar_x - 10 が u32 アンダーフローして巨大値になる。下限ガード。
+    u32 bar_w = (width > bar_x + 10) ? (width - bar_x - 10) : 0;
 
     for (u32 i = 0; i < n; ++i) {
         const SegmentStats& s = stats[i];

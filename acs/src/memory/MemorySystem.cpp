@@ -111,6 +111,11 @@ MemorySystemConfig FMemorySystem::DefaultConfig() noexcept {
 TResult<void> FMemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
     if (g_state.inited) return ACS_ERR(Memory, 30, "FMemorySystem already initialized");
 
+    // いずれかのセグメント初期化に失敗した場合、既に確保した VM 予約 / FLinearAllocator が
+    // リークしないよう、完全初期化済みスロット [0, done) をロールバックしてから err を返す。
+    usize done = 0;
+    TResult<void> fail = Ok();
+
     for (usize i = 0; i < (usize)ESegment::_Count; ++i) {
         const SegmentConfig& sc = cfg.segments[i];
         SegmentSlot& slot = g_state.slots[i];
@@ -123,23 +128,40 @@ TResult<void> FMemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
         if (sc.use_linear) {
             // Linear セグメントは VM 予約 + 全領域コミット + FLinearAllocator 個別生成
             auto rr = VmReservation::Reserve(sc.reserve_bytes);
-            if (rr.IsErr()) return Err<void>(rr.Error());
+            if (rr.IsErr()) { fail = Err<void>(rr.Error()); break; }
             slot.reservation = Move(rr.Value());
             auto cr = slot.reservation.Commit(0, sc.commit_initial);
-            if (cr.IsErr()) return cr;
+            if (cr.IsErr()) { slot.reservation.Release(); fail = cr; break; }
             slot.linear = static_cast<FLinearAllocator*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(FLinearAllocator)));
-            if (!slot.linear) return ACS_ERR(Memory, 31, "Linear alloc failed");
+            if (!slot.linear) { slot.reservation.Release(); fail = ACS_ERR(Memory, 31, "Linear alloc failed"); break; }
             ::new (slot.linear) FLinearAllocator(sc.commit_initial);
         } else {
             // TLSF セグメントは VM 予約 + 初期コミットして TLSF プール登録
+            // (失敗時は InitWithReservation 内のローカル reservation が RAII で解放される)
             auto rr = VmReservation::Reserve(sc.reserve_bytes);
-            if (rr.IsErr()) return Err<void>(rr.Error());
+            if (rr.IsErr()) { fail = Err<void>(rr.Error()); break; }
             auto ir = slot.tlsf.InitWithReservation(Move(rr.Value()), sc.commit_initial);
-            if (ir.IsErr()) return ir;
+            if (ir.IsErr()) { fail = ir; break; }
         }
         slot.initialized = true;
         g_state.allocators[i].Bind(&slot);
+        done = i + 1;
     }
+
+    if (fail.IsErr()) {
+        for (usize j = 0; j < done; ++j) {
+            SegmentSlot& slot = g_state.slots[j];
+            if (slot.use_linear && slot.linear) {
+                slot.linear->~FLinearAllocator();
+                ::HeapFree(::GetProcessHeap(), 0, slot.linear);
+                slot.linear = nullptr;
+            }
+            slot.reservation.Release();
+            slot.initialized = false;
+        }
+        return fail;
+    }
+
     g_state.inited = true;
     return Ok();
 }

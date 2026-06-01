@@ -79,25 +79,46 @@ void FTimerManager::Tick(f32 dt) noexcept {
         s.remaining -= dt;
         if (s.remaining > 0.0f) continue;
 
-        // 発火 — コールバック中に Cancel される可能性あり
-        TimerCallback cb   = s.cb;
-        void*         user = s.user;
-        bool          repeating = s.repeating;
-        f32           period    = s.period;
-        if (!repeating) {
-            // 1 回限りはコールバック呼ぶ前にスロット解放
+        if (!s.repeating) {
+            // 1 回限りはコールバックを呼ぶ前にスロット解放
             // (コールバック中に同じハンドルを Cancel しても false が返るだけで安全)
+            TimerCallback cb   = s.cb;
+            void*         user = s.user;
             s.active = false;
             s.cb     = nullptr;
             s.user   = nullptr;
             m_FreeIndices.PushBack(static_cast<u32>(i));
-        } else {
-            // 周期は次の発火までセット (drift しないよう period 加算、複数回分追いつき)
-            s.remaining += period;
-            if (s.remaining < 0.0f) s.remaining = period;  // 大きく overshoot した場合の保護
+            cb(user);
+            continue;
         }
 
-        cb(user);
+        // 周期タイマ: dt が複数周期ぶんなら複数回発火させる (catch-up)。drift しないよう
+        // period を都度加算する。コールバックが SetTimeout/SetInterval で m_Slots を再 alloc
+        // し得るため、発火のたびに index で slot を取り直し、id/generation で妥当性を確認して
+        // から次を撃つ (取り直さないと再確保で参照が dangling して use-after-free になる)。
+        const u32 fire_id  = s.id;
+        const u32 fire_gen = s.generation;
+        const u32 kMaxCatchUp = 4096;  // period << dt (or period→0) のときの発火数爆発を防ぐ上限
+        u32 fired = 0;
+        while (true) {
+            if (i >= m_Slots.Size()) break;
+            Slot& cur = m_Slots[i];
+            if (!cur.active || !cur.repeating ||
+                cur.id != fire_id || cur.generation != fire_gen) break;  // Cancel / 再利用された
+            if (cur.remaining > 0.0f) break;                             // 追いつき完了
+            if (cur.period <= 0.0f) { cur.active = false; break; }       // 不正 period の無限ループ防止
+            cur.remaining += cur.period;
+            if (fired >= kMaxCatchUp) {
+                // 上限到達: これ以上は今回の Tick で発火しない。次 Tick へ繰り越せるよう
+                // remaining を正方向へ帳尻合わせする。
+                if (cur.remaining < 0.0f) cur.remaining = cur.period;
+                break;
+            }
+            ++fired;
+            TimerCallback cb   = cur.cb;
+            void*         user = cur.user;
+            cb(user);  // 呼び出し後 cur/s は dangling し得る → 参照を残さずループ先頭で取り直す
+        }
     }
 }
 
