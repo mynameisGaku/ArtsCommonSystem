@@ -96,6 +96,9 @@ enum class EXrPlatform : u8 {
 struct XrPose {
     acs::FVec3 position           = acs::FVec3::Zero();  // world-space 位置 (m)
     acs::FVec3 orientation_euler  = acs::FVec3::Zero();  // (pitch, yaw, roll) [rad]
+    // このポーズがライブトラッキング由来かどうか。false の場合 position/orientation は
+    // 原点 (未トラッキングの既定値) であり、有効な姿勢として使ってはならない。
+    bool       tracked            = false;
 };
 
 // =============================================================================
@@ -151,6 +154,14 @@ public:
 
     // Init() 成功後かつ Shutdown() 前なら true。
     virtual bool IsInitialized() const noexcept = 0;
+
+    // ヘッド/コントローラのポーズが現在ライブトラッキングされているか。
+    // false の場合 HeadPose()/LeftController()/RightController() は原点(未トラッキングの
+    // ゼロポーズ)を返すため、消費側はゼロポーズを有効な姿勢として使わず fallback すること。
+    // **IsInitialized() とは別概念**: instance/loader 生成成功とトラッキング有効性は異なる
+    // (例: session loop 未確立の backend は IsInitialized()==true でも IsTracking()==false)。
+    // 既定実装は false (stub / トラッキング非対応 backend 用の安全側)。
+    virtual bool IsTracking() const noexcept { return false; }
 
     // 現在 active な backend プラットフォーム。Init 前 / Shutdown 後 / stub は Unknown。
     virtual EXrPlatform ActivePlatform() const noexcept = 0;

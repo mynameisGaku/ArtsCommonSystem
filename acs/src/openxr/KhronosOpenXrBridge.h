@@ -28,12 +28,12 @@ public:
     void SetPassthrough(bool bOn) noexcept override;
 
     // 実トラッキングが生きているか (= xrCreateSession + frame/view/action loop が
-    // 確立済みか) の正直な問い合わせ。本 backend は loader/instance seam のみを
-    // 所有し session loop は未実装なので、現状は常に false を返す。HeadPose() /
-    // LeftController() / RightController() が返すゼロポーズを「有効なトラッキング
-    // 値」と誤認しないために、消費側はこのフラグを見て fallback を選ぶこと。
-    // (IsInitialized() は instance 生成成功を表すだけで、トラッキング有効性とは別。)
-    bool IsTrackingActive() const noexcept { return m_bSessionTracking; }
+    // 確立済みか) の正直な問い合わせ。共有 IF IOpenXrBridge::IsTracking() の override。
+    // 本 backend は loader/instance seam のみを所有し session loop は未実装なので、
+    // 現状は常に false を返す。HeadPose()/LeftController()/RightController() が返す
+    // ゼロポーズを「有効なトラッキング値」と誤認しないために、消費側 (IOpenXrBridge& 越し
+    // も含む) はこのフラグを見て fallback を選ぶこと。
+    bool IsTracking() const noexcept override { return m_bSessionTracking; }
 
 private:
     void* m_Instance = nullptr; // XrInstance, kept opaque in the public header's TU.

@@ -15,10 +15,17 @@ int FOpenXrDemoApp::Run() noexcept {
     acs::openxr::FKhronosOpenXrBridge Xr;
     auto Init = Xr.Init();
     if (Init.IsOk()) {
-        std::printf("Init: OK  initialized=%s  passthrough=%s\n",
+        std::printf("Init: OK  initialized=%s  tracking=%s  passthrough=%s\n",
                     Xr.IsInitialized() ? "true" : "false",
+                    Xr.IsTracking() ? "true" : "false",
                     Xr.IsPassthroughSupported() ? "true" : "false");
         Xr.Tick(1.0f / 60.0f);
+        // 正直な縮退の確認: session loop 未実装なのでトラッキング未確立 = HeadPose は
+        // 未トラッキング(原点)。IsTracking()/pose.tracked がともに false を返すこと。
+        acs::game::XrPose head = Xr.HeadPose();
+        std::printf("after Tick: tracking=%s  head.tracked=%s (未トラッキングを正直に表明)\n",
+                    Xr.IsTracking() ? "true" : "false",
+                    head.tracked ? "true" : "false");
         Xr.Shutdown();
         std::puts("result: ALL PASS");
         return 0;
