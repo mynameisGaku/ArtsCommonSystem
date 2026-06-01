@@ -2,8 +2,7 @@
 
 ACS で 2D ゲームを作るための、**実際に動く（検証済み）API** の実用ガイド集です。
 各章は実ヘッダのシグネチャに忠実な最小例から始め、`samples/` の動くサンプル
-（スクショ確認済み）に紐づけてあります。壊れている／未配線のスタブは扱いません
-（下の「まだ整っていない物」参照）。
+（スクショ確認済み）に紐づけてあります。残る注意点は下の「実装状況」を参照。
 
 順番に読むなら 01 → 10 が素直です。困ったら該当章だけ拾い読みでも構いません。
 名前空間は `acs`（2D ランタイム基盤）と `acs::game`（ノード/コンポーネント層）。
@@ -20,33 +19,42 @@ ACS で 2D ゲームを作るための、**実際に動く（検証済み）API*
 | 05 | [タイルマップ](05_tilemap.md) | FTilemapComponent / 当たり判定生成 | 58 |
 | 06 | [カメラ](06_camera.md) | 追従 / ズーム / シェイク / ピッキング | 55 |
 | 07 | [入力](07_input.md) | 素の Input:: と FInputMap アクション | 55, 59〜61 |
-| 08 | [当たり判定・物理・トリガー](08_collision_physics_triggers.md) | FCollisionWorld2D / FPhysicsBody2D / FTriggerComponent | 08, 54, 57 |
-| 09 | [シーン遷移・ゲーム構造・セーブ](09_scene_flow_save.md) | TransitionTo / AppState / GameFlow / FSaveArchive | 38, 58 |
+| 08 | [当たり判定・物理・トリガー](08_collision_physics_triggers.md) | FCollisionWorld2D（AABB/円/凸ポリ/**OBB**）/ FPhysicsBody2D（collide-and-slide）/ FTriggerComponent | 08, 54, 57, 63 |
+| 09 | [シーン遷移・ゲーム構造・セーブ](09_scene_flow_save.md) | ChangeScene / TransitionTo / AppState / FSettings / FSaveArchive | 38, 58, 63 |
 | 10 | [エフェクト（水・光・ステンシル・文字）](10_effects_light_stencil_text.md) | Effects2D / Light2D / Stencil / Font | 47, 59〜61 |
 
-## まだ整っていない物（このチュートリアルでは扱わない）
+## 実装状況（2026-06 更新：旧「未完成」項目はほぼ解消）
 
-以下は「使い方以前に未完成」なので、あえて含めていません。2D ゲームを“完成”させる
-前に別途これらを塞ぐ必要があります（監査結果 = `acs/Saved/foundation_synth.txt`）。
+このガイド初版で「未完成」としていた中核ギャップは、その後の基盤強化で **実装＋
+サンプル検証済み** になりました。最新の正規座標規約は **Y-down（左上原点・+X 右・
++Y 下、章 01 参照）** です。
 
-- **自分の絵／タイルを読むインポータ（Aseprite / Tiled）— 未実装。** 画像＋メタから
-  スプライトシート／タイルマップを一括で読む経路が無い。今は `SetTile` / `AddFrameUv`
-  を手で書くか手続き生成する。`FAssetBundle::BeginLoad` は中身が偽物（同期で全部
-  Loaded 扱い）なので使わないこと。
-- **音 — XAudio2 バックエンドが未配線で鳴らない。** `FAudioDirector` は状態機械として
-  は出来ているが、どのサンプルもバックエンドを attach しておらず、名前→clip 解決も
-  WAV→PCM デコードも未実装。**現状ゲーム内で音は出せない。**
-- **ゲーム内 UI / メニュー — gameframework の `FUiLayer` はスタブ**（`Init` / `HandleInput`
-  が TODO の空実装）。動く UI は `src/ui/`（`19_HelloUI`、FUiRenderer + MVVM）にあるが
-  `FScene2D` 未統合。メニュー・HUD は現状この橋渡しから作る必要がある。
-- **描画順 / Y ソート / レイヤー — 無い。** `FNode2D::DrawTree` はツリー順に描くだけで
-  z / layer / world.y ソートが無い。見下ろしでキャラが Y で前後しない。
-- **設定の永続化 — `FSettings::Save/Load` が no-op**（ディスクに書かない）。
+- **自分の絵／タイルを読むインポータ — 実装済み。** `FSpritePack::LoadAtlasJson`
+  （Aseprite hash / TexturePacker array 両対応）、`FTilemap::LoadTiledJson`（Tiled
+  `.tmj`）、STL-free JSON パーサ `container/Json.h`。ファイル読込は
+  `FileSystem::ReadAllText` で行い、その文字列を渡す。検証 = `62_HelloPersistVerify`。
+- **ゲーム内 UI / メニュー — 実装済み。** `FUiLayer` を本実装化（クリック可能な
+  ボタン、hover／押下、consume-on-read）。`FScene2D` の `OnEvent→HandleInput` /
+  `OnDrawHud→Draw(rc)` で配線。検証 = `62`（click ロジック）/ `63`（タイトル・ポーズ・
+  ゲームオーバーの実メニュー）。
+- **描画順 / Y ソート / レイヤー — 実装済み。** `FNode2D` に
+  `EChildDrawOrder{Tree/Layer/LayerThenY}` + `SetSortLayer` / `SetYSortBias`。
+  見下ろし Y 遮蔽は LayerThenY（+Y=画面下なので小さい y=奥 を先に描画）。検証 = `62`。
+- **設定の永続化 — 実装済み。** `FSettings::Save/Load`（INI 風、atomic write）。
+  検証 = `62`（round-trip）/ `63`（ハイスコアを保存→次回起動でロード）。
+- **音 — backend コードはあるが、サンプルでは未接続（要注意）。**
+  `audio_backend/XAudio2Backend` + `FAudioDirector` の name→clip 解決と dispatch は
+  実装済み（`62` で mock 検証）。ただしどのサンプルも実バックエンドを attach せず
+  WAV も供給していないため **実際の発音は未確認**。鳴らすには自分で backend を attach
+  して clip を登録する必要がある。
 
-> ⚠️ 重要: `src/gameframework/` の大半（約 216 ファイル）は「コンパイルは通る」だけで
-> 一度も実行検証されていません（ジャンルキット 10 種なども全部未検証）。「ファイルが
-> ある＝動く」ではありません。実際に使う前に、小さな縦切りゲームに組み込んで
-> スクショ検証してから信頼してください。
+> ⚠️ 中核 2D パス（FGame/FScene2D・ノード/コンポーネント・スプライト/アニメ・
+> タイルマップ・当たり判定/物理/トリガー・**UI・描画順・セーブ**・エフェクト）は
+> `samples/55〜63` でスクショ／ヘッドレス検証済みです。一方 `src/gameframework/` の
+> ジャンルキットや多くの上位システムは「コンパイルは通る」だけで未検証のものが
+> 残ります（「ファイルがある＝動く」ではない）。実使用前に小さな縦切りに組み込んで
+> 検証してください — **`63_HelloVerticalSlice` がその縦切りの実例**（title→play→pause→
+> game over→save、Y-down、UI・atlas・tilemap・collide-and-slide を 1 本に統合）。
 
 ## サンプル早見表（動く＝検証済み）
 
@@ -64,3 +72,5 @@ ACS で 2D ゲームを作るための、**実際に動く（検証済み）API*
 | `59_HelloEffects2D` | 水（横視点＋反射）/炎/トレイル |
 | `60_HelloStencilMask` | 任意形状ステンシルマスク |
 | `61_HelloWaterTopDown` | 見下ろし水面（コースティクス/岸泡） |
+| `62_HelloPersistVerify` | （コンソール）基盤の round-trip / ロジック検証ハーネス |
+| `63_HelloVerticalSlice` | **縦スライス完結**: title→play→pause→game over→save、UI・atlas・tilemap・collide-and-slide・OBB を 1 本に統合（Y-down） |

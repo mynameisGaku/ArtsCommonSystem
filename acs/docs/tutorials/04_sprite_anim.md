@@ -115,7 +115,7 @@ anim.EndFrames();
 anim.Play();
 ```
 
-> ヘッダのコメントには `FSpritePack::ComputeUv(...)` から UV を取って積む使い方も示されているが、本チュートリアルでは未検証のため `FVec4` を直接渡す形だけを「動く前提」として扱う。
+> アトラスのフレーム名→UV を **`FSpritePack` から取る経路も検証済み**: `pack.LoadAtlasJson(text, len)`（Aseprite hash / TexturePacker array）または `pack.AddFrame(...)` でフレームを登録し、`pack.FindFrame("name")` → `pack.ComputeUv(*frame)` で `FVec4{u0,v0,u1,v1}` を得て `AddFrameUv` / `FSprite2DComponent::SetUvRect` へ渡せる。検証 = `62`（`TestSpriteAtlasLoad`）/ `63`（プレイヤースプライトを atlas フレームで描画）。手書きで `FVec4` を直接積んでもよい。
 
 ### 4. frame event (足音・攻撃判定タイミング)
 

@@ -166,7 +166,7 @@ if (tm.Map().WorldToTile(local, tx, ty)) {
 - **`SetTexture` は非所有**。テクスチャの寿命はあなたが管理（サンプルではシーンが `TUniquePtr<IRhiTexture>` で保持）。コンポーネントより先に破棄すると dangling。
 - **`tile_size` は world 単位**。サンプル 58 は `tile_size=1.0f` + `SetPixelsPerUnit(48.0f)` で「1 タイル = 画面上 48px」。ピクセル基準にしたいなら `tile_size=16.0f`/`32.0f` + PPU=1 などにする。
 - **`FTilemap` は非コピー・非ムーブ**。値で持ち回らず、`Component` 経由か参照で扱う。
-- **正直に**: `.tmx` (Tiled) などのマップエディタ **インポータは未実装**です。タイル配置は `SetTile` / `Fill` / `FillRect` を **手で**呼んで組み立てます（あるいは自前で配列を作って流す）。auto-tiling / per-tile flip flag / chunk 化も現状なし（ヘッダの「範囲外」節参照）。
+- **インポータ（実装済み / 未対応の区別）**: Tiled の **JSON 形式 `.tmj` は `FTilemap::LoadTiledJson(text, len)` で読み込み済み**（`tilelayer` の `data` を行優先で取り込み、GID の上位 flip フラグは除去して `FTileId` に clamp）。ファイル文字列は `FileSystem::ReadAllText` で読んで渡す。検証 = `62_HelloPersistVerify` の `TestTilemapLoad`。一方 **`.tmx`（XML 形式）は未対応**（JSON にエクスポートして使う）。auto-tiling / per-tile flip の反映 / chunk 化も現状なし。手組みなら従来どおり `SetTile` / `Fill` / `FillRect`。
 
 ---
 

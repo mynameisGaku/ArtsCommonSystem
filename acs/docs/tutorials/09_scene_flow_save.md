@@ -267,7 +267,7 @@ if (m_Flow.IsTransitioning()) {
 - **`FSaveSlot<T>` の `T` は POD 限定**。ポインタや非トリビアルなメンバ(動的配列・文字列)を含む構造体を memcpy 保存してはいけない。
 - **`FPauseDirector` は値を返すだけ**。`EffectiveTimeScale()` を取得して自分で `GetGame().SetTimeScale(...)` を呼ぶ必要がある(モジュールが FGame に依存しない設計)。
 - **`FGameFlow` は遷移中の追加要求を無視**(後勝ちしない)。現遷移を完了させてから次を受ける。不正遷移(許可テーブル外)も no-op。
-- **`FSettings::Save/Load` は現状 TODO スタブ**(Phase 2 予定)。`Settings.cpp` の実装は実 I/O を行わないので、設定の永続化は現時点では機能しない。設定を本当にディスクへ残したいなら `FSaveSlot<SettingsPod>` を自前で組むこと。
+- **`FSettings::Save/Load` は実装済み**(INI 風テキスト、`.tmp`→`MoveFileExW` の atomic write)。`SetI32/GetI32/SetF32/SetBool/SetString/...` の型付き key-value を `Save(L"...ini")` でディスクへ、`Load(L"...ini")` で復元(ファイルが無ければ `Err` → 既定値のまま)。検証 = `62`(round-trip) / `63`(ハイスコアを保存→次回起動でロード)。整数 1〜数個の設定/スコアなら最短、POD をまとめて残すゲームセーブ全般は `FSaveSlot<T>`。
 
 ---
 
@@ -275,4 +275,5 @@ if (m_Flow.IsTransitioning()) {
 
 - **`acs/samples/58_HelloTilemap/TilemapDemo.cpp`** — `FGame::TransitionTo` による FadeInOut 遷移(Title ⇄ Level)。`GetGame().Fade().IsActive()` での入力ガード。`FScene2D` 派生・`OnReady/OnTick/OnDrawHud`。
 - **`acs/samples/38_HelloFullGame/`** — フルゲーム構成。`FSaveSlot<HighScore>` の実ファイル・ラウンドトリップ(`FullGameApp.cpp` の `OnStart` でロード / `SaveHighScoreIfBetter` で保存)、`FGameFlow` の進行管理、`Scene` 派生の `ChangeScene`(`GameplayScene.cpp` → `GameOverScene.cpp` → `TitleScene`)。POD 定義は `GameTypes.h`。
+- **`acs/samples/63_HelloVerticalSlice/main.cpp`** — **縦スライスの完結例**。`FScene2D` 派生の Title/Play/GameOver を `ChangeScene` で遷移、Pause は Play 内 state でゲームを背後に凍結。`FSettings` でハイスコアを INI 保存→次回起動でロード(`OnStart` で `Load`、`GameOverScene::OnReady` で `SubmitScore`)。UI(`FUiLayer`)・atlas(`FSpritePack`)・tilemap・collide-and-slide(OBB 含む)を 1 本に統合。全 Y-down。
 - ヘッダ実物: `acs/src/gameframework/{Game,SceneManager,Scene,FadeTransition,GameFlow,PauseDirector,AppState,SaveSlot,SaveArchive}.h`
