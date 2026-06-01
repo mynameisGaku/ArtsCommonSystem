@@ -113,6 +113,57 @@ ACS_TEST(MemSystem, TlsfAlignment) {
     ::HeapFree(::GetProcessHeap(), 0, pool);
 }
 
+// TLSF ストレス: alloc/free を多数混在させ、整列・統合・ヒープ整合 (ValidateHeap) を検証。
+// 安全ガード (範囲検証/二重free検知) と Debug poison が通常運用を壊さないことも確認する。
+ACS_TEST(MemSystem, TlsfStressValidate) {
+    constexpr usize kPoolSize = 8 * 1024 * 1024;
+    void* pool = ::HeapAlloc(::GetProcessHeap(), 0, kPoolSize);
+    EXPECT_TRUE(pool != nullptr);
+    if (!pool) return;
+
+    FTlsfAllocator t;
+    auto ir = t.Init(pool, kPoolSize);
+    EXPECT_TRUE(ir.IsOk());
+    EXPECT_TRUE(t.ValidateHeap());
+
+    // 決定論的 LCG (Math.random 不使用) で確保/解放を揺らす
+    u32 rng = 0x12345678u;
+    auto next = [&rng]() -> u32 { rng = rng * 1664525u + 1013904223u; return rng; };
+
+    void* live[256] = {};
+    bool ok = true;
+    for (int iter = 0; iter < 6000 && ok; ++iter) {
+        const u32 i = next() % 256u;
+        if (live[i]) {
+            t.Free(live[i]);
+            live[i] = nullptr;
+        } else {
+            const usize sz = static_cast<usize>(1u + (next() % 4096u));
+            const usize al = static_cast<usize>(16u << (next() % 5u));  // 16/32/64/128/256
+            void* p = t.Alloc(sz, al, FSourceLoc::Current());
+            if (p) {
+                if ((reinterpret_cast<uptr>(p) & (al - 1)) != 0) ok = false;  // 整列違反
+                u8* b = static_cast<u8*>(p);
+                for (usize k = 0; k < sz; ++k) b[k] = static_cast<u8>(i + k);  // 全域書込でOOBが無いこと
+                live[i] = p;
+            }
+        }
+        if ((iter & 0x1FF) == 0 && !t.ValidateHeap()) ok = false;  // 周期的に整合検証
+    }
+    EXPECT_TRUE(ok);
+
+    for (int i = 0; i < 256; ++i) if (live[i]) t.Free(live[i]);
+    EXPECT_TRUE(t.ValidateHeap());
+
+    // 全解放後は統合が効いて大確保が通る
+    void* big = t.Alloc(4 * 1024 * 1024, 16, FSourceLoc::Current());
+    EXPECT_TRUE(big != nullptr);
+    if (big) t.Free(big);
+    EXPECT_TRUE(t.ValidateHeap());
+
+    ::HeapFree(::GetProcessHeap(), 0, pool);
+}
+
 // FMemorySystem: 全セグメント初期化 → 取得 → 解放
 ACS_TEST(MemSystem, SegmentInitGet) {
     MemorySystemConfig cfg = FMemorySystem::DefaultConfig();

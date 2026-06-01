@@ -12,6 +12,13 @@
 
 #include <intrin.h>
 
+// メモリデバッグ機能 (free 後 poison / 深い検証アサート)。既定で Assert 有効ビルド
+// (= 通常 Debug) のみ ON にし、Release ではゼロコスト。これは常時有効の軽量ガード
+// (範囲検証 / 二重 free 検知) とは別レイヤで、開発時に UAF・破損を即検出するためのもの。
+#ifndef ACS_MEMORY_DEBUG
+#  define ACS_MEMORY_DEBUG ACS_ASSERTS_ENABLED
+#endif
+
 namespace acs {
 
 namespace tlsf {
@@ -188,6 +195,16 @@ TResult<void> FTlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept
     pool_size &= ~(usize(ALIGN_SIZE - 1));
     if (pool_size < MIN_BLOCK_SIZE + kBlockHeaderOverhead * 2)
         return ACS_ERR(Memory, 22, "AddPool too small");
+
+    // Free 時の所属検証用にプール範囲 [base, base+size) を記録する。
+    // 追跡上限を超えたら overflow フラグを立て、以後 範囲検証を無効化する(誤検出回避)。
+    if (m_PoolSpanCount < kMaxTrackedPools) {
+        m_PoolSpans[m_PoolSpanCount].lo = reinterpret_cast<uptr>(pool_base);
+        m_PoolSpans[m_PoolSpanCount].hi = reinterpret_cast<uptr>(pool_base) + pool_size;
+        ++m_PoolSpanCount;
+    } else {
+        m_PoolTrackOverflow = true;
+    }
 
     // プール全体を覆う巨大フリーブロックを生成
     FBlockHeader* block = reinterpret_cast<FBlockHeader*>(
@@ -392,14 +409,75 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
     return result;
 }
 
+// ptr がいずれかの登録プール範囲内か。overflow 時は全プールを追跡できていないので
+// 検証不能 → true 扱いにして正当な Free を誤って弾かないようにする。
+bool FTlsfAllocator::OwnsPointer(const void* p) const noexcept {
+    if (m_PoolTrackOverflow) return true;
+    const uptr a = reinterpret_cast<uptr>(p);
+    for (int i = 0; i < m_PoolSpanCount; ++i) {
+        if (a >= m_PoolSpans[i].lo && a < m_PoolSpans[i].hi) return true;
+    }
+    return false;
+}
+
+// 物理ブロックチェイン + prev_phys/prev_free フラグの一貫性を検証する。
+bool FTlsfAllocator::ValidateHeap() const noexcept {
+    using namespace tlsf;
+    for (int i = 0; i < m_PoolSpanCount; ++i) {
+        FBlockHeader* block = reinterpret_cast<FBlockHeader*>(m_PoolSpans[i].lo);
+        const uptr hi = m_PoolSpans[i].hi;
+        FBlockHeader* prev = nullptr;
+        for (;;) {
+            if (reinterpret_cast<uptr>(block) >= hi) return false;  // 番兵前に範囲外 = 破損
+            const usize bs = BlockSize(block);
+            if (bs == 0) break;                                     // 終端番兵 (size 0, used)
+            if (prev != nullptr && block->prev_phys_block != prev) return false;  // 物理リンク不整合
+            if (prev != nullptr && (IsPrevFree(block) != IsFree(prev))) return false; // フラグ不整合
+            prev = block;
+            block = NextBlock(block);
+        }
+    }
+    return true;
+}
+
 // 解放
 void FTlsfAllocator::Free(void* ptr) noexcept {
     using namespace tlsf;
     if (!ptr) return;
-    FBlockHeader* block = PtrToBlock(ptr);
-    m_BytesUsed -= BlockSize(block);
 
+    // --- 常時有効の安全ガード (低コスト、Release でも動作) ---
+    // (1) 所属プール範囲外 (野良 / 別アロケータ由来) のポインタを弾く。誤った Free が
+    //     ヒープ構造を破壊するのを未然に防ぐ。Debug は assert で即検出、Release は安全に no-op。
+    if (!OwnsPointer(ptr)) {
+        ACS_ASSERT(false && "FTlsfAllocator::Free: ポインタが当アロケータの所有でない");
+        return;
+    }
+    FBlockHeader* block = PtrToBlock(ptr);
+    // (2) 二重 free 検出: 既に free 状態のブロックを再 free するとフリーリストが壊れる。
+    if (IsFree(block)) {
+        ACS_ASSERT(false && "FTlsfAllocator::Free: 二重 free を検出");
+        return;
+    }
+    // (3) サイズ健全性: used ブロックのサイズは非 0 (0 は終端番兵/破損)。
+    const usize bs = BlockSize(block);
+    if (bs == 0) {
+        ACS_ASSERT(false && "FTlsfAllocator::Free: 破損ブロック (size 0)");
+        return;
+    }
+
+    m_BytesUsed -= bs;
     MarkFree(block);
+
+#if ACS_MEMORY_DEBUG
+    // UAF 検出: 解放した payload のうちフリーリストノード (先頭 16B = next_free/prev_free) を
+    // 除く領域を 0xDD で塗る。解放後に読まれた場合に目立たせる (Debug のみ)。
+    {
+        u8* node_end = static_cast<u8*>(BlockToPtr(block)) + sizeof(FBlockHeader*) * 2;
+        u8* end      = reinterpret_cast<u8*>(NextBlock(block));
+        for (u8* q = node_end; q < end; ++q) *q = static_cast<u8>(0xDD);
+    }
+#endif
+
     // 隣接フリーブロックがあれば統合（外部断片化を防ぐ）
     if (IsPrevFree(block))               block = MergePrev(block);
     if (IsFree(NextBlock(block)))        block = MergeNext(block);

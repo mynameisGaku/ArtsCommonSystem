@@ -67,6 +67,11 @@ public:
     };
     Stats GetStats() const noexcept;
 
+    // ヒープ整合検証 (物理ブロックチェイン + prev_phys/prev_free フラグの一貫性)。
+    // 破損していたら false。デバッグ/診断用 (O(ブロック数))。
+    // スレッドセーフではない — Alloc/Free と同じロック下で呼ぶこと。
+    bool ValidateHeap() const noexcept;
+
 private:
     u32              m_FlBitmap = 0;
     u32              m_SlBitmap[tlsf::FL_INDEX_COUNT] = {};
@@ -78,6 +83,18 @@ private:
 
     u64              m_BytesUsed = 0;
     u64              m_BytesPeak = 0;
+
+    // 安全性: 払い出したポインタの所属プール範囲を記録し、Free 時に範囲外(野良/別
+    // アロケータ由来)ポインタや二重 free を検出してヒープ破壊を未然に防ぐ。
+    // プール数が上限を超えたら追跡を諦め (overflow)、範囲検証はスキップする(誤検出回避)。
+    static constexpr int kMaxTrackedPools = 8;
+    struct PoolSpan { uptr lo; uptr hi; };  // [lo, hi) = pool_base .. pool_base+pool_size
+    PoolSpan         m_PoolSpans[kMaxTrackedPools] = {};
+    int              m_PoolSpanCount   = 0;
+    bool             m_PoolTrackOverflow = false;
+
+    // ptr がいずれかの登録プール範囲内か (overflow 時は検証不能なので true 扱い)
+    bool OwnsPointer(const void* p) const noexcept;
 
     void InsertFreeBlock(tlsf::FBlockHeader* block) noexcept;
     void RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept;
