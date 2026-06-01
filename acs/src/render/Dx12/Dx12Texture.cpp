@@ -35,11 +35,12 @@ Dx12Texture::~Dx12Texture() noexcept {
     if (m_Device) {
         if (m_SrvSlot >= 0) m_Device->FreeSrvSlot(m_SrvSlot);
         if (m_DsvSlot >= 0) m_Device->FreeDsvSlot(m_DsvSlot);
-        if (m_RtvSlot >= 0) m_Device->FreeRtvSlot(m_RtvSlot);
+        for (usize i = 0; i < m_RtvSlots.Size(); ++i)
+            if (m_RtvSlots[i] >= 0) m_Device->FreeRtvSlot(m_RtvSlots[i]);
     }
     m_SrvSlot = -1;
     m_DsvSlot = -1;
-    m_RtvSlot = -1;
+    m_RtvSlots.Clear();
     ACS_SAFE_RELEASE(m_Resource);
 }
 
@@ -50,6 +51,9 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     m_Height = desc.height;
     m_Format = desc.format;
     m_IsDepth = desc.is_depth_target;
+    m_MipLevels = desc.mip_levels > 0 ? desc.mip_levels : 1;
+    m_ArraySize = desc.array_size > 0 ? desc.array_size : 1;
+    m_IsCubemap = desc.is_cubemap;
 
     if (desc.width == 0 || desc.height == 0) {
         ACS_LOG_ERROR("Dx12Texture: zero dimension %ux%u", desc.width, desc.height);
@@ -64,21 +68,20 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         r.hr = E_INVALIDARG; return r;
     }
 
-    // 配列レイヤ / キューブマップ / per-slice RTV は、この DX12 フォールバック
-    // バックエンド (WITH_RENDER_DILIGENT が無効な構成でのみコンパイルされる) では
-    // 未配線。以前は array_size/is_cubemap/per_slice_rtv を黙って無視し DepthOrArraySize=1
-    // の単一 2D・TEXTURE2D ビューを作っていたため、cubemap (IBL 等、array_size=6) を要求
-    // した呼び出し側に「成功したが中身は単一 2D」という偽の成功を返していた。
-    // 規約上「黙って偽の成功を返す」のは禁止なので、未対応構成は honest にエラーを返す。
-    // (canonical な Diligent バックエンドはこれらを完全サポートしている)
-    const u32 req_array = desc.array_size > 0 ? desc.array_size : 1;
-    if (desc.is_cubemap || req_array > 1 || desc.per_slice_rtv) {
-        ACS_LOG_ERROR("Dx12Texture: array/cubemap/per-slice RTV は DX12 フォールバック "
-                      "バックエンドでは未対応 (array_size=%u cubemap=%d per_slice_rtv=%d)。"
-                      "Diligent バックエンドを使用してください",
-                      desc.array_size, desc.is_cubemap ? 1 : 0,
-                      desc.per_slice_rtv ? 1 : 0);
-        r.hr = E_NOTIMPL;
+    // 配列レイヤ / キューブマップ / per-slice RTV / mip を DX12 backend で本実装する
+    // (IBL の env/irradiance/prefilter cubemap = array_size=6 + per_slice_rtv で必須)。
+    const u32 req_array = m_ArraySize;
+    // cubemap は DX12 では 6 の倍数スライスを要求する。IBL は array_size=6 を渡す。
+    if (desc.is_cubemap && (req_array % 6u != 0u)) {
+        ACS_LOG_ERROR("Dx12Texture: cubemap は array_size を 6 の倍数にしてください (array_size=%u)",
+                      req_array);
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+    // per_slice_rtv は RT 用 (各 face/mip を個別の RTV として書く)。RT 以外で立っていたら無効。
+    if (desc.per_slice_rtv && !desc.is_render_target) {
+        ACS_LOG_ERROR("Dx12Texture: per_slice_rtv は is_render_target=true と併用してください");
+        r.hr = E_INVALIDARG;
         return r;
     }
 
@@ -104,8 +107,8 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     td.Alignment = 0;
     td.Width  = desc.width;
     td.Height = desc.height;
-    td.DepthOrArraySize = 1;
-    td.MipLevels = static_cast<UINT16>(desc.mip_levels);
+    td.DepthOrArraySize = static_cast<UINT16>(req_array);   // cubemap=6 / 配列=N / 単一=1
+    td.MipLevels = static_cast<UINT16>(m_MipLevels);
     td.Format = resource_fmt;
     td.SampleDesc.Count = 1;
     td.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -186,9 +189,11 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         // mip_levels>1 で initial_data を渡されても、ここでアップロードするのは
         // subresource 0 (mip 0) のみ。上位 mip は未初期化のままなので、黙って
         // 部分初期化にせず警告を出す (Diligent バックエンドの挙動に合わせる)。
-        if (desc.mip_levels > 1) {
-            ACS_LOG_WARN("Dx12Texture: initial_data は mip 0 のみアップロードされ、"
-                         "mip_levels=%u の上位 mip は未初期化になります", desc.mip_levels);
+        if (m_MipLevels > 1 || m_ArraySize > 1) {
+            ACS_LOG_WARN("Dx12Texture: initial_data は subresource 0 (slice0/mip0) のみ"
+                         "アップロードされます (mip_levels=%u array_size=%u の残りは未初期化)。"
+                         "配列/ミップの初期データが必要なら per-subresource アップロードを使用してください",
+                         m_MipLevels, m_ArraySize);
         }
 
         // 必要な UPLOAD バッファサイズを取得（GetCopyableFootprints）
@@ -301,28 +306,87 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
     srv.Format = typed_fmt;
-    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv.Texture2D.MipLevels = static_cast<UINT>(desc.mip_levels);
+    if (m_IsCubemap) {
+        // cubemap: シェーダは TextureCube として全 mip をサンプルする (prefilter roughness LOD)
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+        srv.TextureCube.MostDetailedMip     = 0;
+        srv.TextureCube.MipLevels           = m_MipLevels;
+        srv.TextureCube.ResourceMinLODClamp = 0.0f;
+    } else if (m_ArraySize > 1) {
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+        srv.Texture2DArray.MostDetailedMip     = 0;
+        srv.Texture2DArray.MipLevels           = m_MipLevels;
+        srv.Texture2DArray.FirstArraySlice     = 0;
+        srv.Texture2DArray.ArraySize           = m_ArraySize;
+        srv.Texture2DArray.PlaneSlice          = 0;
+        srv.Texture2DArray.ResourceMinLODClamp = 0.0f;
+    } else {
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Texture2D.MipLevels = m_MipLevels;
+    }
     device.D3DDevice()->CreateShaderResourceView(
         m_Resource, &srv, device.SrvCpuHandle(m_SrvSlot));
 
-    // ===== 5. オフスクリーン RT は RTV も作成 (BeginRenderToTexture 用) =====
+    // ===== 5. オフスクリーン RT は RTV も作成 (BeginRenderToTexture(Slice) 用) =====
     if (desc.is_render_target) {
-        m_RtvSlot = device.AllocateRtvSlot();
-        if (m_RtvSlot < 0) { ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
-        D3D12_RENDER_TARGET_VIEW_DESC rtv{};
-        rtv.Format        = typed_fmt;
-        rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-        device.D3DDevice()->CreateRenderTargetView(
-            m_Resource, &rtv, device.RtvCpuHandle(m_RtvSlot));
+        if (desc.per_slice_rtv) {
+            // array_size * mip_levels 個の per-slice RTV を作成 (cube face / 配列スライス / mip
+            // を個別の描画先にする)。並び順 index = slice*mip_levels + mip で
+            // RtvCpuHandleForSlice() がこの順に引く。
+            for (u32 s = 0; s < m_ArraySize; ++s) {
+                for (u32 mip = 0; mip < m_MipLevels; ++mip) {
+                    i32 slot = device.AllocateRtvSlot();
+                    if (slot < 0) {
+                        ACS_LOG_ERROR("Dx12Texture: per-slice RTV slot 枯渇 (slice=%u mip=%u)", s, mip);
+                        r.hr = E_OUTOFMEMORY; return r;
+                    }
+                    D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+                    rtv.Format = typed_fmt;
+                    rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+                    rtv.Texture2DArray.MipSlice        = mip;
+                    rtv.Texture2DArray.FirstArraySlice = s;
+                    rtv.Texture2DArray.ArraySize       = 1;
+                    rtv.Texture2DArray.PlaneSlice      = 0;
+                    device.D3DDevice()->CreateRenderTargetView(
+                        m_Resource, &rtv, device.RtvCpuHandle(slot));
+                    m_RtvSlots.PushBack(slot);
+                }
+            }
+        } else {
+            i32 slot = device.AllocateRtvSlot();
+            if (slot < 0) { ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
+            D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+            rtv.Format = typed_fmt;
+            if (m_ArraySize > 1) {
+                // 全スライスを覆う配列 RTV (mip0)
+                rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+                rtv.Texture2DArray.MipSlice        = 0;
+                rtv.Texture2DArray.FirstArraySlice = 0;
+                rtv.Texture2DArray.ArraySize       = m_ArraySize;
+                rtv.Texture2DArray.PlaneSlice      = 0;
+            } else {
+                rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+            }
+            device.D3DDevice()->CreateRenderTargetView(
+                m_Resource, &rtv, device.RtvCpuHandle(slot));
+            m_RtvSlots.PushBack(slot);
+        }
     }
 
     return r;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandle() const noexcept {
-    return m_Device ? m_Device->RtvCpuHandle(m_RtvSlot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    if (!m_Device || m_RtvSlots.IsEmpty()) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    return m_Device->RtvCpuHandle(m_RtvSlots[0]);
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandleForSlice(u32 slice, u32 mip) const noexcept {
+    if (!m_Device) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    const usize idx = static_cast<usize>(slice) * m_MipLevels + mip;
+    if (idx >= m_RtvSlots.Size()) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    return m_Device->RtvCpuHandle(m_RtvSlots[idx]);
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE Dx12Texture::SrvGpuHandle() const noexcept {

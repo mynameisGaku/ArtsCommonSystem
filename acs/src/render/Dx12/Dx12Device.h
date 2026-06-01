@@ -93,7 +93,10 @@ private:
     // RTV ヒープ（CPU のみ、オフスクリーン RT 用。BeginRenderToTexture で使う）
     ID3D12DescriptorHeap* m_RtvHeap        = nullptr;
     u32                   m_RtvHandleSize = 0;
-    static constexpr u32  kRtvCapacity = 32;
+    // IBL の per-slice RTV (prefilter cube=6面×5mip=30 + irradiance 6 + env 6 = 42) に加え、
+    // HDR/bloom/ポストプロセスのオフスクリーン RT も同ヒープを使うため広めに確保する。
+    // RTV 記述子は CPU ヒープ上で 1 個あたり数十バイトと小さく、増やしてもコストは僅少。
+    static constexpr u32  kRtvCapacity = 256;
     u32                   m_RtvHighWater  = 0;
     i32                   m_RtvFreeList[kRtvCapacity]{};
     u32                   m_RtvFreeCount  = 0;

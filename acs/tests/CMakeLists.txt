@@ -11,6 +11,7 @@ add_executable(acs_unit_tests
     jobgraph_tests.cpp
     mvvm_tests.cpp
     ui_tests.cpp
+    render_tests.cpp
 )
 set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
 
@@ -30,6 +31,7 @@ target_link_libraries(acs_unit_tests PRIVATE
     ACS::Event
     ACS::Mvvm
     ACS::Ui
+    ACS::Render
     ACS::Test
 )
 

@@ -298,17 +298,48 @@ void Dx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
     m_BoundPipe = nullptr;
 }
 
-// IBL / cubemap 描画は Diligent backend 専用機能 (Phase 31)。
-// Dx12 raw backend には実装しない。誤って呼んだケースを log で検出可能にする。
-void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& /*rt*/,
-                                                 u32 /*slice*/, u32 /*mip*/,
-                                                 const ClearColor& /*clear*/) noexcept {
-    static bool warned_once = false;
-    if (!warned_once) {
-        ACS_LOG_WARN("Dx12CommandList::BeginRenderToTextureSlice is not implemented for raw DX12 "
-                     "backend (Diligent-only). Build with -DACS_RENDER_DILIGENT=ON.");
-        warned_once = true;
+// cubemap 1 面 / 配列 1 スライス / 1 mip に描画する (per_slice_rtv=true で作成された RT 用)。
+// IBL の env/irradiance/prefilter cube の各面・各 roughness mip を焼くのに使う。
+void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
+                                                 const ClearColor& clear) noexcept {
+    auto& dx_rt = static_cast<Dx12Texture&>(rt);
+    if (!dx_rt.HasRtv()) return;  // per_slice_rtv=true で作成された RT のみ
+
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_rt.RtvCpuHandleForSlice(slice, mip);
+    if (rtv.ptr == 0) return;     // 範囲外 slice/mip (作成されていない) は安全にスキップ
+
+    // リソース全体 (全 face/mip サブリソース) を RENDER_TARGET へ遷移。複数 face を続けて
+    // 焼く間は 2 回目以降このバリアは skip される (CurrentState が既に RT)。
+    if (dx_rt.CurrentState() != D3D12_RESOURCE_STATE_RENDER_TARGET) {
+        D3D12_RESOURCE_BARRIER b{};
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource   = dx_rt.Resource();
+        b.Transition.StateBefore = dx_rt.CurrentState();
+        b.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        m_CmdList->ResourceBarrier(1, &b);
+        dx_rt.SetCurrentState(D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
+
+    m_CmdList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    const FLOAT col[4] = { clear.r, clear.g, clear.b, clear.a };
+    m_CmdList->ClearRenderTargetView(rtv, col, 0, nullptr);
+
+    // viewport / scissor は描画先 mip の寸法に合わせる (prefilter は mip ごとに解像度が下がる)。
+    const u32 mw = dx_rt.Width()  >> mip;
+    const u32 mh = dx_rt.Height() >> mip;
+    const f32 vw = static_cast<f32>(mw > 0u ? mw : 1u);
+    const f32 vh = static_cast<f32>(mh > 0u ? mh : 1u);
+    D3D12_VIEWPORT vp{};
+    vp.TopLeftX = 0; vp.TopLeftY = 0;
+    vp.Width = vw; vp.Height = vh; vp.MinDepth = 0.0f; vp.MaxDepth = 1.0f;
+    m_CmdList->RSSetViewports(1, &vp);
+    D3D12_RECT sr{};
+    sr.left = 0; sr.top = 0;
+    sr.right = static_cast<i32>(vw); sr.bottom = static_cast<i32>(vh);
+    m_CmdList->RSSetScissorRects(1, &sr);
+
+    m_BoundPipe = nullptr;  // パイプライン再 bind を強制 (BeginRenderToTexture と同様)
 }
 
 // MRT (Phase 34d-2) も同様、Diligent 専用。Dx12 raw では stub。
