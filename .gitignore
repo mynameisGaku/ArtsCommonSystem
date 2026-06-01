@@ -445,3 +445,10 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# ---- ACS asset packing (pack-assets.bat / acs_assetpack) -------------------
+# Generated .acpak archives are build output (regenerate from assets/).
+*.acpak
+# Encryption key files are a build secret — NEVER commit (docs/AssetPack.md §4.4).
+*.key
+assets.key

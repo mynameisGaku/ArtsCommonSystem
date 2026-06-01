@@ -122,16 +122,28 @@ void FCollisionWorld2D::ClearAll() noexcept {
     m_Dirty = false;
 }
 
+// float → セル index の安全変換。NaN は 0、i32 範囲外はクランプする。
+// float→int は変換先に収まらない値だと未定義動作なので、必ずここを通す。
+// 閾値は f32 で厳密表現できる 2^31-128 を使う (2^31 は float で 2147483648.0 になり危険)。
+static ACS_FORCEINLINE i32 SafeCellIndex(f32 v) noexcept {
+    if (!(v == v)) return 0;                            // NaN
+    if (v <= -2147483520.0f) return (-2147483647 - 1);  // <= INT32_MIN
+    if (v >=  2147483520.0f) return   2147483647;       // >= INT32_MAX
+    return static_cast<i32>(v);
+}
+
 // AABB 中心 + half_size から overlapping cell 範囲
 void FCollisionWorld2D::CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
-    const f32 inv = 1.0f / m_CellSize;
+    // m_CellSize が 0 / 負だと 1/0 = inf → mn*inf = NaN/inf となり後段の cast が UB。
+    // 不正な CellSize は全 AABB を単一セル (index 0) に写像して退避する。
+    const f32 inv = (m_CellSize > 0.0f) ? (1.0f / m_CellSize) : 0.0f;
     const FVec2 mn = a.Min();
     const FVec2 mx = a.Max();
-    cx_min = static_cast<i32>(Floor(mn.x * inv));
-    cy_min = static_cast<i32>(Floor(mn.y * inv));
-    cx_max = static_cast<i32>(Floor(mx.x * inv));
-    cy_max = static_cast<i32>(Floor(mx.y * inv));
+    cx_min = SafeCellIndex(Floor(mn.x * inv));
+    cy_min = SafeCellIndex(Floor(mn.y * inv));
+    cx_max = SafeCellIndex(Floor(mx.x * inv));
+    cy_max = SafeCellIndex(Floor(mx.y * inv));
 }
 
 void FCollisionWorld2D::CellRange(const Circle& c, i32& cx_min, i32& cy_min,

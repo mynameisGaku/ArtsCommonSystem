@@ -7,8 +7,9 @@
 //   acs_assetpack list game.acpak
 //   acs_assetpack unpack game.acpak ./extracted
 //   acs_assetpack pack ./assets game_secret.acpak --compress --encrypt \
-//                 --key 0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF
-//   acs_assetpack verify game.acpak
+//                 --key-file game.key
+//   acs_assetpack unpack game_secret.acpak ./extracted --key-file game.key
+//   acs_assetpack verify game_secret.acpak --key-file game.key
 //   acs_assetpack info game.acpak
 //   acs_assetpack help [subcommand]
 //
@@ -25,10 +26,12 @@
 //   ・Windows 専用 — `main(argc, argv)` + GetCommandLineW を使って UTF-16 引数を
 //     取得する (wmain は MinGW など環境差があるため使わない)
 //
-// Phase 1 制約:
-//   ・--encrypt / --compress / --key は parse はするが、FAcpakWriter::Open が
-//     NotImplemented を返すため実機能は Phase 24 で FAcpakCrypto/Lz4 が入った
-//     ときに有効化される。CLI 側ではフラグを EAcpakFlags にマップして渡すだけ。
+// 暗号化 / 圧縮:
+//   ・--compress は LZ4 (block)、--encrypt は AES-256-GCM (Windows CNG/BCrypt)。
+//     どちらもライブラリ (FAcpakLz4 / FAcpakCrypto) で実装済。CLI は --key-file /
+//     --key で 256-bit 鍵を読み、Writer/Reader::SetKey() に渡す。
+//   ・鍵は --key-file 推奨 (生鍵を CLI 引数に書くとシェル履歴 / CI ログに残るため。
+//     docs/AssetPack.md §4.4)。鍵ファイルはバージョン管理にコミットしないこと。
 // =============================================================================
 
 #include "assetpack/AcpakFormat.h"
@@ -60,32 +63,37 @@ constexpr const char* kUsageMain =
     "  acs_assetpack <subcommand> [args...]\n"
     "\n"
     "subcommands:\n"
-    "  pack    <input_dir> <output.acpak> [--encrypt] [--compress] [--key <hex>]\n"
-    "  unpack  <input.acpak> <output_dir>                              [--key <hex>]\n"
+    "  pack    <input_dir> <output.acpak> [--compress] [--encrypt --key-file <p>]\n"
+    "  unpack  <input.acpak> <output_dir>             [--key-file <p> | --key <hex>]\n"
     "  list    <input.acpak>\n"
-    "  verify  <input.acpak>\n"
+    "  verify  <input.acpak>                          [--key-file <p> | --key <hex>]\n"
     "  info    <input.acpak>\n"
     "  help    [subcommand]\n"
     "\n"
+    "key options: --key-file <path> reads 64 hex chars (256-bit) from a file (preferred,\n"
+    "             keeps the raw key out of shell history). --key <hex> passes it inline.\n"
     "exit codes: 0=ok, 1=usage error, 2=runtime error\n";
 
 constexpr const char* kUsagePack =
-    "acs_assetpack pack <input_dir> <output.acpak> [--encrypt] [--compress] [--key <hex>]\n"
+    "acs_assetpack pack <input_dir> <output.acpak> [--compress] [--encrypt --key-file <p>]\n"
     "  input_dir を再帰スキャンして全ファイルを .acpak v1 アーカイブにまとめる。\n"
-    "  --encrypt / --compress / --key は Phase 2 (FAcpakCrypto/Lz4) で実機能化される予定。\n";
+    "  --compress : エントリを LZ4 圧縮 (既圧縮なら自動で生格納)。\n"
+    "  --encrypt  : AES-256-GCM で暗号化 (--key-file か --key で 256-bit 鍵を要求)。\n"
+    "  --key-file <path> : 64 hex 文字の鍵ファイルを読む (推奨。鍵はコミット禁止)。\n"
+    "  --key <hex>       : 64 hex の鍵を直接渡す (シェル履歴に残る点に注意)。\n";
 
 constexpr const char* kUsageUnpack =
-    "acs_assetpack unpack <input.acpak> <output_dir> [--key <hex>]\n"
+    "acs_assetpack unpack <input.acpak> <output_dir> [--key-file <path> | --key <hex>]\n"
     "  .acpak の全 entry を output_dir/<virtual_path> に書き出す。\n"
-    "  CRC32 を検証しながら読み出す (mismatch は exit 2)。\n";
+    "  暗号化 pak は --key-file / --key で復号鍵を渡す。CRC32 を検証しながら読み出す。\n";
 
 constexpr const char* kUsageList =
     "acs_assetpack list <input.acpak>\n"
     "  各 entry の path / size / crc32 を 1 行ずつ表示する。\n";
 
 constexpr const char* kUsageVerify =
-    "acs_assetpack verify <input.acpak>\n"
-    "  全 entry の CRC32 を検証し、失敗があれば exit 2 を返す。\n";
+    "acs_assetpack verify <input.acpak> [--key-file <path> | --key <hex>]\n"
+    "  全 entry を読み出して検証し (暗号化 pak は復号鍵が必要)、失敗があれば exit 2。\n";
 
 constexpr const char* kUsageInfo =
     "acs_assetpack info <input.acpak>\n"
@@ -153,6 +161,55 @@ bool ParseHex256(const wchar_t* hex, u8 out_key[32]) noexcept {
         u8 lo = HexNibble(hex[i * 2 + 1]);
         if (hi > 0x0F || lo > 0x0F) return false;
         out_key[i] = static_cast<u8>((hi << 4) | lo);
+    }
+    return true;
+}
+
+// 鍵ファイルを読んで 32-byte key にする。ファイルは 64 hex 文字を含む
+// (前後の空白 / 改行は許容、それ以外の非 hex 文字があれば失敗)。
+// 設計方針 (docs/AssetPack.md §4.4): 生鍵を CLI 引数で渡すとシェル履歴 / CI ログに
+// 残るため、鍵はファイルから読む。鍵ファイルはバージョン管理にコミットしない。
+// 成功時 true、失敗時 false (理由は err_out に英語で書く。out_size は char 数)。
+bool ReadKeyFile(const wchar_t* path, u8 out_key[32],
+                 char* err_out, int err_size) noexcept {
+    auto rb = FileSystem::ReadAllBytes(path);
+    if (rb.IsErr()) {
+        std::snprintf(err_out, static_cast<usize>(err_size),
+                      "cannot read key file (subcode=%u)",
+                      static_cast<unsigned>(rb.Error().subcode));
+        return false;
+    }
+    const TArray<byte>& bytes = rb.Value();
+
+    // hex nibble だけを 64 個集める (空白 / 改行はスキップ)。
+    wchar_t hex[65];
+    usize   n = 0;
+    for (usize i = 0; i < bytes.Size(); ++i) {
+        char c = static_cast<char>(bytes[i]);
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+        if (n >= 64) {
+            std::snprintf(err_out, static_cast<usize>(err_size),
+                          "key file has more than 64 hex chars");
+            return false;
+        }
+        if (HexNibble(static_cast<wchar_t>(c)) > 0x0F) {
+            std::snprintf(err_out, static_cast<usize>(err_size),
+                          "key file contains a non-hex character");
+            return false;
+        }
+        hex[n++] = static_cast<wchar_t>(c);
+    }
+    if (n != 64) {
+        std::snprintf(err_out, static_cast<usize>(err_size),
+                      "key file must contain exactly 64 hex chars (256-bit), found %u",
+                      static_cast<unsigned>(n));
+        return false;
+    }
+    hex[64] = L'\0';
+    if (!ParseHex256(hex, out_key)) {
+        std::snprintf(err_out, static_cast<usize>(err_size),
+                      "key file hex parse failed");
+        return false;
     }
     return true;
 }
@@ -355,9 +412,10 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     const wchar_t* output_path = argv[3];
 
     // ---- option parse -----------------------------------------------------
-    bool         opt_encrypt  = false;
-    bool         opt_compress = false;
-    const wchar_t* opt_key    = nullptr;
+    bool           opt_encrypt  = false;
+    bool           opt_compress = false;
+    const wchar_t* opt_key      = nullptr;   // --key <hex64>      (生鍵)
+    const wchar_t* opt_key_file = nullptr;   // --key-file <path>  (推奨)
 
     for (usize i = 4; i < argv.Size(); ++i) {
         const wchar_t* a = argv[i];
@@ -369,6 +427,12 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
                 return 1;
             }
             opt_key = argv[++i];
+        } else if (EqualsW(a, L"--key-file")) {
+            if (i + 1 >= argv.Size()) {
+                std::fputs("pack: --key-file requires a path argument\n", stderr);
+                return 1;
+            }
+            opt_key_file = argv[++i];
         } else {
             char u8buf[256];
             Utf16ToUtf8(a, u8buf, sizeof(u8buf));
@@ -377,17 +441,31 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
         }
     }
 
-    if (opt_encrypt && opt_key == nullptr) {
-        std::fputs("pack: --encrypt requires --key <hex64>\n", stderr);
+    if (opt_key != nullptr && opt_key_file != nullptr) {
+        std::fputs("pack: use either --key or --key-file, not both\n", stderr);
         return 1;
     }
-    if (opt_key != nullptr) {
-        u8 key[32];
-        if (!ParseHex256(opt_key, key)) {
+    if (opt_encrypt && opt_key == nullptr && opt_key_file == nullptr) {
+        std::fputs("pack: --encrypt requires --key-file <path> (or --key <hex64>)\n", stderr);
+        return 1;
+    }
+
+    // 鍵を 32-byte に解決する (encrypted 時のみ使う)。
+    FAcpakKey enc_key{};
+    bool      have_key = false;
+    if (opt_key_file != nullptr) {
+        char kerr[256];
+        if (!ReadKeyFile(opt_key_file, enc_key.bytes, kerr, sizeof(kerr))) {
+            std::fprintf(stderr, "pack: %s\n", kerr);
+            return 1;
+        }
+        have_key = true;
+    } else if (opt_key != nullptr) {
+        if (!ParseHex256(opt_key, enc_key.bytes)) {
             std::fputs("pack: --key must be 64 hex chars (256-bit)\n", stderr);
             return 1;
         }
-        // Phase 24 で FAcpakCrypto に渡す。現状は parse のみ。
+        have_key = true;
     }
 
     // ---- 入力 dir 存在チェック -------------------------------------------
@@ -421,6 +499,11 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
 
     // ---- Writer 起動 ------------------------------------------------------
     FAcpakWriter writer;
+    // 暗号化鍵は Open より前に設定する (Writer の契約)。flags に Encrypted が
+    // 立っていなければ無視される。
+    if (have_key) {
+        writer.SetKey(enc_key);
+    }
     {
         auto r = writer.Open(output_path, flags);
         if (r.IsErr()) {
@@ -468,10 +551,9 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
                 static_cast<unsigned long long>(blobs.Size()),
                 in_str, out_str, path_u8);
     if (opt_encrypt || opt_compress) {
-        std::printf("  flags: %s%s%s\n",
-                    opt_encrypt  ? "encrypted " : "",
-                    opt_compress ? "compressed " : "",
-                    "(Phase 2 / FAcpakCrypto+Lz4)");
+        std::printf("  flags: %s%s\n",
+                    opt_encrypt  ? "encrypted(AES-256-GCM) " : "",
+                    opt_compress ? "compressed(LZ4) " : "");
     }
     return 0;
 }
@@ -488,7 +570,9 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
     const wchar_t* input_path = argv[2];
     const wchar_t* output_dir = argv[3];
 
-    // --key parse (Phase 24 で FAcpakReader に渡す)
+    // --key <hex64> / --key-file <path> を解決する (暗号化 pak の復号用)。
+    FAcpakKey dec_key{};
+    bool      have_key = false;
     for (usize i = 4; i < argv.Size(); ++i) {
         const wchar_t* a = argv[i];
         if (EqualsW(a, L"--key")) {
@@ -496,12 +580,22 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
                 std::fputs("unpack: --key requires hex argument\n", stderr);
                 return 1;
             }
-            u8 key[32];
-            if (!ParseHex256(argv[i + 1], key)) {
+            if (!ParseHex256(argv[++i], dec_key.bytes)) {
                 std::fputs("unpack: --key must be 64 hex chars (256-bit)\n", stderr);
                 return 1;
             }
-            ++i;
+            have_key = true;
+        } else if (EqualsW(a, L"--key-file")) {
+            if (i + 1 >= argv.Size()) {
+                std::fputs("unpack: --key-file requires a path argument\n", stderr);
+                return 1;
+            }
+            char kerr[256];
+            if (!ReadKeyFile(argv[++i], dec_key.bytes, kerr, sizeof(kerr))) {
+                std::fprintf(stderr, "unpack: %s\n", kerr);
+                return 1;
+            }
+            have_key = true;
         } else {
             char u8buf[256];
             Utf16ToUtf8(a, u8buf, sizeof(u8buf));
@@ -511,6 +605,9 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
     }
 
     FAcpakReader reader;
+    if (have_key) {
+        reader.SetKey(dec_key);
+    }
     {
         auto r = reader.Open(input_path);
         if (r.IsErr()) {
@@ -652,7 +749,44 @@ int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
     }
     const wchar_t* input_path = argv[2];
 
+    // --key <hex64> / --key-file <path> を解決する (暗号化 pak の検証用)。
+    FAcpakKey dec_key{};
+    bool      have_key = false;
+    for (usize i = 3; i < argv.Size(); ++i) {
+        const wchar_t* a = argv[i];
+        if (EqualsW(a, L"--key")) {
+            if (i + 1 >= argv.Size()) {
+                std::fputs("verify: --key requires hex argument\n", stderr);
+                return 1;
+            }
+            if (!ParseHex256(argv[++i], dec_key.bytes)) {
+                std::fputs("verify: --key must be 64 hex chars (256-bit)\n", stderr);
+                return 1;
+            }
+            have_key = true;
+        } else if (EqualsW(a, L"--key-file")) {
+            if (i + 1 >= argv.Size()) {
+                std::fputs("verify: --key-file requires a path argument\n", stderr);
+                return 1;
+            }
+            char kerr[256];
+            if (!ReadKeyFile(argv[++i], dec_key.bytes, kerr, sizeof(kerr))) {
+                std::fprintf(stderr, "verify: %s\n", kerr);
+                return 1;
+            }
+            have_key = true;
+        } else {
+            char u8buf[256];
+            Utf16ToUtf8(a, u8buf, sizeof(u8buf));
+            std::fprintf(stderr, "verify: unknown option '%s'\n", u8buf);
+            return 1;
+        }
+    }
+
     FAcpakReader reader;
+    if (have_key) {
+        reader.SetKey(dec_key);
+    }
     {
         auto r = reader.Open(input_path);
         if (r.IsErr()) {
@@ -669,6 +803,13 @@ int CmdVerify(const TArray<wchar_t*>& argv) noexcept {
         const FAcpakFileEntry* e = reader.GetEntry(i);
         if (e == nullptr) {
             ++fail_count;
+            continue;
+        }
+        // 0 バイトエントリは ReadFile を呼ばない。Resize(0) で Data() が nullptr に
+        // なり、ReadFile(path, nullptr, 0) が IO エラーを返すため (unpack も同じ
+        // ガードを持つ)。空ファイルは中身が無く検証対象も無いので ok 扱い。
+        if (e->size_uncompressed == 0) {
+            ++ok_count;
             continue;
         }
         TArray<byte> buf;

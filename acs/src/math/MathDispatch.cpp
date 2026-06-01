@@ -26,27 +26,19 @@ void TransformVectorsScalar(const FVec3* in, FVec3* out, usize count, const FMat
     }
 }
 
-// AVX2 経路 — Phase 1 では未実装でスカラフォールバック
-// v2 で /arch:AVX2 でコンパイルした別 TU の実装に切り替える
-void TransformPointsAvx2(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
-    TransformPointsScalar(in, out, count, m);
-}
-void TransformVectorsAvx2(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
-    TransformVectorsScalar(in, out, count, m);
-}
-
 MathDispatch  g_dispatch {};
 TAtomic<u32>   g_inited {0};
 
-// CPU 機能を見て関数ポインタを差し替える
+// 関数ポインタを実装に差し替える。
+//
+// 注意: かつてここに「AVX2 経路」として中身がスカラ実装をそのまま呼ぶだけの偽関数を
+// 置き、HasAvx2() で分岐していた。実体はベースライン (DirectXMath/SSE2) と同一で、
+// AVX2 を名乗るだけの no-op スタブだったため削除した。AVX2 特化は /arch:AVX2 で
+// コンパイルした別 TU の実装を用意できた時点で dispatch に正式に結線する。
+// それまでは正しく動作するベースライン経路を全 CPU で使う (出力は常に正しい)。
 void Init() noexcept {
-    if (HasAvx2()) {
-        g_dispatch.transform_points  = &TransformPointsAvx2;
-        g_dispatch.transform_vectors = &TransformVectorsAvx2;
-    } else {
-        g_dispatch.transform_points  = &TransformPointsScalar;
-        g_dispatch.transform_vectors = &TransformVectorsScalar;
-    }
+    g_dispatch.transform_points  = &TransformPointsScalar;
+    g_dispatch.transform_vectors = &TransformVectorsScalar;
 }
 
 } // namespace

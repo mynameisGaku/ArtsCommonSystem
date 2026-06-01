@@ -19,7 +19,12 @@ struct Face {
 
 // a,b,c から centroid の外側を向く法線で Face を作る。
 Face MakeFace(const FVec3* p, u32 a, u32 b, u32 c, FVec3 centroid) noexcept {
-    FVec3 n = Normalize(Cross(p[b] - p[a], p[c] - p[a]));
+    // 退化三角形 (a,b,c がほぼ共線) では Cross がゼロ近傍になり Normalize がゼロ除算で
+    // NaN 法線を生む。NaN は後段の全 Dot 比較を汚染し可視判定を壊す (hull 崩壊/無限ループ)。
+    // 十分な大きさがある時だけ正規化し、退化時はゼロ法線にして不活性な面として扱う。
+    const FVec3 cr   = Cross(p[b] - p[a], p[c] - p[a]);
+    const f32   len2 = Dot(cr, cr);
+    FVec3 n = (len2 > 1e-24f) ? Normalize(cr) : FVec3{ 0.0f, 0.0f, 0.0f };
     f32   d = Dot(n, p[a]);
     if (Dot(n, centroid) > d) {       // centroid が正側 → 内向き。反転して外向きに。
         n = FVec3{ -n.x, -n.y, -n.z };

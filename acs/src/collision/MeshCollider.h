@@ -64,7 +64,6 @@ private:
 
     void  BuildBvh() noexcept;
     Aabb3 ComputeBounds(u32 first, u32 count) const noexcept;
-    void  RaycastNode(u32 node, const Ray3& ray, f32& closest, RayHit3& out) const noexcept;
 
     TArray<Tri>     m_Tris;
     TArray<u32>     m_TriIndex;   // BVH 用の三角形並べ替えインデックス

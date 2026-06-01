@@ -229,6 +229,11 @@ ACS_FORCEINLINE bool Resolve(const ConvexPoly2& A, const ConvexPoly2& B, FVec2& 
             if (overlap < min_overlap) { min_overlap = overlap; best_axis = axis; }
         }
     }
+    // 有効な分離軸が 1 つも見つからなかった (両ポリゴンが退化していて全エッジ法線が
+    // ゼロ等) 場合、best_axis={0,0}/min_overlap=∞ のまま。push={0,0} で true を返すと
+    // 呼び出し側は「解決済みだが移動量ゼロ」と解釈してオブジェクトが重なったまま固着する。
+    // この場合は解決不能として false を返す。
+    if (best_axis.x == 0.0f && best_axis.y == 0.0f) return false;
     const FVec2 d = Centroid(A) - Centroid(B);
     if (best_axis.x * d.x + best_axis.y * d.y < 0.0f) best_axis = FVec2{ -best_axis.x, -best_axis.y };
     push = FVec2{ best_axis.x * min_overlap, best_axis.y * min_overlap };
@@ -264,6 +269,8 @@ ACS_FORCEINLINE bool Resolve(const Circle& c, const ConvexPoly2& P, FVec2& push)
     }
     if (!test_axis(Normalize(c.center - P.verts[nearest]))) return false;
 
+    // 有効な軸が無い (退化) 場合は push={0,0} の偽 true を避けて解決不能を返す。
+    if (best_axis.x == 0.0f && best_axis.y == 0.0f) return false;
     const FVec2 d = c.center - Centroid(P);
     if (best_axis.x * d.x + best_axis.y * d.y < 0.0f) best_axis = FVec2{ -best_axis.x, -best_axis.y };
     push = FVec2{ best_axis.x * min_overlap, best_axis.y * min_overlap };  // 円を押し出す向き
@@ -338,6 +345,7 @@ ACS_FORCEINLINE RayHit2 RaycastAabb(const Ray2& ray, const Aabb2& a,
 ACS_FORCEINLINE RayHit2 RaycastCircle(const Ray2& ray, const Circle& c,
                                       f32 t_max = 3.4028235e38f) noexcept {
     RayHit2 r{};
+    if (c.radius <= 0.0f) return r;  // 半径 0 以下はヒット面を持たない (後段 1/radius の inf 法線を回避)
     const f32 ox = ray.origin.x - c.center.x;
     const f32 oy = ray.origin.y - c.center.y;
     const f32 dx = ray.direction.x;

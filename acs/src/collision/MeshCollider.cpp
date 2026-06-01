@@ -157,10 +157,6 @@ void FMeshCollider::BuildBvh() noexcept {
     }
 }
 
-void FMeshCollider::RaycastNode(u32, const Ray3&, f32&, RayHit3&) const noexcept {
-    // 反復版 Raycast を使うので未使用 (将来の再帰版用に予約)。
-}
-
 RayHit3 FMeshCollider::Raycast(const Ray3& ray, f32 t_max) const noexcept {
     RayHit3 best{};
     if (m_Nodes.Size() == 0) return best;
