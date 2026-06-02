@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACS リファレンス — 全クラス・全機能</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">ACS リファレンス<span class="v">全クラス・全機能</span></div>
+    <nav>
+      <button data-route="guide">はじめに</button>
+      <button data-route="ref">リファレンス</button>
+      <button data-route="trouble">トラブルシュート</button>
+      <button data-route="glossary">用語集</button>
+    </nav>
+    <div class="search">
+      <span class="ico">🔎</span>
+      <input id="searchbox" type="search" placeholder="検索 (クラス名・メソッド・症状)… Enter">
+    </div>
+  </header>
+
+  <div class="wrap">
+    <aside class="side"></aside>
+    <main class="content"></main>
+  </div>
+
+  <footer class="foot">
+    <div id="stats"></div>
+    <div style="margin-top:6px">ACS — 日本のインディー開発者向け軽量 C++ ゲームフレームワーク (Windows / DirectX 12)。手書きリファレンス。</div>
+  </footer>
+
+  <!-- データ: 最初に器を定義 -->
+  <script>window.ACS_REF = { modules: [], glossary: {}, guide: [], troubleshooting: [] };</script>
+  <!-- ガイド/トラブル/用語集シード(手書き) -->
+  <script src="data/_meta.js"></script>
+  <!-- 各モジュールのデータ (1ファイル=1モジュール) -->
+  <!-- DATA-SCRIPTS:START -->
+  <script src="data/asset.js"></script>
+  <script src="data/assetpack.js"></script>
+  <script src="data/audio.js"></script>
+  <script src="data/collision.js"></script>
+  <script src="data/container.js"></script>
+  <script src="data/crashwin.js"></script>
+  <script src="data/easy.js"></script>
+  <script src="data/ecs.js"></script>
+  <script src="data/event.js"></script>
+  <script src="data/foundation.js"></script>
+  <script src="data/gameframework_1.js"></script>
+  <script src="data/gameframework_2.js"></script>
+  <script src="data/gameframework_3.js"></script>
+  <script src="data/gameframework_4.js"></script>
+  <script src="data/gameframework_5.js"></script>
+  <script src="data/gameframework_6.js"></script>
+  <script src="data/gameframework_7.js"></script>
+  <script src="data/gameframework_8.js"></script>
+  <script src="data/imgui.js"></script>
+  <script src="data/localmatch.js"></script>
+  <script src="data/math.js"></script>
+  <script src="data/memory.js"></script>
+  <script src="data/mlonnx.js"></script>
+  <script src="data/mvvm.js"></script>
+  <script src="data/network.js"></script>
+  <script src="data/openxr.js"></script>
+  <script src="data/platform.js"></script>
+  <script src="data/render_backend.js"></script>
+  <script src="data/render_core.js"></script>
+  <script src="data/scripting.js"></script>
+  <script src="data/steamworks.js"></script>
+  <script src="data/telemetryfile.js"></script>
+  <script src="data/test.js"></script>
+  <script src="data/threading.js"></script>
+  <script src="data/ui.js"></script>
+  <!-- DATA-SCRIPTS:END -->
+  <!-- レンダラ (最後) -->
+  <script src="app.js"></script>
+</body>
+</html>
