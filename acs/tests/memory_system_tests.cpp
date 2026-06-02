@@ -14,8 +14,12 @@
 #include "memory/MemorySnapshot.h"
 #include "threading/ThreadPool.h"
 #include "threading/Atomic.h"
-#include "foundation/Platform.h"   // HeapAlloc / GetProcessHeap
+#include "threading/Mutex.h"
+#include "threading/ScopedLock.h"
+#include "foundation/Platform.h"   // HeapAlloc / GetProcessHeap / QueryPerformanceCounter
 #include "foundation/Move.h"       // Move (VmReservation のムーブ)
+
+#include <cstdio>                  // ベンチ結果出力
 
 using namespace acs;
 
@@ -379,6 +383,71 @@ ACS_TEST(MemSystem, ShardedTlsfMultiThread) {
     EXPECT_TRUE(a.ValidateHeap());                          // 全シャード健全
 
     a.Shutdown();
+    FThreadPool::Shutdown();
+}
+
+// マイクロベンチ: 8 スレッドで alloc+free を churn し、単一ロック TLSF / シャード TLSF /
+// HeapAlloc のスループットを比較する。ロック競合解消を実測で可視化する (時間はログ出力のみ、
+// 環境差でブレるため assert は正当性のみ)。
+ACS_TEST(MemSystem, ShardedTlsfBenchmark) {
+    auto ir_pool = FThreadPool::Init(8);
+    EXPECT_TRUE(ir_pool.IsOk());
+
+    constexpr usize kPoolSize = 128ull * 1024 * 1024;
+    void* pool = ::HeapAlloc(::GetProcessHeap(), 0, kPoolSize);
+    EXPECT_TRUE(pool != nullptr);
+    if (!pool) { FThreadPool::Shutdown(); return; }
+
+    FTlsfAllocator single;            // 単一ロック比較用 (HeapAlloc プール)
+    EXPECT_TRUE(single.Init(pool, kPoolSize).IsOk());
+    FMutex single_lock;
+
+    FShardedTlsfAllocator sharded;
+    EXPECT_TRUE(sharded.Init(kPoolSize, 8ull * 1024 * 1024, 0u).IsOk());
+
+    struct BCtx { int mode; FTlsfAllocator* single; FMutex* lk; FShardedTlsfAllocator* sharded; };
+    BCtx bc{ 0, &single, &single_lock, &sharded };
+
+    auto bench = [](u32 i, u32 /*w*/, void* user) {
+        BCtx* c = static_cast<BCtx*>(user);
+        constexpr int kOps = 4000;
+        u32 rng = 0x2545F491u * (i + 1u);
+        for (int k = 0; k < kOps; ++k) {
+            rng = rng * 1664525u + 1013904223u;
+            const usize n = static_cast<usize>(16u + (rng % 1024u));
+            void* p = nullptr;
+            if (c->mode == 0)      { FScopedLock l(*c->lk); p = c->single->Alloc(n, 16, FSourceLoc::Current()); }
+            else if (c->mode == 1) { p = c->sharded->Alloc(n, 16, FSourceLoc::Current()); }
+            else                   { p = ::HeapAlloc(::GetProcessHeap(), 0, n); }
+            if (!p) continue;
+            static_cast<u8*>(p)[0] = static_cast<u8>(k);
+            if (c->mode == 0)      { FScopedLock l(*c->lk); c->single->Free(p); }
+            else if (c->mode == 1) { c->sharded->Free(p); }
+            else                   { ::HeapFree(::GetProcessHeap(), 0, p); }
+        }
+    };
+
+    LARGE_INTEGER freq; ::QueryPerformanceFrequency(&freq);
+    auto run_ms = [&](int mode) -> double {
+        bc.mode = mode;
+        LARGE_INTEGER a0; ::QueryPerformanceCounter(&a0);
+        auto r = FThreadPool::ParallelFor(0, 256, 1, +bench, &bc);
+        LARGE_INTEGER a1; ::QueryPerformanceCounter(&a1);
+        (void)r;
+        return static_cast<double>(a1.QuadPart - a0.QuadPart) * 1000.0 / static_cast<double>(freq.QuadPart);
+    };
+
+    const double t_single  = run_ms(0);
+    const double t_sharded = run_ms(1);
+    const double t_heap    = run_ms(2);
+    std::printf("[bench MT8 alloc/free x %d] single-lock-TLSF=%.1fms  sharded-TLSF=%.1fms  HeapAlloc=%.1fms\n",
+                256 * 4000, t_single, t_sharded, t_heap);
+
+    EXPECT_TRUE(sharded.ValidateHeap());   // ベンチ後も健全
+    EXPECT_TRUE(single.ValidateHeap());
+
+    sharded.Shutdown();
+    ::HeapFree(::GetProcessHeap(), 0, pool);
     FThreadPool::Shutdown();
 }
 
