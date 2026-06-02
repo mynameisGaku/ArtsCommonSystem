@@ -2,8 +2,8 @@
 // ============================================================================
 // HelloJobsVisual — ジョブ/並列を「見える化」する (初学者向け)
 // ----------------------------------------------------------------------------
-//   ・画面いっぱいの 1200 個のパーティクルを、毎フレーム ParallelFor で「並列に」
-//     移動計算する → スプライトの群れがヌルヌル動く = 並列処理が効いている様子。
+//   ・2500 個のパーティクルが「流れ場」に沿って渦巻きながら動く。その位置計算を
+//     毎フレーム ParallelFor で並列実行する → 群れがヌルヌル動く = 並列処理の様子。
 //   ・Space を押すと、ゲージ A と B が「並列に」伸び、両方が満タンになってから
 //     ゲージ C が伸びる → 「A,B 並列 → C 依存」を進捗バーで可視化。
 //
@@ -18,11 +18,12 @@ using namespace acs::easy;
 
 namespace {
 
-constexpr int   N = 1200;          // パーティクル数
-constexpr float W = 960.0f, H = 600.0f;
+constexpr int   N    = 2500;       // パーティクル数
+constexpr float W    = 960.0f, H = 600.0f;
+constexpr float kTop = 64.0f, kBot = 504.0f;   // パーティクルが動く帯 (上端ヘッダ/下端ゲージを避ける)
 
-// ジョブが触る状態は file スコープ(static)に置く。ウィンドウを閉じても、走行中の
-// ジョブが完了するまで安全に生存させるため(ローカルだとダングリングし得る)。
+// ジョブが触る状態は file スコープに置く。ウィンドウを閉じても、走行中のジョブが
+// 完了するまで安全に生存させるため(ローカルだとダングリングし得る)。
 float px[N], py[N], vx[N], vy[N];  // パーティクルの位置と速度
 float gaugeA = 0.0f, gaugeB = 0.0f, gaugeC = 0.0f;
 
@@ -31,7 +32,7 @@ float gaugeA = 0.0f, gaugeB = 0.0f, gaugeC = 0.0f;
 void HeavyFill(float& g) {
     volatile long long acc = 0;
     for (int k = 0; k <= 100; ++k) {
-        for (int j = 0; j < 3000000; ++j) acc += j;   // 実際の計算負荷
+        for (int j = 0; j < 2000000; ++j) acc += j;   // 実際の計算負荷
         g = k * 0.01f;                                 // 進捗
     }
     (void)acc;
@@ -52,36 +53,41 @@ int main() {
                "ACS ジョブ可視化  (Space: A,B 並列 → C)");
     std::printf("並列ワーカ数: %d\n", WorkerCount());
 
-    // パーティクル初期化
+    // パーティクル初期化 (速度は流れ場が決めるので 0 から)
     for (int i = 0; i < N; ++i) {
-        px[i] = RandomFloat(20.0f, W - 20.0f);
-        py[i] = RandomFloat(80.0f, H - 120.0f);
-        const float ang = RandomFloat(0.0f, 360.0f);
-        const float spd = RandomFloat(60.0f, 220.0f);
-        vx[i] = Cos(ang) * spd;
-        vy[i] = Sin(ang) * spd;
+        px[i] = RandomFloat(0.0f, W);
+        py[i] = RandomFloat(kTop, kBot);
+        vx[i] = 0.0f; vy[i] = 0.0f;
     }
 
     JobBatch ja{}, jb{}, jc{};
-    int phase = 0;   // 0:待機  1:A&B 実行中  2:C 実行中  3:完了
+    int   phase = 0;       // 0:待機  1:A&B 実行中  2:C 実行中  3:完了
+    float t     = 0.0f;    // 経過時間 (流れ場のアニメ用)
 
     while (NextFrame()) {
         const float dt = DeltaTime();
+        t += dt;
 
-        // (1) 並列 for: 全パーティクルの移動を毎フレーム「並列に」計算(壁で反射)。
-        //     i ごとに独立した自分の要素だけ更新するので競合しない。
-        ParallelFor(0, N, [&](int i) {
+        // (1) 並列 for: 全パーティクルの移動を毎フレーム「並列に」計算する。
+        //     各 i は自分の要素だけを読み書きするので競合しない。grain を大きめに
+        //     指定して 1 フレームあたりのタスク数を抑え、投入オーバーヘッドを下げる。
+        ParallelFor(0, N, 256, [&](int i) {
+            // 位置と時間から「流れ場」の角度を作る(sin/cos は度)。渦巻く動きになる。
+            const float ang = (Sin(px[i] * 0.5f + t * 50.0f) +
+                               Cos(py[i] * 0.5f + t * 40.0f)) * 180.0f;
+            const float spd = 140.0f;
+            vx[i] += (Cos(ang) * spd - vx[i]) * 2.5f * dt;   // 流れ場の向きへ滑らかに
+            vy[i] += (Sin(ang) * spd - vy[i]) * 2.5f * dt;
             px[i] += vx[i] * dt;
             py[i] += vy[i] * dt;
-            if (px[i] < 10.0f)      { px[i] = 10.0f;      vx[i] = -vx[i]; }
-            if (px[i] > W - 10.0f)  { px[i] = W - 10.0f;  vx[i] = -vx[i]; }
-            if (py[i] < 70.0f)      { py[i] = 70.0f;      vy[i] = -vy[i]; }
-            if (py[i] > H - 110.0f) { py[i] = H - 110.0f; vy[i] = -vy[i]; }
+            // 帯の中をトーラス状にラップ(端から反対側へ)
+            if (px[i] < 0.0f)      px[i] += W;          else if (px[i] > W)    px[i] -= W;
+            if (py[i] < kTop)      py[i] += (kBot - kTop); else if (py[i] > kBot) py[i] -= (kBot - kTop);
         });
 
         // 描画はメインスレッドで(ジョブの中では描画しない)。
         for (int i = 0; i < N; ++i)
-            DrawCircle(px[i], py[i], 3.0f, Rgb(110, static_cast<acs::u8>(120 + (i % 120)), 255));
+            DrawCircle(px[i], py[i], 2.5f, Rgb(110, static_cast<acs::u8>(120 + (i % 120)), 255));
 
         // (2)(3) Space で A,B を並列起動 → 両方完了後に C(依存)。進捗をゲージで可視化。
         if (IsKeyPressed(EKey::Space) && (phase == 0 || phase == 3)) {
@@ -98,7 +104,7 @@ int main() {
         if (phase == 2 && JobsDone(jc)) { WaitJobs(jc); phase = 3; }
 
         // ヘッダ + ゲージ描画
-        DrawString(20.0f, 18.0f, "ParallelFor: 1200 個のパーティクルを毎フレーム並列更新", FColor::White);
+        DrawString(20.0f, 18.0f, "ParallelFor: 2500 個のパーティクルを毎フレーム並列更新", FColor::White);
         DrawString(20.0f, 40.0f, "Space: ゲージ A,B を並列実行 → 両方終わってから C", FColor::Sky);
 
         DrawGauge(20.0f, H - 90.0f, "A (並列)",       gaugeA, Rgb(90, 210, 130));
