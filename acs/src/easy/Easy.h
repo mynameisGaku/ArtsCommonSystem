@@ -46,6 +46,12 @@
 
 #include "foundation/Types.h"
 #include "platform/InputCodes.h"
+// 以下はジョブ/並列 API の「テンプレート実装」に必要 (初学者は意識しなくてよい)。
+#include "foundation/SourceLoc.h"
+#include "memory/Memory.h"            // DefaultAllocator
+#include "memory/Allocator.h"         // FAllocator
+#include "threading/ThreadPool.h"     // FThreadPool / Task / CompletionCounter
+#include "threading/JobGraph.h"       // FJobGraph (依存グラフ)
 
 namespace acs::easy {
 
@@ -317,5 +323,96 @@ f32  ElapsedTime() noexcept;   // OpenWindow からの累積秒
 i32  Fps()         noexcept;   // おおよその 1 秒あたりフレーム数
 f32  ScreenWidth()  noexcept;
 f32  ScreenHeight() noexcept;
+
+// ===========================================================================
+// ジョブ / 並列  (初学者向け — 内部は本格的なワークスチール FThreadPool / 依存グラフ FJobGraph)
+// ---------------------------------------------------------------------------
+// ★重要: ジョブの中身(関数/ラムダ)は「別のスレッド」で走る。その中で描画系や他の easy 関数を
+//   呼んではいけない(画面状態はメインスレッド専用)。中では計算だけして、結果は捕捉した変数に書く。
+// ★初期化は不要: OpenWindow 済みならそのまま、未起動でも初回使用時に自動でワーカを起動する。
+//   どうしても並列にできない環境(1コア等)では、自動的に「その場で順番に実行」へフォールバックする。
+// ===========================================================================
+
+// 非同期ジョブ群 1 つを指すハンドル(コピー可、id==0 は無効)。Sprite/Sound と同じ軽量値型。
+struct JobBatch { u32 id = 0; };
+// 依存グラフのノードを指すハンドル(コピー可、id==0 は無効)。
+struct JobNode  { u32 id = 0; };
+
+// 実装詳細(初学者は読まなくてよい)。ラムダを「関数ポインタ + ヒープ上のコピー」に型消去する。
+namespace jobdetail {
+    struct Closure {
+        void (*invoke)(Closure*);   // ラムダ本体を呼ぶ
+        void (*destroy)(Closure*);  // ラムダを破棄する
+        // この構造体の直後(整列後)に Fn 本体を inline 格納する(1 回の確保で済ませる)。
+    };
+    template<typename Fn> inline usize PayloadOffset() noexcept {
+        const usize a = alignof(Fn) > alignof(Closure) ? alignof(Fn) : alignof(Closure);
+        return (sizeof(Closure) + (a - 1)) & ~(a - 1);
+    }
+    template<typename Fn> inline Closure* MakeClosure(const Fn& fn) noexcept {
+        const usize a   = alignof(Fn) > alignof(Closure) ? alignof(Fn) : alignof(Closure);
+        const usize off = PayloadOffset<Fn>();
+        void* mem = acs::DefaultAllocator().Alloc(off + sizeof(Fn), a, acs::FSourceLoc::Current());
+        if (!mem) return nullptr;
+        Closure* c = static_cast<Closure*>(mem);
+        ::new (static_cast<u8*>(mem) + off) Fn(fn);   // ラムダをコピー構築 (元 fn は呼び出し側で生存)
+        c->invoke  = [](Closure* s) { (*reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>()))(); };
+        c->destroy = [](Closure* s) {  reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>())->~Fn(); };
+        return c;
+    }
+    // 非テンプレ実体 (Easy.cpp)
+    bool     Ready() noexcept;                                   // ワーカ起動を保証 (成功で true)
+    i32      AutoGrain(i32 begin, i32 end) noexcept;             // ParallelFor の自動チャンク幅
+    JobBatch SubmitAsync(Closure* c, JobBatch existing) noexcept;
+    JobNode  AddNode(Closure* c) noexcept;
+}
+
+// (1) 並列 for: [begin,end) を全コアで分担して fn(i) を呼び、完了まで待つ(同期)。
+//     fn は i ごとに独立した処理だけ行うこと(他要素や共有変数の競合に注意)。grain 省略で自動。
+template<typename Fn>
+inline void ParallelFor(i32 begin, i32 end, i32 grain, Fn fn) noexcept {
+    if (end <= begin) return;
+    if (!jobdetail::Ready()) { for (i32 i = begin; i < end; ++i) fn(i); return; }  // 並列不可 → 順次
+    struct Ctx { Fn* fn; } ctx{ &fn };
+    void (*thunk)(u32, u32, void*) =
+        [](u32 i, u32, void* u) { (*static_cast<Ctx*>(u)->fn)(static_cast<i32>(i)); };
+    const i32 g = grain > 0 ? grain : jobdetail::AutoGrain(begin, end);
+    (void)acs::FThreadPool::ParallelFor(static_cast<u32>(begin), static_cast<u32>(end),
+                                        static_cast<u32>(g), thunk, &ctx);
+}
+template<typename Fn>
+inline void ParallelFor(i32 begin, i32 end, Fn fn) noexcept { ParallelFor(begin, end, 0, fn); }
+
+// (2) 非同期に 1 つ走らせてハンドルを返す(すぐ戻る)。WaitJobs で完了を待つ。
+template<typename Fn>
+inline JobBatch RunAsync(Fn fn) noexcept {
+    if (!jobdetail::Ready()) { fn(); return JobBatch{}; }       // 並列不可 → その場で実行
+    jobdetail::Closure* c = jobdetail::MakeClosure(fn);
+    if (!c) { fn(); return JobBatch{}; }                        // 確保失敗 → その場で実行
+    return jobdetail::SubmitAsync(c, JobBatch{});
+}
+// 既存 batch に追加投入(同じ WaitJobs でまとめて待てる)。
+template<typename Fn>
+inline void RunAsync(JobBatch batch, Fn fn) noexcept {
+    if (!jobdetail::Ready()) { fn(); return; }
+    jobdetail::Closure* c = jobdetail::MakeClosure(fn);
+    if (!c) { fn(); return; }
+    (void)jobdetail::SubmitAsync(c, batch);
+}
+void WaitJobs(JobBatch batch) noexcept;   // batch の全完了まで待つ(待ち終えた batch は無効化)
+bool JobsDone(JobBatch batch) noexcept;   // 完了したか(待たずに確認)
+
+// (3) 依存つき: Job でノードを作り、Then で順序を張り、RunJobs でまとめて実行+待機。
+template<typename Fn>
+inline JobNode Job(Fn fn) noexcept {
+    jobdetail::Closure* c = jobdetail::MakeClosure(fn);
+    return c ? jobdetail::AddNode(c) : JobNode{};
+}
+void Then(JobNode before, JobNode after) noexcept;   // before が終わってから after が走る
+void RunJobs() noexcept;                              // 作った全ノードを依存順に実行し、全完了まで待つ
+
+// (4) 情報
+i32  WorkerCount() noexcept;   // 並列ワーカ数(1 以上)
+bool IsWorker()    noexcept;   // 今このコードがワーカスレッド上で動いているか
 
 } // namespace acs::easy

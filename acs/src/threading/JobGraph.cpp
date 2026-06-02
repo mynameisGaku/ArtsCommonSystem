@@ -5,6 +5,13 @@
 
 namespace acs {
 
+FJobGraph::~FJobGraph() noexcept {
+    // Add() が new した Job* を解放する。Submit/Wait 完了後の破棄を前提とする
+    // (実行中グラフの破棄は未定義 — Wait してから破棄すること)。
+    for (usize i = 0; i < m_Jobs.Size(); ++i) delete m_Jobs[i];
+    m_Jobs.Clear();
+}
+
 void JobHandle::DependOn(JobHandle upstream) noexcept {
     if (!IsValid() || !upstream.IsValid() || upstream.graph != graph) return;
     graph->AddDependency(upstream, *this);

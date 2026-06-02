@@ -49,7 +49,7 @@ using JobFn = void (*)(void* user, u32 worker_index);
 class FJobGraph {
 public:
     FJobGraph() noexcept = default;
-    ~FJobGraph() noexcept = default;
+    ~FJobGraph() noexcept;   // new した Job* を解放する (default だとリークしていた)
 
     FJobGraph(const FJobGraph&) = delete;
     FJobGraph& operator=(const FJobGraph&) = delete;

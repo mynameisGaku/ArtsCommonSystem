@@ -406,6 +406,9 @@ if(ACS_BUILD_SAMPLES)
     # --- (39) HelloPersistVerify (stub 撲滅 Batch 1 の永続化 round-trip 検証, console) ---
     acs_add_sample(62_HelloPersistVerify)
 
+    # --- (41) HelloJobs (acs::easy のジョブ/並列 API 入門: 並列for/非同期/依存, console) ---
+    acs_add_sample(64_HelloJobs)
+
     # --- (40) HelloVerticalSlice (縦スライス: title→play→pause→game over→save を
     #          FScene2D + FUiLayer + 自前 atlas + tilemap で 1 本に統合。Y-down, windowed) ---
     if(ACS_RENDER_DX12_RAW)

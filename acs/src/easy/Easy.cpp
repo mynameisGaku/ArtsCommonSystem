@@ -120,6 +120,21 @@ struct EasyState {
     PostProcessParams pp_params;
 
     wchar_t title_buf[256] = L"ACS Easy";
+
+    // ---- ジョブ管理 (メインスレッドからのみ操作する) ----
+    static constexpr u32 kMaxBatches = 64;
+    struct AsyncBatch {
+        CompletionCounter counter;        // 非コピー: 固定配列要素として in-place 構築
+        TArray<void*>     closures;       // easy::jobdetail::Closure* (このバッチが所有)
+        u16               gen  = 0;       // 世代 (スロット再利用で古い JobBatch を無効化)
+        bool              live = false;
+    };
+    AsyncBatch        async_batches[kMaxBatches];
+    FJobGraph*        pending_graph = nullptr;     // RunJobs 用に構築中のグラフ
+    TArray<void*>     graph_closures;              // pending_graph 各ノードの Closure* (所有)
+    TArray<JobHandle> graph_handles;               // JobNode.id-1 → JobHandle
+    bool              jobs_pool_owned = false;     // jobs が自前で ThreadPool を Init したか
+    bool              jobs_atexit     = false;     // jobs 用 atexit 登録済み
 };
 
 EasyState g_state;
@@ -244,8 +259,48 @@ void EasyEventBridge(void* /*user*/, const Event& e) noexcept {
     }
 }
 
+// ===========================================================================
+// ジョブ / 並列 — 内部ヘルパ (FThreadPool / FJobGraph に渡す thunk と後始末)
+// ===========================================================================
+// FThreadPool / FJobGraph に渡す関数 (Closure を実行する)。counter は pool が自動 Done する。
+void RunClosureTask(void* user, u32 /*worker*/) noexcept {
+    auto* c = static_cast<jobdetail::Closure*>(user);
+    c->invoke(c);
+}
+void FreeClosure(jobdetail::Closure* c) noexcept {
+    if (!c) return;
+    c->destroy(c);
+    DefaultAllocator().Free(c);
+}
+// 未 Wait の batch を待って解放し、構築途中のグラフも破棄する (冪等。Shutdown/atexit から呼ぶ)。
+void CleanupJobs() noexcept {
+    for (u32 i = 0; i < EasyState::kMaxBatches; ++i) {
+        EasyState::AsyncBatch& b = g_state.async_batches[i];
+        if (!b.live) continue;
+        FThreadPool::Wait(b.counter);
+        for (usize k = 0; k < b.closures.Size(); ++k)
+            FreeClosure(static_cast<jobdetail::Closure*>(b.closures[k]));
+        b.closures = TArray<void*>{};
+        b.live = false;
+    }
+    if (g_state.pending_graph) {
+        for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
+            FreeClosure(static_cast<jobdetail::Closure*>(g_state.graph_closures[k]));
+        g_state.graph_closures = TArray<void*>{};
+        g_state.graph_handles  = TArray<JobHandle>{};
+        delete g_state.pending_graph;
+        g_state.pending_graph = nullptr;
+    }
+}
+// OpenWindow を呼ばずにジョブだけ使った場合の後始末 (atexit)。
+void JobsAtexit() {
+    CleanupJobs();
+    if (g_state.jobs_pool_owned) { FThreadPool::Shutdown(); g_state.jobs_pool_owned = false; }
+}
+
 // ---- 後始末（NextFrame がウィンドウ閉鎖を検知したとき 1 度だけ呼ぶ）-------
 void ShutdownEasy() noexcept {
+    CleanupJobs();                            // 未完了ジョブを待ってクロージャを解放 (pool 破棄前)
     // GPU の処理完了を待ってから GPU リソースを解放する（use-after-free 防止）
     if (g_state.renderer.Device()) g_state.renderer.Device()->WaitIdle();
     g_state.batch.Shutdown();
@@ -1215,5 +1270,123 @@ f32 ElapsedTime()  noexcept { return static_cast<f32>(g_state.timer.TotalSeconds
 i32 Fps()          noexcept { return static_cast<i32>(g_state.timer.SmoothedFPS() + 0.5f); }
 f32 ScreenWidth()  noexcept { return static_cast<f32>(g_state.window.Width()); }
 f32 ScreenHeight() noexcept { return static_cast<f32>(g_state.window.Height()); }
+
+// ===========================================================================
+// ジョブ / 並列 — 公開実装 (テンプレートは Easy.h、ここは非テンプレ実体)
+// ===========================================================================
+namespace jobdetail {
+
+bool Ready() noexcept {
+    if (FThreadPool::WorkerCount() >= 1) return true;
+    auto r = FThreadPool::Init();           // OpenWindow 未呼び出しでも初回使用で自動起動
+    if (r.IsErr()) return false;
+    if (!g_state.booted) g_state.jobs_pool_owned = true;   // jobs が起動した = jobs が後始末する
+    if (!g_state.jobs_atexit) { std::atexit(&JobsAtexit); g_state.jobs_atexit = true; }
+    return FThreadPool::WorkerCount() >= 1;
+}
+
+i32 AutoGrain(i32 begin, i32 end) noexcept {
+    const i32 n = end - begin;
+    if (n <= 0) return 1;
+    u32 w = FThreadPool::WorkerCount(); if (w < 1) w = 1;
+    const i32 chunks = static_cast<i32>(w) * 4;            // ワーカ当たり ~4 チャンク
+    const i32 g = n / (chunks > 0 ? chunks : 1);
+    return g > 0 ? g : 1;
+}
+
+JobBatch SubmitAsync(Closure* c, JobBatch existing) noexcept {
+    if (!c) return existing;
+    EasyState::AsyncBatch* b = nullptr;
+    u32 idx = 0;
+    if (existing.id != 0) {                                // 既存 batch へ追加
+        const u32 ei = (existing.id & 0xFFFFu) - 1u;
+        if (ei < EasyState::kMaxBatches && g_state.async_batches[ei].live &&
+            g_state.async_batches[ei].gen == static_cast<u16>(existing.id >> 16)) {
+            idx = ei; b = &g_state.async_batches[ei];
+        }
+    }
+    if (!b) {                                              // 新規スロット確保
+        for (u32 i = 0; i < EasyState::kMaxBatches; ++i) {
+            if (!g_state.async_batches[i].live) { idx = i; b = &g_state.async_batches[i]; break; }
+        }
+        if (!b) { RunClosureTask(c, 0); FreeClosure(c); return JobBatch{}; }   // 枯渇 → 同期
+        b->gen = static_cast<u16>(b->gen + 1u); if (b->gen == 0u) b->gen = 1u;
+        b->live = true;
+        b->closures = TArray<void*>{};
+    }
+    b->closures.PushBack(c);                               // batch がクロージャを所有
+    Task t{ &RunClosureTask, c, &b->counter };
+    auto r = FThreadPool::Submit(t);
+    if (r.IsErr()) { RunClosureTask(c, 0); }               // 投入失敗 → 同期実行 (解放は WaitJobs)
+    return JobBatch{ (static_cast<u32>(b->gen) << 16) | (idx + 1u) };
+}
+
+JobNode AddNode(Closure* c) noexcept {
+    if (!c) return JobNode{};
+    if (!g_state.pending_graph) {
+        g_state.pending_graph  = new FJobGraph();
+        g_state.graph_closures = TArray<void*>{};
+        g_state.graph_handles  = TArray<JobHandle>{};
+    }
+    JobHandle h = g_state.pending_graph->Add(&RunClosureTask, c);
+    const u32 id = static_cast<u32>(g_state.graph_handles.Size()) + 1u;
+    g_state.graph_handles.PushBack(h);
+    g_state.graph_closures.PushBack(c);
+    return JobNode{ id };
+}
+
+} // namespace jobdetail
+
+void WaitJobs(JobBatch batch) noexcept {
+    if (batch.id == 0) return;
+    const u32 idx = (batch.id & 0xFFFFu) - 1u;
+    if (idx >= EasyState::kMaxBatches) return;
+    EasyState::AsyncBatch& b = g_state.async_batches[idx];
+    if (!b.live || b.gen != static_cast<u16>(batch.id >> 16)) return;   // 既に Wait 済 or 無効
+    FThreadPool::Wait(b.counter);
+    for (usize k = 0; k < b.closures.Size(); ++k)
+        FreeClosure(static_cast<jobdetail::Closure*>(b.closures[k]));
+    b.closures = TArray<void*>{};
+    b.live = false;
+}
+
+bool JobsDone(JobBatch batch) noexcept {
+    if (batch.id == 0) return true;
+    const u32 idx = (batch.id & 0xFFFFu) - 1u;
+    if (idx >= EasyState::kMaxBatches) return true;
+    EasyState::AsyncBatch& b = g_state.async_batches[idx];
+    if (!b.live || b.gen != static_cast<u16>(batch.id >> 16)) return true;
+    return b.counter.Finished();
+}
+
+void Then(JobNode before, JobNode after) noexcept {
+    if (!g_state.pending_graph || before.id == 0 || after.id == 0) return;
+    const u32 bi = before.id - 1u, ai = after.id - 1u;
+    if (bi >= g_state.graph_handles.Size() || ai >= g_state.graph_handles.Size()) return;
+    g_state.graph_handles[ai].DependOn(g_state.graph_handles[bi]);      // after は before の後
+}
+
+void RunJobs() noexcept {
+    if (!g_state.pending_graph) return;
+    (void)jobdetail::Ready();                              // プールを保証 (未起動なら自動 Init)
+    FJobGraph* g = g_state.pending_graph;
+    auto r = g->Submit();
+    if (r.IsOk()) {
+        g->Wait();
+    } else {                                               // 循環/エントリ無 → 順次フォールバック
+        ACS_LOG_WARN("easy: RunJobs の依存グラフが無効です (循環など)。順次実行にフォールバックします");
+        for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
+            RunClosureTask(g_state.graph_closures[k], 0);
+    }
+    for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
+        FreeClosure(static_cast<jobdetail::Closure*>(g_state.graph_closures[k]));
+    g_state.graph_closures = TArray<void*>{};
+    g_state.graph_handles  = TArray<JobHandle>{};
+    delete g;
+    g_state.pending_graph = nullptr;
+}
+
+i32  WorkerCount() noexcept { (void)jobdetail::Ready(); return static_cast<i32>(FThreadPool::WorkerCount()); }
+bool IsWorker()    noexcept { return FThreadPool::CurrentWorkerIndex() != FThreadPool::kNotAWorker; }
 
 } // namespace acs::easy
