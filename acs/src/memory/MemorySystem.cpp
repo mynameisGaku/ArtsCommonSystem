@@ -7,11 +7,10 @@
 // 「現在のセグメント」は TLS 変数で管理し、ScopedMemorySegment で push/pop。
 // =============================================================================
 #include "memory/MemorySystem.h"
-#include "memory/Tlsf.h"
-#include "memory/LinearAllocator.h"
+#include "memory/ShardedTlsf.h"
+#include "memory/ArenaAllocator.h"
+#include "memory/SystemAllocator.h"
 #include "memory/VirtualMemory.h"
-#include "threading/Mutex.h"
-#include "threading/ScopedLock.h"
 #include "foundation/Platform.h"
 #include "foundation/Compiler.h"
 #include "foundation/Move.h"
@@ -23,21 +22,28 @@ ACS_THREAD_LOCAL ESegment tls_current_segment = ESegment::Default;
 
 namespace {
 
-// 1 セグメント分のアロケータホルダ
+// frame(arena) アロケータのページ確保元。既定アロケータ差し替え (SetDefaultAllocator) の
+// 影響を受けない独立した system allocator を使う (再帰を避ける)。
+FSystemAllocator g_frame_backing;
+
+// 1 セグメント分のアロケータホルダ。
+//   ・use_frame=false: 汎用 = FShardedTlsfAllocator (per-thread シャードで MT スケール、self-lock)
+//   ・use_frame=true : フレーム/スクラッチ = FArenaAllocator (lock-free bump、毎フレーム Reset)
 struct SegmentSlot {
-    ESegment         segment        = ESegment::Default;
-    bool            use_linear     = false;
-    bool            initialized    = false;
-    FMutex           lock;            // TLSF 単一スレッド前提を保護
-    FTlsfAllocator   tlsf;            // use_linear=false で使う
-    FLinearAllocator* linear = nullptr; // use_linear=true で使う
-    VmReservation   reservation;
-    u64             budget         = 0;
-    u64             reserve_size   = 0;
-    u64             committed_size = 0;
+    ESegment              segment        = ESegment::Default;
+    bool                  use_frame      = false;
+    bool                  initialized    = false;
+    FShardedTlsfAllocator sharded;            // use_frame=false
+    FArenaAllocator*      arena = nullptr;    // use_frame=true (placement-new)
+    u64                   budget         = 0;
+    u64                   reserve_size   = 0;
+    u64                   committed_size = 0;
 };
 
-// SegmentSlot を FAllocator IF として公開するアダプタ
+// SegmentSlot を FAllocator IF として公開するアダプタ。
+// sharded / arena はどちらも内部でスレッド安全 (前者=per-shard ロック、後者=lock-free CAS) なので、
+// ここでロックは取らない。旧実装の「セグメントごと単一 SRWLOCK funnel」を撤廃し、MT 確保の
+// ロック競合を解消する。予算チェックはロック無し (近似でよい)。
 class SegmentAllocator final : public FAllocator {
 public:
     SegmentAllocator() noexcept = default;
@@ -45,37 +51,33 @@ public:
 
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override {
         if (!m_Slot || !m_Slot->initialized) return nullptr;
-        FScopedLock lk(m_Slot->lock);
-        // 予算超過なら確保失敗
-        u64 cur = m_Slot->use_linear
-                  ? m_Slot->linear->BytesAllocated()
-                  : m_Slot->tlsf.BytesAllocated();
-        if (m_Slot->budget > 0 && cur + size > m_Slot->budget) return nullptr;
-        if (m_Slot->use_linear) return m_Slot->linear->Alloc(size, alignment, loc);
-        return m_Slot->tlsf.Alloc(size, alignment, loc);
+        FAllocator* a = Backing();
+        if (m_Slot->budget > 0 && a->BytesAllocated() + size > m_Slot->budget) return nullptr;
+        return a->Alloc(size, alignment, loc);
     }
-
     void Free(void* ptr) noexcept override {
         if (!m_Slot || !m_Slot->initialized || !ptr) return;
-        FScopedLock lk(m_Slot->lock);
-        if (m_Slot->use_linear) m_Slot->linear->Free(ptr);
-        else                   m_Slot->tlsf.Free(ptr);
+        Backing()->Free(ptr);
     }
-
+    void* Realloc(void* ptr, usize old_size, usize new_size,
+                  usize alignment, FSourceLoc loc) noexcept override {
+        if (!m_Slot || !m_Slot->initialized) return nullptr;
+        return Backing()->Realloc(ptr, old_size, new_size, alignment, loc);  // sharded は in-place
+    }
     u64 BytesAllocated() const noexcept override {
-        if (!m_Slot || !m_Slot->initialized) return 0;
-        return m_Slot->use_linear ? m_Slot->linear->BytesAllocated()
-                                 : m_Slot->tlsf.BytesAllocated();
+        return (m_Slot && m_Slot->initialized) ? Backing()->BytesAllocated() : 0;
     }
     u64 PeakBytes() const noexcept override {
-        if (!m_Slot || !m_Slot->initialized) return 0;
-        return m_Slot->use_linear ? m_Slot->linear->PeakBytes()
-                                 : m_Slot->tlsf.PeakBytes();
+        return (m_Slot && m_Slot->initialized) ? Backing()->PeakBytes() : 0;
     }
     const char* Name() const noexcept override {
         return m_Slot ? ToString(m_Slot->segment) : "Unbound";
     }
 private:
+    FAllocator* Backing() const noexcept {
+        return m_Slot->use_frame ? static_cast<FAllocator*>(m_Slot->arena)
+                                  : static_cast<FAllocator*>(&m_Slot->sharded);
+    }
     SegmentSlot* m_Slot = nullptr;
 };
 
@@ -111,7 +113,7 @@ MemorySystemConfig FMemorySystem::DefaultConfig() noexcept {
 TResult<void> FMemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
     if (g_state.inited) return ACS_ERR(Memory, 30, "FMemorySystem already initialized");
 
-    // いずれかのセグメント初期化に失敗した場合、既に確保した VM 予約 / FLinearAllocator が
+    // いずれかのセグメント初期化に失敗した場合、確保済みリソース (シャード VM 予約 / arena) が
     // リークしないよう、完全初期化済みスロット [0, done) をロールバックしてから err を返す。
     usize done = 0;
     TResult<void> fail = Ok();
@@ -119,28 +121,22 @@ TResult<void> FMemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
     for (usize i = 0; i < (usize)ESegment::_Count; ++i) {
         const SegmentConfig& sc = cfg.segments[i];
         SegmentSlot& slot = g_state.slots[i];
-        slot.segment = sc.segment;
-        slot.use_linear = sc.use_linear;
-        slot.budget = sc.budget_hard_cap;
-        slot.reserve_size = sc.reserve_bytes;
+        slot.segment        = sc.segment;
+        slot.use_frame      = sc.use_linear;   // 設定の use_linear = フレーム/スクラッチ用途
+        slot.budget         = sc.budget_hard_cap;
+        slot.reserve_size   = sc.reserve_bytes;
         slot.committed_size = sc.commit_initial;
 
         if (sc.use_linear) {
-            // Linear セグメントは VM 予約 + 全領域コミット + FLinearAllocator 個別生成
-            auto rr = VmReservation::Reserve(sc.reserve_bytes);
-            if (rr.IsErr()) { fail = Err<void>(rr.Error()); break; }
-            slot.reservation = Move(rr.Value());
-            auto cr = slot.reservation.Commit(0, sc.commit_initial);
-            if (cr.IsErr()) { slot.reservation.Release(); fail = cr; break; }
-            slot.linear = static_cast<FLinearAllocator*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(FLinearAllocator)));
-            if (!slot.linear) { slot.reservation.Release(); fail = ACS_ERR(Memory, 31, "Linear alloc failed"); break; }
-            ::new (slot.linear) FLinearAllocator(sc.commit_initial);
+            // フレーム/スクラッチ: lock-free bump (FArenaAllocator)。ページは独立 system
+            // allocator から確保し (既定差し替えの影響を受けない)、ページサイズ 1MiB。
+            slot.arena = static_cast<FArenaAllocator*>(
+                ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FArenaAllocator)));
+            if (!slot.arena) { fail = ACS_ERR(Memory, 31, "arena alloc failed"); break; }
+            ::new (slot.arena) FArenaAllocator(1u * 1024u * 1024u, &g_frame_backing);
         } else {
-            // TLSF セグメントは VM 予約 + 初期コミットして TLSF プール登録
-            // (失敗時は InitWithReservation 内のローカル reservation が RAII で解放される)
-            auto rr = VmReservation::Reserve(sc.reserve_bytes);
-            if (rr.IsErr()) { fail = Err<void>(rr.Error()); break; }
-            auto ir = slot.tlsf.InitWithReservation(Move(rr.Value()), sc.commit_initial);
+            // 汎用: per-thread シャード化 TLSF (VM 予約 + auto-grow + 安全ガード + in-place realloc)。
+            auto ir = slot.sharded.Init(sc.reserve_bytes, sc.commit_initial, 0u);
             if (ir.IsErr()) { fail = ir; break; }
         }
         slot.initialized = true;
@@ -151,12 +147,15 @@ TResult<void> FMemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
     if (fail.IsErr()) {
         for (usize j = 0; j < done; ++j) {
             SegmentSlot& slot = g_state.slots[j];
-            if (slot.use_linear && slot.linear) {
-                slot.linear->~FLinearAllocator();
-                ::HeapFree(::GetProcessHeap(), 0, slot.linear);
-                slot.linear = nullptr;
+            if (slot.use_frame) {
+                if (slot.arena) {
+                    slot.arena->~FArenaAllocator();
+                    ::HeapFree(::GetProcessHeap(), 0, slot.arena);
+                    slot.arena = nullptr;
+                }
+            } else {
+                slot.sharded.Shutdown();
             }
-            slot.reservation.Release();
             slot.initialized = false;
         }
         return fail;
@@ -171,12 +170,15 @@ void FMemorySystem::Shutdown() noexcept {
     for (usize i = 0; i < (usize)ESegment::_Count; ++i) {
         SegmentSlot& slot = g_state.slots[i];
         if (!slot.initialized) continue;
-        if (slot.use_linear && slot.linear) {
-            slot.linear->~FLinearAllocator();
-            ::HeapFree(::GetProcessHeap(), 0, slot.linear);
-            slot.linear = nullptr;
+        if (slot.use_frame) {
+            if (slot.arena) {
+                slot.arena->~FArenaAllocator();
+                ::HeapFree(::GetProcessHeap(), 0, slot.arena);
+                slot.arena = nullptr;
+            }
+        } else {
+            slot.sharded.Shutdown();   // 各シャードの VM 予約を解放
         }
-        slot.reservation.Release();
         slot.initialized = false;
     }
     g_state.inited = false;
@@ -199,9 +201,8 @@ FAllocator* FMemorySystem::CurrentAllocator() noexcept {
 void FMemorySystem::ResetTemp() noexcept {
     if (!g_state.inited) return;
     SegmentSlot& slot = g_state.slots[(usize)ESegment::Temp];
-    if (slot.initialized && slot.use_linear && slot.linear) {
-        FScopedLock lk(slot.lock);
-        slot.linear->Reset();
+    if (slot.initialized && slot.use_frame && slot.arena) {
+        slot.arena->Reset(false);   // ページは保持して次フレームで再利用 (再確保なし)
     }
 }
 
@@ -217,8 +218,10 @@ u32 FMemorySystem::GetStats(SegmentStats* out, u32 max_count) noexcept {
         s.name      = ToString(slot.segment);
         s.reserve   = slot.reserve_size;
         s.committed = slot.committed_size;
-        s.used      = slot.use_linear ? slot.linear->BytesAllocated() : slot.tlsf.BytesAllocated();
-        s.peak      = slot.use_linear ? slot.linear->PeakBytes()      : slot.tlsf.PeakBytes();
+        FAllocator* a = slot.use_frame ? static_cast<FAllocator*>(slot.arena)
+                                       : static_cast<FAllocator*>(&slot.sharded);
+        s.used      = a->BytesAllocated();
+        s.peak      = a->PeakBytes();
         s.budget    = slot.budget;
     }
     return n;
