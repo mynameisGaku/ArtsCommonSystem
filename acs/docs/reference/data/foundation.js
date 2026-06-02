@@ -4,7 +4,7 @@
 ACS_REF.modules.push({
   id: "foundation",
   order: 5,
-  title: "foundation — 基盤型 / Result / 文字列ビュー",
+  title: "foundation — 基盤型 / Result / ログ・パニック",
   blurb: "ACS の一番下の土台。<code>u32</code>/<code>f32</code> などの<b>短い型名</b>、例外を使わずに失敗を返す <t>TResult</t>、<t>アサート</t>やログといった、どのモジュールも頼る共通部品を提供します。STL（標準ライブラリ）に依存しないのが特徴です。",
   types: [
     {

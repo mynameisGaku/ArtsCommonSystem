@@ -4,7 +4,7 @@
 ACS_REF.modules.push({
   id: "math",
   order: 12,
-  title: "math — ベクトル / 行列 / 乱数 / 数学",
+  title: "math — ベクトル / 行列 / クォータニオン / 数学",
   blurb: "ゲームの座標計算に必要な<t>ベクトル</t>・<t>行列</t>・<t>クォータニオン</t>・カメラ・衝突判定をまとめたモジュール。内部は <t>DirectXMath</t> に委譲し <t>SIMD</t> で高速。3D/2D 両方の当たり判定プリミティブも含む。",
   types: [
     {
