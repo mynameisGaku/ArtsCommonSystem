@@ -72,6 +72,15 @@ public:
     // スレッドセーフではない — Alloc/Free と同じロック下で呼ぶこと。
     bool ValidateHeap() const noexcept;
 
+    // ptr がこのアロケータの管理範囲に属するか。シャード化アロケータが Free 時に
+    // 所有シャードを特定するのに使う。予約所有時は予約レンジで O(1) 判定、
+    // それ以外 (HeapAlloc プール等) は登録プールスパンで判定する。
+    bool ContainsPtr(const void* p) const noexcept;
+
+    // アロケータを未初期化状態へ戻す。予約を所有していれば解放する。再 Init を可能にする
+    // (FShardedTlsfAllocator の Shutdown→再 Init や FMemorySystem の再初期化で使う)。
+    void Reset() noexcept;
+
 private:
     u32              m_FlBitmap = 0;
     u32              m_SlBitmap[tlsf::FL_INDEX_COUNT] = {};

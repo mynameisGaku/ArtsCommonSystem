@@ -9,8 +9,11 @@
 #include "test/Expect.h"
 #include "memory/VirtualMemory.h"
 #include "memory/Tlsf.h"
+#include "memory/ShardedTlsf.h"
 #include "memory/MemorySystem.h"
 #include "memory/MemorySnapshot.h"
+#include "threading/ThreadPool.h"
+#include "threading/Atomic.h"
 #include "foundation/Platform.h"   // HeapAlloc / GetProcessHeap
 #include "foundation/Move.h"       // Move (VmReservation のムーブ)
 
@@ -273,6 +276,110 @@ ACS_TEST(MemSystem, TlsfReallocInPlace) {
     EXPECT_TRUE(t.ValidateHeap());
 
     ::HeapFree(::GetProcessHeap(), 0, pool);
+}
+
+// シャード化 TLSF: 単体での基本動作 (確保/解放/realloc/アドレスルーティング/整合)。
+ACS_TEST(MemSystem, ShardedTlsfBasic) {
+    FShardedTlsfAllocator a;
+    auto ir = a.Init(64ull * 1024 * 1024, 4ull * 1024 * 1024, 4u);  // 明示 4 シャード
+    EXPECT_TRUE(ir.IsOk());
+    EXPECT_EQ(a.ShardCount(), 4u);
+    EXPECT_TRUE(a.ValidateHeap());
+
+    // 多数確保 → 全 16 整列、書き込み可能、解放でルーティング成功
+    void* ptrs[200] = {};
+    bool ok = true;
+    for (int i = 0; i < 200; ++i) {
+        ptrs[i] = a.Alloc(static_cast<usize>(64 + (i * 37) % 4000), 16, FSourceLoc::Current());
+        if (!ptrs[i] || (reinterpret_cast<uptr>(ptrs[i]) & 15u) != 0) ok = false;
+        else { u8* b = static_cast<u8*>(ptrs[i]); b[0] = static_cast<u8>(i); }
+    }
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(a.BytesAllocated() > 0);
+    EXPECT_TRUE(a.ValidateHeap());
+
+    // realloc (in-place / 移動 / シャード跨ぎ移動を含む)
+    void* r = a.Alloc(100, 16, FSourceLoc::Current());
+    EXPECT_TRUE(r != nullptr);
+    static_cast<u8*>(r)[0] = 0x5A;
+    void* r2 = a.Realloc(r, 100, 6000, 16, FSourceLoc::Current());
+    EXPECT_TRUE(r2 != nullptr);
+    EXPECT_TRUE(static_cast<u8*>(r2)[0] == 0x5A);   // データ保持
+    a.Free(r2);
+
+    for (int i = 0; i < 200; ++i) if (ptrs[i]) a.Free(ptrs[i]);
+    EXPECT_TRUE(a.ValidateHeap());
+    a.Shutdown();
+}
+
+// シャード化 TLSF: マルチスレッド・ストレス。8 ワーカーで並行に alloc/realloc/free を回し、
+// データ整合 (スレッドセーフでなければ領域が重複して壊れる) と最終ヒープ整合を検証する。
+ACS_TEST(MemSystem, ShardedTlsfMultiThread) {
+    auto ir_pool = FThreadPool::Init(8);
+    EXPECT_TRUE(ir_pool.IsOk());
+
+    FShardedTlsfAllocator a;
+    auto ir = a.Init(128ull * 1024 * 1024, 8ull * 1024 * 1024, 0u);  // シャード数は自動
+    EXPECT_TRUE(ir.IsOk());
+    EXPECT_TRUE(a.ValidateHeap());
+
+    struct Ctx { FShardedTlsfAllocator* alloc; TAtomic<u32> fail{0}; };
+    Ctx ctx;
+    ctx.alloc = &a;
+
+    auto thunk = [](u32 i, u32 /*worker*/, void* user) {
+        Ctx* c = static_cast<Ctx*>(user);
+        FShardedTlsfAllocator* al = c->alloc;
+        u32 rng = 0x01000193u * (i + 1u) + 0x2545F491u;
+        auto next = [&rng]() -> u32 { rng = rng * 1664525u + 1013904223u; return rng; };
+        auto fill = [](void* p, usize n, u8 seed) {
+            u8* b = static_cast<u8*>(p);
+            for (usize k = 0; k < n; ++k) b[k] = static_cast<u8>(seed + (k & 0x1F));
+        };
+        auto ck = [](const void* p, usize n, u8 seed) -> bool {
+            const u8* b = static_cast<const u8*>(p);
+            for (usize k = 0; k < n; ++k) if (b[k] != static_cast<u8>(seed + (k & 0x1F))) return false;
+            return true;
+        };
+        void* live[16] = {};
+        usize sz[16] = {};
+        u8    sd[16] = {};
+        bool local_ok = true;
+        for (int it = 0; it < 400 && local_ok; ++it) {
+            const u32 slot = next() % 16u;
+            if (live[slot]) {
+                if (!ck(live[slot], sz[slot], sd[slot])) { local_ok = false; break; }  // 重複/破壊検出
+                if (next() & 1u) {
+                    const usize ns = static_cast<usize>(8u + (next() % 2000u));
+                    void* np = al->Realloc(live[slot], sz[slot], ns, 16, FSourceLoc::Current());
+                    if (!np) { local_ok = false; break; }
+                    const usize keep = sz[slot] < ns ? sz[slot] : ns;
+                    if (!ck(np, keep, sd[slot])) { local_ok = false; break; }
+                    live[slot] = np; sz[slot] = ns; sd[slot] = static_cast<u8>(sd[slot] + 1u);
+                    fill(np, ns, sd[slot]);
+                } else {
+                    al->Free(live[slot]); live[slot] = nullptr;
+                }
+            } else {
+                const usize n = static_cast<usize>(8u + (next() % 2000u));
+                void* p = al->Alloc(n, 16, FSourceLoc::Current());
+                if (!p) { local_ok = false; break; }
+                const u8 seed = static_cast<u8>(next());
+                fill(p, n, seed);
+                live[slot] = p; sz[slot] = n; sd[slot] = seed;
+            }
+        }
+        for (int s = 0; s < 16; ++s) if (live[s]) al->Free(live[s]);
+        if (!local_ok) c->fail.FetchAdd(1);
+    };
+
+    auto pr = FThreadPool::ParallelFor(0, 256, 1, +thunk, &ctx);
+    EXPECT_TRUE(pr.IsOk());
+    EXPECT_EQ(ctx.fail.Load(EMemoryOrder::Acquire), 0u);   // データ破壊ゼロ = スレッドセーフ
+    EXPECT_TRUE(a.ValidateHeap());                          // 全シャード健全
+
+    a.Shutdown();
+    FThreadPool::Shutdown();
 }
 
 // FMemorySystem: 全セグメント初期化 → 取得 → 解放

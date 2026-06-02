@@ -9,6 +9,7 @@ acs_module(
         ArenaAllocator.cpp
         VirtualMemory.cpp
         Tlsf.cpp
+        ShardedTlsf.cpp
         MemorySystem.cpp
         MemorySnapshot.cpp
     HEADERS
@@ -23,6 +24,7 @@ acs_module(
         Rc.h
         VirtualMemory.h
         Tlsf.h
+        ShardedTlsf.h
         Segment.h
         MemorySystem.h
         MemorySnapshot.h

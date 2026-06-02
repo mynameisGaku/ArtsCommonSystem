@@ -500,6 +500,42 @@ bool FTlsfAllocator::OwnsPointer(const void* p) const noexcept {
     return false;
 }
 
+void FTlsfAllocator::Reset() noexcept {
+    using namespace tlsf;
+    if (m_bOwnsReservation) m_Reservation.Release();
+    m_bOwnsReservation = false;
+    m_CommittedBytes   = 0;
+    m_FlBitmap = 0;
+    for (int i = 0; i < FL_INDEX_COUNT; ++i) {
+        m_SlBitmap[i] = 0;
+        for (int j = 0; j < SL_INDEX_COUNT; ++j) m_Blocks[i][j] = &m_NullBlock;
+    }
+    m_NullBlock.next_free      = &m_NullBlock;
+    m_NullBlock.prev_free      = &m_NullBlock;
+    m_NullBlock.size_and_flags = 0;
+    m_NullBlock.prev_phys_block = nullptr;
+    m_BytesUsed = 0;
+    m_BytesPeak = 0;
+    m_PoolSpanCount     = 0;
+    m_PoolTrackOverflow = false;
+}
+
+bool FTlsfAllocator::ContainsPtr(const void* p) const noexcept {
+    // 予約所有時はその予約レンジ全体で O(1) 判定する (シャード化の Free ルーティング用)。
+    // 予約は各シャード固有の連続 VM 範囲なので、所有判定はレンジ内かどうかで一意に決まる。
+    if (m_bOwnsReservation && m_Reservation.Base() != nullptr) {
+        const uptr a   = reinterpret_cast<uptr>(p);
+        const uptr lo  = reinterpret_cast<uptr>(m_Reservation.Base());
+        return a >= lo && a < lo + m_Reservation.Capacity();
+    }
+    // HeapAlloc プール等は登録プールスパンで判定 (overflow 無視で厳密に)。
+    const uptr a = reinterpret_cast<uptr>(p);
+    for (int i = 0; i < m_PoolSpanCount; ++i) {
+        if (a >= m_PoolSpans[i].lo && a < m_PoolSpans[i].hi) return true;
+    }
+    return false;
+}
+
 // 物理ブロックチェイン + prev_phys/prev_free フラグの一貫性を検証する。
 bool FTlsfAllocator::ValidateHeap() const noexcept {
     using namespace tlsf;
