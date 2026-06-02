@@ -12,6 +12,7 @@
 #include "memory/MemorySystem.h"
 #include "memory/MemorySnapshot.h"
 #include "foundation/Platform.h"   // HeapAlloc / GetProcessHeap
+#include "foundation/Move.h"       // Move (VmReservation のムーブ)
 
 using namespace acs;
 
@@ -162,6 +163,43 @@ ACS_TEST(MemSystem, TlsfStressValidate) {
     EXPECT_TRUE(t.ValidateHeap());
 
     ::HeapFree(::GetProcessHeap(), 0, pool);
+}
+
+// TLSF auto-grow: 予約のうち初期コミットを小さくし、それを超える確保が予約からの
+// 段階コミット (grow) で成功すること。grow が無ければ初期コミット超で nullptr になる。
+ACS_TEST(MemSystem, TlsfAutoGrow) {
+    auto rr = VmReservation::Reserve(64ull * 1024 * 1024);   // 64MB 予約
+    EXPECT_TRUE(rr.IsOk());
+    if (!rr.IsOk()) return;
+
+    FTlsfAllocator t;
+    auto ir = t.InitWithReservation(Move(rr.Value()), 1ull * 1024 * 1024);  // 初期コミット 1MB のみ
+    EXPECT_TRUE(ir.IsOk());
+    EXPECT_TRUE(t.ValidateHeap());
+
+    // 256KB を 48 個 = 12MB。初期 1MB を大きく超えるので grow が効かないと途中で失敗する。
+    void* live[48] = {};
+    bool ok = true;
+    for (int i = 0; i < 48; ++i) {
+        live[i] = t.Alloc(256 * 1024, 16, FSourceLoc::Current());
+        if (!live[i]) { ok = false; }
+        else {
+            u8* b = static_cast<u8*>(live[i]);
+            for (int k = 0; k < 256 * 1024; k += 4096) b[k] = static_cast<u8>(i);  // 触って実コミット確認
+        }
+    }
+    EXPECT_TRUE(ok);                                       // grow が効けば全部成功
+    EXPECT_TRUE(t.BytesAllocated() >= 12ull * 1024 * 1024); // 初期 1MB を超えて確保できている
+    EXPECT_TRUE(t.ValidateHeap());                          // 複数プールをまたいでヒープ健全
+
+    for (int i = 0; i < 48; ++i) if (live[i]) t.Free(live[i]);
+    EXPECT_TRUE(t.ValidateHeap());
+
+    // grow 後の空き再利用: 全解放後に初期コミットを超える単一確保が通る
+    void* big = t.Alloc(8ull * 1024 * 1024, 16, FSourceLoc::Current());
+    EXPECT_TRUE(big != nullptr);
+    if (big) t.Free(big);
+    EXPECT_TRUE(t.ValidateHeap());
 }
 
 // FMemorySystem: 全セグメント初期化 → 取得 → 解放

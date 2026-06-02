@@ -184,7 +184,44 @@ TResult<void> FTlsfAllocator::InitWithReservation(VmReservation&& reservation,
     if (r.IsErr()) return r;
     m_Reservation = Move(reservation);
     m_bOwnsReservation = true;
+    m_CommittedBytes = commit_initial;   // 次の grow はこの offset から commit する
     return Ok();
+}
+
+// OOM 時に予約からコミットを段階的に伸ばし、needed_bytes のブロックを収容できる
+// 新プールを追加する。幾何級数 (現コミットの 50%) で伸ばしてプール数を対数に抑える。
+bool FTlsfAllocator::GrowToFit(usize needed_bytes) noexcept {
+    using namespace tlsf;
+    if (!m_bOwnsReservation) return false;            // 予約を所有しないプールは grow 不可
+    const usize cap = m_Reservation.Capacity();
+    if (m_CommittedBytes >= cap) return false;        // 予約を使い切った = 真の OOM
+    const usize remaining = cap - m_CommittedBytes;
+
+    // 新プールは needed_bytes のブロック + プールヘッダ/番兵を収容する必要がある。
+    // さらに MappingSearch は要求を次のサブバケット境界まで切り上げてから探索するため、
+    // 新プールの空きブロックは「切り上げ後サイズ」以上でないと見つからない (= O(1) 保証の代償)。
+    // 切り上げ量は最大で needed_bytes / SL_INDEX_COUNT(=32) 程度。安全に needed_bytes/16 + 1page を
+    // 上乗せして、必ず探索バケット以上のサイズになるようにする。
+    const usize pool_overhead = kBlockStartOffset + kBlockHeaderOverhead * 2u + MIN_BLOCK_SIZE;
+    const usize search_round  = (needed_bytes >> 4) + VmPageSize();
+    const usize need = needed_bytes + search_round + pool_overhead;
+
+    usize chunk = need;
+    const usize geo = m_CommittedBytes / 2u;          // 幾何級数: 現コミットの 50%
+    if (geo > chunk) chunk = geo;
+    constexpr usize kMinGrowBytes = 1u * 1024u * 1024u;  // 1 MiB 下限 (小プール乱立を防ぐ)
+    if (chunk < kMinGrowBytes) chunk = kMinGrowBytes;
+    chunk = AlignUp(chunk, VmPageSize());             // Commit はページ単位
+    if (chunk > remaining) chunk = remaining;          // 残予約でキャップ (最終 grow は残り全部)
+    if (chunk < need) return false;                    // 残予約では要求を満たせない = OOM
+
+    auto cr = m_Reservation.Commit(m_CommittedBytes, chunk);
+    if (cr.IsErr()) return false;
+    u8* base = static_cast<u8*>(m_Reservation.Base()) + m_CommittedBytes;
+    auto ar = AddPool(base, chunk);
+    if (ar.IsErr()) return false;                      // (commit は次回 grow で再利用される)
+    m_CommittedBytes += chunk;
+    return true;
 }
 
 // プールを TLSF に登録（先頭にフリーブロック 1 個 + 末尾に終端番兵）
@@ -352,7 +389,13 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
     int fl, sl;
     MappingSearch(search_size, fl, sl);
     FBlockHeader* block = SearchSuitableBlock(fl, sl);
-    if (!block || block == &m_NullBlock) return nullptr;  // OOM
+    if (!block || block == &m_NullBlock) {
+        // OOM: 予約からコミットを伸ばして新プールを足し、再探索する (auto-grow)。
+        if (!GrowToFit(search_size)) return nullptr;  // 予約も尽きた = 真の OOM
+        MappingSearch(search_size, fl, sl);
+        block = SearchSuitableBlock(fl, sl);
+        if (!block || block == &m_NullBlock) return nullptr;  // grow しても入らない (異常)
+    }
 
     // 取り出す
     RemoveFreeBlock(block);

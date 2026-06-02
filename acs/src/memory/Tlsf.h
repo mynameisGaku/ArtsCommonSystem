@@ -80,6 +80,9 @@ private:
 
     VmReservation    m_Reservation;
     bool             m_bOwnsReservation = false;
+    // 予約のうち既にコミット済みでプール登録された総バイト数 (= 次に commit する offset)。
+    // auto-grow: OOM 時にここから予約末尾までを段階的に commit + AddPool して伸ばす。
+    usize            m_CommittedBytes = 0;
 
     u64              m_BytesUsed = 0;
     u64              m_BytesPeak = 0;
@@ -87,7 +90,8 @@ private:
     // 安全性: 払い出したポインタの所属プール範囲を記録し、Free 時に範囲外(野良/別
     // アロケータ由来)ポインタや二重 free を検出してヒープ破壊を未然に防ぐ。
     // プール数が上限を超えたら追跡を諦め (overflow)、範囲検証はスキップする(誤検出回避)。
-    static constexpr int kMaxTrackedPools = 8;
+    // auto-grow で複数プールが登録され得るため広めに確保 (幾何級数 grow なら対数個で収まる)。
+    static constexpr int kMaxTrackedPools = 64;
     struct PoolSpan { uptr lo; uptr hi; };  // [lo, hi) = pool_base .. pool_base+pool_size
     PoolSpan         m_PoolSpans[kMaxTrackedPools] = {};
     int              m_PoolSpanCount   = 0;
@@ -95,6 +99,10 @@ private:
 
     // ptr がいずれかの登録プール範囲内か (overflow 時は検証不能なので true 扱い)
     bool OwnsPointer(const void* p) const noexcept;
+
+    // OOM 時に予約から needed_bytes 以上を収容できるよう commit + AddPool して伸ばす。
+    // 予約を所有しない (HeapAlloc プール等) / 予約を使い切った場合は false。
+    bool GrowToFit(usize needed_bytes) noexcept;
 
     void InsertFreeBlock(tlsf::FBlockHeader* block) noexcept;
     void RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept;
