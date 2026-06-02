@@ -21,6 +21,13 @@ struct SegmentConfig {
 // FMemorySystem 全体の初期化設定
 struct MemorySystemConfig {
     SegmentConfig segments[(usize)ESegment::_Count];
+
+    // true なら Init で SetDefaultAllocator(Default セグメント) を呼び、コンテナ等の既定確保を
+    // シャード化 VM アロケータ (MT スケール / 安全ガード / 予算 / 可観測性) に通す。Shutdown で
+    // 元の既定へ確実に復元する。注意: Default セグメントは reserve 上限を持つ (HeapAlloc のように
+    // 無制限には増えない)。有効化する場合は Default セグメントの reserve をゲームのピーク汎用
+    // 使用量に合わせて十分に取ること。既定 false (= 従来どおり HeapAlloc)。
+    bool make_default = false;
 };
 
 // セグメントの統計

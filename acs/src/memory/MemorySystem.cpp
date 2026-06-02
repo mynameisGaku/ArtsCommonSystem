@@ -11,6 +11,7 @@
 #include "memory/ArenaAllocator.h"
 #include "memory/SystemAllocator.h"
 #include "memory/VirtualMemory.h"
+#include "memory/Memory.h"   // DefaultAllocator / SetDefaultAllocator
 #include "foundation/Platform.h"
 #include "foundation/Compiler.h"
 #include "foundation/Move.h"
@@ -86,6 +87,9 @@ struct State {
     SegmentSlot      slots[(usize)ESegment::_Count];
     SegmentAllocator allocators[(usize)ESegment::_Count];
     bool             inited = false;
+    // make_default で既定アロケータを差し替えた場合、Shutdown で復元するため元を保持。
+    bool             default_overridden = false;
+    FAllocator*      prev_default        = nullptr;
 };
 State g_state;
 
@@ -162,11 +166,26 @@ TResult<void> FMemorySystem::Init(const MemorySystemConfig& cfg) noexcept {
     }
 
     g_state.inited = true;
+
+    // オプトイン: 既定アロケータをシャード化 Default セグメントへ差し替える。
+    if (cfg.make_default) {
+        g_state.prev_default       = &DefaultAllocator();
+        SetDefaultAllocator(&g_state.allocators[(usize)ESegment::Default]);
+        g_state.default_overridden = true;
+    }
     return Ok();
 }
 
 void FMemorySystem::Shutdown() noexcept {
     if (!g_state.inited) return;
+
+    // 既定差し替えを「最初に」撤回する。セグメント破棄後の確保/解放が死んだ SegmentAllocator を
+    // 触らないよう、teardown より前に元の既定 (system) へ戻す。
+    if (g_state.default_overridden) {
+        SetDefaultAllocator(g_state.prev_default);
+        g_state.default_overridden = false;
+        g_state.prev_default       = nullptr;
+    }
     for (usize i = 0; i < (usize)ESegment::_Count; ++i) {
         SegmentSlot& slot = g_state.slots[i];
         if (!slot.initialized) continue;

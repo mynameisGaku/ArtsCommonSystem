@@ -12,6 +12,7 @@
 #include "memory/ShardedTlsf.h"
 #include "memory/MemorySystem.h"
 #include "memory/MemorySnapshot.h"
+#include "memory/Memory.h"        // DefaultAllocator / SetDefaultAllocator
 #include "threading/ThreadPool.h"
 #include "threading/Atomic.h"
 #include "threading/Mutex.h"
@@ -384,6 +385,32 @@ ACS_TEST(MemSystem, ShardedTlsfMultiThread) {
 
     a.Shutdown();
     FThreadPool::Shutdown();
+}
+
+// 既定アロケータ結線 (make_default): Init で Default セグメントへ差し替わり、Shutdown で
+// 元へ復元されること。既定経由の確保が Default セグメントに計上されることも確認する。
+ACS_TEST(MemSystem, DefaultAllocatorWiring) {
+    FAllocator* before = &DefaultAllocator();
+
+    MemorySystemConfig cfg = FMemorySystem::DefaultConfig();
+    cfg.make_default = true;
+    EXPECT_TRUE(FMemorySystem::Init(cfg).IsOk());
+
+    // 既定が Default セグメントへ切り替わっている
+    EXPECT_TRUE(&DefaultAllocator() == FMemorySystem::Get(ESegment::Default));
+    EXPECT_TRUE(&DefaultAllocator() != before);
+
+    // 既定経由の確保が Default セグメントに計上される
+    FAllocator* def_seg = FMemorySystem::Get(ESegment::Default);
+    const u64 used0 = def_seg->BytesAllocated();
+    void* p = DefaultAllocator().Alloc(4096, 16, FSourceLoc::Current());
+    EXPECT_TRUE(p != nullptr);
+    EXPECT_TRUE(def_seg->BytesAllocated() > used0);
+    DefaultAllocator().Free(p);
+
+    FMemorySystem::Shutdown();
+    // Shutdown で元の既定へ復元されている
+    EXPECT_TRUE(&DefaultAllocator() == before);
 }
 
 // マイクロベンチ: 8 スレッドで alloc+free を churn し、単一ロック TLSF / シャード TLSF /
