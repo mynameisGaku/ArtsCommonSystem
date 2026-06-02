@@ -10,6 +10,7 @@ acs_module(
         VirtualMemory.cpp
         Tlsf.cpp
         ShardedTlsf.cpp
+        RelocatableAllocator.cpp
         MemorySystem.cpp
         MemorySnapshot.cpp
     HEADERS
@@ -25,6 +26,7 @@ acs_module(
         VirtualMemory.h
         Tlsf.h
         ShardedTlsf.h
+        RelocatableAllocator.h
         Segment.h
         MemorySystem.h
         MemorySnapshot.h

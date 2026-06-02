@@ -13,6 +13,7 @@
 #include "memory/MemorySystem.h"
 #include "memory/MemorySnapshot.h"
 #include "memory/Memory.h"        // DefaultAllocator / SetDefaultAllocator
+#include "memory/RelocatableAllocator.h"
 #include "threading/ThreadPool.h"
 #include "threading/Atomic.h"
 #include "threading/Mutex.h"
@@ -426,6 +427,115 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCache) {
     for (int i = 0; i < 512; ++i) if (live[i]) a.Free(live[i]);
     EXPECT_TRUE(a.ValidateHeap());
     a.Shutdown();
+}
+
+// 再配置可能アロケータ: 基本確保/Resolve、断片化 → Compact でデータ生存 + high-water 回収、
+// freed ハンドルの無効化、世代による use-after-free 検出を検証する。
+ACS_TEST(MemSystem, RelocatableBasicCompact) {
+    FRelocatableAllocator r;
+    EXPECT_TRUE(r.Init(1u * 1024 * 1024, 256u, nullptr).IsOk());
+
+    auto fill = [](void* p, usize n, u8 s) {
+        u8* b = static_cast<u8*>(p); for (usize i = 0; i < n; ++i) b[i] = static_cast<u8>(s + (i & 0x3F));
+    };
+    auto check = [](void* p, usize n, u8 s) -> bool {
+        const u8* b = static_cast<const u8*>(p);
+        for (usize i = 0; i < n; ++i) if (b[i] != static_cast<u8>(s + (i & 0x3F))) return false;
+        return true;
+    };
+
+    FRelocHandle h[100]; usize sz[100]; u8 sd[100];
+    bool ok = true;
+    for (int i = 0; i < 100; ++i) {
+        sz[i] = static_cast<usize>(64 + (i * 53) % 2000);
+        h[i]  = r.Alloc(sz[i], 16);
+        if (!h[i].IsValid()) { ok = false; break; }
+        sd[i] = static_cast<u8>(i * 7 + 1);
+        void* p = r.Resolve(h[i]);
+        if (!p || (reinterpret_cast<uptr>(p) & 15u) != 0) { ok = false; break; }
+        fill(p, sz[i], sd[i]);
+    }
+    EXPECT_TRUE(ok);
+    EXPECT_EQ(r.LiveCount(), 100u);
+
+    // 1 つおきに解放 → 断片化 (high-water > used)
+    for (int i = 0; i < 100; i += 2) r.Free(h[i]);
+    EXPECT_EQ(r.LiveCount(), 50u);
+    EXPECT_TRUE(r.HighWater() > r.Used());
+    EXPECT_TRUE(r.Resolve(h[0]) == nullptr);   // 解放済みは nullptr
+
+    // Compact: high-water が縮み、生存ハンドルのデータは移動しても保持される
+    const usize hw_before = r.HighWater();
+    const usize reclaimed = r.Compact();
+    EXPECT_TRUE(reclaimed > 0);
+    EXPECT_TRUE(r.HighWater() < hw_before);
+    EXPECT_TRUE(r.HighWater() >= r.Used());
+    bool ok2 = true;
+    for (int i = 1; i < 100; i += 2) {
+        void* p = r.Resolve(h[i]);
+        if (!p || !check(p, sz[i], sd[i])) { ok2 = false; break; }
+    }
+    EXPECT_TRUE(ok2);
+
+    // 世代: 解放したハンドルを再利用すると旧ハンドルは無効
+    FRelocHandle old = h[1];
+    r.Free(h[1]);
+    EXPECT_TRUE(r.Resolve(old) == nullptr);
+    FRelocHandle nw = r.Alloc(128, 16);
+    EXPECT_TRUE(nw.IsValid());
+    EXPECT_TRUE(r.Resolve(old) == nullptr);    // 旧ハンドルは依然無効 (世代不一致 or 解放済)
+
+    r.Shutdown();
+}
+
+// 再配置アロケータ ストレス: ランダム alloc/free + 周期 Compact で、全生存ハンドルの
+// データが移動後も保持されること (再配置の正当性) を検証する。
+ACS_TEST(MemSystem, RelocatableStress) {
+    FRelocatableAllocator r;
+    EXPECT_TRUE(r.Init(2u * 1024 * 1024, 512u, nullptr).IsOk());
+
+    auto fill = [](void* p, usize n, u8 s) {
+        u8* b = static_cast<u8*>(p); for (usize i = 0; i < n; ++i) b[i] = static_cast<u8>(s + (i & 0x3F));
+    };
+    auto check = [](void* p, usize n, u8 s) -> bool {
+        const u8* b = static_cast<const u8*>(p);
+        for (usize i = 0; i < n; ++i) if (b[i] != static_cast<u8>(s + (i & 0x3F))) return false;
+        return true;
+    };
+
+    struct Rec { FRelocHandle h; usize sz; u8 sd; };
+    Rec rec[512];
+    for (int i = 0; i < 512; ++i) { rec[i].h = FRelocHandle{}; rec[i].sz = 0; rec[i].sd = 0; }
+
+    u32 rng = 0x55555555u;
+    auto next = [&rng]() -> u32 { rng = rng * 1664525u + 1013904223u; return rng; };
+    bool ok = true;
+    for (int it = 0; it < 12000 && ok; ++it) {
+        const u32 slot = next() % 512u;
+        if (rec[slot].h.IsValid()) {
+            void* p = r.Resolve(rec[slot].h);
+            if (!p || !check(p, rec[slot].sz, rec[slot].sd)) { ok = false; break; }
+            r.Free(rec[slot].h); rec[slot].h = FRelocHandle{};
+        } else {
+            const usize n = static_cast<usize>(16u + (next() % 1024u));
+            FRelocHandle h = r.Alloc(n, 16);
+            if (!h.IsValid()) continue;   // 満杯 (Alloc が内部 Compact しても入らない) → skip
+            const u8 s = static_cast<u8>(next());
+            fill(r.Resolve(h), n, s);
+            rec[slot].h = h; rec[slot].sz = n; rec[slot].sd = s;
+        }
+        if ((it & 0x1FF) == 0) {
+            r.Compact();   // 周期デフラグ: 全生存データが移動後も無事か
+            for (int j = 0; j < 512 && ok; ++j) {
+                if (rec[j].h.IsValid()) {
+                    void* p = r.Resolve(rec[j].h);
+                    if (!p || !check(p, rec[j].sz, rec[j].sd)) ok = false;
+                }
+            }
+        }
+    }
+    EXPECT_TRUE(ok);
+    r.Shutdown();
 }
 
 // 既定アロケータ結線 (make_default): Init で Default セグメントへ差し替わり、Shutdown で
