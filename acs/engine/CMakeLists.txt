@@ -414,6 +414,11 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(63_HelloVerticalSlice)
     endif()
+
+    # --- (42) HelloJobsVisual (ジョブ/並列を可視化: パーティクル並列移動 + 依存ゲージ, windowed) ---
+    if(ACS_RENDER_DX12_RAW)
+        acs_add_sample(65_HelloJobsVisual)
+    endif()
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})
