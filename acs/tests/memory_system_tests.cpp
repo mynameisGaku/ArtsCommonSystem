@@ -202,6 +202,79 @@ ACS_TEST(MemSystem, TlsfAutoGrow) {
     EXPECT_TRUE(t.ValidateHeap());
 }
 
+// TLSF in-place Realloc: 拡大(次が free なら統合)/縮小(末尾解放) はコピー無しで ptr 不変、
+// 不可なら移動 + データ保持。ランダムストレスでデータ整合とヒープ健全を検証する。
+ACS_TEST(MemSystem, TlsfReallocInPlace) {
+    constexpr usize kPoolSize = 8 * 1024 * 1024;
+    void* pool = ::HeapAlloc(::GetProcessHeap(), 0, kPoolSize);
+    EXPECT_TRUE(pool != nullptr);
+    if (!pool) return;
+    FTlsfAllocator t;
+    EXPECT_TRUE(t.Init(pool, kPoolSize).IsOk());
+
+    auto fill = [](void* p, usize n, u8 seed) {
+        u8* b = static_cast<u8*>(p);
+        for (usize i = 0; i < n; ++i) b[i] = static_cast<u8>(seed + (i & 0x3F));
+    };
+    auto check = [](const void* p, usize n, u8 seed) -> bool {
+        const u8* b = static_cast<const u8*>(p);
+        for (usize i = 0; i < n; ++i) if (b[i] != static_cast<u8>(seed + (i & 0x3F))) return false;
+        return true;
+    };
+
+    // (1) 拡大 in-place: A 直後の B を解放 → A を拡大すると空き領域を吸収して ptr 不変
+    void* a = t.Alloc(1000, 16, FSourceLoc::Current());
+    void* b = t.Alloc(1000, 16, FSourceLoc::Current());
+    EXPECT_TRUE(a && b);
+    fill(a, 1000, 0xA0);
+    t.Free(b);
+    void* a2 = t.Realloc(a, 1000, 1800, 16, FSourceLoc::Current());
+    EXPECT_TRUE(a2 == a);                      // 移動していない (in-place)
+    EXPECT_TRUE(check(a2, 1000, 0xA0));         // データ保持
+    EXPECT_TRUE(t.ValidateHeap());
+
+    // (2) 縮小 in-place: ptr 不変、末尾を解放
+    void* a3 = t.Realloc(a2, 1800, 400, 16, FSourceLoc::Current());
+    EXPECT_TRUE(a3 == a2);
+    EXPECT_TRUE(check(a3, 400, 0xA0));
+    EXPECT_TRUE(t.ValidateHeap());
+
+    // (3) 直後を別確保で塞いでから拡大 → 移動 + 先頭データ保持
+    void* c = t.Alloc(1000, 16, FSourceLoc::Current());
+    EXPECT_TRUE(c);
+    void* a4 = t.Realloc(a3, 400, 5000, 16, FSourceLoc::Current());
+    EXPECT_TRUE(a4 != nullptr);
+    EXPECT_TRUE(check(a4, 400, 0xA0));          // コピーで先頭 400B 保持
+    EXPECT_TRUE(t.ValidateHeap());
+    t.Free(a4); t.Free(c);
+    EXPECT_TRUE(t.ValidateHeap());
+
+    // (4) ランダム realloc ストレス: 毎回データ整合 (min(old,new)) とヒープ健全を検証
+    u32 rng = 0x9e3779b9u;
+    auto next = [&rng]() -> u32 { rng = rng * 1664525u + 1013904223u; return rng; };
+    void* p = t.Alloc(64, 16, FSourceLoc::Current());
+    usize sz = 64;
+    u8 seed = 0x11;
+    fill(p, sz, seed);
+    bool ok = (p != nullptr);
+    for (int i = 0; i < 2000 && ok; ++i) {
+        const usize ns = static_cast<usize>(16u + (next() % 8192u));
+        void* np = t.Realloc(p, sz, ns, 16, FSourceLoc::Current());
+        if (!np) { ok = false; break; }
+        const usize keep = sz < ns ? sz : ns;
+        if (!check(np, keep, seed)) ok = false;   // 旧データ保持
+        p = np; sz = ns; seed = static_cast<u8>(seed + 1u);
+        fill(p, sz, seed);
+        if ((i & 0x7F) == 0 && !t.ValidateHeap()) ok = false;
+    }
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(t.ValidateHeap());
+    t.Free(p);
+    EXPECT_TRUE(t.ValidateHeap());
+
+    ::HeapFree(::GetProcessHeap(), 0, pool);
+}
+
 // FMemorySystem: 全セグメント初期化 → 取得 → 解放
 ACS_TEST(MemSystem, SegmentInitGet) {
     MemorySystemConfig cfg = FMemorySystem::DefaultConfig();

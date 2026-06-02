@@ -108,6 +108,9 @@ private:
     void RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept;
     tlsf::FBlockHeader* SearchSuitableBlock(int& fl, int& sl) noexcept;
     void TrimFreeBlock(tlsf::FBlockHeader* block, usize size) noexcept;
+    // used ブロックを size に縮め、余りを free ブロックとして解放する (in-place realloc 用)。
+    // 末尾の free 隣接ブロックがあれば統合する。切り出す余裕が無ければ何もしない。
+    void TrimUsedBlock(tlsf::FBlockHeader* block, usize size) noexcept;
     tlsf::FBlockHeader* MergePrev(tlsf::FBlockHeader* block) noexcept;
     tlsf::FBlockHeader* MergeNext(tlsf::FBlockHeader* block) noexcept;
 };

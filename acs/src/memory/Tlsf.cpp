@@ -369,11 +369,48 @@ tlsf::FBlockHeader* FTlsfAllocator::MergeNext(tlsf::FBlockHeader* block) noexcep
     return block;
 }
 
+// used ブロックを size に縮め、余りを free ブロックとして解放する (in-place realloc 用)。
+// TrimFreeBlock との違い: block は used のまま保持し、切り出した余り(tail)を「解放」する。
+// tail の物理次が free なら統合する (used ブロックは free 隣接を持ち得るため必須)。
+void FTlsfAllocator::TrimUsedBlock(tlsf::FBlockHeader* block, usize size) noexcept {
+    using namespace tlsf;
+    const usize bs = BlockSize(block);
+    if (bs < size || (bs - size) < kBlockHeaderOverhead + MIN_BLOCK_SIZE) {
+        return;  // 切り出す余裕が無い (僅差) → そのまま (over-allocation を許容)
+    }
+    const usize remaining = bs - size - kBlockHeaderOverhead;
+    SetBlockSize(block, size);                 // block は used のまま (フラグ保持)
+    FBlockHeader* rem = NextBlock(block);
+    rem->prev_phys_block = block;
+    // rem は free。prev(=block) は used なので prev_free は立てない。
+    rem->size_and_flags = remaining | kBlockFreeBit;
+    rem->next_free = nullptr;
+    rem->prev_free = nullptr;
+    // rem の物理次。free なら rem に統合して二重隣接 free を防ぐ。
+    FBlockHeader* after = NextBlock(rem);
+    after->prev_phys_block = rem;
+    if (IsFree(after)) {
+        rem = MergeNext(rem);                  // after を rem に吸収 (RemoveFreeBlock(after) 込み)
+    }
+    InsertFreeBlock(rem);
+    FBlockHeader* a2 = NextBlock(rem);
+    a2->prev_phys_block = rem;
+    MarkPrevFree(a2);                          // a2 の prev(=rem) は free
+}
+
+// 安全上限。これを超える要求は内部のサイズ計算 (AlignUp / search_size) が
+// オーバーフローして過小確保 → OOB を招くため、計算前に弾く。
+static constexpr usize kMaxAllocSize = (~usize(0)) >> 1;   // アドレス空間の半分 (実用上無制限)
+static constexpr usize kMaxAlignment = 64u * 1024u;        // 64KiB (VirtualAlloc 粒度)。これ以上は非現実的
+
 // 確保
 void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
     using namespace tlsf;
     if (size == 0) return nullptr;
+    if (size > kMaxAllocSize) return nullptr;                 // オーバーフロー防止
     if (alignment < ALIGN_SIZE) alignment = ALIGN_SIZE;
+    if (alignment > kMaxAlignment) return nullptr;            // 非現実的 alignment (search_size wrap 防止)
+    if ((alignment & (alignment - 1u)) != 0u) return nullptr; // 2 のべき乗でない alignment は不正
 
     // サイズをアライン → バケット検索
     usize adjust = AdjustRequestSize(size, alignment);
@@ -489,6 +526,12 @@ void FTlsfAllocator::Free(void* ptr) noexcept {
     if (!ptr) return;
 
     // --- 常時有効の安全ガード (低コスト、Release でも動作) ---
+    // (0) 全 payload は 16 整列なので、非整列ポインタは当アロケータ由来でない (内部/野良ポインタ)。
+    //     PtrToBlock が壊れたヘッダを指してヒープを破壊する前に弾く。
+    if ((reinterpret_cast<uptr>(ptr) & (ALIGN_SIZE - 1)) != 0) {
+        ACS_ASSERT(false && "FTlsfAllocator::Free: 非整列ポインタ (当アロケータ由来でない)");
+        return;
+    }
     // (1) 所属プール範囲外 (野良 / 別アロケータ由来) のポインタを弾く。誤った Free が
     //     ヒープ構造を破壊するのを未然に防ぐ。Debug は assert で即検出、Release は安全に no-op。
     if (!OwnsPointer(ptr)) {
@@ -533,7 +576,58 @@ void FTlsfAllocator::Free(void* ptr) noexcept {
 
 void* FTlsfAllocator::Realloc(void* ptr, usize old_size, usize new_size,
                              usize alignment, FSourceLoc loc) noexcept {
-    return FAllocator::Realloc(ptr, old_size, new_size, alignment, loc);
+    using namespace tlsf;
+    if (ptr == nullptr)   return Alloc(new_size, alignment, loc);
+    if (new_size == 0)    { Free(ptr); return nullptr; }
+    if (alignment < ALIGN_SIZE) alignment = ALIGN_SIZE;
+    if (new_size > kMaxAllocSize || alignment > kMaxAlignment) return nullptr;
+
+    // in-place 可否の前提: 当アロケータ所有 + 16 整列 + used ブロックであること。
+    // 不正/解放済みポインタは旧領域を読まず/解放せず、新規確保のみで安全側に倒す。
+    const bool ptr_ok = OwnsPointer(ptr) &&
+                        ((reinterpret_cast<uptr>(ptr) & (ALIGN_SIZE - 1)) == 0);
+    if (!ptr_ok) {
+        ACS_ASSERT(false && "FTlsfAllocator::Realloc: 不正なポインタ");
+        return Alloc(new_size, alignment, loc);
+    }
+    FBlockHeader* block = PtrToBlock(ptr);
+    if (IsFree(block)) {
+        ACS_ASSERT(false && "FTlsfAllocator::Realloc: 解放済みポインタ");
+        return Alloc(new_size, alignment, loc);
+    }
+
+    // over-alignment 要求で現在の先頭が境界を満たさない場合は in-place できない → 移動。
+    if (alignment > ALIGN_SIZE &&
+        (reinterpret_cast<uptr>(ptr) & (static_cast<uptr>(alignment) - 1)) != 0) {
+        return FAllocator::Realloc(ptr, old_size, new_size, alignment, loc);
+    }
+
+    const usize adjust = AdjustRequestSize(new_size, ALIGN_SIZE);
+    const usize old_bs = BlockSize(block);
+
+    if (adjust > old_bs) {
+        // 拡大: 物理的に次のブロックが free で、合算サイズが要求を満たすなら in-place 統合。
+        // そうでなければコピーを伴う移動 (新規確保 + memcpy + 解放) にフォールバック。
+        FBlockHeader* next = NextBlock(block);
+        if (!(IsFree(next) && (old_bs + BlockSize(next) + kBlockHeaderOverhead) >= adjust)) {
+            return FAllocator::Realloc(ptr, old_size, new_size, alignment, loc);
+        }
+        block = MergeNext(block);            // block は used のまま next を吸収
+        MarkPrevUsed(NextBlock(block));      // 統合後の次ブロックへ「prev(=block) は used」を伝達
+    }
+
+    // ここで BlockSize(block) >= adjust。余剰を切り出して解放する (コピー不要、ptr 不変)。
+    TrimUsedBlock(block, adjust);
+
+    // 統計更新 (used 総量の増減ぶん)。
+    const usize new_bs = BlockSize(block);
+    if (new_bs >= old_bs) {
+        m_BytesUsed += (new_bs - old_bs);
+        if (m_BytesUsed > m_BytesPeak) m_BytesPeak = m_BytesUsed;
+    } else {
+        m_BytesUsed -= (old_bs - new_bs);
+    }
+    return ptr;
 }
 
 FTlsfAllocator::Stats FTlsfAllocator::GetStats() const noexcept {
