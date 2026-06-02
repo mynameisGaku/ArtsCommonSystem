@@ -81,6 +81,15 @@ public:
     // (FShardedTlsfAllocator の Shutdown→再 Init や FMemorySystem の再初期化で使う)。
     void Reset() noexcept;
 
+    // FTlsfAllocator が払い出した payload ポインタの「ブロックサイズ」を、レイアウトだけから
+    // ロック無しで読む静的ヘルパ (thread-cache のサイズクラス判定用)。size_and_flags は
+    // payload の手前 sizeof(usize) に在り、確保中は不変なので安全に読める。
+    static usize PayloadBlockSize(const void* ptr) noexcept {
+        const usize saf = *reinterpret_cast<const usize*>(
+            static_cast<const u8*>(ptr) - sizeof(usize));
+        return saf & ~usize(3);   // 下位 2bit (free/prev_free フラグ) を落とす
+    }
+
 private:
     u32              m_FlBitmap = 0;
     u32              m_SlBitmap[tlsf::FL_INDEX_COUNT] = {};

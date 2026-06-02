@@ -387,6 +387,47 @@ ACS_TEST(MemSystem, ShardedTlsfMultiThread) {
     FThreadPool::Shutdown();
 }
 
+// thread-local マガジン (lock-free hot path) の正当性。小サイズ中心に alloc/free を大量に回し、
+// refill/pop/push/flush を踏みながらデータ整合 (重複払い出しがあれば破壊検出) と ValidateHeap を検証。
+ACS_TEST(MemSystem, ShardedTlsfThreadCache) {
+    FShardedTlsfAllocator a;
+    EXPECT_TRUE(a.Init(64ull * 1024 * 1024, 4ull * 1024 * 1024, 4u).IsOk());
+    a.EnableThreadCache();
+    EXPECT_TRUE(a.ThreadCacheEnabled());
+    EXPECT_TRUE(a.ValidateHeap());
+
+    u32 rng = 0xABCDEF01u;
+    auto next = [&rng]() -> u32 { rng = rng * 1664525u + 1013904223u; return rng; };
+    void* live[512] = {};
+    usize sz[512]   = {};
+    u8    sd[512]   = {};
+    bool ok = true;
+    for (int it = 0; it < 20000 && ok; ++it) {
+        const u32 slot = next() % 512u;
+        if (live[slot]) {
+            const u8* b = static_cast<const u8*>(live[slot]);
+            for (usize k = 0; k < sz[slot]; ++k)
+                if (b[k] != static_cast<u8>(sd[slot] + (k & 0x1F))) { ok = false; break; }
+            if (!ok) break;
+            a.Free(live[slot]);            // マガジンへ push (大量 free でバケット flush も踏む)
+            live[slot] = nullptr;
+        } else {
+            const usize n = static_cast<usize>(8u + (next() % 480u));  // 小サイズ中心 (キャッシュ対象)
+            void* p = a.Alloc(n, 16, FSourceLoc::Current());           // pop / refill
+            if (!p) { ok = false; break; }
+            const u8 seed = static_cast<u8>(next());
+            u8* b = static_cast<u8*>(p);
+            for (usize k = 0; k < n; ++k) b[k] = static_cast<u8>(seed + (k & 0x1F));
+            live[slot] = p; sz[slot] = n; sd[slot] = seed;
+        }
+        if ((it & 0xFFF) == 0 && !a.ValidateHeap()) ok = false;
+    }
+    EXPECT_TRUE(ok);
+    for (int i = 0; i < 512; ++i) if (live[i]) a.Free(live[i]);
+    EXPECT_TRUE(a.ValidateHeap());
+    a.Shutdown();
+}
+
 // 既定アロケータ結線 (make_default): Init で Default セグメントへ差し替わり、Shutdown で
 // 元へ復元されること。既定経由の確保が Default セグメントに計上されることも確認する。
 ACS_TEST(MemSystem, DefaultAllocatorWiring) {
@@ -432,8 +473,13 @@ ACS_TEST(MemSystem, ShardedTlsfBenchmark) {
     FShardedTlsfAllocator sharded;
     EXPECT_TRUE(sharded.Init(kPoolSize, 8ull * 1024 * 1024, 0u).IsOk());
 
-    struct BCtx { int mode; FTlsfAllocator* single; FMutex* lk; FShardedTlsfAllocator* sharded; };
-    BCtx bc{ 0, &single, &single_lock, &sharded };
+    FShardedTlsfAllocator sharded_c;     // lock-free マガジン有効版
+    EXPECT_TRUE(sharded_c.Init(kPoolSize, 8ull * 1024 * 1024, 0u).IsOk());
+    sharded_c.EnableThreadCache();
+
+    struct BCtx { int mode; FTlsfAllocator* single; FMutex* lk;
+                  FShardedTlsfAllocator* sharded; FShardedTlsfAllocator* sharded_c; };
+    BCtx bc{ 0, &single, &single_lock, &sharded, &sharded_c };
 
     auto bench = [](u32 i, u32 /*w*/, void* user) {
         BCtx* c = static_cast<BCtx*>(user);
@@ -445,12 +491,14 @@ ACS_TEST(MemSystem, ShardedTlsfBenchmark) {
             void* p = nullptr;
             if (c->mode == 0)      { FScopedLock l(*c->lk); p = c->single->Alloc(n, 16, FSourceLoc::Current()); }
             else if (c->mode == 1) { p = c->sharded->Alloc(n, 16, FSourceLoc::Current()); }
-            else                   { p = ::HeapAlloc(::GetProcessHeap(), 0, n); }
+            else if (c->mode == 2) { p = ::HeapAlloc(::GetProcessHeap(), 0, n); }
+            else                   { p = c->sharded_c->Alloc(n, 16, FSourceLoc::Current()); }
             if (!p) continue;
             static_cast<u8*>(p)[0] = static_cast<u8>(k);
             if (c->mode == 0)      { FScopedLock l(*c->lk); c->single->Free(p); }
             else if (c->mode == 1) { c->sharded->Free(p); }
-            else                   { ::HeapFree(::GetProcessHeap(), 0, p); }
+            else if (c->mode == 2) { ::HeapFree(::GetProcessHeap(), 0, p); }
+            else                   { c->sharded_c->Free(p); }
         }
     };
 
@@ -467,12 +515,15 @@ ACS_TEST(MemSystem, ShardedTlsfBenchmark) {
     const double t_single  = run_ms(0);
     const double t_sharded = run_ms(1);
     const double t_heap    = run_ms(2);
-    std::printf("[bench MT8 alloc/free x %d] single-lock-TLSF=%.1fms  sharded-TLSF=%.1fms  HeapAlloc=%.1fms\n",
-                256 * 4000, t_single, t_sharded, t_heap);
+    const double t_cached  = run_ms(3);
+    std::printf("[bench MT8 alloc/free x %d] single-lock-TLSF=%.1fms  sharded-TLSF=%.1fms  "
+                "sharded+cache=%.1fms  HeapAlloc=%.1fms\n",
+                256 * 4000, t_single, t_sharded, t_cached, t_heap);
 
     EXPECT_TRUE(sharded.ValidateHeap());   // ベンチ後も健全
     EXPECT_TRUE(single.ValidateHeap());
 
+    sharded_c.Shutdown();
     sharded.Shutdown();
     ::HeapFree(::GetProcessHeap(), 0, pool);
     FThreadPool::Shutdown();
