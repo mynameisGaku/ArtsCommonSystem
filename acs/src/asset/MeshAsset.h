@@ -54,14 +54,14 @@ class GltfAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "gltf"; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class GlbAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "glb"; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 // Wavefront OBJ ローダ（自前パーサ）
@@ -69,7 +69,7 @@ class ObjAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "obj"; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 // FBX ローダ (ufbx)
@@ -77,7 +77,7 @@ class FbxAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
     const char* Extension() const noexcept override { return "fbx"; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

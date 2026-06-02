@@ -57,28 +57,28 @@ class WavAssetLoader  final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "wav"; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class Mp3AssetLoader  final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "mp3"; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class FlacAssetLoader final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "flac"; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 class OggAssetLoader  final : public IAssetLoader {
 public:
     AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
     const char* Extension() const noexcept override { return "ogg"; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

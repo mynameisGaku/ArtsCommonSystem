@@ -9,7 +9,7 @@
 #include "asset/SkinnedMesh.h"
 #include "math/Camera.h"
 #include "math/Mat.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "render/IRhiCommandList.h"
 #include "render/RenderAssets.h"
 #include "render/SkinnedShader.h"
@@ -21,8 +21,8 @@ namespace helloanim {
 class AnimationScene {
 public:
     // 4 ボーンの「ヘビ風」円柱メッシュを手続き生成 (アニメ含む)。
-    // 失敗時は空の TRc を返す (呼び出し元で null チェック)。
-    static acs::TRc<acs::FSkinnedMeshAsset> BuildSnake() noexcept;
+    // 失敗時は空の TSharedPtr を返す (呼び出し元で null チェック)。
+    static acs::TSharedPtr<acs::FSkinnedMeshAsset> BuildSnake() noexcept;
 
     // 1 フレームの描画 (FSky → 地面 → スキンメッシュ)。
     //   sky        : 描画する FSky (App 所有、SunDirection / SunColor 取得用)

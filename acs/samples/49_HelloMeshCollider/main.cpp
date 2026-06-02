@@ -5,7 +5,7 @@
 #include "collision/MeshCollider.h"
 #include "asset/MeshPrimitive.h"
 #include "asset/MeshAsset.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 
 #include <cstdio>
 #include <cmath>
@@ -21,7 +21,7 @@ int main() {
     bool ok = true;
 
     // ---- (1) Cube ----
-    TRc<FMeshAsset> cube = Primitive::MakeCube(2.0f);
+    TSharedPtr<FMeshAsset> cube = Primitive::MakeCube(2.0f);
     FMeshCollider col;
     if (col.BuildFromMesh(*cube).IsErr()) { std::puts("cube: build FAILED"); return 2; }
 
@@ -52,7 +52,7 @@ int main() {
     ok = ok && hit_down && miss_up && hit_side && tri_ok;
 
     // ---- (2) Sphere ----
-    TRc<FMeshAsset> sph = Primitive::MakeSphere(1.0f, 32, 16);
+    TSharedPtr<FMeshAsset> sph = Primitive::MakeSphere(1.0f, 32, 16);
     FMeshCollider scol;
     if (scol.BuildFromMesh(*sph).IsErr()) { std::puts("sphere: build FAILED"); return 3; }
     RayHit3 sh = scol.Raycast(Ray3{ {0, 5, 0}, {0, -1, 0} });

@@ -101,7 +101,7 @@ void HelloAnimationApp::OnShutdown() noexcept {
     m_Batch.Shutdown();
     m_GmSnake = SkinnedGpuMesh{};
     m_GmPlane = GpuMesh{};
-    m_Snake    = TRc<FSkinnedMeshAsset>();
+    m_Snake    = TSharedPtr<FSkinnedMeshAsset>();
     m_StdShader.Shutdown();
     m_Shader.Shutdown();
     m_Sky.Shutdown();

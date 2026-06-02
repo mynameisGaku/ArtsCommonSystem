@@ -7,7 +7,7 @@
 
 #include "foundation/Types.h"
 #include "foundation/Result.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "container/Array.h"
 #include "container/StringView.h"
 #include "asset/Asset.h"
@@ -26,7 +26,7 @@ public:
 
     // バイト列からアセットを生成（同期）
     // 非同期化は FAssetRegistry 側が FThreadPool で本関数を呼ぶ形で実現する
-    virtual TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept = 0;
+    virtual TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept = 0;
 };
 
 } // namespace acs

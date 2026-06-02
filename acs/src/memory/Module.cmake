@@ -22,6 +22,8 @@ acs_module(
         PoolAllocator.h
         ArenaAllocator.h
         UniquePtr.h
+        SharedPtr.h
+        ObjectPtr.h
         Rc.h
         VirtualMemory.h
         Tlsf.h

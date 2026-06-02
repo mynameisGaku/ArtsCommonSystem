@@ -6,7 +6,7 @@
 //   ...
 //   if (fut.IsReady()) {
 //       auto r = fut.Get();
-//       if (r.IsOk()) TRc<Asset> a = r.Value();
+//       if (r.IsOk()) TSharedPtr<Asset> a = r.Value();
 //   }
 //   // または同期待ち（ワーカースチール参加付き）
 //   auto r = fut.Wait();
@@ -15,7 +15,7 @@
 #include "foundation/Types.h"
 #include "foundation/Result.h"
 #include "foundation/Error.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "asset/Asset.h"
 #include "threading/ThreadPool.h"
 
@@ -24,7 +24,7 @@ namespace acs {
 // 内部共有状態（worker と future の双方が保持）
 struct AsyncLoadState {
     CompletionCounter counter{1};   // 1 → 0 で完了
-    TRc<Asset>         result;
+    TSharedPtr<Asset>         result;
     FErrorCode         error{};
     bool              has_error = false;
 };
@@ -34,7 +34,7 @@ public:
     FAssetFuture() noexcept = default;
 
     // 内部用: FAssetRegistry::LoadAsync が状態を渡してくる
-    explicit FAssetFuture(TRc<AsyncLoadState> s) noexcept : _state(Move(s)) {}
+    explicit FAssetFuture(TSharedPtr<AsyncLoadState> s) noexcept : _state(Move(s)) {}
 
     // 完了済みか（ノンブロッキング、true ならGet がすぐ返る）
     bool IsReady() const noexcept {
@@ -45,18 +45,18 @@ public:
     bool Valid() const noexcept { return _state.Get() != nullptr; }
 
     // 完了を待って結果を取り出す（呼び出しスレッドがワーカーなら手伝う）
-    TResult<TRc<Asset>> Get() noexcept {
+    TResult<TSharedPtr<Asset>> Get() noexcept {
         if (!_state.Get()) return ACS_ERR(Asset, 10, "FAssetFuture: empty");
         FThreadPool::Wait(_state->counter);
-        if (_state->has_error) return TResult<TRc<Asset>>(_state->error);
-        return TResult<TRc<Asset>>(OkInit, _state->result);
+        if (_state->has_error) return TResult<TSharedPtr<Asset>>(_state->error);
+        return TResult<TSharedPtr<Asset>>(OkInit, _state->result);
     }
 
     // 別名: Wait() = Get() （直感的に使えるよう）
-    TResult<TRc<Asset>> Wait() noexcept { return Get(); }
+    TResult<TSharedPtr<Asset>> Wait() noexcept { return Get(); }
 
 private:
-    TRc<AsyncLoadState> _state;
+    TSharedPtr<AsyncLoadState> _state;
 };
 
 } // namespace acs

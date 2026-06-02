@@ -9,9 +9,9 @@ using namespace acs;
 
 namespace helloanim {
 
-TRc<FSkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
-    auto m = MakeRc<FSkinnedMeshAsset>();
-    if (!m) return TRc<FSkinnedMeshAsset>();
+TSharedPtr<FSkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
+    auto m = MakeShared<FSkinnedMeshAsset>();
+    if (!m) return TSharedPtr<FSkinnedMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     auto& B = m->Bones();

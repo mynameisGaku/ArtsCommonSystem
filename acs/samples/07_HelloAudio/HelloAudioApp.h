@@ -10,7 +10,7 @@
 #include "app/Application.h"
 #include "audio/AudioEngine.h"
 #include "asset/Asset.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "foundation/Types.h"
 
 namespace helloaudio {
@@ -23,7 +23,7 @@ public:
 
 private:
     acs::FAudioEngine m_Engine;
-    acs::TRc<acs::Asset> m_Audio;
+    acs::TSharedPtr<acs::Asset> m_Audio;
     acs::SoundHandle    m_Handle = acs::kInvalidSound;
     acs::f32            m_Volume = 1.0f;
 };

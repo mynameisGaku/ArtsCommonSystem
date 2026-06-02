@@ -12,7 +12,7 @@
 #include "app/Application.h"
 #include "asset/SkinnedMesh.h"
 #include "math/Camera.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "render/Font.h"
 #include "render/RenderAssets.h"
 #include "render/SkinnedShader.h"
@@ -37,7 +37,7 @@ private:
     acs::FSpriteBatch              m_Batch;
     acs::Font                     m_Font;
 
-    acs::TRc<acs::FSkinnedMeshAsset> m_Snake;
+    acs::TSharedPtr<acs::FSkinnedMeshAsset> m_Snake;
     acs::SkinnedGpuMesh            m_GmSnake;
     acs::GpuMesh                   m_GmPlane;
     acs::FAnimationPlayer           m_Player;

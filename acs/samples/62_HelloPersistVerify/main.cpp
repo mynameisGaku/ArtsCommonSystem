@@ -550,7 +550,7 @@ void TestAssetBundle() noexcept {
     Check(bundle.HasFailed(), "欠落ファイルを Failed 検知");
     Check(bundle.GetAsset(0).Get() != nullptr, "GetAsset(0) で実体保持");
     Check(bundle.FindAsset(fname).Get() != nullptr, "FindAsset で取得");
-    Check(bundle.GetAsset(1).Get() == nullptr, "失敗 entry は空 TRc");
+    Check(bundle.GetAsset(1).Get() == nullptr, "失敗 entry は空 TSharedPtr");
     bundle.Unload();
     Check(bundle.AssetCount() == 0, "Unload で空に");
     std::remove(fname);

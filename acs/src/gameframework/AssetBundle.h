@@ -26,7 +26,7 @@
 //   };
 //
 // 設計方針:
-//   ・シーン死亡で bundle 廃棄 → 内部 TRc<Asset> が drop → FAssetRegistry の refcount
+//   ・シーン死亡で bundle 廃棄 → 内部 TSharedPtr<Asset> が drop → FAssetRegistry の refcount
 //     が下がり、他参照がなければ実体メモリも解放される (GC 不要 / 決定的解放)。
 //   ・path 文字列は呼び出し側が寿命を保証する (string literal / 永続バッファ前提)。
 //     ACS 規約により <string> は使わない (const char* を TArray に保持)。
@@ -38,7 +38,7 @@
 #include "foundation/Types.h"
 #include "foundation/Log.h"
 #include "container/Array.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "asset/Asset.h"
 
 namespace acs { class FAssetRegistry; }
@@ -72,16 +72,16 @@ public:
     // BeginLoad 後の Add は no-op (警告ログのみ)。
     void Add(const char* asset_path) noexcept;
 
-    // 全 path を registry 経由で実ロードし、結果 (TRc<Asset>) を各 entry に保持する。
+    // 全 path を registry 経由で実ロードし、結果 (TSharedPtr<Asset>) を各 entry に保持する。
     // registry は app が所有するもの (FApplication::GetAssets() / FGame 経由) を渡す。
     // RegisterDefaultLoaders() 済みであること。多重呼び出しは no-op (警告のみ)。
     // 同期ロード (FAssetRegistry::Load): 戻った時点で各 entry は Loaded / Failed 確定。
     void BeginLoad(FAssetRegistry& registry) noexcept;
 
-    // ロード済み asset を取得する (未ロード / 範囲外 / 失敗は空 TRc)。index は Add 順。
-    TRc<Asset> GetAsset(u32 index) const noexcept;
-    // path 一致の asset を取得 (見つからない / 失敗は空 TRc)。
-    TRc<Asset> FindAsset(const char* asset_path) const noexcept;
+    // ロード済み asset を取得する (未ロード / 範囲外 / 失敗は空 TSharedPtr)。index は Add 順。
+    TSharedPtr<Asset> GetAsset(u32 index) const noexcept;
+    // path 一致の asset を取得 (見つからない / 失敗は空 TSharedPtr)。
+    TSharedPtr<Asset> FindAsset(const char* asset_path) const noexcept;
 
     // 完了割合 [0, 1]。BeginLoad 未呼び出しは 0、全 asset 完了 (成功/失敗問わず) で 1。
     // 「ローディング画面のプログレスバー」用途を想定。
@@ -110,7 +110,7 @@ private:
     struct Entry {
         const char* path   = nullptr;
         LoadStatus  status = LoadStatus::Pending;
-        TRc<Asset>  asset;   // BeginLoad で registry からロードした実体 (失敗時は空)。
+        TSharedPtr<Asset>  asset;   // BeginLoad で registry からロードした実体 (失敗時は空)。
                              // bundle が参照を保持することで、Unload まで生存を保証する。
     };
 

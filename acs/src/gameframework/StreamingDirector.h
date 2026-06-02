@@ -140,7 +140,7 @@ public:
     u32 LoadingCount() const noexcept;
 
     // 指定チャンクを強制的に Unloaded にする (デバッグ / メモリ圧追従用)。
-    // Loading 中でも即座に破棄する (bundle.Unload で TRc を drop。FAssetBundle は同期
+    // Loading 中でも即座に破棄する (bundle.Unload で TSharedPtr を drop。FAssetBundle は同期
     // ロードなので「進行中の async load」は無く、cancel 不要で即時解放できる)。
     // 範囲内にあれば次 Tick() で再び Queued に戻る点に注意。
     void ForceUnload(FChunkId id) noexcept;

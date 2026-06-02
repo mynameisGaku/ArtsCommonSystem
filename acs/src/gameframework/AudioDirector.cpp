@@ -8,7 +8,7 @@
 #include "gameframework/audio_backend/IAudioBackend.h"
 #include "asset/AssetRegistry.h"
 #include "asset/AudioAsset.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -28,7 +28,7 @@ bool StrEq(const char* a, const char* b) noexcept {
 // keep は呼び出し中 asset を生存させる (backend が Play* で PCM を内部コピーするので、
 // 呼び出し後に drop してよい)。registry 未設定 / 非音声 / load 失敗は false。
 bool ResolveAudioClip(FAssetRegistry* reg, const char* name,
-                      AudioClipDesc& out, TRc<Asset>& keep) noexcept {
+                      AudioClipDesc& out, TSharedPtr<Asset>& keep) noexcept {
     if (reg == nullptr || name == nullptr) return false;
     wchar_t wpath[260];
     if (::MultiByteToWideChar(CP_UTF8, 0, name, -1, wpath, 260) <= 0) return false;
@@ -116,7 +116,7 @@ void FAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
 
     // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
     if (m_Backend != nullptr && m_Registry != nullptr) {
-        AudioClipDesc clip; TRc<Asset> keep;
+        AudioClipDesc clip; TSharedPtr<Asset> keep;
         if (ResolveAudioClip(m_Registry, name, clip, keep)) {
             const AudioVoiceHandle h = PlayBgmClip(clip, fade_in_sec, loop);
             if (h.IsValid()) {
@@ -204,7 +204,7 @@ void FAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept {
     // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
     // backend が voice を管理するので、成功時は state ring に積まない。
     if (m_Backend != nullptr && m_Registry != nullptr) {
-        AudioClipDesc clip; TRc<Asset> keep;
+        AudioClipDesc clip; TSharedPtr<Asset> keep;
         if (ResolveAudioClip(m_Registry, name, clip, keep)) {
             PlaySfxClip(clip, volume_scale, 1.0f);
             return;

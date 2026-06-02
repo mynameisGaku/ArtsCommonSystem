@@ -17,7 +17,7 @@
 #include "container/String.h"
 #include "memory/MemorySystem.h"
 #include "memory/UniquePtr.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "threading/ThreadPool.h"
 #include "math/Vec.h"
 #include "math/Math.h"
@@ -77,7 +77,7 @@ struct SpriteSlot {
 };
 
 struct SoundSlot {
-    TRc<Asset>   asset;     // FAudioAsset を再生中ずっと生かしておくため保持
+    TSharedPtr<Asset>   asset;     // FAudioAsset を再生中ずっと生かしておくため保持
     FString      path;
     SoundHandle loop{};    // PlayLoop 中のハンドル（StopSound 用、無効値で初期化）
 };
@@ -962,7 +962,7 @@ Sprite LoadSprite(const char* path) noexcept {
         ACS_LOG_ERROR("easy: 画像を読み込めません '%s': %s", path, r.Error().message);
         return Sprite{ 0 };
     }
-    TRc<Asset> asset = r.Value();
+    TSharedPtr<Asset> asset = r.Value();
     Asset* base = asset.Get();
     if (!base || base->Type() != FImageAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は画像ファイルではありません", path);
@@ -1001,14 +1001,14 @@ Sound LoadSound(const char* path) noexcept {
         ACS_LOG_ERROR("easy: 音声を読み込めません '%s': %s", path, r.Error().message);
         return Sound{ 0 };
     }
-    TRc<Asset> asset = r.Value();
+    TSharedPtr<Asset> asset = r.Value();
     Asset* base = asset.Get();
     if (!base || base->Type() != FAudioAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は音声ファイルではありません", path);
         return Sound{ 0 };
     }
     SoundSlot slot;
-    slot.asset = asset;            // TRc をコピー保持 -> 再生中ずっと生かす
+    slot.asset = asset;            // TSharedPtr をコピー保持 -> 再生中ずっと生かす
     slot.path  = FString{ path };
     g_state.sounds.PushBack(Move(slot));
     return Sound{ static_cast<u32>(g_state.sounds.Size()) };

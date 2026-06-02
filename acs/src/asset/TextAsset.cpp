@@ -4,15 +4,15 @@
 
 namespace acs {
 
-TResult<TRc<Asset>> FTextAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<Asset>> FTextAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     TArray<char> text;
     text.Resize(bytes.Size() + 1);
     for (usize i = 0; i < bytes.Size(); ++i) text[i] = static_cast<char>(bytes[i]);
     text[bytes.Size()] = '\0';
-    TRc<FTextAsset> a = MakeRc<FTextAsset>(Move(text));
+    TSharedPtr<FTextAsset> a = MakeShared<FTextAsset>(Move(text));
     a->SetId(id);
     a->SetState(EAssetState::Ready);
-    return TResult<TRc<Asset>>(OkInit, TRc<Asset>(Move(a)));
+    return TResult<TSharedPtr<Asset>>(OkInit, TSharedPtr<Asset>(Move(a)));
 }
 
 } // namespace acs

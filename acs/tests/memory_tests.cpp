@@ -6,7 +6,7 @@
 #include "memory/PoolAllocator.h"
 #include "memory/ArenaAllocator.h"
 #include "memory/UniquePtr.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "memory/New.h"
 
 using namespace acs;
@@ -76,8 +76,8 @@ ACS_TEST(Memory, UniquePtrDestroys) {
 ACS_TEST(Memory, RcSharesAndReleases) {
     Probe::destroyed = 0;
     {
-        TRc<Probe> a = MakeRc<Probe>(7);
-        TRc<Probe> b = a;
+        TSharedPtr<Probe> a = MakeShared<Probe>(7);
+        TSharedPtr<Probe> b = a;
         EXPECT_EQ(a.UseCount(), 2u);
         EXPECT_EQ(a->v, 7);
     }

@@ -28,7 +28,7 @@ FStreamingDirector::~FStreamingDirector() noexcept {
     // TArray<FChunkInfo> の破棄で各 FChunkInfo::bundle (TUniquePtr<FAssetBundle>) が
     // drop される。ここは FAssetBundle 完全型が見えている TU なので不完全型 delete に
     // ならない (= dtor をヘッダで = default にしない理由)。
-    // 各 bundle の Unload は TRc<Asset> drop で暗黙に行われるため明示呼び出しは不要。
+    // 各 bundle の Unload は TSharedPtr<Asset> drop で暗黙に行われるため明示呼び出しは不要。
 }
 
 void FStreamingDirector::Init(f32 chunk_size, i32 view_radius_chunks) noexcept {
@@ -220,7 +220,7 @@ void FStreamingDirector::Tick(f32 dt) noexcept {
     }
 
     // 3. Unloading のものを実際に破棄する。
-    //    bundle.Unload() で保持していた TRc<Asset> を drop し (refcount を落とし)、
+    //    bundle.Unload() で保持していた TSharedPtr<Asset> を drop し (refcount を落とし)、
     //    TArray からも除去する。RemoveAtSwap は内部で Move 代入を使うため、move-only な
     //    FChunkInfo (FString / TUniquePtr 保有) でも安全に O(1) 削除できる
     //    (順序は保たない = FChunkInfo は (cx,cy) で識別するので問題なし)。
@@ -265,7 +265,7 @@ u32 FStreamingDirector::LoadingCount() const noexcept {
 }
 
 void FStreamingDirector::ForceUnload(FChunkId id) noexcept {
-    // swap-erase で即破棄。Loading 中だった場合も bundle.Unload で TRc を即 drop する
+    // swap-erase で即破棄。Loading 中だった場合も bundle.Unload で TSharedPtr を即 drop する
     // (FAssetBundle は同期ロードなので「進行中の async load」は存在しない)。
     const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {
@@ -280,7 +280,7 @@ void FStreamingDirector::ForceUnload(FChunkId id) noexcept {
 }
 
 void FStreamingDirector::ClearAll() noexcept {
-    // 全チャンクの bundle を Unload してから破棄する (Loaded/Loading 問わず TRc を drop)。
+    // 全チャンクの bundle を Unload してから破棄する (Loaded/Loading 問わず TSharedPtr を drop)。
     // FChunkInfo のデストラクタ (TUniquePtr<FAssetBundle> drop) でも実体は解放されるが、
     // Unload を明示することで registry refcount を決定的タイミングで落とす。
     const usize n = m_Chunks.Size();

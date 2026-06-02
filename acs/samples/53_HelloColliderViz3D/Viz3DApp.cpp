@@ -8,7 +8,7 @@
 #include "collision/ConvexHull3.h"
 #include "asset/MeshPrimitive.h"
 #include "asset/MeshAsset.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "math/Mat.h"
 
 #include <cstdio>
@@ -26,7 +26,7 @@ void FViz3DApp::OnStart() noexcept {
     m_bFontReady = FSample::TryLoadDefaultUIFont(m_Font, *dev, 18.0f, 1024, false).IsOk();
 
     // メッシュ (球) を生成 → 位置 / インデックスを取り出す。
-    TRc<FMeshAsset> mesh = Primitive::MakeSphere(1.0f, 20, 10);
+    TSharedPtr<FMeshAsset> mesh = Primitive::MakeSphere(1.0f, 20, 10);
     for (usize i = 0; i < mesh->Vertices().Size(); ++i) m_MeshPos.PushBack(mesh->Vertices()[i].position);
     for (usize i = 0; i < mesh->Indices().Size(); ++i)  m_MeshIdx.PushBack(mesh->Indices()[i]);
 

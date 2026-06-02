@@ -6,7 +6,7 @@
 #include "collision/MeshCollider.h"
 #include "asset/MeshPrimitive.h"
 #include "asset/MeshAsset.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "container/Array.h"
 
 #include <cstdio>
@@ -21,7 +21,7 @@ int main() {
     bool ok = true;
 
     // ---- (1) cube メッシュ頂点 (24 個・8 位置) → 凸包 8 頂点 / 12 三角形 ----
-    TRc<FMeshAsset> cube = Primitive::MakeCube(2.0f);
+    TSharedPtr<FMeshAsset> cube = Primitive::MakeCube(2.0f);
     TArray<FVec3> cube_pos;
     for (usize i = 0; i < cube->Vertices().Size(); ++i) cube_pos.PushBack(cube->Vertices()[i].position);
 

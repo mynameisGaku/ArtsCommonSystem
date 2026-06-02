@@ -6,7 +6,7 @@
 //   engine.Init();
 //
 //   // FAudioAsset (wav/mp3/flac/ogg) を Asset モジュールから取得
-//   TRc<Asset> asset = registry.Load(L"sound/bgm.ogg").Value();
+//   TSharedPtr<Asset> asset = registry.Load(L"sound/bgm.ogg").Value();
 //   auto* audio = static_cast<FAudioAsset*>(asset.Get());
 //
 //   // 再生 (volume 0..1, loop は繰り返し)
@@ -21,7 +21,7 @@
 
 #include "foundation/Types.h"
 #include "foundation/Result.h"
-#include "memory/Rc.h"
+#include "memory/SharedPtr.h"
 #include "threading/Mutex.h"
 #include "container/Array.h"
 #include "audio/SoundHandle.h"

@@ -69,7 +69,7 @@ IAssetLoader* FAssetRegistry::FindLoader(const wchar_t* path) noexcept {
     return fallback;  // 拡張子マッチなければ "*" のフォールバックを返す
 }
 
-TResult<TRc<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
+TResult<TSharedPtr<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
     if (!path) return ACS_ERR(Asset, 1, "FAssetRegistry::Load: null path");
 
     FAssetId id = MakeIdFromPath(path);
@@ -77,8 +77,8 @@ TResult<TRc<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
     // キャッシュにあればそのまま返す
     {
         FScopedLock lk(m_Lock);
-        TRc<Asset>* hit = m_Cache.Find(id);
-        if (hit && hit->Get()) return TResult<TRc<Asset>>(OkInit, *hit);
+        TSharedPtr<Asset>* hit = m_Cache.Find(id);
+        if (hit && hit->Get()) return TResult<TSharedPtr<Asset>>(OkInit, *hit);
     }
 
     // 拡張子から適切なローダを選ぶ
@@ -91,13 +91,13 @@ TResult<TRc<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
 
     // ファイルを読み込む
     auto bytes_r = FileSystem::ReadAllBytes(path);
-    if (bytes_r.IsErr()) return Err<TRc<Asset>>(bytes_r.Error());
+    if (bytes_r.IsErr()) return Err<TSharedPtr<Asset>>(bytes_r.Error());
 
     // ローダ呼び出し
     auto asset_r = loader->LoadFromBytes(id, bytes_r.Value());
-    if (asset_r.IsErr()) return Err<TRc<Asset>>(asset_r.Error());
+    if (asset_r.IsErr()) return Err<TSharedPtr<Asset>>(asset_r.Error());
 
-    TRc<Asset> a = Move(asset_r.Value());
+    TSharedPtr<Asset> a = Move(asset_r.Value());
     if (!a.Get())  // ローダが OkInit で null を返した場合 (alloc 失敗等) の null-deref 回避
         return ACS_ERR(Asset, 3, "loader returned null asset");
     a->SetId(id);
@@ -108,14 +108,14 @@ TResult<TRc<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
         FScopedLock lk(m_Lock);
         m_Cache.Insert(id, a);
     }
-    return TResult<TRc<Asset>>(OkInit, Move(a));
+    return TResult<TSharedPtr<Asset>>(OkInit, Move(a));
 }
 
 // 非同期ロード用のワーカー引数
 namespace {
 struct AsyncLoadJob {
     FAssetRegistry*           registry  = nullptr;
-    TRc<AsyncLoadState>       state;       // 結果書き込み先（worker と future で共有）
+    TSharedPtr<AsyncLoadState>       state;       // 結果書き込み先（worker と future で共有）
     IAssetLoader*            loader    = nullptr;
     FAssetId                  id        = FAssetId{};
     wchar_t                  path[260] = {};
@@ -140,7 +140,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
         return;
     }
 
-    TRc<Asset> a = Move(asset_r.Value());
+    TSharedPtr<Asset> a = Move(asset_r.Value());
     if (!a.Get()) {  // ローダが OkInit で null を返した場合の null-deref 回避
         job->state->error = ACS_ERR(Asset, 3, "loader returned null asset");
         job->state->has_error = true;
@@ -159,14 +159,14 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
 }
 } // namespace
 
-void FAssetRegistry::AsyncCacheInsert(FAssetId id, TRc<Asset> a) noexcept {
+void FAssetRegistry::AsyncCacheInsert(FAssetId id, TSharedPtr<Asset> a) noexcept {
     FScopedLock lk(m_Lock);
     m_Cache.Insert(id, Move(a));
 }
 
 FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     // 共有状態を作る
-    auto state = MakeRc<AsyncLoadState>();
+    auto state = MakeShared<AsyncLoadState>();
     if (!state.Get()) return FAssetFuture{};
 
     if (!path) {
@@ -181,7 +181,7 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     // キャッシュにあれば即完了状態で返す
     {
         FScopedLock lk(m_Lock);
-        TRc<Asset>* hit = m_Cache.Find(id);
+        TSharedPtr<Asset>* hit = m_Cache.Find(id);
         if (hit && hit->Get()) {
             state->result = *hit;
             state->counter.Done();
@@ -233,10 +233,10 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     return FAssetFuture(Move(state));
 }
 
-TRc<Asset> FAssetRegistry::Find(FAssetId id) noexcept {
+TSharedPtr<Asset> FAssetRegistry::Find(FAssetId id) noexcept {
     FScopedLock lk(m_Lock);
-    TRc<Asset>* hit = m_Cache.Find(id);
-    return (hit && hit->Get()) ? *hit : TRc<Asset>();
+    TSharedPtr<Asset>* hit = m_Cache.Find(id);
+    return (hit && hit->Get()) ? *hit : TSharedPtr<Asset>();
 }
 
 void FAssetRegistry::Unload(FAssetId id) noexcept {
@@ -269,7 +269,7 @@ public:
     AliasLoader(IAssetLoader* base, const char* ext) noexcept : m_Base(base), m_Ext(ext) {}
     AssetType   TypeId()    const noexcept override { return m_Base->TypeId(); }
     const char* Extension() const noexcept override { return m_Ext; }
-    TResult<TRc<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override {
+    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override {
         return m_Base->LoadFromBytes(id, bytes);
     }
 private:

@@ -16,11 +16,11 @@ namespace acs {
 
 namespace {
 
-// 共通: FMeshAsset を TRc<Asset> として返すヘルパ
-TRc<Asset> WrapMesh(FAssetId id, TRc<FMeshAsset>&& m) noexcept {
+// 共通: FMeshAsset を TSharedPtr<Asset> として返すヘルパ
+TSharedPtr<Asset> WrapMesh(FAssetId id, TSharedPtr<FMeshAsset>&& m) noexcept {
     m->SetId(id);
     m->SetState(EAssetState::Ready);
-    return TRc<Asset>(Move(m));
+    return TSharedPtr<Asset>(Move(m));
 }
 
 // cgltf の attribute から FVec3 配列を読み出す
@@ -49,8 +49,8 @@ void ReadAttributeUV(const cgltf_accessor* a, MeshVertex* dst, usize n) noexcept
 }
 
 // cgltf の data から FMeshAsset へ詰める共通処理
-TRc<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
-    auto mesh = MakeRc<FMeshAsset>();
+TSharedPtr<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
+    auto mesh = MakeShared<FMeshAsset>();
     if (!data || data->meshes_count == 0) return mesh;
 
     // 全プリミティブを 1 つの FMeshAsset に flatten（v1）
@@ -110,7 +110,7 @@ TRc<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 } // namespace
 
 // ---- glTF / GLB (cgltf) -------------------------------------------------
-TResult<TRc<Asset>> GltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<Asset>> GltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     cgltf_data* data = nullptr;
     if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
@@ -121,12 +121,12 @@ TResult<TRc<Asset>> GltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byt
         ::cgltf_free(data);
         return ACS_ERR(Asset, 301, "cgltf_load_buffers failed (external bin not supported in v1)");
     }
-    TRc<FMeshAsset> mesh = BuildFromCgltf(data);
+    TSharedPtr<FMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
-TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     opts.type = cgltf_file_type_glb;
     cgltf_data* data = nullptr;
@@ -136,15 +136,15 @@ TResult<TRc<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
         ::cgltf_free(data);
         return ACS_ERR(Asset, 311, "cgltf_load_buffers failed");
     }
-    TRc<FMeshAsset> mesh = BuildFromCgltf(data);
+    TSharedPtr<FMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 // ---- OBJ (自前パーサ、最小機能) -----------------------------------------
 // v / vn / vt / f だけサポート。マテリアルは無視。
-TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
-    auto mesh = MakeRc<FMeshAsset>();
+TResult<TSharedPtr<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+    auto mesh = MakeShared<FMeshAsset>();
     TArray<FVec3> positions;
     TArray<FVec3> normals;
     struct UV { f32 u, v; };
@@ -246,17 +246,17 @@ TResult<TRc<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
     sub.first_index = 0;
     sub.index_count = static_cast<u32>(mesh->Indices().Size());
     mesh->SubMeshes().PushBack(sub);
-    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 // ---- FBX (ufbx) ---------------------------------------------------------
-TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     ufbx_load_opts opts{};
     ufbx_error err{};
     ufbx_scene* scene = ::ufbx_load_memory(bytes.Data(), bytes.Size(), &opts, &err);
     if (!scene) return ACS_ERR(Asset, 400, "ufbx_load_memory failed");
 
-    auto mesh = MakeRc<FMeshAsset>();
+    auto mesh = MakeShared<FMeshAsset>();
     u32 vertex_offset = 0;
     for (size_t mi = 0; mi < scene->meshes.count; ++mi) {
         ufbx_mesh* fm = scene->meshes.data[mi];
@@ -296,7 +296,7 @@ TResult<TRc<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte
         vertex_offset = static_cast<u32>(mesh->Vertices().Size());
     }
     ::ufbx_free_scene(scene);
-    return TResult<TRc<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 } // namespace acs

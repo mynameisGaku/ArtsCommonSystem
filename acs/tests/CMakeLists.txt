@@ -4,6 +4,7 @@ add_executable(acs_unit_tests
     threading_tests.cpp
     memory_tests.cpp
     memory_system_tests.cpp
+    smartptr_tests.cpp
     container_tests.cpp
     math_tests.cpp
     ecs_tests.cpp
