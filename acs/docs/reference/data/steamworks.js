@@ -60,7 +60,7 @@ ACS_REF.modules.push({
       kind: "定数(u16)", header: "steamworks/SteamworksBridgeImpl.h",
       summary: "<code>TResult</code> が <t>Err</t> の時に <code>err.subcode</code> で原因を見分けるための定数群(カテゴリは <code>ErrCategory::Generic</code>)。実装固有の失敗理由を表します。",
       when: "<code>Init()</code> 等が失敗した時、原因別に分岐したい場合に <code>err.subcode == ...</code> で照合する。",
-      sample: "auto r = steam.Init();\nif (r.IsErr() &amp;&amp; r.Err().subcode\n        == acs::steamworks::kSubSteamworksInitFailed) {\n    // Steam クライアント未起動など\n}",
+      sample: "auto r = steam.Init();\nif (r.IsErr() &amp;&amp; r.Error().subcode\n        == acs::steamworks::kSubSteamworksInitFailed) {\n    // Steam クライアント未起動など\n}",
       members: [
         { sig: "kSubSteamworksInitFailed = 1003", desc: "<code>SteamAPI_Init()</code> が失敗した(Steam 未起動 / AppID 不一致 等)。" },
         { sig: "kSubSteamworksFindBoardFailed = 1004", desc: "<code>FindLeaderboard</code> に失敗した。" },

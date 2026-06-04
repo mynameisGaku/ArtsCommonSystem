@@ -29,7 +29,8 @@ ACS_REF.modules.push({
       members: [
         { sig: "bool IsValid() const", ret: "有効か", desc: "購読が有効なら true(<code>id != 0</code>)。" },
         { sig: "bool operator==(const SubscriptionHandle& o) const", desc: "チャンネル・id・世代がすべて一致するか。" },
-        { sig: "EventTypeId channel / u32 id / u32 generation", desc: "どのチャンネルの何番目の購読か(+再利用を見分ける<t>世代</t>)。通常は直接触らない。" }
+        { sig: "EventTypeId channel / u32 id / u32 generation", desc: "どのチャンネルの何番目の購読か(+再利用を見分ける<t>世代</t>)。通常は直接触らない。" },
+        { sig: "kInvalidSubscription", desc: "無効な購読を表す定数(<code>event/MessageBroker.h</code>)。未購読の控えや「まだ Subscribe していない」状態の初期値に使う。" }
       ]
     },
     {
@@ -87,7 +88,8 @@ ACS_REF.modules.push({
       members: [
         { sig: "bool IsValid() const", ret: "有効か", desc: "<code>id != 0</code> なら true。" },
         { sig: "bool operator==(const FTimerHandle& o) const", desc: "id と<t>世代</t>が一致するか。" },
-        { sig: "u32 id / u32 generation", desc: "タイマの番号(1 始まり)と再利用を見分ける<t>世代</t>。通常は直接触らない。" }
+        { sig: "u32 id / u32 generation", desc: "タイマの番号(1 始まり)と再利用を見分ける<t>世代</t>。通常は直接触らない。" },
+        { sig: "kInvalidTimer", desc: "無効なタイマを表す定数(<code>event/Timer.h</code>)。未設定の控えや「まだ予約していない」状態の初期値に使う。" }
       ]
     },
     {

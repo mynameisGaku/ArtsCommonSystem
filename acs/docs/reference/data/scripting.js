@@ -97,6 +97,64 @@ ACS_REF.modules.push({
         { sig: "Python3 = 2", desc: "CPython 3.x(重量級)。" },
         { sig: "Custom = 3", desc: "ユーザー独自実装の <code>IScriptVm</code> 派生。" }
       ]
+    },
+    {
+      name: "FScriptHost",
+      kind: "クラス", header: "gameframework/ScriptHost.h",
+      summary: "<b>ゲームコードから見たスクリプトの単一窓口</b>。<t>IScriptVm</t>* を 1 つ保持し、関数呼び出し・ファイル実行・C++ 関数登録・エラー通知をまとめる(<t>DI</t> ポイントを 1 つに絞る)。<b>vm は所有しない</b>(生成/破棄は <code>FGame</code>/<code>Scene</code> 側の責任)。コピー/<t>ムーブ</t>不可。",
+      when: "ゲーム側で「スクリプトを呼ぶ」窓口が欲しい時。<code>FLuaVm</code>(実)や <code>GetVmStub()</code>(未統合時)を <code>Init()</code> で差し込んで使う。",
+      sample: "acs::scripting::FLuaVm vm; vm.Init();\nacs::game::FScriptHost host;\nhost.Init(&amp;vm);                              // 実 VM(未統合なら &amp;GetVmStub())を差す\nhost.RegisterNative(\"spawn\", &amp;Spawn, &amp;world);\nif (host.LoadAndRun(L\"scripts/quest.lua\").IsErr()) { /* 失敗処理 */ }\nacs::game::ScriptValue ret;\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &amp;ret);\nhost.Shutdown();                            // vm は delete しない",
+      members: [
+        { sig: "void Init(IScriptVm* vm)", desc: "使う VM を差し込む。<code>nullptr</code> は Shutdown 相当。多重呼び出し可(後勝ち)。<b>vm は所有しない</b>。" },
+        { sig: "void Shutdown()", desc: "vm 参照を切り、内部の native 登録リストもクリア(vm の破棄は呼び出し側)。" },
+        { sig: "IScriptVm* Vm() const", ret: "VM or null", desc: "保持中の VM。未 Init / Shutdown 後は <code>nullptr</code>。" },
+        { sig: "TResult&lt;void&gt; LoadAndRun(const wchar_t* file_path)", ret: "成否", desc: "ファイルを読み込んで <code>LoadScript</code> に流す。読み込み上限 64 MiB。失敗は subcode で区別(未設定/open 失敗/サイズ超過)。" },
+        { sig: "TResult&lt;void&gt; CallGlobalFunction(const char* name, const ScriptValue* args, u32 argc, ScriptValue* ret_out)", ret: "成否", desc: "グローバル関数を呼ぶ薄い委譲。" },
+        { sig: "TResult&lt;void&gt; RegisterNative(const char* name, NativeFunction fn, void* user)", ret: "成否", desc: "C++ 関数を vm に登録し、<b>ホスト内の registry にも記録</b>(backend 差し替え時の再登録の素地)。失敗時は registry にも追加しない。" },
+        { sig: "void RegisterStandardBindings()", desc: "Log/Math/Time/Input/Audio 等の標準 binding を一括登録(現状はプレースホルダで件数 0)。" },
+        { sig: "u32 RegisteredNativeCount() const", ret: "件数", desc: "<code>RegisterNative</code> で登録した native function の数。" },
+        { sig: "void SetOnErrorCallback(ScriptErrorCallback cb, void* user)", desc: "スクリプト実行/ロードエラーを上位 UI/ログへ通知する callback を設定(<code>nullptr</code> で無効化)。" }
+      ]
+    },
+    {
+      name: "ScriptVmStub / GetVmStub()",
+      kind: "クラス / 関数", header: "gameframework/ScriptHost.h",
+      summary: "実 backend(Lua 等)が<b>未統合のときの安全側 <t>IScriptVm</t></b>。<code>Init</code>/<code>Shutdown</code> だけ no-op 成功し、<code>LoadScript</code>/<code>CallFunction</code>/<code>RegisterNativeFunction</code> は <code>kSub_NotImplemented</code> を返す。これで上位層の「スクリプトが常に失敗する」fallback を検証できる。",
+      when: "<code>ACS_BUILD_SCRIPTING</code> OFF や backend 未リンクの状態でも起動シーケンスを通したい時。",
+      sample: "acs::game::FScriptHost host;\nhost.Init(&amp;acs::game::GetVmStub());   // 未統合でも安全に動く\n// LoadAndRun / CallGlobalFunction は kSub_NotImplemented を返す",
+      members: [
+        { sig: "IScriptVm&amp; GetVmStub()", ret: "stub 参照", desc: "プロセス内に 1 つの静的 stub(Meyers singleton)への参照。" },
+        { sig: "Init() / Shutdown()", desc: "no-op 成功(起動シーケンスを通すため)。" },
+        { sig: "LoadScript / CallFunction / RegisterNativeFunction", desc: "<code>kSub_NotImplemented</code>(99)を返す。" }
+      ]
+    },
+    {
+      name: "SetScriptVmProvider / GetDefaultScriptVm",
+      kind: "関数", header: "gameframework/ScriptHost.h",
+      summary: "<b>backend 非依存で既定 VM を取得する結線点</b>。<t>gameframework</t> は実 backend(<code>ACS::Scripting</code>)に依存できない(循環依存)ため、実 backend 側が <code>SetScriptVmProvider()</code> で「既定 VM を返す関数」を登録し、ゲームは <code>GetDefaultScriptVm()</code> で取得する。未登録なら <code>GetVmStub()</code> を返す。",
+      when: "アプリ起動時に 1 度 backend を結線したい時。以降はどこでも backend 非依存に既定 VM を引ける。",
+      sample: "#if WITH_ACS_SCRIPTING\n    acs::scripting::InstallLuaAsDefault();   // provider を登録\n#endif\nacs::game::IScriptVm&amp; vm = acs::game::GetDefaultScriptVm();  // 実 Lua or stub\nhost.Init(&amp;vm);",
+      members: [
+        { sig: "using ScriptVmProvider = IScriptVm&amp; (*)() noexcept", desc: "既定 VM を返す関数ポインタ型。" },
+        { sig: "void SetScriptVmProvider(ScriptVmProvider provider)", desc: "provider を登録(<code>nullptr</code> で stub に戻す。後勝ち)。実 backend の <code>Install*</code> から呼ぶ。" },
+        { sig: "IScriptVm&amp; GetDefaultScriptVm()", ret: "VM 参照", desc: "provider 登録済みなら実 VM、未登録なら <code>GetVmStub()</code>。" }
+      ]
+    },
+    {
+      name: "script_err:: サブコード",
+      kind: "定数(u16)", header: "gameframework/ScriptHost.h",
+      summary: "<code>TResult</code> が <t>Err</t> の時に <code>err.subcode</code> で原因を見分ける定数群(カテゴリは <code>ErrCategory::Generic</code>)。<code>FSaveSlot</code>/<code>FMlRuntime</code> と同じ流儀で番号を固定。",
+      when: "<code>LoadAndRun</code>/<code>CallGlobalFunction</code> 等の失敗理由で分岐したい時に <code>r.Error().subcode == ...</code> で照合する。",
+      sample: "auto r = host.LoadAndRun(L\"a.lua\");\nif (r.IsErr() &amp;&amp; r.Error().subcode == acs::game::script_err::kSub_NotImplemented) {\n    // backend 未統合。スクリプト無しで続行\n}",
+      members: [
+        { sig: "kSub_NotImplemented = 99", desc: "stub / backend 未統合。" },
+        { sig: "kSub_InvalidArg = 1", desc: "nullptr / 不正引数。" },
+        { sig: "kSub_NotInitialized = 2", desc: "<code>Init()</code> 前の API 呼び出し。" },
+        { sig: "kSub_LoadFailed = 10", desc: "<code>LoadScript</code> 失敗(parse error 等)。" },
+        { sig: "kSub_CallFailed = 11", desc: "<code>CallFunction</code> 失敗(runtime error 等)。" },
+        { sig: "kSub_FileNotFound = 20 / kSub_FileTooLarge = 21", desc: "<code>LoadAndRun</code> のファイル読み込み失敗 / 上限超過。" },
+        { sig: "kSub_NoVm = 30", desc: "<code>FScriptHost::Init</code> 未呼出。" }
+      ]
     }
   ]
 });
@@ -109,5 +167,6 @@ Object.assign(ACS_REF.glossary, {
   "NativeFunction": "<t>Lua</t> 側から呼べる C++ 関数の型。例外を投げてはいけない。",
   "GC": "Garbage Collection(ガベージコレクション)。不要になったメモリを自動回収する仕組み。<t>Lua</t> が内部で行う。",
   "Pimpl": "実装の詳細を別構造体へ隠し、ヘッダに公開しない手法。<code>FLuaVm</code> は <code>lua_State*</code> をこれで隠す。",
-  "シングルトン": "プロセス内に 1 個だけ存在するインスタンス。<code>GetDefaultLuaVm()</code> はこれを返す。"
+  "シングルトン": "プロセス内に 1 個だけ存在するインスタンス。<code>GetDefaultLuaVm()</code> はこれを返す。",
+  "DI": "Dependency Injection(依存性注入)。使う実装を外から差し込み、呼び出し側を具体実装に依存させない設計。<code>FScriptHost</code> は VM を差し替え可能にする。"
 });

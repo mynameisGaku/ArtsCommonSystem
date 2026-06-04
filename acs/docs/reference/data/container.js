@@ -63,7 +63,10 @@ ACS_REF.modules.push({
         { sig: "usize Capacity() const", ret: "確保容量", desc: "現在の確保済み容量(<t>SSO</t> 中は固定の 22)。" },
         { sig: "FStringView View() const / operator FStringView()", ret: "非所有ビュー", desc: "中身を指す <code>FStringView</code> を返す。多くの API はこの形で受ける。" },
         { sig: "char& operator[](usize i)", desc: "i バイト目を参照する(範囲外は<t>アサート</t>)。" },
-        { sig: "static constexpr usize kSsoCapacity = 22", desc: "ヒープを使わずインライン保持できる最大バイト数。" }
+        { sig: "static constexpr usize kSsoCapacity = 22", desc: "ヒープを使わずインライン保持できる最大バイト数。" },
+        { sig: "void PushBack(char c)", desc: "末尾に 1 文字を追記する(<code>Append(char)</code> の別名)。" },
+        { sig: "explicit FString(FAllocator& a)", desc: "空文字列を指定<t>アロケータ</t>で作る。引数なしの既定構築も可能。" },
+        { sig: "bool operator==(const FString&/FStringView, const FString&/FStringView)", ret: "等しいか", desc: "<code>FString</code> 同士、または <code>FString</code> と <code>FStringView</code> をバイト単位で比較する自由関数(3 オーバーロード)。" }
       ]
     },
     {
@@ -142,7 +145,11 @@ ACS_REF.modules.push({
         { sig: "const FJsonValue& Get(const char* key) const", ret: "メンバ値", desc: "オブジェクトメンバを key で取る。無ければ静的 Null 値(連鎖が安全)。" },
         { sig: "const FJsonValue* Find(const char* key) const", ret: "値ポインタ or null", desc: "メンバを探す。無ければ <code>nullptr</code>。" },
         { sig: "bool Has(const char* key) const", ret: "あるか", desc: "そのキーのメンバが存在するか。" },
-        { sig: "u32 MemberCount() const / FStringView MemberKey(u32 i) const", desc: "オブジェクトのメンバ数 / i 番目メンバのキー名(値は <code>At(i)</code> で取る)。" }
+        { sig: "u32 MemberCount() const / FStringView MemberKey(u32 i) const", desc: "オブジェクトのメンバ数 / i 番目メンバのキー名(値は <code>At(i)</code> で取る)。" },
+        { sig: "void _SetNull() / _SetBool(bool) / _SetNumber(f64) / _SetString(FStringView)", desc: "<b>ビルダ</b>: この値をスカラ(Null/Bool/Number/String)に設定する。パーサ内部用だがテストや手組みでも使える。" },
+        { sig: "void _MakeArray() / _MakeObject()", desc: "<b>ビルダ</b>: この値を空の Array / Object に初期化する。" },
+        { sig: "FJsonValue& _PushArrayElem()", ret: "追加した子の参照", desc: "<b>ビルダ</b>: Array に空要素を 1 つ追加し、その参照を返す。" },
+        { sig: "FJsonValue& _AddMember(FStringView key)", ret: "追加した値の参照", desc: "<b>ビルダ</b>: Object に key を追加し、その value 参照を返す。" }
       ]
     },
     {
@@ -162,7 +169,22 @@ ACS_REF.modules.push({
       summary: "<code>FJsonValue</code> が保持している値の種別。<code>Null / Bool / Number / String / Array / Object</code> の 6 種。",
       when: "<code>Type()</code> の戻り値で値の種類を分岐したい時。",
       sample: "switch (v.Type()) {\n    case EJsonType::Number: /* ... */ break;\n    case EJsonType::Array:  /* ... */ break;\n    default: break;\n}"
-    }
+    },
+    {
+  name: "Json エラー subcode (kSubJson*)",
+  kind: "定数群", header: "container/Json.h",
+  summary: "<code>ParseJson</code> が失敗時に <t>Result</t> へ載せる<b>エラー subcode</b>。<code>ErrCategory::Generic</code> 配下の <code>u16</code> 定数で、構文・深さ・末尾ゴミ・途中終端・数値・エスケープのどれで失敗したかを区別できる。<b>全て <code>inline constexpr u16</code></b>。",
+  when: "<code>ParseJson</code> の <code>Error()</code> を受け取り、どの種類の構文エラーかで分岐・ログ出ししたい時。",
+  sample: "auto r = acs::ParseJson(text, len);\nif (!r.IsOk()) {\n    const FErrorCode&amp; e = r.Error();\n    if (e.subcode == kSubJsonDepth) { /* nesting が深すぎ */ }\n    else if (e.subcode == kSubJsonBadEscape) { /* \\u 等が不正 */ }\n}",
+  members: [
+    { sig: "inline constexpr u16 kSubJsonSyntax = 1400", desc: "構文エラー(予期しないトークン)。" },
+    { sig: "inline constexpr u16 kSubJsonDepth = 1401", desc: "nesting が深すぎる(<code>kMaxDepth</code> 超過で DoS 防止)。" },
+    { sig: "inline constexpr u16 kSubJsonTrailing = 1402", desc: "ルート値の後に余分なゴミがある。" },
+    { sig: "inline constexpr u16 kSubJsonEof = 1403", desc: "値の途中で入力が終端した。" },
+    { sig: "inline constexpr u16 kSubJsonBadNumber = 1404", desc: "数値として解釈できない。" },
+    { sig: "inline constexpr u16 kSubJsonBadEscape = 1405", desc: "不正なエスケープ / <code>\\u</code> シーケンス。" }
+  ]
+}
   ]
 });
 

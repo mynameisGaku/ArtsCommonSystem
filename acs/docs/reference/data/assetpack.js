@@ -156,6 +156,89 @@ ACS_REF.modules.push({
         { sig: "acs::game::IAssetPackWriter& GetDefaultAcpakWriter()", ret: "既定 Writer", desc: "プロセス共有の既定 <code>.acpak</code> Writer を返す(<t>シングルトン</t>)。" },
         { sig: "void InstallAcpakWriterAsDefault()", desc: "上記 Writer を GameFramework の既定 provider として登録する。" }
       ]
+    },
+    {
+      name: "kAcpakMagic / kAcpakVersion",
+      kind: "定数", header: "assetpack/AcpakFormat.h",
+      summary: "<code>.acpak</code> ファイル先頭の<b><t>マジックナンバー</t></b>と<b>フォーマット版数</b>。<code>kAcpakMagic</code> は 8 バイト <code>\"ACPAK\\0\\0\\0\"</code>、<code>kAcpakVersion</code> は現行 <code>1</code>。Reader は Open 直後にこの 2 つを検査し、不一致なら <code>kAcpakSubBadMagic</code> / <code>kAcpakSubBadVersion</code> を返す。",
+      when: "フォーマットを自前で読み書きする時の検査値。Phase 2 で暗号化/圧縮を足しても version は 1 のまま、flags のビット追加で互換を保つ(互換破壊時のみ 2 へ上げる)。",
+      sample: "// 先頭 8 バイトを memcmp で照合(reinterpret_cast 比較は禁止)\nif (memcmp(head, kAcpakMagic, 8) != 0) return badMagic;\nif (header.version != kAcpakVersion) return badVersion;",
+      members: [
+        { sig: "inline constexpr u8 kAcpakMagic[8] = {'A','C','P','A','K',0,0,0}", desc: "pak 判定用 8 バイト signature。必ず memcmp / バイト列比較で検査する(strict-aliasing 回避)。" },
+        { sig: "inline constexpr u32 kAcpakVersion = 1u", desc: "現行フォーマット版数。未知 flags は version ではなく <code>kAcpakSubBadFlags</code> で弾く。" }
+      ]
+    },
+    {
+      name: "kAcpakHeaderDiskSize / kAcpakCipherFieldsDiskSize",
+      kind: "定数", header: "assetpack/AcpakFormat.h",
+      summary: "<code>.acpak</code> の<b>ディスク上の固定バイト数</b>。<code>kAcpakHeaderDiskSize = 36</code> はヘッダ実体長(<code>sizeof(FAcpakHeader)</code> は構造体パディングで 40 になり得るため I/O はこの値で明示)。<code>kAcpakCipherFieldsDiskSize = 28</code> は暗号化フラグ立ち時に各エントリが追加で持つ <t>nonce</t>(12)+<t>タグ</t>(16) のバイト数。",
+      when: "Reader/Writer がヘッダ/file table を memcpy で読み書きする時の境界値。非暗号化 pak(flags=0)では cipher fields は 0 バイト = v1 レイアウトと完全一致。",
+      sample: "// ヘッダは構造体 sizeof でなくこの定数でディスク I/O する\nReadBytes(head, kAcpakHeaderDiskSize);   // = 36\n// 暗号化 pak は各 entry に +28 バイト(nonce+tag)",
+      members: [
+        { sig: "inline constexpr usize kAcpakHeaderDiskSize = 36", desc: "ディスク上のヘッダ長。magic8+version4+flags4+file_count4+padding4+file_table_offset8+reserved4 = 36。" },
+        { sig: "inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u", desc: "暗号化時に file table の各 entry が追加で持つ nonce(12)+tag(16)=28 バイト。flags=0 なら 0。" }
+      ]
+    },
+    {
+      name: "kAcpakNonceSize / kAcpakTagSize",
+      kind: "定数", header: "assetpack/AcpakCrypto.h",
+      summary: "AES-256-GCM の <t>nonce</t> と認証<t>タグ</t>の<b>バイト長定数</b>。<code>kAcpakNonceSize = 12</code>(96bit、GCM 推奨幅)、<code>kAcpakTagSize = 16</code>(128bit 認証タグ)。<code>FAcpakCrypto</code> の引数配列長として使われ、呼び出し側の長さ誤りを防ぐ。",
+      when: "<code>Encrypt</code>/<code>Decrypt</code>/<code>GenerateRandomNonce</code> に渡す nonce/tag バッファのサイズを決める時。",
+      sample: "u8 nonce[kAcpakNonceSize];   // 12\nu8 tag[kAcpakTagSize];       // 16\nFAcpakCrypto::GenerateRandomNonce(nonce);\nFAcpakCrypto::Encrypt(key, nonce, pt, n, ct, tag);",
+      members: [
+        { sig: "inline constexpr u32 kAcpakNonceSize = 12", desc: "GCM nonce 幅(96bit)。<code>FAcpakFileEntry::cipher_nonce</code> と同じ長さ。" },
+        { sig: "inline constexpr u32 kAcpakTagSize = 16", desc: "GCM 認証タグ幅(128bit)。<code>FAcpakFileEntry::cipher_tag</code> と同じ長さ。" }
+      ]
+    },
+    {
+      name: "FAssetPack エラー subcode (format)",
+      kind: "定数群", header: "assetpack/AcpakFormat.h",
+      summary: "<code>.acpak</code> の Reader/Writer が <code>ACS_ERR(IO,...)</code> / <code>ACS_ERR(Asset,...)</code> で返す<b>エラー<t>subcode</t></b>(1301〜1313)。FSaveSlot(1-99)・Steamworks/Workshop(1001-1199)・FAssetPack stub(1200 番台)と重ならないよう <b>1300 番台</b>を使う。",
+      when: "Open / ReadFile / Finalize の戻り <t>Result</t> が失敗した時、<code>error.subcode</code> でどの段階の失敗かを判別する時。",
+      sample: "auto r = reader.Open(L\"game.acpak\");\nif (r.IsErr() &amp;&amp; r.Error().subcode == kAcpakSubBadMagic) {\n    // .acpak ではないファイル\n}",
+      members: [
+        { sig: "kAcpakSubBadMagic = 1301", desc: "先頭 8 バイトが <code>kAcpakMagic</code> でない。" },
+        { sig: "kAcpakSubBadVersion = 1302", desc: "version が <code>kAcpakVersion</code> でない。" },
+        { sig: "kAcpakSubBadSize = 1303", desc: "ファイル長が想定外/範囲外(ヘッダより小さい等)。" },
+        { sig: "kAcpakSubBadCrc = 1304", desc: "<t>CRC32</t> 不一致(破損または改竄)。" },
+        { sig: "kAcpakSubBadFlags = 1305", desc: "未知の flags ビットが立っている。" },
+        { sig: "kAcpakSubNotImplemented = 1306", desc: "(Phase 1 残留)encrypted/compressed 用。Phase 2 で実装済のため現状未使用、将来の未実装機能用に再利用可。" },
+        { sig: "kAcpakSubNotOpen = 1307", desc: "Open() 前に API を呼んだ。" },
+        { sig: "kAcpakSubNotFound = 1308", desc: "指定 path / index が pak 内に無い。" },
+        { sig: "kAcpakSubBufferTooSmall = 1309", desc: "<code>ReadFile</code> の out_buffer が小さすぎる。" },
+        { sig: "kAcpakSubAlreadyOpen = 1310", desc: "<code>FAcpakWriter::Open</code> の二重呼び出し。" },
+        { sig: "kAcpakSubNotFinalized = 1311", desc: "Finalize 前に Close(内部用)。" },
+        { sig: "kAcpakSubIOFailure = 1312", desc: "Win32 I/O 失敗(<code>os_error</code> 参照)。" },
+        { sig: "kAcpakSubOutOfMemory = 1313", desc: "文字列 pool / entry 配列の確保失敗。" }
+      ]
+    },
+    {
+      name: "FAssetPack エラー subcode (crypto)",
+      kind: "定数群", header: "assetpack/AcpakCrypto.h",
+      summary: "<t>AES-256-GCM</t> / <t>PBKDF2</t> 周りの<b>暗号エラー <t>subcode</t></b>(1314〜1319)。多くは <code>ACS_ERR_OS</code>(CNG/BCrypt の OS エラー付き)。タグ検証失敗だけは改竄/破損の単一窓口として扱う。",
+      when: "<code>FAcpakCrypto</code> や暗号化 pak の Read/Write が失敗した時、原因(初期化/鍵/演算/タグ/乱数/KDF)を判別する時。",
+      sample: "auto k = FAcpakCrypto::DeriveKey(pw, n, salt, m);\nif (k.IsErr() &amp;&amp; k.Error().subcode == kAcpakSubCryptoKdf) {\n    // KDF 計算に失敗\n}",
+      members: [
+        { sig: "kAcpakSubCryptoInit = 1314", desc: "BCryptOpenAlgorithmProvider 失敗(algorithm provider 取得)。" },
+        { sig: "kAcpakSubCryptoKey = 1315", desc: "BCryptGenerateSymmetricKey 失敗(鍵未設定で暗号化 pak を扱った時にも返る)。" },
+        { sig: "kAcpakSubCryptoOp = 1316", desc: "BCryptEncrypt / BCryptDecrypt 失敗。" },
+        { sig: "kAcpakSubCryptoTag = 1317", desc: "認証<t>タグ</t>検証失敗(改竄)。" },
+        { sig: "kAcpakSubCryptoRand = 1318", desc: "BCryptGenRandom 失敗(<code>GenerateRandomNonce</code> が返す)。" },
+        { sig: "kAcpakSubCryptoKdf = 1319", desc: "BCryptDeriveKeyPBKDF2 失敗(KDF 計算)。" }
+      ]
+    },
+    {
+      name: "FAssetPack エラー subcode (lz4)",
+      kind: "定数群", header: "assetpack/AcpakLz4.h",
+      summary: "<t>LZ4</t> 圧縮/解凍の<b>エラー <t>subcode</t></b>(1320〜1323)。<code>FAcpakLz4::Compress</code> / <code>Decompress</code> が <code>ACS_ERR(Asset,...)</code> で返す。<t>境界検査</t>に引っかかった不正ブロックを表す。",
+      when: "圧縮 pak の読み書きや <code>FAcpakLz4</code> 直接呼び出しが失敗した時、原因(入力枯渇/出力超過/不正 offset/不正入力)を判別する時。",
+      sample: "auto n = FAcpakLz4::Decompress(src, sn, dst, cap);\nif (n.IsErr() &amp;&amp; n.Error().subcode == kAcpakSubLz4DstOverflow) {\n    // 出力バッファ不足 or 壊れた圧縮データ\n}",
+      members: [
+        { sig: "kAcpakSubLz4SrcOverflow = 1320", desc: "src カーソルが範囲外(入力が途中で尽きた)。" },
+        { sig: "kAcpakSubLz4DstOverflow = 1321", desc: "dst capacity 超過(出力が dst を超えた)。" },
+        { sig: "kAcpakSubLz4BadOffset = 1322", desc: "match offset が 0 / dst 範囲外参照。" },
+        { sig: "kAcpakSubLz4BadInput = 1323", desc: "入力 nullptr / size 異常。" }
+      ]
     }
   ]
 });
@@ -186,5 +269,6 @@ Object.assign(ACS_REF.glossary, {
   "境界検査": "配列やバッファの範囲外アクセスを起こさないよう、毎回インデックスを確かめること。",
   "線形探索": "先頭から順に 1 つずつ比較して目的の要素を探す単純な探索。",
   "GameFramework": "ACS のゲーム作成用モジュール(<code>acs::game</code>)。アセット読み書きの抽象 API を持つ。",
-  "シングルトン": "プロセス内に 1 つだけ存在する共有インスタンス。"
+  "シングルトン": "プロセス内に 1 つだけ存在する共有インスタンス。",
+  "subcode": "エラーコードの細目番号。ACS の <t>Result</t> が持つ <code>FErrorCode.subcode</code> で、どの段階・原因の失敗かを区別する。FAssetPack は 1300 番台を使う。"
 });

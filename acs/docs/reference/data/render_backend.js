@@ -25,7 +25,11 @@ ACS_REF.modules.push({
         { sig: "D3D12_GPU_DESCRIPTOR_HANDLE SrvGpuHandle(i32) const", ret: "GPU ハンドル", desc: "SRV スロットの GPU ハンドル。<t>ルートディスクリプタテーブル</t>へのバインドに使う。" },
         { sig: "u64 SignalGraphicsQueue()", ret: "完了値", desc: "投入後にキューへ<t>フェンス</t>値を <code>Signal</code> し、その値を返す。後で <code>WaitForFenceValue</code> に渡す。" },
         { sig: "void WaitForFenceValue(u64 value)", desc: "指定<t>フェンス</t>値以上に GPU が到達するまで CPU 側で待つ(到達済みなら即 return)。" },
-        { sig: "u32 CurrentFrameSlot() / void AdvanceFrameSlot()", ret: "0..1", desc: "<t>フレームインフライト</t>(<code>kFramesInFlight=2</code>)のリングインデックス。Uniform バッファ等が二重バッファリングに使う。" }
+        { sig: "u32 CurrentFrameSlot() / void AdvanceFrameSlot()", ret: "0..1", desc: "<t>フレームインフライト</t>(<code>kFramesInFlight=2</code>)のリングインデックス。Uniform バッファ等が二重バッファリングに使う。" },
+        { sig: "IDXGIFactory6* DxgiFactory() const", ret: "生ファクトリ", desc: "内部用。DXGI ファクトリ。<code>Dx12Swapchain</code> がスワップチェイン生成時に使う。" },
+        { sig: "ID3D12DescriptorHeap* SrvHeap() / u32 SrvHandleSize() const", desc: "内部用。シェーダ可視 SRV/CBV/UAV ヒープ本体と、1 記述子あたりのバイト幅。バインド時にハンドル計算へ使う。" },
+        { sig: "D3D12_CPU_DESCRIPTOR_HANDLE SrvCpuHandle(i32 index) const", ret: "CPU ハンドル", desc: "内部用。SRV スロットの CPU ハンドル。テクスチャ作成時にビューを書き込む先。" },
+        { sig: "D3D12_CPU_DESCRIPTOR_HANDLE DsvCpuHandle(i32) / RtvCpuHandle(i32) const", ret: "CPU ハンドル", desc: "内部用。確保した DSV / オフスクリーン RTV スロットの CPU ハンドル。<code>CommandList</code> がレンダーターゲット/深度のバインドに使う。" }
       ]
     },
     {
@@ -40,7 +44,8 @@ ACS_REF.modules.push({
         { sig: "bool Resize(u32 width, u32 height)", ret: "成否", desc: "ウィンドウサイズ変更時にバッファを作り直す。<code>false</code> なら本フレームの描画はスキップして次で再試行する。" },
         { sig: "u32 BufferCount() / Width() / Height() const", desc: "現在のバッファ枚数・解像度。" },
         { sig: "ID3D12Resource* BackBuffer(u32 i) const", ret: "バッファ or null", desc: "内部用。<code>i</code> 番目のバックバッファリソース。範囲外は <code>nullptr</code>。" },
-        { sig: "D3D12_CPU_DESCRIPTOR_HANDLE BackBufferRTV(u32 i) const", ret: "RTV ハンドル", desc: "内部用。<code>i</code> 番目バックバッファの RTV。<code>CommandList</code> がレンダーターゲットをバインドする時に使う。" }
+        { sig: "D3D12_CPU_DESCRIPTOR_HANDLE BackBufferRTV(u32 i) const", ret: "RTV ハンドル", desc: "内部用。<code>i</code> 番目バックバッファの RTV。<code>CommandList</code> がレンダーターゲットをバインドする時に使う。" },
+        { sig: "ID3D12DescriptorHeap* RtvHeap() const", ret: "RTV ヒープ", desc: "内部用。バックバッファ RTV を並べた専用ディスクリプタヒープ。" }
       ]
     },
     {
@@ -92,6 +97,7 @@ ACS_REF.modules.push({
         { sig: "EFormat EPixelFormat() const", desc: "ピクセル<t>フォーマット</t>。" },
         { sig: "bool IsCubemap() / IsDepth() / HasStencil() const", desc: "cubemap か、深度バッファか、ステンシル成分(<code>D24_UNorm_S8_UInt</code>)を持つか。" },
         { sig: "bool HasSrv() / HasRtv() const", desc: "シェーダから読める SRV / レンダーターゲット RTV を持つか。" },
+        { sig: "ID3D12Resource* Resource() const", ret: "生リソース", desc: "内部の D3D12 リソース実体(<code>Dx12Buffer::Resource()</code> と対)。" },
         { sig: "D3D12_GPU_DESCRIPTOR_HANDLE SrvGpuHandle() const", ret: "SRV ハンドル", desc: "内部用。<t>ルートディスクリプタテーブル</t>にバインドする SRV。" },
         { sig: "D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle() / DsvCpuHandle() const", desc: "内部用。RTV(先頭スライス) / DSV ハンドル。" },
         { sig: "D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandleForSlice(u32 slice, u32 mip) const", ret: "RTV(範囲外=null)", desc: "内部用。<code>per_slice_rtv</code> で作った面/スライス/mip 別 RTV。<code>index = slice*mip_levels + mip</code>。" },
@@ -253,7 +259,28 @@ ACS_REF.modules.push({
       members: [
         { sig: "static void* Create(FAllocator* backing)", ret: "IMemoryAllocator*", desc: "<code>backing</code> を呼び出し先に使うアダプタを生成し、Diligent の <code>IMemoryAllocator*</code> として渡せる <code>void*</code> を返す(プロセス寿命)。" }
       ]
-    }
+    },
+    {
+  name: "ToDxgiFormat / ToD3D12State",
+  kind: "自由関数", header: "render/Dx12/Dx12Common.h",
+  summary: "<t>DX12</t> バックエンド共通の小さな変換ヘルパ群(いずれも <code>inline noexcept</code>)。ACS の論理列挙を Direct3D12 / DXGI のネイティブ列挙へ写します。<code>Dx12Common.h</code> を include する DX12 系 <code>.cpp</code> から使われます。",
+  when: "<t>DX12</t> バックエンド内部で <code>EFormat</code> や <code>EResourceState</code> をネイティブ型に直す時。利用側コードは普通 <code>IRhi*</code> 越しなので直接触りません。",
+  sample: "DXGI_FORMAT fmt   = ToDxgiFormat(EFormat::R8G8B8A8_UNorm);\nD3D12_RESOURCE_STATES st = ToD3D12State(EResourceState::RenderTarget);",
+  members: [
+    { sig: "DXGI_FORMAT ToDxgiFormat(EFormat f) noexcept", ret: "DXGI フォーマット", desc: "<code>EFormat</code> を <code>DXGI_FORMAT</code> へ変換。未対応値は <code>DXGI_FORMAT_UNKNOWN</code>。" },
+    { sig: "D3D12_RESOURCE_STATES ToD3D12State(EResourceState s) noexcept", ret: "D3D12 リソース状態", desc: "<code>EResourceState</code> を <code>D3D12_RESOURCE_STATES</code> へ変換。未対応値は <code>D3D12_RESOURCE_STATE_COMMON</code>。" }
+  ]
+},
+    {
+  name: "ACS_SAFE_RELEASE",
+  kind: "マクロ", header: "render/Dx12/Dx12Common.h",
+  summary: "COM ポインタを安全に解放するマクロ。非 null なら <code>Release()</code> を呼び、ポインタを <code>nullptr</code> に戻します(二重解放防止)。<t>DX12</t> バックエンドのデストラクタ・リソース破棄で多用されます。",
+  when: "<code>ID3D12*</code> / <code>IDXGI*</code> など生 COM ポインタのメンバを破棄する時。",
+  sample: "ACS_SAFE_RELEASE(m_Device);   // m_Device が非 null なら Release し、nullptr 化",
+  members: [
+    { sig: "ACS_SAFE_RELEASE(p)", desc: "<code>if (p) { (p)->Release(); (p)=nullptr; }</code> を <code>do{...}while(0)</code> で包んだ式。<code>p</code> は左辺値である必要がある。" }
+  ]
+}
   ]
 });
 

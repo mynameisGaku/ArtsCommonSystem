@@ -120,8 +120,8 @@ ACS_REF.modules.push({
       when: "<code>Input::IsMouseButtonDown</code> などに渡す。",
       sample: "if (Input::IsMouseButtonPressed(EMouseButton::Left))   Fire();\nif (Input::IsMouseButtonDown(EMouseButton::Right))     Aim();",
       members: [
-        { sig: "Left / Right / Middle", desc: "左・右・中ボタン（中はホイール押し込み）。" },
-        { sig: "X1 / X2", desc: "サイドボタン 1・2（戻る/進む等）。" }
+        { sig: "Left = 0 / Right = 1 / Middle = 2", desc: "左・右・中ボタン（中はホイール押し込み）。基底型は <code>u8</code>。" },
+        { sig: "X1 = 3 / X2 = 4", desc: "サイドボタン 1・2（戻る/進む等）。末尾に内部用の番兵 <code>_Count</code> がある。" }
       ]
     },
     {
@@ -159,8 +159,8 @@ ACS_REF.modules.push({
       members: [
         { sig: "static f64 SecondsSinceStartup()", ret: "経過秒", desc: "起動からの経過秒（高精度）。" },
         { sig: "static u64 MillisSinceStartup()", ret: "経過ミリ秒", desc: "起動からの経過ミリ秒。" },
-        { sig: "static u64 Ticks()", ret: "経過ティック", desc: "QPC ベースの生の<t>ティック</t>値。最も細かい計測に。" },
-        { sig: "static u64 TicksPerSecond()", ret: "1秒分のティック数", desc: "<code>Ticks()</code> を秒に換算する時の分母。" }
+        { sig: "static u64 Ticks()", ret: "経過ティック", desc: "起動からの生の<t>ティック</t>値。最も細かい計測に。実装は <code>std::chrono::steady_clock</code> ベース（Windows では内部的に QPC、Linux/macOS では <code>CLOCK_MONOTONIC</code>）。1 ティックの粒度はプラットフォーム依存（多くの環境でナノ秒）なので、固定値を仮定せず必ず <code>TicksPerSecond()</code> で秒に換算する。" },
+        { sig: "static u64 TicksPerSecond()", ret: "1秒分のティック数", desc: "1 秒あたりのティック数。<code>Ticks()</code> を秒に換算する時の分母に使う（例: <code>秒 = Ticks() / TicksPerSecond()</code>）。" }
       ]
     },
     {
@@ -231,6 +231,13 @@ ACS_REF.modules.push({
         { sig: "bool Has(const char* key) const", ret: "存在するか", desc: "active か fallback にキーがあれば true。" },
         { sig: "Storage&amp; Active() / Fallback()", ret: "Storage 参照", desc: "中の翻訳辞書（<code>Storage</code>）に直接アクセスする。独自に加工したい時用。" }
       ]
+    },
+    {
+      name: "EventCallback",
+      kind: "型エイリアス", header: "platform/Window.h",
+      summary: "<code>FWindow</code> が<t>イベント</t>を通知するときに呼ぶ<b>関数ポインタ型</b>。<code>void (*)(void* user, const Event&amp; e)</code> の別名で、<code>user</code> には <code>SetEventCallback</code> に渡した任意<t>ポインタ</t>がそのまま渡る。<code>PollEvents</code> 中に 1 フレームで複数回呼ばれうる。",
+      when: "<code>FWindow::SetEventCallback</code> に渡すコールバックの型として使う。多くは <code>Input::OnEvent</code> へ橋渡しするために用いる。",
+      sample: "void OnEvent(void* user, const Event&amp; e) {\n    Input::OnEvent(e);   // FWindow のイベントを Input へ流す\n}\nw.SetEventCallback(OnEvent, nullptr);\n// ラムダ(キャプチャ無し)も関数ポインタに変換できる:\nw.SetEventCallback([](void* u, const Event&amp; e){ Input::OnEvent(e); }, nullptr);"
     }
   ]
 });

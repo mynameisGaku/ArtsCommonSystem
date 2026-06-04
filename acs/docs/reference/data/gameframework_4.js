@@ -799,7 +799,8 @@ ACS_REF.modules.push({
         { sig: "T& AddComponent<T>(Args&&...) / T& GetOrAddComponent<T>(...)", ret: "コンポーネント参照", desc: "<t>コンポーネント</t>を構築・attach (依存を先に確保し OnAttach 即時呼出) / 無ければ追加して返す。" },
         { sig: "T* GetComponent<T>() / bool HasComponent<T>() / bool RemoveComponent<T>()", desc: "最初の T 型コンポーネントを取得 / 有無判定 / 1 つ除去 (OnDetach → 破棄)。" },
         { sig: "void UpdateTree(f32) / FixedUpdateTree(f32) / DrawTree(RenderContext&)", desc: "root から呼ぶ subtree 走査。index ベースで安全に走る。", when: "毎フレーム root に対して呼ぶ。" },
-        { sig: "void ResolveStructuralChanges()", desc: "フレーム境界で 1 回。pending な破棄/Reparent をまとめて適用する (子から先に reap)。" }
+        { sig: "void ResolveStructuralChanges()", desc: "フレーム境界で 1 回。pending な破棄/Reparent をまとめて適用する (子から先に reap)。" },
+        { sig: "u32 ComponentCount() const", desc: "このノードに attach 済みの<t>コンポーネント</t>数。" }
       ]
     }
   ]

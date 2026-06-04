@@ -125,24 +125,30 @@ ACS_REF.modules.push({
       members: [
         { sig: "void* Alloc(usize size, usize align, FSourceLoc)", ret: "確保した領域", desc: "指定サイズ・整列でメモリを確保。失敗時 null。" },
         { sig: "void Free(void* p)", desc: "<code>Alloc</code> で得た領域を解放。" },
-        { sig: "u64 BytesAllocated() const", ret: "確保中バイト数", desc: "現在確保中の合計(実装による)。リーク調査に。" }
+        { sig: "u64 BytesAllocated() const", ret: "確保中バイト数", desc: "現在確保中の合計(実装による)。リーク調査に。" },
+        { sig: "void* Realloc(void* ptr, usize old_size, usize new_size, usize align, FSourceLoc)", ret: "新領域", desc: "既存確保を拡大/縮小する。既定実装は <code>Alloc</code>+<code>MemCopy</code>+<code>Free</code>(実装で上書き可)。" },
+        { sig: "u64 PeakBytes() const", ret: "ピーク量", desc: "過去最大の使用量(既定 0、実装で上書き)。" },
+        { sig: "const char* Name() const", ret: "識別名", desc: "アロケータの名前(\"System\"/\"TLSF\" 等)。診断/可視化用。" },
+        { sig: "void* Alloc(usize size, FSourceLoc loc = FSourceLoc::Current())", ret: "確保領域", desc: "整列を <code>kDefaultAlignment</code>(16B)・呼び出し位置を自動キャプチャする利便オーバーロード。" }
       ]
     },
     {
       name: "DefaultAllocator()",
-      kind: "関数", header: "memory/Allocator.h",
-      summary: "既定の<t>アロケータ</t>(<t>ヒープ</t>確保)を返す。<code>MakeShared</code> 等が指定なしの時に使う。",
+      kind: "関数", header: "memory/Memory.h",
+      summary: "既定の<t>アロケータ</t>を返す(起動時は <code>FSystemAllocator</code>)。<code>MakeShared</code> 等が指定なしの時に使う。<code>SetDefaultAllocator</code> で差し替え可能。",
       when: "特別な事情がなければこれでよい。", sample: "FAllocator& a = DefaultAllocator();"
     },
     {
       name: "FArenaAllocator",
       kind: "クラス", header: "memory/ArenaAllocator.h",
-      summary: "確保はポインタを進めるだけ(超高速)、解放は<b>まとめてリセット</b>のみ、という使い捨て<t>アロケータ</t>。",
+      summary: "確保はポインタを進めるだけ(超高速)、解放は<b>まとめて Reset</b>のみ、という使い捨て<t>アロケータ</t>。容量は固定せず、満杯になると<b>ページを足して自動で伸びる</b>(ページバック式バンプ)。",
       when: "1 フレームだけ使って次フレームに全部捨てる一時データ(描画コマンド等)。個別解放はしない。",
-      sample: "FArenaAllocator arena(1u &lt;&lt; 20);  // 1MB\nvoid* a = arena.Alloc(64, 16, FSourceLoc::Current());\n// ...フレーム処理...\narena.Reset();                  // 全部まとめて解放(超高速)",
+      sample: "FArenaAllocator arena(64 * 1024);   // 引数は1ページのサイズ(既定 64KB)。容量上限ではない\nvoid* a = arena.Alloc(64, 16, FSourceLoc::Current());\n// ...フレーム処理...\narena.Reset();                      // 全確保を一括無効化(超高速)。ページは再利用",
       members: [
-        { sig: "void* Alloc(size, align, loc)", desc: "末尾にポインタを進めて確保。" },
-        { sig: "void Reset()", desc: "全確保を一括で無効化(個別 Free は不要)。" }
+        { sig: "FArenaAllocator(usize page_size = 64*1024, FAllocator* backing = nullptr)", desc: "<b>第1引数はページサイズ</b>(全体容量ではない)。満杯時は backing から新ページを足して伸びる。" },
+        { sig: "void* Alloc(usize size, usize align, FSourceLoc)", ret: "確保した領域", desc: "末尾にポインタを進めて確保。" },
+        { sig: "void Free(void* p)", desc: "<b>no-op</b>(個別解放はしない)。" },
+        { sig: "void Reset(bool release_pages = false)", desc: "全確保を一括無効化。<code>release_pages=true</code> で backing にページを返す。既定はページを保持して再利用。" }
       ]
     },
     {
@@ -150,28 +156,215 @@ ACS_REF.modules.push({
       kind: "クラス", header: "memory/LinearAllocator.h / PoolAllocator.h",
       summary: "<b>Linear</b>=前から詰める単純高速アロケータ(Arena に近い)。<b>Pool</b>=同じサイズの塊を大量に出し入れする用途に最適化したアロケータ。",
       when: "Linear: 連続確保して一括破棄。Pool: 弾・パーティクル等、同サイズを高速に取り回す時。",
-      sample: "FPoolAllocator pool(sizeof(FBullet), 1024); // 1024 個分\nvoid* b = pool.Alloc(...);\npool.Free(b);"
+      sample: "FPoolAllocator pool(sizeof(FBullet), 1024); // 1024 個分\nvoid* b = pool.Alloc(...);\npool.Free(b);",
+      members: [
+        { sig: "FLinearAllocator(usize capacity, FAllocator* backing = nullptr)", desc: "<b>Linear</b>: <code>capacity</code> バイトのバッファを <code>backing</code>(null で <code>DefaultAllocator</code>)から確保。" },
+        { sig: "void FLinearAllocator::Reset()", desc: "カーソルを 0 へ巻き戻す(全確保を無効化)。並行 Alloc 中に呼ぶと UB。" },
+        { sig: "u64 FLinearAllocator::Capacity() const", ret: "容量", desc: "確保したバッファの総バイト数。" },
+        { sig: "FPoolAllocator(usize block_size, usize block_count, usize alignment = kDefaultAlignment, FAllocator* backing = nullptr)", desc: "<b>Pool</b>: <code>block_size</code>×<code>block_count</code> の連続バッファを確保。<code>block_size</code> は最低 8B にラウンドアップ。" },
+        { sig: "u64 FPoolAllocator::BlockSize() / BlockCount() const", ret: "統計", desc: "1 ブロックのサイズ / 総ブロック数。" },
+        { sig: "bool FPoolAllocator::Contains(const void* ptr) const", ret: "所属か", desc: "<code>ptr</code> がこのプールから払い出されたものか(Heap フォールバックとの区別用)。" }
+      ]
     },
     {
       name: "FTlsfAllocator / FShardedTlsfAllocator",
       kind: "クラス", header: "memory/Tlsf.h / ShardedTlsf.h",
-      summary: "<b>TLSF</b>=任意サイズを高速・低断片化で確保できる汎用<t>アロケータ</t>。<b>Sharded</b>=スレッドごとに分割し、複数<t>スレッド</t>から同時に確保しても競合しにくくした版。",
+      summary: "<b>TLSF</b>=任意サイズを O(1)・低断片化で確保できる汎用<t>アロケータ</t>。<b>Sharded</b>=N 個の TLSF に分けて複数<t>スレッド</t>からの同時確保でも競合しにくくした版(<code>kMaxShards=8</code>)。どちらも<b>既定構築してから <code>Init()</code> で初期化</b>する二段階(コンストラクタにサイズは渡さない)。",
       when: "汎用の高速確保が欲しい時。マルチスレッドで確保が多いなら Sharded。",
-      sample: "// 既定アロケータの内部などで使われる。直接使う時:\nFTlsfAllocator tlsf(1u &lt;&lt; 24);  // 16MB プール\nvoid* p = tlsf.Alloc(200, 16, FSourceLoc::Current());"
+      sample: "// TLSF: 自前のプール buffer を渡して Init する\nalignas(16) static acs::u8 pool[1u &lt;&lt; 24];   // 16MB\nFTlsfAllocator tlsf;\nif (tlsf.Init(pool, sizeof(pool)).IsErr()) { /* 失敗 */ }\nvoid* p = tlsf.Alloc(200, 16, FSourceLoc::Current());\n\n// Sharded: 予約サイズ・初期コミット量で Init(shard_count 0=コア数で自動)\nFShardedTlsfAllocator sharded;\nsharded.Init(256u &lt;&lt; 20, 8u &lt;&lt; 20);          // 256MB 予約 / 8MB コミット",
+      members: [
+        { sig: "TResult&lt;void&gt; FTlsfAllocator::Init(void* pool_base, usize pool_size)", ret: "成否", desc: "16B 整列のプール buffer を登録(<code>pool_size</code> は 1KB 以上推奨)。", when: "<b>サイズ引数のコンストラクタは無い</b>。必ず既定構築→Init。" },
+        { sig: "TResult&lt;void&gt; FShardedTlsfAllocator::Init(usize total_reserve, usize commit_initial, u32 shard_count = 0)", ret: "成否", desc: "予約全体をシャードで分割。<code>shard_count=0</code> で論理コア数から自動(最大 8)。" },
+        { sig: "void FShardedTlsfAllocator::EnableThreadCache()", desc: "スレッドローカルのマガジンで小確保をロックなし化。<b>プロセス内 1 つのアロケータにのみ</b>有効化する。" },
+        { sig: "void* Alloc / void Free / void* Realloc", desc: "<code>FAllocator</code> の確保 API(両者とも実装)。" },
+        { sig: "FTlsfAllocator::Stats FTlsfAllocator::GetStats() const", ret: "統計", desc: "<code>bytes_used / bytes_peak / free_blocks / used_blocks / largest_free_block</code> を返す。" },
+        { sig: "bool FTlsfAllocator::ValidateHeap() const", ret: "健全か", desc: "物理ブロックチェイン/フラグの一貫性を検証(O(ブロック数)、診断用)。Alloc/Free と同じロック下で呼ぶこと。" },
+        { sig: "bool FTlsfAllocator::ContainsPtr(const void* p) const", ret: "所属か", desc: "<code>p</code> がこのアロケータの管理範囲か。予約所有時は O(1)。" },
+        { sig: "TResult&lt;void&gt; FTlsfAllocator::AddPool(void* base, usize size) / InitWithReservation(VmReservation&amp;&amp;, usize commit_initial)", ret: "成否", desc: "追加プール登録 / <code>VmReservation</code> を保持して初期コミット分をプール化。" },
+        { sig: "void FTlsfAllocator::Reset()", desc: "未初期化状態へ戻す(予約を所有していれば解放)。再 Init を可能にする。" },
+        { sig: "static usize FTlsfAllocator::PayloadBlockSize(const void* ptr)", ret: "ブロックサイズ", desc: "払い出した payload のブロックサイズをレイアウトだけからロック無しで読む(thread-cache 用)。" },
+        { sig: "u32 FShardedTlsfAllocator::ShardCount() const", ret: "シャード数", desc: "分割されているシャードの数(最大 <code>kMaxShards=8</code>)。" },
+        { sig: "bool FShardedTlsfAllocator::ThreadCacheEnabled() const / u64 Epoch() const", ret: "状態/世代", desc: "thread-cache 有効か / Init ごとに更新されるエポック(マガジン世代検証用)。" },
+        { sig: "bool FShardedTlsfAllocator::ValidateHeap()", ret: "健全か", desc: "全シャードをロックして整合検証する(診断用)。" }
+      ]
     },
     {
       name: "FRelocatableAllocator",
       kind: "クラス", header: "memory/RelocatableAllocator.h",
-      summary: "確保した領域を後で<b>動かして詰め直せる</b>(<t>ハンドル</t>越しにアクセス)<t>アロケータ</t>。断片化を解消できる。",
+      summary: "確保した領域を後で<b>動かして詰め直せる</b>(<t>ハンドル</t>越しにアクセス)<t>アロケータ</t>。<code>Compact()</code> で断片化を解消できる。<b>内部同期なし</b>=単一スレッドで使う。既定構築→<code>Init()</code> の二段階。",
       when: "長時間動かし続けてメモリ断片化が問題になる場面で、コンパクションしたい時。生ポインタでなくハンドルで持つ。",
-      sample: "FRelocatableAllocator ra(1u &lt;&lt; 20);\nFRelocHandle h = ra.Alloc(128);\nvoid* p = ra.Resolve(h);   // 使う直前に解決\nra.Compact();              // 隙間を詰める(ポインタは無効化、ハンドルは有効)"
+      sample: "FRelocatableAllocator ra;\nra.Init(1u &lt;&lt; 20, 4096);             // 1MB アリーナ / ハンドル最大 4096\nFRelocHandle h = ra.Alloc(128);          // 失敗時は h.IsValid()==false\nvoid* p = ra.Resolve(h);                 // 使う直前に解決(次の Compact まで有効)\nra.Compact();                            // 隙間を詰める→生ポインタは無効化、ハンドルは有効\np = ra.Resolve(h);                       // Compact 後は取り直す",
+      members: [
+        { sig: "TResult&lt;void&gt; Init(usize capacity_bytes, u32 max_handles, FAllocator* backing = nullptr)", ret: "成否", desc: "アリーナ容量とハンドル表サイズを確保。<code>backing=nullptr</code> で <code>DefaultAllocator</code>。" },
+        { sig: "FRelocHandle Alloc(usize size, usize align = 16)", ret: "ハンドル", desc: "確保してハンドルを返す。末尾に入らなくても詰めれば入る時は自動 Compact。失敗時は無効ハンドル。" },
+        { sig: "void* Resolve(FRelocHandle h) const", ret: "現ポインタ", desc: "ハンドルの現在位置。無効/解放済みは null。<b>次の Compact まで有効</b>。" },
+        { sig: "usize Compact()", ret: "回収バイト数", desc: "生存ブロックを前方に詰めて断片化を解消し、全ハンドルの参照先を更新する。" },
+        { sig: "void Free(FRelocHandle h) / usize SizeOf(h) / bool ValidateHandle(h)", desc: "解放・サイズ取得・有効性検証。" },
+        { sig: "void Shutdown()", desc: "アリーナとハンドルテーブルを backing へ返却する(デストラクタでも呼ばれる)。" },
+        { sig: "usize Capacity() / Used() / HighWater() const", ret: "統計", desc: "アリーナ容量 / 生存ペイロード総量 / bump カーソル位置(gap 込み)。" },
+        { sig: "u32 LiveCount() const", ret: "生存数", desc: "現在生きている確保(ハンドル)の数。" }
+      ]
     },
     {
       name: "FMemorySystem",
-      kind: "クラス", header: "memory/MemorySystem.h",
-      summary: "用途別の領域(セグメント)・予算・スナップショットを束ねる、エンジン全体のメモリ管理の入口。",
+      kind: "クラス(静的)", header: "memory/MemorySystem.h",
+      summary: "用途別の領域(<t>セグメント</t>)・予算・統計を束ねる、エンジン全体のメモリ管理ファサード。<b>全メソッド static</b>。設定の <code>make_default=true</code> で既定確保をシャード化 VM アロケータに通せる(既定 false=従来の HeapAlloc)。",
       when: "メモリ使用量の可視化・上限管理・領域分割をまとめて行いたい時。",
-      sample: "// 既定構成を作って使う\nauto sys = FMemorySystem::make_default();\n// セグメント別に確保/集計できる"
+      sample: "MemorySystemConfig cfg = FMemorySystem::DefaultConfig();\nif (FMemorySystem::Init(cfg).IsErr()) { /* 失敗 */ }\n\n{ ScopedMemorySegment seg(ESegment::Temp);   // このスコープ内の既定確保は Temp へ\n  /* ... */ }                                 // 抜けると元のセグメントへ\n\nSegmentStats stats[(int)ESegment::_Count];\nu32 n = FMemorySystem::GetStats(stats, 5);    // 領域別の使用量/ピーク/予算\nFMemorySystem::Shutdown();",
+      members: [
+        { sig: "static TResult&lt;void&gt; Init(const MemorySystemConfig&amp;)", ret: "成否", desc: "全セグメントを設定で初期化(多重 Init はエラー)。" },
+        { sig: "static MemorySystemConfig DefaultConfig()", ret: "既定設定", desc: "小規模/デフォルト用の設定を返す。" },
+        { sig: "static FAllocator* Get(ESegment)", ret: "アロケータ", desc: "セグメント別アロケータ(Init 前は null)。" },
+        { sig: "static void ResetTemp()", desc: "Temp セグメントを巻き戻す(フレーム先頭で 1 回)。" },
+        { sig: "static u32 GetStats(SegmentStats* out, u32 max)", ret: "件数", desc: "全セグメントの reserve/committed/used/peak/budget を取得。" },
+        { sig: "static ESegment Current()", ret: "現セグメント", desc: "<code>ScopedMemorySegment</code> が設定中の『現在のセグメント』を返す。" },
+        { sig: "static FAllocator* CurrentAllocator()", ret: "アロケータ", desc: "現在セグメントのアロケータ。コンテナ等の既定確保先。" },
+        { sig: "static void Shutdown()", desc: "全セグメントを解放(既定アロケータも元へ戻す)。" }
+      ]
+    },
+    {
+      name: "FSystemAllocator",
+      kind: "クラス", header: "memory/SystemAllocator.h",
+      summary: "Win32 <code>HeapAlloc</code>/<code>HeapFree</code> を使う汎用<t>アロケータ</t>。プロセスヒープは OS がロックするので<b>スレッドセーフ</b>。<b>起動時の <code>DefaultAllocator</code> はこれ</b>。",
+      when: "特別なアロケータを差さない通常時の確保(<code>DefaultAllocator()</code> 経由で間接的に使われる)。数千回/フレームのホットパスでは専用プール/アリーナを別途用意する。",
+      sample: "FSystemAllocator sys;\nvoid* p = sys.Alloc(256, 16, FSourceLoc::Current());\nsys.Free(p);",
+      members: [
+        { sig: "void* Alloc / void Free / void* Realloc", desc: "<code>FAllocator</code> 実装。16B 超の整列はヘッダ方式で対応。" },
+        { sig: "u64 BytesAllocated() const / u64 PeakBytes() const", ret: "統計", desc: "アトミックに集計した現在量/ピーク。" }
+      ]
+    },
+    {
+      name: "New / Delete / NewArray / DeleteArray",
+      kind: "関数テンプレート", header: "memory/New.h",
+      summary: "グローバル <code>new</code>/<code>delete</code> を使わず、<b><t>アロケータ</t>からオブジェクトを構築/破棄</b>する基本ヘルパ。確保→配置 new→デストラクタ→Free を 1 関数化。",
+      when: "<code>FAllocator</code> 直下で生のオブジェクトを作りたい低レベルな場面。通常は <code>MakeUnique</code>/<code>MakeShared</code> を使う。",
+      sample: "FAllocator&amp; a = DefaultAllocator();\nMyObj* p = New&lt;MyObj&gt;(a, args...);   // 確保 + コンストラクタ\nDelete(a, p);                        // デストラクタ + Free\n\nint* arr = NewArray&lt;int&gt;(a, 64);\nDeleteArray(a, arr, 64);",
+      members: [
+        { sig: "T* New&lt;T&gt;(FAllocator&amp; a, Args&amp;&amp;... args)", ret: "T*", desc: "確保してコンストラクタ引数を完全転送。失敗時 null。" },
+        { sig: "void Delete&lt;T&gt;(FAllocator&amp; a, T* p)", desc: "デストラクタ(トリビアルなら省略)→Free。null は no-op。" },
+        { sig: "T* NewArray&lt;T&gt;(FAllocator&amp; a, usize n)", ret: "T*", desc: "n 個確保して各要素を既定構築。オーバーフローは null。" },
+        { sig: "void DeleteArray&lt;T&gt;(FAllocator&amp; a, T* arr, usize n)", desc: "後ろから順にデストラクタ→一括 Free。" }
+      ]
+    },
+    {
+      name: "MemCopy / MemMove / MemSet / MemCmp",
+      kind: "関数", header: "memory/Memory.h",
+      summary: "低レベルなバイト操作(<code>std::memcpy</code> 等の代替)。<code>SetDefaultAllocator</code> で既定<t>アロケータ</t>を差し替えられる。",
+      when: "生バイト列のコピー/比較/フィル。型のある配列は通常コンテナ側に任せる。",
+      sample: "MemCopy(dst, src, n);           // 非重複コピー\nMemMove(dst, src, n);           // 重複可\nMemSet(buf, 0, n);              // 0 クリア\nint c = MemCmp(a, b, n);        // 比較(0=一致)\nSetDefaultAllocator(&amp;myAlloc); // 既定を差し替え(null で System に戻す)",
+      members: [
+        { sig: "void MemCopy(void* dst, const void* src, usize n)", desc: "領域<b>非重複</b>コピー。" },
+        { sig: "void MemMove(void* dst, const void* src, usize n)", desc: "領域<b>重複可</b>コピー。" },
+        { sig: "void MemSet(void* dst, int value, usize n)", desc: "バイト単位フィル。" },
+        { sig: "int MemCmp(const void* a, const void* b, usize n)", ret: "比較結果", desc: "バイト比較(0=一致)。" },
+        { sig: "void SetDefaultAllocator(FAllocator* a)", desc: "既定アロケータを差し替え。<code>nullptr</code> で <code>FSystemAllocator</code> に戻す。起動初期に呼ぶ。" }
+      ]
+    },
+    {
+      name: "ESegment / ScopedMemorySegment",
+      kind: "enum / クラス", header: "memory/Segment.h",
+      summary: "メモリを目的・寿命で分ける論理ヒープの種別。<code>FMemorySystem</code> が各<t>セグメント</t>に独立予算を持つ。<code>ScopedMemorySegment</code> で<b>スコープ中の既定確保先</b>を切り替える(<t>RAII</t>)。",
+      when: "確保を用途別に隔離して断片化や予算を管理したい時。",
+      sample: "{ ScopedMemorySegment seg(ESegment::Resource);  // アセット用領域へ\n  auto tex = LoadTexture(...);\n}                                               // 抜けると元へ戻る",
+      members: [
+        { sig: "ESegment::Default / Permanent / Temp / Resource / Develop", desc: "汎用 / 起動時常駐 / 1フレーム / アセット / エディタ・デバッグ。" },
+        { sig: "enum class EAllocKind", desc: "プロファイラ分類用のタグ(Generic=0 / Engine=1 / FGame=2 / Render=3 / Audio=4 / Asset=5 / UI=6 / Network=7 / Debug=8)。" },
+        { sig: "const char* ToString(ESegment s)", ret: "名前文字列", desc: "<code>ESegment</code> を <code>\"Default\"</code> 等の文字列にする(ログ/プロファイラ表示用)。" },
+        { sig: "explicit ScopedMemorySegment(ESegment s)", desc: "現在セグメントを切り替え、デストラクタで元に戻す。" }
+      ]
+    },
+    {
+      name: "FRelocHandle",
+      kind: "構造体", header: "memory/RelocatableAllocator.h",
+      summary: "<code>FRelocatableAllocator</code> の確保を指す<t>ハンドル</t>。<code>index</code>+<code>generation</code> 構成で <code>generation==0</code> が無効。<t>世代</t>で use-after-free を検出。",
+      when: "再配置アロケータの確保を保持する時。中身のポインタは持たず <code>Resolve(h)</code> で都度引く。",
+      sample: "FRelocHandle h = ra.Alloc(128);\nif (h.IsValid()) { void* p = ra.Resolve(h); }",
+      members: [
+        { sig: "u32 index / u32 generation", desc: "エントリ番号と世代(0=無効)。" },
+        { sig: "bool IsValid() const", ret: "有効か", desc: "<code>generation != 0</code>。" },
+        { sig: "bool operator==(FRelocHandle, FRelocHandle) / operator!=(...)", desc: "<code>index</code> と <code>generation</code> 両方の一致でハンドル同士を比較する自由関数。" }
+      ]
+    },
+    {
+      name: "VmReservation",
+      kind: "クラス", header: "memory/VirtualMemory.h",
+      summary: "巨大な仮想アドレス空間を<b>予約(Reserve)</b>し、必要なページだけ<b>物理コミット(Commit)</b>する低レベル <t>RAII</t> ハンドル(VirtualAlloc ラッパ)。Decommit したページは内部 <b>LRU キャッシュ(16 エントリ)</b>に保持し、再 Commit がヒットすればシステムコールを省く。コピー不可・<t>ムーブ</t>可。",
+      when: "<code>FTlsfAllocator</code> 等の土台として、上限の決まった広大なアリーナを予約だけ先に取り、使う分だけ後からコミットしたい時。通常は直接使わずアロケータ越しに使う。",
+      sample: "auto r = VmReservation::Reserve(256u &lt;&lt; 20);   // 256MB 予約(物理はまだ)\nif (r.IsOk()) {\n    VmReservation vm = static_cast&lt;VmReservation&amp;&amp;&gt;(r.Value());\n    vm.Commit(0, 8u &lt;&lt; 20);                    // 先頭 8MB を物理割り当て\n    void* base = vm.Base();\n    vm.Decommit(0, 8u &lt;&lt; 20);                  // 返却(実 VirtualFree は LRU エビクト時)\n}                                                 // スコープ脱出で Release",
+      members: [
+        { sig: "static TResult&lt;VmReservation&gt; Reserve(usize capacity_bytes) noexcept", ret: "予約 or エラー", desc: "<code>capacity_bytes</code> の仮想範囲を予約する(MEM_RESERVE)。物理はまだ割り当てない。", when: "アリーナの上限を先に押さえる時。" },
+        { sig: "void Release() noexcept", desc: "予約全体を解放する(デストラクタでも自動で呼ばれる)。" },
+        { sig: "TResult&lt;void&gt; Commit(usize offset, usize size) noexcept", ret: "成否", desc: "<code>[offset, offset+size)</code> の物理ページを割り当てる。LRU ヒット時はシステムコールを省く。" },
+        { sig: "TResult&lt;void&gt; Decommit(usize offset, usize size) noexcept", ret: "成否", desc: "物理ページを返却する。実際の VirtualFree は LRU からエビクトされる時まで遅延する。" },
+        { sig: "void* Base() const noexcept", ret: "先頭", desc: "予約範囲の先頭アドレス。未予約なら null。" },
+        { sig: "usize Capacity() const noexcept", ret: "予約量", desc: "予約した総バイト数。" },
+        { sig: "usize Committed() const noexcept", ret: "コミット量", desc: "現在物理割り当て済みのバイト数。" },
+        { sig: "u32 LruHitCount() const / u32 LruMissCount() const noexcept", ret: "統計", desc: "再 Commit が LRU キャッシュにヒット/ミスした回数(プロファイラ用)。" }
+      ]
+    },
+    {
+      name: "VmPageSize / VmAllocGranularity / VmIsAligned / VmZeroFastNT",
+      kind: "関数 / 定数", header: "memory/VirtualMemory.h",
+      summary: "仮想メモリ層の補助関数とページサイズ定数。<b>VmZeroFastNT</b> は <t>Non-Temporal</t> ストアで L1/L2 を汚さず DDR へ直書きする高速ゼロクリア(32B 整列かつ 256B 倍数でアンロール版、それ以外は memset)。",
+      when: "VM 予約の整列計算や、巨大バッファを高速にゼロクリアしたい低レベルな場面。",
+      sample: "usize ps = VmPageSize();              // OS ページサイズ\nusize gr = VmAllocGranularity();      // VirtualAlloc 予約粒度\nif (VmIsAligned((uptr)p, 4096)) { /* ... */ }\nVmZeroFastNT(buf, 4u &lt;&lt; 20);          // 4MB を非テンポラル書き込みでゼロ化",
+      members: [
+        { sig: "usize VmPageSize() noexcept", ret: "OS ページサイズ", desc: "OS の物理ページサイズ(通常 4KB)。" },
+        { sig: "usize VmAllocGranularity() noexcept", ret: "予約粒度", desc: "VirtualAlloc の予約粒度(Windows では通常 64KB)。" },
+        { sig: "bool VmIsAligned(uptr addr, usize alignment) noexcept", ret: "整列か", desc: "<code>addr</code> が <code>alignment</code> の倍数なら true。" },
+        { sig: "void VmZeroFastNT(void* dst, usize size) noexcept", desc: "非テンポラルストアでキャッシュを汚さずゼロクリアする。" },
+        { sig: "constexpr usize kVmSmallPageSize = 16*1024", desc: "論理小ページ単位(16 KiB)。" },
+        { sig: "constexpr usize kVmMediumPageSize = 128*1024", desc: "論理中ページ単位(128 KiB)。" },
+        { sig: "constexpr usize kVmSegmentSize = 8*1024*1024", desc: "論理セグメント単位(8 MiB)。" }
+      ]
+    },
+    {
+      name: "mapped_t / page_t",
+      kind: "構造体", header: "memory/VirtualMemory.h",
+      summary: "VM 層がマップ済み領域・連続ページ群を<b>各 8 バイトに圧縮</b>して持つビットフィールド <t>POD</t>。アドレスとページ数・フラグをパックする。<code>static_assert</code> で 8 バイトを保証。",
+      when: "VM 層の内部記述子。通常は直接触らないが、LRU キャッシュ等の構造を理解する際に参照する。",
+      sample: "static_assert(sizeof(mapped_t) == 8);\nstatic_assert(sizeof(page_t)   == 8);",
+      members: [
+        { sig: "u64 packed_virtual_addr : 44 / page_count : 16 / sparse : 1 / misc : 3", desc: "<code>mapped_t</code>: マップ領域の仮想アドレス・ページ数・スパース/その他フラグ。" },
+        { sig: "u64 continuous_page_count : 12 / misc : 4 / packed_virtual_addr : 48", desc: "<code>page_t</code>: 連続ページ数・フラグ・ページ整列アドレス。" }
+      ]
+    },
+    {
+      name: "FMemorySnapshot",
+      kind: "クラス(静的)", header: "memory/MemorySnapshot.h",
+      summary: "<t>FMemorySystem</t> の現状(セグメント別の予約/使用/予算)を <b>SVG / BMP / コンソール</b>に可視化出力するユーティリティ。全メソッド static、外部依存ゼロ(自前ライタ)。各セグメントを 1 行のバーとして描画する。",
+      when: "メモリ使用率を人間が読める形で書き出してデバッグ/プロファイルしたい時。SVG はブラウザで開け、BMP は外部ツールに流せる。",
+      sample: "FMemorySnapshot::WriteSvg(L\"mem.svg\");   // 人間可読・ラベル付き\nFMemorySnapshot::WriteBmp(L\"mem.bmp\");   // 24bpp 画像\nFMemorySnapshot::DumpToStdOut();          // ターミナルへテキスト",
+      members: [
+        { sig: "static TResult&lt;void&gt; WriteSvg(const wchar_t* path, u32 width = 800, u32 row_height = 40) noexcept", ret: "成否", desc: "SVG ファイルを出力する(ラベル付き、ブラウザで開ける)。" },
+        { sig: "static TResult&lt;void&gt; WriteBmp(const wchar_t* path, u32 width = 800, u32 row_height = 30) noexcept", ret: "成否", desc: "24bpp の BMP 画像を出力する(外部依存ゼロ)。" },
+        { sig: "static void DumpToStdOut() noexcept", desc: "コンソール(stdout)へテキストで使用率を出力する。" }
+      ]
+    },
+    {
+      name: "MemorySystemConfig / SegmentConfig / SegmentStats",
+      kind: "構造体", header: "memory/MemorySystem.h",
+      summary: "<t>FMemorySystem</t> の設定・統計を運ぶ <t>POD</t> 群。<b>SegmentConfig</b>=1 <t>セグメント</t>の予約/初回コミット/ハード予算/Linear 採用。<b>MemorySystemConfig</b>=全セグメント設定 + <code>make_default</code>。<b>SegmentStats</b>=セグメント別の reserve/committed/used/peak/budget。",
+      when: "<code>FMemorySystem::Init</code> に渡す設定の組み立てや、<code>GetStats</code> の結果受け取りに使う。",
+      sample: "MemorySystemConfig cfg = FMemorySystem::DefaultConfig();\ncfg.make_default = true;                      // 既定確保をシャード化 VM に通す\nFMemorySystem::Init(cfg);\n\nSegmentStats st[(int)ESegment::_Count];\nu32 n = FMemorySystem::GetStats(st, 5);\nfor (u32 i = 0; i &lt; n; ++i) { /* st[i].used / st[i].budget */ }",
+      members: [
+        { sig: "SegmentConfig: ESegment segment; usize reserve_bytes / commit_initial / budget_hard_cap; bool use_linear", desc: "1 セグメントの仮想予約量・初回コミット量・ハード予算(超過で alloc 失敗)・<code>use_linear=true</code> で <code>FLinearAllocator</code> を使う。" },
+        { sig: "MemorySystemConfig: SegmentConfig segments[ESegment::_Count]; bool make_default = false", desc: "全セグメント設定。<code>make_default=true</code> で Init 時に Default セグメントを既定アロケータに据える(Shutdown で元へ復元)。" },
+        { sig: "SegmentStats: ESegment segment; const char* name; u64 reserve/committed/used/peak/budget", desc: "セグメント別の予約・コミット・使用・ピーク・予算。<code>GetStats</code> で取得。" }
+      ]
+    },
+    {
+      name: "AlignUp / IsPow2 / kDefaultAlignment",
+      kind: "関数 / 定数", header: "memory/Allocator.h",
+      summary: "アロケータ実装で多用する整列ヘルパ。<b>AlignUp</b>=値/ポインタを 2 のべき乗の倍数へ切り上げ。<b>IsPow2</b>=2 のべき乗判定。<b>kDefaultAlignment</b>=既定整列(SIMD 16B と一般 8B の妥協で 16)。",
+      when: "独自アロケータやバッファ計算で整列を扱う時。<code>AlignUp</code> の <code>a</code> は必ず 2 のべき乗(Debug で <code>ACS_ASSERT</code>)。",
+      sample: "usize n = AlignUp(13, 16);        // 16\nvoid* q = AlignUp(p, 64);         // 64B 境界へ\nif (IsPow2(align)) { /* OK */ }\nusize a = kDefaultAlignment;      // 16",
+      members: [
+        { sig: "constexpr usize kDefaultAlignment", desc: "既定アライメント(<code>alignof(void*)</code> が 8 超ならそれ、でなければ 16)。実質 16。" },
+        { sig: "bool IsPow2(usize v) noexcept", ret: "2 のべき乗か", desc: "<code>v != 0 &amp;&amp; (v &amp; (v-1)) == 0</code>。" },
+        { sig: "usize AlignUp(usize n, usize a) noexcept", ret: "切り上げ値", desc: "<code>n</code> を <code>a</code>(2 のべき乗)の倍数へ切り上げる。" },
+        { sig: "void* AlignUp(void* p, usize a) noexcept", ret: "切り上げポインタ", desc: "ポインタ版。<code>a</code> 境界へ切り上げる。" }
+      ]
     }
   ]
 });
@@ -180,5 +373,8 @@ Object.assign(ACS_REF.glossary, {
   "TSharedPtr": "複数で共有する<t>スマートポインタ</t>。<t>参照カウント</t>が 0 で自動解放。",
   "TWeakPtr": "<t>TSharedPtr</t> への<t>弱参照</t>。寿命を延ばさず生死だけ見る。",
   "FObject": "参照カウント管理されるオブジェクトの基底。生ポインタからも強/弱参照を作れる。",
-  "DefaultAllocator": "既定の<t>アロケータ</t>。指定なしの確保で使われる。"
+  "DefaultAllocator": "既定の<t>アロケータ</t>。指定なしの確保で使われる。",
+  "セグメント": "メモリを目的・寿命で分けた論理ヒープ(Default/Permanent/Temp/Resource/Develop)。<code>FMemorySystem</code> が各セグメントに独立した予算を持つ。",
+  "VmReservation": "仮想アドレス空間を予約し、必要なページだけ物理コミットする <t>RAII</t> ハンドル。Decommit は LRU キャッシュ経由で実 VirtualFree を遅延する。",
+  "Non-Temporal": "キャッシュ(L1/L2)を経由せずメモリへ直接読み書きする命令。大きなバッファのゼロ化/コピーでキャッシュ汚染を避けられる。"
 });

@@ -216,7 +216,10 @@ ACS_REF.modules.push({
         { sig: "void Capture(u32 skip = 1)", desc: "現在のスタックを取得する。<code>skip</code> 段は除外（自身のフレーム等）。" },
         { sig: "void Resolve()", desc: "取得済みアドレスを関数名/ファイル/行に解決する（スレッドセーフ）。" },
         { sig: "u32 FrameCount() const / const StackFrame& Frame(u32 i) const", desc: "フレーム数と各フレームの取得。" },
-        { sig: "void Print(Sink sink, void* user) const", desc: "1 行ずつテキスト化して <code>sink</code> コールバックに渡す。" }
+        { sig: "void Print(Sink sink, void* user) const", desc: "1 行ずつテキスト化して <code>sink</code> コールバックに渡す。" },
+        { sig: "using Sink = void(*)(void* user, const char* line, usize len)", desc: "<code>Print</code> が 1 行ごとに呼ぶコールバック型。<code>user</code> は呼び出し時に渡したポインタがそのまま渡る。" },
+        { sig: "StackFrame { void* address; u64 line; char symbol[256]; char file[256]; }", desc: "1 フレーム分の情報。命令ポインタ・ソース行番号（失敗時 0）・関数名（失敗時 <code>\"??? @ 0xADDR\"</code>）・ファイルパス。" },
+        { sig: "inline constexpr u32 kStackTraceMaxFrames = 64", desc: "取得する最大フレーム数（名前空間スコープ定数）。" }
       ]
     },
     {
@@ -262,7 +265,8 @@ ACS_REF.modules.push({
         { sig: "RemoveRefT<T> / RemoveConstT<T> / RemoveCVT<T> / RemoveCVRefT<T>", desc: "参照 / const / cv / その両方を取り除いた素の型を得る。" },
         { sig: "bool IsIntegralV<T> / IsFloatingV<T> / IsArithmeticV<T>", desc: "整数型 / 浮動小数型 / 算術型かどうか。" },
         { sig: "bool IsPointerV<T> / IsLvalueRefV<T> / IsRvalueRefV<T>", desc: "ポインタ / lvalue 参照 / rvalue 参照かどうか。" },
-        { sig: "bool IsTriviallyCopyableV<T> / IsTriviallyDestructibleV<T> / IsEnumV<T> / IsBaseOfV<Base,Derived>", desc: "コンパイラ組み込み trait の薄いラッパ（自明コピー可・自明破棄可・列挙型か・基底クラスか）。" },
+        { sig: "bool IsTriviallyCopyableV<T> / IsTriviallyDestructibleV<T> / IsTriviallyConstructibleV<T>", desc: "コンパイラ組み込み trait の薄いラッパ（自明コピー可 / 自明破棄可 / 自明構築可）。" },
+        { sig: "bool IsEnumV<T> / IsEmptyV<T> / IsAbstractV<T> / IsBaseOfV<Base,Derived>", desc: "列挙型か / 空クラス（メンバ無し）か / 抽象クラス（純粋仮想あり）か / <code>Base</code> が <code>Derived</code> の基底かを判定する組み込み trait ラッパ。" },
         { sig: "EnableIfT<C, T>", desc: "<t>SFINAE</t> 用。条件 <code>C</code> が真の時だけ型 <code>T</code> を露出させ、テンプレートの有効/無効を切り替える。" },
         { sig: "ConditionalT<C, A, B>", desc: "コンパイル時の三項演算子。<code>C</code> が真なら <code>A</code>、偽なら <code>B</code> 型を選ぶ。" }
       ]
@@ -281,7 +285,12 @@ ACS_REF.modules.push({
         { sig: "ACS_NORETURN / ACS_DEBUGBREAK() / ACS_THREAD_LOCAL", desc: "戻らない関数 / デバッガブレーク / スレッドローカル変数。" },
         { sig: "ACS_LIKELY(x) / ACS_UNLIKELY(x)", desc: "分岐予測ヒント（成立しやすい / しにくい）。" },
         { sig: "ACS_CACHELINE_SIZE / ACS_CACHELINE_ALIGN", desc: "キャッシュライン（64B）サイズと整列指定。" },
-        { sig: "ACS_CONCAT(a,b) / ACS_STRINGIFY(x) / ACS_UNUSED(x)", desc: "トークン連結 / 文字列化 / 未使用警告抑制。" }
+        { sig: "ACS_CONCAT(a,b) / ACS_STRINGIFY(x) / ACS_UNUSED(x)", desc: "トークン連結 / 文字列化 / 未使用警告抑制。" },
+        { sig: "ACS_RESTRICT", desc: "<code>restrict</code> 修飾子のラッパ（MSVC は <code>__restrict</code>、それ以外は <code>__restrict__</code>）。ポインタが指す領域が他とエイリアスしないと最適化器に伝える。" },
+        { sig: "ACS_DLLEXPORT / ACS_DLLIMPORT", desc: "DLL シンボルのエクスポート / インポート指定（MSVC は <code>__declspec(dllexport/dllimport)</code>、GCC/Clang は <code>visibility(\"default\")</code> 相当）。" },
+        { sig: "ACS_TARGET_AVX / ACS_TARGET_AVX2", desc: "その関数だけ AVX / AVX2(+FMA) を有効化する関数属性。Clang/GCC は <code>target(...)</code> を付与、MSVC は空。ランタイム CPU 判定で AVX 経路を選ぶ関数に付ける。" },
+        { sig: "ACS_PRETTY_FUNC", desc: "関数シグネチャ文字列（MSVC は <code>__FUNCSIG__</code>、それ以外は <code>__PRETTY_FUNCTION__</code>）。" },
+        { sig: "ACS_COMPILER_NAME / ACS_PLATFORM_NAME / ACS_ARCH_NAME", desc: "コンパイラ / OS / アーキテクチャ名の文字列リテラル（例 <code>\"msvc\"</code> / <code>\"windows\"</code> / <code>\"x64\"</code>）。" }
       ]
     },
     {

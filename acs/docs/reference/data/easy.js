@@ -392,6 +392,35 @@ ACS_REF.modules.push({
         { sig: "i32 WorkerCount()", ret: "ワーカ数", desc: "並列ワーカの数（1 以上）。" },
         { sig: "bool IsWorker()", ret: "ワーカ上か", desc: "今このコードがワーカスレッド上で動いていれば true。" }
       ]
+    },
+    {
+      name: "入力コード（EKey / EMouseButton / EGamepadButton）",
+      kind: "列挙", header: "platform/InputCodes.h",
+      summary: "easy が再公開している入力用の列挙。<code>using acs::EKey;</code> 等で <code>acs::easy</code> 名前空間からそのまま <code>EKey::Space</code> のように書ける。実体は <t>platform</t> モジュールの <code>InputCodes.h</code> で定義され、easy 側では値一覧が見えないため、よく使う値をここにまとめる。<code>IsKeyDown</code> / <code>IsMouseDown</code> / <code>IsGamepadDown</code> などに渡す。",
+      when: "キーボード・マウス・ゲームパッドの入力関数に「どのキー/ボタンか」を渡す時。先頭の <code>EKey::</code> 等を省略せず、列挙の値名で指定する。",
+      sample: "if (IsKeyDown(EKey::Right)) x += 5;          // 矢印キー\nif (IsKeyPressed(EKey::Space)) Jump();        // スペース\nif (IsMouseDown(EMouseButton::Right)) Pan();  // 右クリック\nif (IsGamepadPressed(EGamepadButton::A)) Ok(); // ゲームパッド A",
+      members: [
+        { sig: "EKey::A 〜 EKey::Z", desc: "文字キー(<code>A</code>〜<code>Z</code>、26 個)。" },
+        { sig: "EKey::Num0 〜 EKey::Num9", desc: "最上段の数字キー(テンキーではない)。テンキーは <code>EKey::KP0</code>〜<code>EKey::KP9</code>。" },
+        { sig: "EKey::F1 〜 EKey::F12", desc: "ファンクションキー。全画面トグルに <code>EKey::F11</code> など。" },
+        { sig: "EKey::Up / Down / Left / Right", desc: "矢印キー。移動入力の定番。" },
+        { sig: "EKey::Space / Enter / Tab / Backspace / Escape", desc: "主要な制御キー。決定・ジャンプ・キャンセル・文字消去などに。" },
+        { sig: "EKey::Insert / Delete / Home / End / PageUp / PageDown", desc: "編集・ページ移動系のキー。" },
+        { sig: "EKey::LeftShift / RightShift / LeftCtrl / RightCtrl / LeftAlt / RightAlt / LeftSuper / RightSuper", desc: "修飾キー(左右別)。<code>Super</code> は Windows キー / Cmd キー。" },
+        { sig: "EKey::CapsLock / NumLock / ScrollLock", desc: "ロック系キー。" },
+        { sig: "EKey::Minus / Equal / LeftBracket / RightBracket / Backslash / Semicolon / Apostrophe / Comma / Period / Slash / Grave", desc: "記号キー各種。" },
+        { sig: "EKey::KP0 〜 KP9 / KPAdd / KPSubtract / KPMultiply / KPDivide / KPEnter / KPDecimal", desc: "テンキー(KeyPad)の数字と演算キー。" },
+        { sig: "EKey::Unknown", desc: "未知/未対応キー(値 0)。" },
+        { sig: "EMouseButton::Left = 0", desc: "左ボタン。マウス系関数の既定値。" },
+        { sig: "EMouseButton::Right = 1", desc: "右ボタン。" },
+        { sig: "EMouseButton::Middle = 2", desc: "中ボタン(ホイール押し込み)。" },
+        { sig: "EMouseButton::X1 = 3 / X2 = 4", desc: "サイドボタン 1 / 2。" },
+        { sig: "EGamepadButton::A / B / X / Y", desc: "フェイスボタン(XInput 互換配置)。" },
+        { sig: "EGamepadButton::Up / Down / Left / Right", desc: "方向パッド(D-Pad)。" },
+        { sig: "EGamepadButton::LeftBumper / RightBumper", desc: "左右のショルダー(バンパー)ボタン。" },
+        { sig: "EGamepadButton::LeftStick / RightStick", desc: "スティックの押し込み。" },
+        { sig: "EGamepadButton::Start / Back / Guide", desc: "スタート / バック / ガイド(ホーム)ボタン。" }
+      ]
     }
   ]
 });
@@ -403,5 +432,6 @@ Object.assign(ACS_REF.glossary, {
   "Bloom": "明るい部分をにじませて光って見せる<t>ポストプロセス</t>効果。",
   "ポストプロセス": "描き終えた画面全体に後からかける効果（発光・色補正・ノイズなど）。",
   "スレッドプール": "あらかじめ用意したワーカ<t>スレッド</t>に仕事を割り振って並列実行する仕組み。",
-  "線形補間": "2 つの値の間を比率 t（0〜1）でまっすぐ補間すること（Lerp）。なめらかな移動に使う。"
+  "線形補間": "2 つの値の間を比率 t（0〜1）でまっすぐ補間すること（Lerp）。なめらかな移動に使う。",
+  "platform": "OS ごとのウィンドウ・入力・時間などを抽象化する低レベルモジュール。easy の入力コード列挙 <code>EKey</code> 等もここで定義される。"
 });

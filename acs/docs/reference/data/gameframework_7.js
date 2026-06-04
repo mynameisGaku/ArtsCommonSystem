@@ -236,7 +236,8 @@ ACS_REF.modules.push({
         { sig: "bool IsFinished() const", desc: "Once モードで末尾に達したか。" },
         { sig: "f32 NormalizedTime() const", ret: "進行率 [0,1]", desc: "周期内 (Loop/PingPong) または 0→1 (Once) の進み具合。" },
         { sig: "void SetCurrentFrame(u32 i) / void SetFps(f32 fps)", desc: "強制シーク / 速度変更。" },
-        { sig: "void AddFrameEvent(u32 frame, FrameEventFn cb, void* user)", desc: "指定フレームに入った瞬間 1 度だけ関数を呼ぶ (Loop の周回毎に再発火)。", when: "足音・エフェクト発生など特定コマに同期させたい時。" }
+        { sig: "void AddFrameEvent(u32 frame, FrameEventFn cb, void* user)", desc: "指定フレームに入った瞬間 1 度だけ関数を呼ぶ (Loop の周回毎に再発火)。", when: "足音・エフェクト発生など特定コマに同期させたい時。" },
+        { sig: "u32 FrameCount() const / f32 Fps() const / EPlayMode Mode() const", desc: "設定済みの総フレーム数 / 再生速度 (fps) / 再生モードを取得する。" }
       ]
     },
     {

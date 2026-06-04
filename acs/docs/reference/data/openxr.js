@@ -46,7 +46,7 @@ ACS_REF.modules.push({
       kind: "定数(エラー subcode)", header: "openxr/KhronosOpenXrBridge.h",
       summary: "Init 失敗時に <t>Result</t> へ載るエラーの細分番号。<code>301</code>=XR ランタイムが見つからない、<code>302</code>=初期化に失敗。",
       when: "Init() の失敗理由を分岐したい時に <t>Result</t> のエラーと突き合わせる。",
-      sample: "auto r = xr.Init();\nif (!r) {\n    // r.error().sub() が kSubOpenXrRuntimeUnavailable なら\n    //   → ランタイム未導入。2D 描画へフォールバック。\n}"
+      sample: "auto r = xr.Init();\nif (!r) {\n    // r.Error().subcode が kSubOpenXrRuntimeUnavailable なら\n    //   → ランタイム未導入。2D 描画へフォールバック。\n}"
     },
     {
       name: "IOpenXrBridge",
@@ -160,7 +160,7 @@ ACS_REF.modules.push({
       kind: "定数(エラー subcode)", header: "gameframework/OpenXrBridge.h",
       summary: "「未実装」を表すエラー細分番号(<code>99</code>)。stub の <code>Init()</code> や、backend 未統合時に <t>Result</t> へ載る。他モジュール(ML 等)と番号を揃え、横断で「未実装」を一律に扱える。",
       when: "Init 失敗が「ランタイム無し」ではなく「そもそも未実装/未リンク」なのかを判別したい時。",
-      sample: "auto r = acs::game::GetDefaultOpenXrBridge().Init();\nif (!r &amp;&amp; r.error().sub() == acs::game::xr_err::kSub_NotImplemented) {\n    // backend 未リンク。常に 2D で動かす。\n}"
+      sample: "auto r = acs::game::GetDefaultOpenXrBridge().Init();\nif (r.IsErr() &amp;&amp; r.Error().subcode == acs::game::xr_err::kSub_NotImplemented) {\n    // backend 未リンク。常に 2D で動かす。\n}"
     }
   ]
 });

@@ -615,6 +615,91 @@ ACS_REF.modules.push({
         { sig: "FVoiceChatLoopbackBackend& GetVoiceLoopback()", desc: "実際に音声を往復させるループバック実装の singleton を返す。" },
         { sig: "IWorkshopBridge& GetWorkshopStub()", desc: "no-op な Workshop 実装の singleton を返す。" }
       ]
+    },
+    {
+      name: "EAudioFormat",
+      kind: "列挙(enum)", header: "gameframework/audio_backend/IAudioBackend.h",
+      summary: "<code>AudioClipDesc</code> が指す PCM バッファの形式。<code>Pcm16</code>(16bit signed PCM) / <code>Pcm32Float</code>(32bit IEEE float) / <code>Wav</code>(RIFF ヘッダ込み、Phase 3)。",
+      when: "再生する clip のサンプル形式を指定する時。",
+      sample: "AudioClipDesc d; d.format = EAudioFormat::Pcm16;",
+      members: [
+        { sig: "Pcm16 = 0", desc: "16bit signed PCM (典型的な WAV PCM の raw bytes)。" },
+        { sig: "Pcm32Float = 1", desc: "32bit IEEE float PCM (高品質・DSP-friendly)。" },
+        { sig: "Wav = 2", desc: "ファイルからロード済の WAV 形式 (パーサ別途、Phase 3)。" }
+      ]
+    },
+    {
+      name: "IAudioBackend",
+      kind: "インターフェース", header: "gameframework/audio_backend/IAudioBackend.h",
+      summary: "<code>FAudioDirector</code> から見た「実際に音を出す層」の純粋仮想<t>シーム</t>。BGM / SFX を統一的に <code>AudioVoiceHandle</code> で扱い、一発再生 / ループ / 停止 / 音量変更を提供する。Windows では <code>FXAudio2Backend</code>、他プラットフォームは別実装で差し替える。STL 不使用・全 <code>noexcept</code>。",
+      when: "director の下に実音声バックエンドを差し込みたい時。backend を nullptr にすると無音 (no-op) で動く。",
+      sample: "FXAudio2Backend backend;\nACS_TRY(backend.Init(64));\ndirector.SetBackend(&amp;backend);\n// 一発再生:\nAudioVoiceHandle v = backend.PlayOneShot(clip, 1.0f, 1.0f);\nbackend.Tick(dt);   // 毎フレーム: 完了 voice を回収",
+      members: [
+        { sig: "virtual TResult<void> Init(u32 max_voices = 64)", ret: "成否", desc: "backend を初期化。<code>max_voices</code> は同時発音数の上限 (0 は不正)。多重 Init は <code>kSubAudioAlreadyInitialized</code>。" },
+        { sig: "virtual void Shutdown()", desc: "全 voice を停止して資源解放。Init 前に呼んでも安全 (no-op)。" },
+        { sig: "virtual bool IsInitialized() const", desc: "Init 済かつ実バックエンドが正常起動した状態か。" },
+        { sig: "virtual AudioVoiceHandle PlayOneShot(const AudioClipDesc& clip, f32 volume, f32 pitch)", ret: "voice handle", desc: "一発再生 (loop なし、終端で自動回収)。<code>pitch</code> は 1.0=等倍 / 0.5=1 オクターブ低 / 2.0=高。失敗時は <code>kInvalidAudioVoice</code>。", when: "効果音を 1 回鳴らす時。" },
+        { sig: "virtual AudioVoiceHandle PlayLooped(const AudioClipDesc& clip, f32 volume, f32 pitch)", ret: "voice handle", desc: "ループ再生 (StopVoice までずっと鳴り続ける)。", when: "環境音や BGM を鳴らす時。" },
+        { sig: "virtual void StopVoice(AudioVoiceHandle voice)", desc: "指定 voice を停止し slot を解放。無効 / 既に解放済ハンドルは no-op。" },
+        { sig: "virtual void SetVoiceVolume(AudioVoiceHandle voice, f32 volume)", desc: "指定 voice の音量を変更。無効 / 解放済は no-op。範囲外は clamp 推奨。" },
+        { sig: "virtual void StopAllVoices()", desc: "全 voice を停止して slot 解放。Init 前は no-op。" },
+        { sig: "virtual u32 ActiveVoiceCount() const", desc: "現在再生中 (slot active) の voice 数。デバッグ / UI メーター用。" },
+        { sig: "virtual void Tick(f32 dt)", desc: "完了した一発再生 voice の slot 解放等、内部状態を進める。<code>dt</code> は実時間秒。", when: "ゲームループから毎フレーム呼ぶ。" }
+      ]
+    },
+    {
+      name: "FXAudio2Backend",
+      kind: "クラス", header: "gameframework/audio_backend/XAudio2Backend.h",
+      summary: "<t>IAudioBackend</t> の Windows 用 concrete 実装 = Win32 <b>XAudio2</b> を叩いて実音声を出す。重い <code>&lt;xaudio2.h&gt;</code> は <t>pimpl</t> で <code>.cpp</code> に隠蔽。固定容量 voice pool + generation 付き handle で <t>use-after-free</t> を防ぐ。COM 初期化も本クラスが責任を持つ。非コピー・非ムーブ。",
+      when: "Windows で <code>FAudioDirector</code> に実音声を鳴らさせたい時。<code>director.SetBackend(&amp;xaudio2)</code> で差し込む。",
+      sample: "FXAudio2Backend m_Audio;\nFAudioDirector  m_Director;\nACS_TRY(m_Audio.Init(64));        // 同時発音 64 voice\nm_Director.SetBackend(&amp;m_Audio);\n// 終了時:\nm_Director.SetBackend(nullptr);  // 先に director を切る\nm_Audio.Shutdown();",
+      members: [
+        { sig: "FXAudio2Backend()", desc: "backend を構築 (まだ未初期化)。Init を呼ぶまで音は出ない。" },
+        { sig: "TResult<void> Init(u32 max_voices = 64) override", ret: "成否", desc: "XAudio2 / COM を起動し voice pool を確保する。再 init 不可。" },
+        { sig: "void SetMasterVolume(f32 volume)", desc: "マスタリングボイス音量 (最終出力の master volume)。0.0〜1.0 推奨 (>1.0 は歪む)。", when: "全体音量をまとめて下げたい時。" },
+        { sig: "struct Impl", desc: "XAudio2 / COM の重ヘッダを <code>.cpp</code> に閉じ込める <t>pimpl</t> の前方宣言 (実体は <code>.cpp</code>)。" }
+      ]
+    },
+    {
+      name: "AudioClipDesc",
+      kind: "構造体", header: "gameframework/audio_backend/IAudioBackend.h",
+      summary: "再生する音声バッファの記述子。フォーマット + データ参照を持つ。<code>pcm_data</code> は backend 側が必要な間 (一発再生終了 / Stop まで) 内部コピーする。",
+      when: "<code>PlayOneShot</code> / <code>PlayLooped</code> に渡す clip を組み立てる時。",
+      sample: "AudioClipDesc clip;\nclip.pcm_data = bytes;\nclip.pcm_size = len;\nclip.sample_rate = 44100;\nclip.channel_count = 2;\nclip.format = EAudioFormat::Pcm16;",
+      members: [
+        { sig: "const void* pcm_data = nullptr", desc: "raw PCM サンプル列 (Wav 形式の場合は RIFF ヘッダ込み)。" },
+        { sig: "u64 pcm_size = 0", desc: "<code>pcm_data</code> の有効バイト数。" },
+        { sig: "u32 sample_rate = 0", desc: "1 チャネルあたりサンプル/秒 (例 44100 / 48000)。" },
+        { sig: "u32 channel_count = 0", desc: "チャネル数 (1=mono / 2=stereo)。" },
+        { sig: "EAudioFormat format = EAudioFormat::Pcm16", desc: "上記 <code>EAudioFormat</code>。" }
+      ]
+    },
+    {
+      name: "AudioVoiceHandle / kInvalidAudioVoice",
+      kind: "構造体", header: "gameframework/audio_backend/IAudioBackend.h",
+      summary: "再生中の 1 voice を指す<t>世代付きハンドル</t>。下位 24bit = index、上位 8bit = generation の packed <code>u32</code>。slot 再利用を古いハンドルで触る事故を generation で検出する。全 0 (<code>kInvalidAudioVoice</code>) が無効。backend は generation を必ず 1 以上で配る (<code>FNodeId</code> / <code>FShapeId</code> と同一規約)。",
+      when: "<code>PlayOneShot</code> / <code>PlayLooped</code> の戻り値を保持して後で停止・音量変更する時。",
+      sample: "AudioVoiceHandle v = backend.PlayLooped(clip, 1, 1);\nif (v.IsValid()) backend.SetVoiceVolume(v, 0.5f);\nbackend.StopVoice(v);",
+      members: [
+        { sig: "constexpr AudioVoiceHandle()", desc: "無効ハンドル (<code>m_Packed == 0</code>) を作る。" },
+        { sig: "constexpr AudioVoiceHandle(u32 index, u8 gen)", desc: "<code>(index &amp; 0x00FFFFFF) | (gen &lt;&lt; 24)</code> に詰めて構築する。" },
+        { sig: "bool IsValid() const", desc: "<code>m_Packed != 0</code> か。確保失敗を弾く。" },
+        { sig: "u32 Index() const", desc: "下位 24bit の voice index。" },
+        { sig: "u8 Generation() const", desc: "上位 8bit の generation。" },
+        { sig: "inline constexpr AudioVoiceHandle kInvalidAudioVoice{}", ret: "無効値", desc: "全 0 の無効ハンドル定数。" }
+      ]
+    },
+    {
+      name: "FAssetLockInfo",
+      kind: "構造体", header: "gameframework/StudioWorkflow.h",
+      summary: "<t>IAssetLockingBackend</t> の <code>QueryLock</code> が返すロック情報 (P4 の <code>p4 fstat</code> 相当の最小情報)。文字列は backend が所有せず、寿命は「次の Backend 呼び出しまで」を保証する。",
+      when: "あるアセットが誰にいつロックされているかを問い合わせた結果を読む時。",
+      sample: "auto r = locks.QueryLock(\"assets/hero.fbx\");\nif (r.IsOk()) {\n    const FAssetLockInfo& i = r.Value();\n    Log(\"%s locked by %s\", i.asset_path, i.locker_user);\n}",
+      members: [
+        { sig: "const char* asset_path = nullptr", desc: "ロック対象パス (例 <code>//depot/FGame/foo.fbx</code>)。" },
+        { sig: "const char* locker_user = nullptr", desc: "ロック保持ユーザー (例 <code>designer_a</code>)。" },
+        { sig: "u64 lock_time = 0", desc: "ロック取得時刻 (実装依存; UNIX epoch 推奨)。" }
+      ]
     }
   ]
 });
@@ -642,5 +727,7 @@ Object.assign(ACS_REF.glossary, {
   "UGC": "User Generated Content。ユーザーが作った MOD / ステージ等のコンテンツ。Workshop 等で配布される。",
   "エンコード": "データを送受信 / 保存用の形式(ここではフレーム化したバイト列)に変換すること。逆は<t>デコード</t>。",
   "デコード": "エンコードされたデータを元の形(ここでは int16 PCM)に戻すこと。",
-  "決定的": "同じ入力なら必ず同じ結果になる性質。乱数や時刻に依存せず、テストや再現がしやすい。"
+  "決定的": "同じ入力なら必ず同じ結果になる性質。乱数や時刻に依存せず、テストや再現がしやすい。",
+  "trauma": "画面振動 (camera shake) の強さを表す [0,1] の連続値。被弾などで加算し、毎フレーム減衰させる。振動量を trauma の 2〜3 乗にすると小さい揺れが目立たず自然になる手法 (GDC の定番)。",
+  "pimpl": "pointer to implementation。クラスの実装詳細 (重いヘッダや OS 依存型) を前方宣言したポインタの先に隠し、公開ヘッダのインクルード負荷とコンパイル依存を減らすイディオム。"
 });

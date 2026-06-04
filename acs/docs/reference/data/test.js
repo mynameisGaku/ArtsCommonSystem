@@ -12,7 +12,7 @@ ACS_REF.modules.push({
       kind: "マクロ", header: "test/Test.h",
       summary: "<b>テストケースを 1 つ宣言する</b>マクロ。直後に <code>{ ... }</code> でテスト本体を書く。プログラム起動時に自動でテスト一覧へ登録され、<code>RunAll()</code> で実行される。<code>Suite</code> はグループ名、<code>Name</code> はその中の個別テスト名。",
       when: "新しいテストを 1 つ書くとき。関数を自分で <code>main</code> から呼ぶ必要はなく、書いただけで実行対象になる。",
-      sample: "ACS_TEST(MathVec3, Add) {\n    EXPECT_EQ(FVec3(1,2,3) + FVec3(4,5,6), FVec3(5,7,9));\n}\n\nACS_TEST(MathVec3, Length) {\n    EXPECT_NEAR(FVec3(3,4,0).Length(), 5.0f, 0.001f);\n}"
+      sample: "ACS_TEST(MathVec3, Add) {\n    EXPECT_EQ(FVec3(1,2,3) + FVec3(4,5,6), FVec3(5,7,9));\n}\n\nACS_TEST(MathVec3, Length) {\n    EXPECT_NEAR(Length(FVec3(3,4,0)), 5.0f, 0.001f);\n}"
     },
     {
       name: "RunAll()",

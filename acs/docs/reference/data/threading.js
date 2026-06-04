@@ -18,7 +18,7 @@ ACS_REF.modules.push({
         { sig: "void Store(T v, EMemoryOrder o = SeqCst)", desc: "値を書き込む。<code>Release</code> 指定でそれ以前の書き込みを公開できる。" },
         { sig: "T Exchange(T v)", ret: "古い値", desc: "新しい値を書きつつ、書く前の値を返す(XCHG 相当)。" },
         { sig: "bool CompareExchange(T& expected, T desired)", ret: "成功したか", desc: "現在値が <code>expected</code> と一致すれば <code>desired</code> に書き換え true。失敗時は <code>expected</code> に実際の値が入り false。<t>CAS</t>。", when: "『今が X なら Y にする』というロックフリーな更新ループを書く時。", sample: "u32 cur = a.Load();\nwhile (!a.CompareExchange(cur, cur + 1)) { /* cur は実値に更新済 */ }" },
-        { sig: "T FetchAdd(T v) / FetchSub(T v)", ret: "演算前の値", desc: "加算/減算しつつ、演算する前の値を返す。" },
+        { sig: "T FetchAdd(T v) / FetchSub(T v)", ret: "演算前の値", desc: "加算/減算しつつ、演算する前の値を返す。<b>32/64bit 型用</b>(<code>FetchOr/And/Exchange/CompareExchange</code> は 1/2/4/8 byte 全対応)。順序引数は取らない。" },
         { sig: "T FetchOr(T v) / FetchAnd(T v)", ret: "演算前の値", desc: "ビット OR / AND しつつ演算前の値を返す。フラグ集合の操作に。" },
         { sig: "T operator++() / operator--()", desc: "アトミックなインクリメント/デクリメント。前置は演算後、後置(<code>++(int)</code>)は演算前の値を返す。" }
       ]
@@ -28,12 +28,12 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "threading/MemoryOrder.h",
       summary: "<t>アトミック</t>操作の<b>順序保証の強さ</b>を選ぶタグ(std::memory_order 相当)。強いほど安全だが遅い。",
       when: "<code>TAtomic</code> の各操作に渡す。迷ったら既定の <code>SeqCst</code> でよい。性能を詰める段階で緩める。",
-      sample: "a.Store(1, EMemoryOrder::Release);   // これ以前の書き込みを公開\nu32 v = a.Load(EMemoryOrder::Acquire); // 公開された書き込みを取り込む\nb.FetchAdd(1, EMemoryOrder::Relaxed); // 順序不要なカウンタ(最速)",
+      sample: "a.Store(1, EMemoryOrder::Release);   // これ以前の書き込みを公開\nu32 v = a.Load(EMemoryOrder::Acquire); // 公開された書き込みを取り込む\nb.FetchAdd(1);                         // RMW(FetchAdd 等)は順序引数を取らない",
       members: [
         { sig: "Relaxed", desc: "順序保証なし。値そのものはアトミックだが、周りの読み書きの順序は守られない。最速。" },
         { sig: "Acquire", desc: "このロード以降の読み書きが上に動かない。<code>Release</code> された値を取り込む側。" },
         { sig: "Release", desc: "このストア以前の読み書きが下に動かない。書いた内容を他スレッドへ公開する側。" },
-        { sig: "AcqRel", desc: "読み書き両方を行う <t>RMW</t> 操作向け(Acquire + Release)。" },
+        { sig: "AcqRel", desc: "読み書き両方を行う <t>RMW</t> 操作向け(Acquire + Release)の意味タグ。ただし <code>TAtomic</code> の RMW(<code>FetchAdd</code>/<code>Exchange</code>/<code>CompareExchange</code> 等)は<b>順序引数を取らない</b>(x64 では常に完全バリア)ため、この値を渡す先は <code>Load</code>/<code>Store</code> のみ。<code>Load</code> は <code>Relaxed</code> 以外なら Acquire、<code>Store</code> は <code>Relaxed</code> 以外なら Release として扱われる(SeqCst も同じ扱いで、<code>Load</code>/<code>Store</code> に完全バリアは入らない)。" },
         { sig: "SeqCst", desc: "全スレッドで唯一の順序が見える最強の保証。既定値。" }
       ]
     },
@@ -77,14 +77,21 @@ ACS_REF.modules.push({
       kind: "クラス", header: "threading/ScopedLock.h",
       summary: "<t>FMutex</t> を<b>自動で</b>ロック/解除する <t>RAII</t> ガード(std::lock_guard 相当)。作った瞬間 Lock し、スコープを抜けると必ず Unlock する。",
       when: "<code>FMutex</code> を使う時は原則これ。途中で <code>return</code> しても <code>FPanic</code> しても解除し忘れがない。コピー/ムーブ不可。",
-      sample: "FMutex m;\n{\n    FScopedLock lk(m);   // ここで Lock\n    list.PushBack(x);\n    // 早期 return しても安全\n}                        // スコープ脱出で自動 Unlock"
+      sample: "FMutex m;\n{\n    FScopedLock lk(m);   // ここで Lock\n    list.PushBack(x);\n    // 早期 return しても安全\n}                        // スコープ脱出で自動 Unlock",
+      members: [
+        { sig: "explicit FScopedLock(FMutex&amp; m) noexcept", desc: "構築と同時に <code>m.Lock()</code> を呼び、デストラクタで <code>m.Unlock()</code> する。<code>FMutex&amp;</code> を参照で保持するため <code>m</code> はガードより長く生存させること。" }
+      ]
     },
     {
       name: "ScopedSharedLock / ScopedExclusiveLock",
       kind: "クラス", header: "threading/ScopedLock.h",
       summary: "<t>RwLock</t> 用の <t>RAII</t> ガード。<b>Shared</b>=共有(読み取り)を自動ロック/解除、<b>Exclusive</b>=排他(書き込み)を自動ロック/解除。",
       when: "<code>RwLock</code> を使う時は手動の Lock/Unlock ではなくこれで包む。",
-      sample: "RwLock rw;\n{\n    ScopedSharedLock lk(rw);     // 読み取りで保持\n    Read(config);\n}\n{\n    ScopedExclusiveLock lk(rw);  // 書き込みで独占\n    Write(config);\n}"
+      sample: "RwLock rw;\n{\n    ScopedSharedLock lk(rw);     // 読み取りで保持\n    Read(config);\n}\n{\n    ScopedExclusiveLock lk(rw);  // 書き込みで独占\n    Write(config);\n}",
+      members: [
+        { sig: "explicit ScopedSharedLock(RwLock&amp; r) noexcept", desc: "構築時に <code>r.LockShared()</code>、デストラクタで <code>r.UnlockShared()</code>(読み取り、複数同時可)。" },
+        { sig: "explicit ScopedExclusiveLock(RwLock&amp; r) noexcept", desc: "構築時に <code>r.LockExclusive()</code>、デストラクタで <code>r.UnlockExclusive()</code>(書き込み、独占)。" }
+      ]
     },
     {
       name: "ConditionVar",
@@ -180,6 +187,7 @@ ACS_REF.modules.push({
         { sig: "static void Shutdown()", desc: "全ワーカーを停止しプールを片付ける。" },
         { sig: "static u32 WorkerCount()", ret: "ワーカー数", desc: "起動中のワーカースレッド数。" },
         { sig: "static u32 CurrentWorkerIndex()", ret: "0..N-1 or kNotAWorker", desc: "呼び出しスレッドがプールのワーカーなら通し番号、そうでなければ <code>kNotAWorker</code>。" },
+        { sig: "static constexpr u32 kNotAWorker = 0xFFFFFFFF", desc: "<code>CurrentWorkerIndex()</code> がワーカー外スレッドで返す番兵値。" },
         { sig: "static TResult<void> Submit(const Task& t)", ret: "成否", desc: "タスクを投入する。<code>t.counter</code> が非 null なら自動で <code>Add(1)</code> される。", when: "1 個のタスクを並列キューに積む時。" },
         { sig: "static void Wait(CompletionCounter& counter)", desc: "<code>counter</code> が 0 になるまで待つ。待機中の呼び出しスレッドも仕事を手伝う(スティーリング参加)。" },
         { sig: "static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain, body, void* user)", ret: "成否", desc: "<code>[begin, end)</code> を <code>grain</code> 個ずつに分割して並列実行し、全部終わるまで待つ。", when: "配列を範囲分割して並列処理したい時の定番。", sample: "FThreadPool::ParallelFor(0, n, 64,\n  [](u32 i, u32 w, void* u){ /* i 番目を処理 */ }, &ctx);" }

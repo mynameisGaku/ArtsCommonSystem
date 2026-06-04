@@ -201,7 +201,8 @@ ACS_REF.modules.push({
         { sig: "virtual void OnEvent(const Event& e)", desc: "ウィンドウ/入力イベントの受け取り。最上段シーンにのみ届く。" },
         { sig: "virtual ESvc WantedServices() const", ret: "使うサービス", desc: "このシーンが使う<t>サービス</t>を bit flag で宣言する。", sample: "ESvc WantedServices() const noexcept override { return ESvc::Default2D; }" },
         { sig: "FSceneServices& Services() const", ret: "サービスハブ", desc: "宣言済みの <code>FSceneServices</code> を取得する (未宣言で呼ぶと停止)。" },
-        { sig: "FGame& GetGame() const / FSceneManager& Scenes() const", desc: "ゲーム本体とシーン管理への参照。シーン遷移は <code>Scenes().ChangeScene(...)</code>。" }
+        { sig: "FGame& GetGame() const / FSceneManager& Scenes() const", desc: "ゲーム本体とシーン管理への参照。シーン遷移は <code>Scenes().ChangeScene(...)</code>。" },
+        { sig: "bool HasServices() const", desc: "このシーンに <code>FSceneServices</code> が attach 済みか。<code>Services()</code> を呼ぶ前の安全確認に使える (未宣言で <code>Services()</code> を呼ぶと停止する)。" }
       ]
     },
     {

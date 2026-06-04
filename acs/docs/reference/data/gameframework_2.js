@@ -140,7 +140,8 @@ ACS_REF.modules.push({
         { sig: "bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id, u32 mask = kAllLayers)", ret: "当たったか", desc: "最も近い形状を 1 つ返す。out_hit に交点 / 法線 / 距離、out_id にどの形状か。", when: "視線判定・射撃・地面検出など。", sample: "RayHit2 rh; FShapeId id;\nif (world.Raycast({org, dir}, 100.0f, rh, id)) Hit(id);" },
         { sig: "FVec2 ResolveCircle(const Circle& c, FShapeId exclude = {}, u32 mask = kAllLayers)", ret: "押し出しベクトル", desc: "重なっている全形状から押し出す合計ベクトルを返す (重なり無しは {0,0})。<t>collide-and-slide</t> 用。", when: "kinematic body の貫通解消とスライド移動。" },
         { sig: "u32 ShapeCount() const", desc: "登録中の形状数。" },
-        { sig: "void ClearAll()", desc: "全形状とグリッドを破棄する。" }
+        { sig: "void ClearAll()", desc: "全形状とグリッドを破棄する。" },
+        { sig: "FVec2 ResolvePolygon(const ConvexPoly2& p, FShapeId exclude = {}, u32 mask = kAllLayers)", ret: "押し出しベクトル", desc: "凸ポリゴン版の押し出し合計ベクトル。重なり無しは {0,0}。<code>ResolveCircle</code> と同じ <t>collide-and-slide</t> 用。", when: "ポリゴン形状の kinematic body の貫通解消とスライド移動。" }
       ]
     },
     {

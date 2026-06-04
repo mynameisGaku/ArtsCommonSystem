@@ -191,7 +191,7 @@ ACS_REF.modules.push({
     {
       name: "MeshVertex",
       kind: "構造体", header: "asset/MeshAsset.h",
-      summary: "標準<b>頂点フォーマット</b>(32 バイト)。位置 <code>FVec3</code> + 法線 <code>FVec3</code> + UV(<code>u, v</code>)。",
+      summary: "標準<b>頂点フォーマット</b>。位置 <code>FVec3</code> + 法線 <code>FVec3</code> + UV(<code>u, v</code>)。<code>FVec3</code> が <code>alignas(16)</code> のため <code>sizeof</code> は <b>48 バイト</b>(末尾 8B パディング込み)。<small>※ ヘッダ <code>MeshAsset.h:19</code> のコメント「32 bytes」は FVec3 が 12B だった頃の古い記述。</small>",
       when: "メッシュの頂点を直接組み立て・読み取りする時。",
       sample: "MeshVertex v;\nv.position = FVec3{0, 1, 0};\nv.normal   = FVec3{0, 1, 0};\nv.u = 0.5f; v.v = 0.0f;",
       members: [
@@ -335,6 +335,16 @@ ACS_REF.modules.push({
       summary: "<b>拡張子フォールバック</b><t>ローダ</t>。<code>Extension()</code> が <code>\"*\"</code> を返し、専用ローダにマッチしない任意ファイルを <t>FBinaryAsset</t> として読む。",
       when: "未知の拡張子でも生バイトとして読めるよう保険として登録しておく(標準ローダ登録に含まれる)。",
       sample: "FBinaryAssetLoader fallback;\nreg.RegisterLoader(&amp;fallback);   // \"*\" で全拡張子を受ける"
+    },
+    {
+      name: "kInvalidAssetId",
+      kind: "定数", header: "asset/AssetId.h",
+      summary: "<b>無効な <t>FAssetId</t></b> を表す定数(<code>FAssetId{0}</code>)。<code>value == 0</code> は「無効」として予約されており、<code>MakeAssetId</code> は結果が 0 になった場合 1 に補正してこの値と衝突しないようにする。",
+      when: "未設定/失敗の ID を初期値として置く時や、<code>id != kInvalidAssetId</code> で有効性を判定したい時(<code>id.IsValid()</code> と同義)。",
+      sample: "FAssetId id = kInvalidAssetId;       // まだ無効\nid = MakeAssetId(\"textures/hero.png\");\nif (id != kInvalidAssetId) { /* 有効 */ }",
+      members: [
+        { sig: "inline constexpr FAssetId kInvalidAssetId = FAssetId{0}", desc: "<code>value == 0</code> の <t>FAssetId</t>。無効値の唯一の表現。" }
+      ]
     }
   ]
 });
@@ -357,7 +367,7 @@ Object.assign(ACS_REF.glossary, {
   "頂点": "メッシュを構成する点。位置・法線・UV などの属性を持つ。",
   "インデックス": "頂点配列のどの点で三角形を作るかを示す番号の列。同じ頂点を使い回せる。",
   "UV 座標": "テクスチャ上のどこを貼るかを示す 0..1 の 2 次元座標。",
-  "MeshVertex": "ACS 標準の頂点(位置+法線+UV、32 バイト)。",
+  "MeshVertex": "ACS 標準の頂点(位置+法線+UV)。<code>FVec3</code> が 16B 整列のため sizeof=48 バイト。",
   "SubMesh": "メッシュをマテリアル単位に分ける描画範囲(開始インデックスと本数)。",
   "ボーン": "スキンメッシュを動かす骨。階層を組み、頂点がこれに追従して変形する。",
   "ボーンパレット": "全ボーンの変形行列をまとめた配列。シェーダへ渡してスキニングに使う。",

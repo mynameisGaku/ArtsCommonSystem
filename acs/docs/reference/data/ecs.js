@@ -34,7 +34,7 @@ ACS_REF.modules.push({
       when: "ECS でゲーム状態を持つなら最初に 1 つ作る入れ物。ステージやシーン単位で 1 つ持つのが基本。",
       sample: "World w;\nEntityId e = w.Create();\nw.Add&lt;Position&gt;(e, {0, 0, 0});\nw.Add&lt;Velocity&gt;(e, {1, 0, 0});\nif (Position* p = w.Get&lt;Position&gt;(e)) p-&gt;x += 1.0f;\nw.Destroy(e);",
       members: [
-        { sig: "EntityId Create()", ret: "新しい ID", desc: "<t>エンティティ</t>を 1 つ作る。空きスロットがあれば再利用し、<t>世代</t>を進める。", when: "新しいキャラや弾を出す瞬間。" },
+        { sig: "EntityId Create()", ret: "新しい ID", desc: "<t>エンティティ</t>を 1 つ作る。空きスロットがあれば再利用する(<t>世代</t>は <code>Destroy</code> 時に進むので、再利用された ID は古い ID と区別できる)。", when: "新しいキャラや弾を出す瞬間。" },
         { sig: "void Destroy(EntityId e)", desc: "エンティティを消す。付いていた全<t>コンポーネント</t>も削除し、スロットを空きに戻す。", when: "キャラの死亡・退場時。" },
         { sig: "bool IsAlive(EntityId e) const", ret: "生存中か", desc: "その ID が今も有効か(<t>世代</t>一致 + 生存中)を返す。古い ID なら false。", when: "保存しておいた ID を使う前の安全確認に。" },
         { sig: "void Add<T>(EntityId e, T value)", desc: "エンティティに<t>コンポーネント</t> T を付ける。既にあれば上書き。エンティティが死んでいれば何もしない。", sample: "w.Add&lt;Health&gt;(e, {100});" },

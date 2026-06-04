@@ -48,7 +48,10 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widget.h",
       summary: "<b>自分自身は何も描かず</b>、親からもらった範囲をそのまま全部の子に渡す透過パネル。重ね合わせ(同じ場所に複数を配置)に使える。",
       when: "背景は出さずに、複数の子を同じ領域に重ねたい/グループ化だけしたい時。",
-      sample: "Container layer;\nlayer.Add&lt;Label&gt;(\"背景の上に乗せる\");\nlayer.Add&lt;Button&gt;(\"OK\");  // 同じ範囲に重なる"
+      sample: "Container layer;\nlayer.Add&lt;Label&gt;(\"背景の上に乗せる\");\nlayer.Add&lt;Button&gt;(\"OK\");  // 同じ範囲に重なる",
+      members: [
+        { sig: "（継承メンバ）", desc: "独自のメンバは持たず、<code>Layout(x,y,w,h)</code> だけを上書きして全子に親と同じ矩形を渡す。<code>Add&lt;W&gt;()</code> / <code>Parent()</code> / <code>Child()</code> / <code>ChildCount()</code> / <code>HitTestRecursive()</code> や <code>visible</code> / <code>rect</code> / <code>requested</code> などはすべて基底 <t>Widget</t> から継承する。<code>Render</code> も基底既定（子の再帰描画のみ）で、自身は何も描かない。" }
+      ]
     },
     {
       name: "Label",
@@ -65,10 +68,10 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>押せるボタン</b>。クリック(同じボタン上で押して離す)が完結した瞬間に <code>clicked</code> が一瞬だけ true になり、<code>Subscribe</code> した処理が走る。",
       when: "『OK』『攻撃』などの 1 回押すと何かが起きるボタンが欲しい時。",
-      sample: "Button* btn = root.Add&lt;Button&gt;(\"開始\");\nbtn-&gt;clicked.Subscribe([](bool on){\n    if (on) StartGame();   // true の瞬間だけ反応\n});",
+      sample: "Button* btn = root.Add&lt;Button&gt;(\"開始\");\nbtn-&gt;clicked.Subscribe([](const bool&amp; on, void*){\n    if (on) StartGame();   // true の瞬間だけ反応\n}, nullptr);",
       members: [
         { sig: "Observable&lt;FString&gt; text", desc: "ボタンに出すラベル文字列。" },
-        { sig: "Observable&lt;bool&gt; clicked", desc: "クリック完了時に <code>true→false</code> と<b>パルス発火</b>する。<code>Subscribe</code> 側は true の時だけ反応する。", sample: "btn-&gt;clicked.Subscribe([](bool on){ if(on) DoIt(); });", when: "ボタンの押下を受け取る標準の方法。" }
+        { sig: "Observable&lt;bool&gt; clicked", desc: "クリック完了時に <code>true→false</code> と<b>パルス発火</b>する。<code>Subscribe</code> 側は true の時だけ反応する。", sample: "btn-&gt;clicked.Subscribe([](const bool&amp; on, void*){ if(on) DoIt(); }, nullptr);", when: "ボタンの押下を受け取る標準の方法。" }
       ]
     },
     {
@@ -76,7 +79,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>つまみをドラッグして範囲内の数値を選ぶ</b><t>ウィジェット</t>。下限〜上限を指定し、現在値は <t>Observable</t> で公開される。",
       when: "音量・難易度・パラメータなど連続値をマウスで調整させたい時。<code>value</code> を <t>ViewModel</t> と双方向 <t>Bind</t> すると便利。",
-      sample: "Slider* sl = root.Add&lt;Slider&gt;(0.0f, 100.0f);  // 0〜100\nsl-&gt;value.Subscribe([](f32 v){ SetVolume(v); });\nauto bind = MakeTwoWayBind(vm.hp, sl-&gt;value);  // 双方向同期",
+      sample: "Slider* sl = root.Add&lt;Slider&gt;(0.0f, 100.0f);  // 0〜100\nsl-&gt;value.Subscribe([](const f32&amp; v, void*){ SetVolume(v); }, nullptr);\nauto bind = MakeTwoWayBind(vm.hp, sl-&gt;value);  // 双方向同期",
       members: [
         { sig: "Observable&lt;f32&gt; value", desc: "現在の値。ドラッグで更新され、<code>Subscribe</code> / <code>Bind</code> で受け取れる。" },
         { sig: "f32 min_value / max_value", desc: "選べる値の下限・上限。コンストラクタ <code>Slider(min, max)</code> で指定。" }
@@ -87,7 +90,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>オン/オフを切り替える</b>チェックボックス。クリックするたび <code>checked</code> が反転する。横にラベルを出せる。",
       when: "『フルスクリーン』『サウンド有効』などの真偽の設定項目に。",
-      sample: "Checkbox* cb = root.Add&lt;Checkbox&gt;(\"フルスクリーン\");\ncb-&gt;checked.Set(true);\ncb-&gt;checked.Subscribe([](bool on){ SetFullscreen(on); });",
+      sample: "Checkbox* cb = root.Add&lt;Checkbox&gt;(\"フルスクリーン\");\ncb-&gt;checked.Set(true);\ncb-&gt;checked.Subscribe([](const bool&amp; on, void*){ SetFullscreen(on); }, nullptr);",
       members: [
         { sig: "Observable&lt;bool&gt; checked", desc: "オン/オフの状態。クリックで反転、<code>Subscribe</code> / <code>Bind</code> で監視できる。" },
         { sig: "Observable&lt;FString&gt; text", desc: "チェックボックス横に出すラベル文字列。" }
@@ -98,7 +101,7 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ui/Widgets.h",
       summary: "<b>1 行のテキスト入力欄</b>。クリックでフォーカスを得て、文字入力で末尾に追加、Backspace で 1 文字削除する(<t>ASCII</t> 範囲のみ対応の簡易実装)。",
       when: "プレイヤー名やチャットなど、短い文字をキーボードで入力させたい時。",
-      sample: "TextInput* in = root.Add&lt;TextInput&gt;();\nin-&gt;text.Subscribe([](const FString&amp; s){\n    SetPlayerName(s);\n});\n// クリックでフォーカス → タイプした文字が text に入る",
+      sample: "TextInput* in = root.Add&lt;TextInput&gt;();\nin-&gt;text.Subscribe([](const FString&amp; s, void*){\n    SetPlayerName(s);\n}, nullptr);\n// クリックでフォーカス → タイプした文字が text に入る",
       members: [
         { sig: "Observable&lt;FString&gt; text", desc: "入力中の文字列。入力に応じて更新され、<code>Subscribe</code> / <code>Bind</code> で受け取れる。" }
       ]

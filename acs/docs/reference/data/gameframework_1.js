@@ -386,7 +386,10 @@ ACS_REF.modules.push({
         { sig: "FVec2 EffectiveViewCenter() const", ret: "振動込みの中心", desc: "shake オフセットを足した実際の view 中心。レンダラが view に使う値。" },
         { sig: "void SetBounds(FVec2 min, FVec2 max) / void ClearBounds()", desc: "カメラ位置を矩形内に clamp する範囲を設定/解除する。" },
         { sig: "FVec2 ScreenToWorld(FVec2 screen, u32 w, u32 h) const / FVec2 WorldToScreen(FVec2 world, u32 w, u32 h) const", desc: "画面ピクセル↔world 座標を相互変換する (zoom/rotation 考慮)。" },
-        { sig: "void Tick(f32 dt)", desc: "追従 smoothing・範囲 clamp・trauma 減衰と振動オフセット計算を行う。Services が自動で呼ぶ。" }
+        { sig: "void Tick(f32 dt)", desc: "追従 smoothing・範囲 clamp・trauma 減衰と振動オフセット計算を行う。Services が自動で呼ぶ。" },
+        { sig: "f32 TraumaLevel() const", ret: "trauma [0,1]", desc: "現在の <t>trauma</t> 値 (振動の強さ)。0 で無振動。" },
+        { sig: "bool HasTarget() const / void ClearTarget()", desc: "追従先が設定済みか / 追従を解除する (位置は固定される)。" },
+        { sig: "bool HasBounds() const", desc: "移動範囲の clamp が設定済みか (<code>SetBounds</code> 済みなら true)。" }
       ]
     },
     {

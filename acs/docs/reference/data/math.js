@@ -16,7 +16,7 @@ ACS_REF.modules.push({
       members: [
         { sig: "FVec2(f32 x, f32 y)", desc: "x, y を指定して作る。<code>FVec2(v)</code> は両成分 v。" },
         { sig: "static FVec2 Zero() / One()", ret: "定数ベクトル", desc: "<code>{0,0}</code> / <code>{1,1}</code> を返す。" },
-        { sig: "operator+ - * / += -= *= /=", desc: "ベクトル同士の加減、スカラ倍・除算。<code>pos += vel * dt;</code> のように書ける。" },
+        { sig: "operator+ - * (単項 -) += -= *= /=", desc: "ベクトル同士の加減・スカラ倍。<b>除算は複合 <code>/=</code> のみ</b>(二項 <code>operator/</code> は無い)。<code>pos += vel * dt;</code> のように書ける。" },
         { sig: "operator== !=", desc: "成分が完全一致するか比較する。" }
       ]
     },
@@ -30,7 +30,8 @@ ACS_REF.modules.push({
         { sig: "FVec3(f32 x, f32 y, f32 z)", desc: "x, y, z を指定して作る。" },
         { sig: "static FVec3 Zero() / One() / UnitX() / UnitY() / UnitZ()", ret: "定数ベクトル", desc: "ゼロ・全 1・各軸の単位ベクトルを返す。" },
         { sig: "static FVec3 Up() / Forward() / Right()", ret: "向きベクトル", desc: "上 <code>{0,1,0}</code> / 前 <code>{0,0,1}</code> / 右 <code>{1,0,0}</code>。カメラやキャラの向き計算に便利。" },
-        { sig: "operator+ - * += -= *=", desc: "ベクトル加減・スカラ倍。内部で<t>SIMD</t>計算される。" }
+        { sig: "operator+ - * += -= *= (単項 -)", desc: "ベクトル加減・スカラ倍と単項マイナス。内部で<t>SIMD</t>計算される。<b>除算演算子は無い</b>(<code>operator/</code> も <code>/=</code> も未定義。<t>FVec2</t> だけが <code>/=</code> を持つ)。スカラ除算は <code>v * (1/s)</code> で書く。" },
+        { sig: "operator== !=", desc: "x,y,z 成分が完全一致するか比較する。" }
       ]
     },
     {
@@ -42,7 +43,8 @@ ACS_REF.modules.push({
       members: [
         { sig: "FVec4(f32 x, f32 y, f32 z, f32 w)", desc: "4 成分を指定。<code>FVec4(vec3, w)</code> で <t>FVec3</t> + w からも作れる。" },
         { sig: "static FVec4 Zero() / One()", ret: "定数ベクトル", desc: "ゼロ / 全 1 を返す。" },
-        { sig: "operator+ - *", desc: "ベクトル加減・スカラ倍。" }
+        { sig: "operator+ - *", desc: "ベクトル加減・スカラ倍(二項 <code>operator*(FVec4, f32)</code>)。<b>単項 <code>-</code>・複合代入・除算は無い</b>(<t>FVec3</t> と異なり <code>+=</code> 等も未定義)。" },
+        { sig: "operator== !=", desc: "x,y,z,w の 4 成分が完全一致するか比較する。" }
       ]
     },
     {
@@ -160,7 +162,7 @@ ACS_REF.modules.push({
       sample: "const CpuFeatures& f = Cpu();\nif (f.avx2)  { /* AVX2 パス */ }\nif (HasAvx2()) { /* 簡易版 */ }",
       members: [
         { sig: "const CpuFeatures& Cpu()", ret: "機能フラグ", desc: "初回呼び出しで <t>CPUID</t> を実行、以降キャッシュした結果を返す。" },
-        { sig: "CpuFeatures{ sse2, sse41, avx, avx2, fma3, bmi2, ... }", desc: "各命令セットの対応有無を <code>bool</code> で持つ。sse2 は x64 で常に true。" },
+        { sig: "CpuFeatures{ sse2, sse3, ssse3, sse41, sse42, avx, avx2, fma3, f16c, bmi1, bmi2, aes, popcnt, avx512f }", desc: "全 14 フラグを <code>bool</code> で持つ: <code>sse2/sse3/ssse3/sse41/sse42</code>(SSE 系)、<code>avx/avx2/avx512f</code>(AVX 系)、<code>fma3</code>(積和)、<code>f16c</code>(半精度変換)、<code>bmi1/bmi2</code>(ビット操作)、<code>aes</code>(暗号)、<code>popcnt</code>(ビット数え)。<code>sse2</code> は x64 で常に true。" },
         { sig: "bool HasAvx2() / HasSse41()", ret: "対応するか", desc: "頻出機能だけの簡易判定ヘルパ。" }
       ]
     },

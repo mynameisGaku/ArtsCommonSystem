@@ -242,7 +242,8 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;TUniquePtr&lt;IRhiTexture&gt;&gt; UploadTexture(IRhiDevice&, const FImageAsset&)", ret: "テクスチャ", desc: "画像アセットを GPU テクスチャに同期アップロード。" },
         { sig: "TResult&lt;void&gt; UploadMesh(IRhiDevice&, const FMeshAsset&, GpuMesh& out)", desc: "メッシュアセットを <code>GpuMesh</code> に変換(位置+法線+UV)。" },
         { sig: "struct GpuMesh{ vertex_buffer, index_buffer, vertex_count, index_count, vertex_stride }", desc: "描画に必要な VB/IB と数。" },
-        { sig: "TResult&lt;void&gt; UploadSkinnedMesh(IRhiDevice&, const FSkinnedMeshAsset&, SkinnedGpuMesh& out)", desc: "スキンメッシュを <code>SkinnedGpuMesh</code> に変換(<code>FSkinnedShader</code> が消費)。" }
+        { sig: "TResult&lt;void&gt; UploadSkinnedMesh(IRhiDevice&, const FSkinnedMeshAsset&, SkinnedGpuMesh& out)", desc: "スキンメッシュを <code>SkinnedGpuMesh</code> に変換(<code>FSkinnedShader</code> が消費)。" },
+        { sig: "struct SkinnedGpuMesh{ vertex_buffer, index_buffer, vertex_count, index_count, vertex_stride }", desc: "スキンメッシュ用の VB/IB と数。vertex_stride は <code>FSkinnedVertex</code> のサイズ(<t>BLENDINDICES</t>/<t>WEIGHT</t> を含む)。" }
       ]
     },
     {
@@ -259,6 +260,7 @@ ACS_REF.modules.push({
         { sig: "void SetShadowMap(IRhiTexture* tex, const FMat4& light_vp, f32 bias = 0.001f, f32 filter_radius = 1.0f)", desc: "<t>シャドウマップ</t>を設定。null で影なし。filter_radius は <t>PCSS</t> の柔らかさ。" },
         { sig: "void SetObject(const FMat4& model, base_color, specular_strength, shininess)", desc: "描くオブジェクトごとの<t>モデル行列</t>と材質。" },
         { sig: "void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model, base_color, specular_strength, shininess, IRhiTexture* albedo = nullptr)", desc: "Object CB 更新 + 1 回の描画をまとめた便利 API。albedo=null で白テクスチャ。" },
+        { sig: "bool IsShadowEnabled() const / IRhiTexture* ShadowTextureOrDefault() const", desc: "<t>シャドウマップ</t>が設定済みか / 設定された深度テクスチャ(未設定なら既定白テクスチャ)を返す。" },
         { sig: "IRhiPipeline* Pipeline() / IRhiBuffer* PerFrameCB() / PerObjectCB() / IRhiTexture* DefaultWhiteTexture()", desc: "細かく手で描きたいとき用のアクセサ。" }
       ]
     },
@@ -377,7 +379,7 @@ ACS_REF.modules.push({
         { sig: "void PresetDay() / PresetSunset() / PresetNight()", desc: "青空 / 茜色 / 紺青のプリセット。" },
         { sig: "void SetSunDirection(FVec3) / SetSunColor(FVec3) / SetSunRadius(f32) / SetSunGlow(f32)", desc: "太陽の方向・色・見かけサイズ・周囲のハロー。" },
         { sig: "void SetZenithColor(FVec3) / SetHorizonColor(FVec3) / SetGroundColor(FVec3)", desc: "天頂・地平線・地面方向の色。" },
-        { sig: "FVec3 SunDirection() / SunColor() / ... ()", desc: "現在のパラメータ取得。FStandardShader / IBL と整合させるのに使う。" },
+        { sig: "FVec3 SunDirection() / SunColor() / ZenithColor() / HorizonColor() / GroundColor() / f32 SunRadius() / SunGlow()", desc: "現在の太陽・空パラメータ取得。<code>FStandardShader</code> / <t>IBL</t> と太陽方向を整合させるのに使う。" },
         { sig: "void Render(IRhiCommandList& cl, const FCamera& camera)", desc: "空を描く。深度は背景塗り想定で書込み無し・テスト無し。", when: "シーン描画の先頭。" }
       ]
     },
@@ -644,5 +646,7 @@ Object.assign(ACS_REF.glossary, {
   "サブサーフェス": "肌や蝋のように光が表面下で散乱して透ける質感(subsurface scattering)。",
   "サンプラ": "テクスチャをシェーダで読むときのフィルタ/アドレッシング設定。",
   "アドレッシング": "UV が 0..1 の外に出たときの扱い(繰り返し・鏡像・端固定・境界色)。",
-  "グラデーション": "色が滑らかに変化する塗り。頂点カラーの補間で作れる。"
+  "グラデーション": "色が滑らかに変化する塗り。頂点カラーの補間で作れる。",
+  "BLENDINDICES": "スキンメッシュ頂点が影響を受けるボーンの番号を持つ HLSL セマンティック。GPU スキニングで <t>ボーンパレット</t>を引くのに使う。",
+  "WEIGHT": "スキンメッシュ頂点が各ボーンから受ける影響度(重み)を持つ HLSL セマンティック。合計 1 になるよう正規化される。"
 });
