@@ -51,6 +51,12 @@ void FUiRenderer::DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) n
     m_Batch.DrawString(*m_Font, utf8, x, y, color);
 }
 
+/** 既定フォントで UTF-8 文字列の描画幅を測る (フォント未設定 / null なら 0)。 */
+f32 FUiRenderer::MeasureText(const char* utf8) const noexcept {
+    if (!m_Font || !utf8) return 0.0f;
+    return m_Font->MeasureWidth(utf8);
+}
+
 // Widget 派生の Render 実装 (FUiRenderer への循環依存を避けるためここに置く)。
 
 /** ラベルのテキストを描画する。 */
@@ -110,7 +116,10 @@ void TextInput::Render(FUiRenderer& r) noexcept {
     r.DrawRectOutline(rect.x, rect.y, rect.w, rect.h, C.panel_border);
     r.DrawText(text.Get().Data(), rect.x + 6, rect.y + 4, C.text);
     if (focused) {
-        // caret は未描画 (Font の文字幅計測 API が無く正確な右端を出せないため)。
+        // caret はテキスト末尾に立てる (TextInput は末尾追加のみで cursor 移動しない)。
+        // Font::MeasureWidth で文字列幅を測り、その右端に細い縦線を描く。
+        const f32 cx = rect.x + 6.0f + r.MeasureText(text.Get().Data());
+        r.DrawRect(cx, rect.y + 4.0f, 1.5f, rect.h - 8.0f, C.text);
     }
 }
 

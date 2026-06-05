@@ -33,12 +33,10 @@
 //   };
 //
 // 設計選択:
-//   ・**state holder のみ実装**: 実 Widget 生成 / 描画 / ヒットテストは未接続
-//     (Init / Tick / HandleInput 内に TODO コメントで明示)。代わりに
-//     ハンドル付きの WidgetEntry を TArray で保持し、追加・削除・可視性・押下
-//     クエリは完全動作する。これにより呼び出し側 (Scene) は本 layer を通常通り
-//     使い始めることができ、`acs::ui::StackPanel` 等の実 widget 接続に
-//     差し替えるだけで描画 / 入力が動く設計。
+//   ・**自前の軽量実装**: acs::ui の Widget tree は使わず、ハンドル付きの
+//     WidgetEntry を TArray で保持して Button/Text の 追加・削除・可視性・
+//     ヒットテスト・押下クエリ・即時描画 (Draw) まで完全動作させる。Slider /
+//     Checkbox / TextInput 等のリッチ widget が要るときは `acs::ui` を直接使う。
 //   ・**ハンドルは u32 単調増加**: 削除後の再利用は行わない (世代カウンタ不要、
 //     現実的に 1 シーンで数千 widget を超えることはまずないため uint32 で十分)。
 //     0 は invalid handle 予約。

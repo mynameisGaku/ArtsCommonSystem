@@ -169,3 +169,48 @@ ACS_TEST(Ui, CheckboxToggle) {
     cb->OnPointerUp(500, 500);
     EXPECT_FALSE(cb->checked.Get());
 }
+
+// ---- TextInput: 文字入力で末尾追加 ----------------------------------------
+ACS_TEST(Ui, TextInputTyping) {
+    TextInput ti;
+    ti.focused = true;
+    ti.OnTextInput('H');
+    ti.OnTextInput('i');
+    ti.OnTextInput('!');
+    EXPECT_TRUE(ti.text.Get() == FStringView("Hi!"));
+    EXPECT_EQ(ti.text.Get().Size(), usize(3));
+}
+
+// ---- TextInput: focus 外 / 制御文字 / 非 ASCII は無視 ---------------------
+ACS_TEST(Ui, TextInputFiltering) {
+    TextInput ti;
+    ti.OnTextInput('X');            // focus 外 → 無視
+    EXPECT_EQ(ti.text.Get().Size(), usize(0));
+
+    ti.focused = true;
+    ti.OnTextInput('\n');           // 制御文字 (0x0A) → 無視
+    ti.OnTextInput(0x3042);         // 'あ' (非 ASCII) → 無視
+    ti.OnTextInput('A');
+    EXPECT_TRUE(ti.text.Get() == FStringView("A"));
+}
+
+// ---- TextInput: Backspace で末尾削除 (空でも安全) -------------------------
+ACS_TEST(Ui, TextInputBackspace) {
+    TextInput ti;
+    ti.focused = true;
+    ti.OnTextInput('a');
+    ti.OnTextInput('b');
+    ti.OnTextInput('c');
+    ti.OnKey(0x08, true);           // Backspace → "ab"
+    EXPECT_TRUE(ti.text.Get() == FStringView("ab"));
+
+    ti.OnKey(0x08, false);          // release は無視 → "ab" のまま
+    EXPECT_TRUE(ti.text.Get() == FStringView("ab"));
+
+    ti.OnKey(0x08, true);
+    ti.OnKey(0x08, true);
+    EXPECT_EQ(ti.text.Get().Size(), usize(0));
+
+    ti.OnKey(0x08, true);           // 空で Backspace → no-op (クラッシュ無し)
+    EXPECT_EQ(ti.text.Get().Size(), usize(0));
+}

@@ -107,6 +107,15 @@ public:
     void DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) noexcept;
 
     /**
+     * 既定フォントで UTF-8 文字列の描画幅 (px) を測る。
+     *
+     * @details caret 位置決め等に使う。フォント未設定 / 文字列 null なら 0 を返す。
+     * @param utf8 測定する UTF-8 文字列。
+     * @return 文字列の描画幅 (px)。
+     */
+    f32 MeasureText(const char* utf8) const noexcept;
+
+    /**
      * テーマ色への const 参照を返す (Widget の Render が色を参照)。
      *
      * @return 現在の FUiColors への const 参照。

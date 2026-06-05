@@ -40,12 +40,12 @@ void FUiLayer::Init() noexcept {
         ACS_LOG_DEBUG("FUiLayer::Init called twice (ignored)");
         return;
     }
-    // TODO: `acs::ui::Container` を root として `MakeUnique` で確保し
-    //   メンバ保持する。現状は state holder のみで root インスタンス不要。
+    // 自前の軽量 WidgetEntry 配列で Button/Text を直接保持・描画する設計のため、
+    // acs::ui::Container のツリーは確保しない (リッチ widget は acs::ui を直接使う)。
     m_Widgets.Clear();
     m_NextHandle = 1;
     m_Initialized = true;
-    ACS_LOG_DEBUG("FUiLayer::Init: state holder ready (root widget TODO)");
+    ACS_LOG_DEBUG("FUiLayer::Init: ready");
 }
 
 void FUiLayer::Shutdown() noexcept {
@@ -53,8 +53,6 @@ void FUiLayer::Shutdown() noexcept {
         // 未初期化での Shutdown は no-op (冪等)。
         return;
     }
-    // TODO: root Container を破棄。現状は保持していないので
-    //   m_Widgets をクリアするだけで完結。
     m_Widgets.Clear();
     m_NextHandle = 1;
     m_Initialized = false;

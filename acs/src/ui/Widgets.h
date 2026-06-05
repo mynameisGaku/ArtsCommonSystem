@@ -307,24 +307,11 @@ public:
      */
     void OnTextInput(u32 codepoint) noexcept override {
         if (!focused) return;
-        if (codepoint < 32) return;     // 制御文字無視 (ASCII)
-        // 簡易: ASCII 範囲だけサポート
-        if (codepoint > 0x7F) return;
-        char buf[2] = { static_cast<char>(codepoint), 0 };
-        const FString cur = text.Get();
-        // 末尾追加 (簡易、cursor 管理はしない)
-        const usize len = 0;  // FString の length getter が無いので空文字列扱い → 前の値の末尾追加は別途
-        (void)len;
-        // 仮実装: 単純連結
-        // ACS FString は AppendFormat 等あるが、ここでは新規 FString を作って差し替える
-        // Container/String.h の API に応じて要調整
-        char tmp[256];
-        const char* src = cur.Data() ? cur.Data() : "";
-        usize i = 0;
-        while (i + 2 < sizeof(tmp) && src[i]) { tmp[i] = src[i]; ++i; }
-        tmp[i++] = static_cast<char>(codepoint);
-        tmp[i]   = 0;
-        text.Set(FString{tmp});
+        if (codepoint < 32 || codepoint > 0x7F) return;  // ASCII 印字可能文字のみ (制御文字・非 ASCII は無視)
+        // 末尾に 1 文字追加する (cursor 管理はしない)。FString::Append で長さ制限なく伸ばせる。
+        FString s = text.Get();
+        s.Append(static_cast<char>(codepoint));
+        text.Set(s);
     }
     /**
      * フォーカス中の編集キーを処理する (現状 Backspace のみ)。
@@ -335,15 +322,14 @@ public:
      */
     void OnKey(i32 key, bool pressed_) noexcept override {
         if (!focused || !pressed_) return;
-        // Backspace = 0x08 (実装は ASCII 想定 backspace)
-        if (key == 0x08) {
-            const char* src = text.Get().Data();
-            if (!src || !*src) return;
-            char tmp[256] = {};
-            usize n = 0;
-            while (src[n]) { tmp[n] = src[n]; ++n; }
-            if (n > 0) tmp[n - 1] = 0;
-            text.Set(FString{tmp});
+        if (key == 0x08) {  // Backspace: 末尾 1 文字 (ASCII = 1 バイト) を削る
+            const FString cur = text.Get();
+            const usize n = cur.Size();
+            if (n == 0) return;
+            FString s;
+            const char* d = cur.Data();
+            for (usize i = 0; i + 1 < n; ++i) s.Append(d[i]);
+            text.Set(s);
         }
     }
 };

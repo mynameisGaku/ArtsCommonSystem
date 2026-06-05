@@ -12,6 +12,7 @@ add_executable(acs_unit_tests
     jobgraph_tests.cpp
     mvvm_tests.cpp
     ui_tests.cpp
+    uilayer_tests.cpp
     render_tests.cpp
 )
 set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
@@ -22,6 +23,8 @@ acs_apply_compiler_options(acs_unit_tests)
 # UiRenderer.cpp は Render に依存するため、Ui を link すると Render / Platform /
 # Asset も transitive で必要。Render 経由で GPU 系のコードが入るが、tests は
 # 描画は行わないので Renderer を実体化しなければ実行時影響無し。
+# uilayer_tests は FUiLayer (gameframework) を検証するため GameFramework を link する
+# (HandleInput に合成 Event を流す純 logic テストで、GPU/Scene は実体化しない)。
 target_link_libraries(acs_unit_tests PRIVATE
     ACS::Foundation
     ACS::Threading
@@ -33,6 +36,7 @@ target_link_libraries(acs_unit_tests PRIVATE
     ACS::Mvvm
     ACS::Ui
     ACS::Render
+    ACS::GameFramework
     ACS::Test
 )
 
