@@ -44,6 +44,14 @@ acs_memdump.svg
 acs_memdump.bmp
 hello_save.ini
 
+# ---- 単一ヘッダー配布 (dist/): ソース/ヘッダは追跡、巨大なマージ済みバイナリは除外 ----
+dist/lib/
+dist/**/*.lib
+dist/**/*.exe
+dist/**/*.obj
+dist/**/*.pdb
+dist/**/*.ilk
+
 # ---- OS ノイズ -------------------------------------------------------------
 Thumbs.db
 desktop.ini

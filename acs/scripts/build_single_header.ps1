@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# Regenerate the single-header ACS distribution into dist/:
+#   - dist/acs.h               (via amalgamate.py)
+#   - dist/lib/x64/Debug/acs.lib   and   dist/lib/x64/Release/acs.lib
+#
+# Prereqs: the engine must already be built for the configs you want, e.g.
+#   cmake --build acs/Intermediate/vs --config Debug   -j
+#   cmake --build acs/Intermediate/vs --config Release -j
+#
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
+#   ... -Configs Debug          # only one config
+param([string[]]$Configs = @('Debug','Release'))
+$ErrorActionPreference = 'Stop'
+
+$repo  = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$build = Join-Path $repo 'acs\Intermediate\vs'
+$dist  = Join-Path $repo 'dist'
+
+# locate lib.exe via vswhere
+$vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+$vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$tv = (Get-Content (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt')).Trim()
+$libexe = Join-Path $vs "VC\Tools\MSVC\$tv\bin\Hostx64\x64\lib.exe"
+if (-not (Test-Path $libexe)) { throw "lib.exe not found: $libexe" }
+
+# 1) amalgamate header
+Write-Host "==> generating dist/acs.h"
+python (Join-Path $PSScriptRoot 'amalgamate.py') --write
+
+# 2) merge libs per config
+foreach ($cfg in $Configs) {
+    $libdir = Join-Path $build $cfg
+    if (-not (Test-Path $libdir)) { Write-Warning "skip $cfg (not built: $libdir)"; continue }
+    $libs = Get-ChildItem (Join-Path $libdir 'acs_*.lib') | Where-Object { $_.Name -ne 'acs_test.lib' } | ForEach-Object { $_.FullName }
+    $imgui = Join-Path $libdir 'imgui.lib'
+    if (Test-Path $imgui) { $libs += $imgui }
+    $outdir = Join-Path $dist "lib\x64\$cfg"
+    New-Item -ItemType Directory -Force -Path $outdir | Out-Null
+    $outlib = Join-Path $outdir 'acs.lib'
+    $rsp = Join-Path $env:TEMP "acs_merge_$cfg.rsp"
+    Set-Content $rsp -Value (@('/NOLOGO', "/OUT:$outlib") + $libs) -Encoding ascii
+    Write-Host "==> merging $($libs.Count) libs -> $outlib"
+    & $libexe "@$rsp" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "lib.exe failed for $cfg" }
+    Write-Host ("    {0:N1} MB" -f ((Get-Item $outlib).Length/1MB))
+}
+Write-Host "done."
